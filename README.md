@@ -91,32 +91,73 @@ Beyond managing the consensus protocol for vttablets in the quorum, vtorc will a
 
 ### Cross-zone clusters
 
-Multigres can be deployed across a large number of nodes distributed across the world. This is architecturally achieved by a star configuration in the topology. There will be a global topology server (typically etcd). It will contain information that changes infrequently, like sharding info, etc. This information will be propagated into cell-sepific topology servers (local etcds), one for each cell. VTGates and vttablets will be deployed in a cell, and they'll use the local topology to serve traffic for that cell. In case of a network partition, a cell will be capable of continuing to serve traffic for as long as the replication lag is tolerable.
+Multigres can be deployed across a large number of nodes distributed across the world. This is architecturally achieved by a star configuration in the topology. There will be a global topology server (etcd). It will contain information that changes infrequently, like sharding info, etc. This information will be propagated into cell-sepific topology servers (local etcds), one for each cell. VTGates and vttablets will be deployed in a cell, and they'll use the local topology to serve traffic for that cell. In case of a network partition, a cell will be capable of continuing to serve traffic for as long as the replication lag is tolerable.
 
-Of course, there can exist only one Primary per shard. Cells that do not host the primary database of a shard are useful only for serving read-only traffic.
+Of course, there can exist only one Primary per shard. Any cell that does not host the primary database is meant to serve read-only traffic that is replicated from the primary.
 
 ### Cloud-Native
 
 Multigres will be cloud-native. This means that it can run in a cloud framework like Kubernetes:
 
-* All components are restartable without causing disruption to the overall system.
+* All components are restartable without causing disruption to the overall system. This needs to be within a reasonable disruption budget, which is configurable.
 * Components can be migrated to different nodes.
 * Components can use mounted persistent storage, and will automatically reattach if moved.
 * New components can be launched to increase capacity. They will initialize themselves correctly, and join the system to serve traffic. Conversely, components can be removed in order to scale down.
-* Specific to databases: Handle disruptions caused by Primary failures or restarts by automating the election of a new Primary.
+* Specific to databases: Primary failures and restarts will be handled automatically by a watchdog process (VTOrc) that can perform a failover to an up-to-date replica.
+* Scale to zero: You can shut down all components. This will result in just the metadata and backups being preserved, with no active components to serve any traffic. Adding the serving components back to the system will bootstrap the cluster to an operational state.
 
-Multigres will come with a Kubernetes Operator that will translate components described using Multigres terminology like cells, shards and replica count into corresponding Kubernetes components.
+Multigres will come with a Kubernetes Operator that will translate components described using Multigres terminology like cells, shards and replicas into corresponding Kubernetes components.
 
 We intend to develop a way for Multigres to use local storage in order to leverage the proximity of Postgres and its data files.
 
 TODO: Doc to elaborate on local NVME
 
-## Materialization
-
 ## Migrations
 
-## Observability
+Multigres will come equipped with a powerful, flexible, and safe migration toolset. The underlying technology is VReplication, which is capable of materializing a source of tables using arbitray stream processing rules into a target set of tables. This materialization happens without causing any downtime to the source databases. Once the target tables are caught up to the sources, VReplication will verify correctness of the target tables by performing a diff. VReplication is also capable of reversing the replication once the traffic has switched from the source to the target. We will show other uses of VReplication in the later sections.
+
+At the top layer, vtgate will come with a flexible methodology to route traffic based on mapping rules. This, along with VReplication, can be used to perform a number of migrations.
+
+### Migrate tables from anywhere to anywhere
+
+MoveTables will be a primitive built using VReplication. This primitive will materialize a source table from any source to any target. Let us assume that you want to migrate table `t` from database `a` to datbase `b`.
+
+* Initially, the vtgates will have a rule to redirect all traffic to `a.t`.
+* Once this rule is setup, you can start refactoring your application to write to `b.t` instead of `a.t`. Writing to any of these tables will get redirected to `a.t`.
+* Once the data is verified to be correct, we can switch the vtgate routing rules to send traffic to `b.t` instead. If the application has not finished refactoring all the code, it's ok, because all traffic will flow to `b.t`.
+* At this time, VReplication will reverse the replication to keep `a.t` up-to-date. If any problem is detected after the cutover, you can fall back to `a.t`. This back and forth can be repeated as often as necessary.
+* After we are certain that all problems are resolved, and we have verified that the application refactor is complete, we can drop the vtgate routing rules, and also drop the source table `a.t`.
+
+Of course, this workflow would require vtgates to have access to both `a` and `b`.
+
+### Migrate across Postgres versions
+
+MoveTables will use logical replication. Due to this design, we can also use it to safely migrate from one version of Postgres to another without incurring downtime, and with the ability to revert a migration, just like the case of a table migration.
+
+### Resharding
+
+VReplication will be used for resharding. For this purpose, Multigres will use the filtering ability of VReplication to split sharded (or unsharded) tables into their target shards based on the target's sharding key ranges.
+
+Just like the other cases, the ability to verify correctness and revert will be available.
+
+### Change sharding key
+
+It may happen that the original sharding key you chose for the table was suboptimal, or it may be possible that the application workload has changed substantially. In such cases, you can use VReplication to change the sharding of a table to one that is more optimal to the current workload.
+
+### Migrate from MySQL
+
+If you are currently running on a MySQL database, or Vitess, Multigres will allow you to migrate from that source. In this situation, additional work may have to be done by you in the area of how you switch traffic. This is because Multigres will only support the Postgres protocol, and will not be able to orchestrate the traffic meant for the source MySQL.
+
+### Exotic migrations
+
+VReplication is versatile enough that it can be used to address migration use cases that have not been thought of yet. For exmaple, if necessary, you could script it to merge tables. This can be a necessity if you decide to merge many multi-tenant databases into a single sharded one, or vice-versa.
+
+## Materialization
 
 ## Schema deployment
 
 ## Messaging
+
+## Change Data Capture
+
+## Observability
