@@ -164,10 +164,21 @@ VReplication is versatile enough that it can be used to address migration use ca
 
 ## Materialization
 
-## Schema deployment
+Multigres materialized views will be built using VReplication. Such views are physical tables that are updated in real-time by processing events from the WAL. Consequently, the complexity of the SQL expression for these views is limited to operations that can be incrementally processed from the change events. For example, `count(*)` will be supported, while `max(col)` will not be. Another trade-off of materialization is that it is eventually consistent.
 
-## Messaging
+In a sharded environment, materialized views can greatly enhance the performance of certain join operations, if the eventual consistency trade-off is acceptable:
+
+* For a table that has foreign keys into two different tables, you can have the source table be sharded by the first foreign key, and you can materialize the target table using the second sharding key. This approach will allow you to efficiently join this table with either of the two other tables, because both those joins will be in-shard joins.
+* Reference tables: Many databases have smaller tables that have slow changing data. However, they may need to be joined with other massive tables that need to be sharded. In this situation, you can materialize the small table into all the shards of the bigger table. Such a join will then become an in-shard join.
+
+## Schema deployment
 
 ## Change Data Capture
 
+## Messaging
+
 ## Observability
+
+## Point-in-time Recovery
+
+## Database Protection
