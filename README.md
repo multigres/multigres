@@ -173,12 +173,22 @@ In a sharded environment, materialized views can greatly enhance the performance
 
 ## Schema deployment
 
+Some schema changes are inherently time-consuming, along with the downside of locking the table from other changes. In such situations, Multigres will use VReplication to materialize the post-schema version of the table within the same database. Once the materialization is complete, it will swap the old table with the new one, thereby achieving a non-blocking, zero-downtime deployment.
+
+Additionally, the materialization will be reversed. If the schema deployment causes problems, you have the option to instantly revert with no data loss.
+
 ## Change Data Capture
 
-## Messaging
+VReplication will be made up of two parts: the part that streams from the source (VStream), and the part that writes to the target (VPlayer). VStream will also speak the Postgres logical replication protocol. This will allow you to integrate multigres with any tooling that can consume such a stream.
+
+If you use VStream, you do not need to perform a dump and restore. Instead, you can initiate a stream "from the beginning of time". With this directive, VStream will provide all the events necessary to completely materialize the source into the target.
+
+As your database grows into multiple shards, you can run individual VStreams for each shard for better parallelization.
 
 ## Observability
 
 ## Point-in-time Recovery
+
+## Messaging
 
 ## Database Protection
