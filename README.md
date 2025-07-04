@@ -61,7 +61,7 @@ These advantages translate into higher performance and reduced cost.
 
 Multigres will implement a consensus protocol to ensure that transactions satisfy the required durability policy. This will be achieved using a two-phase sync to replicate the WAL to the required number of replicas in the quorum. This functionality eliminates the need to rely on a mounted (and replicated) file system like EBS to safeguard from data loss.
 
-In case of a primary node failure, VTOrc (Orchestrator) will promote an existing replica to primary, ensuring that it contains all the committed transactions of the previous primary. Following this, Multigres will resume serving of traffic using the new primary. Essentially, this solves the problem of durability and high availability.
+In case of a primary node failure, VTOrc (VT Orchestrator) will promote an existing replica to primary, ensuring that it contains all the committed transactions of the previous primary. Following this, Multigres will resume serving of traffic using the new primary. Essentially, this solves the problem of durability and high availability.
 
 The above approach aligns with the conceptual view of the VTTablet+Postgres+Data trio as being part of the data layer. Hence, there is no need to rely on yet another (mounted) data layer underneath Postgres.
 
@@ -187,8 +187,44 @@ As your database grows into multiple shards, you can run individual VStreams for
 
 ## Observability
 
+Apart from exporting real-time metrics, Multigres will also have an extensive toolset to facilitate troubleshooting when the system exhibits unexpected behavior. These will be exported by VTGate and VTTablet:
+
+* Standard metrics like QPS, latencies, and error rates.
+* Per-table metrics.
+* Normalized per-query metrics. In this case, each query is normalized by stripping out values and it becomes a key to its own metric. This helps identify the worst performing queries. This can lead to an explosion of values. To help make this optional, this metric is served in a separate human readable end point.
+* On-demand real-time query or transaction logs. This is useful to get a snapshot of everything that's currently in progress, useful if there's an active incident.
+* Error logs.
+* Trace points.
+
 ## Point-in-time Recovery
+
+Multigres will be able to restore any shard, or an entire cluster, into a specially named read-only database allowing you to view a snapshot of the data as of a certain time. This is achieved by restoring an old enough backup and applying logs up to the necesary timestamp.
+
+If multiple shards are restored, there is no guarantee of transaction consistency across shards.
 
 ## Messaging
 
+The Messaging feature will implement transactional message queues that can guarantee that every message is processed. The message queue will keep resending unacknowledged messages while exponentially backing off, until an acknowledgement is received.
+
+Rows can be transactionally inserted into a message table as part of a larger transaction that involves other tables.
+
 ## Database Protection
+
+Multigres will implement the ability to enable various database protection features:
+
+* Query Killer: Terminate a query if it takes too long.
+* Transaction Killer: Rollback a transaction if it takes too long.
+* Result limiter: Return an error if the number of rows in a query exceed a threshold.
+* Result consolidator: If multiple identical read queries are simultaneously sent to the database, only one query is executed, and the results are shared across all other requests.
+
+If any of these features are already available in Postgres, Multigres will utilize them under the covers.
+
+## Tooling
+
+### VTCtld and VTCtl
+
+VTCTld (VT Control Daemon) will be used to launch workflows like MoveTables, Resharding, etc. VTCtl will be the command line utility to send commands to VTCtld.
+
+### VTAdmin
+
+VTAdmin will be a dashboard that allows you to view the various components of a live cluster, like the currently running VTTablets, browse to their status pages, etc.
