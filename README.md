@@ -2,7 +2,7 @@
 
 Multigres is a project to build an adaptation of Vitess for Postgres.
 
-This document is a losely ordered tentative list of features we intend to build or import from Vitess. Please refer to the project plan (when ready) for details on how they'll be implemented.
+This document is a losely ordered tentative list of features we intend to build or import from Vitess. Please refer to the [project plan](docs/mvp_project_plan.md) for details on how they'll be implemented.
 
 ## Proxy layer and connection pooling
 
