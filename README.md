@@ -91,7 +91,7 @@ Beyond managing the consensus protocol for vttablets in the quorum, vtorc will a
 
 ### Cross-zone clusters
 
-Multigres can be deployed across a large number of nodes distributed across the world. This is architecturally achieved by a star configuration in the topology. There will be a global topology server (etcd). It will contain information that changes infrequently, like sharding info, etc. This information will be propagated into cell-sepific topology servers (local etcds), one for each cell. VTGates and vttablets will be deployed in a cell, and they'll use the local topology to serve traffic for that cell. In case of a network partition, a cell will be capable of continuing to serve traffic for as long as the replication lag is tolerable.
+Multigres can be deployed across a large number of nodes distributed across the world. This is architecturally achieved by a star configuration in the topology. There will be a global topology server (etcd). It will contain information that changes infrequently, like sharding info, etc. This information will be propagated into cell-specific topology servers (local etcds), one for each cell. VTGates and vttablets will be deployed in a cell, and they'll use the local topology to serve traffic for that cell. In case of a network partition, a cell will be capable of continuing to serve traffic for as long as the replication lag is tolerable.
 
 Of course, there can exist only one Primary per shard. Any cell that does not host the primary database is meant to serve read-only traffic that is replicated from the primary.
 
@@ -130,7 +130,7 @@ VReplication works in conjunction with vtgate routing rules that allow you to sm
 
 MoveTables will be a workflow built using VReplication. This will allow you to migrate a group of tables from any source to any target. This can be used to split a database into smaller parts, or merge two databases into one. Let us assume that you want to migrate table `t` from database `a` to database `b`.
 
-* Initially, the vtgates will have a rule to redirect traffic intended for `a.t` and `b.t` to `a.t`. MoveTables will setup these routing rules autmatically before starting VReplication.
+* Initially, the vtgates will have a rule to redirect traffic intended for `a.t` and `b.t` to `a.t`. MoveTables will setup these routing rules automatically before starting VReplication.
 * Once this rule is setup, you can start refactoring your application to write to `b.t` instead of `a.t`. Writing to any of these tables will get redirected to `a.t`.
 * Once the data is verified to be correct, we can switch the vtgate routing rules to send traffic to `b.t` instead. MoveTables will have a subcommand to do this safely. If the application has not finished refactoring all the code, it's ok, because all traffic will flow to `b.t`.
 * At this time, VReplication will reverse the replication to keep `a.t` up-to-date. If any problem is detected after the cutover, you can fall back to `a.t`. This back and forth can be repeated as often as necessary.
@@ -160,7 +160,7 @@ If you are currently running on a MySQL database, or Vitess, Multigres will allo
 
 ### Exotic migrations
 
-VReplication is versatile enough that it can be used to address migration use cases that have not been thought of yet. For exmaple, you could script it to merge tables from different databases into one. This can be a necessity if you decide to merge many multi-tenant databases into a single sharded one, or vice-versa.
+VReplication is versatile enough that it can be used to address migration use cases that have not been thought of yet. For example, you could script it to merge tables from different databases into one. This can be a necessity if you decide to merge many multi-tenant databases into a single sharded one, or vice-versa.
 
 ## Materialization
 
@@ -198,7 +198,7 @@ Apart from exporting real-time metrics, Multigres will also have an extensive to
 
 ## Point-in-time Recovery
 
-Multigres will be able to restore any shard, or an entire cluster, into a specially named read-only database allowing you to view a snapshot of the data as of a certain time. This is achieved by restoring an old enough backup and applying logs up to the necesary timestamp.
+Multigres will be able to restore any shard, or an entire cluster, into a specially named read-only database allowing you to view a snapshot of the data as of a certain time. This is achieved by restoring an old enough backup and applying logs up to the necessary timestamp.
 
 If multiple shards are restored, there is no guarantee of transaction consistency across shards.
 
