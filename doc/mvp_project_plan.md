@@ -81,7 +81,7 @@ The MVP will support:
 
 ## Sharded query serving
 
-Sharded query serving has an exensive list of constructs to support. The MVP will support the following:
+Sharded query serving has an extensive list of constructs to support. The MVP will support the following:
 
 * SELECT, INSERT, UPDATE and DELETE that can be executed within a shard. This should cover all multi-tenant use cases.
 * 2PC for transactions that span across shards.
