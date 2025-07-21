@@ -31,3 +31,6 @@ go.work.sum
 
 # MacOS
 .DS_Store
+
+# Claude Code settings
+.claude/
