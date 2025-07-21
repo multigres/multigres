@@ -220,6 +220,78 @@ multigres/go/
 
 ---
 
+## Source Code Traceability
+
+### Decision: PostgreSQL Source References in All Ported Code
+**Date**: 2025-07-21 (Session 002)  
+**Rationale**:
+- Essential for code verification and maintenance
+- Enables easy cross-reference between Go and PostgreSQL implementations
+- Facilitates debugging and understanding of ported logic
+- Supports code reviews and validation processes
+
+**Implementation**:
+- Every ported function/struct includes comment: `// Ported from postgres/path/file.c:line`
+- Include original PostgreSQL function/variable names in comments
+- Reference specific PostgreSQL version/commit being ported
+- Maintain mapping documentation between Go and PostgreSQL code
+
+**Implications**:
+- Increased comment overhead in codebase
+- Need to track PostgreSQL source locations accurately
+- Documentation maintenance when PostgreSQL updates
+- Code review process must verify source references
+
+---
+
+## Testing Framework
+
+### Decision: Testify/Stretchr for Test Assertions
+**Date**: 2025-07-21 (Session 002)  
+**Rationale**:
+- More readable test assertions than standard Go testing
+- Better error messages for failed assertions
+- Widely adopted in Go community
+- Supports test suites and setup/teardown patterns
+
+**Implementation**:
+- Use `github.com/stretchr/testify/assert` for assertions
+- Use `github.com/stretchr/testify/require` for test-stopping assertions
+- Use `github.com/stretchr/testify/suite` for complex test organization
+- Standard Go testing package for test discovery and running
+
+**Implications**:
+- Additional dependency on testify package
+- Team needs familiarity with testify patterns
+- More expressive but slightly different test patterns
+- Better test maintenance and readability
+
+---
+
+## Test Data Strategy
+
+### Decision: PostgreSQL-Driven Test Cases
+**Date**: 2025-07-21 (Session 002)  
+**Rationale**:
+- Tests must verify compatibility with actual PostgreSQL behavior
+- Use PostgreSQL's own test cases as source of truth
+- Automated validation against PostgreSQL regression tests
+- Reduces risk of missing edge cases or behaviors
+
+**Implementation**:
+- Parse and convert PostgreSQL regression tests to Go test format
+- Create utilities to read PostgreSQL test files directly
+- Implement AST comparison between Go parser and PostgreSQL output
+- Test against multiple PostgreSQL versions when possible
+
+**Implications**:
+- Complex test data parsing and conversion logic needed
+- Dependency on PostgreSQL test file formats
+- Large test suite derived from PostgreSQL tests
+- Need tooling to sync with PostgreSQL test updates
+
+---
+
 ## Future Decisions Needed
 
 ### Open Technical Questions:
