@@ -3,7 +3,9 @@
   position: relative;
   overflow: hidden;
   color: white var(--ifm-font-color-base-inverse);
-  background-image: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('/img/multigres-bg.png');
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)),
+    url('/img/site/multigres-bg.png');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
