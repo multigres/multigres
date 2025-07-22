@@ -67,19 +67,20 @@ func TestIdentifier(t *testing.T) {
 	assert.Contains(t, ident.String(), "users")
 }
 
-// TestValue tests value node creation for different types.
+// TestValue tests the convenience NewValue function with type delegation.
 func TestValue(t *testing.T) {
 	tests := []struct {
 		name        string
 		value       interface{}
 		expectedTag NodeTag
+		expectedType string
 		expectedStr string
 	}{
-		{"string_value", "hello", T_String, "hello"},
-		{"int_value", 42, T_Integer, "42"},
-		{"float_value", 3.14, T_Float, "3.14"},
-		{"null_value", nil, T_Null, "<nil>"},
-		{"bool_value", true, T_AConst, "true"},
+		{"string_value", "hello", T_String, "String", "hello"},
+		{"int_value", 42, T_Integer, "Integer", "42"},
+		{"float_value", 3.14, T_Float, "Float", "3.14"},
+		{"null_value", nil, T_Null, "Null", "NULL"},
+		{"bool_value", true, T_Boolean, "Boolean", "true"},
 	}
 
 	for _, tt := range tests {
@@ -88,11 +89,103 @@ func TestValue(t *testing.T) {
 			
 			require.NotNil(t, value)
 			assert.Equal(t, tt.expectedTag, value.NodeTag())
-			assert.Equal(t, tt.value, value.Val)
-			assert.Equal(t, "Value", value.ExpressionType())
 			assert.Contains(t, value.String(), tt.expectedStr)
+			
+			// Test that it's properly typed
+			if expr, ok := value.(Expression); ok {
+				assert.Equal(t, tt.expectedType, expr.ExpressionType())
+			}
+			
+			// Test specific type assertions
+			switch tt.expectedTag {
+			case T_String:
+				s, ok := value.(*String)
+				assert.True(t, ok)
+				assert.Equal(t, tt.value, s.SVal)
+			case T_Integer:
+				i, ok := value.(*Integer)
+				assert.True(t, ok)
+				assert.Equal(t, tt.value, i.IVal)
+			case T_Float:
+				f, ok := value.(*Float)
+				assert.True(t, ok)
+				assert.Equal(t, "3.14", f.FVal) // Float stores as string
+			case T_Boolean:
+				b, ok := value.(*Boolean)
+				assert.True(t, ok)
+				assert.Equal(t, tt.value, b.BoolVal)
+			case T_Null:
+				_, ok := value.(*Null)
+				assert.True(t, ok)
+			}
 		})
 	}
+}
+
+// TestTypedValues tests the new typed value node system.
+func TestTypedValues(t *testing.T) {
+	t.Run("Integer", func(t *testing.T) {
+		value := NewInteger(42)
+		require.NotNil(t, value)
+		assert.Equal(t, T_Integer, value.NodeTag())
+		assert.Equal(t, 42, value.IVal)
+		assert.Equal(t, "Integer", value.ExpressionType())
+		assert.Contains(t, value.String(), "42")
+		assert.Equal(t, 42, IntVal(value))
+		assert.True(t, value.IsValue())
+	})
+
+	t.Run("Float", func(t *testing.T) {
+		value := NewFloat("3.14159")
+		require.NotNil(t, value)
+		assert.Equal(t, T_Float, value.NodeTag())
+		assert.Equal(t, "3.14159", value.FVal)
+		assert.Equal(t, "Float", value.ExpressionType())
+		assert.Contains(t, value.String(), "3.14159")
+		assert.InDelta(t, 3.14159, FloatVal(value), 0.0001)
+		assert.True(t, value.IsValue())
+	})
+
+	t.Run("Boolean", func(t *testing.T) {
+		value := NewBoolean(true)
+		require.NotNil(t, value)
+		assert.Equal(t, T_Boolean, value.NodeTag())
+		assert.Equal(t, true, value.BoolVal)
+		assert.Equal(t, "Boolean", value.ExpressionType())
+		assert.Contains(t, value.String(), "true")
+		assert.Equal(t, true, BoolVal(value))
+		assert.True(t, value.IsValue())
+	})
+
+	t.Run("String", func(t *testing.T) {
+		value := NewString("hello world")
+		require.NotNil(t, value)
+		assert.Equal(t, T_String, value.NodeTag())
+		assert.Equal(t, "hello world", value.SVal)
+		assert.Equal(t, "String", value.ExpressionType())
+		assert.Contains(t, value.String(), "hello world")
+		assert.Equal(t, "hello world", StrVal(value))
+		assert.True(t, value.IsValue())
+	})
+
+	t.Run("BitString", func(t *testing.T) {
+		value := NewBitString("10101010")
+		require.NotNil(t, value)
+		assert.Equal(t, T_BitString, value.NodeTag())
+		assert.Equal(t, "10101010", value.BSVal)
+		assert.Equal(t, "BitString", value.ExpressionType())
+		assert.Contains(t, value.String(), "10101010")
+		assert.True(t, value.IsValue())
+	})
+
+	t.Run("Null", func(t *testing.T) {
+		value := NewNull()
+		require.NotNil(t, value)
+		assert.Equal(t, T_Null, value.NodeTag())
+		assert.Equal(t, "Null", value.ExpressionType())
+		assert.Contains(t, value.String(), "NULL")
+		assert.True(t, value.IsValue())
+	})
 }
 
 // TestNodeList tests the node list functionality.
@@ -248,9 +341,9 @@ func TestNodeInterfaces(t *testing.T) {
 	assert.NotNil(t, expr)
 	assert.Equal(t, "Identifier", expr.ExpressionType())
 
-	var expr2 Expression = NewValue("test")
+	var expr2 Expression = NewValue("test").(Expression)
 	assert.NotNil(t, expr2)
-	assert.Equal(t, "Value", expr2.ExpressionType())
+	assert.Equal(t, "String", expr2.ExpressionType())
 }
 
 // TestComplexAST tests building and walking a more complex AST.

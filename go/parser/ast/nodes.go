@@ -26,6 +26,46 @@ const (
 	T_CreateStmt
 	T_DropStmt
 	T_AlterStmt
+	T_AlterTableStmt
+	T_AlterTableCmd
+	T_AlterDomainStmt
+	T_IndexStmt
+	T_IndexElem
+	T_DefElem
+	T_Constraint
+	T_ViewStmt
+	T_CreateSchemaStmt
+	T_CreateExtensionStmt
+	T_CreateDomainStmt
+	T_RoleSpec
+	T_TypeName
+	T_CollateClause
+	
+	// Utility statement nodes
+	T_TransactionStmt
+	T_GrantStmt
+	T_GrantRoleStmt
+	T_AccessPriv
+	T_CreateRoleStmt
+	T_AlterRoleStmt
+	T_DropRoleStmt
+	T_VariableSetStmt
+	T_VariableShowStmt
+	T_ExplainStmt
+	T_PrepareStmt
+	T_ExecuteStmt
+	T_DeallocateStmt
+	T_CopyStmt
+	T_VacuumStmt
+	T_VacuumRelation
+	T_ReindexStmt
+	T_ClusterStmt
+	T_CheckPointStmt
+	T_DiscardStmt
+	T_LoadStmt
+	T_NotifyStmt
+	T_ListenStmt
+	T_UnlistenStmt
 	
 	// Expression nodes
 	T_Expr
@@ -37,6 +77,12 @@ const (
 	T_FuncExpr
 	T_OpExpr
 	T_BoolExpr
+	T_CaseExpr
+	T_ArrayExpr
+	T_RowExpr
+	T_CoalesceExpr
+	T_ScalarArrayOpExpr
+	T_SubLink
 	
 	// List and utility nodes
 	T_List
@@ -44,11 +90,14 @@ const (
 	T_RangeVar
 	T_ColumnRef
 	T_AConst
-	T_String
-	T_Integer
-	T_Float
-	T_BitString
-	T_Null
+	
+	// Value nodes - ported from postgres/src/include/nodes/value.h
+	T_Integer  // Integer literal - postgres/src/include/nodes/value.h:28-34
+	T_Float    // Float literal - postgres/src/include/nodes/value.h:47-53
+	T_Boolean  // Boolean literal - postgres/src/include/nodes/value.h:55-61
+	T_String   // String literal - postgres/src/include/nodes/value.h:63-69
+	T_BitString // Bit string literal - postgres/src/include/nodes/value.h:71-77
+	T_Null     // NULL literal
 )
 
 // String returns the string representation of a NodeTag.
@@ -77,6 +126,82 @@ func (nt NodeTag) String() string {
 		return "T_DropStmt"
 	case T_AlterStmt:
 		return "T_AlterStmt"
+	case T_AlterTableStmt:
+		return "T_AlterTableStmt"
+	case T_AlterTableCmd:
+		return "T_AlterTableCmd"
+	case T_AlterDomainStmt:
+		return "T_AlterDomainStmt"
+	case T_IndexStmt:
+		return "T_IndexStmt"
+	case T_IndexElem:
+		return "T_IndexElem"
+	case T_DefElem:
+		return "T_DefElem"
+	case T_Constraint:
+		return "T_Constraint"
+	case T_ViewStmt:
+		return "T_ViewStmt"
+	case T_CreateSchemaStmt:
+		return "T_CreateSchemaStmt"
+	case T_CreateExtensionStmt:
+		return "T_CreateExtensionStmt"
+	case T_CreateDomainStmt:
+		return "T_CreateDomainStmt"
+	case T_RoleSpec:
+		return "T_RoleSpec"
+	case T_TypeName:
+		return "T_TypeName"
+	case T_CollateClause:
+		return "T_CollateClause"
+	case T_TransactionStmt:
+		return "T_TransactionStmt"
+	case T_GrantStmt:
+		return "T_GrantStmt"
+	case T_GrantRoleStmt:
+		return "T_GrantRoleStmt"
+	case T_AccessPriv:
+		return "T_AccessPriv"
+	case T_CreateRoleStmt:
+		return "T_CreateRoleStmt"
+	case T_AlterRoleStmt:
+		return "T_AlterRoleStmt"
+	case T_DropRoleStmt:
+		return "T_DropRoleStmt"
+	case T_VariableSetStmt:
+		return "T_VariableSetStmt"
+	case T_VariableShowStmt:
+		return "T_VariableShowStmt"
+	case T_ExplainStmt:
+		return "T_ExplainStmt"
+	case T_PrepareStmt:
+		return "T_PrepareStmt"
+	case T_ExecuteStmt:
+		return "T_ExecuteStmt"
+	case T_DeallocateStmt:
+		return "T_DeallocateStmt"
+	case T_CopyStmt:
+		return "T_CopyStmt"
+	case T_VacuumStmt:
+		return "T_VacuumStmt"
+	case T_VacuumRelation:
+		return "T_VacuumRelation"
+	case T_ReindexStmt:
+		return "T_ReindexStmt"
+	case T_ClusterStmt:
+		return "T_ClusterStmt"
+	case T_CheckPointStmt:
+		return "T_CheckPointStmt"
+	case T_DiscardStmt:
+		return "T_DiscardStmt"
+	case T_LoadStmt:
+		return "T_LoadStmt"
+	case T_NotifyStmt:
+		return "T_NotifyStmt"
+	case T_ListenStmt:
+		return "T_ListenStmt"
+	case T_UnlistenStmt:
+		return "T_UnlistenStmt"
 	case T_Expr:
 		return "T_Expr"
 	case T_Var:
@@ -95,6 +220,18 @@ func (nt NodeTag) String() string {
 		return "T_OpExpr"
 	case T_BoolExpr:
 		return "T_BoolExpr"
+	case T_CaseExpr:
+		return "T_CaseExpr"
+	case T_ArrayExpr:
+		return "T_ArrayExpr"
+	case T_RowExpr:
+		return "T_RowExpr"
+	case T_CoalesceExpr:
+		return "T_CoalesceExpr"
+	case T_ScalarArrayOpExpr:
+		return "T_ScalarArrayOpExpr"
+	case T_SubLink:
+		return "T_SubLink"
 	case T_List:
 		return "T_List"
 	case T_ResTarget:
@@ -105,12 +242,14 @@ func (nt NodeTag) String() string {
 		return "T_ColumnRef"
 	case T_AConst:
 		return "T_AConst"
-	case T_String:
-		return "T_String"
 	case T_Integer:
 		return "T_Integer"
 	case T_Float:
 		return "T_Float"
+	case T_Boolean:
+		return "T_Boolean"
+	case T_String:
+		return "T_String"
 	case T_BitString:
 		return "T_BitString"
 	case T_Null:
@@ -237,43 +376,226 @@ func (i *Identifier) ExpressionType() string {
 	return "Identifier"
 }
 
-// Value represents a literal value in the AST.
-// Ported from postgres constant value concept
-type Value struct {
+// ==============================================================================
+// VALUE NODE SYSTEM - Complete PostgreSQL value.h implementation
+// Ported from postgres/src/include/nodes/value.h
+// ==============================================================================
+
+// Integer represents an integer literal value node.
+// Ported from postgres/src/include/nodes/value.h:28-34
+type Integer struct {
 	BaseNode
-	Val interface{} // The actual value (string, int, float, bool, nil)
+	IVal int // Integer value - postgres/src/include/nodes/value.h:33
 }
 
-// NewValue creates a new value node.
-func NewValue(val interface{}) *Value {
-	var tag NodeTag
-	switch val.(type) {
+// NewInteger creates a new integer literal node.
+// Ported from postgres/src/include/nodes/value.h:84 (makeInteger)
+func NewInteger(value int) *Integer {
+	return &Integer{
+		BaseNode: BaseNode{Tag: T_Integer},
+		IVal:     value,
+	}
+}
+
+func (i *Integer) String() string {
+	return fmt.Sprintf("Integer(%d)@%d", i.IVal, i.Location())
+}
+
+func (i *Integer) ExpressionType() string {
+	return "Integer"
+}
+
+// IntVal extracts integer value - ported from postgres/src/include/nodes/value.h:79
+func IntVal(node Node) int {
+	if i, ok := node.(*Integer); ok {
+		return i.IVal
+	}
+	return 0
+}
+
+// Float represents a floating-point literal value node.
+// Stored as string to preserve precision, like PostgreSQL.
+// Ported from postgres/src/include/nodes/value.h:47-53
+type Float struct {
+	BaseNode
+	FVal string // Float value as string - postgres/src/include/nodes/value.h:52
+}
+
+// NewFloat creates a new float literal node.
+// Ported from postgres/src/include/nodes/value.h:85 (makeFloat)
+func NewFloat(value string) *Float {
+	return &Float{
+		BaseNode: BaseNode{Tag: T_Float},
+		FVal:     value,
+	}
+}
+
+func (f *Float) String() string {
+	return fmt.Sprintf("Float(%s)@%d", f.FVal, f.Location())
+}
+
+func (f *Float) ExpressionType() string {
+	return "Float"
+}
+
+// FloatVal extracts float value - ported from postgres/src/include/nodes/value.h:80
+func FloatVal(node Node) float64 {
+	if f, ok := node.(*Float); ok {
+		var result float64
+		if _, err := fmt.Sscanf(f.FVal, "%f", &result); err == nil {
+			return result
+		}
+	}
+	return 0.0
+}
+
+// Boolean represents a boolean literal value node.
+// Ported from postgres/src/include/nodes/value.h:55-61
+type Boolean struct {
+	BaseNode
+	BoolVal bool // Boolean value - postgres/src/include/nodes/value.h:60
+}
+
+// NewBoolean creates a new boolean literal node.
+// Ported from postgres/src/include/nodes/value.h:86 (makeBoolean)
+func NewBoolean(value bool) *Boolean {
+	return &Boolean{
+		BaseNode: BaseNode{Tag: T_Boolean},
+		BoolVal:  value,
+	}
+}
+
+func (b *Boolean) String() string {
+	return fmt.Sprintf("Boolean(%t)@%d", b.BoolVal, b.Location())
+}
+
+func (b *Boolean) ExpressionType() string {
+	return "Boolean"
+}
+
+// BoolVal extracts boolean value - ported from postgres/src/include/nodes/value.h:81
+func BoolVal(node Node) bool {
+	if b, ok := node.(*Boolean); ok {
+		return b.BoolVal
+	}
+	return false
+}
+
+// String represents a string literal value node.
+// Ported from postgres/src/include/nodes/value.h:63-69
+type String struct {
+	BaseNode
+	SVal string // String value - postgres/src/include/nodes/value.h:68
+}
+
+// NewString creates a new string literal node.
+// Ported from postgres/src/include/nodes/value.h:87 (makeString)
+func NewString(value string) *String {
+	return &String{
+		BaseNode: BaseNode{Tag: T_String},
+		SVal:     value,
+	}
+}
+
+func (s *String) String() string {
+	return fmt.Sprintf("String(%q)@%d", s.SVal, s.Location())
+}
+
+func (s *String) ExpressionType() string {
+	return "String"
+}
+
+// StrVal extracts string value - ported from postgres/src/include/nodes/value.h:82
+func StrVal(node Node) string {
+	if s, ok := node.(*String); ok {
+		return s.SVal
+	}
+	return ""
+}
+
+// BitString represents a bit string literal value node.
+// Ported from postgres/src/include/nodes/value.h:71-77
+type BitString struct {
+	BaseNode
+	BSVal string // Bit string value - postgres/src/include/nodes/value.h:76
+}
+
+// NewBitString creates a new bit string literal node.
+// Ported from postgres/src/include/nodes/value.h:88 (makeBitString)
+func NewBitString(value string) *BitString {
+	return &BitString{
+		BaseNode: BaseNode{Tag: T_BitString},
+		BSVal:    value,
+	}
+}
+
+func (bs *BitString) String() string {
+	return fmt.Sprintf("BitString(%q)@%d", bs.BSVal, bs.Location())
+}
+
+func (bs *BitString) ExpressionType() string {
+	return "BitString"
+}
+
+// Null represents a NULL literal value node.
+type Null struct {
+	BaseNode
+}
+
+// NewNull creates a new NULL literal node.
+func NewNull() *Null {
+	return &Null{
+		BaseNode: BaseNode{Tag: T_Null},
+	}
+}
+
+func (n *Null) String() string {
+	return fmt.Sprintf("NULL@%d", n.Location())
+}
+
+func (n *Null) ExpressionType() string {
+	return "Null"
+}
+
+// Value is a generic interface for all value types.
+// This provides a common interface for all literal values.
+type Value interface {
+	Expression
+	IsValue() bool
+}
+
+// Implement Value interface for all value types
+func (i *Integer) IsValue() bool   { return true }
+func (f *Float) IsValue() bool     { return true }
+func (b *Boolean) IsValue() bool   { return true }
+func (s *String) IsValue() bool    { return true }
+func (bs *BitString) IsValue() bool { return true }
+func (n *Null) IsValue() bool      { return true }
+
+// NewValue creates a properly typed value node based on the Go type.
+// This is a convenience function that delegates to the specific typed constructors.
+func NewValue(val interface{}) Node {
+	switch v := val.(type) {
 	case string:
-		tag = T_String
-	case int, int32, int64:
-		tag = T_Integer
-	case float32, float64:
-		tag = T_Float
+		return NewString(v)
+	case int:
+		return NewInteger(v)
+	case int32:
+		return NewInteger(int(v))
+	case int64:
+		return NewInteger(int(v))
+	case float32:
+		return NewFloat(fmt.Sprintf("%g", v))
+	case float64:
+		return NewFloat(fmt.Sprintf("%g", v))
+	case bool:
+		return NewBoolean(v)
 	case nil:
-		tag = T_Null
+		return NewNull()
 	default:
-		tag = T_AConst // Generic constant
+		// For unknown types, create a string representation
+		return NewString(fmt.Sprintf("%v", v))
 	}
-	
-	return &Value{
-		BaseNode: BaseNode{Tag: tag},
-		Val:      val,
-	}
-}
-
-// String returns a string representation of the value.
-func (v *Value) String() string {
-	return fmt.Sprintf("Value(%v)@%d", v.Val, v.Location())
-}
-
-// ExpressionType returns the expression type for Expression interface.
-func (v *Value) ExpressionType() string {
-	return "Value"
 }
 
 // Helper functions for node creation and manipulation
@@ -327,6 +649,10 @@ func WalkNodes(node Node, walker NodeWalker) {
 				WalkNodes(item, walker)
 			}
 		}
+	// Value nodes are leaf nodes - no traversal needed
+	case *Integer, *Float, *Boolean, *String, *BitString, *Null:
+		// Leaf nodes - no children to traverse
+		return
 	// Additional node types will be handled as they're implemented
 	default:
 		// For now, we don't traverse into other node types
