@@ -10,7 +10,7 @@ export default function Home(): React.JSX.Element {
   return (
     <Layout
       title={`${siteConfig.title}`}
-      description="OrioleDB is a PostgreSQL extension that combines the advantages of both on-disk and in-memory engines."
+      description="A horizontally scalable Postgres architecture that supports multi-tenant, multi-writer, and globally distributed deployments, all while staying true to standard Postgres."
     >
       <main>
         <Banner />
