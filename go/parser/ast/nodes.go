@@ -84,6 +84,18 @@ const (
 	T_ScalarArrayOpExpr
 	T_SubLink
 	
+	// Query execution nodes (essential for SQL functionality)
+	T_TargetEntry
+	T_FromExpr
+	T_JoinExpr
+	T_SubPlan
+	T_AlternativeSubPlan
+	T_CommonTableExpr
+	T_WindowClause
+	T_SortGroupClause
+	T_RowMarkClause
+	T_OnConflictExpr
+	
 	// List and utility nodes
 	T_List
 	T_ResTarget
@@ -232,6 +244,26 @@ func (nt NodeTag) String() string {
 		return "T_ScalarArrayOpExpr"
 	case T_SubLink:
 		return "T_SubLink"
+	case T_TargetEntry:
+		return "T_TargetEntry"
+	case T_FromExpr:
+		return "T_FromExpr"
+	case T_JoinExpr:
+		return "T_JoinExpr"
+	case T_SubPlan:
+		return "T_SubPlan"
+	case T_AlternativeSubPlan:
+		return "T_AlternativeSubPlan"
+	case T_CommonTableExpr:
+		return "T_CommonTableExpr"
+	case T_WindowClause:
+		return "T_WindowClause"
+	case T_SortGroupClause:
+		return "T_SortGroupClause"
+	case T_RowMarkClause:
+		return "T_RowMarkClause"
+	case T_OnConflictExpr:
+		return "T_OnConflictExpr"
 	case T_List:
 		return "T_List"
 	case T_ResTarget:

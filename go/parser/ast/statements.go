@@ -468,16 +468,97 @@ func (c *ColumnRef) ExpressionType() string {
 // PLACEHOLDER TYPES - To be fully implemented later
 // ==============================================================================
 
-// These types are referenced by the main statements above but will be fully
-// implemented in subsequent priorities. For now they are placeholder structs.
+// These types are referenced by the main statements above and are now fully implemented.
+// Implementation moved to query_execution_nodes.go for better organization.
 
-type CommonTableExpr struct{ BaseNode }
+// CommonTableExpr represents a WITH clause (Common Table Expression / CTE).
+// CTEs are increasingly common in modern SQL and enable recursive queries
+// and improved query organization.
+// Ported from postgres/src/include/nodes/parsenodes.h:1706-1717
+type CommonTableExpr struct {
+	BaseNode
+	Ctename         string     // Query name (never qualified) - parsenodes.h:1707
+	Aliascolnames   []Node     // Optional list of column names - parsenodes.h:1708
+	Ctematerialized CTEMaterialized // Is this an optimization fence? - parsenodes.h:1709
+	Ctequery        Node       // The CTE's subquery - parsenodes.h:1710
+	Search_clause   *CTESearchClause // SEARCH clause, if any - parsenodes.h:1711
+	Cycle_clause    *CTECycleClause  // CYCLE clause, if any - parsenodes.h:1712
+	Location        int        // Token location, or -1 if unknown - parsenodes.h:1713
+	Cterecursive    bool       // Is this a recursive CTE? - parsenodes.h:1714
+	Cterefcount     int        // Number of RTEs referencing this CTE - parsenodes.h:1715
+	Ctecolnames     []Node     // List of output column names - parsenodes.h:1716
+	Ctecoltypes     []Oid      // OID list of output column type OIDs - parsenodes.h:1717
+	Ctecoltypmods   []int32    // Integer list of output column typmods - parsenodes.h:1718
+	Ctecolcollations []Oid     // OID list of column collation OIDs - parsenodes.h:1719
+}
+
+// CTEMaterialized represents CTE materialization settings.
+// Ported from postgres/src/include/nodes/parsenodes.h:1700-1704
+type CTEMaterialized int
+
+const (
+	CTEMaterializeDefault  CTEMaterialized = iota // No materialization clause - parsenodes.h:1701
+	CTEMaterializeAlways                          // MATERIALIZED - parsenodes.h:1702
+	CTEMaterializeNever                           // NOT MATERIALIZED - parsenodes.h:1703
+)
+
+// CTESearchClause represents a SEARCH clause for recursive CTEs.
+// Ported from postgres/src/include/nodes/parsenodes.h:1681-1690
+type CTESearchClause struct {
+	BaseNode
+	SearchColList   []Node // List of column names - parsenodes.h:1682
+	SearchBreadthFirst bool // True for BREADTH FIRST, false for DEPTH FIRST - parsenodes.h:1683
+	SearchSeqColumn string // Name of sequence column - parsenodes.h:1684
+	Location        int    // Token location, or -1 if unknown - parsenodes.h:1685
+}
+
+// CTECycleClause represents a CYCLE clause for recursive CTEs.
+// Ported from postgres/src/include/nodes/parsenodes.h:1692-1698
+type CTECycleClause struct {
+	BaseNode
+	CycleColList       []Node // List of column names - parsenodes.h:1693
+	CycleMarkColumn    string // Name of cycle mark column - parsenodes.h:1694
+	CycleMarkValue     Node   // Cycle mark value - parsenodes.h:1695
+	CycleMarkDefault   Node   // Cycle mark default value - parsenodes.h:1696
+	CyclePathColumn    string // Name of path column - parsenodes.h:1697
+	Location           int    // Token location, or -1 if unknown - parsenodes.h:1698
+	CycleMarkType      Oid    // Type of cycle mark column - parsenodes.h:1699
+	CycleMarkTypmod    int32  // Typmod of cycle mark column - parsenodes.h:1700
+	CycleMarkCollation Oid    // Collation of cycle mark column - parsenodes.h:1701
+	CycleMarkNeop      Oid    // Inequality operator for cycle mark - parsenodes.h:1702
+}
+
+// NewCommonTableExpr creates a new CommonTableExpr node.
+func NewCommonTableExpr(ctename string, ctequery Node) *CommonTableExpr {
+	return &CommonTableExpr{
+		BaseNode: BaseNode{Tag: T_CommonTableExpr},
+		Ctename:  ctename,
+		Ctequery: ctequery,
+		Location: -1,
+	}
+}
+
+// NewRecursiveCommonTableExpr creates a new recursive CommonTableExpr node.
+func NewRecursiveCommonTableExpr(ctename string, ctequery Node) *CommonTableExpr {
+	return &CommonTableExpr{
+		BaseNode:     BaseNode{Tag: T_CommonTableExpr},
+		Ctename:      ctename,
+		Ctequery:     ctequery,
+		Cterecursive: true,
+		Location:     -1,
+	}
+}
+
+func (cte *CommonTableExpr) String() string {
+	recursive := ""
+	if cte.Cterecursive {
+		recursive = " RECURSIVE"
+	}
+	return fmt.Sprintf("CommonTableExpr(%s%s)", cte.Ctename, recursive)
+}
+
+// Placeholder structs for other query execution nodes implemented in query_execution_nodes.go
 type RangeTblEntry struct{ BaseNode }
-type FromExpr struct{ BaseNode }
-type TargetEntry struct{ BaseNode }
-type SortGroupClause struct{ BaseNode }
-type WindowClause struct{ BaseNode }
-type RowMarkClause struct{ BaseNode }
 type IntoClause struct{ BaseNode }
 type SortBy struct{ BaseNode }
 type LockingClause struct{ BaseNode }

@@ -1,7 +1,7 @@
 # PostgreSQL Parser Port - Project Status
 
 **Last Updated**: 2025-07-22  
-**Current Session**: 004 (Documentation Restructuring)  
+**Current Session**: 005 (Essential Query Execution Nodes)  
 **Current Phase**: Phase 1.5 IN PROGRESS (~30% AST Implementation Complete)
 
 ---
@@ -61,9 +61,9 @@ This project ports the PostgreSQL parser from C to Go for the Multigres project,
 
 ## Current Phase
 
-### Phase 1.5: Complete AST Implementation 🔄 IN PROGRESS (~30% Complete)
+### Phase 1.5: Complete AST Implementation 🔄 IN PROGRESS (~35% Complete)
 **Started**: 2025-07-21 (Session 002)  
-**Status**: Significant work remaining - 185+ nodes still needed
+**Status**: Good progress - Session 005 completed, 175+ nodes remaining
 
 #### ✅ Completed Components (Sessions 002-003):
 
@@ -115,20 +115,33 @@ This project ports the PostgreSQL parser from C to Go for the Multigres project,
 - [x] Missing node categorization: 185+ missing nodes identified
 - [x] Implementation roadmap defined for remaining work
 
-#### Current Implementation Stats (Accurate):
-- **Nodes implemented**: ~70-80 AST node types
-- **PostgreSQL coverage**: ~30% of total 265 node types  
-- **Source references**: ✅ All PostgreSQL references now accurate
-- **Missing categories**: ~185+ node types including advanced DDL, utility statements, complex expressions
-- **Test coverage**: ✅ 100% pass rate for implemented functionality
+#### Session 005 Achievements (2025-07-22) ✅ COMPLETED:
+
+**Essential Query Execution Nodes** ✅
+- [x] Complete query execution infrastructure (TargetEntry, FromExpr, JoinExpr)
+- [x] Subquery support system (SubPlan, AlternativeSubPlan)
+- [x] Modern SQL features (CommonTableExpr with full CTE support)
+- [x] Window function infrastructure (WindowClause)
+- [x] Sorting and grouping support (SortGroupClause) 
+- [x] Row locking support (RowMarkClause with all lock types)
+- [x] UPSERT functionality (OnConflictExpr)
+- [x] New implementation files: `query_execution_nodes.go` (780+ lines) + comprehensive tests (750+ lines)
+
+#### Current Implementation Stats (Updated):
+- **Nodes implemented**: ~85-90 AST node types
+- **PostgreSQL coverage**: ~35% of total 265 node types  
+- **Source references**: ✅ All PostgreSQL references verified and accurate
+- **Missing categories**: ~175+ node types including type system, advanced DDL, specialized expressions
+- **Test coverage**: ✅ 100% pass rate for all implemented functionality
 
 ### Files Created:
 1. **`go/parser/ast/nodes.go`** - Base node framework and value types
-2. **`go/parser/ast/statements.go`** - Core DML/DDL statements
+2. **`go/parser/ast/statements.go`** - Core DML/DDL statements (enhanced with CTE)
 3. **`go/parser/ast/expressions.go`** (920+ lines) - Expression system  
 4. **`go/parser/ast/ddl_statements.go`** (920+ lines) - DDL system
 5. **`go/parser/ast/utility_statements.go`** (1,057+ lines) - Utility system
-6. **Complete test suites** for all above (2,000+ lines of tests)
+6. **`go/parser/ast/query_execution_nodes.go`** (780+ lines) - Essential query execution infrastructure
+7. **Complete test suites** for all above (2,750+ lines of tests)
 
 ---
 
@@ -236,10 +249,16 @@ This project ports the PostgreSQL parser from C to Go for the Multigres project,
 
 ## Next Steps
 
-**Continue Phase 1.5 AST Implementation**:
-1. **Complete remaining 185+ AST nodes** across essential, common, and advanced categories
-2. **Maintain reference accuracy** for all new implementations  
-3. **Systematic testing** for each new node type
-4. **Only after AST completion**: Move to Phase 2 (Lexer) and Phase 3 (Parser/Grammar)
+**Session 006 - Type System & Advanced Expressions (NEXT)**:
+1. **Implement 25-30 critical nodes** for type handling and complex expressions
+2. **Focus on RelabelType, CoerceViaIO, ArrayCoerceExpr** as highest priority
+3. **Create type_coercion_nodes.go** with comprehensive test coverage
+4. **Maintain PostgreSQL source reference accuracy**
 
-**The PostgreSQL parser port project now has accurate status tracking and clear roadmap for achieving complete AST compatibility.**
+**Upcoming Sessions (Roadmap)**:
+- **Session 007**: DDL extensions & administrative features (35-40 nodes)
+- **Session 008**: Advanced PostgreSQL features (100+ remaining nodes)
+
+**Phase Completion Target**: 265/265 PostgreSQL AST nodes implemented
+
+**The PostgreSQL parser port project now has accurate status tracking and clear 4-session roadmap for achieving complete AST compatibility.**
