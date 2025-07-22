@@ -1,0 +1,47 @@
+.heroBanner {
+  padding: 2rem 0;
+  position: relative;
+  overflow: hidden;
+  color: white var(--ifm-font-color-base-inverse);
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)),
+    url('/img/site/multigres-bg.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.buttons {
+  display: flex;
+  /* add some spacing between elements */
+  gap: 1rem;
+}
+
+@media screen and (max-width: 996px) {
+  .heroBanner {
+    padding: 2rem 0.5rem !important;
+  }
+
+  .heroTitle {
+    font-size: 1.5rem;
+  }
+
+  .heroSubtitle {
+    font-size: 1.1em;
+  }
+
+  .heroBanner {
+    padding: 1rem;
+  }
+
+  .heroImageContainer {
+    padding: 2rem 0;
+  }
+
+  .primaryButton {
+    width: 100%;
+  }
+  .secondaryButton {
+    display: none;
+  }
+}

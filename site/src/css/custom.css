@@ -1,0 +1,94 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap');
+
+/* CSS Variables converted from SCSS */
+:root {
+  /* Color Palette */
+  --green-500: #3ecf8e;
+  --purple-500: #4630eb;
+
+  /* Theme Colors */
+  --primary: var(--green-500);
+  --info: #209cee;
+  --success: #23d160;
+  --warning: #ffdd57;
+  --danger: #ff3860;
+  --light: #f5f5f5;
+  --dark: #363636;
+
+  /* Text Colors */
+  --text: #4a4a4a;
+  --link: #3273dc;
+
+  /* Docusaurus Light Mode Overrides */
+  --ifm-color-primary: var(--green-500);
+  --ifm-color-primary-dark: #368e39;
+  --ifm-color-primary-darker: #338936;
+  --ifm-color-primary-darkest: #2a6f2d;
+  --ifm-color-primary-light: #48a34b;
+  --ifm-color-primary-lighter: #4ba84e;
+  --ifm-color-primary-lightest: #5bb85e;
+
+  --ifm-background-surface-color: #242424;
+  --ifm-navbar-background-color: #1a1a1a;
+  --ifm-color-content: #e4e4e4;
+  --ifm-color-content-secondary: #b4b4b4;
+
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(63, 141, 66, 0.1);
+
+  --ifm-font-family-base:
+    'Inter', 'IBM Plex Sans', BlinkMacSystemFont, -apple-system, 'Segoe UI',
+    'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans',
+    'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
+
+  --ifm-heading-font-family: 'IBM Plex Sans';
+  --ifm-font-family-monospace: 'IBM Plex Mono', monospace;
+}
+
+/* Dark mode is now the default */
+[data-theme='dark'] {
+  --ifm-color-primary: var(--green-500);
+  --ifm-color-primary-dark: #368e39;
+  --ifm-color-primary-darker: #338936;
+  --ifm-color-primary-darkest: #2a6f2d;
+  --ifm-color-primary-light: #48a34b;
+  --ifm-color-primary-lighter: #4ba84e;
+  --ifm-color-primary-lightest: #5bb85e;
+
+  --ifm-background-color: #1a1a1a !important;
+  --ifm-background-surface-color: #242424;
+  --ifm-color-content: #e4e4e4;
+  --ifm-toc-border-color: #141414 !important;
+
+  --docusaurus-highlighted-code-line-bg: rgba(63, 141, 66, 0.15);
+}
+
+/* Button Styles */
+.button.is-medium {
+  text-transform: uppercase !important;
+  font-size: 1rem;
+  font-weight: bold;
+  padding: 1.4em;
+}
+
+.navbar {
+  border-bottom: var(--ifm-toc-border-color) solid 1px;
+}
+
+.hero--primary {
+  --ifm-hero-background-color: var(--ifm-background-color);
+  --ifm-hero-text-color: var(--ifm-font-color-base-inverse);
+}
+
+.footer {
+  background-color: var(--ifm-background-color);
+  color: var(--ifm-color-content);
+  padding: 2rem;
+  border-top: var(--ifm-toc-border-color) solid 1px;
+}
+
+.footer__copyright {
+  text-align: left;
+  font-size: 0.8rem;
+  padding-top: 1rem;
+}
