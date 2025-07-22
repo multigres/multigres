@@ -173,6 +173,12 @@ type Expression interface {
 
 ---
 
+### Standardized Testing Framework
+**Decision**: Use `github.com/stretchr/testify/assert` for all Go test assertions  
+**Made In**: Session 007 testing cleanup
+
+---
+
 ### Accurate Progress Tracking  
 **Decision**: Report honest completion percentages based on actual node counts  
 **Made In**: Session 004 gap analysis  

@@ -3,8 +3,16 @@
 package ast
 
 import (
+	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
+
+// Test helper to create string pointers
+func stringPtr(s string) *string {
+	return &s
+}
 
 // ==============================================================================
 // TARGET ENTRY TESTS
@@ -18,36 +26,18 @@ func TestTargetEntry(t *testing.T) {
 	te := NewTargetEntry(expr, 1, "test_column")
 	
 	// Verify basic properties
-	if te.Tag != T_TargetEntry {
-		t.Errorf("Expected tag T_TargetEntry, got %v", te.Tag)
-	}
-	
-	if te.Expr != expr {
-		t.Errorf("Expected expression to be set correctly")
-	}
-	
-	if te.Resno != 1 {
-		t.Errorf("Expected resno 1, got %d", te.Resno)
-	}
-	
-	if te.Resname != "test_column" {
-		t.Errorf("Expected resname 'test_column', got %s", te.Resname)
-	}
-	
-	if te.Resjunk {
-		t.Errorf("Expected non-junk entry by default")
-	}
+	assert.Equal(t, T_TargetEntry, te.Tag, "Expected tag T_TargetEntry")
+	assert.Equal(t, expr, te.Expr, "Expected expression to be set correctly")
+	assert.Equal(t, AttrNumber(1), te.Resno, "Expected resno 1")
+	assert.Equal(t, "test_column", te.Resname, "Expected resname 'test_column'")
+	assert.False(t, te.Resjunk, "Expected non-junk entry by default")
 	
 	// Test string representation
 	str := te.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 	
 	// Test ExpressionType
-	if te.ExpressionType() != "TargetEntry" {
-		t.Errorf("Expected ExpressionType 'TargetEntry', got %s", te.ExpressionType())
-	}
+	assert.Equal(t, "TargetEntry", te.ExpressionType(), "Expected ExpressionType 'TargetEntry'")
 }
 
 func TestJunkTargetEntry(t *testing.T) {
@@ -55,19 +45,12 @@ func TestJunkTargetEntry(t *testing.T) {
 	te := NewJunkTargetEntry(expr, 2)
 	
 	// Verify junk properties
-	if !te.Resjunk {
-		t.Errorf("Expected junk target entry")
-	}
-	
-	if te.Resno != 2 {
-		t.Errorf("Expected resno 2, got %d", te.Resno)
-	}
+	assert.True(t, te.Resjunk, "Expected junk target entry")
+	assert.Equal(t, AttrNumber(2), te.Resno, "Expected resno 2")
 	
 	// Verify junk appears in string representation
 	str := te.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestTargetEntryWithOriginInfo(t *testing.T) {
@@ -78,13 +61,9 @@ func TestTargetEntryWithOriginInfo(t *testing.T) {
 	te.Resorigtbl = 12345
 	te.Resorigcol = 7
 	
-	if te.Resorigtbl != 12345 {
-		t.Errorf("Expected origin table OID 12345, got %d", te.Resorigtbl)
-	}
+	assert.Equal(t, Oid(12345), te.Resorigtbl, "Expected origin table OID 12345")
 	
-	if te.Resorigcol != 7 {
-		t.Errorf("Expected origin column 7, got %d", te.Resorigcol)
-	}
+	assert.Equal(t, AttrNumber(7), te.Resorigcol, "Expected origin column 7")
 }
 
 // ==============================================================================
@@ -93,55 +72,41 @@ func TestTargetEntryWithOriginInfo(t *testing.T) {
 
 func TestFromExpr(t *testing.T) {
 	// Create test table references
-	table1 := NewRangeVar("public", "table1", -1)
-	table2 := NewRangeVar("public", "table2", -1)
+	table1 := NewRangeVar("table1", stringPtr("public"), nil)
+	table2 := NewRangeVar("table2", stringPtr("public"), nil)
 	fromlist := []Node{table1, table2}
 	
 	// Create test qualification
-	quals := NewConst(1, true, false) // Simple boolean constant
+	quals := NewConst(1, Datum(1), false) // Simple boolean constant
 	
 	// Test FromExpr creation
 	fe := NewFromExpr(fromlist, quals)
 	
 	// Verify properties
-	if fe.Tag != T_FromExpr {
-		t.Errorf("Expected tag T_FromExpr, got %v", fe.Tag)
-	}
+	assert.Equal(t, T_FromExpr, fe.Tag, "Expected tag T_FromExpr")
 	
-	if len(fe.Fromlist) != 2 {
-		t.Errorf("Expected fromlist length 2, got %d", len(fe.Fromlist))
-	}
+	assert.Equal(t, 2, len(fe.Fromlist), "Expected fromlist length 2")
 	
-	if fe.Quals != quals {
-		t.Errorf("Expected quals to be set correctly")
-	}
+	assert.Equal(t, quals, fe.Quals, "Expected quals to be set correctly")
 	
 	// Test ExpressionType
-	if fe.ExpressionType() != "FromExpr" {
-		t.Errorf("Expected ExpressionType 'FromExpr', got %s", fe.ExpressionType())
-	}
+	assert.Equal(t, "FromExpr", fe.ExpressionType(), "Expected ExpressionType 'FromExpr'")
 	
 	// Test string representation
 	str := fe.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestFromExprNoQuals(t *testing.T) {
 	// Test FromExpr without qualifications
-	table := NewRangeVar("public", "table1", -1)
+	table := NewRangeVar("table1", stringPtr("public"), nil)
 	fromlist := []Node{table}
 	
 	fe := NewFromExpr(fromlist, nil)
 	
-	if fe.Quals != nil {
-		t.Errorf("Expected no quals")
-	}
+	assert.Nil(t, fe.Quals, "Expected no quals")
 	
-	if len(fe.Fromlist) != 1 {
-		t.Errorf("Expected fromlist length 1, got %d", len(fe.Fromlist))
-	}
+	assert.Equal(t, 1, len(fe.Fromlist), "Expected fromlist length 1")
 }
 
 // ==============================================================================
@@ -150,53 +115,37 @@ func TestFromExprNoQuals(t *testing.T) {
 
 func TestJoinExpr(t *testing.T) {
 	// Create test tables
-	larg := NewRangeVar("public", "left_table", -1)
-	rarg := NewRangeVar("public", "right_table", -1)
-	quals := NewConst(1, true, false)
+	larg := NewRangeVar("left_table", stringPtr("public"), nil)
+	rarg := NewRangeVar("right_table", stringPtr("public"), nil)
+	quals := NewConst(1, Datum(1), false)
 	
 	// Test INNER JOIN
 	je := NewJoinExpr(JOIN_INNER, larg, rarg, quals)
 	
 	// Verify properties
-	if je.Tag != T_JoinExpr {
-		t.Errorf("Expected tag T_JoinExpr, got %v", je.Tag)
-	}
+	assert.Equal(t, T_JoinExpr, je.Tag, "Expected tag T_JoinExpr")
 	
-	if je.Jointype != JOIN_INNER {
-		t.Errorf("Expected JOIN_INNER, got %v", je.Jointype)
-	}
+	assert.Equal(t, JOIN_INNER, je.Jointype, "Expected JOIN_INNER")
 	
-	if je.Larg != larg {
-		t.Errorf("Expected left argument to be set correctly")
-	}
+	assert.Equal(t, larg, je.Larg, "Expected left argument to be set correctly")
 	
-	if je.Rarg != rarg {
-		t.Errorf("Expected right argument to be set correctly")
-	}
+	assert.Equal(t, rarg, je.Rarg, "Expected right argument to be set correctly")
 	
-	if je.Quals != quals {
-		t.Errorf("Expected qualifications to be set correctly")
-	}
+	assert.Equal(t, quals, je.Quals, "Expected qualifications to be set correctly")
 	
-	if je.IsNatural {
-		t.Errorf("Expected non-natural join by default")
-	}
+	assert.False(t, je.IsNatural, "Expected non-natural join by default")
 	
 	// Test ExpressionType
-	if je.ExpressionType() != "JoinExpr" {
-		t.Errorf("Expected ExpressionType 'JoinExpr', got %s", je.ExpressionType())
-	}
+	assert.Equal(t, "JoinExpr", je.ExpressionType(), "Expected ExpressionType 'JoinExpr'")
 	
 	// Test string representation
 	str := je.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestJoinTypes(t *testing.T) {
-	larg := NewRangeVar("public", "left_table", -1)
-	rarg := NewRangeVar("public", "right_table", -1)
+	larg := NewRangeVar("left_table", stringPtr("public"), nil)
+	rarg := NewRangeVar("right_table", stringPtr("public"), nil)
 	
 	// Test all join types
 	joinTypes := []JoinType{
@@ -206,36 +155,28 @@ func TestJoinTypes(t *testing.T) {
 	
 	for _, joinType := range joinTypes {
 		je := NewJoinExpr(joinType, larg, rarg, nil)
-		if je.Jointype != joinType {
-			t.Errorf("Expected join type %v, got %v", joinType, je.Jointype)
-		}
+		assert.Equal(t, joinType, je.Jointype, "Expected join type to match")
 	}
 }
 
 func TestNaturalJoinExpr(t *testing.T) {
-	larg := NewRangeVar("public", "left_table", -1)
-	rarg := NewRangeVar("public", "right_table", -1)
+	larg := NewRangeVar("left_table", stringPtr("public"), nil)
+	rarg := NewRangeVar("right_table", stringPtr("public"), nil)
 	
 	je := NewNaturalJoinExpr(JOIN_INNER, larg, rarg)
 	
-	if !je.IsNatural {
-		t.Errorf("Expected natural join")
-	}
+	assert.True(t, je.IsNatural, "Expected natural join")
 	
-	if je.Quals != nil {
-		t.Errorf("Natural joins should not have explicit quals")
-	}
+	assert.Nil(t, je.Quals, "Natural joins should not have explicit quals")
 	
 	// Test string representation includes "NATURAL"
 	str := je.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestUsingJoinExpr(t *testing.T) {
-	larg := NewRangeVar("public", "left_table", -1)
-	rarg := NewRangeVar("public", "right_table", -1)
+	larg := NewRangeVar("left_table", stringPtr("public"), nil)
+	rarg := NewRangeVar("right_table", stringPtr("public"), nil)
 	
 	// Create USING clause
 	col1 := NewString("id")
@@ -244,13 +185,9 @@ func TestUsingJoinExpr(t *testing.T) {
 	
 	je := NewUsingJoinExpr(JOIN_LEFT, larg, rarg, usingClause)
 	
-	if len(je.UsingClause) != 2 {
-		t.Errorf("Expected USING clause with 2 columns, got %d", len(je.UsingClause))
-	}
+	assert.Equal(t, 2, len(je.UsingClause), "Expected USING clause with 2 columns")
 	
-	if je.IsNatural {
-		t.Errorf("USING join should not be natural")
-	}
+	assert.False(t, je.IsNatural, "USING join should not be natural")
 }
 
 // ==============================================================================
@@ -261,32 +198,20 @@ func TestSubPlan(t *testing.T) {
 	sp := NewSubPlan(EXISTS_SUBLINK, 1, "exists_plan")
 	
 	// Verify properties
-	if sp.Tag != T_SubPlan {
-		t.Errorf("Expected tag T_SubPlan, got %v", sp.Tag)
-	}
+	assert.Equal(t, T_SubPlan, sp.Tag, "Expected tag T_SubPlan")
 	
-	if sp.SubLinkType != EXISTS_SUBLINK {
-		t.Errorf("Expected EXISTS_SUBLINK, got %v", sp.SubLinkType)
-	}
+	assert.Equal(t, EXISTS_SUBLINK, sp.SubLinkType, "Expected EXISTS_SUBLINK")
 	
-	if sp.PlanId != 1 {
-		t.Errorf("Expected plan ID 1, got %d", sp.PlanId)
-	}
+	assert.Equal(t, 1, sp.PlanId, "Expected plan ID 1")
 	
-	if sp.PlanName != "exists_plan" {
-		t.Errorf("Expected plan name 'exists_plan', got %s", sp.PlanName)
-	}
+	assert.Equal(t, "exists_plan", sp.PlanName, "Expected plan name 'exists_plan'")
 	
 	// Test ExpressionType
-	if sp.ExpressionType() != "SubPlan" {
-		t.Errorf("Expected ExpressionType 'SubPlan', got %s", sp.ExpressionType())
-	}
+	assert.Equal(t, "SubPlan", sp.ExpressionType(), "Expected ExpressionType 'SubPlan'")
 	
 	// Test string representation
 	str := sp.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestSubPlanTypes(t *testing.T) {
@@ -299,9 +224,7 @@ func TestSubPlanTypes(t *testing.T) {
 	
 	for i, subType := range subTypes {
 		sp := NewSubPlan(subType, i+1, fmt.Sprintf("plan_%d", i))
-		if sp.SubLinkType != subType {
-			t.Errorf("Expected sublink type %v, got %v", subType, sp.SubLinkType)
-		}
+		assert.Equal(t, subType, sp.SubLinkType, "Expected sublink type to match")
 	}
 }
 
@@ -314,21 +237,13 @@ func TestSubPlanWithParameters(t *testing.T) {
 	sp.UseHashTable = true
 	sp.ParallelSafe = true
 	
-	if len(sp.ParamIds) != 3 {
-		t.Errorf("Expected 3 param IDs, got %d", len(sp.ParamIds))
-	}
+	assert.Equal(t, 3, len(sp.ParamIds), "Expected 3 param IDs")
 	
-	if sp.FirstColType != 23 {
-		t.Errorf("Expected first column type 23, got %d", sp.FirstColType)
-	}
+	assert.Equal(t, Oid(23), sp.FirstColType, "Expected first column type 23")
 	
-	if !sp.UseHashTable {
-		t.Errorf("Expected hash table usage")
-	}
+	assert.True(t, sp.UseHashTable, "Expected hash table usage")
 	
-	if !sp.ParallelSafe {
-		t.Errorf("Expected parallel safety")
-	}
+	assert.True(t, sp.ParallelSafe, "Expected parallel safety")
 }
 
 // ==============================================================================
@@ -344,24 +259,16 @@ func TestAlternativeSubPlan(t *testing.T) {
 	asp := NewAlternativeSubPlan(subplans)
 	
 	// Verify properties
-	if asp.Tag != T_AlternativeSubPlan {
-		t.Errorf("Expected tag T_AlternativeSubPlan, got %v", asp.Tag)
-	}
+	assert.Equal(t, T_AlternativeSubPlan, asp.Tag, "Expected tag T_AlternativeSubPlan")
 	
-	if len(asp.Subplans) != 2 {
-		t.Errorf("Expected 2 subplans, got %d", len(asp.Subplans))
-	}
+	assert.Equal(t, 2, len(asp.Subplans), "Expected 2 subplans")
 	
 	// Test ExpressionType
-	if asp.ExpressionType() != "AlternativeSubPlan" {
-		t.Errorf("Expected ExpressionType 'AlternativeSubPlan', got %s", asp.ExpressionType())
-	}
+	assert.Equal(t, "AlternativeSubPlan", asp.ExpressionType(), "Expected ExpressionType 'AlternativeSubPlan'")
 	
 	// Test string representation
 	str := asp.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 // ==============================================================================
@@ -373,46 +280,30 @@ func TestCommonTableExpr(t *testing.T) {
 	cte := NewCommonTableExpr("test_cte", query)
 	
 	// Verify properties
-	if cte.Tag != T_CommonTableExpr {
-		t.Errorf("Expected tag T_CommonTableExpr, got %v", cte.Tag)
-	}
+	assert.Equal(t, T_CommonTableExpr, cte.Tag, "Expected tag T_CommonTableExpr")
 	
-	if cte.Ctename != "test_cte" {
-		t.Errorf("Expected CTE name 'test_cte', got %s", cte.Ctename)
-	}
+	assert.Equal(t, "test_cte", cte.Ctename, "Expected CTE name 'test_cte'")
 	
-	if cte.Ctequery != query {
-		t.Errorf("Expected CTE query to be set correctly")
-	}
+	assert.Equal(t, query, cte.Ctequery, "Expected CTE query to be set correctly")
 	
-	if cte.Cterecursive {
-		t.Errorf("Expected non-recursive CTE by default")
-	}
+	assert.False(t, cte.Cterecursive, "Expected non-recursive CTE by default")
 	
-	if cte.Location != -1 {
-		t.Errorf("Expected default location -1, got %d", cte.Location)
-	}
+	assert.Equal(t, -1, cte.Location, "Expected default location -1")
 	
 	// Test string representation
 	str := cte.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestRecursiveCommonTableExpr(t *testing.T) {
 	query := NewSelectStmt()
 	cte := NewRecursiveCommonTableExpr("recursive_cte", query)
 	
-	if !cte.Cterecursive {
-		t.Errorf("Expected recursive CTE")
-	}
+	assert.True(t, cte.Cterecursive, "Expected recursive CTE")
 	
 	// Test string representation includes "RECURSIVE"
 	str := cte.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestCommonTableExprWithColumns(t *testing.T) {
@@ -424,13 +315,9 @@ func TestCommonTableExprWithColumns(t *testing.T) {
 	cte.Ctecolnames = []Node{NewString("col1"), NewString("col2")}
 	cte.Ctecoltypes = []Oid{23, 25} // INT4OID, TEXTOID
 	
-	if len(cte.Aliascolnames) != 2 {
-		t.Errorf("Expected 2 alias column names, got %d", len(cte.Aliascolnames))
-	}
+	assert.Equal(t, 2, len(cte.Aliascolnames), "Expected 2 alias column names")
 	
-	if len(cte.Ctecoltypes) != 2 {
-		t.Errorf("Expected 2 column types, got %d", len(cte.Ctecoltypes))
-	}
+	assert.Equal(t, 2, len(cte.Ctecoltypes), "Expected 2 column types")
 }
 
 // ==============================================================================
@@ -441,36 +328,26 @@ func TestWindowClause(t *testing.T) {
 	wc := NewWindowClause("test_window")
 	
 	// Verify properties
-	if wc.Tag != T_WindowClause {
-		t.Errorf("Expected tag T_WindowClause, got %v", wc.Tag)
-	}
+	assert.Equal(t, T_WindowClause, wc.Tag, "Expected tag T_WindowClause")
 	
-	if wc.Name != "test_window" {
-		t.Errorf("Expected window name 'test_window', got %s", wc.Name)
-	}
+	assert.Equal(t, "test_window", wc.Name, "Expected window name 'test_window'")
 	
 	// Test string representation
 	str := wc.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestPartitionedWindowClause(t *testing.T) {
 	// Create partition expressions
-	col1 := NewColumnRef([]Node{NewString("col1")}, -1)
-	col2 := NewColumnRef([]Node{NewString("col2")}, -1)
+	col1 := NewColumnRef(NewString("col1"))
+	col2 := NewColumnRef(NewString("col2"))
 	partitionClause := []Node{col1, col2}
 	
 	wc := NewPartitionedWindowClause("partitioned_window", partitionClause)
 	
-	if len(wc.PartitionClause) != 2 {
-		t.Errorf("Expected 2 partition columns, got %d", len(wc.PartitionClause))
-	}
+	assert.Equal(t, 2, len(wc.PartitionClause), "Expected 2 partition columns")
 	
-	if wc.Name != "partitioned_window" {
-		t.Errorf("Expected window name 'partitioned_window', got %s", wc.Name)
-	}
+	assert.Equal(t, "partitioned_window", wc.Name, "Expected window name 'partitioned_window'")
 }
 
 func TestOrderedWindowClause(t *testing.T) {
@@ -481,13 +358,9 @@ func TestOrderedWindowClause(t *testing.T) {
 	
 	wc := NewOrderedWindowClause("ordered_window", orderClause)
 	
-	if len(wc.OrderClause) != 2 {
-		t.Errorf("Expected 2 order columns, got %d", len(wc.OrderClause))
-	}
+	assert.Equal(t, 2, len(wc.OrderClause), "Expected 2 order columns")
 	
-	if wc.Name != "ordered_window" {
-		t.Errorf("Expected window name 'ordered_window', got %s", wc.Name)
-	}
+	assert.Equal(t, "ordered_window", wc.Name, "Expected window name 'ordered_window'")
 }
 
 // ==============================================================================
@@ -498,45 +371,29 @@ func TestSortGroupClause(t *testing.T) {
 	sgc := NewSortGroupClause(1, 96, 97) // Sample equality and sort operators
 	
 	// Verify properties
-	if sgc.Tag != T_SortGroupClause {
-		t.Errorf("Expected tag T_SortGroupClause, got %v", sgc.Tag)
-	}
+	assert.Equal(t, T_SortGroupClause, sgc.Tag, "Expected tag T_SortGroupClause")
 	
-	if sgc.TleSortGroupRef != 1 {
-		t.Errorf("Expected tle sort group ref 1, got %d", sgc.TleSortGroupRef)
-	}
+	assert.Equal(t, Index(1), sgc.TleSortGroupRef, "Expected tle sort group ref 1")
 	
-	if sgc.Eqop != 96 {
-		t.Errorf("Expected equality operator 96, got %d", sgc.Eqop)
-	}
+	assert.Equal(t, Oid(96), sgc.Eqop, "Expected equality operator 96")
 	
-	if sgc.Sortop != 97 {
-		t.Errorf("Expected sort operator 97, got %d", sgc.Sortop)
-	}
+	assert.Equal(t, Oid(97), sgc.Sortop, "Expected sort operator 97")
 	
-	if sgc.NullsFirst {
-		t.Errorf("Expected NULLS LAST by default")
-	}
+	assert.False(t, sgc.NullsFirst, "Expected NULLS LAST by default")
 	
 	// Test string representation
 	str := sgc.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestSortGroupClauseNullsFirst(t *testing.T) {
 	sgc := NewSortGroupClauseNullsFirst(2, 96, 97)
 	
-	if !sgc.NullsFirst {
-		t.Errorf("Expected NULLS FIRST")
-	}
+	assert.True(t, sgc.NullsFirst, "Expected NULLS FIRST")
 	
 	// Test string representation includes "NULLS FIRST"
 	str := sgc.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 // ==============================================================================
@@ -547,27 +404,17 @@ func TestRowMarkClause(t *testing.T) {
 	rmc := NewRowMarkClause(1, ROW_MARK_EXCLUSIVE)
 	
 	// Verify properties
-	if rmc.Tag != T_RowMarkClause {
-		t.Errorf("Expected tag T_RowMarkClause, got %v", rmc.Tag)
-	}
+	assert.Equal(t, T_RowMarkClause, rmc.Tag, "Expected tag T_RowMarkClause")
 	
-	if rmc.Rti != 1 {
-		t.Errorf("Expected RTI 1, got %d", rmc.Rti)
-	}
+	assert.Equal(t, Index(1), rmc.Rti, "Expected RTI 1")
 	
-	if rmc.Strength != ROW_MARK_EXCLUSIVE {
-		t.Errorf("Expected ROW_MARK_EXCLUSIVE, got %v", rmc.Strength)
-	}
+	assert.Equal(t, ROW_MARK_EXCLUSIVE, rmc.Strength, "Expected ROW_MARK_EXCLUSIVE")
 	
-	if rmc.WaitPolicy != LockWaitBlock {
-		t.Errorf("Expected LockWaitBlock by default, got %v", rmc.WaitPolicy)
-	}
+	assert.Equal(t, LockWaitBlock, rmc.WaitPolicy, "Expected LockWaitBlock by default")
 	
 	// Test string representation
 	str := rmc.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestRowMarkTypes(t *testing.T) {
@@ -579,9 +426,7 @@ func TestRowMarkTypes(t *testing.T) {
 	
 	for _, markType := range markTypes {
 		rmc := NewRowMarkClause(1, markType)
-		if rmc.Strength != markType {
-			t.Errorf("Expected mark type %v, got %v", markType, rmc.Strength)
-		}
+		assert.Equal(t, markType, rmc.Strength, "Expected mark type to match")
 	}
 }
 
@@ -589,16 +434,12 @@ func TestRowMarkClauseWithPolicy(t *testing.T) {
 	// Test NOWAIT policy
 	rmc := NewRowMarkClauseWithPolicy(1, ROW_MARK_SHARE, LockWaitError)
 	
-	if rmc.WaitPolicy != LockWaitError {
-		t.Errorf("Expected LockWaitError, got %v", rmc.WaitPolicy)
-	}
+	assert.Equal(t, LockWaitError, rmc.WaitPolicy, "Expected LockWaitError")
 	
 	// Test SKIP LOCKED policy
 	rmc2 := NewRowMarkClauseWithPolicy(1, ROW_MARK_SHARE, LockWaitSkip)
 	
-	if rmc2.WaitPolicy != LockWaitSkip {
-		t.Errorf("Expected LockWaitSkip, got %v", rmc2.WaitPolicy)
-	}
+	assert.Equal(t, LockWaitSkip, rmc2.WaitPolicy, "Expected LockWaitSkip")
 }
 
 // ==============================================================================
@@ -609,53 +450,37 @@ func TestOnConflictExpr(t *testing.T) {
 	oce := NewOnConflictExpr(ONCONFLICT_NOTHING)
 	
 	// Verify properties
-	if oce.Tag != T_OnConflictExpr {
-		t.Errorf("Expected tag T_OnConflictExpr, got %v", oce.Tag)
-	}
+	assert.Equal(t, T_OnConflictExpr, oce.Tag, "Expected tag T_OnConflictExpr")
 	
-	if oce.Action != ONCONFLICT_NOTHING {
-		t.Errorf("Expected ONCONFLICT_NOTHING, got %v", oce.Action)
-	}
+	assert.Equal(t, ONCONFLICT_NOTHING, oce.Action, "Expected ONCONFLICT_NOTHING")
 	
 	// Test ExpressionType
-	if oce.ExpressionType() != "OnConflictExpr" {
-		t.Errorf("Expected ExpressionType 'OnConflictExpr', got %s", oce.ExpressionType())
-	}
+	assert.Equal(t, "OnConflictExpr", oce.ExpressionType(), "Expected ExpressionType 'OnConflictExpr'")
 	
 	// Test string representation
 	str := oce.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestOnConflictDoNothing(t *testing.T) {
 	oce := NewOnConflictDoNothing()
 	
-	if oce.Action != ONCONFLICT_NOTHING {
-		t.Errorf("Expected ONCONFLICT_NOTHING, got %v", oce.Action)
-	}
+	assert.Equal(t, ONCONFLICT_NOTHING, oce.Action, "Expected ONCONFLICT_NOTHING")
 	
-	if len(oce.OnConflictSet) != 0 {
-		t.Errorf("Expected empty conflict set for DO NOTHING")
-	}
+	assert.Equal(t, 0, len(oce.OnConflictSet), "Expected empty conflict set for DO NOTHING")
 }
 
 func TestOnConflictDoUpdate(t *testing.T) {
 	// Create update targets
-	target1 := NewResTarget("col1", NewConst(23, 100, false), -1)
-	target2 := NewResTarget("col2", NewConst(25, "updated", false), -1)
+	target1 := NewResTarget(stringPtr("col1"), NewConst(23, Datum(100), false))
+	target2 := NewResTarget(stringPtr("col2"), NewConst(25, Datum(0), false))
 	updateTargets := []Node{target1, target2}
 	
 	oce := NewOnConflictDoUpdate(updateTargets)
 	
-	if oce.Action != ONCONFLICT_UPDATE {
-		t.Errorf("Expected ONCONFLICT_UPDATE, got %v", oce.Action)
-	}
+	assert.Equal(t, ONCONFLICT_UPDATE, oce.Action, "Expected ONCONFLICT_UPDATE")
 	
-	if len(oce.OnConflictSet) != 2 {
-		t.Errorf("Expected 2 update targets, got %d", len(oce.OnConflictSet))
-	}
+	assert.Equal(t, 2, len(oce.OnConflictSet), "Expected 2 update targets")
 }
 
 func TestOnConflictActions(t *testing.T) {
@@ -666,9 +491,7 @@ func TestOnConflictActions(t *testing.T) {
 	
 	for _, action := range actions {
 		oce := NewOnConflictExpr(action)
-		if oce.Action != action {
-			t.Errorf("Expected conflict action %v, got %v", action, oce.Action)
-		}
+		assert.Equal(t, action, oce.Action, "Expected conflict action to match")
 	}
 }
 
@@ -684,41 +507,31 @@ func TestQueryExecutionNodesInteraction(t *testing.T) {
 	te := NewTargetEntry(expr, 1, "result_column")
 	
 	// Create a FromExpr with JoinExpr
-	table1 := NewRangeVar("public", "table1", -1)
-	table2 := NewRangeVar("public", "table2", -1)
-	joinQuals := NewConst(16, true, false) // boolean
+	table1 := NewRangeVar("table1", stringPtr("public"), nil)
+	table2 := NewRangeVar("table2", stringPtr("public"), nil)
+	joinQuals := NewConst(16, Datum(1), false) // boolean
 	join := NewJoinExpr(JOIN_INNER, table1, table2, joinQuals)
 	
 	fromExpr := NewFromExpr([]Node{join}, nil)
 	
 	// Verify they all have proper tags
-	if te.Tag != T_TargetEntry {
-		t.Errorf("TargetEntry tag incorrect")
-	}
+	assert.Equal(t, T_TargetEntry, te.Tag, "TargetEntry tag incorrect")
 	
-	if fromExpr.Tag != T_FromExpr {
-		t.Errorf("FromExpr tag incorrect")  
-	}
+	assert.Equal(t, T_FromExpr, fromExpr.Tag, "FromExpr tag incorrect")
 	
-	if join.Tag != T_JoinExpr {
-		t.Errorf("JoinExpr tag incorrect")
-	}
+	assert.Equal(t, T_JoinExpr, join.Tag, "JoinExpr tag incorrect")
 	
 	// Verify they can be used together
-	if len(fromExpr.Fromlist) != 1 {
-		t.Errorf("Expected 1 item in fromlist")
-	}
+	assert.Equal(t, 1, len(fromExpr.Fromlist), "Expected 1 item in fromlist")
 	
-	if fromExpr.Fromlist[0] != join {
-		t.Errorf("Expected join to be in fromlist")
-	}
+	assert.Equal(t, join, fromExpr.Fromlist[0], "Expected join to be in fromlist")
 }
 
 func TestCTEWithWindowFunction(t *testing.T) {
 	// Test interaction between CTE and window functions
 	
 	// Create a window clause
-	partitionCol := NewColumnRef([]Node{NewString("department")}, -1)
+	partitionCol := NewColumnRef(NewString("department"))
 	wc := NewPartitionedWindowClause("dept_window", []Node{partitionCol})
 	
 	// Create a CTE query (simplified)
@@ -726,17 +539,11 @@ func TestCTEWithWindowFunction(t *testing.T) {
 	cte := NewCommonTableExpr("department_stats", cteQuery)
 	
 	// Verify they work together
-	if wc.Tag != T_WindowClause {
-		t.Errorf("WindowClause tag incorrect")
-	}
+	assert.Equal(t, T_WindowClause, wc.Tag, "WindowClause tag incorrect")
 	
-	if cte.Tag != T_CommonTableExpr {
-		t.Errorf("CommonTableExpr tag incorrect")
-	}
+	assert.Equal(t, T_CommonTableExpr, cte.Tag, "CommonTableExpr tag incorrect")
 	
-	if len(wc.PartitionClause) != 1 {
-		t.Errorf("Expected 1 partition column")
-	}
+	assert.Equal(t, 1, len(wc.PartitionClause), "Expected 1 partition column")
 }
 
 // ==============================================================================
@@ -753,9 +560,9 @@ func BenchmarkTargetEntryCreation(b *testing.B) {
 }
 
 func BenchmarkJoinExprCreation(b *testing.B) {
-	larg := NewRangeVar("public", "left_table", -1)
-	rarg := NewRangeVar("public", "right_table", -1)
-	quals := NewConst(16, true, false)
+	larg := NewRangeVar("left_table", stringPtr("public"), nil)
+	rarg := NewRangeVar("right_table", stringPtr("public"), nil)
+	quals := NewConst(16, Datum(1), false)
 	b.ResetTimer()
 	
 	for i := 0; i < b.N; i++ {

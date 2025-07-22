@@ -4,6 +4,8 @@ package ast
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // ==============================================================================
@@ -18,62 +20,38 @@ func TestRelabelType(t *testing.T) {
 	rt := NewRelabelType(input, 20, -1, COERCE_EXPLICIT_CAST) // INT8
 	
 	// Verify properties
-	if rt.Tag != T_RelabelType {
-		t.Errorf("Expected tag T_RelabelType, got %v", rt.Tag)
-	}
+	assert.Equal(t, T_RelabelType, rt.Tag, "Expected tag T_RelabelType")
+	assert.Equal(t, input, rt.Arg, "Expected input argument to be set correctly")
+	assert.Equal(t, Oid(20), rt.Resulttype, "Expected result type 20")
 	
-	if rt.Arg != input {
-		t.Errorf("Expected input argument to be set correctly")
-	}
+	assert.Equal(t, int32(-1), rt.Resulttypmod, "Expected result typmod -1")
 	
-	if rt.Resulttype != 20 {
-		t.Errorf("Expected result type 20, got %d", rt.Resulttype)
-	}
-	
-	if rt.Resulttypmod != -1 {
-		t.Errorf("Expected result typmod -1, got %d", rt.Resulttypmod)
-	}
-	
-	if rt.Relabelformat != COERCE_EXPLICIT_CAST {
-		t.Errorf("Expected COERCE_EXPLICIT_CAST, got %v", rt.Relabelformat)
-	}
+	assert.Equal(t, COERCE_EXPLICIT_CAST, rt.Relabelformat, "Expected COERCE_EXPLICIT_CAST")
 	
 	// Test ExpressionType
-	if rt.ExpressionType() != "RelabelType" {
-		t.Errorf("Expected ExpressionType 'RelabelType', got %s", rt.ExpressionType())
-	}
+	assert.Equal(t, "RelabelType", rt.ExpressionType(), "Expected ExpressionType 'RelabelType'")
 	
 	// Test string representation
 	str := rt.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestImplicitRelabelType(t *testing.T) {
 	input := NewConst(23, 42, false)
 	rt := NewImplicitRelabelType(input, 25) // TEXT type
 	
-	if rt.Relabelformat != COERCE_IMPLICIT_CAST {
-		t.Errorf("Expected COERCE_IMPLICIT_CAST, got %v", rt.Relabelformat)
-	}
+	assert.Equal(t, COERCE_IMPLICIT_CAST, rt.Relabelformat, "Expected COERCE_IMPLICIT_CAST")
 	
-	if rt.Resulttype != 25 {
-		t.Errorf("Expected result type 25, got %d", rt.Resulttype)
-	}
+	assert.Equal(t, Oid(25), rt.Resulttype, "Expected result type 25")
 }
 
 func TestExplicitRelabelType(t *testing.T) {
 	input := NewConst(23, 42, false)
 	rt := NewExplicitRelabelType(input, 1700) // NUMERIC type
 	
-	if rt.Relabelformat != COERCE_EXPLICIT_CAST {
-		t.Errorf("Expected COERCE_EXPLICIT_CAST, got %v", rt.Relabelformat)
-	}
+	assert.Equal(t, COERCE_EXPLICIT_CAST, rt.Relabelformat, "Expected COERCE_EXPLICIT_CAST")
 	
-	if rt.Resulttype != 1700 {
-		t.Errorf("Expected result type 1700, got %d", rt.Resulttype)
-	}
+	assert.Equal(t, Oid(1700), rt.Resulttype, "Expected result type 1700")
 }
 
 // ==============================================================================
@@ -81,49 +59,33 @@ func TestExplicitRelabelType(t *testing.T) {
 // ==============================================================================
 
 func TestCoerceViaIO(t *testing.T) {
-	input := NewConst(25, "42", false) // TEXT constant
+	input := NewConst(25, Datum(42), false) // TEXT constant
 	cvio := NewCoerceViaIO(input, 23, COERCE_EXPLICIT_CAST) // Convert to INT4
 	
 	// Verify properties
-	if cvio.Tag != T_CoerceViaIO {
-		t.Errorf("Expected tag T_CoerceViaIO, got %v", cvio.Tag)
-	}
+	assert.Equal(t, T_CoerceViaIO, cvio.Tag, "Expected tag T_CoerceViaIO")
 	
-	if cvio.Arg != input {
-		t.Errorf("Expected input argument to be set correctly")
-	}
+	assert.Equal(t, input, cvio.Arg, "Expected input argument to be set correctly")
 	
-	if cvio.Resulttype != 23 {
-		t.Errorf("Expected result type 23, got %d", cvio.Resulttype)
-	}
+	assert.Equal(t, Oid(23), cvio.Resulttype, "Expected result type 23")
 	
-	if cvio.Coerceformat != COERCE_EXPLICIT_CAST {
-		t.Errorf("Expected COERCE_EXPLICIT_CAST, got %v", cvio.Coerceformat)
-	}
+	assert.Equal(t, COERCE_EXPLICIT_CAST, cvio.Coerceformat, "Expected COERCE_EXPLICIT_CAST")
 	
 	// Test ExpressionType
-	if cvio.ExpressionType() != "CoerceViaIO" {
-		t.Errorf("Expected ExpressionType 'CoerceViaIO', got %s", cvio.ExpressionType())
-	}
+	assert.Equal(t, "CoerceViaIO", cvio.ExpressionType(), "Expected ExpressionType 'CoerceViaIO'")
 	
 	// Test string representation
 	str := cvio.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestExplicitCoerceViaIO(t *testing.T) {
-	input := NewConst(25, "3.14", false)
+	input := NewConst(25, Datum(314), false)
 	cvio := NewExplicitCoerceViaIO(input, 700) // FLOAT4 type
 	
-	if cvio.Coerceformat != COERCE_EXPLICIT_CAST {
-		t.Errorf("Expected COERCE_EXPLICIT_CAST, got %v", cvio.Coerceformat)
-	}
+	assert.Equal(t, COERCE_EXPLICIT_CAST, cvio.Coerceformat, "Expected COERCE_EXPLICIT_CAST")
 	
-	if cvio.Resulttype != 700 {
-		t.Errorf("Expected result type 700, got %d", cvio.Resulttype)
-	}
+	assert.Equal(t, Oid(700), cvio.Resulttype, "Expected result type 700")
 }
 
 // ==============================================================================
@@ -132,51 +94,35 @@ func TestExplicitCoerceViaIO(t *testing.T) {
 
 func TestArrayCoerceExpr(t *testing.T) {
 	// Create an array expression
-	arrayExpr := NewConst(1007, []int{1, 2, 3}, false) // INT4 array
+	arrayExpr := NewConst(1007, Datum(123), false) // INT4 array
 	elemFuncId := Oid(481) // Example element coercion function
 	
 	ace := NewArrayCoerceExpr(arrayExpr, elemFuncId, 1016, COERCE_EXPLICIT_CAST) // INT8 array
 	
 	// Verify properties
-	if ace.Tag != T_ArrayCoerceExpr {
-		t.Errorf("Expected tag T_ArrayCoerceExpr, got %v", ace.Tag)
-	}
+	assert.Equal(t, T_ArrayCoerceExpr, ace.Tag, "Expected tag T_ArrayCoerceExpr")
 	
-	if ace.Arg != arrayExpr {
-		t.Errorf("Expected array argument to be set correctly")
-	}
+	assert.Equal(t, arrayExpr, ace.Arg, "Expected array argument to be set correctly")
 	
-	if ace.Elemfuncid != elemFuncId {
-		t.Errorf("Expected element function ID %d, got %d", elemFuncId, ace.Elemfuncid)
-	}
+	assert.Equal(t, elemFuncId, ace.Elemfuncid, "Expected element function ID to match")
 	
-	if ace.Resulttype != 1016 {
-		t.Errorf("Expected result type 1016, got %d", ace.Resulttype)
-	}
+	assert.Equal(t, Oid(1016), ace.Resulttype, "Expected result type 1016")
 	
 	// Test ExpressionType
-	if ace.ExpressionType() != "ArrayCoerceExpr" {
-		t.Errorf("Expected ExpressionType 'ArrayCoerceExpr', got %s", ace.ExpressionType())
-	}
+	assert.Equal(t, "ArrayCoerceExpr", ace.ExpressionType(), "Expected ExpressionType 'ArrayCoerceExpr'")
 	
 	// Test string representation
 	str := ace.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestExplicitArrayCoerceExpr(t *testing.T) {
-	arrayExpr := NewConst(1007, []int{1, 2, 3}, false)
+	arrayExpr := NewConst(1007, Datum(123), false)
 	ace := NewExplicitArrayCoerceExpr(arrayExpr, 481, 1009) // TEXTARRAY
 	
-	if !ace.Isexplicit {
-		t.Errorf("Expected explicit array coercion")
-	}
+	assert.True(t, ace.Isexplicit, "Expected explicit array coercion")
 	
-	if ace.Coerceformat != COERCE_EXPLICIT_CAST {
-		t.Errorf("Expected COERCE_EXPLICIT_CAST, got %v", ace.Coerceformat)
-	}
+	assert.Equal(t, COERCE_EXPLICIT_CAST, ace.Coerceformat, "Expected COERCE_EXPLICIT_CAST")
 }
 
 // ==============================================================================
@@ -185,37 +131,25 @@ func TestExplicitArrayCoerceExpr(t *testing.T) {
 
 func TestConvertRowtypeExpr(t *testing.T) {
 	// Create a row expression
-	rowExpr := NewConst(16, true, false) // Placeholder row value
+	rowExpr := NewConst(16, Datum(1), false) // Placeholder row value
 	
 	crte := NewConvertRowtypeExpr(rowExpr, 12345, COERCE_IMPLICIT_CAST)
 	
 	// Verify properties
-	if crte.Tag != T_ConvertRowtypeExpr {
-		t.Errorf("Expected tag T_ConvertRowtypeExpr, got %v", crte.Tag)
-	}
+	assert.Equal(t, T_ConvertRowtypeExpr, crte.Tag, "Expected tag T_ConvertRowtypeExpr")
 	
-	if crte.Arg != rowExpr {
-		t.Errorf("Expected row argument to be set correctly")
-	}
+	assert.Equal(t, rowExpr, crte.Arg, "Expected row argument to be set correctly")
 	
-	if crte.Resulttype != 12345 {
-		t.Errorf("Expected result type 12345, got %d", crte.Resulttype)
-	}
+	assert.Equal(t, Oid(12345), crte.Resulttype, "Expected result type 12345")
 	
-	if crte.Convertformat != COERCE_IMPLICIT_CAST {
-		t.Errorf("Expected COERCE_IMPLICIT_CAST, got %v", crte.Convertformat)
-	}
+	assert.Equal(t, COERCE_IMPLICIT_CAST, crte.Convertformat, "Expected COERCE_IMPLICIT_CAST")
 	
 	// Test ExpressionType
-	if crte.ExpressionType() != "ConvertRowtypeExpr" {
-		t.Errorf("Expected ExpressionType 'ConvertRowtypeExpr', got %s", crte.ExpressionType())
-	}
+	assert.Equal(t, "ConvertRowtypeExpr", crte.ExpressionType(), "Expected ExpressionType 'ConvertRowtypeExpr'")
 	
 	// Test string representation
 	str := crte.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 // ==============================================================================
@@ -223,34 +157,24 @@ func TestConvertRowtypeExpr(t *testing.T) {
 // ==============================================================================
 
 func TestCollateExpr(t *testing.T) {
-	textExpr := NewConst(25, "hello", false) // TEXT value
+	textExpr := NewConst(25, Datum(0), false) // TEXT value
 	collOid := Oid(100) // Example collation OID
 	
 	ce := NewCollateExpr(textExpr, collOid)
 	
 	// Verify properties
-	if ce.Tag != T_CollateExpr {
-		t.Errorf("Expected tag T_CollateExpr, got %v", ce.Tag)
-	}
+	assert.Equal(t, T_CollateExpr, ce.Tag, "Expected tag T_CollateExpr")
 	
-	if ce.Arg != textExpr {
-		t.Errorf("Expected text argument to be set correctly")
-	}
+	assert.Equal(t, textExpr, ce.Arg, "Expected text argument to be set correctly")
 	
-	if ce.CollOid != collOid {
-		t.Errorf("Expected collation OID %d, got %d", collOid, ce.CollOid)
-	}
+	assert.Equal(t, collOid, ce.CollOid, "Expected collation OID to match")
 	
 	// Test ExpressionType
-	if ce.ExpressionType() != "CollateExpr" {
-		t.Errorf("Expected ExpressionType 'CollateExpr', got %s", ce.ExpressionType())
-	}
+	assert.Equal(t, "CollateExpr", ce.ExpressionType(), "Expected ExpressionType 'CollateExpr'")
 	
 	// Test string representation
 	str := ce.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 // ==============================================================================
@@ -259,41 +183,27 @@ func TestCollateExpr(t *testing.T) {
 
 func TestFieldSelect(t *testing.T) {
 	// Create a composite type expression
-	recordExpr := NewConst(16, true, false) // Placeholder record
+	recordExpr := NewConst(16, Datum(1), false) // Placeholder record
 	
 	fs := NewFieldSelect(recordExpr, 2, 25) // Select field 2, result type TEXT
 	
 	// Verify properties
-	if fs.Tag != T_FieldSelect {
-		t.Errorf("Expected tag T_FieldSelect, got %v", fs.Tag)
-	}
+	assert.Equal(t, T_FieldSelect, fs.Tag, "Expected tag T_FieldSelect")
 	
-	if fs.Arg != recordExpr {
-		t.Errorf("Expected record argument to be set correctly")
-	}
+	assert.Equal(t, recordExpr, fs.Arg, "Expected record argument to be set correctly")
 	
-	if fs.Fieldnum != 2 {
-		t.Errorf("Expected field number 2, got %d", fs.Fieldnum)
-	}
+	assert.Equal(t, AttrNumber(2), fs.Fieldnum, "Expected field number 2")
 	
-	if fs.Resulttype != 25 {
-		t.Errorf("Expected result type 25, got %d", fs.Resulttype)
-	}
+	assert.Equal(t, Oid(25), fs.Resulttype, "Expected result type 25")
 	
-	if fs.Resulttypmod != -1 {
-		t.Errorf("Expected result typmod -1, got %d", fs.Resulttypmod)
-	}
+	assert.Equal(t, int32(-1), fs.Resulttypmod, "Expected result typmod -1")
 	
 	// Test ExpressionType
-	if fs.ExpressionType() != "FieldSelect" {
-		t.Errorf("Expected ExpressionType 'FieldSelect', got %s", fs.ExpressionType())
-	}
+	assert.Equal(t, "FieldSelect", fs.ExpressionType(), "Expected ExpressionType 'FieldSelect'")
 	
 	// Test string representation
 	str := fs.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 // ==============================================================================
@@ -301,66 +211,44 @@ func TestFieldSelect(t *testing.T) {
 // ==============================================================================
 
 func TestFieldStore(t *testing.T) {
-	recordExpr := NewConst(16, true, false) // Placeholder record
+	recordExpr := NewConst(16, Datum(1), false) // Placeholder record
 	newVal1 := NewConst(23, 42, false)      // INT4 value
-	newVal2 := NewConst(25, "hello", false) // TEXT value
+	newVal2 := NewConst(25, Datum(0), false) // TEXT value
 	
 	fs := NewFieldStore(recordExpr, []Expression{newVal1, newVal2}, []AttrNumber{1, 3}, 12345)
 	
 	// Verify properties
-	if fs.Tag != T_FieldStore {
-		t.Errorf("Expected tag T_FieldStore, got %v", fs.Tag)
-	}
+	assert.Equal(t, T_FieldStore, fs.Tag, "Expected tag T_FieldStore")
 	
-	if fs.Arg != recordExpr {
-		t.Errorf("Expected record argument to be set correctly")
-	}
+	assert.Equal(t, recordExpr, fs.Arg, "Expected record argument to be set correctly")
 	
-	if len(fs.Newvals) != 2 {
-		t.Errorf("Expected 2 new values, got %d", len(fs.Newvals))
-	}
+	assert.Equal(t, 2, len(fs.Newvals), "Expected 2 new values")
 	
-	if len(fs.Fieldnums) != 2 {
-		t.Errorf("Expected 2 field numbers, got %d", len(fs.Fieldnums))
-	}
+	assert.Equal(t, 2, len(fs.Fieldnums), "Expected 2 field numbers")
 	
-	if fs.Fieldnums[0] != 1 || fs.Fieldnums[1] != 3 {
-		t.Errorf("Expected field numbers [1, 3], got %v", fs.Fieldnums)
-	}
+	assert.Equal(t, []AttrNumber{1, 3}, fs.Fieldnums, "Expected field numbers [1, 3]")
 	
-	if fs.Resulttype != 12345 {
-		t.Errorf("Expected result type 12345, got %d", fs.Resulttype)
-	}
+	assert.Equal(t, Oid(12345), fs.Resulttype, "Expected result type 12345")
 	
 	// Test ExpressionType
-	if fs.ExpressionType() != "FieldStore" {
-		t.Errorf("Expected ExpressionType 'FieldStore', got %s", fs.ExpressionType())
-	}
+	assert.Equal(t, "FieldStore", fs.ExpressionType(), "Expected ExpressionType 'FieldStore'")
 	
 	// Test string representation
 	str := fs.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestSingleFieldStore(t *testing.T) {
-	recordExpr := NewConst(16, true, false)
+	recordExpr := NewConst(16, Datum(1), false)
 	newVal := NewConst(23, 99, false)
 	
 	fs := NewSingleFieldStore(recordExpr, newVal, 2, 12345)
 	
-	if len(fs.Newvals) != 1 {
-		t.Errorf("Expected 1 new value, got %d", len(fs.Newvals))
-	}
+	assert.Equal(t, 1, len(fs.Newvals), "Expected 1 new value")
 	
-	if len(fs.Fieldnums) != 1 {
-		t.Errorf("Expected 1 field number, got %d", len(fs.Fieldnums))
-	}
+	assert.Equal(t, 1, len(fs.Fieldnums), "Expected 1 field number")
 	
-	if fs.Fieldnums[0] != 2 {
-		t.Errorf("Expected field number 2, got %d", fs.Fieldnums[0])
-	}
+	assert.Equal(t, AttrNumber(2), fs.Fieldnums[0], "Expected field number 2")
 }
 
 // ==============================================================================
@@ -368,95 +256,67 @@ func TestSingleFieldStore(t *testing.T) {
 // ==============================================================================
 
 func TestSubscriptingRef(t *testing.T) {
-	arrayExpr := NewConst(1007, []int{1, 2, 3}, false) // INT4 array
+	arrayExpr := NewConst(1007, Datum(123), false) // INT4 array
 	indexExpr := NewConst(23, 1, false)                // Index 1
 	
 	sr := NewSubscriptingRef(1007, 23, arrayExpr, []Expression{indexExpr})
 	
 	// Verify properties
-	if sr.Tag != T_SubscriptingRef {
-		t.Errorf("Expected tag T_SubscriptingRef, got %v", sr.Tag)
-	}
+	assert.Equal(t, T_SubscriptingRef, sr.Tag, "Expected tag T_SubscriptingRef")
 	
-	if sr.Refcontainertype != 1007 {
-		t.Errorf("Expected container type 1007, got %d", sr.Refcontainertype)
-	}
+	assert.Equal(t, Oid(1007), sr.Refcontainertype, "Expected container type 1007")
 	
-	if sr.Refelemtype != 23 {
-		t.Errorf("Expected element type 23, got %d", sr.Refelemtype)
-	}
+	assert.Equal(t, Oid(23), sr.Refelemtype, "Expected element type 23")
 	
-	if sr.Refexpr != arrayExpr {
-		t.Errorf("Expected array expression to be set correctly")
-	}
+	assert.Equal(t, arrayExpr, sr.Refexpr, "Expected array expression to be set correctly")
 	
-	if len(sr.Refupperindexpr) != 1 {
-		t.Errorf("Expected 1 upper index expression, got %d", len(sr.Refupperindexpr))
-	}
+	assert.Equal(t, 1, len(sr.Refupperindexpr), "Expected 1 upper index expression")
 	
 	// Test ExpressionType
-	if sr.ExpressionType() != "SubscriptingRef" {
-		t.Errorf("Expected ExpressionType 'SubscriptingRef', got %s", sr.ExpressionType())
-	}
+	assert.Equal(t, "SubscriptingRef", sr.ExpressionType(), "Expected ExpressionType 'SubscriptingRef'")
 	
 	// Test string representation
 	str := sr.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestArraySubscript(t *testing.T) {
-	arrayExpr := NewConst(1007, []int{1, 2, 3}, false)
+	arrayExpr := NewConst(1007, Datum(123), false)
 	indexExpr := NewConst(23, 1, false)
 	
 	sr := NewArraySubscript(1007, 23, arrayExpr, indexExpr)
 	
-	if len(sr.Refupperindexpr) != 1 {
-		t.Errorf("Expected 1 upper index expression, got %d", len(sr.Refupperindexpr))
-	}
+	assert.Equal(t, 1, len(sr.Refupperindexpr), "Expected 1 upper index expression")
 	
-	if len(sr.Reflowerindexpr) != 0 {
-		t.Errorf("Expected no lower index expressions, got %d", len(sr.Reflowerindexpr))
-	}
+	assert.Equal(t, 0, len(sr.Reflowerindexpr), "Expected no lower index expressions")
 	
-	if sr.Refassgnexpr != nil {
-		t.Errorf("Expected no assignment expression")
-	}
+	assert.Nil(t, sr.Refassgnexpr, "Expected no assignment expression")
 }
 
 func TestArraySlice(t *testing.T) {
-	arrayExpr := NewConst(1007, []int{1, 2, 3}, false)
+	arrayExpr := NewConst(1007, Datum(123), false)
 	lowerExpr := NewConst(23, 1, false)
 	upperExpr := NewConst(23, 3, false)
 	
 	sr := NewArraySlice(1007, 23, arrayExpr, lowerExpr, upperExpr)
 	
-	if len(sr.Refupperindexpr) != 1 {
-		t.Errorf("Expected 1 upper index expression, got %d", len(sr.Refupperindexpr))
-	}
+	assert.Equal(t, 1, len(sr.Refupperindexpr), "Expected 1 upper index expression")
 	
-	if len(sr.Reflowerindexpr) != 1 {
-		t.Errorf("Expected 1 lower index expression, got %d", len(sr.Reflowerindexpr))
-	}
+	assert.Equal(t, 1, len(sr.Reflowerindexpr), "Expected 1 lower index expression")
 }
 
 func TestArrayAssignment(t *testing.T) {
-	arrayExpr := NewConst(1007, []int{1, 2, 3}, false)
+	arrayExpr := NewConst(1007, Datum(123), false)
 	indexExpr := NewConst(23, 1, false)
 	assignExpr := NewConst(23, 99, false)
 	
 	sr := NewArrayAssignment(1007, 23, arrayExpr, indexExpr, assignExpr)
 	
-	if sr.Refassgnexpr != assignExpr {
-		t.Errorf("Expected assignment expression to be set correctly")
-	}
+	assert.Equal(t, assignExpr, sr.Refassgnexpr, "Expected assignment expression to be set correctly")
 	
 	// Test string representation includes assignment
 	str := sr.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 // ==============================================================================
@@ -468,65 +328,45 @@ func TestNullTest(t *testing.T) {
 	nt := NewNullTest(expr, IS_NULL)
 	
 	// Verify properties
-	if nt.Tag != T_NullTest {
-		t.Errorf("Expected tag T_NullTest, got %v", nt.Tag)
-	}
+	assert.Equal(t, T_NullTest, nt.Tag, "Expected tag T_NullTest")
 	
-	if nt.Arg != expr {
-		t.Errorf("Expected argument to be set correctly")
-	}
+	assert.Equal(t, expr, nt.Arg, "Expected argument to be set correctly")
 	
-	if nt.Nulltesttype != IS_NULL {
-		t.Errorf("Expected IS_NULL, got %v", nt.Nulltesttype)
-	}
+	assert.Equal(t, IS_NULL, nt.Nulltesttype, "Expected IS_NULL")
 	
-	if nt.Argisrow {
-		t.Errorf("Expected non-row argument by default")
-	}
+	assert.False(t, nt.Argisrow, "Expected non-row argument by default")
 	
 	// Test ExpressionType
-	if nt.ExpressionType() != "NullTest" {
-		t.Errorf("Expected ExpressionType 'NullTest', got %s", nt.ExpressionType())
-	}
+	assert.Equal(t, "NullTest", nt.ExpressionType(), "Expected ExpressionType 'NullTest'")
 	
 	// Test string representation
 	str := nt.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestIsNullTest(t *testing.T) {
 	expr := NewConst(23, 42, false)
 	nt := NewIsNullTest(expr)
 	
-	if nt.Nulltesttype != IS_NULL {
-		t.Errorf("Expected IS_NULL, got %v", nt.Nulltesttype)
-	}
+	assert.Equal(t, IS_NULL, nt.Nulltesttype, "Expected IS_NULL")
 }
 
 func TestIsNotNullTest(t *testing.T) {
 	expr := NewConst(23, 42, false)
 	nt := NewIsNotNullTest(expr)
 	
-	if nt.Nulltesttype != IS_NOT_NULL {
-		t.Errorf("Expected IS_NOT_NULL, got %v", nt.Nulltesttype)
-	}
+	assert.Equal(t, IS_NOT_NULL, nt.Nulltesttype, "Expected IS_NOT_NULL")
 }
 
 func TestRowNullTest(t *testing.T) {
-	rowExpr := NewConst(16, true, false) // Row value
+	rowExpr := NewConst(16, Datum(1), false) // Row value
 	nt := NewRowNullTest(rowExpr, IS_NULL)
 	
-	if !nt.Argisrow {
-		t.Errorf("Expected row argument flag to be set")
-	}
+	assert.True(t, nt.Argisrow, "Expected row argument flag to be set")
 	
 	// Test string representation includes "(ROW)"
 	str := nt.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 // ==============================================================================
@@ -534,36 +374,26 @@ func TestRowNullTest(t *testing.T) {
 // ==============================================================================
 
 func TestBooleanTest(t *testing.T) {
-	boolExpr := NewConst(16, true, false) // Boolean value
+	boolExpr := NewConst(16, Datum(1), false) // Boolean value
 	bt := NewBooleanTest(boolExpr, IS_TRUE)
 	
 	// Verify properties
-	if bt.Tag != T_BooleanTest {
-		t.Errorf("Expected tag T_BooleanTest, got %v", bt.Tag)
-	}
+	assert.Equal(t, T_BooleanTest, bt.Tag, "Expected tag T_BooleanTest")
 	
-	if bt.Arg != boolExpr {
-		t.Errorf("Expected boolean argument to be set correctly")
-	}
+	assert.Equal(t, boolExpr, bt.Arg, "Expected boolean argument to be set correctly")
 	
-	if bt.Booltesttype != IS_TRUE {
-		t.Errorf("Expected IS_TRUE, got %v", bt.Booltesttype)
-	}
+	assert.Equal(t, IS_TRUE, bt.Booltesttype, "Expected IS_TRUE")
 	
 	// Test ExpressionType
-	if bt.ExpressionType() != "BooleanTest" {
-		t.Errorf("Expected ExpressionType 'BooleanTest', got %s", bt.ExpressionType())
-	}
+	assert.Equal(t, "BooleanTest", bt.ExpressionType(), "Expected ExpressionType 'BooleanTest'")
 	
 	// Test string representation
 	str := bt.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestBooleanTestTypes(t *testing.T) {
-	boolExpr := NewConst(16, true, false)
+	boolExpr := NewConst(16, Datum(1), false)
 	
 	// Test all boolean test types
 	testTypes := []BoolTestType{
@@ -572,37 +402,29 @@ func TestBooleanTestTypes(t *testing.T) {
 	
 	for _, testType := range testTypes {
 		bt := NewBooleanTest(boolExpr, testType)
-		if bt.Booltesttype != testType {
-			t.Errorf("Expected boolean test type %v, got %v", testType, bt.Booltesttype)
-		}
+		assert.Equal(t, testType, bt.Booltesttype, "Expected boolean test type to match")
 	}
 }
 
 func TestIsTrueTest(t *testing.T) {
-	boolExpr := NewConst(16, true, false)
+	boolExpr := NewConst(16, Datum(1), false)
 	bt := NewIsTrueTest(boolExpr)
 	
-	if bt.Booltesttype != IS_TRUE {
-		t.Errorf("Expected IS_TRUE, got %v", bt.Booltesttype)
-	}
+	assert.Equal(t, IS_TRUE, bt.Booltesttype, "Expected IS_TRUE")
 }
 
 func TestIsFalseTest(t *testing.T) {
-	boolExpr := NewConst(16, false, false)
+	boolExpr := NewConst(16, Datum(0), false)
 	bt := NewIsFalseTest(boolExpr)
 	
-	if bt.Booltesttype != IS_FALSE {
-		t.Errorf("Expected IS_FALSE, got %v", bt.Booltesttype)
-	}
+	assert.Equal(t, IS_FALSE, bt.Booltesttype, "Expected IS_FALSE")
 }
 
 func TestIsUnknownTest(t *testing.T) {
-	nullExpr := NewConst(16, nil, true) // NULL boolean
+	nullExpr := NewConst(16, Datum(0), true) // NULL boolean
 	bt := NewIsUnknownTest(nullExpr)
 	
-	if bt.Booltesttype != IS_UNKNOWN {
-		t.Errorf("Expected IS_UNKNOWN, got %v", bt.Booltesttype)
-	}
+	assert.Equal(t, IS_UNKNOWN, bt.Booltesttype, "Expected IS_UNKNOWN")
 }
 
 // ==============================================================================
@@ -616,60 +438,38 @@ func TestCoerceToDomain(t *testing.T) {
 	ctd := NewCoerceToDomain(expr, domainOid, -1, COERCE_IMPLICIT_CAST)
 	
 	// Verify properties
-	if ctd.Tag != T_CoerceToDomain {
-		t.Errorf("Expected tag T_CoerceToDomain, got %v", ctd.Tag)
-	}
+	assert.Equal(t, T_CoerceToDomain, ctd.Tag, "Expected tag T_CoerceToDomain")
 	
-	if ctd.Arg != expr {
-		t.Errorf("Expected argument to be set correctly")
-	}
+	assert.Equal(t, expr, ctd.Arg, "Expected argument to be set correctly")
 	
-	if ctd.Resulttype != domainOid {
-		t.Errorf("Expected result type %d, got %d", domainOid, ctd.Resulttype)
-	}
+	assert.Equal(t, domainOid, ctd.Resulttype, "Expected result type to match")
 	
-	if ctd.Coercionformat != COERCE_IMPLICIT_CAST {
-		t.Errorf("Expected COERCE_IMPLICIT_CAST, got %v", ctd.Coercionformat)
-	}
+	assert.Equal(t, COERCE_IMPLICIT_CAST, ctd.Coercionformat, "Expected COERCE_IMPLICIT_CAST")
 	
 	// Test ExpressionType
-	if ctd.ExpressionType() != "CoerceToDomain" {
-		t.Errorf("Expected ExpressionType 'CoerceToDomain', got %s", ctd.ExpressionType())
-	}
+	assert.Equal(t, "CoerceToDomain", ctd.ExpressionType(), "Expected ExpressionType 'CoerceToDomain'")
 	
 	// Test string representation
 	str := ctd.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestCoerceToDomainValue(t *testing.T) {
 	ctdv := NewCoerceToDomainValue(100, 200)
 	
 	// Verify properties
-	if ctdv.Tag != T_CoerceToDomainValue {
-		t.Errorf("Expected tag T_CoerceToDomainValue, got %v", ctdv.Tag)
-	}
+	assert.Equal(t, T_CoerceToDomainValue, ctdv.Tag, "Expected tag T_CoerceToDomainValue")
 	
-	if ctdv.Typemod != 100 {
-		t.Errorf("Expected typemod 100, got %d", ctdv.Typemod)
-	}
+	assert.Equal(t, int32(100), ctdv.Typemod, "Expected typemod 100")
 	
-	if ctdv.Collation != 200 {
-		t.Errorf("Expected collation 200, got %d", ctdv.Collation)
-	}
+	assert.Equal(t, Oid(200), ctdv.Collation, "Expected collation 200")
 	
 	// Test ExpressionType
-	if ctdv.ExpressionType() != "CoerceToDomainValue" {
-		t.Errorf("Expected ExpressionType 'CoerceToDomainValue', got %s", ctdv.ExpressionType())
-	}
+	assert.Equal(t, "CoerceToDomainValue", ctdv.ExpressionType(), "Expected ExpressionType 'CoerceToDomainValue'")
 	
 	// Test string representation
 	str := ctdv.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 // ==============================================================================
@@ -680,158 +480,102 @@ func TestSetToDefault(t *testing.T) {
 	std := NewSetToDefault(100, 200)
 	
 	// Verify properties
-	if std.Tag != T_SetToDefault {
-		t.Errorf("Expected tag T_SetToDefault, got %v", std.Tag)
-	}
+	assert.Equal(t, T_SetToDefault, std.Tag, "Expected tag T_SetToDefault")
 	
-	if std.Typemod != 100 {
-		t.Errorf("Expected typemod 100, got %d", std.Typemod)
-	}
+	assert.Equal(t, int32(100), std.Typemod, "Expected typemod 100")
 	
-	if std.Collation != 200 {
-		t.Errorf("Expected collation 200, got %d", std.Collation)
-	}
+	assert.Equal(t, Oid(200), std.Collation, "Expected collation 200")
 	
 	// Test ExpressionType
-	if std.ExpressionType() != "SetToDefault" {
-		t.Errorf("Expected ExpressionType 'SetToDefault', got %s", std.ExpressionType())
-	}
+	assert.Equal(t, "SetToDefault", std.ExpressionType(), "Expected ExpressionType 'SetToDefault'")
 	
 	// Test string representation
 	str := std.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestCurrentOfExpr(t *testing.T) {
 	coe := NewCurrentOfExpr(1, "my_cursor")
 	
 	// Verify properties
-	if coe.Tag != T_CurrentOfExpr {
-		t.Errorf("Expected tag T_CurrentOfExpr, got %v", coe.Tag)
-	}
+	assert.Equal(t, T_CurrentOfExpr, coe.Tag, "Expected tag T_CurrentOfExpr")
 	
-	if coe.CvarNo != 1 {
-		t.Errorf("Expected cvar number 1, got %d", coe.CvarNo)
-	}
+	assert.Equal(t, Index(1), coe.CvarNo, "Expected cvar number 1")
 	
-	if coe.CursorName != "my_cursor" {
-		t.Errorf("Expected cursor name 'my_cursor', got %s", coe.CursorName)
-	}
+	assert.Equal(t, "my_cursor", coe.CursorName, "Expected cursor name 'my_cursor'")
 	
-	if coe.CursorParam != 0 {
-		t.Errorf("Expected cursor param 0, got %d", coe.CursorParam)
-	}
+	assert.Equal(t, int(0), coe.CursorParam, "Expected cursor param 0")
 	
 	// Test ExpressionType
-	if coe.ExpressionType() != "CurrentOfExpr" {
-		t.Errorf("Expected ExpressionType 'CurrentOfExpr', got %s", coe.ExpressionType())
-	}
+	assert.Equal(t, "CurrentOfExpr", coe.ExpressionType(), "Expected ExpressionType 'CurrentOfExpr'")
 	
 	// Test string representation
 	str := coe.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestCurrentOfExprParam(t *testing.T) {
 	coe := NewCurrentOfExprParam(2, 5)
 	
-	if coe.CursorName != "" {
-		t.Errorf("Expected empty cursor name, got %s", coe.CursorName)
-	}
+	assert.Empty(t, coe.CursorName, "Expected empty cursor name")
 	
-	if coe.CursorParam != 5 {
-		t.Errorf("Expected cursor param 5, got %d", coe.CursorParam)
-	}
+	assert.Equal(t, int(5), coe.CursorParam, "Expected cursor param 5")
 	
 	// Test string representation includes parameter
 	str := coe.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestNextValueExpr(t *testing.T) {
 	nve := NewNextValueExpr(12345, 20) // Sequence OID 12345, BIGINT result
 	
 	// Verify properties
-	if nve.Tag != T_NextValueExpr {
-		t.Errorf("Expected tag T_NextValueExpr, got %v", nve.Tag)
-	}
+	assert.Equal(t, T_NextValueExpr, nve.Tag, "Expected tag T_NextValueExpr")
 	
-	if nve.SeqId != 12345 {
-		t.Errorf("Expected sequence ID 12345, got %d", nve.SeqId)
-	}
+	assert.Equal(t, Oid(12345), nve.SeqId, "Expected sequence ID 12345")
 	
-	if nve.TypeId != 20 {
-		t.Errorf("Expected type ID 20, got %d", nve.TypeId)
-	}
+	assert.Equal(t, Oid(20), nve.TypeId, "Expected type ID 20")
 	
 	// Test ExpressionType
-	if nve.ExpressionType() != "NextValueExpr" {
-		t.Errorf("Expected ExpressionType 'NextValueExpr', got %s", nve.ExpressionType())
-	}
+	assert.Equal(t, "NextValueExpr", nve.ExpressionType(), "Expected ExpressionType 'NextValueExpr'")
 	
 	// Test string representation
 	str := nve.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestInferenceElem(t *testing.T) {
-	expr := NewColumnRef([]Node{NewString("id")}, -1)
+	expr := NewColumnRef(NewString("id"))
 	ie := NewInferenceElem(expr)
 	
 	// Verify properties
-	if ie.Tag != T_InferenceElem {
-		t.Errorf("Expected tag T_InferenceElem, got %v", ie.Tag)
-	}
+	assert.Equal(t, T_InferenceElem, ie.Tag, "Expected tag T_InferenceElem")
 	
-	if ie.Expr != expr {
-		t.Errorf("Expected expression to be set correctly")
-	}
+	assert.Equal(t, expr, ie.Expr, "Expected expression to be set correctly")
 	
-	if ie.Infercollid != 0 {
-		t.Errorf("Expected collation ID 0, got %d", ie.Infercollid)
-	}
+	assert.Equal(t, Oid(0), ie.Infercollid, "Expected collation ID 0")
 	
-	if ie.Inferopclass != 0 {
-		t.Errorf("Expected operator class 0, got %d", ie.Inferopclass)
-	}
+	assert.Equal(t, Oid(0), ie.Inferopclass, "Expected operator class 0")
 	
 	// Test ExpressionType
-	if ie.ExpressionType() != "InferenceElem" {
-		t.Errorf("Expected ExpressionType 'InferenceElem', got %s", ie.ExpressionType())
-	}
+	assert.Equal(t, "InferenceElem", ie.ExpressionType(), "Expected ExpressionType 'InferenceElem'")
 	
 	// Test string representation
 	str := ie.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 func TestInferenceElemWithCollation(t *testing.T) {
-	expr := NewColumnRef([]Node{NewString("name")}, -1)
+	expr := NewColumnRef(NewString("name"))
 	ie := NewInferenceElemWithCollation(expr, 100, 200)
 	
-	if ie.Infercollid != 100 {
-		t.Errorf("Expected inference collation ID 100, got %d", ie.Infercollid)
-	}
+	assert.Equal(t, Oid(100), ie.Infercollid, "Expected inference collation ID 100")
 	
-	if ie.Inferopclass != 200 {
-		t.Errorf("Expected inference operator class 200, got %d", ie.Inferopclass)
-	}
+	assert.Equal(t, Oid(200), ie.Inferopclass, "Expected inference operator class 200")
 	
 	// Test string representation includes collation info
 	str := ie.String()
-	if str == "" {
-		t.Errorf("String representation should not be empty")
-	}
+	assert.NotEmpty(t, str, "String representation should not be empty")
 }
 
 // ==============================================================================
@@ -849,27 +593,19 @@ func TestTypeCoercionInteraction(t *testing.T) {
 	domainCoercion := NewCoerceToDomain(textCoercion, 54321, -1, COERCE_IMPLICIT_CAST)
 	
 	// Verify chain works
-	if textCoercion.Arg != intExpr {
-		t.Errorf("Expected text coercion input to be int expression")
-	}
+	assert.Equal(t, intExpr, textCoercion.Arg, "Expected text coercion input to be int expression")
 	
-	if domainCoercion.Arg != textCoercion {
-		t.Errorf("Expected domain coercion input to be text coercion")
-	}
+	assert.Equal(t, textCoercion, domainCoercion.Arg, "Expected domain coercion input to be text coercion")
 	
 	// Verify types
-	if textCoercion.Tag != T_CoerceViaIO {
-		t.Errorf("Expected T_CoerceViaIO tag")
-	}
+	assert.Equal(t, T_CoerceViaIO, textCoercion.Tag, "Expected T_CoerceViaIO tag")
 	
-	if domainCoercion.Tag != T_CoerceToDomain {
-		t.Errorf("Expected T_CoerceToDomain tag")
-	}
+	assert.Equal(t, T_CoerceToDomain, domainCoercion.Tag, "Expected T_CoerceToDomain tag")
 }
 
 func TestFieldOperationsWithArrays(t *testing.T) {
 	// Test field selection from composite type containing arrays
-	recordExpr := NewConst(16, true, false) // Record
+	recordExpr := NewConst(16, Datum(1), false) // Record
 	
 	// Select array field
 	arrayField := NewFieldSelect(recordExpr, 1, 1007) // INT4 array
@@ -879,24 +615,18 @@ func TestFieldOperationsWithArrays(t *testing.T) {
 	arraySubscript := NewArraySubscript(1007, 23, arrayField, indexExpr)
 	
 	// Verify integration
-	if arrayField.Fieldnum != 1 {
-		t.Errorf("Expected field number 1")
-	}
+	assert.Equal(t, AttrNumber(1), arrayField.Fieldnum, "Expected field number 1")
 	
-	if arraySubscript.Refexpr != arrayField {
-		t.Errorf("Expected array subscript to reference field select")
-	}
+	assert.Equal(t, arrayField, arraySubscript.Refexpr, "Expected array subscript to reference field select")
 	
-	if arraySubscript.Tag != T_SubscriptingRef {
-		t.Errorf("Expected T_SubscriptingRef tag")
-	}
+	assert.Equal(t, T_SubscriptingRef, arraySubscript.Tag, "Expected T_SubscriptingRef tag")
 }
 
 func TestComplexNullAndBooleanTests(t *testing.T) {
 	// Test complex expressions with NULL and boolean tests
 	
 	// Create a field selection that might be NULL
-	recordExpr := NewConst(16, true, false)
+	recordExpr := NewConst(16, Datum(1), false)
 	fieldSelect := NewFieldSelect(recordExpr, 2, 16) // Boolean field
 	
 	// Test if the field is NULL
@@ -906,21 +636,13 @@ func TestComplexNullAndBooleanTests(t *testing.T) {
 	boolTest := NewIsTrueTest(fieldSelect)
 	
 	// Verify integration
-	if nullTest.Arg != fieldSelect {
-		t.Errorf("Expected null test argument to be field select")
-	}
+	assert.Equal(t, fieldSelect, nullTest.Arg, "Expected null test argument to be field select")
 	
-	if boolTest.Arg != fieldSelect {
-		t.Errorf("Expected boolean test argument to be field select")
-	}
+	assert.Equal(t, fieldSelect, boolTest.Arg, "Expected boolean test argument to be field select")
 	
-	if nullTest.Nulltesttype != IS_NULL {
-		t.Errorf("Expected IS_NULL test type")
-	}
+	assert.Equal(t, IS_NULL, nullTest.Nulltesttype, "Expected IS_NULL test type")
 	
-	if boolTest.Booltesttype != IS_TRUE {
-		t.Errorf("Expected IS_TRUE test type")
-	}
+	assert.Equal(t, IS_TRUE, boolTest.Booltesttype, "Expected IS_TRUE test type")
 }
 
 // ==============================================================================
@@ -946,7 +668,7 @@ func BenchmarkNullTestCreation(b *testing.B) {
 }
 
 func BenchmarkFieldSelectCreation(b *testing.B) {
-	recordExpr := NewConst(16, true, false)
+	recordExpr := NewConst(16, Datum(1), false)
 	b.ResetTimer()
 	
 	for i := 0; i < b.N; i++ {
@@ -955,7 +677,7 @@ func BenchmarkFieldSelectCreation(b *testing.B) {
 }
 
 func BenchmarkSubscriptingRefCreation(b *testing.B) {
-	arrayExpr := NewConst(1007, []int{1, 2, 3}, false)
+	arrayExpr := NewConst(1007, Datum(123), false)
 	indexExpr := NewConst(23, 1, false)
 	b.ResetTimer()
 	
