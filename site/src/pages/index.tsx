@@ -10,7 +10,7 @@ export default function Home(): React.JSX.Element {
   return (
     <Layout
       title={`${siteConfig.title}`}
-      description="OrioleDB is a PostgreSQL extension that combines the advantages of both on-disk and in-memory engines."
+      description="Multigres is a project to build an adaptation of Vitess for Postgres."
     >
       <main>
         <Banner />
