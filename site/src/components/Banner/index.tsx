@@ -20,7 +20,7 @@ export default function HomepageBanner(): React.JSX.Element {
             </Heading>
             <p className={clsx('hero__subtitle', styles.heroSubtitle)}>
               A horizontally scalable Postgres architecture that supports
-              multi-tenant, multi-writer, and globally distributed deployments,
+              multi-tenant, highly-available and globally distributed deployments,
               all while staying true to standard Postgres.
             </p>
             <div className={styles.buttons}>

@@ -11,8 +11,8 @@ export default function HomepageSections(): React.JSX.Element {
         <div className="row">
           <div className="col col--8 padding--lg">
             <p className={clsx('hero__subtitle', styles.heroSubtitle)}>
-              Multigres is Vitess for Postgre: a horizontally scalable Postgres
-              architecture that supports multi-tenant, multi-writer, and
+              Multigres is Vitess for Postgres: a horizontally scalable Postgres
+              architecture that supports multi-tenant, highly-available and
               globally distributed deployments, all while staying true to
               standard Postgres.
             </p>
