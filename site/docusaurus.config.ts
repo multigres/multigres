@@ -55,7 +55,7 @@ const config: Config = {
 
   themeConfig: {
     // Replace with your project's social card
-    image: 'img/logo-vertical.png',
+    image: 'img/og-image.png',
     defaultMode: 'dark',
     colorMode: {
       defaultMode: 'dark',
