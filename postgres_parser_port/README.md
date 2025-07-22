@@ -4,10 +4,10 @@ This directory contains all documentation and progress tracking for porting the 
 
 ## Quick Start for New Sessions
 
-1. **Read the current status**: Check `progress/current_status.md` for the latest completed work
+1. **Read the current status**: Check `status.md` for the latest project status and completed work
 2. **Review the plan**: See `project_plan.md` for the overall roadmap
-3. **Check session logs**: Look at `sessions/` for detailed session-by-session progress
-4. **Next steps**: The current status doc will tell you exactly what to work on next
+3. **Check current phase**: Look at `phase-1.5/` for detailed current phase documentation
+4. **Next steps**: The status doc and phase documentation will tell you exactly what to work on next
 
 ## Directory Structure
 
@@ -15,39 +15,34 @@ This directory contains all documentation and progress tracking for porting the 
 postgres_parser_port/
 ├── README.md                    # This file - overview and quick start
 ├── project_plan.md             # Master engineering plan
-├── progress/
-│   ├── current_status.md       # Always up-to-date status and next steps
-│   ├── completed_phases.md     # Summary of completed work
-│   └── technical_decisions.md  # Key architectural decisions made
-├── sessions/
-│   ├── session_001.md          # First session log
-│   ├── session_002.md          # Second session log  
-│   └── ...                     # One file per work session
-└── reference/
-    ├── postgres_analysis.md    # Analysis of PostgreSQL parser structure
-    ├── vitess_patterns.md      # Lessons from Vitess parser implementation
-    └── testing_strategy.md     # Comprehensive testing approach
+├── status.md                   # Single source of truth for project status
+├── technical_decisions.md     # Key architectural decisions made
+└── phase-1.5/                 # Current phase documentation
+    ├── README.md               # Phase 1.5 overview and goals
+    ├── implementation_plan.md  # Detailed roadmap for AST completion
+    ├── missing_nodes.md        # Complete inventory of 185+ missing nodes
+    └── progress_tracking.md    # Session-by-session progress within phase
 ```
 
 ## How to Use This System
 
-### For New Claude Sessions
-1. Always start by reading `progress/current_status.md`
-2. This will tell you:
-   - What was completed in the last session
-   - What needs to be done next
-   - Any blockers or open questions
-   - Specific files to examine or create
+### For New Contributors
+1. **Start with `status.md`** - Get overall project status and completion level
+2. **Read `phase-1.5/README.md`** - Understand current phase goals and strategy
+3. **Review `phase-1.5/missing_nodes.md`** - See what specific nodes need implementation
+4. **Check `phase-1.5/progress_tracking.md`** - See recent progress and next planned work
+
+### For Continuing Work
+1. **Check `status.md`** for high-level project status
+2. **Review `phase-1.5/progress_tracking.md`** for latest session progress
+3. **Use `phase-1.5/implementation_plan.md`** for detailed implementation roadmap
+4. **Follow implementation guidelines** in phase documentation
 
 ### After Each Work Session
-1. Update `progress/current_status.md` with what was accomplished
-2. Create a new session log in `sessions/session_XXX.md`
-3. Update `progress/completed_phases.md` if a major milestone was reached
-
-### For Long-Term Planning
-- Refer to `project_plan.md` for the overall roadmap
-- Update the plan if scope or approach changes significantly
-- Document major technical decisions in `progress/technical_decisions.md`
+1. **Update `status.md`** if major milestones reached
+2. **Update `phase-1.5/progress_tracking.md`** with session accomplishments
+3. **Mark completed nodes** in `phase-1.5/missing_nodes.md`
+4. **Document decisions** in `technical_decisions.md` if needed
 
 ## Project Goals
 

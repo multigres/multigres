@@ -13,7 +13,7 @@ import (
 
 // Supporting enums and types for DDL statements
 
-// ObjectType represents the type of database object - ported from postgres/src/include/nodes/parsenodes.h:81-157
+// ObjectType represents the type of database object - ported from postgres/src/include/nodes/parsenodes.h:2256-2310
 type ObjectType int
 
 const (
@@ -102,7 +102,7 @@ func (o ObjectType) String() string {
 	}
 }
 
-// DropBehavior represents CASCADE/RESTRICT behavior - ported from postgres/src/include/nodes/parsenodes.h:2499-2502
+// DropBehavior represents CASCADE/RESTRICT behavior - ported from postgres/src/include/nodes/parsenodes.h:2329-2333
 type DropBehavior int
 
 const (
@@ -282,7 +282,7 @@ func (a AlterTableType) String() string {
 	}
 }
 
-// DefElemAction represents actions for DefElem - ported from postgres/src/include/nodes/parsenodes.h:833-838
+// DefElemAction represents actions for DefElem - ported from postgres/src/include/nodes/parsenodes.h:803-809
 type DefElemAction int
 
 const (
@@ -466,7 +466,7 @@ func (c *CollateClause) String() string {
 // ==============================================================================
 
 // DefElem represents a generic name/value pair for options.
-// Ported from postgres/src/include/nodes/parsenodes.h:840-848
+// Ported from postgres/src/include/nodes/parsenodes.h:811-820
 type DefElem struct {
 	BaseNode
 	Defnamespace string        // NULL if unqualified name - postgres/src/include/nodes/parsenodes.h:843
@@ -494,7 +494,7 @@ func (d *DefElem) String() string {
 }
 
 // Constraint represents a constraint definition.
-// Ported from postgres/src/include/nodes/parsenodes.h:2535-2595
+// Ported from postgres/src/include/nodes/parsenodes.h:2728-2773
 type Constraint struct {
 	BaseNode
 	Contype       ConstrType // see above - postgres/src/include/nodes/parsenodes.h:2538

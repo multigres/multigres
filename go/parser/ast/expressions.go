@@ -45,7 +45,7 @@ const (
 	PARAM_MULTIEXPR                  // Multiexpr sublink column
 )
 
-// BoolExprType represents boolean expression types - ported from postgres/src/include/nodes/primnodes.h:934-942
+// BoolExprType represents boolean expression types - ported from postgres/src/include/nodes/primnodes.h:929-932
 type BoolExprType int
 
 const (
@@ -703,7 +703,7 @@ func (a AggSplit) String() string {
 }
 
 // Aggref represents an aggregate function call expression.
-// Ported from postgres/src/include/nodes/primnodes.h:478-520
+// Ported from postgres/src/include/nodes/primnodes.h:439-508
 type Aggref struct {
 	BaseExpr
 	Aggfnoid      Oid       // pg_proc OID of the aggregate - postgres/src/include/nodes/primnodes.h:481

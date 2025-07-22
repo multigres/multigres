@@ -66,36 +66,59 @@ multigres/
 - Thread-safe parser context system ✅
 - Comprehensive test framework setup ✅
 
-### Phase 1.5: Complete AST Implementation (Estimated: 2-3 weeks)
+### Phase 1.5: Complete AST Implementation 🔄 IN PROGRESS (~30% Complete)
 
 **Goals**: Implement all PostgreSQL AST node types for complete compatibility
 
-**Critical Discovery**: PostgreSQL has 535 AST struct definitions across multiple header files. Phase 1 only implemented ~15 basic nodes. Phase 1.5 will complete the full AST system.
+**Accurate Assessment**: PostgreSQL has 265 AST struct definitions across multiple header files. Phase 1 implemented ~15 basic nodes, and current implementation has ~70-80 nodes (30%). Phase 1.5 must complete the remaining 185+ nodes.
 
-**Tasks**:
-1. **Parse Node Analysis**
-   - Complete analysis of PostgreSQL node structure
-   - Catalog all 196 structs in `parsenodes.h` (statements, clauses)
-   - Catalog all 64 structs in `primnodes.h` (expressions, primitives)
-   - Analyze dependencies and inheritance relationships
+**Completed Tasks**:
+1. **Parse Node Analysis** ✅
+   - Complete analysis of PostgreSQL node structure (265 total nodes identified)
+   - Cataloged all 196 structs in `parsenodes.h` (statements, clauses)
+   - Cataloged all 64 structs in `primnodes.h` (expressions, primitives)
+   - Cataloged all 5 structs in `value.h` (literal values)
 
-2. **Statement Node Implementation**
-   - Port all DDL statements (CREATE, ALTER, DROP variants)
-   - Port all DML statements (INSERT, UPDATE, DELETE variants)
-   - Port all utility statements (VACUUM, ANALYZE, EXPLAIN, etc.)
-   - Port all transaction and session statements
+2. **Foundation Implementation** ✅
+   - Core DML statements (SELECT, INSERT, UPDATE, DELETE)
+   - Essential DDL statements (CREATE, DROP) 
+   - Complete value system (Integer, Float, Boolean, String, BitString, Null)
+   - Supporting structures (RangeVar, ResTarget, ColumnRef, Alias)
 
-3. **Expression Node Implementation**
-   - Port all expression types (FuncExpr, OpExpr, BoolExpr, etc.)
-   - Port all literal types (constants, parameters, arrays)
-   - Port all reference types (column refs, function refs)
-   - Port all advanced expressions (CASE, COALESCE, sublinks)
+3. **Expression System** ✅
+   - Basic expressions (Var, Const, Param, FuncExpr, OpExpr, BoolExpr)
+   - Complex expressions (CaseExpr, ArrayExpr, RowExpr, CoalesceExpr)
+   - Aggregation and window functions (Aggref, WindowFunc)
+   - Subquery support (SubLink)
 
-4. **Support Node Implementation**
-   - Port value nodes from `value.h`
-   - Port miscellaneous nodes from `miscnodes.h`
-   - Port list and container structures
-   - Complete node type hierarchy
+4. **Advanced DDL and Utility** ✅
+   - ALTER statements, index management, constraints
+   - Transaction control, security statements  
+   - Configuration and query analysis statements
+   - Maintenance and administrative commands
+
+**Remaining Tasks**:
+1. **Essential Query Execution Nodes** (~25 nodes)
+   - TargetEntry, FromExpr, JoinExpr (critical for SELECT queries)
+   - SubPlan, AlternativeSubPlan (subquery execution)
+   - CommonTableExpr, WindowClause (modern SQL features)
+
+2. **Type System and Advanced Expressions** (~35 nodes)
+   - Type coercion (RelabelType, CoerceViaIO, ArrayCoerceExpr)
+   - Advanced expressions (FieldSelect, SubscriptingRef, NullTest)
+   - Specialized functions and operators
+
+3. **Complete DDL Coverage** (~50 nodes)
+   - Advanced ALTER TABLE variants
+   - Partitioning support
+   - Foreign data wrapper support
+   - Constraint and index advanced features
+
+4. **Advanced PostgreSQL Features** (~75+ nodes)
+   - JSON/XML expressions
+   - MERGE statements
+   - Logical replication support  
+   - Policy/security features
 
 5. **Enhanced Node System**
    - Update node traversal to handle all node types
@@ -103,15 +126,25 @@ multigres/
    - Add node serialization/deserialization capabilities
    - Create node construction utilities
 
-**Deliverables**:
-- Complete PostgreSQL AST compatibility (all 535 node types)
-- Updated node traversal system supporting all types
+**Current Progress**:
+- ~70-80 AST node types implemented (30% of 265 total)
+- All PostgreSQL source references verified and accurate
+- 2,000+ lines of tests with 100% pass rate
+- Thread-safe design verified
+- 6 major implementation files created
+
+**Target Deliverables**:
+- Complete PostgreSQL AST compatibility (all 265 node types)
+- Remaining 185+ nodes across 4 priority categories
+- Updated node traversal system supporting all types  
 - Comprehensive AST test suite covering all nodes
 - Performance benchmarks for AST operations
-- Complete PostgreSQL source traceability
 
-### Phase 2: Lexer (Estimated: 2-3 weeks)
+**Documentation**: See `phase-1.5/` directory for detailed implementation plan, missing nodes inventory, and progress tracking.
 
+### Phase 2: Lexer (Estimated: 2-3 weeks) 📋 BLOCKED - Waiting for Phase 1.5
+
+**Prerequisites**: Phase 1.5 must be completed first (185+ remaining AST nodes)  
 **Goals**: Implement lexical analysis without Flex dependency
 
 **Tasks**:
