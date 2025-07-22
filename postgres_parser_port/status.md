@@ -61,9 +61,9 @@ This project ports the PostgreSQL parser from C to Go for the Multigres project,
 
 ## Current Phase
 
-### Phase 1.5: Complete AST Implementation 🔄 IN PROGRESS (~35% Complete)
+### Phase 1.5: Complete AST Implementation 🔄 IN PROGRESS (~42% Complete)
 **Started**: 2025-07-21 (Session 002)  
-**Status**: Good progress - Session 005 completed, 175+ nodes remaining
+**Status**: Excellent progress - Sessions 005-006 completed, 155+ nodes remaining
 
 #### ✅ Completed Components (Sessions 002-003):
 
@@ -127,11 +127,23 @@ This project ports the PostgreSQL parser from C to Go for the Multigres project,
 - [x] UPSERT functionality (OnConflictExpr)
 - [x] New implementation files: `query_execution_nodes.go` (780+ lines) + comprehensive tests (750+ lines)
 
+#### Session 006 Achievements (2025-07-22) ✅ COMPLETED:
+
+**Type System & Advanced Expressions** ✅
+- [x] Complete PostgreSQL type coercion infrastructure (RelabelType, CoerceViaIO, ArrayCoerceExpr)
+- [x] Field access and composite type operations (FieldSelect, FieldStore)
+- [x] Array and JSON subscripting support (SubscriptingRef)
+- [x] Comprehensive NULL and boolean test framework (NullTest, BooleanTest)
+- [x] Domain type support with constraint checking (CoerceToDomain, CoerceToDomainValue)
+- [x] Special value expressions (SetToDefault, CurrentOfExpr, NextValueExpr)
+- [x] Inference elements for UPSERT operations (InferenceElem)
+- [x] New implementation files: `type_coercion_nodes.go` (950+ lines) + comprehensive tests (900+ lines)
+
 #### Current Implementation Stats (Updated):
-- **Nodes implemented**: ~85-90 AST node types
-- **PostgreSQL coverage**: ~35% of total 265 node types  
+- **Nodes implemented**: ~105-110 AST node types
+- **PostgreSQL coverage**: ~42% of total 265 node types  
 - **Source references**: ✅ All PostgreSQL references verified and accurate
-- **Missing categories**: ~175+ node types including type system, advanced DDL, specialized expressions
+- **Missing categories**: ~155+ node types including advanced DDL, specialized statements, JSON/XML
 - **Test coverage**: ✅ 100% pass rate for all implemented functionality
 
 ### Files Created:
@@ -141,7 +153,8 @@ This project ports the PostgreSQL parser from C to Go for the Multigres project,
 4. **`go/parser/ast/ddl_statements.go`** (920+ lines) - DDL system
 5. **`go/parser/ast/utility_statements.go`** (1,057+ lines) - Utility system
 6. **`go/parser/ast/query_execution_nodes.go`** (780+ lines) - Essential query execution infrastructure
-7. **Complete test suites** for all above (2,750+ lines of tests)
+7. **`go/parser/ast/type_coercion_nodes.go`** (950+ lines) - PostgreSQL type system and advanced expressions
+8. **Complete test suites** for all above (3,650+ lines of tests)
 
 ---
 
@@ -249,15 +262,14 @@ This project ports the PostgreSQL parser from C to Go for the Multigres project,
 
 ## Next Steps
 
-**Session 006 - Type System & Advanced Expressions (NEXT)**:
-1. **Implement 25-30 critical nodes** for type handling and complex expressions
-2. **Focus on RelabelType, CoerceViaIO, ArrayCoerceExpr** as highest priority
-3. **Create type_coercion_nodes.go** with comprehensive test coverage
+**Session 007 - DDL Extensions & Administrative Features (NEXT)**:
+1. **Implement 30-35 critical nodes** for comprehensive DDL and administrative support
+2. **Focus on AlterTableCmd, ColumnDef, PartitionSpec** as highest priority
+3. **Enhance existing DDL files and create administrative_statements.go**
 4. **Maintain PostgreSQL source reference accuracy**
 
 **Upcoming Sessions (Roadmap)**:
-- **Session 007**: DDL extensions & administrative features (35-40 nodes)
-- **Session 008**: Advanced PostgreSQL features (100+ remaining nodes)
+- **Session 008**: Advanced PostgreSQL features (120+ remaining nodes)
 
 **Phase Completion Target**: 265/265 PostgreSQL AST nodes implemented
 

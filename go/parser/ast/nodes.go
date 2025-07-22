@@ -96,6 +96,38 @@ const (
 	T_RowMarkClause
 	T_OnConflictExpr
 	
+	// Type coercion and advanced expression nodes (essential for PostgreSQL type system)
+	T_RelabelType
+	T_CoerceViaIO
+	T_ArrayCoerceExpr
+	T_ConvertRowtypeExpr
+	T_CollateExpr
+	T_FieldSelect
+	T_FieldStore
+	T_SubscriptingRef
+	T_NullTest
+	T_BooleanTest
+	T_CoerceToDomain
+	T_CoerceToDomainValue
+	T_SetToDefault
+	T_CurrentOfExpr
+	T_NextValueExpr
+	T_InferenceElem
+	
+	// Administrative and advanced DDL nodes (comprehensive PostgreSQL DDL support)
+	T_TableLikeClause
+	T_PartitionSpec
+	T_PartitionBoundSpec
+	T_PartitionRangeDatum
+	T_StatsElem
+	T_CreateForeignServerStmt
+	T_CreateForeignTableStmt
+	T_CreateUserMappingStmt
+	T_CreateTriggerStmt
+	T_CreatePolicyStmt
+	T_AlterPolicyStmt
+	T_TriggerTransition
+	
 	// List and utility nodes
 	T_List
 	T_ResTarget
@@ -264,6 +296,62 @@ func (nt NodeTag) String() string {
 		return "T_RowMarkClause"
 	case T_OnConflictExpr:
 		return "T_OnConflictExpr"
+	case T_RelabelType:
+		return "T_RelabelType"
+	case T_CoerceViaIO:
+		return "T_CoerceViaIO"
+	case T_ArrayCoerceExpr:
+		return "T_ArrayCoerceExpr"
+	case T_ConvertRowtypeExpr:
+		return "T_ConvertRowtypeExpr"
+	case T_CollateExpr:
+		return "T_CollateExpr"
+	case T_FieldSelect:
+		return "T_FieldSelect"
+	case T_FieldStore:
+		return "T_FieldStore"
+	case T_SubscriptingRef:
+		return "T_SubscriptingRef"
+	case T_NullTest:
+		return "T_NullTest"
+	case T_BooleanTest:
+		return "T_BooleanTest"
+	case T_CoerceToDomain:
+		return "T_CoerceToDomain"
+	case T_CoerceToDomainValue:
+		return "T_CoerceToDomainValue"
+	case T_SetToDefault:
+		return "T_SetToDefault"
+	case T_CurrentOfExpr:
+		return "T_CurrentOfExpr"
+	case T_NextValueExpr:
+		return "T_NextValueExpr"
+	case T_InferenceElem:
+		return "T_InferenceElem"
+	case T_TableLikeClause:
+		return "T_TableLikeClause"
+	case T_PartitionSpec:
+		return "T_PartitionSpec"
+	case T_PartitionBoundSpec:
+		return "T_PartitionBoundSpec"
+	case T_PartitionRangeDatum:
+		return "T_PartitionRangeDatum"
+	case T_StatsElem:
+		return "T_StatsElem"
+	case T_CreateForeignServerStmt:
+		return "T_CreateForeignServerStmt"
+	case T_CreateForeignTableStmt:
+		return "T_CreateForeignTableStmt"
+	case T_CreateUserMappingStmt:
+		return "T_CreateUserMappingStmt"
+	case T_CreateTriggerStmt:
+		return "T_CreateTriggerStmt"
+	case T_CreatePolicyStmt:
+		return "T_CreatePolicyStmt"
+	case T_AlterPolicyStmt:
+		return "T_AlterPolicyStmt"
+	case T_TriggerTransition:
+		return "T_TriggerTransition"
 	case T_List:
 		return "T_List"
 	case T_ResTarget:
