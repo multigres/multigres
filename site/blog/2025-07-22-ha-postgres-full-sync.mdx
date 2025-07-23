@@ -52,7 +52,7 @@ Synchronous replication addresses this problem, but it also has its own pitfalls
     
 3. Failures during failover: If there are multiple failures during a failover, we may end up with multiple conflicting timelines. There is no methodical way to determine which one is authoritative.
 
-    <img src="/img/blog/sync3.svg" alt="fsync3" />
+    <img src="/img/blog/fsync3.svg" alt="fsync3" />
 
 The above failure modes get progressively more unwieldy as the number of nodes increases.
 
