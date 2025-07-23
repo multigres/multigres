@@ -19,9 +19,9 @@ postgres_parser_port/
 ├── technical_decisions.md     # Key architectural decisions made
 └── phase-1.5/                 # Current phase documentation
     ├── README.md               # Phase 1.5 overview and goals
-    ├── implementation_plan.md  # Detailed roadmap for AST completion
-    ├── missing_nodes.md        # Complete inventory of 185+ missing nodes
-    └── progress_tracking.md    # Session-by-session progress within phase
+    ├── implementation_plan.md  # 8-phase roadmap for parser-essential nodes
+    ├── missing_nodes.md        # Complete inventory of missing nodes
+    └── ast_structs_checklist.md # Definitive implementation status tracking
 ```
 
 ## How to Use This System
@@ -30,18 +30,18 @@ postgres_parser_port/
 1. **Start with `status.md`** - Get overall project status and completion level
 2. **Read `phase-1.5/README.md`** - Understand current phase goals and strategy
 3. **Review `phase-1.5/missing_nodes.md`** - See what specific nodes need implementation
-4. **Check `phase-1.5/progress_tracking.md`** - See recent progress and next planned work
+4. **Check `phase-1.5/ast_structs_checklist.md`** - See current implementation status and priorities
 
 ### For Continuing Work
 1. **Check `status.md`** for high-level project status
-2. **Review `phase-1.5/progress_tracking.md`** for latest session progress
-3. **Use `phase-1.5/implementation_plan.md`** for detailed implementation roadmap
+2. **Review `phase-1.5/ast_structs_checklist.md`** for latest implementation status
+3. **Use `phase-1.5/implementation_plan.md`** for 8-phase roadmap and priorities
 4. **Follow implementation guidelines** in phase documentation
 
 ### After Each Work Session
 1. **Update `status.md`** if major milestones reached
-2. **Update `phase-1.5/progress_tracking.md`** with session accomplishments
-3. **Mark completed nodes** in `phase-1.5/missing_nodes.md`
+2. **Mark completed nodes as `[x]`** in `phase-1.5/ast_structs_checklist.md`
+3. **Update completion counts** in `phase-1.5/missing_nodes.md` if needed
 4. **Document decisions** in `technical_decisions.md` if needed
 
 ## Project Goals

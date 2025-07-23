@@ -1,8 +1,8 @@
 # Phase 1.5: Complete AST Implementation
 
-**Status**: 🔄 IN PROGRESS (~30% Complete)  
-**Goal**: Complete PostgreSQL AST node implementation for 100% compatibility  
-**Target**: Implement remaining 185+ AST nodes out of 265 total
+**Status**: 🔄 IN PROGRESS (37% Complete - Parser Focus)  
+**Goal**: Complete PostgreSQL AST nodes required for parsing functionality  
+**Target**: Implement 166 parser-essential AST nodes (excluding query planning/execution)
 
 ---
 
@@ -11,40 +11,55 @@
 Phase 1.5 focuses on completing the PostgreSQL Abstract Syntax Tree (AST) implementation in Go. While the foundational work is complete, significant gaps remain in the AST coverage.
 
 ### Current State
-- **Implemented**: ~70-80 AST node types (30% complete)
-- **Missing**: ~185+ AST node types (70% remaining)
+- **Implemented**: 98 AST node types (37% of parser-essential nodes) - verified from ast_structs_checklist.md
+- **Parser-Essential Missing**: 166 AST node types (63% remaining for parsing)
+- **Focused Scope**: Covers all nodes needed for parsing (parsenodes.h + primnodes.h) while excluding query planning/execution infrastructure
 - **Quality**: All implemented nodes have accurate PostgreSQL source references and 100% test coverage
+- **Key Discovery**: `Expr` base interface already exists in `/go/parser/ast/expressions.go`
 
 ### Why This Phase is Critical
-The AST implementation is the foundation for all parser functionality. Without complete AST coverage, the lexer and parser phases cannot proceed effectively, as they need to construct AST nodes for all possible PostgreSQL syntax.
+The AST implementation is the foundation for all parser functionality. Phase 1.5 focuses exclusively on parser-essential nodes:
+
+**✅ Parse Tree Foundation** (130 missing parsenodes.h nodes) - Essential for lexer/parser, includes JSON/XML/DDL support
+**✅ Expression System** (36 missing primnodes.h nodes) - Required for semantic analysis (excluding existing Expr interface)
+**❌ Query Planning** (66 plannodes.h nodes) - Excluded: Query planner infrastructure
+**❌ Execution Engine** (80 execnodes.h nodes) - Excluded: Runtime execution infrastructure
+**❌ Path Optimization** (81 pathnodes.h nodes) - Excluded: Query optimization infrastructure
+
+**Total Parser-Essential Scope**: 166 nodes (much more achievable than original 358 nodes)
 
 ---
 
 ## Implementation Strategy
 
+### 8-Phase Approach
+Organized into manageable phases of 15-25 nodes each, focusing on parser enablement:
+
 ### Priority Categories
 
-#### 🔴 **High Priority - Essential Missing Structures**
-These nodes are critical for basic SQL parsing functionality:
-- **TargetEntry, FromExpr, JoinExpr** - SELECT query execution
-- **SubPlan, AlternativeSubPlan** - Subquery support  
-- **WindowClause** - Window function support
-- **OnConflictExpr** - INSERT...ON CONFLICT support
-- **CommonTableExpr** - WITH clause (CTE) support
+#### 🔴 **Phase 1A-1B: Core Parsing Infrastructure** (45 nodes)
+Essential foundation for lexer/parser integration:
+- **RawStmt, A_Expr, A_Const, ParamRef, TypeCast** - Core parsing expressions
+- **FuncCall, A_Star, A_Indices, A_Indirection** - Function calls and complex expressions
+- **MergeStmt, SetOperationStmt** - Advanced SQL statements
+- **WithClause, OnConflictClause** - Modern SQL features
+- **Foundation nodes enabling all basic SQL parsing**
 
-#### 🟡 **Medium Priority - Common SQL Features**
-These nodes support commonly used PostgreSQL features:
-- **Advanced ALTER TABLE variants** - Column management
-- **Type coercion expressions** - RelabelType, CoerceViaIO, ArrayCoerceExpr
-- **Advanced constraint types** - CHECK, exclusion constraints
-- **INDEX operation statements** - Advanced index operations
+#### 🟡 **Phase 1C-1E: Complete SQL Feature Support** (65 nodes)
+Advanced SQL functionality for full PostgreSQL compatibility:
+- **DDL Creation Support** - CREATE FUNCTION, CREATE SEQUENCE, CREATE CAST, etc.
+- **Range & Table Infrastructure** - FROM clause, JOINs, table functions
+- **JSON Parse Tree Support** - Complete modern PostgreSQL JSON functionality
+- **All parsenodes.h structures for complete syntax support**
 
-#### 🟢 **Low Priority - Advanced Features**
-These nodes support advanced PostgreSQL-specific functionality:
-- **JSON/XML expressions** - Modern PostgreSQL data types
-- **Policy/security statements** - Row-level security
-- **Extension management** - Advanced extension operations
-- **Advanced aggregate features** - Specialized aggregate functions
+#### 🟢 **Phase 1F-1H: Expression System Completion** (56 nodes)
+Complete expression evaluation infrastructure:
+- **Primitive Expression Infrastructure** - GroupingFunc, WindowFuncRunCondition, NamedArgExpr
+- **JSON Primitive Expressions** - Complete JSON expression evaluation support
+- **Advanced Expression Types** - MinMaxExpr, RowCompareExpr, SQLValueFunction
+- **Final Parser Infrastructure** - All remaining parser-essential nodes
+
+**Note**: `Expr` base interface already exists and does not need reimplementation
 
 ---
 
@@ -80,12 +95,25 @@ For each new node:
 ## File Organization
 
 ### Implementation Files
+**Existing (Complete):**
 - **`go/parser/ast/nodes.go`** - Base framework and value nodes ✅
 - **`go/parser/ast/statements.go`** - Core DML/DDL statements ✅
-- **`go/parser/ast/expressions.go`** - Expression system ✅
+- **`go/parser/ast/expressions.go`** - Expression system with Expr interface ✅
 - **`go/parser/ast/ddl_statements.go`** - DDL system ✅
 - **`go/parser/ast/utility_statements.go`** - Utility system ✅
-- **Additional files needed** - For remaining 185+ nodes
+- **`go/parser/ast/query_execution_nodes.go`** - Query execution support ✅
+- **`go/parser/ast/type_coercion_nodes.go`** - Type system ✅
+- **`go/parser/ast/administrative_statements.go`** - Administrative features ✅
+
+**New Files Needed (8 Phases):**
+- **`parse_infrastructure.go`** - Phase 1A: Core parsing foundation
+- **`advanced_statements.go`** - Phase 1B: Advanced SQL statements
+- **Enhanced existing DDL files** - Phase 1C: Complete DDL creation support
+- **`table_range_nodes.go`** - Phase 1D: Range and table infrastructure
+- **`json_parse_nodes.go`** - Phase 1E: JSON parse tree support
+- **Enhanced existing expressions.go** - Phase 1F: Primitive expressions
+- **`json_expressions.go`** - Phase 1G: JSON expression evaluation
+- **Final integration** - Phase 1H: Remaining parser infrastructure
 
 ### Test Files
 - **`*_test.go`** - Comprehensive test suites for each implementation file
@@ -98,9 +126,9 @@ For each new node:
 
 ### Current Phase Documentation
 - **`README.md`** - This file, phase overview and guidelines
-- **`implementation_plan.md`** - Detailed roadmap for remaining work  
+- **`implementation_plan.md`** - Detailed 8-phase roadmap for parser-essential nodes  
 - **`missing_nodes.md`** - Complete inventory of missing nodes
-- **`progress_tracking.md`** - Session-by-session progress tracking
+- **`ast_structs_checklist.md`** - Definitive source of truth for implementation status
 
 ### Reference Materials
 - **PostgreSQL Source**: `../postgres/src/include/nodes/`
@@ -113,11 +141,21 @@ For each new node:
 ## Success Criteria
 
 ### Completion Requirements
-- [ ] **100% AST coverage**: All 265 PostgreSQL node types implemented
+**Phase 1.5 Success Criteria:**
+- [ ] **Complete parser-essential coverage**: All 166 nodes implemented
+- [ ] **Parse tree completion**: All 130 missing parsenodes.h nodes
+- [ ] **Expression system completion**: All 36 missing primnodes.h nodes (excluding existing Expr interface)
+- [ ] **JSON/XML/DDL support**: Complete modern PostgreSQL feature support
 - [ ] **Accurate references**: Every node has correct PostgreSQL source line references
 - [ ] **Complete testing**: 100% test coverage maintained
+- [ ] **Parser readiness**: Enable lexer/parser development
 - [ ] **Interface compliance**: All nodes implement proper Go interfaces
 - [ ] **Thread safety**: All nodes safe for concurrent use
+
+**Excluded from Phase 1.5 (Future Projects):**
+- **Query Planning System** (66 plannodes.h nodes) - Separate major project
+- **Execution Engine** (80 execnodes.h nodes) - Separate major project
+- **Path Optimization** (81 pathnodes.h nodes) - Separate major project
 
 ### Quality Gates
 - [ ] **Source validation**: All references verified against actual PostgreSQL source
@@ -132,14 +170,14 @@ For each new node:
 ### For New Contributors
 1. **Read this README** to understand phase goals and guidelines
 2. **Review `missing_nodes.md`** to see what needs implementation
-3. **Check `progress_tracking.md`** for current session status
-4. **Start with high-priority nodes** for maximum impact
+3. **Check `ast_structs_checklist.md`** for current implementation status
+4. **Follow `implementation_plan.md`** for 8-phase structure and priorities
 
 ### For Continuing Work
-1. **Check `progress_tracking.md`** for latest session status
-2. **Pick next node from priority list** in `implementation_plan.md`
+1. **Check `ast_structs_checklist.md`** for latest implementation status
+2. **Follow `implementation_plan.md`** for phase-based priorities
 3. **Follow implementation guidelines** for consistent code quality
-4. **Update progress tracking** after each completed node
+4. **Update checkboxes in `ast_structs_checklist.md`** after each completed node
 
 ---
 
@@ -155,4 +193,4 @@ For each new node:
 - **Phase 3**: Parser implementation (needs complete AST for parse tree construction)
 - **Phase 4**: Semantic analysis (needs complete AST for query transformation)
 
-**Phase 1.5 completion is essential before proceeding to lexer/parser implementation.**
+**Phase 1.5 completion (166 parser-essential nodes) enables full lexer/parser development with complete PostgreSQL syntax support. The excluded query planning and execution subsystems can be implemented as separate major projects in parallel with or after parser development.**

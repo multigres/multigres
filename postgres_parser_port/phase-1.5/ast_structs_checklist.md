@@ -167,7 +167,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 ## Primitive Node Structures (primnodes.h)
 
 ### Core Expression Types
-- [ ] **Expr** - Base expression node (`src/include/nodes/primnodes.h:187`)
+- [x] **Expr** - Base expression node (`src/include/nodes/primnodes.h:187`)
 - [x] **Var** - Variable reference (`src/include/nodes/primnodes.h:247`)
 - [x] **Const** - Constant value (`src/include/nodes/primnodes.h:306`)
 - [x] **Param** - Parameter (`src/include/nodes/primnodes.h:373`)
