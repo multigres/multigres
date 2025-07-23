@@ -24,28 +24,28 @@ import (
 
 // TableLikeClause represents LIKE clauses in CREATE TABLE.
 // This allows table inheritance and copying of structure.
-// Ported from postgres/src/include/nodes/parsenodes.h:831-841
+// Ported from postgres/src/include/nodes/parsenodes.h:751
 type TableLikeClause struct {
 	BaseNode
-	Relation *RangeVar        // Table to copy from - parsenodes.h:832
-	Options  TableLikeOption  // OR of TableLikeOption flags - parsenodes.h:833
+	Relation *RangeVar        // Table to copy from - parsenodes.h:752
+	Options  TableLikeOption  // OR of TableLikeOption flags - parsenodes.h:753
 }
 
 // TableLikeOption represents options for LIKE clauses.
-// Ported from postgres/src/include/nodes/parsenodes.h:843-851
+// Ported from postgres/src/include/nodes/parsenodes.h:755-763
 type TableLikeOption int
 
 const (
-	CREATE_TABLE_LIKE_COMMENTS    TableLikeOption = 1 << 0 // INCLUDING COMMENTS - parsenodes.h:844
-	CREATE_TABLE_LIKE_COMPRESSION TableLikeOption = 1 << 1 // INCLUDING COMPRESSION - parsenodes.h:845
-	CREATE_TABLE_LIKE_CONSTRAINTS TableLikeOption = 1 << 2 // INCLUDING CONSTRAINTS - parsenodes.h:846
-	CREATE_TABLE_LIKE_DEFAULTS    TableLikeOption = 1 << 3 // INCLUDING DEFAULTS - parsenodes.h:847
-	CREATE_TABLE_LIKE_GENERATED   TableLikeOption = 1 << 4 // INCLUDING GENERATED - parsenodes.h:848
-	CREATE_TABLE_LIKE_IDENTITY    TableLikeOption = 1 << 5 // INCLUDING IDENTITY - parsenodes.h:849
-	CREATE_TABLE_LIKE_INDEXES     TableLikeOption = 1 << 6 // INCLUDING INDEXES - parsenodes.h:850
-	CREATE_TABLE_LIKE_STATISTICS  TableLikeOption = 1 << 7 // INCLUDING STATISTICS - parsenodes.h:851
-	CREATE_TABLE_LIKE_STORAGE     TableLikeOption = 1 << 8 // INCLUDING STORAGE - parsenodes.h:852
-	CREATE_TABLE_LIKE_ALL         TableLikeOption = 1 << 9 // INCLUDING ALL - parsenodes.h:853
+	CREATE_TABLE_LIKE_COMMENTS    TableLikeOption = 1 << 0 // INCLUDING COMMENTS - parsenodes.h:756
+	CREATE_TABLE_LIKE_COMPRESSION TableLikeOption = 1 << 1 // INCLUDING COMPRESSION - parsenodes.h:757
+	CREATE_TABLE_LIKE_CONSTRAINTS TableLikeOption = 1 << 2 // INCLUDING CONSTRAINTS - parsenodes.h:758
+	CREATE_TABLE_LIKE_DEFAULTS    TableLikeOption = 1 << 3 // INCLUDING DEFAULTS - parsenodes.h:759
+	CREATE_TABLE_LIKE_GENERATED   TableLikeOption = 1 << 4 // INCLUDING GENERATED - parsenodes.h:760
+	CREATE_TABLE_LIKE_IDENTITY    TableLikeOption = 1 << 5 // INCLUDING IDENTITY - parsenodes.h:761
+	CREATE_TABLE_LIKE_INDEXES     TableLikeOption = 1 << 6 // INCLUDING INDEXES - parsenodes.h:762
+	CREATE_TABLE_LIKE_STATISTICS  TableLikeOption = 1 << 7 // INCLUDING STATISTICS - parsenodes.h:763
+	CREATE_TABLE_LIKE_STORAGE     TableLikeOption = 1 << 8 // INCLUDING STORAGE - parsenodes.h:764
+	CREATE_TABLE_LIKE_ALL         TableLikeOption = 1 << 9 // INCLUDING ALL - parsenodes.h:765
 )
 
 // NewTableLikeClause creates a new TableLikeClause node.
@@ -94,23 +94,23 @@ func (tlc *TableLikeClause) String() string {
 // ==============================================================================
 
 // PartitionStrategy represents partitioning strategies.
-// Ported from postgres/src/include/nodes/parsenodes.h:936-940
+// Ported from postgres/src/include/nodes/parsenodes.h:865-869
 type PartitionStrategy string
 
 const (
-	PARTITION_STRATEGY_LIST  PartitionStrategy = "list"  // LIST partitioning - parsenodes.h:937
-	PARTITION_STRATEGY_RANGE PartitionStrategy = "range" // RANGE partitioning - parsenodes.h:938
-	PARTITION_STRATEGY_HASH  PartitionStrategy = "hash"  // HASH partitioning - parsenodes.h:939
+	PARTITION_STRATEGY_LIST  PartitionStrategy = "list"  // LIST partitioning - parsenodes.h:866
+	PARTITION_STRATEGY_RANGE PartitionStrategy = "range" // RANGE partitioning - parsenodes.h:867
+	PARTITION_STRATEGY_HASH  PartitionStrategy = "hash"  // HASH partitioning - parsenodes.h:868
 )
 
 // PartitionSpec represents table partitioning specifications.
 // Modern PostgreSQL feature for table partitioning.
-// Ported from postgres/src/include/nodes/parsenodes.h:942-950
+// Ported from postgres/src/include/nodes/parsenodes.h:882
 type PartitionSpec struct {
 	BaseNode
-	Strategy   PartitionStrategy // Partitioning strategy - parsenodes.h:943
-	PartParams []Node            // List of PartitionElem nodes - parsenodes.h:944
-	Location   int               // Parse location, or -1 if none/unknown - parsenodes.h:945
+	Strategy   PartitionStrategy // Partitioning strategy - parsenodes.h:884
+	PartParams []Node            // List of PartitionElem nodes - parsenodes.h:885
+	Location   int               // Parse location, or -1 if none/unknown - parsenodes.h:886
 }
 
 // NewPartitionSpec creates a new PartitionSpec node.
@@ -159,17 +159,17 @@ func (ps *PartitionSpec) String() string {
 
 // PartitionBoundSpec represents partition boundary specifications.
 // This defines the actual bounds for individual partitions.
-// Ported from postgres/src/include/nodes/parsenodes.h:952-966
+// Ported from postgres/src/include/nodes/parsenodes.h:896
 type PartitionBoundSpec struct {
 	BaseNode
-	Strategy     PartitionStrategy // Partitioning strategy - parsenodes.h:953
-	IsDefault    bool              // Is this a default partition? - parsenodes.h:954
-	Modulus      int               // Hash partition modulus - parsenodes.h:955
-	Remainder    int               // Hash partition remainder - parsenodes.h:956
-	ListDatums   [][]Node          // List of list datums per column - parsenodes.h:957
-	LowDatums    []Node            // List of lower datums for range bounds - parsenodes.h:958
-	HighDatums   []Node            // List of upper datums for range bounds - parsenodes.h:959
-	Location     int               // Parse location, or -1 if none/unknown - parsenodes.h:960
+	Strategy     PartitionStrategy // Partitioning strategy - parsenodes.h:898
+	IsDefault    bool              // Is this a default partition? - parsenodes.h:899
+	Modulus      int               // Hash partition modulus - parsenodes.h:900
+	Remainder    int               // Hash partition remainder - parsenodes.h:901
+	ListDatums   [][]Node          // List of list datums per column - parsenodes.h:902
+	LowDatums    []Node            // List of lower datums for range bounds - parsenodes.h:903
+	HighDatums   []Node            // List of upper datums for range bounds - parsenodes.h:904
+	Location     int               // Parse location, or -1 if none/unknown - parsenodes.h:905
 }
 
 // NewPartitionBoundSpec creates a new PartitionBoundSpec node.
@@ -240,22 +240,22 @@ func (pbs *PartitionBoundSpec) String() string {
 }
 
 // PartitionRangeDatum represents partition range datum values.
-// Ported from postgres/src/include/nodes/parsenodes.h:968-976
+// Ported from postgres/src/include/nodes/parsenodes.h:929
 type PartitionRangeDatum struct {
 	BaseNode
-	Kind     PartitionRangeDatumKind // What kind of datum this is - parsenodes.h:969
-	Value    Node                    // The actual datum value - parsenodes.h:970
-	Location int                     // Parse location, or -1 if none/unknown - parsenodes.h:971
+	Kind     PartitionRangeDatumKind // What kind of datum this is - parsenodes.h:931
+	Value    Node                    // The actual datum value - parsenodes.h:932
+	Location int                     // Parse location, or -1 if none/unknown - parsenodes.h:933
 }
 
 // PartitionRangeDatumKind represents types of range datums.
-// Ported from postgres/src/include/nodes/parsenodes.h:978-982
+// Ported from postgres/src/include/nodes/parsenodes.h:935-939
 type PartitionRangeDatumKind int
 
 const (
-	PARTITION_RANGE_DATUM_MINVALUE PartitionRangeDatumKind = iota // MINVALUE - parsenodes.h:979
-	PARTITION_RANGE_DATUM_VALUE                                   // Specific value - parsenodes.h:980
-	PARTITION_RANGE_DATUM_MAXVALUE                                // MAXVALUE - parsenodes.h:981
+	PARTITION_RANGE_DATUM_MINVALUE PartitionRangeDatumKind = iota // MINVALUE - parsenodes.h:936
+	PARTITION_RANGE_DATUM_VALUE                                   // Specific value - parsenodes.h:937
+	PARTITION_RANGE_DATUM_MAXVALUE                                // MAXVALUE - parsenodes.h:938
 )
 
 // NewPartitionRangeDatum creates a new PartitionRangeDatum node.
@@ -315,11 +315,11 @@ func (prd *PartitionRangeDatum) String() string {
 
 // StatsElem represents statistics element specifications.
 // This is used for extended statistics in PostgreSQL.
-// Ported from postgres/src/include/nodes/parsenodes.h:3176-3186
+// Ported from postgres/src/include/nodes/parsenodes.h:3403
 type StatsElem struct {
 	BaseNode
-	Name string // Name of attribute to compute stats for - parsenodes.h:3177
-	Expr Node   // Or expression to compute stats for - parsenodes.h:3178
+	Name string // Name of attribute to compute stats for - parsenodes.h:3405
+	Expr Node   // Or expression to compute stats for - parsenodes.h:3406
 }
 
 // NewStatsElem creates a new StatsElem node.
@@ -351,15 +351,15 @@ func (se *StatsElem) String() string {
 
 // CreateForeignServerStmt represents CREATE FOREIGN SERVER statements.
 // This supports PostgreSQL's foreign data wrapper functionality.
-// Ported from postgres/src/include/nodes/parsenodes.h:2820-2829
+// Ported from postgres/src/include/nodes/parsenodes.h:2870
 type CreateForeignServerStmt struct {
 	BaseNode
-	Servername string   // Server name - parsenodes.h:2821
-	Servertype string   // Optional server type - parsenodes.h:2822
-	Version    string   // Optional server version - parsenodes.h:2823
-	Fdwname    string   // FDW name - parsenodes.h:2824
-	IfNotExists bool    // IF NOT EXISTS clause - parsenodes.h:2825
-	Options    []Node   // Generic options to FDW - parsenodes.h:2826
+	Servername string   // Server name - parsenodes.h:2872
+	Servertype string   // Optional server type - parsenodes.h:2873
+	Version    string   // Optional server version - parsenodes.h:2874
+	Fdwname    string   // FDW name - parsenodes.h:2875
+	IfNotExists bool    // IF NOT EXISTS clause - parsenodes.h:2876
+	Options    []Node   // Generic options to FDW - parsenodes.h:2877
 }
 
 // NewCreateForeignServerStmt creates a new CreateForeignServerStmt node.
@@ -391,12 +391,12 @@ func (cfss *CreateForeignServerStmt) String() string {
 
 // CreateForeignTableStmt represents CREATE FOREIGN TABLE statements.
 // This creates tables that reference external data sources.
-// Ported from postgres/src/include/nodes/parsenodes.h:2690-2701
+// Ported from postgres/src/include/nodes/parsenodes.h:2895
 type CreateForeignTableStmt struct {
 	BaseNode
-	Base        *CreateStmt // Base CREATE TABLE statement - parsenodes.h:2691
-	Servername  string      // Foreign server name - parsenodes.h:2692
-	Options     []Node      // OPTIONS clause - parsenodes.h:2693
+	Base        *CreateStmt // Base CREATE TABLE statement - parsenodes.h:2897
+	Servername  string      // Foreign server name - parsenodes.h:2898
+	Options     []Node      // OPTIONS clause - parsenodes.h:2899
 }
 
 // NewCreateForeignTableStmt creates a new CreateForeignTableStmt node.
@@ -414,13 +414,13 @@ func (cfts *CreateForeignTableStmt) String() string {
 
 // CreateUserMappingStmt represents CREATE USER MAPPING statements.
 // This maps database users to foreign server users.
-// Ported from postgres/src/include/nodes/parsenodes.h:2831-2839
+// Ported from postgres/src/include/nodes/parsenodes.h:2907
 type CreateUserMappingStmt struct {
 	BaseNode
-	User        *RoleSpec // User role - parsenodes.h:2832
-	Servername  string    // Foreign server name - parsenodes.h:2833
-	IfNotExists bool      // IF NOT EXISTS clause - parsenodes.h:2834
-	Options     []Node    // Generic options to FDW - parsenodes.h:2835
+	User        *RoleSpec // User role - parsenodes.h:2909
+	Servername  string    // Foreign server name - parsenodes.h:2910
+	IfNotExists bool      // IF NOT EXISTS clause - parsenodes.h:2911
+	Options     []Node    // Generic options to FDW - parsenodes.h:2912
 }
 
 // NewCreateUserMappingStmt creates a new CreateUserMappingStmt node.
@@ -445,34 +445,34 @@ func (cums *CreateUserMappingStmt) String() string {
 // ==============================================================================
 
 // TriggerTransition represents trigger transition tables.
-// Ported from postgres/src/include/nodes/parsenodes.h:3015-3023
+// Ported from postgres/src/include/nodes/parsenodes.h:1737
 type TriggerTransition struct {
 	BaseNode
-	Name  string // Transition table name - parsenodes.h:3016
-	IsNew bool   // Is this NEW table? (or OLD table?) - parsenodes.h:3017
-	IsTable bool // Is this a table? (or row?) - parsenodes.h:3018
+	Name  string // Transition table name - parsenodes.h:1739
+	IsNew bool   // Is this NEW table? (or OLD table?) - parsenodes.h:1740
+	IsTable bool // Is this a table? (or row?) - parsenodes.h:1741
 }
 
 // CreateTriggerStmt represents CREATE TRIGGER statements.
 // Triggers are essential for PostgreSQL's event system.
-// Ported from postgres/src/include/nodes/parsenodes.h:2973-3013
+// Ported from postgres/src/include/nodes/parsenodes.h:3001
 type CreateTriggerStmt struct {
 	BaseNode
-	Replace       bool                // Replace existing trigger? - parsenodes.h:2974
-	IsConstraint  bool                // Is this a constraint trigger? - parsenodes.h:2975
-	Trigname      string              // Trigger name - parsenodes.h:2976
-	Relation      *RangeVar           // Relation trigger is on - parsenodes.h:2977
-	Funcname      []Node              // Qual. name of function to call - parsenodes.h:2978
-	Args          []Node              // List of (T_String) Values or NIL - parsenodes.h:2979
-	Row           bool                // ROW/STATEMENT - parsenodes.h:2980
-	Timing        int16               // BEFORE, AFTER, or INSTEAD - parsenodes.h:2981
-	Events        int16               // "OR" of INSERT/UPDATE/DELETE/TRUNCATE - parsenodes.h:2982
-	Columns       []Node              // Column names, or NIL for all columns - parsenodes.h:2983
-	WhenClause    Node                // WHEN clause - parsenodes.h:2984
-	Constrrel     *RangeVar           // Opposite relation, if RI trigger - parsenodes.h:2985
-	Deferrable    bool                // DEFERRABLE - parsenodes.h:2986
-	Initdeferred  bool                // INITIALLY DEFERRED - parsenodes.h:2987
-	Transitions   []*TriggerTransition // Transition table clauses - parsenodes.h:2988
+	Replace       bool                // Replace existing trigger? - parsenodes.h:3003
+	IsConstraint  bool                // Is this a constraint trigger? - parsenodes.h:3004
+	Trigname      string              // Trigger name - parsenodes.h:3005
+	Relation      *RangeVar           // Relation trigger is on - parsenodes.h:3006
+	Funcname      []Node              // Qual. name of function to call - parsenodes.h:3007
+	Args          []Node              // List of (T_String) Values or NIL - parsenodes.h:3008
+	Row           bool                // ROW/STATEMENT - parsenodes.h:3009
+	Timing        int16               // BEFORE, AFTER, or INSTEAD - parsenodes.h:3010
+	Events        int16               // "OR" of INSERT/UPDATE/DELETE/TRUNCATE - parsenodes.h:3011
+	Columns       []Node              // Column names, or NIL for all columns - parsenodes.h:3012
+	WhenClause    Node                // WHEN clause - parsenodes.h:3013
+	Constrrel     *RangeVar           // Opposite relation, if RI trigger - parsenodes.h:3014
+	Deferrable    bool                // DEFERRABLE - parsenodes.h:3015
+	Initdeferred  bool                // INITIALLY DEFERRED - parsenodes.h:3016
+	Transitions   []*TriggerTransition // Transition table clauses - parsenodes.h:3017
 }
 
 // TriggerType represents trigger event types.
@@ -563,16 +563,16 @@ func (cts *CreateTriggerStmt) String() string {
 
 // CreatePolicyStmt represents CREATE POLICY statements.
 // This implements PostgreSQL's row-level security policies.
-// Ported from postgres/src/include/nodes/parsenodes.h:3049-3064
+// Ported from postgres/src/include/nodes/parsenodes.h:2959
 type CreatePolicyStmt struct {
 	BaseNode
-	PolicyName string    // Policy name - parsenodes.h:3050
-	Table      *RangeVar // Table the policy applies to - parsenodes.h:3051
-	CmdName    string    // Command name (SELECT, INSERT, etc.) - parsenodes.h:3052
-	Permissive bool      // Is this a permissive policy? - parsenodes.h:3053
-	Roles      []Node    // Roles policy applies to - parsenodes.h:3054
-	Qual       Node      // USING clause - parsenodes.h:3055
-	WithCheck  Node      // WITH CHECK clause - parsenodes.h:3056
+	PolicyName string    // Policy name - parsenodes.h:2961
+	Table      *RangeVar // Table the policy applies to - parsenodes.h:2962
+	CmdName    string    // Command name (SELECT, INSERT, etc.) - parsenodes.h:2963
+	Permissive bool      // Is this a permissive policy? - parsenodes.h:2964
+	Roles      []Node    // Roles policy applies to - parsenodes.h:2965
+	Qual       Node      // USING clause - parsenodes.h:2966
+	WithCheck  Node      // WITH CHECK clause - parsenodes.h:2967
 }
 
 // NewCreatePolicyStmt creates a new CreatePolicyStmt node.
@@ -607,14 +607,14 @@ func (cps *CreatePolicyStmt) String() string {
 }
 
 // AlterPolicyStmt represents ALTER POLICY statements.
-// Ported from postgres/src/include/nodes/parsenodes.h:3066-3076
+// Ported from postgres/src/include/nodes/parsenodes.h:2975
 type AlterPolicyStmt struct {
 	BaseNode
-	PolicyName string    // Policy name - parsenodes.h:3067
-	Table      *RangeVar // Table the policy applies to - parsenodes.h:3068
-	Roles      []Node    // Roles policy applies to - parsenodes.h:3069
-	Qual       Node      // USING clause - parsenodes.h:3070
-	WithCheck  Node      // WITH CHECK clause - parsenodes.h:3071
+	PolicyName string    // Policy name - parsenodes.h:2977
+	Table      *RangeVar // Table the policy applies to - parsenodes.h:2978
+	Roles      []Node    // Roles policy applies to - parsenodes.h:2979
+	Qual       Node      // USING clause - parsenodes.h:2980
+	WithCheck  Node      // WITH CHECK clause - parsenodes.h:2981
 }
 
 // NewAlterPolicyStmt creates a new AlterPolicyStmt node.
