@@ -12,7 +12,7 @@ import (
 // ==============================================================================
 
 // TransactionStmtKind represents the type of transaction statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3653-3665
+// Ported from postgres/src/include/nodes/parsenodes.h:3653
 type TransactionStmtKind int
 
 const (
@@ -56,7 +56,7 @@ func (t TransactionStmtKind) String() string {
 }
 
 // TransactionStmt represents a transaction control statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3667-3679
+// Ported from postgres/src/include/nodes/parsenodes.h:3667
 type TransactionStmt struct {
 	BaseNode
 	Kind         TransactionStmtKind // Kind of transaction statement - postgres/src/include/nodes/parsenodes.h:3670
@@ -161,7 +161,7 @@ func (g GrantTargetType) String() string {
 }
 
 // GrantStmt represents a GRANT or REVOKE statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2491-2505
+// Ported from postgres/src/include/nodes/parsenodes.h:2491
 type GrantStmt struct {
 	BaseNode
 	IsGrant     bool             // True = GRANT, false = REVOKE - postgres/src/include/nodes/parsenodes.h:2494
@@ -176,7 +176,7 @@ type GrantStmt struct {
 }
 
 // AccessPriv represents a privilege in a GRANT/REVOKE statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2507-2513
+// Ported from postgres/src/include/nodes/parsenodes.h:2540
 type AccessPriv struct {
 	BaseNode
 	PrivName string   // String name of privilege - postgres/src/include/nodes/parsenodes.h:2510
@@ -243,7 +243,7 @@ func (ap *AccessPriv) String() string {
 }
 
 // GrantRoleStmt represents a GRANT/REVOKE role statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2565
+// Ported from postgres/src/include/nodes/parsenodes.h:2556
 type GrantRoleStmt struct {
 	BaseNode
 	GrantedRoles []*RoleSpec  // List of roles to be granted/revoked - postgres/src/include/nodes/parsenodes.h:2568
@@ -319,7 +319,7 @@ func (r RoleStmtType) String() string {
 }
 
 // CreateRoleStmt represents a CREATE ROLE/USER/GROUP statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3081-3087
+// Ported from postgres/src/include/nodes/parsenodes.h:3081
 type CreateRoleStmt struct {
 	BaseNode
 	StmtType RoleStmtType // Role type: ROLE, USER, or GROUP - postgres/src/include/nodes/parsenodes.h:3084
@@ -442,7 +442,7 @@ func (v VariableSetKind) String() string {
 }
 
 // VariableSetStmt represents a SET/RESET statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2618-2625
+// Ported from postgres/src/include/nodes/parsenodes.h:2618
 type VariableSetStmt struct {
 	BaseNode
 	Kind    VariableSetKind // What kind of SET command - postgres/src/include/nodes/parsenodes.h:2621
@@ -515,7 +515,7 @@ func (vss *VariableShowStmt) StatementType() string {
 // ==============================================================================
 
 // ExplainStmt represents an EXPLAIN statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3868-3873
+// Ported from postgres/src/include/nodes/parsenodes.h:3868
 type ExplainStmt struct {
 	BaseNode
 	Query   Node        // The query to explain - postgres/src/include/nodes/parsenodes.h:3871
@@ -540,7 +540,7 @@ func (es *ExplainStmt) StatementType() string {
 }
 
 // PrepareStmt represents a PREPARE statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:4030-4036
+// Ported from postgres/src/include/nodes/parsenodes.h:4030
 type PrepareStmt struct {
 	BaseNode
 	Name     string      // Statement name - postgres/src/include/nodes/parsenodes.h:4033
@@ -567,7 +567,7 @@ func (ps *PrepareStmt) StatementType() string {
 }
 
 // ExecuteStmt represents an EXECUTE statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:4044-4049
+// Ported from postgres/src/include/nodes/parsenodes.h:4044
 type ExecuteStmt struct {
 	BaseNode
 	Name   string // Statement name - postgres/src/include/nodes/parsenodes.h:4047
@@ -592,7 +592,7 @@ func (es *ExecuteStmt) StatementType() string {
 }
 
 // DeallocateStmt represents a DEALLOCATE statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:4070
+// Ported from postgres/src/include/nodes/parsenodes.h:4056
 type DeallocateStmt struct {
 	BaseNode
 	Name string // Statement name, or NULL for all - postgres/src/include/nodes/parsenodes.h:4073
@@ -631,7 +631,7 @@ func (ds *DeallocateStmt) StatementType() string {
 // ==============================================================================
 
 // CopyStmt represents a COPY statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2586-2599
+// Ported from postgres/src/include/nodes/parsenodes.h:2586
 type CopyStmt struct {
 	BaseNode
 	Relation    *RangeVar   // Relation to copy - postgres/src/include/nodes/parsenodes.h:2589
@@ -699,7 +699,7 @@ func (cs *CopyStmt) StatementType() string {
 // ==============================================================================
 
 // VacuumStmt represents a VACUUM or ANALYZE statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3837-3843
+// Ported from postgres/src/include/nodes/parsenodes.h:3837
 type VacuumStmt struct {
 	BaseNode
 	Options     []*DefElem       // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3840
@@ -798,7 +798,7 @@ func (r ReindexObjectType) String() string {
 }
 
 // ReindexStmt represents a REINDEX statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3974-3982
+// Ported from postgres/src/include/nodes/parsenodes.h:3974
 type ReindexStmt struct {
 	BaseNode
 	Kind     ReindexObjectType // Object type to reindex - postgres/src/include/nodes/parsenodes.h:3977

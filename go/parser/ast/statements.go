@@ -12,7 +12,7 @@ import (
 // Ported from postgres/src/include/nodes/parsenodes.h
 // ==============================================================================
 
-// CmdType represents the type of SQL command - ported from postgres/src/include/nodes/nodes.h:262-274
+// CmdType represents the type of SQL command - ported from postgres/src/include/nodes/nodes.h:262
 type CmdType int
 
 const (
@@ -49,7 +49,7 @@ func (c CmdType) String() string {
 	}
 }
 
-// QuerySource represents possible sources of a Query - ported from postgres/src/include/nodes/parsenodes.h:34-41
+// QuerySource represents possible sources of a Query - ported from postgres/src/include/nodes/parsenodes.h:34
 type QuerySource int
 
 const (
@@ -67,15 +67,15 @@ const (
 // ==============================================================================
 
 // RangeVar represents a table/relation reference.
-// Ported from postgres/src/include/nodes/primnodes.h:71-95
+// Ported from postgres/src/include/nodes/primnodes.h:71
 type RangeVar struct {
 	BaseNode
-	CatalogName     *string // Database name, or nil - postgres/src/include/nodes/primnodes.h:78
+	CatalogName     *string // Database name, or nil - postgres/src/include/nodes/primnodes.h:76
 	SchemaName      *string // Schema name, or nil - postgres/src/include/nodes/primnodes.h:79
-	RelName         string  // Relation/sequence name - postgres/src/include/nodes/primnodes.h:80
-	Inh             bool    // Expand relation by inheritance? - postgres/src/include/nodes/primnodes.h:81
-	RelPersistence  rune    // Persistence type - postgres/src/include/nodes/primnodes.h:82
-	Alias           *Alias  // Table alias & optional column aliases - postgres/src/include/nodes/primnodes.h:83
+	RelName         string  // Relation/sequence name - postgres/src/include/nodes/primnodes.h:82
+	Inh             bool    // Expand relation by inheritance? - postgres/src/include/nodes/primnodes.h:85
+	RelPersistence  rune    // Persistence type - postgres/src/include/nodes/primnodes.h:87
+	Alias           *Alias  // Table alias & optional column aliases - postgres/src/include/nodes/primnodes.h:90
 }
 
 // NewRangeVar creates a new RangeVar node.
@@ -105,11 +105,11 @@ func (rv *RangeVar) StatementType() string {
 }
 
 // Alias represents table and column aliases.
-// Ported from postgres/src/include/nodes/primnodes.h:54-69
+// Ported from postgres/src/include/nodes/primnodes.h:47
 type Alias struct {
 	BaseNode
-	AliasName *string      // Alias name - postgres/src/include/nodes/primnodes.h:58
-	ColNames  []*string    // Column aliases - postgres/src/include/nodes/primnodes.h:59
+	AliasName *string      // Alias name - postgres/src/include/nodes/primnodes.h:50
+	ColNames  []*string    // Column aliases - postgres/src/include/nodes/primnodes.h:51
 }
 
 // NewAlias creates a new Alias node.
@@ -130,7 +130,7 @@ func (a *Alias) String() string {
 }
 
 // ResTarget represents a target item in a SELECT list or UPDATE SET clause.
-// Ported from postgres/src/include/nodes/parsenodes.h:514-521
+// Ported from postgres/src/include/nodes/parsenodes.h:514
 type ResTarget struct {
 	BaseNode
 	Name        *string // Column name or nil - postgres/src/include/nodes/parsenodes.h:518
@@ -164,7 +164,7 @@ func (rt *ResTarget) ExpressionType() string {
 // ==============================================================================
 
 // Query is the fundamental query structure that all parsed queries transform into.
-// Ported from postgres/src/include/nodes/parsenodes.h:117-241
+// Ported from postgres/src/include/nodes/parsenodes.h:117
 type Query struct {
 	BaseNode
 	CommandType     CmdType     // select|insert|update|delete|merge|utility - postgres/src/include/nodes/parsenodes.h:120
@@ -228,7 +228,7 @@ func (q *Query) StatementType() string {
 // ==============================================================================
 
 // SelectStmt represents a raw SELECT statement before analysis.
-// Ported from postgres/src/include/nodes/parsenodes.h:2116-2163
+// Ported from postgres/src/include/nodes/parsenodes.h:2116
 type SelectStmt struct {
 	BaseNode
 	// Fields used in "leaf" SelectStmts - postgres/src/include/nodes/parsenodes.h:2120-2130
@@ -275,7 +275,7 @@ func (s *SelectStmt) StatementType() string {
 }
 
 // InsertStmt represents an INSERT statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2039-2049
+// Ported from postgres/src/include/nodes/parsenodes.h:2039
 type InsertStmt struct {
 	BaseNode
 	Relation           *RangeVar           // Relation to insert into - postgres/src/include/nodes/parsenodes.h:2042
@@ -308,7 +308,7 @@ func (i *InsertStmt) StatementType() string {
 }
 
 // UpdateStmt represents an UPDATE statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2069-2078
+// Ported from postgres/src/include/nodes/parsenodes.h:2069
 type UpdateStmt struct {
 	BaseNode
 	Relation      *RangeVar    // Relation to update - postgres/src/include/nodes/parsenodes.h:2072
@@ -340,7 +340,7 @@ func (u *UpdateStmt) StatementType() string {
 }
 
 // DeleteStmt represents a DELETE statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2055-2063
+// Ported from postgres/src/include/nodes/parsenodes.h:2055
 type DeleteStmt struct {
 	BaseNode
 	Relation      *RangeVar    // Relation to delete from - postgres/src/include/nodes/parsenodes.h:2058
@@ -375,7 +375,7 @@ func (d *DeleteStmt) StatementType() string {
 // ==============================================================================
 
 // CreateStmt represents a CREATE TABLE statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2648-2664
+// Ported from postgres/src/include/nodes/parsenodes.h:2648
 type CreateStmt struct {
 	BaseNode
 	Relation        *RangeVar      // Relation to create - postgres/src/include/nodes/parsenodes.h:2651
@@ -409,7 +409,7 @@ func (c *CreateStmt) StatementType() string {
 }
 
 // DropStmt represents a DROP statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3226-3234
+// Ported from postgres/src/include/nodes/parsenodes.h:3226
 type DropStmt struct {
 	BaseNode
 	Objects     []Node       // List of names - postgres/src/include/nodes/parsenodes.h:3229
@@ -442,7 +442,7 @@ func (d *DropStmt) StatementType() string {
 // ==============================================================================
 
 // ColumnRef represents a column reference in expressions.
-// Ported from postgres/src/include/nodes/parsenodes.h:289-293
+// Ported from postgres/src/include/nodes/parsenodes.h:291
 type ColumnRef struct {
 	BaseNode
 	Fields []Node // List of field names - postgres/src/include/nodes/parsenodes.h:292
@@ -474,58 +474,58 @@ func (c *ColumnRef) ExpressionType() string {
 // CommonTableExpr represents a WITH clause (Common Table Expression / CTE).
 // CTEs are increasingly common in modern SQL and enable recursive queries
 // and improved query organization.
-// Ported from postgres/src/include/nodes/parsenodes.h:1706-1717
+// Ported from postgres/src/include/nodes/parsenodes.h:1668
 type CommonTableExpr struct {
 	BaseNode
-	Ctename         string     // Query name (never qualified) - parsenodes.h:1707
-	Aliascolnames   []Node     // Optional list of column names - parsenodes.h:1708
-	Ctematerialized CTEMaterialized // Is this an optimization fence? - parsenodes.h:1709
-	Ctequery        Node       // The CTE's subquery - parsenodes.h:1710
-	Search_clause   *CTESearchClause // SEARCH clause, if any - parsenodes.h:1711
-	Cycle_clause    *CTECycleClause  // CYCLE clause, if any - parsenodes.h:1712
-	Location        int        // Token location, or -1 if unknown - parsenodes.h:1713
-	Cterecursive    bool       // Is this a recursive CTE? - parsenodes.h:1714
-	Cterefcount     int        // Number of RTEs referencing this CTE - parsenodes.h:1715
-	Ctecolnames     []Node     // List of output column names - parsenodes.h:1716
-	Ctecoltypes     []Oid      // OID list of output column type OIDs - parsenodes.h:1717
-	Ctecoltypmods   []int32    // Integer list of output column typmods - parsenodes.h:1718
-	Ctecolcollations []Oid     // OID list of column collation OIDs - parsenodes.h:1719
+	Ctename         string     // Query name (never qualified) - parsenodes.h:1676
+	Aliascolnames   []Node     // Optional list of column names - parsenodes.h:1678
+	Ctematerialized CTEMaterialized // Is this an optimization fence? - parsenodes.h:1679
+	Ctequery        Node       // The CTE's subquery - parsenodes.h:1681
+	Search_clause   *CTESearchClause // SEARCH clause, if any - parsenodes.h:1682
+	Cycle_clause    *CTECycleClause  // CYCLE clause, if any - parsenodes.h:1683
+	Location        int        // Token location, or -1 if unknown - parsenodes.h:1684
+	Cterecursive    bool       // Is this a recursive CTE? - parsenodes.h:1687
+	Cterefcount     int        // Number of RTEs referencing this CTE - parsenodes.h:1693
+	Ctecolnames     []Node     // List of output column names - parsenodes.h:1696
+	Ctecoltypes     []Oid      // OID list of output column type OIDs - parsenodes.h:1697
+	Ctecoltypmods   []int32    // Integer list of output column typmods - parsenodes.h:1698
+	Ctecolcollations []Oid     // OID list of column collation OIDs - parsenodes.h:1699
 }
 
 // CTEMaterialized represents CTE materialization settings.
-// Ported from postgres/src/include/nodes/parsenodes.h:1700-1704
+// Ported from postgres/src/include/nodes/parsenodes.h:1636
 type CTEMaterialized int
 
 const (
-	CTEMaterializeDefault  CTEMaterialized = iota // No materialization clause - parsenodes.h:1701
-	CTEMaterializeAlways                          // MATERIALIZED - parsenodes.h:1702
-	CTEMaterializeNever                           // NOT MATERIALIZED - parsenodes.h:1703
+	CTEMaterializeDefault  CTEMaterialized = iota // No materialization clause - parsenodes.h:1638
+	CTEMaterializeAlways                          // MATERIALIZED - parsenodes.h:1639
+	CTEMaterializeNever                           // NOT MATERIALIZED - parsenodes.h:1640
 )
 
 // CTESearchClause represents a SEARCH clause for recursive CTEs.
-// Ported from postgres/src/include/nodes/parsenodes.h:1681-1690
+// Ported from postgres/src/include/nodes/parsenodes.h:1643
 type CTESearchClause struct {
 	BaseNode
-	SearchColList   []Node // List of column names - parsenodes.h:1682
-	SearchBreadthFirst bool // True for BREADTH FIRST, false for DEPTH FIRST - parsenodes.h:1683
-	SearchSeqColumn string // Name of sequence column - parsenodes.h:1684
-	Location        int    // Token location, or -1 if unknown - parsenodes.h:1685
+	SearchColList   []Node // List of column names - parsenodes.h:1646
+	SearchBreadthFirst bool // True for BREADTH FIRST, false for DEPTH FIRST - parsenodes.h:1647
+	SearchSeqColumn string // Name of sequence column - parsenodes.h:1648
+	Location        int    // Token location, or -1 if unknown - parsenodes.h:1649
 }
 
 // CTECycleClause represents a CYCLE clause for recursive CTEs.
-// Ported from postgres/src/include/nodes/parsenodes.h:1692-1698
+// Ported from postgres/src/include/nodes/parsenodes.h:1652
 type CTECycleClause struct {
 	BaseNode
-	CycleColList       []Node // List of column names - parsenodes.h:1693
-	CycleMarkColumn    string // Name of cycle mark column - parsenodes.h:1694
-	CycleMarkValue     Node   // Cycle mark value - parsenodes.h:1695
-	CycleMarkDefault   Node   // Cycle mark default value - parsenodes.h:1696
-	CyclePathColumn    string // Name of path column - parsenodes.h:1697
-	Location           int    // Token location, or -1 if unknown - parsenodes.h:1698
-	CycleMarkType      Oid    // Type of cycle mark column - parsenodes.h:1699
-	CycleMarkTypmod    int32  // Typmod of cycle mark column - parsenodes.h:1700
-	CycleMarkCollation Oid    // Collation of cycle mark column - parsenodes.h:1701
-	CycleMarkNeop      Oid    // Inequality operator for cycle mark - parsenodes.h:1702
+	CycleColList       []Node // List of column names - parsenodes.h:1655
+	CycleMarkColumn    string // Name of cycle mark column - parsenodes.h:1656
+	CycleMarkValue     Node   // Cycle mark value - parsenodes.h:1657
+	CycleMarkDefault   Node   // Cycle mark default value - parsenodes.h:1658
+	CyclePathColumn    string // Name of path column - parsenodes.h:1659
+	Location           int    // Token location, or -1 if unknown - parsenodes.h:1660
+	CycleMarkType      Oid    // Type of cycle mark column - parsenodes.h:1662
+	CycleMarkTypmod    int32  // Typmod of cycle mark column - parsenodes.h:1663
+	CycleMarkCollation Oid    // Collation of cycle mark column - parsenodes.h:1664
+	CycleMarkNeop      Oid    // Inequality operator for cycle mark - parsenodes.h:1665
 }
 
 // NewCommonTableExpr creates a new CommonTableExpr node.

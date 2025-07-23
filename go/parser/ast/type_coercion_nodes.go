@@ -15,14 +15,14 @@ import (
 // RelabelType represents type casting/relabeling operations.
 // This is the most common type coercion mechanism in PostgreSQL, used when
 // the representation doesn't change but the type label does.
-// Ported from postgres/src/include/nodes/primnodes.h:1632-1646
+// Ported from postgres/src/include/nodes/primnodes.h:1181
 type RelabelType struct {
 	BaseExpr
-	Arg          Expression    // Input expression - primnodes.h:1633
-	Resulttype   Oid          // Output type OID - primnodes.h:1634
-	Resulttypmod int32        // Output typmod (usually -1) - primnodes.h:1635
-	Resultcollid Oid          // OID of collation, or InvalidOid if none - primnodes.h:1636
-	Relabelformat CoercionForm // How to display this node - primnodes.h:1637
+	Arg          Expression    // Input expression - primnodes.h:1184
+	Resulttype   Oid          // Output type OID - primnodes.h:1185
+	Resulttypmod int32        // Output typmod (usually -1) - primnodes.h:1187
+	Resultcollid Oid          // OID of collation, or InvalidOid if none - primnodes.h:1189
+	Relabelformat CoercionForm // How to display this node - primnodes.h:1191
 }
 
 // NewRelabelType creates a new RelabelType node.
@@ -78,7 +78,7 @@ func (rt *RelabelType) String() string {
 // CoerceViaIO represents type coercion through I/O functions.
 // This is used when types need to be converted by invoking their I/O functions
 // (output function of source type, input function of target type).
-// Ported from postgres/src/include/nodes/primnodes.h:1668-1679
+// Ported from postgres/src/include/nodes/primnodes.h:1204
 type CoerceViaIO struct {
 	BaseExpr
 	Arg          Expression    // Input expression - primnodes.h:1669
@@ -129,7 +129,7 @@ func (cvio *CoerceViaIO) String() string {
 
 // ArrayCoerceExpr represents array type coercion.
 // This handles coercion of array types, including element-wise coercion.
-// Ported from postgres/src/include/nodes/primnodes.h:1681-1703
+// Ported from postgres/src/include/nodes/primnodes.h:1230
 type ArrayCoerceExpr struct {
 	BaseExpr
 	Arg            Expression    // Input array expression - primnodes.h:1682
@@ -180,7 +180,7 @@ func (ace *ArrayCoerceExpr) String() string {
 
 // ConvertRowtypeExpr represents row type conversion.
 // This converts a whole-row value from one composite type to another.
-// Ported from postgres/src/include/nodes/primnodes.h:1705-1713
+// Ported from postgres/src/include/nodes/primnodes.h:1258
 type ConvertRowtypeExpr struct {
 	BaseExpr
 	Arg           Expression    // Input expression - primnodes.h:1706
@@ -208,7 +208,7 @@ func (crte *ConvertRowtypeExpr) String() string {
 
 // CollateExpr represents a COLLATE expression.
 // This specifies a collation to be used for a particular expression.
-// Ported from postgres/src/include/nodes/primnodes.h:1648-1666
+// Ported from postgres/src/include/nodes/primnodes.h:1276
 type CollateExpr struct {
 	BaseExpr
 	Arg    Expression // Input expression - primnodes.h:1649
@@ -238,7 +238,7 @@ func (ce *CollateExpr) String() string {
 
 // FieldSelect represents field selection from a composite value (record.field).
 // This extracts a single field from a composite type value.
-// Ported from postgres/src/include/nodes/primnodes.h:1408-1421
+// Ported from postgres/src/include/nodes/primnodes.h:1125
 type FieldSelect struct {
 	BaseExpr
 	Arg          Expression // Input expression (composite type) - primnodes.h:1409
@@ -268,7 +268,7 @@ func (fs *FieldSelect) String() string {
 
 // FieldStore represents field assignment to a composite value.
 // This is used for UPDATE operations on composite type columns.
-// Ported from postgres/src/include/nodes/primnodes.h:1428-1441
+// Ported from postgres/src/include/nodes/primnodes.h:1156
 type FieldStore struct {
 	BaseExpr
 	Arg        Expression   // Input expression (composite type) - primnodes.h:1429
@@ -309,7 +309,7 @@ func (fs *FieldStore) String() string {
 
 // SubscriptingRef represents array/JSON subscripting operations.
 // This handles both array indexing (arr[1]) and JSON key access (json['key']).
-// Ported from postgres/src/include/nodes/primnodes.h:597-621
+// Ported from postgres/src/include/nodes/primnodes.h:679
 type SubscriptingRef struct {
 	BaseExpr
 	Refcontainertype Oid          // Type OID of container (array or jsonb) - primnodes.h:598
@@ -391,22 +391,22 @@ func (sr *SubscriptingRef) String() string {
 // ==============================================================================
 
 // NullTestType represents the type of NULL test.
-// Ported from postgres/src/include/nodes/primnodes.h:1781-1785
+// Ported from postgres/src/include/nodes/primnodes.h:1950
 type NullTestType int
 
 const (
-	IS_NULL     NullTestType = iota // IS NULL - primnodes.h:1782
-	IS_NOT_NULL                     // IS NOT NULL - primnodes.h:1783
+	IS_NULL     NullTestType = iota // IS NULL - primnodes.h:1952
+	IS_NOT_NULL                     // IS NOT NULL - primnodes.h:1952
 )
 
 // NullTest represents IS NULL and IS NOT NULL tests.
 // This is one of the most fundamental SQL test expressions.
-// Ported from postgres/src/include/nodes/primnodes.h:1787-1797
+// Ported from postgres/src/include/nodes/primnodes.h:1955
 type NullTest struct {
 	BaseExpr
-	Arg         Expression   // Input expression - primnodes.h:1788
-	Nulltesttype NullTestType // IS NULL or IS NOT NULL - primnodes.h:1789
-	Argisrow     bool         // True if input is known to be a row value - primnodes.h:1790
+	Arg         Expression   // Input expression - primnodes.h:1958
+	Nulltesttype NullTestType // IS NULL or IS NOT NULL - primnodes.h:1959
+	Argisrow     bool         // True if input is known to be a row value - primnodes.h:1961
 }
 
 // NewNullTest creates a new NullTest node.
@@ -468,7 +468,7 @@ func (nt *NullTest) String() string {
 }
 
 // BoolTestType represents the type of boolean test.
-// Ported from postgres/src/include/nodes/primnodes.h:1799-1807
+// Ported from postgres/src/include/nodes/primnodes.h:1974
 type BoolTestType int
 
 const (
@@ -482,7 +482,7 @@ const (
 
 // BooleanTest represents boolean test expressions (IS TRUE, IS FALSE, etc.).
 // These tests handle three-valued boolean logic (TRUE/FALSE/UNKNOWN).
-// Ported from postgres/src/include/nodes/primnodes.h:1805-1815
+// Ported from postgres/src/include/nodes/primnodes.h:1979
 type BooleanTest struct {
 	BaseExpr
 	Arg         Expression   // Input expression - primnodes.h:1806
@@ -545,7 +545,7 @@ func (bt *BooleanTest) String() string {
 
 // CoerceToDomain represents coercion to a domain type.
 // Domain types are user-defined types with constraints.
-// Ported from postgres/src/include/nodes/primnodes.h:1715-1730
+// Ported from postgres/src/include/nodes/primnodes.h:2025
 type CoerceToDomain struct {
 	BaseExpr
 	Arg            Expression    // Input expression - primnodes.h:1716
@@ -576,7 +576,7 @@ func (ctd *CoerceToDomain) String() string {
 
 // CoerceToDomainValue represents a value being coerced to a domain type.
 // This is used in domain constraint checking.
-// Ported from postgres/src/include/nodes/primnodes.h:1732-1741
+// Ported from postgres/src/include/nodes/primnodes.h:2048
 type CoerceToDomainValue struct {
 	BaseExpr
 	Typemod   int32 // Typmod of domain - primnodes.h:1733
@@ -606,7 +606,7 @@ func (ctdv *CoerceToDomainValue) String() string {
 
 // SetToDefault represents a DEFAULT expression.
 // This is used in INSERT and UPDATE statements to indicate use of the default value.
-// Ported from postgres/src/include/nodes/primnodes.h:1743-1753
+// Ported from postgres/src/include/nodes/primnodes.h:2068
 type SetToDefault struct {
 	BaseExpr
 	Typemod   int32 // Typmod of destination column - primnodes.h:1744
@@ -632,7 +632,7 @@ func (std *SetToDefault) String() string {
 
 // CurrentOfExpr represents CURRENT OF cursor_name expressions.
 // This is used in UPDATE and DELETE statements to refer to the current row of a cursor.
-// Ported from postgres/src/include/nodes/primnodes.h:1755-1766
+// Ported from postgres/src/include/nodes/primnodes.h:2094
 type CurrentOfExpr struct {
 	BaseExpr
 	CvarNo     Index  // RT index of target relation - primnodes.h:1756
@@ -671,7 +671,7 @@ func (coe *CurrentOfExpr) String() string {
 
 // NextValueExpr represents nextval() and currval() sequence operations.
 // This handles sequence value generation and retrieval.
-// Ported from postgres/src/include/nodes/primnodes.h:1768-1779
+// Ported from postgres/src/include/nodes/primnodes.h:2109
 type NextValueExpr struct {
 	BaseExpr
 	SeqId   Oid // OID of sequence relation - primnodes.h:1769
@@ -697,7 +697,7 @@ func (nve *NextValueExpr) String() string {
 
 // InferenceElem represents an inference element for ON CONFLICT clauses.
 // This is used to specify which unique index to use for conflict detection.
-// Ported from postgres/src/include/nodes/primnodes.h:2013-2041
+// Ported from postgres/src/include/nodes/primnodes.h:2123
 type InferenceElem struct {
 	BaseExpr
 	Expr      Expression // Expression to infer from - primnodes.h:2014

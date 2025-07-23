@@ -5,13 +5,13 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 ## Parse Tree Node Structures (parsenodes.h)
 
 ### Core Query Structure
-- [ ] **Query** - The main structure representing a parsed SQL query (`src/include/nodes/parsenodes.h:117`)
+- [x] **Query** - The main structure representing a parsed SQL query (`src/include/nodes/parsenodes.h:117`)
 - [ ] **RawStmt** - Raw statement wrapper (`src/include/nodes/parsenodes.h:2017`)
 
 ### Expression Nodes
 - [ ] **A_Expr** - Generic expression node (`src/include/nodes/parsenodes.h:329`)
 - [ ] **A_Const** - Constant value (`src/include/nodes/parsenodes.h:357`)
-- [ ] **ColumnRef** - Column reference (`src/include/nodes/parsenodes.h:291`)
+- [x] **ColumnRef** - Column reference (`src/include/nodes/parsenodes.h:291`)
 - [ ] **ParamRef** - Parameter reference (`src/include/nodes/parsenodes.h:301`)
 - [ ] **TypeCast** - Type casting (`src/include/nodes/parsenodes.h:370`)
 - [ ] **CollateClause** - COLLATE clause (`src/include/nodes/parsenodes.h:381`)
@@ -22,17 +22,17 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **A_ArrayExpr** - Array expression (`src/include/nodes/parsenodes.h:489`)
 
 ### Statement Nodes
-- [ ] **SelectStmt** - SELECT statement (`src/include/nodes/parsenodes.h:2116`)
-- [ ] **InsertStmt** - INSERT statement (`src/include/nodes/parsenodes.h:2039`)
-- [ ] **DeleteStmt** - DELETE statement (`src/include/nodes/parsenodes.h:2055`)
-- [ ] **UpdateStmt** - UPDATE statement (`src/include/nodes/parsenodes.h:2069`)
+- [x] **SelectStmt** - SELECT statement (`src/include/nodes/parsenodes.h:2116`)
+- [x] **InsertStmt** - INSERT statement (`src/include/nodes/parsenodes.h:2039`)
+- [x] **DeleteStmt** - DELETE statement (`src/include/nodes/parsenodes.h:2055`)
+- [x] **UpdateStmt** - UPDATE statement (`src/include/nodes/parsenodes.h:2069`)
 - [ ] **MergeStmt** - MERGE statement (`src/include/nodes/parsenodes.h:2084`)
 - [ ] **SetOperationStmt** - UNION/INTERSECT/EXCEPT (`src/include/nodes/parsenodes.h:2185`)
 - [ ] **ReturnStmt** - RETURN statement (`src/include/nodes/parsenodes.h:2210`)
 - [ ] **PLAssignStmt** - PL assignment statement (`src/include/nodes/parsenodes.h:2224`)
 
 ### DDL Statement Nodes
-- [ ] **CreateStmt** - CREATE TABLE (`src/include/nodes/parsenodes.h:2648`)
+- [x] **CreateStmt** - CREATE TABLE (`src/include/nodes/parsenodes.h:2648`)
 - [x] **CreateSchemaStmt** - CREATE SCHEMA (`src/include/nodes/parsenodes.h:2320`)
 - [x] **AlterTableStmt** - ALTER TABLE (`src/include/nodes/parsenodes.h:2339`)
 - [x] **AlterTableCmd** - ALTER TABLE subcommand (`src/include/nodes/parsenodes.h:2426`)
@@ -47,7 +47,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **IndexStmt** - CREATE INDEX (`src/include/nodes/parsenodes.h:3348`)
 - [x] **StatsElem** - Statistics element specification (`src/include/nodes/parsenodes.h:3403`)
 - [ ] **CreateFunctionStmt** - CREATE FUNCTION (`src/include/nodes/parsenodes.h:3427`)
-- [ ] **CreateRoleStmt** - CREATE ROLE (`src/include/nodes/parsenodes.h:3081`)
+- [x] **CreateRoleStmt** - CREATE ROLE (`src/include/nodes/parsenodes.h:3081`)
 - [ ] **CreateSeqStmt** - CREATE SEQUENCE (`src/include/nodes/parsenodes.h:3117`)
 - [x] **CreateDomainStmt** - CREATE DOMAIN (`src/include/nodes/parsenodes.h:3156`)
 - [ ] **CreateOpClassStmt** - CREATE OPERATOR CLASS (`src/include/nodes/parsenodes.h:3169`)
@@ -56,7 +56,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **CreateConversionStmt** - CREATE CONVERSION (`src/include/nodes/parsenodes.h:3988`)
 - [ ] **CreateTransformStmt** - CREATE TRANSFORM (`src/include/nodes/parsenodes.h:4016`)
 - [ ] **DefineStmt** - DEFINE statement (`src/include/nodes/parsenodes.h:3140`)
-- [ ] **DropStmt** - DROP statement (`src/include/nodes/parsenodes.h:3226`)
+- [x] **DropStmt** - DROP statement (`src/include/nodes/parsenodes.h:3226`)
 - [ ] **TruncateStmt** - TRUNCATE statement (`src/include/nodes/parsenodes.h:3240`)
 - [ ] **CommentStmt** - COMMENT statement (`src/include/nodes/parsenodes.h:3252`)
 - [ ] **RenameStmt** - RENAME operations (`src/include/nodes/parsenodes.h:3525`)
@@ -65,20 +65,20 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **ViewStmt** - CREATE VIEW (`src/include/nodes/parsenodes.h:3740`)
 
 ### Utility Statement Nodes
-- [ ] **VariableSetStmt** - SET statement (`src/include/nodes/parsenodes.h:2618`)
-- [ ] **VariableShowStmt** - SHOW statement (`src/include/nodes/parsenodes.h:2631`)
-- [ ] **CopyStmt** - COPY statement (`src/include/nodes/parsenodes.h:2586`)
-- [ ] **GrantStmt** - GRANT statement (`src/include/nodes/parsenodes.h:2491`)
-- [ ] **GrantRoleStmt** - GRANT role statement (`src/include/nodes/parsenodes.h:2556`)
-- [ ] **TransactionStmt** - Transaction control (`src/include/nodes/parsenodes.h:3667`)
-- [ ] **VacuumStmt** - VACUUM statement (`src/include/nodes/parsenodes.h:3837`)
-- [ ] **ExplainStmt** - EXPLAIN statement (`src/include/nodes/parsenodes.h:3868`)
+- [x] **VariableSetStmt** - SET statement (`src/include/nodes/parsenodes.h:2618`)
+- [x] **VariableShowStmt** - SHOW statement (`src/include/nodes/parsenodes.h:2631`)
+- [x] **CopyStmt** - COPY statement (`src/include/nodes/parsenodes.h:2586`)
+- [x] **GrantStmt** - GRANT statement (`src/include/nodes/parsenodes.h:2491`)
+- [x] **GrantRoleStmt** - GRANT role statement (`src/include/nodes/parsenodes.h:2556`)
+- [x] **TransactionStmt** - Transaction control (`src/include/nodes/parsenodes.h:3667`)
+- [x] **VacuumStmt** - VACUUM statement (`src/include/nodes/parsenodes.h:3837`)
+- [x] **ExplainStmt** - EXPLAIN statement (`src/include/nodes/parsenodes.h:3868`)
 - [ ] **LoadStmt** - LOAD statement (`src/include/nodes/parsenodes.h:3755`)
 - [ ] **ClusterStmt** - CLUSTER statement (`src/include/nodes/parsenodes.h:3822`)
 - [ ] **LockStmt** - LOCK statement (`src/include/nodes/parsenodes.h:3942`)
-- [ ] **PrepareStmt** - PREPARE statement (`src/include/nodes/parsenodes.h:4030`)
-- [ ] **ExecuteStmt** - EXECUTE statement (`src/include/nodes/parsenodes.h:4044`)
-- [ ] **DeallocateStmt** - DEALLOCATE statement (`src/include/nodes/parsenodes.h:4056`)
+- [x] **PrepareStmt** - PREPARE statement (`src/include/nodes/parsenodes.h:4030`)
+- [x] **ExecuteStmt** - EXECUTE statement (`src/include/nodes/parsenodes.h:4044`)
+- [x] **DeallocateStmt** - DEALLOCATE statement (`src/include/nodes/parsenodes.h:4056`)
 - [ ] **DeclareCursorStmt** - DECLARE CURSOR (`src/include/nodes/parsenodes.h:3293`)
 - [ ] **FetchStmt** - FETCH statement (`src/include/nodes/parsenodes.h:3328`)
 - [ ] **ClosePortalStmt** - CLOSE statement (`src/include/nodes/parsenodes.h:3305`)
@@ -87,7 +87,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **UnlistenStmt** - UNLISTEN statement (`src/include/nodes/parsenodes.h:3643`)
 - [ ] **CheckPointStmt** - CHECKPOINT statement (`src/include/nodes/parsenodes.h:3914`)
 - [ ] **DiscardStmt** - DISCARD statement (`src/include/nodes/parsenodes.h:3932`)
-- [ ] **ReindexStmt** - REINDEX statement (`src/include/nodes/parsenodes.h:3974`)
+- [x] **ReindexStmt** - REINDEX statement (`src/include/nodes/parsenodes.h:3974`)
 
 ### Table and Column Definition Nodes
 - [ ] **ColumnDef** - Column definition (`src/include/nodes/parsenodes.h:723`)
@@ -108,16 +108,16 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 
 ### Window and Grouping Nodes
 - [ ] **WindowDef** - Window definition (`src/include/nodes/parsenodes.h:561`)
-- [ ] **WindowClause** - Window clause (`src/include/nodes/parsenodes.h:1536`)
+- [x] **WindowClause** - Window clause (`src/include/nodes/parsenodes.h:1536`)
 - [ ] **SortBy** - Sort specification (`src/include/nodes/parsenodes.h:543`)
-- [ ] **SortGroupClause** - Sort/group clause (`src/include/nodes/parsenodes.h:1436`)
+- [x] **SortGroupClause** - Sort/group clause (`src/include/nodes/parsenodes.h:1436`)
 - [ ] **GroupingSet** - Grouping set (`src/include/nodes/parsenodes.h:1506`)
 
 ### CTE and WITH Clause Nodes
 - [ ] **WithClause** - WITH clause (`src/include/nodes/parsenodes.h:1592`)
-- [ ] **CommonTableExpr** - Common table expression (`src/include/nodes/parsenodes.h:1668`)
-- [ ] **CTESearchClause** - SEARCH clause in CTE (`src/include/nodes/parsenodes.h:1643`)
-- [ ] **CTECycleClause** - CYCLE clause in CTE (`src/include/nodes/parsenodes.h:1652`)
+- [x] **CommonTableExpr** - Common table expression (`src/include/nodes/parsenodes.h:1668`)
+- [x] **CTESearchClause** - SEARCH clause in CTE (`src/include/nodes/parsenodes.h:1643`)
+- [x] **CTECycleClause** - CYCLE clause in CTE (`src/include/nodes/parsenodes.h:1652`)
 
 ### Conflict Resolution Nodes
 - [ ] **OnConflictClause** - ON CONFLICT clause (`src/include/nodes/parsenodes.h:1621`)
@@ -147,7 +147,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 
 ### Miscellaneous Nodes
 - [ ] **TypeName** - Type specification (`src/include/nodes/parsenodes.h:265`)
-- [ ] **ResTarget** - Result target (`src/include/nodes/parsenodes.h:514`)
+- [x] **ResTarget** - Result target (`src/include/nodes/parsenodes.h:514`)
 - [ ] **MultiAssignRef** - Multi-assignment reference (`src/include/nodes/parsenodes.h:532`)
 - [ ] **LockingClause** - Locking clause (FOR UPDATE, etc.) (`src/include/nodes/parsenodes.h:831`)
 - [ ] **XmlSerialize** - XML serialization (`src/include/nodes/parsenodes.h:842`)
@@ -158,11 +158,11 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **SinglePartitionSpec** - Single partition specification (`src/include/nodes/parsenodes.h:945`)
 - [ ] **PartitionCmd** - Partition command (`src/include/nodes/parsenodes.h:953`)
 - [ ] **TableSampleClause** - Table sample clause (`src/include/nodes/parsenodes.h:1344`)
-- [ ] **RowMarkClause** - Row marking clause (`src/include/nodes/parsenodes.h:1576`)
+- [x] **RowMarkClause** - Row marking clause (`src/include/nodes/parsenodes.h:1576`)
 - [x] **TriggerTransition** - Trigger transition (`src/include/nodes/parsenodes.h:1737`)
 - [x] **RoleSpec** - Role specification (`src/include/nodes/parsenodes.h:401`)
 - [ ] **ObjectWithArgs** - Object with arguments (`src/include/nodes/parsenodes.h:2524`)
-- [ ] **AccessPriv** - Access privilege (`src/include/nodes/parsenodes.h:2540`)
+- [x] **AccessPriv** - Access privilege (`src/include/nodes/parsenodes.h:2540`)
 
 ## Primitive Node Structures (primnodes.h)
 
@@ -186,22 +186,22 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 
 ### Subquery and Subplan Nodes
 - [x] **SubLink** - Subquery link (`src/include/nodes/primnodes.h:1008`)
-- [ ] **SubPlan** - Subplan (`src/include/nodes/primnodes.h:1059`)
-- [ ] **AlternativeSubPlan** - Alternative subplan (`src/include/nodes/primnodes.h:1108`)
+- [x] **SubPlan** - Subplan (`src/include/nodes/primnodes.h:1059`)
+- [x] **AlternativeSubPlan** - Alternative subplan (`src/include/nodes/primnodes.h:1108`)
 
 ### Type Coercion Nodes
-- [ ] **RelabelType** - Type relabeling (`src/include/nodes/primnodes.h:1181`)
-- [ ] **CoerceViaIO** - Coercion via I/O (`src/include/nodes/primnodes.h:1204`)
-- [ ] **ArrayCoerceExpr** - Array coercion (`src/include/nodes/primnodes.h:1230`)
-- [ ] **ConvertRowtypeExpr** - Row type conversion (`src/include/nodes/primnodes.h:1258`)
-- [ ] **CollateExpr** - Collation expression (`src/include/nodes/primnodes.h:1276`)
-- [ ] **CoerceToDomain** - Domain coercion (`src/include/nodes/primnodes.h:2025`)
-- [ ] **CoerceToDomainValue** - Domain coercion value (`src/include/nodes/primnodes.h:2048`)
+- [x] **RelabelType** - Type relabeling (`src/include/nodes/primnodes.h:1181`)
+- [x] **CoerceViaIO** - Coercion via I/O (`src/include/nodes/primnodes.h:1204`)
+- [x] **ArrayCoerceExpr** - Array coercion (`src/include/nodes/primnodes.h:1230`)
+- [x] **ConvertRowtypeExpr** - Row type conversion (`src/include/nodes/primnodes.h:1258`)
+- [x] **CollateExpr** - Collation expression (`src/include/nodes/primnodes.h:1276`)
+- [x] **CoerceToDomain** - Domain coercion (`src/include/nodes/primnodes.h:2025`)
+- [x] **CoerceToDomainValue** - Domain coercion value (`src/include/nodes/primnodes.h:2048`)
 
 ### Field and Array Operations
-- [ ] **FieldSelect** - Field selection (`src/include/nodes/primnodes.h:1125`)
-- [ ] **FieldStore** - Field store (`src/include/nodes/primnodes.h:1156`)
-- [ ] **SubscriptingRef** - Array/subscript reference (`src/include/nodes/primnodes.h:679`)
+- [x] **FieldSelect** - Field selection (`src/include/nodes/primnodes.h:1125`)
+- [x] **FieldStore** - Field store (`src/include/nodes/primnodes.h:1156`)
+- [x] **SubscriptingRef** - Array/subscript reference (`src/include/nodes/primnodes.h:679`)
 - [x] **ArrayExpr** - Array expression (`src/include/nodes/primnodes.h:1370`)
 
 ### Control Flow Nodes
@@ -233,26 +233,26 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **JsonTableSiblingJoin** - JSON table sibling join (`src/include/nodes/primnodes.h:1923`)
 
 ### Test and Validation Nodes
-- [ ] **NullTest** - NULL test (`src/include/nodes/primnodes.h:1955`)
-- [ ] **BooleanTest** - Boolean test (`src/include/nodes/primnodes.h:1979`)
+- [x] **NullTest** - NULL test (`src/include/nodes/primnodes.h:1955`)
+- [x] **BooleanTest** - Boolean test (`src/include/nodes/primnodes.h:1979`)
 - [ ] **MergeAction** - MERGE action (`src/include/nodes/primnodes.h:2003`)
 
 ### Special Value Nodes
-- [ ] **SetToDefault** - SET TO DEFAULT (`src/include/nodes/primnodes.h:2068`)
-- [ ] **CurrentOfExpr** - CURRENT OF expression (`src/include/nodes/primnodes.h:2094`)
-- [ ] **NextValueExpr** - NEXTVAL expression (`src/include/nodes/primnodes.h:2109`)
-- [ ] **InferenceElem** - Inference element (`src/include/nodes/primnodes.h:2123`)
+- [x] **SetToDefault** - SET TO DEFAULT (`src/include/nodes/primnodes.h:2068`)
+- [x] **CurrentOfExpr** - CURRENT OF expression (`src/include/nodes/primnodes.h:2094`)
+- [x] **NextValueExpr** - NEXTVAL expression (`src/include/nodes/primnodes.h:2109`)
+- [x] **InferenceElem** - Inference element (`src/include/nodes/primnodes.h:2123`)
 
 ### Target and Reference Nodes
-- [ ] **TargetEntry** - Target entry (`src/include/nodes/primnodes.h:2186`)
+- [x] **TargetEntry** - Target entry (`src/include/nodes/primnodes.h:2186`)
 - [ ] **RangeTblRef** - Range table reference (`src/include/nodes/primnodes.h:2243`)
-- [ ] **JoinExpr** - JOIN expression (`src/include/nodes/primnodes.h:2277`)
-- [ ] **FromExpr** - FROM expression (`src/include/nodes/primnodes.h:2305`)
-- [ ] **OnConflictExpr** - ON CONFLICT expression (`src/include/nodes/primnodes.h:2321`)
+- [x] **JoinExpr** - JOIN expression (`src/include/nodes/primnodes.h:2277`)
+- [x] **FromExpr** - FROM expression (`src/include/nodes/primnodes.h:2305`)
+- [x] **OnConflictExpr** - ON CONFLICT expression (`src/include/nodes/primnodes.h:2321`)
 
 ### Utility Nodes
-- [ ] **Alias** - Alias specification (`src/include/nodes/primnodes.h:47`)
-- [ ] **RangeVar** - Range variable (`src/include/nodes/primnodes.h:71`)
+- [x] **Alias** - Alias specification (`src/include/nodes/primnodes.h:47`)
+- [x] **RangeVar** - Range variable (`src/include/nodes/primnodes.h:71`)
 - [ ] **TableFunc** - Table function (`src/include/nodes/primnodes.h:109`)
 - [ ] **IntoClause** - INTO clause (`src/include/nodes/primnodes.h:158`)
 
