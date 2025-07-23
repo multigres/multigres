@@ -33,21 +33,23 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 
 ### DDL Statement Nodes
 - [ ] **CreateStmt** - CREATE TABLE (`src/include/nodes/parsenodes.h:2648`)
-- [ ] **CreateSchemaStmt** - CREATE SCHEMA (`src/include/nodes/parsenodes.h:2320`)
-- [ ] **AlterTableStmt** - ALTER TABLE (`src/include/nodes/parsenodes.h:2339`)
-- [ ] **AlterTableCmd** - ALTER TABLE subcommand (`src/include/nodes/parsenodes.h:2426`)
-- [ ] **CreateExtensionStmt** - CREATE EXTENSION (`src/include/nodes/parsenodes.h:2819`)
+- [x] **CreateSchemaStmt** - CREATE SCHEMA (`src/include/nodes/parsenodes.h:2320`)
+- [x] **AlterTableStmt** - ALTER TABLE (`src/include/nodes/parsenodes.h:2339`)
+- [x] **AlterTableCmd** - ALTER TABLE subcommand (`src/include/nodes/parsenodes.h:2426`)
+- [x] **AlterDomainStmt** - ALTER DOMAIN (`src/include/nodes/parsenodes.h:2461`)
+- [x] **CreateExtensionStmt** - CREATE EXTENSION (`src/include/nodes/parsenodes.h:2819`)
 - [x] **CreateForeignServerStmt** - CREATE FOREIGN SERVER (`src/include/nodes/parsenodes.h:2870`)
 - [x] **CreateForeignTableStmt** - CREATE FOREIGN TABLE (`src/include/nodes/parsenodes.h:2895`)
 - [x] **CreateUserMappingStmt** - CREATE USER MAPPING (`src/include/nodes/parsenodes.h:2907`)
 - [x] **CreatePolicyStmt** - CREATE POLICY (`src/include/nodes/parsenodes.h:2959`)
 - [x] **AlterPolicyStmt** - ALTER POLICY (`src/include/nodes/parsenodes.h:2975`)
 - [x] **CreateTrigStmt** - CREATE TRIGGER (`src/include/nodes/parsenodes.h:3001`) _(Go: CreateTriggerStmt)_
+- [x] **IndexStmt** - CREATE INDEX (`src/include/nodes/parsenodes.h:3348`)
 - [x] **StatsElem** - Statistics element specification (`src/include/nodes/parsenodes.h:3403`)
 - [ ] **CreateFunctionStmt** - CREATE FUNCTION (`src/include/nodes/parsenodes.h:3427`)
 - [ ] **CreateRoleStmt** - CREATE ROLE (`src/include/nodes/parsenodes.h:3081`)
 - [ ] **CreateSeqStmt** - CREATE SEQUENCE (`src/include/nodes/parsenodes.h:3117`)
-- [ ] **CreateDomainStmt** - CREATE DOMAIN (`src/include/nodes/parsenodes.h:3156`)
+- [x] **CreateDomainStmt** - CREATE DOMAIN (`src/include/nodes/parsenodes.h:3156`)
 - [ ] **CreateOpClassStmt** - CREATE OPERATOR CLASS (`src/include/nodes/parsenodes.h:3169`)
 - [ ] **CreateOpFamilyStmt** - CREATE OPERATOR FAMILY (`src/include/nodes/parsenodes.h:3201`)
 - [ ] **CreateCastStmt** - CREATE CAST (`src/include/nodes/parsenodes.h:4002`)
@@ -60,7 +62,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **RenameStmt** - RENAME operations (`src/include/nodes/parsenodes.h:3525`)
 - [ ] **AlterOwnerStmt** - ALTER OWNER (`src/include/nodes/parsenodes.h:3571`)
 - [ ] **RuleStmt** - CREATE RULE (`src/include/nodes/parsenodes.h:3606`)
-- [ ] **ViewStmt** - CREATE VIEW (`src/include/nodes/parsenodes.h:3740`)
+- [x] **ViewStmt** - CREATE VIEW (`src/include/nodes/parsenodes.h:3740`)
 
 ### Utility Statement Nodes
 - [ ] **VariableSetStmt** - SET statement (`src/include/nodes/parsenodes.h:2618`)
@@ -90,9 +92,9 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 ### Table and Column Definition Nodes
 - [ ] **ColumnDef** - Column definition (`src/include/nodes/parsenodes.h:723`)
 - [x] **TableLikeClause** - LIKE clause in CREATE TABLE (`src/include/nodes/parsenodes.h:751`)
-- [ ] **IndexElem** - Index element (`src/include/nodes/parsenodes.h:780`)
-- [ ] **Constraint** - Table/column constraint (`src/include/nodes/parsenodes.h:2728`)
-- [ ] **DefElem** - Definition element (`src/include/nodes/parsenodes.h:811`)
+- [x] **IndexElem** - Index element (`src/include/nodes/parsenodes.h:780`)
+- [x] **Constraint** - Table/column constraint (`src/include/nodes/parsenodes.h:2728`)
+- [x] **DefElem** - Definition element (`src/include/nodes/parsenodes.h:811`)
 
 ### Range Table and FROM Clause Nodes
 - [ ] **RangeTblEntry** - Range table entry (`src/include/nodes/parsenodes.h:1038`)
@@ -158,7 +160,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **TableSampleClause** - Table sample clause (`src/include/nodes/parsenodes.h:1344`)
 - [ ] **RowMarkClause** - Row marking clause (`src/include/nodes/parsenodes.h:1576`)
 - [x] **TriggerTransition** - Trigger transition (`src/include/nodes/parsenodes.h:1737`)
-- [ ] **RoleSpec** - Role specification (`src/include/nodes/parsenodes.h:401`)
+- [x] **RoleSpec** - Role specification (`src/include/nodes/parsenodes.h:401`)
 - [ ] **ObjectWithArgs** - Object with arguments (`src/include/nodes/parsenodes.h:2524`)
 - [ ] **AccessPriv** - Access privilege (`src/include/nodes/parsenodes.h:2540`)
 

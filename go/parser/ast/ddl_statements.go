@@ -121,7 +121,7 @@ func (d DropBehavior) String() string {
 	}
 }
 
-// ConstrType represents types of constraints - ported from postgres/src/include/nodes/parsenodes.h:2513-2533
+// ConstrType represents types of constraints - ported from postgres/src/include/nodes/parsenodes.h:2697-2714
 type ConstrType int
 
 const (
@@ -184,7 +184,7 @@ func (v ViewCheckOption) String() string {
 	}
 }
 
-// AlterTableType represents types of ALTER TABLE operations - ported from postgres/src/include/nodes/parsenodes.h:2507-2582
+// AlterTableType represents types of ALTER TABLE operations - ported from postgres/src/include/nodes/parsenodes.h:2348-2417
 type AlterTableType int
 
 const (
@@ -354,7 +354,7 @@ func (s SortByNulls) String() string {
 	}
 }
 
-// RoleSpecType represents types of role specifications - ported from postgres/src/include/nodes/parsenodes.h:390-396
+// RoleSpecType represents types of role specifications - ported from postgres/src/include/nodes/parsenodes.h:383-389
 type RoleSpecType int
 
 const (
@@ -383,11 +383,11 @@ func (r RoleSpecType) String() string {
 }
 
 // RoleSpec represents a role specification.
-// Ported from postgres/src/include/nodes/parsenodes.h:397-403
+// Ported from postgres/src/include/nodes/parsenodes.h:401
 type RoleSpec struct {
 	BaseNode
-	Roletype RoleSpecType // Type of this rolespec - postgres/src/include/nodes/parsenodes.h:399
-	Rolename string       // filled only for ROLESPEC_CSTRING - postgres/src/include/nodes/parsenodes.h:400
+	Roletype RoleSpecType // Type of this rolespec - postgres/src/include/nodes/parsenodes.h:403
+	Rolename string       // filled only for ROLESPEC_CSTRING - postgres/src/include/nodes/parsenodes.h:404
 }
 
 // NewRoleSpec creates a new RoleSpec node.
@@ -466,13 +466,13 @@ func (c *CollateClause) String() string {
 // ==============================================================================
 
 // DefElem represents a generic name/value pair for options.
-// Ported from postgres/src/include/nodes/parsenodes.h:811-820
+// Ported from postgres/src/include/nodes/parsenodes.h:811
 type DefElem struct {
 	BaseNode
-	Defnamespace string        // NULL if unqualified name - postgres/src/include/nodes/parsenodes.h:843
-	Defname      string        // postgres/src/include/nodes/parsenodes.h:844
-	Arg          Node          // typically Integer, Float, String, or TypeName - postgres/src/include/nodes/parsenodes.h:845
-	Defaction    DefElemAction // unspecified action, or SET/ADD/DROP - postgres/src/include/nodes/parsenodes.h:847
+	Defnamespace string        // NULL if unqualified name - postgres/src/include/nodes/parsenodes.h:813
+	Defname      string        // postgres/src/include/nodes/parsenodes.h:814
+	Arg          Node          // typically Integer, Float, String, or TypeName - postgres/src/include/nodes/parsenodes.h:815
+	Defaction    DefElemAction // unspecified action, or SET/ADD/DROP - postgres/src/include/nodes/parsenodes.h:816
 }
 
 // NewDefElem creates a new DefElem node.
@@ -494,38 +494,38 @@ func (d *DefElem) String() string {
 }
 
 // Constraint represents a constraint definition.
-// Ported from postgres/src/include/nodes/parsenodes.h:2728-2773
+// Ported from postgres/src/include/nodes/parsenodes.h:2728
 type Constraint struct {
 	BaseNode
-	Contype       ConstrType // see above - postgres/src/include/nodes/parsenodes.h:2538
-	Conname       string     // Constraint name, or NULL if unnamed - postgres/src/include/nodes/parsenodes.h:2539
-	Deferrable    bool       // DEFERRABLE? - postgres/src/include/nodes/parsenodes.h:2540
-	Initdeferred  bool       // INITIALLY DEFERRED? - postgres/src/include/nodes/parsenodes.h:2541
-	SkipValidation bool      // skip validation of existing rows? - postgres/src/include/nodes/parsenodes.h:2542
-	InitiallyValid bool      // mark the new constraint as valid? - postgres/src/include/nodes/parsenodes.h:2543
-	IsNoInherit   bool       // is constraint non-inheritable? - postgres/src/include/nodes/parsenodes.h:2544
-	RawExpr       Node       // CHECK or DEFAULT expression, as untransformed parse tree - postgres/src/include/nodes/parsenodes.h:2545
-	CookedExpr    string     // CHECK or DEFAULT expression, as nodeToString representation - postgres/src/include/nodes/parsenodes.h:2547
-	GeneratedWhen byte       // ALWAYS or BY DEFAULT - postgres/src/include/nodes/parsenodes.h:2549
-	Inhcount      int        // initial inheritance count to apply - postgres/src/include/nodes/parsenodes.h:2550
-	Keys          []string   // String nodes naming referenced key column(s) - postgres/src/include/nodes/parsenodes.h:2551
-	Including     []string   // String nodes naming referenced nonkey column(s) - postgres/src/include/nodes/parsenodes.h:2552
-	Exclusions    []Node     // list of (IndexElem, operator name) pairs - postgres/src/include/nodes/parsenodes.h:2553
-	Options       []Node     // options from WITH clause - postgres/src/include/nodes/parsenodes.h:2554
-	Indexname     string     // existing index to use; otherwise NULL - postgres/src/include/nodes/parsenodes.h:2555
-	Indexspace    string     // index tablespace; NULL for default - postgres/src/include/nodes/parsenodes.h:2556
-	ResetDefaultTblspc bool  // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:2557
-	AccessMethod  string     // access method to use for the index - postgres/src/include/nodes/parsenodes.h:2558
-	WhereClause   Node       // partial index predicate - postgres/src/include/nodes/parsenodes.h:2559
-	Pktable       *RangeVar  // Primary key table for FOREIGN KEY - postgres/src/include/nodes/parsenodes.h:2560
-	FkAttrs       []string   // Attributes of foreign key - postgres/src/include/nodes/parsenodes.h:2561
-	PkAttrs       []string   // Corresponding attrs in PK table - postgres/src/include/nodes/parsenodes.h:2562
-	FkMatchtype   byte       // FULL, PARTIAL, SIMPLE - postgres/src/include/nodes/parsenodes.h:2563
-	FkUpdAction   byte       // ON UPDATE action - postgres/src/include/nodes/parsenodes.h:2564
-	FkDelAction   byte       // ON DELETE action - postgres/src/include/nodes/parsenodes.h:2565
-	FkDelSetCols  []string   // ON DELETE SET NULL/DEFAULT (column_list) - postgres/src/include/nodes/parsenodes.h:2566
-	OldConpfeqop  []Oid      // pg_constraint.conpfeqop of my former self - postgres/src/include/nodes/parsenodes.h:2567
-	OldPktableOid Oid        // pg_class.oid of my former self - postgres/src/include/nodes/parsenodes.h:2568
+	Contype       ConstrType // see above - postgres/src/include/nodes/parsenodes.h:2731
+	Conname       string     // Constraint name, or NULL if unnamed - postgres/src/include/nodes/parsenodes.h:2732
+	Deferrable    bool       // DEFERRABLE? - postgres/src/include/nodes/parsenodes.h:2733
+	Initdeferred  bool       // INITIALLY DEFERRED? - postgres/src/include/nodes/parsenodes.h:2734
+	SkipValidation bool      // skip validation of existing rows? - postgres/src/include/nodes/parsenodes.h:2735
+	InitiallyValid bool      // mark the new constraint as valid? - postgres/src/include/nodes/parsenodes.h:2736
+	IsNoInherit   bool       // is constraint non-inheritable? - postgres/src/include/nodes/parsenodes.h:2737
+	RawExpr       Node       // CHECK or DEFAULT expression, as untransformed parse tree - postgres/src/include/nodes/parsenodes.h:2738
+	CookedExpr    string     // CHECK or DEFAULT expression, as nodeToString representation - postgres/src/include/nodes/parsenodes.h:2740
+	GeneratedWhen byte       // ALWAYS or BY DEFAULT - postgres/src/include/nodes/parsenodes.h:2742
+	Inhcount      int        // initial inheritance count to apply - postgres/src/include/nodes/parsenodes.h:2743
+	Keys          []string   // String nodes naming referenced key column(s) - postgres/src/include/nodes/parsenodes.h:2744
+	Including     []string   // String nodes naming referenced nonkey column(s) - postgres/src/include/nodes/parsenodes.h:2745
+	Exclusions    []Node     // list of (IndexElem, operator name) pairs - postgres/src/include/nodes/parsenodes.h:2746
+	Options       []Node     // options from WITH clause - postgres/src/include/nodes/parsenodes.h:2747
+	Indexname     string     // existing index to use; otherwise NULL - postgres/src/include/nodes/parsenodes.h:2748
+	Indexspace    string     // index tablespace; NULL for default - postgres/src/include/nodes/parsenodes.h:2749
+	ResetDefaultTblspc bool  // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:2750
+	AccessMethod  string     // access method to use for the index - postgres/src/include/nodes/parsenodes.h:2751
+	WhereClause   Node       // partial index predicate - postgres/src/include/nodes/parsenodes.h:2752
+	Pktable       *RangeVar  // Primary key table for FOREIGN KEY - postgres/src/include/nodes/parsenodes.h:2753
+	FkAttrs       []string   // Attributes of foreign key - postgres/src/include/nodes/parsenodes.h:2754
+	PkAttrs       []string   // Corresponding attrs in PK table - postgres/src/include/nodes/parsenodes.h:2755
+	FkMatchtype   byte       // FULL, PARTIAL, SIMPLE - postgres/src/include/nodes/parsenodes.h:2756
+	FkUpdAction   byte       // ON UPDATE action - postgres/src/include/nodes/parsenodes.h:2757
+	FkDelAction   byte       // ON DELETE action - postgres/src/include/nodes/parsenodes.h:2758
+	FkDelSetCols  []string   // ON DELETE SET NULL/DEFAULT (column_list) - postgres/src/include/nodes/parsenodes.h:2759
+	OldConpfeqop  []Oid      // pg_constraint.conpfeqop of my former self - postgres/src/include/nodes/parsenodes.h:2760
+	OldPktableOid Oid        // pg_class.oid of my former self - postgres/src/include/nodes/parsenodes.h:2761
 }
 
 // NewConstraint creates a new Constraint node.
@@ -549,13 +549,13 @@ func (c *Constraint) String() string {
 // ==============================================================================
 
 // AlterTableStmt represents an ALTER TABLE statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2503-2509
+// Ported from postgres/src/include/nodes/parsenodes.h:2339
 type AlterTableStmt struct {
 	BaseNode
-	Relation  *RangeVar        // table to work on - postgres/src/include/nodes/parsenodes.h:2505
-	Cmds      []*AlterTableCmd // list of subcommands - postgres/src/include/nodes/parsenodes.h:2506
-	Objtype   ObjectType       // type of object - postgres/src/include/nodes/parsenodes.h:2507
-	MissingOk bool             // skip error if table missing - postgres/src/include/nodes/parsenodes.h:2508
+	Relation  *RangeVar        // table to work on - postgres/src/include/nodes/parsenodes.h:2341
+	Cmds      []*AlterTableCmd // list of subcommands - postgres/src/include/nodes/parsenodes.h:2342
+	Objtype   ObjectType       // type of object - postgres/src/include/nodes/parsenodes.h:2344
+	MissingOk bool             // skip error if table missing - postgres/src/include/nodes/parsenodes.h:2345
 }
 
 // NewAlterTableStmt creates a new AlterTableStmt node.
@@ -577,17 +577,17 @@ func (a *AlterTableStmt) String() string {
 }
 
 // AlterTableCmd represents one subcommand of an ALTER TABLE.
-// Ported from postgres/src/include/nodes/parsenodes.h:2584-2598
+// Ported from postgres/src/include/nodes/parsenodes.h:2426
 type AlterTableCmd struct {
 	BaseNode
-	Subtype   AlterTableType // Type of table alteration to apply - postgres/src/include/nodes/parsenodes.h:2586
-	Name      string         // column, constraint, or trigger to act on - postgres/src/include/nodes/parsenodes.h:2587
-	Num       int16          // attribute number for columns referenced by number - postgres/src/include/nodes/parsenodes.h:2589
-	Newowner  *RoleSpec      // postgres/src/include/nodes/parsenodes.h:2591
-	Def       Node           // definition of new column, index, constraint, or parent table - postgres/src/include/nodes/parsenodes.h:2592
-	Behavior  DropBehavior   // RESTRICT or CASCADE for DROP cases - postgres/src/include/nodes/parsenodes.h:2594
-	MissingOk bool           // skip error if missing? - postgres/src/include/nodes/parsenodes.h:2595
-	Recurse   bool           // exec-time recursion - postgres/src/include/nodes/parsenodes.h:2596
+	Subtype   AlterTableType // Type of table alteration to apply - postgres/src/include/nodes/parsenodes.h:2429
+	Name      string         // column, constraint, or trigger to act on - postgres/src/include/nodes/parsenodes.h:2430
+	Num       int16          // attribute number for columns referenced by number - postgres/src/include/nodes/parsenodes.h:2432
+	Newowner  *RoleSpec      // postgres/src/include/nodes/parsenodes.h:2434
+	Def       Node           // definition of new column, index, constraint, or parent table - postgres/src/include/nodes/parsenodes.h:2435
+	Behavior  DropBehavior   // RESTRICT or CASCADE for DROP cases - postgres/src/include/nodes/parsenodes.h:2437
+	MissingOk bool           // skip error if missing? - postgres/src/include/nodes/parsenodes.h:2438
+	Recurse   bool           // exec-time recursion - postgres/src/include/nodes/parsenodes.h:2439
 }
 
 // NewAlterTableCmd creates a new AlterTableCmd node.
@@ -610,33 +610,33 @@ func (a *AlterTableCmd) String() string {
 // ==============================================================================
 
 // IndexStmt represents a CREATE INDEX statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3306-3325
+// Ported from postgres/src/include/nodes/parsenodes.h:3348
 type IndexStmt struct {
 	BaseNode
-	Idxname                string      // name of new index, or NULL for default - postgres/src/include/nodes/parsenodes.h:3308
-	Relation               *RangeVar   // relation to build index on - postgres/src/include/nodes/parsenodes.h:3309
-	AccessMethod           string      // name of access method (eg. btree) - postgres/src/include/nodes/parsenodes.h:3310
-	TableSpace             string      // tablespace, or NULL for default - postgres/src/include/nodes/parsenodes.h:3311
-	IndexParams            []*IndexElem // columns to index: a list of IndexElem - postgres/src/include/nodes/parsenodes.h:3312
-	IndexIncludingParams   []*IndexElem // additional columns to index - postgres/src/include/nodes/parsenodes.h:3313
-	Options                []*DefElem  // WITH clause options: a list of DefElem - postgres/src/include/nodes/parsenodes.h:3315
-	WhereClause            Node        // qualification (partial-index predicate) - postgres/src/include/nodes/parsenodes.h:3316
-	ExcludeOpNames         []Node      // exclusion operator names, or NIL if none - postgres/src/include/nodes/parsenodes.h:3317
-	Idxcomment             string      // comment to apply to index, or NULL - postgres/src/include/nodes/parsenodes.h:3318
-	IndexOid               Oid         // OID of an existing index, if any - postgres/src/include/nodes/parsenodes.h:3319
-	OldNumber              uint32      // relfilenumber of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3320
-	OldCreateSubid         uint32      // rd_createSubid of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3321
-	OldFirstRelfilenodeSubid uint32    // rd_firstRelfilenodeSubid of existing storage - postgres/src/include/nodes/parsenodes.h:3322
-	Unique                 bool        // is index unique? - postgres/src/include/nodes/parsenodes.h:3323
-	Nulls_not_distinct     bool        // null treatment in unique index - postgres/src/include/nodes/parsenodes.h:3324
-	Primary                bool        // is index a primary key? - postgres/src/include/nodes/parsenodes.h:3325
-	Isconstraint           bool        // is it for a pkey/unique constraint? - postgres/src/include/nodes/parsenodes.h:3326
-	Deferrable             bool        // is the constraint DEFERRABLE? - postgres/src/include/nodes/parsenodes.h:3327
-	Initdeferred           bool        // is the constraint INITIALLY DEFERRED? - postgres/src/include/nodes/parsenodes.h:3328
-	Transformed            bool        // true when transformIndexStmt is finished - postgres/src/include/nodes/parsenodes.h:3329
-	Concurrent             bool        // should this be a concurrent index build? - postgres/src/include/nodes/parsenodes.h:3330
-	IfNotExists            bool        // just do nothing if index already exists? - postgres/src/include/nodes/parsenodes.h:3331
-	ResetDefaultTblspc     bool        // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:3332
+	Idxname                string      // name of new index, or NULL for default - postgres/src/include/nodes/parsenodes.h:3350
+	Relation               *RangeVar   // relation to build index on - postgres/src/include/nodes/parsenodes.h:3351
+	AccessMethod           string      // name of access method (eg. btree) - postgres/src/include/nodes/parsenodes.h:3352
+	TableSpace             string      // tablespace, or NULL for default - postgres/src/include/nodes/parsenodes.h:3353
+	IndexParams            []*IndexElem // columns to index: a list of IndexElem - postgres/src/include/nodes/parsenodes.h:3354
+	IndexIncludingParams   []*IndexElem // additional columns to index - postgres/src/include/nodes/parsenodes.h:3355
+	Options                []*DefElem  // WITH clause options: a list of DefElem - postgres/src/include/nodes/parsenodes.h:3357
+	WhereClause            Node        // qualification (partial-index predicate) - postgres/src/include/nodes/parsenodes.h:3358
+	ExcludeOpNames         []Node      // exclusion operator names, or NIL if none - postgres/src/include/nodes/parsenodes.h:3359
+	Idxcomment             string      // comment to apply to index, or NULL - postgres/src/include/nodes/parsenodes.h:3360
+	IndexOid               Oid         // OID of an existing index, if any - postgres/src/include/nodes/parsenodes.h:3361
+	OldNumber              uint32      // relfilenumber of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3362
+	OldCreateSubid         uint32      // rd_createSubid of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3363
+	OldFirstRelfilenodeSubid uint32    // rd_firstRelfilenodeSubid of existing storage - postgres/src/include/nodes/parsenodes.h:3364
+	Unique                 bool        // is index unique? - postgres/src/include/nodes/parsenodes.h:3365
+	Nulls_not_distinct     bool        // null treatment in unique index - postgres/src/include/nodes/parsenodes.h:3366
+	Primary                bool        // is index a primary key? - postgres/src/include/nodes/parsenodes.h:3367
+	Isconstraint           bool        // is it for a pkey/unique constraint? - postgres/src/include/nodes/parsenodes.h:3368
+	Deferrable             bool        // is the constraint DEFERRABLE? - postgres/src/include/nodes/parsenodes.h:3369
+	Initdeferred           bool        // is the constraint INITIALLY DEFERRED? - postgres/src/include/nodes/parsenodes.h:3370
+	Transformed            bool        // true when transformIndexStmt is finished - postgres/src/include/nodes/parsenodes.h:3371
+	Concurrent             bool        // should this be a concurrent index build? - postgres/src/include/nodes/parsenodes.h:3372
+	IfNotExists            bool        // just do nothing if index already exists? - postgres/src/include/nodes/parsenodes.h:3373
+	ResetDefaultTblspc     bool        // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:3374
 }
 
 // NewIndexStmt creates a new IndexStmt node.
@@ -663,17 +663,17 @@ func (i *IndexStmt) String() string {
 }
 
 // IndexElem represents one index element (column or expression).
-// Ported from postgres/src/include/nodes/parsenodes.h:851-863
+// Ported from postgres/src/include/nodes/parsenodes.h:780
 type IndexElem struct {
 	BaseNode
-	Name           string       // name of attribute to index, or NULL - postgres/src/include/nodes/parsenodes.h:853
-	Expr           Node         // expression to index, or NULL - postgres/src/include/nodes/parsenodes.h:854
-	Indexcolname   string       // name for index column; NULL = default - postgres/src/include/nodes/parsenodes.h:855
-	Collation      []string     // name of collation; NIL = default - postgres/src/include/nodes/parsenodes.h:856
-	Opclass        []string     // name of desired opclass; NIL = default - postgres/src/include/nodes/parsenodes.h:857
-	Opclassopts    []*DefElem   // opclass-specific options, or NIL - postgres/src/include/nodes/parsenodes.h:858
-	Ordering       SortByDir    // ASC/DESC/default - postgres/src/include/nodes/parsenodes.h:859
-	NullsOrdering  SortByNulls  // FIRST/LAST/default - postgres/src/include/nodes/parsenodes.h:860
+	Name           string       // name of attribute to index, or NULL - postgres/src/include/nodes/parsenodes.h:782
+	Expr           Node         // expression to index, or NULL - postgres/src/include/nodes/parsenodes.h:783
+	Indexcolname   string       // name for index column; NULL = default - postgres/src/include/nodes/parsenodes.h:784
+	Collation      []string     // name of collation; NIL = default - postgres/src/include/nodes/parsenodes.h:785
+	Opclass        []string     // name of desired opclass; NIL = default - postgres/src/include/nodes/parsenodes.h:786
+	Opclassopts    []*DefElem   // opclass-specific options, or NIL - postgres/src/include/nodes/parsenodes.h:787
+	Ordering       SortByDir    // ASC/DESC/default - postgres/src/include/nodes/parsenodes.h:788
+	NullsOrdering  SortByNulls  // FIRST/LAST/default - postgres/src/include/nodes/parsenodes.h:789
 }
 
 // NewIndexElem creates a new IndexElem node.
@@ -703,15 +703,15 @@ func (i *IndexElem) String() string {
 // ==============================================================================
 
 // ViewStmt represents a CREATE VIEW statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3779-3787
+// Ported from postgres/src/include/nodes/parsenodes.h:3740
 type ViewStmt struct {
 	BaseNode
-	View            *RangeVar       // the view to be created - postgres/src/include/nodes/parsenodes.h:3781
-	Aliases         []string        // target column names - postgres/src/include/nodes/parsenodes.h:3782
-	Query           Node            // the SELECT query (as a raw parse tree) - postgres/src/include/nodes/parsenodes.h:3783
-	Replace         bool            // replace an existing view? - postgres/src/include/nodes/parsenodes.h:3784
-	Options         []*DefElem      // options from WITH clause - postgres/src/include/nodes/parsenodes.h:3785
-	WithCheckOption ViewCheckOption // WITH CHECK OPTION - postgres/src/include/nodes/parsenodes.h:3786
+	View            *RangeVar       // the view to be created - postgres/src/include/nodes/parsenodes.h:3742
+	Aliases         []string        // target column names - postgres/src/include/nodes/parsenodes.h:3743
+	Query           Node            // the SELECT query (as a raw parse tree) - postgres/src/include/nodes/parsenodes.h:3744
+	Replace         bool            // replace an existing view? - postgres/src/include/nodes/parsenodes.h:3745
+	Options         []*DefElem      // options from WITH clause - postgres/src/include/nodes/parsenodes.h:3746
+	WithCheckOption ViewCheckOption // WITH CHECK OPTION - postgres/src/include/nodes/parsenodes.h:3747
 }
 
 // NewViewStmt creates a new ViewStmt node.
@@ -742,15 +742,15 @@ func (v *ViewStmt) String() string {
 // ==============================================================================
 
 // AlterDomainStmt represents an ALTER DOMAIN statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3564-3581
+// Ported from postgres/src/include/nodes/parsenodes.h:2461
 type AlterDomainStmt struct {
 	BaseNode
-	Subtype   byte         // T/N/O/C/X for alter type - postgres/src/include/nodes/parsenodes.h:3566
-	TypeName  []string     // domain to work on - postgres/src/include/nodes/parsenodes.h:3574
-	Name      string       // column or constraint name to act on - postgres/src/include/nodes/parsenodes.h:3575
-	Def       Node         // definition of default or constraint - postgres/src/include/nodes/parsenodes.h:3576
-	Behavior  DropBehavior // RESTRICT or CASCADE for DROP cases - postgres/src/include/nodes/parsenodes.h:3577
-	MissingOk bool         // skip error if missing? - postgres/src/include/nodes/parsenodes.h:3578
+	Subtype   byte         // T/N/O/C/X for alter type - postgres/src/include/nodes/parsenodes.h:2463
+	TypeName  []string     // domain to work on - postgres/src/include/nodes/parsenodes.h:2464
+	Name      string       // column or constraint name to act on - postgres/src/include/nodes/parsenodes.h:2465
+	Def       Node         // definition of default or constraint - postgres/src/include/nodes/parsenodes.h:2466
+	Behavior  DropBehavior // RESTRICT or CASCADE for DROP cases - postgres/src/include/nodes/parsenodes.h:2467
+	MissingOk bool         // skip error if missing? - postgres/src/include/nodes/parsenodes.h:2468
 }
 
 // NewAlterDomainStmt creates a new AlterDomainStmt node.
@@ -776,13 +776,13 @@ func (a *AlterDomainStmt) String() string {
 }
 
 // CreateDomainStmt represents a CREATE DOMAIN statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3583-3589
+// Ported from postgres/src/include/nodes/parsenodes.h:3156
 type CreateDomainStmt struct {
 	BaseNode
-	Domainname   []string      // qualified name (list of String) - postgres/src/include/nodes/parsenodes.h:3585
-	TypeName     *TypeName     // the base type - postgres/src/include/nodes/parsenodes.h:3586
-	CollClause   *CollateClause // untransformed COLLATE spec, if any - postgres/src/include/nodes/parsenodes.h:3587
-	Constraints  []*Constraint // constraints (list of Constraint nodes) - postgres/src/include/nodes/parsenodes.h:3588
+	Domainname   []string      // qualified name (list of String) - postgres/src/include/nodes/parsenodes.h:3158
+	TypeName     *TypeName     // the base type - postgres/src/include/nodes/parsenodes.h:3159
+	CollClause   *CollateClause // untransformed COLLATE spec, if any - postgres/src/include/nodes/parsenodes.h:3160
+	Constraints  []*Constraint // constraints (list of Constraint nodes) - postgres/src/include/nodes/parsenodes.h:3161
 }
 
 // NewCreateDomainStmt creates a new CreateDomainStmt node.
@@ -811,13 +811,13 @@ func (c *CreateDomainStmt) String() string {
 // ==============================================================================
 
 // CreateSchemaStmt represents a CREATE SCHEMA statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2747-2753
+// Ported from postgres/src/include/nodes/parsenodes.h:2320
 type CreateSchemaStmt struct {
 	BaseNode
-	Schemaname   string      // the name of the schema to create - postgres/src/include/nodes/parsenodes.h:2749
-	Authrole     *RoleSpec   // the owner of the created schema - postgres/src/include/nodes/parsenodes.h:2750
-	SchemaElts   []Node      // schema components (list of parsenodes) - postgres/src/include/nodes/parsenodes.h:2751
-	IfNotExists  bool        // just do nothing if schema already exists? - postgres/src/include/nodes/parsenodes.h:2752
+	Schemaname   string      // the name of the schema to create - postgres/src/include/nodes/parsenodes.h:2322
+	Authrole     *RoleSpec   // the owner of the created schema - postgres/src/include/nodes/parsenodes.h:2323
+	SchemaElts   []Node      // schema components (list of parsenodes) - postgres/src/include/nodes/parsenodes.h:2324
+	IfNotExists  bool        // just do nothing if schema already exists? - postgres/src/include/nodes/parsenodes.h:2325
 }
 
 // NewCreateSchemaStmt creates a new CreateSchemaStmt node.
@@ -846,12 +846,12 @@ func (c *CreateSchemaStmt) String() string {
 // ==============================================================================
 
 // CreateExtensionStmt represents a CREATE EXTENSION statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:2867-2872
+// Ported from postgres/src/include/nodes/parsenodes.h:2819
 type CreateExtensionStmt struct {
 	BaseNode
-	Extname     string     // extension name - postgres/src/include/nodes/parsenodes.h:2869
-	IfNotExists bool       // just do nothing if it already exists? - postgres/src/include/nodes/parsenodes.h:2870
-	Options     []*DefElem // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:2871
+	Extname     string     // extension name - postgres/src/include/nodes/parsenodes.h:2821
+	IfNotExists bool       // just do nothing if it already exists? - postgres/src/include/nodes/parsenodes.h:2822
+	Options     []*DefElem // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:2823
 }
 
 // NewCreateExtensionStmt creates a new CreateExtensionStmt node.
