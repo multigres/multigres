@@ -168,24 +168,24 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 
 ### Core Expression Types
 - [ ] **Expr** - Base expression node (`src/include/nodes/primnodes.h:187`)
-- [ ] **Var** - Variable reference (`src/include/nodes/primnodes.h:247`)
-- [ ] **Const** - Constant value (`src/include/nodes/primnodes.h:306`)
-- [ ] **Param** - Parameter (`src/include/nodes/primnodes.h:373`)
+- [x] **Var** - Variable reference (`src/include/nodes/primnodes.h:247`)
+- [x] **Const** - Constant value (`src/include/nodes/primnodes.h:306`)
+- [x] **Param** - Parameter (`src/include/nodes/primnodes.h:373`)
 
 ### Function and Operator Nodes
-- [ ] **Aggref** - Aggregate function reference (`src/include/nodes/primnodes.h:439`)
+- [x] **Aggref** - Aggregate function reference (`src/include/nodes/primnodes.h:439`)
 - [ ] **GroupingFunc** - GROUPING function (`src/include/nodes/primnodes.h:537`)
-- [ ] **WindowFunc** - Window function (`src/include/nodes/primnodes.h:563`)
+- [x] **WindowFunc** - Window function (`src/include/nodes/primnodes.h:563`)
 - [ ] **WindowFuncRunCondition** - Window function run condition (`src/include/nodes/primnodes.h:596`)
 - [ ] **MergeSupportFunc** - Merge support function (`src/include/nodes/primnodes.h:628`)
-- [ ] **FuncExpr** - Function expression (`src/include/nodes/primnodes.h:746`)
+- [x] **FuncExpr** - Function expression (`src/include/nodes/primnodes.h:746`)
 - [ ] **NamedArgExpr** - Named argument expression (`src/include/nodes/primnodes.h:787`)
-- [ ] **OpExpr** - Operator expression (`src/include/nodes/primnodes.h:813`)
-- [ ] **ScalarArrayOpExpr** - Scalar array operator expression (`src/include/nodes/primnodes.h:893`)
-- [ ] **BoolExpr** - Boolean expression (AND/OR/NOT) (`src/include/nodes/primnodes.h:934`)
+- [x] **OpExpr** - Operator expression (`src/include/nodes/primnodes.h:813`)
+- [x] **ScalarArrayOpExpr** - Scalar array operator expression (`src/include/nodes/primnodes.h:893`)
+- [x] **BoolExpr** - Boolean expression (AND/OR/NOT) (`src/include/nodes/primnodes.h:934`)
 
 ### Subquery and Subplan Nodes
-- [ ] **SubLink** - Subquery link (`src/include/nodes/primnodes.h:1008`)
+- [x] **SubLink** - Subquery link (`src/include/nodes/primnodes.h:1008`)
 - [ ] **SubPlan** - Subplan (`src/include/nodes/primnodes.h:1059`)
 - [ ] **AlternativeSubPlan** - Alternative subplan (`src/include/nodes/primnodes.h:1108`)
 
@@ -202,17 +202,17 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **FieldSelect** - Field selection (`src/include/nodes/primnodes.h:1125`)
 - [ ] **FieldStore** - Field store (`src/include/nodes/primnodes.h:1156`)
 - [ ] **SubscriptingRef** - Array/subscript reference (`src/include/nodes/primnodes.h:679`)
-- [ ] **ArrayExpr** - Array expression (`src/include/nodes/primnodes.h:1370`)
+- [x] **ArrayExpr** - Array expression (`src/include/nodes/primnodes.h:1370`)
 
 ### Control Flow Nodes
-- [ ] **CaseExpr** - CASE expression (`src/include/nodes/primnodes.h:1306`)
-- [ ] **CaseWhen** - WHEN clause in CASE (`src/include/nodes/primnodes.h:1322`)
+- [x] **CaseExpr** - CASE expression (`src/include/nodes/primnodes.h:1306`)
+- [x] **CaseWhen** - WHEN clause in CASE (`src/include/nodes/primnodes.h:1322`)
 - [ ] **CaseTestExpr** - CASE test expression (`src/include/nodes/primnodes.h:1352`)
-- [ ] **CoalesceExpr** - COALESCE expression (`src/include/nodes/primnodes.h:1484`)
+- [x] **CoalesceExpr** - COALESCE expression (`src/include/nodes/primnodes.h:1484`)
 - [ ] **MinMaxExpr** - MIN/MAX expression (`src/include/nodes/primnodes.h:1506`)
 
 ### Row and Comparison Operations
-- [ ] **RowExpr** - Row expression (`src/include/nodes/primnodes.h:1408`)
+- [x] **RowExpr** - Row expression (`src/include/nodes/primnodes.h:1408`)
 - [ ] **RowCompareExpr** - Row comparison (`src/include/nodes/primnodes.h:1463`)
 
 ### Built-in Functions
@@ -552,14 +552,14 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **ForFiveState** - For-five iteration state (`src/include/nodes/pg_list.h:111`)
 
 ### Value Nodes (value.h)
-- [ ] **Integer** - Integer value (`src/include/nodes/value.h:28`)
-- [ ] **Float** - Float value (`src/include/nodes/value.h:47`)
-- [ ] **Boolean** - Boolean value (`src/include/nodes/value.h:55`)
-- [ ] **String** - String value (`src/include/nodes/value.h:63`)
-- [ ] **BitString** - Bit string value (`src/include/nodes/value.h:71`)
+- [x] **Integer** - Integer value (`src/include/nodes/value.h:28`)
+- [x] **Float** - Float value (`src/include/nodes/value.h:47`)
+- [x] **Boolean** - Boolean value (`src/include/nodes/value.h:55`)
+- [x] **String** - String value (`src/include/nodes/value.h:63`)
+- [x] **BitString** - Bit string value (`src/include/nodes/value.h:71`)
 
 ### Base Node (nodes.h)
-- [ ] **Node** - Base node structure (`src/include/nodes/nodes.h:128`)
+- [x] **Node** - Base node structure (`src/include/nodes/nodes.h:128`)
 
 ### Memory Management (memnodes.h)
 - [ ] **MemoryContextData** - Memory context (`src/include/nodes/memnodes.h:117`)

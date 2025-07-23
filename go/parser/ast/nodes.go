@@ -381,7 +381,7 @@ func (nt NodeTag) String() string {
 
 // Node is the base interface for all PostgreSQL AST nodes.
 // Every node in the parse tree implements this interface.
-// Ported from postgres/src/include/nodes/nodes.h:17-19 (base node concept)
+// Ported from postgres/src/include/nodes/nodes.h:128 (base node concept)
 type Node interface {
 	// NodeTag returns the type tag for this node
 	NodeTag() NodeTag
@@ -399,7 +399,7 @@ type Node interface {
 // Other node types should embed this to get default implementations.
 // Ported from postgres base node structure concept
 type BaseNode struct {
-	Tag NodeTag // Node type tag - ported from postgres/src/include/nodes/nodes.h:18
+	Tag NodeTag // Node type tag - ported from postgres/src/include/nodes/nodes.h:130
 	Loc int     // Source location in bytes - ported from postgres/src/include/nodes/parsenodes.h:6-12
 }
 

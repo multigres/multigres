@@ -35,7 +35,7 @@ const (
 	COERCE_SQL_SYNTAX                        // SQL standard syntax
 )
 
-// ParamKind represents parameter types - ported from postgres/src/include/nodes/primnodes.h:373-385
+// ParamKind represents parameter types - ported from postgres/src/include/nodes/primnodes.h:365-371
 type ParamKind int
 
 const (
@@ -93,17 +93,17 @@ func (e *BaseExpr) IsExpr() bool {
 // ==============================================================================
 
 // Var represents a reference to a table column.
-// Ported from postgres/src/include/nodes/primnodes.h:247-294
+// Ported from postgres/src/include/nodes/primnodes.h:247
 type Var struct {
 	BaseExpr
-	Varno           Index      // Relation index in range table - postgres/src/include/nodes/primnodes.h:252
-	Varattno        AttrNumber // Attribute number (0 = whole-row) - postgres/src/include/nodes/primnodes.h:253
-	Vartype         Oid        // pg_type OID - postgres/src/include/nodes/primnodes.h:254
-	Vartypmod       int32      // Type modifier - postgres/src/include/nodes/primnodes.h:255
-	Varcollid       Oid        // Collation OID - postgres/src/include/nodes/primnodes.h:256
-	Varlevelsup     Index      // Subquery nesting level - postgres/src/include/nodes/primnodes.h:268
-	Varnosyn        Index      // Syntactic relation index - postgres/src/include/nodes/primnodes.h:279
-	Varattnosyn     AttrNumber // Syntactic attribute number - postgres/src/include/nodes/primnodes.h:280
+	Varno           Index      // Relation index in range table - postgres/src/include/nodes/primnodes.h:249
+	Varattno        AttrNumber // Attribute number (0 = whole-row) - postgres/src/include/nodes/primnodes.h:250
+	Vartype         Oid        // pg_type OID - postgres/src/include/nodes/primnodes.h:251
+	Vartypmod       int32      // Type modifier - postgres/src/include/nodes/primnodes.h:252
+	Varcollid       Oid        // Collation OID - postgres/src/include/nodes/primnodes.h:253
+	Varlevelsup     Index      // Subquery nesting level - postgres/src/include/nodes/primnodes.h:265
+	Varnosyn        Index      // Syntactic relation index - postgres/src/include/nodes/primnodes.h:276
+	Varattnosyn     AttrNumber // Syntactic attribute number - postgres/src/include/nodes/primnodes.h:277
 }
 
 // NewVar creates a new Var node.
@@ -125,15 +125,15 @@ func (v *Var) String() string {
 }
 
 // Const represents a constant value in an expression.
-// Ported from postgres/src/include/nodes/primnodes.h:306-336
+// Ported from postgres/src/include/nodes/primnodes.h:306
 type Const struct {
 	BaseExpr
-	Consttype     Oid    // Datatype OID - postgres/src/include/nodes/primnodes.h:309
-	Consttypmod   int32  // Type modifier - postgres/src/include/nodes/primnodes.h:310
-	Constcollid   Oid    // Collation OID - postgres/src/include/nodes/primnodes.h:311
-	Constlen      int    // Type length - postgres/src/include/nodes/primnodes.h:312
-	Constvalue    Datum  // The actual value - postgres/src/include/nodes/primnodes.h:313
-	Constisnull   bool   // Whether null - postgres/src/include/nodes/primnodes.h:314
+	Consttype     Oid    // Datatype OID - postgres/src/include/nodes/primnodes.h:308
+	Consttypmod   int32  // Type modifier - postgres/src/include/nodes/primnodes.h:309
+	Constcollid   Oid    // Collation OID - postgres/src/include/nodes/primnodes.h:310
+	Constlen      int    // Type length - postgres/src/include/nodes/primnodes.h:311
+	Constvalue    Datum  // The actual value - postgres/src/include/nodes/primnodes.h:312
+	Constisnull   bool   // Whether null - postgres/src/include/nodes/primnodes.h:313
 	Constbyval    bool   // Pass by value? - postgres/src/include/nodes/primnodes.h:315
 }
 
@@ -159,7 +159,7 @@ func (c *Const) String() string {
 }
 
 // Param represents a parameter reference in a prepared statement.
-// Ported from postgres/src/include/nodes/primnodes.h:387-409
+// Ported from postgres/src/include/nodes/primnodes.h:373
 type Param struct {
 	BaseExpr
 	Paramkind   ParamKind // Parameter type - postgres/src/include/nodes/primnodes.h:390
@@ -188,7 +188,7 @@ func (p *Param) String() string {
 }
 
 // FuncExpr represents a function call expression.
-// Ported from postgres/src/include/nodes/primnodes.h:746-771
+// Ported from postgres/src/include/nodes/primnodes.h:746
 type FuncExpr struct {
 	BaseExpr
 	Funcid         Oid          // pg_proc OID - postgres/src/include/nodes/primnodes.h:749
@@ -220,7 +220,7 @@ func (f *FuncExpr) String() string {
 }
 
 // OpExpr represents a binary or unary operator expression.
-// Ported from postgres/src/include/nodes/primnodes.h:813-840
+// Ported from postgres/src/include/nodes/primnodes.h:813
 type OpExpr struct {
 	BaseExpr
 	Opno         Oid  // pg_operator OID - postgres/src/include/nodes/primnodes.h:816
@@ -256,7 +256,7 @@ func (o *OpExpr) String() string {
 }
 
 // BoolExpr represents a boolean expression (AND/OR/NOT).
-// Ported from postgres/src/include/nodes/primnodes.h:944-952
+// Ported from postgres/src/include/nodes/primnodes.h:934
 type BoolExpr struct {
 	BaseExpr
 	Boolop BoolExprType // AND/OR/NOT - postgres/src/include/nodes/primnodes.h:947
@@ -314,7 +314,7 @@ func NewUnaryOp(opno Oid, arg Node) *OpExpr {
 // ==============================================================================
 
 // CaseExpr represents a CASE expression.
-// Ported from postgres/src/include/nodes/primnodes.h:1306-1317
+// Ported from postgres/src/include/nodes/primnodes.h:1306
 type CaseExpr struct {
 	BaseExpr
 	Casetype   Oid    // Result type - postgres/src/include/nodes/primnodes.h:1309
@@ -346,7 +346,7 @@ func (c *CaseExpr) String() string {
 }
 
 // CaseWhen represents a WHEN clause in a CASE expression.
-// Ported from postgres/src/include/nodes/primnodes.h:1322-1328
+// Ported from postgres/src/include/nodes/primnodes.h:1322
 type CaseWhen struct {
 	BaseExpr
 	Expr   Node // Condition expression - postgres/src/include/nodes/primnodes.h:1325
@@ -371,7 +371,7 @@ func (cw *CaseWhen) String() string {
 }
 
 // CoalesceExpr represents a COALESCE expression.
-// Ported from postgres/src/include/nodes/primnodes.h:1484-1495
+// Ported from postgres/src/include/nodes/primnodes.h:1484
 type CoalesceExpr struct {
 	BaseExpr
 	Coalescetype   Oid    // Result type - postgres/src/include/nodes/primnodes.h:1487
@@ -397,7 +397,7 @@ func (c *CoalesceExpr) String() string {
 }
 
 // ArrayExpr represents an ARRAY[] constructor expression.
-// Ported from postgres/src/include/nodes/primnodes.h:1370-1385
+// Ported from postgres/src/include/nodes/primnodes.h:1370
 type ArrayExpr struct {
 	BaseExpr
 	ArrayTypeid   Oid    // Array type OID - postgres/src/include/nodes/primnodes.h:1373
@@ -430,7 +430,7 @@ func (a *ArrayExpr) String() string {
 }
 
 // ScalarArrayOpExpr represents a scalar op ANY/ALL (array) expression.
-// Ported from postgres/src/include/nodes/primnodes.h:893-920
+// Ported from postgres/src/include/nodes/primnodes.h:893
 type ScalarArrayOpExpr struct {
 	BaseExpr
 	Opno         Oid    // pg_operator OID - postgres/src/include/nodes/primnodes.h:896
@@ -465,7 +465,7 @@ func (s *ScalarArrayOpExpr) String() string {
 }
 
 // RowExpr represents a ROW() constructor expression.
-// Ported from postgres/src/include/nodes/primnodes.h:1408+
+// Ported from postgres/src/include/nodes/primnodes.h:1408
 type RowExpr struct {
 	BaseExpr
 	Args       []Node        // Row field expressions - postgres/src/include/nodes/primnodes.h:1411
@@ -703,7 +703,7 @@ func (a AggSplit) String() string {
 }
 
 // Aggref represents an aggregate function call expression.
-// Ported from postgres/src/include/nodes/primnodes.h:439-508
+// Ported from postgres/src/include/nodes/primnodes.h:439
 type Aggref struct {
 	BaseExpr
 	Aggfnoid      Oid       // pg_proc OID of the aggregate - postgres/src/include/nodes/primnodes.h:481
@@ -754,7 +754,7 @@ func (a *Aggref) String() string {
 }
 
 // WindowFunc represents a window function call expression.
-// Ported from postgres/src/include/nodes/primnodes.h:590-622
+// Ported from postgres/src/include/nodes/primnodes.h:563
 type WindowFunc struct {
 	BaseExpr
 	Winfnoid      Oid    // pg_proc OID of the function - postgres/src/include/nodes/primnodes.h:593
@@ -799,7 +799,7 @@ func (w *WindowFunc) String() string {
 }
 
 // SubLink represents a sublink expression (subquery).
-// Ported from postgres/src/include/nodes/primnodes.h:1572-1583
+// Ported from postgres/src/include/nodes/primnodes.h:1008
 type SubLink struct {
 	BaseExpr
 	SubLinkType SubLinkType // Type of sublink - postgres/src/include/nodes/primnodes.h:1575
