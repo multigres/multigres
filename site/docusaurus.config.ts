@@ -125,7 +125,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Multigres, Inc.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Supabase Inc`,
     },
     prism: {
       theme: prismThemes.github,
