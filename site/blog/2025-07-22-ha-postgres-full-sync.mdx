@@ -1,4 +1,4 @@
-# High Availability and Postgres full-sync
+# High Availability and Postgres full-sync replication
 
 In order to achieve High Availability (HA) in Postgres, we need to have at least one other standby replica that keeps up with the primary’s changes near-real-time. Using Postgres physical replication is the most common method to achieve this.
 
@@ -6,13 +6,13 @@ High Availability also requires us to solve the problem of distributed durabilit
 
 ## Multigres features
 
-We plan to support HA using full-sync replication, mainly because this is a widely used feature. However, there are some pitfalls to watch out for. We will cover these in the next section.
+We plan to support HA by configuring Postgres in full-sync replication mode, mainly because this is a widely used feature. However, there are some pitfalls to watch out for. We will cover these in the next section.
 
 Multigres will bring the flexibility of a pluggable durability policy. There will be a few predefined ones, but if your needs are bespoke, you can just write an extension. Examples of durability policies include:
 
-- cross-availability zone (cross-az): a replica in at least one other az must have my data
-- cross-region: same as cross-az, but for regions
-- at least two azs: replicas in two distinct azs must have my data
+- cross-availability zone (cross-AZ): a replica in at least one other AZ must have my data
+- cross-region: same as cross-AZ, but for regions
+- at least two AZs: replicas in two distinct AZs must have my data
 - majority quorum: traditional consensus rules like RAFT
 - etc.
 
@@ -25,7 +25,7 @@ More about how this works will be covered in subsequent blog posts related to ge
 Postgres has many options on how you can configure replication. They broadly fall into two categories:
 
 1. Asynchronous replication (async)
-    * The primary commits the data and returns success to the caller.
+    * the primary commits the data and returns success to the caller.
     * changes are then sent asynchronously to the standby replica(s).
     * replica applies the changes.
 2. Synchronous replication (full-sync)
@@ -34,7 +34,7 @@ Postgres has many options on how you can configure replication. They broadly fal
     * replica acknowledges the message: Sub-configurations here control the exact time when the replica acknowledges the message and applies the changes.
     * primary externalizes the transaction by releasing locks, etc., and returns success to the caller.
 
-The problem with async replication is that there are failure modes where you may lose data. For example, if a primary node crashes after acknowledging a commit but before sending the data to the replica, that commit is lost. In the case of a network partition, this can go on for a long time risking substantial data loss.
+The problem with async replication is that there are failure modes where you may lose data. For example, if a primary node crashes after acknowledging a commit but before sending the data to the replica, that commit is lost. In the case of a network partition, this can go on for a long time risking substantial data loss. Patroni has a feature controlled by the `maximum_lag_on_failover` setting that allows you to limit how much data you can lose in such a scenario. This feature is out of scope for Multigres as we are not planning to support async replication.
 
 Synchronous replication addresses this problem, but it also has its own pitfalls explained below. This [Video from Kukushkin](https://youtu.be/PFn9qRGzTMc?si=neDR5sgti16Hfni0) covers many possible ways full-sync replication can fail on you. Overall, the problems are due to one of the following reasons:
 
@@ -60,7 +60,7 @@ The above failure modes get progressively more unwieldy as the number of nodes i
 
 Some of these problems have mitigations, but not all are solvable. With Multigres, we plan to address some of these issues as follows:
 
-- **1a: CDC picking up a transaction early:** Run logical replication on a replica.
+- **1a: CDC picking up a transaction early:** Run logical replication on a replica. Also, the new [Synchronized Standby Slots](https://postgresqlco.nf/doc/en/param/synchronized_standby_slots/) feature in PG17+ helps with this issue.
 - **1b: Primary crashes after writing a transaction to the WAL:** Multigres can automate the repair of the primary when it comes back up.
 - **1c: Client reading phantom records:** There is no mitigation, but this is a rare occurrence.
 - **1d: Replica that is not a standby receives errant transaction:** Multigres can automate the repair.
