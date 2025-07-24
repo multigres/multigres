@@ -1,8 +1,9 @@
 # Missing PostgreSQL AST Nodes - Complete Inventory
 
-**Total Missing**: 358 nodes out of 456 total PostgreSQL AST nodes
-**Current Implementation**: 98 nodes (21% complete)
+**Total Missing**: 333 nodes out of 456 total PostgreSQL AST nodes
+**Current Implementation**: 123 nodes (27% complete)
 **Target**: 100% PostgreSQL AST compatibility
+**Latest**: ✅ Phase 1A completed - 25 core parse infrastructure nodes implemented
 
 This inventory is based on the comprehensive ast_structs_checklist.md which tracks all PostgreSQL node structures across parsenodes.h, primnodes.h, plannodes.h, execnodes.h, pathnodes.h, and supporting files.
 
@@ -14,22 +15,22 @@ This inventory is based on the comprehensive ast_structs_checklist.md which trac
 These nodes are essential for basic SQL parsing functionality:
 
 **Statement Nodes:**
-- [ ] **RawStmt** - Raw statement wrapper (`src/include/nodes/parsenodes.h:2017`)
+- [x] **RawStmt** - Raw statement wrapper (`src/include/nodes/parsenodes.h:2017`) ✅ Phase 1A
 - [ ] **MergeStmt** - MERGE statement (`src/include/nodes/parsenodes.h:2084`)
 - [ ] **SetOperationStmt** - UNION/INTERSECT/EXCEPT (`src/include/nodes/parsenodes.h:2185`)
 - [ ] **ReturnStmt** - RETURN statement (`src/include/nodes/parsenodes.h:2210`)
 - [ ] **PLAssignStmt** - PL assignment statement (`src/include/nodes/parsenodes.h:2224`)
 
 **Expression Nodes:**
-- [ ] **A_Expr** - Generic expression node (`src/include/nodes/parsenodes.h:329`)
-- [ ] **A_Const** - Constant value (`src/include/nodes/parsenodes.h:357`)
-- [ ] **ParamRef** - Parameter reference (`src/include/nodes/parsenodes.h:301`)
-- [ ] **TypeCast** - Type casting (`src/include/nodes/parsenodes.h:370`)
-- [ ] **FuncCall** - Function call (`src/include/nodes/parsenodes.h:423`)
-- [ ] **A_Star** - Asterisk (*) (`src/include/nodes/parsenodes.h:445`)
-- [ ] **A_Indices** - Array indices (`src/include/nodes/parsenodes.h:456`)
-- [ ] **A_Indirection** - Indirection (field access) (`src/include/nodes/parsenodes.h:479`)
-- [ ] **A_ArrayExpr** - Array expression (`src/include/nodes/parsenodes.h:489`)
+- [x] **A_Expr** - Generic expression node (`src/include/nodes/parsenodes.h:329`) ✅ Phase 1A
+- [x] **A_Const** - Constant value (`src/include/nodes/parsenodes.h:357`) ✅ Phase 1A
+- [x] **ParamRef** - Parameter reference (`src/include/nodes/parsenodes.h:301`) ✅ Phase 1A
+- [x] **TypeCast** - Type casting (`src/include/nodes/parsenodes.h:370`) ✅ Phase 1A
+- [x] **FuncCall** - Function call (`src/include/nodes/parsenodes.h:423`) ✅ Phase 1A
+- [x] **A_Star** - Asterisk (*) (`src/include/nodes/parsenodes.h:445`) ✅ Phase 1A
+- [x] **A_Indices** - Array indices (`src/include/nodes/parsenodes.h:456`) ✅ Phase 1A
+- [x] **A_Indirection** - Indirection (field access) (`src/include/nodes/parsenodes.h:479`) ✅ Phase 1A
+- [x] **A_ArrayExpr** - Array expression (`src/include/nodes/parsenodes.h:489`) ✅ Phase 1A
 
 **DDL Missing Nodes:**
 - [ ] **CreateFunctionStmt** - CREATE FUNCTION (`src/include/nodes/parsenodes.h:3427`)
@@ -81,7 +82,7 @@ These nodes are essential for expression evaluation:
 **Column and Table Definition:**
 - [ ] **ColumnDef** - Column definition (`src/include/nodes/parsenodes.h:723`)
 - [ ] **TypeName** - Type specification (`src/include/nodes/parsenodes.h:265`)
-- [ ] **MultiAssignRef** - Multi-assignment reference (`src/include/nodes/parsenodes.h:532`)
+- [x] **MultiAssignRef** - Multi-assignment reference (`src/include/nodes/parsenodes.h:532`) ✅ Phase 1A
 
 ---
 
@@ -133,9 +134,9 @@ These nodes are essential for expression evaluation:
 - [ ] **DiscardStmt** - DISCARD statement (`src/include/nodes/parsenodes.h:3932`)
 
 ### Window and Grouping Support (parsenodes.h)
-- [ ] **WindowDef** - Window definition (`src/include/nodes/parsenodes.h:561`)
-- [ ] **SortBy** - Sort specification (`src/include/nodes/parsenodes.h:543`)
-- [ ] **GroupingSet** - Grouping set (`src/include/nodes/parsenodes.h:1506`)
+- [x] **WindowDef** - Window definition (`src/include/nodes/parsenodes.h:561`) ✅ Phase 1A
+- [x] **SortBy** - Sort specification (`src/include/nodes/parsenodes.h:543`) ✅ Phase 1A
+- [x] **GroupingSet** - Grouping set (`src/include/nodes/parsenodes.h:1506`) ✅ Phase 1A
 - [ ] **WithClause** - WITH clause (`src/include/nodes/parsenodes.h:1592`)
 - [ ] **OnConflictClause** - ON CONFLICT clause (`src/include/nodes/parsenodes.h:1621`)
 - [ ] **InferClause** - Inference clause (`src/include/nodes/parsenodes.h:1606`)
@@ -143,13 +144,13 @@ These nodes are essential for expression evaluation:
 - [ ] **MergeWhenClause** - WHEN clause in MERGE (`src/include/nodes/parsenodes.h:1717`)
 
 ### Miscellaneous Parse Nodes (parsenodes.h)
-- [ ] **LockingClause** - Locking clause (FOR UPDATE, etc.) (`src/include/nodes/parsenodes.h:831`)
-- [ ] **XmlSerialize** - XML serialization (`src/include/nodes/parsenodes.h:842`)
-- [ ] **PartitionElem** - Partition element (`src/include/nodes/parsenodes.h:860`)
-- [ ] **SinglePartitionSpec** - Single partition specification (`src/include/nodes/parsenodes.h:945`)
-- [ ] **PartitionCmd** - Partition command (`src/include/nodes/parsenodes.h:953`)
-- [ ] **TableSampleClause** - Table sample clause (`src/include/nodes/parsenodes.h:1344`)
-- [ ] **ObjectWithArgs** - Object with arguments (`src/include/nodes/parsenodes.h:2524`)
+- [x] **LockingClause** - Locking clause (FOR UPDATE, etc.) (`src/include/nodes/parsenodes.h:831`) ✅ Phase 1A
+- [x] **XmlSerialize** - XML serialization (`src/include/nodes/parsenodes.h:842`) ✅ Phase 1A
+- [x] **PartitionElem** - Partition element (`src/include/nodes/parsenodes.h:860`) ✅ Phase 1A
+- [x] **SinglePartitionSpec** - Single partition specification (`src/include/nodes/parsenodes.h:945`) ✅ Phase 1A
+- [x] **PartitionCmd** - Partition command (`src/include/nodes/parsenodes.h:953`) ✅ Phase 1A
+- [x] **TableSampleClause** - Table sample clause (`src/include/nodes/parsenodes.h:1344`) ✅ Phase 1A
+- [x] **ObjectWithArgs** - Object with arguments (`src/include/nodes/parsenodes.h:2524`) ✅ Phase 1A
 
 ---
 

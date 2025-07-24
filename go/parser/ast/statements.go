@@ -483,7 +483,6 @@ type CommonTableExpr struct {
 	Ctequery        Node       // The CTE's subquery - parsenodes.h:1681
 	Search_clause   *CTESearchClause // SEARCH clause, if any - parsenodes.h:1682
 	Cycle_clause    *CTECycleClause  // CYCLE clause, if any - parsenodes.h:1683
-	Location        int        // Token location, or -1 if unknown - parsenodes.h:1684
 	Cterecursive    bool       // Is this a recursive CTE? - parsenodes.h:1687
 	Cterefcount     int        // Number of RTEs referencing this CTE - parsenodes.h:1693
 	Ctecolnames     []Node     // List of output column names - parsenodes.h:1696
@@ -530,23 +529,25 @@ type CTECycleClause struct {
 
 // NewCommonTableExpr creates a new CommonTableExpr node.
 func NewCommonTableExpr(ctename string, ctequery Node) *CommonTableExpr {
-	return &CommonTableExpr{
+	cte := &CommonTableExpr{
 		BaseNode: BaseNode{Tag: T_CommonTableExpr},
 		Ctename:  ctename,
 		Ctequery: ctequery,
-		Location: -1,
 	}
+	cte.SetLocation(-1)
+	return cte
 }
 
 // NewRecursiveCommonTableExpr creates a new recursive CommonTableExpr node.
 func NewRecursiveCommonTableExpr(ctename string, ctequery Node) *CommonTableExpr {
-	return &CommonTableExpr{
+	cte := &CommonTableExpr{
 		BaseNode:     BaseNode{Tag: T_CommonTableExpr},
 		Ctename:      ctename,
 		Ctequery:     ctequery,
 		Cterecursive: true,
-		Location:     -1,
 	}
+	cte.SetLocation(-1)
+	return cte
 }
 
 func (cte *CommonTableExpr) String() string {
@@ -560,11 +561,7 @@ func (cte *CommonTableExpr) String() string {
 // Placeholder structs for other query execution nodes implemented in query_execution_nodes.go
 type RangeTblEntry struct{ BaseNode }
 type IntoClause struct{ BaseNode }
-type SortBy struct{ BaseNode }
-type LockingClause struct{ BaseNode }
-type WithClause struct{ BaseNode }
 type SetOperation int
 type OnConflictClause struct{ BaseNode }
 type OverridingKind int
-type ColumnDef struct{ BaseNode }
 // Note: Constraint is now defined in ddl_statements.go

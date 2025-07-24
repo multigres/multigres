@@ -26,10 +26,11 @@ Based on ast_structs_checklist.md, focusing on nodes required for parsing:
 
 ## Phase Implementation Plan
 
-### Phase 1A: Core Parse Infrastructure
+### Phase 1A: Core Parse Infrastructure ✅ COMPLETED
 **Target**: 25 nodes - Essential parsing foundation  
-**Priority**: 🔴 Critical - Enables basic lexer/parser integration  
+**Priority**: ✅ Complete - Lexer/parser integration enabled  
 **Estimated Effort**: 2 sessions
+**Status**: All 25 nodes implemented in `parse_infrastructure.go` with comprehensive tests
 
 #### Core Expression Parsing (15 nodes)
 - **RawStmt** - Raw statement wrapper (`parsenodes.h:2017`)
@@ -60,10 +61,11 @@ Based on ast_structs_checklist.md, focusing on nodes required for parsing:
 - **SinglePartitionSpec** - Single partition specification (`parsenodes.h:945`)
 - **PartitionCmd** - Partition command (`parsenodes.h:953`)
 
-**Deliverables**:
-- New AST file: `parse_infrastructure.go` (~800 lines)
-- Test file: `parse_infrastructure_test.go` (~600 lines)
-- Updated node tag system with 25 new parsing infrastructure nodes
+**Deliverables**: ✅ COMPLETED
+- ✅ New AST file: `parse_infrastructure.go` (821 lines) - All 25 nodes implemented
+- ✅ Test file: `parse_infrastructure_test.go` (718 lines) - Comprehensive test coverage
+- ✅ Updated node tag system with 25 new parsing infrastructure nodes
+- ✅ Removed placeholder structs and restored original naming (ColumnDef, WithClause, etc.)
 
 ---
 
@@ -370,9 +372,10 @@ The excluded subsystems can be implemented as separate major projects:
 ### Source of Truth
 **All progress tracking is maintained in `ast_structs_checklist.md`** which serves as the definitive source of implementation status. This file contains:
 - Complete inventory of all 456 PostgreSQL AST nodes
-- Current implementation status (98 nodes completed, 358 remaining)
+- Current implementation status (123 nodes completed, 333 remaining)
 - Accurate PostgreSQL source references for each node
 - Clear marking of implemented vs. missing nodes
+- ✅ Phase 1A: 25 core parse infrastructure nodes completed (47% of parser-essential nodes)
 
 ### Recommended Practice
 - **Update checkboxes in `ast_structs_checklist.md`** as nodes are implemented

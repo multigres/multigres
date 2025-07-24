@@ -135,6 +135,31 @@ const (
 	T_ColumnRef
 	T_AConst
 	
+	// Core parse infrastructure nodes - Stage 1A (25 nodes)
+	T_RawStmt
+	T_A_Expr
+	T_A_Const
+	T_ParamRef
+	T_TypeCast
+	T_FuncCall
+	T_A_Star
+	T_A_Indices
+	T_A_Indirection
+	T_A_ArrayExpr
+	T_ColumnDef
+	T_WithClause
+	T_MultiAssignRef
+	T_WindowDef
+	T_SortBy
+	T_GroupingSet
+	T_LockingClause
+	T_XmlSerialize
+	T_PartitionElem
+	T_TableSampleClause
+	T_ObjectWithArgs
+	T_SinglePartitionSpec
+	T_PartitionCmd
+	
 	// Value nodes - ported from postgres/src/include/nodes/value.h
 	T_Integer  // Integer literal - postgres/src/include/nodes/value.h:28-34
 	T_Float    // Float literal - postgres/src/include/nodes/value.h:47-53
@@ -374,6 +399,53 @@ func (nt NodeTag) String() string {
 		return "T_BitString"
 	case T_Null:
 		return "T_Null"
+	// Core parse infrastructure nodes - Stage 1A
+	case T_RawStmt:
+		return "T_RawStmt"
+	case T_A_Expr:
+		return "T_A_Expr"
+	case T_A_Const:
+		return "T_A_Const"
+	case T_ParamRef:
+		return "T_ParamRef"
+	case T_TypeCast:
+		return "T_TypeCast"
+	case T_FuncCall:
+		return "T_FuncCall"
+	case T_A_Star:
+		return "T_A_Star"
+	case T_A_Indices:
+		return "T_A_Indices"
+	case T_A_Indirection:
+		return "T_A_Indirection"
+	case T_A_ArrayExpr:
+		return "T_A_ArrayExpr"
+	case T_ColumnDef:
+		return "T_ColumnDef"
+	case T_WithClause:
+		return "T_WithClause"
+	case T_MultiAssignRef:
+		return "T_MultiAssignRef"
+	case T_WindowDef:
+		return "T_WindowDef"
+	case T_SortBy:
+		return "T_SortBy"
+	case T_GroupingSet:
+		return "T_GroupingSet"
+	case T_LockingClause:
+		return "T_LockingClause"
+	case T_XmlSerialize:
+		return "T_XmlSerialize"
+	case T_PartitionElem:
+		return "T_PartitionElem"
+	case T_TableSampleClause:
+		return "T_TableSampleClause"
+	case T_ObjectWithArgs:
+		return "T_ObjectWithArgs"
+	case T_SinglePartitionSpec:
+		return "T_SinglePartitionSpec"
+	case T_PartitionCmd:
+		return "T_PartitionCmd"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

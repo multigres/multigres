@@ -288,7 +288,7 @@ func TestCommonTableExpr(t *testing.T) {
 	
 	assert.False(t, cte.Cterecursive, "Expected non-recursive CTE by default")
 	
-	assert.Equal(t, -1, cte.Location, "Expected default location -1")
+	assert.Equal(t, -1, cte.Location(), "Expected default location -1")
 	
 	// Test string representation
 	str := cte.String()

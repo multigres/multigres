@@ -2,24 +2,27 @@
 
 This checklist tracks the implementation status of all PostgreSQL AST structs for the parser port project.
 
+**Current Status**: 123 nodes completed out of 456 total (27% complete)
+**Latest Milestone**: ✅ **Phase 1A Complete** - 25 core parse infrastructure nodes implemented in `parse_infrastructure.go`
+
 ## Parse Tree Node Structures (parsenodes.h)
 
 ### Core Query Structure
 - [x] **Query** - The main structure representing a parsed SQL query (`src/include/nodes/parsenodes.h:117`)
-- [ ] **RawStmt** - Raw statement wrapper (`src/include/nodes/parsenodes.h:2017`)
+- [x] **RawStmt** - Raw statement wrapper (`src/include/nodes/parsenodes.h:2017`)
 
 ### Expression Nodes
-- [ ] **A_Expr** - Generic expression node (`src/include/nodes/parsenodes.h:329`)
-- [ ] **A_Const** - Constant value (`src/include/nodes/parsenodes.h:357`)
+- [x] **A_Expr** - Generic expression node (`src/include/nodes/parsenodes.h:329`)
+- [x] **A_Const** - Constant value (`src/include/nodes/parsenodes.h:357`)
 - [x] **ColumnRef** - Column reference (`src/include/nodes/parsenodes.h:291`)
-- [ ] **ParamRef** - Parameter reference (`src/include/nodes/parsenodes.h:301`)
-- [ ] **TypeCast** - Type casting (`src/include/nodes/parsenodes.h:370`)
-- [ ] **CollateClause** - COLLATE clause (`src/include/nodes/parsenodes.h:381`)
-- [ ] **FuncCall** - Function call (`src/include/nodes/parsenodes.h:423`)
-- [ ] **A_Star** - Asterisk (*) (`src/include/nodes/parsenodes.h:445`)
-- [ ] **A_Indices** - Array indices (`src/include/nodes/parsenodes.h:456`)
-- [ ] **A_Indirection** - Indirection (field access) (`src/include/nodes/parsenodes.h:479`)
-- [ ] **A_ArrayExpr** - Array expression (`src/include/nodes/parsenodes.h:489`)
+- [x] **ParamRef** - Parameter reference (`src/include/nodes/parsenodes.h:301`)
+- [x] **TypeCast** - Type casting (`src/include/nodes/parsenodes.h:370`)
+- [x] **CollateClause** - COLLATE clause (`src/include/nodes/parsenodes.h:381`)
+- [x] **FuncCall** - Function call (`src/include/nodes/parsenodes.h:423`)
+- [x] **A_Star** - Asterisk (*) (`src/include/nodes/parsenodes.h:445`)
+- [x] **A_Indices** - Array indices (`src/include/nodes/parsenodes.h:456`)
+- [x] **A_Indirection** - Indirection (field access) (`src/include/nodes/parsenodes.h:479`)
+- [x] **A_ArrayExpr** - Array expression (`src/include/nodes/parsenodes.h:489`)
 
 ### Statement Nodes
 - [x] **SelectStmt** - SELECT statement (`src/include/nodes/parsenodes.h:2116`)
@@ -90,7 +93,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **ReindexStmt** - REINDEX statement (`src/include/nodes/parsenodes.h:3974`)
 
 ### Table and Column Definition Nodes
-- [ ] **ColumnDef** - Column definition (`src/include/nodes/parsenodes.h:723`)
+- [x] **ColumnDef** - Column definition (`src/include/nodes/parsenodes.h:723`)
 - [x] **TableLikeClause** - LIKE clause in CREATE TABLE (`src/include/nodes/parsenodes.h:751`)
 - [x] **IndexElem** - Index element (`src/include/nodes/parsenodes.h:780`)
 - [x] **Constraint** - Table/column constraint (`src/include/nodes/parsenodes.h:2728`)
@@ -107,14 +110,14 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **RTEPermissionInfo** - Permission info for RTE (`src/include/nodes/parsenodes.h:1286`)
 
 ### Window and Grouping Nodes
-- [ ] **WindowDef** - Window definition (`src/include/nodes/parsenodes.h:561`)
+- [x] **WindowDef** - Window definition (`src/include/nodes/parsenodes.h:561`)
 - [x] **WindowClause** - Window clause (`src/include/nodes/parsenodes.h:1536`)
-- [ ] **SortBy** - Sort specification (`src/include/nodes/parsenodes.h:543`)
+- [x] **SortBy** - Sort specification (`src/include/nodes/parsenodes.h:543`)
 - [x] **SortGroupClause** - Sort/group clause (`src/include/nodes/parsenodes.h:1436`)
-- [ ] **GroupingSet** - Grouping set (`src/include/nodes/parsenodes.h:1506`)
+- [x] **GroupingSet** - Grouping set (`src/include/nodes/parsenodes.h:1506`)
 
 ### CTE and WITH Clause Nodes
-- [ ] **WithClause** - WITH clause (`src/include/nodes/parsenodes.h:1592`)
+- [x] **WithClause** - WITH clause (`src/include/nodes/parsenodes.h:1592`)
 - [x] **CommonTableExpr** - Common table expression (`src/include/nodes/parsenodes.h:1668`)
 - [x] **CTESearchClause** - SEARCH clause in CTE (`src/include/nodes/parsenodes.h:1643`)
 - [x] **CTECycleClause** - CYCLE clause in CTE (`src/include/nodes/parsenodes.h:1652`)
@@ -146,22 +149,22 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **MergeWhenClause** - WHEN clause in MERGE (`src/include/nodes/parsenodes.h:1717`)
 
 ### Miscellaneous Nodes
-- [ ] **TypeName** - Type specification (`src/include/nodes/parsenodes.h:265`)
+- [x] **TypeName** - Type specification (`src/include/nodes/parsenodes.h:265`)
 - [x] **ResTarget** - Result target (`src/include/nodes/parsenodes.h:514`)
-- [ ] **MultiAssignRef** - Multi-assignment reference (`src/include/nodes/parsenodes.h:532`)
-- [ ] **LockingClause** - Locking clause (FOR UPDATE, etc.) (`src/include/nodes/parsenodes.h:831`)
-- [ ] **XmlSerialize** - XML serialization (`src/include/nodes/parsenodes.h:842`)
-- [ ] **PartitionElem** - Partition element (`src/include/nodes/parsenodes.h:860`)
+- [x] **MultiAssignRef** - Multi-assignment reference (`src/include/nodes/parsenodes.h:532`)
+- [x] **LockingClause** - Locking clause (FOR UPDATE, etc.) (`src/include/nodes/parsenodes.h:831`)
+- [x] **XmlSerialize** - XML serialization (`src/include/nodes/parsenodes.h:842`)
+- [x] **PartitionElem** - Partition element (`src/include/nodes/parsenodes.h:860`)
 - [x] **PartitionSpec** - Partition specification (`src/include/nodes/parsenodes.h:882`)
 - [x] **PartitionBoundSpec** - Partition boundary specification (`src/include/nodes/parsenodes.h:896`)
 - [x] **PartitionRangeDatum** - Partition range datum (`src/include/nodes/parsenodes.h:929`)
-- [ ] **SinglePartitionSpec** - Single partition specification (`src/include/nodes/parsenodes.h:945`)
-- [ ] **PartitionCmd** - Partition command (`src/include/nodes/parsenodes.h:953`)
-- [ ] **TableSampleClause** - Table sample clause (`src/include/nodes/parsenodes.h:1344`)
+- [x] **SinglePartitionSpec** - Single partition specification (`src/include/nodes/parsenodes.h:945`)
+- [x] **PartitionCmd** - Partition command (`src/include/nodes/parsenodes.h:953`)
+- [x] **TableSampleClause** - Table sample clause (`src/include/nodes/parsenodes.h:1344`)
 - [x] **RowMarkClause** - Row marking clause (`src/include/nodes/parsenodes.h:1576`)
 - [x] **TriggerTransition** - Trigger transition (`src/include/nodes/parsenodes.h:1737`)
 - [x] **RoleSpec** - Role specification (`src/include/nodes/parsenodes.h:401`)
-- [ ] **ObjectWithArgs** - Object with arguments (`src/include/nodes/parsenodes.h:2524`)
+- [x] **ObjectWithArgs** - Object with arguments (`src/include/nodes/parsenodes.h:2524`)
 - [x] **AccessPriv** - Access privilege (`src/include/nodes/parsenodes.h:2540`)
 
 ## Primitive Node Structures (primnodes.h)
