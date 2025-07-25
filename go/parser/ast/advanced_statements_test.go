@@ -399,7 +399,7 @@ func TestWithCheckOption(t *testing.T) {
 		wco := NewWithCheckOption(WCO_VIEW_CHECK, true)
 
 		require.NotNil(t, wco)
-		assert.Equal(t, T_WithCheckOption, wco.NodeTag)
+		assert.Equal(t, T_WithCheckOption, wco.NodeTag())
 		assert.Equal(t, WCO_VIEW_CHECK, wco.Kind)
 		assert.True(t, wco.Cascaded)
 		assert.Contains(t, wco.String(), "WITH")

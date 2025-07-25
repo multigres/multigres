@@ -1,9 +1,9 @@
 # Missing PostgreSQL AST Nodes - Complete Inventory
 
-**Total Missing**: 300 nodes out of 456 total PostgreSQL AST nodes
-**Current Implementation**: 156 nodes (34.2% complete)
+**Total Missing**: 300 nodes out of 461 total PostgreSQL AST nodes
+**Current Implementation**: 161 nodes (34.9% complete)
 **Target**: 100% PostgreSQL AST compatibility
-**Latest**: ✅ Phase 1B completed - 13 advanced SQL statement nodes implemented in `advanced_statements.go`
+**Latest**: ✅ Phase 1C completed - 15 DDL creation statement nodes implemented in `ddl_creation_statements.go`
 **Recent**: ✅ Phase 1A completed - 25 core parse infrastructure nodes implemented
 
 This inventory is based on the comprehensive ast_structs_checklist.md which tracks all PostgreSQL node structures across parsenodes.h, primnodes.h, plannodes.h, execnodes.h, pathnodes.h, and supporting files.
@@ -34,14 +34,18 @@ These nodes are essential for basic SQL parsing functionality:
 - [x] **A_ArrayExpr** - Array expression (`src/include/nodes/parsenodes.h:489`) ✅ Phase 1A
 
 **DDL Missing Nodes:**
-- [ ] **CreateFunctionStmt** - CREATE FUNCTION (`src/include/nodes/parsenodes.h:3427`)
-- [ ] **CreateSeqStmt** - CREATE SEQUENCE (`src/include/nodes/parsenodes.h:3117`)
-- [ ] **CreateOpClassStmt** - CREATE OPERATOR CLASS (`src/include/nodes/parsenodes.h:3169`)
-- [ ] **CreateOpFamilyStmt** - CREATE OPERATOR FAMILY (`src/include/nodes/parsenodes.h:3201`)
-- [ ] **CreateCastStmt** - CREATE CAST (`src/include/nodes/parsenodes.h:4002`)
-- [ ] **CreateConversionStmt** - CREATE CONVERSION (`src/include/nodes/parsenodes.h:3988`)
-- [ ] **CreateTransformStmt** - CREATE TRANSFORM (`src/include/nodes/parsenodes.h:4016`)
-- [ ] **DefineStmt** - DEFINE statement (`src/include/nodes/parsenodes.h:3140`)
+- [x] **CreateFunctionStmt** - CREATE FUNCTION (`src/include/nodes/parsenodes.h:3427`) ✅ Phase 1C
+- [x] **CreateSeqStmt** - CREATE SEQUENCE (`src/include/nodes/parsenodes.h:3117`) ✅ Phase 1C
+- [x] **CreateOpClassStmt** - CREATE OPERATOR CLASS (`src/include/nodes/parsenodes.h:3169`) ✅ Phase 1C
+- [x] **CreateOpFamilyStmt** - CREATE OPERATOR FAMILY (`src/include/nodes/parsenodes.h:3201`) ✅ Phase 1C
+- [x] **CreateCastStmt** - CREATE CAST (`src/include/nodes/parsenodes.h:4002`) ✅ Phase 1C
+- [x] **CreateConversionStmt** - CREATE CONVERSION (`src/include/nodes/parsenodes.h:3988`) ✅ Phase 1C
+- [x] **CreateTransformStmt** - CREATE TRANSFORM (`src/include/nodes/parsenodes.h:4016`) ✅ Phase 1C
+- [x] **DefineStmt** - DEFINE statement (`src/include/nodes/parsenodes.h:3140`) ✅ Phase 1C
+- [x] **CreateEnumStmt** - CREATE TYPE ... AS ENUM (`src/include/nodes/parsenodes.h:3696`) ✅ Phase 1C
+- [x] **CreateRangeStmt** - CREATE TYPE ... AS RANGE (`src/include/nodes/parsenodes.h:3707`) ✅ Phase 1C
+- [x] **CreateStatsStmt** - CREATE STATISTICS (`src/include/nodes/parsenodes.h:3384`) ✅ Phase 1C
+- [x] **CreatePLangStmt** - CREATE LANGUAGE (`src/include/nodes/parsenodes.h:3054`) ✅ Phase 1C
 - [x] **TruncateStmt** - TRUNCATE statement (`src/include/nodes/parsenodes.h:3240`) ✅ Phase 1B
 - [x] **CommentStmt** - COMMENT statement (`src/include/nodes/parsenodes.h:3252`) ✅ Phase 1B
 - [x] **RenameStmt** - RENAME operations (`src/include/nodes/parsenodes.h:3525`) ✅ Phase 1B
@@ -125,9 +129,9 @@ These nodes are essential for expression evaluation:
 - [x] **LoadStmt** - LOAD statement (`src/include/nodes/parsenodes.h:3755`) ✅ COMPLETED
 - [x] **ClusterStmt** - CLUSTER statement (`src/include/nodes/parsenodes.h:3822`) ✅ COMPLETED
 - [x] **LockStmt** - LOCK statement (`src/include/nodes/parsenodes.h:3942`) ✅ Phase 1B
-- [ ] **DeclareCursorStmt** - DECLARE CURSOR (`src/include/nodes/parsenodes.h:3293`)
-- [ ] **FetchStmt** - FETCH statement (`src/include/nodes/parsenodes.h:3328`)
-- [ ] **ClosePortalStmt** - CLOSE statement (`src/include/nodes/parsenodes.h:3305`)
+- [x] **DeclareCursorStmt** - DECLARE CURSOR (`src/include/nodes/parsenodes.h:3293`) ✅ Phase 1C
+- [x] **FetchStmt** - FETCH statement (`src/include/nodes/parsenodes.h:3328`) ✅ Phase 1C
+- [x] **ClosePortalStmt** - CLOSE statement (`src/include/nodes/parsenodes.h:3305`) ✅ Phase 1C
 - [x] **NotifyStmt** - NOTIFY statement (`src/include/nodes/parsenodes.h:3622`) ✅ COMPLETED
 - [x] **ListenStmt** - LISTEN statement (`src/include/nodes/parsenodes.h:3633`) ✅ COMPLETED
 - [x] **UnlistenStmt** - UNLISTEN statement (`src/include/nodes/parsenodes.h:3643`) ✅ COMPLETED

@@ -38,7 +38,21 @@ func (n *MergeStmt) String() string {
 		parts = append(parts, n.WithClause.String())
 	}
 	
-	parts = append(parts, "MERGE INTO", n.Relation.String(), "USING", n.SourceRelation.String(), "ON", n.JoinCondition.String())
+	// Get proper table names from RangeVar
+	targetTable := n.Relation.RelName
+	if n.Relation.SchemaName != "" {
+		targetTable = n.Relation.SchemaName + "." + targetTable
+	}
+	
+	sourceTable := "source"
+	if sourceRv, ok := n.SourceRelation.(*RangeVar); ok {
+		sourceTable = sourceRv.RelName
+		if sourceRv.SchemaName != "" {
+			sourceTable = sourceRv.SchemaName + "." + sourceTable
+		}
+	}
+	
+	parts = append(parts, "MERGE INTO", targetTable, "USING", sourceTable, "ON", n.JoinCondition.String())
 	
 	for _, clause := range n.MergeWhenClauses {
 		parts = append(parts, clause.String())
@@ -590,7 +604,16 @@ func (n *RuleStmt) String() string {
 		parts = append(parts, "OR REPLACE")
 	}
 	
-	parts = append(parts, "RULE", n.Rulename, "AS ON", n.Event.String(), "TO", n.Relation.String())
+	// Get the proper table name from RangeVar
+	tableName := n.Relation.RelName
+	if n.Relation.SchemaName != "" {
+		tableName = n.Relation.SchemaName + "." + tableName
+	}
+	if n.Relation.CatalogName != "" {
+		tableName = n.Relation.CatalogName + "." + tableName
+	}
+	
+	parts = append(parts, "RULE", n.Rulename, "AS ON", n.Event.String(), "TO", tableName)
 	
 	if n.WhereClause != nil {
 		parts = append(parts, "WHERE", n.WhereClause.String())
