@@ -469,8 +469,6 @@ func TestCoerceToDomainValue(t *testing.T) {
 	
 	assert.Equal(t, Oid(100), ctdv.Collation, "Expected collation 100")
 	
-	assert.Equal(t, Oid(200), ctdv.Collation, "Expected collation 200")
-	
 	// Test ExpressionType
 	assert.Equal(t, "CoerceToDomainValue", ctdv.ExpressionType(), "Expected ExpressionType 'CoerceToDomainValue'")
 	
@@ -494,8 +492,6 @@ func TestSetToDefault(t *testing.T) {
 	assert.Equal(t, int32(-1), std.TypeMod, "Expected typemod -1")
 	
 	assert.Equal(t, Oid(100), std.Collation, "Expected collation 100")
-	
-	assert.Equal(t, Oid(200), std.Collation, "Expected collation 200")
 	
 	// Test ExpressionType
 	assert.Equal(t, "SetToDefault", std.ExpressionType(), "Expected ExpressionType 'SetToDefault'")

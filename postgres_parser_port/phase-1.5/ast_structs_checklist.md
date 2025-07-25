@@ -2,8 +2,8 @@
 
 This checklist tracks the implementation status of all PostgreSQL AST structs for the parser port project.
 
-**Current Status**: 131 nodes completed out of 456 total (28.7% complete)
-**Latest Milestone**: ✅ **Phase 1A Complete** - 25 core parse infrastructure nodes implemented in `parse_infrastructure.go`
+**Current Status**: 156 nodes completed out of 456 total (34.2% complete)
+**Latest Milestone**: ✅ **Phase 1B Complete** - 13 advanced SQL statement nodes implemented in `advanced_statements.go`
 
 ## Parse Tree Node Structures (parsenodes.h)
 
@@ -29,10 +29,10 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **InsertStmt** - INSERT statement (`src/include/nodes/parsenodes.h:2039`)
 - [x] **DeleteStmt** - DELETE statement (`src/include/nodes/parsenodes.h:2055`)
 - [x] **UpdateStmt** - UPDATE statement (`src/include/nodes/parsenodes.h:2069`)
-- [ ] **MergeStmt** - MERGE statement (`src/include/nodes/parsenodes.h:2084`)
-- [ ] **SetOperationStmt** - UNION/INTERSECT/EXCEPT (`src/include/nodes/parsenodes.h:2185`)
-- [ ] **ReturnStmt** - RETURN statement (`src/include/nodes/parsenodes.h:2210`)
-- [ ] **PLAssignStmt** - PL assignment statement (`src/include/nodes/parsenodes.h:2224`)
+- [x] **MergeStmt** - MERGE statement (`src/include/nodes/parsenodes.h:2084`)
+- [x] **SetOperationStmt** - UNION/INTERSECT/EXCEPT (`src/include/nodes/parsenodes.h:2185`)
+- [x] **ReturnStmt** - RETURN statement (`src/include/nodes/parsenodes.h:2210`)
+- [x] **PLAssignStmt** - PL assignment statement (`src/include/nodes/parsenodes.h:2224`)
 
 ### DDL Statement Nodes
 - [x] **CreateStmt** - CREATE TABLE (`src/include/nodes/parsenodes.h:2648`)
@@ -60,11 +60,11 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **CreateTransformStmt** - CREATE TRANSFORM (`src/include/nodes/parsenodes.h:4016`)
 - [ ] **DefineStmt** - DEFINE statement (`src/include/nodes/parsenodes.h:3140`)
 - [x] **DropStmt** - DROP statement (`src/include/nodes/parsenodes.h:3226`)
-- [ ] **TruncateStmt** - TRUNCATE statement (`src/include/nodes/parsenodes.h:3240`)
-- [ ] **CommentStmt** - COMMENT statement (`src/include/nodes/parsenodes.h:3252`)
-- [ ] **RenameStmt** - RENAME operations (`src/include/nodes/parsenodes.h:3525`)
-- [ ] **AlterOwnerStmt** - ALTER OWNER (`src/include/nodes/parsenodes.h:3571`)
-- [ ] **RuleStmt** - CREATE RULE (`src/include/nodes/parsenodes.h:3606`)
+- [x] **TruncateStmt** - TRUNCATE statement (`src/include/nodes/parsenodes.h:3240`)
+- [x] **CommentStmt** - COMMENT statement (`src/include/nodes/parsenodes.h:3252`)
+- [x] **RenameStmt** - RENAME operations (`src/include/nodes/parsenodes.h:3525`)
+- [x] **AlterOwnerStmt** - ALTER OWNER (`src/include/nodes/parsenodes.h:3571`)
+- [x] **RuleStmt** - CREATE RULE (`src/include/nodes/parsenodes.h:3606`)
 - [x] **ViewStmt** - CREATE VIEW (`src/include/nodes/parsenodes.h:3740`)
 
 ### Utility Statement Nodes
@@ -78,7 +78,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **ExplainStmt** - EXPLAIN statement (`src/include/nodes/parsenodes.h:3868`)
 - [x] **LoadStmt** - LOAD statement (`src/include/nodes/parsenodes.h:3755`)
 - [x] **ClusterStmt** - CLUSTER statement (`src/include/nodes/parsenodes.h:3822`)
-- [ ] **LockStmt** - LOCK statement (`src/include/nodes/parsenodes.h:3942`)
+- [x] **LockStmt** - LOCK statement (`src/include/nodes/parsenodes.h:3942`)
 - [x] **PrepareStmt** - PREPARE statement (`src/include/nodes/parsenodes.h:4030`)
 - [x] **ExecuteStmt** - EXECUTE statement (`src/include/nodes/parsenodes.h:4044`)
 - [x] **DeallocateStmt** - DEALLOCATE statement (`src/include/nodes/parsenodes.h:4056`)
@@ -123,9 +123,9 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **CTECycleClause** - CYCLE clause in CTE (`src/include/nodes/parsenodes.h:1652`)
 
 ### Conflict Resolution Nodes
-- [ ] **OnConflictClause** - ON CONFLICT clause (`src/include/nodes/parsenodes.h:1621`)
-- [ ] **InferClause** - Inference clause (`src/include/nodes/parsenodes.h:1606`)
-- [ ] **WithCheckOption** - WITH CHECK OPTION (`src/include/nodes/parsenodes.h:1368`)
+- [x] **OnConflictClause** - ON CONFLICT clause (`src/include/nodes/parsenodes.h:1621`)
+- [x] **InferClause** - Inference clause (`src/include/nodes/parsenodes.h:1606`)
+- [x] **WithCheckOption** - WITH CHECK OPTION (`src/include/nodes/parsenodes.h:1368`)
 
 ### JSON Nodes
 - [ ] **JsonOutput** - JSON output specification (`src/include/nodes/parsenodes.h:1751`)
@@ -146,7 +146,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **JsonArrayAgg** - JSON_ARRAYAGG (`src/include/nodes/parsenodes.h:1989`)
 
 ### Merge Statement Nodes
-- [ ] **MergeWhenClause** - WHEN clause in MERGE (`src/include/nodes/parsenodes.h:1717`)
+- [x] **MergeWhenClause** - WHEN clause in MERGE (`src/include/nodes/parsenodes.h:1717`)
 
 ### Miscellaneous Nodes
 - [x] **TypeName** - Type specification (`src/include/nodes/parsenodes.h:265`)

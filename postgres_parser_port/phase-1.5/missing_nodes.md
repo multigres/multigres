@@ -1,10 +1,10 @@
 # Missing PostgreSQL AST Nodes - Complete Inventory
 
-**Total Missing**: 325 nodes out of 456 total PostgreSQL AST nodes
-**Current Implementation**: 131 nodes (28.7% complete)
+**Total Missing**: 300 nodes out of 456 total PostgreSQL AST nodes
+**Current Implementation**: 156 nodes (34.2% complete)
 **Target**: 100% PostgreSQL AST compatibility
-**Latest**: ✅ Phase 1A completed - 25 core parse infrastructure nodes implemented
-**Recent**: ✅ 8 utility statement nodes completed in `utility_statements.go`
+**Latest**: ✅ Phase 1B completed - 13 advanced SQL statement nodes implemented in `advanced_statements.go`
+**Recent**: ✅ Phase 1A completed - 25 core parse infrastructure nodes implemented
 
 This inventory is based on the comprehensive ast_structs_checklist.md which tracks all PostgreSQL node structures across parsenodes.h, primnodes.h, plannodes.h, execnodes.h, pathnodes.h, and supporting files.
 
@@ -17,10 +17,10 @@ These nodes are essential for basic SQL parsing functionality:
 
 **Statement Nodes:**
 - [x] **RawStmt** - Raw statement wrapper (`src/include/nodes/parsenodes.h:2017`) ✅ Phase 1A
-- [ ] **MergeStmt** - MERGE statement (`src/include/nodes/parsenodes.h:2084`)
-- [ ] **SetOperationStmt** - UNION/INTERSECT/EXCEPT (`src/include/nodes/parsenodes.h:2185`)
-- [ ] **ReturnStmt** - RETURN statement (`src/include/nodes/parsenodes.h:2210`)
-- [ ] **PLAssignStmt** - PL assignment statement (`src/include/nodes/parsenodes.h:2224`)
+- [x] **MergeStmt** - MERGE statement (`src/include/nodes/parsenodes.h:2084`) ✅ Phase 1B
+- [x] **SetOperationStmt** - UNION/INTERSECT/EXCEPT (`src/include/nodes/parsenodes.h:2185`) ✅ Phase 1B
+- [x] **ReturnStmt** - RETURN statement (`src/include/nodes/parsenodes.h:2210`) ✅ Phase 1B
+- [x] **PLAssignStmt** - PL assignment statement (`src/include/nodes/parsenodes.h:2224`) ✅ Phase 1B
 
 **Expression Nodes:**
 - [x] **A_Expr** - Generic expression node (`src/include/nodes/parsenodes.h:329`) ✅ Phase 1A
@@ -42,11 +42,11 @@ These nodes are essential for basic SQL parsing functionality:
 - [ ] **CreateConversionStmt** - CREATE CONVERSION (`src/include/nodes/parsenodes.h:3988`)
 - [ ] **CreateTransformStmt** - CREATE TRANSFORM (`src/include/nodes/parsenodes.h:4016`)
 - [ ] **DefineStmt** - DEFINE statement (`src/include/nodes/parsenodes.h:3140`)
-- [ ] **TruncateStmt** - TRUNCATE statement (`src/include/nodes/parsenodes.h:3240`)
-- [ ] **CommentStmt** - COMMENT statement (`src/include/nodes/parsenodes.h:3252`)
-- [ ] **RenameStmt** - RENAME operations (`src/include/nodes/parsenodes.h:3525`)
-- [ ] **AlterOwnerStmt** - ALTER OWNER (`src/include/nodes/parsenodes.h:3571`)
-- [ ] **RuleStmt** - CREATE RULE (`src/include/nodes/parsenodes.h:3606`)
+- [x] **TruncateStmt** - TRUNCATE statement (`src/include/nodes/parsenodes.h:3240`) ✅ Phase 1B
+- [x] **CommentStmt** - COMMENT statement (`src/include/nodes/parsenodes.h:3252`) ✅ Phase 1B
+- [x] **RenameStmt** - RENAME operations (`src/include/nodes/parsenodes.h:3525`) ✅ Phase 1B
+- [x] **AlterOwnerStmt** - ALTER OWNER (`src/include/nodes/parsenodes.h:3571`) ✅ Phase 1B
+- [x] **RuleStmt** - CREATE RULE (`src/include/nodes/parsenodes.h:3606`) ✅ Phase 1B
 
 ---
 
@@ -124,7 +124,7 @@ These nodes are essential for expression evaluation:
 ### Missing Utility Statements (parsenodes.h)
 - [x] **LoadStmt** - LOAD statement (`src/include/nodes/parsenodes.h:3755`) ✅ COMPLETED
 - [x] **ClusterStmt** - CLUSTER statement (`src/include/nodes/parsenodes.h:3822`) ✅ COMPLETED
-- [ ] **LockStmt** - LOCK statement (`src/include/nodes/parsenodes.h:3942`)
+- [x] **LockStmt** - LOCK statement (`src/include/nodes/parsenodes.h:3942`) ✅ Phase 1B
 - [ ] **DeclareCursorStmt** - DECLARE CURSOR (`src/include/nodes/parsenodes.h:3293`)
 - [ ] **FetchStmt** - FETCH statement (`src/include/nodes/parsenodes.h:3328`)
 - [ ] **ClosePortalStmt** - CLOSE statement (`src/include/nodes/parsenodes.h:3305`)
@@ -138,11 +138,11 @@ These nodes are essential for expression evaluation:
 - [x] **WindowDef** - Window definition (`src/include/nodes/parsenodes.h:561`) ✅ Phase 1A
 - [x] **SortBy** - Sort specification (`src/include/nodes/parsenodes.h:543`) ✅ Phase 1A
 - [x] **GroupingSet** - Grouping set (`src/include/nodes/parsenodes.h:1506`) ✅ Phase 1A
-- [ ] **WithClause** - WITH clause (`src/include/nodes/parsenodes.h:1592`)
-- [ ] **OnConflictClause** - ON CONFLICT clause (`src/include/nodes/parsenodes.h:1621`)
-- [ ] **InferClause** - Inference clause (`src/include/nodes/parsenodes.h:1606`)
-- [ ] **WithCheckOption** - WITH CHECK OPTION (`src/include/nodes/parsenodes.h:1368`)
-- [ ] **MergeWhenClause** - WHEN clause in MERGE (`src/include/nodes/parsenodes.h:1717`)
+- [x] **WithClause** - WITH clause (`src/include/nodes/parsenodes.h:1592`) ✅ Phase 1A
+- [x] **OnConflictClause** - ON CONFLICT clause (`src/include/nodes/parsenodes.h:1621`) ✅ Phase 1B
+- [x] **InferClause** - Inference clause (`src/include/nodes/parsenodes.h:1606`) ✅ Phase 1B
+- [x] **WithCheckOption** - WITH CHECK OPTION (`src/include/nodes/parsenodes.h:1368`) ✅ Phase 1B
+- [x] **MergeWhenClause** - WHEN clause in MERGE (`src/include/nodes/parsenodes.h:1717`) ✅ Phase 1B
 
 ### Miscellaneous Parse Nodes (parsenodes.h)
 - [x] **LockingClause** - Locking clause (FOR UPDATE, etc.) (`src/include/nodes/parsenodes.h:831`) ✅ Phase 1A

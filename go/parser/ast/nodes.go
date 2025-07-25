@@ -160,6 +160,21 @@ const (
 	T_SinglePartitionSpec
 	T_PartitionCmd
 
+	// Advanced statement nodes - Phase 1B (12 nodes)
+	T_SetOperationStmt
+	T_ReturnStmt
+	T_PLAssignStmt
+	T_OnConflictClause
+	T_InferClause
+	T_WithCheckOption
+	T_MergeWhenClause
+	T_TruncateStmt
+	T_CommentStmt
+	T_RenameStmt
+	T_AlterOwnerStmt
+	T_RuleStmt
+	T_LockStmt
+
 	// Value nodes - ported from postgres/src/include/nodes/value.h
 	T_Integer   // Integer literal - postgres/src/include/nodes/value.h:28-34
 	T_Float     // Float literal - postgres/src/include/nodes/value.h:47-53
@@ -446,6 +461,32 @@ func (nt NodeTag) String() string {
 		return "T_SinglePartitionSpec"
 	case T_PartitionCmd:
 		return "T_PartitionCmd"
+	case T_SetOperationStmt:
+		return "T_SetOperationStmt"
+	case T_ReturnStmt:
+		return "T_ReturnStmt"
+	case T_PLAssignStmt:
+		return "T_PLAssignStmt"
+	case T_OnConflictClause:
+		return "T_OnConflictClause"
+	case T_InferClause:
+		return "T_InferClause"
+	case T_WithCheckOption:
+		return "T_WithCheckOption"
+	case T_MergeWhenClause:
+		return "T_MergeWhenClause"
+	case T_TruncateStmt:
+		return "T_TruncateStmt"
+	case T_CommentStmt:
+		return "T_CommentStmt"
+	case T_RenameStmt:
+		return "T_RenameStmt"
+	case T_AlterOwnerStmt:
+		return "T_AlterOwnerStmt"
+	case T_RuleStmt:
+		return "T_RuleStmt"
+	case T_LockStmt:
+		return "T_LockStmt"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

@@ -588,8 +588,98 @@ func (cte *CommonTableExpr) String() string {
 // Placeholder structs for other query execution nodes implemented in query_execution_nodes.go
 type RangeTblEntry struct{ BaseNode }
 type IntoClause struct{ BaseNode }
+// SetOperation represents the type of set operation
+// Ported from postgres/src/include/nodes/parsenodes.h:2108-2114
 type SetOperation int
-type OnConflictClause struct{ BaseNode }
+
+const (
+	SETOP_NONE SetOperation = iota // No set operation
+	SETOP_UNION                    // UNION
+	SETOP_INTERSECT                // INTERSECT
+	SETOP_EXCEPT                   // EXCEPT
+)
+
+func (s SetOperation) String() string {
+	switch s {
+	case SETOP_NONE:
+		return ""
+	case SETOP_UNION:
+		return "UNION"
+	case SETOP_INTERSECT:
+		return "INTERSECT"
+	case SETOP_EXCEPT:
+		return "EXCEPT"
+	default:
+		return fmt.Sprintf("SetOperation(%d)", int(s))
+	}
+}
+// OnConflictClause represents ON CONFLICT clause for INSERT statements
+// Ported from postgres/src/include/nodes/parsenodes.h:1621-1629
+type OnConflictClause struct {
+	BaseNode
+	Action      OnConflictAction `json:"action"`      // DO NOTHING or UPDATE?
+	Infer       *InferClause     `json:"infer"`       // Optional index inference clause
+	TargetList  []*ResTarget     `json:"targetList"`  // The target list (of ResTarget)
+	WhereClause Node             `json:"whereClause"` // Qualifications
+	Location    int              `json:"location"`    // Token location, or -1 if unknown
+}
+
+func (n *OnConflictClause) node() {}
+
+func (n *OnConflictClause) String() string {
+	var parts []string
+	parts = append(parts, "ON CONFLICT")
+	
+	if n.Infer != nil {
+		parts = append(parts, n.Infer.String())
+	}
+	
+	parts = append(parts, n.Action.String())
+	
+	if n.Action == ONCONFLICT_UPDATE && len(n.TargetList) > 0 {
+		targets := make([]string, len(n.TargetList))
+		for i, target := range n.TargetList {
+			targets[i] = target.String()
+		}
+		parts = append(parts, "SET", strings.Join(targets, ", "))
+	}
+	
+	if n.WhereClause != nil {
+		parts = append(parts, "WHERE", n.WhereClause.String())
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// NewOnConflictClause creates a new OnConflictClause node
+func NewOnConflictClause(action OnConflictAction) *OnConflictClause {
+	return &OnConflictClause{
+		BaseNode: BaseNode{Tag: T_OnConflictClause},
+		Action:   action,
+		Location: -1,
+	}
+}
+// OverridingKind represents OVERRIDING clause options
+// Ported from postgres/src/include/nodes/primnodes.h:25-30
 type OverridingKind int
+
+const (
+	OVERRIDING_NOT_SET OverridingKind = iota // No OVERRIDING clause
+	OVERRIDING_USER_VALUE                    // OVERRIDING USER VALUE
+	OVERRIDING_SYSTEM_VALUE                  // OVERRIDING SYSTEM VALUE
+)
+
+func (o OverridingKind) String() string {
+	switch o {
+	case OVERRIDING_NOT_SET:
+		return ""
+	case OVERRIDING_USER_VALUE:
+		return "OVERRIDING USER VALUE"
+	case OVERRIDING_SYSTEM_VALUE:
+		return "OVERRIDING SYSTEM VALUE"
+	default:
+		return fmt.Sprintf("OverridingKind(%d)", int(o))
+	}
+}
 
 // Note: Constraint is now defined in ddl_statements.go

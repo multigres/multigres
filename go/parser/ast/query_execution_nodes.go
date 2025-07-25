@@ -447,6 +447,19 @@ const (
 	ONCONFLICT_UPDATE                          // ON CONFLICT DO UPDATE - nodes.h:419
 )
 
+func (o OnConflictAction) String() string {
+	switch o {
+	case ONCONFLICT_NONE:
+		return ""
+	case ONCONFLICT_NOTHING:
+		return "DO NOTHING"
+	case ONCONFLICT_UPDATE:
+		return "DO UPDATE"
+	default:
+		return fmt.Sprintf("OnConflictAction(%d)", int(o))
+	}
+}
+
 // OnConflictExpr represents INSERT ... ON CONFLICT expressions.
 // This is an important PostgreSQL-specific feature for handling conflicts
 // during INSERT operations (UPSERT functionality).
