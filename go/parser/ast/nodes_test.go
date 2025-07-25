@@ -59,7 +59,7 @@ func TestBaseNode(t *testing.T) {
 // TestIdentifier tests identifier node creation and functionality.
 func TestIdentifier(t *testing.T) {
 	ident := NewIdentifier("users")
-	
+
 	require.NotNil(t, ident)
 	assert.Equal(t, T_String, ident.NodeTag())
 	assert.Equal(t, "users", ident.Name)
@@ -70,11 +70,11 @@ func TestIdentifier(t *testing.T) {
 // TestValue tests the convenience NewValue function with type delegation.
 func TestValue(t *testing.T) {
 	tests := []struct {
-		name        string
-		value       interface{}
-		expectedTag NodeTag
+		name         string
+		value        interface{}
+		expectedTag  NodeTag
 		expectedType string
-		expectedStr string
+		expectedStr  string
 	}{
 		{"string_value", "hello", T_String, "String", "hello"},
 		{"int_value", 42, T_Integer, "Integer", "42"},
@@ -86,16 +86,16 @@ func TestValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			value := NewValue(tt.value)
-			
+
 			require.NotNil(t, value)
 			assert.Equal(t, tt.expectedTag, value.NodeTag())
 			assert.Contains(t, value.String(), tt.expectedStr)
-			
+
 			// Test that it's properly typed
 			if expr, ok := value.(Expression); ok {
 				assert.Equal(t, tt.expectedType, expr.ExpressionType())
 			}
-			
+
 			// Test specific type assertions
 			switch tt.expectedTag {
 			case T_String:
@@ -200,7 +200,7 @@ func TestNodeList(t *testing.T) {
 	id1 := NewIdentifier("col1")
 	id2 := NewIdentifier("col2")
 	list2 := NewNodeList(id1, id2)
-	
+
 	assert.Equal(t, 2, list2.Len())
 	assert.Equal(t, id1, list2.Items[0])
 	assert.Equal(t, id2, list2.Items[1])
@@ -304,7 +304,7 @@ func TestWalkNodesEarlyExit(t *testing.T) {
 func TestFindNodes(t *testing.T) {
 	// Create AST with mixed node types
 	id1 := NewIdentifier("col1")
-	id2 := NewIdentifier("col2")  
+	id2 := NewIdentifier("col2")
 	val1 := NewValue(42) // Use integer value to get T_Integer tag
 	list := NewNodeList(id1, val1, id2)
 
@@ -353,25 +353,25 @@ func TestComplexAST(t *testing.T) {
 	id2 := NewIdentifier("col2")
 	val1 := NewValue(42)
 	val2 := NewValue("test")
-	
+
 	// Build nested list structure
 	innerList := NewNodeList(id1, val1)
 	outerList := NewNodeList(innerList, id2, val2)
-	
+
 	// Walk the entire tree and count nodes
 	nodeCount := 0
 	WalkNodes(outerList, func(node Node) bool {
 		nodeCount++
 		return true
 	})
-	
+
 	// Should visit: outerList, innerList, id1, val1, id2, val2
 	assert.Equal(t, 6, nodeCount, "Should visit all nodes in nested structure")
-	
+
 	// Find all string nodes (identifiers)
 	stringNodes := FindNodes(outerList, T_String)
 	assert.Len(t, stringNodes, 3) // id1, id2, and val2 (string value)
-	
+
 	// Find all list nodes
 	listNodes := FindNodes(outerList, T_List)
 	assert.Len(t, listNodes, 2) // outerList and innerList

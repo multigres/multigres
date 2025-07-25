@@ -18,7 +18,7 @@ type CmdType int
 const (
 	CMD_UNKNOWN CmdType = iota // Unknown command type
 	CMD_SELECT                 // SELECT statement
-	CMD_UPDATE                 // UPDATE statement  
+	CMD_UPDATE                 // UPDATE statement
 	CMD_INSERT                 // INSERT statement
 	CMD_DELETE                 // DELETE statement
 	CMD_MERGE                  // MERGE statement
@@ -53,14 +53,34 @@ func (c CmdType) String() string {
 type QuerySource int
 
 const (
-	QSRC_ORIGINAL           QuerySource = iota // Original parse tree (explicit query)
-	QSRC_PARSER                                // Added by parse analysis (now unused)
-	QSRC_INSTEAD_RULE                          // Added by unconditional INSTEAD rule
-	QSRC_QUAL_INSTEAD_RULE                     // Added by conditional INSTEAD rule
-	QSRC_NON_INSTEAD_RULE                      // Added by non-INSTEAD rule
+	QSRC_ORIGINAL          QuerySource = iota // Original parse tree (explicit query)
+	QSRC_PARSER                               // Added by parse analysis (now unused)
+	QSRC_INSTEAD_RULE                         // Added by unconditional INSTEAD rule
+	QSRC_QUAL_INSTEAD_RULE                    // Added by conditional INSTEAD rule
+	QSRC_NON_INSTEAD_RULE                     // Added by non-INSTEAD rule
 )
 
 // Note: DropBehavior and ObjectType are now defined in ddl_statements.go
+
+// LimitOption represents LIMIT clause options.
+// Ported from postgres/src/include/nodes/nodes.h:428
+type LimitOption int
+
+const (
+	LIMIT_OPTION_COUNT     LimitOption = iota // FETCH FIRST... ONLY - nodes.h:430
+	LIMIT_OPTION_WITH_TIES                    // FETCH FIRST... WITH TIES - nodes.h:431
+)
+
+// OnCommitAction represents actions for temporary tables on transaction commit.
+// Ported from postgres/src/include/nodes/primnodes.h:55
+type OnCommitAction int
+
+const (
+	ONCOMMIT_NOOP          OnCommitAction = iota // No ON COMMIT clause (do nothing) - primnodes.h:57
+	ONCOMMIT_PRESERVE_ROWS                       // ON COMMIT PRESERVE ROWS (do nothing) - primnodes.h:58
+	ONCOMMIT_DELETE_ROWS                         // ON COMMIT DELETE ROWS - primnodes.h:59
+	ONCOMMIT_DROP                                // ON COMMIT DROP - primnodes.h:60
+)
 
 // ==============================================================================
 // SUPPORTING STRUCTURES
@@ -70,16 +90,16 @@ const (
 // Ported from postgres/src/include/nodes/primnodes.h:71
 type RangeVar struct {
 	BaseNode
-	CatalogName     *string // Database name, or nil - postgres/src/include/nodes/primnodes.h:76
-	SchemaName      *string // Schema name, or nil - postgres/src/include/nodes/primnodes.h:79
-	RelName         string  // Relation/sequence name - postgres/src/include/nodes/primnodes.h:82
-	Inh             bool    // Expand relation by inheritance? - postgres/src/include/nodes/primnodes.h:85
-	RelPersistence  rune    // Persistence type - postgres/src/include/nodes/primnodes.h:87
-	Alias           *Alias  // Table alias & optional column aliases - postgres/src/include/nodes/primnodes.h:90
+	CatalogName    string // Database name, or empty - postgres/src/include/nodes/primnodes.h:76
+	SchemaName     string // Schema name, or empty - postgres/src/include/nodes/primnodes.h:79
+	RelName        string // Relation/sequence name - postgres/src/include/nodes/primnodes.h:82
+	Inh            bool   // Expand relation by inheritance? - postgres/src/include/nodes/primnodes.h:85
+	RelPersistence rune   // Persistence type - postgres/src/include/nodes/primnodes.h:87
+	Alias          *Alias // Table alias & optional column aliases - postgres/src/include/nodes/primnodes.h:90
 }
 
 // NewRangeVar creates a new RangeVar node.
-func NewRangeVar(relName string, schemaName, catalogName *string) *RangeVar {
+func NewRangeVar(relName string, schemaName, catalogName string) *RangeVar {
 	return &RangeVar{
 		BaseNode:    BaseNode{Tag: T_RangeVar},
 		RelName:     relName,
@@ -90,11 +110,11 @@ func NewRangeVar(relName string, schemaName, catalogName *string) *RangeVar {
 
 func (rv *RangeVar) String() string {
 	parts := []string{}
-	if rv.CatalogName != nil {
-		parts = append(parts, *rv.CatalogName)
+	if rv.CatalogName != "" {
+		parts = append(parts, rv.CatalogName)
 	}
-	if rv.SchemaName != nil {
-		parts = append(parts, *rv.SchemaName)
+	if rv.SchemaName != "" {
+		parts = append(parts, rv.SchemaName)
 	}
 	parts = append(parts, rv.RelName)
 	return fmt.Sprintf("RangeVar(%s)@%d", strings.Join(parts, "."), rv.Location())
@@ -108,12 +128,12 @@ func (rv *RangeVar) StatementType() string {
 // Ported from postgres/src/include/nodes/primnodes.h:47
 type Alias struct {
 	BaseNode
-	AliasName *string      // Alias name - postgres/src/include/nodes/primnodes.h:50
-	ColNames  []*string    // Column aliases - postgres/src/include/nodes/primnodes.h:51
+	AliasName string // Alias name - postgres/src/include/nodes/primnodes.h:50
+	ColNames  []Node // Column aliases - postgres/src/include/nodes/primnodes.h:51
 }
 
 // NewAlias creates a new Alias node.
-func NewAlias(aliasName *string, colNames []*string) *Alias {
+func NewAlias(aliasName string, colNames []Node) *Alias {
 	return &Alias{
 		BaseNode:  BaseNode{Tag: T_String}, // Use T_String for alias
 		AliasName: aliasName,
@@ -122,24 +142,20 @@ func NewAlias(aliasName *string, colNames []*string) *Alias {
 }
 
 func (a *Alias) String() string {
-	name := ""
-	if a.AliasName != nil {
-		name = *a.AliasName
-	}
-	return fmt.Sprintf("Alias(%s)@%d", name, a.Location())
+	return fmt.Sprintf("Alias(%s)@%d", a.AliasName, a.Location())
 }
 
 // ResTarget represents a target item in a SELECT list or UPDATE SET clause.
 // Ported from postgres/src/include/nodes/parsenodes.h:514
 type ResTarget struct {
 	BaseNode
-	Name        *string // Column name or nil - postgres/src/include/nodes/parsenodes.h:518
-	Indirection []Node  // Subscripts, field names, and '*', or nil - postgres/src/include/nodes/parsenodes.h:519
-	Val         Node    // Value expression to compute or assign - postgres/src/include/nodes/parsenodes.h:520
+	Name        string // Column name or empty - postgres/src/include/nodes/parsenodes.h:518
+	Indirection []Node // Subscripts, field names, and '*', or nil - postgres/src/include/nodes/parsenodes.h:519
+	Val         Node   // Value expression to compute or assign - postgres/src/include/nodes/parsenodes.h:520
 }
 
 // NewResTarget creates a new ResTarget node.
-func NewResTarget(name *string, val Node) *ResTarget {
+func NewResTarget(name string, val Node) *ResTarget {
 	return &ResTarget{
 		BaseNode: BaseNode{Tag: T_ResTarget},
 		Name:     name,
@@ -148,11 +164,7 @@ func NewResTarget(name *string, val Node) *ResTarget {
 }
 
 func (rt *ResTarget) String() string {
-	name := ""
-	if rt.Name != nil {
-		name = *rt.Name
-	}
-	return fmt.Sprintf("ResTarget(%s)@%d", name, rt.Location())
+	return fmt.Sprintf("ResTarget(%s)@%d", rt.Name, rt.Location())
 }
 
 func (rt *ResTarget) ExpressionType() string {
@@ -167,12 +179,12 @@ func (rt *ResTarget) ExpressionType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:117
 type Query struct {
 	BaseNode
-	CommandType     CmdType     // select|insert|update|delete|merge|utility - postgres/src/include/nodes/parsenodes.h:120
-	QuerySource     QuerySource // Where did this query come from? - postgres/src/include/nodes/parsenodes.h:121
-	QueryId         uint64      // Query identifier - postgres/src/include/nodes/parsenodes.h:122
-	CanSetTag       bool        // Do I set the command result tag? - postgres/src/include/nodes/parsenodes.h:123
-	UtilityStmt     Node        // Non-null if commandType == CMD_UTILITY - postgres/src/include/nodes/parsenodes.h:124
-	ResultRelation  int         // rtable index of target relation - postgres/src/include/nodes/parsenodes.h:125
+	CommandType    CmdType     // select|insert|update|delete|merge|utility - postgres/src/include/nodes/parsenodes.h:120
+	QuerySource    QuerySource // Where did this query come from? - postgres/src/include/nodes/parsenodes.h:121
+	QueryId        uint64      // Query identifier - postgres/src/include/nodes/parsenodes.h:122
+	CanSetTag      bool        // Do I set the command result tag? - postgres/src/include/nodes/parsenodes.h:123
+	UtilityStmt    Node        // Non-null if commandType == CMD_UTILITY - postgres/src/include/nodes/parsenodes.h:124
+	ResultRelation int         // rtable index of target relation - postgres/src/include/nodes/parsenodes.h:125
 
 	// Boolean flags for query characteristics - postgres/src/include/nodes/parsenodes.h:127-140
 	HasAggs         bool // Has aggregates in tlist or havingQual
@@ -187,23 +199,33 @@ type Query struct {
 	IsReturn        bool // Is a RETURN statement
 
 	// Query components - postgres/src/include/nodes/parsenodes.h:142-192
-	CteList         []*CommonTableExpr // WITH list
-	Rtable          []*RangeTblEntry   // Range table entries
-	Jointree        *FromExpr          // Table join tree (FROM and WHERE clauses)
-	TargetList      []*TargetEntry     // Target list
-	ReturningList   []*TargetEntry     // Return-values list
-	GroupClause     []*SortGroupClause // GROUP BY clauses
-	GroupDistinct   bool               // Is the GROUP BY clause distinct?
-	GroupingSets    []Node             // GROUPING SETS if present
-	HavingQual      Node               // Qualifications applied to groups
-	WindowClause    []*WindowClause    // WINDOW clauses
-	DistinctClause  []*SortGroupClause // DISTINCT clauses
-	SortClause      []*SortGroupClause // ORDER BY clauses
-	LimitOffset     Node               // Number of result tuples to skip
-	LimitCount      Node               // Number of result tuples to return
-	RowMarks        []*RowMarkClause   // Row mark clauses
-	StmtLocation    int                // Start location - postgres/src/include/nodes/parsenodes.h:239
-	StmtLen         int                // Length in bytes - postgres/src/include/nodes/parsenodes.h:240
+	CteList             []*CommonTableExpr // WITH list
+	Rtable              []*RangeTblEntry   // Range table entries
+	RtePermInfos        []Node             // Permission info for rtable entries - parsenodes.h:174
+	Jointree            *FromExpr          // Table join tree (FROM and WHERE clauses)
+	MergeActionList     []Node             // MERGE statement actions - parsenodes.h:178
+	MergeTargetRelation int                // MERGE target relation index - parsenodes.h:186
+	MergeJoinCondition  Node               // JOIN condition for MERGE - parsenodes.h:189
+	TargetList          []*TargetEntry     // Target list
+	Override            OverridingKind     // OVERRIDING clause - parsenodes.h:194
+	OnConflict          *OnConflictExpr    // ON CONFLICT expression - parsenodes.h:196
+	ReturningList       []*TargetEntry     // Return-values list
+	GroupClause         []*SortGroupClause // GROUP BY clauses
+	GroupDistinct       bool               // Is the GROUP BY clause distinct?
+	GroupingSets        []Node             // GROUPING SETS if present
+	HavingQual          Node               // Qualifications applied to groups
+	WindowClause        []*WindowClause    // WINDOW clauses
+	DistinctClause      []*SortGroupClause // DISTINCT clauses
+	SortClause          []*SortGroupClause // ORDER BY clauses
+	LimitOffset         Node               // Number of result tuples to skip
+	LimitCount          Node               // Number of result tuples to return
+	LimitOption         LimitOption        // Limit type option - parsenodes.h:215
+	RowMarks            []*RowMarkClause   // Row mark clauses
+	SetOperations       Node               // Set operation tree - parsenodes.h:219
+	ConstraintDeps      []Oid              // Constraint dependencies - parsenodes.h:226
+	WithCheckOptions    []Node             // WITH CHECK OPTIONS - parsenodes.h:228
+	StmtLocation        int                // Start location - postgres/src/include/nodes/parsenodes.h:239
+	StmtLen             int                // Length in bytes - postgres/src/include/nodes/parsenodes.h:240
 }
 
 // NewQuery creates a new Query node.
@@ -244,11 +266,12 @@ type SelectStmt struct {
 	ValuesLists    [][]Node     // Untransformed list of expression lists
 
 	// Fields used in both "leaf" and upper-level SelectStmts - postgres/src/include/nodes/parsenodes.h:2132-2137
-	SortClause     []*SortBy      // Sort clause
-	LimitOffset    Node           // Number of result tuples to skip
-	LimitCount     Node           // Number of result tuples to return
-	LockingClause  []*LockingClause // FOR UPDATE clauses
-	WithClause     *WithClause    // WITH clause
+	SortClause    []*SortBy        // Sort clause
+	LimitOffset   Node             // Number of result tuples to skip
+	LimitCount    Node             // Number of result tuples to return
+	LimitOption   LimitOption      // Limit type option
+	LockingClause []*LockingClause // FOR UPDATE clauses
+	WithClause    *WithClause      // WITH clause
 
 	// Fields used only in upper-level SelectStmts - postgres/src/include/nodes/parsenodes.h:2139-2143
 	Op   SetOperation // Type of set operation
@@ -278,13 +301,13 @@ func (s *SelectStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2039
 type InsertStmt struct {
 	BaseNode
-	Relation           *RangeVar           // Relation to insert into - postgres/src/include/nodes/parsenodes.h:2042
-	Cols               []*ResTarget        // Optional: names of the target columns - postgres/src/include/nodes/parsenodes.h:2043
-	SelectStmt         Node                // Source SELECT/VALUES, or NULL - postgres/src/include/nodes/parsenodes.h:2044
-	OnConflictClause   *OnConflictClause   // ON CONFLICT clause - postgres/src/include/nodes/parsenodes.h:2045
-	ReturningList      []*ResTarget        // List of expressions to return - postgres/src/include/nodes/parsenodes.h:2046
-	WithClause         *WithClause         // WITH clause - postgres/src/include/nodes/parsenodes.h:2047
-	Override           OverridingKind      // OVERRIDING clause - postgres/src/include/nodes/parsenodes.h:2048
+	Relation         *RangeVar         // Relation to insert into - postgres/src/include/nodes/parsenodes.h:2042
+	Cols             []*ResTarget      // Optional: names of the target columns - postgres/src/include/nodes/parsenodes.h:2043
+	SelectStmt       Node              // Source SELECT/VALUES, or NULL - postgres/src/include/nodes/parsenodes.h:2044
+	OnConflictClause *OnConflictClause // ON CONFLICT clause - postgres/src/include/nodes/parsenodes.h:2045
+	ReturningList    []*ResTarget      // List of expressions to return - postgres/src/include/nodes/parsenodes.h:2046
+	WithClause       *WithClause       // WITH clause - postgres/src/include/nodes/parsenodes.h:2047
+	Override         OverridingKind    // OVERRIDING clause - postgres/src/include/nodes/parsenodes.h:2048
 }
 
 // NewInsertStmt creates a new InsertStmt node.
@@ -378,14 +401,18 @@ func (d *DeleteStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2648
 type CreateStmt struct {
 	BaseNode
-	Relation        *RangeVar      // Relation to create - postgres/src/include/nodes/parsenodes.h:2651
-	TableElts       []*ColumnDef   // Column definitions - postgres/src/include/nodes/parsenodes.h:2652
-	InhRelations    []*RangeVar    // Relations to inherit from - postgres/src/include/nodes/parsenodes.h:2653
-	Constraints     []*Constraint  // Constraints - postgres/src/include/nodes/parsenodes.h:2659
-	Options         []Node         // Options from WITH clause - postgres/src/include/nodes/parsenodes.h:2660
-	TableSpaceName  *string        // Table space to use, or nil - postgres/src/include/nodes/parsenodes.h:2662
-	AccessMethod    *string        // Table access method - postgres/src/include/nodes/parsenodes.h:2663
-	IfNotExists     bool           // Just do nothing if it already exists? - postgres/src/include/nodes/parsenodes.h:2664
+	Relation       *RangeVar           // Relation to create - postgres/src/include/nodes/parsenodes.h:2651
+	TableElts      []*ColumnDef        // Column definitions - postgres/src/include/nodes/parsenodes.h:2652
+	InhRelations   []*RangeVar         // Relations to inherit from - postgres/src/include/nodes/parsenodes.h:2653
+	PartBound      *PartitionBoundSpec // FOR VALUES clause - parsenodes.h
+	PartSpec       *PartitionSpec      // PARTITION BY clause - parsenodes.h
+	OfTypename     *TypeName           // OF typename clause - parsenodes.h
+	Constraints    []*Constraint       // Constraints - postgres/src/include/nodes/parsenodes.h:2659
+	Options        []Node              // Options from WITH clause - postgres/src/include/nodes/parsenodes.h:2660
+	OnCommit       OnCommitAction      // OnCommitAction for temp tables - parsenodes.h
+	TableSpaceName string              // Table space to use, or empty - postgres/src/include/nodes/parsenodes.h:2662
+	AccessMethod   string              // Table access method - postgres/src/include/nodes/parsenodes.h:2663
+	IfNotExists    bool                // Just do nothing if it already exists? - postgres/src/include/nodes/parsenodes.h:2664
 }
 
 // NewCreateStmt creates a new CreateStmt node.
@@ -412,11 +439,11 @@ func (c *CreateStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3226
 type DropStmt struct {
 	BaseNode
-	Objects     []Node       // List of names - postgres/src/include/nodes/parsenodes.h:3229
-	RemoveType  ObjectType   // Object type - postgres/src/include/nodes/parsenodes.h:3230
-	Behavior    DropBehavior // RESTRICT or CASCADE behavior - postgres/src/include/nodes/parsenodes.h:3231
-	MissingOk   bool         // Skip error if object is missing? - postgres/src/include/nodes/parsenodes.h:3232
-	Concurrent  bool         // Drop index concurrently? - postgres/src/include/nodes/parsenodes.h:3233
+	Objects    []Node       // List of names - postgres/src/include/nodes/parsenodes.h:3229
+	RemoveType ObjectType   // Object type - postgres/src/include/nodes/parsenodes.h:3230
+	Behavior   DropBehavior // RESTRICT or CASCADE behavior - postgres/src/include/nodes/parsenodes.h:3231
+	MissingOk  bool         // Skip error if object is missing? - postgres/src/include/nodes/parsenodes.h:3232
+	Concurrent bool         // Drop index concurrently? - postgres/src/include/nodes/parsenodes.h:3233
 }
 
 // NewDropStmt creates a new DropStmt node.
@@ -477,18 +504,18 @@ func (c *ColumnRef) ExpressionType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:1668
 type CommonTableExpr struct {
 	BaseNode
-	Ctename         string     // Query name (never qualified) - parsenodes.h:1676
-	Aliascolnames   []Node     // Optional list of column names - parsenodes.h:1678
-	Ctematerialized CTEMaterialized // Is this an optimization fence? - parsenodes.h:1679
-	Ctequery        Node       // The CTE's subquery - parsenodes.h:1681
-	Search_clause   *CTESearchClause // SEARCH clause, if any - parsenodes.h:1682
-	Cycle_clause    *CTECycleClause  // CYCLE clause, if any - parsenodes.h:1683
-	Cterecursive    bool       // Is this a recursive CTE? - parsenodes.h:1687
-	Cterefcount     int        // Number of RTEs referencing this CTE - parsenodes.h:1693
-	Ctecolnames     []Node     // List of output column names - parsenodes.h:1696
-	Ctecoltypes     []Oid      // OID list of output column type OIDs - parsenodes.h:1697
-	Ctecoltypmods   []int32    // Integer list of output column typmods - parsenodes.h:1698
-	Ctecolcollations []Oid     // OID list of column collation OIDs - parsenodes.h:1699
+	Ctename          string           // Query name (never qualified) - parsenodes.h:1676
+	Aliascolnames    []Node           // Optional list of column names - parsenodes.h:1678
+	Ctematerialized  CTEMaterialized  // Is this an optimization fence? - parsenodes.h:1679
+	Ctequery         Node             // The CTE's subquery - parsenodes.h:1681
+	SearchClause     *CTESearchClause // SEARCH clause, if any - parsenodes.h:1682
+	CycleClause      *CTECycleClause  // CYCLE clause, if any - parsenodes.h:1683
+	Cterecursive     bool             // Is this a recursive CTE? - parsenodes.h:1687
+	Cterefcount      int              // Number of RTEs referencing this CTE - parsenodes.h:1693
+	Ctecolnames      []Node           // List of output column names - parsenodes.h:1696
+	Ctecoltypes      []Oid            // OID list of output column type OIDs - parsenodes.h:1697
+	Ctecoltypmods    []int32          // Integer list of output column typmods - parsenodes.h:1698
+	Ctecolcollations []Oid            // OID list of column collation OIDs - parsenodes.h:1699
 }
 
 // CTEMaterialized represents CTE materialization settings.
@@ -496,19 +523,19 @@ type CommonTableExpr struct {
 type CTEMaterialized int
 
 const (
-	CTEMaterializeDefault  CTEMaterialized = iota // No materialization clause - parsenodes.h:1638
-	CTEMaterializeAlways                          // MATERIALIZED - parsenodes.h:1639
-	CTEMaterializeNever                           // NOT MATERIALIZED - parsenodes.h:1640
+	CTEMaterializeDefault CTEMaterialized = iota // No materialization clause - parsenodes.h:1638
+	CTEMaterializeAlways                         // MATERIALIZED - parsenodes.h:1639
+	CTEMaterializeNever                          // NOT MATERIALIZED - parsenodes.h:1640
 )
 
 // CTESearchClause represents a SEARCH clause for recursive CTEs.
 // Ported from postgres/src/include/nodes/parsenodes.h:1643
 type CTESearchClause struct {
 	BaseNode
-	SearchColList   []Node // List of column names - parsenodes.h:1646
-	SearchBreadthFirst bool // True for BREADTH FIRST, false for DEPTH FIRST - parsenodes.h:1647
-	SearchSeqColumn string // Name of sequence column - parsenodes.h:1648
-	Location        int    // Token location, or -1 if unknown - parsenodes.h:1649
+	SearchColList      []Node // List of column names - parsenodes.h:1646
+	SearchBreadthFirst bool   // True for BREADTH FIRST, false for DEPTH FIRST - parsenodes.h:1647
+	SearchSeqColumn    string // Name of sequence column - parsenodes.h:1648
+	Location           int    // Token location, or -1 if unknown - parsenodes.h:1649
 }
 
 // CTECycleClause represents a CYCLE clause for recursive CTEs.
@@ -564,4 +591,5 @@ type IntoClause struct{ BaseNode }
 type SetOperation int
 type OnConflictClause struct{ BaseNode }
 type OverridingKind int
+
 // Note: Constraint is now defined in ddl_statements.go

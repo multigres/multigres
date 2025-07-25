@@ -3,7 +3,7 @@ package ast
 
 import (
 	"testing"
-	
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -167,7 +167,7 @@ func TestConstraint(t *testing.T) {
 	})
 
 	t.Run("ForeignKeyConstraint", func(t *testing.T) {
-		pktable := NewRangeVar("departments", nil, nil)
+		pktable := NewRangeVar("departments", "", "")
 		constraint := NewForeignKeyConstraint("fk_dept", []string{"dept_id"}, pktable, []string{"id"})
 
 		assert.Equal(t, CONSTR_FOREIGN, constraint.Contype)
@@ -184,6 +184,17 @@ func TestConstraint(t *testing.T) {
 		assert.Equal(t, CONSTR_UNIQUE, constraint.Contype)
 		assert.Equal(t, "uk_email", constraint.Conname)
 		assert.Equal(t, []string{"email"}, constraint.Keys)
+		assert.False(t, constraint.NullsNotDistinct, "Default UNIQUE constraint should have NullsNotDistinct=false")
+		assert.Contains(t, constraint.String(), "UNIQUE")
+	})
+
+	t.Run("UniqueConstraintNullsNotDistinct", func(t *testing.T) {
+		constraint := NewUniqueConstraintNullsNotDistinct("uk_email_nnd", []string{"email"})
+
+		assert.Equal(t, CONSTR_UNIQUE, constraint.Contype)
+		assert.Equal(t, "uk_email_nnd", constraint.Conname)
+		assert.Equal(t, []string{"email"}, constraint.Keys)
+		assert.True(t, constraint.NullsNotDistinct, "NULLS NOT DISTINCT constraint should have NullsNotDistinct=true")
 		assert.Contains(t, constraint.String(), "UNIQUE")
 	})
 
@@ -209,10 +220,10 @@ func TestConstraint(t *testing.T) {
 // TestAlterTableStmt tests the AlterTableStmt node.
 func TestAlterTableStmt(t *testing.T) {
 	t.Run("AddColumn", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		columnDef := NewString("VARCHAR(100)") // Simplified column definition
 		addColumnCmd := NewAddColumnCmd("email", columnDef)
-		
+
 		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{addColumnCmd})
 
 		assert.Equal(t, T_AlterTableStmt, alterStmt.NodeTag())
@@ -226,7 +237,7 @@ func TestAlterTableStmt(t *testing.T) {
 		// Test interface compliance
 		var _ Node = alterStmt
 		var _ Statement = alterStmt
-		
+
 		// Test the command
 		cmd := alterStmt.Cmds[0]
 		assert.Equal(t, T_AlterTableCmd, cmd.NodeTag())
@@ -238,9 +249,9 @@ func TestAlterTableStmt(t *testing.T) {
 	})
 
 	t.Run("DropColumn", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		dropColumnCmd := NewDropColumnCmd("old_field", DROP_CASCADE)
-		
+
 		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{dropColumnCmd})
 
 		cmd := alterStmt.Cmds[0]
@@ -251,10 +262,10 @@ func TestAlterTableStmt(t *testing.T) {
 	})
 
 	t.Run("AddConstraint", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		constraint := NewPrimaryKeyConstraint("pk_users", []string{"id"})
 		addConstraintCmd := NewAddConstraintCmd(constraint)
-		
+
 		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{addConstraintCmd})
 
 		cmd := alterStmt.Cmds[0]
@@ -265,9 +276,9 @@ func TestAlterTableStmt(t *testing.T) {
 	})
 
 	t.Run("DropConstraint", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		dropConstraintCmd := NewDropConstraintCmd("old_constraint", DROP_RESTRICT)
-		
+
 		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{dropConstraintCmd})
 
 		cmd := alterStmt.Cmds[0]
@@ -281,7 +292,7 @@ func TestAlterTableStmt(t *testing.T) {
 // TestIndexStmt tests the IndexStmt node.
 func TestIndexStmt(t *testing.T) {
 	t.Run("BasicIndex", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		idxElem := NewIndexElem("email")
 		indexStmt := NewIndexStmt("idx_users_email", relation, []*IndexElem{idxElem})
 
@@ -301,7 +312,7 @@ func TestIndexStmt(t *testing.T) {
 	})
 
 	t.Run("UniqueIndex", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		idxElem := NewIndexElem("email")
 		indexStmt := NewUniqueIndex("uk_users_email", relation, []*IndexElem{idxElem})
 
@@ -310,18 +321,18 @@ func TestIndexStmt(t *testing.T) {
 	})
 
 	t.Run("CompositeIndex", func(t *testing.T) {
-		relation := NewRangeVar("orders", nil, nil)
+		relation := NewRangeVar("orders", "", "")
 		idxElem1 := NewIndexElem("customer_id")
 		idxElem2 := NewDescIndexElem("order_date")
 		indexStmt := NewIndexStmt("idx_orders_customer_date", relation, []*IndexElem{idxElem1, idxElem2})
 
 		assert.Len(t, indexStmt.IndexParams, 2)
-		
+
 		// Test first element
 		elem1 := indexStmt.IndexParams[0]
 		assert.Equal(t, "customer_id", elem1.Name)
 		assert.Equal(t, SORTBY_DEFAULT, elem1.Ordering)
-		
+
 		// Test second element (descending)
 		elem2 := indexStmt.IndexParams[1]
 		assert.Equal(t, "order_date", elem2.Name)
@@ -330,7 +341,7 @@ func TestIndexStmt(t *testing.T) {
 	})
 
 	t.Run("ExpressionIndex", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		lowerExpr := NewFuncExpr(870, 25, []Node{NewVar(1, 1, 25)}) // lower(email)
 		idxElem := NewExpressionIndexElem(lowerExpr)
 		indexStmt := NewIndexStmt("idx_users_lower_email", relation, []*IndexElem{idxElem})
@@ -376,7 +387,7 @@ func TestIndexElem(t *testing.T) {
 // TestViewStmt tests the ViewStmt node.
 func TestViewStmt(t *testing.T) {
 	t.Run("CreateView", func(t *testing.T) {
-		view := NewRangeVar("user_summary", nil, nil)
+		view := NewRangeVar("user_summary", "", "")
 		query := NewString("SELECT id, name FROM users") // Simplified query representation
 		viewStmt := NewViewStmt(view, query, false)
 
@@ -395,7 +406,7 @@ func TestViewStmt(t *testing.T) {
 	})
 
 	t.Run("CreateOrReplaceView", func(t *testing.T) {
-		view := NewRangeVar("user_summary", nil, nil)
+		view := NewRangeVar("user_summary", "", "")
 		query := NewString("SELECT id, name, email FROM users")
 		viewStmt := NewViewStmt(view, query, true)
 
@@ -404,7 +415,7 @@ func TestViewStmt(t *testing.T) {
 	})
 
 	t.Run("ViewWithCheckOption", func(t *testing.T) {
-		view := NewRangeVar("active_users", nil, nil)
+		view := NewRangeVar("active_users", "", "")
 		query := NewString("SELECT * FROM users WHERE active = true")
 		viewStmt := NewViewStmt(view, query, false)
 		viewStmt.WithCheckOption = LOCAL_CHECK_OPTION
@@ -413,7 +424,7 @@ func TestViewStmt(t *testing.T) {
 	})
 
 	t.Run("ViewWithAliases", func(t *testing.T) {
-		view := NewRangeVar("user_info", nil, nil)
+		view := NewRangeVar("user_info", "", "")
 		query := NewString("SELECT id, name FROM users")
 		viewStmt := NewViewStmt(view, query, false)
 		viewStmt.Aliases = []string{"user_id", "full_name"}
@@ -571,24 +582,24 @@ func TestCollateClause(t *testing.T) {
 // TestDDLComplexExamples tests complex DDL statement examples.
 func TestDDLComplexExamples(t *testing.T) {
 	t.Run("CompleteTableAlter", func(t *testing.T) {
-		// ALTER TABLE users 
+		// ALTER TABLE users
 		//   ADD COLUMN email VARCHAR(255),
 		//   ADD CONSTRAINT uk_email UNIQUE (email),
 		//   DROP COLUMN old_field CASCADE
-		
-		relation := NewRangeVar("users", nil, nil)
-		
+
+		relation := NewRangeVar("users", "", "")
+
 		// Add column command
 		columnDef := NewString("VARCHAR(255)")
 		addColumnCmd := NewAddColumnCmd("email", columnDef)
-		
+
 		// Add constraint command
 		uniqueConstraint := NewUniqueConstraint("uk_email", []string{"email"})
 		addConstraintCmd := NewAddConstraintCmd(uniqueConstraint)
-		
+
 		// Drop column command
 		dropColumnCmd := NewDropColumnCmd("old_field", DROP_CASCADE)
-		
+
 		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{
 			addColumnCmd, addConstraintCmd, dropColumnCmd,
 		})
@@ -601,16 +612,16 @@ func TestDDLComplexExamples(t *testing.T) {
 	})
 
 	t.Run("ComplexIndex", func(t *testing.T) {
-		// CREATE UNIQUE INDEX CONCURRENTLY idx_users_email_lower 
+		// CREATE UNIQUE INDEX CONCURRENTLY idx_users_email_lower
 		// ON users (lower(email)) WHERE active = true
-		
-		relation := NewRangeVar("users", nil, nil)
+
+		relation := NewRangeVar("users", "", "")
 		lowerFunc := NewFuncExpr(870, 25, []Node{NewVar(1, 1, 25)}) // lower(email)
 		idxElem := NewExpressionIndexElem(lowerFunc)
-		
+
 		indexStmt := NewUniqueIndex("idx_users_email_lower", relation, []*IndexElem{idxElem})
 		indexStmt.Concurrent = true
-		
+
 		// WHERE clause (simplified)
 		whereClause := NewBinaryOp(96, NewVar(1, 2, 16), NewConst(16, 1, false)) // active = true
 		indexStmt.WhereClause = whereClause
@@ -619,7 +630,7 @@ func TestDDLComplexExamples(t *testing.T) {
 		assert.True(t, indexStmt.Concurrent)
 		assert.NotNil(t, indexStmt.WhereClause)
 		assert.Len(t, indexStmt.IndexParams, 1)
-		
+
 		elem := indexStmt.IndexParams[0]
 		assert.Equal(t, "", elem.Name) // Expression index has no column name
 		assert.NotNil(t, elem.Expr)
@@ -629,13 +640,13 @@ func TestDDLComplexExamples(t *testing.T) {
 		// CREATE OR REPLACE VIEW active_users (user_id, username) AS
 		// SELECT id, name FROM users WHERE active = true
 		// WITH CASCADED CHECK OPTION
-		
-		view := NewRangeVar("active_users", nil, nil)
+
+		view := NewRangeVar("active_users", "", "")
 		query := NewString("SELECT id, name FROM users WHERE active = true")
 		viewStmt := NewViewStmt(view, query, true)
 		viewStmt.Aliases = []string{"user_id", "username"}
 		viewStmt.WithCheckOption = CASCADED_CHECK_OPTION
-		
+
 		// Add options
 		securityBarrierOpt := NewDefElem("security_barrier", NewBoolean(true))
 		viewStmt.Options = []*DefElem{securityBarrierOpt}

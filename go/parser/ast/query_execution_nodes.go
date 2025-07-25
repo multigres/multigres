@@ -18,9 +18,9 @@ import (
 // Ported from postgres/src/include/nodes/primnodes.h:2186
 type TargetEntry struct {
 	BaseExpr
-	Expr           Expression  // The expression to compute - primnodes.h:2190
-	Resno          AttrNumber  // Attribute number (>= 1) - primnodes.h:2192
-	Resname        string      // Name of the column (could be NULL) - primnodes.h:2194
+	Expr            Expression // The expression to compute - primnodes.h:2190
+	Resno           AttrNumber // Attribute number (>= 1) - primnodes.h:2192
+	Resname         string     // Name of the column (could be NULL) - primnodes.h:2194
 	Ressortgroupref Index      // Nonzero if referenced by ORDER BY/GROUP BY/HAVING - primnodes.h:2196
 	Resorigtbl      Oid        // OID of column's source table - primnodes.h:2198
 	Resorigcol      AttrNumber // Column's number in source table - primnodes.h:2200
@@ -65,8 +65,8 @@ func (te *TargetEntry) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:2305
 type FromExpr struct {
 	BaseExpr
-	Fromlist []Node      // List of join subtrees - primnodes.h:2308
-	Quals    Expression  // Qualifiers on join, if any - primnodes.h:2309
+	Fromlist []Node     // List of join subtrees - primnodes.h:2308
+	Quals    Expression // Qualifiers on join, if any - primnodes.h:2309
 }
 
 // NewFromExpr creates a new FromExpr node.
@@ -91,15 +91,15 @@ func (fe *FromExpr) String() string {
 type JoinType int
 
 const (
-	JOIN_INNER     JoinType = iota // Inner join - nodes.h:293
-	JOIN_LEFT                      // Left outer join - nodes.h:294
-	JOIN_FULL                      // Full outer join - nodes.h:295
-	JOIN_RIGHT                     // Right outer join - nodes.h:296
-	JOIN_SEMI                      // Semi join - nodes.h:302
-	JOIN_ANTI                      // Anti join - nodes.h:303
-	JOIN_RIGHT_ANTI                // Right anti join - nodes.h:304
-	JOIN_UNIQUE_OUTER              // LHS path must be made unique - nodes.h:308
-	JOIN_UNIQUE_INNER              // RHS path must be made unique - nodes.h:309
+	JOIN_INNER        JoinType = iota // Inner join - nodes.h:293
+	JOIN_LEFT                         // Left outer join - nodes.h:294
+	JOIN_FULL                         // Full outer join - nodes.h:295
+	JOIN_RIGHT                        // Right outer join - nodes.h:296
+	JOIN_SEMI                         // Semi join - nodes.h:302
+	JOIN_ANTI                         // Anti join - nodes.h:303
+	JOIN_RIGHT_ANTI                   // Right anti join - nodes.h:304
+	JOIN_UNIQUE_OUTER                 // LHS path must be made unique - nodes.h:308
+	JOIN_UNIQUE_INNER                 // RHS path must be made unique - nodes.h:309
 )
 
 // JoinExpr represents a JOIN operation.
@@ -108,15 +108,15 @@ const (
 // Ported from postgres/src/include/nodes/primnodes.h:2277
 type JoinExpr struct {
 	BaseExpr
-	Jointype    JoinType   // Type of join - primnodes.h:2280
-	IsNatural   bool       // Natural join? Will need to shape the join - primnodes.h:2281
-	Larg        Node       // Left subtree - primnodes.h:2282
-	Rarg        Node       // Right subtree - primnodes.h:2283
-	UsingClause []Node     // USING clause, if any (list of String nodes) - primnodes.h:2285
-	JoinUsing   []Node     // Join condition if using natural/using join - primnodes.h:2287
-	Quals       Expression // Qualifiers on join, if any - primnodes.h:2289
-	Alias       *Alias     // User-written alias clause, if any - primnodes.h:2291
-	Rtindex     Index      // RT index assigned for join, or 0 - primnodes.h:2293
+	Jointype       JoinType   // Type of join - primnodes.h:2280
+	IsNatural      bool       // Natural join? Will need to shape the join - primnodes.h:2281
+	Larg           Node       // Left subtree - primnodes.h:2282
+	Rarg           Node       // Right subtree - primnodes.h:2283
+	UsingClause    []Node     // USING clause, if any (list of String nodes) - primnodes.h:2285
+	JoinUsingAlias *Alias     // JOIN USING alias clause - primnodes.h:2287
+	Quals          Expression // Qualifiers on join, if any - primnodes.h:2289
+	Alias          *Alias     // User-written alias clause, if any - primnodes.h:2291
+	Rtindex        Index      // RT index assigned for join, or 0 - primnodes.h:2293
 }
 
 // NewJoinExpr creates a new JoinExpr node.
@@ -165,12 +165,12 @@ func (je *JoinExpr) String() string {
 	if joinTypeStr == "" {
 		joinTypeStr = fmt.Sprintf("JOIN_%d", int(je.Jointype))
 	}
-	
+
 	natural := ""
 	if je.IsNatural {
 		natural = " NATURAL"
 	}
-	
+
 	return fmt.Sprintf("JoinExpr(%s%s JOIN)", joinTypeStr, natural)
 }
 
@@ -182,22 +182,22 @@ func (je *JoinExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1059
 type SubPlan struct {
 	BaseExpr
-	SubLinkType  SubLinkType // Type of sublink - primnodes.h:1065
-	Testexpr     Expression  // OpExpr or RowCompareExpr expression tree - primnodes.h:1067
-	ParamIds     []int       // IDs of Params embedded in the above - primnodes.h:1068
-	PlanId       int         // Index (from 1) in PlannedStmt.subplans - primnodes.h:1070
-	PlanName     string      // A name assigned during planning - primnodes.h:1072
-	FirstColType Oid         // Type of first column of subplan result - primnodes.h:1074
-	FirstColTypmod int32     // Typmod of first column of subplan result - primnodes.h:1075
-	FirstColCollation Oid    // Collation of first column of subplan result - primnodes.h:1076
-	UseHashTable bool        // Use hashtable if TRUE, otherwise nested-loop - primnodes.h:1079
-	UnknownEqFalse bool       // True if the comparison can never return NULL - primnodes.h:1081
-	ParallelSafe bool        // Is subplan parallel-safe? - primnodes.h:1084
-	SetParam     []int       // initplan subqueries have to set these Params for parent plan - primnodes.h:1087
-	ParParam     []int       // indices of input Params from parent plan - primnodes.h:1088
-	Args         []Expression// exprs to pass as parParam values - primnodes.h:1089
-	Startup_cost float64     // one-time setup cost - primnodes.h:1090
-	Per_call_cost float64    // cost for each subplan evaluation - primnodes.h:1091
+	SubLinkType       SubLinkType  // Type of sublink - primnodes.h:1065
+	Testexpr          Expression   // OpExpr or RowCompareExpr expression tree - primnodes.h:1067
+	ParamIds          []int        // IDs of Params embedded in the above - primnodes.h:1068
+	PlanId            int          // Index (from 1) in PlannedStmt.subplans - primnodes.h:1070
+	PlanName          string       // A name assigned during planning - primnodes.h:1072
+	FirstColType      Oid          // Type of first column of subplan result - primnodes.h:1074
+	FirstColTypmod    int32        // Typmod of first column of subplan result - primnodes.h:1075
+	FirstColCollation Oid          // Collation of first column of subplan result - primnodes.h:1076
+	UseHashTable      bool         // Use hashtable if TRUE, otherwise nested-loop - primnodes.h:1079
+	UnknownEqFalse    bool         // True if the comparison can never return NULL - primnodes.h:1081
+	ParallelSafe      bool         // Is subplan parallel-safe? - primnodes.h:1084
+	SetParam          []int        // initplan subqueries have to set these Params for parent plan - primnodes.h:1087
+	ParParam          []int        // indices of input Params from parent plan - primnodes.h:1088
+	Args              []Expression // exprs to pass as parParam values - primnodes.h:1089
+	StartupCost      float64      // one-time setup cost - primnodes.h:1090
+	PerCallCost     float64      // cost for each subplan evaluation - primnodes.h:1091
 }
 
 // NewSubPlan creates a new SubPlan node.
@@ -223,7 +223,7 @@ func (sp *SubPlan) String() string {
 	if subTypeStr == "" {
 		subTypeStr = fmt.Sprintf("SUBLINK_%d", int(sp.SubLinkType))
 	}
-	
+
 	return fmt.Sprintf("SubPlan(%s, plan=%d, name=%s)", subTypeStr, sp.PlanId, sp.PlanName)
 }
 
@@ -259,20 +259,20 @@ func (asp *AlternativeSubPlan) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:1536
 type WindowClause struct {
 	BaseNode
-	Name              string     // Window name (NULL in an OVER clause) - parsenodes.h:1540
-	Refname           string     // Referenced window name, if any - parsenodes.h:1542
-	PartitionClause   []Node     // PARTITION BY expression list - parsenodes.h:1543
-	OrderClause       []Node     // ORDER BY (list of SortBy) - parsenodes.h:1545
-	FrameOptions      int        // Frame_clause options, see WindowDef - parsenodes.h:1546
-	StartOffset       Node       // Expression for starting bound, if any - parsenodes.h:1547
-	EndOffset         Node       // Expression for ending bound, if any - parsenodes.h:1548
-	StartInRangeFunc  Oid        // In_range function for startOffset - parsenodes.h:1550
-	EndInRangeFunc    Oid        // In_range function for endOffset - parsenodes.h:1552
-	InRangeColl       Oid        // Collation for in_range tests - parsenodes.h:1554
-	InRangeAsc        bool       // True if ASC in the ORDER BY clause - parsenodes.h:1556
-	InRangeNullsFirst bool       // True if NULLS FIRST in ORDER BY clause - parsenodes.h:1557
-	WinRef            Index      // winref assigned by windowClausesProcessor - parsenodes.h:1559
-	CopiedOrder       bool       // Did we copy orderClause from refname? - parsenodes.h:1560
+	Name              string // Window name (NULL in an OVER clause) - parsenodes.h:1540
+	Refname           string // Referenced window name, if any - parsenodes.h:1542
+	PartitionClause   []Node // PARTITION BY expression list - parsenodes.h:1543
+	OrderClause       []Node // ORDER BY (list of SortBy) - parsenodes.h:1545
+	FrameOptions      int    // Frame_clause options, see WindowDef - parsenodes.h:1546
+	StartOffset       Node   // Expression for starting bound, if any - parsenodes.h:1547
+	EndOffset         Node   // Expression for ending bound, if any - parsenodes.h:1548
+	StartInRangeFunc  Oid    // In_range function for startOffset - parsenodes.h:1550
+	EndInRangeFunc    Oid    // In_range function for endOffset - parsenodes.h:1552
+	InRangeColl       Oid    // Collation for in_range tests - parsenodes.h:1554
+	InRangeAsc        bool   // True if ASC in the ORDER BY clause - parsenodes.h:1556
+	InRangeNullsFirst bool   // True if NULLS FIRST in ORDER BY clause - parsenodes.h:1557
+	WinRef            Index  // winref assigned by windowClausesProcessor - parsenodes.h:1559
+	CopiedOrder       bool   // Did we copy orderClause from refname? - parsenodes.h:1560
 }
 
 // NewWindowClause creates a new WindowClause node.
@@ -315,12 +315,12 @@ func (wc *WindowClause) String() string {
 	if len(wc.OrderClause) > 0 {
 		parts = append(parts, fmt.Sprintf("order=%d", len(wc.OrderClause)))
 	}
-	
+
 	detail := ""
 	if len(parts) > 0 {
 		detail = fmt.Sprintf(" (%s)", fmt.Sprintf("%v", parts))
 	}
-	
+
 	return fmt.Sprintf("WindowClause%s", detail)
 }
 
@@ -367,16 +367,16 @@ func (sgc *SortGroupClause) String() string {
 }
 
 // RowMarkType represents the type of row marking for SELECT FOR UPDATE/SHARE.
-// Ported from postgres/src/include/nodes/plannodes.h:1327  
+// Ported from postgres/src/include/nodes/plannodes.h:1327
 type RowMarkType int
 
 const (
-	ROW_MARK_EXCLUSIVE    RowMarkType = iota // FOR UPDATE - plannodes.h:1329
-	ROW_MARK_NOKEYEXCLUSIVE                  // FOR NO KEY UPDATE - plannodes.h:1330
-	ROW_MARK_SHARE                           // FOR SHARE - plannodes.h:1331
-	ROW_MARK_KEYSHARE                        // FOR KEY SHARE - plannodes.h:1332
-	ROW_MARK_REFERENCE                       // FOR REFERENCE (MySQL compat) - plannodes.h:1333
-	ROW_MARK_COPY                            // FOR COPY (internal) - plannodes.h:1334
+	ROW_MARK_EXCLUSIVE      RowMarkType = iota // FOR UPDATE - plannodes.h:1329
+	ROW_MARK_NOKEYEXCLUSIVE                    // FOR NO KEY UPDATE - plannodes.h:1330
+	ROW_MARK_SHARE                             // FOR SHARE - plannodes.h:1331
+	ROW_MARK_KEYSHARE                          // FOR KEY SHARE - plannodes.h:1332
+	ROW_MARK_REFERENCE                         // FOR REFERENCE (MySQL compat) - plannodes.h:1333
+	ROW_MARK_COPY                              // FOR COPY (internal) - plannodes.h:1334
 )
 
 // LockWaitPolicy represents lock wait policies.
@@ -384,9 +384,9 @@ const (
 type LockWaitPolicy int
 
 const (
-	LockWaitBlock  LockWaitPolicy = iota // Block on locks - lockoptions.h:39
-	LockWaitSkip                         // SKIP LOCKED - lockoptions.h:41  
-	LockWaitError                        // NOWAIT - lockoptions.h:43
+	LockWaitBlock LockWaitPolicy = iota // Block on locks - lockoptions.h:39
+	LockWaitSkip                        // SKIP LOCKED - lockoptions.h:41
+	LockWaitError                       // NOWAIT - lockoptions.h:43
 )
 
 // RowMarkClause represents FOR UPDATE/SHARE clauses.
@@ -394,14 +394,14 @@ const (
 // Ported from postgres/src/include/nodes/parsenodes.h:1576
 type RowMarkClause struct {
 	BaseNode
-	Rti        Index          // Range table index of target relation - parsenodes.h:1579
-	Strength   RowMarkType    // Row mark type - parsenodes.h:1580
-	WaitPolicy LockWaitPolicy // NOWAIT and SKIP LOCKED - parsenodes.h:1581
-	PushedDown bool           // Pushed down from higher query level? - parsenodes.h:1582
+	Rti        Index              // Range table index of target relation - parsenodes.h:1579
+	Strength   LockClauseStrength // Lock clause strength - parsenodes.h:1580
+	WaitPolicy LockWaitPolicy     // NOWAIT and SKIP LOCKED - parsenodes.h:1581
+	PushedDown bool               // Pushed down from higher query level? - parsenodes.h:1582
 }
 
 // NewRowMarkClause creates a new RowMarkClause node.
-func NewRowMarkClause(rti Index, strength RowMarkType) *RowMarkClause {
+func NewRowMarkClause(rti Index, strength LockClauseStrength) *RowMarkClause {
 	return &RowMarkClause{
 		BaseNode: BaseNode{Tag: T_RowMarkClause},
 		Rti:      rti,
@@ -410,7 +410,7 @@ func NewRowMarkClause(rti Index, strength RowMarkType) *RowMarkClause {
 }
 
 // NewRowMarkClauseWithPolicy creates a new RowMarkClause with wait policy.
-func NewRowMarkClauseWithPolicy(rti Index, strength RowMarkType, waitPolicy LockWaitPolicy) *RowMarkClause {
+func NewRowMarkClauseWithPolicy(rti Index, strength LockClauseStrength, waitPolicy LockWaitPolicy) *RowMarkClause {
 	return &RowMarkClause{
 		BaseNode:   BaseNode{Tag: T_RowMarkClause},
 		Rti:        rti,
@@ -420,20 +420,20 @@ func NewRowMarkClauseWithPolicy(rti Index, strength RowMarkType, waitPolicy Lock
 }
 
 func (rmc *RowMarkClause) String() string {
-	strengths := map[RowMarkType]string{
-		ROW_MARK_EXCLUSIVE: "UPDATE", ROW_MARK_NOKEYEXCLUSIVE: "NO KEY UPDATE",
-		ROW_MARK_SHARE: "SHARE", ROW_MARK_KEYSHARE: "KEY SHARE",
+	strengths := map[LockClauseStrength]string{
+		LCS_FORKEYSHARE: "KEY SHARE", LCS_FORSHARE: "SHARE",
+		LCS_FORNOKEYUPDATE: "NO KEY UPDATE", LCS_FORUPDATE: "UPDATE",
 	}
 	strengthStr := strengths[rmc.Strength]
 	if strengthStr == "" {
-		strengthStr = fmt.Sprintf("MARK_%d", int(rmc.Strength))
+		strengthStr = fmt.Sprintf("LCS_%d", int(rmc.Strength))
 	}
-	
+
 	policies := map[LockWaitPolicy]string{
 		LockWaitSkip: " SKIP LOCKED", LockWaitError: " NOWAIT",
 	}
 	policyStr := policies[rmc.WaitPolicy]
-	
+
 	return fmt.Sprintf("RowMarkClause(FOR %s%s)", strengthStr, policyStr)
 }
 
@@ -442,9 +442,9 @@ func (rmc *RowMarkClause) String() string {
 type OnConflictAction int
 
 const (
-	ONCONFLICT_NONE   OnConflictAction = iota // No ON CONFLICT clause - nodes.h:417
-	ONCONFLICT_NOTHING                        // ON CONFLICT DO NOTHING - nodes.h:418
-	ONCONFLICT_UPDATE                         // ON CONFLICT DO UPDATE - nodes.h:419
+	ONCONFLICT_NONE    OnConflictAction = iota // No ON CONFLICT clause - nodes.h:417
+	ONCONFLICT_NOTHING                         // ON CONFLICT DO NOTHING - nodes.h:418
+	ONCONFLICT_UPDATE                          // ON CONFLICT DO UPDATE - nodes.h:419
 )
 
 // OnConflictExpr represents INSERT ... ON CONFLICT expressions.
@@ -453,14 +453,14 @@ const (
 // Ported from postgres/src/include/nodes/primnodes.h:2321
 type OnConflictExpr struct {
 	BaseExpr
-	Action       OnConflictAction // The action to take - primnodes.h:2324
-	ArbiterElems []Node           // Unique index arbiter list (of InferenceElem's) - primnodes.h:2327
-	ArbiterWhere Expression       // Unique index arbiter WHERE clause - primnodes.h:2329
-	Constraint   Oid              // Constraint to infer from - primnodes.h:2330
-	OnConflictSet []Node          // List of ON CONFLICT SET targets - primnodes.h:2333
-	OnConflictWhere Expression    // WHERE clause for ON CONFLICT UPDATE - primnodes.h:2334
-	ExclRelIndex int              // RT index of the EXCLUDED pseudo-relation - primnodes.h:2335
-	ExclRelTlist []Node           // Tlist of the EXCLUDED pseudo-relation - primnodes.h:2336
+	Action          OnConflictAction // The action to take - primnodes.h:2324
+	ArbiterElems    []Node           // Unique index arbiter list (of InferenceElem's) - primnodes.h:2327
+	ArbiterWhere    Expression       // Unique index arbiter WHERE clause - primnodes.h:2329
+	Constraint      Oid              // Constraint to infer from - primnodes.h:2330
+	OnConflictSet   []Node           // List of ON CONFLICT SET targets - primnodes.h:2333
+	OnConflictWhere Expression       // WHERE clause for ON CONFLICT UPDATE - primnodes.h:2334
+	ExclRelIndex    int              // RT index of the EXCLUDED pseudo-relation - primnodes.h:2335
+	ExclRelTlist    []Node           // Tlist of the EXCLUDED pseudo-relation - primnodes.h:2336
 }
 
 // NewOnConflictExpr creates a new OnConflictExpr node.
@@ -500,6 +500,6 @@ func (oce *OnConflictExpr) String() string {
 	if actionStr == "" {
 		actionStr = fmt.Sprintf("ACTION_%d", int(oce.Action))
 	}
-	
+
 	return fmt.Sprintf("OnConflictExpr(%s)", actionStr)
 }

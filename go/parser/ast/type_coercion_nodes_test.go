@@ -95,16 +95,16 @@ func TestExplicitCoerceViaIO(t *testing.T) {
 func TestArrayCoerceExpr(t *testing.T) {
 	// Create an array expression
 	arrayExpr := NewConst(1007, Datum(123), false) // INT4 array
-	elemFuncId := Oid(481) // Example element coercion function
+	elemExpr := NewConst(481, Datum(1), false) // Example element coercion expression
 	
-	ace := NewArrayCoerceExpr(arrayExpr, elemFuncId, 1016, COERCE_EXPLICIT_CAST) // INT8 array
+	ace := NewArrayCoerceExpr(arrayExpr, elemExpr, 1016, COERCE_EXPLICIT_CAST) // INT8 array
 	
 	// Verify properties
 	assert.Equal(t, T_ArrayCoerceExpr, ace.Tag, "Expected tag T_ArrayCoerceExpr")
 	
 	assert.Equal(t, arrayExpr, ace.Arg, "Expected array argument to be set correctly")
 	
-	assert.Equal(t, elemFuncId, ace.Elemfuncid, "Expected element function ID to match")
+	assert.Equal(t, elemExpr, ace.Elemexpr, "Expected element expression to match")
 	
 	assert.Equal(t, Oid(1016), ace.Resulttype, "Expected result type 1016")
 	
@@ -118,11 +118,12 @@ func TestArrayCoerceExpr(t *testing.T) {
 
 func TestExplicitArrayCoerceExpr(t *testing.T) {
 	arrayExpr := NewConst(1007, Datum(123), false)
-	ace := NewExplicitArrayCoerceExpr(arrayExpr, 481, 1009) // TEXTARRAY
-	
-	assert.True(t, ace.Isexplicit, "Expected explicit array coercion")
+	elemExpr := NewConst(481, Datum(1), false)
+	ace := NewExplicitArrayCoerceExpr(arrayExpr, elemExpr, 1009) // TEXTARRAY
 	
 	assert.Equal(t, COERCE_EXPLICIT_CAST, ace.Coerceformat, "Expected COERCE_EXPLICIT_CAST")
+	
+	assert.Equal(t, Oid(1009), ace.Resulttype, "Expected result type 1009")
 }
 
 // ==============================================================================
@@ -259,7 +260,7 @@ func TestSubscriptingRef(t *testing.T) {
 	arrayExpr := NewConst(1007, Datum(123), false) // INT4 array
 	indexExpr := NewConst(23, 1, false)                // Index 1
 	
-	sr := NewSubscriptingRef(1007, 23, arrayExpr, []Expression{indexExpr})
+	sr := NewSubscriptingRef(1007, 23, 23, arrayExpr, []Expression{indexExpr})
 	
 	// Verify properties
 	assert.Equal(t, T_SubscriptingRef, sr.Tag, "Expected tag T_SubscriptingRef")
@@ -267,6 +268,8 @@ func TestSubscriptingRef(t *testing.T) {
 	assert.Equal(t, Oid(1007), sr.Refcontainertype, "Expected container type 1007")
 	
 	assert.Equal(t, Oid(23), sr.Refelemtype, "Expected element type 23")
+	
+	assert.Equal(t, Oid(23), sr.Refrestype, "Expected result type 23")
 	
 	assert.Equal(t, arrayExpr, sr.Refexpr, "Expected array expression to be set correctly")
 	
@@ -455,12 +458,16 @@ func TestCoerceToDomain(t *testing.T) {
 }
 
 func TestCoerceToDomainValue(t *testing.T) {
-	ctdv := NewCoerceToDomainValue(100, 200)
+	ctdv := NewCoerceToDomainValue(25, -1, 100)
 	
 	// Verify properties
 	assert.Equal(t, T_CoerceToDomainValue, ctdv.Tag, "Expected tag T_CoerceToDomainValue")
 	
-	assert.Equal(t, int32(100), ctdv.Typemod, "Expected typemod 100")
+	assert.Equal(t, Oid(25), ctdv.TypeId, "Expected type ID 25")
+	
+	assert.Equal(t, int32(-1), ctdv.TypeMod, "Expected typemod -1")
+	
+	assert.Equal(t, Oid(100), ctdv.Collation, "Expected collation 100")
 	
 	assert.Equal(t, Oid(200), ctdv.Collation, "Expected collation 200")
 	
@@ -477,12 +484,16 @@ func TestCoerceToDomainValue(t *testing.T) {
 // ==============================================================================
 
 func TestSetToDefault(t *testing.T) {
-	std := NewSetToDefault(100, 200)
+	std := NewSetToDefault(25, -1, 100)
 	
 	// Verify properties
 	assert.Equal(t, T_SetToDefault, std.Tag, "Expected tag T_SetToDefault")
 	
-	assert.Equal(t, int32(100), std.Typemod, "Expected typemod 100")
+	assert.Equal(t, Oid(25), std.TypeId, "Expected type ID 25")
+	
+	assert.Equal(t, int32(-1), std.TypeMod, "Expected typemod -1")
+	
+	assert.Equal(t, Oid(100), std.Collation, "Expected collation 100")
 	
 	assert.Equal(t, Oid(200), std.Collation, "Expected collation 200")
 	
@@ -500,7 +511,7 @@ func TestCurrentOfExpr(t *testing.T) {
 	// Verify properties
 	assert.Equal(t, T_CurrentOfExpr, coe.Tag, "Expected tag T_CurrentOfExpr")
 	
-	assert.Equal(t, Index(1), coe.CvarNo, "Expected cvar number 1")
+	assert.Equal(t, Index(1), coe.Cvarno, "Expected cvar number 1")
 	
 	assert.Equal(t, "my_cursor", coe.CursorName, "Expected cursor name 'my_cursor'")
 	
@@ -532,7 +543,7 @@ func TestNextValueExpr(t *testing.T) {
 	// Verify properties
 	assert.Equal(t, T_NextValueExpr, nve.Tag, "Expected tag T_NextValueExpr")
 	
-	assert.Equal(t, Oid(12345), nve.SeqId, "Expected sequence ID 12345")
+	assert.Equal(t, Oid(12345), nve.Seqid, "Expected sequence ID 12345")
 	
 	assert.Equal(t, Oid(20), nve.TypeId, "Expected type ID 20")
 	

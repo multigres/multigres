@@ -1,9 +1,10 @@
 # Missing PostgreSQL AST Nodes - Complete Inventory
 
-**Total Missing**: 333 nodes out of 456 total PostgreSQL AST nodes
-**Current Implementation**: 123 nodes (27% complete)
+**Total Missing**: 325 nodes out of 456 total PostgreSQL AST nodes
+**Current Implementation**: 131 nodes (28.7% complete)
 **Target**: 100% PostgreSQL AST compatibility
 **Latest**: ✅ Phase 1A completed - 25 core parse infrastructure nodes implemented
+**Recent**: ✅ 8 utility statement nodes completed in `utility_statements.go`
 
 This inventory is based on the comprehensive ast_structs_checklist.md which tracks all PostgreSQL node structures across parsenodes.h, primnodes.h, plannodes.h, execnodes.h, pathnodes.h, and supporting files.
 
@@ -121,17 +122,17 @@ These nodes are essential for expression evaluation:
 - [ ] **JsonTableSiblingJoin** - JSON table sibling join (`src/include/nodes/primnodes.h:1923`)
 
 ### Missing Utility Statements (parsenodes.h)
-- [ ] **LoadStmt** - LOAD statement (`src/include/nodes/parsenodes.h:3755`)
-- [ ] **ClusterStmt** - CLUSTER statement (`src/include/nodes/parsenodes.h:3822`)
+- [x] **LoadStmt** - LOAD statement (`src/include/nodes/parsenodes.h:3755`) ✅ COMPLETED
+- [x] **ClusterStmt** - CLUSTER statement (`src/include/nodes/parsenodes.h:3822`) ✅ COMPLETED
 - [ ] **LockStmt** - LOCK statement (`src/include/nodes/parsenodes.h:3942`)
 - [ ] **DeclareCursorStmt** - DECLARE CURSOR (`src/include/nodes/parsenodes.h:3293`)
 - [ ] **FetchStmt** - FETCH statement (`src/include/nodes/parsenodes.h:3328`)
 - [ ] **ClosePortalStmt** - CLOSE statement (`src/include/nodes/parsenodes.h:3305`)
-- [ ] **NotifyStmt** - NOTIFY statement (`src/include/nodes/parsenodes.h:3622`)
-- [ ] **ListenStmt** - LISTEN statement (`src/include/nodes/parsenodes.h:3633`)
-- [ ] **UnlistenStmt** - UNLISTEN statement (`src/include/nodes/parsenodes.h:3643`)
-- [ ] **CheckPointStmt** - CHECKPOINT statement (`src/include/nodes/parsenodes.h:3914`)
-- [ ] **DiscardStmt** - DISCARD statement (`src/include/nodes/parsenodes.h:3932`)
+- [x] **NotifyStmt** - NOTIFY statement (`src/include/nodes/parsenodes.h:3622`) ✅ COMPLETED
+- [x] **ListenStmt** - LISTEN statement (`src/include/nodes/parsenodes.h:3633`) ✅ COMPLETED
+- [x] **UnlistenStmt** - UNLISTEN statement (`src/include/nodes/parsenodes.h:3643`) ✅ COMPLETED
+- [x] **CheckPointStmt** - CHECKPOINT statement (`src/include/nodes/parsenodes.h:3914`) ✅ COMPLETED
+- [x] **DiscardStmt** - DISCARD statement (`src/include/nodes/parsenodes.h:3932`) ✅ COMPLETED
 
 ### Window and Grouping Support (parsenodes.h)
 - [x] **WindowDef** - Window definition (`src/include/nodes/parsenodes.h:561`) ✅ Phase 1A
@@ -203,8 +204,8 @@ These nodes are essential for expression evaluation:
 
 ### parsenodes.h Progress
 - **Total structs**: 180 nodes
-- **Implemented**: 50 nodes (28%)
-- **Missing**: 130 nodes (72%)
+- **Implemented**: 58 nodes (32%)
+- **Missing**: 122 nodes (68%)
 - **Categories**: Parse tree nodes, DDL/DML statements, expressions
 
 ### primnodes.h Progress

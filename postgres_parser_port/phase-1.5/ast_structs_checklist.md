@@ -2,7 +2,7 @@
 
 This checklist tracks the implementation status of all PostgreSQL AST structs for the parser port project.
 
-**Current Status**: 123 nodes completed out of 456 total (27% complete)
+**Current Status**: 131 nodes completed out of 456 total (28.7% complete)
 **Latest Milestone**: ✅ **Phase 1A Complete** - 25 core parse infrastructure nodes implemented in `parse_infrastructure.go`
 
 ## Parse Tree Node Structures (parsenodes.h)
@@ -76,8 +76,8 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **TransactionStmt** - Transaction control (`src/include/nodes/parsenodes.h:3667`)
 - [x] **VacuumStmt** - VACUUM statement (`src/include/nodes/parsenodes.h:3837`)
 - [x] **ExplainStmt** - EXPLAIN statement (`src/include/nodes/parsenodes.h:3868`)
-- [ ] **LoadStmt** - LOAD statement (`src/include/nodes/parsenodes.h:3755`)
-- [ ] **ClusterStmt** - CLUSTER statement (`src/include/nodes/parsenodes.h:3822`)
+- [x] **LoadStmt** - LOAD statement (`src/include/nodes/parsenodes.h:3755`)
+- [x] **ClusterStmt** - CLUSTER statement (`src/include/nodes/parsenodes.h:3822`)
 - [ ] **LockStmt** - LOCK statement (`src/include/nodes/parsenodes.h:3942`)
 - [x] **PrepareStmt** - PREPARE statement (`src/include/nodes/parsenodes.h:4030`)
 - [x] **ExecuteStmt** - EXECUTE statement (`src/include/nodes/parsenodes.h:4044`)
@@ -85,11 +85,11 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [ ] **DeclareCursorStmt** - DECLARE CURSOR (`src/include/nodes/parsenodes.h:3293`)
 - [ ] **FetchStmt** - FETCH statement (`src/include/nodes/parsenodes.h:3328`)
 - [ ] **ClosePortalStmt** - CLOSE statement (`src/include/nodes/parsenodes.h:3305`)
-- [ ] **NotifyStmt** - NOTIFY statement (`src/include/nodes/parsenodes.h:3622`)
-- [ ] **ListenStmt** - LISTEN statement (`src/include/nodes/parsenodes.h:3633`)
-- [ ] **UnlistenStmt** - UNLISTEN statement (`src/include/nodes/parsenodes.h:3643`)
-- [ ] **CheckPointStmt** - CHECKPOINT statement (`src/include/nodes/parsenodes.h:3914`)
-- [ ] **DiscardStmt** - DISCARD statement (`src/include/nodes/parsenodes.h:3932`)
+- [x] **NotifyStmt** - NOTIFY statement (`src/include/nodes/parsenodes.h:3622`)
+- [x] **ListenStmt** - LISTEN statement (`src/include/nodes/parsenodes.h:3633`)
+- [x] **UnlistenStmt** - UNLISTEN statement (`src/include/nodes/parsenodes.h:3643`)
+- [x] **CheckPointStmt** - CHECKPOINT statement (`src/include/nodes/parsenodes.h:3914`)
+- [x] **DiscardStmt** - DISCARD statement (`src/include/nodes/parsenodes.h:3932`)
 - [x] **ReindexStmt** - REINDEX statement (`src/include/nodes/parsenodes.h:3974`)
 
 ### Table and Column Definition Nodes
@@ -166,6 +166,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **RoleSpec** - Role specification (`src/include/nodes/parsenodes.h:401`)
 - [x] **ObjectWithArgs** - Object with arguments (`src/include/nodes/parsenodes.h:2524`)
 - [x] **AccessPriv** - Access privilege (`src/include/nodes/parsenodes.h:2540`)
+- [x] **VacuumRelation** - VACUUM relation (`src/include/nodes/parsenodes.h:3852`)
 
 ## Primitive Node Structures (primnodes.h)
 

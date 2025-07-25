@@ -46,7 +46,7 @@ func (r *RawStmt) StatementType() string {
 
 // A_Expr represents a generic expression node used during parsing before semantic analysis.
 // This is the primary expression node used in the parse tree.
-// Ported from postgres/src/include/nodes/parsenodes.h:329-356
+// Ported from postgres/src/include/nodes/parsenodes.h:329-339
 type A_Expr struct {
 	BaseNode
 	Kind     A_Expr_Kind // Expression type (operator, comparison, etc.)
@@ -97,47 +97,51 @@ func (a *A_Expr) ExpressionType() string {
 }
 
 // A_Const represents a constant value in the parse tree.
-// Ported from postgres/src/include/nodes/parsenodes.h:357-369
+// Ported from postgres/src/include/nodes/parsenodes.h:357-365
 type A_Const struct {
 	BaseNode
-	IsMissing bool    // TRUE if represented as DEFAULT, FALSE for explicit value
-	Val       *String // The constant value
+	Val    Value // The constant value (Integer, Float, String, BitString, Boolean, or Null)
+	Isnull bool  // SQL NULL constant
 }
 
 // NewA_Const creates a new A_Const node.
-func NewA_Const(val *String, location int) *A_Const {
+func NewA_Const(val Value, location int) *A_Const {
 	aConst := &A_Const{
-		BaseNode:  BaseNode{Tag: T_A_Const},
-		IsMissing: false,
-		Val:       val,
+		BaseNode: BaseNode{Tag: T_A_Const},
+		Val:      val,
+		Isnull:   false,
 	}
 	aConst.SetLocation(location)
 	return aConst
 }
 
-// NewA_ConstMissing creates a new A_Const node representing a missing value (DEFAULT).
-func NewA_ConstMissing(location int) *A_Const {
+// NewA_ConstNull creates a new A_Const node representing a NULL value.
+func NewA_ConstNull(location int) *A_Const {
 	aConst := &A_Const{
-		BaseNode:  BaseNode{Tag: T_A_Const},
-		IsMissing: true,
-		Val:       nil,
+		BaseNode: BaseNode{Tag: T_A_Const},
+		Val:      NewNull(),
+		Isnull:   true,
 	}
 	aConst.SetLocation(location)
 	return aConst
 }
 
 func (a *A_Const) String() string {
-	if a.IsMissing {
-		return fmt.Sprintf("A_Const{DEFAULT}@%d", a.Location())
+	if a.Isnull {
+		return fmt.Sprintf("A_Const{NULL}@%d", a.Location())
 	}
 	if a.Val != nil {
-		return fmt.Sprintf("A_Const{%s}@%d", a.Val.SVal, a.Location())
+		return fmt.Sprintf("A_Const{%v}@%d", a.Val, a.Location())
 	}
 	return fmt.Sprintf("A_Const{nil}@%d", a.Location())
 }
 
 func (a *A_Const) ExpressionType() string {
 	return "A_CONST"
+}
+
+func (a *A_Const) IsExpr() bool {
+	return true
 }
 
 // ParamRef represents a parameter reference ($1, $2, etc.) in the parse tree.
@@ -196,23 +200,25 @@ func (t *TypeCast) ExpressionType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:423-444
 type FuncCall struct {
 	BaseNode
-	Funcname     []*String // Qualified function name
-	Args         []Node    // List of arguments
-	AggOrder     []Node    // ORDER BY list for aggregates
-	AggFilter    Node      // FILTER clause for aggregates
-	Over         *WindowDef // OVER clause for window functions
-	AggWithinGroup bool    // ORDER BY appeared in WITHIN GROUP
-	AggStar      bool      // Function was written as foo(*)
-	AggDistinct  bool      // DISTINCT was specified
-	FuncVariadic bool      // VARIADIC was specified
+	Funcname       []*String    // Qualified function name
+	Args           []Node       // List of arguments
+	AggOrder       []Node       // ORDER BY list for aggregates
+	AggFilter      Node         // FILTER clause for aggregates
+	Over           *WindowDef   // OVER clause for window functions
+	AggWithinGroup bool         // ORDER BY appeared in WITHIN GROUP
+	AggStar        bool         // Function was written as foo(*)
+	AggDistinct    bool         // DISTINCT was specified
+	FuncVariadic   bool         // VARIADIC was specified
+	Funcformat     CoercionForm // How to display this node
 }
 
 // NewFuncCall creates a new FuncCall node.
 func NewFuncCall(funcname []*String, args []Node, location int) *FuncCall {
 	funcCall := &FuncCall{
-		BaseNode: BaseNode{Tag: T_FuncCall},
-		Funcname: funcname,
-		Args:     args,
+		BaseNode:   BaseNode{Tag: T_FuncCall},
+		Funcname:   funcname,
+		Args:       args,
+		Funcformat: COERCE_EXPLICIT_CALL, // Default to explicit call syntax
 	}
 	funcCall.SetLocation(location)
 	return funcCall
@@ -253,7 +259,7 @@ func (a *A_Star) ExpressionType() string {
 }
 
 // A_Indices represents array indices in the parse tree (e.g., array[1:3]).
-// Ported from postgres/src/include/nodes/parsenodes.h:456-478
+// Ported from postgres/src/include/nodes/parsenodes.h:456-462
 type A_Indices struct {
 	BaseNode
 	IsSlice   bool // True for slicing (e.g., array[1:3])
@@ -354,23 +360,24 @@ func (a *A_ArrayExpr) ExpressionType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:723-750
 type ColumnDef struct {
 	BaseNode
-	Colname      string        // Name of the column
-	TypeName     *TypeName     // Type of the column
-	Compression  string        // Compression method, or NULL
-	Inhcount     int           // Number of times column is inherited
-	IsLocal      bool          // Column is defined locally
-	IsNotNull    bool          // NOT NULL constraint specified
-	IsFromParent bool          // Column is from parent table (cannot be dropped)
-	StorageType  char          // Storage type (TOAST)
-	RawDefault   Node          // Default value (untransformed parse tree)
-	CookedDefault Node         // Default value (transformed)
-	Identity     char          // IDENTITY property
-	IdentitySeq  *RangeVar     // To store identity sequence name for ALTER TABLE
-	Generated    char          // GENERATED property
-	Collclause   *CollateClause // Collation, if any
-	CollOid      Oid           // Collation OID (InvalidOid if not set)
-	Constraints  []Node        // Column constraints
-	Fdwoptions   []Node        // Foreign-data-wrapper specific options
+	Colname       string         // Name of the column
+	TypeName      *TypeName      // Type of the column
+	Compression   string         // Compression method, or NULL
+	Inhcount      int            // Number of times column is inherited
+	IsLocal       bool           // Column is defined locally
+	IsNotNull     bool           // NOT NULL constraint specified
+	IsFromType    bool           // Column definition came from table type
+	StorageType   char           // Storage type (TOAST)
+	StorageName   string         // Storage setting name or NULL for default
+	RawDefault    Node           // Default value (untransformed parse tree)
+	CookedDefault Node           // Default value (transformed)
+	Identity      char           // IDENTITY property
+	IdentitySeq   *RangeVar      // To store identity sequence name for ALTER TABLE
+	Generated     char           // GENERATED property
+	Collclause    *CollateClause // Collation, if any
+	CollOid       Oid            // Collation OID (InvalidOid if not set)
+	Constraints   []Node         // Column constraints
+	Fdwoptions    []Node         // Foreign-data-wrapper specific options
 }
 
 // NewColumnDef creates a new ColumnDef node.
@@ -382,8 +389,9 @@ func NewColumnDef(colname string, typeName *TypeName, location int) *ColumnDef {
 		Inhcount:    0,
 		IsLocal:     true,
 		IsNotNull:   false,
-		IsFromParent: false,
+		IsFromType:  false,
 		StorageType: 0,
+		StorageName: "",
 		Identity:    0,
 		Generated:   0,
 		CollOid:     InvalidOid,
@@ -697,11 +705,11 @@ type TableSampleClause struct {
 	BaseNode
 	Tsmhandler   Oid     // OID of the tablesample handler function
 	Args         []Node  // List of tablesample arguments
-	Repeatable   Node    // REPEATABLE expression, or NULL
+	Repeatable   Expr    // REPEATABLE expression, or NULL
 }
 
 // NewTableSampleClause creates a new TableSampleClause node.
-func NewTableSampleClause(tsmhandler Oid, args []Node, repeatable Node, location int) *TableSampleClause {
+func NewTableSampleClause(tsmhandler Oid, args []Node, repeatable Expr, location int) *TableSampleClause {
 	tableSampleClause := &TableSampleClause{
 		BaseNode:   BaseNode{Tag: T_TableSampleClause},
 		Tsmhandler: tsmhandler,
@@ -758,14 +766,12 @@ func (o *ObjectWithArgs) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:945-952
 type SinglePartitionSpec struct {
 	BaseNode
-	Name     *RangeVar // Name of the partition
 }
 
 // NewSinglePartitionSpec creates a new SinglePartitionSpec node.
-func NewSinglePartitionSpec(name *RangeVar, location int) *SinglePartitionSpec {
+func NewSinglePartitionSpec(location int) *SinglePartitionSpec {
 	singlePartitionSpec := &SinglePartitionSpec{
 		BaseNode: BaseNode{Tag: T_SinglePartitionSpec},
-		Name:     name,
 	}
 	singlePartitionSpec.SetLocation(location)
 	return singlePartitionSpec

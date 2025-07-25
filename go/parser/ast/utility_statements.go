@@ -16,16 +16,16 @@ import (
 type TransactionStmtKind int
 
 const (
-	TRANS_STMT_BEGIN              TransactionStmtKind = iota // BEGIN/START
-	TRANS_STMT_START                                         // START (alias for BEGIN)
-	TRANS_STMT_COMMIT                                        // COMMIT
-	TRANS_STMT_ROLLBACK                                      // ROLLBACK
-	TRANS_STMT_SAVEPOINT                                     // SAVEPOINT
-	TRANS_STMT_RELEASE                                       // RELEASE
-	TRANS_STMT_ROLLBACK_TO                                   // ROLLBACK TO
-	TRANS_STMT_PREPARE                                       // PREPARE TRANSACTION
-	TRANS_STMT_COMMIT_PREPARED                               // COMMIT PREPARED
-	TRANS_STMT_ROLLBACK_PREPARED                             // ROLLBACK PREPARED
+	TRANS_STMT_BEGIN             TransactionStmtKind = iota // BEGIN/START
+	TRANS_STMT_START                                        // START (alias for BEGIN)
+	TRANS_STMT_COMMIT                                       // COMMIT
+	TRANS_STMT_ROLLBACK                                     // ROLLBACK
+	TRANS_STMT_SAVEPOINT                                    // SAVEPOINT
+	TRANS_STMT_RELEASE                                      // RELEASE
+	TRANS_STMT_ROLLBACK_TO                                  // ROLLBACK TO
+	TRANS_STMT_PREPARE                                      // PREPARE TRANSACTION
+	TRANS_STMT_COMMIT_PREPARED                              // COMMIT PREPARED
+	TRANS_STMT_ROLLBACK_PREPARED                            // ROLLBACK PREPARED
 )
 
 func (t TransactionStmtKind) String() string {
@@ -59,11 +59,11 @@ func (t TransactionStmtKind) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3667
 type TransactionStmt struct {
 	BaseNode
-	Kind         TransactionStmtKind // Kind of transaction statement - postgres/src/include/nodes/parsenodes.h:3670
-	Options      []*DefElem          // List of DefElem nodes for BEGIN/START - postgres/src/include/nodes/parsenodes.h:3671
-	SavepointName string             // Savepoint name for SAVEPOINT/RELEASE/ROLLBACK TO - postgres/src/include/nodes/parsenodes.h:3672
-	Gid          string              // String identifier for two-phase commit - postgres/src/include/nodes/parsenodes.h:3673
-	Chain        bool                // AND CHAIN option - postgres/src/include/nodes/parsenodes.h:3674
+	Kind          TransactionStmtKind // Kind of transaction statement - postgres/src/include/nodes/parsenodes.h:3670
+	Options       []*DefElem          // List of DefElem nodes for BEGIN/START - postgres/src/include/nodes/parsenodes.h:3671
+	SavepointName string              // Savepoint name for SAVEPOINT/RELEASE/ROLLBACK TO - postgres/src/include/nodes/parsenodes.h:3672
+	Gid           string              // String identifier for two-phase commit - postgres/src/include/nodes/parsenodes.h:3673
+	Chain         bool                // AND CHAIN option - postgres/src/include/nodes/parsenodes.h:3674
 }
 
 // NewTransactionStmt creates a new TransactionStmt node.
@@ -113,19 +113,19 @@ func NewRollbackToStmt(name string) *TransactionStmt {
 func (ts *TransactionStmt) String() string {
 	var parts []string
 	parts = append(parts, ts.Kind.String())
-	
+
 	if ts.SavepointName != "" {
 		parts = append(parts, ts.SavepointName)
 	}
-	
+
 	if ts.Gid != "" {
 		parts = append(parts, fmt.Sprintf("'%s'", ts.Gid))
 	}
-	
+
 	if ts.Chain {
 		parts = append(parts, "AND CHAIN")
 	}
-	
+
 	return fmt.Sprintf("TransactionStmt(%s)@%d", strings.Join(parts, " "), ts.Location())
 }
 
@@ -142,9 +142,9 @@ func (ts *TransactionStmt) StatementType() string {
 type GrantTargetType int
 
 const (
-	ACL_TARGET_OBJECT GrantTargetType = iota // Grant on specific objects
-	ACL_TARGET_ALL_IN_SCHEMA                 // Grant on all objects in schema
-	ACL_TARGET_DEFAULTS                      // Alter default privileges
+	ACL_TARGET_OBJECT        GrantTargetType = iota // Grant on specific objects
+	ACL_TARGET_ALL_IN_SCHEMA                        // Grant on all objects in schema
+	ACL_TARGET_DEFAULTS                             // Alter default privileges
 )
 
 func (g GrantTargetType) String() string {
@@ -164,15 +164,15 @@ func (g GrantTargetType) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2491
 type GrantStmt struct {
 	BaseNode
-	IsGrant     bool             // True = GRANT, false = REVOKE - postgres/src/include/nodes/parsenodes.h:2494
-	Targtype    GrantTargetType  // Type of target - postgres/src/include/nodes/parsenodes.h:2495
-	Objtype     ObjectType       // Kind of object being operated on - postgres/src/include/nodes/parsenodes.h:2496
-	Objects     []Node           // List of RangeVar nodes, or list of String nodes - postgres/src/include/nodes/parsenodes.h:2497
-	Privileges  []*AccessPriv    // List of AccessPriv nodes - postgres/src/include/nodes/parsenodes.h:2498
-	Grantees    []*RoleSpec      // List of RoleSpec nodes - postgres/src/include/nodes/parsenodes.h:2499
-	GrantOption bool             // Grant or revoke grant option - postgres/src/include/nodes/parsenodes.h:2500
-	Grantor     *RoleSpec        // Set by GRANTED BY (when not NULL) - postgres/src/include/nodes/parsenodes.h:2501
-	Behavior    DropBehavior     // Drop behavior - postgres/src/include/nodes/parsenodes.h:2502
+	IsGrant     bool            // True = GRANT, false = REVOKE - postgres/src/include/nodes/parsenodes.h:2494
+	Targtype    GrantTargetType // Type of target - postgres/src/include/nodes/parsenodes.h:2495
+	Objtype     ObjectType      // Kind of object being operated on - postgres/src/include/nodes/parsenodes.h:2496
+	Objects     []Node          // List of RangeVar nodes, or list of String nodes - postgres/src/include/nodes/parsenodes.h:2497
+	Privileges  []*AccessPriv   // List of AccessPriv nodes - postgres/src/include/nodes/parsenodes.h:2498
+	Grantees    []*RoleSpec     // List of RoleSpec nodes - postgres/src/include/nodes/parsenodes.h:2499
+	GrantOption bool            // Grant or revoke grant option - postgres/src/include/nodes/parsenodes.h:2500
+	Grantor     *RoleSpec       // Set by GRANTED BY (when not NULL) - postgres/src/include/nodes/parsenodes.h:2501
+	Behavior    DropBehavior    // Drop behavior - postgres/src/include/nodes/parsenodes.h:2502
 }
 
 // AccessPriv represents a privilege in a GRANT/REVOKE statement.
@@ -246,12 +246,12 @@ func (ap *AccessPriv) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2556
 type GrantRoleStmt struct {
 	BaseNode
-	GrantedRoles []*RoleSpec  // List of roles to be granted/revoked - postgres/src/include/nodes/parsenodes.h:2568
-	GranteeRoles []*RoleSpec  // List of member roles to add/delete - postgres/src/include/nodes/parsenodes.h:2569
-	IsGrant      bool         // True = GRANT, false = REVOKE - postgres/src/include/nodes/parsenodes.h:2570
-	WithAdminOpt bool         // Grant or revoke admin option - postgres/src/include/nodes/parsenodes.h:2571
-	Grantor      *RoleSpec    // Set by GRANTED BY (when not NULL) - postgres/src/include/nodes/parsenodes.h:2572
-	Behavior     DropBehavior // Drop behavior for REVOKE - postgres/src/include/nodes/parsenodes.h:2573
+	GrantedRoles []*RoleSpec  // List of roles to be granted/revoked - postgres/src/include/nodes/parsenodes.h:2559
+	GranteeRoles []*RoleSpec  // List of member roles to add/delete - postgres/src/include/nodes/parsenodes.h:2560
+	IsGrant      bool         // True = GRANT, false = REVOKE - postgres/src/include/nodes/parsenodes.h:2561
+	Opt          []*DefElem   // Options e.g. WITH GRANT OPTION - postgres/src/include/nodes/parsenodes.h:2562
+	Grantor      *RoleSpec    // Set by GRANTED BY (when not NULL) - postgres/src/include/nodes/parsenodes.h:2563
+	Behavior     DropBehavior // Drop behavior for REVOKE - postgres/src/include/nodes/parsenodes.h:2564
 }
 
 // NewGrantRoleStmt creates a new GRANT role statement.
@@ -272,6 +272,18 @@ func NewRevokeRoleStmt(grantedRoles, granteeRoles []*RoleSpec) *GrantRoleStmt {
 		GrantedRoles: grantedRoles,
 		GranteeRoles: granteeRoles,
 		IsGrant:      false,
+		Behavior:     DROP_RESTRICT,
+	}
+}
+
+// NewGrantRoleStmtWithOptions creates a new GRANT role statement with options.
+func NewGrantRoleStmtWithOptions(grantedRoles, granteeRoles []*RoleSpec, opt []*DefElem) *GrantRoleStmt {
+	return &GrantRoleStmt{
+		BaseNode:     BaseNode{Tag: T_GrantRoleStmt},
+		GrantedRoles: grantedRoles,
+		GranteeRoles: granteeRoles,
+		IsGrant:      true,
+		Opt:          opt,
 		Behavior:     DROP_RESTRICT,
 	}
 }
@@ -377,11 +389,11 @@ func (ars *AlterRoleStmt) StatementType() string {
 }
 
 // DropRoleStmt represents a DROP ROLE/USER/GROUP statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3103
+// Ported from postgres/src/include/nodes/parsenodes.h:3105
 type DropRoleStmt struct {
 	BaseNode
-	Roles     []*RoleSpec // List of roles to remove - postgres/src/include/nodes/parsenodes.h:3106
-	MissingOk bool        // Skip error if a role is missing? - postgres/src/include/nodes/parsenodes.h:3107
+	Roles     []*RoleSpec // List of roles to remove - postgres/src/include/nodes/parsenodes.h:3108
+	MissingOk bool        // Skip error if a role is missing? - postgres/src/include/nodes/parsenodes.h:3109
 }
 
 // NewDropRoleStmt creates a new DROP ROLE statement.
@@ -518,8 +530,8 @@ func (vss *VariableShowStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3868
 type ExplainStmt struct {
 	BaseNode
-	Query   Node        // The query to explain - postgres/src/include/nodes/parsenodes.h:3871
-	Options []*DefElem  // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3872
+	Query   Node       // The query to explain - postgres/src/include/nodes/parsenodes.h:3871
+	Options []*DefElem // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3872
 }
 
 // NewExplainStmt creates a new EXPLAIN statement.
@@ -595,7 +607,8 @@ func (es *ExecuteStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:4056
 type DeallocateStmt struct {
 	BaseNode
-	Name string // Statement name, or NULL for all - postgres/src/include/nodes/parsenodes.h:4073
+	Name  string // Statement name, or NULL for all - postgres/src/include/nodes/parsenodes.h:4060
+	IsAll bool   // True if DEALLOCATE ALL - postgres/src/include/nodes/parsenodes.h:4067
 }
 
 // NewDeallocateStmt creates a new DEALLOCATE statement.
@@ -603,6 +616,7 @@ func NewDeallocateStmt(name string) *DeallocateStmt {
 	return &DeallocateStmt{
 		BaseNode: BaseNode{Tag: T_DeallocateStmt},
 		Name:     name,
+		IsAll:    false,
 	}
 }
 
@@ -611,6 +625,7 @@ func NewDeallocateAllStmt() *DeallocateStmt {
 	return &DeallocateStmt{
 		BaseNode: BaseNode{Tag: T_DeallocateStmt},
 		Name:     "", // Empty name means ALL
+		IsAll:    true,
 	}
 }
 
@@ -634,14 +649,14 @@ func (ds *DeallocateStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2586
 type CopyStmt struct {
 	BaseNode
-	Relation    *RangeVar   // Relation to copy - postgres/src/include/nodes/parsenodes.h:2589
-	Query       Node        // Query to copy (SELECT/INSERT/UPDATE/DELETE) - postgres/src/include/nodes/parsenodes.h:2590
-	Attlist     []string    // List of column names (or NIL for all columns) - postgres/src/include/nodes/parsenodes.h:2591
-	IsFrom      bool        // TO or FROM - postgres/src/include/nodes/parsenodes.h:2592
-	IsProgram   bool        // Is 'filename' a program to popen? - postgres/src/include/nodes/parsenodes.h:2593
-	Filename    string      // Filename, or NULL for STDIN/STDOUT - postgres/src/include/nodes/parsenodes.h:2594
-	Options     []*DefElem  // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:2595
-	WhereClause Node        // WHERE condition (for COPY FROM WHERE) - postgres/src/include/nodes/parsenodes.h:2596
+	Relation    *RangeVar  // Relation to copy - postgres/src/include/nodes/parsenodes.h:2589
+	Query       Node       // Query to copy (SELECT/INSERT/UPDATE/DELETE) - postgres/src/include/nodes/parsenodes.h:2590
+	Attlist     []string   // List of column names (or NIL for all columns) - postgres/src/include/nodes/parsenodes.h:2591
+	IsFrom      bool       // TO or FROM - postgres/src/include/nodes/parsenodes.h:2592
+	IsProgram   bool       // Is 'filename' a program to popen? - postgres/src/include/nodes/parsenodes.h:2593
+	Filename    string     // Filename, or NULL for STDIN/STDOUT - postgres/src/include/nodes/parsenodes.h:2594
+	Options     []*DefElem // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:2595
+	WhereClause Node       // WHERE condition (for COPY FROM WHERE) - postgres/src/include/nodes/parsenodes.h:2596
 }
 
 // NewCopyStmt creates a new COPY statement.
@@ -679,14 +694,14 @@ func (cs *CopyStmt) String() string {
 	if cs.IsFrom {
 		direction = "FROM"
 	}
-	
+
 	target := ""
 	if cs.Relation != nil {
 		target = cs.Relation.RelName
 	} else if cs.Query != nil {
 		target = "query"
 	}
-	
+
 	return fmt.Sprintf("CopyStmt(%s %s %s)@%d", target, direction, cs.Filename, cs.Location())
 }
 
@@ -702,9 +717,9 @@ func (cs *CopyStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3837
 type VacuumStmt struct {
 	BaseNode
-	Options     []*DefElem       // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3840
+	Options     []*DefElem        // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3840
 	Rels        []*VacuumRelation // List of VacuumRelation, or NIL for all - postgres/src/include/nodes/parsenodes.h:3841
-	IsVacuumcmd bool             // True for VACUUM, false for ANALYZE - postgres/src/include/nodes/parsenodes.h:3842
+	IsVacuumcmd bool              // True for VACUUM, false for ANALYZE - postgres/src/include/nodes/parsenodes.h:3842
 }
 
 // VacuumRelation represents a relation in a VACUUM statement.
@@ -1025,7 +1040,7 @@ func (ls *ListenStmt) StatementType() string {
 }
 
 // UnlistenStmt represents an UNLISTEN statement.
-// Ported from postgres/src/include/nodes/parsenodes.h:3647
+// Ported from postgres/src/include/nodes/parsenodes.h:3643
 type UnlistenStmt struct {
 	BaseNode
 	Conditionname string // Condition name to stop listening for, or "*" for all - postgres/src/include/nodes/parsenodes.h:3650

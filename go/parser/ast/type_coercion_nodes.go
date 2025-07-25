@@ -81,11 +81,10 @@ func (rt *RelabelType) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1204
 type CoerceViaIO struct {
 	BaseExpr
-	Arg          Expression    // Input expression - primnodes.h:1669
-	Resulttype   Oid          // Output type OID - primnodes.h:1670
-	Resulttypmod int32        // Output typmod (usually -1) - primnodes.h:1671
-	Resultcollid Oid          // OID of collation, or InvalidOid if none - primnodes.h:1672
-	Coerceformat CoercionForm // How to display this coercion - primnodes.h:1673
+	Arg          Expression    // Input expression - primnodes.h:1207
+	Resulttype   Oid          // Output type OID - primnodes.h:1208
+	Resultcollid Oid          // OID of collation, or InvalidOid if none - primnodes.h:1210
+	Coerceformat CoercionForm // How to display this coercion - primnodes.h:1211
 }
 
 // NewCoerceViaIO creates a new CoerceViaIO node.
@@ -94,7 +93,6 @@ func NewCoerceViaIO(arg Expression, resulttype Oid, coerceformat CoercionForm) *
 		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_CoerceViaIO}},
 		Arg:          arg,
 		Resulttype:   resulttype,
-		Resulttypmod: -1,
 		Coerceformat: coerceformat,
 	}
 }
@@ -105,7 +103,6 @@ func NewExplicitCoerceViaIO(arg Expression, resulttype Oid) *CoerceViaIO {
 		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_CoerceViaIO}},
 		Arg:          arg,
 		Resulttype:   resulttype,
-		Resulttypmod: -1,
 		Coerceformat: COERCE_EXPLICIT_CAST,
 	}
 }
@@ -132,21 +129,20 @@ func (cvio *CoerceViaIO) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1230
 type ArrayCoerceExpr struct {
 	BaseExpr
-	Arg            Expression    // Input array expression - primnodes.h:1682
-	Elemfuncid     Oid          // OID of element coercion function, or 0 - primnodes.h:1683
-	Resulttype     Oid          // Output type OID (array type) - primnodes.h:1684
-	Resulttypmod   int32        // Output typmod (usually -1) - primnodes.h:1685
-	Resultcollid   Oid          // OID of collation, or InvalidOid if none - primnodes.h:1686
-	Coerceformat   CoercionForm // How to display this coercion - primnodes.h:1687
-	Isexplicit     bool         // Conversion semantics flag to pass to func - primnodes.h:1688
+	Arg            Expression    // Input array expression - primnodes.h:1233
+	Elemexpr       Expression    // Expression representing per-element work - primnodes.h:1234
+	Resulttype     Oid          // Output type OID (array type) - primnodes.h:1235
+	Resulttypmod   int32        // Output typmod (usually -1) - primnodes.h:1236
+	Resultcollid   Oid          // OID of collation, or InvalidOid if none - primnodes.h:1237
+	Coerceformat   CoercionForm // How to display this coercion - primnodes.h:1238
 }
 
 // NewArrayCoerceExpr creates a new ArrayCoerceExpr node.
-func NewArrayCoerceExpr(arg Expression, elemfuncid, resulttype Oid, coerceformat CoercionForm) *ArrayCoerceExpr {
+func NewArrayCoerceExpr(arg, elemexpr Expression, resulttype Oid, coerceformat CoercionForm) *ArrayCoerceExpr {
 	return &ArrayCoerceExpr{
 		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_ArrayCoerceExpr}},
 		Arg:          arg,
-		Elemfuncid:   elemfuncid,
+		Elemexpr:     elemexpr,
 		Resulttype:   resulttype,
 		Resulttypmod: -1,
 		Coerceformat: coerceformat,
@@ -154,15 +150,14 @@ func NewArrayCoerceExpr(arg Expression, elemfuncid, resulttype Oid, coerceformat
 }
 
 // NewExplicitArrayCoerceExpr creates a new explicit ArrayCoerceExpr.
-func NewExplicitArrayCoerceExpr(arg Expression, elemfuncid, resulttype Oid) *ArrayCoerceExpr {
+func NewExplicitArrayCoerceExpr(arg, elemexpr Expression, resulttype Oid) *ArrayCoerceExpr {
 	return &ArrayCoerceExpr{
 		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_ArrayCoerceExpr}},
 		Arg:          arg,
-		Elemfuncid:   elemfuncid,
+		Elemexpr:     elemexpr,
 		Resulttype:   resulttype,
 		Resulttypmod: -1,
 		Coerceformat: COERCE_EXPLICIT_CAST,
-		Isexplicit:   true,
 	}
 }
 
@@ -171,11 +166,7 @@ func (ace *ArrayCoerceExpr) ExpressionType() string {
 }
 
 func (ace *ArrayCoerceExpr) String() string {
-	explicit := ""
-	if ace.Isexplicit {
-		explicit = " EXPLICIT"
-	}
-	return fmt.Sprintf("ArrayCoerceExpr(%s as %d%s)", ace.Arg, ace.Resulttype, explicit)
+	return fmt.Sprintf("ArrayCoerceExpr(%s as %d)", ace.Arg, ace.Resulttype)
 }
 
 // ConvertRowtypeExpr represents row type conversion.
@@ -312,22 +303,24 @@ func (fs *FieldStore) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:679
 type SubscriptingRef struct {
 	BaseExpr
-	Refcontainertype Oid          // Type OID of container (array or jsonb) - primnodes.h:598
-	Refelemtype      Oid          // Type OID of contained elements - primnodes.h:599
-	Reftypmod        int32        // Typmod of container type - primnodes.h:600
-	Refcollid        Oid          // OID of collation, or InvalidOid if none - primnodes.h:601
-	Refupperindexpr  []Expression // Expressions for upper index bounds - primnodes.h:602
-	Reflowerindexpr  []Expression // Expressions for lower index bounds - primnodes.h:603
-	Refexpr          Expression   // Expression for the container value - primnodes.h:604
-	Refassgnexpr     Expression   // Expression for new value in assignment - primnodes.h:605
+	Refcontainertype Oid          // Type OID of container (array or jsonb) - primnodes.h:682
+	Refelemtype      Oid          // The container type's pg_type.typelem - primnodes.h:683
+	Refrestype       Oid          // Type OID of the SubscriptingRef's result - primnodes.h:684
+	Reftypmod        int32        // Typmod of the result - primnodes.h:685
+	Refcollid        Oid          // Collation of result, or InvalidOid if none - primnodes.h:686
+	Refupperindexpr  []Expression // Expressions for upper index bounds - primnodes.h:687
+	Reflowerindexpr  []Expression // Expressions for lower index bounds - primnodes.h:688
+	Refexpr          Expression   // Expression for the container value - primnodes.h:689
+	Refassgnexpr     Expression   // Expression for new value in assignment - primnodes.h:690
 }
 
 // NewSubscriptingRef creates a new SubscriptingRef node.
-func NewSubscriptingRef(containertype, elemtype Oid, refexpr Expression, upperindex []Expression) *SubscriptingRef {
+func NewSubscriptingRef(containertype, elemtype, restype Oid, refexpr Expression, upperindex []Expression) *SubscriptingRef {
 	return &SubscriptingRef{
 		BaseExpr:         BaseExpr{BaseNode: BaseNode{Tag: T_SubscriptingRef}},
 		Refcontainertype: containertype,
 		Refelemtype:      elemtype,
+		Refrestype:       restype,
 		Reftypmod:        -1,
 		Refupperindexpr:  upperindex,
 		Refexpr:          refexpr,
@@ -340,6 +333,7 @@ func NewArraySubscript(arraytype, elemtype Oid, arrayexpr, indexexpr Expression)
 		BaseExpr:         BaseExpr{BaseNode: BaseNode{Tag: T_SubscriptingRef}},
 		Refcontainertype: arraytype,
 		Refelemtype:      elemtype,
+		Refrestype:       elemtype, // Result type is element type for array indexing
 		Reftypmod:        -1,
 		Refupperindexpr:  []Expression{indexexpr},
 		Refexpr:          arrayexpr,
@@ -352,6 +346,7 @@ func NewArraySlice(arraytype, elemtype Oid, arrayexpr, lowerexpr, upperexpr Expr
 		BaseExpr:         BaseExpr{BaseNode: BaseNode{Tag: T_SubscriptingRef}},
 		Refcontainertype: arraytype,
 		Refelemtype:      elemtype,
+		Refrestype:       arraytype, // Result type is array type for slicing
 		Reftypmod:        -1,
 		Refupperindexpr:  []Expression{upperexpr},
 		Reflowerindexpr:  []Expression{lowerexpr},
@@ -365,6 +360,7 @@ func NewArrayAssignment(arraytype, elemtype Oid, arrayexpr, indexexpr, assignexp
 		BaseExpr:         BaseExpr{BaseNode: BaseNode{Tag: T_SubscriptingRef}},
 		Refcontainertype: arraytype,
 		Refelemtype:      elemtype,
+		Refrestype:       arraytype, // Result type is array type for assignment
 		Reftypmod:        -1,
 		Refupperindexpr:  []Expression{indexexpr},
 		Refexpr:          arrayexpr,
@@ -579,15 +575,17 @@ func (ctd *CoerceToDomain) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:2048
 type CoerceToDomainValue struct {
 	BaseExpr
-	Typemod   int32 // Typmod of domain - primnodes.h:1733
-	Collation Oid   // Collation of domain - primnodes.h:1734
+	TypeId    Oid   // Type for substituted value - primnodes.h:2051
+	TypeMod   int32 // Typemod for substituted value - primnodes.h:2052
+	Collation Oid   // Collation for the substituted value - primnodes.h:2053
 }
 
 // NewCoerceToDomainValue creates a new CoerceToDomainValue node.
-func NewCoerceToDomainValue(typemod int32, collation Oid) *CoerceToDomainValue {
+func NewCoerceToDomainValue(typeId Oid, typeMod int32, collation Oid) *CoerceToDomainValue {
 	return &CoerceToDomainValue{
 		BaseExpr:  BaseExpr{BaseNode: BaseNode{Tag: T_CoerceToDomainValue}},
-		Typemod:   typemod,
+		TypeId:    typeId,
+		TypeMod:   typeMod,
 		Collation: collation,
 	}
 }
@@ -597,7 +595,7 @@ func (ctdv *CoerceToDomainValue) ExpressionType() string {
 }
 
 func (ctdv *CoerceToDomainValue) String() string {
-	return fmt.Sprintf("CoerceToDomainValue(typmod=%d, collation=%d)", ctdv.Typemod, ctdv.Collation)
+	return fmt.Sprintf("CoerceToDomainValue(type=%d, typmod=%d, collation=%d)", ctdv.TypeId, ctdv.TypeMod, ctdv.Collation)
 }
 
 // ==============================================================================
@@ -609,15 +607,17 @@ func (ctdv *CoerceToDomainValue) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:2068
 type SetToDefault struct {
 	BaseExpr
-	Typemod   int32 // Typmod of destination column - primnodes.h:1744
-	Collation Oid   // Collation of destination column - primnodes.h:1745
+	TypeId    Oid   // Type for substituted value - primnodes.h:2071
+	TypeMod   int32 // Typemod for substituted value - primnodes.h:2072
+	Collation Oid   // Collation for the substituted value - primnodes.h:2073
 }
 
 // NewSetToDefault creates a new SetToDefault node.
-func NewSetToDefault(typemod int32, collation Oid) *SetToDefault {
+func NewSetToDefault(typeId Oid, typeMod int32, collation Oid) *SetToDefault {
 	return &SetToDefault{
 		BaseExpr:  BaseExpr{BaseNode: BaseNode{Tag: T_SetToDefault}},
-		Typemod:   typemod,
+		TypeId:    typeId,
+		TypeMod:   typeMod,
 		Collation: collation,
 	}
 }
@@ -635,26 +635,26 @@ func (std *SetToDefault) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:2094
 type CurrentOfExpr struct {
 	BaseExpr
-	CvarNo     Index  // RT index of target relation - primnodes.h:1756
-	CursorName string // Name of referenced cursor, or NULL - primnodes.h:1757
-	CursorParam int   // Refno of param for cursor name, or 0 - primnodes.h:1758
+	Cvarno       Index  // RT index of target relation - primnodes.h:2097
+	CursorName  string // Name of referenced cursor, or NULL - primnodes.h:2098
+	CursorParam int    // Refcursor parameter number, or 0 - primnodes.h:2099
 }
 
 // NewCurrentOfExpr creates a new CurrentOfExpr node.
-func NewCurrentOfExpr(cvarNo Index, cursorName string) *CurrentOfExpr {
+func NewCurrentOfExpr(cvarno Index, cursor_name string) *CurrentOfExpr {
 	return &CurrentOfExpr{
-		BaseExpr:   BaseExpr{BaseNode: BaseNode{Tag: T_CurrentOfExpr}},
-		CvarNo:     cvarNo,
-		CursorName: cursorName,
+		BaseExpr:    BaseExpr{BaseNode: BaseNode{Tag: T_CurrentOfExpr}},
+		Cvarno:      cvarno,
+		CursorName: cursor_name,
 	}
 }
 
 // NewCurrentOfExprParam creates a new CurrentOfExpr with parameter reference.
-func NewCurrentOfExprParam(cvarNo Index, cursorParam int) *CurrentOfExpr {
+func NewCurrentOfExprParam(cvarno Index, cursor_param int) *CurrentOfExpr {
 	return &CurrentOfExpr{
-		BaseExpr:    BaseExpr{BaseNode: BaseNode{Tag: T_CurrentOfExpr}},
-		CvarNo:      cvarNo,
-		CursorParam: cursorParam,
+		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_CurrentOfExpr}},
+		Cvarno:       cvarno,
+		CursorParam: cursor_param,
 	}
 }
 
@@ -674,15 +674,15 @@ func (coe *CurrentOfExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:2109
 type NextValueExpr struct {
 	BaseExpr
-	SeqId   Oid // OID of sequence relation - primnodes.h:1769
-	TypeId  Oid // Type OID of result - primnodes.h:1770
+	Seqid  Oid // OID of sequence relation - primnodes.h:2112
+	TypeId Oid // Type OID of result - primnodes.h:2113
 }
 
 // NewNextValueExpr creates a new NextValueExpr node.
-func NewNextValueExpr(seqId, typeId Oid) *NextValueExpr {
+func NewNextValueExpr(seqid, typeId Oid) *NextValueExpr {
 	return &NextValueExpr{
 		BaseExpr: BaseExpr{BaseNode: BaseNode{Tag: T_NextValueExpr}},
-		SeqId:    seqId,
+		Seqid:    seqid,
 		TypeId:   typeId,
 	}
 }
@@ -692,7 +692,7 @@ func (nve *NextValueExpr) ExpressionType() string {
 }
 
 func (nve *NextValueExpr) String() string {
-	return fmt.Sprintf("NextValueExpr(seq=%d, type=%d)", nve.SeqId, nve.TypeId)
+	return fmt.Sprintf("NextValueExpr(seq=%d, type=%d)", nve.Seqid, nve.TypeId)
 }
 
 // InferenceElem represents an inference element for ON CONFLICT clauses.
@@ -700,13 +700,13 @@ func (nve *NextValueExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:2123
 type InferenceElem struct {
 	BaseExpr
-	Expr      Expression // Expression to infer from - primnodes.h:2014
+	Expr      Node // Expression to infer from - primnodes.h:2014
 	Infercollid Oid      // OID of collation, or InvalidOid - primnodes.h:2015
 	Inferopclass Oid     // OID of operator class, or InvalidOid - primnodes.h:2016
 }
 
 // NewInferenceElem creates a new InferenceElem node.
-func NewInferenceElem(expr Expression) *InferenceElem {
+func NewInferenceElem(expr Node) *InferenceElem {
 	return &InferenceElem{
 		BaseExpr: BaseExpr{BaseNode: BaseNode{Tag: T_InferenceElem}},
 		Expr:     expr,
@@ -714,7 +714,7 @@ func NewInferenceElem(expr Expression) *InferenceElem {
 }
 
 // NewInferenceElemWithCollation creates a new InferenceElem with collation.
-func NewInferenceElemWithCollation(expr Expression, infercollid, inferopclass Oid) *InferenceElem {
+func NewInferenceElemWithCollation(expr Node, infercollid, inferopclass Oid) *InferenceElem {
 	return &InferenceElem{
 		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_InferenceElem}},
 		Expr:         expr,

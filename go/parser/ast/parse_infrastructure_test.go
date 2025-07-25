@@ -3,7 +3,7 @@ package ast
 import (
 	"fmt"
 	"testing"
-	
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -72,19 +72,19 @@ func TestA_Const(t *testing.T) {
 		aConst.SetLocation(5)
 
 		assert.Equal(t, T_A_Const, aConst.NodeTag())
-		assert.False(t, aConst.IsMissing)
+		assert.False(t, aConst.Isnull)
 		assert.Equal(t, val, aConst.Val)
 		assert.Equal(t, "A_CONST", aConst.ExpressionType())
-		assert.Equal(t, "A_Const{test}@5", aConst.String())
+		assert.Equal(t, "A_Const{String(\"test\")@0}@5", aConst.String())
 	})
 
-	t.Run("missing constant (DEFAULT)", func(t *testing.T) {
-		missingConst := NewA_ConstMissing(10)
-		missingConst.SetLocation(10)
+	t.Run("null constant (NULL)", func(t *testing.T) {
+		nullConst := NewA_ConstNull(10)
+		nullConst.SetLocation(10)
 
-		assert.True(t, missingConst.IsMissing)
-		assert.Nil(t, missingConst.Val)
-		assert.Equal(t, "A_Const{DEFAULT}@10", missingConst.String())
+		assert.True(t, nullConst.Isnull)
+		assert.NotNil(t, nullConst.Val) // Contains a Null value node
+		assert.Equal(t, "A_Const{NULL}@10", nullConst.String())
 	})
 
 	t.Run("with nil value", func(t *testing.T) {
@@ -253,7 +253,7 @@ func TestTypeNameUsage(t *testing.T) {
 		typeName := NewTypeName([]string{"int4"})
 		typeName.Setof = true
 		typeName.PctType = true
-		
+
 		assert.True(t, typeName.Setof)
 		assert.True(t, typeName.PctType)
 	})
@@ -280,11 +280,11 @@ func TestColumnDef(t *testing.T) {
 
 	t.Run("default values", func(t *testing.T) {
 		columnDef := NewColumnDef("test", nil, 0)
-		
+
 		assert.Equal(t, 0, columnDef.Inhcount)
 		assert.True(t, columnDef.IsLocal)
 		assert.False(t, columnDef.IsNotNull)
-		assert.False(t, columnDef.IsFromParent)
+		assert.False(t, columnDef.IsFromType)
 		assert.Equal(t, InvalidOid, columnDef.CollOid)
 		assert.Equal(t, 0, len(columnDef.Constraints))
 		assert.Equal(t, 0, len(columnDef.Fdwoptions))
@@ -293,10 +293,10 @@ func TestColumnDef(t *testing.T) {
 	t.Run("setting additional fields", func(t *testing.T) {
 		columnDef := NewColumnDef("test", nil, 0)
 		columnDef.IsNotNull = true
-		columnDef.IsFromParent = true
-		
+		columnDef.IsFromType = true
+
 		assert.True(t, columnDef.IsNotNull)
-		assert.True(t, columnDef.IsFromParent)
+		assert.True(t, columnDef.IsFromType)
 	})
 }
 
@@ -317,7 +317,7 @@ func TestWithClause(t *testing.T) {
 		ctes := []Node{NewCommonTableExpr("test_cte", NewSelectStmt())}
 		recursiveWith := NewWithClause(ctes, true, 40)
 		recursiveWith.SetLocation(40)
-		
+
 		assert.True(t, recursiveWith.Recursive)
 		assert.Equal(t, "WithClause{RECURSIVE, 1 CTEs}@40", recursiveWith.String())
 	})
@@ -351,7 +351,7 @@ func TestWindowDef(t *testing.T) {
 
 	t.Run("default values", func(t *testing.T) {
 		windowDef := NewWindowDef("test", 0)
-		
+
 		assert.Equal(t, 0, len(windowDef.PartitionClause))
 		assert.Equal(t, 0, len(windowDef.OrderClause))
 		assert.Equal(t, 0, windowDef.FrameOptions)
@@ -381,7 +381,7 @@ func TestSortBy(t *testing.T) {
 	t.Run("all direction values", func(t *testing.T) {
 		node := NewA_Const(NewString("column"), 0)
 		directions := []SortByDir{SORTBY_DEFAULT, SORTBY_ASC, SORTBY_DESC, SORTBY_USING}
-		
+
 		for _, dir := range directions {
 			sort := NewSortBy(node, dir, SORTBY_NULLS_DEFAULT, 0)
 			assert.Equal(t, dir, sort.SortbyDir)
@@ -391,7 +391,7 @@ func TestSortBy(t *testing.T) {
 	t.Run("all nulls values", func(t *testing.T) {
 		node := NewA_Const(NewString("column"), 0)
 		nullsOptions := []SortByNulls{SORTBY_NULLS_DEFAULT, SORTBY_NULLS_FIRST, SORTBY_NULLS_LAST}
-		
+
 		for _, nulls := range nullsOptions {
 			sort := NewSortBy(node, SORTBY_DEFAULT, nulls, 0)
 			assert.Equal(t, nulls, sort.SortbyNulls)
@@ -418,12 +418,12 @@ func TestGroupingSet(t *testing.T) {
 			GROUPING_SET_EMPTY, GROUPING_SET_SIMPLE, GROUPING_SET_ROLLUP,
 			GROUPING_SET_CUBE, GROUPING_SET_SETS,
 		}
-		
+
 		for i, kind := range kinds {
 			gs := NewGroupingSet(kind, content, 0)
 			gs.SetLocation(0)
 			assert.Equal(t, kind, gs.Kind)
-			
+
 			expectedStr := fmt.Sprintf("GroupingSet{kind=%d}@0", i)
 			assert.Equal(t, expectedStr, gs.String())
 		}
@@ -432,7 +432,7 @@ func TestGroupingSet(t *testing.T) {
 
 func TestLockingClause(t *testing.T) {
 	t.Run("basic construction", func(t *testing.T) {
-		lockedRels := []*RangeVar{NewRangeVar("test_table", nil, nil)}
+		lockedRels := []*RangeVar{NewRangeVar("test_table", "", "")}
 		lockingClause := NewLockingClause(lockedRels, LCS_FORUPDATE, LockWaitBlock, 70)
 		lockingClause.SetLocation(70)
 
@@ -445,25 +445,25 @@ func TestLockingClause(t *testing.T) {
 	})
 
 	t.Run("all strength values", func(t *testing.T) {
-		lockedRels := []*RangeVar{NewRangeVar("test_table", nil, nil)}
+		lockedRels := []*RangeVar{NewRangeVar("test_table", "", "")}
 		strengths := []LockClauseStrength{
 			LCS_NONE, LCS_FORKEYSHARE, LCS_FORSHARE, LCS_FORNOKEYUPDATE, LCS_FORUPDATE,
 		}
-		
+
 		for i, strength := range strengths {
 			lc := NewLockingClause(lockedRels, strength, LockWaitBlock, 0)
 			lc.SetLocation(0)
 			assert.Equal(t, strength, lc.Strength)
-			
+
 			expectedStr := fmt.Sprintf("LockingClause{strength=%d}@0", i)
 			assert.Equal(t, expectedStr, lc.String())
 		}
 	})
 
 	t.Run("all wait policies", func(t *testing.T) {
-		lockedRels := []*RangeVar{NewRangeVar("test_table", nil, nil)}
+		lockedRels := []*RangeVar{NewRangeVar("test_table", "", "")}
 		policies := []LockWaitPolicy{LockWaitBlock, LockWaitSkip, LockWaitError}
-		
+
 		for _, policy := range policies {
 			lc := NewLockingClause(lockedRels, LCS_FORUPDATE, policy, 0)
 			assert.Equal(t, policy, lc.WaitPolicy)
@@ -491,7 +491,7 @@ func TestXmlSerialize(t *testing.T) {
 		expr := NewA_Const(NewString("xml_data"), 0)
 		typeName := NewTypeName([]string{"text"})
 		options := []XmlOptionType{XMLOPTION_DOCUMENT, XMLOPTION_CONTENT}
-		
+
 		for _, option := range options {
 			xs := NewXmlSerialize(option, expr, typeName, false, 0)
 			assert.Equal(t, option, xs.XmlOptionType)
@@ -523,7 +523,7 @@ func TestPartitionElem(t *testing.T) {
 
 	t.Run("default values", func(t *testing.T) {
 		partitionElem := NewPartitionElem("col", nil, 0)
-		
+
 		assert.Equal(t, 0, len(partitionElem.Collation))
 		assert.Equal(t, 0, len(partitionElem.Opclass))
 	})
@@ -581,12 +581,10 @@ func TestObjectWithArgs(t *testing.T) {
 
 func TestSinglePartitionSpec(t *testing.T) {
 	t.Run("basic construction", func(t *testing.T) {
-		name := NewRangeVar("partition1", nil, nil)
-		singlePartition := NewSinglePartitionSpec(name, 115)
+		singlePartition := NewSinglePartitionSpec(115)
 		singlePartition.SetLocation(115)
 
 		assert.Equal(t, T_SinglePartitionSpec, singlePartition.NodeTag())
-		assert.Equal(t, name, singlePartition.Name)
 		assert.Equal(t, "SINGLE_PARTITION_SPEC", singlePartition.StatementType())
 		assert.Equal(t, "SinglePartitionSpec@115", singlePartition.String())
 	})
@@ -594,7 +592,7 @@ func TestSinglePartitionSpec(t *testing.T) {
 
 func TestPartitionCmd(t *testing.T) {
 	t.Run("basic construction", func(t *testing.T) {
-		name := NewRangeVar("partition1", nil, nil)
+		name := NewRangeVar("partition1", "", "")
 		bound := &PartitionBoundSpec{}
 		partitionCmd := NewPartitionCmd(name, bound, true, 120)
 		partitionCmd.SetLocation(120)
@@ -608,7 +606,7 @@ func TestPartitionCmd(t *testing.T) {
 	})
 
 	t.Run("with concurrent false", func(t *testing.T) {
-		name := NewRangeVar("partition1", nil, nil)
+		name := NewRangeVar("partition1", "", "")
 		bound := &PartitionBoundSpec{}
 		nonConcurrent := NewPartitionCmd(name, bound, false, 125)
 		assert.False(t, nonConcurrent.Concurrent)
@@ -653,20 +651,20 @@ func TestParseInfrastructureNodeInterfaces(t *testing.T) {
 			NewPartitionElem("col", nil, 0),
 			NewTableSampleClause(0, []Node{}, nil, 0),
 			NewObjectWithArgs([]*String{}, []Node{}, false, 0),
-			NewSinglePartitionSpec(nil, 0),
+			NewSinglePartitionSpec(0),
 			NewPartitionCmd(nil, nil, false, 0),
 		}
 
 		for i, node := range nodes {
 			assert.NotNil(t, node, "Node %d should not be nil", i)
-			
+
 			// Test Node interface methods
 			tag := node.NodeTag()
 			assert.NotEqual(t, T_Invalid, tag, "Node %d should not have invalid tag", i)
-			
+
 			location := node.Location()
 			assert.GreaterOrEqual(t, location, -1, "Node %d should have valid location", i)
-			
+
 			str := node.String()
 			assert.NotEmpty(t, str, "Node %d should have non-empty string representation", i)
 		}
@@ -707,7 +705,7 @@ func TestParseInfrastructureNodeInterfaces(t *testing.T) {
 			NewPartitionElem("col", nil, 0),
 			NewTableSampleClause(0, []Node{}, nil, 0),
 			NewObjectWithArgs([]*String{}, []Node{}, false, 0),
-			NewSinglePartitionSpec(nil, 0),
+			NewSinglePartitionSpec(0),
 			NewPartitionCmd(nil, nil, false, 0),
 		}
 

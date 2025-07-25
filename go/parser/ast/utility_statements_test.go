@@ -3,7 +3,7 @@ package ast
 
 import (
 	"testing"
-	
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -111,10 +111,10 @@ func TestGrantStatements(t *testing.T) {
 	})
 
 	t.Run("GrantStmt", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		privilege := NewAccessPriv("SELECT", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "alice")
-		
+
 		stmt := NewGrantStmt(OBJECT_TABLE, []Node{relation}, []*AccessPriv{privilege}, []*RoleSpec{grantee})
 
 		assert.Equal(t, T_GrantStmt, stmt.NodeTag())
@@ -133,10 +133,10 @@ func TestGrantStatements(t *testing.T) {
 	})
 
 	t.Run("RevokeStmt", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		privilege := NewAccessPriv("INSERT", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "bob")
-		
+
 		stmt := NewRevokeStmt(OBJECT_TABLE, []Node{relation}, []*AccessPriv{privilege}, []*RoleSpec{grantee})
 
 		assert.False(t, stmt.IsGrant)
@@ -147,7 +147,7 @@ func TestGrantStatements(t *testing.T) {
 	t.Run("GrantRoleStmt", func(t *testing.T) {
 		role := NewRoleSpec(ROLESPEC_CSTRING, "admin")
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "alice")
-		
+
 		stmt := NewGrantRoleStmt([]*RoleSpec{role}, []*RoleSpec{grantee})
 
 		assert.Equal(t, T_GrantRoleStmt, stmt.NodeTag())
@@ -165,7 +165,7 @@ func TestGrantStatements(t *testing.T) {
 	t.Run("RevokeRoleStmt", func(t *testing.T) {
 		role := NewRoleSpec(ROLESPEC_CSTRING, "admin")
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "alice")
-		
+
 		stmt := NewRevokeRoleStmt([]*RoleSpec{role}, []*RoleSpec{grantee})
 
 		assert.False(t, stmt.IsGrant)
@@ -374,7 +374,7 @@ func TestQueryAnalysisStatements(t *testing.T) {
 // TestCopyStatements tests COPY statements.
 func TestCopyStatements(t *testing.T) {
 	t.Run("CopyFromStmt", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		stmt := NewCopyFromStmt(relation, "/tmp/users.csv")
 
 		assert.Equal(t, T_CopyStmt, stmt.NodeTag())
@@ -391,7 +391,7 @@ func TestCopyStatements(t *testing.T) {
 	})
 
 	t.Run("CopyToStmt", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		stmt := NewCopyToStmt(relation, "/tmp/users_out.csv")
 
 		assert.False(t, stmt.IsFrom)
@@ -411,7 +411,7 @@ func TestCopyStatements(t *testing.T) {
 // TestMaintenanceStatements tests maintenance statements.
 func TestMaintenanceStatements(t *testing.T) {
 	t.Run("VacuumRelation", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		vr := NewVacuumRelation(relation, []string{"name", "email"})
 
 		assert.Equal(t, T_VacuumRelation, vr.NodeTag())
@@ -424,7 +424,7 @@ func TestMaintenanceStatements(t *testing.T) {
 	})
 
 	t.Run("VacuumStmt", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		vr := NewVacuumRelation(relation, nil)
 		verboseOpt := NewDefElem("verbose", NewBoolean(true))
 		stmt := NewVacuumStmt([]*DefElem{verboseOpt}, []*VacuumRelation{vr})
@@ -442,7 +442,7 @@ func TestMaintenanceStatements(t *testing.T) {
 	})
 
 	t.Run("AnalyzeStmt", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		vr := NewVacuumRelation(relation, nil)
 		stmt := NewAnalyzeStmt(nil, []*VacuumRelation{vr})
 
@@ -469,7 +469,7 @@ func TestMaintenanceStatements(t *testing.T) {
 	})
 
 	t.Run("ReindexIndexStmt", func(t *testing.T) {
-		relation := NewRangeVar("idx_users_email", nil, nil)
+		relation := NewRangeVar("idx_users_email", "", "")
 		stmt := NewReindexIndexStmt(relation)
 
 		assert.Equal(t, T_ReindexStmt, stmt.NodeTag())
@@ -484,7 +484,7 @@ func TestMaintenanceStatements(t *testing.T) {
 	})
 
 	t.Run("ReindexTableStmt", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		stmt := NewReindexTableStmt(relation)
 
 		assert.Equal(t, REINDEX_OBJECT_TABLE, stmt.Kind)
@@ -501,7 +501,7 @@ func TestMaintenanceStatements(t *testing.T) {
 	})
 
 	t.Run("ClusterStmt", func(t *testing.T) {
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		stmt := NewClusterStmt(relation, "idx_users_id", nil)
 
 		assert.Equal(t, T_ClusterStmt, stmt.NodeTag())
@@ -633,7 +633,7 @@ func TestAdministrativeStatements(t *testing.T) {
 func TestUtilityComplexExamples(t *testing.T) {
 	t.Run("CompleteTransaction", func(t *testing.T) {
 		// BEGIN; SAVEPOINT sp1; ROLLBACK TO sp1; RELEASE sp1; COMMIT;
-		
+
 		beginStmt := NewBeginStmt()
 		savepointStmt := NewSavepointStmt("sp1")
 		rollbackToStmt := NewRollbackToStmt("sp1")
@@ -641,7 +641,7 @@ func TestUtilityComplexExamples(t *testing.T) {
 		commitStmt := NewCommitStmt()
 
 		statements := []Statement{beginStmt, savepointStmt, rollbackToStmt, releaseStmt, commitStmt}
-		
+
 		for _, stmt := range statements {
 			assert.Equal(t, T_TransactionStmt, stmt.NodeTag())
 			// All should be valid transaction statements
@@ -654,22 +654,22 @@ func TestUtilityComplexExamples(t *testing.T) {
 		// GRANT SELECT ON users TO alice;
 		// ALTER ROLE alice SET timezone = 'UTC';
 		// DROP ROLE alice;
-		
+
 		// Create role
 		passwordOpt := NewDefElem("password", NewString("secret"))
 		loginOpt := NewDefElem("login", NewBoolean(true))
 		createStmt := NewCreateRoleStmt(ROLESTMT_ROLE, "alice", []*DefElem{passwordOpt, loginOpt})
-		
+
 		// Grant privilege
-		relation := NewRangeVar("users", nil, nil)
+		relation := NewRangeVar("users", "", "")
 		privilege := NewAccessPriv("SELECT", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "alice")
 		grantStmt := NewGrantStmt(OBJECT_TABLE, []Node{relation}, []*AccessPriv{privilege}, []*RoleSpec{grantee})
-		
+
 		// Alter role
 		role := NewRoleSpec(ROLESPEC_CSTRING, "alice")
 		alterStmt := NewAlterRoleStmt(role, []*DefElem{})
-		
+
 		// Drop role
 		dropStmt := NewDropRoleStmt([]*RoleSpec{role}, false)
 
@@ -682,13 +682,13 @@ func TestUtilityComplexExamples(t *testing.T) {
 
 	t.Run("ComplexVacuum", func(t *testing.T) {
 		// VACUUM (VERBOSE, ANALYZE) users (name, email);
-		
-		relation := NewRangeVar("users", nil, nil)
+
+		relation := NewRangeVar("users", "", "")
 		vr := NewVacuumRelation(relation, []string{"name", "email"})
-		
+
 		verboseOpt := NewDefElem("verbose", NewBoolean(true))
 		analyzeOpt := NewDefElem("analyze", NewBoolean(true))
-		
+
 		stmt := NewVacuumStmt([]*DefElem{verboseOpt, analyzeOpt}, []*VacuumRelation{vr})
 
 		assert.True(t, stmt.IsVacuumcmd)
@@ -702,14 +702,14 @@ func TestUtilityComplexExamples(t *testing.T) {
 		// PREPARE get_user (integer) AS SELECT * FROM users WHERE id = $1;
 		// EXECUTE get_user (123);
 		// DEALLOCATE get_user;
-		
+
 		query := NewSelectStmt()
 		argtype := NewTypeName([]string{"integer"})
 		prepareStmt := NewPrepareStmt("get_user", []*TypeName{argtype}, query)
-		
+
 		param := NewInteger(123)
 		executeStmt := NewExecuteStmt("get_user", []Node{param})
-		
+
 		deallocateStmt := NewDeallocateStmt("get_user")
 
 		assert.Equal(t, "get_user", prepareStmt.Name)

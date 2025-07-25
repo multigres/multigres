@@ -72,6 +72,7 @@ Based on ast_structs_checklist.md, focusing on nodes required for parsing:
 ### Phase 1B: Advanced SQL Statements  
 **Target**: 20 nodes - Advanced DML and statement support  
 **Priority**: 🔴 Critical - Core SQL functionality  
+**Status**: ⚠️ **PARTIALLY COMPLETED** - 8 nodes completed, 12 remaining
 **Estimated Effort**: 1-2 sessions
 
 #### Advanced DML Statements (8 nodes)
@@ -90,13 +91,14 @@ Based on ast_structs_checklist.md, focusing on nodes required for parsing:
 - **RenameStmt** - RENAME operations (`parsenodes.h:3525`)
 - **AlterOwnerStmt** - ALTER OWNER (`parsenodes.h:3571`)
 - **RuleStmt** - CREATE RULE (`parsenodes.h:3606`)
-- **LoadStmt** - LOAD statement (`parsenodes.h:3755`)
-- **ClusterStmt** - CLUSTER statement (`parsenodes.h:3822`)
+- ✅ **LoadStmt** - LOAD statement (`parsenodes.h:3755`) - COMPLETED
+- ✅ **ClusterStmt** - CLUSTER statement (`parsenodes.h:3822`) - COMPLETED
 - **LockStmt** - LOCK statement (`parsenodes.h:3942`)
-- **CheckPointStmt** - CHECKPOINT statement (`parsenodes.h:3914`)
-- **DiscardStmt** - DISCARD statement (`parsenodes.h:3932`)
-- **NotifyStmt** - NOTIFY statement (`parsenodes.h:3622`)
-- **ListenStmt** - LISTEN statement (`parsenodes.h:3633`)
+- ✅ **CheckPointStmt** - CHECKPOINT statement (`parsenodes.h:3914`) - COMPLETED
+- ✅ **DiscardStmt** - DISCARD statement (`parsenodes.h:3932`) - COMPLETED
+- ✅ **NotifyStmt** - NOTIFY statement (`parsenodes.h:3622`) - COMPLETED
+- ✅ **ListenStmt** - LISTEN statement (`parsenodes.h:3633`) - COMPLETED
+- ✅ **UnlistenStmt** - UNLISTEN statement (`parsenodes.h:3643`) - COMPLETED
 
 **Deliverables**:
 - New AST file: `advanced_statements.go` (~600 lines)
@@ -121,7 +123,6 @@ Based on ast_structs_checklist.md, focusing on nodes required for parsing:
 - **DeclareCursorStmt** - DECLARE CURSOR (`parsenodes.h:3293`)
 - **FetchStmt** - FETCH statement (`parsenodes.h:3328`)
 - **ClosePortalStmt** - CLOSE statement (`parsenodes.h:3305`)
-- **UnlistenStmt** - UNLISTEN statement (`parsenodes.h:3643`)
 - And additional DDL creation nodes...
 
 **Deliverables**:

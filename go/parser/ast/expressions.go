@@ -96,14 +96,15 @@ func (e *BaseExpr) IsExpr() bool {
 // Ported from postgres/src/include/nodes/primnodes.h:247
 type Var struct {
 	BaseExpr
-	Varno           Index      // Relation index in range table - postgres/src/include/nodes/primnodes.h:249
-	Varattno        AttrNumber // Attribute number (0 = whole-row) - postgres/src/include/nodes/primnodes.h:250
-	Vartype         Oid        // pg_type OID - postgres/src/include/nodes/primnodes.h:251
-	Vartypmod       int32      // Type modifier - postgres/src/include/nodes/primnodes.h:252
-	Varcollid       Oid        // Collation OID - postgres/src/include/nodes/primnodes.h:253
-	Varlevelsup     Index      // Subquery nesting level - postgres/src/include/nodes/primnodes.h:265
-	Varnosyn        Index      // Syntactic relation index - postgres/src/include/nodes/primnodes.h:276
-	Varattnosyn     AttrNumber // Syntactic attribute number - postgres/src/include/nodes/primnodes.h:277
+	Varno     Index      // Relation index in range table - postgres/src/include/nodes/primnodes.h:249
+	Varattno  AttrNumber // Attribute number (0 = whole-row) - postgres/src/include/nodes/primnodes.h:250
+	Vartype   Oid        // pg_type OID - postgres/src/include/nodes/primnodes.h:251
+	Vartypmod int32      // Type modifier - postgres/src/include/nodes/primnodes.h:252
+	Varcollid Oid        // Collation OID - postgres/src/include/nodes/primnodes.h:253
+	// TODO: varnullingrels *Bitmapset not yet ported - postgres/src/include/nodes/primnodes.h:274
+	Varlevelsup Index      // Subquery nesting level - postgres/src/include/nodes/primnodes.h:265
+	Varnosyn    Index      // Syntactic relation index - postgres/src/include/nodes/primnodes.h:276
+	Varattnosyn AttrNumber // Syntactic attribute number - postgres/src/include/nodes/primnodes.h:277
 }
 
 // NewVar creates a new Var node.
@@ -128,13 +129,13 @@ func (v *Var) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:306
 type Const struct {
 	BaseExpr
-	Consttype     Oid    // Datatype OID - postgres/src/include/nodes/primnodes.h:308
-	Consttypmod   int32  // Type modifier - postgres/src/include/nodes/primnodes.h:309
-	Constcollid   Oid    // Collation OID - postgres/src/include/nodes/primnodes.h:310
-	Constlen      int    // Type length - postgres/src/include/nodes/primnodes.h:311
-	Constvalue    Datum  // The actual value - postgres/src/include/nodes/primnodes.h:312
-	Constisnull   bool   // Whether null - postgres/src/include/nodes/primnodes.h:313
-	Constbyval    bool   // Pass by value? - postgres/src/include/nodes/primnodes.h:315
+	Consttype   Oid   // Datatype OID - postgres/src/include/nodes/primnodes.h:308
+	Consttypmod int32 // Type modifier - postgres/src/include/nodes/primnodes.h:309
+	Constcollid Oid   // Collation OID - postgres/src/include/nodes/primnodes.h:310
+	Constlen    int   // Type length - postgres/src/include/nodes/primnodes.h:311
+	Constvalue  Datum // The actual value - postgres/src/include/nodes/primnodes.h:312
+	Constisnull bool  // Whether null - postgres/src/include/nodes/primnodes.h:313
+	Constbyval  bool  // Pass by value? - postgres/src/include/nodes/primnodes.h:315
 }
 
 // NewConst creates a new Const node.
@@ -223,12 +224,12 @@ func (f *FuncExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:813
 type OpExpr struct {
 	BaseExpr
-	Opno         Oid  // pg_operator OID - postgres/src/include/nodes/primnodes.h:816
-	Opfuncid     Oid  // Underlying function OID - postgres/src/include/nodes/primnodes.h:817
-	Opresulttype Oid  // Result type - postgres/src/include/nodes/primnodes.h:818
-	Opretset     bool // Returns set? - postgres/src/include/nodes/primnodes.h:819
-	Opcollid     Oid  // Result collation - postgres/src/include/nodes/primnodes.h:820
-	Inputcollid  Oid  // Input collation - postgres/src/include/nodes/primnodes.h:821
+	Opno         Oid    // pg_operator OID - postgres/src/include/nodes/primnodes.h:816
+	Opfuncid     Oid    // Underlying function OID - postgres/src/include/nodes/primnodes.h:817
+	Opresulttype Oid    // Result type - postgres/src/include/nodes/primnodes.h:818
+	Opretset     bool   // Returns set? - postgres/src/include/nodes/primnodes.h:819
+	Opcollid     Oid    // Result collation - postgres/src/include/nodes/primnodes.h:820
+	Inputcollid  Oid    // Input collation - postgres/src/include/nodes/primnodes.h:821
 	Args         []Node // Operator arguments (1 or 2) - postgres/src/include/nodes/primnodes.h:822
 }
 
@@ -327,11 +328,11 @@ type CaseExpr struct {
 // NewCaseExpr creates a new CaseExpr node.
 func NewCaseExpr(casetype Oid, arg Node, whens []Node, defresult Node) *CaseExpr {
 	return &CaseExpr{
-		BaseExpr:   BaseExpr{BaseNode: BaseNode{Tag: T_CaseExpr}},
-		Casetype:   casetype,
-		Arg:        arg,
-		Args:       whens,
-		Defresult:  defresult,
+		BaseExpr:  BaseExpr{BaseNode: BaseNode{Tag: T_CaseExpr}},
+		Casetype:  casetype,
+		Arg:       arg,
+		Args:      whens,
+		Defresult: defresult,
 	}
 }
 
@@ -433,13 +434,13 @@ func (a *ArrayExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:893
 type ScalarArrayOpExpr struct {
 	BaseExpr
-	Opno         Oid    // pg_operator OID - postgres/src/include/nodes/primnodes.h:896
-	Opfuncid     Oid    // Comparison function OID - postgres/src/include/nodes/primnodes.h:897
-	Hashfuncid   Oid    // Hash function OID (optimization) - postgres/src/include/nodes/primnodes.h:898
-	Negfuncid    Oid    // Negation function OID - postgres/src/include/nodes/primnodes.h:899
-	UseOr        bool   // True for ANY, false for ALL - postgres/src/include/nodes/primnodes.h:900
-	Inputcollid  Oid    // Input collation - postgres/src/include/nodes/primnodes.h:901
-	Args         []Node // Scalar and array operands - postgres/src/include/nodes/primnodes.h:902
+	Opno        Oid    // pg_operator OID - postgres/src/include/nodes/primnodes.h:896
+	Opfuncid    Oid    // Comparison function OID - postgres/src/include/nodes/primnodes.h:897
+	Hashfuncid  Oid    // Hash function OID (optimization) - postgres/src/include/nodes/primnodes.h:898
+	Negfuncid   Oid    // Negation function OID - postgres/src/include/nodes/primnodes.h:899
+	UseOr       bool   // True for ANY, false for ALL - postgres/src/include/nodes/primnodes.h:900
+	Inputcollid Oid    // Input collation - postgres/src/include/nodes/primnodes.h:901
+	Args        []Node // Scalar and array operands - postgres/src/include/nodes/primnodes.h:902
 }
 
 // NewScalarArrayOpExpr creates a new ScalarArrayOpExpr node.
@@ -468,10 +469,10 @@ func (s *ScalarArrayOpExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1408
 type RowExpr struct {
 	BaseExpr
-	Args       []Node        // Row field expressions - postgres/src/include/nodes/primnodes.h:1411
-	RowTypeid  Oid           // Composite type OID - postgres/src/include/nodes/primnodes.h:1412
-	RowFormat  CoercionForm  // Display format - postgres/src/include/nodes/primnodes.h:1413
-	Colnames   []*string     // Field names (RECORD type only) - postgres/src/include/nodes/primnodes.h:1414
+	Args      []Node       // Row field expressions - postgres/src/include/nodes/primnodes.h:1411
+	RowTypeid Oid          // Composite type OID - postgres/src/include/nodes/primnodes.h:1412
+	RowFormat CoercionForm // Display format - postgres/src/include/nodes/primnodes.h:1413
+	Colnames  []*string    // Field names (RECORD type only) - postgres/src/include/nodes/primnodes.h:1414
 }
 
 // NewRowExpr creates a new RowExpr node.
@@ -647,14 +648,14 @@ func CountArgs(expr Node) int {
 type SubLinkType int
 
 const (
-	EXISTS_SUBLINK    SubLinkType = iota // EXISTS(subquery)
-	ALL_SUBLINK                          // expr op ALL(subquery)
-	ANY_SUBLINK                          // expr op ANY(subquery)
-	ROWCOMPARE_SUBLINK                   // (expr list) op (subquery)
-	EXPR_SUBLINK                         // expr(subquery)
-	MULTIEXPR_SUBLINK                    // multiple expressions
-	ARRAY_SUBLINK                        // ARRAY(subquery)
-	CTE_SUBLINK                          // for SubPlans only
+	EXISTS_SUBLINK     SubLinkType = iota // EXISTS(subquery)
+	ALL_SUBLINK                           // expr op ALL(subquery)
+	ANY_SUBLINK                           // expr op ANY(subquery)
+	ROWCOMPARE_SUBLINK                    // (expr list) op (subquery)
+	EXPR_SUBLINK                          // expr(subquery)
+	MULTIEXPR_SUBLINK                     // multiple expressions
+	ARRAY_SUBLINK                         // ARRAY(subquery)
+	CTE_SUBLINK                           // for SubPlans only
 )
 
 func (s SubLinkType) String() string {
@@ -684,9 +685,9 @@ func (s SubLinkType) String() string {
 type AggSplit int
 
 const (
-	AGGSPLIT_SIMPLE          AggSplit = 0  // Basic, non-split aggregation
-	AGGSPLIT_INITIAL_SERIAL  AggSplit = 3  // Initial phase with serialization
-	AGGSPLIT_FINAL_DESERIAL  AggSplit = 12 // Final phase with deserialization
+	AGGSPLIT_SIMPLE         AggSplit = 0  // Basic, non-split aggregation
+	AGGSPLIT_INITIAL_SERIAL AggSplit = 3  // Initial phase with serialization
+	AGGSPLIT_FINAL_DESERIAL AggSplit = 12 // Final phase with deserialization
 )
 
 func (a AggSplit) String() string {
@@ -706,25 +707,25 @@ func (a AggSplit) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:439
 type Aggref struct {
 	BaseExpr
-	Aggfnoid      Oid       // pg_proc OID of the aggregate - postgres/src/include/nodes/primnodes.h:481
-	Aggtype       Oid       // Result type OID - postgres/src/include/nodes/primnodes.h:483
-	Aggcollid     Oid       // Result collation - postgres/src/include/nodes/primnodes.h:485
-	Inputcollid   Oid       // Input collation - postgres/src/include/nodes/primnodes.h:487
-	Aggtranstype  Oid       // Transition value type - postgres/src/include/nodes/primnodes.h:492
-	Aggargtypes   []Oid     // Argument type OIDs - postgres/src/include/nodes/primnodes.h:494
-	Aggdirectargs []Node    // Direct arguments for ordered-set aggs - postgres/src/include/nodes/primnodes.h:495
-	Args          []Node    // Aggregated arguments - postgres/src/include/nodes/primnodes.h:496
-	Aggorder      []Node    // ORDER BY expressions - postgres/src/include/nodes/primnodes.h:497
-	Aggdistinct   []Node    // DISTINCT expressions - postgres/src/include/nodes/primnodes.h:498
-	Aggfilter     Node      // FILTER expression - postgres/src/include/nodes/primnodes.h:499
-	Aggstar       bool      // True if argument list was '*' - postgres/src/include/nodes/primnodes.h:501
-	Aggvariadic   bool      // True if variadic args combined - postgres/src/include/nodes/primnodes.h:505
-	Aggkind       byte      // Aggregate kind - postgres/src/include/nodes/primnodes.h:507
-	Aggpresorted  bool      // Input already sorted - postgres/src/include/nodes/primnodes.h:509
-	Agglevelsup   Index     // > 0 if agg belongs to outer query - postgres/src/include/nodes/primnodes.h:511
-	Aggsplit      AggSplit  // Expected splitting mode - postgres/src/include/nodes/primnodes.h:513
-	Aggno         int       // Unique ID within Agg node - postgres/src/include/nodes/primnodes.h:515
-	Aggtransno    int       // Unique ID of transition state - postgres/src/include/nodes/primnodes.h:517
+	Aggfnoid      Oid      // pg_proc OID of the aggregate - postgres/src/include/nodes/primnodes.h:481
+	Aggtype       Oid      // Result type OID - postgres/src/include/nodes/primnodes.h:483
+	Aggcollid     Oid      // Result collation - postgres/src/include/nodes/primnodes.h:485
+	Inputcollid   Oid      // Input collation - postgres/src/include/nodes/primnodes.h:487
+	Aggtranstype  Oid      // Transition value type - postgres/src/include/nodes/primnodes.h:492
+	Aggargtypes   []Oid    // Argument type OIDs - postgres/src/include/nodes/primnodes.h:494
+	Aggdirectargs []Node   // Direct arguments for ordered-set aggs - postgres/src/include/nodes/primnodes.h:495
+	Args          []Node   // Aggregated arguments - postgres/src/include/nodes/primnodes.h:496
+	Aggorder      []Node   // ORDER BY expressions - postgres/src/include/nodes/primnodes.h:497
+	Aggdistinct   []Node   // DISTINCT expressions - postgres/src/include/nodes/primnodes.h:498
+	Aggfilter     Node     // FILTER expression - postgres/src/include/nodes/primnodes.h:499
+	Aggstar       bool     // True if argument list was '*' - postgres/src/include/nodes/primnodes.h:501
+	Aggvariadic   bool     // True if variadic args combined - postgres/src/include/nodes/primnodes.h:505
+	Aggkind       byte     // Aggregate kind - postgres/src/include/nodes/primnodes.h:507
+	Aggpresorted  bool     // Input already sorted - postgres/src/include/nodes/primnodes.h:509
+	Agglevelsup   Index    // > 0 if agg belongs to outer query - postgres/src/include/nodes/primnodes.h:511
+	Aggsplit      AggSplit // Expected splitting mode - postgres/src/include/nodes/primnodes.h:513
+	Aggno         int      // Unique ID within Agg node - postgres/src/include/nodes/primnodes.h:515
+	Aggtransno    int      // Unique ID of transition state - postgres/src/include/nodes/primnodes.h:517
 }
 
 // NewAggref creates a new Aggref node.
@@ -757,16 +758,16 @@ func (a *Aggref) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:563
 type WindowFunc struct {
 	BaseExpr
-	Winfnoid      Oid    // pg_proc OID of the function - postgres/src/include/nodes/primnodes.h:593
-	Wintype       Oid    // Result type OID - postgres/src/include/nodes/primnodes.h:595
-	Wincollid     Oid    // Result collation - postgres/src/include/nodes/primnodes.h:597
-	Inputcollid   Oid    // Input collation - postgres/src/include/nodes/primnodes.h:599
-	Args          []Node // Arguments to window function - postgres/src/include/nodes/primnodes.h:601
-	Aggfilter     Node   // FILTER expression - postgres/src/include/nodes/primnodes.h:603
-	RunCondition  []Node // List of run conditions - postgres/src/include/nodes/primnodes.h:605
-	Winref        Index  // Index of associated WindowClause - postgres/src/include/nodes/primnodes.h:607
-	Winstar       bool   // True if argument list was '*' - postgres/src/include/nodes/primnodes.h:609
-	Winagg        bool   // Is function a simple aggregate? - postgres/src/include/nodes/primnodes.h:611
+	Winfnoid     Oid    // pg_proc OID of the function - postgres/src/include/nodes/primnodes.h:593
+	Wintype      Oid    // Result type OID - postgres/src/include/nodes/primnodes.h:595
+	Wincollid    Oid    // Result collation - postgres/src/include/nodes/primnodes.h:597
+	Inputcollid  Oid    // Input collation - postgres/src/include/nodes/primnodes.h:599
+	Args         []Node // Arguments to window function - postgres/src/include/nodes/primnodes.h:601
+	Aggfilter    Node   // FILTER expression - postgres/src/include/nodes/primnodes.h:603
+	RunCondition []Node // List of run conditions - postgres/src/include/nodes/primnodes.h:605
+	Winref       Index  // Index of associated WindowClause - postgres/src/include/nodes/primnodes.h:607
+	Winstar      bool   // True if argument list was '*' - postgres/src/include/nodes/primnodes.h:609
+	Winagg       bool   // Is function a simple aggregate? - postgres/src/include/nodes/primnodes.h:611
 }
 
 // NewWindowFunc creates a new WindowFunc node.

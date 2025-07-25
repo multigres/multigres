@@ -21,7 +21,7 @@ const (
 	OBJECT_AGGREGATE
 	OBJECT_AMOP
 	OBJECT_AMPROC
-	OBJECT_ATTRIBUTE         // type's attribute, when distinct from column
+	OBJECT_ATTRIBUTE // type's attribute, when distinct from column
 	OBJECT_CAST
 	OBJECT_COLUMN
 	OBJECT_COLLATION
@@ -125,7 +125,7 @@ func (d DropBehavior) String() string {
 type ConstrType int
 
 const (
-	CONSTR_NULL         ConstrType = iota // not standard SQL, but expected
+	CONSTR_NULL ConstrType = iota // not standard SQL, but expected
 	CONSTR_NOTNULL
 	CONSTR_DEFAULT
 	CONSTR_IDENTITY
@@ -135,7 +135,7 @@ const (
 	CONSTR_UNIQUE
 	CONSTR_EXCLUSION
 	CONSTR_FOREIGN
-	CONSTR_ATTR_DEFERRABLE     // attributes for previous constraint node
+	CONSTR_ATTR_DEFERRABLE // attributes for previous constraint node
 	CONSTR_ATTR_NOT_DEFERRABLE
 	CONSTR_ATTR_DEFERRED
 	CONSTR_ATTR_IMMEDIATE
@@ -166,7 +166,7 @@ func (c ConstrType) String() string {
 type ViewCheckOption int
 
 const (
-	NO_CHECK_OPTION       ViewCheckOption = iota
+	NO_CHECK_OPTION ViewCheckOption = iota
 	LOCAL_CHECK_OPTION
 	CASCADED_CHECK_OPTION
 )
@@ -188,71 +188,71 @@ func (v ViewCheckOption) String() string {
 type AlterTableType int
 
 const (
-	AT_AddColumn AlterTableType = iota // add column
-	AT_AddColumnToView                 // implicitly via CREATE OR REPLACE VIEW
-	AT_ColumnDefault                   // alter column default
-	AT_CookedColumnDefault             // add a pre-cooked column default
-	AT_DropNotNull                     // alter column drop not null
-	AT_SetNotNull                      // alter column set not null
-	AT_DropExpression                  // alter column drop expression
-	AT_CheckNotNull                    // check column is already not null
-	AT_SetStatistics                   // alter column set statistics
-	AT_SetOptions                      // alter column set (options)
-	AT_ResetOptions                    // alter column reset (options)
-	AT_SetStorage                      // alter column set storage
-	AT_SetCompression                  // alter column set compression
-	AT_DropColumn                      // drop column
-	AT_AddIndex                        // add index
-	AT_ReAddIndex                      // internal to commands/tablecmds.c
-	AT_AddConstraint                   // add constraint
-	AT_AddConstraintRecurse            // internal to commands/tablecmds.c
-	AT_ReAddConstraint                 // internal to commands/tablecmds.c
-	AT_AlterConstraint                 // alter constraint
-	AT_ValidateConstraint              // validate constraint
-	AT_DropConstraint                  // drop constraint
-	AT_ReAddComment                    // internal to commands/tablecmds.c
-	AT_AlterColumnType                 // alter column type
-	AT_AlterColumnGenericOptions       // alter column OPTIONS (...)
-	AT_ChangeOwner                     // change owner
-	AT_ClusterOn                       // CLUSTER ON
-	AT_DropCluster                     // SET WITHOUT CLUSTER
-	AT_SetLogged                       // SET LOGGED
-	AT_SetUnLogged                     // SET UNLOGGED
-	AT_DropOids                        // SET WITHOUT OIDS
-	AT_SetAccessMethod                 // SET ACCESS METHOD
-	AT_SetTableSpace                   // SET TABLESPACE
-	AT_SetRelOptions                   // SET (...)
-	AT_ResetRelOptions                 // RESET (...)
-	AT_ReplaceRelOptions               // replace reloption list in its entirety
-	AT_EnableTrig                      // ENABLE TRIGGER name
-	AT_EnableAlwaysTrig                // ENABLE ALWAYS TRIGGER name
-	AT_EnableReplicaTrig               // ENABLE REPLICA TRIGGER name
-	AT_DisableTrig                     // DISABLE TRIGGER name
-	AT_EnableTrigAll                   // ENABLE TRIGGER ALL
-	AT_DisableTrigAll                  // DISABLE TRIGGER ALL
-	AT_EnableTrigUser                  // ENABLE TRIGGER USER
-	AT_DisableTrigUser                 // DISABLE TRIGGER USER
-	AT_EnableRule                      // ENABLE RULE name
-	AT_EnableAlwaysRule                // ENABLE ALWAYS RULE name
-	AT_EnableReplicaRule               // ENABLE REPLICA RULE name
-	AT_DisableRule                     // DISABLE RULE name
-	AT_AddInherit                      // INHERIT parent
-	AT_DropInherit                     // NO INHERIT parent
-	AT_AddOf                           // OF <type_name>
-	AT_DropOf                          // NOT OF
-	AT_ReplicaIdentity                 // REPLICA IDENTITY
-	AT_EnableRowSecurity               // ENABLE ROW SECURITY
-	AT_DisableRowSecurity              // DISABLE ROW SECURITY
-	AT_ForceRowSecurity                // FORCE ROW SECURITY
-	AT_NoForceRowSecurity              // NO FORCE ROW SECURITY
-	AT_GenericOptions                  // OPTIONS (...)
-	AT_AttachPartition                 // ATTACH PARTITION
-	AT_DetachPartition                 // DETACH PARTITION
-	AT_DetachPartitionFinalize         // DETACH PARTITION ... FINALIZE
-	AT_AddIdentity                     // ADD IDENTITY
-	AT_SetIdentity                     // SET identity column options
-	AT_DropIdentity                    // DROP IDENTITY
-	AT_ReAddStatistics                 // internal to commands/tablecmds.c
+	AT_AddColumn                 AlterTableType = iota // add column
+	AT_AddColumnToView                                 // implicitly via CREATE OR REPLACE VIEW
+	AT_ColumnDefault                                   // alter column default
+	AT_CookedColumnDefault                             // add a pre-cooked column default
+	AT_DropNotNull                                     // alter column drop not null
+	AT_SetNotNull                                      // alter column set not null
+	AT_DropExpression                                  // alter column drop expression
+	AT_CheckNotNull                                    // check column is already not null
+	AT_SetStatistics                                   // alter column set statistics
+	AT_SetOptions                                      // alter column set (options)
+	AT_ResetOptions                                    // alter column reset (options)
+	AT_SetStorage                                      // alter column set storage
+	AT_SetCompression                                  // alter column set compression
+	AT_DropColumn                                      // drop column
+	AT_AddIndex                                        // add index
+	AT_ReAddIndex                                      // internal to commands/tablecmds.c
+	AT_AddConstraint                                   // add constraint
+	AT_AddConstraintRecurse                            // internal to commands/tablecmds.c
+	AT_ReAddConstraint                                 // internal to commands/tablecmds.c
+	AT_AlterConstraint                                 // alter constraint
+	AT_ValidateConstraint                              // validate constraint
+	AT_DropConstraint                                  // drop constraint
+	AT_ReAddComment                                    // internal to commands/tablecmds.c
+	AT_AlterColumnType                                 // alter column type
+	AT_AlterColumnGenericOptions                       // alter column OPTIONS (...)
+	AT_ChangeOwner                                     // change owner
+	AT_ClusterOn                                       // CLUSTER ON
+	AT_DropCluster                                     // SET WITHOUT CLUSTER
+	AT_SetLogged                                       // SET LOGGED
+	AT_SetUnLogged                                     // SET UNLOGGED
+	AT_DropOids                                        // SET WITHOUT OIDS
+	AT_SetAccessMethod                                 // SET ACCESS METHOD
+	AT_SetTableSpace                                   // SET TABLESPACE
+	AT_SetRelOptions                                   // SET (...)
+	AT_ResetRelOptions                                 // RESET (...)
+	AT_ReplaceRelOptions                               // replace reloption list in its entirety
+	AT_EnableTrig                                      // ENABLE TRIGGER name
+	AT_EnableAlwaysTrig                                // ENABLE ALWAYS TRIGGER name
+	AT_EnableReplicaTrig                               // ENABLE REPLICA TRIGGER name
+	AT_DisableTrig                                     // DISABLE TRIGGER name
+	AT_EnableTrigAll                                   // ENABLE TRIGGER ALL
+	AT_DisableTrigAll                                  // DISABLE TRIGGER ALL
+	AT_EnableTrigUser                                  // ENABLE TRIGGER USER
+	AT_DisableTrigUser                                 // DISABLE TRIGGER USER
+	AT_EnableRule                                      // ENABLE RULE name
+	AT_EnableAlwaysRule                                // ENABLE ALWAYS RULE name
+	AT_EnableReplicaRule                               // ENABLE REPLICA RULE name
+	AT_DisableRule                                     // DISABLE RULE name
+	AT_AddInherit                                      // INHERIT parent
+	AT_DropInherit                                     // NO INHERIT parent
+	AT_AddOf                                           // OF <type_name>
+	AT_DropOf                                          // NOT OF
+	AT_ReplicaIdentity                                 // REPLICA IDENTITY
+	AT_EnableRowSecurity                               // ENABLE ROW SECURITY
+	AT_DisableRowSecurity                              // DISABLE ROW SECURITY
+	AT_ForceRowSecurity                                // FORCE ROW SECURITY
+	AT_NoForceRowSecurity                              // NO FORCE ROW SECURITY
+	AT_GenericOptions                                  // OPTIONS (...)
+	AT_AttachPartition                                 // ATTACH PARTITION
+	AT_DetachPartition                                 // DETACH PARTITION
+	AT_DetachPartitionFinalize                         // DETACH PARTITION ... FINALIZE
+	AT_AddIdentity                                     // ADD IDENTITY
+	AT_SetIdentity                                     // SET identity column options
+	AT_DropIdentity                                    // DROP IDENTITY
+	AT_ReAddStatistics                                 // internal to commands/tablecmds.c
 )
 
 func (a AlterTableType) String() string {
@@ -358,11 +358,11 @@ func (s SortByNulls) String() string {
 type RoleSpecType int
 
 const (
-	ROLESPEC_CSTRING       RoleSpecType = iota // role name is stored as a C string
-	ROLESPEC_CURRENT_ROLE                      // role spec is CURRENT_ROLE
-	ROLESPEC_CURRENT_USER                      // role spec is CURRENT_USER
-	ROLESPEC_SESSION_USER                      // role spec is SESSION_USER
-	ROLESPEC_PUBLIC                            // role name is "public"
+	ROLESPEC_CSTRING      RoleSpecType = iota // role name is stored as a C string
+	ROLESPEC_CURRENT_ROLE                     // role spec is CURRENT_ROLE
+	ROLESPEC_CURRENT_USER                     // role spec is CURRENT_USER
+	ROLESPEC_SESSION_USER                     // role spec is SESSION_USER
+	ROLESPEC_PUBLIC                           // role name is "public"
 )
 
 func (r RoleSpecType) String() string {
@@ -414,7 +414,7 @@ func (r *RoleSpec) String() string {
 // This is a placeholder implementation - full TypeName from parsenodes.h will be implemented later
 type TypeName struct {
 	BaseNode
-	Names       []string // qualified name (list of String) 
+	Names       []string // qualified name (list of String)
 	TypeOid     Oid      // type's OID (filled in by transformTypeName)
 	Setof       bool     // is a set?
 	PctType     bool     // %TYPE specified?
@@ -443,8 +443,8 @@ func (t *TypeName) String() string {
 // This is a placeholder implementation - full CollateClause from parsenodes.h will be implemented later
 type CollateClause struct {
 	BaseNode
-	Arg       Node     // input expression
-	Collname  []string // possibly-qualified collation name
+	Arg      Node     // input expression
+	Collname []string // possibly-qualified collation name
 }
 
 // NewCollateClause creates a new CollateClause node.
@@ -478,9 +478,9 @@ type DefElem struct {
 // NewDefElem creates a new DefElem node.
 func NewDefElem(defname string, arg Node) *DefElem {
 	return &DefElem{
-		BaseNode: BaseNode{Tag: T_DefElem},
-		Defname:  defname,
-		Arg:      arg,
+		BaseNode:  BaseNode{Tag: T_DefElem},
+		Defname:   defname,
+		Arg:       arg,
 		Defaction: DEFELEM_UNSPEC,
 	}
 }
@@ -497,35 +497,36 @@ func (d *DefElem) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2728
 type Constraint struct {
 	BaseNode
-	Contype       ConstrType // see above - postgres/src/include/nodes/parsenodes.h:2731
-	Conname       string     // Constraint name, or NULL if unnamed - postgres/src/include/nodes/parsenodes.h:2732
-	Deferrable    bool       // DEFERRABLE? - postgres/src/include/nodes/parsenodes.h:2733
-	Initdeferred  bool       // INITIALLY DEFERRED? - postgres/src/include/nodes/parsenodes.h:2734
-	SkipValidation bool      // skip validation of existing rows? - postgres/src/include/nodes/parsenodes.h:2735
-	InitiallyValid bool      // mark the new constraint as valid? - postgres/src/include/nodes/parsenodes.h:2736
-	IsNoInherit   bool       // is constraint non-inheritable? - postgres/src/include/nodes/parsenodes.h:2737
-	RawExpr       Node       // CHECK or DEFAULT expression, as untransformed parse tree - postgres/src/include/nodes/parsenodes.h:2738
-	CookedExpr    string     // CHECK or DEFAULT expression, as nodeToString representation - postgres/src/include/nodes/parsenodes.h:2740
-	GeneratedWhen byte       // ALWAYS or BY DEFAULT - postgres/src/include/nodes/parsenodes.h:2742
-	Inhcount      int        // initial inheritance count to apply - postgres/src/include/nodes/parsenodes.h:2743
-	Keys          []string   // String nodes naming referenced key column(s) - postgres/src/include/nodes/parsenodes.h:2744
-	Including     []string   // String nodes naming referenced nonkey column(s) - postgres/src/include/nodes/parsenodes.h:2745
-	Exclusions    []Node     // list of (IndexElem, operator name) pairs - postgres/src/include/nodes/parsenodes.h:2746
-	Options       []Node     // options from WITH clause - postgres/src/include/nodes/parsenodes.h:2747
-	Indexname     string     // existing index to use; otherwise NULL - postgres/src/include/nodes/parsenodes.h:2748
-	Indexspace    string     // index tablespace; NULL for default - postgres/src/include/nodes/parsenodes.h:2749
-	ResetDefaultTblspc bool  // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:2750
-	AccessMethod  string     // access method to use for the index - postgres/src/include/nodes/parsenodes.h:2751
-	WhereClause   Node       // partial index predicate - postgres/src/include/nodes/parsenodes.h:2752
-	Pktable       *RangeVar  // Primary key table for FOREIGN KEY - postgres/src/include/nodes/parsenodes.h:2753
-	FkAttrs       []string   // Attributes of foreign key - postgres/src/include/nodes/parsenodes.h:2754
-	PkAttrs       []string   // Corresponding attrs in PK table - postgres/src/include/nodes/parsenodes.h:2755
-	FkMatchtype   byte       // FULL, PARTIAL, SIMPLE - postgres/src/include/nodes/parsenodes.h:2756
-	FkUpdAction   byte       // ON UPDATE action - postgres/src/include/nodes/parsenodes.h:2757
-	FkDelAction   byte       // ON DELETE action - postgres/src/include/nodes/parsenodes.h:2758
-	FkDelSetCols  []string   // ON DELETE SET NULL/DEFAULT (column_list) - postgres/src/include/nodes/parsenodes.h:2759
-	OldConpfeqop  []Oid      // pg_constraint.conpfeqop of my former self - postgres/src/include/nodes/parsenodes.h:2760
-	OldPktableOid Oid        // pg_class.oid of my former self - postgres/src/include/nodes/parsenodes.h:2761
+	Contype            ConstrType // see above - postgres/src/include/nodes/parsenodes.h:2731
+	Conname            string     // Constraint name, or NULL if unnamed - postgres/src/include/nodes/parsenodes.h:2732
+	Deferrable         bool       // DEFERRABLE? - postgres/src/include/nodes/parsenodes.h:2733
+	Initdeferred       bool       // INITIALLY DEFERRED? - postgres/src/include/nodes/parsenodes.h:2734
+	SkipValidation     bool       // skip validation of existing rows? - postgres/src/include/nodes/parsenodes.h:2735
+	InitiallyValid     bool       // mark the new constraint as valid? - postgres/src/include/nodes/parsenodes.h:2736
+	IsNoInherit        bool       // is constraint non-inheritable? - postgres/src/include/nodes/parsenodes.h:2737
+	RawExpr            Node       // CHECK or DEFAULT expression, as untransformed parse tree - postgres/src/include/nodes/parsenodes.h:2738
+	CookedExpr         string     // CHECK or DEFAULT expression, as nodeToString representation - postgres/src/include/nodes/parsenodes.h:2740
+	GeneratedWhen      byte       // ALWAYS or BY DEFAULT - postgres/src/include/nodes/parsenodes.h:2742
+	Inhcount           int        // initial inheritance count to apply - postgres/src/include/nodes/parsenodes.h:2743
+	NullsNotDistinct   bool       // null treatment for UNIQUE constraints - postgres/src/include/nodes/parsenodes.h:2744
+	Keys               []string   // String nodes naming referenced key column(s) - postgres/src/include/nodes/parsenodes.h:2746
+	Including          []string   // String nodes naming referenced nonkey column(s) - postgres/src/include/nodes/parsenodes.h:2747
+	Exclusions         []Node     // list of (IndexElem, operator name) pairs - postgres/src/include/nodes/parsenodes.h:2748
+	Options            []Node     // options from WITH clause - postgres/src/include/nodes/parsenodes.h:2749
+	Indexname          string     // existing index to use; otherwise NULL - postgres/src/include/nodes/parsenodes.h:2750
+	Indexspace         string     // index tablespace; NULL for default - postgres/src/include/nodes/parsenodes.h:2751
+	ResetDefaultTblspc bool       // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:2752
+	AccessMethod       string     // access method to use for the index - postgres/src/include/nodes/parsenodes.h:2753
+	WhereClause        Node       // partial index predicate - postgres/src/include/nodes/parsenodes.h:2754
+	Pktable            *RangeVar  // Primary key table for FOREIGN KEY - postgres/src/include/nodes/parsenodes.h:2755
+	FkAttrs            []string   // Attributes of foreign key - postgres/src/include/nodes/parsenodes.h:2756
+	PkAttrs            []string   // Corresponding attrs in PK table - postgres/src/include/nodes/parsenodes.h:2757
+	FkMatchtype        byte       // FULL, PARTIAL, SIMPLE - postgres/src/include/nodes/parsenodes.h:2758
+	FkUpdAction        byte       // ON UPDATE action - postgres/src/include/nodes/parsenodes.h:2759
+	FkDelAction        byte       // ON DELETE action - postgres/src/include/nodes/parsenodes.h:2760
+	FkDelSetCols       []string   // ON DELETE SET NULL/DEFAULT (column_list) - postgres/src/include/nodes/parsenodes.h:2761
+	OldConpfeqop       []Oid      // pg_constraint.conpfeqop of my former self - postgres/src/include/nodes/parsenodes.h:2762
+	OldPktableOid      Oid        // pg_class.oid of my former self - postgres/src/include/nodes/parsenodes.h:2763
 }
 
 // NewConstraint creates a new Constraint node.
@@ -613,30 +614,30 @@ func (a *AlterTableCmd) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3348
 type IndexStmt struct {
 	BaseNode
-	Idxname                string      // name of new index, or NULL for default - postgres/src/include/nodes/parsenodes.h:3350
-	Relation               *RangeVar   // relation to build index on - postgres/src/include/nodes/parsenodes.h:3351
-	AccessMethod           string      // name of access method (eg. btree) - postgres/src/include/nodes/parsenodes.h:3352
-	TableSpace             string      // tablespace, or NULL for default - postgres/src/include/nodes/parsenodes.h:3353
-	IndexParams            []*IndexElem // columns to index: a list of IndexElem - postgres/src/include/nodes/parsenodes.h:3354
-	IndexIncludingParams   []*IndexElem // additional columns to index - postgres/src/include/nodes/parsenodes.h:3355
-	Options                []*DefElem  // WITH clause options: a list of DefElem - postgres/src/include/nodes/parsenodes.h:3357
-	WhereClause            Node        // qualification (partial-index predicate) - postgres/src/include/nodes/parsenodes.h:3358
-	ExcludeOpNames         []Node      // exclusion operator names, or NIL if none - postgres/src/include/nodes/parsenodes.h:3359
-	Idxcomment             string      // comment to apply to index, or NULL - postgres/src/include/nodes/parsenodes.h:3360
-	IndexOid               Oid         // OID of an existing index, if any - postgres/src/include/nodes/parsenodes.h:3361
-	OldNumber              uint32      // relfilenumber of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3362
-	OldCreateSubid         uint32      // rd_createSubid of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3363
-	OldFirstRelfilenodeSubid uint32    // rd_firstRelfilenodeSubid of existing storage - postgres/src/include/nodes/parsenodes.h:3364
-	Unique                 bool        // is index unique? - postgres/src/include/nodes/parsenodes.h:3365
-	Nulls_not_distinct     bool        // null treatment in unique index - postgres/src/include/nodes/parsenodes.h:3366
-	Primary                bool        // is index a primary key? - postgres/src/include/nodes/parsenodes.h:3367
-	Isconstraint           bool        // is it for a pkey/unique constraint? - postgres/src/include/nodes/parsenodes.h:3368
-	Deferrable             bool        // is the constraint DEFERRABLE? - postgres/src/include/nodes/parsenodes.h:3369
-	Initdeferred           bool        // is the constraint INITIALLY DEFERRED? - postgres/src/include/nodes/parsenodes.h:3370
-	Transformed            bool        // true when transformIndexStmt is finished - postgres/src/include/nodes/parsenodes.h:3371
-	Concurrent             bool        // should this be a concurrent index build? - postgres/src/include/nodes/parsenodes.h:3372
-	IfNotExists            bool        // just do nothing if index already exists? - postgres/src/include/nodes/parsenodes.h:3373
-	ResetDefaultTblspc     bool        // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:3374
+	Idxname                  string       // name of new index, or NULL for default - postgres/src/include/nodes/parsenodes.h:3350
+	Relation                 *RangeVar    // relation to build index on - postgres/src/include/nodes/parsenodes.h:3351
+	AccessMethod             string       // name of access method (eg. btree) - postgres/src/include/nodes/parsenodes.h:3352
+	TableSpace               string       // tablespace, or NULL for default - postgres/src/include/nodes/parsenodes.h:3353
+	IndexParams              []*IndexElem // columns to index: a list of IndexElem - postgres/src/include/nodes/parsenodes.h:3354
+	IndexIncludingParams     []*IndexElem // additional columns to index - postgres/src/include/nodes/parsenodes.h:3355
+	Options                  []*DefElem   // WITH clause options: a list of DefElem - postgres/src/include/nodes/parsenodes.h:3357
+	WhereClause              Node         // qualification (partial-index predicate) - postgres/src/include/nodes/parsenodes.h:3358
+	ExcludeOpNames           []Node       // exclusion operator names, or NIL if none - postgres/src/include/nodes/parsenodes.h:3359
+	Idxcomment               string       // comment to apply to index, or NULL - postgres/src/include/nodes/parsenodes.h:3360
+	IndexOid                 Oid          // OID of an existing index, if any - postgres/src/include/nodes/parsenodes.h:3361
+	OldNumber                uint32       // relfilenumber of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3362
+	OldCreateSubid           uint32       // rd_createSubid of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3363
+	OldFirstRelfilenodeSubid uint32       // rd_firstRelfilenodeSubid of existing storage - postgres/src/include/nodes/parsenodes.h:3364
+	Unique                   bool         // is index unique? - postgres/src/include/nodes/parsenodes.h:3365
+	NullsNotDistinct       bool         // null treatment in unique index - postgres/src/include/nodes/parsenodes.h:3366
+	Primary                  bool         // is index a primary key? - postgres/src/include/nodes/parsenodes.h:3367
+	Isconstraint             bool         // is it for a pkey/unique constraint? - postgres/src/include/nodes/parsenodes.h:3368
+	Deferrable               bool         // is the constraint DEFERRABLE? - postgres/src/include/nodes/parsenodes.h:3369
+	Initdeferred             bool         // is the constraint INITIALLY DEFERRED? - postgres/src/include/nodes/parsenodes.h:3370
+	Transformed              bool         // true when transformIndexStmt is finished - postgres/src/include/nodes/parsenodes.h:3371
+	Concurrent               bool         // should this be a concurrent index build? - postgres/src/include/nodes/parsenodes.h:3372
+	IfNotExists              bool         // just do nothing if index already exists? - postgres/src/include/nodes/parsenodes.h:3373
+	ResetDefaultTblspc       bool         // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:3374
 }
 
 // NewIndexStmt creates a new IndexStmt node.
@@ -666,22 +667,22 @@ func (i *IndexStmt) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:780
 type IndexElem struct {
 	BaseNode
-	Name           string       // name of attribute to index, or NULL - postgres/src/include/nodes/parsenodes.h:782
-	Expr           Node         // expression to index, or NULL - postgres/src/include/nodes/parsenodes.h:783
-	Indexcolname   string       // name for index column; NULL = default - postgres/src/include/nodes/parsenodes.h:784
-	Collation      []string     // name of collation; NIL = default - postgres/src/include/nodes/parsenodes.h:785
-	Opclass        []string     // name of desired opclass; NIL = default - postgres/src/include/nodes/parsenodes.h:786
-	Opclassopts    []*DefElem   // opclass-specific options, or NIL - postgres/src/include/nodes/parsenodes.h:787
-	Ordering       SortByDir    // ASC/DESC/default - postgres/src/include/nodes/parsenodes.h:788
-	NullsOrdering  SortByNulls  // FIRST/LAST/default - postgres/src/include/nodes/parsenodes.h:789
+	Name          string      // name of attribute to index, or NULL - postgres/src/include/nodes/parsenodes.h:782
+	Expr          Node        // expression to index, or NULL - postgres/src/include/nodes/parsenodes.h:783
+	Indexcolname  string      // name for index column; NULL = default - postgres/src/include/nodes/parsenodes.h:784
+	Collation     []string    // name of collation; NIL = default - postgres/src/include/nodes/parsenodes.h:785
+	Opclass       []string    // name of desired opclass; NIL = default - postgres/src/include/nodes/parsenodes.h:786
+	Opclassopts   []*DefElem  // opclass-specific options, or NIL - postgres/src/include/nodes/parsenodes.h:787
+	Ordering      SortByDir   // ASC/DESC/default - postgres/src/include/nodes/parsenodes.h:788
+	NullsOrdering SortByNulls // FIRST/LAST/default - postgres/src/include/nodes/parsenodes.h:789
 }
 
 // NewIndexElem creates a new IndexElem node.
 func NewIndexElem(name string) *IndexElem {
 	return &IndexElem{
-		BaseNode: BaseNode{Tag: T_IndexElem},
-		Name:     name,
-		Ordering: SORTBY_DEFAULT,
+		BaseNode:      BaseNode{Tag: T_IndexElem},
+		Name:          name,
+		Ordering:      SORTBY_DEFAULT,
 		NullsOrdering: SORTBY_NULLS_DEFAULT,
 	}
 }
@@ -779,10 +780,10 @@ func (a *AlterDomainStmt) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3156
 type CreateDomainStmt struct {
 	BaseNode
-	Domainname   []string      // qualified name (list of String) - postgres/src/include/nodes/parsenodes.h:3158
-	TypeName     *TypeName     // the base type - postgres/src/include/nodes/parsenodes.h:3159
-	CollClause   *CollateClause // untransformed COLLATE spec, if any - postgres/src/include/nodes/parsenodes.h:3160
-	Constraints  []*Constraint // constraints (list of Constraint nodes) - postgres/src/include/nodes/parsenodes.h:3161
+	Domainname  []string       // qualified name (list of String) - postgres/src/include/nodes/parsenodes.h:3158
+	TypeName    *TypeName      // the base type - postgres/src/include/nodes/parsenodes.h:3159
+	CollClause  *CollateClause // untransformed COLLATE spec, if any - postgres/src/include/nodes/parsenodes.h:3160
+	Constraints []*Constraint  // constraints (list of Constraint nodes) - postgres/src/include/nodes/parsenodes.h:3161
 }
 
 // NewCreateDomainStmt creates a new CreateDomainStmt node.
@@ -814,10 +815,10 @@ func (c *CreateDomainStmt) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2320
 type CreateSchemaStmt struct {
 	BaseNode
-	Schemaname   string      // the name of the schema to create - postgres/src/include/nodes/parsenodes.h:2322
-	Authrole     *RoleSpec   // the owner of the created schema - postgres/src/include/nodes/parsenodes.h:2323
-	SchemaElts   []Node      // schema components (list of parsenodes) - postgres/src/include/nodes/parsenodes.h:2324
-	IfNotExists  bool        // just do nothing if schema already exists? - postgres/src/include/nodes/parsenodes.h:2325
+	Schemaname  string    // the name of the schema to create - postgres/src/include/nodes/parsenodes.h:2322
+	Authrole    *RoleSpec // the owner of the created schema - postgres/src/include/nodes/parsenodes.h:2323
+	SchemaElts  []Node    // schema components (list of parsenodes) - postgres/src/include/nodes/parsenodes.h:2324
+	IfNotExists bool      // just do nothing if schema already exists? - postgres/src/include/nodes/parsenodes.h:2325
 }
 
 // NewCreateSchemaStmt creates a new CreateSchemaStmt node.
@@ -905,6 +906,15 @@ func NewUniqueConstraint(conname string, keys []string) *Constraint {
 	return constraint
 }
 
+// NewUniqueConstraintNullsNotDistinct creates a UNIQUE constraint with NULLS NOT DISTINCT.
+func NewUniqueConstraintNullsNotDistinct(conname string, keys []string) *Constraint {
+	constraint := NewConstraint(CONSTR_UNIQUE)
+	constraint.Conname = conname
+	constraint.Keys = keys
+	constraint.NullsNotDistinct = true
+	return constraint
+}
+
 // NewCheckConstraint creates a CHECK constraint.
 func NewCheckConstraint(conname string, rawExpr Node) *Constraint {
 	constraint := NewConstraint(CONSTR_CHECK)
@@ -966,9 +976,9 @@ func NewDescIndexElem(columnName string) *IndexElem {
 // NewExpressionIndexElem creates an index element on an expression.
 func NewExpressionIndexElem(expr Node) *IndexElem {
 	elem := &IndexElem{
-		BaseNode: BaseNode{Tag: T_IndexElem},
-		Expr:     expr,
-		Ordering: SORTBY_DEFAULT,
+		BaseNode:      BaseNode{Tag: T_IndexElem},
+		Expr:          expr,
+		Ordering:      SORTBY_DEFAULT,
 		NullsOrdering: SORTBY_NULLS_DEFAULT,
 	}
 	return elem

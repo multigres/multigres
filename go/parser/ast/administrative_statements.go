@@ -27,8 +27,8 @@ import (
 // Ported from postgres/src/include/nodes/parsenodes.h:751
 type TableLikeClause struct {
 	BaseNode
-	Relation *RangeVar        // Table to copy from - parsenodes.h:752
-	Options  TableLikeOption  // OR of TableLikeOption flags - parsenodes.h:753
+	Relation *RangeVar       // Table to copy from - parsenodes.h:752
+	Options  TableLikeOption // OR of TableLikeOption flags - parsenodes.h:753
 }
 
 // TableLikeOption represents options for LIKE clauses.
@@ -80,12 +80,12 @@ func (tlc *TableLikeClause) String() string {
 	if tlc.Options&CREATE_TABLE_LIKE_INDEXES != 0 {
 		optionStrs = append(optionStrs, "INDEXES")
 	}
-	
+
 	options := ""
 	if len(optionStrs) > 0 {
 		options = fmt.Sprintf(" INCLUDING %v", optionStrs)
 	}
-	
+
 	return fmt.Sprintf("TableLikeClause(LIKE %s%s)", tlc.Relation, options)
 }
 
@@ -162,14 +162,14 @@ func (ps *PartitionSpec) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:896
 type PartitionBoundSpec struct {
 	BaseNode
-	Strategy     PartitionStrategy // Partitioning strategy - parsenodes.h:898
-	IsDefault    bool              // Is this a default partition? - parsenodes.h:899
-	Modulus      int               // Hash partition modulus - parsenodes.h:900
-	Remainder    int               // Hash partition remainder - parsenodes.h:901
-	ListDatums   [][]Node          // List of list datums per column - parsenodes.h:902
-	LowDatums    []Node            // List of lower datums for range bounds - parsenodes.h:903
-	HighDatums   []Node            // List of upper datums for range bounds - parsenodes.h:904
-	Location     int               // Parse location, or -1 if none/unknown - parsenodes.h:905
+	Strategy   PartitionStrategy // Partitioning strategy - parsenodes.h:898
+	IsDefault  bool              // Is this a default partition? - parsenodes.h:899
+	Modulus    int               // Hash partition modulus - parsenodes.h:900
+	Remainder  int               // Hash partition remainder - parsenodes.h:901
+	ListDatums [][]Node          // List of list datums per column - parsenodes.h:902
+	LowDatums  []Node            // List of lower datums for range bounds - parsenodes.h:903
+	HighDatums []Node            // List of upper datums for range bounds - parsenodes.h:904
+	Location   int               // Parse location, or -1 if none/unknown - parsenodes.h:905
 }
 
 // NewPartitionBoundSpec creates a new PartitionBoundSpec node.
@@ -226,7 +226,7 @@ func (pbs *PartitionBoundSpec) String() string {
 	if pbs.IsDefault {
 		return "PartitionBoundSpec(DEFAULT)"
 	}
-	
+
 	switch pbs.Strategy {
 	case PARTITION_STRATEGY_HASH:
 		return fmt.Sprintf("PartitionBoundSpec(HASH modulus=%d remainder=%d)", pbs.Modulus, pbs.Remainder)
@@ -354,12 +354,12 @@ func (se *StatsElem) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2870
 type CreateForeignServerStmt struct {
 	BaseNode
-	Servername string   // Server name - parsenodes.h:2872
-	Servertype string   // Optional server type - parsenodes.h:2873
-	Version    string   // Optional server version - parsenodes.h:2874
-	Fdwname    string   // FDW name - parsenodes.h:2875
-	IfNotExists bool    // IF NOT EXISTS clause - parsenodes.h:2876
-	Options    []Node   // Generic options to FDW - parsenodes.h:2877
+	Servername  string // Server name - parsenodes.h:2872
+	Servertype  string // Optional server type - parsenodes.h:2873
+	Version     string // Optional server version - parsenodes.h:2874
+	Fdwname     string // FDW name - parsenodes.h:2875
+	IfNotExists bool   // IF NOT EXISTS clause - parsenodes.h:2876
+	Options     []Node // Generic options to FDW - parsenodes.h:2877
 }
 
 // NewCreateForeignServerStmt creates a new CreateForeignServerStmt node.
@@ -394,9 +394,9 @@ func (cfss *CreateForeignServerStmt) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2895
 type CreateForeignTableStmt struct {
 	BaseNode
-	Base        *CreateStmt // Base CREATE TABLE statement - parsenodes.h:2897
-	Servername  string      // Foreign server name - parsenodes.h:2898
-	Options     []Node      // OPTIONS clause - parsenodes.h:2899
+	Base       *CreateStmt // Base CREATE TABLE statement - parsenodes.h:2897
+	Servername string      // Foreign server name - parsenodes.h:2898
+	Options    []Node      // OPTIONS clause - parsenodes.h:2899
 }
 
 // NewCreateForeignTableStmt creates a new CreateForeignTableStmt node.
@@ -448,9 +448,9 @@ func (cums *CreateUserMappingStmt) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:1737
 type TriggerTransition struct {
 	BaseNode
-	Name  string // Transition table name - parsenodes.h:1739
-	IsNew bool   // Is this NEW table? (or OLD table?) - parsenodes.h:1740
-	IsTable bool // Is this a table? (or row?) - parsenodes.h:1741
+	Name    string // Transition table name - parsenodes.h:1739
+	IsNew   bool   // Is this NEW table? (or OLD table?) - parsenodes.h:1740
+	IsTable bool   // Is this a table? (or row?) - parsenodes.h:1741
 }
 
 // CreateTriggerStmt represents CREATE TRIGGER statements.
@@ -458,21 +458,21 @@ type TriggerTransition struct {
 // Ported from postgres/src/include/nodes/parsenodes.h:3001
 type CreateTriggerStmt struct {
 	BaseNode
-	Replace       bool                // Replace existing trigger? - parsenodes.h:3003
-	IsConstraint  bool                // Is this a constraint trigger? - parsenodes.h:3004
-	Trigname      string              // Trigger name - parsenodes.h:3005
-	Relation      *RangeVar           // Relation trigger is on - parsenodes.h:3006
-	Funcname      []Node              // Qual. name of function to call - parsenodes.h:3007
-	Args          []Node              // List of (T_String) Values or NIL - parsenodes.h:3008
-	Row           bool                // ROW/STATEMENT - parsenodes.h:3009
-	Timing        int16               // BEFORE, AFTER, or INSTEAD - parsenodes.h:3010
-	Events        int16               // "OR" of INSERT/UPDATE/DELETE/TRUNCATE - parsenodes.h:3011
-	Columns       []Node              // Column names, or NIL for all columns - parsenodes.h:3012
-	WhenClause    Node                // WHEN clause - parsenodes.h:3013
-	Constrrel     *RangeVar           // Opposite relation, if RI trigger - parsenodes.h:3014
-	Deferrable    bool                // DEFERRABLE - parsenodes.h:3015
-	Initdeferred  bool                // INITIALLY DEFERRED - parsenodes.h:3016
-	Transitions   []*TriggerTransition // Transition table clauses - parsenodes.h:3017
+	Replace      bool                 // Replace existing trigger? - parsenodes.h:3003
+	IsConstraint bool                 // Is this a constraint trigger? - parsenodes.h:3004
+	Trigname     string               // Trigger name - parsenodes.h:3005
+	Relation     *RangeVar            // Relation trigger is on - parsenodes.h:3006
+	Funcname     []Node               // Qual. name of function to call - parsenodes.h:3007
+	Args         []Node               // List of (T_String) Values or NIL - parsenodes.h:3008
+	Row          bool                 // ROW/STATEMENT - parsenodes.h:3009
+	Timing       int16                // BEFORE, AFTER, or INSTEAD - parsenodes.h:3010
+	Events       int16                // "OR" of INSERT/UPDATE/DELETE/TRUNCATE - parsenodes.h:3011
+	Columns      []Node               // Column names, or NIL for all columns - parsenodes.h:3012
+	WhenClause   Node                 // WHEN clause - parsenodes.h:3013
+	Constrrel    *RangeVar            // Opposite relation, if RI trigger - parsenodes.h:3014
+	Deferrable   bool                 // DEFERRABLE - parsenodes.h:3015
+	Initdeferred bool                 // INITIALLY DEFERRED - parsenodes.h:3016
+	Transitions  []*TriggerTransition // Transition table clauses - parsenodes.h:3017
 }
 
 // TriggerType represents trigger event types.
@@ -529,12 +529,46 @@ func NewAfterUpdateTrigger(trigname string, relation *RangeVar, funcname []Node)
 	}
 }
 
+// NewConstraintTrigger creates a constraint trigger.
+func NewConstraintTrigger(trigname string, relation *RangeVar, funcname []Node, timing int16, events int16, constrrel *RangeVar) *CreateTriggerStmt {
+	return &CreateTriggerStmt{
+		BaseNode:     BaseNode{Tag: T_CreateTriggerStmt},
+		IsConstraint: true,
+		Trigname:     trigname,
+		Relation:     relation,
+		Funcname:     funcname,
+		Timing:       timing,
+		Events:       events,
+		Row:          true,
+		Constrrel:    constrrel,
+		Deferrable:   false, // Default to NOT DEFERRABLE
+		Initdeferred: false, // Default to INITIALLY IMMEDIATE
+	}
+}
+
+// NewDeferrableConstraintTrigger creates a deferrable constraint trigger.
+func NewDeferrableConstraintTrigger(trigname string, relation *RangeVar, funcname []Node, timing int16, events int16, constrrel *RangeVar, initdeferred bool) *CreateTriggerStmt {
+	return &CreateTriggerStmt{
+		BaseNode:     BaseNode{Tag: T_CreateTriggerStmt},
+		IsConstraint: true,
+		Trigname:     trigname,
+		Relation:     relation,
+		Funcname:     funcname,
+		Timing:       timing,
+		Events:       events,
+		Row:          true,
+		Constrrel:    constrrel,
+		Deferrable:   true,
+		Initdeferred: initdeferred,
+	}
+}
+
 func (cts *CreateTriggerStmt) String() string {
 	timingStrs := map[int16]string{
 		TRIGGER_TIMING_BEFORE: "BEFORE", TRIGGER_TIMING_AFTER: "AFTER", TRIGGER_TIMING_INSTEAD: "INSTEAD OF",
 	}
 	timingStr := timingStrs[cts.Timing]
-	
+
 	eventStrs := []string{}
 	if cts.Events&TRIGGER_TYPE_INSERT != 0 {
 		eventStrs = append(eventStrs, "INSERT")
@@ -548,13 +582,39 @@ func (cts *CreateTriggerStmt) String() string {
 	if cts.Events&TRIGGER_TYPE_TRUNCATE != 0 {
 		eventStrs = append(eventStrs, "TRUNCATE")
 	}
-	
+
 	rowStmt := "STATEMENT"
 	if cts.Row {
 		rowStmt = "ROW"
 	}
-	
-	return fmt.Sprintf("CreateTriggerStmt(CREATE TRIGGER %s %s %v FOR EACH %s)", cts.Trigname, timingStr, eventStrs, rowStmt)
+
+	// Build the base string
+	result := fmt.Sprintf("CreateTriggerStmt(CREATE TRIGGER %s %s %v FOR EACH %s)", cts.Trigname, timingStr, eventStrs, rowStmt)
+
+	// Add constraint trigger information
+	if cts.IsConstraint {
+		result += " CONSTRAINT"
+		if cts.Constrrel != nil {
+			result += fmt.Sprintf(" FROM %s", cts.Constrrel.RelName)
+		}
+		if cts.Deferrable {
+			result += " DEFERRABLE"
+			if cts.Initdeferred {
+				result += " INITIALLY DEFERRED"
+			} else {
+				result += " INITIALLY IMMEDIATE"
+			}
+		} else {
+			result += " NOT DEFERRABLE"
+		}
+	}
+
+	// Add transition information
+	if len(cts.Transitions) > 0 {
+		result += fmt.Sprintf(" (%d transitions)", len(cts.Transitions))
+	}
+
+	return result
 }
 
 // ==============================================================================
@@ -602,7 +662,7 @@ func (cps *CreatePolicyStmt) String() string {
 	if !cps.Permissive {
 		policyType = "RESTRICTIVE"
 	}
-	
+
 	return fmt.Sprintf("CreatePolicyStmt(CREATE %s POLICY %s ON %s FOR %s)", policyType, cps.PolicyName, cps.Table.RelName, cps.CmdName)
 }
 

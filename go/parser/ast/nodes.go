@@ -40,7 +40,7 @@ const (
 	T_RoleSpec
 	T_TypeName
 	T_CollateClause
-	
+
 	// Utility statement nodes
 	T_TransactionStmt
 	T_GrantStmt
@@ -66,7 +66,7 @@ const (
 	T_NotifyStmt
 	T_ListenStmt
 	T_UnlistenStmt
-	
+
 	// Expression nodes
 	T_Expr
 	T_Var
@@ -83,7 +83,7 @@ const (
 	T_CoalesceExpr
 	T_ScalarArrayOpExpr
 	T_SubLink
-	
+
 	// Query execution nodes (essential for SQL functionality)
 	T_TargetEntry
 	T_FromExpr
@@ -95,7 +95,7 @@ const (
 	T_SortGroupClause
 	T_RowMarkClause
 	T_OnConflictExpr
-	
+
 	// Type coercion and advanced expression nodes (essential for PostgreSQL type system)
 	T_RelabelType
 	T_CoerceViaIO
@@ -113,7 +113,7 @@ const (
 	T_CurrentOfExpr
 	T_NextValueExpr
 	T_InferenceElem
-	
+
 	// Administrative and advanced DDL nodes (comprehensive PostgreSQL DDL support)
 	T_TableLikeClause
 	T_PartitionSpec
@@ -127,14 +127,14 @@ const (
 	T_CreatePolicyStmt
 	T_AlterPolicyStmt
 	T_TriggerTransition
-	
+
 	// List and utility nodes
 	T_List
 	T_ResTarget
 	T_RangeVar
 	T_ColumnRef
 	T_AConst
-	
+
 	// Core parse infrastructure nodes - Stage 1A (25 nodes)
 	T_RawStmt
 	T_A_Expr
@@ -159,14 +159,14 @@ const (
 	T_ObjectWithArgs
 	T_SinglePartitionSpec
 	T_PartitionCmd
-	
+
 	// Value nodes - ported from postgres/src/include/nodes/value.h
-	T_Integer  // Integer literal - postgres/src/include/nodes/value.h:28-34
-	T_Float    // Float literal - postgres/src/include/nodes/value.h:47-53
-	T_Boolean  // Boolean literal - postgres/src/include/nodes/value.h:55-61
-	T_String   // String literal - postgres/src/include/nodes/value.h:63-69
+	T_Integer   // Integer literal - postgres/src/include/nodes/value.h:28-34
+	T_Float     // Float literal - postgres/src/include/nodes/value.h:47-53
+	T_Boolean   // Boolean literal - postgres/src/include/nodes/value.h:55-61
+	T_String    // String literal - postgres/src/include/nodes/value.h:63-69
 	T_BitString // Bit string literal - postgres/src/include/nodes/value.h:71-77
-	T_Null     // NULL literal
+	T_Null      // NULL literal
 )
 
 // String returns the string representation of a NodeTag.
@@ -457,12 +457,12 @@ func (nt NodeTag) String() string {
 type Node interface {
 	// NodeTag returns the type tag for this node
 	NodeTag() NodeTag
-	
+
 	// Location returns the byte offset in the source string where this node begins.
 	// Returns -1 if location is not available.
 	// Ported from postgres/src/include/nodes/parsenodes.h:6-12 location concept
 	Location() int
-	
+
 	// String returns a string representation of the node (for debugging)
 	String() string
 }
@@ -757,12 +757,12 @@ type Value interface {
 }
 
 // Implement Value interface for all value types
-func (i *Integer) IsValue() bool   { return true }
-func (f *Float) IsValue() bool     { return true }
-func (b *Boolean) IsValue() bool   { return true }
-func (s *String) IsValue() bool    { return true }
+func (i *Integer) IsValue() bool    { return true }
+func (f *Float) IsValue() bool      { return true }
+func (b *Boolean) IsValue() bool    { return true }
+func (s *String) IsValue() bool     { return true }
 func (bs *BitString) IsValue() bool { return true }
-func (n *Null) IsValue() bool      { return true }
+func (n *Null) IsValue() bool       { return true }
 
 // NewValue creates a properly typed value node based on the Go type.
 // This is a convenience function that delegates to the specific typed constructors.
@@ -832,7 +832,7 @@ func WalkNodes(node Node, walker NodeWalker) {
 	if node == nil || !walker(node) {
 		return
 	}
-	
+
 	// Handle specific node types that contain other nodes
 	switch n := node.(type) {
 	case *NodeList:
@@ -869,14 +869,14 @@ func PrintAST(node Node, indent int) {
 	if node == nil {
 		return
 	}
-	
+
 	prefix := ""
 	for i := 0; i < indent; i++ {
 		prefix += "  "
 	}
-	
+
 	fmt.Printf("%s%s\n", prefix, node.String())
-	
+
 	// Print children for specific node types
 	switch n := node.(type) {
 	case *NodeList:
