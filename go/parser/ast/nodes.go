@@ -208,6 +208,20 @@ const (
 	T_JsonObjectAgg
 	T_JsonArrayAgg
 
+	// Phase 1F: Primitive Expression Completion Part 1 - primnodes.h nodes
+	T_GroupingFunc          // GROUPING function - primnodes.h:537
+	T_WindowFuncRunCondition // Window function run condition - primnodes.h:596
+	T_MergeSupportFunc      // Merge support function - primnodes.h:628
+	T_NamedArgExpr          // Named argument expression - primnodes.h:787
+	T_CaseTestExpr          // CASE test expression - primnodes.h:1352
+	T_MinMaxExpr            // MIN/MAX expression - primnodes.h:1506
+	T_RowCompareExpr        // Row comparison - primnodes.h:1463
+	T_SQLValueFunction      // SQL value function - primnodes.h:1553
+	T_XmlExpr               // XML expression - primnodes.h:1596
+	T_MergeAction           // MERGE action - primnodes.h:2003
+	T_TableFunc             // Table function - primnodes.h:109
+	T_IntoClause            // INTO clause - primnodes.h:158
+
 	// Value nodes - ported from postgres/src/include/nodes/value.h
 	T_Integer   // Integer literal - postgres/src/include/nodes/value.h:28-34
 	T_Float     // Float literal - postgres/src/include/nodes/value.h:47-53
@@ -578,6 +592,30 @@ func (nt NodeTag) String() string {
 		return "T_JsonObjectAgg"
 	case T_JsonArrayAgg:
 		return "T_JsonArrayAgg"
+	case T_GroupingFunc:
+		return "T_GroupingFunc"
+	case T_WindowFuncRunCondition:
+		return "T_WindowFuncRunCondition"
+	case T_MergeSupportFunc:
+		return "T_MergeSupportFunc"
+	case T_NamedArgExpr:
+		return "T_NamedArgExpr"
+	case T_CaseTestExpr:
+		return "T_CaseTestExpr"
+	case T_MinMaxExpr:
+		return "T_MinMaxExpr"
+	case T_RowCompareExpr:
+		return "T_RowCompareExpr"
+	case T_SQLValueFunction:
+		return "T_SQLValueFunction"
+	case T_XmlExpr:
+		return "T_XmlExpr"
+	case T_MergeAction:
+		return "T_MergeAction"
+	case T_TableFunc:
+		return "T_TableFunc"
+	case T_IntoClause:
+		return "T_IntoClause"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

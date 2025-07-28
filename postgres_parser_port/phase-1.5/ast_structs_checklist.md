@@ -2,8 +2,8 @@
 
 This checklist tracks the implementation status of all PostgreSQL AST structs for the parser port project.
 
-**Current Status**: 172 nodes completed out of 456 total (37.7% complete)
-**Latest Milestone**: ✅ **Phase 1E Complete** - 16 JSON parse tree nodes implemented in `json_parse_nodes.go`
+**Current Status**: 185 nodes completed out of 456 total (40.6% complete)
+**Latest Milestone**: ✅ **Phase 1F Complete** - 13 primitive expression nodes implemented in `expressions.go`
 
 ## Parse Tree Node Structures (parsenodes.h)
 
@@ -182,12 +182,12 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 
 ### Function and Operator Nodes
 - [x] **Aggref** - Aggregate function reference (`src/include/nodes/primnodes.h:439`)
-- [ ] **GroupingFunc** - GROUPING function (`src/include/nodes/primnodes.h:537`)
+- [x] **GroupingFunc** - GROUPING function (`src/include/nodes/primnodes.h:537`)
 - [x] **WindowFunc** - Window function (`src/include/nodes/primnodes.h:563`)
-- [ ] **WindowFuncRunCondition** - Window function run condition (`src/include/nodes/primnodes.h:596`)
-- [ ] **MergeSupportFunc** - Merge support function (`src/include/nodes/primnodes.h:628`)
+- [x] **WindowFuncRunCondition** - Window function run condition (`src/include/nodes/primnodes.h:596`)
+- [x] **MergeSupportFunc** - Merge support function (`src/include/nodes/primnodes.h:628`)
 - [x] **FuncExpr** - Function expression (`src/include/nodes/primnodes.h:746`)
-- [ ] **NamedArgExpr** - Named argument expression (`src/include/nodes/primnodes.h:787`)
+- [x] **NamedArgExpr** - Named argument expression (`src/include/nodes/primnodes.h:787`)
 - [x] **OpExpr** - Operator expression (`src/include/nodes/primnodes.h:813`)
 - [x] **ScalarArrayOpExpr** - Scalar array operator expression (`src/include/nodes/primnodes.h:893`)
 - [x] **BoolExpr** - Boolean expression (AND/OR/NOT) (`src/include/nodes/primnodes.h:934`)
@@ -215,17 +215,17 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 ### Control Flow Nodes
 - [x] **CaseExpr** - CASE expression (`src/include/nodes/primnodes.h:1306`)
 - [x] **CaseWhen** - WHEN clause in CASE (`src/include/nodes/primnodes.h:1322`)
-- [ ] **CaseTestExpr** - CASE test expression (`src/include/nodes/primnodes.h:1352`)
+- [x] **CaseTestExpr** - CASE test expression (`src/include/nodes/primnodes.h:1352`)
 - [x] **CoalesceExpr** - COALESCE expression (`src/include/nodes/primnodes.h:1484`)
-- [ ] **MinMaxExpr** - MIN/MAX expression (`src/include/nodes/primnodes.h:1506`)
+- [x] **MinMaxExpr** - MIN/MAX expression (`src/include/nodes/primnodes.h:1506`)
 
 ### Row and Comparison Operations
 - [x] **RowExpr** - Row expression (`src/include/nodes/primnodes.h:1408`)
-- [ ] **RowCompareExpr** - Row comparison (`src/include/nodes/primnodes.h:1463`)
+- [x] **RowCompareExpr** - Row comparison (`src/include/nodes/primnodes.h:1463`)
 
 ### Built-in Functions
-- [ ] **SQLValueFunction** - SQL value function (`src/include/nodes/primnodes.h:1553`)
-- [ ] **XmlExpr** - XML expression (`src/include/nodes/primnodes.h:1596`)
+- [x] **SQLValueFunction** - SQL value function (`src/include/nodes/primnodes.h:1553`)
+- [x] **XmlExpr** - XML expression (`src/include/nodes/primnodes.h:1596`)
 
 ### JSON Expression Nodes
 - [ ] **JsonFormat** - JSON format specification (`src/include/nodes/primnodes.h:1648`)
@@ -243,7 +243,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 ### Test and Validation Nodes
 - [x] **NullTest** - NULL test (`src/include/nodes/primnodes.h:1955`)
 - [x] **BooleanTest** - Boolean test (`src/include/nodes/primnodes.h:1979`)
-- [ ] **MergeAction** - MERGE action (`src/include/nodes/primnodes.h:2003`)
+- [x] **MergeAction** - MERGE action (`src/include/nodes/primnodes.h:2003`)
 
 ### Special Value Nodes
 - [x] **SetToDefault** - SET TO DEFAULT (`src/include/nodes/primnodes.h:2068`)
@@ -261,8 +261,8 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 ### Utility Nodes
 - [x] **Alias** - Alias specification (`src/include/nodes/primnodes.h:47`)
 - [x] **RangeVar** - Range variable (`src/include/nodes/primnodes.h:71`)
-- [ ] **TableFunc** - Table function (`src/include/nodes/primnodes.h:109`)
-- [ ] **IntoClause** - INTO clause (`src/include/nodes/primnodes.h:158`)
+- [x] **TableFunc** - Table function (`src/include/nodes/primnodes.h:109`)
+- [x] **IntoClause** - INTO clause (`src/include/nodes/primnodes.h:158`)
 
 ## Plan Node Structures (plannodes.h)
 

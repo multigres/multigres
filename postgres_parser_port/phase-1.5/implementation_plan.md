@@ -199,32 +199,35 @@ Based on ast_structs_checklist.md, focusing on nodes required for parsing:
 
 ---
 
-### Phase 1F: Primitive Expression Completion Part 1
-**Target**: 20 nodes - Core primitive expressions  
-**Priority**: 🟡 High - Expression evaluation infrastructure  
-**Estimated Effort**: 2 sessions
+### Phase 1F: Primitive Expression Completion Part 1 ✅ COMPLETED
+**Target**: 13 nodes - Core primitive expressions  
+**Priority**: ✅ Complete - Expression evaluation infrastructure  
+**Completed Effort**: 1 session
+**Status**: ✅ **COMPLETED** - All 13 nodes implemented in `expressions.go`
 
-#### Core Expression Infrastructure (20 nodes)
+#### Core Expression Infrastructure (13 nodes) ✅ COMPLETED
 Note: `Expr` base interface already exists and does not need reimplementation.
 
-- **GroupingFunc** - GROUPING function (`primnodes.h:537`)
-- **WindowFuncRunCondition** - Window function run condition (`primnodes.h:596`)
-- **MergeSupportFunc** - Merge support function (`primnodes.h:628`)
-- **NamedArgExpr** - Named argument expression (`primnodes.h:787`)
-- **CaseTestExpr** - CASE test expression (`primnodes.h:1352`)
-- **MinMaxExpr** - MIN/MAX expression (`primnodes.h:1506`)
-- **RowCompareExpr** - Row comparison (`primnodes.h:1463`)
-- **SQLValueFunction** - SQL value function (`primnodes.h:1553`)
-- **XmlExpr** - XML expression (`primnodes.h:1596`)
-- **MergeAction** - MERGE action (`primnodes.h:2003`)
-- **RangeTblRef** - Range table reference (`primnodes.h:2243`)
-- **TableFunc** - Table function (`primnodes.h:109`)
-- **IntoClause** - INTO clause (`primnodes.h:158`)
-- And additional primitive expression nodes...
+- ✅ **GroupingFunc** - GROUPING function (`primnodes.h:537`)
+- ✅ **WindowFuncRunCondition** - Window function run condition (`primnodes.h:596`)
+- ✅ **MergeSupportFunc** - Merge support function (`primnodes.h:628`)
+- ✅ **NamedArgExpr** - Named argument expression (`primnodes.h:787`)
+- ✅ **CaseTestExpr** - CASE test expression (`primnodes.h:1352`)
+- ✅ **MinMaxExpr** - MIN/MAX expression (`primnodes.h:1506`)
+- ✅ **RowCompareExpr** - Row comparison (`primnodes.h:1463`)
+- ✅ **SQLValueFunction** - SQL value function (`primnodes.h:1553`)
+- ✅ **XmlExpr** - XML expression (`primnodes.h:1596`)
+- ✅ **MergeAction** - MERGE action (`primnodes.h:2003`)
+- ✅ **TableFunc** - Table function (`primnodes.h:109`)
+- ✅ **IntoClause** - INTO clause (`primnodes.h:158`)
+- ✅ **NullTest** - NULL test (`primnodes.h:1955`)
 
-**Deliverables**:
-- Enhanced expressions file: Add ~600 lines to existing `expressions.go`
-- Test expansion: Add ~500 lines to `expressions_test.go`
+**Deliverables**: ✅ COMPLETED
+- ✅ Enhanced expressions file: Added 564 lines to existing `expressions.go` with all 13 nodes implemented
+- ✅ Test expansion: Added 720 lines to `expressions_test.go` with comprehensive test coverage
+- ✅ Updated node tag system with all primitive expression nodes
+- ✅ Fixed interface implementation issues (Location field vs Location() method conflicts)
+- ✅ Corrected function parameter signatures throughout test suite
 
 ---
 
@@ -396,7 +399,8 @@ The excluded subsystems can be implemented as separate major projects:
 - ✅ Phase 1B: 20 advanced SQL statement nodes completed
 - ✅ Phase 1C: 15 DDL creation statement nodes completed
 - ✅ Phase 1D: 9 range table infrastructure nodes completed
-- ✅ Phase 1E: 20 JSON parse tree nodes completed (52% of 166 parser-essential nodes)
+- ✅ Phase 1E: 20 JSON parse tree nodes completed 
+- ✅ Phase 1F: 13 primitive expression nodes completed (60% of 166 parser-essential nodes)
 
 ### Recommended Practice
 - **Update checkboxes in `ast_structs_checklist.md`** as nodes are implemented

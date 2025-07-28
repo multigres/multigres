@@ -96,7 +96,7 @@ func (e *BaseExpr) IsExpr() bool {
 // Ported from postgres/src/include/nodes/primnodes.h:247
 type Var struct {
 	BaseExpr
-	Varno     Index      // Relation index in range table - postgres/src/include/nodes/primnodes.h:249
+	Varno     int        // Relation index in range table - postgres/src/include/nodes/primnodes.h:249
 	Varattno  AttrNumber // Attribute number (0 = whole-row) - postgres/src/include/nodes/primnodes.h:250
 	Vartype   Oid        // pg_type OID - postgres/src/include/nodes/primnodes.h:251
 	Vartypmod int32      // Type modifier - postgres/src/include/nodes/primnodes.h:252
@@ -108,7 +108,7 @@ type Var struct {
 }
 
 // NewVar creates a new Var node.
-func NewVar(varno Index, varattno AttrNumber, vartype Oid) *Var {
+func NewVar(varno int, varattno AttrNumber, vartype Oid) *Var {
 	return &Var{
 		BaseExpr: BaseExpr{BaseNode: BaseNode{Tag: T_Var}},
 		Varno:    varno,
@@ -1187,4 +1187,567 @@ func IsSimpleWindowAgg(expr Node) bool {
 		return winFunc.Winagg
 	}
 	return false
+}
+
+// ==============================================================================
+// PHASE 1F: PRIMITIVE EXPRESSION COMPLETION PART 1
+// Core primitive expressions from PostgreSQL primnodes.h
+// ==============================================================================
+
+// RowCompareType represents row comparison types
+// Ported from postgres/src/include/nodes/primnodes.h:1445-1452
+type RowCompareType int
+
+const (
+	ROWCOMPARE_LT RowCompareType = 1 // BTLessStrategyNumber
+	ROWCOMPARE_LE RowCompareType = 2 // BTLessEqualStrategyNumber
+	ROWCOMPARE_EQ RowCompareType = 3 // BTEqualStrategyNumber
+	ROWCOMPARE_GE RowCompareType = 4 // BTGreaterEqualStrategyNumber
+	ROWCOMPARE_GT RowCompareType = 5 // BTGreaterStrategyNumber
+	ROWCOMPARE_NE RowCompareType = 6 // no such btree strategy
+)
+
+// MinMaxOp represents MIN/MAX operation types
+// Ported from postgres/src/include/nodes/primnodes.h:1499-1502
+type MinMaxOp int
+
+const (
+	IS_GREATEST MinMaxOp = iota
+	IS_LEAST
+)
+
+// SQLValueFunctionOp represents SQL value function operation types
+// Ported from postgres/src/include/nodes/primnodes.h:1522-1541
+type SQLValueFunctionOp int
+
+const (
+	SVFOP_CURRENT_DATE SQLValueFunctionOp = iota
+	SVFOP_CURRENT_TIME
+	SVFOP_CURRENT_TIME_N
+	SVFOP_CURRENT_TIMESTAMP
+	SVFOP_CURRENT_TIMESTAMP_N
+	SVFOP_LOCALTIME
+	SVFOP_LOCALTIME_N
+	SVFOP_LOCALTIMESTAMP
+	SVFOP_LOCALTIMESTAMP_N
+	SVFOP_CURRENT_ROLE
+	SVFOP_CURRENT_USER
+	SVFOP_USER
+	SVFOP_SESSION_USER
+	SVFOP_CURRENT_CATALOG
+	SVFOP_CURRENT_SCHEMA
+)
+
+// XmlExprOp represents XML expression operation types
+// Ported from postgres/src/include/nodes/primnodes.h:1577-1586
+type XmlExprOp int
+
+const (
+	IS_XMLCONCAT    XmlExprOp = iota // XMLCONCAT(args)
+	IS_XMLELEMENT                    // XMLELEMENT(name, xml_attributes, args)
+	IS_XMLFOREST                     // XMLFOREST(xml_attributes)
+	IS_XMLPARSE                      // XMLPARSE(text, is_doc, preserve_ws)
+	IS_XMLPI                         // XMLPI(name [, args])
+	IS_XMLROOT                       // XMLROOT(xml, version, standalone)
+	IS_XMLSERIALIZE                  // XMLSERIALIZE(is_document, xmlval, indent)
+	IS_DOCUMENT                      // xmlval IS DOCUMENT
+)
+
+// TableFuncType represents table function types
+// Ported from postgres/src/include/nodes/primnodes.h:98-101
+type TableFuncType int
+
+const (
+	TFT_XMLTABLE TableFuncType = iota
+	TFT_JSON_TABLE
+)
+
+// GroupingFunc represents a GROUPING function call
+// Ported from postgres/src/include/nodes/primnodes.h:537-548
+type GroupingFunc struct {
+	BaseExpr
+	Args        []Expression // Arguments, not evaluated but kept for EXPLAIN
+	Refs        []uint32     // Resource sort group refs of arguments
+	Cols        []uint32     // Actual column positions set by planner
+	AggLevelsUp Index        // Same as Aggref.agglevelsup
+}
+
+// NewGroupingFunc creates a new GroupingFunc node.
+func NewGroupingFunc(args []Expression, refs, cols []uint32, aggLevelsUp Index, location int) *GroupingFunc {
+	return &GroupingFunc{
+		BaseExpr:    BaseExpr{BaseNode: BaseNode{Tag: T_GroupingFunc, Loc: location}},
+		Args:        args,
+		Refs:        refs,
+		Cols:        cols,
+		AggLevelsUp: aggLevelsUp,
+	}
+}
+
+func (g *GroupingFunc) ExpressionType() string {
+	return "GroupingFunc"
+}
+
+func (g *GroupingFunc) String() string {
+	return fmt.Sprintf("GroupingFunc{%d args, agglevelsup=%d}@%d", len(g.Args), g.AggLevelsUp, g.Location())
+}
+
+// WindowFuncRunCondition represents a window function run condition
+// Ported from postgres/src/include/nodes/primnodes.h:596-609
+type WindowFuncRunCondition struct {
+	BaseExpr
+	Opno        Oid        // PG_OPERATOR OID of the operator
+	InputCollid Oid        // OID of collation that operator should use
+	WfuncLeft   bool       // True if WindowFunc belongs on the left
+	Arg         Expression // The argument expression
+}
+
+// NewWindowFuncRunCondition creates a new WindowFuncRunCondition node.
+func NewWindowFuncRunCondition(opno, inputCollid Oid, wfuncLeft bool, arg Expression, location int) *WindowFuncRunCondition {
+	return &WindowFuncRunCondition{
+		BaseExpr:    BaseExpr{BaseNode: BaseNode{Tag: T_WindowFuncRunCondition, Loc: location}},
+		Opno:        opno,
+		InputCollid: inputCollid,
+		WfuncLeft:   wfuncLeft,
+		Arg:         arg,
+	}
+}
+
+func (w *WindowFuncRunCondition) ExpressionType() string {
+	return "WindowFuncRunCondition"
+}
+
+func (w *WindowFuncRunCondition) String() string {
+	return fmt.Sprintf("WindowFuncRunCondition{opno=%d, left=%t}@%d", w.Opno, w.WfuncLeft, w.Location())
+}
+
+// MergeSupportFunc represents a merge support function
+// Ported from postgres/src/include/nodes/primnodes.h:628-635
+type MergeSupportFunc struct {
+	BaseExpr
+	MsfType   Oid // Type OID of result
+	MsfCollid Oid // OID of collation, or InvalidOid if none
+}
+
+// NewMergeSupportFunc creates a new MergeSupportFunc node.
+func NewMergeSupportFunc(msfType, msfCollid Oid, location int) *MergeSupportFunc {
+	return &MergeSupportFunc{
+		BaseExpr:  BaseExpr{BaseNode: BaseNode{Tag: T_MergeSupportFunc, Loc: location}},
+		MsfType:   msfType,
+		MsfCollid: msfCollid,
+	}
+}
+
+func (m *MergeSupportFunc) ExpressionType() string {
+	return "MergeSupportFunc"
+}
+
+func (m *MergeSupportFunc) String() string {
+	return fmt.Sprintf("MergeSupportFunc{type=%d, collid=%d}@%d", m.MsfType, m.MsfCollid, m.Location())
+}
+
+// NamedArgExpr represents a named argument expression
+// Ported from postgres/src/include/nodes/primnodes.h:787-795
+type NamedArgExpr struct {
+	BaseExpr
+	Arg       Expression // The argument expression
+	Name      string     // The name
+	ArgNumber int        // Argument's number in positional notation
+}
+
+// NewNamedArgExpr creates a new NamedArgExpr node.
+func NewNamedArgExpr(arg Expression, name string, argNumber, location int) *NamedArgExpr {
+	return &NamedArgExpr{
+		BaseExpr:  BaseExpr{BaseNode: BaseNode{Tag: T_NamedArgExpr, Loc: location}},
+		Arg:       arg,
+		Name:      name,
+		ArgNumber: argNumber,
+	}
+}
+
+func (n *NamedArgExpr) ExpressionType() string {
+	return "NamedArgExpr"
+}
+
+func (n *NamedArgExpr) String() string {
+	return fmt.Sprintf("NamedArgExpr{name='%s', argnum=%d}@%d", n.Name, n.ArgNumber, n.Location())
+}
+
+// CaseTestExpr represents a CASE test expression
+// Ported from postgres/src/include/nodes/primnodes.h:1352-1359
+type CaseTestExpr struct {
+	BaseExpr
+	TypeId    Oid // Type for substituted value
+	TypeMod   int // Typemod for substituted value
+	Collation Oid // Collation for the substituted value
+}
+
+// NewCaseTestExpr creates a new CaseTestExpr node.
+func NewCaseTestExpr(typeId Oid, typeMod int, collation Oid, location int) *CaseTestExpr {
+	return &CaseTestExpr{
+		BaseExpr:  BaseExpr{BaseNode: BaseNode{Tag: T_CaseTestExpr, Loc: location}},
+		TypeId:    typeId,
+		TypeMod:   typeMod,
+		Collation: collation,
+	}
+}
+
+func (c *CaseTestExpr) ExpressionType() string {
+	return "CaseTestExpr"
+}
+
+func (c *CaseTestExpr) String() string {
+	return fmt.Sprintf("CaseTestExpr{type=%d, typmod=%d, collation=%d}@%d", c.TypeId, c.TypeMod, c.Collation, c.Location())
+}
+
+// MinMaxExpr represents a MIN/MAX expression
+// Ported from postgres/src/include/nodes/primnodes.h:1506-1517
+type MinMaxExpr struct {
+	BaseExpr
+	MinMaxType   Oid          // Common type of arguments and result
+	MinMaxCollid Oid          // OID of collation of result
+	InputCollid  Oid          // OID of collation that function should use
+	Op           MinMaxOp     // Function to execute
+	Args         []Expression // The arguments
+}
+
+// NewMinMaxExpr creates a new MinMaxExpr node.
+func NewMinMaxExpr(minMaxType, minMaxCollid, inputCollid Oid, op MinMaxOp, args []Expression, location int) *MinMaxExpr {
+	return &MinMaxExpr{
+		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_MinMaxExpr, Loc: location}},
+		MinMaxType:   minMaxType,
+		MinMaxCollid: minMaxCollid,
+		InputCollid:  inputCollid,
+		Op:           op,
+		Args:         args,
+	}
+}
+
+func (m *MinMaxExpr) ExpressionType() string {
+	return "MinMaxExpr"
+}
+
+func (m *MinMaxExpr) String() string {
+	opStr := "GREATEST"
+	if m.Op == IS_LEAST {
+		opStr = "LEAST"
+	}
+	return fmt.Sprintf("MinMaxExpr{%s, %d args}@%d", opStr, len(m.Args), m.Location())
+}
+
+// RowCompareExpr represents a row comparison expression
+// Ported from postgres/src/include/nodes/primnodes.h:1463-1474
+type RowCompareExpr struct {
+	BaseExpr
+	Rctype       RowCompareType // LT LE GE or GT, never EQ or NE
+	Opnos        []Oid          // OID list of pairwise comparison ops
+	Opfamilies   []Oid          // OID list of containing operator families
+	InputCollids []Oid          // OID list of collations for comparisons
+	Largs        []Expression   // The left-hand input arguments
+	Rargs        []Expression   // The right-hand input arguments
+}
+
+// NewRowCompareExpr creates a new RowCompareExpr node.
+func NewRowCompareExpr(rctype RowCompareType, opnos, opfamilies, inputCollids []Oid, largs, rargs []Expression, location int) *RowCompareExpr {
+	return &RowCompareExpr{
+		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_RowCompareExpr, Loc: location}},
+		Rctype:       rctype,
+		Opnos:        opnos,
+		Opfamilies:   opfamilies,
+		InputCollids: inputCollids,
+		Largs:        largs,
+		Rargs:        rargs,
+	}
+}
+
+func (r *RowCompareExpr) ExpressionType() string {
+	return "RowCompareExpr"
+}
+
+func (r *RowCompareExpr) String() string {
+	var opStr string
+	switch r.Rctype {
+	case ROWCOMPARE_LT:
+		opStr = "<"
+	case ROWCOMPARE_LE:
+		opStr = "<="
+	case ROWCOMPARE_EQ:
+		opStr = "="
+	case ROWCOMPARE_GE:
+		opStr = ">="
+	case ROWCOMPARE_GT:
+		opStr = ">"
+	case ROWCOMPARE_NE:
+		opStr = "<>"
+	default:
+		opStr = "?"
+	}
+	return fmt.Sprintf("RowCompareExpr{(%d) %s (%d)}@%d", len(r.Largs), opStr, len(r.Rargs), r.Location())
+}
+
+// SQLValueFunction represents parameterless functions with special grammar
+// Ported from postgres/src/include/nodes/primnodes.h:1553-1563
+type SQLValueFunction struct {
+	BaseExpr
+	Op      SQLValueFunctionOp // Which function this is
+	Type    Oid                // Result type
+	TypeMod int                // Result typmod
+}
+
+// NewSQLValueFunction creates a new SQLValueFunction node.
+func NewSQLValueFunction(op SQLValueFunctionOp, typ Oid, typeMod, location int) *SQLValueFunction {
+	return &SQLValueFunction{
+		BaseExpr: BaseExpr{BaseNode: BaseNode{Tag: T_SQLValueFunction, Loc: location}},
+		Op:       op,
+		Type:     typ,
+		TypeMod:  typeMod,
+	}
+}
+
+func (s *SQLValueFunction) ExpressionType() string {
+	return "SQLValueFunction"
+}
+
+func (s *SQLValueFunction) String() string {
+	var opStr string
+	switch s.Op {
+	case SVFOP_CURRENT_DATE:
+		opStr = "CURRENT_DATE"
+	case SVFOP_CURRENT_TIME:
+		opStr = "CURRENT_TIME"
+	case SVFOP_CURRENT_TIMESTAMP:
+		opStr = "CURRENT_TIMESTAMP"
+	case SVFOP_LOCALTIME:
+		opStr = "LOCALTIME"
+	case SVFOP_LOCALTIMESTAMP:
+		opStr = "LOCALTIMESTAMP"
+	case SVFOP_CURRENT_ROLE:
+		opStr = "CURRENT_ROLE"
+	case SVFOP_CURRENT_USER:
+		opStr = "CURRENT_USER"
+	case SVFOP_USER:
+		opStr = "USER"
+	case SVFOP_SESSION_USER:
+		opStr = "SESSION_USER"
+	case SVFOP_CURRENT_CATALOG:
+		opStr = "CURRENT_CATALOG"
+	case SVFOP_CURRENT_SCHEMA:
+		opStr = "CURRENT_SCHEMA"
+	default:
+		opStr = "UNKNOWN"
+	}
+	return fmt.Sprintf("SQLValueFunction{%s}@%d", opStr, s.Location())
+}
+
+// XmlExpr represents various SQL/XML functions requiring special grammar
+// Ported from postgres/src/include/nodes/primnodes.h:1596-1618
+type XmlExpr struct {
+	BaseExpr
+	Op        XmlExprOp     // XML function ID
+	Name      string        // Name in xml(NAME foo ...) syntaxes
+	NamedArgs []Expression  // Non-XML expressions for xml_attributes
+	ArgNames  []string      // Parallel list of String values
+	Args      []Expression  // List of expressions
+	Xmloption XmlOptionType // DOCUMENT or CONTENT
+	Indent    bool          // INDENT option for XMLSERIALIZE
+	Type      Oid           // Target type for XMLSERIALIZE
+	TypeMod   int           // Target typmod for XMLSERIALIZE
+}
+
+// NewXmlExpr creates a new XmlExpr node.
+func NewXmlExpr(op XmlExprOp, name string, namedArgs []Expression, argNames []string, args []Expression, xmloption XmlOptionType, indent bool, typ Oid, typeMod, location int) *XmlExpr {
+	return &XmlExpr{
+		BaseExpr:  BaseExpr{BaseNode: BaseNode{Tag: T_XmlExpr, Loc: location}},
+		Op:        op,
+		Name:      name,
+		NamedArgs: namedArgs,
+		ArgNames:  argNames,
+		Args:      args,
+		Xmloption: xmloption,
+		Indent:    indent,
+		Type:      typ,
+		TypeMod:   typeMod,
+	}
+}
+
+func (x *XmlExpr) ExpressionType() string {
+	return "XmlExpr"
+}
+
+func (x *XmlExpr) String() string {
+	var opStr string
+	switch x.Op {
+	case IS_XMLCONCAT:
+		opStr = "XMLCONCAT"
+	case IS_XMLELEMENT:
+		opStr = "XMLELEMENT"
+	case IS_XMLFOREST:
+		opStr = "XMLFOREST"
+	case IS_XMLPARSE:
+		opStr = "XMLPARSE"
+	case IS_XMLPI:
+		opStr = "XMLPI"
+	case IS_XMLROOT:
+		opStr = "XMLROOT"
+	case IS_XMLSERIALIZE:
+		opStr = "XMLSERIALIZE"
+	case IS_DOCUMENT:
+		opStr = "IS_DOCUMENT"
+	default:
+		opStr = "UNKNOWN"
+	}
+	return fmt.Sprintf("XmlExpr{%s, %d args}@%d", opStr, len(x.Args), x.Location())
+}
+
+// TableFunc represents a table function such as XMLTABLE and JSON_TABLE
+// Ported from postgres/src/include/nodes/primnodes.h:109-146
+type TableFunc struct {
+	BaseNode
+	Functype        TableFuncType // XMLTABLE or JSON_TABLE
+	NsUris          []Expression  // List of namespace URI expressions
+	NsNames         []string      // List of namespace names or NULL
+	Docexpr         Expression    // Input document expression
+	Rowexpr         Expression    // Row filter expression
+	Colnames        []string      // Column names (list of String)
+	Coltypes        []Oid         // OID list of column type OIDs
+	Coltypmods      []int         // Integer list of column typmods
+	Colcollations   []Oid         // OID list of column collation OIDs
+	Colexprs        []Expression  // List of column filter expressions
+	Coldefexprs     []Expression  // List of column default expressions
+	Colvalexprs     []Expression  // JSON_TABLE: list of column value expressions
+	Passingvalexprs []Expression  // JSON_TABLE: list of PASSING argument expressions
+	Notnulls        []bool        // Nullability flag for each output column
+	Plan            Node          // JSON_TABLE plan
+	Ordinalitycol   int           // Counts from 0; -1 if none specified
+}
+
+// NewTableFunc creates a new TableFunc node.
+func NewTableFunc(functype TableFuncType, nsUris []Expression, nsNames []string, docexpr, rowexpr Expression, colnames []string, coltypes []Oid, coltypmods []int, colcollations []Oid, colexprs, coldefexprs, colvalexprs, passingvalexprs []Expression, notnulls []bool, plan Node, ordinalitycol, location int) *TableFunc {
+	return &TableFunc{
+		BaseNode:        BaseNode{Tag: T_TableFunc, Loc: location},
+		Functype:        functype,
+		NsUris:          nsUris,
+		NsNames:         nsNames,
+		Docexpr:         docexpr,
+		Rowexpr:         rowexpr,
+		Colnames:        colnames,
+		Coltypes:        coltypes,
+		Coltypmods:      coltypmods,
+		Colcollations:   colcollations,
+		Colexprs:        colexprs,
+		Coldefexprs:     coldefexprs,
+		Colvalexprs:     colvalexprs,
+		Passingvalexprs: passingvalexprs,
+		Notnulls:        notnulls,
+		Plan:            plan,
+		Ordinalitycol:   ordinalitycol,
+	}
+}
+
+func (t *TableFunc) String() string {
+	funcStr := "XMLTABLE"
+	if t.Functype == TFT_JSON_TABLE {
+		funcStr = "JSON_TABLE"
+	}
+	return fmt.Sprintf("TableFunc{%s, %d cols}@%d", funcStr, len(t.Colnames), t.Location())
+}
+
+func (t *TableFunc) StatementType() string {
+	return "TABLE_FUNC"
+}
+
+// IntoClause represents target information for SELECT INTO, CREATE TABLE AS, and CREATE MATERIALIZED VIEW
+// Ported from postgres/src/include/nodes/primnodes.h:158-171
+type IntoClause struct {
+	BaseNode
+	Rel            *RangeVar      // Target relation name
+	ColNames       []string       // Column names to assign, or NIL
+	AccessMethod   string         // Table access method
+	Options        []Node         // Options from WITH clause
+	OnCommit       OnCommitAction // What do we do at COMMIT?
+	TableSpaceName string         // Table space to use, or NULL
+	ViewQuery      Node           // Materialized view's SELECT query
+	SkipData       bool           // True for WITH NO DATA
+}
+
+// NewIntoClause creates a new IntoClause node.
+func NewIntoClause(rel *RangeVar, colNames []string, accessMethod string, options []Node, onCommit OnCommitAction, tableSpaceName string, viewQuery Node, skipData bool, location int) *IntoClause {
+	return &IntoClause{
+		BaseNode:       BaseNode{Tag: T_IntoClause, Loc: location},
+		Rel:            rel,
+		ColNames:       colNames,
+		AccessMethod:   accessMethod,
+		Options:        options,
+		OnCommit:       onCommit,
+		TableSpaceName: tableSpaceName,
+		ViewQuery:      viewQuery,
+		SkipData:       skipData,
+	}
+}
+
+func (i *IntoClause) String() string {
+	var target string
+	if i.Rel != nil {
+		target = i.Rel.String()
+	} else {
+		target = "?"
+	}
+	return fmt.Sprintf("IntoClause{%s, skipData=%t}@%d", target, i.SkipData, i.Location())
+}
+
+func (i *IntoClause) StatementType() string {
+	return "INTO_CLAUSE"
+}
+
+// MergeAction represents a MERGE action
+// Ported from postgres/src/include/nodes/primnodes.h:2003-2013
+type MergeAction struct {
+	BaseNode
+	MatchKind    MergeMatchKind // MATCHED/NOT MATCHED BY SOURCE/TARGET
+	CommandType  CmdType        // INSERT/UPDATE/DELETE/DO NOTHING
+	Override     OverridingKind // OVERRIDING clause
+	Qual         Node           // Transformed WHEN conditions
+	TargetList   []*TargetEntry // The target list (of TargetEntry)
+	UpdateColnos []AttrNumber   // Target attribute numbers of an UPDATE
+}
+
+// NewMergeAction creates a new MergeAction node.
+func NewMergeAction(matchKind MergeMatchKind, commandType CmdType, override OverridingKind, qual Node, targetList []*TargetEntry, updateColnos []AttrNumber, location int) *MergeAction {
+	return &MergeAction{
+		BaseNode:     BaseNode{Tag: T_MergeAction, Loc: location},
+		MatchKind:    matchKind,
+		CommandType:  commandType,
+		Override:     override,
+		Qual:         qual,
+		TargetList:   targetList,
+		UpdateColnos: updateColnos,
+	}
+}
+
+func (m *MergeAction) String() string {
+	var matchStr, cmdStr string
+	switch m.MatchKind {
+	case MERGE_WHEN_MATCHED:
+		matchStr = "MATCHED"
+	case MERGE_WHEN_NOT_MATCHED_BY_SOURCE:
+		matchStr = "NOT MATCHED BY SOURCE"
+	case MERGE_WHEN_NOT_MATCHED_BY_TARGET:
+		matchStr = "NOT MATCHED BY TARGET"
+	default:
+		matchStr = "UNKNOWN"
+	}
+	switch m.CommandType {
+	case CMD_INSERT:
+		cmdStr = "INSERT"
+	case CMD_UPDATE:
+		cmdStr = "UPDATE"
+	case CMD_DELETE:
+		cmdStr = "DELETE"
+	default:
+		cmdStr = "DO NOTHING"
+	}
+	return fmt.Sprintf("MergeAction{%s %s, %d targets}@%d", matchStr, cmdStr, len(m.TargetList), m.Location())
+}
+
+func (m *MergeAction) StatementType() string {
+	return "MERGE_ACTION"
 }

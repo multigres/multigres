@@ -18,9 +18,7 @@ import (
 type AclMode uint32    // Access control mode bitmask
 type Cardinality float64 // Row count estimates
 
-// TableFunc is a placeholder for the actual TableFunc implementation
-// This will be implemented in a later phase
-type TableFunc struct{ BaseNode }
+// TableFunc placeholder removed - now implemented in expressions.go
 
 // RTEKind represents the type of a Range Table Entry.
 // Ported from postgres/src/include/nodes/parsenodes.h:1022-1033

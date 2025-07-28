@@ -586,7 +586,7 @@ func (cte *CommonTableExpr) String() string {
 }
 
 // Placeholder structs for other query execution nodes implemented in query_execution_nodes.go
-type IntoClause struct{ BaseNode }
+// IntoClause placeholder removed - now implemented in expressions.go
 // SetOperation represents the type of set operation
 // Ported from postgres/src/include/nodes/parsenodes.h:2108-2114
 type SetOperation int

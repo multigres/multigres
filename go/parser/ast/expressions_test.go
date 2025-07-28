@@ -44,7 +44,7 @@ func TestSupportingTypes(t *testing.T) {
 
 // TestVar tests the Var expression node.
 func TestVar(t *testing.T) {
-	varno := Index(1)
+	varno := int(1)
 	varattno := AttrNumber(2)
 	vartype := Oid(23) // int4 in PostgreSQL
 
@@ -1133,5 +1133,725 @@ func TestTier3ComplexExpressions(t *testing.T) {
 		existsArgs := GetExpressionArgs(existsSublink)
 		assert.Len(t, existsArgs, 1)
 		assert.Equal(t, subquery, existsArgs[0])
+	})
+}
+
+// ==============================================================================
+// PHASE 1F: PRIMITIVE EXPRESSION COMPLETION PART 1 - TEST COVERAGE
+// Unit tests for all Phase 1F primitive expression nodes
+// ==============================================================================
+
+// TestPhase1FEnumTypes tests the new enumeration types added in Phase 1F
+func TestPhase1FEnumTypes(t *testing.T) {
+	t.Run("RowCompareType", func(t *testing.T) {
+		assert.Equal(t, RowCompareType(1), ROWCOMPARE_LT)
+		assert.Equal(t, RowCompareType(2), ROWCOMPARE_LE)
+		assert.Equal(t, RowCompareType(3), ROWCOMPARE_EQ)
+		assert.Equal(t, RowCompareType(4), ROWCOMPARE_GE)
+		assert.Equal(t, RowCompareType(5), ROWCOMPARE_GT)
+		assert.Equal(t, RowCompareType(6), ROWCOMPARE_NE)
+	})
+
+	t.Run("MinMaxOp", func(t *testing.T) {
+		assert.Equal(t, MinMaxOp(0), IS_GREATEST)
+		assert.Equal(t, MinMaxOp(1), IS_LEAST)
+	})
+
+	t.Run("SQLValueFunctionOp", func(t *testing.T) {
+		assert.Equal(t, SQLValueFunctionOp(0), SVFOP_CURRENT_DATE)
+		assert.Equal(t, SQLValueFunctionOp(1), SVFOP_CURRENT_TIME)
+		assert.Equal(t, SQLValueFunctionOp(9), SVFOP_CURRENT_ROLE)
+	})
+
+	t.Run("XmlExprOp", func(t *testing.T) {
+		assert.Equal(t, XmlExprOp(0), IS_XMLCONCAT)
+		assert.Equal(t, XmlExprOp(1), IS_XMLELEMENT)
+		assert.Equal(t, XmlExprOp(7), IS_DOCUMENT)
+	})
+
+	t.Run("XmlOptionType", func(t *testing.T) {
+		assert.Equal(t, XmlOptionType(0), XMLOPTION_DOCUMENT)
+		assert.Equal(t, XmlOptionType(1), XMLOPTION_CONTENT)
+	})
+
+	t.Run("TableFuncType", func(t *testing.T) {
+		assert.Equal(t, TableFuncType(0), TFT_XMLTABLE)
+		assert.Equal(t, TableFuncType(1), TFT_JSON_TABLE)
+	})
+
+	t.Run("OnCommitAction", func(t *testing.T) {
+		assert.Equal(t, OnCommitAction(0), ONCOMMIT_NOOP)
+		assert.Equal(t, OnCommitAction(1), ONCOMMIT_PRESERVE_ROWS)
+		assert.Equal(t, OnCommitAction(2), ONCOMMIT_DELETE_ROWS)
+		assert.Equal(t, OnCommitAction(3), ONCOMMIT_DROP)
+	})
+
+	t.Run("OverridingKind", func(t *testing.T) {
+		assert.Equal(t, OverridingKind(0), OVERRIDING_NOT_SET)
+		assert.Equal(t, OverridingKind(1), OVERRIDING_USER_VALUE)
+		assert.Equal(t, OverridingKind(2), OVERRIDING_SYSTEM_VALUE)
+	})
+
+	t.Run("MergeMatchKind", func(t *testing.T) {
+		assert.Equal(t, MergeMatchKind(0), MERGE_WHEN_MATCHED)
+		assert.Equal(t, MergeMatchKind(1), MERGE_WHEN_NOT_MATCHED_BY_SOURCE)
+		assert.Equal(t, MergeMatchKind(2), MERGE_WHEN_NOT_MATCHED_BY_TARGET)
+	})
+}
+
+// TestGroupingFunc tests the GroupingFunc node implementation
+func TestGroupingFunc(t *testing.T) {
+	t.Run("NewGroupingFunc", func(t *testing.T) {
+		args := []Expression{NewConst(Oid(23), 1, false), NewConst(Oid(23), 2, false)}
+		refs := []uint32{1, 2}
+		cols := []uint32{10, 20}
+		aggLevelsUp := Index(0)
+		location := 150
+
+		gf := NewGroupingFunc(args, refs, cols, aggLevelsUp, location)
+
+		require.NotNil(t, gf)
+		assert.Equal(t, T_GroupingFunc, gf.Tag)
+		assert.Equal(t, args, gf.Args)
+		assert.Equal(t, refs, gf.Refs)
+		assert.Equal(t, cols, gf.Cols)
+		assert.Equal(t, aggLevelsUp, gf.AggLevelsUp)
+		assert.Equal(t, location, gf.Location())
+		assert.Equal(t, location, gf.BaseNode.Loc)
+	})
+
+	t.Run("String", func(t *testing.T) {
+		args := []Expression{NewConst(Oid(23), 1, false)}
+		gf := NewGroupingFunc(args, []uint32{1}, []uint32{10}, Index(1), 200)
+		str := gf.String()
+
+		assert.Contains(t, str, "GroupingFunc")
+		assert.Contains(t, str, "1 args")
+		assert.Contains(t, str, "agglevelsup=1")
+		assert.Contains(t, str, "@200")
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		gf := NewGroupingFunc(nil, nil, nil, Index(0), 0)
+		
+		// Test Expression interface
+		var expr Expression = gf
+		assert.NotNil(t, expr)
+		
+		// Test Node interface
+		var node Node = gf
+		assert.Equal(t, T_GroupingFunc, node.NodeTag())
+		assert.Equal(t, 0, node.Location())
+	})
+}
+
+// TestWindowFuncRunCondition tests the WindowFuncRunCondition node implementation
+func TestWindowFuncRunCondition(t *testing.T) {
+	t.Run("NewWindowFuncRunCondition", func(t *testing.T) {
+		opno := Oid(96) // = operator OID
+		inputCollid := Oid(100)
+		wfuncLeft := true
+		arg := NewConst(Oid(23), Datum(42), false)
+		location := 200
+
+		wfrc := NewWindowFuncRunCondition(opno, inputCollid, wfuncLeft, arg, location)
+
+		require.NotNil(t, wfrc)
+		assert.Equal(t, T_WindowFuncRunCondition, wfrc.Tag)
+		assert.Equal(t, opno, wfrc.Opno)
+		assert.Equal(t, inputCollid, wfrc.InputCollid)
+		assert.Equal(t, wfuncLeft, wfrc.WfuncLeft)
+		assert.Equal(t, arg, wfrc.Arg)
+		assert.Equal(t, location, wfrc.Location())
+	})
+
+	t.Run("String", func(t *testing.T) {
+		wfrc := NewWindowFuncRunCondition(Oid(96), Oid(100), false, nil, 250)
+		str := wfrc.String()
+
+		assert.Contains(t, str, "WindowFuncRunCondition")
+		assert.Contains(t, str, "opno=96")
+		assert.Contains(t, str, "left=false")
+		assert.Contains(t, str, "@250")
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		wfrc := NewWindowFuncRunCondition(Oid(0), Oid(0), false, nil, 0)
+		
+		var expr Expression = wfrc
+		assert.NotNil(t, expr)
+		
+		var node Node = wfrc
+		assert.Equal(t, T_WindowFuncRunCondition, node.NodeTag())
+	})
+}
+
+// TestMergeSupportFunc tests the MergeSupportFunc node implementation
+func TestMergeSupportFunc(t *testing.T) {
+	t.Run("NewMergeSupportFunc", func(t *testing.T) {
+		msfType := Oid(23) // int4
+		msfCollid := Oid(0) // No collation
+		location := 300
+
+		msf := NewMergeSupportFunc(msfType, msfCollid, location)
+
+		require.NotNil(t, msf)
+		assert.Equal(t, T_MergeSupportFunc, msf.Tag)
+		assert.Equal(t, msfType, msf.MsfType)
+		assert.Equal(t, msfCollid, msf.MsfCollid)
+		assert.Equal(t, location, msf.Location())
+	})
+
+	t.Run("String", func(t *testing.T) {
+		msf := NewMergeSupportFunc(Oid(25), Oid(100), 350)
+		str := msf.String()
+
+		assert.Contains(t, str, "MergeSupportFunc")
+		assert.Contains(t, str, "type=25")
+		assert.Contains(t, str, "collid=100")
+		assert.Contains(t, str, "@350")
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		msf := NewMergeSupportFunc(Oid(0), Oid(0), 0)
+		
+		var expr Expression = msf
+		assert.NotNil(t, expr)
+		
+		var node Node = msf
+		assert.Equal(t, T_MergeSupportFunc, node.NodeTag())
+	})
+}
+
+// TestNamedArgExpr tests the NamedArgExpr node implementation
+func TestNamedArgExpr(t *testing.T) {
+	t.Run("NewNamedArgExpr", func(t *testing.T) {
+		arg := NewConst(Oid(25), Datum(uintptr(0)), false)
+		name := "param_name"
+		argNumber := 1
+		location := 400
+
+		nae := NewNamedArgExpr(arg, name, argNumber, location)
+
+		require.NotNil(t, nae)
+		assert.Equal(t, T_NamedArgExpr, nae.Tag)
+		assert.Equal(t, arg, nae.Arg)
+		assert.Equal(t, name, nae.Name)
+		assert.Equal(t, argNumber, nae.ArgNumber)
+		assert.Equal(t, location, nae.Location())
+	})
+
+	t.Run("String", func(t *testing.T) {
+		nae := NewNamedArgExpr(nil, "my_param", 2, 450)
+		str := nae.String()
+
+		assert.Contains(t, str, "NamedArgExpr")
+		assert.Contains(t, str, "name='my_param'")
+		assert.Contains(t, str, "argnum=2")
+		assert.Contains(t, str, "@450")
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		nae := NewNamedArgExpr(nil, "", 0, 0)
+		
+		var expr Expression = nae
+		assert.NotNil(t, expr)
+		
+		var node Node = nae
+		assert.Equal(t, T_NamedArgExpr, node.NodeTag())
+	})
+}
+
+// TestCaseTestExpr tests the CaseTestExpr node implementation
+func TestCaseTestExpr(t *testing.T) {
+	t.Run("NewCaseTestExpr", func(t *testing.T) {
+		typeId := Oid(23) // int4
+		typeMod := -1
+		collation := Oid(100)
+		location := 500
+
+		cte := NewCaseTestExpr(typeId, typeMod, collation, location)
+
+		require.NotNil(t, cte)
+		assert.Equal(t, T_CaseTestExpr, cte.Tag)
+		assert.Equal(t, typeId, cte.TypeId)
+		assert.Equal(t, typeMod, cte.TypeMod)
+		assert.Equal(t, collation, cte.Collation)
+	})
+
+	t.Run("String", func(t *testing.T) {
+		cte := NewCaseTestExpr(Oid(25), 100, Oid(200), 550)
+		str := cte.String()
+
+		assert.Contains(t, str, "CaseTestExpr")
+		assert.Contains(t, str, "type=25")
+		assert.Contains(t, str, "typmod=100")
+		assert.Contains(t, str, "collation=200")
+		assert.Contains(t, str, "@550")
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		cte := NewCaseTestExpr(Oid(0), 0, Oid(0), 0)
+		
+		var expr Expression = cte
+		assert.NotNil(t, expr)
+		
+		var node Node = cte
+		assert.Equal(t, T_CaseTestExpr, node.NodeTag())
+	})
+}
+
+// TestMinMaxExpr tests the MinMaxExpr node implementation
+func TestMinMaxExpr(t *testing.T) {
+	t.Run("NewMinMaxExpr", func(t *testing.T) {
+		minMaxType := Oid(23) // int4
+		minMaxCollid := Oid(0)
+		inputCollid := Oid(0)
+		op := IS_GREATEST
+		args := []Expression{
+			NewConst(Oid(23), Datum(1), false),
+			NewConst(Oid(23), Datum(2), false),
+		}
+		location := 600
+
+		mme := NewMinMaxExpr(minMaxType, minMaxCollid, inputCollid, op, args, location)
+
+		require.NotNil(t, mme)
+		assert.Equal(t, T_MinMaxExpr, mme.Tag)
+		assert.Equal(t, minMaxType, mme.MinMaxType)
+		assert.Equal(t, minMaxCollid, mme.MinMaxCollid)
+		assert.Equal(t, inputCollid, mme.InputCollid)
+		assert.Equal(t, op, mme.Op)
+		assert.Equal(t, args, mme.Args)
+		assert.Equal(t, location, mme.Location())
+	})
+
+	t.Run("String GREATEST", func(t *testing.T) {
+		args := []Expression{NewConst(Oid(23), Datum(1), false)}
+		mme := NewMinMaxExpr(Oid(23), Oid(0), Oid(0), IS_GREATEST, args, 650)
+		str := mme.String()
+
+		assert.Contains(t, str, "MinMaxExpr")
+		assert.Contains(t, str, "GREATEST")
+		assert.Contains(t, str, "1 args")
+		assert.Contains(t, str, "@650")
+	})
+
+	t.Run("String LEAST", func(t *testing.T) {
+		args := []Expression{NewConst(Oid(23), Datum(1), false)}
+		mme := NewMinMaxExpr(Oid(23), Oid(0), Oid(0), IS_LEAST, args, 700)
+		str := mme.String()
+
+		assert.Contains(t, str, "MinMaxExpr")
+		assert.Contains(t, str, "LEAST")
+		assert.Contains(t, str, "1 args")
+		assert.Contains(t, str, "@700")
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		mme := NewMinMaxExpr(Oid(0), Oid(0), Oid(0), IS_GREATEST, nil, 0)
+		
+		var expr Expression = mme
+		assert.NotNil(t, expr)
+		
+		var node Node = mme
+		assert.Equal(t, T_MinMaxExpr, node.NodeTag())
+	})
+}
+
+// TestRowCompareExpr tests the RowCompareExpr node implementation
+func TestRowCompareExpr(t *testing.T) {
+	t.Run("NewRowCompareExpr", func(t *testing.T) {
+		rctype := ROWCOMPARE_LT
+		opnos := []Oid{Oid(96), Oid(97)} // Operator OIDs
+		opfamilies := []Oid{Oid(1), Oid(2)} // Operator family OIDs
+		inputCollids := []Oid{Oid(100), Oid(101)} // Collation OIDs
+		largs := []Expression{NewConst(Oid(23), Datum(1), false)}
+		rargs := []Expression{NewConst(Oid(23), Datum(2), false)}
+		location := 800
+
+		rce := NewRowCompareExpr(rctype, opnos, opfamilies, inputCollids, largs, rargs, location)
+
+		require.NotNil(t, rce)
+		assert.Equal(t, T_RowCompareExpr, rce.Tag)
+		assert.Equal(t, rctype, rce.Rctype)
+		assert.Equal(t, opnos, rce.Opnos)
+		assert.Equal(t, opfamilies, rce.Opfamilies)
+		assert.Equal(t, inputCollids, rce.InputCollids)
+		assert.Equal(t, largs, rce.Largs)
+		assert.Equal(t, rargs, rce.Rargs)
+	})
+
+	t.Run("String with different operators", func(t *testing.T) {
+		tests := []struct {
+			rctype   RowCompareType
+			expected string
+		}{
+			{ROWCOMPARE_LT, "<"},
+			{ROWCOMPARE_LE, "<="},
+			{ROWCOMPARE_EQ, "="},
+			{ROWCOMPARE_GE, ">="},
+			{ROWCOMPARE_GT, ">"},
+			{ROWCOMPARE_NE, "<>"},
+		}
+
+		for _, tt := range tests {
+			largs := []Expression{NewConst(Oid(23), Datum(1), false)}
+			rargs := []Expression{NewConst(Oid(23), Datum(2), false)}
+			rce := NewRowCompareExpr(tt.rctype, nil, nil, nil, largs, rargs, 850)
+			str := rce.String()
+
+			assert.Contains(t, str, "RowCompareExpr")
+			assert.Contains(t, str, tt.expected)
+			assert.Contains(t, str, "(1)")
+			assert.Contains(t, str, "(1)")
+			assert.Contains(t, str, "@850")
+		}
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		rce := NewRowCompareExpr(ROWCOMPARE_LT, nil, nil, nil, nil, nil, 0)
+		
+		var expr Expression = rce
+		assert.NotNil(t, expr)
+		
+		var node Node = rce
+		assert.Equal(t, T_RowCompareExpr, node.NodeTag())
+	})
+}
+
+// TestSQLValueFunction tests the SQLValueFunction node implementation
+func TestSQLValueFunction(t *testing.T) {
+	t.Run("NewSQLValueFunction", func(t *testing.T) {
+		op := SVFOP_CURRENT_DATE
+		typ := Oid(1082) // date type OID
+		typeMod := -1
+		location := 900
+
+		svf := NewSQLValueFunction(op, typ, typeMod, location)
+
+		require.NotNil(t, svf)
+		assert.Equal(t, T_SQLValueFunction, svf.Tag)
+		assert.Equal(t, op, svf.Op)
+		assert.Equal(t, typ, svf.Type)
+		assert.Equal(t, typeMod, svf.TypeMod)
+		assert.Equal(t, location, svf.Location())
+	})
+
+	t.Run("String with different functions", func(t *testing.T) {
+		tests := []struct {
+			op       SQLValueFunctionOp
+			expected string
+		}{
+			{SVFOP_CURRENT_DATE, "CURRENT_DATE"},
+			{SVFOP_CURRENT_TIME, "CURRENT_TIME"},
+			{SVFOP_CURRENT_TIMESTAMP, "CURRENT_TIMESTAMP"},
+			{SVFOP_LOCALTIME, "LOCALTIME"},
+			{SVFOP_LOCALTIMESTAMP, "LOCALTIMESTAMP"},
+			{SVFOP_CURRENT_ROLE, "CURRENT_ROLE"},
+			{SVFOP_CURRENT_USER, "CURRENT_USER"},
+			{SVFOP_USER, "USER"},
+			{SVFOP_SESSION_USER, "SESSION_USER"},
+			{SVFOP_CURRENT_CATALOG, "CURRENT_CATALOG"},
+			{SVFOP_CURRENT_SCHEMA, "CURRENT_SCHEMA"},
+		}
+
+		for _, tt := range tests {
+			svf := NewSQLValueFunction(tt.op, Oid(25), -1, 950)
+			str := svf.String()
+
+			assert.Contains(t, str, "SQLValueFunction")
+			assert.Contains(t, str, tt.expected)
+			assert.Contains(t, str, "@950")
+		}
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		svf := NewSQLValueFunction(SVFOP_CURRENT_DATE, Oid(0), 0, 0)
+		
+		var expr Expression = svf
+		assert.NotNil(t, expr)
+		
+		var node Node = svf
+		assert.Equal(t, T_SQLValueFunction, node.NodeTag())
+	})
+}
+
+// TestXmlExpr tests the XmlExpr node implementation
+func TestXmlExpr(t *testing.T) {
+	t.Run("NewXmlExpr", func(t *testing.T) {
+		op := IS_XMLCONCAT
+		name := "test_element"
+		namedArgs := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
+		argNames := []string{"attr_name"}
+		args := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
+		xmloption := XMLOPTION_DOCUMENT
+		indent := true
+		typ := Oid(142) // xml type OID
+		typeMod := -1
+		location := 1000
+
+		xe := NewXmlExpr(op, name, namedArgs, argNames, args, xmloption, indent, typ, typeMod, location)
+
+		require.NotNil(t, xe)
+		assert.Equal(t, T_XmlExpr, xe.Tag)
+		assert.Equal(t, op, xe.Op)
+		assert.Equal(t, name, xe.Name)
+		assert.Equal(t, namedArgs, xe.NamedArgs)
+		assert.Equal(t, argNames, xe.ArgNames)
+		assert.Equal(t, args, xe.Args)
+		assert.Equal(t, xmloption, xe.Xmloption)
+		assert.Equal(t, indent, xe.Indent)
+		assert.Equal(t, typ, xe.Type)
+		assert.Equal(t, typeMod, xe.TypeMod)
+		assert.Equal(t, location, xe.Location())
+	})
+
+	t.Run("String with different XML operations", func(t *testing.T) {
+		tests := []struct {
+			op       XmlExprOp
+			expected string
+		}{
+			{IS_XMLCONCAT, "XMLCONCAT"},
+			{IS_XMLELEMENT, "XMLELEMENT"},
+			{IS_XMLFOREST, "XMLFOREST"},
+			{IS_XMLPARSE, "XMLPARSE"},
+			{IS_XMLPI, "XMLPI"},
+			{IS_XMLROOT, "XMLROOT"},
+			{IS_XMLSERIALIZE, "XMLSERIALIZE"},
+			{IS_DOCUMENT, "IS_DOCUMENT"},
+		}
+
+		for _, tt := range tests {
+			args := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
+			xe := NewXmlExpr(tt.op, "", nil, nil, args, XMLOPTION_DOCUMENT, false, Oid(142), -1, 1050)
+			str := xe.String()
+
+			assert.Contains(t, str, "XmlExpr")
+			assert.Contains(t, str, tt.expected)
+			assert.Contains(t, str, "1 args")
+			assert.Contains(t, str, "@1050")
+		}
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		xe := NewXmlExpr(IS_XMLCONCAT, "", nil, nil, nil, XMLOPTION_DOCUMENT, false, Oid(0), 0, 0)
+		
+		var expr Expression = xe
+		assert.NotNil(t, expr)
+		
+		var node Node = xe
+		assert.Equal(t, T_XmlExpr, node.NodeTag())
+	})
+}
+
+// TestTableFunc tests the TableFunc node implementation
+func TestTableFunc(t *testing.T) {
+	t.Run("NewTableFunc", func(t *testing.T) {
+		functype := TFT_XMLTABLE
+		nsUris := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
+		nsNames := []string{"ns1"}
+		docexpr := NewConst(Oid(25), Datum(uintptr(0)), false)
+		rowexpr := NewConst(Oid(25), Datum(uintptr(0)), false)
+		colnames := []string{"col1", "col2"}
+		coltypes := []Oid{Oid(25), Oid(23)} // text, int4
+		coltypmods := []int{-1, -1}
+		colcollations := []Oid{Oid(100), Oid(0)}
+		colexprs := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
+		coldefexprs := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
+		colvalexprs := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
+		passingvalexprs := []Expression{NewConst(Oid(23), Datum(42), false)}
+		notnulls := []bool{true, false}
+		plan := NewConst(Oid(25), Datum(uintptr(0)), false)
+		ordinalitycol := 1
+		location := 1100
+
+		tf := NewTableFunc(functype, nsUris, nsNames, docexpr, rowexpr, colnames, coltypes, coltypmods, colcollations, colexprs, coldefexprs, colvalexprs, passingvalexprs, notnulls, plan, ordinalitycol, location)
+
+		require.NotNil(t, tf)
+		assert.Equal(t, T_TableFunc, tf.Tag)
+		assert.Equal(t, functype, tf.Functype)
+		assert.Equal(t, nsUris, tf.NsUris)
+		assert.Equal(t, nsNames, tf.NsNames)
+		assert.Equal(t, docexpr, tf.Docexpr)
+		assert.Equal(t, rowexpr, tf.Rowexpr)
+		assert.Equal(t, colnames, tf.Colnames)
+		assert.Equal(t, coltypes, tf.Coltypes)
+		assert.Equal(t, coltypmods, tf.Coltypmods)
+		assert.Equal(t, colcollations, tf.Colcollations)
+		assert.Equal(t, colexprs, tf.Colexprs)
+		assert.Equal(t, coldefexprs, tf.Coldefexprs)
+		assert.Equal(t, colvalexprs, tf.Colvalexprs)
+		assert.Equal(t, passingvalexprs, tf.Passingvalexprs)
+		assert.Equal(t, notnulls, tf.Notnulls)
+		assert.Equal(t, plan, tf.Plan)
+		assert.Equal(t, ordinalitycol, tf.Ordinalitycol)
+		assert.Equal(t, location, tf.Location())
+	})
+
+	t.Run("String XMLTABLE", func(t *testing.T) {
+		colnames := []string{"col1", "col2"}
+		tf := NewTableFunc(TFT_XMLTABLE, nil, nil, nil, nil, colnames, nil, nil, nil, nil, nil, nil, nil, nil, nil, -1, 1150)
+		str := tf.String()
+
+		assert.Contains(t, str, "TableFunc")
+		assert.Contains(t, str, "XMLTABLE")
+		assert.Contains(t, str, "2 cols")
+		assert.Contains(t, str, "@1150")
+	})
+
+	t.Run("String JSON_TABLE", func(t *testing.T) {
+		colnames := []string{"col1"}
+		tf := NewTableFunc(TFT_JSON_TABLE, nil, nil, nil, nil, colnames, nil, nil, nil, nil, nil, nil, nil, nil, nil, -1, 1200)
+		str := tf.String()
+
+		assert.Contains(t, str, "TableFunc")
+		assert.Contains(t, str, "JSON_TABLE")
+		assert.Contains(t, str, "1 cols")
+		assert.Contains(t, str, "@1200")
+	})
+
+	t.Run("StatementType", func(t *testing.T) {
+		tf := NewTableFunc(TFT_XMLTABLE, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, -1, 0)
+		assert.Equal(t, "TABLE_FUNC", tf.StatementType())
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		tf := NewTableFunc(TFT_XMLTABLE, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, -1, 0)
+		
+		var node Node = tf
+		assert.Equal(t, T_TableFunc, node.NodeTag())
+		
+		var stmt Statement = tf
+		assert.Equal(t, "TABLE_FUNC", stmt.StatementType())
+	})
+}
+
+// TestIntoClause tests the IntoClause node implementation  
+func TestIntoClause(t *testing.T) {
+	t.Run("NewIntoClause", func(t *testing.T) {
+		rel := NewRangeVar("table", "schema", "")
+		colNames := []string{"col1", "col2"}
+		accessMethod := "heap"
+		options := []Node{NewDefElem("fillfactor", NewInteger(80))}
+		onCommit := ONCOMMIT_DELETE_ROWS
+		tableSpaceName := "my_tablespace"
+		viewQuery := NewSelectStmt()
+		skipData := true
+		location := 1250
+
+		ic := NewIntoClause(rel, colNames, accessMethod, options, onCommit, tableSpaceName, viewQuery, skipData, location)
+
+		require.NotNil(t, ic)
+		assert.Equal(t, T_IntoClause, ic.Tag)
+		assert.Equal(t, rel, ic.Rel)
+		assert.Equal(t, colNames, ic.ColNames)
+		assert.Equal(t, accessMethod, ic.AccessMethod)
+		assert.Equal(t, options, ic.Options)
+		assert.Equal(t, onCommit, ic.OnCommit)
+		assert.Equal(t, tableSpaceName, ic.TableSpaceName)
+		assert.Equal(t, viewQuery, ic.ViewQuery)
+		assert.Equal(t, skipData, ic.SkipData)
+	})
+
+	t.Run("String", func(t *testing.T) {
+		rel := NewRangeVar("test_table", "", "")
+		ic := NewIntoClause(rel, nil, "", nil, ONCOMMIT_NOOP, "", nil, false, 1300)
+		str := ic.String()
+
+		assert.Contains(t, str, "IntoClause")
+		assert.Contains(t, str, "test_table")
+		assert.Contains(t, str, "skipData=false")
+		assert.Contains(t, str, "@1300")
+	})
+
+	t.Run("String with nil Rel", func(t *testing.T) {
+		ic := NewIntoClause(nil, nil, "", nil, ONCOMMIT_NOOP, "", nil, true, 1350)
+		str := ic.String()
+
+		assert.Contains(t, str, "IntoClause")
+		assert.Contains(t, str, "?")
+		assert.Contains(t, str, "skipData=true")
+		assert.Contains(t, str, "@1350")
+	})
+
+	t.Run("StatementType", func(t *testing.T) {
+		ic := NewIntoClause(nil, nil, "", nil, ONCOMMIT_NOOP, "", nil, false, 0)
+		assert.Equal(t, "INTO_CLAUSE", ic.StatementType())
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		ic := NewIntoClause(nil, nil, "", nil, ONCOMMIT_NOOP, "", nil, false, 0)
+		
+		var node Node = ic
+		assert.Equal(t, T_IntoClause, node.NodeTag())
+		
+		var stmt Statement = ic
+		assert.Equal(t, "INTO_CLAUSE", stmt.StatementType())
+	})
+}
+
+// TestMergeAction tests the MergeAction node implementation
+func TestMergeAction(t *testing.T) {
+	t.Run("NewMergeAction", func(t *testing.T) {
+		matchKind := MERGE_WHEN_MATCHED
+		commandType := CMD_UPDATE
+		override := OVERRIDING_USER_VALUE
+		qual := NewConst(Oid(16), Datum(0), false)
+		targetList := []*TargetEntry{NewTargetEntry(NewConst(Oid(23), Datum(1), false), AttrNumber(1), "col1")}
+		updateColnos := []AttrNumber{AttrNumber(1), AttrNumber(2)}
+		location := 1400
+
+		ma := NewMergeAction(matchKind, commandType, override, qual, targetList, updateColnos, location)
+
+		require.NotNil(t, ma)
+		assert.Equal(t, T_MergeAction, ma.Tag)
+		assert.Equal(t, matchKind, ma.MatchKind)
+		assert.Equal(t, commandType, ma.CommandType)
+		assert.Equal(t, override, ma.Override)
+		assert.Equal(t, qual, ma.Qual)
+		assert.Equal(t, targetList, ma.TargetList)
+		assert.Equal(t, updateColnos, ma.UpdateColnos)
+	})
+
+	t.Run("String with different match kinds and commands", func(t *testing.T) {
+		tests := []struct {
+			matchKind   MergeMatchKind
+			commandType CmdType
+			expectedMatch string
+			expectedCmd   string
+		}{
+			{MERGE_WHEN_MATCHED, CMD_UPDATE, "MATCHED", "UPDATE"},
+			{MERGE_WHEN_NOT_MATCHED_BY_SOURCE, CMD_DELETE, "NOT MATCHED BY SOURCE", "DELETE"},
+			{MERGE_WHEN_NOT_MATCHED_BY_TARGET, CMD_INSERT, "NOT MATCHED BY TARGET", "INSERT"},
+			{MERGE_WHEN_MATCHED, CMD_UNKNOWN, "MATCHED", "DO NOTHING"},
+		}
+
+		for _, tt := range tests {
+			targetList := []*TargetEntry{NewTargetEntry(NewConst(Oid(23), Datum(1), false), AttrNumber(1), "col1")}
+			ma := NewMergeAction(tt.matchKind, tt.commandType, OVERRIDING_NOT_SET, nil, targetList, nil, 1450)
+			str := ma.String()
+
+			assert.Contains(t, str, "MergeAction")
+			assert.Contains(t, str, tt.expectedMatch)
+			assert.Contains(t, str, tt.expectedCmd)
+			assert.Contains(t, str, "1 targets")
+			assert.Contains(t, str, "@1450")
+		}
+	})
+
+	t.Run("StatementType", func(t *testing.T) {
+		ma := NewMergeAction(MERGE_WHEN_MATCHED, CMD_UPDATE, OVERRIDING_NOT_SET, nil, nil, nil, 0)
+		assert.Equal(t, "MERGE_ACTION", ma.StatementType())
+	})
+
+	t.Run("Interface Compliance", func(t *testing.T) {
+		ma := NewMergeAction(MERGE_WHEN_MATCHED, CMD_UPDATE, OVERRIDING_NOT_SET, nil, nil, nil, 0)
+		
+		var node Node = ma
+		assert.Equal(t, T_MergeAction, node.NodeTag())
+		
+		var stmt Statement = ma
+		assert.Equal(t, "MERGE_ACTION", stmt.StatementType())
 	})
 }

@@ -1,9 +1,9 @@
 # Missing PostgreSQL AST Nodes - Complete Inventory
 
-**Total Missing**: 275 nodes out of 461 total PostgreSQL AST nodes
-**Current Implementation**: 186 nodes (40.3% complete)
+**Total Missing**: 262 nodes out of 461 total PostgreSQL AST nodes
+**Current Implementation**: 199 nodes (43.2% complete)
 **Target**: 100% PostgreSQL AST compatibility
-**Latest**: ✅ Phase 1E completed - 16 JSON parse tree nodes implemented in `json_parse_nodes.go`
+**Latest**: ✅ Phase 1F completed - 13 primitive expression nodes implemented in `expressions.go`
 **Previous**: ✅ Phase 1C completed - 15 DDL creation statement nodes implemented in `ddl_creation_statements.go`
 
 This inventory is based on the comprehensive ast_structs_checklist.md which tracks all PostgreSQL node structures across parsenodes.h, primnodes.h, plannodes.h, execnodes.h, pathnodes.h, and supporting files.
@@ -60,18 +60,18 @@ These nodes are essential for basic SQL parsing functionality:
 These nodes are essential for expression evaluation:
 
 **Base Expression Types:**
-- [ ] **GroupingFunc** - GROUPING function (`src/include/nodes/primnodes.h:537`)
-- [ ] **WindowFuncRunCondition** - Window function run condition (`src/include/nodes/primnodes.h:596`)
-- [ ] **MergeSupportFunc** - Merge support function (`src/include/nodes/primnodes.h:628`)
-- [ ] **NamedArgExpr** - Named argument expression (`src/include/nodes/primnodes.h:787`)
+- [x] **GroupingFunc** - GROUPING function (`src/include/nodes/primnodes.h:537`) ✅ Phase 1F
+- [x] **WindowFuncRunCondition** - Window function run condition (`src/include/nodes/primnodes.h:596`) ✅ Phase 1F
+- [x] **MergeSupportFunc** - Merge support function (`src/include/nodes/primnodes.h:628`) ✅ Phase 1F
+- [x] **NamedArgExpr** - Named argument expression (`src/include/nodes/primnodes.h:787`) ✅ Phase 1F
 
 **Control Flow and Test Nodes:**
-- [ ] **CaseTestExpr** - CASE test expression (`src/include/nodes/primnodes.h:1352`)
-- [ ] **MinMaxExpr** - MIN/MAX expression (`src/include/nodes/primnodes.h:1506`)
-- [ ] **RowCompareExpr** - Row comparison (`src/include/nodes/primnodes.h:1463`)
-- [ ] **SQLValueFunction** - SQL value function (`src/include/nodes/primnodes.h:1553`)
-- [ ] **XmlExpr** - XML expression (`src/include/nodes/primnodes.h:1596`)
-- [ ] **MergeAction** - MERGE action (`src/include/nodes/primnodes.h:2003`)
+- [x] **CaseTestExpr** - CASE test expression (`src/include/nodes/primnodes.h:1352`) ✅ Phase 1F
+- [x] **MinMaxExpr** - MIN/MAX expression (`src/include/nodes/primnodes.h:1506`) ✅ Phase 1F
+- [x] **RowCompareExpr** - Row comparison (`src/include/nodes/primnodes.h:1463`) ✅ Phase 1F
+- [x] **SQLValueFunction** - SQL value function (`src/include/nodes/primnodes.h:1553`) ✅ Phase 1F
+- [x] **XmlExpr** - XML expression (`src/include/nodes/primnodes.h:1596`) ✅ Phase 1F
+- [x] **MergeAction** - MERGE action (`src/include/nodes/primnodes.h:2003`) ✅ Phase 1F
 
 ### Missing Table and Range Nodes
 **Range Table Support:**
@@ -214,8 +214,8 @@ These nodes are essential for expression evaluation:
 
 ### primnodes.h Progress
 - **Total structs**: 64 nodes
-- **Implemented**: 38 nodes (59%)
-- **Missing**: 26 nodes (41%)
+- **Implemented**: 51 nodes (80%)
+- **Missing**: 13 nodes (20%)
 - **Categories**: Primitive expressions, type coercion, execution support
 
 ### plannodes.h Progress
