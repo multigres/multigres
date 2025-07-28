@@ -1,5 +1,7 @@
 package ast
 
+import "fmt"
+
 // JSON Parse Tree Support Nodes - Phase 1E
 // This file contains all JSON-related parse tree nodes from PostgreSQL
 // Based on postgres/src/include/nodes/parsenodes.h and primnodes.h
@@ -637,5 +639,221 @@ func NewJsonArrayAgg(constructor *JsonAggConstructor, arg *JsonValueExpr, absent
 		Constructor:  constructor,
 		Arg:          arg,
 		AbsentOnNull: absentOnNull,
+	}
+}
+
+// ==============================================================================
+// PHASE 1G: JSON PRIMITIVE EXPRESSIONS - Missing JSON expression nodes
+// Ported from postgres/src/include/nodes/primnodes.h
+// ==============================================================================
+
+// JsonConstructorType represents JSON constructor types
+// Ported from postgres/src/include/nodes/primnodes.h:1688-1697
+type JsonConstructorType int
+
+const (
+	JSCTOR_JSON_OBJECT JsonConstructorType = iota + 1 // JSON_OBJECT constructor
+	JSCTOR_JSON_ARRAY                                 // JSON_ARRAY constructor  
+	JSCTOR_JSON_OBJECTAGG                             // JSON_OBJECTAGG constructor
+	JSCTOR_JSON_ARRAYAGG                              // JSON_ARRAYAGG constructor
+	JSCTOR_JSON_PARSE                                 // JSON_PARSE constructor
+	JSCTOR_JSON_SCALAR                                // JSON_SCALAR constructor
+	JSCTOR_JSON_SERIALIZE                             // JSON_SERIALIZE constructor
+)
+
+// JsonConstructorExpr represents a wrapper over FuncExpr/Aggref/WindowFunc for SQL/JSON constructors
+// Ported from postgres/src/include/nodes/primnodes.h:1703-1714
+type JsonConstructorExpr struct {
+	BaseExpr
+	Type         JsonConstructorType // constructor type
+	Args         []Node              // arguments list
+	Func         Expr                // underlying json[b]_xxx() function call
+	Coercion     Expr                // coercion to RETURNING type
+	Returning    *JsonReturning      // RETURNING clause
+	AbsentOnNull bool                // ABSENT ON NULL?
+	Unique       bool                // WITH UNIQUE KEYS? (JSON_OBJECT[AGG] only)
+}
+
+func (j *JsonConstructorExpr) ExpressionType() string {
+	return "JsonConstructorExpr"
+}
+
+func (j *JsonConstructorExpr) String() string {
+	return fmt.Sprintf("JsonConstructorExpr{type=%d}@%d", j.Type, j.Location())
+}
+
+// NewJsonConstructorExpr creates a new JsonConstructorExpr node
+func NewJsonConstructorExpr(constructorType JsonConstructorType, args []Node, function, coercion Expr, returning *JsonReturning, absentOnNull, unique bool, location int) *JsonConstructorExpr {
+	return &JsonConstructorExpr{
+		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_JsonConstructorExpr, Loc: location}},
+		Type:         constructorType,
+		Args:         args,
+		Func:         function,
+		Coercion:     coercion,
+		Returning:    returning,
+		AbsentOnNull: absentOnNull,
+		Unique:       unique,
+	}
+}
+
+// JsonIsPredicate represents an IS JSON predicate
+// Ported from postgres/src/include/nodes/primnodes.h:1732-1740
+type JsonIsPredicate struct {
+	BaseNode
+	Expr       Node           // subject expression
+	Format     *JsonFormat    // FORMAT clause, if specified
+	ItemType   JsonValueType  // JSON item type
+	UniqueKeys bool           // check key uniqueness?
+}
+
+func (j *JsonIsPredicate) String() string {
+	return fmt.Sprintf("JsonIsPredicate{type=%d}@%d", j.ItemType, j.Location())
+}
+
+// NewJsonIsPredicate creates a new JsonIsPredicate node
+func NewJsonIsPredicate(expr Node, format *JsonFormat, itemType JsonValueType, uniqueKeys bool, location int) *JsonIsPredicate {
+	return &JsonIsPredicate{
+		BaseNode:   BaseNode{Tag: T_JsonIsPredicate, Loc: location},
+		Expr:       expr,
+		Format:     format,
+		ItemType:   itemType,
+		UniqueKeys: uniqueKeys,
+	}
+}
+
+// JsonExpr represents transformed representation of JSON_VALUE(), JSON_QUERY(), and JSON_EXISTS()
+// Ported from postgres/src/include/nodes/primnodes.h:1813-1860
+type JsonExpr struct {
+	BaseExpr
+	Op                JsonExprOp     // JSON expression operation type
+	ColumnName        string         // JSON_TABLE() column name or empty if not for JSON_TABLE()
+	FormattedExpr     Node           // jsonb-valued expression to query
+	Format            *JsonFormat    // Format of the above expression needed by ruleutils.c
+	PathSpec          Node           // jsonpath-valued expression containing the query pattern
+	Returning         *JsonReturning // Expected type/format of the output
+	PassingNames      []string       // PASSING argument names
+	PassingValues     []Node         // PASSING argument values
+	OnEmpty           *JsonBehavior  // User-specified or default ON EMPTY behavior
+	OnError           *JsonBehavior  // User-specified or default ON ERROR behavior
+	UseIOCoercion     bool           // Information about converting the result to RETURNING type
+	UseJsonCoercion   bool           // Additional conversion information
+	Wrapper           JsonWrapper    // WRAPPER specification for JSON_QUERY
+	OmitQuotes        bool           // KEEP or OMIT QUOTES for singleton scalars returned by JSON_QUERY()
+	Collation         Oid            // JsonExpr's collation
+}
+
+func (j *JsonExpr) ExpressionType() string {
+	return "JsonExpr"
+}
+
+func (j *JsonExpr) String() string {
+	return fmt.Sprintf("JsonExpr{op=%d, col=%s}@%d", j.Op, j.ColumnName, j.Location())
+}
+
+// NewJsonExpr creates a new JsonExpr node
+func NewJsonExpr(op JsonExprOp, columnName string, formattedExpr Node, format *JsonFormat, pathSpec Node, returning *JsonReturning, passingNames []string, passingValues []Node, onEmpty, onError *JsonBehavior, useIOCoercion, useJsonCoercion bool, wrapper JsonWrapper, omitQuotes bool, collation Oid, location int) *JsonExpr {
+	return &JsonExpr{
+		BaseExpr:        BaseExpr{BaseNode: BaseNode{Tag: T_JsonExpr, Loc: location}},
+		Op:              op,
+		ColumnName:      columnName,
+		FormattedExpr:   formattedExpr,
+		Format:          format,
+		PathSpec:        pathSpec,
+		Returning:       returning,
+		PassingNames:    passingNames,
+		PassingValues:   passingValues,
+		OnEmpty:         onEmpty,
+		OnError:         onError,
+		UseIOCoercion:   useIOCoercion,
+		UseJsonCoercion: useJsonCoercion,
+		Wrapper:         wrapper,
+		OmitQuotes:      omitQuotes,
+		Collation:       collation,
+	}
+}
+
+// JsonTablePath represents a JSON path expression to be computed as part of evaluating a JSON_TABLE plan node
+// Ported from postgres/src/include/nodes/primnodes.h:1867-1873
+type JsonTablePath struct {
+	BaseNode
+	Value *Const // path value
+	Name  string // path name
+}
+
+func (j *JsonTablePath) String() string {
+	return fmt.Sprintf("JsonTablePath{name=%s}@%d", j.Name, j.Location())
+}
+
+// NewJsonTablePath creates a new JsonTablePath node
+func NewJsonTablePath(value *Const, name string, location int) *JsonTablePath {
+	return &JsonTablePath{
+		BaseNode: BaseNode{Tag: T_JsonTablePath, Loc: location},
+		Value:    value,
+		Name:     name,
+	}
+}
+
+// JsonTablePlan represents abstract base type for different types of JSON_TABLE "plans"
+// Ported from postgres/src/include/nodes/primnodes.h:1882-1887
+type JsonTablePlan struct {
+	BaseNode
+}
+
+func (j *JsonTablePlan) String() string {
+	return fmt.Sprintf("JsonTablePlan@%d", j.Location())
+}
+
+// NewJsonTablePlan creates a new JsonTablePlan node
+func NewJsonTablePlan(location int) *JsonTablePlan {
+	return &JsonTablePlan{
+		BaseNode: BaseNode{Tag: T_JsonTablePlan, Loc: location},
+	}
+}
+
+// JsonTablePathScan represents a JSON_TABLE plan to evaluate a JSON path expression and NESTED paths
+// Ported from postgres/src/include/nodes/primnodes.h:1893-1916
+type JsonTablePathScan struct {
+	BaseNode
+	Path        *JsonTablePath // JSON path to evaluate
+	ErrorOnError bool          // ERROR/EMPTY ON ERROR behavior; only significant in the plan for the top-level path
+	Child       *JsonTablePlan // Plan(s) for nested columns, if any
+	ColMin      int            // 0-based index in TableFunc.colvalexprs of the 1st column covered by this plan
+	ColMax      int            // 0-based index in TableFunc.colvalexprs of the last column covered by this plan
+}
+
+func (j *JsonTablePathScan) String() string {
+	return fmt.Sprintf("JsonTablePathScan{cols=%d-%d}@%d", j.ColMin, j.ColMax, j.Location())
+}
+
+// NewJsonTablePathScan creates a new JsonTablePathScan node
+func NewJsonTablePathScan(path *JsonTablePath, errorOnError bool, child *JsonTablePlan, colMin, colMax, location int) *JsonTablePathScan {
+	return &JsonTablePathScan{
+		BaseNode:     BaseNode{Tag: T_JsonTablePathScan, Loc: location},
+		Path:         path,
+		ErrorOnError: errorOnError,
+		Child:        child,
+		ColMin:       colMin,
+		ColMax:       colMax,
+	}
+}
+
+// JsonTableSiblingJoin represents a plan to join rows of sibling NESTED COLUMNS clauses in the same parent COLUMNS clause
+// Ported from postgres/src/include/nodes/primnodes.h:1923-1929
+type JsonTableSiblingJoin struct {
+	BaseNode
+	Lplan *JsonTablePlan // left plan
+	Rplan *JsonTablePlan // right plan
+}
+
+func (j *JsonTableSiblingJoin) String() string {
+	return fmt.Sprintf("JsonTableSiblingJoin@%d", j.Location())
+}
+
+// NewJsonTableSiblingJoin creates a new JsonTableSiblingJoin node
+func NewJsonTableSiblingJoin(lplan, rplan *JsonTablePlan, location int) *JsonTableSiblingJoin {
+	return &JsonTableSiblingJoin{
+		BaseNode: BaseNode{Tag: T_JsonTableSiblingJoin, Loc: location},
+		Lplan:    lplan,
+		Rplan:    rplan,
 	}
 }

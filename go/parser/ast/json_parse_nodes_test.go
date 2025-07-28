@@ -633,3 +633,274 @@ func TestJsonNodeInterfaces(t *testing.T) {
 		})
 	}
 }
+
+// ==============================================================================
+// PHASE 1G TESTS: JSON PRIMITIVE EXPRESSIONS
+// ==============================================================================
+
+// TestJsonConstructorType tests the JsonConstructorType enum
+func TestJsonConstructorType(t *testing.T) {
+	tests := []struct {
+		constructorType JsonConstructorType
+		expectedValue   int
+	}{
+		{JSCTOR_JSON_OBJECT, 1},
+		{JSCTOR_JSON_ARRAY, 2},
+		{JSCTOR_JSON_OBJECTAGG, 3},
+		{JSCTOR_JSON_ARRAYAGG, 4},
+		{JSCTOR_JSON_PARSE, 5},
+		{JSCTOR_JSON_SCALAR, 6},
+		{JSCTOR_JSON_SERIALIZE, 7},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.expectedValue, int(tt.constructorType))
+	}
+}
+
+// TestJsonConstructorExpr tests the JsonConstructorExpr node
+func TestJsonConstructorExpr(t *testing.T) {
+	t.Run("NewJsonConstructorExpr", func(t *testing.T) {
+		args := []Node{NewConst(23, Datum(42), false)}
+		funcExpr := NewConst(25, Datum(100), false)
+		coercionExpr := NewConst(26, Datum(200), false)
+		returning := NewJsonReturning(nil, 0, 0)
+
+		constructorExpr := NewJsonConstructorExpr(JSCTOR_JSON_OBJECT, args, funcExpr, coercionExpr, returning, true, false, 500)
+
+		require.NotNil(t, constructorExpr)
+		assert.Equal(t, T_JsonConstructorExpr, constructorExpr.NodeTag())
+		assert.Equal(t, "JsonConstructorExpr", constructorExpr.ExpressionType())
+		assert.True(t, constructorExpr.IsExpr())
+		assert.Equal(t, JSCTOR_JSON_OBJECT, constructorExpr.Type)
+		assert.Equal(t, args, constructorExpr.Args)
+		assert.Equal(t, funcExpr, constructorExpr.Func)
+		assert.Equal(t, coercionExpr, constructorExpr.Coercion)
+		assert.Equal(t, returning, constructorExpr.Returning)
+		assert.True(t, constructorExpr.AbsentOnNull)
+		assert.False(t, constructorExpr.Unique)
+		assert.Equal(t, 500, constructorExpr.Location())
+		assert.Contains(t, constructorExpr.String(), "JsonConstructorExpr")
+	})
+
+	t.Run("DifferentConstructorTypes", func(t *testing.T) {
+		expr1 := NewJsonConstructorExpr(JSCTOR_JSON_ARRAY, nil, nil, nil, nil, false, true, 100)
+		expr2 := NewJsonConstructorExpr(JSCTOR_JSON_PARSE, nil, nil, nil, nil, true, false, 200)
+
+		assert.Equal(t, JSCTOR_JSON_ARRAY, expr1.Type)
+		assert.Equal(t, JSCTOR_JSON_PARSE, expr2.Type)
+		assert.False(t, expr1.AbsentOnNull)
+		assert.True(t, expr1.Unique)
+		assert.True(t, expr2.AbsentOnNull)
+		assert.False(t, expr2.Unique)
+	})
+}
+
+// TestJsonIsPredicate tests the JsonIsPredicate node
+func TestJsonIsPredicate(t *testing.T) {
+	t.Run("NewJsonIsPredicate", func(t *testing.T) {
+		expr := NewConst(23, Datum(42), false)
+		format := NewJsonFormat(JS_FORMAT_JSON, JS_ENC_UTF8, 100)
+
+		predicate := NewJsonIsPredicate(expr, format, JS_TYPE_OBJECT, true, 600)
+
+		require.NotNil(t, predicate)
+		assert.Equal(t, T_JsonIsPredicate, predicate.NodeTag())
+		assert.Equal(t, expr, predicate.Expr)
+		assert.Equal(t, format, predicate.Format)
+		assert.Equal(t, JS_TYPE_OBJECT, predicate.ItemType)
+		assert.True(t, predicate.UniqueKeys)
+		assert.Equal(t, 600, predicate.Location())
+		assert.Contains(t, predicate.String(), "JsonIsPredicate")
+	})
+
+	t.Run("DifferentItemTypes", func(t *testing.T) {
+		pred1 := NewJsonIsPredicate(nil, nil, JS_TYPE_ANY, false, 100)
+		pred2 := NewJsonIsPredicate(nil, nil, JS_TYPE_ARRAY, true, 200)
+		pred3 := NewJsonIsPredicate(nil, nil, JS_TYPE_SCALAR, false, 300)
+
+		assert.Equal(t, JS_TYPE_ANY, pred1.ItemType)
+		assert.Equal(t, JS_TYPE_ARRAY, pred2.ItemType)
+		assert.Equal(t, JS_TYPE_SCALAR, pred3.ItemType)
+		assert.False(t, pred1.UniqueKeys)
+		assert.True(t, pred2.UniqueKeys)
+		assert.False(t, pred3.UniqueKeys)
+	})
+}
+
+// TestJsonExpr tests the JsonExpr node
+func TestJsonExpr(t *testing.T) {
+	t.Run("NewJsonExpr", func(t *testing.T) {
+		formattedExpr := NewConst(23, Datum(42), false)
+		format := NewJsonFormat(JS_FORMAT_JSON, JS_ENC_UTF8, 100)
+		pathSpec := NewConst(25, Datum(100), false)
+		returning := NewJsonReturning(format, 0, 0)
+		passingNames := []string{"arg1", "arg2"}
+		passingValues := []Node{NewConst(26, Datum(200), false), NewConst(27, Datum(300), false)}
+		onEmpty := NewJsonBehavior(JSON_BEHAVIOR_NULL, nil, 150)
+		onError := NewJsonBehavior(JSON_BEHAVIOR_ERROR, nil, 160)
+
+		jsonExpr := NewJsonExpr(JSON_EXISTS_OP, "test_column", formattedExpr, format, pathSpec, returning, passingNames, passingValues, onEmpty, onError, true, false, JSW_CONDITIONAL, true, 12345, 700)
+
+		require.NotNil(t, jsonExpr)
+		assert.Equal(t, T_JsonExpr, jsonExpr.NodeTag())
+		assert.Equal(t, "JsonExpr", jsonExpr.ExpressionType())
+		assert.True(t, jsonExpr.IsExpr())
+		assert.Equal(t, JSON_EXISTS_OP, jsonExpr.Op)
+		assert.Equal(t, "test_column", jsonExpr.ColumnName)
+		assert.Equal(t, formattedExpr, jsonExpr.FormattedExpr)
+		assert.Equal(t, format, jsonExpr.Format)
+		assert.Equal(t, pathSpec, jsonExpr.PathSpec)
+		assert.Equal(t, returning, jsonExpr.Returning)
+		assert.Equal(t, passingNames, jsonExpr.PassingNames)
+		assert.Equal(t, passingValues, jsonExpr.PassingValues)
+		assert.Equal(t, onEmpty, jsonExpr.OnEmpty)
+		assert.Equal(t, onError, jsonExpr.OnError)
+		assert.True(t, jsonExpr.UseIOCoercion)
+		assert.False(t, jsonExpr.UseJsonCoercion)
+		assert.Equal(t, JSW_CONDITIONAL, jsonExpr.Wrapper)
+		assert.True(t, jsonExpr.OmitQuotes)
+		assert.Equal(t, Oid(12345), jsonExpr.Collation)
+		assert.Equal(t, 700, jsonExpr.Location())
+		assert.Contains(t, jsonExpr.String(), "JsonExpr")
+		assert.Contains(t, jsonExpr.String(), "test_column")
+	})
+
+	t.Run("DifferentOperations", func(t *testing.T) {
+		expr1 := NewJsonExpr(JSON_QUERY_OP, "", nil, nil, nil, nil, nil, nil, nil, nil, false, true, JSW_NONE, false, 0, 100)
+		expr2 := NewJsonExpr(JSON_VALUE_OP, "col2", nil, nil, nil, nil, nil, nil, nil, nil, true, false, JSW_UNCONDITIONAL, true, 54321, 200)
+
+		assert.Equal(t, JSON_QUERY_OP, expr1.Op)
+		assert.Equal(t, JSON_VALUE_OP, expr2.Op)
+		assert.Empty(t, expr1.ColumnName)
+		assert.Equal(t, "col2", expr2.ColumnName)
+		assert.False(t, expr1.UseIOCoercion)
+		assert.True(t, expr1.UseJsonCoercion)
+		assert.True(t, expr2.UseIOCoercion)
+		assert.False(t, expr2.UseJsonCoercion)
+	})
+}
+
+// TestJsonTablePath tests the JsonTablePath node
+func TestJsonTablePath(t *testing.T) {
+	t.Run("NewJsonTablePath", func(t *testing.T) {
+		value := NewConst(23, Datum(42), false)
+
+		tablePath := NewJsonTablePath(value, "test_path", 800)
+
+		require.NotNil(t, tablePath)
+		assert.Equal(t, T_JsonTablePath, tablePath.NodeTag())
+		assert.Equal(t, value, tablePath.Value)
+		assert.Equal(t, "test_path", tablePath.Name)
+		assert.Equal(t, 800, tablePath.Location())
+		assert.Contains(t, tablePath.String(), "JsonTablePath")
+		assert.Contains(t, tablePath.String(), "test_path")
+	})
+
+	t.Run("DifferentNames", func(t *testing.T) {
+		path1 := NewJsonTablePath(nil, "path1", 100)
+		path2 := NewJsonTablePath(nil, "another_path", 200)
+
+		assert.Equal(t, "path1", path1.Name)
+		assert.Equal(t, "another_path", path2.Name)
+	})
+}
+
+// TestJsonTablePlan tests the JsonTablePlan node
+func TestJsonTablePlan(t *testing.T) {
+	t.Run("NewJsonTablePlan", func(t *testing.T) {
+		tablePlan := NewJsonTablePlan(900)
+
+		require.NotNil(t, tablePlan)
+		assert.Equal(t, T_JsonTablePlan, tablePlan.NodeTag())
+		assert.Equal(t, 900, tablePlan.Location())
+		assert.Contains(t, tablePlan.String(), "JsonTablePlan")
+	})
+}
+
+// TestJsonTablePathScan tests the JsonTablePathScan node
+func TestJsonTablePathScan(t *testing.T) {
+	t.Run("NewJsonTablePathScan", func(t *testing.T) {
+		path := NewJsonTablePath(NewConst(23, Datum(42), false), "scan_path", 100)
+		child := NewJsonTablePlan(200)
+
+		pathScan := NewJsonTablePathScan(path, true, child, 5, 10, 1000)
+
+		require.NotNil(t, pathScan)
+		assert.Equal(t, T_JsonTablePathScan, pathScan.NodeTag())
+		assert.Equal(t, path, pathScan.Path)
+		assert.True(t, pathScan.ErrorOnError)
+		assert.Equal(t, child, pathScan.Child)
+		assert.Equal(t, 5, pathScan.ColMin)
+		assert.Equal(t, 10, pathScan.ColMax)
+		assert.Equal(t, 1000, pathScan.Location())
+		assert.Contains(t, pathScan.String(), "JsonTablePathScan")
+		assert.Contains(t, pathScan.String(), "5-10")
+	})
+
+	t.Run("DifferentColumnRanges", func(t *testing.T) {
+		scan1 := NewJsonTablePathScan(nil, false, nil, 0, 5, 100)
+		scan2 := NewJsonTablePathScan(nil, true, nil, 10, 20, 200)
+
+		assert.Equal(t, 0, scan1.ColMin)
+		assert.Equal(t, 5, scan1.ColMax)
+		assert.False(t, scan1.ErrorOnError)
+		assert.Equal(t, 10, scan2.ColMin)
+		assert.Equal(t, 20, scan2.ColMax)
+		assert.True(t, scan2.ErrorOnError)
+	})
+}
+
+// TestJsonTableSiblingJoin tests the JsonTableSiblingJoin node
+func TestJsonTableSiblingJoin(t *testing.T) {
+	t.Run("NewJsonTableSiblingJoin", func(t *testing.T) {
+		lplan := NewJsonTablePlan(100)
+		rplan := NewJsonTablePlan(200)
+
+		siblingJoin := NewJsonTableSiblingJoin(lplan, rplan, 1100)
+
+		require.NotNil(t, siblingJoin)
+		assert.Equal(t, T_JsonTableSiblingJoin, siblingJoin.NodeTag())
+		assert.Equal(t, lplan, siblingJoin.Lplan)
+		assert.Equal(t, rplan, siblingJoin.Rplan)
+		assert.Equal(t, 1100, siblingJoin.Location())
+		assert.Contains(t, siblingJoin.String(), "JsonTableSiblingJoin")
+	})
+}
+
+// TestPhase1GNodeTags tests that all Phase 1G nodes have correct tags
+func TestPhase1GNodeTags(t *testing.T) {
+	testCases := []struct {
+		node     Node
+		expected NodeTag
+	}{
+		{NewJsonConstructorExpr(JSCTOR_JSON_OBJECT, nil, nil, nil, nil, false, false, -1), T_JsonConstructorExpr},
+		{NewJsonIsPredicate(nil, nil, JS_TYPE_ANY, false, -1), T_JsonIsPredicate},
+		{NewJsonExpr(JSON_EXISTS_OP, "", nil, nil, nil, nil, nil, nil, nil, nil, false, false, JSW_UNSPEC, false, 0, -1), T_JsonExpr},
+		{NewJsonTablePath(nil, "", -1), T_JsonTablePath},
+		{NewJsonTablePlan(-1), T_JsonTablePlan},
+		{NewJsonTablePathScan(nil, false, nil, 0, 0, -1), T_JsonTablePathScan},
+		{NewJsonTableSiblingJoin(nil, nil, -1), T_JsonTableSiblingJoin},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.expected.String(), func(t *testing.T) {
+			assert.Equal(t, tc.expected, tc.node.NodeTag())
+		})
+	}
+}
+
+// TestPhase1GExpressionNodes tests that expression nodes implement Expr interface correctly
+func TestPhase1GExpressionNodes(t *testing.T) {
+	expressions := []Expr{
+		NewJsonConstructorExpr(JSCTOR_JSON_OBJECT, nil, nil, nil, nil, false, false, -1),
+		NewJsonExpr(JSON_EXISTS_OP, "", nil, nil, nil, nil, nil, nil, nil, nil, false, false, JSW_UNSPEC, false, 0, -1),
+	}
+
+	for _, expr := range expressions {
+		t.Run(expr.ExpressionType(), func(t *testing.T) {
+			assert.True(t, expr.IsExpr())
+			assert.NotEmpty(t, expr.ExpressionType())
+		})
+	}
+}

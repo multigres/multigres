@@ -1,9 +1,9 @@
 # Missing PostgreSQL AST Nodes - Complete Inventory
 
-**Total Missing**: 262 nodes out of 461 total PostgreSQL AST nodes
-**Current Implementation**: 199 nodes (43.2% complete)
+**Total Missing**: 260 nodes out of 456 total PostgreSQL AST nodes
+**Current Implementation**: 196 nodes (43.0% complete)
 **Target**: 100% PostgreSQL AST compatibility
-**Latest**: ✅ Phase 1F completed - 13 primitive expression nodes implemented in `expressions.go`
+**Latest**: ✅ Phase 1G completed - 11 JSON primitive expression nodes implemented in `json_parse_nodes.go`
 **Previous**: ✅ Phase 1C completed - 15 DDL creation statement nodes implemented in `ddl_creation_statements.go`
 
 This inventory is based on the comprehensive ast_structs_checklist.md which tracks all PostgreSQL node structures across parsenodes.h, primnodes.h, plannodes.h, execnodes.h, pathnodes.h, and supporting files.
@@ -93,7 +93,7 @@ These nodes are essential for expression evaluation:
 
 ## Lower Priority - Advanced and Specialized Nodes
 
-### Complete JSON Expression System (parsenodes.h + primnodes.h) ✅ COMPLETED
+### Complete JSON Expression System (parsenodes.h + primnodes.h) ✅ FULLY COMPLETED
 **JSON Nodes (parsenodes.h):** ✅ Phase 1E Complete
 - [x] **JsonOutput** - JSON output specification (`src/include/nodes/parsenodes.h:1751`) ✅ Phase 1E
 - [x] **JsonArgument** - JSON function argument (`src/include/nodes/parsenodes.h:1762`) ✅ Phase 1E
@@ -112,18 +112,18 @@ These nodes are essential for expression evaluation:
 - [x] **JsonObjectAgg** - JSON_OBJECTAGG (`src/include/nodes/parsenodes.h:1976`) ✅ Phase 1E
 - [x] **JsonArrayAgg** - JSON_ARRAYAGG (`src/include/nodes/parsenodes.h:1989`) ✅ Phase 1E
 
-**JSON Nodes (primnodes.h):** ✅ Phase 1E Complete
+**JSON Nodes (primnodes.h):** ✅ Phase 1G Complete
 - [x] **JsonFormat** - JSON format specification (`src/include/nodes/primnodes.h:1648`) ✅ Phase 1E
 - [x] **JsonReturning** - JSON RETURNING clause (`src/include/nodes/primnodes.h:1660`) ✅ Phase 1E
 - [x] **JsonValueExpr** - JSON value expression (`src/include/nodes/primnodes.h:1680`) ✅ Phase 1E
 - [x] **JsonBehavior** - JSON behavior specification (`src/include/nodes/primnodes.h:1786`) ✅ Phase 1E
-- [ ] **JsonConstructorExpr** - JSON constructor expression (`src/include/nodes/primnodes.h:1703`)
-- [ ] **JsonIsPredicate** - JSON IS predicate (`src/include/nodes/primnodes.h:1732`)
-- [ ] **JsonExpr** - JSON expression (`src/include/nodes/primnodes.h:1813`)
-- [ ] **JsonTablePath** - JSON table path (`src/include/nodes/primnodes.h:1867`)
-- [ ] **JsonTablePlan** - JSON table plan (`src/include/nodes/primnodes.h:1882`)
-- [ ] **JsonTablePathScan** - JSON table path scan (`src/include/nodes/primnodes.h:1893`)
-- [ ] **JsonTableSiblingJoin** - JSON table sibling join (`src/include/nodes/primnodes.h:1923`)
+- [x] **JsonConstructorExpr** - JSON constructor expression (`src/include/nodes/primnodes.h:1703`) ✅ Phase 1G
+- [x] **JsonIsPredicate** - JSON IS predicate (`src/include/nodes/primnodes.h:1732`) ✅ Phase 1G
+- [x] **JsonExpr** - JSON expression (`src/include/nodes/primnodes.h:1813`) ✅ Phase 1G
+- [x] **JsonTablePath** - JSON table path (`src/include/nodes/primnodes.h:1867`) ✅ Phase 1G
+- [x] **JsonTablePlan** - JSON table plan (`src/include/nodes/primnodes.h:1882`) ✅ Phase 1G
+- [x] **JsonTablePathScan** - JSON table path scan (`src/include/nodes/primnodes.h:1893`) ✅ Phase 1G
+- [x] **JsonTableSiblingJoin** - JSON table sibling join (`src/include/nodes/primnodes.h:1923`) ✅ Phase 1G
 
 ### Missing Utility Statements (parsenodes.h)
 - [x] **LoadStmt** - LOAD statement (`src/include/nodes/parsenodes.h:3755`) ✅ COMPLETED

@@ -2,8 +2,8 @@
 
 This checklist tracks the implementation status of all PostgreSQL AST structs for the parser port project.
 
-**Current Status**: 185 nodes completed out of 456 total (40.6% complete)
-**Latest Milestone**: ✅ **Phase 1F Complete** - 13 primitive expression nodes implemented in `expressions.go`
+**Current Status**: 196 nodes completed out of 456 total (43.0% complete)
+**Latest Milestone**: ✅ **Phase 1G Complete** - 11 JSON primitive expression nodes implemented in `json_parse_nodes.go`
 
 ## Parse Tree Node Structures (parsenodes.h)
 
@@ -228,17 +228,17 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **XmlExpr** - XML expression (`src/include/nodes/primnodes.h:1596`)
 
 ### JSON Expression Nodes
-- [ ] **JsonFormat** - JSON format specification (`src/include/nodes/primnodes.h:1648`)
-- [ ] **JsonReturning** - JSON RETURNING clause (`src/include/nodes/primnodes.h:1660`)
-- [ ] **JsonValueExpr** - JSON value expression (`src/include/nodes/primnodes.h:1680`)
-- [ ] **JsonConstructorExpr** - JSON constructor expression (`src/include/nodes/primnodes.h:1703`)
-- [ ] **JsonIsPredicate** - JSON IS predicate (`src/include/nodes/primnodes.h:1732`)
-- [ ] **JsonBehavior** - JSON behavior specification (`src/include/nodes/primnodes.h:1786`)
-- [ ] **JsonExpr** - JSON expression (`src/include/nodes/primnodes.h:1813`)
-- [ ] **JsonTablePath** - JSON table path (`src/include/nodes/primnodes.h:1867`)
-- [ ] **JsonTablePlan** - JSON table plan (`src/include/nodes/primnodes.h:1882`)
-- [ ] **JsonTablePathScan** - JSON table path scan (`src/include/nodes/primnodes.h:1893`)
-- [ ] **JsonTableSiblingJoin** - JSON table sibling join (`src/include/nodes/primnodes.h:1923`)
+- [x] **JsonFormat** - JSON format specification (`src/include/nodes/primnodes.h:1648`)
+- [x] **JsonReturning** - JSON RETURNING clause (`src/include/nodes/primnodes.h:1660`)
+- [x] **JsonValueExpr** - JSON value expression (`src/include/nodes/primnodes.h:1680`)
+- [x] **JsonConstructorExpr** - JSON constructor expression (`src/include/nodes/primnodes.h:1703`)
+- [x] **JsonIsPredicate** - JSON IS predicate (`src/include/nodes/primnodes.h:1732`)
+- [x] **JsonBehavior** - JSON behavior specification (`src/include/nodes/primnodes.h:1786`)
+- [x] **JsonExpr** - JSON expression (`src/include/nodes/primnodes.h:1813`)
+- [x] **JsonTablePath** - JSON table path (`src/include/nodes/primnodes.h:1867`)
+- [x] **JsonTablePlan** - JSON table plan (`src/include/nodes/primnodes.h:1882`)
+- [x] **JsonTablePathScan** - JSON table path scan (`src/include/nodes/primnodes.h:1893`)
+- [x] **JsonTableSiblingJoin** - JSON table sibling join (`src/include/nodes/primnodes.h:1923`)
 
 ### Test and Validation Nodes
 - [x] **NullTest** - NULL test (`src/include/nodes/primnodes.h:1955`)

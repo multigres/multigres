@@ -231,28 +231,31 @@ Note: `Expr` base interface already exists and does not need reimplementation.
 
 ---
 
-### Phase 1G: JSON Primitive Expressions
-**Target**: 16 nodes - JSON expression evaluation  
-**Priority**: 🟢 Medium - Complete JSON support  
-**Estimated Effort**: 1-2 sessions
+### Phase 1G: JSON Primitive Expressions ✅ COMPLETED  
+**Target**: 11 nodes - JSON expression evaluation  
+**Priority**: ✅ Complete - Complete JSON support  
+**Completed Effort**: 1 session
+**Status**: ✅ **COMPLETED** - All 11 nodes implemented in `json_parse_nodes.go`
 
-#### JSON Primitive Infrastructure (16 nodes)
-- **JsonFormat** - JSON format specification (`primnodes.h:1648`)
-- **JsonReturning** - JSON RETURNING clause (`primnodes.h:1660`)
-- **JsonValueExpr** - JSON value expression (`primnodes.h:1680`)
-- **JsonConstructorExpr** - JSON constructor expression (`primnodes.h:1703`)
-- **JsonIsPredicate** - JSON IS predicate (`primnodes.h:1732`)
-- **JsonBehavior** - JSON behavior specification (`primnodes.h:1786`)
-- **JsonExpr** - JSON expression (`primnodes.h:1813`)
-- **JsonTablePath** - JSON table path (`primnodes.h:1867`)
-- **JsonTablePlan** - JSON table plan (`primnodes.h:1882`)
-- **JsonTablePathScan** - JSON table path scan (`primnodes.h:1893`)
-- **JsonTableSiblingJoin** - JSON table sibling join (`primnodes.h:1923`)
-- And additional JSON primitive expressions...
+#### JSON Primitive Infrastructure (11 nodes) ✅ COMPLETED
+- ✅ **JsonFormat** - JSON format specification (`primnodes.h:1648`) - Pre-existing from Phase 1E
+- ✅ **JsonReturning** - JSON RETURNING clause (`primnodes.h:1660`) - Pre-existing from Phase 1E
+- ✅ **JsonValueExpr** - JSON value expression (`primnodes.h:1680`) - Pre-existing from Phase 1E
+- ✅ **JsonBehavior** - JSON behavior specification (`primnodes.h:1786`) - Pre-existing from Phase 1E
+- ✅ **JsonConstructorExpr** - JSON constructor expression (`primnodes.h:1703`)
+- ✅ **JsonIsPredicate** - JSON IS predicate (`primnodes.h:1732`)
+- ✅ **JsonExpr** - JSON expression (`primnodes.h:1813`)
+- ✅ **JsonTablePath** - JSON table path (`primnodes.h:1867`)
+- ✅ **JsonTablePlan** - JSON table plan (`primnodes.h:1882`)
+- ✅ **JsonTablePathScan** - JSON table path scan (`primnodes.h:1893`)
+- ✅ **JsonTableSiblingJoin** - JSON table sibling join (`primnodes.h:1923`)
 
-**Deliverables**:
-- New AST file: `json_expressions.go` (~550 lines)
-- Test file: `json_expressions_test.go` (~450 lines)
+**Deliverables**: ✅ COMPLETED
+- ✅ Enhanced existing AST file: Added 220 lines to `json_parse_nodes.go` (now 858 lines) with all 7 new nodes implemented
+- ✅ Comprehensive test expansion: Added 270 lines to `json_parse_nodes_test.go` with full test coverage  
+- ✅ Updated node tag system with all JSON primitive expression nodes
+- ✅ Complete JSON expression system now fully implemented across both parsenodes.h and primnodes.h
+- ✅ All tests passing and code building successfully
 
 ---
 
@@ -391,8 +394,8 @@ The excluded subsystems can be implemented as separate major projects:
 
 ### Source of Truth
 **All progress tracking is maintained in `ast_structs_checklist.md`** which serves as the definitive source of implementation status. This file contains:
-- Complete inventory of all 461 PostgreSQL AST nodes
-- Current implementation status (186 nodes completed, 275 remaining)
+- Complete inventory of all 456 PostgreSQL AST nodes
+- Current implementation status (196 nodes completed, 260 remaining)
 - Accurate PostgreSQL source references for each node
 - Clear marking of implemented vs. missing nodes
 - ✅ Phase 1A: 25 core parse infrastructure nodes completed
@@ -400,7 +403,8 @@ The excluded subsystems can be implemented as separate major projects:
 - ✅ Phase 1C: 15 DDL creation statement nodes completed
 - ✅ Phase 1D: 9 range table infrastructure nodes completed
 - ✅ Phase 1E: 20 JSON parse tree nodes completed 
-- ✅ Phase 1F: 13 primitive expression nodes completed (60% of 166 parser-essential nodes)
+- ✅ Phase 1F: 13 primitive expression nodes completed
+- ✅ Phase 1G: 11 JSON primitive expression nodes completed (67% of 166 parser-essential nodes)
 
 ### Recommended Practice
 - **Update checkboxes in `ast_structs_checklist.md`** as nodes are implemented

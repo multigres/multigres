@@ -208,6 +208,15 @@ const (
 	T_JsonObjectAgg
 	T_JsonArrayAgg
 
+	// Phase 1G: JSON Primitive Expressions - primnodes.h JSON expression nodes
+	T_JsonConstructorExpr   // JSON constructor expression - primnodes.h:1703
+	T_JsonIsPredicate      // JSON IS predicate - primnodes.h:1732
+	T_JsonExpr             // JSON expression - primnodes.h:1813
+	T_JsonTablePath        // JSON table path - primnodes.h:1867
+	T_JsonTablePlan        // JSON table plan - primnodes.h:1882
+	T_JsonTablePathScan    // JSON table path scan - primnodes.h:1893
+	T_JsonTableSiblingJoin // JSON table sibling join - primnodes.h:1923
+
 	// Phase 1F: Primitive Expression Completion Part 1 - primnodes.h nodes
 	T_GroupingFunc          // GROUPING function - primnodes.h:537
 	T_WindowFuncRunCondition // Window function run condition - primnodes.h:596
@@ -592,6 +601,20 @@ func (nt NodeTag) String() string {
 		return "T_JsonObjectAgg"
 	case T_JsonArrayAgg:
 		return "T_JsonArrayAgg"
+	case T_JsonConstructorExpr:
+		return "T_JsonConstructorExpr"
+	case T_JsonIsPredicate:
+		return "T_JsonIsPredicate"
+	case T_JsonExpr:
+		return "T_JsonExpr"
+	case T_JsonTablePath:
+		return "T_JsonTablePath"
+	case T_JsonTablePlan:
+		return "T_JsonTablePlan"
+	case T_JsonTablePathScan:
+		return "T_JsonTablePathScan"
+	case T_JsonTableSiblingJoin:
+		return "T_JsonTableSiblingJoin"
 	case T_GroupingFunc:
 		return "T_GroupingFunc"
 	case T_WindowFuncRunCondition:
