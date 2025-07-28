@@ -1,10 +1,10 @@
 # Missing PostgreSQL AST Nodes - Complete Inventory
 
-**Total Missing**: 300 nodes out of 461 total PostgreSQL AST nodes
-**Current Implementation**: 161 nodes (34.9% complete)
+**Total Missing**: 291 nodes out of 461 total PostgreSQL AST nodes
+**Current Implementation**: 170 nodes (36.9% complete)
 **Target**: 100% PostgreSQL AST compatibility
-**Latest**: ✅ Phase 1C completed - 15 DDL creation statement nodes implemented in `ddl_creation_statements.go`
-**Recent**: ✅ Phase 1A completed - 25 core parse infrastructure nodes implemented
+**Latest**: ✅ Phase 1D completed - 9 range/table infrastructure nodes implemented in `range_table_nodes.go`
+**Previous**: ✅ Phase 1C completed - 15 DDL creation statement nodes implemented in `ddl_creation_statements.go`
 
 This inventory is based on the comprehensive ast_structs_checklist.md which tracks all PostgreSQL node structures across parsenodes.h, primnodes.h, plannodes.h, execnodes.h, pathnodes.h, and supporting files.
 
@@ -75,18 +75,18 @@ These nodes are essential for expression evaluation:
 
 ### Missing Table and Range Nodes
 **Range Table Support:**
-- [ ] **RangeTblEntry** - Range table entry (`src/include/nodes/parsenodes.h:1038`)
-- [ ] **RangeSubselect** - Subquery in FROM (`src/include/nodes/parsenodes.h:615`)
-- [ ] **RangeFunction** - Function in FROM (`src/include/nodes/parsenodes.h:637`)
-- [ ] **RangeTableFunc** - Table function (`src/include/nodes/parsenodes.h:655`)
-- [ ] **RangeTableFuncCol** - Table function column (`src/include/nodes/parsenodes.h:673`)
-- [ ] **RangeTableSample** - TABLESAMPLE clause (`src/include/nodes/parsenodes.h:695`)
-- [ ] **RangeTblFunction** - Range table function (`src/include/nodes/parsenodes.h:1317`)
-- [ ] **RTEPermissionInfo** - Permission info for RTE (`src/include/nodes/parsenodes.h:1286`)
+- [x] **RangeTblEntry** - Range table entry (`src/include/nodes/parsenodes.h:1038`) ✅ Phase 1D
+- [x] **RangeSubselect** - Subquery in FROM (`src/include/nodes/parsenodes.h:615`) ✅ Phase 1D
+- [x] **RangeFunction** - Function in FROM (`src/include/nodes/parsenodes.h:637`) ✅ Phase 1D
+- [x] **RangeTableFunc** - Table function (`src/include/nodes/parsenodes.h:655`) ✅ Phase 1D
+- [x] **RangeTableFuncCol** - Table function column (`src/include/nodes/parsenodes.h:673`) ✅ Phase 1D
+- [x] **RangeTableSample** - TABLESAMPLE clause (`src/include/nodes/parsenodes.h:695`) ✅ Phase 1D
+- [x] **RangeTblFunction** - Range table function (`src/include/nodes/parsenodes.h:1317`) ✅ Phase 1D
+- [x] **RTEPermissionInfo** - Permission info for RTE (`src/include/nodes/parsenodes.h:1286`) ✅ Phase 1D
 
 **Column and Table Definition:**
-- [ ] **ColumnDef** - Column definition (`src/include/nodes/parsenodes.h:723`)
-- [ ] **TypeName** - Type specification (`src/include/nodes/parsenodes.h:265`)
+- [x] **ColumnDef** - Column definition (`src/include/nodes/parsenodes.h:723`) ✅ Phase 1A
+- [x] **TypeName** - Type specification (`src/include/nodes/parsenodes.h:265`) ✅ Phase 1A
 - [x] **MultiAssignRef** - Multi-assignment reference (`src/include/nodes/parsenodes.h:532`) ✅ Phase 1A
 
 ---
@@ -207,15 +207,15 @@ These nodes are essential for expression evaluation:
 ## Implementation Status by Source File
 
 ### parsenodes.h Progress
-- **Total structs**: 180 nodes
-- **Implemented**: 58 nodes (32%)
-- **Missing**: 122 nodes (68%)
+- **Total structs**: 196 nodes  
+- **Implemented**: 67 nodes (34%)
+- **Missing**: 129 nodes (66%)
 - **Categories**: Parse tree nodes, DDL/DML statements, expressions
 
 ### primnodes.h Progress
-- **Total structs**: 74 nodes
-- **Implemented**: 37 nodes (50%)
-- **Missing**: 37 nodes (50%)
+- **Total structs**: 64 nodes
+- **Implemented**: 38 nodes (59%)
+- **Missing**: 26 nodes (41%)
 - **Categories**: Primitive expressions, type coercion, execution support
 
 ### plannodes.h Progress
@@ -242,22 +242,22 @@ These nodes are essential for expression evaluation:
 - **Missing**: 0 nodes
 
 ### Other Files Progress
-- **Total structs**: 46 nodes (misc support)
-- **Implemented**: 6 nodes (13%)
-- **Missing**: 40 nodes (87%)
+- **Total structs**: 41 nodes (misc support)
+- **Implemented**: 6 nodes (15%)
+- **Missing**: 35 nodes (85%)
 
 ---
 
 ## Massive Scope Reality Check
 
 ### The True Scale of Missing Work
-**358 missing nodes** across multiple PostgreSQL subsystems:
+**291 missing nodes** across multiple PostgreSQL subsystems:
 
-1. **Parse Tree Completion** (130 missing parsenodes.h)
+1. **Parse Tree Completion** (129 missing parsenodes.h)
    - Core parsing expressions and statements
    - Essential for lexer/parser integration
 
-2. **Primitive Expression System** (37 missing primnodes.h)
+2. **Primitive Expression System** (26 missing primnodes.h)
    - Advanced type system and expression evaluation
    - Critical for semantic analysis
 

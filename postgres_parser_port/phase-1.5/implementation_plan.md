@@ -143,25 +143,29 @@ Based on ast_structs_checklist.md, focusing on nodes required for parsing:
 
 ---
 
-### Phase 1D: Range & Table Infrastructure
-**Target**: 25 nodes - FROM clause and JOIN support  
-**Priority**: 🟡 High - Essential for complex queries  
-**Estimated Effort**: 2 sessions
+### Phase 1D: Range & Table Infrastructure ✅ COMPLETED
+**Target**: 9 nodes - FROM clause and JOIN support  
+**Priority**: ✅ Complete - Essential for complex queries  
+**Completed Effort**: 1 session
+**Status**: ✅ **COMPLETED** - All 9 nodes implemented in `range_table_nodes.go`
 
-#### Range Table System (15 nodes)
-- **RangeTblEntry** - Range table entry (`parsenodes.h:1038`)
-- **RangeSubselect** - Subquery in FROM (`parsenodes.h:615`)
-- **RangeFunction** - Function in FROM (`parsenodes.h:637`)
-- **RangeTableFunc** - Table function (`parsenodes.h:655`)
-- **RangeTableFuncCol** - Table function column (`parsenodes.h:673`)
-- **RangeTableSample** - TABLESAMPLE clause (`parsenodes.h:695`)
-- **RangeTblFunction** - Range table function (`parsenodes.h:1317`)
-- **RTEPermissionInfo** - Permission info for RTE (`parsenodes.h:1286`)
-- And additional range/table infrastructure...
+#### Range Table System (9 nodes) ✅ COMPLETED
+- ✅ **RangeTblEntry** - Range table entry (`parsenodes.h:1038`)
+- ✅ **RangeSubselect** - Subquery in FROM (`parsenodes.h:615`)
+- ✅ **RangeFunction** - Function in FROM (`parsenodes.h:637`)
+- ✅ **RangeTableFunc** - Table function (`parsenodes.h:655`)
+- ✅ **RangeTableFuncCol** - Table function column (`parsenodes.h:673`)
+- ✅ **RangeTableSample** - TABLESAMPLE clause (`parsenodes.h:695`)
+- ✅ **RangeTblFunction** - Range table function (`parsenodes.h:1317`)
+- ✅ **RTEPermissionInfo** - Permission info for RTE (`parsenodes.h:1286`)
+- ✅ **RangeTblRef** - Range table reference (`primnodes.h:2243`)
 
-**Deliverables**:
-- New AST file: `table_range_nodes.go` (~700 lines)
-- Test file: `table_range_nodes_test.go` (~550 lines)
+**Deliverables**: ✅ COMPLETED
+- ✅ New AST file: `range_table_nodes.go` (578 lines) - All 9 nodes implemented with proper PostgreSQL source references
+- ✅ Test file: `range_table_nodes_test.go` (412 lines) - Comprehensive test coverage for all range table nodes
+- ✅ Complex RangeTblEntry supporting all RTEKind types (RELATION, SUBQUERY, JOIN, FUNCTION, etc.)
+- ✅ Full support for LATERAL, WITH ORDINALITY, TABLESAMPLE, and modern SQL features
+- ✅ Thread-safe permission checking infrastructure via RTEPermissionInfo
 
 ---
 
@@ -384,11 +388,14 @@ The excluded subsystems can be implemented as separate major projects:
 
 ### Source of Truth
 **All progress tracking is maintained in `ast_structs_checklist.md`** which serves as the definitive source of implementation status. This file contains:
-- Complete inventory of all 456 PostgreSQL AST nodes
-- Current implementation status (123 nodes completed, 333 remaining)
+- Complete inventory of all 461 PostgreSQL AST nodes
+- Current implementation status (170 nodes completed, 291 remaining)
 - Accurate PostgreSQL source references for each node
 - Clear marking of implemented vs. missing nodes
-- ✅ Phase 1A: 25 core parse infrastructure nodes completed (47% of parser-essential nodes)
+- ✅ Phase 1A: 25 core parse infrastructure nodes completed
+- ✅ Phase 1B: 20 advanced SQL statement nodes completed
+- ✅ Phase 1C: 15 DDL creation statement nodes completed
+- ✅ Phase 1D: 9 range table infrastructure nodes completed (42% of 166 parser-essential nodes)
 
 ### Recommended Practice
 - **Update checkboxes in `ast_structs_checklist.md`** as nodes are implemented

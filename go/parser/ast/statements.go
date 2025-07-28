@@ -586,7 +586,6 @@ func (cte *CommonTableExpr) String() string {
 }
 
 // Placeholder structs for other query execution nodes implemented in query_execution_nodes.go
-type RangeTblEntry struct{ BaseNode }
 type IntoClause struct{ BaseNode }
 // SetOperation represents the type of set operation
 // Ported from postgres/src/include/nodes/parsenodes.h:2108-2114

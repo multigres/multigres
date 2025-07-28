@@ -175,6 +175,17 @@ const (
 	T_RuleStmt
 	T_LockStmt
 
+	// Range table and FROM clause nodes - Phase 1D (9 nodes)
+	T_RangeTblEntry
+	T_RangeSubselect
+	T_RangeFunction
+	T_RangeTableFunc
+	T_RangeTableFuncCol
+	T_RangeTableSample
+	T_RangeTblFunction
+	T_RTEPermissionInfo
+	T_RangeTblRef
+
 	// Value nodes - ported from postgres/src/include/nodes/value.h
 	T_Integer   // Integer literal - postgres/src/include/nodes/value.h:28-34
 	T_Float     // Float literal - postgres/src/include/nodes/value.h:47-53
@@ -487,6 +498,24 @@ func (nt NodeTag) String() string {
 		return "T_RuleStmt"
 	case T_LockStmt:
 		return "T_LockStmt"
+	case T_RangeTblEntry:
+		return "T_RangeTblEntry"
+	case T_RangeSubselect:
+		return "T_RangeSubselect"
+	case T_RangeFunction:
+		return "T_RangeFunction"
+	case T_RangeTableFunc:
+		return "T_RangeTableFunc"
+	case T_RangeTableFuncCol:
+		return "T_RangeTableFuncCol"
+	case T_RangeTableSample:
+		return "T_RangeTableSample"
+	case T_RangeTblFunction:
+		return "T_RangeTblFunction"
+	case T_RTEPermissionInfo:
+		return "T_RTEPermissionInfo"
+	case T_RangeTblRef:
+		return "T_RangeTblRef"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

@@ -104,14 +104,14 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **DefElem** - Definition element (`src/include/nodes/parsenodes.h:811`)
 
 ### Range Table and FROM Clause Nodes
-- [ ] **RangeTblEntry** - Range table entry (`src/include/nodes/parsenodes.h:1038`)
-- [ ] **RangeSubselect** - Subquery in FROM (`src/include/nodes/parsenodes.h:615`)
-- [ ] **RangeFunction** - Function in FROM (`src/include/nodes/parsenodes.h:637`)
-- [ ] **RangeTableFunc** - Table function (`src/include/nodes/parsenodes.h:655`)
-- [ ] **RangeTableFuncCol** - Table function column (`src/include/nodes/parsenodes.h:673`)
-- [ ] **RangeTableSample** - TABLESAMPLE clause (`src/include/nodes/parsenodes.h:695`)
-- [ ] **RangeTblFunction** - Range table function (`src/include/nodes/parsenodes.h:1317`)
-- [ ] **RTEPermissionInfo** - Permission info for RTE (`src/include/nodes/parsenodes.h:1286`)
+- [x] **RangeTblEntry** - Range table entry (`src/include/nodes/parsenodes.h:1038`)
+- [x] **RangeSubselect** - Subquery in FROM (`src/include/nodes/parsenodes.h:615`)
+- [x] **RangeFunction** - Function in FROM (`src/include/nodes/parsenodes.h:637`)
+- [x] **RangeTableFunc** - Table function (`src/include/nodes/parsenodes.h:655`)
+- [x] **RangeTableFuncCol** - Table function column (`src/include/nodes/parsenodes.h:673`)
+- [x] **RangeTableSample** - TABLESAMPLE clause (`src/include/nodes/parsenodes.h:695`)
+- [x] **RangeTblFunction** - Range table function (`src/include/nodes/parsenodes.h:1317`)
+- [x] **RTEPermissionInfo** - Permission info for RTE (`src/include/nodes/parsenodes.h:1286`)
 
 ### Window and Grouping Nodes
 - [x] **WindowDef** - Window definition (`src/include/nodes/parsenodes.h:561`)
@@ -253,7 +253,7 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 
 ### Target and Reference Nodes
 - [x] **TargetEntry** - Target entry (`src/include/nodes/primnodes.h:2186`)
-- [ ] **RangeTblRef** - Range table reference (`src/include/nodes/primnodes.h:2243`)
+- [x] **RangeTblRef** - Range table reference (`src/include/nodes/primnodes.h:2243`)
 - [x] **JoinExpr** - JOIN expression (`src/include/nodes/primnodes.h:2277`)
 - [x] **FromExpr** - FROM expression (`src/include/nodes/primnodes.h:2305`)
 - [x] **OnConflictExpr** - ON CONFLICT expression (`src/include/nodes/primnodes.h:2321`)
