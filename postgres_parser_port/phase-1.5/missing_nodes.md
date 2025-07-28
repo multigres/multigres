@@ -1,9 +1,9 @@
 # Missing PostgreSQL AST Nodes - Complete Inventory
 
-**Total Missing**: 291 nodes out of 461 total PostgreSQL AST nodes
-**Current Implementation**: 170 nodes (36.9% complete)
+**Total Missing**: 275 nodes out of 461 total PostgreSQL AST nodes
+**Current Implementation**: 186 nodes (40.3% complete)
 **Target**: 100% PostgreSQL AST compatibility
-**Latest**: ✅ Phase 1D completed - 9 range/table infrastructure nodes implemented in `range_table_nodes.go`
+**Latest**: ✅ Phase 1E completed - 16 JSON parse tree nodes implemented in `json_parse_nodes.go`
 **Previous**: ✅ Phase 1C completed - 15 DDL creation statement nodes implemented in `ddl_creation_statements.go`
 
 This inventory is based on the comprehensive ast_structs_checklist.md which tracks all PostgreSQL node structures across parsenodes.h, primnodes.h, plannodes.h, execnodes.h, pathnodes.h, and supporting files.
@@ -93,32 +93,32 @@ These nodes are essential for expression evaluation:
 
 ## Lower Priority - Advanced and Specialized Nodes
 
-### Complete JSON Expression System (parsenodes.h + primnodes.h)
-**JSON Nodes (parsenodes.h):**
-- [ ] **JsonOutput** - JSON output specification (`src/include/nodes/parsenodes.h:1751`)
-- [ ] **JsonArgument** - JSON function argument (`src/include/nodes/parsenodes.h:1762`)
-- [ ] **JsonFuncExpr** - JSON function expression (`src/include/nodes/parsenodes.h:1785`)
-- [ ] **JsonTable** - JSON_TABLE (`src/include/nodes/parsenodes.h:1821`)
-- [ ] **JsonTablePathSpec** - JSON table path specification (`src/include/nodes/parsenodes.h:1807`)
-- [ ] **JsonTableColumn** - JSON table column (`src/include/nodes/parsenodes.h:1851`)
-- [ ] **JsonKeyValue** - JSON key-value pair (`src/include/nodes/parsenodes.h:1872`)
-- [ ] **JsonParseExpr** - JSON_PARSE expression (`src/include/nodes/parsenodes.h:1883`)
-- [ ] **JsonScalarExpr** - JSON scalar expression (`src/include/nodes/parsenodes.h:1896`)
-- [ ] **JsonSerializeExpr** - JSON_SERIALIZE expression (`src/include/nodes/parsenodes.h:1908`)
-- [ ] **JsonObjectConstructor** - JSON object constructor (`src/include/nodes/parsenodes.h:1920`)
-- [ ] **JsonArrayConstructor** - JSON array constructor (`src/include/nodes/parsenodes.h:1934`)
-- [ ] **JsonArrayQueryConstructor** - JSON array query constructor (`src/include/nodes/parsenodes.h:1947`)
-- [ ] **JsonAggConstructor** - JSON aggregate constructor (`src/include/nodes/parsenodes.h:1962`)
-- [ ] **JsonObjectAgg** - JSON_OBJECTAGG (`src/include/nodes/parsenodes.h:1976`)
-- [ ] **JsonArrayAgg** - JSON_ARRAYAGG (`src/include/nodes/parsenodes.h:1989`)
+### Complete JSON Expression System (parsenodes.h + primnodes.h) ✅ COMPLETED
+**JSON Nodes (parsenodes.h):** ✅ Phase 1E Complete
+- [x] **JsonOutput** - JSON output specification (`src/include/nodes/parsenodes.h:1751`) ✅ Phase 1E
+- [x] **JsonArgument** - JSON function argument (`src/include/nodes/parsenodes.h:1762`) ✅ Phase 1E
+- [x] **JsonFuncExpr** - JSON function expression (`src/include/nodes/parsenodes.h:1785`) ✅ Phase 1E
+- [x] **JsonTable** - JSON_TABLE (`src/include/nodes/parsenodes.h:1821`) ✅ Phase 1E
+- [x] **JsonTablePathSpec** - JSON table path specification (`src/include/nodes/parsenodes.h:1807`) ✅ Phase 1E
+- [x] **JsonTableColumn** - JSON table column (`src/include/nodes/parsenodes.h:1851`) ✅ Phase 1E
+- [x] **JsonKeyValue** - JSON key-value pair (`src/include/nodes/parsenodes.h:1872`) ✅ Phase 1E
+- [x] **JsonParseExpr** - JSON_PARSE expression (`src/include/nodes/parsenodes.h:1883`) ✅ Phase 1E
+- [x] **JsonScalarExpr** - JSON scalar expression (`src/include/nodes/parsenodes.h:1896`) ✅ Phase 1E
+- [x] **JsonSerializeExpr** - JSON_SERIALIZE expression (`src/include/nodes/parsenodes.h:1908`) ✅ Phase 1E
+- [x] **JsonObjectConstructor** - JSON object constructor (`src/include/nodes/parsenodes.h:1920`) ✅ Phase 1E
+- [x] **JsonArrayConstructor** - JSON array constructor (`src/include/nodes/parsenodes.h:1934`) ✅ Phase 1E
+- [x] **JsonArrayQueryConstructor** - JSON array query constructor (`src/include/nodes/parsenodes.h:1947`) ✅ Phase 1E
+- [x] **JsonAggConstructor** - JSON aggregate constructor (`src/include/nodes/parsenodes.h:1962`) ✅ Phase 1E
+- [x] **JsonObjectAgg** - JSON_OBJECTAGG (`src/include/nodes/parsenodes.h:1976`) ✅ Phase 1E
+- [x] **JsonArrayAgg** - JSON_ARRAYAGG (`src/include/nodes/parsenodes.h:1989`) ✅ Phase 1E
 
-**JSON Nodes (primnodes.h):**
-- [ ] **JsonFormat** - JSON format specification (`src/include/nodes/primnodes.h:1648`)
-- [ ] **JsonReturning** - JSON RETURNING clause (`src/include/nodes/primnodes.h:1660`)
-- [ ] **JsonValueExpr** - JSON value expression (`src/include/nodes/primnodes.h:1680`)
+**JSON Nodes (primnodes.h):** ✅ Phase 1E Complete
+- [x] **JsonFormat** - JSON format specification (`src/include/nodes/primnodes.h:1648`) ✅ Phase 1E
+- [x] **JsonReturning** - JSON RETURNING clause (`src/include/nodes/primnodes.h:1660`) ✅ Phase 1E
+- [x] **JsonValueExpr** - JSON value expression (`src/include/nodes/primnodes.h:1680`) ✅ Phase 1E
+- [x] **JsonBehavior** - JSON behavior specification (`src/include/nodes/primnodes.h:1786`) ✅ Phase 1E
 - [ ] **JsonConstructorExpr** - JSON constructor expression (`src/include/nodes/primnodes.h:1703`)
 - [ ] **JsonIsPredicate** - JSON IS predicate (`src/include/nodes/primnodes.h:1732`)
-- [ ] **JsonBehavior** - JSON behavior specification (`src/include/nodes/primnodes.h:1786`)
 - [ ] **JsonExpr** - JSON expression (`src/include/nodes/primnodes.h:1813`)
 - [ ] **JsonTablePath** - JSON table path (`src/include/nodes/primnodes.h:1867`)
 - [ ] **JsonTablePlan** - JSON table plan (`src/include/nodes/primnodes.h:1882`)

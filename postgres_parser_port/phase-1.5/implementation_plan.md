@@ -389,13 +389,14 @@ The excluded subsystems can be implemented as separate major projects:
 ### Source of Truth
 **All progress tracking is maintained in `ast_structs_checklist.md`** which serves as the definitive source of implementation status. This file contains:
 - Complete inventory of all 461 PostgreSQL AST nodes
-- Current implementation status (170 nodes completed, 291 remaining)
+- Current implementation status (186 nodes completed, 275 remaining)
 - Accurate PostgreSQL source references for each node
 - Clear marking of implemented vs. missing nodes
 - ✅ Phase 1A: 25 core parse infrastructure nodes completed
 - ✅ Phase 1B: 20 advanced SQL statement nodes completed
 - ✅ Phase 1C: 15 DDL creation statement nodes completed
-- ✅ Phase 1D: 9 range table infrastructure nodes completed (42% of 166 parser-essential nodes)
+- ✅ Phase 1D: 9 range table infrastructure nodes completed
+- ✅ Phase 1E: 20 JSON parse tree nodes completed (52% of 166 parser-essential nodes)
 
 ### Recommended Practice
 - **Update checkboxes in `ast_structs_checklist.md`** as nodes are implemented

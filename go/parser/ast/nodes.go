@@ -186,6 +186,28 @@ const (
 	T_RTEPermissionInfo
 	T_RangeTblRef
 
+	// JSON parse tree nodes - Phase 1E (16 main nodes + 4 supporting types)
+	T_JsonFormat
+	T_JsonReturning
+	T_JsonValueExpr
+	T_JsonBehavior
+	T_JsonOutput
+	T_JsonArgument
+	T_JsonFuncExpr
+	T_JsonTablePathSpec
+	T_JsonTable
+	T_JsonTableColumn
+	T_JsonKeyValue
+	T_JsonParseExpr
+	T_JsonScalarExpr
+	T_JsonSerializeExpr
+	T_JsonObjectConstructor
+	T_JsonArrayConstructor
+	T_JsonArrayQueryConstructor
+	T_JsonAggConstructor
+	T_JsonObjectAgg
+	T_JsonArrayAgg
+
 	// Value nodes - ported from postgres/src/include/nodes/value.h
 	T_Integer   // Integer literal - postgres/src/include/nodes/value.h:28-34
 	T_Float     // Float literal - postgres/src/include/nodes/value.h:47-53
@@ -516,6 +538,46 @@ func (nt NodeTag) String() string {
 		return "T_RTEPermissionInfo"
 	case T_RangeTblRef:
 		return "T_RangeTblRef"
+	case T_JsonFormat:
+		return "T_JsonFormat"
+	case T_JsonReturning:
+		return "T_JsonReturning"
+	case T_JsonValueExpr:
+		return "T_JsonValueExpr"
+	case T_JsonBehavior:
+		return "T_JsonBehavior"
+	case T_JsonOutput:
+		return "T_JsonOutput"
+	case T_JsonArgument:
+		return "T_JsonArgument"
+	case T_JsonFuncExpr:
+		return "T_JsonFuncExpr"
+	case T_JsonTablePathSpec:
+		return "T_JsonTablePathSpec"
+	case T_JsonTable:
+		return "T_JsonTable"
+	case T_JsonTableColumn:
+		return "T_JsonTableColumn"
+	case T_JsonKeyValue:
+		return "T_JsonKeyValue"
+	case T_JsonParseExpr:
+		return "T_JsonParseExpr"
+	case T_JsonScalarExpr:
+		return "T_JsonScalarExpr"
+	case T_JsonSerializeExpr:
+		return "T_JsonSerializeExpr"
+	case T_JsonObjectConstructor:
+		return "T_JsonObjectConstructor"
+	case T_JsonArrayConstructor:
+		return "T_JsonArrayConstructor"
+	case T_JsonArrayQueryConstructor:
+		return "T_JsonArrayQueryConstructor"
+	case T_JsonAggConstructor:
+		return "T_JsonAggConstructor"
+	case T_JsonObjectAgg:
+		return "T_JsonObjectAgg"
+	case T_JsonArrayAgg:
+		return "T_JsonArrayAgg"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

@@ -2,8 +2,8 @@
 
 This checklist tracks the implementation status of all PostgreSQL AST structs for the parser port project.
 
-**Current Status**: 156 nodes completed out of 456 total (34.2% complete)
-**Latest Milestone**: ✅ **Phase 1B Complete** - 13 advanced SQL statement nodes implemented in `advanced_statements.go`
+**Current Status**: 172 nodes completed out of 456 total (37.7% complete)
+**Latest Milestone**: ✅ **Phase 1E Complete** - 16 JSON parse tree nodes implemented in `json_parse_nodes.go`
 
 ## Parse Tree Node Structures (parsenodes.h)
 
@@ -132,22 +132,22 @@ This checklist tracks the implementation status of all PostgreSQL AST structs fo
 - [x] **WithCheckOption** - WITH CHECK OPTION (`src/include/nodes/parsenodes.h:1368`)
 
 ### JSON Nodes
-- [ ] **JsonOutput** - JSON output specification (`src/include/nodes/parsenodes.h:1751`)
-- [ ] **JsonArgument** - JSON function argument (`src/include/nodes/parsenodes.h:1762`)
-- [ ] **JsonFuncExpr** - JSON function expression (`src/include/nodes/parsenodes.h:1785`)
-- [ ] **JsonTable** - JSON_TABLE (`src/include/nodes/parsenodes.h:1821`)
-- [ ] **JsonTablePathSpec** - JSON table path specification (`src/include/nodes/parsenodes.h:1807`)
-- [ ] **JsonTableColumn** - JSON table column (`src/include/nodes/parsenodes.h:1851`)
-- [ ] **JsonKeyValue** - JSON key-value pair (`src/include/nodes/parsenodes.h:1872`)
-- [ ] **JsonParseExpr** - JSON_PARSE expression (`src/include/nodes/parsenodes.h:1883`)
-- [ ] **JsonScalarExpr** - JSON scalar expression (`src/include/nodes/parsenodes.h:1896`)
-- [ ] **JsonSerializeExpr** - JSON_SERIALIZE expression (`src/include/nodes/parsenodes.h:1908`)
-- [ ] **JsonObjectConstructor** - JSON object constructor (`src/include/nodes/parsenodes.h:1920`)
-- [ ] **JsonArrayConstructor** - JSON array constructor (`src/include/nodes/parsenodes.h:1934`)
-- [ ] **JsonArrayQueryConstructor** - JSON array query constructor (`src/include/nodes/parsenodes.h:1947`)
-- [ ] **JsonAggConstructor** - JSON aggregate constructor (`src/include/nodes/parsenodes.h:1962`)
-- [ ] **JsonObjectAgg** - JSON_OBJECTAGG (`src/include/nodes/parsenodes.h:1976`)
-- [ ] **JsonArrayAgg** - JSON_ARRAYAGG (`src/include/nodes/parsenodes.h:1989`)
+- [x] **JsonOutput** - JSON output specification (`src/include/nodes/parsenodes.h:1751`)
+- [x] **JsonArgument** - JSON function argument (`src/include/nodes/parsenodes.h:1762`)
+- [x] **JsonFuncExpr** - JSON function expression (`src/include/nodes/parsenodes.h:1785`)
+- [x] **JsonTable** - JSON_TABLE (`src/include/nodes/parsenodes.h:1821`)
+- [x] **JsonTablePathSpec** - JSON table path specification (`src/include/nodes/parsenodes.h:1807`)
+- [x] **JsonTableColumn** - JSON table column (`src/include/nodes/parsenodes.h:1851`)
+- [x] **JsonKeyValue** - JSON key-value pair (`src/include/nodes/parsenodes.h:1872`)
+- [x] **JsonParseExpr** - JSON_PARSE expression (`src/include/nodes/parsenodes.h:1883`)
+- [x] **JsonScalarExpr** - JSON scalar expression (`src/include/nodes/parsenodes.h:1896`)
+- [x] **JsonSerializeExpr** - JSON_SERIALIZE expression (`src/include/nodes/parsenodes.h:1908`)
+- [x] **JsonObjectConstructor** - JSON object constructor (`src/include/nodes/parsenodes.h:1920`)
+- [x] **JsonArrayConstructor** - JSON array constructor (`src/include/nodes/parsenodes.h:1934`)
+- [x] **JsonArrayQueryConstructor** - JSON array query constructor (`src/include/nodes/parsenodes.h:1947`)
+- [x] **JsonAggConstructor** - JSON aggregate constructor (`src/include/nodes/parsenodes.h:1962`)
+- [x] **JsonObjectAgg** - JSON_OBJECTAGG (`src/include/nodes/parsenodes.h:1976`)
+- [x] **JsonArrayAgg** - JSON_ARRAYAGG (`src/include/nodes/parsenodes.h:1989`)
 
 ### Merge Statement Nodes
 - [x] **MergeWhenClause** - WHEN clause in MERGE (`src/include/nodes/parsenodes.h:1717`)
