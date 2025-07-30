@@ -150,8 +150,9 @@ type Expression interface {
 
 **Implementation**:
 - Single `status.md` file for project-wide status
-- `phase-1.5/` directory for current phase detailed planning
+- Phase documentation integrated into main status file
 - Removed `sessions/` directory to reduce complexity
+- Phase 1.5 completed and documentation archived
 
 ---
 

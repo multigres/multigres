@@ -6,8 +6,8 @@ This directory contains all documentation and progress tracking for porting the 
 
 1. **Read the current status**: Check `status.md` for the latest project status and completed work
 2. **Review the plan**: See `project_plan.md` for the overall roadmap
-3. **Check current phase**: Look at `phase-1.5/` for detailed current phase documentation
-4. **Next steps**: The status doc and phase documentation will tell you exactly what to work on next
+3. **Check current phase**: Review status.md for current phase requirements and next steps
+4. **Implementation reference**: Use `postgres_ast_structs.md` for PostgreSQL AST reference
 
 ## Directory Structure
 
@@ -17,32 +17,29 @@ postgres_parser_port/
 ├── project_plan.md             # Master engineering plan
 ├── status.md                   # Single source of truth for project status
 ├── technical_decisions.md     # Key architectural decisions made
-└── phase-1.5/                 # Current phase documentation
-    ├── README.md               # Phase 1.5 overview and goals
-    ├── implementation_plan.md  # 8-phase roadmap for parser-essential nodes
-    ├── missing_nodes.md        # Complete inventory of missing nodes
-    └── ast_structs_checklist.md # Definitive implementation status tracking
+├── postgres_ast_structs.md    # PostgreSQL AST structures reference
+└── (phase-1.5 completed)      # Phase 1.5 documentation archived
 ```
 
 ## How to Use This System
 
 ### For New Contributors
 1. **Start with `status.md`** - Get overall project status and completion level
-2. **Read `phase-1.5/README.md`** - Understand current phase goals and strategy
-3. **Review `phase-1.5/missing_nodes.md`** - See what specific nodes need implementation
-4. **Check `phase-1.5/ast_structs_checklist.md`** - See current implementation status and priorities
+2. **Review `project_plan.md`** - Understand overall engineering plan and next phases
+3. **Check `postgres_ast_structs.md`** - Reference for PostgreSQL AST structures
+4. **Follow next phase guidance** in status documentation
 
 ### For Continuing Work
-1. **Check `status.md`** for high-level project status
-2. **Review `phase-1.5/ast_structs_checklist.md`** for latest implementation status
-3. **Use `phase-1.5/implementation_plan.md`** for 8-phase roadmap and priorities
-4. **Follow implementation guidelines** in phase documentation
+1. **Check `status.md`** for high-level project status and current phase
+2. **Review current phase requirements** as outlined in status document
+3. **Use `project_plan.md`** for overall roadmap and priorities
+4. **Follow implementation guidelines** from previous phase documentation
 
 ### After Each Work Session
 1. **Update `status.md`** if major milestones reached
-2. **Mark completed nodes as `[x]`** in `phase-1.5/ast_structs_checklist.md`
-3. **Update completion counts** in `phase-1.5/missing_nodes.md` if needed
-4. **Document decisions** in `technical_decisions.md` if needed
+2. **Update completion percentages** and phase status as appropriate
+3. **Document decisions** in `technical_decisions.md` if needed
+4. **Update project plan** if scope or timeline changes
 
 ## Project Goals
 
