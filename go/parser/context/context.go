@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/multigres/parser/go/parser/ast"
-	"github.com/multigres/parser/go/parser/keywords"
+	"github.com/multigres/parser/go/parser/lexer"
 )
 
 // ErrorSeverity represents different levels of parsing errors.
@@ -126,9 +126,9 @@ type ParserState struct {
 	
 	// Token and lexing state
 	// Ported from postgres lexer state variables
-	LastToken    keywords.Token // Last token read by lexer
-	TokenValue   string         // String value of current token
-	TokenLocation int           // Location of current token
+	LastToken    *lexer.Token // Last token read by lexer
+	TokenValue   string       // String value of current token
+	TokenLocation int         // Location of current token
 	
 	// Parse tree construction
 	// Ported from postgres parse tree building state
@@ -157,7 +157,7 @@ type ParserContext struct {
 	state *ParserState
 	
 	// Parser components (thread-safe)
-	keywords *keywords.KeywordInfo // Keyword lookup (read-only)
+	// Note: Keyword lookup is now handled directly by lexer package
 	
 	// Unique context ID for debugging
 	contextID string

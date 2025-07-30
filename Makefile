@@ -83,7 +83,7 @@ coverage:
 # Run benchmarks for parser performance
 benchmark: build
 	@echo "$$(date): Running parser benchmarks"
-	go test -bench=. -benchmem ./go/parser/keywords/
+	# Keywords functionality is now integrated into lexer package
 	go test -bench=. -benchmem ./go/parser/lexer/ 2>/dev/null || echo "Lexer benchmarks not yet available"
 	go test -bench=. -benchmem ./go/parser/grammar/ 2>/dev/null || echo "Parser benchmarks not yet available"
 
@@ -126,7 +126,7 @@ clean:
 # Quick test for development
 dev-test: build
 	@echo "$$(date): Running quick development tests"
-	go test ./go/parser/keywords/
+	# Keywords functionality is now tested as part of lexer tests
 	go test ./go/internal/testutils/
 
 # Format Go code

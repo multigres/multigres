@@ -15,7 +15,7 @@ multigres/
 │   │   ├── ast/                # PostgreSQL AST node definitions
 │   │   ├── analysis/           # Semantic analysis (analyze.c port)
 │   │   ├── context/            # Parser context (thread-safe state)
-│   │   ├── keywords/           # SQL keywords and tokens
+│   │   ├── lexer/             # SQL lexer with integrated keywords
 │   │   └── generate.go         # Code generation directives
 │   ├── sqlast/                 # SQL AST utilities and helpers
 │   └── internal/
@@ -44,9 +44,9 @@ multigres/
    - Configure CI/CD pipeline
    - Create basic directory structure
 
-2. **Keywords & Tokens** ✅
-   - Port PostgreSQL keywords from `src/common/keywords.c`
-   - Create token definitions in `go/parser/keywords/`
+2. **Keywords & Tokens** ✅ **CONSOLIDATED**
+   - ✅ Ported PostgreSQL keywords from `src/common/keywords.c`
+   - ✅ Keywords integrated into `go/parser/lexer/keywords.go` (eliminated separate package)
    - Establish token constants and lookup functions
 
 3. **Basic AST Framework** ✅
