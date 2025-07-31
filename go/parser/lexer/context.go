@@ -51,22 +51,19 @@ type LexerContext struct {
 	ScanBuf    []byte // The string being scanned (scanbuf) - postgres/src/include/parser/scanner.h:72
 	ScanBufLen int    // Length of scan buffer (scanbuflen) - postgres/src/include/parser/scanner.h:73
 	ScanPos    int    // Current position in buffer (internal tracking)
-	
-	// Note: Keyword lookup is now handled directly by lexer package functions
-	// No need for interface-based integration - keywords are resolved during scanning
-	
+
 	// Scanner configuration (eliminates global state)
 	// These were global variables in postgres/src/backend/parser/scan.l:68-70
 	// Ported from postgres/src/include/parser/scanner.h:82-89
-	BackslashQuote           BackslashQuoteMode // backslash_quote setting - postgres/src/include/parser/scanner.h:87
-	EscapeStringWarning      bool               // escape_string_warning setting - postgres/src/include/parser/scanner.h:88
+	BackslashQuote            BackslashQuoteMode // backslash_quote setting - postgres/src/include/parser/scanner.h:87
+	EscapeStringWarning       bool               // escape_string_warning setting - postgres/src/include/parser/scanner.h:88
 	StandardConformingStrings bool               // standard_conforming_strings setting - postgres/src/include/parser/scanner.h:89
-	
+
 	// Literal buffer for multi-rule parsing
 	// Ported from postgres/src/include/parser/scanner.h:92-100
 	LiteralBuf    strings.Builder // Accumulates literal values (literalbuf) - postgres/src/include/parser/scanner.h:98
-	LiteralActive bool             // Whether literal buffer is active (internal tracking)
-	
+	LiteralActive bool            // Whether literal buffer is active (internal tracking)
+
 	// Scanner state variables
 	// Ported from postgres/src/include/parser/scanner.h:103-109
 	State              LexerState // Current lexer state (internal tracking)
@@ -74,21 +71,21 @@ type LexerContext struct {
 	XCDepth            int        // Nesting depth in slash-star comments (xcdepth) - postgres/src/include/parser/scanner.h:106
 	DolQStart          string     // Current $foo$ quote start string (dolqstart) - postgres/src/include/parser/scanner.h:107
 	SavePosition       int        // One-element stack for position saving (save_yylloc) - postgres/src/include/parser/scanner.h:108
-	
+
 	// UTF-16 surrogate pair handling
 	// Ported from postgres/src/include/parser/scanner.h:111-112
 	UTF16FirstPart int32 // First part of UTF16 surrogate pair for Unicode escapes (utf16_first_part) - postgres/src/include/parser/scanner.h:111
-	
+
 	// Warning state for literal lexing
 	// Ported from postgres/src/include/parser/scanner.h:114-116
 	WarnOnFirstEscape bool // State variable for literal-lexing warnings (warn_on_first_escape) - postgres/src/include/parser/scanner.h:114
 	SawNonASCII       bool // Whether non-ASCII characters were seen (saw_non_ascii) - postgres/src/include/parser/scanner.h:115
-	
+
 	// Position tracking (additional for Go implementation)
 	CurrentPosition int // Current byte offset for token positions
 	LineNumber      int // Current line number (for error reporting)
 	ColumnNumber    int // Current column number (for error reporting)
-	
+
 	// Error handling (additional for Go implementation)
 	Errors []LexerError // Accumulated lexer errors
 }
@@ -112,26 +109,26 @@ func NewLexerContext(input string) *LexerContext {
 		ScanBuf:    []byte(input),
 		ScanBufLen: len(input),
 		ScanPos:    0,
-		
+
 		// Initialize configuration with PostgreSQL defaults
 		// Reference: PostgreSQL scan.l lines 68-70 default values
-		BackslashQuote:           BackslashQuoteSafeEncoding,
-		EscapeStringWarning:      true,
+		BackslashQuote:            BackslashQuoteSafeEncoding,
+		EscapeStringWarning:       true,
 		StandardConformingStrings: true,
-		
+
 		// Initialize state
 		State:           StateInitial,
 		CurrentPosition: 0,
 		LineNumber:      1,
 		ColumnNumber:    1,
-		
+
 		// Initialize literal buffer
 		LiteralActive: false,
-		
+
 		// Initialize error collection
 		Errors: make([]LexerError, 0),
 	}
-	
+
 	return ctx
 }
 
@@ -162,27 +159,48 @@ func (ctx *LexerContext) GetLiteral() string {
 	if !ctx.LiteralActive {
 		return ""
 	}
-	
+
 	result := ctx.LiteralBuf.String()
 	ctx.LiteralBuf.Reset()
 	ctx.LiteralActive = false
 	return result
 }
 
-// PeekByte returns the byte at the current position without advancing
-func (ctx *LexerContext) PeekByte() (byte, bool) {
+// CurrentChar returns the current character at ScanPos
+func (ctx *LexerContext) CurrentChar() rune {
+	if ctx.ScanPos >= len(ctx.ScanBuf) {
+		return 0
+	}
+	return rune(ctx.ScanBuf[ctx.ScanPos])
+}
+
+// PeekChar returns the next character without advancing
+func (ctx *LexerContext) PeekChar() rune {
+	if ctx.ScanPos+1 >= len(ctx.ScanBuf) {
+		return 0
+	}
+	return rune(ctx.ScanBuf[ctx.ScanPos+1])
+}
+
+// CurrentByte returns the byte at the current position without advancing
+func (ctx *LexerContext) CurrentByte() (byte, bool) {
 	if ctx.ScanPos >= ctx.ScanBufLen {
 		return 0, false
 	}
 	return ctx.ScanBuf[ctx.ScanPos], true
 }
 
-// NextByte returns the next byte and advances the position
+// PeekByte returns the byte at the current position without advancing (alias for CurrentByte)
+func (ctx *LexerContext) PeekByte() (byte, bool) {
+	return ctx.CurrentByte()
+}
+
+// NextByte returns the current byte and advances the position
 func (ctx *LexerContext) NextByte() (byte, bool) {
 	if ctx.ScanPos >= ctx.ScanBufLen {
 		return 0, false
 	}
-	
+
 	b := ctx.ScanBuf[ctx.ScanPos]
 	ctx.advancePosition(b)
 	return b, true
@@ -194,7 +212,7 @@ func (ctx *LexerContext) PeekBytes(n int) []byte {
 	if end > ctx.ScanBufLen {
 		end = ctx.ScanBufLen
 	}
-	
+
 	result := make([]byte, end-ctx.ScanPos)
 	copy(result, ctx.ScanBuf[ctx.ScanPos:end])
 	return result
@@ -212,7 +230,7 @@ func (ctx *LexerContext) AdvanceBy(n int) {
 func (ctx *LexerContext) advancePosition(b byte) {
 	ctx.ScanPos++
 	ctx.CurrentPosition++
-	
+
 	if b == '\n' {
 		ctx.LineNumber++
 		ctx.ColumnNumber = 1

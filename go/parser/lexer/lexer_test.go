@@ -6,7 +6,7 @@
  *
  * Test Categories:
  * - Token type validation
- * - Basic lexer functionality  
+ * - Basic lexer functionality
  * - Thread safety validation
  * - PostgreSQL compatibility
  */
@@ -20,9 +20,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// Note: MockKeywordLookup removed - keyword functionality is now 
-// provided directly by lexer package functions
 
 // Test token type creation and basic properties
 func TestTokenTypes(t *testing.T) {
@@ -87,9 +84,9 @@ func TestTokenClassification(t *testing.T) {
 			isBit: true,
 		},
 		{
-			name: "Operator",
+			name:  "Operator",
 			token: NewToken(TYPECAST, 0, "::"),
-			isOp: true,
+			isOp:  true,
 		},
 		{
 			name:    "Identifier",
@@ -121,8 +118,8 @@ func TestLexerContext(t *testing.T) {
 	assert.Equal(t, StateInitial, ctx.State, "Initial state mismatch")
 
 	// Test byte reading
-	b, ok := ctx.PeekByte()
-	require.True(t, ok, "PeekByte should succeed")
+	b, ok := ctx.CurrentByte()
+	require.True(t, ok, "CurrentByte should succeed")
 	assert.Equal(t, byte('S'), b, "Expected to peek 'S'")
 
 	b, ok = ctx.NextByte()
@@ -203,7 +200,7 @@ func TestBasicLexing(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			
+
 			for i, expectedType := range tt.expected {
 				token, err := lexer.NextToken()
 				require.NoError(t, err, "Unexpected error at position %d", i)
@@ -240,7 +237,7 @@ func TestErrorHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			
+
 			// Consume all tokens
 			for {
 				token, err := lexer.NextToken()
@@ -249,7 +246,7 @@ func TestErrorHandling(t *testing.T) {
 					break
 				}
 			}
-			
+
 			hasError := lexer.GetContext().HasErrors()
 			assert.Equal(t, tt.hasError, hasError, "Error state mismatch")
 			if hasError {
@@ -264,25 +261,25 @@ func TestErrorHandling(t *testing.T) {
 // Test thread safety
 func TestThreadSafety(t *testing.T) {
 	input := "SELECT * FROM table WHERE id = $1 AND name = 'test'"
-	
+
 	const numGoroutines = 10
 	const tokensPerGoroutine = 100
-	
+
 	var wg sync.WaitGroup
 	results := make([][]TokenType, numGoroutines)
-	
+
 	// Launch multiple goroutines that each create their own lexer
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			
+
 			var tokens []TokenType
-			
+
 			// Create many lexer instances to test thread safety
 			for j := 0; j < tokensPerGoroutine; j++ {
 				lexer := NewLexer(input)
-				
+
 				// Lex the first few tokens
 				for k := 0; k < 3; k++ {
 					token, err := lexer.NextToken()
@@ -293,18 +290,18 @@ func TestThreadSafety(t *testing.T) {
 					tokens = append(tokens, token.Type)
 				}
 			}
-			
+
 			results[goroutineID] = tokens
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify all goroutines produced the same token sequence
 	expected := results[0]
 	for i := 1; i < numGoroutines; i++ {
 		require.Equal(t, len(expected), len(results[i]), "Goroutine %d produced different number of tokens", i)
-		
+
 		for j := 0; j < len(expected); j++ {
 			assert.Equal(t, expected[j], results[i][j], "Goroutine %d, token %d mismatch", i, j)
 		}
@@ -315,20 +312,20 @@ func TestThreadSafety(t *testing.T) {
 func TestPositionTracking(t *testing.T) {
 	input := "line1\nline2\n  token"
 	lexer := NewLexer(input)
-	
+
 	// First token should be "line1" at position 0
 	token, err := lexer.NextToken()
 	require.NoError(t, err, "Unexpected error")
 	assert.Equal(t, 0, token.Position, "First token should be at position 0")
-	
-	// Second token should be "line2" 
+
+	// Second token should be "line2"
 	token, err = lexer.NextToken()
 	require.NoError(t, err, "Unexpected error")
-	
+
 	// Third token should be "token" with proper position
 	token, err = lexer.NextToken()
 	require.NoError(t, err, "Unexpected error")
-	
+
 	// Verify the token text
 	assert.Equal(t, "token", token.Value.Str, "Token text mismatch")
 }
@@ -336,12 +333,12 @@ func TestPositionTracking(t *testing.T) {
 // Benchmark basic lexing performance
 func BenchmarkBasicLexing(b *testing.B) {
 	input := "SELECT * FROM users WHERE id = $1 AND name = 'test' AND active = true"
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		lexer := NewLexer(input)
-		
+
 		for {
 			token, err := lexer.NextToken()
 			if err != nil {
@@ -357,9 +354,9 @@ func BenchmarkBasicLexing(b *testing.B) {
 // Benchmark lexer creation overhead
 func BenchmarkLexerCreation(b *testing.B) {
 	input := "SELECT * FROM table"
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		lexer := NewLexer(input)
 		_ = lexer // Prevent optimization
@@ -428,25 +425,25 @@ func TestEnhancedIdentifierRecognition(t *testing.T) {
 			},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			
+
 			for i, expected := range tt.expectedTokens {
 				token, err := lexer.NextToken()
 				require.NoError(t, err, "Token %d should scan without error", i)
-				
+
 				assert.Equal(t, expected.tokenType, token.Type, "Token %d type mismatch", i)
 				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
-				
+
 				if expected.isKeyword {
 					assert.Equal(t, expected.keyword, token.Value.Keyword, "Token %d keyword mismatch", i)
 				} else {
 					assert.Equal(t, expected.text, token.Value.Str, "Token %d string value mismatch", i)
 				}
 			}
-			
+
 			// Verify EOF
 			token, err := lexer.NextToken()
 			require.NoError(t, err)
@@ -531,19 +528,19 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 			},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			
+
 			for i, expected := range tt.expectedTokens {
 				token, err := lexer.NextToken()
 				require.NoError(t, err, "Token %d should scan without error", i)
-				
+
 				assert.Equal(t, expected.tokenType, token.Type, "Token %d type mismatch: got %d, want %d", i, int(token.Type), int(expected.tokenType))
 				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
 			}
-			
+
 			// Verify EOF
 			token, err := lexer.NextToken()
 			require.NoError(t, err)
@@ -605,20 +602,20 @@ func TestEnhancedWhitespaceAndComments(t *testing.T) {
 			},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			
+
 			for i, expected := range tt.expectedTokens {
 				token, err := lexer.NextToken()
 				require.NoError(t, err, "Token %d should scan without error", i)
-				
+
 				assert.Equal(t, expected.tokenType, token.Type, "Token %d type mismatch", i)
 				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
 				assert.Equal(t, expected.position, token.Position, "Token %d position mismatch", i)
 			}
-			
+
 			// Verify EOF
 			token, err := lexer.NextToken()
 			require.NoError(t, err)
@@ -630,27 +627,27 @@ func TestEnhancedWhitespaceAndComments(t *testing.T) {
 // Phase 2B: Test state machine foundation
 func TestStateMachineFoundation(t *testing.T) {
 	tests := []struct {
-		name         string
-		input        string
+		name          string
+		input         string
 		expectedState LexerState
 	}{
 		{
-			name:         "Initial state",
-			input:        "SELECT id FROM table",
+			name:          "Initial state",
+			input:         "SELECT id FROM table",
 			expectedState: StateInitial,
 		},
 		{
-			name:         "Basic tokens maintain initial state",
-			input:        "id := 123 + 456",
+			name:          "Basic tokens maintain initial state",
+			input:         "id := 123 + 456",
 			expectedState: StateInitial,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			
-			// Process all tokens 
+
+			// Process all tokens
 			for {
 				token, err := lexer.NextToken()
 				require.NoError(t, err)
@@ -658,7 +655,7 @@ func TestStateMachineFoundation(t *testing.T) {
 					break
 				}
 			}
-			
+
 			// Verify final state
 			ctx := lexer.GetContext()
 			assert.Equal(t, tt.expectedState, ctx.GetState(), "Final state should match expected")
@@ -699,34 +696,34 @@ func TestParameterRecognition(t *testing.T) {
 				text      string
 				intValue  int
 			}{
-				{IDENT, "WHERE", 0},  // keyword
+				{IDENT, "WHERE", 0}, // keyword
 				{IDENT, "id", 0},
 				{TokenType('='), "=", 0},
 				{PARAM, "$1", 1},
-				{IDENT, "AND", 0},    // keyword
+				{IDENT, "AND", 0}, // keyword
 				{IDENT, "name", 0},
 				{TokenType('='), "=", 0},
 				{PARAM, "$2", 2},
 			},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			
+
 			for i, expected := range tt.expected {
 				token, err := lexer.NextToken()
 				require.NoError(t, err, "Token %d should scan without error", i)
-				
+
 				assert.Equal(t, expected.tokenType, token.Type, "Token %d type mismatch", i)
 				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
-				
+
 				if expected.tokenType == PARAM {
 					assert.Equal(t, expected.intValue, token.Value.Ival, "Token %d parameter value mismatch", i)
 				}
 			}
-			
+
 			// Verify EOF
 			token, err := lexer.NextToken()
 			require.NoError(t, err)
@@ -744,13 +741,13 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		WHERE u.id >= $1 AND p.price <> 'free'
 		  AND u.created := NOW()::timestamp;
 	`
-	
+
 	lexer := NewLexer(input)
 	tokens := []struct {
 		expectedType TokenType
 		expectedText string
 	}{
-		{IDENT, "SELECT"},    // keyword
+		{IDENT, "SELECT"}, // keyword
 		{IDENT, "u"},
 		{TokenType('.'), "."},
 		{IDENT, "name"},
@@ -758,25 +755,25 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		{IDENT, "p"},
 		{TokenType('.'), "."},
 		{IDENT, "price"},
-		{IDENT, "FROM"},      // keyword
+		{IDENT, "FROM"}, // keyword
 		{IDENT, "users"},
 		{IDENT, "u"},
 		{TokenType(','), ","},
 		{IDENT, "products"},
 		{IDENT, "p"},
-		{IDENT, "WHERE"},     // keyword
+		{IDENT, "WHERE"}, // keyword
 		{IDENT, "u"},
 		{TokenType('.'), "."},
 		{IDENT, "id"},
 		{GREATER_EQUALS, ">="},
 		{PARAM, "$1"},
-		{IDENT, "AND"},       // keyword
+		{IDENT, "AND"}, // keyword
 		{IDENT, "p"},
 		{TokenType('.'), "."},
 		{IDENT, "price"},
 		{NOT_EQUALS, "<>"},
 		{SCONST, "'free'"},
-		{IDENT, "AND"},       // keyword
+		{IDENT, "AND"}, // keyword
 		{IDENT, "u"},
 		{TokenType('.'), "."},
 		{IDENT, "created"},
@@ -788,22 +785,22 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		{IDENT, "timestamp"}, // keyword
 		{TokenType(';'), ";"},
 	}
-	
+
 	for i, expected := range tokens {
 		token, err := lexer.NextToken()
 		require.NoError(t, err, "Token %d should scan without error", i)
-		
-		assert.Equal(t, expected.expectedType, token.Type, 
-			"Token %d type mismatch: got %d (%q), want %d", 
+
+		assert.Equal(t, expected.expectedType, token.Type,
+			"Token %d type mismatch: got %d (%q), want %d",
 			i, int(token.Type), token.Text, int(expected.expectedType))
 		assert.Equal(t, expected.expectedText, token.Text, "Token %d text mismatch", i)
 	}
-	
+
 	// Verify EOF
 	token, err := lexer.NextToken()
 	require.NoError(t, err)
 	assert.Equal(t, EOF, token.Type, "Should reach EOF")
-	
+
 	// Verify no errors
 	ctx := lexer.GetContext()
 	assert.Empty(t, ctx.Errors, "Should have no lexer errors")
@@ -854,14 +851,14 @@ func TestCharacterClassification(t *testing.T) {
 			invalid:  []byte{'a', '0', '_', ' ', '\t', '(', ')', '[', ']'},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Test valid characters
 			for _, b := range tt.valid {
 				assert.True(t, tt.function(b), "Character %c (0x%02x) should be valid for %s", b, b, tt.name)
 			}
-			
+
 			// Test invalid characters
 			for _, b := range tt.invalid {
 				assert.False(t, tt.function(b), "Character %c (0x%02x) should be invalid for %s", b, b, tt.name)
@@ -938,11 +935,11 @@ func TestSpecialLiteralRecognition(t *testing.T) {
 				{IDENT, "BETWEEN"}, // keyword
 				{IDENT, "b"},       // identifier (no quote following)
 				{XCONST, "X'FF'"},
-				{IDENT, "x"},       // identifier (no quote following)
+				{IDENT, "x"}, // identifier (no quote following)
 				{SCONST, "E'test'"},
-				{IDENT, "e"},       // identifier (no quote following)
+				{IDENT, "e"}, // identifier (no quote following)
 				{SCONST, "N'nat'"},
-				{IDENT, "n"},       // identifier (no quote following)
+				{IDENT, "n"}, // identifier (no quote following)
 			},
 		},
 		{
@@ -952,26 +949,26 @@ func TestSpecialLiteralRecognition(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{IDENT, "U&\"unicode_id\""},  
-				{SCONST, "U&'unicode_str'"}, 
+				{IDENT, "U&\"unicode_id\""},
+				{SCONST, "U&'unicode_str'"},
 			},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			
+
 			for i, expected := range tt.expectedTokens {
 				token, err := lexer.NextToken()
 				require.NoError(t, err, "Token %d should scan without error", i)
-				
-				assert.Equal(t, expected.tokenType, token.Type, 
-					"Token %d type mismatch: got %d (%q), want %d", 
+
+				assert.Equal(t, expected.tokenType, token.Type,
+					"Token %d type mismatch: got %d (%q), want %d",
 					i, int(token.Type), token.Text, int(expected.tokenType))
 				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
 			}
-			
+
 			// Verify EOF
 			token, err := lexer.NextToken()
 			require.NoError(t, err)
@@ -997,9 +994,9 @@ func TestCharacterDispatchOrdering(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{IDENT, "E"},        // identifier
+				{IDENT, "E"},          // identifier
 				{SCONST, "E'string'"}, // extended string
-				{IDENT, "ESCAPE"},   // keyword
+				{IDENT, "ESCAPE"},     // keyword
 			},
 		},
 		{
@@ -1045,27 +1042,27 @@ func TestCharacterDispatchOrdering(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{IDENT, "U"},        // identifier
+				{IDENT, "U"},         // identifier
 				{SCONST, "U&'test'"}, // unicode string
-				{IDENT, "UNIQUE"},   // keyword
+				{IDENT, "UNIQUE"},    // keyword
 			},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			
+
 			for i, expected := range tt.expectedTokens {
 				token, err := lexer.NextToken()
 				require.NoError(t, err, "Token %d should scan without error", i)
-				
-				assert.Equal(t, expected.tokenType, token.Type, 
-					"Token %d type mismatch: got %d (%q), want %d", 
+
+				assert.Equal(t, expected.tokenType, token.Type,
+					"Token %d type mismatch: got %d (%q), want %d",
 					i, int(token.Type), token.Text, int(expected.tokenType))
 				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
 			}
-			
+
 			// Verify EOF
 			token, err := lexer.NextToken()
 			require.NoError(t, err)
@@ -1079,19 +1076,19 @@ func BenchmarkEnhancedLexing(b *testing.B) {
 	input := `
 		-- Performance test query
 		SELECT u.user_id, u.name, p.price, p.description
-		FROM users u 
+		FROM users u
 		JOIN products p ON u.id = p.user_id
 		WHERE u.created >= $1 AND p.price <= $2
 		  AND u.status <> 'inactive'
 		ORDER BY u.name, p.price DESC
 		LIMIT 100;
 	`
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		lexer := NewLexer(input)
-		
+
 		for {
 			token, err := lexer.NextToken()
 			if err != nil {
@@ -1102,4 +1099,354 @@ func BenchmarkEnhancedLexing(b *testing.B) {
 			}
 		}
 	}
+}
+
+// =============================================================================
+// Phase 2B: String Literal Content Extraction Tests (Enhancement)
+// =============================================================================
+
+// Test proper string literal content extraction with quote doubling
+func TestStringLiteralContentExtraction(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		expectedType  TokenType
+		expectedValue string // Content without quotes
+		expectedText  string // Original text with quotes
+	}{
+		{
+			name:          "Simple string",
+			input:         "'hello'",
+			expectedType:  SCONST,
+			expectedValue: "hello",
+			expectedText:  "'hello'",
+		},
+		{
+			name:          "Empty string",
+			input:         "''",
+			expectedType:  SCONST,
+			expectedValue: "",
+			expectedText:  "''",
+		},
+		{
+			name:          "String with doubled quotes",
+			input:         "'don''t'",
+			expectedType:  SCONST,
+			expectedValue: "don't",
+			expectedText:  "'don''t'",
+		},
+		{
+			name:          "String with multiple doubled quotes",
+			input:         "'I''m ''ready'''",
+			expectedType:  SCONST,
+			expectedValue: "I'm 'ready'",
+			expectedText:  "'I''m ''ready'''",
+		},
+		{
+			name:          "String with newlines",
+			input:         "'hello\nworld'",
+			expectedType:  SCONST,
+			expectedValue: "hello\nworld",
+			expectedText:  "'hello\nworld'",
+		},
+		{
+			name:          "String with special characters",
+			input:         "'tab\ttab space   end'",
+			expectedType:  SCONST,
+			expectedValue: "tab\ttab space   end",
+			expectedText:  "'tab\ttab space   end'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			token, err := lexer.NextToken()
+
+			require.NoError(t, err, "Should scan without error")
+			assert.Equal(t, tt.expectedType, token.Type, "Token type mismatch")
+			assert.Equal(t, tt.expectedValue, token.Value.Str, "Token value (content) mismatch")
+			assert.Equal(t, tt.expectedText, token.Text, "Token text (original) mismatch")
+		})
+	}
+}
+
+// Test bit string literal content extraction
+func TestBitStringContentExtraction(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		expectedType  TokenType
+		expectedValue string // Content without B'' wrapper
+		expectedText  string // Original text with B'' wrapper
+	}{
+		{
+			name:          "Simple bit string",
+			input:         "B'1010'",
+			expectedType:  BCONST,
+			expectedValue: "1010",
+			expectedText:  "B'1010'",
+		},
+		{
+			name:          "Empty bit string",
+			input:         "B''",
+			expectedType:  BCONST,
+			expectedValue: "",
+			expectedText:  "B''",
+		},
+		{
+			name:          "Long bit string",
+			input:         "B'11110000101010111100'",
+			expectedType:  BCONST,
+			expectedValue: "11110000101010111100",
+			expectedText:  "B'11110000101010111100'",
+		},
+		{
+			name:          "Lowercase b prefix",
+			input:         "b'0101'",
+			expectedType:  BCONST,
+			expectedValue: "0101",
+			expectedText:  "b'0101'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			token, err := lexer.NextToken()
+
+			require.NoError(t, err, "Should scan without error")
+			assert.Equal(t, tt.expectedType, token.Type, "Token type mismatch")
+			assert.Equal(t, tt.expectedValue, token.Value.Str, "Token value (content) mismatch")
+			assert.Equal(t, tt.expectedText, token.Text, "Token text (original) mismatch")
+		})
+	}
+}
+
+// Test hex string literal content extraction
+func TestHexStringContentExtraction(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		expectedType  TokenType
+		expectedValue string // Content without X'' wrapper
+		expectedText  string // Original text with X'' wrapper
+	}{
+		{
+			name:          "Simple hex string",
+			input:         "X'DEADBEEF'",
+			expectedType:  XCONST,
+			expectedValue: "DEADBEEF",
+			expectedText:  "X'DEADBEEF'",
+		},
+		{
+			name:          "Empty hex string",
+			input:         "X''",
+			expectedType:  XCONST,
+			expectedValue: "",
+			expectedText:  "X''",
+		},
+		{
+			name:          "Mixed case hex",
+			input:         "X'CaFeBaBe'",
+			expectedType:  XCONST,
+			expectedValue: "CaFeBaBe",
+			expectedText:  "X'CaFeBaBe'",
+		},
+		{
+			name:          "Lowercase x prefix",
+			input:         "x'1234'",
+			expectedType:  XCONST,
+			expectedValue: "1234",
+			expectedText:  "x'1234'",
+		},
+		{
+			name:          "Long hex string",
+			input:         "X'0123456789ABCDEF'",
+			expectedType:  XCONST,
+			expectedValue: "0123456789ABCDEF",
+			expectedText:  "X'0123456789ABCDEF'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			token, err := lexer.NextToken()
+
+			require.NoError(t, err, "Should scan without error")
+			assert.Equal(t, tt.expectedType, token.Type, "Token type mismatch")
+			assert.Equal(t, tt.expectedValue, token.Value.Str, "Token value (content) mismatch")
+			assert.Equal(t, tt.expectedText, token.Text, "Token text (original) mismatch")
+		})
+	}
+}
+
+// Test extended string literal content extraction
+func TestExtendedStringContentExtraction(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		expectedType  TokenType
+		expectedValue string // Content without E'' wrapper (escapes NOT processed yet - Phase 2C)
+		expectedText  string // Original text with E'' wrapper
+	}{
+		{
+			name:          "Simple extended string",
+			input:         "E'hello'",
+			expectedType:  SCONST,
+			expectedValue: "hello",
+			expectedText:  "E'hello'",
+		},
+		{
+			name:          "Extended string with doubled quotes",
+			input:         "E'don''t'",
+			expectedType:  SCONST,
+			expectedValue: "don't",
+			expectedText:  "E'don''t'",
+		},
+		{
+			name:          "Extended string with escape sequences",
+			input:         "E'hello\\nworld'",
+			expectedType:  SCONST,
+			expectedValue: "hello\nworld", // Phase 2C: Escapes ARE processed
+			expectedText:  "E'hello\\nworld'",
+		},
+		{
+			name:          "Lowercase e prefix",
+			input:         "e'test'",
+			expectedType:  SCONST,
+			expectedValue: "test",
+			expectedText:  "e'test'",
+		},
+		{
+			name:          "Extended string with tab escape",
+			input:         "E'tab\\there'",
+			expectedType:  SCONST,
+			expectedValue: "tab\there", // Phase 2C: Escapes ARE processed
+			expectedText:  "E'tab\\there'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			token, err := lexer.NextToken()
+
+			require.NoError(t, err, "Should scan without error")
+			assert.Equal(t, tt.expectedType, token.Type, "Token type mismatch")
+			assert.Equal(t, tt.expectedValue, token.Value.Str, "Token value (content) mismatch")
+			assert.Equal(t, tt.expectedText, token.Text, "Token text (original) mismatch")
+		})
+	}
+}
+
+// Test error cases for string literals
+func TestStringLiteralErrorCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		expectedType TokenType
+		shouldError  bool
+	}{
+		{
+			name:         "Unterminated string",
+			input:        "'unterminated",
+			expectedType: USCONST,
+			shouldError:  true,
+		},
+		{
+			name:         "Unterminated bit string",
+			input:        "B'unterminated",
+			expectedType: BCONST,
+			shouldError:  true,
+		},
+		{
+			name:         "Unterminated hex string",
+			input:        "X'unterminated",
+			expectedType: XCONST,
+			shouldError:  true,
+		},
+		{
+			name:         "Unterminated extended string",
+			input:        "E'unterminated",
+			expectedType: SCONST,
+			shouldError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			token, err := lexer.NextToken()
+
+			require.NoError(t, err, "Lexer should not return error (errors stored in context)")
+			assert.Equal(t, tt.expectedType, token.Type, "Token type should match expected error type")
+
+			ctx := lexer.GetContext()
+			if tt.shouldError {
+				assert.True(t, ctx.HasErrors(), "Should have lexer errors")
+				assert.Greater(t, len(ctx.Errors), 0, "Should have at least one error")
+			} else {
+				assert.False(t, ctx.HasErrors(), "Should not have lexer errors")
+			}
+		})
+	}
+}
+
+// Test string literals in complex SQL context
+func TestStringLiteralsInSQLContext(t *testing.T) {
+	input := `SELECT 'simple', "identifier", E'extended\\n', B'1010', X'CAFE' FROM table WHERE name = 'O''Reilly' AND data = X'deadbeef'`
+
+	lexer := NewLexer(input)
+	tokens := []struct {
+		expectedType   TokenType
+		expectedText   string
+		expectedValue  string // Only check if non-empty
+		skipValueCheck bool   // Skip value check for complex cases
+	}{
+		{IDENT, "SELECT", "", true}, // keyword - skip value check
+		{SCONST, "'simple'", "simple", false},
+		{TokenType(','), ",", "", true},
+		{IDENT, "\"identifier\"", "identifier", false}, // delimited identifier
+		{TokenType(','), ",", "", true},
+		{SCONST, "E'extended\\\\n'", "extended\\n", false}, // Phase 2C: \\\\ becomes \\
+		{TokenType(','), ",", "", true},
+		{BCONST, "B'1010'", "1010", false},
+		{TokenType(','), ",", "", true},
+		{XCONST, "X'CAFE'", "CAFE", false},
+		{IDENT, "FROM", "", true},  // keyword - skip value check
+		{IDENT, "table", "", true}, // identifier - skip value check for now
+		{IDENT, "WHERE", "", true}, // keyword - skip value check
+		{IDENT, "name", "", true},  // identifier - skip value check for now
+		{TokenType('='), "=", "", true},
+		{SCONST, "'O''Reilly'", "O'Reilly", false}, // doubled quote handling
+		{IDENT, "AND", "", true},                   // keyword - skip value check
+		{IDENT, "data", "", true},                  // identifier - skip value check for now
+		{TokenType('='), "=", "", true},
+		{XCONST, "X'deadbeef'", "deadbeef", false},
+	}
+
+	for i, expected := range tokens {
+		token, err := lexer.NextToken()
+		require.NoError(t, err, "Token %d should scan without error", i)
+
+		assert.Equal(t, expected.expectedType, token.Type,
+			"Token %d type mismatch: got %d (%q), want %d",
+			i, int(token.Type), token.Text, int(expected.expectedType))
+		assert.Equal(t, expected.expectedText, token.Text, "Token %d text mismatch", i)
+
+		if !expected.skipValueCheck && expected.expectedValue != "" {
+			assert.Equal(t, expected.expectedValue, token.Value.Str, "Token %d value mismatch", i)
+		}
+	}
+
+	// Verify EOF
+	token, err := lexer.NextToken()
+	require.NoError(t, err)
+	assert.Equal(t, EOF, token.Type, "Should reach EOF")
+
+	// Verify no errors
+	ctx := lexer.GetContext()
+	assert.Empty(t, ctx.Errors, "Should have no lexer errors")
 }

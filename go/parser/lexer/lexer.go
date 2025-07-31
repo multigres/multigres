@@ -36,44 +36,44 @@ func (l *Lexer) NextToken() (*Token, error) {
 		if err := l.skipWhitespace(); err != nil {
 			return nil, err
 		}
-		
+
 		// Check for end of input
 		if l.context.AtEOF() {
 			return NewToken(EOF, l.context.CurrentPosition, ""), nil
 		}
-		
+
 		// Record start position for this token - equivalent to SET_YYLLOC()
 		// postgres/src/backend/parser/scan.l:105
 		startPos := l.context.CurrentPosition
 		startScanPos := l.context.ScanPos
-		
+
 		// State-based dispatch - PostgreSQL uses exclusive states
 		// postgres/src/backend/parser/scan.l:175-188
 		switch l.context.State {
 		case StateInitial:
 			return l.scanInitialState(startPos, startScanPos)
 		case StateXB:
-			return l.scanBitStringState(startPos, startScanPos)
+			return l.scanBitString(startPos, startScanPos)
 		case StateXC:
 			return l.scanCommentState(startPos, startScanPos)
 		case StateXD:
 			return l.scanDelimitedIdentifierState(startPos, startScanPos)
 		case StateXH:
-			return l.scanHexStringState(startPos, startScanPos)
+			return l.scanHexString(startPos, startScanPos)
 		case StateXQ:
-			return l.scanQuotedStringState(startPos, startScanPos)
+			return l.scanStandardString(startPos, startScanPos)
 		case StateXQS:
 			return l.scanQuoteStopState(startPos, startScanPos)
 		case StateXE:
-			return l.scanExtendedStringState(startPos, startScanPos)
+			return l.scanExtendedString(startPos, startScanPos)
 		case StateXDolQ:
-			return l.scanDollarQuotedState(startPos, startScanPos)
+			return l.scanDollarQuotedString(startPos, startScanPos)
 		case StateXUI:
 			return l.scanUnicodeIdentifierState(startPos, startScanPos)
 		case StateXUS:
-			return l.scanUnicodeStringState(startPos, startScanPos)
+			return l.scanStandardString(startPos, startScanPos) // Unicode strings treated as standard for now
 		case StateXEU:
-			return l.scanExtendedUnicodeState(startPos, startScanPos)
+			return l.scanExtendedString(startPos, startScanPos) // Extended Unicode strings treated as extended for now
 		default:
 			return nil, fmt.Errorf("invalid lexer state: %d", l.context.State)
 		}
@@ -84,11 +84,11 @@ func (l *Lexer) NextToken() (*Token, error) {
 // Equivalent to postgres/src/backend/parser/scan.l INITIAL state rules
 func (l *Lexer) scanInitialState(startPos, startScanPos int) (*Token, error) {
 	// Peek at the current character to determine token type
-	b, ok := l.context.PeekByte()
+	b, ok := l.context.CurrentByte()
 	if !ok {
 		return NewToken(EOF, startPos, ""), nil
 	}
-	
+
 	// Character-based dispatch following PostgreSQL patterns
 	// postgres/src/backend/parser/scan.l:346-900+ (rules section)
 	// IMPORTANT: Order matters! Specific character cases must come before general isIdentStart()
@@ -96,51 +96,50 @@ func (l *Lexer) scanInitialState(startPos, startScanPos int) (*Token, error) {
 	// Numbers first - postgres/src/backend/parser/scan.l:430-500+
 	case isDigit(b):
 		return l.scanNumber(startPos, startScanPos)
-	
+
 	// String literals - postgres/src/backend/parser/scan.l:286-318
 	case b == '\'':
-		return l.scanStringLiteral(startPos, startScanPos)
-	
+		l.context.SetState(StateXQ)
+		return l.scanStandardString(startPos, startScanPos)
+
 	// Extended string literals (E'...') - postgres/src/backend/parser/scan.l:275
 	case b == 'E' || b == 'e':
 		if next := l.context.PeekBytes(2); len(next) >= 2 && next[1] == '\'' {
-			l.context.NextByte() // consume 'E' or 'e'
 			l.context.SetState(StateXE)
-			return l.scanExtendedStringState(startPos, startScanPos)
+			return l.scanExtendedString(startPos, startScanPos)
 		}
 		// Otherwise, treat as identifier
 		return l.scanIdentifier(startPos, startScanPos)
-	
+
 	// Bit string literals (B'...') - postgres/src/backend/parser/scan.l:264
 	case b == 'B' || b == 'b':
 		if next := l.context.PeekBytes(2); len(next) >= 2 && next[1] == '\'' {
-			l.context.NextByte() // consume 'B' or 'b'
 			l.context.SetState(StateXB)
-			return l.scanBitStringState(startPos, startScanPos)
+			return l.scanBitString(startPos, startScanPos)
 		}
 		// Otherwise, treat as identifier
 		return l.scanIdentifier(startPos, startScanPos)
-	
+
 	// Hex string literals (X'...') - postgres/src/backend/parser/scan.l:268
 	case b == 'X' || b == 'x':
 		if next := l.context.PeekBytes(2); len(next) >= 2 && next[1] == '\'' {
-			l.context.NextByte() // consume 'X' or 'x'
 			l.context.SetState(StateXH)
-			return l.scanHexStringState(startPos, startScanPos)
+			return l.scanHexString(startPos, startScanPos)
 		}
 		// Otherwise, treat as identifier
 		return l.scanIdentifier(startPos, startScanPos)
-	
+
 	// National character literals (N'...') - postgres/src/backend/parser/scan.l:272
 	case b == 'N' || b == 'n':
 		if next := l.context.PeekBytes(2); len(next) >= 2 && next[1] == '\'' {
-			l.context.NextByte() // consume 'N' or 'n'
+			l.context.NextByte() // consume 'N'
+			l.context.SetState(StateXQ)
 			// National character strings are treated like regular strings
-			return l.scanStringLiteral(startPos, startScanPos)
+			return l.scanStandardString(startPos, startScanPos)
 		}
 		// Otherwise, treat as identifier
 		return l.scanIdentifier(startPos, startScanPos)
-	
+
 	// Unicode identifiers (U&"...") - postgres/src/backend/parser/scan.l:315
 	case b == 'U' || b == 'u':
 		if next := l.context.PeekBytes(3); len(next) >= 3 && next[1] == '&' && next[2] == '"' {
@@ -150,20 +149,20 @@ func (l *Lexer) scanInitialState(startPos, startScanPos int) (*Token, error) {
 		} else if len(next) >= 3 && next[1] == '&' && next[2] == '\'' {
 			l.context.AdvanceBy(2) // consume 'U&'
 			l.context.SetState(StateXUS)
-			return l.scanUnicodeStringState(startPos, startScanPos)
+			return l.scanStandardString(startPos, startScanPos) // Unicode strings treated as standard for now
 		}
 		// Otherwise, treat as identifier
 		return l.scanIdentifier(startPos, startScanPos)
-	
+
 	// Delimited identifiers ("...") - postgres/src/backend/parser/scan.l:309
 	case b == '"':
 		l.context.SetState(StateXD)
 		return l.scanDelimitedIdentifierState(startPos, startScanPos)
-	
+
 	// Dollar quoting ($...$) - postgres/src/backend/parser/scan.l:301
 	case b == '$':
 		return l.scanDollarToken(startPos, startScanPos)
-	
+
 	// Comments and operators - postgres/src/backend/parser/scan.l:342-500+
 	case b == '/':
 		if next := l.context.PeekBytes(2); len(next) >= 2 && next[1] == '*' {
@@ -172,12 +171,12 @@ func (l *Lexer) scanInitialState(startPos, startScanPos int) (*Token, error) {
 		}
 		// Otherwise, treat as operator
 		return l.scanOperatorOrPunctuation(startPos, startScanPos)
-	
+
 	// Identifiers - MUST come after specific character cases
 	// postgres/src/backend/parser/scan.l:346-349
 	case isIdentStart(b):
 		return l.scanIdentifier(startPos, startScanPos)
-	
+
 	// Single-character tokens and operators
 	default:
 		return l.scanOperatorOrPunctuation(startPos, startScanPos)
@@ -191,28 +190,28 @@ func (l *Lexer) scanIdentifier(startPos, startScanPos int) (*Token, error) {
 	// ident_start: [A-Za-z\200-\377_]
 	// ident_cont: [A-Za-z\200-\377_0-9\$]
 	// identifier: {ident_start}{ident_cont}*
-	
+
 	// First character already validated by caller
 	l.context.NextByte()
-	
+
 	// Continue with identifier continuation characters
 	for {
-		b, ok := l.context.PeekByte()
+		b, ok := l.context.CurrentByte()
 		if !ok || !isIdentCont(b) {
 			break
 		}
 		l.context.NextByte()
 	}
-	
+
 	text := l.context.GetCurrentText(startScanPos)
-	
+
 	// Check if this is a keyword using the integrated keyword lookup
 	if keyword := LookupKeyword(text); keyword != nil {
 		// Return keyword token with proper Keyword field set
 		// In Phase 3, this will return the proper keyword token type instead of IDENT
 		return NewKeywordToken(keyword.Name, startPos, text), nil
 	}
-	
+
 	// Regular identifier
 	return NewStringToken(IDENT, text, startPos, text), nil
 }
@@ -222,53 +221,17 @@ func (l *Lexer) scanIdentifier(startPos, startScanPos int) (*Token, error) {
 func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 	// Simple integer scanning for now
 	for {
-		b, ok := l.context.PeekByte()
+		b, ok := l.context.CurrentByte()
 		if !ok || !isDigit(b) {
 			break
 		}
 		l.context.NextByte()
 	}
-	
+
 	text := l.context.GetCurrentText(startScanPos)
-	
+
 	// For now, just return as string - proper numeric parsing in Phase 2D
 	return NewStringToken(ICONST, text, startPos, text), nil
-}
-
-// scanStringLiteral scans a string literal
-// This is a placeholder implementation that will be expanded in Phase 2C
-func (l *Lexer) scanStringLiteral(startPos, startScanPos int) (*Token, error) {
-	// Consume opening quote
-	l.context.NextByte()
-	
-	// Simple string scanning - full implementation in Phase 2C
-	for {
-		b, ok := l.context.NextByte()
-		if !ok {
-			l.context.AddError("unterminated string literal")
-			text := l.context.GetCurrentText(startScanPos)
-			return NewStringToken(USCONST, text, startPos, text), nil
-		}
-		
-		if b == '\'' {
-			// Check for doubled quote
-			if next, ok := l.context.PeekByte(); ok && next == '\'' {
-				l.context.NextByte() // Consume second quote
-				continue
-			}
-			// End of string
-			break
-		}
-	}
-	
-	text := l.context.GetCurrentText(startScanPos)
-	// Extract content between quotes - simplified for now
-	if len(text) >= 2 {
-		content := text[1 : len(text)-1]
-		return NewStringToken(SCONST, content, startPos, text), nil
-	}
-	
-	return NewStringToken(SCONST, "", startPos, text), nil
 }
 
 // scanDelimitedIdentifier scans a delimited identifier ("identifier")
@@ -276,7 +239,7 @@ func (l *Lexer) scanStringLiteral(startPos, startScanPos int) (*Token, error) {
 func (l *Lexer) scanDelimitedIdentifier(startPos, startScanPos int) (*Token, error) {
 	// Consume opening quote
 	l.context.NextByte()
-	
+
 	for {
 		b, ok := l.context.NextByte()
 		if !ok {
@@ -284,7 +247,7 @@ func (l *Lexer) scanDelimitedIdentifier(startPos, startScanPos int) (*Token, err
 			text := l.context.GetCurrentText(startScanPos)
 			return NewStringToken(IDENT, text, startPos, text), nil
 		}
-		
+
 		if b == '"' {
 			// Check for doubled quote
 			if next, ok := l.context.PeekByte(); ok && next == '"' {
@@ -295,48 +258,93 @@ func (l *Lexer) scanDelimitedIdentifier(startPos, startScanPos int) (*Token, err
 			break
 		}
 	}
-	
+
 	text := l.context.GetCurrentText(startScanPos)
 	// Extract content between quotes - simplified for now
 	if len(text) >= 2 {
 		content := text[1 : len(text)-1]
 		return NewStringToken(IDENT, content, startPos, text), nil
 	}
-	
+
 	return NewStringToken(IDENT, "", startPos, text), nil
 }
 
 // scanDollarToken scans dollar-related tokens ($1, $tag$, etc.)
-// This is a placeholder implementation that will be expanded in Phase 2C/2E
+// Enhanced in Phase 2C to handle dollar-quoted strings - postgres/src/backend/parser/scan.l:290-320
 func (l *Lexer) scanDollarToken(startPos, startScanPos int) (*Token, error) {
-	l.context.NextByte() // consume '$'
-	
 	// Check for parameter ($1, $2, etc.)
-	if b, ok := l.context.PeekByte(); ok && isDigit(b) {
+	if next := l.context.PeekBytes(2); len(next) >= 2 && isDigit(next[1]) {
+		l.context.NextByte() // consume '$'
+
 		paramNum := 0
 		for {
-			b, ok := l.context.PeekByte()
+			b, ok := l.context.CurrentByte()
 			if !ok || !isDigit(b) {
 				break
 			}
 			l.context.NextByte()
 			paramNum = paramNum*10 + int(b-'0')
 		}
-		
+
 		text := l.context.GetCurrentText(startScanPos)
 		return NewParamToken(paramNum, startPos, text), nil
 	}
-	
-	// For now, treat other dollar constructs as operators
+
+	// Check for potential dollar-quoted string delimiter
+	// Look for pattern $tag$ where tag is optional and follows PostgreSQL rules
+	if l.isDollarQuoteStart() {
+		l.context.SetState(StateXDolQ)
+		return l.scanDollarQuotedString(startPos, startScanPos)
+	}
+
+	// Single $ character - treat as operator
+	l.context.NextByte() // consume '$'
 	text := l.context.GetCurrentText(startScanPos)
 	return NewStringToken(Op, text, startPos, text), nil
+}
+
+// isDollarQuoteStart checks if current position could start a dollar-quoted string
+// Equivalent to dolqdelim pattern - postgres/src/backend/parser/scan.l:292
+func (l *Lexer) isDollarQuoteStart() bool {
+	// Must start with $
+	if l.context.CurrentChar() != '$' {
+		return false
+	}
+
+	// Look ahead to see if this could be a valid delimiter
+	next := l.context.PeekBytes(50) // Enough lookahead for tag + $
+	if len(next) < 2 {
+		return false
+	}
+
+	pos := 1
+	// Skip optional tag characters - dolq_start followed by dolq_cont
+	if pos < len(next) && l.isDollarQuoteTagStart(rune(next[pos])) {
+		pos++
+		for pos < len(next) && l.isDollarQuoteTagCont(rune(next[pos])) {
+			pos++
+		}
+	}
+
+	// Must end with $
+	return pos < len(next) && next[pos] == '$'
+}
+
+// isDollarQuoteTagStart checks if character can start a dollar-quote tag
+func (l *Lexer) isDollarQuoteTagStart(ch rune) bool {
+	return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_' || (ch >= 0x80 && ch <= 0x377)
+}
+
+// isDollarQuoteTagCont checks if character can continue a dollar-quote tag
+func (l *Lexer) isDollarQuoteTagCont(ch rune) bool {
+	return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || (ch >= 0x80 && ch <= 0x377)
 }
 
 // scanOperatorOrPunctuation scans operators and punctuation following PostgreSQL rules
 // Equivalent to postgres/src/backend/parser/scan.l:380-382 (self and operator rules)
 func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, error) {
 	b, _ := l.context.NextByte()
-	
+
 	// Handle multi-character operators first - postgres/src/backend/parser/scan.l:352-368
 	switch b {
 	case ':':
@@ -380,20 +388,20 @@ func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, e
 			return NewToken(DOT_DOT, startPos, ".."), nil
 		}
 	}
-	
+
 	// Check if this is a "self" character (single-char token)
 	// postgres/src/backend/parser/scan.l:380 - self: [,()\[\].;\:\+\-\*\/\%\^\<\>\=]
 	if isSelfChar(b) {
 		text := string(b)
 		return NewToken(TokenType(b), startPos, text), nil
 	}
-	
+
 	// Check if this starts an operator sequence
 	// postgres/src/backend/parser/scan.l:381-382 - op_chars: [\~\!\@\#\^\&\|\`\?\+\-\*\/\%\<\>\=]
 	if isOpChar(b) {
 		return l.scanOperator(startPos, startScanPos)
 	}
-	
+
 	// Unknown character - return as single character
 	text := string(b)
 	return NewToken(TokenType(b), startPos, text), nil
@@ -404,18 +412,18 @@ func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, e
 func (l *Lexer) scanOperator(startPos, startScanPos int) (*Token, error) {
 	// Continue scanning operator characters
 	for {
-		b, ok := l.context.PeekByte()
+		b, ok := l.context.CurrentByte()
 		if !ok || !isOpChar(b) {
 			break
 		}
 		l.context.NextByte()
 	}
-	
+
 	text := l.context.GetCurrentText(startScanPos)
-	
+
 	// Check for embedded comment starts (simplified for Phase 2B)
 	// Full implementation of postgres/src/backend/parser/scan.l:907-920 will be in Phase 2E
-	
+
 	// For now, return as generic operator
 	return NewStringToken(Op, text, startPos, text), nil
 }
@@ -424,11 +432,11 @@ func (l *Lexer) scanOperator(startPos, startScanPos int) (*Token, error) {
 // Equivalent to postgres/src/backend/parser/scan.l:222-230 (whitespace and comment rules)
 func (l *Lexer) skipWhitespace() error {
 	for {
-		b, ok := l.context.PeekByte()
+		b, ok := l.context.CurrentByte()
 		if !ok {
 			return nil
 		}
-		
+
 		// Handle regular whitespace - postgres/src/backend/parser/scan.l:222
 		// space: [ \t\n\r\f\v]
 		if isWhitespace(b) {
@@ -442,7 +450,7 @@ func (l *Lexer) skipWhitespace() error {
 			}
 			continue
 		}
-		
+
 		// Handle line comments - postgres/src/backend/parser/scan.l:227
 		// comment: ("--"{non_newline}*)
 		if b == '-' {
@@ -450,10 +458,10 @@ func (l *Lexer) skipWhitespace() error {
 				// Skip the "--"
 				l.context.AdvanceBy(2)
 				l.context.ColumnNumber += 2
-				
+
 				// Skip to end of line or EOF
 				for {
-					b, ok := l.context.PeekByte()
+					b, ok := l.context.CurrentByte()
 					if !ok || b == '\n' || b == '\r' {
 						break
 					}
@@ -463,11 +471,11 @@ func (l *Lexer) skipWhitespace() error {
 				continue
 			}
 		}
-		
+
 		// No more whitespace to skip
 		break
 	}
-	
+
 	return nil
 }
 
@@ -478,34 +486,6 @@ func (l *Lexer) GetContext() *LexerContext {
 
 // State-based scanner functions - placeholders for future phases
 // These implement the PostgreSQL exclusive state scanning
-
-// scanBitStringState handles scanning in the xb state (bit strings)
-// Basic implementation for Phase 2B - full implementation in Phase 2D
-// postgres/src/backend/parser/scan.l:192
-func (l *Lexer) scanBitStringState(startPos, startScanPos int) (*Token, error) {
-	// Consume opening quote
-	l.context.NextByte()
-	
-	// Scan bit string content - simplified for Phase 2B
-	for {
-		b, ok := l.context.NextByte()
-		if !ok {
-			l.context.AddError("unterminated bit string literal")
-			text := l.context.GetCurrentText(startScanPos)
-			l.context.SetState(StateInitial)
-			return NewStringToken(BCONST, text, startPos, text), nil
-		}
-		
-		if b == '\'' {
-			// End of bit string
-			break
-		}
-	}
-	
-	text := l.context.GetCurrentText(startScanPos)
-	l.context.SetState(StateInitial)
-	return NewStringToken(BCONST, text, startPos, text), nil
-}
 
 // scanCommentState handles scanning in the xc state (C-style comments)
 // Placeholder for Phase 2E - postgres/src/backend/parser/scan.l:193
@@ -523,86 +503,9 @@ func (l *Lexer) scanDelimitedIdentifierState(startPos, startScanPos int) (*Token
 	return l.scanDelimitedIdentifier(startPos, startScanPos)
 }
 
-// scanHexStringState handles scanning in the xh state (hex strings)
-// Basic implementation for Phase 2B - full implementation in Phase 2D
-// postgres/src/backend/parser/scan.l:195
-func (l *Lexer) scanHexStringState(startPos, startScanPos int) (*Token, error) {
-	// Consume opening quote
-	l.context.NextByte()
-	
-	// Scan hex string content - simplified for Phase 2B
-	for {
-		b, ok := l.context.NextByte()
-		if !ok {
-			l.context.AddError("unterminated hex string literal")
-			text := l.context.GetCurrentText(startScanPos)
-			l.context.SetState(StateInitial)
-			return NewStringToken(XCONST, text, startPos, text), nil
-		}
-		
-		if b == '\'' {
-			// End of hex string
-			break
-		}
-	}
-	
-	text := l.context.GetCurrentText(startScanPos)
-	l.context.SetState(StateInitial)
-	return NewStringToken(XCONST, text, startPos, text), nil
-}
-
-// scanQuotedStringState handles scanning in the xq state (standard quoted strings)
-// Placeholder for Phase 2C - postgres/src/backend/parser/scan.l:196
-func (l *Lexer) scanQuotedStringState(startPos, startScanPos int) (*Token, error) {
-	// For now, return to initial state and use existing implementation
-	l.context.SetState(StateInitial)
-	return l.scanStringLiteral(startPos, startScanPos)
-}
-
 // scanQuoteStopState handles scanning in the xqs state (quote stop detection)
 // Placeholder for Phase 2C - postgres/src/backend/parser/scan.l:197
 func (l *Lexer) scanQuoteStopState(startPos, startScanPos int) (*Token, error) {
-	// For now, return to initial state and scan as operator
-	l.context.SetState(StateInitial)
-	return l.scanOperatorOrPunctuation(startPos, startScanPos)
-}
-
-// scanExtendedStringState handles scanning in the xe state (extended quoted strings)
-// Basic implementation for Phase 2B - full implementation in Phase 2C
-// postgres/src/backend/parser/scan.l:198
-func (l *Lexer) scanExtendedStringState(startPos, startScanPos int) (*Token, error) {
-	// Consume opening quote
-	l.context.NextByte()
-	
-	// Scan extended string content - simplified for Phase 2B
-	for {
-		b, ok := l.context.NextByte()
-		if !ok {
-			l.context.AddError("unterminated extended string literal")
-			text := l.context.GetCurrentText(startScanPos)
-			l.context.SetState(StateInitial)
-			return NewStringToken(SCONST, text, startPos, text), nil
-		}
-		
-		if b == '\'' {
-			// Check for doubled quote
-			if next, ok := l.context.PeekByte(); ok && next == '\'' {
-				l.context.NextByte() // Consume second quote
-				continue
-			}
-			// End of string
-			break
-		}
-	}
-	
-	text := l.context.GetCurrentText(startScanPos)
-	l.context.SetState(StateInitial)
-	return NewStringToken(SCONST, text, startPos, text), nil
-}
-
-// scanDollarQuotedState handles scanning in the xdolq state (dollar-quoted strings)
-// Placeholder for Phase 2C - postgres/src/backend/parser/scan.l:199
-func (l *Lexer) scanDollarQuotedState(startPos, startScanPos int) (*Token, error) {
 	// For now, return to initial state and scan as operator
 	l.context.SetState(StateInitial)
 	return l.scanOperatorOrPunctuation(startPos, startScanPos)
@@ -614,7 +517,7 @@ func (l *Lexer) scanDollarQuotedState(startPos, startScanPos int) (*Token, error
 func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, error) {
 	// Consume opening quote
 	l.context.NextByte()
-	
+
 	// Scan Unicode identifier content - simplified for Phase 2B
 	for {
 		b, ok := l.context.NextByte()
@@ -624,7 +527,7 @@ func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, 
 			l.context.SetState(StateInitial)
 			return NewStringToken(IDENT, text, startPos, text), nil
 		}
-		
+
 		if b == '"' {
 			// Check for doubled quote
 			if next, ok := l.context.PeekByte(); ok && next == '"' {
@@ -635,51 +538,10 @@ func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, 
 			break
 		}
 	}
-	
+
 	text := l.context.GetCurrentText(startScanPos)
 	l.context.SetState(StateInitial)
 	return NewStringToken(IDENT, text, startPos, text), nil
-}
-
-// scanUnicodeStringState handles scanning in the xus state (Unicode strings)
-// Basic implementation for Phase 2B - full implementation in Phase 2I
-// postgres/src/backend/parser/scan.l:201
-func (l *Lexer) scanUnicodeStringState(startPos, startScanPos int) (*Token, error) {
-	// Consume opening quote
-	l.context.NextByte()
-	
-	// Scan Unicode string content - simplified for Phase 2B
-	for {
-		b, ok := l.context.NextByte()
-		if !ok {
-			l.context.AddError("unterminated Unicode string")
-			text := l.context.GetCurrentText(startScanPos)
-			l.context.SetState(StateInitial)
-			return NewStringToken(SCONST, text, startPos, text), nil
-		}
-		
-		if b == '\'' {
-			// Check for doubled quote
-			if next, ok := l.context.PeekByte(); ok && next == '\'' {
-				l.context.NextByte() // Consume second quote
-				continue
-			}
-			// End of string
-			break
-		}
-	}
-	
-	text := l.context.GetCurrentText(startScanPos)
-	l.context.SetState(StateInitial)
-	return NewStringToken(SCONST, text, startPos, text), nil
-}
-
-// scanExtendedUnicodeState handles scanning in the xeu state (extended Unicode strings)
-// Placeholder for Phase 2I - postgres/src/backend/parser/scan.l:202
-func (l *Lexer) scanExtendedUnicodeState(startPos, startScanPos int) (*Token, error) {
-	// For now, return to initial state and use existing implementation
-	l.context.SetState(StateInitial)
-	return l.scanStringLiteral(startPos, startScanPos)
 }
 
 // Utility functions following PostgreSQL character classification
