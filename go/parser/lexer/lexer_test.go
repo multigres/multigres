@@ -40,8 +40,8 @@ func TestTokenTypes(t *testing.T) {
 		},
 		{
 			name:     "Keyword token",
-			token:    NewKeywordToken("SELECT", 0, "SELECT"),
-			expected: IDENT,
+			token:    NewKeywordToken(SELECT, "SELECT", 0, "SELECT"),
+			expected: SELECT,
 		},
 		{
 			name:     "Parameter token",
@@ -173,7 +173,7 @@ func TestBasicLexing(t *testing.T) {
 		{
 			name:     "Keyword",
 			input:    "SELECT",
-			expected: []TokenType{IDENT, EOF}, // Keywords return as IDENT initially
+			expected: []TokenType{SELECT, EOF}, // Keywords return their specific token type
 		},
 		{
 			name:     "Parameter",
@@ -238,10 +238,16 @@ func TestErrorHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
-			// Consume all tokens
+			// Consume all tokens - handle errors gracefully for error tests
 			for {
 				token, err := lexer.NextToken()
-				require.NoError(t, err, "Unexpected lexer error")
+				if err != nil {
+					// If we expect errors, this is fine; if not, it's a failure
+					if !tt.hasError {
+						require.NoError(t, err, "Unexpected lexer error")
+					}
+					break
+				}
 				if token.Type == EOF {
 					break
 				}
@@ -402,12 +408,12 @@ func TestEnhancedIdentifierRecognition(t *testing.T) {
 				isKeyword bool
 				keyword   string
 			}{
-				{IDENT, "SELECT", true, "select"},
-				{IDENT, "Select", true, "select"},
-				{IDENT, "select", true, "select"},
-				{IDENT, "FROM", true, "from"},
-				{IDENT, "From", true, "from"},
-				{IDENT, "from", true, "from"},
+				{SELECT, "SELECT", true, "select"},
+				{SELECT, "Select", true, "select"},
+				{SELECT, "select", true, "select"},
+				{FROM, "FROM", true, "from"},
+				{FROM, "From", true, "from"},
+				{FROM, "from", true, "from"},
 			},
 		},
 		{
@@ -568,8 +574,8 @@ func TestEnhancedWhitespaceAndComments(t *testing.T) {
 				text      string
 				position  int
 			}{
-				{IDENT, "SELECT", 0},
-				{IDENT, "FROM", 28},
+				{SELECT, "SELECT", 0},
+				{FROM, "FROM", 28},
 				{IDENT, "table", 33},
 			},
 		},
@@ -581,7 +587,7 @@ func TestEnhancedWhitespaceAndComments(t *testing.T) {
 				text      string
 				position  int
 			}{
-				{IDENT, "SELECT", 0},
+				{SELECT, "SELECT", 0},
 				{IDENT, "id", 13},
 			},
 		},
@@ -696,7 +702,7 @@ func TestParameterRecognition(t *testing.T) {
 				text      string
 				intValue  int
 			}{
-				{IDENT, "WHERE", 0}, // keyword
+				{WHERE, "WHERE", 0}, // keyword
 				{IDENT, "id", 0},
 				{TokenType('='), "=", 0},
 				{PARAM, "$1", 1},
@@ -747,7 +753,7 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		expectedType TokenType
 		expectedText string
 	}{
-		{IDENT, "SELECT"}, // keyword
+		{SELECT, "SELECT"}, // keyword
 		{IDENT, "u"},
 		{TokenType('.'), "."},
 		{IDENT, "name"},
@@ -755,13 +761,13 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		{IDENT, "p"},
 		{TokenType('.'), "."},
 		{IDENT, "price"},
-		{IDENT, "FROM"}, // keyword
+		{FROM, "FROM"}, // keyword
 		{IDENT, "users"},
 		{IDENT, "u"},
 		{TokenType(','), ","},
 		{IDENT, "products"},
 		{IDENT, "p"},
-		{IDENT, "WHERE"}, // keyword
+		{WHERE, "WHERE"}, // keyword
 		{IDENT, "u"},
 		{TokenType('.'), "."},
 		{IDENT, "id"},
@@ -949,7 +955,7 @@ func TestSpecialLiteralRecognition(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{IDENT, "U&\"unicode_id\""},
+				{UIDENT, "U&\"unicode_id\""},
 				{SCONST, "U&'unicode_str'"},
 			},
 		},
@@ -1405,7 +1411,7 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		expectedValue  string // Only check if non-empty
 		skipValueCheck bool   // Skip value check for complex cases
 	}{
-		{IDENT, "SELECT", "", true}, // keyword - skip value check
+		{SELECT, "SELECT", "", true}, // keyword - skip value check
 		{SCONST, "'simple'", "simple", false},
 		{TokenType(','), ",", "", true},
 		{IDENT, "\"identifier\"", "identifier", false}, // delimited identifier
@@ -1415,9 +1421,9 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		{BCONST, "B'1010'", "1010", false},
 		{TokenType(','), ",", "", true},
 		{XCONST, "X'CAFE'", "CAFE", false},
-		{IDENT, "FROM", "", true},  // keyword - skip value check
+		{FROM, "FROM", "", true},  // keyword - skip value check
 		{IDENT, "table", "", true}, // identifier - skip value check for now
-		{IDENT, "WHERE", "", true}, // keyword - skip value check
+		{WHERE, "WHERE", "", true}, // keyword - skip value check
 		{IDENT, "name", "", true},  // identifier - skip value check for now
 		{TokenType('='), "=", "", true},
 		{SCONST, "'O''Reilly'", "O'Reilly", false}, // doubled quote handling

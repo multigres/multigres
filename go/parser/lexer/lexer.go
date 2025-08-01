@@ -11,6 +11,8 @@ package lexer
 
 import (
 	"fmt"
+	"strings"
+	"unicode"
 )
 
 // Lexer represents the main lexer instance
@@ -157,9 +159,7 @@ func (l *Lexer) scanInitialState(startPos, startScanPos int) (*Token, error) {
 	// Unicode identifiers (U&"...") - postgres/src/backend/parser/scan.l:315
 	case b == 'U' || b == 'u':
 		if next := l.context.PeekBytes(3); len(next) >= 3 && next[1] == '&' && next[2] == '"' {
-			l.context.AdvanceBy(2) // consume 'U&'
-			l.context.SetState(StateXUI)
-			return l.scanUnicodeIdentifierState(startPos, startScanPos)
+			return l.scanUnicodeIdentifier(startPos, startScanPos)
 		} else if len(next) >= 3 && next[1] == '&' && next[2] == '\'' {
 			l.context.AdvanceBy(2) // consume 'U&'
 			l.context.SetState(StateXUS)
@@ -170,8 +170,7 @@ func (l *Lexer) scanInitialState(startPos, startScanPos int) (*Token, error) {
 
 	// Delimited identifiers ("...") - postgres/src/backend/parser/scan.l:309
 	case b == '"':
-		l.context.SetState(StateXD)
-		return l.scanDelimitedIdentifierState(startPos, startScanPos)
+		return l.scanDelimitedIdentifier(startPos, startScanPos)
 
 	// Dollar quoting ($...$) - postgres/src/backend/parser/scan.l:301
 	case b == '$':
@@ -180,8 +179,7 @@ func (l *Lexer) scanInitialState(startPos, startScanPos int) (*Token, error) {
 	// Comments and operators - postgres/src/backend/parser/scan.l:342-500+
 	case b == '/':
 		if next := l.context.PeekBytes(2); len(next) >= 2 && next[1] == '*' {
-			l.context.SetState(StateXC)
-			return l.scanCommentState(startPos, startScanPos)
+			return l.scanMultiLineComment(startPos, startScanPos)
 		}
 		// Otherwise, treat as operator
 		return l.scanOperatorOrPunctuation(startPos, startScanPos)
@@ -221,13 +219,12 @@ func (l *Lexer) scanIdentifier(startPos, startScanPos int) (*Token, error) {
 
 	// Check if this is a keyword using the integrated keyword lookup
 	if keyword := LookupKeyword(text); keyword != nil {
-		// Return keyword token with proper Keyword field set
-		// In Phase 3, this will return the proper keyword token type instead of IDENT
-		return NewKeywordToken(keyword.Name, startPos, text), nil
+		// Return keyword token with the proper keyword token type and keyword value
+		return NewKeywordToken(keyword.TokenType, keyword.Name, startPos, text), nil
 	}
 
-	// Regular identifier
-	return NewStringToken(IDENT, text, startPos, text), nil
+	// Regular identifier - PostgreSQL lowercases unquoted identifiers
+	return NewStringToken(IDENT, strings.ToLower(text), startPos, text), nil
 }
 
 // scanNumber scans numeric literals (integers and floating-point)
@@ -285,57 +282,27 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 			case 'x', 'X':
 				// Check for hexfail pattern first: 0[xX]_?
 				// postgres/src/backend/parser/scan.l:405
-				if len(peekAhead) == 2 ||
-					(len(peekAhead) == 3 && peekAhead[2] == '_') ||
-					(len(peekAhead) >= 3 && peekAhead[2] == '_' && len(peekAhead) >= 4 && !isHexDigit(peekAhead[3])) {
-					// This is hexfail - consume "0x" and optional "_"
-					l.context.NextByte() // consume '0'
-					l.context.NextByte() // consume 'x'
-					if len(peekAhead) >= 3 && peekAhead[2] == '_' {
-						l.context.NextByte() // consume '_'
-					}
-					text := l.context.GetCurrentText(startScanPos)
-					l.context.AddError("invalid hexadecimal integer")
-					return NewStringToken(ICONST, text, startPos, text), nil
+				if token, err := l.checkIntegerFailPattern(peekAhead, peekAhead[1], isHexDigit, "invalid hexadecimal integer", startPos, startScanPos); token != nil {
+					return token, err
 				}
 				// Hexadecimal: 0[xX](_?{hexdigit})+
-				return l.scanHexInteger(startPos, startScanPos)
+				return l.scanSpecialInteger(startPos, startScanPos, isHexDigit, "invalid hexadecimal integer")
 			case 'o', 'O':
 				// Check for octfail pattern first: 0[oO]_?
 				// postgres/src/backend/parser/scan.l:406
-				if len(peekAhead) == 2 ||
-					(len(peekAhead) == 3 && peekAhead[2] == '_') ||
-					(len(peekAhead) >= 3 && peekAhead[2] == '_' && len(peekAhead) >= 4 && !isOctalDigit(peekAhead[3])) {
-					// This is octfail - consume "0o" and optional "_"
-					l.context.NextByte() // consume '0'
-					l.context.NextByte() // consume 'o'
-					if len(peekAhead) >= 3 && peekAhead[2] == '_' {
-						l.context.NextByte() // consume '_'
-					}
-					text := l.context.GetCurrentText(startScanPos)
-					l.context.AddError("invalid octal integer")
-					return NewStringToken(ICONST, text, startPos, text), nil
+				if token, err := l.checkIntegerFailPattern(peekAhead, peekAhead[1], isOctalDigit, "invalid octal integer", startPos, startScanPos); token != nil {
+					return token, err
 				}
 				// Octal: 0[oO](_?{octdigit})+
-				return l.scanOctalInteger(startPos, startScanPos)
+				return l.scanSpecialInteger(startPos, startScanPos, isOctalDigit, "invalid octal integer")
 			case 'b', 'B':
 				// Check for binfail pattern first: 0[bB]_?
 				// postgres/src/backend/parser/scan.l:407
-				if len(peekAhead) == 2 ||
-					(len(peekAhead) == 3 && peekAhead[2] == '_') ||
-					(len(peekAhead) >= 3 && peekAhead[2] == '_' && len(peekAhead) >= 4 && !isBinaryDigit(peekAhead[3])) {
-					// This is binfail - consume "0b" and optional "_"
-					l.context.NextByte() // consume '0'
-					l.context.NextByte() // consume 'b'
-					if len(peekAhead) >= 3 && peekAhead[2] == '_' {
-						l.context.NextByte() // consume '_'
-					}
-					text := l.context.GetCurrentText(startScanPos)
-					l.context.AddError("invalid binary integer")
-					return NewStringToken(ICONST, text, startPos, text), nil
+				if token, err := l.checkIntegerFailPattern(peekAhead, peekAhead[1], isBinaryDigit, "invalid binary integer", startPos, startScanPos); token != nil {
+					return token, err
 				}
 				// Binary: 0[bB](_?{bindigit})+
-				return l.scanBinaryInteger(startPos, startScanPos)
+				return l.scanSpecialInteger(startPos, startScanPos, isBinaryDigit, "invalid binary integer")
 			}
 		}
 	}
@@ -436,41 +403,6 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 	return NewStringToken(ICONST, text, startPos, text), nil
 }
 
-// scanDelimitedIdentifier scans a delimited identifier ("identifier")
-// This is a placeholder implementation that will be expanded in Phase 2E
-func (l *Lexer) scanDelimitedIdentifier(startPos, startScanPos int) (*Token, error) {
-	// Consume opening quote
-	l.context.NextByte()
-
-	for {
-		b, ok := l.context.NextByte()
-		if !ok {
-			l.context.AddError("unterminated delimited identifier")
-			text := l.context.GetCurrentText(startScanPos)
-			return NewStringToken(IDENT, text, startPos, text), nil
-		}
-
-		if b == '"' {
-			// Check for doubled quote
-			if next, ok := l.context.PeekByte(); ok && next == '"' {
-				l.context.NextByte() // Consume second quote
-				continue
-			}
-			// End of identifier
-			break
-		}
-	}
-
-	text := l.context.GetCurrentText(startScanPos)
-	// Extract content between quotes - simplified for now
-	if len(text) >= 2 {
-		content := text[1 : len(text)-1]
-		return NewStringToken(IDENT, content, startPos, text), nil
-	}
-
-	return NewStringToken(IDENT, "", startPos, text), nil
-}
-
 // scanDollarToken scans dollar-related tokens ($1, $tag$, etc.)
 // Enhanced in Phase 2C to handle dollar-quoted strings - postgres/src/backend/parser/scan.l:290-320
 func (l *Lexer) scanDollarToken(startPos, startScanPos int) (*Token, error) {
@@ -486,6 +418,34 @@ func (l *Lexer) scanDollarToken(startPos, startScanPos int) (*Token, error) {
 			}
 			l.context.NextByte()
 			paramNum = paramNum*10 + int(b-'0')
+		}
+
+		// Check for param_junk: $1abc pattern
+		// postgres/src/backend/parser/scan.l:438 and :1013-1016
+		if b, ok := l.context.CurrentByte(); ok && isIdentCont(b) {
+			// Special case: if the next character is '$' followed by a digit,
+			// it's another parameter, not junk
+			if b == '$' {
+				next := l.context.PeekBytes(2)
+				if len(next) >= 2 && isDigit(next[1]) {
+					// This is another parameter ($2, $3, etc.), not junk
+					text := l.context.GetCurrentText(startScanPos)
+					return NewParamToken(paramNum, startPos, text), nil
+				}
+			}
+
+			// Continue scanning identifier characters for real junk
+			for {
+				b, ok := l.context.CurrentByte()
+				if !ok || !isIdentCont(b) {
+					break
+				}
+				l.context.NextByte()
+			}
+			text := l.context.GetCurrentText(startScanPos)
+			l.context.AddError("trailing junk after parameter")
+			// Return PARAM token despite the error
+			return NewParamToken(paramNum, startPos, text), nil
 		}
 
 		text := l.context.GetCurrentText(startScanPos)
@@ -514,7 +474,7 @@ func (l *Lexer) isDollarQuoteStart() bool {
 	}
 
 	// Look ahead to see if this could be a valid delimiter
-	next := l.context.PeekBytes(50) // Enough lookahead for tag + $
+	next := l.context.PeekBytes(200) // Enough lookahead for tag + content + closing tag
 	if len(next) < 2 {
 		return false
 	}
@@ -528,8 +488,30 @@ func (l *Lexer) isDollarQuoteStart() bool {
 		}
 	}
 
-	// Must end with $
-	return pos < len(next) && next[pos] == '$'
+	// Must end with $ (this completes the opening delimiter)
+	if pos >= len(next) || next[pos] != '$' {
+		return false
+	}
+
+	// Now we have the opening delimiter, extract it
+	openingDelimiter := string(next[:pos+1])
+
+	// Special case for "$$": treat as two separate operators only when followed by whitespace
+	// This handles the ambiguity between "$1 $$" (param + two ops) vs "$$hello$$" (dollar-quoted string)
+	if openingDelimiter == "$$" {
+		// If we're at the end of input or next character is whitespace, treat as separate operators
+		if pos+1 >= len(next) || unicode.IsSpace(rune(next[pos+1])) {
+			return false
+		}
+		// Otherwise, treat as dollar-quoted string (e.g., "$$hello$$")
+	}
+
+	// We have a valid opening delimiter (e.g., $tag$), so this should be treated
+	// as a dollar-quoted string regardless of whether there's a closing delimiter.
+	// If no closing delimiter is found, scanDollarQuotedString will handle the error.
+	// This matches PostgreSQL's behavior where dolqdelim pattern matches first,
+	// then the lexer enters xdolq state to scan for content and closing delimiter.
+	return true
 }
 
 // isDollarQuoteTagStart checks if character can start a dollar-quote tag
@@ -550,7 +532,7 @@ func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, e
 	// Handle multi-character operators first - postgres/src/backend/parser/scan.l:352-368
 	switch b {
 	case ':':
-		if next, ok := l.context.PeekByte(); ok {
+		if next, ok := l.context.CurrentByte(); ok {
 			if next == ':' {
 				l.context.NextByte()
 				return NewToken(TYPECAST, startPos, "::"), nil
@@ -560,12 +542,12 @@ func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, e
 			}
 		}
 	case '=':
-		if next, ok := l.context.PeekByte(); ok && next == '>' {
+		if next, ok := l.context.CurrentByte(); ok && next == '>' {
 			l.context.NextByte()
 			return NewToken(EQUALS_GREATER, startPos, "=>"), nil
 		}
 	case '<':
-		if next, ok := l.context.PeekByte(); ok {
+		if next, ok := l.context.CurrentByte(); ok {
 			if next == '=' {
 				l.context.NextByte()
 				return NewToken(LESS_EQUALS, startPos, "<="), nil
@@ -575,25 +557,46 @@ func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, e
 			}
 		}
 	case '>':
-		if next, ok := l.context.PeekByte(); ok && next == '=' {
+		if next, ok := l.context.CurrentByte(); ok && next == '=' {
 			l.context.NextByte()
 			return NewToken(GREATER_EQUALS, startPos, ">="), nil
 		}
 	case '!':
-		if next, ok := l.context.PeekByte(); ok && next == '=' {
+		if next, ok := l.context.CurrentByte(); ok && next == '=' {
 			l.context.NextByte()
 			return NewToken(NOT_EQUALS, startPos, "!="), nil
 		}
 	case '.':
-		// Check for ".." operator first
-		// Note: we already consumed the first '.', so we need to check if the next byte is also '.'
-		if next, ok := l.context.PeekByte(); ok && next == '.' {
-			l.context.NextByte() // consume the second '.'
-			return NewStringToken(DOT_DOT, "..", startPos, ".."), nil
+		// Handle consecutive dots with multi-dot sequence tracking
+		if next, ok := l.context.CurrentByte(); ok && next == '.' {
+			if l.context.InMultiDotSequence {
+				// We're already in a multi-dot sequence, treat this as individual dot
+				// Fall through to return single dot
+			} else {
+				// Count total consecutive dots to determine if this starts a multi-dot sequence
+				totalDots := 1 // Current dot
+				lookahead := l.context.PeekBytes(10)
+				for i := 0; i < len(lookahead) && lookahead[i] == '.'; i++ {
+					totalDots++
+				}
+
+				if totalDots == 2 {
+					// Exactly two dots - create DOT_DOT
+					l.context.NextByte() // consume the second '.'
+					return NewStringToken(DOT_DOT, "..", startPos, ".."), nil
+				} else if totalDots >= 3 {
+					// Start of multi-dot sequence - mark flag and return first dot
+					l.context.InMultiDotSequence = true
+					// Fall through to return single dot
+				}
+			}
+		} else {
+			// No next dot, clear multi-dot sequence flag
+			l.context.InMultiDotSequence = false
 		}
 		// Check if this is a floating point number (.5, .123, etc.)
 		// postgres/src/backend/parser/scan.l:409 - numeric: (({decinteger}\.{decinteger}?)|(\.{decinteger}))
-		if next, ok := l.context.PeekByte(); ok && isDigit(next) {
+		if next, ok := l.context.CurrentByte(); ok && isDigit(next) {
 			return l.scanNumber(startPos, startScanPos)
 		}
 	}
@@ -630,10 +633,17 @@ func (l *Lexer) scanOperator(startPos, startScanPos int) (*Token, error) {
 
 	text := l.context.GetCurrentText(startScanPos)
 
-	// Check for embedded comment starts (simplified for Phase 2B)
-	// Full implementation of postgres/src/backend/parser/scan.l:907-920 will be in Phase 2E
+	// Check for embedded comment starts
+	// postgres/src/backend/parser/scan.l:907-920
+	truncatedText, hadComment := checkOperatorForCommentStart(text)
+	if hadComment {
+		// Put back the extra characters
+		putBackLen := len(text) - len(truncatedText)
+		l.context.PutBack(putBackLen)
+		text = truncatedText
+	}
 
-	// For now, return as generic operator
+	// Return as generic operator
 	return NewStringToken(Op, text, startPos, text), nil
 }
 
@@ -671,7 +681,24 @@ func (l *Lexer) skipWhitespace() error {
 				// Skip to end of line or EOF
 				for {
 					b, ok := l.context.CurrentByte()
-					if !ok || b == '\n' || b == '\r' {
+					if !ok {
+						break
+					}
+					if b == '\n' {
+						// Consume the newline and update position tracking
+						l.context.NextByte()
+						l.context.LineNumber++
+						l.context.ColumnNumber = 1
+						break
+					}
+					if b == '\r' {
+						// Handle \r\n as single newline
+						l.context.NextByte()
+						if next := l.context.PeekBytes(1); len(next) >= 1 && next[0] == '\n' {
+							l.context.NextByte()
+						}
+						l.context.LineNumber++
+						l.context.ColumnNumber = 1
 						break
 					}
 					l.context.NextByte()
@@ -696,61 +723,12 @@ func (l *Lexer) GetContext() *LexerContext {
 // State-based scanner functions - placeholders for future phases
 // These implement the PostgreSQL exclusive state scanning
 
-// scanCommentState handles scanning in the xc state (C-style comments)
-// Placeholder for Phase 2E - postgres/src/backend/parser/scan.l:193
-func (l *Lexer) scanCommentState(startPos, startScanPos int) (*Token, error) {
-	// For now, return to initial state and scan as operator
-	l.context.SetState(StateInitial)
-	return l.scanOperatorOrPunctuation(startPos, startScanPos)
-}
-
-// scanDelimitedIdentifierState handles scanning in the xd state (delimited identifiers)
-// Placeholder for Phase 2E - postgres/src/backend/parser/scan.l:194
-func (l *Lexer) scanDelimitedIdentifierState(startPos, startScanPos int) (*Token, error) {
-	// For now, return to initial state and use existing implementation
-	l.context.SetState(StateInitial)
-	return l.scanDelimitedIdentifier(startPos, startScanPos)
-}
-
 // scanQuoteStopState handles scanning in the xqs state (quote stop detection)
 // Placeholder for Phase 2C - postgres/src/backend/parser/scan.l:197
 func (l *Lexer) scanQuoteStopState(startPos, startScanPos int) (*Token, error) {
 	// For now, return to initial state and scan as operator
 	l.context.SetState(StateInitial)
 	return l.scanOperatorOrPunctuation(startPos, startScanPos)
-}
-
-// scanUnicodeIdentifierState handles scanning in the xui state (Unicode identifiers)
-// Basic implementation for Phase 2B - full implementation in Phase 2I
-// postgres/src/backend/parser/scan.l:200
-func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, error) {
-	// Consume opening quote
-	l.context.NextByte()
-
-	// Scan Unicode identifier content - simplified for Phase 2B
-	for {
-		b, ok := l.context.NextByte()
-		if !ok {
-			l.context.AddError("unterminated Unicode identifier")
-			text := l.context.GetCurrentText(startScanPos)
-			l.context.SetState(StateInitial)
-			return NewStringToken(IDENT, text, startPos, text), nil
-		}
-
-		if b == '"' {
-			// Check for doubled quote
-			if next, ok := l.context.PeekByte(); ok && next == '"' {
-				l.context.NextByte() // Consume second quote
-				continue
-			}
-			// End of identifier
-			break
-		}
-	}
-
-	text := l.context.GetCurrentText(startScanPos)
-	l.context.SetState(StateInitial)
-	return NewStringToken(IDENT, text, startPos, text), nil
 }
 
 // Utility functions following PostgreSQL character classification
@@ -829,141 +807,6 @@ func isOpChar(b byte) bool {
 	default:
 		return false
 	}
-}
-
-// scanHexInteger scans hexadecimal integer literals
-// postgres/src/backend/parser/scan.l:401, 1022-1024
-func (l *Lexer) scanHexInteger(startPos, startScanPos int) (*Token, error) {
-	// Consume "0x" or "0X"
-	l.context.NextByte()
-	l.context.NextByte()
-
-	hasDigits := false
-	for {
-		b, ok := l.context.CurrentByte()
-		if !ok {
-			break
-		}
-
-		if isHexDigit(b) {
-			hasDigits = true
-			l.context.NextByte()
-			continue
-		}
-
-		if b == '_' {
-			// Check underscore is followed by hex digit
-			// PostgreSQL pattern: 0[xX](_?{hexdigit})+ allows underscore before any hex digit
-			nextBytes := l.context.PeekBytes(2)
-			if len(nextBytes) >= 2 && isHexDigit(nextBytes[1]) {
-				l.context.NextByte()
-				continue
-			}
-		}
-
-		// Not a hex digit or valid underscore
-		break
-	}
-
-	// Must have at least one hex digit (PostgreSQL pattern requires at least one group)
-	if !hasDigits {
-		text := l.context.GetCurrentText(startScanPos)
-		l.context.AddError("invalid hexadecimal integer")
-		return NewStringToken(ICONST, text, startPos, text), nil
-	}
-
-	text := l.context.GetCurrentText(startScanPos)
-	return l.processIntegerLiteral(text, startPos), nil
-}
-
-// scanOctalInteger scans octal integer literals
-// postgres/src/backend/parser/scan.l:402, 1026-1028
-func (l *Lexer) scanOctalInteger(startPos, startScanPos int) (*Token, error) {
-	// Consume "0o" or "0O"
-	l.context.NextByte()
-	l.context.NextByte()
-
-	hasDigits := false
-	for {
-		b, ok := l.context.CurrentByte()
-		if !ok {
-			break
-		}
-
-		if isOctalDigit(b) {
-			hasDigits = true
-			l.context.NextByte()
-			continue
-		}
-
-		if b == '_' {
-			// Check underscore is followed by octal digit
-			// PostgreSQL pattern: 0[oO](_?{octdigit})+ allows underscore before any octal digit
-			nextBytes := l.context.PeekBytes(2)
-			if len(nextBytes) >= 2 && isOctalDigit(nextBytes[1]) {
-				l.context.NextByte()
-				continue
-			}
-		}
-
-		// Not an octal digit or valid underscore
-		break
-	}
-
-	// Must have at least one octal digit (PostgreSQL pattern requires at least one group)
-	if !hasDigits {
-		text := l.context.GetCurrentText(startScanPos)
-		l.context.AddError("invalid octal integer")
-		return NewStringToken(ICONST, text, startPos, text), nil
-	}
-
-	text := l.context.GetCurrentText(startScanPos)
-	return l.processIntegerLiteral(text, startPos), nil
-}
-
-// scanBinaryInteger scans binary integer literals
-// postgres/src/backend/parser/scan.l:403, 1030-1032
-func (l *Lexer) scanBinaryInteger(startPos, startScanPos int) (*Token, error) {
-	// Consume "0b" or "0B"
-	l.context.NextByte()
-	l.context.NextByte()
-
-	hasDigits := false
-	for {
-		b, ok := l.context.CurrentByte()
-		if !ok {
-			break
-		}
-
-		if isBinaryDigit(b) {
-			hasDigits = true
-			l.context.NextByte()
-			continue
-		}
-
-		if b == '_' {
-			// Check underscore is followed by binary digit
-			// PostgreSQL pattern: 0[bB](_?{bindigit})+ allows underscore before any binary digit
-			nextBytes := l.context.PeekBytes(2)
-			if len(nextBytes) >= 2 && isBinaryDigit(nextBytes[1]) {
-				l.context.NextByte()
-				continue
-			}
-		}
-
-		// Not a binary digit or valid underscore
-		break
-	}
-
-	// Must have at least one binary digit (PostgreSQL pattern requires at least one group)
-	if !hasDigits {
-		text := l.context.GetCurrentText(startScanPos)
-		l.context.AddError("invalid binary integer")
-		return NewStringToken(ICONST, text, startPos, text), nil
-	}
-
-	text := l.context.GetCurrentText(startScanPos)
-	return l.processIntegerLiteral(text, startPos), nil
 }
 
 // scanExponentPart handles the exponent part of floating point numbers
@@ -1086,6 +929,73 @@ func (l *Lexer) checkTrailingJunk() error {
 		return fmt.Errorf("trailing junk after numeric literal")
 	}
 	return nil
+}
+
+// checkIntegerFailPattern checks for fail patterns (0x_, 0o_, 0b_) and handles them
+// This consolidates the common logic for hexfail, octfail, and binfail patterns
+// postgres/src/backend/parser/scan.l:405-407
+func (l *Lexer) checkIntegerFailPattern(peekAhead []byte, prefixChar byte, digitChecker func(byte) bool, errorMsg string, startPos, startScanPos int) (*Token, error) {
+	if len(peekAhead) == 2 ||
+		(len(peekAhead) == 3 && peekAhead[2] == '_') ||
+		(len(peekAhead) >= 3 && peekAhead[2] == '_' && len(peekAhead) >= 4 && !digitChecker(peekAhead[3])) {
+
+		// This is a fail pattern - consume "0" + prefixChar and optional "_"
+		l.context.NextByte() // consume '0'
+		l.context.NextByte() // consume prefix char (x/o/b)
+		if len(peekAhead) >= 3 && peekAhead[2] == '_' {
+			l.context.NextByte() // consume '_'
+		}
+		text := l.context.GetCurrentText(startScanPos)
+		l.context.AddError(errorMsg)
+		return NewStringToken(ICONST, text, startPos, text), nil
+	}
+	return nil, nil // Not a fail pattern, continue with normal processing
+}
+
+// scanSpecialInteger consolidates hex/octal/binary integer scanning
+// This combines scanHexInteger, scanOctalInteger, and scanBinaryInteger with identical logic
+// postgres/src/backend/parser/scan.l:401-403
+func (l *Lexer) scanSpecialInteger(startPos, startScanPos int, digitChecker func(byte) bool, errorMsg string) (*Token, error) {
+	// Consume "0" + prefix char (already done by caller)
+	l.context.NextByte() // consume '0'
+	l.context.NextByte() // consume prefix char (x/o/b)
+
+	hasDigits := false
+	for {
+		b, ok := l.context.CurrentByte()
+		if !ok {
+			break
+		}
+
+		if digitChecker(b) {
+			hasDigits = true
+			l.context.NextByte()
+			continue
+		}
+
+		if b == '_' {
+			// Check underscore is followed by valid digit
+			// PostgreSQL pattern: 0[xX](_?{hexdigit})+ allows underscore before any digit
+			nextBytes := l.context.PeekBytes(2)
+			if len(nextBytes) >= 2 && digitChecker(nextBytes[1]) {
+				l.context.NextByte()
+				continue
+			}
+		}
+
+		// Not a valid digit or valid underscore
+		break
+	}
+
+	// Must have at least one digit (PostgreSQL pattern requires at least one group)
+	if !hasDigits {
+		text := l.context.GetCurrentText(startScanPos)
+		l.context.AddError(errorMsg)
+		return NewStringToken(ICONST, text, startPos, text), nil
+	}
+
+	text := l.context.GetCurrentText(startScanPos)
+	return l.processIntegerLiteral(text, startPos), nil
 }
 
 // String returns a string representation of the lexer for debugging

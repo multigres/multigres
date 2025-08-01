@@ -88,6 +88,9 @@ type LexerContext struct {
 
 	// Error handling (additional for Go implementation)
 	Errors []LexerError // Accumulated lexer errors
+
+	// Dot sequence handling (for handling "..." as individual dots)
+	InMultiDotSequence bool // True if we're in a sequence of 3+ dots
 }
 
 // LexerError represents a lexical analysis error
@@ -182,26 +185,27 @@ func (ctx *LexerContext) PeekChar() rune {
 	return rune(ctx.ScanBuf[ctx.ScanPos+1])
 }
 
-// CurrentByte returns the byte at the current position without advancing
-func (ctx *LexerContext) CurrentByte() (byte, bool) {
-	if ctx.ScanPos >= ctx.ScanBufLen {
+// getByteAt returns the byte at the specified offset from current position
+// This consolidates bounds checking logic used by multiple functions
+func (ctx *LexerContext) getByteAt(offset int) (byte, bool) {
+	pos := ctx.ScanPos + offset
+	if pos >= ctx.ScanBufLen {
 		return 0, false
 	}
-	return ctx.ScanBuf[ctx.ScanPos], true
+	return ctx.ScanBuf[pos], true
 }
 
-// PeekByte returns the byte at the current position without advancing (alias for CurrentByte)
-func (ctx *LexerContext) PeekByte() (byte, bool) {
-	return ctx.CurrentByte()
+// CurrentByte returns the byte at the current position without advancing
+func (ctx *LexerContext) CurrentByte() (byte, bool) {
+	return ctx.getByteAt(0)
 }
 
 // NextByte returns the current byte and advances the position
 func (ctx *LexerContext) NextByte() (byte, bool) {
-	if ctx.ScanPos >= ctx.ScanBufLen {
+	b, ok := ctx.CurrentByte()
+	if !ok {
 		return 0, false
 	}
-
-	b := ctx.ScanBuf[ctx.ScanPos]
 	ctx.advancePosition(b)
 	return b, true
 }
@@ -286,6 +290,27 @@ func (ctx *LexerContext) GetErrors() []LexerError {
 func (e *LexerError) Error() string {
 	return fmt.Sprintf("lexer error at line %d, column %d (position %d): %s",
 		e.Line, e.Column, e.Position, e.Message)
+}
+
+// PutBack moves the scan position back by n bytes
+// This is equivalent to PostgreSQL's yyless() macro
+func (ctx *LexerContext) PutBack(n int) {
+	if n <= 0 {
+		return
+	}
+
+	// Ensure we don't go before the start
+	if n > ctx.ScanPos {
+		n = ctx.ScanPos
+	}
+
+	// Move position back
+	ctx.ScanPos -= n
+	ctx.CurrentPosition -= n
+
+	// Note: We don't adjust line/column numbers here as that would require
+	// re-scanning the put-back text. This matches PostgreSQL behavior where
+	// yyless() doesn't update location tracking.
 }
 
 // String returns a string representation of the lexer context for debugging

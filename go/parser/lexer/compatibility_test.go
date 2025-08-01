@@ -61,7 +61,7 @@ func TestTokenValueUnion(t *testing.T) {
 	assert.Equal(t, "test", token.Value.Str, "String value mismatch")
 
 	// Test keyword value
-	token = NewKeywordToken("SELECT", 0, "SELECT")
+	token = NewKeywordToken(SELECT, "SELECT", 0, "SELECT")
 	assert.Equal(t, "SELECT", token.Value.Keyword, "Keyword value mismatch")
 }
 

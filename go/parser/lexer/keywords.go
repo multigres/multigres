@@ -101,7 +101,7 @@ var Keywords = []KeywordInfo{
 	{"float", IDENT, ColNameKeyword, true}, // Will be replaced with FLOAT_P token in Phase 3
 	{"for", IDENT, ReservedKeyword, true}, // Will be replaced with FOR token in Phase 3
 	{"foreign", IDENT, ReservedKeyword, true}, // Will be replaced with FOREIGN token in Phase 3
-	{"from", IDENT, ReservedKeyword, true}, // Will be replaced with FROM token in Phase 3
+	{"from", FROM, ReservedKeyword, true}, // FROM token for Phase 2E testing
 	{"full", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with FULL token in Phase 3
 	
 	{"grant", IDENT, ReservedKeyword, true}, // Will be replaced with GRANT token in Phase 3
@@ -144,7 +144,7 @@ var Keywords = []KeywordInfo{
 	{"references", IDENT, ReservedKeyword, true}, // Will be replaced with REFERENCES token in Phase 3
 	{"right", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with RIGHT token in Phase 3
 	
-	{"select", IDENT, ReservedKeyword, true}, // Will be replaced with SELECT token in Phase 3
+	{"select", SELECT, ReservedKeyword, true}, // SELECT token for Phase 2E testing
 	{"session_user", IDENT, ReservedKeyword, true}, // Will be replaced with SESSION_USER token in Phase 3
 	{"smallint", IDENT, ColNameKeyword, true}, // Will be replaced with SMALLINT token in Phase 3
 	{"some", IDENT, ReservedKeyword, true}, // Will be replaced with SOME token in Phase 3
@@ -169,7 +169,7 @@ var Keywords = []KeywordInfo{
 	{"varying", IDENT, UnreservedKeyword, true}, // Will be replaced with VARYING token in Phase 3
 	
 	{"when", IDENT, ReservedKeyword, true}, // Will be replaced with WHEN token in Phase 3
-	{"where", IDENT, ReservedKeyword, true}, // Will be replaced with WHERE token in Phase 3
+	{"where", WHERE, ReservedKeyword, true}, // WHERE token for Phase 2E testing
 	{"with", IDENT, ReservedKeyword, true}, // Will be replaced with WITH token in Phase 3
 }
 
@@ -252,8 +252,7 @@ func (kc KeywordCategory) String() string {
 // In Phase 2, all keywords return IDENT (will be replaced in Phase 3 with proper tokens)
 // This preserves the identifier text while marking it for future keyword token assignment
 func getKeywordTokenType(keyword *KeywordInfo) TokenType {
-	// For now, return IDENT for all keywords
-	// In Phase 3, this will return the proper keyword token type
-	// Example: SELECT keyword will return SELECT token instead of IDENT
-	return IDENT
+	// Return the keyword's specific token type
+	// In Phase 3, this will be replaced with goyacc-generated tokens
+	return keyword.TokenType
 }

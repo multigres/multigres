@@ -19,7 +19,10 @@
 
 package lexer
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // TokenType represents the type of a lexical token
 // Ported from postgres/src/backend/parser/gram.y token definitions
@@ -32,10 +35,10 @@ const (
 	// Special tokens - internal to lexer
 	INVALID TokenType = 0
 	EOF     TokenType = 1
-	
+
 	// Basic ASCII tokens (32-126) are represented by their character value
 	// Single character tokens like '(', ')', '+', '-', etc.
-	
+
 	// Multi-character tokens start at 258 (following PostgreSQL convention)
 	// Ported from postgres/src/include/parser/scanner.h:57 comment "IDENT = 258 and so on"
 	// Token definitions from postgres/src/backend/parser/gram.y:692-695
@@ -49,7 +52,7 @@ const (
 	Op      TokenType = 265 // Operator - postgres/src/backend/parser/gram.y:692
 	ICONST  TokenType = 266 // Integer constant - postgres/src/backend/parser/gram.y:693
 	PARAM   TokenType = 267 // Parameter ($1, $2, etc.) - postgres/src/backend/parser/gram.y:693
-	
+
 	// Multi-character operators - postgres/src/backend/parser/gram.y:694-695
 	TYPECAST       TokenType = 268 // '::' - postgres/src/backend/parser/gram.y:694
 	DOT_DOT        TokenType = 269 // '..' - postgres/src/backend/parser/gram.y:694
@@ -58,18 +61,24 @@ const (
 	LESS_EQUALS    TokenType = 272 // '<=' - postgres/src/backend/parser/gram.y:695
 	GREATER_EQUALS TokenType = 273 // '>=' - postgres/src/backend/parser/gram.y:695
 	NOT_EQUALS     TokenType = 274 // '<>' or '!=' - postgres/src/backend/parser/gram.y:695
-	
+
+	// Reserved keywords - temporary for Phase 2E testing
+	// In Phase 3, these will be replaced by goyacc-generated constants
+	SELECT TokenType = 275 // SELECT keyword
+	FROM   TokenType = 276 // FROM keyword
+	WHERE  TokenType = 277 // WHERE keyword
+
 	// Special mode tokens for PL/pgSQL compatibility
-	FORMAT_LA            TokenType = 275 // FORMAT lookahead
-	NOT_LA               TokenType = 276 // NOT lookahead
-	NULLS_LA             TokenType = 277 // NULLS lookahead
-	WITH_LA              TokenType = 278 // WITH lookahead
-	WITHOUT_LA           TokenType = 279 // WITHOUT lookahead
-	MODE_TYPE_NAME       TokenType = 280 // Type name mode
-	MODE_PLPGSQL_EXPR    TokenType = 281 // PL/pgSQL expression mode
-	MODE_PLPGSQL_ASSIGN1 TokenType = 282 // PL/pgSQL assignment mode 1
-	MODE_PLPGSQL_ASSIGN2 TokenType = 283 // PL/pgSQL assignment mode 2
-	MODE_PLPGSQL_ASSIGN3 TokenType = 284 // PL/pgSQL assignment mode 3
+	FORMAT_LA            TokenType = 278 // FORMAT lookahead
+	NOT_LA               TokenType = 279 // NOT lookahead
+	NULLS_LA             TokenType = 280 // NULLS lookahead
+	WITH_LA              TokenType = 281 // WITH lookahead
+	WITHOUT_LA           TokenType = 282 // WITHOUT lookahead
+	MODE_TYPE_NAME       TokenType = 283 // Type name mode
+	MODE_PLPGSQL_EXPR    TokenType = 284 // PL/pgSQL expression mode
+	MODE_PLPGSQL_ASSIGN1 TokenType = 285 // PL/pgSQL assignment mode 1
+	MODE_PLPGSQL_ASSIGN2 TokenType = 286 // PL/pgSQL assignment mode 2
+	MODE_PLPGSQL_ASSIGN3 TokenType = 287 // PL/pgSQL assignment mode 3
 )
 
 // TokenValue represents the union of possible token values
@@ -84,16 +93,17 @@ type TokenValue struct {
 
 // Token represents a single lexical token with its type, value, and position
 type Token struct {
-	Type     TokenType   // The type of token
-	Value    TokenValue  // The token's value
-	Position int         // Byte offset from start of input (YYLTYPE equivalent)
-	Text     string      // Raw text that produced this token
+	Type     TokenType  // The type of token
+	Value    TokenValue // The token's value
+	Position int        // Byte offset from start of input (YYLTYPE equivalent)
+	Text     string     // Raw text that produced this token
 }
 
 // NewToken creates a new token with the given parameters
 func NewToken(tokenType TokenType, position int, text string) *Token {
 	return &Token{
 		Type:     tokenType,
+		Value:    TokenValue{Str: text},
 		Position: position,
 		Text:     text,
 	}
@@ -120,10 +130,10 @@ func NewStringToken(tokenType TokenType, value string, position int, text string
 }
 
 // NewKeywordToken creates a new keyword token
-func NewKeywordToken(keyword string, position int, text string) *Token {
+func NewKeywordToken(tokenType TokenType, keyword string, position int, text string) *Token {
 	return &Token{
-		Type:     IDENT, // Keywords are initially identified as IDENT
-		Value:    TokenValue{Keyword: keyword},
+		Type:     tokenType, // Use the keyword's specific token type
+		Value:    TokenValue{Keyword: keyword, Str: strings.ToLower(keyword)},
 		Position: position,
 		Text:     text,
 	}
@@ -156,14 +166,14 @@ func (t *Token) IsBitStringLiteral() bool {
 
 // IsOperator returns true if the token is an operator
 func (t *Token) IsOperator() bool {
-	return t.Type == Op || 
-		   t.Type == TYPECAST ||
-		   t.Type == DOT_DOT ||
-		   t.Type == COLON_EQUALS ||
-		   t.Type == EQUALS_GREATER ||
-		   t.Type == LESS_EQUALS ||
-		   t.Type == GREATER_EQUALS ||
-		   t.Type == NOT_EQUALS
+	return t.Type == Op ||
+		t.Type == TYPECAST ||
+		t.Type == DOT_DOT ||
+		t.Type == COLON_EQUALS ||
+		t.Type == EQUALS_GREATER ||
+		t.Type == LESS_EQUALS ||
+		t.Type == GREATER_EQUALS ||
+		t.Type == NOT_EQUALS
 }
 
 // IsIdentifier returns true if the token is an identifier
@@ -182,8 +192,8 @@ func (t *Token) String() string {
 			typeName = "UNKNOWN"
 		}
 	}
-	
-	return fmt.Sprintf("Token{Type: %s, Value: %v, Position: %d, Text: %q}", 
+
+	return fmt.Sprintf("Token{Type: %s, Value: %v, Position: %d, Text: %q}",
 		typeName, t.Value, t.Position, t.Text)
 }
 
@@ -192,7 +202,7 @@ var tokenTypeNames = map[TokenType]string{
 	INVALID:              "INVALID",
 	EOF:                  "EOF",
 	IDENT:                "IDENT",
-	UIDENT:               "UIDENT", 
+	UIDENT:               "UIDENT",
 	FCONST:               "FCONST",
 	SCONST:               "SCONST",
 	USCONST:              "USCONST",

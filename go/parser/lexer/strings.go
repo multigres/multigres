@@ -147,6 +147,13 @@ func (l *Lexer) scanDollarQuotedString(startPos, startScanPos int) (*Token, erro
 	// Store the delimiter for matching - postgres/src/include/parser/scanner.h:107
 	ctx.DolQStart = startDelimiter
 
+	// Special case: if we're immediately at EOF after the opening delimiter
+	// and the delimiter is not just "$$", treat it as a complete empty dollar-quoted string
+	if ctx.AtEOF() && startDelimiter != "$$" {
+		text := ctx.GetCurrentText(startScanPos) 
+		return NewStringToken(SCONST, "", startPos, text), nil
+	}
+
 	// Scan for closing delimiter
 	foundClosingDelimiter := false
 	for !ctx.AtEOF() {
