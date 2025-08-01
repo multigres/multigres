@@ -427,24 +427,13 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 
 	// Check for integer_junk pattern BEFORE capturing text
 	// postgres/src/backend/parser/scan.l:435, 1066-1076
-	hasTrailingJunk := false
-	if err := l.checkNumericTrailingJunk(startPos); err != nil {
-		hasTrailingJunk = true
-	}
+	l.checkTrailingJunk() // Adds error to context if junk detected
 
 	// Get the text including any trailing junk
 	text := l.context.GetCurrentText(startScanPos)
 
 	// Return the integer token (PostgreSQL continues parsing even with junk)
-	token := NewStringToken(ICONST, text, startPos, text)
-
-	// If there was trailing junk, we don't return an error but the error is recorded
-	if hasTrailingJunk {
-		// checkNumericTrailingJunk already added the error to context
-		return token, nil
-	}
-
-	return token, nil
+	return NewStringToken(ICONST, text, startPos, text), nil
 }
 
 // scanDelimitedIdentifier scans a delimited identifier ("identifier")
@@ -1027,48 +1016,31 @@ func (l *Lexer) scanExponentPart(startPos, startScanPos int, isFloat bool) (*Tok
 		}
 
 		// Check for real_junk pattern BEFORE capturing text
-		hasTrailingJunk := false
-		if err := l.checkNumericTrailingJunk(startPos); err != nil {
-			hasTrailingJunk = true
-		}
+		l.checkTrailingJunk() // Adds error to context if junk detected
 
 		text := l.context.GetCurrentText(startScanPos)
-
-		if hasTrailingJunk {
-			// Error already added to context
-			return NewStringToken(FCONST, text, startPos, text), nil
-		}
-
 		return NewStringToken(FCONST, text, startPos, text), nil
 	}
 
 	// No exponent
 	if isFloat {
 		// Check for numeric_junk pattern BEFORE capturing text
-		hasTrailingJunk := false
-		if err := l.checkNumericTrailingJunk(startPos); err != nil {
-			hasTrailingJunk = true
-		}
+		l.checkTrailingJunk() // Adds error to context if junk detected
 
 		text := l.context.GetCurrentText(startScanPos)
-
-		if hasTrailingJunk {
-			// Error already added to context
-			return NewStringToken(FCONST, text, startPos, text), nil
-		}
 		return NewStringToken(FCONST, text, startPos, text), nil
 	}
 
 	// Integer - check for trailing junk BEFORE capturing text
 	hasTrailingJunk := false
-	if err := l.checkIntegerTrailingJunk(startPos); err != nil {
+	if err := l.checkTrailingJunk(); err != nil {
 		hasTrailingJunk = true
 	}
 
 	text := l.context.GetCurrentText(startScanPos)
 
 	if hasTrailingJunk {
-		// Error already added to context by checkIntegerTrailingJunk
+		// Error already added to context by checkTrailingJunk
 		return NewStringToken(ICONST, text, startPos, text), nil
 	}
 
@@ -1084,45 +1056,21 @@ func (l *Lexer) processIntegerLiteral(text string, startPos int) *Token {
 	return NewStringToken(ICONST, text, startPos, text)
 }
 
-// checkIntegerTrailingJunk checks for invalid characters after integer
-// postgres/src/backend/parser/scan.l:435, 1066-1068
-func (l *Lexer) checkIntegerTrailingJunk(startPos int) error {
+// checkTrailingJunk checks for invalid characters after numeric literals
+// Handles PostgreSQL's integer_junk, numeric_junk, and real_junk patterns
+// postgres/src/backend/parser/scan.l:435-437, 1066-1076
+func (l *Lexer) checkTrailingJunk() error {
 	b, ok := l.context.CurrentByte()
 	if !ok {
 		return nil
 	}
 
-	// PostgreSQL's integer_junk pattern: {decinteger}{identifier}
+	// PostgreSQL's junk patterns: {numeric}{identifier}
 	// Any identifier character (including underscore) immediately following
 	// a numeric literal is considered trailing junk
-	// postgres/src/backend/parser/scan.l:435, 1066-1076
 	if isIdentStart(b) {
 		// Consume all the junk characters to match PostgreSQL behavior
-		// PostgreSQL's integer_junk pattern consumes the entire invalid token
-		for {
-			b, ok := l.context.CurrentByte()
-			if !ok {
-				break
-			}
-			if isIdentCont(b) {
-				l.context.NextByte()
-				continue
-			}
-			break
-		}
-		l.context.AddError("trailing junk after numeric literal")
-		return fmt.Errorf("trailing junk after numeric literal")
-	}
-	return nil
-}
-
-// checkNumericTrailingJunk checks for invalid characters after numeric/real
-// postgres/src/backend/parser/scan.l:436-437, 1070-1076
-func (l *Lexer) checkNumericTrailingJunk(startPos int) error {
-	b, ok := l.context.CurrentByte()
-	if ok && isIdentStart(b) {
-		// Consume all the junk characters to match PostgreSQL behavior
-		// PostgreSQL's numeric_junk and real_junk patterns consume the entire invalid token
+		// PostgreSQL's junk patterns consume the entire invalid token
 		for {
 			b, ok := l.context.CurrentByte()
 			if !ok {
