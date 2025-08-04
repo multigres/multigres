@@ -1,0 +1,84 @@
+# High Availability and Postgres full-sync replication
+
+In order to achieve High Availability (HA) in Postgres, we need to have at least one other standby replica that keeps up with the primary’s changes near-real-time. Using Postgres physical replication is the most common method to achieve this.
+
+High Availability also requires us to solve the problem of distributed durability. After all, we have to make sure that no transactions are lost when we failover to a standby. So, if we can make this work, we can avoid the need for an external system like a mounted cloud drive or other exotic solutions to ensure that we don’t lose data. We could just have all the servers use their local NVME drive for storage. This will serendipitously improve performance due to the drives being an order of magnitude faster than the network, and reduce costs since disk I/O does not incur network cost.
+
+## Multigres features
+
+We plan to support HA by configuring Postgres in full-sync replication mode, mainly because this is a widely used feature. However, there are some pitfalls to watch out for. We will cover these in the next section.
+
+Multigres will bring the flexibility of a pluggable durability policy. There will be a few predefined ones, but if your needs are bespoke, you can just write an extension. Examples of durability policies include:
+
+- cross-availability zone (cross-AZ): a replica in at least one other AZ must have my data
+- cross-region: same as cross-AZ, but for regions
+- at least two AZs: replicas in two distinct AZs must have my data
+- majority quorum: traditional consensus rules like RAFT
+- etc.
+
+The advantages of policy based durability go beyond ease of use. Essentially, the policy does not need to depend on the number of nodes in the quorum. This flexibility allows you to deploy more nodes or additional zones without affecting the performance of the cluster.
+
+More about how this works will be covered in subsequent blog posts related to generalized consensus.
+
+## Existing replication pitfalls
+
+Postgres has many options on how you can configure replication. They broadly fall into two categories:
+
+1. Asynchronous replication (async)
+    * the primary commits the data and returns success to the caller.
+    * changes are then sent asynchronously to the standby replica(s).
+    * replica applies the changes.
+2. Synchronous replication (full-sync)
+    * primary flushes the commit information to the [WAL](https://www.postgresql.org/docs/current/wal-intro.html).
+    * changes are shipped to the standby replica(s).
+    * replica acknowledges the message: Sub-configurations here control the exact time when the replica acknowledges the message and applies the changes.
+    * primary externalizes the transaction by releasing locks, etc., and returns success to the caller.
+
+The problem with async replication is that there are failure modes where you may lose data. For example, if a primary node crashes after acknowledging a commit but before sending the data to the replica, that commit is lost. In the case of a network partition, this can go on for a long time risking substantial data loss. Patroni has a feature controlled by the `maximum_lag_on_failover` setting that allows you to limit how much data you can lose in such a scenario. This feature is out of scope for Multigres as we are not planning to support async replication.
+
+Synchronous replication addresses this problem, but it also has its own pitfalls explained below. This [Video from Kukushkin](https://youtu.be/PFn9qRGzTMc?si=neDR5sgti16Hfni0) covers many possible ways full-sync replication can fail on you. Overall, the problems are due to one of the following reasons:
+
+1. The Primary writes to the WAL and crashes before sending the data to the standby:
+    
+    <img src="/img/blog/fsync1.svg" alt="fsync1" />
+    
+    * setups where there are clients subscribed to the WAL on the primary (like a CDC process), they would view and transmit this as a committed transaction. However, a failover will abandon this transaction, while the subscriber might have irreversibly acted on this.
+    * the primary is restarted after a failover, it will have a timeline that is incompatible with the rest of the cluster, and will not be able to rejoin the cluster.
+    * the client that initiated the transaction breaks the connection, the transaction becomes visible, and can be read by other connections. After this read, the node can fail before the WAL replicates, resulting in phantom reads. Although this is rare, it’s theoretically possible.
+    * replica that is not a hot standby may receive a transaction before the standby. This becomes a problem if the failover process does not account for this possibility.
+2. The primary externalizes a transaction only after receiving an ack from the replica. But the replica itself will externalize it as soon as it’s received it: An application may see this committed transaction on the replica, but may not be able to find it on the primary.
+    
+    <img src="/img/blog/fsync2.svg" alt="fsync2" />
+    
+3. Failures during failover: If there are multiple failures during a failover, we may end up with multiple conflicting timelines. There is no methodical way to determine which one is authoritative.
+
+    <img src="/img/blog/fsync3.svg" alt="fsync3" />
+
+The above failure modes get progressively more unwieldy as the number of nodes increases.
+
+## Multigres solution
+
+Some of these problems have mitigations, but not all are solvable. With Multigres, we plan to address some of these issues as follows:
+
+- **1a: CDC picking up a transaction early:** Run logical replication on a replica. Also, the new [Synchronized Standby Slots](https://postgresqlco.nf/doc/en/param/synchronized_standby_slots/) feature in PG17+ helps with this issue.
+- **1b: Primary crashes after writing a transaction to the WAL:** Multigres can automate the repair of the primary when it comes back up.
+- **1c: Client reading phantom records:** There is no mitigation, but this is a rare occurrence.
+- **1d: Replica that is not a standby receives errant transaction:** Multigres can automate the repair.
+- **2: Replica committing before primary:** There is no mitigation, but the application can work around this possibility on a case-by-case basis.
+- **3: Failures during failover:** Assuming clocks are reliable, Multigres can use the WAL timestamps to determine which of the failover attempts was the latest and can use it. We will cover why this is the most authoritative timeline when we explain consensus algorithms in upcoming blogs.
+
+Many of these problems can be tolerated by the application, but it will be nice to eventually eliminate them altogether. This is why we intend to implement a two-phase sync replication solution, which can be the foundation for consensus protocols.
+
+Furthermore, the two-phase approach will have the same performance overhead as the full-sync approach, so you have nothing to lose and everything to gain by transitioning to it. In any case, until it becomes robust, the full-sync approach can continue be used as an acceptable compromise.
+
+### Relationship with consensus
+
+Can you implement a consensus protocol using full-sync replication? The answer depends on how you want to define consensus.
+
+If we used the minimal definition of consensus: “If a system acknowledges a transaction, it will not lose it, and all its nodes must eventually converge”, the answer is yes. But clearly, there are intermediate states in the system that are inconsistent. So, some may argue that this loss of consistency disqualifies it.
+
+Regardless of which is authoritative, the minimal definition allows us to implement consensus algorithms on top of full-sync and still benefit from their other features. This is why we can implement the flexible “policy based durability” approach for the full-sync and the two-phase sync implementation.
+
+## What’s next?
+
+In the subsequent blog posts, we will cover generalized consensus algorithms, two-phase sync replication in Postgres, and how they can be used to achieve the policy based durability we mentioned earlier.
