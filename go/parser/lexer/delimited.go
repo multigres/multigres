@@ -36,13 +36,8 @@ func (l *Lexer) scanDelimitedIdentifierState(startPos, startScanPos int) (*Token
 		if !ok {
 			// EOF in delimited identifier - postgres/src/backend/parser/scan.l:839
 			l.context.SetState(StateInitial)
-			l.context.AddError("unterminated quoted identifier")
-			return nil, &LexerError{
-				Message:  "unterminated quoted identifier",
-				Position: startPos,
-				Line:     l.context.LineNumber,
-				Column:   l.context.ColumnNumber,
-			}
+			err := l.context.AddError(UnterminatedIdentifier, "unterminated quoted identifier")
+			return nil, err
 		}
 		
 		// Check for closing quote
@@ -67,13 +62,8 @@ func (l *Lexer) scanDelimitedIdentifierState(startPos, startScanPos int) (*Token
 			// Check for zero-length identifier
 			// postgres/src/backend/parser/scan.l:818
 			if len(ident) == 0 {
-				l.context.AddError("zero-length delimited identifier")
-				return nil, &LexerError{
-					Message:  "zero-length delimited identifier",
-					Position: startPos,
-					Line:     l.context.LineNumber,
-					Column:   l.context.ColumnNumber,
-				}
+				err := l.context.AddError(ZeroLengthIdentifier, "zero-length delimited identifier")
+				return nil, err
 			}
 			
 			// Check length and truncate if necessary
@@ -125,13 +115,8 @@ func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, 
 		if !ok {
 			// EOF in Unicode identifier - postgres/src/backend/parser/scan.l:839
 			l.context.SetState(StateInitial)
-			l.context.AddError("unterminated quoted identifier")
-			return nil, &LexerError{
-				Message:  "unterminated quoted identifier",
-				Position: startPos,
-				Line:     l.context.LineNumber,
-				Column:   l.context.ColumnNumber,
-			}
+			err := l.context.AddError(UnterminatedIdentifier, "unterminated quoted identifier")
+			return nil, err
 		}
 		
 		// Check for closing quote

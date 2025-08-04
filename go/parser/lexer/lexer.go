@@ -29,6 +29,7 @@ func NewLexer(input string) *Lexer {
 	}
 }
 
+
 // NextToken returns the next token from the input stream
 // This is the main lexer interface, equivalent to PostgreSQL's core_yylex
 // Equivalent to postgres/src/include/parser/scanner.h:141-142 (core_yylex function)
@@ -96,7 +97,7 @@ func (l *Lexer) scanInitialState(startPos, startScanPos int) (*Token, error) {
 	// IMPORTANT: Order matters! Specific character cases must come before general isIdentStart()
 	switch {
 	// Numbers first - postgres/src/backend/parser/scan.l:430-500+
-	case isDigit(b):
+	case IsDigit(b):
 		return l.scanNumber(startPos, startScanPos)
 
 	// Decimal point numbers (.5, .123, etc.) - postgres/src/backend/parser/scan.l:409
@@ -107,7 +108,7 @@ func (l *Lexer) scanInitialState(startPos, startScanPos int) (*Token, error) {
 			// Handle as DOT_DOT operator
 			return l.scanOperatorOrPunctuation(startPos, startScanPos)
 		}
-		if len(nextBytes) >= 2 && isDigit(nextBytes[1]) {
+		if len(nextBytes) >= 2 && IsDigit(nextBytes[1]) {
 			return l.scanNumber(startPos, startScanPos)
 		}
 		// Otherwise, handle as operator/punctuation
@@ -186,7 +187,7 @@ func (l *Lexer) scanInitialState(startPos, startScanPos int) (*Token, error) {
 
 	// Identifiers - MUST come after specific character cases
 	// postgres/src/backend/parser/scan.l:346-349
-	case isIdentStart(b):
+	case IsIdentStart(b):
 		return l.scanIdentifier(startPos, startScanPos)
 
 	// Single-character tokens and operators
@@ -209,7 +210,7 @@ func (l *Lexer) scanIdentifier(startPos, startScanPos int) (*Token, error) {
 	// Continue with identifier continuation characters
 	for {
 		b, ok := l.context.CurrentByte()
-		if !ok || !isIdentCont(b) {
+		if !ok || !IsIdentCont(b) {
 			break
 		}
 		l.context.NextByte()
@@ -246,7 +247,7 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 				break
 			}
 
-			if isDigit(b) {
+			if IsDigit(b) {
 				hasFraction = true
 				l.context.NextByte()
 				continue
@@ -254,7 +255,7 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 
 			if b == '_' && hasFraction {
 				nextBytes := l.context.PeekBytes(2)
-				if len(nextBytes) >= 2 && isDigit(nextBytes[1]) {
+				if len(nextBytes) >= 2 && IsDigit(nextBytes[1]) {
 					l.context.NextByte()
 					continue
 				}
@@ -282,27 +283,27 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 			case 'x', 'X':
 				// Check for hexfail pattern first: 0[xX]_?
 				// postgres/src/backend/parser/scan.l:405
-				if token, err := l.checkIntegerFailPattern(peekAhead, peekAhead[1], isHexDigit, "invalid hexadecimal integer", startPos, startScanPos); token != nil {
+				if token, err := l.checkIntegerFailPattern(peekAhead, peekAhead[1], IsHexDigit, "invalid hexadecimal integer", InvalidHexInteger, startPos, startScanPos); token != nil {
 					return token, err
 				}
 				// Hexadecimal: 0[xX](_?{hexdigit})+
-				return l.scanSpecialInteger(startPos, startScanPos, isHexDigit, "invalid hexadecimal integer")
+				return l.scanSpecialInteger(startPos, startScanPos, IsHexDigit, "invalid hexadecimal integer", InvalidHexInteger)
 			case 'o', 'O':
 				// Check for octfail pattern first: 0[oO]_?
 				// postgres/src/backend/parser/scan.l:406
-				if token, err := l.checkIntegerFailPattern(peekAhead, peekAhead[1], isOctalDigit, "invalid octal integer", startPos, startScanPos); token != nil {
+				if token, err := l.checkIntegerFailPattern(peekAhead, peekAhead[1], IsOctalDigit, "invalid octal integer", InvalidOctalInteger, startPos, startScanPos); token != nil {
 					return token, err
 				}
 				// Octal: 0[oO](_?{octdigit})+
-				return l.scanSpecialInteger(startPos, startScanPos, isOctalDigit, "invalid octal integer")
+				return l.scanSpecialInteger(startPos, startScanPos, IsOctalDigit, "invalid octal integer", InvalidOctalInteger)
 			case 'b', 'B':
 				// Check for binfail pattern first: 0[bB]_?
 				// postgres/src/backend/parser/scan.l:407
-				if token, err := l.checkIntegerFailPattern(peekAhead, peekAhead[1], isBinaryDigit, "invalid binary integer", startPos, startScanPos); token != nil {
+				if token, err := l.checkIntegerFailPattern(peekAhead, peekAhead[1], IsBinaryDigit, "invalid binary integer", InvalidBinaryInteger, startPos, startScanPos); token != nil {
 					return token, err
 				}
 				// Binary: 0[bB](_?{bindigit})+
-				return l.scanSpecialInteger(startPos, startScanPos, isBinaryDigit, "invalid binary integer")
+				return l.scanSpecialInteger(startPos, startScanPos, IsBinaryDigit, "invalid binary integer", InvalidBinaryInteger)
 			}
 		}
 	}
@@ -317,7 +318,7 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 			break
 		}
 
-		if isDigit(b) {
+		if IsDigit(b) {
 			hasDigits = true
 			l.context.NextByte()
 			continue
@@ -327,7 +328,7 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 			// PostgreSQL allows underscores in numeric literals for readability
 			// Peek ahead to ensure underscore is followed by digit
 			nextBytes := l.context.PeekBytes(2)
-			if len(nextBytes) >= 2 && isDigit(nextBytes[1]) {
+			if len(nextBytes) >= 2 && IsDigit(nextBytes[1]) {
 				l.context.NextByte() // consume underscore
 				continue
 			}
@@ -360,7 +361,7 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 				break
 			}
 
-			if isDigit(b) {
+			if IsDigit(b) {
 				hasFraction = true
 				l.context.NextByte()
 				continue
@@ -369,7 +370,7 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 			if b == '_' && hasFraction {
 				// Underscores allowed in fractional part too
 				nextBytes := l.context.PeekBytes(2)
-				if len(nextBytes) >= 2 && isDigit(nextBytes[1]) {
+				if len(nextBytes) >= 2 && IsDigit(nextBytes[1]) {
 					l.context.NextByte()
 					continue
 				}
@@ -407,13 +408,13 @@ func (l *Lexer) scanNumber(startPos, startScanPos int) (*Token, error) {
 // Enhanced in Phase 2C to handle dollar-quoted strings - postgres/src/backend/parser/scan.l:290-320
 func (l *Lexer) scanDollarToken(startPos, startScanPos int) (*Token, error) {
 	// Check for parameter ($1, $2, etc.)
-	if next := l.context.PeekBytes(2); len(next) >= 2 && isDigit(next[1]) {
+	if next := l.context.PeekBytes(2); len(next) >= 2 && IsDigit(next[1]) {
 		l.context.NextByte() // consume '$'
 
 		paramNum := 0
 		for {
 			b, ok := l.context.CurrentByte()
-			if !ok || !isDigit(b) {
+			if !ok || !IsDigit(b) {
 				break
 			}
 			l.context.NextByte()
@@ -422,12 +423,12 @@ func (l *Lexer) scanDollarToken(startPos, startScanPos int) (*Token, error) {
 
 		// Check for param_junk: $1abc pattern
 		// postgres/src/backend/parser/scan.l:438 and :1013-1016
-		if b, ok := l.context.CurrentByte(); ok && isIdentCont(b) {
+		if b, ok := l.context.CurrentByte(); ok && IsIdentCont(b) {
 			// Special case: if the next character is '$' followed by a digit,
 			// it's another parameter, not junk
 			if b == '$' {
 				next := l.context.PeekBytes(2)
-				if len(next) >= 2 && isDigit(next[1]) {
+				if len(next) >= 2 && IsDigit(next[1]) {
 					// This is another parameter ($2, $3, etc.), not junk
 					text := l.context.GetCurrentText(startScanPos)
 					return NewParamToken(paramNum, startPos, text), nil
@@ -437,13 +438,13 @@ func (l *Lexer) scanDollarToken(startPos, startScanPos int) (*Token, error) {
 			// Continue scanning identifier characters for real junk
 			for {
 				b, ok := l.context.CurrentByte()
-				if !ok || !isIdentCont(b) {
+				if !ok || !IsIdentCont(b) {
 					break
 				}
 				l.context.NextByte()
 			}
 			text := l.context.GetCurrentText(startScanPos)
-			l.context.AddError("trailing junk after parameter")
+			_ = l.context.AddError(TrailingJunkAfterParameter, "trailing junk after parameter")
 			// Return PARAM token despite the error
 			return NewParamToken(paramNum, startPos, text), nil
 		}
@@ -596,21 +597,21 @@ func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, e
 		}
 		// Check if this is a floating point number (.5, .123, etc.)
 		// postgres/src/backend/parser/scan.l:409 - numeric: (({decinteger}\.{decinteger}?)|(\.{decinteger}))
-		if next, ok := l.context.CurrentByte(); ok && isDigit(next) {
+		if next, ok := l.context.CurrentByte(); ok && IsDigit(next) {
 			return l.scanNumber(startPos, startScanPos)
 		}
 	}
 
 	// Check if this is a "self" character (single-char token)
 	// postgres/src/backend/parser/scan.l:380 - self: [,()\[\].;\:\+\-\*\/\%\^\<\>\=]
-	if isSelfChar(b) {
+	if IsSelfChar(b) {
 		text := string(b)
 		return NewToken(TokenType(b), startPos, text), nil
 	}
 
 	// Check if this starts an operator sequence
 	// postgres/src/backend/parser/scan.l:381-382 - op_chars: [\~\!\@\#\^\&\|\`\?\+\-\*\/\%\<\>\=]
-	if isOpChar(b) {
+	if IsOpChar(b) {
 		return l.scanOperator(startPos, startScanPos)
 	}
 
@@ -625,7 +626,7 @@ func (l *Lexer) scanOperator(startPos, startScanPos int) (*Token, error) {
 	// Continue scanning operator characters
 	for {
 		b, ok := l.context.CurrentByte()
-		if !ok || !isOpChar(b) {
+		if !ok || !IsOpChar(b) {
 			break
 		}
 		l.context.NextByte()
@@ -658,7 +659,7 @@ func (l *Lexer) skipWhitespace() error {
 
 		// Handle regular whitespace - postgres/src/backend/parser/scan.l:222
 		// space: [ \t\n\r\f\v]
-		if isWhitespace(b) {
+		if IsWhitespace(b) {
 			l.context.NextByte()
 			// Update line/column tracking for position reporting
 			if b == '\n' || b == '\r' {
@@ -731,83 +732,8 @@ func (l *Lexer) scanQuoteStopState(startPos, startScanPos int) (*Token, error) {
 	return l.scanOperatorOrPunctuation(startPos, startScanPos)
 }
 
-// Utility functions following PostgreSQL character classification
-// postgres/src/backend/parser/scan.l:346-349
-
-// isIdentStart checks if a byte can start an identifier
-// Equivalent to PostgreSQL's ident_start: [A-Za-z\200-\377_]
-// postgres/src/backend/parser/scan.l:346
-func isIdentStart(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '_' || b >= 0x80
-}
-
-// isIdentCont checks if a byte can continue an identifier
-// Equivalent to PostgreSQL's ident_cont: [A-Za-z\200-\377_0-9\$]
-// postgres/src/backend/parser/scan.l:347
-func isIdentCont(b byte) bool {
-	return isIdentStart(b) || isDigit(b) || b == '$'
-}
-
-// isDigit checks if a byte is a decimal digit
-func isDigit(b byte) bool {
-	return b >= '0' && b <= '9'
-}
-
-// isAlpha checks if a byte is alphabetic (for backward compatibility)
-func isAlpha(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
-}
-
-// isAlphaNumeric checks if a byte is alphanumeric (for backward compatibility)
-func isAlphaNumeric(b byte) bool {
-	return isAlpha(b) || isDigit(b)
-}
-
-// isWhitespace checks if a byte is whitespace
-// Equivalent to PostgreSQL's space: [ \t\n\r\f\v]
-// postgres/src/backend/parser/scan.l:222
-func isWhitespace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f' || b == '\v'
-}
-
-// isHexDigit checks if a byte is a hexadecimal digit
-func isHexDigit(b byte) bool {
-	return isDigit(b) || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
-}
-
-// isOctalDigit checks if a byte is an octal digit
-func isOctalDigit(b byte) bool {
-	return b >= '0' && b <= '7'
-}
-
-// isBinaryDigit checks if a byte is a binary digit
-func isBinaryDigit(b byte) bool {
-	return b == '0' || b == '1'
-}
-
-// isSelfChar checks if a byte is a PostgreSQL "self" character (single-char token)
-// Equivalent to PostgreSQL's self: [,()\[\].;\:\+\-\*\/\%\^\<\>\=]
-// postgres/src/backend/parser/scan.l:380
-func isSelfChar(b byte) bool {
-	switch b {
-	case ',', '(', ')', '[', ']', '.', ';', ':', '+', '-', '*', '/', '%', '^', '<', '>', '=':
-		return true
-	default:
-		return false
-	}
-}
-
-// isOpChar checks if a byte can be part of a PostgreSQL operator
-// Equivalent to PostgreSQL's op_chars: [\~\!\@\#\^\&\|\`\?\+\-\*\/\%\<\>\=]
-// postgres/src/backend/parser/scan.l:381
-func isOpChar(b byte) bool {
-	switch b {
-	case '~', '!', '@', '#', '^', '&', '|', '`', '?', '+', '-', '*', '/', '%', '<', '>', '=':
-		return true
-	default:
-		return false
-	}
-}
+// Character classification functions are now provided by charclass.go
+// This provides optimized lookup table-based classification instead of function calls
 
 // scanExponentPart handles the exponent part of floating point numbers
 // postgres/src/backend/parser/scan.l:412-413
@@ -831,7 +757,7 @@ func (l *Lexer) scanExponentPart(startPos, startScanPos int, isFloat bool) (*Tok
 				break
 			}
 
-			if isDigit(b) {
+			if IsDigit(b) {
 				hasExpDigits = true
 				l.context.NextByte()
 				continue
@@ -839,7 +765,7 @@ func (l *Lexer) scanExponentPart(startPos, startScanPos int, isFloat bool) (*Tok
 
 			if b == '_' && hasExpDigits {
 				nextBytes := l.context.PeekBytes(2)
-				if len(nextBytes) >= 2 && isDigit(nextBytes[1]) {
+				if len(nextBytes) >= 2 && IsDigit(nextBytes[1]) {
 					l.context.NextByte()
 					continue
 				}
@@ -853,7 +779,7 @@ func (l *Lexer) scanExponentPart(startPos, startScanPos int, isFloat bool) (*Tok
 		// postgres/src/backend/parser/scan.l:413, 1062-1064
 		if !hasExpDigits {
 			text := l.context.GetCurrentText(startScanPos)
-			l.context.AddError("trailing junk after numeric literal")
+			_ = l.context.AddError(TrailingJunk, "trailing junk after numeric literal")
 			// Return as FCONST even if incomplete
 			return NewStringToken(FCONST, text, startPos, text), nil
 		}
@@ -911,7 +837,7 @@ func (l *Lexer) checkTrailingJunk() error {
 	// PostgreSQL's junk patterns: {numeric}{identifier}
 	// Any identifier character (including underscore) immediately following
 	// a numeric literal is considered trailing junk
-	if isIdentStart(b) {
+	if IsIdentStart(b) {
 		// Consume all the junk characters to match PostgreSQL behavior
 		// PostgreSQL's junk patterns consume the entire invalid token
 		for {
@@ -919,13 +845,13 @@ func (l *Lexer) checkTrailingJunk() error {
 			if !ok {
 				break
 			}
-			if isIdentCont(b) {
+			if IsIdentCont(b) {
 				l.context.NextByte()
 				continue
 			}
 			break
 		}
-		l.context.AddError("trailing junk after numeric literal")
+		_ = l.context.AddError(TrailingJunk, "trailing junk after numeric literal")
 		return fmt.Errorf("trailing junk after numeric literal")
 	}
 	return nil
@@ -934,7 +860,7 @@ func (l *Lexer) checkTrailingJunk() error {
 // checkIntegerFailPattern checks for fail patterns (0x_, 0o_, 0b_) and handles them
 // This consolidates the common logic for hexfail, octfail, and binfail patterns
 // postgres/src/backend/parser/scan.l:405-407
-func (l *Lexer) checkIntegerFailPattern(peekAhead []byte, prefixChar byte, digitChecker func(byte) bool, errorMsg string, startPos, startScanPos int) (*Token, error) {
+func (l *Lexer) checkIntegerFailPattern(peekAhead []byte, prefixChar byte, digitChecker func(byte) bool, errorMsg string, errorType LexerErrorType, startPos, startScanPos int) (*Token, error) {
 	if len(peekAhead) == 2 ||
 		(len(peekAhead) == 3 && peekAhead[2] == '_') ||
 		(len(peekAhead) >= 3 && peekAhead[2] == '_' && len(peekAhead) >= 4 && !digitChecker(peekAhead[3])) {
@@ -946,7 +872,7 @@ func (l *Lexer) checkIntegerFailPattern(peekAhead []byte, prefixChar byte, digit
 			l.context.NextByte() // consume '_'
 		}
 		text := l.context.GetCurrentText(startScanPos)
-		l.context.AddError(errorMsg)
+		_ = l.context.AddError(errorType, errorMsg)
 		return NewStringToken(ICONST, text, startPos, text), nil
 	}
 	return nil, nil // Not a fail pattern, continue with normal processing
@@ -955,7 +881,7 @@ func (l *Lexer) checkIntegerFailPattern(peekAhead []byte, prefixChar byte, digit
 // scanSpecialInteger consolidates hex/octal/binary integer scanning
 // This combines scanHexInteger, scanOctalInteger, and scanBinaryInteger with identical logic
 // postgres/src/backend/parser/scan.l:401-403
-func (l *Lexer) scanSpecialInteger(startPos, startScanPos int, digitChecker func(byte) bool, errorMsg string) (*Token, error) {
+func (l *Lexer) scanSpecialInteger(startPos, startScanPos int, digitChecker func(byte) bool, errorMsg string, errorType LexerErrorType) (*Token, error) {
 	// Consume "0" + prefix char (already done by caller)
 	l.context.NextByte() // consume '0'
 	l.context.NextByte() // consume prefix char (x/o/b)
@@ -990,7 +916,7 @@ func (l *Lexer) scanSpecialInteger(startPos, startScanPos int, digitChecker func
 	// Must have at least one digit (PostgreSQL pattern requires at least one group)
 	if !hasDigits {
 		text := l.context.GetCurrentText(startScanPos)
-		l.context.AddError(errorMsg)
+		_ = l.context.AddError(errorType, errorMsg)
 		return NewStringToken(ICONST, text, startPos, text), nil
 	}
 

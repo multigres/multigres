@@ -822,37 +822,37 @@ func TestCharacterClassification(t *testing.T) {
 	}{
 		{
 			name:     "isIdentStart",
-			function: isIdentStart,
+			function: IsIdentStart,
 			valid:    []byte{'a', 'z', 'A', 'Z', '_', 0x80, 0xFF},
 			invalid:  []byte{'0', '9', '$', '-', '+', ' ', '\t'},
 		},
 		{
 			name:     "isIdentCont",
-			function: isIdentCont,
+			function: IsIdentCont,
 			valid:    []byte{'a', 'z', 'A', 'Z', '_', '0', '9', '$', 0x80, 0xFF},
 			invalid:  []byte{'-', '+', ' ', '\t', '(', ')'},
 		},
 		{
 			name:     "isDigit",
-			function: isDigit,
+			function: IsDigit,
 			valid:    []byte{'0', '1', '5', '9'},
 			invalid:  []byte{'a', 'A', '_', '$', ' ', '\t'},
 		},
 		{
 			name:     "isWhitespace",
-			function: isWhitespace,
+			function: IsWhitespace,
 			valid:    []byte{' ', '\t', '\n', '\r', '\f', '\v'},
 			invalid:  []byte{'a', '0', '_', '$'},
 		},
 		{
 			name:     "isSelfChar",
-			function: isSelfChar,
+			function: IsSelfChar,
 			valid:    []byte{',', '(', ')', '[', ']', '.', ';', ':', '+', '-', '*', '/', '%', '^', '<', '>', '='},
 			invalid:  []byte{'a', '0', '_', '$', ' ', '\t', '~', '!', '@'},
 		},
 		{
 			name:     "isOpChar",
-			function: isOpChar,
+			function: IsOpChar,
 			valid:    []byte{'~', '!', '@', '#', '^', '&', '|', '`', '?', '+', '-', '*', '/', '%', '<', '>', '='},
 			invalid:  []byte{'a', '0', '_', ' ', '\t', '(', ')', '[', ']'},
 		},

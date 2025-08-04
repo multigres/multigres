@@ -11,6 +11,7 @@ package lexer
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // LexerState represents the current state of the lexer state machine
@@ -93,13 +94,6 @@ type LexerContext struct {
 	InMultiDotSequence bool // True if we're in a sequence of 3+ dots
 }
 
-// LexerError represents a lexical analysis error
-type LexerError struct {
-	Message  string // Error message
-	Position int    // Byte offset where error occurred
-	Line     int    // Line number where error occurred
-	Column   int    // Column number where error occurred
-}
 
 // Note: KeywordLookup interface removed - keyword functionality is now
 // provided directly by lexer package functions (LookupKeyword, IsKeyword, etc.)
@@ -239,8 +233,82 @@ func (ctx *LexerContext) advancePosition(b byte) {
 		ctx.LineNumber++
 		ctx.ColumnNumber = 1
 	} else {
-		ctx.ColumnNumber++
+		// Only advance column for valid UTF-8 sequence starts
+		// This ensures Unicode characters are counted correctly
+		if utf8.RuneStart(b) {
+			ctx.ColumnNumber++
+		}
 	}
+}
+
+// AdvanceRune moves forward by one Unicode character (rune)
+// This provides Unicode-aware position tracking like PostgreSQL's character-based functions
+// Equivalent to PostgreSQL's pg_mblen function behavior
+func (ctx *LexerContext) AdvanceRune() rune {
+	if ctx.AtEOF() {
+		return 0
+	}
+	
+	r, size := utf8.DecodeRune(ctx.ScanBuf[ctx.ScanPos:])
+	
+	// Update position tracking for each byte of the rune
+	for i := 0; i < size; i++ {
+		ctx.advancePosition(ctx.ScanBuf[ctx.ScanPos])
+	}
+	
+	return r
+}
+
+// PeekRune returns the next rune without advancing position
+func (ctx *LexerContext) PeekRune() rune {
+	if ctx.AtEOF() {
+		return 0
+	}
+	
+	r, _ := utf8.DecodeRune(ctx.ScanBuf[ctx.ScanPos:])
+	return r
+}
+
+// GetUnicodePosition returns the current position as Unicode character count
+// Equivalent to PostgreSQL's pg_mbstrlen_with_len function
+// postgres/src/backend/utils/mb/mbutils.c:1200
+func (ctx *LexerContext) GetUnicodePosition() int {
+	return CalculateUnicodePosition(ctx.ScanBuf, ctx.CurrentPosition)
+}
+
+// SaveCurrentPosition saves the current position for error recovery
+// Equivalent to PostgreSQL's PUSH_YYLLOC() macro
+// postgres/src/backend/parser/scan.l:121
+func (ctx *LexerContext) SaveCurrentPosition() int {
+	ctx.SavePosition = ctx.CurrentPosition
+	return ctx.CurrentPosition
+}
+
+// RestoreSavedPosition restores a previously saved position
+// Equivalent to PostgreSQL's POP_YYLLOC() macro
+// postgres/src/backend/parser/scan.l:122
+func (ctx *LexerContext) RestoreSavedPosition() {
+	if ctx.SavePosition < 0 || ctx.SavePosition > ctx.ScanBufLen {
+		return
+	}
+	
+	// Calculate how many bytes to go back
+	diff := ctx.CurrentPosition - ctx.SavePosition
+	if diff > 0 {
+		ctx.PutBack(diff)
+		
+		// Recalculate line and column numbers from the beginning
+		// This is expensive but ensures accuracy after position restoration
+		ctx.recalculateLineColumn()
+	}
+}
+
+// recalculateLineColumn recalculates line and column numbers from current position
+// Used after position restoration to ensure accuracy
+func (ctx *LexerContext) recalculateLineColumn() {
+	line, col := CalculateLineColumn(ctx.ScanBuf, ctx.CurrentPosition)
+	ctx.LineNumber = line
+	ctx.ColumnNumber = col
 }
 
 // AtEOF returns true if we're at the end of input
@@ -266,15 +334,132 @@ func (ctx *LexerContext) GetState() LexerState {
 	return ctx.State
 }
 
-// AddError adds a lexer error to the error collection
-func (ctx *LexerContext) AddError(message string) {
-	ctx.Errors = append(ctx.Errors, LexerError{
-		Message:  message,
-		Position: ctx.CurrentPosition,
-		Line:     ctx.LineNumber,
-		Column:   ctx.ColumnNumber,
-	})
+// AddError adds a lexer error with a specific error type and returns a pointer to it
+// This is the primary method for error creation with consistent return of the created error
+func (ctx *LexerContext) AddError(errorType LexerErrorType, message string) *LexerError {
+	error := &LexerError{
+		Type:        errorType,
+		Message:     message,
+		Position:    ctx.CurrentPosition,
+		Line:        ctx.LineNumber,
+		Column:      ctx.ColumnNumber,
+		NearText:    ctx.extractNearText(),
+		AtEOF:       ctx.AtEOF(),
+		Context:     ctx.getErrorContext(),
+		Hint:        ctx.getErrorHint(errorType),
+		ErrorLength: ctx.calculateErrorLength(errorType),
+	}
+	
+	ctx.Errors = append(ctx.Errors, *error)
+	return error
 }
+
+
+// extractNearText extracts text near the current position for error context
+// Based on PostgreSQL's error message formatting
+func (ctx *LexerContext) extractNearText() string {
+	const maxNearTextLen = 20
+	
+	// For errors, we want to show text from where the problematic token starts
+	// Use SavePosition if available (which tracks the start of the current token)
+	start := ctx.SavePosition
+	if start < 0 || start >= ctx.ScanBufLen {
+		start = ctx.CurrentPosition
+	}
+	
+	// Handle EOF cases
+	if start >= ctx.ScanBufLen {
+		// Try to show the last part of the input
+		if ctx.ScanBufLen > maxNearTextLen {
+			start = ctx.ScanBufLen - maxNearTextLen
+		} else {
+			start = 0
+		}
+		if start < ctx.ScanBufLen {
+			nearText := string(ctx.ScanBuf[start:ctx.ScanBufLen])
+			return SanitizeNearText(nearText, maxNearTextLen)
+		}
+		return ""
+	}
+	
+	end := start + maxNearTextLen
+	if end > ctx.ScanBufLen {
+		end = ctx.ScanBufLen
+	}
+	
+	nearText := string(ctx.ScanBuf[start:end])
+	return SanitizeNearText(nearText, maxNearTextLen)
+}
+
+// getErrorContext provides context information based on current lexer state
+func (ctx *LexerContext) getErrorContext() string {
+	switch ctx.State {
+	case StateXQ:
+		return "in quoted string"
+	case StateXE:
+		return "in extended string with escapes"
+	case StateXDolQ:
+		return "in dollar-quoted string"
+	case StateXC:
+		return "in comment"
+	case StateXD:
+		return "in delimited identifier"
+	case StateXB:
+		return "in bit string literal"
+	case StateXH:
+		return "in hexadecimal string literal"
+	case StateXUI:
+		return "in Unicode identifier"
+	case StateXUS:
+		return "in Unicode string"
+	case StateXEU:
+		return "in extended Unicode string"
+	default:
+		return ""
+	}
+}
+
+// getErrorHint provides recovery hints based on error type and context
+func (ctx *LexerContext) getErrorHint(errorType LexerErrorType) string {
+	switch errorType {
+	case UnterminatedString:
+		switch ctx.State {
+		case StateXQ:
+			return "Add a closing single quote (') to terminate the string"
+		case StateXE:
+			return "Add a closing single quote (') to terminate the extended string"
+		case StateXDolQ:
+			return fmt.Sprintf("Add the closing delimiter %s to terminate the dollar-quoted string", ctx.DolQStart)
+		}
+	case UnterminatedComment:
+		return "Add */ to close the comment"
+	case UnterminatedIdentifier:
+		return "Add a closing double quote (\") to terminate the identifier"
+	case TrailingJunk:
+		return "Separate the number and following text with whitespace or an operator"
+	case InvalidEscape:
+		return "Use a valid escape sequence like \\n, \\t, \\\\, or \\'"
+	}
+	return ""
+}
+
+// calculateErrorLength estimates the length of problematic text
+func (ctx *LexerContext) calculateErrorLength(errorType LexerErrorType) int {
+	switch errorType {
+	case TrailingJunk:
+		// Find the end of the trailing junk
+		pos := ctx.CurrentPosition
+		for pos < ctx.ScanBufLen && !IsWhitespace(ctx.ScanBuf[pos]) {
+			pos++
+		}
+		return pos - ctx.CurrentPosition
+	case InvalidEscape:
+		return 2 // Typically backslash + one character
+	default:
+		return 1
+	}
+}
+
 
 // HasErrors returns true if any errors have been collected
 func (ctx *LexerContext) HasErrors() bool {
@@ -286,11 +471,6 @@ func (ctx *LexerContext) GetErrors() []LexerError {
 	return ctx.Errors
 }
 
-// FormatError returns a formatted error message
-func (e *LexerError) Error() string {
-	return fmt.Sprintf("lexer error at line %d, column %d (position %d): %s",
-		e.Line, e.Column, e.Position, e.Message)
-}
 
 // PutBack moves the scan position back by n bytes
 // This is equivalent to PostgreSQL's yyless() macro

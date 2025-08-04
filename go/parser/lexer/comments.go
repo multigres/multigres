@@ -35,15 +35,10 @@ func (l *Lexer) scanCommentState(startPos, startScanPos int) (*Token, error) {
 	for {
 		b, ok := l.context.CurrentByte()
 		if !ok {
-			// EOF in comment - postgres/src/backend/parser/scan.l:496-498
+			// EOF in comment - postgres/src/backend/parser/scan.l:497
 			l.context.SetState(StateInitial)
-			l.context.AddError("unterminated /* comment")
-			return nil, &LexerError{
-				Message:  "unterminated /* comment",
-				Position: startPos,
-				Line:     l.context.LineNumber,
-				Column:   l.context.ColumnNumber,
-			}
+			err := l.context.AddError(UnterminatedComment, "unterminated /* comment")
+			return nil, err
 		}
 		
 		// Check for nested comment start: /* 

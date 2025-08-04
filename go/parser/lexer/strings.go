@@ -62,7 +62,7 @@ func (l *Lexer) scanStandardString(startPos, startScanPos int) (*Token, error) {
 	}
 
 	if !foundClosingQuote {
-		ctx.AddError("unterminated quoted string")
+		_ = ctx.AddError(UnterminatedString, "unterminated quoted string")
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(USCONST, ctx.GetLiteral(), startPos, text), nil
 	}
@@ -114,7 +114,7 @@ func (l *Lexer) scanExtendedString(startPos, startScanPos int) (*Token, error) {
 	}
 
 	if !foundClosingQuote {
-		ctx.AddError("unterminated quoted string")
+		_ = ctx.AddError(UnterminatedString, "unterminated quoted string")
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(SCONST, ctx.GetLiteral(), startPos, text), nil
 	}
@@ -139,7 +139,7 @@ func (l *Lexer) scanDollarQuotedString(startPos, startScanPos int) (*Token, erro
 
 	if startDelimiter == "" {
 		// Invalid delimiter format
-		ctx.AddError("invalid dollar-quoted string delimiter")
+		_ = ctx.AddError(SyntaxError, "invalid dollar-quoted string delimiter")
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(USCONST, "", startPos, text), nil
 	}
@@ -181,7 +181,7 @@ func (l *Lexer) scanDollarQuotedString(startPos, startScanPos int) (*Token, erro
 	}
 
 	if !foundClosingDelimiter {
-		ctx.AddError(fmt.Sprintf("unterminated dollar-quoted string at or near \"%s\"", startDelimiter))
+		_ = ctx.AddError(UnterminatedDollarQuote, fmt.Sprintf("unterminated dollar-quoted string at or near \"%s\"", startDelimiter))
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(USCONST, ctx.GetLiteral(), startPos, text), nil
 	}
@@ -277,7 +277,7 @@ func (l *Lexer) scanEscapeSequence() error {
 	ctx.AdvanceBy(1) // Skip backslash
 
 	if ctx.AtEOF() {
-		ctx.AddError("unterminated escape sequence")
+		_ = ctx.AddError(InvalidEscape, "unterminated escape sequence")
 		return nil
 	}
 
@@ -345,13 +345,13 @@ func (l *Lexer) scanHexEscape() error {
 	}
 
 	if len(hexDigits) == 0 {
-		ctx.AddError("invalid hexadecimal escape sequence")
+		_ = ctx.AddError(InvalidEscape, "invalid hexadecimal escape sequence")
 		return nil
 	}
 
 	value, err := strconv.ParseUint(hexDigits, 16, 8)
 	if err != nil {
-		ctx.AddError("invalid hexadecimal escape sequence")
+		_ = ctx.AddError(InvalidEscape, "invalid hexadecimal escape sequence")
 		return nil
 	}
 
@@ -378,13 +378,13 @@ func (l *Lexer) scanOctalEscape() error {
 	}
 
 	if len(octalDigits) == 0 {
-		ctx.AddError("invalid octal escape sequence")
+		_ = ctx.AddError(InvalidEscape, "invalid octal escape sequence")
 		return nil
 	}
 
 	value, err := strconv.ParseUint(octalDigits, 8, 8)
 	if err != nil {
-		ctx.AddError("invalid octal escape sequence")
+		_ = ctx.AddError(InvalidEscape, "invalid octal escape sequence")
 		return nil
 	}
 
@@ -405,25 +405,25 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 			hexDigits += string(ch)
 			ctx.AdvanceBy(1)
 		} else {
-			ctx.AddError(fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
+			_ = ctx.AddError(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
 			return nil
 		}
 	}
 
 	if len(hexDigits) != digitCount {
-		ctx.AddError(fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
+		_ = ctx.AddError(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
 		return nil
 	}
 
 	value, err := strconv.ParseUint(hexDigits, 16, 32)
 	if err != nil {
-		ctx.AddError("invalid Unicode escape sequence")
+		_ = ctx.AddError(InvalidUnicodeEscape, "invalid Unicode escape sequence")
 		return nil
 	}
 
 	// Check for valid Unicode code point
 	if value > 0x10FFFF {
-		ctx.AddError("Unicode escape sequence out of range")
+		_ = ctx.AddError(InvalidUnicodeEscape, "Unicode escape sequence out of range")
 		return nil
 	}
 
@@ -431,7 +431,7 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 	if value >= 0xD800 && value <= 0xDFFF {
 		// This is a surrogate pair - would need xeu state handling
 		// For now, treat as error as in standard PostgreSQL
-		ctx.AddError("Unicode surrogate pairs are not supported in this context")
+		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "Unicode surrogate pairs are not supported in this context")
 		return nil
 	}
 
@@ -440,7 +440,7 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 	if utf8.ValidRune(runeValue) {
 		ctx.AddLiteral(string(runeValue))
 	} else {
-		ctx.AddError("invalid Unicode code point")
+		_ = ctx.AddError(InvalidUnicodeEscape, "invalid Unicode code point")
 	}
 
 	return nil
@@ -552,7 +552,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 			}
 
 			if !foundClosingQuote {
-				ctx.AddError("unterminated quoted string")
+				_ = ctx.AddError(UnterminatedString, "unterminated quoted string")
 				text := ctx.GetCurrentText(startScanPos)
 				return NewStringToken(USCONST, finalLiteral+ctx.GetLiteral(), startPos, text), nil
 			}
@@ -607,13 +607,13 @@ func (l *Lexer) scanBitString(startPos, startScanPos int) (*Token, error) {
 			ctx.AdvanceBy(1)
 		} else {
 			// Invalid character in bit string
-			ctx.AddError(fmt.Sprintf("invalid bit string character: %c", ch))
+			_ = ctx.AddError(SyntaxError, fmt.Sprintf("invalid bit string character: %c", ch))
 			ctx.AdvanceBy(1)
 		}
 	}
 
 	if !foundClosingQuote {
-		ctx.AddError("unterminated bit string literal")
+		_ = ctx.AddError(UnterminatedBitString, "unterminated bit string literal")
 		ctx.SetState(StateInitial) // Reset state even for errors
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(BCONST, ctx.GetLiteral(), startPos, text), nil
@@ -654,13 +654,13 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 			ctx.AdvanceBy(1)
 		} else {
 			// Invalid character in hex string
-			ctx.AddError(fmt.Sprintf("invalid hexadecimal string character: %c", ch))
+			_ = ctx.AddError(SyntaxError, fmt.Sprintf("invalid hexadecimal string character: %c", ch))
 			ctx.AdvanceBy(1)
 		}
 	}
 
 	if !foundClosingQuote {
-		ctx.AddError("unterminated hexadecimal string literal")
+		_ = ctx.AddError(UnterminatedHexString, "unterminated hexadecimal string literal")
 		ctx.SetState(StateInitial) // Reset state even for errors
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(XCONST, ctx.GetLiteral(), startPos, text), nil
