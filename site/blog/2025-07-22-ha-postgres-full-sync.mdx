@@ -40,7 +40,7 @@ Synchronous replication addresses this problem, but it also has its own pitfalls
 
 1. The Primary writes to the WAL and crashes before sending the data to the standby:
     
-    <img src="/img/blog/fsync1.svg" alt="fsync1" />
+    <img src="/img/blog/ha-postgres-full-sync/fsync-1--dark.svg" alt="fsync1" />
     
     * setups where there are clients subscribed to the WAL on the primary (like a CDC process), they would view and transmit this as a committed transaction. However, a failover will abandon this transaction, while the subscriber might have irreversibly acted on this.
     * the primary is restarted after a failover, it will have a timeline that is incompatible with the rest of the cluster, and will not be able to rejoin the cluster.
@@ -48,11 +48,11 @@ Synchronous replication addresses this problem, but it also has its own pitfalls
     * replica that is not a hot standby may receive a transaction before the standby. This becomes a problem if the failover process does not account for this possibility.
 2. The primary externalizes a transaction only after receiving an ack from the replica. But the replica itself will externalize it as soon as it’s received it: An application may see this committed transaction on the replica, but may not be able to find it on the primary.
     
-    <img src="/img/blog/fsync2.svg" alt="fsync2" />
+    <img src="/img/blog/ha-postgres-full-sync/fsync-2--dark.svg" alt="fsync2" />
     
 3. Failures during failover: If there are multiple failures during a failover, we may end up with multiple conflicting timelines. There is no methodical way to determine which one is authoritative.
 
-    <img src="/img/blog/fsync3.svg" alt="fsync3" />
+    <img src="/img/blog/ha-postgres-full-sync/fsync-3--dark.svg" alt="fsync3" />
 
 The above failure modes get progressively more unwieldy as the number of nodes increases.
 
