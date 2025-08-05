@@ -427,16 +427,22 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 		return nil
 	}
 
-	// Handle UTF-16 surrogate pairs if needed (PostgreSQL xeu state)
-	if value >= 0xD800 && value <= 0xDFFF {
-		// This is a surrogate pair - would need xeu state handling
-		// For now, treat as error as in standard PostgreSQL
-		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "Unicode surrogate pairs are not supported in this context")
+	// Handle UTF-16 surrogate pairs - PostgreSQL xeu state (postgres/src/backend/parser/scan.l:671-678)
+	runeValue := rune(value)
+	
+	if isUTF16SurrogateFirst(runeValue) {
+		// First part of surrogate pair - need to get the second part
+		// Equivalent to postgres/src/backend/parser/scan.l:673-674
+		ctx.UTF16FirstPart = runeValue
+		return l.scanSurrogatePairSecond()
+	} else if isUTF16SurrogateSecond(runeValue) {
+		// Second surrogate without first - error
+		// Equivalent to postgres/src/backend/parser/scan.l:676-677
+		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair")
 		return nil
 	}
 
 	// Convert to UTF-8 and add to literal
-	runeValue := rune(value)
 	if utf8.ValidRune(runeValue) {
 		ctx.AddLiteral(string(runeValue))
 	} else {
@@ -669,4 +675,94 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 	ctx.SetState(StateInitial) // Reset state after processing hex string
 	text := ctx.GetCurrentText(startScanPos)
 	return NewStringToken(XCONST, ctx.GetLiteral(), startPos, text), nil
+}
+
+// scanSurrogatePairSecond processes the second part of a UTF-16 surrogate pair
+// Equivalent to PostgreSQL xeu state handling - postgres/src/backend/parser/scan.l:684-703
+func (l *Lexer) scanSurrogatePairSecond() error {
+	ctx := l.context
+	
+	// The first surrogate is stored in ctx.UTF16FirstPart
+	// Now we need to expect and parse the second surrogate (\u or \U)
+	
+	// Expect to find \u or \U for the second surrogate
+	if ctx.CurrentChar() != '\\' {
+		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: expected escape sequence")
+		ctx.UTF16FirstPart = 0 // Clear stored surrogate
+		return nil
+	}
+	
+	ctx.AdvanceBy(1) // Skip backslash
+	
+	if ctx.AtEOF() {
+		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: unexpected end of input")
+		ctx.UTF16FirstPart = 0
+		return nil
+	}
+	
+	escapeChar := ctx.CurrentChar()
+	ctx.AdvanceBy(1)
+	
+	var digitCount int
+	switch escapeChar {
+	case 'u':
+		digitCount = 4
+	case 'U':
+		digitCount = 8
+	default:
+		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: expected \\u or \\U")
+		ctx.UTF16FirstPart = 0
+		return nil
+	}
+	
+	// Parse hex digits for second surrogate
+	hexDigits := ""
+	for i := 0; i < digitCount && !ctx.AtEOF(); i++ {
+		ch := ctx.CurrentChar()
+		if (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f') {
+			hexDigits += string(ch)
+			ctx.AdvanceBy(1)
+		} else {
+			_ = ctx.AddError(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
+			ctx.UTF16FirstPart = 0
+			return nil
+		}
+	}
+	
+	if len(hexDigits) != digitCount {
+		_ = ctx.AddError(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
+		ctx.UTF16FirstPart = 0
+		return nil
+	}
+	
+	secondValue, err := strconv.ParseUint(hexDigits, 16, 32)
+	if err != nil {
+		_ = ctx.AddError(InvalidUnicodeEscape, "invalid Unicode escape sequence")
+		ctx.UTF16FirstPart = 0
+		return nil
+	}
+	
+	secondSurrogate := rune(secondValue)
+	
+	// Validate and combine surrogate pair - postgres/src/backend/parser/scan.l:692-695
+	if !isUTF16SurrogateSecond(secondSurrogate) {
+		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair")
+		ctx.UTF16FirstPart = 0
+		return nil
+	}
+	
+	// Combine surrogates into final code point
+	combinedCodepoint := surrogatePairToCodepoint(ctx.UTF16FirstPart, secondSurrogate)
+	
+	// Add combined character to literal - equivalent to addunicode() call
+	if utf8.ValidRune(combinedCodepoint) {
+		ctx.AddLiteral(string(combinedCodepoint))
+	} else {
+		_ = ctx.AddError(InvalidUnicodeEscape, "invalid Unicode code point")
+	}
+	
+	// Clear first part - postgres/src/backend/parser/scan.l:698
+	ctx.UTF16FirstPart = 0
+	
+	return nil
 }

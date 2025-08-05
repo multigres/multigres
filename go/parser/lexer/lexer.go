@@ -75,7 +75,9 @@ func (l *Lexer) NextToken() (*Token, error) {
 		case StateXUS:
 			return l.scanStandardString(startPos, startScanPos) // Unicode strings treated as standard for now
 		case StateXEU:
-			return l.scanExtendedString(startPos, startScanPos) // Extended Unicode strings treated as extended for now
+			// StateXEU is now handled within string processing, not as a separate token state
+			// This should not be reached in normal operation
+			return nil, fmt.Errorf("unexpected StateXEU in lexer main loop")
 		default:
 			return nil, fmt.Errorf("invalid lexer state: %d", l.context.State)
 		}
