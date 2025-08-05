@@ -5,5 +5,8 @@
       "destination": "/blog/postgres-ha-full-sync",
       "permanent": true
     }
+  ],
+  "rewrites": [
+    { "source": "/blog(/.*)?", "destination": "/index.html" }
   ]
 }
