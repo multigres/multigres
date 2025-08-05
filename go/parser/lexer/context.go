@@ -94,7 +94,6 @@ type LexerContext struct {
 	InMultiDotSequence bool // True if we're in a sequence of 3+ dots
 }
 
-
 // Note: KeywordLookup interface removed - keyword functionality is now
 // provided directly by lexer package functions (LookupKeyword, IsKeyword, etc.)
 
@@ -248,14 +247,14 @@ func (ctx *LexerContext) AdvanceRune() rune {
 	if ctx.AtEOF() {
 		return 0
 	}
-	
+
 	r, size := utf8.DecodeRune(ctx.ScanBuf[ctx.ScanPos:])
-	
+
 	// Update position tracking for each byte of the rune
 	for i := 0; i < size; i++ {
 		ctx.advancePosition(ctx.ScanBuf[ctx.ScanPos])
 	}
-	
+
 	return r
 }
 
@@ -264,7 +263,7 @@ func (ctx *LexerContext) PeekRune() rune {
 	if ctx.AtEOF() {
 		return 0
 	}
-	
+
 	r, _ := utf8.DecodeRune(ctx.ScanBuf[ctx.ScanPos:])
 	return r
 }
@@ -291,12 +290,12 @@ func (ctx *LexerContext) RestoreSavedPosition() {
 	if ctx.SavePosition < 0 || ctx.SavePosition > ctx.ScanBufLen {
 		return
 	}
-	
+
 	// Calculate how many bytes to go back
 	diff := ctx.CurrentPosition - ctx.SavePosition
 	if diff > 0 {
 		ctx.PutBack(diff)
-		
+
 		// Recalculate line and column numbers from the beginning
 		// This is expensive but ensures accuracy after position restoration
 		ctx.recalculateLineColumn()
@@ -349,24 +348,23 @@ func (ctx *LexerContext) AddError(errorType LexerErrorType, message string) *Lex
 		Hint:        ctx.getErrorHint(errorType),
 		ErrorLength: ctx.calculateErrorLength(errorType),
 	}
-	
+
 	ctx.Errors = append(ctx.Errors, *error)
 	return error
 }
-
 
 // extractNearText extracts text near the current position for error context
 // Based on PostgreSQL's error message formatting
 func (ctx *LexerContext) extractNearText() string {
 	const maxNearTextLen = 20
-	
+
 	// For errors, we want to show text from where the problematic token starts
 	// Use SavePosition if available (which tracks the start of the current token)
 	start := ctx.SavePosition
 	if start < 0 || start >= ctx.ScanBufLen {
 		start = ctx.CurrentPosition
 	}
-	
+
 	// Handle EOF cases
 	if start >= ctx.ScanBufLen {
 		// Try to show the last part of the input
@@ -381,12 +379,12 @@ func (ctx *LexerContext) extractNearText() string {
 		}
 		return ""
 	}
-	
+
 	end := start + maxNearTextLen
 	if end > ctx.ScanBufLen {
 		end = ctx.ScanBufLen
 	}
-	
+
 	nearText := string(ctx.ScanBuf[start:end])
 	return SanitizeNearText(nearText, maxNearTextLen)
 }
@@ -460,7 +458,6 @@ func (ctx *LexerContext) calculateErrorLength(errorType LexerErrorType) int {
 	}
 }
 
-
 // HasErrors returns true if any errors have been collected
 func (ctx *LexerContext) HasErrors() bool {
 	return len(ctx.Errors) > 0
@@ -470,7 +467,6 @@ func (ctx *LexerContext) HasErrors() bool {
 func (ctx *LexerContext) GetErrors() []LexerError {
 	return ctx.Errors
 }
-
 
 // PutBack moves the scan position back by n bytes
 // This is equivalent to PostgreSQL's yyless() macro

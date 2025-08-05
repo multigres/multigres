@@ -10,7 +10,6 @@ package lexer
 
 import (
 	"sort"
-	"strings"
 )
 
 // KeywordCategory represents the different categories of SQL keywords.
@@ -21,15 +20,15 @@ const (
 	// UnreservedKeyword - can be used as column name, function name, etc.
 	// Ported from postgres/src/include/parser/kwlist.h (UNRESERVED_KEYWORD)
 	UnreservedKeyword KeywordCategory = iota
-	
+
 	// ColNameKeyword - can be used as column name but not function name
 	// Ported from postgres/src/include/parser/kwlist.h (COL_NAME_KEYWORD)
 	ColNameKeyword
-	
+
 	// TypeFuncNameKeyword - can be used as function name or type name
 	// Ported from postgres/src/include/parser/kwlist.h (TYPE_FUNC_NAME_KEYWORD)
 	TypeFuncNameKeyword
-	
+
 	// ReservedKeyword - fully reserved, cannot be used as identifier
 	// Ported from postgres/src/include/parser/kwlist.h (RESERVED_KEYWORD)
 	ReservedKeyword
@@ -49,128 +48,128 @@ type KeywordInfo struct {
 // Note: This is a core subset - full list will be generated in Phase 3
 var Keywords = []KeywordInfo{
 	// Most common PostgreSQL keywords - ported from postgres/src/include/parser/kwlist.h:28-150
-	{"all", IDENT, ReservedKeyword, true}, // Will be replaced with ALL token in Phase 3
-	{"and", IDENT, ReservedKeyword, true}, // Will be replaced with AND token in Phase 3
-	{"any", IDENT, ReservedKeyword, true}, // Will be replaced with ANY token in Phase 3
-	{"array", IDENT, ReservedKeyword, false}, // Will be replaced with ARRAY token in Phase 3
-	{"as", IDENT, ReservedKeyword, false}, // Will be replaced with AS token in Phase 3
-	{"asc", IDENT, ReservedKeyword, true}, // Will be replaced with ASC token in Phase 3
+	{"all", IDENT, ReservedKeyword, true},        // Will be replaced with ALL token in Phase 3
+	{"and", IDENT, ReservedKeyword, true},        // Will be replaced with AND token in Phase 3
+	{"any", IDENT, ReservedKeyword, true},        // Will be replaced with ANY token in Phase 3
+	{"array", IDENT, ReservedKeyword, false},     // Will be replaced with ARRAY token in Phase 3
+	{"as", IDENT, ReservedKeyword, false},        // Will be replaced with AS token in Phase 3
+	{"asc", IDENT, ReservedKeyword, true},        // Will be replaced with ASC token in Phase 3
 	{"asymmetric", IDENT, ReservedKeyword, true}, // Will be replaced with ASYMMETRIC token in Phase 3
-	
+
 	{"between", IDENT, ColNameKeyword, true}, // Will be replaced with BETWEEN token in Phase 3
-	{"bigint", IDENT, ColNameKeyword, true}, // Will be replaced with BIGINT token in Phase 3
-	{"bit", IDENT, ColNameKeyword, true}, // Will be replaced with BIT token in Phase 3
+	{"bigint", IDENT, ColNameKeyword, true},  // Will be replaced with BIGINT token in Phase 3
+	{"bit", IDENT, ColNameKeyword, true},     // Will be replaced with BIT token in Phase 3
 	{"boolean", IDENT, ColNameKeyword, true}, // Will be replaced with BOOLEAN_P token in Phase 3
-	{"both", IDENT, ReservedKeyword, true}, // Will be replaced with BOTH token in Phase 3
-	{"by", IDENT, UnreservedKeyword, true}, // Will be replaced with BY token in Phase 3
-	
-	{"case", IDENT, ReservedKeyword, true}, // Will be replaced with CASE token in Phase 3
-	{"cast", IDENT, ReservedKeyword, true}, // Will be replaced with CAST token in Phase 3
-	{"char", IDENT, ColNameKeyword, false}, // Will be replaced with CHAR_P token in Phase 3
-	{"character", IDENT, ColNameKeyword, false}, // Will be replaced with CHARACTER token in Phase 3
-	{"check", IDENT, ReservedKeyword, true}, // Will be replaced with CHECK token in Phase 3
-	{"coalesce", IDENT, ColNameKeyword, true}, // Will be replaced with COALESCE token in Phase 3
-	{"collate", IDENT, ReservedKeyword, true}, // Will be replaced with COLLATE token in Phase 3
-	{"collation", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with COLLATION token in Phase 3
-	{"column", IDENT, ReservedKeyword, true}, // Will be replaced with COLUMN token in Phase 3
-	{"constraint", IDENT, ReservedKeyword, true}, // Will be replaced with CONSTRAINT token in Phase 3
-	{"create", IDENT, ReservedKeyword, false}, // Will be replaced with CREATE token in Phase 3
-	{"current_catalog", IDENT, ReservedKeyword, true}, // Will be replaced with CURRENT_CATALOG token in Phase 3
-	{"current_date", IDENT, ReservedKeyword, true}, // Will be replaced with CURRENT_DATE token in Phase 3
-	{"current_role", IDENT, ReservedKeyword, true}, // Will be replaced with CURRENT_ROLE token in Phase 3
+	{"both", IDENT, ReservedKeyword, true},   // Will be replaced with BOTH token in Phase 3
+	{"by", IDENT, UnreservedKeyword, true},   // Will be replaced with BY token in Phase 3
+
+	{"case", IDENT, ReservedKeyword, true},               // Will be replaced with CASE token in Phase 3
+	{"cast", IDENT, ReservedKeyword, true},               // Will be replaced with CAST token in Phase 3
+	{"char", IDENT, ColNameKeyword, false},               // Will be replaced with CHAR_P token in Phase 3
+	{"character", IDENT, ColNameKeyword, false},          // Will be replaced with CHARACTER token in Phase 3
+	{"check", IDENT, ReservedKeyword, true},              // Will be replaced with CHECK token in Phase 3
+	{"coalesce", IDENT, ColNameKeyword, true},            // Will be replaced with COALESCE token in Phase 3
+	{"collate", IDENT, ReservedKeyword, true},            // Will be replaced with COLLATE token in Phase 3
+	{"collation", IDENT, TypeFuncNameKeyword, true},      // Will be replaced with COLLATION token in Phase 3
+	{"column", IDENT, ReservedKeyword, true},             // Will be replaced with COLUMN token in Phase 3
+	{"constraint", IDENT, ReservedKeyword, true},         // Will be replaced with CONSTRAINT token in Phase 3
+	{"create", IDENT, ReservedKeyword, false},            // Will be replaced with CREATE token in Phase 3
+	{"current_catalog", IDENT, ReservedKeyword, true},    // Will be replaced with CURRENT_CATALOG token in Phase 3
+	{"current_date", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_DATE token in Phase 3
+	{"current_role", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_ROLE token in Phase 3
 	{"current_schema", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with CURRENT_SCHEMA token in Phase 3
-	{"current_time", IDENT, ReservedKeyword, true}, // Will be replaced with CURRENT_TIME token in Phase 3
-	{"current_timestamp", IDENT, ReservedKeyword, true}, // Will be replaced with CURRENT_TIMESTAMP token in Phase 3
-	{"current_user", IDENT, ReservedKeyword, true}, // Will be replaced with CURRENT_USER token in Phase 3
-	
-	{"dec", IDENT, ColNameKeyword, true}, // Will be replaced with DEC token in Phase 3
-	{"decimal", IDENT, ColNameKeyword, true}, // Will be replaced with DECIMAL_P token in Phase 3
-	{"default", IDENT, ReservedKeyword, true}, // Will be replaced with DEFAULT token in Phase 3
+	{"current_time", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_TIME token in Phase 3
+	{"current_timestamp", IDENT, ReservedKeyword, true},  // Will be replaced with CURRENT_TIMESTAMP token in Phase 3
+	{"current_user", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_USER token in Phase 3
+
+	{"dec", IDENT, ColNameKeyword, true},         // Will be replaced with DEC token in Phase 3
+	{"decimal", IDENT, ColNameKeyword, true},     // Will be replaced with DECIMAL_P token in Phase 3
+	{"default", IDENT, ReservedKeyword, true},    // Will be replaced with DEFAULT token in Phase 3
 	{"deferrable", IDENT, ReservedKeyword, true}, // Will be replaced with DEFERRABLE token in Phase 3
-	{"desc", IDENT, ReservedKeyword, true}, // Will be replaced with DESC token in Phase 3
-	{"distinct", IDENT, ReservedKeyword, true}, // Will be replaced with DISTINCT token in Phase 3
-	{"do", IDENT, ReservedKeyword, true}, // Will be replaced with DO token in Phase 3
-	
-	{"else", IDENT, ReservedKeyword, true}, // Will be replaced with ELSE token in Phase 3
-	{"end", IDENT, ReservedKeyword, true}, // Will be replaced with END_P token in Phase 3
+	{"desc", IDENT, ReservedKeyword, true},       // Will be replaced with DESC token in Phase 3
+	{"distinct", IDENT, ReservedKeyword, true},   // Will be replaced with DISTINCT token in Phase 3
+	{"do", IDENT, ReservedKeyword, true},         // Will be replaced with DO token in Phase 3
+
+	{"else", IDENT, ReservedKeyword, true},   // Will be replaced with ELSE token in Phase 3
+	{"end", IDENT, ReservedKeyword, true},    // Will be replaced with END_P token in Phase 3
 	{"except", IDENT, ReservedKeyword, true}, // Will be replaced with EXCEPT token in Phase 3
-	{"exists", IDENT, ColNameKeyword, true}, // Will be replaced with EXISTS token in Phase 3
-	
-	{"false", IDENT, ReservedKeyword, true}, // Will be replaced with FALSE_P token in Phase 3
-	{"fetch", IDENT, ReservedKeyword, true}, // Will be replaced with FETCH token in Phase 3
-	{"float", IDENT, ColNameKeyword, true}, // Will be replaced with FLOAT_P token in Phase 3
-	{"for", IDENT, ReservedKeyword, true}, // Will be replaced with FOR token in Phase 3
-	{"foreign", IDENT, ReservedKeyword, true}, // Will be replaced with FOREIGN token in Phase 3
-	{"from", FROM, ReservedKeyword, true}, // FROM token for Phase 2E testing
+	{"exists", IDENT, ColNameKeyword, true},  // Will be replaced with EXISTS token in Phase 3
+
+	{"false", IDENT, ReservedKeyword, true},    // Will be replaced with FALSE_P token in Phase 3
+	{"fetch", IDENT, ReservedKeyword, true},    // Will be replaced with FETCH token in Phase 3
+	{"float", IDENT, ColNameKeyword, true},     // Will be replaced with FLOAT_P token in Phase 3
+	{"for", IDENT, ReservedKeyword, true},      // Will be replaced with FOR token in Phase 3
+	{"foreign", IDENT, ReservedKeyword, true},  // Will be replaced with FOREIGN token in Phase 3
+	{"from", FROM, ReservedKeyword, true},      // FROM token for Phase 2E testing
 	{"full", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with FULL token in Phase 3
-	
+
 	{"grant", IDENT, ReservedKeyword, true}, // Will be replaced with GRANT token in Phase 3
 	{"group", IDENT, ReservedKeyword, true}, // Will be replaced with GROUP_P token in Phase 3
-	
+
 	{"having", IDENT, ReservedKeyword, true}, // Will be replaced with HAVING token in Phase 3
-	
-	{"in", IDENT, ReservedKeyword, true}, // Will be replaced with IN_P token in Phase 3
+
+	{"in", IDENT, ReservedKeyword, true},        // Will be replaced with IN_P token in Phase 3
 	{"initially", IDENT, ReservedKeyword, true}, // Will be replaced with INITIALLY token in Phase 3
 	{"inner", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with INNER_P token in Phase 3
-	{"insert", IDENT, UnreservedKeyword, true}, // Will be replaced with INSERT token in Phase 3
-	{"int", IDENT, ColNameKeyword, true}, // Will be replaced with INT_P token in Phase 3
-	{"integer", IDENT, ColNameKeyword, true}, // Will be replaced with INTEGER token in Phase 3
+	{"insert", IDENT, UnreservedKeyword, true},  // Will be replaced with INSERT token in Phase 3
+	{"int", IDENT, ColNameKeyword, true},        // Will be replaced with INT_P token in Phase 3
+	{"integer", IDENT, ColNameKeyword, true},    // Will be replaced with INTEGER token in Phase 3
 	{"intersect", IDENT, ReservedKeyword, true}, // Will be replaced with INTERSECT token in Phase 3
-	{"into", IDENT, ReservedKeyword, true}, // Will be replaced with INTO token in Phase 3
-	{"is", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with IS token in Phase 3
-	
+	{"into", IDENT, ReservedKeyword, true},      // Will be replaced with INTO token in Phase 3
+	{"is", IDENT, TypeFuncNameKeyword, true},    // Will be replaced with IS token in Phase 3
+
 	{"join", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with JOIN token in Phase 3
-	
-	{"leading", IDENT, ReservedKeyword, true}, // Will be replaced with LEADING token in Phase 3
+
+	{"leading", IDENT, ReservedKeyword, true},  // Will be replaced with LEADING token in Phase 3
 	{"left", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with LEFT token in Phase 3
 	{"like", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with LIKE token in Phase 3
-	{"limit", IDENT, ReservedKeyword, true}, // Will be replaced with LIMIT token in Phase 3
-	
+	{"limit", IDENT, ReservedKeyword, true},    // Will be replaced with LIMIT token in Phase 3
+
 	{"natural", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with NATURAL token in Phase 3
-	{"not", IDENT, ReservedKeyword, true}, // Will be replaced with NOT token in Phase 3
-	{"null", IDENT, ReservedKeyword, true}, // Will be replaced with NULL_P token in Phase 3
-	{"numeric", IDENT, ColNameKeyword, true}, // Will be replaced with NUMERIC token in Phase 3
-	
-	{"offset", IDENT, ReservedKeyword, true}, // Will be replaced with OFFSET token in Phase 3
-	{"on", IDENT, ReservedKeyword, true}, // Will be replaced with ON token in Phase 3
-	{"only", IDENT, ReservedKeyword, true}, // Will be replaced with ONLY token in Phase 3
-	{"or", IDENT, ReservedKeyword, true}, // Will be replaced with OR token in Phase 3
-	{"order", IDENT, ReservedKeyword, true}, // Will be replaced with ORDER token in Phase 3
+	{"not", IDENT, ReservedKeyword, true},         // Will be replaced with NOT token in Phase 3
+	{"null", IDENT, ReservedKeyword, true},        // Will be replaced with NULL_P token in Phase 3
+	{"numeric", IDENT, ColNameKeyword, true},      // Will be replaced with NUMERIC token in Phase 3
+
+	{"offset", IDENT, ReservedKeyword, true},    // Will be replaced with OFFSET token in Phase 3
+	{"on", IDENT, ReservedKeyword, true},        // Will be replaced with ON token in Phase 3
+	{"only", IDENT, ReservedKeyword, true},      // Will be replaced with ONLY token in Phase 3
+	{"or", IDENT, ReservedKeyword, true},        // Will be replaced with OR token in Phase 3
+	{"order", IDENT, ReservedKeyword, true},     // Will be replaced with ORDER token in Phase 3
 	{"outer", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with OUTER_P token in Phase 3
-	
+
 	{"primary", IDENT, ReservedKeyword, true}, // Will be replaced with PRIMARY token in Phase 3
-	
-	{"real", IDENT, ColNameKeyword, true}, // Will be replaced with REAL token in Phase 3
+
+	{"real", IDENT, ColNameKeyword, true},        // Will be replaced with REAL token in Phase 3
 	{"references", IDENT, ReservedKeyword, true}, // Will be replaced with REFERENCES token in Phase 3
-	{"right", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with RIGHT token in Phase 3
-	
-	{"select", SELECT, ReservedKeyword, true}, // SELECT token for Phase 2E testing
+	{"right", IDENT, TypeFuncNameKeyword, true},  // Will be replaced with RIGHT token in Phase 3
+
+	{"select", SELECT, ReservedKeyword, true},      // SELECT token for Phase 2E testing
 	{"session_user", IDENT, ReservedKeyword, true}, // Will be replaced with SESSION_USER token in Phase 3
-	{"smallint", IDENT, ColNameKeyword, true}, // Will be replaced with SMALLINT token in Phase 3
-	{"some", IDENT, ReservedKeyword, true}, // Will be replaced with SOME token in Phase 3
-	{"symmetric", IDENT, ReservedKeyword, true}, // Will be replaced with SYMMETRIC token in Phase 3
-	{"system_user", IDENT, ReservedKeyword, true}, // Will be replaced with SYSTEM_USER token in Phase 3
-	
-	{"table", IDENT, ReservedKeyword, true}, // Will be replaced with TABLE token in Phase 3
-	{"then", IDENT, ReservedKeyword, true}, // Will be replaced with THEN token in Phase 3
-	{"time", IDENT, ColNameKeyword, true}, // Will be replaced with TIME token in Phase 3
+	{"smallint", IDENT, ColNameKeyword, true},      // Will be replaced with SMALLINT token in Phase 3
+	{"some", IDENT, ReservedKeyword, true},         // Will be replaced with SOME token in Phase 3
+	{"symmetric", IDENT, ReservedKeyword, true},    // Will be replaced with SYMMETRIC token in Phase 3
+	{"system_user", IDENT, ReservedKeyword, true},  // Will be replaced with SYSTEM_USER token in Phase 3
+
+	{"table", IDENT, ReservedKeyword, true},    // Will be replaced with TABLE token in Phase 3
+	{"then", IDENT, ReservedKeyword, true},     // Will be replaced with THEN token in Phase 3
+	{"time", IDENT, ColNameKeyword, true},      // Will be replaced with TIME token in Phase 3
 	{"timestamp", IDENT, ColNameKeyword, true}, // Will be replaced with TIMESTAMP token in Phase 3
-	{"to", IDENT, ReservedKeyword, true}, // Will be replaced with TO token in Phase 3
+	{"to", IDENT, ReservedKeyword, true},       // Will be replaced with TO token in Phase 3
 	{"trailing", IDENT, ReservedKeyword, true}, // Will be replaced with TRAILING token in Phase 3
-	{"true", IDENT, ReservedKeyword, true}, // Will be replaced with TRUE_P token in Phase 3
-	
-	{"union", IDENT, ReservedKeyword, true}, // Will be replaced with UNION token in Phase 3
-	{"unique", IDENT, ReservedKeyword, true}, // Will be replaced with UNIQUE token in Phase 3
+	{"true", IDENT, ReservedKeyword, true},     // Will be replaced with TRUE_P token in Phase 3
+
+	{"union", IDENT, ReservedKeyword, true},    // Will be replaced with UNION token in Phase 3
+	{"unique", IDENT, ReservedKeyword, true},   // Will be replaced with UNIQUE token in Phase 3
 	{"update", IDENT, UnreservedKeyword, true}, // Will be replaced with UPDATE token in Phase 3
-	{"user", IDENT, ReservedKeyword, true}, // Will be replaced with USER token in Phase 3
-	{"using", IDENT, ReservedKeyword, true}, // Will be replaced with USING token in Phase 3
-	
-	{"varchar", IDENT, ColNameKeyword, true}, // Will be replaced with VARCHAR token in Phase 3
+	{"user", IDENT, ReservedKeyword, true},     // Will be replaced with USER token in Phase 3
+	{"using", IDENT, ReservedKeyword, true},    // Will be replaced with USING token in Phase 3
+
+	{"varchar", IDENT, ColNameKeyword, true},    // Will be replaced with VARCHAR token in Phase 3
 	{"varying", IDENT, UnreservedKeyword, true}, // Will be replaced with VARYING token in Phase 3
-	
-	{"when", IDENT, ReservedKeyword, true}, // Will be replaced with WHEN token in Phase 3
+
+	{"when", IDENT, ReservedKeyword, true},  // Will be replaced with WHEN token in Phase 3
 	{"where", WHERE, ReservedKeyword, true}, // WHERE token for Phase 2E testing
-	{"with", IDENT, ReservedKeyword, true}, // Will be replaced with WITH token in Phase 3
+	{"with", IDENT, ReservedKeyword, true},  // Will be replaced with WITH token in Phase 3
 }
 
 // keywordLookupMap provides fast keyword lookup by name.
@@ -186,13 +185,53 @@ func init() {
 	}
 }
 
-// LookupKeyword searches for a keyword by name (case-insensitive).
+// LookupKeyword searches for a keyword by name (case-insensitive) with optimizations.
 // Returns the keyword info if found, nil otherwise.
-// Ported from postgres/src/common/kwlookup.c:ScanKeywordLookup functionality
+// Based on postgres/src/common/kwlookup.c:ScanKeywordLookup lines 37-85
 func LookupKeyword(name string) *KeywordInfo {
-	// Convert to lowercase for lookup (PostgreSQL keywords are case-insensitive)
-	lowerName := strings.ToLower(name)
+	// Early termination for very long strings (PostgreSQL pattern)
+	// Most keywords are short, so this saves work on long identifiers
+	if len(name) > maxKeywordLength {
+		return nil
+	}
+
+	// PostgreSQL does ASCII-only case conversion for SQL99 compliance
+	// normalizeKeywordCase has a fast path for strings without uppercase letters
+	lowerName := normalizeKeywordCase(name)
 	return keywordLookupMap[lowerName]
+}
+
+// maxKeywordLength is the maximum length of any PostgreSQL keyword
+// Calculated from the Keywords slice - avoids checking impossibly long strings
+const maxKeywordLength = 17 // "current_timestamp" is longest at 17 chars
+
+// normalizeKeywordCase performs PostgreSQL-style ASCII-only case normalization.
+// Based on postgres/src/common/kwlookup.c:75-76 (ch >= 'A' && ch <= 'Z' conversion)
+func normalizeKeywordCase(s string) string {
+	// Fast path: check if string contains any uppercase letters
+	hasUpper := false
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			hasUpper = true
+			break
+		}
+	}
+
+	// If no uppercase, return original string (avoid allocation)
+	if !hasUpper {
+		return s
+	}
+
+	// Need to convert case - create new string
+	result := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch >= 'A' && ch <= 'Z' {
+			ch += 'a' - 'A' // PostgreSQL ASCII-only conversion
+		}
+		result[i] = ch
+	}
+	return string(result)
 }
 
 // IsKeyword returns true if the given name is a SQL keyword.

@@ -11,7 +11,6 @@ package lexer
 
 import (
 	"fmt"
-	"strings"
 	"unicode"
 )
 
@@ -218,14 +217,23 @@ func (l *Lexer) scanIdentifier(startPos, startScanPos int) (*Token, error) {
 
 	text := l.context.GetCurrentText(startScanPos)
 
-	// Check if this is a keyword using the integrated keyword lookup
+	// Check if this is a keyword using the keyword lookup
 	if keyword := LookupKeyword(text); keyword != nil {
 		// Return keyword token with the proper keyword token type and keyword value
 		return NewKeywordToken(keyword.TokenType, keyword.Name, startPos, text), nil
 	}
 
 	// Regular identifier - PostgreSQL lowercases unquoted identifiers
-	return NewStringToken(IDENT, strings.ToLower(text), startPos, text), nil
+	return NewStringToken(IDENT, normalizeIdentifierCase(text), startPos, text), nil
+}
+
+// normalizeIdentifierCase normalizes identifier case following PostgreSQL rules.
+// PostgreSQL converts unquoted identifiers to lowercase using ASCII-only conversion.
+// Based on postgres/src/backend/parser/scansup.c:downcase_truncate_identifier
+func normalizeIdentifierCase(s string) string {
+	// PostgreSQL does ASCII-only case conversion for identifiers
+	// This is the same logic as normalizeKeywordCase but semantically different
+	return normalizeKeywordCase(s)
 }
 
 // scanNumber scans numeric literals (integers and floating-point)
