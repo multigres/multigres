@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    {
+      "source": "/blog/2025/07/22/ha-postgres-full-sync",
+      "destination": "/blog/postgres-ha-full-sync",
+      "permanent": true
+    }
+  ]
+}
