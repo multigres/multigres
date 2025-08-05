@@ -2,7 +2,7 @@
 slug: postgres-fm-interview
 title: 'Interview: Multigres on Postgres.FM'
 authors: [sugu]
-date: 2025-07-20
+date: 2025-07-11
 ---
 
 # Interview: Multigres on Postgres.FM
