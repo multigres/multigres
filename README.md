@@ -2,7 +2,7 @@
 
 Multigres is a project to build an adaptation of Vitess for Postgres.
 
-This document is a losely ordered tentative list of features we intend to build or import from Vitess. Please refer to the [project plan](doc/mvp_project_plan.md) for details on how they'll be implemented.
+This document is a loosely ordered tentative list of features we intend to build or import from Vitess. Please refer to the [project plan](doc/mvp_project_plan.md) for details on how they'll be implemented.
 
 ## Proxy layer and connection pooling
 
@@ -54,8 +54,8 @@ TODO: Doc on 2PC atomicity and isolation
 
 Multigres allows for the Postgres data files to be stored on the local NVME. For an OLTP system like Multigres, a local NVME has substantial advantages over a mounted drive:
 
-* IOPS are free
-* Lower latency, by one order of magnitude
+- IOPS are free
+- Lower latency, by one order of magnitude
 
 These advantages translate into higher performance and reduced cost.
 
@@ -69,7 +69,7 @@ It is certainly possible to run Multigres on a mounted drive. It is just not nec
 
 ## Cluster management
 
-Multigres will come equipped with a variety of tools and automation to facilitate the management of your cluster. This tooling is capable of scaling to tens of thousands of node, and can be spread across multiple regions worldwide.
+Multigres will come equipped with a variety of tools and automation to facilitate the management of your cluster. This tooling is capable of scaling to tens of thousands of nodes, and can be spread across multiple regions worldwide.
 
 ### Automated Backups
 
@@ -99,12 +99,12 @@ Of course, there can exist only one Primary per shard. Any cell that does not ho
 
 Multigres will be cloud-native. This means that it can run in a cloud framework like Kubernetes:
 
-* All components are restartable without causing disruption to the overall system. This needs to be within a reasonable disruption budget, which is configurable.
-* Components can be migrated to different nodes.
-* Components can use mounted persistent storage, and will automatically reattach if moved.
-* New components can be launched to increase capacity. They will initialize themselves correctly, and join the system to serve traffic. Conversely, components can be removed in order to scale down.
-* Specific to databases: Primary failures and restarts will be handled automatically by a watchdog process (VTOrc) that can perform a failover to an up-to-date replica.
-* Scale to zero: You can shut down all components. This will result in just the metadata and backups being preserved, with no active components to serve any traffic. Adding the serving components back to the system will bootstrap the cluster to an operational state.
+- All components are restartable without causing disruption to the overall system. This needs to be within a reasonable disruption budget, which is configurable.
+- Components can be migrated to different nodes.
+- Components can use mounted persistent storage, and will automatically reattach if moved.
+- New components can be launched to increase capacity. They will initialize themselves correctly, and join the system to serve traffic. Conversely, components can be removed in order to scale down.
+- Specific to databases: Primary failures and restarts will be handled automatically by a watchdog process (VTOrc) that can perform a failover to an up-to-date replica.
+- Scale to zero: You can shut down all components. This will result in just the metadata and backups being preserved, with no active components to serve any traffic. Adding the serving components back to the system will bootstrap the cluster to an operational state.
 
 Multigres will come with a Kubernetes Operator that will translate components described using Multigres terminology like cells, shards and replicas into corresponding Kubernetes components.
 
@@ -130,11 +130,11 @@ VReplication works in conjunction with vtgate routing rules that allow you to sm
 
 MoveTables will be a workflow built using VReplication. This will allow you to migrate a group of tables from any source to any target. This can be used to split a database into smaller parts, or merge two databases into one. Let us assume that you want to migrate table `t` from database `a` to database `b`.
 
-* Initially, the vtgates will have a rule to redirect traffic intended for `a.t` and `b.t` to `a.t`. MoveTables will setup these routing rules automatically before starting VReplication.
-* Once this rule is setup, you can start refactoring your application to write to `b.t` instead of `a.t`. Writing to any of these tables will get redirected to `a.t`.
-* Once the data is verified to be correct, we can switch the vtgate routing rules to send traffic to `b.t` instead. MoveTables will have a subcommand to do this safely. If the application has not finished refactoring all the code, it's ok, because all traffic will flow to `b.t`.
-* At this time, VReplication will reverse the replication to keep `a.t` up-to-date. If any problem is detected after the cutover, you can fall back to `a.t`. This back and forth can be repeated as often as necessary.
-* After we are certain that all problems are resolved, and we have verified that the application refactor is complete, we can use the MoveTables clean up command to drop the reverse replication, routing rules, and source table `a.t`.
+- Initially, the vtgates will have a rule to redirect traffic intended for `a.t` and `b.t` to `a.t`. MoveTables will setup these routing rules automatically before starting VReplication.
+- Once this rule is setup, you can start refactoring your application to write to `b.t` instead of `a.t`. Writing to any of these tables will get redirected to `a.t`.
+- Once the data is verified to be correct, we can switch the vtgate routing rules to send traffic to `b.t` instead. MoveTables will have a subcommand to do this safely. If the application has not finished refactoring all the code, it's ok, because all traffic will flow to `b.t`.
+- At this time, VReplication will reverse the replication to keep `a.t` up-to-date. If any problem is detected after the cutover, you can fall back to `a.t`. This back and forth can be repeated as often as necessary.
+- After we are certain that all problems are resolved, and we have verified that the application refactor is complete, we can use the MoveTables clean up command to drop the reverse replication, routing rules, and source table `a.t`.
 
 Of course, this workflow would require vtgates to have access to both `a` and `b`.
 
@@ -168,8 +168,8 @@ Multigres materialized views will be built using VReplication. Such views are ph
 
 In a sharded environment, materialized views can greatly enhance the performance of certain join operations, if the eventual consistency trade-off is acceptable:
 
-* For a table that has foreign keys into two different tables, you can have the source table be sharded by the first foreign key, and you can materialize the target table using the second sharding key. This approach will allow you to efficiently join this table with either of the two other tables, because both those joins will be in-shard joins.
-* Reference tables: Many databases have smaller tables that have slow changing data. However, they may need to be joined with other massive tables that need to be sharded. In this situation, you can materialize the small table into all the shards of the bigger table. Such a join will then become an in-shard join.
+- For a table that has foreign keys into two different tables, you can have the source table be sharded by the first foreign key, and you can materialize the target table using the second sharding key. This approach will allow you to efficiently join this table with either of the two other tables, because both those joins will be in-shard joins.
+- Reference tables: Many databases have smaller tables that have slow changing data. However, they may need to be joined with other massive tables that need to be sharded. In this situation, you can materialize the small table into all the shards of the bigger table. Such a join will then become an in-shard join.
 
 ## Schema deployment
 
@@ -189,12 +189,12 @@ As your database grows into multiple shards, you can run individual VStreams for
 
 Apart from exporting real-time metrics, Multigres will also have an extensive toolset to facilitate troubleshooting when the system exhibits unexpected behavior. These will be exported by VTGate and VTTablet:
 
-* Standard metrics like QPS, latencies, and error rates.
-* Per-table metrics.
-* Normalized per-query metrics. In this case, each query is normalized by stripping out values and it becomes a key to its own metric. This helps identify the worst performing queries. This can lead to an explosion of values. To help make this optional, this metric is served in a separate human readable end point.
-* On-demand real-time query or transaction logs. This is useful to get a snapshot of everything that's currently in progress, useful if there's an active incident.
-* Error logs.
-* Trace points.
+- Standard metrics like QPS, latencies, and error rates.
+- Per-table metrics.
+- Normalized per-query metrics. In this case, each query is normalized by stripping out values and it becomes a key to its own metric. This helps identify the worst performing queries. This can lead to an explosion of values. To help make this optional, this metric is served in a separate human readable end point.
+- On-demand real-time query or transaction logs. This is useful to get a snapshot of everything that's currently in progress, useful if there's an active incident.
+- Error logs.
+- Trace points.
 
 ## Point-in-time Recovery
 
@@ -212,10 +212,10 @@ Rows can be transactionally inserted into a message table as part of a larger tr
 
 Multigres will implement the ability to enable various database protection features:
 
-* Query Killer: Terminate a query if it takes too long.
-* Transaction Killer: Rollback a transaction if it takes too long.
-* Result limiter: Return an error if the number of rows in a query exceed a threshold.
-* Result consolidator: If multiple identical read queries are simultaneously sent to the database, only one query is executed, and the results are shared across all other requests.
+- Query Killer: Terminate a query if it takes too long.
+- Transaction Killer: Rollback a transaction if it takes too long.
+- Result limiter: Return an error if the number of rows in a query exceed a threshold.
+- Result consolidator: If multiple identical read queries are simultaneously sent to the database, only one query is executed, and the results are shared across all other requests.
 
 If any of these features are already available in Postgres, Multigres will utilize them under the covers.
 
