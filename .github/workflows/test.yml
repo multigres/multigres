@@ -12,26 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: build clean install test
+name: Tests
 
-# Build all binaries
-build:
-	go build -o bin/multigateway ./cmd/multigateway
-	go build -o bin/multipooler ./cmd/multipooler
-	go build -o bin/pgctld ./cmd/pgctld
-	go build -o bin/multiorch ./cmd/multiorch
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
-# Clean build artifacts
-clean:
-	rm -rf bin/
+jobs:
+  test:
+    runs-on: ubuntu-24.04
 
-# Install binaries to GOPATH/bin
-install:
-	go install ./cmd/multigateway
-	go install ./cmd/multipooler
-	go install ./cmd/pgctld
-	go install ./cmd/multiorch
+    steps:
+    - uses: actions/checkout@v4
 
-# Run tests
-test:
-	go test ./...
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25.0'
+
+    - name: Build
+      run: make build
+
+    - name: Run tests
+      run: go test -v ./...
