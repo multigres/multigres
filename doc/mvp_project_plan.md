@@ -55,7 +55,7 @@ The existing Postgres primitives are insufficient to build a robust consensus pr
 
 ### Multigres
 
-Multigres will build the coordination part of the consensus protocol using a brand new MultiOrch. This will not be ported from Vitess, because the MultiOrch from Vitess has a large amount of legacy code that was inherited from the MySQL Orchestrator.
+Multigres will build the coordination part of the consensus protocol using a brand new component called MultiOrch. This will not be ported from Vitess, because the VTOrc from Vitess has a large amount of legacy code that was inherited from the MySQL Orchestrator.
 
 MultiOrch will operate as a coordinated cluster across failure zones to ensure that at least one of them can perform a successful failover if there is a network partition.
 
