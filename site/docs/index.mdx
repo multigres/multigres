@@ -13,19 +13,19 @@ This document is a loosely ordered tentative list of features we intend to build
 
 Multigres will have a two-level proxy layer. In the case of a single small server, the primary benefit of these two layers would be connection pooling.
 
-### VTGate
+### MultiGateway
 
-VTGate is the top layer. In its simplest form, it will masquerade as a Postgres server. When it receives a query, it will forward the request to the next (VTTablet) layer. In the case of a single Postgres server, its primary usefulness is to shield the clients from restarts or failovers that may happen in the underlying layers due to software rollouts and failures.
+MultiGateway is the top layer. In its simplest form, it will masquerade as a Postgres server. When it receives a query, it will forward the request to the next (MultiPooler) layer. In the case of a single Postgres server, its primary usefulness is to shield the clients from restarts or failovers that may happen in the underlying layers due to software rollouts and failures.
 
-In the case of master-replica configurations, VTGate can be configured to send read traffic to the replicas.
+In the case of master-replica configurations, MultiGateway can be configured to send read traffic to the replicas.
 
-The VTGate layer could be conceptualized as the compute layer of Multigres. It can be horizontally scaled as needed.
+The MultiGateway layer could be conceptualized as the compute layer of Multigres. It can be horizontally scaled as needed.
 
-### VTTablet
+### MultiPooler
 
-There will be one VTTablet per Postgres instance. VTTablet's primary function is to provide connection pooling. It will be aware of transaction state and connection specific changes of state, and will preserve the correct behavior to the clients connected at the VTGate level.
+There will be one MultiPooler per Postgres instance. MultiPooler's primary function is to provide connection pooling. It will be aware of transaction state and connection specific changes of state, and will preserve the correct behavior to the clients connected at the MultiGateway level.
 
-Each VTTablet, its associated Postgres instance, and its storage are treated as one unit. This trio can be conceptualized as one node in the storage layer. In this layer, data can be replicated and/or sharded across other (trio) nodes as needed. Traditional storage layers typically implement a file or object store API. In the case of Multigres, the storage layer API is that of a database.
+Each MultiPooler, its associated Postgres instance, and its storage are treated as one unit. This trio can be conceptualized as one node in the storage layer. In this layer, data can be replicated and/or sharded across other (trio) nodes as needed. Traditional storage layers typically implement a file or object store API. In the case of Multigres, the storage layer API is that of a database.
 
 ## Sharding
 
@@ -35,27 +35,27 @@ Multigres will provide a powerful relational sharding model that will help you k
 
 TODO: Doc on Vitess sharding model
 
-### VTGate (Sharding)
+### MultiGateway (Sharding)
 
-In a sharded setup, VTGate's functionality will expand to present this distributed cluster as if it was a single Postgres server. For simpler queries, it will just act as a routing layer by sending it to where the data is. For more complex queries, it will act as a database engine while maximally leveraging the capabilities of the individual databases underneath.
+In a sharded setup, MultiGateway's functionality will expand to present this distributed cluster as if it was a single Postgres server. For simpler queries, it will just act as a routing layer by sending it to where the data is. For more complex queries, it will act as a database engine while maximally leveraging the capabilities of the individual databases underneath.
 
-VTGate will have the ability to push entire join queries into an underlying shard if it determines that all data for that join is within that shard. Similarly, VTGate will "scatter" entire joins across all shards if it determines that the related rows of a join are within their respective shards.
+MultiGateway will have the ability to push entire join queries into an underlying shard if it determines that all data for that join is within that shard. Similarly, MultiGateway will "scatter" entire joins across all shards if it determines that the related rows of a join are within their respective shards.
 
-### VTTablet (Sharding)
+### MultiPooler (Sharding)
 
-The query serving functionality of VTTablet will have no awareness of sharding. It will just use the underlying Postgres instance to serve the requested queries. However, VTTablet will be the workhorse behind facilitating all the resharding efforts.
+The query serving functionality of MultiPooler will have no awareness of sharding. It will just use the underlying Postgres instance to serve the requested queries. However, MultiPooler will be the workhorse behind facilitating all the resharding efforts.
 
-When the need to reshard arises, new (target) VTTablets will be created to receive filtered data from the original unsharded table. This data will be streamed by the source VTTablet. Once these tables are populated and up-to-date, a failover will be performed to move traffic to the sharded VTTablets. For safety, the replication will be reversed. If any issue is found after the cut-over, it can be undone by switching traffic back to the source tables.
+When the need to reshard arises, new (target) MultiPoolers will be created to receive filtered data from the original unsharded table. This data will be streamed by the source MultiPooler. Once these tables are populated and up-to-date, a failover will be performed to move traffic to the sharded MultiPoolers. For safety, the replication will be reversed. If any issue is found after the cut-over, it can be undone by switching traffic back to the source tables.
 
 This failover and fail-back can be repeatedly performed without requiring any change in the application.
 
 ### 2PC
 
-Due to the flexible sharding scheme of Multigres, you should be able minimize or completely eliminate the need for distributed transactions by a careful selection of an optimal sharding scheme. However, if the need arises, VTGate and VTTablet will work together and use the two-phase commit protocol supported by Postgres to complete transactions that span across multiple instances.
+Due to the flexible sharding scheme of Multigres, you should be able minimize or completely eliminate the need for distributed transactions by a careful selection of an optimal sharding scheme. However, if the need arises, MultiGateway and MultiPooler will work together and use the two-phase commit protocol supported by Postgres to complete transactions that span across multiple instances.
 
 TODO: Doc on 2PC atomicity and isolation
 
-## VTOrc: NVME performance, durability and High Availability
+## MultiOrch: NVME performance, durability and High Availability
 
 Multigres allows for the Postgres data files to be stored on the local NVME. For an OLTP system like Multigres, a local NVME has substantial advantages over a mounted drive:
 
@@ -66,9 +66,9 @@ These advantages translate into higher performance and reduced cost.
 
 Multigres will implement a consensus protocol to ensure that transactions satisfy the required durability policy. This will be achieved using a two-phase sync to replicate the WAL to the required number of replicas in the quorum. This functionality eliminates the need to rely on a mounted (and replicated) file system like EBS to safeguard from data loss.
 
-In case of a primary node failure, VTOrc (VT Orchestrator) will promote an existing replica to primary, ensuring that it contains all the committed transactions of the previous primary. Following this, Multigres will resume serving of traffic using the new primary. Essentially, this solves the problem of durability and high availability.
+In case of a primary node failure, MultiOrch (Multigres Orchestrator) will promote an existing replica to primary, ensuring that it contains all the committed transactions of the previous primary. Following this, Multigres will resume serving of traffic using the new primary. Essentially, this solves the problem of durability and high availability.
 
-The above approach aligns with the conceptual view of the VTTablet+Postgres+Data trio as being part of the data layer. Hence, there is no need to rely on yet another (mounted) data layer underneath Postgres.
+The above approach aligns with the conceptual view of the MultiPooler+Postgres+Data trio as being part of the data layer. Hence, there is no need to rely on yet another (mounted) data layer underneath Postgres.
 
 It is certainly possible to run Multigres on a mounted drive. It is just not necessary.
 
@@ -80,23 +80,23 @@ Multigres will come equipped with a variety of tools and automation to facilitat
 
 Multigres can automatically perform backups of your Postgres instances on a regular basis to a centralized location.
 
-### New vttablets
+### New MultiPoolers
 
-Adding more replicas to a Postgres instance will be as trivial as launching a vttablet with the right command line arguments. The vttablet will seek the latest available backup, restore it, and point the Postgres instance to the current primary. Once the replication has caught up, it will open itself up to serve read traffic.
+Adding more replicas to a Postgres instance will be as trivial as launching a MultiPooler with the right command line arguments. The MultiPooler will seek the latest available backup, restore it, and point the Postgres instance to the current primary. Once the replication has caught up, it will open itself up to serve read traffic.
 
-VTTablets can be of different types: They can be quorum participants, in which case they will follow the two-phase sync protocol during replication. If not, they will just be "observers", to just serve additional read traffic.
+MultiPoolers can be of different types: They can be quorum participants, in which case they will follow the two-phase sync protocol during replication. If not, they will just be "observers", to just serve additional read traffic.
 
-Bringing up a vttablet as a quorum participant will automatically make it join the quorum after it has fully caught up on replication.
+Bringing up a MultiPooler as a quorum participant will automatically make it join the quorum after it has fully caught up on replication.
 
-VTTablets will have configurable user-defined tags that will allow vtgates to split traffic based on differing workloads. For example, you may tag a group of vttablets as "olap". Workloads that would like to perform analytics queries would specify "dbname@olap" as the database to connect to. This will inform the vtgates to redirect these reads to only vttablets that export the "olap" tag.
+MultiPoolers will have configurable user-defined tags that will allow MultiGateways to split traffic based on differing workloads. For example, you may tag a group of MultiPoolers as "olap". Workloads that would like to perform analytics queries would specify "dbname@olap" as the database to connect to. This will inform the MultiGateways to redirect these reads to only MultiPoolers that export the "olap" tag.
 
 ### Replication
 
-Beyond managing the consensus protocol for vttablets in the quorum, vtorc will also monitor all vttablets and ensure that they are replicating from their respective primaries. If a connection is lost for any reason, vtorc will restore it.
+Beyond managing the consensus protocol for MultiPoolers in the quorum, MultiOrch will also monitor all MultiPoolers and ensure that they are replicating from their respective primaries. If a connection is lost for any reason, MultiOrch will restore it.
 
 ### Cross-zone clusters
 
-Multigres can be deployed across a large number of nodes distributed across the world. This is architecturally achieved by a star configuration in the topology. There will be a global topology server (etcd). It will contain information that changes infrequently, like sharding info, etc. This information will be propagated into cell-specific topology servers (local etcds), one for each cell. VTGates and vttablets will be deployed in a cell, and they'll use the local topology to serve traffic for that cell. In case of a network partition, a cell will be capable of continuing to serve traffic for as long as the replication lag is tolerable.
+Multigres can be deployed across a large number of nodes distributed across the world. This is architecturally achieved by a star configuration in the topology. There will be a global topology server (etcd). It will contain information that changes infrequently, like sharding info, etc. This information will be propagated into cell-specific topology servers (local etcds), one for each cell. MultiGateways and MultiPoolers will be deployed in a cell, and they'll use the local topology to serve traffic for that cell. In case of a network partition, a cell will be capable of continuing to serve traffic for as long as the replication lag is tolerable.
 
 Of course, there can exist only one Primary per shard. Any cell that does not host the primary database is meant to serve read-only traffic that is replicated from the primary.
 
@@ -108,7 +108,7 @@ Multigres will be cloud-native. This means that it can run in a cloud framework 
 - Components can be migrated to different nodes.
 - Components can use mounted persistent storage, and will automatically reattach if moved.
 - New components can be launched to increase capacity. They will initialize themselves correctly, and join the system to serve traffic. Conversely, components can be removed in order to scale down.
-- Specific to databases: Primary failures and restarts will be handled automatically by a watchdog process (VTOrc) that can perform a failover to an up-to-date replica.
+- Specific to databases: Primary failures and restarts will be handled automatically by a watchdog process (MultiOrch) that can perform a failover to an up-to-date replica.
 - Scale to zero: You can shut down all components. This will result in just the metadata and backups being preserved, with no active components to serve any traffic. Adding the serving components back to the system will bootstrap the cluster to an operational state.
 
 Multigres will come with a Kubernetes Operator that will translate components described using Multigres terminology like cells, shards and replicas into corresponding Kubernetes components.
@@ -117,47 +117,47 @@ We intend to develop a way for Multigres to use local storage in order to levera
 
 TODO: Doc to elaborate on local NVME
 
-## VReplication
+## Materializer
 
-The next few features described below will all be powered by a primitive called VReplication. This primitive is essentially a stream processor capable of materializing a source of tables into a target set of tables. The rules of materialization can be expressed as an SQL statement. The only limitation is that the expression is stream processable. In other words, we should be able to incrementally and independently apply every change event to the target. For example, a `count(*)` is stream processable, whereas a `max(col)` is not.
+The next few features described below will all be powered by a primitive called Materializer. This primitive is essentially a stream processor capable of materializing a source of tables into a target set of tables. The rules of materialization can be expressed as an SQL statement. The only limitation is that the expression is stream processable. In other words, we should be able to incrementally and independently apply every change event to the target. For example, a `count(*)` is stream processable, whereas a `max(col)` is not.
 
-This materialization can happen without causing any downtime to the source database. Once the target tables are caught up to the sources, VReplication will verify correctness of the target tables by performing a diff.
+This materialization can happen without causing any downtime to the source database. Once the target tables are caught up to the sources, Materializer will verify correctness of the target tables by performing a diff.
 
-If the materialization expression is non-lossy (reversible), you can atomically switch traffic from the source tables to the target. At this point, VReplication can reverse the replication to keep the source tables up-to-date. You can go back and forth indefinitely. This ability allows you to undo a migration if problems are encountered after a cutover.
+If the materialization expression is non-lossy (reversible), you can atomically switch traffic from the source tables to the target. At this point, Materializer can reverse the replication to keep the source tables up-to-date. You can go back and forth indefinitely. This ability allows you to undo a migration if problems are encountered after a cutover.
 
-VReplication streams operate orthogonally to each other. For example, resharding uses VReplication, but a simultaneous table materialization will correctly migrate to use the new shards after resharding.
+Materializer streams operate orthogonally to each other. For example, resharding uses Materializer, but a simultaneous table materialization will correctly migrate to use the new shards after resharding.
 
-VReplication works in conjunction with vtgate routing rules that allow you to smoothly and safely transition traffic from source to target.
+Materializer works in conjunction with MultiGateway routing rules that allow you to smoothly and safely transition traffic from source to target.
 
 ## Migrations
 
 ### Migrate tables from anywhere to anywhere
 
-MoveTables will be a workflow built using VReplication. This will allow you to migrate a group of tables from any source to any target. This can be used to split a database into smaller parts, or merge two databases into one. Let us assume that you want to migrate table `t` from database `a` to database `b`.
+MoveTables will be a workflow built using Materializer. This will allow you to migrate a group of tables from any source to any target. This can be used to split a database into smaller parts, or merge two databases into one. Let us assume that you want to migrate table `t` from database `a` to database `b`.
 
-- Initially, the vtgates will have a rule to redirect traffic intended for `a.t` and `b.t` to `a.t`. MoveTables will setup these routing rules automatically before starting VReplication.
+- Initially, the MultiGateways will have a rule to redirect traffic intended for `a.t` and `b.t` to `a.t`. MoveTables will setup these routing rules automatically before starting Materializer.
 - Once this rule is setup, you can start refactoring your application to write to `b.t` instead of `a.t`. Writing to any of these tables will get redirected to `a.t`.
-- Once the data is verified to be correct, we can switch the vtgate routing rules to send traffic to `b.t` instead. MoveTables will have a subcommand to do this safely. If the application has not finished refactoring all the code, it's ok, because all traffic will flow to `b.t`.
-- At this time, VReplication will reverse the replication to keep `a.t` up-to-date. If any problem is detected after the cutover, you can fall back to `a.t`. This back and forth can be repeated as often as necessary.
+- Once the data is verified to be correct, we can switch the MultiGateway routing rules to send traffic to `b.t` instead. MoveTables will have a subcommand to do this safely. If the application has not finished refactoring all the code, it's ok, because all traffic will flow to `b.t`.
+- At this time, Materializer will reverse the replication to keep `a.t` up-to-date. If any problem is detected after the cutover, you can fall back to `a.t`. This back and forth can be repeated as often as necessary.
 - After we are certain that all problems are resolved, and we have verified that the application refactor is complete, we can use the MoveTables clean up command to drop the reverse replication, routing rules, and source table `a.t`.
 
-Of course, this workflow would require vtgates to have access to both `a` and `b`.
+Of course, this workflow would require MultiGateways to have access to both `a` and `b`.
 
 ### Migrate across Postgres versions
 
-VReplication will rely on Postgres logical replication. Due to this design, we can also use it to safely migrate from one version of Postgres to another without incurring downtime, and with the ability to revert a migration, just like the case of a table migration.
+Materializer will rely on Postgres logical replication. Due to this design, we can also use it to safely migrate from one version of Postgres to another without incurring downtime, and with the ability to revert a migration, just like the case of a table migration.
 
 This will essentially be a MoveTables, but with the source and target running different versions of Postgres.
 
 ### Resharding
 
-VReplication will be used for resharding. For this purpose, Multigres will use the filtering ability of VReplication to split sharded (or unsharded) tables into their target shards based on the target's sharding key ranges.
+Materializer will be used for resharding. For this purpose, Multigres will use the filtering ability of Materializer to split sharded (or unsharded) tables into their target shards based on the target's sharding key ranges.
 
 Just like the other cases, the ability to verify correctness and revert will be available.
 
 ### Change sharding key
 
-It may happen that the original sharding key you chose for the table was suboptimal, or it may be possible that the application workload has changed substantially. In such cases, you can use VReplication to change the sharding key of a table to one that is more optimal to the current workload.
+It may happen that the original sharding key you chose for the table was suboptimal, or it may be possible that the application workload has changed substantially. In such cases, you can use Materializer to change the sharding key of a table to one that is more optimal to the current workload.
 
 ### Migrate from MySQL
 
@@ -165,11 +165,11 @@ If you are currently running on a MySQL database, or Vitess, Multigres will allo
 
 ### Exotic migrations
 
-VReplication is versatile enough that it can be used to address migration use cases that have not been thought of yet. For example, you could script it to merge tables from different databases into one. This can be a necessity if you decide to merge many multi-tenant databases into a single sharded one, or vice-versa.
+Materializer is versatile enough that it can be used to address migration use cases that have not been thought of yet. For example, you could script it to merge tables from different databases into one. This can be a necessity if you decide to merge many multi-tenant databases into a single sharded one, or vice-versa.
 
 ## Materialization
 
-Multigres materialized views will be built using VReplication. Such views are physical tables that are updated in real-time by processing events from the WAL. Consequently, the complexity of the SQL expression for these views is limited to operations that can be incrementally processed from the change events. For example, `count(*)` will be supported, while `max(col)` will not be. Another trade-off of materialization is that it is eventually consistent.
+Multigres materialized views will be built using Materializer. Such views are physical tables that are updated in real-time by processing events from the WAL. Consequently, the complexity of the SQL expression for these views is limited to operations that can be incrementally processed from the change events. For example, `count(*)` will be supported, while `max(col)` will not be. Another trade-off of materialization is that it is eventually consistent.
 
 In a sharded environment, materialized views can greatly enhance the performance of certain join operations, if the eventual consistency trade-off is acceptable:
 
@@ -178,21 +178,21 @@ In a sharded environment, materialized views can greatly enhance the performance
 
 ## Schema deployment
 
-Some schema changes are inherently time-consuming, along with the downside of locking the table from other changes. In such situations, Multigres will use VReplication to materialize the post-schema version of the table within the same database. Once the materialization is complete, it will swap the old table with the new one, thereby achieving a non-blocking, zero-downtime deployment.
+Some schema changes are inherently time-consuming, along with the downside of locking the table from other changes. In such situations, Multigres will use Materializer to materialize the post-schema version of the table within the same database. Once the materialization is complete, it will swap the old table with the new one, thereby achieving a non-blocking, zero-downtime deployment.
 
 Additionally, the materialization will be reversed. If the schema deployment causes problems, you have the option to instantly revert with no data loss.
 
 ## Change Data Capture
 
-VReplication will be made up of two parts: the part that streams from the source (VStream), and the part that writes to the target (VPlayer). VStream will also speak the Postgres logical replication protocol. This will allow you to integrate multigres with any tooling that can consume such a stream.
+Materializer will be made up of two parts: the part that streams from the source (MStream), and the part that writes to the target (MPlayer). MStream will also speak the Postgres logical replication protocol. This will allow you to integrate multigres with any tooling that can consume such a stream.
 
-If you use VStream, you do not need to perform a dump and restore. Instead, you can initiate a stream "from the beginning of time". With this directive, VStream will provide all the events necessary to completely materialize the source into the target.
+If you use MStream, you do not need to perform a dump and restore. Instead, you can initiate a stream "from the beginning of time". With this directive, MStream will provide all the events necessary to completely materialize the source into the target.
 
-As your database grows into multiple shards, you can run individual VStreams for each shard for better parallelization.
+As your database grows into multiple shards, you can run individual MStreams for each shard for better parallelization.
 
 ## Observability
 
-Apart from exporting real-time metrics, Multigres will also have an extensive toolset to facilitate troubleshooting when the system exhibits unexpected behavior. These will be exported by VTGate and VTTablet:
+Apart from exporting real-time metrics, Multigres will also have an extensive toolset to facilitate troubleshooting when the system exhibits unexpected behavior. These will be exported by MultiGateway and MultiPooler:
 
 - Standard metrics like QPS, latencies, and error rates.
 - Per-table metrics.
@@ -226,10 +226,6 @@ If any of these features are already available in Postgres, Multigres will utili
 
 ## Tooling
 
-### VTCtld and VTCtl
+### MultiAdmin
 
-VTCTld (VT Control Daemon) will be used to launch workflows like MoveTables, Resharding, etc. VTCtl will be the command line utility to send commands to VTCtld.
-
-### VTAdmin
-
-VTAdmin will be a dashboard that allows you to view the various components of a live cluster, like the currently running VTTablets, browse to their status pages, etc.
+MultiAdmin will be a dashboard that allows you to view the various components of a live cluster, like the currently running MultiPoolers, browse to their status pages, etc.

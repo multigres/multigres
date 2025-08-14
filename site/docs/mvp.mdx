@@ -29,12 +29,12 @@ Multigres will have the following project tracks, and they will be worked on in 
 
 ## Proxy
 
-* VTTablet: Connection pooling
-* VTGate: Postgres and PostgREST protocols, discovery of VTTablets, route traffic to primary or replica VTTablets, load balance replica traffic
+* MultiPooler: Connection pooling
+* MultiGateway: Postgres and PostgREST protocols, discovery of MultiPoolers, route traffic to primary or replica MultiPoolers, load balance replica traffic
 
-The MVP must be able to scale to support tens of thousands of connections per VTGate.
+The MVP must be able to scale to support tens of thousands of connections per MultiGateway.
 
-Each pool of vtgates should be able to support up to ten thousand databases.
+Each pool of MultiGateways should be able to support up to ten thousand databases.
 
 ## Cluster management
 
@@ -42,7 +42,7 @@ The purpose of cluster management is to minimize human intervention by automatin
 
 * Initialize a new database
 * Automated backups of databases and WALs
-* Add (and remove) replicas, will use backups and WALs to make them catch up to the cluster, and publish to VTGate about readiness to serve traffic
+* Add (and remove) replicas, will use backups and WALs to make them catch up to the cluster, and publish to MultiGateway about readiness to serve traffic
 * Deactivate a database (scale to zero) and bring up a previously deactivated database
 * Kubernetes Operator
 
@@ -58,22 +58,22 @@ The existing Postgres primitives are insufficient to build a robust consensus pr
 
 ### Multigres
 
-Multigres will build the coordination part of the consensus protocol using a brand new VTOrc. This will not be ported from Vitess, because the VTOrc from Vitess has a large amount of legacy code that was inherited from the MySQL Orchestrator.
+Multigres will build the coordination part of the consensus protocol using a brand new MultiOrch. This will not be ported from Vitess, because the MultiOrch from Vitess has a large amount of legacy code that was inherited from the MySQL Orchestrator.
 
-VTOrc will operate as a coordinated cluster across failure zones to ensure that at least one of them can perform a successful failover if there is a network partition.
+MultiOrch will operate as a coordinated cluster across failure zones to ensure that at least one of them can perform a successful failover if there is a network partition.
 
-Functionally, VTOrc will be the same as its Vitess counterpart:
+Functionally, MultiOrch will be the same as its Vitess counterpart:
 
 * Elect a primary if none exist
 * Perform smooth primary changes if requested
 * Detect failures and failover as needed
 * Rewire replicas and observers if they lose their connection to the primary, or if their connection to the primary needs to be updated
-* Cooperate with other VTOrcs to ensure that they don't step on each others' actions.
+* Cooperate with other MultiOrchs to ensure that they don't step on each others' actions.
 * Honor a variety of durability policies for each cluster.
 
-## VReplication
+## Materializer
 
-The Postgres logical replication is functionally very close to MySQL's row-based binlog replication. Hence, most of VReplication will be copied from Vitess, and changes will be made to address any mismatch.
+The Postgres logical replication is functionally very close to MySQL's row-based binlog replication. Hence, most of Materializer will be copied from Vitess, and changes will be made to address any mismatch.
 
 The MVP will support:
 
