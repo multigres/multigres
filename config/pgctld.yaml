@@ -1,0 +1,15 @@
+# pgctld configuration file
+# PostgreSQL interface daemon configuration
+
+# gRPC port to listen on
+grpc-port: "15200"
+
+# PostgreSQL connection settings
+pg-host: "localhost"
+pg-port: "5432"
+pg-database: "postgres"
+pg-user: "postgres"
+pg-password: ""
+
+# Log level (debug, info, warn, error)
+log-level: "info"
