@@ -1,0 +1,8 @@
+# multigateway configuration file
+# PostgreSQL proxy configuration
+
+# Port to listen on for PostgreSQL connections
+port: "5432"
+
+# Log level (debug, info, warn, error)
+log-level: "info"

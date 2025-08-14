@@ -20,24 +20,61 @@ package main
 
 import (
 	"context"
-	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
+func setupConfig() {
+	// Define flags
+	pflag.StringP("grpc-port", "p", "15300", "gRPC port to listen on")
+	pflag.StringP("topology-addr", "t", "localhost:2379", "etcd topology server address")
+	pflag.StringP("log-level", "l", "info", "Log level (debug, info, warn, error)")
+	pflag.StringP("config", "c", "", "Config file path")
+	pflag.Parse()
+
+	// Setup viper
+	viper.SetDefault("grpc-port", "15300")
+	viper.SetDefault("topology-addr", "localhost:2379")
+	viper.SetDefault("log-level", "info")
+
+	// Bind pflags to viper
+	viper.BindPFlags(pflag.CommandLine)
+
+	// Set config file path if provided
+	if configFile := viper.GetString("config"); configFile != "" {
+		viper.SetConfigFile(configFile)
+	} else {
+		viper.SetConfigName("multiorch")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(".")
+		viper.AddConfigPath("./config")
+		viper.AddConfigPath("/etc/multigres")
+	}
+
+	// Enable environment variables
+	viper.SetEnvPrefix("MULTIORCH")
+	viper.AutomaticEnv()
+
+	// Read config file
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			slog.Error("Error reading config file", "error", err)
+			os.Exit(1)
+		}
+	}
+}
+
 func main() {
-	var (
-		port         = flag.String("port", "15300", "Port to listen on")
-		topologyAddr = flag.String("topology-addr", "localhost:2379", "etcd topology server address")
-		logLevel     = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-	)
-	flag.Parse()
+	setupConfig()
 
 	// Setup structured logging
 	var level slog.Level
-	switch *logLevel {
+	switch viper.GetString("log-level") {
 	case "debug":
 		level = slog.LevelDebug
 	case "info":
@@ -56,9 +93,10 @@ func main() {
 	slog.SetDefault(logger)
 
 	logger.Info("starting multiorch",
-		"port", *port,
-		"topology_addr", *topologyAddr,
-		"log_level", *logLevel,
+		"grpc_port", viper.GetString("grpc-port"),
+		"topology_addr", viper.GetString("topology-addr"),
+		"log_level", viper.GetString("log-level"),
+		"config_file", viper.ConfigFileUsed(),
 	)
 
 	// Create context that cancels on interrupt

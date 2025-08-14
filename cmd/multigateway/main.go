@@ -20,23 +20,61 @@ package main
 
 import (
 	"context"
-	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
+func setupConfig() {
+	// Define flags
+	pflag.StringP("port", "p", "5432", "Port to listen on")
+	pflag.StringP("log-level", "l", "info", "Log level (debug, info, warn, error)")
+	pflag.StringP("config", "c", "", "Config file path")
+	pflag.Parse()
+
+	// Setup viper
+	viper.SetDefault("port", "5432")
+	viper.SetDefault("log-level", "info")
+
+	// Bind pflags to viper
+	viper.BindPFlags(pflag.CommandLine)
+
+	// Set config file path if provided
+	if configFile := viper.GetString("config"); configFile != "" {
+		viper.SetConfigFile(configFile)
+	} else {
+		viper.SetConfigName("multigateway")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(".")
+		viper.AddConfigPath("./config")
+		viper.AddConfigPath("/etc/multigres")
+	}
+
+	// Enable environment variables
+	viper.SetEnvPrefix("MULTIGATEWAY")
+	viper.AutomaticEnv()
+
+	// Read config file
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			// Config file was found but another error was produced
+			slog.Error("Error reading config file", "error", err)
+			os.Exit(1)
+		}
+		// Config file not found; ignore error
+	}
+}
+
 func main() {
-	var (
-		port     = flag.String("port", "5432", "Port to listen on")
-		logLevel = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-	)
-	flag.Parse()
+	setupConfig()
 
 	// Setup structured logging
 	var level slog.Level
-	switch *logLevel {
+	switch viper.GetString("log-level") {
 	case "debug":
 		level = slog.LevelDebug
 	case "info":
@@ -55,8 +93,9 @@ func main() {
 	slog.SetDefault(logger)
 
 	logger.Info("starting multigateway",
-		"port", *port,
-		"log_level", *logLevel,
+		"port", viper.GetString("port"),
+		"log_level", viper.GetString("log-level"),
+		"config_file", viper.ConfigFileUsed(),
 	)
 
 	// Create context that cancels on interrupt

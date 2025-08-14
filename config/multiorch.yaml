@@ -1,0 +1,11 @@
+# multiorch configuration file
+# Cluster orchestration service configuration
+
+# gRPC port to listen on
+grpc-port: "15300"
+
+# etcd topology server address
+topology-addr: "localhost:2379"
+
+# Log level (debug, info, warn, error)
+log-level: "info"

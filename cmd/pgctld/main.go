@@ -20,28 +20,69 @@ package main
 
 import (
 	"context"
-	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
+func setupConfig() {
+	// Define flags
+	pflag.StringP("grpc-port", "g", "15200", "gRPC port to listen on")
+	pflag.StringP("pg-host", "H", "localhost", "PostgreSQL host")
+	pflag.StringP("pg-port", "P", "5432", "PostgreSQL port")
+	pflag.StringP("pg-database", "d", "postgres", "PostgreSQL database name")
+	pflag.StringP("pg-user", "u", "postgres", "PostgreSQL username")
+	pflag.StringP("pg-password", "p", "", "PostgreSQL password")
+	pflag.StringP("log-level", "l", "info", "Log level (debug, info, warn, error)")
+	pflag.StringP("config", "c", "", "Config file path")
+	pflag.Parse()
+
+	// Setup viper
+	viper.SetDefault("grpc-port", "15200")
+	viper.SetDefault("pg-host", "localhost")
+	viper.SetDefault("pg-port", "5432")
+	viper.SetDefault("pg-database", "postgres")
+	viper.SetDefault("pg-user", "postgres")
+	viper.SetDefault("pg-password", "")
+	viper.SetDefault("log-level", "info")
+
+	// Bind pflags to viper
+	viper.BindPFlags(pflag.CommandLine)
+
+	// Set config file path if provided
+	if configFile := viper.GetString("config"); configFile != "" {
+		viper.SetConfigFile(configFile)
+	} else {
+		viper.SetConfigName("pgctld")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(".")
+		viper.AddConfigPath("./config")
+		viper.AddConfigPath("/etc/multigres")
+	}
+
+	// Enable environment variables
+	viper.SetEnvPrefix("PGCTLD")
+	viper.AutomaticEnv()
+
+	// Read config file
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			slog.Error("Error reading config file", "error", err)
+			os.Exit(1)
+		}
+	}
+}
+
 func main() {
-	var (
-		grpcPort   = flag.String("grpc-port", "15200", "gRPC port to listen on")
-		pgHost     = flag.String("pg-host", "localhost", "PostgreSQL host")
-		pgPort     = flag.String("pg-port", "5432", "PostgreSQL port")
-		pgDatabase = flag.String("pg-database", "postgres", "PostgreSQL database name")
-		pgUser     = flag.String("pg-user", "postgres", "PostgreSQL username")
-		pgPassword = flag.String("pg-password", "", "PostgreSQL password")
-		logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-	)
-	flag.Parse()
+	setupConfig()
 
 	// Setup structured logging
 	var level slog.Level
-	switch *logLevel {
+	switch viper.GetString("log-level") {
 	case "debug":
 		level = slog.LevelDebug
 	case "info":
@@ -60,12 +101,13 @@ func main() {
 	slog.SetDefault(logger)
 
 	logger.Info("starting pgctld",
-		"grpc_port", *grpcPort,
-		"pg_host", *pgHost,
-		"pg_port", *pgPort,
-		"pg_database", *pgDatabase,
-		"pg_user", *pgUser,
-		"log_level", *logLevel,
+		"grpc_port", viper.GetString("grpc-port"),
+		"pg_host", viper.GetString("pg-host"),
+		"pg_port", viper.GetString("pg-port"),
+		"pg_database", viper.GetString("pg-database"),
+		"pg_user", viper.GetString("pg-user"),
+		"log_level", viper.GetString("log-level"),
+		"config_file", viper.ConfigFileUsed(),
 	)
 
 	// Create context that cancels on interrupt
@@ -75,7 +117,7 @@ func main() {
 	// TODO: Setup gRPC server
 	// TODO: Implement PostgreSQL query interface
 	// TODO: Use pgPassword for database connection
-	_ = pgPassword
+	_ = viper.GetString("pg-password")
 	
 	logger.Info("pgctld ready to serve gRPC requests")
 

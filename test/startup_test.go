@@ -58,13 +58,13 @@ func testBinaryStartupShutdown(t *testing.T, binaryName, port string) {
 	var cmd *exec.Cmd
 	switch binaryName {
 	case "multigateway":
-		cmd = exec.CommandContext(ctx, binaryPath, "-port", port, "-log-level", "info")
+		cmd = exec.CommandContext(ctx, binaryPath, "--port", port, "--log-level", "info")
 	case "multipooler":
-		cmd = exec.CommandContext(ctx, binaryPath, "-port", port, "-log-level", "info")
+		cmd = exec.CommandContext(ctx, binaryPath, "--grpc-port", port, "--log-level", "info")
 	case "pgctld":
-		cmd = exec.CommandContext(ctx, binaryPath, "-grpc-port", port, "-log-level", "info")
+		cmd = exec.CommandContext(ctx, binaryPath, "--grpc-port", port, "--log-level", "info")
 	case "multiorch":
-		cmd = exec.CommandContext(ctx, binaryPath, "-port", port, "-log-level", "info")
+		cmd = exec.CommandContext(ctx, binaryPath, "--grpc-port", port, "--log-level", "info")
 	default:
 		require.Fail(t, "Unknown binary: %s", binaryName)
 	}
