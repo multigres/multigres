@@ -1,4 +1,4 @@
-package context
+package parser
 
 import (
 	"sync"
@@ -201,7 +201,7 @@ func TestParserContextErrors(t *testing.T) {
 }
 
 // TestLineColumnCalculation tests line and column calculation from byte offset.
-func TestLineColumnCalculation(t *testing.T) {
+func TestLineColumnCalculationError(t *testing.T) {
 	ctx := NewParserContext(nil)
 	sourceText := "SELECT *\nFROM users\nWHERE id = 1;"
 	ctx.SetSourceText(sourceText)

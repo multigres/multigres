@@ -5,7 +5,7 @@
  * expected values for compatibility.
  */
 
-package lexer
+package parser
 
 import (
 	"testing"

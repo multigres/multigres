@@ -19,17 +19,30 @@ This document tracks major technical decisions made during the PostgreSQL parser
 
 ---
 
-### All Go Code Under `go/` Directory  
-**Decision**: Place all Go implementation under `multigres/go/` directory structure  
+### Consolidated Parser Package Architecture
+**Decision**: Consolidate all parser components into single `go/parser/` package  
+**Made In**: Session 014 (2025-08-14)  
 **Rationale**:
-- Follow Vitess project structure conventions
-- Clear separation of Go code from other project components
-- Align with Go community practices for large projects
+- Eliminates circular import issues between lexer, grammar, and AST components
+- Follows proven patterns from Vitess (`go/vt/sqlparser/`) and PostgreSQL (`src/backend/parser/`)
+- Lexer needs token definitions from grammar; grammar needs lexer interface
+- Creates cohesive parser unit with all related functionality together
 
 **Implementation**: 
-- `go/parser/` - Core parser package
-- `go/sqlast/` - SQL AST utilities
-- `go/internal/` - Internal utilities and generators
+- `go/parser/` - Single package containing lexer, grammar, AST, and all parser components
+- `go/parser/ast/` - AST node definitions (subdirectory but same Go package)
+- All parser files directly in `go/parser/` (lexer.go, postgres.y, tokens.go, etc.)
+
+**Previous Architecture Problems**:
+- Separate `lexer/`, `grammar/`, `ast/` packages created circular dependencies
+- Complex import management between tightly coupled components
+- Not aligned with reference implementations
+
+**Benefits Achieved**:
+- Clean imports: single `import "multigres/go/parser"` 
+- Eliminates circular dependency complexity
+- Matches architecture used by both Vitess and PostgreSQL
+- Simplifies build system and code organization
 
 ---
 

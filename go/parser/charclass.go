@@ -6,24 +6,24 @@
  * Based on PostgreSQL's character class definitions in scan.l
  */
 
-package lexer
+package parser
 
 // CharClass represents character classification flags using bit fields
 type CharClass uint16
 
 const (
 	// Character class flags - can be combined with bitwise OR
-	ClassDigit     CharClass = 1 << iota // 0-9
-	ClassAlpha                           // a-z, A-Z
-	ClassIdentStart                      // Characters that can start identifiers
-	ClassIdentCont                       // Characters that can continue identifiers
-	ClassWhitespace                      // Whitespace characters
-	ClassHexDigit                        // 0-9, a-f, A-F
-	ClassOctalDigit                      // 0-7
-	ClassBinaryDigit                     // 0-1
-	ClassSelfChar                        // PostgreSQL "self" characters (single-char tokens)
-	ClassOpChar                          // Characters that can be part of operators
-	ClassHighBit                         // Characters with high bit set (>= 0x80)
+	ClassDigit       CharClass = 1 << iota // 0-9
+	ClassAlpha                             // a-z, A-Z
+	ClassIdentStart                        // Characters that can start identifiers
+	ClassIdentCont                         // Characters that can continue identifiers
+	ClassWhitespace                        // Whitespace characters
+	ClassHexDigit                          // 0-9, a-f, A-F
+	ClassOctalDigit                        // 0-7
+	ClassBinaryDigit                       // 0-1
+	ClassSelfChar                          // PostgreSQL "self" characters (single-char tokens)
+	ClassOpChar                            // Characters that can be part of operators
+	ClassHighBit                           // Characters with high bit set (>= 0x80)
 )
 
 // Character classification lookup table - pre-computed for all 256 byte values
@@ -176,4 +176,3 @@ func GetCharClass(b byte) CharClass {
 func HasCharClass(b byte, class CharClass) bool {
 	return charClassTable[b]&class != 0
 }
-

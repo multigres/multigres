@@ -6,7 +6,7 @@
  * Ported from postgres/src/include/parser/scanner.h and postgres/src/backend/parser/scan.l
  */
 
-package lexer
+package parser
 
 import (
 	"fmt"

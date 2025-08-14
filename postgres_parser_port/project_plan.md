@@ -9,18 +9,22 @@ Port the PostgreSQL parser from C to Go for the Multigres project, creating a th
 ```
 multigres/
 ├── go/
-│   ├── parser/                  # Core parser package  
-│   │   ├── lexer/              # Lexical analysis (scan.l port)
-│   │   ├── grammar/            # Grammar rules (gram.y port with goyacc)
-│   │   ├── ast/                # PostgreSQL AST node definitions
-│   │   ├── analysis/           # Semantic analysis (analyze.c port)
-│   │   ├── context/            # Parser context (thread-safe state)
-│   │   ├── lexer/             # SQL lexer with integrated keywords
-│   │   └── generate.go         # Code generation directives
-│   ├── sqlast/                 # SQL AST utilities and helpers
-│   └── internal/
-│       ├── testutils/          # Testing utilities
-│       └── generators/         # Code generation tools
+│   └── parser/                 # Core parser package (consolidated architecture)
+│       ├── ast/                # PostgreSQL AST node definitions
+│       ├── lexer.go            # Lexical analysis (scan.l port)
+│       ├── postgres.go         # Generated parser (from postgres.y)
+│       ├── postgres.y          # Grammar rules (gram.y port with goyacc)
+│       ├── context.go          # Parser context (thread-safe state)
+│       ├── keywords.go         # SQL lexer with integrated keywords
+│       ├── tokens.go           # Token definitions
+│       ├── strings.go          # String literal processing
+│       ├── numeric.go          # Numeric literal processing
+│       ├── comments.go         # Comment processing
+│       ├── delimited.go        # Delimited identifier processing
+│       ├── unicode.go          # Unicode processing
+│       ├── errors.go           # Error handling and recovery
+│       ├── charclass.go        # Character classification
+│       └── generate.go         # Code generation directives
 ├── go.mod
 ├── go.sum
 ├── Makefile                    # Build automation including parser generation
@@ -46,7 +50,7 @@ multigres/
 
 2. **Keywords & Tokens** ✅ **CONSOLIDATED**
    - ✅ Ported PostgreSQL keywords from `src/common/keywords.c`
-   - ✅ Keywords integrated into `go/parser/lexer/keywords.go` (eliminated separate package)
+   - ✅ Keywords integrated into `go/parser/keywords.go` (consolidated architecture)
    - Establish token constants and lookup functions
 
 3. **Basic AST Framework** ✅
@@ -147,7 +151,7 @@ multigres/
 
 **Tasks**:
 1. **Port scan.l to Go**
-   - Recreate lexical analysis in `go/parser/lexer/`
+   - Recreate lexical analysis in `go/parser/lexer.go`
    - Implement state machine for token recognition
    - Handle PostgreSQL-specific lexical rules
 
@@ -178,7 +182,7 @@ multigres/
 
 **Tasks**:
 1. **Port gram.y**
-   - Convert PostgreSQL grammar to `go/parser/grammar/postgres.y`
+   - Convert PostgreSQL grammar to `go/parser/postgres.y`
    - Adapt grammar rules for goyacc compatibility
    - Maintain semantic equivalence with original
 
@@ -209,7 +213,7 @@ multigres/
 
 **Tasks**:
 1. **Port analyze.c**
-   - Top-level semantic analysis in `go/parser/analysis/`
+   - Top-level semantic analysis in `go/parser/`
    - Query tree transformation and validation
    - Type checking and resolution
 
@@ -313,10 +317,10 @@ multigres/
 - **Pattern**: Follow Vitess tooling approach (goyacc + build system)
 - **Benefit**: PostgreSQL grammar accuracy with Go tooling benefits
 
-### All Code Under `go/` Directory
-- **Rationale**: Follow Vitess project structure conventions
-- **Benefit**: Clear separation of Go code from other project components
-- **Standard**: Aligns with Go community practices for large projects
+### Consolidated Parser Package Architecture
+- **Rationale**: Follow Vitess and PostgreSQL patterns with single parser directory
+- **Benefit**: Eliminates circular import issues between lexer/grammar/AST
+- **Standard**: Aligns with proven parser implementation patterns (vitess/postgres)
 
 ### Thread-Safe by Design
 - **Rationale**: Critical requirement for concurrent use in production

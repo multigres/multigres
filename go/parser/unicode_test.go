@@ -4,11 +4,11 @@
  * This file contains comprehensive tests for Unicode functionality,
  * including UTF-16 surrogate pair handling and advanced Unicode escape sequences.
  * Test cases are derived from PostgreSQL's string test suite and additional edge cases.
- * 
+ *
  * Tests equivalent to postgres/src/test/regress/sql/strings.sql Unicode sections
  */
 
-package lexer
+package parser
 
 import (
 	"testing"
@@ -20,11 +20,11 @@ import (
 // TestUnicodeUtilityFunctions tests the basic Unicode utility functions
 func TestUnicodeUtilityFunctions(t *testing.T) {
 	tests := []struct {
-		name     string
-		codepoint rune
-		expectFirst bool
+		name         string
+		codepoint    rune
+		expectFirst  bool
 		expectSecond bool
-		expectValid bool
+		expectValid  bool
 	}{
 		{"High surrogate start", 0xD800, true, false, false},
 		{"High surrogate mid", 0xDA00, true, false, false},
@@ -58,45 +58,45 @@ func TestSurrogatePairCombination(t *testing.T) {
 		valid    bool
 	}{
 		{
-			name:     "Valid pair 1 (U+1F600 😀)", 
-			first:    0xD83D, 
-			second:   0xDE00, 
-			expected: 0x1F600, 
+			name:     "Valid pair 1 (U+1F600 😀)",
+			first:    0xD83D,
+			second:   0xDE00,
+			expected: 0x1F600,
 			valid:    true,
 		},
 		{
-			name:     "Valid pair 2 (U+10000)", 
-			first:    0xD800, 
-			second:   0xDC00, 
-			expected: 0x10000, 
+			name:     "Valid pair 2 (U+10000)",
+			first:    0xD800,
+			second:   0xDC00,
+			expected: 0x10000,
 			valid:    true,
 		},
 		{
-			name:     "Valid pair 3 (U+10FFFF)", 
-			first:    0xDBFF, 
-			second:   0xDFFF, 
-			expected: 0x10FFFF, 
+			name:     "Valid pair 3 (U+10FFFF)",
+			first:    0xDBFF,
+			second:   0xDFFF,
+			expected: 0x10FFFF,
 			valid:    true,
 		},
 		{
-			name:     "Invalid first not surrogate", 
-			first:    0x0041, 
-			second:   0xDC00, 
-			expected: 0, 
+			name:     "Invalid first not surrogate",
+			first:    0x0041,
+			second:   0xDC00,
+			expected: 0,
 			valid:    false,
 		},
 		{
-			name:     "Invalid second not surrogate", 
-			first:    0xD800, 
-			second:   0x0041, 
-			expected: 0, 
+			name:     "Invalid second not surrogate",
+			first:    0xD800,
+			second:   0x0041,
+			expected: 0,
 			valid:    false,
 		},
 		{
-			name:     "Invalid both wrong type", 
-			first:    0xDC00, 
-			second:   0xD800, 
-			expected: 0, 
+			name:     "Invalid both wrong type",
+			first:    0xDC00,
+			second:   0xD800,
+			expected: 0,
 			valid:    false,
 		},
 	}
@@ -320,15 +320,15 @@ func TestComplexSurrogatePairScenarios(t *testing.T) {
 func TestStateXEUTransitions(t *testing.T) {
 	// Test that StateXEU is properly entered and exited
 	lexer := NewLexer("E'\\uD83D\\uDE00'")
-	
+
 	// Initial state should be StateInitial
 	assert.Equal(t, StateInitial, lexer.context.State)
-	
+
 	// This should be tested by examining internal state during processing
 	// For now, we test the end result
 	token, err := lexer.NextToken()
 	require.NoError(t, err)
-	
+
 	// Should end up back in StateInitial
 	assert.Equal(t, StateInitial, lexer.context.State)
 	assert.Equal(t, SCONST, token.Type)
@@ -360,14 +360,14 @@ func TestErrorRecoveryInSurrogatePairs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
 			token, err := lexer.NextToken()
-			
+
 			// Should not panic and should return some token
 			require.NoError(t, err)
 			require.NotNil(t, token)
-			
+
 			// Should have errors
 			assert.True(t, len(lexer.context.Errors) > 0, "Expected lexer errors for input: %s", tt.input)
-			
+
 			// Should eventually return to a reasonable state
 			assert.True(t, lexer.context.State == StateInitial || lexer.context.State == StateXE)
 		})
@@ -470,59 +470,59 @@ func TestAdvancedUnicodeIntegration(t *testing.T) {
 		// Test the full lifecycle: extended string -> Unicode escape -> StateXEU -> result
 		input := "E'prefix\\uD83D\\uDE00suffix'"
 		lexer := NewLexer(input)
-		
+
 		token, err := lexer.NextToken()
 		require.NoError(t, err)
 		require.NotNil(t, token)
-		
+
 		// Should have no errors
 		assert.Empty(t, lexer.context.Errors, "Expected no errors")
-		
+
 		// Should be back in initial state
 		assert.Equal(t, StateInitial, lexer.context.State)
-		
+
 		// Should have correct token
 		assert.Equal(t, SCONST, token.Type)
 		assert.Equal(t, "prefix😀suffix", token.Value.Str)
 	})
-	
+
 	t.Run("Multiple tokens with surrogate pairs", func(t *testing.T) {
 		input := "E'\\uD83D\\uDE00' E'\\uD83D\\uDE01'"
 		lexer := NewLexer(input)
-		
+
 		// First token
 		token1, err := lexer.NextToken()
 		require.NoError(t, err)
 		assert.Equal(t, SCONST, token1.Type)
 		assert.Equal(t, "😀", token1.Value.Str)
-		
+
 		// Second token
 		token2, err := lexer.NextToken()
 		require.NoError(t, err)
 		assert.Equal(t, SCONST, token2.Type)
 		assert.Equal(t, "😁", token2.Value.Str)
-		
+
 		// EOF
 		eof, err := lexer.NextToken()
 		require.NoError(t, err)
 		assert.Equal(t, EOF, eof.Type)
-		
+
 		assert.Empty(t, lexer.context.Errors, "Expected no errors")
 	})
-	
+
 	t.Run("Error recovery and state management", func(t *testing.T) {
 		// Test that errors in surrogate pair processing don't corrupt future parsing
 		input := "E'\\uD83D\\u0041' 'valid'"
 		lexer := NewLexer(input)
-		
+
 		// First token should have errors
 		_, err := lexer.NextToken()
 		require.NoError(t, err)
 		assert.True(t, len(lexer.context.Errors) > 0, "Expected errors in first token")
-		
+
 		// Clear errors for next token
 		lexer.context.Errors = nil
-		
+
 		// Second token should be valid
 		token2, err := lexer.NextToken()
 		require.NoError(t, err)
@@ -538,15 +538,15 @@ func TestStateXEUBehavior(t *testing.T) {
 		// We can't directly observe state changes, but we can test the behavior
 		input := "E'\\uD83D\\uDE00'"
 		lexer := NewLexer(input)
-		
+
 		token, err := lexer.NextToken()
 		require.NoError(t, err)
-		
+
 		// The fact that we get the correct combined character means StateXEU worked
 		assert.Equal(t, "😀", token.Value.Str)
 		assert.Empty(t, lexer.context.Errors)
 	})
-	
+
 	t.Run("StateXEU error handling", func(t *testing.T) {
 		// Test various error conditions in StateXEU
 		errorCases := []struct {
@@ -558,16 +558,16 @@ func TestStateXEUBehavior(t *testing.T) {
 			{"High surrogate followed by non-surrogate Unicode", "E'\\uD83D\\u0041'"},
 			{"High surrogate at end of string", "E'\\uD83D'"},
 		}
-		
+
 		for _, tc := range errorCases {
 			t.Run(tc.name, func(t *testing.T) {
 				lexer := NewLexer(tc.input)
 				token, err := lexer.NextToken()
 				require.NoError(t, err)
-				
+
 				// Should have errors
 				assert.True(t, len(lexer.context.Errors) > 0, "Expected errors for: %s", tc.input)
-				
+
 				// Should still return a token (error recovery)
 				assert.NotNil(t, token)
 			})
@@ -583,17 +583,17 @@ func TestUnicodePerformance(t *testing.T) {
 		input += "\\uD83D\\uDE00" // 😀 emoji
 	}
 	input += "'"
-	
+
 	lexer := NewLexer(input)
 	token, err := lexer.NextToken()
 	require.NoError(t, err)
-	
+
 	// Should process correctly
 	expected := ""
 	for i := 0; i < 100; i++ {
 		expected += "😀"
 	}
-	
+
 	assert.Equal(t, SCONST, token.Type)
 	assert.Equal(t, expected, token.Value.Str)
 	assert.Empty(t, lexer.context.Errors)
@@ -610,25 +610,25 @@ func TestPostgreSQLRegressionCases(t *testing.T) {
 	}{
 		{
 			name:     "Valid emoji sequence",
-			input:    "E'\\uD83D\\uDE00'",  // 😀
+			input:    "E'\\uD83D\\uDE00'", // 😀
 			expected: "😀",
 			hasError: false,
 		},
 		{
 			name:     "Mathematical symbol via surrogate pair",
-			input:    "E'\\uD835\\uDD04'",  // 𝔄 (Mathematical Fraktur A)
+			input:    "E'\\uD835\\uDD04'", // 𝔄 (Mathematical Fraktur A)
 			expected: "𝔄",
 			hasError: false,
 		},
 		{
 			name:     "Minimum supplementary plane character",
-			input:    "E'\\uD800\\uDC00'",  // U+10000
+			input:    "E'\\uD800\\uDC00'", // U+10000
 			expected: "\U00010000",
 			hasError: false,
 		},
 		{
 			name:     "Maximum Unicode character via surrogates",
-			input:    "E'\\uDBFF\\uDFFF'",  // U+10FFFF
+			input:    "E'\\uDBFF\\uDFFF'", // U+10FFFF
 			expected: "\U0010FFFF",
 			hasError: false,
 		},
@@ -645,13 +645,13 @@ func TestPostgreSQLRegressionCases(t *testing.T) {
 			hasError: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
 			token, err := lexer.NextToken()
 			require.NoError(t, err)
-			
+
 			if tt.hasError {
 				assert.True(t, len(lexer.context.Errors) > 0, "Expected errors for: %s", tt.input)
 			} else {
@@ -696,13 +696,13 @@ func TestComplexUnicodeStringScenarios(t *testing.T) {
 			hasError: false,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
 			token, err := lexer.NextToken()
 			require.NoError(t, err)
-			
+
 			if tt.hasError {
 				assert.True(t, len(lexer.context.Errors) > 0, "Expected errors for: %s", tt.input)
 			} else {
@@ -722,18 +722,18 @@ func TestUnicodeStatePreservation(t *testing.T) {
 		"E'\\uD83D\\uDE01'",
 		"E'\\uD83D\\uDE02'",
 	}
-	
+
 	expected := []string{"😀", "😁", "😂"}
-	
+
 	for i, input := range inputs {
 		lexer := NewLexer(input)
 		token, err := lexer.NextToken()
 		require.NoError(t, err)
-		
+
 		assert.Equal(t, SCONST, token.Type)
 		assert.Equal(t, expected[i], token.Value.Str)
 		assert.Empty(t, lexer.context.Errors)
-		
+
 		// State should be clean
 		assert.Equal(t, StateInitial, lexer.context.State)
 		assert.Equal(t, rune(0), lexer.context.UTF16FirstPart)
@@ -743,7 +743,7 @@ func TestUnicodeStatePreservation(t *testing.T) {
 // BenchmarkSurrogatePairProcessing benchmarks surrogate pair processing performance
 func BenchmarkSurrogatePairProcessing(b *testing.B) {
 	input := "E'\\uD83D\\uDE00'"
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		lexer := NewLexer(input)
@@ -760,7 +760,7 @@ func BenchmarkSurrogatePairProcessing(b *testing.B) {
 // BenchmarkMultipleSurrogatePairs benchmarks processing multiple surrogate pairs
 func BenchmarkMultipleSurrogatePairs(b *testing.B) {
 	input := "E'\\uD83D\\uDE00\\uD83D\\uDE01\\uD83D\\uDE02\\uD83D\\uDE03\\uD83D\\uDE04'"
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		lexer := NewLexer(input)

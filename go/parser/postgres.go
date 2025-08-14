@@ -3,7 +3,7 @@
 //line postgres.y:10
 // Package grammar implements PostgreSQL SQL grammar parsing.
 // Ported from postgres/src/backend/parser/gram.y
-package grammar
+package parser
 
 import __yyfmt__ "fmt"
 

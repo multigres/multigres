@@ -9,7 +9,7 @@ will be ported in Phase 3 following the patterns from the PostgreSQL source.
 %{
 // Package grammar implements PostgreSQL SQL grammar parsing.
 // Ported from postgres/src/backend/parser/gram.y
-package grammar
+package parser
 
 import (
 	"fmt"
@@ -33,7 +33,7 @@ type yySymType struct {
 
 %%
 
-// Placeholder grammar rules  
+// Placeholder grammar rules
 placeholder_start:
 	PLACEHOLDER_TOKEN
 	{

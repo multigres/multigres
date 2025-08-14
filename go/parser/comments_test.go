@@ -5,11 +5,11 @@ This file tests the comment handling functionality of the PostgreSQL-compatible 
 Tests both single-line (--) and multi-line comments with nesting.
 */
 
-package lexer
+package parser
 
 import (
 	"testing"
-	
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,12 +59,12 @@ func TestSingleLineComments(t *testing.T) {
 			values:   []string{"5", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
@@ -143,12 +143,12 @@ func TestMultiLineComments(t *testing.T) {
 			values:   []string{"5", "+", "3", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := []Token{}
-			
+
 			for {
 				token, err := lexer.NextToken()
 				if test.expectError && err != nil {
@@ -156,13 +156,13 @@ func TestMultiLineComments(t *testing.T) {
 					break
 				}
 				require.NoError(t, err)
-				
+
 				tokens = append(tokens, *token)
 				if token.Type == EOF {
 					break
 				}
 			}
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
@@ -205,12 +205,12 @@ func TestCommentsWithOperators(t *testing.T) {
 			values:   []string{"a", "<", "=", "b", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
@@ -243,12 +243,12 @@ func TestCommentPositionTracking(t *testing.T) {
 			positions: []int{0, 26}, // A at 0, B at 26
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			// Filter out EOF token
 			nonEOFTokens := []Token{}
 			for _, tok := range tokens {
@@ -256,7 +256,7 @@ func TestCommentPositionTracking(t *testing.T) {
 					nonEOFTokens = append(nonEOFTokens, tok)
 				}
 			}
-			
+
 			require.Equal(t, len(test.positions), len(nonEOFTokens))
 			for i, token := range nonEOFTokens {
 				assert.Equal(t, test.positions[i], token.Position, "Token %d position mismatch", i)
@@ -310,12 +310,12 @@ func TestCommentEdgeCases(t *testing.T) {
 			values:   []string{"a", "b", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)

@@ -7,7 +7,7 @@ The PostgreSQL grammar will be ported from postgres/src/backend/parser/gram.y
 following the same patterns used by Vitess for their SQL parser.
 */
 
-package grammar
+package parser
 
 // Generate the PostgreSQL parser using goyacc
 // Ported from vitess/go/vt/sqlparser/generate.go:21

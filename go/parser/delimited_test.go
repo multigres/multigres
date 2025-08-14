@@ -5,12 +5,12 @@ This file tests the delimited identifier functionality of the PostgreSQL-compati
 Tests double-quoted identifiers with proper escaping and case preservation.
 */
 
-package lexer
+package parser
 
 import (
 	"strings"
 	"testing"
-	
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,12 +60,12 @@ func TestDelimitedIdentifiers(t *testing.T) {
 			values:   []string{"123table", "col456", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
@@ -114,12 +114,12 @@ func TestDelimitedIdentifierEscaping(t *testing.T) {
 			values:   []string{`""`, ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
@@ -156,18 +156,18 @@ func TestDelimitedIdentifierErrors(t *testing.T) {
 			errorMsg:    "zero-length delimited identifier",
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			
+
 			for {
 				token, err := lexer.NextToken()
 				if test.expectError && err != nil {
 					assert.Contains(t, err.Error(), test.errorMsg)
 					break
 				}
-				
+
 				if token != nil && token.Type == EOF {
 					if test.expectError {
 						t.Errorf("Expected error but got EOF")
@@ -212,12 +212,12 @@ func TestDelimitedIdentifierMultiline(t *testing.T) {
 			values:   []string{"line1\nline2\nline3", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
@@ -232,7 +232,7 @@ func TestDelimitedIdentifierTruncation(t *testing.T) {
 	// Create a long identifier (longer than NAMEDATALEN-1 = 63)
 	longName := strings.Repeat("a", 100)
 	truncatedName := strings.Repeat("a", 63) // NAMEDATALEN-1
-	
+
 	tests := []struct {
 		name     string
 		input    string
@@ -258,12 +258,12 @@ func TestDelimitedIdentifierTruncation(t *testing.T) {
 			values:   []string{strings.Repeat("b", 62), ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
@@ -306,12 +306,12 @@ func TestUnicodeIdentifiers(t *testing.T) {
 			values:   []string{"select", "", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
@@ -354,12 +354,12 @@ func TestDelimitedIdentifierContext(t *testing.T) {
 			values:   []string{`a"b`, "c", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
@@ -402,12 +402,12 @@ func TestIdentifierComparison(t *testing.T) {
 			values:   []string{"SELECT", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)

@@ -7,7 +7,7 @@
  * Ported from postgres/src/backend/parser/scan.l and postgres/src/include/parser/scanner.h
  */
 
-package lexer
+package parser
 
 import (
 	"fmt"
@@ -27,7 +27,6 @@ func NewLexer(input string) *Lexer {
 		context: NewLexerContext(input),
 	}
 }
-
 
 // NextToken returns the next token from the input stream
 // This is the main lexer interface, equivalent to PostgreSQL's core_yylex

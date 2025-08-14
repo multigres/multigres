@@ -4,11 +4,11 @@
  * This file implements advanced Unicode processing functionality for the lexer,
  * including UTF-16 surrogate pair handling for extended string literals.
  * This provides PostgreSQL-compatible Unicode escape sequence processing.
- * 
+ *
  * Ported from postgres/src/include/mb/pg_wchar.h and postgres/src/backend/parser/scan.l
  */
 
-package lexer
+package parser
 
 // isUTF16SurrogateFirst checks if a Unicode code point is the first part of a UTF-16 surrogate pair
 // Equivalent to postgres/src/include/mb/pg_wchar.h:541-544 (is_utf16_surrogate_first function)
@@ -35,12 +35,12 @@ func isValidUnicodeCodepoint(c rune) bool {
 	if c < 0 || c > 0x10FFFF {
 		return false
 	}
-	
+
 	// Surrogate pairs are not valid standalone code points
 	if isUTF16SurrogateFirst(c) || isUTF16SurrogateSecond(c) {
 		return false
 	}
-	
+
 	return true
 }
 
@@ -50,11 +50,11 @@ func validateSurrogatePair(first, second rune) (rune, bool) {
 	if !isUTF16SurrogateFirst(first) {
 		return 0, false
 	}
-	
+
 	if !isUTF16SurrogateSecond(second) {
 		return 0, false
 	}
-	
+
 	combined := surrogatePairToCodepoint(first, second)
 	return combined, isValidUnicodeCodepoint(combined)
 }

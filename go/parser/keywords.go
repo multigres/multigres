@@ -6,7 +6,7 @@
  * Ported from postgres/src/common/keywords.c and postgres/src/include/parser/kwlist.h
  */
 
-package lexer
+package parser
 
 import (
 	"sort"

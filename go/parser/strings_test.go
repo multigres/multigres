@@ -7,7 +7,7 @@
  * Tests verify 100% compatibility with PostgreSQL string processing.
  */
 
-package lexer
+package parser
 
 import (
 	"testing"

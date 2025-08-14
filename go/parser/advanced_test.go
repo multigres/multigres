@@ -5,11 +5,11 @@ This file tests advanced features of the PostgreSQL-compatible lexer including
 parameter placeholders ($1, $2) and type cast operators (::).
 */
 
-package lexer
+package parser
 
 import (
 	"testing"
-	
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,16 +59,16 @@ func TestParameterPlaceholders(t *testing.T) {
 			values:   []interface{}{1, "text", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
-				
+
 				// Check value based on token type
 				if token.Type == PARAM {
 					assert.Equal(t, test.values[i], token.Value.Ival, "Token %d param value mismatch", i)
@@ -123,23 +123,23 @@ func TestParameterJunk(t *testing.T) {
 			values:   []interface{}{1, "+", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
-				
+
 				if token.Type == PARAM {
 					assert.Equal(t, test.values[i], token.Value.Ival, "Token %d param value mismatch", i)
 				} else {
 					assert.Equal(t, test.values[i], token.Value.Str, "Token %d string value mismatch", i)
 				}
 			}
-			
+
 			// Check for errors
 			if test.expectError {
 				assert.True(t, lexer.GetContext().HasErrors(), "Expected lexer errors")
@@ -195,12 +195,12 @@ func TestTypeCastOperator(t *testing.T) {
 			values:   []string{"a", ":", "b", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
@@ -249,16 +249,16 @@ func TestDollarTokenAmbiguity(t *testing.T) {
 			values:   []interface{}{"te$t", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
-				
+
 				if token.Type == PARAM {
 					assert.Equal(t, test.values[i], token.Value.Ival, "Token %d param value mismatch", i)
 				} else {
@@ -290,8 +290,8 @@ func TestComplexExpressions(t *testing.T) {
 			values:   []interface{}{"column", "::", "text", ""},
 		},
 		{
-			name:     "complex expression",
-			input:    `SELECT "Col1"::int + $1 FROM "Table" WHERE x = $2::text`,
+			name:  "complex expression",
+			input: `SELECT "Col1"::int + $1 FROM "Table" WHERE x = $2::text`,
 			expected: []TokenType{
 				SELECT, IDENT, TYPECAST, IDENT, TokenType('+'), PARAM,
 				FROM, IDENT, WHERE, IDENT, TokenType('='), PARAM, TYPECAST, IDENT, EOF,
@@ -314,16 +314,16 @@ func TestComplexExpressions(t *testing.T) {
 			values:   []interface{}{"arr", "[", "1", "]", "::", "int", "[", "]", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
-				
+
 				if token.Type == PARAM {
 					assert.Equal(t, test.values[i], token.Value.Ival, "Token %d param value mismatch", i)
 				} else {
@@ -367,12 +367,12 @@ func TestOperatorPrecedence(t *testing.T) {
 			values:   []string{"=", "=>", ""},
 		},
 	}
-	
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
 			tokens := scanAllTokens(t, lexer)
-			
+
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
 				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)

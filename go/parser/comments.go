@@ -6,7 +6,7 @@ It supports single-line (--) and multi-line (/* ... comments with arbitrary nest
 Ported from postgres/src/backend/parser/scan.l:324-344 and :461-499
 */
 
-package lexer
+package parser
 
 import "strings"
 
@@ -18,12 +18,12 @@ func (l *Lexer) scanMultiLineComment(startPos, startScanPos int) (*Token, error)
 	// Equivalent to SET_YYLLOC() - postgres/src/backend/parser/scan.l:463
 	l.context.XCDepth = 0
 	l.context.SetState(StateXC)
-	
+
 	// Put back any characters past slash-star
 	// postgres/src/backend/parser/scan.l:467 - yyless(2)
 	// We've already consumed /* so we need to advance by 2
 	l.context.AdvanceBy(2) // AdvanceBy handles position tracking
-	
+
 	// Continue scanning in comment state
 	return l.scanCommentState(startPos, startScanPos)
 }
@@ -40,8 +40,8 @@ func (l *Lexer) scanCommentState(startPos, startScanPos int) (*Token, error) {
 			err := l.context.AddError(UnterminatedComment, "unterminated /* comment")
 			return nil, err
 		}
-		
-		// Check for nested comment start: /* 
+
+		// Check for nested comment start: /*
 		// postgres/src/backend/parser/scan.l:471-475
 		if b == '/' {
 			next := l.context.PeekBytes(2)
@@ -53,7 +53,7 @@ func (l *Lexer) scanCommentState(startPos, startScanPos int) (*Token, error) {
 				continue
 			}
 		}
-		
+
 		// Check for comment end: */
 		// postgres/src/backend/parser/scan.l:477-482
 		if b == '*' {
@@ -73,7 +73,7 @@ func (l *Lexer) scanCommentState(startPos, startScanPos int) (*Token, error) {
 				}
 			}
 		}
-		
+
 		// Regular character inside comment - just skip it
 		// postgres/src/backend/parser/scan.l:484-486 (xcinside rule)
 		l.context.NextByte() // NextByte() handles position tracking automatically
@@ -91,13 +91,13 @@ func checkOperatorForCommentStart(text string) (string, bool) {
 		{"/*", 0}, // Can appear anywhere in operator
 		{"--", 1}, // Don't check at start position (handled separately)
 	}
-	
+
 	for _, comment := range commentPatterns {
 		if pos := strings.Index(text[comment.startPos:], comment.pattern); pos != -1 {
 			actualPos := comment.startPos + pos
 			return text[:actualPos], true
 		}
 	}
-	
+
 	return text, false
 }

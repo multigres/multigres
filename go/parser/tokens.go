@@ -17,7 +17,7 @@
  * Phase 3+: Generated constants from postgres.y - for parser integration
  */
 
-package lexer
+package parser
 
 import (
 	"fmt"

@@ -9,7 +9,7 @@
  * and postgres/src/include/parser/scanner.h (error handling structures)
  */
 
-package lexer
+package parser
 
 import (
 	"fmt"
@@ -192,7 +192,7 @@ func (e *LexerError) Error() string {
 // DetailedError returns a detailed error message with context and hints
 func (e *LexerError) DetailedError() string {
 	var parts []string
-	
+
 	// Basic error message
 	if e.AtEOF {
 		parts = append(parts, fmt.Sprintf("%s at end of input", e.Message))
@@ -201,20 +201,20 @@ func (e *LexerError) DetailedError() string {
 	} else {
 		parts = append(parts, e.Message)
 	}
-	
+
 	// Position information
 	parts = append(parts, fmt.Sprintf("at line %d, column %d (position %d)", e.Line, e.Column, e.Position))
-	
+
 	// Context information
 	if e.Context != "" {
 		parts = append(parts, fmt.Sprintf("Context: %s", e.Context))
 	}
-	
+
 	// Hint for recovery
 	if e.Hint != "" {
 		parts = append(parts, fmt.Sprintf("Hint: %s", e.Hint))
 	}
-	
+
 	return strings.Join(parts, "\n")
 }
 

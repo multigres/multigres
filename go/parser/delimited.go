@@ -6,7 +6,7 @@ It supports double-quoted identifiers with proper escaping and case preservation
 Ported from postgres/src/backend/parser/scan.l:803-839
 */
 
-package lexer
+package parser
 
 import (
 	"strings"
@@ -18,11 +18,11 @@ import (
 func (l *Lexer) scanDelimitedIdentifier(startPos, startScanPos int) (*Token, error) {
 	// Advance past the opening quote - NextByte handles position tracking
 	l.context.NextByte()
-	
+
 	// Clear literal buffer and transition to delimited identifier state
 	l.context.StartLiteral()
 	l.context.SetState(StateXD)
-	
+
 	// Continue scanning in delimited identifier state
 	return l.scanDelimitedIdentifierState(startPos, startScanPos)
 }
@@ -39,7 +39,7 @@ func (l *Lexer) scanDelimitedIdentifierState(startPos, startScanPos int) (*Token
 			err := l.context.AddError(UnterminatedIdentifier, "unterminated quoted identifier")
 			return nil, err
 		}
-		
+
 		// Check for closing quote
 		// postgres/src/backend/parser/scan.l:813-824 (xdstop rule)
 		if b == '"' {
@@ -51,34 +51,34 @@ func (l *Lexer) scanDelimitedIdentifierState(startPos, startScanPos int) (*Token
 				l.context.AdvanceBy(2) // AdvanceBy handles position tracking
 				continue
 			}
-			
+
 			// End of delimited identifier
 			l.context.NextByte() // NextByte handles position tracking
 			l.context.SetState(StateInitial)
-			
+
 			// Get the identifier text
 			ident := l.context.GetLiteral()
-			
+
 			// Check for zero-length identifier
 			// postgres/src/backend/parser/scan.l:818
 			if len(ident) == 0 {
 				err := l.context.AddError(ZeroLengthIdentifier, "zero-length delimited identifier")
 				return nil, err
 			}
-			
+
 			// Check length and truncate if necessary
 			// postgres/src/backend/parser/scan.l:820-821
 			if len(ident) >= NAMEDATALEN {
 				ident = truncateIdentifier(ident, true)
 			}
-			
+
 			// Return as identifier token
 			// postgres/src/backend/parser/scan.l:822
 			// Text field should include the original quotes, value field should not
 			originalText := l.context.GetCurrentText(startScanPos)
 			return NewStringToken(IDENT, ident, startPos, originalText), nil
 		}
-		
+
 		// Regular character inside identifier
 		// postgres/src/backend/parser/scan.l:836-838 (xdinside rule)
 		l.processIdentifierChar(b)
@@ -92,15 +92,15 @@ func (l *Lexer) scanUnicodeIdentifier(startPos, startScanPos int) (*Token, error
 	// Advance past U& prefix
 	l.context.AdvanceBy(2)
 	l.context.ColumnNumber += 2
-	
+
 	// Advance past the opening quote
 	l.context.NextByte()
 	l.context.ColumnNumber++
-	
+
 	// Clear literal buffer and transition to Unicode identifier state
 	l.context.StartLiteral()
 	l.context.SetState(StateXUI)
-	
+
 	// Continue scanning in Unicode identifier state
 	return l.scanUnicodeIdentifierState(startPos, startScanPos)
 }
@@ -118,7 +118,7 @@ func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, 
 			err := l.context.AddError(UnterminatedIdentifier, "unterminated quoted identifier")
 			return nil, err
 		}
-		
+
 		// Check for closing quote
 		// postgres/src/backend/parser/scan.l:825-832
 		if b == '"' {
@@ -131,15 +131,15 @@ func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, 
 				l.context.ColumnNumber += 2
 				continue
 			}
-			
+
 			// End of Unicode identifier
 			l.context.NextByte() // Consume closing quote
 			l.context.ColumnNumber++
 			l.context.SetState(StateInitial)
-			
+
 			// Get the identifier text
 			ident := l.context.GetLiteral()
-			
+
 			// Note: Zero-length Unicode identifiers are allowed (unlike regular delimited identifiers)
 			// Full Unicode escape processing deferred to Phase 2I
 			// For now, just return the literal content
@@ -148,7 +148,7 @@ func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, 
 			originalText := l.context.GetCurrentText(startScanPos)
 			return NewStringToken(UIDENT, ident, startPos, originalText), nil
 		}
-		
+
 		// Regular character inside identifier
 		// postgres/src/backend/parser/scan.l:836-838
 		l.processIdentifierChar(b)
@@ -166,13 +166,13 @@ func truncateIdentifier(ident string, warn bool) string {
 	if len(ident) <= maxLen {
 		return ident
 	}
-	
+
 	// Find a safe truncation point (not in the middle of a multibyte character)
 	truncated := ident[:maxLen]
-	
+
 	// In PostgreSQL, this would generate a NOTICE-level warning
 	// For now, we just truncate silently (warning would be added in error handling phase)
-	
+
 	return truncated
 }
 

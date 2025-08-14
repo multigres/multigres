@@ -5,7 +5,7 @@
  * Based on PostgreSQL's keyword lookup and context handling patterns.
  */
 
-package lexer
+package parser
 
 import (
 	"fmt"
@@ -19,10 +19,10 @@ import (
 // TestKeywordLookup tests basic keyword lookup functionality
 func TestKeywordLookup(t *testing.T) {
 	testCases := []struct {
-		name           string
-		input          string
-		expectedFound  bool
-		expectedToken  TokenType
+		name             string
+		input            string
+		expectedFound    bool
+		expectedToken    TokenType
 		expectedCategory KeywordCategory
 	}{
 		// Basic reserved keywords
@@ -30,15 +30,15 @@ func TestKeywordLookup(t *testing.T) {
 		{"SELECT uppercase", "SELECT", true, SELECT, ReservedKeyword},
 		{"from keyword", "from", true, FROM, ReservedKeyword},
 		{"where keyword", "where", true, WHERE, ReservedKeyword},
-		
+
 		// Column name keywords
 		{"integer type", "integer", true, IDENT, ColNameKeyword},
 		{"boolean type", "boolean", true, IDENT, ColNameKeyword},
-		
+
 		// Unreserved keywords
 		{"insert keyword", "insert", true, IDENT, UnreservedKeyword},
 		{"update keyword", "update", true, IDENT, UnreservedKeyword},
-		
+
 		// Non-keywords
 		{"regular identifier", "mycolumn", false, IDENT, UnreservedKeyword},
 		{"long identifier", "very_long_identifier_name", false, IDENT, UnreservedKeyword},
@@ -69,11 +69,11 @@ func TestKeywordLookupOptimizations(t *testing.T) {
 		{"select lowercase", "select", true},
 		{"SELECT uppercase", "SELECT", true},
 		{"MiXeD case", "sElEcT", true},
-		
+
 		// Very long strings should be rejected early
 		{"very long non-keyword", strings.Repeat("a", 50), false},
 		{"long keyword-like", "very_long_identifier_that_looks_like_keyword", false},
-		
+
 		// Edge cases
 		{"empty string", "", false},
 		{"single char", "a", false},
@@ -118,14 +118,13 @@ func TestNormalizeKeywordCase(t *testing.T) {
 	}
 }
 
-
 // TestKeywordCategories tests keyword categorization
 func TestKeywordCategories(t *testing.T) {
 	categories := map[KeywordCategory][]string{
-		ReservedKeyword: {"select", "from", "where", "and", "or"},
-		ColNameKeyword: {"integer", "boolean", "char", "time"},
+		ReservedKeyword:     {"select", "from", "where", "and", "or"},
+		ColNameKeyword:      {"integer", "boolean", "char", "time"},
 		TypeFuncNameKeyword: {"left", "right", "join", "full"},
-		UnreservedKeyword: {"insert", "update", "by"},
+		UnreservedKeyword:   {"insert", "update", "by"},
 	}
 
 	for category, keywords := range categories {
@@ -133,8 +132,8 @@ func TestKeywordCategories(t *testing.T) {
 			t.Run(fmt.Sprintf("%s_%s", category, kw), func(t *testing.T) {
 				keyword := LookupKeyword(kw)
 				require.NotNil(t, keyword, "Expected to find keyword: %s", kw)
-				assert.Equal(t, category, keyword.Category, 
-					"Category mismatch for %s: expected %s, got %s", 
+				assert.Equal(t, category, keyword.Category,
+					"Category mismatch for %s: expected %s, got %s",
 					kw, category, keyword.Category)
 			})
 		}
@@ -179,7 +178,7 @@ func TestGetKeywordsByCategory(t *testing.T) {
 	for _, kw := range reserved {
 		assert.Equal(t, ReservedKeyword, kw.Category, "Reserved keyword %s has wrong category", kw.Name)
 	}
-	
+
 	for _, kw := range colName {
 		assert.Equal(t, ColNameKeyword, kw.Category, "Column name keyword %s has wrong category", kw.Name)
 	}
@@ -232,7 +231,7 @@ func TestIsReservedKeyword(t *testing.T) {
 // BenchmarkKeywordLookup benchmarks the keyword lookup performance
 func BenchmarkKeywordLookup(b *testing.B) {
 	testKeywords := []string{"select", "from", "where", "integer", "boolean", "notakeyword"}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, kw := range testKeywords {
@@ -248,7 +247,7 @@ func BenchmarkKeywordLookupLongStrings(b *testing.B) {
 		strings.Repeat("select", 20),
 		strings.Repeat("identifier", 10),
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, s := range longStrings {
@@ -260,13 +259,13 @@ func BenchmarkKeywordLookupLongStrings(b *testing.B) {
 // BenchmarkNormalizeKeywordCase benchmarks case normalization
 func BenchmarkNormalizeKeywordCase(b *testing.B) {
 	testCases := []string{
-		"select",        // no conversion needed
-		"SELECT",        // full conversion
-		"SeLeCt",        // mixed case
-		"current_user",  // longer keyword
+		"select",            // no conversion needed
+		"SELECT",            // full conversion
+		"SeLeCt",            // mixed case
+		"current_user",      // longer keyword
 		"CURRENT_TIMESTAMP", // longest keyword with conversion
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, tc := range testCases {
@@ -274,4 +273,3 @@ func BenchmarkNormalizeKeywordCase(b *testing.B) {
 		}
 	}
 }
-

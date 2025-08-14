@@ -1,13 +1,12 @@
 // Package context provides thread-safe parser context for PostgreSQL parsing.
 // Ported from postgres/src/backend/parser/ global state elimination
-package context
+package parser
 
 import (
 	"fmt"
 	"sync"
 
 	"github.com/multigres/parser/go/parser/ast"
-	"github.com/multigres/parser/go/parser/lexer"
 )
 
 // ErrorSeverity represents different levels of parsing errors.
@@ -47,7 +46,7 @@ type ParseError struct {
 	Severity   ErrorSeverity // Error severity level
 	Location   int           // Byte offset in source string
 	Line       int           // Line number (1-based)
-	Column     int           // Column number (1-based)  
+	Column     int           // Column number (1-based)
 	Context    string        // Additional context information
 	HintText   string        // Helpful hint for user
 	SourceText string        // Original source text
@@ -71,16 +70,16 @@ type ParseOptions struct {
 	StandardConformingStrings bool // standard_conforming_strings GUC
 	EscapeStringWarning       bool // escape_string_warning GUC
 	BackslashQuote            int  // backslash_quote GUC (0=off, 1=on, 2=safe_encoding)
-	
+
 	// Parser behavior settings
-	MaxIdentifierLength int  // NAMEDATALEN equivalent - ported from postgres/src/include/pg_config_manual.h
-	MaxExpressionDepth  int  // Maximum expression nesting depth
-	MaxStatementLength  int  // Maximum statement length in bytes
-	
+	MaxIdentifierLength int // NAMEDATALEN equivalent - ported from postgres/src/include/pg_config_manual.h
+	MaxExpressionDepth  int // Maximum expression nesting depth
+	MaxStatementLength  int // Maximum statement length in bytes
+
 	// Error handling options
 	StopOnFirstError bool // Whether to stop parsing on first error
 	CollectAllErrors bool // Whether to collect all errors instead of stopping
-	
+
 	// Feature flags
 	EnableExtensions   bool // Enable PostgreSQL extensions
 	EnableWindowFuncs  bool // Enable window functions
@@ -93,19 +92,19 @@ type ParseOptions struct {
 func DefaultParseOptions() *ParseOptions {
 	return &ParseOptions{
 		// Standard PostgreSQL defaults
-		StandardConformingStrings: true,  // Default in modern PostgreSQL
-		EscapeStringWarning:       true,  // Default warning setting
-		BackslashQuote:            2,     // safe_encoding (default)
-		
+		StandardConformingStrings: true, // Default in modern PostgreSQL
+		EscapeStringWarning:       true, // Default warning setting
+		BackslashQuote:            2,    // safe_encoding (default)
+
 		// Parser limits - based on PostgreSQL defaults
-		MaxIdentifierLength: 63,    // NAMEDATALEN - 1 (default PostgreSQL)
-		MaxExpressionDepth:  1000,  // Reasonable expression nesting limit
+		MaxIdentifierLength: 63,          // NAMEDATALEN - 1 (default PostgreSQL)
+		MaxExpressionDepth:  1000,        // Reasonable expression nesting limit
 		MaxStatementLength:  1024 * 1024, // 1MB statement limit
-		
+
 		// Error handling
 		StopOnFirstError: false, // Collect multiple errors for better UX
 		CollectAllErrors: true,  // Collect all errors by default
-		
+
 		// Feature flags - all enabled by default for full PostgreSQL compatibility
 		EnableExtensions:   true,
 		EnableWindowFuncs:  true,
@@ -119,26 +118,26 @@ func DefaultParseOptions() *ParseOptions {
 type ParserState struct {
 	// Source text and position tracking
 	// Ported from postgres/src/backend/parser/scan.l state
-	SourceText   string // Original SQL text being parsed
-	CurrentPos   int    // Current position in source text
-	CurrentLine  int    // Current line number (1-based)
-	CurrentCol   int    // Current column number (1-based)
-	
+	SourceText  string // Original SQL text being parsed
+	CurrentPos  int    // Current position in source text
+	CurrentLine int    // Current line number (1-based)
+	CurrentCol  int    // Current column number (1-based)
+
 	// Token and lexing state
 	// Ported from postgres lexer state variables
-	LastToken    *lexer.Token // Last token read by lexer
-	TokenValue   string       // String value of current token
-	TokenLocation int         // Location of current token
-	
+	LastToken     *Token // Last token read by lexer
+	TokenValue    string // String value of current token
+	TokenLocation int    // Location of current token
+
 	// Parse tree construction
 	// Ported from postgres parse tree building state
-	ParseTree    ast.Node       // Root of current parse tree
-	CurrentDepth int            // Current expression nesting depth
-	
+	ParseTree    ast.Node // Root of current parse tree
+	CurrentDepth int      // Current expression nesting depth
+
 	// Error collection
 	Errors   []ParseError // Collected parsing errors
 	Warnings []ParseError // Collected parsing warnings
-	
+
 	// Statement boundaries (for multi-statement parsing)
 	// Ported from postgres multi-statement handling
 	StatementStart int // Start position of current statement
@@ -151,14 +150,14 @@ type ParserState struct {
 type ParserContext struct {
 	// Configuration (read-only after creation)
 	options *ParseOptions
-	
+
 	// Mutable parsing state (protected by mutex)
 	mu    sync.RWMutex // Protects mutable state for thread safety
 	state *ParserState
-	
+
 	// Parser components (thread-safe)
 	// Note: Keyword lookup is now handled directly by lexer package
-	
+
 	// Unique context ID for debugging
 	contextID string
 }
@@ -169,7 +168,7 @@ func NewParserContext(options *ParseOptions) *ParserContext {
 	if options == nil {
 		options = DefaultParseOptions()
 	}
-	
+
 	return &ParserContext{
 		options: options,
 		state: &ParserState{
@@ -192,7 +191,7 @@ func (ctx *ParserContext) GetOptions() *ParseOptions {
 func (ctx *ParserContext) SetSourceText(sourceText string) {
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
-	
+
 	ctx.state.SourceText = sourceText
 	ctx.state.CurrentPos = 0
 	ctx.state.CurrentLine = 1
@@ -201,7 +200,7 @@ func (ctx *ParserContext) SetSourceText(sourceText string) {
 	ctx.state.CurrentDepth = 0
 	ctx.state.StatementStart = 0
 	ctx.state.StatementEnd = 0
-	
+
 	// Clear previous errors and warnings
 	ctx.state.Errors = ctx.state.Errors[:0]
 	ctx.state.Warnings = ctx.state.Warnings[:0]
@@ -251,10 +250,10 @@ func (ctx *ParserContext) AddWarning(message string, location int) {
 func (ctx *ParserContext) addErrorWithSeverity(severity ErrorSeverity, message string, location int, context string, hint string) {
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
-	
+
 	// Calculate line and column from location
 	line, col := ctx.calculateLineColumn(location)
-	
+
 	parseError := ParseError{
 		Message:    message,
 		Severity:   severity,
@@ -265,7 +264,7 @@ func (ctx *ParserContext) addErrorWithSeverity(severity ErrorSeverity, message s
 		HintText:   hint,
 		SourceText: ctx.state.SourceText,
 	}
-	
+
 	if severity == ErrorSeverityWarning {
 		ctx.state.Warnings = append(ctx.state.Warnings, parseError)
 	} else {
@@ -279,10 +278,10 @@ func (ctx *ParserContext) calculateLineColumn(location int) (int, int) {
 	if location < 0 || location > len(ctx.state.SourceText) {
 		return -1, -1
 	}
-	
+
 	line := 1
 	col := 1
-	
+
 	for i := 0; i < location && i < len(ctx.state.SourceText); i++ {
 		if ctx.state.SourceText[i] == '\n' {
 			line++
@@ -291,7 +290,7 @@ func (ctx *ParserContext) calculateLineColumn(location int) (int, int) {
 			col++
 		}
 	}
-	
+
 	return line, col
 }
 
@@ -299,7 +298,7 @@ func (ctx *ParserContext) calculateLineColumn(location int) (int, int) {
 func (ctx *ParserContext) GetErrors() []ParseError {
 	ctx.mu.RLock()
 	defer ctx.mu.RUnlock()
-	
+
 	// Return copy to prevent external modification
 	errors := make([]ParseError, len(ctx.state.Errors))
 	copy(errors, ctx.state.Errors)
@@ -310,7 +309,7 @@ func (ctx *ParserContext) GetErrors() []ParseError {
 func (ctx *ParserContext) GetWarnings() []ParseError {
 	ctx.mu.RLock()
 	defer ctx.mu.RUnlock()
-	
+
 	// Return copy to prevent external modification
 	warnings := make([]ParseError, len(ctx.state.Warnings))
 	copy(warnings, ctx.state.Warnings)
@@ -358,10 +357,10 @@ func (ctx *ParserContext) GetParseTree() ast.Node {
 func (ctx *ParserContext) IncrementDepth() error {
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
-	
+
 	ctx.state.CurrentDepth++
 	if ctx.state.CurrentDepth > ctx.options.MaxExpressionDepth {
-		return fmt.Errorf("expression too complex (maximum depth %d exceeded)", 
+		return fmt.Errorf("expression too complex (maximum depth %d exceeded)",
 			ctx.options.MaxExpressionDepth)
 	}
 	return nil
@@ -416,7 +415,7 @@ func (ctx *ParserContext) Clone() *ParserContext {
 func (ctx *ParserContext) String() string {
 	ctx.mu.RLock()
 	defer ctx.mu.RUnlock()
-	
+
 	return fmt.Sprintf("ParserContext{id: %s, pos: %d/%d, line: %d, col: %d, errors: %d, warnings: %d}",
 		ctx.contextID,
 		ctx.state.CurrentPos,

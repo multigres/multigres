@@ -11,7 +11,7 @@
  * - PostgreSQL compatibility
  */
 
-package lexer
+package parser
 
 import (
 	"sync"
@@ -1421,7 +1421,7 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		{BCONST, "B'1010'", "1010", false},
 		{TokenType(','), ",", "", true},
 		{XCONST, "X'CAFE'", "CAFE", false},
-		{FROM, "FROM", "", true},  // keyword - skip value check
+		{FROM, "FROM", "", true},   // keyword - skip value check
 		{IDENT, "table", "", true}, // identifier - skip value check for now
 		{WHERE, "WHERE", "", true}, // keyword - skip value check
 		{IDENT, "name", "", true},  // identifier - skip value check for now
