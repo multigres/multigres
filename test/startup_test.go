@@ -33,7 +33,7 @@ func TestBinaryStartupShutdown(t *testing.T) {
 		name string
 		port string
 	}{
-		{"multigateway", "15432"},  // Use different port to avoid conflicts
+		{"multigateway", "15432"}, // Use different port to avoid conflicts
 		{"multipooler", "15100"},
 		{"pgctld", "15200"},
 		{"multiorch", "15300"},
@@ -49,7 +49,7 @@ func TestBinaryStartupShutdown(t *testing.T) {
 func testBinaryStartupShutdown(t *testing.T, binaryName, port string) {
 	// Build path to binary
 	binaryPath := filepath.Join("..", "bin", binaryName)
-	
+
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
