@@ -18,7 +18,6 @@ package test
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
@@ -48,20 +47,9 @@ func TestBinaryStartupShutdown(t *testing.T) {
 }
 
 func testBinaryStartupShutdown(t *testing.T, binaryName, port string) {
-	// Build path to binary - look in ../bin first, then bin/
+	// Build path to binary
 	binaryPath := filepath.Join("..", "bin", binaryName)
-	if _, err := os.Stat(binaryPath); err != nil {
-		// If ../bin doesn't exist, try current directory
-		binaryPath = filepath.Join("bin", binaryName)
-		if _, err := os.Stat(binaryPath); err != nil {
-			require.Fail(t, "Binary not found: %s", binaryName)
-		}
-	}
 
-	runBinaryTest(t, binaryPath, binaryName, port)
-}
-
-func runBinaryTest(t *testing.T, binaryPath, binaryName, port string) {
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
