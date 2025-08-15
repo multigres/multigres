@@ -1,0 +1,29 @@
+#!/bin/bash
+# Copyright 2025 The Multigres Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language
+
+# Check if commit message has a matching "Signed-off-by" line
+
+# Get user's name and email from git config
+name=$(git config user.name)
+email=$(git config user.email)
+signoff="Signed-off-by: $name <$email>"
+
+# Check if the commit message already has the signoff
+if grep -q "^$signoff" "$1"; then
+    exit 0
+fi
+
+# If no signoff found, add it
+echo "" >> "$1"
+echo "$signoff" >> "$1"
