@@ -454,7 +454,7 @@ func NewTruncateStmt(relations []*RangeVar) *TruncateStmt {
 	return &TruncateStmt{
 		BaseNode:   BaseNode{Tag: T_TruncateStmt},
 		Relations: relations,
-		Behavior:  DROP_RESTRICT,
+		Behavior:  DropRestrict,
 	}
 }
 
@@ -535,7 +535,7 @@ func NewRenameStmt(renameType ObjectType, newname string) *RenameStmt {
 		BaseNode:    BaseNode{Tag: T_RenameStmt},
 		RenameType: renameType,
 		Newname:    newname,
-		Behavior:   DROP_RESTRICT,
+		Behavior:   DropRestrict,
 	}
 }
 

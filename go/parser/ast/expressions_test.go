@@ -1722,7 +1722,7 @@ func TestTableFunc(t *testing.T) {
 		var node Node = tf
 		assert.Equal(t, T_TableFunc, node.NodeTag())
 		
-		var stmt Statement = tf
+		var stmt Stmt = tf
 		assert.Equal(t, "TABLE_FUNC", stmt.StatementType())
 	})
 }
@@ -1786,7 +1786,7 @@ func TestIntoClause(t *testing.T) {
 		var node Node = ic
 		assert.Equal(t, T_IntoClause, node.NodeTag())
 		
-		var stmt Statement = ic
+		var stmt Stmt = ic
 		assert.Equal(t, "INTO_CLAUSE", stmt.StatementType())
 	})
 }
@@ -1851,7 +1851,7 @@ func TestMergeAction(t *testing.T) {
 		var node Node = ma
 		assert.Equal(t, T_MergeAction, node.NodeTag())
 		
-		var stmt Statement = ma
+		var stmt Stmt = ma
 		assert.Equal(t, "MERGE_ACTION", stmt.StatementType())
 	})
 }

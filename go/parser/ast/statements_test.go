@@ -207,14 +207,14 @@ func TestDropStmt(t *testing.T) {
 	assert.Equal(t, "DROP", stmt.StatementType())
 	assert.Equal(t, objects, stmt.Objects)
 	assert.Equal(t, OBJECT_TABLE, stmt.RemoveType)
-	assert.Equal(t, DROP_RESTRICT, stmt.Behavior) // Default
+	assert.Equal(t, DropRestrict, stmt.Behavior) // Default
 	assert.False(t, stmt.MissingOk)               // Default
 	assert.False(t, stmt.Concurrent)              // Default
 	assert.Contains(t, stmt.String(), "DropStmt")
 
 	// Test CASCADE behavior
-	stmt.Behavior = DROP_CASCADE
-	assert.Equal(t, DROP_CASCADE, stmt.Behavior)
+	stmt.Behavior = DropCascade
+	assert.Equal(t, DropCascade, stmt.Behavior)
 
 	// Test IF EXISTS flag
 	stmt.MissingOk = true
@@ -248,11 +248,11 @@ func TestColumnRef(t *testing.T) {
 	})
 }
 
-// TestStatementInterfaces tests that statements implement required interfaces.
-func TestStatementInterfaces(t *testing.T) {
+// TestStmtInterfaces tests that statements implement required interfaces.
+func TestStmtInterfaces(t *testing.T) {
 	tests := []struct {
 		name         string
-		stmt         Statement
+		stmt         Stmt
 		expectedType string
 	}{
 		{"Query", NewQuery(CMD_SELECT), "SELECT"},
@@ -266,7 +266,7 @@ func TestStatementInterfaces(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Test Statement interface
+			// Test Stmt interface
 			assert.Equal(t, tt.expectedType, tt.stmt.StatementType())
 
 			// Test Node interface
@@ -278,8 +278,8 @@ func TestStatementInterfaces(t *testing.T) {
 	}
 }
 
-// TestComplexStatementCreation tests building complex statement structures.
-func TestComplexStatementCreation(t *testing.T) {
+// TestComplexStmtCreation tests building complex statement structures.
+func TestComplexStmtCreation(t *testing.T) {
 	t.Run("SELECT with targets and WHERE", func(t *testing.T) {
 		stmt := NewSelectStmt()
 
@@ -341,8 +341,8 @@ func TestComplexStatementCreation(t *testing.T) {
 	})
 }
 
-// TestStatementNodeTraversal tests that statement nodes work with the node traversal system.
-func TestStatementNodeTraversal(t *testing.T) {
+// TestStmtNodeTraversal tests that statement nodes work with the node traversal system.
+func TestStmtNodeTraversal(t *testing.T) {
 	// Create a simple SELECT statement
 	stmt := NewSelectStmt()
 

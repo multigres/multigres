@@ -106,15 +106,15 @@ func (o ObjectType) String() string {
 type DropBehavior int
 
 const (
-	DROP_RESTRICT DropBehavior = iota // drop fails if any dependent objects
-	DROP_CASCADE                      // remove dependent objects too
+	DropRestrict DropBehavior = iota // drop fails if any dependent objects
+	DropCascade                      // remove dependent objects too
 )
 
 func (d DropBehavior) String() string {
 	switch d {
-	case DROP_RESTRICT:
+	case DropRestrict:
 		return "RESTRICT"
-	case DROP_CASCADE:
+	case DropCascade:
 		return "CASCADE"
 	default:
 		return fmt.Sprintf("DropBehavior(%d)", int(d))
@@ -598,7 +598,7 @@ func NewAlterTableCmd(subtype AlterTableType, name string, def Node) *AlterTable
 		Subtype:  subtype,
 		Name:     name,
 		Def:      def,
-		Behavior: DROP_RESTRICT,
+		Behavior: DropRestrict,
 	}
 }
 
@@ -760,7 +760,7 @@ func NewAlterDomainStmt(subtype byte, typeName []string) *AlterDomainStmt {
 		BaseNode: BaseNode{Tag: T_AlterDomainStmt},
 		Subtype:  subtype,
 		TypeName: typeName,
-		Behavior: DROP_RESTRICT,
+		Behavior: DropRestrict,
 	}
 }
 

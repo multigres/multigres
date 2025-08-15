@@ -159,7 +159,7 @@ type CreateFunctionStmt struct {
 // node implements the Node interface
 func (cfs *CreateFunctionStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (cfs *CreateFunctionStmt) stmt() {}
 
 // String returns string representation of CreateFunctionStmt
@@ -233,7 +233,7 @@ type CreateSeqStmt struct {
 // node implements the Node interface
 func (css *CreateSeqStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (css *CreateSeqStmt) stmt() {}
 
 // String returns string representation of CreateSeqStmt
@@ -332,7 +332,7 @@ type CreateOpClassStmt struct {
 // node implements the Node interface
 func (cocs *CreateOpClassStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (cocs *CreateOpClassStmt) stmt() {}
 
 // String returns string representation of CreateOpClassStmt
@@ -394,7 +394,7 @@ type CreateOpFamilyStmt struct {
 // node implements the Node interface
 func (cofs *CreateOpFamilyStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (cofs *CreateOpFamilyStmt) stmt() {}
 
 // String returns string representation of CreateOpFamilyStmt
@@ -437,7 +437,7 @@ type CreateCastStmt struct {
 // node implements the Node interface
 func (ccs *CreateCastStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (ccs *CreateCastStmt) stmt() {}
 
 // String returns string representation of CreateCastStmt
@@ -497,7 +497,7 @@ type CreateConversionStmt struct {
 // node implements the Node interface
 func (ccs *CreateConversionStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (ccs *CreateConversionStmt) stmt() {}
 
 // String returns string representation of CreateConversionStmt
@@ -555,7 +555,7 @@ type CreateTransformStmt struct {
 // node implements the Node interface
 func (cts *CreateTransformStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (cts *CreateTransformStmt) stmt() {}
 
 // String returns string representation of CreateTransformStmt
@@ -603,7 +603,7 @@ type DefineStmt struct {
 // node implements the Node interface
 func (ds *DefineStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (ds *DefineStmt) stmt() {}
 
 // String returns string representation of DefineStmt
@@ -665,7 +665,7 @@ type DeclareCursorStmt struct {
 // node implements the Node interface
 func (dcs *DeclareCursorStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (dcs *DeclareCursorStmt) stmt() {}
 
 // String returns string representation of DeclareCursorStmt
@@ -702,7 +702,7 @@ type FetchStmt struct {
 // node implements the Node interface
 func (fs *FetchStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (fs *FetchStmt) stmt() {}
 
 // String returns string representation of FetchStmt
@@ -760,7 +760,7 @@ type ClosePortalStmt struct {
 // node implements the Node interface
 func (cps *ClosePortalStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (cps *ClosePortalStmt) stmt() {}
 
 // String returns string representation of ClosePortalStmt
@@ -788,7 +788,7 @@ type CreateEnumStmt struct {
 // node implements the Node interface
 func (ces *CreateEnumStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (ces *CreateEnumStmt) stmt() {}
 
 // String returns string representation of CreateEnumStmt
@@ -838,7 +838,7 @@ type CreateRangeStmt struct {
 // node implements the Node interface
 func (crs *CreateRangeStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (crs *CreateRangeStmt) stmt() {}
 
 // String returns string representation of CreateRangeStmt
@@ -887,7 +887,7 @@ type CreateStatsStmt struct {
 // node implements the Node interface
 func (css *CreateStatsStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (css *CreateStatsStmt) stmt() {}
 
 // String returns string representation of CreateStatsStmt
@@ -955,7 +955,7 @@ type CreatePLangStmt struct {
 // node implements the Node interface
 func (cpls *CreatePLangStmt) node() {}
 
-// stmt implements the Statement interface
+// stmt implements the Stmt interface
 func (cpls *CreatePLangStmt) stmt() {}
 
 // String returns string representation of CreatePLangStmt

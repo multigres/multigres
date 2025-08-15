@@ -170,8 +170,8 @@ func TestBasicUnicodeEscapes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 
 			if tt.hasError {
 				assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors")
@@ -245,8 +245,8 @@ func TestSurrogatePairUnicodeEscapes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 
 			if tt.hasError {
 				assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors for input: %s", tt.input)
@@ -302,8 +302,8 @@ func TestComplexSurrogatePairScenarios(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 
 			if tt.hasError {
 				assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors for input: %s", tt.input)
@@ -326,8 +326,8 @@ func TestStateXEUTransitions(t *testing.T) {
 
 	// This should be tested by examining internal state during processing
 	// For now, we test the end result
-	token, err := lexer.NextToken()
-	require.NoError(t, err)
+	token := lexer.NextToken()
+	require.NotNil(t, token)
 
 	// Should end up back in StateInitial
 	assert.Equal(t, StateInitial, lexer.context.GetState())
@@ -359,10 +359,10 @@ func TestErrorRecoveryInSurrogatePairs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
 			// Should not panic and should return some token
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			require.NotNil(t, token)
 
 			// Should have errors
@@ -400,8 +400,8 @@ func TestPostgreSQLCompatibilityUnicode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 
 			if tt.hasError {
 				assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors for input: %s", tt.input)
@@ -451,8 +451,8 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 
 			if tt.hasError {
 				assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors for input: %s", tt.input)
@@ -471,8 +471,8 @@ func TestAdvancedUnicodeIntegration(t *testing.T) {
 		input := "E'prefix\\uD83D\\uDE00suffix'"
 		lexer := NewLexer(input)
 
-		token, err := lexer.NextToken()
-		require.NoError(t, err)
+		token := lexer.NextToken()
+		require.NotNil(t, token)
 		require.NotNil(t, token)
 
 		// Should have no errors
@@ -491,20 +491,20 @@ func TestAdvancedUnicodeIntegration(t *testing.T) {
 		lexer := NewLexer(input)
 
 		// First token
-		token1, err := lexer.NextToken()
-		require.NoError(t, err)
+		token1 := lexer.NextToken()
+		require.NotNil(t, token1)
 		assert.Equal(t, SCONST, token1.Type)
 		assert.Equal(t, "😀", token1.Value.Str)
 
 		// Second token
-		token2, err := lexer.NextToken()
-		require.NoError(t, err)
+		token2 := lexer.NextToken()
+		require.NotNil(t, token2)
 		assert.Equal(t, SCONST, token2.Type)
 		assert.Equal(t, "😁", token2.Value.Str)
 
 		// EOF
-		eof, err := lexer.NextToken()
-		require.NoError(t, err)
+		eof := lexer.NextToken()
+		require.NotNil(t, eof)
 		assert.Equal(t, EOF, eof.Type)
 
 		assert.Empty(t, lexer.context.Errors(), "Expected no errors")
@@ -516,16 +516,16 @@ func TestAdvancedUnicodeIntegration(t *testing.T) {
 		lexer := NewLexer(input)
 
 		// First token should have errors
-		_, err := lexer.NextToken()
-		require.NoError(t, err)
+		token1 := lexer.NextToken()
+		require.NotNil(t, token1)
 		assert.True(t, len(lexer.context.Errors()) > 0, "Expected errors in first token")
 
 		// Clear errors for next token
 		lexer.context.ClearErrors()
 
 		// Second token should be valid
-		token2, err := lexer.NextToken()
-		require.NoError(t, err)
+		token2 := lexer.NextToken()
+		require.NotNil(t, token2)
 		assert.Equal(t, SCONST, token2.Type)
 		assert.Equal(t, "valid", token2.Value.Str)
 		assert.Empty(t, lexer.context.Errors(), "Expected no errors in second token")
@@ -539,8 +539,8 @@ func TestStateXEUBehavior(t *testing.T) {
 		input := "E'\\uD83D\\uDE00'"
 		lexer := NewLexer(input)
 
-		token, err := lexer.NextToken()
-		require.NoError(t, err)
+		token := lexer.NextToken()
+		require.NotNil(t, token)
 
 		// The fact that we get the correct combined character means StateXEU worked
 		assert.Equal(t, "😀", token.Value.Str)
@@ -562,8 +562,8 @@ func TestStateXEUBehavior(t *testing.T) {
 		for _, tc := range errorCases {
 			t.Run(tc.name, func(t *testing.T) {
 				lexer := NewLexer(tc.input)
-				token, err := lexer.NextToken()
-				require.NoError(t, err)
+				token := lexer.NextToken()
+				require.NotNil(t, token)
 
 				// Should have errors
 				assert.True(t, len(lexer.context.Errors()) > 0, "Expected errors for: %s", tc.input)
@@ -585,8 +585,8 @@ func TestUnicodePerformance(t *testing.T) {
 	input += "'"
 
 	lexer := NewLexer(input)
-	token, err := lexer.NextToken()
-	require.NoError(t, err)
+	token := lexer.NextToken()
+	require.NotNil(t, token)
 
 	// Should process correctly
 	expected := ""
@@ -649,8 +649,8 @@ func TestPostgreSQLRegressionCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 
 			if tt.hasError {
 				assert.True(t, len(lexer.context.Errors()) > 0, "Expected errors for: %s", tt.input)
@@ -700,8 +700,8 @@ func TestComplexUnicodeStringScenarios(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 
 			if tt.hasError {
 				assert.True(t, len(lexer.context.Errors()) > 0, "Expected errors for: %s", tt.input)
@@ -727,8 +727,8 @@ func TestUnicodeStatePreservation(t *testing.T) {
 
 	for i, input := range inputs {
 		lexer := NewLexer(input)
-		token, err := lexer.NextToken()
-		require.NoError(t, err)
+		token := lexer.NextToken()
+		require.NotNil(t, token)
 
 		assert.Equal(t, SCONST, token.Type)
 		assert.Equal(t, expected[i], token.Value.Str)
@@ -747,10 +747,7 @@ func BenchmarkSurrogatePairProcessing(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		lexer := NewLexer(input)
-		token, err := lexer.NextToken()
-		if err != nil {
-			b.Fatal(err)
-		}
+		token := lexer.NextToken()
 		if token.Type != SCONST {
 			b.Fatal("Expected SCONST token")
 		}
@@ -764,10 +761,7 @@ func BenchmarkMultipleSurrogatePairs(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		lexer := NewLexer(input)
-		token, err := lexer.NextToken()
-		if err != nil {
-			b.Fatal(err)
-		}
+		token := lexer.NextToken()
 		if token.Type != SCONST {
 			b.Fatal("Expected SCONST token")
 		}

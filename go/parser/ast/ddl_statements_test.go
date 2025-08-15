@@ -28,8 +28,8 @@ func TestDDLSupportingTypes(t *testing.T) {
 	})
 
 	t.Run("DropBehavior", func(t *testing.T) {
-		assert.Equal(t, "RESTRICT", DROP_RESTRICT.String())
-		assert.Equal(t, "CASCADE", DROP_CASCADE.String())
+		assert.Equal(t, "RESTRICT", DropRestrict.String())
+		assert.Equal(t, "CASCADE", DropCascade.String())
 	})
 
 	t.Run("ConstrType", func(t *testing.T) {
@@ -236,7 +236,7 @@ func TestAlterTableStmt(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = alterStmt
-		var _ Statement = alterStmt
+		var _ Stmt = alterStmt
 
 		// Test the command
 		cmd := alterStmt.Cmds[0]
@@ -250,14 +250,14 @@ func TestAlterTableStmt(t *testing.T) {
 
 	t.Run("DropColumn", func(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
-		dropColumnCmd := NewDropColumnCmd("old_field", DROP_CASCADE)
+		dropColumnCmd := NewDropColumnCmd("old_field", DropCascade)
 
 		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{dropColumnCmd})
 
 		cmd := alterStmt.Cmds[0]
 		assert.Equal(t, AT_DropColumn, cmd.Subtype)
 		assert.Equal(t, "old_field", cmd.Name)
-		assert.Equal(t, DROP_CASCADE, cmd.Behavior)
+		assert.Equal(t, DropCascade, cmd.Behavior)
 		assert.Contains(t, cmd.String(), "DROP_COLUMN")
 	})
 
@@ -277,14 +277,14 @@ func TestAlterTableStmt(t *testing.T) {
 
 	t.Run("DropConstraint", func(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
-		dropConstraintCmd := NewDropConstraintCmd("old_constraint", DROP_RESTRICT)
+		dropConstraintCmd := NewDropConstraintCmd("old_constraint", DropRestrict)
 
 		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{dropConstraintCmd})
 
 		cmd := alterStmt.Cmds[0]
 		assert.Equal(t, AT_DropConstraint, cmd.Subtype)
 		assert.Equal(t, "old_constraint", cmd.Name)
-		assert.Equal(t, DROP_RESTRICT, cmd.Behavior)
+		assert.Equal(t, DropRestrict, cmd.Behavior)
 		assert.Contains(t, cmd.String(), "DROP_CONSTRAINT")
 	})
 }
@@ -308,7 +308,7 @@ func TestIndexStmt(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = indexStmt
-		var _ Statement = indexStmt
+		var _ Stmt = indexStmt
 	})
 
 	t.Run("UniqueIndex", func(t *testing.T) {
@@ -402,7 +402,7 @@ func TestViewStmt(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = viewStmt
-		var _ Statement = viewStmt
+		var _ Stmt = viewStmt
 	})
 
 	t.Run("CreateOrReplaceView", func(t *testing.T) {
@@ -448,7 +448,7 @@ func TestDomainStmts(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = createDomainStmt
-		var _ Statement = createDomainStmt
+		var _ Stmt = createDomainStmt
 	})
 
 	t.Run("AlterDomainStmt", func(t *testing.T) {
@@ -459,12 +459,12 @@ func TestDomainStmts(t *testing.T) {
 		assert.Equal(t, "AlterDomainStmt", alterDomainStmt.StatementType())
 		assert.Equal(t, byte('T'), alterDomainStmt.Subtype)
 		assert.Equal(t, typeName, alterDomainStmt.TypeName)
-		assert.Equal(t, DROP_RESTRICT, alterDomainStmt.Behavior)
+		assert.Equal(t, DropRestrict, alterDomainStmt.Behavior)
 		assert.Contains(t, alterDomainStmt.String(), "email_domain")
 
 		// Test interface compliance
 		var _ Node = alterDomainStmt
-		var _ Statement = alterDomainStmt
+		var _ Stmt = alterDomainStmt
 	})
 }
 
@@ -482,7 +482,7 @@ func TestSchemaStmt(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = createSchemaStmt
-		var _ Statement = createSchemaStmt
+		var _ Stmt = createSchemaStmt
 	})
 
 	t.Run("CreateSchemaIfNotExists", func(t *testing.T) {
@@ -515,7 +515,7 @@ func TestExtensionStmt(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = createExtStmt
-		var _ Statement = createExtStmt
+		var _ Stmt = createExtStmt
 	})
 
 	t.Run("CreateExtensionIfNotExists", func(t *testing.T) {
@@ -598,7 +598,7 @@ func TestDDLComplexExamples(t *testing.T) {
 		addConstraintCmd := NewAddConstraintCmd(uniqueConstraint)
 
 		// Drop column command
-		dropColumnCmd := NewDropColumnCmd("old_field", DROP_CASCADE)
+		dropColumnCmd := NewDropColumnCmd("old_field", DropCascade)
 
 		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{
 			addColumnCmd, addConstraintCmd, dropColumnCmd,

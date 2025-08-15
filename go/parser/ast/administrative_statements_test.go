@@ -41,11 +41,11 @@ func TestAddColumnCmd(t *testing.T) {
 }
 
 func TestDropColumnCmd(t *testing.T) {
-	atc := NewDropColumnCmd("old_column", DROP_CASCADE)
+	atc := NewDropColumnCmd("old_column", DropCascade)
 
 	assert.Equal(t, AT_DropColumn, atc.Subtype, "Expected AT_DropColumn")
 	assert.Equal(t, "old_column", atc.Name, "Expected name 'old_column'")
-	assert.Equal(t, DROP_CASCADE, atc.Behavior, "Expected DROP_CASCADE")
+	assert.Equal(t, DropCascade, atc.Behavior, "Expected DropCascade")
 }
 
 func TestAddConstraintCmd(t *testing.T) {
@@ -57,11 +57,11 @@ func TestAddConstraintCmd(t *testing.T) {
 }
 
 func TestDropConstraintCmd(t *testing.T) {
-	atc := NewDropConstraintCmd("test_constraint", DROP_RESTRICT)
+	atc := NewDropConstraintCmd("test_constraint", DropRestrict)
 
 	assert.Equal(t, AT_DropConstraint, atc.Subtype, "Expected AT_DropConstraint")
 	assert.Equal(t, "test_constraint", atc.Name, "Expected name 'test_constraint'")
-	assert.Equal(t, DROP_RESTRICT, atc.Behavior, "Expected DROP_RESTRICT")
+	assert.Equal(t, DropRestrict, atc.Behavior, "Expected DropRestrict")
 }
 
 // ==============================================================================

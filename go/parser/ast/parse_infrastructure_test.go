@@ -694,8 +694,8 @@ func TestParseInfrastructureNodeInterfaces(t *testing.T) {
 	})
 
 	t.Run("Statement interface implementation", func(t *testing.T) {
-		// Test that statement nodes implement Statement interface
-		statements := []Statement{
+		// Test that statement nodes implement Stmt interface
+		statements := []Stmt{
 			NewRawStmt(NewSelectStmt(), 0, 10),
 			NewColumnDef("col", nil, 0),
 			NewWindowDef("win", 0),

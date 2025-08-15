@@ -7,33 +7,33 @@
 - ✅ Completed
 - 🔄 Needs Revision
 
-## Phase 3A: Grammar Foundation & Infrastructure (~20 rules)
+## Phase 3A: Grammar Foundation & Infrastructure (~20 rules) 🟨 MOSTLY COMPLETE
 
-### Core Structure
-- ⬜ `parse_toplevel` - Top-level parser entry point
-- ⬜ `stmtmulti` - Multiple statements separated by semicolons
-- ⬜ `toplevel_stmt` - Top-level statement wrapper
-- ⬜ `stmt` - Individual statement dispatcher
+### Core Structure 🟨 PARTIALLY COMPLETE  
+- 🟨 `parse_toplevel` - Top-level parser entry point (missing MODE_TYPE_NAME, MODE_PLPGSQL_EXPR alternatives)
+- ✅ `stmtmulti` - Multiple statements separated by semicolons (fully implemented)
+- 🟨 `toplevel_stmt` - Top-level statement wrapper (missing TransactionStmtLegacy)
+- 🟨 `stmt` - Individual statement dispatcher (placeholder only, needs statement types in Phase 3B+)
 
-### Common Options
-- ⬜ `opt_single_name` - Optional single name
-- ⬜ `opt_qualified_name` - Optional qualified name
-- ⬜ `opt_drop_behavior` - CASCADE/RESTRICT option
-- ⬜ `opt_concurrently` - CONCURRENTLY option
-- ⬜ `opt_if_exists` - IF EXISTS clause
-- ⬜ `opt_if_not_exists` - IF NOT EXISTS clause
-- ⬜ `opt_or_replace` - OR REPLACE option
-- ⬜ `opt_with` - WITH option
-- ⬜ `OptWith` - Alternative WITH option
+### Common Options ✅ COMPLETED
+- ✅ `opt_single_name` - Optional single name (matches PostgreSQL)
+- ✅ `opt_qualified_name` - Optional qualified name (matches PostgreSQL)
+- ✅ `opt_drop_behavior` - CASCADE/RESTRICT option (correct enums and default)
+- ✅ `opt_concurrently` - CONCURRENTLY option (matches PostgreSQL)
+- ✅ `opt_if_exists` - IF EXISTS clause (matches PostgreSQL)
+- ✅ `opt_if_not_exists` - IF NOT EXISTS clause (matches PostgreSQL)
+- ✅ `opt_or_replace` - OR REPLACE option (matches PostgreSQL)
+- 🟨 `opt_with` - WITH option (basic, needs WITH clause content in Phase 3D)
+- 🟨 `OptWith` - Alternative WITH option (basic, needs lookahead token handling)
 
-### Names and Identifiers
-- ⬜ `ColId` - Column identifier
-- ⬜ `ColLabel` - Column label
-- ⬜ `name` - Simple name
-- ⬜ `name_list` - List of names
-- ⬜ `qualified_name` - Schema-qualified name
-- ⬜ `qualified_name_list` - List of qualified names
-- ⬜ `any_name` - Any name (for generic objects)
+### Names and Identifiers ✅ MOSTLY COMPLETED
+- 🟨 `ColId` - Column identifier (structure correct, needs full keyword categories)
+- 🟨 `ColLabel` - Column label (structure correct, needs full keyword categories)
+- ✅ `name` - Simple name (correctly delegates to ColId)
+- ✅ `name_list` - List of names (now returns proper NodeList of String nodes)
+- 🟨 `qualified_name` - Schema-qualified name (supports 1-2 parts, missing indirection for 3+)
+- ✅ `qualified_name_list` - List of qualified names (correctly implemented)
+- 🟨 `any_name` - Any name (supports 1-2 parts, missing attrs for 3+)
 
 ## Phase 3B: Basic Expression Grammar (~40 rules)
 
@@ -986,13 +986,14 @@
 ## Progress Summary
 
 **Total Rules**: 727
-**Completed**: 0 (0%)
-**In Progress**: 0 (0%)
-**Not Started**: 727 (100%)
+**Completed**: 9 (1.2%)
+**In Progress**: 11 (1.5%)
+**Needs Revision**: 0 (0%)
+**Not Started**: 707 (97.3%)
 
 ### Phase Breakdown:
-- Phase 3A (Foundation): 0/20 completed
-- Phase 3B (Expressions): 0/40 completed
+- Phase 3A (Foundation): 9/20 completed, 11/20 in progress
+- Phase 3B (Expressions): 0/40 completed  
 - Phase 3C (SELECT Core): 0/35 completed
 - Phase 3D (JOINs): 0/45 completed
 - Phase 3E (DML): 0/50 completed
@@ -1003,7 +1004,10 @@
 - Phase 3J (PostgreSQL-Specific): 0/217 completed
 
 ## Next Steps
-1. Start with Phase 3A - Grammar Foundation
-2. Implement parse_toplevel, stmtmulti, stmt rules first
-3. Set up goyacc integration with lexer
-4. Test basic statement parsing before moving to expressions
+1. **Complete Phase 3A** - Currently in progress with basic implementations
+2. **Enhance existing rules** to match full PostgreSQL grammar complexity:
+   - Complete `stmt` rule with all statement types
+   - Add full keyword handling to `ColId` and `ColLabel`
+   - Implement complete PostgreSQL-compatible option rules
+3. **Achieve 100% compatibility** for Phase 3A rules before moving to Phase 3B
+4. Only mark rules as ✅ when they handle all PostgreSQL edge cases and variations

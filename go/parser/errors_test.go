@@ -528,11 +528,7 @@ func TestRealWorldErrorScenarios(t *testing.T) {
 			// Keep getting tokens until EOF or error
 			var lastError error
 			for {
-				token, err := lexer.NextToken()
-				if err != nil {
-					lastError = err
-					break
-				}
+				token := lexer.NextToken()
 				if token.Type == EOF {
 					break
 				}

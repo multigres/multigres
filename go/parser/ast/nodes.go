@@ -720,10 +720,10 @@ func (l *NodeList) String() string {
 	return fmt.Sprintf("List[%d items]@%d", len(l.Items), l.Location())
 }
 
-// Statement represents the base interface for all SQL statements.
+// Stmt represents the base interface for all SQL statements.
 // All top-level SQL constructs implement this interface.
 // Ported from postgres statement node concept
-type Statement interface {
+type Stmt interface {
 	Node
 	StatementType() string
 }
@@ -1014,6 +1014,16 @@ func CastNode(v interface{}) Node {
 	}
 	return nil
 }
+
+// NewQualifiedName creates a qualified name node (schema.name)
+func NewQualifiedName(schema, name string) Node {
+	return &RangeVar{
+		BaseNode:   BaseNode{Tag: T_RangeVar},
+		SchemaName: schema,
+		RelName:    name,
+	}
+}
+
 
 // NodeWalker is a function type for walking the AST.
 // It receives a node and returns whether to continue walking.

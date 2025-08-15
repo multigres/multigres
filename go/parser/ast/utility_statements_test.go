@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestTransactionStatements tests transaction control statements.
-func TestTransactionStatements(t *testing.T) {
+// TestTransactionStmts tests transaction control statements.
+func TestTransactionStmts(t *testing.T) {
 	t.Run("TransactionStmtKind", func(t *testing.T) {
 		tests := []struct {
 			kind     TransactionStmtKind
@@ -41,7 +41,7 @@ func TestTransactionStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("CommitStmt", func(t *testing.T) {
@@ -89,8 +89,8 @@ func TestTransactionStatements(t *testing.T) {
 	})
 }
 
-// TestGrantStatements tests GRANT/REVOKE statements.
-func TestGrantStatements(t *testing.T) {
+// TestGrantStmts tests GRANT/REVOKE statements.
+func TestGrantStmts(t *testing.T) {
 	t.Run("GrantTargetType", func(t *testing.T) {
 		assert.Equal(t, "OBJECT", ACL_TARGET_OBJECT.String())
 		assert.Equal(t, "ALL_IN_SCHEMA", ACL_TARGET_ALL_IN_SCHEMA.String())
@@ -129,7 +129,7 @@ func TestGrantStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("RevokeStmt", func(t *testing.T) {
@@ -159,7 +159,7 @@ func TestGrantStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("RevokeRoleStmt", func(t *testing.T) {
@@ -174,9 +174,9 @@ func TestGrantStatements(t *testing.T) {
 	})
 }
 
-// TestRoleStatements tests role management statements.
-func TestRoleStatements(t *testing.T) {
-	t.Run("RoleStmtType", func(t *testing.T) {
+// TestRoleStmts tests role management statements.
+func TestRoleStmts(t *testing.T) {
+	t.Run("RoleStatementType", func(t *testing.T) {
 		assert.Equal(t, "ROLE", ROLESTMT_ROLE.String())
 		assert.Equal(t, "USER", ROLESTMT_USER.String())
 		assert.Equal(t, "GROUP", ROLESTMT_GROUP.String())
@@ -195,7 +195,7 @@ func TestRoleStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("AlterRoleStmt", func(t *testing.T) {
@@ -211,7 +211,7 @@ func TestRoleStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("DropRoleStmt", func(t *testing.T) {
@@ -227,12 +227,12 @@ func TestRoleStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 }
 
-// TestConfigurationStatements tests SET/SHOW/RESET statements.
-func TestConfigurationStatements(t *testing.T) {
+// TestConfigurationStmts tests SET/SHOW/RESET statements.
+func TestConfigurationStmts(t *testing.T) {
 	t.Run("VariableSetKind", func(t *testing.T) {
 		tests := []struct {
 			kind     VariableSetKind
@@ -265,7 +265,7 @@ func TestConfigurationStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("LocalSetStmt", func(t *testing.T) {
@@ -296,12 +296,12 @@ func TestConfigurationStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 }
 
-// TestQueryAnalysisStatements tests EXPLAIN/PREPARE/EXECUTE statements.
-func TestQueryAnalysisStatements(t *testing.T) {
+// TestQueryAnalysisStmts tests EXPLAIN/PREPARE/EXECUTE statements.
+func TestQueryAnalysisStmts(t *testing.T) {
 	t.Run("ExplainStmt", func(t *testing.T) {
 		query := NewSelectStmt()
 		analyzeOpt := NewDefElem("analyze", NewBoolean(true))
@@ -315,7 +315,7 @@ func TestQueryAnalysisStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("PrepareStmt", func(t *testing.T) {
@@ -332,7 +332,7 @@ func TestQueryAnalysisStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("ExecuteStmt", func(t *testing.T) {
@@ -347,7 +347,7 @@ func TestQueryAnalysisStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("DeallocateStmt", func(t *testing.T) {
@@ -360,7 +360,7 @@ func TestQueryAnalysisStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("DeallocateAllStmt", func(t *testing.T) {
@@ -371,8 +371,8 @@ func TestQueryAnalysisStatements(t *testing.T) {
 	})
 }
 
-// TestCopyStatements tests COPY statements.
-func TestCopyStatements(t *testing.T) {
+// TestCopyStmts tests COPY statements.
+func TestCopyStmts(t *testing.T) {
 	t.Run("CopyFromStmt", func(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		stmt := NewCopyFromStmt(relation, "/tmp/users.csv")
@@ -387,7 +387,7 @@ func TestCopyStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("CopyToStmt", func(t *testing.T) {
@@ -408,8 +408,8 @@ func TestCopyStatements(t *testing.T) {
 	})
 }
 
-// TestMaintenanceStatements tests maintenance statements.
-func TestMaintenanceStatements(t *testing.T) {
+// TestMaintenanceStmts tests maintenance statements.
+func TestMaintenanceStmts(t *testing.T) {
 	t.Run("VacuumRelation", func(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		vr := NewVacuumRelation(relation, []string{"name", "email"})
@@ -438,7 +438,7 @@ func TestMaintenanceStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("AnalyzeStmt", func(t *testing.T) {
@@ -480,7 +480,7 @@ func TestMaintenanceStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("ReindexTableStmt", func(t *testing.T) {
@@ -513,12 +513,12 @@ func TestMaintenanceStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 }
 
-// TestAdministrativeStatements tests administrative statements.
-func TestAdministrativeStatements(t *testing.T) {
+// TestAdministrativeStmts tests administrative statements.
+func TestAdministrativeStmts(t *testing.T) {
 	t.Run("CheckPointStmt", func(t *testing.T) {
 		stmt := NewCheckPointStmt()
 
@@ -528,7 +528,7 @@ func TestAdministrativeStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("DiscardMode", func(t *testing.T) {
@@ -557,7 +557,7 @@ func TestAdministrativeStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("LoadStmt", func(t *testing.T) {
@@ -570,7 +570,7 @@ func TestAdministrativeStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("NotifyStmt", func(t *testing.T) {
@@ -585,7 +585,7 @@ func TestAdministrativeStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("NotifyStmtWithoutPayload", func(t *testing.T) {
@@ -605,7 +605,7 @@ func TestAdministrativeStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("UnlistenStmt", func(t *testing.T) {
@@ -618,7 +618,7 @@ func TestAdministrativeStatements(t *testing.T) {
 
 		// Test interface compliance
 		var _ Node = stmt
-		var _ Statement = stmt
+		var _ Stmt = stmt
 	})
 
 	t.Run("UnlistenAllStmt", func(t *testing.T) {
@@ -640,7 +640,7 @@ func TestUtilityComplexExamples(t *testing.T) {
 		releaseStmt := NewReleaseStmt("sp1")
 		commitStmt := NewCommitStmt()
 
-		statements := []Statement{beginStmt, savepointStmt, rollbackToStmt, releaseStmt, commitStmt}
+		statements := []Stmt{beginStmt, savepointStmt, rollbackToStmt, releaseStmt, commitStmt}
 
 		for _, stmt := range statements {
 			assert.Equal(t, T_TransactionStmt, stmt.NodeTag())
@@ -698,7 +698,7 @@ func TestUtilityComplexExamples(t *testing.T) {
 		assert.Contains(t, stmt.String(), "VACUUM")
 	})
 
-	t.Run("PreparedStatementWorkflow", func(t *testing.T) {
+	t.Run("PreparedStmtWorkflow", func(t *testing.T) {
 		// PREPARE get_user (integer) AS SELECT * FROM users WHERE id = $1;
 		// EXECUTE get_user (123);
 		// DEALLOCATE get_user;

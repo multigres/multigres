@@ -1,34 +1,112 @@
 
 state 0
-	$accept: .placeholder_start $end 
+	$accept: .parse_toplevel $end 
+	stmt: .    (5)
 
-	PLACEHOLDER_TOKEN  shift 2
-	.  error
+	.  reduce 5 (src line 168)
 
-	placeholder_start  goto 1
+	parse_toplevel  goto 1
+	stmtmulti  goto 2
+	toplevel_stmt  goto 3
+	stmt  goto 4
 
 state 1
-	$accept:  placeholder_start.$end 
+	$accept:  parse_toplevel.$end 
 
 	$end  accept
 	.  error
 
 
 state 2
-	placeholder_start:  PLACEHOLDER_TOKEN.    (1)
+	parse_toplevel:  stmtmulti.    (1)
+	stmtmulti:  stmtmulti.';' toplevel_stmt 
 
-	.  reduce 1 (src line 37)
+	';'  shift 5
+	.  reduce 1 (src line 118)
 
 
-4 terminals, 2 nonterminals
-2 grammar rules, 3/16000 states
+state 3
+	stmtmulti:  toplevel_stmt.    (3)
+
+	.  reduce 3 (src line 142)
+
+
+state 4
+	toplevel_stmt:  stmt.    (4)
+
+	.  reduce 4 (src line 156)
+
+
+state 5
+	stmtmulti:  stmtmulti ';'.toplevel_stmt 
+	stmt: .    (5)
+
+	.  reduce 5 (src line 168)
+
+	toplevel_stmt  goto 6
+	stmt  goto 4
+
+state 6
+	stmtmulti:  stmtmulti ';' toplevel_stmt.    (2)
+
+	.  reduce 2 (src line 133)
+
+Rule not reduced: opt_single_name:  ColId 
+Rule not reduced: opt_single_name:  
+Rule not reduced: opt_qualified_name:  qualified_name 
+Rule not reduced: opt_qualified_name:  
+Rule not reduced: opt_drop_behavior:  CASCADE 
+Rule not reduced: opt_drop_behavior:  RESTRICT 
+Rule not reduced: opt_drop_behavior:  
+Rule not reduced: opt_if_exists:  IF_P EXISTS 
+Rule not reduced: opt_if_exists:  
+Rule not reduced: opt_if_not_exists:  IF_P NOT EXISTS 
+Rule not reduced: opt_if_not_exists:  
+Rule not reduced: opt_or_replace:  OR REPLACE 
+Rule not reduced: opt_or_replace:  
+Rule not reduced: opt_concurrently:  CONCURRENTLY 
+Rule not reduced: opt_concurrently:  
+Rule not reduced: opt_with:  WITH IDENT 
+Rule not reduced: opt_with:  
+Rule not reduced: OptWith:  WITH 
+Rule not reduced: OptWith:  WITH_LA 
+Rule not reduced: OptWith:  WITHOUT_LA 
+Rule not reduced: OptWith:  
+Rule not reduced: ColId:  IDENT 
+Rule not reduced: ColId:  unreserved_keyword 
+Rule not reduced: ColId:  col_name_keyword 
+Rule not reduced: ColLabel:  IDENT 
+Rule not reduced: ColLabel:  unreserved_keyword 
+Rule not reduced: ColLabel:  col_name_keyword 
+Rule not reduced: ColLabel:  type_func_name_keyword 
+Rule not reduced: ColLabel:  reserved_keyword 
+Rule not reduced: name:  ColId 
+Rule not reduced: name_list:  name 
+Rule not reduced: name_list:  name_list ',' name 
+Rule not reduced: qualified_name:  ColId 
+Rule not reduced: qualified_name:  ColId '.' ColId 
+Rule not reduced: qualified_name_list:  qualified_name 
+Rule not reduced: qualified_name_list:  qualified_name_list ',' qualified_name 
+Rule not reduced: any_name:  ColId 
+Rule not reduced: any_name:  ColId '.' ColId 
+Rule not reduced: any_name_list:  any_name 
+Rule not reduced: any_name_list:  any_name_list ',' any_name 
+Rule not reduced: unreserved_keyword:  ALL 
+Rule not reduced: col_name_keyword:  IDENT 
+Rule not reduced: type_func_name_keyword:  IDENT 
+Rule not reduced: reserved_keyword:  CREATE 
+Rule not reduced: reserved_keyword:  DROP 
+Rule not reduced: reserved_keyword:  ALTER 
+
+64 terminals, 26 nonterminals
+52 grammar rules, 7/16000 states
 0 shift/reduce, 0 reduce/reduce conflicts reported
-51 working sets used
-memory: parser 0/240000
+75 working sets used
+memory: parser 5/240000
 0 extra closures
 1 shift entries, 1 exceptions
-1 goto entries
-0 entries saved by goto default
-Optimizer space used: output 2/240000
-2 table entries, 0 zero
-maximum spread: 4, maximum offset: 4
+26 goto entries
+-20 entries saved by goto default
+Optimizer space used: output 8/240000
+8 table entries, 2 zero
+maximum spread: 62, maximum offset: 62

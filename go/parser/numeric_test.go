@@ -43,9 +43,9 @@ func TestDecimalIntegers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.token, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -79,9 +79,9 @@ func TestHexadecimalIntegers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.token, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -111,9 +111,9 @@ func TestOctalIntegers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.token, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -145,9 +145,9 @@ func TestBinaryIntegers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.token, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -178,9 +178,9 @@ func TestFloatingPointNumbers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.token, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -221,9 +221,9 @@ func TestScientificNotation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.token, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -265,10 +265,10 @@ func TestNumericFailPatterns(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
 			// PostgreSQL continues lexing and returns a token even with errors
-			assert.NoError(t, err)
+			assert.NotNil(t, token)
 			assert.Equal(t, tt.tokenType, token.Type, tt.description)
 
 			// Check that error was recorded in context
@@ -307,10 +307,10 @@ func TestNumericJunkPatterns(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
 			// PostgreSQL continues lexing and returns a token even with errors
-			assert.NoError(t, err)
+			assert.NotNil(t, token)
 			assert.Equal(t, tt.tokenType, token.Type, tt.description)
 			assert.Equal(t, tt.tokenValue, token.Value.Str, tt.description)
 
@@ -401,8 +401,8 @@ func TestNumericEdgeCases(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
 			for i, expectedType := range tt.expected {
-				token, err := lexer.NextToken()
-				require.NoError(t, err, tt.description)
+				token := lexer.NextToken()
+				require.NotNil(t, token, tt.description)
 				assert.Equal(t, expectedType, token.Type, "token %d: %s", i, tt.description)
 				if i < len(tt.values) {
 					assert.Equal(t, tt.values[i], token.Value.Str, "value %d: %s", i, tt.description)
@@ -410,8 +410,8 @@ func TestNumericEdgeCases(t *testing.T) {
 			}
 
 			// Verify we've consumed all input
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 			assert.Equal(t, EOF, token.Type, "expected EOF after all tokens")
 		})
 	}
@@ -445,17 +445,17 @@ func TestNumericUnderscoreRules(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
 			if tt.shouldParse {
-				require.NoError(t, err, tt.description)
+				require.NotNil(t, token, tt.description)
 				assert.Equal(t, tt.expected, token.Value.Str, tt.description)
 
 				// Check that no errors were recorded for valid patterns
 				errors := lexer.GetContext().GetErrors()
 				assert.Empty(t, errors, "valid pattern should not generate errors: %s", tt.description)
 			} else {
-				require.NoError(t, err, tt.description)
+				require.NotNil(t, token, tt.description)
 
 				// Special case: "_123" should be parsed as IDENT, not numeric
 				if tt.name == "leading underscore" {
@@ -520,9 +520,9 @@ func TestNumericRealWorldExamples(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.token, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -548,7 +548,7 @@ func BenchmarkNumericLexing(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				lexer := NewLexer(bm.input)
-				_, _ = lexer.NextToken()
+				_ = lexer.NextToken()
 			}
 		})
 	}

@@ -452,7 +452,7 @@ func NewDropStmt(objects []Node, removeType ObjectType) *DropStmt {
 		BaseNode:   BaseNode{Tag: T_DropStmt},
 		Objects:    objects,
 		RemoveType: removeType,
-		Behavior:   DROP_RESTRICT,
+		Behavior:   DropRestrict,
 	}
 }
 

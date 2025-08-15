@@ -38,23 +38,20 @@ const (
 // Ported from postgres/src/include/parser/kwlist.h structure
 type KeywordInfo struct {
 	Name         string          // Keyword name (lowercase)
-	TokenType    TokenType       // Token type from lexer token system
+	TokenType    int             // Token type from parser constants
 	Category     KeywordCategory // Keyword category
 	CanBareLabel bool            // Can be used as a bare label
 }
 
 // PostgreSQL keyword list ported from postgres/src/include/parser/kwlist.h
-// Using lexer TokenType constants (will be updated in Phase 3 with goyacc-generated tokens)
-// Note: This is a core subset - full list will be generated in Phase 3
+// Now using parser-generated token constants directly
+// Note: This is a core subset for Phase 3A - full list will be expanded in later phases
 var Keywords = []KeywordInfo{
-	// Most common PostgreSQL keywords - ported from postgres/src/include/parser/kwlist.h:28-150
-	{"all", IDENT, ReservedKeyword, true},        // Will be replaced with ALL token in Phase 3
-	{"and", IDENT, ReservedKeyword, true},        // Will be replaced with AND token in Phase 3
-	{"any", IDENT, ReservedKeyword, true},        // Will be replaced with ANY token in Phase 3
-	{"array", IDENT, ReservedKeyword, false},     // Will be replaced with ARRAY token in Phase 3
-	{"as", IDENT, ReservedKeyword, false},        // Will be replaced with AS token in Phase 3
-	{"asc", IDENT, ReservedKeyword, true},        // Will be replaced with ASC token in Phase 3
-	{"asymmetric", IDENT, ReservedKeyword, true}, // Will be replaced with ASYMMETRIC token in Phase 3
+	// Phase 3A keywords - using generated parser constants
+	{"all", ALL, ReservedKeyword, true},
+	{"alter", ALTER, ReservedKeyword, false},
+	{"and", AND, ReservedKeyword, true},
+	{"as", AS, ReservedKeyword, false},
 
 	{"between", IDENT, ColNameKeyword, true}, // Will be replaced with BETWEEN token in Phase 3
 	{"bigint", IDENT, ColNameKeyword, true},  // Will be replaced with BIGINT token in Phase 3
@@ -73,7 +70,8 @@ var Keywords = []KeywordInfo{
 	{"collation", IDENT, TypeFuncNameKeyword, true},      // Will be replaced with COLLATION token in Phase 3
 	{"column", IDENT, ReservedKeyword, true},             // Will be replaced with COLUMN token in Phase 3
 	{"constraint", IDENT, ReservedKeyword, true},         // Will be replaced with CONSTRAINT token in Phase 3
-	{"create", IDENT, ReservedKeyword, false},            // Will be replaced with CREATE token in Phase 3
+	{"create", CREATE, ReservedKeyword, false},
+	{"drop", DROP, ReservedKeyword, false},
 	{"current_catalog", IDENT, ReservedKeyword, true},    // Will be replaced with CURRENT_CATALOG token in Phase 3
 	{"current_date", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_DATE token in Phase 3
 	{"current_role", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_ROLE token in Phase 3
@@ -93,14 +91,14 @@ var Keywords = []KeywordInfo{
 	{"else", IDENT, ReservedKeyword, true},   // Will be replaced with ELSE token in Phase 3
 	{"end", IDENT, ReservedKeyword, true},    // Will be replaced with END_P token in Phase 3
 	{"except", IDENT, ReservedKeyword, true}, // Will be replaced with EXCEPT token in Phase 3
-	{"exists", IDENT, ColNameKeyword, true},  // Will be replaced with EXISTS token in Phase 3
+	{"exists", EXISTS, ColNameKeyword, true},
 
 	{"false", IDENT, ReservedKeyword, true},    // Will be replaced with FALSE_P token in Phase 3
 	{"fetch", IDENT, ReservedKeyword, true},    // Will be replaced with FETCH token in Phase 3
 	{"float", IDENT, ColNameKeyword, true},     // Will be replaced with FLOAT_P token in Phase 3
 	{"for", IDENT, ReservedKeyword, true},      // Will be replaced with FOR token in Phase 3
 	{"foreign", IDENT, ReservedKeyword, true},  // Will be replaced with FOREIGN token in Phase 3
-	{"from", FROM, ReservedKeyword, true},      // FROM token for Phase 2E testing
+	{"from", IDENT, ReservedKeyword, true},      // FROM not defined in Phase 3A grammar
 	{"full", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with FULL token in Phase 3
 
 	{"grant", IDENT, ReservedKeyword, true}, // Will be replaced with GRANT token in Phase 3
@@ -126,14 +124,14 @@ var Keywords = []KeywordInfo{
 	{"limit", IDENT, ReservedKeyword, true},    // Will be replaced with LIMIT token in Phase 3
 
 	{"natural", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with NATURAL token in Phase 3
-	{"not", IDENT, ReservedKeyword, true},         // Will be replaced with NOT token in Phase 3
+	{"not", NOT, ReservedKeyword, true},
 	{"null", IDENT, ReservedKeyword, true},        // Will be replaced with NULL_P token in Phase 3
 	{"numeric", IDENT, ColNameKeyword, true},      // Will be replaced with NUMERIC token in Phase 3
 
 	{"offset", IDENT, ReservedKeyword, true},    // Will be replaced with OFFSET token in Phase 3
 	{"on", IDENT, ReservedKeyword, true},        // Will be replaced with ON token in Phase 3
 	{"only", IDENT, ReservedKeyword, true},      // Will be replaced with ONLY token in Phase 3
-	{"or", IDENT, ReservedKeyword, true},        // Will be replaced with OR token in Phase 3
+	{"or", OR, ReservedKeyword, true},
 	{"order", IDENT, ReservedKeyword, true},     // Will be replaced with ORDER token in Phase 3
 	{"outer", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with OUTER_P token in Phase 3
 
@@ -143,7 +141,7 @@ var Keywords = []KeywordInfo{
 	{"references", IDENT, ReservedKeyword, true}, // Will be replaced with REFERENCES token in Phase 3
 	{"right", IDENT, TypeFuncNameKeyword, true},  // Will be replaced with RIGHT token in Phase 3
 
-	{"select", SELECT, ReservedKeyword, true},      // SELECT token for Phase 2E testing
+	{"select", IDENT, ReservedKeyword, true},      // SELECT not defined in Phase 3A grammar
 	{"session_user", IDENT, ReservedKeyword, true}, // Will be replaced with SESSION_USER token in Phase 3
 	{"smallint", IDENT, ColNameKeyword, true},      // Will be replaced with SMALLINT token in Phase 3
 	{"some", IDENT, ReservedKeyword, true},         // Will be replaced with SOME token in Phase 3
@@ -168,8 +166,8 @@ var Keywords = []KeywordInfo{
 	{"varying", IDENT, UnreservedKeyword, true}, // Will be replaced with VARYING token in Phase 3
 
 	{"when", IDENT, ReservedKeyword, true},  // Will be replaced with WHEN token in Phase 3
-	{"where", WHERE, ReservedKeyword, true}, // WHERE token for Phase 2E testing
-	{"with", IDENT, ReservedKeyword, true},  // Will be replaced with WITH token in Phase 3
+	{"where", IDENT, ReservedKeyword, true}, // WHERE not defined in Phase 3A grammar
+	{"with", WITH, ReservedKeyword, true},
 }
 
 // keywordLookupMap provides fast keyword lookup by name.

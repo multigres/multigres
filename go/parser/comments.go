@@ -64,7 +64,7 @@ func (l *Lexer) scanCommentState(startPos, startScanPos int) (*Token, error) {
 					l.context.AdvanceBy(2) // AdvanceBy handles position tracking
 					l.context.SetState(StateInitial)
 					// Comments are not tokens - continue to next token
-					return l.NextToken()
+					return l.nextTokenInternal()
 				} else {
 					// End of nested comment
 					l.context.SetXCDepth(l.context.XCDepth() - 1)

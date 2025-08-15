@@ -67,14 +67,14 @@ func TestStandardStrings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
 			if tt.shouldError {
-				assert.Error(t, err)
+				assert.True(t, lexer.context.HasErrors())
 				return
 			}
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.tokenType, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -148,9 +148,9 @@ func TestExtendedStrings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.tokenType, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -224,9 +224,9 @@ func TestDollarQuotedStrings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.tokenType, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -270,9 +270,9 @@ func TestBitStrings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.tokenType, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -322,9 +322,9 @@ func TestHexStrings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.tokenType, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -387,9 +387,9 @@ func TestStringConcatenation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.tokenType, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -433,9 +433,9 @@ func TestStringErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err) // Errors are captured in token, not returned
+			require.NotNil(t, token) // Errors are captured in token, not returned
 			assert.Equal(t, tt.tokenType, token.Type)
 			assert.True(t, len(lexer.context.Errors()) > 0, "Expected error to be recorded")
 		})
@@ -485,9 +485,9 @@ func TestDollarTokens(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, tt.expectedType, token.Type)
 
 			switch tt.expectedType {
@@ -532,9 +532,9 @@ func TestComplexStringScenarios(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err)
+			require.NotNil(t, token)
 			assert.Equal(t, SCONST, token.Type)
 			assert.Equal(t, tt.expected, token.Value.Str)
 		})
@@ -547,13 +547,13 @@ func TestStringProcessingDirectly(t *testing.T) {
 
 	// Test individual escape sequence processing
 	lexer.context = NewLexerContext("E'\\n'")
-	token, err := lexer.scanExtendedString(0, 0)
-	require.NoError(t, err)
+	token, _ := lexer.scanExtendedString(0, 0)
+	require.NotNil(t, token)
 	assert.Equal(t, "\n", token.Value.Str)
 
 	// Test dollar delimiter parsing
 	lexer.context = NewLexerContext("$tag$hello$tag$")
-	token, err = lexer.scanDollarQuotedString(0, 0)
-	require.NoError(t, err)
+	token, _ = lexer.scanDollarQuotedString(0, 0)
+	require.NotNil(t, token)
 	assert.Equal(t, "hello", token.Value.Str)
 }

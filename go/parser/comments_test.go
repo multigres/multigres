@@ -150,12 +150,13 @@ func TestMultiLineComments(t *testing.T) {
 			tokens := []Token{}
 
 			for {
-				token, err := lexer.NextToken()
-				if test.expectError && err != nil {
-					assert.Contains(t, err.Error(), test.errorMsg)
+				token := lexer.NextToken()
+				if test.expectError && lexer.HasErrors() {
+					errors := lexer.GetErrors()
+					assert.Contains(t, errors[0].Error(), test.errorMsg)
 					break
 				}
-				require.NoError(t, err)
+				require.NotNil(t, token)
 
 				tokens = append(tokens, *token)
 				if token.Type == EOF {
@@ -329,8 +330,8 @@ func TestCommentEdgeCases(t *testing.T) {
 func scanAllTokens(t *testing.T, lexer *Lexer) []Token {
 	tokens := []Token{}
 	for {
-		token, err := lexer.NextToken()
-		require.NoError(t, err)
+		token := lexer.NextToken()
+		require.NotNil(t, token)
 		tokens = append(tokens, *token)
 		if token.Type == EOF {
 			break

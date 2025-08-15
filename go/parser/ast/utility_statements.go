@@ -193,7 +193,7 @@ func NewGrantStmt(objtype ObjectType, objects []Node, privileges []*AccessPriv, 
 		Objects:    objects,
 		Privileges: privileges,
 		Grantees:   grantees,
-		Behavior:   DROP_RESTRICT,
+		Behavior:   DropRestrict,
 	}
 }
 
@@ -207,7 +207,7 @@ func NewRevokeStmt(objtype ObjectType, objects []Node, privileges []*AccessPriv,
 		Objects:    objects,
 		Privileges: privileges,
 		Grantees:   grantees,
-		Behavior:   DROP_RESTRICT,
+		Behavior:   DropRestrict,
 	}
 }
 
@@ -261,7 +261,7 @@ func NewGrantRoleStmt(grantedRoles, granteeRoles []*RoleSpec) *GrantRoleStmt {
 		GrantedRoles: grantedRoles,
 		GranteeRoles: granteeRoles,
 		IsGrant:      true,
-		Behavior:     DROP_RESTRICT,
+		Behavior:     DropRestrict,
 	}
 }
 
@@ -272,7 +272,7 @@ func NewRevokeRoleStmt(grantedRoles, granteeRoles []*RoleSpec) *GrantRoleStmt {
 		GrantedRoles: grantedRoles,
 		GranteeRoles: granteeRoles,
 		IsGrant:      false,
-		Behavior:     DROP_RESTRICT,
+		Behavior:     DropRestrict,
 	}
 }
 
@@ -284,7 +284,7 @@ func NewGrantRoleStmtWithOptions(grantedRoles, granteeRoles []*RoleSpec, opt []*
 		GranteeRoles: granteeRoles,
 		IsGrant:      true,
 		Opt:          opt,
-		Behavior:     DROP_RESTRICT,
+		Behavior:     DropRestrict,
 	}
 }
 
@@ -307,17 +307,17 @@ func (grs *GrantRoleStmt) StatementType() string {
 // ROLE MANAGEMENT STATEMENTS - PostgreSQL parsenodes.h:3074-3103
 // ==============================================================================
 
-// RoleStmtType represents the type of role statement.
+// RoleStatementType represents the type of role statement.
 // Ported from postgres/src/include/nodes/parsenodes.h:3074-3079
-type RoleStmtType int
+type RoleStatementType int
 
 const (
-	ROLESTMT_ROLE  RoleStmtType = iota // CREATE/ALTER/DROP ROLE
+	ROLESTMT_ROLE  RoleStatementType = iota // CREATE/ALTER/DROP ROLE
 	ROLESTMT_USER                      // CREATE/ALTER/DROP USER
 	ROLESTMT_GROUP                     // CREATE/ALTER/DROP GROUP
 )
 
-func (r RoleStmtType) String() string {
+func (r RoleStatementType) String() string {
 	switch r {
 	case ROLESTMT_ROLE:
 		return "ROLE"
@@ -326,7 +326,7 @@ func (r RoleStmtType) String() string {
 	case ROLESTMT_GROUP:
 		return "GROUP"
 	default:
-		return fmt.Sprintf("RoleStmtType(%d)", int(r))
+		return fmt.Sprintf("RoleStatementType(%d)", int(r))
 	}
 }
 
@@ -334,13 +334,13 @@ func (r RoleStmtType) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3081
 type CreateRoleStmt struct {
 	BaseNode
-	StmtType RoleStmtType // Role type: ROLE, USER, or GROUP - postgres/src/include/nodes/parsenodes.h:3084
+	StmtType RoleStatementType // Role type: ROLE, USER, or GROUP - postgres/src/include/nodes/parsenodes.h:3084
 	Role     string       // Role name - postgres/src/include/nodes/parsenodes.h:3085
 	Options  []*DefElem   // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3086
 }
 
 // NewCreateRoleStmt creates a new CREATE ROLE statement.
-func NewCreateRoleStmt(stmtType RoleStmtType, role string, options []*DefElem) *CreateRoleStmt {
+func NewCreateRoleStmt(stmtType RoleStatementType, role string, options []*DefElem) *CreateRoleStmt {
 	return &CreateRoleStmt{
 		BaseNode: BaseNode{Tag: T_CreateRoleStmt},
 		StmtType: stmtType,

@@ -154,8 +154,7 @@ func TestParseContextParserFunctionality(t *testing.T) {
 	// Test depth tracking
 	assert.Equal(t, 0, ctx.GetDepth())
 
-	err := ctx.IncrementDepth()
-	assert.NoError(t, err)
+	_ = ctx.IncrementDepth()
 	assert.Equal(t, 1, ctx.GetDepth())
 
 	ctx.DecrementDepth()

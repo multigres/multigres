@@ -13,39 +13,62 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestTokenNumbering validates that our token constants match PostgreSQL expectations
-// Reference: PostgreSQL src/include/parser/scanner.h line 57 comment
+// TestTokenNumbering validates that our token constants are generated correctly by goyacc
+// NOTE: After refactoring, we no longer use hardcoded PostgreSQL values (258, etc.)
+// but use goyacc-generated constants which will be different values
 func TestTokenNumbering(t *testing.T) {
-	// PostgreSQL scanner.h explicitly states "IDENT = 258 and so on"
-	assert.Equal(t, TokenType(258), IDENT, "IDENT token should be 258")
-
-	// Validate the sequence matches PostgreSQL gram.y token order
-	expectedTokens := []struct {
-		token TokenType
+	// Test that all tokens have unique, non-zero values
+	tokens := []struct {
+		token int
 		name  string
-		value int
 	}{
-		{IDENT, "IDENT", 258},
-		{UIDENT, "UIDENT", 259},
-		{FCONST, "FCONST", 260},
-		{SCONST, "SCONST", 261},
-		{USCONST, "USCONST", 262},
-		{BCONST, "BCONST", 263},
-		{XCONST, "XCONST", 264},
-		{Op, "Op", 265},
-		{ICONST, "ICONST", 266},
-		{PARAM, "PARAM", 267},
-		{TYPECAST, "TYPECAST", 268},
-		{DOT_DOT, "DOT_DOT", 269},
-		{COLON_EQUALS, "COLON_EQUALS", 270},
-		{EQUALS_GREATER, "EQUALS_GREATER", 271},
-		{LESS_EQUALS, "LESS_EQUALS", 272},
-		{GREATER_EQUALS, "GREATER_EQUALS", 273},
-		{NOT_EQUALS, "NOT_EQUALS", 274},
+		{IDENT, "IDENT"},
+		{UIDENT, "UIDENT"},
+		{FCONST, "FCONST"},
+		{SCONST, "SCONST"},
+		{USCONST, "USCONST"},
+		{BCONST, "BCONST"},
+		{XCONST, "XCONST"},
+		{Op, "Op"},
+		{ICONST, "ICONST"},
+		{PARAM, "PARAM"},
+		{TYPECAST, "TYPECAST"},
+		{DOT_DOT, "DOT_DOT"},
+		{COLON_EQUALS, "COLON_EQUALS"},
+		{EQUALS_GREATER, "EQUALS_GREATER"},
+		{LESS_EQUALS, "LESS_EQUALS"},
+		{GREATER_EQUALS, "GREATER_EQUALS"},
+		{NOT_EQUALS, "NOT_EQUALS"},
 	}
 
-	for _, expected := range expectedTokens {
-		assert.Equal(t, expected.value, int(expected.token), "Token %s value mismatch", expected.name)
+	// Validate all tokens are non-zero and unique
+	seen := make(map[int]bool)
+	for _, tok := range tokens {
+		assert.NotEqual(t, 0, tok.token, "Token %s should be non-zero", tok.name)
+		assert.False(t, seen[tok.token], "Token %s should have unique value", tok.name)
+		seen[tok.token] = true
+	}
+
+	// Test that keyword tokens also have unique values
+	keywordTokens := []struct {
+		token int
+		name  string
+	}{
+		{ALL, "ALL"},
+		{ALTER, "ALTER"},
+		{AS, "AS"},
+		{CREATE, "CREATE"},
+		{DROP, "DROP"},
+		{EXISTS, "EXISTS"},
+		{NOT, "NOT"},
+		{OR, "OR"},
+		{WITH, "WITH"},
+	}
+
+	for _, tok := range keywordTokens {
+		assert.NotEqual(t, 0, tok.token, "Keyword token %s should be non-zero", tok.name)
+		assert.False(t, seen[tok.token], "Keyword token %s should have unique value", tok.name)
+		seen[tok.token] = true
 	}
 }
 

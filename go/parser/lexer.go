@@ -12,13 +12,19 @@ package parser
 import (
 	"fmt"
 	"unicode"
+	
+	"github.com/multigres/parser/go/parser/ast"
 )
 
 // Lexer represents the main lexer instance
 // Equivalent to PostgreSQL's scanner state management
 type Lexer struct {
-	context *ParseContext // Thread-safe unified context
+	context  *ParseContext // Thread-safe unified context
+	parseTree []ast.Stmt   // Parse tree result from parsing
 }
+
+// Import ast package (will be added at the top)
+// "github.com/manangupta/multigres/go/parser/ast"
 
 // NewLexer creates a new PostgreSQL-compatible lexer instance
 // Equivalent to postgres/src/backend/parser/scan.l:1404 (scanner_init function)
@@ -31,7 +37,17 @@ func NewLexer(input string) *Lexer {
 // NextToken returns the next token from the input stream
 // This is the main lexer interface, equivalent to PostgreSQL's core_yylex
 // Equivalent to postgres/src/include/parser/scanner.h:141-142 (core_yylex function)
-func (l *Lexer) NextToken() (*Token, error) {
+func (l *Lexer) NextToken() *Token {
+	token, err := l.nextTokenInternal()
+	if err != nil {
+		l.RecordError(err)
+		return NewToken(INVALID, l.context.CurrentPosition(), "")
+	}
+	return token
+}
+
+// nextTokenInternal is the internal token scanning function
+func (l *Lexer) nextTokenInternal() (*Token, error) {
 	for {
 		// Skip whitespace and comments
 		if err := l.skipWhitespace(); err != nil {
@@ -940,3 +956,39 @@ func (l *Lexer) scanSpecialInteger(startPos, startScanPos int, digitChecker func
 func (l *Lexer) String() string {
 	return fmt.Sprintf("Lexer{Context: %s}", l.context.String())
 }
+
+// SetParseTree sets the parse tree result
+func (l *Lexer) SetParseTree(tree []ast.Stmt) {
+	l.parseTree = tree
+}
+
+// GetParseTree returns the parse tree result
+func (l *Lexer) GetParseTree() []ast.Stmt {
+	return l.parseTree
+}
+
+// GetPosition returns the current position in the input
+func (l *Lexer) GetPosition() int {
+	return l.context.CurrentPosition()
+}
+
+// RecordError records a parsing error
+func (l *Lexer) RecordError(err error) {
+	l.context.AddError(err.Error(), l.context.CurrentPosition())
+}
+
+// HasErrors returns true if there are any errors
+func (l *Lexer) HasErrors() bool {
+	return l.context.HasErrors()
+}
+
+// GetErrors returns all errors encountered
+func (l *Lexer) GetErrors() []error {
+	errors := l.context.GetErrors()
+	result := make([]error, len(errors))
+	for i, e := range errors {
+		result[i] = fmt.Errorf("%s", e.Message)
+	}
+	return result
+}
+

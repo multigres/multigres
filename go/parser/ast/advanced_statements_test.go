@@ -438,7 +438,7 @@ func TestTruncateStmt(t *testing.T) {
 		require.NotNil(t, stmt)
 		assert.Equal(t, T_TruncateStmt, stmt.Tag)
 		assert.Equal(t, relations, stmt.Relations)
-		assert.Equal(t, DROP_RESTRICT, stmt.Behavior)
+		assert.Equal(t, DropRestrict, stmt.Behavior)
 		assert.Contains(t, stmt.String(), "TRUNCATE TABLE")
 		assert.Contains(t, stmt.String(), "test_table")
 	})
@@ -464,9 +464,9 @@ func TestTruncateStmt(t *testing.T) {
 	t.Run("TruncateStmtCascade", func(t *testing.T) {
 		relations := []*RangeVar{{RelName: "test_table"}}
 		stmt := NewTruncateStmt(relations)
-		stmt.Behavior = DROP_CASCADE
+		stmt.Behavior = DropCascade
 
-		assert.Equal(t, DROP_CASCADE, stmt.Behavior)
+		assert.Equal(t, DropCascade, stmt.Behavior)
 		assert.Contains(t, stmt.String(), "CASCADE")
 	})
 }
@@ -503,7 +503,7 @@ func TestRenameStmt(t *testing.T) {
 		assert.Equal(t, T_RenameStmt, stmt.Tag)
 		assert.Equal(t, OBJECT_TABLE, stmt.RenameType)
 		assert.Equal(t, "new_name", stmt.Newname)
-		assert.Equal(t, DROP_RESTRICT, stmt.Behavior)
+		assert.Equal(t, DropRestrict, stmt.Behavior)
 		assert.Contains(t, stmt.String(), "ALTER")
 		assert.Contains(t, stmt.String(), "RENAME TO")
 		assert.Contains(t, stmt.String(), "new_name")

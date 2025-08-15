@@ -202,8 +202,8 @@ func TestBasicLexing(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
 			for i, expectedType := range tt.expected {
-				token, err := lexer.NextToken()
-				require.NoError(t, err, "Unexpected error at position %d", i)
+				token := lexer.NextToken()
+				require.NotNil(t, token, "Unexpected error at position %d", i)
 				assert.Equal(t, expectedType, token.Type, "Token %d type mismatch", i)
 			}
 		})
@@ -240,14 +240,7 @@ func TestErrorHandling(t *testing.T) {
 
 			// Consume all tokens - handle errors gracefully for error tests
 			for {
-				token, err := lexer.NextToken()
-				if err != nil {
-					// If we expect errors, this is fine; if not, it's a failure
-					if !tt.hasError {
-						require.NoError(t, err, "Unexpected lexer error")
-					}
-					break
-				}
+				token := lexer.NextToken()
 				if token.Type == EOF {
 					break
 				}
@@ -288,11 +281,7 @@ func TestThreadSafety(t *testing.T) {
 
 				// Lex the first few tokens
 				for k := 0; k < 3; k++ {
-					token, err := lexer.NextToken()
-					if err != nil {
-						assert.NoError(t, err, "Goroutine %d, iteration %d: unexpected error", goroutineID, j)
-						return
-					}
+					token := lexer.NextToken()
 					tokens = append(tokens, token.Type)
 				}
 			}
@@ -320,17 +309,17 @@ func TestPositionTracking(t *testing.T) {
 	lexer := NewLexer(input)
 
 	// First token should be "line1" at position 0
-	token, err := lexer.NextToken()
-	require.NoError(t, err, "Unexpected error")
+	token := lexer.NextToken()
+	require.NotNil(t, token, "Unexpected error")
 	assert.Equal(t, 0, token.Position, "First token should be at position 0")
 
 	// Second token should be "line2"
-	token, err = lexer.NextToken()
-	require.NoError(t, err, "Unexpected error")
+	token = lexer.NextToken()
+	require.NotNil(t, token, "Unexpected error")
 
 	// Third token should be "token" with proper position
-	token, err = lexer.NextToken()
-	require.NoError(t, err, "Unexpected error")
+	token = lexer.NextToken()
+	require.NotNil(t, token, "Unexpected error")
 
 	// Verify the token text
 	assert.Equal(t, "token", token.Value.Str, "Token text mismatch")
@@ -346,10 +335,7 @@ func BenchmarkBasicLexing(b *testing.B) {
 		lexer := NewLexer(input)
 
 		for {
-			token, err := lexer.NextToken()
-			if err != nil {
-				b.Fatalf("Unexpected error: %v", err)
-			}
+			token := lexer.NextToken()
 			if token.Type == EOF {
 				break
 			}
@@ -437,8 +423,8 @@ func TestEnhancedIdentifierRecognition(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
 			for i, expected := range tt.expectedTokens {
-				token, err := lexer.NextToken()
-				require.NoError(t, err, "Token %d should scan without error", i)
+				token := lexer.NextToken()
+				require.NotNil(t, token, "Token %d should scan without error", i)
 
 				assert.Equal(t, expected.tokenType, token.Type, "Token %d type mismatch", i)
 				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
@@ -451,8 +437,8 @@ func TestEnhancedIdentifierRecognition(t *testing.T) {
 			}
 
 			// Verify EOF
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 			assert.Equal(t, EOF, token.Type, "Should reach EOF")
 		})
 	}
@@ -519,11 +505,11 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 				{IDENT, "price"},
 				{GREATER_EQUALS, ">="},
 				{ICONST, "100"},
-				{IDENT, "AND"}, // keyword
+				{AND, "AND"}, // keyword returns parser constant
 				{IDENT, "name"},
 				{NOT_EQUALS, "<>"},
 				{SCONST, "'test'"},
-				{IDENT, "OR"}, // keyword
+				{OR, "OR"}, // keyword returns parser constant
 				{IDENT, "id"},
 				{COLON_EQUALS, ":="},
 				{IDENT, "func"},
@@ -540,16 +526,16 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
 			for i, expected := range tt.expectedTokens {
-				token, err := lexer.NextToken()
-				require.NoError(t, err, "Token %d should scan without error", i)
+				token := lexer.NextToken()
+				require.NotNil(t, token, "Token %d should scan without error", i)
 
 				assert.Equal(t, expected.tokenType, token.Type, "Token %d type mismatch: got %d, want %d", i, int(token.Type), int(expected.tokenType))
 				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
 			}
 
 			// Verify EOF
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 			assert.Equal(t, EOF, token.Type, "Should reach EOF")
 		})
 	}
@@ -614,8 +600,8 @@ func TestEnhancedWhitespaceAndComments(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
 			for i, expected := range tt.expectedTokens {
-				token, err := lexer.NextToken()
-				require.NoError(t, err, "Token %d should scan without error", i)
+				token := lexer.NextToken()
+				require.NotNil(t, token, "Token %d should scan without error", i)
 
 				assert.Equal(t, expected.tokenType, token.Type, "Token %d type mismatch", i)
 				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
@@ -623,8 +609,8 @@ func TestEnhancedWhitespaceAndComments(t *testing.T) {
 			}
 
 			// Verify EOF
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 			assert.Equal(t, EOF, token.Type, "Should reach EOF")
 		})
 	}
@@ -655,8 +641,8 @@ func TestStateMachineFoundation(t *testing.T) {
 
 			// Process all tokens
 			for {
-				token, err := lexer.NextToken()
-				require.NoError(t, err)
+				token := lexer.NextToken()
+				require.NotNil(t, token)
 				if token.Type == EOF {
 					break
 				}
@@ -702,11 +688,11 @@ func TestParameterRecognition(t *testing.T) {
 				text      string
 				intValue  int
 			}{
-				{WHERE, "WHERE", 0}, // keyword
+				{IDENT, "WHERE", 0}, // WHERE not in Phase 3A grammar
 				{IDENT, "id", 0},
 				{TokenType('='), "=", 0},
 				{PARAM, "$1", 1},
-				{IDENT, "AND", 0}, // keyword
+				{AND, "AND", 0}, // keyword returns parser constant
 				{IDENT, "name", 0},
 				{TokenType('='), "=", 0},
 				{PARAM, "$2", 2},
@@ -719,8 +705,8 @@ func TestParameterRecognition(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
 			for i, expected := range tt.expected {
-				token, err := lexer.NextToken()
-				require.NoError(t, err, "Token %d should scan without error", i)
+				token := lexer.NextToken()
+				require.NotNil(t, token, "Token %d should scan without error", i)
 
 				assert.Equal(t, expected.tokenType, token.Type, "Token %d type mismatch", i)
 				assert.Equal(t, expected.text, token.Text, "Token %d text mismatch", i)
@@ -731,8 +717,8 @@ func TestParameterRecognition(t *testing.T) {
 			}
 
 			// Verify EOF
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 			assert.Equal(t, EOF, token.Type, "Should reach EOF")
 		})
 	}
@@ -753,7 +739,7 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		expectedType TokenType
 		expectedText string
 	}{
-		{SELECT, "SELECT"}, // keyword
+		{IDENT, "SELECT"}, // SELECT not in Phase 3A grammar
 		{IDENT, "u"},
 		{TokenType('.'), "."},
 		{IDENT, "name"},
@@ -761,25 +747,25 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		{IDENT, "p"},
 		{TokenType('.'), "."},
 		{IDENT, "price"},
-		{FROM, "FROM"}, // keyword
+		{IDENT, "FROM"}, // FROM not in Phase 3A grammar
 		{IDENT, "users"},
 		{IDENT, "u"},
 		{TokenType(','), ","},
 		{IDENT, "products"},
 		{IDENT, "p"},
-		{WHERE, "WHERE"}, // keyword
+		{IDENT, "WHERE"}, // WHERE not in Phase 3A grammar
 		{IDENT, "u"},
 		{TokenType('.'), "."},
 		{IDENT, "id"},
 		{GREATER_EQUALS, ">="},
 		{PARAM, "$1"},
-		{IDENT, "AND"}, // keyword
+		{AND, "AND"}, // keyword returns parser constant
 		{IDENT, "p"},
 		{TokenType('.'), "."},
 		{IDENT, "price"},
 		{NOT_EQUALS, "<>"},
 		{SCONST, "'free'"},
-		{IDENT, "AND"}, // keyword
+		{AND, "AND"}, // keyword returns parser constant
 		{IDENT, "u"},
 		{TokenType('.'), "."},
 		{IDENT, "created"},
@@ -793,8 +779,8 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 	}
 
 	for i, expected := range tokens {
-		token, err := lexer.NextToken()
-		require.NoError(t, err, "Token %d should scan without error", i)
+		token := lexer.NextToken()
+		require.NotNil(t, token, "Token %d should scan without error", i)
 
 		assert.Equal(t, expected.expectedType, token.Type,
 			"Token %d type mismatch: got %d (%q), want %d",
@@ -803,13 +789,385 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 	}
 
 	// Verify EOF
-	token, err := lexer.NextToken()
-	require.NoError(t, err)
+	token := lexer.NextToken()
+	require.NotNil(t, token)
 	assert.Equal(t, EOF, token.Type, "Should reach EOF")
 
 	// Verify no errors
 	ctx := lexer.GetContext()
 	assert.Empty(t, ctx.GetErrors(), "Should have no lexer errors")
+}
+
+// =============================================================================
+// Tests from advanced_test.go - Advanced lexer features
+// =============================================================================
+
+// TestParameterPlaceholders tests parameter placeholder recognition
+func TestParameterPlaceholders(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []TokenType
+		values   []interface{} // Can be string or int for params
+	}{
+		{
+			name:     "simple parameter",
+			input:    "$1",
+			expected: []TokenType{PARAM, EOF},
+			values:   []interface{}{1, ""},
+		},
+		{
+			name:     "multiple parameters",
+			input:    "$1 $2 $10 $999",
+			expected: []TokenType{PARAM, PARAM, PARAM, PARAM, EOF},
+			values:   []interface{}{1, 2, 10, 999, ""},
+		},
+		{
+			name:     "parameter in expression",
+			input:    "SELECT * WHERE id = $1",
+			expected: []TokenType{SELECT, TokenType('*'), WHERE, IDENT, TokenType('='), PARAM, EOF},
+			values:   []interface{}{"select", "*", "where", "id", "=", 1, ""},
+		},
+		{
+			name:     "parameter with operators",
+			input:    "$1 + $2",
+			expected: []TokenType{PARAM, TokenType('+'), PARAM, EOF},
+			values:   []interface{}{1, "+", 2, ""},
+		},
+		{
+			name:     "adjacent parameters",
+			input:    "$1$2",
+			expected: []TokenType{PARAM, PARAM, EOF},
+			values:   []interface{}{1, 2, ""},
+		},
+		{
+			name:     "parameter vs dollar quote",
+			input:    "$1 $$text$$",
+			expected: []TokenType{PARAM, SCONST, EOF},
+			values:   []interface{}{1, "text", ""},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := NewLexer(test.input)
+			tokens := scanAllTokens(t, lexer)
+
+			require.Equal(t, len(test.expected), len(tokens))
+			for i, token := range tokens {
+				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
+
+				// Check value based on token type
+				if token.Type == PARAM {
+					assert.Equal(t, test.values[i], token.Value.Ival, "Token %d param value mismatch", i)
+				} else {
+					assert.Equal(t, test.values[i], token.Value.Str, "Token %d string value mismatch", i)
+				}
+			}
+		})
+	}
+}
+
+// TestParameterJunk tests parameter junk detection ($1abc pattern)
+func TestParameterJunk(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expected    []TokenType
+		values      []interface{}
+		expectError bool
+	}{
+		{
+			name:        "parameter with trailing identifier",
+			input:       "$1abc",
+			expected:    []TokenType{PARAM, EOF},
+			values:      []interface{}{1, ""},
+			expectError: true, // Should add error for trailing junk
+		},
+		{
+			name:        "parameter with underscore",
+			input:       "$1_test",
+			expected:    []TokenType{PARAM, EOF},
+			values:      []interface{}{1, ""},
+			expectError: true,
+		},
+		{
+			name:        "parameter with dollar",
+			input:       "$1$name",
+			expected:    []TokenType{PARAM, EOF},
+			values:      []interface{}{1, ""},
+			expectError: true,
+		},
+		{
+			name:     "valid parameter followed by space and identifier",
+			input:    "$1 abc",
+			expected: []TokenType{PARAM, IDENT, EOF},
+			values:   []interface{}{1, "abc", ""},
+		},
+		{
+			name:     "parameter followed by operator",
+			input:    "$1+",
+			expected: []TokenType{PARAM, TokenType('+'), EOF},
+			values:   []interface{}{1, "+", ""},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := NewLexer(test.input)
+			tokens := scanAllTokens(t, lexer)
+
+			require.Equal(t, len(test.expected), len(tokens))
+			for i, token := range tokens {
+				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
+
+				if token.Type == PARAM {
+					assert.Equal(t, test.values[i], token.Value.Ival, "Token %d param value mismatch", i)
+				} else {
+					assert.Equal(t, test.values[i], token.Value.Str, "Token %d string value mismatch", i)
+				}
+			}
+
+			// Check for errors
+			if test.expectError {
+				assert.True(t, lexer.GetContext().HasErrors(), "Expected lexer errors")
+				errors := lexer.GetContext().GetErrors()
+				assert.Contains(t, errors[0].Message, "trailing junk after parameter")
+			}
+		})
+	}
+}
+
+// TestTypeCastOperator tests the :: type cast operator
+func TestTypeCastOperator(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []TokenType
+		values   []string
+	}{
+		{
+			name:     "simple type cast",
+			input:    "value::int",
+			expected: []TokenType{IDENT, TYPECAST, IDENT, EOF},
+			values:   []string{"value", "::", "int", ""},
+		},
+		{
+			name:     "type cast with spaces",
+			input:    "value :: int",
+			expected: []TokenType{IDENT, TYPECAST, IDENT, EOF},
+			values:   []string{"value", "::", "int", ""},
+		},
+		{
+			name:     "chained type casts",
+			input:    "value::text::int",
+			expected: []TokenType{IDENT, TYPECAST, IDENT, TYPECAST, IDENT, EOF},
+			values:   []string{"value", "::", "text", "::", "int", ""},
+		},
+		{
+			name:     "type cast with complex type",
+			input:    "value::numeric(10,2)",
+			expected: []TokenType{IDENT, TYPECAST, IDENT, TokenType('('), ICONST, TokenType(','), ICONST, TokenType(')'), EOF},
+			values:   []string{"value", "::", "numeric", "(", "10", ",", "2", ")", ""},
+		},
+		{
+			name:     "type cast vs colon equals",
+			input:    "a::int b:=5",
+			expected: []TokenType{IDENT, TYPECAST, IDENT, IDENT, COLON_EQUALS, ICONST, EOF},
+			values:   []string{"a", "::", "int", "b", ":=", "5", ""},
+		},
+		{
+			name:     "single colon not type cast",
+			input:    "a:b",
+			expected: []TokenType{IDENT, TokenType(':'), IDENT, EOF},
+			values:   []string{"a", ":", "b", ""},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := NewLexer(test.input)
+			tokens := scanAllTokens(t, lexer)
+
+			require.Equal(t, len(test.expected), len(tokens))
+			for i, token := range tokens {
+				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
+				assert.Equal(t, test.values[i], token.Value.Str, "Token %d value mismatch", i)
+			}
+		})
+	}
+}
+
+// TestDollarTokenAmbiguity tests disambiguation between parameters and dollar quotes
+func TestDollarTokenAmbiguity(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []TokenType
+		values   []interface{}
+	}{
+		{
+			name:     "parameter vs empty dollar quote",
+			input:    "$1 $$",
+			expected: []TokenType{PARAM, Op, Op, EOF},
+			values:   []interface{}{1, "$", "$", ""},
+		},
+		{
+			name:     "parameter vs dollar quote with tag",
+			input:    "$1 $tag$",
+			expected: []TokenType{PARAM, SCONST, EOF},
+			values:   []interface{}{1, "", ""},
+		},
+		{
+			name:     "dollar followed by non-digit",
+			input:    "$a",
+			expected: []TokenType{Op, IDENT, EOF},
+			values:   []interface{}{"$", "a", ""},
+		},
+		{
+			name:     "dollar at end",
+			input:    "test$",
+			expected: []TokenType{IDENT, EOF},
+			values:   []interface{}{"test$", ""},
+		},
+		{
+			name:     "dollar in identifier",
+			input:    "te$t",
+			expected: []TokenType{IDENT, EOF},
+			values:   []interface{}{"te$t", ""},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := NewLexer(test.input)
+			tokens := scanAllTokens(t, lexer)
+
+			require.Equal(t, len(test.expected), len(tokens))
+			for i, token := range tokens {
+				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
+
+				if token.Type == PARAM {
+					assert.Equal(t, test.values[i], token.Value.Ival, "Token %d param value mismatch", i)
+				} else {
+					assert.Equal(t, test.values[i], token.Value.Str, "Token %d string value mismatch", i)
+				}
+			}
+		})
+	}
+}
+
+// TestComplexExpressions tests combinations of advanced features
+func TestComplexExpressions(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []TokenType
+		values   []interface{}
+	}{
+		{
+			name:     "parameter with type cast",
+			input:    "$1::int",
+			expected: []TokenType{PARAM, TYPECAST, IDENT, EOF},
+			values:   []interface{}{1, "::", "int", ""},
+		},
+		{
+			name:     "delimited identifier with type cast",
+			input:    `"column"::text`,
+			expected: []TokenType{IDENT, TYPECAST, IDENT, EOF},
+			values:   []interface{}{"column", "::", "text", ""},
+		},
+		{
+			name:  "complex expression",
+			input: `SELECT "Col1"::int + $1 FROM "Table" WHERE x = $2::text`,
+			expected: []TokenType{
+				SELECT, IDENT, TYPECAST, IDENT, TokenType('+'), PARAM,
+				FROM, IDENT, WHERE, IDENT, TokenType('='), PARAM, TYPECAST, IDENT, EOF,
+			},
+			values: []interface{}{
+				"select", "Col1", "::", "int", "+", 1,
+				"from", "Table", "where", "x", "=", 2, "::", "text", "",
+			},
+		},
+		{
+			name:     "comment between type cast",
+			input:    "value/*comment*/::int",
+			expected: []TokenType{IDENT, TYPECAST, IDENT, EOF},
+			values:   []interface{}{"value", "::", "int", ""},
+		},
+		{
+			name:     "array subscript vs type cast",
+			input:    "arr[1]::int[]",
+			expected: []TokenType{IDENT, TokenType('['), ICONST, TokenType(']'), TYPECAST, IDENT, TokenType('['), TokenType(']'), EOF},
+			values:   []interface{}{"arr", "[", "1", "]", "::", "int", "[", "]", ""},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := NewLexer(test.input)
+			tokens := scanAllTokens(t, lexer)
+
+			require.Equal(t, len(test.expected), len(tokens))
+			for i, token := range tokens {
+				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
+
+				if token.Type == PARAM {
+					assert.Equal(t, test.values[i], token.Value.Ival, "Token %d param value mismatch", i)
+				} else {
+					assert.Equal(t, test.values[i], token.Value.Str, "Token %d string value mismatch", i)
+				}
+			}
+		})
+	}
+}
+
+// TestOperatorPrecedence tests various operator combinations
+func TestOperatorPrecedence(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []TokenType
+		values   []string
+	}{
+		{
+			name:     "colon vs type cast vs colon equals",
+			input:    ": :: :=",
+			expected: []TokenType{TokenType(':'), TYPECAST, COLON_EQUALS, EOF},
+			values:   []string{":", "::", ":=", ""},
+		},
+		{
+			name:     "dot vs dot dot",
+			input:    ". .. ...",
+			expected: []TokenType{TokenType('.'), DOT_DOT, TokenType('.'), TokenType('.'), TokenType('.'), EOF},
+			values:   []string{".", "..", ".", ".", ".", ""},
+		},
+		{
+			name:     "less than vs less equal vs not equal",
+			input:    "< <= <> !=",
+			expected: []TokenType{TokenType('<'), LESS_EQUALS, NOT_EQUALS, NOT_EQUALS, EOF},
+			values:   []string{"<", "<=", "<>", "!=", ""},
+		},
+		{
+			name:     "equals vs equals greater",
+			input:    "= =>",
+			expected: []TokenType{TokenType('='), EQUALS_GREATER, EOF},
+			values:   []string{"=", "=>", ""},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lexer := NewLexer(test.input)
+			tokens := scanAllTokens(t, lexer)
+
+			require.Equal(t, len(test.expected), len(tokens))
+			for i, token := range tokens {
+				assert.Equal(t, test.expected[i], token.Type, "Token %d type mismatch", i)
+				assert.Equal(t, test.values[i], token.Value.Str, "Token %d value mismatch", i)
+			}
+		})
+	}
 }
 
 // Phase 2B: Test character classification functions
@@ -966,8 +1324,8 @@ func TestSpecialLiteralRecognition(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
 			for i, expected := range tt.expectedTokens {
-				token, err := lexer.NextToken()
-				require.NoError(t, err, "Token %d should scan without error", i)
+				token := lexer.NextToken()
+				require.NotNil(t, token, "Token %d should scan without error", i)
 
 				assert.Equal(t, expected.tokenType, token.Type,
 					"Token %d type mismatch: got %d (%q), want %d",
@@ -976,8 +1334,8 @@ func TestSpecialLiteralRecognition(t *testing.T) {
 			}
 
 			// Verify EOF
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 			assert.Equal(t, EOF, token.Type, "Should reach EOF")
 		})
 	}
@@ -1060,8 +1418,8 @@ func TestCharacterDispatchOrdering(t *testing.T) {
 			lexer := NewLexer(tt.input)
 
 			for i, expected := range tt.expectedTokens {
-				token, err := lexer.NextToken()
-				require.NoError(t, err, "Token %d should scan without error", i)
+				token := lexer.NextToken()
+				require.NotNil(t, token, "Token %d should scan without error", i)
 
 				assert.Equal(t, expected.tokenType, token.Type,
 					"Token %d type mismatch: got %d (%q), want %d",
@@ -1070,8 +1428,8 @@ func TestCharacterDispatchOrdering(t *testing.T) {
 			}
 
 			// Verify EOF
-			token, err := lexer.NextToken()
-			require.NoError(t, err)
+			token := lexer.NextToken()
+			require.NotNil(t, token)
 			assert.Equal(t, EOF, token.Type, "Should reach EOF")
 		})
 	}
@@ -1096,10 +1454,7 @@ func BenchmarkEnhancedLexing(b *testing.B) {
 		lexer := NewLexer(input)
 
 		for {
-			token, err := lexer.NextToken()
-			if err != nil {
-				b.Fatalf("Unexpected error: %v", err)
-			}
+			token := lexer.NextToken()
 			if token.Type == EOF {
 				break
 			}
@@ -1167,9 +1522,9 @@ func TestStringLiteralContentExtraction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err, "Should scan without error")
+			require.NotNil(t, token, "Should scan without error")
 			assert.Equal(t, tt.expectedType, token.Type, "Token type mismatch")
 			assert.Equal(t, tt.expectedValue, token.Value.Str, "Token value (content) mismatch")
 			assert.Equal(t, tt.expectedText, token.Text, "Token text (original) mismatch")
@@ -1219,9 +1574,9 @@ func TestBitStringContentExtraction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err, "Should scan without error")
+			require.NotNil(t, token, "Should scan without error")
 			assert.Equal(t, tt.expectedType, token.Type, "Token type mismatch")
 			assert.Equal(t, tt.expectedValue, token.Value.Str, "Token value (content) mismatch")
 			assert.Equal(t, tt.expectedText, token.Text, "Token text (original) mismatch")
@@ -1278,9 +1633,9 @@ func TestHexStringContentExtraction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err, "Should scan without error")
+			require.NotNil(t, token, "Should scan without error")
 			assert.Equal(t, tt.expectedType, token.Type, "Token type mismatch")
 			assert.Equal(t, tt.expectedValue, token.Value.Str, "Token value (content) mismatch")
 			assert.Equal(t, tt.expectedText, token.Text, "Token text (original) mismatch")
@@ -1337,9 +1692,9 @@ func TestExtendedStringContentExtraction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err, "Should scan without error")
+			require.NotNil(t, token, "Should scan without error")
 			assert.Equal(t, tt.expectedType, token.Type, "Token type mismatch")
 			assert.Equal(t, tt.expectedValue, token.Value.Str, "Token value (content) mismatch")
 			assert.Equal(t, tt.expectedText, token.Text, "Token text (original) mismatch")
@@ -1384,9 +1739,9 @@ func TestStringLiteralErrorCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			token, err := lexer.NextToken()
+			token := lexer.NextToken()
 
-			require.NoError(t, err, "Lexer should not return error (errors stored in context)")
+			require.NotNil(t, token, "Lexer should not return error (errors stored in context)")
 			assert.Equal(t, tt.expectedType, token.Type, "Token type should match expected error type")
 
 			ctx := lexer.GetContext()
@@ -1411,7 +1766,7 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		expectedValue  string // Only check if non-empty
 		skipValueCheck bool   // Skip value check for complex cases
 	}{
-		{SELECT, "SELECT", "", true}, // keyword - skip value check
+		{IDENT, "SELECT", "", true}, // SELECT not in Phase 3A grammar
 		{SCONST, "'simple'", "simple", false},
 		{TokenType(','), ",", "", true},
 		{IDENT, "\"identifier\"", "identifier", false}, // delimited identifier
@@ -1421,21 +1776,21 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		{BCONST, "B'1010'", "1010", false},
 		{TokenType(','), ",", "", true},
 		{XCONST, "X'CAFE'", "CAFE", false},
-		{FROM, "FROM", "", true},   // keyword - skip value check
+		{IDENT, "FROM", "", true},   // FROM not in Phase 3A grammar
 		{IDENT, "table", "", true}, // identifier - skip value check for now
-		{WHERE, "WHERE", "", true}, // keyword - skip value check
+		{IDENT, "WHERE", "", true}, // WHERE not in Phase 3A grammar
 		{IDENT, "name", "", true},  // identifier - skip value check for now
 		{TokenType('='), "=", "", true},
 		{SCONST, "'O''Reilly'", "O'Reilly", false}, // doubled quote handling
-		{IDENT, "AND", "", true},                   // keyword - skip value check
+		{AND, "AND", "", true},                   // keyword returns parser constant
 		{IDENT, "data", "", true},                  // identifier - skip value check for now
 		{TokenType('='), "=", "", true},
 		{XCONST, "X'deadbeef'", "deadbeef", false},
 	}
 
 	for i, expected := range tokens {
-		token, err := lexer.NextToken()
-		require.NoError(t, err, "Token %d should scan without error", i)
+		token := lexer.NextToken()
+		require.NotNil(t, token, "Token %d should scan without error", i)
 
 		assert.Equal(t, expected.expectedType, token.Type,
 			"Token %d type mismatch: got %d (%q), want %d",
@@ -1448,8 +1803,8 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 	}
 
 	// Verify EOF
-	token, err := lexer.NextToken()
-	require.NoError(t, err)
+	token := lexer.NextToken()
+	require.NotNil(t, token)
 	assert.Equal(t, EOF, token.Type, "Should reach EOF")
 
 	// Verify no errors

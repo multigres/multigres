@@ -162,9 +162,12 @@ func TestDelimitedIdentifierErrors(t *testing.T) {
 			lexer := NewLexer(test.input)
 
 			for {
-				token, err := lexer.NextToken()
-				if test.expectError && err != nil {
-					assert.Contains(t, err.Error(), test.errorMsg)
+				token := lexer.NextToken()
+				if test.expectError && lexer.HasErrors() {
+					errors := lexer.GetErrors()
+					if len(errors) > 0 {
+						assert.Contains(t, errors[0].Error(), test.errorMsg)
+					}
 					break
 				}
 

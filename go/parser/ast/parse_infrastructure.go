@@ -18,13 +18,13 @@ import (
 // Ported from postgres/src/include/nodes/parsenodes.h:2017-2024
 type RawStmt struct {
 	BaseNode
-	Stmt         Statement // The parsed statement tree
+	Stmt         Stmt // The parsed statement tree
 	StmtLocation int       // Start location of stmt in original query string
 	StmtLen      int       // Length of stmt in original query string
 }
 
 // NewRawStmt creates a new RawStmt node.
-func NewRawStmt(stmt Statement, location int, length int) *RawStmt {
+func NewRawStmt(stmt Stmt, location int, length int) *RawStmt {
 	return &RawStmt{
 		BaseNode:     BaseNode{Tag: T_RawStmt},
 		Stmt:         stmt,
