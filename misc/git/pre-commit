@@ -1,0 +1,13 @@
+#!/bin/bash
+# Git pre-commit hook to check license headers
+
+# Get list of staged files that match our criteria
+staged_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(go|proto|sh|yaml|yml)$' | grep -v -E '^(site/|pb/|dist/|bin/)')
+
+if [ -z "$staged_files" ]; then
+    # No relevant files staged
+    exit 0
+fi
+
+# Check license headers using our script
+./bash_tools/check_license.sh $staged_files

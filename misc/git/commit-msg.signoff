@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# Check if commit message has a matching "Signed-off-by" line
+
+# Get user's name and email from git config
+name=$(git config user.name)
+email=$(git config user.email)
+signoff="Signed-off-by: $name <$email>"
+
+# Check if the commit message already has the signoff
+if grep -q "^$signoff" "$1"; then
+    exit 0
+fi
+
+# If no signoff found, add it
+echo "" >> "$1"
+echo "$signoff" >> "$1"
