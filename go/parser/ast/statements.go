@@ -98,6 +98,22 @@ type RangeVar struct {
 	Alias          *Alias // Table alias & optional column aliases - postgres/src/include/nodes/primnodes.h:90
 }
 
+// SqlString returns the SQL representation of this table reference
+func (r *RangeVar) SqlString() string {
+	// Use utility function for qualified name formatting
+	result := FormatFullyQualifiedName(r.CatalogName, r.SchemaName, r.RelName)
+	
+	// Add alias if present
+	if r.Alias != nil {
+		aliasStr := r.Alias.SqlString()
+		if aliasStr != "" {
+			result += " " + aliasStr
+		}
+	}
+	
+	return result
+}
+
 // NewRangeVar creates a new RangeVar node.
 func NewRangeVar(relName string, schemaName, catalogName string) *RangeVar {
 	return &RangeVar{
@@ -130,6 +146,32 @@ type Alias struct {
 	BaseNode
 	AliasName string // Alias name - postgres/src/include/nodes/primnodes.h:50
 	ColNames  []Node // Column aliases - postgres/src/include/nodes/primnodes.h:51
+}
+
+// SqlString returns the SQL representation of this alias
+func (a *Alias) SqlString() string {
+	if a.AliasName == "" {
+		return ""
+	}
+	
+	result := FormatAlias(a.AliasName)
+	
+	// Add column aliases if present
+	if len(a.ColNames) > 0 {
+		var colAliases []string
+		for _, col := range a.ColNames {
+			// Assuming column names are stored as strings or have SqlString() method
+			if strNode, ok := col.(interface{ SqlString() string }); ok {
+				colAliases = append(colAliases, strNode.SqlString())
+			} else {
+				// Fallback to string representation
+				colAliases = append(colAliases, QuoteIdentifier(col.String()))
+			}
+		}
+		result += FormatParentheses(FormatCommaList(colAliases))
+	}
+	
+	return result
 }
 
 // NewAlias creates a new Alias node.

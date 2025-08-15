@@ -1,15 +1,25 @@
 # Phase 3: Grammar & Parsing Implementation Plan
 
 ## Overview
-Phase 3 implements the PostgreSQL grammar using goyacc, building on the completed AST nodes (Phase 1.5) and lexer (Phase 2).
+Phase 3 implements the PostgreSQL grammar using goyacc, building on the completed AST nodes (Phase 1.5) and lexer (Phase 2). This phase also includes **SQL deparsing** capability to enable round-trip compatibility.
 
 **Total Grammar Rules**: 727 rules from PostgreSQL's gram.y
 **Implementation Strategy**: 10 sub-phases (3A-3J) with incremental complexity
+**Deparsing**: Every parsed construct must support `SqlString()` for SQL generation
 
 ## Prerequisites Completed
 - ✅ **Phase 1.5**: All 265 PostgreSQL AST nodes implemented
 - ✅ **Phase 2**: Complete lexer with all PostgreSQL token types
 - ✅ **Foundation**: Thread-safe context, build system, test framework
+- ✅ **Deparsing Infrastructure**: Node.SqlString() interface and utilities
+
+## Deparsing Strategy
+Every AST node implements `SqlString() string` method for SQL generation:
+- **Round-trip compatibility**: SQL → AST → SQL
+- **Test coverage**: Parse tests paired with deparse tests
+- **Default implementation**: Panic with helpful error message
+- **Utility functions**: Identifier quoting, formatting helpers
+- **PostgreSQL compliance**: Matches PostgreSQL's SQL output format
 
 ## Sub-Phase Breakdown
 
@@ -22,6 +32,7 @@ Phase 3 implements the PostgreSQL grammar using goyacc, building on the complete
 - Implement token declarations and precedence rules
 - Create parser-lexer interface
 - Basic statement routing (parse_toplevel, stmtmulti, stmt)
+- **Deparsing**: Implement `SqlString()` for basic foundation nodes
 
 **Key Rules**:
 - parse_toplevel

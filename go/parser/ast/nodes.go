@@ -658,6 +658,10 @@ type Node interface {
 
 	// String returns a string representation of the node (for debugging)
 	String() string
+
+	// SqlString returns the SQL representation of this node for deparsing
+	// This enables round-trip parsing: SQL -> AST -> SQL
+	SqlString() string
 }
 
 // BaseNode provides a basic implementation of the Node interface.
@@ -681,6 +685,14 @@ func (n *BaseNode) Location() int {
 // String returns a basic string representation.
 func (n *BaseNode) String() string {
 	return fmt.Sprintf("%s@%d", n.Tag, n.Loc)
+}
+
+// SqlString provides a default implementation that panics with helpful message.
+// Specific node types should override this method to provide actual SQL deparsing.
+func (n *BaseNode) SqlString() string {
+	panic(fmt.Sprintf("SqlString() not implemented for node type %s (tag: %d). "+
+		"Please implement SqlString() method for this node type to enable SQL deparsing.", 
+		n.Tag, int(n.Tag)))
 }
 
 // SetLocation sets the source location for this node.
