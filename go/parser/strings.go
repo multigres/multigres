@@ -48,7 +48,7 @@ func (l *Lexer) scanStandardString(startPos, startScanPos int) (*Token, error) {
 				foundClosingQuote = true
 				break
 			}
-		} else if ch == '\\' && !ctx.StandardConformingStrings {
+		} else if ch == '\\' && !ctx.StandardConformingStrings() {
 			// In non-standard mode, backslashes are processed like extended strings
 			// postgres/src/backend/parser/scan.l:562-567
 			if err := l.scanEscapeSequence(); err != nil {
@@ -62,7 +62,7 @@ func (l *Lexer) scanStandardString(startPos, startScanPos int) (*Token, error) {
 	}
 
 	if !foundClosingQuote {
-		_ = ctx.AddError(UnterminatedString, "unterminated quoted string")
+		_ = ctx.AddErrorWithType(UnterminatedString, "unterminated quoted string")
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(USCONST, ctx.GetLiteral(), startPos, text), nil
 	}
@@ -114,7 +114,7 @@ func (l *Lexer) scanExtendedString(startPos, startScanPos int) (*Token, error) {
 	}
 
 	if !foundClosingQuote {
-		_ = ctx.AddError(UnterminatedString, "unterminated quoted string")
+		_ = ctx.AddErrorWithType(UnterminatedString, "unterminated quoted string")
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(SCONST, ctx.GetLiteral(), startPos, text), nil
 	}
@@ -139,13 +139,13 @@ func (l *Lexer) scanDollarQuotedString(startPos, startScanPos int) (*Token, erro
 
 	if startDelimiter == "" {
 		// Invalid delimiter format
-		_ = ctx.AddError(SyntaxError, "invalid dollar-quoted string delimiter")
+		_ = ctx.AddErrorWithType(SyntaxError, "invalid dollar-quoted string delimiter")
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(USCONST, "", startPos, text), nil
 	}
 
 	// Store the delimiter for matching - postgres/src/include/parser/scanner.h:107
-	ctx.DolQStart = startDelimiter
+	ctx.SetDolQStart(startDelimiter)
 
 	// Special case: if we're immediately at EOF after the opening delimiter
 	// and the delimiter is not just "$$", treat it as a complete empty dollar-quoted string
@@ -181,7 +181,7 @@ func (l *Lexer) scanDollarQuotedString(startPos, startScanPos int) (*Token, erro
 	}
 
 	if !foundClosingDelimiter {
-		_ = ctx.AddError(UnterminatedDollarQuote, fmt.Sprintf("unterminated dollar-quoted string at or near \"%s\"", startDelimiter))
+		_ = ctx.AddErrorWithType(UnterminatedDollarQuote, fmt.Sprintf("unterminated dollar-quoted string at or near \"%s\"", startDelimiter))
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(USCONST, ctx.GetLiteral(), startPos, text), nil
 	}
@@ -246,17 +246,17 @@ func (l *Lexer) matchesDollarDelimiter(expectedDelimiter string) bool {
 	ctx := l.context
 
 	// Check if we have enough characters remaining
-	remaining := len(ctx.ScanBuf) - ctx.ScanPos
+	remaining := len(ctx.ScanBuf()) - ctx.ScanPos()
 	if remaining < len(expectedDelimiter) {
 		return false
 	}
 
 	// Check character by character
 	for i, expectedChar := range expectedDelimiter {
-		if ctx.ScanPos+i >= len(ctx.ScanBuf) {
+		if ctx.ScanPos()+i >= len(ctx.ScanBuf()) {
 			return false
 		}
-		if rune(ctx.ScanBuf[ctx.ScanPos+i]) != expectedChar {
+		if rune(ctx.ScanBuf()[ctx.ScanPos()+i]) != expectedChar {
 			return false
 		}
 	}
@@ -277,7 +277,7 @@ func (l *Lexer) scanEscapeSequence() error {
 	ctx.AdvanceBy(1) // Skip backslash
 
 	if ctx.AtEOF() {
-		_ = ctx.AddError(InvalidEscape, "unterminated escape sequence")
+		_ = ctx.AddErrorWithType(InvalidEscape, "unterminated escape sequence")
 		return nil
 	}
 
@@ -315,7 +315,7 @@ func (l *Lexer) scanEscapeSequence() error {
 	default:
 		if ch >= '0' && ch <= '7' {
 			// Octal escape \nnn - postgres/src/backend/parser/scan.l:278
-			ctx.ScanPos-- // Back up to reprocess first octal digit
+			ctx.SetScanPos(ctx.ScanPos() - 1) // Back up to reprocess first octal digit
 			return l.scanOctalEscape()
 		} else {
 			// Literal character after backslash
@@ -345,13 +345,13 @@ func (l *Lexer) scanHexEscape() error {
 	}
 
 	if len(hexDigits) == 0 {
-		_ = ctx.AddError(InvalidEscape, "invalid hexadecimal escape sequence")
+		_ = ctx.AddErrorWithType(InvalidEscape, "invalid hexadecimal escape sequence")
 		return nil
 	}
 
 	value, err := strconv.ParseUint(hexDigits, 16, 8)
 	if err != nil {
-		_ = ctx.AddError(InvalidEscape, "invalid hexadecimal escape sequence")
+		_ = ctx.AddErrorWithType(InvalidEscape, "invalid hexadecimal escape sequence")
 		return nil
 	}
 
@@ -378,13 +378,13 @@ func (l *Lexer) scanOctalEscape() error {
 	}
 
 	if len(octalDigits) == 0 {
-		_ = ctx.AddError(InvalidEscape, "invalid octal escape sequence")
+		_ = ctx.AddErrorWithType(InvalidEscape, "invalid octal escape sequence")
 		return nil
 	}
 
 	value, err := strconv.ParseUint(octalDigits, 8, 8)
 	if err != nil {
-		_ = ctx.AddError(InvalidEscape, "invalid octal escape sequence")
+		_ = ctx.AddErrorWithType(InvalidEscape, "invalid octal escape sequence")
 		return nil
 	}
 
@@ -405,25 +405,25 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 			hexDigits += string(ch)
 			ctx.AdvanceBy(1)
 		} else {
-			_ = ctx.AddError(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
+			_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
 			return nil
 		}
 	}
 
 	if len(hexDigits) != digitCount {
-		_ = ctx.AddError(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
+		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
 		return nil
 	}
 
 	value, err := strconv.ParseUint(hexDigits, 16, 32)
 	if err != nil {
-		_ = ctx.AddError(InvalidUnicodeEscape, "invalid Unicode escape sequence")
+		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode escape sequence")
 		return nil
 	}
 
 	// Check for valid Unicode code point
 	if value > 0x10FFFF {
-		_ = ctx.AddError(InvalidUnicodeEscape, "Unicode escape sequence out of range")
+		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "Unicode escape sequence out of range")
 		return nil
 	}
 
@@ -433,12 +433,12 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 	if isUTF16SurrogateFirst(runeValue) {
 		// First part of surrogate pair - need to get the second part
 		// Equivalent to postgres/src/backend/parser/scan.l:673-674
-		ctx.UTF16FirstPart = runeValue
+		ctx.SetUTF16FirstPart(runeValue)
 		return l.scanSurrogatePairSecond()
 	} else if isUTF16SurrogateSecond(runeValue) {
 		// Second surrogate without first - error
 		// Equivalent to postgres/src/backend/parser/scan.l:676-677
-		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair")
+		_ = ctx.AddErrorWithType(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair")
 		return nil
 	}
 
@@ -446,7 +446,7 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 	if utf8.ValidRune(runeValue) {
 		ctx.AddLiteral(string(runeValue))
 	} else {
-		_ = ctx.AddError(InvalidUnicodeEscape, "invalid Unicode code point")
+		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode code point")
 	}
 
 	return nil
@@ -462,13 +462,13 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 	finalLiteral := ctx.GetLiteral()
 
 	// Enter quote stop state (xqs) - postgres/src/backend/parser/scan.l:588
-	originalState := ctx.State
+	originalState := ctx.GetState()
 	ctx.SetState(StateXQS)
 
 	for {
 		// Skip whitespace to look for continuation
 		// SQL requires at least one newline in the whitespace for string concatenation
-		savedPos := ctx.ScanPos
+		savedPos := ctx.ScanPos()
 		hasNewline := false
 
 		// Skip whitespace and check for newline
@@ -481,7 +481,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 
 		// If no newline was found, string concatenation is not allowed
 		if !hasNewline {
-			ctx.ScanPos = savedPos
+			ctx.SetScanPos(savedPos)
 			ctx.SetState(StateInitial)
 
 			// Set final literal and return
@@ -507,7 +507,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 				ctx.AdvanceBy(1) // Skip '
 			} else {
 				// No continuation found
-				ctx.ScanPos = savedPos
+				ctx.SetScanPos(savedPos)
 				ctx.SetState(StateInitial)
 
 				// Set final literal and return
@@ -540,7 +540,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 						foundClosingQuote = true
 						break
 					}
-				} else if ch == '\\' && !ctx.StandardConformingStrings && originalState == StateXQ && !isExtended {
+				} else if ch == '\\' && !ctx.StandardConformingStrings() && originalState == StateXQ && !isExtended {
 					// Handle backslashes in non-standard mode for standard strings
 					if err := l.scanEscapeSequence(); err != nil {
 						return nil, err
@@ -558,7 +558,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 			}
 
 			if !foundClosingQuote {
-				_ = ctx.AddError(UnterminatedString, "unterminated quoted string")
+				_ = ctx.AddErrorWithType(UnterminatedString, "unterminated quoted string")
 				text := ctx.GetCurrentText(startScanPos)
 				return NewStringToken(USCONST, finalLiteral+ctx.GetLiteral(), startPos, text), nil
 			}
@@ -571,7 +571,7 @@ func (l *Lexer) checkStringContinuation(tokenType TokenType, startPos, startScan
 		}
 
 		// No continuation found - restore position and return final token
-		ctx.ScanPos = savedPos
+		ctx.SetScanPos(savedPos)
 		ctx.SetState(StateInitial)
 
 		// Set final literal and return
@@ -613,13 +613,13 @@ func (l *Lexer) scanBitString(startPos, startScanPos int) (*Token, error) {
 			ctx.AdvanceBy(1)
 		} else {
 			// Invalid character in bit string
-			_ = ctx.AddError(SyntaxError, fmt.Sprintf("invalid bit string character: %c", ch))
+			_ = ctx.AddErrorWithType(SyntaxError, fmt.Sprintf("invalid bit string character: %c", ch))
 			ctx.AdvanceBy(1)
 		}
 	}
 
 	if !foundClosingQuote {
-		_ = ctx.AddError(UnterminatedBitString, "unterminated bit string literal")
+		_ = ctx.AddErrorWithType(UnterminatedBitString, "unterminated bit string literal")
 		ctx.SetState(StateInitial) // Reset state even for errors
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(BCONST, ctx.GetLiteral(), startPos, text), nil
@@ -660,13 +660,13 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 			ctx.AdvanceBy(1)
 		} else {
 			// Invalid character in hex string
-			_ = ctx.AddError(SyntaxError, fmt.Sprintf("invalid hexadecimal string character: %c", ch))
+			_ = ctx.AddErrorWithType(SyntaxError, fmt.Sprintf("invalid hexadecimal string character: %c", ch))
 			ctx.AdvanceBy(1)
 		}
 	}
 
 	if !foundClosingQuote {
-		_ = ctx.AddError(UnterminatedHexString, "unterminated hexadecimal string literal")
+		_ = ctx.AddErrorWithType(UnterminatedHexString, "unterminated hexadecimal string literal")
 		ctx.SetState(StateInitial) // Reset state even for errors
 		text := ctx.GetCurrentText(startScanPos)
 		return NewStringToken(XCONST, ctx.GetLiteral(), startPos, text), nil
@@ -682,21 +682,21 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 func (l *Lexer) scanSurrogatePairSecond() error {
 	ctx := l.context
 
-	// The first surrogate is stored in ctx.UTF16FirstPart
+	// The first surrogate is stored in ctx.UTF16FirstPart()
 	// Now we need to expect and parse the second surrogate (\u or \U)
 
 	// Expect to find \u or \U for the second surrogate
 	if ctx.CurrentChar() != '\\' {
-		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: expected escape sequence")
-		ctx.UTF16FirstPart = 0 // Clear stored surrogate
+		_ = ctx.AddErrorWithType(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: expected escape sequence")
+		ctx.SetUTF16FirstPart(0) // Clear stored surrogate
 		return nil
 	}
 
 	ctx.AdvanceBy(1) // Skip backslash
 
 	if ctx.AtEOF() {
-		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: unexpected end of input")
-		ctx.UTF16FirstPart = 0
+		_ = ctx.AddErrorWithType(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: unexpected end of input")
+		ctx.SetUTF16FirstPart(0)
 		return nil
 	}
 
@@ -710,8 +710,8 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 	case 'U':
 		digitCount = 8
 	default:
-		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: expected \\u or \\U")
-		ctx.UTF16FirstPart = 0
+		_ = ctx.AddErrorWithType(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: expected \\u or \\U")
+		ctx.SetUTF16FirstPart(0)
 		return nil
 	}
 
@@ -723,22 +723,22 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 			hexDigits += string(ch)
 			ctx.AdvanceBy(1)
 		} else {
-			_ = ctx.AddError(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
-			ctx.UTF16FirstPart = 0
+			_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
+			ctx.SetUTF16FirstPart(0)
 			return nil
 		}
 	}
 
 	if len(hexDigits) != digitCount {
-		_ = ctx.AddError(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
-		ctx.UTF16FirstPart = 0
+		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
+		ctx.SetUTF16FirstPart(0)
 		return nil
 	}
 
 	secondValue, err := strconv.ParseUint(hexDigits, 16, 32)
 	if err != nil {
-		_ = ctx.AddError(InvalidUnicodeEscape, "invalid Unicode escape sequence")
-		ctx.UTF16FirstPart = 0
+		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode escape sequence")
+		ctx.SetUTF16FirstPart(0)
 		return nil
 	}
 
@@ -746,23 +746,23 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 
 	// Validate and combine surrogate pair - postgres/src/backend/parser/scan.l:692-695
 	if !isUTF16SurrogateSecond(secondSurrogate) {
-		_ = ctx.AddError(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair")
-		ctx.UTF16FirstPart = 0
+		_ = ctx.AddErrorWithType(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair")
+		ctx.SetUTF16FirstPart(0)
 		return nil
 	}
 
 	// Combine surrogates into final code point
-	combinedCodepoint := surrogatePairToCodepoint(ctx.UTF16FirstPart, secondSurrogate)
+	combinedCodepoint := surrogatePairToCodepoint(ctx.UTF16FirstPart(), secondSurrogate)
 
 	// Add combined character to literal - equivalent to addunicode() call
 	if utf8.ValidRune(combinedCodepoint) {
 		ctx.AddLiteral(string(combinedCodepoint))
 	} else {
-		_ = ctx.AddError(InvalidUnicodeEscape, "invalid Unicode code point")
+		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode code point")
 	}
 
 	// Clear first part - postgres/src/backend/parser/scan.l:698
-	ctx.UTF16FirstPart = 0
+	ctx.SetUTF16FirstPart(0)
 
 	return nil
 }

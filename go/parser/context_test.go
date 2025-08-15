@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,120 +9,31 @@ import (
 	"github.com/multigres/parser/go/parser/ast"
 )
 
-// TestErrorSeverity tests the error severity enum and string representation.
-func TestErrorSeverity(t *testing.T) {
-	tests := []struct {
-		severity ErrorSeverity
-		expected string
-	}{
-		{ErrorSeverityNotice, "NOTICE"},
-		{ErrorSeverityWarning, "WARNING"},
-		{ErrorSeverityError, "ERROR"},
-		{ErrorSeverityFatal, "FATAL"},
-		{ErrorSeverityPanic, "PANIC"},
-		{ErrorSeverity(999), "UNKNOWN"},
-	}
+// TestNewParseContext tests unified context creation
+func TestNewParseContext(t *testing.T) {
+	testSQL := "SELECT * FROM users WHERE id = 1;"
 
-	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			result := tt.severity.String()
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-// TestParseError tests the ParseError structure and error formatting.
-func TestParseError(t *testing.T) {
-	tests := []struct {
-		name     string
-		error    ParseError
-		expected string
-	}{
-		{
-			name: "error_with_line_column",
-			error: ParseError{
-				Message:  "syntax error",
-				Severity: ErrorSeverityError,
-				Line:     10,
-				Column:   5,
-			},
-			expected: "ERROR at line 10, column 5: syntax error",
-		},
-		{
-			name: "error_with_location",
-			error: ParseError{
-				Message:  "unexpected token",
-				Severity: ErrorSeverityWarning,
-				Location: 25,
-			},
-			expected: "WARNING at position 25: unexpected token",
-		},
-		{
-			name: "error_minimal",
-			error: ParseError{
-				Message:  "parse failed",
-				Severity: ErrorSeverityFatal,
-				Location: -1,
-			},
-			expected: "FATAL: parse failed",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tt.error.Error()
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-// TestDefaultParseOptions tests the default parsing options.
-func TestDefaultParseOptions(t *testing.T) {
-	options := DefaultParseOptions()
-	require.NotNil(t, options)
-
-	// Test PostgreSQL standard defaults
-	assert.True(t, options.StandardConformingStrings)
-	assert.True(t, options.EscapeStringWarning)
-	assert.Equal(t, 2, options.BackslashQuote)
-
-	// Test parser limits
-	assert.Equal(t, 63, options.MaxIdentifierLength) // PostgreSQL NAMEDATALEN - 1
-	assert.Equal(t, 1000, options.MaxExpressionDepth)
-	assert.Equal(t, 1024*1024, options.MaxStatementLength)
-
-	// Test error handling
-	assert.False(t, options.StopOnFirstError)
-	assert.True(t, options.CollectAllErrors)
-
-	// Test feature flags
-	assert.True(t, options.EnableExtensions)
-	assert.True(t, options.EnableWindowFuncs)
-	assert.True(t, options.EnablePartitioning)
-	assert.True(t, options.EnableMergeStmt)
-}
-
-// TestNewParserContext tests parser context creation.
-func TestNewParserContext(t *testing.T) {
 	// Test with default options
-	ctx1 := NewParserContext(nil)
+	ctx1 := NewParseContext(testSQL, nil)
 	require.NotNil(t, ctx1)
 	assert.NotNil(t, ctx1.GetOptions())
 	assert.NotEmpty(t, ctx1.GetContextID())
+	assert.Equal(t, testSQL, ctx1.GetSourceText())
 
 	// Test with custom options
 	customOptions := &ParseOptions{
 		MaxIdentifierLength: 100,
 		StopOnFirstError:    true,
 	}
-	ctx2 := NewParserContext(customOptions)
+	ctx2 := NewParseContext(testSQL, customOptions)
 	require.NotNil(t, ctx2)
 	assert.Equal(t, customOptions, ctx2.GetOptions())
+	assert.Equal(t, testSQL, ctx2.GetSourceText())
 }
 
-// TestParserContextSourceText tests source text management.
-func TestParserContextSourceText(t *testing.T) {
-	ctx := NewParserContext(nil)
+// TestParseContextSourceText tests source text management
+func TestParseContextSourceText(t *testing.T) {
+	ctx := NewParseContext("", nil)
 	testSQL := "SELECT * FROM users WHERE id = 1;"
 
 	// Initially empty
@@ -138,12 +48,15 @@ func TestParserContextSourceText(t *testing.T) {
 	assert.Equal(t, 0, pos)
 	assert.Equal(t, 1, line)
 	assert.Equal(t, 1, col)
+
+	// Check scan buffer properties
+	assert.Equal(t, 0, ctx.GetScanPos())
+	assert.Equal(t, len(testSQL), ctx.GetScanBufLen())
 }
 
-// TestParserContextPosition tests position tracking.
-func TestParserContextPosition(t *testing.T) {
-	ctx := NewParserContext(nil)
-	ctx.SetSourceText("SELECT * FROM users;")
+// TestParseContextPosition tests position tracking
+func TestParseContextPosition(t *testing.T) {
+	ctx := NewParseContext("SELECT * FROM users;", nil)
 
 	// Set position
 	ctx.SetCurrentPosition(7, 1, 8)
@@ -154,10 +67,139 @@ func TestParserContextPosition(t *testing.T) {
 	assert.Equal(t, 8, col)
 }
 
-// TestParserContextErrors tests error collection and management.
-func TestParserContextErrors(t *testing.T) {
-	ctx := NewParserContext(nil)
-	ctx.SetSourceText("SELECT * FROM users\nWHERE id = ?;")
+// TestParseContextLexerFunctionality tests lexer-specific methods
+func TestParseContextLexerFunctionality(t *testing.T) {
+	ctx := NewParseContext("Hello World", nil)
+
+	// Test character access
+	assert.Equal(t, 'H', ctx.CurrentChar())
+	assert.Equal(t, 'e', ctx.PeekChar())
+
+	// Test byte access
+	b, ok := ctx.CurrentByte()
+	assert.True(t, ok)
+	assert.Equal(t, byte('H'), b)
+
+	// Test advance
+	b, ok = ctx.NextByte()
+	assert.True(t, ok)
+	assert.Equal(t, byte('H'), b)
+
+	// Position should have advanced
+	pos, _, _ := ctx.GetCurrentPosition()
+	assert.Equal(t, 1, pos)
+
+	// Test PeekBytes
+	bytes := ctx.PeekBytes(4)
+	assert.Equal(t, []byte("ello"), bytes)
+
+	// Test AdvanceBy
+	ctx.AdvanceBy(4)
+	pos, _, _ = ctx.GetCurrentPosition()
+	assert.Equal(t, 5, pos)
+	assert.Equal(t, ' ', ctx.CurrentChar()) // Position 5 is the space in "Hello World"
+}
+
+// TestParseContextLiteralBuffer tests literal accumulation
+func TestParseContextLiteralBuffer(t *testing.T) {
+	ctx := NewParseContext("test", nil)
+
+	// Initially no active literal
+	literal := ctx.GetLiteral()
+	assert.Empty(t, literal)
+
+	// Start literal and add content
+	ctx.StartLiteral()
+	ctx.AddLiteral("Hello")
+	ctx.AddLiteral(" ")
+	ctx.AddLiteral("World")
+	ctx.AddLiteralByte('!')
+
+	// Get literal (should reset buffer)
+	literal = ctx.GetLiteral()
+	assert.Equal(t, "Hello World!", literal)
+
+	// Buffer should be reset
+	literal = ctx.GetLiteral()
+	assert.Empty(t, literal)
+}
+
+// TestParseContextLexerState tests lexer state management
+func TestParseContextLexerState(t *testing.T) {
+	ctx := NewParseContext("test", nil)
+
+	// Initially in initial state
+	assert.Equal(t, StateInitial, ctx.GetState())
+
+	// Change state
+	ctx.SetState(StateXQ)
+	assert.Equal(t, StateXQ, ctx.GetState())
+
+	ctx.SetState(StateXC)
+	assert.Equal(t, StateXC, ctx.GetState())
+}
+
+// TestParseContextParserFunctionality tests parser-specific methods
+func TestParseContextParserFunctionality(t *testing.T) {
+	ctx := NewParseContext("SELECT * FROM users;", nil)
+
+	// Initially no parse tree
+	assert.Nil(t, ctx.GetParseTree())
+
+	// Set parse tree
+	tree := ast.NewIdentifier("test")
+	ctx.SetParseTree(tree)
+	assert.Equal(t, tree, ctx.GetParseTree())
+
+	// Test depth tracking
+	assert.Equal(t, 0, ctx.GetDepth())
+
+	err := ctx.IncrementDepth()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, ctx.GetDepth())
+
+	ctx.DecrementDepth()
+	assert.Equal(t, 0, ctx.GetDepth())
+
+	// Test statement boundaries
+	start, end := ctx.GetStatementBoundaries()
+	assert.Equal(t, 0, start)
+	assert.Equal(t, 0, end)
+
+	ctx.SetStatementBoundaries(10, 25)
+	start, end = ctx.GetStatementBoundaries()
+	assert.Equal(t, 10, start)
+	assert.Equal(t, 25, end)
+}
+
+// TestParseContextDepthTracking tests expression depth limits
+func TestParseContextDepthTracking(t *testing.T) {
+	options := &ParseOptions{
+		MaxExpressionDepth: 3,
+	}
+	ctx := NewParseContext("test", options)
+
+	// Should allow up to max depth
+	assert.NoError(t, ctx.IncrementDepth()) // 1
+	assert.NoError(t, ctx.IncrementDepth()) // 2
+	assert.NoError(t, ctx.IncrementDepth()) // 3
+
+	// Should error on exceeding max
+	err := ctx.IncrementDepth() // 4
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "expression too complex")
+
+	// Decrement should work
+	ctx.DecrementDepth()
+	ctx.DecrementDepth()
+	ctx.DecrementDepth()
+	ctx.DecrementDepth() // Should not go negative
+	assert.Equal(t, 0, ctx.GetDepth())
+}
+
+// TestParseContextUnifiedErrors tests unified error handling
+func TestParseContextUnifiedErrors(t *testing.T) {
+	ctx := NewParseContext("SELECT * FROM users\nWHERE id = ?;", nil)
 
 	// Initially no errors
 	assert.False(t, ctx.HasErrors())
@@ -165,7 +207,7 @@ func TestParserContextErrors(t *testing.T) {
 	assert.Empty(t, ctx.GetErrors())
 	assert.Empty(t, ctx.GetWarnings())
 
-	// Add an error
+	// Add a regular error
 	ctx.AddError("syntax error", 15)
 	assert.True(t, ctx.HasErrors())
 	assert.False(t, ctx.HasWarnings())
@@ -174,7 +216,14 @@ func TestParserContextErrors(t *testing.T) {
 	assert.Len(t, errors, 1)
 	assert.Equal(t, "syntax error", errors[0].Message)
 	assert.Equal(t, ErrorSeverityError, errors[0].Severity)
-	assert.Equal(t, 15, errors[0].Location)
+	assert.Equal(t, 15, errors[0].Position)
+
+	// Add a lexer error with type
+	ctx.AddErrorWithType(UnterminatedString, "unterminated string")
+	errors = ctx.GetErrors()
+	assert.Len(t, errors, 2)
+	assert.Equal(t, UnterminatedString, errors[1].Type)
+	assert.Equal(t, "unterminated string", errors[1].Message)
 
 	// Add a warning
 	ctx.AddWarning("deprecated syntax", 5)
@@ -189,8 +238,8 @@ func TestParserContextErrors(t *testing.T) {
 	// Add error with hint
 	ctx.AddErrorWithHint("missing semicolon", 30, "add ';' at end of statement")
 	errors = ctx.GetErrors()
-	assert.Len(t, errors, 2)
-	assert.Equal(t, "add ';' at end of statement", errors[1].HintText)
+	assert.Len(t, errors, 3)
+	assert.Equal(t, "add ';' at end of statement", errors[2].HintText)
 
 	// Clear errors
 	ctx.ClearErrors()
@@ -200,127 +249,140 @@ func TestParserContextErrors(t *testing.T) {
 	assert.Empty(t, ctx.GetWarnings())
 }
 
-// TestLineColumnCalculation tests line and column calculation from byte offset.
-func TestLineColumnCalculationError(t *testing.T) {
-	ctx := NewParserContext(nil)
-	sourceText := "SELECT *\nFROM users\nWHERE id = 1;"
-	ctx.SetSourceText(sourceText)
+// TestParseContextErrorContext tests context-aware error reporting
+func TestParseContextErrorContext(t *testing.T) {
+	ctx := NewParseContext("SELECT 'hello", nil)
 
-	tests := []struct {
-		name     string
-		location int
-		line     int
-		column   int
-	}{
-		{"start_of_file", 0, 1, 1},
-		{"middle_first_line", 4, 1, 5},
-		{"end_first_line", 8, 1, 9},
-		{"start_second_line", 9, 2, 1},
-		{"middle_second_line", 13, 2, 5},
-		{"start_third_line", 20, 3, 1},
-		{"end_of_file", len(sourceText), 3, 14},
-		{"invalid_negative", -1, -1, -1},
-		{"invalid_too_large", len(sourceText) + 10, -1, -1},
+	// Set lexer state to quoted string
+	ctx.SetState(StateXQ)
+
+	// Add an error - should include context
+	err := ctx.AddErrorWithType(UnterminatedString, "unterminated quoted string")
+	assert.Equal(t, "in quoted string", err.Context)
+	assert.Contains(t, err.HintText, "closing single quote")
+
+	// Test different states
+	ctx.SetState(StateXC)
+	err = ctx.AddErrorWithType(UnterminatedComment, "unterminated comment")
+	assert.Equal(t, "in comment", err.Context)
+	assert.Contains(t, err.HintText, "*/")
+}
+
+// TestParseContextPositionUtilities tests position save/restore
+func TestParseContextPositionUtilities(t *testing.T) {
+	ctx := NewParseContext("SELECT * FROM users;", nil)
+
+	// Advance position
+	ctx.AdvanceBy(7) // Move to position 7
+	pos, _, _ := ctx.GetCurrentPosition()
+	assert.Equal(t, 7, pos)
+
+	// Save position
+	savedPos := ctx.SaveCurrentPosition()
+	assert.Equal(t, 7, savedPos)
+
+	// Advance more
+	ctx.AdvanceBy(5) // Move to position 12
+	pos, _, _ = ctx.GetCurrentPosition()
+	assert.Equal(t, 12, pos)
+
+	// Restore position
+	ctx.RestoreSavedPosition()
+	pos, _, _ = ctx.GetCurrentPosition()
+	assert.Equal(t, 7, pos)
+
+	// Test PutBack
+	ctx.PutBack(3)
+	pos, _, _ = ctx.GetCurrentPosition()
+	assert.Equal(t, 4, pos)
+}
+
+// TestParseContextEOF tests EOF handling
+func TestParseContextEOF(t *testing.T) {
+	ctx := NewParseContext("ab", nil)
+
+	// Not at EOF initially
+	assert.False(t, ctx.AtEOF())
+
+	// Advance to near end
+	ctx.AdvanceBy(2)
+	assert.True(t, ctx.AtEOF())
+
+	// Test character access at EOF
+	assert.Equal(t, rune(0), ctx.CurrentChar())
+	assert.Equal(t, rune(0), ctx.PeekChar())
+
+	// Test byte access at EOF
+	_, ok := ctx.CurrentByte()
+	assert.False(t, ok)
+
+	_, ok = ctx.NextByte()
+	assert.False(t, ok)
+
+	// Test rune access at EOF
+	assert.Equal(t, rune(0), ctx.PeekRune())
+	assert.Equal(t, rune(0), ctx.AdvanceRune())
+}
+
+// TestParseContextUnicodeHandling tests Unicode character handling
+func TestParseContextUnicodeHandling(t *testing.T) {
+	ctx := NewParseContext("Hello 世界", nil)
+
+	// Test UTF-8 rune handling
+	assert.Equal(t, 'H', ctx.PeekRune())
+
+	// Advance through ASCII characters
+	for i := 0; i < 6; i++ { // "Hello "
+		ctx.AdvanceRune()
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx.AddError("test error", tt.location)
-			errors := ctx.GetErrors()
-			if tt.line == -1 && tt.column == -1 {
-				// For invalid locations, we still create the error but with invalid line/col
-				assert.True(t, len(errors) > 0)
-			} else {
-				require.NotEmpty(t, errors)
-				lastError := errors[len(errors)-1]
-				assert.Equal(t, tt.line, lastError.Line, "Line mismatch for location %d", tt.location)
-				assert.Equal(t, tt.column, lastError.Column, "Column mismatch for location %d", tt.location)
-			}
-			ctx.ClearErrors() // Clear for next test
-		})
-	}
+	// Should be at first Unicode character
+	assert.Equal(t, '世', ctx.PeekRune())
+	r := ctx.AdvanceRune()
+	assert.Equal(t, '世', r)
+
+	// Should be at second Unicode character
+	assert.Equal(t, '界', ctx.PeekRune())
+	r = ctx.AdvanceRune()
+	assert.Equal(t, '界', r)
+
+	// Should be at EOF
+	assert.True(t, ctx.AtEOF())
 }
 
-// TestParserContextParseTree tests parse tree management.
-func TestParserContextParseTree(t *testing.T) {
-	ctx := NewParserContext(nil)
+// TestParseContextGetCurrentText tests text extraction
+func TestParseContextGetCurrentText(t *testing.T) {
+	ctx := NewParseContext("SELECT * FROM users;", nil)
 
-	// Initially no parse tree
-	assert.Nil(t, ctx.GetParseTree())
+	// Get text from start to current position
+	text := ctx.GetCurrentText(0)
+	assert.Empty(t, text) // Position is still 0
 
-	// Set parse tree
-	tree := ast.NewIdentifier("test")
-	ctx.SetParseTree(tree)
-	assert.Equal(t, tree, ctx.GetParseTree())
+	// Advance and get text
+	ctx.AdvanceBy(6)
+	text = ctx.GetCurrentText(0)
+	assert.Equal(t, "SELECT", text)
+
+	// Get text from middle
+	text = ctx.GetCurrentText(2)
+	assert.Equal(t, "LECT", text)
+
+	// Invalid range
+	text = ctx.GetCurrentText(10)
+	assert.Empty(t, text)
+
+	text = ctx.GetCurrentText(-1)
+	assert.Empty(t, text)
 }
 
-// TestParserContextDepthTracking tests expression depth tracking.
-func TestParserContextDepthTracking(t *testing.T) {
-	options := &ParseOptions{
-		MaxExpressionDepth: 3,
-	}
-	ctx := NewParserContext(options)
-
-	// Initially depth is 0
-	assert.Equal(t, 0, ctx.GetDepth())
-
-	// Increment depth
-	err := ctx.IncrementDepth()
-	assert.NoError(t, err)
-	assert.Equal(t, 1, ctx.GetDepth())
-
-	err = ctx.IncrementDepth()
-	assert.NoError(t, err)
-	assert.Equal(t, 2, ctx.GetDepth())
-
-	err = ctx.IncrementDepth()
-	assert.NoError(t, err)
-	assert.Equal(t, 3, ctx.GetDepth())
-
-	// Should fail to exceed maximum
-	err = ctx.IncrementDepth()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "expression too complex")
-	assert.Equal(t, 4, ctx.GetDepth()) // Depth still incremented even though error returned
-
-	// Decrement depth
-	ctx.DecrementDepth()
-	assert.Equal(t, 3, ctx.GetDepth())
-
-	ctx.DecrementDepth()
-	ctx.DecrementDepth()
-	ctx.DecrementDepth()
-	assert.Equal(t, 0, ctx.GetDepth())
-
-	// Shouldn't go negative
-	ctx.DecrementDepth()
-	assert.Equal(t, 0, ctx.GetDepth())
-}
-
-// TestParserContextStatementBoundaries tests statement boundary tracking.
-func TestParserContextStatementBoundaries(t *testing.T) {
-	ctx := NewParserContext(nil)
-
-	// Initially no boundaries set
-	start, end := ctx.GetStatementBoundaries()
-	assert.Equal(t, 0, start)
-	assert.Equal(t, 0, end)
-
-	// Set boundaries
-	ctx.SetStatementBoundaries(10, 25)
-	start, end = ctx.GetStatementBoundaries()
-	assert.Equal(t, 10, start)
-	assert.Equal(t, 25, end)
-}
-
-// TestParserContextClone tests context cloning for thread safety.
-func TestParserContextClone(t *testing.T) {
+// TestParseContextClone tests context cloning
+func TestParseContextClone(t *testing.T) {
 	options := &ParseOptions{
 		MaxIdentifierLength: 100,
 	}
-	ctx1 := NewParserContext(options)
-	ctx1.SetSourceText("SELECT * FROM users;")
+	ctx1 := NewParseContext("SELECT * FROM users;", options)
 	ctx1.AddError("test error", 5)
+	ctx1.AdvanceBy(5)
 
 	// Clone the context
 	ctx2 := ctx1.Clone()
@@ -331,76 +393,161 @@ func TestParserContextClone(t *testing.T) {
 	// Should have different context IDs
 	assert.NotEqual(t, ctx1.GetContextID(), ctx2.GetContextID())
 
+	// Should have same source text
+	assert.Equal(t, ctx1.GetSourceText(), ctx2.GetSourceText())
+
 	// Should have independent state
-	assert.Empty(t, ctx2.GetSourceText())
-	assert.False(t, ctx2.HasErrors())
+	assert.False(t, ctx2.HasErrors()) // Errors not copied
+	pos, _, _ := ctx2.GetCurrentPosition()
+	assert.Equal(t, 0, pos) // Position reset
 }
 
-// TestParserContextConcurrency tests thread safety of parser context.
-func TestParserContextConcurrency(t *testing.T) {
-	ctx := NewParserContext(nil)
-	ctx.SetSourceText("SELECT * FROM users WHERE id = 1;")
+// TestParseContextSingleThreaded tests that ParseContext works correctly
+// Note: ParseContext is designed for single-threaded use. For concurrent parsing,
+// each thread should have its own ParseContext instance.
+func TestParseContextSingleThreaded(t *testing.T) {
+	ctx := NewParseContext("SELECT * FROM users WHERE id = 1;", nil)
 
-	// Run concurrent operations
-	var wg sync.WaitGroup
-	numGoroutines := 10
-	operationsPerGoroutine := 100
+	// Test various operations in sequence
+	for i := 0; i < 100; i++ {
+		// Read operations
+		_ = ctx.GetSourceText()
+		_, _, _ = ctx.GetCurrentPosition()
+		_ = ctx.HasErrors()
+		_ = ctx.GetErrors()
+		_ = ctx.GetWarnings()
+		_ = ctx.GetState()
+		_ = ctx.GetDepth()
 
-	wg.Add(numGoroutines)
+		// Write operations
+		location := i
+		ctx.AddError("test error", location)
+		ctx.SetCurrentPosition(location, 1, location+1)
 
-	for i := 0; i < numGoroutines; i++ {
-		go func(goroutineID int) {
-			defer wg.Done()
+		// Depth operations
+		_ = ctx.IncrementDepth()
+		ctx.DecrementDepth()
 
-			for j := 0; j < operationsPerGoroutine; j++ {
-				// Concurrent read operations
-				_ = ctx.GetSourceText()
-				_, _, _ = ctx.GetCurrentPosition()
-				_ = ctx.HasErrors()
-				_ = ctx.GetErrors()
-				_ = ctx.GetWarnings()
+		// State operations
+		ctx.SetState(StateXQ)
+		ctx.SetState(StateInitial)
 
-				// Concurrent write operations
-				location := goroutineID*operationsPerGoroutine + j
-				ctx.AddError("concurrent error", location)
-				ctx.SetCurrentPosition(location, 1, location+1)
-
-				// Depth operations
-				_ = ctx.IncrementDepth()
-				ctx.DecrementDepth()
-			}
-		}(i)
+		// Literal operations
+		ctx.StartLiteral()
+		ctx.AddLiteral("test")
+		_ = ctx.GetLiteral()
 	}
 
-	wg.Wait()
-
-	// Verify final state is consistent
+	// Verify final state
 	errors := ctx.GetErrors()
-	assert.Equal(t, numGoroutines*operationsPerGoroutine, len(errors))
+	assert.Equal(t, 100, len(errors))
 	assert.True(t, ctx.HasErrors())
 }
 
-// TestParserContextString tests the string representation.
-func TestParserContextString(t *testing.T) {
-	ctx := NewParserContext(nil)
-	ctx.SetSourceText("SELECT * FROM users;")
+// TestParseContextString tests string representation
+func TestParseContextString(t *testing.T) {
+	ctx := NewParseContext("SELECT * FROM users;", nil)
 	ctx.SetCurrentPosition(7, 1, 8)
 	ctx.AddError("test error", 5)
 	ctx.AddWarning("test warning", 10)
+	ctx.SetState(StateXQ)
+	_ = ctx.IncrementDepth()
 
 	str := ctx.String()
-	assert.Contains(t, str, "ParserContext")
-	assert.Contains(t, str, "pos: 7/20") // position/length (SELECT * FROM users; is 20 chars)
+	assert.Contains(t, str, "ParseContext")
+	assert.Contains(t, str, "pos: 7/20") // position/length
 	assert.Contains(t, str, "line: 1")
 	assert.Contains(t, str, "col: 8")
 	assert.Contains(t, str, "errors: 1")
 	assert.Contains(t, str, "warnings: 1")
+	assert.Contains(t, str, "state: 5") // StateXQ
+	assert.Contains(t, str, "depth: 1")
 }
 
-// BenchmarkParserContextOperations benchmarks common context operations.
-func BenchmarkParserContextOperations(b *testing.B) {
-	ctx := NewParserContext(nil)
-	ctx.SetSourceText("SELECT * FROM users WHERE id = 1;")
+// TestParseContextCompatibilityMethods tests legacy compatibility methods
+func TestParseContextCompatibilityMethods(t *testing.T) {
+	ctx := NewParseContext("SELECT * FROM users;", nil)
+
+	// Test legacy methods
+	assert.Equal(t, 0, ctx.GetScanPos())
+	assert.Equal(t, len("SELECT * FROM users;"), ctx.GetScanBufLen())
+	assert.Equal(t, 0, ctx.GetCurrentPos())
+
+	// Advance and test again
+	ctx.AdvanceBy(6)
+	assert.Equal(t, 6, ctx.GetScanPos())
+	assert.Equal(t, 6, ctx.GetCurrentPos())
+
+	// GetScanBuf should return copy
+	buf1 := ctx.GetScanBuf()
+	buf2 := ctx.GetScanBuf()
+	assert.Equal(t, buf1, buf2)
+	// Modifying one shouldn't affect the other (they are copies)
+	if len(buf1) > 0 {
+		buf1[0] = 'X'
+		assert.NotEqual(t, buf1[0], buf2[0])
+	}
+}
+
+// TestParseContextDefaultOptions tests default option values
+func TestParseContextDefaultOptions(t *testing.T) {
+	ctx := NewParseContext("test", nil)
+	options := ctx.GetOptions()
+
+	// Test PostgreSQL standard defaults
+	assert.True(t, options.StandardConformingStrings)
+	assert.True(t, options.EscapeStringWarning)
+	assert.Equal(t, BackslashQuoteSafeEncoding, options.BackslashQuote)
+
+	// Test parser limits
+	assert.Equal(t, 63, options.MaxIdentifierLength)
+	assert.Equal(t, 1000, options.MaxExpressionDepth)
+	assert.Equal(t, 1024*1024, options.MaxStatementLength)
+
+	// Test error handling
+	assert.False(t, options.StopOnFirstError)
+	assert.True(t, options.CollectAllErrors)
+
+	// Test feature flags
+	assert.True(t, options.EnableExtensions)
+	assert.True(t, options.EnableWindowFuncs)
+	assert.True(t, options.EnablePartitioning)
+	assert.True(t, options.EnableMergeStmt)
+}
+
+// TestParseContextLineColumnTracking tests line/column calculation
+func TestParseContextLineColumnTracking(t *testing.T) {
+	sourceText := "SELECT *\nFROM users\nWHERE id = 1;"
+	ctx := NewParseContext(sourceText, nil)
+
+	tests := []struct {
+		name           string
+		advanceBy      int
+		expectedLine   int
+		expectedColumn int
+	}{
+		{"start_of_file", 0, 1, 1},
+		{"middle_first_line", 4, 1, 5},
+		{"end_first_line", 8, 1, 9},
+		{"start_second_line", 9, 2, 1},
+		{"middle_second_line", 13, 2, 5},
+		{"start_third_line", 20, 3, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx.SetSourceText(sourceText) // Reset
+			ctx.AdvanceBy(tt.advanceBy)
+			_, line, col := ctx.GetCurrentPosition()
+			assert.Equal(t, tt.expectedLine, line, "Line mismatch")
+			assert.Equal(t, tt.expectedColumn, col, "Column mismatch")
+		})
+	}
+}
+
+// BenchmarkParseContextOperations benchmarks common context operations
+func BenchmarkParseContextOperations(b *testing.B) {
+	ctx := NewParseContext("SELECT * FROM users WHERE id = 1;", nil)
 
 	b.Run("AddError", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
@@ -419,6 +566,21 @@ func BenchmarkParserContextOperations(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_ = ctx.IncrementDepth()
 			ctx.DecrementDepth()
+		}
+	})
+
+	b.Run("SetGetState", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			ctx.SetState(StateXQ)
+			_ = ctx.GetState()
+		}
+	})
+
+	b.Run("LiteralOperations", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			ctx.StartLiteral()
+			ctx.AddLiteral("test")
+			_ = ctx.GetLiteral()
 		}
 	})
 

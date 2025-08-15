@@ -174,9 +174,9 @@ func TestBasicUnicodeEscapes(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.hasError {
-				assert.True(t, len(lexer.context.Errors) > 0, "Expected lexer errors")
+				assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors")
 			} else {
-				assert.Empty(t, lexer.context.Errors, "Expected no lexer errors")
+				assert.Empty(t, lexer.context.Errors(), "Expected no lexer errors")
 				assert.Equal(t, SCONST, token.Type)
 				assert.Equal(t, tt.expected, token.Value.Str)
 			}
@@ -249,9 +249,9 @@ func TestSurrogatePairUnicodeEscapes(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.hasError {
-				assert.True(t, len(lexer.context.Errors) > 0, "Expected lexer errors for input: %s", tt.input)
+				assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors for input: %s", tt.input)
 			} else {
-				assert.Empty(t, lexer.context.Errors, "Expected no lexer errors for input: %s", tt.input)
+				assert.Empty(t, lexer.context.Errors(), "Expected no lexer errors for input: %s", tt.input)
 				assert.Equal(t, SCONST, token.Type)
 				assert.Equal(t, tt.expected, token.Value.Str)
 			}
@@ -306,9 +306,9 @@ func TestComplexSurrogatePairScenarios(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.hasError {
-				assert.True(t, len(lexer.context.Errors) > 0, "Expected lexer errors for input: %s", tt.input)
+				assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors for input: %s", tt.input)
 			} else {
-				assert.Empty(t, lexer.context.Errors, "Expected no lexer errors for input: %s", tt.input)
+				assert.Empty(t, lexer.context.Errors(), "Expected no lexer errors for input: %s", tt.input)
 				assert.Equal(t, SCONST, token.Type)
 				assert.Equal(t, tt.expected, token.Value.Str)
 			}
@@ -322,7 +322,7 @@ func TestStateXEUTransitions(t *testing.T) {
 	lexer := NewLexer("E'\\uD83D\\uDE00'")
 
 	// Initial state should be StateInitial
-	assert.Equal(t, StateInitial, lexer.context.State)
+	assert.Equal(t, StateInitial, lexer.context.GetState())
 
 	// This should be tested by examining internal state during processing
 	// For now, we test the end result
@@ -330,10 +330,10 @@ func TestStateXEUTransitions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should end up back in StateInitial
-	assert.Equal(t, StateInitial, lexer.context.State)
+	assert.Equal(t, StateInitial, lexer.context.GetState())
 	assert.Equal(t, SCONST, token.Type)
 	assert.Equal(t, "😀", token.Value.Str)
-	assert.Empty(t, lexer.context.Errors)
+	assert.Empty(t, lexer.context.Errors())
 }
 
 // TestErrorRecoveryInSurrogatePairs tests error recovery when surrogate pair parsing fails
@@ -366,10 +366,10 @@ func TestErrorRecoveryInSurrogatePairs(t *testing.T) {
 			require.NotNil(t, token)
 
 			// Should have errors
-			assert.True(t, len(lexer.context.Errors) > 0, "Expected lexer errors for input: %s", tt.input)
+			assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors for input: %s", tt.input)
 
 			// Should eventually return to a reasonable state
-			assert.True(t, lexer.context.State == StateInitial || lexer.context.State == StateXE)
+			assert.True(t, lexer.context.GetState() == StateInitial || lexer.context.GetState() == StateXE)
 		})
 	}
 }
@@ -404,9 +404,9 @@ func TestPostgreSQLCompatibilityUnicode(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.hasError {
-				assert.True(t, len(lexer.context.Errors) > 0, "Expected lexer errors for input: %s", tt.input)
+				assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors for input: %s", tt.input)
 			} else {
-				assert.Empty(t, lexer.context.Errors, "Expected no lexer errors for input: %s", tt.input)
+				assert.Empty(t, lexer.context.Errors(), "Expected no lexer errors for input: %s", tt.input)
 				assert.Equal(t, SCONST, token.Type)
 				assert.Equal(t, tt.expected, token.Value.Str)
 			}
@@ -455,9 +455,9 @@ func TestUnicodeEdgeCases(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.hasError {
-				assert.True(t, len(lexer.context.Errors) > 0, "Expected lexer errors for input: %s", tt.input)
+				assert.True(t, len(lexer.context.Errors()) > 0, "Expected lexer errors for input: %s", tt.input)
 			} else {
-				assert.Empty(t, lexer.context.Errors, "Expected no lexer errors for input: %s", tt.input)
+				assert.Empty(t, lexer.context.Errors(), "Expected no lexer errors for input: %s", tt.input)
 				assert.Equal(t, SCONST, token.Type)
 			}
 		})
@@ -476,10 +476,10 @@ func TestAdvancedUnicodeIntegration(t *testing.T) {
 		require.NotNil(t, token)
 
 		// Should have no errors
-		assert.Empty(t, lexer.context.Errors, "Expected no errors")
+		assert.Empty(t, lexer.context.Errors(), "Expected no errors")
 
 		// Should be back in initial state
-		assert.Equal(t, StateInitial, lexer.context.State)
+		assert.Equal(t, StateInitial, lexer.context.GetState())
 
 		// Should have correct token
 		assert.Equal(t, SCONST, token.Type)
@@ -507,7 +507,7 @@ func TestAdvancedUnicodeIntegration(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, EOF, eof.Type)
 
-		assert.Empty(t, lexer.context.Errors, "Expected no errors")
+		assert.Empty(t, lexer.context.Errors(), "Expected no errors")
 	})
 
 	t.Run("Error recovery and state management", func(t *testing.T) {
@@ -518,17 +518,17 @@ func TestAdvancedUnicodeIntegration(t *testing.T) {
 		// First token should have errors
 		_, err := lexer.NextToken()
 		require.NoError(t, err)
-		assert.True(t, len(lexer.context.Errors) > 0, "Expected errors in first token")
+		assert.True(t, len(lexer.context.Errors()) > 0, "Expected errors in first token")
 
 		// Clear errors for next token
-		lexer.context.Errors = nil
+		lexer.context.ClearErrors()
 
 		// Second token should be valid
 		token2, err := lexer.NextToken()
 		require.NoError(t, err)
 		assert.Equal(t, SCONST, token2.Type)
 		assert.Equal(t, "valid", token2.Value.Str)
-		assert.Empty(t, lexer.context.Errors, "Expected no errors in second token")
+		assert.Empty(t, lexer.context.Errors(), "Expected no errors in second token")
 	})
 }
 
@@ -544,7 +544,7 @@ func TestStateXEUBehavior(t *testing.T) {
 
 		// The fact that we get the correct combined character means StateXEU worked
 		assert.Equal(t, "😀", token.Value.Str)
-		assert.Empty(t, lexer.context.Errors)
+		assert.Empty(t, lexer.context.Errors())
 	})
 
 	t.Run("StateXEU error handling", func(t *testing.T) {
@@ -566,7 +566,7 @@ func TestStateXEUBehavior(t *testing.T) {
 				require.NoError(t, err)
 
 				// Should have errors
-				assert.True(t, len(lexer.context.Errors) > 0, "Expected errors for: %s", tc.input)
+				assert.True(t, len(lexer.context.Errors()) > 0, "Expected errors for: %s", tc.input)
 
 				// Should still return a token (error recovery)
 				assert.NotNil(t, token)
@@ -596,7 +596,7 @@ func TestUnicodePerformance(t *testing.T) {
 
 	assert.Equal(t, SCONST, token.Type)
 	assert.Equal(t, expected, token.Value.Str)
-	assert.Empty(t, lexer.context.Errors)
+	assert.Empty(t, lexer.context.Errors())
 }
 
 // TestPostgreSQLRegressionCases tests specific cases from PostgreSQL regression tests
@@ -653,9 +653,9 @@ func TestPostgreSQLRegressionCases(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.hasError {
-				assert.True(t, len(lexer.context.Errors) > 0, "Expected errors for: %s", tt.input)
+				assert.True(t, len(lexer.context.Errors()) > 0, "Expected errors for: %s", tt.input)
 			} else {
-				assert.Empty(t, lexer.context.Errors, "Expected no errors for: %s", tt.input)
+				assert.Empty(t, lexer.context.Errors(), "Expected no errors for: %s", tt.input)
 				assert.Equal(t, SCONST, token.Type)
 				assert.Equal(t, tt.expected, token.Value.Str)
 			}
@@ -704,9 +704,9 @@ func TestComplexUnicodeStringScenarios(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.hasError {
-				assert.True(t, len(lexer.context.Errors) > 0, "Expected errors for: %s", tt.input)
+				assert.True(t, len(lexer.context.Errors()) > 0, "Expected errors for: %s", tt.input)
 			} else {
-				assert.Empty(t, lexer.context.Errors, "Expected no errors for: %s", tt.input)
+				assert.Empty(t, lexer.context.Errors(), "Expected no errors for: %s", tt.input)
 				assert.Equal(t, SCONST, token.Type)
 				assert.Equal(t, tt.expected, token.Value.Str)
 			}
@@ -732,11 +732,11 @@ func TestUnicodeStatePreservation(t *testing.T) {
 
 		assert.Equal(t, SCONST, token.Type)
 		assert.Equal(t, expected[i], token.Value.Str)
-		assert.Empty(t, lexer.context.Errors)
+		assert.Empty(t, lexer.context.Errors())
 
 		// State should be clean
-		assert.Equal(t, StateInitial, lexer.context.State)
-		assert.Equal(t, rune(0), lexer.context.UTF16FirstPart)
+		assert.Equal(t, StateInitial, lexer.context.GetState())
+		assert.Equal(t, rune(0), lexer.context.UTF16FirstPart())
 	}
 }
 

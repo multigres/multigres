@@ -107,16 +107,16 @@ func TestBackslashQuoteModeCompatibility(t *testing.T) {
 // TestThreadSafetyDesign validates that our design eliminates global state
 func TestThreadSafetyDesign(t *testing.T) {
 	// Create multiple contexts to ensure no shared state
-	ctx1 := NewLexerContext("input1")
-	ctx2 := NewLexerContext("input2")
+	ctx1 := NewParseContext("input1", nil)
+	ctx2 := NewParseContext("input2", nil)
 
 	// Modify state in one context
 	ctx1.SetState(StateXQ)
-	ctx1.XCDepth = 5
-	ctx1.DolQStart = "tag"
+	ctx1.SetXCDepth(5)
+	ctx1.SetDolQStart("tag")
 
 	// Verify other context is unaffected
 	assert.Equal(t, StateInitial, ctx2.GetState(), "ctx2 state should be StateInitial")
-	assert.Equal(t, 0, ctx2.XCDepth, "ctx2 XCDepth should be 0")
-	assert.Equal(t, "", ctx2.DolQStart, "ctx2 DolQStart should be empty")
+	assert.Equal(t, 0, ctx2.XCDepth(), "ctx2 XCDepth should be 0")
+	assert.Equal(t, "", ctx2.DolQStart(), "ctx2 DolQStart should be empty")
 }

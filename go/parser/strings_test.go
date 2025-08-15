@@ -437,7 +437,7 @@ func TestStringErrors(t *testing.T) {
 
 			require.NoError(t, err) // Errors are captured in token, not returned
 			assert.Equal(t, tt.tokenType, token.Type)
-			assert.True(t, len(lexer.context.Errors) > 0, "Expected error to be recorded")
+			assert.True(t, len(lexer.context.Errors()) > 0, "Expected error to be recorded")
 		})
 	}
 }

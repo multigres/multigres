@@ -112,10 +112,10 @@ func TestLexerContext(t *testing.T) {
 	ctx := NewLexerContext(input)
 
 	// Test initial state
-	assert.Equal(t, len(input), ctx.ScanBufLen, "Buffer length mismatch")
-	assert.Equal(t, 1, ctx.LineNumber, "Initial line number should be 1")
-	assert.Equal(t, 1, ctx.ColumnNumber, "Initial column number should be 1")
-	assert.Equal(t, StateInitial, ctx.State, "Initial state mismatch")
+	assert.Equal(t, len(input), ctx.GetScanBufLen(), "Buffer length mismatch")
+	assert.Equal(t, 1, ctx.LineNumber(), "Initial line number should be 1")
+	assert.Equal(t, 1, ctx.ColumnNumber(), "Initial column number should be 1")
+	assert.Equal(t, StateInitial, ctx.GetState(), "Initial state mismatch")
 
 	// Test byte reading
 	b, ok := ctx.CurrentByte()
@@ -127,7 +127,7 @@ func TestLexerContext(t *testing.T) {
 	assert.Equal(t, byte('S'), b, "Expected to read 'S'")
 
 	// Test position tracking
-	assert.Equal(t, 1, ctx.CurrentPosition, "Position should be 1 after reading one byte")
+	assert.Equal(t, 1, ctx.CurrentPosition(), "Position should be 1 after reading one byte")
 }
 
 // Test literal buffer functionality
@@ -145,7 +145,7 @@ func TestLiteralBuffer(t *testing.T) {
 	assert.Equal(t, expected, result, "Literal value mismatch")
 
 	// Test that buffer is reset
-	assert.False(t, ctx.LiteralActive, "Literal buffer should be inactive after GetLiteral()")
+	assert.False(t, ctx.LiteralActive(), "Literal buffer should be inactive after GetLiteral()")
 }
 
 // Test basic lexer functionality
@@ -809,7 +809,7 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 
 	// Verify no errors
 	ctx := lexer.GetContext()
-	assert.Empty(t, ctx.Errors, "Should have no lexer errors")
+	assert.Empty(t, ctx.GetErrors(), "Should have no lexer errors")
 }
 
 // Phase 2B: Test character classification functions
@@ -1392,7 +1392,7 @@ func TestStringLiteralErrorCases(t *testing.T) {
 			ctx := lexer.GetContext()
 			if tt.shouldError {
 				assert.True(t, ctx.HasErrors(), "Should have lexer errors")
-				assert.Greater(t, len(ctx.Errors), 0, "Should have at least one error")
+				assert.Greater(t, len(ctx.Errors()), 0, "Should have at least one error")
 			} else {
 				assert.False(t, ctx.HasErrors(), "Should not have lexer errors")
 			}
@@ -1454,5 +1454,5 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 
 	// Verify no errors
 	ctx := lexer.GetContext()
-	assert.Empty(t, ctx.Errors, "Should have no lexer errors")
+	assert.Empty(t, ctx.GetErrors(), "Should have no lexer errors")
 }

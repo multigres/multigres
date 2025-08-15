@@ -17,14 +17,14 @@ import (
 // Lexer represents the main lexer instance
 // Equivalent to PostgreSQL's scanner state management
 type Lexer struct {
-	context *LexerContext // Thread-safe lexer context
+	context *ParseContext // Thread-safe unified context
 }
 
 // NewLexer creates a new PostgreSQL-compatible lexer instance
 // Equivalent to postgres/src/backend/parser/scan.l:1404 (scanner_init function)
 func NewLexer(input string) *Lexer {
 	return &Lexer{
-		context: NewLexerContext(input),
+		context: NewParseContext(input, nil),
 	}
 }
 
@@ -40,17 +40,20 @@ func (l *Lexer) NextToken() (*Token, error) {
 
 		// Check for end of input
 		if l.context.AtEOF() {
-			return NewToken(EOF, l.context.CurrentPosition, ""), nil
+			return NewToken(EOF, l.context.CurrentPosition(), ""), nil
 		}
 
 		// Record start position for this token - equivalent to SET_YYLLOC()
 		// postgres/src/backend/parser/scan.l:105
-		startPos := l.context.CurrentPosition
-		startScanPos := l.context.ScanPos
+		startPos := l.context.CurrentPosition()
+		startScanPos := l.context.ScanPos()
+		
+		// Save position for error reporting (near text extraction)
+		l.context.SaveCurrentPosition()
 
 		// State-based dispatch - PostgreSQL uses exclusive states
 		// postgres/src/backend/parser/scan.l:175-188
-		switch l.context.State {
+		switch l.context.GetState() {
 		case StateInitial:
 			return l.scanInitialState(startPos, startScanPos)
 		case StateXB:
@@ -78,7 +81,7 @@ func (l *Lexer) NextToken() (*Token, error) {
 			// This should not be reached in normal operation
 			return nil, fmt.Errorf("unexpected StateXEU in lexer main loop")
 		default:
-			return nil, fmt.Errorf("invalid lexer state: %d", l.context.State)
+			return nil, fmt.Errorf("invalid lexer state: %d", l.context.GetState())
 		}
 	}
 }
@@ -453,7 +456,7 @@ func (l *Lexer) scanDollarToken(startPos, startScanPos int) (*Token, error) {
 				l.context.NextByte()
 			}
 			text := l.context.GetCurrentText(startScanPos)
-			_ = l.context.AddError(TrailingJunkAfterParameter, "trailing junk after parameter")
+			_ = l.context.AddErrorWithType(TrailingJunkAfterParameter, "trailing junk after parameter")
 			// Return PARAM token despite the error
 			return NewParamToken(paramNum, startPos, text), nil
 		}
@@ -579,7 +582,7 @@ func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, e
 	case '.':
 		// Handle consecutive dots with multi-dot sequence tracking
 		if next, ok := l.context.CurrentByte(); ok && next == '.' {
-			if l.context.InMultiDotSequence {
+			if l.context.InMultiDotSequence() {
 				// We're already in a multi-dot sequence, treat this as individual dot
 				// Fall through to return single dot
 			} else {
@@ -596,13 +599,13 @@ func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, e
 					return NewStringToken(DOT_DOT, "..", startPos, ".."), nil
 				} else if totalDots >= 3 {
 					// Start of multi-dot sequence - mark flag and return first dot
-					l.context.InMultiDotSequence = true
+					l.context.SetInMultiDotSequence(true)
 					// Fall through to return single dot
 				}
 			}
 		} else {
 			// No next dot, clear multi-dot sequence flag
-			l.context.InMultiDotSequence = false
+			l.context.SetInMultiDotSequence(false)
 		}
 		// Check if this is a floating point number (.5, .123, etc.)
 		// postgres/src/backend/parser/scan.l:409 - numeric: (({decinteger}\.{decinteger}?)|(\.{decinteger}))
@@ -672,10 +675,10 @@ func (l *Lexer) skipWhitespace() error {
 			l.context.NextByte()
 			// Update line/column tracking for position reporting
 			if b == '\n' || b == '\r' {
-				l.context.LineNumber++
-				l.context.ColumnNumber = 1
+				l.context.SetLineNumber(l.context.LineNumber() + 1)
+				l.context.SetColumnNumber(1)
 			} else {
-				l.context.ColumnNumber++
+				l.context.SetColumnNumber(l.context.ColumnNumber() + 1)
 			}
 			continue
 		}
@@ -686,7 +689,7 @@ func (l *Lexer) skipWhitespace() error {
 			if next := l.context.PeekBytes(2); len(next) >= 2 && next[1] == '-' {
 				// Skip the "--"
 				l.context.AdvanceBy(2)
-				l.context.ColumnNumber += 2
+				l.context.SetColumnNumber(l.context.ColumnNumber() + 2)
 
 				// Skip to end of line or EOF
 				for {
@@ -697,8 +700,8 @@ func (l *Lexer) skipWhitespace() error {
 					if b == '\n' {
 						// Consume the newline and update position tracking
 						l.context.NextByte()
-						l.context.LineNumber++
-						l.context.ColumnNumber = 1
+						l.context.SetLineNumber(l.context.LineNumber() + 1)
+						l.context.SetColumnNumber(1)
 						break
 					}
 					if b == '\r' {
@@ -707,12 +710,12 @@ func (l *Lexer) skipWhitespace() error {
 						if next := l.context.PeekBytes(1); len(next) >= 1 && next[0] == '\n' {
 							l.context.NextByte()
 						}
-						l.context.LineNumber++
-						l.context.ColumnNumber = 1
+						l.context.SetLineNumber(l.context.LineNumber() + 1)
+						l.context.SetColumnNumber(1)
 						break
 					}
 					l.context.NextByte()
-					l.context.ColumnNumber++
+					l.context.SetColumnNumber(l.context.ColumnNumber() + 1)
 				}
 				continue
 			}
@@ -726,7 +729,7 @@ func (l *Lexer) skipWhitespace() error {
 }
 
 // GetContext returns the lexer context (for testing and debugging)
-func (l *Lexer) GetContext() *LexerContext {
+func (l *Lexer) GetContext() *ParseContext {
 	return l.context
 }
 
@@ -788,7 +791,7 @@ func (l *Lexer) scanExponentPart(startPos, startScanPos int, isFloat bool) (*Tok
 		// postgres/src/backend/parser/scan.l:413, 1062-1064
 		if !hasExpDigits {
 			text := l.context.GetCurrentText(startScanPos)
-			_ = l.context.AddError(TrailingJunk, "trailing junk after numeric literal")
+			_ = l.context.AddErrorWithType(TrailingJunk, "trailing junk after numeric literal")
 			// Return as FCONST even if incomplete
 			return NewStringToken(FCONST, text, startPos, text), nil
 		}
@@ -860,7 +863,7 @@ func (l *Lexer) checkTrailingJunk() error {
 			}
 			break
 		}
-		_ = l.context.AddError(TrailingJunk, "trailing junk after numeric literal")
+		_ = l.context.AddErrorWithType(TrailingJunk, "trailing junk after numeric literal")
 		return fmt.Errorf("trailing junk after numeric literal")
 	}
 	return nil
@@ -881,7 +884,7 @@ func (l *Lexer) checkIntegerFailPattern(peekAhead []byte, prefixChar byte, digit
 			l.context.NextByte() // consume '_'
 		}
 		text := l.context.GetCurrentText(startScanPos)
-		_ = l.context.AddError(errorType, errorMsg)
+		_ = l.context.AddErrorWithType(errorType, errorMsg)
 		return NewStringToken(ICONST, text, startPos, text), nil
 	}
 	return nil, nil // Not a fail pattern, continue with normal processing
@@ -925,7 +928,7 @@ func (l *Lexer) scanSpecialInteger(startPos, startScanPos int, digitChecker func
 	// Must have at least one digit (PostgreSQL pattern requires at least one group)
 	if !hasDigits {
 		text := l.context.GetCurrentText(startScanPos)
-		_ = l.context.AddError(errorType, errorMsg)
+		_ = l.context.AddErrorWithType(errorType, errorMsg)
 		return NewStringToken(ICONST, text, startPos, text), nil
 	}
 

@@ -36,7 +36,7 @@ func (l *Lexer) scanDelimitedIdentifierState(startPos, startScanPos int) (*Token
 		if !ok {
 			// EOF in delimited identifier - postgres/src/backend/parser/scan.l:839
 			l.context.SetState(StateInitial)
-			err := l.context.AddError(UnterminatedIdentifier, "unterminated quoted identifier")
+			err := l.context.AddErrorWithType(UnterminatedIdentifier, "unterminated quoted identifier")
 			return nil, err
 		}
 
@@ -62,7 +62,7 @@ func (l *Lexer) scanDelimitedIdentifierState(startPos, startScanPos int) (*Token
 			// Check for zero-length identifier
 			// postgres/src/backend/parser/scan.l:818
 			if len(ident) == 0 {
-				err := l.context.AddError(ZeroLengthIdentifier, "zero-length delimited identifier")
+				err := l.context.AddErrorWithType(ZeroLengthIdentifier, "zero-length delimited identifier")
 				return nil, err
 			}
 
@@ -91,11 +91,9 @@ func (l *Lexer) scanDelimitedIdentifierState(startPos, startScanPos int) (*Token
 func (l *Lexer) scanUnicodeIdentifier(startPos, startScanPos int) (*Token, error) {
 	// Advance past U& prefix
 	l.context.AdvanceBy(2)
-	l.context.ColumnNumber += 2
 
 	// Advance past the opening quote
 	l.context.NextByte()
-	l.context.ColumnNumber++
 
 	// Clear literal buffer and transition to Unicode identifier state
 	l.context.StartLiteral()
@@ -115,7 +113,7 @@ func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, 
 		if !ok {
 			// EOF in Unicode identifier - postgres/src/backend/parser/scan.l:839
 			l.context.SetState(StateInitial)
-			err := l.context.AddError(UnterminatedIdentifier, "unterminated quoted identifier")
+			err := l.context.AddErrorWithType(UnterminatedIdentifier, "unterminated quoted identifier")
 			return nil, err
 		}
 
@@ -128,13 +126,11 @@ func (l *Lexer) scanUnicodeIdentifierState(startPos, startScanPos int) (*Token, 
 				// Double-quote escape sequence - postgres/src/backend/parser/scan.l:833-835
 				l.context.AddLiteralByte('"')
 				l.context.AdvanceBy(2)
-				l.context.ColumnNumber += 2
 				continue
 			}
 
 			// End of Unicode identifier
 			l.context.NextByte() // Consume closing quote
-			l.context.ColumnNumber++
 			l.context.SetState(StateInitial)
 
 			// Get the identifier text

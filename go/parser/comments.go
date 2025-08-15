@@ -16,7 +16,7 @@ import "strings"
 func (l *Lexer) scanMultiLineComment(startPos, startScanPos int) (*Token, error) {
 	// Set location in case of syntax error in comment
 	// Equivalent to SET_YYLLOC() - postgres/src/backend/parser/scan.l:463
-	l.context.XCDepth = 0
+	l.context.SetXCDepth(0)
 	l.context.SetState(StateXC)
 
 	// Put back any characters past slash-star
@@ -37,7 +37,7 @@ func (l *Lexer) scanCommentState(startPos, startScanPos int) (*Token, error) {
 		if !ok {
 			// EOF in comment - postgres/src/backend/parser/scan.l:497
 			l.context.SetState(StateInitial)
-			err := l.context.AddError(UnterminatedComment, "unterminated /* comment")
+			err := l.context.AddErrorWithType(UnterminatedComment, "unterminated /* comment")
 			return nil, err
 		}
 
@@ -47,7 +47,7 @@ func (l *Lexer) scanCommentState(startPos, startScanPos int) (*Token, error) {
 			next := l.context.PeekBytes(2)
 			if len(next) >= 2 && next[1] == '*' {
 				// Increment nesting depth
-				l.context.XCDepth++
+				l.context.SetXCDepth(l.context.XCDepth() + 1)
 				// Consume only the /* characters - AdvanceBy handles position tracking
 				l.context.AdvanceBy(2)
 				continue
@@ -59,7 +59,7 @@ func (l *Lexer) scanCommentState(startPos, startScanPos int) (*Token, error) {
 		if b == '*' {
 			next := l.context.PeekBytes(2)
 			if len(next) >= 2 && next[1] == '/' {
-				if l.context.XCDepth <= 0 {
+				if l.context.XCDepth() <= 0 {
 					// End of outermost comment, return to initial state
 					l.context.AdvanceBy(2) // AdvanceBy handles position tracking
 					l.context.SetState(StateInitial)
@@ -67,7 +67,7 @@ func (l *Lexer) scanCommentState(startPos, startScanPos int) (*Token, error) {
 					return l.NextToken()
 				} else {
 					// End of nested comment
-					l.context.XCDepth--
+					l.context.SetXCDepth(l.context.XCDepth() - 1)
 					l.context.AdvanceBy(2) // AdvanceBy handles position tracking
 					continue
 				}

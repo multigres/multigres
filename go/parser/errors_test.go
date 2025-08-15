@@ -277,12 +277,12 @@ func TestSanitizeNearText(t *testing.T) {
 // TestAddError tests the error addition to context
 func TestAddError(t *testing.T) {
 	ctx := NewLexerContext("SELECT 'unterminated string")
-	ctx.CurrentPosition = 8
-	ctx.LineNumber = 1
-	ctx.ColumnNumber = 9
+	ctx.SetCurrentPosition2(8)
+	ctx.SetLineNumber2(1)
+	ctx.SetColumnNumber2(9)
 
 	// Add an error (now always returns the error)
-	err := ctx.AddError(UnterminatedString, "unterminated quoted string")
+	err := ctx.AddErrorWithType(UnterminatedString, "unterminated quoted string")
 
 	// Verify error properties
 	assert.Equal(t, UnterminatedString, err.Type)
@@ -355,8 +355,8 @@ func TestPositionSaveRestore(t *testing.T) {
 
 	// Save position
 	savedPos := ctx.SaveCurrentPosition()
-	originalLine := ctx.LineNumber
-	originalColumn := ctx.ColumnNumber
+	originalLine := ctx.LineNumber()
+	originalColumn := ctx.ColumnNumber()
 
 	// Advance further to reach the next line
 	for i := 0; i < 6; i++ { // Need to go from 'w' to past the second '\n'
@@ -364,15 +364,15 @@ func TestPositionSaveRestore(t *testing.T) {
 	}
 
 	// Verify we've moved to a different line
-	assert.NotEqual(t, originalLine, ctx.LineNumber)
+	assert.NotEqual(t, originalLine, ctx.LineNumber())
 
 	// Restore position
 	ctx.RestoreSavedPosition()
 
 	// Verify position was restored
-	assert.Equal(t, savedPos, ctx.CurrentPosition)
-	assert.Equal(t, originalLine, ctx.LineNumber)
-	assert.Equal(t, originalColumn, ctx.ColumnNumber)
+	assert.Equal(t, savedPos, ctx.CurrentPosition())
+	assert.Equal(t, originalLine, ctx.LineNumber())
+	assert.Equal(t, originalColumn, ctx.ColumnNumber())
 }
 
 // TestUnicodeAdvancement tests Unicode-aware position advancement
@@ -386,20 +386,20 @@ func TestUnicodeAdvancement(t *testing.T) {
 	}
 
 	// Should be at first Unicode character
-	assert.Equal(t, 5, ctx.CurrentPosition)
-	assert.Equal(t, 6, ctx.ColumnNumber) // Column 6 (1-based)
+	assert.Equal(t, 5, ctx.CurrentPosition())
+	assert.Equal(t, 6, ctx.ColumnNumber()) // Column 6 (1-based)
 
 	// Advance through first Unicode character (测)
 	r := ctx.AdvanceRune()
 	assert.NotEqual(t, 0, r)
-	assert.Equal(t, 8, ctx.CurrentPosition) // 3 bytes for UTF-8
-	assert.Equal(t, 7, ctx.ColumnNumber)    // Column 7
+	assert.Equal(t, 8, ctx.CurrentPosition()) // 3 bytes for UTF-8
+	assert.Equal(t, 7, ctx.ColumnNumber())    // Column 7
 
 	// Advance through second Unicode character (试)
 	r = ctx.AdvanceRune()
 	assert.NotEqual(t, 0, r)
-	assert.Equal(t, 11, ctx.CurrentPosition) // 3 more bytes
-	assert.Equal(t, 8, ctx.ColumnNumber)     // Column 8
+	assert.Equal(t, 11, ctx.CurrentPosition()) // 3 more bytes
+	assert.Equal(t, 8, ctx.ColumnNumber())     // Column 8
 }
 
 // TestErrorTypeFormatting tests all error type formatting
