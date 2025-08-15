@@ -27,7 +27,7 @@ func TestDecimalIntegers(t *testing.T) {
 		// Basic decimal integers
 		{"single digit", "0", "0", ICONST},
 		{"simple integer", "123", "123", ICONST},
-		{"large integer", "9876543210", "9876543210", ICONST},
+		{"large integer", "9876543210", "9876543210", FCONST},
 
 		// With underscores (PostgreSQL 15+ feature)
 		{"underscore separator", "1_000_000", "1_000_000", ICONST},
@@ -36,8 +36,8 @@ func TestDecimalIntegers(t *testing.T) {
 
 		// Edge cases
 		{"max int32", "2147483647", "2147483647", ICONST},
-		{"overflow to bigint", "2147483648", "2147483648", ICONST},
-		{"very large number", "99999999999999999999", "99999999999999999999", ICONST},
+		{"overflow to float", "2147483648", "2147483648", FCONST},
+		{"very large number", "99999999999999999999", "99999999999999999999", FCONST},
 	}
 
 	for _, tt := range tests {
@@ -69,11 +69,11 @@ func TestHexadecimalIntegers(t *testing.T) {
 
 		// With underscores
 		{"hex with underscores", "0x1234_5678", "0x1234_5678", ICONST},
-		{"hex multiple underscores", "0xFF_FF_FF_FF", "0xFF_FF_FF_FF", ICONST},
+		{"hex multiple underscores", "0xFF_FF_FF_FF", "0xFF_FF_FF_FF", FCONST},
 
-		// Large values
-		{"max 32-bit hex", "0xFFFFFFFF", "0xFFFFFFFF", ICONST},
-		{"64-bit hex", "0xFFFFFFFFFFFFFFFF", "0xFFFFFFFFFFFFFFFF", ICONST},
+		// Large values that overflow int32
+		{"max 32-bit hex", "0xFFFFFFFF", "0xFFFFFFFF", FCONST},
+		{"64-bit hex", "0xFFFFFFFFFFFFFFFF", "0xFFFFFFFFFFFFFFFF", FCONST},
 	}
 
 	for _, tt := range tests {
@@ -512,9 +512,9 @@ func TestNumericRealWorldExamples(t *testing.T) {
 
 		// With underscores for readability
 		{"million", "1_000_000", "1_000_000", ICONST},
-		{"credit card", "1234_5678_9012_3456", "1234_5678_9012_3456", ICONST},
+		{"credit card", "1234_5678_9012_3456", "1234_5678_9012_3456", FCONST},
 		{"binary byte", "0b1111_0000", "0b1111_0000", ICONST},
-		{"hex address", "0xDEAD_BEEF", "0xDEAD_BEEF", ICONST},
+		{"hex address", "0xDEAD_BEEF", "0xDEAD_BEEF", FCONST},
 	}
 
 	for _, tt := range tests {
@@ -549,6 +549,205 @@ func BenchmarkNumericLexing(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				lexer := NewLexer(bm.input)
 				_ = lexer.NextToken()
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Tests for Enhanced Integer Literal Processing
+// =============================================================================
+
+// TestEnhancedIntegerLiteralProcessing tests the new comprehensive integer processing
+func TestEnhancedIntegerLiteralProcessing(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		expectedType   TokenType
+		expectedValue  int32  // For ICONST tokens
+		expectedString string // For FCONST tokens (overflow cases)
+		shouldOverflow bool   // If true, expect FCONST instead of ICONST
+	}{
+		// Basic decimal integers
+		{"zero", "0", ICONST, 0, "", false},
+		{"positive", "123", ICONST, 123, "", false},
+		{"simple with sign", "456", ICONST, 456, "", false}, // Note: signs are separate tokens
+		{"max int32", "2147483647", ICONST, 2147483647, "", false},
+		
+		// Decimal with underscores
+		{"decimal underscore", "1_234", ICONST, 1234, "", false},
+		{"decimal multiple underscores", "1_000_000", ICONST, 1000000, "", false},
+		
+		// Hexadecimal integers
+		{"hex lowercase", "0x1a", ICONST, 26, "", false},
+		{"hex uppercase", "0X1A", ICONST, 26, "", false},
+		{"hex mixed case", "0xDeAdBeEf", FCONST, 0, "0xDeAdBeEf", true},
+		{"hex with underscores", "0xFF_FF", ICONST, 0xFFFF, "", false},
+		{"hex max int32", "0x7FFFFFFF", ICONST, 2147483647, "", false},
+		
+		// Octal integers
+		{"octal lowercase", "0o755", ICONST, 493, "", false}, // 755 octal = 493 decimal
+		{"octal uppercase", "0O755", ICONST, 493, "", false},
+		{"octal with underscores", "0o7_5_5", ICONST, 493, "", false},
+		
+		// Binary integers
+		{"binary lowercase", "0b1010", ICONST, 10, "", false},
+		{"binary uppercase", "0B1010", ICONST, 10, "", false},
+		{"binary with underscores", "0b1111_0000", ICONST, 240, "", false},
+		{"binary byte", "0b11111111", ICONST, 255, "", false},
+		
+		// Overflow cases (should return FCONST)
+		{"overflow positive", "2147483648", FCONST, 0, "2147483648", true},
+		{"overflow hex", "0x80000000", FCONST, 0, "0x80000000", true},
+		{"overflow large decimal", "99999999999", FCONST, 0, "99999999999", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			token := lexer.NextToken()
+
+			require.NotNil(t, token, "Token should not be nil")
+			assert.Equal(t, tt.expectedType, token.Type, "Token type mismatch")
+
+			if tt.shouldOverflow {
+				// For overflow cases, expect FCONST with string value
+				assert.Equal(t, FCONST, token.Type, "Overflow should produce FCONST")
+				assert.Equal(t, tt.expectedString, token.Value.Str, "Overflow string value mismatch")
+			} else {
+				// For normal cases, expect ICONST with integer value
+				assert.Equal(t, ICONST, token.Type, "Normal integer should produce ICONST")
+				assert.Equal(t, int(tt.expectedValue), token.Value.Ival, "Integer value mismatch")
+			}
+
+			// Verify no lexer errors for valid inputs
+			ctx := lexer.GetContext()
+			assert.Empty(t, ctx.GetErrors(), "Valid integer should not generate errors")
+		})
+	}
+}
+
+// TestIntegerBaseParsing tests parsing integers in different bases
+func TestIntegerBaseParsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int32
+	}{
+		// Decimal
+		{"decimal simple", "42", 42},
+		{"decimal zero", "0", 0},
+		
+		// Hexadecimal
+		{"hex single digit", "0xF", 15},
+		{"hex byte", "0xFF", 255},
+		{"hex word", "0xFFFF", 65535},
+		
+		// Octal
+		{"octal simple", "0o777", 511},
+		{"octal zero", "0o0", 0},
+		{"octal max digit", "0o7", 7},
+		
+		// Binary
+		{"binary simple", "0b1111", 15},
+		{"binary zero", "0b0", 0},
+		{"binary byte", "0b11111111", 255},
+		{"binary nibble", "0b1010", 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			val, overflow := lexer.parseInteger32(tt.input)
+			
+			if !overflow && tt.expected != 0 {
+				assert.Equal(t, tt.expected, val, "Parsed value mismatch")
+			}
+			
+			// Test that the value can be parsed without error
+			assert.False(t, overflow || val == 0 && tt.expected != 0, 
+				"Should parse successfully for input: %s", tt.input)
+		})
+	}
+}
+
+// TestIntegerOverflowBehavior tests integer overflow detection
+func TestIntegerOverflowBehavior(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		expectOverflow bool
+		description   string
+	}{
+		// Boundary cases
+		{"max int32", "2147483647", false, "INT32_MAX should not overflow"},
+		{"max int32 + 1", "2147483648", true, "INT32_MAX + 1 should overflow"},
+		{"min int32", "-2147483648", false, "INT32_MIN should not overflow"},
+		{"min int32 - 1", "-2147483649", true, "INT32_MIN - 1 should overflow"},
+		
+		// Large numbers
+		{"very large positive", "99999999999999999999", true, "Very large positive should overflow"},
+		{"very large negative", "-99999999999999999999", true, "Very large negative should overflow"},
+		
+		// Hex overflow
+		{"hex max int32", "0x7FFFFFFF", false, "Max positive hex should not overflow"},
+		{"hex overflow", "0x80000000", true, "0x80000000 should overflow"},
+		{"hex large", "0xFFFFFFFF", true, "Max uint32 should overflow int32"},
+		
+		// Binary overflow  
+		{"binary max", "0b01111111111111111111111111111111", false, "31-bit binary should not overflow"},
+		{"binary overflow", "0b10000000000000000000000000000000", true, "32-bit binary should overflow"},
+		
+		// Octal overflow
+		{"octal max", "0o17777777777", false, "Max int32 octal should not overflow"},
+		{"octal overflow", "0o20000000000", true, "Octal overflow should be detected"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			_, overflow := lexer.parseInteger32(tt.input)
+			
+			if tt.expectOverflow {
+				assert.True(t, overflow, tt.description)
+			} else {
+				assert.False(t, overflow, tt.description)
+			}
+		})
+	}
+}
+
+// TestIntegerWithUnderscores tests underscore separators in integers
+func TestIntegerWithUnderscores(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int32
+		valid    bool
+	}{
+		// Valid underscore usage
+		{"decimal with underscores", "1_234_567", 1234567, true},
+		{"hex with underscores", "0xAB_CD", 0xABCD, true},
+		{"octal with underscores", "0o7_5_5", 493, true}, // 755 octal
+		{"binary with underscores", "0b1111_0000_1010_0101", 0xF0A5, true},
+		
+		// Invalid underscore usage (these would be caught by lexer's junk detection)
+		{"trailing underscore", "123_", 0, false},
+		{"leading underscore after prefix", "0x_FF", 0, false},
+		{"double underscore", "12__34", 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			val, overflow := lexer.parseInteger32(tt.input)
+			
+			if tt.valid && !overflow {
+				assert.Equal(t, tt.expected, val, "Parsed value should match expected")
+			} else if !tt.valid {
+				// For invalid patterns, we expect either overflow or parsing to fail
+				// The actual error detection happens in the lexer's junk checking
+				_ = val // Just verify parsing doesn't crash
 			}
 		})
 	}

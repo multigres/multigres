@@ -43,17 +43,17 @@ func TestTokenTypeRefactor(t *testing.T) {
 // TestLexerIntegration tests that the lexer works with the refactored token system
 func TestLexerIntegration(t *testing.T) {
 	lexer := NewLexer("all create drop")
-	
+
 	// Test that tokens are created with correct types
 	token1 := lexer.NextToken()
 	assert.Equal(t, ALL, token1.Type, "Should recognize 'all' keyword")
-	
+
 	token2 := lexer.NextToken()
 	assert.Equal(t, CREATE, token2.Type, "Should recognize 'create' keyword")
-	
+
 	token3 := lexer.NextToken()
 	assert.Equal(t, DROP, token3.Type, "Should recognize 'drop' keyword")
-	
+
 	token4 := lexer.NextToken()
 	assert.Equal(t, EOF, token4.Type, "Should return EOF at end")
 }
@@ -65,7 +65,7 @@ func TestParserConstants(t *testing.T) {
 	assert.NotEqual(t, 0, ICONST, "ICONST should be non-zero")
 	assert.NotEqual(t, 0, ALL, "ALL should be non-zero")
 	assert.NotEqual(t, 0, CREATE, "CREATE should be non-zero")
-	
+
 	// Test that they're all different values
 	constants := []int{IDENT, ICONST, SCONST, FCONST, BCONST, XCONST, Op, PARAM, ALL, CREATE, DROP, ALTER, AS, EXISTS, NOT, OR, WITH}
 	seen := make(map[int]bool)
@@ -102,11 +102,12 @@ func TestRefactoredArchitecture(t *testing.T) {
 	// Integer constant
 	token = lexer.NextToken()
 	assert.Equal(t, ICONST, token.Type, "Should be ICONST")
+	assert.Equal(t, 42, token.Value.Ival)
 
 	// Parameter
 	token = lexer.NextToken()
 	assert.Equal(t, PARAM, token.Type, "Should be PARAM")
-	// Note: Parameter value might be 0 if there are lexer issues, but type is correct
+	assert.Equal(t, 1, token.Value.Ival)
 
 	// Typecast operator
 	token = lexer.NextToken()
@@ -154,4 +155,3 @@ func TestParserLexerInterface(t *testing.T) {
 	assert.Equal(t, ALL, tokenType, "Lex should return parser constant")
 	assert.Equal(t, "all", lval.str, "Should set semantic value")
 }
-

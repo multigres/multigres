@@ -79,7 +79,7 @@ func NewToken(tokenType int, position int, text string) *Token {
 func NewIntToken(value int, position int, text string) *Token {
 	return &Token{
 		Type:     ICONST, // Uses generated parser constant
-		Value:    TokenValue{Ival: value},
+		Value:    TokenValue{Ival: value, Str: text}, // Set both for compatibility
 		Position: position,
 		Text:     text,
 	}

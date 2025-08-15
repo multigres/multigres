@@ -844,13 +844,224 @@ func (l *Lexer) scanExponentPart(startPos, startScanPos int, isFloat bool) (*Tok
 	return l.processIntegerLiteral(text, startPos), nil
 }
 
-// processIntegerLiteral processes an integer literal string
-// Equivalent to process_integer_literal - postgres/src/backend/parser/scan.l:1370-1384
+// processIntegerLiteral processes an integer literal and returns appropriate token
+// Handles decimal, hexadecimal (0x), octal (0o), and binary (0b) integer literals
+// with underscore separators and overflow detection like PostgreSQL
+// postgres/src/backend/utils/adt/numutils.c:pg_strtoint32_safe
 func (l *Lexer) processIntegerLiteral(text string, startPos int) *Token {
-	// For now, we'll return all integers as ICONST with string value
-	// Full integer overflow checking will be implemented later
-	// postgres/src/backend/parser/scan.l:1375-1383
-	return NewStringToken(ICONST, text, startPos, text)
+	// Try to parse as 32-bit integer first
+	val, overflow := l.parseInteger32(text)
+	
+	if overflow {
+		// Integer too large, treat as float (like PostgreSQL)
+		return NewStringToken(FCONST, text, startPos, text)
+	}
+	
+	// Return as integer constant
+	return NewIntToken(int(val), startPos, text)
+}
+
+// parseInteger32 parses a string as a 32-bit integer, handling different bases
+// Returns the value and whether an overflow occurred
+// Based on PostgreSQL's pg_strtoint32_safe implementation
+func (l *Lexer) parseInteger32(s string) (int32, bool) {
+	if len(s) == 0 {
+		return 0, false
+	}
+	
+	ptr := 0
+	neg := false
+	
+	// Handle sign
+	if s[ptr] == '-' {
+		neg = true
+		ptr++
+	} else if s[ptr] == '+' {
+		ptr++
+	}
+	
+	if ptr >= len(s) {
+		return 0, false
+	}
+	
+	var val uint32
+	var overflow bool
+	
+	// Determine base and parse accordingly
+	if ptr+1 < len(s) && s[ptr] == '0' {
+		switch s[ptr+1] {
+		case 'x', 'X':
+			// Hexadecimal
+			ptr += 2
+			val, overflow = l.parseHexInteger(s, ptr)
+		case 'o', 'O':
+			// Octal
+			ptr += 2
+			val, overflow = l.parseOctalInteger(s, ptr)
+		case 'b', 'B':
+			// Binary
+			ptr += 2
+			val, overflow = l.parseBinaryInteger(s, ptr)
+		default:
+			// Regular decimal
+			val, overflow = l.parseDecimalInteger(s, ptr)
+		}
+	} else {
+		// Regular decimal
+		val, overflow = l.parseDecimalInteger(s, ptr)
+	}
+	
+	if overflow {
+		return 0, true
+	}
+	
+	// Convert to signed and check bounds
+	if neg {
+		// Check if negation would overflow
+		if val > uint32(-int64(int32(-2147483648))) { // -INT32_MIN
+			return 0, true
+		}
+		return -int32(val), false
+	} else {
+		if val > 2147483647 { // INT32_MAX
+			return 0, true
+		}
+		return int32(val), false
+	}
+}
+
+// parseDecimalInteger parses decimal digits with optional underscores
+func (l *Lexer) parseDecimalInteger(s string, start int) (uint32, bool) {
+	var val uint32
+	ptr := start
+	hasDigits := false
+	
+	for ptr < len(s) {
+		c := s[ptr]
+		if c >= '0' && c <= '9' {
+			// Check for overflow before multiplying
+			if val > (0xFFFFFFFF-uint32(c-'0'))/10 {
+				return 0, true
+			}
+			val = val*10 + uint32(c-'0')
+			hasDigits = true
+			ptr++
+		} else if c == '_' {
+			// Underscore must be followed by more digits
+			ptr++
+			if ptr >= len(s) || s[ptr] < '0' || s[ptr] > '9' {
+				return 0, false // Invalid syntax
+			}
+		} else {
+			break
+		}
+	}
+	
+	return val, !hasDigits
+}
+
+// parseHexInteger parses hexadecimal digits with optional underscores
+func (l *Lexer) parseHexInteger(s string, start int) (uint32, bool) {
+	var val uint32
+	ptr := start
+	hasDigits := false
+	
+	for ptr < len(s) {
+		c := s[ptr]
+		var digit uint32
+		
+		if c >= '0' && c <= '9' {
+			digit = uint32(c - '0')
+		} else if c >= 'a' && c <= 'f' {
+			digit = uint32(c - 'a' + 10)
+		} else if c >= 'A' && c <= 'F' {
+			digit = uint32(c - 'A' + 10)
+		} else if c == '_' {
+			// Underscore must be followed by more hex digits
+			ptr++
+			if ptr >= len(s) || !isHexDigit(s[ptr]) {
+				return 0, false // Invalid syntax
+			}
+			continue
+		} else {
+			break
+		}
+		
+		// Check for overflow before shifting
+		if val > 0xFFFFFFFF/16 {
+			return 0, true
+		}
+		val = val*16 + digit
+		hasDigits = true
+		ptr++
+	}
+	
+	return val, !hasDigits
+}
+
+// parseOctalInteger parses octal digits with optional underscores
+func (l *Lexer) parseOctalInteger(s string, start int) (uint32, bool) {
+	var val uint32
+	ptr := start
+	hasDigits := false
+	
+	for ptr < len(s) {
+		c := s[ptr]
+		if c >= '0' && c <= '7' {
+			// Check for overflow before shifting
+			if val > 0xFFFFFFFF/8 {
+				return 0, true
+			}
+			val = val*8 + uint32(c-'0')
+			hasDigits = true
+			ptr++
+		} else if c == '_' {
+			// Underscore must be followed by more octal digits
+			ptr++
+			if ptr >= len(s) || s[ptr] < '0' || s[ptr] > '7' {
+				return 0, false // Invalid syntax
+			}
+		} else {
+			break
+		}
+	}
+	
+	return val, !hasDigits
+}
+
+// parseBinaryInteger parses binary digits with optional underscores
+func (l *Lexer) parseBinaryInteger(s string, start int) (uint32, bool) {
+	var val uint32
+	ptr := start
+	hasDigits := false
+	
+	for ptr < len(s) {
+		c := s[ptr]
+		if c == '0' || c == '1' {
+			// Check for overflow before shifting
+			if val > 0xFFFFFFFF/2 {
+				return 0, true
+			}
+			val = val*2 + uint32(c-'0')
+			hasDigits = true
+			ptr++
+		} else if c == '_' {
+			// Underscore must be followed by more binary digits
+			ptr++
+			if ptr >= len(s) || (s[ptr] != '0' && s[ptr] != '1') {
+				return 0, false // Invalid syntax
+			}
+		} else {
+			break
+		}
+	}
+	
+	return val, !hasDigits
+}
+
+// isHexDigit checks if a character is a valid hexadecimal digit
+func isHexDigit(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
 // checkTrailingJunk checks for invalid characters after numeric literals
