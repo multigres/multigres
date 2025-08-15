@@ -31,12 +31,17 @@ for file in "$@"; do
 done
 
 if [ ${#files_without_license[@]} -ne 0 ]; then
-    echo "ERROR: The following files are missing license headers:"
+    echo "Adding license headers to files missing them:"
     printf '%s\n' "${files_without_license[@]}"
     echo ""
-    echo "To add license headers, run:"
-    echo "  addlicense -c \"The Multigres Authors\" -l apache --skip site ."
-    exit 1
+    
+    # Add license headers to the specific files
+    for file in "${files_without_license[@]}"; do
+        echo "Adding license to: $file"
+        addlicense -c "The Multigres Authors" -l apache "$file"
+        # Stage the modified file so it's included in this commit
+        git add "$file"
+    done
+    
+    echo "License headers added and staged successfully"
 fi
-
-echo "All files have proper license headers"
