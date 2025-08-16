@@ -1,18 +1,17 @@
-/*
-Copyright 2025 The Multigres Authors.
+// Copyright 2025 The Multigres Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
 syntax = "proto3";
 
 package clustermetadata;
@@ -94,11 +93,11 @@ message MultiPooler {
   // If range based sharding is used, range for the pooler's shard.
   KeyRange key_range = 5;
 
-  // Type is the kind of pooler: PRIMARY or REPLICA
-  Type type = 6;
+  // PoolerType is the kind of pooler: PRIMARY or REPLICA
+  PoolerType type = 6;
   
-  // ServingStatus is the current type of the pooler.
-  ServingStatus serving_status = 7;
+  // PoolerServingStatus is the current type of the pooler.
+  PoolerServingStatus serving_status = 7;
 
   // Fully qualified domain name of the host.
   string hostname = 8;
@@ -106,44 +105,7 @@ message MultiPooler {
   // Map of named ports. These are ports that the pooler exposes. Initially, this will only be gRPC
   map<string, int32> port_map = 9;
   
-  // PoolerType represents the type of a given MultiPooler.
-  enum Type {
-    // UNKNOWN this is not a valid type.
-    // It is useful during upgrades to detect when a value is not initialized
-    UNKNOWN = 0;
 
-    // PRIMARY is the primary server for the shard. Only PRIMARY allows DMLs.
-    PRIMARY = 1;
-
-    // REPLICA replicates from leader. It is used to read only traffic
-    REPLICA = 2;
-  }
-
-  // ServingStatus represents the serving status of the given MultiPooler.
-  enum ServingStatus {
-    // SERVING is the status a server during normal operations when it is serving traffic.
-    SERVING = 0;
-
-    // NOT_SERVING is the status of a server when it is not serving traffic.
-    // This typically occurs during startup, shutdown, or when the server is
-    // in an error state and cannot accept connections.
-    NOT_SERVING = 1;
-
-    // BACKUP is the status of a server when it is taking a backup. No queries
-    // can be served in BACKUP mode.
-    BACKUP = 2;
-
-    // RESTORE is the status a server uses when restoring a backup, at
-    // startup time.  No queries can be served in RESTORE mode.
-    RESTORE = 3;
-
-    // DRAINED is the status a server goes into when used by Multigres tools
-    // to perform an offline action. It is a serving type (as
-    // the tools processes may need to run queries), but it's not used
-    // to route queries from Multigres users. In this state,
-    // this multipooler is dedicated to the process that uses it.
-    DRAINED = 4;
-  }
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
@@ -208,4 +170,43 @@ message KeyRange {
   
   // end is the end key of the range (exclusive)
   bytes end = 2;
+}
+
+// PoolerType represents the type of a given MultiPooler.
+enum PoolerType {
+  // UNKNOWN this is not a valid type.
+  // It is useful during upgrades to detect when a value is not initialized
+  UNKNOWN = 0;
+
+  // PRIMARY is the primary server for the shard. Only PRIMARY allows DMLs.
+  PRIMARY = 1;
+
+  // REPLICA replicates from leader. It is used to read only traffic
+  REPLICA = 2;
+}
+
+// PoolerServingStatus represents the serving status of the given MultiPooler.
+enum PoolerServingStatus {
+  // SERVING is the status a server during normal operations when it is serving traffic.
+  SERVING = 0;
+
+  // NOT_SERVING is the status of a server when it is not serving traffic.
+  // This typically occurs during startup, shutdown, or when the server is
+  // in an error state and cannot accept connections.
+  NOT_SERVING = 1;
+
+  // BACKUP is the status of a server when it is taking a backup. No queries
+  // can be served in BACKUP mode.
+  BACKUP = 2;
+
+  // RESTORE is the status a server uses when restoring a backup, at
+  // startup time.  No queries can be served in RESTORE mode.
+  RESTORE = 3;
+
+  // DRAINED is the status a server goes into when used by Multigres tools
+  // to perform an offline action. It is a serving type (as
+  // the tools processes may need to run queries), but it's not used
+  // to route queries from Multigres users. In this state,
+  // this multipooler is dedicated to the process that uses it.
+  DRAINED = 4;
 }

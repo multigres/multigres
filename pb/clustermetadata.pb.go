@@ -91,93 +91,93 @@ func (MultigresComponent) EnumDescriptor() ([]byte, []int) {
 }
 
 // PoolerType represents the type of a given MultiPooler.
-type MultiPooler_Type int32
+type PoolerType int32
 
 const (
 	// UNKNOWN this is not a valid type.
 	// It is useful during upgrades to detect when a value is not initialized
-	MultiPooler_UNKNOWN MultiPooler_Type = 0
+	PoolerType_UNKNOWN PoolerType = 0
 	// PRIMARY is the primary server for the shard. Only PRIMARY allows DMLs.
-	MultiPooler_PRIMARY MultiPooler_Type = 1
+	PoolerType_PRIMARY PoolerType = 1
 	// REPLICA replicates from leader. It is used to read only traffic
-	MultiPooler_REPLICA MultiPooler_Type = 2
+	PoolerType_REPLICA PoolerType = 2
 )
 
-// Enum value maps for MultiPooler_Type.
+// Enum value maps for PoolerType.
 var (
-	MultiPooler_Type_name = map[int32]string{
+	PoolerType_name = map[int32]string{
 		0: "UNKNOWN",
 		1: "PRIMARY",
 		2: "REPLICA",
 	}
-	MultiPooler_Type_value = map[string]int32{
+	PoolerType_value = map[string]int32{
 		"UNKNOWN": 0,
 		"PRIMARY": 1,
 		"REPLICA": 2,
 	}
 )
 
-func (x MultiPooler_Type) Enum() *MultiPooler_Type {
-	p := new(MultiPooler_Type)
+func (x PoolerType) Enum() *PoolerType {
+	p := new(PoolerType)
 	*p = x
 	return p
 }
 
-func (x MultiPooler_Type) String() string {
+func (x PoolerType) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (MultiPooler_Type) Descriptor() protoreflect.EnumDescriptor {
+func (PoolerType) Descriptor() protoreflect.EnumDescriptor {
 	return file_clustermetadata_proto_enumTypes[1].Descriptor()
 }
 
-func (MultiPooler_Type) Type() protoreflect.EnumType {
+func (PoolerType) Type() protoreflect.EnumType {
 	return &file_clustermetadata_proto_enumTypes[1]
 }
 
-func (x MultiPooler_Type) Number() protoreflect.EnumNumber {
+func (x PoolerType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use MultiPooler_Type.Descriptor instead.
-func (MultiPooler_Type) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{3, 0}
+// Deprecated: Use PoolerType.Descriptor instead.
+func (PoolerType) EnumDescriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{1}
 }
 
-// ServingStatus represents the serving status of the given MultiPooler.
-type MultiPooler_ServingStatus int32
+// PoolerServingStatus represents the serving status of the given MultiPooler.
+type PoolerServingStatus int32
 
 const (
 	// SERVING is the status a server during normal operations when it is serving traffic.
-	MultiPooler_SERVING MultiPooler_ServingStatus = 0
+	PoolerServingStatus_SERVING PoolerServingStatus = 0
 	// NOT_SERVING is the status of a server when it is not serving traffic.
 	// This typically occurs during startup, shutdown, or when the server is
 	// in an error state and cannot accept connections.
-	MultiPooler_NOT_SERVING MultiPooler_ServingStatus = 1
+	PoolerServingStatus_NOT_SERVING PoolerServingStatus = 1
 	// BACKUP is the status of a server when it is taking a backup. No queries
 	// can be served in BACKUP mode.
-	MultiPooler_BACKUP MultiPooler_ServingStatus = 2
+	PoolerServingStatus_BACKUP PoolerServingStatus = 2
 	// RESTORE is the status a server uses when restoring a backup, at
 	// startup time.  No queries can be served in RESTORE mode.
-	MultiPooler_RESTORE MultiPooler_ServingStatus = 3
+	PoolerServingStatus_RESTORE PoolerServingStatus = 3
 	// DRAINED is the status a server goes into when used by Multigres tools
 	// to perform an offline action. It is a serving type (as
 	// the tools processes may need to run queries), but it's not used
 	// to route queries from Multigres users. In this state,
 	// this multipooler is dedicated to the process that uses it.
-	MultiPooler_DRAINED MultiPooler_ServingStatus = 4
+	PoolerServingStatus_DRAINED PoolerServingStatus = 4
 )
 
-// Enum value maps for MultiPooler_ServingStatus.
+// Enum value maps for PoolerServingStatus.
 var (
-	MultiPooler_ServingStatus_name = map[int32]string{
+	PoolerServingStatus_name = map[int32]string{
 		0: "SERVING",
 		1: "NOT_SERVING",
 		2: "BACKUP",
 		3: "RESTORE",
 		4: "DRAINED",
 	}
-	MultiPooler_ServingStatus_value = map[string]int32{
+	PoolerServingStatus_value = map[string]int32{
 		"SERVING":     0,
 		"NOT_SERVING": 1,
 		"BACKUP":      2,
@@ -186,31 +186,31 @@ var (
 	}
 )
 
-func (x MultiPooler_ServingStatus) Enum() *MultiPooler_ServingStatus {
-	p := new(MultiPooler_ServingStatus)
+func (x PoolerServingStatus) Enum() *PoolerServingStatus {
+	p := new(PoolerServingStatus)
 	*p = x
 	return p
 }
 
-func (x MultiPooler_ServingStatus) String() string {
+func (x PoolerServingStatus) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (MultiPooler_ServingStatus) Descriptor() protoreflect.EnumDescriptor {
+func (PoolerServingStatus) Descriptor() protoreflect.EnumDescriptor {
 	return file_clustermetadata_proto_enumTypes[2].Descriptor()
 }
 
-func (MultiPooler_ServingStatus) Type() protoreflect.EnumType {
+func (PoolerServingStatus) Type() protoreflect.EnumType {
 	return &file_clustermetadata_proto_enumTypes[2]
 }
 
-func (x MultiPooler_ServingStatus) Number() protoreflect.EnumNumber {
+func (x PoolerServingStatus) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use MultiPooler_ServingStatus.Descriptor instead.
-func (MultiPooler_ServingStatus) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{3, 1}
+// Deprecated: Use PoolerServingStatus.Descriptor instead.
+func (PoolerServingStatus) EnumDescriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{2}
 }
 
 // TopoConfig defines the connection parameters for a topology service.
@@ -436,10 +436,10 @@ type MultiPooler struct {
 	Shard string `protobuf:"bytes,4,opt,name=shard,proto3" json:"shard,omitempty"`
 	// If range based sharding is used, range for the pooler's shard.
 	KeyRange *KeyRange `protobuf:"bytes,5,opt,name=key_range,json=keyRange,proto3" json:"key_range,omitempty"`
-	// Type is the kind of pooler: PRIMARY or REPLICA
-	Type MultiPooler_Type `protobuf:"varint,6,opt,name=type,proto3,enum=clustermetadata.MultiPooler_Type" json:"type,omitempty"`
-	// ServingStatus is the current type of the pooler.
-	ServingStatus MultiPooler_ServingStatus `protobuf:"varint,7,opt,name=serving_status,json=servingStatus,proto3,enum=clustermetadata.MultiPooler_ServingStatus" json:"serving_status,omitempty"`
+	// PoolerType is the kind of pooler: PRIMARY or REPLICA
+	Type PoolerType `protobuf:"varint,6,opt,name=type,proto3,enum=clustermetadata.PoolerType" json:"type,omitempty"`
+	// PoolerServingStatus is the current type of the pooler.
+	ServingStatus PoolerServingStatus `protobuf:"varint,7,opt,name=serving_status,json=servingStatus,proto3,enum=clustermetadata.PoolerServingStatus" json:"serving_status,omitempty"`
 	// Fully qualified domain name of the host.
 	Hostname string `protobuf:"bytes,8,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	// Map of named ports. These are ports that the pooler exposes. Initially, this will only be gRPC
@@ -513,18 +513,18 @@ func (x *MultiPooler) GetKeyRange() *KeyRange {
 	return nil
 }
 
-func (x *MultiPooler) GetType() MultiPooler_Type {
+func (x *MultiPooler) GetType() PoolerType {
 	if x != nil {
 		return x.Type
 	}
-	return MultiPooler_UNKNOWN
+	return PoolerType_UNKNOWN
 }
 
-func (x *MultiPooler) GetServingStatus() MultiPooler_ServingStatus {
+func (x *MultiPooler) GetServingStatus() PoolerServingStatus {
 	if x != nil {
 		return x.ServingStatus
 	}
-	return MultiPooler_SERVING
+	return PoolerServingStatus_SERVING
 }
 
 func (x *MultiPooler) GetHostname() string {
@@ -806,7 +806,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0fbackup_location\x18\x02 \x01(\tR\x0ebackupLocation\x12+\n" +
 	"\x11durability_policy\x18\x03 \x01(\tR\x10durabilityPolicy\x12\x14\n" +
-	"\x05cells\x18\x04 \x03(\tR\x05cells\"\xf9\x04\n" +
+	"\x05cells\x18\x04 \x03(\tR\x05cells\"\xe9\x03\n" +
 	"\vMultiPooler\x123\n" +
 	"\n" +
 	"identifier\x18\x01 \x01(\v2\x13.clustermetadata.IDR\n" +
@@ -815,25 +815,14 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\vtable_group\x18\x03 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
 	"\x05shard\x18\x04 \x01(\tR\x05shard\x126\n" +
-	"\tkey_range\x18\x05 \x01(\v2\x19.clustermetadata.KeyRangeR\bkeyRange\x125\n" +
-	"\x04type\x18\x06 \x01(\x0e2!.clustermetadata.MultiPooler.TypeR\x04type\x12Q\n" +
-	"\x0eserving_status\x18\a \x01(\x0e2*.clustermetadata.MultiPooler.ServingStatusR\rservingStatus\x12\x1a\n" +
+	"\tkey_range\x18\x05 \x01(\v2\x19.clustermetadata.KeyRangeR\bkeyRange\x12/\n" +
+	"\x04type\x18\x06 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\x04type\x12K\n" +
+	"\x0eserving_status\x18\a \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12\x1a\n" +
 	"\bhostname\x18\b \x01(\tR\bhostname\x12D\n" +
 	"\bport_map\x18\t \x03(\v2).clustermetadata.MultiPooler.PortMapEntryR\aportMap\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"-\n" +
-	"\x04Type\x12\v\n" +
-	"\aUNKNOWN\x10\x00\x12\v\n" +
-	"\aPRIMARY\x10\x01\x12\v\n" +
-	"\aREPLICA\x10\x02\"S\n" +
-	"\rServingStatus\x12\v\n" +
-	"\aSERVING\x10\x00\x12\x0f\n" +
-	"\vNOT_SERVING\x10\x01\x12\n" +
-	"\n" +
-	"\x06BACKUP\x10\x02\x12\v\n" +
-	"\aRESTORE\x10\x03\x12\v\n" +
-	"\aDRAINED\x10\x04\"\xe2\x01\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xe2\x01\n" +
 	"\fMultiGateway\x123\n" +
 	"\n" +
 	"identifier\x18\x01 \x01(\v2\x13.clustermetadata.IDR\n" +
@@ -862,7 +851,19 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x12MultigresComponent\x12\x10\n" +
 	"\fMULTIGATEWAY\x10\x00\x12\x0f\n" +
 	"\vMULTIPOOLER\x10\x01\x12\r\n" +
-	"\tMULTIORCH\x10\x02B)Z'github.com/multigres/pb/clustermetadatab\x06proto3"
+	"\tMULTIORCH\x10\x02*3\n" +
+	"\n" +
+	"PoolerType\x12\v\n" +
+	"\aUNKNOWN\x10\x00\x12\v\n" +
+	"\aPRIMARY\x10\x01\x12\v\n" +
+	"\aREPLICA\x10\x02*Y\n" +
+	"\x13PoolerServingStatus\x12\v\n" +
+	"\aSERVING\x10\x00\x12\x0f\n" +
+	"\vNOT_SERVING\x10\x01\x12\n" +
+	"\n" +
+	"\x06BACKUP\x10\x02\x12\v\n" +
+	"\aRESTORE\x10\x03\x12\v\n" +
+	"\aDRAINED\x10\x04B)Z'github.com/multigres/pb/clustermetadatab\x06proto3"
 
 var (
 	file_clustermetadata_proto_rawDescOnce sync.Once
@@ -879,26 +880,26 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_clustermetadata_proto_goTypes = []any{
-	(MultigresComponent)(0),        // 0: clustermetadata.MultigresComponent
-	(MultiPooler_Type)(0),          // 1: clustermetadata.MultiPooler.Type
-	(MultiPooler_ServingStatus)(0), // 2: clustermetadata.MultiPooler.ServingStatus
-	(*GlobalTopoConfig)(nil),       // 3: clustermetadata.GlobalTopoConfig
-	(*CellLocation)(nil),           // 4: clustermetadata.CellLocation
-	(*Database)(nil),               // 5: clustermetadata.Database
-	(*MultiPooler)(nil),            // 6: clustermetadata.MultiPooler
-	(*MultiGateway)(nil),           // 7: clustermetadata.MultiGateway
-	(*MultiOrch)(nil),              // 8: clustermetadata.MultiOrch
-	(*ID)(nil),                     // 9: clustermetadata.ID
-	(*KeyRange)(nil),               // 10: clustermetadata.KeyRange
-	nil,                            // 11: clustermetadata.MultiPooler.PortMapEntry
-	nil,                            // 12: clustermetadata.MultiGateway.PortMapEntry
-	nil,                            // 13: clustermetadata.MultiOrch.PortMapEntry
+	(MultigresComponent)(0),  // 0: clustermetadata.MultigresComponent
+	(PoolerType)(0),          // 1: clustermetadata.PoolerType
+	(PoolerServingStatus)(0), // 2: clustermetadata.PoolerServingStatus
+	(*GlobalTopoConfig)(nil), // 3: clustermetadata.GlobalTopoConfig
+	(*CellLocation)(nil),     // 4: clustermetadata.CellLocation
+	(*Database)(nil),         // 5: clustermetadata.Database
+	(*MultiPooler)(nil),      // 6: clustermetadata.MultiPooler
+	(*MultiGateway)(nil),     // 7: clustermetadata.MultiGateway
+	(*MultiOrch)(nil),        // 8: clustermetadata.MultiOrch
+	(*ID)(nil),               // 9: clustermetadata.ID
+	(*KeyRange)(nil),         // 10: clustermetadata.KeyRange
+	nil,                      // 11: clustermetadata.MultiPooler.PortMapEntry
+	nil,                      // 12: clustermetadata.MultiGateway.PortMapEntry
+	nil,                      // 13: clustermetadata.MultiOrch.PortMapEntry
 }
 var file_clustermetadata_proto_depIdxs = []int32{
 	9,  // 0: clustermetadata.MultiPooler.identifier:type_name -> clustermetadata.ID
 	10, // 1: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
-	1,  // 2: clustermetadata.MultiPooler.type:type_name -> clustermetadata.MultiPooler.Type
-	2,  // 3: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.MultiPooler.ServingStatus
+	1,  // 2: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
+	2,  // 3: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
 	11, // 4: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
 	9,  // 5: clustermetadata.MultiGateway.identifier:type_name -> clustermetadata.ID
 	12, // 6: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
