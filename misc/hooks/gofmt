@@ -1,0 +1,60 @@
+#!/bin/bash
+# Copyright 2025 The Multigres Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# git gofmt pre-commit hook
+#
+# Automatically formats Go files and stages them for commit.
+# This script handles files that need gofmt formatting by applying
+# the formatting and re-staging the files.
+
+# Get list of Go files to check
+gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep -v '^pb/')
+
+# Exit if no Go files to process
+[ -z "$gofiles" ] && exit 0
+
+# Check for unformatted files
+unformatted=$(gofmt -s -l $gofiles 2>&1)
+
+# Exit if all files are already formatted
+[ -z "$unformatted" ] && exit 0
+
+# Some files need formatting - format them and re-stage
+echo "Formatting Go files..."
+
+# Deduplicate files first in case a file has multiple errors
+files=$(
+  # Split the "gofmt" output on newlines only
+  OLDIFS=$IFS
+  IFS='
+'
+  for line in $unformatted; do
+    # Strip everything after the first ':', including it
+    echo ${line/:*/}
+  done |
+    # Remove duplicates
+    sort -u
+  IFS=$OLDIFS
+)
+
+# Format each file and re-stage it
+for f in $files; do
+  echo "  Formatting $f"
+  gofmt -s -w "$f"
+  git add "$f"
+done
+
+echo "Go files have been formatted and re-staged for commit."
+exit 0
