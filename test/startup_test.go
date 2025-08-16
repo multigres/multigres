@@ -84,7 +84,9 @@ func testBinaryStartupShutdown(t *testing.T, binaryName, port string) {
 	if err != nil {
 		t.Logf("Failed to send SIGTERM to %s: %v", binaryName, err)
 		// Try to kill the process
-		cmd.Process.Kill()
+		if killErr := cmd.Process.Kill(); killErr != nil {
+			t.Logf("Failed to kill process %s: %v", binaryName, killErr)
+		}
 	}
 
 	// Wait for process to exit
@@ -92,11 +94,11 @@ func testBinaryStartupShutdown(t *testing.T, binaryName, port string) {
 	if err != nil {
 		// Check if it's just the expected signal termination
 		if exitError, ok := err.(*exec.ExitError); ok {
-			if exitError.ProcessState.ExitCode() == -1 {
+			if exitError.ExitCode() == -1 {
 				// Process was terminated by signal, which is expected
 				t.Logf("%s terminated gracefully", binaryName)
 			} else {
-				assert.Equal(t, -1, exitError.ProcessState.ExitCode(), "%s should exit cleanly or be terminated by signal", binaryName)
+				assert.Equal(t, -1, exitError.ExitCode(), "%s should exit cleanly or be terminated by signal", binaryName)
 			}
 		} else {
 			require.NoError(t, err, "Error waiting for %s", binaryName)
