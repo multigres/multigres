@@ -1,0 +1,27 @@
+#!/bin/bash
+# Copyright 2025 The Multigres Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Runs any hooks in misc/git/commit-msg.*, and exits if any of them fail.
+set -e
+
+# This is necessary because the Emacs extensions don't set GIT_DIR.
+if [ -z "$GIT_DIR" ]; then
+ DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
+ GIT_DIR="${DIR}/.."
+fi
+
+for hook in $GIT_DIR/../misc/git/commit-msg.*; do
+ $hook $@
+done

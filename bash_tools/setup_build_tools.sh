@@ -22,6 +22,7 @@ source build.env
 
 # Dependency versions
 PROTOC_VERSION="$PROTOC_VER"
+ADDLICENSE_VERSION="$ADDLICENSE_VER"
 
 get_platform() {
     case $(uname) in
@@ -109,6 +110,12 @@ install_go_plugins() {
     echo "Go protobuf plugins installed successfully"
 }
 
+install_go_tools() {
+    echo "Installing Go tools..."
+    go install github.com/google/addlicense@$ADDLICENSE_VERSION
+    echo "Go tools installed successfully"
+}
+
 install_all() {
     echo "Setting up build tools for Multigres..."
     
@@ -120,6 +127,7 @@ install_all() {
     
     # Install Go dependencies
     install_go_plugins
+    install_go_tools
     
     echo "Build tools setup complete!"
 }
