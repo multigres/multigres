@@ -43,7 +43,10 @@ func setupConfig() {
 	viper.SetDefault("log-level", "info")
 
 	// Bind pflags to viper
-	viper.BindPFlags(pflag.CommandLine)
+	if err := viper.BindPFlags(pflag.CommandLine); err != nil {
+		slog.Error("Failed to bind flags", "error", err)
+		os.Exit(1)
+	}
 
 	// Set config file path if provided
 	if configFile := viper.GetString("config"); configFile != "" {
@@ -107,7 +110,7 @@ func main() {
 	// TODO: Setup consensus protocol management
 	// TODO: Implement failover detection and repair
 	// TODO: Setup health monitoring of multipooler instances
-	
+
 	logger.Info("multiorch ready to orchestrate cluster")
 
 	// Wait for shutdown signal

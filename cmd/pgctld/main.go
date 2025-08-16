@@ -51,7 +51,10 @@ func setupConfig() {
 	viper.SetDefault("log-level", "info")
 
 	// Bind pflags to viper
-	viper.BindPFlags(pflag.CommandLine)
+	if err := viper.BindPFlags(pflag.CommandLine); err != nil {
+		slog.Error("Failed to bind flags", "error", err)
+		os.Exit(1)
+	}
 
 	// Set config file path if provided
 	if configFile := viper.GetString("config"); configFile != "" {
@@ -118,7 +121,7 @@ func main() {
 	// TODO: Implement PostgreSQL query interface
 	// TODO: Use pgPassword for database connection
 	_ = viper.GetString("pg-password")
-	
+
 	logger.Info("pgctld ready to serve gRPC requests")
 
 	// Wait for shutdown signal
