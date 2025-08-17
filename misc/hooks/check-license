@@ -19,14 +19,6 @@ if [ -z "$staged_files" ]; then
   exit 0
 fi
 
-# Exit early if no relevant files are staged
-if [ -z "$staged_files" ]; then
-    echo "No files to check"
-    exit 0
-fi
-
-echo "Found $staged_files files to check"
-
 # Check if files have proper license headers
 files_without_license=()
 
@@ -42,6 +34,12 @@ for file in $staged_files; do
     fi
 done
 
+# Check if addlicense is installed
+if ! command -v addlicense >/dev/null 2>&1; then
+  echo "addlicense not found. Please install it by running 'make tools'"
+  exit 1
+fi
+
 if [ ${#files_without_license[@]} -ne 0 ]; then
     echo "Adding license headers to files missing them:"
     printf '%s\n' "${files_without_license[@]}"
@@ -50,7 +48,7 @@ if [ ${#files_without_license[@]} -ne 0 ]; then
     # Add license headers to the specific files
     for file in "${files_without_license[@]}"; do
         echo "Adding license to: $file"
-        addlicense -c "The Multigres Authors" -l apache "$file"
+        addlicense -c "The Multigres Authors." -l apache "$file"
         # Stage the modified file so it's included in this commit
         git add "$file"
     done
