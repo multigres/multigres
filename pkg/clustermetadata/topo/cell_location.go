@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package clustermetadata
+package topo
 
 import (
 	"context"
@@ -41,7 +41,7 @@ func pathForCellLocation(cell string) string {
 
 // GetCellLocationNames returns the names of the existing cells. They are
 // sorted by name.
-func (ts *Server) GetCellLocationNames(ctx context.Context) ([]string, error) {
+func (ts *store) GetCellLocationNames(ctx context.Context) ([]string, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -57,7 +57,7 @@ func (ts *Server) GetCellLocationNames(ctx context.Context) ([]string, error) {
 }
 
 // GetCellLocation reads a CellLocation from the global Conn.
-func (ts *Server) GetCellLocation(ctx context.Context, cell string) (*clustermetadatapb.CellLocation, error) {
+func (ts *store) GetCellLocation(ctx context.Context, cell string) (*clustermetadatapb.CellLocation, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -78,7 +78,7 @@ func (ts *Server) GetCellLocation(ctx context.Context, cell string) (*clustermet
 }
 
 // CreateCellLocation creates a new CellLocation with the provided content.
-func (ts *Server) CreateCellLocation(ctx context.Context, cell string, ci *clustermetadatapb.CellLocation) error {
+func (ts *store) CreateCellLocation(ctx context.Context, cell string, ci *clustermetadatapb.CellLocation) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -99,7 +99,7 @@ func (ts *Server) CreateCellLocation(ctx context.Context, cell string, ci *clust
 // a version mismatch, it will re-read the record and retry the update.
 // If the update method returns ErrNoUpdateNeeded, nothing is written,
 // and nil is returned.
-func (ts *Server) UpdateCellLocationFields(ctx context.Context, cell string, update func(*clustermetadatapb.CellLocation) error) error {
+func (ts *store) UpdateCellLocationFields(ctx context.Context, cell string, update func(*clustermetadatapb.CellLocation) error) error {
 	filePath := pathForCellLocation(cell)
 	for {
 		if ctx.Err() != nil {
@@ -144,7 +144,7 @@ func (ts *Server) UpdateCellLocationFields(ctx context.Context, cell string, upd
 // DeleteCellLocation deletes the specified CellLocation.
 // We first try to make sure no Shard record points to the cell,
 // but we'll continue regardless if 'force' is true.
-func (ts *Server) DeleteCellLocation(ctx context.Context, cell string, force bool) error {
+func (ts *store) DeleteCellLocation(ctx context.Context, cell string, force bool) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -153,20 +153,4 @@ func (ts *Server) DeleteCellLocation(ctx context.Context, cell string, force boo
 
 	filePath := pathForCellLocation(cell)
 	return ts.globalTopo.Delete(ctx, filePath, nil)
-}
-
-// GetKnownCells returns the list of known cells.
-// For now, it just lists the 'cells' directory in the global topology server.
-// TODO(alainjobart) once the cell map is migrated to this generic
-// package, we can do better than this.
-func (ts *Server) GetKnownCells(ctx context.Context) ([]string, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	entries, err := ts.globalTopo.ListDir(ctx, CellsPath, false /*full*/)
-	if err != nil {
-		return nil, err
-	}
-	return DirEntriesToStringArray(entries), nil
 }

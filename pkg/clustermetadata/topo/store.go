@@ -13,20 +13,56 @@
 // limitations under the License.
 
 /*
-Package clustermetadata is the module responsible for interacting with the global and cell topology servers.
-service. It uses one Conn connection to the global topo service (with
-possibly another one to a read-only version of the global topo service),
-and one to each cell topo service.
+Package topo provides the API to read and write topology data for a Multigres
+cluster. It maintains one Conn to the global topology service and one Conn to
+each cell topology service.
 
-It contains the plug-in interfaces Conn, Factory and Version that topo
-implementations will use. We support etcd as real topo servers.
+The package defines the plug-in interfaces Conn, Factory, and Version that
+topology backends implement. Etcd is currently supported as a real backend.
+
+The TopoStore exposes the full API for interacting with the topology. Data is
+split into two logical locations, each managed through its own connection:
+
+ 1. Global topology: cluster-level static metadata. This includes the minimal
+    information required for components to discover databases and their
+    locations.
+
+ 2. Cell topology: cell-level catalogs that store dynamic metadata about local
+    components (gateways, poolers, orchestrators, etc). Each cell is logically
+    distinct and accessed through a separate connection. In practice, a
+    deployment may choose to run the global and cell topologies on the same
+    etcd cluster, but they remain separate in terms of naming and client
+    management.
+
+Below a diagram representing the architecture:
+
+	     +----------------------+
+	     |    Global Topology   |
+	     |  (static metadata)   |
+	     |----------------------|
+	     | - Databases          |
+	     | - Cell locations     |
+	     +----------+-----------+
+	                |
+	----------------+-----------------
+	|                                |
+
++-------v-------+                +-------v-------+
+|  Cell Topo A  |                |  Cell Topo B  |
+| (dynamic data)|                | (dynamic data)|
+|---------------|                |---------------|
+| - Gateways    |                | - Gateways    |
+| - Poolers     |                | - Poolers     |
+| - Orch state  |                | - Orch state  |
++---------------+                +---------------+
 */
-package clustermetadata
+package topo
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"os"
@@ -63,7 +99,47 @@ type Factory interface {
 	Create(topoName, root string, serverAddrs []string) (Conn, error)
 }
 
-// Server is the main topo.Server object. We support two ways of creating one:
+// GlobalStore defines APIs for cluster-level static metadata.
+// These methods are backed by the global topology service.
+type GlobalStore interface {
+	// GetCellLocationNames returns the names of the existing cells,
+	// sorted by name.
+	GetCellLocationNames(ctx context.Context) ([]string, error)
+
+	// GetCellLocation retrieves the CellLocation for a given cell.
+	GetCellLocation(ctx context.Context, cell string) (*clustermetadatapb.CellLocation, error)
+
+	// CreateCellLocation creates a new CellLocation for a cell.
+	CreateCellLocation(ctx context.Context, cell string, ci *clustermetadatapb.CellLocation) error
+
+	// UpdateCellLocationFields reads a CellLocation, applies an update function,
+	// and writes it back. Retries transparently on version mismatches.
+	UpdateCellLocationFields(ctx context.Context, cell string, update func(*clustermetadatapb.CellLocation) error) error
+
+	// DeleteCellLocation deletes the specified CellLocation. If 'force' is true,
+	// it will proceed even if references exist.
+	DeleteCellLocation(ctx context.Context, cell string, force bool) error
+}
+
+// CellStore defines APIs for cell-level dynamic metadata.
+// These methods are backed by the cell topology services.
+type CellStore interface {
+	// Later: add APIs for gateways, poolers, orchestrator state, etc.
+}
+
+// Store is the full topology API. Implementations must satisfy both
+// GlobalStore and CellStore. Consumers can depend on the narrower
+// interfaces if they only need one.
+type Store interface {
+	GlobalStore
+	CellStore
+}
+
+type ConnProvider interface {
+	ConnForCell(ctx context.Context, cell string) (Conn, error)
+}
+
+// store is the main topo.store object. We support two ways of creating one:
 //  1. From an implementation, server addresses, and root path.
 //     This uses a plugin mechanism, and we have implementations for
 //     etcd and memory.
@@ -71,7 +147,7 @@ type Factory interface {
 //     (in which case they may provide a more complex Factory).
 //     We support memory (for tests and processes that only need an
 //     in-memory server).
-type Server struct {
+type store struct {
 	// globalTopo is the main connection to the global topo service.
 	// It is created once at construction time.
 	globalTopo Conn
@@ -89,6 +165,10 @@ type Server struct {
 	// global cluster and create clients as needed.
 	cellConns map[string]cellConn
 }
+
+var _ Store = (*store)(nil)
+var _ ConnProvider = (*store)(nil)
+var _ io.Closer = (*store)(nil)
 
 type cellConn struct {
 	CellLocation *clustermetadatapb.CellLocation
@@ -112,7 +192,7 @@ var (
 
 	FlagBinaries = []string{"multigateway", "multiorch", "multipooler", "pgctld"}
 
-	// Default read concurrency to use in order to avoid overhwelming the topo server.
+	// DefaultReadConcurrency Default read concurrency to use in order to avoid overwhelming the topo server.
 	DefaultReadConcurrency int64 = 32
 )
 
@@ -130,7 +210,7 @@ func init() {
 // 	fs.Int64Var(&DefaultReadConcurrency, "topo_read_concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell.")
 // }
 
-// RegisterFactory registers a Factory for an implementation for a Server.
+// RegisterFactory registers a Factory for an implementation for a store.
 // If an implementation with that name already exists, it log.Fatals out.
 // Call this in the 'init' function in your topology implementation module.
 func RegisterFactory(name string, factory Factory) {
@@ -140,9 +220,9 @@ func RegisterFactory(name string, factory Factory) {
 	factories[name] = factory
 }
 
-// NewWithFactory creates a new Server based on the given Factory.
+// NewWithFactory creates a new store based on the given Factory.
 // It also opens the global cell connection.
-func NewWithFactory(factory Factory, root string, serverAddrs []string) (*Server, error) {
+func NewWithFactory(factory Factory, root string, serverAddrs []string) (Store, error) {
 	conn, err := factory.Create(GlobalTopo, root, serverAddrs)
 	if err != nil {
 		return nil, err
@@ -150,16 +230,16 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string) (*Server
 	// TODO: Follow up and add stats module
 	// conn = NewStatsConn(GlobalTopo, conn, globalReadSem)
 
-	return &Server{
+	return &store{
 		globalTopo: conn,
 		factory:    factory,
 		cellConns:  make(map[string]cellConn),
 	}, nil
 }
 
-// OpenServer returns a Server using the provided implementation,
+// OpenServer returns a store using the provided implementation,
 // address and root for the global server.
-func OpenServer(implementation, root string, serverAddrs []string) (*Server, error) {
+func OpenServer(implementation, root string, serverAddrs []string) (Store, error) {
 	factory, ok := factories[implementation]
 	if !ok {
 		return nil, NewError(NoImplementation, implementation)
@@ -167,9 +247,9 @@ func OpenServer(implementation, root string, serverAddrs []string) (*Server, err
 	return NewWithFactory(factory, root, serverAddrs)
 }
 
-// Open returns a Server using the command line parameter flags
+// Open returns a store using the command line parameter flags
 // for implementation, address and root. It log.Exits out if an error occurs.
-func Open() *Server {
+func Open() Store {
 	if len(topoGlobalServerAddresses) == 0 {
 		// TODO: Should we just bring the vitess logger from the get go?
 		// CHECK THIS BEFORE MERGING
@@ -190,7 +270,7 @@ func Open() *Server {
 
 // ConnForCell returns a Conn object for the given cell.
 // It caches Conn objects from previously requested cells.
-func (ts *Server) ConnForCell(ctx context.Context, cell string) (Conn, error) {
+func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -247,18 +327,38 @@ func (ts *Server) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	}
 }
 
-// Close will close all connections to underlying topo Server.
+// Close will close all connections to underlying topo store.
 // It will nil all member variables, so any further access will panic.
-func (ts *Server) Close() {
+func (ts *store) Close() error {
+	var errs []error
+
+	// Close global topo connection
 	if ts.globalTopo != nil {
-		ts.globalTopo.Close()
+		if err := ts.globalTopo.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close global topo: %w", err))
+		}
+		ts.globalTopo = nil
 	}
 
-	ts.globalTopo = nil
+	// Close all cell connections
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	for _, cc := range ts.cellConns {
-		cc.conn.Close()
+
+	for cell, cc := range ts.cellConns {
+		if cc.conn != nil {
+			if err := cc.conn.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close cell connection %s: %w", cell, err))
+			}
+		}
 	}
+
+	// Clear the map
 	ts.cellConns = make(map[string]cellConn)
+
+	// Return combined error if any occurred
+	if len(errs) > 0 {
+		return fmt.Errorf("errors occurred while closing connections: %v", errs)
+	}
+
+	return nil
 }

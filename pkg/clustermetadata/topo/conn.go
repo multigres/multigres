@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package clustermetadata
+package topo
 
 import (
 	"context"
@@ -218,7 +218,7 @@ type Conn interface {
 	WatchRecursive(ctx context.Context, path string) ([]*WatchDataRecursive, <-chan *WatchDataRecursive, error)
 
 	// Close closes the connection to the server.
-	Close()
+	Close() error
 }
 
 // DirEntryType is the type of entry in a directory.
