@@ -35,7 +35,7 @@ pb: $(PROTO_SRCS)
 		--go-grpc_out=. \
 		--proto_path=proto $(PROTO_SRCS) && \
 	mkdir -p pb && \
-	cp -Rf github.com/multigres/pb/* pb/ && \
+	cp -Rf github.com/multigres/multigres/pb/* pb/ && \
 	rm -rf github.com/
 
 # Build Go binaries only
