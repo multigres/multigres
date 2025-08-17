@@ -224,7 +224,7 @@ type GlobalTopoConfig struct {
 	Implementation string `protobuf:"bytes,1,opt,name=implementation,proto3" json:"implementation,omitempty"`
 	// server is the network address (host:port) of the topology service.
 	// Can be a list list for HA setups.
-	ServerAddress []string `protobuf:"bytes,2,rep,name=server_address,json=serverAddress,proto3" json:"server_address,omitempty"`
+	ServerAddresses []string `protobuf:"bytes,2,rep,name=server_addresses,json=serverAddresses,proto3" json:"server_addresses,omitempty"`
 	// root is the logical root directory or namespace inside the topology backend
 	// under which all cluster metadata will be stored.
 	Root          string `protobuf:"bytes,3,opt,name=root,proto3" json:"root,omitempty"`
@@ -269,9 +269,9 @@ func (x *GlobalTopoConfig) GetImplementation() string {
 	return ""
 }
 
-func (x *GlobalTopoConfig) GetServerAddress() []string {
+func (x *GlobalTopoConfig) GetServerAddresses() []string {
 	if x != nil {
-		return x.ServerAddress
+		return x.ServerAddresses
 	}
 	return nil
 }
@@ -290,9 +290,9 @@ type CellLocation struct {
 	// name for this cell
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// server_address is the network address of the cell topology service.
-	ServerAddress []string `protobuf:"bytes,2,rep,name=server_address,json=serverAddress,proto3" json:"server_address,omitempty"`
+	ServerAddresses []string `protobuf:"bytes,2,rep,name=server_addresses,json=serverAddresses,proto3" json:"server_addresses,omitempty"`
 	// root is the namespace or directory path within the topology service
-	// where this cell's metadata is stored. Used only when connecting to server_address.
+	// where this cell's metadata is stored. Used only when connecting to server_addresses.
 	Root          string `protobuf:"bytes,3,opt,name=root,proto3" json:"root,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -335,9 +335,9 @@ func (x *CellLocation) GetName() string {
 	return ""
 }
 
-func (x *CellLocation) GetServerAddress() []string {
+func (x *CellLocation) GetServerAddresses() []string {
 	if x != nil {
-		return x.ServerAddress
+		return x.ServerAddresses
 	}
 	return nil
 }
@@ -792,14 +792,14 @@ var File_clustermetadata_proto protoreflect.FileDescriptor
 
 const file_clustermetadata_proto_rawDesc = "" +
 	"\n" +
-	"\x15clustermetadata.proto\x12\x0fclustermetadata\"u\n" +
+	"\x15clustermetadata.proto\x12\x0fclustermetadata\"y\n" +
 	"\x10GlobalTopoConfig\x12&\n" +
-	"\x0eimplementation\x18\x01 \x01(\tR\x0eimplementation\x12%\n" +
-	"\x0eserver_address\x18\x02 \x03(\tR\rserverAddress\x12\x12\n" +
-	"\x04root\x18\x03 \x01(\tR\x04root\"]\n" +
+	"\x0eimplementation\x18\x01 \x01(\tR\x0eimplementation\x12)\n" +
+	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
+	"\x04root\x18\x03 \x01(\tR\x04root\"a\n" +
 	"\fCellLocation\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12%\n" +
-	"\x0eserver_address\x18\x02 \x03(\tR\rserverAddress\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
+	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
 	"\x04root\x18\x03 \x01(\tR\x04root\"\x8a\x01\n" +
 	"\bDatabase\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
@@ -862,7 +862,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\n" +
 	"\x06BACKUP\x10\x02\x12\v\n" +
 	"\aRESTORE\x10\x03\x12\v\n" +
-	"\aDRAINED\x10\x04B)Z'github.com/multigres/pb/clustermetadatab\x06proto3"
+	"\aDRAINED\x10\x04B3Z1github.com/multigres/multigres/pb/clustermetadatab\x06proto3"
 
 var (
 	file_clustermetadata_proto_rawDescOnce sync.Once

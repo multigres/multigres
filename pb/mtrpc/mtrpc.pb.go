@@ -403,7 +403,7 @@ const file_mtrpc_proto_rawDesc = "" +
 	"\tDATA_LOSS\x10\x0f\x12\x13\n" +
 	"\x0fUNAUTHENTICATED\x10\x10\x12\x11\n" +
 	"\rCLUSTER_EVENT\x10\x11\x12\r\n" +
-	"\tREAD_ONLY\x10\x12B\x1fZ\x1dgithub.com/multigres/pb/mtrpcb\x06proto3"
+	"\tREAD_ONLY\x10\x12B)Z'github.com/multigres/multigres/pb/mtrpcb\x06proto3"
 
 var (
 	file_mtrpc_proto_rawDescOnce sync.Once
