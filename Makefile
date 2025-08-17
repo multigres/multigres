@@ -29,12 +29,14 @@ tools:
 # Generate protobuf files
 proto: tools $(PROTO_GO_OUTS)
 
-go/pb/%.pb.go: proto/%.proto
-	mkdir -p go/pb
+pb: $(PROTO_SRCS)
 	. ./build.env && \
-	$$MTROOT/dist/protoc-$$PROTOC_VER/bin/protoc --go_out=go/pb --go_opt=paths=source_relative \
-		--go-grpc_out=go/pb --go-grpc_opt=paths=source_relative \
-		--proto_path=proto $<
+	$$MTROOT/dist/protoc-$$PROTOC_VER/bin/protoc --go_out=. \
+		--go-grpc_out=. \
+		--proto_path=proto $(PROTO_SRCS) && \
+	mkdir -p pb && \
+	cp -Rf github.com/multigres/pb/* pb/ && \
+	rm -rf github.com/
 
 # Build Go binaries only
 build:
