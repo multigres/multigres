@@ -75,6 +75,12 @@ type Conn interface {
 	// support storing multiple versions and retrieving a specific one.
 	GetVersion(ctx context.Context, filePath string, version int64) ([]byte, error)
 
+	// List returns KV pairs, along with metadata like the version, for
+	// entries where the key contains the specified prefix.
+	// filePathPrefix is a path relative to the root directory of the cell.
+	// Can return ErrNoNode if there are no matches.
+	List(ctx context.Context, filePathPrefix string) ([]KVInfo, error)
+
 	// Delete deletes the provided file.
 	// If version is nil, it is an unconditional delete.
 	// If the last entry of a directory is deleted, using ListDir
@@ -167,7 +173,7 @@ type Conn interface {
 	// back right away. And a stable value (that hasn't changed for
 	// a while) should be seen shortly.
 	//
-	// The Watch call is not guaranteed to return exactly up to
+	// The Watch call is not guaranteed to return exactly up-to-
 	// date data right away. For instance, if a file is created
 	// and saved, and then a watch is set on that file, it may
 	// return ErrNoNode (as the underlying configuration service
@@ -325,4 +331,16 @@ type WatchDataRecursive struct {
 	Path string
 
 	WatchData
+}
+
+// KVInfo is a structure that contains a generic key/value pair from
+// the topo server, along with important metadata about it.
+// This should be used to provide multiple entries in List like calls
+// that return N KVs based on a key prefix, so that you don't lose
+// information or context you would otherwise have when using Get for
+// a single key.
+type KVInfo struct {
+	Key     []byte
+	Value   []byte
+	Version Version // version - used to prevent stomping concurrent writes
 }
