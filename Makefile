@@ -19,7 +19,7 @@ all: build
 
 # Proto source files
 PROTO_SRCS = $(shell find proto -name '*.proto')
-PROTO_GO_OUTS = $(patsubst proto/%.proto,pb/%.pb.go,$(PROTO_SRCS))
+PROTO_GO_OUTS = $(patsubst proto/%.proto,go/pb/%.pb.go,$(PROTO_SRCS))
 
 # Install protobuf tools
 tools:
@@ -29,20 +29,20 @@ tools:
 # Generate protobuf files
 proto: tools $(PROTO_GO_OUTS)
 
-pb/%.pb.go: proto/%.proto
-	mkdir -p pb
+go/pb/%.pb.go: proto/%.proto
+	mkdir -p go/pb
 	. ./build.env && \
-	$$MTROOT/dist/protoc-$$PROTOC_VER/bin/protoc --go_out=pb --go_opt=paths=source_relative \
-		--go-grpc_out=pb --go-grpc_opt=paths=source_relative \
+	$$MTROOT/dist/protoc-$$PROTOC_VER/bin/protoc --go_out=go/pb --go_opt=paths=source_relative \
+		--go-grpc_out=go/pb --go-grpc_opt=paths=source_relative \
 		--proto_path=proto $<
 
 # Build Go binaries only
 build:
 	mkdir -p bin/
-	go build -o bin/multigateway ./cmd/multigateway
-	go build -o bin/multipooler ./cmd/multipooler
-	go build -o bin/pgctld ./cmd/pgctld
-	go build -o bin/multiorch ./cmd/multiorch
+	go build -o bin/multigateway ./go/cmd/multigateway
+	go build -o bin/multipooler ./go/cmd/multipooler
+	go build -o bin/pgctld ./go/cmd/pgctld
+	go build -o bin/multiorch ./go/cmd/multiorch
 
 # Build everything (proto + binaries)
 build-all: proto build
@@ -53,10 +53,10 @@ clean: clean_build_dep
 
 # Install binaries to GOPATH/bin
 install:
-	go install ./cmd/multigateway
-	go install ./cmd/multipooler
-	go install ./cmd/pgctld
-	go install ./cmd/multiorch
+	go install ./go/cmd/multigateway
+	go install ./go/cmd/multipooler
+	go install ./go/cmd/pgctld
+	go install ./go/cmd/multiorch
 
 # Run tests
 test:
