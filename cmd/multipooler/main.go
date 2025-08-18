@@ -43,7 +43,10 @@ func setupConfig() {
 	viper.SetDefault("log-level", "info")
 
 	// Bind pflags to viper
-	viper.BindPFlags(pflag.CommandLine)
+	if err := viper.BindPFlags(pflag.CommandLine); err != nil {
+		slog.Error("Failed to bind flags", "error", err)
+		os.Exit(1)
+	}
 
 	// Set config file path if provided
 	if configFile := viper.GetString("config"); configFile != "" {
@@ -106,7 +109,7 @@ func main() {
 	// TODO: Initialize gRPC connection to pgctld
 	// TODO: Setup health check endpoint
 	// TODO: Register with topology service
-	
+
 	logger.Info("multipooler ready to serve connections")
 
 	// Wait for shutdown signal
