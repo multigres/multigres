@@ -13,22 +13,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -euo pipefail
+# Get list of staged files that need license headers
+staged_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(go|sh|proto)$')
+if [ -z "$staged_files" ]; then
+  exit 0
+fi
 
 # Check if files have proper license headers
 files_without_license=()
 
-for file in "$@"; do
+for file in $staged_files; do
     # Skip files in excluded directories
     if [[ "$file" == site/* ]] || [[ "$file" == pb/* ]] || [[ "$file" == dist/* ]] || [[ "$file" == bin/* ]]; then
         continue
     fi
     
-    # Check if file has license header
-    if ! head -20 "$file" | grep -q "Copyright.*The Multigres Authors"; then
+    # Check if file exists and has license header
+    if [[ -f "$file" ]] && ! head -20 "$file" | grep -q "Copyright.*The Multigres Authors\."; then
         files_without_license+=("$file")
     fi
 done
+
+# Check if addlicense is installed
+if ! command -v addlicense >/dev/null 2>&1; then
+  echo "addlicense not found. Please install it by running 'make tools'"
+  exit 1
+fi
 
 if [ ${#files_without_license[@]} -ne 0 ]; then
     echo "Adding license headers to files missing them:"
@@ -38,7 +48,7 @@ if [ ${#files_without_license[@]} -ne 0 ]; then
     # Add license headers to the specific files
     for file in "${files_without_license[@]}"; do
         echo "Adding license to: $file"
-        addlicense -c "The Multigres Authors" -l apache "$file"
+        addlicense -c "The Multigres Authors." -l apache "$file"
         # Stage the modified file so it's included in this commit
         git add "$file"
     done
