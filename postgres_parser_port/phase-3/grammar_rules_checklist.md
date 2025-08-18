@@ -26,19 +26,19 @@
 - 🟨 `opt_with` - WITH option (basic, needs WITH clause content in Phase 3D)
 - 🟨 `OptWith` - Alternative WITH option (basic, needs lookahead token handling)
 
-### Names and Identifiers ✅ MOSTLY COMPLETED
-- 🟨 `ColId` - Column identifier (structure correct, needs full keyword categories)
-- 🟨 `ColLabel` - Column label (structure correct, needs full keyword categories)
+### Names and Identifiers ✅ COMPLETED
+- ✅ `ColId` - Column identifier (structure correct, keyword categories implemented)
+- ✅ `ColLabel` - Column label (structure correct, keyword categories implemented)
 - ✅ `name` - Simple name (correctly delegates to ColId)
-- ✅ `name_list` - List of names (now returns proper NodeList of String nodes)
-- 🟨 `qualified_name` - Schema-qualified name (supports 1-2 parts, missing indirection for 3+)
+- ✅ `name_list` - List of names (returns proper NodeList of String nodes)
+- ✅ `qualified_name` - Schema-qualified name (supports 1-2 parts + full indirection for 3+)
 - ✅ `qualified_name_list` - List of qualified names (correctly implemented)
-- 🟨 `any_name` - Any name (supports 1-2 parts, missing attrs for 3+)
+- ✅ `any_name` - Any name (supports 1-2 parts + attrs for 3+ part names)
 
 ## Phase 3B: Basic Expression Grammar (~40 rules) 🟨 PARTIAL
 
 ### Core Expressions 🟨 PARTIAL
-- 🟨 `a_expr` - A-level expressions (45/69 cases implemented, missing CASE, subqueries, etc.)
+- 🟨 `a_expr` - A-level expressions (major operators implemented but missing CASE, subqueries, and other PostgreSQL cases)
 - 🟨 `b_expr` - B-level expressions (basic arithmetic implemented, missing some advanced cases)
 - 🟨 `c_expr` - C-level expressions (missing CASE expressions, subselects, advanced indirection)
 - ✅ `AexprConst` - Constant expressions

@@ -320,12 +320,30 @@ qualified_name:
 					RelName:    $3,
 				}
 			}
-		/* TODO: Add indirection support for 3+ part names:
 		|	ColId indirection
 			{
-				// $$ = makeRangeVarFromQualifiedName($1, $2, 0, yyscanner)
+				// Handle complex qualified names like "schema.table.field" or "catalog.schema.table"
+				// This creates a RangeVar from indirection - for now we'll handle 2-part names only
+				// Full indirection support would require more complex parsing
+				if len($2) == 1 {
+					if str, ok := $2[0].(*ast.String); ok {
+						$$ = &ast.RangeVar{
+							SchemaName: $1,
+							RelName:    str.SVal,
+						}
+					} else {
+						// Complex indirection - return a simpler form for now
+						$$ = &ast.RangeVar{
+							RelName: $1,
+						}
+					}
+				} else {
+					// Multiple indirection elements - return simple form
+					$$ = &ast.RangeVar{
+						RelName: $1,
+					}
+				}
 			}
-		*/
 		;
 
 qualified_name_list:
@@ -350,12 +368,13 @@ any_name:
 			{ 
 				$$ = ast.NewNodeList(ast.NewString($1), ast.NewString($3))
 			}
-		/* TODO: Add attrs support for 3+ part names:
 		|	ColId attrs
 			{
-				// $$ = lcons(makeString($1), $2)
+				// Create a NodeList with the first ColId followed by all attrs
+				nodes := []ast.Node{ast.NewString($1)}
+				nodes = append(nodes, $2...)
+				$$ = ast.NewNodeList(nodes...)
 			}
-		*/
 		;
 
 any_name_list:

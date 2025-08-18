@@ -85,10 +85,12 @@ Rule not reduced: name_list:  name
 Rule not reduced: name_list:  name_list ',' name 
 Rule not reduced: qualified_name:  ColId 
 Rule not reduced: qualified_name:  ColId '.' ColId 
+Rule not reduced: qualified_name:  ColId indirection 
 Rule not reduced: qualified_name_list:  qualified_name 
 Rule not reduced: qualified_name_list:  qualified_name_list ',' qualified_name 
 Rule not reduced: any_name:  ColId 
 Rule not reduced: any_name:  ColId '.' ColId 
+Rule not reduced: any_name:  ColId attrs 
 Rule not reduced: any_name_list:  any_name 
 Rule not reduced: any_name_list:  any_name_list ',' any_name 
 Rule not reduced: unreserved_keyword:  ALL 
@@ -283,7 +285,7 @@ Rule not reduced: opt_asymmetric:  ASYMMETRIC
 Rule not reduced: in_expr:  '(' expr_list ')' 
 
 117 terminals, 74 nonterminals
-236 grammar rules, 7/16000 states
+238 grammar rules, 7/16000 states
 0 shift/reduce, 0 reduce/reduce conflicts reported
 123 working sets used
 memory: parser 5/240000

@@ -122,7 +122,7 @@
 
 ---
 
-## Current Phase Status: 3B - Basic Expression Grammar ✅ COMPLETE
+## Current Phase Status: 3B - Basic Expression Grammar 🟨 PARTIAL
 
 **Phase 3A Goals**: ✅ ALL COMPLETE
 - ✅ Set up goyacc integration with our lexer
