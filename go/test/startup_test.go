@@ -48,7 +48,7 @@ func TestBinaryStartupShutdown(t *testing.T) {
 
 func testBinaryStartupShutdown(t *testing.T, binaryName, port string) {
 	// Build path to binary
-	binaryPath := filepath.Join("..", "bin", binaryName)
+	binaryPath := filepath.Join("..", "..", "bin", binaryName)
 
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
