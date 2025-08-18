@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/multigres/multigres/pkg/clustermetadata/topo"
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 )
 
 // Watch is part of the topo.Conn interface.

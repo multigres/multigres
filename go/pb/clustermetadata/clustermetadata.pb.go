@@ -862,7 +862,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\n" +
 	"\x06BACKUP\x10\x02\x12\v\n" +
 	"\aRESTORE\x10\x03\x12\v\n" +
-	"\aDRAINED\x10\x04B3Z1github.com/multigres/multigres/pb/clustermetadatab\x06proto3"
+	"\aDRAINED\x10\x04B6Z4github.com/multigres/multigres/go/pb/clustermetadatab\x06proto3"
 
 var (
 	file_clustermetadata_proto_rawDescOnce sync.Once

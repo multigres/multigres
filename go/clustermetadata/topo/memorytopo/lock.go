@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/multigres/multigres/pkg/clustermetadata/topo"
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 )
 
 // convertError converts a context error into a topo error.

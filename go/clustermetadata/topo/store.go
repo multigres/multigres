@@ -70,7 +70,7 @@ import (
 	"sync"
 
 	clustermetadatapb "github.com/multigres/multigres/pb/clustermetadata"
-	"github.com/multigres/multigres/pkg/mterrors"
+	"github.com/multigres/multigres/go/mterrors"
 )
 
 const (

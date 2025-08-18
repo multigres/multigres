@@ -17,7 +17,7 @@ limitations under the License.
 // This file contains useful data structures for RPCs in Multigres.
 
 syntax = "proto3";
-option go_package = "github.com/multigres/multigres/pb/mtrpc";
+option go_package = "github.com/multigres/multigres/go/pb/mtrpc";
 
 package mtrpc;
 

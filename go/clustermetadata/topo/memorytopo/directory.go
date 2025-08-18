@@ -5,8 +5,8 @@ import (
 
 	"github.com/multigres/multigres/pb/mtrpc"
 
-	"github.com/multigres/multigres/pkg/clustermetadata/topo"
-	"github.com/multigres/multigres/pkg/mterrors"
+	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/mterrors"
 )
 
 // ListDir is part of the topo.Conn interface.

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/multigres/multigres/pkg/clustermetadata/topo"
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 
 	clustermetadatapb "github.com/multigres/multigres/pb/clustermetadata"
 )

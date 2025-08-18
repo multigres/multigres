@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/pb/mtrpc"
-	"github.com/multigres/multigres/pkg/clustermetadata/topo"
-	"github.com/multigres/multigres/pkg/mterrors"
+	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/mterrors"
 )
 
 // Below we implement the File methods that are part of the Conn interface:
