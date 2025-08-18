@@ -69,8 +69,8 @@ import (
 	"strings"
 	"sync"
 
-	clustermetadatapb "github.com/multigres/multigres/pb/clustermetadata"
 	"github.com/multigres/multigres/go/mterrors"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 const (

@@ -95,7 +95,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	mtrpcpb "github.com/multigres/multigres/pb/mtrpc"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // logErrStacks controls whether printing errors includes the
