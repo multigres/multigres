@@ -126,7 +126,7 @@ type Conn interface {
 	// LockName is similar to `Lock` but the difference is that it does not require
 	// the path to exist and have children in order to lock it. This is because with
 	// named locks you are NOT locking an actual topo entity such as a Keyspace record.
-	// Because this lock is not blocking any Vitess operations OTHER than another
+	// Because this lock is not blocking any Multigres operations OTHER than another
 	// caller that is trying to get the same named lock, there is a static 24 hour
 	// TTL on them to ensure that they are eventually cleaned up.
 	LockName(ctx context.Context, dirPath, contents string) (LockDescriptor, error)
@@ -179,7 +179,7 @@ type Conn interface {
 	// return ErrNoNode (as the underlying configuration service
 	// may use asynchronous caches that are not up to date
 	// yet). The only guarantee is that the watch data will
-	// eventually converge. Vitess doesn't explicitly depend on the data
+	// eventually converge. Multigres doesn't explicitly depend on the data
 	// being correct quickly, as long as it eventually gets there.
 	//
 	// filePath is a path relative to the root directory of the cell.
@@ -217,7 +217,7 @@ type Conn interface {
 	// return ErrNoNode (as the underlying configuration service
 	// may use asynchronous caches that are not up to date
 	// yet). The only guarantee is that the watch data will
-	// eventually converge. Vitess doesn't explicitly depend on the data
+	// eventually converge. Multigres doesn't explicitly depend on the data
 	// being correct quickly, as long as it eventually gets there.
 	//
 	// path is a path relative to the root directory of the cell.
