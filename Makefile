@@ -19,7 +19,7 @@ all: build
 
 # Proto source files
 PROTO_SRCS = $(shell find proto -name '*.proto')
-PROTO_GO_OUTS = $(patsubst proto/%.proto,go/pb/%.pb.go,$(PROTO_SRCS))
+PROTO_GO_OUTS = pb
 
 # Install protobuf tools
 tools:
