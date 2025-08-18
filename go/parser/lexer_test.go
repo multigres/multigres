@@ -967,7 +967,7 @@ func TestTypeCastOperator(t *testing.T) {
 		{
 			name:     "type cast with complex type",
 			input:    "value::numeric(10,2)",
-			expected: []TokenType{IDENT, TYPECAST, IDENT, TokenType('('), ICONST, TokenType(','), ICONST, TokenType(')'), EOF},
+			expected: []TokenType{IDENT, TYPECAST, NUMERIC, TokenType('('), ICONST, TokenType(','), ICONST, TokenType(')'), EOF},
 			values:   []string{"value", "::", "numeric", "(", "10", ",", "2", ")", ""},
 		},
 		{

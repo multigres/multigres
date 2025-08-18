@@ -55,7 +55,7 @@ var Keywords = []KeywordInfo{
 
 	{"between", IDENT, ColNameKeyword, true}, // Will be replaced with BETWEEN token in Phase 3
 	{"bigint", IDENT, ColNameKeyword, true},  // Will be replaced with BIGINT token in Phase 3
-	{"bit", IDENT, ColNameKeyword, true},     // Will be replaced with BIT token in Phase 3
+	{"bit", BIT, ColNameKeyword, true},
 	{"boolean", IDENT, ColNameKeyword, true}, // Will be replaced with BOOLEAN_P token in Phase 3
 	{"both", IDENT, ReservedKeyword, true},   // Will be replaced with BOTH token in Phase 3
 	{"by", IDENT, UnreservedKeyword, true},   // Will be replaced with BY token in Phase 3
@@ -93,7 +93,7 @@ var Keywords = []KeywordInfo{
 	{"except", IDENT, ReservedKeyword, true}, // Will be replaced with EXCEPT token in Phase 3
 	{"exists", EXISTS, ColNameKeyword, true},
 
-	{"false", IDENT, ReservedKeyword, true},    // Will be replaced with FALSE_P token in Phase 3
+	{"false", FALSE_P, ReservedKeyword, true},
 	{"fetch", IDENT, ReservedKeyword, true},    // Will be replaced with FETCH token in Phase 3
 	{"float", IDENT, ColNameKeyword, true},     // Will be replaced with FLOAT_P token in Phase 3
 	{"for", IDENT, ReservedKeyword, true},      // Will be replaced with FOR token in Phase 3
@@ -125,8 +125,8 @@ var Keywords = []KeywordInfo{
 
 	{"natural", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with NATURAL token in Phase 3
 	{"not", NOT, ReservedKeyword, true},
-	{"null", IDENT, ReservedKeyword, true},        // Will be replaced with NULL_P token in Phase 3
-	{"numeric", IDENT, ColNameKeyword, true},      // Will be replaced with NUMERIC token in Phase 3
+	{"null", NULL_P, ReservedKeyword, true},
+	{"numeric", NUMERIC, ColNameKeyword, true},
 
 	{"offset", IDENT, ReservedKeyword, true},    // Will be replaced with OFFSET token in Phase 3
 	{"on", IDENT, ReservedKeyword, true},        // Will be replaced with ON token in Phase 3
@@ -154,7 +154,7 @@ var Keywords = []KeywordInfo{
 	{"timestamp", IDENT, ColNameKeyword, true}, // Will be replaced with TIMESTAMP token in Phase 3
 	{"to", IDENT, ReservedKeyword, true},       // Will be replaced with TO token in Phase 3
 	{"trailing", IDENT, ReservedKeyword, true}, // Will be replaced with TRAILING token in Phase 3
-	{"true", IDENT, ReservedKeyword, true},     // Will be replaced with TRUE_P token in Phase 3
+	{"true", TRUE_P, ReservedKeyword, true},
 
 	{"union", IDENT, ReservedKeyword, true},    // Will be replaced with UNION token in Phase 3
 	{"unique", IDENT, ReservedKeyword, true},   // Will be replaced with UNIQUE token in Phase 3

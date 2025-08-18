@@ -5,6 +5,7 @@ package ast
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ==============================================================================
@@ -92,6 +93,51 @@ func (a *A_Expr) String() string {
 	return fmt.Sprintf("A_Expr{kind=%d}@%d", a.Kind, a.Location())
 }
 
+// SqlString returns the SQL representation of the A_Expr
+func (a *A_Expr) SqlString() string {
+	switch a.Kind {
+	case AEXPR_OP:
+		if len(a.Name) == 0 {
+			return "UNKNOWN_OP"
+		}
+		op := a.Name[0].SVal
+		
+		// Unary operators (NOT, unary +, unary -)
+		if a.Lexpr == nil && a.Rexpr != nil {
+			if op == "NOT" {
+				return fmt.Sprintf("NOT %s", a.Rexpr.SqlString())
+			}
+			// Unary + or -
+			return fmt.Sprintf("%s%s", op, a.Rexpr.SqlString())
+		}
+		
+		// Binary operators
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			rightStr := a.Rexpr.SqlString()
+			return fmt.Sprintf("%s %s %s", leftStr, op, rightStr)
+		}
+		
+		return "UNKNOWN_EXPR"
+		
+	case AEXPR_LIKE:
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			rightStr := a.Rexpr.SqlString()
+			return fmt.Sprintf("%s LIKE %s", leftStr, rightStr)
+		}
+		
+	case AEXPR_BETWEEN:
+		// For now, simplified - full BETWEEN would need more complex structure
+		return "BETWEEN_EXPR"
+		
+	default:
+		return fmt.Sprintf("A_EXPR_%d", a.Kind)
+	}
+	
+	return "UNKNOWN_A_EXPR"
+}
+
 func (a *A_Expr) ExpressionType() string {
 	return "A_EXPR"
 }
@@ -134,6 +180,20 @@ func (a *A_Const) String() string {
 		return fmt.Sprintf("A_Const{%v}@%d", a.Val, a.Location())
 	}
 	return fmt.Sprintf("A_Const{nil}@%d", a.Location())
+}
+
+// SqlString returns the SQL representation of the A_Const
+func (a *A_Const) SqlString() string {
+	if a.Isnull {
+		return "NULL"
+	}
+	
+	if a.Val == nil {
+		return "NULL"
+	}
+	
+	// Use the Value's SqlString() method
+	return a.Val.SqlString()
 }
 
 func (a *A_Const) ExpressionType() string {
@@ -192,6 +252,21 @@ func (t *TypeCast) String() string {
 	return fmt.Sprintf("TypeCast@%d", t.Location())
 }
 
+// SqlString returns the SQL representation of the TypeCast (::type syntax)
+func (t *TypeCast) SqlString() string {
+	argStr := ""
+	if t.Arg != nil {
+		argStr = t.Arg.SqlString()
+	}
+	
+	typeStr := ""
+	if t.TypeName != nil {
+		typeStr = t.TypeName.SqlString()
+	}
+	
+	return fmt.Sprintf("%s::%s", argStr, typeStr)
+}
+
 func (t *TypeCast) ExpressionType() string {
 	return "TYPE_CAST"
 }
@@ -229,6 +304,33 @@ func (f *FuncCall) String() string {
 		return fmt.Sprintf("FuncCall{%s}@%d", f.Funcname[0].SVal, f.Location())
 	}
 	return fmt.Sprintf("FuncCall@%d", f.Location())
+}
+
+// SqlString returns the SQL representation of the FuncCall
+func (f *FuncCall) SqlString() string {
+	// Build function name (could be qualified like schema.func)
+	funcName := ""
+	if len(f.Funcname) > 0 {
+		var nameParts []string
+		for _, part := range f.Funcname {
+			if part != nil {
+				nameParts = append(nameParts, part.SVal)
+			}
+		}
+		funcName = strings.Join(nameParts, ".")
+	}
+	
+	// Build argument list
+	argStrs := []string{}
+	if f.Args != nil {
+		for _, arg := range f.Args {
+			if arg != nil {
+				argStrs = append(argStrs, arg.SqlString())
+			}
+		}
+	}
+	
+	return fmt.Sprintf("%s(%s)", funcName, strings.Join(argStrs, ", "))
 }
 
 func (f *FuncCall) ExpressionType() string {

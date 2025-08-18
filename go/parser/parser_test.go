@@ -4,8 +4,8 @@ import (
 	"testing"
 )
 
-// TestPhase3ABasicParsing tests the foundational parser infrastructure
-func TestPhase3ABasicParsing(t *testing.T) {
+// TestBasicParsing tests basic parser functionality with empty input and semicolons
+func TestBasicParsing(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
@@ -55,8 +55,8 @@ func TestPhase3ABasicParsing(t *testing.T) {
 	}
 }
 
-// TestPhase3ALexerParserIntegration tests that the lexer correctly interfaces with the parser
-func TestPhase3ALexerParserIntegration(t *testing.T) {
+// TestLexerTokenGeneration tests that the lexer generates correct token sequences
+func TestLexerTokenGeneration(t *testing.T) {
 	tests := []struct {
 		name   string
 		input  string
@@ -113,8 +113,8 @@ func TestPhase3ALexerParserIntegration(t *testing.T) {
 	}
 }
 
-// TestPhase3AParseTree tests that the parse tree is correctly constructed
-func TestPhase3AParseTree(t *testing.T) {
+// TestEmptyStatementParsing tests parsing of empty statements and semicolons
+func TestEmptyStatementParsing(t *testing.T) {
 	tests := []struct {
 		name         string
 		input        string

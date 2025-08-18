@@ -3,7 +3,7 @@ state 0
 	$accept: .parse_toplevel $end 
 	stmt: .    (5)
 
-	.  reduce 5 (src line 213)
+	.  reduce 5 (src line 197)
 
 	parse_toplevel  goto 1
 	stmtmulti  goto 2
@@ -22,26 +22,26 @@ state 2
 	stmtmulti:  stmtmulti.';' toplevel_stmt 
 
 	';'  shift 5
-	.  reduce 1 (src line 163)
+	.  reduce 1 (src line 147)
 
 
 state 3
 	stmtmulti:  toplevel_stmt.    (3)
 
-	.  reduce 3 (src line 187)
+	.  reduce 3 (src line 171)
 
 
 state 4
 	toplevel_stmt:  stmt.    (4)
 
-	.  reduce 4 (src line 201)
+	.  reduce 4 (src line 185)
 
 
 state 5
 	stmtmulti:  stmtmulti ';'.toplevel_stmt 
 	stmt: .    (5)
 
-	.  reduce 5 (src line 213)
+	.  reduce 5 (src line 197)
 
 	toplevel_stmt  goto 6
 	stmt  goto 4
@@ -49,7 +49,7 @@ state 5
 state 6
 	stmtmulti:  stmtmulti ';' toplevel_stmt.    (2)
 
-	.  reduce 2 (src line 178)
+	.  reduce 2 (src line 162)
 
 Rule not reduced: opt_single_name:  ColId 
 Rule not reduced: opt_single_name:  
@@ -179,28 +179,18 @@ Rule not reduced: columnref:  ColId
 Rule not reduced: columnref:  ColId indirection 
 Rule not reduced: indirection:  indirection_el 
 Rule not reduced: indirection:  indirection indirection_el 
-Rule not reduced: opt_slice_bound:  a_expr 
-Rule not reduced: opt_slice_bound:  
 Rule not reduced: indirection_el:  '.' ColId 
-Rule not reduced: indirection_el:  '.' '*' 
 Rule not reduced: indirection_el:  '[' a_expr ']' 
-Rule not reduced: indirection_el:  '[' opt_slice_bound ':' opt_slice_bound ']' 
+Rule not reduced: indirection_el:  '[' a_expr ':' a_expr ']' 
 Rule not reduced: opt_indirection:  
 Rule not reduced: opt_indirection:  opt_indirection indirection_el 
-Rule not reduced: func_expr:  func_application within_group_clause filter_clause over_clause 
-Rule not reduced: func_name:  type_function_name 
-Rule not reduced: func_name:  ColId indirection 
-Rule not reduced: func_application:  func_name '(' ')' 
-Rule not reduced: func_application:  func_name '(' func_arg_list opt_sort_clause ')' 
-Rule not reduced: func_application:  func_name '(' VARIADIC func_arg_expr opt_sort_clause ')' 
-Rule not reduced: func_application:  func_name '(' func_arg_list ',' VARIADIC func_arg_expr opt_sort_clause ')' 
-Rule not reduced: func_application:  func_name '(' ALL func_arg_list opt_sort_clause ')' 
-Rule not reduced: func_application:  func_name '(' DISTINCT func_arg_list opt_sort_clause ')' 
+Rule not reduced: func_expr:  func_name '(' ')' 
+Rule not reduced: func_expr:  func_name '(' func_arg_list ')' 
+Rule not reduced: func_name:  ColId 
+Rule not reduced: func_name:  qualified_name 
 Rule not reduced: func_arg_list:  func_arg_expr 
-Rule not reduced: func_arg_list:  func_arg_list ',' func_arg_expr 
 Rule not reduced: func_arg_expr:  a_expr 
-Rule not reduced: func_arg_expr:  param_name COLON_EQUALS a_expr 
-Rule not reduced: func_arg_expr:  param_name EQUALS_GREATER a_expr 
+Rule not reduced: func_arg_expr:  func_arg_expr ',' a_expr 
 Rule not reduced: expr_list:  a_expr 
 Rule not reduced: expr_list:  expr_list ',' a_expr 
 Rule not reduced: Typename:  SimpleTypename 
@@ -209,88 +199,46 @@ Rule not reduced: SimpleTypename:  Numeric
 Rule not reduced: SimpleTypename:  Bit 
 Rule not reduced: SimpleTypename:  Character 
 Rule not reduced: SimpleTypename:  ConstDatetime 
-Rule not reduced: type_function_name:  ColId 
-Rule not reduced: type_function_name:  unreserved_keyword 
-Rule not reduced: type_function_name:  type_func_name_keyword 
-Rule not reduced: attr_name:  ColLabel 
-Rule not reduced: param_name:  type_function_name 
-Rule not reduced: attrs:  '.' attr_name 
-Rule not reduced: attrs:  attrs '.' attr_name 
-Rule not reduced: opt_type_modifiers:  '(' expr_list ')' 
-Rule not reduced: opt_type_modifiers:  
-Rule not reduced: GenericType:  type_function_name opt_type_modifiers 
-Rule not reduced: GenericType:  type_function_name attrs opt_type_modifiers 
-Rule not reduced: Numeric:  INT_P 
-Rule not reduced: Numeric:  INTEGER 
-Rule not reduced: Numeric:  SMALLINT 
-Rule not reduced: Numeric:  BIGINT 
-Rule not reduced: Numeric:  REAL 
-Rule not reduced: Numeric:  FLOAT_P opt_float 
-Rule not reduced: Numeric:  DOUBLE_P PRECISION 
-Rule not reduced: Numeric:  DECIMAL_P opt_type_modifiers 
-Rule not reduced: Numeric:  DEC opt_type_modifiers 
-Rule not reduced: Numeric:  NUMERIC opt_type_modifiers 
-Rule not reduced: Numeric:  BOOLEAN_P 
-Rule not reduced: Bit:  BitWithLength 
-Rule not reduced: Bit:  BitWithoutLength 
-Rule not reduced: Character:  CharacterWithLength 
-Rule not reduced: Character:  CharacterWithoutLength 
-Rule not reduced: character:  CHARACTER opt_varying 
-Rule not reduced: character:  CHAR_P opt_varying 
-Rule not reduced: character:  VARCHAR 
-Rule not reduced: character:  NATIONAL CHARACTER opt_varying 
-Rule not reduced: character:  NATIONAL CHAR_P opt_varying 
-Rule not reduced: character:  NCHAR opt_varying 
-Rule not reduced: CharacterWithLength:  character '(' Iconst ')' 
-Rule not reduced: CharacterWithoutLength:  character 
-Rule not reduced: BitWithLength:  BIT opt_varying '(' expr_list ')' 
-Rule not reduced: BitWithoutLength:  BIT opt_varying 
-Rule not reduced: ConstDatetime:  TIMESTAMP '(' Iconst ')' opt_timezone 
-Rule not reduced: ConstDatetime:  TIMESTAMP opt_timezone 
-Rule not reduced: ConstDatetime:  TIME '(' Iconst ')' opt_timezone 
-Rule not reduced: ConstDatetime:  TIME opt_timezone 
-Rule not reduced: opt_timezone:  WITH_LA TIME ZONE 
-Rule not reduced: opt_timezone:  WITHOUT_LA TIME ZONE 
-Rule not reduced: opt_timezone:  
-Rule not reduced: opt_varying:  VARYING 
-Rule not reduced: opt_varying:  
-Rule not reduced: opt_float:  '(' Iconst ')' 
-Rule not reduced: opt_float:  
+Rule not reduced: GenericType:  ColId 
+Rule not reduced: GenericType:  qualified_name 
+Rule not reduced: Numeric:  NUMERIC 
+Rule not reduced: Bit:  BIT 
+Rule not reduced: Character:  IDENT 
+Rule not reduced: ConstDatetime:  IDENT 
 Rule not reduced: qual_Op:  Op 
-Rule not reduced: qual_Op:  OPERATOR '(' any_operator ')' 
-Rule not reduced: all_Op:  Op 
-Rule not reduced: all_Op:  MathOp 
+Rule not reduced: qual_Op:  '+' 
+Rule not reduced: qual_Op:  '-' 
+Rule not reduced: qual_Op:  '*' 
+Rule not reduced: qual_Op:  '/' 
+Rule not reduced: qual_Op:  '%' 
+Rule not reduced: qual_Op:  '^' 
+Rule not reduced: qual_Op:  '<' 
+Rule not reduced: qual_Op:  '>' 
+Rule not reduced: qual_Op:  '=' 
+Rule not reduced: qual_Op:  LESS_EQUALS 
+Rule not reduced: qual_Op:  GREATER_EQUALS 
+Rule not reduced: qual_Op:  NOT_EQUALS 
+Rule not reduced: all_Op:  qual_Op 
 Rule not reduced: MathOp:  '+' 
 Rule not reduced: MathOp:  '-' 
 Rule not reduced: MathOp:  '*' 
 Rule not reduced: MathOp:  '/' 
 Rule not reduced: MathOp:  '%' 
 Rule not reduced: MathOp:  '^' 
-Rule not reduced: MathOp:  '<' 
-Rule not reduced: MathOp:  '>' 
-Rule not reduced: MathOp:  '=' 
-Rule not reduced: MathOp:  LESS_EQUALS 
-Rule not reduced: MathOp:  GREATER_EQUALS 
-Rule not reduced: MathOp:  NOT_EQUALS 
 Rule not reduced: any_operator:  all_Op 
-Rule not reduced: any_operator:  ColId '.' any_operator 
-Rule not reduced: opt_sort_clause:  
-Rule not reduced: within_group_clause:  
-Rule not reduced: filter_clause:  
-Rule not reduced: over_clause:  
 Rule not reduced: opt_asymmetric:  
 Rule not reduced: opt_asymmetric:  ASYMMETRIC 
 Rule not reduced: in_expr:  '(' expr_list ')' 
 
-117 terminals, 74 nonterminals
-236 grammar rules, 7/16000 states
+96 terminals, 55 nonterminals
+184 grammar rules, 7/16000 states
 0 shift/reduce, 0 reduce/reduce conflicts reported
-123 working sets used
+104 working sets used
 memory: parser 5/240000
 0 extra closures
 1 shift entries, 1 exceptions
-74 goto entries
--68 entries saved by goto default
+55 goto entries
+-49 entries saved by goto default
 Optimizer space used: output 8/240000
 8 table entries, 2 zero
-maximum spread: 110, maximum offset: 110
+maximum spread: 89, maximum offset: 89

@@ -4,6 +4,7 @@ package ast
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ==============================================================================
@@ -437,6 +438,16 @@ func (t *TypeName) String() string {
 		typeName = t.Names[len(t.Names)-1]
 	}
 	return fmt.Sprintf("TypeName(%s)@%d", typeName, t.Location())
+}
+
+// SqlString returns the SQL representation of the TypeName
+func (t *TypeName) SqlString() string {
+	if len(t.Names) == 0 {
+		return ""
+	}
+	
+	// Join qualified names with dots (e.g., "schema.type")
+	return strings.Join(t.Names, ".")
 }
 
 // CollateClause represents a COLLATE clause.

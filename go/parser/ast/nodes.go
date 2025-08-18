@@ -798,6 +798,11 @@ func (i *Integer) String() string {
 	return fmt.Sprintf("Integer(%d)@%d", i.IVal, i.Location())
 }
 
+// SqlString returns the SQL representation of the Integer
+func (i *Integer) SqlString() string {
+	return fmt.Sprintf("%d", i.IVal)
+}
+
 func (i *Integer) ExpressionType() string {
 	return "Integer"
 }
@@ -829,6 +834,11 @@ func NewFloat(value string) *Float {
 
 func (f *Float) String() string {
 	return fmt.Sprintf("Float(%s)@%d", f.FVal, f.Location())
+}
+
+// SqlString returns the SQL representation of the Float
+func (f *Float) SqlString() string {
+	return f.FVal
 }
 
 func (f *Float) ExpressionType() string {
@@ -866,6 +876,14 @@ func (b *Boolean) String() string {
 	return fmt.Sprintf("Boolean(%t)@%d", b.BoolVal, b.Location())
 }
 
+// SqlString returns the SQL representation of the Boolean
+func (b *Boolean) SqlString() string {
+	if b.BoolVal {
+		return "TRUE"
+	}
+	return "FALSE"
+}
+
 func (b *Boolean) ExpressionType() string {
 	return "Boolean"
 }
@@ -896,6 +914,11 @@ func NewString(value string) *String {
 
 func (s *String) String() string {
 	return fmt.Sprintf("String(%q)@%d", s.SVal, s.Location())
+}
+
+// SqlString returns the SQL representation of the String (properly quoted)
+func (s *String) SqlString() string {
+	return QuoteStringLiteral(s.SVal)
 }
 
 func (s *String) ExpressionType() string {
@@ -948,6 +971,11 @@ func NewNull() *Null {
 
 func (n *Null) String() string {
 	return fmt.Sprintf("NULL@%d", n.Location())
+}
+
+// SqlString returns the SQL representation of the Null
+func (n *Null) SqlString() string {
+	return "NULL"
 }
 
 func (n *Null) ExpressionType() string {

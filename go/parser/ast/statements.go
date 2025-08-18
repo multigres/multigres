@@ -160,13 +160,8 @@ func (a *Alias) SqlString() string {
 	if len(a.ColNames) > 0 {
 		var colAliases []string
 		for _, col := range a.ColNames {
-			// Assuming column names are stored as strings or have SqlString() method
-			if strNode, ok := col.(interface{ SqlString() string }); ok {
-				colAliases = append(colAliases, strNode.SqlString())
-			} else {
-				// Fallback to string representation
-				colAliases = append(colAliases, QuoteIdentifier(col.String()))
-			}
+			// All nodes implement SqlString() method
+			colAliases = append(colAliases, col.SqlString())
 		}
 		result += FormatParentheses(FormatCommaList(colAliases))
 	}
@@ -527,6 +522,65 @@ func NewColumnRef(fields ...Node) *ColumnRef {
 
 func (c *ColumnRef) String() string {
 	return fmt.Sprintf("ColumnRef[%d fields]@%d", len(c.Fields), c.Location())
+}
+
+// SqlString returns the SQL representation of the ColumnRef
+func (c *ColumnRef) SqlString() string {
+	if len(c.Fields) == 0 {
+		return ""
+	}
+	
+	var parts []string
+	for _, field := range c.Fields {
+		if field == nil {
+			continue
+		}
+		
+		// Handle different field types (String for column names, A_Star for *, A_Indices for array access)
+		switch f := field.(type) {
+		case *String:
+			parts = append(parts, f.SVal)
+		case *A_Star:
+			parts = append(parts, "*")
+		case *A_Indices:
+			// Array access - format as [index] or [start:end]
+			if f.IsSlice {
+				startStr := ""
+				endStr := ""
+				if f.Lidx != nil {
+					startStr = f.Lidx.SqlString()
+				}
+				if f.Uidx != nil {
+					endStr = f.Uidx.SqlString()
+				}
+				parts = append(parts, fmt.Sprintf("[%s:%s]", startStr, endStr))
+			} else {
+				if f.Uidx != nil {
+					parts = append(parts, fmt.Sprintf("[%s]", f.Uidx.SqlString()))
+				}
+			}
+		default:
+			// For other field types, all nodes implement SqlString()
+			parts = append(parts, field.SqlString())
+		}
+	}
+	
+	// For simple column references, join with dots
+	// For complex ones with array access, concatenate appropriately
+	result := ""
+	for i, part := range parts {
+		if i == 0 {
+			result = part
+		} else if strings.HasPrefix(part, "[") {
+			// Array access - no dot separator
+			result += part
+		} else {
+			// Regular field access - use dot separator
+			result += "." + part
+		}
+	}
+	
+	return result
 }
 
 func (c *ColumnRef) ExpressionType() string {

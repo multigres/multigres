@@ -1,5 +1,5 @@
 /*
- * PostgreSQL Grammar File - Phase 3A Implementation
+ * PostgreSQL Grammar File - Foundation and Expression Implementation
  * Ported from postgres/src/backend/parser/gram.y
  *
  * This implements the core grammar structure and foundational rules
@@ -37,6 +37,7 @@ type LexerInterface interface {
 	stmtList  []ast.Stmt
 	list      []ast.Node
 	strList   []string
+	astStrList []*ast.String
 	
 	// Location tracking
 	location  int
@@ -52,11 +53,22 @@ type LexerInterface interface {
 %token			LESS_EQUALS GREATER_EQUALS NOT_EQUALS
 
 /*
- * Reserved keywords (Phase 3A subset - will expand in later phases)
- * These are the minimum needed for foundation rules
+ * Reserved keywords (foundation and expression subset - will expand in later phases)
+ * These are the minimum needed for foundation and expression rules
  */
 %token <keyword> ALL ALTER AS CASCADE CONCURRENTLY CREATE DROP IF_P EXISTS
-%token <keyword> NOT NULLS_P OR REPLACE RESTRICT WITH
+%token <keyword> AND NOT NULLS_P OR REPLACE RESTRICT WITH
+/* Expression keywords */
+%token <keyword> BETWEEN CASE COLLATE DEFAULT DISTINCT ESCAPE
+%token <keyword> FALSE_P ILIKE IN_P LIKE NULL_P SIMILAR TRUE_P WHEN
+%token <keyword> IS ISNULL NOTNULL AT TIME ZONE LOCAL SYMMETRIC ASYMMETRIC TO
+%token <keyword> OPERATOR
+/* Type keywords */
+%token <keyword> BIT NUMERIC INTEGER SMALLINT BIGINT REAL FLOAT_P DOUBLE_P PRECISION
+%token <keyword> CHARACTER CHAR_P VARCHAR NATIONAL NCHAR VARYING
+%token <keyword> TIMESTAMP INTERVAL INT_P DECIMAL_P DEC BOOLEAN_P
+%token <keyword> VARIADIC
+%token		COLON_EQUALS EQUALS_GREATER
 
 /* 
  * Special lookahead tokens
@@ -82,9 +94,17 @@ type LexerInterface interface {
 %nonassoc	'<' '>' '=' LESS_EQUALS GREATER_EQUALS NOT_EQUALS
 %nonassoc	BETWEEN IN_P LIKE ILIKE SIMILAR NOT_LA
 %nonassoc	ESCAPE
+/* Expression precedence */
+%right		UMINUS
+%left		'+' '-'
+%left		'*' '/' '%'
+%left		'^'
+%left		'|'
+%left		'#'
+%left		'&'
 
 /*
- * Non-terminal type declarations for Phase 3A
+ * Non-terminal type declarations for foundation and expressions
  */
 %type <stmtList>	parse_toplevel stmtmulti
 %type <stmt>		toplevel_stmt stmt
@@ -101,13 +121,38 @@ type LexerInterface interface {
 %type <ival>		opt_concurrently
 %type <node>		opt_with OptWith
 
+/* Expression types */
+%type <node>		a_expr b_expr c_expr AexprConst columnref
+%type <node>		func_expr
+%type <astStrList>	func_name
+%type <list>		func_arg_list
+%type <node>		func_arg_expr
+%type <list>		indirection opt_indirection
+%type <node>		indirection_el opt_slice_bound
+%type <ival>		Iconst SignedIconst
+%type <str>			Sconst
+%type <node>		Typename SimpleTypename GenericType
+%type <node>		Numeric Bit Character ConstDatetime
+%type <str>			type_function_name character attr_name param_name
+%type <node>		CharacterWithLength CharacterWithoutLength BitWithLength BitWithoutLength
+%type <list>		attrs opt_type_modifiers
+%type <ival>		opt_timezone opt_varying
+%type <node>		opt_float
+%type <node>		expr_list
+%type <list>		opt_sort_clause
+%type <node>		func_application within_group_clause filter_clause over_clause
+%type <astStrList>	qual_Op any_operator
+%type <str>			all_Op MathOp
+%type <node>		in_expr
+%type <ival>		opt_asymmetric
+
 /* Start symbol */
 %start parse_toplevel
 
 %%
 
 /*
- * Phase 3A: Grammar Foundation & Infrastructure Rules
+ * Grammar Foundation & Infrastructure Rules
  * From postgres/src/backend/parser/gram.y
  */
 
@@ -162,11 +207,11 @@ toplevel_stmt:
 
 /*
  * Generic SQL statement
- * This is highly simplified for Phase 3A - will expand significantly
+ * This is highly simplified for now - will expand significantly
  * From postgres/src/backend/parser/gram.y:1075 onwards
  */
 stmt:
-			/* Empty for now - will add statement types in Phase 3B+ */
+			/* Empty for now - will add statement types in later phases */
 			{
 				$$ = nil
 			}
@@ -275,10 +320,10 @@ qualified_name:
 					RelName:    $3,
 				}
 			}
-		/* TODO Phase 3B: Add indirection support for 3+ part names:
+		/* TODO: Add indirection support for 3+ part names:
 		|	ColId indirection
 			{
-				// $$ = makeRangeVarFromQualifiedName($1, $2, @1, yyscanner)
+				// $$ = makeRangeVarFromQualifiedName($1, $2, 0, yyscanner)
 			}
 		*/
 		;
@@ -305,7 +350,7 @@ any_name:
 			{ 
 				$$ = ast.NewNodeList(ast.NewString($1), ast.NewString($3))
 			}
-		/* TODO Phase 3B: Add attrs support for 3+ part names:
+		/* TODO: Add attrs support for 3+ part names:
 		|	ColId attrs
 			{
 				// $$ = lcons(makeString($1), $2)
@@ -327,7 +372,7 @@ any_name_list:
 		;
 
 /*
- * Keyword categories - simplified for Phase 3A
+ * Keyword categories - simplified for now
  * Will expand significantly in later phases
  */
 
@@ -351,6 +396,904 @@ reserved_keyword:
 			CREATE									{ $$ = "create" }
 		|	DROP									{ $$ = "drop" }
 		|	ALTER									{ $$ = "alter" }
+		;
+
+/*
+ * Basic Expression Grammar (~40 rules)
+ * Ported from postgres/src/backend/parser/gram.y:14773+
+ */
+
+/*
+ * Expression hierarchy: a_expr -> b_expr -> c_expr
+ * a_expr: Most general expressions (comparisons, operators, etc.)
+ * b_expr: More restricted (no comparisons)  
+ * c_expr: Most restricted (constants, column refs, function calls)
+ */
+
+a_expr:		c_expr								{ $$ = $1 }
+		|	'+' a_expr %prec UMINUS
+			{
+				name := []*ast.String{ast.NewString("+")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
+			}
+		|	'-' a_expr %prec UMINUS
+			{
+				name := []*ast.String{ast.NewString("-")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
+			}
+		|	a_expr TYPECAST Typename
+			{
+				$$ = ast.NewTypeCast($1, $3.(*ast.TypeName), 0)
+			}
+		|	a_expr '+' a_expr
+			{
+				name := []*ast.String{ast.NewString("+")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr '-' a_expr
+			{
+				name := []*ast.String{ast.NewString("-")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr '*' a_expr
+			{
+				name := []*ast.String{ast.NewString("*")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr '/' a_expr
+			{
+				name := []*ast.String{ast.NewString("/")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr '%' a_expr
+			{
+				name := []*ast.String{ast.NewString("%")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr '^' a_expr
+			{
+				name := []*ast.String{ast.NewString("^")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr '<' a_expr
+			{
+				name := []*ast.String{ast.NewString("<")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr '>' a_expr
+			{
+				name := []*ast.String{ast.NewString(">")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr '=' a_expr
+			{
+				name := []*ast.String{ast.NewString("=")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr LESS_EQUALS a_expr
+			{
+				name := []*ast.String{ast.NewString("<=")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr GREATER_EQUALS a_expr
+			{
+				name := []*ast.String{ast.NewString(">=")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr NOT_EQUALS a_expr
+			{
+				name := []*ast.String{ast.NewString("<>")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	a_expr AND a_expr
+			{
+				$$ = ast.NewBoolExpr(ast.AND_EXPR, []ast.Node{$1, $3})
+			}
+		|	a_expr OR a_expr
+			{
+				$$ = ast.NewBoolExpr(ast.OR_EXPR, []ast.Node{$1, $3})
+			}
+		|	NOT a_expr %prec NOT
+			{
+				$$ = ast.NewBoolExpr(ast.NOT_EXPR, []ast.Node{$2})
+			}
+		|	a_expr IS NULL_P %prec IS
+			{
+				$$ = ast.NewNullTest($1.(ast.Expression), ast.IS_NULL)
+			}
+		|	a_expr ISNULL
+			{
+				$$ = ast.NewNullTest($1.(ast.Expression), ast.IS_NULL)
+			}
+		|	a_expr IS NOT NULL_P %prec IS
+			{
+				$$ = ast.NewNullTest($1.(ast.Expression), ast.IS_NOT_NULL)
+			}
+		|	a_expr NOTNULL
+			{
+				$$ = ast.NewNullTest($1.(ast.Expression), ast.IS_NOT_NULL)
+			}
+		|	a_expr LIKE a_expr
+			{
+				name := []*ast.String{ast.NewString("~~")}
+				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, $3, 0)
+			}
+		|	a_expr LIKE a_expr ESCAPE a_expr %prec LIKE
+			{
+				// Create like_escape function call
+				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
+				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$3, $5}, 0)
+				name := []*ast.String{ast.NewString("~~")}
+				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, escapeFunc, 0)
+			}
+		|	a_expr NOT_LA LIKE a_expr %prec NOT_LA
+			{
+				name := []*ast.String{ast.NewString("!~~")}
+				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, $4, 0)
+			}
+		|	a_expr NOT_LA LIKE a_expr ESCAPE a_expr %prec NOT_LA
+			{
+				// Create like_escape function call
+				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
+				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$4, $6}, 0)
+				name := []*ast.String{ast.NewString("!~~")}
+				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, escapeFunc, 0)
+			}
+		|	a_expr ILIKE a_expr
+			{
+				name := []*ast.String{ast.NewString("~~*")}
+				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, $3, 0)
+			}
+		|	a_expr ILIKE a_expr ESCAPE a_expr %prec ILIKE
+			{
+				// Create like_escape function call
+				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
+				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$3, $5}, 0)
+				name := []*ast.String{ast.NewString("~~*")}
+				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, escapeFunc, 0)
+			}
+		|	a_expr NOT_LA ILIKE a_expr %prec NOT_LA
+			{
+				name := []*ast.String{ast.NewString("!~~*")}
+				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, $4, 0)
+			}
+		|	a_expr NOT_LA ILIKE a_expr ESCAPE a_expr %prec NOT_LA
+			{
+				// Create like_escape function call
+				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
+				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$4, $6}, 0)
+				name := []*ast.String{ast.NewString("!~~*")}
+				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, escapeFunc, 0)
+			}
+		|	a_expr COLLATE any_name
+			{
+				// Convert any_name (which returns a NodeList of strings) to []string
+				nodeList := $3.(*ast.NodeList)
+				names := make([]string, len(nodeList.Items))
+				for i, node := range nodeList.Items {
+					names[i] = node.(*ast.String).SVal
+				}
+				collateClause := ast.NewCollateClause(names)
+				collateClause.Arg = $1
+				$$ = collateClause
+			}
+		|	a_expr AT TIME ZONE a_expr %prec AT
+			{
+				// Create timezone function call
+				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("timezone")}
+				$$ = ast.NewFuncCall(funcName, []ast.Node{$5, $1}, 0)
+			}
+		|	a_expr AT LOCAL %prec AT
+			{
+				// Create timezone function call with no argument
+				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("timezone")}
+				$$ = ast.NewFuncCall(funcName, []ast.Node{$1}, 0)
+			}
+		|	a_expr qual_Op a_expr %prec Op
+			{
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, $2, $1, $3, 0)
+			}
+		|	qual_Op a_expr %prec Op
+			{
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, $1, nil, $2, 0)
+			}
+		|	a_expr BETWEEN opt_asymmetric b_expr AND a_expr %prec BETWEEN
+			{
+				name := []*ast.String{ast.NewString("BETWEEN")}
+				$$ = ast.NewA_Expr(ast.AEXPR_BETWEEN, name, $1, ast.NewNodeList($4, $6), 0)
+			}
+		|	a_expr NOT_LA BETWEEN opt_asymmetric b_expr AND a_expr %prec NOT_LA
+			{
+				name := []*ast.String{ast.NewString("NOT BETWEEN")}
+				$$ = ast.NewA_Expr(ast.AEXPR_NOT_BETWEEN, name, $1, ast.NewNodeList($5, $7), 0)
+			}
+		|	a_expr BETWEEN SYMMETRIC b_expr AND a_expr %prec BETWEEN
+			{
+				name := []*ast.String{ast.NewString("BETWEEN SYMMETRIC")}
+				$$ = ast.NewA_Expr(ast.AEXPR_BETWEEN_SYM, name, $1, ast.NewNodeList($4, $6), 0)
+			}
+		|	a_expr NOT_LA BETWEEN SYMMETRIC b_expr AND a_expr %prec NOT_LA
+			{
+				name := []*ast.String{ast.NewString("NOT BETWEEN SYMMETRIC")}
+				$$ = ast.NewA_Expr(ast.AEXPR_NOT_BETWEEN_SYM, name, $1, ast.NewNodeList($5, $7), 0)
+			}
+		|	a_expr IN_P in_expr
+			{
+				name := []*ast.String{ast.NewString("=")}
+				$$ = ast.NewA_Expr(ast.AEXPR_IN, name, $1, $3, 0)
+			}
+		|	a_expr NOT_LA IN_P in_expr %prec NOT_LA
+			{
+				name := []*ast.String{ast.NewString("<>")}
+				$$ = ast.NewA_Expr(ast.AEXPR_IN, name, $1, $4, 0)
+			}
+		|	a_expr SIMILAR TO a_expr %prec SIMILAR
+			{
+				name := []*ast.String{ast.NewString("~")}
+				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, $4, 0)
+			}
+		|	a_expr SIMILAR TO a_expr ESCAPE a_expr %prec SIMILAR
+			{
+				// Create similar_escape function call
+				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("similar_escape")}
+				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$4, $6}, 0)
+				name := []*ast.String{ast.NewString("~")}
+				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
+			}
+		|	a_expr NOT_LA SIMILAR TO a_expr %prec NOT_LA
+			{
+				name := []*ast.String{ast.NewString("!~")}
+				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, $5, 0)
+			}
+		|	a_expr NOT_LA SIMILAR TO a_expr ESCAPE a_expr %prec NOT_LA
+			{
+				// Create similar_escape function call
+				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("similar_escape")}
+				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$5, $7}, 0)
+				name := []*ast.String{ast.NewString("!~")}
+				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
+			}
+		;
+
+b_expr:		c_expr								{ $$ = $1 }
+		|	b_expr TYPECAST Typename
+			{
+				$$ = ast.NewTypeCast($1, $3.(*ast.TypeName), 0)
+			}
+		|	'+' b_expr %prec UMINUS
+			{
+				name := []*ast.String{ast.NewString("+")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
+			}
+		|	'-' b_expr %prec UMINUS
+			{
+				name := []*ast.String{ast.NewString("-")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
+			}
+		|	b_expr '+' b_expr
+			{
+				name := []*ast.String{ast.NewString("+")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr '-' b_expr
+			{
+				name := []*ast.String{ast.NewString("-")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr '*' b_expr
+			{
+				name := []*ast.String{ast.NewString("*")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr '/' b_expr
+			{
+				name := []*ast.String{ast.NewString("/")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr '%' b_expr
+			{
+				name := []*ast.String{ast.NewString("%")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr '^' b_expr
+			{
+				name := []*ast.String{ast.NewString("^")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr '<' b_expr
+			{
+				name := []*ast.String{ast.NewString("<")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr '>' b_expr
+			{
+				name := []*ast.String{ast.NewString(">")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr '=' b_expr
+			{
+				name := []*ast.String{ast.NewString("=")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr LESS_EQUALS b_expr
+			{
+				name := []*ast.String{ast.NewString("<=")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr GREATER_EQUALS b_expr
+			{
+				name := []*ast.String{ast.NewString(">=")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr NOT_EQUALS b_expr
+			{
+				name := []*ast.String{ast.NewString("<>")}
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		;
+
+c_expr:		columnref							{ $$ = $1 }
+		|	AexprConst							{ $$ = $1 }
+		|	PARAM opt_indirection
+			{
+				p := ast.NewParamRef($1, 0)
+				if $2 != nil {
+					$$ = ast.NewA_Indirection(p, $2, 0)
+				} else {
+					$$ = p
+				}
+			}
+		|	'(' a_expr ')' opt_indirection
+			{
+				if $4 != nil {
+					$$ = ast.NewA_Indirection($2, $4, 0)
+				} else {
+					$$ = $2
+				}
+			}
+		|	func_expr							{ $$ = $1 }
+		;
+
+/* Constants */
+AexprConst:	Iconst
+			{
+				$$ = ast.NewA_Const(ast.NewInteger($1), 0)
+			}
+		|	FCONST
+			{
+				$$ = ast.NewA_Const(ast.NewFloat($1), 0)
+			}
+		|	Sconst
+			{
+				$$ = ast.NewA_Const(ast.NewString($1), 0)
+			}
+		|	TRUE_P
+			{
+				$$ = ast.NewA_Const(ast.NewBoolean(true), 0)
+			}
+		|	FALSE_P
+			{
+				$$ = ast.NewA_Const(ast.NewBoolean(false), 0)
+			}
+		|	NULL_P
+			{
+				$$ = ast.NewA_ConstNull(0)
+			}
+		;
+
+Iconst:		ICONST								{ $$ = $1 }
+		;
+
+Sconst:		SCONST								{ $$ = $1 }
+		;
+
+SignedIconst:	Iconst							{ $$ = $1 }
+		|	'+' Iconst							{ $$ = $2 }
+		|	'-' Iconst							{ $$ = -$2 }
+		;
+
+/* Column references */
+columnref:	ColId
+			{
+				$$ = ast.NewColumnRef(ast.NewString($1))
+			}
+		|	ColId indirection
+			{
+				fields := []ast.Node{ast.NewString($1)}
+				fields = append(fields, $2...)
+				$$ = ast.NewColumnRef(fields...)
+			}
+		;
+
+/* Indirection (array subscripts, field access) */
+indirection: indirection_el
+			{
+				$$ = []ast.Node{$1}
+			}
+		|	indirection indirection_el
+			{
+				$$ = append($1, $2)
+			}
+		;
+
+opt_slice_bound: a_expr							{ $$ = $1 }
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+indirection_el: '.' ColId
+			{
+				$$ = ast.NewString($2)
+			}
+		|	'.' '*'
+			{
+				$$ = &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}}
+			}
+		|	'[' a_expr ']'
+			{
+				$$ = ast.NewA_Indices($2, 0)
+			}
+		|	'[' opt_slice_bound ':' opt_slice_bound ']'
+			{
+				$$ = ast.NewA_IndicesSlice($2, $4, 0)
+			}
+		;
+
+opt_indirection: /* EMPTY */						{ $$ = nil }
+		|	opt_indirection indirection_el
+			{
+				if $1 == nil {
+					$$ = []ast.Node{$2}
+				} else {
+					$$ = append($1, $2)
+				}
+			}
+		;
+
+/* Function calls */
+func_expr:	func_application within_group_clause filter_clause over_clause
+			{
+				// For now, just return the func_application
+				// Note: In full implementation, would apply within_group_clause, filter_clause, over_clause
+				$$ = $1
+			}
+		;
+
+func_name:	type_function_name
+			{
+				$$ = []*ast.String{ast.NewString($1)}
+			}
+		|	ColId indirection
+			{
+				// Create function name from ColId + indirection
+				result := []*ast.String{ast.NewString($1)}
+				for _, node := range $2 {
+					if str, ok := node.(*ast.String); ok {
+						result = append(result, str)
+					}
+				}
+				$$ = result
+			}
+		;
+
+func_application: func_name '(' ')'
+			{
+				$$ = ast.NewFuncCall($1, nil, 0)
+			}
+		|	func_name '(' func_arg_list opt_sort_clause ')'
+			{
+				funcCall := ast.NewFuncCall($1, $3, 0)
+				// Note: In full implementation, would set agg_order from $4
+				$$ = funcCall
+			}
+		|	func_name '(' VARIADIC func_arg_expr opt_sort_clause ')'
+			{
+				funcCall := ast.NewFuncCall($1, []ast.Node{$4}, 0)
+				// Note: In full implementation, would set func_variadic = true and agg_order from $5
+				$$ = funcCall
+			}
+		|	func_name '(' func_arg_list ',' VARIADIC func_arg_expr opt_sort_clause ')'
+			{
+				args := append($3, $6)
+				funcCall := ast.NewFuncCall($1, args, 0)
+				// Note: In full implementation, would set func_variadic = true and agg_order from $7
+				$$ = funcCall
+			}
+		|	func_name '(' ALL func_arg_list opt_sort_clause ')'
+			{
+				funcCall := ast.NewFuncCall($1, $4, 0)
+				// Note: In full implementation, would mark as aggregate and set agg_order from $5
+				$$ = funcCall
+			}
+		|	func_name '(' DISTINCT func_arg_list opt_sort_clause ')'
+			{
+				funcCall := ast.NewFuncCall($1, $4, 0)
+				// Note: In full implementation, would set agg_distinct = true and agg_order from $5
+				$$ = funcCall
+			}
+		;
+
+func_arg_list: func_arg_expr
+			{
+				$$ = []ast.Node{$1}
+			}
+		|	func_arg_list ',' func_arg_expr
+			{
+				$$ = append($1, $3)
+			}
+		;
+
+func_arg_expr: a_expr
+			{
+				$$ = $1
+			}
+		|	param_name COLON_EQUALS a_expr
+			{
+				$$ = ast.NewNamedArgExpr($3.(ast.Expression), $1, -1, 0)
+			}
+		|	param_name EQUALS_GREATER a_expr
+			{
+				$$ = ast.NewNamedArgExpr($3.(ast.Expression), $1, -1, 0)
+			}
+		;
+
+/* Expression lists */
+expr_list:	a_expr
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	expr_list ',' a_expr
+			{
+				nodeList := $1.(*ast.NodeList)
+				nodeList.Append($3)
+				$$ = nodeList
+			}
+		;
+
+/* Type specifications */
+Typename:	SimpleTypename
+			{
+				$$ = $1
+			}
+		;
+
+SimpleTypename: GenericType						{ $$ = $1 }
+		|	Numeric								{ $$ = $1 }
+		|	Bit									{ $$ = $1 }
+		|	Character							{ $$ = $1 }
+		|	ConstDatetime						{ $$ = $1 }
+		;
+
+type_function_name: ColId					{ $$ = $1 }
+		|	unreserved_keyword					{ $$ = $1 }
+		|	type_func_name_keyword				{ $$ = $1 }
+		;
+
+attr_name:	ColLabel						{ $$ = $1 }
+		;
+
+param_name:	type_function_name				{ $$ = $1 }
+		;
+
+attrs:		'.' attr_name
+			{
+				$$ = []ast.Node{ast.NewString($2)}
+			}
+		|	attrs '.' attr_name
+			{
+				$$ = append($1, ast.NewString($3))
+			}
+		;
+
+opt_type_modifiers: '(' expr_list ')'
+			{
+				nodeList := $2.(*ast.NodeList)
+				$$ = nodeList.Items
+			}
+		|	/* EMPTY */
+			{
+				$$ = nil
+			}
+		;
+
+GenericType: type_function_name opt_type_modifiers
+			{
+				typeName := ast.NewTypeName([]string{$1})
+				// Note: In full implementation, would set type modifiers
+				$$ = typeName
+			}
+		|	type_function_name attrs opt_type_modifiers
+			{
+				// Create qualified type name from name + attrs
+				names := []string{$1}
+				for _, attr := range $2 {
+					names = append(names, attr.(*ast.String).SVal)
+				}
+				typeName := ast.NewTypeName(names)
+				// Note: In full implementation, would set type modifiers
+				$$ = typeName
+			}
+		;
+
+Numeric:	INT_P
+			{
+				$$ = ast.NewTypeName([]string{"int4"})
+			}
+		|	INTEGER
+			{
+				$$ = ast.NewTypeName([]string{"int4"})
+			}
+		|	SMALLINT
+			{
+				$$ = ast.NewTypeName([]string{"int2"})
+			}
+		|	BIGINT
+			{
+				$$ = ast.NewTypeName([]string{"int8"})
+			}
+		|	REAL
+			{
+				$$ = ast.NewTypeName([]string{"float4"})
+			}
+		|	FLOAT_P opt_float
+			{
+				$$ = $2
+			}
+		|	DOUBLE_P PRECISION
+			{
+				$$ = ast.NewTypeName([]string{"float8"})
+			}
+		|	DECIMAL_P opt_type_modifiers
+			{
+				$$ = ast.NewTypeName([]string{"numeric"})
+			}
+		|	DEC opt_type_modifiers
+			{
+				$$ = ast.NewTypeName([]string{"numeric"})
+			}
+		|	NUMERIC opt_type_modifiers
+			{
+				$$ = ast.NewTypeName([]string{"numeric"})
+			}
+		|	BOOLEAN_P
+			{
+				$$ = ast.NewTypeName([]string{"bool"})
+			}
+		;
+
+Bit:		BitWithLength
+			{
+				$$ = $1
+			}
+		|	BitWithoutLength
+			{
+				$$ = $1
+			}
+		;
+
+Character:	CharacterWithLength
+			{
+				$$ = $1
+			}
+		|	CharacterWithoutLength
+			{
+				$$ = $1
+			}
+		;
+
+character:	CHARACTER opt_varying
+			{
+				if $2 != 0 {
+					$$ = "varchar"
+				} else {
+					$$ = "bpchar"
+				}
+			}
+		|	CHAR_P opt_varying
+			{
+				if $2 != 0 {
+					$$ = "varchar"
+				} else {
+					$$ = "bpchar"
+				}
+			}
+		|	VARCHAR
+			{
+				$$ = "varchar"
+			}
+		|	NATIONAL CHARACTER opt_varying
+			{
+				if $3 != 0 {
+					$$ = "varchar"
+				} else {
+					$$ = "bpchar"
+				}
+			}
+		|	NATIONAL CHAR_P opt_varying
+			{
+				if $3 != 0 {
+					$$ = "varchar"
+				} else {
+					$$ = "bpchar"
+				}
+			}
+		|	NCHAR opt_varying
+			{
+				if $2 != 0 {
+					$$ = "varchar"
+				} else {
+					$$ = "bpchar"
+				}
+			}
+		;
+
+CharacterWithLength: character '(' Iconst ')'
+			{
+				$$ = ast.NewTypeName([]string{$1})
+			}
+		;
+
+CharacterWithoutLength: character
+			{
+				typeName := ast.NewTypeName([]string{$1})
+				// char defaults to char(1), varchar to no limit
+				if $1 == "bpchar" {
+					// Note: In full implementation, would set typmods to list with 1
+				}
+				$$ = typeName
+			}
+		;
+
+BitWithLength: BIT opt_varying '(' expr_list ')'
+			{
+				var typeName string
+				if $2 != 0 {
+					typeName = "varbit"
+				} else {
+					typeName = "bit"
+				}
+				$$ = ast.NewTypeName([]string{typeName})
+			}
+		;
+
+BitWithoutLength: BIT opt_varying
+			{
+				var typeName string
+				if $2 != 0 {
+					typeName = "varbit"
+				} else {
+					typeName = "bit"
+				}
+				$$ = ast.NewTypeName([]string{typeName})
+			}
+		;
+
+ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
+			{
+				var typeName string
+				if $5 != 0 {
+					typeName = "timestamptz"
+				} else {
+					typeName = "timestamp"
+				}
+				$$ = ast.NewTypeName([]string{typeName})
+			}
+		|	TIMESTAMP opt_timezone
+			{
+				var typeName string
+				if $2 != 0 {
+					typeName = "timestamptz"
+				} else {
+					typeName = "timestamp"
+				}
+				$$ = ast.NewTypeName([]string{typeName})
+			}
+		|	TIME '(' Iconst ')' opt_timezone
+			{
+				var typeName string
+				if $5 != 0 {
+					typeName = "timetz"
+				} else {
+					typeName = "time"
+				}
+				$$ = ast.NewTypeName([]string{typeName})
+			}
+		|	TIME opt_timezone
+			{
+				var typeName string
+				if $2 != 0 {
+					typeName = "timetz"
+				} else {
+					typeName = "time"
+				}
+				$$ = ast.NewTypeName([]string{typeName})
+			}
+		;
+
+opt_timezone: WITH_LA TIME ZONE		{ $$ = 1 }
+		|	WITHOUT_LA TIME ZONE	{ $$ = 0 }
+		|	/* EMPTY */				{ $$ = 0 }
+		;
+
+opt_varying: VARYING			{ $$ = 1 }
+		|	/* EMPTY */			{ $$ = 0 }
+		;
+
+opt_float:	'(' Iconst ')'
+			{
+				if $2 < 1 {
+					$$ = ast.NewTypeName([]string{"float4"})
+				} else if $2 <= 7 {
+					$$ = ast.NewTypeName([]string{"float4"})
+				} else {
+					$$ = ast.NewTypeName([]string{"float8"})
+				}
+			}
+		|	/* EMPTY */
+			{
+				$$ = ast.NewTypeName([]string{"float8"})
+			}
+		;
+
+/* Operators - matching PostgreSQL structure */
+qual_Op:	Op
+			{
+				$$ = []*ast.String{ast.NewString($1)}
+			}
+		|	OPERATOR '(' any_operator ')'
+			{
+				$$ = $3
+			}
+		;
+
+all_Op:		Op								{ $$ = $1 }
+		|	MathOp							{ $$ = $1 }
+		;
+
+MathOp:		'+'								{ $$ = "+" }
+		|	'-'								{ $$ = "-" }
+		|	'*'								{ $$ = "*" }
+		|	'/'								{ $$ = "/" }
+		|	'%'								{ $$ = "%" }
+		|	'^'								{ $$ = "^" }
+		|	'<'								{ $$ = "<" }
+		|	'>'								{ $$ = ">" }
+		|	'='								{ $$ = "=" }
+		|	LESS_EQUALS						{ $$ = "<=" }
+		|	GREATER_EQUALS					{ $$ = ">=" }
+		|	NOT_EQUALS						{ $$ = "<>" }
+		;
+
+any_operator: all_Op
+			{
+				$$ = []*ast.String{ast.NewString($1)}
+			}
+		|	ColId '.' any_operator
+			{
+				$$ = append([]*ast.String{ast.NewString($1)}, $3...)
+			}
+		;
+
+/* Supporting rules for expression grammar */
+opt_sort_clause: /* EMPTY */					{ $$ = nil }
+		;
+
+within_group_clause: /* EMPTY */				{ $$ = nil }
+		;
+
+filter_clause: /* EMPTY */					{ $$ = nil }
+		;
+
+over_clause: /* EMPTY */					{ $$ = nil }
+		;
+
+opt_asymmetric:  /* EMPTY */					{ $$ = 0 }
+		|	ASYMMETRIC						{ $$ = 0 } /* ASYMMETRIC is default, no-op */
+		;
+
+in_expr:		'(' expr_list ')'
+			{
+				$$ = $2
+			}
 		;
 
 %%
