@@ -24,6 +24,6 @@ fi
 
 for hook in $GIT_DIR/../misc/hooks/*; do
  if [ -x "$hook" ]; then
-   $hook $@
+   $hook
  fi
 done
