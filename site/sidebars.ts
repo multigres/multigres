@@ -1,7 +1,7 @@
 import type { SidebarsConfig } from '@docusaurus/plugin-content-docs'
 
 const sidebars: SidebarsConfig = {
-  docs: ['index', 'mvp', 'contributing'],
+  docs: ['index', 'mvp', 'contributing', 'github-workflow'],
 }
 
 export default sidebars
