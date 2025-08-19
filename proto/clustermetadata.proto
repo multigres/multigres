@@ -16,7 +16,7 @@ syntax = "proto3";
 
 package clustermetadata;
 
-option go_package = "github.com/multigres/pb/clustermetadata";
+option go_package = "github.com/multigres/multigres/go/pb";
 
 // Topology Schemas for Multigres Cluster Management
 
