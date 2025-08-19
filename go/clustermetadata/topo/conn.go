@@ -20,19 +20,11 @@ import (
 	"time"
 )
 
-// Conn defines the interface that must be implemented by topology
-// plug-ins to be used with Multigres.
-//
-// This API is very generic, and key/value store oriented.  We use
-// regular paths for object names, and we can list all immediate
-// children of a path. All paths sent through this API are relative
-// paths, from the root directory of the cell.
-//
-// The Conn objects are created by the Factory implementations.
-type Conn interface {
+type ConnDirectory interface {
 	//
 	// Directory support
-	//
+	// Concrete implementations must implement this. Implement
+	// there methods inside directory.go
 
 	// ListDir returns the entries in a directory.  The returned
 	// list should be sorted by entry.Name.
@@ -43,9 +35,14 @@ type Conn interface {
 	// implementations where getting more than the names is more expensive,
 	// as in most cases only the names are needed.
 	ListDir(ctx context.Context, dirPath string, full bool) ([]DirEntry, error)
+}
 
+type ConnFile interface {
 	//
 	// File support
+	// Concrete implementations must implement this. Implement
+	// there methods inside file.go
+	//
 	// if version == nil, then it’s an unconditional update / delete.
 	//
 
@@ -94,10 +91,13 @@ type Conn interface {
 	// Returns ErrNodeExists if the file doesn't exist.
 	// Returns ErrBadVersion if the provided version is not current.
 	Delete(ctx context.Context, filePath string, version Version) error
+}
 
+type ConnLock interface {
 	//
 	// Locks
-	//
+	// Concrete implementations must implement this. Implement
+	// there methods inside lock.go
 
 	// Lock takes a lock on the given directory.
 	// It does not prevent any modification to any file in the topology.
@@ -142,9 +142,13 @@ type Conn interface {
 	// client call times out (just like standard `Lock' implementation). In short the lock checking
 	// and acquiring is not under the same mutex in current implementation of `TryLock`.
 	TryLock(ctx context.Context, dirPath, contents string) (LockDescriptor, error)
+}
 
+type ConnWatch interface {
 	//
 	// Watches
+	// Concrete implementations must implement this. Implement
+	// there methods inside watch.go
 	//
 
 	// Watch starts watching a file in the provided cell.  It
@@ -222,6 +226,22 @@ type Conn interface {
 	//
 	// path is a path relative to the root directory of the cell.
 	WatchRecursive(ctx context.Context, path string) ([]*WatchDataRecursive, <-chan *WatchDataRecursive, error)
+}
+
+// Conn defines the interface that must be implemented by topology
+// plug-ins to be used with Multigres.
+//
+// This API is very generic, and key/value store oriented.  We use
+// regular paths for object names, and we can list all immediate
+// children of a path. All paths sent through this API are relative
+// paths, from the root directory of the cell.
+//
+// The Conn objects are created by the Factory implementations.
+type Conn interface {
+	ConnDirectory
+	ConnFile
+	ConnLock
+	ConnWatch
 
 	// Close closes the connection to the server.
 	Close() error

@@ -159,6 +159,8 @@ type conn struct {
 	closed      atomic.Bool
 }
 
+var _ topo.Conn = (*conn)(nil)
+
 // dial returns immediately, unless the conn points to the sentinel
 // UnreachableServerAddr, in which case it will block until the context expires.
 func (c *conn) dial(ctx context.Context) error {
