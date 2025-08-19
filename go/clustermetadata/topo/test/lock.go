@@ -209,7 +209,7 @@ func checkLockName(t *testing.T, ctx context.Context, ts topo.Store) {
 	}
 }
 
-// checkTryLock checks if we can lock / unlock as expected. It's using a keyspace
+// checkTryLock checks if we can lock / unlock as expected. It's using a database
 // as the lock target.
 func checkTryLock(t *testing.T, ctx context.Context, ts topo.Store) {
 	if err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{}); err != nil {
@@ -349,7 +349,7 @@ func checkTryLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
 		}
 	}()
 
-	// Lock the keyspace.
+	// Lock the database.
 	lockDescriptor2, err := conn.TryLock(ctx, cellLocationPath, "")
 	if err != nil {
 		require.Fail(t, "Lock(test_database) failed", err.Error())

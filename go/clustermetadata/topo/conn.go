@@ -82,9 +82,9 @@ type ConnFile interface {
 	// If version is nil, it is an unconditional delete.
 	// If the last entry of a directory is deleted, using ListDir
 	// on its parent directory should not return the directory.
-	// For instance, when deleting /keyspaces/aaa/Keyspace, and if
-	// there is no other file in /keyspaces/aaa, then aaa should not
-	// appear any more when listing /keyspaces.
+	// For instance, when deleting /databases/aaa/Database, and if
+	// there is no other file in /databases/aaa, then aaa should not
+	// appear any more when listing /databases.
 	// filePath is a path relative to the root directory of the cell.
 	//
 	// Delete will never be called on a directory.
@@ -105,7 +105,7 @@ type ConnLock interface {
 	// to run concurrently. It is used for instance to make sure only
 	// one reparent operation is running on a Shard at a given time.
 	// dirPath is the directory associated with a resource, for instance
-	// a Keyspace or a Shard. It is not a file location.
+	// a Database or a CellLocation. It is not a file location.
 	// (this means the implementation can for instance create a
 	// file in this directory to materialize the lock).
 	// contents describes the lock holder and purpose, but has no other
@@ -123,7 +123,7 @@ type ConnLock interface {
 
 	// LockName is similar to `Lock` but the difference is that it does not require
 	// the path to exist and have children in order to lock it. This is because with
-	// named locks you are NOT locking an actual topo entity such as a Keyspace record.
+	// named locks you are NOT locking an actual topo entity such as a Database record.
 	// Because this lock is not blocking any Multigres operations OTHER than another
 	// caller that is trying to get the same named lock, there is a static 24 hour
 	// TTL on them to ensure that they are eventually cleaned up.

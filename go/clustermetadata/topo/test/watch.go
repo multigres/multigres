@@ -110,7 +110,7 @@ func waitForInitialValueRecursive(t *testing.T, conn topo.Conn, database *cluste
 }
 
 // checkWatch runs the tests on the Watch part of the Conn API.
-// We use a SrvKeyspace object.
+// We use a Database object.
 func checkWatch(t *testing.T, ctx context.Context, ts topo.Store) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
