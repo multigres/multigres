@@ -31,8 +31,8 @@ import (
 // checkTryLock checks if we can lock / unlock as expected. It's using a keyspace
 // as the lock target.
 func checkTryLock(t *testing.T, ctx context.Context, ts topo.Store) {
-	if err := ts.CreateCellLocation(ctx, "test_cell", &clustermetadatapb.CellLocation{}); err != nil {
-		require.Fail(t, "CreateCellLocation fail", err.Error())
+	if err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{}); err != nil {
+		require.Fail(t, "CreateDatabase fail", err.Error())
 	}
 
 	conn, err := ts.ConnForCell(context.Background(), topo.GlobalTopo)
@@ -49,15 +49,15 @@ func checkTryLock(t *testing.T, ctx context.Context, ts topo.Store) {
 
 // checkTryLockTimeout test the fail-fast nature of TryLock
 func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
-	cellLocationPath := path.Join(topo.CellsPath, "test_cell")
-	lockDescriptor, err := conn.TryLock(ctx, cellLocationPath, "")
+	databasePath := path.Join(topo.DatabasesPath, "test_database")
+	lockDescriptor, err := conn.TryLock(ctx, databasePath, "")
 	if err != nil {
 		require.Fail(t, "TryLock failed", err.Error())
 	}
 
 	// We have the lock, list the cell location directory.
 	// It should not contain anything, except Ephemeral files.
-	entries, err := conn.ListDir(ctx, cellLocationPath, true /*full*/)
+	entries, err := conn.ListDir(ctx, databasePath, true /*full*/)
 	if err != nil {
 		require.Fail(t, "ListDir failed: %v", err.Error())
 	}
@@ -66,11 +66,11 @@ func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 			continue
 		}
 		if e.Ephemeral {
-			t.Logf("skipping ephemeral node %v in %v", e, cellLocationPath)
+			t.Logf("skipping ephemeral node %v in %v", e, databasePath)
 			continue
 		}
 		// Non-ephemeral entries better have only ephemeral children.
-		p := path.Join(cellLocationPath, e.Name)
+		p := path.Join(databasePath, e.Name)
 		entries, err := conn.ListDir(ctx, p, true /*full*/)
 		if err != nil {
 			require.Fail(t, "ListDir failed", err.Error())
@@ -86,7 +86,7 @@ func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 
 	// We should not be able to take the lock again. It should throw `NodeExists` error.
 	fastCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	if _, err := conn.TryLock(fastCtx, cellLocationPath, "again"); !errors.Is(err, &topo.TopoError{Code: topo.NodeExists}) {
+	if _, err := conn.TryLock(fastCtx, databasePath, "again"); !errors.Is(err, &topo.TopoError{Code: topo.NodeExists}) {
 		require.Fail(t, "TryLock failed", err.Error())
 	}
 	cancel()
@@ -114,7 +114,7 @@ func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 			require.ErrorContains(t, interruptCtx.Err(), "context canceled")
 			break
 		}
-		if _, err := conn.TryLock(interruptCtx, cellLocationPath, "interrupted"); !errors.Is(err, &topo.TopoError{Code: topo.NodeExists}) {
+		if _, err := conn.TryLock(interruptCtx, databasePath, "interrupted"); !errors.Is(err, &topo.TopoError{Code: topo.NodeExists}) {
 			require.Fail(t, "TryLock failed", err.Error())
 		}
 		if firstTime {
@@ -141,7 +141,7 @@ func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 // unlike 'checkLockUnblocks', checkTryLockUnblocks will not block on other client but instead
 // keep retrying until it gets the lock.
 func checkTryLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
-	cellLocationPath := path.Join(topo.CellsPath, "test_cell")
+	cellLocationPath := path.Join(topo.DatabasesPath, "test_database")
 	unblock := make(chan struct{})
 	finished := make(chan struct{})
 

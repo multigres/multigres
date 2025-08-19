@@ -24,40 +24,29 @@ import (
 // LocalCellName is the cell name used by this test suite.
 const LocalCellName = "test"
 
-func executeTestSuite(f func(*testing.T, context.Context, topo.Store), t *testing.T, ctx context.Context, ts topo.Store, ignoreList []string, name string) {
-	// some test does not apply everywhere therefore we ignore them
-	for _, n := range ignoreList {
-		if n == name {
-			t.Logf("=== ignoring test %s", name)
-			return
-		}
-	}
-	f(t, ctx, ts)
-}
-
 // TopoServerTestSuite runs the full topo.Server/Conn test suite.
 // The factory method should return a topo.Server that has a single cell
 // called LocalCellName.
 // Not all tests are applicable for each Topo server, therefore we provide ignoreList in order to
 // avoid them for given Topo server tests. For example `TryLock` implementation is same as `Lock` for some Topo servers.
 // Hence, for these Topo servers we ignore executing TryLock Tests.
-func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.Store, ignoreList []string) {
+func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.Store) {
 	var ts topo.Store
 
 	t.Log("=== checkLock")
 	ts = factory()
-	executeTestSuite(checkLock, t, ctx, ts, ignoreList, "checkLock")
+	checkLock(t, ctx, ts)
 	_ = ts.Close()
 
-	// t.Log("=== checkTryLock")
-	// ts = factory()
-	// executeTestSuite(checkTryLock, t, ctx, ts, ignoreList, "checkTryLock")
-	// _ = ts.Close()
+	t.Log("=== checkTryLock")
+	ts = factory()
+	checkTryLock(t, ctx, ts)
+	_ = ts.Close()
 
-	// t.Log("=== checkDirectory")
-	// ts = factory()
-	// executeTestSuite(checkDirectory, t, ctx, ts, ignoreList, "checkDirectory")
-	// ts.Close()
+	t.Log("=== checkDirectory")
+	ts = factory()
+	checkDirectory(t, ctx, ts)
+	_ = ts.Close()
 
 	// t.Log("=== checkFile")
 	// ts = factory()

@@ -39,7 +39,7 @@ type memoryTopoLockDescriptor struct {
 	dirPath string
 }
 
-// TryLock is part of the topo.Conn interface. Its implementation is same as Lock
+// TryLock is part of the topo.Conn interface.
 func (c *conn) TryLock(ctx context.Context, dirPath, contents string) (topo.LockDescriptor, error) {
 	// c.factory.callstats.Add([]string{"TryLock"}, 1)
 
@@ -50,7 +50,40 @@ func (c *conn) TryLock(ctx context.Context, dirPath, contents string) (topo.Lock
 		return nil, err
 	}
 
+	if err := c.checkLockExistence(ctx, dirPath, false); err != nil {
+		return nil, err
+	}
+
 	return c.Lock(ctx, dirPath, contents)
+}
+
+// checkLockExistence is a private helper method that checks if a lock already exists for the given path.
+// It returns nil if no lock exists, or &topo.TopoError{Code: topo.NodeExists} if a lock already exists.
+func (c *conn) checkLockExistence(ctx context.Context, dirPath string, named bool) error {
+	if err := c.dial(ctx); err != nil {
+		return err
+	}
+
+	c.factory.mu.Lock()
+	defer c.factory.mu.Unlock()
+
+	var n *node
+	if named {
+		n = c.factory.getOrCreatePath(c.cell, dirPath)
+	} else {
+		n = c.factory.nodeByPath(c.cell, dirPath)
+	}
+	if n == nil {
+		return topo.NewError(topo.NoNode, dirPath)
+	}
+
+	// Check if a lock exists
+	if n.lock != nil {
+		return &topo.TopoError{Code: topo.NodeExists}
+	}
+
+	// No lock exists
+	return nil
 }
 
 // Lock is part of the topo.Conn interface.

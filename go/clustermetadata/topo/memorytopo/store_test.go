@@ -28,5 +28,5 @@ func TestMemoryTopo(t *testing.T) {
 	defer cancel()
 	test.TopoServerTestSuite(t, ctx, func() topo.Store {
 		return NewServer(ctx, test.LocalCellName)
-	}, []string{"checkTryLock"})
+	})
 }

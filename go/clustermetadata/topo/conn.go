@@ -237,6 +237,13 @@ type ConnWatch interface {
 // paths, from the root directory of the cell.
 //
 // The Conn objects are created by the Factory implementations.
+//
+// Conn composes four specialized interfaces to provide a complete
+// topology management API:
+// - ConnDirectory: for directory operations (listing)
+// - ConnFile: for file operations (create, read, update, delete)
+// - ConnLock: for distributed locking mechanisms.
+// - ConnWatch: for watching file changes and notifications.
 type Conn interface {
 	ConnDirectory
 	ConnFile
