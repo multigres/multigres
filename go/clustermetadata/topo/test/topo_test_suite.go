@@ -53,14 +53,19 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.
 	checkFile(t, ctx, ts)
 	ts.Close()
 
-	// t.Log("=== checkWatch")
-	// ts = factory()
-	// executeTestSuite(checkWatch, t, ctx, ts, ignoreList, "checkWatch")
-	// ts.Close()
+	t.Log("=== checkWatch")
+	ts = factory()
+	checkWatch(t, ctx, ts)
+	_ = ts.Close()
+
+	t.Log("=== checkWatchInterrupt")
+	ts = factory()
+	checkWatchInterrupt(t, ctx, ts)
+	_ = ts.Close()
 
 	// ts = factory()
-	// t.Log("=== checkWatchInterrupt")
-	// executeTestSuite(checkWatchInterrupt, t, ctx, ts, ignoreList, "checkWatchInterrupt")
+	// t.Log("=== checkWatchRecursive")
+	// executeTestSuite(checkWatchRecursive, t, ctx, ts, ignoreList, "checkWatchRecursive")
 	// ts.Close()
 
 	// ts = factory()
@@ -68,8 +73,4 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.
 	// executeTestSuite(checkList, t, ctx, ts, ignoreList, "checkList")
 	// ts.Close()
 
-	// ts = factory()
-	// t.Log("=== checkWatchRecursive")
-	// executeTestSuite(checkWatchRecursive, t, ctx, ts, ignoreList, "checkWatchRecursive")
-	// ts.Close()
 }

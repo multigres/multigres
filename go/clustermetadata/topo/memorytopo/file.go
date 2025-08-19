@@ -109,7 +109,7 @@ func (c *conn) Update(ctx context.Context, filePath string, contents []byte, ver
 		}
 		p = c.factory.getOrCreatePath(c.cell, dir)
 		if p == nil {
-			return nil, mterrors.Errorf(mtrpc.Code_FAILED_PRECONDITION, "trying to create file %v in cell %v in a path that contains files", filePath, c.cell)
+			return nil, mterrors.Errorf(mtrpc.Code_FAILED_PRECONDITION, "trying to create file %v in topo %v in a path that contains files", filePath, c.cell)
 		}
 	}
 
