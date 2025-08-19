@@ -90,7 +90,7 @@ func (ts *store) CreateDatabase(ctx context.Context, database string, db *cluste
 
 // UpdateDatabaseFields is a high level helper method to read a Database
 // object, update its fields, and then write it back. If the write fails due to
-// a version mismatch, the update will fail.
+// a version mismatch, it will re-read the record and retry the update.
 // If the update method returns ErrNoUpdateNeeded, nothing is written,
 // and nil is returned.
 func (ts *store) UpdateDatabaseFields(ctx context.Context, database string, update func(*clustermetadatapb.Database) error) error {
@@ -129,7 +129,6 @@ func (ts *store) UpdateDatabaseFields(ctx context.Context, database string, upda
 			return err
 		}
 		if _, err = ts.globalTopo.Update(ctx, filePath, contents, version); !errors.Is(err, &TopoError{Code: BadVersion}) {
-			// This includes the 'err=nil' case.
 			return err
 		}
 	}

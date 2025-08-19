@@ -160,6 +160,45 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}))
 			},
 		},
+		{
+			name: "Update CellLocation Fields retries on BadVersion error",
+			test: func(t *testing.T, ts topo.Store) {
+				// Use NewServerAndFactory to get direct access to the factory
+				tsWithFactory, factory := memorytopo.NewServerAndFactory(ctx, "zone-1")
+				defer tsWithFactory.Close()
+
+				cl := &clustermetadatapb.CellLocation{
+					ServerAddresses: []string{"server1:2181"},
+					Root:            "/topo",
+				}
+				err := tsWithFactory.CreateCellLocation(ctx, cell, cl)
+				require.NoError(t, err)
+
+				// Inject a BadVersion error that will only occur once
+				badVersionErr := &topo.TopoError{Code: topo.BadVersion}
+				factory.AddOneTimeOperationError(memorytopo.Update, "cells/"+cell+"/CellLocation", badVersionErr)
+
+				// Track how many times the update function is called
+				updateCallCount := 0
+
+				err = tsWithFactory.UpdateCellLocationFields(ctx, cell, func(cl *clustermetadatapb.CellLocation) error {
+					updateCallCount++
+					cl.ServerAddresses = append(cl.ServerAddresses, "server2:2181")
+					cl.Root = "/new_topo"
+					return nil
+				})
+				require.NoError(t, err)
+
+				// Verify the update function was called twice (retry happened)
+				require.Equal(t, 2, updateCallCount)
+
+				// Verify the update was successful
+				retrieved, err := tsWithFactory.GetCellLocation(ctx, cell)
+				require.NoError(t, err)
+				require.Contains(t, retrieved.ServerAddresses, "server2:2181")
+				require.Equal(t, "/new_topo", retrieved.Root)
+			},
+		},
 	}
 
 	for _, tt := range tests {

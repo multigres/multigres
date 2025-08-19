@@ -373,6 +373,47 @@ func TestDatabaseCRUDOperations(t *testing.T) {
 				require.Equal(t, "semi_sync", retrieved.DurabilityPolicy)
 			},
 		},
+		{
+			name: "Update Database Fields retries on BadVersion error",
+			test: func(t *testing.T, ts topo.Store) {
+				// Use NewServerAndFactory to get direct access to the factory
+				tsWithFactory, factory := memorytopo.NewServerAndFactory(ctx, cell, "zone-2")
+				defer tsWithFactory.Close()
+
+				db := &clustermetadatapb.Database{
+					Name:             database,
+					BackupLocation:   "/backups/test_db",
+					DurabilityPolicy: "semi_sync",
+					Cells:            []string{cell},
+				}
+				err := tsWithFactory.CreateDatabase(ctx, database, db)
+				require.NoError(t, err)
+
+				// Inject a BadVersion error that will only occur once
+				badVersionErr := &topo.TopoError{Code: topo.BadVersion}
+				factory.AddOneTimeOperationError(memorytopo.Update, "databases/test_db/Database", badVersionErr)
+
+				// Track how many times the update function is called
+				updateCallCount := 0
+
+				err = tsWithFactory.UpdateDatabaseFields(ctx, database, func(db *clustermetadatapb.Database) error {
+					updateCallCount++
+					db.BackupLocation = "/new_backups/test_db"
+					db.DurabilityPolicy = "async"
+					return nil
+				})
+				require.NoError(t, err)
+
+				// Verify the update function was called twice (retry happened)
+				require.Equal(t, 2, updateCallCount)
+
+				// Verify the update was successful
+				retrieved, err := tsWithFactory.GetDatabase(ctx, database)
+				require.NoError(t, err)
+				require.Equal(t, "/new_backups/test_db", retrieved.BackupLocation)
+				require.Equal(t, "async", retrieved.DurabilityPolicy)
+			},
+		},
 	}
 
 	for _, tt := range tests {

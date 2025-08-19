@@ -103,6 +103,8 @@ type errorSpec struct {
 	op          Operation
 	pathPattern *regexp.Regexp
 	err         error
+	callCount   int
+	maxCalls    int // 0 means unlimited, >0 means fail only this many times
 }
 
 // Create is part of the topo.Factory interface.
@@ -400,13 +402,40 @@ func (f *Factory) AddOperationError(op Operation, pathPattern string, err error)
 		op:          op,
 		pathPattern: regexp.MustCompile(pathPattern),
 		err:         err,
+		maxCalls:    0, // unlimited
 	})
+}
+
+// AddOneTimeOperationError adds an error that will only be returned once
+func (f *Factory) AddOneTimeOperationError(op Operation, pathPattern string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.operationErrors[op] = append(f.operationErrors[op], errorSpec{
+		op:          op,
+		pathPattern: regexp.MustCompile(pathPattern),
+		err:         err,
+		maxCalls:    1, // only fail once
+	})
+}
+
+// ClearOperationErrors clears all operation errors for testing purposes.
+func (f *Factory) ClearOperationErrors() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.operationErrors = make(map[Operation][]errorSpec)
 }
 
 func (f *Factory) getOperationError(op Operation, path string) error {
 	specs := f.operationErrors[op]
-	for _, spec := range specs {
+	for i, spec := range specs {
 		if spec.pathPattern.MatchString(path) {
+			// Check if this error should still be returned
+			if spec.maxCalls > 0 && spec.callCount >= spec.maxCalls {
+				continue
+			}
+			// Increment call count
+			f.operationErrors[op][i].callCount++
 			return spec.err
 		}
 	}

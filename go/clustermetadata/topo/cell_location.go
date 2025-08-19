@@ -95,8 +95,8 @@ func (ts *store) CreateCellLocation(ctx context.Context, cell string, ci *cluste
 }
 
 // UpdateCellLocationFields is a high level helper method to read a CellLocation
-// object, update its fields, and then write it back. If the write fails due to
-// a version mismatch, the operation will fail.
+// object, update its fields, and then write it back.  If the write fails due to
+// a version mismatch, it will re-read the record and retry the update.
 // If the update method returns ErrNoUpdateNeeded, nothing is written,
 // and nil is returned.
 func (ts *store) UpdateCellLocationFields(ctx context.Context, cell string, update func(*clustermetadatapb.CellLocation) error) error {
