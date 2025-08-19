@@ -33,8 +33,8 @@ var timeUntilLockIsTaken = 10 * time.Millisecond
 // checkLock checks we can lock / unlock as expected. It's using a database
 // as the lock target.
 func checkLock(t *testing.T, ctx context.Context, ts topo.Store) {
-	if err := ts.CreateCellLocation(ctx, "test_cell", &clustermetadatapb.CellLocation{}); err != nil {
-		t.Fatalf("CreateCellLocation: %v", err)
+	if err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{}); err != nil {
+		t.Fatalf("CreateDatabase: %v", err)
 	}
 
 	conn, err := ts.ConnForCell(context.Background(), topo.GlobalTopo)
@@ -50,28 +50,28 @@ func checkLock(t *testing.T, ctx context.Context, ts topo.Store) {
 }
 
 func checkLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
-	cellLocationPath := path.Join(topo.CellsPath, "test_cell")
-	lockDescriptor, err := conn.Lock(ctx, cellLocationPath, "")
+	databasePath := path.Join(topo.DatabasesPath, "test_database")
+	lockDescriptor, err := conn.Lock(ctx, databasePath, "")
 	if err != nil {
 		t.Fatalf("Lock: %v", err)
 	}
 
 	// We have the lock, list the database directory.
 	// It should not contain anything, except Ephemeral files.
-	entries, err := conn.ListDir(ctx, cellLocationPath, true /*full*/)
+	entries, err := conn.ListDir(ctx, databasePath, true /*full*/)
 	if err != nil {
-		t.Fatalf("Listdir(%v) failed: %v", cellLocationPath, err)
+		t.Fatalf("Listdir(%v) failed: %v", databasePath, err)
 	}
 	for _, e := range entries {
 		if e.Name == "Database" {
 			continue
 		}
 		if e.Ephemeral {
-			t.Logf("skipping ephemeral node %v in %v", e, cellLocationPath)
+			t.Logf("skipping ephemeral node %v in %v", e, databasePath)
 			continue
 		}
 		// Non-ephemeral entries better have only ephemeral children.
-		p := path.Join(cellLocationPath, e.Name)
+		p := path.Join(databasePath, e.Name)
 		entries, err := conn.ListDir(ctx, p, true /*full*/)
 		if err != nil {
 			t.Fatalf("Listdir(%v) failed: %v", p, err)
@@ -87,7 +87,7 @@ func checkLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 
 	// test we can't take the lock again
 	fastCtx, cancel := context.WithTimeout(ctx, timeUntilLockIsTaken)
-	if _, err := conn.Lock(fastCtx, cellLocationPath, "again"); !errors.Is(err, &topo.TopoError{Code: topo.Timeout}) {
+	if _, err := conn.Lock(fastCtx, databasePath, "again"); !errors.Is(err, &topo.TopoError{Code: topo.Timeout}) {
 		t.Fatalf("Lock(again): %v", err)
 	}
 	cancel()
@@ -98,7 +98,7 @@ func checkLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 		time.Sleep(timeUntilLockIsTaken)
 		cancel()
 	}()
-	if _, err := conn.Lock(interruptCtx, cellLocationPath, "interrupted"); !errors.Is(err, &topo.TopoError{Code: topo.Interrupted}) {
+	if _, err := conn.Lock(interruptCtx, databasePath, "interrupted"); !errors.Is(err, &topo.TopoError{Code: topo.Interrupted}) {
 		t.Fatalf("Lock(interrupted): %v", err)
 	}
 
@@ -119,16 +119,16 @@ func checkLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 // checkLockUnblocks makes sure that a routine waiting on a lock
 // is unblocked when another routine frees the lock
 func checkLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
-	cellLocationPath := path.Join(topo.CellsPath, "test_cell")
+	databasePath := path.Join(topo.DatabasesPath, "test_database")
 	unblock := make(chan struct{})
 	finished := make(chan struct{})
 
 	// As soon as we're unblocked, we try to lock the database.
 	go func() {
 		<-unblock
-		lockDescriptor, err := conn.Lock(ctx, cellLocationPath, "unblocks")
+		lockDescriptor, err := conn.Lock(ctx, databasePath, "unblocks")
 		if err != nil {
-			t.Errorf("Lock(test_cell) failed: %v", err)
+			t.Errorf("Lock(test_database) failed: %v", err)
 		}
 		if err = lockDescriptor.Unlock(ctx); err != nil {
 			t.Errorf("Unlock(test_database): %v", err)
@@ -137,9 +137,9 @@ func checkLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
 	}()
 
 	// Lock the database.
-	lockDescriptor2, err := conn.Lock(ctx, cellLocationPath, "")
+	lockDescriptor2, err := conn.Lock(ctx, databasePath, "")
 	if err != nil {
-		t.Fatalf("Lock(test_cell) failed: %v", err)
+		t.Fatalf("Lock(test_database) failed: %v", err)
 	}
 
 	// unblock the go routine so it starts waiting
