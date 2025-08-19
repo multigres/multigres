@@ -27,13 +27,6 @@ import (
 // This file provides the utility methods to save / retrieve Database
 // in the topology server.
 //
-// Database records are not meant to be changed while the system is
-// running. In a running system, a Database can be added, and
-// topology server implementations should be able to read them to
-// access the databases upon demand. Topology server implementations can
-// also read the available Database at startup to build a list of
-// available databases, if necessary. A Database can only be removed if no
-// MultiPooler record references the corresponding database in its Database field.
 
 // pathForDatabase returns the path for a database in the topology.
 func pathForDatabase(database string) string {
