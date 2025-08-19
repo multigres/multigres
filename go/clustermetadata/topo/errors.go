@@ -38,8 +38,8 @@ const (
 
 // TopoError represents a topo error.
 type TopoError struct {
-	code    ErrorCode
-	message string
+	Code    ErrorCode
+	Message string
 }
 
 // NewError creates a new topo error.
@@ -72,12 +72,12 @@ func NewError(code ErrorCode, node string) error {
 		message = fmt.Sprintf("unknown code: %s", node)
 	}
 	return TopoError{
-		code:    code,
-		message: message,
+		Code:    code,
+		Message: message,
 	}
 }
 
 // Error satisfies error.
 func (e TopoError) Error() string {
-	return e.message
+	return e.Message
 }

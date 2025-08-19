@@ -84,6 +84,7 @@ const (
 // Filenames for all object types.
 const (
 	CellLocationFile = "CellLocation"
+	DatabaseFile     = "Database"
 )
 
 // Path for all object types.
@@ -104,7 +105,7 @@ type Factory interface {
 type GlobalStore interface {
 	// GetCellLocationNames returns the names of the existing cells,
 	// sorted by name.
-	GetCellLocationNames(ctx context.Context) ([]string, error)
+	GetCellNames(ctx context.Context) ([]string, error)
 
 	// GetCellLocation retrieves the CellLocation for a given cell.
 	GetCellLocation(ctx context.Context, cell string) (*clustermetadatapb.CellLocation, error)
@@ -119,6 +120,24 @@ type GlobalStore interface {
 	// DeleteCellLocation deletes the specified CellLocation. If 'force' is true,
 	// it will proceed even if references exist.
 	DeleteCellLocation(ctx context.Context, cell string, force bool) error
+
+	// GetDatabaseNames returns the names of the existing databases. They are
+	// sorted by name.
+	GetDatabaseNames(ctx context.Context) ([]string, error)
+
+	// GetDatabase retrieves the Database for a given database name.
+	GetDatabase(ctx context.Context, database string) (*clustermetadatapb.Database, error)
+
+	// CreateDatabase creates a new Database with the provided content.
+	CreateDatabase(ctx context.Context, database string, db *clustermetadatapb.Database) error
+
+	// UpdateDatabaseFields reads a Database, applies an update function,
+	// and writes it back. Retries transparently on version mismatches.
+	UpdateDatabaseFields(ctx context.Context, database string, update func(*clustermetadatapb.Database) error) error
+
+	// DeleteDatabase deletes the specified Database. If 'force' is true,
+	// it will proceed even if references exist.
+	DeleteDatabase(ctx context.Context, database string, force bool) error
 }
 
 // CellStore defines APIs for cell-level dynamic metadata.
@@ -131,8 +150,15 @@ type CellStore interface {
 // GlobalStore and CellStore. Consumers can depend on the narrower
 // interfaces if they only need one.
 type Store interface {
+	// Core API's
 	GlobalStore
 	CellStore
+
+	// Connection provider
+	ConnProvider
+
+	// Closer
+	io.Closer
 }
 
 type ConnProvider interface {
@@ -167,8 +193,6 @@ type store struct {
 }
 
 var _ Store = (*store)(nil)
-var _ ConnProvider = (*store)(nil)
-var _ io.Closer = (*store)(nil)
 
 type cellConn struct {
 	CellLocation *clustermetadatapb.CellLocation
@@ -319,7 +343,7 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		// conn = NewStatsConn(cell, conn, cellReadSem)
 		ts.cellConns[cell] = cellConn{ci, conn}
 		return conn, nil
-	case errors.Is(err, &TopoError{code: NoNode}):
+	case errors.Is(err, &TopoError{Code: NoNode}):
 		err = mterrors.Wrap(err, fmt.Sprintf("failed to create topo connection to %v, %v", serverAddrsStr, ci.Root))
 		return nil, NewError(NoNode, err.Error())
 	default:
