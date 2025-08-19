@@ -1,5 +1,4 @@
 {
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- ./site/",
   "redirects": [
     {
       "source": "/blog/2025/07/22/ha-postgres-full-sync",
