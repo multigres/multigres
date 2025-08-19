@@ -79,5 +79,13 @@ func NewError(code ErrorCode, node string) error {
 
 // Error satisfies error.
 func (e TopoError) Error() string {
-	return e.Message
+	return fmt.Sprintf("topo error [%d]: %s", e.Code, e.Message)
+}
+
+// Is implements error comparison for errors.Is.
+func (e TopoError) Is(target error) bool {
+	if targetTopo, ok := target.(*TopoError); ok {
+		return e.Code == targetTopo.Code
+	}
+	return false
 }
