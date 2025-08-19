@@ -33,44 +33,49 @@ const LocalCellName = "test"
 func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.Store) {
 	var ts topo.Store
 
-	t.Log("=== checkLock")
+	// Lock and TryLock are part of the Lock API.
+	t.Log("=== (Lock) checkLock")
 	ts = factory()
 	checkLock(t, ctx, ts)
 	_ = ts.Close()
 
-	t.Log("=== checkTryLock")
+	t.Log("=== (Lock) checkTryLock")
 	ts = factory()
 	checkTryLock(t, ctx, ts)
 	_ = ts.Close()
 
-	t.Log("=== checkDirectory")
+	// Directory is part of the Directory API.
+	t.Log("=== (Directory) checkDirectory")
 	ts = factory()
 	checkDirectory(t, ctx, ts)
 	_ = ts.Close()
 
-	t.Log("=== checkFile")
-	ts = factory()
-	checkFile(t, ctx, ts)
-	ts.Close()
-
-	t.Log("=== checkWatch")
+	// Watch and WatchRecursive are part of the Watch API.
+	t.Log("=== (Watch) checkWatch")
 	ts = factory()
 	checkWatch(t, ctx, ts)
 	_ = ts.Close()
 
-	t.Log("=== checkWatchInterrupt")
+	t.Log("=== (Watch) checkWatchInterrupt")
 	ts = factory()
 	checkWatchInterrupt(t, ctx, ts)
 	_ = ts.Close()
 
-	// ts = factory()
-	// t.Log("=== checkWatchRecursive")
-	// executeTestSuite(checkWatchRecursive, t, ctx, ts, ignoreList, "checkWatchRecursive")
-	// ts.Close()
+	ts = factory()
+	t.Log("=== (Watch) checkWatchRecursive")
+	checkWatchRecursive(t, ctx, ts)
+	_ = ts.Close()
 
-	// ts = factory()
-	// t.Log("=== checkList")
-	// executeTestSuite(checkList, t, ctx, ts, ignoreList, "checkList")
-	// ts.Close()
+	// File is part of the File API.
+
+	t.Log("=== (File) checkFile")
+	ts = factory()
+	checkFile(t, ctx, ts)
+	ts.Close()
+
+	ts = factory()
+	t.Log("=== (File) checkList")
+	checkList(t, ctx, ts)
+	_ = ts.Close()
 
 }

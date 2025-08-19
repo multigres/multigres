@@ -66,9 +66,9 @@ func waitForInitialValue(t *testing.T, conn topo.Conn, database *clustermetadata
 	return changes, cancel
 }
 
-// waitForInitialValue waits for the initial value of
-// keyspaces/test_keyspace/SrvKeyspace to appear, and match the
-// provided srvKeyspace.
+// waitForInitialValueRecursive waits for the initial value of
+// databases/test_database. Any files that appear inside that directory
+// will be watched. In this case will be waiting for the database to appear.
 func waitForInitialValueRecursive(t *testing.T, conn topo.Conn, database *clustermetadatapb.Database) (changes <-chan *topo.WatchDataRecursive, cancel context.CancelFunc, err error) {
 	var current []*topo.WatchDataRecursive
 	ctx, cancel := context.WithCancel(context.Background())
@@ -274,7 +274,6 @@ func checkWatchInterrupt(t *testing.T, ctx context.Context, ts topo.Store) {
 
 // checkWatchRecursive tests we can setup a recursive watch
 func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
-	// TODO
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	conn, err := ts.ConnForCell(ctx, topo.GlobalTopo)
@@ -287,14 +286,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
 		Name: "test_database",
 	}
 	if err := ts.UpdateDatabaseFields(ctx, "test_database", func(db *clustermetadatapb.Database) error {
-		db.Cells = []string{"test_cell"}
-		return nil
-	}); err != nil {
-		t.Fatalf("UpdateDatabaseFields(1): %v", err)
-	}
-
-	if err := ts.UpdateDatabaseFields(ctx, "test_database", func(db *clustermetadatapb.Database) error {
-		db.Name = "test_database_new"
+		db.Name = database.Name
 		return nil
 	}); err != nil {
 		t.Fatalf("UpdateDatabaseFields(1): %v", err)
