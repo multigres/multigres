@@ -246,8 +246,8 @@ type CallerID struct {
 	// It can for instance be the hostname:port of the servlet initiating the
 	// database call, or the container engine ID used by the servlet.
 	Component string `protobuf:"bytes,2,opt,name=component,proto3" json:"component,omitempty"`
-	// subcomponent describes a component inisde the immediate caller which
-	// is responsible for generating is request. Suggested values are a
+	// subcomponent describes a component inside the immediate caller which
+	// is responsible for generating this request. Suggested values are a
 	// servlet name or an API endpoint name.
 	Subcomponent string `protobuf:"bytes,3,opt,name=subcomponent,proto3" json:"subcomponent,omitempty"`
 	// set of security groups that should be assigned to this caller.
