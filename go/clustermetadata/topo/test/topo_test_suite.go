@@ -44,6 +44,11 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.
 	checkTryLock(t, ctx, ts)
 	_ = ts.Close()
 
+	t.Log("=== (Lock) checkLockName")
+	ts = factory()
+	checkLockName(t, ctx, ts)
+	_ = ts.Close()
+
 	// Directory is part of the Directory API.
 	t.Log("=== (Directory) checkDirectory")
 	ts = factory()
@@ -74,7 +79,7 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.
 	ts.Close()
 
 	ts = factory()
-	t.Log("=== (File) checkList")
+	t.Log("=== checkList")
 	checkList(t, ctx, ts)
 	_ = ts.Close()
 
