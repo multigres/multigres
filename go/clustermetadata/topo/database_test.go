@@ -346,6 +346,33 @@ func TestDatabaseCRUDOperations(t *testing.T) {
 				require.Equal(t, []string{"db1", "db2"}, names)
 			},
 		},
+		{
+			name: "Update Database Fields with failing update function",
+			test: func(t *testing.T, ts topo.Store) {
+				db := &clustermetadatapb.Database{
+					Name:             database,
+					BackupLocation:   "/backups/test_db",
+					DurabilityPolicy: "semi_sync",
+					Cells:            []string{cell},
+				}
+				err := ts.CreateDatabase(ctx, database, db)
+				require.NoError(t, err)
+
+				// Update function that fails
+				updateErr := errors.New("update failed")
+				err = ts.UpdateDatabaseFields(ctx, database, func(db *clustermetadatapb.Database) error {
+					return updateErr
+				})
+				require.Error(t, err)
+				require.Equal(t, updateErr, err)
+
+				// Verify database was not modified
+				retrieved, err := ts.GetDatabase(ctx, database)
+				require.NoError(t, err)
+				require.Equal(t, "/backups/test_db", retrieved.BackupLocation)
+				require.Equal(t, "semi_sync", retrieved.DurabilityPolicy)
+			},
+		},
 	}
 
 	for _, tt := range tests {
