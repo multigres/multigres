@@ -48,10 +48,10 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.
 	checkDirectory(t, ctx, ts)
 	_ = ts.Close()
 
-	// t.Log("=== checkFile")
-	// ts = factory()
-	// executeTestSuite(checkFile, t, ctx, ts, ignoreList, "checkFile")
-	// ts.Close()
+	t.Log("=== checkFile")
+	ts = factory()
+	checkFile(t, ctx, ts)
+	ts.Close()
 
 	// t.Log("=== checkWatch")
 	// ts = factory()
