@@ -58,7 +58,8 @@ var Keywords = []KeywordInfo{
 	{"bit", BIT, ColNameKeyword, true},
 	{"boolean", IDENT, ColNameKeyword, true}, // Will be replaced with BOOLEAN_P token in Phase 3
 	{"both", IDENT, ReservedKeyword, true},   // Will be replaced with BOTH token in Phase 3
-	{"by", IDENT, UnreservedKeyword, true},   // Will be replaced with BY token in Phase 3
+	{"breadth", BREADTH, UnreservedKeyword, true}, // Phase 3D: BREADTH FIRST for CTE SEARCH
+	{"by", BY, UnreservedKeyword, true},           // Phase 3D: BY for CTE SEARCH
 
 	{"case", IDENT, ReservedKeyword, true},               // Will be replaced with CASE token in Phase 3
 	{"cast", IDENT, ReservedKeyword, true},               // Will be replaced with CAST token in Phase 3
@@ -66,7 +67,9 @@ var Keywords = []KeywordInfo{
 	{"character", IDENT, ColNameKeyword, false},          // Will be replaced with CHARACTER token in Phase 3
 	{"check", IDENT, ReservedKeyword, true},              // Will be replaced with CHECK token in Phase 3
 	{"coalesce", IDENT, ColNameKeyword, true},            // Will be replaced with COALESCE token in Phase 3
+	{"cross", CROSS, TypeFuncNameKeyword, true},          // Phase 3D: CROSS JOIN keyword
 	{"collate", IDENT, ReservedKeyword, true},            // Will be replaced with COLLATE token in Phase 3
+	{"cycle", CYCLE, UnreservedKeyword, true},            // Phase 3D: CYCLE for recursive CTEs
 	{"collation", IDENT, TypeFuncNameKeyword, true},      // Will be replaced with COLLATION token in Phase 3
 	{"column", IDENT, ReservedKeyword, true},             // Will be replaced with COLUMN token in Phase 3
 	{"constraint", IDENT, ReservedKeyword, true},         // Will be replaced with CONSTRAINT token in Phase 3
@@ -82,8 +85,9 @@ var Keywords = []KeywordInfo{
 
 	{"dec", IDENT, ColNameKeyword, true},         // Will be replaced with DEC token in Phase 3
 	{"decimal", IDENT, ColNameKeyword, true},     // Will be replaced with DECIMAL_P token in Phase 3
-	{"default", IDENT, ReservedKeyword, true},    // Will be replaced with DEFAULT token in Phase 3
+	{"default", DEFAULT, ReservedKeyword, true},  // Phase 3D: DEFAULT keyword for CYCLE clause
 	{"deferrable", IDENT, ReservedKeyword, true}, // Will be replaced with DEFERRABLE token in Phase 3
+	{"depth", DEPTH, UnreservedKeyword, true},    // Phase 3D: DEPTH FIRST for CTE SEARCH
 	{"desc", IDENT, ReservedKeyword, true},       // Will be replaced with DESC token in Phase 3
 	{"distinct", DISTINCT, ReservedKeyword, true}, // Phase 3C: DISTINCT clause
 	{"do", IDENT, ReservedKeyword, true},         // Will be replaced with DO token in Phase 3
@@ -95,11 +99,12 @@ var Keywords = []KeywordInfo{
 
 	{"false", FALSE_P, ReservedKeyword, true},
 	{"fetch", IDENT, ReservedKeyword, true},    // Will be replaced with FETCH token in Phase 3
+	{"first", FIRST_P, UnreservedKeyword, true}, // Phase 3D: FIRST for CTE SEARCH
 	{"float", IDENT, ColNameKeyword, true},     // Will be replaced with FLOAT_P token in Phase 3
 	{"for", IDENT, ReservedKeyword, true},      // Will be replaced with FOR token in Phase 3
 	{"foreign", IDENT, ReservedKeyword, true},  // Will be replaced with FOREIGN token in Phase 3
 	{"from", FROM, ReservedKeyword, true},       // Phase 3C: FROM clause
-	{"full", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with FULL token in Phase 3
+	{"full", FULL, TypeFuncNameKeyword, true}, // Phase 3D: FULL OUTER JOIN keyword
 
 	{"grant", IDENT, ReservedKeyword, true}, // Will be replaced with GRANT token in Phase 3
 	{"group", IDENT, ReservedKeyword, true}, // Will be replaced with GROUP_P token in Phase 3
@@ -108,7 +113,7 @@ var Keywords = []KeywordInfo{
 
 	{"in", IDENT, ReservedKeyword, true},        // Will be replaced with IN_P token in Phase 3
 	{"initially", IDENT, ReservedKeyword, true}, // Will be replaced with INITIALLY token in Phase 3
-	{"inner", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with INNER_P token in Phase 3
+	{"inner", INNER_P, TypeFuncNameKeyword, true}, // Phase 3D: INNER JOIN keyword
 	{"insert", IDENT, UnreservedKeyword, true},  // Will be replaced with INSERT token in Phase 3
 	{"int", IDENT, ColNameKeyword, true},        // Will be replaced with INT_P token in Phase 3
 	{"integer", IDENT, ColNameKeyword, true},    // Will be replaced with INTEGER token in Phase 3
@@ -116,14 +121,16 @@ var Keywords = []KeywordInfo{
 	{"into", INTO, ReservedKeyword, true},       // Phase 3C: INTO clause
 	{"is", IDENT, TypeFuncNameKeyword, true},    // Will be replaced with IS token in Phase 3
 
-	{"join", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with JOIN token in Phase 3
+	{"join", JOIN, TypeFuncNameKeyword, true}, // Phase 3D: JOIN keyword
 
 	{"leading", IDENT, ReservedKeyword, true},  // Will be replaced with LEADING token in Phase 3
-	{"left", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with LEFT token in Phase 3
+	{"left", LEFT, TypeFuncNameKeyword, true}, // Phase 3D: LEFT JOIN keyword
 	{"like", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with LIKE token in Phase 3
+	{"lateral", LATERAL, ReservedKeyword, true}, // Phase 3D: LATERAL subqueries
 	{"limit", IDENT, ReservedKeyword, true},    // Will be replaced with LIMIT token in Phase 3
-
-	{"natural", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with NATURAL token in Phase 3
+	
+	{"materialized", MATERIALIZED, UnreservedKeyword, true}, // Phase 3D: MATERIALIZED CTEs
+	{"natural", NATURAL, TypeFuncNameKeyword, true}, // Phase 3D: NATURAL JOIN keyword
 	{"not", NOT, ReservedKeyword, true},
 	{"null", NULL_P, ReservedKeyword, true},
 	{"numeric", NUMERIC, ColNameKeyword, true},
@@ -133,15 +140,18 @@ var Keywords = []KeywordInfo{
 	{"only", ONLY, ReservedKeyword, true},       // Phase 3C: ONLY keyword
 	{"or", OR, ReservedKeyword, true},
 	{"order", IDENT, ReservedKeyword, true},     // Will be replaced with ORDER token in Phase 3
-	{"outer", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with OUTER_P token in Phase 3
+	{"outer", OUTER_P, TypeFuncNameKeyword, true}, // Phase 3D: OUTER JOIN keyword
 
 	{"primary", IDENT, ReservedKeyword, true}, // Will be replaced with PRIMARY token in Phase 3
 
 	{"real", IDENT, ColNameKeyword, true},        // Will be replaced with REAL token in Phase 3
+	{"recursive", RECURSIVE, UnreservedKeyword, true}, // Phase 3D: RECURSIVE CTEs  
 	{"references", IDENT, ReservedKeyword, true}, // Will be replaced with REFERENCES token in Phase 3
-	{"right", IDENT, TypeFuncNameKeyword, true},  // Will be replaced with RIGHT token in Phase 3
+	{"right", RIGHT, TypeFuncNameKeyword, true},  // Phase 3D: RIGHT JOIN keyword
 
+	{"search", SEARCH, UnreservedKeyword, true},   // Phase 3D: SEARCH for recursive CTEs
 	{"select", SELECT, ReservedKeyword, true},     // Phase 3C: SELECT statement
+	{"set", SET, UnreservedKeyword, true},         // Phase 3D: SET for CTE SEARCH/CYCLE
 	{"session_user", IDENT, ReservedKeyword, true}, // Will be replaced with SESSION_USER token in Phase 3
 	{"smallint", IDENT, ColNameKeyword, true},      // Will be replaced with SMALLINT token in Phase 3
 	{"some", IDENT, ReservedKeyword, true},         // Will be replaced with SOME token in Phase 3
@@ -152,7 +162,7 @@ var Keywords = []KeywordInfo{
 	{"then", IDENT, ReservedKeyword, true},     // Will be replaced with THEN token in Phase 3
 	{"time", IDENT, ColNameKeyword, true},      // Will be replaced with TIME token in Phase 3
 	{"timestamp", IDENT, ColNameKeyword, true}, // Will be replaced with TIMESTAMP token in Phase 3
-	{"to", IDENT, ReservedKeyword, true},       // Will be replaced with TO token in Phase 3
+	{"to", TO, ReservedKeyword, true},          // Phase 3D: TO keyword for CYCLE clause
 	{"trailing", IDENT, ReservedKeyword, true}, // Will be replaced with TRAILING token in Phase 3
 	{"true", TRUE_P, ReservedKeyword, true},
 
@@ -160,8 +170,9 @@ var Keywords = []KeywordInfo{
 	{"unique", IDENT, ReservedKeyword, true},   // Will be replaced with UNIQUE token in Phase 3
 	{"update", IDENT, UnreservedKeyword, true}, // Will be replaced with UPDATE token in Phase 3
 	{"user", IDENT, ReservedKeyword, true},     // Will be replaced with USER token in Phase 3
-	{"using", IDENT, ReservedKeyword, true},    // Will be replaced with USING token in Phase 3
+	{"using", USING, ReservedKeyword, true},    // Phase 3D: USING clause for JOINs
 
+	{"values", VALUES, UnreservedKeyword, true}, // Phase 3D: VALUES clause  
 	{"varchar", IDENT, ColNameKeyword, true},    // Will be replaced with VARCHAR token in Phase 3
 	{"varying", IDENT, UnreservedKeyword, true}, // Will be replaced with VARYING token in Phase 3
 

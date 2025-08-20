@@ -166,8 +166,9 @@ func (a *Alias) SqlString() string {
 	if a.ColNames != nil && len(a.ColNames.Items) > 0 {
 		var colAliases []string
 		for _, col := range a.ColNames.Items {
-			// All nodes implement SqlString() method
-			colAliases = append(colAliases, col.SqlString())
+			if str, ok := col.(*String); ok {
+				colAliases = append(colAliases, str.SVal)
+			}
 		}
 		result += FormatParentheses(FormatCommaList(colAliases))
 	}
@@ -859,30 +860,96 @@ const (
 	CTEMaterializeNever                          // NOT MATERIALIZED - parsenodes.h:1640
 )
 
-// CTESearchClause represents a SEARCH clause for recursive CTEs.
+// CTESearchClause represents a SEARCH clause in recursive CTEs.
 // Ported from postgres/src/include/nodes/parsenodes.h:1643
 type CTESearchClause struct {
 	BaseNode
-	SearchColList      *NodeList // List of column names - parsenodes.h:1646
-	SearchBreadthFirst bool   // True for BREADTH FIRST, false for DEPTH FIRST - parsenodes.h:1647
-	SearchSeqColumn    string // Name of sequence column - parsenodes.h:1648
-	Location           int    // Token location, or -1 if unknown - parsenodes.h:1649
+	SearchColList      *NodeList // List of columns to search - parsenodes.h:1646
+	SearchBreadthFirst bool      // True for BREADTH FIRST, false for DEPTH FIRST - parsenodes.h:1647
+	SearchSeqColumn    string    // Name of column to set search sequence - parsenodes.h:1648
 }
 
-// CTECycleClause represents a CYCLE clause for recursive CTEs.
+// CTECycleClause represents a CYCLE clause in recursive CTEs.
 // Ported from postgres/src/include/nodes/parsenodes.h:1652
 type CTECycleClause struct {
 	BaseNode
-	CycleColList       *NodeList // List of column names - parsenodes.h:1655
-	CycleMarkColumn    string // Name of cycle mark column - parsenodes.h:1656
-	CycleMarkValue     Node   // Cycle mark value - parsenodes.h:1657
-	CycleMarkDefault   Node   // Cycle mark default value - parsenodes.h:1658
-	CyclePathColumn    string // Name of path column - parsenodes.h:1659
-	Location           int    // Token location, or -1 if unknown - parsenodes.h:1660
-	CycleMarkType      Oid    // Type of cycle mark column - parsenodes.h:1662
-	CycleMarkTypmod    int32  // Typmod of cycle mark column - parsenodes.h:1663
-	CycleMarkCollation Oid    // Collation of cycle mark column - parsenodes.h:1664
-	CycleMarkNeop      Oid    // Inequality operator for cycle mark - parsenodes.h:1665
+	CycleColList      *NodeList   // List of columns to check for cycles - parsenodes.h:1655
+	CycleMarkColumn   string      // Name of column to mark cycles - parsenodes.h:1656
+	CycleMarkValue    Expression  // Value to set when cycle detected - parsenodes.h:1657
+	CycleMarkDefault  Expression  // Value to set when no cycle - parsenodes.h:1658
+	CyclePathColumn   string      // Name of column to track path - parsenodes.h:1659
+	CycleMarkType     Oid         // Common type of mark_value and mark_default - parsenodes.h:1662
+	CycleMarkTypmod   int32       // Type modifier - parsenodes.h:1663
+	CycleMarkCollation Oid        // Collation - parsenodes.h:1664
+	CycleMarkNeop     Oid         // <> operator for type - parsenodes.h:1665
+}
+
+// NewCTESearchClause creates a new CTESearchClause node.
+func NewCTESearchClause(searchColList *NodeList, breadthFirst bool, seqColumn string) *CTESearchClause {
+	return &CTESearchClause{
+		BaseNode:           BaseNode{Tag: T_CTESearchClause},
+		SearchColList:      searchColList,
+		SearchBreadthFirst: breadthFirst,
+		SearchSeqColumn:    seqColumn,
+	}
+}
+
+// SqlString returns the SQL representation of the CTESearchClause.
+func (sc *CTESearchClause) SqlString() string {
+	var direction string
+	if sc.SearchBreadthFirst {
+		direction = "BREADTH FIRST"
+	} else {
+		direction = "DEPTH FIRST"
+	}
+	
+	colNames := make([]string, 0, sc.SearchColList.Len())
+	for _, item := range sc.SearchColList.Items {
+		if str, ok := item.(*String); ok {
+			colNames = append(colNames, str.SVal)
+		}
+	}
+	
+	return fmt.Sprintf("SEARCH %s BY %s SET %s", 
+		direction, 
+		strings.Join(colNames, ", "), 
+		sc.SearchSeqColumn)
+}
+
+// NewCTECycleClause creates a new CTECycleClause node.
+func NewCTECycleClause(cycleColList *NodeList, markColumn string, markValue, markDefault Expression, pathColumn string) *CTECycleClause {
+	return &CTECycleClause{
+		BaseNode:         BaseNode{Tag: T_CTECycleClause},
+		CycleColList:     cycleColList,
+		CycleMarkColumn:  markColumn,
+		CycleMarkValue:   markValue,
+		CycleMarkDefault: markDefault,
+		CyclePathColumn:  pathColumn,
+	}
+}
+
+// SqlString returns the SQL representation of the CTECycleClause.
+func (cc *CTECycleClause) SqlString() string {
+	colNames := make([]string, 0, cc.CycleColList.Len())
+	for _, item := range cc.CycleColList.Items {
+		if str, ok := item.(*String); ok {
+			colNames = append(colNames, str.SVal)
+		}
+	}
+	
+	result := fmt.Sprintf("CYCLE %s SET %s", 
+		strings.Join(colNames, ", "), 
+		cc.CycleMarkColumn)
+	
+	if cc.CycleMarkValue != nil && cc.CycleMarkDefault != nil {
+		result += fmt.Sprintf(" TO %s DEFAULT %s", 
+			cc.CycleMarkValue.SqlString(), 
+			cc.CycleMarkDefault.SqlString())
+	}
+	
+	result += fmt.Sprintf(" USING %s", cc.CyclePathColumn)
+	
+	return result
 }
 
 // NewCommonTableExpr creates a new CommonTableExpr node.
@@ -924,8 +991,8 @@ func (c *CommonTableExpr) SqlString() string {
 	if c.Aliascolnames != nil && len(c.Aliascolnames.Items) > 0 {
 		var cols []string
 		for _, col := range c.Aliascolnames.Items {
-			if col != nil {
-				cols = append(cols, col.SqlString())
+			if str, ok := col.(*String); ok {
+				cols = append(cols, str.SVal)
 			}
 		}
 		parts[0] += fmt.Sprintf("(%s)", strings.Join(cols, ", "))

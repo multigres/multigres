@@ -6,6 +6,7 @@ package ast
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ==============================================================================
@@ -176,6 +177,78 @@ func (je *JoinExpr) String() string {
 	}
 
 	return fmt.Sprintf("JoinExpr(%s%s JOIN)", joinTypeStr, natural)
+}
+
+// SqlString returns the SQL representation of the JOIN expression.
+func (je *JoinExpr) SqlString() string {
+	if je.Larg == nil || je.Rarg == nil {
+		return ""
+	}
+
+	var result strings.Builder
+
+	// Left side
+	result.WriteString(je.Larg.SqlString())
+
+	// NATURAL keyword
+	if je.IsNatural {
+		result.WriteString(" NATURAL")
+	}
+
+	// Join type
+	switch je.Jointype {
+	case JOIN_INNER:
+		if !je.IsNatural {
+			result.WriteString(" INNER")
+		}
+	case JOIN_LEFT:
+		if je.IsNatural {
+			result.WriteString(" LEFT")
+		} else {
+			result.WriteString(" LEFT OUTER")
+		}
+	case JOIN_RIGHT:
+		if je.IsNatural {
+			result.WriteString(" RIGHT")
+		} else {
+			result.WriteString(" RIGHT OUTER")
+		}
+	case JOIN_FULL:
+		if je.IsNatural {
+			result.WriteString(" FULL")
+		} else {
+			result.WriteString(" FULL OUTER")
+		}
+	case JOIN_SEMI:
+		result.WriteString(" SEMI")
+	case JOIN_ANTI:
+		result.WriteString(" ANTI")
+	default:
+		// CROSS JOIN
+		result.WriteString(" CROSS")
+	}
+
+	result.WriteString(" JOIN ")
+
+	// Right side
+	result.WriteString(je.Rarg.SqlString())
+
+	// Join qualification
+	if je.UsingClause != nil && je.UsingClause.Len() > 0 {
+		result.WriteString(" USING (")
+		for i, col := range je.UsingClause.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			result.WriteString(col.SqlString())
+		}
+		result.WriteString(")")
+	} else if je.Quals != nil {
+		result.WriteString(" ON ")
+		result.WriteString(je.Quals.SqlString())
+	}
+
+	return result.String()
 }
 
 // Using existing SubLinkType from expressions.go

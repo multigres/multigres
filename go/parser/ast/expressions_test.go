@@ -1138,11 +1138,11 @@ func TestTier3ComplexExpressions(t *testing.T) {
 
 // ==============================================================================
 // PHASE 1F: PRIMITIVE EXPRESSION COMPLETION PART 1 - TEST COVERAGE
-// Unit tests for all Phase 1F primitive expression nodes
+// Unit tests for primitive expression nodes
 // ==============================================================================
 
-// TestPhase1FEnumTypes tests the new enumeration types added in Phase 1F
-func TestPhase1FEnumTypes(t *testing.T) {
+// TestEnumTypes tests the enumeration types
+func TestEnumTypes(t *testing.T) {
 	t.Run("RowCompareType", func(t *testing.T) {
 		assert.Equal(t, RowCompareType(1), ROWCOMPARE_LT)
 		assert.Equal(t, RowCompareType(2), ROWCOMPARE_LE)

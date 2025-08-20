@@ -171,6 +171,30 @@ func (r *RangeSubselect) StatementType() string {
 	return "RANGE_SUBSELECT"
 }
 
+// SqlString returns the SQL representation of the RangeSubselect.
+func (r *RangeSubselect) SqlString() string {
+	if r.Subquery == nil {
+		return ""
+	}
+
+	var result strings.Builder
+
+	if r.Lateral {
+		result.WriteString("LATERAL ")
+	}
+
+	result.WriteString("(")
+	result.WriteString(r.Subquery.SqlString())
+	result.WriteString(")")
+
+	if r.Alias != nil {
+		result.WriteString(" ")
+		result.WriteString(r.Alias.SqlString())
+	}
+
+	return result.String()
+}
+
 // RangeFunction represents a function call appearing in a FROM clause.
 // Supports ROWS FROM() syntax and WITH ORDINALITY.
 // Ported from postgres/src/include/nodes/parsenodes.h:637-647

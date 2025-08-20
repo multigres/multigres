@@ -868,8 +868,8 @@ func TestJsonTableSiblingJoin(t *testing.T) {
 	})
 }
 
-// TestPhase1GNodeTags tests that all Phase 1G nodes have correct tags
-func TestPhase1GNodeTags(t *testing.T) {
+// TestNodeTags tests that all nodes have correct tags
+func TestNodeTags(t *testing.T) {
 	testCases := []struct {
 		node     Node
 		expected NodeTag
@@ -890,8 +890,8 @@ func TestPhase1GNodeTags(t *testing.T) {
 	}
 }
 
-// TestPhase1GExpressionNodes tests that expression nodes implement Expr interface correctly
-func TestPhase1GExpressionNodes(t *testing.T) {
+// TestExpressionNodes tests that expression nodes implement Expr interface correctly
+func TestExpressionNodes(t *testing.T) {
 	expressions := []Expr{
 		NewJsonConstructorExpr(JSCTOR_JSON_OBJECT, nil, nil, nil, nil, false, false, -1),
 		NewJsonExpr(JSON_EXISTS_OP, "", nil, nil, nil, nil, nil, nil, nil, nil, false, false, JSW_UNSPEC, false, 0, -1),

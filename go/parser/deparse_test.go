@@ -83,6 +83,63 @@ func TestDeparsing(t *testing.T) {
 
 		// ONLY modifier
 		{"SELECT from ONLY", "SELECT * FROM ONLY users", ""},
+
+		// JOIN operations - Basic
+		{"INNER JOIN", "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id", ""},
+		{"LEFT JOIN", "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id", "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id"},
+		{"RIGHT JOIN", "SELECT * FROM users RIGHT JOIN orders ON users.id = orders.user_id", "SELECT * FROM users RIGHT OUTER JOIN orders ON users.id = orders.user_id"},
+		{"FULL JOIN", "SELECT * FROM users FULL JOIN orders ON users.id = orders.user_id", "SELECT * FROM users FULL OUTER JOIN orders ON users.id = orders.user_id"},
+		{"CROSS JOIN", "SELECT * FROM users CROSS JOIN orders", "SELECT * FROM users INNER JOIN orders"},
+		{"NATURAL JOIN", "SELECT * FROM users NATURAL JOIN orders", ""},
+		{"JOIN with USING", "SELECT * FROM users JOIN orders USING (user_id)", "SELECT * FROM users INNER JOIN orders USING ('user_id')"},
+		{"JOIN implicit INNER", "SELECT * FROM users JOIN orders ON users.id = orders.user_id", "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id"},
+
+		// JOIN operations - Advanced
+		{"LEFT OUTER JOIN explicit", "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id", ""},
+		{"RIGHT OUTER JOIN explicit", "SELECT * FROM users RIGHT OUTER JOIN orders ON users.id = orders.user_id", ""},
+		{"FULL OUTER JOIN explicit", "SELECT * FROM users FULL OUTER JOIN orders ON users.id = orders.user_id", ""},
+		{"NATURAL INNER JOIN", "SELECT * FROM users NATURAL INNER JOIN orders", "SELECT * FROM users NATURAL JOIN orders"},
+		{"NATURAL LEFT JOIN", "SELECT * FROM users NATURAL LEFT JOIN orders", ""},
+		{"NATURAL RIGHT JOIN", "SELECT * FROM users NATURAL RIGHT JOIN orders", ""},
+		{"NATURAL FULL JOIN", "SELECT * FROM users NATURAL FULL JOIN orders", ""},
+		{"Multiple column USING", "SELECT * FROM users JOIN orders USING (user_id, created_date)", "SELECT * FROM users INNER JOIN orders USING ('user_id', 'created_date')"},
+
+		// JOIN operations - Complex
+		{"Chained JOINs", "SELECT * FROM users JOIN orders ON users.id = orders.user_id JOIN products ON orders.product_id = products.id", "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id INNER JOIN products ON orders.product_id = products.id"},
+		{"Mixed JOIN types", "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id CROSS JOIN categories", "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id INNER JOIN categories"},
+		{"Parenthesized JOIN", "SELECT * FROM users JOIN (orders JOIN products ON orders.product_id = products.id) ON users.id = orders.user_id", "SELECT * FROM users INNER JOIN (orders INNER JOIN products ON orders.product_id = products.id) ON users.id = orders.user_id"},
+		{"JOIN with table aliases", "SELECT * FROM users u JOIN orders o ON u.id = o.user_id", "SELECT * FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id"},
+
+		// Common Table Expressions (CTEs) - Basic
+		{"Basic CTE", "WITH stats AS (SELECT * FROM users) SELECT * FROM stats", ""},
+		{"Recursive CTE", "WITH RECURSIVE t AS (SELECT 1) SELECT * FROM t", ""},
+		{"Multiple CTEs", "WITH t1 AS (SELECT id FROM users), t2 AS (SELECT * FROM t1) SELECT * FROM t2", ""},
+		{"CTE with column list", "WITH stats(user_id) AS (SELECT id FROM users) SELECT * FROM stats", ""},
+
+		// Advanced CTE Features - MATERIALIZED
+		{"MATERIALIZED CTE", "WITH stats AS MATERIALIZED (SELECT id FROM users) SELECT * FROM stats", ""},
+		{"NOT MATERIALIZED CTE", "WITH stats AS NOT MATERIALIZED (SELECT id FROM users) SELECT * FROM stats", ""},
+		{"Recursive MATERIALIZED CTE", "WITH RECURSIVE t AS MATERIALIZED (SELECT 1) SELECT * FROM t", ""},
+
+		// Advanced CTE Features - SEARCH clauses
+		{"CTE with SEARCH DEPTH FIRST", "WITH RECURSIVE tree AS (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq SELECT * FROM tree", ""},
+		{"CTE with SEARCH BREADTH FIRST", "WITH RECURSIVE tree AS (SELECT id FROM nodes) SEARCH BREADTH FIRST BY id SET search_seq SELECT * FROM tree", ""},
+		{"CTE with SEARCH multiple columns", "WITH RECURSIVE tree AS (SELECT id, parent_id FROM nodes) SEARCH DEPTH FIRST BY id, parent_id SET search_seq SELECT * FROM tree", ""},
+
+		// Advanced CTE Features - CYCLE clauses
+		{"CTE with CYCLE simple", "WITH RECURSIVE tree AS (SELECT id FROM nodes) CYCLE id SET is_cycle USING path SELECT * FROM tree", ""},
+		{"CTE with CYCLE full", "WITH RECURSIVE tree AS (SELECT id FROM nodes) CYCLE id SET is_cycle TO TRUE DEFAULT FALSE USING path SELECT * FROM tree", ""},
+		{"CTE with CYCLE multiple columns", "WITH RECURSIVE tree AS (SELECT id, parent_id FROM nodes) CYCLE id, parent_id SET is_cycle USING path SELECT * FROM tree", ""},
+
+		// Advanced CTE Features - Combined clauses
+		{"CTE with MATERIALIZED and SEARCH", "WITH RECURSIVE tree AS MATERIALIZED (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq SELECT * FROM tree", ""},
+		{"CTE with SEARCH and CYCLE", "WITH RECURSIVE tree AS (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq CYCLE id SET is_cycle USING path SELECT * FROM tree", ""},
+		{"CTE with all advanced features", "WITH RECURSIVE tree AS MATERIALIZED (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq CYCLE id SET is_cycle TO TRUE DEFAULT FALSE USING path SELECT * FROM tree", ""},
+
+		// Subqueries and LATERAL
+		{"Subquery in FROM", "SELECT * FROM (SELECT id FROM users) AS sub", ""},
+		{"LATERAL subquery", "SELECT * FROM users, LATERAL (SELECT * FROM orders) AS sub", ""},
+		{"Subquery with alias and columns", "SELECT * FROM (SELECT id, name FROM users) AS sub(user_id, user_name)", ""},
 	}
 
 	for _, tt := range tests {
@@ -455,7 +512,7 @@ func testMultipleStatements(t *testing.T) {
 func testNameLists(t *testing.T) {
 	// Note: Since name_list and qualified_name_list are typically used internally
 	// in grammar rules, we test them through contexts where they appear
-	
+
 	tests := []struct {
 		name     string
 		input    string
@@ -519,31 +576,31 @@ func testIndirection(t *testing.T) {
 			name:   "array subscript",
 			input:  "SELECT column[1]",
 			skip:   true,
-			reason: "Array subscript parsing not yet implemented in Phase 3B",
+			reason: "Array subscript parsing not yet implemented",
 		},
 		{
 			name:   "array slice",
 			input:  "SELECT column[1:5]",
 			skip:   true,
-			reason: "Array slice parsing not yet implemented in Phase 3B",
+			reason: "Array slice parsing not yet implemented",
 		},
 		{
 			name:   "field access",
 			input:  "SELECT record.field",
 			skip:   true,
-			reason: "Field access parsing not yet implemented in Phase 3B",
+			reason: "Field access parsing not yet implemented",
 		},
 		{
 			name:   "nested field access",
 			input:  "SELECT record.subrecord.field",
 			skip:   true,
-			reason: "Nested field access parsing not yet implemented in Phase 3B",
+			reason: "Nested field access parsing not yet implemented",
 		},
 		{
 			name:   "mixed indirection",
 			input:  "SELECT array_col[1].field",
 			skip:   true,
-			reason: "Mixed indirection parsing not yet implemented in Phase 3B",
+			reason: "Mixed indirection parsing not yet implemented",
 		},
 	}
 
@@ -583,19 +640,19 @@ func testQualifiedOperators(t *testing.T) {
 			name:   "qualified operator",
 			input:  "SELECT a OPERATOR(pg_catalog.+) b",
 			skip:   true,
-			reason: "Qualified operator parsing not yet implemented in Phase 3B",
+			reason: "Qualified operator parsing not yet implemented",
 		},
 		{
 			name:   "schema qualified operator",
 			input:  "SELECT a OPERATOR(myschema.=) b",
 			skip:   true,
-			reason: "Schema qualified operator parsing not yet implemented in Phase 3B",
+			reason: "Schema qualified operator parsing not yet implemented",
 		},
 		{
 			name:   "custom operator",
 			input:  "SELECT a OPERATOR(public.@@) b",
 			skip:   true,
-			reason: "Custom operator parsing not yet implemented in Phase 3B",
+			reason: "Custom operator parsing not yet implemented",
 		},
 	}
 
@@ -667,16 +724,16 @@ func testAdvancedTypeCasting(t *testing.T) {
 			expected: "",
 		},
 		{
-			name:     "interval type",
-			input:    "SELECT value::interval",
-			skip:     true,
-			reason:   "Interval type parsing deferred to Phase 3G",
+			name:   "interval type",
+			input:  "SELECT value::interval",
+			skip:   true,
+			reason: "Interval type parsing not yet implemented",
 		},
 		{
-			name:     "interval with fields",
-			input:    "SELECT value::interval day to hour",
-			skip:     true,
-			reason:   "Interval type parsing deferred to Phase 3G",
+			name:   "interval with fields",
+			input:  "SELECT value::interval day to hour",
+			skip:   true,
+			reason: "Interval type parsing not yet implemented",
 		},
 	}
 
@@ -814,7 +871,7 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 		{"SELECT with column alias implicit", "SELECT id user_id", "SELECT id AS user_id"},
 		{"SELECT multiple columns", "SELECT id, name", ""},
 		{"SELECT all columns from table", "SELECT * FROM users", ""},
-		
+
 		// FROM clause variations
 		{"FROM with table alias AS", "SELECT * FROM users AS u", ""},
 		{"FROM with table alias implicit", "SELECT * FROM users u", "SELECT * FROM users AS u"},
@@ -822,14 +879,14 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 		{"FROM with ONLY modifier", "SELECT * FROM ONLY users", ""},
 		{"FROM multiple tables", "SELECT * FROM users, orders", ""},
 		{"SELECT without FROM", "SELECT 1", ""},
-		
+
 		// DISTINCT variations
 		{"SELECT DISTINCT single", "SELECT DISTINCT id", ""},
 		{"SELECT DISTINCT multiple", "SELECT DISTINCT id, name", ""},
 		{"SELECT DISTINCT ON single", "SELECT DISTINCT ON (id) name", ""},
 		{"SELECT DISTINCT ON multiple", "SELECT DISTINCT ON (department, level) name", ""},
-		
-		// WHERE clause variations  
+
+		// WHERE clause variations
 		{"WHERE simple boolean", "SELECT * FROM users WHERE active", ""},
 		{"WHERE equality", "SELECT * FROM users WHERE id = 1", ""},
 		{"WHERE not equal", "SELECT * FROM users WHERE id <> 1", ""},
@@ -841,7 +898,7 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 		{"WHERE complex OR", "SELECT * FROM users WHERE admin = TRUE OR moderator = TRUE", ""},
 		{"WHERE complex NOT", "SELECT * FROM users WHERE NOT deleted", ""},
 		{"WHERE mixed logical", "SELECT * FROM users WHERE (active = TRUE OR admin = TRUE) AND NOT deleted", ""},
-		
+
 		// Arithmetic expressions in SELECT
 		{"Arithmetic addition", "SELECT 1 + 2", ""},
 		{"Arithmetic subtraction", "SELECT 5 - 3", ""},
@@ -854,19 +911,19 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 		{"Complex arithmetic", "SELECT (1 + 2) * 3 - 4 / 2", ""},
 		{"Column arithmetic", "SELECT age + 1 FROM users", ""},
 		{"Mixed arithmetic", "SELECT id + age * 2 FROM users", ""},
-		
+
 		// Type casting
 		{"Type cast to text", "SELECT id::text FROM users", ""},
 		{"Type cast with spaces", "SELECT id :: integer FROM users", "SELECT id::integer FROM users"},
 		{"Complex expression cast", "SELECT (age + 1)::varchar FROM users", ""},
 		{"Multiple casts", "SELECT id::text, age::varchar FROM users", ""},
-		
+
 		// Column references
 		{"Simple column reference", "SELECT id FROM users", ""},
 		{"Qualified column reference", "SELECT users.id FROM users", ""},
 		{"Schema qualified column", "SELECT public.users.id FROM public.users", ""},
 		{"Multiple qualified columns", "SELECT u.id, u.name FROM users AS u", ""},
-		
+
 		// Function calls
 		{"Function no args", "SELECT now()", ""},
 		{"Function single arg", "SELECT length(name) FROM users", ""},
@@ -874,7 +931,7 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 		{"Qualified function", "SELECT pg_catalog.length(name) FROM users", ""},
 		{"Nested functions", "SELECT upper(trim(name)) FROM users", ""},
 		{"Function in WHERE", "SELECT * FROM users WHERE length(name) > 5", ""},
-		
+
 		// Constants and literals
 		{"Integer constant", "SELECT 42", ""},
 		{"Negative integer", "SELECT -123", ""},
@@ -883,15 +940,15 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 		{"Boolean TRUE", "SELECT TRUE", ""},
 		{"Boolean FALSE", "SELECT FALSE", ""},
 		{"NULL constant", "SELECT NULL", ""},
-		
+
 		// SELECT INTO
 		{"SELECT INTO basic", "SELECT * INTO backup_users FROM users", ""},
 		{"SELECT INTO with WHERE", "SELECT id, name INTO temp_users FROM users WHERE active = TRUE", ""},
-		
+
 		// TABLE statement (equivalent to SELECT *)
 		{"TABLE statement", "TABLE users", "SELECT * FROM users"},
 		{"TABLE with qualified name", "TABLE public.users", "SELECT * FROM public.users"},
-		
+
 		// Complex mixed queries
 		{"Complex SELECT with all features", "SELECT u.id AS user_id, upper(u.name) AS user_name FROM users AS u WHERE u.active = TRUE AND u.age > 18", ""},
 		{"Multiple expressions with aliases", "SELECT id AS user_id, name AS user_name, age + 1 AS next_age FROM users", ""},
@@ -904,7 +961,7 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 			statements, err := ParseSQL(tt.input)
 			require.NoError(t, err, "Parse should succeed for: %s", tt.input)
 			require.Len(t, statements, 1, "Should have exactly one statement")
-			
+
 			// Verify it's a SELECT statement
 			selectStmt, ok := statements[0].(*ast.SelectStmt)
 			require.True(t, ok, "Expected SelectStmt")
@@ -924,12 +981,12 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 			assert.Equal(t, normalizeSQL(expected), normalizeSQL(deparsed),
 				"Round-trip SELECT deparsing failed.\nOriginal: %s\nDeparsed: %s\nExpected: %s",
 				tt.input, deparsed, expected)
-			
+
 			// Verify round-trip stability (re-parse the deparsed SQL)
 			statements2, err2 := ParseSQL(deparsed)
 			require.NoError(t, err2, "Re-parsing deparsed SQL should succeed: %s", deparsed)
 			require.Len(t, statements2, 1, "Re-parsed should have exactly one statement")
-			
+
 			// Verify second deparse is identical (stability test)
 			deparsed2 := statements2[0].SqlString()
 			assert.Equal(t, normalizeSQL(deparsed), normalizeSQL(deparsed2),
@@ -953,19 +1010,19 @@ func TestOperatorPrecedenceDeparsing(t *testing.T) {
 		{"Unary and binary", "SELECT -1 + 2", ""},
 		{"Power has highest precedence", "SELECT 2 + 3 ^ 2", ""},
 		{"Modulo precedence", "SELECT 10 + 5 % 3", ""},
-		
+
 		// Comparison and logical precedence
 		{"Comparison and logical", "SELECT * FROM users WHERE age > 18 AND active", ""},
 		{"Mixed precedence", "SELECT * FROM users WHERE age + 1 > 18 AND NOT deleted", ""},
 		{"OR has lower precedence than AND", "SELECT * FROM users WHERE active AND verified OR admin", ""},
 		{"Parentheses with logical", "SELECT * FROM users WHERE (active OR admin) AND verified", ""},
-		
+
 		// Complex nested expressions
 		{"Deeply nested arithmetic", "SELECT ((1 + 2) * 3) - (4 / 2)", ""},
 		{"Mixed arithmetic and comparison", "SELECT * FROM users WHERE (age * 2) + 5 > 30", ""},
 		{"Function call precedence", "SELECT length(name) + 10 FROM users", ""},
 		{"Type cast precedence", "SELECT age::text FROM users", ""},
-		
+
 		// WHERE clause complex precedence
 		{"Complex WHERE precedence", "SELECT * FROM users WHERE id = 1 OR id = 2 AND active", ""},
 		{"WHERE with parentheses", "SELECT * FROM users WHERE (id = 1 OR id = 2) AND active", ""},
@@ -999,6 +1056,75 @@ func TestOperatorPrecedenceDeparsing(t *testing.T) {
 			statements2, err2 := ParseSQL(deparsed)
 			require.NoError(t, err2, "Re-parsing should succeed: %s", deparsed)
 			require.Len(t, statements2, 1, "Should have one statement after re-parsing")
+		})
+	}
+}
+
+// TestAdvancedDeparsing tests comprehensive deparsing for JOIN, CTE, and subquery features
+func TestAdvancedDeparsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string // If empty, expects exact match with input
+	}{
+		// Advanced CTE feature combinations - MATERIALIZED
+		{"MATERIALIZED CTE deparsing", "WITH stats AS MATERIALIZED (SELECT COUNT(a) FROM users) SELECT * FROM stats", ""},
+		{"NOT MATERIALIZED CTE deparsing", "WITH stats AS NOT MATERIALIZED (SELECT COUNT(a) FROM users) SELECT * FROM stats", ""},
+		{"RECURSIVE MATERIALIZED CTE", "WITH RECURSIVE t AS MATERIALIZED (SELECT 1) SELECT * FROM t", ""},
+
+		// Advanced CTE features - SEARCH clauses
+		{"SEARCH DEPTH FIRST single column", "WITH RECURSIVE t AS (SELECT id FROM tree) SEARCH DEPTH FIRST BY id SET seq SELECT * FROM t", ""},
+		{"SEARCH BREADTH FIRST single column", "WITH RECURSIVE t AS (SELECT id FROM tree) SEARCH BREADTH FIRST BY id SET seq SELECT * FROM t", ""},
+
+		// Advanced CTE features - CYCLE clauses
+		{"CYCLE simple form single column", "WITH RECURSIVE t AS (SELECT id FROM tree) CYCLE id SET mark USING path SELECT * FROM t", ""},
+		{"CYCLE full form single column", "WITH RECURSIVE t AS (SELECT id FROM tree) CYCLE id SET mark TO TRUE DEFAULT FALSE USING path SELECT * FROM t", ""},
+
+		// Combined advanced CTE features
+		{"MATERIALIZED with SEARCH", "WITH RECURSIVE tree AS MATERIALIZED (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq SELECT * FROM tree", ""},
+		{"SEARCH with CYCLE", "WITH RECURSIVE tree AS (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq CYCLE id SET is_cycle USING path SELECT * FROM tree", ""},
+
+		// JOIN with aliases and complex expressions
+		{"JOIN with table aliases", "SELECT u.name, o.total FROM users u INNER JOIN orders o ON u.id = o.user_id", "SELECT u.name, o.total FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id"},
+
+		// Edge cases for JOIN conditions
+		{"JOIN with complex ON condition", "SELECT * FROM users u JOIN orders o ON u.id = o.user_id AND u.active = TRUE", "SELECT * FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id AND u.active = TRUE"},
+
+		{"NATURAL JOIN with explicit type", "SELECT * FROM users NATURAL INNER JOIN orders", "SELECT * FROM users NATURAL JOIN orders"},
+		{"NATURAL LEFT JOIN", "SELECT * FROM users NATURAL LEFT JOIN orders", ""},
+		{"NATURAL RIGHT JOIN", "SELECT * FROM users NATURAL RIGHT JOIN orders", ""},
+		{"NATURAL FULL JOIN", "SELECT * FROM users NATURAL FULL JOIN orders", ""},
+
+		// Complex subquery scenarios
+		{"LATERAL with simple subquery", "SELECT * FROM users u, LATERAL (SELECT * FROM orders o WHERE o.user_id = u.id) AS recent_orders", "SELECT * FROM users AS u, LATERAL (SELECT * FROM orders AS o WHERE o.user_id = u.id) AS recent_orders"},
+		{"Nested subqueries in FROM", "SELECT * FROM (SELECT id FROM (SELECT user_id AS id FROM orders) AS inner_sub) AS outer_sub", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input SQL
+			statements, err := ParseSQL(tt.input)
+			require.NoError(t, err)
+			require.Len(t, statements, 1, "Should have exactly one statement")
+
+			// Get the deparsed SQL
+			deparsed := statements[0].SqlString()
+
+			// Determine expected output
+			expected := tt.expected
+			if expected == "" {
+				expected = tt.input
+			}
+
+			// Normalize both strings for comparison
+			normalizedDeparsed := normalizeSQL(deparsed)
+			normalizedExpected := normalizeSQL(expected)
+
+			require.Equal(t, normalizedExpected, normalizedDeparsed)
+			// Most importantly, ensure round-trip parsing works
+			reparsedStmts, reparseErr := ParseSQL(deparsed)
+			require.NoError(t, reparseErr, "Round-trip parsing must succeed: %v\nDeparsed: %s", reparseErr, deparsed)
+			require.Len(t, reparsedStmts, 1, "Round-trip should have exactly one statement")
 		})
 	}
 }

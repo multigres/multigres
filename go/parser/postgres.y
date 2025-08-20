@@ -64,6 +64,8 @@ type LexerInterface interface {
 %token <keyword> IS ISNULL NOTNULL AT TIME ZONE LOCAL SYMMETRIC ASYMMETRIC TO
 %token <keyword> OPERATOR
 %token <keyword> SELECT FROM WHERE ONLY TABLE LIMIT OFFSET ORDER_P BY GROUP_P HAVING INTO ON
+%token <keyword> JOIN INNER_P LEFT RIGHT FULL OUTER_P CROSS NATURAL USING
+%token <keyword> RECURSIVE MATERIALIZED LATERAL VALUES SEARCH BREADTH DEPTH CYCLE FIRST_P SET
 /* Type keywords */
 %token <keyword> BIT NUMERIC INTEGER SMALLINT BIGINT REAL FLOAT_P DOUBLE_P PRECISION
 %token <keyword> CHARACTER CHAR_P VARCHAR NATIONAL NCHAR VARYING
@@ -110,12 +112,13 @@ type LexerInterface interface {
 %type <stmtList>     parse_toplevel stmtmulti
 %type <stmt>         toplevel_stmt stmt
 %type <str>          ColId ColLabel name
-%type <node>         name_list
+%type <node>         name_list columnList
 %type <node>         qualified_name any_name
 %type <node>         qualified_name_list any_name_list
 %type <str>          opt_single_name
 %type <str>          unreserved_keyword col_name_keyword type_func_name_keyword reserved_keyword
 %type <node>         opt_qualified_name
+%type <node>         opt_name_list
 %type <ival>         opt_drop_behavior
 %type <ival>         opt_if_exists opt_if_not_exists
 %type <ival>         opt_or_replace
@@ -148,16 +151,26 @@ type LexerInterface interface {
 %type <ival>         opt_asymmetric
 
 /* SELECT statement types - Phase 3C */
-%type <stmt>         SelectStmt select_no_parens select_with_parens simple_select
+%type <stmt>         SelectStmt PreparableStmt select_no_parens select_with_parens simple_select
 %type <list>         target_list opt_target_list
 %type <node>         target_el
 %type <list>         from_clause from_list
 %type <node>         table_ref relation_expr extended_relation_expr
 %type <node>         where_clause opt_where_clause
-%type <node>         alias_clause opt_alias_clause
+%type <node>         alias_clause opt_alias_clause opt_alias_clause_for_join_using
 %type <ival>         opt_all_clause
 %type <list>         distinct_clause opt_distinct_clause
 %type <node>         into_clause
+/* Phase 3D JOIN and CTE types */
+%type <node>         joined_table
+%type <ival>         join_type opt_outer
+%type <node>         join_qual using_clause
+%type <node>         with_clause opt_with_clause
+%type <list>         cte_list
+%type <node>         common_table_expr
+%type <ival>         opt_materialized
+%type <node>         opt_search_clause opt_cycle_clause
+%type <stmt>         values_clause
 
 /* Start symbol */
 %start parse_toplevel
@@ -320,6 +333,19 @@ name_list:
 			}
 		;
 
+columnList:
+			ColId
+			{
+				$$ = ast.NewNodeList(ast.NewString($1))
+			}
+		|	columnList ',' ColId
+			{
+				list := $1.(*ast.NodeList)
+				list.Append(ast.NewString($3))
+				$$ = list
+			}
+		;
+
 qualified_name:
 			ColId
 			{
@@ -363,6 +389,11 @@ qualified_name:
 					}
 				}
 			}
+		;
+
+opt_name_list:
+			'(' name_list ')'					{ $$ = $2 }
+		|	/* EMPTY */							{ $$ = nil }
 		;
 
 qualified_name_list:
@@ -419,6 +450,17 @@ any_name_list:
 unreserved_keyword:
 			/* Will add unreserved keywords as needed */
 			ALL										{ $$ = "all" }
+		|	MATERIALIZED							{ $$ = "materialized" }
+		|	RECURSIVE								{ $$ = "recursive" }
+		|	SEARCH									{ $$ = "search" }
+		|	BREADTH									{ $$ = "breadth" }
+		|	DEPTH									{ $$ = "depth" }
+		|	CYCLE									{ $$ = "cycle" }
+		|	FIRST_P									{ $$ = "first" }
+		|	SET										{ $$ = "set" }
+		|	BY										{ $$ = "by" }
+		|	TRUE_P									{ $$ = "true" }
+		|	FALSE_P									{ $$ = "false" }
 		;
 
 col_name_keyword:
@@ -1356,6 +1398,11 @@ SelectStmt:
 		|	select_with_parens						{ $$ = $1 }
 		;
 
+PreparableStmt:
+			SelectStmt								{ $$ = $1 }
+			/* TODO: Add InsertStmt, UpdateStmt, DeleteStmt, MergeStmt when implemented */
+		;
+
 select_with_parens:
 			'(' select_no_parens ')'				{ $$ = $2 }
 		|	'(' select_with_parens ')'				{ $$ = $2 }
@@ -1367,6 +1414,12 @@ select_with_parens:
  */
 select_no_parens:
 			simple_select							{ $$ = $1 }
+		|	with_clause simple_select
+			{
+				selectStmt := $2.(*ast.SelectStmt)
+				selectStmt.WithClause = $1.(*ast.WithClause)
+				$$ = selectStmt
+			}
 		;
 
 /*
@@ -1404,6 +1457,11 @@ simple_select:
 				selectStmt.TargetList = []*ast.ResTarget{starTarget}
 				selectStmt.FromClause = ast.NewNodeList($2)
 				$$ = selectStmt
+			}
+		|	values_clause
+			{
+				// VALUES clause is a SelectStmt with ValuesLists
+				$$ = $1
 			}
 		;
 
@@ -1470,6 +1528,38 @@ table_ref:
 				}
 				$$ = rangeVar
 			}
+		|	select_with_parens opt_alias_clause
+			{
+				/* Subquery in FROM clause */
+				subquery := $1.(*ast.SelectStmt)
+				var alias *ast.Alias
+				if $2 != nil {
+					alias = $2.(*ast.Alias)
+				}
+				rangeSubselect := ast.NewRangeSubselect(false, subquery, alias)
+				$$ = rangeSubselect
+			}
+		|	LATERAL select_with_parens opt_alias_clause
+			{
+				/* LATERAL subquery in FROM clause */
+				subquery := $2.(*ast.SelectStmt)
+				var alias *ast.Alias
+				if $3 != nil {
+					alias = $3.(*ast.Alias)
+				}
+				rangeSubselect := ast.NewRangeSubselect(true, subquery, alias)
+				$$ = rangeSubselect
+			}
+		|	joined_table
+			{
+				$$ = $1
+			}
+		|	'(' joined_table ')' alias_clause
+			{
+				joinExpr := $2.(*ast.JoinExpr)
+				joinExpr.Alias = $4.(*ast.Alias)
+				$$ = joinExpr
+			}
 		;
 
 relation_expr:
@@ -1503,6 +1593,278 @@ extended_relation_expr:
 				rangeVar := $3.(*ast.RangeVar)
 				rangeVar.Inh = false // no inheritance
 				$$ = rangeVar
+			}
+		;
+
+/*
+ * JOIN rules - Phase 3D Implementation
+ * From postgres/src/backend/parser/gram.y:13400+
+ * It may seem silly to separate joined_table from table_ref, but there is
+ * method in SQL's madness: if you don't do it this way you get reduce-
+ * reduce conflicts, because it's not clear to the parser generator whether
+ * to expect alias_clause after ')' or not.
+ */
+joined_table:
+			'(' joined_table ')'
+			{
+				$$ = ast.NewParenExpr($2, 0)
+			}
+		|	table_ref CROSS JOIN table_ref
+			{
+				/* CROSS JOIN is same as unqualified inner join */
+				left := $1
+				right := $4
+				join := ast.NewJoinExpr(ast.JOIN_INNER, left, right, nil)
+				join.IsNatural = false
+				$$ = join
+			}
+		|	table_ref join_type JOIN table_ref join_qual
+			{
+				left := $1
+				right := $4
+				joinType := ast.JoinType($2)
+				joinQual := $5
+
+				var join *ast.JoinExpr
+
+				/* Check if join_qual is a USING clause (NodeList) or ON clause (Expression) */
+				if nodeList, ok := joinQual.(*ast.NodeList); ok && nodeList.Len() == 2 {
+					/* USING clause: [name_list, alias_or_null] */
+					nameList := nodeList.Items[0].(*ast.NodeList)
+					var alias *ast.Alias
+					if nodeList.Items[1] != nil {
+						alias = nodeList.Items[1].(*ast.Alias)
+					}
+					join = ast.NewUsingJoinExpr(joinType, left, right, nameList)
+					join.JoinUsingAlias = alias
+				} else {
+					/* ON clause */
+					join = ast.NewJoinExpr(joinType, left, right, joinQual.(ast.Expression))
+				}
+				join.IsNatural = false
+				$$ = join
+			}
+		|	table_ref JOIN table_ref join_qual
+			{
+				/* letting join_type reduce to empty doesn't work */
+				left := $1
+				right := $3
+				joinQual := $4
+
+				var join *ast.JoinExpr
+
+				/* Check if join_qual is a USING clause (NodeList) or ON clause (Expression) */
+				if nodeList, ok := joinQual.(*ast.NodeList); ok && nodeList.Len() == 2 {
+					/* USING clause: [name_list, alias_or_null] */
+					nameList := nodeList.Items[0].(*ast.NodeList)
+					var alias *ast.Alias
+					if nodeList.Items[1] != nil {
+						alias = nodeList.Items[1].(*ast.Alias)
+					}
+					join = ast.NewUsingJoinExpr(ast.JOIN_INNER, left, right, nameList)
+					join.JoinUsingAlias = alias
+				} else {
+					/* ON clause */
+					join = ast.NewJoinExpr(ast.JOIN_INNER, left, right, joinQual.(ast.Expression))
+				}
+				join.IsNatural = false
+				$$ = join
+			}
+		|	table_ref NATURAL join_type JOIN table_ref
+			{
+				left := $1
+				right := $5
+				joinType := ast.JoinType($3)
+				join := ast.NewNaturalJoinExpr(joinType, left, right)
+				$$ = join
+			}
+		|	table_ref NATURAL JOIN table_ref
+			{
+				/* letting join_type reduce to empty doesn't work */
+				left := $1
+				right := $4
+				join := ast.NewNaturalJoinExpr(ast.JOIN_INNER, left, right)
+				$$ = join
+			}
+		;
+
+join_type:
+			FULL opt_outer							{ $$ = int(ast.JOIN_FULL) }
+		|	LEFT opt_outer							{ $$ = int(ast.JOIN_LEFT) }
+		|	RIGHT opt_outer							{ $$ = int(ast.JOIN_RIGHT) }
+		|	INNER_P									{ $$ = int(ast.JOIN_INNER) }
+		;
+
+/* OUTER is just noise... */
+opt_outer:
+			OUTER_P								{ $$ = 1 }
+		|	/* EMPTY */							{ $$ = 0 }
+		;
+
+/*
+ * We return USING as a two-element List (the first item being a sub-List
+ * of the common column names, and the second either an Alias item or NULL).
+ * An ON-expr will not be a List, so it can be told apart that way.
+ */
+join_qual:
+			USING '(' name_list ')' opt_alias_clause_for_join_using
+			{
+				/* Create a two-element list: [name_list, alias_or_null] following PostgreSQL */
+				nameList := $3
+				var aliasNode ast.Node = nil
+				if $5 != nil {
+					aliasNode = $5
+				}
+				usingList := ast.NewNodeList(nameList, aliasNode)
+				$$ = usingList
+			}
+		|	ON a_expr
+			{
+				$$ = $2
+			}
+		;
+
+using_clause:
+			USING '(' name_list ')'
+			{
+				$$ = $3
+			}
+		;
+
+/*
+ * WITH clause rules - Phase 3D Implementation
+ * From postgres/src/backend/parser/gram.y:13215+
+ */
+with_clause:
+			WITH cte_list
+			{
+				$$ = ast.NewWithClause($2, false, 0)
+			}
+		|	WITH_LA cte_list
+			{
+				$$ = ast.NewWithClause($2, false, 0)
+			}
+		|	WITH RECURSIVE cte_list
+			{
+				$$ = ast.NewWithClause($3, true, 0)
+			}
+		;
+
+opt_with_clause:
+			with_clause							{ $$ = $1 }
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+cte_list:
+			common_table_expr
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	cte_list ',' common_table_expr
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+		;
+
+common_table_expr:
+			name opt_name_list AS opt_materialized '(' PreparableStmt ')' opt_search_clause opt_cycle_clause
+			{
+				ctename := $1
+				query := $6
+				cte := ast.NewCommonTableExpr(ctename, query)
+
+				// Set column names if provided
+				if $2 != nil {
+					cte.Aliascolnames = $2.(*ast.NodeList)
+				}
+
+				// Set materialized option
+				cte.Ctematerialized = ast.CTEMaterialized($4)
+
+				// Set search clause if provided
+				if $8 != nil {
+					cte.SearchClause = $8.(*ast.CTESearchClause)
+				}
+
+				// Set cycle clause if provided
+				if $9 != nil {
+					cte.CycleClause = $9.(*ast.CTECycleClause)
+				}
+
+				$$ = cte
+			}
+		;
+
+opt_materialized:
+			MATERIALIZED						{ $$ = int(ast.CTEMaterializeAlways) }
+		|	NOT MATERIALIZED					{ $$ = int(ast.CTEMaterializeNever) }
+		|	/* EMPTY */							{ $$ = int(ast.CTEMaterializeDefault) }
+		;
+
+opt_search_clause:
+			SEARCH DEPTH FIRST_P BY columnList SET ColId
+			{
+				searchColList := $5.(*ast.NodeList)
+				seqColumn := $7
+				$$ = ast.NewCTESearchClause(searchColList, false, seqColumn)
+			}
+		|	SEARCH BREADTH FIRST_P BY columnList SET ColId
+			{
+				searchColList := $5.(*ast.NodeList)
+				seqColumn := $7
+				$$ = ast.NewCTESearchClause(searchColList, true, seqColumn)
+			}
+		|	/* EMPTY */
+			{
+				$$ = nil
+			}
+		;
+
+opt_cycle_clause:
+			CYCLE columnList SET ColId TO AexprConst DEFAULT AexprConst USING ColId
+			{
+				cycleColList := $2.(*ast.NodeList)
+				markColumn := $4
+				markValue := $6.(ast.Expression)
+				markDefault := $8.(ast.Expression)
+				pathColumn := $10
+				$$ = ast.NewCTECycleClause(cycleColList, markColumn, markValue, markDefault, pathColumn)
+			}
+		|	CYCLE columnList SET ColId USING ColId
+			{
+				cycleColList := $2.(*ast.NodeList)
+				markColumn := $4
+				pathColumn := $6
+				// For simple CYCLE clause, use nil for mark values to avoid TO/DEFAULT in deparsing
+				$$ = ast.NewCTECycleClause(cycleColList, markColumn, nil, nil, pathColumn)
+			}
+		|	/* EMPTY */
+			{
+				$$ = nil
+			}
+		;
+
+/*
+ * VALUES clause rules - Phase 3D Implementation
+ * From postgres/src/backend/parser/gram.y:13255+
+ */
+values_clause:
+			VALUES '(' expr_list ')'
+			{
+				/* Create a SelectStmt with VALUES clause following PostgreSQL */
+				selectStmt := ast.NewSelectStmt()
+				exprList := $3.(*ast.NodeList)
+				selectStmt.ValuesLists = []*ast.NodeList{exprList}
+				$$ = selectStmt
+			}
+		|	values_clause ',' '(' expr_list ')'
+			{
+				/* Add additional VALUES row to existing SelectStmt */
+				selectStmt := $1.(*ast.SelectStmt)
+				exprList := $4.(*ast.NodeList)
+				selectStmt.ValuesLists = append(selectStmt.ValuesLists, exprList)
+				$$ = selectStmt
 			}
 		;
 
@@ -1547,6 +1909,16 @@ alias_clause:
 			{
 				$$ = ast.NewAlias($1, nil)
 			}
+		;
+
+/* Special variant of opt_alias_clause for JOIN/USING */
+opt_alias_clause_for_join_using:
+			AS ColId
+			{
+				alias := ast.NewAlias($2, nil)
+				$$ = alias
+			}
+		|	/* EMPTY */								{ $$ = nil }
 		;
 
 /*

@@ -150,6 +150,8 @@ const (
 	T_A_ArrayExpr
 	T_ColumnDef
 	T_WithClause
+	T_CTESearchClause
+	T_CTECycleClause
 	T_MultiAssignRef
 	T_WindowDef
 	T_SortBy
@@ -499,6 +501,10 @@ func (nt NodeTag) String() string {
 		return "T_ColumnDef"
 	case T_WithClause:
 		return "T_WithClause"
+	case T_CTESearchClause:
+		return "T_CTESearchClause"
+	case T_CTECycleClause:
+		return "T_CTECycleClause"
 	case T_MultiAssignRef:
 		return "T_MultiAssignRef"
 	case T_WindowDef:

@@ -356,10 +356,10 @@ func BenchmarkLexerCreation(b *testing.B) {
 }
 
 // =============================================================================
-// Phase 2B: Enhanced Lexer Engine Tests
+// Enhanced Lexer Engine Tests
 // =============================================================================
 
-// Phase 2B: Test enhanced identifier recognition with PostgreSQL rules
+// Test enhanced identifier recognition with PostgreSQL rules
 func TestEnhancedIdentifierRecognition(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -444,7 +444,7 @@ func TestEnhancedIdentifierRecognition(t *testing.T) {
 	}
 }
 
-// Phase 2B: Test comprehensive operator recognition
+// Test comprehensive operator recognition
 func TestComprehensiveOperatorRecognition(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -541,7 +541,7 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 	}
 }
 
-// Phase 2B: Test enhanced whitespace and comment handling
+// Test enhanced whitespace and comment handling
 func TestEnhancedWhitespaceAndComments(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -616,7 +616,7 @@ func TestEnhancedWhitespaceAndComments(t *testing.T) {
 	}
 }
 
-// Phase 2B: Test state machine foundation
+// Test state machine foundation
 func TestStateMachineFoundation(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -655,7 +655,7 @@ func TestStateMachineFoundation(t *testing.T) {
 	}
 }
 
-// Phase 2B: Test parameter recognition
+// Test parameter recognition
 func TestParameterRecognition(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -724,7 +724,7 @@ func TestParameterRecognition(t *testing.T) {
 	}
 }
 
-// Phase 2B: Test comprehensive SQL lexing
+// Test comprehensive SQL lexing
 func TestComprehensiveSQLLexing(t *testing.T) {
 	input := `
 		-- Query with comments
@@ -1170,7 +1170,7 @@ func TestOperatorPrecedence(t *testing.T) {
 	}
 }
 
-// Phase 2B: Test character classification functions
+// Test character classification functions
 func TestCharacterClassification(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1231,7 +1231,7 @@ func TestCharacterClassification(t *testing.T) {
 	}
 }
 
-// Phase 2B: Test hex, bit, and extended string literal recognition
+// Test hex, bit, and extended string literal recognition
 func TestSpecialLiteralRecognition(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -1341,7 +1341,7 @@ func TestSpecialLiteralRecognition(t *testing.T) {
 	}
 }
 
-// Phase 2B: Test edge cases for character dispatch ordering
+// Test edge cases for character dispatch ordering
 func TestCharacterDispatchOrdering(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -1435,7 +1435,7 @@ func TestCharacterDispatchOrdering(t *testing.T) {
 	}
 }
 
-// Phase 2B: Benchmark enhanced lexer performance
+// Benchmark enhanced lexer performance
 func BenchmarkEnhancedLexing(b *testing.B) {
 	input := `
 		-- Performance test query
@@ -1463,7 +1463,7 @@ func BenchmarkEnhancedLexing(b *testing.B) {
 }
 
 // =============================================================================
-// Phase 2B: String Literal Content Extraction Tests (Enhancement)
+// String Literal Content Extraction Tests
 // =============================================================================
 
 // Test proper string literal content extraction with quote doubling
