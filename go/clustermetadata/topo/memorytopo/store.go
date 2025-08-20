@@ -291,7 +291,7 @@ func NewServerAndFactory(ctx context.Context, cells ...string) (topo.Store, *Fac
 	}
 	for _, cell := range cells {
 		f.cells[cell] = f.newDirectory(cell, nil)
-		if err := ts.CreateCellLocation(ctx, cell, &clustermetadatapb.Cell{}); err != nil {
+		if err := ts.CreateCell(ctx, cell, &clustermetadatapb.Cell{}); err != nil {
 			slog.Error("ts.CreateCellInfo failed", "cell", cell, "error", err)
 		}
 	}

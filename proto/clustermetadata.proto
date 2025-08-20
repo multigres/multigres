@@ -43,7 +43,7 @@ message GlobalTopoConfig {
   string root = 3;
 }
 
-// CellLocation describes how to connect to a cell topology. 
+// Cell describes how to connect to a cell topology.
 // These records are stored in the global topology server.
 message Cell {
   // name for this cell

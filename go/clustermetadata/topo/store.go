@@ -108,20 +108,20 @@ type GlobalStore interface {
 	// sorted alphabetically by name.
 	GetCellNames(ctx context.Context) ([]string, error)
 
-	// GetCellLocation retrieves the Cell configuration for a given cell.
-	GetCellLocation(ctx context.Context, cell string) (*clustermetadatapb.Cell, error)
+	// GetCell retrieves the Cell configuration for a given cell.
+	GetCell(ctx context.Context, cell string) (*clustermetadatapb.Cell, error)
 
-	// CreateCellLocation creates a new Cell configuration for a cell.
-	CreateCellLocation(ctx context.Context, cell string, ci *clustermetadatapb.Cell) error
+	// CreateCell creates a new Cell configuration for a cell.
+	CreateCell(ctx context.Context, cell string, ci *clustermetadatapb.Cell) error
 
-	// UpdateCellLocationFields reads a Cell, applies an update function,
+	// UpdateCellFields reads a Cell, applies an update function,
 	// and writes it back atomically.
-	UpdateCellLocationFields(ctx context.Context, cell string, update func(*clustermetadatapb.Cell) error) error
+	UpdateCellFields(ctx context.Context, cell string, update func(*clustermetadatapb.Cell) error) error
 
-	// DeleteCellLocation deletes the specified Cell. If 'force' is true,
+	// DeleteCell deletes the specified Cell. If 'force' is true,
 	// it will proceed even if references exist, potentially leaving the system
 	// in an inconsistent state.
-	DeleteCellLocation(ctx context.Context, cell string, force bool) error
+	DeleteCell(ctx context.Context, cell string, force bool) error
 
 	// GetDatabaseNames returns the names of all existing databases, sorted
 	// alphabetically by name.
@@ -321,7 +321,7 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 
 	// Fetch cell cluster addresses from the global cluster.
 	// We can use the GlobalReadOnlyCell for this call.
-	ci, err := ts.GetCellLocation(ctx, cell)
+	ci, err := ts.GetCell(ctx, cell)
 	if err != nil {
 		return nil, err
 	}
@@ -336,8 +336,8 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		// Client exists in cache. Verify that it's for the same cell configuration.
 		// The cell name can be reused with different ServerAddresses and/or Root,
 		// in which case we should get a new connection and update the cache.
-		cellLocationAddrs := strings.Join(cc.Cell.ServerAddresses, ",")
-		if serverAddrsStr == cellLocationAddrs && ci.Root == cc.Cell.Root {
+		cellAddrs := strings.Join(cc.Cell.ServerAddresses, ",")
+		if serverAddrsStr == cellAddrs && ci.Root == cc.Cell.Root {
 			return cc.conn, nil
 		}
 		// Close the cached connection as it's no longer valid.

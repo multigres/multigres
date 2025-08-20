@@ -56,8 +56,8 @@ func (ts *store) GetCellNames(ctx context.Context) ([]string, error) {
 	}
 }
 
-// GetCellLocation reads a Cell from the global Conn.
-func (ts *store) GetCellLocation(ctx context.Context, cell string) (*clustermetadatapb.Cell, error) {
+// GetCell reads a Cell from the global Conn.
+func (ts *store) GetCell(ctx context.Context, cell string) (*clustermetadatapb.Cell, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -77,8 +77,8 @@ func (ts *store) GetCellLocation(ctx context.Context, cell string) (*clustermeta
 	return ci, nil
 }
 
-// CreateCellLocation creates a new Cell with the provided content.
-func (ts *store) CreateCellLocation(ctx context.Context, cell string, ci *clustermetadatapb.Cell) error {
+// CreateCell creates a new Cell with the provided content.
+func (ts *store) CreateCell(ctx context.Context, cell string, ci *clustermetadatapb.Cell) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -94,12 +94,12 @@ func (ts *store) CreateCellLocation(ctx context.Context, cell string, ci *cluste
 	return err
 }
 
-// UpdateCellLocationFields is a high level helper method to read a Cell
+// UpdateCellFields is a high level helper method to read a Cell
 // object, update its fields, and then write it back.  If the write fails due to
 // a version mismatch, it will re-read the record and retry the update.
 // If the update method returns ErrNoUpdateNeeded, nothing is written,
 // and nil is returned.
-func (ts *store) UpdateCellLocationFields(ctx context.Context, cell string, update func(*clustermetadatapb.Cell) error) error {
+func (ts *store) UpdateCellFields(ctx context.Context, cell string, update func(*clustermetadatapb.Cell) error) error {
 	filePath := pathForCell(cell)
 	for {
 		if ctx.Err() != nil {
@@ -141,10 +141,10 @@ func (ts *store) UpdateCellLocationFields(ctx context.Context, cell string, upda
 	}
 }
 
-// DeleteCellLocation deletes the specified Cell.
+// DeleteCell deletes the specified Cell.
 // We first try to make sure no Shard record points to the cell,
 // but we'll continue regardless if 'force' is true.
-func (ts *store) DeleteCellLocation(ctx context.Context, cell string, force bool) error {
+func (ts *store) DeleteCell(ctx context.Context, cell string, force bool) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

@@ -322,7 +322,7 @@ func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 // unlike 'checkLockUnblocks', checkTryLockUnblocks will not block on other client but instead
 // keep retrying until it gets the lock.
 func checkTryLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
-	cellLocationPath := path.Join(topo.DatabasesPath, "test_database")
+	cellPath := path.Join(topo.DatabasesPath, "test_database")
 	unblock := make(chan struct{})
 	finished := make(chan struct{})
 
@@ -333,7 +333,7 @@ func checkTryLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
 	go func() {
 		<-unblock
 		for time.Now().Before(waitUntil) {
-			lockDescriptor, err := conn.TryLock(ctx, cellLocationPath, "unblocks")
+			lockDescriptor, err := conn.TryLock(ctx, cellPath, "unblocks")
 			if err != nil {
 				if !errors.Is(err, &topo.TopoError{Code: topo.NodeExists}) {
 					require.Fail(t, "expected node exists during trylock", err.Error())
@@ -350,7 +350,7 @@ func checkTryLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
 	}()
 
 	// Lock the database.
-	lockDescriptor2, err := conn.TryLock(ctx, cellLocationPath, "")
+	lockDescriptor2, err := conn.TryLock(ctx, cellPath, "")
 	if err != nil {
 		require.Fail(t, "Lock(test_database) failed", err.Error())
 	}

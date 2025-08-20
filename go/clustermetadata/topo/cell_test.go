@@ -27,7 +27,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 )
 
-func TestCellLocationCRUDOperations(t *testing.T) {
+func TestCellCRUDOperations(t *testing.T) {
 	ctx := context.Background()
 	cell := "test-cell-1"
 	cell2 := "test-cell-2"
@@ -43,10 +43,10 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 					ServerAddresses: []string{"server1:2181", "server2:2181"},
 					Root:            "/topo",
 				}
-				err := ts.CreateCellLocation(ctx, cell, cl)
+				err := ts.CreateCell(ctx, cell, cl)
 				require.NoError(t, err)
 
-				retrieved, err := ts.GetCellLocation(ctx, cell)
+				retrieved, err := ts.GetCell(ctx, cell)
 				require.NoError(t, err)
 				require.Equal(t, cl.ServerAddresses, retrieved.ServerAddresses)
 				require.Equal(t, cl.Root, retrieved.Root)
@@ -55,7 +55,7 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 		{
 			name: "Get nonexistent Cell",
 			test: func(t *testing.T, ts topo.Store) {
-				_, err := ts.GetCellLocation(ctx, "nonexistent")
+				_, err := ts.GetCell(ctx, "nonexistent")
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}))
 			},
@@ -67,11 +67,11 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 					ServerAddresses: []string{"server1:2181"},
 					Root:            "/topo",
 				}
-				err := ts.CreateCellLocation(ctx, cell, cl)
+				err := ts.CreateCell(ctx, cell, cl)
 				require.NoError(t, err)
 
 				// Update the cell location
-				err = ts.UpdateCellLocationFields(ctx, cell, func(cl *clustermetadatapb.Cell) error {
+				err = ts.UpdateCellFields(ctx, cell, func(cl *clustermetadatapb.Cell) error {
 					cl.ServerAddresses = append(cl.ServerAddresses, "server2:2181")
 					cl.Root = "/new_topo"
 					return nil
@@ -79,7 +79,7 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 				require.NoError(t, err)
 
 				// Verify the update
-				retrieved, err := ts.GetCellLocation(ctx, cell)
+				retrieved, err := ts.GetCell(ctx, cell)
 				require.NoError(t, err)
 				require.Contains(t, retrieved.ServerAddresses, "server2:2181")
 				require.Equal(t, "/new_topo", retrieved.Root)
@@ -92,19 +92,19 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 					ServerAddresses: []string{"server1:2181"},
 					Root:            "/topo",
 				}
-				err := ts.CreateCellLocation(ctx, cell, cl)
+				err := ts.CreateCell(ctx, cell, cl)
 				require.NoError(t, err)
 
 				// Update function that fails
 				updateErr := errors.New("update failed")
-				err = ts.UpdateCellLocationFields(ctx, cell, func(cl *clustermetadatapb.Cell) error {
+				err = ts.UpdateCellFields(ctx, cell, func(cl *clustermetadatapb.Cell) error {
 					return updateErr
 				})
 				require.Error(t, err)
 				require.Equal(t, updateErr, err)
 
 				// Verify cell location was not modified
-				retrieved, err := ts.GetCellLocation(ctx, cell)
+				retrieved, err := ts.GetCell(ctx, cell)
 				require.NoError(t, err)
 				require.Equal(t, []string{"server1:2181"}, retrieved.ServerAddresses)
 				require.Equal(t, "/topo", retrieved.Root)
@@ -123,9 +123,9 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 					Root:            "/topo2",
 				}
 
-				err := ts.CreateCellLocation(ctx, cell, cl1)
+				err := ts.CreateCell(ctx, cell, cl1)
 				require.NoError(t, err)
-				err = ts.CreateCellLocation(ctx, cell2, cl2)
+				err = ts.CreateCell(ctx, cell2, cl2)
 				require.NoError(t, err)
 
 				// Get all cell names - should include the pre-created zone-1 and our new cells
@@ -147,15 +147,15 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 					ServerAddresses: []string{"server1:2181"},
 					Root:            "/topo",
 				}
-				err := ts.CreateCellLocation(ctx, cell, cl)
+				err := ts.CreateCell(ctx, cell, cl)
 				require.NoError(t, err)
 
 				// Delete the cell location
-				err = ts.DeleteCellLocation(ctx, cell, true)
+				err = ts.DeleteCell(ctx, cell, true)
 				require.NoError(t, err)
 
 				// Verify it's gone
-				_, err = ts.GetCellLocation(ctx, cell)
+				_, err = ts.GetCell(ctx, cell)
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}))
 			},
@@ -171,7 +171,7 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 					ServerAddresses: []string{"server1:2181"},
 					Root:            "/topo",
 				}
-				err := tsWithFactory.CreateCellLocation(ctx, cell, cl)
+				err := tsWithFactory.CreateCell(ctx, cell, cl)
 				require.NoError(t, err)
 
 				// Inject a BadVersion error that will only occur once
@@ -181,7 +181,7 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 				// Track how many times the update function is called
 				updateCallCount := 0
 
-				err = tsWithFactory.UpdateCellLocationFields(ctx, cell, func(cl *clustermetadatapb.Cell) error {
+				err = tsWithFactory.UpdateCellFields(ctx, cell, func(cl *clustermetadatapb.Cell) error {
 					updateCallCount++
 					cl.ServerAddresses = append(cl.ServerAddresses, "server2:2181")
 					cl.Root = "/new_topo"
@@ -193,7 +193,7 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 				require.Equal(t, 2, updateCallCount)
 
 				// Verify the update was successful
-				retrieved, err := tsWithFactory.GetCellLocation(ctx, cell)
+				retrieved, err := tsWithFactory.GetCell(ctx, cell)
 				require.NoError(t, err)
 				require.Contains(t, retrieved.ServerAddresses, "server2:2181")
 				require.Equal(t, "/new_topo", retrieved.Root)

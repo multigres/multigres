@@ -283,7 +283,7 @@ func (x *GlobalTopoConfig) GetRoot() string {
 	return ""
 }
 
-// CellLocation describes how to connect to a cell topology.
+// Cell describes how to connect to a cell topology.
 // These records are stored in the global topology server.
 type Cell struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
