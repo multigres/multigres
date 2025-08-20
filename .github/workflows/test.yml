@@ -32,6 +32,26 @@ jobs:
       with:
         go-version: '1.25.0'
 
+    - name: Install PostgreSQL
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y postgresql postgresql-contrib
+        sudo systemctl start postgresql
+        sudo systemctl enable postgresql
+        # Create postgres user and set up basic auth
+        sudo -u postgres createuser --superuser $USER || true
+        sudo -u postgres psql -c "ALTER USER $USER CREATEDB;" || true
+
+    - name: Verify PostgreSQL Installation
+      run: |
+        which initdb
+        which postgres
+        which pg_ctl
+        which pg_isready
+        which psql
+        postgres --version
+        initdb --version
+
     - name: Build
       run: make build
 
