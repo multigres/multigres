@@ -101,32 +101,34 @@ func runStatus(cmd *cobra.Command, args []string) error {
 }
 
 func isServerReady() bool {
-	host := viper.GetString("pg-host")
-	port := viper.GetInt("pg-port")
-	user := viper.GetString("pg-user")
-	database := viper.GetString("pg-database")
+	// Legacy function - use viper config
+	config := NewPostgresConfigFromViper()
+	return isServerReadyWithConfig(config)
+}
 
+func isServerReadyWithConfig(config *PostgresConfig) bool {
 	cmd := exec.Command("pg_isready",
-		"-h", host,
-		"-p", fmt.Sprintf("%d", port),
-		"-U", user,
-		"-d", database,
+		"-h", config.Host,
+		"-p", fmt.Sprintf("%d", config.Port),
+		"-U", config.User,
+		"-d", config.Database,
 	)
 
 	return cmd.Run() == nil
 }
 
 func getServerVersion() string {
-	host := viper.GetString("pg-host")
-	port := viper.GetInt("pg-port")
-	user := viper.GetString("pg-user")
-	database := viper.GetString("pg-database")
+	// Legacy function - use viper config
+	config := NewPostgresConfigFromViper()
+	return getServerVersionWithConfig(config)
+}
 
+func getServerVersionWithConfig(config *PostgresConfig) string {
 	cmd := exec.Command("psql",
-		"-h", host,
-		"-p", fmt.Sprintf("%d", port),
-		"-U", user,
-		"-d", database,
+		"-h", config.Host,
+		"-p", fmt.Sprintf("%d", config.Port),
+		"-U", config.User,
+		"-d", config.Database,
 		"-t", "-c", "SELECT version()",
 	)
 

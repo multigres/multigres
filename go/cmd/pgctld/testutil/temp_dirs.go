@@ -19,6 +19,7 @@ package testutil
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,7 +29,7 @@ import (
 func TempDir(t *testing.T, prefix string) (string, func()) {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("", prefix+"_")
+	dir, err := os.MkdirTemp("/tmp", prefix+"_")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -82,14 +83,29 @@ func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 	return dataDir
 }
 
-// CreatePIDFile creates a fake postmaster.pid file for testing
+// CreatePIDFile creates a postmaster.pid file for testing with a real running process
 func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	t.Helper()
 
+	// Start a background sleep process to get a real PID that will pass the isProcessRunning check
+	cmd := exec.Command("sleep", "3600")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Failed to start background sleep process: %v", err)
+	}
+
+	realPID := cmd.Process.Pid
+
+	// Register cleanup to kill the background process when test finishes
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	})
+
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 	content := []string{
-		fmt.Sprintf("%d", pid),
-		"/tmp/data",
+		fmt.Sprintf("%d", realPID),
+		dataDir,
 		"1234567890",
 		"5432",
 		"/tmp",

@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func init() {
@@ -46,25 +45,28 @@ Shutdown modes:
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
+	config := NewPostgresConfigFromViper()
+	mode, _ := cmd.Flags().GetString("mode")
+	return StopPostgreSQLWithConfig(config, mode)
+}
+
+// StopPostgreSQLWithConfig stops PostgreSQL with the given configuration and mode
+func StopPostgreSQLWithConfig(config *PostgresConfig, mode string) error {
 	logger := slog.Default()
 
-	dataDir := viper.GetString("data-dir")
-	if dataDir == "" {
+	if config.DataDir == "" {
 		return fmt.Errorf("data-dir is required")
 	}
 
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(dataDir) {
+	if !isPostgreSQLRunning(config.DataDir) {
 		logger.Info("PostgreSQL is not running")
 		return nil
 	}
 
-	mode, _ := cmd.Flags().GetString("mode")
-	timeout := viper.GetInt("timeout")
+	logger.Info("Stopping PostgreSQL server", "data_dir", config.DataDir, "mode", mode)
 
-	logger.Info("Stopping PostgreSQL server", "data_dir", dataDir, "mode", mode)
-
-	if err := stopPostgreSQL(dataDir, mode, timeout); err != nil {
+	if err := stopPostgreSQLWithConfig(config, mode); err != nil {
 		return fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
 
@@ -73,20 +75,36 @@ func runStop(cmd *cobra.Command, args []string) error {
 }
 
 func stopPostgreSQL(dataDir, mode string, timeout int) error {
+	// Legacy function - use defaults for other config
+	config := NewPostgresConfigFromDefaults()
+	config.DataDir = dataDir
+	config.Timeout = timeout
+	return stopPostgreSQLWithConfig(config, mode)
+}
+
+func stopPostgreSQLWithConfig(config *PostgresConfig, mode string) error {
 	// First try using pg_ctl
-	if err := stopWithPgCtl(dataDir, mode, timeout); err != nil {
+	if err := stopWithPgCtlWithConfig(config, mode); err != nil {
 		slog.Warn("pg_ctl stop failed, trying direct signal approach", "error", err)
-		return stopWithSignal(dataDir, mode, timeout)
+		return stopWithSignalWithConfig(config, mode)
 	}
 	return nil
 }
 
 func stopWithPgCtl(dataDir, mode string, timeout int) error {
+	// Legacy function - use defaults
+	config := NewPostgresConfigFromDefaults()
+	config.DataDir = dataDir
+	config.Timeout = timeout
+	return stopWithPgCtlWithConfig(config, mode)
+}
+
+func stopWithPgCtlWithConfig(config *PostgresConfig, mode string) error {
 	args := []string{
 		"stop",
-		"-D", dataDir,
+		"-D", config.DataDir,
 		"-m", mode,
-		"-t", fmt.Sprintf("%d", timeout),
+		"-t", fmt.Sprintf("%d", config.Timeout),
 	}
 
 	cmd := exec.Command("pg_ctl", args...)
@@ -97,8 +115,16 @@ func stopWithPgCtl(dataDir, mode string, timeout int) error {
 }
 
 func stopWithSignal(dataDir, mode string, timeout int) error {
+	// Legacy function - use defaults
+	config := NewPostgresConfigFromDefaults()
+	config.DataDir = dataDir
+	config.Timeout = timeout
+	return stopWithSignalWithConfig(config, mode)
+}
+
+func stopWithSignalWithConfig(config *PostgresConfig, mode string) error {
 	// Read PID from postmaster.pid file
-	pid, err := readPostmasterPID(dataDir)
+	pid, err := readPostmasterPID(config.DataDir)
 	if err != nil {
 		return fmt.Errorf("failed to read postmaster PID: %w", err)
 	}
@@ -128,7 +154,7 @@ func stopWithSignal(dataDir, mode string, timeout int) error {
 	}
 
 	// Wait for process to exit
-	for i := 0; i < timeout; i++ {
+	for i := 0; i < config.Timeout; i++ {
 		if !isProcessRunning(pid) {
 			return nil
 		}
@@ -141,5 +167,5 @@ func stopWithSignal(dataDir, mode string, timeout int) error {
 		return process.Kill()
 	}
 
-	return fmt.Errorf("PostgreSQL did not stop within %d seconds", timeout)
+	return fmt.Errorf("PostgreSQL did not stop within %d seconds", config.Timeout)
 }

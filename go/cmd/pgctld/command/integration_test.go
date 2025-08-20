@@ -50,6 +50,15 @@ log_statement = 'all'
 `), 0644)
 	require.NoError(t, err)
 
+	// Create a pgctld config file to avoid config file errors
+	pgctldConfigFile := filepath.Join(tempDir, ".pgctld.yaml")
+	err = os.WriteFile(pgctldConfigFile, []byte(`
+# Test pgctld configuration
+log-level: info
+timeout: 30
+`), 0644)
+	require.NoError(t, err)
+
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
 	err = os.MkdirAll(binDir, 0755)
@@ -58,28 +67,28 @@ log_statement = 'all'
 
 	// Build pgctld binary for testing
 	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "/Users/deepthi/github/multigres/go/cmd/pgctld")
+	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
 	buildOutput, err := buildCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
-	}
+	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
 
 	t.Run("complete_lifecycle_via_cli", func(t *testing.T) {
 		// Step 1: Initial status - should be not initialized
-		statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir)
+		statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--config", pgctldConfigFile)
+		statusCmd.Env = append(os.Environ(),
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		output, err := statusCmd.Output()
 		require.NoError(t, err)
 		assert.Contains(t, string(output), "Not initialized")
 
 		// Step 2: Start PostgreSQL (should initialize and start)
-		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir)
+		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		startCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		err = startCmd.Run()
 		require.NoError(t, err)
 
 		// Step 3: Check status - should be running
-		statusCmd = exec.Command(pgctldBinary, "status", "--data-dir", dataDir)
+		statusCmd = exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		statusCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		output, err = statusCmd.Output()
@@ -87,21 +96,21 @@ log_statement = 'all'
 		assert.Contains(t, string(output), "Running")
 
 		// Step 4: Reload configuration
-		reloadCmd := exec.Command(pgctldBinary, "reload-config", "--data-dir", dataDir)
+		reloadCmd := exec.Command(pgctldBinary, "reload-config", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		reloadCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		err = reloadCmd.Run()
 		require.NoError(t, err)
 
 		// Step 5: Restart PostgreSQL
-		restartCmd := exec.Command(pgctldBinary, "restart", "--data-dir", dataDir)
+		restartCmd := exec.Command(pgctldBinary, "restart", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		restartCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		err = restartCmd.Run()
 		require.NoError(t, err)
 
 		// Step 6: Check status again - should still be running
-		statusCmd = exec.Command(pgctldBinary, "status", "--data-dir", dataDir)
+		statusCmd = exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		statusCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		output, err = statusCmd.Output()
@@ -109,14 +118,14 @@ log_statement = 'all'
 		assert.Contains(t, string(output), "Running")
 
 		// Step 7: Stop PostgreSQL
-		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir)
+		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		stopCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		err = stopCmd.Run()
 		require.NoError(t, err)
 
 		// Step 8: Final status check - should be stopped
-		statusCmd = exec.Command(pgctldBinary, "status", "--data-dir", dataDir)
+		statusCmd = exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		statusCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		output, err = statusCmd.Output()
@@ -136,27 +145,36 @@ func TestMultipleStartStopCycles(t *testing.T) {
 
 	dataDir := filepath.Join(tempDir, "data")
 
+	// Create a pgctld config file to avoid config file errors
+	pgctldConfigFile := filepath.Join(tempDir, ".pgctld.yaml")
+	err := os.WriteFile(pgctldConfigFile, []byte(`
+# Test pgctld configuration
+log-level: info
+timeout: 30
+`), 0644)
+	require.NoError(t, err)
+
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err := os.MkdirAll(binDir, 0755)
+	err = os.MkdirAll(binDir, 0755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 	// Build pgctld binary for testing
 	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "./go/cmd/pgctld")
+	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
 	err = buildCmd.Run()
 	require.NoError(t, err, "Failed to build pgctld binary")
 
 	// Initialize once via CLI
-	startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir)
+	startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--config", pgctldConfigFile)
 	startCmd.Env = append(os.Environ(),
 		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 	err = startCmd.Run()
 	require.NoError(t, err)
 
 	// Stop initial start
-	stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir)
+	stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--config", pgctldConfigFile)
 	stopCmd.Env = append(os.Environ(),
 		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 	err = stopCmd.Run()
@@ -166,14 +184,14 @@ func TestMultipleStartStopCycles(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		t.Run(fmt.Sprintf("cycle_%d", i+1), func(t *testing.T) {
 			// Start PostgreSQL
-			startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir)
+			startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--config", pgctldConfigFile)
 			startCmd.Env = append(os.Environ(),
 				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 			err := startCmd.Run()
 			require.NoError(t, err)
 
 			// Verify running
-			statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir)
+			statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--config", pgctldConfigFile)
 			statusCmd.Env = append(os.Environ(),
 				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 			output, err := statusCmd.Output()
@@ -181,14 +199,14 @@ func TestMultipleStartStopCycles(t *testing.T) {
 			assert.Contains(t, string(output), "Running")
 
 			// Stop PostgreSQL
-			stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--mode", "fast")
+			stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--mode", "fast", "--config", pgctldConfigFile)
 			stopCmd.Env = append(os.Environ(),
 				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 			err = stopCmd.Run()
 			require.NoError(t, err)
 
 			// Verify stopped
-			statusCmd = exec.Command(pgctldBinary, "status", "--data-dir", dataDir)
+			statusCmd = exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--config", pgctldConfigFile)
 			statusCmd.Env = append(os.Environ(),
 				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 			output, err = statusCmd.Output()
@@ -210,27 +228,36 @@ func TestConfigurationChanges(t *testing.T) {
 	dataDir := filepath.Join(tempDir, "data")
 	configFile := filepath.Join(dataDir, "postgresql.conf")
 
+	// Create a pgctld config file to avoid config file errors
+	pgctldConfigFile := filepath.Join(tempDir, ".pgctld.yaml")
+	err := os.WriteFile(pgctldConfigFile, []byte(`
+# Test pgctld configuration
+log-level: info
+timeout: 30
+`), 0644)
+	require.NoError(t, err)
+
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err := os.MkdirAll(binDir, 0755)
+	err = os.MkdirAll(binDir, 0755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 	// Build pgctld binary for testing
 	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "./go/cmd/pgctld")
+	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
 	err = buildCmd.Run()
 	require.NoError(t, err, "Failed to build pgctld binary")
 
 	// Initialize and start PostgreSQL
-	startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir)
+	startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--config", pgctldConfigFile)
 	startCmd.Env = append(os.Environ(),
 		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 	err = startCmd.Run()
 	require.NoError(t, err)
 
 	defer func() {
-		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--mode", "fast")
+		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--mode", "fast", "--config", pgctldConfigFile)
 		stopCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		_ = stopCmd.Run()
@@ -247,14 +274,14 @@ log_min_messages = info
 		require.NoError(t, err)
 
 		// Reload configuration
-		reloadCmd := exec.Command(pgctldBinary, "reload-config", "--data-dir", dataDir)
+		reloadCmd := exec.Command(pgctldBinary, "reload-config", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		reloadCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		err = reloadCmd.Run()
 		require.NoError(t, err)
 
 		// Server should still be running
-		statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir)
+		statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		statusCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		output, err := statusCmd.Output()
@@ -274,15 +301,24 @@ func TestErrorRecovery(t *testing.T) {
 
 	dataDir := filepath.Join(tempDir, "data")
 
+	// Create a pgctld config file to avoid config file errors
+	pgctldConfigFile := filepath.Join(tempDir, ".pgctld.yaml")
+	err := os.WriteFile(pgctldConfigFile, []byte(`
+# Test pgctld configuration
+log-level: info
+timeout: 30
+`), 0644)
+	require.NoError(t, err)
+
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err := os.MkdirAll(binDir, 0755)
+	err = os.MkdirAll(binDir, 0755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 	// Build pgctld binary for testing
 	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "./go/cmd/pgctld")
+	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
 	err = buildCmd.Run()
 	require.NoError(t, err, "Failed to build pgctld binary")
 
@@ -290,14 +326,14 @@ func TestErrorRecovery(t *testing.T) {
 		nonexistentDir := filepath.Join(tempDir, "nonexistent")
 
 		// Try to start with non-existent directory - should initialize and start
-		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", nonexistentDir)
+		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", nonexistentDir, "--config", pgctldConfigFile)
 		startCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		err := startCmd.Run()
 		require.NoError(t, err)
 
 		// Clean stop
-		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", nonexistentDir, "--mode", "immediate")
+		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", nonexistentDir, "--mode", "immediate", "--config", pgctldConfigFile)
 		stopCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		_ = stopCmd.Run()
@@ -305,14 +341,14 @@ func TestErrorRecovery(t *testing.T) {
 
 	t.Run("double_start_attempt", func(t *testing.T) {
 		// Start PostgreSQL
-		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir)
+		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		startCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		err := startCmd.Run()
 		require.NoError(t, err)
 
 		// Try to start again - should handle gracefully
-		startCmd2 := exec.Command(pgctldBinary, "start", "--data-dir", dataDir)
+		startCmd2 := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		startCmd2.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		output, err := startCmd2.CombinedOutput()
@@ -322,7 +358,7 @@ func TestErrorRecovery(t *testing.T) {
 		}
 
 		// Clean stop
-		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--mode", "immediate")
+		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--mode", "immediate", "--config", pgctldConfigFile)
 		stopCmd.Env = append(os.Environ(),
 			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
 		_ = stopCmd.Run()

@@ -44,17 +44,24 @@ func TestEndToEndWithRealPostgreSQL(t *testing.T) {
 
 	dataDir := filepath.Join(tempDir, "data")
 
+	// Create a pgctld config file to avoid config file errors
+	pgctldConfigFile := filepath.Join(tempDir, ".pgctld.yaml")
+	err := os.WriteFile(pgctldConfigFile, []byte(`
+# Test pgctld configuration for e2e tests
+log-level: info
+timeout: 30
+`), 0644)
+	require.NoError(t, err)
+
 	// Build pgctld binary for testing
 	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "/Users/deepthi/github/multigres/go/cmd/pgctld")
+	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
 	buildOutput, err := buildCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
-	}
+	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
 
 	t.Run("basic_commands_with_real_postgresql", func(t *testing.T) {
 		// Step 1: Initial status - should be not initialized
-		statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir)
+		statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		output, err := statusCmd.Output()
 		require.NoError(t, err)
 		assert.Contains(t, string(output), "Not initialized")
@@ -98,20 +105,28 @@ func TestEndToEndGRPCWithRealPostgreSQL(t *testing.T) {
 
 	dataDir := filepath.Join(tempDir, "data")
 
+	// Create a pgctld config file to avoid config file errors
+	pgctldConfigFile := filepath.Join(tempDir, ".pgctld.yaml")
+	err := os.WriteFile(pgctldConfigFile, []byte(`
+# Test pgctld configuration for gRPC e2e tests
+log-level: info
+timeout: 30
+`), 0644)
+	require.NoError(t, err)
+
 	// Build pgctld binary for testing
 	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "/Users/deepthi/github/multigres/go/cmd/pgctld")
+	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
 	buildOutput, err := buildCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
-	}
+	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
 
 	t.Run("grpc_server_with_real_postgresql", func(t *testing.T) {
 		// Start gRPC server in background
 		serverCmd := exec.Command(pgctldBinary, "server",
 			"--data-dir", dataDir,
 			"--grpc-port", "50052",
-			"--pg-port", "15433")
+			"--pg-port", "15433",
+			"--config", pgctldConfigFile)
 		serverCmd.Env = os.Environ() // Use system PATH for real PostgreSQL binaries
 
 		err := serverCmd.Start()
@@ -132,12 +147,12 @@ func TestEndToEndGRPCWithRealPostgreSQL(t *testing.T) {
 
 		// Check if server process is still running (not crashed)
 		if serverCmd.Process != nil {
-			// Check if process is still alive
-			err := serverCmd.Process.Signal(os.Signal(nil))
-			if err != nil {
-				t.Errorf("gRPC server process died: %v", err)
-			} else {
+			// Check if process is still alive by checking if ProcessState is nil
+			// If the process has exited, ProcessState will be non-nil
+			if serverCmd.ProcessState == nil {
 				t.Log("gRPC server is running successfully")
+			} else {
+				t.Errorf("gRPC server process died: exit code %d", serverCmd.ProcessState.ExitCode())
 			}
 		}
 	})
@@ -159,21 +174,28 @@ func TestEndToEndPerformance(t *testing.T) {
 
 	dataDir := filepath.Join(tempDir, "data")
 
+	// Create a pgctld config file to avoid config file errors
+	pgctldConfigFile := filepath.Join(tempDir, ".pgctld.yaml")
+	err := os.WriteFile(pgctldConfigFile, []byte(`
+# Test pgctld configuration for performance tests
+log-level: info
+timeout: 30
+`), 0644)
+	require.NoError(t, err)
+
 	// Build pgctld binary for testing
 	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "/Users/deepthi/github/multigres/go/cmd/pgctld")
+	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
 	buildOutput, err := buildCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
-	}
+	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
 
 	t.Run("startup_performance", func(t *testing.T) {
 		// Measure time to start PostgreSQL
 		startTime := time.Now()
 
-		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--pg-port", "15434")
+		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--pg-port", "15434", "--config", pgctldConfigFile)
 		startCmd.Env = os.Environ()
-		err := startCmd.Run()
+		err = startCmd.Run()
 		require.NoError(t, err)
 
 		startupDuration := time.Since(startTime)
@@ -183,7 +205,7 @@ func TestEndToEndPerformance(t *testing.T) {
 		assert.Less(t, startupDuration, 30*time.Second, "PostgreSQL startup took too long")
 
 		// Clean shutdown
-		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir)
+		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		err = stopCmd.Run()
 		require.NoError(t, err)
 	})
@@ -194,7 +216,7 @@ func TestEndToEndPerformance(t *testing.T) {
 			t.Logf("Cycle %d", i+1)
 
 			// Start
-			startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--pg-port", "15435")
+			startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--pg-port", "15435", "--config", pgctldConfigFile)
 			startCmd.Env = os.Environ()
 			err := startCmd.Run()
 			require.NoError(t, err)
@@ -203,7 +225,7 @@ func TestEndToEndPerformance(t *testing.T) {
 			time.Sleep(1 * time.Second)
 
 			// Stop
-			stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--mode", "fast")
+			stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--mode", "fast", "--config", pgctldConfigFile)
 			err = stopCmd.Run()
 			require.NoError(t, err)
 
@@ -243,13 +265,20 @@ func TestEndToEndSystemIntegration(t *testing.T) {
 
 	dataDir := filepath.Join(tempDir, "data")
 
+	// Create a pgctld config file to avoid config file errors
+	pgctldConfigFile := filepath.Join(tempDir, ".pgctld.yaml")
+	err := os.WriteFile(pgctldConfigFile, []byte(`
+# Test pgctld configuration for system integration tests
+log-level: info
+timeout: 30
+`), 0644)
+	require.NoError(t, err)
+
 	// Build pgctld binary for testing
 	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "/Users/deepthi/github/multigres/go/cmd/pgctld")
+	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
 	buildOutput, err := buildCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
-	}
+	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
 
 	t.Run("version_compatibility", func(t *testing.T) {
 		// Check PostgreSQL version compatibility
@@ -259,19 +288,19 @@ func TestEndToEndSystemIntegration(t *testing.T) {
 		t.Logf("PostgreSQL version: %s", string(output))
 
 		// Start PostgreSQL to test compatibility
-		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--pg-port", "15436")
+		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--pg-port", "15436", "--config", pgctldConfigFile)
 		startCmd.Env = os.Environ()
 		err = startCmd.Run()
 		require.NoError(t, err)
 
 		// Get version info through pgctld
-		statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--pg-port", "15436")
+		statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--pg-port", "15436", "--config", pgctldConfigFile)
 		output, err = statusCmd.Output()
 		require.NoError(t, err)
 		t.Logf("pgctld status output: %s", string(output))
 
 		// Clean shutdown
-		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir)
+		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		err = stopCmd.Run()
 		require.NoError(t, err)
 	})
@@ -281,7 +310,7 @@ func TestEndToEndSystemIntegration(t *testing.T) {
 		configFile := filepath.Join(dataDir, "postgresql.conf")
 
 		// Start PostgreSQL first to create data directory
-		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--pg-port", "15437")
+		startCmd := exec.Command(pgctldBinary, "start", "--data-dir", dataDir, "--pg-port", "15437", "--config", pgctldConfigFile)
 		startCmd.Env = os.Environ()
 		err := startCmd.Run()
 		require.NoError(t, err)
@@ -298,18 +327,18 @@ log_min_messages = info
 		require.NoError(t, err)
 
 		// Reload configuration
-		reloadCmd := exec.Command(pgctldBinary, "reload-config", "--data-dir", dataDir)
+		reloadCmd := exec.Command(pgctldBinary, "reload-config", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		err = reloadCmd.Run()
 		require.NoError(t, err)
 
 		// Verify server is still running after reload
-		statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--pg-port", "15437")
+		statusCmd := exec.Command(pgctldBinary, "status", "--data-dir", dataDir, "--pg-port", "15437", "--config", pgctldConfigFile)
 		output, err := statusCmd.Output()
 		require.NoError(t, err)
 		assert.Contains(t, string(output), "Running")
 
 		// Clean shutdown
-		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir)
+		stopCmd := exec.Command(pgctldBinary, "stop", "--data-dir", dataDir, "--config", pgctldConfigFile)
 		err = stopCmd.Run()
 		require.NoError(t, err)
 	})

@@ -97,69 +97,34 @@ type PgCtldService struct {
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
 	s.logger.Info("gRPC Start request", "data_dir", req.DataDir, "port", req.Port)
 
-	// Use request parameters or fall back to viper defaults
-	dataDir := req.DataDir
-	if dataDir == "" {
-		dataDir = viper.GetString("data-dir")
-	}
+	// Create config from request parameters
+	config := NewPostgresConfigFromStartRequest(req)
 
-	if dataDir == "" {
+	if config.DataDir == "" {
 		return nil, fmt.Errorf("data-dir is required")
 	}
 
-	// Set up temporary viper config for this request
-	origDataDir := viper.GetString("data-dir")
-	origPort := viper.GetInt("pg-port")
-	origSocketDir := viper.GetString("socket-dir")
-	origConfigFile := viper.GetString("config-file")
-
-	defer func() {
-		viper.Set("data-dir", origDataDir)
-		viper.Set("pg-port", origPort)
-		viper.Set("socket-dir", origSocketDir)
-		viper.Set("config-file", origConfigFile)
-	}()
-
-	viper.Set("data-dir", dataDir)
-	if req.Port > 0 {
-		viper.Set("pg-port", req.Port)
-	}
-	if req.SocketDir != "" {
-		viper.Set("socket-dir", req.SocketDir)
-	}
-	if req.ConfigFile != "" {
-		viper.Set("config-file", req.ConfigFile)
-	}
-
-	// Check if data directory is initialized
-	if !isDataDirInitialized(dataDir) {
-		s.logger.Info("Data directory not initialized, running initdb", "data_dir", dataDir)
-		if err := initializeDataDir(dataDir); err != nil {
-			return nil, fmt.Errorf("failed to initialize data directory: %w", err)
+	// Check if PostgreSQL is already running before attempting to start
+	if isPostgreSQLRunning(config.DataDir) {
+		// Get PID of running instance
+		var pid int32
+		if pidValue, err := readPostmasterPID(config.DataDir); err == nil {
+			pid = int32(pidValue)
 		}
-	}
-
-	// Check if PostgreSQL is already running
-	if isPostgreSQLRunning(dataDir) {
 		return &pb.StartResponse{
-			Pid:     0,
+			Pid:     pid,
 			Message: "PostgreSQL is already running",
 		}, nil
 	}
 
-	// Start PostgreSQL
-	if err := startPostgreSQL(dataDir); err != nil {
+	// Start PostgreSQL using the config-based function
+	if err := StartPostgreSQLWithConfig(config); err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
-	}
-
-	// Wait for server to be ready
-	if err := waitForPostgreSQL(); err != nil {
-		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
 
 	// Get PID
 	var pid int32
-	if pidValue, err := readPostmasterPID(dataDir); err == nil {
+	if pidValue, err := readPostmasterPID(config.DataDir); err == nil {
 		pid = int32(pidValue)
 	}
 
@@ -172,12 +137,10 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopResponse, error) {
 	s.logger.Info("gRPC Stop request", "data_dir", req.DataDir, "mode", req.Mode)
 
-	dataDir := req.DataDir
-	if dataDir == "" {
-		dataDir = viper.GetString("data-dir")
-	}
+	// Create config from request parameters
+	config := NewPostgresConfigFromStopRequest(req)
 
-	if dataDir == "" {
+	if config.DataDir == "" {
 		return nil, fmt.Errorf("data-dir is required")
 	}
 
@@ -186,20 +149,15 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 		mode = "fast"
 	}
 
-	timeout := int(req.Timeout)
-	if timeout <= 0 {
-		timeout = viper.GetInt("timeout")
-	}
-
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(dataDir) {
+	if !isPostgreSQLRunning(config.DataDir) {
 		return &pb.StopResponse{
 			Message: "PostgreSQL is not running",
 		}, nil
 	}
 
-	// Stop PostgreSQL
-	if err := stopPostgreSQL(dataDir, mode, timeout); err != nil {
+	// Stop PostgreSQL using the config-based function
+	if err := StopPostgreSQLWithConfig(config, mode); err != nil {
 		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
 
@@ -272,33 +230,31 @@ func (s *PgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRe
 func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	s.logger.Debug("gRPC Status request", "data_dir", req.DataDir)
 
-	dataDir := req.DataDir
-	if dataDir == "" {
-		dataDir = viper.GetString("data-dir")
-	}
+	// Create config from request parameters
+	config := NewPostgresConfigFromStatusRequest(req)
 
-	if dataDir == "" {
+	if config.DataDir == "" {
 		return nil, fmt.Errorf("data-dir is required")
 	}
 
 	// Check if data directory is initialized
-	if !isDataDirInitialized(dataDir) {
+	if !isDataDirInitialized(config.DataDir) {
 		return &pb.StatusResponse{
 			Status:  pb.ServerStatus_NOT_INITIALIZED,
-			DataDir: dataDir,
-			Port:    int32(viper.GetInt("pg-port")),
-			Host:    viper.GetString("pg-host"),
+			DataDir: config.DataDir,
+			Port:    int32(config.Port),
+			Host:    config.Host,
 			Message: "Data directory is not initialized",
 		}, nil
 	}
 
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(dataDir) {
+	if !isPostgreSQLRunning(config.DataDir) {
 		return &pb.StatusResponse{
 			Status:  pb.ServerStatus_STOPPED,
-			DataDir: dataDir,
-			Port:    int32(viper.GetInt("pg-port")),
-			Host:    viper.GetString("pg-host"),
+			DataDir: config.DataDir,
+			Port:    int32(config.Port),
+			Host:    config.Host,
 			Ready:   false,
 			Message: "PostgreSQL server is stopped",
 		}, nil
@@ -306,19 +262,19 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 
 	// Get PID
 	var pid int32
-	if pidValue, err := readPostmasterPID(dataDir); err == nil {
+	if pidValue, err := readPostmasterPID(config.DataDir); err == nil {
 		pid = int32(pidValue)
 	}
 
 	// Check if server is ready
-	ready := isServerReady()
+	ready := isServerReadyWithConfig(config)
 
 	// Get version
-	version := getServerVersion()
+	version := getServerVersionWithConfig(config)
 
 	// Get uptime (approximate based on pidfile mtime)
 	var uptimeSeconds int64
-	pidFile := fmt.Sprintf("%s/postmaster.pid", dataDir)
+	pidFile := fmt.Sprintf("%s/postmaster.pid", config.DataDir)
 	if stat, err := os.Stat(pidFile); err == nil {
 		uptimeSeconds = int64(time.Now().Unix() - stat.ModTime().Unix())
 	}
@@ -328,9 +284,9 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 		Pid:           pid,
 		Version:       version,
 		UptimeSeconds: uptimeSeconds,
-		DataDir:       dataDir,
-		Port:          int32(viper.GetInt("pg-port")),
-		Host:          viper.GetString("pg-host"),
+		DataDir:       config.DataDir,
+		Port:          int32(config.Port),
+		Host:          config.Host,
 		Ready:         ready,
 		Message:       "PostgreSQL server is running",
 	}, nil

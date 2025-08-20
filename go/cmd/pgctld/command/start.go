@@ -29,7 +29,100 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	pb "github.com/multigres/multigres/go/pb"
 )
+
+// PostgresConfig holds all PostgreSQL configuration parameters
+type PostgresConfig struct {
+	DataDir    string
+	Port       int
+	Host       string
+	User       string
+	Database   string
+	Password   string
+	SocketDir  string
+	ConfigFile string
+	Timeout    int
+}
+
+// NewPostgresConfigFromViper creates a PostgresConfig from current viper settings
+func NewPostgresConfigFromViper() *PostgresConfig {
+	return &PostgresConfig{
+		DataDir:    viper.GetString("data-dir"),
+		Port:       viper.GetInt("pg-port"),
+		Host:       viper.GetString("pg-host"),
+		User:       viper.GetString("pg-user"),
+		Database:   viper.GetString("pg-database"),
+		Password:   viper.GetString("pg-password"),
+		SocketDir:  viper.GetString("socket-dir"),
+		ConfigFile: viper.GetString("config-file"),
+		Timeout:    viper.GetInt("timeout"),
+	}
+}
+
+// NewPostgresConfigFromDefaults creates a PostgresConfig with default values and viper fallbacks
+func NewPostgresConfigFromDefaults() *PostgresConfig {
+	return &PostgresConfig{
+		DataDir:    viper.GetString("data-dir"),
+		Port:       5432,
+		Host:       "localhost",
+		User:       "postgres",
+		Database:   "postgres",
+		Password:   "",
+		SocketDir:  "/tmp",
+		ConfigFile: "",
+		Timeout:    30,
+	}
+}
+
+// NewPostgresConfigFromStartRequest creates a PostgresConfig from a gRPC StartRequest
+func NewPostgresConfigFromStartRequest(req *pb.StartRequest) *PostgresConfig {
+	config := NewPostgresConfigFromDefaults()
+
+	// Override with request parameters if provided
+	if req.DataDir != "" {
+		config.DataDir = req.DataDir
+	}
+	if req.Port > 0 {
+		config.Port = int(req.Port)
+	}
+	if req.SocketDir != "" {
+		config.SocketDir = req.SocketDir
+	}
+	if req.ConfigFile != "" {
+		config.ConfigFile = req.ConfigFile
+	}
+
+	return config
+}
+
+// NewPostgresConfigFromStopRequest creates a PostgresConfig from a gRPC StopRequest
+func NewPostgresConfigFromStopRequest(req *pb.StopRequest) *PostgresConfig {
+	config := NewPostgresConfigFromDefaults()
+
+	// Override with request parameters if provided
+	if req.DataDir != "" {
+		config.DataDir = req.DataDir
+	}
+	if req.Timeout > 0 {
+		config.Timeout = int(req.Timeout)
+	}
+
+	return config
+}
+
+// NewPostgresConfigFromStatusRequest creates a PostgresConfig from a gRPC StatusRequest
+func NewPostgresConfigFromStatusRequest(req *pb.StatusRequest) *PostgresConfig {
+	config := NewPostgresConfigFromDefaults()
+
+	// Override with request parameters if provided
+	if req.DataDir != "" {
+		config.DataDir = req.DataDir
+	}
+
+	return config
+}
 
 func init() {
 	Root.AddCommand(startCmd)
@@ -43,36 +136,41 @@ var startCmd = &cobra.Command{
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
+	config := NewPostgresConfigFromViper()
+	return StartPostgreSQLWithConfig(config)
+}
+
+// StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
+func StartPostgreSQLWithConfig(config *PostgresConfig) error {
 	logger := slog.Default()
 
-	dataDir := viper.GetString("data-dir")
-	if dataDir == "" {
+	if config.DataDir == "" {
 		return fmt.Errorf("data-dir is required")
 	}
 
 	// Check if data directory exists and is initialized
-	if !isDataDirInitialized(dataDir) {
-		logger.Info("Data directory not initialized, running initdb", "data_dir", dataDir)
-		if err := initializeDataDir(dataDir); err != nil {
+	if !isDataDirInitialized(config.DataDir) {
+		logger.Info("Data directory not initialized, running initdb", "data_dir", config.DataDir)
+		if err := initializeDataDir(config.DataDir); err != nil {
 			return fmt.Errorf("failed to initialize data directory: %w", err)
 		}
 	}
 
 	// Check if PostgreSQL is already running
-	if isPostgreSQLRunning(dataDir) {
+	if isPostgreSQLRunning(config.DataDir) {
 		logger.Info("PostgreSQL is already running")
 		return nil
 	}
 
 	// Start PostgreSQL
-	logger.Info("Starting PostgreSQL server", "data_dir", dataDir)
-	if err := startPostgreSQL(dataDir); err != nil {
+	logger.Info("Starting PostgreSQL server", "data_dir", config.DataDir)
+	if err := startPostgreSQLWithConfig(config); err != nil {
 		return fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
 
 	// Wait for server to be ready
 	logger.Info("Waiting for PostgreSQL to be ready")
-	if err := waitForPostgreSQL(); err != nil {
+	if err := waitForPostgreSQLWithConfig(config); err != nil {
 		return fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
 
@@ -122,31 +220,33 @@ func isPostgreSQLRunning(dataDir string) bool {
 }
 
 func startPostgreSQL(dataDir string) error {
+	// Legacy function - use viper config
+	config := NewPostgresConfigFromViper()
+	config.DataDir = dataDir
+	return startPostgreSQLWithConfig(config)
+}
+
+func startPostgreSQLWithConfig(config *PostgresConfig) error {
 	// Use pg_ctl to start PostgreSQL properly as a daemon
 	args := []string{
 		"start",
-		"-D", dataDir,
-		"-l", filepath.Join(dataDir, "postgresql.log"),
+		"-D", config.DataDir,
+		"-l", filepath.Join(config.DataDir, "postgresql.log"),
 		"-W", // don't wait - we'll check readiness ourselves
 	}
 
-	// Add additional postgres options if specified
-	port := viper.GetInt("pg-port")
-	socketDir := viper.GetString("socket-dir")
-
-	slog.Info("Starting PostgreSQL with configuration", "port", port, "dataDir", dataDir)
+	slog.Info("Starting PostgreSQL with configuration", "port", config.Port, "dataDir", config.DataDir)
 
 	pgOptions := []string{
-		fmt.Sprintf("-p %d", port),
+		fmt.Sprintf("-p %d", config.Port),
 	}
 
-	if socketDir != "" {
-		pgOptions = append(pgOptions, fmt.Sprintf("-k %s", socketDir))
+	if config.SocketDir != "" {
+		pgOptions = append(pgOptions, fmt.Sprintf("-k %s", config.SocketDir))
 	}
 
-	configFile := viper.GetString("config-file")
-	if configFile != "" {
-		pgOptions = append(pgOptions, fmt.Sprintf("-c config_file=%s", configFile))
+	if config.ConfigFile != "" {
+		pgOptions = append(pgOptions, fmt.Sprintf("-c config_file=%s", config.ConfigFile))
 	}
 
 	if len(pgOptions) > 0 {
@@ -163,10 +263,9 @@ func startPostgreSQL(dataDir string) error {
 
 	// Wait for PostgreSQL to be ready by checking if the process is running
 	// and the PID file is created with "ready" status
-	timeout := viper.GetInt("timeout")
-	for i := 0; i < timeout; i++ {
-		running := isPostgreSQLRunning(dataDir)
-		ready := isPostgreSQLReady(dataDir)
+	for i := 0; i < config.Timeout; i++ {
+		running := isPostgreSQLRunning(config.DataDir)
+		ready := isPostgreSQLReady(config.DataDir)
 
 		slog.Debug("Checking PostgreSQL readiness", "running", running, "ready", ready, "attempt", i+1)
 
@@ -176,7 +275,7 @@ func startPostgreSQL(dataDir string) error {
 		time.Sleep(1 * time.Second)
 	}
 
-	return fmt.Errorf("PostgreSQL did not become ready within %d seconds", timeout)
+	return fmt.Errorf("PostgreSQL did not become ready within %d seconds", config.Timeout)
 }
 
 // isPostgreSQLReady checks if PostgreSQL is ready to accept connections
@@ -203,19 +302,19 @@ func isPostgreSQLReady(dataDir string) bool {
 }
 
 func waitForPostgreSQL() error {
-	host := viper.GetString("pg-host")
-	port := viper.GetInt("pg-port")
-	user := viper.GetString("pg-user")
-	database := viper.GetString("pg-database")
-	timeout := viper.GetInt("timeout")
+	// Legacy function - use viper config
+	config := NewPostgresConfigFromViper()
+	return waitForPostgreSQLWithConfig(config)
+}
 
+func waitForPostgreSQLWithConfig(config *PostgresConfig) error {
 	// Try to connect using pg_isready
-	for i := 0; i < timeout; i++ {
+	for i := 0; i < config.Timeout; i++ {
 		cmd := exec.Command("pg_isready",
-			"-h", host,
-			"-p", fmt.Sprintf("%d", port),
-			"-U", user,
-			"-d", database,
+			"-h", config.Host,
+			"-p", fmt.Sprintf("%d", config.Port),
+			"-U", config.User,
+			"-d", config.Database,
 		)
 
 		if err := cmd.Run(); err == nil {
@@ -225,7 +324,7 @@ func waitForPostgreSQL() error {
 		time.Sleep(1 * time.Second)
 	}
 
-	return fmt.Errorf("PostgreSQL did not become ready within %d seconds", timeout)
+	return fmt.Errorf("PostgreSQL did not become ready within %d seconds", config.Timeout)
 }
 
 func readPostmasterPID(dataDir string) (int, error) {

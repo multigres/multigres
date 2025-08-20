@@ -149,7 +149,7 @@ func TestGRPCErrorHandling(t *testing.T) {
 		ctx := context.Background()
 
 		// Initialize and start first
-		_, err := client.InitDataDir(ctx, &pb.InitDataDirRequest{})
+		_, err := client.InitDataDir(ctx, &pb.InitDataDirRequest{DataDir: dataDir})
 		require.NoError(t, err)
 
 		_, err = client.Start(ctx, &pb.StartRequest{})
@@ -228,7 +228,7 @@ func TestGRPCConcurrentRequests(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize and start PostgreSQL first
-	_, err = client.InitDataDir(ctx, &pb.InitDataDirRequest{})
+	_, err = client.InitDataDir(ctx, &pb.InitDataDirRequest{DataDir: dataDir})
 	require.NoError(t, err)
 
 	_, err = client.Start(ctx, &pb.StartRequest{})
@@ -312,7 +312,7 @@ func TestGRPCWithDifferentConfigurations(t *testing.T) {
 		for _, mode := range stopModes {
 			t.Run(fmt.Sprintf("stop_mode_%s", mode), func(t *testing.T) {
 				// Initialize and start
-				_, err := client.InitDataDir(ctx, &pb.InitDataDirRequest{})
+				_, err := client.InitDataDir(ctx, &pb.InitDataDirRequest{DataDir: dataDir})
 				require.NoError(t, err)
 
 				_, err = client.Start(ctx, &pb.StartRequest{})

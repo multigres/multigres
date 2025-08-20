@@ -188,7 +188,118 @@ fi
 	// Mock pg_ctl
 	MockBinary(t, binDir, "pg_ctl", `
 case "$1" in
+    "init" | "initdb")
+        mkdir -p "$3/base"
+        echo "15.0" > "$3/PG_VERSION"
+        touch "$3/postgresql.conf"
+        touch "$3/pg_hba.conf"
+        echo "Success. You can now start the database server using:"
+        echo "    pg_ctl start -D $3"
+        ;;
+    "start")
+        DATADIR=""
+        # Parse -D argument
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                -D)
+                    DATADIR="$2"
+                    shift 2
+                    ;;
+                -D*)
+                    DATADIR="${1#-D}"
+                    shift
+                    ;;
+                *)
+                    shift
+                    ;;
+            esac
+        done
+        
+        if [ -n "$DATADIR" ]; then
+            # Start a harmless background process and use its PID
+            sleep 3600 &
+            MOCK_PID=$!
+            echo "$MOCK_PID" > "$DATADIR/postmaster.pid"
+            echo "$DATADIR" >> "$DATADIR/postmaster.pid"
+            echo "$(date +%s)" >> "$DATADIR/postmaster.pid"
+            echo "5432" >> "$DATADIR/postmaster.pid"
+            echo "/tmp" >> "$DATADIR/postmaster.pid"
+            echo "localhost" >> "$DATADIR/postmaster.pid"
+            echo "*" >> "$DATADIR/postmaster.pid"
+            echo "ready" >> "$DATADIR/postmaster.pid"
+        fi
+        echo "waiting for server to start.... done"
+        echo "server started"
+        ;;
+    "restart")
+        DATADIR=""
+        # Parse -D argument
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                -D)
+                    DATADIR="$2"
+                    shift 2
+                    ;;
+                -D*)
+                    DATADIR="${1#-D}"
+                    shift
+                    ;;
+                *)
+                    shift
+                    ;;
+            esac
+        done
+        
+        if [ -n "$DATADIR" ]; then
+            # Kill the old background process if it exists
+            if [ -f "$DATADIR/postmaster.pid" ]; then
+                OLD_PID=$(head -n 1 "$DATADIR/postmaster.pid")
+                kill "$OLD_PID" 2>/dev/null || true
+            fi
+            rm -f "$DATADIR/postmaster.pid"
+            echo "waiting for server to shut down.... done"
+            echo "server stopped"
+            
+            # Start a new background process
+            sleep 3600 &
+            MOCK_PID=$!
+            echo "$MOCK_PID" > "$DATADIR/postmaster.pid"
+            echo "$DATADIR" >> "$DATADIR/postmaster.pid"
+            echo "$(date +%s)" >> "$DATADIR/postmaster.pid"
+            echo "5432" >> "$DATADIR/postmaster.pid"
+            echo "/tmp" >> "$DATADIR/postmaster.pid"
+            echo "localhost" >> "$DATADIR/postmaster.pid"
+            echo "*" >> "$DATADIR/postmaster.pid"
+            echo "ready" >> "$DATADIR/postmaster.pid"
+        fi
+        echo "waiting for server to start.... done"
+        echo "server started"
+        ;;
     "stop")
+        DATADIR=""
+        # Parse -D argument
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                -D)
+                    DATADIR="$2"
+                    shift 2
+                    ;;
+                -D*)
+                    DATADIR="${1#-D}"
+                    shift
+                    ;;
+                *)
+                    shift
+                    ;;
+            esac
+        done
+        
+        # Kill the background process if it exists
+        if [ -n "$DATADIR" ] && [ -f "$DATADIR/postmaster.pid" ]; then
+            PID=$(head -n 1 "$DATADIR/postmaster.pid")
+            kill "$PID" 2>/dev/null || true
+            rm -f "$DATADIR/postmaster.pid"
+        fi
         echo "waiting for server to shut down.... done"
         echo "server stopped"
         ;;
@@ -211,6 +322,7 @@ esac
 
 	// Mock pg_isready
 	MockBinary(t, binDir, "pg_isready", `
+# Always succeed for testing
 echo "localhost:5432 - accepting connections"
 exit 0
 `)

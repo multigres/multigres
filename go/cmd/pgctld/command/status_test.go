@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -66,7 +67,7 @@ func TestRunStatus(t *testing.T) {
 			},
 			setupBinaries:  true,
 			expectError:    false,
-			outputContains: []string{"Status: Running", "PID: 12345", "Port: 5432"},
+			outputContains: []string{"Status: Running", "PID:", "Port: 5432"},
 		},
 		{
 			name: "no data dir specified",
@@ -99,8 +100,13 @@ func TestRunStatus(t *testing.T) {
 			}
 
 			// Setup viper configuration
-			cleanupViper := testutil.SetupTestViper(t, dataDir)
-			defer cleanupViper()
+			if dataDir != "" {
+				cleanupViper := testutil.SetupTestViper(t, dataDir)
+				defer cleanupViper()
+			} else {
+				// For empty dataDir test, clear any existing viper config
+				viper.Set("data-dir", "")
+			}
 
 			// Capture output
 			oldStdout := os.Stdout
@@ -112,14 +118,13 @@ func TestRunStatus(t *testing.T) {
 			args := []string{}
 
 			err := runStatus(cmd, args)
-			require.NoError(t, err)
 			// Restore stdout and read captured output
 			w.Close()
 			os.Stdout = oldStdout
 
 			var buf bytes.Buffer
-			_, err = io.Copy(&buf, r)
-			require.NoError(t, err)
+			_, readErr := io.Copy(&buf, r)
+			require.NoError(t, readErr)
 			output := buf.String()
 
 			if tt.expectError {
