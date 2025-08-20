@@ -1,4 +1,4 @@
-// Copyright 2025 The Multigres Authors
+// Copyright 2025 The Multigres Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ syntax = "proto3";
 
 package clustermetadata;
 
-option go_package = "github.com/multigres/pb/clustermetadata";
+option go_package = "github.com/multigres/multigres/go/pb/clustermetadata";
 
 // Topology Schemas for Multigres Cluster Management
 
@@ -36,24 +36,24 @@ message GlobalTopoConfig {
 
   // server is the network address (host:port) of the topology service.
   // Can be a list list for HA setups.
-  repeated string server_address = 2;
+  repeated string server_addresses = 2;
 
   // root is the logical root directory or namespace inside the topology backend
   // under which all cluster metadata will be stored.
   string root = 3;
 }
 
-// CellLocation describes how to connect to a cell topology. 
+// Cell describes how to connect to a cell topology.
 // These records are stored in the global topology server.
-message CellLocation {
+message Cell {
   // name for this cell
   string name = 1;
   
   // server_address is the network address of the cell topology service.
-  repeated string server_address = 2;
+  repeated string server_addresses = 2;
   
   // root is the namespace or directory path within the topology service
-  // where this cell's metadata is stored. Used only when connecting to server_address.
+  // where this cell's metadata is stored. Used only when connecting to server_addresses.
   string root = 3;
 }
 

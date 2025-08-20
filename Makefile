@@ -19,22 +19,23 @@ all: build
 
 # Proto source files
 PROTO_SRCS = $(shell find proto -name '*.proto')
-PROTO_GO_OUTS = $(patsubst proto/%.proto,go/pb/%.pb.go,$(PROTO_SRCS))
+PROTO_GO_OUTS = pb
 
 # Install protobuf tools
 tools:
-	echo $$(date): Installing build tools
 	./bash_tools/setup_build_tools.sh
 
 # Generate protobuf files
 proto: tools $(PROTO_GO_OUTS)
 
-go/pb/%.pb.go: proto/%.proto
-	mkdir -p go/pb
+pb: $(PROTO_SRCS)
 	. ./build.env && \
-	$$MTROOT/dist/protoc-$$PROTOC_VER/bin/protoc --go_out=go/pb --go_opt=paths=source_relative \
-		--go-grpc_out=go/pb --go-grpc_opt=paths=source_relative \
-		--proto_path=proto $<
+	$$MTROOT/dist/protoc-$$PROTOC_VER/bin/protoc --go_out=. \
+		--go-grpc_out=. \
+		--proto_path=proto $(PROTO_SRCS) && \
+	mkdir -p go/pb && \
+	cp -Rf github.com/multigres/multigres/go/pb/* go/pb/ && \
+	rm -rf github.com/
 
 # Build Go binaries only
 build:
