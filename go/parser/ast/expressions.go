@@ -200,11 +200,11 @@ type FuncExpr struct {
 	Funcformat     CoercionForm // Display format - postgres/src/include/nodes/primnodes.h:753
 	Funccollid     Oid          // Result collation - postgres/src/include/nodes/primnodes.h:754
 	Inputcollid    Oid          // Input collation - postgres/src/include/nodes/primnodes.h:755
-	Args           []Node       // Function arguments - postgres/src/include/nodes/primnodes.h:756
+	Args           *NodeList    // Function arguments - postgres/src/include/nodes/primnodes.h:756
 }
 
 // NewFuncExpr creates a new FuncExpr node.
-func NewFuncExpr(funcid Oid, funcresulttype Oid, args []Node) *FuncExpr {
+func NewFuncExpr(funcid Oid, funcresulttype Oid, args *NodeList) *FuncExpr {
 	return &FuncExpr{
 		BaseExpr:       BaseExpr{BaseNode: BaseNode{Tag: T_FuncExpr}},
 		Funcid:         funcid,
@@ -218,7 +218,11 @@ func (f *FuncExpr) ExpressionType() string {
 }
 
 func (f *FuncExpr) String() string {
-	return fmt.Sprintf("FuncExpr(oid:%d, %d args)@%d", f.Funcid, len(f.Args), f.Location())
+	argCount := 0
+	if f.Args != nil {
+		argCount = len(f.Args.Items)
+	}
+	return fmt.Sprintf("FuncExpr(oid:%d, %d args)@%d", f.Funcid, argCount, f.Location())
 }
 
 // OpExpr represents a binary or unary operator expression.
@@ -231,11 +235,11 @@ type OpExpr struct {
 	Opretset     bool   // Returns set? - postgres/src/include/nodes/primnodes.h:819
 	Opcollid     Oid    // Result collation - postgres/src/include/nodes/primnodes.h:820
 	Inputcollid  Oid    // Input collation - postgres/src/include/nodes/primnodes.h:821
-	Args         []Node // Operator arguments (1 or 2) - postgres/src/include/nodes/primnodes.h:822
+	Args         *NodeList // Operator arguments (1 or 2) - postgres/src/include/nodes/primnodes.h:822
 }
 
 // NewOpExpr creates a new OpExpr node.
-func NewOpExpr(opno Oid, opfuncid Oid, opresulttype Oid, args []Node) *OpExpr {
+func NewOpExpr(opno Oid, opfuncid Oid, opresulttype Oid, args *NodeList) *OpExpr {
 	return &OpExpr{
 		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_OpExpr}},
 		Opno:         opno,
@@ -251,7 +255,7 @@ func (o *OpExpr) ExpressionType() string {
 
 func (o *OpExpr) String() string {
 	opType := "binary"
-	if len(o.Args) == 1 {
+	if o.Args != nil && len(o.Args.Items) == 1 {
 		opType = "unary"
 	}
 	return fmt.Sprintf("OpExpr(%s, oid:%d)@%d", opType, o.Opno, o.Location())
@@ -262,11 +266,11 @@ func (o *OpExpr) String() string {
 type BoolExpr struct {
 	BaseExpr
 	Boolop BoolExprType // AND/OR/NOT - postgres/src/include/nodes/primnodes.h:947
-	Args   []Node       // Operand expressions - postgres/src/include/nodes/primnodes.h:948
+	Args   *NodeList    // Operand expressions - postgres/src/include/nodes/primnodes.h:948
 }
 
 // NewBoolExpr creates a new BoolExpr node.
-func NewBoolExpr(boolop BoolExprType, args []Node) *BoolExpr {
+func NewBoolExpr(boolop BoolExprType, args *NodeList) *BoolExpr {
 	return &BoolExpr{
 		BaseExpr: BaseExpr{BaseNode: BaseNode{Tag: T_BoolExpr}},
 		Boolop:   boolop,
@@ -279,19 +283,23 @@ func (b *BoolExpr) ExpressionType() string {
 }
 
 func (b *BoolExpr) String() string {
-	return fmt.Sprintf("BoolExpr(%s, %d args)@%d", b.Boolop, len(b.Args), b.Location())
+	argCount := 0
+	if b.Args != nil {
+		argCount = len(b.Args.Items)
+	}
+	return fmt.Sprintf("BoolExpr(%s, %d args)@%d", b.Boolop, argCount, b.Location())
 }
 
 // SqlString returns the SQL representation of BoolExpr
 func (b *BoolExpr) SqlString() string {
-	if len(b.Args) == 0 {
+	if b.Args == nil || len(b.Args.Items) == 0 {
 		return ""
 	}
 	
 	switch b.Boolop {
 	case AND_EXPR:
 		var parts []string
-		for _, arg := range b.Args {
+		for _, arg := range b.Args.Items {
 			if arg != nil {
 				parts = append(parts, arg.SqlString())
 			}
@@ -302,7 +310,7 @@ func (b *BoolExpr) SqlString() string {
 		
 	case OR_EXPR:
 		var parts []string
-		for _, arg := range b.Args {
+		for _, arg := range b.Args.Items {
 			if arg != nil {
 				parts = append(parts, arg.SqlString())
 			}
@@ -312,8 +320,8 @@ func (b *BoolExpr) SqlString() string {
 		return strings.Join(parts, " OR ")
 		
 	case NOT_EXPR:
-		if len(b.Args) > 0 && b.Args[0] != nil {
-			return fmt.Sprintf("NOT %s", b.Args[0].SqlString())
+		if len(b.Args.Items) > 0 && b.Args.Items[0] != nil {
+			return fmt.Sprintf("NOT %s", b.Args.Items[0].SqlString())
 		}
 		
 	default:
@@ -329,27 +337,27 @@ func (b *BoolExpr) SqlString() string {
 
 // NewAndExpr creates a new AND boolean expression.
 func NewAndExpr(left, right Node) *BoolExpr {
-	return NewBoolExpr(AND_EXPR, []Node{left, right})
+	return NewBoolExpr(AND_EXPR, NewNodeList(left, right))
 }
 
 // NewOrExpr creates a new OR boolean expression.
 func NewOrExpr(left, right Node) *BoolExpr {
-	return NewBoolExpr(OR_EXPR, []Node{left, right})
+	return NewBoolExpr(OR_EXPR, NewNodeList(left, right))
 }
 
 // NewNotExpr creates a new NOT boolean expression.
 func NewNotExpr(arg Node) *BoolExpr {
-	return NewBoolExpr(NOT_EXPR, []Node{arg})
+	return NewBoolExpr(NOT_EXPR, NewNodeList(arg))
 }
 
 // NewBinaryOp creates a binary operator expression.
 func NewBinaryOp(opno Oid, left, right Node) *OpExpr {
-	return NewOpExpr(opno, 0, 0, []Node{left, right})
+	return NewOpExpr(opno, 0, 0, NewNodeList(left, right))
 }
 
 // NewUnaryOp creates a unary operator expression.
 func NewUnaryOp(opno Oid, arg Node) *OpExpr {
-	return NewOpExpr(opno, 0, 0, []Node{arg})
+	return NewOpExpr(opno, 0, 0, NewNodeList(arg))
 }
 
 // ==============================================================================
@@ -363,12 +371,12 @@ type CaseExpr struct {
 	Casetype   Oid    // Result type - postgres/src/include/nodes/primnodes.h:1309
 	Casecollid Oid    // Result collation - postgres/src/include/nodes/primnodes.h:1310
 	Arg        Node   // Implicit comparison argument - postgres/src/include/nodes/primnodes.h:1311
-	Args       []Node // List of WHEN clauses - postgres/src/include/nodes/primnodes.h:1312
+	Args       *NodeList // List of WHEN clauses - postgres/src/include/nodes/primnodes.h:1312
 	Defresult  Node   // Default result (ELSE) - postgres/src/include/nodes/primnodes.h:1313
 }
 
 // NewCaseExpr creates a new CaseExpr node.
-func NewCaseExpr(casetype Oid, arg Node, whens []Node, defresult Node) *CaseExpr {
+func NewCaseExpr(casetype Oid, arg Node, whens *NodeList, defresult Node) *CaseExpr {
 	return &CaseExpr{
 		BaseExpr:  BaseExpr{BaseNode: BaseNode{Tag: T_CaseExpr}},
 		Casetype:  casetype,
@@ -383,7 +391,10 @@ func (c *CaseExpr) ExpressionType() string {
 }
 
 func (c *CaseExpr) String() string {
-	whenCount := len(c.Args)
+	whenCount := 0
+	if c.Args != nil {
+		whenCount = len(c.Args.Items)
+	}
 	hasElse := c.Defresult != nil
 	return fmt.Sprintf("CaseExpr(%d whens, else:%t)@%d", whenCount, hasElse, c.Location())
 }
@@ -419,11 +430,11 @@ type CoalesceExpr struct {
 	BaseExpr
 	Coalescetype   Oid    // Result type - postgres/src/include/nodes/primnodes.h:1487
 	Coalescecollid Oid    // Result collation - postgres/src/include/nodes/primnodes.h:1488
-	Args           []Node // Argument expressions - postgres/src/include/nodes/primnodes.h:1489
+	Args           *NodeList // Argument expressions - postgres/src/include/nodes/primnodes.h:1489
 }
 
 // NewCoalesceExpr creates a new CoalesceExpr node.
-func NewCoalesceExpr(coalescetype Oid, args []Node) *CoalesceExpr {
+func NewCoalesceExpr(coalescetype Oid, args *NodeList) *CoalesceExpr {
 	return &CoalesceExpr{
 		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_CoalesceExpr}},
 		Coalescetype: coalescetype,
@@ -436,7 +447,11 @@ func (c *CoalesceExpr) ExpressionType() string {
 }
 
 func (c *CoalesceExpr) String() string {
-	return fmt.Sprintf("CoalesceExpr(%d args)@%d", len(c.Args), c.Location())
+	argCount := 0
+	if c.Args != nil {
+		argCount = len(c.Args.Items)
+	}
+	return fmt.Sprintf("CoalesceExpr(%d args)@%d", argCount, c.Location())
 }
 
 // ArrayExpr represents an ARRAY[] constructor expression.
@@ -446,12 +461,12 @@ type ArrayExpr struct {
 	ArrayTypeid   Oid    // Array type OID - postgres/src/include/nodes/primnodes.h:1373
 	ArrayCollid   Oid    // Array collation - postgres/src/include/nodes/primnodes.h:1374
 	ElementTypeid Oid    // Element type OID - postgres/src/include/nodes/primnodes.h:1375
-	Elements      []Node // Array elements - postgres/src/include/nodes/primnodes.h:1376
+	Elements      *NodeList // Array elements - postgres/src/include/nodes/primnodes.h:1376
 	Multidims     bool   // Multi-dimensional? - postgres/src/include/nodes/primnodes.h:1377
 }
 
 // NewArrayExpr creates a new ArrayExpr node.
-func NewArrayExpr(arrayTypeid Oid, elementTypeid Oid, elements []Node) *ArrayExpr {
+func NewArrayExpr(arrayTypeid Oid, elementTypeid Oid, elements *NodeList) *ArrayExpr {
 	return &ArrayExpr{
 		BaseExpr:      BaseExpr{BaseNode: BaseNode{Tag: T_ArrayExpr}},
 		ArrayTypeid:   arrayTypeid,
@@ -469,7 +484,11 @@ func (a *ArrayExpr) String() string {
 	if a.Multidims {
 		dims = "Multi-D"
 	}
-	return fmt.Sprintf("ArrayExpr(%s, %d elements)@%d", dims, len(a.Elements), a.Location())
+	elementCount := 0
+	if a.Elements != nil {
+		elementCount = len(a.Elements.Items)
+	}
+	return fmt.Sprintf("ArrayExpr(%s, %d elements)@%d", dims, elementCount, a.Location())
 }
 
 // ScalarArrayOpExpr represents a scalar op ANY/ALL (array) expression.
@@ -482,7 +501,7 @@ type ScalarArrayOpExpr struct {
 	Negfuncid   Oid    // Negation function OID - postgres/src/include/nodes/primnodes.h:899
 	UseOr       bool   // True for ANY, false for ALL - postgres/src/include/nodes/primnodes.h:900
 	Inputcollid Oid    // Input collation - postgres/src/include/nodes/primnodes.h:901
-	Args        []Node // Scalar and array operands - postgres/src/include/nodes/primnodes.h:902
+	Args        *NodeList // Scalar and array operands - postgres/src/include/nodes/primnodes.h:902
 }
 
 // NewScalarArrayOpExpr creates a new ScalarArrayOpExpr node.
@@ -491,7 +510,7 @@ func NewScalarArrayOpExpr(opno Oid, useOr bool, scalar Node, array Node) *Scalar
 		BaseExpr: BaseExpr{BaseNode: BaseNode{Tag: T_ScalarArrayOpExpr}},
 		Opno:     opno,
 		UseOr:    useOr,
-		Args:     []Node{scalar, array},
+		Args:     NewNodeList(scalar, array),
 	}
 }
 
@@ -511,14 +530,14 @@ func (s *ScalarArrayOpExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1408
 type RowExpr struct {
 	BaseExpr
-	Args      []Node       // Row field expressions - postgres/src/include/nodes/primnodes.h:1411
+	Args      *NodeList    // Row field expressions - postgres/src/include/nodes/primnodes.h:1411
 	RowTypeid Oid          // Composite type OID - postgres/src/include/nodes/primnodes.h:1412
 	RowFormat CoercionForm // Display format - postgres/src/include/nodes/primnodes.h:1413
 	Colnames  []*string    // Field names (RECORD type only) - postgres/src/include/nodes/primnodes.h:1414
 }
 
 // NewRowExpr creates a new RowExpr node.
-func NewRowExpr(args []Node, rowTypeid Oid) *RowExpr {
+func NewRowExpr(args *NodeList, rowTypeid Oid) *RowExpr {
 	return &RowExpr{
 		BaseExpr:  BaseExpr{BaseNode: BaseNode{Tag: T_RowExpr}},
 		Args:      args,
@@ -531,7 +550,11 @@ func (r *RowExpr) ExpressionType() string {
 }
 
 func (r *RowExpr) String() string {
-	return fmt.Sprintf("RowExpr(%d fields)@%d", len(r.Args), r.Location())
+	fieldCount := 0
+	if r.Args != nil {
+		fieldCount = len(r.Args.Items)
+	}
+	return fmt.Sprintf("RowExpr(%d fields)@%d", fieldCount, r.Location())
 }
 
 // ==============================================================================
@@ -539,22 +562,22 @@ func (r *RowExpr) String() string {
 // ==============================================================================
 
 // NewSimpleCase creates a simple CASE expression: CASE expr WHEN val1 THEN result1 ... ELSE def END
-func NewSimpleCase(expr Node, whens []Node, defresult Node) *CaseExpr {
+func NewSimpleCase(expr Node, whens *NodeList, defresult Node) *CaseExpr {
 	return NewCaseExpr(0, expr, whens, defresult)
 }
 
 // NewSearchedCase creates a searched CASE expression: CASE WHEN condition1 THEN result1 ... ELSE def END
-func NewSearchedCase(whens []Node, defresult Node) *CaseExpr {
+func NewSearchedCase(whens *NodeList, defresult Node) *CaseExpr {
 	return NewCaseExpr(0, nil, whens, defresult)
 }
 
 // NewArrayConstructor creates an ARRAY[...] constructor.
-func NewArrayConstructor(elements []Node) *ArrayExpr {
+func NewArrayConstructor(elements *NodeList) *ArrayExpr {
 	return NewArrayExpr(0, 0, elements)
 }
 
 // NewRowConstructor creates a ROW(...) constructor.
-func NewRowConstructor(fields []Node) *RowExpr {
+func NewRowConstructor(fields *NodeList) *RowExpr {
 	return NewRowExpr(fields, 0)
 }
 
@@ -642,7 +665,7 @@ func IsFunction(expr Node) bool {
 }
 
 // GetExpressionArgs returns the arguments of an expression if it has any.
-func GetExpressionArgs(expr Node) []Node {
+func GetExpressionArgs(expr Node) *NodeList {
 	switch e := expr.(type) {
 	case *FuncExpr:
 		return e.Args
@@ -653,7 +676,7 @@ func GetExpressionArgs(expr Node) []Node {
 	case *CaseExpr:
 		return e.Args
 	case *CaseWhen:
-		return []Node{e.Expr, e.Result}
+		return NewNodeList(e.Expr, e.Result)
 	case *CoalesceExpr:
 		return e.Args
 	case *ArrayExpr:
@@ -668,9 +691,9 @@ func GetExpressionArgs(expr Node) []Node {
 		return e.Args
 	case *SubLink:
 		if e.Testexpr != nil {
-			return []Node{e.Testexpr, e.Subselect}
+			return NewNodeList(e.Testexpr, e.Subselect)
 		}
-		return []Node{e.Subselect}
+		return NewNodeList(e.Subselect)
 	default:
 		return nil
 	}
@@ -679,7 +702,10 @@ func GetExpressionArgs(expr Node) []Node {
 // CountArgs returns the number of arguments in an expression.
 func CountArgs(expr Node) int {
 	args := GetExpressionArgs(expr)
-	return len(args)
+	if args == nil {
+		return 0
+	}
+	return len(args.Items)
 }
 
 // ==============================================================================
@@ -755,10 +781,10 @@ type Aggref struct {
 	Inputcollid   Oid      // Input collation - postgres/src/include/nodes/primnodes.h:487
 	Aggtranstype  Oid      // Transition value type - postgres/src/include/nodes/primnodes.h:492
 	Aggargtypes   []Oid    // Argument type OIDs - postgres/src/include/nodes/primnodes.h:494
-	Aggdirectargs []Node   // Direct arguments for ordered-set aggs - postgres/src/include/nodes/primnodes.h:495
-	Args          []Node   // Aggregated arguments - postgres/src/include/nodes/primnodes.h:496
-	Aggorder      []Node   // ORDER BY expressions - postgres/src/include/nodes/primnodes.h:497
-	Aggdistinct   []Node   // DISTINCT expressions - postgres/src/include/nodes/primnodes.h:498
+	Aggdirectargs *NodeList // Direct arguments for ordered-set aggs - postgres/src/include/nodes/primnodes.h:495
+	Args          *NodeList // Aggregated arguments - postgres/src/include/nodes/primnodes.h:496
+	Aggorder      *NodeList // ORDER BY expressions - postgres/src/include/nodes/primnodes.h:497
+	Aggdistinct   *NodeList // DISTINCT expressions - postgres/src/include/nodes/primnodes.h:498
 	Aggfilter     Node     // FILTER expression - postgres/src/include/nodes/primnodes.h:499
 	Aggstar       bool     // True if argument list was '*' - postgres/src/include/nodes/primnodes.h:501
 	Aggvariadic   bool     // True if variadic args combined - postgres/src/include/nodes/primnodes.h:505
@@ -771,7 +797,7 @@ type Aggref struct {
 }
 
 // NewAggref creates a new Aggref node.
-func NewAggref(aggfnoid Oid, aggtype Oid, args []Node) *Aggref {
+func NewAggref(aggfnoid Oid, aggtype Oid, args *NodeList) *Aggref {
 	return &Aggref{
 		BaseExpr: BaseExpr{BaseNode: BaseNode{Tag: T_Aggref}},
 		Aggfnoid: aggfnoid,
@@ -786,14 +812,18 @@ func (a *Aggref) ExpressionType() string {
 
 func (a *Aggref) String() string {
 	distinct := ""
-	if len(a.Aggdistinct) > 0 {
+	if a.Aggdistinct != nil && len(a.Aggdistinct.Items) > 0 {
 		distinct = " DISTINCT"
 	}
 	filter := ""
 	if a.Aggfilter != nil {
 		filter = " FILTER"
 	}
-	return fmt.Sprintf("Aggref(oid:%d%s%s, %d args)@%d", a.Aggfnoid, distinct, filter, len(a.Args), a.Location())
+	argCount := 0
+	if a.Args != nil {
+		argCount = len(a.Args.Items)
+	}
+	return fmt.Sprintf("Aggref(oid:%d%s%s, %d args)@%d", a.Aggfnoid, distinct, filter, argCount, a.Location())
 }
 
 // WindowFunc represents a window function call expression.
@@ -804,16 +834,16 @@ type WindowFunc struct {
 	Wintype      Oid    // Result type OID - postgres/src/include/nodes/primnodes.h:595
 	Wincollid    Oid    // Result collation - postgres/src/include/nodes/primnodes.h:597
 	Inputcollid  Oid    // Input collation - postgres/src/include/nodes/primnodes.h:599
-	Args         []Node // Arguments to window function - postgres/src/include/nodes/primnodes.h:601
+	Args         *NodeList // Arguments to window function - postgres/src/include/nodes/primnodes.h:601
 	Aggfilter    Node   // FILTER expression - postgres/src/include/nodes/primnodes.h:603
-	RunCondition []Node // List of run conditions - postgres/src/include/nodes/primnodes.h:605
+	RunCondition *NodeList // List of run conditions - postgres/src/include/nodes/primnodes.h:605
 	Winref       Index  // Index of associated WindowClause - postgres/src/include/nodes/primnodes.h:607
 	Winstar      bool   // True if argument list was '*' - postgres/src/include/nodes/primnodes.h:609
 	Winagg       bool   // Is function a simple aggregate? - postgres/src/include/nodes/primnodes.h:611
 }
 
 // NewWindowFunc creates a new WindowFunc node.
-func NewWindowFunc(winfnoid Oid, wintype Oid, args []Node, winref Index) *WindowFunc {
+func NewWindowFunc(winfnoid Oid, wintype Oid, args *NodeList, winref Index) *WindowFunc {
 	return &WindowFunc{
 		BaseExpr: BaseExpr{BaseNode: BaseNode{Tag: T_WindowFunc}},
 		Winfnoid: winfnoid,
@@ -832,7 +862,11 @@ func (w *WindowFunc) String() string {
 	if w.Winstar {
 		star = "*"
 	} else {
-		star = fmt.Sprintf("%d args", len(w.Args))
+		argCount := 0
+		if w.Args != nil {
+			argCount = len(w.Args.Items)
+		}
+		star = fmt.Sprintf("%d args", argCount)
 	}
 	filter := ""
 	if w.Aggfilter != nil {
@@ -848,7 +882,7 @@ type SubLink struct {
 	SubLinkType SubLinkType // Type of sublink - postgres/src/include/nodes/primnodes.h:1575
 	SubLinkId   int         // ID (1..n); 0 if not MULTIEXPR - postgres/src/include/nodes/primnodes.h:1576
 	Testexpr    Node        // Outer-query test for ALL/ANY/ROWCOMPARE - postgres/src/include/nodes/primnodes.h:1577
-	OperName    []Node      // Originally specified operator name - postgres/src/include/nodes/primnodes.h:1579
+	OperName    *NodeList   // Originally specified operator name - postgres/src/include/nodes/primnodes.h:1579
 	Subselect   Node        // Subselect as Query* or raw parsetree - postgres/src/include/nodes/primnodes.h:1581
 }
 
@@ -886,27 +920,27 @@ func NewCountStar() *Aggref {
 
 // NewCount creates a COUNT(expr) aggregate.
 func NewCount(expr Node) *Aggref {
-	return NewAggref(2147, 20, []Node{expr}) // COUNT function OID 2147, result type bigint 20
+	return NewAggref(2147, 20, NewNodeList(expr)) // COUNT function OID 2147, result type bigint 20
 }
 
 // NewSum creates a SUM(expr) aggregate.
 func NewSum(expr Node) *Aggref {
-	return NewAggref(2108, 0, []Node{expr}) // SUM function OID (varies by type)
+	return NewAggref(2108, 0, NewNodeList(expr)) // SUM function OID (varies by type)
 }
 
 // NewAvg creates an AVG(expr) aggregate.
 func NewAvg(expr Node) *Aggref {
-	return NewAggref(2100, 0, []Node{expr}) // AVG function OID (varies by type)
+	return NewAggref(2100, 0, NewNodeList(expr)) // AVG function OID (varies by type)
 }
 
 // NewMax creates a MAX(expr) aggregate.
 func NewMax(expr Node) *Aggref {
-	return NewAggref(2116, 0, []Node{expr}) // MAX function OID (varies by type)
+	return NewAggref(2116, 0, NewNodeList(expr)) // MAX function OID (varies by type)
 }
 
 // NewMin creates a MIN(expr) aggregate.
 func NewMin(expr Node) *Aggref {
-	return NewAggref(2132, 0, []Node{expr}) // MIN function OID (varies by type)
+	return NewAggref(2132, 0, NewNodeList(expr)) // MIN function OID (varies by type)
 }
 
 // NewExistsSublink creates an EXISTS(subquery) expression.
@@ -955,12 +989,12 @@ func NewDenseRank() *WindowFunc {
 
 // NewLag creates a LAG(expr) window function.
 func NewLag(expr Node) *WindowFunc {
-	return NewWindowFunc(3105, 0, []Node{expr}, 0) // LAG function OID (varies by type)
+	return NewWindowFunc(3105, 0, NewNodeList(expr), 0) // LAG function OID (varies by type)
 }
 
 // NewLead creates a LEAD(expr) window function.
 func NewLead(expr Node) *WindowFunc {
-	return NewWindowFunc(3106, 0, []Node{expr}, 0) // LEAD function OID (varies by type)
+	return NewWindowFunc(3106, 0, NewNodeList(expr), 0) // LEAD function OID (varies by type)
 }
 
 // ==============================================================================
@@ -1016,7 +1050,10 @@ func IsNotInExpr(expr Node) bool {
 // GetCaseWhenCount returns the number of WHEN clauses in a CASE expression.
 func GetCaseWhenCount(expr Node) int {
 	if caseExpr, ok := expr.(*CaseExpr); ok {
-		return len(caseExpr.Args)
+		if caseExpr.Args == nil {
+			return 0
+		}
+		return len(caseExpr.Args.Items)
 	}
 	return 0
 }
@@ -1030,7 +1067,7 @@ func HasCaseElse(expr Node) bool {
 }
 
 // GetArrayElements returns the elements of an array expression.
-func GetArrayElements(expr Node) []Node {
+func GetArrayElements(expr Node) *NodeList {
 	if arrayExpr, ok := expr.(*ArrayExpr); ok {
 		return arrayExpr.Elements
 	}
@@ -1080,7 +1117,7 @@ func IsAggregate(expr Node) bool {
 }
 
 // GetAggregateArgs returns the arguments of an aggregate expression.
-func GetAggregateArgs(expr Node) []Node {
+func GetAggregateArgs(expr Node) *NodeList {
 	switch e := expr.(type) {
 	case *Aggref:
 		return e.Args
@@ -1118,7 +1155,7 @@ func GetAggregateFilter(expr Node) Node {
 // IsDistinctAggregate checks if an aggregate has DISTINCT.
 func IsDistinctAggregate(expr Node) bool {
 	if aggref, ok := expr.(*Aggref); ok {
-		return len(aggref.Aggdistinct) > 0
+		return aggref.Aggdistinct != nil && len(aggref.Aggdistinct.Items) > 0
 	}
 	return false
 }
@@ -1194,13 +1231,13 @@ func GetSubLinkTest(expr Node) Node {
 // IsOrderedSetAggregate checks if an aggregate is an ordered-set aggregate.
 func IsOrderedSetAggregate(expr Node) bool {
 	if aggref, ok := expr.(*Aggref); ok {
-		return len(aggref.Aggdirectargs) > 0
+		return aggref.Aggdirectargs != nil && len(aggref.Aggdirectargs.Items) > 0
 	}
 	return false
 }
 
 // GetAggregateDirectArgs returns the direct arguments of an ordered-set aggregate.
-func GetAggregateDirectArgs(expr Node) []Node {
+func GetAggregateDirectArgs(expr Node) *NodeList {
 	if aggref, ok := expr.(*Aggref); ok {
 		return aggref.Aggdirectargs
 	}
@@ -1208,7 +1245,7 @@ func GetAggregateDirectArgs(expr Node) []Node {
 }
 
 // GetAggregateOrderBy returns the ORDER BY expressions of an aggregate.
-func GetAggregateOrderBy(expr Node) []Node {
+func GetAggregateOrderBy(expr Node) *NodeList {
 	if aggref, ok := expr.(*Aggref); ok {
 		return aggref.Aggorder
 	}
@@ -1704,7 +1741,7 @@ type IntoClause struct {
 	Rel            *RangeVar      // Target relation name
 	ColNames       []string       // Column names to assign, or NIL
 	AccessMethod   string         // Table access method
-	Options        []Node         // Options from WITH clause
+	Options        *NodeList      // Options from WITH clause
 	OnCommit       OnCommitAction // What do we do at COMMIT?
 	TableSpaceName string         // Table space to use, or NULL
 	ViewQuery      Node           // Materialized view's SELECT query
@@ -1712,7 +1749,7 @@ type IntoClause struct {
 }
 
 // NewIntoClause creates a new IntoClause node.
-func NewIntoClause(rel *RangeVar, colNames []string, accessMethod string, options []Node, onCommit OnCommitAction, tableSpaceName string, viewQuery Node, skipData bool, location int) *IntoClause {
+func NewIntoClause(rel *RangeVar, colNames []string, accessMethod string, options *NodeList, onCommit OnCommitAction, tableSpaceName string, viewQuery Node, skipData bool, location int) *IntoClause {
 	return &IntoClause{
 		BaseNode:       BaseNode{Tag: T_IntoClause, Loc: location},
 		Rel:            rel,
@@ -1757,9 +1794,9 @@ func (i *IntoClause) SqlString() string {
 	}
 	
 	// Add WITH options if present
-	if len(i.Options) > 0 {
+	if i.Options != nil && len(i.Options.Items) > 0 {
 		var opts []string
-		for _, opt := range i.Options {
+		for _, opt := range i.Options.Items {
 			if opt != nil {
 				opts = append(opts, opt.SqlString())
 			}

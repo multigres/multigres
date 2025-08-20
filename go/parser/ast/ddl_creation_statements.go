@@ -877,7 +877,7 @@ func NewCreateRangeStmt(typeName []*String, params []*DefElem) *CreateRangeStmt 
 type CreateStatsStmt struct {
 	DefNames     []*String    // qualified name (list of String)
 	StatTypes    []*String    // stat types (list of String)
-	Exprs        []Node       // expressions to build statistics on
+	Exprs        *NodeList    // expressions to build statistics on
 	Relations    []*RangeVar  // rels to build stats on (list of RangeVar)
 	StxComment   *string      // comment to apply to stats, or nil
 	Transformed  bool         // true when transformStatsStmt is finished
@@ -929,7 +929,7 @@ func (css *CreateStatsStmt) String() string {
 }
 
 // NewCreateStatsStmt creates a new CreateStatsStmt node
-func NewCreateStatsStmt(defNames []*String, statTypes []*String, exprs []Node, relations []*RangeVar, stxComment *string, transformed, ifNotExists bool) *CreateStatsStmt {
+func NewCreateStatsStmt(defNames []*String, statTypes []*String, exprs *NodeList, relations []*RangeVar, stxComment *string, transformed, ifNotExists bool) *CreateStatsStmt {
 	return &CreateStatsStmt{
 		DefNames:    defNames,
 		StatTypes:   statTypes,

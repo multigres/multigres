@@ -109,12 +109,12 @@ const (
 type PartitionSpec struct {
 	BaseNode
 	Strategy   PartitionStrategy // Partitioning strategy - parsenodes.h:884
-	PartParams []Node            // List of PartitionElem nodes - parsenodes.h:885
+	PartParams *NodeList         // List of PartitionElem nodes - parsenodes.h:885
 	Location   int               // Parse location, or -1 if none/unknown - parsenodes.h:886
 }
 
 // NewPartitionSpec creates a new PartitionSpec node.
-func NewPartitionSpec(strategy PartitionStrategy, partParams []Node) *PartitionSpec {
+func NewPartitionSpec(strategy PartitionStrategy, partParams *NodeList) *PartitionSpec {
 	return &PartitionSpec{
 		BaseNode:   BaseNode{Tag: T_PartitionSpec},
 		Strategy:   strategy,
@@ -124,7 +124,7 @@ func NewPartitionSpec(strategy PartitionStrategy, partParams []Node) *PartitionS
 }
 
 // NewListPartitionSpec creates a new LIST partition specification.
-func NewListPartitionSpec(partParams []Node) *PartitionSpec {
+func NewListPartitionSpec(partParams *NodeList) *PartitionSpec {
 	return &PartitionSpec{
 		BaseNode:   BaseNode{Tag: T_PartitionSpec},
 		Strategy:   PARTITION_STRATEGY_LIST,
@@ -134,7 +134,7 @@ func NewListPartitionSpec(partParams []Node) *PartitionSpec {
 }
 
 // NewRangePartitionSpec creates a new RANGE partition specification.
-func NewRangePartitionSpec(partParams []Node) *PartitionSpec {
+func NewRangePartitionSpec(partParams *NodeList) *PartitionSpec {
 	return &PartitionSpec{
 		BaseNode:   BaseNode{Tag: T_PartitionSpec},
 		Strategy:   PARTITION_STRATEGY_RANGE,
@@ -144,7 +144,7 @@ func NewRangePartitionSpec(partParams []Node) *PartitionSpec {
 }
 
 // NewHashPartitionSpec creates a new HASH partition specification.
-func NewHashPartitionSpec(partParams []Node) *PartitionSpec {
+func NewHashPartitionSpec(partParams *NodeList) *PartitionSpec {
 	return &PartitionSpec{
 		BaseNode:   BaseNode{Tag: T_PartitionSpec},
 		Strategy:   PARTITION_STRATEGY_HASH,
@@ -154,7 +154,11 @@ func NewHashPartitionSpec(partParams []Node) *PartitionSpec {
 }
 
 func (ps *PartitionSpec) String() string {
-	return fmt.Sprintf("PartitionSpec(PARTITION BY %s, %d params)", ps.Strategy, len(ps.PartParams))
+	count := 0
+	if ps.PartParams != nil {
+		count = len(ps.PartParams.Items)
+	}
+	return fmt.Sprintf("PartitionSpec(PARTITION BY %s, %d params)", ps.Strategy, count)
 }
 
 // PartitionBoundSpec represents partition boundary specifications.
@@ -166,9 +170,9 @@ type PartitionBoundSpec struct {
 	IsDefault  bool              // Is this a default partition? - parsenodes.h:899
 	Modulus    int               // Hash partition modulus - parsenodes.h:900
 	Remainder  int               // Hash partition remainder - parsenodes.h:901
-	ListDatums [][]Node          // List of list datums per column - parsenodes.h:902
-	LowDatums  []Node            // List of lower datums for range bounds - parsenodes.h:903
-	HighDatums []Node            // List of upper datums for range bounds - parsenodes.h:904
+	ListDatums []*NodeList       // List of list datums per column - parsenodes.h:902
+	LowDatums  *NodeList         // List of lower datums for range bounds - parsenodes.h:903
+	HighDatums *NodeList         // List of upper datums for range bounds - parsenodes.h:904
 	Location   int               // Parse location, or -1 if none/unknown - parsenodes.h:905
 }
 
@@ -202,7 +206,7 @@ func NewHashPartitionBound(modulus, remainder int) *PartitionBoundSpec {
 }
 
 // NewListPartitionBound creates a new list partition bound.
-func NewListPartitionBound(listDatums [][]Node) *PartitionBoundSpec {
+func NewListPartitionBound(listDatums []*NodeList) *PartitionBoundSpec {
 	return &PartitionBoundSpec{
 		BaseNode:   BaseNode{Tag: T_PartitionBoundSpec},
 		Strategy:   PARTITION_STRATEGY_LIST,
@@ -212,7 +216,7 @@ func NewListPartitionBound(listDatums [][]Node) *PartitionBoundSpec {
 }
 
 // NewRangePartitionBound creates a new range partition bound.
-func NewRangePartitionBound(lowDatums, highDatums []Node) *PartitionBoundSpec {
+func NewRangePartitionBound(lowDatums, highDatums *NodeList) *PartitionBoundSpec {
 	return &PartitionBoundSpec{
 		BaseNode:   BaseNode{Tag: T_PartitionBoundSpec},
 		Strategy:   PARTITION_STRATEGY_RANGE,
@@ -233,7 +237,15 @@ func (pbs *PartitionBoundSpec) String() string {
 	case PARTITION_STRATEGY_LIST:
 		return fmt.Sprintf("PartitionBoundSpec(LIST %d datums)", len(pbs.ListDatums))
 	case PARTITION_STRATEGY_RANGE:
-		return fmt.Sprintf("PartitionBoundSpec(RANGE low=%d high=%d)", len(pbs.LowDatums), len(pbs.HighDatums))
+		lowCount := 0
+		highCount := 0
+		if pbs.LowDatums != nil {
+			lowCount = len(pbs.LowDatums.Items)
+		}
+		if pbs.HighDatums != nil {
+			highCount = len(pbs.HighDatums.Items)
+		}
+		return fmt.Sprintf("PartitionBoundSpec(RANGE low=%d high=%d)", lowCount, highCount)
 	default:
 		return fmt.Sprintf("PartitionBoundSpec(%s)", pbs.Strategy)
 	}
@@ -359,7 +371,7 @@ type CreateForeignServerStmt struct {
 	Version     string // Optional server version - parsenodes.h:2874
 	Fdwname     string // FDW name - parsenodes.h:2875
 	IfNotExists bool   // IF NOT EXISTS clause - parsenodes.h:2876
-	Options     []Node // Generic options to FDW - parsenodes.h:2877
+	Options     *NodeList // Generic options to FDW - parsenodes.h:2877
 }
 
 // NewCreateForeignServerStmt creates a new CreateForeignServerStmt node.
@@ -396,7 +408,7 @@ type CreateForeignTableStmt struct {
 	BaseNode
 	Base       *CreateStmt // Base CREATE TABLE statement - parsenodes.h:2897
 	Servername string      // Foreign server name - parsenodes.h:2898
-	Options    []Node      // OPTIONS clause - parsenodes.h:2899
+	Options    *NodeList   // OPTIONS clause - parsenodes.h:2899
 }
 
 // NewCreateForeignTableStmt creates a new CreateForeignTableStmt node.
@@ -420,7 +432,7 @@ type CreateUserMappingStmt struct {
 	User        *RoleSpec // User role - parsenodes.h:2909
 	Servername  string    // Foreign server name - parsenodes.h:2910
 	IfNotExists bool      // IF NOT EXISTS clause - parsenodes.h:2911
-	Options     []Node    // Generic options to FDW - parsenodes.h:2912
+	Options     *NodeList // Generic options to FDW - parsenodes.h:2912
 }
 
 // NewCreateUserMappingStmt creates a new CreateUserMappingStmt node.
@@ -462,12 +474,12 @@ type CreateTriggerStmt struct {
 	IsConstraint bool                 // Is this a constraint trigger? - parsenodes.h:3004
 	Trigname     string               // Trigger name - parsenodes.h:3005
 	Relation     *RangeVar            // Relation trigger is on - parsenodes.h:3006
-	Funcname     []Node               // Qual. name of function to call - parsenodes.h:3007
-	Args         []Node               // List of (T_String) Values or NIL - parsenodes.h:3008
+	Funcname     *NodeList            // Qual. name of function to call - parsenodes.h:3007
+	Args         *NodeList            // List of (T_String) Values or NIL - parsenodes.h:3008
 	Row          bool                 // ROW/STATEMENT - parsenodes.h:3009
 	Timing       int16                // BEFORE, AFTER, or INSTEAD - parsenodes.h:3010
 	Events       int16                // "OR" of INSERT/UPDATE/DELETE/TRUNCATE - parsenodes.h:3011
-	Columns      []Node               // Column names, or NIL for all columns - parsenodes.h:3012
+	Columns      *NodeList            // Column names, or NIL for all columns - parsenodes.h:3012
 	WhenClause   Node                 // WHEN clause - parsenodes.h:3013
 	Constrrel    *RangeVar            // Opposite relation, if RI trigger - parsenodes.h:3014
 	Deferrable   bool                 // DEFERRABLE - parsenodes.h:3015
@@ -491,7 +503,7 @@ const (
 )
 
 // NewCreateTriggerStmt creates a new CreateTriggerStmt node.
-func NewCreateTriggerStmt(trigname string, relation *RangeVar, funcname []Node, timing int16, events int16) *CreateTriggerStmt {
+func NewCreateTriggerStmt(trigname string, relation *RangeVar, funcname *NodeList, timing int16, events int16) *CreateTriggerStmt {
 	return &CreateTriggerStmt{
 		BaseNode: BaseNode{Tag: T_CreateTriggerStmt},
 		Trigname: trigname,
@@ -504,7 +516,7 @@ func NewCreateTriggerStmt(trigname string, relation *RangeVar, funcname []Node, 
 }
 
 // NewBeforeInsertTrigger creates a BEFORE INSERT trigger.
-func NewBeforeInsertTrigger(trigname string, relation *RangeVar, funcname []Node) *CreateTriggerStmt {
+func NewBeforeInsertTrigger(trigname string, relation *RangeVar, funcname *NodeList) *CreateTriggerStmt {
 	return &CreateTriggerStmt{
 		BaseNode: BaseNode{Tag: T_CreateTriggerStmt},
 		Trigname: trigname,
@@ -517,7 +529,7 @@ func NewBeforeInsertTrigger(trigname string, relation *RangeVar, funcname []Node
 }
 
 // NewAfterUpdateTrigger creates an AFTER UPDATE trigger.
-func NewAfterUpdateTrigger(trigname string, relation *RangeVar, funcname []Node) *CreateTriggerStmt {
+func NewAfterUpdateTrigger(trigname string, relation *RangeVar, funcname *NodeList) *CreateTriggerStmt {
 	return &CreateTriggerStmt{
 		BaseNode: BaseNode{Tag: T_CreateTriggerStmt},
 		Trigname: trigname,
@@ -530,7 +542,7 @@ func NewAfterUpdateTrigger(trigname string, relation *RangeVar, funcname []Node)
 }
 
 // NewConstraintTrigger creates a constraint trigger.
-func NewConstraintTrigger(trigname string, relation *RangeVar, funcname []Node, timing int16, events int16, constrrel *RangeVar) *CreateTriggerStmt {
+func NewConstraintTrigger(trigname string, relation *RangeVar, funcname *NodeList, timing int16, events int16, constrrel *RangeVar) *CreateTriggerStmt {
 	return &CreateTriggerStmt{
 		BaseNode:     BaseNode{Tag: T_CreateTriggerStmt},
 		IsConstraint: true,
@@ -547,7 +559,7 @@ func NewConstraintTrigger(trigname string, relation *RangeVar, funcname []Node, 
 }
 
 // NewDeferrableConstraintTrigger creates a deferrable constraint trigger.
-func NewDeferrableConstraintTrigger(trigname string, relation *RangeVar, funcname []Node, timing int16, events int16, constrrel *RangeVar, initdeferred bool) *CreateTriggerStmt {
+func NewDeferrableConstraintTrigger(trigname string, relation *RangeVar, funcname *NodeList, timing int16, events int16, constrrel *RangeVar, initdeferred bool) *CreateTriggerStmt {
 	return &CreateTriggerStmt{
 		BaseNode:     BaseNode{Tag: T_CreateTriggerStmt},
 		IsConstraint: true,
@@ -630,7 +642,7 @@ type CreatePolicyStmt struct {
 	Table      *RangeVar // Table the policy applies to - parsenodes.h:2962
 	CmdName    string    // Command name (SELECT, INSERT, etc.) - parsenodes.h:2963
 	Permissive bool      // Is this a permissive policy? - parsenodes.h:2964
-	Roles      []Node    // Roles policy applies to - parsenodes.h:2965
+	Roles      *NodeList // Roles policy applies to - parsenodes.h:2965
 	Qual       Node      // USING clause - parsenodes.h:2966
 	WithCheck  Node      // WITH CHECK clause - parsenodes.h:2967
 }
@@ -672,7 +684,7 @@ type AlterPolicyStmt struct {
 	BaseNode
 	PolicyName string    // Policy name - parsenodes.h:2977
 	Table      *RangeVar // Table the policy applies to - parsenodes.h:2978
-	Roles      []Node    // Roles policy applies to - parsenodes.h:2979
+	Roles      *NodeList // Roles policy applies to - parsenodes.h:2979
 	Qual       Node      // USING clause - parsenodes.h:2980
 	WithCheck  Node      // WITH CHECK clause - parsenodes.h:2981
 }

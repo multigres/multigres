@@ -199,7 +199,7 @@ func TestCreateStmt(t *testing.T) {
 
 // TestDropStmt tests DROP statement structure.
 func TestDropStmt(t *testing.T) {
-	objects := []Node{NewString("users")}
+	objects := NewNodeList(NewString("users"))
 	stmt := NewDropStmt(objects, OBJECT_TABLE)
 
 	require.NotNil(t, stmt)
@@ -230,8 +230,8 @@ func TestColumnRef(t *testing.T) {
 		require.NotNil(t, colRef)
 		assert.Equal(t, T_ColumnRef, colRef.NodeTag())
 		assert.Equal(t, "ColumnRef", colRef.ExpressionType())
-		assert.Len(t, colRef.Fields, 1)
-		assert.Equal(t, field, colRef.Fields[0])
+		assert.Equal(t, 1, colRef.Fields.Len())
+		assert.Equal(t, field, colRef.Fields.Items[0])
 		assert.Contains(t, colRef.String(), "1 fields")
 	})
 
@@ -241,9 +241,9 @@ func TestColumnRef(t *testing.T) {
 		colRef := NewColumnRef(table, column)
 
 		require.NotNil(t, colRef)
-		assert.Len(t, colRef.Fields, 2)
-		assert.Equal(t, table, colRef.Fields[0])
-		assert.Equal(t, column, colRef.Fields[1])
+		assert.Equal(t, 2, colRef.Fields.Len())
+		assert.Equal(t, table, colRef.Fields.Items[0])
+		assert.Equal(t, column, colRef.Fields.Items[1])
 		assert.Contains(t, colRef.String(), "2 fields")
 	})
 }
@@ -261,7 +261,7 @@ func TestStmtInterfaces(t *testing.T) {
 		{"UpdateStmt", NewUpdateStmt(NewRangeVar("users", "", "")), "UPDATE"},
 		{"DeleteStmt", NewDeleteStmt(NewRangeVar("users", "", "")), "DELETE"},
 		{"CreateStmt", NewCreateStmt(NewRangeVar("users", "", "")), "CREATE"},
-		{"DropStmt", NewDropStmt([]Node{NewString("users")}, OBJECT_TABLE), "DROP"},
+		{"DropStmt", NewDropStmt(NewNodeList(NewString("users")), OBJECT_TABLE), "DROP"},
 	}
 
 	for _, tt := range tests {
@@ -291,7 +291,7 @@ func TestComplexStmtCreation(t *testing.T) {
 
 		// Add FROM clause
 		fromTable := NewRangeVar("users", "", "")
-		stmt.FromClause = []Node{fromTable}
+		stmt.FromClause = NewNodeList(fromTable)
 
 		// Add WHERE clause
 		stmt.WhereClause = NewColumnRef(NewString("active"))
@@ -299,7 +299,7 @@ func TestComplexStmtCreation(t *testing.T) {
 		// Verify structure
 		require.NotNil(t, stmt)
 		assert.Len(t, stmt.TargetList, 2)
-		assert.Len(t, stmt.FromClause, 1)
+		assert.Equal(t, 1, stmt.FromClause.Len())
 		assert.NotNil(t, stmt.WhereClause)
 	})
 
@@ -352,7 +352,7 @@ func TestStmtNodeTraversal(t *testing.T) {
 
 	// Add a table reference
 	table := NewRangeVar("users", "", "")
-	stmt.FromClause = []Node{table}
+	stmt.FromClause = NewNodeList(table)
 
 	// Walk the statement tree (basic test - full traversal will be implemented later)
 	var visited []Node

@@ -167,7 +167,7 @@ type GrantStmt struct {
 	IsGrant     bool            // True = GRANT, false = REVOKE - postgres/src/include/nodes/parsenodes.h:2494
 	Targtype    GrantTargetType // Type of target - postgres/src/include/nodes/parsenodes.h:2495
 	Objtype     ObjectType      // Kind of object being operated on - postgres/src/include/nodes/parsenodes.h:2496
-	Objects     []Node          // List of RangeVar nodes, or list of String nodes - postgres/src/include/nodes/parsenodes.h:2497
+	Objects     *NodeList       // List of RangeVar nodes, or list of String nodes - postgres/src/include/nodes/parsenodes.h:2497
 	Privileges  []*AccessPriv   // List of AccessPriv nodes - postgres/src/include/nodes/parsenodes.h:2498
 	Grantees    []*RoleSpec     // List of RoleSpec nodes - postgres/src/include/nodes/parsenodes.h:2499
 	GrantOption bool            // Grant or revoke grant option - postgres/src/include/nodes/parsenodes.h:2500
@@ -184,7 +184,7 @@ type AccessPriv struct {
 }
 
 // NewGrantStmt creates a new GRANT statement.
-func NewGrantStmt(objtype ObjectType, objects []Node, privileges []*AccessPriv, grantees []*RoleSpec) *GrantStmt {
+func NewGrantStmt(objtype ObjectType, objects *NodeList, privileges []*AccessPriv, grantees []*RoleSpec) *GrantStmt {
 	return &GrantStmt{
 		BaseNode:   BaseNode{Tag: T_GrantStmt},
 		IsGrant:    true,
@@ -198,7 +198,7 @@ func NewGrantStmt(objtype ObjectType, objects []Node, privileges []*AccessPriv, 
 }
 
 // NewRevokeStmt creates a new REVOKE statement.
-func NewRevokeStmt(objtype ObjectType, objects []Node, privileges []*AccessPriv, grantees []*RoleSpec) *GrantStmt {
+func NewRevokeStmt(objtype ObjectType, objects *NodeList, privileges []*AccessPriv, grantees []*RoleSpec) *GrantStmt {
 	return &GrantStmt{
 		BaseNode:   BaseNode{Tag: T_GrantStmt},
 		IsGrant:    false,
@@ -225,7 +225,11 @@ func (gs *GrantStmt) String() string {
 	if gs.IsGrant {
 		action = "GRANT"
 	}
-	return fmt.Sprintf("GrantStmt(%s %s on %d objects)@%d", action, gs.Objtype, len(gs.Objects), gs.Location())
+	objectCount := 0
+	if gs.Objects != nil {
+		objectCount = len(gs.Objects.Items)
+	}
+	return fmt.Sprintf("GrantStmt(%s %s on %d objects)@%d", action, gs.Objtype, objectCount, gs.Location())
 }
 
 func (gs *GrantStmt) StatementType() string {
@@ -459,12 +463,12 @@ type VariableSetStmt struct {
 	BaseNode
 	Kind    VariableSetKind // What kind of SET command - postgres/src/include/nodes/parsenodes.h:2621
 	Name    string          // Variable name - postgres/src/include/nodes/parsenodes.h:2622
-	Args    []Node          // List of A_Const nodes - postgres/src/include/nodes/parsenodes.h:2623
+	Args    *NodeList       // List of A_Const nodes - postgres/src/include/nodes/parsenodes.h:2623
 	IsLocal bool            // SET LOCAL? - postgres/src/include/nodes/parsenodes.h:2624
 }
 
 // NewVariableSetStmt creates a new SET statement.
-func NewVariableSetStmt(kind VariableSetKind, name string, args []Node, isLocal bool) *VariableSetStmt {
+func NewVariableSetStmt(kind VariableSetKind, name string, args *NodeList, isLocal bool) *VariableSetStmt {
 	return &VariableSetStmt{
 		BaseNode: BaseNode{Tag: T_VariableSetStmt},
 		Kind:     kind,
@@ -475,7 +479,7 @@ func NewVariableSetStmt(kind VariableSetKind, name string, args []Node, isLocal 
 }
 
 // NewSetStmt creates a new SET variable statement.
-func NewSetStmt(name string, args []Node) *VariableSetStmt {
+func NewSetStmt(name string, args *NodeList) *VariableSetStmt {
 	return NewVariableSetStmt(VAR_SET_VALUE, name, args, false)
 }
 
@@ -583,11 +587,11 @@ func (ps *PrepareStmt) StatementType() string {
 type ExecuteStmt struct {
 	BaseNode
 	Name   string // Statement name - postgres/src/include/nodes/parsenodes.h:4047
-	Params []Node // List of parameter expressions - postgres/src/include/nodes/parsenodes.h:4048
+	Params *NodeList // List of parameter expressions - postgres/src/include/nodes/parsenodes.h:4048
 }
 
 // NewExecuteStmt creates a new EXECUTE statement.
-func NewExecuteStmt(name string, params []Node) *ExecuteStmt {
+func NewExecuteStmt(name string, params *NodeList) *ExecuteStmt {
 	return &ExecuteStmt{
 		BaseNode: BaseNode{Tag: T_ExecuteStmt},
 		Name:     name,
@@ -596,7 +600,11 @@ func NewExecuteStmt(name string, params []Node) *ExecuteStmt {
 }
 
 func (es *ExecuteStmt) String() string {
-	return fmt.Sprintf("ExecuteStmt(%s, %d params)@%d", es.Name, len(es.Params), es.Location())
+	paramCount := 0
+	if es.Params != nil {
+		paramCount = len(es.Params.Items)
+	}
+	return fmt.Sprintf("ExecuteStmt(%s, %d params)@%d", es.Name, paramCount, es.Location())
 }
 
 func (es *ExecuteStmt) StatementType() string {

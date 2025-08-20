@@ -113,7 +113,7 @@ func TestFuncExpr(t *testing.T) {
 	funcresulttype := Oid(23)
 	arg1 := NewVar(1, 1, 23)
 	arg2 := NewConst(23, 42, false)
-	args := []Node{arg1, arg2}
+	args := NewNodeList(arg1, arg2)
 
 	f := NewFuncExpr(funcid, funcresulttype, args)
 
@@ -123,9 +123,9 @@ func TestFuncExpr(t *testing.T) {
 	assert.True(t, f.IsExpr())
 	assert.Equal(t, funcid, f.Funcid)
 	assert.Equal(t, funcresulttype, f.Funcresulttype)
-	assert.Len(t, f.Args, 2)
-	assert.Equal(t, arg1, f.Args[0])
-	assert.Equal(t, arg2, f.Args[1])
+	assert.Equal(t, 2, f.Args.Len())
+	assert.Equal(t, arg1, f.Args.Items[0])
+	assert.Equal(t, arg2, f.Args.Items[1])
 	assert.Contains(t, f.String(), "FuncExpr")
 	assert.Contains(t, f.String(), "2 args")
 }
@@ -138,7 +138,7 @@ func TestOpExpr(t *testing.T) {
 		opresulttype := Oid(16) // bool
 		left := NewVar(1, 1, 23)
 		right := NewConst(23, 42, false)
-		args := []Node{left, right}
+		args := NewNodeList(left, right)
 
 		o := NewOpExpr(opno, opfuncid, opresulttype, args)
 
@@ -149,7 +149,7 @@ func TestOpExpr(t *testing.T) {
 		assert.Equal(t, opno, o.Opno)
 		assert.Equal(t, opfuncid, o.Opfuncid)
 		assert.Equal(t, opresulttype, o.Opresulttype)
-		assert.Len(t, o.Args, 2)
+		assert.Equal(t, 2, o.Args.Len())
 		assert.Contains(t, o.String(), "binary")
 	})
 
@@ -160,7 +160,7 @@ func TestOpExpr(t *testing.T) {
 		o := NewUnaryOp(opno, arg)
 
 		require.NotNil(t, o)
-		assert.Len(t, o.Args, 1)
+		assert.Equal(t, 1, o.Args.Len())
 		assert.Contains(t, o.String(), "unary")
 	})
 
@@ -173,9 +173,9 @@ func TestOpExpr(t *testing.T) {
 
 		require.NotNil(t, o)
 		assert.Equal(t, opno, o.Opno)
-		assert.Len(t, o.Args, 2)
-		assert.Equal(t, left, o.Args[0])
-		assert.Equal(t, right, o.Args[1])
+		assert.Equal(t, 2, o.Args.Len())
+		assert.Equal(t, left, o.Args.Items[0])
+		assert.Equal(t, right, o.Args.Items[1])
 	})
 }
 
@@ -184,7 +184,7 @@ func TestBoolExpr(t *testing.T) {
 	t.Run("AndExpression", func(t *testing.T) {
 		left := NewVar(1, 1, 16)  // bool column
 		right := NewVar(1, 2, 16) // bool column
-		args := []Node{left, right}
+		args := NewNodeList(left, right)
 
 		b := NewBoolExpr(AND_EXPR, args)
 
@@ -193,7 +193,7 @@ func TestBoolExpr(t *testing.T) {
 		assert.Equal(t, "BoolExpr", b.ExpressionType())
 		assert.True(t, b.IsExpr())
 		assert.Equal(t, AND_EXPR, b.Boolop)
-		assert.Len(t, b.Args, 2)
+		assert.Equal(t, 2, b.Args.Len())
 		assert.Contains(t, b.String(), "AND")
 	})
 
@@ -215,7 +215,7 @@ func TestBoolExpr(t *testing.T) {
 
 		require.NotNil(t, b)
 		assert.Equal(t, NOT_EXPR, b.Boolop)
-		assert.Len(t, b.Args, 1)
+		assert.Equal(t, 1, b.Args.Len())
 		assert.Contains(t, b.String(), "NOT")
 	})
 
@@ -226,7 +226,7 @@ func TestBoolExpr(t *testing.T) {
 		and := NewAndExpr(left, right)
 		require.NotNil(t, and)
 		assert.Equal(t, AND_EXPR, and.Boolop)
-		assert.Len(t, and.Args, 2)
+		assert.Equal(t, 2, and.Args.Len())
 	})
 }
 
@@ -239,9 +239,9 @@ func TestExpressionInterfaces(t *testing.T) {
 		{"Var", NewVar(1, 1, 23)},
 		{"Const", NewConst(23, 42, false)},
 		{"Param", NewParam(PARAM_EXTERN, 1, 23)},
-		{"FuncExpr", NewFuncExpr(100, 23, []Node{})},
-		{"OpExpr", NewOpExpr(96, 65, 16, []Node{})},
-		{"BoolExpr", NewBoolExpr(AND_EXPR, []Node{})},
+		{"FuncExpr", NewFuncExpr(100, 23, NewNodeList())},
+		{"OpExpr", NewOpExpr(96, 65, 16, NewNodeList())},
+		{"BoolExpr", NewBoolExpr(AND_EXPR, NewNodeList())},
 	}
 
 	for _, tt := range expressions {
@@ -278,7 +278,7 @@ func TestExpressionUtilities(t *testing.T) {
 	})
 
 	t.Run("IsFunction", func(t *testing.T) {
-		funcExpr := NewFuncExpr(100, 23, []Node{})
+		funcExpr := NewFuncExpr(100, 23, NewNodeList())
 		varExpr := NewVar(1, 1, 23)
 
 		assert.True(t, IsFunction(funcExpr))
@@ -289,19 +289,19 @@ func TestExpressionUtilities(t *testing.T) {
 		arg1 := NewVar(1, 1, 23)
 		arg2 := NewConst(23, 42, false)
 
-		funcExpr := NewFuncExpr(100, 23, []Node{arg1, arg2})
+		funcExpr := NewFuncExpr(100, 23, NewNodeList(arg1, arg2))
 		args := GetExpressionArgs(funcExpr)
-		assert.Len(t, args, 2)
-		assert.Equal(t, arg1, args[0])
-		assert.Equal(t, arg2, args[1])
+		assert.Equal(t, 2, args.Len())
+		assert.Equal(t, arg1, args.Items[0])
+		assert.Equal(t, arg2, args.Items[1])
 
 		opExpr := NewBinaryOp(96, arg1, arg2)
 		args = GetExpressionArgs(opExpr)
-		assert.Len(t, args, 2)
+		assert.Equal(t, 2, args.Len())
 
 		boolExpr := NewAndExpr(arg1, arg2)
 		args = GetExpressionArgs(boolExpr)
-		assert.Len(t, args, 2)
+		assert.Equal(t, 2, args.Len())
 
 		varExpr := NewVar(1, 1, 23)
 		args = GetExpressionArgs(varExpr)
@@ -312,7 +312,7 @@ func TestExpressionUtilities(t *testing.T) {
 		arg1 := NewVar(1, 1, 23)
 		arg2 := NewConst(23, 42, false)
 
-		funcExpr := NewFuncExpr(100, 23, []Node{arg1, arg2})
+		funcExpr := NewFuncExpr(100, 23, NewNodeList(arg1, arg2))
 		assert.Equal(t, 2, CountArgs(funcExpr))
 
 		unaryOp := NewUnaryOp(484, arg1)
@@ -371,12 +371,12 @@ func TestComplexExpressionTrees(t *testing.T) {
 		require.NotNil(t, or)
 		assert.Equal(t, T_BoolExpr, or.NodeTag())
 		assert.Equal(t, OR_EXPR, or.Boolop)
-		assert.Len(t, or.Args, 2)
+		assert.Equal(t, 2, or.Args.Len())
 
 		// Verify structure
-		leftArg := or.Args[0].(*BoolExpr)
+		leftArg := or.Args.Items[0].(*BoolExpr)
 		assert.Equal(t, AND_EXPR, leftArg.Boolop)
-		assert.Len(t, leftArg.Args, 2)
+		assert.Equal(t, 2, leftArg.Args.Len())
 	})
 
 	t.Run("FunctionWithMultipleArgs", func(t *testing.T) {
@@ -386,11 +386,11 @@ func TestComplexExpressionTrees(t *testing.T) {
 		startPos := NewConst(23, 1, false)
 		length := NewConst(23, 5, false)
 
-		substring := NewFuncExpr(883, 25, []Node{stringCol, startPos, length})
+		substring := NewFuncExpr(883, 25, NewNodeList(stringCol, startPos, length))
 
 		require.NotNil(t, substring)
 		assert.Equal(t, T_FuncExpr, substring.NodeTag())
-		assert.Len(t, substring.Args, 3)
+		assert.Equal(t, 3, substring.Args.Len())
 		assert.Equal(t, Oid(883), substring.Funcid)        // SUBSTRING function
 		assert.Equal(t, Oid(25), substring.Funcresulttype) // text result
 	})
@@ -409,14 +409,14 @@ func TestCaseExpr(t *testing.T) {
 		when2 := NewCaseWhen(NewConst(23, 2, false), NewString("Inactive"))
 		elseResult := NewString("Unknown")
 
-		caseExpr := NewCaseExpr(25, statusVar, []Node{when1, when2}, elseResult)
+		caseExpr := NewCaseExpr(25, statusVar, NewNodeList(when1, when2), elseResult)
 
 		require.NotNil(t, caseExpr)
 		assert.Equal(t, T_CaseExpr, caseExpr.NodeTag())
 		assert.Equal(t, "CaseExpr", caseExpr.ExpressionType())
 		assert.True(t, caseExpr.IsExpr())
 		assert.Equal(t, statusVar, caseExpr.Arg)
-		assert.Len(t, caseExpr.Args, 2)
+		assert.Equal(t, 2, caseExpr.Args.Len())
 		assert.Equal(t, elseResult, caseExpr.Defresult)
 		assert.Contains(t, caseExpr.String(), "2 whens")
 		assert.Contains(t, caseExpr.String(), "else:true")
@@ -429,17 +429,17 @@ func TestCaseExpr(t *testing.T) {
 		when2 := NewCaseWhen(NewBinaryOp(525, ageVar, NewConst(23, 65, false)), NewString("Senior"))
 		elseResult := NewString("Adult")
 
-		caseExpr := NewSearchedCase([]Node{when1, when2}, elseResult)
+		caseExpr := NewSearchedCase(NewNodeList(when1, when2), elseResult)
 
 		require.NotNil(t, caseExpr)
 		assert.Nil(t, caseExpr.Arg) // No implicit comparison argument
-		assert.Len(t, caseExpr.Args, 2)
+		assert.Equal(t, 2, caseExpr.Args.Len())
 		assert.NotNil(t, caseExpr.Defresult)
 	})
 
 	t.Run("ConvenienceConstructor", func(t *testing.T) {
 		statusVar := NewVar(1, 1, 23)
-		whens := []Node{NewCaseWhen(NewConst(23, 1, false), NewString("Active"))}
+		whens := NewNodeList(NewCaseWhen(NewConst(23, 1, false), NewString("Active")))
 		elseResult := NewString("Unknown")
 
 		simpleCase := NewSimpleCase(statusVar, whens, elseResult)
@@ -473,7 +473,7 @@ func TestCoalesceExpr(t *testing.T) {
 	col1 := NewVar(1, 1, 25) // text column
 	col2 := NewVar(1, 2, 25) // text column
 	defaultVal := NewString("default")
-	args := []Node{col1, col2, defaultVal}
+	args := NewNodeList(col1, col2, defaultVal)
 
 	coalesce := NewCoalesceExpr(25, args)
 
@@ -482,10 +482,10 @@ func TestCoalesceExpr(t *testing.T) {
 	assert.Equal(t, "CoalesceExpr", coalesce.ExpressionType())
 	assert.True(t, coalesce.IsExpr())
 	assert.Equal(t, Oid(25), coalesce.Coalescetype)
-	assert.Len(t, coalesce.Args, 3)
-	assert.Equal(t, col1, coalesce.Args[0])
-	assert.Equal(t, col2, coalesce.Args[1])
-	assert.Equal(t, defaultVal, coalesce.Args[2])
+	assert.Equal(t, 3, coalesce.Args.Len())
+	assert.Equal(t, col1, coalesce.Args.Items[0])
+	assert.Equal(t, col2, coalesce.Args.Items[1])
+	assert.Equal(t, defaultVal, coalesce.Args.Items[2])
 	assert.Contains(t, coalesce.String(), "3 args")
 }
 
@@ -496,7 +496,7 @@ func TestArrayExpr(t *testing.T) {
 		elem1 := NewConst(23, 1, false)
 		elem2 := NewConst(23, 2, false)
 		elem3 := NewConst(23, 3, false)
-		elements := []Node{elem1, elem2, elem3}
+		elements := NewNodeList(elem1, elem2, elem3)
 
 		array := NewArrayExpr(1007, 23, elements) // int4[] type
 
@@ -506,14 +506,14 @@ func TestArrayExpr(t *testing.T) {
 		assert.True(t, array.IsExpr())
 		assert.Equal(t, Oid(1007), array.ArrayTypeid)
 		assert.Equal(t, Oid(23), array.ElementTypeid)
-		assert.Len(t, array.Elements, 3)
+		assert.Equal(t, 3, array.Elements.Len())
 		assert.False(t, array.Multidims)
 		assert.Contains(t, array.String(), "3 elements")
 		assert.Contains(t, array.String(), "1D")
 	})
 
 	t.Run("MultiDimArray", func(t *testing.T) {
-		elements := []Node{NewConst(23, 1, false)}
+		elements := NewNodeList(NewConst(23, 1, false))
 		array := NewArrayExpr(1007, 23, elements)
 		array.Multidims = true
 
@@ -523,11 +523,11 @@ func TestArrayExpr(t *testing.T) {
 	})
 
 	t.Run("ConvenienceConstructor", func(t *testing.T) {
-		elements := []Node{NewConst(23, 1, false), NewConst(23, 2, false)}
+		elements := NewNodeList(NewConst(23, 1, false), NewConst(23, 2, false))
 		array := NewArrayConstructor(elements)
 
 		require.NotNil(t, array)
-		assert.Len(t, array.Elements, 2)
+		assert.Equal(t, 2, array.Elements.Len())
 		assert.Equal(t, Oid(0), array.ArrayTypeid) // Default unspecified
 	})
 }
@@ -537,7 +537,7 @@ func TestScalarArrayOpExpr(t *testing.T) {
 	t.Run("AnyOperation", func(t *testing.T) {
 		// column = ANY(ARRAY[1, 2, 3])
 		column := NewVar(1, 1, 23)
-		array := NewArrayConstructor([]Node{NewConst(23, 1, false), NewConst(23, 2, false), NewConst(23, 3, false)})
+		array := NewArrayConstructor(NewNodeList(NewConst(23, 1, false), NewConst(23, 2, false), NewConst(23, 3, false)))
 
 		anyExpr := NewScalarArrayOpExpr(96, true, column, array) // "=" operator with ANY
 
@@ -547,16 +547,16 @@ func TestScalarArrayOpExpr(t *testing.T) {
 		assert.True(t, anyExpr.IsExpr())
 		assert.Equal(t, Oid(96), anyExpr.Opno)
 		assert.True(t, anyExpr.UseOr)
-		assert.Len(t, anyExpr.Args, 2)
-		assert.Equal(t, column, anyExpr.Args[0])
-		assert.Equal(t, array, anyExpr.Args[1])
+		assert.Equal(t, 2, anyExpr.Args.Len())
+		assert.Equal(t, column, anyExpr.Args.Items[0])
+		assert.Equal(t, array, anyExpr.Args.Items[1])
 		assert.Contains(t, anyExpr.String(), "ANY")
 	})
 
 	t.Run("AllOperation", func(t *testing.T) {
 		// column <> ALL(ARRAY[1, 2, 3])
 		column := NewVar(1, 1, 23)
-		array := NewArrayConstructor([]Node{NewConst(23, 1, false)})
+		array := NewArrayConstructor(NewNodeList(NewConst(23, 1, false)))
 
 		allExpr := NewScalarArrayOpExpr(518, false, column, array) // "<>" operator with ALL
 
@@ -568,7 +568,7 @@ func TestScalarArrayOpExpr(t *testing.T) {
 
 	t.Run("ConvenienceConstructors", func(t *testing.T) {
 		column := NewVar(1, 1, 23)
-		array := NewArrayConstructor([]Node{NewConst(23, 1, false)})
+		array := NewArrayConstructor(NewNodeList(NewConst(23, 1, false)))
 
 		// Test IN expression
 		inExpr := NewInExpr(column, array)
@@ -600,7 +600,7 @@ func TestRowExpr(t *testing.T) {
 		col1 := NewVar(1, 1, 23)
 		col2 := NewVar(1, 2, 25)
 		literal := NewConst(23, 42, false)
-		fields := []Node{col1, col2, literal}
+		fields := NewNodeList(col1, col2, literal)
 
 		row := NewRowExpr(fields, 2249) // record type OID
 
@@ -609,19 +609,19 @@ func TestRowExpr(t *testing.T) {
 		assert.Equal(t, "RowExpr", row.ExpressionType())
 		assert.True(t, row.IsExpr())
 		assert.Equal(t, Oid(2249), row.RowTypeid)
-		assert.Len(t, row.Args, 3)
-		assert.Equal(t, col1, row.Args[0])
-		assert.Equal(t, col2, row.Args[1])
-		assert.Equal(t, literal, row.Args[2])
+		assert.Equal(t, 3, row.Args.Len())
+		assert.Equal(t, col1, row.Args.Items[0])
+		assert.Equal(t, col2, row.Args.Items[1])
+		assert.Equal(t, literal, row.Args.Items[2])
 		assert.Contains(t, row.String(), "3 fields")
 	})
 
 	t.Run("ConvenienceConstructor", func(t *testing.T) {
-		fields := []Node{NewConst(23, 1, false), NewConst(23, 2, false)}
+		fields := NewNodeList(NewConst(23, 1, false), NewConst(23, 2, false))
 		row := NewRowConstructor(fields)
 
 		require.NotNil(t, row)
-		assert.Len(t, row.Args, 2)
+		assert.Equal(t, 2, row.Args.Len())
 		assert.Equal(t, Oid(0), row.RowTypeid) // Default unspecified
 	})
 }
@@ -632,12 +632,12 @@ func TestTier2ExpressionInterfaces(t *testing.T) {
 		name string
 		expr Expr
 	}{
-		{"CaseExpr", NewCaseExpr(25, nil, []Node{}, nil)},
+		{"CaseExpr", NewCaseExpr(25, nil, NewNodeList(), nil)},
 		{"CaseWhen", NewCaseWhen(NewConst(16, 1, false), NewString("result"))},
-		{"CoalesceExpr", NewCoalesceExpr(25, []Node{})},
-		{"ArrayExpr", NewArrayExpr(1007, 23, []Node{})},
-		{"ScalarArrayOpExpr", NewScalarArrayOpExpr(96, true, NewVar(1, 1, 23), NewArrayConstructor([]Node{}))},
-		{"RowExpr", NewRowExpr([]Node{}, 2249)},
+		{"CoalesceExpr", NewCoalesceExpr(25, NewNodeList())},
+		{"ArrayExpr", NewArrayExpr(1007, 23, NewNodeList())},
+		{"ScalarArrayOpExpr", NewScalarArrayOpExpr(96, true, NewVar(1, 1, 23), NewArrayConstructor(NewNodeList()))},
+		{"RowExpr", NewRowExpr(NewNodeList(), 2249)},
 	}
 
 	for _, tt := range expressions {
@@ -658,11 +658,11 @@ func TestTier2ExpressionInterfaces(t *testing.T) {
 // TestTier2ExpressionUtilities tests the utility functions for Tier 2 expressions.
 func TestTier2ExpressionUtilities(t *testing.T) {
 	t.Run("TypeChecking", func(t *testing.T) {
-		caseExpr := NewCaseExpr(25, nil, []Node{}, nil)
-		coalesceExpr := NewCoalesceExpr(25, []Node{})
-		arrayExpr := NewArrayConstructor([]Node{})
+		caseExpr := NewCaseExpr(25, nil, NewNodeList(), nil)
+		coalesceExpr := NewCoalesceExpr(25, NewNodeList())
+		arrayExpr := NewArrayConstructor(NewNodeList())
 		scalarArrayExpr := NewInExpr(NewVar(1, 1, 23), arrayExpr)
-		rowExpr := NewRowConstructor([]Node{})
+		rowExpr := NewRowConstructor(NewNodeList())
 		varExpr := NewVar(1, 1, 23)
 
 		assert.True(t, IsCaseExpr(caseExpr))
@@ -683,7 +683,7 @@ func TestTier2ExpressionUtilities(t *testing.T) {
 
 	t.Run("InOperations", func(t *testing.T) {
 		column := NewVar(1, 1, 23)
-		array := NewArrayConstructor([]Node{})
+		array := NewArrayConstructor(NewNodeList())
 
 		inExpr := NewInExpr(column, array)
 		assert.True(t, IsInExpr(inExpr))
@@ -703,12 +703,12 @@ func TestTier2ExpressionUtilities(t *testing.T) {
 		when2 := NewCaseWhen(NewConst(23, 2, false), NewString("Two"))
 		elseResult := NewString("Other")
 
-		caseExpr := NewCaseExpr(25, nil, []Node{when1, when2}, elseResult)
+		caseExpr := NewCaseExpr(25, nil, NewNodeList(when1, when2), elseResult)
 
 		assert.Equal(t, 2, GetCaseWhenCount(caseExpr))
 		assert.True(t, HasCaseElse(caseExpr))
 
-		caseWithoutElse := NewCaseExpr(25, nil, []Node{when1}, nil)
+		caseWithoutElse := NewCaseExpr(25, nil, NewNodeList(when1), nil)
 		assert.False(t, HasCaseElse(caseWithoutElse))
 
 		nonCaseExpr := NewVar(1, 1, 23)
@@ -719,14 +719,14 @@ func TestTier2ExpressionUtilities(t *testing.T) {
 	t.Run("ArrayUtilities", func(t *testing.T) {
 		elem1 := NewConst(23, 1, false)
 		elem2 := NewConst(23, 2, false)
-		elements := []Node{elem1, elem2}
+		elements := NewNodeList(elem1, elem2)
 
 		arrayExpr := NewArrayExpr(1007, 23, elements)
 
 		retrievedElements := GetArrayElements(arrayExpr)
-		assert.Len(t, retrievedElements, 2)
-		assert.Equal(t, elem1, retrievedElements[0])
-		assert.Equal(t, elem2, retrievedElements[1])
+		assert.Equal(t, 2, retrievedElements.Len())
+		assert.Equal(t, elem1, retrievedElements.Items[0])
+		assert.Equal(t, elem2, retrievedElements.Items[1])
 
 		assert.False(t, IsMultiDimArray(arrayExpr))
 		arrayExpr.Multidims = true
@@ -739,21 +739,21 @@ func TestTier2ExpressionUtilities(t *testing.T) {
 
 	t.Run("GetExpressionArgsEnhanced", func(t *testing.T) {
 		// Test that GetExpressionArgs works with Tier 2 expressions
-		caseExpr := NewCaseExpr(25, nil, []Node{NewCaseWhen(nil, nil)}, nil)
+		caseExpr := NewCaseExpr(25, nil, NewNodeList(NewCaseWhen(nil, nil)), nil)
 		args := GetExpressionArgs(caseExpr)
-		assert.Len(t, args, 1)
+		assert.Equal(t, 1, args.Len())
 
-		coalesceExpr := NewCoalesceExpr(25, []Node{NewVar(1, 1, 23), NewString("default")})
+		coalesceExpr := NewCoalesceExpr(25, NewNodeList(NewVar(1, 1, 23), NewString("default")))
 		args = GetExpressionArgs(coalesceExpr)
-		assert.Len(t, args, 2)
+		assert.Equal(t, 2, args.Len())
 
-		arrayExpr := NewArrayConstructor([]Node{NewConst(23, 1, false), NewConst(23, 2, false)})
+		arrayExpr := NewArrayConstructor(NewNodeList(NewConst(23, 1, false), NewConst(23, 2, false)))
 		args = GetExpressionArgs(arrayExpr)
-		assert.Len(t, args, 2) // Should return Elements
+		assert.Equal(t, 2, args.Len()) // Should return Elements
 
-		rowExpr := NewRowConstructor([]Node{NewVar(1, 1, 23), NewVar(1, 2, 25)})
+		rowExpr := NewRowConstructor(NewNodeList(NewVar(1, 1, 23), NewVar(1, 2, 25)))
 		args = GetExpressionArgs(rowExpr)
-		assert.Len(t, args, 2)
+		assert.Equal(t, 2, args.Len())
 	})
 }
 
@@ -765,18 +765,18 @@ func TestComplexTier2ExpressionTrees(t *testing.T) {
 		statusVar := NewVar(1, 1, 23)
 		statusCheck := NewBinaryOp(96, statusVar, NewConst(23, 1, false)) // status = 1
 		when := NewCaseWhen(statusCheck, NewString("Active"))
-		caseExpr := NewCaseExpr(25, nil, []Node{when}, NewNull())
+		caseExpr := NewCaseExpr(25, nil, NewNodeList(when), NewNull())
 
-		coalesceExpr := NewCoalesceExpr(25, []Node{caseExpr, NewString("Unknown")})
+		coalesceExpr := NewCoalesceExpr(25, NewNodeList(caseExpr, NewString("Unknown")))
 
 		require.NotNil(t, coalesceExpr)
-		assert.Len(t, coalesceExpr.Args, 2)
-		assert.Equal(t, caseExpr, coalesceExpr.Args[0])
+		assert.Equal(t, 2, coalesceExpr.Args.Len())
+		assert.Equal(t, caseExpr, coalesceExpr.Args.Items[0])
 		assert.Equal(t, "CoalesceExpr", coalesceExpr.ExpressionType())
 
 		// Verify nested structure
-		nestedCase := coalesceExpr.Args[0].(*CaseExpr)
-		assert.Len(t, nestedCase.Args, 1)
+		nestedCase := coalesceExpr.Args.Items[0].(*CaseExpr)
+		assert.Equal(t, 1, nestedCase.Args.Len())
 	})
 
 	t.Run("ArrayInInExpression", func(t *testing.T) {
@@ -784,11 +784,11 @@ func TestComplexTier2ExpressionTrees(t *testing.T) {
 		// Simplified as: user_id IN ARRAY[1, 2, 3]
 
 		userIdVar := NewVar(1, 1, 23)
-		allowedIds := NewArrayConstructor([]Node{
+		allowedIds := NewArrayConstructor(NewNodeList(
 			NewConst(23, 1, false),
 			NewConst(23, 2, false),
 			NewConst(23, 3, false),
-		})
+		))
 
 		inExpr := NewInExpr(userIdVar, allowedIds)
 
@@ -798,8 +798,8 @@ func TestComplexTier2ExpressionTrees(t *testing.T) {
 		assert.True(t, inExpr.UseOr)
 
 		// Verify array structure
-		arrayArg := inExpr.Args[1].(*ArrayExpr)
-		assert.Len(t, arrayArg.Elements, 3)
+		arrayArg := inExpr.Args.Items[1].(*ArrayExpr)
+		assert.Equal(t, 3, arrayArg.Elements.Len())
 	})
 }
 
@@ -867,7 +867,7 @@ func TestAggref(t *testing.T) {
 		aggfnoid := Oid(2147) // COUNT function
 		aggtype := Oid(20)    // bigint
 		arg1 := NewVar(1, 1, 23)
-		args := []Node{arg1}
+		args := NewNodeList(arg1)
 
 		aggref := NewAggref(aggfnoid, aggtype, args)
 
@@ -908,7 +908,7 @@ func TestAggref(t *testing.T) {
 	t.Run("Aggregate with DISTINCT", func(t *testing.T) {
 		arg := NewVar(1, 1, 23)
 		aggref := NewCount(arg)
-		aggref.Aggdistinct = []Node{arg} // Add DISTINCT
+		aggref.Aggdistinct = NewNodeList(arg) // Add DISTINCT
 
 		assert.True(t, IsDistinctAggregate(aggref))
 		assert.Contains(t, aggref.String(), "DISTINCT")
@@ -928,13 +928,13 @@ func TestAggref(t *testing.T) {
 	t.Run("Ordered-Set Aggregate", func(t *testing.T) {
 		arg := NewVar(1, 1, 23)
 		directArg := NewConst(25, 50, false)       // 0.5 for percentile
-		aggref := NewAggref(3972, 23, []Node{arg}) // percentile_cont
-		aggref.Aggdirectargs = []Node{directArg}
-		aggref.Aggorder = []Node{arg}
+		aggref := NewAggref(3972, 23, NewNodeList(arg)) // percentile_cont
+		aggref.Aggdirectargs = NewNodeList(directArg)
+		aggref.Aggorder = NewNodeList(arg)
 
 		assert.True(t, IsOrderedSetAggregate(aggref))
-		assert.Equal(t, []Node{directArg}, GetAggregateDirectArgs(aggref))
-		assert.Equal(t, []Node{arg}, GetAggregateOrderBy(aggref))
+		assert.Equal(t, NewNodeList(directArg), GetAggregateDirectArgs(aggref))
+		assert.Equal(t, NewNodeList(arg), GetAggregateOrderBy(aggref))
 	})
 }
 
@@ -944,7 +944,7 @@ func TestWindowFunc(t *testing.T) {
 		winfnoid := Oid(3100) // ROW_NUMBER
 		wintype := Oid(20)    // bigint
 		winref := Index(1)
-		args := []Node{NewVar(1, 1, 23)}
+		args := NewNodeList(NewVar(1, 1, 23))
 
 		winFunc := NewWindowFunc(winfnoid, wintype, args, winref)
 
@@ -985,7 +985,7 @@ func TestWindowFunc(t *testing.T) {
 
 	t.Run("Window Aggregate Function", func(t *testing.T) {
 		arg := NewVar(1, 1, 23)
-		winFunc := NewWindowFunc(2108, 23, []Node{arg}, 1) // SUM over window
+		winFunc := NewWindowFunc(2108, 23, NewNodeList(arg), 1) // SUM over window
 		winFunc.Winagg = true
 
 		assert.True(t, IsAggregate(winFunc)) // Now it's an aggregate
@@ -995,7 +995,7 @@ func TestWindowFunc(t *testing.T) {
 	t.Run("Window Function with Filter", func(t *testing.T) {
 		arg := NewVar(1, 1, 23)
 		filter := NewBinaryOp(96, arg, NewConst(23, 0, false))
-		winFunc := NewWindowFunc(2108, 23, []Node{arg}, 1) // SUM
+		winFunc := NewWindowFunc(2108, 23, NewNodeList(arg), 1) // SUM
 		winFunc.Aggfilter = filter
 
 		assert.True(t, HasAggregateFilter(winFunc))
@@ -1086,21 +1086,21 @@ func TestTier3ComplexExpressions(t *testing.T) {
 		highResult := NewString("High")
 		lowResult := NewString("Low")
 		whenClause := NewCaseWhen(condition, highResult)
-		caseExpr := NewSearchedCase([]Node{whenClause}, lowResult)
+		caseExpr := NewSearchedCase(NewNodeList(whenClause), lowResult)
 
 		// Test that we can extract arguments properly
 		caseArgs := GetExpressionArgs(caseExpr)
-		assert.Len(t, caseArgs, 1)
+		assert.Equal(t, 1, caseArgs.Len())
 
 		// The WHEN clause should contain the condition with aggregate
-		whenArgs := GetExpressionArgs(caseArgs[0].(*CaseWhen))
-		assert.Len(t, whenArgs, 2) // condition and result
+		whenArgs := GetExpressionArgs(caseArgs.Items[0].(*CaseWhen))
+		assert.Equal(t, 2, whenArgs.Len()) // condition and result
 
 		// The condition should be an OpExpr containing the aggregate
-		conditionArgs := GetExpressionArgs(whenArgs[0])
-		assert.Len(t, conditionArgs, 2) // COUNT(*) and 10
-		assert.True(t, IsAggref(conditionArgs[0]))
-		assert.True(t, IsStarAggregate(conditionArgs[0]))
+		conditionArgs := GetExpressionArgs(whenArgs.Items[0])
+		assert.Equal(t, 2, conditionArgs.Len()) // COUNT(*) and 10
+		assert.True(t, IsAggref(conditionArgs.Items[0]))
+		assert.True(t, IsStarAggregate(conditionArgs.Items[0]))
 	})
 
 	t.Run("Window Function with Sublink", func(t *testing.T) {
@@ -1116,8 +1116,8 @@ func TestTier3ComplexExpressions(t *testing.T) {
 
 		// Test GetExpressionArgs for SubLink
 		sublinkArgs := GetExpressionArgs(scalarSublink)
-		assert.Len(t, sublinkArgs, 1) // Just the subquery
-		assert.Equal(t, subquery, sublinkArgs[0])
+		assert.Equal(t, 1, sublinkArgs.Len()) // Just the subquery
+		assert.Equal(t, subquery, sublinkArgs.Items[0])
 	})
 
 	t.Run("EXISTS with Correlated Sublink", func(t *testing.T) {
@@ -1131,8 +1131,8 @@ func TestTier3ComplexExpressions(t *testing.T) {
 
 		// Test GetExpressionArgs returns just the subquery for EXISTS
 		existsArgs := GetExpressionArgs(existsSublink)
-		assert.Len(t, existsArgs, 1)
-		assert.Equal(t, subquery, existsArgs[0])
+		assert.Equal(t, 1, existsArgs.Len())
+		assert.Equal(t, subquery, existsArgs.Items[0])
 	})
 }
 
@@ -1733,7 +1733,7 @@ func TestIntoClause(t *testing.T) {
 		rel := NewRangeVar("table", "schema", "")
 		colNames := []string{"col1", "col2"}
 		accessMethod := "heap"
-		options := []Node{NewDefElem("fillfactor", NewInteger(80))}
+		options := NewNodeList(NewDefElem("fillfactor", NewInteger(80)))
 		onCommit := ONCOMMIT_DELETE_ROWS
 		tableSpaceName := "my_tablespace"
 		viewQuery := NewSelectStmt()

@@ -6,7 +6,7 @@ state 0
 	SELECT  shift 10
 	TABLE  shift 11
 	'('  shift 9
-	.  reduce 6 (src line 229)
+	.  reduce 6 (src line 228)
 
 	parse_toplevel  goto 1
 	stmtmulti  goto 2
@@ -29,43 +29,43 @@ state 2
 	stmtmulti:  stmtmulti.';' toplevel_stmt 
 
 	';'  shift 12
-	.  reduce 1 (src line 177)
+	.  reduce 1 (src line 176)
 
 
 state 3
 	stmtmulti:  toplevel_stmt.    (3)
 
-	.  reduce 3 (src line 201)
+	.  reduce 3 (src line 200)
 
 
 state 4
 	toplevel_stmt:  stmt.    (4)
 
-	.  reduce 4 (src line 215)
+	.  reduce 4 (src line 214)
 
 
 state 5
 	stmt:  SelectStmt.    (5)
 
-	.  reduce 5 (src line 227)
+	.  reduce 5 (src line 226)
 
 
 state 6
 	SelectStmt:  select_no_parens.    (239)
 
-	.  reduce 239 (src line 1348)
+	.  reduce 239 (src line 1354)
 
 
 state 7
 	SelectStmt:  select_with_parens.    (240)
 
-	.  reduce 240 (src line 1350)
+	.  reduce 240 (src line 1356)
 
 
 state 8
 	select_no_parens:  simple_select.    (243)
 
-	.  reduce 243 (src line 1362)
+	.  reduce 243 (src line 1368)
 
 
 state 9
@@ -112,7 +112,7 @@ state 10
 
 	ALL  shift 17
 	DISTINCT  shift 19
-	.  reduce 275 (src line 1552)
+	.  reduce 275 (src line 1558)
 
 	opt_all_clause  goto 15
 	distinct_clause  goto 18
@@ -140,7 +140,7 @@ state 12
 	SELECT  shift 10
 	TABLE  shift 11
 	'('  shift 9
-	.  reduce 6 (src line 229)
+	.  reduce 6 (src line 228)
 
 	toplevel_stmt  goto 29
 	stmt  goto 4
@@ -183,7 +183,7 @@ state 15
 	'-'  shift 39
 	'*'  shift 36
 	'('  shift 45
-	.  reduce 248 (src line 1410)
+	.  reduce 248 (src line 1416)
 
 	ColId  goto 49
 	unreserved_keyword  goto 58
@@ -224,7 +224,7 @@ state 16
 	'-'  shift 39
 	'*'  shift 36
 	'('  shift 45
-	.  reduce 248 (src line 1410)
+	.  reduce 248 (src line 1416)
 
 	ColId  goto 49
 	unreserved_keyword  goto 58
@@ -248,13 +248,13 @@ state 16
 state 17
 	opt_all_clause:  ALL.    (274)
 
-	.  reduce 274 (src line 1550)
+	.  reduce 274 (src line 1556)
 
 
 state 18
 	opt_distinct_clause:  distinct_clause.    (278)
 
-	.  reduce 278 (src line 1560)
+	.  reduce 278 (src line 1566)
 
 
 state 19
@@ -262,13 +262,13 @@ state 19
 	distinct_clause:  DISTINCT.ON '(' expr_list ')' 
 
 	ON  shift 65
-	.  reduce 276 (src line 1555)
+	.  reduce 276 (src line 1561)
 
 
 state 20
 	simple_select:  TABLE relation_expr.    (246)
 
-	.  reduce 246 (src line 1392)
+	.  reduce 246 (src line 1398)
 
 
 state 21
@@ -276,13 +276,13 @@ state 21
 	extended_relation_expr:  qualified_name.'*' 
 
 	'*'  shift 66
-	.  reduce 260 (src line 1469)
+	.  reduce 260 (src line 1475)
 
 
 state 22
 	relation_expr:  extended_relation_expr.    (261)
 
-	.  reduce 261 (src line 1476)
+	.  reduce 261 (src line 1482)
 
 
 state 23
@@ -292,7 +292,7 @@ state 23
 
 	'.'  shift 67
 	'['  shift 70
-	.  reduce 39 (src line 324)
+	.  reduce 39 (src line 323)
 
 	indirection  goto 68
 	indirection_el  goto 69
@@ -362,43 +362,43 @@ state 25
 	ColId:  IDENT.    (28)
 	col_name_keyword:  IDENT.    (50)
 
-	.  reduce 28 (src line 293)
+	.  reduce 28 (src line 292)
 
 
 state 26
 	ColId:  unreserved_keyword.    (29)
 
-	.  reduce 29 (src line 295)
+	.  reduce 29 (src line 294)
 
 
 state 27
 	ColId:  col_name_keyword.    (30)
 
-	.  reduce 30 (src line 296)
+	.  reduce 30 (src line 295)
 
 
 state 28
 	unreserved_keyword:  ALL.    (49)
 
-	.  reduce 49 (src line 418)
+	.  reduce 49 (src line 419)
 
 
 state 29
 	stmtmulti:  stmtmulti ';' toplevel_stmt.    (2)
 
-	.  reduce 2 (src line 192)
+	.  reduce 2 (src line 191)
 
 
 state 30
 	select_with_parens:  '(' select_no_parens ')'.    (241)
 
-	.  reduce 241 (src line 1353)
+	.  reduce 241 (src line 1359)
 
 
 state 31
 	select_with_parens:  '(' select_with_parens ')'.    (242)
 
-	.  reduce 242 (src line 1355)
+	.  reduce 242 (src line 1361)
 
 
 state 32
@@ -406,7 +406,7 @@ state 32
 	into_clause: .    (281)
 
 	INTO  shift 74
-	.  reduce 281 (src line 1575)
+	.  reduce 281 (src line 1581)
 
 	into_clause  goto 73
 
@@ -415,13 +415,13 @@ state 33
 	target_list:  target_list.',' target_el 
 
 	','  shift 75
-	.  reduce 247 (src line 1408)
+	.  reduce 247 (src line 1414)
 
 
 state 34
 	target_list:  target_el.    (249)
 
-	.  reduce 249 (src line 1413)
+	.  reduce 249 (src line 1419)
 
 
 state 35
@@ -504,7 +504,7 @@ state 35
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 253 (src line 1428)
+	.  reduce 253 (src line 1434)
 
 	ColLabel  goto 104
 	unreserved_keyword  goto 106
@@ -516,13 +516,13 @@ state 35
 state 36
 	target_el:  '*'.    (254)
 
-	.  reduce 254 (src line 1433)
+	.  reduce 254 (src line 1439)
 
 
 state 37
 	a_expr:  c_expr.    (55)
 
-	.  reduce 55 (src line 452)
+	.  reduce 55 (src line 453)
 
 
 state 38
@@ -672,20 +672,20 @@ state 41
 state 42
 	c_expr:  columnref.    (117)
 
-	.  reduce 117 (src line 774)
+	.  reduce 117 (src line 775)
 
 
 state 43
 	c_expr:  AexprConst.    (118)
 
-	.  reduce 118 (src line 775)
+	.  reduce 118 (src line 776)
 
 
 state 44
 	c_expr:  PARAM.opt_indirection 
 	opt_indirection: .    (143)
 
-	.  reduce 143 (src line 881)
+	.  reduce 143 (src line 884)
 
 	opt_indirection  goto 117
 
@@ -728,13 +728,13 @@ state 45
 state 46
 	c_expr:  func_expr.    (121)
 
-	.  reduce 121 (src line 794)
+	.  reduce 121 (src line 795)
 
 
 state 47
 	qual_Op:  Op.    (214)
 
-	.  reduce 214 (src line 1278)
+	.  reduce 214 (src line 1284)
 
 
 state 48
@@ -750,12 +750,12 @@ state 49
 	func_name:  ColId.indirection 
 	type_function_name:  ColId.    (167)
 
-	COLON_EQUALS  reduce 167 (src line 1006)
-	EQUALS_GREATER  reduce 167 (src line 1006)
+	COLON_EQUALS  reduce 167 (src line 1012)
+	EQUALS_GREATER  reduce 167 (src line 1012)
 	'.'  shift 121
-	'('  reduce 167 (src line 1006)
+	'('  reduce 167 (src line 1012)
 	'['  shift 70
-	.  reduce 133 (src line 836)
+	.  reduce 133 (src line 837)
 
 	indirection  goto 120
 	indirection_el  goto 69
@@ -763,44 +763,44 @@ state 49
 state 50
 	AexprConst:  Iconst.    (122)
 
-	.  reduce 122 (src line 798)
+	.  reduce 122 (src line 799)
 
 
 state 51
 	AexprConst:  FCONST.    (123)
 
-	.  reduce 123 (src line 802)
+	.  reduce 123 (src line 803)
 
 
 state 52
 	AexprConst:  Sconst.    (124)
 
-	.  reduce 124 (src line 806)
+	.  reduce 124 (src line 807)
 
 
 state 53
 	AexprConst:  TRUE_P.    (125)
 
-	.  reduce 125 (src line 810)
+	.  reduce 125 (src line 811)
 
 
 state 54
 	AexprConst:  FALSE_P.    (126)
 
-	.  reduce 126 (src line 814)
+	.  reduce 126 (src line 815)
 
 
 state 55
 	AexprConst:  NULL_P.    (127)
 
-	.  reduce 127 (src line 818)
+	.  reduce 127 (src line 819)
 
 
 state 56
 	func_expr:  func_application.within_group_clause filter_clause over_clause 
 	within_group_clause: .    (233)
 
-	.  reduce 233 (src line 1320)
+	.  reduce 233 (src line 1326)
 
 	within_group_clause  goto 122
 
@@ -906,7 +906,7 @@ state 57
 	col_name_keyword:  IDENT.    (50)
 	type_func_name_keyword:  IDENT.    (51)
 
-	.  reduce 28 (src line 293)
+	.  reduce 28 (src line 292)
 
 
  58: reduce/reduce conflict  (red'ns 29 and 168) on $end
@@ -961,19 +961,19 @@ state 58
 	ColId:  unreserved_keyword.    (29)
 	type_function_name:  unreserved_keyword.    (168)
 
-	.  reduce 29 (src line 295)
+	.  reduce 29 (src line 294)
 
 
 state 59
 	Iconst:  ICONST.    (128)
 
-	.  reduce 128 (src line 824)
+	.  reduce 128 (src line 825)
 
 
 state 60
 	Sconst:  SCONST.    (129)
 
-	.  reduce 129 (src line 827)
+	.  reduce 129 (src line 828)
 
 
 state 61
@@ -991,13 +991,13 @@ state 61
 state 62
 	func_name:  type_function_name.    (146)
 
-	.  reduce 146 (src line 901)
+	.  reduce 146 (src line 905)
 
 
 state 63
 	type_function_name:  type_func_name_keyword.    (169)
 
-	.  reduce 169 (src line 1008)
+	.  reduce 169 (src line 1014)
 
 
 state 64
@@ -1005,7 +1005,7 @@ state 64
 	into_clause: .    (281)
 
 	INTO  shift 74
-	.  reduce 281 (src line 1575)
+	.  reduce 281 (src line 1581)
 
 	into_clause  goto 124
 
@@ -1019,7 +1019,7 @@ state 65
 state 66
 	extended_relation_expr:  qualified_name '*'.    (262)
 
-	.  reduce 262 (src line 1482)
+	.  reduce 262 (src line 1488)
 
 
 state 67
@@ -1042,14 +1042,14 @@ state 68
 
 	'.'  shift 121
 	'['  shift 70
-	.  reduce 41 (src line 340)
+	.  reduce 41 (src line 339)
 
 	indirection_el  goto 128
 
 state 69
 	indirection:  indirection_el.    (135)
 
-	.  reduce 135 (src line 849)
+	.  reduce 135 (src line 851)
 
 
 state 70
@@ -1072,7 +1072,7 @@ state 70
 	'+'  shift 38
 	'-'  shift 39
 	'('  shift 45
-	.  reduce 138 (src line 860)
+	.  reduce 138 (src line 863)
 
 	ColId  goto 49
 	unreserved_keyword  goto 58
@@ -1094,7 +1094,7 @@ state 70
 state 71
 	extended_relation_expr:  ONLY qualified_name.    (263)
 
-	.  reduce 263 (src line 1489)
+	.  reduce 263 (src line 1495)
 
 
 state 72
@@ -1114,7 +1114,7 @@ state 73
 	from_clause: .    (256)
 
 	FROM  shift 133
-	.  reduce 256 (src line 1446)
+	.  reduce 256 (src line 1452)
 
 	from_clause  goto 132
 
@@ -1728,13 +1728,13 @@ state 91
 state 92
 	a_expr:  a_expr ISNULL.    (75)
 
-	.  reduce 75 (src line 543)
+	.  reduce 75 (src line 544)
 
 
 state 93
 	a_expr:  a_expr NOTNULL.    (77)
 
-	.  reduce 77 (src line 551)
+	.  reduce 77 (src line 552)
 
 
 state 94
@@ -1894,7 +1894,7 @@ state 100
 
 	SYMMETRIC  shift 198
 	ASYMMETRIC  shift 199
-	.  reduce 236 (src line 1329)
+	.  reduce 236 (src line 1335)
 
 	opt_asymmetric  goto 197
 
@@ -1933,7 +1933,7 @@ state 103
 state 104
 	target_el:  a_expr ColLabel.    (252)
 
-	.  reduce 252 (src line 1423)
+	.  reduce 252 (src line 1429)
 
 
  105: reduce/reduce conflict  (red'ns 31 and 50) on $end
@@ -2033,49 +2033,49 @@ state 105
 	col_name_keyword:  IDENT.    (50)
 	type_func_name_keyword:  IDENT.    (51)
 
-	.  reduce 31 (src line 299)
+	.  reduce 31 (src line 298)
 
 
 state 106
 	ColLabel:  unreserved_keyword.    (32)
 
-	.  reduce 32 (src line 301)
+	.  reduce 32 (src line 300)
 
 
 state 107
 	ColLabel:  col_name_keyword.    (33)
 
-	.  reduce 33 (src line 302)
+	.  reduce 33 (src line 301)
 
 
 state 108
 	ColLabel:  type_func_name_keyword.    (34)
 
-	.  reduce 34 (src line 303)
+	.  reduce 34 (src line 302)
 
 
 state 109
 	ColLabel:  reserved_keyword.    (35)
 
-	.  reduce 35 (src line 304)
+	.  reduce 35 (src line 303)
 
 
 state 110
 	reserved_keyword:  CREATE.    (52)
 
-	.  reduce 52 (src line 433)
+	.  reduce 52 (src line 434)
 
 
 state 111
 	reserved_keyword:  DROP.    (53)
 
-	.  reduce 53 (src line 436)
+	.  reduce 53 (src line 437)
 
 
 state 112
 	reserved_keyword:  ALTER.    (54)
 
-	.  reduce 54 (src line 437)
+	.  reduce 54 (src line 438)
 
 
 113: shift/reduce conflict (shift 47(0), red'n 56(10)) on Op
@@ -2138,7 +2138,7 @@ state 113
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 56 (src line 453)
+	.  reduce 56 (src line 454)
 
 	qual_Op  goto 99
 
@@ -2202,7 +2202,7 @@ state 114
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 57 (src line 458)
+	.  reduce 57 (src line 459)
 
 	qual_Op  goto 99
 
@@ -2281,7 +2281,7 @@ state 115
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 73 (src line 535)
+	.  reduce 73 (src line 536)
 
 	qual_Op  goto 99
 
@@ -2385,7 +2385,7 @@ state 116
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 90 (src line 635)
+	.  reduce 90 (src line 636)
 
 	qual_Op  goto 99
 
@@ -2395,7 +2395,7 @@ state 117
 
 	'.'  shift 121
 	'['  shift 70
-	.  reduce 119 (src line 776)
+	.  reduce 119 (src line 777)
 
 	indirection_el  goto 204
 
@@ -2509,9 +2509,9 @@ state 120
 	func_name:  ColId indirection.    (147)
 
 	'.'  shift 121
-	'('  reduce 147 (src line 905)
+	'('  reduce 147 (src line 909)
 	'['  shift 70
-	.  reduce 134 (src line 840)
+	.  reduce 134 (src line 841)
 
 	indirection_el  goto 128
 
@@ -2532,7 +2532,7 @@ state 122
 	func_expr:  func_application within_group_clause.filter_clause over_clause 
 	filter_clause: .    (234)
 
-	.  reduce 234 (src line 1323)
+	.  reduce 234 (src line 1329)
 
 	filter_clause  goto 224
 
@@ -2588,7 +2588,7 @@ state 124
 	from_clause: .    (256)
 
 	FROM  shift 133
-	.  reduce 256 (src line 1446)
+	.  reduce 256 (src line 1452)
 
 	from_clause  goto 234
 
@@ -2643,21 +2643,21 @@ state 126
 	qualified_name:  ColId '.' ColId.    (40)
 	indirection_el:  '.' ColId.    (139)
 
-	'.'  reduce 139 (src line 863)
-	'['  reduce 139 (src line 863)
-	.  reduce 40 (src line 332)
+	'.'  reduce 139 (src line 866)
+	'['  reduce 139 (src line 866)
+	.  reduce 40 (src line 331)
 
 
 state 127
 	indirection_el:  '.' '*'.    (140)
 
-	.  reduce 140 (src line 867)
+	.  reduce 140 (src line 870)
 
 
 state 128
 	indirection:  indirection indirection_el.    (136)
 
-	.  reduce 136 (src line 853)
+	.  reduce 136 (src line 855)
 
 
 state 129
@@ -2734,7 +2734,7 @@ state 129
 	'%'  shift 81
 	'^'  shift 82
 	']'  shift 237
-	.  reduce 137 (src line 859)
+	.  reduce 137 (src line 862)
 
 	qual_Op  goto 99
 
@@ -2757,7 +2757,7 @@ state 132
 	where_clause: .    (266)
 
 	WHERE  shift 241
-	.  reduce 266 (src line 1509)
+	.  reduce 266 (src line 1515)
 
 	where_clause  goto 240
 
@@ -2781,55 +2781,55 @@ state 133
 state 134
 	into_clause:  INTO qualified_name.    (280)
 
-	.  reduce 280 (src line 1570)
+	.  reduce 280 (src line 1576)
 
 
 state 135
 	target_list:  target_list ',' target_el.    (250)
 
-	.  reduce 250 (src line 1415)
+	.  reduce 250 (src line 1421)
 
 
 state 136
 	a_expr:  a_expr TYPECAST Typename.    (58)
 
-	.  reduce 58 (src line 463)
+	.  reduce 58 (src line 464)
 
 
 state 137
 	Typename:  SimpleTypename.    (161)
 
-	.  reduce 161 (src line 993)
+	.  reduce 161 (src line 999)
 
 
 state 138
 	SimpleTypename:  GenericType.    (162)
 
-	.  reduce 162 (src line 999)
+	.  reduce 162 (src line 1005)
 
 
 state 139
 	SimpleTypename:  Numeric.    (163)
 
-	.  reduce 163 (src line 1000)
+	.  reduce 163 (src line 1006)
 
 
 state 140
 	SimpleTypename:  Bit.    (164)
 
-	.  reduce 164 (src line 1001)
+	.  reduce 164 (src line 1007)
 
 
 state 141
 	SimpleTypename:  Character.    (165)
 
-	.  reduce 165 (src line 1002)
+	.  reduce 165 (src line 1008)
 
 
 state 142
 	SimpleTypename:  ConstDatetime.    (166)
 
-	.  reduce 166 (src line 1003)
+	.  reduce 166 (src line 1009)
 
 
 state 143
@@ -2839,7 +2839,7 @@ state 143
 
 	'.'  shift 248
 	'('  shift 247
-	.  reduce 175 (src line 1032)
+	.  reduce 175 (src line 1038)
 
 	attrs  goto 246
 	opt_type_modifiers  goto 245
@@ -2847,31 +2847,31 @@ state 143
 state 144
 	Numeric:  INT_P.    (178)
 
-	.  reduce 178 (src line 1057)
+	.  reduce 178 (src line 1063)
 
 
 state 145
 	Numeric:  INTEGER.    (179)
 
-	.  reduce 179 (src line 1061)
+	.  reduce 179 (src line 1067)
 
 
 state 146
 	Numeric:  SMALLINT.    (180)
 
-	.  reduce 180 (src line 1065)
+	.  reduce 180 (src line 1071)
 
 
 state 147
 	Numeric:  BIGINT.    (181)
 
-	.  reduce 181 (src line 1069)
+	.  reduce 181 (src line 1075)
 
 
 state 148
 	Numeric:  REAL.    (182)
 
-	.  reduce 182 (src line 1073)
+	.  reduce 182 (src line 1079)
 
 
 state 149
@@ -2879,7 +2879,7 @@ state 149
 	opt_float: .    (213)
 
 	'('  shift 250
-	.  reduce 213 (src line 1271)
+	.  reduce 213 (src line 1277)
 
 	opt_float  goto 249
 
@@ -2895,7 +2895,7 @@ state 151
 	opt_type_modifiers: .    (175)
 
 	'('  shift 247
-	.  reduce 175 (src line 1032)
+	.  reduce 175 (src line 1038)
 
 	opt_type_modifiers  goto 252
 
@@ -2904,7 +2904,7 @@ state 152
 	opt_type_modifiers: .    (175)
 
 	'('  shift 247
-	.  reduce 175 (src line 1032)
+	.  reduce 175 (src line 1038)
 
 	opt_type_modifiers  goto 253
 
@@ -2913,38 +2913,38 @@ state 153
 	opt_type_modifiers: .    (175)
 
 	'('  shift 247
-	.  reduce 175 (src line 1032)
+	.  reduce 175 (src line 1038)
 
 	opt_type_modifiers  goto 254
 
 state 154
 	Numeric:  BOOLEAN_P.    (188)
 
-	.  reduce 188 (src line 1097)
+	.  reduce 188 (src line 1103)
 
 
 state 155
 	Bit:  BitWithLength.    (189)
 
-	.  reduce 189 (src line 1103)
+	.  reduce 189 (src line 1109)
 
 
 state 156
 	Bit:  BitWithoutLength.    (190)
 
-	.  reduce 190 (src line 1107)
+	.  reduce 190 (src line 1113)
 
 
 state 157
 	Character:  CharacterWithLength.    (191)
 
-	.  reduce 191 (src line 1113)
+	.  reduce 191 (src line 1119)
 
 
 state 158
 	Character:  CharacterWithoutLength.    (192)
 
-	.  reduce 192 (src line 1117)
+	.  reduce 192 (src line 1123)
 
 
 state 159
@@ -2955,7 +2955,7 @@ state 159
 	WITH_LA  shift 257
 	WITHOUT_LA  shift 258
 	'('  shift 255
-	.  reduce 209 (src line 1254)
+	.  reduce 209 (src line 1260)
 
 	opt_timezone  goto 256
 
@@ -2967,14 +2967,14 @@ state 160
 	WITH_LA  shift 257
 	WITHOUT_LA  shift 258
 	'('  shift 259
-	.  reduce 209 (src line 1254)
+	.  reduce 209 (src line 1260)
 
 	opt_timezone  goto 260
 
 state 161
 	type_function_name:  ColId.    (167)
 
-	.  reduce 167 (src line 1006)
+	.  reduce 167 (src line 1012)
 
 
 state 162
@@ -2983,7 +2983,7 @@ state 162
 	opt_varying: .    (211)
 
 	VARYING  shift 262
-	.  reduce 211 (src line 1258)
+	.  reduce 211 (src line 1264)
 
 	opt_varying  goto 261
 
@@ -2992,7 +2992,7 @@ state 163
 	CharacterWithoutLength:  character.    (200)
 
 	'('  shift 263
-	.  reduce 200 (src line 1175)
+	.  reduce 200 (src line 1181)
 
 
 state 164
@@ -3000,7 +3000,7 @@ state 164
 	opt_varying: .    (211)
 
 	VARYING  shift 262
-	.  reduce 211 (src line 1258)
+	.  reduce 211 (src line 1264)
 
 	opt_varying  goto 264
 
@@ -3009,14 +3009,14 @@ state 165
 	opt_varying: .    (211)
 
 	VARYING  shift 262
-	.  reduce 211 (src line 1258)
+	.  reduce 211 (src line 1264)
 
 	opt_varying  goto 265
 
 state 166
 	character:  VARCHAR.    (195)
 
-	.  reduce 195 (src line 1139)
+	.  reduce 195 (src line 1145)
 
 
 state 167
@@ -3033,7 +3033,7 @@ state 168
 	opt_varying: .    (211)
 
 	VARYING  shift 262
-	.  reduce 211 (src line 1258)
+	.  reduce 211 (src line 1264)
 
 	opt_varying  goto 268
 
@@ -3095,7 +3095,7 @@ state 169
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 59 (src line 467)
+	.  reduce 59 (src line 468)
 
 	qual_Op  goto 99
 
@@ -3157,7 +3157,7 @@ state 170
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 60 (src line 472)
+	.  reduce 60 (src line 473)
 
 	qual_Op  goto 99
 
@@ -3216,7 +3216,7 @@ state 171
 	AT  shift 98
 	OPERATOR  shift 48
 	'^'  shift 82
-	.  reduce 61 (src line 477)
+	.  reduce 61 (src line 478)
 
 	qual_Op  goto 99
 
@@ -3275,7 +3275,7 @@ state 172
 	AT  shift 98
 	OPERATOR  shift 48
 	'^'  shift 82
-	.  reduce 62 (src line 482)
+	.  reduce 62 (src line 483)
 
 	qual_Op  goto 99
 
@@ -3334,7 +3334,7 @@ state 173
 	AT  shift 98
 	OPERATOR  shift 48
 	'^'  shift 82
-	.  reduce 63 (src line 487)
+	.  reduce 63 (src line 488)
 
 	qual_Op  goto 99
 
@@ -3392,7 +3392,7 @@ state 174
 	COLLATE  shift 97
 	AT  shift 98
 	OPERATOR  shift 48
-	.  reduce 64 (src line 492)
+	.  reduce 64 (src line 493)
 
 	qual_Op  goto 99
 
@@ -3468,7 +3468,7 @@ state 175
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 65 (src line 497)
+	.  reduce 65 (src line 498)
 
 	qual_Op  goto 99
 
@@ -3544,7 +3544,7 @@ state 176
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 66 (src line 502)
+	.  reduce 66 (src line 503)
 
 	qual_Op  goto 99
 
@@ -3620,7 +3620,7 @@ state 177
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 67 (src line 507)
+	.  reduce 67 (src line 508)
 
 	qual_Op  goto 99
 
@@ -3696,7 +3696,7 @@ state 178
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 68 (src line 512)
+	.  reduce 68 (src line 513)
 
 	qual_Op  goto 99
 
@@ -3772,7 +3772,7 @@ state 179
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 69 (src line 517)
+	.  reduce 69 (src line 518)
 
 	qual_Op  goto 99
 
@@ -3848,7 +3848,7 @@ state 180
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 70 (src line 522)
+	.  reduce 70 (src line 523)
 
 	qual_Op  goto 99
 
@@ -3927,7 +3927,7 @@ state 181
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 71 (src line 527)
+	.  reduce 71 (src line 528)
 
 	qual_Op  goto 99
 
@@ -4007,14 +4007,14 @@ state 182
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 72 (src line 531)
+	.  reduce 72 (src line 532)
 
 	qual_Op  goto 99
 
 state 183
 	a_expr:  a_expr IS NULL_P.    (74)
 
-	.  reduce 74 (src line 539)
+	.  reduce 74 (src line 540)
 
 
 state 184
@@ -4092,7 +4092,7 @@ state 185
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 78 (src line 555)
+	.  reduce 78 (src line 556)
 
 	qual_Op  goto 99
 
@@ -4177,7 +4177,7 @@ state 188
 
 	SYMMETRIC  shift 274
 	ASYMMETRIC  shift 199
-	.  reduce 236 (src line 1329)
+	.  reduce 236 (src line 1335)
 
 	opt_asymmetric  goto 273
 
@@ -4265,14 +4265,14 @@ state 191
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 82 (src line 581)
+	.  reduce 82 (src line 582)
 
 	qual_Op  goto 99
 
 state 192
 	a_expr:  a_expr COLLATE any_name.    (86)
 
-	.  reduce 86 (src line 607)
+	.  reduce 86 (src line 608)
 
 
 state 193
@@ -4281,7 +4281,7 @@ state 193
 	any_name:  ColId.attrs 
 
 	'.'  shift 278
-	.  reduce 44 (src line 382)
+	.  reduce 44 (src line 381)
 
 	attrs  goto 279
 
@@ -4295,7 +4295,7 @@ state 194
 state 195
 	a_expr:  a_expr AT LOCAL.    (88)
 
-	.  reduce 88 (src line 625)
+	.  reduce 88 (src line 626)
 
 
 196: shift/reduce conflict (shift 47(0), red'n 89(0)) on Op
@@ -4398,7 +4398,7 @@ state 196
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 89 (src line 631)
+	.  reduce 89 (src line 632)
 
 	qual_Op  goto 99
 
@@ -4469,13 +4469,13 @@ state 198
 state 199
 	opt_asymmetric:  ASYMMETRIC.    (237)
 
-	.  reduce 237 (src line 1330)
+	.  reduce 237 (src line 1336)
 
 
 state 200
 	a_expr:  a_expr IN_P in_expr.    (95)
 
-	.  reduce 95 (src line 659)
+	.  reduce 95 (src line 660)
 
 
 state 201
@@ -4555,20 +4555,20 @@ state 202
 state 203
 	target_el:  a_expr AS ColLabel.    (251)
 
-	.  reduce 251 (src line 1418)
+	.  reduce 251 (src line 1424)
 
 
 state 204
 	opt_indirection:  opt_indirection indirection_el.    (144)
 
-	.  reduce 144 (src line 882)
+	.  reduce 144 (src line 885)
 
 
 state 205
 	c_expr:  '(' a_expr ')'.opt_indirection 
 	opt_indirection: .    (143)
 
-	.  reduce 143 (src line 881)
+	.  reduce 143 (src line 884)
 
 	opt_indirection  goto 288
 
@@ -4582,7 +4582,7 @@ state 206
 state 207
 	any_operator:  all_Op.    (230)
 
-	.  reduce 230 (src line 1306)
+	.  reduce 230 (src line 1312)
 
 
 state 208
@@ -4595,105 +4595,105 @@ state 208
 state 209
 	all_Op:  Op.    (216)
 
-	.  reduce 216 (src line 1288)
+	.  reduce 216 (src line 1294)
 
 
 state 210
 	all_Op:  MathOp.    (217)
 
-	.  reduce 217 (src line 1289)
+	.  reduce 217 (src line 1295)
 
 
 state 211
 	MathOp:  '+'.    (218)
 
-	.  reduce 218 (src line 1292)
+	.  reduce 218 (src line 1298)
 
 
 state 212
 	MathOp:  '-'.    (219)
 
-	.  reduce 219 (src line 1293)
+	.  reduce 219 (src line 1299)
 
 
 state 213
 	MathOp:  '*'.    (220)
 
-	.  reduce 220 (src line 1294)
+	.  reduce 220 (src line 1300)
 
 
 state 214
 	MathOp:  '/'.    (221)
 
-	.  reduce 221 (src line 1295)
+	.  reduce 221 (src line 1301)
 
 
 state 215
 	MathOp:  '%'.    (222)
 
-	.  reduce 222 (src line 1296)
+	.  reduce 222 (src line 1302)
 
 
 state 216
 	MathOp:  '^'.    (223)
 
-	.  reduce 223 (src line 1297)
+	.  reduce 223 (src line 1303)
 
 
 state 217
 	MathOp:  '<'.    (224)
 
-	.  reduce 224 (src line 1298)
+	.  reduce 224 (src line 1304)
 
 
 state 218
 	MathOp:  '>'.    (225)
 
-	.  reduce 225 (src line 1299)
+	.  reduce 225 (src line 1305)
 
 
 state 219
 	MathOp:  '='.    (226)
 
-	.  reduce 226 (src line 1300)
+	.  reduce 226 (src line 1306)
 
 
 state 220
 	MathOp:  LESS_EQUALS.    (227)
 
-	.  reduce 227 (src line 1301)
+	.  reduce 227 (src line 1307)
 
 
 state 221
 	MathOp:  GREATER_EQUALS.    (228)
 
-	.  reduce 228 (src line 1302)
+	.  reduce 228 (src line 1308)
 
 
 state 222
 	MathOp:  NOT_EQUALS.    (229)
 
-	.  reduce 229 (src line 1303)
+	.  reduce 229 (src line 1309)
 
 
 state 223
 	indirection_el:  '.' ColId.    (139)
 
-	.  reduce 139 (src line 863)
+	.  reduce 139 (src line 866)
 
 
 state 224
 	func_expr:  func_application within_group_clause filter_clause.over_clause 
 	over_clause: .    (235)
 
-	.  reduce 235 (src line 1326)
+	.  reduce 235 (src line 1332)
 
 	over_clause  goto 291
 
 state 225
 	func_application:  func_name '(' ')'.    (148)
 
-	.  reduce 148 (src line 918)
+	.  reduce 148 (src line 922)
 
 
 state 226
@@ -4703,7 +4703,7 @@ state 226
 	opt_sort_clause: .    (232)
 
 	','  shift 293
-	.  reduce 232 (src line 1317)
+	.  reduce 232 (src line 1323)
 
 	opt_sort_clause  goto 292
 
@@ -4769,7 +4769,7 @@ state 228
 	'+'  shift 38
 	'-'  shift 39
 	'('  shift 45
-	.  reduce 49 (src line 418)
+	.  reduce 49 (src line 419)
 
 	ColId  goto 49
 	unreserved_keyword  goto 58
@@ -4832,7 +4832,7 @@ state 229
 state 230
 	func_arg_list:  func_arg_expr.    (154)
 
-	.  reduce 154 (src line 955)
+	.  reduce 154 (src line 960)
 
 
 state 231
@@ -4907,7 +4907,7 @@ state 231
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 156 (src line 965)
+	.  reduce 156 (src line 971)
 
 	qual_Op  goto 99
 
@@ -4924,8 +4924,8 @@ state 233
 	func_name:  type_function_name.    (146)
 	param_name:  type_function_name.    (171)
 
-	'('  reduce 146 (src line 901)
-	.  reduce 171 (src line 1014)
+	'('  reduce 146 (src line 905)
+	.  reduce 171 (src line 1020)
 
 
 state 234
@@ -4933,7 +4933,7 @@ state 234
 	where_clause: .    (266)
 
 	WHERE  shift 241
-	.  reduce 266 (src line 1509)
+	.  reduce 266 (src line 1515)
 
 	where_clause  goto 299
 
@@ -5018,14 +5018,14 @@ state 236
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 159 (src line 980)
+	.  reduce 159 (src line 986)
 
 	qual_Op  goto 99
 
 state 237
 	indirection_el:  '[' a_expr ']'.    (141)
 
-	.  reduce 141 (src line 871)
+	.  reduce 141 (src line 874)
 
 
 state 238
@@ -5047,7 +5047,7 @@ state 238
 	'+'  shift 38
 	'-'  shift 39
 	'('  shift 45
-	.  reduce 138 (src line 860)
+	.  reduce 138 (src line 863)
 
 	ColId  goto 49
 	unreserved_keyword  goto 58
@@ -5069,13 +5069,13 @@ state 238
 state 239
 	extended_relation_expr:  ONLY '(' qualified_name ')'.    (264)
 
-	.  reduce 264 (src line 1495)
+	.  reduce 264 (src line 1501)
 
 
 state 240
 	simple_select:  SELECT opt_all_clause opt_target_list into_clause from_clause where_clause.    (244)
 
-	.  reduce 244 (src line 1370)
+	.  reduce 244 (src line 1376)
 
 
 state 241
@@ -5119,13 +5119,13 @@ state 242
 	from_list:  from_list.',' table_ref 
 
 	','  shift 305
-	.  reduce 255 (src line 1444)
+	.  reduce 255 (src line 1450)
 
 
 state 243
 	from_list:  table_ref.    (257)
 
-	.  reduce 257 (src line 1449)
+	.  reduce 257 (src line 1455)
 
 
 state 244
@@ -5135,7 +5135,7 @@ state 244
 	IDENT  shift 25
 	ALL  shift 28
 	AS  shift 308
-	.  reduce 269 (src line 1522)
+	.  reduce 269 (src line 1528)
 
 	ColId  goto 309
 	unreserved_keyword  goto 26
@@ -5146,7 +5146,7 @@ state 244
 state 245
 	GenericType:  type_function_name opt_type_modifiers.    (176)
 
-	.  reduce 176 (src line 1038)
+	.  reduce 176 (src line 1044)
 
 
 state 246
@@ -5156,7 +5156,7 @@ state 246
 
 	'.'  shift 310
 	'('  shift 247
-	.  reduce 175 (src line 1032)
+	.  reduce 175 (src line 1038)
 
 	opt_type_modifiers  goto 311
 
@@ -5217,7 +5217,7 @@ state 248
 state 249
 	Numeric:  FLOAT_P opt_float.    (183)
 
-	.  reduce 183 (src line 1077)
+	.  reduce 183 (src line 1083)
 
 
 state 250
@@ -5231,25 +5231,25 @@ state 250
 state 251
 	Numeric:  DOUBLE_P PRECISION.    (184)
 
-	.  reduce 184 (src line 1081)
+	.  reduce 184 (src line 1087)
 
 
 state 252
 	Numeric:  DECIMAL_P opt_type_modifiers.    (185)
 
-	.  reduce 185 (src line 1085)
+	.  reduce 185 (src line 1091)
 
 
 state 253
 	Numeric:  DEC opt_type_modifiers.    (186)
 
-	.  reduce 186 (src line 1089)
+	.  reduce 186 (src line 1095)
 
 
 state 254
 	Numeric:  NUMERIC opt_type_modifiers.    (187)
 
-	.  reduce 187 (src line 1093)
+	.  reduce 187 (src line 1099)
 
 
 state 255
@@ -5263,7 +5263,7 @@ state 255
 state 256
 	ConstDatetime:  TIMESTAMP opt_timezone.    (204)
 
-	.  reduce 204 (src line 1220)
+	.  reduce 204 (src line 1226)
 
 
 state 257
@@ -5291,7 +5291,7 @@ state 259
 state 260
 	ConstDatetime:  TIME opt_timezone.    (206)
 
-	.  reduce 206 (src line 1240)
+	.  reduce 206 (src line 1246)
 
 
 state 261
@@ -5299,13 +5299,13 @@ state 261
 	BitWithoutLength:  BIT opt_varying.    (202)
 
 	'('  shift 320
-	.  reduce 202 (src line 1198)
+	.  reduce 202 (src line 1204)
 
 
 state 262
 	opt_varying:  VARYING.    (210)
 
-	.  reduce 210 (src line 1257)
+	.  reduce 210 (src line 1263)
 
 
 state 263
@@ -5319,13 +5319,13 @@ state 263
 state 264
 	character:  CHARACTER opt_varying.    (193)
 
-	.  reduce 193 (src line 1123)
+	.  reduce 193 (src line 1129)
 
 
 state 265
 	character:  CHAR_P opt_varying.    (194)
 
-	.  reduce 194 (src line 1131)
+	.  reduce 194 (src line 1137)
 
 
 state 266
@@ -5333,7 +5333,7 @@ state 266
 	opt_varying: .    (211)
 
 	VARYING  shift 262
-	.  reduce 211 (src line 1258)
+	.  reduce 211 (src line 1264)
 
 	opt_varying  goto 322
 
@@ -5342,20 +5342,20 @@ state 267
 	opt_varying: .    (211)
 
 	VARYING  shift 262
-	.  reduce 211 (src line 1258)
+	.  reduce 211 (src line 1264)
 
 	opt_varying  goto 323
 
 state 268
 	character:  NCHAR opt_varying.    (198)
 
-	.  reduce 198 (src line 1159)
+	.  reduce 198 (src line 1165)
 
 
 state 269
 	a_expr:  a_expr IS NOT NULL_P.    (76)
 
-	.  reduce 76 (src line 547)
+	.  reduce 76 (src line 548)
 
 
 state 270
@@ -5462,7 +5462,7 @@ state 271
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 80 (src line 568)
+	.  reduce 80 (src line 569)
 
 	qual_Op  goto 99
 
@@ -5534,7 +5534,7 @@ state 272
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 84 (src line 594)
+	.  reduce 84 (src line 595)
 
 	qual_Op  goto 99
 
@@ -5605,7 +5605,7 @@ state 274
 state 275
 	a_expr:  a_expr NOT_LA IN_P in_expr.    (96)
 
-	.  reduce 96 (src line 664)
+	.  reduce 96 (src line 665)
 
 
 state 276
@@ -5705,7 +5705,7 @@ state 279
 	attrs:  attrs.'.' attr_name 
 
 	'.'  shift 310
-	.  reduce 46 (src line 391)
+	.  reduce 46 (src line 390)
 
 
 state 280
@@ -5780,7 +5780,7 @@ state 281
 state 282
 	b_expr:  c_expr.    (101)
 
-	.  reduce 101 (src line 697)
+	.  reduce 101 (src line 698)
 
 
 state 283
@@ -5957,7 +5957,7 @@ state 287
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 97 (src line 669)
+	.  reduce 97 (src line 670)
 
 	qual_Op  goto 99
 
@@ -5967,14 +5967,14 @@ state 288
 
 	'.'  shift 121
 	'['  shift 70
-	.  reduce 120 (src line 785)
+	.  reduce 120 (src line 786)
 
 	indirection_el  goto 204
 
 state 289
 	qual_Op:  OPERATOR '(' any_operator ')'.    (215)
 
-	.  reduce 215 (src line 1282)
+	.  reduce 215 (src line 1288)
 
 
 state 290
@@ -6007,7 +6007,7 @@ state 290
 state 291
 	func_expr:  func_application within_group_clause filter_clause over_clause.    (145)
 
-	.  reduce 145 (src line 893)
+	.  reduce 145 (src line 897)
 
 
 state 292
@@ -6061,7 +6061,7 @@ state 294
 	func_application:  func_name '(' VARIADIC func_arg_expr.opt_sort_clause ')' 
 	opt_sort_clause: .    (232)
 
-	.  reduce 232 (src line 1317)
+	.  reduce 232 (src line 1323)
 
 	opt_sort_clause  goto 359
 
@@ -6071,7 +6071,7 @@ state 295
 	opt_sort_clause: .    (232)
 
 	','  shift 361
-	.  reduce 232 (src line 1317)
+	.  reduce 232 (src line 1323)
 
 	opt_sort_clause  goto 360
 
@@ -6081,7 +6081,7 @@ state 296
 	opt_sort_clause: .    (232)
 
 	','  shift 361
-	.  reduce 232 (src line 1317)
+	.  reduce 232 (src line 1323)
 
 	opt_sort_clause  goto 362
 
@@ -6160,7 +6160,7 @@ state 298
 state 299
 	simple_select:  SELECT opt_distinct_clause opt_target_list into_clause from_clause where_clause.    (245)
 
-	.  reduce 245 (src line 1381)
+	.  reduce 245 (src line 1387)
 
 
 state 300
@@ -6202,7 +6202,7 @@ state 300
 state 301
 	distinct_clause:  DISTINCT ON '(' expr_list ')'.    (277)
 
-	.  reduce 277 (src line 1557)
+	.  reduce 277 (src line 1563)
 
 
 state 302
@@ -6284,7 +6284,7 @@ state 303
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 137 (src line 859)
+	.  reduce 137 (src line 862)
 
 	qual_Op  goto 99
 
@@ -6360,7 +6360,7 @@ state 304
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 265 (src line 1507)
+	.  reduce 265 (src line 1513)
 
 	qual_Op  goto 99
 
@@ -6383,13 +6383,13 @@ state 305
 state 306
 	table_ref:  relation_expr opt_alias_clause.    (259)
 
-	.  reduce 259 (src line 1458)
+	.  reduce 259 (src line 1464)
 
 
 state 307
 	opt_alias_clause:  alias_clause.    (268)
 
-	.  reduce 268 (src line 1520)
+	.  reduce 268 (src line 1526)
 
 
 state 308
@@ -6409,7 +6409,7 @@ state 309
 	alias_clause:  ColId.    (273)
 
 	'('  shift 369
-	.  reduce 273 (src line 1540)
+	.  reduce 273 (src line 1546)
 
 
 state 310
@@ -6432,7 +6432,7 @@ state 310
 state 311
 	GenericType:  type_function_name attrs opt_type_modifiers.    (177)
 
-	.  reduce 177 (src line 1044)
+	.  reduce 177 (src line 1050)
 
 
 state 312
@@ -6447,13 +6447,13 @@ state 312
 state 313
 	attrs:  '.' attr_name.    (172)
 
-	.  reduce 172 (src line 1017)
+	.  reduce 172 (src line 1023)
 
 
 state 314
 	attr_name:  ColLabel.    (170)
 
-	.  reduce 170 (src line 1011)
+	.  reduce 170 (src line 1017)
 
 
 state 315
@@ -6538,13 +6538,13 @@ state 321
 state 322
 	character:  NATIONAL CHARACTER opt_varying.    (196)
 
-	.  reduce 196 (src line 1143)
+	.  reduce 196 (src line 1149)
 
 
 state 323
 	character:  NATIONAL CHAR_P opt_varying.    (197)
 
-	.  reduce 197 (src line 1151)
+	.  reduce 197 (src line 1157)
 
 
 324: shift/reduce conflict (shift 47(0), red'n 79(8)) on Op
@@ -6613,7 +6613,7 @@ state 324
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 79 (src line 560)
+	.  reduce 79 (src line 561)
 
 	qual_Op  goto 99
 
@@ -6823,7 +6823,7 @@ state 329
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 99 (src line 682)
+	.  reduce 99 (src line 683)
 
 	qual_Op  goto 99
 
@@ -6893,14 +6893,14 @@ state 330
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 83 (src line 586)
+	.  reduce 83 (src line 587)
 
 	qual_Op  goto 99
 
 state 331
 	any_name:  ColId '.' ColId.    (45)
 
-	.  reduce 45 (src line 387)
+	.  reduce 45 (src line 386)
 
 
  332: reduce/reduce conflict  (red'ns 28 and 31) on $end
@@ -7043,8 +7043,8 @@ state 332
 	col_name_keyword:  IDENT.    (50)
 	type_func_name_keyword:  IDENT.    (51)
 
-	'.'  reduce 31 (src line 299)
-	.  reduce 28 (src line 293)
+	'.'  reduce 31 (src line 298)
+	.  reduce 28 (src line 292)
 
 
  333: reduce/reduce conflict  (red'ns 29 and 32) on $end
@@ -7095,8 +7095,8 @@ state 333
 	ColId:  unreserved_keyword.    (29)
 	ColLabel:  unreserved_keyword.    (32)
 
-	'.'  reduce 32 (src line 301)
-	.  reduce 29 (src line 295)
+	'.'  reduce 32 (src line 300)
+	.  reduce 29 (src line 294)
 
 
  334: reduce/reduce conflict  (red'ns 30 and 33) on $end
@@ -7147,8 +7147,8 @@ state 334
 	ColId:  col_name_keyword.    (30)
 	ColLabel:  col_name_keyword.    (33)
 
-	'.'  reduce 33 (src line 302)
-	.  reduce 30 (src line 296)
+	'.'  reduce 33 (src line 301)
+	.  reduce 30 (src line 295)
 
 
 335: shift/reduce conflict (shift 47(0), red'n 87(0)) on Op
@@ -7251,7 +7251,7 @@ state 335
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 87 (src line 619)
+	.  reduce 87 (src line 620)
 
 	qual_Op  goto 99
 
@@ -7743,7 +7743,7 @@ state 350
 	'/'  shift 341
 	'%'  shift 342
 	'^'  shift 343
-	.  reduce 103 (src line 702)
+	.  reduce 103 (src line 703)
 
 
 351: shift/reduce conflict (shift 337(0), red'n 104(10)) on TYPECAST
@@ -7770,7 +7770,7 @@ state 351
 	'/'  shift 341
 	'%'  shift 342
 	'^'  shift 343
-	.  reduce 104 (src line 707)
+	.  reduce 104 (src line 708)
 
 
 state 352
@@ -7812,7 +7812,7 @@ state 352
 state 353
 	in_expr:  '(' expr_list ')'.    (238)
 
-	.  reduce 238 (src line 1333)
+	.  reduce 238 (src line 1339)
 
 
 state 354
@@ -7854,13 +7854,13 @@ state 354
 state 355
 	any_operator:  ColId '.' any_operator.    (231)
 
-	.  reduce 231 (src line 1310)
+	.  reduce 231 (src line 1316)
 
 
 state 356
 	func_application:  func_name '(' func_arg_list opt_sort_clause ')'.    (149)
 
-	.  reduce 149 (src line 922)
+	.  reduce 149 (src line 926)
 
 
 state 357
@@ -7904,7 +7904,7 @@ state 357
 state 358
 	func_arg_list:  func_arg_list ',' func_arg_expr.    (155)
 
-	.  reduce 155 (src line 959)
+	.  reduce 155 (src line 964)
 
 
 state 359
@@ -8038,7 +8038,7 @@ state 363
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 157 (src line 969)
+	.  reduce 157 (src line 975)
 
 	qual_Op  goto 99
 
@@ -8114,7 +8114,7 @@ state 364
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 158 (src line 973)
+	.  reduce 158 (src line 979)
 
 	qual_Op  goto 99
 
@@ -8190,20 +8190,20 @@ state 365
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 160 (src line 984)
+	.  reduce 160 (src line 990)
 
 	qual_Op  goto 99
 
 state 366
 	indirection_el:  '[' opt_slice_bound ':' opt_slice_bound ']'.    (142)
 
-	.  reduce 142 (src line 875)
+	.  reduce 142 (src line 878)
 
 
 state 367
 	from_list:  from_list ',' table_ref.    (258)
 
-	.  reduce 258 (src line 1451)
+	.  reduce 258 (src line 1457)
 
 
 state 368
@@ -8211,7 +8211,7 @@ state 368
 	alias_clause:  AS ColId.    (271)
 
 	'('  shift 404
-	.  reduce 271 (src line 1531)
+	.  reduce 271 (src line 1537)
 
 
 state 369
@@ -8230,19 +8230,19 @@ state 369
 state 370
 	attrs:  attrs '.' attr_name.    (173)
 
-	.  reduce 173 (src line 1021)
+	.  reduce 173 (src line 1027)
 
 
 state 371
 	opt_type_modifiers:  '(' expr_list ')'.    (174)
 
-	.  reduce 174 (src line 1027)
+	.  reduce 174 (src line 1034)
 
 
 state 372
 	opt_float:  '(' Iconst ')'.    (212)
 
-	.  reduce 212 (src line 1261)
+	.  reduce 212 (src line 1267)
 
 
 state 373
@@ -8251,20 +8251,20 @@ state 373
 
 	WITH_LA  shift 257
 	WITHOUT_LA  shift 258
-	.  reduce 209 (src line 1254)
+	.  reduce 209 (src line 1260)
 
 	opt_timezone  goto 408
 
 state 374
 	opt_timezone:  WITH_LA TIME ZONE.    (207)
 
-	.  reduce 207 (src line 1252)
+	.  reduce 207 (src line 1258)
 
 
 state 375
 	opt_timezone:  WITHOUT_LA TIME ZONE.    (208)
 
-	.  reduce 208 (src line 1253)
+	.  reduce 208 (src line 1259)
 
 
 state 376
@@ -8273,7 +8273,7 @@ state 376
 
 	WITH_LA  shift 257
 	WITHOUT_LA  shift 258
-	.  reduce 209 (src line 1254)
+	.  reduce 209 (src line 1260)
 
 	opt_timezone  goto 409
 
@@ -8289,7 +8289,7 @@ state 377
 state 378
 	CharacterWithLength:  character '(' Iconst ')'.    (199)
 
-	.  reduce 199 (src line 1169)
+	.  reduce 199 (src line 1175)
 
 
 379: shift/reduce conflict (shift 47(0), red'n 81(8)) on Op
@@ -8358,7 +8358,7 @@ state 379
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 81 (src line 573)
+	.  reduce 81 (src line 574)
 
 	qual_Op  goto 99
 
@@ -8428,7 +8428,7 @@ state 380
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 85 (src line 599)
+	.  reduce 85 (src line 600)
 
 	qual_Op  goto 99
 
@@ -8606,14 +8606,14 @@ state 384
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 91 (src line 639)
+	.  reduce 91 (src line 640)
 
 	qual_Op  goto 99
 
 state 385
 	b_expr:  b_expr TYPECAST Typename.    (102)
 
-	.  reduce 102 (src line 698)
+	.  reduce 102 (src line 699)
 
 
 386: shift/reduce conflict (shift 337(0), red'n 105(11)) on TYPECAST
@@ -8638,7 +8638,7 @@ state 386
 	'/'  shift 341
 	'%'  shift 342
 	'^'  shift 343
-	.  reduce 105 (src line 712)
+	.  reduce 105 (src line 713)
 
 
 387: shift/reduce conflict (shift 337(0), red'n 106(11)) on TYPECAST
@@ -8663,7 +8663,7 @@ state 387
 	'/'  shift 341
 	'%'  shift 342
 	'^'  shift 343
-	.  reduce 106 (src line 717)
+	.  reduce 106 (src line 718)
 
 
 388: shift/reduce conflict (shift 337(0), red'n 107(12)) on TYPECAST
@@ -8685,7 +8685,7 @@ state 388
 
 	TYPECAST  shift 337
 	'^'  shift 343
-	.  reduce 107 (src line 722)
+	.  reduce 107 (src line 723)
 
 
 389: shift/reduce conflict (shift 337(0), red'n 108(12)) on TYPECAST
@@ -8707,7 +8707,7 @@ state 389
 
 	TYPECAST  shift 337
 	'^'  shift 343
-	.  reduce 108 (src line 727)
+	.  reduce 108 (src line 728)
 
 
 390: shift/reduce conflict (shift 337(0), red'n 109(12)) on TYPECAST
@@ -8729,7 +8729,7 @@ state 390
 
 	TYPECAST  shift 337
 	'^'  shift 343
-	.  reduce 109 (src line 732)
+	.  reduce 109 (src line 733)
 
 
 391: shift/reduce conflict (shift 337(0), red'n 110(13)) on TYPECAST
@@ -8750,7 +8750,7 @@ state 391
 	b_expr:  b_expr.NOT_EQUALS b_expr 
 
 	TYPECAST  shift 337
-	.  reduce 110 (src line 737)
+	.  reduce 110 (src line 738)
 
 
 392: shift/reduce conflict (shift 337(0), red'n 111(7)) on TYPECAST
@@ -8783,7 +8783,7 @@ state 392
 	'/'  shift 341
 	'%'  shift 342
 	'^'  shift 343
-	.  reduce 111 (src line 742)
+	.  reduce 111 (src line 743)
 
 
 393: shift/reduce conflict (shift 337(0), red'n 112(7)) on TYPECAST
@@ -8816,7 +8816,7 @@ state 393
 	'/'  shift 341
 	'%'  shift 342
 	'^'  shift 343
-	.  reduce 112 (src line 747)
+	.  reduce 112 (src line 748)
 
 
 394: shift/reduce conflict (shift 337(0), red'n 113(7)) on TYPECAST
@@ -8849,7 +8849,7 @@ state 394
 	'/'  shift 341
 	'%'  shift 342
 	'^'  shift 343
-	.  reduce 113 (src line 752)
+	.  reduce 113 (src line 753)
 
 
 395: shift/reduce conflict (shift 337(0), red'n 114(7)) on TYPECAST
@@ -8882,7 +8882,7 @@ state 395
 	'/'  shift 341
 	'%'  shift 342
 	'^'  shift 343
-	.  reduce 114 (src line 757)
+	.  reduce 114 (src line 758)
 
 
 396: shift/reduce conflict (shift 337(0), red'n 115(7)) on TYPECAST
@@ -8915,7 +8915,7 @@ state 396
 	'/'  shift 341
 	'%'  shift 342
 	'^'  shift 343
-	.  reduce 115 (src line 762)
+	.  reduce 115 (src line 763)
 
 
 397: shift/reduce conflict (shift 337(0), red'n 116(7)) on TYPECAST
@@ -8948,7 +8948,7 @@ state 397
 	'/'  shift 341
 	'%'  shift 342
 	'^'  shift 343
-	.  reduce 116 (src line 767)
+	.  reduce 116 (src line 768)
 
 
 398: shift/reduce conflict (shift 47(0), red'n 93(8)) on Op
@@ -9017,7 +9017,7 @@ state 398
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 93 (src line 649)
+	.  reduce 93 (src line 650)
 
 	qual_Op  goto 99
 
@@ -9087,7 +9087,7 @@ state 399
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 98 (src line 674)
+	.  reduce 98 (src line 675)
 
 	qual_Op  goto 99
 
@@ -9095,26 +9095,26 @@ state 400
 	func_application:  func_name '(' func_arg_list ',' VARIADIC func_arg_expr.opt_sort_clause ')' 
 	opt_sort_clause: .    (232)
 
-	.  reduce 232 (src line 1317)
+	.  reduce 232 (src line 1323)
 
 	opt_sort_clause  goto 414
 
 state 401
 	func_application:  func_name '(' VARIADIC func_arg_expr opt_sort_clause ')'.    (150)
 
-	.  reduce 150 (src line 928)
+	.  reduce 150 (src line 932)
 
 
 state 402
 	func_application:  func_name '(' ALL func_arg_list opt_sort_clause ')'.    (152)
 
-	.  reduce 152 (src line 941)
+	.  reduce 152 (src line 946)
 
 
 state 403
 	func_application:  func_name '(' DISTINCT func_arg_list opt_sort_clause ')'.    (153)
 
-	.  reduce 153 (src line 947)
+	.  reduce 153 (src line 952)
 
 
 state 404
@@ -9142,31 +9142,31 @@ state 405
 state 406
 	name_list:  name.    (37)
 
-	.  reduce 37 (src line 311)
+	.  reduce 37 (src line 310)
 
 
 state 407
 	name:  ColId.    (36)
 
-	.  reduce 36 (src line 307)
+	.  reduce 36 (src line 306)
 
 
 state 408
 	ConstDatetime:  TIMESTAMP '(' Iconst ')' opt_timezone.    (203)
 
-	.  reduce 203 (src line 1210)
+	.  reduce 203 (src line 1216)
 
 
 state 409
 	ConstDatetime:  TIME '(' Iconst ')' opt_timezone.    (205)
 
-	.  reduce 205 (src line 1230)
+	.  reduce 205 (src line 1236)
 
 
 state 410
 	BitWithLength:  BIT opt_varying '(' expr_list ')'.    (201)
 
-	.  reduce 201 (src line 1186)
+	.  reduce 201 (src line 1192)
 
 
 411: shift/reduce conflict (shift 47(0), red'n 92(8)) on Op
@@ -9235,7 +9235,7 @@ state 411
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 92 (src line 644)
+	.  reduce 92 (src line 645)
 
 	qual_Op  goto 99
 
@@ -9305,7 +9305,7 @@ state 412
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 94 (src line 654)
+	.  reduce 94 (src line 655)
 
 	qual_Op  goto 99
 
@@ -9375,7 +9375,7 @@ state 413
 	'/'  shift 80
 	'%'  shift 81
 	'^'  shift 82
-	.  reduce 100 (src line 687)
+	.  reduce 100 (src line 688)
 
 	qual_Op  goto 99
 
@@ -9410,25 +9410,25 @@ state 416
 state 417
 	alias_clause:  ColId '(' name_list ')'.    (272)
 
-	.  reduce 272 (src line 1535)
+	.  reduce 272 (src line 1541)
 
 
 state 418
 	func_application:  func_name '(' func_arg_list ',' VARIADIC func_arg_expr opt_sort_clause ')'.    (151)
 
-	.  reduce 151 (src line 934)
+	.  reduce 151 (src line 938)
 
 
 state 419
 	alias_clause:  AS ColId '(' name_list ')'.    (270)
 
-	.  reduce 270 (src line 1525)
+	.  reduce 270 (src line 1531)
 
 
 state 420
 	name_list:  name_list ',' name.    (38)
 
-	.  reduce 38 (src line 316)
+	.  reduce 38 (src line 315)
 
 Rule not reduced: opt_single_name:  ColId 
 Rule not reduced: opt_single_name:  

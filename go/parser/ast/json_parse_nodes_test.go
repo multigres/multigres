@@ -336,7 +336,7 @@ func TestJsonTable(t *testing.T) {
 		pathSpec := NewJsonTablePathSpec(NewConst(25, Datum(0), false), "items", 400)
 		jsonTable := NewJsonTable(contextItem, pathSpec)
 
-		alias := NewAlias("jt", []Node{NewConst(25, Datum(0), false)})
+		alias := NewAlias("jt", NewNodeList(NewConst(25, Datum(0), false)))
 		onError := NewJsonBehavior(JSON_BEHAVIOR_ERROR, nil, -1)
 		jsonTable.Alias = alias
 		jsonTable.OnError = onError
@@ -457,7 +457,7 @@ func TestJsonObjectConstructor(t *testing.T) {
 	t.Run("NewJsonObjectConstructor", func(t *testing.T) {
 		kv1 := NewJsonKeyValue(NewConst(25, Datum(0), false), NewJsonValueExpr(NewConst(25, Datum(0), false), nil))
 		kv2 := NewJsonKeyValue(NewConst(25, Datum(0), false), NewJsonValueExpr(NewConst(25, Datum(0), false), nil))
-		exprs := []Node{kv1, kv2}
+		exprs := NewNodeList(kv1, kv2)
 
 		objConstructor := NewJsonObjectConstructor(exprs, true, false)
 
@@ -477,7 +477,7 @@ func TestJsonArrayConstructor(t *testing.T) {
 	t.Run("NewJsonArrayConstructor", func(t *testing.T) {
 		val1 := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
 		val2 := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
-		exprs := []Node{val1, val2}
+		exprs := NewNodeList(val1, val2)
 
 		arrayConstructor := NewJsonArrayConstructor(exprs, false)
 
@@ -524,7 +524,7 @@ func TestJsonAggConstructor(t *testing.T) {
 		aggConstructor := NewJsonAggConstructor(output)
 
 		filter := NewConst(25, Datum(0), false) // TEXT constant
-		orderBy := []Node{NewConst(25, Datum(0), false)}
+		orderBy := NewNodeList(NewConst(25, Datum(0), false))
 		windowDef := NewWindowDef("win", -1)
 
 		aggConstructor.AggFilter = filter
@@ -661,7 +661,7 @@ func TestJsonConstructorType(t *testing.T) {
 // TestJsonConstructorExpr tests the JsonConstructorExpr node
 func TestJsonConstructorExpr(t *testing.T) {
 	t.Run("NewJsonConstructorExpr", func(t *testing.T) {
-		args := []Node{NewConst(23, Datum(42), false)}
+		args := NewNodeList(NewConst(23, Datum(42), false))
 		funcExpr := NewConst(25, Datum(100), false)
 		coercionExpr := NewConst(26, Datum(200), false)
 		returning := NewJsonReturning(nil, 0, 0)
@@ -736,7 +736,7 @@ func TestJsonExpr(t *testing.T) {
 		pathSpec := NewConst(25, Datum(100), false)
 		returning := NewJsonReturning(format, 0, 0)
 		passingNames := []string{"arg1", "arg2"}
-		passingValues := []Node{NewConst(26, Datum(200), false), NewConst(27, Datum(300), false)}
+		passingValues := NewNodeList(NewConst(26, Datum(200), false), NewConst(27, Datum(300), false))
 		onEmpty := NewJsonBehavior(JSON_BEHAVIOR_NULL, nil, 150)
 		onError := NewJsonBehavior(JSON_BEHAVIOR_ERROR, nil, 160)
 

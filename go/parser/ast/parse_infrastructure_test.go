@@ -131,26 +131,26 @@ func TestTypeCast(t *testing.T) {
 func TestFuncCall(t *testing.T) {
 	t.Run("basic construction", func(t *testing.T) {
 		funcname := []*String{NewString("upper")}
-		args := []Node{NewA_Const(NewString("test"), 0)}
+		args := NewNodeList(NewA_Const(NewString("test"), 0))
 		funcCall := NewFuncCall(funcname, args, 15)
 		funcCall.SetLocation(15)
 
 		assert.Equal(t, T_FuncCall, funcCall.NodeTag())
 		assert.Equal(t, 1, len(funcCall.Funcname))
 		assert.Equal(t, "upper", funcCall.Funcname[0].SVal)
-		assert.Equal(t, 1, len(funcCall.Args))
+		assert.Equal(t, 1, funcCall.Args.Len())
 		assert.Equal(t, "FUNC_CALL", funcCall.ExpressionType())
 		assert.Equal(t, "FuncCall{upper}@15", funcCall.String())
 	})
 
 	t.Run("empty funcname", func(t *testing.T) {
-		emptyCall := NewFuncCall([]*String{}, []Node{}, 20)
+		emptyCall := NewFuncCall([]*String{}, NewNodeList(), 20)
 		emptyCall.SetLocation(20)
 		assert.Equal(t, "FuncCall@20", emptyCall.String())
 	})
 
 	t.Run("aggregate fields", func(t *testing.T) {
-		funcCall := NewFuncCall([]*String{NewString("count")}, []Node{}, 0)
+		funcCall := NewFuncCall([]*String{NewString("count")}, NewNodeList(), 0)
 		funcCall.AggStar = true
 		funcCall.AggDistinct = true
 		funcCall.FuncVariadic = true
@@ -204,13 +204,13 @@ func TestA_Indices(t *testing.T) {
 func TestA_Indirection(t *testing.T) {
 	t.Run("basic construction", func(t *testing.T) {
 		arg := NewColumnRef(NewString("table"))
-		indirection := []Node{NewString("field")}
+		indirection := NewNodeList(NewString("field"))
 		aIndirection := NewA_Indirection(arg, indirection, 12)
 		aIndirection.SetLocation(12)
 
 		assert.Equal(t, T_A_Indirection, aIndirection.NodeTag())
 		assert.Equal(t, arg, aIndirection.Arg)
-		assert.Equal(t, 1, len(aIndirection.Indirection))
+		assert.Equal(t, 1, aIndirection.Indirection.Len())
 		assert.Equal(t, "A_INDIRECTION", aIndirection.ExpressionType())
 		assert.Equal(t, "A_Indirection@12", aIndirection.String())
 	})
@@ -218,22 +218,22 @@ func TestA_Indirection(t *testing.T) {
 
 func TestA_ArrayExpr(t *testing.T) {
 	t.Run("with elements", func(t *testing.T) {
-		elements := []Node{
+		elements := NewNodeList(
 			NewA_Const(NewString("1"), 0),
 			NewA_Const(NewString("2"), 2),
 			NewA_Const(NewString("3"), 4),
-		}
+		)
 		arrayExpr := NewA_ArrayExpr(elements, 8)
 		arrayExpr.SetLocation(8)
 
 		assert.Equal(t, T_A_ArrayExpr, arrayExpr.NodeTag())
-		assert.Equal(t, 3, len(arrayExpr.Elements))
+		assert.Equal(t, 3, arrayExpr.Elements.Len())
 		assert.Equal(t, "A_ARRAY_EXPR", arrayExpr.ExpressionType())
 		assert.Equal(t, "A_ArrayExpr{3 elements}@8", arrayExpr.String())
 	})
 
 	t.Run("empty array", func(t *testing.T) {
-		emptyArray := NewA_ArrayExpr([]Node{}, 15)
+		emptyArray := NewA_ArrayExpr(NewNodeList(), 15)
 		emptyArray.SetLocation(15)
 		assert.Equal(t, "A_ArrayExpr{0 elements}@15", emptyArray.String())
 	})
@@ -286,8 +286,8 @@ func TestColumnDef(t *testing.T) {
 		assert.False(t, columnDef.IsNotNull)
 		assert.False(t, columnDef.IsFromType)
 		assert.Equal(t, InvalidOid, columnDef.CollOid)
-		assert.Equal(t, 0, len(columnDef.Constraints))
-		assert.Equal(t, 0, len(columnDef.Fdwoptions))
+		assert.Equal(t, 0, columnDef.Constraints.Len())
+		assert.Equal(t, 0, columnDef.Fdwoptions.Len())
 	})
 
 	t.Run("setting additional fields", func(t *testing.T) {
@@ -302,19 +302,19 @@ func TestColumnDef(t *testing.T) {
 
 func TestWithClause(t *testing.T) {
 	t.Run("basic construction", func(t *testing.T) {
-		ctes := []Node{NewCommonTableExpr("test_cte", NewSelectStmt())}
+		ctes := NewNodeList(NewCommonTableExpr("test_cte", NewSelectStmt()))
 		withClause := NewWithClause(ctes, false, 35)
 		withClause.SetLocation(35)
 
 		assert.Equal(t, T_WithClause, withClause.NodeTag())
-		assert.Equal(t, 1, len(withClause.Ctes))
+		assert.Equal(t, 1, withClause.Ctes.Len())
 		assert.False(t, withClause.Recursive)
 		assert.Equal(t, "WITH_CLAUSE", withClause.ExpressionType())
 		assert.Equal(t, "WithClause{1 CTEs}@35", withClause.String())
 	})
 
 	t.Run("recursive WITH clause", func(t *testing.T) {
-		ctes := []Node{NewCommonTableExpr("test_cte", NewSelectStmt())}
+		ctes := NewNodeList(NewCommonTableExpr("test_cte", NewSelectStmt()))
 		recursiveWith := NewWithClause(ctes, true, 40)
 		recursiveWith.SetLocation(40)
 
@@ -352,7 +352,7 @@ func TestWindowDef(t *testing.T) {
 	t.Run("default values", func(t *testing.T) {
 		windowDef := NewWindowDef("test", 0)
 
-		assert.Equal(t, 0, len(windowDef.PartitionClause))
+		assert.Equal(t, 0, windowDef.PartitionClause.Len())
 		assert.Equal(t, 0, len(windowDef.OrderClause))
 		assert.Equal(t, 0, windowDef.FrameOptions)
 	})
@@ -401,19 +401,19 @@ func TestSortBy(t *testing.T) {
 
 func TestGroupingSet(t *testing.T) {
 	t.Run("basic construction", func(t *testing.T) {
-		content := []Node{NewA_Const(NewString("col1"), 0), NewA_Const(NewString("col2"), 0)}
+		content := NewNodeList(NewA_Const(NewString("col1"), 0), NewA_Const(NewString("col2"), 0))
 		groupingSet := NewGroupingSet(GROUPING_SET_SIMPLE, content, 65)
 		groupingSet.SetLocation(65)
 
 		assert.Equal(t, T_GroupingSet, groupingSet.NodeTag())
 		assert.Equal(t, GROUPING_SET_SIMPLE, groupingSet.Kind)
-		assert.Equal(t, 2, len(groupingSet.Content))
+		assert.Equal(t, 2, groupingSet.Content.Len())
 		assert.Equal(t, "GROUPING_SET", groupingSet.StatementType())
 		assert.Equal(t, "GroupingSet{kind=1}@65", groupingSet.String())
 	})
 
 	t.Run("all grouping set kinds", func(t *testing.T) {
-		content := []Node{NewA_Const(NewString("col1"), 0)}
+		content := NewNodeList(NewA_Const(NewString("col1"), 0))
 		kinds := []GroupingSetKind{
 			GROUPING_SET_EMPTY, GROUPING_SET_SIMPLE, GROUPING_SET_ROLLUP,
 			GROUPING_SET_CUBE, GROUPING_SET_SETS,
@@ -531,14 +531,14 @@ func TestPartitionElem(t *testing.T) {
 
 func TestTableSampleClause(t *testing.T) {
 	t.Run("basic construction", func(t *testing.T) {
-		args := []Node{NewA_Const(NewString("10"), 0)}
+		args := NewNodeList(NewA_Const(NewString("10"), 0))
 		repeatable := NewA_Const(NewString("42"), 0)
 		tableSample := NewTableSampleClause(123, args, repeatable, 90)
 		tableSample.SetLocation(90)
 
 		assert.Equal(t, T_TableSampleClause, tableSample.NodeTag())
 		assert.Equal(t, Oid(123), tableSample.Tsmhandler)
-		assert.Equal(t, 1, len(tableSample.Args))
+		assert.Equal(t, 1, tableSample.Args.Len())
 		assert.Equal(t, repeatable, tableSample.Repeatable)
 		assert.Equal(t, "TABLE_SAMPLE_CLAUSE", tableSample.StatementType())
 		assert.Equal(t, "TableSampleClause@90", tableSample.String())
@@ -548,14 +548,14 @@ func TestTableSampleClause(t *testing.T) {
 func TestObjectWithArgs(t *testing.T) {
 	t.Run("basic construction", func(t *testing.T) {
 		objname := []*String{NewString("public"), NewString("my_function")}
-		objargs := []Node{NewTypeName([]string{"int"})}
+		objargs := NewNodeList(NewTypeName([]string{"int"}))
 		objectWithArgs := NewObjectWithArgs(objname, objargs, false, 95)
 		objectWithArgs.SetLocation(95)
 
 		assert.Equal(t, T_ObjectWithArgs, objectWithArgs.NodeTag())
 		assert.Equal(t, 2, len(objectWithArgs.Objname))
 		assert.Equal(t, "my_function", objectWithArgs.Objname[1].SVal)
-		assert.Equal(t, 1, len(objectWithArgs.Objargs))
+		assert.Equal(t, 1, objectWithArgs.Objargs.Len())
 		assert.False(t, objectWithArgs.ArgsUnspecified)
 		assert.Equal(t, "OBJECT_WITH_ARGS", objectWithArgs.StatementType())
 		assert.Equal(t, "ObjectWithArgs{my_function}@95", objectWithArgs.String())
@@ -563,19 +563,19 @@ func TestObjectWithArgs(t *testing.T) {
 
 	t.Run("with unspecified args", func(t *testing.T) {
 		objname := []*String{NewString("func")}
-		unspecifiedObj := NewObjectWithArgs(objname, []Node{}, true, 100)
+		unspecifiedObj := NewObjectWithArgs(objname, NewNodeList(), true, 100)
 		assert.True(t, unspecifiedObj.ArgsUnspecified)
 	})
 
 	t.Run("empty name", func(t *testing.T) {
-		emptyObj := NewObjectWithArgs([]*String{}, []Node{}, false, 105)
+		emptyObj := NewObjectWithArgs([]*String{}, NewNodeList(), false, 105)
 		emptyObj.SetLocation(105)
 		assert.Equal(t, "ObjectWithArgs@105", emptyObj.String())
 	})
 
 	t.Run("default values", func(t *testing.T) {
-		objectWithArgs := NewObjectWithArgs([]*String{}, []Node{}, false, 0)
-		assert.Equal(t, 0, len(objectWithArgs.ObjfuncArgs))
+		objectWithArgs := NewObjectWithArgs([]*String{}, NewNodeList(), false, 0)
+		assert.Equal(t, 0, objectWithArgs.ObjfuncArgs.Len())
 	})
 }
 
@@ -628,34 +628,34 @@ func TestConstants(t *testing.T) {
 func TestParseInfrastructureNodeInterfaces(t *testing.T) {
 	t.Run("Node interface implementation", func(t *testing.T) {
 		// Test that all nodes implement Node interface
-		nodes := []Node{
+		nodes := NewNodeList(
 			NewRawStmt(NewSelectStmt(), 0, 10),
 			NewA_Expr(AEXPR_OP, []*String{NewString("+")}, nil, nil, 0),
 			NewA_Const(NewString("test"), 0),
 			NewParamRef(1, 0),
 			NewTypeCast(nil, nil, 0),
-			NewFuncCall([]*String{NewString("func")}, []Node{}, 0),
+			NewFuncCall([]*String{NewString("func")}, NewNodeList(), 0),
 			NewA_Star(0),
 			NewA_Indices(nil, 0),
-			NewA_Indirection(nil, []Node{}, 0),
-			NewA_ArrayExpr([]Node{}, 0),
+			NewA_Indirection(nil, NewNodeList(), 0),
+			NewA_ArrayExpr(NewNodeList(), 0),
 			NewTypeName([]string{"int"}),
 			NewColumnDef("col", nil, 0),
-			NewWithClause([]Node{}, false, 0),
+			NewWithClause(NewNodeList(), false, 0),
 			NewMultiAssignRef(nil, 1, 2, 0),
 			NewWindowDef("win", 0),
 			NewSortBy(nil, SORTBY_ASC, SORTBY_NULLS_DEFAULT, 0),
-			NewGroupingSet(GROUPING_SET_SIMPLE, []Node{}, 0),
+			NewGroupingSet(GROUPING_SET_SIMPLE, NewNodeList(), 0),
 			NewLockingClause([]*RangeVar{}, LCS_FORUPDATE, LockWaitBlock, 0),
 			NewXmlSerialize(XMLOPTION_DOCUMENT, nil, nil, false, 0),
 			NewPartitionElem("col", nil, 0),
-			NewTableSampleClause(0, []Node{}, nil, 0),
-			NewObjectWithArgs([]*String{}, []Node{}, false, 0),
+			NewTableSampleClause(0, NewNodeList(), nil, 0),
+			NewObjectWithArgs([]*String{}, NewNodeList(), false, 0),
 			NewSinglePartitionSpec(0),
 			NewPartitionCmd(nil, nil, false, 0),
-		}
+		)
 
-		for i, node := range nodes {
+		for i, node := range nodes.Items {
 			assert.NotNil(t, node, "Node %d should not be nil", i)
 
 			// Test Node interface methods
@@ -677,12 +677,12 @@ func TestParseInfrastructureNodeInterfaces(t *testing.T) {
 			NewA_Const(NewString("test"), 0),
 			NewParamRef(1, 0),
 			NewTypeCast(nil, nil, 0),
-			NewFuncCall([]*String{NewString("func")}, []Node{}, 0),
+			NewFuncCall([]*String{NewString("func")}, NewNodeList(), 0),
 			NewA_Star(0),
 			NewA_Indices(nil, 0),
-			NewA_Indirection(nil, []Node{}, 0),
-			NewA_ArrayExpr([]Node{}, 0),
-			NewWithClause([]Node{}, false, 0),
+			NewA_Indirection(nil, NewNodeList(), 0),
+			NewA_ArrayExpr(NewNodeList(), 0),
+			NewWithClause(NewNodeList(), false, 0),
 			NewMultiAssignRef(nil, 1, 2, 0),
 			NewXmlSerialize(XMLOPTION_DOCUMENT, nil, nil, false, 0),
 		}
@@ -700,11 +700,11 @@ func TestParseInfrastructureNodeInterfaces(t *testing.T) {
 			NewColumnDef("col", nil, 0),
 			NewWindowDef("win", 0),
 			NewSortBy(nil, SORTBY_ASC, SORTBY_NULLS_DEFAULT, 0),
-			NewGroupingSet(GROUPING_SET_SIMPLE, []Node{}, 0),
+			NewGroupingSet(GROUPING_SET_SIMPLE, NewNodeList(), 0),
 			NewLockingClause([]*RangeVar{}, LCS_FORUPDATE, LockWaitBlock, 0),
 			NewPartitionElem("col", nil, 0),
-			NewTableSampleClause(0, []Node{}, nil, 0),
-			NewObjectWithArgs([]*String{}, []Node{}, false, 0),
+			NewTableSampleClause(0, NewNodeList(), nil, 0),
+			NewObjectWithArgs([]*String{}, NewNodeList(), false, 0),
 			NewSinglePartitionSpec(0),
 			NewPartitionCmd(nil, nil, false, 0),
 		}

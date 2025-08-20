@@ -151,7 +151,7 @@ func (rv *RangeVar) StatementType() string {
 type Alias struct {
 	BaseNode
 	AliasName string // Alias name - postgres/src/include/nodes/primnodes.h:50
-	ColNames  []Node // Column aliases - postgres/src/include/nodes/primnodes.h:51
+	ColNames  *NodeList // Column aliases - postgres/src/include/nodes/primnodes.h:51
 }
 
 // SqlString returns the SQL representation of this alias
@@ -163,9 +163,9 @@ func (a *Alias) SqlString() string {
 	result := FormatAlias(a.AliasName)
 	
 	// Add column aliases if present
-	if len(a.ColNames) > 0 {
+	if a.ColNames != nil && len(a.ColNames.Items) > 0 {
 		var colAliases []string
-		for _, col := range a.ColNames {
+		for _, col := range a.ColNames.Items {
 			// All nodes implement SqlString() method
 			colAliases = append(colAliases, col.SqlString())
 		}
@@ -176,7 +176,7 @@ func (a *Alias) SqlString() string {
 }
 
 // NewAlias creates a new Alias node.
-func NewAlias(aliasName string, colNames []Node) *Alias {
+func NewAlias(aliasName string, colNames *NodeList) *Alias {
 	return &Alias{
 		BaseNode:  BaseNode{Tag: T_String}, // Use T_String for alias
 		AliasName: aliasName,
@@ -193,7 +193,7 @@ func (a *Alias) String() string {
 type ResTarget struct {
 	BaseNode
 	Name        string // Column name or empty - postgres/src/include/nodes/parsenodes.h:518
-	Indirection []Node // Subscripts, field names, and '*', or nil - postgres/src/include/nodes/parsenodes.h:519
+	Indirection *NodeList // Subscripts, field names, and '*', or nil - postgres/src/include/nodes/parsenodes.h:519
 	Val         Node   // Value expression to compute or assign - postgres/src/include/nodes/parsenodes.h:520
 }
 
@@ -223,8 +223,8 @@ func (r *ResTarget) SqlString() string {
 	result := r.Val.SqlString()
 	
 	// Add indirection if present (e.g., array subscripts, field selection)
-	if len(r.Indirection) > 0 {
-		for _, ind := range r.Indirection {
+	if r.Indirection != nil && len(r.Indirection.Items) > 0 {
+		for _, ind := range r.Indirection.Items {
 			if ind != nil {
 				// Handle different types of indirection
 				switch i := ind.(type) {
@@ -280,9 +280,9 @@ type Query struct {
 	// Query components - postgres/src/include/nodes/parsenodes.h:142-192
 	CteList             []*CommonTableExpr // WITH list
 	Rtable              []*RangeTblEntry   // Range table entries
-	RtePermInfos        []Node             // Permission info for rtable entries - parsenodes.h:174
+	RtePermInfos        *NodeList          // Permission info for rtable entries - parsenodes.h:174
 	Jointree            *FromExpr          // Table join tree (FROM and WHERE clauses)
-	MergeActionList     []Node             // MERGE statement actions - parsenodes.h:178
+	MergeActionList     *NodeList          // MERGE statement actions - parsenodes.h:178
 	MergeTargetRelation int                // MERGE target relation index - parsenodes.h:186
 	MergeJoinCondition  Node               // JOIN condition for MERGE - parsenodes.h:189
 	TargetList          []*TargetEntry     // Target list
@@ -291,7 +291,7 @@ type Query struct {
 	ReturningList       []*TargetEntry     // Return-values list
 	GroupClause         []*SortGroupClause // GROUP BY clauses
 	GroupDistinct       bool               // Is the GROUP BY clause distinct?
-	GroupingSets        []Node             // GROUPING SETS if present
+	GroupingSets        *NodeList          // GROUPING SETS if present
 	HavingQual          Node               // Qualifications applied to groups
 	WindowClause        []*WindowClause    // WINDOW clauses
 	DistinctClause      []*SortGroupClause // DISTINCT clauses
@@ -302,7 +302,7 @@ type Query struct {
 	RowMarks            []*RowMarkClause   // Row mark clauses
 	SetOperations       Node               // Set operation tree - parsenodes.h:219
 	ConstraintDeps      []Oid              // Constraint dependencies - parsenodes.h:226
-	WithCheckOptions    []Node             // WITH CHECK OPTIONS - parsenodes.h:228
+	WithCheckOptions    *NodeList          // WITH CHECK OPTIONS - parsenodes.h:228
 	StmtLocation        int                // Start location - postgres/src/include/nodes/parsenodes.h:239
 	StmtLen             int                // Length in bytes - postgres/src/include/nodes/parsenodes.h:240
 }
@@ -336,13 +336,13 @@ type SelectStmt struct {
 	DistinctClause *NodeList    // NULL, list of DISTINCT ON exprs, or special marker for ALL
 	IntoClause     *IntoClause  // Target for SELECT INTO
 	TargetList     []*ResTarget // Target list
-	FromClause     []Node       // FROM clause
+	FromClause     *NodeList    // FROM clause
 	WhereClause    Node         // WHERE qualification
-	GroupClause    []Node       // GROUP BY clauses
+	GroupClause    *NodeList    // GROUP BY clauses
 	GroupDistinct  bool         // Is this GROUP BY DISTINCT?
 	HavingClause   Node         // HAVING conditional-expression
-	WindowClause   []Node       // WINDOW window_name AS (...), ...
-	ValuesLists    [][]Node     // Untransformed list of expression lists
+	WindowClause   *NodeList    // WINDOW window_name AS (...), ...
+	ValuesLists    []*NodeList  // Untransformed list of expression lists
 
 	// Fields used in both "leaf" and upper-level SelectStmts - postgres/src/include/nodes/parsenodes.h:2132-2137
 	SortClause    []*SortBy        // Sort clause
@@ -365,7 +365,7 @@ func NewSelectStmt() *SelectStmt {
 		BaseNode:       BaseNode{Tag: T_SelectStmt},
 		DistinctClause: nil,
 		TargetList:     []*ResTarget{},
-		FromClause:     []Node{},
+		FromClause:     NewNodeList(),
 	}
 }
 
@@ -419,11 +419,13 @@ func (s *SelectStmt) SqlString() string {
 	if len(s.ValuesLists) > 0 {
 		var valueRows []string
 		for _, row := range s.ValuesLists {
-			var values []string
-			for _, val := range row {
-				values = append(values, val.SqlString())
+			if row != nil && row.Items != nil {
+				var values []string
+				for _, val := range row.Items {
+					values = append(values, val.SqlString())
+				}
+				valueRows = append(valueRows, fmt.Sprintf("(%s)", strings.Join(values, ", ")))
 			}
-			valueRows = append(valueRows, fmt.Sprintf("(%s)", strings.Join(values, ", ")))
 		}
 		return fmt.Sprintf("VALUES %s", strings.Join(valueRows, ", "))
 	}
@@ -473,9 +475,9 @@ func (s *SelectStmt) SqlString() string {
 	}
 	
 	// FROM clause
-	if len(s.FromClause) > 0 {
+	if s.FromClause != nil && len(s.FromClause.Items) > 0 {
 		var fromItems []string
-		for _, from := range s.FromClause {
+		for _, from := range s.FromClause.Items {
 			if from != nil {
 				fromItems = append(fromItems, from.SqlString())
 			}
@@ -489,9 +491,9 @@ func (s *SelectStmt) SqlString() string {
 	}
 	
 	// GROUP BY clause
-	if len(s.GroupClause) > 0 {
+	if s.GroupClause != nil && len(s.GroupClause.Items) > 0 {
 		var groupItems []string
-		for _, group := range s.GroupClause {
+		for _, group := range s.GroupClause.Items {
 			if group != nil {
 				groupItems = append(groupItems, group.SqlString())
 			}
@@ -509,9 +511,9 @@ func (s *SelectStmt) SqlString() string {
 	}
 	
 	// WINDOW clause
-	if len(s.WindowClause) > 0 {
+	if s.WindowClause != nil && len(s.WindowClause.Items) > 0 {
 		var windowItems []string
-		for _, window := range s.WindowClause {
+		for _, window := range s.WindowClause.Items {
 			if window != nil {
 				windowItems = append(windowItems, window.SqlString())
 			}
@@ -599,7 +601,7 @@ type UpdateStmt struct {
 	Relation      *RangeVar    // Relation to update - postgres/src/include/nodes/parsenodes.h:2072
 	TargetList    []*ResTarget // Target list (of ResTarget) - postgres/src/include/nodes/parsenodes.h:2073
 	WhereClause   Node         // Qualifications - postgres/src/include/nodes/parsenodes.h:2074
-	FromClause    []Node       // Optional from clause for more tables - postgres/src/include/nodes/parsenodes.h:2075
+	FromClause    *NodeList    // Optional from clause for more tables - postgres/src/include/nodes/parsenodes.h:2075
 	ReturningList []*ResTarget // List of expressions to return - postgres/src/include/nodes/parsenodes.h:2076
 	WithClause    *WithClause  // WITH clause - postgres/src/include/nodes/parsenodes.h:2077
 }
@@ -629,7 +631,7 @@ func (u *UpdateStmt) StatementType() string {
 type DeleteStmt struct {
 	BaseNode
 	Relation      *RangeVar    // Relation to delete from - postgres/src/include/nodes/parsenodes.h:2058
-	UsingClause   []Node       // Optional using clause for more tables - postgres/src/include/nodes/parsenodes.h:2059
+	UsingClause   *NodeList    // Optional using clause for more tables - postgres/src/include/nodes/parsenodes.h:2059
 	WhereClause   Node         // Qualifications - postgres/src/include/nodes/parsenodes.h:2060
 	ReturningList []*ResTarget // List of expressions to return - postgres/src/include/nodes/parsenodes.h:2061
 	WithClause    *WithClause  // WITH clause - postgres/src/include/nodes/parsenodes.h:2062
@@ -670,7 +672,7 @@ type CreateStmt struct {
 	PartSpec       *PartitionSpec      // PARTITION BY clause - parsenodes.h
 	OfTypename     *TypeName           // OF typename clause - parsenodes.h
 	Constraints    []*Constraint       // Constraints - postgres/src/include/nodes/parsenodes.h:2659
-	Options        []Node              // Options from WITH clause - postgres/src/include/nodes/parsenodes.h:2660
+	Options        *NodeList           // Options from WITH clause - postgres/src/include/nodes/parsenodes.h:2660
 	OnCommit       OnCommitAction      // OnCommitAction for temp tables - parsenodes.h
 	TableSpaceName string              // Table space to use, or empty - postgres/src/include/nodes/parsenodes.h:2662
 	AccessMethod   string              // Table access method - postgres/src/include/nodes/parsenodes.h:2663
@@ -701,7 +703,7 @@ func (c *CreateStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3226
 type DropStmt struct {
 	BaseNode
-	Objects    []Node       // List of names - postgres/src/include/nodes/parsenodes.h:3229
+	Objects    *NodeList    // List of names - postgres/src/include/nodes/parsenodes.h:3229
 	RemoveType ObjectType   // Object type - postgres/src/include/nodes/parsenodes.h:3230
 	Behavior   DropBehavior // RESTRICT or CASCADE behavior - postgres/src/include/nodes/parsenodes.h:3231
 	MissingOk  bool         // Skip error if object is missing? - postgres/src/include/nodes/parsenodes.h:3232
@@ -709,7 +711,7 @@ type DropStmt struct {
 }
 
 // NewDropStmt creates a new DropStmt node.
-func NewDropStmt(objects []Node, removeType ObjectType) *DropStmt {
+func NewDropStmt(objects *NodeList, removeType ObjectType) *DropStmt {
 	return &DropStmt{
 		BaseNode:   BaseNode{Tag: T_DropStmt},
 		Objects:    objects,
@@ -719,7 +721,11 @@ func NewDropStmt(objects []Node, removeType ObjectType) *DropStmt {
 }
 
 func (d *DropStmt) String() string {
-	return fmt.Sprintf("DropStmt(%d objects)@%d", len(d.Objects), d.Location())
+	count := 0
+	if d.Objects != nil {
+		count = len(d.Objects.Items)
+	}
+	return fmt.Sprintf("DropStmt(%d objects)@%d", count, d.Location())
 }
 
 func (d *DropStmt) StatementType() string {
@@ -734,29 +740,33 @@ func (d *DropStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:291
 type ColumnRef struct {
 	BaseNode
-	Fields []Node // List of field names - postgres/src/include/nodes/parsenodes.h:292
+	Fields *NodeList // List of field names - postgres/src/include/nodes/parsenodes.h:292
 }
 
 // NewColumnRef creates a new ColumnRef node.
 func NewColumnRef(fields ...Node) *ColumnRef {
 	return &ColumnRef{
 		BaseNode: BaseNode{Tag: T_ColumnRef},
-		Fields:   fields,
+		Fields:   NewNodeList(fields...),
 	}
 }
 
 func (c *ColumnRef) String() string {
-	return fmt.Sprintf("ColumnRef[%d fields]@%d", len(c.Fields), c.Location())
+	count := 0
+	if c.Fields != nil {
+		count = len(c.Fields.Items)
+	}
+	return fmt.Sprintf("ColumnRef[%d fields]@%d", count, c.Location())
 }
 
 // SqlString returns the SQL representation of the ColumnRef
 func (c *ColumnRef) SqlString() string {
-	if len(c.Fields) == 0 {
+	if c.Fields == nil || len(c.Fields.Items) == 0 {
 		return ""
 	}
 	
 	var parts []string
-	for _, field := range c.Fields {
+	for _, field := range c.Fields.Items {
 		if field == nil {
 			continue
 		}
@@ -826,14 +836,14 @@ func (c *ColumnRef) ExpressionType() string {
 type CommonTableExpr struct {
 	BaseNode
 	Ctename          string           // Query name (never qualified) - parsenodes.h:1676
-	Aliascolnames    []Node           // Optional list of column names - parsenodes.h:1678
+	Aliascolnames    *NodeList        // Optional list of column names - parsenodes.h:1678
 	Ctematerialized  CTEMaterialized  // Is this an optimization fence? - parsenodes.h:1679
 	Ctequery         Node             // The CTE's subquery - parsenodes.h:1681
 	SearchClause     *CTESearchClause // SEARCH clause, if any - parsenodes.h:1682
 	CycleClause      *CTECycleClause  // CYCLE clause, if any - parsenodes.h:1683
 	Cterecursive     bool             // Is this a recursive CTE? - parsenodes.h:1687
 	Cterefcount      int              // Number of RTEs referencing this CTE - parsenodes.h:1693
-	Ctecolnames      []Node           // List of output column names - parsenodes.h:1696
+	Ctecolnames      *NodeList        // List of output column names - parsenodes.h:1696
 	Ctecoltypes      []Oid            // OID list of output column type OIDs - parsenodes.h:1697
 	Ctecoltypmods    []int32          // Integer list of output column typmods - parsenodes.h:1698
 	Ctecolcollations []Oid            // OID list of column collation OIDs - parsenodes.h:1699
@@ -853,7 +863,7 @@ const (
 // Ported from postgres/src/include/nodes/parsenodes.h:1643
 type CTESearchClause struct {
 	BaseNode
-	SearchColList      []Node // List of column names - parsenodes.h:1646
+	SearchColList      *NodeList // List of column names - parsenodes.h:1646
 	SearchBreadthFirst bool   // True for BREADTH FIRST, false for DEPTH FIRST - parsenodes.h:1647
 	SearchSeqColumn    string // Name of sequence column - parsenodes.h:1648
 	Location           int    // Token location, or -1 if unknown - parsenodes.h:1649
@@ -863,7 +873,7 @@ type CTESearchClause struct {
 // Ported from postgres/src/include/nodes/parsenodes.h:1652
 type CTECycleClause struct {
 	BaseNode
-	CycleColList       []Node // List of column names - parsenodes.h:1655
+	CycleColList       *NodeList // List of column names - parsenodes.h:1655
 	CycleMarkColumn    string // Name of cycle mark column - parsenodes.h:1656
 	CycleMarkValue     Node   // Cycle mark value - parsenodes.h:1657
 	CycleMarkDefault   Node   // Cycle mark default value - parsenodes.h:1658
@@ -911,9 +921,9 @@ func (c *CommonTableExpr) SqlString() string {
 	parts := []string{QuoteIdentifier(c.Ctename)}
 	
 	// Add column names if specified
-	if len(c.Aliascolnames) > 0 {
+	if c.Aliascolnames != nil && len(c.Aliascolnames.Items) > 0 {
 		var cols []string
-		for _, col := range c.Aliascolnames {
+		for _, col := range c.Aliascolnames.Items {
 			if col != nil {
 				cols = append(cols, col.SqlString())
 			}

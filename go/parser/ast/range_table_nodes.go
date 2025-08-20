@@ -90,7 +90,7 @@ type RangeTblEntry struct {
 	// Fields valid for a join RTE (RTE_JOIN)
 	JoinType        JoinType // type of join
 	JoinMergedCols  int      // number of merged (JOIN USING) columns
-	JoinAliasVars   []Node   // list of alias-var expansions
+	JoinAliasVars   *NodeList // list of alias-var expansions
 	JoinLeftCols    []int    // left-side input column numbers
 	JoinRightCols   []int    // right-side input column numbers
 	JoinUsingAlias  *Alias   // alias clause attached directly to JOIN/USING
@@ -103,7 +103,7 @@ type RangeTblEntry struct {
 	TableFunc *TableFunc // table function specification
 	
 	// Fields valid for a values RTE (RTE_VALUES)
-	ValuesLists [][]Node // list of expression lists
+	ValuesLists []*NodeList // list of expression lists
 	
 	// Fields valid for a CTE RTE (RTE_CTE)
 	CteName       string // name of the WITH list item
@@ -120,7 +120,7 @@ type RangeTblEntry struct {
 	EnrTuples  Cardinality // estimated or actual from caller
 	
 	// Security-related fields
-	SecurityQuals []Node // security barrier quals to apply, if any
+	SecurityQuals *NodeList // security barrier quals to apply, if any
 }
 
 // NewRangeTblEntry creates a new RangeTblEntry node.
@@ -179,13 +179,13 @@ type RangeFunction struct {
 	Lateral     bool        // does it have LATERAL prefix?
 	Ordinality  bool        // does it have WITH ORDINALITY suffix?
 	IsRowsFrom  bool        // is result of ROWS FROM() syntax?
-	Functions   [][]Node    // per-function information (function + column definitions)
+	Functions   []*NodeList // per-function information (function + column definitions)
 	Alias       *Alias      // table alias & optional column aliases
 	ColDefList  []*ColumnDef // list of ColumnDef nodes to describe result of function returning RECORD
 }
 
 // NewRangeFunction creates a new RangeFunction node.
-func NewRangeFunction(lateral, ordinality, isRowsFrom bool, functions [][]Node, alias *Alias, colDefList []*ColumnDef) *RangeFunction {
+func NewRangeFunction(lateral, ordinality, isRowsFrom bool, functions []*NodeList, alias *Alias, colDefList []*ColumnDef) *RangeFunction {
 	return &RangeFunction{
 		BaseNode:   BaseNode{Tag: T_RangeFunction},
 		Lateral:    lateral,
@@ -303,13 +303,13 @@ func (r *RangeTableFuncCol) StatementType() string {
 type RangeTableSample struct {
 	BaseNode
 	Relation   Node     // relation to be sampled
-	Method     []Node   // sampling method name (possibly qualified)
-	Args       []Node   // argument(s) for sampling method
+	Method     *NodeList // sampling method name (possibly qualified)
+	Args       *NodeList // argument(s) for sampling method
 	Repeatable Node     // REPEATABLE expression, or NULL if none
 }
 
 // NewRangeTableSample creates a new RangeTableSample node.
-func NewRangeTableSample(relation Node, method, args []Node, repeatable Node, location int) *RangeTableSample {
+func NewRangeTableSample(relation Node, method, args *NodeList, repeatable Node, location int) *RangeTableSample {
 	return &RangeTableSample{
 		BaseNode:   BaseNode{Tag: T_RangeTableSample, Loc: location},
 		Relation:   relation,
@@ -324,7 +324,11 @@ func (r *RangeTableSample) String() string {
 	if r.Repeatable != nil {
 		repeatable = " REPEATABLE"
 	}
-	return fmt.Sprintf("RangeTableSample{%d args%s}@%d", len(r.Args), repeatable, r.Location())
+	argCount := 0
+	if r.Args != nil {
+		argCount = len(r.Args.Items)
+	}
+	return fmt.Sprintf("RangeTableSample{%d args%s}@%d", argCount, repeatable, r.Location())
 }
 
 func (r *RangeTableSample) StatementType() string {

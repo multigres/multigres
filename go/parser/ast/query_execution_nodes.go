@@ -65,12 +65,12 @@ func (te *TargetEntry) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:2305
 type FromExpr struct {
 	BaseExpr
-	Fromlist []Node     // List of join subtrees - primnodes.h:2308
+	Fromlist *NodeList  // List of join subtrees - primnodes.h:2308
 	Quals    Expression // Qualifiers on join, if any - primnodes.h:2309
 }
 
 // NewFromExpr creates a new FromExpr node.
-func NewFromExpr(fromlist []Node, quals Expression) *FromExpr {
+func NewFromExpr(fromlist *NodeList, quals Expression) *FromExpr {
 	return &FromExpr{
 		BaseExpr: BaseExpr{BaseNode: BaseNode{Tag: T_FromExpr}},
 		Fromlist: fromlist,
@@ -83,7 +83,11 @@ func (fe *FromExpr) ExpressionType() string {
 }
 
 func (fe *FromExpr) String() string {
-	return fmt.Sprintf("FromExpr(tables:%d, quals:%v)", len(fe.Fromlist), fe.Quals != nil)
+	tableCount := 0
+	if fe.Fromlist != nil {
+		tableCount = len(fe.Fromlist.Items)
+	}
+	return fmt.Sprintf("FromExpr(tables:%d, quals:%v)", tableCount, fe.Quals != nil)
 }
 
 // JoinType represents the type of join operation.
@@ -112,7 +116,7 @@ type JoinExpr struct {
 	IsNatural      bool       // Natural join? Will need to shape the join - primnodes.h:2281
 	Larg           Node       // Left subtree - primnodes.h:2282
 	Rarg           Node       // Right subtree - primnodes.h:2283
-	UsingClause    []Node     // USING clause, if any (list of String nodes) - primnodes.h:2285
+	UsingClause    *NodeList  // USING clause, if any (list of String nodes) - primnodes.h:2285
 	JoinUsingAlias *Alias     // JOIN USING alias clause - primnodes.h:2287
 	Quals          Expression // Qualifiers on join, if any - primnodes.h:2289
 	Alias          *Alias     // User-written alias clause, if any - primnodes.h:2291
@@ -142,7 +146,7 @@ func NewNaturalJoinExpr(jointype JoinType, larg, rarg Node) *JoinExpr {
 }
 
 // NewUsingJoinExpr creates a new USING JOIN expression.
-func NewUsingJoinExpr(jointype JoinType, larg, rarg Node, usingClause []Node) *JoinExpr {
+func NewUsingJoinExpr(jointype JoinType, larg, rarg Node, usingClause *NodeList) *JoinExpr {
 	return &JoinExpr{
 		BaseExpr:    BaseExpr{BaseNode: BaseNode{Tag: T_JoinExpr}},
 		Jointype:    jointype,
@@ -261,8 +265,8 @@ type WindowClause struct {
 	BaseNode
 	Name              string // Window name (NULL in an OVER clause) - parsenodes.h:1540
 	Refname           string // Referenced window name, if any - parsenodes.h:1542
-	PartitionClause   []Node // PARTITION BY expression list - parsenodes.h:1543
-	OrderClause       []Node // ORDER BY (list of SortBy) - parsenodes.h:1545
+	PartitionClause   *NodeList // PARTITION BY expression list - parsenodes.h:1543
+	OrderClause       *NodeList // ORDER BY (list of SortBy) - parsenodes.h:1545
 	FrameOptions      int    // Frame_clause options, see WindowDef - parsenodes.h:1546
 	StartOffset       Node   // Expression for starting bound, if any - parsenodes.h:1547
 	EndOffset         Node   // Expression for ending bound, if any - parsenodes.h:1548
@@ -284,7 +288,7 @@ func NewWindowClause(name string) *WindowClause {
 }
 
 // NewPartitionedWindowClause creates a new WindowClause with PARTITION BY.
-func NewPartitionedWindowClause(name string, partitionClause []Node) *WindowClause {
+func NewPartitionedWindowClause(name string, partitionClause *NodeList) *WindowClause {
 	return &WindowClause{
 		BaseNode:        BaseNode{Tag: T_WindowClause},
 		Name:            name,
@@ -293,7 +297,7 @@ func NewPartitionedWindowClause(name string, partitionClause []Node) *WindowClau
 }
 
 // NewOrderedWindowClause creates a new WindowClause with ORDER BY.
-func NewOrderedWindowClause(name string, orderClause []Node) *WindowClause {
+func NewOrderedWindowClause(name string, orderClause *NodeList) *WindowClause {
 	return &WindowClause{
 		BaseNode:    BaseNode{Tag: T_WindowClause},
 		Name:        name,
@@ -309,11 +313,19 @@ func (wc *WindowClause) String() string {
 	if wc.Refname != "" {
 		parts = append(parts, fmt.Sprintf("ref=%s", wc.Refname))
 	}
-	if len(wc.PartitionClause) > 0 {
-		parts = append(parts, fmt.Sprintf("partition=%d", len(wc.PartitionClause)))
+	partitionCount := 0
+	if wc.PartitionClause != nil {
+		partitionCount = len(wc.PartitionClause.Items)
 	}
-	if len(wc.OrderClause) > 0 {
-		parts = append(parts, fmt.Sprintf("order=%d", len(wc.OrderClause)))
+	if partitionCount > 0 {
+		parts = append(parts, fmt.Sprintf("partition=%d", partitionCount))
+	}
+	orderCount := 0
+	if wc.OrderClause != nil {
+		orderCount = len(wc.OrderClause.Items)
+	}
+	if orderCount > 0 {
+		parts = append(parts, fmt.Sprintf("order=%d", orderCount))
 	}
 
 	detail := ""
@@ -467,13 +479,13 @@ func (o OnConflictAction) String() string {
 type OnConflictExpr struct {
 	BaseExpr
 	Action          OnConflictAction // The action to take - primnodes.h:2324
-	ArbiterElems    []Node           // Unique index arbiter list (of InferenceElem's) - primnodes.h:2327
+	ArbiterElems    *NodeList        // Unique index arbiter list (of InferenceElem's) - primnodes.h:2327
 	ArbiterWhere    Expression       // Unique index arbiter WHERE clause - primnodes.h:2329
 	Constraint      Oid              // Constraint to infer from - primnodes.h:2330
-	OnConflictSet   []Node           // List of ON CONFLICT SET targets - primnodes.h:2333
+	OnConflictSet   *NodeList        // List of ON CONFLICT SET targets - primnodes.h:2333
 	OnConflictWhere Expression       // WHERE clause for ON CONFLICT UPDATE - primnodes.h:2334
 	ExclRelIndex    int              // RT index of the EXCLUDED pseudo-relation - primnodes.h:2335
-	ExclRelTlist    []Node           // Tlist of the EXCLUDED pseudo-relation - primnodes.h:2336
+	ExclRelTlist    *NodeList        // Tlist of the EXCLUDED pseudo-relation - primnodes.h:2336
 }
 
 // NewOnConflictExpr creates a new OnConflictExpr node.
@@ -487,16 +499,19 @@ func NewOnConflictExpr(action OnConflictAction) *OnConflictExpr {
 // NewOnConflictDoNothing creates a new ON CONFLICT DO NOTHING expression.
 func NewOnConflictDoNothing() *OnConflictExpr {
 	return &OnConflictExpr{
-		BaseExpr: BaseExpr{BaseNode: BaseNode{Tag: T_OnConflictExpr}},
-		Action:   ONCONFLICT_NOTHING,
+		BaseExpr:      BaseExpr{BaseNode: BaseNode{Tag: T_OnConflictExpr}},
+		Action:        ONCONFLICT_NOTHING,
+		ArbiterElems:  NewNodeList(),
+		OnConflictSet: NewNodeList(),
 	}
 }
 
 // NewOnConflictDoUpdate creates a new ON CONFLICT DO UPDATE expression.
-func NewOnConflictDoUpdate(onConflictSet []Node) *OnConflictExpr {
+func NewOnConflictDoUpdate(onConflictSet *NodeList) *OnConflictExpr {
 	return &OnConflictExpr{
 		BaseExpr:      BaseExpr{BaseNode: BaseNode{Tag: T_OnConflictExpr}},
 		Action:        ONCONFLICT_UPDATE,
+		ArbiterElems:  NewNodeList(),
 		OnConflictSet: onConflictSet,
 	}
 }

@@ -308,8 +308,8 @@ func (p *ParenExpr) ExpressionType() string {
 type FuncCall struct {
 	BaseNode
 	Funcname       []*String    // Qualified function name
-	Args           []Node       // List of arguments
-	AggOrder       []Node       // ORDER BY list for aggregates
+	Args           *NodeList    // List of arguments
+	AggOrder       *NodeList    // ORDER BY list for aggregates
 	AggFilter      Node         // FILTER clause for aggregates
 	Over           *WindowDef   // OVER clause for window functions
 	AggWithinGroup bool         // ORDER BY appeared in WITHIN GROUP
@@ -320,7 +320,7 @@ type FuncCall struct {
 }
 
 // NewFuncCall creates a new FuncCall node.
-func NewFuncCall(funcname []*String, args []Node, location int) *FuncCall {
+func NewFuncCall(funcname []*String, args *NodeList, location int) *FuncCall {
 	funcCall := &FuncCall{
 		BaseNode:   BaseNode{Tag: T_FuncCall},
 		Funcname:   funcname,
@@ -355,7 +355,7 @@ func (f *FuncCall) SqlString() string {
 	// Build argument list
 	argStrs := []string{}
 	if f.Args != nil {
-		for _, arg := range f.Args {
+		for _, arg := range f.Args.Items {
 			if arg != nil {
 				argStrs = append(argStrs, arg.SqlString())
 			}
@@ -469,11 +469,11 @@ func (a *A_Indices) SqlString() string {
 type A_Indirection struct {
 	BaseNode
 	Arg       Node   // The base expression
-	Indirection []Node // List of A_Indices and/or String nodes
+	Indirection *NodeList // List of A_Indices and/or String nodes
 }
 
 // NewA_Indirection creates a new A_Indirection node.
-func NewA_Indirection(arg Node, indirection []Node, location int) *A_Indirection {
+func NewA_Indirection(arg Node, indirection *NodeList, location int) *A_Indirection {
 	aIndirection := &A_Indirection{
 		BaseNode:   BaseNode{Tag: T_A_Indirection},
 		Arg:        arg,
@@ -495,11 +495,11 @@ func (a *A_Indirection) ExpressionType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:489-501
 type A_ArrayExpr struct {
 	BaseNode
-	Elements []Node // List of expressions
+	Elements *NodeList // List of expressions
 }
 
 // NewA_ArrayExpr creates a new A_ArrayExpr node.
-func NewA_ArrayExpr(elements []Node, location int) *A_ArrayExpr {
+func NewA_ArrayExpr(elements *NodeList, location int) *A_ArrayExpr {
 	aArrayExpr := &A_ArrayExpr{
 		BaseNode: BaseNode{Tag: T_A_ArrayExpr},
 		Elements: elements,
@@ -509,7 +509,11 @@ func NewA_ArrayExpr(elements []Node, location int) *A_ArrayExpr {
 }
 
 func (a *A_ArrayExpr) String() string {
-	return fmt.Sprintf("A_ArrayExpr{%d elements}@%d", len(a.Elements), a.Location())
+	elementCount := 0
+	if a.Elements != nil {
+		elementCount = len(a.Elements.Items)
+	}
+	return fmt.Sprintf("A_ArrayExpr{%d elements}@%d", elementCount, a.Location())
 }
 
 func (a *A_ArrayExpr) ExpressionType() string {
@@ -539,8 +543,8 @@ type ColumnDef struct {
 	Generated     char           // GENERATED property
 	Collclause    *CollateClause // Collation, if any
 	CollOid       Oid            // Collation OID (InvalidOid if not set)
-	Constraints   []Node         // Column constraints
-	Fdwoptions    []Node         // Foreign-data-wrapper specific options
+	Constraints   *NodeList      // Column constraints
+	Fdwoptions    *NodeList      // Foreign-data-wrapper specific options
 }
 
 // NewColumnDef creates a new ColumnDef node.
@@ -558,8 +562,8 @@ func NewColumnDef(colname string, typeName *TypeName, location int) *ColumnDef {
 		Identity:    0,
 		Generated:   0,
 		CollOid:     InvalidOid,
-		Constraints: []Node{},
-		Fdwoptions:  []Node{},
+		Constraints: NewNodeList(),
+		Fdwoptions:  NewNodeList(),
 	}
 	columnDef.SetLocation(location)
 	return columnDef
@@ -577,12 +581,12 @@ func (c *ColumnDef) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:1592-1605
 type WithClause struct {
 	BaseNode
-	Ctes      []Node // List of CommonTableExpr nodes
+	Ctes      *NodeList // List of CommonTableExpr nodes
 	Recursive bool   // TRUE for WITH RECURSIVE
 }
 
 // NewWithClause creates a new WithClause node.
-func NewWithClause(ctes []Node, recursive bool, location int) *WithClause {
+func NewWithClause(ctes *NodeList, recursive bool, location int) *WithClause {
 	withClause := &WithClause{
 		BaseNode:  BaseNode{Tag: T_WithClause},
 		Ctes:      ctes,
@@ -593,10 +597,14 @@ func NewWithClause(ctes []Node, recursive bool, location int) *WithClause {
 }
 
 func (w *WithClause) String() string {
-	if w.Recursive {
-		return fmt.Sprintf("WithClause{RECURSIVE, %d CTEs}@%d", len(w.Ctes), w.Location())
+	cteCount := 0
+	if w.Ctes != nil {
+		cteCount = len(w.Ctes.Items)
 	}
-	return fmt.Sprintf("WithClause{%d CTEs}@%d", len(w.Ctes), w.Location())
+	if w.Recursive {
+		return fmt.Sprintf("WithClause{RECURSIVE, %d CTEs}@%d", cteCount, w.Location())
+	}
+	return fmt.Sprintf("WithClause{%d CTEs}@%d", cteCount, w.Location())
 }
 
 func (w *WithClause) ExpressionType() string {
@@ -605,7 +613,7 @@ func (w *WithClause) ExpressionType() string {
 
 // SqlString returns the SQL representation of the WithClause
 func (w *WithClause) SqlString() string {
-	if len(w.Ctes) == 0 {
+	if w.Ctes == nil || len(w.Ctes.Items) == 0 {
 		return ""
 	}
 	
@@ -616,7 +624,7 @@ func (w *WithClause) SqlString() string {
 	}
 	
 	var ctes []string
-	for _, cte := range w.Ctes {
+	for _, cte := range w.Ctes.Items {
 		if cte != nil {
 			ctes = append(ctes, cte.SqlString())
 		}
@@ -666,7 +674,7 @@ type WindowDef struct {
 	BaseNode
 	Name            string    // Window name (NULL for inline windows)
 	Refname         string    // Referenced window name, if any
-	PartitionClause []Node    // PARTITION BY expression list
+	PartitionClause *NodeList // PARTITION BY expression list
 	OrderClause     []*SortBy // ORDER BY (list of SortBy)
 	FrameOptions    int       // Frame_option flags
 	StartOffset     Node      // Expression for start offset
@@ -678,7 +686,7 @@ func NewWindowDef(name string, location int) *WindowDef {
 	windowDef := &WindowDef{
 		BaseNode:        BaseNode{Tag: T_WindowDef},
 		Name:            name,
-		PartitionClause: []Node{},
+		PartitionClause: NewNodeList(),
 		OrderClause:     []*SortBy{},
 		FrameOptions:    0,
 	}
@@ -772,7 +780,7 @@ func (s *SortBy) SqlString() string {
 type GroupingSet struct {
 	BaseNode
 	Kind     GroupingSetKind // Type of grouping set
-	Content  []Node          // List of expressions
+	Content  *NodeList       // List of expressions
 }
 
 // GroupingSetKind represents the type of grouping set.
@@ -788,7 +796,7 @@ const (
 )
 
 // NewGroupingSet creates a new GroupingSet node.
-func NewGroupingSet(kind GroupingSetKind, content []Node, location int) *GroupingSet {
+func NewGroupingSet(kind GroupingSetKind, content *NodeList, location int) *GroupingSet {
 	groupingSet := &GroupingSet{
 		BaseNode: BaseNode{Tag: T_GroupingSet},
 		Kind:     kind,
@@ -966,12 +974,12 @@ func (p *PartitionElem) StatementType() string {
 type TableSampleClause struct {
 	BaseNode
 	Tsmhandler   Oid     // OID of the tablesample handler function
-	Args         []Node  // List of tablesample arguments
+	Args         *NodeList // List of tablesample arguments
 	Repeatable   Expr    // REPEATABLE expression, or NULL
 }
 
 // NewTableSampleClause creates a new TableSampleClause node.
-func NewTableSampleClause(tsmhandler Oid, args []Node, repeatable Expr, location int) *TableSampleClause {
+func NewTableSampleClause(tsmhandler Oid, args *NodeList, repeatable Expr, location int) *TableSampleClause {
 	tableSampleClause := &TableSampleClause{
 		BaseNode:   BaseNode{Tag: T_TableSampleClause},
 		Tsmhandler: tsmhandler,
@@ -995,18 +1003,18 @@ func (t *TableSampleClause) StatementType() string {
 type ObjectWithArgs struct {
 	BaseNode
 	Objname      []*String // Qualified object name
-	Objargs      []Node    // List of argument types (TypeName nodes)
-	ObjfuncArgs  []Node    // List of function arguments for ALTER FUNCTION
+	Objargs      *NodeList // List of argument types (TypeName nodes)
+	ObjfuncArgs  *NodeList // List of function arguments for ALTER FUNCTION
 	ArgsUnspecified bool   // Arguments were omitted, so name must be unique
 }
 
 // NewObjectWithArgs creates a new ObjectWithArgs node.
-func NewObjectWithArgs(objname []*String, objargs []Node, argsUnspecified bool, location int) *ObjectWithArgs {
+func NewObjectWithArgs(objname []*String, objargs *NodeList, argsUnspecified bool, location int) *ObjectWithArgs {
 	objectWithArgs := &ObjectWithArgs{
 		BaseNode:        BaseNode{Tag: T_ObjectWithArgs},
 		Objname:         objname,
 		Objargs:         objargs,
-		ObjfuncArgs:     []Node{},
+		ObjfuncArgs:     NewNodeList(),
 		ArgsUnspecified: argsUnspecified,
 	}
 	objectWithArgs.SetLocation(location)

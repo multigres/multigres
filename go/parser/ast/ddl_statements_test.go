@@ -342,7 +342,7 @@ func TestIndexStmt(t *testing.T) {
 
 	t.Run("ExpressionIndex", func(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
-		lowerExpr := NewFuncExpr(870, 25, []Node{NewVar(1, 1, 25)}) // lower(email)
+		lowerExpr := NewFuncExpr(870, 25, NewNodeList(NewVar(1, 1, 25))) // lower(email)
 		idxElem := NewExpressionIndexElem(lowerExpr)
 		indexStmt := NewIndexStmt("idx_users_lower_email", relation, []*IndexElem{idxElem})
 
@@ -616,7 +616,7 @@ func TestDDLComplexExamples(t *testing.T) {
 		// ON users (lower(email)) WHERE active = true
 
 		relation := NewRangeVar("users", "", "")
-		lowerFunc := NewFuncExpr(870, 25, []Node{NewVar(1, 1, 25)}) // lower(email)
+		lowerFunc := NewFuncExpr(870, 25, NewNodeList(NewVar(1, 1, 25))) // lower(email)
 		idxElem := NewExpressionIndexElem(lowerFunc)
 
 		indexStmt := NewUniqueIndex("idx_users_email_lower", relation, []*IndexElem{idxElem})

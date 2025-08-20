@@ -71,7 +71,7 @@ func TestDropConstraintCmd(t *testing.T) {
 func TestCreateTriggerStmt(t *testing.T) {
 	// Create basic components
 	relation := NewRangeVar("test_table", "", "")
-	funcname := []Node{NewString("trigger_function")}
+	funcname := NewNodeList(NewString("trigger_function"))
 
 	// Test basic trigger creation
 	trigger := NewCreateTriggerStmt("test_trigger", relation, funcname, TRIGGER_TIMING_BEFORE, TRIGGER_TYPE_INSERT)
@@ -96,7 +96,7 @@ func TestCreateTriggerStmt(t *testing.T) {
 
 func TestBeforeInsertTrigger(t *testing.T) {
 	relation := NewRangeVar("users", "", "")
-	funcname := []Node{NewString("audit_function")}
+	funcname := NewNodeList(NewString("audit_function"))
 
 	trigger := NewBeforeInsertTrigger("audit_trigger", relation, funcname)
 
@@ -108,7 +108,7 @@ func TestBeforeInsertTrigger(t *testing.T) {
 
 func TestAfterUpdateTrigger(t *testing.T) {
 	relation := NewRangeVar("products", "", "")
-	funcname := []Node{NewString("update_timestamp")}
+	funcname := NewNodeList(NewString("update_timestamp"))
 
 	trigger := NewAfterUpdateTrigger("timestamp_trigger", relation, funcname)
 
@@ -121,7 +121,7 @@ func TestAfterUpdateTrigger(t *testing.T) {
 func TestConstraintTrigger(t *testing.T) {
 	relation := NewRangeVar("orders", "", "")
 	constrrel := NewRangeVar("customers", "", "")
-	funcname := []Node{NewString("fk_constraint_function")}
+	funcname := NewNodeList(NewString("fk_constraint_function"))
 
 	trigger := NewConstraintTrigger("fk_trigger", relation, funcname, TRIGGER_TIMING_AFTER, TRIGGER_TYPE_INSERT, constrrel)
 
@@ -141,7 +141,7 @@ func TestConstraintTrigger(t *testing.T) {
 func TestDeferrableConstraintTrigger(t *testing.T) {
 	relation := NewRangeVar("order_items", "", "")
 	constrrel := NewRangeVar("products", "", "")
-	funcname := []Node{NewString("check_stock_function")}
+	funcname := NewNodeList(NewString("check_stock_function"))
 
 	// Test initially deferred
 	trigger := NewDeferrableConstraintTrigger("stock_check", relation, funcname, TRIGGER_TIMING_AFTER, TRIGGER_TYPE_INSERT, constrrel, true)
@@ -167,7 +167,7 @@ func TestDeferrableConstraintTrigger(t *testing.T) {
 
 func TestTriggerWithTransitions(t *testing.T) {
 	relation := NewRangeVar("audit_table", "", "")
-	funcname := []Node{NewString("audit_function")}
+	funcname := NewNodeList(NewString("audit_function"))
 
 	// Create trigger with transition tables
 	trigger := NewCreateTriggerStmt("audit_trigger", relation, funcname, TRIGGER_TIMING_AFTER, TRIGGER_TYPE_UPDATE)
@@ -197,7 +197,7 @@ func TestTriggerWithTransitions(t *testing.T) {
 
 func TestTriggerEventCombinations(t *testing.T) {
 	relation := NewRangeVar("test_table", "", "")
-	funcname := []Node{NewString("multi_event_function")}
+	funcname := NewNodeList(NewString("multi_event_function"))
 
 	// Test multiple events combined
 	combinedEvents := int16(TRIGGER_TYPE_INSERT | TRIGGER_TYPE_UPDATE | TRIGGER_TYPE_DELETE)
@@ -226,7 +226,7 @@ func BenchmarkAlterTableCmdCreation(b *testing.B) {
 
 func BenchmarkCreateTriggerStmt(b *testing.B) {
 	relation := NewRangeVar("test_table", "", "")
-	funcname := []Node{NewString("trigger_function")}
+	funcname := NewNodeList(NewString("trigger_function"))
 
 	b.ResetTimer()
 
@@ -238,7 +238,7 @@ func BenchmarkCreateTriggerStmt(b *testing.B) {
 func BenchmarkConstraintTriggerCreation(b *testing.B) {
 	relation := NewRangeVar("orders", "", "")
 	constrrel := NewRangeVar("customers", "", "")
-	funcname := []Node{NewString("fk_function")}
+	funcname := NewNodeList(NewString("fk_function"))
 
 	b.ResetTimer()
 

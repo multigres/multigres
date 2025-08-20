@@ -145,7 +145,7 @@ type JsonFuncExpr struct {
 	ColumnName  string         // JSON_TABLE() column name or NULL
 	ContextItem *JsonValueExpr // context item expression
 	Pathspec    Node           // JSON path specification expression
-	Passing     []Node         // list of PASSING clause arguments, if any
+	Passing     *NodeList      // list of PASSING clause arguments, if any
 	Output      *JsonOutput    // output clause, if specified
 	OnEmpty     *JsonBehavior  // ON EMPTY behavior
 	OnError     *JsonBehavior  // ON ERROR behavior
@@ -180,8 +180,8 @@ type JsonTable struct {
 	BaseNode
 	ContextItem *JsonValueExpr     // context item expression
 	Pathspec    *JsonTablePathSpec // JSON path specification
-	Passing     []Node             // list of PASSING clause arguments, if any
-	Columns     []Node             // list of JsonTableColumn
+	Passing     *NodeList          // list of PASSING clause arguments, if any
+	Columns     *NodeList          // list of JsonTableColumn
 	OnError     *JsonBehavior      // ON ERROR behavior
 	Alias       *Alias             // table alias in FROM clause
 	Lateral     bool               // does it have LATERAL prefix?
@@ -198,7 +198,7 @@ type JsonTableColumn struct {
 	Format   *JsonFormat         // JSON format clause, if specified
 	Wrapper  JsonWrapper         // WRAPPER behavior for formatted columns
 	Quotes   JsonQuotes          // omit or keep quotes on scalar strings?
-	Columns  []Node              // nested columns
+	Columns  *NodeList           // nested columns
 	OnEmpty  *JsonBehavior       // ON EMPTY behavior
 	OnError  *JsonBehavior       // ON ERROR behavior
 }
@@ -240,7 +240,7 @@ type JsonSerializeExpr struct {
 // Ported from postgres/src/include/nodes/parsenodes.h:1920-1928
 type JsonObjectConstructor struct {
 	BaseNode
-	Exprs        []Node      // list of JsonKeyValue pairs
+	Exprs        *NodeList   // list of JsonKeyValue pairs
 	Output       *JsonOutput // RETURNING clause, if specified
 	AbsentOnNull bool        // skip NULL values?
 	Unique       bool        // check key uniqueness?
@@ -250,7 +250,7 @@ type JsonObjectConstructor struct {
 // Ported from postgres/src/include/nodes/parsenodes.h:1934-1941
 type JsonArrayConstructor struct {
 	BaseNode
-	Exprs        []Node      // list of JsonValueExpr elements
+	Exprs        *NodeList   // list of JsonValueExpr elements
 	Output       *JsonOutput // RETURNING clause, if specified
 	AbsentOnNull bool        // skip NULL elements?
 }
@@ -271,7 +271,7 @@ type JsonAggConstructor struct {
 	BaseNode
 	Output    *JsonOutput // RETURNING clause, if any
 	AggFilter Node        // FILTER clause, if any
-	AggOrder  []Node      // ORDER BY clause, if any
+	AggOrder  *NodeList   // ORDER BY clause, if any
 	Over      *WindowDef  // OVER clause, if any
 }
 
@@ -586,7 +586,7 @@ func NewJsonSerializeExpr(expr *JsonValueExpr) *JsonSerializeExpr {
 }
 
 // NewJsonObjectConstructor creates a new JsonObjectConstructor node
-func NewJsonObjectConstructor(exprs []Node, absentOnNull bool, unique bool) *JsonObjectConstructor {
+func NewJsonObjectConstructor(exprs *NodeList, absentOnNull bool, unique bool) *JsonObjectConstructor {
 	return &JsonObjectConstructor{
 		BaseNode:     BaseNode{Tag: T_JsonObjectConstructor},
 		Exprs:        exprs,
@@ -596,7 +596,7 @@ func NewJsonObjectConstructor(exprs []Node, absentOnNull bool, unique bool) *Jso
 }
 
 // NewJsonArrayConstructor creates a new JsonArrayConstructor node
-func NewJsonArrayConstructor(exprs []Node, absentOnNull bool) *JsonArrayConstructor {
+func NewJsonArrayConstructor(exprs *NodeList, absentOnNull bool) *JsonArrayConstructor {
 	return &JsonArrayConstructor{
 		BaseNode:     BaseNode{Tag: T_JsonArrayConstructor},
 		Exprs:        exprs,
@@ -666,7 +666,7 @@ const (
 type JsonConstructorExpr struct {
 	BaseExpr
 	Type         JsonConstructorType // constructor type
-	Args         []Node              // arguments list
+	Args         *NodeList           // arguments list
 	Func         Expr                // underlying json[b]_xxx() function call
 	Coercion     Expr                // coercion to RETURNING type
 	Returning    *JsonReturning      // RETURNING clause
@@ -683,7 +683,7 @@ func (j *JsonConstructorExpr) String() string {
 }
 
 // NewJsonConstructorExpr creates a new JsonConstructorExpr node
-func NewJsonConstructorExpr(constructorType JsonConstructorType, args []Node, function, coercion Expr, returning *JsonReturning, absentOnNull, unique bool, location int) *JsonConstructorExpr {
+func NewJsonConstructorExpr(constructorType JsonConstructorType, args *NodeList, function, coercion Expr, returning *JsonReturning, absentOnNull, unique bool, location int) *JsonConstructorExpr {
 	return &JsonConstructorExpr{
 		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_JsonConstructorExpr, Loc: location}},
 		Type:         constructorType,
@@ -732,7 +732,7 @@ type JsonExpr struct {
 	PathSpec          Node           // jsonpath-valued expression containing the query pattern
 	Returning         *JsonReturning // Expected type/format of the output
 	PassingNames      []string       // PASSING argument names
-	PassingValues     []Node         // PASSING argument values
+	PassingValues     *NodeList      // PASSING argument values
 	OnEmpty           *JsonBehavior  // User-specified or default ON EMPTY behavior
 	OnError           *JsonBehavior  // User-specified or default ON ERROR behavior
 	UseIOCoercion     bool           // Information about converting the result to RETURNING type
@@ -751,7 +751,7 @@ func (j *JsonExpr) String() string {
 }
 
 // NewJsonExpr creates a new JsonExpr node
-func NewJsonExpr(op JsonExprOp, columnName string, formattedExpr Node, format *JsonFormat, pathSpec Node, returning *JsonReturning, passingNames []string, passingValues []Node, onEmpty, onError *JsonBehavior, useIOCoercion, useJsonCoercion bool, wrapper JsonWrapper, omitQuotes bool, collation Oid, location int) *JsonExpr {
+func NewJsonExpr(op JsonExprOp, columnName string, formattedExpr Node, format *JsonFormat, pathSpec Node, returning *JsonReturning, passingNames []string, passingValues *NodeList, onEmpty, onError *JsonBehavior, useIOCoercion, useJsonCoercion bool, wrapper JsonWrapper, omitQuotes bool, collation Oid, location int) *JsonExpr {
 	return &JsonExpr{
 		BaseExpr:        BaseExpr{BaseNode: BaseNode{Tag: T_JsonExpr, Loc: location}},
 		Op:              op,

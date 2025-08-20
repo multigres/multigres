@@ -35,7 +35,7 @@ func TestRTEKind(t *testing.T) {
 // TestRangeTblEntry tests the RangeTblEntry node creation and functionality
 func TestRangeTblEntry(t *testing.T) {
 	t.Run("NewRangeTblEntry", func(t *testing.T) {
-		alias := NewAlias("table_alias", []Node{NewString("col1"), NewString("col2")})
+		alias := NewAlias("table_alias", NewNodeList(NewString("col1"), NewString("col2")))
 		rte := NewRangeTblEntry(RTE_RELATION, alias)
 
 		require.NotNil(t, rte)
@@ -93,7 +93,7 @@ func TestRangeTblEntry(t *testing.T) {
 func TestRangeSubselect(t *testing.T) {
 	t.Run("NewRangeSubselect", func(t *testing.T) {
 		subquery := NewSelectStmt()
-		alias := NewAlias("sub", []Node{NewString("a"), NewString("b")})
+		alias := NewAlias("sub", NewNodeList(NewString("a"), NewString("b")))
 		rs := NewRangeSubselect(true, subquery, alias)
 
 		require.NotNil(t, rs)
@@ -124,7 +124,7 @@ func TestRangeSubselect(t *testing.T) {
 // TestRangeFunction tests the RangeFunction node
 func TestRangeFunction(t *testing.T) {
 	t.Run("NewRangeFunction", func(t *testing.T) {
-		functions := [][]Node{{NewFuncCall([]*String{NewString("func1")}, nil, 0)}}
+		functions := []*NodeList{NewNodeList(NewFuncCall([]*String{NewString("func1")}, nil, 0))}
 		alias := NewAlias("f", nil)
 		colDefs := []*ColumnDef{NewColumnDef("col1", NewTypeName([]string{"int4"}), 0)}
 
@@ -233,8 +233,8 @@ func TestRangeTableFuncCol(t *testing.T) {
 func TestRangeTableSample(t *testing.T) {
 	t.Run("NewRangeTableSample", func(t *testing.T) {
 		relation := NewRangeVar("mytable", "public", "")
-		method := []Node{NewString("bernoulli")}
-		args := []Node{NewA_Const(NewFloat("0.1"), -1)}
+		method := NewNodeList(NewString("bernoulli"))
+		args := NewNodeList(NewA_Const(NewFloat("0.1"), -1))
 		repeatable := NewA_Const(NewInteger(42), -1)
 
 		rts := NewRangeTableSample(relation, method, args, repeatable, 300)
@@ -250,7 +250,7 @@ func TestRangeTableSample(t *testing.T) {
 	})
 
 	t.Run("String_WithRepeatable", func(t *testing.T) {
-		rts := NewRangeTableSample(nil, nil, []Node{NewString("arg")}, NewInteger(1), 0)
+		rts := NewRangeTableSample(nil, nil, NewNodeList(NewString("arg")), NewInteger(1), 0)
 		str := rts.String()
 
 		assert.Contains(t, str, "RangeTableSample")
@@ -259,7 +259,7 @@ func TestRangeTableSample(t *testing.T) {
 	})
 
 	t.Run("String_NoRepeatable", func(t *testing.T) {
-		rts := NewRangeTableSample(nil, nil, []Node{NewString("arg")}, nil, 0)
+		rts := NewRangeTableSample(nil, nil, NewNodeList(NewString("arg")), nil, 0)
 		str := rts.String()
 
 		assert.Contains(t, str, "RangeTableSample")
@@ -270,7 +270,7 @@ func TestRangeTableSample(t *testing.T) {
 // TestRangeTblFunction tests the RangeTblFunction node
 func TestRangeTblFunction(t *testing.T) {
 	t.Run("NewRangeTblFunction", func(t *testing.T) {
-		funcExpr := NewFuncCall([]*String{NewString("generate_series")}, []Node{NewInteger(1), NewInteger(10)}, 0)
+		funcExpr := NewFuncCall([]*String{NewString("generate_series")}, NewNodeList(NewInteger(1), NewInteger(10)), 0)
 		rtf := NewRangeTblFunction(funcExpr, 1)
 
 		require.NotNil(t, rtf)

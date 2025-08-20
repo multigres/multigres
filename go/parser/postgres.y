@@ -27,31 +27,30 @@ type LexerInterface interface {
 
 %union {
 	// Basic types
-	ival    int
-	str     string
-	keyword string
+	ival       int
+	str        string
+	keyword    string
 
 	// AST nodes
-	node      ast.Node
-	stmt      ast.Stmt
-	stmtList  []ast.Stmt
-	list      []ast.Node
-	nodelist  *ast.NodeList
-	strList   []string
+	node       ast.Node
+	stmt       ast.Stmt
+	stmtList   []ast.Stmt
+	list       *ast.NodeList
+	strList    []string
 	astStrList []*ast.String
 
 	// Location tracking
-	location  int
+	location   int
 }
 
 /*
  * Token declarations from PostgreSQL
  * Ported from postgres/src/backend/parser/gram.y:692-695
  */
-%token <str>	IDENT UIDENT FCONST SCONST USCONST BCONST XCONST Op
-%token <ival>	ICONST PARAM
-%token			TYPECAST DOT_DOT COLON_EQUALS EQUALS_GREATER
-%token			LESS_EQUALS GREATER_EQUALS NOT_EQUALS
+%token <str>     IDENT UIDENT FCONST SCONST USCONST BCONST XCONST Op
+%token <ival>    ICONST PARAM
+%token           TYPECAST DOT_DOT COLON_EQUALS EQUALS_GREATER
+%token           LESS_EQUALS GREATER_EQUALS NOT_EQUALS
 
 /*
  * Reserved keywords (foundation and expression subset - will expand in later phases)
@@ -70,95 +69,95 @@ type LexerInterface interface {
 %token <keyword> CHARACTER CHAR_P VARCHAR NATIONAL NCHAR VARYING
 %token <keyword> TIMESTAMP INTERVAL INT_P DECIMAL_P DEC BOOLEAN_P
 %token <keyword> VARIADIC
-%token		COLON_EQUALS EQUALS_GREATER
+%token           COLON_EQUALS EQUALS_GREATER
 
 /*
  * Special lookahead tokens
  * From postgres/src/backend/parser/gram.y:860-870
  */
-%token		FORMAT_LA NOT_LA NULLS_LA WITH_LA WITHOUT_LA
-%token		MODE_TYPE_NAME
-%token		MODE_PLPGSQL_EXPR
-%token		MODE_PLPGSQL_ASSIGN1
-%token		MODE_PLPGSQL_ASSIGN2
-%token		MODE_PLPGSQL_ASSIGN3
+%token           FORMAT_LA NOT_LA NULLS_LA WITH_LA WITHOUT_LA
+%token           MODE_TYPE_NAME
+%token           MODE_PLPGSQL_EXPR
+%token           MODE_PLPGSQL_ASSIGN1
+%token           MODE_PLPGSQL_ASSIGN2
+%token           MODE_PLPGSQL_ASSIGN3
 
 /*
  * Precedence declarations from PostgreSQL
  * From postgres/src/backend/parser/gram.y:874-924
  */
-%left		UNION EXCEPT
-%left		INTERSECT
-%left		OR
-%left		AND
-%right		NOT
-%nonassoc	IS ISNULL NOTNULL
-%nonassoc	'<' '>' '=' LESS_EQUALS GREATER_EQUALS NOT_EQUALS
-%nonassoc	BETWEEN IN_P LIKE ILIKE SIMILAR NOT_LA
-%nonassoc	ESCAPE
+%left            UNION EXCEPT
+%left            INTERSECT
+%left            OR
+%left            AND
+%right           NOT
+%nonassoc        IS ISNULL NOTNULL
+%nonassoc        '<' '>' '=' LESS_EQUALS GREATER_EQUALS NOT_EQUALS
+%nonassoc        BETWEEN IN_P LIKE ILIKE SIMILAR NOT_LA
+%nonassoc        ESCAPE
 /* Expression precedence */
-%right		UMINUS
-%left		'+' '-'
-%left		'*' '/' '%'
-%left		'^'
-%left		'|'
-%left		'#'
-%left		'&'
+%right           UMINUS
+%left            '+' '-'
+%left            '*' '/' '%'
+%left            '^'
+%left            '|'
+%left            '#'
+%left            '&'
 
 /*
  * Non-terminal type declarations for foundation and expressions
  */
-%type <stmtList>	parse_toplevel stmtmulti
-%type <stmt>		toplevel_stmt stmt
-%type <str>			ColId ColLabel name
-%type <node>		name_list
-%type <node>		qualified_name any_name
-%type <node>		qualified_name_list any_name_list
-%type <str>			opt_single_name
-%type <str>			unreserved_keyword col_name_keyword type_func_name_keyword reserved_keyword
-%type <node>		opt_qualified_name
-%type <ival>		opt_drop_behavior
-%type <ival>		opt_if_exists opt_if_not_exists
-%type <ival>		opt_or_replace
-%type <ival>		opt_concurrently
-%type <node>		opt_with OptWith
+%type <stmtList>     parse_toplevel stmtmulti
+%type <stmt>         toplevel_stmt stmt
+%type <str>          ColId ColLabel name
+%type <node>         name_list
+%type <node>         qualified_name any_name
+%type <node>         qualified_name_list any_name_list
+%type <str>          opt_single_name
+%type <str>          unreserved_keyword col_name_keyword type_func_name_keyword reserved_keyword
+%type <node>         opt_qualified_name
+%type <ival>         opt_drop_behavior
+%type <ival>         opt_if_exists opt_if_not_exists
+%type <ival>         opt_or_replace
+%type <ival>         opt_concurrently
+%type <node>         opt_with OptWith
 
 /* Expression types */
-%type <node>		a_expr b_expr c_expr AexprConst columnref
-%type <node>		func_expr
-%type <astStrList>	func_name
-%type <list>		func_arg_list
-%type <node>		func_arg_expr
-%type <list>		indirection opt_indirection
-%type <node>		indirection_el opt_slice_bound
-%type <ival>		Iconst SignedIconst
-%type <str>			Sconst
-%type <node>		Typename SimpleTypename GenericType
-%type <node>		Numeric Bit Character ConstDatetime
-%type <str>			type_function_name character attr_name param_name
-%type <node>		CharacterWithLength CharacterWithoutLength BitWithLength BitWithoutLength
-%type <list>		attrs opt_type_modifiers
-%type <ival>		opt_timezone opt_varying
-%type <node>		opt_float
-%type <node>		expr_list
-%type <list>		opt_sort_clause
-%type <node>		func_application within_group_clause filter_clause over_clause
-%type <astStrList>	qual_Op any_operator
-%type <str>			all_Op MathOp
-%type <node>		in_expr
-%type <ival>		opt_asymmetric
+%type <node>         a_expr b_expr c_expr AexprConst columnref
+%type <node>         func_expr
+%type <astStrList>   func_name
+%type <list>         func_arg_list
+%type <node>         func_arg_expr
+%type <list>         indirection opt_indirection
+%type <node>         indirection_el opt_slice_bound
+%type <ival>         Iconst SignedIconst
+%type <str>          Sconst
+%type <node>         Typename SimpleTypename GenericType
+%type <node>         Numeric Bit Character ConstDatetime
+%type <str>          type_function_name character attr_name param_name
+%type <node>         CharacterWithLength CharacterWithoutLength BitWithLength BitWithoutLength
+%type <list>         attrs opt_type_modifiers
+%type <ival>         opt_timezone opt_varying
+%type <node>         opt_float
+%type <node>         expr_list
+%type <list>         opt_sort_clause
+%type <node>         func_application within_group_clause filter_clause over_clause
+%type <astStrList>   qual_Op any_operator
+%type <str>          all_Op MathOp
+%type <node>         in_expr
+%type <ival>         opt_asymmetric
 
 /* SELECT statement types - Phase 3C */
-%type <stmt>		SelectStmt select_no_parens select_with_parens simple_select
-%type <list>		target_list opt_target_list
-%type <node>		target_el
-%type <list>		from_clause from_list
-%type <node>		table_ref relation_expr extended_relation_expr
-%type <node>		where_clause opt_where_clause
-%type <node>		alias_clause opt_alias_clause
-%type <ival>		opt_all_clause
-%type <nodelist>	distinct_clause opt_distinct_clause
-%type <node>		into_clause
+%type <stmt>         SelectStmt select_no_parens select_with_parens simple_select
+%type <list>         target_list opt_target_list
+%type <node>         target_el
+%type <list>         from_clause from_list
+%type <node>         table_ref relation_expr extended_relation_expr
+%type <node>         where_clause opt_where_clause
+%type <node>         alias_clause opt_alias_clause
+%type <ival>         opt_all_clause
+%type <list>         distinct_clause opt_distinct_clause
+%type <node>         into_clause
 
 /* Start symbol */
 %start parse_toplevel
@@ -342,8 +341,8 @@ qualified_name:
 				// Handle complex qualified names like "schema.table.field" or "catalog.schema.table"
 				// This creates a RangeVar from indirection - for now we'll handle 2-part names only
 				// Full indirection support would require more complex parsing
-				if len($2) == 1 {
-					if str, ok := $2[0].(*ast.String); ok {
+				if len($2.Items) == 1 {
+					if str, ok := $2.Items[0].(*ast.String); ok {
 						$$ = &ast.RangeVar{
 							SchemaName: $1,
 							RelName:    str.SVal,
@@ -391,9 +390,11 @@ any_name:
 		|	ColId attrs
 			{
 				// Create a NodeList with the first ColId followed by all attrs
-				nodes := []ast.Node{ast.NewString($1)}
-				nodes = append(nodes, $2...)
-				$$ = ast.NewNodeList(nodes...)
+				nodes := ast.NewNodeList(ast.NewString($1))
+				for _, item := range $2.Items {
+					nodes.Append(item)
+				}
+				$$ = nodes
 			}
 		;
 
@@ -526,15 +527,15 @@ a_expr:		c_expr								{ $$ = $1 }
 			}
 		|	a_expr AND a_expr
 			{
-				$$ = ast.NewBoolExpr(ast.AND_EXPR, []ast.Node{$1, $3})
+				$$ = ast.NewBoolExpr(ast.AND_EXPR, ast.NewNodeList($1, $3))
 			}
 		|	a_expr OR a_expr
 			{
-				$$ = ast.NewBoolExpr(ast.OR_EXPR, []ast.Node{$1, $3})
+				$$ = ast.NewBoolExpr(ast.OR_EXPR, ast.NewNodeList($1, $3))
 			}
 		|	NOT a_expr %prec NOT
 			{
-				$$ = ast.NewBoolExpr(ast.NOT_EXPR, []ast.Node{$2})
+				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList($2))
 			}
 		|	a_expr IS NULL_P %prec IS
 			{
@@ -561,7 +562,7 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				// Create like_escape function call
 				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
-				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$3, $5}, 0)
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($3, $5), 0)
 				name := []*ast.String{ast.NewString("~~")}
 				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, escapeFunc, 0)
 			}
@@ -574,7 +575,7 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				// Create like_escape function call
 				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
-				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$4, $6}, 0)
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
 				name := []*ast.String{ast.NewString("!~~")}
 				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, escapeFunc, 0)
 			}
@@ -587,7 +588,7 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				// Create like_escape function call
 				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
-				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$3, $5}, 0)
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($3, $5), 0)
 				name := []*ast.String{ast.NewString("~~*")}
 				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, escapeFunc, 0)
 			}
@@ -600,7 +601,7 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				// Create like_escape function call
 				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
-				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$4, $6}, 0)
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
 				name := []*ast.String{ast.NewString("!~~*")}
 				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, escapeFunc, 0)
 			}
@@ -620,13 +621,13 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				// Create timezone function call
 				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("timezone")}
-				$$ = ast.NewFuncCall(funcName, []ast.Node{$5, $1}, 0)
+				$$ = ast.NewFuncCall(funcName, ast.NewNodeList($5, $1), 0)
 			}
 		|	a_expr AT LOCAL %prec AT
 			{
 				// Create timezone function call with no argument
 				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("timezone")}
-				$$ = ast.NewFuncCall(funcName, []ast.Node{$1}, 0)
+				$$ = ast.NewFuncCall(funcName, ast.NewNodeList($1), 0)
 			}
 		|	a_expr qual_Op a_expr %prec Op
 			{
@@ -675,7 +676,7 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				// Create similar_escape function call
 				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("similar_escape")}
-				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$4, $6}, 0)
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
 				name := []*ast.String{ast.NewString("~")}
 				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
 			}
@@ -688,7 +689,7 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				// Create similar_escape function call
 				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("similar_escape")}
-				escapeFunc := ast.NewFuncCall(funcName, []ast.Node{$5, $7}, 0)
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($5, $7), 0)
 				name := []*ast.String{ast.NewString("!~")}
 				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
 			}
@@ -839,20 +840,22 @@ columnref:	ColId
 			}
 		|	ColId indirection
 			{
-				fields := []ast.Node{ast.NewString($1)}
-				fields = append(fields, $2...)
-				$$ = ast.NewColumnRef(fields...)
+				// Create all fields: first ColId followed by indirection items
+				allFields := []ast.Node{ast.NewString($1)}
+				allFields = append(allFields, $2.Items...)
+				$$ = ast.NewColumnRef(allFields...)
 			}
 		;
 
 /* Indirection (array subscripts, field access) */
 indirection: indirection_el
 			{
-				$$ = []ast.Node{$1}
+				$$ = ast.NewNodeList($1)
 			}
 		|	indirection indirection_el
 			{
-				$$ = append($1, $2)
+				$1.Append($2)
+				$$ = $1
 			}
 		;
 
@@ -882,9 +885,10 @@ opt_indirection: /* EMPTY */						{ $$ = nil }
 		|	opt_indirection indirection_el
 			{
 				if $1 == nil {
-					$$ = []ast.Node{$2}
+					$$ = ast.NewNodeList($2)
 				} else {
-					$$ = append($1, $2)
+					$1.Append($2)
+					$$ = $1
 				}
 			}
 		;
@@ -906,7 +910,7 @@ func_name:	type_function_name
 			{
 				// Create function name from ColId + indirection
 				result := []*ast.String{ast.NewString($1)}
-				for _, node := range $2 {
+				for _, node := range $2.Items {
 					if str, ok := node.(*ast.String); ok {
 						result = append(result, str)
 					}
@@ -927,13 +931,14 @@ func_application: func_name '(' ')'
 			}
 		|	func_name '(' VARIADIC func_arg_expr opt_sort_clause ')'
 			{
-				funcCall := ast.NewFuncCall($1, []ast.Node{$4}, 0)
+				funcCall := ast.NewFuncCall($1, ast.NewNodeList($4), 0)
 				// Note: In full implementation, would set func_variadic = true and agg_order from $5
 				$$ = funcCall
 			}
 		|	func_name '(' func_arg_list ',' VARIADIC func_arg_expr opt_sort_clause ')'
 			{
-				args := append($3, $6)
+				$3.Append($6)
+				args := $3
 				funcCall := ast.NewFuncCall($1, args, 0)
 				// Note: In full implementation, would set func_variadic = true and agg_order from $7
 				$$ = funcCall
@@ -954,11 +959,12 @@ func_application: func_name '(' ')'
 
 func_arg_list: func_arg_expr
 			{
-				$$ = []ast.Node{$1}
+				$$ = ast.NewNodeList($1)
 			}
 		|	func_arg_list ',' func_arg_expr
 			{
-				$$ = append($1, $3)
+				$1.Append($3)
+				$$ = $1
 			}
 		;
 
@@ -1016,18 +1022,18 @@ param_name:	type_function_name				{ $$ = $1 }
 
 attrs:		'.' attr_name
 			{
-				$$ = []ast.Node{ast.NewString($2)}
+				$$ = ast.NewNodeList(ast.NewString($2))
 			}
 		|	attrs '.' attr_name
 			{
-				$$ = append($1, ast.NewString($3))
+				$1.Append(ast.NewString($3))
+				$$ = $1
 			}
 		;
 
 opt_type_modifiers: '(' expr_list ')'
 			{
-				nodeList := $2.(*ast.NodeList)
-				$$ = nodeList.Items
+				$$ = $2.(*ast.NodeList)
 			}
 		|	/* EMPTY */
 			{
@@ -1045,7 +1051,7 @@ GenericType: type_function_name opt_type_modifiers
 			{
 				// Create qualified type name from name + attrs
 				names := []string{$1}
-				for _, attr := range $2 {
+				for _, attr := range $2.Items {
 					names = append(names, attr.(*ast.String).SVal)
 				}
 				typeName := ast.NewTypeName(names)
@@ -1372,7 +1378,7 @@ simple_select:
 			into_clause from_clause where_clause
 			{
 				selectStmt := ast.NewSelectStmt()
-				selectStmt.TargetList = convertToResTargetList($3)
+				selectStmt.TargetList = convertToResTargetList($3.Items)
 				selectStmt.IntoClause = convertToIntoClause($4)
 				selectStmt.FromClause = $5
 				selectStmt.WhereClause = $6
@@ -1383,7 +1389,7 @@ simple_select:
 			{
 				selectStmt := ast.NewSelectStmt()
 				selectStmt.DistinctClause = $2
-				selectStmt.TargetList = convertToResTargetList($3)
+				selectStmt.TargetList = convertToResTargetList($3.Items)
 				selectStmt.IntoClause = convertToIntoClause($4)
 				selectStmt.FromClause = $5
 				selectStmt.WhereClause = $6
@@ -1396,7 +1402,7 @@ simple_select:
 				// Create a ResTarget for *
 				starTarget := ast.NewResTarget("", ast.NewColumnRef(ast.NewA_Star(0)))
 				selectStmt.TargetList = []*ast.ResTarget{starTarget}
-				selectStmt.FromClause = []ast.Node{$2}
+				selectStmt.FromClause = ast.NewNodeList($2)
 				$$ = selectStmt
 			}
 		;
@@ -1411,8 +1417,8 @@ opt_target_list:
 		;
 
 target_list:
-			target_el								{ $$ = []ast.Node{$1} }
-		|	target_list ',' target_el				{ $$ = append($1, $3) }
+			target_el								{ $$ = ast.NewNodeList($1) }
+		|	target_list ',' target_el				{ $1.Append($3); $$ = $1 }
 		;
 
 target_el:
@@ -1447,8 +1453,8 @@ from_clause:
 		;
 
 from_list:
-			table_ref								{ $$ = []ast.Node{$1} }
-		|	from_list ',' table_ref					{ $$ = append($1, $3) }
+			table_ref								{ $$ = ast.NewNodeList($1) }
+		|	from_list ',' table_ref					{ $1.Append($3); $$ = $1 }
 		;
 
 /*
@@ -1526,7 +1532,7 @@ alias_clause:
 			AS ColId '(' name_list ')'
 			{
 				nameList := $4.(*ast.NodeList)
-				$$ = ast.NewAlias($2, nameList.Items)
+				$$ = ast.NewAlias($2, nameList)
 			}
 		|	AS ColId
 			{
@@ -1535,7 +1541,7 @@ alias_clause:
 		|	ColId '(' name_list ')'
 			{
 				nameList := $3.(*ast.NodeList)
-				$$ = ast.NewAlias($1, nameList.Items)
+				$$ = ast.NewAlias($1, nameList)
 			}
 		|	ColId
 			{

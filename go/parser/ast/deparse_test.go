@@ -34,25 +34,25 @@ func testQuoteIdentifier(t *testing.T) {
 		{"with underscore", "user_id", "user_id"},
 		{"with dollar", "user$table", "user$table"},
 		{"with numbers", "table123", "table123"},
-		
+
 		// Identifiers that need quoting - keywords
 		{"reserved keyword", "select", `"select"`},
 		{"reserved keyword uppercase", "SELECT", `"SELECT"`},
 		{"mixed case keyword", "Select", `"Select"`},
-		
+
 		// Identifiers that need quoting - case sensitivity
 		{"uppercase letters", "Users", `"Users"`},
 		{"mixed case", "UserTable", `"UserTable"`},
-		
+
 		// Identifiers that need quoting - special characters
 		{"spaces", "user table", `"user table"`},
 		{"special chars", "user-table", `"user-table"`},
 		{"starts with number", "123users", `"123users"`},
-		
+
 		// Identifiers with internal quotes
 		{"internal quote", `user"table`, `"user""table"`},
 		{"multiple quotes", `user""table`, `"user""""table"`},
-		
+
 		// Edge cases
 		{"empty string", "", ""},
 	}
@@ -122,7 +122,7 @@ func TestRangeVarSqlString(t *testing.T) {
 				Inh:     true, // Enable inheritance (no ONLY)
 				Alias: &Alias{
 					AliasName: "u",
-					ColNames:  []Node{}, // We'll leave this empty for now since we don't have string nodes yet
+					ColNames:  NewNodeList(), // We'll leave this empty for now since we don't have string nodes yet
 				},
 			},
 			expected:    "users AS u",
@@ -131,9 +131,9 @@ func TestRangeVarSqlString(t *testing.T) {
 		{
 			name: "quoted identifiers",
 			rangeVar: &RangeVar{
-				SchemaName: "user schema",  // Has space, needs quoting
-				RelName:    "Users",        // Has uppercase, needs quoting
-				Inh:        true,           // Enable inheritance (no ONLY)
+				SchemaName: "user schema", // Has space, needs quoting
+				RelName:    "Users",       // Has uppercase, needs quoting
+				Inh:        true,          // Enable inheritance (no ONLY)
 				Alias: &Alias{
 					AliasName: "UserAlias", // Has uppercase, needs quoting
 				},
@@ -241,7 +241,7 @@ func TestDefaultSqlStringPanic(t *testing.T) {
 			assert.Contains(t, message, "Please implement SqlString()")
 		}
 	}()
-	
+
 	node.SqlString()
 }
 
@@ -254,13 +254,13 @@ func TestRoundTripCompatibility(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "simple table reference",
-			node: &RangeVar{RelName: "users", Inh: true},
+			name:     "simple table reference",
+			node:     &RangeVar{RelName: "users", Inh: true},
 			expected: "users",
 		},
 		{
-			name: "qualified table reference", 
-			node: &RangeVar{SchemaName: "public", RelName: "users", Inh: true},
+			name:     "qualified table reference",
+			node:     &RangeVar{SchemaName: "public", RelName: "users", Inh: true},
 			expected: "public.users",
 		},
 		{
@@ -278,7 +278,7 @@ func TestRoundTripCompatibility(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			sqlString := tt.node.SqlString()
 			assert.Equal(t, tt.expected, sqlString)
-			
+
 			// TODO: In the future, we can add parsing of the sqlString back to AST
 			// and verify it produces an equivalent node structure
 			// For now, we just verify the SQL string output is correct
@@ -396,7 +396,7 @@ func TestExpressionDeparsing(t *testing.T) {
 			node:     NewA_ConstNull(0),
 			expected: "NULL",
 		},
-		
+
 		// Column references
 		{
 			name:     "simple column",
@@ -413,7 +413,7 @@ func TestExpressionDeparsing(t *testing.T) {
 			node:     NewColumnRef(NewString("schema"), NewString("table"), NewString("col1")),
 			expected: "schema.table.col1",
 		},
-		
+
 		// Binary arithmetic expressions
 		{
 			name: "addition",
@@ -457,7 +457,7 @@ func TestExpressionDeparsing(t *testing.T) {
 				NewA_Const(NewInteger(3), 0), 0),
 			expected: "2 ^ 3",
 		},
-		
+
 		// Unary arithmetic expressions
 		{
 			name: "unary plus",
@@ -473,7 +473,7 @@ func TestExpressionDeparsing(t *testing.T) {
 				NewA_Const(NewInteger(10), 0), 0),
 			expected: "-10",
 		},
-		
+
 		// Comparison expressions
 		{
 			name: "less than",
@@ -517,7 +517,7 @@ func TestExpressionDeparsing(t *testing.T) {
 				NewColumnRef(NewString("v")), 0),
 			expected: "u <> v",
 		},
-		
+
 		// Logical expressions
 		{
 			name: "and expression",
@@ -540,47 +540,47 @@ func TestExpressionDeparsing(t *testing.T) {
 				NewColumnRef(NewString("p")), 0),
 			expected: "NOT p",
 		},
-		
+
 		// Function calls
 		{
-			name: "function no args",
-			node: NewFuncCall([]*String{NewString("func")}, nil, 0),
+			name:     "function no args",
+			node:     NewFuncCall([]*String{NewString("func")}, nil, 0),
 			expected: "func()",
 		},
 		{
-			name: "function one arg",
-			node: NewFuncCall([]*String{NewString("func")}, []Node{NewColumnRef(NewString("x"))}, 0),
+			name:     "function one arg",
+			node:     NewFuncCall([]*String{NewString("func")}, NewNodeList(NewColumnRef(NewString("x"))), 0),
 			expected: "func(x)",
 		},
 		{
 			name: "function multi args",
-			node: NewFuncCall([]*String{NewString("func")}, []Node{
+			node: NewFuncCall([]*String{NewString("func")}, NewNodeList(
 				NewColumnRef(NewString("a")),
 				NewColumnRef(NewString("b")),
 				NewColumnRef(NewString("c")),
-			}, 0),
+			), 0),
 			expected: "func(a, b, c)",
 		},
 		{
-			name: "qualified function",
-			node: NewFuncCall([]*String{NewString("schema"), NewString("func")}, []Node{NewColumnRef(NewString("x"))}, 0),
+			name:     "qualified function",
+			node:     NewFuncCall([]*String{NewString("schema"), NewString("func")}, NewNodeList(NewColumnRef(NewString("x"))), 0),
 			expected: "schema.func(x)",
 		},
-		
+
 		// Type casting
 		{
-			name: "simple type cast",
-			node: NewTypeCast(NewA_Const(NewInteger(123), 0), NewTypeName([]string{"text"}), 0),
+			name:     "simple type cast",
+			node:     NewTypeCast(NewA_Const(NewInteger(123), 0), NewTypeName([]string{"text"}), 0),
 			expected: "123::text",
 		},
 		{
-			name: "column type cast",
-			node: NewTypeCast(NewColumnRef(NewString("col")), NewTypeName([]string{"varchar"}), 0),
+			name:     "column type cast",
+			node:     NewTypeCast(NewColumnRef(NewString("col")), NewTypeName([]string{"varchar"}), 0),
 			expected: "col::varchar",
 		},
 		{
-			name: "qualified type cast",
-			node: NewTypeCast(NewA_Const(NewInteger(123), 0), NewTypeName([]string{"pg_catalog", "text"}), 0),
+			name:     "qualified type cast",
+			node:     NewTypeCast(NewA_Const(NewInteger(123), 0), NewTypeName([]string{"pg_catalog", "text"}), 0),
 			expected: "123::pg_catalog.text",
 		},
 	}
@@ -634,7 +634,7 @@ func TestComplexExpressionDeparsing(t *testing.T) {
 		{
 			name: "function in expression",
 			node: NewA_Expr(AEXPR_OP, []*String{NewString("+")},
-				NewFuncCall([]*String{NewString("func")}, []Node{NewColumnRef(NewString("x"))}, 0),
+				NewFuncCall([]*String{NewString("func")}, NewNodeList(NewColumnRef(NewString("x"))), 0),
 				NewA_Const(NewInteger(10), 0), 0),
 			expected: "func(x) + 10",
 		},

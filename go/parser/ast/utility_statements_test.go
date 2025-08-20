@@ -115,14 +115,14 @@ func TestGrantStmts(t *testing.T) {
 		privilege := NewAccessPriv("SELECT", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "alice")
 
-		stmt := NewGrantStmt(OBJECT_TABLE, []Node{relation}, []*AccessPriv{privilege}, []*RoleSpec{grantee})
+		stmt := NewGrantStmt(OBJECT_TABLE, NewNodeList(relation), []*AccessPriv{privilege}, []*RoleSpec{grantee})
 
 		assert.Equal(t, T_GrantStmt, stmt.NodeTag())
 		assert.Equal(t, "GRANT", stmt.StatementType())
 		assert.True(t, stmt.IsGrant)
 		assert.Equal(t, OBJECT_TABLE, stmt.Objtype)
 		assert.Equal(t, ACL_TARGET_OBJECT, stmt.Targtype)
-		assert.Len(t, stmt.Objects, 1)
+		assert.Equal(t, 1, stmt.Objects.Len())
 		assert.Len(t, stmt.Privileges, 1)
 		assert.Len(t, stmt.Grantees, 1)
 		assert.Contains(t, stmt.String(), "GRANT")
@@ -137,7 +137,7 @@ func TestGrantStmts(t *testing.T) {
 		privilege := NewAccessPriv("INSERT", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "bob")
 
-		stmt := NewRevokeStmt(OBJECT_TABLE, []Node{relation}, []*AccessPriv{privilege}, []*RoleSpec{grantee})
+		stmt := NewRevokeStmt(OBJECT_TABLE, NewNodeList(relation), []*AccessPriv{privilege}, []*RoleSpec{grantee})
 
 		assert.False(t, stmt.IsGrant)
 		assert.Equal(t, "REVOKE", stmt.StatementType())
@@ -253,13 +253,13 @@ func TestConfigurationStmts(t *testing.T) {
 
 	t.Run("SetStmt", func(t *testing.T) {
 		value := NewString("off")
-		stmt := NewSetStmt("autocommit", []Node{value})
+		stmt := NewSetStmt("autocommit", NewNodeList(value))
 
 		assert.Equal(t, T_VariableSetStmt, stmt.NodeTag())
 		assert.Equal(t, "SET", stmt.StatementType())
 		assert.Equal(t, VAR_SET_VALUE, stmt.Kind)
 		assert.Equal(t, "autocommit", stmt.Name)
-		assert.Len(t, stmt.Args, 1)
+		assert.Equal(t, 1, stmt.Args.Len())
 		assert.False(t, stmt.IsLocal)
 		assert.Contains(t, stmt.String(), "autocommit")
 
@@ -270,7 +270,7 @@ func TestConfigurationStmts(t *testing.T) {
 
 	t.Run("LocalSetStmt", func(t *testing.T) {
 		value := NewString("on")
-		stmt := NewVariableSetStmt(VAR_SET_VALUE, "log_statement", []Node{value}, true)
+		stmt := NewVariableSetStmt(VAR_SET_VALUE, "log_statement", NewNodeList(value), true)
 
 		assert.True(t, stmt.IsLocal)
 		assert.Contains(t, stmt.String(), "LOCAL")
@@ -337,12 +337,12 @@ func TestQueryAnalysisStmts(t *testing.T) {
 
 	t.Run("ExecuteStmt", func(t *testing.T) {
 		param := NewInteger(123)
-		stmt := NewExecuteStmt("get_user", []Node{param})
+		stmt := NewExecuteStmt("get_user", NewNodeList(param))
 
 		assert.Equal(t, T_ExecuteStmt, stmt.NodeTag())
 		assert.Equal(t, "EXECUTE", stmt.StatementType())
 		assert.Equal(t, "get_user", stmt.Name)
-		assert.Len(t, stmt.Params, 1)
+		assert.Equal(t, 1, stmt.Params.Len())
 		assert.Contains(t, stmt.String(), "get_user")
 
 		// Test interface compliance
@@ -664,7 +664,7 @@ func TestUtilityComplexExamples(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		privilege := NewAccessPriv("SELECT", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "alice")
-		grantStmt := NewGrantStmt(OBJECT_TABLE, []Node{relation}, []*AccessPriv{privilege}, []*RoleSpec{grantee})
+		grantStmt := NewGrantStmt(OBJECT_TABLE, NewNodeList(relation), []*AccessPriv{privilege}, []*RoleSpec{grantee})
 
 		// Alter role
 		role := NewRoleSpec(ROLESPEC_CSTRING, "alice")
@@ -708,14 +708,14 @@ func TestUtilityComplexExamples(t *testing.T) {
 		prepareStmt := NewPrepareStmt("get_user", []*TypeName{argtype}, query)
 
 		param := NewInteger(123)
-		executeStmt := NewExecuteStmt("get_user", []Node{param})
+		executeStmt := NewExecuteStmt("get_user", NewNodeList(param))
 
 		deallocateStmt := NewDeallocateStmt("get_user")
 
 		assert.Equal(t, "get_user", prepareStmt.Name)
 		assert.Len(t, prepareStmt.Argtypes, 1)
 		assert.Equal(t, "get_user", executeStmt.Name)
-		assert.Len(t, executeStmt.Params, 1)
+		assert.Equal(t, 1, executeStmt.Params.Len())
 		assert.Equal(t, "get_user", deallocateStmt.Name)
 	})
 }

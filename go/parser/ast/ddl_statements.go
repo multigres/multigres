@@ -419,9 +419,9 @@ type TypeName struct {
 	TypeOid     Oid      // type's OID (filled in by transformTypeName)
 	Setof       bool     // is a set?
 	PctType     bool     // %TYPE specified?
-	Typmods     []Node   // type modifier expression(s)
+	Typmods     *NodeList // type modifier expression(s)
 	Typemod     int32    // prespecified type modifier
-	ArrayBounds []Node   // array bounds
+	ArrayBounds *NodeList // array bounds
 }
 
 // NewTypeName creates a new TypeName node.
@@ -522,8 +522,8 @@ type Constraint struct {
 	NullsNotDistinct   bool       // null treatment for UNIQUE constraints - postgres/src/include/nodes/parsenodes.h:2744
 	Keys               []string   // String nodes naming referenced key column(s) - postgres/src/include/nodes/parsenodes.h:2746
 	Including          []string   // String nodes naming referenced nonkey column(s) - postgres/src/include/nodes/parsenodes.h:2747
-	Exclusions         []Node     // list of (IndexElem, operator name) pairs - postgres/src/include/nodes/parsenodes.h:2748
-	Options            []Node     // options from WITH clause - postgres/src/include/nodes/parsenodes.h:2749
+	Exclusions         *NodeList  // list of (IndexElem, operator name) pairs - postgres/src/include/nodes/parsenodes.h:2748
+	Options            *NodeList  // options from WITH clause - postgres/src/include/nodes/parsenodes.h:2749
 	Indexname          string     // existing index to use; otherwise NULL - postgres/src/include/nodes/parsenodes.h:2750
 	Indexspace         string     // index tablespace; NULL for default - postgres/src/include/nodes/parsenodes.h:2751
 	ResetDefaultTblspc bool       // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:2752
@@ -633,7 +633,7 @@ type IndexStmt struct {
 	IndexIncludingParams     []*IndexElem // additional columns to index - postgres/src/include/nodes/parsenodes.h:3355
 	Options                  []*DefElem   // WITH clause options: a list of DefElem - postgres/src/include/nodes/parsenodes.h:3357
 	WhereClause              Node         // qualification (partial-index predicate) - postgres/src/include/nodes/parsenodes.h:3358
-	ExcludeOpNames           []Node       // exclusion operator names, or NIL if none - postgres/src/include/nodes/parsenodes.h:3359
+	ExcludeOpNames           *NodeList    // exclusion operator names, or NIL if none - postgres/src/include/nodes/parsenodes.h:3359
 	Idxcomment               string       // comment to apply to index, or NULL - postgres/src/include/nodes/parsenodes.h:3360
 	IndexOid                 Oid          // OID of an existing index, if any - postgres/src/include/nodes/parsenodes.h:3361
 	OldNumber                uint32       // relfilenumber of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3362
@@ -828,7 +828,7 @@ type CreateSchemaStmt struct {
 	BaseNode
 	Schemaname  string    // the name of the schema to create - postgres/src/include/nodes/parsenodes.h:2322
 	Authrole    *RoleSpec // the owner of the created schema - postgres/src/include/nodes/parsenodes.h:2323
-	SchemaElts  []Node    // schema components (list of parsenodes) - postgres/src/include/nodes/parsenodes.h:2324
+	SchemaElts  *NodeList // schema components (list of parsenodes) - postgres/src/include/nodes/parsenodes.h:2324
 	IfNotExists bool      // just do nothing if schema already exists? - postgres/src/include/nodes/parsenodes.h:2325
 }
 

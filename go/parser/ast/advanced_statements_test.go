@@ -84,7 +84,7 @@ func TestMergeStmt(t *testing.T) {
 		joinCondition := &A_Expr{Name: []*String{{SVal: "="}}}
 
 		stmt := NewMergeStmt(relation, sourceRelation, joinCondition)
-		stmt.ReturningList = []Node{&ColumnRef{Fields: []Node{&String{SVal: "id"}}}}
+		stmt.ReturningList = NewNodeList(&ColumnRef{Fields: NewNodeList(&String{SVal: "id"})})
 
 		assert.NotEmpty(t, stmt.ReturningList)
 		assert.Contains(t, stmt.String(), "RETURNING")
@@ -106,7 +106,7 @@ func TestMergeWhenClause(t *testing.T) {
 	t.Run("MergeWhenClauseInsert", func(t *testing.T) {
 		clause := NewMergeWhenClause(MERGE_WHEN_NOT_MATCHED_BY_TARGET, CMD_INSERT)
 		clause.Override = OVERRIDING_USER_VALUE
-		clause.Values = []Node{&A_Const{Val: &Integer{IVal: 1}}}
+		clause.Values = NewNodeList(&A_Const{Val: &Integer{IVal: 1}})
 
 		assert.Equal(t, CMD_INSERT, clause.CommandType)
 		assert.Equal(t, OVERRIDING_USER_VALUE, clause.Override)
@@ -155,10 +155,10 @@ func TestSetOperation(t *testing.T) {
 func TestSetOperationStmt(t *testing.T) {
 	t.Run("NewSetOperationStmt", func(t *testing.T) {
 		larg := &SelectStmt{
-			TargetList: []*ResTarget{{Val: &ColumnRef{Fields: []Node{&String{SVal: "id"}}}}},
+			TargetList: []*ResTarget{NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "id"})})},
 		}
 		rarg := &SelectStmt{
-			TargetList: []*ResTarget{{Val: &ColumnRef{Fields: []Node{&String{SVal: "name"}}}}},
+			TargetList: []*ResTarget{NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "name"})})},
 		}
 
 		stmt := NewSetOperationStmt(SETOP_UNION, false, larg, rarg)
@@ -237,7 +237,7 @@ func TestReturnStmt(t *testing.T) {
 func TestPLAssignStmt(t *testing.T) {
 	t.Run("NewPLAssignStmt", func(t *testing.T) {
 		val := &SelectStmt{
-			TargetList: []*ResTarget{{Val: &A_Const{Val: &Integer{IVal: 42}}}},
+			TargetList: []*ResTarget{NewResTarget("", &A_Const{Val: &Integer{IVal: 42}})},
 		}
 		stmt := NewPLAssignStmt("myvar", val)
 
@@ -253,7 +253,7 @@ func TestPLAssignStmt(t *testing.T) {
 	t.Run("PLAssignStmtWithIndirection", func(t *testing.T) {
 		val := &SelectStmt{}
 		stmt := NewPLAssignStmt("myarray", val)
-		stmt.Indirection = []Node{&A_Indices{}}
+		stmt.Indirection = NewNodeList(&A_Indices{})
 
 		assert.NotEmpty(t, stmt.Indirection)
 		assert.Contains(t, stmt.String(), "[")
@@ -620,18 +620,18 @@ func TestRuleStmt(t *testing.T) {
 	t.Run("RuleStmtSingleAction", func(t *testing.T) {
 		relation := &RangeVar{RelName: "test_table"}
 		stmt := NewRuleStmt(relation, "test_rule", CMD_INSERT)
-		stmt.Actions = []Node{&SelectStmt{}}
+		stmt.Actions = NewNodeList(&SelectStmt{})
 
-		assert.Len(t, stmt.Actions, 1)
+		assert.Equal(t, 1, stmt.Actions.Len())
 		assert.NotContains(t, stmt.String(), "(")
 	})
 
 	t.Run("RuleStmtMultipleActions", func(t *testing.T) {
 		relation := &RangeVar{RelName: "test_table"}
 		stmt := NewRuleStmt(relation, "test_rule", CMD_UPDATE)
-		stmt.Actions = []Node{&SelectStmt{}, &UpdateStmt{}}
+		stmt.Actions = NewNodeList(&SelectStmt{}, &UpdateStmt{})
 
-		assert.Len(t, stmt.Actions, 2)
+		assert.Equal(t, 2, stmt.Actions.Len())
 		assert.Contains(t, stmt.String(), "(")
 		assert.Contains(t, stmt.String(), ";")
 	})
@@ -698,13 +698,13 @@ func TestAdvancedStatementsIntegration(t *testing.T) {
 		)
 
 		whenMatched := NewMergeWhenClause(MERGE_WHEN_MATCHED, CMD_UPDATE)
-		whenMatched.TargetList = []*ResTarget{{Name: "updated_at", Val: &FuncCall{Funcname: []*String{{SVal: "now"}}}}}
+		whenMatched.TargetList = []*ResTarget{NewResTarget("updated_at", &FuncCall{Funcname: []*String{{SVal: "now"}}})}
 
 		whenNotMatched := NewMergeWhenClause(MERGE_WHEN_NOT_MATCHED_BY_TARGET, CMD_INSERT)
-		whenNotMatched.Values = []Node{&A_Const{Val: &String{SVal: "new_value"}}}
+		whenNotMatched.Values = NewNodeList(&A_Const{Val: &String{SVal: "new_value"}})
 
 		mergeStmt.MergeWhenClauses = []*MergeWhenClause{whenMatched, whenNotMatched}
-		mergeStmt.ReturningList = []Node{&ColumnRef{Fields: []Node{&String{SVal: "*"}}}}
+		mergeStmt.ReturningList = NewNodeList(&ColumnRef{Fields: NewNodeList(&String{SVal: "*"})})
 
 		assert.Contains(t, mergeStmt.String(), "MERGE INTO target USING source")
 		assert.Contains(t, mergeStmt.String(), "WHEN MATCHED")
@@ -715,17 +715,17 @@ func TestAdvancedStatementsIntegration(t *testing.T) {
 	t.Run("ComplexSetOperation", func(t *testing.T) {
 		// Build nested set operations
 		leftSelect := &SelectStmt{
-			TargetList: []*ResTarget{{Val: &ColumnRef{Fields: []Node{&String{SVal: "id"}}}}},
+			TargetList: []*ResTarget{NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "id"})})},
 		}
 		rightSelect := &SelectStmt{
-			TargetList: []*ResTarget{{Val: &ColumnRef{Fields: []Node{&String{SVal: "name"}}}}},
+			TargetList: []*ResTarget{NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "name"})})},
 		}
 
 		union := NewSetOperationStmt(SETOP_UNION, true, leftSelect, rightSelect)
 		
 		// Nest this in another set operation
 		finalSelect := &SelectStmt{
-			TargetList: []*ResTarget{{Val: &ColumnRef{Fields: []Node{&String{SVal: "value"}}}}},
+			TargetList: []*ResTarget{NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "value"})})},
 		}
 		
 		except := NewSetOperationStmt(SETOP_EXCEPT, false, union, finalSelect)

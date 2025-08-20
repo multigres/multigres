@@ -600,7 +600,7 @@ func TestDeclareCursorStmt(t *testing.T) {
 	t.Run("basic cursor", func(t *testing.T) {
 		portalName := "test_cursor"
 		query := &SelectStmt{
-			TargetList: []*ResTarget{{Val: &ColumnRef{Fields: []Node{NewString("*")}}}},
+			TargetList: []*ResTarget{{Val: &ColumnRef{Fields: NewNodeList(NewString("*"))}}},
 		}
 		stmt := NewDeclareCursorStmt(portalName, 0, query)
 

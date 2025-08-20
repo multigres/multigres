@@ -24,7 +24,7 @@ type MergeStmt struct {
 	SourceRelation   Node               `json:"sourceRelation"`    // Source relation
 	JoinCondition    Node               `json:"joinCondition"`     // Join condition between source and target
 	MergeWhenClauses []*MergeWhenClause `json:"mergeWhenClauses"`  // List of WHEN clauses
-	ReturningList    []Node             `json:"returningList"`     // List of expressions to return
+	ReturningList    *NodeList          `json:"returningList"`     // List of expressions to return
 	WithClause       *WithClause        `json:"withClause"`        // WITH clause
 }
 
@@ -58,9 +58,9 @@ func (n *MergeStmt) String() string {
 		parts = append(parts, clause.String())
 	}
 	
-	if len(n.ReturningList) > 0 {
-		returning := make([]string, len(n.ReturningList))
-		for i, expr := range n.ReturningList {
+	if n.ReturningList != nil && n.ReturningList.Len() > 0 {
+		returning := make([]string, n.ReturningList.Len())
+		for i, expr := range n.ReturningList.Items {
 			returning[i] = expr.String()
 		}
 		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
@@ -113,7 +113,7 @@ type MergeWhenClause struct {
 	Override    OverridingKind `json:"override"`    // OVERRIDING clause
 	Condition   Node           `json:"condition"`   // WHEN conditions
 	TargetList  []*ResTarget   `json:"targetList"`  // INSERT/UPDATE targetlist
-	Values      []Node         `json:"values"`      // VALUES to INSERT, or NULL
+	Values      *NodeList      `json:"values"`      // VALUES to INSERT, or NULL
 }
 
 func (n *MergeWhenClause) node() {}
@@ -134,9 +134,9 @@ func (n *MergeWhenClause) String() string {
 		if n.Override != OVERRIDING_NOT_SET {
 			parts = append(parts, n.Override.String())
 		}
-		if len(n.Values) > 0 {
-			values := make([]string, len(n.Values))
-			for i, val := range n.Values {
+		if n.Values != nil && n.Values.Len() > 0 {
+			values := make([]string, n.Values.Len())
+			for i, val := range n.Values.Items {
 				values[i] = val.String()
 			}
 			parts = append(parts, "VALUES", "("+strings.Join(values, ", ")+")")
@@ -251,7 +251,7 @@ func NewReturnStmt(returnVal Node) *ReturnStmt {
 type PLAssignStmt struct {
 	BaseNode
 	Name        string       `json:"name"`        // Initial column name
-	Indirection []Node       `json:"indirection"` // Subscripts and field names, if any
+	Indirection *NodeList    `json:"indirection"` // Subscripts and field names, if any
 	Nnames      int          `json:"nnames"`      // Number of names to use in ColumnRef
 	Val         *SelectStmt  `json:"val"`         // The PL/pgSQL expression to assign
 	Location    int          `json:"location"`    // Name's token location, or -1 if unknown
@@ -264,8 +264,10 @@ func (n *PLAssignStmt) String() string {
 	var parts []string
 	parts = append(parts, n.Name)
 	
-	for _, ind := range n.Indirection {
-		parts = append(parts, "["+ind.String()+"]")
+	if n.Indirection != nil {
+		for _, ind := range n.Indirection.Items {
+			parts = append(parts, "["+ind.String()+"]")
+		}
 	}
 	
 	parts = append(parts, ":=")
@@ -589,7 +591,7 @@ type RuleStmt struct {
 	WhereClause Node      `json:"whereClause"` // Qualifications
 	Event       CmdType   `json:"event"`       // SELECT, INSERT, etc
 	Instead     bool      `json:"instead"`     // Is a 'do instead'?
-	Actions     []Node    `json:"actions"`     // The action statements
+	Actions     *NodeList `json:"actions"`     // The action statements
 	Replace     bool      `json:"replace"`     // OR REPLACE
 }
 
@@ -625,13 +627,13 @@ func (n *RuleStmt) String() string {
 		parts = append(parts, "INSTEAD")
 	}
 	
-	if len(n.Actions) == 0 {
+	if n.Actions == nil || n.Actions.Len() == 0 {
 		parts = append(parts, "NOTHING")
-	} else if len(n.Actions) == 1 {
-		parts = append(parts, n.Actions[0].String())
+	} else if n.Actions.Len() == 1 {
+		parts = append(parts, n.Actions.Items[0].String())
 	} else {
-		actions := make([]string, len(n.Actions))
-		for i, action := range n.Actions {
+		actions := make([]string, n.Actions.Len())
+		for i, action := range n.Actions.Items {
 			actions[i] = action.String()
 		}
 		parts = append(parts, "("+strings.Join(actions, "; ")+")")

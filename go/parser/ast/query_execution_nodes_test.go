@@ -70,7 +70,7 @@ func TestFromExpr(t *testing.T) {
 	// Create test table references
 	table1 := NewRangeVar("table1", "public", "")
 	table2 := NewRangeVar("table2", "public", "")
-	fromlist := []Node{table1, table2}
+	fromlist := NewNodeList(table1, table2)
 
 	// Create test qualification
 	quals := NewConst(1, Datum(1), false) // Simple boolean constant
@@ -81,7 +81,7 @@ func TestFromExpr(t *testing.T) {
 	// Verify properties
 	assert.Equal(t, T_FromExpr, fe.Tag, "Expected tag T_FromExpr")
 
-	assert.Equal(t, 2, len(fe.Fromlist), "Expected fromlist length 2")
+	assert.Equal(t, 2, fe.Fromlist.Len(), "Expected fromlist length 2")
 
 	assert.Equal(t, quals, fe.Quals, "Expected quals to be set correctly")
 
@@ -96,13 +96,13 @@ func TestFromExpr(t *testing.T) {
 func TestFromExprNoQuals(t *testing.T) {
 	// Test FromExpr without qualifications
 	table := NewRangeVar("table1", "public", "")
-	fromlist := []Node{table}
+	fromlist := NewNodeList(table)
 
 	fe := NewFromExpr(fromlist, nil)
 
 	assert.Nil(t, fe.Quals, "Expected no quals")
 
-	assert.Equal(t, 1, len(fe.Fromlist), "Expected fromlist length 1")
+	assert.Equal(t, 1, fe.Fromlist.Len(), "Expected fromlist length 1")
 }
 
 // ==============================================================================
@@ -177,11 +177,11 @@ func TestUsingJoinExpr(t *testing.T) {
 	// Create USING clause
 	col1 := NewString("id")
 	col2 := NewString("name")
-	usingClause := []Node{col1, col2}
+	usingClause := NewNodeList(col1, col2)
 
 	je := NewUsingJoinExpr(JOIN_LEFT, larg, rarg, usingClause)
 
-	assert.Equal(t, 2, len(je.UsingClause), "Expected USING clause with 2 columns")
+	assert.Equal(t, 2, je.UsingClause.Len(), "Expected USING clause with 2 columns")
 
 	assert.False(t, je.IsNatural, "USING join should not be natural")
 }
@@ -307,11 +307,11 @@ func TestCommonTableExprWithColumns(t *testing.T) {
 	cte := NewCommonTableExpr("test_cte", query)
 
 	// Set column information
-	cte.Aliascolnames = []Node{NewString("col1"), NewString("col2")}
-	cte.Ctecolnames = []Node{NewString("col1"), NewString("col2")}
+	cte.Aliascolnames = NewNodeList(NewString("col1"), NewString("col2"))
+	cte.Ctecolnames = NewNodeList(NewString("col1"), NewString("col2"))
 	cte.Ctecoltypes = []Oid{23, 25} // INT4OID, TEXTOID
 
-	assert.Equal(t, 2, len(cte.Aliascolnames), "Expected 2 alias column names")
+	assert.Equal(t, 2, cte.Aliascolnames.Len(), "Expected 2 alias column names")
 
 	assert.Equal(t, 2, len(cte.Ctecoltypes), "Expected 2 column types")
 }
@@ -337,11 +337,11 @@ func TestPartitionedWindowClause(t *testing.T) {
 	// Create partition expressions
 	col1 := NewColumnRef(NewString("col1"))
 	col2 := NewColumnRef(NewString("col2"))
-	partitionClause := []Node{col1, col2}
+	partitionClause := NewNodeList(col1, col2)
 
 	wc := NewPartitionedWindowClause("partitioned_window", partitionClause)
 
-	assert.Equal(t, 2, len(wc.PartitionClause), "Expected 2 partition columns")
+	assert.Equal(t, 2, wc.PartitionClause.Len(), "Expected 2 partition columns")
 
 	assert.Equal(t, "partitioned_window", wc.Name, "Expected window name 'partitioned_window'")
 }
@@ -350,11 +350,11 @@ func TestOrderedWindowClause(t *testing.T) {
 	// Create order expressions (would normally be SortBy nodes, using strings for simplicity)
 	order1 := NewString("col1 ASC")
 	order2 := NewString("col2 DESC")
-	orderClause := []Node{order1, order2}
+	orderClause := NewNodeList(order1, order2)
 
 	wc := NewOrderedWindowClause("ordered_window", orderClause)
 
-	assert.Equal(t, 2, len(wc.OrderClause), "Expected 2 order columns")
+	assert.Equal(t, 2, wc.OrderClause.Len(), "Expected 2 order columns")
 
 	assert.Equal(t, "ordered_window", wc.Name, "Expected window name 'ordered_window'")
 }
@@ -463,20 +463,20 @@ func TestOnConflictDoNothing(t *testing.T) {
 
 	assert.Equal(t, ONCONFLICT_NOTHING, oce.Action, "Expected ONCONFLICT_NOTHING")
 
-	assert.Equal(t, 0, len(oce.OnConflictSet), "Expected empty conflict set for DO NOTHING")
+	assert.Equal(t, 0, oce.OnConflictSet.Len(), "Expected empty conflict set for DO NOTHING")
 }
 
 func TestOnConflictDoUpdate(t *testing.T) {
 	// Create update targets
 	target1 := NewResTarget("col1", NewConst(23, Datum(100), false))
 	target2 := NewResTarget("col2", NewConst(25, Datum(0), false))
-	updateTargets := []Node{target1, target2}
+	updateTargets := NewNodeList(target1, target2)
 
 	oce := NewOnConflictDoUpdate(updateTargets)
 
 	assert.Equal(t, ONCONFLICT_UPDATE, oce.Action, "Expected ONCONFLICT_UPDATE")
 
-	assert.Equal(t, 2, len(oce.OnConflictSet), "Expected 2 update targets")
+	assert.Equal(t, 2, oce.OnConflictSet.Len(), "Expected 2 update targets")
 }
 
 func TestOnConflictActions(t *testing.T) {
@@ -508,7 +508,7 @@ func TestQueryExecutionNodesInteraction(t *testing.T) {
 	joinQuals := NewConst(16, Datum(1), false) // boolean
 	join := NewJoinExpr(JOIN_INNER, table1, table2, joinQuals)
 
-	fromExpr := NewFromExpr([]Node{join}, nil)
+	fromExpr := NewFromExpr(NewNodeList(join), nil)
 
 	// Verify they all have proper tags
 	assert.Equal(t, T_TargetEntry, te.Tag, "TargetEntry tag incorrect")
@@ -518,9 +518,9 @@ func TestQueryExecutionNodesInteraction(t *testing.T) {
 	assert.Equal(t, T_JoinExpr, join.Tag, "JoinExpr tag incorrect")
 
 	// Verify they can be used together
-	assert.Equal(t, 1, len(fromExpr.Fromlist), "Expected 1 item in fromlist")
+	assert.Equal(t, 1, fromExpr.Fromlist.Len(), "Expected 1 item in fromlist")
 
-	assert.Equal(t, join, fromExpr.Fromlist[0], "Expected join to be in fromlist")
+	assert.Equal(t, join, fromExpr.Fromlist.Items[0], "Expected join to be in fromlist")
 }
 
 func TestCTEWithWindowFunction(t *testing.T) {
@@ -528,7 +528,7 @@ func TestCTEWithWindowFunction(t *testing.T) {
 
 	// Create a window clause
 	partitionCol := NewColumnRef(NewString("department"))
-	wc := NewPartitionedWindowClause("dept_window", []Node{partitionCol})
+	wc := NewPartitionedWindowClause("dept_window", NewNodeList(partitionCol))
 
 	// Create a CTE query (simplified)
 	cteQuery := NewSelectStmt()
@@ -539,7 +539,7 @@ func TestCTEWithWindowFunction(t *testing.T) {
 
 	assert.Equal(t, T_CommonTableExpr, cte.Tag, "CommonTableExpr tag incorrect")
 
-	assert.Equal(t, 1, len(wc.PartitionClause), "Expected 1 partition column")
+	assert.Equal(t, 1, wc.PartitionClause.Len(), "Expected 1 partition column")
 }
 
 // ==============================================================================
