@@ -7,15 +7,15 @@ description: 'Multigres Architecture Overview'
 
 ## Principles
 
-Multigres follows a set of principles suited for large scale distributed systems. They are as follows:
+Multigres will follow a set of principles suited for large scale distributed systems. They are as follows:
 
 ### Scalability
 
-In a distributed system, scalability is mainly achieved by removing all possible botlenecks. Among them, the most challenging one is the database. Multigres is designed to scale the database horizontally by sharding it across multiple Postgres instances. Multigres also provides an additional scalability option by managing read replicas.
+In a distributed system, scalability is mainly achieved by removing all possible bottlenecks. Among them, the most challenging one is the database. Multigres will be designed to scale the database horizontally by sharding it across multiple Postgres instances. Multigres will also provide an additional scalability option by managing read replicas.
 
 ### High Availability
 
-Multigres strives for enterprise grade availability. To achieve this, it uses a combination of techniques:
+Multigres strives for enterprise grade availability. To achieve this, it will use a combination of techniques:
 
 * A consensus protocol for leader election and failover management.
 * Fully automated cluster management.
@@ -23,25 +23,25 @@ Multigres strives for enterprise grade availability. To achieve this, it uses a 
 
 ### Data Durability
 
-Multigres ensures that data is durable using a consensus protocol. It guarantees that a write that has been acknowledged as success to a client must not be lost.
+Multigres will ensure that data is durable using a consensus protocol. It will guarantee that a write that has been acknowledged as success to a client must not be lost.
 
-Additionally, it provides a backup and restore mechanism to ensure that data can be recovered in case of catastrophic failures.
+Additionally, it will provide a backup and restore mechanism to ensure that data can be recovered in case of catastrophic failures.
 
-All other metadata is stored in a distributed key-value store like etcd, which can also be backed up regularly, or can be manually reconstructed.
+All other metadata will be stored in a distributed key-value store like etcd, which can also be backed up regularly, or can be manually reconstructed.
 
 ### Resilience
 
-Multigres provides resilience against spikes and overloads by employing queuing and load shedding mechanisms.
+Multigres will provide resilience against spikes and overloads by employing queuing and load shedding mechanisms.
 
-To protect from cascading failures, it will implement adaptive timeouts and exponoential backoffs on retries.
+To protect from cascading failures, it will implement adaptive timeouts and exponential backoffs on retries.
 
 ### Observability
 
-In spite of all precautions, incidents can happen. Multigres provides a comprehensive set of metrics and logs to help diagnose issues.
+In spite of all precautions, incidents can happen. Multigres will provide a comprehensive set of metrics and logs to help diagnose issues.
 
 ## Features
 
-A primary goal of Multigres is to provide full Postgres compatibility while enhancing scalability, availability, and performance. Its key features include:
+A primary goal of Multigres is to provide full Postgres compatibility while enhancing scalability, availability, and performance. Its key features will include:
 
 * Proxy layer and Connection pooling
 * Performance and High Availability
@@ -52,83 +52,83 @@ Multigres can be deployed to suit different needs. We will introduce you to the 
 
 ## Single database deployment
 
-In a single database deployment, Multigres acts as a proxy layer in front of a single PostgreSQL instance. This setup is ideal for small applications or development environments where simplicity is key.
+In a single database deployment, Multigres will act as a proxy layer in front of a single PostgreSQL instance. This setup will be ideal for small applications or development environments where simplicity is key.
 
 ![Single database deployment](/img/site/arch-single-db.png)
 
-The main components involved are:
+The main components involved will be:
 
-* **MultiGateway**: MultiGateway speaks the Postgres protocol and routes queries to MultiPooler through a single multiplexed gRPC connection.
-* **MultiPooler**: The MultiPooler is connected to a single Postgres server, and manages a pool of connections to the database. They both run on the same host, which is typically a Kubernetes pod.
+* **MultiGateway**: MultiGateway will speak the Postgres protocol and route queries to MultiPooler through a single multiplexed gRPC connection.
+* **MultiPooler**: The MultiPooler will be connected to a single Postgres server, and will manage a pool of connections to the database. They will both run on the same host, which will typically be a Kubernetes pod.
 
-In this scenario, Multigres does not address the durability of the underlying data. Therefore, it is recommended to use a resilient form of cloud storage to ensure data safety.
+In this scenario, Multigres will not address the durability of the underlying data. Therefore, it is recommended to use a resilient form of cloud storage to ensure data safety.
 
-For a Multigres cluster to operate, two other components are required:
+For a Multigres cluster to operate, two other components will be required:
 
-* **Provisioner**: This is typically a Kubernetes operator that handles provisioning of resources for the cluster. For example, a `CREATE DATABASE` command would be redirected to the provisioner that will allocate the necessary resources and launch the MultiPooler along with its associated Postgres instance.
-* **Topo Server**: This is typically an etcd cluster. The Provisioner will store the existence of the newly created database in the Topo Server. The MultiPooler will also register itself in the Topo Server to allow MultiGateway to discover it.
+* **Provisioner**: This will typically be a Kubernetes operator that handles provisioning of resources for the cluster. For example, a `CREATE DATABASE` command will be redirected to the provisioner that will allocate the necessary resources and launch the MultiPooler along with its associated Postgres instance.
+* **Topo Server**: This will typically be an etcd cluster. The Provisioner will store the existence of the newly created database in the Topo Server. The MultiPooler will also register itself in the Topo Server to allow MultiGateway to discover it.
 
 ## Multiple database deployment
 
-Unlike a traditional Postgres server, every Multigres database is created in a brand new Postgres instance coupled with its own MultiPooler.
+Unlike a traditional Postgres server, every Multigres database will be created in a brand new Postgres instance coupled with its own MultiPooler.
 
 ![Multiple database deployment](/img/site/arch-multi-db.png)
 
-The MultiGateways can be scaled independently based on resource needs. The application can connect to any MultiGateway, which will route the queries to the appropriate MultiPooler based on the database name.
+The MultiGateways will be scalable independently based on resource needs. The application will connect to any MultiGateway, which will route the queries to the appropriate MultiPooler based on the database name.
 
-This deployment style allows for a large number of databases to be deployed under a single logical Postgres cluster.
+This deployment style will allow for a large number of databases to be deployed under a single logical Postgres cluster.
 
-The figure does not show the Topo Server and Provisioner components, but they are still required for the cluster to operate.
+The figure does not show the Topo Server and Provisioner components, but they will still be required for the cluster to operate.
 
 ## Performance and High Availability
 
-Multigres can be configured to add replicas as standbys. In this setup, we introduce the `MultiOrch` component that handles the orchestration of these replicas, ensuring they are kept in sync with the primary database.
+Multigres can be configured to add replicas as standbys. In this setup, we introduce the `MultiOrch` component that will handle the orchestration of these replicas, ensuring they are kept in sync with the primary database.
 
 ![High Availability and Performance](/img/site/arch-ha.png)
 
-MultiOrch will implement a distributed consensus algorithm that provides the following benefits:
+MultiOrch will implement a distributed consensus algorithm that will provide the following benefits:
 
 * **High Availability**: by promoting one of the replicas to be the new primary in case of a failure.
 * **Data Durability**: by ensuring that all writes are acknowledged by a quorum of replicas before being considered successful.
 * **Performance**: because the data can be stored on a local NVMe for faster access.
 
-MultiOrch can operate on an unmodified Postgres engine by using full sync replication. For a better experience, we recommend using the two-phase sync plug in (more details on this later).
+MultiOrch will operate on an unmodified Postgres engine by using full sync replication. For a better experience, we recommend using the two-phase sync plug in (more details on this later).
 
-MultiOrch can be configured to use a RAFT style majority quorum. It can also be configured to support more advanced durability policies that don't depend on the quorum size. This is achieved by using a new generalized consensus approach (covered later).
+MultiOrch will be configurable to use a RAFT style majority quorum. It will also be configurable to support more advanced durability policies that don't depend on the quorum size. This will be achieved by using a new generalized consensus approach (covered later).
 
-MultiGateway can make use of the replicas to scale reads for situations where the application can tolerate eventual consistency. It can also be configured to support consistent reads from replicas at the cost of waiting for writes to finish transmitting the data to the replicas.
+MultiGateway will make use of the replicas to scale reads for situations where the application can tolerate eventual consistency. It will also be configurable to support consistent reads from replicas at the cost of waiting for writes to finish transmitting the data to the replicas.
 
 ## Cluster management
 
-A Multigres cluster can be deployed across multiple zones or geographical regions. In the previous examples, the components were deployed in a single zone. Under the covers, they were deployed in the `default` cell, which is implicitly created for every new database. In the case of a multi-zone deployment, you will have to explicitly create cells and deploy the components in those cells. You do not have to preserve the original default cell.
+A Multigres cluster will be deployable across multiple zones or geographical regions. In the previous examples, the components will be deployed in a single zone. Under the covers, they will be deployed in the `default` cell, which will be implicitly created for every new database. In the case of a multi-zone deployment, you will have to explicitly create cells and deploy the components in those cells. You will not have to preserve the original default cell.
 
-In Multigres parlance, a cell is a user-defined grouping of components. It could represent a zone or a region.
+In Multigres parlance, a cell will be a user-defined grouping of components. It will represent a zone or a region.
 
 ![Cluster management](/img/site/arch-cluster.png)
 
 ### Topo Servers
 
-In a multi-cell deployment, the Topo Server can be split into multiple instances. It is recommended that the Global Topo Server be deployed with nodes in multiple regions. For every cell, a cell-specific topo server can be deployed. This is designed in such a way that components within a cell mostly depend on the cell-specific topo server.
+In a multi-cell deployment, the Topo Server will be splittable into multiple instances. It will be recommended that the Global Topo Server be deployed with nodes in multiple regions. For every cell, a cell-specific topo server will be deployable. This will be designed in such a way that components within a cell will mostly depend on the cell-specific topo server.
 
-The Global Topo Server contains the list of databases and the cells in which replicas are deployed. This information is used more sparingly.
+The Global Topo Server will contain the list of databases and the cells in which replicas are deployed. This information will be used more sparingly.
 
-The purpose of this design is to ensure that a cell that is partitioned from the rest of the system can continue to operate independently for as long as the data is not stale.
+The purpose of this design will be to ensure that a cell that is partitioned from the rest of the system can continue to operate independently for as long as the data is not stale.
 
 ### Single Primary
 
-Irrespective of the number of cells, there should exist only one primary database at any given time. The MultiGateways will route all requests meant for the primary to the current primary even if it is not in the same cell.
+Irrespective of the number of cells, there will exist only one primary database at any given time. The MultiGateways will route all requests meant for the primary to the current primary even if it is not in the same cell.
 
 However, read traffic directed at replicas will be served from the local cell.
 
 ### MultiOrch
 
-It is recommended that one MultiOrch be deployed per cell to ensure that failovers can be successfully performed even if the network is partitioned.
+It will be recommended that one MultiOrch be deployed per cell to ensure that failovers can be successfully performed even if the network is partitioned.
 
-The consensus protocol ensures safety even if the MultiOrchs are not able to communicate with each other.
+The consensus protocol will ensure safety even if the MultiOrchs are not able to communicate with each other.
 
-The durability policies can be set to survive network partitions. For example, you may request a cross-cell durability policy that require an acknowledgment from a replica in a different cell before considering a write successful.
+The durability policies will be settable to survive network partitions. For example, you may request a cross-cell durability policy that will require an acknowledgment from a replica in a different cell before considering a write successful.
 
-You can also request MultiOrch to prefer appointing a primary within the same cell to avoid unnecessary churn.
+You will also be able to request MultiOrch to prefer appointing a primary within the same cell to avoid unnecessary churn.
 
 ### Backup and Restore
 
@@ -136,11 +136,11 @@ Multigres will perform regular backups of the databases. These backups will be r
 
 ## Sharding
 
-In the previous examples where the databases were unsharded, all the tables would have been stored on a single Postgres database. In this situation, there is a one-to-one mapping between a Multigres database and the Postgres instance.
+In the previous examples where the databases will be unsharded, all the tables will be stored on a single Postgres database. In this situation, there will be a one-to-one mapping between a Multigres database and the Postgres instance.
 
-In reality, a Multigres database can be distributed across multiple Postgres instances. These are known as TableGroups. Additionally, each TableGroup can be sharded independently, which result in more Postgres instances within a TableGroup. When a Multigres database is created, a `default TableGroup` is created, which is an unsharded Postgres instance. This is where all the initial tables are created. When you decide to shard a set of tables, you can create a new sharded TableGroup and migrate those tables to it. From the application's perspective, the tables appear as if they are part of a single database.
+In reality, a Multigres database will be distributable across multiple Postgres instances. These will be known as TableGroups. Additionally, each TableGroup will be shardable independently, which will result in more Postgres instances within a TableGroup. When a Multigres database is created, a `default TableGroup` will be created, which will be an unsharded Postgres instance. This will be where all the initial tables are created. When you decide to shard a set of tables, you will be able to create a new sharded TableGroup and migrate those tables to it. From the application's perspective, the tables will appear as if they are part of a single database.
 
-You can also create separate unsharded TableGroups.
+You will also be able to create separate unsharded TableGroups.
 
 ![Cluster management](/img/site/arch-sharded.png)
 
@@ -150,20 +150,20 @@ In the above example:
 * `t2` is split in the two shards of `tg1`. The shards are named `tg1:0-8` and `tg1:8-inf`. Note that the digits are hexadecimal.
 * `t3` is stored in TableGroup `tg2`. The single shard in this TableGroup is named `tg2:0-inf`.
 
-The rest of the Multigres features like cluster management, HA, etc. are designed to work seamlessly with these sharded TableGroups.
+The rest of the Multigres features like cluster management, HA, etc. will be designed to work seamlessly with these sharded TableGroups.
 
 ### Shard ranges
 
-Multigres uses a hexadecimal range based sharding scheme. A shard is delimited by two values: the start and end of the range. For example, a shard might be defined as `tg1:0-8`, which means it includes all keys from `0` to `8`. The beginning of the range is inclusive, while the end is exclusive. This means that the shard includes keys from `0` up to but not including `8`. The values can contain any number of bits, with the most significant bit being on the left.
+Multigres will use a hexadecimal range based sharding scheme. A shard will be delimited by two values: the start and end of the range. For example, a shard might be defined as `tg1:0-8`. The beginning of the range will be inclusive, while the end will be exclusive. This means that the shard includes keys from `0` up to but not including `8`. The values can contain any number of bits, with the most significant bit being on the left.
 
 * `0` is the lowest value.
 * `inf` is a notation for the highest value. It is used to indicate that the shard includes all keys greater than or equal to the start of the range.
 * `8` represents four bits (1000). The trailing zeroes can be omitted. Therefore, it is the same as `80`, which is also the same as `8000`, and so on. Since this is a hexadecimal value, `8` splits the range of all possible values into two equal parts.
 * Unsharded TableGroups are represented as `0-inf`, which implies that the single database contains all possible values.
 
-Multigres assigns a value to each row, known as the `RowKey`. This value decides which shard the row belongs to. For example, in the case of two shards `0-8` and `8-inf`, a RowKey of `0x01` would be placed in the `0-8` shard, while a RowKey of `0xFF` would be placed in the `8-inf` shard.
+Multigres will assign a value to each row, known as the `RowKey`. This value will decide which shard the row belongs to. For example, in the case of two shards `0-8` and `8-inf`, a RowKey of `0x01` will be placed in the `0-8` shard, while a RowKey of `0xFF` will be placed in the `8-inf` shard.
 
-Multigres assigns a `RowKey` value to each row based on the type of sharding index assigned to the table column. This functionality will be explained in a different document.
+Multigres will assign a `RowKey` value to each row based on the type of sharding index assigned to the table column. This functionality will be explained in a different document.
 
 ## More details
 
