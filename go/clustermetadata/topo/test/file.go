@@ -28,7 +28,7 @@ import (
 func checkFile(t *testing.T, ctx context.Context, ts topo.Store) {
 	// global cell
 	t.Logf("===   checkFileInCell global")
-	conn, err := ts.ConnForCell(ctx, topo.GlobalTopo)
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
 	if err != nil {
 		t.Fatalf("ConnForCell(global) failed: %v", err)
 	}
@@ -202,7 +202,7 @@ func checkFileInCell(t *testing.T, conn topo.Conn, hasCells bool) {
 // checkList tests the file part of the Conn API.
 func checkList(t *testing.T, ctx context.Context, ts topo.Store) {
 	// global topo
-	conn, err := ts.ConnForCell(ctx, topo.GlobalTopo)
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
 	if err != nil {
 		t.Fatalf("ConnForCell(LocalCellName) failed: %v", err)
 	}

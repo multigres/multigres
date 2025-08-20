@@ -105,7 +105,7 @@ type ConnLock interface {
 	// to run concurrently. It is used for instance to make sure only
 	// one reparent operation is running on a Shard at a given time.
 	// dirPath is the directory associated with a resource, for instance
-	// a Database or a CellLocation. It is not a file location.
+	// a Database or a Cell. It is not a file location.
 	// (this means the implementation can for instance create a
 	// file in this directory to materialize the lock).
 	// contents describes the lock holder and purpose, but has no other

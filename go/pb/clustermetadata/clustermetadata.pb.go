@@ -285,7 +285,7 @@ func (x *GlobalTopoConfig) GetRoot() string {
 
 // CellLocation describes how to connect to a cell topology.
 // These records are stored in the global topology server.
-type CellLocation struct {
+type Cell struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// name for this cell
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -298,20 +298,20 @@ type CellLocation struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CellLocation) Reset() {
-	*x = CellLocation{}
+func (x *Cell) Reset() {
+	*x = Cell{}
 	mi := &file_clustermetadata_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CellLocation) String() string {
+func (x *Cell) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CellLocation) ProtoMessage() {}
+func (*Cell) ProtoMessage() {}
 
-func (x *CellLocation) ProtoReflect() protoreflect.Message {
+func (x *Cell) ProtoReflect() protoreflect.Message {
 	mi := &file_clustermetadata_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -323,26 +323,26 @@ func (x *CellLocation) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CellLocation.ProtoReflect.Descriptor instead.
-func (*CellLocation) Descriptor() ([]byte, []int) {
+// Deprecated: Use Cell.ProtoReflect.Descriptor instead.
+func (*Cell) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *CellLocation) GetName() string {
+func (x *Cell) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *CellLocation) GetServerAddresses() []string {
+func (x *Cell) GetServerAddresses() []string {
 	if x != nil {
 		return x.ServerAddresses
 	}
 	return nil
 }
 
-func (x *CellLocation) GetRoot() string {
+func (x *Cell) GetRoot() string {
 	if x != nil {
 		return x.Root
 	}
@@ -796,8 +796,8 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x10GlobalTopoConfig\x12&\n" +
 	"\x0eimplementation\x18\x01 \x01(\tR\x0eimplementation\x12)\n" +
 	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
-	"\x04root\x18\x03 \x01(\tR\x04root\"a\n" +
-	"\fCellLocation\x12\x12\n" +
+	"\x04root\x18\x03 \x01(\tR\x04root\"Y\n" +
+	"\x04Cell\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
 	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
 	"\x04root\x18\x03 \x01(\tR\x04root\"\x8a\x01\n" +
@@ -883,7 +883,7 @@ var file_clustermetadata_proto_goTypes = []any{
 	(PoolerType)(0),          // 1: clustermetadata.PoolerType
 	(PoolerServingStatus)(0), // 2: clustermetadata.PoolerServingStatus
 	(*GlobalTopoConfig)(nil), // 3: clustermetadata.GlobalTopoConfig
-	(*CellLocation)(nil),     // 4: clustermetadata.CellLocation
+	(*Cell)(nil),             // 4: clustermetadata.Cell
 	(*Database)(nil),         // 5: clustermetadata.Database
 	(*MultiPooler)(nil),      // 6: clustermetadata.MultiPooler
 	(*MultiGateway)(nil),     // 7: clustermetadata.MultiGateway

@@ -40,7 +40,7 @@ func checkLock(t *testing.T, ctx context.Context, ts topo.Store) {
 		t.Fatalf("CreateDatabase: %v", err)
 	}
 
-	conn, err := ts.ConnForCell(context.Background(), topo.GlobalTopo)
+	conn, err := ts.ConnForCell(context.Background(), topo.GlobalCell)
 	if err != nil {
 		t.Fatalf("ConnForCell(global) failed: %v", err)
 	}
@@ -166,7 +166,7 @@ func checkLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
 // checkLockName checks if we can lock / unlock using LockName as expected.
 // LockName doesn't require the path to exist and has a static 24-hour TTL.
 func checkLockName(t *testing.T, ctx context.Context, ts topo.Store) {
-	conn, err := ts.ConnForCell(ctx, topo.GlobalTopo)
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
 	if err != nil {
 		t.Fatalf("ConnForCell(global) failed: %v", err)
 	}
@@ -216,7 +216,7 @@ func checkTryLock(t *testing.T, ctx context.Context, ts topo.Store) {
 		require.Fail(t, "CreateDatabase fail", err.Error())
 	}
 
-	conn, err := ts.ConnForCell(context.Background(), topo.GlobalTopo)
+	conn, err := ts.ConnForCell(context.Background(), topo.GlobalCell)
 	if err != nil {
 		require.Fail(t, "ConnForCell(global) failed", err.Error())
 	}

@@ -24,19 +24,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// This file provides the utility methods to save / retrieve CellLocation
+// This file provides the utility methods to save / retrieve Cell
 // in the topology server.
 //
-// CellLocation records are not meant to be changed while the system is
-// running.  In a running system, a CellLocation can be added, and
+// Cell records are not meant to be changed while the system is
+// running.  In a running system, a Cell can be added, and
 // topology server implementations should be able to read them to
 // access the cells upon demand. Topology server implementations can
-// also read the available CellLocation at startup to build a list of
-// available cells, if necessary. A CellLocation can only be removed if no
+// also read the available Cell at startup to build a list of
+// available cells, if necessary. A Cell can only be removed if no
 // Shard record references the corresponding cell in its Cells list.
 
-func pathForCellLocation(cell string) string {
-	return path.Join(CellsPath, cell, CellLocationFile)
+func pathForCell(cell string) string {
+	return path.Join(CellsPath, cell, CellFile)
 }
 
 // GetCellNames returns the names of the existing cells. They are
@@ -56,29 +56,29 @@ func (ts *store) GetCellNames(ctx context.Context) ([]string, error) {
 	}
 }
 
-// GetCellLocation reads a CellLocation from the global Conn.
-func (ts *store) GetCellLocation(ctx context.Context, cell string) (*clustermetadatapb.CellLocation, error) {
+// GetCellLocation reads a Cell from the global Conn.
+func (ts *store) GetCellLocation(ctx context.Context, cell string) (*clustermetadatapb.Cell, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 	conn := ts.globalTopo
 	// Read the file.
-	filePath := pathForCellLocation(cell)
+	filePath := pathForCell(cell)
 	contents, _, err := conn.Get(ctx, filePath)
 	if err != nil {
 		return nil, err
 	}
 
 	// Unpack the contents.
-	ci := &clustermetadatapb.CellLocation{}
+	ci := &clustermetadatapb.Cell{}
 	if err := proto.Unmarshal(contents, ci); err != nil {
 		return nil, err
 	}
 	return ci, nil
 }
 
-// CreateCellLocation creates a new CellLocation with the provided content.
-func (ts *store) CreateCellLocation(ctx context.Context, cell string, ci *clustermetadatapb.CellLocation) error {
+// CreateCellLocation creates a new Cell with the provided content.
+func (ts *store) CreateCellLocation(ctx context.Context, cell string, ci *clustermetadatapb.Cell) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -89,24 +89,24 @@ func (ts *store) CreateCellLocation(ctx context.Context, cell string, ci *cluste
 	}
 
 	// Save it.
-	filePath := pathForCellLocation(cell)
+	filePath := pathForCell(cell)
 	_, err = ts.globalTopo.Create(ctx, filePath, contents)
 	return err
 }
 
-// UpdateCellLocationFields is a high level helper method to read a CellLocation
+// UpdateCellLocationFields is a high level helper method to read a Cell
 // object, update its fields, and then write it back.  If the write fails due to
 // a version mismatch, it will re-read the record and retry the update.
 // If the update method returns ErrNoUpdateNeeded, nothing is written,
 // and nil is returned.
-func (ts *store) UpdateCellLocationFields(ctx context.Context, cell string, update func(*clustermetadatapb.CellLocation) error) error {
-	filePath := pathForCellLocation(cell)
+func (ts *store) UpdateCellLocationFields(ctx context.Context, cell string, update func(*clustermetadatapb.Cell) error) error {
+	filePath := pathForCell(cell)
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
-		ci := &clustermetadatapb.CellLocation{}
+		ci := &clustermetadatapb.Cell{}
 
 		// Read the file, unpack the contents.
 		contents, version, err := ts.globalTopo.Get(ctx, filePath)
@@ -141,7 +141,7 @@ func (ts *store) UpdateCellLocationFields(ctx context.Context, cell string, upda
 	}
 }
 
-// DeleteCellLocation deletes the specified CellLocation.
+// DeleteCellLocation deletes the specified Cell.
 // We first try to make sure no Shard record points to the cell,
 // but we'll continue regardless if 'force' is true.
 func (ts *store) DeleteCellLocation(ctx context.Context, cell string, force bool) error {
@@ -151,6 +151,6 @@ func (ts *store) DeleteCellLocation(ctx context.Context, cell string, force bool
 
 	// TODO: Check if this cell is being used in any database before deleting it.
 
-	filePath := pathForCellLocation(cell)
+	filePath := pathForCell(cell)
 	return ts.globalTopo.Delete(ctx, filePath, nil)
 }

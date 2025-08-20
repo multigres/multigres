@@ -45,7 +45,7 @@ message GlobalTopoConfig {
 
 // CellLocation describes how to connect to a cell topology. 
 // These records are stored in the global topology server.
-message CellLocation {
+message Cell {
   // name for this cell
   string name = 1;
   

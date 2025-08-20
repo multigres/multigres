@@ -37,9 +37,9 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 		test func(t *testing.T, ts topo.Store)
 	}{
 		{
-			name: "Create and Get CellLocation",
+			name: "Create and Get Cell",
 			test: func(t *testing.T, ts topo.Store) {
-				cl := &clustermetadatapb.CellLocation{
+				cl := &clustermetadatapb.Cell{
 					ServerAddresses: []string{"server1:2181", "server2:2181"},
 					Root:            "/topo",
 				}
@@ -53,7 +53,7 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "Get nonexistent CellLocation",
+			name: "Get nonexistent Cell",
 			test: func(t *testing.T, ts topo.Store) {
 				_, err := ts.GetCellLocation(ctx, "nonexistent")
 				require.Error(t, err)
@@ -61,9 +61,9 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "Update CellLocation Fields",
+			name: "Update Cell Fields",
 			test: func(t *testing.T, ts topo.Store) {
-				cl := &clustermetadatapb.CellLocation{
+				cl := &clustermetadatapb.Cell{
 					ServerAddresses: []string{"server1:2181"},
 					Root:            "/topo",
 				}
@@ -71,7 +71,7 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 				require.NoError(t, err)
 
 				// Update the cell location
-				err = ts.UpdateCellLocationFields(ctx, cell, func(cl *clustermetadatapb.CellLocation) error {
+				err = ts.UpdateCellLocationFields(ctx, cell, func(cl *clustermetadatapb.Cell) error {
 					cl.ServerAddresses = append(cl.ServerAddresses, "server2:2181")
 					cl.Root = "/new_topo"
 					return nil
@@ -86,9 +86,9 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "Update CellLocation Fields with failing update function",
+			name: "Update Cell Fields with failing update function",
 			test: func(t *testing.T, ts topo.Store) {
-				cl := &clustermetadatapb.CellLocation{
+				cl := &clustermetadatapb.Cell{
 					ServerAddresses: []string{"server1:2181"},
 					Root:            "/topo",
 				}
@@ -97,7 +97,7 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 
 				// Update function that fails
 				updateErr := errors.New("update failed")
-				err = ts.UpdateCellLocationFields(ctx, cell, func(cl *clustermetadatapb.CellLocation) error {
+				err = ts.UpdateCellLocationFields(ctx, cell, func(cl *clustermetadatapb.Cell) error {
 					return updateErr
 				})
 				require.Error(t, err)
@@ -114,11 +114,11 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 			name: "Get Cell Names",
 			test: func(t *testing.T, ts topo.Store) {
 				// Create multiple cell locations
-				cl1 := &clustermetadatapb.CellLocation{
+				cl1 := &clustermetadatapb.Cell{
 					ServerAddresses: []string{"server1:2181"},
 					Root:            "/topo1",
 				}
-				cl2 := &clustermetadatapb.CellLocation{
+				cl2 := &clustermetadatapb.Cell{
 					ServerAddresses: []string{"server2:2181"},
 					Root:            "/topo2",
 				}
@@ -141,9 +141,9 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "Delete CellLocation",
+			name: "Delete Cell",
 			test: func(t *testing.T, ts topo.Store) {
-				cl := &clustermetadatapb.CellLocation{
+				cl := &clustermetadatapb.Cell{
 					ServerAddresses: []string{"server1:2181"},
 					Root:            "/topo",
 				}
@@ -161,13 +161,13 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "Update CellLocation Fields retries on BadVersion error",
+			name: "Update Cell Fields retries on BadVersion error",
 			test: func(t *testing.T, ts topo.Store) {
 				// Use NewServerAndFactory to get direct access to the factory
 				tsWithFactory, factory := memorytopo.NewServerAndFactory(ctx, "zone-1")
 				defer tsWithFactory.Close()
 
-				cl := &clustermetadatapb.CellLocation{
+				cl := &clustermetadatapb.Cell{
 					ServerAddresses: []string{"server1:2181"},
 					Root:            "/topo",
 				}
@@ -176,12 +176,12 @@ func TestCellLocationCRUDOperations(t *testing.T) {
 
 				// Inject a BadVersion error that will only occur once
 				badVersionErr := &topo.TopoError{Code: topo.BadVersion}
-				factory.AddOneTimeOperationError(memorytopo.Update, "cells/"+cell+"/CellLocation", badVersionErr)
+				factory.AddOneTimeOperationError(memorytopo.Update, "cells/"+cell+"/Cell", badVersionErr)
 
 				// Track how many times the update function is called
 				updateCallCount := 0
 
-				err = tsWithFactory.UpdateCellLocationFields(ctx, cell, func(cl *clustermetadatapb.CellLocation) error {
+				err = tsWithFactory.UpdateCellLocationFields(ctx, cell, func(cl *clustermetadatapb.Cell) error {
 					updateCallCount++
 					cl.ServerAddresses = append(cl.ServerAddresses, "server2:2181")
 					cl.Root = "/new_topo"

@@ -114,7 +114,7 @@ func waitForInitialValueRecursive(t *testing.T, conn topo.Conn, database *cluste
 func checkWatch(t *testing.T, ctx context.Context, ts topo.Store) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	conn, err := ts.ConnForCell(ctx, topo.GlobalTopo)
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
 	if err != nil {
 		t.Fatalf("ConnForCell(test) failed: %v", err)
 	}
@@ -216,7 +216,7 @@ func checkWatch(t *testing.T, ctx context.Context, ts topo.Store) {
 
 // checkWatchInterrupt tests we can interrupt a watch.
 func checkWatchInterrupt(t *testing.T, ctx context.Context, ts topo.Store) {
-	conn, err := ts.ConnForCell(ctx, topo.GlobalTopo)
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
 	if err != nil {
 		t.Fatalf("ConnForCell(test) failed: %v", err)
 	}
@@ -276,7 +276,7 @@ func checkWatchInterrupt(t *testing.T, ctx context.Context, ts topo.Store) {
 func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	conn, err := ts.ConnForCell(ctx, topo.GlobalTopo)
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
 	if err != nil {
 		t.Fatalf("ConnForCell(test) failed: %v", err)
 	}

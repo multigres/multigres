@@ -27,7 +27,7 @@ import (
 func checkDirectory(t *testing.T, ctx context.Context, ts topo.Store) {
 	// global topo
 	t.Logf("===   checkDirectoryInCell global")
-	conn, err := ts.ConnForCell(ctx, topo.GlobalTopo)
+	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
 	if err != nil {
 		t.Fatalf("ConnForCell(global) failed: %v", err)
 	}

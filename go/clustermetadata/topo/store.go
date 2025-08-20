@@ -74,17 +74,17 @@ import (
 )
 
 const (
-	// GlobalTopo is the name of the global topology. It is a special
+	// GlobalCell is the name of the global topology. It is a special
 	// connection where we store the minimum pieces of information
 	// to connect to a multigres cluster: database information
 	// and cell locations.
-	GlobalTopo = "global"
+	GlobalCell = "global"
 )
 
 // Filenames for all object types.
 const (
-	CellLocationFile = "CellLocation"
-	DatabaseFile     = "Database"
+	CellFile     = "Cell"
+	DatabaseFile = "Database"
 )
 
 // Paths for all object types in the topology hierarchy.
@@ -108,17 +108,17 @@ type GlobalStore interface {
 	// sorted alphabetically by name.
 	GetCellNames(ctx context.Context) ([]string, error)
 
-	// GetCellLocation retrieves the CellLocation configuration for a given cell.
-	GetCellLocation(ctx context.Context, cell string) (*clustermetadatapb.CellLocation, error)
+	// GetCellLocation retrieves the Cell configuration for a given cell.
+	GetCellLocation(ctx context.Context, cell string) (*clustermetadatapb.Cell, error)
 
-	// CreateCellLocation creates a new CellLocation configuration for a cell.
-	CreateCellLocation(ctx context.Context, cell string, ci *clustermetadatapb.CellLocation) error
+	// CreateCellLocation creates a new Cell configuration for a cell.
+	CreateCellLocation(ctx context.Context, cell string, ci *clustermetadatapb.Cell) error
 
-	// UpdateCellLocationFields reads a CellLocation, applies an update function,
+	// UpdateCellLocationFields reads a Cell, applies an update function,
 	// and writes it back atomically.
-	UpdateCellLocationFields(ctx context.Context, cell string, update func(*clustermetadatapb.CellLocation) error) error
+	UpdateCellLocationFields(ctx context.Context, cell string, update func(*clustermetadatapb.Cell) error) error
 
-	// DeleteCellLocation deletes the specified CellLocation. If 'force' is true,
+	// DeleteCellLocation deletes the specified Cell. If 'force' is true,
 	// it will proceed even if references exist, potentially leaving the system
 	// in an inconsistent state.
 	DeleteCellLocation(ctx context.Context, cell string, force bool) error
@@ -204,8 +204,8 @@ var _ Store = (*store)(nil)
 // cellConn represents a cached connection to a cell's topology service
 // along with its associated configuration.
 type cellConn struct {
-	CellLocation *clustermetadatapb.CellLocation
-	conn         Conn
+	Cell *clustermetadatapb.Cell
+	conn Conn
 }
 
 var (
@@ -260,7 +260,7 @@ func RegisterFactory(name string, factory Factory) {
 // NewWithFactory creates a new topology store based on the given Factory.
 // It also opens the global topology connection and initializes the store.
 func NewWithFactory(factory Factory, root string, serverAddrs []string) (Store, error) {
-	conn, err := factory.Create(GlobalTopo, root, serverAddrs)
+	conn, err := factory.Create(GlobalCell, root, serverAddrs)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +315,7 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 	}
 
 	// Global cell is the easy case - return the existing connection.
-	if cell == GlobalTopo {
+	if cell == GlobalCell {
 		return ts.globalTopo, nil
 	}
 
@@ -336,8 +336,8 @@ func (ts *store) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 		// Client exists in cache. Verify that it's for the same cell configuration.
 		// The cell name can be reused with different ServerAddresses and/or Root,
 		// in which case we should get a new connection and update the cache.
-		cellLocationAddrs := strings.Join(cc.CellLocation.ServerAddresses, ",")
-		if serverAddrsStr == cellLocationAddrs && ci.Root == cc.CellLocation.Root {
+		cellLocationAddrs := strings.Join(cc.Cell.ServerAddresses, ",")
+		if serverAddrsStr == cellLocationAddrs && ci.Root == cc.Cell.Root {
 			return cc.conn, nil
 		}
 		// Close the cached connection as it's no longer valid.
