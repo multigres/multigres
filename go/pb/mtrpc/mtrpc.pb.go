@@ -320,8 +320,8 @@ func (x *CallerID) GetGroups() []string {
 // but instead can depend on the value of the code.
 type RPCError struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	Code          Code                   `protobuf:"varint,3,opt,name=code,proto3,enum=mtrpc.Code" json:"code,omitempty"`
+	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Code          Code                   `protobuf:"varint,2,opt,name=code,proto3,enum=mtrpc.Code" json:"code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -379,10 +379,10 @@ const file_mtrpc_proto_rawDesc = "" +
 	"\tprincipal\x18\x01 \x01(\tR\tprincipal\x12\x1c\n" +
 	"\tcomponent\x18\x02 \x01(\tR\tcomponent\x12\"\n" +
 	"\fsubcomponent\x18\x03 \x01(\tR\fsubcomponent\x12\x16\n" +
-	"\x06groups\x18\x04 \x03(\tR\x06groups\"X\n" +
+	"\x06groups\x18\x04 \x03(\tR\x06groups\"E\n" +
 	"\bRPCError\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1f\n" +
-	"\x04code\x18\x03 \x01(\x0e2\v.mtrpc.CodeR\x04codeJ\x04\b\x01\x10\x02R\vlegacy_code*\xd8\x02\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1f\n" +
+	"\x04code\x18\x02 \x01(\x0e2\v.mtrpc.CodeR\x04code*\xd8\x02\n" +
 	"\x04Code\x12\x06\n" +
 	"\x02OK\x10\x00\x12\f\n" +
 	"\bCANCELED\x10\x01\x12\v\n" +

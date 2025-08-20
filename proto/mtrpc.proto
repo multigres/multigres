@@ -185,7 +185,6 @@ enum Code {
 // We use this so the clients don't have to parse the error messages,
 // but instead can depend on the value of the code.
 message RPCError {
-  reserved 1; reserved "legacy_code";
-  string message = 2;
-  Code code = 3;
+  string message = 1;
+  Code code = 2;
 }

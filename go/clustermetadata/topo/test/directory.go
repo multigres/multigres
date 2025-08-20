@@ -17,10 +17,12 @@ package test
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // checkDirectory tests the directory part of the topo.Conn API.
@@ -28,17 +30,13 @@ func checkDirectory(t *testing.T, ctx context.Context, ts topo.Store) {
 	// global topo
 	t.Logf("===   checkDirectoryInCell global")
 	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
-	if err != nil {
-		t.Fatalf("ConnForCell(global) failed: %v", err)
-	}
+	require.NoError(t, err, "ConnForCell(global) failed")
 	checkDirectoryInCell(t, conn, true /*hasCells*/)
 
 	// local topo
 	t.Logf("===   checkDirectoryInCell test")
 	conn, err = ts.ConnForCell(ctx, LocalCellName)
-	if err != nil {
-		t.Fatalf("ConnForCell(test) failed: %v", err)
-	}
+	require.NoError(t, err, "ConnForCell(test) failed")
 	checkDirectoryInCell(t, conn, false /*hasCells*/)
 }
 
@@ -56,16 +54,14 @@ func checkListDir(ctx context.Context, t *testing.T, conn topo.Conn, dirPath str
 	switch {
 	case errors.Is(err, &topo.TopoError{Code: topo.NoNode}):
 		if len(se) != 0 {
-			t.Errorf("ListDir(%v, false) returned ErrNoNode but was expecting %v", dirPath, se)
+			assert.Fail(t, "ListDir(%v, false) returned ErrNoNode but was expecting %v", dirPath, se)
 		}
 	case err == nil:
 		if len(se) != 0 || len(entries) != 0 {
-			if !reflect.DeepEqual(entries, se) {
-				t.Errorf("ListDir(%v, false) returned %v but was expecting %v", dirPath, entries, se)
-			}
+			assert.Equal(t, se, entries, "ListDir(%v, false) returned unexpected entries", dirPath)
 		}
 	default:
-		t.Errorf("ListDir(%v, false) returned unexpected error: %v", dirPath, err)
+		assert.Fail(t, "ListDir(%v, false) returned unexpected error: %v", dirPath, err)
 	}
 
 	// Test with full=true.
@@ -73,16 +69,14 @@ func checkListDir(ctx context.Context, t *testing.T, conn topo.Conn, dirPath str
 	switch {
 	case errors.Is(err, &topo.TopoError{Code: topo.NoNode}):
 		if len(expected) != 0 {
-			t.Errorf("ListDir(%v, true) returned ErrNoNode but was expecting %v", dirPath, expected)
+			assert.Fail(t, "ListDir(%v, true) returned ErrNoNode but was expecting %v", dirPath, expected)
 		}
 	case err == nil:
 		if len(expected) != 0 || len(entries) != 0 {
-			if !reflect.DeepEqual(entries, expected) {
-				t.Errorf("ListDir(%v, true) returned %v but was expecting %v", dirPath, entries, expected)
-			}
+			assert.Equal(t, expected, entries, "ListDir(%v, true) returned unexpected entries", dirPath)
 		}
 	default:
-		t.Errorf("ListDir(%v, true) returned unexpected error: %v", dirPath, err)
+		assert.Fail(t, "ListDir(%v, true) returned unexpected error: %v", dirPath, err)
 	}
 }
 
@@ -101,9 +95,7 @@ func checkDirectoryInCell(t *testing.T, conn topo.Conn, hasCells bool) {
 
 	// Create a topolevel entry
 	version, err := conn.Create(ctx, "/MyFile", []byte{'a'})
-	if err != nil {
-		t.Fatalf("cannot create toplevel file: %v", err)
-	}
+	require.NoError(t, err, "cannot create toplevel file")
 
 	// ListDir should return it.
 	expected = append([]topo.DirEntry{
@@ -115,17 +107,14 @@ func checkDirectoryInCell(t *testing.T, conn topo.Conn, hasCells bool) {
 	checkListDir(ctx, t, conn, "/", expected)
 
 	// Delete it, it should be gone.
-	if err := conn.Delete(ctx, "/MyFile", version); err != nil {
-		t.Fatalf("cannot delete toplevel file: %v", err)
-	}
+	err = conn.Delete(ctx, "/MyFile", version)
+	require.NoError(t, err, "cannot delete toplevel file")
 	expected = expected[1:]
 	checkListDir(ctx, t, conn, "/", expected)
 
 	// Create a file 3 layers down.
 	version, err = conn.Create(ctx, "/types/name/MyFile", []byte{'a'})
-	if err != nil {
-		t.Fatalf("cannot create deep file: %v", err)
-	}
+	require.NoError(t, err, "cannot create deep file")
 	expected = append(expected, topo.DirEntry{
 		Name: "types",
 		Type: topo.TypeDirectory,
@@ -148,9 +137,7 @@ func checkDirectoryInCell(t *testing.T, conn topo.Conn, hasCells bool) {
 
 	// Add a second file
 	version2, err := conn.Create(ctx, "/types/othername/MyFile", []byte{'a'})
-	if err != nil {
-		t.Fatalf("cannot create deep file2: %v", err)
-	}
+	require.NoError(t, err, "cannot create deep file2")
 
 	// Check entries at all levels
 	checkListDir(ctx, t, conn, "/", expected)
@@ -178,9 +165,8 @@ func checkDirectoryInCell(t *testing.T, conn topo.Conn, hasCells bool) {
 	})
 
 	// Delete the first file, expect all lists to return the second one.
-	if err := conn.Delete(ctx, "/types/name/MyFile", version); err != nil {
-		t.Fatalf("cannot delete deep file: %v", err)
-	}
+	err = conn.Delete(ctx, "/types/name/MyFile", version)
+	require.NoError(t, err, "cannot delete deep file")
 	checkListDir(ctx, t, conn, "/", expected)
 	checkListDir(ctx, t, conn, "/types/", []topo.DirEntry{
 		{
@@ -197,9 +183,8 @@ func checkDirectoryInCell(t *testing.T, conn topo.Conn, hasCells bool) {
 	})
 
 	// Delete the second file, expect all lists to return nothing.
-	if err := conn.Delete(ctx, "/types/othername/MyFile", version2); err != nil {
-		t.Fatalf("cannot delete second deep file: %v", err)
-	}
+	err = conn.Delete(ctx, "/types/othername/MyFile", version2)
+	require.NoError(t, err, "cannot delete second deep file")
 	for _, dir := range []string{"/types/", "/types/name/", "/types/othername/"} {
 		checkListDir(ctx, t, conn, dir, nil)
 	}

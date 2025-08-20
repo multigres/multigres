@@ -91,7 +91,7 @@ const (
 const (
 	DatabasesPath = "databases"
 	CellsPath     = "cells"
-	MultiGateways = "multi_gateways"
+	Gateways      = "gateways"
 )
 
 // Factory is a factory interface to create Conn objects.
@@ -229,23 +229,6 @@ var (
 	// overwhelming the topology server with too many concurrent requests.
 	DefaultReadConcurrency int64 = 32
 )
-
-func init() {
-	// TODO: Implement flag registration for topology configuration
-	// This will allow each binary to register its own topology flags
-	//for _, cmd := range FlagBinaries {
-	//	//	servenv.OnParseFor(cmd, registerTopoFlags)
-	//}
-}
-
-// registerTopoFlags registers command-line flags for topology configuration.
-// This function is currently commented out but will be implemented in a follow-up PR.
-// func registerTopoFlags(fs *pflag.FlagSet) {
-// 	fs.StringVar(&topoImplementation, "topo_implementation", topoImplementation, "the topology implementation to use")
-// 	fs.StringSliceVar(&topoGlobalServerAddresses, "topo_global_server_addresses", topoGlobalServerAddresses, "the addresses of the global topology servers")
-// 	fs.StringVar(&topoGlobalRoot, "topo_global_root", topoGlobalRoot, "the path of the global topology data in the global topology server")
-// 	fs.Int64Var(&DefaultReadConcurrency, "topo_read_concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell.")
-// }
 
 // RegisterFactory registers a Factory for a specific topology implementation.
 // If an implementation with that name already exists, it will log.Fatal and exit.

@@ -27,9 +27,6 @@ const LocalCellName = "test"
 // TopoServerTestSuite runs the full topo.Server/Conn test suite.
 // The factory method should return a topo.Server that has a single cell
 // called LocalCellName.
-// Not all tests are applicable for each Topo server, therefore we provide ignoreList in order to
-// avoid them for given Topo server tests. For example `TryLock` implementation is same as `Lock` for some Topo servers.
-// Hence, for these Topo servers we ignore executing TryLock Tests.
 func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.Store) {
 	var ts topo.Store
 
@@ -76,7 +73,7 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.
 	t.Log("=== (File) checkFile")
 	ts = factory()
 	checkFile(t, ctx, ts)
-	ts.Close()
+	_ = ts.Close()
 
 	ts = factory()
 	t.Log("=== checkList")

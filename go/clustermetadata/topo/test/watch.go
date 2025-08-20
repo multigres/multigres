@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
@@ -41,26 +43,27 @@ func waitForInitialValue(t *testing.T, conn topo.Conn, database *clustermetadata
 			// hasn't appeared yet
 			if time.Since(start) > 10*time.Second {
 				cancel()
-				t.Fatalf("time out waiting for file to appear")
+				require.Fail(t, "time out waiting for file to appear")
 			}
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 		if err != nil {
 			cancel()
-			t.Fatalf("watch failed: %v", err)
+			require.NoError(t, err, "watch failed")
 		}
 		// we got a valid result
 		break
 	}
 	got := &clustermetadatapb.Database{}
-	if err := proto.Unmarshal(current.Contents, got); err != nil {
+	err = proto.Unmarshal(current.Contents, got)
+	if err != nil {
 		cancel()
-		t.Fatalf("cannot proto-unmarshal data: %v", err)
+		require.NoError(t, err, "cannot proto-unmarshal data")
 	}
 	if !proto.Equal(got, database) {
 		cancel()
-		t.Fatalf("got bad data: %v expected: %v", got, database)
+		require.Equal(t, database, got, "got bad data")
 	}
 
 	return changes, cancel
@@ -79,7 +82,7 @@ func waitForInitialValueRecursive(t *testing.T, conn topo.Conn, database *cluste
 			// hasn't appeared yet
 			if time.Since(start) > 10*time.Second {
 				cancel()
-				t.Fatalf("time out waiting for file to appear")
+				require.Fail(t, "time out waiting for file to appear")
 			}
 			time.Sleep(10 * time.Millisecond)
 			continue
@@ -91,19 +94,20 @@ func waitForInitialValueRecursive(t *testing.T, conn topo.Conn, database *cluste
 		}
 		if err != nil {
 			cancel()
-			t.Fatalf("watch failed: %v", err)
+			require.NoError(t, err, "watch failed")
 		}
 		// we got a valid result
 		break
 	}
 	got := &clustermetadatapb.Database{}
-	if err := proto.Unmarshal(current[0].Contents, got); err != nil {
+	err = proto.Unmarshal(current[0].Contents, got)
+	if err != nil {
 		cancel()
-		t.Fatalf("cannot proto-unmarshal data: %v", err)
+		require.NoError(t, err, "cannot proto-unmarshal data")
 	}
 	if !proto.Equal(got, database) {
 		cancel()
-		t.Fatalf("got bad data: %v expected: %v", got, database)
+		require.Equal(t, database, got, "got bad data")
 	}
 
 	return changes, cancel, nil
@@ -115,26 +119,23 @@ func checkWatch(t *testing.T, ctx context.Context, ts topo.Store) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
-	if err != nil {
-		t.Fatalf("ConnForCell(test) failed: %v", err)
-	}
+	require.NoError(t, err, "ConnForCell(test) failed")
 
 	// start watching something that doesn't exist -> error
 	current, changes, err := conn.Watch(ctx, "databases/test_database/Database")
 	if !errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
-		t.Errorf("watch on missing node didn't return ErrNoNode: %v %v", current, changes)
+		assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}), "watch on missing node should return ErrNoNode, got: %v %v", current, changes)
 	}
 
 	// create some data
 	database := &clustermetadatapb.Database{
 		Name: "test_database",
 	}
-	if err := ts.UpdateDatabaseFields(ctx, "test_database", func(db *clustermetadatapb.Database) error {
+	err = ts.UpdateDatabaseFields(ctx, "test_database", func(db *clustermetadatapb.Database) error {
 		db.Name = "test_database"
 		return nil
-	}); err != nil {
-		t.Fatalf("UpdateDatabaseFields(1): %v", err)
-	}
+	})
+	require.NoError(t, err, "UpdateDatabaseFields(1) failed")
 
 	// start watching again, it should work
 	changes, secondCancel := waitForInitialValue(t, conn, database)
@@ -142,12 +143,11 @@ func checkWatch(t *testing.T, ctx context.Context, ts topo.Store) {
 
 	// change the data
 	database.Name = "test_database_new"
-	if err := ts.UpdateDatabaseFields(ctx, "test_database", func(db *clustermetadatapb.Database) error {
+	err = ts.UpdateDatabaseFields(ctx, "test_database", func(db *clustermetadatapb.Database) error {
 		db.Name = database.Name
 		return nil
-	}); err != nil {
-		t.Fatalf("UpdateDatabaseFields(2): %v", err)
-	}
+	})
+	require.NoError(t, err, "UpdateDatabaseFields(2) failed")
 
 	// Make sure we get the watch data, maybe not as first notice,
 	// but eventually. The API specifies it is possible to get duplicate
@@ -155,15 +155,14 @@ func checkWatch(t *testing.T, ctx context.Context, ts topo.Store) {
 	for {
 		wd, ok := <-changes
 		if !ok {
-			t.Fatalf("watch channel unexpectedly closed")
+			require.Fail(t, "watch channel unexpectedly closed")
 		}
 		if wd.Err != nil {
-			t.Fatalf("watch interrupted: %v", wd.Err)
+			require.NoError(t, wd.Err, "watch interrupted")
 		}
 		got := &clustermetadatapb.Database{}
-		if err := proto.Unmarshal(wd.Contents, got); err != nil {
-			t.Fatalf("cannot proto-unmarshal data: %v", err)
-		}
+		err := proto.Unmarshal(wd.Contents, got)
+		require.NoError(t, err, "cannot proto-unmarshal data")
 
 		if got.Name == "test_database" {
 			// extra first value, still good
@@ -173,13 +172,12 @@ func checkWatch(t *testing.T, ctx context.Context, ts topo.Store) {
 			// watch worked, good
 			break
 		}
-		t.Fatalf("got unknown Database: %v", got)
+		assert.Contains(t, []string{"test_database", "test_database_new"}, got.Name, "got unknown Database: %v", got)
 	}
 
 	// remove the database
-	if err := ts.DeleteDatabase(ctx, "test_database", false); err != nil {
-		t.Fatalf("DeleteDatabase: %v", err)
-	}
+	err = ts.DeleteDatabase(ctx, "test_database", false)
+	require.NoError(t, err, "DeleteDatabase failed")
 
 	// Make sure we get the ErrNoNode notification eventually.
 	// The API specifies it is possible to get duplicate
@@ -187,39 +185,36 @@ func checkWatch(t *testing.T, ctx context.Context, ts topo.Store) {
 	for {
 		wd, ok := <-changes
 		if !ok {
-			t.Fatalf("watch channel unexpectedly closed")
+			require.Fail(t, "watch channel unexpectedly closed")
 		}
 		if errors.Is(wd.Err, &topo.TopoError{Code: topo.NoNode}) {
 			// good
 			break
 		}
 		if wd.Err != nil {
-			t.Fatalf("bad error returned for deletion: %v", wd.Err)
+			require.NoError(t, wd.Err, "unexpected error returned for deletion")
 		}
 		// we got something, better be the right value
 		got := &clustermetadatapb.Database{}
-		if err := proto.Unmarshal(wd.Contents, got); err != nil {
-			t.Fatalf("cannot proto-unmarshal data: %v", err)
-		}
+		err := proto.Unmarshal(wd.Contents, got)
+		require.NoError(t, err, "cannot proto-unmarshal data")
 		if got.Name == "test_database_new" {
 			// good value
 			continue
 		}
-		t.Fatalf("got unknown Database waiting for deletion: %v", got)
+		require.Equal(t, "test_database_new", got.Name, "got unknown Database waiting for deletion: %v", got)
 	}
 
 	// now the channel should be closed
 	if wd, ok := <-changes; ok {
-		t.Fatalf("got unexpected event after error: %v", wd)
+		require.Fail(t, "got unexpected event after error: %v", wd)
 	}
 }
 
 // checkWatchInterrupt tests we can interrupt a watch.
 func checkWatchInterrupt(t *testing.T, ctx context.Context, ts topo.Store) {
 	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
-	if err != nil {
-		t.Fatalf("ConnForCell(test) failed: %v", err)
-	}
+	require.NoError(t, err, "ConnForCell(test) failed")
 
 	// create some data
 	database := &clustermetadatapb.Database{
@@ -229,7 +224,7 @@ func checkWatchInterrupt(t *testing.T, ctx context.Context, ts topo.Store) {
 		db.Name = database.Name
 		return nil
 	}); err != nil {
-		t.Fatalf("UpdateDatabaseFields(1): %v", err)
+		require.NoError(t, err, "UpdateDatabaseFields(1) failed")
 	}
 
 	// Start watching, it should work.
@@ -242,30 +237,29 @@ func checkWatchInterrupt(t *testing.T, ctx context.Context, ts topo.Store) {
 	for {
 		wd, ok := <-changes
 		if !ok {
-			t.Fatalf("watch channel unexpectedly closed")
+			require.Fail(t, "watch channel unexpectedly closed")
 		}
 		if errors.Is(wd.Err, &topo.TopoError{Code: topo.Interrupted}) {
 			// good
 			break
 		}
 		if wd.Err != nil {
-			t.Fatalf("bad error returned for cancellation: %v", wd.Err)
+			require.NoError(t, wd.Err, "unexpected error returned for cancellation")
 		}
 		// we got something, better be the right value
 		got := &clustermetadatapb.Database{}
-		if err := proto.Unmarshal(wd.Contents, got); err != nil {
-			t.Fatalf("cannot proto-unmarshal data: %v", err)
-		}
+		err := proto.Unmarshal(wd.Contents, got)
+		require.NoError(t, err, "cannot proto-unmarshal data")
 		if got.Name == "test_database" {
 			// good value
 			continue
 		}
-		t.Fatalf("got unknown Database waiting for deletion: %v", got)
+		require.Equal(t, "test_database_new", got.Name, "got unknown Database waiting for deletion: %v", got)
 	}
 
 	// Now the channel should be closed.
 	if wd, ok := <-changes; ok {
-		t.Fatalf("got unexpected event after error: %v", wd)
+		require.Fail(t, "got unexpected event after error: %v", wd)
 	}
 
 	// And calling cancel() again should just work.
@@ -277,9 +271,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
-	if err != nil {
-		t.Fatalf("ConnForCell(test) failed: %v", err)
-	}
+	require.NoError(t, err, "ConnForCell(test) failed")
 
 	// create some data
 	database := &clustermetadatapb.Database{
@@ -289,7 +281,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
 		db.Name = database.Name
 		return nil
 	}); err != nil {
-		t.Fatalf("UpdateDatabaseFields(1): %v", err)
+		require.NoError(t, err, "UpdateDatabaseFields(1) failed")
 	}
 
 	// start watching again, it should work
@@ -303,12 +295,11 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
 
 	// change the data
 	database.Name = "test_database_new"
-	if err := ts.UpdateDatabaseFields(ctx, "test_database", func(db *clustermetadatapb.Database) error {
+	err = ts.UpdateDatabaseFields(ctx, "test_database", func(db *clustermetadatapb.Database) error {
 		db.Name = "test_database_new"
 		return nil
-	}); err != nil {
-		t.Fatalf("UpdateDatabaseFields(2): %v", err)
-	}
+	})
+	require.NoError(t, err, "UpdateDatabaseFields(2) failed")
 
 	// Make sure we get the watch data, maybe not as first notice,
 	// but eventually. The API specifies it is possible to get duplicate
@@ -316,15 +307,14 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
 	for {
 		wd, ok := <-changes
 		if !ok {
-			t.Fatalf("watch channel unexpectedly closed")
+			require.Fail(t, "watch channel unexpectedly closed")
 		}
 		if wd.Err != nil {
-			t.Fatalf("watch interrupted: %v", wd.Err)
+			require.NoError(t, wd.Err, "watch interrupted")
 		}
 		got := &clustermetadatapb.Database{}
-		if err := proto.Unmarshal(wd.Contents, got); err != nil {
-			t.Fatalf("cannot proto-unmarshal data: %v", err)
-		}
+		err := proto.Unmarshal(wd.Contents, got)
+		require.NoError(t, err, "cannot proto-unmarshal data")
 
 		if got.Name == "test_database" {
 			// extra first value, still good
@@ -334,13 +324,12 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
 			// watch worked, good
 			break
 		}
-		t.Fatalf("got unknown Database: %v", got)
+		assert.Contains(t, []string{"test_database", "test_database_new"}, got.Name, "got unknown Database: %v", got)
 	}
 
 	// remove the database
-	if err := ts.DeleteDatabase(ctx, "test_database", false); err != nil {
-		t.Fatalf("DeleteDatabase: %v", err)
-	}
+	err = ts.DeleteDatabase(ctx, "test_database", false)
+	require.NoError(t, err, "DeleteDatabase failed")
 
 	// Make sure we get the ErrNoNode notification eventually.
 	// The API specifies it is possible to get duplicate
@@ -348,7 +337,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
 	for {
 		wd, ok := <-changes
 		if !ok {
-			t.Fatalf("watch channel unexpectedly closed")
+			require.Fail(t, "watch channel unexpectedly closed")
 		}
 
 		if errors.Is(wd.Err, &topo.TopoError{Code: topo.NoNode}) {
@@ -356,18 +345,17 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
 			break
 		}
 		if wd.Err != nil {
-			t.Fatalf("bad error returned for deletion: %v", wd.Err)
+			require.NoError(t, wd.Err, "unexpected error returned for deletion")
 		}
 		// we got something, better be the right value
 		got := &clustermetadatapb.Database{}
-		if err := proto.Unmarshal(wd.Contents, got); err != nil {
-			t.Fatalf("cannot proto-unmarshal data: %v", err)
-		}
+		err := proto.Unmarshal(wd.Contents, got)
+		require.NoError(t, err, "cannot proto-unmarshal data")
 		if got.Name == "test_database_new" {
 			// good value
 			continue
 		}
-		t.Fatalf("got unknown Database waiting for deletion: %v", got)
+		require.Equal(t, "test_database_new", got.Name, "got unknown Database waiting for deletion: %v", got)
 	}
 
 	// We now have to stop watching. This doesn't automatically
@@ -379,30 +367,29 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topo.Store) {
 	for {
 		wd, ok := <-changes
 		if !ok {
-			t.Fatalf("watch channel unexpectedly closed")
+			require.Fail(t, "watch channel unexpectedly closed")
 		}
 		if errors.Is(wd.Err, &topo.TopoError{Code: topo.Interrupted}) {
 			// good
 			break
 		}
 		if wd.Err != nil {
-			t.Fatalf("bad error returned for cancellation: %v", wd.Err)
+			require.NoError(t, wd.Err, "unexpected error returned for cancellation")
 		}
 		// we got something, better be the right value
 		got := &clustermetadatapb.Database{}
-		if err := proto.Unmarshal(wd.Contents, got); err != nil {
-			t.Fatalf("cannot proto-unmarshal data: %v", err)
-		}
+		err := proto.Unmarshal(wd.Contents, got)
+		require.NoError(t, err, "cannot proto-unmarshal data")
 		if got.Name == "test_database" {
 			// good value
 			continue
 		}
-		t.Fatalf("got unknown Database waiting for deletion: %v", got)
+		require.Equal(t, "test_database_new", got.Name, "got unknown Database waiting for deletion: %v", got)
 	}
 
 	// Now the channel should be closed.
 	if wd, ok := <-changes; ok {
-		t.Fatalf("got unexpected event after error: %v", wd)
+		require.Fail(t, "got unexpected event after error: %v", wd)
 	}
 
 	// And calling cancel() again should just work.

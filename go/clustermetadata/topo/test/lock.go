@@ -23,6 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -36,14 +37,11 @@ var timeUntilLockIsTaken = 10 * time.Millisecond
 // checkLock checks we can lock / unlock as expected. It's using a database
 // as the lock target.
 func checkLock(t *testing.T, ctx context.Context, ts topo.Store) {
-	if err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{}); err != nil {
-		t.Fatalf("CreateDatabase: %v", err)
-	}
+	err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{})
+	require.NoError(t, err, "CreateDatabase failed")
 
 	conn, err := ts.ConnForCell(context.Background(), topo.GlobalCell)
-	if err != nil {
-		t.Fatalf("ConnForCell(global) failed: %v", err)
-	}
+	require.NoError(t, err, "ConnForCell(global) failed")
 
 	t.Log("===      checkLockTimeout")
 	checkLockTimeout(ctx, t, conn)
@@ -55,16 +53,12 @@ func checkLock(t *testing.T, ctx context.Context, ts topo.Store) {
 func checkLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 	databasePath := path.Join(topo.DatabasesPath, "test_database")
 	lockDescriptor, err := conn.Lock(ctx, databasePath, "")
-	if err != nil {
-		t.Fatalf("Lock: %v", err)
-	}
+	require.NoError(t, err, "Lock failed")
 
 	// We have the lock, list the database directory.
 	// It should not contain anything, except Ephemeral files.
 	entries, err := conn.ListDir(ctx, databasePath, true /*full*/)
-	if err != nil {
-		t.Fatalf("Listdir(%v) failed: %v", databasePath, err)
-	}
+	require.NoError(t, err, "ListDir(%v) failed", databasePath)
 	for _, e := range entries {
 		if e.Name == "Database" {
 			continue
@@ -76,23 +70,20 @@ func checkLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 		// Non-ephemeral entries better have only ephemeral children.
 		p := path.Join(databasePath, e.Name)
 		entries, err := conn.ListDir(ctx, p, true /*full*/)
-		if err != nil {
-			t.Fatalf("Listdir(%v) failed: %v", p, err)
-		}
+		require.NoError(t, err, "ListDir(%v) failed", p)
 		for _, e := range entries {
 			if e.Ephemeral {
 				t.Logf("skipping ephemeral node %v in %v", e, p)
 			} else {
-				t.Errorf("Entry in %v has non-ephemeral DirEntry: %v", p, e)
+				assert.Fail(t, "Entry in %v has non-ephemeral DirEntry: %v", p, e)
 			}
 		}
 	}
 
 	// test we can't take the lock again
 	fastCtx, cancel := context.WithTimeout(ctx, timeUntilLockIsTaken)
-	if _, err := conn.Lock(fastCtx, databasePath, "again"); !errors.Is(err, &topo.TopoError{Code: topo.Timeout}) {
-		t.Fatalf("Lock(again): %v", err)
-	}
+	_, err = conn.Lock(fastCtx, databasePath, "again")
+	assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.Timeout}), "Lock(again) should return Timeout error, got: %v", err)
 	cancel()
 
 	// test we can interrupt taking the lock
@@ -101,22 +92,18 @@ func checkLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 		time.Sleep(timeUntilLockIsTaken)
 		cancel()
 	}()
-	if _, err := conn.Lock(interruptCtx, databasePath, "interrupted"); !errors.Is(err, &topo.TopoError{Code: topo.Interrupted}) {
-		t.Fatalf("Lock(interrupted): %v", err)
-	}
+	_, err = conn.Lock(interruptCtx, databasePath, "interrupted")
+	assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.Interrupted}), "Lock(interrupted) should return Interrupted error, got: %v", err)
 
-	if err := lockDescriptor.Check(ctx); err != nil {
-		t.Errorf("Check(): %v", err)
-	}
+	err = lockDescriptor.Check(ctx)
+	assert.NoError(t, err, "Check() failed")
 
-	if err := lockDescriptor.Unlock(ctx); err != nil {
-		t.Fatalf("Unlock(): %v", err)
-	}
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock() failed")
 
 	// test we can't unlock again
-	if err := lockDescriptor.Unlock(ctx); err == nil {
-		t.Fatalf("Unlock(again) worked")
-	}
+	err = lockDescriptor.Unlock(ctx)
+	assert.Error(t, err, "Unlock(again) should fail")
 }
 
 // checkLockUnblocks makes sure that a routine waiting on a lock
@@ -130,20 +117,15 @@ func checkLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
 	go func() {
 		<-unblock
 		lockDescriptor, err := conn.Lock(ctx, databasePath, "unblocks")
-		if err != nil {
-			t.Errorf("Lock(test_database) failed: %v", err)
-		}
-		if err = lockDescriptor.Unlock(ctx); err != nil {
-			t.Errorf("Unlock(test_database): %v", err)
-		}
+		require.NoError(t, err, "Lock(test_database) failed")
+		err = lockDescriptor.Unlock(ctx)
+		require.NoError(t, err, "Unlock(test_database) failed")
 		close(finished)
 	}()
 
 	// Lock the database.
 	lockDescriptor2, err := conn.Lock(ctx, databasePath, "")
-	if err != nil {
-		t.Fatalf("Lock(test_database) failed: %v", err)
-	}
+	require.NoError(t, err, "Lock(test_database) failed")
 
 	// unblock the go routine so it starts waiting
 	close(unblock)
@@ -151,15 +133,14 @@ func checkLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
 	// sleep for a while so we're sure the go routine is blocking
 	time.Sleep(timeUntilLockIsTaken)
 
-	if err = lockDescriptor2.Unlock(ctx); err != nil {
-		t.Fatalf("Unlock(test_database): %v", err)
-	}
+	err = lockDescriptor2.Unlock(ctx)
+	require.NoError(t, err, "Unlock(test_database) failed")
 
 	timeout := time.After(10 * time.Second)
 	select {
 	case <-finished:
 	case <-timeout:
-		t.Fatalf("Unlock(test_database) timed out")
+		require.Fail(t, "Unlock(test_database) timed out")
 	}
 }
 
@@ -167,22 +148,17 @@ func checkLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
 // LockName doesn't require the path to exist and has a static 24-hour TTL.
 func checkLockName(t *testing.T, ctx context.Context, ts topo.Store) {
 	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
-	if err != nil {
-		t.Fatalf("ConnForCell(global) failed: %v", err)
-	}
+	require.NoError(t, err, "ConnForCell(global) failed")
 
 	// Use a non-existent path since LockName doesn't require it to exist
 	lockPath := "test_lock_name_path"
 	lockDescriptor, err := conn.LockName(ctx, lockPath, "")
-	if err != nil {
-		t.Fatalf("LockName: %v", err)
-	}
+	require.NoError(t, err, "LockName failed")
 
 	// We should not be able to take the same named lock again
 	fastCtx, cancel := context.WithTimeout(ctx, timeUntilLockIsTaken)
-	if _, err := conn.LockName(fastCtx, lockPath, "again"); !errors.Is(err, &topo.TopoError{Code: topo.Timeout}) {
-		t.Fatalf("LockName(again): %v", err)
-	}
+	_, err = conn.LockName(fastCtx, lockPath, "again")
+	assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.Timeout}), "LockName(again) should return Timeout error, got: %v", err)
 	cancel()
 
 	// test we can interrupt taking the lock
@@ -191,35 +167,28 @@ func checkLockName(t *testing.T, ctx context.Context, ts topo.Store) {
 		time.Sleep(timeUntilLockIsTaken)
 		cancel()
 	}()
-	if _, err := conn.LockName(interruptCtx, lockPath, "interrupted"); !errors.Is(err, &topo.TopoError{Code: topo.Interrupted}) {
-		t.Fatalf("LockName(interrupted): %v", err)
-	}
+	_, err = conn.LockName(interruptCtx, lockPath, "interrupted")
+	assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.Interrupted}), "LockName(interrupted) should return Interrupted error, got: %v", err)
 
-	if err := lockDescriptor.Check(ctx); err != nil {
-		t.Errorf("Check(): %v", err)
-	}
+	err = lockDescriptor.Check(ctx)
+	assert.NoError(t, err, "Check() failed")
 
-	if err := lockDescriptor.Unlock(ctx); err != nil {
-		t.Fatalf("Unlock(): %v", err)
-	}
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock() failed")
 
 	// test we can't unlock again
-	if err := lockDescriptor.Unlock(ctx); err == nil {
-		t.Fatalf("Unlock(again) worked")
-	}
+	err = lockDescriptor.Unlock(ctx)
+	assert.Error(t, err, "Unlock(again) should fail")
 }
 
 // checkTryLock checks if we can lock / unlock as expected. It's using a database
 // as the lock target.
 func checkTryLock(t *testing.T, ctx context.Context, ts topo.Store) {
-	if err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{}); err != nil {
-		require.Fail(t, "CreateDatabase fail", err.Error())
-	}
+	err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{})
+	require.NoError(t, err, "CreateDatabase failed")
 
 	conn, err := ts.ConnForCell(context.Background(), topo.GlobalCell)
-	if err != nil {
-		require.Fail(t, "ConnForCell(global) failed", err.Error())
-	}
+	require.NoError(t, err, "ConnForCell(global) failed")
 
 	t.Log("===      checkTryLockTimeout")
 	checkTryLockTimeout(ctx, t, conn)
@@ -232,16 +201,12 @@ func checkTryLock(t *testing.T, ctx context.Context, ts topo.Store) {
 func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 	databasePath := path.Join(topo.DatabasesPath, "test_database")
 	lockDescriptor, err := conn.TryLock(ctx, databasePath, "")
-	if err != nil {
-		require.Fail(t, "TryLock failed", err.Error())
-	}
+	require.NoError(t, err, "TryLock failed")
 
 	// We have the lock, list the cell location directory.
 	// It should not contain anything, except Ephemeral files.
 	entries, err := conn.ListDir(ctx, databasePath, true /*full*/)
-	if err != nil {
-		require.Fail(t, "ListDir failed: %v", err.Error())
-	}
+	require.NoError(t, err, "ListDir failed")
 	for _, e := range entries {
 		if e.Name == "Database" {
 			continue
@@ -253,9 +218,7 @@ func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 		// Non-ephemeral entries better have only ephemeral children.
 		p := path.Join(databasePath, e.Name)
 		entries, err := conn.ListDir(ctx, p, true /*full*/)
-		if err != nil {
-			require.Fail(t, "ListDir failed", err.Error())
-		}
+		require.NoError(t, err, "ListDir failed")
 		for _, e := range entries {
 			if e.Ephemeral {
 				t.Logf("skipping ephemeral node %v in %v", e, p)
@@ -267,9 +230,8 @@ func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 
 	// We should not be able to take the lock again. It should throw `NodeExists` error.
 	fastCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	if _, err := conn.TryLock(fastCtx, databasePath, "again"); !errors.Is(err, &topo.TopoError{Code: topo.NodeExists}) {
-		require.Fail(t, "TryLock failed", err.Error())
-	}
+	_, err = conn.TryLock(fastCtx, databasePath, "again")
+	assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeExists}), "TryLock should return NodeExists error, got: %v", err)
 	cancel()
 
 	// test we can interrupt taking the lock
@@ -288,16 +250,15 @@ func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 	// and expect `context canceled` error in next iteration of `for` loop.
 	for {
 		if time.Now().After(waitUntil) {
-			t.Fatalf("Unlock(test_database) timed out")
+			require.Fail(t, "Unlock(test_database) timed out")
 		}
 		// we expect context to fail with `context canceled` error
 		if interruptCtx.Err() != nil {
 			require.ErrorContains(t, interruptCtx.Err(), "context canceled")
 			break
 		}
-		if _, err := conn.TryLock(interruptCtx, databasePath, "interrupted"); !errors.Is(err, &topo.TopoError{Code: topo.NodeExists}) {
-			require.Fail(t, "TryLock failed", err.Error())
-		}
+		_, err := conn.TryLock(interruptCtx, databasePath, "interrupted")
+		assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeExists}), "TryLock should return NodeExists error, got: %v", err)
 		if firstTime {
 			close(finished)
 			firstTime = false
@@ -305,13 +266,11 @@ func checkTryLockTimeout(ctx context.Context, t *testing.T, conn topo.Conn) {
 		time.Sleep(1 * time.Second)
 	}
 
-	if err := lockDescriptor.Check(ctx); err != nil {
-		t.Errorf("Check(): %v", err)
-	}
+	err = lockDescriptor.Check(ctx)
+	assert.NoError(t, err, "Check() failed")
 
-	if err := lockDescriptor.Unlock(ctx); err != nil {
-		require.Fail(t, "Unlock failed", err.Error())
-	}
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock failed")
 
 	// test we can't unlock again
 	if err := lockDescriptor.Unlock(ctx); err == nil {
@@ -335,13 +294,11 @@ func checkTryLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
 		for time.Now().Before(waitUntil) {
 			lockDescriptor, err := conn.TryLock(ctx, cellPath, "unblocks")
 			if err != nil {
-				if !errors.Is(err, &topo.TopoError{Code: topo.NodeExists}) {
-					require.Fail(t, "expected node exists during trylock", err.Error())
-				}
+				assert.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeExists}), "expected node exists during trylock, got: %v", err)
 				time.Sleep(1 * time.Second)
 			} else {
 				if err = lockDescriptor.Unlock(ctx); err != nil {
-					require.Fail(t, "Unlock(test_database) failed", err.Error())
+					require.NoError(t, err, "Unlock(test_database) failed")
 				}
 				close(finished)
 				break
@@ -352,14 +309,14 @@ func checkTryLockUnblocks(ctx context.Context, t *testing.T, conn topo.Conn) {
 	// Lock the database.
 	lockDescriptor2, err := conn.TryLock(ctx, cellPath, "")
 	if err != nil {
-		require.Fail(t, "Lock(test_database) failed", err.Error())
+		require.NoError(t, err, "Lock(test_database) failed")
 	}
 
 	// unblock the go routine so it starts waiting
 	close(unblock)
 
 	if err = lockDescriptor2.Unlock(ctx); err != nil {
-		require.Fail(t, "Unlock(test_database) failed", err.Error())
+		require.NoError(t, err, "Unlock(test_database) failed")
 	}
 
 	timeout := time.After(2 * duration)
