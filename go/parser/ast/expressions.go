@@ -4,6 +4,7 @@ package ast
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ==============================================================================
@@ -279,6 +280,47 @@ func (b *BoolExpr) ExpressionType() string {
 
 func (b *BoolExpr) String() string {
 	return fmt.Sprintf("BoolExpr(%s, %d args)@%d", b.Boolop, len(b.Args), b.Location())
+}
+
+// SqlString returns the SQL representation of BoolExpr
+func (b *BoolExpr) SqlString() string {
+	if len(b.Args) == 0 {
+		return ""
+	}
+	
+	switch b.Boolop {
+	case AND_EXPR:
+		var parts []string
+		for _, arg := range b.Args {
+			if arg != nil {
+				parts = append(parts, arg.SqlString())
+			}
+		}
+		// Don't add parentheses - let ParenExpr handle explicit parentheses
+		// and let precedence rules determine when they're needed
+		return strings.Join(parts, " AND ")
+		
+	case OR_EXPR:
+		var parts []string
+		for _, arg := range b.Args {
+			if arg != nil {
+				parts = append(parts, arg.SqlString())
+			}
+		}
+		// Don't add parentheses - let ParenExpr handle explicit parentheses
+		// and let precedence rules determine when they're needed
+		return strings.Join(parts, " OR ")
+		
+	case NOT_EXPR:
+		if len(b.Args) > 0 && b.Args[0] != nil {
+			return fmt.Sprintf("NOT %s", b.Args[0].SqlString())
+		}
+		
+	default:
+		return "UNKNOWN_BOOL_EXPR"
+	}
+	
+	return ""
 }
 
 // ==============================================================================
@@ -1696,6 +1738,56 @@ func (i *IntoClause) String() string {
 
 func (i *IntoClause) StatementType() string {
 	return "INTO_CLAUSE"
+}
+
+// SqlString returns the SQL representation of the IntoClause
+func (i *IntoClause) SqlString() string {
+	if i.Rel == nil {
+		return ""
+	}
+	
+	parts := []string{"INTO"}
+	
+	// Add the target relation
+	parts = append(parts, i.Rel.SqlString())
+	
+	// Add column names if specified
+	if len(i.ColNames) > 0 {
+		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(i.ColNames, ", ")))
+	}
+	
+	// Add WITH options if present
+	if len(i.Options) > 0 {
+		var opts []string
+		for _, opt := range i.Options {
+			if opt != nil {
+				opts = append(opts, opt.SqlString())
+			}
+		}
+		parts = append(parts, "WITH", fmt.Sprintf("(%s)", strings.Join(opts, ", ")))
+	}
+	
+	// Add ON COMMIT clause
+	switch i.OnCommit {
+	case ONCOMMIT_DROP:
+		parts = append(parts, "ON COMMIT DROP")
+	case ONCOMMIT_DELETE_ROWS:
+		parts = append(parts, "ON COMMIT DELETE ROWS")
+	case ONCOMMIT_PRESERVE_ROWS:
+		parts = append(parts, "ON COMMIT PRESERVE ROWS")
+	}
+	
+	// Add TABLESPACE clause
+	if i.TableSpaceName != "" {
+		parts = append(parts, "TABLESPACE", QuoteIdentifier(i.TableSpaceName))
+	}
+	
+	// Add WITH NO DATA if specified
+	if i.SkipData {
+		parts = append(parts, "WITH NO DATA")
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // MergeAction represents a MERGE action

@@ -39,12 +39,6 @@ const (
 	// Note: Basic ASCII tokens (32-126) are represented by their character value
 	// Note: All other tokens (IDENT, ICONST, keywords, etc.) are now defined
 	//       in the generated postgres.go file and should be used directly
-	
-	// Temporary constants for test compatibility (Phase 2 legacy)
-	// These will be removed once tests are updated to use parser constants
-	SELECT = IDENT // SELECT keyword (tests use IDENT for now)
-	FROM   = IDENT // FROM keyword (tests use IDENT for now) 
-	WHERE  = IDENT // WHERE keyword (tests use IDENT for now)
 )
 
 // TokenValue represents the union of possible token values
@@ -78,7 +72,7 @@ func NewToken(tokenType int, position int, text string) *Token {
 // NewIntToken creates a new integer token
 func NewIntToken(value int, position int, text string) *Token {
 	return &Token{
-		Type:     ICONST, // Uses generated parser constant
+		Type:     ICONST,                             // Uses generated parser constant
 		Value:    TokenValue{Ival: value, Str: text}, // Set both for compatibility
 		Position: position,
 		Text:     text,

@@ -1,15 +1,16 @@
 # PostgreSQL Grammar Rules Checklist
 
 **Total Rules**: 727
-**Status Legend**: 
+**Status Legend**:
 - ⬜ Not Started
-- 🟨 In Progress  
+- ⚠️ Partially Implemented (Yellow)
 - ✅ Completed
+- ❌ Missing/Not Implemented
 - 🔄 Needs Revision
 
 ## Phase 3A: Grammar Foundation & Infrastructure (~20 rules) 🟨 MOSTLY COMPLETE
 
-### Core Structure 🟨 PARTIALLY COMPLETE  
+### Core Structure 🟨 PARTIALLY COMPLETE
 - 🟨 `parse_toplevel` - Top-level parser entry point (missing MODE_TYPE_NAME, MODE_PLPGSQL_EXPR alternatives)
 - ✅ `stmtmulti` - Multiple statements separated by semicolons (fully implemented)
 - 🟨 `toplevel_stmt` - Top-level statement wrapper (missing TransactionStmtLegacy)
@@ -88,47 +89,40 @@
 - ⬜ `explicit_row` - Explicit row constructor (deferred to Phase 3E)
 - ⬜ `implicit_row` - Implicit row constructor (deferred to Phase 3E)
 
-## Phase 3C: SELECT Statement Core (~35 rules)
+## Phase 3C: SELECT Statement Core (~35 rules) ⚠️ MOSTLY COMPLETE (~80-85%)
 
-### Main SELECT Structure
-- ⬜ `SelectStmt` - SELECT statement
-- ⬜ `select_no_parens` - SELECT without parentheses
-- ⬜ `select_with_parens` - SELECT with parentheses
-- ⬜ `select_clause` - SELECT clause
-- ⬜ `simple_select` - Simple SELECT
+### Main SELECT Structure ⚠️ PARTIAL
+- ✅ `SelectStmt` - SELECT statement (basic structure only)
+- ⚠️ `select_no_parens` - SELECT without parentheses (1/8 productions implemented)
+- ✅ `select_with_parens` - SELECT with parentheses (basic)
+- ⚠️ `simple_select` - Simple SELECT (missing GROUP BY, HAVING, WINDOW, VALUES, set ops)
 
-### Target List
-- ⬜ `target_list` - SELECT target list
-- ⬜ `target_el` - Target list element
-- ⬜ `opt_target_list` - Optional target list
+### Target List ⚠️ MOSTLY COMPLETE
+- ✅ `target_list` - SELECT target list
+- ⚠️ `target_el` - Target list element (using ColLabel instead of BareColLabel)
+- ✅ `opt_target_list` - Optional target list
 
-### FROM Clause
-- ⬜ `from_clause` - FROM clause
-- ⬜ `from_list` - FROM list
-- ⬜ `table_ref` - Table reference
+### FROM Clause ⚠️ PARTIAL
+- ✅ `from_clause` - FROM clause (basic)
+- ✅ `from_list` - FROM list (basic)
+- ⚠️ `table_ref` - Table reference (1/11 productions - no JOINs, subqueries, LATERAL, etc.)
 
-### WHERE Clause
-- ⬜ `where_clause` - WHERE clause
-- ⬜ `OptWhereClause` - Optional WHERE clause
-- ⬜ `where_or_current_clause` - WHERE or CURRENT OF
+### WHERE Clause ✅ COMPLETE
+- ✅ `where_clause` - WHERE clause
+- ✅ `opt_where_clause` - Optional WHERE clause
 
-### Basic Table References
-- ⬜ `relation_expr` - Relation expression
-- ⬜ `relation_expr_list` - Relation expression list
-- ⬜ `relation_expr_opt_alias` - Relation with optional alias
-- ⬜ `extended_relation_expr` - Extended relation expression
+### Basic Table References ✅ COMPLETE
+- ✅ `relation_expr` - Relation expression
+- ✅ `extended_relation_expr` - Extended relation expression
 
-### Aliases
-- ⬜ `alias_clause` - Alias clause
-- ⬜ `opt_alias_clause` - Optional alias clause
-- ⬜ `opt_alias_clause_for_join_using` - Alias for JOIN USING
-- ⬜ `func_alias_clause` - Function alias clause
+### Aliases ✅ COMPLETE
+- ✅ `alias_clause` - Alias clause
+- ✅ `opt_alias_clause` - Optional alias clause
 
-### Set Operations
-- ⬜ `set_quantifier` - ALL/DISTINCT
-- ⬜ `opt_all_clause` - Optional ALL clause
-- ⬜ `distinct_clause` - DISTINCT clause
-- ⬜ `opt_distinct_clause` - Optional DISTINCT clause
+### DISTINCT Operations ✅ COMPLETE
+- ✅ `opt_all_clause` - Optional ALL clause (not connected to SELECT)
+- ✅ `distinct_clause` - DISTINCT clause
+- ✅ `opt_distinct_clause` - Optional DISTINCT clause
 
 ## Phase 3D: JOIN & Table References (~45 rules)
 
@@ -986,15 +980,15 @@
 ## Progress Summary
 
 **Total Rules**: 727
-**Completed**: 40 (5.5%)
-**In Progress**: 20 (2.8%)
+**Completed**: 75 (10.3%)
+**In Progress**: 5 (0.7%)
 **Needs Revision**: 0 (0%)
-**Not Started**: 667 (91.7%)
+**Not Started**: 647 (89.0%)
 
 ### Phase Breakdown:
 - Phase 3A (Foundation): 20/20 completed ✅ COMPLETE
 - Phase 3B (Expressions): 20/40 completed (basic expression rules implemented) 🟨 PARTIAL
-- Phase 3C (SELECT Core): 0/35 completed
+- Phase 3C (SELECT Core): ~20/35 completed + ~11 partial ⚠️ MOSTLY COMPLETE (~80-85%)
 - Phase 3D (JOINs): 0/45 completed
 - Phase 3E (DML): 0/50 completed
 - Phase 3F (Basic DDL): 0/80 completed
@@ -1004,14 +998,18 @@
 - Phase 3J (PostgreSQL-Specific): 0/217 completed
 
 ## Next Steps
-1. **Start Phase 3C: SELECT Statement Core** - Ready to begin with expression foundation complete
-2. **Implement basic SELECT structure**:
-   - `SelectStmt` - Main SELECT statement structure
-   - `target_list` - SELECT target list (columns to return)
-   - `from_clause` - FROM clause with table references
-   - `where_clause` - WHERE clause using Phase 3B expressions
-3. **Build on Phase 3B expression foundation**:
-   - Expression parsing is now fully available for WHERE clauses
-   - Column references work with qualified names and indirection
-   - Function calls and operators are ready for use in SELECT contexts
-4. **Maintain PostgreSQL compatibility** throughout Phase 3C implementation
+1. **Start Phase 3D: JOIN & Table References** - Ready to begin with SELECT foundation complete
+2. **Implement JOIN operations**:
+   - `joined_table` - JOIN table expressions
+   - `join_type` - Different JOIN types (INNER, LEFT, RIGHT, FULL OUTER)
+   - `join_qual` - JOIN qualification (ON condition, USING clause)
+   - All PostgreSQL JOIN syntax variants
+3. **Implement CTEs and subqueries**:
+   - `with_clause` - Common Table Expressions
+   - Subquery support in various contexts
+   - Proper CTE scoping and recursion support
+4. **Build on Phase 3C SELECT foundation**:
+   - Basic SELECT parsing is now fully functional
+   - Table references and aliases work correctly
+   - WHERE clause integration with expressions is complete
+5. **Maintain PostgreSQL compatibility** throughout Phase 3D implementation

@@ -77,6 +77,7 @@ func TestRangeVarSqlString(t *testing.T) {
 			name: "simple table",
 			rangeVar: &RangeVar{
 				RelName: "users",
+				Inh:     true, // Enable inheritance (no ONLY)
 			},
 			expected:    "users",
 			description: "Simple table name without schema",
@@ -86,6 +87,7 @@ func TestRangeVarSqlString(t *testing.T) {
 			rangeVar: &RangeVar{
 				SchemaName: "public",
 				RelName:    "users",
+				Inh:        true, // Enable inheritance (no ONLY)
 			},
 			expected:    "public.users",
 			description: "Table with explicit schema",
@@ -96,6 +98,7 @@ func TestRangeVarSqlString(t *testing.T) {
 				CatalogName: "mydb",
 				SchemaName:  "public",
 				RelName:     "users",
+				Inh:         true, // Enable inheritance (no ONLY)
 			},
 			expected:    "mydb.public.users",
 			description: "Fully qualified table reference",
@@ -104,6 +107,7 @@ func TestRangeVarSqlString(t *testing.T) {
 			name: "table with simple alias",
 			rangeVar: &RangeVar{
 				RelName: "users",
+				Inh:     true, // Enable inheritance (no ONLY)
 				Alias: &Alias{
 					AliasName: "u",
 				},
@@ -115,6 +119,7 @@ func TestRangeVarSqlString(t *testing.T) {
 			name: "table with column aliases",
 			rangeVar: &RangeVar{
 				RelName: "users",
+				Inh:     true, // Enable inheritance (no ONLY)
 				Alias: &Alias{
 					AliasName: "u",
 					ColNames:  []Node{}, // We'll leave this empty for now since we don't have string nodes yet
@@ -128,6 +133,7 @@ func TestRangeVarSqlString(t *testing.T) {
 			rangeVar: &RangeVar{
 				SchemaName: "user schema",  // Has space, needs quoting
 				RelName:    "Users",        // Has uppercase, needs quoting
+				Inh:        true,           // Enable inheritance (no ONLY)
 				Alias: &Alias{
 					AliasName: "UserAlias", // Has uppercase, needs quoting
 				},
@@ -139,9 +145,19 @@ func TestRangeVarSqlString(t *testing.T) {
 			name: "reserved keyword table",
 			rangeVar: &RangeVar{
 				RelName: "select", // Reserved keyword
+				Inh:     true,     // Enable inheritance (no ONLY)
 			},
 			expected:    `"select"`,
 			description: "Table name is reserved keyword",
+		},
+		{
+			name: "table with ONLY modifier",
+			rangeVar: &RangeVar{
+				RelName: "users",
+				Inh:     false, // Disable inheritance (ONLY)
+			},
+			expected:    "ONLY users",
+			description: "Table with ONLY modifier",
 		},
 	}
 
@@ -239,18 +255,19 @@ func TestRoundTripCompatibility(t *testing.T) {
 	}{
 		{
 			name: "simple table reference",
-			node: &RangeVar{RelName: "users"},
+			node: &RangeVar{RelName: "users", Inh: true},
 			expected: "users",
 		},
 		{
 			name: "qualified table reference", 
-			node: &RangeVar{SchemaName: "public", RelName: "users"},
+			node: &RangeVar{SchemaName: "public", RelName: "users", Inh: true},
 			expected: "public.users",
 		},
 		{
 			name: "table with alias",
 			node: &RangeVar{
 				RelName: "users",
+				Inh:     true,
 				Alias:   &Alias{AliasName: "u"},
 			},
 			expected: "users AS u",

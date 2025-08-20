@@ -85,7 +85,7 @@ var Keywords = []KeywordInfo{
 	{"default", IDENT, ReservedKeyword, true},    // Will be replaced with DEFAULT token in Phase 3
 	{"deferrable", IDENT, ReservedKeyword, true}, // Will be replaced with DEFERRABLE token in Phase 3
 	{"desc", IDENT, ReservedKeyword, true},       // Will be replaced with DESC token in Phase 3
-	{"distinct", IDENT, ReservedKeyword, true},   // Will be replaced with DISTINCT token in Phase 3
+	{"distinct", DISTINCT, ReservedKeyword, true}, // Phase 3C: DISTINCT clause
 	{"do", IDENT, ReservedKeyword, true},         // Will be replaced with DO token in Phase 3
 
 	{"else", IDENT, ReservedKeyword, true},   // Will be replaced with ELSE token in Phase 3
@@ -98,7 +98,7 @@ var Keywords = []KeywordInfo{
 	{"float", IDENT, ColNameKeyword, true},     // Will be replaced with FLOAT_P token in Phase 3
 	{"for", IDENT, ReservedKeyword, true},      // Will be replaced with FOR token in Phase 3
 	{"foreign", IDENT, ReservedKeyword, true},  // Will be replaced with FOREIGN token in Phase 3
-	{"from", IDENT, ReservedKeyword, true},      // FROM not defined in Phase 3A grammar
+	{"from", FROM, ReservedKeyword, true},       // Phase 3C: FROM clause
 	{"full", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with FULL token in Phase 3
 
 	{"grant", IDENT, ReservedKeyword, true}, // Will be replaced with GRANT token in Phase 3
@@ -113,7 +113,7 @@ var Keywords = []KeywordInfo{
 	{"int", IDENT, ColNameKeyword, true},        // Will be replaced with INT_P token in Phase 3
 	{"integer", IDENT, ColNameKeyword, true},    // Will be replaced with INTEGER token in Phase 3
 	{"intersect", IDENT, ReservedKeyword, true}, // Will be replaced with INTERSECT token in Phase 3
-	{"into", IDENT, ReservedKeyword, true},      // Will be replaced with INTO token in Phase 3
+	{"into", INTO, ReservedKeyword, true},       // Phase 3C: INTO clause
 	{"is", IDENT, TypeFuncNameKeyword, true},    // Will be replaced with IS token in Phase 3
 
 	{"join", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with JOIN token in Phase 3
@@ -129,8 +129,8 @@ var Keywords = []KeywordInfo{
 	{"numeric", NUMERIC, ColNameKeyword, true},
 
 	{"offset", IDENT, ReservedKeyword, true},    // Will be replaced with OFFSET token in Phase 3
-	{"on", IDENT, ReservedKeyword, true},        // Will be replaced with ON token in Phase 3
-	{"only", IDENT, ReservedKeyword, true},      // Will be replaced with ONLY token in Phase 3
+	{"on", ON, ReservedKeyword, true},           // Phase 3C: ON keyword for DISTINCT ON
+	{"only", ONLY, ReservedKeyword, true},       // Phase 3C: ONLY keyword
 	{"or", OR, ReservedKeyword, true},
 	{"order", IDENT, ReservedKeyword, true},     // Will be replaced with ORDER token in Phase 3
 	{"outer", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with OUTER_P token in Phase 3
@@ -141,14 +141,14 @@ var Keywords = []KeywordInfo{
 	{"references", IDENT, ReservedKeyword, true}, // Will be replaced with REFERENCES token in Phase 3
 	{"right", IDENT, TypeFuncNameKeyword, true},  // Will be replaced with RIGHT token in Phase 3
 
-	{"select", IDENT, ReservedKeyword, true},      // SELECT not defined in Phase 3A grammar
+	{"select", SELECT, ReservedKeyword, true},     // Phase 3C: SELECT statement
 	{"session_user", IDENT, ReservedKeyword, true}, // Will be replaced with SESSION_USER token in Phase 3
 	{"smallint", IDENT, ColNameKeyword, true},      // Will be replaced with SMALLINT token in Phase 3
 	{"some", IDENT, ReservedKeyword, true},         // Will be replaced with SOME token in Phase 3
 	{"symmetric", IDENT, ReservedKeyword, true},    // Will be replaced with SYMMETRIC token in Phase 3
 	{"system_user", IDENT, ReservedKeyword, true},  // Will be replaced with SYSTEM_USER token in Phase 3
 
-	{"table", IDENT, ReservedKeyword, true},    // Will be replaced with TABLE token in Phase 3
+	{"table", TABLE, ReservedKeyword, true},    // Phase 3C: TABLE keyword
 	{"then", IDENT, ReservedKeyword, true},     // Will be replaced with THEN token in Phase 3
 	{"time", IDENT, ColNameKeyword, true},      // Will be replaced with TIME token in Phase 3
 	{"timestamp", IDENT, ColNameKeyword, true}, // Will be replaced with TIMESTAMP token in Phase 3
@@ -166,7 +166,7 @@ var Keywords = []KeywordInfo{
 	{"varying", IDENT, UnreservedKeyword, true}, // Will be replaced with VARYING token in Phase 3
 
 	{"when", IDENT, ReservedKeyword, true},  // Will be replaced with WHEN token in Phase 3
-	{"where", IDENT, ReservedKeyword, true}, // WHERE not defined in Phase 3A grammar
+	{"where", WHERE, ReservedKeyword, true}, // Phase 3C: WHERE clause
 	{"with", WITH, ReservedKeyword, true},
 }
 

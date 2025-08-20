@@ -103,6 +103,11 @@ func (r *RangeVar) SqlString() string {
 	// Use utility function for qualified name formatting
 	result := FormatFullyQualifiedName(r.CatalogName, r.SchemaName, r.RelName)
 	
+	// Add ONLY prefix if inheritance is disabled
+	if !r.Inh {
+		result = "ONLY " + result
+	}
+	
 	// Add alias if present
 	if r.Alias != nil {
 		aliasStr := r.Alias.SqlString()
@@ -121,6 +126,7 @@ func NewRangeVar(relName string, schemaName, catalogName string) *RangeVar {
 		RelName:     relName,
 		SchemaName:  schemaName,
 		CatalogName: catalogName,
+		Inh:         true, // Default to inheritance enabled (no ONLY)
 	}
 }
 
@@ -208,6 +214,42 @@ func (rt *ResTarget) ExpressionType() string {
 	return "ResTarget"
 }
 
+// SqlString returns the SQL representation of the ResTarget
+func (r *ResTarget) SqlString() string {
+	if r.Val == nil {
+		return ""
+	}
+	
+	result := r.Val.SqlString()
+	
+	// Add indirection if present (e.g., array subscripts, field selection)
+	if len(r.Indirection) > 0 {
+		for _, ind := range r.Indirection {
+			if ind != nil {
+				// Handle different types of indirection
+				switch i := ind.(type) {
+				case *String:
+					// Field selection
+					result += "." + i.SVal
+				case *A_Indices:
+					// Array index or slice
+					result += i.SqlString()
+				default:
+					// Generic indirection
+					result += ind.SqlString()
+				}
+			}
+		}
+	}
+	
+	// Add alias if present
+	if r.Name != "" {
+		result += " AS " + QuoteIdentifier(r.Name)
+	}
+	
+	return result
+}
+
 // ==============================================================================
 // CORE QUERY STRUCTURE
 // ==============================================================================
@@ -291,7 +333,7 @@ func (q *Query) StatementType() string {
 type SelectStmt struct {
 	BaseNode
 	// Fields used in "leaf" SelectStmts - postgres/src/include/nodes/parsenodes.h:2120-2130
-	DistinctClause []*String    // NULL, list of DISTINCT ON exprs, or special marker for ALL
+	DistinctClause *NodeList    // NULL, list of DISTINCT ON exprs, or special marker for ALL
 	IntoClause     *IntoClause  // Target for SELECT INTO
 	TargetList     []*ResTarget // Target list
 	FromClause     []Node       // FROM clause
@@ -320,9 +362,10 @@ type SelectStmt struct {
 // NewSelectStmt creates a new SelectStmt node.
 func NewSelectStmt() *SelectStmt {
 	return &SelectStmt{
-		BaseNode:   BaseNode{Tag: T_SelectStmt},
-		TargetList: []*ResTarget{},
-		FromClause: []Node{},
+		BaseNode:       BaseNode{Tag: T_SelectStmt},
+		DistinctClause: nil,
+		TargetList:     []*ResTarget{},
+		FromClause:     []Node{},
 	}
 }
 
@@ -332,6 +375,188 @@ func (s *SelectStmt) String() string {
 
 func (s *SelectStmt) StatementType() string {
 	return "SELECT"
+}
+
+// SqlString returns the SQL representation of the SelectStmt
+func (s *SelectStmt) SqlString() string {
+	var parts []string
+	
+	// Handle set operations (UNION, INTERSECT, EXCEPT)
+	if s.Op != SETOP_NONE {
+		if s.Larg != nil {
+			parts = append(parts, s.Larg.SqlString())
+		}
+		
+		switch s.Op {
+		case SETOP_UNION:
+			if s.All {
+				parts = append(parts, "UNION ALL")
+			} else {
+				parts = append(parts, "UNION")
+			}
+		case SETOP_INTERSECT:
+			if s.All {
+				parts = append(parts, "INTERSECT ALL")
+			} else {
+				parts = append(parts, "INTERSECT")
+			}
+		case SETOP_EXCEPT:
+			if s.All {
+				parts = append(parts, "EXCEPT ALL")
+			} else {
+				parts = append(parts, "EXCEPT")
+			}
+		}
+		
+		if s.Rarg != nil {
+			parts = append(parts, s.Rarg.SqlString())
+		}
+		
+		return strings.Join(parts, " ")
+	}
+	
+	// Handle VALUES clause
+	if len(s.ValuesLists) > 0 {
+		var valueRows []string
+		for _, row := range s.ValuesLists {
+			var values []string
+			for _, val := range row {
+				values = append(values, val.SqlString())
+			}
+			valueRows = append(valueRows, fmt.Sprintf("(%s)", strings.Join(values, ", ")))
+		}
+		return fmt.Sprintf("VALUES %s", strings.Join(valueRows, ", "))
+	}
+	
+	// Regular SELECT statement
+	parts = append(parts, "SELECT")
+	
+	// DISTINCT clause
+	// Note: DistinctClause == nil means no DISTINCT
+	//       DistinctClause == &NodeList{Items: []} means plain DISTINCT  
+	//       DistinctClause == &NodeList{Items: [expr1, expr2]} means DISTINCT ON (...)
+	if s.DistinctClause != nil {
+		distinctParts := []string{"DISTINCT"}
+		
+		// Check if there are any expressions (means DISTINCT ON)
+		if len(s.DistinctClause.Items) > 0 {
+			var distinctOn []string
+			for _, d := range s.DistinctClause.Items {
+				if d != nil {
+					distinctOn = append(distinctOn, d.SqlString())
+				}
+			}
+			if len(distinctOn) > 0 {
+				distinctParts = append(distinctParts, fmt.Sprintf("ON (%s)", strings.Join(distinctOn, ", ")))
+			}
+		}
+		// Always add DISTINCT part if DistinctClause is not nil
+		parts = append(parts, strings.Join(distinctParts, " "))
+	}
+	
+	// Target list (what to select)
+	if len(s.TargetList) > 0 {
+		var targets []string
+		for _, target := range s.TargetList {
+			if target != nil {
+				targets = append(targets, target.SqlString())
+			}
+		}
+		parts = append(parts, strings.Join(targets, ", "))
+	} else {
+		parts = append(parts, "*")
+	}
+	
+	// INTO clause
+	if s.IntoClause != nil {
+		parts = append(parts, s.IntoClause.SqlString())
+	}
+	
+	// FROM clause
+	if len(s.FromClause) > 0 {
+		var fromItems []string
+		for _, from := range s.FromClause {
+			if from != nil {
+				fromItems = append(fromItems, from.SqlString())
+			}
+		}
+		parts = append(parts, "FROM", strings.Join(fromItems, ", "))
+	}
+	
+	// WHERE clause
+	if s.WhereClause != nil {
+		parts = append(parts, "WHERE", s.WhereClause.SqlString())
+	}
+	
+	// GROUP BY clause
+	if len(s.GroupClause) > 0 {
+		var groupItems []string
+		for _, group := range s.GroupClause {
+			if group != nil {
+				groupItems = append(groupItems, group.SqlString())
+			}
+		}
+		groupByStr := "GROUP BY"
+		if s.GroupDistinct {
+			groupByStr = "GROUP BY DISTINCT"
+		}
+		parts = append(parts, groupByStr, strings.Join(groupItems, ", "))
+	}
+	
+	// HAVING clause
+	if s.HavingClause != nil {
+		parts = append(parts, "HAVING", s.HavingClause.SqlString())
+	}
+	
+	// WINDOW clause
+	if len(s.WindowClause) > 0 {
+		var windowItems []string
+		for _, window := range s.WindowClause {
+			if window != nil {
+				windowItems = append(windowItems, window.SqlString())
+			}
+		}
+		parts = append(parts, "WINDOW", strings.Join(windowItems, ", "))
+	}
+	
+	// ORDER BY clause (from SortClause)
+	if len(s.SortClause) > 0 {
+		var sortItems []string
+		for _, sort := range s.SortClause {
+			if sort != nil {
+				sortItems = append(sortItems, sort.SqlString())
+			}
+		}
+		parts = append(parts, "ORDER BY", strings.Join(sortItems, ", "))
+	}
+	
+	// LIMIT clause
+	if s.LimitCount != nil {
+		parts = append(parts, "LIMIT", s.LimitCount.SqlString())
+	}
+	
+	// OFFSET clause
+	if s.LimitOffset != nil {
+		parts = append(parts, "OFFSET", s.LimitOffset.SqlString())
+	}
+	
+	// FOR UPDATE/SHARE clauses
+	if len(s.LockingClause) > 0 {
+		for _, locking := range s.LockingClause {
+			if locking != nil {
+				parts = append(parts, locking.SqlString())
+			}
+		}
+	}
+	
+	// WITH clause (CTEs)
+	if s.WithClause != nil {
+		// WITH clause typically comes first, so we need to prepend it
+		withStr := s.WithClause.SqlString()
+		return withStr + " " + strings.Join(parts, " ")
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // InsertStmt represents an INSERT statement.
@@ -679,6 +904,50 @@ func (cte *CommonTableExpr) String() string {
 		recursive = " RECURSIVE"
 	}
 	return fmt.Sprintf("CommonTableExpr(%s%s)", cte.Ctename, recursive)
+}
+
+// SqlString returns the SQL representation of the CommonTableExpr
+func (c *CommonTableExpr) SqlString() string {
+	parts := []string{QuoteIdentifier(c.Ctename)}
+	
+	// Add column names if specified
+	if len(c.Aliascolnames) > 0 {
+		var cols []string
+		for _, col := range c.Aliascolnames {
+			if col != nil {
+				cols = append(cols, col.SqlString())
+			}
+		}
+		parts[0] += fmt.Sprintf("(%s)", strings.Join(cols, ", "))
+	}
+	
+	// Add the CTE query
+	parts = append(parts, "AS")
+	
+	// Determine if materialized/not materialized
+	switch c.Ctematerialized {
+	case CTEMaterializeAlways:
+		parts = append(parts, "MATERIALIZED")
+	case CTEMaterializeNever:
+		parts = append(parts, "NOT MATERIALIZED")
+	}
+	
+	// Add the actual query (usually in parentheses)
+	if c.Ctequery != nil {
+		parts = append(parts, fmt.Sprintf("(%s)", c.Ctequery.SqlString()))
+	}
+	
+	// Add SEARCH clause if present
+	if c.SearchClause != nil {
+		parts = append(parts, c.SearchClause.SqlString())
+	}
+	
+	// Add CYCLE clause if present
+	if c.CycleClause != nil {
+		parts = append(parts, c.CycleClause.SqlString())
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // Placeholder structs for other query execution nodes implemented in query_execution_nodes.go

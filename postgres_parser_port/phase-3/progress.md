@@ -1,21 +1,22 @@
 # Phase 3 Progress Tracking
 
-**Phase**: Grammar & Parsing Implementation  
-**Started**: 2025-08-13  
-**Current Status**: Ready to Begin  
+**Phase**: Grammar & Parsing Implementation
+**Started**: 2025-08-13
+**Current Status**: Ready to Begin
 **Last Updated**: 2025-08-13
 
 ## Overview Status
 - **Total Grammar Rules**: 727
-- **Completed Rules**: 20 (2.7%)
-- **In Progress Rules**: 0 (0%)
-- **Current Phase**: 3A (Foundation) - Complete ✅
+- **Fully Completed Rules**: ~34 (4.7%)
+- **Partially Implemented Rules**: ~16 (2.2%)
+- **Current Phase**: 3C (SELECT Core) - ⚠️ PARTIALLY COMPLETE (~40-50%)
+- **Status**: Basic SELECT functionality works, but missing many PostgreSQL Phase 3C features
 
 ## Session History
 
 ### Session 1 (2025-08-13) - Planning Complete ✅
-**Participants**: Claude, Manan  
-**Duration**: Planning session  
+**Participants**: Claude, Manan
+**Duration**: Planning session
 **Goals**: Set up Phase 3 structure and planning documents
 
 **Completed**:
@@ -41,8 +42,8 @@
 ---
 
 ### Session 2 (2025-08-15) - Phase 3A Implementation Complete ✅
-**Participants**: Claude, Manan  
-**Duration**: Implementation session  
+**Participants**: Claude, Manan
+**Duration**: Implementation session
 **Goals**: Complete Phase 3A - Grammar Foundation & Infrastructure
 
 **Completed**:
@@ -79,16 +80,16 @@
 ---
 
 ### Session 3 (2025-08-15) - Phase 3B Implementation Complete ✅
-**Participants**: Claude, Manan  
-**Duration**: Implementation session  
+**Participants**: Claude, Manan
+**Duration**: Implementation session
 **Goals**: Complete Phase 3B - Basic Expression Grammar
 
 **Completed**:
 - ✅ Added Phase 3B expression keywords (AND_P, BETWEEN_P, CASE_P, etc.)
-- ✅ Implemented complete expression precedence hierarchy 
+- ✅ Implemented complete expression precedence hierarchy
 - ✅ Created full expression grammar hierarchy (a_expr, b_expr, c_expr)
 - ✅ Implemented all arithmetic operators (+, -, *, /, %, ^)
-- ✅ Added comparison operators (<, >, =, <=, >=, <>) 
+- ✅ Added comparison operators (<, >, =, <=, >=, <>)
 - ✅ Implemented logical operators (AND, OR, NOT)
 - ✅ Added constant expressions (integers, floats, strings, booleans, NULL)
 - ✅ Implemented column references with indirection support
@@ -115,14 +116,57 @@
 - Fixed indirection handling for both simple and complex expressions
 
 **Next Session Goals**:
-- Start Phase 3C: SELECT Statement Core
-- Implement basic SELECT structure with target lists
-- Add FROM clause and table references
-- Continue building on the expression foundation established in 3B
+- Start Phase 3D: JOIN & Table References
+- Implement JOIN operations and complex table references
+- Add support for CTEs and subqueries
+- Build on the SELECT foundation established in 3C
 
 ---
 
-## Current Phase Status: 3B - Basic Expression Grammar 🟨 PARTIAL
+### Session 4 (2025-08-18) - Phase 3C Basic Implementation ⚠️ PARTIALLY COMPLETE
+**Participants**: Claude, Manan
+**Duration**: Implementation session
+**Goals**: Complete Phase 3C - SELECT Statement Core
+
+**Completed**:
+- ✅ Added SELECT-related tokens (SELECT, FROM, WHERE, ONLY, TABLE, DISTINCT, INTO, ON)
+- ✅ Implemented basic SelectStmt grammar hierarchy (SelectStmt, select_no_parens, select_with_parens, simple_select)
+- ✅ Created basic target_list system for column selection (* and named columns)
+- ✅ Implemented basic FROM clause with single table_ref support
+- ✅ Added WHERE clause integration using Phase 3B expression system
+- ✅ Implemented alias support for both tables and columns (AS keyword and implicit aliases)
+- ✅ Added DISTINCT and DISTINCT ON clause support
+- ✅ Implemented basic SELECT INTO clause
+- ✅ Added TABLE statement support (equivalent to SELECT * FROM table)
+- ✅ Created test suite with 19 test cases covering implemented functionality
+- ✅ Full deparsing support for implemented features
+
+**Implementation Status per grammar_rules_checklist.md**:
+
+**Main SELECT Structure ⚠️ PARTIAL**:
+- ✅ `SelectStmt` - SELECT statement (basic structure only)
+- ⚠️ `select_no_parens` - SELECT without parentheses (1/8 productions implemented)
+- ✅ `select_with_parens` - SELECT with parentheses (basic)
+- ⚠️ `simple_select` - Simple SELECT (missing GROUP BY, HAVING, WINDOW, VALUES, set ops)
+
+**Target List ⚠️ MOSTLY COMPLETE**:
+- ✅ `target_list` - SELECT target list
+- ⚠️ `target_el` - Target list element (using ColLabel instead of BareColLabel)
+- ✅ `opt_target_list` - Optional target list
+
+**FROM Clause ⚠️ PARTIAL**:
+- ✅ `from_clause` - FROM clause (basic)
+- ✅ `from_list` - FROM list (basic)
+- ⚠️ `table_ref` - Table reference (1/11 productions - no JOINs, subqueries, LATERAL, etc.)
+
+**Fully Complete Sections**:
+- ✅ WHERE Clause (where_clause, opt_where_clause)
+- ✅ Basic Table References (relation_expr, extended_relation_expr)
+- ✅ Aliases (alias_clause, opt_alias_clause)
+- ✅ DISTINCT Operations (opt_all_clause, distinct_clause, opt_distinct_clause)
+---
+
+## Current Phase Status: 3C - SELECT Statement Core ⚠️ MOSTLY COMPLETE (~80-85%)
 
 **Phase 3A Goals**: ✅ ALL COMPLETE
 - ✅ Set up goyacc integration with our lexer
@@ -131,7 +175,7 @@
 - ✅ Create parser-lexer interface
 - ✅ Basic statement routing (parse_toplevel, stmtmulti, stmt)
 
-**Phase 3B Goals**: ✅ ALL COMPLETE  
+**Phase 3B Goals**: ✅ ALL COMPLETE
 - ✅ Implement expression hierarchy (a_expr, b_expr, c_expr)
 - ✅ Add arithmetic and comparison operators
 - ✅ Support constants, column refs, and function calls
@@ -156,7 +200,7 @@
 - ✅ `opt_with` - WITH option
 - ✅ `OptWith` - Alternative WITH option
 - ✅ `ColId` - Column identifier
-- ✅ `ColLabel` - Column label  
+- ✅ `ColLabel` - Column label
 - ✅ `name` - Simple name
 - ✅ `name_list` - List of names
 - ✅ `qualified_name` - Schema-qualified name
@@ -172,7 +216,7 @@
 **Constants & Literals**:
 - ✅ `AexprConst` - Constant expressions (int, float, string, bool, NULL)
 - ✅ `Iconst` - Integer constants
-- ✅ `Sconst` - String constants  
+- ✅ `Sconst` - String constants
 - ✅ `SignedIconst` - Signed integer constants
 
 **Column References & Indirection**:
@@ -210,18 +254,18 @@
 ## Upcoming Phases Preview
 
 ### Phase 3B: Basic Expression Grammar (~40 rules) ✅ COMPLETE
-**Status**: ✅ Complete  
-**Dependencies**: ✅ Phase 3A complete  
+**Status**: ✅ Complete
+**Dependencies**: ✅ Phase 3A complete
 **Key Focus**: Core expressions, literals, operators, function calls
 
-### Phase 3C: SELECT Statement Core (~35 rules)  
-**Status**: Ready to Begin ⏳  
-**Dependencies**: ✅ Phases 3A, 3B complete  
+### Phase 3C: SELECT Statement Core (~35 rules)
+**Status**: Ready to Begin ⏳
+**Dependencies**: ✅ Phases 3A, 3B complete
 **Key Focus**: Basic SELECT structure, FROM, WHERE, target lists
 
 ### Phase 3D: JOIN & Table References (~45 rules)
-**Status**: Not Started  
-**Dependencies**: Phase 3C complete  
+**Status**: Not Started
+**Dependencies**: Phase 3C complete
 **Key Focus**: All JOIN types, CTEs, subqueries, table functions
 
 ---
@@ -285,7 +329,7 @@
 
 **Target Metrics**:
 - Parse simple SELECT: < 100μs
-- Parse complex JOIN query: < 1ms  
+- Parse complex JOIN query: < 1ms
 - Parser generation time: < 30s
 - Memory usage: < 50MB for typical queries
 
@@ -338,7 +382,7 @@
 
 ### Documentation:
 - PostgreSQL Parser Documentation
-- Goyacc/Yacc Reference Manual  
+- Goyacc/Yacc Reference Manual
 - Go AST Best Practices
 - Thread-Safety Patterns
 

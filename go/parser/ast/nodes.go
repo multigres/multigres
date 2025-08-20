@@ -4,6 +4,7 @@ package ast
 
 import (
 	"fmt"
+	"strings"
 )
 
 // NodeTag represents the type of an AST node.
@@ -141,6 +142,7 @@ const (
 	T_A_Const
 	T_ParamRef
 	T_TypeCast
+	T_ParenExpr
 	T_FuncCall
 	T_A_Star
 	T_A_Indices
@@ -481,6 +483,8 @@ func (nt NodeTag) String() string {
 		return "T_ParamRef"
 	case T_TypeCast:
 		return "T_TypeCast"
+	case T_ParenExpr:
+		return "T_ParenExpr"
 	case T_FuncCall:
 		return "T_FuncCall"
 	case T_A_Star:
@@ -730,6 +734,22 @@ func (l *NodeList) Len() int {
 // String returns a string representation of the list.
 func (l *NodeList) String() string {
 	return fmt.Sprintf("List[%d items]@%d", len(l.Items), l.Location())
+}
+
+// SqlString returns the SQL representation of NodeList
+func (n *NodeList) SqlString() string {
+	if len(n.Items) == 0 {
+		return ""
+	}
+	
+	var parts []string
+	for _, item := range n.Items {
+		if item != nil {
+			parts = append(parts, item.SqlString())
+		}
+	}
+	
+	return strings.Join(parts, ", ")
 }
 
 // Stmt represents the base interface for all SQL statements.

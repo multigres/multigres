@@ -30,15 +30,16 @@ type LexerInterface interface {
 	ival    int
 	str     string
 	keyword string
-	
+
 	// AST nodes
 	node      ast.Node
 	stmt      ast.Stmt
 	stmtList  []ast.Stmt
 	list      []ast.Node
+	nodelist  *ast.NodeList
 	strList   []string
 	astStrList []*ast.String
-	
+
 	// Location tracking
 	location  int
 }
@@ -63,6 +64,7 @@ type LexerInterface interface {
 %token <keyword> FALSE_P ILIKE IN_P LIKE NULL_P SIMILAR TRUE_P WHEN
 %token <keyword> IS ISNULL NOTNULL AT TIME ZONE LOCAL SYMMETRIC ASYMMETRIC TO
 %token <keyword> OPERATOR
+%token <keyword> SELECT FROM WHERE ONLY TABLE LIMIT OFFSET ORDER_P BY GROUP_P HAVING INTO ON
 /* Type keywords */
 %token <keyword> BIT NUMERIC INTEGER SMALLINT BIGINT REAL FLOAT_P DOUBLE_P PRECISION
 %token <keyword> CHARACTER CHAR_P VARCHAR NATIONAL NCHAR VARYING
@@ -70,7 +72,7 @@ type LexerInterface interface {
 %token <keyword> VARIADIC
 %token		COLON_EQUALS EQUALS_GREATER
 
-/* 
+/*
  * Special lookahead tokens
  * From postgres/src/backend/parser/gram.y:860-870
  */
@@ -146,6 +148,18 @@ type LexerInterface interface {
 %type <node>		in_expr
 %type <ival>		opt_asymmetric
 
+/* SELECT statement types - Phase 3C */
+%type <stmt>		SelectStmt select_no_parens select_with_parens simple_select
+%type <list>		target_list opt_target_list
+%type <node>		target_el
+%type <list>		from_clause from_list
+%type <node>		table_ref relation_expr extended_relation_expr
+%type <node>		where_clause opt_where_clause
+%type <node>		alias_clause opt_alias_clause
+%type <ival>		opt_all_clause
+%type <nodelist>	distinct_clause opt_distinct_clause
+%type <node>		into_clause
+
 /* Start symbol */
 %start parse_toplevel
 
@@ -211,7 +225,8 @@ toplevel_stmt:
  * From postgres/src/backend/parser/gram.y:1075 onwards
  */
 stmt:
-			/* Empty for now - will add statement types in later phases */
+			SelectStmt								{ $$ = $1 }
+		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
 			}
@@ -272,7 +287,7 @@ OptWith:
 
 /*
  * Names and identifiers
- * From postgres/src/backend/parser/gram.y:18184-18305
+ * From postgres/src/backend/parser/gram.y:17468-17491
  */
 
 ColId:
@@ -311,6 +326,7 @@ qualified_name:
 			{
 				$$ = &ast.RangeVar{
 					RelName: $1,
+					Inh:     true, // inheritance enabled by default
 				}
 			}
 		|	ColId '.' ColId
@@ -318,6 +334,7 @@ qualified_name:
 				$$ = &ast.RangeVar{
 					SchemaName: $1,
 					RelName:    $3,
+					Inh:        true, // inheritance enabled by default
 				}
 			}
 		|	ColId indirection
@@ -330,29 +347,32 @@ qualified_name:
 						$$ = &ast.RangeVar{
 							SchemaName: $1,
 							RelName:    str.SVal,
+							Inh:        true, // inheritance enabled by default
 						}
 					} else {
 						// Complex indirection - return a simpler form for now
 						$$ = &ast.RangeVar{
 							RelName: $1,
+							Inh:     true, // inheritance enabled by default
 						}
 					}
 				} else {
 					// Multiple indirection elements - return simple form
 					$$ = &ast.RangeVar{
 						RelName: $1,
+						Inh:     true, // inheritance enabled by default
 					}
 				}
 			}
 		;
 
 qualified_name_list:
-			qualified_name							
-			{ 
-				$$ = ast.NewNodeList($1) 
+			qualified_name
+			{
+				$$ = ast.NewNodeList($1)
 			}
-		|	qualified_name_list ',' qualified_name	
-			{ 
+		|	qualified_name_list ',' qualified_name
+			{
 				list := $1.(*ast.NodeList)
 				list.Append($3)
 				$$ = list
@@ -360,12 +380,12 @@ qualified_name_list:
 		;
 
 any_name:
-			ColId									
-			{ 
-				$$ = ast.NewNodeList(ast.NewString($1)) 
+			ColId
+			{
+				$$ = ast.NewNodeList(ast.NewString($1))
 			}
-		|	ColId '.' ColId							
-			{ 
+		|	ColId '.' ColId
+			{
 				$$ = ast.NewNodeList(ast.NewString($1), ast.NewString($3))
 			}
 		|	ColId attrs
@@ -378,12 +398,12 @@ any_name:
 		;
 
 any_name_list:
-			any_name								
-			{ 
-				$$ = ast.NewNodeList($1) 
+			any_name
+			{
+				$$ = ast.NewNodeList($1)
 			}
-		|	any_name_list ',' any_name				
-			{ 
+		|	any_name_list ',' any_name
+			{
 				list := $1.(*ast.NodeList)
 				list.Append($3)
 				$$ = list
@@ -425,7 +445,7 @@ reserved_keyword:
 /*
  * Expression hierarchy: a_expr -> b_expr -> c_expr
  * a_expr: Most general expressions (comparisons, operators, etc.)
- * b_expr: More restricted (no comparisons)  
+ * b_expr: More restricted (no comparisons)
  * c_expr: Most restricted (constants, column refs, function calls)
  */
 
@@ -764,10 +784,11 @@ c_expr:		columnref							{ $$ = $1 }
 			}
 		|	'(' a_expr ')' opt_indirection
 			{
+				parenExpr := ast.NewParenExpr($2, 0)
 				if $4 != nil {
-					$$ = ast.NewA_Indirection($2, $4, 0)
+					$$ = ast.NewA_Indirection(parenExpr, $4, 0)
 				} else {
-					$$ = $2
+					$$ = parenExpr
 				}
 			}
 		|	func_expr							{ $$ = $1 }
@@ -1315,7 +1336,303 @@ in_expr:		'(' expr_list ')'
 			}
 		;
 
+/*
+ * Phase 3C: SELECT Statement Core Grammar Rules
+ * Ported from postgres/src/backend/parser/gram.y
+ */
+
+/*
+ * SelectStmt - Main SELECT statement entry point
+ * From postgres/src/backend/parser/gram.y:12678+
+ */
+SelectStmt:
+			select_no_parens						{ $$ = $1 }
+		|	select_with_parens						{ $$ = $1 }
+		;
+
+select_with_parens:
+			'(' select_no_parens ')'				{ $$ = $2 }
+		|	'(' select_with_parens ')'				{ $$ = $2 }
+		;
+
+/*
+ * This rule parses the equivalent of the standard's <query expression>.
+ * From postgres/src/backend/parser/gram.y:12698+
+ */
+select_no_parens:
+			simple_select							{ $$ = $1 }
+		;
+
+/*
+ * simple_select - Core SELECT statement structure
+ * From postgres/src/backend/parser/gram.y:12790+
+ */
+simple_select:
+			SELECT opt_all_clause opt_target_list
+			into_clause from_clause where_clause
+			{
+				selectStmt := ast.NewSelectStmt()
+				selectStmt.TargetList = convertToResTargetList($3)
+				selectStmt.IntoClause = convertToIntoClause($4)
+				selectStmt.FromClause = $5
+				selectStmt.WhereClause = $6
+				$$ = selectStmt
+			}
+		|	SELECT opt_distinct_clause opt_target_list
+			into_clause from_clause where_clause
+			{
+				selectStmt := ast.NewSelectStmt()
+				selectStmt.DistinctClause = $2
+				selectStmt.TargetList = convertToResTargetList($3)
+				selectStmt.IntoClause = convertToIntoClause($4)
+				selectStmt.FromClause = $5
+				selectStmt.WhereClause = $6
+				$$ = selectStmt
+			}
+		|	TABLE relation_expr
+			{
+				// TABLE relation_expr is equivalent to SELECT * FROM relation_expr
+				selectStmt := ast.NewSelectStmt()
+				// Create a ResTarget for *
+				starTarget := ast.NewResTarget("", ast.NewColumnRef(ast.NewA_Star(0)))
+				selectStmt.TargetList = []*ast.ResTarget{starTarget}
+				selectStmt.FromClause = []ast.Node{$2}
+				$$ = selectStmt
+			}
+		;
+
+/*
+ * Target list rules - what columns to select
+ * From postgres/src/backend/parser/gram.y:17083+
+ */
+opt_target_list:
+			target_list								{ $$ = $1 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+target_list:
+			target_el								{ $$ = []ast.Node{$1} }
+		|	target_list ',' target_el				{ $$ = append($1, $3) }
+		;
+
+target_el:
+			a_expr AS ColLabel
+			{
+				$$ = ast.NewResTarget($3, $1)
+			}
+		|	a_expr ColLabel
+			{
+				// Implicit alias (no AS keyword)
+				$$ = ast.NewResTarget($2, $1)
+			}
+		|	a_expr
+			{
+				// No alias - use default naming
+				$$ = ast.NewResTarget("", $1)
+			}
+		|	'*'
+			{
+				// SELECT * - all columns
+				$$ = ast.NewResTarget("", ast.NewColumnRef(ast.NewA_Star(0)))
+			}
+		;
+
+/*
+ * FROM clause rules
+ * From postgres/src/backend/parser/gram.y:17088+
+ */
+from_clause:
+			FROM from_list							{ $$ = $2 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+from_list:
+			table_ref								{ $$ = []ast.Node{$1} }
+		|	from_list ',' table_ref					{ $$ = append($1, $3) }
+		;
+
+/*
+ * Table reference rules
+ * From postgres/src/backend/parser/gram.y:13433+
+ */
+table_ref:
+			relation_expr opt_alias_clause
+			{
+				rangeVar := $1.(*ast.RangeVar)
+				if $2 != nil {
+					rangeVar.Alias = $2.(*ast.Alias)
+				}
+				$$ = rangeVar
+			}
+		;
+
+relation_expr:
+			qualified_name
+			{
+				rangeVar := $1.(*ast.RangeVar)
+				rangeVar.Inh = true // inheritance query, implicitly
+				$$ = rangeVar
+			}
+		|	extended_relation_expr
+			{
+				$$ = $1
+			}
+		;
+
+extended_relation_expr:
+			qualified_name '*'
+			{
+				rangeVar := $1.(*ast.RangeVar)
+				rangeVar.Inh = true // inheritance query, explicitly
+				$$ = rangeVar
+			}
+		|	ONLY qualified_name
+			{
+				rangeVar := $2.(*ast.RangeVar)
+				rangeVar.Inh = false // no inheritance
+				$$ = rangeVar
+			}
+		|	ONLY '(' qualified_name ')'
+			{
+				rangeVar := $3.(*ast.RangeVar)
+				rangeVar.Inh = false // no inheritance
+				$$ = rangeVar
+			}
+		;
+
+/*
+ * WHERE clause rules
+ * From postgres/src/backend/parser/gram.y:13438+
+ */
+where_clause:
+			WHERE a_expr							{ $$ = $2 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+opt_where_clause:
+			where_clause							{ $$ = $1 }
+		;
+
+/*
+ * Alias clause rules
+ * From postgres/src/backend/parser/gram.y:15970+
+ */
+opt_alias_clause:
+			alias_clause							{ $$ = $1 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+alias_clause:
+			AS ColId '(' name_list ')'
+			{
+				nameList := $4.(*ast.NodeList)
+				$$ = ast.NewAlias($2, nameList.Items)
+			}
+		|	AS ColId
+			{
+				$$ = ast.NewAlias($2, nil)
+			}
+		|	ColId '(' name_list ')'
+			{
+				nameList := $3.(*ast.NodeList)
+				$$ = ast.NewAlias($1, nameList.Items)
+			}
+		|	ColId
+			{
+				$$ = ast.NewAlias($1, nil)
+			}
+		;
+
+/*
+ * DISTINCT and ALL clause rules
+ * From postgres/src/backend/parser/gram.y:15590+
+ */
+opt_all_clause:
+			ALL										{ $$ = 1 }
+		|	/* EMPTY */								{ $$ = 0 }
+		;
+
+distinct_clause:
+			DISTINCT								{ $$ = ast.NewNodeList() }
+		|	DISTINCT ON '(' expr_list ')'			{ $$ = $4.(*ast.NodeList) }
+		;
+
+opt_distinct_clause:
+			distinct_clause							{ $$ = $1 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+
+/*
+ * INTO clause rules (for SELECT INTO)
+ * From postgres/src/backend/parser/gram.y:15700+
+ */
+into_clause:
+			INTO qualified_name
+			{
+				$$ = ast.NewIntoClause($2.(*ast.RangeVar), nil, "", nil, ast.ONCOMMIT_NOOP, "", nil, false, 0)
+			}
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
 %%
+
+// Helper functions for converting between grammar types and AST types
+
+// convertToResTargetList converts a slice of ast.Node to []*ast.ResTarget
+func convertToResTargetList(nodes []ast.Node) []*ast.ResTarget {
+	if nodes == nil {
+		return nil
+	}
+	targets := make([]*ast.ResTarget, len(nodes))
+	for i, node := range nodes {
+		if target, ok := node.(*ast.ResTarget); ok {
+			targets[i] = target
+		}
+	}
+	return targets
+}
+
+// convertToIntoClause converts an ast.Node to *ast.IntoClause
+func convertToIntoClause(node ast.Node) *ast.IntoClause {
+	if node == nil {
+		return nil
+	}
+	if intoClause, ok := node.(*ast.IntoClause); ok {
+		return intoClause
+	}
+	return nil
+}
+
+// convertToStringList converts an ast.Node to []*ast.String
+func convertToStringList(node ast.Node) []*ast.String {
+	if node == nil {
+		return nil
+	}
+	if nodeList, ok := node.(*ast.NodeList); ok {
+		strings := make([]*ast.String, len(nodeList.Items))
+		for i, item := range nodeList.Items {
+			if str, ok := item.(*ast.String); ok {
+				strings[i] = str
+			}
+		}
+		return strings
+	}
+	return nil
+}
+
+// convertToNodeList converts an ast.Node to []ast.Node
+func convertToNodeList(node ast.Node) []ast.Node {
+	if node == nil {
+		return nil
+	}
+	if nodeList, ok := node.(*ast.NodeList); ok {
+		return nodeList.Items
+	}
+	// If it's a single node, wrap it in a slice
+	return []ast.Node{node}
+}
+
 
 // Lex implements the lexer interface for goyacc
 func (l *Lexer) Lex(lval *yySymType) int {
@@ -1323,12 +1640,12 @@ func (l *Lexer) Lex(lval *yySymType) int {
 	if token == nil {
 		return EOF // EOF = 0, exactly what yacc expects
 	}
-	
+
 	// Set location and always populate both semantic value fields
 	lval.location = token.Position
 	lval.str = token.Value.Str
 	lval.ival = token.Value.Ival
-	
+
 	// Simply return the token type - no complex switch needed!
 	// All parser constants, keywords, operators, etc. work directly
 	return token.Type
@@ -1343,10 +1660,10 @@ func (l *Lexer) Error(s string) {
 func ParseSQL(input string) ([]ast.Stmt, error) {
 	lexer := NewLexer(input)
 	yyParse(lexer)
-	
+
 	if lexer.HasErrors() {
 		return nil, lexer.GetErrors()[0]
 	}
-	
+
 	return lexer.GetParseTree(), nil
 }

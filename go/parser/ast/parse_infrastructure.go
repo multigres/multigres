@@ -237,6 +237,12 @@ type TypeCast struct {
 	TypeName *TypeName // The target type
 }
 
+// ParenExpr represents a parenthesized expression to preserve grouping
+type ParenExpr struct {
+	BaseNode
+	Expr Node // The expression inside parentheses
+}
+
 // NewTypeCast creates a new TypeCast node.
 func NewTypeCast(arg Node, typeName *TypeName, location int) *TypeCast {
 	typeCast := &TypeCast{
@@ -248,8 +254,22 @@ func NewTypeCast(arg Node, typeName *TypeName, location int) *TypeCast {
 	return typeCast
 }
 
+// NewParenExpr creates a new ParenExpr node.
+func NewParenExpr(expr Node, location int) *ParenExpr {
+	parenExpr := &ParenExpr{
+		BaseNode: BaseNode{Tag: T_ParenExpr},
+		Expr:     expr,
+	}
+	parenExpr.SetLocation(location)
+	return parenExpr
+}
+
 func (t *TypeCast) String() string {
 	return fmt.Sprintf("TypeCast@%d", t.Location())
+}
+
+func (p *ParenExpr) String() string {
+	return fmt.Sprintf("ParenExpr@%d", p.Location())
 }
 
 // SqlString returns the SQL representation of the TypeCast (::type syntax)
@@ -267,8 +287,20 @@ func (t *TypeCast) SqlString() string {
 	return fmt.Sprintf("%s::%s", argStr, typeStr)
 }
 
+// SqlString returns the SQL representation of the ParenExpr (preserves parentheses)
+func (p *ParenExpr) SqlString() string {
+	if p.Expr == nil {
+		return "()"
+	}
+	return fmt.Sprintf("(%s)", p.Expr.SqlString())
+}
+
 func (t *TypeCast) ExpressionType() string {
 	return "TYPE_CAST"
+}
+
+func (p *ParenExpr) ExpressionType() string {
+	return "PAREN_EXPR"
 }
 
 // FuncCall represents a function call in the parse tree.
@@ -360,6 +392,11 @@ func (a *A_Star) ExpressionType() string {
 	return "A_STAR"
 }
 
+// SqlString returns the SQL representation of A_Star
+func (a *A_Star) SqlString() string {
+	return "*"
+}
+
 // A_Indices represents array indices in the parse tree (e.g., array[1:3]).
 // Ported from postgres/src/include/nodes/parsenodes.h:456-462
 type A_Indices struct {
@@ -401,6 +438,30 @@ func (a *A_Indices) String() string {
 
 func (a *A_Indices) ExpressionType() string {
 	return "A_INDICES"
+}
+
+// SqlString returns the SQL representation of A_Indices (handles both single index and slice)
+func (a *A_Indices) SqlString() string {
+	if a.IsSlice {
+		// Slice syntax [lower:upper]
+		var lower, upper string
+		
+		if a.Lidx != nil {
+			lower = a.Lidx.SqlString()
+		}
+		
+		if a.Uidx != nil {
+			upper = a.Uidx.SqlString()
+		}
+		
+		return fmt.Sprintf("[%s:%s]", lower, upper)
+	} else {
+		// Single index syntax [index]
+		if a.Uidx != nil {
+			return fmt.Sprintf("[%s]", a.Uidx.SqlString())
+		}
+		return "[]"
+	}
 }
 
 // A_Indirection represents indirection (field access) in the parse tree (e.g., obj.field).
@@ -542,6 +603,30 @@ func (w *WithClause) ExpressionType() string {
 	return "WITH_CLAUSE"
 }
 
+// SqlString returns the SQL representation of the WithClause
+func (w *WithClause) SqlString() string {
+	if len(w.Ctes) == 0 {
+		return ""
+	}
+	
+	parts := []string{"WITH"}
+	
+	if w.Recursive {
+		parts = append(parts, "RECURSIVE")
+	}
+	
+	var ctes []string
+	for _, cte := range w.Ctes {
+		if cte != nil {
+			ctes = append(ctes, cte.SqlString())
+		}
+	}
+	
+	parts = append(parts, strings.Join(ctes, ", "))
+	
+	return strings.Join(parts, " ")
+}
+
 // MultiAssignRef represents a multi-assignment reference (used in UPDATE (col1, col2) = (val1, val2)).
 // Ported from postgres/src/include/nodes/parsenodes.h:532-542
 type MultiAssignRef struct {
@@ -645,6 +730,43 @@ func (s *SortBy) StatementType() string {
 	return "SORT_BY"
 }
 
+// SqlString returns the SQL representation of the SortBy
+func (s *SortBy) SqlString() string {
+	if s.Node == nil {
+		return ""
+	}
+	
+	result := s.Node.SqlString()
+	
+	// Add sort direction
+	switch s.SortbyDir {
+	case SORTBY_ASC:
+		result += " ASC"
+	case SORTBY_DESC:
+		result += " DESC"
+	case SORTBY_USING:
+		if len(s.UseOp) > 0 {
+			var ops []string
+			for _, op := range s.UseOp {
+				if op != nil {
+					ops = append(ops, op.SqlString())
+				}
+			}
+			result += " USING " + strings.Join(ops, ".")
+		}
+	}
+	
+	// Add null ordering
+	switch s.SortbyNulls {
+	case SORTBY_NULLS_FIRST:
+		result += " NULLS FIRST"
+	case SORTBY_NULLS_LAST:
+		result += " NULLS LAST"
+	}
+	
+	return result
+}
+
 // GroupingSet represents a grouping set in GROUP BY clauses.
 // Ported from postgres/src/include/nodes/parsenodes.h:1506-1517
 type GroupingSet struct {
@@ -725,6 +847,44 @@ func (l *LockingClause) String() string {
 
 func (l *LockingClause) StatementType() string {
 	return "LOCKING_CLAUSE"
+}
+
+// SqlString returns the SQL representation of the LockingClause
+func (l *LockingClause) SqlString() string {
+	parts := []string{}
+	
+	// Determine locking strength
+	switch l.Strength {
+	case LCS_FORKEYSHARE:
+		parts = append(parts, "FOR KEY SHARE")
+	case LCS_FORSHARE:
+		parts = append(parts, "FOR SHARE")
+	case LCS_FORNOKEYUPDATE:
+		parts = append(parts, "FOR NO KEY UPDATE")
+	case LCS_FORUPDATE:
+		parts = append(parts, "FOR UPDATE")
+	}
+	
+	// Add table names if specified
+	if len(l.LockedRels) > 0 {
+		var tables []string
+		for _, rel := range l.LockedRels {
+			if rel != nil {
+				tables = append(tables, rel.SqlString())
+			}
+		}
+		parts = append(parts, "OF", strings.Join(tables, ", "))
+	}
+	
+	// Add wait policy
+	switch l.WaitPolicy {
+	case LockWaitSkip:
+		parts = append(parts, "SKIP LOCKED")
+	case LockWaitError:
+		parts = append(parts, "NOWAIT")
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // XmlSerialize represents an XML serialization expression.

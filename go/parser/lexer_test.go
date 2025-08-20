@@ -562,7 +562,7 @@ func TestEnhancedWhitespaceAndComments(t *testing.T) {
 			}{
 				{SELECT, "SELECT", 0},
 				{FROM, "FROM", 28},
-				{IDENT, "table", 33},
+				{TABLE, "table", 33},
 			},
 		},
 		{
@@ -688,7 +688,7 @@ func TestParameterRecognition(t *testing.T) {
 				text      string
 				intValue  int
 			}{
-				{IDENT, "WHERE", 0}, // WHERE not in Phase 3A grammar
+				{WHERE, "WHERE", 0}, // WHERE is now a keyword in Phase 3C
 				{IDENT, "id", 0},
 				{TokenType('='), "=", 0},
 				{PARAM, "$1", 1},
@@ -739,7 +739,7 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		expectedType TokenType
 		expectedText string
 	}{
-		{IDENT, "SELECT"}, // SELECT not in Phase 3A grammar
+		{SELECT, "SELECT"}, // SELECT is now a keyword in Phase 3C
 		{IDENT, "u"},
 		{TokenType('.'), "."},
 		{IDENT, "name"},
@@ -747,13 +747,13 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		{IDENT, "p"},
 		{TokenType('.'), "."},
 		{IDENT, "price"},
-		{IDENT, "FROM"}, // FROM not in Phase 3A grammar
+		{FROM, "FROM"}, // FROM is now a keyword in Phase 3C
 		{IDENT, "users"},
 		{IDENT, "u"},
 		{TokenType(','), ","},
 		{IDENT, "products"},
 		{IDENT, "p"},
-		{IDENT, "WHERE"}, // WHERE not in Phase 3A grammar
+		{WHERE, "WHERE"}, // WHERE is now a keyword in Phase 3C
 		{IDENT, "u"},
 		{TokenType('.'), "."},
 		{IDENT, "id"},
@@ -1766,7 +1766,7 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		expectedValue  string // Only check if non-empty
 		skipValueCheck bool   // Skip value check for complex cases
 	}{
-		{IDENT, "SELECT", "", true}, // SELECT not in Phase 3A grammar
+		{SELECT, "SELECT", "", true}, // SELECT is now a keyword in Phase 3C
 		{SCONST, "'simple'", "simple", false},
 		{TokenType(','), ",", "", true},
 		{IDENT, "\"identifier\"", "identifier", false}, // delimited identifier
@@ -1776,9 +1776,9 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		{BCONST, "B'1010'", "1010", false},
 		{TokenType(','), ",", "", true},
 		{XCONST, "X'CAFE'", "CAFE", false},
-		{IDENT, "FROM", "", true},   // FROM not in Phase 3A grammar
-		{IDENT, "table", "", true}, // identifier - skip value check for now
-		{IDENT, "WHERE", "", true}, // WHERE not in Phase 3A grammar
+		{FROM, "FROM", "", true},   // FROM is now a keyword in Phase 3C
+		{TABLE, "table", "", true}, // TABLE is now a keyword in Phase 3C
+		{WHERE, "WHERE", "", true}, // WHERE is now a keyword in Phase 3C
 		{IDENT, "name", "", true},  // identifier - skip value check for now
 		{TokenType('='), "=", "", true},
 		{SCONST, "'O''Reilly'", "O'Reilly", false}, // doubled quote handling
