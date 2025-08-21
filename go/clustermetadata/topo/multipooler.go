@@ -27,12 +27,17 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// NewMultiPooler creates a new MultiPooler record with the given id, cell, and hostname.
-func NewMultiPooler(uid uint32, cell, host string) *clustermetadatapb.MultiPooler {
+// NewMultiPooler creates a new MultiPooler record with the given name, cell, and hostname.
+// If name is empty, a random name will be generated.
+func NewMultiPooler(name string, cell, host string) *clustermetadatapb.MultiPooler {
+	if name == "" {
+		name = RandomString(8)
+	}
 	return &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
-			Cell: cell,
-			Uid:  uid,
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      cell,
+			Name:      name,
 		},
 		Hostname: host,
 		PortMap:  make(map[string]int32),
@@ -77,7 +82,7 @@ func NewMultiPoolerInfo(multipooler *clustermetadatapb.MultiPooler, version Vers
 
 // MultiPoolerIDString returns the string representation of a MultiPooler ID
 func MultiPoolerIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%d", id.Cell, id.Uid)
+	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
 }
 
 // GetMultiPooler is a high level function to read multipooler data.

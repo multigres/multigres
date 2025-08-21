@@ -158,6 +158,63 @@ func (PoolerServingStatus) EnumDescriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{1}
 }
 
+// ComponentType represents the type of Multigres component
+type ID_ComponentType int32
+
+const (
+	// UNKNOWN represents an unknown or uninitialized component type
+	ID_UNKNOWN ID_ComponentType = 0
+	// MULTIPOOLER represents a multipooler component
+	ID_MULTIPOOLER ID_ComponentType = 1
+	// MULTIGATEWAY represents a multigateway component
+	ID_MULTIGATEWAY ID_ComponentType = 2
+	// MULTIORCH represents a multiorch component
+	ID_MULTIORCH ID_ComponentType = 3
+)
+
+// Enum value maps for ID_ComponentType.
+var (
+	ID_ComponentType_name = map[int32]string{
+		0: "UNKNOWN",
+		1: "MULTIPOOLER",
+		2: "MULTIGATEWAY",
+		3: "MULTIORCH",
+	}
+	ID_ComponentType_value = map[string]int32{
+		"UNKNOWN":      0,
+		"MULTIPOOLER":  1,
+		"MULTIGATEWAY": 2,
+		"MULTIORCH":    3,
+	}
+)
+
+func (x ID_ComponentType) Enum() *ID_ComponentType {
+	p := new(ID_ComponentType)
+	*p = x
+	return p
+}
+
+func (x ID_ComponentType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ID_ComponentType) Descriptor() protoreflect.EnumDescriptor {
+	return file_clustermetadata_proto_enumTypes[2].Descriptor()
+}
+
+func (ID_ComponentType) Type() protoreflect.EnumType {
+	return &file_clustermetadata_proto_enumTypes[2]
+}
+
+func (x ID_ComponentType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ID_ComponentType.Descriptor instead.
+func (ID_ComponentType) EnumDescriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{6, 0}
+}
+
 // TopoConfig defines the connection parameters for a topology service.
 // It specifies the type of topology backend, where it's hosted, and the
 // logical root path within that backend.
@@ -617,11 +674,13 @@ func (x *MultiOrch) GetPortMap() map[string]int32 {
 // ID is a globally unique pooler identifier.
 type ID struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// component identifies the type of Multigres component (multipooler, multigateway, or multiorch)
+	Component ID_ComponentType `protobuf:"varint,1,opt,name=component,proto3,enum=clustermetadata.ID_ComponentType" json:"component,omitempty"`
 	// cell is the Multigres cell where the component is located
 	Cell string `protobuf:"bytes,2,opt,name=cell,proto3" json:"cell,omitempty"`
 	// uid is a unique identifier for the component within the multigres
 	// cluster.
-	Uid           uint32 `protobuf:"varint,3,opt,name=uid,proto3" json:"uid,omitempty"`
+	Name          string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -656,6 +715,13 @@ func (*ID) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{6}
 }
 
+func (x *ID) GetComponent() ID_ComponentType {
+	if x != nil {
+		return x.Component
+	}
+	return ID_UNKNOWN
+}
+
 func (x *ID) GetCell() string {
 	if x != nil {
 		return x.Cell
@@ -663,11 +729,11 @@ func (x *ID) GetCell() string {
 	return ""
 }
 
-func (x *ID) GetUid() uint32 {
+func (x *ID) GetName() string {
 	if x != nil {
-		return x.Uid
+		return x.Name
 	}
-	return 0
+	return ""
 }
 
 // KeyRange represents a range of keys for sharding
@@ -770,10 +836,16 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\bport_map\x18\x03 \x03(\v2'.clustermetadata.MultiOrch.PortMapEntryR\aportMap\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"*\n" +
-	"\x02ID\x12\x12\n" +
-	"\x04cell\x18\x02 \x01(\tR\x04cell\x12\x10\n" +
-	"\x03uid\x18\x03 \x01(\rR\x03uid\"2\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xbd\x01\n" +
+	"\x02ID\x12?\n" +
+	"\tcomponent\x18\x01 \x01(\x0e2!.clustermetadata.ID.ComponentTypeR\tcomponent\x12\x12\n" +
+	"\x04cell\x18\x02 \x01(\tR\x04cell\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\"N\n" +
+	"\rComponentType\x12\v\n" +
+	"\aUNKNOWN\x10\x00\x12\x0f\n" +
+	"\vMULTIPOOLER\x10\x01\x12\x10\n" +
+	"\fMULTIGATEWAY\x10\x02\x12\r\n" +
+	"\tMULTIORCH\x10\x03\"2\n" +
 	"\bKeyRange\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\fR\x05start\x12\x10\n" +
 	"\x03end\x18\x02 \x01(\fR\x03end*3\n" +
@@ -802,38 +874,40 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 	return file_clustermetadata_proto_rawDescData
 }
 
-var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_clustermetadata_proto_goTypes = []any{
 	(PoolerType)(0),          // 0: clustermetadata.PoolerType
 	(PoolerServingStatus)(0), // 1: clustermetadata.PoolerServingStatus
-	(*GlobalTopoConfig)(nil), // 2: clustermetadata.GlobalTopoConfig
-	(*Cell)(nil),             // 3: clustermetadata.Cell
-	(*Database)(nil),         // 4: clustermetadata.Database
-	(*MultiPooler)(nil),      // 5: clustermetadata.MultiPooler
-	(*MultiGateway)(nil),     // 6: clustermetadata.MultiGateway
-	(*MultiOrch)(nil),        // 7: clustermetadata.MultiOrch
-	(*ID)(nil),               // 8: clustermetadata.ID
-	(*KeyRange)(nil),         // 9: clustermetadata.KeyRange
-	nil,                      // 10: clustermetadata.MultiPooler.PortMapEntry
-	nil,                      // 11: clustermetadata.MultiGateway.PortMapEntry
-	nil,                      // 12: clustermetadata.MultiOrch.PortMapEntry
+	(ID_ComponentType)(0),    // 2: clustermetadata.ID.ComponentType
+	(*GlobalTopoConfig)(nil), // 3: clustermetadata.GlobalTopoConfig
+	(*Cell)(nil),             // 4: clustermetadata.Cell
+	(*Database)(nil),         // 5: clustermetadata.Database
+	(*MultiPooler)(nil),      // 6: clustermetadata.MultiPooler
+	(*MultiGateway)(nil),     // 7: clustermetadata.MultiGateway
+	(*MultiOrch)(nil),        // 8: clustermetadata.MultiOrch
+	(*ID)(nil),               // 9: clustermetadata.ID
+	(*KeyRange)(nil),         // 10: clustermetadata.KeyRange
+	nil,                      // 11: clustermetadata.MultiPooler.PortMapEntry
+	nil,                      // 12: clustermetadata.MultiGateway.PortMapEntry
+	nil,                      // 13: clustermetadata.MultiOrch.PortMapEntry
 }
 var file_clustermetadata_proto_depIdxs = []int32{
-	8,  // 0: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
-	9,  // 1: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
+	9,  // 0: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
+	10, // 1: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
 	0,  // 2: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
 	1,  // 3: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	10, // 4: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	8,  // 5: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	11, // 6: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	8,  // 7: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	12, // 8: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
-	9,  // [9:9] is the sub-list for method output_type
-	9,  // [9:9] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	11, // 4: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
+	9,  // 5: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
+	12, // 6: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
+	9,  // 7: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
+	13, // 8: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	2,  // 9: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
@@ -846,7 +920,7 @@ func file_clustermetadata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_clustermetadata_proto_rawDesc), len(file_clustermetadata_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
