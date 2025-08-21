@@ -23,7 +23,7 @@ PROTO_GO_OUTS = pb
 
 # Install protobuf tools
 tools:
-	./bash_tools/setup_build_tools.sh
+	./tools/setup_build_tools.sh
 
 # Generate protobuf files
 proto: tools $(PROTO_GO_OUTS)
@@ -49,8 +49,9 @@ build:
 build-all: proto build
 
 # Clean build artifacts
-clean: clean_build_dep
-	rm -rf bin/
+clean:
+	go clean -i ./go/...
+	rm -f bin/*
 
 # Install binaries to GOPATH/bin
 install:
@@ -63,8 +64,8 @@ install:
 test:
 	go test ./...
 
-# Clean build dependencies
-clean_build_dep:
+# Clean build and dependencies
+clean_all: clean
 	echo "Removing build dependencies..."
-	. ./build.env && rm -rf $$MTROOT/dist
+	. ./build.env && rm -rf $$MTROOT/dist $$MTROOT/bin
 	echo "Build dependencies removed. Run 'make tools' to reinstall."
