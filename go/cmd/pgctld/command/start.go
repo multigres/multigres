@@ -200,6 +200,26 @@ func initializeDataDir(dataDir string) error {
 		return fmt.Errorf("initdb failed: %w", err)
 	}
 
+	// Set up postgres user password for md5 authentication
+	if err := setPostgresPassword(dataDir); err != nil {
+		return fmt.Errorf("failed to set postgres password: %w", err)
+	}
+
+	return nil
+}
+
+func setPostgresPassword(dataDir string) error {
+	// Start PostgreSQL temporarily in single-user mode to set password
+	// Use postgres in single-user mode with trust auth to set the password
+	cmd := exec.Command("postgres", "--single", "-D", dataDir, "postgres")
+	cmd.Stdin = strings.NewReader("ALTER USER postgres PASSWORD 'postgres';\n")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set postgres password: %w", err)
+	}
+
 	return nil
 }
 
@@ -261,39 +281,30 @@ func startPostgreSQLWithConfig(config *PostgresConfig) error {
 		return fmt.Errorf("failed to start PostgreSQL with pg_ctl: %w", err)
 	}
 
-	// Wait for PostgreSQL to be ready by checking if the process is running
-	// and the PID file is created with "ready" status
-	for i := 0; i < config.Timeout; i++ {
-		running := isPostgreSQLRunning(config.DataDir)
-		ready := isPostgreSQLReady(config.DataDir)
-
-		slog.Debug("Checking PostgreSQL readiness", "running", running, "ready", ready, "attempt", i+1)
-
-		if running && ready {
-			return nil
-		}
-		time.Sleep(1 * time.Second)
-	}
-
-	return fmt.Errorf("PostgreSQL did not become ready within %d seconds", config.Timeout)
+	// Wait for PostgreSQL to be ready using pg_isready
+	return waitForPostgreSQLWithConfig(config)
 }
 
 // isPostgreSQLReady checks if PostgreSQL is ready to accept connections
-// by reading the postmaster.pid file and checking for "ready" status
+// by reading the postgresql.log file and checking for "ready" status
 func isPostgreSQLReady(dataDir string) bool {
-	pidFile := filepath.Join(dataDir, "postmaster.pid")
-	content, err := os.ReadFile(pidFile)
+	logFile := filepath.Join(dataDir, "postgresql.log")
+	content, err := os.ReadFile(logFile)
 	if err != nil {
-		slog.Debug("Could not read postmaster.pid", "error", err)
+		slog.Debug("Could not read postgresql.log", "error", err)
 		return false
 	}
 
-	// Check if any line contains "ready"
+	// Check if any line contains "ready" or other startup completion indicators
 	lines := strings.Split(string(content), "\n")
-	slog.Debug("postmaster.pid content", "lines", len(lines), "content", string(content))
+	slog.Debug("postgresql.log content", "lines", len(lines))
 
 	for _, line := range lines {
-		if strings.Contains(strings.TrimSpace(line), "ready") {
+		line = strings.TrimSpace(line)
+		// Look for common PostgreSQL startup completion messages
+		if strings.Contains(line, "ready to accept connections") ||
+			strings.Contains(line, "database system is ready") ||
+			strings.Contains(line, "ready") {
 			return true
 		}
 	}

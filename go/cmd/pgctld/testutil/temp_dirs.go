@@ -18,9 +18,11 @@ package testutil
 
 import (
 	"fmt"
+	rand "math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -35,6 +37,9 @@ func TempDir(t *testing.T, prefix string) (string, func()) {
 	}
 
 	cleanup := func() {
+		// Clean up any leftover PostgreSQL mock processes
+		cleanupMockProcesses(t, dir)
+
 		if err := os.RemoveAll(dir); err != nil {
 			t.Errorf("Failed to remove temp dir %s: %v", dir, err)
 		}
@@ -128,4 +133,48 @@ func RemovePIDFile(t *testing.T, dataDir string) {
 	if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
 		t.Fatalf("Failed to remove PID file: %v", err)
 	}
+}
+
+// cleanupMockProcesses kills any leftover sleep processes created by mock PostgreSQL binaries
+func cleanupMockProcesses(t *testing.T, tempDir string) {
+	t.Helper()
+
+	// Look for any postmaster.pid files in the temp directory and kill associated processes
+	err := filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Continue walking even if there's an error with one file
+		}
+
+		if info.Name() == "postmaster.pid" {
+			// Read the PID from the file and kill the process
+			content, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return nil // Continue if we can't read the file
+			}
+
+			lines := strings.Split(string(content), "\n")
+			if len(lines) > 0 {
+				pidStr := strings.TrimSpace(lines[0])
+				if pid, parseErr := strconv.Atoi(pidStr); parseErr == nil {
+					// Try to kill the process (ignore errors since process might already be dead)
+					if process, findErr := os.FindProcess(pid); findErr == nil {
+						_ = process.Kill()
+					}
+				}
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		t.Logf("Warning: failed to walk temp directory for cleanup: %v", err)
+	}
+}
+
+// GenerateRandomPort generates a random port number between 10000 and 65535
+func GenerateRandomPort() int {
+	// Generate a random port between 10000 and 65535
+	minPort := 10000
+	maxPort := 65535
+	return rand.IntN(maxPort-minPort+1) + minPort
 }

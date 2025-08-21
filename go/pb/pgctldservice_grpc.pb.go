@@ -16,13 +16,12 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v4.25.1
-// source: pgctld.proto
+// source: pgctldservice.proto
 
 package pb
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -34,13 +33,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PgCtld_Start_FullMethodName        = "/pgctld.PgCtld/Start"
-	PgCtld_Stop_FullMethodName         = "/pgctld.PgCtld/Stop"
-	PgCtld_Restart_FullMethodName      = "/pgctld.PgCtld/Restart"
-	PgCtld_ReloadConfig_FullMethodName = "/pgctld.PgCtld/ReloadConfig"
-	PgCtld_Status_FullMethodName       = "/pgctld.PgCtld/Status"
-	PgCtld_Version_FullMethodName      = "/pgctld.PgCtld/Version"
-	PgCtld_InitDataDir_FullMethodName  = "/pgctld.PgCtld/InitDataDir"
+	PgCtld_Start_FullMethodName        = "/pgctldservice.PgCtld/Start"
+	PgCtld_Stop_FullMethodName         = "/pgctldservice.PgCtld/Stop"
+	PgCtld_Restart_FullMethodName      = "/pgctldservice.PgCtld/Restart"
+	PgCtld_ReloadConfig_FullMethodName = "/pgctldservice.PgCtld/ReloadConfig"
+	PgCtld_Status_FullMethodName       = "/pgctldservice.PgCtld/Status"
+	PgCtld_Version_FullMethodName      = "/pgctldservice.PgCtld/Version"
+	PgCtld_InitDataDir_FullMethodName  = "/pgctldservice.PgCtld/InitDataDir"
 )
 
 // PgCtldClient is the client API for PgCtld service.
@@ -345,7 +344,7 @@ func _PgCtld_InitDataDir_Handler(srv interface{}, ctx context.Context, dec func(
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var PgCtld_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "pgctld.PgCtld",
+	ServiceName: "pgctldservice.PgCtld",
 	HandlerType: (*PgCtldServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -378,5 +377,5 @@ var PgCtld_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "pgctld.proto",
+	Metadata: "pgctldservice.proto",
 }

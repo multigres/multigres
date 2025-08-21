@@ -132,6 +132,9 @@ func getServerVersionWithConfig(config *PostgresConfig) string {
 		"-t", "-c", "SELECT version()",
 	)
 
+	// Set environment to include PGPASSWORD if available
+	cmd.Env = os.Environ()
+
 	output, err := cmd.Output()
 	if err != nil {
 		return ""

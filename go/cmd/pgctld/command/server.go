@@ -295,33 +295,24 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*pb.VersionResponse, error) {
 	s.logger.Debug("gRPC Version request")
 
-	// Set up temporary viper config for this request
-	origHost := viper.GetString("pg-host")
-	origPort := viper.GetInt("pg-port")
-	origDatabase := viper.GetString("pg-database")
-	origUser := viper.GetString("pg-user")
+	// Create config from base viper settings
+	config := NewPostgresConfigFromViper()
 
-	defer func() {
-		viper.Set("pg-host", origHost)
-		viper.Set("pg-port", origPort)
-		viper.Set("pg-database", origDatabase)
-		viper.Set("pg-user", origUser)
-	}()
-
+	// Override with request parameters if provided
 	if req.Host != "" {
-		viper.Set("pg-host", req.Host)
+		config.Host = req.Host
 	}
 	if req.Port > 0 {
-		viper.Set("pg-port", req.Port)
+		config.Port = int(req.Port)
 	}
 	if req.Database != "" {
-		viper.Set("pg-database", req.Database)
+		config.Database = req.Database
 	}
 	if req.User != "" {
-		viper.Set("pg-user", req.User)
+		config.User = req.User
 	}
 
-	version := getServerVersion()
+	version := getServerVersionWithConfig(config)
 
 	return &pb.VersionResponse{
 		Version: version,

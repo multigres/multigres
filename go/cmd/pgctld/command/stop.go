@@ -21,8 +21,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -36,7 +34,7 @@ var stopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop PostgreSQL server",
 	Long: `Stop a running PostgreSQL server instance.
-	
+
 Shutdown modes:
   smart:     Disallow new connections, wait for existing sessions to finish
   fast:      Disallow new connections, terminate existing sessions
@@ -85,8 +83,8 @@ func stopPostgreSQL(dataDir, mode string, timeout int) error {
 func stopPostgreSQLWithConfig(config *PostgresConfig, mode string) error {
 	// First try using pg_ctl
 	if err := stopWithPgCtlWithConfig(config, mode); err != nil {
-		slog.Warn("pg_ctl stop failed, trying direct signal approach", "error", err)
-		return stopWithSignalWithConfig(config, mode)
+		slog.Error("pg_ctl stop failed,", "error", err)
+		return err
 	}
 	return nil
 }
@@ -112,60 +110,4 @@ func stopWithPgCtlWithConfig(config *PostgresConfig, mode string) error {
 	cmd.Stderr = os.Stderr
 
 	return cmd.Run()
-}
-
-func stopWithSignal(dataDir, mode string, timeout int) error {
-	// Legacy function - use defaults
-	config := NewPostgresConfigFromDefaults()
-	config.DataDir = dataDir
-	config.Timeout = timeout
-	return stopWithSignalWithConfig(config, mode)
-}
-
-func stopWithSignalWithConfig(config *PostgresConfig, mode string) error {
-	// Read PID from postmaster.pid file
-	pid, err := readPostmasterPID(config.DataDir)
-	if err != nil {
-		return fmt.Errorf("failed to read postmaster PID: %w", err)
-	}
-
-	// Choose signal based on mode
-	var sig os.Signal
-	switch mode {
-	case "smart":
-		sig = syscall.SIGTERM
-	case "fast":
-		sig = syscall.SIGINT
-	case "immediate":
-		sig = syscall.SIGQUIT
-	default:
-		return fmt.Errorf("invalid shutdown mode: %s", mode)
-	}
-
-	// Find the process
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("failed to find process %d: %w", pid, err)
-	}
-
-	// Send signal
-	if err := process.Signal(sig); err != nil {
-		return fmt.Errorf("failed to send signal to process %d: %w", pid, err)
-	}
-
-	// Wait for process to exit
-	for i := 0; i < config.Timeout; i++ {
-		if !isProcessRunning(pid) {
-			return nil
-		}
-		time.Sleep(1 * time.Second)
-	}
-
-	// If still running after timeout, force kill for immediate mode
-	if mode == "immediate" {
-		slog.Warn("PostgreSQL did not stop within timeout, force killing", "pid", pid)
-		return process.Kill()
-	}
-
-	return fmt.Errorf("PostgreSQL did not stop within %d seconds", config.Timeout)
 }

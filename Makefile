@@ -24,7 +24,7 @@ PROTO_GO_OUTS = $(patsubst proto/%.proto,go/pb/%.pb.go,$(PROTO_SRCS))
 # Install protobuf tools
 tools:
 	echo $$(date): Installing build tools
-	./bash_tools/setup_build_tools.sh
+	./tools/setup_build_tools.sh
 
 # Generate protobuf files
 proto: tools $(PROTO_GO_OUTS)
