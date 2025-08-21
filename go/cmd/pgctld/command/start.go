@@ -30,7 +30,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	pb "github.com/multigres/multigres/go/pb"
+	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // PostgresConfig holds all PostgreSQL configuration parameters

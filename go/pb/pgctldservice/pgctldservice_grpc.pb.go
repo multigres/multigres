@@ -18,7 +18,7 @@
 // - protoc             v4.25.1
 // source: pgctldservice.proto
 
-package pb
+package pgctldservice
 
 import (
 	context "context"

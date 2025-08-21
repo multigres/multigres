@@ -30,7 +30,7 @@ import (
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 
-	pb "github.com/multigres/multigres/go/pb"
+	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 func init() {

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright 2025 The Multigres Authors
+# Copyright 2025 The Multigres Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,6 +23,8 @@ source build.env
 # Dependency versions
 PROTOC_VERSION="$PROTOC_VER"
 ADDLICENSE_VERSION="$ADDLICENSE_VER"
+PROTOC_GEN_GO_VERSION="$PROTOC_GEN_GO_VER"
+PROTOC_GEN_GO_GRPC_VERSION="$PROTOC_GEN_GO_GRPC_VER"
 
 get_platform() {
     case $(uname) in
@@ -54,7 +56,6 @@ install_dep() {
     
     # Check if already installed with correct version
     if [[ -f "$version_file" && "$(cat "$version_file")" == "$version" ]]; then
-        echo "skipping $name install. remove $dist to force re-install."
         return 0
     fi
     
@@ -104,21 +105,27 @@ install_protoc_impl() {
 }
 
 install_go_plugins() {
-    echo "Installing Go protobuf plugins..."
-    go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-    echo "Go protobuf plugins installed successfully"
+    # Install protoc-gen-go if not already installed
+    if ! command -v protoc-gen-go >/dev/null 2>&1; then
+        echo "Installing protoc-gen-go $PROTOC_GEN_GO_VERSION..."
+        go install google.golang.org/protobuf/cmd/protoc-gen-go@$PROTOC_GEN_GO_VERSION
+    fi
+    # Install protoc-gen-go-grpc if not already installed
+    if ! command -v protoc-gen-go-grpc >/dev/null 2>&1; then
+        echo "Installing protoc-gen-go-grpc $PROTOC_GEN_GO_GRPC_VERSION..."
+        go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$PROTOC_GEN_GO_GRPC_VERSION
+    fi
 }
 
 install_go_tools() {
-    echo "Installing Go tools..."
-    go install github.com/google/addlicense@$ADDLICENSE_VERSION
-    echo "Go tools installed successfully"
+    # Install addlicense if not already installed
+    if ! command -v addlicense >/dev/null 2>&1; then
+        echo "Installing addlicense $ADDLICENSE_VERSION..."
+        go install github.com/google/addlicense@$ADDLICENSE_VERSION
+    fi
 }
 
 install_all() {
-    echo "Setting up build tools for Multigres..."
-    
     # Create dist directory
     mkdir -p "$MTROOT/dist"
     
@@ -128,8 +135,6 @@ install_all() {
     # Install Go dependencies
     install_go_plugins
     install_go_tools
-    
-    echo "Build tools setup complete!"
 }
 
 main() {

@@ -21,7 +21,7 @@ import (
 
 	"github.com/spf13/viper"
 
-	pb "github.com/multigres/multigres/go/pb"
+	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // SetupTestViper configures viper with test-specific settings

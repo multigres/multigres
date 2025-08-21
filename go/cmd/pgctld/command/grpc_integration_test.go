@@ -31,7 +31,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
-	pb "github.com/multigres/multigres/go/pb"
+	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // TestGRPCServerIntegration tests the gRPC server with mock PostgreSQL

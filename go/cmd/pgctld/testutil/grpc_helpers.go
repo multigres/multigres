@@ -27,7 +27,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	pb "github.com/multigres/multigres/go/pb"
+	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // MockPgCtldService implements a mock version of the PgCtld gRPC service for testing

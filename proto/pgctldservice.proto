@@ -16,7 +16,7 @@ syntax = "proto3";
 
 package pgctldservice;
 
-option go_package = "github.com/multigres/multigres/go/pb";
+option go_package = "github.com/multigres/multigres/go/pb/pgctldservice";
 
 // PostgreSQL Control Service
 service PgCtld {

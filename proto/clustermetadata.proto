@@ -1,4 +1,4 @@
-// Copyright 2025 The Multigres Authors
+// Copyright 2025 The Multigres Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ syntax = "proto3";
 
 package clustermetadata;
 
-option go_package = "github.com/multigres/multigres/go/pb";
+option go_package = "github.com/multigres/multigres/go/pb/clustermetadata";
 
 // Topology Schemas for Multigres Cluster Management
 
@@ -36,39 +36,39 @@ message GlobalTopoConfig {
 
   // server is the network address (host:port) of the topology service.
   // Can be a list list for HA setups.
-  repeated string server_address = 2;
+  repeated string server_addresses = 2;
 
   // root is the logical root directory or namespace inside the topology backend
   // under which all cluster metadata will be stored.
   string root = 3;
 }
 
-// CellLocation describes how to connect to a cell topology. 
+// Cell describes how to connect to a cell topology.
 // These records are stored in the global topology server.
-message CellLocation {
+message Cell {
   // name for this cell
   string name = 1;
-  
+
   // server_address is the network address of the cell topology service.
-  repeated string server_address = 2;
-  
+  repeated string server_addresses = 2;
+
   // root is the namespace or directory path within the topology service
-  // where this cell's metadata is stored. Used only when connecting to server_address.
+  // where this cell's metadata is stored. Used only when connecting to server_addresses.
   string root = 3;
 }
 
 message Database {
   // Name of the database
-  string name = 1;      
-                      
+  string name = 1;
+
   // Backups location
-  string backup_location = 2;   
-  
-  // Durability policy used for consensus 
-  string durability_policy = 3;         
-     
+  string backup_location = 2;
+
+  // Durability policy used for consensus
+  string durability_policy = 3;
+
   // List of cell identifiers where this database should be deployed
-  repeated string cells = 4;              
+  repeated string cells = 4;
 }
 
 // =============================================================================
@@ -82,29 +82,29 @@ message MultiPooler {
 
   // Database name.
   string database = 2;
-  
+
   // TableGroup name.
   string table_group = 3;
 
   // Shard name. If range based sharding is used, it should match
   // key_range.
   string shard = 4;
-  
+
   // If range based sharding is used, range for the pooler's shard.
   KeyRange key_range = 5;
 
   // PoolerType is the kind of pooler: PRIMARY or REPLICA
   PoolerType type = 6;
-  
+
   // PoolerServingStatus is the current type of the pooler.
   PoolerServingStatus serving_status = 7;
 
   // Fully qualified domain name of the host.
   string hostname = 8;
-  
+
   // Map of named ports. These are ports that the pooler exposes. Initially, this will only be gRPC
   map<string, int32> port_map = 9;
-  
+
 
 }
 
@@ -115,7 +115,7 @@ message MultiGateway {
 
   // Fully qualified domain name of the host.
   string hostname = 2;
-  
+
   // Map of named ports. Normally this should include postgres and grpc.
   map<string, int32> port_map = 3;
 }
@@ -140,12 +140,12 @@ message MultiOrch {
 message ID {
   // component that this ID is used for (i.e multigateway / multiorch / multipooler)
   MultigresComponent component = 1;
-  
+
   // cell is the Multigres cell where the component is located
   string cell = 2;
 
   // uid is a unique identifier for the component within the multigres
-  // cluster. 
+  // cluster.
   uint32 uid = 3;
 }
 
@@ -167,7 +167,7 @@ enum MultigresComponent {
 message KeyRange {
   // start is the start key of the range (inclusive)
   bytes start = 1;
-  
+
   // end is the end key of the range (exclusive)
   bytes end = 2;
 }

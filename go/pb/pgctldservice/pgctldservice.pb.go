@@ -18,7 +18,7 @@
 // 	protoc        v4.25.1
 // source: pgctldservice.proto
 
-package pb
+package pgctldservice
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -1073,7 +1073,7 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\fReloadConfig\x12\".pgctldservice.ReloadConfigRequest\x1a#.pgctldservice.ReloadConfigResponse\x12E\n" +
 	"\x06Status\x12\x1c.pgctldservice.StatusRequest\x1a\x1d.pgctldservice.StatusResponse\x12H\n" +
 	"\aVersion\x12\x1d.pgctldservice.VersionRequest\x1a\x1e.pgctldservice.VersionResponse\x12T\n" +
-	"\vInitDataDir\x12!.pgctldservice.InitDataDirRequest\x1a\".pgctldservice.InitDataDirResponseB&Z$github.com/multigres/multigres/go/pbb\x06proto3"
+	"\vInitDataDir\x12!.pgctldservice.InitDataDirRequest\x1a\".pgctldservice.InitDataDirResponseB4Z2github.com/multigres/multigres/go/pb/pgctldserviceb\x06proto3"
 
 var (
 	file_pgctldservice_proto_rawDescOnce sync.Once
