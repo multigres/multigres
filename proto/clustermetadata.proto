@@ -77,8 +77,8 @@ message Database {
 
 // MultiPooler represents metadata about a running multipooler component instance in the cluster.
 message MultiPooler {
-  // identifier is the unique identifier of the multipooler in the cluster.
-  ID identifier = 1;
+  // id is the unique identifier of the multipooler in the cluster.
+  ID id = 1;
 
   // Database name.
   string database = 2;
@@ -110,8 +110,8 @@ message MultiPooler {
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
 message MultiGateway {
-  // identifier is the unique name of the multi gateway in the cluster.
-  ID identifier = 1;
+  // id is the unique name of the multi gateway in the cluster.
+  ID id = 1;
 
   // Fully qualified domain name of the host.
   string hostname = 2;
@@ -122,8 +122,8 @@ message MultiGateway {
 
 // MultiOrch represents information about a running instance of multiorch.
 message MultiOrch {
-   // identifier is the unique name of the MultiOrch in the cluster.
-  ID identifier = 1;
+   // id is the unique name of the MultiOrch in the cluster.
+  ID id = 1;
 
   // Fully qualified domain name of the host.
   string hostname = 2;
@@ -138,29 +138,12 @@ message MultiOrch {
 
 // ID is a globally unique pooler identifier.
 message ID {
-  // component that this ID is used for (i.e multigateway / multiorch / multipooler)
-  MultigresComponent component = 1;
-  
   // cell is the Multigres cell where the component is located
   string cell = 2;
 
   // uid is a unique identifier for the component within the multigres
   // cluster. 
   uint32 uid = 3;
-}
-
-
-// MultigresComponent enumerates the major components in a Multigres deployment.
-enum MultigresComponent {
-  // MULTIGATEWAY handles query routing and traffic distribution across clusters.
-  MULTIGATEWAY = 0;
-
-  // MULTIPOOLER manages connection pooling and load balancing for database clients.
-  MULTIPOOLER = 1;
-
-  // MULTIORCH is the orchestrator responsible for cluster topology management,
-  // failover coordination, and automated repairs.
-  MULTIORCH = 2;
 }
 
 // KeyRange represents a range of keys for sharding

@@ -287,6 +287,10 @@ type wrapping struct {
 func (w *wrapping) Error() string { return w.msg + ": " + w.cause.Error() }
 func (w *wrapping) Cause() error  { return w.cause }
 
+// Unwrap implements Go's standard error unwrapping interface.
+// This allows errors.Is() and errors.As() to work with wrapped errors.
+func (w *wrapping) Unwrap() error { return w.cause }
+
 func (w *wrapping) Format(s fmt.State, verb rune) {
 	if rune('v') == verb {
 		panicIfError(fmt.Fprintf(s, "%v\n", w.Cause()))
