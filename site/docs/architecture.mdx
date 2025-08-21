@@ -152,19 +152,12 @@ In the above example:
 
 The rest of the Multigres features like cluster management, HA, etc. will be designed to work seamlessly with these sharded TableGroups.
 
-### Shard ranges
-
-Multigres will use a hexadecimal range based sharding scheme. A shard will be delimited by two values: the start and end of the range. For example, a shard might be defined as `tg1:0-8`. The beginning of the range will be inclusive, while the end will be exclusive. This means that the shard includes keys from `0` up to but not including `8`. The values can contain any number of bits, with the most significant bit being on the left.
-
-* `0` is the lowest value.
-* `inf` is a notation for the highest value. It is used to indicate that the shard includes all keys greater than or equal to the start of the range.
-* `8` represents four bits (1000). The trailing zeroes can be omitted. Therefore, it is the same as `80`, which is also the same as `8000`, and so on. Since this is a hexadecimal value, `8` splits the range of all possible values into two equal parts.
-* Unsharded TableGroups are represented as `0-inf`, which implies that the single database contains all possible values.
-
-Multigres will assign a value to each row, known as the `RowKey`. This value will decide which shard the row belongs to. For example, in the case of two shards `0-8` and `8-inf`, a RowKey of `0x01` will be placed in the `0-8` shard, while a RowKey of `0xFF` will be placed in the `8-inf` shard.
-
-Multigres will assign a `RowKey` value to each row based on the type of sharding index assigned to the table column. This functionality will be explained in a different document.
+We will cover the Multigres sharding model in more detail in a separate document.
 
 ## Upcoming Topics
 
-As we expand our documentation, we will cover some of these topics in more detail.
+We will cover the following topics in more detail in the future:
+
+* Two-phase sync replication
+* Generalized consensus for durability policies
+* Multigres sharding model
