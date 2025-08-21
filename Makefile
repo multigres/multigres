@@ -23,7 +23,8 @@ PROTO_GO_OUTS = pb
 
 # Install protobuf tools
 tools:
-	./bash_tools/setup_build_tools.sh
+	echo $$(date): Installing build tools
+	./tools/setup_build_tools.sh
 
 # Generate protobuf files
 proto: tools $(PROTO_GO_OUTS)

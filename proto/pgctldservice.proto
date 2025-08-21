@@ -1,0 +1,211 @@
+// Copyright 2025 The Multigres Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package pgctldservice;
+
+option go_package = "github.com/multigres/multigres/go/pb/pgctldservice";
+
+// PostgreSQL Control Service
+service PgCtld {
+  // Start PostgreSQL server
+  rpc Start(StartRequest) returns (StartResponse);
+
+  // Stop PostgreSQL server
+  rpc Stop(StopRequest) returns (StopResponse);
+
+  // Restart PostgreSQL server
+  rpc Restart(RestartRequest) returns (RestartResponse);
+
+  // Reload PostgreSQL configuration
+  rpc ReloadConfig(ReloadConfigRequest) returns (ReloadConfigResponse);
+
+  // Get PostgreSQL server status
+  rpc Status(StatusRequest) returns (StatusResponse);
+
+  // Get server version information
+  rpc Version(VersionRequest) returns (VersionResponse);
+
+  // Initialize data directory
+  rpc InitDataDir(InitDataDirRequest) returns (InitDataDirResponse);
+}
+
+// Start PostgreSQL server
+message StartRequest {
+  // Override default data directory
+  string data_dir = 1;
+
+  // Override default port
+  int32 port = 2;
+
+  // Override default socket directory
+  string socket_dir = 3;
+
+  // Override default config file
+  string config_file = 4;
+
+  // Additional postgres command line arguments
+  repeated string extra_args = 5;
+}
+
+message StartResponse {
+  // Process ID of started PostgreSQL server
+  int32 pid = 1;
+
+  // Status message
+  string message = 2;
+}
+
+// Stop PostgreSQL server
+message StopRequest {
+  // Shutdown mode: smart, fast, immediate
+  string mode = 1;
+
+  // Timeout in seconds
+  int32 timeout = 2;
+
+  // Override default data directory
+  string data_dir = 3;
+}
+
+message StopResponse {
+  // Status message
+  string message = 1;
+}
+
+// Restart PostgreSQL server
+message RestartRequest {
+  // Shutdown mode for stop phase: smart, fast, immediate
+  string mode = 1;
+
+  // Timeout in seconds for stop phase
+  int32 timeout = 2;
+
+  // Override default data directory
+  string data_dir = 3;
+
+  // Override default port for start phase
+  int32 port = 4;
+
+  // Override default socket directory for start phase
+  string socket_dir = 5;
+
+  // Override default config file for start phase
+  string config_file = 6;
+
+  // Additional postgres command line arguments for start phase
+  repeated string extra_args = 7;
+}
+
+message RestartResponse {
+  // Process ID of restarted PostgreSQL server
+  int32 pid = 1;
+
+  // Status message
+  string message = 2;
+}
+
+// Reload PostgreSQL configuration
+message ReloadConfigRequest {
+  // Override default data directory
+  string data_dir = 1;
+}
+
+message ReloadConfigResponse {
+  // Status message
+  string message = 1;
+}
+
+// Get PostgreSQL server status
+message StatusRequest {
+  // Override default data directory
+  string data_dir = 1;
+}
+
+message StatusResponse {
+  // Server status
+  ServerStatus status = 1;
+
+  // Process ID (if running)
+  int32 pid = 2;
+
+  // Server version (if available)
+  string version = 3;
+
+  // Uptime in seconds (if running)
+  int64 uptime_seconds = 4;
+
+  // Data directory path
+  string data_dir = 5;
+
+  // Port number
+  int32 port = 6;
+
+  // Host address
+  string host = 7;
+
+  // Is server ready to accept connections
+  bool ready = 8;
+
+  // Additional status information
+  string message = 9;
+}
+
+// Server status enumeration
+enum ServerStatus {
+  UNKNOWN = 0;
+  STOPPED = 1;
+  STARTING = 2;
+  RUNNING = 3;
+  STOPPING = 4;
+  NOT_INITIALIZED = 5;
+}
+
+// Get server version information
+message VersionRequest {
+  // Override default connection parameters
+  string host = 1;
+  int32 port = 2;
+  string database = 3;
+  string user = 4;
+}
+
+message VersionResponse {
+  // PostgreSQL version string
+  string version = 1;
+
+  // Status message
+  string message = 2;
+}
+
+// Initialize data directory
+message InitDataDirRequest {
+  // Data directory path
+  string data_dir = 1;
+
+  // Authentication method for local connections
+  string auth_local = 2;
+
+  // Authentication method for host connections
+  string auth_host = 3;
+
+  // Additional initdb arguments
+  repeated string extra_args = 4;
+}
+
+message InitDataDirResponse {
+  // Status message
+  string message = 1;
+}
