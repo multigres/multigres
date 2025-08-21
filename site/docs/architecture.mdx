@@ -76,13 +76,13 @@ Unlike a traditional Postgres server, every Multigres database will be created i
 
 The MultiGateways will be scalable independently based on resource needs. The application will connect to any MultiGateway, which will route the queries to the appropriate MultiPooler based on the database name.
 
-This deployment style will allow for a large number of databases to be deployed under a single logical Postgres cluster.
+This deployment style will allow for a large number of databases to be deployed under a single Multigres cluster.
 
 The figure does not show the Topo Server and Provisioner components, but they will still be required for the cluster to operate.
 
 ## Performance and High Availability
 
-Multigres can be configured to add replicas as standbys. In this setup, we introduce the `MultiOrch` component that will handle the orchestration of these replicas, ensuring they are kept in sync with the primary database.
+Multigres can be configured to add replicas as standbys. In this setup, we introduce the `MultiOrch` component, which manages the health of replication across replicas. It monitors replication, repairs broken streams, and coordinates failover, ensuring replicas remain in sync with the primary database.
 
 ![High Availability and Performance](/img/site/arch-ha.png)
 
@@ -108,11 +108,11 @@ In Multigres parlance, a cell will be a user-defined grouping of components. It 
 
 ### Topo Servers
 
-In a multi-cell deployment, the Topo Server will be splittable into multiple instances. It will be recommended that the Global Topo Server be deployed with nodes in multiple regions. For every cell, a cell-specific topo server will be deployable. This will be designed in such a way that components within a cell will mostly depend on the cell-specific topo server.
+In a multi-cell deployment, the Topo Server will be splittable into multiple instances. It is recommended that the Global Topo Server be deployed with nodes in multiple cells. For every cell, a cell-specific topo server will be deployable.
 
 The Global Topo Server will contain the list of databases and the cells in which replicas are deployed. This information will be used more sparingly.
 
-The purpose of this design will be to ensure that a cell that is partitioned from the rest of the system can continue to operate independently for as long as the data is not stale.
+The cell-specific topo servers will contain the list of components deployed in that cell, such as MultiGateways and MultiPoolers. The purpose of this design is to ensure that a cell that is partitioned from the rest of the system can continue to operate independently for as long as the data is not stale.
 
 ### Single Primary
 
@@ -128,7 +128,7 @@ The consensus protocol will ensure safety even if the MultiOrchs are not able to
 
 The durability policies will be settable to survive network partitions. For example, you may request a cross-cell durability policy that will require an acknowledgment from a replica in a different cell before considering a write successful.
 
-You will also be able to request MultiOrch to prefer appointing a primary within the same cell to avoid unnecessary churn.
+You will also be able to request MultiOrch to prefer appointing a primary within the same cell as the previous primary to avoid unnecessary churn.
 
 ### Backup and Restore
 
@@ -136,7 +136,7 @@ Multigres will perform regular backups of the databases. These backups will be r
 
 ## Sharding
 
-In the previous examples where the databases will be unsharded, all the tables will be stored on a single Postgres database. In this situation, there will be a one-to-one mapping between a Multigres database and the Postgres instance.
+In the previous examples where the databases were unsharded, all the tables would have been stored on a single Postgres database. In this situation, there will be a one-to-one mapping between a Multigres database and the Postgres instance.
 
 In reality, a Multigres database will be distributable across multiple Postgres instances. These will be known as TableGroups. Additionally, each TableGroup will be shardable independently, which will result in more Postgres instances within a TableGroup. When a Multigres database is created, a `default TableGroup` will be created, which will be an unsharded Postgres instance. This will be where all the initial tables are created. When you decide to shard a set of tables, you will be able to create a new sharded TableGroup and migrate those tables to it. From the application's perspective, the tables will appear as if they are part of a single database.
 
@@ -165,6 +165,6 @@ Multigres will assign a value to each row, known as the `RowKey`. This value wil
 
 Multigres will assign a `RowKey` value to each row based on the type of sharding index assigned to the table column. This functionality will be explained in a different document.
 
-## More details
+## Upcoming Topics
 
 As we expand our documentation, we will cover some of these topics in more detail.
