@@ -33,6 +33,14 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
+// StartResult contains the result of starting PostgreSQL
+type StartResult struct {
+	PID            int
+	AlreadyRunning bool
+	Message        string
+	WasInitialized bool
+}
+
 // PostgresConfig holds all PostgreSQL configuration parameters
 type PostgresConfig struct {
 	DataDir    string
@@ -137,44 +145,92 @@ var startCmd = &cobra.Command{
 
 func runStart(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
-	return StartPostgreSQLWithConfig(config)
+	result, err := StartPostgreSQLWithResult(config)
+	if err != nil {
+		return err
+	}
+
+	// Display appropriate message for CLI users
+	if result.AlreadyRunning {
+		fmt.Printf("PostgreSQL is already running (PID: %d)\n", result.PID)
+	} else {
+		fmt.Printf("PostgreSQL server started successfully (PID: %d)\n", result.PID)
+		if !result.WasInitialized {
+			fmt.Println("Data directory was initialized")
+		}
+	}
+
+	return nil
 }
 
-// StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
-func StartPostgreSQLWithConfig(config *PostgresConfig) error {
+// StartPostgreSQLWithResult starts PostgreSQL with the given configuration and returns detailed result information
+func StartPostgreSQLWithResult(config *PostgresConfig) (*StartResult, error) {
 	logger := slog.Default()
+	result := &StartResult{}
 
 	if config.DataDir == "" {
-		return fmt.Errorf("data-dir is required")
+		return nil, fmt.Errorf("data-dir is required")
 	}
 
 	// Check if data directory exists and is initialized
-	if !isDataDirInitialized(config.DataDir) {
+	wasInitialized := isDataDirInitialized(config.DataDir)
+	result.WasInitialized = wasInitialized
+
+	if !wasInitialized {
 		logger.Info("Data directory not initialized, running initdb", "data_dir", config.DataDir)
 		if err := initializeDataDir(config.DataDir); err != nil {
-			return fmt.Errorf("failed to initialize data directory: %w", err)
+			return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 		}
 	}
 
 	// Check if PostgreSQL is already running
 	if isPostgreSQLRunning(config.DataDir) {
 		logger.Info("PostgreSQL is already running")
-		return nil
+		result.AlreadyRunning = true
+		result.Message = "PostgreSQL is already running"
+
+		// Get PID of running instance
+		if pid, err := readPostmasterPID(config.DataDir); err == nil {
+			result.PID = pid
+		}
+
+		return result, nil
 	}
 
 	// Start PostgreSQL
 	logger.Info("Starting PostgreSQL server", "data_dir", config.DataDir)
 	if err := startPostgreSQLWithConfig(config); err != nil {
-		return fmt.Errorf("failed to start PostgreSQL: %w", err)
+		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
 
 	// Wait for server to be ready
 	logger.Info("Waiting for PostgreSQL to be ready")
 	if err := waitForPostgreSQLWithConfig(config); err != nil {
-		return fmt.Errorf("PostgreSQL failed to become ready: %w", err)
+		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
 
+	// Get PID of started instance
+	if pid, err := readPostmasterPID(config.DataDir); err == nil {
+		result.PID = pid
+	}
+
+	result.Message = "PostgreSQL server started successfully"
 	logger.Info("PostgreSQL server started successfully")
+	return result, nil
+}
+
+// StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
+func StartPostgreSQLWithConfig(config *PostgresConfig) error {
+	result, err := StartPostgreSQLWithResult(config)
+	if err != nil {
+		return err
+	}
+
+	// For backward compatibility, log the message if provided
+	if result.Message != "" && !result.AlreadyRunning {
+		slog.Info(result.Message)
+	}
+
 	return nil
 }
 

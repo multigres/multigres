@@ -15,6 +15,8 @@
 package command
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,23 +155,29 @@ timeout: 30
 			}
 		}()
 
-		// Give server time to start
-		time.Sleep(3 * time.Second)
+		deadline := time.Now().Add(5 * time.Second)
+		serverStarted := false
 
-		// Test basic gRPC connectivity by checking if the server is listening
-		// We can't easily test full gRPC functionality without importing the pb package
-		// but we can at least verify the server starts without errors
+		for time.Now().Before(deadline) {
+			// Check if server process is still running (not crashed)
+			if serverCmd.Process != nil {
+				// Check if process is still alive by checking if ProcessState is nil
+				// If the process has exited, ProcessState will be non-nil
+				require.Nil(t, serverCmd.ProcessState, "gRPC server process died: exit code %d", serverCmd.ProcessState.ExitCode())
 
-		// Check if server process is still running (not crashed)
-		if serverCmd.Process != nil {
-			// Check if process is still alive by checking if ProcessState is nil
-			// If the process has exited, ProcessState will be non-nil
-			if serverCmd.ProcessState == nil {
-				t.Log("gRPC server is running successfully")
-			} else {
-				t.Errorf("gRPC server process died: exit code %d", serverCmd.ProcessState.ExitCode())
+				// Test basic gRPC connectivity by checking if the server is listening
+				// Try to connect to the gRPC port to verify it's listening
+				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)
+				if err == nil {
+					conn.Close()
+					serverStarted = true
+					break
+				}
 			}
+			time.Sleep(100 * time.Millisecond)
 		}
+
+		require.True(t, serverStarted, "timeout: gRPC server failed to start listening")
 	})
 }
 
@@ -236,7 +244,7 @@ timeout: 30
 		t.Logf("Rapid operations test using port: %d", rapidTestPort)
 
 		// Test rapid start/stop cycles
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			t.Logf("Cycle %d", i+1)
 
 			// Start

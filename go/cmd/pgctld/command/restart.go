@@ -21,8 +21,14 @@ import (
 	"log/slog"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
+
+// RestartResult contains the result of restarting PostgreSQL
+type RestartResult struct {
+	PID          int
+	StoppedFirst bool
+	Message      string
+}
 
 func init() {
 	Root.AddCommand(restartCmd)
@@ -36,41 +42,59 @@ var restartCmd = &cobra.Command{
 	RunE:  runRestart,
 }
 
-func runRestart(cmd *cobra.Command, args []string) error {
+// RestartPostgreSQLWithResult restarts PostgreSQL with the given configuration and returns detailed result information
+func RestartPostgreSQLWithResult(config *PostgresConfig, mode string) (*RestartResult, error) {
 	logger := slog.Default()
+	result := &RestartResult{}
 
-	dataDir := viper.GetString("data-dir")
-	if dataDir == "" {
-		return fmt.Errorf("data-dir is required")
+	if config.DataDir == "" {
+		return nil, fmt.Errorf("data-dir is required")
 	}
 
-	mode, _ := cmd.Flags().GetString("mode")
-	timeout := viper.GetInt("timeout")
-
-	logger.Info("Restarting PostgreSQL server", "data_dir", dataDir, "mode", mode)
+	logger.Info("Restarting PostgreSQL server", "data_dir", config.DataDir, "mode", mode)
 
 	// Stop the server if it's running
-	if isPostgreSQLRunning(dataDir) {
+	if isPostgreSQLRunning(config.DataDir) {
 		logger.Info("Stopping PostgreSQL server")
-		if err := stopPostgreSQL(dataDir, mode, timeout); err != nil {
-			return fmt.Errorf("failed to stop PostgreSQL during restart: %w", err)
+		stopResult, err := StopPostgreSQLWithResult(config, mode)
+		if err != nil {
+			return nil, fmt.Errorf("failed to stop PostgreSQL during restart: %w", err)
 		}
+		result.StoppedFirst = stopResult.WasRunning
 	} else {
 		logger.Info("PostgreSQL is not running, proceeding with start")
+		result.StoppedFirst = false
 	}
 
 	// Start the server
 	logger.Info("Starting PostgreSQL server")
-	if err := startPostgreSQL(dataDir); err != nil {
-		return fmt.Errorf("failed to start PostgreSQL during restart: %w", err)
+	startResult, err := StartPostgreSQLWithResult(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start PostgreSQL during restart: %w", err)
 	}
 
-	// Wait for server to be ready
-	logger.Info("Waiting for PostgreSQL to be ready")
-	if err := waitForPostgreSQL(); err != nil {
-		return fmt.Errorf("PostgreSQL failed to become ready after restart: %w", err)
-	}
+	result.PID = startResult.PID
+	result.Message = "PostgreSQL server restarted successfully"
 
 	logger.Info("PostgreSQL server restarted successfully")
+	return result, nil
+}
+
+func runRestart(cmd *cobra.Command, args []string) error {
+	config := NewPostgresConfigFromViper()
+	mode, _ := cmd.Flags().GetString("mode")
+
+	result, err := RestartPostgreSQLWithResult(config, mode)
+	if err != nil {
+		return err
+	}
+
+	// Display appropriate message for CLI users
+	if result.StoppedFirst {
+		fmt.Printf("PostgreSQL server restarted successfully (PID: %d, mode: %s)\n", result.PID, mode)
+	} else {
+		fmt.Printf("PostgreSQL server started successfully (PID: %d) - was not previously running\n", result.PID)
+	}
+
 	return nil
 }

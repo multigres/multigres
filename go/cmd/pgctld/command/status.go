@@ -25,8 +25,20 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
+
+// StatusResult contains the result of checking PostgreSQL status
+type StatusResult struct {
+	Status        string // "NOT_INITIALIZED", "STOPPED", "RUNNING"
+	PID           int
+	Version       string
+	UptimeSeconds int64
+	DataDir       string
+	Port          int
+	Host          string
+	Ready         bool
+	Message       string
+}
 
 func init() {
 	Root.AddCommand(statusCmd)
@@ -39,65 +51,124 @@ var statusCmd = &cobra.Command{
 	RunE:  runStatus,
 }
 
-func runStatus(cmd *cobra.Command, args []string) error {
+// GetStatusWithResult gets PostgreSQL status with the given configuration and returns detailed result information
+func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
 	logger := slog.Default()
+	result := &StatusResult{
+		DataDir: config.DataDir,
+		Port:    config.Port,
+		Host:    config.Host,
+	}
 
-	dataDir := viper.GetString("data-dir")
-	if dataDir == "" {
-		return fmt.Errorf("data-dir is required")
+	if config.DataDir == "" {
+		return nil, fmt.Errorf("data-dir is required")
 	}
 
 	// Check if data directory is initialized
-	if !isDataDirInitialized(dataDir) {
-		fmt.Printf("Status: Not initialized\n")
-		fmt.Printf("Data directory: %s (not initialized)\n", dataDir)
-		return nil
+	if !isDataDirInitialized(config.DataDir) {
+		result.Status = "NOT_INITIALIZED"
+		result.Message = "Data directory is not initialized"
+		return result, nil
 	}
 
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(dataDir) {
-		fmt.Printf("Status: Stopped\n")
-		fmt.Printf("Data directory: %s\n", dataDir)
-		return nil
+	if !isPostgreSQLRunning(config.DataDir) {
+		result.Status = "STOPPED"
+		result.Message = "PostgreSQL server is stopped"
+		return result, nil
 	}
 
+	// Server is running
+	result.Status = "RUNNING"
+	result.Message = "PostgreSQL server is running"
+
 	// Get PID if running
-	pid, err := readPostmasterPID(dataDir)
-	if err != nil {
+	if pid, err := readPostmasterPID(config.DataDir); err == nil {
+		result.PID = pid
+	} else {
 		logger.Warn("Could not read postmaster PID", "error", err)
-		pid = 0
 	}
 
 	// Check if server is accepting connections
-	isReady := isServerReady()
+	result.Ready = isServerReadyWithConfig(config)
 
 	// Get server version if possible
-	version := getServerVersion()
+	result.Version = getServerVersionWithConfig(config)
 
-	// Get uptime
-	uptime := getServerUptime(dataDir)
+	// Get uptime (approximate based on pidfile mtime)
+	pidFile := filepath.Join(config.DataDir, "postmaster.pid")
+	if stat, err := os.Stat(pidFile); err == nil {
+		result.UptimeSeconds = int64(time.Since(stat.ModTime()).Seconds())
+	}
 
-	// Display status
-	fmt.Printf("Status: Running\n")
-	fmt.Printf("Data directory: %s\n", dataDir)
-	if pid > 0 {
-		fmt.Printf("PID: %d\n", pid)
+	return result, nil
+}
+
+func runStatus(cmd *cobra.Command, args []string) error {
+	config := NewPostgresConfigFromViper()
+	result, err := GetStatusWithResult(config)
+	if err != nil {
+		return err
 	}
-	fmt.Printf("Port: %d\n", viper.GetInt("pg-port"))
-	fmt.Printf("Host: %s\n", viper.GetString("pg-host"))
-	if version != "" {
-		fmt.Printf("Version: %s\n", version)
+
+	// Display status for CLI users
+	var statusDisplay string
+	switch result.Status {
+	case "NOT_INITIALIZED":
+		statusDisplay = "Not initialized"
+	case "STOPPED":
+		statusDisplay = "Stopped"
+	case "RUNNING":
+		statusDisplay = "Running"
+	default:
+		statusDisplay = result.Status
 	}
-	if uptime != "" {
-		fmt.Printf("Uptime: %s\n", uptime)
-	}
-	if isReady {
-		fmt.Printf("Ready: Yes\n")
-	} else {
-		fmt.Printf("Ready: No (server may be starting or in recovery)\n")
+
+	fmt.Printf("Status: %s\n", statusDisplay)
+	fmt.Printf("Data directory: %s", result.DataDir)
+
+	switch result.Status {
+	case "NOT_INITIALIZED":
+		fmt.Printf(" (not initialized)\n")
+	case "STOPPED":
+		fmt.Printf("\n")
+	case "RUNNING":
+		fmt.Printf("\n")
+		if result.PID > 0 {
+			fmt.Printf("PID: %d\n", result.PID)
+		}
+		fmt.Printf("Port: %d\n", result.Port)
+		fmt.Printf("Host: %s\n", result.Host)
+		if result.Version != "" {
+			fmt.Printf("Version: %s\n", result.Version)
+		}
+		if result.UptimeSeconds > 0 {
+			fmt.Printf("Uptime: %s\n", formatUptime(result.UptimeSeconds))
+		}
+		if result.Ready {
+			fmt.Printf("Ready: Yes\n")
+		} else {
+			fmt.Printf("Ready: No (server may be starting or in recovery)\n")
+		}
 	}
 
 	return nil
+}
+
+// formatUptime formats uptime seconds into human-readable format
+func formatUptime(seconds int64) string {
+	duration := time.Duration(seconds) * time.Second
+	days := int(duration.Hours()) / 24
+	hours := int(duration.Hours()) % 24
+	minutes := int(duration.Minutes()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%d days, %d hours, %d minutes", days, hours, minutes)
+	} else if hours > 0 {
+		return fmt.Sprintf("%d hours, %d minutes", hours, minutes)
+	} else {
+		return fmt.Sprintf("%d minutes", minutes)
+	}
 }
 
 func isServerReady() bool {

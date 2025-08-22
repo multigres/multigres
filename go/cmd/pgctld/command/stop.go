@@ -25,6 +25,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// StopResult contains the result of stopping PostgreSQL
+type StopResult struct {
+	WasRunning bool
+	Message    string
+}
+
 func init() {
 	Root.AddCommand(stopCmd)
 	stopCmd.Flags().String("mode", "fast", "Shutdown mode: smart, fast, or immediate")
@@ -45,30 +51,67 @@ Shutdown modes:
 func runStop(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
 	mode, _ := cmd.Flags().GetString("mode")
-	return StopPostgreSQLWithConfig(config, mode)
+	result, err := StopPostgreSQLWithResult(config, mode)
+	if err != nil {
+		return err
+	}
+
+	// Display appropriate message for CLI users
+	if result.WasRunning {
+		fmt.Printf("PostgreSQL server stopped successfully (mode: %s)\n", mode)
+	} else {
+		fmt.Println("PostgreSQL is not running")
+	}
+
+	return nil
 }
 
-// StopPostgreSQLWithConfig stops PostgreSQL with the given configuration and mode
-func StopPostgreSQLWithConfig(config *PostgresConfig, mode string) error {
+// StopPostgreSQLWithResult stops PostgreSQL with the given configuration and returns detailed result information
+func StopPostgreSQLWithResult(config *PostgresConfig, mode string) (*StopResult, error) {
 	logger := slog.Default()
+	result := &StopResult{}
 
 	if config.DataDir == "" {
-		return fmt.Errorf("data-dir is required")
+		return nil, fmt.Errorf("data-dir is required")
+	}
+
+	// Default mode to "fast" if not specified
+	if mode == "" {
+		mode = "fast"
 	}
 
 	// Check if PostgreSQL is running
 	if !isPostgreSQLRunning(config.DataDir) {
 		logger.Info("PostgreSQL is not running")
-		return nil
+		result.WasRunning = false
+		result.Message = "PostgreSQL is not running"
+		return result, nil
 	}
 
+	result.WasRunning = true
 	logger.Info("Stopping PostgreSQL server", "data_dir", config.DataDir, "mode", mode)
 
 	if err := stopPostgreSQLWithConfig(config, mode); err != nil {
-		return fmt.Errorf("failed to stop PostgreSQL: %w", err)
+		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
 
+	result.Message = "PostgreSQL server stopped successfully"
 	logger.Info("PostgreSQL server stopped successfully")
+	return result, nil
+}
+
+// StopPostgreSQLWithConfig stops PostgreSQL with the given configuration and mode
+func StopPostgreSQLWithConfig(config *PostgresConfig, mode string) error {
+	result, err := StopPostgreSQLWithResult(config, mode)
+	if err != nil {
+		return err
+	}
+
+	// For backward compatibility, log the message if PostgreSQL was actually stopped
+	if result.WasRunning && result.Message != "" {
+		slog.Info(result.Message)
+	}
+
 	return nil
 }
 

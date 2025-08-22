@@ -24,8 +24,13 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
+
+// ReloadResult contains the result of reloading PostgreSQL configuration
+type ReloadResult struct {
+	WasRunning bool
+	Message    string
+}
 
 func init() {
 	Root.AddCommand(reloadCmd)
@@ -40,26 +45,48 @@ its configuration files.`,
 	RunE: runReload,
 }
 
-func runReload(cmd *cobra.Command, args []string) error {
+// ReloadPostgreSQLConfigWithResult reloads PostgreSQL configuration and returns detailed result information
+func ReloadPostgreSQLConfigWithResult(config *PostgresConfig) (*ReloadResult, error) {
 	logger := slog.Default()
+	result := &ReloadResult{}
 
-	dataDir := viper.GetString("data-dir")
-	if dataDir == "" {
-		return fmt.Errorf("data-dir is required")
+	if config.DataDir == "" {
+		return nil, fmt.Errorf("data-dir is required")
 	}
 
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(dataDir) {
-		return fmt.Errorf("PostgreSQL is not running")
+	if !isPostgreSQLRunning(config.DataDir) {
+		result.WasRunning = false
+		result.Message = "PostgreSQL is not running"
+		return result, fmt.Errorf("PostgreSQL is not running")
 	}
 
-	logger.Info("Reloading PostgreSQL configuration", "data_dir", dataDir)
+	result.WasRunning = true
+	logger.Info("Reloading PostgreSQL configuration", "data_dir", config.DataDir)
 
-	if err := reloadPostgreSQLConfig(dataDir); err != nil {
-		return fmt.Errorf("failed to reload PostgreSQL configuration: %w", err)
+	if err := reloadPostgreSQLConfig(config.DataDir); err != nil {
+		return nil, fmt.Errorf("failed to reload PostgreSQL configuration: %w", err)
 	}
 
+	result.Message = "PostgreSQL configuration reloaded successfully"
 	logger.Info("PostgreSQL configuration reloaded successfully")
+	return result, nil
+}
+
+func runReload(cmd *cobra.Command, args []string) error {
+	config := NewPostgresConfigFromViper()
+	result, err := ReloadPostgreSQLConfigWithResult(config)
+	if err != nil {
+		return err
+	}
+
+	// Display appropriate message for CLI users
+	if result.WasRunning {
+		fmt.Printf("PostgreSQL configuration reloaded successfully\n")
+	} else {
+		fmt.Printf("PostgreSQL is not running\n")
+	}
+
 	return nil
 }
 
