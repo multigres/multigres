@@ -85,6 +85,7 @@ const (
 const (
 	CellFile     = "Cell"
 	DatabaseFile = "Database"
+	GatewayFile  = "Gateway"
 	PoolerFile   = "Pooler"
 )
 
@@ -158,6 +159,16 @@ type CellStore interface {
 	UpdateMultiPoolerFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.MultiPooler) error) (*clustermetadatapb.MultiPooler, error)
 	DeleteMultiPooler(ctx context.Context, id *clustermetadatapb.ID) error
 	InitMultiPooler(ctx context.Context, multipooler *clustermetadatapb.MultiPooler, allowPrimaryOverride, allowUpdate bool) error
+
+	// MultiGateway CRUD operations
+	GetMultiGateway(ctx context.Context, id *clustermetadatapb.ID) (*MultiGatewayInfo, error)
+	GetMultiGatewayIDsByCell(ctx context.Context, cell string) ([]*clustermetadatapb.ID, error)
+	GetMultiGatewaysByCell(ctx context.Context, cellName string) ([]*MultiGatewayInfo, error)
+	CreateMultiGateway(ctx context.Context, multigateway *clustermetadatapb.MultiGateway) error
+	UpdateMultiGateway(ctx context.Context, mgi *MultiGatewayInfo) error
+	UpdateMultiGatewayFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.MultiGateway) error) (*clustermetadatapb.MultiGateway, error)
+	DeleteMultiGateway(ctx context.Context, id *clustermetadatapb.ID) error
+	InitMultiGateway(ctx context.Context, multigateway *clustermetadatapb.MultiGateway, allowUpdate bool) error
 }
 
 // Store is the full topology API that combines both global and cell operations.
