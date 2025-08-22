@@ -158,27 +158,35 @@
 - ⬜ `rowsfrom_item` - ROWS FROM item (Phase 3J)
 - ⬜ `rowsfrom_list` - ROWS FROM list (Phase 3J)
 
-### Table Functions
-- ⬜ `func_table` - Table function
-- ⬜ `TableFuncElement` - Table function element
-- ⬜ `TableFuncElementList` - Table function element list
-- ⬜ `OptTableFuncElementList` - Optional table function elements
-- ⬜ `table_func_column` - Table function column
-- ⬜ `table_func_column_list` - Table function column list
+### Table Functions ✅ COMPLETED
+- ✅ `func_table` - Table function (fully implemented with ORDINALITY, LATERAL support)
+- ✅ `TableFuncElement` - Table function element (fully implemented)
+- ✅ `TableFuncElementList` - Table function element list (fully implemented)
+- ✅ `OptTableFuncElementList` - Optional table function elements (fully implemented)
+- ✅ `table_func_column` - Table function column (fully implemented)
+- ✅ `table_func_column_list` - Table function column list (fully implemented)
 
-### XMLTABLE
-- ⬜ `xmltable` - XMLTABLE
-- ⬜ `xmltable_column_list` - XMLTABLE column list
-- ⬜ `xmltable_column_el` - XMLTABLE column element
-- ⬜ `xmltable_column_option_list` - XMLTABLE column options
-- ⬜ `xmltable_column_option_el` - XMLTABLE column option
+### XMLTABLE ✅ COMPLETED
+- ✅ `xmltable` - XMLTABLE (fully implemented with LATERAL support)
+- ✅ `xmltable_column_list` - XMLTABLE column list (fully implemented)
+- ✅ `xmltable_column_el` - XMLTABLE column element (supports FOR ORDINALITY and column options)
+- ✅ `xmltable_column_option_list` - XMLTABLE column options (basic implementation)
+- ✅ `xmltable_column_option_el` - XMLTABLE column option (DEFAULT, NOT NULL, PATH)
 
-### JSON_TABLE
-- ⬜ `json_table` - JSON_TABLE
-- ⬜ `json_table_column_definition` - JSON table column
-- ⬜ `json_table_column_definition_list` - JSON table columns
-- ⬜ `json_table_column_path_clause_opt` - JSON path clause
-- ⬜ `json_table_path_name_opt` - JSON path name
+### JSON_TABLE ✅ COMPLETED
+- ✅ `json_table` - JSON_TABLE (fully implemented with proper PostgreSQL grammar)
+- ✅ `json_table_column_definition` - JSON table column (fully implemented with all variants)
+- ✅ `json_table_column_definition_list` - JSON table columns (fully implemented)
+- ✅ `json_table_column_path_clause_opt` - JSON path clause (fully implemented)
+- ✅ `json_table_path_name_opt` - JSON path name (fully implemented)
+- ✅ `json_value_expr` - JSON value expression (implemented)
+- ✅ `json_passing_clause_opt` - PASSING clause (implemented)
+- ✅ `json_on_error_clause_opt` - ON ERROR clause (implemented)
+- ✅ `json_behavior_clause_opt` - Behavior clause (implemented)
+- ✅ `json_wrapper_behavior` - Wrapper behavior (implemented)
+- ✅ `json_quotes_clause_opt` - Quotes clause (implemented)
+- ✅ `json_format_clause` - Format clause (implemented)
+- ✅ `path_opt` - Optional PATH keyword (implemented)
 
 ## Phase 3E: Data Manipulation - DML (~50 rules)
 

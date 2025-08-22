@@ -140,6 +140,21 @@ func TestDeparsing(t *testing.T) {
 		{"Subquery in FROM", "SELECT * FROM (SELECT id FROM users) AS sub", ""},
 		{"LATERAL subquery", "SELECT * FROM users, LATERAL (SELECT * FROM orders) AS sub", ""},
 		{"Subquery with alias and columns", "SELECT * FROM (SELECT id, name FROM users) AS sub(user_id, user_name)", ""},
+
+		// JSON Grammar Implementation Notes (for future JSON function implementation)
+		// Note: These are placeholders for when JSON functions are fully implemented
+		//
+		// ✅ json_behavior and json_behavior_clause_opt rules correctly implemented
+		// ✅ json_wrapper_behavior rules correctly implemented using JsonWrapper constants
+		// ✅ json_quotes_clause_opt rules correctly implemented using JsonQuotes constants
+		// ✅ json_format_clause rules correctly implemented using JsonFormat and JsonEncoding
+		//
+		// Grammar rules now match PostgreSQL exactly:
+		// - json_behavior_type: ERROR_P, NULL_P, TRUE_P, FALSE_P, UNKNOWN, EMPTY_P ARRAY, EMPTY_P OBJECT_P, EMPTY_P
+		// - json_wrapper_behavior: WITHOUT WRAPPER → JSW_NONE, WITH WRAPPER → JSW_UNCONDITIONAL, etc.
+		// - json_behavior_clause_opt: supports ON EMPTY_P, ON ERROR_P, and combined clauses
+		// - json_quotes_clause_opt: KEEP QUOTES → JS_QUOTES_KEEP, OMIT QUOTES → JS_QUOTES_OMIT, etc.
+		// - json_format_clause: FORMAT_LA JSON → JsonFormat{JS_FORMAT_JSON, JS_ENC_DEFAULT}, etc.
 	}
 
 	for _, tt := range tests {
@@ -385,6 +400,124 @@ func TestDeparsingEdgeCases(t *testing.T) {
 			if err2 == nil {
 				assert.Len(t, statements2, 1, "Should have exactly one statement after re-parsing")
 			}
+		})
+	}
+}
+
+// =============================================================================
+// TABLE FUNCTION DEPARSE TESTS - Tests for table function deparsing
+// =============================================================================
+
+func TestFuncTableDeparsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		expected string // If empty, use sql as expected
+	}{
+		{
+			name: "Simple function table",
+			sql:  "SELECT * FROM generate_series(1, 5)",
+		},
+		{
+			name: "Function table with ORDINALITY",
+			sql:  "SELECT * FROM generate_series(1, 5) WITH ORDINALITY",
+		},
+		{
+			name: "LATERAL function table",
+			sql:  "SELECT * FROM LATERAL generate_series(1, t.max_val)",
+		},
+		{
+			name: "Function table with alias",
+			sql:  "SELECT * FROM generate_series(1, 5) AS t",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the SQL
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.Len(t, stmts, 1, "Expected exactly one statement")
+
+			// Deparse the entire statement
+			deparsed := stmts[0].SqlString()
+			require.NotEmpty(t, deparsed, "Deparsed SQL should not be empty")
+
+			// Determine expected output
+			expected := tt.expected
+			if expected == "" {
+				expected = tt.sql
+			}
+
+			// Compare normalized versions
+			assert.Equal(t, normalizeSQL(expected), normalizeSQL(deparsed),
+				"Function table deparsing mismatch.\nOriginal: %s\nDeparsed: %s\nExpected: %s",
+				tt.sql, deparsed, expected)
+
+			// Verify round-trip parsing works
+			stmts2, err2 := ParseSQL(deparsed)
+			require.NoError(t, err2, "Re-parsing deparsed SQL should succeed: %s", deparsed)
+			require.Len(t, stmts2, 1, "Re-parsed should have exactly one statement")
+
+			// Verify stability - deparsing again should produce the same result
+			deparsed2 := stmts2[0].SqlString()
+			assert.Equal(t, normalizeSQL(deparsed), normalizeSQL(deparsed2),
+				"Function table deparsing should be stable.\nFirst: %s\nSecond: %s", deparsed, deparsed2)
+		})
+	}
+}
+
+func TestXMLTableDeparsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		expected string // If empty, use sql as expected
+	}{
+		{
+			name: "Basic XMLTABLE",
+			sql:  "SELECT * FROM XMLTABLE('/root/item' PASSING '<root><item>1</item></root>' COLUMNS id INT, name TEXT)",
+		},
+		{
+			name: "XMLTABLE with FOR ORDINALITY",
+			sql:  "SELECT * FROM XMLTABLE('/root/item' PASSING '<root><item>1</item></root>' COLUMNS pos FOR ORDINALITY, id INT)",
+		},
+		{
+			name: "LATERAL XMLTABLE",
+			sql:  "SELECT * FROM LATERAL XMLTABLE('/root/item' PASSING t.xml_data COLUMNS id INT)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the SQL
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.Len(t, stmts, 1, "Expected exactly one statement")
+
+			// Deparse the entire statement
+			deparsed := stmts[0].SqlString()
+			require.NotEmpty(t, deparsed, "Deparsed SQL should not be empty")
+
+			// Determine expected output
+			expected := tt.expected
+			if expected == "" {
+				expected = tt.sql
+			}
+
+			// Compare normalized versions
+			assert.Equal(t, normalizeSQL(expected), normalizeSQL(deparsed),
+				"XMLTABLE deparsing mismatch.\nOriginal: %s\nDeparsed: %s\nExpected: %s",
+				tt.sql, deparsed, expected)
+
+			// Verify round-trip parsing works
+			stmts2, err2 := ParseSQL(deparsed)
+			require.NoError(t, err2, "Re-parsing deparsed SQL should succeed: %s", deparsed)
+			require.Len(t, stmts2, 1, "Re-parsed should have exactly one statement")
+
+			// Verify stability - deparsing again should produce the same result
+			deparsed2 := stmts2[0].SqlString()
+			assert.Equal(t, normalizeSQL(deparsed), normalizeSQL(deparsed2),
+				"XMLTABLE deparsing should be stable.\nFirst: %s\nSecond: %s", deparsed, deparsed2)
 		})
 	}
 }
@@ -1125,6 +1258,129 @@ func TestAdvancedDeparsing(t *testing.T) {
 			reparsedStmts, reparseErr := ParseSQL(deparsed)
 			require.NoError(t, reparseErr, "Round-trip parsing must succeed: %v\nDeparsed: %s", reparseErr, deparsed)
 			require.Len(t, reparsedStmts, 1, "Round-trip should have exactly one statement")
+		})
+	}
+}
+
+// =============================================================================
+// COMPREHENSIVE TABLE FUNCTION TESTS - Tests for all table function types with round-trip verification
+// =============================================================================
+
+// TestTableFunctions tests comprehensive round-trip parsing for all table function types
+func TestTableFunctions(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		expected string // If empty, use sql as expected
+	}{
+		// Function table tests (equivalent to TestFuncTable)
+		{
+			name: "Simple function table",
+			sql:  "SELECT * FROM generate_series(1, 5)",
+		},
+		{
+			name: "Function table with ORDINALITY",
+			sql:  "SELECT * FROM generate_series(1, 5) WITH ORDINALITY",
+		},
+		{
+			name: "LATERAL function table",
+			sql:  "SELECT * FROM LATERAL generate_series(1, t.max_val)",
+		},
+		{
+			name: "ROWS FROM syntax",
+			sql:  "SELECT * FROM ROWS FROM (generate_series(1, 5))",
+		},
+		{
+			name: "ROWS FROM with ORDINALITY",
+			sql:  "SELECT * FROM ROWS FROM (generate_series(1, 5)) WITH ORDINALITY",
+		},
+
+		// XMLTABLE tests (equivalent to TestXMLTable)
+		{
+			name: "Basic XMLTABLE",
+			sql:  "SELECT * FROM XMLTABLE('/root/item' PASSING '<root><item>1</item></root>' COLUMNS id INT, name TEXT)",
+		},
+		{
+			name: "XMLTABLE with FOR ORDINALITY",
+			sql:  "SELECT * FROM XMLTABLE('/root/item' PASSING '<root><item>1</item></root>' COLUMNS pos FOR ORDINALITY, id INT)",
+		},
+		{
+			name: "LATERAL XMLTABLE",
+			sql:  "SELECT * FROM LATERAL XMLTABLE('/root/item' PASSING t.xml_data COLUMNS id INT)",
+		},
+
+		// JSON_TABLE tests (equivalent to TestJSONTable)
+		{
+			name: "Basic JSON_TABLE",
+			sql:  `SELECT * FROM JSON_TABLE('{}', '$' COLUMNS (id INT))`,
+		},
+		{
+			name: "JSON_TABLE with FOR ORDINALITY",
+			sql:  `SELECT * FROM JSON_TABLE('{"items": [1, 2, 3]}', '$.items[*]' COLUMNS (pos FOR ORDINALITY, val INT PATH '$'))`,
+		},
+		{
+			name: "JSON_TABLE with EXISTS column",
+			sql:  `SELECT * FROM JSON_TABLE('{"items": [{"id": 1}]}', '$.items[*]' COLUMNS (has_id BOOLEAN EXISTS PATH '$.id'))`,
+		},
+		{
+			name: "JSON_TABLE with NESTED columns",
+			sql:  `SELECT * FROM JSON_TABLE('{"items": [{"props": {"a": 1}}]}', '$.items[*]' COLUMNS (NESTED PATH '$.props' COLUMNS (a INT PATH '$.a')))`,
+		},
+		{
+			name: "LATERAL JSON_TABLE",
+			sql:  `SELECT * FROM LATERAL JSON_TABLE(t.json_data, '$.items[*]' COLUMNS (id INT PATH '$.id'))`,
+		},
+
+		// Table function aliases tests (equivalent to TestTableFunctionAliases)
+		{
+			name: "Function table with alias",
+			sql:  "SELECT * FROM generate_series(1, 5) AS t",
+		},
+		{
+			name: "XMLTABLE with alias",
+			sql:  "SELECT * FROM XMLTABLE('/root/item' PASSING '<root></root>' COLUMNS id INT) AS xt",
+		},
+		{
+			name: "JSON_TABLE with alias",
+			sql:  `SELECT * FROM JSON_TABLE('[]', '$[*]' COLUMNS (id INT)) AS jt`,
+		},
+		{
+			name: "Function table with column aliases",
+			sql:  "SELECT * FROM generate_series(1, 5) AS t(num)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the SQL
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.Len(t, stmts, 1, "Expected exactly one statement")
+
+			// Deparse the entire statement
+			deparsed := stmts[0].SqlString()
+			require.NotEmpty(t, deparsed, "Deparsed SQL should not be empty")
+
+			// Determine expected output
+			expected := tt.expected
+			if expected == "" {
+				expected = tt.sql
+			}
+
+			// Compare normalized versions
+			assert.Equal(t, normalizeSQL(expected), normalizeSQL(deparsed),
+				"Table function deparsing mismatch.\nOriginal: %s\nDeparsed: %s\nExpected: %s",
+				tt.sql, deparsed, expected)
+
+			// Verify round-trip parsing works
+			stmts2, err2 := ParseSQL(deparsed)
+			require.NoError(t, err2, "Re-parsing deparsed SQL should succeed: %s", deparsed)
+			require.Len(t, stmts2, 1, "Re-parsed should have exactly one statement")
+
+			// Verify stability - deparsing again should produce the same result
+			deparsed2 := stmts2[0].SqlString()
+			assert.Equal(t, normalizeSQL(deparsed), normalizeSQL(deparsed2),
+				"Table function deparsing should be stable.\nFirst: %s\nSecond: %s", deparsed, deparsed2)
 		})
 	}
 }

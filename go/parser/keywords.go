@@ -179,6 +179,46 @@ var Keywords = []KeywordInfo{
 	{"when", IDENT, ReservedKeyword, true},  // Will be replaced with WHEN token in Phase 3
 	{"where", WHERE, ReservedKeyword, true}, // Phase 3C: WHERE clause
 	{"with", WITH, ReservedKeyword, true},
+
+	// Phase 3D: Table function keywords
+	{"columns", COLUMNS, UnreservedKeyword, true},      // COLUMNS clause for table functions
+	{"ordinality", ORDINALITY, UnreservedKeyword, true}, // WITH ORDINALITY for table functions  
+	{"xmltable", XMLTABLE, UnreservedKeyword, true},    // XMLTABLE function
+	{"json_table", JSON_TABLE, UnreservedKeyword, true}, // JSON_TABLE function
+	{"rows", ROWS, UnreservedKeyword, true},            // ROWS FROM() syntax
+	{"path", PATH, UnreservedKeyword, true},            // PATH clause for JSON_TABLE
+	{"passing", PASSING, UnreservedKeyword, true},      // PASSING clause
+	{"for", FOR, ReservedKeyword, true},                // FOR keyword  
+	{"nested", NESTED, UnreservedKeyword, true},        // NESTED clause for JSON_TABLE
+
+	// Phase 3D: JSON keywords  
+	{"error", ERROR, UnreservedKeyword, true},          // ERROR clause for JSON functions
+	{"empty", EMPTY, UnreservedKeyword, true},          // EMPTY clause for JSON functions
+	{"wrapper", WRAPPER, UnreservedKeyword, true},      // WRAPPER clause for JSON functions
+	{"conditional", CONDITIONAL, UnreservedKeyword, true}, // CONDITIONAL for JSON functions
+	{"unconditional", UNCONDITIONAL, UnreservedKeyword, true}, // UNCONDITIONAL for JSON functions
+	{"quotes", QUOTES, UnreservedKeyword, true},        // QUOTES clause for JSON functions
+	{"omit", OMIT, UnreservedKeyword, true},            // OMIT clause for JSON functions
+	{"keep", KEEP, UnreservedKeyword, true},            // KEEP clause for JSON functions
+	{"scalar", SCALAR, UnreservedKeyword, true},        // SCALAR clause for JSON functions
+	{"string", STRING_P, UnreservedKeyword, true},      // STRING clause for JSON functions
+	{"encoding", ENCODING, UnreservedKeyword, true},    // ENCODING clause for JSON functions
+	{"value", VALUE_P, UnreservedKeyword, true},        // VALUE clause for JSON functions
+	{"json_query", JSON_QUERY, UnreservedKeyword, true}, // JSON_QUERY function
+	{"json_value", JSON_VALUE, UnreservedKeyword, true}, // JSON_VALUE function
+	{"json_serialize", JSON_SERIALIZE, UnreservedKeyword, true}, // JSON_SERIALIZE function
+	{"json_object", JSON_OBJECT, UnreservedKeyword, true}, // JSON_OBJECT function
+	{"json_array", JSON_ARRAY, UnreservedKeyword, true}, // JSON_ARRAY function
+	{"json_objectagg", JSON_OBJECTAGG, UnreservedKeyword, true}, // JSON_OBJECTAGG function
+	{"json_arrayagg", JSON_ARRAYAGG, UnreservedKeyword, true}, // JSON_ARRAYAGG function
+	{"json_exists", JSON_EXISTS, UnreservedKeyword, true}, // JSON_EXISTS function
+	{"json_scalar", JSON_SCALAR, UnreservedKeyword, true}, // JSON_SCALAR function
+	{"format", FORMAT, UnreservedKeyword, true},        // FORMAT clause
+	{"json", JSON, UnreservedKeyword, true},            // JSON keyword
+	{"utf8", UTF8, UnreservedKeyword, true},            // UTF8 encoding
+	{"without", WITHOUT, UnreservedKeyword, true},      // WITHOUT keyword
+	{"ref", REF_P, UnreservedKeyword, true},            // REF keyword for XML PASSING
+	{"xmlnamespaces", XMLNAMESPACES, ColNameKeyword, true}, // XMLNAMESPACES for XMLTABLE
 }
 
 // keywordLookupMap provides fast keyword lookup by name.

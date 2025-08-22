@@ -1,6 +1,9 @@
 package ast
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // JSON Parse Tree Support Nodes - Phase 1E
 // This file contains all JSON-related parse tree nodes from PostgreSQL
@@ -48,7 +51,7 @@ type JsonReturning struct {
 // Ported from postgres/src/include/nodes/primnodes.h:1680-1691
 type JsonValueExpr struct {
 	BaseNode
-	RawExpr       Expr        // user-specified expression
+	RawExpr       Node        // user-specified expression
 	FormattedExpr Expr        // coerced formatted expression
 	Format        *JsonFormat // FORMAT clause, if specified
 }
@@ -317,6 +320,23 @@ func (n *JsonValueExpr) node() {}
 func (n *JsonValueExpr) String() string {
 	return "JsonValueExpr"
 }
+
+// SqlString returns the SQL representation of the JsonValueExpr.
+func (n *JsonValueExpr) SqlString() string {
+	var result strings.Builder
+
+	if n.RawExpr != nil {
+		result.WriteString(n.RawExpr.SqlString())
+	}
+
+	if n.Format != nil {
+		result.WriteString(" FORMAT ")
+		result.WriteString(n.Format.SqlString())
+	}
+
+	return result.String()
+}
+
 func (n *JsonValueExpr) IsExpr() bool           { return true }
 func (n *JsonValueExpr) ExpressionType() string { return "JsonValueExpr" }
 
@@ -375,14 +395,173 @@ func (n *JsonTablePathSpec) String() string {
 	return "JsonTablePathSpec"
 }
 
+// SqlString returns the SQL representation of the JsonTablePathSpec.
+func (n *JsonTablePathSpec) SqlString() string {
+	if n.StringExpr != nil {
+		return n.StringExpr.SqlString()
+	}
+	return ""
+}
+
 func (n *JsonTable) node() {}
 func (n *JsonTable) String() string {
 	return "JsonTable"
 }
 
+// SqlString returns the SQL representation of the JsonTable.
+func (n *JsonTable) SqlString() string {
+	var result strings.Builder
+
+	if n.Lateral {
+		result.WriteString("LATERAL ")
+	}
+
+	result.WriteString("JSON_TABLE(")
+
+	// Context item expression (usually a JSON document)
+	if n.ContextItem != nil {
+		result.WriteString(n.ContextItem.SqlString())
+	}
+
+	// Path specification 
+	if n.Pathspec != nil {
+		result.WriteString(", ")
+		result.WriteString(n.Pathspec.SqlString())
+	}
+
+	// PASSING clause
+	if n.Passing != nil && len(n.Passing.Items) > 0 {
+		result.WriteString(" PASSING ")
+		for i, item := range n.Passing.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			result.WriteString(item.SqlString())
+		}
+	}
+
+	// COLUMNS clause
+	if n.Columns != nil && len(n.Columns.Items) > 0 {
+		result.WriteString(" COLUMNS (")
+		for i, item := range n.Columns.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			if col, ok := item.(*JsonTableColumn); ok {
+				result.WriteString(col.SqlString())
+			}
+		}
+		result.WriteString(")")
+	}
+
+	// ON ERROR clause
+	if n.OnError != nil {
+		result.WriteString(" ")
+		result.WriteString(n.OnError.SqlString())
+		result.WriteString(" ON ERROR")
+	}
+
+	result.WriteString(")")
+
+	if n.Alias != nil {
+		result.WriteString(" ")
+		result.WriteString(n.Alias.SqlString())
+	}
+
+	return result.String()
+}
+
 func (n *JsonTableColumn) node() {}
 func (n *JsonTableColumn) String() string {
 	return "JsonTableColumn"
+}
+
+// SqlString returns the SQL representation of the JsonTableColumn.
+func (n *JsonTableColumn) SqlString() string {
+	var result strings.Builder
+
+	// Column name (only for non-NESTED columns)
+	if n.Coltype != JTC_NESTED {
+		result.WriteString(n.Name)
+	}
+
+	switch n.Coltype {
+	case JTC_FOR_ORDINALITY:
+		result.WriteString(" FOR ORDINALITY")
+
+	case JTC_REGULAR:
+		if n.TypeName != nil {
+			result.WriteString(" ")
+			result.WriteString(n.TypeName.SqlString())
+		}
+		// Add PATH clause if specified
+		if n.Pathspec != nil {
+			result.WriteString(" PATH ")
+			result.WriteString(n.Pathspec.SqlString())
+		}
+
+	case JTC_EXISTS:
+		if n.TypeName != nil {
+			result.WriteString(" ")
+			result.WriteString(n.TypeName.SqlString())
+		}
+		result.WriteString(" EXISTS")
+		// Add PATH clause if specified
+		if n.Pathspec != nil {
+			result.WriteString(" PATH ")
+			result.WriteString(n.Pathspec.SqlString())
+		}
+
+	case JTC_FORMATTED:
+		if n.TypeName != nil {
+			result.WriteString(" ")
+			result.WriteString(n.TypeName.SqlString())
+		}
+		// Add FORMAT clause if specified
+		if n.Format != nil {
+			result.WriteString(" FORMAT ")
+			result.WriteString(n.Format.SqlString())
+		}
+		// Add PATH clause if specified
+		if n.Pathspec != nil {
+			result.WriteString(" PATH ")
+			result.WriteString(n.Pathspec.SqlString())
+		}
+
+	case JTC_NESTED:
+		result.WriteString("NESTED PATH ")
+		if n.Pathspec != nil {
+			result.WriteString(n.Pathspec.SqlString())
+		}
+		if n.Columns != nil && len(n.Columns.Items) > 0 {
+			result.WriteString(" COLUMNS (")
+			for i, item := range n.Columns.Items {
+				if i > 0 {
+					result.WriteString(", ")
+				}
+				if col, ok := item.(*JsonTableColumn); ok {
+					result.WriteString(col.SqlString())
+				}
+			}
+			result.WriteString(")")
+		}
+	}
+
+	// Add ON EMPTY clause if specified
+	if n.OnEmpty != nil {
+		result.WriteString(" ")
+		result.WriteString(n.OnEmpty.SqlString())
+		result.WriteString(" ON EMPTY")
+	}
+
+	// Add ON ERROR clause if specified
+	if n.OnError != nil {
+		result.WriteString(" ")
+		result.WriteString(n.OnError.SqlString())
+		result.WriteString(" ON ERROR")
+	}
+
+	return result.String()
 }
 
 func (n *JsonKeyValue) node() {}
@@ -475,7 +654,7 @@ func NewJsonReturning(format *JsonFormat, typid Oid, typmod int32) *JsonReturnin
 }
 
 // NewJsonValueExpr creates a new JsonValueExpr node
-func NewJsonValueExpr(rawExpr Expr, format *JsonFormat) *JsonValueExpr {
+func NewJsonValueExpr(rawExpr Node, format *JsonFormat) *JsonValueExpr {
 	return &JsonValueExpr{
 		BaseNode: BaseNode{Tag: T_JsonValueExpr},
 		RawExpr:  rawExpr,

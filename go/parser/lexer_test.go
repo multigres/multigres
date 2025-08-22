@@ -949,25 +949,25 @@ func TestTypeCastOperator(t *testing.T) {
 		{
 			name:     "simple type cast",
 			input:    "value::int",
-			expected: []TokenType{IDENT, TYPECAST, IDENT, EOF},
+			expected: []TokenType{VALUE_P, TYPECAST, IDENT, EOF},
 			values:   []string{"value", "::", "int", ""},
 		},
 		{
 			name:     "type cast with spaces",
 			input:    "value :: int",
-			expected: []TokenType{IDENT, TYPECAST, IDENT, EOF},
+			expected: []TokenType{VALUE_P, TYPECAST, IDENT, EOF},
 			values:   []string{"value", "::", "int", ""},
 		},
 		{
 			name:     "chained type casts",
 			input:    "value::text::int",
-			expected: []TokenType{IDENT, TYPECAST, IDENT, TYPECAST, IDENT, EOF},
+			expected: []TokenType{VALUE_P, TYPECAST, IDENT, TYPECAST, IDENT, EOF},
 			values:   []string{"value", "::", "text", "::", "int", ""},
 		},
 		{
 			name:     "type cast with complex type",
 			input:    "value::numeric(10,2)",
-			expected: []TokenType{IDENT, TYPECAST, NUMERIC, TokenType('('), ICONST, TokenType(','), ICONST, TokenType(')'), EOF},
+			expected: []TokenType{VALUE_P, TYPECAST, NUMERIC, TokenType('('), ICONST, TokenType(','), ICONST, TokenType(')'), EOF},
 			values:   []string{"value", "::", "numeric", "(", "10", ",", "2", ")", ""},
 		},
 		{
@@ -1092,7 +1092,7 @@ func TestComplexExpressions(t *testing.T) {
 		{
 			name:     "comment between type cast",
 			input:    "value/*comment*/::int",
-			expected: []TokenType{IDENT, TYPECAST, IDENT, EOF},
+			expected: []TokenType{VALUE_P, TYPECAST, IDENT, EOF},
 			values:   []interface{}{"value", "::", "int", ""},
 		},
 		{
@@ -1782,7 +1782,7 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		{IDENT, "name", "", true},  // identifier - skip value check for now
 		{TokenType('='), "=", "", true},
 		{SCONST, "'O''Reilly'", "O'Reilly", false}, // doubled quote handling
-		{AND, "AND", "", true},                   // keyword returns parser constant
+		{AND, "AND", "", true},                     // keyword returns parser constant
 		{IDENT, "data", "", true},                  // identifier - skip value check for now
 		{TokenType('='), "=", "", true},
 		{XCONST, "X'deadbeef'", "deadbeef", false},

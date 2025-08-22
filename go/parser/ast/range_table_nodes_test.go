@@ -124,7 +124,9 @@ func TestRangeSubselect(t *testing.T) {
 // TestRangeFunction tests the RangeFunction node
 func TestRangeFunction(t *testing.T) {
 	t.Run("NewRangeFunction", func(t *testing.T) {
-		functions := []*NodeList{NewNodeList(NewFuncCall([]*String{NewString("func1")}, nil, 0))}
+		// Create a NodeList containing a NodeList with a function
+		funcList := NewNodeList(NewFuncCall([]*String{NewString("func1")}, nil, 0))
+		functions := NewNodeList(funcList)
 		alias := NewAlias("f", nil)
 		colDefs := []*ColumnDef{NewColumnDef("col1", NewTypeName([]string{"int4"}), 0)}
 

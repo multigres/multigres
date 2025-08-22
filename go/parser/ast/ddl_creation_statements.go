@@ -102,14 +102,12 @@ func (fd FetchDirection) String() string {
 // FunctionParameter represents a function parameter specification
 // Ported from postgres/src/include/nodes/parsenodes.h:3451-3458
 type FunctionParameter struct {
+	BaseNode
 	Name     *string                // parameter name, or nil if not given
 	ArgType  *TypeName              // type name for parameter type
 	Mode     FunctionParameterMode  // IN/OUT/INOUT/VARIADIC/TABLE/DEFAULT
 	DefExpr  Node                   // raw default expr, or nil if not given
 }
-
-// node implements the Node interface
-func (fp *FunctionParameter) node() {}
 
 // String returns string representation of FunctionParameter
 func (fp *FunctionParameter) String() string {
@@ -137,10 +135,11 @@ func (fp *FunctionParameter) String() string {
 // NewFunctionParameter creates a new FunctionParameter node
 func NewFunctionParameter(name *string, argType *TypeName, mode FunctionParameterMode, defExpr Node) *FunctionParameter {
 	return &FunctionParameter{
-		Name:    name,
-		ArgType: argType,
-		Mode:    mode,
-		DefExpr: defExpr,
+		BaseNode: BaseNode{Tag: T_FunctionParameter},
+		Name:     name,
+		ArgType:  argType,
+		Mode:     mode,
+		DefExpr:  defExpr,
 	}
 }
 

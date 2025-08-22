@@ -60,12 +60,21 @@ type LexerInterface interface {
 %token <keyword> AND NOT NULLS_P OR REPLACE RESTRICT WITH
 /* Expression keywords */
 %token <keyword> BETWEEN CASE COLLATE DEFAULT DISTINCT ESCAPE
-%token <keyword> FALSE_P ILIKE IN_P LIKE NULL_P SIMILAR TRUE_P WHEN
+%token <keyword> FALSE_P ILIKE IN_P LIKE NULL_P SIMILAR TRUE_P UNKNOWN WHEN
 %token <keyword> IS ISNULL NOTNULL AT TIME ZONE LOCAL SYMMETRIC ASYMMETRIC TO
 %token <keyword> OPERATOR
 %token <keyword> SELECT FROM WHERE ONLY TABLE LIMIT OFFSET ORDER_P BY GROUP_P HAVING INTO ON
 %token <keyword> JOIN INNER_P LEFT RIGHT FULL OUTER_P CROSS NATURAL USING
 %token <keyword> RECURSIVE MATERIALIZED LATERAL VALUES SEARCH BREADTH DEPTH CYCLE FIRST_P SET
+/* Table function keywords */
+%token <keyword> COLUMNS ORDINALITY XMLTABLE JSON_TABLE ROWS PATH PASSING FOR NESTED REF_P XMLNAMESPACES
+/* JSON keywords */
+%token <keyword> ARRAY ERROR ERROR_P EMPTY EMPTY_P OBJECT_P WRAPPER CONDITIONAL UNCONDITIONAL
+%token <keyword> QUOTES OMIT KEEP SCALAR STRING_P ENCODING
+%token <keyword> VALUE_P JSON_QUERY JSON_VALUE JSON_SERIALIZE
+%token <keyword> JSON_OBJECT JSON_ARRAY JSON_OBJECTAGG JSON_ARRAYAGG
+%token <keyword> JSON_EXISTS JSON_SCALAR
+%token <keyword> FORMAT JSON UTF8 WITHOUT
 /* Type keywords */
 %token <keyword> BIT NUMERIC INTEGER SMALLINT BIGINT REAL FLOAT_P DOUBLE_P PRECISION
 %token <keyword> CHARACTER CHAR_P VARCHAR NATIONAL NCHAR VARYING
@@ -171,6 +180,45 @@ type LexerInterface interface {
 %type <ival>         opt_materialized
 %type <node>         opt_search_clause opt_cycle_clause
 %type <stmt>         values_clause
+/* Phase 3D Table function types */
+%type <node>         func_table func_expr_windowless
+%type <list>         TableFuncElementList OptTableFuncElementList
+%type <node>         TableFuncElement
+%type <list>         rowsfrom_list
+%type <list>         rowsfrom_item
+%type <node>         opt_col_def_list
+%type <list>         table_func_column_list
+%type <node>         table_func_column
+%type <str>          param_name
+%type <node>         func_type
+%type <ival>         opt_ordinality
+%type <node>         xmltable
+%type <list>         xmltable_column_list
+%type <node>         xmltable_column_el
+%type <list>         xmltable_column_option_list
+%type <node>         xmltable_column_option_el
+%type <node>         opt_collate_clause
+%type <node>         xmlexists_argument
+%type <str>          xml_passing_mech
+%type <list>         xml_namespace_list
+%type <node>         xml_namespace_el
+%type <node>         json_table
+%type <list>         json_table_column_definition_list
+%type <node>         json_table_column_definition
+%type <node>         json_table_column_path_clause_opt
+%type <node>         json_table_path_name_opt
+%type <node>         json_value_expr
+%type <list>         json_arguments
+%type <node>         json_argument
+%type <node>         json_passing_clause_opt
+%type <node>         json_on_error_clause_opt
+%type <node>         json_behavior
+%type <ival>         json_behavior_type
+%type <node>         json_behavior_clause_opt
+%type <ival>         json_wrapper_behavior
+%type <ival>         json_quotes_clause_opt
+%type <node>         json_format_clause json_format_clause_opt
+%type <node>         path_opt
 
 /* Start symbol */
 %start parse_toplevel
@@ -461,6 +509,39 @@ unreserved_keyword:
 		|	BY										{ $$ = "by" }
 		|	TRUE_P									{ $$ = "true" }
 		|	FALSE_P									{ $$ = "false" }
+		|	PATH									{ $$ = "path" }
+		|	VALUE_P									{ $$ = "value" }
+		|	ERROR									{ $$ = "error" }
+		|	EMPTY									{ $$ = "empty" }
+		|	WRAPPER									{ $$ = "wrapper" }
+		|	CONDITIONAL								{ $$ = "conditional" }
+		|	UNCONDITIONAL							{ $$ = "unconditional" }
+		|	QUOTES									{ $$ = "quotes" }
+		|	OMIT									{ $$ = "omit" }
+		|	KEEP									{ $$ = "keep" }
+		|	SCALAR									{ $$ = "scalar" }
+		|	STRING_P								{ $$ = "string" }
+		|	ENCODING								{ $$ = "encoding" }
+		|	JSON_QUERY								{ $$ = "json_query" }
+		|	JSON_VALUE								{ $$ = "json_value" }
+		|	JSON_SERIALIZE							{ $$ = "json_serialize" }
+		|	JSON_OBJECT								{ $$ = "json_object" }
+		|	JSON_ARRAY								{ $$ = "json_array" }
+		|	JSON_OBJECTAGG							{ $$ = "json_objectagg" }
+		|	JSON_ARRAYAGG							{ $$ = "json_arrayagg" }
+		|	JSON_EXISTS								{ $$ = "json_exists" }
+		|	JSON_SCALAR								{ $$ = "json_scalar" }
+		|	FORMAT									{ $$ = "format" }
+		|	JSON									{ $$ = "json" }
+		|	UTF8									{ $$ = "utf8" }
+		|	WITHOUT									{ $$ = "without" }
+		|	COLUMNS									{ $$ = "columns" }
+		|	ORDINALITY								{ $$ = "ordinality" }
+		|	XMLTABLE								{ $$ = "xmltable" }
+		|	JSON_TABLE								{ $$ = "json_table" }
+		|	ROWS									{ $$ = "rows" }
+		|	PASSING									{ $$ = "passing" }
+		|	NESTED									{ $$ = "nested" }
 		;
 
 col_name_keyword:
@@ -944,6 +1025,11 @@ func_expr:	func_application within_group_clause filter_clause over_clause
 			}
 		;
 
+/* Function expression without window clause - used in table functions */
+func_expr_windowless:
+			func_application                    { $$ = $1 }
+		;
+
 func_name:	type_function_name
 			{
 				$$ = []*ast.String{ast.NewString($1)}
@@ -1060,6 +1146,9 @@ attr_name:	ColLabel						{ $$ = $1 }
 		;
 
 param_name:	type_function_name				{ $$ = $1 }
+		;
+
+func_type:	Typename							{ $$ = $1 }
 		;
 
 attrs:		'.' attr_name
@@ -1431,7 +1520,9 @@ simple_select:
 			into_clause from_clause where_clause
 			{
 				selectStmt := ast.NewSelectStmt()
-				selectStmt.TargetList = convertToResTargetList($3.Items)
+				if $3 != nil {
+					selectStmt.TargetList = convertToResTargetList($3.Items)
+				}
 				selectStmt.IntoClause = convertToIntoClause($4)
 				selectStmt.FromClause = $5
 				selectStmt.WhereClause = $6
@@ -1442,7 +1533,9 @@ simple_select:
 			{
 				selectStmt := ast.NewSelectStmt()
 				selectStmt.DistinctClause = $2
-				selectStmt.TargetList = convertToResTargetList($3.Items)
+				if $3 != nil {
+					selectStmt.TargetList = convertToResTargetList($3.Items)
+				}
 				selectStmt.IntoClause = convertToIntoClause($4)
 				selectStmt.FromClause = $5
 				selectStmt.WhereClause = $6
@@ -1559,6 +1652,57 @@ table_ref:
 				joinExpr := $2.(*ast.JoinExpr)
 				joinExpr.Alias = $4.(*ast.Alias)
 				$$ = joinExpr
+			}
+		|	func_table opt_alias_clause
+			{
+				rangeFunc := $1.(*ast.RangeFunction)
+				if $2 != nil {
+					rangeFunc.Alias = $2.(*ast.Alias)
+				}
+				$$ = rangeFunc
+			}
+		|	LATERAL func_table opt_alias_clause
+			{
+				rangeFunc := $2.(*ast.RangeFunction)
+				rangeFunc.Lateral = true
+				if $3 != nil {
+					rangeFunc.Alias = $3.(*ast.Alias)
+				}
+				$$ = rangeFunc
+			}
+		|	xmltable opt_alias_clause
+			{
+				rangeTableFunc := $1.(*ast.RangeTableFunc)
+				if $2 != nil {
+					rangeTableFunc.Alias = $2.(*ast.Alias)
+				}
+				$$ = rangeTableFunc
+			}
+		|	LATERAL xmltable opt_alias_clause
+			{
+				rangeTableFunc := $2.(*ast.RangeTableFunc)
+				rangeTableFunc.Lateral = true
+				if $3 != nil {
+					rangeTableFunc.Alias = $3.(*ast.Alias)
+				}
+				$$ = rangeTableFunc
+			}
+		|	json_table opt_alias_clause
+			{
+				jsonTable := $1.(*ast.JsonTable)
+				if $2 != nil {
+					jsonTable.Alias = $2.(*ast.Alias)
+				}
+				$$ = jsonTable
+			}
+		|	LATERAL json_table opt_alias_clause
+			{
+				jsonTable := $2.(*ast.JsonTable)
+				jsonTable.Lateral = true
+				if $3 != nil {
+					jsonTable.Alias = $3.(*ast.Alias)
+				}
+				$$ = jsonTable
 			}
 		;
 
@@ -1950,6 +2094,585 @@ into_clause:
 			{
 				$$ = ast.NewIntoClause($2.(*ast.RangeVar), nil, "", nil, ast.ONCOMMIT_NOOP, "", nil, false, 0)
 			}
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+/*
+ * Table Function Rules - Phase 3D Implementation
+ * Based on PostgreSQL grammar rules for table functions, XMLTABLE, and JSON_TABLE
+ */
+
+/* Table functions from PostgreSQL gram.y:13867-13893 */
+func_table:
+			func_expr_windowless opt_ordinality
+			{
+				hasOrdinality := $2 == 1
+				// For a simple function, create a NodeList containing a single NodeList with the function
+				funcList := ast.NewNodeList($1)
+				functions := ast.NewNodeList(funcList)
+				rangeFunc := ast.NewRangeFunction(false, hasOrdinality, false, functions, nil, nil)
+				$$ = rangeFunc
+			}
+		|	ROWS FROM '(' rowsfrom_list ')' opt_ordinality
+			{
+				hasOrdinality := $6 == 1
+				// rowsfrom_list is already a NodeList containing NodeLists
+				rangeFunc := ast.NewRangeFunction(false, hasOrdinality, true, $4, nil, nil)
+				$$ = rangeFunc
+			}
+		;
+
+/* Optional ORDINALITY clause */
+opt_ordinality:
+			WITH_LA ORDINALITY						{ $$ = 1 }
+		|	/* EMPTY */								{ $$ = 0 }
+		;
+
+/* PostgreSQL-style rowsfrom rules */
+rowsfrom_list:
+			rowsfrom_item
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	rowsfrom_list ',' rowsfrom_item
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+		;
+
+rowsfrom_item: func_expr_windowless opt_col_def_list
+			{
+				funcList := ast.NewNodeList($1)
+				if $2 != nil {
+					funcList.Append($2)
+				}
+				$$ = funcList
+			}
+		;
+
+opt_col_def_list: AS '(' TableFuncElementList ')'  { $$ = $3 }
+		|	/* EMPTY */                                     { $$ = nil }
+		;
+
+/*
+ * Table function column definitions for CREATE FUNCTION ... RETURNS TABLE
+ * From PostgreSQL gram.y lines 8794-8803
+ * These rules match PostgreSQL exactly even though CREATE FUNCTION is not yet implemented
+ */
+table_func_column_list:
+			table_func_column
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	table_func_column_list ',' table_func_column
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+		;
+
+/*
+ * Individual table function column for RETURNS TABLE
+ * From PostgreSQL gram.y lines 8785-8793
+ * Creates a FunctionParameter with mode FUNC_PARAM_TABLE
+ */
+table_func_column: param_name func_type
+			{
+				name := $1
+				fp := &ast.FunctionParameter{
+					BaseNode: ast.BaseNode{Tag: ast.T_FunctionParameter},
+					Name:     &name,
+					ArgType:  $2.(*ast.TypeName),
+					Mode:     ast.FUNC_PARAM_TABLE,
+					DefExpr:  nil,
+				}
+				$$ = fp
+			}
+		;
+
+/* Optional table function element list */
+OptTableFuncElementList:
+			AS '(' TableFuncElementList ')'		{ $$ = $3 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+/* Table function element list */
+TableFuncElementList:
+			TableFuncElement
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	TableFuncElementList ',' TableFuncElement
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+		;
+
+/* Table function element - matches PostgreSQL gram.y lines 13946-13964 */
+TableFuncElement:
+			ColId Typename opt_collate_clause
+			{
+				columnDef := ast.NewColumnDef($1, $2.(*ast.TypeName), 0)
+				// Note: opt_collate_clause support can be added when needed
+				// PostgreSQL sets: n->collClause = (CollateClause *) $3;
+				$$ = columnDef
+			}
+		;
+
+/* COLLATE clause - matches PostgreSQL gram.y lines 2973-2984 */
+opt_collate_clause:
+			COLLATE any_name
+			{
+				// Convert NodeList to []string for collation names
+				nodeList := $2.(*ast.NodeList)
+				collNames := make([]string, len(nodeList.Items))
+				for i, item := range nodeList.Items {
+					if str, ok := item.(*ast.String); ok {
+						collNames[i] = str.SVal
+					}
+				}
+				$$ = ast.NewCollateClause(collNames)
+			}
+		|	/* EMPTY */		{ $$ = nil }
+		;
+
+/* XML passing mechanism - matches PostgreSQL gram.y lines 16180-16183 */
+xml_passing_mech:
+			BY REF_P	{ $$ = "BY REF" }
+		|	BY VALUE_P	{ $$ = "BY VALUE" }
+		;
+
+/* XMLEXISTS argument clause - matches PostgreSQL gram.y lines 16161-16178 */
+xmlexists_argument:
+			PASSING c_expr
+			{
+				$$ = $2
+			}
+		|	PASSING c_expr xml_passing_mech
+			{
+				$$ = $2
+			}
+		|	PASSING xml_passing_mech c_expr
+			{
+				$$ = $3
+			}
+		|	PASSING xml_passing_mech c_expr xml_passing_mech
+			{
+				$$ = $3
+			}
+		;
+
+/* XML namespace list - matches PostgreSQL gram.y lines 14105-14129 */
+xml_namespace_list:
+			xml_namespace_el
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	xml_namespace_list ',' xml_namespace_el
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+		;
+
+xml_namespace_el:
+			b_expr AS ColLabel
+			{
+				target := ast.NewResTarget($3, $1)
+				$$ = target
+			}
+		|	DEFAULT b_expr
+			{
+				target := ast.NewResTarget("", $2)
+				$$ = target
+			}
+		;
+
+/* XMLTABLE matches PostgreSQL gram.y lines 13970-13994 */
+xmltable:
+			XMLTABLE '(' c_expr xmlexists_argument COLUMNS xmltable_column_list ')'
+			{
+				// XMLTABLE(xpath_expr PASSING doc_expr COLUMNS ...)
+				// $3 is xpath_expr (should be RowExpr), $4 is doc_expr (should be DocExpr)
+				rangeTableFunc := ast.NewRangeTableFunc(false, $4.(ast.Expression), $3.(ast.Expression), nil, nil, nil, 0)
+				// Convert column list to RangeTableFuncCol
+				if $6 != nil {
+					columns := make([]*ast.RangeTableFuncCol, 0)
+					for _, col := range $6.Items {
+						columns = append(columns, col.(*ast.RangeTableFuncCol))
+					}
+					rangeTableFunc.Columns = columns
+				}
+				$$ = rangeTableFunc
+			}
+		|	XMLTABLE '(' XMLNAMESPACES '(' xml_namespace_list ')' ','
+			c_expr xmlexists_argument COLUMNS xmltable_column_list ')'
+			{
+				// Convert namespace list to []*ResTarget
+				var namespaces []*ast.ResTarget
+				if $5 != nil {
+					namespaces = make([]*ast.ResTarget, len($5.Items))
+					for i, item := range $5.Items {
+						namespaces[i] = item.(*ast.ResTarget)
+					}
+				}
+				// XMLTABLE(XMLNAMESPACES(...), xpath_expr PASSING doc_expr COLUMNS ...)
+				// $8 is xpath_expr (should be RowExpr), $9 is doc_expr (should be DocExpr)
+				rangeTableFunc := ast.NewRangeTableFunc(false, $9.(ast.Expression), $8.(ast.Expression), namespaces, nil, nil, 0)
+				// Convert column list to RangeTableFuncCol
+				if $11 != nil {
+					columns := make([]*ast.RangeTableFuncCol, 0)
+					for _, col := range $11.Items {
+						columns = append(columns, col.(*ast.RangeTableFuncCol))
+					}
+					rangeTableFunc.Columns = columns
+				}
+				$$ = rangeTableFunc
+			}
+		;
+
+/* XMLTABLE column list */
+xmltable_column_list:
+			xmltable_column_el
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	xmltable_column_list ',' xmltable_column_el
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+		;
+
+/* XMLTABLE column element */
+xmltable_column_el:
+			ColId Typename
+			{
+				rangeTableFuncCol := ast.NewRangeTableFuncCol($1, $2.(*ast.TypeName), false, false, nil, nil, 0)
+				$$ = rangeTableFuncCol
+			}
+		|	ColId FOR ORDINALITY
+			{
+				rangeTableFuncCol := ast.NewRangeTableFuncCol($1, nil, true, false, nil, nil, 0)
+				$$ = rangeTableFuncCol
+			}
+		|	ColId Typename xmltable_column_option_list
+			{
+				rangeTableFuncCol := ast.NewRangeTableFuncCol($1, $2.(*ast.TypeName), false, false, nil, nil, 0)
+				// TODO: Process column options from $3
+				$$ = rangeTableFuncCol
+			}
+		;
+
+/* XMLTABLE column option list */
+xmltable_column_option_list:
+			xmltable_column_option_el
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	xmltable_column_option_list xmltable_column_option_el
+			{
+				$1.Append($2)
+				$$ = $1
+			}
+		;
+
+/* XMLTABLE column option element */
+xmltable_column_option_el:
+			IDENT b_expr
+			{
+				$$ = ast.NewDefElem($1, $2)
+			}
+		|	DEFAULT b_expr
+			{
+				$$ = ast.NewDefElem("default", $2)
+			}
+		|	NOT NULL_P
+			{
+				$$ = ast.NewDefElem("is_not_null", ast.NewBoolean(true))
+			}
+		|	NULL_P
+			{
+				$$ = ast.NewDefElem("is_not_null", ast.NewBoolean(false))
+			}
+		|	PATH b_expr
+			{
+				$$ = ast.NewDefElem("path", $2)
+			}
+		;
+
+/* JSON_TABLE from PostgreSQL gram.y:14131-14156 - Complete implementation */
+json_table:
+			JSON_TABLE '('
+				json_value_expr ',' a_expr json_table_path_name_opt
+				json_passing_clause_opt
+				COLUMNS '(' json_table_column_definition_list ')'
+				json_on_error_clause_opt
+			')'
+			{
+				// Extract path name from optional path name node
+				var pathName string
+				if $6 != nil {
+					if strNode, ok := $6.(*ast.String); ok {
+						pathName = strNode.SVal
+					}
+				}
+				
+				// Create JsonTablePathSpec from the a_expr (path expression) and optional path name
+				pathSpec := ast.NewJsonTablePathSpec($5, pathName, 0)
+				
+				// Create JsonTable with context item and path spec
+				jsonTable := ast.NewJsonTable($3.(*ast.JsonValueExpr), pathSpec)
+				if $10 != nil {
+					jsonTable.Columns = $10
+				}
+				$$ = jsonTable
+			}
+		;
+
+/* JSON value expression - simplified for now */
+json_value_expr:
+			a_expr json_format_clause_opt
+			{
+				var format *ast.JsonFormat
+				if $2 != nil {
+					format = $2.(*ast.JsonFormat)
+				}
+				$$ = ast.NewJsonValueExpr($1, format)
+			}
+		;
+
+/* Optional JSON_TABLE path name */
+json_table_path_name_opt:
+			AS ColId								{ $$ = ast.NewString($2) }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+/* Optional PASSING clause */
+json_passing_clause_opt:
+			PASSING json_arguments					{ $$ = $2 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+json_arguments:
+			json_argument							{ $$ = ast.NewNodeList($1) }
+		|	json_arguments ',' json_argument		{ $1.Append($3); $$ = $1 }
+		;
+
+json_argument:
+			json_value_expr AS ColLabel
+			{
+				jsonArg := ast.NewJsonArgument($1.(*ast.JsonValueExpr), $3)
+				$$ = jsonArg
+			}
+
+/* JSON behavior */
+json_behavior:
+			DEFAULT a_expr
+			{
+				$$ = &ast.JsonBehavior{
+					BaseNode: ast.BaseNode{Tag: ast.T_JsonBehavior},
+					Btype: ast.JSON_BEHAVIOR_DEFAULT,
+					Expr: $2,
+				}
+			}
+		|	json_behavior_type
+			{
+				$$ = &ast.JsonBehavior{
+					BaseNode: ast.BaseNode{Tag: ast.T_JsonBehavior},
+					Btype: ast.JsonBehaviorType($1),
+					Expr: nil,
+				}
+			}
+		;
+
+/* JSON behavior type - matches PostgreSQL grammar exactly (ERROR_P, EMPTY_P, ARRAY, OBJECT_P) */
+json_behavior_type:
+			ERROR_P									{ $$ = int(ast.JSON_BEHAVIOR_ERROR) }
+		|	NULL_P									{ $$ = int(ast.JSON_BEHAVIOR_NULL) }
+		|	TRUE_P									{ $$ = int(ast.JSON_BEHAVIOR_TRUE) }
+		|	FALSE_P									{ $$ = int(ast.JSON_BEHAVIOR_FALSE) }
+		|	UNKNOWN									{ $$ = int(ast.JSON_BEHAVIOR_UNKNOWN) }
+		|	EMPTY_P ARRAY							{ $$ = int(ast.JSON_BEHAVIOR_EMPTY_ARRAY) }
+		|	EMPTY_P OBJECT_P						{ $$ = int(ast.JSON_BEHAVIOR_EMPTY_OBJECT) }
+		|	EMPTY_P									{ $$ = int(ast.JSON_BEHAVIOR_EMPTY) }
+		;
+
+/* JSON behavior clause */
+json_behavior_clause_opt:
+			json_behavior ON EMPTY_P				{
+				// Return a list with ON EMPTY behavior and nil for ON ERROR
+				$$ = &ast.NodeList{Items: []ast.Node{$1, nil}}
+			}
+		|	json_behavior ON ERROR_P				{
+				// Return a list with nil for ON EMPTY and ON ERROR behavior
+				$$ = &ast.NodeList{Items: []ast.Node{nil, $1}}
+			}
+		|	json_behavior ON EMPTY_P json_behavior ON ERROR_P	{
+				// Return a list with both ON EMPTY and ON ERROR behaviors
+				$$ = &ast.NodeList{Items: []ast.Node{$1, $4}}
+			}
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+/* Optional ON ERROR clause */
+json_on_error_clause_opt:
+			json_behavior ON ERROR_P				{ $$ = $1 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+/* JSON wrapper behavior - matches PostgreSQL grammar exactly */
+json_wrapper_behavior:
+			WITHOUT WRAPPER							{ $$ = int(ast.JSW_NONE) }
+		|	WITHOUT ARRAY WRAPPER					{ $$ = int(ast.JSW_NONE) }
+		|	WITH WRAPPER							{ $$ = int(ast.JSW_UNCONDITIONAL) }
+		|	WITH ARRAY WRAPPER						{ $$ = int(ast.JSW_UNCONDITIONAL) }
+		|	WITH CONDITIONAL ARRAY WRAPPER			{ $$ = int(ast.JSW_CONDITIONAL) }
+		|	WITH UNCONDITIONAL ARRAY WRAPPER		{ $$ = int(ast.JSW_UNCONDITIONAL) }
+		|	WITH CONDITIONAL WRAPPER				{ $$ = int(ast.JSW_CONDITIONAL) }
+		|	WITH UNCONDITIONAL WRAPPER				{ $$ = int(ast.JSW_UNCONDITIONAL) }
+		|	/* EMPTY */								{ $$ = int(ast.JSW_UNSPEC) }
+		;
+
+/* JSON quotes clause - matches PostgreSQL grammar exactly */
+json_quotes_clause_opt:
+			KEEP QUOTES ON SCALAR STRING_P			{ $$ = int(ast.JS_QUOTES_KEEP) }
+		|	KEEP QUOTES								{ $$ = int(ast.JS_QUOTES_KEEP) }
+		|	OMIT QUOTES ON SCALAR STRING_P			{ $$ = int(ast.JS_QUOTES_OMIT) }
+		|	OMIT QUOTES								{ $$ = int(ast.JS_QUOTES_OMIT) }
+		|	/* EMPTY */								{ $$ = int(ast.JS_QUOTES_UNSPEC) }
+		;
+
+/* JSON format clause - matches PostgreSQL grammar exactly (uses 'name' not 'ColId') */
+json_format_clause:
+			FORMAT_LA JSON ENCODING name
+			{
+				// Parse the encoding name and map to JsonEncoding constant
+				var encoding ast.JsonEncoding
+				switch $4 {
+				case "utf8":
+					encoding = ast.JS_ENC_UTF8
+				case "utf16":
+					encoding = ast.JS_ENC_UTF16
+				case "utf32":
+					encoding = ast.JS_ENC_UTF32
+				default:
+					encoding = ast.JS_ENC_DEFAULT
+				}
+				$$ = &ast.JsonFormat{
+					BaseNode: ast.BaseNode{Tag: ast.T_JsonFormat},
+					FormatType: ast.JS_FORMAT_JSON,
+					Encoding: encoding,
+				}
+			}
+		|	FORMAT_LA JSON
+			{
+				$$ = &ast.JsonFormat{
+					BaseNode: ast.BaseNode{Tag: ast.T_JsonFormat},
+					FormatType: ast.JS_FORMAT_JSON,
+					Encoding: ast.JS_ENC_DEFAULT,
+				}
+			}
+		;
+
+json_format_clause_opt:
+			json_format_clause						{ $$ = $1 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+/* Path optional keyword */
+path_opt:
+			PATH									{ $$ = ast.NewString("path") }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+/* JSON_TABLE column definition list */
+json_table_column_definition_list:
+			json_table_column_definition
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	json_table_column_definition_list ',' json_table_column_definition
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+		;
+
+/* JSON_TABLE column definition - Complete PostgreSQL implementation */
+json_table_column_definition:
+			ColId FOR ORDINALITY
+			{
+				jsonTableCol := ast.NewJsonTableColumn(ast.JTC_FOR_ORDINALITY, $1)
+				$$ = jsonTableCol
+			}
+		|	ColId Typename
+			json_table_column_path_clause_opt
+			json_wrapper_behavior
+			json_quotes_clause_opt
+			json_behavior_clause_opt
+			{
+				jsonTableCol := ast.NewJsonTableColumn(ast.JTC_REGULAR, $1)
+				jsonTableCol.TypeName = $2.(*ast.TypeName)
+				if $3 != nil {
+					strNode := $3.(*ast.String)
+					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
+				}
+				$$ = jsonTableCol
+			}
+		|	ColId Typename json_format_clause
+			json_table_column_path_clause_opt
+			json_wrapper_behavior
+			json_quotes_clause_opt
+			json_behavior_clause_opt
+			{
+				jsonTableCol := ast.NewJsonTableColumn(ast.JTC_FORMATTED, $1)
+				jsonTableCol.TypeName = $2.(*ast.TypeName)
+				if $4 != nil {
+					strNode := $4.(*ast.String)
+					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
+				}
+				if $3 != nil {
+					jsonTableCol.Format = $3.(*ast.JsonFormat)
+				}
+				$$ = jsonTableCol
+			}
+		|	ColId Typename EXISTS json_table_column_path_clause_opt
+			json_on_error_clause_opt
+			{
+				jsonTableCol := ast.NewJsonTableColumn(ast.JTC_EXISTS, $1)
+				jsonTableCol.TypeName = $2.(*ast.TypeName)
+				if $4 != nil {
+					strNode := $4.(*ast.String)
+					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
+				}
+				$$ = jsonTableCol
+			}
+		|	NESTED path_opt SCONST
+			COLUMNS '(' json_table_column_definition_list ')'
+			{
+				jsonTableCol := ast.NewJsonTableColumn(ast.JTC_NESTED, "")
+				jsonTableCol.Columns = $6
+				strNode := ast.NewString($3)
+				jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
+				$$ = jsonTableCol
+			}
+		|	NESTED path_opt SCONST AS name
+			COLUMNS '(' json_table_column_definition_list ')'
+			{
+				jsonTableCol := ast.NewJsonTableColumn(ast.JTC_NESTED, $5)
+				jsonTableCol.Columns = $8
+				strNode := ast.NewString($3)
+				jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
+				$$ = jsonTableCol
+			}
+		;
+
+/* JSON_TABLE column path clause - Use string constants */
+json_table_column_path_clause_opt:
+			PATH SCONST								{ $$ = ast.NewString($2) }
 		|	/* EMPTY */								{ $$ = nil }
 		;
 

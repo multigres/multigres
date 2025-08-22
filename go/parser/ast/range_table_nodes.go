@@ -203,13 +203,13 @@ type RangeFunction struct {
 	Lateral     bool        // does it have LATERAL prefix?
 	Ordinality  bool        // does it have WITH ORDINALITY suffix?
 	IsRowsFrom  bool        // is result of ROWS FROM() syntax?
-	Functions   []*NodeList // per-function information (function + column definitions)
+	Functions   *NodeList   // list of per-function information (each item is a NodeList with function + column definitions)
 	Alias       *Alias      // table alias & optional column aliases
 	ColDefList  []*ColumnDef // list of ColumnDef nodes to describe result of function returning RECORD
 }
 
 // NewRangeFunction creates a new RangeFunction node.
-func NewRangeFunction(lateral, ordinality, isRowsFrom bool, functions []*NodeList, alias *Alias, colDefList []*ColumnDef) *RangeFunction {
+func NewRangeFunction(lateral, ordinality, isRowsFrom bool, functions *NodeList, alias *Alias, colDefList []*ColumnDef) *RangeFunction {
 	return &RangeFunction{
 		BaseNode:   BaseNode{Tag: T_RangeFunction},
 		Lateral:    lateral,
@@ -238,6 +238,60 @@ func (r *RangeFunction) String() string {
 
 func (r *RangeFunction) StatementType() string {
 	return "RANGE_FUNCTION"
+}
+
+// SqlString returns the SQL representation of the RangeFunction.
+func (r *RangeFunction) SqlString() string {
+	var result strings.Builder
+
+	if r.Lateral {
+		result.WriteString("LATERAL ")
+	}
+
+	if r.IsRowsFrom {
+		result.WriteString("ROWS FROM (")
+		if r.Functions != nil {
+			for i, item := range r.Functions.Items {
+				if i > 0 {
+					result.WriteString(", ")
+				}
+				// Each item is a NodeList containing function + optional column definitions
+				if funcList, ok := item.(*NodeList); ok && len(funcList.Items) > 0 {
+					result.WriteString(funcList.Items[0].SqlString())
+					if len(funcList.Items) > 1 {
+						result.WriteString(" AS (")
+						for j, colDef := range funcList.Items[1:] {
+							if j > 0 {
+								result.WriteString(", ")
+							}
+							result.WriteString(colDef.SqlString())
+						}
+						result.WriteString(")")
+					}
+				}
+			}
+		}
+		result.WriteString(")")
+	} else {
+		// Simple function call - Functions contains a single NodeList with one function
+		if r.Functions != nil && len(r.Functions.Items) > 0 {
+			// For non-ROWS FROM, Functions.Items[0] is the NodeList containing the function
+			if funcList, ok := r.Functions.Items[0].(*NodeList); ok && len(funcList.Items) > 0 {
+				result.WriteString(funcList.Items[0].SqlString())
+			}
+		}
+	}
+
+	if r.Ordinality {
+		result.WriteString(" WITH ORDINALITY")
+	}
+
+	if r.Alias != nil {
+		result.WriteString(" ")
+		result.WriteString(r.Alias.SqlString())
+	}
+
+	return result.String()
 }
 
 // RangeTableFunc represents raw form of "table functions" such as XMLTABLE.
@@ -276,6 +330,48 @@ func (r *RangeTableFunc) String() string {
 
 func (r *RangeTableFunc) StatementType() string {
 	return "RANGE_TABLE_FUNC"
+}
+
+// SqlString returns the SQL representation of the RangeTableFunc (XMLTABLE).
+func (r *RangeTableFunc) SqlString() string {
+	var result strings.Builder
+
+	if r.Lateral {
+		result.WriteString("LATERAL ")
+	}
+
+	// For now, we assume this is XMLTABLE since that's what we're implementing
+	result.WriteString("XMLTABLE(")
+	
+	// XMLTABLE syntax: XMLTABLE(xpath_expression PASSING document_expression COLUMNS ...)
+	// RowExpr is the XPath expression, DocExpr is the document
+	if r.RowExpr != nil {
+		result.WriteString(r.RowExpr.SqlString())
+	}
+	
+	if r.DocExpr != nil {
+		result.WriteString(" PASSING ")
+		result.WriteString(r.DocExpr.SqlString())
+	}
+
+	if len(r.Columns) > 0 {
+		result.WriteString(" COLUMNS ")
+		for i, col := range r.Columns {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			result.WriteString(col.SqlString())
+		}
+	}
+
+	result.WriteString(")")
+
+	if r.Alias != nil {
+		result.WriteString(" ")
+		result.WriteString(r.Alias.SqlString())
+	}
+
+	return result.String()
 }
 
 // RangeTableFuncCol represents one column in a RangeTableFunc->columns.
@@ -319,6 +415,31 @@ func (r *RangeTableFuncCol) String() string {
 
 func (r *RangeTableFuncCol) StatementType() string {
 	return "RANGE_TABLE_FUNC_COL"
+}
+
+// SqlString returns the SQL representation of the RangeTableFuncCol.
+func (r *RangeTableFuncCol) SqlString() string {
+	var result strings.Builder
+
+	if r.ForOrdinality {
+		result.WriteString(r.ColName)
+		result.WriteString(" FOR ORDINALITY")
+	} else {
+		result.WriteString(r.ColName)
+		if r.TypeName != nil {
+			result.WriteString(" ")
+			result.WriteString(r.TypeName.SqlString())
+		}
+		
+		// Add other options like PATH, DEFAULT, etc. if present
+		// These would be processed from the grammar but for now we'll handle the basic case
+		
+		if r.IsNotNull {
+			result.WriteString(" NOT NULL")
+		}
+	}
+
+	return result.String()
 }
 
 // RangeTableSample represents TABLESAMPLE appearing in a raw FROM clause.

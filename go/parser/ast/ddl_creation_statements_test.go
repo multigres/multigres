@@ -82,8 +82,8 @@ func TestFunctionParameter(t *testing.T) {
 		assert.Equal(t, FUNC_PARAM_IN, param.Mode)
 		assert.Nil(t, param.DefExpr)
 
-		// Test node interface
-		param.node()
+		// Test node interface - now implemented via BaseNode
+		assert.Equal(t, T_FunctionParameter, param.Tag)
 
 		// Test string representation
 		str := param.String()

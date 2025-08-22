@@ -239,12 +239,199 @@ func (l *Lexer) scanIdentifier(startPos, startScanPos int) (*Token, error) {
 
 	// Check if this is a keyword using the keyword lookup
 	if keyword := LookupKeyword(text); keyword != nil {
+		// Handle lookahead tokens (WITH_LA, FORMAT_LA, etc.)
+		tokenType := l.checkLookaheadToken(keyword, text)
 		// Return keyword token with the proper keyword token type and keyword value
-		return NewKeywordToken(keyword.TokenType, keyword.Name, startPos, text), nil
+		return NewKeywordToken(tokenType, keyword.Name, startPos, text), nil
 	}
 
 	// Regular identifier - PostgreSQL lowercases unquoted identifiers
 	return NewStringToken(IDENT, normalizeIdentifierCase(text), startPos, text), nil
+}
+
+// checkLookaheadToken checks if a keyword should be converted to its lookahead variant
+// Based on PostgreSQL's base_yylex function in parser.c
+// This implements the same extensible nested switch pattern PostgreSQL uses
+func (l *Lexer) checkLookaheadToken(keyword *KeywordInfo, text string) TokenType {
+	currentToken := keyword.TokenType
+	
+	// First level: Check if this token needs lookahead examination
+	// Based on PostgreSQL parser.c lines 138-161
+	needsLookahead := false
+	switch currentToken {
+	case FORMAT:
+		needsLookahead = true
+	case NOT:
+		needsLookahead = true
+	case NULLS_P:
+		needsLookahead = true
+	case WITH:
+		needsLookahead = true
+	case WITHOUT:
+		needsLookahead = true
+	default:
+		// No lookahead needed for this token
+		return currentToken
+	}
+	
+	if !needsLookahead {
+		return currentToken
+	}
+	
+	// Get the next token for lookahead analysis
+	nextToken := l.peekNextTokenType()
+	
+	// Second level: Based on current + next token combination, determine if we need *_LA variant
+	// Based on PostgreSQL parser.c lines 195-321
+	switch currentToken {
+	case FORMAT:
+		switch nextToken {
+		case JSON:
+			return FORMAT_LA
+		}
+		
+	case WITH:
+		switch nextToken {
+		case TIME, ORDINALITY:
+			return WITH_LA
+		}
+		
+	case NOT:
+		switch nextToken {
+		case BETWEEN, IN_P, LIKE, ILIKE, SIMILAR:
+			return NOT_LA
+		}
+		
+	case NULLS_P:
+		switch nextToken {
+		case FIRST_P: // LAST_P not yet implemented
+			return NULLS_LA
+		}
+		
+	case WITHOUT:
+		switch nextToken {
+		case TIME:
+			return WITHOUT_LA
+		}
+	}
+	
+	// No lookahead transformation needed
+	return currentToken
+}
+
+// peekNextTokenType peeks at the next token type without consuming it
+// This is used for lookahead token analysis
+func (l *Lexer) peekNextTokenType() TokenType {
+	// Save current position to restore later
+	savedPos := l.context.currentPosition
+	savedScanPos := l.context.scanPos
+	
+	defer func() {
+		// Restore position after lookahead
+		l.context.currentPosition = savedPos
+		l.context.scanPos = savedScanPos
+	}()
+	
+	// Skip whitespace to find next token
+	l.skipWhitespaceForLookahead()
+	
+	// Try to read the next identifier/keyword
+	nextWord := l.peekNextIdentifier()
+	if nextWord == "" {
+		return INVALID
+	}
+	
+	// Check if it's a keyword
+	if keyword := LookupKeyword(nextWord); keyword != nil {
+		return keyword.TokenType
+	}
+	
+	// Not a keyword, return IDENT
+	return IDENT
+}
+
+// peekNextIdentifier peeks at the next identifier without consuming it
+func (l *Lexer) peekNextIdentifier() string {
+	startScanPos := l.context.scanPos
+	
+	// Read first character
+	b, ok := l.context.CurrentByte()
+	if !ok || !IsIdentStart(b) {
+		return ""
+	}
+	l.context.NextByte()
+	
+	// Read rest of identifier
+	for {
+		b, ok := l.context.CurrentByte()
+		if !ok || !IsIdentCont(b) {
+			break
+		}
+		l.context.NextByte()
+	}
+	
+	return l.context.GetCurrentText(startScanPos)
+}
+
+// skipWhitespaceForLookahead skips whitespace and comments for lookahead
+func (l *Lexer) skipWhitespaceForLookahead() {
+	for {
+		b, ok := l.context.CurrentByte()
+		if !ok {
+			break
+		}
+		
+		if unicode.IsSpace(rune(b)) {
+			l.context.NextByte()
+			continue
+		}
+		
+		// Skip single-line comments
+		if b == '-' {
+			nextBytes := l.context.PeekBytes(2)
+			if len(nextBytes) >= 2 && nextBytes[1] == '-' {
+				// Skip to end of line
+				for {
+					b, ok := l.context.CurrentByte()
+					if !ok || b == '\n' || b == '\r' {
+						break
+					}
+					l.context.NextByte()
+				}
+				continue
+			}
+		}
+		
+		// Skip multi-line comments  
+		if b == '/' {
+			nextBytes := l.context.PeekBytes(2)
+			if len(nextBytes) >= 2 && nextBytes[1] == '*' {
+				l.context.NextByte() // consume '/'
+				l.context.NextByte() // consume '*'
+				
+				// Skip until */
+				for {
+					b, ok := l.context.CurrentByte()
+					if !ok {
+						break
+					}
+					if b == '*' {
+						nextBytes := l.context.PeekBytes(2)
+						if len(nextBytes) >= 2 && nextBytes[1] == '/' {
+							l.context.NextByte() // consume '*'
+							l.context.NextByte() // consume '/'
+							break
+						}
+					}
+					l.context.NextByte()
+				}
+				continue
+			}
+		}
+		
+		// Not whitespace or comment
+		break
+	}
 }
 
 // normalizeIdentifierCase normalizes identifier case following PostgreSQL rules.
