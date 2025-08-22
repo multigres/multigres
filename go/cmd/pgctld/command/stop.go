@@ -34,6 +34,7 @@ type StopResult struct {
 func init() {
 	Root.AddCommand(stopCmd)
 	stopCmd.Flags().String("mode", "fast", "Shutdown mode: smart, fast, or immediate")
+	stopCmd.Flags().IntP("timeout", "t", 30, "Operation timeout in seconds")
 }
 
 var stopCmd = &cobra.Command{
@@ -41,16 +42,39 @@ var stopCmd = &cobra.Command{
 	Short: "Stop PostgreSQL server",
 	Long: `Stop a running PostgreSQL server instance.
 
+The stop command gracefully shuts down a running PostgreSQL server using pg_ctl.
+Configuration can be provided via config file, environment variables, or CLI flags.
+CLI flags take precedence over config file and environment variable settings.
+
 Shutdown modes:
   smart:     Disallow new connections, wait for existing sessions to finish
   fast:      Disallow new connections, terminate existing sessions
-  immediate: Force shutdown without cleanup (may cause recovery on restart)`,
+  immediate: Force shutdown without cleanup (may cause recovery on restart)
+
+Examples:
+  # Stop with default settings (fast mode)
+  pgctld stop --data-dir /var/lib/postgresql/data
+
+  # Stop with smart mode (wait for sessions)
+  pgctld stop --data-dir /var/lib/postgresql/data --mode smart
+
+  # Stop with custom timeout
+  pgctld stop --data-dir /var/lib/postgresql/data --timeout 120
+
+  # Force immediate stop with short timeout
+  pgctld stop --data-dir /var/lib/postgresql/data --mode immediate --timeout 10`,
 	RunE: runStop,
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
 	mode, _ := cmd.Flags().GetString("mode")
+
+	// Override with command-specific timeout flag if provided
+	if cmd.Flags().Changed("timeout") {
+		config.Timeout, _ = cmd.Flags().GetInt("timeout")
+	}
+
 	result, err := StopPostgreSQLWithResult(config, mode)
 	if err != nil {
 		return err

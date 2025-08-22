@@ -42,13 +42,39 @@ type StatusResult struct {
 
 func init() {
 	Root.AddCommand(statusCmd)
+
+	// Add status-specific flags
+	statusCmd.Flags().StringP("data-dir", "d", "", "PostgreSQL data directory")
+	statusCmd.Flags().IntP("port", "p", 5432, "PostgreSQL port")
+	statusCmd.Flags().StringP("host", "H", "localhost", "PostgreSQL host")
+	statusCmd.Flags().StringP("user", "U", "postgres", "PostgreSQL username")
+	statusCmd.Flags().String("database", "postgres", "PostgreSQL database name")
 }
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Check PostgreSQL server status",
-	Long:  `Check the status of the PostgreSQL server instance and report health information.`,
-	RunE:  runStatus,
+	Long: `Check the status of the PostgreSQL server instance and report health information.
+
+The status command checks if PostgreSQL is running and reports detailed information
+including PID, version, uptime, and connection readiness. Configuration can be
+provided via config file, environment variables, or CLI flags.
+CLI flags take precedence over config file and environment variable settings.
+
+Examples:
+  # Check status with default settings
+  pgctld status --data-dir /var/lib/postgresql/data
+
+  # Check status of PostgreSQL on custom port
+  pgctld status --data-dir /var/lib/postgresql/data --port 5433
+
+  # Check status with specific connection parameters
+  pgctld status -d /var/lib/postgresql/data -H remotehost -U admin --database mydb
+
+  # Check status of multiple instances
+  pgctld status -d /var/lib/postgresql/instance1 -p 5432
+  pgctld status -d /var/lib/postgresql/instance2 -p 5433`,
+	RunE: runStatus,
 }
 
 // GetStatusWithResult gets PostgreSQL status with the given configuration and returns detailed result information
@@ -106,6 +132,24 @@ func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
 
 func runStatus(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
+
+	// Override with command-specific flags if provided
+	if cmd.Flags().Changed("data-dir") {
+		config.DataDir, _ = cmd.Flags().GetString("data-dir")
+	}
+	if cmd.Flags().Changed("port") {
+		config.Port, _ = cmd.Flags().GetInt("port")
+	}
+	if cmd.Flags().Changed("host") {
+		config.Host, _ = cmd.Flags().GetString("host")
+	}
+	if cmd.Flags().Changed("user") {
+		config.User, _ = cmd.Flags().GetString("user")
+	}
+	if cmd.Flags().Changed("database") {
+		config.Database, _ = cmd.Flags().GetString("database")
+	}
+
 	result, err := GetStatusWithResult(config)
 	if err != nil {
 		return err

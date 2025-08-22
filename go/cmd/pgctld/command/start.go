@@ -134,17 +134,52 @@ func NewPostgresConfigFromStatusRequest(req *pb.StatusRequest) *PostgresConfig {
 
 func init() {
 	Root.AddCommand(startCmd)
+
+	// Add start-specific flags
+	startCmd.Flags().IntP("port", "p", 5432, "PostgreSQL port")
+	startCmd.Flags().StringP("socket-dir", "s", "/tmp", "PostgreSQL socket directory")
+	startCmd.Flags().StringP("config-file", "c", "", "PostgreSQL configuration file")
+	startCmd.Flags().IntP("timeout", "t", 30, "Operation timeout in seconds")
 }
 
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start PostgreSQL server",
-	Long:  `Start a PostgreSQL server instance with the configured parameters.`,
-	RunE:  runStart,
+	Long: `Start a PostgreSQL server instance with the configured parameters.
+
+The start command initializes the data directory if needed and starts PostgreSQL.
+Configuration can be provided via config file, environment variables, or CLI flags.
+CLI flags take precedence over config file and environment variable settings.
+
+Examples:
+  # Start with default settings
+  pgctld start --data-dir /var/lib/postgresql/data
+
+  # Start on custom port
+  pgctld start --data-dir /var/lib/postgresql/data --port 5433
+
+  # Start with custom socket directory and config file
+  pgctld start --data-dir /var/lib/postgresql/data -s /var/run/postgresql -c /etc/postgresql/custom.conf`,
+	RunE: runStart,
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
+
+	// Override with command-specific flags if provided
+	if cmd.Flags().Changed("port") {
+		config.Port, _ = cmd.Flags().GetInt("port")
+	}
+	if cmd.Flags().Changed("socket-dir") {
+		config.SocketDir, _ = cmd.Flags().GetString("socket-dir")
+	}
+	if cmd.Flags().Changed("config-file") {
+		config.ConfigFile, _ = cmd.Flags().GetString("config-file")
+	}
+	if cmd.Flags().Changed("timeout") {
+		config.Timeout, _ = cmd.Flags().GetInt("timeout")
+	}
+
 	result, err := StartPostgreSQLWithResult(config)
 	if err != nil {
 		return err

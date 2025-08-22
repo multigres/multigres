@@ -33,13 +33,35 @@ type RestartResult struct {
 func init() {
 	Root.AddCommand(restartCmd)
 	restartCmd.Flags().String("mode", "fast", "Shutdown mode for stop phase: smart, fast, or immediate")
+	restartCmd.Flags().StringP("data-dir", "d", "", "PostgreSQL data directory")
+	restartCmd.Flags().IntP("port", "p", 5432, "PostgreSQL port")
+	restartCmd.Flags().StringP("socket-dir", "s", "/tmp", "PostgreSQL socket directory")
+	restartCmd.Flags().StringP("config-file", "c", "", "PostgreSQL configuration file")
+	restartCmd.Flags().IntP("timeout", "t", 30, "Operation timeout in seconds")
 }
 
 var restartCmd = &cobra.Command{
 	Use:   "restart",
 	Short: "Restart PostgreSQL server",
-	Long:  `Restart the PostgreSQL server by stopping it and then starting it again.`,
-	RunE:  runRestart,
+	Long: `Restart the PostgreSQL server by stopping it and then starting it again.
+
+The restart command performs a stop followed by start operation in sequence.
+Configuration can be provided via config file, environment variables, or CLI flags.
+CLI flags take precedence over config file and environment variable settings.
+
+Examples:
+  # Restart with default settings
+  pgctld restart --data-dir /var/lib/postgresql/data
+
+  # Restart on custom port with smart stop mode
+  pgctld restart --data-dir /var/lib/postgresql/data --port 5433 --mode smart
+
+  # Restart with custom config and timeout
+  pgctld restart -d /var/lib/postgresql/data -c /etc/postgresql/custom.conf --timeout 60
+
+  # Restart with immediate stop and custom socket directory
+  pgctld restart -d /data --mode immediate -s /var/run/postgresql`,
+	RunE: runRestart,
 }
 
 // RestartPostgreSQLWithResult restarts PostgreSQL with the given configuration and returns detailed result information
@@ -83,6 +105,23 @@ func RestartPostgreSQLWithResult(config *PostgresConfig, mode string) (*RestartR
 func runRestart(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
 	mode, _ := cmd.Flags().GetString("mode")
+
+	// Override with command-specific flags if provided
+	if cmd.Flags().Changed("data-dir") {
+		config.DataDir, _ = cmd.Flags().GetString("data-dir")
+	}
+	if cmd.Flags().Changed("port") {
+		config.Port, _ = cmd.Flags().GetInt("port")
+	}
+	if cmd.Flags().Changed("socket-dir") {
+		config.SocketDir, _ = cmd.Flags().GetString("socket-dir")
+	}
+	if cmd.Flags().Changed("config-file") {
+		config.ConfigFile, _ = cmd.Flags().GetString("config-file")
+	}
+	if cmd.Flags().Changed("timeout") {
+		config.Timeout, _ = cmd.Flags().GetInt("timeout")
+	}
 
 	result, err := RestartPostgreSQLWithResult(config, mode)
 	if err != nil {

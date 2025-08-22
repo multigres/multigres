@@ -34,14 +34,28 @@ type ReloadResult struct {
 
 func init() {
 	Root.AddCommand(reloadCmd)
+
+	// Add reload-config-specific flags
+	reloadCmd.Flags().StringP("data-dir", "d", "", "PostgreSQL data directory")
 }
 
 var reloadCmd = &cobra.Command{
 	Use:   "reload-config",
 	Short: "Reload PostgreSQL configuration",
 	Long: `Reload the PostgreSQL server configuration without restarting.
-This sends a SIGHUP signal to the PostgreSQL process, causing it to re-read
-its configuration files.`,
+
+This command sends a SIGHUP signal to the PostgreSQL process, causing it to re-read
+its configuration files. This allows configuration changes to take effect without
+stopping and starting the server. Configuration can be provided via config file,
+environment variables, or CLI flags. CLI flags take precedence over config file
+and environment variable settings.
+
+Examples:
+  # Reload configuration with default settings
+  pgctld reload-config --data-dir /var/lib/postgresql/data
+
+  # Reload configuration for specific instance
+  pgctld reload-config -d /var/lib/postgresql/instance2/data`,
 	RunE: runReload,
 }
 
@@ -75,6 +89,12 @@ func ReloadPostgreSQLConfigWithResult(config *PostgresConfig) (*ReloadResult, er
 
 func runReload(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
+
+	// Override with command-specific flags if provided
+	if cmd.Flags().Changed("data-dir") {
+		config.DataDir, _ = cmd.Flags().GetString("data-dir")
+	}
+
 	result, err := ReloadPostgreSQLConfigWithResult(config)
 	if err != nil {
 		return err
