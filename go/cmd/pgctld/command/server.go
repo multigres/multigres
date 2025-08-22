@@ -238,35 +238,34 @@ func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*p
 		config.User = req.User
 	}
 
-	version := getServerVersionWithConfig(config)
+	// Use the shared version function with detailed result
+	result, err := GetVersionWithResult(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get version: %w", err)
+	}
 
 	return &pb.VersionResponse{
-		Version: version,
-		Message: "Version retrieved successfully",
+		Version: result.Version,
+		Message: result.Message,
 	}, nil
 }
 
 func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequest) (*pb.InitDataDirResponse, error) {
 	s.logger.Info("gRPC InitDataDir request", "data_dir", req.DataDir)
 
-	dataDir := req.DataDir
-	if dataDir == "" {
-		return nil, fmt.Errorf("data-dir is required")
+	// Create config from request parameters
+	config := NewPostgresConfigFromDefaults()
+	if req.DataDir != "" {
+		config.DataDir = req.DataDir
 	}
 
-	// Check if already initialized
-	if isDataDirInitialized(dataDir) {
-		return &pb.InitDataDirResponse{
-			Message: "Data directory is already initialized",
-		}, nil
-	}
-
-	// Initialize data directory
-	if err := initializeDataDir(dataDir); err != nil {
+	// Use the shared init function with detailed result
+	result, err := InitDataDirWithResult(config)
+	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
 
 	return &pb.InitDataDirResponse{
-		Message: "Data directory initialized successfully",
+		Message: result.Message,
 	}, nil
 }

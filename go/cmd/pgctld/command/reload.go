@@ -36,7 +36,6 @@ func init() {
 	Root.AddCommand(reloadCmd)
 
 	// Add reload-config-specific flags
-	reloadCmd.Flags().StringP("data-dir", "d", "", "PostgreSQL data directory")
 }
 
 var reloadCmd = &cobra.Command{
@@ -89,11 +88,6 @@ func ReloadPostgreSQLConfigWithResult(config *PostgresConfig) (*ReloadResult, er
 
 func runReload(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
-
-	// Override with command-specific flags if provided
-	if cmd.Flags().Changed("data-dir") {
-		config.DataDir, _ = cmd.Flags().GetString("data-dir")
-	}
 
 	result, err := ReloadPostgreSQLConfigWithResult(config)
 	if err != nil {

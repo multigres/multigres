@@ -33,11 +33,8 @@ type RestartResult struct {
 func init() {
 	Root.AddCommand(restartCmd)
 	restartCmd.Flags().String("mode", "fast", "Shutdown mode for stop phase: smart, fast, or immediate")
-	restartCmd.Flags().StringP("data-dir", "d", "", "PostgreSQL data directory")
-	restartCmd.Flags().IntP("port", "p", 5432, "PostgreSQL port")
 	restartCmd.Flags().StringP("socket-dir", "s", "/tmp", "PostgreSQL socket directory")
 	restartCmd.Flags().StringP("config-file", "c", "", "PostgreSQL configuration file")
-	restartCmd.Flags().IntP("timeout", "t", 30, "Operation timeout in seconds")
 }
 
 var restartCmd = &cobra.Command{
@@ -107,20 +104,11 @@ func runRestart(cmd *cobra.Command, args []string) error {
 	mode, _ := cmd.Flags().GetString("mode")
 
 	// Override with command-specific flags if provided
-	if cmd.Flags().Changed("data-dir") {
-		config.DataDir, _ = cmd.Flags().GetString("data-dir")
-	}
-	if cmd.Flags().Changed("port") {
-		config.Port, _ = cmd.Flags().GetInt("port")
-	}
 	if cmd.Flags().Changed("socket-dir") {
 		config.SocketDir, _ = cmd.Flags().GetString("socket-dir")
 	}
 	if cmd.Flags().Changed("config-file") {
 		config.ConfigFile, _ = cmd.Flags().GetString("config-file")
-	}
-	if cmd.Flags().Changed("timeout") {
-		config.Timeout, _ = cmd.Flags().GetInt("timeout")
 	}
 
 	result, err := RestartPostgreSQLWithResult(config, mode)

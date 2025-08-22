@@ -44,11 +44,6 @@ func init() {
 	Root.AddCommand(statusCmd)
 
 	// Add status-specific flags
-	statusCmd.Flags().StringP("data-dir", "d", "", "PostgreSQL data directory")
-	statusCmd.Flags().IntP("port", "p", 5432, "PostgreSQL port")
-	statusCmd.Flags().StringP("host", "H", "localhost", "PostgreSQL host")
-	statusCmd.Flags().StringP("user", "U", "postgres", "PostgreSQL username")
-	statusCmd.Flags().String("database", "postgres", "PostgreSQL database name")
 }
 
 var statusCmd = &cobra.Command{
@@ -133,22 +128,7 @@ func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
 func runStatus(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
 
-	// Override with command-specific flags if provided
-	if cmd.Flags().Changed("data-dir") {
-		config.DataDir, _ = cmd.Flags().GetString("data-dir")
-	}
-	if cmd.Flags().Changed("port") {
-		config.Port, _ = cmd.Flags().GetInt("port")
-	}
-	if cmd.Flags().Changed("host") {
-		config.Host, _ = cmd.Flags().GetString("host")
-	}
-	if cmd.Flags().Changed("user") {
-		config.User, _ = cmd.Flags().GetString("user")
-	}
-	if cmd.Flags().Changed("database") {
-		config.Database, _ = cmd.Flags().GetString("database")
-	}
+	// No local flag overrides needed - all flags are global now
 
 	result, err := GetStatusWithResult(config)
 	if err != nil {

@@ -44,17 +44,17 @@ func init() {
 	Root.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.pgctld.yaml)")
 
 	// PostgreSQL connection flags
-	Root.PersistentFlags().String("pg-host", "localhost", "PostgreSQL host")
-	Root.PersistentFlags().Int("pg-port", 5432, "PostgreSQL port")
-	Root.PersistentFlags().String("pg-database", "postgres", "PostgreSQL database name")
-	Root.PersistentFlags().String("pg-user", "postgres", "PostgreSQL username")
+	Root.PersistentFlags().StringP("pg-host", "H", "localhost", "PostgreSQL host")
+	Root.PersistentFlags().IntP("pg-port", "p", 5432, "PostgreSQL port")
+	Root.PersistentFlags().StringP("pg-database", "D", "postgres", "PostgreSQL database name")
+	Root.PersistentFlags().StringP("pg-user", "U", "postgres", "PostgreSQL username")
 	Root.PersistentFlags().String("pg-password", "", "PostgreSQL password")
 
 	// PostgreSQL server management flags
-	Root.PersistentFlags().String("data-dir", "", "PostgreSQL data directory")
+	Root.PersistentFlags().StringP("data-dir", "d", "", "PostgreSQL data directory")
 	Root.PersistentFlags().String("config-file", "", "PostgreSQL configuration file")
 	Root.PersistentFlags().String("socket-dir", "/tmp", "PostgreSQL socket directory")
-	Root.PersistentFlags().Int("timeout", 30, "Operation timeout in seconds")
+	Root.PersistentFlags().IntP("timeout", "t", 30, "Operation timeout in seconds")
 
 	// gRPC service flags
 	Root.PersistentFlags().Int("grpc-port", 15200, "gRPC port to listen on")
@@ -88,8 +88,13 @@ func initConfig() error {
 	viper.SetEnvPrefix("PGCTLD")
 	viper.AutomaticEnv()
 
+	// Try to read config, but don't fail if file doesn't exist
 	if err := viper.ReadInConfig(); err != nil {
-		return err
+		// Only return error if it's not a "file not found" error
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return err
+		}
+		// Config file not found is OK - we'll use defaults and CLI flags
 	}
 
 	return nil

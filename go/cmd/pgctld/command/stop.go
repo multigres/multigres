@@ -34,7 +34,6 @@ type StopResult struct {
 func init() {
 	Root.AddCommand(stopCmd)
 	stopCmd.Flags().String("mode", "fast", "Shutdown mode: smart, fast, or immediate")
-	stopCmd.Flags().IntP("timeout", "t", 30, "Operation timeout in seconds")
 }
 
 var stopCmd = &cobra.Command{
@@ -70,10 +69,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
 	mode, _ := cmd.Flags().GetString("mode")
 
-	// Override with command-specific timeout flag if provided
-	if cmd.Flags().Changed("timeout") {
-		config.Timeout, _ = cmd.Flags().GetInt("timeout")
-	}
+	// No local flag overrides needed - all flags are global now
 
 	result, err := StopPostgreSQLWithResult(config, mode)
 	if err != nil {

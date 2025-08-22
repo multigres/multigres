@@ -136,10 +136,8 @@ func init() {
 	Root.AddCommand(startCmd)
 
 	// Add start-specific flags
-	startCmd.Flags().IntP("port", "p", 5432, "PostgreSQL port")
 	startCmd.Flags().StringP("socket-dir", "s", "/tmp", "PostgreSQL socket directory")
 	startCmd.Flags().StringP("config-file", "c", "", "PostgreSQL configuration file")
-	startCmd.Flags().IntP("timeout", "t", 30, "Operation timeout in seconds")
 }
 
 var startCmd = &cobra.Command{
@@ -167,17 +165,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
 
 	// Override with command-specific flags if provided
-	if cmd.Flags().Changed("port") {
-		config.Port, _ = cmd.Flags().GetInt("port")
-	}
 	if cmd.Flags().Changed("socket-dir") {
 		config.SocketDir, _ = cmd.Flags().GetString("socket-dir")
 	}
 	if cmd.Flags().Changed("config-file") {
 		config.ConfigFile, _ = cmd.Flags().GetString("config-file")
-	}
-	if cmd.Flags().Changed("timeout") {
-		config.Timeout, _ = cmd.Flags().GetInt("timeout")
 	}
 
 	result, err := StartPostgreSQLWithResult(config)
