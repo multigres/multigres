@@ -1,0 +1,168 @@
+# Copyright 2025 The Multigres Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Deploy to Vercel
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'site/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'site/**'
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+# Cancel in-progress jobs when new commits are pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+# Restrict GITHUB_TOKEN permissions
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pre-run:
+    runs-on: ubuntu-24.04
+    environment: ci
+
+    steps:
+    # Pin actions/checkout to v5
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+    - name: Validate Required Secrets
+      shell: bash
+      run: |
+        if [ -z "${{ secrets.VERCEL_ORG_ID }}" ]; then
+          echo "❌ VERCEL_ORG_ID secret is not configured"
+          echo "Please configure the VERCEL_ORG_ID secret in your repository settings"
+          exit 1
+        fi
+
+        if [ -z "${{ secrets.VERCEL_PROJECT_ID }}" ]; then
+          echo "❌ VERCEL_PROJECT_ID secret is not configured"
+          echo "Please configure the VERCEL_PROJECT_ID secret in your repository settings"
+          exit 1
+        fi
+
+        if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+          echo "❌ VERCEL_TOKEN secret is not configured"
+          echo "Please configure the VERCEL_TOKEN secret in your repository settings"
+          echo "This should be a Vercel Personal Access Token with deploy permissions"
+          exit 1
+        fi
+
+        echo "✅ All required secrets are configured"
+
+  deploy-preview:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    environment: ci
+    needs: pre-run
+
+    steps:
+    # Pin actions/checkout to v5
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+    # Pin pnpm/action-setup to v4
+    - name: Install pnpm
+      uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda
+      with:
+        version: 9.15.5
+
+    # Pin actions/setup-node to v4
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: 22
+        cache: 'pnpm'
+        cache-dependency-path: 'site/pnpm-lock.yaml'
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+      working-directory: ./site
+
+    - name: Build the site
+      run: pnpm run build
+      working-directory: ./site
+
+    - name: Install Vercel CLI
+      run: npm install --global vercel@latest
+
+    - name: Pull Vercel Environment Information
+      run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+      working-directory: ./site
+
+    - name: Build Project Artifacts
+      run: vercel build --target preview --token=${{ secrets.VERCEL_TOKEN }}
+      working-directory: ./site
+
+    - name: Deploy Preview to Vercel
+      run: vercel deploy --prebuilt --target=preview --token=${{ secrets.VERCEL_TOKEN }}
+      working-directory: ./site
+
+  deploy-production:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    environment: ci
+    needs: pre-run
+
+    steps:
+    # Pin actions/checkout to v5
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+    # Pin pnpm/action-setup to v4
+    - name: Install pnpm
+      uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda
+      with:
+        version: 9.15.5
+
+    # Pin actions/setup-node to v4
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: '24'
+        cache: 'pnpm'
+        cache-dependency-path: 'site/pnpm-lock.yaml'
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+      working-directory: ./site
+
+    - name: Build the site
+      run: pnpm run build
+      working-directory: ./site
+
+    - name: Install Vercel CLI
+      run: npm install --global vercel@latest
+
+    - name: Pull Vercel Environment Information
+      run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+      working-directory: ./site
+
+    - name: Build Project Artifacts
+      run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+      working-directory: ./site
+
+    - name: Deploy Production to Vercel
+      run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+      working-directory: ./site
