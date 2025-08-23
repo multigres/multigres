@@ -93,6 +93,45 @@ type LexerInterface interface {
 %token <keyword> CHARACTER CHAR_P VARCHAR NATIONAL NCHAR VARYING
 %token <keyword> TIMESTAMP INTERVAL INT_P DECIMAL_P DEC BOOLEAN_P
 %token <keyword> VARIADIC
+/* Unreserved keywords - additional tokens */
+%token <keyword> ABORT_P ABSENT ABSOLUTE_P ACCESS ACTION ADD_P ADMIN AFTER AGGREGATE ALSO ALWAYS
+%token <keyword> ANALYSE ASENSITIVE ASSERTION ASSIGNMENT ATOMIC ATTACH ATTRIBUTE AUTHORIZATION
+%token <keyword> BACKWARD BEFORE BEGIN_P CACHE CALL CALLED CASCADED CATALOG_P CHAIN CHARACTERISTICS
+%token <keyword> CHECKPOINT CLASS CLOSE CLUSTER COALESCE COLLATION COMMENT COMMENTS COMMIT COMMITTED
+%token <keyword> COMPRESSION CONFIGURATION CONNECTION CONSTRAINTS CONTENT_P CONTINUE_P CONVERSION_P
+%token <keyword> COST CUBE CURRENT_CATALOG CURRENT_DATE CURRENT_ROLE CURRENT_SCHEMA CURRENT_TIME
+%token <keyword> CURRENT_TIMESTAMP CURRENT_USER DATA_P DATABASE DAY_P DEALLOCATE DECLARE DEFAULTS
+%token <keyword> DEFERRABLE DEFERRED DEFINER DEPENDS DETACH DICTIONARY DISABLE_P DISCARD DOCUMENT_P
+%token <keyword> DOMAIN_P EACH ELSE ENABLE_P ENCRYPTED END_P ENUM_P EVENT EXCEPT EXCLUDE EXCLUDING
+%token <keyword> EXCLUSIVE EXECUTE EXPLAIN EXPRESSION EXTENSION EXTERNAL EXTRACT FAMILY FETCH FILTER
+%token <keyword> FINALIZE FOLLOWING FOREIGN FORWARD FUNCTION FUNCTIONS GENERATED GLOBAL
+%token <keyword> GRANT GRANTED GREATEST GROUPING GROUPS HANDLER HOLD HOUR_P IDENTITY_P IMMEDIATE
+%token <keyword> IMMUTABLE IMPLICIT_P IMPORT_P INCLUDE INCLUDING INCREMENT INDENT INDEX INDEXES
+%token <keyword> INHERIT INHERITS INITIALLY INLINE_P INPUT_P INSENSITIVE INSTEAD INTERSECT INVOKER
+%token <keyword> ISOLATION KEYS LABEL LANGUAGE LARGE_P LATERAL_P LEAKPROOF LEAST LEADING LEVEL LISTEN
+%token <keyword> LOAD LOCALTIME LOCALTIMESTAMP LOCATION LOCK_P LOCKED LOGGED MAPPING MATCH MAXVALUE
+%token <keyword> MERGE_ACTION METHOD MINUTE_P MINVALUE MODE MONTH_P MOVE NAME_P NAMES NEW NEXT NFC
+%token <keyword> NFD NFKC NFKD NO NONE NORMALIZE NORMALIZED NOTIFY NOWAIT NULLIF OUT_P OVERLAY
+%token <keyword> OVERLAPS OWNED OWNER PARALLEL PARAMETER PARSER PARTIAL PARTITION PASSWORD PLACING
+%token <keyword> PLAN PLANS POLICY POSITION PRECEDING PREPARE PREPARED PRESERVE PRIMARY PRIOR
+%token <keyword> PRIVILEGES PROCEDURAL PROCEDURE PROCEDURES PUBLICATION RANGE READ REASSIGN
+%token <keyword> RECHECK REFERENCES REFERENCING REFRESH REINDEX RELATIVE_P RELEASE RENAME REPEATABLE
+%token <keyword> REPLICA RESET RESTART RETURN RETURNS REVOKE ROLE ROLLBACK ROLLUP ROUTINE ROUTINES
+%token <keyword> ROW RULE SAVEPOINT SCHEMA SCHEMAS SCROLL SECOND_P SECURITY SEQUENCE SEQUENCES
+%token <keyword> SERIALIZABLE SERVER SESSION SESSION_USER SETS SETOF SHARE SHOW SIMPLE SKIP SNAPSHOT
+%token <keyword> SOME SQL_P STABLE STANDALONE_P START STATEMENT STATISTICS STORAGE STORED STRICT_P
+%token <keyword> STRIP_P SUBSCRIPTION SUBSTRING SUPPORT SYSID SYSTEM_USER TABLES TABLESPACE TABLESAMPLE
+%token <keyword> TEMP TEMPLATE TEMPORARY TEXT_P TIES TRAILING TRANSACTION TRANSFORM TREAT TRIGGER
+%token <keyword> TRIM TRUNCATE TRUSTED TYPE_P TYPES_P UESCAPE UNBOUNDED UNCOMMITTED UNENCRYPTED
+%token <keyword> UNION UNIQUE UNLISTEN UNLOGGED UNTIL VACUUM VALID VALIDATE VALIDATOR
+%token <keyword> VERSION_P VIEW VIEWS VOLATILE WHITESPACE_P WINDOW WITHIN WORK WRITE XML_P XMLATTRIBUTES
+%token <keyword> XMLCONCAT XMLELEMENT XMLEXISTS XMLFOREST XMLPARSE XMLPI XMLROOT XMLSERIALIZE YEAR_P
+%token <keyword> YES_P INOUT OTHERS OLD
+/* Additional missing tokens found during build */
+%token <keyword> KEY OFF OIDS OPTION OPTIONS OVER
+%token <keyword> ORDER
+/* Missing tokens that are used in keyword rules */
+%token <keyword> ANY BOTH CAST CHECK COLUMN
 %token           COLON_EQUALS EQUALS_GREATER
 
 /*
@@ -147,7 +186,7 @@ type LexerInterface interface {
 %type <node>         qualified_name any_name
 %type <node>         qualified_name_list any_name_list
 %type <str>          opt_single_name
-%type <str>          unreserved_keyword col_name_keyword type_func_name_keyword reserved_keyword
+%type <str>          unreserved_keyword col_name_keyword type_func_name_keyword reserved_keyword bare_label_keyword
 %type <node>         opt_qualified_name
 %type <node>         opt_name_list
 %type <ival>         opt_drop_behavior
@@ -534,86 +573,999 @@ any_name_list:
 			}
 		;
 
-/*
- * Keyword categories - simplified for now
- * Will expand significantly in later phases
+/* "Unreserved" keywords --- available for use as any kind of name.
  */
-
 unreserved_keyword:
-			/* Will add unreserved keywords as needed */
-			ALL										{ $$ = "all" }
-		|	MATERIALIZED							{ $$ = "materialized" }
-		|	RECURSIVE								{ $$ = "recursive" }
-		|	SEARCH									{ $$ = "search" }
-		|	BREADTH									{ $$ = "breadth" }
-		|	DEPTH									{ $$ = "depth" }
-		|	CYCLE									{ $$ = "cycle" }
-		|	FIRST_P									{ $$ = "first" }
-		|	SET										{ $$ = "set" }
-		|	BY										{ $$ = "by" }
-		|	TRUE_P									{ $$ = "true" }
-		|	FALSE_P									{ $$ = "false" }
-		|	PATH									{ $$ = "path" }
-		|	VALUE_P									{ $$ = "value" }
-		|	ERROR									{ $$ = "error" }
-		|	EMPTY									{ $$ = "empty" }
-		|	WRAPPER									{ $$ = "wrapper" }
-		|	CONDITIONAL								{ $$ = "conditional" }
-		|	UNCONDITIONAL							{ $$ = "unconditional" }
-		|	MATCHED									{ $$ = "matched" }
-		|	NOTHING									{ $$ = "nothing" }
-		|	SOURCE									{ $$ = "source" }
-		|	TARGET									{ $$ = "target" }
-		|	PROGRAM									{ $$ = "program" }
-		|	STDIN									{ $$ = "stdin" }
-		|	STDOUT									{ $$ = "stdout" }
-		|	BINARY									{ $$ = "binary" }
-		|	FREEZE									{ $$ = "freeze" }
-		|	VERBOSE									{ $$ = "verbose" }
-		|	ANALYZE									{ $$ = "analyze" }
-		|	QUOTES									{ $$ = "quotes" }
-		|	OMIT									{ $$ = "omit" }
-		|	KEEP									{ $$ = "keep" }
-		|	SCALAR									{ $$ = "scalar" }
-		|	STRING_P								{ $$ = "string" }
-		|	ENCODING								{ $$ = "encoding" }
-		|	JSON_QUERY								{ $$ = "json_query" }
-		|	JSON_VALUE								{ $$ = "json_value" }
-		|	JSON_SERIALIZE							{ $$ = "json_serialize" }
-		|	JSON_OBJECT								{ $$ = "json_object" }
-		|	JSON_ARRAY								{ $$ = "json_array" }
-		|	JSON_OBJECTAGG							{ $$ = "json_objectagg" }
-		|	JSON_ARRAYAGG							{ $$ = "json_arrayagg" }
-		|	JSON_EXISTS								{ $$ = "json_exists" }
-		|	JSON_SCALAR								{ $$ = "json_scalar" }
-		|	FORMAT									{ $$ = "format" }
-		|	JSON									{ $$ = "json" }
-		|	UTF8									{ $$ = "utf8" }
-		|	WITHOUT									{ $$ = "without" }
-		|	COLUMNS									{ $$ = "columns" }
-		|	ORDINALITY								{ $$ = "ordinality" }
-		|	XMLTABLE								{ $$ = "xmltable" }
-		|	JSON_TABLE								{ $$ = "json_table" }
-		|	ROWS									{ $$ = "rows" }
-		|	PASSING									{ $$ = "passing" }
-		|	NESTED									{ $$ = "nested" }
+			  ABORT_P									{ $$ = "abort" }
+			| ABSENT										{ $$ = "absent" }
+			| ABSOLUTE_P									{ $$ = "absolute" }
+			| ACCESS										{ $$ = "access" }
+			| ACTION										{ $$ = "action" }
+			| ADD_P										{ $$ = "add" }
+			| ADMIN										{ $$ = "admin" }
+			| AFTER										{ $$ = "after" }
+			| AGGREGATE									{ $$ = "aggregate" }
+			| ALSO										{ $$ = "also" }
+			| ALTER										{ $$ = "alter" }
+			| ALWAYS										{ $$ = "always" }
+			| ASENSITIVE									{ $$ = "asensitive" }
+			| ASSERTION									{ $$ = "assertion" }
+			| ASSIGNMENT									{ $$ = "assignment" }
+			| AT											{ $$ = "at" }
+			| ATOMIC										{ $$ = "atomic" }
+			| ATTACH										{ $$ = "attach" }
+			| ATTRIBUTE									{ $$ = "attribute" }
+			| BACKWARD									{ $$ = "backward" }
+			| BEFORE										{ $$ = "before" }
+			| BEGIN_P										{ $$ = "begin" }
+			| BREADTH										{ $$ = "breadth" }
+			| BY											{ $$ = "by" }
+			| CACHE										{ $$ = "cache" }
+			| CALL										{ $$ = "call" }
+			| CALLED										{ $$ = "called" }
+			| CASCADE										{ $$ = "cascade" }
+			| CASCADED									{ $$ = "cascaded" }
+			| CATALOG_P									{ $$ = "catalog" }
+			| CHAIN										{ $$ = "chain" }
+			| CHARACTERISTICS								{ $$ = "characteristics" }
+			| CHECKPOINT									{ $$ = "checkpoint" }
+			| CLASS										{ $$ = "class" }
+			| CLOSE										{ $$ = "close" }
+			| CLUSTER										{ $$ = "cluster" }
+			| COLUMNS										{ $$ = "columns" }
+			| COMMENT										{ $$ = "comment" }
+			| COMMENTS									{ $$ = "comments" }
+			| COMMIT										{ $$ = "commit" }
+			| COMMITTED									{ $$ = "committed" }
+			| COMPRESSION									{ $$ = "compression" }
+			| CONDITIONAL									{ $$ = "conditional" }
+			| CONFIGURATION								{ $$ = "configuration" }
+			| CONFLICT									{ $$ = "conflict" }
+			| CONNECTION									{ $$ = "connection" }
+			| CONSTRAINTS									{ $$ = "constraints" }
+			| CONTENT_P									{ $$ = "content" }
+			| CONTINUE_P									{ $$ = "continue" }
+			| CONVERSION_P									{ $$ = "conversion" }
+			| COPY										{ $$ = "copy" }
+			| COST										{ $$ = "cost" }
+			| CSV										{ $$ = "csv" }
+			| CUBE										{ $$ = "cube" }
+			| CURRENT_P									{ $$ = "current" }
+			| CURSOR										{ $$ = "cursor" }
+			| CYCLE										{ $$ = "cycle" }
+			| DATA_P										{ $$ = "data" }
+			| DATABASE									{ $$ = "database" }
+			| DAY_P										{ $$ = "day" }
+			| DEALLOCATE									{ $$ = "deallocate" }
+			| DECLARE										{ $$ = "declare" }
+			| DEFAULTS									{ $$ = "defaults" }
+			| DEFERRED									{ $$ = "deferred" }
+			| DEFINER										{ $$ = "definer" }
+			| DELETE_P									{ $$ = "delete" }
+			| DELIMITER									{ $$ = "delimiter" }
+			| DELIMITERS									{ $$ = "delimiters" }
+			| DEPENDS										{ $$ = "depends" }
+			| DEPTH										{ $$ = "depth" }
+			| DETACH										{ $$ = "detach" }
+			| DICTIONARY									{ $$ = "dictionary" }
+			| DISABLE_P									{ $$ = "disable" }
+			| DISCARD										{ $$ = "discard" }
+			| DOCUMENT_P									{ $$ = "document" }
+			| DOMAIN_P									{ $$ = "domain" }
+			| DOUBLE_P									{ $$ = "double" }
+			| DROP										{ $$ = "drop" }
+			| EACH										{ $$ = "each" }
+			| EMPTY_P										{ $$ = "empty" }
+			| ENABLE_P									{ $$ = "enable" }
+			| ENCODING									{ $$ = "encoding" }
+			| ENCRYPTED									{ $$ = "encrypted" }
+			| ENUM_P										{ $$ = "enum" }
+			| ERROR_P										{ $$ = "error" }
+			| ESCAPE										{ $$ = "escape" }
+			| EVENT										{ $$ = "event" }
+			| EXCLUDE										{ $$ = "exclude" }
+			| EXCLUDING									{ $$ = "excluding" }
+			| EXCLUSIVE									{ $$ = "exclusive" }
+			| EXECUTE										{ $$ = "execute" }
+			| EXPLAIN										{ $$ = "explain" }
+			| EXPRESSION									{ $$ = "expression" }
+			| EXTENSION									{ $$ = "extension" }
+			| EXTERNAL									{ $$ = "external" }
+			| FAMILY										{ $$ = "family" }
+			| FILTER										{ $$ = "filter" }
+			| FINALIZE									{ $$ = "finalize" }
+			| FIRST_P										{ $$ = "first" }
+			| FOLLOWING									{ $$ = "following" }
+			| FORCE										{ $$ = "force" }
+			| FORMAT										{ $$ = "format" }
+			| FORWARD										{ $$ = "forward" }
+			| FUNCTION									{ $$ = "function" }
+			| FUNCTIONS									{ $$ = "functions" }
+			| GENERATED									{ $$ = "generated" }
+			| GLOBAL										{ $$ = "global" }
+			| GRANTED										{ $$ = "granted" }
+			| GROUPS										{ $$ = "groups" }
+			| HANDLER										{ $$ = "handler" }
+			| HEADER_P									{ $$ = "header" }
+			| HOLD										{ $$ = "hold" }
+			| HOUR_P										{ $$ = "hour" }
+			| IDENTITY_P									{ $$ = "identity" }
+			| IF_P										{ $$ = "if" }
+			| IMMEDIATE									{ $$ = "immediate" }
+			| IMMUTABLE									{ $$ = "immutable" }
+			| IMPLICIT_P									{ $$ = "implicit" }
+			| IMPORT_P									{ $$ = "import" }
+			| INCLUDE										{ $$ = "include" }
+			| INCLUDING									{ $$ = "including" }
+			| INCREMENT									{ $$ = "increment" }
+			| INDENT										{ $$ = "indent" }
+			| INDEX										{ $$ = "index" }
+			| INDEXES										{ $$ = "indexes" }
+			| INHERIT										{ $$ = "inherit" }
+			| INHERITS									{ $$ = "inherits" }
+			| INLINE_P									{ $$ = "inline" }
+			| INPUT_P										{ $$ = "input" }
+			| INSENSITIVE									{ $$ = "insensitive" }
+			| INSERT										{ $$ = "insert" }
+			| INSTEAD										{ $$ = "instead" }
+			| INVOKER										{ $$ = "invoker" }
+			| ISOLATION									{ $$ = "isolation" }
+			| KEEP										{ $$ = "keep" }
+			| KEY										{ $$ = "key" }
+			| KEYS										{ $$ = "keys" }
+			| LABEL										{ $$ = "label" }
+			| LANGUAGE									{ $$ = "language" }
+			| LARGE_P										{ $$ = "large" }
+			| LAST_P										{ $$ = "last" }
+			| LEAKPROOF									{ $$ = "leakproof" }
+			| LEVEL										{ $$ = "level" }
+			| LISTEN										{ $$ = "listen" }
+			| LOAD										{ $$ = "load" }
+			| LOCAL										{ $$ = "local" }
+			| LOCATION									{ $$ = "location" }
+			| LOCK_P										{ $$ = "lock" }
+			| LOCKED										{ $$ = "locked" }
+			| LOGGED										{ $$ = "logged" }
+			| MAPPING										{ $$ = "mapping" }
+			| MATCH										{ $$ = "match" }
+			| MATCHED										{ $$ = "matched" }
+			| MATERIALIZED									{ $$ = "materialized" }
+			| MAXVALUE									{ $$ = "maxvalue" }
+			| MERGE										{ $$ = "merge" }
+			| METHOD										{ $$ = "method" }
+			| MINUTE_P									{ $$ = "minute" }
+			| MINVALUE									{ $$ = "minvalue" }
+			| MODE										{ $$ = "mode" }
+			| MONTH_P										{ $$ = "month" }
+			| MOVE										{ $$ = "move" }
+			| NAME_P										{ $$ = "name" }
+			| NAMES										{ $$ = "names" }
+			| NESTED										{ $$ = "nested" }
+			| NEW										{ $$ = "new" }
+			| NEXT										{ $$ = "next" }
+			| NFC										{ $$ = "nfc" }
+			| NFD										{ $$ = "nfd" }
+			| NFKC										{ $$ = "nfkc" }
+			| NFKD										{ $$ = "nfkd" }
+			| NO										{ $$ = "no" }
+			| NORMALIZED									{ $$ = "normalized" }
+			| NOTHING										{ $$ = "nothing" }
+			| NOTIFY										{ $$ = "notify" }
+			| NOWAIT										{ $$ = "nowait" }
+			| NULLS_P										{ $$ = "nulls" }
+			| OBJECT_P									{ $$ = "object" }
+			| OF										{ $$ = "of" }
+			| OFF										{ $$ = "off" }
+			| OIDS										{ $$ = "oids" }
+			| OLD										{ $$ = "old" }
+			| OMIT										{ $$ = "omit" }
+			| OPERATOR									{ $$ = "operator" }
+			| OPTION										{ $$ = "option" }
+			| OPTIONS										{ $$ = "options" }
+			| ORDINALITY									{ $$ = "ordinality" }
+			| OTHERS										{ $$ = "others" }
+			| OVER										{ $$ = "over" }
+			| OVERRIDING									{ $$ = "overriding" }
+			| OWNED										{ $$ = "owned" }
+			| OWNER										{ $$ = "owner" }
+			| PARALLEL									{ $$ = "parallel" }
+			| PARAMETER									{ $$ = "parameter" }
+			| PARSER										{ $$ = "parser" }
+			| PARTIAL										{ $$ = "partial" }
+			| PARTITION									{ $$ = "partition" }
+			| PASSING										{ $$ = "passing" }
+			| PASSWORD									{ $$ = "password" }
+			| PATH										{ $$ = "path" }
+			| PLAN										{ $$ = "plan" }
+			| PLANS										{ $$ = "plans" }
+			| POLICY										{ $$ = "policy" }
+			| PRECEDING									{ $$ = "preceding" }
+			| PREPARE										{ $$ = "prepare" }
+			| PREPARED									{ $$ = "prepared" }
+			| PRESERVE									{ $$ = "preserve" }
+			| PRIOR										{ $$ = "prior" }
+			| PRIVILEGES									{ $$ = "privileges" }
+			| PROCEDURAL									{ $$ = "procedural" }
+			| PROCEDURE									{ $$ = "procedure" }
+			| PROCEDURES									{ $$ = "procedures" }
+			| PROGRAM										{ $$ = "program" }
+			| PUBLICATION									{ $$ = "publication" }
+			| QUOTE										{ $$ = "quote" }
+			| QUOTES										{ $$ = "quotes" }
+			| RANGE										{ $$ = "range" }
+			| READ										{ $$ = "read" }
+			| REASSIGN									{ $$ = "reassign" }
+			| RECHECK										{ $$ = "recheck" }
+			| RECURSIVE									{ $$ = "recursive" }
+			| REF_P										{ $$ = "ref" }
+			| REFERENCING									{ $$ = "referencing" }
+			| REFRESH										{ $$ = "refresh" }
+			| REINDEX										{ $$ = "reindex" }
+			| RELATIVE_P									{ $$ = "relative" }
+			| RELEASE										{ $$ = "release" }
+			| RENAME										{ $$ = "rename" }
+			| REPEATABLE									{ $$ = "repeatable" }
+			| REPLACE										{ $$ = "replace" }
+			| REPLICA										{ $$ = "replica" }
+			| RESET										{ $$ = "reset" }
+			| RESTART										{ $$ = "restart" }
+			| RESTRICT									{ $$ = "restrict" }
+			| RETURN										{ $$ = "return" }
+			| RETURNS										{ $$ = "returns" }
+			| REVOKE										{ $$ = "revoke" }
+			| ROLE										{ $$ = "role" }
+			| ROLLBACK									{ $$ = "rollback" }
+			| ROLLUP										{ $$ = "rollup" }
+			| ROUTINE										{ $$ = "routine" }
+			| ROUTINES									{ $$ = "routines" }
+			| ROWS										{ $$ = "rows" }
+			| RULE										{ $$ = "rule" }
+			| SAVEPOINT									{ $$ = "savepoint" }
+			| SCALAR										{ $$ = "scalar" }
+			| SCHEMA										{ $$ = "schema" }
+			| SCHEMAS										{ $$ = "schemas" }
+			| SCROLL										{ $$ = "scroll" }
+			| SEARCH										{ $$ = "search" }
+			| SECOND_P									{ $$ = "second" }
+			| SECURITY									{ $$ = "security" }
+			| SEQUENCE									{ $$ = "sequence" }
+			| SEQUENCES									{ $$ = "sequences" }
+			| SERIALIZABLE									{ $$ = "serializable" }
+			| SERVER										{ $$ = "server" }
+			| SESSION										{ $$ = "session" }
+			| SET										{ $$ = "set" }
+			| SETS										{ $$ = "sets" }
+			| SHARE										{ $$ = "share" }
+			| SHOW										{ $$ = "show" }
+			| SIMPLE										{ $$ = "simple" }
+			| SKIP										{ $$ = "skip" }
+			| SNAPSHOT									{ $$ = "snapshot" }
+			| SOURCE										{ $$ = "source" }
+			| SQL_P										{ $$ = "sql" }
+			| STABLE										{ $$ = "stable" }
+			| STANDALONE_P									{ $$ = "standalone" }
+			| START										{ $$ = "start" }
+			| STATEMENT									{ $$ = "statement" }
+			| STATISTICS									{ $$ = "statistics" }
+			| STDIN										{ $$ = "stdin" }
+			| STDOUT										{ $$ = "stdout" }
+			| STORAGE										{ $$ = "storage" }
+			| STORED										{ $$ = "stored" }
+			| STRICT_P									{ $$ = "strict" }
+			| STRING_P									{ $$ = "string" }
+			| STRIP_P										{ $$ = "strip" }
+			| SUBSCRIPTION									{ $$ = "subscription" }
+			| SUPPORT										{ $$ = "support" }
+			| SYSID										{ $$ = "sysid" }
+			| SYSTEM_P									{ $$ = "system" }
+			| TABLES										{ $$ = "tables" }
+			| TABLESPACE									{ $$ = "tablespace" }
+			| TARGET										{ $$ = "target" }
+			| TEMP										{ $$ = "temp" }
+			| TEMPLATE									{ $$ = "template" }
+			| TEMPORARY									{ $$ = "temporary" }
+			| TEXT_P										{ $$ = "text" }
+			| TIES										{ $$ = "ties" }
+			| TRANSACTION									{ $$ = "transaction" }
+			| TRANSFORM									{ $$ = "transform" }
+			| TRIGGER										{ $$ = "trigger" }
+			| TRUNCATE									{ $$ = "truncate" }
+			| TRUSTED										{ $$ = "trusted" }
+			| TYPE_P										{ $$ = "type" }
+			| TYPES_P										{ $$ = "types" }
+			| UESCAPE										{ $$ = "uescape" }
+			| UNBOUNDED									{ $$ = "unbounded" }
+			| UNCOMMITTED									{ $$ = "uncommitted" }
+			| UNCONDITIONAL								{ $$ = "unconditional" }
+			| UNENCRYPTED									{ $$ = "unencrypted" }
+			| UNKNOWN										{ $$ = "unknown" }
+			| UNLISTEN									{ $$ = "unlisten" }
+			| UNLOGGED									{ $$ = "unlogged" }
+			| UNTIL										{ $$ = "until" }
+			| UPDATE										{ $$ = "update" }
+			| VACUUM										{ $$ = "vacuum" }
+			| VALID										{ $$ = "valid" }
+			| VALIDATE									{ $$ = "validate" }
+			| VALIDATOR									{ $$ = "validator" }
+			| VALUE_P										{ $$ = "value" }
+			| VARYING										{ $$ = "varying" }
+			| VERSION_P									{ $$ = "version" }
+			| VIEW										{ $$ = "view" }
+			| VIEWS										{ $$ = "views" }
+			| VOLATILE										{ $$ = "volatile" }
+			| WHITESPACE_P									{ $$ = "whitespace" }
+			| WITHIN										{ $$ = "within" }
+			| WITHOUT										{ $$ = "without" }
+			| WORK										{ $$ = "work" }
+			| WRAPPER										{ $$ = "wrapper" }
+			| WRITE										{ $$ = "write" }
+			| XML_P										{ $$ = "xml" }
+			| YEAR_P										{ $$ = "year" }
+			| YES_P										{ $$ = "yes" }
+			| ZONE										{ $$ = "zone" }
 		;
 
+/* Column identifier --- keywords that can be column, table, etc names.
+ *
+ * Many of these keywords will in fact be recognized as type or function
+ * names too; but they have special productions for the purpose, and so
+ * can't be treated as "generic" type or function names.
+ *
+ * The type names appearing here are not usable as function names
+ * because they can be followed by '(' in typename productions, which
+ * looks too much like a function call for an LR(1) parser.
+ */
 col_name_keyword:
-			/* Column name keywords - placeholder */
-			IDENT									{ $$ = $1 }
+			  BETWEEN									{ $$ = "between" }
+			| BIGINT										{ $$ = "bigint" }
+			| BIT										{ $$ = "bit" }
+			| BOOLEAN_P									{ $$ = "boolean" }
+			| CHAR_P										{ $$ = "char" }
+			| CHARACTER									{ $$ = "character" }
+			| COALESCE									{ $$ = "coalesce" }
+			| DEC										{ $$ = "dec" }
+			| DECIMAL_P									{ $$ = "decimal" }
+			| EXISTS										{ $$ = "exists" }
+			| EXTRACT										{ $$ = "extract" }
+			| FLOAT_P										{ $$ = "float" }
+			| GREATEST									{ $$ = "greatest" }
+			| GROUPING									{ $$ = "grouping" }
+			| INOUT										{ $$ = "inout" }
+			| INT_P										{ $$ = "int" }
+			| INTEGER										{ $$ = "integer" }
+			| INTERVAL									{ $$ = "interval" }
+			| JSON										{ $$ = "json" }
+			| JSON_ARRAY									{ $$ = "json_array" }
+			| JSON_ARRAYAGG								{ $$ = "json_arrayagg" }
+			| JSON_EXISTS									{ $$ = "json_exists" }
+			| JSON_OBJECT									{ $$ = "json_object" }
+			| JSON_OBJECTAGG								{ $$ = "json_objectagg" }
+			| JSON_QUERY									{ $$ = "json_query" }
+			| JSON_SCALAR									{ $$ = "json_scalar" }
+			| JSON_SERIALIZE								{ $$ = "json_serialize" }
+			| JSON_TABLE									{ $$ = "json_table" }
+			| JSON_VALUE									{ $$ = "json_value" }
+			| LEAST										{ $$ = "least" }
+			| MERGE_ACTION									{ $$ = "merge_action" }
+			| NATIONAL									{ $$ = "national" }
+			| NCHAR										{ $$ = "nchar" }
+			| NONE										{ $$ = "none" }
+			| NORMALIZE									{ $$ = "normalize" }
+			| NULLIF										{ $$ = "nullif" }
+			| NUMERIC										{ $$ = "numeric" }
+			| OUT_P										{ $$ = "out" }
+			| OVERLAY										{ $$ = "overlay" }
+			| POSITION									{ $$ = "position" }
+			| PRECISION									{ $$ = "precision" }
+			| REAL										{ $$ = "real" }
+			| ROW										{ $$ = "row" }
+			| SETOF										{ $$ = "setof" }
+			| SMALLINT									{ $$ = "smallint" }
+			| SUBSTRING									{ $$ = "substring" }
+			| TIME										{ $$ = "time" }
+			| TIMESTAMP									{ $$ = "timestamp" }
+			| TREAT										{ $$ = "treat" }
+			| TRIM										{ $$ = "trim" }
+			| VALUES										{ $$ = "values" }
+			| VARCHAR										{ $$ = "varchar" }
+			| XMLATTRIBUTES								{ $$ = "xmlattributes" }
+			| XMLCONCAT									{ $$ = "xmlconcat" }
+			| XMLELEMENT									{ $$ = "xmlelement" }
+			| XMLEXISTS									{ $$ = "xmlexists" }
+			| XMLFOREST									{ $$ = "xmlforest" }
+			| XMLNAMESPACES								{ $$ = "xmlnamespaces" }
+			| XMLPARSE									{ $$ = "xmlparse" }
+			| XMLPI										{ $$ = "xmlpi" }
+			| XMLROOT										{ $$ = "xmlroot" }
+			| XMLSERIALIZE									{ $$ = "xmlserialize" }
+			| XMLTABLE									{ $$ = "xmltable" }
 		;
 
+/* Type/function identifier --- keywords that can be type or function names.
+ *
+ * Most of these are keywords that are used as operators in expressions;
+ * in general such keywords can't be column names because they would be
+ * ambiguous with variables, but they are unambiguous as function identifiers.
+ *
+ * Do not include POSITION, SUBSTRING, etc here since they have explicit
+ * productions in a_expr to support the goofy SQL9x argument syntax.
+ * - thomas 2000-11-28
+ */
 type_func_name_keyword:
-			/* Type/function name keywords - placeholder */
-			FULL									{ $$ = "full" }
+			  AUTHORIZATION								{ $$ = "authorization" }
+			| BINARY										{ $$ = "binary" }
+			| COLLATION									{ $$ = "collation" }
+			| CONCURRENTLY								{ $$ = "concurrently" }
+			| CROSS										{ $$ = "cross" }
+			| CURRENT_SCHEMA								{ $$ = "current_schema" }
+			| FREEZE										{ $$ = "freeze" }
+			| FULL										{ $$ = "full" }
+			| ILIKE										{ $$ = "ilike" }
+			| INNER_P										{ $$ = "inner" }
+			| IS										{ $$ = "is" }
+			| ISNULL										{ $$ = "isnull" }
+			| JOIN										{ $$ = "join" }
+			| LEFT										{ $$ = "left" }
+			| LIKE										{ $$ = "like" }
+			| NATURAL										{ $$ = "natural" }
+			| NOTNULL										{ $$ = "notnull" }
+			| OUTER_P										{ $$ = "outer" }
+			| OVERLAPS									{ $$ = "overlaps" }
+			| RIGHT										{ $$ = "right" }
+			| SIMILAR										{ $$ = "similar" }
+			| TABLESAMPLE									{ $$ = "tablesample" }
+			| VERBOSE										{ $$ = "verbose" }
 		;
 
+/* Reserved keyword --- these keywords are usable only as a ColLabel.
+ *
+ * Keywords appear here if they could not be distinguished from variable,
+ * type, or function names in some contexts.  Don't put things here unless
+ * forced to.
+ */
 reserved_keyword:
-			/* Reserved keywords - placeholder */
-			CREATE									{ $$ = "create" }
-		|	DROP									{ $$ = "drop" }
-		|	ALTER									{ $$ = "alter" }
+			  ALL										{ $$ = "all" }
+			| ANALYSE										{ $$ = "analyse" }
+			| ANALYZE										{ $$ = "analyze" }
+			| AND										{ $$ = "and" }
+			| ANY										{ $$ = "any" }
+			| ARRAY										{ $$ = "array" }
+			| AS										{ $$ = "as" }
+			| ASC										{ $$ = "asc" }
+			| ASYMMETRIC									{ $$ = "asymmetric" }
+			| BOTH										{ $$ = "both" }
+			| CASE										{ $$ = "case" }
+			| CAST										{ $$ = "cast" }
+			| CHECK										{ $$ = "check" }
+			| COLLATE										{ $$ = "collate" }
+			| COLUMN										{ $$ = "column" }
+			| CONSTRAINT									{ $$ = "constraint" }
+			| CREATE										{ $$ = "create" }
+			| CURRENT_CATALOG								{ $$ = "current_catalog" }
+			| CURRENT_DATE									{ $$ = "current_date" }
+			| CURRENT_ROLE									{ $$ = "current_role" }
+			| CURRENT_TIME									{ $$ = "current_time" }
+			| CURRENT_TIMESTAMP								{ $$ = "current_timestamp" }
+			| CURRENT_USER									{ $$ = "current_user" }
+			| DEFAULT										{ $$ = "default" }
+			| DEFERRABLE									{ $$ = "deferrable" }
+			| DESC										{ $$ = "desc" }
+			| DISTINCT									{ $$ = "distinct" }
+			| DO										{ $$ = "do" }
+			| ELSE										{ $$ = "else" }
+			| END_P										{ $$ = "end" }
+			| EXCEPT										{ $$ = "except" }
+			| FALSE_P										{ $$ = "false" }
+			| FETCH										{ $$ = "fetch" }
+			| FOR										{ $$ = "for" }
+			| FOREIGN										{ $$ = "foreign" }
+			| FROM										{ $$ = "from" }
+			| GRANT										{ $$ = "grant" }
+			| GROUP_P										{ $$ = "group" }
+			| HAVING										{ $$ = "having" }
+			| IN_P										{ $$ = "in" }
+			| INITIALLY									{ $$ = "initially" }
+			| INTERSECT									{ $$ = "intersect" }
+			| INTO										{ $$ = "into" }
+			| LATERAL_P									{ $$ = "lateral" }
+			| LEADING										{ $$ = "leading" }
+			| LIMIT										{ $$ = "limit" }
+			| LOCALTIME									{ $$ = "localtime" }
+			| LOCALTIMESTAMP								{ $$ = "localtimestamp" }
+			| NOT										{ $$ = "not" }
+			| NULL_P										{ $$ = "null" }
+			| OFFSET										{ $$ = "offset" }
+			| ON										{ $$ = "on" }
+			| ONLY										{ $$ = "only" }
+			| OR										{ $$ = "or" }
+			| ORDER										{ $$ = "order" }
+			| PLACING										{ $$ = "placing" }
+			| PRIMARY										{ $$ = "primary" }
+			| REFERENCES									{ $$ = "references" }
+			| RETURNING									{ $$ = "returning" }
+			| SELECT										{ $$ = "select" }
+			| SESSION_USER									{ $$ = "session_user" }
+			| SOME										{ $$ = "some" }
+			| SYMMETRIC									{ $$ = "symmetric" }
+			| SYSTEM_USER									{ $$ = "system_user" }
+			| TABLE										{ $$ = "table" }
+			| THEN										{ $$ = "then" }
+			| TO										{ $$ = "to" }
+			| TRAILING									{ $$ = "trailing" }
+			| TRUE_P										{ $$ = "true" }
+			| UNION										{ $$ = "union" }
+			| UNIQUE										{ $$ = "unique" }
+			| USER										{ $$ = "user" }
+			| USING										{ $$ = "using" }
+			| VARIADIC									{ $$ = "variadic" }
+			| WHEN										{ $$ = "when" }
+			| WHERE										{ $$ = "where" }
+			| WINDOW										{ $$ = "window" }
+			| WITH										{ $$ = "with" }
+		;
+
+/*
+ * While all keywords can be used as column labels when preceded by AS,
+ * not all of them can be used as a "bare" column label without AS.
+ * Those that can be used as a bare label must be listed here,
+ * in addition to appearing in one of the category lists above.
+ *
+ * Always add a new keyword to this list if possible.  Mark it BARE_LABEL
+ * in kwlist.h if it is included here, or AS_LABEL if it is not.
+ */
+bare_label_keyword:
+			  ABORT_P									{ $$ = "abort" }
+			| ABSENT										{ $$ = "absent" }
+			| ABSOLUTE_P									{ $$ = "absolute" }
+			| ACCESS										{ $$ = "access" }
+			| ACTION										{ $$ = "action" }
+			| ADD_P										{ $$ = "add" }
+			| ADMIN										{ $$ = "admin" }
+			| AFTER										{ $$ = "after" }
+			| AGGREGATE									{ $$ = "aggregate" }
+			| ALL										{ $$ = "all" }
+			| ALSO										{ $$ = "also" }
+			| ALTER										{ $$ = "alter" }
+			| ALWAYS										{ $$ = "always" }
+			| ANALYSE										{ $$ = "analyse" }
+			| ANALYZE										{ $$ = "analyze" }
+			| AND										{ $$ = "and" }
+			| ANY										{ $$ = "any" }
+			| ASC										{ $$ = "asc" }
+			| ASENSITIVE									{ $$ = "asensitive" }
+			| ASSERTION									{ $$ = "assertion" }
+			| ASSIGNMENT									{ $$ = "assignment" }
+			| ASYMMETRIC									{ $$ = "asymmetric" }
+			| AT										{ $$ = "at" }
+			| ATOMIC										{ $$ = "atomic" }
+			| ATTACH										{ $$ = "attach" }
+			| ATTRIBUTE									{ $$ = "attribute" }
+			| AUTHORIZATION								{ $$ = "authorization" }
+			| BACKWARD									{ $$ = "backward" }
+			| BEFORE										{ $$ = "before" }
+			| BEGIN_P										{ $$ = "begin" }
+			| BETWEEN										{ $$ = "between" }
+			| BIGINT										{ $$ = "bigint" }
+			| BINARY										{ $$ = "binary" }
+			| BIT										{ $$ = "bit" }
+			| BOOLEAN_P									{ $$ = "boolean" }
+			| BOTH										{ $$ = "both" }
+			| BREADTH										{ $$ = "breadth" }
+			| BY										{ $$ = "by" }
+			| CACHE										{ $$ = "cache" }
+			| CALL										{ $$ = "call" }
+			| CALLED										{ $$ = "called" }
+			| CASCADE										{ $$ = "cascade" }
+			| CASCADED									{ $$ = "cascaded" }
+			| CASE										{ $$ = "case" }
+			| CAST										{ $$ = "cast" }
+			| CATALOG_P									{ $$ = "catalog" }
+			| CHAIN										{ $$ = "chain" }
+			| CHARACTERISTICS								{ $$ = "characteristics" }
+			| CHECK										{ $$ = "check" }
+			| CHECKPOINT									{ $$ = "checkpoint" }
+			| CLASS										{ $$ = "class" }
+			| CLOSE										{ $$ = "close" }
+			| CLUSTER										{ $$ = "cluster" }
+			| COALESCE									{ $$ = "coalesce" }
+			| COLLATE										{ $$ = "collate" }
+			| COLLATION									{ $$ = "collation" }
+			| COLUMN										{ $$ = "column" }
+			| COLUMNS										{ $$ = "columns" }
+			| COMMENT										{ $$ = "comment" }
+			| COMMENTS									{ $$ = "comments" }
+			| COMMIT										{ $$ = "commit" }
+			| COMMITTED									{ $$ = "committed" }
+			| COMPRESSION									{ $$ = "compression" }
+			| CONCURRENTLY								{ $$ = "concurrently" }
+			| CONDITIONAL									{ $$ = "conditional" }
+			| CONFIGURATION								{ $$ = "configuration" }
+			| CONFLICT									{ $$ = "conflict" }
+			| CONNECTION									{ $$ = "connection" }
+			| CONSTRAINT									{ $$ = "constraint" }
+			| CONSTRAINTS									{ $$ = "constraints" }
+			| CONTENT_P									{ $$ = "content" }
+			| CONTINUE_P									{ $$ = "continue" }
+			| CONVERSION_P									{ $$ = "conversion" }
+			| COPY										{ $$ = "copy" }
+			| COST										{ $$ = "cost" }
+			| CROSS										{ $$ = "cross" }
+			| CSV										{ $$ = "csv" }
+			| CUBE										{ $$ = "cube" }
+			| CURRENT_P									{ $$ = "current" }
+			| CURRENT_CATALOG									{ $$ = "current_catalog" }
+			| CURRENT_DATE									{ $$ = "current_date" }
+			| CURRENT_ROLE									{ $$ = "current_role" }
+			| CURRENT_SCHEMA									{ $$ = "current_schema" }
+			| CURRENT_TIME									{ $$ = "current_time" }
+			| CURRENT_TIMESTAMP								{ $$ = "current_timestamp" }
+			| CURRENT_USER									{ $$ = "current_user" }
+			| CURSOR										{ $$ = "cursor" }
+			| CYCLE										{ $$ = "cycle" }
+			| DATA_P										{ $$ = "data" }
+			| DATABASE									{ $$ = "database" }
+			| DEALLOCATE									{ $$ = "deallocate" }
+			| DEC										{ $$ = "dec" }
+			| DECIMAL_P									{ $$ = "decimal" }
+			| DECLARE										{ $$ = "declare" }
+			| DEFAULT										{ $$ = "default" }
+			| DEFAULTS									{ $$ = "defaults" }
+			| DEFERRABLE									{ $$ = "deferrable" }
+			| DEFERRED									{ $$ = "deferred" }
+			| DEFINER										{ $$ = "definer" }
+			| DELETE_P									{ $$ = "delete" }
+			| DELIMITER									{ $$ = "delimiter" }
+			| DELIMITERS									{ $$ = "delimiters" }
+			| DEPENDS										{ $$ = "depends" }
+			| DEPTH										{ $$ = "depth" }
+			| DESC										{ $$ = "desc" }
+			| DETACH										{ $$ = "detach" }
+			| DICTIONARY									{ $$ = "dictionary" }
+			| DISABLE_P									{ $$ = "disable" }
+			| DISCARD										{ $$ = "discard" }
+			| DISTINCT									{ $$ = "distinct" }
+			| DO										{ $$ = "do" }
+			| DOCUMENT_P									{ $$ = "document" }
+			| DOMAIN_P									{ $$ = "domain" }
+			| DOUBLE_P									{ $$ = "double" }
+			| DROP										{ $$ = "drop" }
+			| EACH										{ $$ = "each" }
+			| ELSE										{ $$ = "else" }
+			| EMPTY_P										{ $$ = "empty" }
+			| ENABLE_P									{ $$ = "enable" }
+			| ENCODING									{ $$ = "encoding" }
+			| ENCRYPTED									{ $$ = "encrypted" }
+			| END_P										{ $$ = "end" }
+			| ENUM_P										{ $$ = "enum" }
+			| ERROR_P										{ $$ = "error" }
+			| ESCAPE										{ $$ = "escape" }
+			| EVENT										{ $$ = "event" }
+			| EXCLUDE										{ $$ = "exclude" }
+			| EXCLUDING									{ $$ = "excluding" }
+			| EXCLUSIVE									{ $$ = "exclusive" }
+			| EXECUTE										{ $$ = "execute" }
+			| EXISTS										{ $$ = "exists" }
+			| EXPLAIN										{ $$ = "explain" }
+			| EXPRESSION									{ $$ = "expression" }
+			| EXTENSION									{ $$ = "extension" }
+			| EXTERNAL									{ $$ = "external" }
+			| EXTRACT										{ $$ = "extract" }
+			| FALSE_P										{ $$ = "false" }
+			| FAMILY										{ $$ = "family" }
+			| FINALIZE									{ $$ = "finalize" }
+			| FIRST_P										{ $$ = "first" }
+			| FLOAT_P										{ $$ = "float" }
+			| FOLLOWING									{ $$ = "following" }
+			| FORCE										{ $$ = "force" }
+			| FOREIGN										{ $$ = "foreign" }
+			| FORMAT										{ $$ = "format" }
+			| FORWARD										{ $$ = "forward" }
+			| FREEZE										{ $$ = "freeze" }
+			| FULL										{ $$ = "full" }
+			| FUNCTION									{ $$ = "function" }
+			| FUNCTIONS									{ $$ = "functions" }
+			| GENERATED									{ $$ = "generated" }
+			| GLOBAL										{ $$ = "global" }
+			| GRANTED										{ $$ = "granted" }
+			| GREATEST									{ $$ = "greatest" }
+			| GROUPING									{ $$ = "grouping" }
+			| GROUPS										{ $$ = "groups" }
+			| HANDLER										{ $$ = "handler" }
+			| HEADER_P									{ $$ = "header" }
+			| HOLD										{ $$ = "hold" }
+			| IDENTITY_P										{ $$ = "identity" }
+			| IF_P										{ $$ = "if" }
+			| ILIKE										{ $$ = "ilike" }
+			| IMMEDIATE										{ $$ = "immediate" }
+			| IMMUTABLE										{ $$ = "immutable" }
+			| IMPLICIT_P										{ $$ = "implicit" }
+			| IMPORT_P										{ $$ = "import" }
+			| IN_P										{ $$ = "in" }
+			| INCLUDE										{ $$ = "include" }
+			| INCLUDING										{ $$ = "including" }
+			| INCREMENT										{ $$ = "increment" }
+			| INDENT										{ $$ = "indent" }
+			| INDEX										{ $$ = "index" }
+			| INDEXES										{ $$ = "indexes" }
+			| INHERIT										{ $$ = "inherit" }
+			| INHERITS										{ $$ = "inherits" }
+			| INITIALLY										{ $$ = "initially" }
+			| INLINE_P										{ $$ = "inline" }
+			| INNER_P										{ $$ = "inner" }
+			| INOUT										{ $$ = "inout" }
+			| INPUT_P										{ $$ = "input" }
+			| INSENSITIVE										{ $$ = "insensitive" }
+			| INSERT										{ $$ = "insert" }
+			| INSTEAD										{ $$ = "instead" }
+			| INT_P										{ $$ = "int" }
+			| INTEGER										{ $$ = "integer" }
+			| INTERVAL										{ $$ = "interval" }
+			| INVOKER										{ $$ = "invoker" }
+			| IS										{ $$ = "is" }
+			| ISOLATION										{ $$ = "isolation" }
+			| JOIN										{ $$ = "join" }
+			| JSON										{ $$ = "json" }
+			| JSON_ARRAY										{ $$ = "json_array" }
+			| JSON_ARRAYAGG										{ $$ = "json_arrayagg" }
+			| JSON_EXISTS										{ $$ = "json_exists" }
+			| JSON_OBJECT										{ $$ = "json_object" }
+			| JSON_OBJECTAGG										{ $$ = "json_objectagg" }
+			| JSON_QUERY										{ $$ = "json_query" }
+			| JSON_SCALAR										{ $$ = "json_scalar" }
+			| JSON_SERIALIZE										{ $$ = "json_serialize" }
+			| JSON_TABLE										{ $$ = "json_table" }
+			| JSON_VALUE										{ $$ = "json_value" }
+			| KEEP										{ $$ = "keep" }
+			| KEY										{ $$ = "key" }
+			| KEYS										{ $$ = "keys" }
+			| LABEL										{ $$ = "label" }
+			| LANGUAGE										{ $$ = "language" }
+			| LARGE_P										{ $$ = "large" }
+			| LAST_P										{ $$ = "last" }
+			| LATERAL_P										{ $$ = "lateral" }
+			| LEADING										{ $$ = "leading" }
+			| LEAKPROOF										{ $$ = "leakproof" }
+			| LEAST										{ $$ = "least" }
+			| LEFT										{ $$ = "left" }
+			| LEVEL										{ $$ = "level" }
+			| LIKE										{ $$ = "like" }
+			| LISTEN										{ $$ = "listen" }
+			| LOAD										{ $$ = "load" }
+			| LOCAL										{ $$ = "local" }
+			| LOCALTIME										{ $$ = "localtime" }
+			| LOCALTIMESTAMP										{ $$ = "localtimestamp" }
+			| LOCATION										{ $$ = "location" }
+			| LOCK_P										{ $$ = "lock" }
+			| LOCKED										{ $$ = "locked" }
+			| LOGGED										{ $$ = "logged" }
+			| MAPPING										{ $$ = "mapping" }
+			| MATCH										{ $$ = "match" }
+			| MATCHED										{ $$ = "matched" }
+			| MATERIALIZED										{ $$ = "materialized" }
+			| MAXVALUE										{ $$ = "maxvalue" }
+			| MERGE										{ $$ = "merge" }
+			| MERGE_ACTION										{ $$ = "merge_action" }
+			| METHOD										{ $$ = "method" }
+			| MINVALUE										{ $$ = "minvalue" }
+			| MODE										{ $$ = "mode" }
+			| MOVE										{ $$ = "move" }
+			| NAME_P										{ $$ = "name" }
+			| NAMES										{ $$ = "names" }
+			| NATIONAL										{ $$ = "national" }
+			| NATURAL										{ $$ = "natural" }
+			| NCHAR										{ $$ = "nchar" }
+			| NESTED										{ $$ = "nested" }
+			| NEW										{ $$ = "new" }
+			| NEXT										{ $$ = "next" }
+			| NFC										{ $$ = "nfc" }
+			| NFD										{ $$ = "nfd" }
+			| NFKC										{ $$ = "nfkc" }
+			| NFKD										{ $$ = "nfkd" }
+			| NO										{ $$ = "no" }
+			| NONE										{ $$ = "none" }
+			| NORMALIZE										{ $$ = "normalize" }
+			| NORMALIZED										{ $$ = "normalized" }
+			| NOT										{ $$ = "not" }
+			| NOTHING										{ $$ = "nothing" }
+			| NOTIFY										{ $$ = "notify" }
+			| NOWAIT										{ $$ = "nowait" }
+			| NULL_P										{ $$ = "null" }
+			| NULLIF										{ $$ = "nullif" }
+			| NULLS_P										{ $$ = "nulls" }
+			| NUMERIC										{ $$ = "numeric" }
+			| OBJECT_P										{ $$ = "object" }
+			| OF										{ $$ = "of" }
+			| OFF										{ $$ = "off" }
+			| OIDS										{ $$ = "oids" }
+			| OLD										{ $$ = "old" }
+			| OMIT										{ $$ = "omit" }
+			| ONLY										{ $$ = "only" }
+			| OPERATOR										{ $$ = "operator" }
+			| OPTION										{ $$ = "option" }
+			| OPTIONS										{ $$ = "options" }
+			| OR										{ $$ = "or" }
+			| ORDINALITY										{ $$ = "ordinality" }
+			| OTHERS										{ $$ = "others" }
+			| OUT_P										{ $$ = "out" }
+			| OUTER_P										{ $$ = "outer" }
+			| OVERLAY										{ $$ = "overlay" }
+			| OVERRIDING										{ $$ = "overriding" }
+			| OWNED										{ $$ = "owned" }
+			| OWNER										{ $$ = "owner" }
+			| PARALLEL										{ $$ = "parallel" }
+			| PARAMETER										{ $$ = "parameter" }
+			| PARSER										{ $$ = "parser" }
+			| PARTIAL										{ $$ = "partial" }
+			| PARTITION										{ $$ = "partition" }
+			| PASSING										{ $$ = "passing" }
+			| PASSWORD										{ $$ = "password" }
+			| PATH										{ $$ = "path" }
+			| PLACING										{ $$ = "placing" }
+			| PLAN										{ $$ = "plan" }
+			| PLANS										{ $$ = "plans" }
+			| POLICY										{ $$ = "policy" }
+			| POSITION										{ $$ = "position" }
+			| PRECEDING										{ $$ = "preceding" }
+			| PREPARE										{ $$ = "prepare" }
+			| PREPARED										{ $$ = "prepared" }
+			| PRESERVE										{ $$ = "preserve" }
+			| PRIMARY										{ $$ = "primary" }
+			| PRIOR										{ $$ = "prior" }
+			| PRIVILEGES										{ $$ = "privileges" }
+			| PROCEDURAL										{ $$ = "procedural" }
+			| PROCEDURE										{ $$ = "procedure" }
+			| PROCEDURES										{ $$ = "procedures" }
+			| PROGRAM										{ $$ = "program" }
+			| PUBLICATION										{ $$ = "publication" }
+			| QUOTE										{ $$ = "quote" }
+			| QUOTES										{ $$ = "quotes" }
+			| RANGE										{ $$ = "range" }
+			| READ										{ $$ = "read" }
+			| REAL										{ $$ = "real" }
+			| REASSIGN										{ $$ = "reassign" }
+			| RECHECK										{ $$ = "recheck" }
+			| RECURSIVE										{ $$ = "recursive" }
+			| REF_P										{ $$ = "ref" }
+			| REFERENCES										{ $$ = "references" }
+			| REFERENCING										{ $$ = "referencing" }
+			| REFRESH										{ $$ = "refresh" }
+			| REINDEX										{ $$ = "reindex" }
+			| RELATIVE_P										{ $$ = "relative" }
+			| RELEASE										{ $$ = "release" }
+			| RENAME										{ $$ = "rename" }
+			| REPEATABLE										{ $$ = "repeatable" }
+			| REPLACE										{ $$ = "replace" }
+			| REPLICA										{ $$ = "replica" }
+			| RESET										{ $$ = "reset" }
+			| RESTART										{ $$ = "restart" }
+			| RESTRICT										{ $$ = "restrict" }
+			| RETURN										{ $$ = "return" }
+			| RETURNS										{ $$ = "returns" }
+			| REVOKE										{ $$ = "revoke" }
+			| RIGHT										{ $$ = "right" }
+			| ROLE										{ $$ = "role" }
+			| ROLLBACK										{ $$ = "rollback" }
+			| ROLLUP										{ $$ = "rollup" }
+			| ROUTINE										{ $$ = "routine" }
+			| ROUTINES										{ $$ = "routines" }
+			| ROW										{ $$ = "row" }
+			| ROWS										{ $$ = "rows" }
+			| RULE										{ $$ = "rule" }
+			| SAVEPOINT										{ $$ = "savepoint" }
+			| SCALAR										{ $$ = "scalar" }
+			| SCHEMA										{ $$ = "schema" }
+			| SCHEMAS										{ $$ = "schemas" }
+			| SCROLL										{ $$ = "scroll" }
+			| SEARCH										{ $$ = "search" }
+			| SECURITY										{ $$ = "security" }
+			| SELECT										{ $$ = "select" }
+			| SEQUENCE										{ $$ = "sequence" }
+			| SEQUENCES										{ $$ = "sequences" }
+			| SERIALIZABLE										{ $$ = "serializable" }
+			| SERVER										{ $$ = "server" }
+			| SESSION										{ $$ = "session" }
+			| SESSION_USER										{ $$ = "session_user" }
+			| SET										{ $$ = "set" }
+			| SETOF										{ $$ = "setof" }
+			| SETS										{ $$ = "sets" }
+			| SHARE										{ $$ = "share" }
+			| SHOW										{ $$ = "show" }
+			| SIMILAR										{ $$ = "similar" }
+			| SIMPLE										{ $$ = "simple" }
+			| SKIP										{ $$ = "skip" }
+			| SMALLINT										{ $$ = "smallint" }
+			| SNAPSHOT										{ $$ = "snapshot" }
+			| SOME										{ $$ = "some" }
+			| SOURCE										{ $$ = "source" }
+			| SQL_P										{ $$ = "sql" }
+			| STABLE										{ $$ = "stable" }
+			| STANDALONE_P										{ $$ = "standalone" }
+			| START										{ $$ = "start" }
+			| STATEMENT										{ $$ = "statement" }
+			| STATISTICS										{ $$ = "statistics" }
+			| STDIN										{ $$ = "stdin" }
+			| STDOUT										{ $$ = "stdout" }
+			| STORAGE										{ $$ = "storage" }
+			| STORED										{ $$ = "stored" }
+			| STRICT_P										{ $$ = "strict" }
+			| STRING_P										{ $$ = "string" }
+			| STRIP_P										{ $$ = "strip" }
+			| SUBSCRIPTION										{ $$ = "subscription" }
+			| SUBSTRING										{ $$ = "substring" }
+			| SUPPORT										{ $$ = "support" }
+			| SYMMETRIC										{ $$ = "symmetric" }
+			| SYSID										{ $$ = "sysid" }
+			| SYSTEM_P										{ $$ = "system" }
+			| SYSTEM_USER										{ $$ = "system_user" }
+			| TABLE										{ $$ = "table" }
+			| TABLES										{ $$ = "tables" }
+			| TABLESAMPLE										{ $$ = "tablesample" }
+			| TABLESPACE										{ $$ = "tablespace" }
+			| TARGET										{ $$ = "target" }
+			| TEMP										{ $$ = "temp" }
+			| TEMPLATE										{ $$ = "template" }
+			| TEMPORARY										{ $$ = "temporary" }
+			| TEXT_P										{ $$ = "text" }
+			| THEN										{ $$ = "then" }
+			| TIES										{ $$ = "ties" }
+			| TIME										{ $$ = "time" }
+			| TIMESTAMP										{ $$ = "timestamp" }
+			| TRAILING										{ $$ = "trailing" }
+			| TRANSACTION										{ $$ = "transaction" }
+			| TRANSFORM										{ $$ = "transform" }
+			| TREAT										{ $$ = "treat" }
+			| TRIGGER										{ $$ = "trigger" }
+			| TRIM										{ $$ = "trim" }
+			| TRUE_P										{ $$ = "true" }
+			| TRUNCATE										{ $$ = "truncate" }
+			| TRUSTED										{ $$ = "trusted" }
+			| TYPE_P										{ $$ = "type" }
+			| TYPES_P										{ $$ = "types" }
+			| UESCAPE										{ $$ = "uescape" }
+			| UNBOUNDED										{ $$ = "unbounded" }
+			| UNCOMMITTED										{ $$ = "uncommitted" }
+			| UNCONDITIONAL										{ $$ = "unconditional" }
+			| UNENCRYPTED										{ $$ = "unencrypted" }
+			| UNIQUE										{ $$ = "unique" }
+			| UNKNOWN										{ $$ = "unknown" }
+			| UNLISTEN										{ $$ = "unlisten" }
+			| UNLOGGED										{ $$ = "unlogged" }
+			| UNTIL										{ $$ = "until" }
+			| UPDATE										{ $$ = "update" }
+			| USER										{ $$ = "user" }
+			| USING										{ $$ = "using" }
+			| VACUUM										{ $$ = "vacuum" }
+			| VALID										{ $$ = "valid" }
+			| VALIDATE										{ $$ = "validate" }
+			| VALIDATOR										{ $$ = "validator" }
+			| VALUE_P										{ $$ = "value" }
+			| VALUES										{ $$ = "values" }
+			| VARCHAR										{ $$ = "varchar" }
+			| VARIADIC										{ $$ = "variadic" }
+			| VERBOSE										{ $$ = "verbose" }
+			| VERSION_P										{ $$ = "version" }
+			| VIEW										{ $$ = "view" }
+			| VIEWS										{ $$ = "views" }
+			| VOLATILE										{ $$ = "volatile" }
+			| WHEN										{ $$ = "when" }
+			| WHITESPACE_P										{ $$ = "whitespace" }
+			| WORK										{ $$ = "work" }
+			| WRAPPER										{ $$ = "wrapper" }
+			| WRITE										{ $$ = "write" }
+			| XML_P										{ $$ = "xml" }
+			| XMLATTRIBUTES										{ $$ = "xmlattributes" }
+			| XMLCONCAT										{ $$ = "xmlconcat" }
+			| XMLELEMENT										{ $$ = "xmlelement" }
+			| XMLEXISTS										{ $$ = "xmlexists" }
+			| XMLFOREST										{ $$ = "xmlforest" }
+			| XMLNAMESPACES										{ $$ = "xmlnamespaces" }
+			| XMLPARSE										{ $$ = "xmlparse" }
+			| XMLPI										{ $$ = "xmlpi" }
+			| XMLROOT										{ $$ = "xmlroot" }
+			| XMLSERIALIZE										{ $$ = "xmlserialize" }
+			| XMLTABLE										{ $$ = "xmltable" }
+			| YES_P										{ $$ = "yes" }
+			| ZONE										{ $$ = "zone" }
 		;
 
 /*
@@ -3356,7 +4308,7 @@ NonReservedWord_or_Sconst:
 NumericOnly:
 		FCONST							{ $$ = ast.NewFloat($1) }
 	|	'+' FCONST						{ $$ = ast.NewFloat($2) }
-	|	'-' FCONST						
+	|	'-' FCONST
 		{
 			f := ast.NewFloat($2)
 			f.FVal = "-" + f.FVal
