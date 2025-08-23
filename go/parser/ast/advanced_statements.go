@@ -31,6 +31,10 @@ type MergeStmt struct {
 func (n *MergeStmt) node() {}
 func (n *MergeStmt) stmt() {}
 
+func (n *MergeStmt) StatementType() string {
+	return "MERGE"
+}
+
 func (n *MergeStmt) String() string {
 	var parts []string
 	
@@ -62,6 +66,51 @@ func (n *MergeStmt) String() string {
 		returning := make([]string, n.ReturningList.Len())
 		for i, expr := range n.ReturningList.Items {
 			returning[i] = expr.String()
+		}
+		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// SqlString returns the SQL representation of the MergeStmt
+func (m *MergeStmt) SqlString() string {
+	var parts []string
+	
+	// WITH clause
+	if m.WithClause != nil {
+		parts = append(parts, m.WithClause.SqlString())
+	}
+	
+	// MERGE INTO target
+	parts = append(parts, "MERGE INTO")
+	if m.Relation != nil {
+		parts = append(parts, m.Relation.SqlString())
+	}
+	
+	// USING source
+	parts = append(parts, "USING")
+	if m.SourceRelation != nil {
+		parts = append(parts, m.SourceRelation.SqlString())
+	}
+	
+	// ON condition
+	if m.JoinCondition != nil {
+		parts = append(parts, "ON", m.JoinCondition.SqlString())
+	}
+	
+	// WHEN clauses
+	for _, clause := range m.MergeWhenClauses {
+		if clause != nil {
+			parts = append(parts, clause.SqlString())
+		}
+	}
+	
+	// RETURNING clause
+	if m.ReturningList != nil && m.ReturningList.Len() > 0 {
+		var returning []string
+		for _, ret := range m.ReturningList.Items {
+			returning = append(returning, ret.SqlString())
 		}
 		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
 	}

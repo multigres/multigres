@@ -74,6 +74,9 @@ var Keywords = []KeywordInfo{
 	{"column", IDENT, ReservedKeyword, true},             // Will be replaced with COLUMN token in Phase 3
 	{"constraint", IDENT, ReservedKeyword, true},         // Will be replaced with CONSTRAINT token in Phase 3
 	{"create", CREATE, ReservedKeyword, false},
+	{"current", CURRENT_P, ReservedKeyword, false}, // Phase 3E: CURRENT keyword for cursor references
+	{"cursor", CURSOR, ReservedKeyword, true},      // Phase 3E: CURSOR for cursor operations
+	{"delete", DELETE_P, ReservedKeyword, false}, // Phase 3E: DELETE statement
 	{"drop", DROP, ReservedKeyword, false},
 	{"current_catalog", IDENT, ReservedKeyword, true},    // Will be replaced with CURRENT_CATALOG token in Phase 3
 	{"current_date", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_DATE token in Phase 3
@@ -114,7 +117,7 @@ var Keywords = []KeywordInfo{
 	{"in", IDENT, ReservedKeyword, true},        // Will be replaced with IN_P token in Phase 3
 	{"initially", IDENT, ReservedKeyword, true}, // Will be replaced with INITIALLY token in Phase 3
 	{"inner", INNER_P, TypeFuncNameKeyword, true}, // Phase 3D: INNER JOIN keyword
-	{"insert", IDENT, UnreservedKeyword, true},  // Will be replaced with INSERT token in Phase 3
+	{"insert", INSERT, ReservedKeyword, false}, // Phase 3E: INSERT statement
 	{"int", IDENT, ColNameKeyword, true},        // Will be replaced with INT_P token in Phase 3
 	{"integer", IDENT, ColNameKeyword, true},    // Will be replaced with INTEGER token in Phase 3
 	{"intersect", IDENT, ReservedKeyword, true}, // Will be replaced with INTERSECT token in Phase 3
@@ -130,23 +133,27 @@ var Keywords = []KeywordInfo{
 	{"limit", IDENT, ReservedKeyword, true},    // Will be replaced with LIMIT token in Phase 3
 	
 	{"materialized", MATERIALIZED, UnreservedKeyword, true}, // Phase 3D: MATERIALIZED CTEs
+	{"merge", MERGE, ReservedKeyword, false}, // Phase 3E: MERGE statement
 	{"natural", NATURAL, TypeFuncNameKeyword, true}, // Phase 3D: NATURAL JOIN keyword
 	{"not", NOT, ReservedKeyword, true},
 	{"null", NULL_P, ReservedKeyword, true},
 	{"numeric", NUMERIC, ColNameKeyword, true},
 
+	{"of", OF, ReservedKeyword, true},           // Phase 3E: OF keyword for CURRENT OF
 	{"offset", IDENT, ReservedKeyword, true},    // Will be replaced with OFFSET token in Phase 3
 	{"on", ON, ReservedKeyword, true},           // Phase 3C: ON keyword for DISTINCT ON
 	{"only", ONLY, ReservedKeyword, true},       // Phase 3C: ONLY keyword
 	{"or", OR, ReservedKeyword, true},
 	{"order", IDENT, ReservedKeyword, true},     // Will be replaced with ORDER token in Phase 3
 	{"outer", OUTER_P, TypeFuncNameKeyword, true}, // Phase 3D: OUTER JOIN keyword
+	{"overriding", OVERRIDING, UnreservedKeyword, true}, // Phase 3E: OVERRIDING clause for INSERT
 
 	{"primary", IDENT, ReservedKeyword, true}, // Will be replaced with PRIMARY token in Phase 3
 
 	{"real", IDENT, ColNameKeyword, true},        // Will be replaced with REAL token in Phase 3
 	{"recursive", RECURSIVE, UnreservedKeyword, true}, // Phase 3D: RECURSIVE CTEs  
 	{"references", IDENT, ReservedKeyword, true}, // Will be replaced with REFERENCES token in Phase 3
+	{"returning", RETURNING, UnreservedKeyword, true}, // Phase 3E: RETURNING clause
 	{"right", RIGHT, TypeFuncNameKeyword, true},  // Phase 3D: RIGHT JOIN keyword
 
 	{"search", SEARCH, UnreservedKeyword, true},   // Phase 3D: SEARCH for recursive CTEs
@@ -156,6 +163,7 @@ var Keywords = []KeywordInfo{
 	{"smallint", IDENT, ColNameKeyword, true},      // Will be replaced with SMALLINT token in Phase 3
 	{"some", IDENT, ReservedKeyword, true},         // Will be replaced with SOME token in Phase 3
 	{"symmetric", IDENT, ReservedKeyword, true},    // Will be replaced with SYMMETRIC token in Phase 3
+	{"system", SYSTEM_P, UnreservedKeyword, true},  // Phase 3E: SYSTEM_P keyword for OVERRIDING SYSTEM VALUE
 	{"system_user", IDENT, ReservedKeyword, true},  // Will be replaced with SYSTEM_USER token in Phase 3
 
 	{"table", TABLE, ReservedKeyword, true},    // Phase 3C: TABLE keyword
@@ -168,8 +176,8 @@ var Keywords = []KeywordInfo{
 
 	{"union", IDENT, ReservedKeyword, true},    // Will be replaced with UNION token in Phase 3
 	{"unique", IDENT, ReservedKeyword, true},   // Will be replaced with UNIQUE token in Phase 3
-	{"update", IDENT, UnreservedKeyword, true}, // Will be replaced with UPDATE token in Phase 3
-	{"user", IDENT, ReservedKeyword, true},     // Will be replaced with USER token in Phase 3
+	{"update", UPDATE, ReservedKeyword, false}, // Phase 3E: UPDATE statement
+	{"user", USER, UnreservedKeyword, true},    // Phase 3E: USER keyword for OVERRIDING USER VALUE
 	{"using", USING, ReservedKeyword, true},    // Phase 3D: USING clause for JOINs
 
 	{"values", VALUES, UnreservedKeyword, true}, // Phase 3D: VALUES clause  

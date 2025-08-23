@@ -1384,3 +1384,669 @@ func TestTableFunctions(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// DML STATEMENT DEPARSE TESTS - Tests for INSERT, UPDATE, DELETE, MERGE deparsing
+// =============================================================================
+
+// TestDMLRoundTrip tests round-trip parsing and deparsing of DML statements
+func TestDMLRoundTrip(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		expected string // if different from input SQL
+	}{
+		// INSERT statements
+		{
+			name: "INSERT with VALUES",
+			sql:  "INSERT INTO users VALUES (1, 'John')",
+		},
+		{
+			name: "INSERT with column list and VALUES",
+			sql:  "INSERT INTO users (id, name) VALUES (1, 'John')",
+		},
+		{
+			name: "INSERT with SELECT",
+			sql:  "INSERT INTO users SELECT * FROM temp_users",
+		},
+		{
+			name: "INSERT with DEFAULT VALUES",
+			sql:  "INSERT INTO users DEFAULT VALUES",
+		},
+		{
+			name: "INSERT with RETURNING",
+			sql:  "INSERT INTO users (name) VALUES ('John') RETURNING id",
+		},
+		{
+			name: "INSERT with schema qualified table",
+			sql:  "INSERT INTO public.users (name) VALUES ('John')",
+		},
+		
+		// UPDATE statements
+		{
+			name: "simple UPDATE",
+			sql:  "UPDATE users SET name = 'Jane'",
+		},
+		{
+			name: "UPDATE with WHERE",
+			sql:  "UPDATE users SET name = 'Jane' WHERE id = 1",
+		},
+		{
+			name: "UPDATE with RETURNING",
+			sql:  "UPDATE users SET name = 'Jane' RETURNING id, name",
+		},
+		{
+			name: "UPDATE with multiple columns",
+			sql:  "UPDATE users SET name = 'Jane', age = 30 WHERE id = 1",
+		},
+		{
+			name: "UPDATE with schema qualified table",
+			sql:  "UPDATE public.users SET name = 'Jane'",
+		},
+		
+		// DELETE statements
+		{
+			name: "simple DELETE",
+			sql:  "DELETE FROM users",
+		},
+		{
+			name: "DELETE with WHERE",
+			sql:  "DELETE FROM users WHERE id = 1",
+		},
+		{
+			name: "DELETE with RETURNING",
+			sql:  "DELETE FROM users WHERE id = 1 RETURNING name",
+		},
+		{
+			name: "DELETE with schema qualified table",
+			sql:  "DELETE FROM public.users WHERE id = 1",
+		},
+		
+		// MERGE statements (basic)
+		{
+			name: "basic MERGE",
+			sql:  "MERGE INTO target USING source ON target.id = source.id",
+		},
+		{
+			name: "MERGE with schema qualified tables",
+			sql:  "MERGE INTO public.target USING staging.source ON target.id = source.id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the SQL
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.Len(t, stmts, 1, "Expected exactly 1 statement")
+
+			stmt := stmts[0]
+			
+			// Verify statement type
+			var expectedType string
+			switch stmt.(type) {
+			case *ast.InsertStmt:
+				expectedType = "INSERT"
+			case *ast.UpdateStmt:
+				expectedType = "UPDATE"  
+			case *ast.DeleteStmt:
+				expectedType = "DELETE"
+			case *ast.MergeStmt:
+				expectedType = "MERGE"
+			default:
+				t.Fatalf("Unexpected statement type: %T", stmt)
+			}
+			
+			assert.Equal(t, expectedType, stmt.StatementType())
+
+			// Test SqlString method
+			sqlString := stmt.SqlString()
+			assert.NotEmpty(t, sqlString, "SqlString() should not be empty")
+			
+			// Note: We focus on round-trip parsing rather than exact string matching
+			// due to possible formatting differences in the deparsed output
+			
+			// For round-trip testing, we compare the semantic meaning
+			// rather than exact string match due to possible formatting differences
+			t.Logf("Original: %s", tt.sql)
+			t.Logf("Deparsed: %s", sqlString)
+			
+			// Try to parse the deparsed SQL to ensure it's valid
+			reparsedStmts, err := ParseSQL(sqlString)
+			assert.NoError(t, err, "Failed to reparse deparsed SQL: %s", sqlString)
+			assert.Len(t, reparsedStmts, 1, "Reparsed SQL should produce exactly 1 statement")
+			
+			// Verify the reparsed statement has the same type
+			reparsedStmt := reparsedStmts[0]
+			assert.Equal(t, stmt.StatementType(), reparsedStmt.StatementType(), 
+				"Reparsed statement should have same type")
+			
+			// Additional semantic checks based on statement type
+			switch origStmt := stmt.(type) {
+			case *ast.InsertStmt:
+				reparsedInsert := reparsedStmt.(*ast.InsertStmt)
+				if origStmt.Relation != nil && reparsedInsert.Relation != nil {
+					assert.Equal(t, origStmt.Relation.RelName, reparsedInsert.Relation.RelName,
+						"Table name should be preserved")
+				}
+			case *ast.UpdateStmt:
+				reparsedUpdate := reparsedStmt.(*ast.UpdateStmt)
+				if origStmt.Relation != nil && reparsedUpdate.Relation != nil {
+					assert.Equal(t, origStmt.Relation.RelName, reparsedUpdate.Relation.RelName,
+						"Table name should be preserved")
+				}
+			case *ast.DeleteStmt:
+				reparsedDelete := reparsedStmt.(*ast.DeleteStmt)
+				if origStmt.Relation != nil && reparsedDelete.Relation != nil {
+					assert.Equal(t, origStmt.Relation.RelName, reparsedDelete.Relation.RelName,
+						"Table name should be preserved")
+				}
+			case *ast.MergeStmt:
+				reparsedMerge := reparsedStmt.(*ast.MergeStmt)
+				if origStmt.Relation != nil && reparsedMerge.Relation != nil {
+					assert.Equal(t, origStmt.Relation.RelName, reparsedMerge.Relation.RelName,
+						"Target table name should be preserved")
+				}
+			}
+		})
+	}
+}
+
+// TestDMLSqlStringMethods tests the SqlString methods directly on AST nodes
+func TestDMLSqlStringMethods(t *testing.T) {
+	t.Run("InsertStmt SqlString", func(t *testing.T) {
+		// Create a simple INSERT statement node
+		relation := ast.NewRangeVar("users", "", "")
+		insertStmt := ast.NewInsertStmt(relation)
+		
+		// Add a simple SELECT for VALUES
+		selectStmt := ast.NewSelectStmt()
+		insertStmt.SelectStmt = selectStmt
+		
+		sqlString := insertStmt.SqlString()
+		assert.Contains(t, sqlString, "INSERT INTO")
+		assert.Contains(t, sqlString, "users")
+		t.Logf("InsertStmt SqlString: %s", sqlString)
+	})
+
+	t.Run("UpdateStmt SqlString", func(t *testing.T) {
+		// Create a simple UPDATE statement node
+		relation := ast.NewRangeVar("users", "", "")
+		updateStmt := ast.NewUpdateStmt(relation)
+		
+		// Add a target (SET clause)
+		target := ast.NewResTarget("name", ast.NewA_Const(ast.NewString("Jane"), 0))
+		updateStmt.TargetList = []*ast.ResTarget{target}
+		
+		sqlString := updateStmt.SqlString()
+		assert.Contains(t, sqlString, "UPDATE")
+		assert.Contains(t, sqlString, "users")
+		assert.Contains(t, sqlString, "SET")
+		t.Logf("UpdateStmt SqlString: %s", sqlString)
+	})
+
+	t.Run("DeleteStmt SqlString", func(t *testing.T) {
+		// Create a simple DELETE statement node
+		relation := ast.NewRangeVar("users", "", "")
+		deleteStmt := ast.NewDeleteStmt(relation)
+		
+		sqlString := deleteStmt.SqlString()
+		assert.Contains(t, sqlString, "DELETE FROM")
+		assert.Contains(t, sqlString, "users")
+		t.Logf("DeleteStmt SqlString: %s", sqlString)
+	})
+
+	t.Run("MergeStmt SqlString", func(t *testing.T) {
+		// Create a simple MERGE statement node
+		targetRelation := ast.NewRangeVar("target", "", "")
+		sourceRelation := ast.NewRangeVar("source", "", "")
+		joinCondition := ast.NewA_Const(ast.NewString("target.id = source.id"), 0)
+		
+		mergeStmt := ast.NewMergeStmt(targetRelation, sourceRelation, joinCondition)
+		
+		sqlString := mergeStmt.SqlString()
+		assert.Contains(t, sqlString, "MERGE INTO")
+		assert.Contains(t, sqlString, "target")
+		assert.Contains(t, sqlString, "USING")
+		assert.Contains(t, sqlString, "source")
+		assert.Contains(t, sqlString, "ON")
+		t.Logf("MergeStmt SqlString: %s", sqlString)
+	})
+}
+
+// TestDMLWithClauses tests DML statements with various clauses
+func TestDMLWithClauses(t *testing.T) {
+	t.Run("INSERT with WITH clause", func(t *testing.T) {
+		sql := "WITH temp AS (SELECT 1 as id) INSERT INTO users SELECT * FROM temp"
+		
+		stmts, err := ParseSQL(sql)
+		require.NoError(t, err)
+		require.Len(t, stmts, 1)
+		
+		insertStmt := stmts[0].(*ast.InsertStmt)
+		sqlString := insertStmt.SqlString()
+		
+		assert.Contains(t, sqlString, "WITH")
+		assert.Contains(t, sqlString, "INSERT INTO")
+		t.Logf("INSERT with WITH: %s", sqlString)
+	})
+
+	t.Run("UPDATE with FROM clause", func(t *testing.T) {
+		sql := "UPDATE users SET name = temp.name FROM temp_users temp WHERE users.id = temp.id"
+		
+		stmts, err := ParseSQL(sql)
+		require.NoError(t, err)
+		require.Len(t, stmts, 1)
+		
+		updateStmt := stmts[0].(*ast.UpdateStmt)
+		sqlString := updateStmt.SqlString()
+		
+		assert.Contains(t, sqlString, "UPDATE")
+		assert.Contains(t, sqlString, "SET")
+		assert.Contains(t, sqlString, "FROM")
+		assert.Contains(t, sqlString, "WHERE")
+		t.Logf("UPDATE with FROM: %s", sqlString)
+	})
+
+	t.Run("DELETE with USING clause", func(t *testing.T) {
+		sql := "DELETE FROM users USING temp_users temp WHERE users.id = temp.id"
+		
+		stmts, err := ParseSQL(sql)
+		require.NoError(t, err)
+		require.Len(t, stmts, 1)
+		
+		deleteStmt := stmts[0].(*ast.DeleteStmt)
+		sqlString := deleteStmt.SqlString()
+		
+		assert.Contains(t, sqlString, "DELETE FROM")
+		assert.Contains(t, sqlString, "USING")
+		assert.Contains(t, sqlString, "WHERE")
+		t.Logf("DELETE with USING: %s", sqlString)
+	})
+}
+
+// TestComprehensiveDMLDeparsing tests comprehensive DML deparsing for Phase-3E features
+func TestComprehensiveDMLDeparsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		expected string // If empty, use sql as expected
+	}{
+		// ===== INSERT Statement Tests =====
+		{
+			name: "INSERT basic VALUES",
+			sql:  "INSERT INTO users VALUES (1, 'John')",
+		},
+		{
+			name: "INSERT with column list",
+			sql:  "INSERT INTO users (id, name) VALUES (1, 'John')",
+		},
+		{
+			name: "INSERT multiple VALUES",
+			sql:  "INSERT INTO users (id, name) VALUES (1, 'John'), (2, 'Jane')",
+		},
+		{
+			name: "INSERT with DEFAULT VALUES",
+			sql:  "INSERT INTO users DEFAULT VALUES",
+		},
+		{
+			name: "INSERT with SELECT",
+			sql:  "INSERT INTO users SELECT id, name FROM temp_users",
+		},
+		{
+			name: "INSERT with subquery",
+			sql:  "INSERT INTO users (SELECT id, name FROM temp_users WHERE active = TRUE)",
+		},
+		{
+			name: "INSERT with RETURNING single column",
+			sql:  "INSERT INTO users (name) VALUES ('John') RETURNING id",
+		},
+		{
+			name: "INSERT with RETURNING multiple columns",
+			sql:  "INSERT INTO users (name) VALUES ('John') RETURNING id, name, created_at",
+		},
+		{
+			name: "INSERT with RETURNING *",
+			sql:  "INSERT INTO users (name) VALUES ('John') RETURNING *",
+		},
+		{
+			name: "INSERT with qualified table name",
+			sql:  "INSERT INTO public.users (name) VALUES ('John')",
+		},
+		{
+			name: "INSERT with table alias",
+			sql:  "INSERT INTO users AS u (name) VALUES ('John')",
+		},
+		{
+			name: "INSERT with WITH clause",
+			sql:  "WITH temp AS (SELECT 'John' as name) INSERT INTO users (name) SELECT name FROM temp",
+		},
+		{
+			name: "INSERT with complex expressions in VALUES",
+			sql:  "INSERT INTO users (id, name, age) VALUES (1 + 2, upper('john'), 25 * 2)",
+		},
+		
+		// ===== UPDATE Statement Tests =====
+		{
+			name: "UPDATE simple",
+			sql:  "UPDATE users SET name = 'Jane'",
+		},
+		{
+			name: "UPDATE with WHERE",
+			sql:  "UPDATE users SET name = 'Jane' WHERE id = 1",
+		},
+		{
+			name: "UPDATE multiple columns",
+			sql:  "UPDATE users SET name = 'Jane', age = 30 WHERE id = 1",
+		},
+		{
+			name: "UPDATE with complex SET expressions",
+			sql:  "UPDATE users SET name = upper('jane'), age = age + 1, updated_at = now()",
+		},
+		{
+			name: "UPDATE with FROM clause",
+			sql:  "UPDATE users SET name = temp.name FROM temp_users temp WHERE users.id = temp.id",
+		},
+		{
+			name: "UPDATE with multiple FROM tables",
+			sql:  "UPDATE users SET name = t1.name FROM temp_users t1, other_table t2 WHERE users.id = t1.id AND t1.other_id = t2.id",
+		},
+		{
+			name: "UPDATE with complex WHERE",
+			sql:  "UPDATE users SET name = 'Jane' WHERE id > 10 AND active = TRUE AND created_at > '2023-01-01'",
+		},
+		{
+			name: "UPDATE with RETURNING single column",
+			sql:  "UPDATE users SET name = 'Jane' WHERE id = 1 RETURNING id",
+		},
+		{
+			name: "UPDATE with RETURNING multiple columns",
+			sql:  "UPDATE users SET name = 'Jane' WHERE id = 1 RETURNING id, name, updated_at",
+		},
+		{
+			name: "UPDATE with RETURNING *",
+			sql:  "UPDATE users SET name = 'Jane' WHERE id = 1 RETURNING *",
+		},
+		{
+			name: "UPDATE with qualified table",
+			sql:  "UPDATE public.users SET name = 'Jane' WHERE id = 1",
+		},
+		// Note: WITH clause for UPDATE/DELETE not yet fully implemented in parser
+		// {
+		// 	name: "UPDATE with WITH clause",
+		// 	sql:  "WITH temp AS (SELECT id FROM active_users) UPDATE users SET active = FALSE WHERE id IN (SELECT id FROM temp)",
+		// },
+		// {
+		// 	name: "UPDATE with subquery in SET",
+		// 	sql:  "UPDATE users SET name = (SELECT name FROM profiles WHERE profiles.user_id = users.id)",
+		// },
+		// {
+		// 	name: "UPDATE with subquery in WHERE",
+		// 	sql:  "UPDATE users SET active = FALSE WHERE id IN (SELECT user_id FROM banned_users)",
+		// },
+		
+		// ===== DELETE Statement Tests =====
+		{
+			name: "DELETE simple",
+			sql:  "DELETE FROM users",
+		},
+		{
+			name: "DELETE with WHERE",
+			sql:  "DELETE FROM users WHERE id = 1",
+		},
+		{
+			name: "DELETE with complex WHERE",
+			sql:  "DELETE FROM users WHERE active = FALSE AND created_at < '2020-01-01'",
+		},
+		{
+			name: "DELETE with USING clause",
+			sql:  "DELETE FROM users USING temp_users temp WHERE users.id = temp.id",
+		},
+		{
+			name: "DELETE with multiple USING tables",
+			sql:  "DELETE FROM users USING temp_users t1, other_table t2 WHERE users.id = t1.id AND t1.other_id = t2.id",
+		},
+		{
+			name: "DELETE with RETURNING single column",
+			sql:  "DELETE FROM users WHERE id = 1 RETURNING id",
+		},
+		{
+			name: "DELETE with RETURNING multiple columns",
+			sql:  "DELETE FROM users WHERE id = 1 RETURNING id, name, deleted_at",
+		},
+		{
+			name: "DELETE with RETURNING *",
+			sql:  "DELETE FROM users WHERE id = 1 RETURNING *",
+		},
+		{
+			name: "DELETE with qualified table",
+			sql:  "DELETE FROM public.users WHERE id = 1",
+		},
+		// Note: WITH clause and subqueries in WHERE not yet fully implemented for DELETE
+		// {
+		// 	name: "DELETE with WITH clause",
+		// 	sql:  "WITH temp AS (SELECT id FROM inactive_users) DELETE FROM users WHERE id IN (SELECT id FROM temp)",
+		// },
+		// {
+		// 	name: "DELETE with subquery in WHERE",
+		// 	sql:  "DELETE FROM users WHERE id IN (SELECT user_id FROM temp_table)",
+		// },
+		
+		// ===== MERGE Statement Tests =====
+		{
+			name: "MERGE basic",
+			sql:  "MERGE INTO target USING source ON target.id = source.id",
+		},
+		{
+			name: "MERGE with qualified tables",
+			sql:  "MERGE INTO public.target USING staging.source ON target.id = source.id",
+		},
+		{
+			name: "MERGE with table aliases",
+			sql:  "MERGE INTO target AS t USING source AS s ON t.id = s.id",
+		},
+		{
+			name: "MERGE with complex join condition",
+			sql:  "MERGE INTO target USING source ON target.id = source.id AND target.version = source.version",
+		},
+		{
+			name: "MERGE with subquery as source",
+			sql:  "MERGE INTO target USING (SELECT * FROM source WHERE active = TRUE) AS s ON target.id = s.id",
+		},
+		{
+			name: "MERGE with WITH clause",
+			sql:  "WITH filtered AS (SELECT * FROM source WHERE active = TRUE) MERGE INTO target USING filtered ON target.id = filtered.id",
+		},
+		
+		// ===== Complex DML with Expressions =====
+		{
+			name: "INSERT with function calls in VALUES",
+			sql:  "INSERT INTO logs (message, created_at) VALUES (concat('Hello ', 'World'), now())",
+		},
+		{
+			name: "UPDATE with arithmetic expressions",
+			sql:  "UPDATE products SET price = price * 1.1, updated_count = updated_count + 1",
+		},
+		// Note: extract() function not yet implemented in parser
+		// {
+		// 	name: "DELETE with function in WHERE", 
+		// 	sql:  "DELETE FROM users WHERE length(name) < 3 OR extract(year FROM created_at) < 2020",
+		// },
+		{
+			name: "DELETE with simple function in WHERE",
+			sql:  "DELETE FROM users WHERE length(name) < 3",
+		},
+		
+		// ===== DML with Type Casts =====
+		{
+			name: "INSERT with type casts",
+			sql:  "INSERT INTO users (id, name, age) VALUES (1::bigint, 'John'::varchar, '25'::integer)",
+		},
+		{
+			name: "UPDATE with type casts",
+			sql:  "UPDATE users SET score = '95.5'::decimal, active = 'true'::boolean",
+		},
+		
+		// ===== DML with Advanced Table References =====
+		// Note: ONLY modifier not yet fully implemented in DML parser
+		// {
+		// 	name: "INSERT with ONLY modifier",
+		// 	sql:  "INSERT INTO ONLY parent_table (id, name) VALUES (1, 'test')",
+		// },
+		{
+			name: "UPDATE with ONLY modifier", 
+			sql:  "UPDATE ONLY parent_table SET name = 'updated'",
+		},
+		{
+			name: "DELETE with ONLY modifier",
+			sql:  "DELETE FROM ONLY parent_table WHERE id = 1",
+		},
+		
+		// ===== Edge Cases =====
+		// Note: Empty column lists may not be fully supported
+		// {
+		// 	name: "INSERT with empty column list and VALUES",
+		// 	sql:  "INSERT INTO users () VALUES ()",
+		// },
+		{
+			name: "UPDATE with no WHERE clause",
+			sql:  "UPDATE users SET active = TRUE",
+		},
+		{
+			name: "DELETE with no WHERE clause", 
+			sql:  "DELETE FROM temp_table",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the SQL
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.Len(t, stmts, 1, "Expected exactly one statement")
+
+			// Deparse the statement
+			deparsed := stmts[0].SqlString()
+			require.NotEmpty(t, deparsed, "Deparsed SQL should not be empty")
+
+			// Determine expected output
+			expected := tt.expected
+			if expected == "" {
+				expected = tt.sql
+			}
+
+			// Log for debugging
+			t.Logf("Original: %s", tt.sql)
+			t.Logf("Deparsed: %s", deparsed)
+
+			// Test that the deparsed SQL can be re-parsed (round-trip test)
+			stmts2, err2 := ParseSQL(deparsed)
+			require.NoError(t, err2, "Re-parsing deparsed SQL should succeed: %s", deparsed)
+			require.Len(t, stmts2, 1, "Re-parsed should have exactly one statement")
+
+			// Verify statement types match
+			assert.Equal(t, stmts[0].StatementType(), stmts2[0].StatementType(),
+				"Statement types should match after round-trip")
+
+			// Test stability - second deparse should match first
+			deparsed2 := stmts2[0].SqlString()
+			assert.Equal(t, normalizeSQL(deparsed), normalizeSQL(deparsed2),
+				"Deparsing should be stable.\nFirst: %s\nSecond: %s", deparsed, deparsed2)
+		})
+	}
+}
+
+// TestDMLExpressionDeparsing tests deparsing of complex expressions within DML statements
+func TestDMLExpressionDeparsing(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		// Complex expressions in INSERT
+		{
+			name: "INSERT with nested function calls",
+			sql:  "INSERT INTO users (name, email) VALUES (upper(trim('  john  ')), lower(concat('john', '@', 'example.com')))",
+		},
+		{
+			name: "INSERT with arithmetic in VALUES",
+			sql:  "INSERT INTO products (id, price, discounted_price) VALUES (1, 100.00, 100.00 * 0.9)",
+		},
+		{
+			name: "INSERT with parenthesized expressions",
+			sql:  "INSERT INTO products (total) VALUES ((price + tax) * quantity)",
+		},
+		
+		// Complex expressions in UPDATE SET clauses
+		{
+			name: "UPDATE with complex SET expressions",
+			sql:  "UPDATE products SET price = price * (1 + tax_rate), updated_at = now()",
+		},
+		{
+			name: "UPDATE with nested arithmetic",
+			sql:  "UPDATE stats SET score = (score + bonus) * multiplier, rank = rank + 1",
+		},
+		{
+			name: "UPDATE with function calls in SET",
+			sql:  "UPDATE users SET name = upper(trim(name)), email = lower(email)",
+		},
+		
+		// Complex expressions in WHERE clauses  
+		{
+			name: "DELETE with arithmetic in WHERE",
+			sql:  "DELETE FROM products WHERE (price * 0.9) < 10.00",
+		},
+		{
+			name: "UPDATE with function calls in WHERE",
+			sql:  "UPDATE users SET active = FALSE WHERE length(name) < 3 AND upper(status) = 'INACTIVE'",
+		},
+		{
+			name: "DELETE with nested expressions in WHERE",
+			sql:  "DELETE FROM orders WHERE (total + tax) > (limit * 1.5) AND status = 'pending'",
+		},
+		
+		// Expression combinations with type casts
+		{
+			name: "INSERT with type casts and expressions",
+			sql:  "INSERT INTO logs (level, message, count) VALUES (upper('info')::text, concat('Log: ', details), (1 + retry_count)::integer)",
+		},
+		{
+			name: "UPDATE with complex FROM and expressions",
+			sql:  "UPDATE orders SET total = o.quantity * p.price, updated_at = now() FROM order_items o, products p WHERE orders.id = o.order_id AND o.product_id = p.id",
+		},
+		
+		// Advanced function combinations
+		{
+			name: "INSERT with deeply nested functions",
+			sql:  "INSERT INTO processed (data) VALUES (upper(substring(trim(input_data), 1, 10)))",
+		},
+		{
+			name: "UPDATE with multiple function calls",
+			sql:  "UPDATE users SET full_name = concat(upper(first_name), ' ', upper(last_name)), slug = lower(replace(name, ' ', '-'))",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the SQL
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.Len(t, stmts, 1, "Expected exactly one statement")
+
+			// Deparse the statement
+			deparsed := stmts[0].SqlString()
+			require.NotEmpty(t, deparsed, "Deparsed SQL should not be empty")
+
+			t.Logf("Original: %s", tt.sql)
+			t.Logf("Deparsed: %s", deparsed)
+
+			// Test round-trip parsing
+			stmts2, err2 := ParseSQL(deparsed)
+			require.NoError(t, err2, "Re-parsing deparsed SQL should succeed: %s", deparsed)
+			require.Len(t, stmts2, 1, "Re-parsed should have exactly one statement")
+
+			// Verify statement types match
+			assert.Equal(t, stmts[0].StatementType(), stmts2[0].StatementType(),
+				"Statement types should match after round-trip")
+		})
+	}
+}

@@ -640,6 +640,14 @@ type CurrentOfExpr struct {
 	CursorParam int    // Refcursor parameter number, or 0 - primnodes.h:2099
 }
 
+// SqlString returns the SQL representation of the CurrentOfExpr.
+func (c *CurrentOfExpr) SqlString() string {
+	if c.CursorName == "" {
+		return "CURRENT OF <unnamed>"
+	}
+	return "CURRENT OF " + c.CursorName
+}
+
 // NewCurrentOfExpr creates a new CurrentOfExpr node.
 func NewCurrentOfExpr(cvarno Index, cursor_name string) *CurrentOfExpr {
 	return &CurrentOfExpr{

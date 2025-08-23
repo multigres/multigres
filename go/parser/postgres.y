@@ -66,6 +66,9 @@ type LexerInterface interface {
 %token <keyword> SELECT FROM WHERE ONLY TABLE LIMIT OFFSET ORDER_P BY GROUP_P HAVING INTO ON
 %token <keyword> JOIN INNER_P LEFT RIGHT FULL OUTER_P CROSS NATURAL USING
 %token <keyword> RECURSIVE MATERIALIZED LATERAL VALUES SEARCH BREADTH DEPTH CYCLE FIRST_P SET
+/* DML keywords for Phase 3E */
+%token <keyword> INSERT UPDATE DELETE_P MERGE RETURNING CONFLICT OVERRIDING USER SYSTEM_P
+%token <keyword> CURRENT_P CURSOR OF
 /* Table function keywords */
 %token <keyword> COLUMNS ORDINALITY XMLTABLE JSON_TABLE ROWS PATH PASSING FOR NESTED REF_P XMLNAMESPACES
 /* JSON keywords */
@@ -106,14 +109,23 @@ type LexerInterface interface {
 %nonassoc        '<' '>' '=' LESS_EQUALS GREATER_EQUALS NOT_EQUALS
 %nonassoc        BETWEEN IN_P LIKE ILIKE SIMILAR NOT_LA
 %nonassoc        ESCAPE
+/* Keyword precedence - these assignments have global effect for conflict resolution */
+%nonassoc        IDENT SET PARTITION RANGE ROWS GROUPS PRECEDING FOLLOWING CUBE ROLLUP
+                KEYS OBJECT_P SCALAR VALUE_P WITH WITHOUT PATH
+%left            Op OPERATOR
 /* Expression precedence */
+%left            AT                /* sets precedence for AT TIME ZONE, AT LOCAL */
+%left            COLLATE
 %right           UMINUS
+%left            '[' ']'
+%left            '(' ')'
+%left            TYPECAST
+%left            '.'
 %left            '+' '-'
 %left            '*' '/' '%'
 %left            '^'
-%left            '|'
-%left            '#'
-%left            '&'
+/* JOIN operators - high precedence to support use as function names */
+%left            JOIN CROSS LEFT FULL RIGHT INNER_P NATURAL
 
 /*
  * Non-terminal type declarations for foundation and expressions
@@ -161,10 +173,19 @@ type LexerInterface interface {
 
 /* SELECT statement types - Phase 3C */
 %type <stmt>         SelectStmt PreparableStmt select_no_parens select_with_parens simple_select
+/* Phase 3E DML statement types */
+%type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt
+%type <node>         insert_target insert_rest
+%type <list>         insert_column_list set_clause_list set_target_list merge_when_list
+%type <node>         insert_column_item set_target
+%type <list>         set_clause
+%type <node>         opt_on_conflict returning_clause where_or_current_clause
+%type <ival>         override_kind
+%type <str>          cursor_name
 %type <list>         target_list opt_target_list
 %type <node>         target_el
 %type <list>         from_clause from_list
-%type <node>         table_ref relation_expr extended_relation_expr
+%type <node>         table_ref relation_expr extended_relation_expr relation_expr_opt_alias
 %type <node>         where_clause opt_where_clause
 %type <node>         alias_clause opt_alias_clause opt_alias_clause_for_join_using
 %type <ival>         opt_all_clause
@@ -286,6 +307,10 @@ toplevel_stmt:
  */
 stmt:
 			SelectStmt								{ $$ = $1 }
+		|	InsertStmt								{ $$ = $1 }
+		|	UpdateStmt								{ $$ = $1 }
+		|	DeleteStmt								{ $$ = $1 }
+		|	MergeStmt								{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -942,6 +967,19 @@ AexprConst:	Iconst
 		|	NULL_P
 			{
 				$$ = ast.NewA_ConstNull(0)
+			}
+		;
+
+/* Expression list - used in various contexts */
+expr_list:	a_expr
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	expr_list ',' a_expr
+			{
+				list := $1.(*ast.NodeList)
+				list.Append($3)
+				$$ = list
 			}
 		;
 
@@ -1740,6 +1778,26 @@ extended_relation_expr:
 			}
 		;
 
+/* Relation expression with optional alias - needed for DML statements */
+relation_expr_opt_alias:
+			relation_expr %prec UMINUS
+			{
+				$$ = $1
+			}
+		|	relation_expr ColId
+			{
+				rangeVar := $1.(*ast.RangeVar)
+				rangeVar.Alias = ast.NewAlias($2, nil)
+				$$ = rangeVar
+			}
+		|	relation_expr AS ColId
+			{
+				rangeVar := $1.(*ast.RangeVar)
+				rangeVar.Alias = ast.NewAlias($3, nil)
+				$$ = rangeVar
+			}
+		;
+
 /*
  * JOIN rules - Phase 3D Implementation
  * From postgres/src/backend/parser/gram.y:13400+
@@ -2023,6 +2081,24 @@ where_clause:
 
 opt_where_clause:
 			where_clause							{ $$ = $1 }
+		;
+
+/*
+ * WHERE clause variant for UPDATE and DELETE that supports CURRENT OF cursor
+ * From postgres/src/backend/parser/gram.y where_or_current_clause
+ */
+where_or_current_clause:
+			WHERE a_expr							{ $$ = $2 }
+		|	WHERE CURRENT_P OF cursor_name
+			{
+				cursorExpr := ast.NewCurrentOfExpr(0, $4) // cvarno filled in by parse analysis
+				$$ = cursorExpr
+			}
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+cursor_name:
+			name									{ $$ = $1 }
 		;
 
 /*
@@ -2419,10 +2495,10 @@ json_table:
 						pathName = strNode.SVal
 					}
 				}
-				
+
 				// Create JsonTablePathSpec from the a_expr (path expression) and optional path name
 				pathSpec := ast.NewJsonTablePathSpec($5, pathName, 0)
-				
+
 				// Create JsonTable with context item and path spec
 				jsonTable := ast.NewJsonTable($3.(*ast.JsonValueExpr), pathSpec)
 				if $10 != nil {
@@ -2674,6 +2750,279 @@ json_table_column_definition:
 json_table_column_path_clause_opt:
 			PATH SCONST								{ $$ = ast.NewString($2) }
 		|	/* EMPTY */								{ $$ = nil }
+		;
+
+/*
+ * *** Phase 3E: Data Manipulation Language (DML) ***
+ * INSERT, UPDATE, DELETE, MERGE statements
+ * From postgres/src/backend/parser/gram.y DML sections
+ */
+
+/*
+ * INSERT Statement
+ * From postgres/src/backend/parser/gram.y:4490-4503
+ */
+InsertStmt:
+			opt_with_clause INSERT INTO insert_target insert_rest
+			opt_on_conflict returning_clause
+			{
+				insertStmt := $5.(*ast.InsertStmt)
+				insertStmt.Relation = $4.(*ast.RangeVar)
+				if $1 != nil {
+					insertStmt.WithClause = $1.(*ast.WithClause)
+				}
+				// insertStmt.OnConflictClause = $6 // TODO: Add when ON CONFLICT is implemented
+				if $7 != nil {
+					insertStmt.ReturningList = convertToResTargetList(convertToNodeList($7))
+				}
+				$$ = insertStmt
+			}
+		;
+
+insert_target:
+			qualified_name
+			{
+				$$ = $1
+			}
+		|	qualified_name AS ColId
+			{
+				rangeVar := $1.(*ast.RangeVar)
+				rangeVar.Alias = ast.NewAlias($3, nil)
+				$$ = rangeVar
+			}
+		;
+
+insert_rest:
+			SelectStmt
+			{
+				insertStmt := ast.NewInsertStmt(nil)
+				insertStmt.SelectStmt = $1
+				$$ = insertStmt
+			}
+		|	OVERRIDING override_kind VALUE_P SelectStmt
+			{
+				insertStmt := ast.NewInsertStmt(nil)
+				insertStmt.Override = ast.OverridingKind($2)
+				insertStmt.SelectStmt = $4
+				$$ = insertStmt
+			}
+		|	'(' insert_column_list ')' SelectStmt
+			{
+				insertStmt := ast.NewInsertStmt(nil)
+				if $2 != nil {
+					insertStmt.Cols = convertToResTargetList($2.Items)
+				}
+				insertStmt.SelectStmt = $4
+				$$ = insertStmt
+			}
+		|	'(' insert_column_list ')' OVERRIDING override_kind VALUE_P SelectStmt
+			{
+				insertStmt := ast.NewInsertStmt(nil)
+				if $2 != nil {
+					insertStmt.Cols = convertToResTargetList($2.Items)
+				}
+				insertStmt.Override = ast.OverridingKind($5)
+				insertStmt.SelectStmt = $7
+				$$ = insertStmt
+			}
+		|	DEFAULT VALUES
+			{
+				insertStmt := ast.NewInsertStmt(nil)
+				// For DEFAULT VALUES, SelectStmt should be nil
+				insertStmt.SelectStmt = nil
+				$$ = insertStmt
+			}
+		;
+
+override_kind:
+			USER		{ $$ = int(ast.OVERRIDING_USER_VALUE) }
+		|	SYSTEM_P	{ $$ = int(ast.OVERRIDING_SYSTEM_VALUE) }
+		;
+
+insert_column_list:
+			insert_column_item
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	insert_column_list ',' insert_column_item
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+		;
+
+insert_column_item:
+			ColId opt_indirection
+			{
+				$$ = ast.NewResTarget($1, $2)
+			}
+		;
+
+/*
+ * UPDATE Statement
+ * From postgres/src/backend/parser/gram.y:4538-4553
+ */
+UpdateStmt:
+			opt_with_clause UPDATE relation_expr_opt_alias SET set_clause_list
+			from_clause where_or_current_clause returning_clause
+			{
+				updateStmt := ast.NewUpdateStmt($3.(*ast.RangeVar))
+				if $1 != nil {
+					updateStmt.WithClause = $1.(*ast.WithClause)
+				}
+				updateStmt.TargetList = convertToResTargetList($5.Items)
+				if $6 != nil {
+					updateStmt.FromClause = $6
+				}
+				updateStmt.WhereClause = $7
+				if $8 != nil {
+					updateStmt.ReturningList = convertToResTargetList(convertToNodeList($8))
+				}
+				$$ = updateStmt
+			}
+		;
+
+set_clause_list:
+			set_clause
+			{
+				$$ = $1
+			}
+		|	set_clause_list ',' set_clause
+			{
+				// Concatenate the lists - equivalent to PostgreSQL's list_concat
+				for _, item := range $3.Items {
+					$1.Append(item)
+				}
+				$$ = $1
+			}
+		;
+
+set_clause:
+			set_target '=' a_expr
+			{
+				target := $1.(*ast.ResTarget)
+				target.Val = $3
+				$$ = ast.NewNodeList(target)
+			}
+		|	'(' set_target_list ')' '=' a_expr
+			{
+				// Multi-column assignment: (col1, col2) = (val1, val2)
+				// Create MultiAssignRef nodes for each target, matching PostgreSQL exactly
+				targetList := $2
+				ncolumns := len(targetList.Items)
+
+				// Create a MultiAssignRef source for each target
+				for i, item := range targetList.Items {
+					resCol := item.(*ast.ResTarget)
+					multiAssignRef := ast.NewMultiAssignRef($5, i+1, ncolumns, 0)
+					resCol.Val = multiAssignRef
+				}
+
+				// Return the entire target list
+				$$ = targetList
+			}
+		;
+
+set_target:
+			ColId opt_indirection
+			{
+				$$ = ast.NewResTarget($1, $2)
+			}
+		;
+
+set_target_list:
+			set_target								{ $$ = ast.NewNodeList($1) }
+		|	set_target_list ',' set_target			{ $1.Append($3); $$ = $1 }
+		;
+
+/*
+ * DELETE Statement
+ * From postgres/src/backend/parser/gram.y:4585-4598
+ */
+DeleteStmt:
+			opt_with_clause DELETE_P FROM relation_expr_opt_alias
+			using_clause where_or_current_clause returning_clause
+			{
+				deleteStmt := ast.NewDeleteStmt($4.(*ast.RangeVar))
+				if $1 != nil {
+					deleteStmt.WithClause = $1.(*ast.WithClause)
+				}
+				if $5 != nil {
+					deleteStmt.UsingClause = $5.(*ast.NodeList)
+				}
+				deleteStmt.WhereClause = $6
+				if $7 != nil {
+					deleteStmt.ReturningList = convertToResTargetList(convertToNodeList($7))
+				}
+				$$ = deleteStmt
+			}
+		;
+
+using_clause:
+			USING from_list
+			{
+				$$ = $2
+			}
+		|	/* EMPTY */
+			{
+				$$ = nil
+			}
+		;
+
+/*
+ * MERGE Statement (PostgreSQL 15+)
+ * From postgres/src/backend/parser/gram.y:4630-4644
+ */
+MergeStmt:
+			opt_with_clause MERGE INTO relation_expr_opt_alias
+			USING table_ref
+			ON a_expr
+			merge_when_list
+			returning_clause
+			{
+				mergeStmt := &ast.MergeStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_MergeStmt},
+				}
+				if $1 != nil {
+					mergeStmt.WithClause = $1.(*ast.WithClause)
+				}
+				mergeStmt.Relation = $4.(*ast.RangeVar)
+				mergeStmt.SourceRelation = $6
+				mergeStmt.JoinCondition = $8
+				// mergeStmt.MergeWhenClauses = $9 // TODO: Implement when needed
+				// mergeStmt.ReturningList = convertToNodeList($10) // TODO: Implement when needed
+				$$ = mergeStmt
+			}
+		;
+
+merge_when_list:
+			/* EMPTY */
+			{
+				$$ = nil
+			}
+		/* TODO: Add merge_when_clause rules when needed */
+		;
+
+/*
+ * Common DML clauses
+ */
+
+opt_on_conflict:
+			/* EMPTY */
+			{
+				$$ = nil
+			}
+		;
+
+returning_clause:
+			RETURNING target_list
+			{
+				$$ = $2
+			}
+		|	/* EMPTY */
+			{
+				$$ = nil
+			}
 		;
 
 %%

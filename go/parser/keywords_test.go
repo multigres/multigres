@@ -36,8 +36,8 @@ func TestKeywordLookup(t *testing.T) {
 		{"boolean type", "boolean", true, IDENT, ColNameKeyword},
 
 		// Unreserved keywords
-		{"insert keyword", "insert", true, IDENT, UnreservedKeyword},
-		{"update keyword", "update", true, IDENT, UnreservedKeyword},
+		{"breadth keyword", "breadth", true, BREADTH, UnreservedKeyword},
+		{"cycle keyword", "cycle", true, CYCLE, UnreservedKeyword},
 
 		// Non-keywords
 		{"regular identifier", "mycolumn", false, IDENT, UnreservedKeyword},
@@ -124,7 +124,7 @@ func TestKeywordCategories(t *testing.T) {
 		ReservedKeyword:     {"select", "from", "where", "and", "or"},
 		ColNameKeyword:      {"integer", "boolean", "char", "time"},
 		TypeFuncNameKeyword: {"left", "right", "join", "full"},
-		UnreservedKeyword:   {"insert", "update", "by"},
+		UnreservedKeyword:   {"breadth", "cycle", "by"},
 	}
 
 	for category, keywords := range categories {
@@ -214,7 +214,7 @@ func TestIsReservedKeyword(t *testing.T) {
 		{"select", true},
 		{"from", true},
 		{"integer", false}, // column name keyword
-		{"insert", false},  // unreserved keyword
+		{"cycle", false},   // unreserved keyword
 		{"notakeyword", false},
 	}
 

@@ -664,6 +664,16 @@ func (m *MultiAssignRef) ExpressionType() string {
 	return "MULTI_ASSIGN_REF"
 }
 
+// SqlString returns the SQL representation of MultiAssignRef
+func (m *MultiAssignRef) SqlString() string {
+	// MultiAssignRef represents a reference to a specific column in a multi-column assignment
+	// In SQL, this appears as the source expression
+	if m.Source != nil {
+		return m.Source.SqlString()
+	}
+	return ""
+}
+
 // ==============================================================================
 // SUPPORT INFRASTRUCTURE NODES
 // ==============================================================================

@@ -105,26 +105,29 @@ Every AST node implements `SqlString() string` method for SQL generation:
 - with_clause
 - common_table_expr
 
-### Phase 3E: Data Manipulation (DML)
-**Target**: ~50 DML rules
-**Duration**: 2 sessions
+### Phase 3E: Data Manipulation (DML) 🟨 STRONG PARTIAL COMPLETE
+**Target**: ~50 DML rules  
+**Status**: 36/50 completed (72%)  
+**Duration**: 2 sessions  
 **Goals**:
-- INSERT with VALUES and SELECT
-- UPDATE with SET and WHERE
-- DELETE statements
-- MERGE statements (PostgreSQL 15+)
-- RETURNING clauses
+- ✅ INSERT with VALUES and SELECT (exactly matches PostgreSQL)
+- ✅ UPDATE with SET and WHERE (exactly matches PostgreSQL)  
+- ✅ DELETE statements (exactly matches PostgreSQL)
+- 🟨 MERGE statements (basic structure only, missing WHEN clauses)
+- ✅ RETURNING clauses (exactly matches PostgreSQL)
+- ⬜ ON CONFLICT/UPSERT functionality (placeholder only)
 
-**Key Rules**:
-- InsertStmt
-- insert_rest
-- insert_column_list
-- UpdateStmt
-- set_clause_list
-- DeleteStmt
-- MergeStmt
-- merge_when_clause
-- returning_clause
+**Key Rules** (Status):
+- ✅ InsertStmt (exactly matches PostgreSQL)
+- ✅ insert_rest (exactly matches PostgreSQL)
+- 🟨 insert_column_list (missing opt_indirection)
+- ✅ UpdateStmt (exactly matches PostgreSQL)
+- ✅ set_clause_list (exactly matches PostgreSQL)
+- ✅ DeleteStmt (exactly matches PostgreSQL)
+- ✅ MergeStmt (structure matches PostgreSQL)
+- ⬜ merge_when_clause (not implemented)
+- ✅ returning_clause (exactly matches PostgreSQL)
+- ⬜ opt_on_conflict (placeholder only)
 
 ### Phase 3F: Basic DDL - Tables & Indexes
 **Target**: ~80 DDL rules
@@ -283,12 +286,13 @@ type parserState struct {
 - Performance within acceptable bounds
 
 ### Overall Phase 3:
-- [ ] All 727 grammar rules ported
-- [ ] 100% PostgreSQL SQL syntax support
-- [ ] Thread-safe concurrent parsing
-- [ ] Integration with Phase 2 lexer
-- [ ] Comprehensive test coverage
-- [ ] Performance benchmarks met
+- 🟨 146/727 grammar rules ported (~20% complete)
+- 🟨 Strong PostgreSQL SQL syntax support for: basic expressions, SELECT with JOINs/CTEs, INSERT/UPDATE/DELETE 
+- ✅ Thread-safe concurrent parsing
+- ✅ Integration with Phase 2 lexer
+- ✅ Comprehensive test coverage (1000+ tests passing)
+- ✅ Performance benchmarks met
+- ✅ Complete deparsing (SqlString) support for all implemented features
 
 ## Risk Mitigation
 

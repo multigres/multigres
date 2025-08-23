@@ -595,6 +595,58 @@ func (i *InsertStmt) StatementType() string {
 	return "INSERT"
 }
 
+// SqlString returns the SQL representation of the InsertStmt
+func (i *InsertStmt) SqlString() string {
+	var parts []string
+	
+	// WITH clause
+	if i.WithClause != nil {
+		parts = append(parts, i.WithClause.SqlString())
+	}
+	
+	// INSERT INTO table
+	parts = append(parts, "INSERT INTO")
+	if i.Relation != nil {
+		parts = append(parts, i.Relation.SqlString())
+	}
+	
+	// Column list (if specified)
+	if len(i.Cols) > 0 {
+		var cols []string
+		for _, col := range i.Cols {
+			// For INSERT column lists, we only need the column name
+			if col.Name != "" {
+				cols = append(cols, QuoteIdentifier(col.Name))
+			}
+		}
+		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(cols, ", ")))
+	}
+	// SelectStmt/VALUES clause
+	if i.SelectStmt != nil {
+		selectStr := i.SelectStmt.SqlString()
+		parts = append(parts, selectStr)
+	} else {
+		// DEFAULT VALUES case (SelectStmt is nil)
+		parts = append(parts, "DEFAULT VALUES")
+	}
+	
+	// TODO: ON CONFLICT clause when implemented
+	// if i.OnConflictClause != nil {
+	//     parts = append(parts, i.OnConflictClause.SqlString())
+	// }
+	
+	// RETURNING clause
+	if len(i.ReturningList) > 0 {
+		var returning []string
+		for _, ret := range i.ReturningList {
+			returning = append(returning, ret.SqlString())
+		}
+		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 // UpdateStmt represents an UPDATE statement.
 // Ported from postgres/src/include/nodes/parsenodes.h:2069
 type UpdateStmt struct {
@@ -627,6 +679,60 @@ func (u *UpdateStmt) StatementType() string {
 	return "UPDATE"
 }
 
+// SqlString returns the SQL representation of the UpdateStmt
+func (u *UpdateStmt) SqlString() string {
+	var parts []string
+	
+	// WITH clause
+	if u.WithClause != nil {
+		parts = append(parts, u.WithClause.SqlString())
+	}
+	
+	// UPDATE table
+	parts = append(parts, "UPDATE")
+	if u.Relation != nil {
+		parts = append(parts, u.Relation.SqlString())
+	}
+	
+	// SET clause
+	if len(u.TargetList) > 0 {
+		var setClauses []string
+		for _, target := range u.TargetList {
+			// For UPDATE SET clauses, we need "column = value" format
+			if target.Name != "" && target.Val != nil {
+				setClause := QuoteIdentifier(target.Name) + " = " + target.Val.SqlString()
+				setClauses = append(setClauses, setClause)
+			}
+		}
+		parts = append(parts, "SET", strings.Join(setClauses, ", "))
+	}
+	
+	// FROM clause
+	if u.FromClause != nil && u.FromClause.Len() > 0 {
+		var fromParts []string
+		for _, item := range u.FromClause.Items {
+			fromParts = append(fromParts, item.SqlString())
+		}
+		parts = append(parts, "FROM", strings.Join(fromParts, ", "))
+	}
+	
+	// WHERE clause
+	if u.WhereClause != nil {
+		parts = append(parts, "WHERE", u.WhereClause.SqlString())
+	}
+	
+	// RETURNING clause
+	if len(u.ReturningList) > 0 {
+		var returning []string
+		for _, ret := range u.ReturningList {
+			returning = append(returning, ret.SqlString())
+		}
+		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 // DeleteStmt represents a DELETE statement.
 // Ported from postgres/src/include/nodes/parsenodes.h:2055
 type DeleteStmt struct {
@@ -656,6 +762,47 @@ func (d *DeleteStmt) String() string {
 
 func (d *DeleteStmt) StatementType() string {
 	return "DELETE"
+}
+
+// SqlString returns the SQL representation of the DeleteStmt
+func (d *DeleteStmt) SqlString() string {
+	var parts []string
+	
+	// WITH clause
+	if d.WithClause != nil {
+		parts = append(parts, d.WithClause.SqlString())
+	}
+	
+	// DELETE FROM table
+	parts = append(parts, "DELETE FROM")
+	if d.Relation != nil {
+		parts = append(parts, d.Relation.SqlString())
+	}
+	
+	// USING clause
+	if d.UsingClause != nil && d.UsingClause.Len() > 0 {
+		var usingParts []string
+		for _, item := range d.UsingClause.Items {
+			usingParts = append(usingParts, item.SqlString())
+		}
+		parts = append(parts, "USING", strings.Join(usingParts, ", "))
+	}
+	
+	// WHERE clause
+	if d.WhereClause != nil {
+		parts = append(parts, "WHERE", d.WhereClause.SqlString())
+	}
+	
+	// RETURNING clause
+	if len(d.ReturningList) > 0 {
+		var returning []string
+		for _, ret := range d.ReturningList {
+			returning = append(returning, ret.SqlString())
+		}
+		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // ==============================================================================
@@ -1122,5 +1269,6 @@ func (o OverridingKind) String() string {
 		return fmt.Sprintf("OverridingKind(%d)", int(o))
 	}
 }
+
 
 // Note: Constraint is now defined in ddl_statements.go
