@@ -20,7 +20,7 @@ func TestDMLParsing(t *testing.T) {
 		{"INSERT multiple VALUES", "INSERT INTO users (id, name) VALUES (1, 'John'), (2, 'Jane')", ""},
 		{"INSERT with DEFAULT VALUES", "INSERT INTO users DEFAULT VALUES", ""},
 		{"INSERT with SELECT", "INSERT INTO users SELECT id, name FROM temp_users", ""},
-		{"INSERT with subquery", "INSERT INTO users (SELECT id, name FROM temp_users WHERE active = TRUE)", "INSERT INTO users SELECT id, name FROM temp_users WHERE active = true"},
+		{"INSERT with subquery", "INSERT INTO users (SELECT id, name FROM temp_users WHERE active = TRUE)", "INSERT INTO users SELECT id, name FROM temp_users WHERE active = TRUE"},
 		{"INSERT with RETURNING single column", "INSERT INTO users (name) VALUES ('John') RETURNING id", ""},
 		{"INSERT with RETURNING multiple columns", "INSERT INTO users (name) VALUES ('John') RETURNING id, name, created_at", ""},
 		{"INSERT with RETURNING *", "INSERT INTO users (name) VALUES ('John') RETURNING *", ""},
@@ -42,25 +42,25 @@ func TestDMLParsing(t *testing.T) {
 		{"UPDATE with complex SET expressions", "UPDATE users SET name = upper('jane'), age = age + 1, updated_at = now()", ""},
 		{"UPDATE with FROM clause", "UPDATE users SET name = temp.name FROM temp_users temp WHERE users.id = temp.id", "UPDATE users SET name = temp.name FROM temp_users AS temp WHERE users.id = temp.id"},
 		{"UPDATE with multiple FROM tables", "UPDATE users SET name = t1.name FROM temp_users t1, other_table t2 WHERE users.id = t1.id AND t1.other_id = t2.id", "UPDATE users SET name = t1.name FROM temp_users AS t1, other_table AS t2 WHERE users.id = t1.id AND t1.other_id = t2.id"},
-		{"UPDATE with complex WHERE", "UPDATE users SET name = 'Jane' WHERE id > 10 AND active = TRUE AND created_at > '2023-01-01'", "UPDATE users SET name = 'Jane' WHERE id > 10 AND active = true AND created_at > '2023-01-01'"},
+		{"UPDATE with complex WHERE", "UPDATE users SET name = 'Jane' WHERE id > 10 AND active = TRUE AND created_at > '2023-01-01'", ""},
 		{"UPDATE with RETURNING single column", "UPDATE users SET name = 'Jane' WHERE id = 1 RETURNING id", ""},
 		{"UPDATE with RETURNING multiple columns", "UPDATE users SET name = 'Jane' WHERE id = 1 RETURNING id, name, updated_at", ""},
 		{"UPDATE with RETURNING *", "UPDATE users SET name = 'Jane' WHERE id = 1 RETURNING *", ""},
 		{"UPDATE with qualified table", "UPDATE public.users SET name = 'Jane' WHERE id = 1", ""},
 		{"UPDATE with WHERE CURRENT OF cursor", "UPDATE users SET name = 'Jane' WHERE CURRENT OF my_cursor", ""},
 		{"UPDATE with ONLY modifier", "UPDATE ONLY parent_table SET name = 'updated'", ""},
-		{"UPDATE with no WHERE clause", "UPDATE users SET active = TRUE", "UPDATE users SET active = true"},
+		{"UPDATE with no WHERE clause", "UPDATE users SET active = TRUE", ""},
 		{"UPDATE with arithmetic expressions", "UPDATE products SET price = price * 1.1, updated_count = updated_count + 1", ""},
 		{"UPDATE with type casts", "UPDATE users SET score = '95.5'::decimal, active = 'true'::boolean", ""},
 		{"UPDATE with function calls in SET", "UPDATE users SET name = upper(trim(name)), email = lower(email)", ""},
-		{"UPDATE with function calls in WHERE", "UPDATE users SET active = FALSE WHERE length(name) < 3 AND upper(status) = 'INACTIVE'", "UPDATE users SET active = false WHERE length(name) < 3 AND upper(status) = 'INACTIVE'"},
+		{"UPDATE with function calls in WHERE", "UPDATE users SET active = FALSE WHERE length(name) < 3 AND upper(status) = 'INACTIVE'", ""},
 		{"UPDATE with nested arithmetic", "UPDATE stats SET score = (score + bonus) * multiplier, rank = rank + 1", ""},
 		{"UPDATE with complex FROM and expressions", "UPDATE orders SET total = o.quantity * p.price, updated_at = now() FROM order_items o, products p WHERE orders.id = o.order_id AND o.product_id = p.id", "UPDATE orders SET total = o.quantity * p.price, updated_at = now() FROM order_items AS o, products AS p WHERE orders.id = o.order_id AND o.product_id = p.id"},
 
 		// ===== DELETE Statements =====
 		{"DELETE simple", "DELETE FROM users", ""},
 		{"DELETE with WHERE", "DELETE FROM users WHERE id = 1", ""},
-		{"DELETE with complex WHERE", "DELETE FROM users WHERE active = FALSE AND created_at < '2020-01-01'", "DELETE FROM users WHERE active = false AND created_at < '2020-01-01'"},
+		{"DELETE with complex WHERE", "DELETE FROM users WHERE active = FALSE AND created_at < '2020-01-01'", ""},
 		{"DELETE with USING clause", "DELETE FROM users USING temp_users temp WHERE users.id = temp.id", "DELETE FROM users USING temp_users AS temp WHERE users.id = temp.id"},
 		{"DELETE with multiple USING tables", "DELETE FROM users USING temp_users t1, other_table t2 WHERE users.id = t1.id AND t1.other_id = t2.id", "DELETE FROM users USING temp_users AS t1, other_table AS t2 WHERE users.id = t1.id AND t1.other_id = t2.id"},
 		{"DELETE with RETURNING single column", "DELETE FROM users WHERE id = 1 RETURNING id", ""},
@@ -79,8 +79,8 @@ func TestDMLParsing(t *testing.T) {
 		{"MERGE with qualified tables", "MERGE INTO public.target USING staging.source ON target.id = source.id WHEN MATCHED THEN DO NOTHING", ""},
 		{"MERGE with table aliases", "MERGE INTO target AS t USING source AS s ON t.id = s.id WHEN MATCHED THEN DO NOTHING", ""},
 		{"MERGE with complex join condition", "MERGE INTO target USING source ON target.id = source.id AND target.version = source.version WHEN MATCHED THEN DO NOTHING", ""},
-		{"MERGE with subquery as source", "MERGE INTO target USING (SELECT * FROM source WHERE active = TRUE) AS s ON target.id = s.id WHEN MATCHED THEN DO NOTHING", "MERGE INTO target USING (SELECT * FROM source WHERE active = true) AS s ON target.id = s.id WHEN MATCHED THEN DO NOTHING"},
-		{"MERGE with WITH clause", "WITH filtered AS (SELECT * FROM source WHERE active = TRUE) MERGE INTO target USING filtered ON target.id = filtered.id WHEN MATCHED THEN DO NOTHING", "WITH filtered AS (SELECT * FROM source WHERE active = true) MERGE INTO target USING filtered ON target.id = filtered.id WHEN MATCHED THEN DO NOTHING"},
+		{"MERGE with subquery as source", "MERGE INTO target USING (SELECT * FROM source WHERE active = TRUE) AS s ON target.id = s.id WHEN MATCHED THEN DO NOTHING", ""},
+		{"MERGE with WITH clause", "WITH filtered AS (SELECT * FROM source WHERE active = TRUE) MERGE INTO target USING filtered ON target.id = filtered.id WHEN MATCHED THEN DO NOTHING", ""},
 
 		// ===== MERGE WHEN Clauses (Phase 3E) =====
 		{"MERGE with WHEN MATCHED UPDATE", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET name = source.name", ""},
@@ -90,7 +90,7 @@ func TestDMLParsing(t *testing.T) {
 		{"MERGE with WHEN MATCHED DO NOTHING", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN DO NOTHING", ""},
 		{"MERGE with WHEN NOT MATCHED DO NOTHING", "MERGE INTO target USING source ON target.id = source.id WHEN NOT MATCHED THEN DO NOTHING", ""},
 		{"MERGE with conditional WHEN", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED AND target.updated_at < source.updated_at THEN UPDATE SET name = source.name", ""},
-		{"MERGE with multiple WHEN clauses", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED AND source.active = TRUE THEN UPDATE SET name = source.name WHEN NOT MATCHED THEN INSERT VALUES (source.id, source.name)", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED AND source.active = true THEN UPDATE SET name = source.name WHEN NOT MATCHED THEN INSERT VALUES (source.id, source.name)"},
+		{"MERGE with multiple WHEN clauses", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED AND source.active = TRUE THEN UPDATE SET name = source.name WHEN NOT MATCHED THEN INSERT VALUES (source.id, source.name)", ""},
 
 		// ===== INSERT ON CONFLICT (Phase 3E) =====
 		{"INSERT with ON CONFLICT DO NOTHING", "INSERT INTO users (id, name) VALUES (1, 'John') ON CONFLICT DO NOTHING", ""},
@@ -108,7 +108,7 @@ func TestDMLParsing(t *testing.T) {
 		{"COPY with BINARY option", "COPY users FROM '/path/to/file.dat' BINARY", "COPY users FROM '/path/to/file.dat' (format 'binary')"},
 		{"COPY with FREEZE option", "COPY users FROM '/path/to/file.csv' FREEZE", "COPY users FROM '/path/to/file.csv' (freeze true)"},
 		{"COPY with PROGRAM", "COPY users FROM PROGRAM 'gunzip < /path/to/file.csv.gz'", ""},
-		{"COPY query TO file", "COPY (SELECT * FROM users WHERE active = TRUE) TO '/path/to/export.csv'", "COPY (SELECT * FROM users WHERE active = true) TO '/path/to/export.csv'"},
+		{"COPY query TO file", "COPY (SELECT * FROM users WHERE active = TRUE) TO '/path/to/export.csv'", ""},
 
 		// ===== Complex DML with Expressions =====
 		{"INSERT with nested function calls", "INSERT INTO users (name, email) VALUES (upper(trim('  john  ')), lower(concat('john', '@', 'example.com')))", ""},

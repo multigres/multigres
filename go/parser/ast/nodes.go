@@ -214,7 +214,7 @@ const (
 	T_JsonArrayAgg
 
 	// Phase 1G: JSON Primitive Expressions - primnodes.h JSON expression nodes
-	T_JsonConstructorExpr   // JSON constructor expression - primnodes.h:1703
+	T_JsonConstructorExpr  // JSON constructor expression - primnodes.h:1703
 	T_JsonIsPredicate      // JSON IS predicate - primnodes.h:1732
 	T_JsonExpr             // JSON expression - primnodes.h:1813
 	T_JsonTablePath        // JSON table path - primnodes.h:1867
@@ -223,18 +223,18 @@ const (
 	T_JsonTableSiblingJoin // JSON table sibling join - primnodes.h:1923
 
 	// Phase 1F: Primitive Expression Completion Part 1 - primnodes.h nodes
-	T_GroupingFunc          // GROUPING function - primnodes.h:537
+	T_GroupingFunc           // GROUPING function - primnodes.h:537
 	T_WindowFuncRunCondition // Window function run condition - primnodes.h:596
-	T_MergeSupportFunc      // Merge support function - primnodes.h:628
-	T_NamedArgExpr          // Named argument expression - primnodes.h:787
-	T_CaseTestExpr          // CASE test expression - primnodes.h:1352
-	T_MinMaxExpr            // MIN/MAX expression - primnodes.h:1506
-	T_RowCompareExpr        // Row comparison - primnodes.h:1463
-	T_SQLValueFunction      // SQL value function - primnodes.h:1553
-	T_XmlExpr               // XML expression - primnodes.h:1596
-	T_MergeAction           // MERGE action - primnodes.h:2003
-	T_TableFunc             // Table function - primnodes.h:109
-	T_IntoClause            // INTO clause - primnodes.h:158
+	T_MergeSupportFunc       // Merge support function - primnodes.h:628
+	T_NamedArgExpr           // Named argument expression - primnodes.h:787
+	T_CaseTestExpr           // CASE test expression - primnodes.h:1352
+	T_MinMaxExpr             // MIN/MAX expression - primnodes.h:1506
+	T_RowCompareExpr         // Row comparison - primnodes.h:1463
+	T_SQLValueFunction       // SQL value function - primnodes.h:1553
+	T_XmlExpr                // XML expression - primnodes.h:1596
+	T_MergeAction            // MERGE action - primnodes.h:2003
+	T_TableFunc              // Table function - primnodes.h:109
+	T_IntoClause             // INTO clause - primnodes.h:158
 
 	// Value nodes - ported from postgres/src/include/nodes/value.h
 	T_Integer   // Integer literal - postgres/src/include/nodes/value.h:28-34
@@ -704,7 +704,7 @@ func (n *BaseNode) String() string {
 // Specific node types should override this method to provide actual SQL deparsing.
 func (n *BaseNode) SqlString() string {
 	panic(fmt.Sprintf("SqlString() not implemented for node type %s (tag: %d). "+
-		"Please implement SqlString() method for this node type to enable SQL deparsing.", 
+		"Please implement SqlString() method for this node type to enable SQL deparsing.",
 		n.Tag, int(n.Tag)))
 }
 
@@ -750,14 +750,14 @@ func (n *NodeList) SqlString() string {
 	if len(n.Items) == 0 {
 		return ""
 	}
-	
+
 	var parts []string
 	for _, item := range n.Items {
 		if item != nil {
 			parts = append(parts, item.SqlString())
 		}
 	}
-	
+
 	return strings.Join(parts, ", ")
 }
 
@@ -1092,7 +1092,6 @@ func NewQualifiedName(schema, name string) Node {
 		RelName:    name,
 	}
 }
-
 
 // NodeWalker is a function type for walking the AST.
 // It receives a node and returns whether to continue walking.

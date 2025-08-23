@@ -159,6 +159,7 @@ type LexerInterface interface {
 %nonassoc        BETWEEN IN_P LIKE ILIKE SIMILAR NOT_LA
 %nonassoc        ESCAPE
 /* Keyword precedence - these assignments have global effect for conflict resolution */
+%nonassoc	UNBOUNDED NESTED /* ideally would have same precedence as IDENT */
 %nonassoc        IDENT SET PARTITION RANGE ROWS GROUPS PRECEDING FOLLOWING CUBE ROLLUP
                 KEYS OBJECT_P SCALAR VALUE_P WITH WITHOUT PATH
 %left            Op OPERATOR
@@ -181,13 +182,12 @@ type LexerInterface interface {
  */
 %type <stmtList>     parse_toplevel stmtmulti
 %type <stmt>         toplevel_stmt stmt
-%type <str>          ColId ColLabel name
+%type <str>          ColId ColLabel name BareColLabel
 %type <node>         name_list columnList
 %type <node>         qualified_name any_name
 %type <node>         qualified_name_list any_name_list
 %type <str>          opt_single_name
 %type <str>          unreserved_keyword col_name_keyword type_func_name_keyword reserved_keyword bare_label_keyword
-%type <node>         opt_qualified_name
 %type <node>         opt_name_list
 %type <ival>         opt_drop_behavior
 %type <ival>         opt_if_exists opt_if_not_exists
@@ -447,6 +447,9 @@ ColLabel:
 		|	reserved_keyword						{ $$ = $1 }
 		;
 
+BareColLabel:	IDENT								{ $$ = $1; }
+			| bare_label_keyword					{ $$ = $1; }
+
 name:
 			ColId									{ $$ = $1 }
 		;
@@ -483,14 +486,6 @@ qualified_name:
 				$$ = &ast.RangeVar{
 					RelName: $1,
 					Inh:     true, // inheritance enabled by default
-				}
-			}
-		|	ColId '.' ColId
-			{
-				$$ = &ast.RangeVar{
-					SchemaName: $1,
-					RelName:    $3,
-					Inh:        true, // inheritance enabled by default
 				}
 			}
 		|	ColId indirection
@@ -544,10 +539,6 @@ any_name:
 			ColId
 			{
 				$$ = ast.NewNodeList(ast.NewString($1))
-			}
-		|	ColId '.' ColId
-			{
-				$$ = ast.NewNodeList(ast.NewString($1), ast.NewString($3))
 			}
 		|	ColId attrs
 			{
@@ -1948,19 +1939,6 @@ AexprConst:	Iconst
 			}
 		;
 
-/* Expression list - used in various contexts */
-expr_list:	a_expr
-			{
-				$$ = ast.NewNodeList($1)
-			}
-		|	expr_list ',' a_expr
-			{
-				list := $1.(*ast.NodeList)
-				list.Append($3)
-				$$ = list
-			}
-		;
-
 Iconst:		ICONST								{ $$ = $1 }
 		;
 
@@ -2002,7 +1980,7 @@ opt_slice_bound: a_expr							{ $$ = $1 }
 		|	/* EMPTY */							{ $$ = nil }
 		;
 
-indirection_el: '.' ColId
+indirection_el: '.' attr_name
 			{
 				$$ = ast.NewString($2)
 			}
@@ -2153,7 +2131,7 @@ SimpleTypename: GenericType						{ $$ = $1 }
 		|	ConstDatetime						{ $$ = $1 }
 		;
 
-type_function_name: ColId					{ $$ = $1 }
+type_function_name: IDENT					{ $$ = $1 }
 		|	unreserved_keyword					{ $$ = $1 }
 		|	type_func_name_keyword				{ $$ = $1 }
 		;
@@ -2544,7 +2522,7 @@ simple_select:
 				selectStmt.WhereClause = $6
 				$$ = selectStmt
 			}
-		|	SELECT opt_distinct_clause opt_target_list
+		|	SELECT distinct_clause target_list
 			into_clause from_clause where_clause
 			{
 				selectStmt := ast.NewSelectStmt()
@@ -2593,7 +2571,7 @@ target_el:
 			{
 				$$ = ast.NewResTarget($3, $1)
 			}
-		|	a_expr ColLabel
+		|	a_expr BareColLabel
 			{
 				// Implicit alias (no AS keyword)
 				$$ = ast.NewResTarget($2, $1)
@@ -4334,14 +4312,6 @@ opt_as:
 		;
 
 /*
- * PreparableStmt for COPY (SELECT ...)
- * For now, just use SelectStmt - can be expanded later
- */
-PreparableStmt:
-			SelectStmt				{ $$ = $1 }
-		;
-
-/*
  * Utility options for various statements
  * Based on postgres/src/backend/parser/gram.y utility options
  */
@@ -4645,11 +4615,6 @@ opt_collate:
 	|	/* EMPTY */					{ $$ = nil }
 	;
 
-opt_qualified_name:
-		any_name					{ $$ = $1 }
-	|	/* EMPTY */					{ $$ = nil }
-	;
-
 opt_asc_desc:
 		ASC							{ $$ = int(ast.SORTBY_ASC) }
 	|	DESC						{ $$ = int(ast.SORTBY_DESC) }
@@ -4657,8 +4622,8 @@ opt_asc_desc:
 	;
 
 opt_nulls_order:
-		NULLS_P FIRST_P				{ $$ = int(ast.SORTBY_NULLS_FIRST) }
-	|	NULLS_P LAST_P				{ $$ = int(ast.SORTBY_NULLS_LAST) }
+		NULLS_LA FIRST_P				{ $$ = int(ast.SORTBY_NULLS_FIRST) }
+	|	NULLS_LA LAST_P				{ $$ = int(ast.SORTBY_NULLS_LAST) }
 	|	/* EMPTY */					{ $$ = int(ast.SORTBY_NULLS_DEFAULT) }
 	;
 

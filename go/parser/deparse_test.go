@@ -160,7 +160,7 @@ func TestDeparsing(t *testing.T) {
 		{"COPY FROM basic", "COPY users FROM '/path/to/file.csv'", ""},
 		{"COPY FROM with BINARY", "COPY users FROM '/path/to/file.dat' BINARY", "COPY users FROM '/path/to/file.dat' (format 'binary')"},
 
-		// COPY statements - new parenthesized syntax  
+		// COPY statements - new parenthesized syntax
 		{"COPY FROM with new syntax basic", "COPY users FROM '/path/to/file.csv' (format 'csv')", ""},
 		{"COPY FROM with header option", "COPY users FROM '/path/to/file.csv' (format 'csv', header true)", ""},
 		{"COPY FROM with delimiter option", "COPY users FROM '/path/to/file.csv' (format 'csv', delimiter ',')", ""},
@@ -310,7 +310,7 @@ func TestRoundTripParsing(t *testing.T) {
 
 		// COPY statements - basic round trip parsing
 		{"COPY users FROM '/path/to/file.csv'", ""},
-		{"COPY users FROM '/path/to/file.csv' (format 'csv')", ""}, // Options now preserved!
+		{"COPY users FROM '/path/to/file.csv' (format 'csv')", ""},            // Options now preserved!
 		{"COPY users (id, name) FROM '/path/to/file.csv' (format 'csv')", ""}, // Options now preserved!
 		{"COPY users TO '/path/to/file.csv' (format 'csv', header true)", ""}, // Options now preserved!
 	}
@@ -353,7 +353,7 @@ func TestRoundTripParsing(t *testing.T) {
 }
 
 func TestOneCase(t *testing.T) {
-	query := "SELECT DISTINCT name FROM users"
+	query := "UPDATE users SET active = TRUE"
 	output := ""
 	if query == "" {
 		t.Skip("No tests to run")
@@ -1457,7 +1457,7 @@ func TestDMLRoundTrip(t *testing.T) {
 			name: "INSERT with schema qualified table",
 			sql:  "INSERT INTO public.users (name) VALUES ('John')",
 		},
-		
+
 		// UPDATE statements
 		{
 			name: "simple UPDATE",
@@ -1479,7 +1479,7 @@ func TestDMLRoundTrip(t *testing.T) {
 			name: "UPDATE with schema qualified table",
 			sql:  "UPDATE public.users SET name = 'Jane'",
 		},
-		
+
 		// DELETE statements
 		{
 			name: "simple DELETE",
@@ -1497,7 +1497,7 @@ func TestDMLRoundTrip(t *testing.T) {
 			name: "DELETE with schema qualified table",
 			sql:  "DELETE FROM public.users WHERE id = 1",
 		},
-		
+
 		// MERGE statements (basic)
 		{
 			name: "basic MERGE",
@@ -1517,14 +1517,14 @@ func TestDMLRoundTrip(t *testing.T) {
 			require.Len(t, stmts, 1, "Expected exactly 1 statement")
 
 			stmt := stmts[0]
-			
+
 			// Verify statement type
 			var expectedType string
 			switch stmt.(type) {
 			case *ast.InsertStmt:
 				expectedType = "INSERT"
 			case *ast.UpdateStmt:
-				expectedType = "UPDATE"  
+				expectedType = "UPDATE"
 			case *ast.DeleteStmt:
 				expectedType = "DELETE"
 			case *ast.MergeStmt:
@@ -1532,31 +1532,31 @@ func TestDMLRoundTrip(t *testing.T) {
 			default:
 				t.Fatalf("Unexpected statement type: %T", stmt)
 			}
-			
+
 			assert.Equal(t, expectedType, stmt.StatementType())
 
 			// Test SqlString method
 			sqlString := stmt.SqlString()
 			assert.NotEmpty(t, sqlString, "SqlString() should not be empty")
-			
+
 			// Note: We focus on round-trip parsing rather than exact string matching
 			// due to possible formatting differences in the deparsed output
-			
+
 			// For round-trip testing, we compare the semantic meaning
 			// rather than exact string match due to possible formatting differences
 			t.Logf("Original: %s", tt.sql)
 			t.Logf("Deparsed: %s", sqlString)
-			
+
 			// Try to parse the deparsed SQL to ensure it's valid
 			reparsedStmts, err := ParseSQL(sqlString)
 			assert.NoError(t, err, "Failed to reparse deparsed SQL: %s", sqlString)
 			assert.Len(t, reparsedStmts, 1, "Reparsed SQL should produce exactly 1 statement")
-			
+
 			// Verify the reparsed statement has the same type
 			reparsedStmt := reparsedStmts[0]
-			assert.Equal(t, stmt.StatementType(), reparsedStmt.StatementType(), 
+			assert.Equal(t, stmt.StatementType(), reparsedStmt.StatementType(),
 				"Reparsed statement should have same type")
-			
+
 			// Additional semantic checks based on statement type
 			switch origStmt := stmt.(type) {
 			case *ast.InsertStmt:
@@ -1594,11 +1594,11 @@ func TestDMLSqlStringMethods(t *testing.T) {
 		// Create a simple INSERT statement node
 		relation := ast.NewRangeVar("users", "", "")
 		insertStmt := ast.NewInsertStmt(relation)
-		
+
 		// Add a simple SELECT for VALUES
 		selectStmt := ast.NewSelectStmt()
 		insertStmt.SelectStmt = selectStmt
-		
+
 		sqlString := insertStmt.SqlString()
 		assert.Contains(t, sqlString, "INSERT INTO")
 		assert.Contains(t, sqlString, "users")
@@ -1609,11 +1609,11 @@ func TestDMLSqlStringMethods(t *testing.T) {
 		// Create a simple UPDATE statement node
 		relation := ast.NewRangeVar("users", "", "")
 		updateStmt := ast.NewUpdateStmt(relation)
-		
+
 		// Add a target (SET clause)
 		target := ast.NewResTarget("name", ast.NewA_Const(ast.NewString("Jane"), 0))
 		updateStmt.TargetList = []*ast.ResTarget{target}
-		
+
 		sqlString := updateStmt.SqlString()
 		assert.Contains(t, sqlString, "UPDATE")
 		assert.Contains(t, sqlString, "users")
@@ -1625,7 +1625,7 @@ func TestDMLSqlStringMethods(t *testing.T) {
 		// Create a simple DELETE statement node
 		relation := ast.NewRangeVar("users", "", "")
 		deleteStmt := ast.NewDeleteStmt(relation)
-		
+
 		sqlString := deleteStmt.SqlString()
 		assert.Contains(t, sqlString, "DELETE FROM")
 		assert.Contains(t, sqlString, "users")
@@ -1637,9 +1637,9 @@ func TestDMLSqlStringMethods(t *testing.T) {
 		targetRelation := ast.NewRangeVar("target", "", "")
 		sourceRelation := ast.NewRangeVar("source", "", "")
 		joinCondition := ast.NewA_Const(ast.NewString("target.id = source.id"), 0)
-		
+
 		mergeStmt := ast.NewMergeStmt(targetRelation, sourceRelation, joinCondition)
-		
+
 		sqlString := mergeStmt.SqlString()
 		assert.Contains(t, sqlString, "MERGE INTO")
 		assert.Contains(t, sqlString, "target")
@@ -1654,14 +1654,14 @@ func TestDMLSqlStringMethods(t *testing.T) {
 func TestDMLWithClauses(t *testing.T) {
 	t.Run("INSERT with WITH clause", func(t *testing.T) {
 		sql := "WITH temp AS (SELECT 1 as id) INSERT INTO users SELECT * FROM temp"
-		
+
 		stmts, err := ParseSQL(sql)
 		require.NoError(t, err)
 		require.Len(t, stmts, 1)
-		
+
 		insertStmt := stmts[0].(*ast.InsertStmt)
 		sqlString := insertStmt.SqlString()
-		
+
 		assert.Contains(t, sqlString, "WITH")
 		assert.Contains(t, sqlString, "INSERT INTO")
 		t.Logf("INSERT with WITH: %s", sqlString)
@@ -1669,14 +1669,14 @@ func TestDMLWithClauses(t *testing.T) {
 
 	t.Run("UPDATE with FROM clause", func(t *testing.T) {
 		sql := "UPDATE users SET name = temp.name FROM temp_users temp WHERE users.id = temp.id"
-		
+
 		stmts, err := ParseSQL(sql)
 		require.NoError(t, err)
 		require.Len(t, stmts, 1)
-		
+
 		updateStmt := stmts[0].(*ast.UpdateStmt)
 		sqlString := updateStmt.SqlString()
-		
+
 		assert.Contains(t, sqlString, "UPDATE")
 		assert.Contains(t, sqlString, "SET")
 		assert.Contains(t, sqlString, "FROM")
@@ -1686,14 +1686,14 @@ func TestDMLWithClauses(t *testing.T) {
 
 	t.Run("DELETE with USING clause", func(t *testing.T) {
 		sql := "DELETE FROM users USING temp_users temp WHERE users.id = temp.id"
-		
+
 		stmts, err := ParseSQL(sql)
 		require.NoError(t, err)
 		require.Len(t, stmts, 1)
-		
+
 		deleteStmt := stmts[0].(*ast.DeleteStmt)
 		sqlString := deleteStmt.SqlString()
-		
+
 		assert.Contains(t, sqlString, "DELETE FROM")
 		assert.Contains(t, sqlString, "USING")
 		assert.Contains(t, sqlString, "WHERE")
@@ -1761,7 +1761,7 @@ func TestComprehensiveDMLDeparsing(t *testing.T) {
 			name: "INSERT with complex expressions in VALUES",
 			sql:  "INSERT INTO users (id, name, age) VALUES (1 + 2, upper('john'), 25 * 2)",
 		},
-		
+
 		// ===== UPDATE Statement Tests =====
 		{
 			name: "UPDATE simple",
@@ -1820,7 +1820,7 @@ func TestComprehensiveDMLDeparsing(t *testing.T) {
 		// 	name: "UPDATE with subquery in WHERE",
 		// 	sql:  "UPDATE users SET active = FALSE WHERE id IN (SELECT user_id FROM banned_users)",
 		// },
-		
+
 		// ===== DELETE Statement Tests =====
 		{
 			name: "DELETE simple",
@@ -1867,7 +1867,7 @@ func TestComprehensiveDMLDeparsing(t *testing.T) {
 		// 	name: "DELETE with subquery in WHERE",
 		// 	sql:  "DELETE FROM users WHERE id IN (SELECT user_id FROM temp_table)",
 		// },
-		
+
 		// ===== MERGE Statement Tests =====
 		{
 			name: "MERGE basic",
@@ -1893,7 +1893,7 @@ func TestComprehensiveDMLDeparsing(t *testing.T) {
 			name: "MERGE with WITH clause",
 			sql:  "WITH filtered AS (SELECT * FROM source WHERE active = TRUE) MERGE INTO target USING filtered ON target.id = filtered.id WHEN MATCHED THEN DO NOTHING",
 		},
-		
+
 		// ===== Complex DML with Expressions =====
 		{
 			name: "INSERT with function calls in VALUES",
@@ -1905,14 +1905,14 @@ func TestComprehensiveDMLDeparsing(t *testing.T) {
 		},
 		// Note: extract() function not yet implemented in parser
 		// {
-		// 	name: "DELETE with function in WHERE", 
+		// 	name: "DELETE with function in WHERE",
 		// 	sql:  "DELETE FROM users WHERE length(name) < 3 OR extract(year FROM created_at) < 2020",
 		// },
 		{
 			name: "DELETE with simple function in WHERE",
 			sql:  "DELETE FROM users WHERE length(name) < 3",
 		},
-		
+
 		// ===== DML with Type Casts =====
 		{
 			name: "INSERT with type casts",
@@ -1922,7 +1922,7 @@ func TestComprehensiveDMLDeparsing(t *testing.T) {
 			name: "UPDATE with type casts",
 			sql:  "UPDATE users SET score = '95.5'::decimal, active = 'true'::boolean",
 		},
-		
+
 		// ===== DML with Advanced Table References =====
 		// Note: ONLY modifier not yet fully implemented in DML parser
 		// {
@@ -1930,14 +1930,14 @@ func TestComprehensiveDMLDeparsing(t *testing.T) {
 		// 	sql:  "INSERT INTO ONLY parent_table (id, name) VALUES (1, 'test')",
 		// },
 		{
-			name: "UPDATE with ONLY modifier", 
+			name: "UPDATE with ONLY modifier",
 			sql:  "UPDATE ONLY parent_table SET name = 'updated'",
 		},
 		{
 			name: "DELETE with ONLY modifier",
 			sql:  "DELETE FROM ONLY parent_table WHERE id = 1",
 		},
-		
+
 		// ===== Edge Cases =====
 		// Note: Empty column lists may not be fully supported
 		// {
@@ -1949,7 +1949,7 @@ func TestComprehensiveDMLDeparsing(t *testing.T) {
 			sql:  "UPDATE users SET active = TRUE",
 		},
 		{
-			name: "DELETE with no WHERE clause", 
+			name: "DELETE with no WHERE clause",
 			sql:  "DELETE FROM temp_table",
 		},
 	}
@@ -2011,7 +2011,7 @@ func TestDMLExpressionDeparsing(t *testing.T) {
 			name: "INSERT with parenthesized expressions",
 			sql:  "INSERT INTO products (total) VALUES ((price + tax) * quantity)",
 		},
-		
+
 		// Complex expressions in UPDATE SET clauses
 		{
 			name: "UPDATE with complex SET expressions",
@@ -2025,8 +2025,8 @@ func TestDMLExpressionDeparsing(t *testing.T) {
 			name: "UPDATE with function calls in SET",
 			sql:  "UPDATE users SET name = upper(trim(name)), email = lower(email)",
 		},
-		
-		// Complex expressions in WHERE clauses  
+
+		// Complex expressions in WHERE clauses
 		{
 			name: "DELETE with arithmetic in WHERE",
 			sql:  "DELETE FROM products WHERE (price * 0.9) < 10.00",
@@ -2039,7 +2039,7 @@ func TestDMLExpressionDeparsing(t *testing.T) {
 			name: "DELETE with nested expressions in WHERE",
 			sql:  "DELETE FROM orders WHERE (total + tax) > (limit * 1.5) AND status = 'pending'",
 		},
-		
+
 		// Expression combinations with type casts
 		{
 			name: "INSERT with type casts and expressions",
@@ -2049,7 +2049,7 @@ func TestDMLExpressionDeparsing(t *testing.T) {
 			name: "UPDATE with complex FROM and expressions",
 			sql:  "UPDATE orders SET total = o.quantity * p.price, updated_at = now() FROM order_items o, products p WHERE orders.id = o.order_id AND o.product_id = p.id",
 		},
-		
+
 		// Advanced function combinations
 		{
 			name: "INSERT with deeply nested functions",
@@ -2086,4 +2086,3 @@ func TestDMLExpressionDeparsing(t *testing.T) {
 		})
 	}
 }
-
