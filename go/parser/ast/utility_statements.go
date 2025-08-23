@@ -717,6 +717,125 @@ func (cs *CopyStmt) StatementType() string {
 	return "COPY"
 }
 
+// SqlString returns the SQL representation of the COPY statement
+func (cs *CopyStmt) SqlString() string {
+	var parts []string
+	
+	// Start with COPY
+	parts = append(parts, "COPY")
+	
+	if cs.Relation != nil {
+		// COPY table_name
+		if cs.Relation.SchemaName != "" {
+			parts = append(parts, cs.Relation.SchemaName+"."+cs.Relation.RelName)
+		} else {
+			parts = append(parts, cs.Relation.RelName)
+		}
+		
+		// Add column list if specified
+		if len(cs.Attlist) > 0 {
+			columns := "(" + strings.Join(cs.Attlist, ", ") + ")"
+			parts = append(parts, columns)
+		}
+	} else if cs.Query != nil {
+		// COPY (query)
+		parts = append(parts, "("+cs.Query.SqlString()+")")
+	}
+	
+	// Add direction (FROM/TO)
+	if cs.IsFrom {
+		parts = append(parts, "FROM")
+	} else {
+		parts = append(parts, "TO")
+	}
+	
+	// Add PROGRAM if specified
+	if cs.IsProgram {
+		parts = append(parts, "PROGRAM")
+	}
+	
+	// Add filename or STDIN/STDOUT
+	if cs.Filename == "" {
+		if cs.IsFrom {
+			parts = append(parts, "STDIN")
+		} else {
+			parts = append(parts, "STDOUT") 
+		}
+	} else {
+		parts = append(parts, "'"+cs.Filename+"'")
+	}
+	
+	// Add options if any - always use modern parenthesized syntax
+	if len(cs.Options) > 0 {
+		var optionParts []string
+		for _, option := range cs.Options {
+			optStr := formatCopyOption(option)
+			if optStr != "" {
+				optionParts = append(optionParts, optStr)
+			}
+		}
+		if len(optionParts) > 0 {
+			parts = append(parts, "("+strings.Join(optionParts, ", ")+")")
+		}
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+
+// formatCopyOption formats a single COPY option for the canonical parenthesized syntax
+func formatCopyOption(option *DefElem) string {
+	if option.Defname == "" {
+		return ""
+	}
+	
+	optionName := option.Defname
+	
+	// Handle different types of option arguments
+	if option.Arg == nil {
+		// Boolean option with no explicit value (defaults to true)
+		return optionName
+	}
+	
+	switch arg := option.Arg.(type) {
+	case *String:
+		if arg.SVal == "true" || arg.SVal == "on" || arg.SVal == "1" {
+			return optionName + " true"
+		} else if arg.SVal == "false" || arg.SVal == "off" || arg.SVal == "0" {
+			return optionName + " false"
+		} else if arg.SVal == "default" {
+			return optionName + " default"
+		} else {
+			// String value - quote it
+			return optionName + " '" + arg.SVal + "'"
+		}
+	case *Integer:
+		return optionName + " " + fmt.Sprintf("%d", arg.IVal)
+	case *Float:
+		return optionName + " " + arg.FVal
+	case *A_Star:
+		return optionName + " *"
+	case *NodeList:
+		// Handle lists like force_quote (col1, col2)
+		var listItems []string
+		for _, item := range arg.Items {
+			if str, ok := item.(*String); ok {
+				listItems = append(listItems, str.SVal)
+			}
+		}
+		if len(listItems) > 0 {
+			return optionName + " (" + strings.Join(listItems, ", ") + ")"
+		}
+		return optionName
+	default:
+		// Fallback for other types
+		if stringer, ok := arg.(interface{ SqlString() string }); ok {
+			return optionName + " " + stringer.SqlString()
+		}
+		return optionName
+	}
+}
+
 // ==============================================================================
 // MAINTENANCE STATEMENTS - VACUUM/ANALYZE/REINDEX/CLUSTER - PostgreSQL parsenodes.h:3822-3982
 // ==============================================================================

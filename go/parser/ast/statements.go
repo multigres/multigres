@@ -630,10 +630,10 @@ func (i *InsertStmt) SqlString() string {
 		parts = append(parts, "DEFAULT VALUES")
 	}
 	
-	// TODO: ON CONFLICT clause when implemented
-	// if i.OnConflictClause != nil {
-	//     parts = append(parts, i.OnConflictClause.SqlString())
-	// }
+	// ON CONFLICT clause
+	if i.OnConflictClause != nil {
+		parts = append(parts, i.OnConflictClause.SqlString())
+	}
 	
 	// RETURNING clause
 	if len(i.ReturningList) > 0 {
@@ -1209,7 +1209,6 @@ type OnConflictClause struct {
 	Infer       *InferClause     `json:"infer"`       // Optional index inference clause
 	TargetList  []*ResTarget     `json:"targetList"`  // The target list (of ResTarget)
 	WhereClause Node             `json:"whereClause"` // Qualifications
-	Location    int              `json:"location"`    // Token location, or -1 if unknown
 }
 
 func (n *OnConflictClause) node() {}
@@ -1239,12 +1238,41 @@ func (n *OnConflictClause) String() string {
 	return strings.Join(parts, " ")
 }
 
+func (n *OnConflictClause) SqlString() string {
+	var parts []string
+	parts = append(parts, "ON CONFLICT")
+	
+	if n.Infer != nil {
+		parts = append(parts, n.Infer.SqlString())
+	}
+	
+	parts = append(parts, n.Action.SqlString())
+	
+	if n.Action == ONCONFLICT_UPDATE && len(n.TargetList) > 0 {
+		targets := make([]string, len(n.TargetList))
+		for i, target := range n.TargetList {
+			// For ON CONFLICT DO UPDATE SET, format as "column = value" not "value AS column"
+			if target.Val != nil {
+				targets[i] = target.Name + " = " + target.Val.SqlString()
+			} else {
+				targets[i] = target.Name
+			}
+		}
+		parts = append(parts, "SET", strings.Join(targets, ", "))
+	}
+	
+	if n.WhereClause != nil {
+		parts = append(parts, "WHERE", n.WhereClause.SqlString())
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 // NewOnConflictClause creates a new OnConflictClause node
 func NewOnConflictClause(action OnConflictAction) *OnConflictClause {
 	return &OnConflictClause{
 		BaseNode: BaseNode{Tag: T_OnConflictClause},
 		Action:   action,
-		Location: -1,
 	}
 }
 // OverridingKind represents OVERRIDING clause options
@@ -1258,6 +1286,19 @@ const (
 )
 
 func (o OverridingKind) String() string {
+	switch o {
+	case OVERRIDING_NOT_SET:
+		return ""
+	case OVERRIDING_USER_VALUE:
+		return "OVERRIDING USER VALUE"
+	case OVERRIDING_SYSTEM_VALUE:
+		return "OVERRIDING SYSTEM VALUE"
+	default:
+		return fmt.Sprintf("OverridingKind(%d)", int(o))
+	}
+}
+
+func (o OverridingKind) SqlString() string {
 	switch o {
 	case OVERRIDING_NOT_SET:
 		return ""

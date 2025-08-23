@@ -545,6 +545,19 @@ func (o OnConflictAction) String() string {
 	}
 }
 
+func (o OnConflictAction) SqlString() string {
+	switch o {
+	case ONCONFLICT_NONE:
+		return ""
+	case ONCONFLICT_NOTHING:
+		return "DO NOTHING"
+	case ONCONFLICT_UPDATE:
+		return "DO UPDATE"
+	default:
+		return fmt.Sprintf("OnConflictAction(%d)", int(o))
+	}
+}
+
 // OnConflictExpr represents INSERT ... ON CONFLICT expressions.
 // This is an important PostgreSQL-specific feature for handling conflicts
 // during INSERT operations (UPSERT functionality).

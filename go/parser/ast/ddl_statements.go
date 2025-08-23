@@ -454,22 +454,27 @@ func (t *TypeName) SqlString() string {
 // This is a placeholder implementation - full CollateClause from parsenodes.h will be implemented later
 type CollateClause struct {
 	BaseNode
-	Arg      Node     // input expression
-	Collname []string // possibly-qualified collation name
+	Arg      Node      // input expression
+	Collname *NodeList // possibly-qualified collation name
 }
 
 // NewCollateClause creates a new CollateClause node.
-func NewCollateClause(collname []string) *CollateClause {
+func NewCollateClause(collname *NodeList) *CollateClause {
 	return &CollateClause{
-		BaseNode: BaseNode{Tag: T_CollateClause},
+		BaseNode: BaseNode{Tag: T_CollateClause, Loc: -1},
 		Collname: collname,
 	}
 }
 
 func (c *CollateClause) String() string {
 	collName := ""
-	if len(c.Collname) > 0 {
-		collName = c.Collname[len(c.Collname)-1]
+	if c.Collname != nil && c.Collname.Len() > 0 {
+		// Get the last element (unqualified name)
+		if lastNode := c.Collname.Items[c.Collname.Len()-1]; lastNode != nil {
+			if strNode, ok := lastNode.(*String); ok {
+				collName = strNode.SVal
+			}
+		}
 	}
 	return fmt.Sprintf("CollateClause(%s)@%d", collName, c.Location())
 }
@@ -708,6 +713,16 @@ func (i *IndexElem) String() string {
 		order = fmt.Sprintf(" %s", i.Ordering)
 	}
 	return fmt.Sprintf("IndexElem(%s%s)@%d", target, order, i.Location())
+}
+
+func (i *IndexElem) SqlString() string {
+	if i.Name != "" {
+		return i.Name
+	}
+	if i.Expr != nil {
+		return i.Expr.SqlString()
+	}
+	return ""
 }
 
 // ==============================================================================

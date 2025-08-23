@@ -75,12 +75,40 @@ func TestDMLParsing(t *testing.T) {
 		{"DELETE with nested expressions in WHERE", "DELETE FROM orders WHERE (total + tax) > (limit * 1.5) AND status = 'pending'", ""},
 
 		// ===== MERGE Statements =====
-		{"MERGE basic", "MERGE INTO target USING source ON target.id = source.id", ""},
-		{"MERGE with qualified tables", "MERGE INTO public.target USING staging.source ON target.id = source.id", ""},
-		{"MERGE with table aliases", "MERGE INTO target AS t USING source AS s ON t.id = s.id", ""},
-		{"MERGE with complex join condition", "MERGE INTO target USING source ON target.id = source.id AND target.version = source.version", ""},
-		{"MERGE with subquery as source", "MERGE INTO target USING (SELECT * FROM source WHERE active = TRUE) AS s ON target.id = s.id", "MERGE INTO target USING (SELECT * FROM source WHERE active = true) AS s ON target.id = s.id"},
-		{"MERGE with WITH clause", "WITH filtered AS (SELECT * FROM source WHERE active = TRUE) MERGE INTO target USING filtered ON target.id = filtered.id", "WITH filtered AS (SELECT * FROM source WHERE active = true) MERGE INTO target USING filtered ON target.id = filtered.id"},
+		{"MERGE basic", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN DO NOTHING", ""},
+		{"MERGE with qualified tables", "MERGE INTO public.target USING staging.source ON target.id = source.id WHEN MATCHED THEN DO NOTHING", ""},
+		{"MERGE with table aliases", "MERGE INTO target AS t USING source AS s ON t.id = s.id WHEN MATCHED THEN DO NOTHING", ""},
+		{"MERGE with complex join condition", "MERGE INTO target USING source ON target.id = source.id AND target.version = source.version WHEN MATCHED THEN DO NOTHING", ""},
+		{"MERGE with subquery as source", "MERGE INTO target USING (SELECT * FROM source WHERE active = TRUE) AS s ON target.id = s.id WHEN MATCHED THEN DO NOTHING", "MERGE INTO target USING (SELECT * FROM source WHERE active = true) AS s ON target.id = s.id WHEN MATCHED THEN DO NOTHING"},
+		{"MERGE with WITH clause", "WITH filtered AS (SELECT * FROM source WHERE active = TRUE) MERGE INTO target USING filtered ON target.id = filtered.id WHEN MATCHED THEN DO NOTHING", "WITH filtered AS (SELECT * FROM source WHERE active = true) MERGE INTO target USING filtered ON target.id = filtered.id WHEN MATCHED THEN DO NOTHING"},
+
+		// ===== MERGE WHEN Clauses (Phase 3E) =====
+		{"MERGE with WHEN MATCHED UPDATE", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET name = source.name", ""},
+		{"MERGE with WHEN MATCHED DELETE", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN DELETE", ""},
+		{"MERGE with WHEN NOT MATCHED INSERT", "MERGE INTO target USING source ON target.id = source.id WHEN NOT MATCHED THEN INSERT (id, name) VALUES (source.id, source.name)", ""},
+		{"MERGE with WHEN NOT MATCHED INSERT simple", "MERGE INTO target USING source ON target.id = source.id WHEN NOT MATCHED THEN INSERT VALUES (source.id, source.name)", ""},
+		{"MERGE with WHEN MATCHED DO NOTHING", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN DO NOTHING", ""},
+		{"MERGE with WHEN NOT MATCHED DO NOTHING", "MERGE INTO target USING source ON target.id = source.id WHEN NOT MATCHED THEN DO NOTHING", ""},
+		{"MERGE with conditional WHEN", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED AND target.updated_at < source.updated_at THEN UPDATE SET name = source.name", ""},
+		{"MERGE with multiple WHEN clauses", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED AND source.active = TRUE THEN UPDATE SET name = source.name WHEN NOT MATCHED THEN INSERT VALUES (source.id, source.name)", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED AND source.active = true THEN UPDATE SET name = source.name WHEN NOT MATCHED THEN INSERT VALUES (source.id, source.name)"},
+
+		// ===== INSERT ON CONFLICT (Phase 3E) =====
+		{"INSERT with ON CONFLICT DO NOTHING", "INSERT INTO users (id, name) VALUES (1, 'John') ON CONFLICT DO NOTHING", ""},
+		{"INSERT with ON CONFLICT DO UPDATE", "INSERT INTO users (id, name) VALUES (1, 'John') ON CONFLICT DO UPDATE SET name = EXCLUDED.name", "INSERT INTO users (id, name) VALUES (1, 'John') ON CONFLICT DO UPDATE SET name = excluded.name"},
+		{"INSERT with ON CONFLICT column specification", "INSERT INTO users (id, name) VALUES (1, 'John') ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name", "INSERT INTO users (id, name) VALUES (1, 'John') ON CONFLICT (id) DO UPDATE SET name = excluded.name"},
+		{"INSERT with ON CONFLICT constraint", "INSERT INTO users (id, name) VALUES (1, 'John') ON CONFLICT ON CONSTRAINT users_pkey DO UPDATE SET name = EXCLUDED.name", "INSERT INTO users (id, name) VALUES (1, 'John') ON CONFLICT ON CONSTRAINT users_pkey DO UPDATE SET name = excluded.name"},
+		{"INSERT with ON CONFLICT WHERE clause", "INSERT INTO users (id, name) VALUES (1, 'John') ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name WHERE users.updated_at < EXCLUDED.updated_at", "INSERT INTO users (id, name) VALUES (1, 'John') ON CONFLICT (id) DO UPDATE SET name = excluded.name WHERE users.updated_at < excluded.updated_at"},
+
+		// ===== COPY Statements (Phase 3E) =====
+		{"COPY FROM file", "COPY users FROM '/path/to/file.csv'", ""},
+		{"COPY TO file", "COPY users TO '/path/to/file.csv'", ""},
+		{"COPY FROM STDIN", "COPY users FROM STDIN", ""},
+		{"COPY TO STDOUT", "COPY users TO STDOUT", ""},
+		{"COPY with column list", "COPY users (id, name, email) FROM '/path/to/file.csv'", ""},
+		{"COPY with BINARY option", "COPY users FROM '/path/to/file.dat' BINARY", "COPY users FROM '/path/to/file.dat' (format 'binary')"},
+		{"COPY with FREEZE option", "COPY users FROM '/path/to/file.csv' FREEZE", "COPY users FROM '/path/to/file.csv' (freeze true)"},
+		{"COPY with PROGRAM", "COPY users FROM PROGRAM 'gunzip < /path/to/file.csv.gz'", ""},
+		{"COPY query TO file", "COPY (SELECT * FROM users WHERE active = TRUE) TO '/path/to/export.csv'", "COPY (SELECT * FROM users WHERE active = true) TO '/path/to/export.csv'"},
 
 		// ===== Complex DML with Expressions =====
 		{"INSERT with nested function calls", "INSERT INTO users (name, email) VALUES (upper(trim('  john  ')), lower(concat('john', '@', 'example.com')))", ""},

@@ -151,6 +151,19 @@ func (m MergeMatchKind) String() string {
 	}
 }
 
+func (m MergeMatchKind) SqlString() string {
+	switch m {
+	case MERGE_WHEN_MATCHED:
+		return "WHEN MATCHED"
+	case MERGE_WHEN_NOT_MATCHED_BY_SOURCE:
+		return "WHEN NOT MATCHED BY SOURCE"
+	case MERGE_WHEN_NOT_MATCHED_BY_TARGET:
+		return "WHEN NOT MATCHED" // BY TARGET is the default, so we omit it
+	default:
+		return fmt.Sprintf("MergeMatchKind(%d)", int(m))
+	}
+}
+
 // Note: OverridingKind is already defined in statements.go
 
 // MergeWhenClause represents individual WHEN clauses in MERGE statements
@@ -196,6 +209,60 @@ func (n *MergeWhenClause) String() string {
 			targets := make([]string, len(n.TargetList))
 			for i, target := range n.TargetList {
 				targets[i] = target.String()
+			}
+			parts = append(parts, strings.Join(targets, ", "))
+		}
+	case CMD_DELETE:
+		parts = append(parts, "DELETE")
+	case CMD_NOTHING:
+		parts = append(parts, "DO NOTHING")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+func (n *MergeWhenClause) SqlString() string {
+	var parts []string
+	parts = append(parts, n.MatchKind.SqlString())
+	
+	if n.Condition != nil {
+		parts = append(parts, "AND", n.Condition.SqlString())
+	}
+	
+	parts = append(parts, "THEN")
+	
+	switch n.CommandType {
+	case CMD_INSERT:
+		parts = append(parts, "INSERT")
+		if n.Override != OVERRIDING_NOT_SET {
+			parts = append(parts, n.Override.SqlString())
+		}
+		if len(n.TargetList) > 0 {
+			// If we have columns specified
+			columns := make([]string, len(n.TargetList))
+			for i, target := range n.TargetList {
+				columns[i] = target.Name
+			}
+			parts = append(parts, "("+strings.Join(columns, ", ")+")")
+		}
+		if n.Values != nil && n.Values.Len() > 0 {
+			values := make([]string, n.Values.Len())
+			for i, val := range n.Values.Items {
+				values[i] = val.SqlString()
+			}
+			parts = append(parts, "VALUES", "("+strings.Join(values, ", ")+")")
+		}
+	case CMD_UPDATE:
+		parts = append(parts, "UPDATE SET")
+		if len(n.TargetList) > 0 {
+			targets := make([]string, len(n.TargetList))
+			for i, target := range n.TargetList {
+				// For UPDATE SET, format as "column = value" not "value AS column"  
+				if target.Val != nil {
+					targets[i] = target.Name + " = " + target.Val.SqlString()
+				} else {
+					targets[i] = target.Name
+				}
 			}
 			parts = append(parts, strings.Join(targets, ", "))
 		}
@@ -353,7 +420,6 @@ type InferClause struct {
 	IndexElems   []*IndexElem `json:"indexElems"`   // IndexElems to infer unique index
 	WhereClause  Node         `json:"whereClause"`  // Qualification (partial-index predicate)
 	Conname      string       `json:"conname"`      // Constraint name, or NULL if unnamed
-	Location     int          `json:"location"`     // Token location, or -1 if unknown
 }
 
 func (n *InferClause) node() {}
@@ -380,11 +446,32 @@ func (n *InferClause) String() string {
 	return strings.Join(parts, " ")
 }
 
+func (n *InferClause) SqlString() string {
+	var parts []string
+	
+	if len(n.IndexElems) > 0 {
+		elems := make([]string, len(n.IndexElems))
+		for i, elem := range n.IndexElems {
+			elems[i] = elem.SqlString()
+		}
+		parts = append(parts, "("+strings.Join(elems, ", ")+")")
+	}
+	
+	if n.WhereClause != nil {
+		parts = append(parts, "WHERE", n.WhereClause.SqlString())
+	}
+	
+	if n.Conname != "" {
+		parts = append(parts, "ON CONSTRAINT", n.Conname)
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 // NewInferClause creates a new InferClause node
 func NewInferClause() *InferClause {
 	return &InferClause{
 		BaseNode:  BaseNode{Tag: T_InferClause},
-		Location: -1,
 	}
 }
 

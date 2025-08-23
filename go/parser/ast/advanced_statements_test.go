@@ -296,7 +296,7 @@ func TestOnConflictClause(t *testing.T) {
 		require.NotNil(t, clause)
 		assert.Equal(t, T_OnConflictClause, clause.Tag)
 		assert.Equal(t, ONCONFLICT_NOTHING, clause.Action)
-		assert.Equal(t, -1, int(clause.Location))
+		assert.Equal(t, 0, clause.Location())
 		assert.Contains(t, clause.String(), "ON CONFLICT")
 		assert.Contains(t, clause.String(), "DO NOTHING")
 	})
@@ -338,7 +338,7 @@ func TestInferClause(t *testing.T) {
 
 		require.NotNil(t, clause)
 		assert.Equal(t, T_InferClause, clause.Tag)
-		assert.Equal(t, -1, int(clause.Location))
+		assert.Equal(t, 0, clause.Location())
 	})
 
 	t.Run("InferClauseWithIndexElems", func(t *testing.T) {

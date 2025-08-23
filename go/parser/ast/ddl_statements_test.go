@@ -561,10 +561,11 @@ func TestTypeName(t *testing.T) {
 // TestCollateClause tests the CollateClause node.
 func TestCollateClause(t *testing.T) {
 	t.Run("SimpleCollation", func(t *testing.T) {
-		collateClause := NewCollateClause([]string{"en_US"})
+		collNames := NewNodeList(NewString("en_US"))
+		collateClause := NewCollateClause(collNames)
 
 		assert.Equal(t, T_CollateClause, collateClause.NodeTag())
-		assert.Equal(t, []string{"en_US"}, collateClause.Collname)
+		assert.Equal(t, collNames, collateClause.Collname)
 		assert.Contains(t, collateClause.String(), "en_US")
 
 		// Test interface compliance
@@ -572,9 +573,11 @@ func TestCollateClause(t *testing.T) {
 	})
 
 	t.Run("QualifiedCollation", func(t *testing.T) {
-		collateClause := NewCollateClause([]string{"pg_catalog", "C"})
+		collNames := NewNodeList(NewString("pg_catalog"))
+		collNames.Append(NewString("C"))
+		collateClause := NewCollateClause(collNames)
 
-		assert.Equal(t, []string{"pg_catalog", "C"}, collateClause.Collname)
+		assert.Equal(t, collNames, collateClause.Collname)
 		assert.Contains(t, collateClause.String(), "C") // Should show the last part
 	})
 }

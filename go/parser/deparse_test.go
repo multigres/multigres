@@ -155,6 +155,36 @@ func TestDeparsing(t *testing.T) {
 		// - json_behavior_clause_opt: supports ON EMPTY_P, ON ERROR_P, and combined clauses
 		// - json_quotes_clause_opt: KEEP QUOTES → JS_QUOTES_KEEP, OMIT QUOTES → JS_QUOTES_OMIT, etc.
 		// - json_format_clause: FORMAT_LA JSON → JsonFormat{JS_FORMAT_JSON, JS_ENC_DEFAULT}, etc.
+
+		// COPY statements - basic syntax
+		{"COPY FROM basic", "COPY users FROM '/path/to/file.csv'", ""},
+		{"COPY FROM with BINARY", "COPY users FROM '/path/to/file.dat' BINARY", "COPY users FROM '/path/to/file.dat' (format 'binary')"},
+
+		// COPY statements - new parenthesized syntax  
+		{"COPY FROM with new syntax basic", "COPY users FROM '/path/to/file.csv' (format 'csv')", ""},
+		{"COPY FROM with header option", "COPY users FROM '/path/to/file.csv' (format 'csv', header true)", ""},
+		{"COPY FROM with delimiter option", "COPY users FROM '/path/to/file.csv' (format 'csv', delimiter ',')", ""},
+		{"COPY FROM with quote option", "COPY users FROM '/path/to/file.csv' (format 'csv', quote '\"')", ""},
+		{"COPY FROM with escape option", "COPY users FROM '/path/to/file.csv' (format 'csv', escape '\\\\')", ""},
+		{"COPY FROM with force_quote all", "COPY users FROM '/path/to/file.csv' (format 'csv', force_quote *)", ""},
+		{"COPY FROM with encoding option", "COPY users FROM '/path/to/file.csv' (format 'csv', encoding 'UTF8')", ""},
+		{"COPY FROM with boolean values", "COPY users FROM '/path/to/file.csv' (header true, freeze false)", ""},
+		{"COPY FROM with numeric values", "COPY users FROM '/path/to/file.csv' (header_line 1, skip_rows 2)", ""},
+		{"COPY FROM with default values", "COPY users FROM '/path/to/file.csv' (format default, header default)", ""},
+
+		// COPY TO statements
+		{"COPY TO basic", "COPY users TO '/path/to/file.csv'", ""},
+		{"COPY TO with new syntax", "COPY users TO '/path/to/file.csv' (format 'csv', header true)", ""},
+		{"COPY TO with multiple new options", "COPY users TO '/path/to/file.csv' (format 'csv', header true, delimiter ',')", ""},
+
+		// COPY with advanced features
+		{"COPY FROM with column list new syntax", "COPY users (id, name, email) FROM '/path/to/file.csv' (format 'csv')", ""},
+		{"COPY TO with column list new syntax", "COPY users (id, name, email) TO '/path/to/file.csv' (format 'csv')", ""},
+		{"COPY FROM qualified table new syntax", "COPY public.users FROM '/path/to/file.csv' (format 'csv')", ""},
+		{"COPY FROM PROGRAM new syntax", "COPY users FROM PROGRAM 'cat /path/to/file.csv' (format 'csv')", ""},
+		{"COPY TO PROGRAM new syntax", "COPY users TO PROGRAM 'gzip > /path/to/file.csv.gz' (format 'csv')", ""},
+		{"COPY FROM STDIN new syntax", "COPY users FROM STDIN (format 'csv')", ""},
+		{"COPY TO STDOUT new syntax", "COPY users TO STDOUT (format 'csv')", ""},
 	}
 
 	for _, tt := range tests {
@@ -277,6 +307,12 @@ func TestRoundTripParsing(t *testing.T) {
 		{"TABLE users", "SELECT * FROM users"}, // TABLE is converted to SELECT *
 		{"SELECT * FROM ONLY users", ""},
 		{"SELECT * INTO backup FROM users", ""},
+
+		// COPY statements - basic round trip parsing
+		{"COPY users FROM '/path/to/file.csv'", ""},
+		{"COPY users FROM '/path/to/file.csv' (format 'csv')", ""}, // Options now preserved!
+		{"COPY users (id, name) FROM '/path/to/file.csv' (format 'csv')", ""}, // Options now preserved!
+		{"COPY users TO '/path/to/file.csv' (format 'csv', header true)", ""}, // Options now preserved!
 	}
 
 	for _, tt := range tests {
@@ -1465,11 +1501,11 @@ func TestDMLRoundTrip(t *testing.T) {
 		// MERGE statements (basic)
 		{
 			name: "basic MERGE",
-			sql:  "MERGE INTO target USING source ON target.id = source.id",
+			sql:  "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN DO NOTHING",
 		},
 		{
 			name: "MERGE with schema qualified tables",
-			sql:  "MERGE INTO public.target USING staging.source ON target.id = source.id",
+			sql:  "MERGE INTO public.target USING staging.source ON target.id = source.id WHEN MATCHED THEN DO NOTHING",
 		},
 	}
 
@@ -1835,27 +1871,27 @@ func TestComprehensiveDMLDeparsing(t *testing.T) {
 		// ===== MERGE Statement Tests =====
 		{
 			name: "MERGE basic",
-			sql:  "MERGE INTO target USING source ON target.id = source.id",
+			sql:  "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN DO NOTHING",
 		},
 		{
 			name: "MERGE with qualified tables",
-			sql:  "MERGE INTO public.target USING staging.source ON target.id = source.id",
+			sql:  "MERGE INTO public.target USING staging.source ON target.id = source.id WHEN MATCHED THEN DO NOTHING",
 		},
 		{
 			name: "MERGE with table aliases",
-			sql:  "MERGE INTO target AS t USING source AS s ON t.id = s.id",
+			sql:  "MERGE INTO target AS t USING source AS s ON t.id = s.id WHEN MATCHED THEN DO NOTHING",
 		},
 		{
 			name: "MERGE with complex join condition",
-			sql:  "MERGE INTO target USING source ON target.id = source.id AND target.version = source.version",
+			sql:  "MERGE INTO target USING source ON target.id = source.id AND target.version = source.version WHEN MATCHED THEN DO NOTHING",
 		},
 		{
 			name: "MERGE with subquery as source",
-			sql:  "MERGE INTO target USING (SELECT * FROM source WHERE active = TRUE) AS s ON target.id = s.id",
+			sql:  "MERGE INTO target USING (SELECT * FROM source WHERE active = TRUE) AS s ON target.id = s.id WHEN MATCHED THEN DO NOTHING",
 		},
 		{
 			name: "MERGE with WITH clause",
-			sql:  "WITH filtered AS (SELECT * FROM source WHERE active = TRUE) MERGE INTO target USING filtered ON target.id = filtered.id",
+			sql:  "WITH filtered AS (SELECT * FROM source WHERE active = TRUE) MERGE INTO target USING filtered ON target.id = filtered.id WHEN MATCHED THEN DO NOTHING",
 		},
 		
 		// ===== Complex DML with Expressions =====
@@ -2050,3 +2086,4 @@ func TestDMLExpressionDeparsing(t *testing.T) {
 		})
 	}
 }
+

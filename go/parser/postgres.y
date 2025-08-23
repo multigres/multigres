@@ -39,6 +39,9 @@ type LexerInterface interface {
 	strList    []string
 	astStrList []*ast.String
 
+	// Specific AST node types
+	onconflict *ast.OnConflictClause
+
 	// Location tracking
 	location   int
 }
@@ -65,15 +68,22 @@ type LexerInterface interface {
 %token <keyword> OPERATOR
 %token <keyword> SELECT FROM WHERE ONLY TABLE LIMIT OFFSET ORDER_P BY GROUP_P HAVING INTO ON
 %token <keyword> JOIN INNER_P LEFT RIGHT FULL OUTER_P CROSS NATURAL USING
-%token <keyword> RECURSIVE MATERIALIZED LATERAL VALUES SEARCH BREADTH DEPTH CYCLE FIRST_P SET
+%token <keyword> RECURSIVE MATERIALIZED LATERAL VALUES SEARCH BREADTH DEPTH CYCLE FIRST_P LAST_P SET ASC DESC
 /* DML keywords for Phase 3E */
 %token <keyword> INSERT UPDATE DELETE_P MERGE RETURNING CONFLICT OVERRIDING USER SYSTEM_P
+%token <keyword> MATCHED THEN SOURCE TARGET DO NOTHING
+/* COPY statement keywords */
+%token <keyword> COPY PROGRAM STDIN STDOUT BINARY FREEZE
+/* Constraint keyword */
+%token <keyword> CONSTRAINT
+/* Utility keywords */
+%token <keyword> VERBOSE ANALYZE
 %token <keyword> CURRENT_P CURSOR OF
 /* Table function keywords */
 %token <keyword> COLUMNS ORDINALITY XMLTABLE JSON_TABLE ROWS PATH PASSING FOR NESTED REF_P XMLNAMESPACES
 /* JSON keywords */
 %token <keyword> ARRAY ERROR ERROR_P EMPTY EMPTY_P OBJECT_P WRAPPER CONDITIONAL UNCONDITIONAL
-%token <keyword> QUOTES OMIT KEEP SCALAR STRING_P ENCODING
+%token <keyword> QUOTES OMIT KEEP SCALAR STRING_P ENCODING DELIMITER DELIMITERS HEADER_P QUOTE FORCE CSV
 %token <keyword> VALUE_P JSON_QUERY JSON_VALUE JSON_SERIALIZE
 %token <keyword> JSON_OBJECT JSON_ARRAY JSON_OBJECTAGG JSON_ARRAYAGG
 %token <keyword> JSON_EXISTS JSON_SCALAR
@@ -174,14 +184,22 @@ type LexerInterface interface {
 /* SELECT statement types - Phase 3C */
 %type <stmt>         SelectStmt PreparableStmt select_no_parens select_with_parens simple_select
 /* Phase 3E DML statement types */
-%type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt
+%type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt CopyStmt
 %type <node>         insert_target insert_rest
 %type <list>         insert_column_list set_clause_list set_target_list merge_when_list
 %type <node>         insert_column_item set_target
 %type <list>         set_clause
-%type <node>         opt_on_conflict returning_clause where_or_current_clause
-%type <ival>         override_kind
-%type <str>          cursor_name
+%type <onconflict>   opt_on_conflict
+%type <node>         where_or_current_clause
+%type <list>         returning_clause
+%type <node>         merge_when_clause opt_merge_when_condition opt_conf_expr merge_update merge_delete merge_insert merge_values_clause index_elem index_elem_options opt_collate opt_qualified_name
+%type <ival>         override_kind merge_when_tgt_matched merge_when_tgt_not_matched opt_asc_desc opt_nulls_order
+%type <ival>         copy_from opt_program opt_freeze opt_verbose opt_analyze opt_full
+%type <str>          cursor_name copy_file_name
+%type <node>         opt_binary copy_delimiter copy_opt_item
+%type <list>         copy_options copy_opt_list copy_generic_opt_list copy_generic_opt_arg_list opt_column_list index_elem_list index_params
+%type <node>         copy_generic_opt_elem copy_generic_opt_arg copy_generic_opt_arg_list_item NumericOnly
+%type <str>          opt_boolean_or_string NonReservedWord_or_Sconst
 %type <list>         target_list opt_target_list
 %type <node>         target_el
 %type <list>         from_clause from_list
@@ -311,6 +329,7 @@ stmt:
 		|	UpdateStmt								{ $$ = $1 }
 		|	DeleteStmt								{ $$ = $1 }
 		|	MergeStmt								{ $$ = $1 }
+		|	CopyStmt								{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -541,6 +560,17 @@ unreserved_keyword:
 		|	WRAPPER									{ $$ = "wrapper" }
 		|	CONDITIONAL								{ $$ = "conditional" }
 		|	UNCONDITIONAL							{ $$ = "unconditional" }
+		|	MATCHED									{ $$ = "matched" }
+		|	NOTHING									{ $$ = "nothing" }
+		|	SOURCE									{ $$ = "source" }
+		|	TARGET									{ $$ = "target" }
+		|	PROGRAM									{ $$ = "program" }
+		|	STDIN									{ $$ = "stdin" }
+		|	STDOUT									{ $$ = "stdout" }
+		|	BINARY									{ $$ = "binary" }
+		|	FREEZE									{ $$ = "freeze" }
+		|	VERBOSE									{ $$ = "verbose" }
+		|	ANALYZE									{ $$ = "analyze" }
 		|	QUOTES									{ $$ = "quotes" }
 		|	OMIT									{ $$ = "omit" }
 		|	KEEP									{ $$ = "keep" }
@@ -576,7 +606,7 @@ col_name_keyword:
 
 type_func_name_keyword:
 			/* Type/function name keywords - placeholder */
-			IDENT									{ $$ = $1 }
+			FULL									{ $$ = "full" }
 		;
 
 reserved_keyword:
@@ -755,13 +785,9 @@ a_expr:		c_expr								{ $$ = $1 }
 			}
 		|	a_expr COLLATE any_name
 			{
-				// Convert any_name (which returns a NodeList of strings) to []string
+				// Pass the NodeList directly to NewCollateClause
 				nodeList := $3.(*ast.NodeList)
-				names := make([]string, len(nodeList.Items))
-				for i, node := range nodeList.Items {
-					names[i] = node.(*ast.String).SVal
-				}
-				collateClause := ast.NewCollateClause(names)
+				collateClause := ast.NewCollateClause(nodeList)
 				collateClause.Arg = $1
 				$$ = collateClause
 			}
@@ -2301,15 +2327,9 @@ TableFuncElement:
 opt_collate_clause:
 			COLLATE any_name
 			{
-				// Convert NodeList to []string for collation names
-				nodeList := $2.(*ast.NodeList)
-				collNames := make([]string, len(nodeList.Items))
-				for i, item := range nodeList.Items {
-					if str, ok := item.(*ast.String); ok {
-						collNames[i] = str.SVal
-					}
-				}
-				$$ = ast.NewCollateClause(collNames)
+				// Pass the NodeList directly to NewCollateClause
+				nameList := $2.(*ast.NodeList)
+				$$ = ast.NewCollateClause(nameList)
 			}
 		|	/* EMPTY */		{ $$ = nil }
 		;
@@ -2771,7 +2791,9 @@ InsertStmt:
 				if $1 != nil {
 					insertStmt.WithClause = $1.(*ast.WithClause)
 				}
-				// insertStmt.OnConflictClause = $6 // TODO: Add when ON CONFLICT is implemented
+				if $6 != nil {
+					insertStmt.OnConflictClause = $6
+				}
 				if $7 != nil {
 					insertStmt.ReturningList = convertToResTargetList(convertToNodeList($7))
 				}
@@ -2856,6 +2878,14 @@ insert_column_item:
 			{
 				$$ = ast.NewResTarget($1, $2)
 			}
+		;
+
+/*
+ * Optional column list for COPY statement
+ */
+opt_column_list:
+			'(' name_list ')'				{ $$ = $2.(*ast.NodeList) }
+		|	/* EMPTY */						{ $$ = nil }
 		;
 
 /*
@@ -2989,30 +3019,696 @@ MergeStmt:
 				mergeStmt.Relation = $4.(*ast.RangeVar)
 				mergeStmt.SourceRelation = $6
 				mergeStmt.JoinCondition = $8
-				// mergeStmt.MergeWhenClauses = $9 // TODO: Implement when needed
-				// mergeStmt.ReturningList = convertToNodeList($10) // TODO: Implement when needed
+				if $9 != nil {
+					// Convert NodeList to slice of MergeWhenClause
+					nodeList := $9
+					for _, node := range nodeList.Items {
+						mergeStmt.MergeWhenClauses = append(mergeStmt.MergeWhenClauses, node.(*ast.MergeWhenClause))
+					}
+				}
+				if $10 != nil {
+					mergeStmt.ReturningList = $10
+				}
 				$$ = mergeStmt
 			}
 		;
 
+
 merge_when_list:
-			/* EMPTY */
+			merge_when_clause
+			{
+				$$ = ast.NewNodeList($1)
+			}
+		|	merge_when_list merge_when_clause
+			{
+				$1.Append($2); $$ = $1
+			}
+		;
+
+/*
+ * COPY Statement - matches PostgreSQL exactly
+ * Based on postgres/src/backend/parser/gram.y:3341-3397
+ */
+CopyStmt:
+			COPY opt_binary qualified_name opt_column_list
+			copy_from opt_program copy_file_name copy_delimiter opt_with
+			copy_options where_clause
+			{
+				copyStmt := &ast.CopyStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_CopyStmt},
+					Relation: $3.(*ast.RangeVar),
+					IsFrom:   $5 != 0,
+					IsProgram: $6 != 0,
+					Filename:  $7,
+				}
+				// Convert column list NodeList to []string
+				if $4 != nil {
+					nodeList := $4
+					for _, node := range nodeList.Items {
+						copyStmt.Attlist = append(copyStmt.Attlist, node.(*ast.String).SVal)
+					}
+				}
+				// Handle legacy options - convert to []*DefElem
+				if $2 != nil {
+					copyStmt.Options = append(copyStmt.Options, $2.(*ast.DefElem))
+				}
+				if $8 != nil {
+					copyStmt.Options = append(copyStmt.Options, $8.(*ast.DefElem))
+				}
+				if $10 != nil {
+					nodeList := $10
+					for _, node := range nodeList.Items {
+						copyStmt.Options = append(copyStmt.Options, node.(*ast.DefElem))
+					}
+				}
+				if $11 != nil {
+					copyStmt.WhereClause = $11
+				}
+				$$ = copyStmt
+			}
+		|	COPY '(' PreparableStmt ')' TO opt_program copy_file_name opt_with copy_options
+			{
+				copyStmt := &ast.CopyStmt{
+					BaseNode:  ast.BaseNode{Tag: ast.T_CopyStmt},
+					Query:     $3,
+					IsFrom:    false,
+					IsProgram: $6 != 0,
+					Filename:  $7,
+				}
+				if $8 != nil {
+					copyStmt.Options = append(copyStmt.Options, $8.(*ast.DefElem))
+				}
+				if $9 != nil {
+					nodeList := $9
+					for _, node := range nodeList.Items {
+						copyStmt.Options = append(copyStmt.Options, node.(*ast.DefElem))
+					}
+				}
+				$$ = copyStmt
+			}
+		;
+
+/*
+ * COPY statement supporting rules
+ */
+copy_from:
+			FROM					{ $$ = 1 }
+		|	TO						{ $$ = 0 }
+		;
+
+opt_program:
+			PROGRAM					{ $$ = 1 }
+		|	/* EMPTY */				{ $$ = 0 }
+		;
+
+copy_file_name:
+			Sconst					{ $$ = $1 }
+		|	STDIN					{ $$ = "" }  /* Use empty string for stdin */
+		|	STDOUT					{ $$ = "" }  /* Use empty string for stdout */
+		;
+
+opt_binary:
+			BINARY
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "format",
+					Arg:      ast.NewString("binary"),
+				}
+			}
+		|	/* EMPTY */				{ $$ = nil }
+		;
+
+copy_delimiter:
+			opt_using DELIMITERS Sconst
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "delimiter",
+					Arg:      ast.NewString($3),
+				}
+			}
+		|	/* EMPTY */				{ $$ = nil }
+		;
+
+copy_options:
+			copy_opt_list			{ $$ = $1 }
+		|	'(' copy_generic_opt_list ')'			{ $$ = $2 }
+		;
+
+copy_opt_list:
+			copy_opt_list copy_opt_item
+			{
+				if $1 == nil {
+				$$ = ast.NewNodeList($2)
+			} else {
+				$1.Append($2); $$ = $1
+			}
+			}
+		|	/* EMPTY */
 			{
 				$$ = nil
 			}
-		/* TODO: Add merge_when_clause rules when needed */
 		;
+
+copy_opt_item:
+			BINARY
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "format",
+					Arg:      ast.NewString("binary"),
+				}
+			}
+		|	FREEZE
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "freeze",
+					Arg:      ast.NewString("true"),
+				}
+			}
+		|	DELIMITER opt_as Sconst
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "delimiter",
+					Arg:      ast.NewString($3),
+				}
+			}
+		|	NULL_P opt_as Sconst
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "null",
+					Arg:      ast.NewString($3),
+				}
+			}
+		|	CSV
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "format",
+					Arg:      ast.NewString("csv"),
+				}
+			}
+		|	HEADER_P
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "header",
+					Arg:      ast.NewString("true"),
+				}
+			}
+		|	QUOTE opt_as Sconst
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "quote",
+					Arg:      ast.NewString($3),
+				}
+			}
+		|	ESCAPE opt_as Sconst
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "escape",
+					Arg:      ast.NewString($3),
+				}
+			}
+		|	FORCE QUOTE columnList
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "force_quote",
+					Arg:      $3,
+				}
+			}
+		|	FORCE QUOTE '*'
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "force_quote",
+					Arg:      &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}},
+				}
+			}
+		|	FORCE NOT NULL_P columnList
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "force_not_null",
+					Arg:      $4,
+				}
+			}
+		|	FORCE NOT NULL_P '*'
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "force_not_null",
+					Arg:      &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}},
+				}
+			}
+		|	FORCE NULL_P columnList
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "force_null",
+					Arg:      $3,
+				}
+			}
+		|	FORCE NULL_P '*'
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "force_null",
+					Arg:      &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}},
+				}
+			}
+		|	ENCODING Sconst
+			{
+				$$ = &ast.DefElem{
+					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+					Defname:  "encoding",
+					Arg:      ast.NewString($2),
+				}
+			}
+		;
+
+/* new COPY option syntax */
+copy_generic_opt_list:
+		copy_generic_opt_elem
+		{
+			$$ = ast.NewNodeList($1)
+		}
+	|	copy_generic_opt_list ',' copy_generic_opt_elem
+		{
+			$1.Append($3); $$ = $1
+		}
+	;
+
+copy_generic_opt_elem:
+		ColLabel copy_generic_opt_arg
+		{
+			$$ = &ast.DefElem{
+				BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
+				Defname:  $1,
+				Arg:      $2,
+			}
+		}
+	;
+
+copy_generic_opt_arg:
+		opt_boolean_or_string			{ $$ = ast.NewString($1) }
+	|	NumericOnly						{ $$ = $1 }
+	|	'*'								{ $$ = ast.NewA_Star(0) }
+	|	DEFAULT							{ $$ = ast.NewString("default") }
+	|	'(' copy_generic_opt_arg_list ')'		{ $$ = $2 }
+	|	/* EMPTY */						{ $$ = nil }
+	;
+
+copy_generic_opt_arg_list:
+		copy_generic_opt_arg_list_item
+		{
+			$$ = ast.NewNodeList($1)
+		}
+	|	copy_generic_opt_arg_list ',' copy_generic_opt_arg_list_item
+		{
+			$1.Append($3); $$ = $1
+		}
+	;
+
+copy_generic_opt_arg_list_item:
+		opt_boolean_or_string			{ $$ = ast.NewString($1) }
+	;
+
+opt_boolean_or_string:
+		TRUE_P							{ $$ = "true" }
+	|	FALSE_P							{ $$ = "false" }
+	|	ON								{ $$ = "on" }
+	|	NonReservedWord_or_Sconst		{ $$ = $1 }
+	;
+
+NonReservedWord_or_Sconst:
+		unreserved_keyword				{ $$ = $1 }
+	|	Sconst							{ $$ = $1 }
+	;
+
+NumericOnly:
+		FCONST							{ $$ = ast.NewFloat($1) }
+	|	'+' FCONST						{ $$ = ast.NewFloat($2) }
+	|	'-' FCONST						
+		{
+			f := ast.NewFloat($2)
+			f.FVal = "-" + f.FVal
+			$$ = f
+		}
+	|	SignedIconst					{ $$ = ast.NewInteger($1) }
+	;
+
+/*
+ * Optional USING clause for copy_delimiter
+ */
+opt_using:
+			USING
+		|	/* EMPTY */
+		;
+
+/*
+ * Optional AS clause for copy options
+ */
+opt_as:
+			AS
+		|	/* EMPTY */
+		;
+
+/*
+ * PreparableStmt for COPY (SELECT ...)
+ * For now, just use SelectStmt - can be expanded later
+ */
+PreparableStmt:
+			SelectStmt				{ $$ = $1 }
+		;
+
+/*
+ * Utility options for various statements
+ * Based on postgres/src/backend/parser/gram.y utility options
+ */
+opt_freeze:
+			FREEZE					{ $$ = 1 }
+		|	/* EMPTY */				{ $$ = 0 }
+		;
+
+opt_verbose:
+			VERBOSE					{ $$ = 1 }
+		|	/* EMPTY */				{ $$ = 0 }
+		;
+
+opt_analyze:
+			ANALYZE					{ $$ = 1 }
+		|	/* EMPTY */				{ $$ = 0 }
+		;
+
+opt_full:
+			FULL					{ $$ = 1 }
+		|	/* EMPTY */				{ $$ = 0 }
+		;
+
+/*
+ * MERGE WHEN clauses - matches PostgreSQL exactly
+ * Based on postgres/src/backend/parser/gram.y:12459-12501
+ */
+merge_when_clause:
+			merge_when_tgt_matched opt_merge_when_condition THEN merge_update
+			{
+				$4.(*ast.MergeWhenClause).MatchKind = ast.MergeMatchKind($1)
+				$4.(*ast.MergeWhenClause).Condition = $2
+				$$ = $4
+			}
+		|	merge_when_tgt_matched opt_merge_when_condition THEN merge_delete
+			{
+				$4.(*ast.MergeWhenClause).MatchKind = ast.MergeMatchKind($1)
+				$4.(*ast.MergeWhenClause).Condition = $2
+				$$ = $4
+			}
+		|	merge_when_tgt_not_matched opt_merge_when_condition THEN merge_insert
+			{
+				$4.(*ast.MergeWhenClause).MatchKind = ast.MergeMatchKind($1)
+				$4.(*ast.MergeWhenClause).Condition = $2
+				$$ = $4
+			}
+		|	merge_when_tgt_matched opt_merge_when_condition THEN DO NOTHING
+			{
+				mergeWhen := ast.NewMergeWhenClause(ast.MergeMatchKind($1), ast.CMD_NOTHING)
+				mergeWhen.Condition = $2
+				$$ = mergeWhen
+			}
+		|	merge_when_tgt_not_matched opt_merge_when_condition THEN DO NOTHING
+			{
+				mergeWhen := ast.NewMergeWhenClause(ast.MergeMatchKind($1), ast.CMD_NOTHING)
+				mergeWhen.Condition = $2
+				$$ = mergeWhen
+			}
+		;
+
+merge_when_tgt_matched:
+			WHEN MATCHED						{ $$ = int(ast.MERGE_WHEN_MATCHED) }
+		|	WHEN NOT MATCHED BY SOURCE			{ $$ = int(ast.MERGE_WHEN_NOT_MATCHED_BY_SOURCE) }
+		;
+
+merge_when_tgt_not_matched:
+			WHEN NOT MATCHED					{ $$ = int(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET) }
+		|	WHEN NOT MATCHED BY TARGET			{ $$ = int(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET) }
+		;
+
+opt_merge_when_condition:
+			AND a_expr				{ $$ = $2 }
+		|	/* EMPTY */				{ $$ = nil }
+		;
+
+merge_update:
+		UPDATE SET set_clause_list
+		{
+			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_MATCHED, ast.CMD_UPDATE)
+			mergeWhen.Override = ast.OVERRIDING_NOT_SET
+			if $3 != nil {
+				nodeList := $3
+				for _, node := range nodeList.Items {
+					mergeWhen.TargetList = append(mergeWhen.TargetList, node.(*ast.ResTarget))
+				}
+			}
+			$$ = mergeWhen
+		}
+	;
+
+merge_delete:
+		DELETE_P
+		{
+			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_MATCHED, ast.CMD_DELETE)
+			mergeWhen.Override = ast.OVERRIDING_NOT_SET
+			$$ = mergeWhen
+		}
+	;
+
+merge_insert:
+		INSERT merge_values_clause
+		{
+			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
+			mergeWhen.Override = ast.OVERRIDING_NOT_SET
+			mergeWhen.Values = $2.(*ast.NodeList)
+			$$ = mergeWhen
+		}
+	|	INSERT OVERRIDING override_kind VALUE_P merge_values_clause
+		{
+			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
+			mergeWhen.Override = ast.OverridingKind($3)
+			mergeWhen.Values = $5.(*ast.NodeList)
+			$$ = mergeWhen
+		}
+	|	INSERT '(' insert_column_list ')' merge_values_clause
+		{
+			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
+			mergeWhen.Override = ast.OVERRIDING_NOT_SET
+			if $3 != nil {
+				nodeList := $3
+				for _, node := range nodeList.Items {
+					mergeWhen.TargetList = append(mergeWhen.TargetList, node.(*ast.ResTarget))
+				}
+			}
+			mergeWhen.Values = $5.(*ast.NodeList)
+			$$ = mergeWhen
+		}
+	|	INSERT '(' insert_column_list ')' OVERRIDING override_kind VALUE_P merge_values_clause
+		{
+			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
+			mergeWhen.Override = ast.OverridingKind($6)
+			if $3 != nil {
+				nodeList := $3
+				for _, node := range nodeList.Items {
+					mergeWhen.TargetList = append(mergeWhen.TargetList, node.(*ast.ResTarget))
+				}
+			}
+			mergeWhen.Values = $8.(*ast.NodeList)
+			$$ = mergeWhen
+		}
+	|	INSERT DEFAULT VALUES
+		{
+			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
+			mergeWhen.Override = ast.OVERRIDING_NOT_SET
+			$$ = mergeWhen
+		}
+	;
+
+merge_values_clause:
+		VALUES '(' expr_list ')'
+		{
+			$$ = $3
+		}
+	;
 
 /*
  * Common DML clauses
  */
 
+/*
+ * ON CONFLICT clause for INSERT statements
+ * Based on postgres/src/backend/parser/gram.y:12219-12237
+ */
 opt_on_conflict:
-			/* EMPTY */
+			ON CONFLICT opt_conf_expr DO UPDATE SET set_clause_list where_clause
+			{
+				onConflict := ast.NewOnConflictClause(ast.ONCONFLICT_UPDATE)
+				if $3 != nil {
+					onConflict.Infer = $3.(*ast.InferClause)
+				}
+				// Convert NodeList to []*ResTarget for SET clause
+				if $7 != nil {
+					nodeList := $7
+					for _, node := range nodeList.Items {
+						onConflict.TargetList = append(onConflict.TargetList, node.(*ast.ResTarget))
+					}
+				}
+				onConflict.WhereClause = $8
+				$$ = onConflict
+			}
+		|	ON CONFLICT opt_conf_expr DO NOTHING
+			{
+				onConflict := ast.NewOnConflictClause(ast.ONCONFLICT_NOTHING)
+				if $3 != nil {
+					onConflict.Infer = $3.(*ast.InferClause)
+				}
+				$$ = onConflict
+			}
+		|	/* EMPTY */
 			{
 				$$ = nil
 			}
 		;
+
+/*
+ * Optional conflict expression for ON CONFLICT clause
+ * Based on postgres/src/backend/parser/gram.y opt_conf_expr rule
+ */
+opt_conf_expr:
+			'(' index_params ')' where_clause
+			{
+				// Create InferClause for column-based conflict detection
+				infer := ast.NewInferClause()
+				// Convert NodeList to []*IndexElem
+				if $2 != nil {
+					nodeList := $2
+					for _, node := range nodeList.Items {
+						indexElem := node.(*ast.IndexElem)
+						infer.IndexElems = append(infer.IndexElems, indexElem)
+					}
+				}
+				infer.WhereClause = $4
+				$$ = infer
+			}
+		|	ON CONSTRAINT name
+			{
+				// Create InferClause for constraint-based conflict detection
+				infer := ast.NewInferClause()
+				infer.Conname = $3
+				$$ = infer
+			}
+		|	/* EMPTY */
+			{
+				$$ = nil
+			}
+		;
+
+/*
+ * Simple index element list for ON CONFLICT
+ * For now, just supports column names - full index expressions can be added later
+ */
+index_elem_list:
+			ColId
+			{
+				$$ = ast.NewNodeList(ast.NewString($1))
+			}
+		|	index_elem_list ',' ColId
+			{
+				$1.Append(ast.NewString($3)); $$ = $1
+			}
+		;
+
+index_params:
+		index_elem
+		{
+			$$ = ast.NewNodeList($1)
+		}
+	|	index_params ',' index_elem
+		{
+			$1.Append($3); $$ = $1
+		}
+	;
+
+index_elem:
+		ColId index_elem_options
+		{
+			indexElem := $2.(*ast.IndexElem)
+			indexElem.Name = $1
+			$$ = indexElem
+		}
+	|	func_expr index_elem_options
+		{
+			indexElem := $2.(*ast.IndexElem)
+			indexElem.Expr = $1
+			$$ = indexElem
+		}
+	|	'(' a_expr ')' index_elem_options
+		{
+			indexElem := $4.(*ast.IndexElem)
+			indexElem.Expr = $2
+			$$ = indexElem
+		}
+	;
+
+index_elem_options:
+		opt_collate opt_qualified_name opt_asc_desc opt_nulls_order
+		{
+			indexElem := &ast.IndexElem{
+				BaseNode: ast.BaseNode{Tag: ast.T_IndexElem},
+			}
+			if $1 != nil {
+				nodeList := $1.(*ast.NodeList)
+				for _, node := range nodeList.Items {
+					indexElem.Collation = append(indexElem.Collation, node.(*ast.String).SVal)
+				}
+			}
+			if $2 != nil {
+				nodeList := $2.(*ast.NodeList)
+				for _, node := range nodeList.Items {
+					indexElem.Opclass = append(indexElem.Opclass, node.(*ast.String).SVal)
+				}
+			}
+			indexElem.Ordering = ast.SortByDir($3)
+			indexElem.NullsOrdering = ast.SortByNulls($4)
+			$$ = indexElem
+		}
+	;
+
+opt_collate:
+		COLLATE any_name			{ $$ = $2 }
+	|	/* EMPTY */					{ $$ = nil }
+	;
+
+opt_qualified_name:
+		any_name					{ $$ = $1 }
+	|	/* EMPTY */					{ $$ = nil }
+	;
+
+opt_asc_desc:
+		ASC							{ $$ = int(ast.SORTBY_ASC) }
+	|	DESC						{ $$ = int(ast.SORTBY_DESC) }
+	|	/* EMPTY */					{ $$ = int(ast.SORTBY_DEFAULT) }
+	;
+
+opt_nulls_order:
+		NULLS_P FIRST_P				{ $$ = int(ast.SORTBY_NULLS_FIRST) }
+	|	NULLS_P LAST_P				{ $$ = int(ast.SORTBY_NULLS_LAST) }
+	|	/* EMPTY */					{ $$ = int(ast.SORTBY_NULLS_DEFAULT) }
+	;
 
 returning_clause:
 			RETURNING target_list

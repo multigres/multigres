@@ -93,7 +93,7 @@ var Keywords = []KeywordInfo{
 	{"depth", DEPTH, UnreservedKeyword, true},    // Phase 3D: DEPTH FIRST for CTE SEARCH
 	{"desc", IDENT, ReservedKeyword, true},       // Will be replaced with DESC token in Phase 3
 	{"distinct", DISTINCT, ReservedKeyword, true}, // Phase 3C: DISTINCT clause
-	{"do", IDENT, ReservedKeyword, true},         // Will be replaced with DO token in Phase 3
+	{"do", DO, ReservedKeyword, true},           // Phase 3E: DO NOTHING, DO UPDATE
 
 	{"else", IDENT, ReservedKeyword, true},   // Will be replaced with ELSE token in Phase 3
 	{"end", IDENT, ReservedKeyword, true},    // Will be replaced with END_P token in Phase 3
@@ -167,7 +167,22 @@ var Keywords = []KeywordInfo{
 	{"system_user", IDENT, ReservedKeyword, true},  // Will be replaced with SYSTEM_USER token in Phase 3
 
 	{"table", TABLE, ReservedKeyword, true},    // Phase 3C: TABLE keyword
-	{"then", IDENT, ReservedKeyword, true},     // Will be replaced with THEN token in Phase 3
+	{"then", THEN, ReservedKeyword, true},     // Phase 3E: MERGE WHEN ... THEN
+	{"matched", MATCHED, UnreservedKeyword, true}, // Phase 3E: MERGE WHEN MATCHED
+	{"nothing", NOTHING, UnreservedKeyword, true}, // Phase 3E: DO NOTHING
+	{"source", SOURCE, UnreservedKeyword, true},   // Phase 3E: MERGE NOT MATCHED BY SOURCE  
+	{"target", TARGET, UnreservedKeyword, true},   // Phase 3E: MERGE NOT MATCHED BY TARGET
+
+	{"copy", COPY, ReservedKeyword, true},         // Phase 3E: COPY statement
+	{"program", PROGRAM, UnreservedKeyword, true}, // Phase 3E: COPY PROGRAM
+	{"stdin", STDIN, UnreservedKeyword, true},     // Phase 3E: COPY STDIN
+	{"stdout", STDOUT, UnreservedKeyword, true},   // Phase 3E: COPY STDOUT
+	{"binary", BINARY, UnreservedKeyword, true},   // Phase 3E: COPY BINARY format
+	{"freeze", FREEZE, UnreservedKeyword, true},   // Phase 3E: COPY FREEZE option
+	{"conflict", CONFLICT, UnreservedKeyword, true},   // Phase 3E: ON CONFLICT clause
+	{"constraint", CONSTRAINT, ReservedKeyword, true}, // Phase 3E: CONSTRAINT for ON CONFLICT
+	{"verbose", VERBOSE, UnreservedKeyword, true},     // Phase 3E: VERBOSE option
+	{"analyze", ANALYZE, UnreservedKeyword, true},     // Phase 3E: ANALYZE option  
 	{"time", IDENT, ColNameKeyword, true},      // Will be replaced with TIME token in Phase 3
 	{"timestamp", IDENT, ColNameKeyword, true}, // Will be replaced with TIMESTAMP token in Phase 3
 	{"to", TO, ReservedKeyword, true},          // Phase 3D: TO keyword for CYCLE clause
@@ -184,7 +199,7 @@ var Keywords = []KeywordInfo{
 	{"varchar", IDENT, ColNameKeyword, true},    // Will be replaced with VARCHAR token in Phase 3
 	{"varying", IDENT, UnreservedKeyword, true}, // Will be replaced with VARYING token in Phase 3
 
-	{"when", IDENT, ReservedKeyword, true},  // Will be replaced with WHEN token in Phase 3
+	{"when", WHEN, ReservedKeyword, true},   // Phase 3E: MERGE WHEN clause
 	{"where", WHERE, ReservedKeyword, true}, // Phase 3C: WHERE clause
 	{"with", WITH, ReservedKeyword, true},
 

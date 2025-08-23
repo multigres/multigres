@@ -209,45 +209,49 @@
 - ✅ `DeleteStmt` - DELETE statement (exactly matches PostgreSQL: opt_with_clause DELETE_P FROM relation_expr_opt_alias using_clause where_or_current_clause returning_clause)
 - ✅ `using_clause` - USING clause (exactly matches PostgreSQL: USING from_list production)
 
-### MERGE Statement 🟨 BASIC STRUCTURE ONLY
+### MERGE Statement ✅ COMPLETE
 - ✅ `MergeStmt` - MERGE statement (exactly matches PostgreSQL structure: opt_with_clause MERGE INTO relation_expr_opt_alias USING table_ref ON a_expr merge_when_list returning_clause)
-- ⬜ `merge_when_list` - MERGE WHEN list (placeholder only - missing all 5+ PostgreSQL productions)
-- ⬜ `merge_when_clause` - MERGE WHEN clause (not implemented - missing MATCHED/NOT MATCHED variants)
-- ⬜ `merge_when_tgt_matched` - Target matched (not implemented)
-- ⬜ `merge_when_tgt_not_matched` - Target not matched (not implemented)
-- ⬜ `opt_merge_when_condition` - MERGE condition (not implemented)
-- ⬜ `merge_update` - MERGE UPDATE (not implemented)
-- ⬜ `merge_delete` - MERGE DELETE (not implemented)
-- ⬜ `merge_insert` - MERGE INSERT (not implemented)
-- ⬜ `merge_values_clause` - MERGE VALUES (not implemented)
+- ✅ `merge_when_list` - MERGE WHEN list (complete implementation with all PostgreSQL productions)
+- ✅ `merge_when_clause` - MERGE WHEN clause (all 6 variants implemented: MATCHED UPDATE/DELETE/DO NOTHING, NOT MATCHED INSERT/DO NOTHING)
+- ✅ `merge_when_tgt_matched` - Target matched (WHEN MATCHED and WHEN NOT MATCHED BY SOURCE)
+- ✅ `merge_when_tgt_not_matched` - Target not matched (WHEN NOT MATCHED [BY TARGET])
+- ✅ `opt_merge_when_condition` - MERGE condition (AND a_expr support)
+- ✅ `merge_update` - MERGE UPDATE (UPDATE SET clause support - delegates to set_clause_list)
+- ✅ `merge_delete` - MERGE DELETE (DELETE action support)
+- ✅ `merge_insert` - MERGE INSERT (INSERT with columns/VALUES support)
+- ✅ `merge_values_clause` - MERGE VALUES (VALUES expression list)
 
-### ON CONFLICT (UPSERT) ⬜ NOT IMPLEMENTED
-- ⬜ `opt_on_conflict` - ON CONFLICT clause (placeholder only - missing PostgreSQL's DO UPDATE SET and DO NOTHING productions)
-- ⬜ `opt_conf_expr` - Conflict expression (not implemented - missing index/column conflict specifications)
+### ON CONFLICT (UPSERT) ✅ COMPLETE
+- ✅ `opt_on_conflict` - ON CONFLICT clause (complete with DO UPDATE SET and DO NOTHING productions)
+- ✅ `opt_conf_expr` - Conflict expression (index columns and ON CONSTRAINT support)
+- ✅ `index_elem_list` - Index element list for conflict detection
+- ✅ `index_elem` - Index element (column specification for conflict detection)
 
 ### RETURNING Clause ✅ COMPLETE
 - ✅ `returning_clause` - RETURNING clause (exactly matches PostgreSQL: RETURNING target_list and empty productions)
 
-### COPY Statement
-- ⬜ `CopyStmt` - COPY statement
-- ⬜ `copy_from` - COPY FROM/TO
-- ⬜ `copy_file_name` - COPY filename
-- ⬜ `copy_options` - COPY options
-- ⬜ `copy_opt_list` - COPY option list
-- ⬜ `copy_opt_item` - COPY option item
-- ⬜ `copy_delimiter` - COPY delimiter
-- ⬜ `copy_generic_opt_list` - Generic COPY options
-- ⬜ `copy_generic_opt_elem` - Generic COPY option
-- ⬜ `copy_generic_opt_arg` - Generic option argument
-- ⬜ `copy_generic_opt_arg_list` - Generic option arg list
-- ⬜ `copy_generic_opt_arg_list_item` - Generic option arg item
+### COPY Statement ✅ COMPLETE
+- ✅ `CopyStmt` - COPY statement (complete implementation with FROM/TO, STDIN/STDOUT, PROGRAM support)
+- ✅ `copy_from` - COPY FROM/TO (FROM and TO keywords)
+- ✅ `copy_file_name` - COPY filename (file paths, STDIN, STDOUT, PROGRAM)
+- ✅ `copy_options` - COPY options (WITH clause support)
+- ✅ `copy_opt_list` - COPY option list (multiple options support)
+- ✅ `copy_opt_item` - COPY option item (individual option parsing)
+- ✅ `copy_delimiter` - COPY delimiter (opt_using and DELIMITED BY support)
+- ✅ `copy_generic_opt_list` - Generic COPY options (name-value pairs)
+- ✅ `copy_generic_opt_elem` - Generic COPY option (single option)
+- ✅ `copy_generic_opt_arg` - Generic option argument (value for option)
+- ✅ `copy_generic_opt_arg_list` - Generic option arg list (multiple values)
+- ✅ `copy_generic_opt_arg_list_item` - Generic option arg item (single value)
+- ✅ `opt_program` - PROGRAM option for external programs
+- ✅ `opt_column_list` - Optional column list for COPY
 
-### Utility
-- ⬜ `opt_binary` - BINARY option
-- ⬜ `opt_freeze` - FREEZE option
-- ⬜ `opt_verbose` - VERBOSE option
-- ⬜ `opt_analyze` - ANALYZE option
-- ⬜ `opt_full` - FULL option
+### Utility ✅ COMPLETE
+- ✅ `opt_binary` - BINARY option (BINARY format support)
+- ✅ `opt_freeze` - FREEZE option (FREEZE keyword support)
+- ✅ `opt_verbose` - VERBOSE option (VERBOSE keyword support)
+- ✅ `opt_analyze` - ANALYZE option (ANALYZE keyword support)
+- ✅ `opt_full` - FULL option (FULL keyword support)
 
 ## Phase 3F: Basic DDL - Tables & Indexes (~80 rules)
 
@@ -992,17 +996,17 @@
 ## Progress Summary
 
 **Total Rules**: 727
-**Completed**: ~146 (20.1%)
-**In Progress**: 5 (0.7%)
+**Completed**: ~178 (24.5%)
+**In Progress**: 0 (0%)
 **Needs Revision**: 0 (0%)
-**Not Started**: ~569 (78.3%)
+**Not Started**: ~549 (75.5%)
 
 ### Phase Breakdown:
 - Phase 3A (Foundation): 20/20 completed ✅ COMPLETE
 - Phase 3B (Expressions): 20/40 completed (basic expression rules implemented) 🟨 PARTIAL
 - Phase 3C (SELECT Core): ~20/35 completed + ~11 partial ⚠️ MOSTLY COMPLETE (~80-85%)
 - Phase 3D (JOINs): 38/45 completed ✅ COMPLETE (all JOIN types, full CTE with SEARCH/CYCLE/MATERIALIZED, subqueries, LATERAL)
-- Phase 3E (DML): 36/50 completed 🟨 STRONG PARTIAL (INSERT/UPDATE/DELETE exactly match PostgreSQL; MERGE basic structure only; ON CONFLICT not implemented)
+- Phase 3E (DML): 50/50 completed ✅ COMPLETE (All DML statements including MERGE WHEN clauses, ON CONFLICT, and COPY fully implemented)
 - Phase 3F (Basic DDL): 0/80 completed
 - Phase 3G (Advanced DDL): 0/100 completed
 - Phase 3H (Advanced SELECT): 0/60 completed
@@ -1010,11 +1014,11 @@
 - Phase 3J (PostgreSQL-Specific): 0/217 completed
 
 ## Next Steps
-1. **Phase 3E Complete** ✅ - All DML statements (INSERT, UPDATE, DELETE, MERGE) fully implemented and tested
-2. **Missing for Complete Round-Trip**:
-   - SqlString() methods for DML statements (INSERT, UPDATE, DELETE, MERGE)
-   - Deparse tests for DML statements
-   - Enhanced MERGE functionality (complete WHEN clauses)
+1. **Phase 3E Complete** ✅ - All DML statements fully implemented, tested, and deparsing:
+   - INSERT/UPDATE/DELETE with all features (RETURNING, WITH clauses, complex expressions)
+   - MERGE with all WHEN clause variants (MATCHED UPDATE/DELETE, NOT MATCHED INSERT, DO NOTHING)
+   - ON CONFLICT for UPSERT functionality (DO NOTHING, DO UPDATE SET, column/constraint specifications)
+   - COPY statement with all options (FROM/TO, STDIN/STDOUT, PROGRAM, BINARY, FREEZE)
 3. **Continue with Phase 3F: Basic DDL - Tables & Indexes**:
    - `CREATE TABLE` with column definitions
    - Constraints (PRIMARY KEY, FOREIGN KEY, CHECK, UNIQUE)
