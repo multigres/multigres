@@ -1,39 +1,41 @@
-// Copyright 2025 The Multigres Authors.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+Copyright 2023 The Vitess Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Modifications Copyright 2025 The Multigres Authors.
+*/
 
 package servenv
 
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/event"
+	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/netutil"
+	"github.com/multigres/multigres/go/viperutil"
+	viperdebug "github.com/multigres/multigres/go/viperutil/debug"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	//"vitess.io/vitess/go/event"
-	//
-	//
-	//"vitess.io/vitess/go/viperutil"
-	//viperdebug "vitess.io/vitess/go/viperutil/debug"
-	//"vitess.io/vitess/go/vt/grpccommon"
-	//"vitess.io/vitess/go/vt/log"
-	//"vitess.io/vitess/go/vt/logutil"
-	//"vitess.io/vitess/go/vt/vterrors"
 )
 
 var (
@@ -81,13 +83,8 @@ var timeouts = &TimeoutFlags{
 func RegisterFlags() {
 	OnParse(func(fs *pflag.FlagSet) {
 		fs.DurationVar(&timeouts.LameduckPeriod, "lameduck-period", timeouts.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
-		fs.DurationVar(&timeouts.OnTermTimeout, "onterm_timeout", timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
-		fs.DurationVar(&timeouts.OnCloseTimeout, "onclose_timeout", timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
-		fs.BoolVar(&catchSigpipe, "catch-sigpipe", catchSigpipe, "catch and ignore SIGPIPE on stdout and stderr if specified")
-		fs.IntVar(&maxStackSize, "max-stack-size", maxStackSize, "configure the maximum stack size in bytes")
-		fs.IntVar(&tableRefreshInterval, "table-refresh-interval", tableRefreshInterval, "interval in milliseconds to refresh tables in status page with refreshRequired class")
-
-		// pid_file.go
+		fs.DurationVar(&timeouts.OnTermTimeout, "onterm-timeout", timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
+		fs.DurationVar(&timeouts.OnCloseTimeout, "onclose-timeout", timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
 		fs.StringVar(&pidFile, "pid_file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 	})
 }
@@ -95,15 +92,10 @@ func RegisterFlags() {
 func RegisterFlagsWithTimeouts(tf *TimeoutFlags) {
 	OnParse(func(fs *pflag.FlagSet) {
 		fs.DurationVar(&tf.LameduckPeriod, "lameduck-period", tf.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
-		fs.DurationVar(&tf.OnTermTimeout, "onterm_timeout", tf.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
-		fs.DurationVar(&tf.OnCloseTimeout, "onclose_timeout", tf.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
-		fs.BoolVar(&catchSigpipe, "catch-sigpipe", catchSigpipe, "catch and ignore SIGPIPE on stdout and stderr if specified")
-		fs.IntVar(&maxStackSize, "max-stack-size", maxStackSize, "configure the maximum stack size in bytes")
-		fs.IntVar(&tableRefreshInterval, "table-refresh-interval", tableRefreshInterval, "interval in milliseconds to refresh tables in status page with refreshRequired class")
-
+		fs.DurationVar(&tf.OnTermTimeout, "onterm-timeout", tf.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
+		fs.DurationVar(&tf.OnCloseTimeout, "onclose-timeout", tf.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
 		// pid_file.go
 		fs.StringVar(&pidFile, "pid_file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
-
 		timeouts = tf
 	})
 }
@@ -119,7 +111,8 @@ func populateListeningURL(port int32) {
 	if err != nil {
 		host, err = os.Hostname()
 		if err != nil {
-			log.Exitf("os.Hostname() failed: %v", err)
+			slog.Error("os.Hostname() failed", "err", err)
+			os.Exit(1)
 		}
 	}
 	ListeningURL = url.URL{
@@ -172,8 +165,7 @@ func fireOnCloseHooks(timeout time.Duration) bool {
 
 // fireHooksWithTimeout returns true iff all the hooks finish before the timeout.
 func fireHooksWithTimeout(timeout time.Duration, name string, hookFn func()) bool {
-	defer log.Flush()
-	log.Infof("Firing %s hooks and waiting up to %v for them", name, timeout)
+	slog.Info("Firing hooks and waiting for them", "name", name, "timeout", timeout)
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
@@ -186,10 +178,10 @@ func fireHooksWithTimeout(timeout time.Duration, name string, hookFn func()) boo
 
 	select {
 	case <-done:
-		log.Infof("%s hooks finished", name)
+		slog.Info(fmt.Sprintf("%s hooks finished", name))
 		return true
 	case <-timer.C:
-		log.Infof("%s hooks timed out", name)
+		slog.Info(fmt.Sprintf("%s hooks timed out", name))
 		return false
 	}
 }
@@ -230,7 +222,7 @@ func RunDefault() {
 var (
 	flagHooksM      sync.Mutex
 	globalFlagHooks = []func(*pflag.FlagSet){
-		vterrors.RegisterFlags,
+		mterrors.RegisterFlags,
 	}
 	commandFlagHooks = map[string][]func(*pflag.FlagSet){}
 )
@@ -283,23 +275,14 @@ func ParseFlags(cmd string) {
 	fs := GetFlagSetFor(cmd)
 
 	viperutil.BindFlags(fs)
-
-	_flag.Parse(fs)
-
-	if version {
-		AppVersion.Print()
-		os.Exit(0)
-	}
-
 	args := fs.Args()
 	if len(args) > 0 {
-		_flag.Usage()
-		log.Exitf("%s doesn't take any positional arguments, got '%s'", cmd, strings.Join(args, " "))
+		slog.Info(fmt.Sprintf("%s doesn't take any positional arguments, got '%s'", cmd, strings.Join(args, " ")))
+		os.Exit(1)
 	}
 
 	loadViper(cmd)
 
-	logutil.PurgeLogs()
 }
 
 // ParseFlagsForTests initializes flags but skips the version, filesystem
@@ -334,8 +317,6 @@ func MovePersistentFlagsToCobraCommand(cmd *cobra.Command) {
 func moveFlags(name string, fs *pflag.FlagSet) {
 	fs.AddFlagSet(GetFlagSetFor(name))
 
-	// glog flags, no better way to do this
-	_flag.PreventGlogVFlagFromClobberingVersionFlagShorthand(fs)
 	fs.AddGoFlag(flag.Lookup("logtostderr"))
 	fs.AddGoFlag(flag.Lookup("log_backtrace_at"))
 	fs.AddGoFlag(flag.Lookup("alsologtostderr"))
@@ -350,13 +331,12 @@ func moveFlags(name string, fs *pflag.FlagSet) {
 // viper infrastructure. It matches the signature of cobra's (Pre|Post)RunE-type
 // functions.
 func CobraPreRunE(cmd *cobra.Command, args []string) error {
-	_flag.TrickGlog()
 	// Register logging on config file change.
 	ch := make(chan struct{})
 	viperutil.NotifyConfigReload(ch)
 	go func() {
 		for range ch {
-			log.Infof("Change in configuration - %v", viperdebug.AllSettings())
+			slog.Info("Change in configuration", "settings", viperdebug.AllSettings())
 		}
 	}()
 
@@ -370,9 +350,6 @@ func CobraPreRunE(cmd *cobra.Command, args []string) error {
 	// This is done after the watchCancel has registered to ensure that we don't end up
 	// sending on a closed channel.
 	OnTerm(func() { close(ch) })
-	HTTPHandleFunc("/debug/config", viperdebug.HandlerFunc)
-
-	logutil.PurgeLogs()
 
 	return nil
 }
@@ -394,21 +371,13 @@ func ParseFlagsWithArgs(cmd string) []string {
 
 	viperutil.BindFlags(fs)
 
-	_flag.Parse(fs)
-
-	if version {
-		AppVersion.Print()
-		os.Exit(0)
-	}
-
 	args := fs.Args()
 	if len(args) == 0 {
-		log.Exitf("%s expected at least one positional argument", cmd)
+		slog.Info(fmt.Sprintf("%s expected at least one positional argument", cmd))
+		os.Exit(1)
 	}
 
 	loadViper(cmd)
-
-	logutil.PurgeLogs()
 
 	return args
 }
@@ -416,79 +385,26 @@ func ParseFlagsWithArgs(cmd string) []string {
 func loadViper(cmd string) {
 	watchCancel, err := viperutil.LoadConfig()
 	if err != nil {
-		log.Exitf("%s: failed to read in config: %s", cmd, err.Error())
+		slog.Error("failed to read in config", "cmd", cmd, "err", err)
+		os.Exit(1)
 	}
 	OnTerm(watchCancel)
-	debugConfigRegisterOnce.Do(func() {
-		HTTPHandleFunc("/debug/config", viperdebug.HandlerFunc)
-	})
 }
 
 // Flag installations for packages that servenv imports. We need to register
 // here rather than in those packages (which is what we would normally do)
 // because that would create a dependency cycle.
 func init() {
-	// These are the binaries that call trace.StartTracing.
-	for _, cmd := range []string{
-		"vtadmin",
-		"vtclient",
-		"vtcombo",
-		"vtctl",
-		"vtctlclient",
-		"vtctld",
-		"vtgate",
-		"vttablet",
-	} {
-		OnParseFor(cmd, trace.RegisterFlags)
-	}
-
-	// These are the binaries that make gRPC calls.
-	for _, cmd := range []string{
-		"vtbackup",
-		"vtcombo",
-		"vtctl",
-		"vtctlclient",
-		"vtctld",
-		"vtgate",
-		"vtgateclienttest",
-		"vtorc",
-		"vttablet",
-		"vttestserver",
-	} {
-		OnParseFor(cmd, grpccommon.RegisterFlags)
-	}
-
-	// These are the binaries that export stats
-	for _, cmd := range []string{
-		"vtbackup",
-		"vtcombo",
-		"vtctld",
-		"vtgate",
-		"vttablet",
-		"vtorc",
-	} {
-		OnParseFor(cmd, stats.RegisterFlags)
-	}
-
-	// Flags in package log are installed for all binaries.
-	OnParse(log.RegisterFlags)
-	// Flags in package logutil are installed for all binaries.
-	OnParse(logutil.RegisterFlags)
-	// Flags in package viperutil/config are installed for all binaries.
-	OnParse(viperutil.RegisterFlags)
+	// Leaving this here as a pointer as we continue the port.
+	// In this block we will call OnParseFor to register
+	// common flags for things like tracing / stats / grpc common flags
 }
 
 func RegisterFlagsForTopoBinaries(registerFlags func(fs *pflag.FlagSet)) {
 	topoBinaries := []string{
-		"vtbackup",
-		"vtcombo",
-		"vtctl",
-		"vtctld",
-		"vtgate",
-		"vttablet",
-		"vttestserver",
-		"zk",
-		"vtorc",
+		"multigateway",
+		"multipooler",
+		"multiorch",
 	}
 	for _, cmd := range topoBinaries {
 		OnParseFor(cmd, registerFlags)

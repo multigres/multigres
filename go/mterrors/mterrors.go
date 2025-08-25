@@ -115,7 +115,7 @@ func setLogErrStacks(val bool) {
 	logErrStacks = val
 }
 
-// RegisterFlags registers the command-line options that control vterror
+// RegisterFlags registers the command-line options that control mtterror
 // behavior on the provided FlagSet.
 func RegisterFlags(fs *pflag.FlagSet) {
 	muLogErrStacks.Lock()
