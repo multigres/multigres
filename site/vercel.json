@@ -1,4 +1,6 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
   "redirects": [
     {
       "source": "/blog/2025/07/22/ha-postgres-full-sync",
@@ -7,6 +9,5 @@
     }
   ],
   "rewrites": [
-    { "source": "/blog(/.*)?", "destination": "/index.html" }
-  ]
+    { "source": "/blog(/.*)?", "destination": "/index.html" }  ]
 }
