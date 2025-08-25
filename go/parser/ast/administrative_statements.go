@@ -6,6 +6,7 @@ package ast
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ==============================================================================
@@ -110,7 +111,7 @@ type PartitionSpec struct {
 	BaseNode
 	Strategy   PartitionStrategy // Partitioning strategy - parsenodes.h:884
 	PartParams *NodeList         // List of PartitionElem nodes - parsenodes.h:885
-	Location   int               // Parse location, or -1 if none/unknown - parsenodes.h:886
+	// Location is provided by BaseNode.Location() method
 }
 
 // NewPartitionSpec creates a new PartitionSpec node.
@@ -119,7 +120,6 @@ func NewPartitionSpec(strategy PartitionStrategy, partParams *NodeList) *Partiti
 		BaseNode:   BaseNode{Tag: T_PartitionSpec},
 		Strategy:   strategy,
 		PartParams: partParams,
-		Location:   -1,
 	}
 }
 
@@ -129,7 +129,6 @@ func NewListPartitionSpec(partParams *NodeList) *PartitionSpec {
 		BaseNode:   BaseNode{Tag: T_PartitionSpec},
 		Strategy:   PARTITION_STRATEGY_LIST,
 		PartParams: partParams,
-		Location:   -1,
 	}
 }
 
@@ -139,7 +138,6 @@ func NewRangePartitionSpec(partParams *NodeList) *PartitionSpec {
 		BaseNode:   BaseNode{Tag: T_PartitionSpec},
 		Strategy:   PARTITION_STRATEGY_RANGE,
 		PartParams: partParams,
-		Location:   -1,
 	}
 }
 
@@ -149,7 +147,6 @@ func NewHashPartitionSpec(partParams *NodeList) *PartitionSpec {
 		BaseNode:   BaseNode{Tag: T_PartitionSpec},
 		Strategy:   PARTITION_STRATEGY_HASH,
 		PartParams: partParams,
-		Location:   -1,
 	}
 }
 
@@ -173,7 +170,7 @@ type PartitionBoundSpec struct {
 	ListDatums []*NodeList       // List of list datums per column - parsenodes.h:902
 	LowDatums  *NodeList         // List of lower datums for range bounds - parsenodes.h:903
 	HighDatums *NodeList         // List of upper datums for range bounds - parsenodes.h:904
-	Location   int               // Parse location, or -1 if none/unknown - parsenodes.h:905
+	// Location is provided by BaseNode.Location() method
 }
 
 // NewPartitionBoundSpec creates a new PartitionBoundSpec node.
@@ -181,7 +178,6 @@ func NewPartitionBoundSpec(strategy PartitionStrategy) *PartitionBoundSpec {
 	return &PartitionBoundSpec{
 		BaseNode: BaseNode{Tag: T_PartitionBoundSpec},
 		Strategy: strategy,
-		Location: -1,
 	}
 }
 
@@ -190,7 +186,6 @@ func NewDefaultPartitionBound() *PartitionBoundSpec {
 	return &PartitionBoundSpec{
 		BaseNode:  BaseNode{Tag: T_PartitionBoundSpec},
 		IsDefault: true,
-		Location:  -1,
 	}
 }
 
@@ -201,7 +196,6 @@ func NewHashPartitionBound(modulus, remainder int) *PartitionBoundSpec {
 		Strategy:  PARTITION_STRATEGY_HASH,
 		Modulus:   modulus,
 		Remainder: remainder,
-		Location:  -1,
 	}
 }
 
@@ -211,7 +205,6 @@ func NewListPartitionBound(listDatums []*NodeList) *PartitionBoundSpec {
 		BaseNode:   BaseNode{Tag: T_PartitionBoundSpec},
 		Strategy:   PARTITION_STRATEGY_LIST,
 		ListDatums: listDatums,
-		Location:   -1,
 	}
 }
 
@@ -222,7 +215,6 @@ func NewRangePartitionBound(lowDatums, highDatums *NodeList) *PartitionBoundSpec
 		Strategy:   PARTITION_STRATEGY_RANGE,
 		LowDatums:  lowDatums,
 		HighDatums: highDatums,
-		Location:   -1,
 	}
 }
 
@@ -251,13 +243,62 @@ func (pbs *PartitionBoundSpec) String() string {
 	}
 }
 
+func (pbs *PartitionBoundSpec) SqlString() string {
+	if pbs.IsDefault {
+		return "DEFAULT"
+	}
+
+	parts := []string{"FOR VALUES"}
+	
+	switch pbs.Strategy {
+	case PARTITION_STRATEGY_HASH:
+		parts = append(parts, fmt.Sprintf("WITH (modulus %d, remainder %d)", pbs.Modulus, pbs.Remainder))
+		
+	case PARTITION_STRATEGY_LIST:
+		if len(pbs.ListDatums) > 0 {
+			datumStrings := []string{}
+			for _, datumList := range pbs.ListDatums {
+				if datumList != nil && len(datumList.Items) > 0 {
+					for _, datum := range datumList.Items {
+						datumStrings = append(datumStrings, datum.SqlString())
+					}
+				}
+			}
+			parts = append(parts, "IN ("+strings.Join(datumStrings, ", ")+")")
+		}
+		
+	case PARTITION_STRATEGY_RANGE:
+		var rangeParts []string
+		if pbs.LowDatums != nil && len(pbs.LowDatums.Items) > 0 {
+			lowStrings := []string{}
+			for _, datum := range pbs.LowDatums.Items {
+				lowStrings = append(lowStrings, datum.SqlString())
+			}
+			rangeParts = append(rangeParts, "FROM ("+strings.Join(lowStrings, ", ")+")")
+		}
+		if pbs.HighDatums != nil && len(pbs.HighDatums.Items) > 0 {
+			highStrings := []string{}
+			for _, datum := range pbs.HighDatums.Items {
+				highStrings = append(highStrings, datum.SqlString())
+			}
+			rangeParts = append(rangeParts, "TO ("+strings.Join(highStrings, ", ")+")")
+		}
+		parts = append(parts, strings.Join(rangeParts, " "))
+		
+	default:
+		parts = append(parts, fmt.Sprintf("/* Unknown strategy %s */", pbs.Strategy))
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 // PartitionRangeDatum represents partition range datum values.
 // Ported from postgres/src/include/nodes/parsenodes.h:929
 type PartitionRangeDatum struct {
 	BaseNode
 	Kind     PartitionRangeDatumKind // What kind of datum this is - parsenodes.h:931
 	Value    Node                    // The actual datum value - parsenodes.h:932
-	Location int                     // Parse location, or -1 if none/unknown - parsenodes.h:933
+	// Location is provided by BaseNode.Location() method
 }
 
 // PartitionRangeDatumKind represents types of range datums.
@@ -276,7 +317,6 @@ func NewPartitionRangeDatum(kind PartitionRangeDatumKind, value Node) *Partition
 		BaseNode: BaseNode{Tag: T_PartitionRangeDatum},
 		Kind:     kind,
 		Value:    value,
-		Location: -1,
 	}
 }
 
@@ -285,7 +325,6 @@ func NewMinValueDatum() *PartitionRangeDatum {
 	return &PartitionRangeDatum{
 		BaseNode: BaseNode{Tag: T_PartitionRangeDatum},
 		Kind:     PARTITION_RANGE_DATUM_MINVALUE,
-		Location: -1,
 	}
 }
 
@@ -294,7 +333,6 @@ func NewMaxValueDatum() *PartitionRangeDatum {
 	return &PartitionRangeDatum{
 		BaseNode: BaseNode{Tag: T_PartitionRangeDatum},
 		Kind:     PARTITION_RANGE_DATUM_MAXVALUE,
-		Location: -1,
 	}
 }
 
@@ -304,7 +342,6 @@ func NewValueDatum(value Node) *PartitionRangeDatum {
 		BaseNode: BaseNode{Tag: T_PartitionRangeDatum},
 		Kind:     PARTITION_RANGE_DATUM_VALUE,
 		Value:    value,
-		Location: -1,
 	}
 }
 

@@ -28,7 +28,9 @@ const (
 	T_DropStmt
 	T_AlterStmt
 	T_AlterTableStmt
+	T_AlterTableMoveAllStmt
 	T_AlterTableCmd
+	T_ReplicaIdentityStmt
 	T_AlterDomainStmt
 	T_IndexStmt
 	T_IndexElem
@@ -273,8 +275,12 @@ func (nt NodeTag) String() string {
 		return "T_AlterStmt"
 	case T_AlterTableStmt:
 		return "T_AlterTableStmt"
+	case T_AlterTableMoveAllStmt:
+		return "T_AlterTableMoveAllStmt"
 	case T_AlterTableCmd:
 		return "T_AlterTableCmd"
+	case T_ReplicaIdentityStmt:
+		return "T_ReplicaIdentityStmt"
 	case T_AlterDomainStmt:
 		return "T_AlterDomainStmt"
 	case T_IndexStmt:

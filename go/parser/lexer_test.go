@@ -1408,7 +1408,7 @@ func TestCharacterDispatchOrdering(t *testing.T) {
 			}{
 				{IDENT, "U"},         // identifier
 				{SCONST, "U&'test'"}, // unicode string
-				{IDENT, "UNIQUE"},    // keyword
+				{UNIQUE, "UNIQUE"},   // keyword
 			},
 		},
 	}

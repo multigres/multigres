@@ -82,6 +82,14 @@ const (
 	ONCOMMIT_DROP                                // ON COMMIT DROP - primnodes.h:60
 )
 
+// RelPersistence represents table persistence types.
+// Ported from postgres/src/include/nodes/primnodes.h:87
+const (
+	RELPERSISTENCE_PERMANENT rune = 'p' // Regular table - primnodes.h:89
+	RELPERSISTENCE_UNLOGGED  rune = 'u' // Unlogged table - primnodes.h:90
+	RELPERSISTENCE_TEMP      rune = 't' // Temporary table - primnodes.h:91
+)
+
 // ==============================================================================
 // SUPPORTING STRUCTURES
 // ==============================================================================
@@ -102,12 +110,12 @@ type RangeVar struct {
 func (r *RangeVar) SqlString() string {
 	// Use utility function for qualified name formatting
 	result := FormatFullyQualifiedName(r.CatalogName, r.SchemaName, r.RelName)
-	
+
 	// Add ONLY prefix if inheritance is disabled
 	if !r.Inh {
 		result = "ONLY " + result
 	}
-	
+
 	// Add alias if present
 	if r.Alias != nil {
 		aliasStr := r.Alias.SqlString()
@@ -115,7 +123,7 @@ func (r *RangeVar) SqlString() string {
 			result += " " + aliasStr
 		}
 	}
-	
+
 	return result
 }
 
@@ -150,7 +158,7 @@ func (rv *RangeVar) StatementType() string {
 // Ported from postgres/src/include/nodes/primnodes.h:47
 type Alias struct {
 	BaseNode
-	AliasName string // Alias name - postgres/src/include/nodes/primnodes.h:50
+	AliasName string    // Alias name - postgres/src/include/nodes/primnodes.h:50
 	ColNames  *NodeList // Column aliases - postgres/src/include/nodes/primnodes.h:51
 }
 
@@ -159,9 +167,9 @@ func (a *Alias) SqlString() string {
 	if a.AliasName == "" {
 		return ""
 	}
-	
+
 	result := FormatAlias(a.AliasName)
-	
+
 	// Add column aliases if present
 	if a.ColNames != nil && len(a.ColNames.Items) > 0 {
 		var colAliases []string
@@ -172,7 +180,7 @@ func (a *Alias) SqlString() string {
 		}
 		result += FormatParentheses(FormatCommaList(colAliases))
 	}
-	
+
 	return result
 }
 
@@ -193,9 +201,9 @@ func (a *Alias) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:514
 type ResTarget struct {
 	BaseNode
-	Name        string // Column name or empty - postgres/src/include/nodes/parsenodes.h:518
+	Name        string    // Column name or empty - postgres/src/include/nodes/parsenodes.h:518
 	Indirection *NodeList // Subscripts, field names, and '*', or nil - postgres/src/include/nodes/parsenodes.h:519
-	Val         Node   // Value expression to compute or assign - postgres/src/include/nodes/parsenodes.h:520
+	Val         Node      // Value expression to compute or assign - postgres/src/include/nodes/parsenodes.h:520
 }
 
 // NewResTarget creates a new ResTarget node.
@@ -220,9 +228,9 @@ func (r *ResTarget) SqlString() string {
 	if r.Val == nil {
 		return ""
 	}
-	
+
 	result := r.Val.SqlString()
-	
+
 	// Add indirection if present (e.g., array subscripts, field selection)
 	if r.Indirection != nil && len(r.Indirection.Items) > 0 {
 		for _, ind := range r.Indirection.Items {
@@ -242,12 +250,12 @@ func (r *ResTarget) SqlString() string {
 			}
 		}
 	}
-	
+
 	// Add alias if present
 	if r.Name != "" {
 		result += " AS " + QuoteIdentifier(r.Name)
 	}
-	
+
 	return result
 }
 
@@ -381,13 +389,13 @@ func (s *SelectStmt) StatementType() string {
 // SqlString returns the SQL representation of the SelectStmt
 func (s *SelectStmt) SqlString() string {
 	var parts []string
-	
+
 	// Handle set operations (UNION, INTERSECT, EXCEPT)
 	if s.Op != SETOP_NONE {
 		if s.Larg != nil {
 			parts = append(parts, s.Larg.SqlString())
 		}
-		
+
 		switch s.Op {
 		case SETOP_UNION:
 			if s.All {
@@ -408,14 +416,14 @@ func (s *SelectStmt) SqlString() string {
 				parts = append(parts, "EXCEPT")
 			}
 		}
-		
+
 		if s.Rarg != nil {
 			parts = append(parts, s.Rarg.SqlString())
 		}
-		
+
 		return strings.Join(parts, " ")
 	}
-	
+
 	// Handle VALUES clause
 	if len(s.ValuesLists) > 0 {
 		var valueRows []string
@@ -430,17 +438,17 @@ func (s *SelectStmt) SqlString() string {
 		}
 		return fmt.Sprintf("VALUES %s", strings.Join(valueRows, ", "))
 	}
-	
+
 	// Regular SELECT statement
 	parts = append(parts, "SELECT")
-	
+
 	// DISTINCT clause
 	// Note: DistinctClause == nil means no DISTINCT
-	//       DistinctClause == &NodeList{Items: []} means plain DISTINCT  
+	//       DistinctClause == &NodeList{Items: []} means plain DISTINCT
 	//       DistinctClause == &NodeList{Items: [expr1, expr2]} means DISTINCT ON (...)
 	if s.DistinctClause != nil {
 		distinctParts := []string{"DISTINCT"}
-		
+
 		// Check if there are any expressions (means DISTINCT ON)
 		if len(s.DistinctClause.Items) > 0 {
 			var distinctOn []string
@@ -456,7 +464,7 @@ func (s *SelectStmt) SqlString() string {
 		// Always add DISTINCT part if DistinctClause is not nil
 		parts = append(parts, strings.Join(distinctParts, " "))
 	}
-	
+
 	// Target list (what to select)
 	if len(s.TargetList) > 0 {
 		var targets []string
@@ -469,12 +477,12 @@ func (s *SelectStmt) SqlString() string {
 	} else {
 		parts = append(parts, "*")
 	}
-	
+
 	// INTO clause
 	if s.IntoClause != nil {
 		parts = append(parts, s.IntoClause.SqlString())
 	}
-	
+
 	// FROM clause
 	if s.FromClause != nil && len(s.FromClause.Items) > 0 {
 		var fromItems []string
@@ -485,12 +493,12 @@ func (s *SelectStmt) SqlString() string {
 		}
 		parts = append(parts, "FROM", strings.Join(fromItems, ", "))
 	}
-	
+
 	// WHERE clause
 	if s.WhereClause != nil {
 		parts = append(parts, "WHERE", s.WhereClause.SqlString())
 	}
-	
+
 	// GROUP BY clause
 	if s.GroupClause != nil && len(s.GroupClause.Items) > 0 {
 		var groupItems []string
@@ -505,12 +513,12 @@ func (s *SelectStmt) SqlString() string {
 		}
 		parts = append(parts, groupByStr, strings.Join(groupItems, ", "))
 	}
-	
+
 	// HAVING clause
 	if s.HavingClause != nil {
 		parts = append(parts, "HAVING", s.HavingClause.SqlString())
 	}
-	
+
 	// WINDOW clause
 	if s.WindowClause != nil && len(s.WindowClause.Items) > 0 {
 		var windowItems []string
@@ -521,7 +529,7 @@ func (s *SelectStmt) SqlString() string {
 		}
 		parts = append(parts, "WINDOW", strings.Join(windowItems, ", "))
 	}
-	
+
 	// ORDER BY clause (from SortClause)
 	if len(s.SortClause) > 0 {
 		var sortItems []string
@@ -532,17 +540,17 @@ func (s *SelectStmt) SqlString() string {
 		}
 		parts = append(parts, "ORDER BY", strings.Join(sortItems, ", "))
 	}
-	
+
 	// LIMIT clause
 	if s.LimitCount != nil {
 		parts = append(parts, "LIMIT", s.LimitCount.SqlString())
 	}
-	
+
 	// OFFSET clause
 	if s.LimitOffset != nil {
 		parts = append(parts, "OFFSET", s.LimitOffset.SqlString())
 	}
-	
+
 	// FOR UPDATE/SHARE clauses
 	if len(s.LockingClause) > 0 {
 		for _, locking := range s.LockingClause {
@@ -551,14 +559,14 @@ func (s *SelectStmt) SqlString() string {
 			}
 		}
 	}
-	
+
 	// WITH clause (CTEs)
 	if s.WithClause != nil {
 		// WITH clause typically comes first, so we need to prepend it
 		withStr := s.WithClause.SqlString()
 		return withStr + " " + strings.Join(parts, " ")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -598,18 +606,18 @@ func (i *InsertStmt) StatementType() string {
 // SqlString returns the SQL representation of the InsertStmt
 func (i *InsertStmt) SqlString() string {
 	var parts []string
-	
+
 	// WITH clause
 	if i.WithClause != nil {
 		parts = append(parts, i.WithClause.SqlString())
 	}
-	
+
 	// INSERT INTO table
 	parts = append(parts, "INSERT INTO")
 	if i.Relation != nil {
 		parts = append(parts, i.Relation.SqlString())
 	}
-	
+
 	// Column list (if specified)
 	if len(i.Cols) > 0 {
 		var cols []string
@@ -629,12 +637,12 @@ func (i *InsertStmt) SqlString() string {
 		// DEFAULT VALUES case (SelectStmt is nil)
 		parts = append(parts, "DEFAULT VALUES")
 	}
-	
+
 	// ON CONFLICT clause
 	if i.OnConflictClause != nil {
 		parts = append(parts, i.OnConflictClause.SqlString())
 	}
-	
+
 	// RETURNING clause
 	if len(i.ReturningList) > 0 {
 		var returning []string
@@ -643,7 +651,7 @@ func (i *InsertStmt) SqlString() string {
 		}
 		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -682,18 +690,18 @@ func (u *UpdateStmt) StatementType() string {
 // SqlString returns the SQL representation of the UpdateStmt
 func (u *UpdateStmt) SqlString() string {
 	var parts []string
-	
+
 	// WITH clause
 	if u.WithClause != nil {
 		parts = append(parts, u.WithClause.SqlString())
 	}
-	
+
 	// UPDATE table
 	parts = append(parts, "UPDATE")
 	if u.Relation != nil {
 		parts = append(parts, u.Relation.SqlString())
 	}
-	
+
 	// SET clause
 	if len(u.TargetList) > 0 {
 		var setClauses []string
@@ -706,7 +714,7 @@ func (u *UpdateStmt) SqlString() string {
 		}
 		parts = append(parts, "SET", strings.Join(setClauses, ", "))
 	}
-	
+
 	// FROM clause
 	if u.FromClause != nil && u.FromClause.Len() > 0 {
 		var fromParts []string
@@ -715,12 +723,12 @@ func (u *UpdateStmt) SqlString() string {
 		}
 		parts = append(parts, "FROM", strings.Join(fromParts, ", "))
 	}
-	
+
 	// WHERE clause
 	if u.WhereClause != nil {
 		parts = append(parts, "WHERE", u.WhereClause.SqlString())
 	}
-	
+
 	// RETURNING clause
 	if len(u.ReturningList) > 0 {
 		var returning []string
@@ -729,7 +737,7 @@ func (u *UpdateStmt) SqlString() string {
 		}
 		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -767,18 +775,18 @@ func (d *DeleteStmt) StatementType() string {
 // SqlString returns the SQL representation of the DeleteStmt
 func (d *DeleteStmt) SqlString() string {
 	var parts []string
-	
+
 	// WITH clause
 	if d.WithClause != nil {
 		parts = append(parts, d.WithClause.SqlString())
 	}
-	
+
 	// DELETE FROM table
 	parts = append(parts, "DELETE FROM")
 	if d.Relation != nil {
 		parts = append(parts, d.Relation.SqlString())
 	}
-	
+
 	// USING clause
 	if d.UsingClause != nil && d.UsingClause.Len() > 0 {
 		var usingParts []string
@@ -787,12 +795,12 @@ func (d *DeleteStmt) SqlString() string {
 		}
 		parts = append(parts, "USING", strings.Join(usingParts, ", "))
 	}
-	
+
 	// WHERE clause
 	if d.WhereClause != nil {
 		parts = append(parts, "WHERE", d.WhereClause.SqlString())
 	}
-	
+
 	// RETURNING clause
 	if len(d.ReturningList) > 0 {
 		var returning []string
@@ -801,7 +809,7 @@ func (d *DeleteStmt) SqlString() string {
 		}
 		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -814,7 +822,7 @@ func (d *DeleteStmt) SqlString() string {
 type CreateStmt struct {
 	BaseNode
 	Relation       *RangeVar           // Relation to create - postgres/src/include/nodes/parsenodes.h:2651
-	TableElts      []*ColumnDef        // Column definitions - postgres/src/include/nodes/parsenodes.h:2652
+	TableElts      *NodeList           // Column definitions - postgres/src/include/nodes/parsenodes.h:2652
 	InhRelations   []*RangeVar         // Relations to inherit from - postgres/src/include/nodes/parsenodes.h:2653
 	PartBound      *PartitionBoundSpec // FOR VALUES clause - parsenodes.h
 	PartSpec       *PartitionSpec      // PARTITION BY clause - parsenodes.h
@@ -912,13 +920,13 @@ func (c *ColumnRef) SqlString() string {
 	if c.Fields == nil || len(c.Fields.Items) == 0 {
 		return ""
 	}
-	
+
 	var parts []string
 	for _, field := range c.Fields.Items {
 		if field == nil {
 			continue
 		}
-		
+
 		// Handle different field types (String for column names, A_Star for *, A_Indices for array access)
 		switch f := field.(type) {
 		case *String:
@@ -947,7 +955,7 @@ func (c *ColumnRef) SqlString() string {
 			parts = append(parts, field.SqlString())
 		}
 	}
-	
+
 	// For simple column references, join with dots
 	// For complex ones with array access, concatenate appropriately
 	result := ""
@@ -962,7 +970,7 @@ func (c *ColumnRef) SqlString() string {
 			result += "." + part
 		}
 	}
-	
+
 	return result
 }
 
@@ -1020,15 +1028,15 @@ type CTESearchClause struct {
 // Ported from postgres/src/include/nodes/parsenodes.h:1652
 type CTECycleClause struct {
 	BaseNode
-	CycleColList      *NodeList   // List of columns to check for cycles - parsenodes.h:1655
-	CycleMarkColumn   string      // Name of column to mark cycles - parsenodes.h:1656
-	CycleMarkValue    Expression  // Value to set when cycle detected - parsenodes.h:1657
-	CycleMarkDefault  Expression  // Value to set when no cycle - parsenodes.h:1658
-	CyclePathColumn   string      // Name of column to track path - parsenodes.h:1659
-	CycleMarkType     Oid         // Common type of mark_value and mark_default - parsenodes.h:1662
-	CycleMarkTypmod   int32       // Type modifier - parsenodes.h:1663
+	CycleColList       *NodeList  // List of columns to check for cycles - parsenodes.h:1655
+	CycleMarkColumn    string     // Name of column to mark cycles - parsenodes.h:1656
+	CycleMarkValue     Expression // Value to set when cycle detected - parsenodes.h:1657
+	CycleMarkDefault   Expression // Value to set when no cycle - parsenodes.h:1658
+	CyclePathColumn    string     // Name of column to track path - parsenodes.h:1659
+	CycleMarkType      Oid        // Common type of mark_value and mark_default - parsenodes.h:1662
+	CycleMarkTypmod    int32      // Type modifier - parsenodes.h:1663
 	CycleMarkCollation Oid        // Collation - parsenodes.h:1664
-	CycleMarkNeop     Oid         // <> operator for type - parsenodes.h:1665
+	CycleMarkNeop      Oid        // <> operator for type - parsenodes.h:1665
 }
 
 // NewCTESearchClause creates a new CTESearchClause node.
@@ -1049,17 +1057,17 @@ func (sc *CTESearchClause) SqlString() string {
 	} else {
 		direction = "DEPTH FIRST"
 	}
-	
+
 	colNames := make([]string, 0, sc.SearchColList.Len())
 	for _, item := range sc.SearchColList.Items {
 		if str, ok := item.(*String); ok {
 			colNames = append(colNames, str.SVal)
 		}
 	}
-	
-	return fmt.Sprintf("SEARCH %s BY %s SET %s", 
-		direction, 
-		strings.Join(colNames, ", "), 
+
+	return fmt.Sprintf("SEARCH %s BY %s SET %s",
+		direction,
+		strings.Join(colNames, ", "),
 		sc.SearchSeqColumn)
 }
 
@@ -1083,19 +1091,19 @@ func (cc *CTECycleClause) SqlString() string {
 			colNames = append(colNames, str.SVal)
 		}
 	}
-	
-	result := fmt.Sprintf("CYCLE %s SET %s", 
-		strings.Join(colNames, ", "), 
+
+	result := fmt.Sprintf("CYCLE %s SET %s",
+		strings.Join(colNames, ", "),
 		cc.CycleMarkColumn)
-	
+
 	if cc.CycleMarkValue != nil && cc.CycleMarkDefault != nil {
-		result += fmt.Sprintf(" TO %s DEFAULT %s", 
-			cc.CycleMarkValue.SqlString(), 
+		result += fmt.Sprintf(" TO %s DEFAULT %s",
+			cc.CycleMarkValue.SqlString(),
 			cc.CycleMarkDefault.SqlString())
 	}
-	
+
 	result += fmt.Sprintf(" USING %s", cc.CyclePathColumn)
-	
+
 	return result
 }
 
@@ -1133,7 +1141,7 @@ func (cte *CommonTableExpr) String() string {
 // SqlString returns the SQL representation of the CommonTableExpr
 func (c *CommonTableExpr) SqlString() string {
 	parts := []string{QuoteIdentifier(c.Ctename)}
-	
+
 	// Add column names if specified
 	if c.Aliascolnames != nil && len(c.Aliascolnames.Items) > 0 {
 		var cols []string
@@ -1144,10 +1152,10 @@ func (c *CommonTableExpr) SqlString() string {
 		}
 		parts[0] += fmt.Sprintf("(%s)", strings.Join(cols, ", "))
 	}
-	
+
 	// Add the CTE query
 	parts = append(parts, "AS")
-	
+
 	// Determine if materialized/not materialized
 	switch c.Ctematerialized {
 	case CTEMaterializeAlways:
@@ -1155,22 +1163,22 @@ func (c *CommonTableExpr) SqlString() string {
 	case CTEMaterializeNever:
 		parts = append(parts, "NOT MATERIALIZED")
 	}
-	
+
 	// Add the actual query (usually in parentheses)
 	if c.Ctequery != nil {
 		parts = append(parts, fmt.Sprintf("(%s)", c.Ctequery.SqlString()))
 	}
-	
+
 	// Add SEARCH clause if present
 	if c.SearchClause != nil {
 		parts = append(parts, c.SearchClause.SqlString())
 	}
-	
+
 	// Add CYCLE clause if present
 	if c.CycleClause != nil {
 		parts = append(parts, c.CycleClause.SqlString())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1181,10 +1189,10 @@ func (c *CommonTableExpr) SqlString() string {
 type SetOperation int
 
 const (
-	SETOP_NONE SetOperation = iota // No set operation
-	SETOP_UNION                    // UNION
-	SETOP_INTERSECT                // INTERSECT
-	SETOP_EXCEPT                   // EXCEPT
+	SETOP_NONE      SetOperation = iota // No set operation
+	SETOP_UNION                         // UNION
+	SETOP_INTERSECT                     // INTERSECT
+	SETOP_EXCEPT                        // EXCEPT
 )
 
 func (s SetOperation) String() string {
@@ -1201,6 +1209,7 @@ func (s SetOperation) String() string {
 		return fmt.Sprintf("SetOperation(%d)", int(s))
 	}
 }
+
 // OnConflictClause represents ON CONFLICT clause for INSERT statements
 // Ported from postgres/src/include/nodes/parsenodes.h:1621-1629
 type OnConflictClause struct {
@@ -1216,13 +1225,13 @@ func (n *OnConflictClause) node() {}
 func (n *OnConflictClause) String() string {
 	var parts []string
 	parts = append(parts, "ON CONFLICT")
-	
+
 	if n.Infer != nil {
 		parts = append(parts, n.Infer.String())
 	}
-	
+
 	parts = append(parts, n.Action.String())
-	
+
 	if n.Action == ONCONFLICT_UPDATE && len(n.TargetList) > 0 {
 		targets := make([]string, len(n.TargetList))
 		for i, target := range n.TargetList {
@@ -1230,24 +1239,24 @@ func (n *OnConflictClause) String() string {
 		}
 		parts = append(parts, "SET", strings.Join(targets, ", "))
 	}
-	
+
 	if n.WhereClause != nil {
 		parts = append(parts, "WHERE", n.WhereClause.String())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 func (n *OnConflictClause) SqlString() string {
 	var parts []string
 	parts = append(parts, "ON CONFLICT")
-	
+
 	if n.Infer != nil {
 		parts = append(parts, n.Infer.SqlString())
 	}
-	
+
 	parts = append(parts, n.Action.SqlString())
-	
+
 	if n.Action == ONCONFLICT_UPDATE && len(n.TargetList) > 0 {
 		targets := make([]string, len(n.TargetList))
 		for i, target := range n.TargetList {
@@ -1260,11 +1269,11 @@ func (n *OnConflictClause) SqlString() string {
 		}
 		parts = append(parts, "SET", strings.Join(targets, ", "))
 	}
-	
+
 	if n.WhereClause != nil {
 		parts = append(parts, "WHERE", n.WhereClause.SqlString())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1275,14 +1284,15 @@ func NewOnConflictClause(action OnConflictAction) *OnConflictClause {
 		Action:   action,
 	}
 }
+
 // OverridingKind represents OVERRIDING clause options
 // Ported from postgres/src/include/nodes/primnodes.h:25-30
 type OverridingKind int
 
 const (
-	OVERRIDING_NOT_SET OverridingKind = iota // No OVERRIDING clause
-	OVERRIDING_USER_VALUE                    // OVERRIDING USER VALUE
-	OVERRIDING_SYSTEM_VALUE                  // OVERRIDING SYSTEM VALUE
+	OVERRIDING_NOT_SET      OverridingKind = iota // No OVERRIDING clause
+	OVERRIDING_USER_VALUE                         // OVERRIDING USER VALUE
+	OVERRIDING_SYSTEM_VALUE                       // OVERRIDING SYSTEM VALUE
 )
 
 func (o OverridingKind) String() string {
@@ -1311,5 +1321,149 @@ func (o OverridingKind) SqlString() string {
 	}
 }
 
-
 // Note: Constraint is now defined in ddl_statements.go
+
+// SqlString returns the SQL representation of CREATE TABLE statement
+func (c *CreateStmt) SqlString() string {
+	var parts []string
+
+	parts = append(parts, "CREATE")
+
+	// Add TEMPORARY if specified
+	if c.Relation != nil && c.Relation.RelPersistence == 't' {
+		parts = append(parts, "TEMPORARY")
+	} else if c.Relation != nil && c.Relation.RelPersistence == 'u' {
+		parts = append(parts, "UNLOGGED")
+	}
+
+	parts = append(parts, "TABLE")
+
+	// Add IF NOT EXISTS if specified
+	if c.IfNotExists {
+		parts = append(parts, "IF NOT EXISTS")
+	}
+
+	// Add table name
+	if c.Relation != nil {
+		parts = append(parts, c.Relation.SqlString())
+	}
+
+	// Add column definitions and constraints
+
+	var columnParts []string
+	if c.TableElts != nil {
+		for _, col := range c.TableElts.Items {
+			if col != nil {
+				columnParts = append(columnParts, col.SqlString())
+			}
+		}
+	}
+
+	// Add table-level constraints
+	for _, constraint := range c.Constraints {
+		if constraint != nil {
+			columnParts = append(columnParts, constraint.SqlString())
+		}
+	}
+	if len(columnParts) > 0 {
+		parts = append(parts, "("+strings.Join(columnParts, ", ")+")")
+	}
+
+	// Add INHERITS clause if specified
+	if len(c.InhRelations) > 0 {
+		var inhParts []string
+		for _, inh := range c.InhRelations {
+			if inh != nil {
+				inhParts = append(inhParts, inh.SqlString())
+			}
+		}
+		parts = append(parts, "INHERITS", "("+strings.Join(inhParts, ", ")+")")
+	}
+
+	// Add WITH options if specified
+	if c.Options != nil && len(c.Options.Items) > 0 {
+		var optParts []string
+		for _, opt := range c.Options.Items {
+			if defElem, ok := opt.(*DefElem); ok {
+				optParts = append(optParts, defElem.SqlString())
+			}
+		}
+		if len(optParts) > 0 {
+			parts = append(parts, "WITH", "("+strings.Join(optParts, ", ")+")")
+		}
+	}
+
+	// Add ON COMMIT clause if specified
+	if c.OnCommit != 0 {
+		switch c.OnCommit {
+		case 1: // ONCOMMIT_PRESERVE_ROWS
+			parts = append(parts, "ON COMMIT PRESERVE ROWS")
+		case 2: // ONCOMMIT_DELETE_ROWS
+			parts = append(parts, "ON COMMIT DELETE ROWS")
+		case 3: // ONCOMMIT_DROP
+			parts = append(parts, "ON COMMIT DROP")
+		}
+	}
+
+	// Add tablespace if specified
+	if c.TableSpaceName != "" {
+		parts = append(parts, "TABLESPACE", c.TableSpaceName)
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// SqlString returns the SQL representation of DROP statement
+func (d *DropStmt) SqlString() string {
+	var parts []string
+
+	parts = append(parts, "DROP")
+
+	// Add object type
+	if d.RemoveType != 0 {
+		parts = append(parts, d.RemoveType.String())
+	}
+
+	// Add CONCURRENTLY if specified for indexes
+	if d.Concurrent && d.RemoveType == OBJECT_INDEX {
+		parts = append(parts, "CONCURRENTLY")
+	}
+
+	// Add IF EXISTS if specified
+	if d.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+
+	// Add object names
+	if d.Objects != nil && len(d.Objects.Items) > 0 {
+		var nameParts []string
+		for _, obj := range d.Objects.Items {
+			if nodeList, ok := obj.(*NodeList); ok {
+				// Handle qualified names (schema.table)
+				var qualParts []string
+				for _, nameItem := range nodeList.Items {
+					if strVal, ok := nameItem.(*String); ok {
+						qualParts = append(qualParts, strVal.SVal)
+					}
+				}
+				if len(qualParts) > 0 {
+					nameParts = append(nameParts, strings.Join(qualParts, "."))
+				}
+			} else if strVal, ok := obj.(*String); ok {
+				nameParts = append(nameParts, strVal.SVal)
+			}
+		}
+		if len(nameParts) > 0 {
+			parts = append(parts, strings.Join(nameParts, ", "))
+		}
+	}
+
+	// Add CASCADE/RESTRICT behavior
+	if d.Behavior == DropCascade {
+		parts = append(parts, "CASCADE")
+	}
+	// Note: We skip outputting RESTRICT as it's the default behavior
+	// and most tests expect it to be omitted unless explicitly specified
+
+	return strings.Join(parts, " ")
+}

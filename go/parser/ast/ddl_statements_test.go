@@ -661,3 +661,222 @@ func TestDDLComplexExamples(t *testing.T) {
 		assert.Equal(t, "security_barrier", viewStmt.Options[0].Defname)
 	})
 }
+
+// TestAlterTableStmtSqlString tests the SqlString method for AlterTableStmt
+func TestAlterTableStmtSqlString(t *testing.T) {
+	t.Run("AddColumn", func(t *testing.T) {
+		relation := NewRangeVar("users", "", "")
+		columnDef := NewColumnDef("email", NewTypeName([]string{"varchar"}), 0)
+		addColumnCmd := NewAddColumnCmd("", columnDef)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{addColumnCmd})
+		
+		expected := "ALTER TABLE users ADD COLUMN email varchar"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("DropColumn", func(t *testing.T) {
+		relation := NewRangeVar("users", "", "")
+		dropColumnCmd := NewDropColumnCmd("old_field", DropCascade)
+		dropColumnCmd.MissingOk = true
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{dropColumnCmd})
+		
+		expected := "ALTER TABLE users DROP COLUMN IF EXISTS old_field CASCADE"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("AlterColumnType", func(t *testing.T) {
+		relation := NewRangeVar("users", "", "")
+		typeName := NewTypeName([]string{"bigint"})
+		cmd := NewAlterTableCmd(AT_AlterColumnType, "id", typeName)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		
+		expected := "ALTER TABLE users ALTER COLUMN id TYPE bigint"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("SetNotNull", func(t *testing.T) {
+		relation := NewRangeVar("users", "", "")
+		cmd := NewAlterTableCmd(AT_SetNotNull, "email", nil)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		
+		expected := "ALTER TABLE users ALTER COLUMN email SET NOT NULL"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("DropNotNull", func(t *testing.T) {
+		relation := NewRangeVar("users", "", "")
+		cmd := NewAlterTableCmd(AT_DropNotNull, "email", nil)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		
+		expected := "ALTER TABLE users ALTER COLUMN email DROP NOT NULL"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("SetDefault", func(t *testing.T) {
+		relation := NewRangeVar("users", "", "")
+		defaultValue := NewString("unknown")
+		cmd := NewAlterTableCmd(AT_ColumnDefault, "status", defaultValue)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		
+		expected := "ALTER TABLE users ALTER COLUMN status SET DEFAULT 'unknown'"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("DropDefault", func(t *testing.T) {
+		relation := NewRangeVar("users", "", "")
+		cmd := NewAlterTableCmd(AT_ColumnDefault, "status", nil)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		
+		expected := "ALTER TABLE users ALTER COLUMN status DROP DEFAULT"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("SetStatistics", func(t *testing.T) {
+		relation := NewRangeVar("users", "", "")
+		statsValue := NewInteger(1000)
+		cmd := NewAlterTableCmd(AT_SetStatistics, "email", statsValue)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		
+		expected := "ALTER TABLE users ALTER COLUMN email SET STATISTICS 1000"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("AlterIndex", func(t *testing.T) {
+		relation := NewRangeVar("idx_users_email", "", "")
+		cmd := NewAlterTableCmd(AT_SetTableSpace, "fast_storage", nil)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		alterStmt.Objtype = OBJECT_INDEX
+		
+		expected := "ALTER INDEX idx_users_email SET TABLESPACE fast_storage"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("AlterIndexIfExists", func(t *testing.T) {
+		relation := NewRangeVar("idx_users_email", "", "")
+		cmd := NewAlterTableCmd(AT_SetTableSpace, "fast_storage", nil)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		alterStmt.Objtype = OBJECT_INDEX
+		alterStmt.MissingOk = true
+		
+		expected := "ALTER INDEX IF EXISTS idx_users_email SET TABLESPACE fast_storage"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("MultipleCommands", func(t *testing.T) {
+		relation := NewRangeVar("users", "", "")
+		
+		cmd1 := NewAlterTableCmd(AT_SetNotNull, "email", nil)
+		cmd2 := NewAlterTableCmd(AT_SetStatistics, "email", NewInteger(500))
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd1, cmd2})
+		
+		expected := "ALTER TABLE users ALTER COLUMN email SET NOT NULL, ALTER COLUMN email SET STATISTICS 500"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	// Test new object types
+	t.Run("AlterSequence", func(t *testing.T) {
+		relation := NewRangeVar("user_id_seq", "", "")
+		cmd := NewAlterTableCmd(AT_ColumnDefault, "increment_by", NewString("5"))
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		alterStmt.Objtype = OBJECT_SEQUENCE
+		
+		expected := "ALTER SEQUENCE user_id_seq ALTER COLUMN increment_by SET DEFAULT '5'"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("AlterSequenceIfExists", func(t *testing.T) {
+		relation := NewRangeVar("user_id_seq", "", "")
+		cmd := NewAlterTableCmd(AT_ColumnDefault, "increment_by", NewString("1"))
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		alterStmt.Objtype = OBJECT_SEQUENCE
+		alterStmt.MissingOk = true
+		
+		expected := "ALTER SEQUENCE IF EXISTS user_id_seq ALTER COLUMN increment_by SET DEFAULT '1'"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("AlterView", func(t *testing.T) {
+		relation := NewRangeVar("user_view", "", "")
+		columnDef := NewColumnDef("status", NewTypeName([]string{"varchar"}), 0)
+		addColumnCmd := NewAddColumnCmd("", columnDef)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{addColumnCmd})
+		alterStmt.Objtype = OBJECT_VIEW
+		
+		expected := "ALTER VIEW user_view ADD COLUMN status varchar"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("AlterViewIfExists", func(t *testing.T) {
+		relation := NewRangeVar("user_view", "", "")
+		cmd := NewAlterTableCmd(AT_DropColumn, "old_field", nil)
+		cmd.MissingOk = true
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		alterStmt.Objtype = OBJECT_VIEW
+		alterStmt.MissingOk = true
+		
+		expected := "ALTER VIEW IF EXISTS user_view DROP COLUMN IF EXISTS old_field"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("AlterMaterializedView", func(t *testing.T) {
+		relation := NewRangeVar("user_summary_mv", "", "")
+		cmd := NewAlterTableCmd(AT_SetNotNull, "created_at", nil)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		alterStmt.Objtype = OBJECT_MATVIEW
+		
+		expected := "ALTER MATERIALIZED VIEW user_summary_mv ALTER COLUMN created_at SET NOT NULL"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("AlterMaterializedViewIfExists", func(t *testing.T) {
+		relation := NewRangeVar("user_summary_mv", "", "")
+		cmd := NewAlterTableCmd(AT_DropNotNull, "updated_at", nil)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		alterStmt.Objtype = OBJECT_MATVIEW
+		alterStmt.MissingOk = true
+		
+		expected := "ALTER MATERIALIZED VIEW IF EXISTS user_summary_mv ALTER COLUMN updated_at DROP NOT NULL"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("AlterForeignTable", func(t *testing.T) {
+		relation := NewRangeVar("remote_users", "", "")
+		columnDef := NewColumnDef("external_id", NewTypeName([]string{"bigint"}), 0)
+		addColumnCmd := NewAddColumnCmd("", columnDef)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{addColumnCmd})
+		alterStmt.Objtype = OBJECT_FOREIGN_TABLE
+		
+		expected := "ALTER FOREIGN TABLE remote_users ADD COLUMN external_id bigint"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+
+	t.Run("AlterForeignTableIfExists", func(t *testing.T) {
+		relation := NewRangeVar("remote_users", "", "")
+		cmd := NewAlterTableCmd(AT_DropColumn, "deprecated_field", nil)
+
+		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		alterStmt.Objtype = OBJECT_FOREIGN_TABLE
+		alterStmt.MissingOk = true
+		
+		expected := "ALTER FOREIGN TABLE IF EXISTS remote_users DROP COLUMN deprecated_field"
+		assert.Equal(t, expected, alterStmt.SqlString())
+	})
+}

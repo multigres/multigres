@@ -185,6 +185,17 @@ func TestDeparsing(t *testing.T) {
 		{"COPY TO PROGRAM new syntax", "COPY users TO PROGRAM 'gzip > /path/to/file.csv.gz' (format 'csv')", ""},
 		{"COPY FROM STDIN new syntax", "COPY users FROM STDIN (format 'csv')", ""},
 		{"COPY TO STDOUT new syntax", "COPY users TO STDOUT (format 'csv')", ""},
+
+		// ALTER TABLE partition commands
+		{"ALTER TABLE ATTACH PARTITION with default", "ALTER TABLE parent_table ATTACH PARTITION child_table DEFAULT", ""},
+		{"ALTER TABLE ATTACH PARTITION with range", "ALTER TABLE parent_table ATTACH PARTITION child_table FOR VALUES FROM (1) TO (100)", ""},
+		{"ALTER TABLE ATTACH PARTITION with list", "ALTER TABLE parent_table ATTACH PARTITION child_table FOR VALUES IN (1, 2, 3)", ""},
+		{"ALTER TABLE DETACH PARTITION", "ALTER TABLE parent_table DETACH PARTITION child_table", ""},
+		{"ALTER TABLE DETACH PARTITION CONCURRENTLY", "ALTER TABLE parent_table DETACH PARTITION child_table CONCURRENTLY", ""},
+		{"ALTER TABLE DETACH PARTITION FINALIZE", "ALTER TABLE parent_table DETACH PARTITION child_table FINALIZE", ""},
+
+		// ALTER INDEX partition commands
+		{"ALTER INDEX ATTACH PARTITION", "ALTER INDEX parent_index ATTACH PARTITION child_index", ""},
 	}
 
 	for _, tt := range tests {
@@ -353,7 +364,7 @@ func TestRoundTripParsing(t *testing.T) {
 }
 
 func TestOneCase(t *testing.T) {
-	query := "UPDATE users SET active = TRUE"
+	query := "CREATE TABLE users (id int, name varchar(100), PRIMARY KEY (id))"
 	output := ""
 	if query == "" {
 		t.Skip("No tests to run")
@@ -2083,6 +2094,325 @@ func TestDMLExpressionDeparsing(t *testing.T) {
 			// Verify statement types match
 			assert.Equal(t, stmts[0].StatementType(), stmts2[0].StatementType(),
 				"Statement types should match after round-trip")
+		})
+	}
+}
+
+// TestRenameStmtDeparsing tests round-trip parsing and deparsing for all RenameStmt variants
+func TestRenameStmtDeparsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string // If empty, expects exact match with input
+	}{
+		// TABLE renaming
+		{"ALTER TABLE RENAME", "ALTER TABLE users RENAME TO customers", ""},
+		{"ALTER TABLE RENAME IF EXISTS", "ALTER TABLE IF EXISTS users RENAME TO customers", ""},
+
+		// COLUMN renaming
+		{"ALTER TABLE RENAME COLUMN", "ALTER TABLE users RENAME COLUMN name TO full_name", ""},
+		{"ALTER TABLE RENAME COLUMN IF EXISTS", "ALTER TABLE IF EXISTS users RENAME COLUMN name TO full_name", ""},
+		{"ALTER VIEW RENAME COLUMN", "ALTER VIEW user_view RENAME COLUMN name TO full_name", ""},
+		{"ALTER VIEW RENAME COLUMN IF EXISTS", "ALTER VIEW IF EXISTS user_view RENAME COLUMN name TO full_name", ""},
+		{"ALTER MATERIALIZED VIEW RENAME COLUMN", "ALTER MATERIALIZED VIEW mat_view RENAME COLUMN name TO full_name", ""},
+		{"ALTER MATERIALIZED VIEW RENAME COLUMN IF EXISTS", "ALTER MATERIALIZED VIEW IF EXISTS mat_view RENAME COLUMN name TO full_name", ""},
+		{"ALTER FOREIGN TABLE RENAME COLUMN", "ALTER FOREIGN TABLE foreign_users RENAME COLUMN name TO full_name", ""},
+		{"ALTER FOREIGN TABLE RENAME COLUMN IF EXISTS", "ALTER FOREIGN TABLE IF EXISTS foreign_users RENAME COLUMN name TO full_name", ""},
+
+		// CONSTRAINT renaming
+		{"ALTER TABLE RENAME CONSTRAINT", "ALTER TABLE users RENAME CONSTRAINT old_constraint TO new_constraint", ""},
+		{"ALTER TABLE RENAME CONSTRAINT IF EXISTS", "ALTER TABLE IF EXISTS users RENAME CONSTRAINT old_constraint TO new_constraint", ""},
+
+		// INDEX renaming
+		{"ALTER INDEX RENAME", "ALTER INDEX users_idx RENAME TO customers_idx", ""},
+		{"ALTER INDEX RENAME IF EXISTS", "ALTER INDEX IF EXISTS users_idx RENAME TO customers_idx", ""},
+
+		// SEQUENCE renaming
+		{"ALTER SEQUENCE RENAME", "ALTER SEQUENCE user_id_seq RENAME TO customer_id_seq", ""},
+		{"ALTER SEQUENCE RENAME IF EXISTS", "ALTER SEQUENCE IF EXISTS user_id_seq RENAME TO customer_id_seq", ""},
+
+		// VIEW renaming
+		{"ALTER VIEW RENAME", "ALTER VIEW user_view RENAME TO customer_view", ""},
+		{"ALTER VIEW RENAME IF EXISTS", "ALTER VIEW IF EXISTS user_view RENAME TO customer_view", ""},
+
+		// MATERIALIZED VIEW renaming
+		{"ALTER MATERIALIZED VIEW RENAME", "ALTER MATERIALIZED VIEW mat_view RENAME TO new_mat_view", ""},
+		{"ALTER MATERIALIZED VIEW RENAME IF EXISTS", "ALTER MATERIALIZED VIEW IF EXISTS mat_view RENAME TO new_mat_view", ""},
+
+		// FOREIGN TABLE renaming
+		{"ALTER FOREIGN TABLE RENAME", "ALTER FOREIGN TABLE foreign_users RENAME TO foreign_customers", ""},
+		{"ALTER FOREIGN TABLE RENAME IF EXISTS", "ALTER FOREIGN TABLE IF EXISTS foreign_users RENAME TO foreign_customers", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input SQL
+			statements, err := ParseSQL(tt.input)
+			require.NoError(t, err, "Parse should succeed for: %s", tt.input)
+			require.Len(t, statements, 1, "Should have exactly one statement")
+
+			// Verify it's a RenameStmt
+			renameStmt, ok := statements[0].(*ast.RenameStmt)
+			require.True(t, ok, "Statement should be a RenameStmt")
+			require.Equal(t, "RenameStmt", renameStmt.StatementType())
+
+			// Get the deparsed SQL
+			deparsed := statements[0].SqlString()
+			require.NotEmpty(t, deparsed, "Deparsed SQL should not be empty")
+
+			// Determine expected output
+			expected := tt.expected
+			if expected == "" {
+				expected = tt.input
+			}
+
+			// Log for debugging
+			t.Logf("Original: %s", tt.input)
+			t.Logf("Deparsed: %s", deparsed)
+			t.Logf("Expected: %s", expected)
+
+			// Compare normalized versions
+			assert.Equal(t, normalizeSQL(expected), normalizeSQL(deparsed),
+				"RenameStmt deparsing mismatch.\nOriginal: %s\nDeparsed: %s\nExpected: %s",
+				tt.input, deparsed, expected)
+
+			// Also verify that re-parsing the deparsed SQL succeeds
+			statements2, err2 := ParseSQL(deparsed)
+			require.NoError(t, err2, "Re-parsing deparsed SQL should succeed.\nOriginal: %s\nDeparsed: %s", tt.input, deparsed)
+			require.Len(t, statements2, 1, "Re-parsed should have exactly one statement")
+
+			renameStmt2, ok2 := statements2[0].(*ast.RenameStmt)
+			require.True(t, ok2, "Re-parsed statement should be a RenameStmt")
+			require.Equal(t, renameStmt.StatementType(), renameStmt2.StatementType())
+		})
+	}
+}
+
+// TestRenameStmtDeparsing_FuturePhases tests RENAME operations for advanced PostgreSQL objects
+// that will be implemented in future phases. These tests are currently expected to fail.
+func TestRenameStmtDeparsing_FuturePhases(t *testing.T) {
+	t.Skip("Skipping advanced RENAME tests - these will be implemented in future phases")
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string // If empty, expects exact match with input
+	}{
+		// DATABASE renaming
+		{"ALTER DATABASE RENAME", "ALTER DATABASE old_db RENAME TO new_db", ""},
+
+		// SCHEMA renaming
+		{"ALTER SCHEMA RENAME", "ALTER SCHEMA old_schema RENAME TO new_schema", ""},
+
+		// ROLE renaming
+		{"ALTER ROLE RENAME", "ALTER ROLE old_role RENAME TO new_role", ""},
+		{"ALTER USER RENAME", "ALTER USER old_user RENAME TO new_user", ""},
+		{"ALTER GROUP RENAME", "ALTER GROUP old_group RENAME TO new_group", ""},
+
+		// TABLESPACE renaming
+		{"ALTER TABLESPACE RENAME", "ALTER TABLESPACE old_ts RENAME TO new_ts", ""},
+
+		// DOMAIN renaming
+		{"ALTER DOMAIN RENAME", "ALTER DOMAIN old_domain RENAME TO new_domain", ""},
+		{"ALTER DOMAIN RENAME CONSTRAINT", "ALTER DOMAIN my_domain RENAME CONSTRAINT old_check TO new_check", ""},
+
+		// TYPE renaming
+		{"ALTER TYPE RENAME", "ALTER TYPE old_type RENAME TO new_type", ""},
+		{"ALTER TYPE RENAME ATTRIBUTE", "ALTER TYPE my_type RENAME ATTRIBUTE old_attr TO new_attr", ""},
+
+		// FUNCTION renaming (simplified - no arguments for now)
+		{"ALTER FUNCTION RENAME", "ALTER FUNCTION old_func() RENAME TO new_func", ""},
+		{"ALTER PROCEDURE RENAME", "ALTER PROCEDURE old_proc() RENAME TO new_proc", ""},
+		{"ALTER ROUTINE RENAME", "ALTER ROUTINE old_routine() RENAME TO new_routine", ""},
+
+		// AGGREGATE renaming (simplified - no arguments for now)
+		{"ALTER AGGREGATE RENAME", "ALTER AGGREGATE old_agg() RENAME TO new_agg", ""},
+
+		// COLLATION renaming
+		{"ALTER COLLATION RENAME", "ALTER COLLATION old_collation RENAME TO new_collation", ""},
+
+		// CONVERSION renaming
+		{"ALTER CONVERSION RENAME", "ALTER CONVERSION old_conv RENAME TO new_conv", ""},
+
+		// LANGUAGE renaming
+		{"ALTER LANGUAGE RENAME", "ALTER LANGUAGE old_lang RENAME TO new_lang", ""},
+		{"ALTER PROCEDURAL LANGUAGE RENAME", "ALTER PROCEDURAL LANGUAGE old_lang RENAME TO new_lang", ""},
+
+		// OPERATOR CLASS renaming
+		{"ALTER OPERATOR CLASS RENAME", "ALTER OPERATOR CLASS old_class USING btree RENAME TO new_class", ""},
+
+		// OPERATOR FAMILY renaming
+		{"ALTER OPERATOR FAMILY RENAME", "ALTER OPERATOR FAMILY old_family USING btree RENAME TO new_family", ""},
+
+		// POLICY renaming
+		{"ALTER POLICY RENAME", "ALTER POLICY old_policy ON users RENAME TO new_policy", ""},
+		{"ALTER POLICY RENAME IF EXISTS", "ALTER POLICY IF EXISTS old_policy ON users RENAME TO new_policy", ""},
+
+		// RULE renaming
+		{"ALTER RULE RENAME", "ALTER RULE old_rule ON users RENAME TO new_rule", ""},
+
+		// TRIGGER renaming
+		{"ALTER TRIGGER RENAME", "ALTER TRIGGER old_trigger ON users RENAME TO new_trigger", ""},
+
+		// EVENT TRIGGER renaming
+		{"ALTER EVENT TRIGGER RENAME", "ALTER EVENT TRIGGER old_event_trigger RENAME TO new_event_trigger", ""},
+
+		// PUBLICATION renaming
+		{"ALTER PUBLICATION RENAME", "ALTER PUBLICATION old_pub RENAME TO new_pub", ""},
+
+		// SUBSCRIPTION renaming
+		{"ALTER SUBSCRIPTION RENAME", "ALTER SUBSCRIPTION old_sub RENAME TO new_sub", ""},
+
+		// FOREIGN DATA WRAPPER renaming
+		{"ALTER FOREIGN DATA WRAPPER RENAME", "ALTER FOREIGN DATA WRAPPER old_fdw RENAME TO new_fdw", ""},
+
+		// SERVER renaming
+		{"ALTER SERVER RENAME", "ALTER SERVER old_server RENAME TO new_server", ""},
+
+		// STATISTICS renaming
+		{"ALTER STATISTICS RENAME", "ALTER STATISTICS old_stats RENAME TO new_stats", ""},
+
+		// TEXT SEARCH objects renaming
+		{"ALTER TEXT SEARCH PARSER RENAME", "ALTER TEXT SEARCH PARSER old_parser RENAME TO new_parser", ""},
+		{"ALTER TEXT SEARCH DICTIONARY RENAME", "ALTER TEXT SEARCH DICTIONARY old_dict RENAME TO new_dict", ""},
+		{"ALTER TEXT SEARCH TEMPLATE RENAME", "ALTER TEXT SEARCH TEMPLATE old_template RENAME TO new_template", ""},
+		{"ALTER TEXT SEARCH CONFIGURATION RENAME", "ALTER TEXT SEARCH CONFIGURATION old_config RENAME TO new_config", ""},
+
+		// Qualified names (schema-qualified objects)
+		{"ALTER TABLE with schema", "ALTER TABLE public.users RENAME TO public.customers", ""},
+		{"ALTER INDEX with schema", "ALTER INDEX public.users_idx RENAME TO public.customers_idx", ""},
+		{"ALTER SEQUENCE with schema", "ALTER SEQUENCE public.user_id_seq RENAME TO public.customer_id_seq", ""},
+		{"ALTER VIEW with schema", "ALTER VIEW public.user_view RENAME TO public.customer_view", ""},
+	}
+
+	// This test is intentionally empty to document future work
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Skip("Advanced object type not implemented yet - part of future phases")
+		})
+	}
+}
+
+// TestRenameStmtObjectTypes tests that RenameStmt correctly identifies object types
+func TestRenameStmtObjectTypes(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		objectType ast.ObjectType
+	}{
+		{"TABLE", "ALTER TABLE users RENAME TO customers", ast.OBJECT_TABLE},
+		{"COLUMN", "ALTER TABLE users RENAME COLUMN name TO full_name", ast.OBJECT_COLUMN},
+		{"CONSTRAINT", "ALTER TABLE users RENAME CONSTRAINT old_c TO new_c", ast.OBJECT_TABCONSTRAINT},
+		{"INDEX", "ALTER INDEX users_idx RENAME TO customers_idx", ast.OBJECT_INDEX},
+		{"SEQUENCE", "ALTER SEQUENCE user_id_seq RENAME TO customer_id_seq", ast.OBJECT_SEQUENCE},
+		{"VIEW", "ALTER VIEW user_view RENAME TO customer_view", ast.OBJECT_VIEW},
+		{"MATERIALIZED VIEW", "ALTER MATERIALIZED VIEW mat_view RENAME TO new_mat_view", ast.OBJECT_MATVIEW},
+		{"FOREIGN TABLE", "ALTER FOREIGN TABLE foreign_users RENAME TO foreign_customers", ast.OBJECT_FOREIGN_TABLE},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			statements, err := ParseSQL(tt.input)
+			require.NoError(t, err, "Parse should succeed for: %s", tt.input)
+			require.Len(t, statements, 1, "Should have exactly one statement")
+
+			renameStmt, ok := statements[0].(*ast.RenameStmt)
+			require.True(t, ok, "Statement should be a RenameStmt")
+			assert.Equal(t, tt.objectType, renameStmt.RenameType,
+				"Object type mismatch for: %s", tt.input)
+		})
+	}
+}
+
+// TestRenameStmtObjectTypes_FuturePhases tests object type identification for advanced objects
+func TestRenameStmtObjectTypes_FuturePhases(t *testing.T) {
+	t.Skip("Skipping advanced object type tests - these will be implemented in future phases")
+
+	tests := []struct {
+		name       string
+		input      string
+		objectType ast.ObjectType
+	}{
+		{"DATABASE", "ALTER DATABASE old_db RENAME TO new_db", ast.OBJECT_DATABASE},
+		{"SCHEMA", "ALTER SCHEMA old_schema RENAME TO new_schema", ast.OBJECT_SCHEMA},
+		{"ROLE", "ALTER ROLE old_role RENAME TO new_role", ast.OBJECT_ROLE},
+		{"USER", "ALTER USER old_user RENAME TO new_user", ast.OBJECT_ROLE},
+		{"GROUP", "ALTER GROUP old_group RENAME TO new_group", ast.OBJECT_ROLE},
+		{"TABLESPACE", "ALTER TABLESPACE old_ts RENAME TO new_ts", ast.OBJECT_TABLESPACE},
+		{"DOMAIN", "ALTER DOMAIN old_domain RENAME TO new_domain", ast.OBJECT_DOMAIN},
+		{"DOMAIN CONSTRAINT", "ALTER DOMAIN my_domain RENAME CONSTRAINT old_check TO new_check", ast.OBJECT_DOMCONSTRAINT},
+		{"TYPE", "ALTER TYPE old_type RENAME TO new_type", ast.OBJECT_TYPE},
+		{"TYPE ATTRIBUTE", "ALTER TYPE my_type RENAME ATTRIBUTE old_attr TO new_attr", ast.OBJECT_ATTRIBUTE},
+		{"FUNCTION", "ALTER FUNCTION old_func() RENAME TO new_func", ast.OBJECT_FUNCTION},
+		{"PROCEDURE", "ALTER PROCEDURE old_proc() RENAME TO new_proc", ast.OBJECT_PROCEDURE},
+		{"ROUTINE", "ALTER ROUTINE old_routine() RENAME TO new_routine", ast.OBJECT_ROUTINE},
+		{"AGGREGATE", "ALTER AGGREGATE old_agg() RENAME TO new_agg", ast.OBJECT_AGGREGATE},
+		{"COLLATION", "ALTER COLLATION old_collation RENAME TO new_collation", ast.OBJECT_COLLATION},
+		{"CONVERSION", "ALTER CONVERSION old_conv RENAME TO new_conv", ast.OBJECT_CONVERSION},
+		{"LANGUAGE", "ALTER LANGUAGE old_lang RENAME TO new_lang", ast.OBJECT_LANGUAGE},
+		{"PROCEDURAL LANGUAGE", "ALTER PROCEDURAL LANGUAGE old_lang RENAME TO new_lang", ast.OBJECT_LANGUAGE},
+		{"OPERATOR CLASS", "ALTER OPERATOR CLASS old_class USING btree RENAME TO new_class", ast.OBJECT_OPCLASS},
+		{"OPERATOR FAMILY", "ALTER OPERATOR FAMILY old_family USING btree RENAME TO new_family", ast.OBJECT_OPFAMILY},
+		{"POLICY", "ALTER POLICY old_policy ON users RENAME TO new_policy", ast.OBJECT_POLICY},
+		{"RULE", "ALTER RULE old_rule ON users RENAME TO new_rule", ast.OBJECT_RULE},
+		{"TRIGGER", "ALTER TRIGGER old_trigger ON users RENAME TO new_trigger", ast.OBJECT_TRIGGER},
+		{"EVENT TRIGGER", "ALTER EVENT TRIGGER old_event_trigger RENAME TO new_event_trigger", ast.OBJECT_EVENT_TRIGGER},
+		{"PUBLICATION", "ALTER PUBLICATION old_pub RENAME TO new_pub", ast.OBJECT_PUBLICATION},
+		{"SUBSCRIPTION", "ALTER SUBSCRIPTION old_sub RENAME TO new_sub", ast.OBJECT_SUBSCRIPTION},
+		{"FOREIGN DATA WRAPPER", "ALTER FOREIGN DATA WRAPPER old_fdw RENAME TO new_fdw", ast.OBJECT_FDW},
+		{"SERVER", "ALTER SERVER old_server RENAME TO new_server", ast.OBJECT_FOREIGN_SERVER},
+		{"STATISTICS", "ALTER STATISTICS old_stats RENAME TO new_stats", ast.OBJECT_STATISTIC_EXT},
+		{"TEXT SEARCH PARSER", "ALTER TEXT SEARCH PARSER old_parser RENAME TO new_parser", ast.OBJECT_TSPARSER},
+		{"TEXT SEARCH DICTIONARY", "ALTER TEXT SEARCH DICTIONARY old_dict RENAME TO new_dict", ast.OBJECT_TSDICTIONARY},
+		{"TEXT SEARCH TEMPLATE", "ALTER TEXT SEARCH TEMPLATE old_template RENAME TO new_template", ast.OBJECT_TSTEMPLATE},
+		{"TEXT SEARCH CONFIGURATION", "ALTER TEXT SEARCH CONFIGURATION old_config RENAME TO new_config", ast.OBJECT_TSCONFIGURATION},
+	}
+
+	// This test is intentionally empty to document future work
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Skip("Advanced object type not implemented yet - part of future phases")
+		})
+	}
+}
+
+// TestRenameStmtMissingOk tests that IF EXISTS is properly handled
+func TestRenameStmtMissingOk(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		missingOk bool
+	}{
+		{"TABLE without IF EXISTS", "ALTER TABLE users RENAME TO customers", false},
+		{"TABLE with IF EXISTS", "ALTER TABLE IF EXISTS users RENAME TO customers", true},
+		{"INDEX without IF EXISTS", "ALTER INDEX users_idx RENAME TO customers_idx", false},
+		{"INDEX with IF EXISTS", "ALTER INDEX IF EXISTS users_idx RENAME TO customers_idx", true},
+		{"VIEW without IF EXISTS", "ALTER VIEW user_view RENAME TO customer_view", false},
+		{"VIEW with IF EXISTS", "ALTER VIEW IF EXISTS user_view RENAME TO customer_view", true},
+		{"SEQUENCE without IF EXISTS", "ALTER SEQUENCE user_id_seq RENAME TO customer_id_seq", false},
+		{"SEQUENCE with IF EXISTS", "ALTER SEQUENCE IF EXISTS user_id_seq RENAME TO customer_id_seq", true},
+		{"MATERIALIZED VIEW without IF EXISTS", "ALTER MATERIALIZED VIEW mat_view RENAME TO new_mat_view", false},
+		{"MATERIALIZED VIEW with IF EXISTS", "ALTER MATERIALIZED VIEW IF EXISTS mat_view RENAME TO new_mat_view", true},
+		{"FOREIGN TABLE without IF EXISTS", "ALTER FOREIGN TABLE foreign_users RENAME TO foreign_customers", false},
+		{"FOREIGN TABLE with IF EXISTS", "ALTER FOREIGN TABLE IF EXISTS foreign_users RENAME TO foreign_customers", true},
+		{"COLUMN without IF EXISTS", "ALTER TABLE users RENAME COLUMN name TO full_name", false},
+		{"COLUMN with IF EXISTS", "ALTER TABLE IF EXISTS users RENAME COLUMN name TO full_name", true},
+		{"CONSTRAINT without IF EXISTS", "ALTER TABLE users RENAME CONSTRAINT old_c TO new_c", false},
+		{"CONSTRAINT with IF EXISTS", "ALTER TABLE IF EXISTS users RENAME CONSTRAINT old_c TO new_c", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the input SQL
+			statements, err := ParseSQL(tt.input)
+			require.NoError(t, err, "Parse should succeed for: %s", tt.input)
+			require.Len(t, statements, 1, "Should have exactly one statement")
+
+			// Verify it's a RenameStmt with correct MissingOk flag
+			renameStmt, ok := statements[0].(*ast.RenameStmt)
+			require.True(t, ok, "Statement should be a RenameStmt")
+			assert.Equal(t, tt.missingOk, renameStmt.MissingOk,
+				"MissingOk flag should match for %s", tt.input)
 		})
 	}
 }

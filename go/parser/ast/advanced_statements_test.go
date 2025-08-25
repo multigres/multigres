@@ -759,3 +759,151 @@ func TestAdvancedStatementsIntegration(t *testing.T) {
 		assert.Contains(t, str, "SET")
 	})
 }
+
+// TestRenameStmtSqlString tests the SqlString method for RenameStmt
+func TestRenameStmtSqlString(t *testing.T) {
+	t.Run("RenameTable", func(t *testing.T) {
+		stmt := &RenameStmt{
+			BaseNode:     BaseNode{Tag: T_RenameStmt},
+			RenameType:   OBJECT_TABLE,
+			RelationType: OBJECT_TABLE,
+			Relation:     NewRangeVar("old_table", "", ""),
+			Newname:      "new_table",
+			MissingOk:    false,
+		}
+		
+		expected := "ALTER TABLE old_table RENAME TO new_table"
+		assert.Equal(t, expected, stmt.SqlString())
+	})
+
+	t.Run("RenameTableIfExists", func(t *testing.T) {
+		stmt := &RenameStmt{
+			BaseNode:     BaseNode{Tag: T_RenameStmt},
+			RenameType:   OBJECT_TABLE,
+			RelationType: OBJECT_TABLE,
+			Relation:     NewRangeVar("old_table", "", ""),
+			Newname:      "new_table",
+			MissingOk:    true,
+		}
+		
+		expected := "ALTER TABLE IF EXISTS old_table RENAME TO new_table"
+		assert.Equal(t, expected, stmt.SqlString())
+	})
+
+	t.Run("RenameColumn", func(t *testing.T) {
+		stmt := &RenameStmt{
+			BaseNode:     BaseNode{Tag: T_RenameStmt},
+			RenameType:   OBJECT_COLUMN,
+			RelationType: OBJECT_TABLE,
+			Relation:     NewRangeVar("users", "", ""),
+			Subname:      "old_column",
+			Newname:      "new_column",
+			MissingOk:    false,
+		}
+		
+		expected := "ALTER TABLE users RENAME COLUMN old_column TO new_column"
+		assert.Equal(t, expected, stmt.SqlString())
+	})
+
+	t.Run("RenameColumnIfExists", func(t *testing.T) {
+		stmt := &RenameStmt{
+			BaseNode:     BaseNode{Tag: T_RenameStmt},
+			RenameType:   OBJECT_COLUMN,
+			RelationType: OBJECT_TABLE,
+			Relation:     NewRangeVar("users", "", ""),
+			Subname:      "old_column", 
+			Newname:      "new_column",
+			MissingOk:    true,
+		}
+		
+		expected := "ALTER TABLE IF EXISTS users RENAME COLUMN old_column TO new_column"
+		assert.Equal(t, expected, stmt.SqlString())
+	})
+
+	t.Run("RenameConstraint", func(t *testing.T) {
+		stmt := &RenameStmt{
+			BaseNode:     BaseNode{Tag: T_RenameStmt},
+			RenameType:   OBJECT_TABCONSTRAINT,
+			RelationType: OBJECT_TABLE,
+			Relation:     NewRangeVar("users", "", ""),
+			Subname:      "old_constraint",
+			Newname:      "new_constraint",
+			MissingOk:    false,
+		}
+		
+		expected := "ALTER TABLE users RENAME CONSTRAINT old_constraint TO new_constraint"
+		assert.Equal(t, expected, stmt.SqlString())
+	})
+
+	t.Run("RenameIndex", func(t *testing.T) {
+		stmt := &RenameStmt{
+			BaseNode:     BaseNode{Tag: T_RenameStmt},
+			RenameType:   OBJECT_INDEX,
+			RelationType: OBJECT_INDEX,
+			Relation:     NewRangeVar("old_index", "", ""),
+			Newname:      "new_index",
+			MissingOk:    false,
+		}
+		
+		expected := "ALTER INDEX old_index RENAME TO new_index"
+		assert.Equal(t, expected, stmt.SqlString())
+	})
+
+	t.Run("RenameView", func(t *testing.T) {
+		stmt := &RenameStmt{
+			BaseNode:     BaseNode{Tag: T_RenameStmt},
+			RenameType:   OBJECT_VIEW,
+			RelationType: OBJECT_VIEW,
+			Relation:     NewRangeVar("old_view", "", ""),
+			Newname:      "new_view",
+			MissingOk:    false,
+		}
+		
+		expected := "ALTER VIEW old_view RENAME TO new_view"
+		assert.Equal(t, expected, stmt.SqlString())
+	})
+
+	t.Run("RenameMaterializedView", func(t *testing.T) {
+		stmt := &RenameStmt{
+			BaseNode:     BaseNode{Tag: T_RenameStmt},
+			RenameType:   OBJECT_MATVIEW,
+			RelationType: OBJECT_MATVIEW,
+			Relation:     NewRangeVar("old_matview", "", ""),
+			Newname:      "new_matview",
+			MissingOk:    false,
+		}
+		
+		expected := "ALTER MATERIALIZED VIEW old_matview RENAME TO new_matview"
+		assert.Equal(t, expected, stmt.SqlString())
+	})
+
+	t.Run("RenameColumnInView", func(t *testing.T) {
+		stmt := &RenameStmt{
+			BaseNode:     BaseNode{Tag: T_RenameStmt},
+			RenameType:   OBJECT_COLUMN,
+			RelationType: OBJECT_VIEW,
+			Relation:     NewRangeVar("user_view", "", ""),
+			Subname:      "old_col",
+			Newname:      "new_col", 
+			MissingOk:    false,
+		}
+		
+		expected := "ALTER VIEW user_view RENAME COLUMN old_col TO new_col"
+		assert.Equal(t, expected, stmt.SqlString())
+	})
+
+	t.Run("RenameColumnInForeignTable", func(t *testing.T) {
+		stmt := &RenameStmt{
+			BaseNode:     BaseNode{Tag: T_RenameStmt},
+			RenameType:   OBJECT_COLUMN,
+			RelationType: OBJECT_FOREIGN_TABLE,
+			Relation:     NewRangeVar("foreign_users", "", ""),
+			Subname:      "old_field",
+			Newname:      "new_field",
+			MissingOk:    false,
+		}
+		
+		expected := "ALTER FOREIGN TABLE foreign_users RENAME COLUMN old_field TO new_field"
+		assert.Equal(t, expected, stmt.SqlString())
+	})
+}

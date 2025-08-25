@@ -648,6 +648,10 @@ type RenameStmt struct {
 func (n *RenameStmt) node() {}
 func (n *RenameStmt) stmt() {}
 
+func (n *RenameStmt) StatementType() string {
+	return "RenameStmt"
+}
+
 func (n *RenameStmt) String() string {
 	var parts []string
 	parts = append(parts, "ALTER", n.RenameType.String())
@@ -662,6 +666,75 @@ func (n *RenameStmt) String() string {
 		parts = append(parts, "RENAME", n.Subname, "TO", n.Newname)
 	} else {
 		parts = append(parts, "RENAME TO", n.Newname)
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+func (n *RenameStmt) SqlString() string {
+	var parts []string
+	
+	// Start with ALTER
+	parts = append(parts, "ALTER")
+	
+	// Add object type
+	switch n.RenameType {
+	case OBJECT_COLUMN:
+		// Column rename requires the relation type
+		switch n.RelationType {
+		case OBJECT_TABLE:
+			parts = append(parts, "TABLE")
+		case OBJECT_VIEW:
+			parts = append(parts, "VIEW")
+		case OBJECT_MATVIEW:
+			parts = append(parts, "MATERIALIZED VIEW")
+		case OBJECT_FOREIGN_TABLE:
+			parts = append(parts, "FOREIGN TABLE")
+		default:
+			parts = append(parts, "TABLE")
+		}
+	case OBJECT_TABLE:
+		parts = append(parts, "TABLE")
+	case OBJECT_INDEX:
+		parts = append(parts, "INDEX")
+	case OBJECT_SEQUENCE:
+		parts = append(parts, "SEQUENCE")
+	case OBJECT_VIEW:
+		parts = append(parts, "VIEW")
+	case OBJECT_MATVIEW:
+		parts = append(parts, "MATERIALIZED VIEW")
+	case OBJECT_FOREIGN_TABLE:
+		parts = append(parts, "FOREIGN TABLE")
+	case OBJECT_TABCONSTRAINT:
+		parts = append(parts, "TABLE")
+	default:
+		parts = append(parts, "TABLE")
+	}
+	
+	// Add IF EXISTS if specified
+	if n.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+	
+	// Add relation/object name
+	if n.Relation != nil {
+		parts = append(parts, n.Relation.SqlString())
+	} else if n.Object != nil {
+		parts = append(parts, n.Object.SqlString())
+	}
+	
+	// Add RENAME clause
+	parts = append(parts, "RENAME")
+	
+	if n.RenameType == OBJECT_COLUMN {
+		// Column rename: RENAME [COLUMN] old_name TO new_name
+		parts = append(parts, "COLUMN", n.Subname, "TO", n.Newname)
+	} else if n.RenameType == OBJECT_TABCONSTRAINT {
+		// Constraint rename: RENAME CONSTRAINT old_name TO new_name
+		parts = append(parts, "CONSTRAINT", n.Subname, "TO", n.Newname)
+	} else {
+		// Table/Index/View rename: RENAME TO new_name
+		parts = append(parts, "TO", n.Newname)
 	}
 	
 	return strings.Join(parts, " ")

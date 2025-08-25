@@ -346,7 +346,23 @@ func (f *FuncCall) SqlString() string {
 		var nameParts []string
 		for _, part := range f.Funcname {
 			if part != nil {
-				nameParts = append(nameParts, part.SVal)
+				// Normalize common function names to uppercase
+				name := part.SVal
+				switch strings.ToLower(name) {
+				case "now":
+					name = "NOW"
+				case "current_timestamp":
+					name = "CURRENT_TIMESTAMP"
+				case "current_date":
+					name = "CURRENT_DATE"
+				case "current_time":
+					name = "CURRENT_TIME"
+				case "localtime":
+					name = "LOCALTIME"
+				case "localtimestamp":
+					name = "LOCALTIMESTAMP"
+				}
+				nameParts = append(nameParts, name)
 			}
 		}
 		funcName = strings.Join(nameParts, ".")
@@ -545,6 +561,45 @@ type ColumnDef struct {
 	CollOid       Oid            // Collation OID (InvalidOid if not set)
 	Constraints   *NodeList      // Column constraints
 	Fdwoptions    *NodeList      // Foreign-data-wrapper specific options
+}
+
+// SqlString generates SQL representation of a column definition
+func (c *ColumnDef) SqlString() string {
+	parts := []string{c.Colname}
+	
+	// Add type name
+	if c.TypeName != nil {
+		parts = append(parts, c.TypeName.SqlString())
+	}
+	
+	// Add NOT NULL constraint if specified
+	if c.IsNotNull {
+		parts = append(parts, "NOT NULL")
+	}
+	
+	// Add DEFAULT clause if specified
+	if c.RawDefault != nil {
+		parts = append(parts, "DEFAULT", c.RawDefault.SqlString())
+	}
+	
+	// Add collation if specified
+	if c.Collclause != nil {
+		parts = append(parts, "COLLATE", c.Collclause.SqlString())
+	}
+	
+	// Add constraints if any
+	if c.Constraints != nil && c.Constraints.Len() > 0 {
+		for _, item := range c.Constraints.Items {
+			if constraint, ok := item.(*Constraint); ok {
+				constraintStr := constraint.SqlString()
+				if constraintStr != "" {
+					parts = append(parts, constraintStr)
+				}
+			}
+		}
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // NewColumnDef creates a new ColumnDef node.
@@ -1088,6 +1143,22 @@ func NewPartitionCmd(name *RangeVar, bound *PartitionBoundSpec, concurrent bool,
 
 func (p *PartitionCmd) String() string {
 	return fmt.Sprintf("PartitionCmd@%d", p.Location())
+}
+
+func (p *PartitionCmd) SqlString() string {
+	parts := []string{}
+	
+	// Add the partition name
+	if p.Name != nil {
+		parts = append(parts, p.Name.SqlString())
+	}
+	
+	// Add the partition bound specification if present (for ATTACH PARTITION)
+	if p.Bound != nil {
+		parts = append(parts, p.Bound.SqlString())
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 func (p *PartitionCmd) StatementType() string {
