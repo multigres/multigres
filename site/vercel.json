@@ -7,6 +7,6 @@
     }
   ],
   "rewrites": [
-    { "source": "/blog(/.*)?", "destination": "/index.html" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
