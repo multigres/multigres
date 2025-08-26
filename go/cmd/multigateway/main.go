@@ -82,14 +82,8 @@ func run(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	// Register flags BEFORE parsing them
-	servenv.RegisterDefaultFlags()
-	servenv.RegisterFlags()
-	servenv.RegisterGRPCServerFlags()
-	servenv.RegisterGRPCServerAuthFlags()
-	servenv.RegisterServiceMapFlag()
+	servenv.RegisterServiceCmd(Main)
 
-	// Get the flag set from servenv and add it to the cobra command
-	servenv.AddFlagSetToCobraCommand(Main)
+	// Adds multigateway specific flags
 	Main.Flags().StringVar(&cell, "cell", cell, "cell to use")
 }

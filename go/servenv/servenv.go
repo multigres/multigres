@@ -388,3 +388,24 @@ func AddFlagSetToCobraCommand(cmd *cobra.Command) {
 	fs.AddFlagSet(GetFlagSetFor(cmd.Name()))
 	pflag.CommandLine = fs
 }
+
+// RegisterCommonServiceFlags registers the common flags that most services need.
+// This includes default flags, timeout flags, gRPC server flags, gRPC auth flags,
+// and service map flags. This method is mainly used internally by RegisterServiceCmd.
+// For most use cases, prefer using RegisterServiceCmd instead.
+func RegisterCommonServiceFlags() {
+	RegisterDefaultFlags()
+	RegisterFlags()
+	RegisterGRPCServerFlags()
+	RegisterGRPCServerAuthFlags()
+	RegisterServiceMapFlag()
+}
+
+// RegisterServiceCmd registers the common flags that most services need and
+// sets up the command with flags parsed and hooked. This is a convenience
+// method that combines flag registration and command setup.
+func RegisterServiceCmd(cmd *cobra.Command) {
+	RegisterCommonServiceFlags()
+	// Get the flag set from servenv and add it to the cobra command
+	AddFlagSetToCobraCommand(cmd)
+}
