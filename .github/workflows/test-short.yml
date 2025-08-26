@@ -16,9 +16,9 @@ name: Short Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test-short:
@@ -26,15 +26,18 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.25.0'
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.0"
 
-    - name: Build
-      run: make build
-
-    - name: Run short tests
-      run: go test -short -v ./...
+      - name: Install PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-contrib postgresql-client-common postgresql-common
+          # Set up postgres user password for tests
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" || true
+      - name: Run short tests
+        run: go test -short -v ./...

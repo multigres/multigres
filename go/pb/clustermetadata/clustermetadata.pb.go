@@ -678,7 +678,7 @@ type ID struct {
 	Component ID_ComponentType `protobuf:"varint,1,opt,name=component,proto3,enum=clustermetadata.ID_ComponentType" json:"component,omitempty"`
 	// cell is the Multigres cell where the component is located
 	Cell string `protobuf:"bytes,2,opt,name=cell,proto3" json:"cell,omitempty"`
-	// uid is a unique identifier for the component within the multigres
+	// name is a unique identifier for the component within the multigres
 	// cluster.
 	Name          string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
