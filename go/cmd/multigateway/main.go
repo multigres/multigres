@@ -53,6 +53,9 @@ func run(cmd *cobra.Command, args []string) error {
 
 	servenv.Init()
 
+	// Get the configured logger
+	logger := servenv.GetLogger()
+
 	// Ensure we open the topo before we start the context, so that the
 	// defer that closes the topo runs after cancelling the context.
 	// This ensures that we've properly closed things like the watchers
@@ -62,9 +65,15 @@ func run(cmd *cobra.Command, args []string) error {
 
 	servenv.OnRun(func() {
 		// Flags are parsed now.
+		logger.Info("multigateway starting up",
+			"cell", cell,
+			"port", servenv.Port(),
+			"grpc_port", servenv.GRPCPort(),
+		)
 		// TODO: OnRun logic
 	})
 	servenv.OnClose(func() {
+		logger.Info("multigateway shutting down")
 		//  TODO: adds closing hooks
 	})
 	servenv.RunDefault()

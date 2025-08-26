@@ -62,23 +62,23 @@ func Run(bindAddress string, port int) {
 
 	ExitChan = make(chan os.Signal, 1)
 	signal.Notify(ExitChan, syscall.SIGTERM, syscall.SIGINT)
-	slog.Info("Multigateway successfully started", "port", port)
+	slog.Info("service successfully started", "port", port)
 	// Wait for signal
 	<-ExitChan
 
 	startTime := time.Now()
-	slog.Info("Entering lameduck mode", "period", timeouts.LameduckPeriod)
-	slog.Info("Firing asynchronous OnTerm hooks")
+	slog.Info("entering lameduck mode", "period", timeouts.LameduckPeriod)
+	slog.Info("firing asynchronous OnTerm hooks")
 	go onTermHooks.Fire()
 
 	fireOnTermSyncHooks(timeouts.OnTermTimeout)
 	if remain := timeouts.LameduckPeriod - time.Since(startTime); remain > 0 {
-		slog.Info(fmt.Sprintf("Sleeping an extra %v after OnTermSync to finish lameduck period", remain))
+		slog.Info(fmt.Sprintf("sleeping an extra %v after OnTermSync to finish lameduck period", remain))
 		time.Sleep(remain)
 	}
 	_ = l.Close()
 
-	slog.Info("Shutting down gracefully")
+	slog.Info("shutting down gracefully")
 	fireOnCloseHooks(timeouts.OnCloseTimeout)
 	ListeningURL = url.URL{}
 }

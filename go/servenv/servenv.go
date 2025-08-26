@@ -319,6 +319,9 @@ func CobraPreRunE(cmd *cobra.Command, args []string) error {
 	// sending on a closed channel.
 	OnTerm(func() { close(ch) })
 
+	// Setup logging after config is loaded and flags are parsed
+	SetupLogging()
+
 	return nil
 }
 
@@ -363,9 +366,12 @@ func loadViper(cmd string) {
 // here rather than in those packages (which is what we would normally do)
 // because that would create a dependency cycle.
 func init() {
+	// TODO: @rafael
 	// Leaving this here as a pointer as we continue the port.
 	// In this block we will call OnParseFor to register
 	// common flags for things like tracing / stats / grpc common flags
+	// Register logging flags by default
+	RegisterLoggingFlags()
 }
 
 // TestingEndtoend is true when this Multigres binary is being run as part of an endtoend test suite
