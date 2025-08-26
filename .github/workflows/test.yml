@@ -16,24 +16,58 @@ name: Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-24.04
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.25.0'
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.0"
 
-    - name: Build
-      run: make build
+      - name: Install PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-contrib postgresql-client-common postgresql-common
+          # Set up postgres user password for tests
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" || true
 
-    - name: Run tests
-      run: go test -v ./...
+      - name: Verify PostgreSQL Installation
+        run: |
+          # Debug: Check what PostgreSQL packages are installed
+          dpkg -l | grep postgres
+          # Debug: Find PostgreSQL binaries
+          find /usr -name "initdb" 2>/dev/null || echo "initdb not found in /usr"
+          find /usr -name "postgres" 2>/dev/null | head -5
+          # Try to locate PostgreSQL binaries
+          ls -la /usr/lib/postgresql/*/bin/ || echo "No PostgreSQL bin directory found"
+          # Add PostgreSQL binaries to PATH if they exist
+          export PATH="/usr/lib/postgresql/$(ls /usr/lib/postgresql/ | head -1)/bin:$PATH"
+          # Now try to verify the binaries
+          which initdb || echo "initdb still not found"
+          which postgres || echo "postgres still not found"
+          which pg_ctl || echo "pg_ctl still not found"
+          which pg_isready || echo "pg_isready still not found"
+          which psql || echo "psql still not found"
+          postgres --version || echo "postgres version failed"
+          initdb --version || echo "initdb version failed"
+
+      - name: Build
+        run: make build
+
+      - name: Run tests
+        run: |
+          # Add PostgreSQL binaries to PATH
+          export PATH="/usr/lib/postgresql/$(ls /usr/lib/postgresql/ | head -1)/bin:$PATH"
+          # Set environment variables for tests
+          export PGPASSWORD=postgres
+          export PGCONNECT_TIMEOUT=5
+          # Run tests with verbose output and parallel execution
+          go test -v ./...
