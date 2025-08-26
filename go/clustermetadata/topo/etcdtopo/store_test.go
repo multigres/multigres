@@ -21,13 +21,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"os/exec"
 	"path"
-	"sync"
+	"strings"
 	"testing"
 	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/test/utils"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/clustermetadata/topo/test"
@@ -35,31 +37,16 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-const TopoEtcdPortStart = 6700
-
-// Global test state to ensure proper cleanup between test runs
-var (
-	testMutex   sync.Mutex
-	portCounter int
-)
+// Use the global port allocator for consistent port allocation across all tests
 
 // checkPortAvailable checks if a port is available for binding
 func checkPortAvailable(port int) error {
 	ln, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
-		return fmt.Errorf("port %d is already in use - this usually means a previous etcd process is still running. Please check for orphaned etcd processes with 'ps aux | grep etcd' and kill them if needed", port)
+		return fmt.Errorf("port %d is already in use - this could be from a previous test run, another service, or a port conflict. Try running 'lsof -i :%d' to see what's using it", port, port)
 	}
 	ln.Close()
 	return nil
-}
-
-// getNextPort returns the next available port for etcd tests
-func getNextPort() int {
-	testMutex.Lock()
-	defer testMutex.Unlock()
-	port := TopoEtcdPortStart + (portCounter * 2) // Use even ports for client, odd for peer
-	portCounter++
-	return port
 }
 
 // startEtcd starts an etcd subprocess, and waits for it to be ready.
@@ -74,7 +61,7 @@ func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 
 	// Get our two ports to listen to.
 	if port == 0 {
-		port = getNextPort()
+		port = utils.GetNextPort()
 	}
 
 	// Check if ports are available before starting etcd
@@ -128,14 +115,30 @@ func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 	}
 
 	t.Cleanup(func() {
-		// log error
-		if err := cmd.Process.Kill(); err != nil {
-			slog.Error("cmd.Process.Kill() failed", "error", err)
+		// Ensure the process is killed and cleaned up
+		if cmd.Process != nil {
+			// Try graceful shutdown first
+			if err := cmd.Process.Signal(os.Interrupt); err == nil {
+				// Wait a bit for graceful shutdown
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			// Force kill if still running
+			if err := cmd.Process.Kill(); err != nil {
+				slog.Error("cmd.Process.Kill() failed killing etcd", "error", err)
+			}
+
+			// Wait for process to finish
+			if err := cmd.Wait(); err != nil {
+				// Ignore "signal: killed" and "signal: interrupt" errors as they're expected
+				if !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "signal: interrupt") {
+					slog.Error("cmd.Wait() failed killing etcd", "error", err)
+				}
+			}
 		}
-		// log error
-		if err := cmd.Wait(); err != nil {
-			slog.Error("cmd.wait() failed", "error", err)
-		}
+
+		// Additional cleanup: try to release the ports
+		time.Sleep(50 * time.Millisecond)
 	})
 
 	return clientAddr, cmd
