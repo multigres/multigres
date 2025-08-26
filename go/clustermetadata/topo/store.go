@@ -70,6 +70,10 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/servenv"
+
+	"github.com/spf13/pflag"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -248,6 +252,19 @@ var (
 	// overwhelming the topology server with too many concurrent requests.
 	DefaultReadConcurrency int64 = 32
 )
+
+func init() {
+	for _, cmd := range FlagBinaries {
+		servenv.OnParseFor(cmd, registerTopoFlags)
+	}
+}
+
+func registerTopoFlags(fs *pflag.FlagSet) {
+	fs.StringVar(&topoImplementation, "topo-implementation", topoImplementation, "the topology implementation to use")
+	fs.StringSliceVar(&topoGlobalServerAddresses, "topo-global-server-addresses", topoGlobalServerAddresses, "the address of the global topology server")
+	fs.StringVar(&topoGlobalRoot, "topo-global-root", topoGlobalRoot, "the path of the global topology data in the global topology server")
+	fs.Int64Var(&DefaultReadConcurrency, "topo-read-concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell.")
+}
 
 // RegisterFactory registers a Factory for a specific topology implementation.
 // If an implementation with that name already exists, it will log.Fatal and exit.

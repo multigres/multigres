@@ -39,7 +39,7 @@ var grpcAuthServerFlagHooks []func(*pflag.FlagSet)
 // ParseFlags(WithArgs)? if they wish to expose Authenticator functionality.
 func RegisterGRPCServerAuthFlags() {
 	OnParse(func(fs *pflag.FlagSet) {
-		fs.StringVar(&gRPCAuth, "grpc_auth_mode", gRPCAuth, "Which auth plugin implementation to use (eg: static)")
+		fs.StringVar(&gRPCAuth, "grpc-auth-mode", gRPCAuth, "Which auth plugin implementation to use (eg: mtls)")
 
 		for _, fn := range grpcAuthServerFlagHooks {
 			fn(fs)
@@ -47,7 +47,7 @@ func RegisterGRPCServerAuthFlags() {
 	})
 }
 
-// GRPCAuth returns the value of the `--grpc_auth_mode` flag.
+// GRPCAuth returns the value of the `--grpc-auth-mode` flag.
 func GRPCAuth() string {
 	return gRPCAuth
 }

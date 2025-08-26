@@ -38,7 +38,7 @@ var (
 )
 
 func registerGRPCServerAuthMTLSFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&clientCertSubstrings, "grpc_auth_mtls_allowed_substrings", clientCertSubstrings, "List of substrings of at least one of the client certificate names (separated by colon).")
+	fs.StringVar(&clientCertSubstrings, "grpc-auth-mtls-allowed-substrings", clientCertSubstrings, "List of substrings of at least one of the client certificate names (separated by colon).")
 }
 
 // MtlsAuthPlugin  implements static username/password authentication for grpc. It contains an array of username/passwords
@@ -77,7 +77,7 @@ func mtlsAuthPluginInitializer() (Authenticator, error) {
 }
 
 // ClientCertSubstrings returns the value of the
-// `--grpc_auth_mtls_allowed_substrings` flag.
+// `--grpc-auth-mtls-allowed-substrings` flag.
 func ClientCertSubstrings() string {
 	return clientCertSubstrings
 }
