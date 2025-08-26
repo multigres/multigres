@@ -19,100 +19,71 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
+	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/servenv"
+
+	"github.com/spf13/cobra"
 )
 
-func setupConfig() {
-	// Define flags
-	pflag.StringP("grpc-port", "p", "15100", "gRPC port to listen on")
-	pflag.StringP("pgctld-addr", "a", "localhost:15200", "Address of pgctld gRPC service")
-	pflag.StringP("log-level", "l", "info", "Log level (debug, info, warn, error)")
-	pflag.StringP("config", "c", "", "Config file path")
-	pflag.Parse()
+var (
+	pgctldAddr string
 
-	// Setup viper
-	viper.SetDefault("grpc-port", "15100")
-	viper.SetDefault("pgctld-addr", "localhost:15200")
-	viper.SetDefault("log-level", "info")
+	Main = &cobra.Command{
+		Use:     "multipooler",
+		Short:   "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
+		Long:    "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
+		Args:    cobra.NoArgs,
+		PreRunE: servenv.CobraPreRunE,
+		RunE:    run,
+	}
+)
 
-	// Bind pflags to viper
-	if err := viper.BindPFlags(pflag.CommandLine); err != nil {
-		slog.Error("Failed to bind flags", "error", err)
+func main() {
+	if err := Main.Execute(); err != nil {
+		slog.Error(err.Error())
 		os.Exit(1)
-	}
-
-	// Set config file path if provided
-	if configFile := viper.GetString("config"); configFile != "" {
-		viper.SetConfigFile(configFile)
-	} else {
-		viper.SetConfigName("multipooler")
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(".")
-		viper.AddConfigPath("./config")
-		viper.AddConfigPath("/etc/multigres")
-	}
-
-	// Enable environment variables
-	viper.SetEnvPrefix("MULTIPOOLER")
-	viper.AutomaticEnv()
-
-	// Read config file
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			slog.Error("Error reading config file", "error", err)
-			os.Exit(1)
-		}
 	}
 }
 
-func main() {
-	setupConfig()
+func run(cmd *cobra.Command, args []string) error {
 
-	// Setup structured logging
-	var level slog.Level
-	switch viper.GetString("log-level") {
-	case "debug":
-		level = slog.LevelDebug
-	case "info":
-		level = slog.LevelInfo
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
-	}
+	servenv.Init()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: level,
-	}))
-	slog.SetDefault(logger)
+	// Get the configured logger
+	logger := servenv.GetLogger()
 
-	logger.Info("starting multipooler",
-		"grpc_port", viper.GetString("grpc-port"),
-		"pgctld_addr", viper.GetString("pgctld-addr"),
-		"log_level", viper.GetString("log-level"),
-		"config_file", viper.ConfigFileUsed(),
-	)
+	// Ensure we open the topo before we start the context, so that the
+	// defer that closes the topo runs after cancelling the context.
+	// This ensures that we've properly closed things like the watchers
+	// at that point.
+	ts := topo.Open()
+	defer func() { _ = ts.Close() }()
 
-	// Create context that cancels on interrupt
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
+	servenv.OnRun(func() {
+		// Flags are parsed now.
+		logger.Info("multipooler starting up",
+			"pgctld_addr", pgctldAddr,
+			"grpc_port", servenv.GRPCPort(),
+		)
+	})
+	servenv.OnClose(func() {
+		logger.Info("multipooler shutting down")
+		// TODO: adds closing hooks
+	})
 	// TODO: Initialize gRPC connection to pgctld
 	// TODO: Setup health check endpoint
 	// TODO: Register with topology service
+	servenv.RunDefault()
 
-	logger.Info("multipooler ready to serve connections")
+	return nil
+}
 
-	// Wait for shutdown signal
-	<-ctx.Done()
-	logger.Info("shutting down multipooler")
+func init() {
+	servenv.RegisterServiceCmd(Main)
+
+	// Adds multipooler specific flags
+	Main.Flags().StringVar(&pgctldAddr, "pgctld-addr", "localhost:15200", "Address of pgctld gRPC service")
 }
