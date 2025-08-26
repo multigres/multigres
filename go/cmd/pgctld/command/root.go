@@ -56,9 +56,6 @@ func init() {
 	Root.PersistentFlags().String("socket-dir", "/tmp", "PostgreSQL socket directory")
 	Root.PersistentFlags().IntP("timeout", "t", 30, "Operation timeout in seconds")
 
-	// gRPC service flags
-	Root.PersistentFlags().Int("grpc-port", 15200, "gRPC port to listen on")
-
 	// Logging
 	Root.PersistentFlags().String("log-level", "info", "Log level (debug, info, warn, error)")
 

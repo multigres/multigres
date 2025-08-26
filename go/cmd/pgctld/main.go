@@ -35,4 +35,5 @@ func main() {
 
 func init() {
 	servenv.RegisterServiceCmd(command.Root)
+	servenv.InitServiceMap("grpc", "pgctld")
 }
