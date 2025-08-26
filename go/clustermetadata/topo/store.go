@@ -70,6 +70,10 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/servenv"
+
+	"github.com/spf13/pflag"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -249,6 +253,19 @@ var (
 	DefaultReadConcurrency int64 = 32
 )
 
+func init() {
+	for _, cmd := range FlagBinaries {
+		servenv.OnParseFor(cmd, registerTopoFlags)
+	}
+}
+
+func registerTopoFlags(fs *pflag.FlagSet) {
+	fs.StringVar(&topoImplementation, "topo-implementation", topoImplementation, "the topology implementation to use")
+	fs.StringSliceVar(&topoGlobalServerAddresses, "topo-global-server-addresses", topoGlobalServerAddresses, "the address of the global topology server")
+	fs.StringVar(&topoGlobalRoot, "topo-global-root", topoGlobalRoot, "the path of the global topology data in the global topology server")
+	fs.Int64Var(&DefaultReadConcurrency, "topo-read-concurrency", DefaultReadConcurrency, "Maximum concurrency of topo reads per global or local cell.")
+}
+
 // RegisterFactory registers a Factory for a specific topology implementation.
 // If an implementation with that name already exists, it will log.Fatal and exit.
 // Call this function in the 'init' function of your topology implementation module.
@@ -281,7 +298,17 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string) (Store, 
 func OpenServer(implementation, root string, serverAddrs []string) (Store, error) {
 	factory, ok := factories[implementation]
 	if !ok {
-		return nil, NewError(NoImplementation, implementation)
+		// Build a helpful error message showing available implementations
+		var available []string
+		for name := range factories {
+			available = append(available, name)
+		}
+
+		if len(available) == 0 {
+			return nil, fmt.Errorf("no topology implementations registered. This may indicate a build or import issue")
+		}
+
+		return nil, fmt.Errorf("topology implementation '%s' not found. Available implementations: %s", implementation, strings.Join(available, ", "))
 	}
 	return NewWithFactory(factory, root, serverAddrs)
 }
@@ -293,13 +320,29 @@ func Open() Store {
 	if len(topoGlobalServerAddresses) == 0 {
 		// TODO: Consider using a proper logger from the start instead of slog
 		// This should be reviewed before merging
-		slog.Error("topo_global_server_addresses must be configured")
+		slog.Error("topo-global-server-addresses must be configured")
 		os.Exit(1)
 	}
 	if topoGlobalRoot == "" {
-		slog.Error("topo_global_root must be non-empty")
+		slog.Error("topo-global-root must be non-empty")
 		os.Exit(1)
 	}
+
+	if topoImplementation == "" {
+		// Build a helpful message showing available implementations
+		var available []string
+		for name := range factories {
+			available = append(available, name)
+		}
+
+		if len(available) == 0 {
+			slog.Error("topo-implementation must be configured. Available: none (no implementations registered)")
+		} else {
+			slog.Error("topo-implementation must be configured. Available: " + strings.Join(available, ", "))
+		}
+		os.Exit(1)
+	}
+
 	ts, err := OpenServer(topoImplementation, topoGlobalRoot, topoGlobalServerAddresses)
 	if err != nil {
 		slog.Error("Failed to open topo server", "error", err, "implementation", topoImplementation, "addresses", topoGlobalServerAddresses, "root", topoGlobalRoot)
