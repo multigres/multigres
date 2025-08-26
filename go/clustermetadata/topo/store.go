@@ -298,7 +298,17 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string) (Store, 
 func OpenServer(implementation, root string, serverAddrs []string) (Store, error) {
 	factory, ok := factories[implementation]
 	if !ok {
-		return nil, NewError(NoImplementation, implementation)
+		// Build a helpful error message showing available implementations
+		var available []string
+		for name := range factories {
+			available = append(available, name)
+		}
+
+		if len(available) == 0 {
+			return nil, fmt.Errorf("no topology implementations registered. This may indicate a build or import issue")
+		}
+
+		return nil, fmt.Errorf("topology implementation '%s' not found. Available implementations: %s", implementation, strings.Join(available, ", "))
 	}
 	return NewWithFactory(factory, root, serverAddrs)
 }
@@ -310,13 +320,29 @@ func Open() Store {
 	if len(topoGlobalServerAddresses) == 0 {
 		// TODO: Consider using a proper logger from the start instead of slog
 		// This should be reviewed before merging
-		slog.Error("topo_global_server_addresses must be configured")
+		slog.Error("topo-global-server-addresses must be configured")
 		os.Exit(1)
 	}
 	if topoGlobalRoot == "" {
-		slog.Error("topo_global_root must be non-empty")
+		slog.Error("topo-global-root must be non-empty")
 		os.Exit(1)
 	}
+
+	if topoImplementation == "" {
+		// Build a helpful message showing available implementations
+		var available []string
+		for name := range factories {
+			available = append(available, name)
+		}
+
+		if len(available) == 0 {
+			slog.Error("topo-implementation must be configured. Available: none (no implementations registered)")
+		} else {
+			slog.Error("topo-implementation must be configured. Available: " + strings.Join(available, ", "))
+		}
+		os.Exit(1)
+	}
+
 	ts, err := OpenServer(topoImplementation, topoGlobalRoot, topoGlobalServerAddresses)
 	if err != nil {
 		slog.Error("Failed to open topo server", "error", err, "implementation", topoImplementation, "addresses", topoGlobalServerAddresses, "root", topoGlobalRoot)

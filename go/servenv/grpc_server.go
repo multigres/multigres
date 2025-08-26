@@ -193,7 +193,7 @@ func isGRPCEnabled() bool {
 func createGRPCServer() {
 	// skip if not registered
 	if !isGRPCEnabled() {
-		slog.Info("Skipping gRPC server creation")
+		slog.Info("GRPC is not enabled (no grpc-port or socket-file set), skipping gRPC server creation")
 		return
 	}
 

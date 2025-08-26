@@ -41,7 +41,7 @@
 //
 // # Retrieving the cause of an error
 //
-// Using vterrors.Wrap constructs a stack of errors, adding context to the
+// Using mterrors.Wrap constructs a stack of errors, adding context to the
 // preceding error, instead of simply building up a string.
 // Depending on the nature of the error it may be necessary to reverse the
 // operation of errors.Wrap to retrieve the original error for inspection.
@@ -192,7 +192,7 @@ func (f *fundamental) Format(s fmt.State, verb rune) {
 	}
 }
 
-// Code returns the error code if it's a vtError.
+// Code returns the error code if it's a mtError.
 // If err is nil, it returns ok.
 func Code(err error) mtrpcpb.Code {
 	if err == nil {
@@ -218,7 +218,7 @@ func Code(err error) mtrpcpb.Code {
 	return mtrpcpb.Code_UNKNOWN
 }
 
-// ErrState returns the error state if it's a vtError.
+// ErrState returns the error state if it's a mtError.
 // If err is nil, it returns Undefined.
 func ErrState(err error) State {
 	if err == nil {
@@ -258,7 +258,7 @@ func Wrapf(err error, format string, args ...any) error {
 	return Wrap(err, fmt.Sprintf(format, args...))
 }
 
-// Unwrap attempts to return the Cause of the given error, if it is indeed the result of a vterrors.Wrapf()
+// Unwrap attempts to return the Cause of the given error, if it is indeed the result of a mterrors.Wrapf()
 // The function indicates whether the error was indeed wrapped. If the error was not wrapped, the function
 // returns the original error.
 func Unwrap(err error) (wasWrapped bool, unwrapped error) {
@@ -372,8 +372,8 @@ func Equals(a, b error) bool {
 	return a.Error() == b.Error() && Code(a) == Code(b)
 }
 
-// Print is meant to print the vtError object in test failures.
-// For comparing two vterrors, use Equals() instead.
+// Print is meant to print the mtError object in test failures.
+// For comparing two mterrors, use Equals() instead.
 func Print(err error) string {
 	return fmt.Sprintf("%v: %v\n", Code(err), err.Error())
 }

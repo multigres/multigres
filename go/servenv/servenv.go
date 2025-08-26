@@ -368,7 +368,7 @@ func init() {
 	// common flags for things like tracing / stats / grpc common flags
 }
 
-// TestingEndtoend is true when this Vitess binary is being run as part of an endtoend test suite
+// TestingEndtoend is true when this Multigres binary is being run as part of an endtoend test suite
 var TestingEndtoend = false
 
 func init() {
