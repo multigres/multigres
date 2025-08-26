@@ -48,10 +48,10 @@ message GlobalTopoConfig {
 message Cell {
   // name for this cell
   string name = 1;
-  
+
   // server_address is the network address of the cell topology service.
   repeated string server_addresses = 2;
-  
+
   // root is the namespace or directory path within the topology service
   // where this cell's metadata is stored. Used only when connecting to server_addresses.
   string root = 3;
@@ -59,16 +59,16 @@ message Cell {
 
 message Database {
   // Name of the database
-  string name = 1;      
-                      
+  string name = 1;
+
   // Backups location
-  string backup_location = 2;   
-  
-  // Durability policy used for consensus 
-  string durability_policy = 3;         
-     
+  string backup_location = 2;
+
+  // Durability policy used for consensus
+  string durability_policy = 3;
+
   // List of cell identifiers where this database should be deployed
-  repeated string cells = 4;              
+  repeated string cells = 4;
 }
 
 // =============================================================================
@@ -82,29 +82,29 @@ message MultiPooler {
 
   // Database name.
   string database = 2;
-  
+
   // TableGroup name.
   string table_group = 3;
 
   // Shard name. If range based sharding is used, it should match
   // key_range.
   string shard = 4;
-  
+
   // If range based sharding is used, range for the pooler's shard.
   KeyRange key_range = 5;
 
   // PoolerType is the kind of pooler: PRIMARY or REPLICA
   PoolerType type = 6;
-  
+
   // PoolerServingStatus is the current type of the pooler.
   PoolerServingStatus serving_status = 7;
 
   // Fully qualified domain name of the host.
   string hostname = 8;
-  
+
   // Map of named ports. These are ports that the pooler exposes. Initially, this will only be gRPC
   map<string, int32> port_map = 9;
-  
+
 
 }
 
@@ -115,7 +115,7 @@ message MultiGateway {
 
   // Fully qualified domain name of the host.
   string hostname = 2;
-  
+
   // Map of named ports. Normally this should include postgres and grpc.
   map<string, int32> port_map = 3;
 }
@@ -136,12 +136,12 @@ message MultiOrch {
 message ID {
   // component identifies the type of Multigres component (multipooler, multigateway, or multiorch)
   ComponentType component = 1;
-  
+
   // cell is the Multigres cell where the component is located
   string cell = 2;
 
-  // uid is a unique identifier for the component within the multigres
-  // cluster. 
+  // name is a unique identifier for the component within the multigres
+  // cluster.
   string name = 3;
 
   // =============================================================================
@@ -168,7 +168,7 @@ message ID {
 message KeyRange {
   // start is the start key of the range (inclusive)
   bytes start = 1;
-  
+
   // end is the end key of the range (exclusive)
   bytes end = 2;
 }
