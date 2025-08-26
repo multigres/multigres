@@ -20,6 +20,22 @@ import (
 	"time"
 )
 
+var (
+	// LockTimeout is the maximum duration for which a
+	// shard / keyspace lock can be acquired for.
+	LockTimeout = 45 * time.Second
+
+	// RemoteOperationTimeout is used for operations where we have to
+	// call out to another process.
+	// Used for RPC calls (including topo server calls)
+	RemoteOperationTimeout = 15 * time.Second
+)
+
+// NamedLockTTL How long named locks are kept in the topo server.
+// This ensures that orphaned named locks are not kept around forever.
+// This should never happen, but it provides a final safety net.
+const NamedLockTTL = 24 * time.Hour
+
 type ConnDirectory interface {
 	//
 	// Directory support
