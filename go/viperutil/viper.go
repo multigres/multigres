@@ -18,7 +18,7 @@ Modifications Copyright 2025 The Multigres Authors.
 
 /*
 Package viperutil provides a utility layer to streamline and standardize
-interacting with viper-backed configuration values across vitess components.
+interacting with viper-backed configuration values across multigres components.
 
 The common pattern is for a given module to declare their values by declaring
 variables that are the result of calling Configure, for example in package trace:

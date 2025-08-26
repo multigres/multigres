@@ -40,7 +40,7 @@ type Value[T any] interface {
 
 	// Get returns the current value. For static implementations, this will
 	// never change after the initial config load. For dynamic implementations,
-	// this may change throughout the lifetime of the vitess process.
+	// this may change throughout the lifetime of the multigres process.
 	Get() T
 	// Set sets the underlying value. For both static and dynamic
 	// implementations, this is reflected in subsequent calls to Get.

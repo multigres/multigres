@@ -62,6 +62,7 @@ func Run(bindAddress string, port int) {
 
 	ExitChan = make(chan os.Signal, 1)
 	signal.Notify(ExitChan, syscall.SIGTERM, syscall.SIGINT)
+	slog.Info("Multigateway successfully started", "port", port)
 	// Wait for signal
 	<-ExitChan
 
