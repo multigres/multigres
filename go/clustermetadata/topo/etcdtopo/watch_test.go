@@ -42,7 +42,7 @@ import (
 // behavior accidentally/uinintentionally.
 func TestWatchTopoVersion(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping topology etcd integration test in short mode")
+		t.Skip("Skipping etcd integration tests in short mode")
 	}
 	ctx := utils.LeakCheckContext(t)
 	etcdServerAddr, _ := startEtcd(t, 0)

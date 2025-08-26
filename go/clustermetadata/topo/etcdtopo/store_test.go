@@ -20,8 +20,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os/exec"
 	"path"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,6 +37,31 @@ import (
 
 const TopoEtcdPortStart = 6700
 
+// Global test state to ensure proper cleanup between test runs
+var (
+	testMutex   sync.Mutex
+	portCounter int
+)
+
+// checkPortAvailable checks if a port is available for binding
+func checkPortAvailable(port int) error {
+	ln, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
+	if err != nil {
+		return fmt.Errorf("port %d is already in use - this usually means a previous etcd process is still running. Please check for orphaned etcd processes with 'ps aux | grep etcd' and kill them if needed", port)
+	}
+	ln.Close()
+	return nil
+}
+
+// getNextPort returns the next available port for etcd tests
+func getNextPort() int {
+	testMutex.Lock()
+	defer testMutex.Unlock()
+	port := TopoEtcdPortStart + (portCounter * 2) // Use even ports for client, odd for peer
+	portCounter++
+	return port
+}
+
 // startEtcd starts an etcd subprocess, and waits for it to be ready.
 func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 	// Check if etcd is available in PATH
@@ -47,8 +74,17 @@ func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 
 	// Get our two ports to listen to.
 	if port == 0 {
-		port = TopoEtcdPortStart
+		port = getNextPort()
 	}
+
+	// Check if ports are available before starting etcd
+	if err := checkPortAvailable(port); err != nil {
+		t.Fatalf("Port check failed: %v", err)
+	}
+	if err := checkPortAvailable(port + 1); err != nil {
+		t.Fatalf("Peer port check failed: %v", err)
+	}
+
 	name := "multigres_unit_test"
 	clientAddr := fmt.Sprintf("http://localhost:%v", port)
 	peerAddr := fmt.Sprintf("http://localhost:%v", port+1)
@@ -90,6 +126,7 @@ func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+
 	t.Cleanup(func() {
 		// log error
 		if err := cmd.Process.Kill(); err != nil {
