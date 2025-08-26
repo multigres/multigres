@@ -23,7 +23,6 @@ import (
 	"os"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
-	_ "github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"

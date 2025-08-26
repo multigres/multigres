@@ -157,7 +157,7 @@ func SetupLogging() {
 		fireLoggingSetupHooks(newLogger)
 
 		// Log initial configuration
-		newLogger.Info("Logging initialized",
+		newLogger.Info("logging initialized",
 			"level", levelStr,
 			"format", formatStr,
 			"output", outputStr,
