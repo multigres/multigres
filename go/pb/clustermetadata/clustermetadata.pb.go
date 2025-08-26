@@ -35,60 +35,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// MultigresComponent enumerates the major components in a Multigres deployment.
-type MultigresComponent int32
-
-const (
-	// MULTIGATEWAY handles query routing and traffic distribution across clusters.
-	MultigresComponent_MULTIGATEWAY MultigresComponent = 0
-	// MULTIPOOLER manages connection pooling and load balancing for database clients.
-	MultigresComponent_MULTIPOOLER MultigresComponent = 1
-	// MULTIORCH is the orchestrator responsible for cluster topology management,
-	// failover coordination, and automated repairs.
-	MultigresComponent_MULTIORCH MultigresComponent = 2
-)
-
-// Enum value maps for MultigresComponent.
-var (
-	MultigresComponent_name = map[int32]string{
-		0: "MULTIGATEWAY",
-		1: "MULTIPOOLER",
-		2: "MULTIORCH",
-	}
-	MultigresComponent_value = map[string]int32{
-		"MULTIGATEWAY": 0,
-		"MULTIPOOLER":  1,
-		"MULTIORCH":    2,
-	}
-)
-
-func (x MultigresComponent) Enum() *MultigresComponent {
-	p := new(MultigresComponent)
-	*p = x
-	return p
-}
-
-func (x MultigresComponent) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (MultigresComponent) Descriptor() protoreflect.EnumDescriptor {
-	return file_clustermetadata_proto_enumTypes[0].Descriptor()
-}
-
-func (MultigresComponent) Type() protoreflect.EnumType {
-	return &file_clustermetadata_proto_enumTypes[0]
-}
-
-func (x MultigresComponent) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use MultigresComponent.Descriptor instead.
-func (MultigresComponent) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{0}
-}
-
 // PoolerType represents the type of a given MultiPooler.
 type PoolerType int32
 
@@ -127,11 +73,11 @@ func (x PoolerType) String() string {
 }
 
 func (PoolerType) Descriptor() protoreflect.EnumDescriptor {
-	return file_clustermetadata_proto_enumTypes[1].Descriptor()
+	return file_clustermetadata_proto_enumTypes[0].Descriptor()
 }
 
 func (PoolerType) Type() protoreflect.EnumType {
-	return &file_clustermetadata_proto_enumTypes[1]
+	return &file_clustermetadata_proto_enumTypes[0]
 }
 
 func (x PoolerType) Number() protoreflect.EnumNumber {
@@ -140,7 +86,7 @@ func (x PoolerType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use PoolerType.Descriptor instead.
 func (PoolerType) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{1}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{0}
 }
 
 // PoolerServingStatus represents the serving status of the given MultiPooler.
@@ -196,11 +142,11 @@ func (x PoolerServingStatus) String() string {
 }
 
 func (PoolerServingStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_clustermetadata_proto_enumTypes[2].Descriptor()
+	return file_clustermetadata_proto_enumTypes[1].Descriptor()
 }
 
 func (PoolerServingStatus) Type() protoreflect.EnumType {
-	return &file_clustermetadata_proto_enumTypes[2]
+	return &file_clustermetadata_proto_enumTypes[1]
 }
 
 func (x PoolerServingStatus) Number() protoreflect.EnumNumber {
@@ -209,7 +155,64 @@ func (x PoolerServingStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use PoolerServingStatus.Descriptor instead.
 func (PoolerServingStatus) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{2}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{1}
+}
+
+// ComponentType represents the type of Multigres component
+type ID_ComponentType int32
+
+const (
+	// UNKNOWN represents an unknown or uninitialized component type
+	ID_UNKNOWN ID_ComponentType = 0
+	// MULTIPOOLER represents a multipooler component
+	ID_MULTIPOOLER ID_ComponentType = 1
+	// MULTIGATEWAY represents a multigateway component
+	ID_MULTIGATEWAY ID_ComponentType = 2
+	// MULTIORCH represents a multiorch component
+	ID_MULTIORCH ID_ComponentType = 3
+)
+
+// Enum value maps for ID_ComponentType.
+var (
+	ID_ComponentType_name = map[int32]string{
+		0: "UNKNOWN",
+		1: "MULTIPOOLER",
+		2: "MULTIGATEWAY",
+		3: "MULTIORCH",
+	}
+	ID_ComponentType_value = map[string]int32{
+		"UNKNOWN":      0,
+		"MULTIPOOLER":  1,
+		"MULTIGATEWAY": 2,
+		"MULTIORCH":    3,
+	}
+)
+
+func (x ID_ComponentType) Enum() *ID_ComponentType {
+	p := new(ID_ComponentType)
+	*p = x
+	return p
+}
+
+func (x ID_ComponentType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ID_ComponentType) Descriptor() protoreflect.EnumDescriptor {
+	return file_clustermetadata_proto_enumTypes[2].Descriptor()
+}
+
+func (ID_ComponentType) Type() protoreflect.EnumType {
+	return &file_clustermetadata_proto_enumTypes[2]
+}
+
+func (x ID_ComponentType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ID_ComponentType.Descriptor instead.
+func (ID_ComponentType) EnumDescriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{6, 0}
 }
 
 // TopoConfig defines the connection parameters for a topology service.
@@ -424,8 +427,8 @@ func (x *Database) GetCells() []string {
 // MultiPooler represents metadata about a running multipooler component instance in the cluster.
 type MultiPooler struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// identifier is the unique identifier of the multipooler in the cluster.
-	Identifier *ID `protobuf:"bytes,1,opt,name=identifier,proto3" json:"identifier,omitempty"`
+	// id is the unique identifier of the multipooler in the cluster.
+	Id *ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Database name.
 	Database string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
 	// TableGroup name.
@@ -477,9 +480,9 @@ func (*MultiPooler) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *MultiPooler) GetIdentifier() *ID {
+func (x *MultiPooler) GetId() *ID {
 	if x != nil {
-		return x.Identifier
+		return x.Id
 	}
 	return nil
 }
@@ -543,8 +546,8 @@ func (x *MultiPooler) GetPortMap() map[string]int32 {
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
 type MultiGateway struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// identifier is the unique name of the multi gateway in the cluster.
-	Identifier *ID `protobuf:"bytes,1,opt,name=identifier,proto3" json:"identifier,omitempty"`
+	// id is the unique name of the multi gateway in the cluster.
+	Id *ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Fully qualified domain name of the host.
 	Hostname string `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	// Map of named ports. Normally this should include postgres and grpc.
@@ -583,9 +586,9 @@ func (*MultiGateway) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *MultiGateway) GetIdentifier() *ID {
+func (x *MultiGateway) GetId() *ID {
 	if x != nil {
-		return x.Identifier
+		return x.Id
 	}
 	return nil
 }
@@ -607,8 +610,8 @@ func (x *MultiGateway) GetPortMap() map[string]int32 {
 // MultiOrch represents information about a running instance of multiorch.
 type MultiOrch struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// identifier is the unique name of the MultiOrch in the cluster.
-	Identifier *ID `protobuf:"bytes,1,opt,name=identifier,proto3" json:"identifier,omitempty"`
+	// id is the unique name of the MultiOrch in the cluster.
+	Id *ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Fully qualified domain name of the host.
 	Hostname string `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	// Map of named ports. These are ports that MultiOrc exposes.
@@ -647,9 +650,9 @@ func (*MultiOrch) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *MultiOrch) GetIdentifier() *ID {
+func (x *MultiOrch) GetId() *ID {
 	if x != nil {
-		return x.Identifier
+		return x.Id
 	}
 	return nil
 }
@@ -671,13 +674,13 @@ func (x *MultiOrch) GetPortMap() map[string]int32 {
 // ID is a globally unique pooler identifier.
 type ID struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// component that this ID is used for (i.e multigateway / multiorch / multipooler)
-	Component MultigresComponent `protobuf:"varint,1,opt,name=component,proto3,enum=clustermetadata.MultigresComponent" json:"component,omitempty"`
+	// component identifies the type of Multigres component (multipooler, multigateway, or multiorch)
+	Component ID_ComponentType `protobuf:"varint,1,opt,name=component,proto3,enum=clustermetadata.ID_ComponentType" json:"component,omitempty"`
 	// cell is the Multigres cell where the component is located
 	Cell string `protobuf:"bytes,2,opt,name=cell,proto3" json:"cell,omitempty"`
-	// uid is a unique identifier for the component within the multigres
+	// name is a unique identifier for the component within the multigres
 	// cluster.
-	Uid           uint32 `protobuf:"varint,3,opt,name=uid,proto3" json:"uid,omitempty"`
+	Name          string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -712,11 +715,11 @@ func (*ID) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ID) GetComponent() MultigresComponent {
+func (x *ID) GetComponent() ID_ComponentType {
 	if x != nil {
 		return x.Component
 	}
-	return MultigresComponent_MULTIGATEWAY
+	return ID_UNKNOWN
 }
 
 func (x *ID) GetCell() string {
@@ -726,11 +729,11 @@ func (x *ID) GetCell() string {
 	return ""
 }
 
-func (x *ID) GetUid() uint32 {
+func (x *ID) GetName() string {
 	if x != nil {
-		return x.Uid
+		return x.Name
 	}
-	return 0
+	return ""
 }
 
 // KeyRange represents a range of keys for sharding
@@ -805,11 +808,9 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0fbackup_location\x18\x02 \x01(\tR\x0ebackupLocation\x12+\n" +
 	"\x11durability_policy\x18\x03 \x01(\tR\x10durabilityPolicy\x12\x14\n" +
-	"\x05cells\x18\x04 \x03(\tR\x05cells\"\xe9\x03\n" +
-	"\vMultiPooler\x123\n" +
-	"\n" +
-	"identifier\x18\x01 \x01(\v2\x13.clustermetadata.IDR\n" +
-	"identifier\x12\x1a\n" +
+	"\x05cells\x18\x04 \x03(\tR\x05cells\"\xd9\x03\n" +
+	"\vMultiPooler\x12#\n" +
+	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x1f\n" +
 	"\vtable_group\x18\x03 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
@@ -821,36 +822,33 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\bport_map\x18\t \x03(\v2).clustermetadata.MultiPooler.PortMapEntryR\aportMap\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xe2\x01\n" +
-	"\fMultiGateway\x123\n" +
-	"\n" +
-	"identifier\x18\x01 \x01(\v2\x13.clustermetadata.IDR\n" +
-	"identifier\x12\x1a\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xd2\x01\n" +
+	"\fMultiGateway\x12#\n" +
+	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12E\n" +
 	"\bport_map\x18\x03 \x03(\v2*.clustermetadata.MultiGateway.PortMapEntryR\aportMap\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xdc\x01\n" +
-	"\tMultiOrch\x123\n" +
-	"\n" +
-	"identifier\x18\x01 \x01(\v2\x13.clustermetadata.IDR\n" +
-	"identifier\x12\x1a\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xcc\x01\n" +
+	"\tMultiOrch\x12#\n" +
+	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12B\n" +
 	"\bport_map\x18\x03 \x03(\v2'.clustermetadata.MultiOrch.PortMapEntryR\aportMap\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"m\n" +
-	"\x02ID\x12A\n" +
-	"\tcomponent\x18\x01 \x01(\x0e2#.clustermetadata.MultigresComponentR\tcomponent\x12\x12\n" +
-	"\x04cell\x18\x02 \x01(\tR\x04cell\x12\x10\n" +
-	"\x03uid\x18\x03 \x01(\rR\x03uid\"2\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xbd\x01\n" +
+	"\x02ID\x12?\n" +
+	"\tcomponent\x18\x01 \x01(\x0e2!.clustermetadata.ID.ComponentTypeR\tcomponent\x12\x12\n" +
+	"\x04cell\x18\x02 \x01(\tR\x04cell\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\"N\n" +
+	"\rComponentType\x12\v\n" +
+	"\aUNKNOWN\x10\x00\x12\x0f\n" +
+	"\vMULTIPOOLER\x10\x01\x12\x10\n" +
+	"\fMULTIGATEWAY\x10\x02\x12\r\n" +
+	"\tMULTIORCH\x10\x03\"2\n" +
 	"\bKeyRange\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\fR\x05start\x12\x10\n" +
-	"\x03end\x18\x02 \x01(\fR\x03end*F\n" +
-	"\x12MultigresComponent\x12\x10\n" +
-	"\fMULTIGATEWAY\x10\x00\x12\x0f\n" +
-	"\vMULTIPOOLER\x10\x01\x12\r\n" +
-	"\tMULTIORCH\x10\x02*3\n" +
+	"\x03end\x18\x02 \x01(\fR\x03end*3\n" +
 	"\n" +
 	"PoolerType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
@@ -879,9 +877,9 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_clustermetadata_proto_goTypes = []any{
-	(MultigresComponent)(0),  // 0: clustermetadata.MultigresComponent
-	(PoolerType)(0),          // 1: clustermetadata.PoolerType
-	(PoolerServingStatus)(0), // 2: clustermetadata.PoolerServingStatus
+	(PoolerType)(0),          // 0: clustermetadata.PoolerType
+	(PoolerServingStatus)(0), // 1: clustermetadata.PoolerServingStatus
+	(ID_ComponentType)(0),    // 2: clustermetadata.ID.ComponentType
 	(*GlobalTopoConfig)(nil), // 3: clustermetadata.GlobalTopoConfig
 	(*Cell)(nil),             // 4: clustermetadata.Cell
 	(*Database)(nil),         // 5: clustermetadata.Database
@@ -895,16 +893,16 @@ var file_clustermetadata_proto_goTypes = []any{
 	nil,                      // 13: clustermetadata.MultiOrch.PortMapEntry
 }
 var file_clustermetadata_proto_depIdxs = []int32{
-	9,  // 0: clustermetadata.MultiPooler.identifier:type_name -> clustermetadata.ID
+	9,  // 0: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
 	10, // 1: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
-	1,  // 2: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
-	2,  // 3: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
+	0,  // 2: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
+	1,  // 3: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
 	11, // 4: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	9,  // 5: clustermetadata.MultiGateway.identifier:type_name -> clustermetadata.ID
+	9,  // 5: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
 	12, // 6: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	9,  // 7: clustermetadata.MultiOrch.identifier:type_name -> clustermetadata.ID
+	9,  // 7: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
 	13, // 8: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
-	0,  // 9: clustermetadata.ID.component:type_name -> clustermetadata.MultigresComponent
+	2,  // 9: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
 	10, // [10:10] is the sub-list for method output_type
 	10, // [10:10] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name

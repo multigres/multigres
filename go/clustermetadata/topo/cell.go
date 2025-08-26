@@ -17,8 +17,11 @@ package topo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path"
+	"slices"
 
+	"github.com/multigres/multigres/go/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"google.golang.org/protobuf/proto"
@@ -149,7 +152,25 @@ func (ts *store) DeleteCell(ctx context.Context, cell string, force bool) error 
 		return ctx.Err()
 	}
 
-	// TODO: Check if this cell is being used in any database before deleting it.
+	// Check if this cell is being used in any database before deleting it.
+	if !force {
+		databaseNames, err := ts.GetDatabaseNames(ctx)
+		if err != nil {
+			return err
+		}
+
+		for _, dbName := range databaseNames {
+			db, err := ts.GetDatabase(ctx, dbName)
+			if err != nil {
+				return mterrors.Wrap(err, fmt.Sprintf("failed to get database %s", dbName))
+			}
+
+			// Check if this database references the cell to be deleted
+			if slices.Contains(db.Cells, cell) {
+				return NewError(NodeNotEmpty, fmt.Sprintf("cell %s is referenced by database %s. This could create serving issues in the cluster. Either remove the cell from the database or use force=true to delete the cell anyway.", cell, dbName))
+			}
+		}
+	}
 
 	filePath := pathForCell(cell)
 	return ts.globalTopo.Delete(ctx, filePath, nil)

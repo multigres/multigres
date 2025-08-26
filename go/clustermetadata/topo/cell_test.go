@@ -17,6 +17,7 @@ package topo_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -197,6 +198,126 @@ func TestCellCRUDOperations(t *testing.T) {
 				require.NoError(t, err)
 				require.Contains(t, retrieved.ServerAddresses, "server2:2181")
 				require.Equal(t, "/new_topo", retrieved.Root)
+			},
+		},
+		{
+			name: "Delete Cell with database reference",
+			test: func(t *testing.T, ts topo.Store) {
+				// Create a cell
+				cl := &clustermetadatapb.Cell{
+					ServerAddresses: []string{"server1:2181"},
+					Name:            cell,
+					Root:            "/cell-root-abc",
+				}
+				err := ts.CreateCell(ctx, cell, cl)
+				require.NoError(t, err)
+
+				// Create a database that references the cell
+				db := &clustermetadatapb.Database{
+					Name:  "test-db",
+					Cells: []string{cell},
+				}
+				err = ts.CreateDatabase(ctx, "test-db", db)
+				require.NoError(t, err)
+
+				// Try to delete the cell without force - should fail
+				err = ts.DeleteCell(ctx, cell, false)
+				require.Error(t, err)
+				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeNotEmpty}))
+
+				// Verify the error message contains the expected information
+				require.Contains(t, err.Error(), fmt.Sprintf("cell %s is referenced by database %s", cell, "test-db"))
+
+				// Verify the cell still exists
+				_, err = ts.GetCell(ctx, cell)
+				require.NoError(t, err)
+
+				// Delete with force=true - should succeed
+				err = ts.DeleteCell(ctx, cell, true)
+				require.NoError(t, err)
+
+				// Verify the cell is gone
+				_, err = ts.GetCell(ctx, cell)
+				require.Error(t, err)
+				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}))
+			},
+		},
+		{
+			name: "Delete Cell with multiple database references",
+			test: func(t *testing.T, ts topo.Store) {
+				// Create a cell
+				cl := &clustermetadatapb.Cell{
+					ServerAddresses: []string{"server1:2181"},
+					Root:            "/topo",
+				}
+				err := ts.CreateCell(ctx, cell, cl)
+				require.NoError(t, err)
+
+				// Create multiple databases that reference the cell
+				db1 := &clustermetadatapb.Database{
+					Name:  "test-db-1",
+					Cells: []string{cell, "other-cell"},
+				}
+				db2 := &clustermetadatapb.Database{
+					Name:  "test-db-2",
+					Cells: []string{"other-cell", cell},
+				}
+
+				err = ts.CreateDatabase(ctx, "test-db-1", db1)
+				require.NoError(t, err)
+				err = ts.CreateDatabase(ctx, "test-db-2", db2)
+				require.NoError(t, err)
+
+				// Try to delete the cell without force - should fail
+				err = ts.DeleteCell(ctx, cell, false)
+				require.Error(t, err)
+				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeNotEmpty}))
+
+				// Verify the error message contains information about one of the databases
+				// (the first one found will be mentioned in the error)
+				require.Contains(t, err.Error(), "This could create serving issues in the cluster")
+
+				// Verify the cell still exists
+				_, err = ts.GetCell(ctx, cell)
+				require.NoError(t, err)
+
+				// Delete with force=true - should succeed
+				err = ts.DeleteCell(ctx, cell, true)
+				require.NoError(t, err)
+
+				// Verify the cell is gone
+				_, err = ts.GetCell(ctx, cell)
+				require.Error(t, err)
+				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}))
+			},
+		},
+		{
+			name: "Delete Cell with no database references",
+			test: func(t *testing.T, ts topo.Store) {
+				// Create a cell
+				cl := &clustermetadatapb.Cell{
+					ServerAddresses: []string{"server1:2181"},
+					Root:            "/topo",
+				}
+				err := ts.CreateCell(ctx, cell, cl)
+				require.NoError(t, err)
+
+				// Create a database that doesn't reference the cell
+				db := &clustermetadatapb.Database{
+					Name:  "test-db",
+					Cells: []string{"other-cell"},
+				}
+				err = ts.CreateDatabase(ctx, "test-db", db)
+				require.NoError(t, err)
+
+				// Try to delete the cell without force - should succeed
+				err = ts.DeleteCell(ctx, cell, false)
+				require.NoError(t, err)
+
+				// Verify the cell is gone
+				_, err = ts.GetCell(ctx, cell)
+				require.Error(t, err)
+				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NoNode}))
 			},
 		},
 	}
