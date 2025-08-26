@@ -29,8 +29,6 @@ import (
 )
 
 var (
-	topologyAddr string
-
 	Main = &cobra.Command{
 		Use:     "multiorch",
 		Short:   "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
@@ -61,7 +59,6 @@ func run(cmd *cobra.Command, args []string) error {
 	servenv.OnRun(func() {
 		// Flags are parsed now.
 		logger.Info("multiorch starting up",
-			"topology_addr", topologyAddr,
 			"grpc_port", servenv.GRPCPort(),
 		)
 
