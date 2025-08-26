@@ -19,99 +19,67 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
+	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/servenv"
+
+	"github.com/spf13/cobra"
 )
 
-func setupConfig() {
-	// Define flags
-	pflag.StringP("port", "p", "5432", "Port to listen on")
-	pflag.StringP("log-level", "l", "info", "Log level (debug, info, warn, error)")
-	pflag.StringP("config", "c", "", "Config file path")
-	pflag.Parse()
+var (
+	cell string
 
-	// Setup viper
-	viper.SetDefault("port", "5432")
-	viper.SetDefault("log-level", "info")
+	Main = &cobra.Command{
+		Use:     "multigateway",
+		Short:   "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
+		Long:    "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
+		Args:    cobra.NoArgs,
+		PreRunE: servenv.CobraPreRunE,
+		RunE:    run,
+	}
+)
 
-	// Bind pflags to viper
-	if err := viper.BindPFlags(pflag.CommandLine); err != nil {
-		slog.Error("Failed to bind flags", "error", err)
+func main() {
+	if err := Main.Execute(); err != nil {
+		slog.Error(err.Error())
 		os.Exit(1)
-	}
-
-	// Set config file path if provided
-	if configFile := viper.GetString("config"); configFile != "" {
-		viper.SetConfigFile(configFile)
-	} else {
-		viper.SetConfigName("multigateway")
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(".")
-		viper.AddConfigPath("./config")
-		viper.AddConfigPath("/etc/multigres")
-	}
-
-	// Enable environment variables
-	viper.SetEnvPrefix("MULTIGATEWAY")
-	viper.AutomaticEnv()
-
-	// Read config file
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			// Config file was found but another error was produced
-			slog.Error("Error reading config file", "error", err)
-			os.Exit(1)
-		}
-		// Config file not found; ignore error
 	}
 }
 
-func main() {
-	setupConfig()
+func run(cmd *cobra.Command, args []string) error {
 
-	// Setup structured logging
-	var level slog.Level
-	switch viper.GetString("log-level") {
-	case "debug":
-		level = slog.LevelDebug
-	case "info":
-		level = slog.LevelInfo
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
-	}
+	servenv.Init()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: level,
-	}))
-	slog.SetDefault(logger)
+	// Ensure we open the topo before we start the context, so that the
+	// defer that closes the topo runs after cancelling the context.
+	// This ensures that we've properly closed things like the watchers
+	// at that point.
+	ts := topo.Open()
+	defer func() { _ = ts.Close() }()
 
-	logger.Info("starting multigateway",
-		"port", viper.GetString("port"),
-		"log_level", viper.GetString("log-level"),
-		"config_file", viper.ConfigFileUsed(),
-	)
+	servenv.OnRun(func() {
+		// Flags are parsed now.
+		// TODO: OnRun logic
+	})
+	servenv.OnClose(func() {
+		//  TODO: adds closing hooks
+	})
+	servenv.RunDefault()
 
-	// Create context that cancels on interrupt
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
+	return nil
+}
 
-	// TODO: Initialize Postgres protocol server
-	// TODO: Setup connections to multipoolers
-	// TODO: Implement query routing logic
+func init() {
+	// Register flags BEFORE parsing them
+	servenv.RegisterDefaultFlags()
+	servenv.RegisterFlags()
+	servenv.RegisterGRPCServerFlags()
+	servenv.RegisterGRPCServerAuthFlags()
+	servenv.RegisterServiceMapFlag()
 
-	logger.Info("multigateway ready to accept connections")
-
-	// Wait for shutdown signal
-	<-ctx.Done()
-	logger.Info("shutting down multigateway")
+	// Get the flag set from servenv and add it to the cobra command
+	servenv.AddFlagSetToCobraCommand(Main)
+	Main.Flags().StringVar(&cell, "cell", cell, "cell to use")
 }

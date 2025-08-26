@@ -65,6 +65,6 @@ func serveSocketFile() {
 // to a socket. This needs to be called before flags are parsed.
 func RegisterDefaultSocketFileFlags() {
 	OnParse(func(fs *pflag.FlagSet) {
-		fs.StringVar(&socketFile, "socket_file", socketFile, "Local unix socket file to listen on")
+		fs.StringVar(&socketFile, "socket-file", socketFile, "Local unix socket file to listen on")
 	})
 }

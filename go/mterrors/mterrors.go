@@ -120,7 +120,7 @@ func setLogErrStacks(val bool) {
 func RegisterFlags(fs *pflag.FlagSet) {
 	muLogErrStacks.Lock()
 	defer muLogErrStacks.Unlock()
-	fs.BoolVar(&logErrStacks, "log_err_stacks", false, "log stack traces for errors")
+	fs.BoolVar(&logErrStacks, "log-err-stacks", false, "log stack traces for errors")
 }
 
 // New returns an error with the supplied message.

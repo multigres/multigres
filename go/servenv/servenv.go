@@ -19,7 +19,6 @@ Modifications Copyright 2025 The Multigres Authors.
 package servenv
 
 import (
-	"flag"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -85,7 +84,7 @@ func RegisterFlags() {
 		fs.DurationVar(&timeouts.LameduckPeriod, "lameduck-period", timeouts.LameduckPeriod, "keep running at least this long after SIGTERM before stopping")
 		fs.DurationVar(&timeouts.OnTermTimeout, "onterm-timeout", timeouts.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
 		fs.DurationVar(&timeouts.OnCloseTimeout, "onclose-timeout", timeouts.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
-		fs.StringVar(&pidFile, "pid_file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
+		fs.StringVar(&pidFile, "pid-file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 	})
 }
 
@@ -95,7 +94,7 @@ func RegisterFlagsWithTimeouts(tf *TimeoutFlags) {
 		fs.DurationVar(&tf.OnTermTimeout, "onterm-timeout", tf.OnTermTimeout, "wait no more than this for OnTermSync handlers before stopping")
 		fs.DurationVar(&tf.OnCloseTimeout, "onclose-timeout", tf.OnCloseTimeout, "wait no more than this for OnClose handlers before stopping")
 		// pid_file.go
-		fs.StringVar(&pidFile, "pid_file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
+		fs.StringVar(&pidFile, "pid-file", pidFile, "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 		timeouts = tf
 	})
 }
@@ -296,37 +295,6 @@ func ParseFlagsForTests(cmd string) {
 	loadViper(cmd)
 }
 
-// MoveFlagsToCobraCommand moves the servenv-registered flags to the flagset of
-// the given cobra command, then copies over the glog flags that otherwise
-// require manual transferring.
-func MoveFlagsToCobraCommand(cmd *cobra.Command) {
-	moveFlags(cmd.Name(), cmd.Flags())
-}
-
-// MovePersistentFlagsToCobraCommand functions exactly like MoveFlagsToCobraCommand,
-// but moves the servenv-registered flags to the persistent flagset of
-// the given cobra command, then copies over the glog flags that otherwise
-// require manual transferring.
-//
-// Useful for transferring flags to a parent command whose subcommands should
-// inherit the servenv-registered flags.
-func MovePersistentFlagsToCobraCommand(cmd *cobra.Command) {
-	moveFlags(cmd.Name(), cmd.PersistentFlags())
-}
-
-func moveFlags(name string, fs *pflag.FlagSet) {
-	fs.AddFlagSet(GetFlagSetFor(name))
-
-	fs.AddGoFlag(flag.Lookup("logtostderr"))
-	fs.AddGoFlag(flag.Lookup("log_backtrace_at"))
-	fs.AddGoFlag(flag.Lookup("alsologtostderr"))
-	fs.AddGoFlag(flag.Lookup("stderrthreshold"))
-	fs.AddGoFlag(flag.Lookup("log_dir"))
-	fs.AddGoFlag(flag.Lookup("vmodule"))
-
-	pflag.CommandLine = fs
-}
-
 // CobraPreRunE returns the common function that commands will need to load
 // viper infrastructure. It matches the signature of cobra's (Pre|Post)RunE-type
 // functions.
@@ -355,7 +323,7 @@ func CobraPreRunE(cmd *cobra.Command, args []string) error {
 }
 
 // GetFlagSetFor returns the flag set for a given command.
-// This has to exported for the Vitess-operator to use
+// This has to exported for the Multigres-operator to use
 func GetFlagSetFor(cmd string) *pflag.FlagSet {
 	fs := pflag.NewFlagSet(cmd, pflag.ExitOnError)
 	for _, hook := range getFlagHooksFor(cmd) {
@@ -400,20 +368,17 @@ func init() {
 	// common flags for things like tracing / stats / grpc common flags
 }
 
-func RegisterFlagsForTopoBinaries(registerFlags func(fs *pflag.FlagSet)) {
-	topoBinaries := []string{
-		"multigateway",
-		"multipooler",
-		"multiorch",
-	}
-	for _, cmd := range topoBinaries {
-		OnParseFor(cmd, registerFlags)
-	}
-}
-
-// TestingEndtoend is true when this Vitess binary is being ran as part of an endtoend test suite
+// TestingEndtoend is true when this Vitess binary is being run as part of an endtoend test suite
 var TestingEndtoend = false
 
 func init() {
-	TestingEndtoend = os.Getenv("VTTEST") == "endtoend"
+	TestingEndtoend = os.Getenv("MTTEST") == "endtoend"
+}
+
+// AddFlagSetToCobraCommand moves the servenv-registered flags to the flagset of
+// the given cobra command.
+func AddFlagSetToCobraCommand(cmd *cobra.Command) {
+	fs := cmd.PersistentFlags()
+	fs.AddFlagSet(GetFlagSetFor(cmd.Name()))
+	pflag.CommandLine = fs
 }

@@ -40,7 +40,7 @@ var (
 // ParseFlagsWithArgs.
 func RegisterServiceMapFlag() {
 	OnParse(func(fs *pflag.FlagSet) {
-		fs.StringSliceVar(&serviceMapFlag, "service_map", serviceMapFlag, "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
+		fs.StringSliceVar(&serviceMapFlag, "service-map", serviceMapFlag, "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
 	})
 	OnInit(updateServiceMap)
 }
