@@ -63,7 +63,7 @@ func NewError(code ErrorCode, node string) error {
 	case NoUpdateNeeded:
 		message = fmt.Sprintf("no update needed: %s", node)
 	case NoImplementation:
-		message = fmt.Sprintf("no such topology implementation %s", node)
+		message = fmt.Sprintf("no such topology implementation: %s", node)
 	case NoReadOnlyImplementation:
 		message = fmt.Sprintf("no read-only topology implementation %s", node)
 	case ResourceExhausted:
