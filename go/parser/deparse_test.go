@@ -1623,7 +1623,8 @@ func TestDMLSqlStringMethods(t *testing.T) {
 
 		// Add a target (SET clause)
 		target := ast.NewResTarget("name", ast.NewA_Const(ast.NewString("Jane"), 0))
-		updateStmt.TargetList = []*ast.ResTarget{target}
+		updateStmt.TargetList = ast.NewNodeList()
+		updateStmt.TargetList.Append(target)
 
 		sqlString := updateStmt.SqlString()
 		assert.Contains(t, sqlString, "UPDATE")

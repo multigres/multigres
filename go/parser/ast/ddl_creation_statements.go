@@ -197,9 +197,11 @@ func (cfs *CreateFunctionStmt) String() string {
 	
 	// Return type (only for functions, not procedures)
 	if !cfs.IsProcedure && cfs.ReturnType != nil {
-		if len(cfs.ReturnType.Names) > 0 {
-			typeName := cfs.ReturnType.Names[len(cfs.ReturnType.Names)-1]
-			parts = append(parts, "RETURNS", typeName)
+		if cfs.ReturnType.Names != nil && cfs.ReturnType.Names.Len() > 0 {
+			lastItem := cfs.ReturnType.Names.Items[cfs.ReturnType.Names.Len()-1]
+			if str, ok := lastItem.(*String); ok {
+				parts = append(parts, "RETURNS", str.SVal)
+			}
 		}
 	}
 	
@@ -353,9 +355,11 @@ func (cocs *CreateOpClassStmt) String() string {
 	}
 	
 	parts = append(parts, "FOR TYPE")
-	if cocs.DataType != nil && len(cocs.DataType.Names) > 0 {
-		typeName := cocs.DataType.Names[len(cocs.DataType.Names)-1]
-		parts = append(parts, typeName)
+	if cocs.DataType != nil && cocs.DataType.Names != nil && cocs.DataType.Names.Len() > 0 {
+		lastItem := cocs.DataType.Names.Items[cocs.DataType.Names.Len()-1]
+		if str, ok := lastItem.(*String); ok {
+			parts = append(parts, str.SVal)
+		}
 	}
 	
 	parts = append(parts, "USING", cocs.AmName)
@@ -447,20 +451,28 @@ func (ccs *CreateCastStmt) String() string {
 	
 	if ccs.SourceType != nil && ccs.TargetType != nil {
 		sourceTypeName := ""
-		if len(ccs.SourceType.Names) > 0 {
-			sourceTypeName = ccs.SourceType.Names[len(ccs.SourceType.Names)-1]
+		if ccs.SourceType.Names != nil && ccs.SourceType.Names.Len() > 0 {
+			lastItem := ccs.SourceType.Names.Items[ccs.SourceType.Names.Len()-1]
+			if str, ok := lastItem.(*String); ok {
+				sourceTypeName = str.SVal
+			}
 		}
 		targetTypeName := ""
-		if len(ccs.TargetType.Names) > 0 {
-			targetTypeName = ccs.TargetType.Names[len(ccs.TargetType.Names)-1]
+		if ccs.TargetType.Names != nil && ccs.TargetType.Names.Len() > 0 {
+			lastItem := ccs.TargetType.Names.Items[ccs.TargetType.Names.Len()-1]
+			if str, ok := lastItem.(*String); ok {
+				targetTypeName = str.SVal
+			}
 		}
 		parts = append(parts, "("+sourceTypeName+" AS "+targetTypeName+")")
 	}
 	
 	if ccs.Func != nil {
 		funcName := ""
-		if len(ccs.Func.Objname) > 0 && ccs.Func.Objname[len(ccs.Func.Objname)-1] != nil {
-			funcName = ccs.Func.Objname[len(ccs.Func.Objname)-1].SVal
+		if ccs.Func.Objname != nil && len(ccs.Func.Objname.Items) > 0 {
+			if str, ok := ccs.Func.Objname.Items[len(ccs.Func.Objname.Items)-1].(*String); ok {
+				funcName = str.SVal
+			}
 		}
 		parts = append(parts, "WITH FUNCTION", funcName)
 	} else if ccs.Inout {

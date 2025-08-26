@@ -167,7 +167,7 @@ type PartitionBoundSpec struct {
 	IsDefault  bool              // Is this a default partition? - parsenodes.h:899
 	Modulus    int               // Hash partition modulus - parsenodes.h:900
 	Remainder  int               // Hash partition remainder - parsenodes.h:901
-	ListDatums []*NodeList       // List of list datums per column - parsenodes.h:902
+	ListDatums *NodeList         // List of list datums per column - parsenodes.h:902
 	LowDatums  *NodeList         // List of lower datums for range bounds - parsenodes.h:903
 	HighDatums *NodeList         // List of upper datums for range bounds - parsenodes.h:904
 	// Location is provided by BaseNode.Location() method
@@ -200,7 +200,7 @@ func NewHashPartitionBound(modulus, remainder int) *PartitionBoundSpec {
 }
 
 // NewListPartitionBound creates a new list partition bound.
-func NewListPartitionBound(listDatums []*NodeList) *PartitionBoundSpec {
+func NewListPartitionBound(listDatums *NodeList) *PartitionBoundSpec {
 	return &PartitionBoundSpec{
 		BaseNode:   BaseNode{Tag: T_PartitionBoundSpec},
 		Strategy:   PARTITION_STRATEGY_LIST,
@@ -227,7 +227,11 @@ func (pbs *PartitionBoundSpec) String() string {
 	case PARTITION_STRATEGY_HASH:
 		return fmt.Sprintf("PartitionBoundSpec(HASH modulus=%d remainder=%d)", pbs.Modulus, pbs.Remainder)
 	case PARTITION_STRATEGY_LIST:
-		return fmt.Sprintf("PartitionBoundSpec(LIST %d datums)", len(pbs.ListDatums))
+		count := 0
+		if pbs.ListDatums != nil {
+			count = pbs.ListDatums.Len()
+		}
+		return fmt.Sprintf("PartitionBoundSpec(LIST %d datums)", count)
 	case PARTITION_STRATEGY_RANGE:
 		lowCount := 0
 		highCount := 0
@@ -255,13 +259,16 @@ func (pbs *PartitionBoundSpec) SqlString() string {
 		parts = append(parts, fmt.Sprintf("WITH (modulus %d, remainder %d)", pbs.Modulus, pbs.Remainder))
 		
 	case PARTITION_STRATEGY_LIST:
-		if len(pbs.ListDatums) > 0 {
+		if pbs.ListDatums != nil && pbs.ListDatums.Len() > 0 {
 			datumStrings := []string{}
-			for _, datumList := range pbs.ListDatums {
-				if datumList != nil && len(datumList.Items) > 0 {
+			for _, item := range pbs.ListDatums.Items {
+				if datumList, ok := item.(*NodeList); ok && datumList != nil && len(datumList.Items) > 0 {
 					for _, datum := range datumList.Items {
 						datumStrings = append(datumStrings, datum.SqlString())
 					}
+				} else if datum := item; datum != nil {
+					// Handle single datum (not nested in another NodeList)
+					datumStrings = append(datumStrings, datum.SqlString())
 				}
 			}
 			parts = append(parts, "IN ("+strings.Join(datumStrings, ", ")+")")

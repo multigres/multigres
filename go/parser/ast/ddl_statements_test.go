@@ -158,7 +158,7 @@ func TestConstraint(t *testing.T) {
 		assert.Equal(t, T_Constraint, constraint.NodeTag())
 		assert.Equal(t, CONSTR_PRIMARY, constraint.Contype)
 		assert.Equal(t, "pk_users", constraint.Conname)
-		assert.Equal(t, []string{"id"}, constraint.Keys)
+		assert.Equal(t, []string{"id"}, constraint.GetKeys())
 		assert.Contains(t, constraint.String(), "PRIMARY_KEY")
 		assert.Contains(t, constraint.String(), "pk_users")
 
@@ -172,9 +172,9 @@ func TestConstraint(t *testing.T) {
 
 		assert.Equal(t, CONSTR_FOREIGN, constraint.Contype)
 		assert.Equal(t, "fk_dept", constraint.Conname)
-		assert.Equal(t, []string{"dept_id"}, constraint.FkAttrs)
+		assert.Equal(t, []string{"dept_id"}, constraint.GetFkAttrs())
 		assert.Equal(t, pktable, constraint.Pktable)
-		assert.Equal(t, []string{"id"}, constraint.PkAttrs)
+		assert.Equal(t, []string{"id"}, constraint.GetPkAttrs())
 		assert.Contains(t, constraint.String(), "FOREIGN_KEY")
 	})
 
@@ -183,7 +183,7 @@ func TestConstraint(t *testing.T) {
 
 		assert.Equal(t, CONSTR_UNIQUE, constraint.Contype)
 		assert.Equal(t, "uk_email", constraint.Conname)
-		assert.Equal(t, []string{"email"}, constraint.Keys)
+		assert.Equal(t, []string{"email"}, constraint.GetKeys())
 		assert.False(t, constraint.NullsNotDistinct, "Default UNIQUE constraint should have NullsNotDistinct=false")
 		assert.Contains(t, constraint.String(), "UNIQUE")
 	})
@@ -193,7 +193,7 @@ func TestConstraint(t *testing.T) {
 
 		assert.Equal(t, CONSTR_UNIQUE, constraint.Contype)
 		assert.Equal(t, "uk_email_nnd", constraint.Conname)
-		assert.Equal(t, []string{"email"}, constraint.Keys)
+		assert.Equal(t, []string{"email"}, constraint.GetKeys())
 		assert.True(t, constraint.NullsNotDistinct, "NULLS NOT DISTINCT constraint should have NullsNotDistinct=true")
 		assert.Contains(t, constraint.String(), "UNIQUE")
 	})
@@ -224,12 +224,14 @@ func TestAlterTableStmt(t *testing.T) {
 		columnDef := NewString("VARCHAR(100)") // Simplified column definition
 		addColumnCmd := NewAddColumnCmd("email", columnDef)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{addColumnCmd})
+		cmdList := NewNodeList()
+		cmdList.Append(addColumnCmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 
 		assert.Equal(t, T_AlterTableStmt, alterStmt.NodeTag())
 		assert.Equal(t, "AlterTableStmt", alterStmt.StatementType())
 		assert.Equal(t, relation, alterStmt.Relation)
-		assert.Len(t, alterStmt.Cmds, 1)
+		assert.Equal(t, 1, alterStmt.Cmds.Len())
 		assert.Equal(t, OBJECT_TABLE, alterStmt.Objtype)
 		assert.Contains(t, alterStmt.String(), "users")
 		assert.Contains(t, alterStmt.String(), "1 cmds")
@@ -239,7 +241,7 @@ func TestAlterTableStmt(t *testing.T) {
 		var _ Stmt = alterStmt
 
 		// Test the command
-		cmd := alterStmt.Cmds[0]
+		cmd := alterStmt.Cmds.Items[0].(*AlterTableCmd)
 		assert.Equal(t, T_AlterTableCmd, cmd.NodeTag())
 		assert.Equal(t, AT_AddColumn, cmd.Subtype)
 		assert.Equal(t, "email", cmd.Name)
@@ -252,9 +254,11 @@ func TestAlterTableStmt(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		dropColumnCmd := NewDropColumnCmd("old_field", DropCascade)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{dropColumnCmd})
+		cmdList := NewNodeList()
+		cmdList.Append(dropColumnCmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 
-		cmd := alterStmt.Cmds[0]
+		cmd := alterStmt.Cmds.Items[0].(*AlterTableCmd)
 		assert.Equal(t, AT_DropColumn, cmd.Subtype)
 		assert.Equal(t, "old_field", cmd.Name)
 		assert.Equal(t, DropCascade, cmd.Behavior)
@@ -266,9 +270,11 @@ func TestAlterTableStmt(t *testing.T) {
 		constraint := NewPrimaryKeyConstraint("pk_users", []string{"id"})
 		addConstraintCmd := NewAddConstraintCmd(constraint)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{addConstraintCmd})
+		cmdList := NewNodeList()
+		cmdList.Append(addConstraintCmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 
-		cmd := alterStmt.Cmds[0]
+		cmd := alterStmt.Cmds.Items[0].(*AlterTableCmd)
 		assert.Equal(t, AT_AddConstraint, cmd.Subtype)
 		assert.Equal(t, "pk_users", cmd.Name)
 		assert.Equal(t, constraint, cmd.Def)
@@ -279,9 +285,11 @@ func TestAlterTableStmt(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		dropConstraintCmd := NewDropConstraintCmd("old_constraint", DropRestrict)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{dropConstraintCmd})
+		cmdList := NewNodeList()
+		cmdList.Append(dropConstraintCmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 
-		cmd := alterStmt.Cmds[0]
+		cmd := alterStmt.Cmds.Items[0].(*AlterTableCmd)
 		assert.Equal(t, AT_DropConstraint, cmd.Subtype)
 		assert.Equal(t, "old_constraint", cmd.Name)
 		assert.Equal(t, DropRestrict, cmd.Behavior)
@@ -294,14 +302,16 @@ func TestIndexStmt(t *testing.T) {
 	t.Run("BasicIndex", func(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		idxElem := NewIndexElem("email")
-		indexStmt := NewIndexStmt("idx_users_email", relation, []*IndexElem{idxElem})
+		indexParams := NewNodeList()
+		indexParams.Append(idxElem)
+		indexStmt := NewIndexStmt("idx_users_email", relation, indexParams)
 
 		assert.Equal(t, T_IndexStmt, indexStmt.NodeTag())
 		assert.Equal(t, "IndexStmt", indexStmt.StatementType())
 		assert.Equal(t, "idx_users_email", indexStmt.Idxname)
 		assert.Equal(t, relation, indexStmt.Relation)
 		assert.Equal(t, "btree", indexStmt.AccessMethod)
-		assert.Len(t, indexStmt.IndexParams, 1)
+		assert.Equal(t, 1, indexStmt.IndexParams.Len())
 		assert.False(t, indexStmt.Unique)
 		assert.Contains(t, indexStmt.String(), "idx_users_email")
 		assert.Contains(t, indexStmt.String(), "users")
@@ -314,7 +324,9 @@ func TestIndexStmt(t *testing.T) {
 	t.Run("UniqueIndex", func(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		idxElem := NewIndexElem("email")
-		indexStmt := NewUniqueIndex("uk_users_email", relation, []*IndexElem{idxElem})
+		indexParams := NewNodeList()
+		indexParams.Append(idxElem)
+		indexStmt := NewUniqueIndex("uk_users_email", relation, indexParams)
 
 		assert.True(t, indexStmt.Unique)
 		assert.Contains(t, indexStmt.String(), "UNIQUE")
@@ -324,17 +336,20 @@ func TestIndexStmt(t *testing.T) {
 		relation := NewRangeVar("orders", "", "")
 		idxElem1 := NewIndexElem("customer_id")
 		idxElem2 := NewDescIndexElem("order_date")
-		indexStmt := NewIndexStmt("idx_orders_customer_date", relation, []*IndexElem{idxElem1, idxElem2})
+		indexParams := NewNodeList()
+		indexParams.Append(idxElem1)
+		indexParams.Append(idxElem2)
+		indexStmt := NewIndexStmt("idx_orders_customer_date", relation, indexParams)
 
-		assert.Len(t, indexStmt.IndexParams, 2)
+		assert.Equal(t, 2, indexStmt.IndexParams.Len())
 
 		// Test first element
-		elem1 := indexStmt.IndexParams[0]
+		elem1 := indexStmt.IndexParams.Items[0].(*IndexElem)
 		assert.Equal(t, "customer_id", elem1.Name)
 		assert.Equal(t, SORTBY_DEFAULT, elem1.Ordering)
 
 		// Test second element (descending)
-		elem2 := indexStmt.IndexParams[1]
+		elem2 := indexStmt.IndexParams.Items[1].(*IndexElem)
 		assert.Equal(t, "order_date", elem2.Name)
 		assert.Equal(t, SORTBY_DESC, elem2.Ordering)
 		assert.Contains(t, elem2.String(), "DESC")
@@ -344,9 +359,11 @@ func TestIndexStmt(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		lowerExpr := NewFuncExpr(870, 25, NewNodeList(NewVar(1, 1, 25))) // lower(email)
 		idxElem := NewExpressionIndexElem(lowerExpr)
-		indexStmt := NewIndexStmt("idx_users_lower_email", relation, []*IndexElem{idxElem})
+		indexParams := NewNodeList()
+		indexParams.Append(idxElem)
+		indexStmt := NewIndexStmt("idx_users_lower_email", relation, indexParams)
 
-		elem := indexStmt.IndexParams[0]
+		elem := indexStmt.IndexParams.Items[0].(*IndexElem)
 		assert.Equal(t, "", elem.Name) // No column name for expression index
 		assert.Equal(t, lowerExpr, elem.Expr)
 		assert.Contains(t, elem.String(), "expr")
@@ -543,7 +560,7 @@ func TestTypeName(t *testing.T) {
 		typeName := NewTypeName([]string{"integer"})
 
 		assert.Equal(t, T_TypeName, typeName.NodeTag())
-		assert.Equal(t, []string{"integer"}, typeName.Names)
+		assert.Equal(t, []string{"integer"}, typeName.GetNames())
 		assert.Contains(t, typeName.String(), "integer")
 
 		// Test interface compliance
@@ -553,7 +570,7 @@ func TestTypeName(t *testing.T) {
 	t.Run("QualifiedType", func(t *testing.T) {
 		typeName := NewTypeName([]string{"public", "custom_type"})
 
-		assert.Equal(t, []string{"public", "custom_type"}, typeName.Names)
+		assert.Equal(t, []string{"public", "custom_type"}, typeName.GetNames())
 		assert.Contains(t, typeName.String(), "custom_type") // Should show the last part
 	})
 }
@@ -603,14 +620,16 @@ func TestDDLComplexExamples(t *testing.T) {
 		// Drop column command
 		dropColumnCmd := NewDropColumnCmd("old_field", DropCascade)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{
-			addColumnCmd, addConstraintCmd, dropColumnCmd,
-		})
+		cmdList := NewNodeList()
+		cmdList.Append(addColumnCmd)
+		cmdList.Append(addConstraintCmd)
+		cmdList.Append(dropColumnCmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 
-		assert.Len(t, alterStmt.Cmds, 3)
-		assert.Equal(t, AT_AddColumn, alterStmt.Cmds[0].Subtype)
-		assert.Equal(t, AT_AddConstraint, alterStmt.Cmds[1].Subtype)
-		assert.Equal(t, AT_DropColumn, alterStmt.Cmds[2].Subtype)
+		assert.Equal(t, 3, alterStmt.Cmds.Len())
+		assert.Equal(t, AT_AddColumn, alterStmt.Cmds.Items[0].(*AlterTableCmd).Subtype)
+		assert.Equal(t, AT_AddConstraint, alterStmt.Cmds.Items[1].(*AlterTableCmd).Subtype)
+		assert.Equal(t, AT_DropColumn, alterStmt.Cmds.Items[2].(*AlterTableCmd).Subtype)
 		assert.Contains(t, alterStmt.String(), "3 cmds")
 	})
 
@@ -622,7 +641,9 @@ func TestDDLComplexExamples(t *testing.T) {
 		lowerFunc := NewFuncExpr(870, 25, NewNodeList(NewVar(1, 1, 25))) // lower(email)
 		idxElem := NewExpressionIndexElem(lowerFunc)
 
-		indexStmt := NewUniqueIndex("idx_users_email_lower", relation, []*IndexElem{idxElem})
+		indexParams := NewNodeList()
+		indexParams.Append(idxElem)
+		indexStmt := NewUniqueIndex("idx_users_email_lower", relation, indexParams)
 		indexStmt.Concurrent = true
 
 		// WHERE clause (simplified)
@@ -632,9 +653,9 @@ func TestDDLComplexExamples(t *testing.T) {
 		assert.True(t, indexStmt.Unique)
 		assert.True(t, indexStmt.Concurrent)
 		assert.NotNil(t, indexStmt.WhereClause)
-		assert.Len(t, indexStmt.IndexParams, 1)
+		assert.Equal(t, 1, indexStmt.IndexParams.Len())
 
-		elem := indexStmt.IndexParams[0]
+		elem := indexStmt.IndexParams.Items[0].(*IndexElem)
 		assert.Equal(t, "", elem.Name) // Expression index has no column name
 		assert.NotNil(t, elem.Expr)
 	})
@@ -669,7 +690,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		columnDef := NewColumnDef("email", NewTypeName([]string{"varchar"}), 0)
 		addColumnCmd := NewAddColumnCmd("", columnDef)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{addColumnCmd})
+		cmdList := NewNodeList()
+		cmdList.Append(addColumnCmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		
 		expected := "ALTER TABLE users ADD COLUMN email varchar"
 		assert.Equal(t, expected, alterStmt.SqlString())
@@ -680,7 +703,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		dropColumnCmd := NewDropColumnCmd("old_field", DropCascade)
 		dropColumnCmd.MissingOk = true
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{dropColumnCmd})
+		cmdList := NewNodeList()
+		cmdList.Append(dropColumnCmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		
 		expected := "ALTER TABLE users DROP COLUMN IF EXISTS old_field CASCADE"
 		assert.Equal(t, expected, alterStmt.SqlString())
@@ -691,7 +716,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		typeName := NewTypeName([]string{"bigint"})
 		cmd := NewAlterTableCmd(AT_AlterColumnType, "id", typeName)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		
 		expected := "ALTER TABLE users ALTER COLUMN id TYPE bigint"
 		assert.Equal(t, expected, alterStmt.SqlString())
@@ -701,7 +728,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		cmd := NewAlterTableCmd(AT_SetNotNull, "email", nil)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		
 		expected := "ALTER TABLE users ALTER COLUMN email SET NOT NULL"
 		assert.Equal(t, expected, alterStmt.SqlString())
@@ -711,7 +740,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		cmd := NewAlterTableCmd(AT_DropNotNull, "email", nil)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		
 		expected := "ALTER TABLE users ALTER COLUMN email DROP NOT NULL"
 		assert.Equal(t, expected, alterStmt.SqlString())
@@ -722,7 +753,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		defaultValue := NewString("unknown")
 		cmd := NewAlterTableCmd(AT_ColumnDefault, "status", defaultValue)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		
 		expected := "ALTER TABLE users ALTER COLUMN status SET DEFAULT 'unknown'"
 		assert.Equal(t, expected, alterStmt.SqlString())
@@ -732,7 +765,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		cmd := NewAlterTableCmd(AT_ColumnDefault, "status", nil)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		
 		expected := "ALTER TABLE users ALTER COLUMN status DROP DEFAULT"
 		assert.Equal(t, expected, alterStmt.SqlString())
@@ -743,7 +778,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		statsValue := NewInteger(1000)
 		cmd := NewAlterTableCmd(AT_SetStatistics, "email", statsValue)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		
 		expected := "ALTER TABLE users ALTER COLUMN email SET STATISTICS 1000"
 		assert.Equal(t, expected, alterStmt.SqlString())
@@ -753,7 +790,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		relation := NewRangeVar("idx_users_email", "", "")
 		cmd := NewAlterTableCmd(AT_SetTableSpace, "fast_storage", nil)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_INDEX
 		
 		expected := "ALTER INDEX idx_users_email SET TABLESPACE fast_storage"
@@ -764,7 +803,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		relation := NewRangeVar("idx_users_email", "", "")
 		cmd := NewAlterTableCmd(AT_SetTableSpace, "fast_storage", nil)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_INDEX
 		alterStmt.MissingOk = true
 		
@@ -778,7 +819,10 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmd1 := NewAlterTableCmd(AT_SetNotNull, "email", nil)
 		cmd2 := NewAlterTableCmd(AT_SetStatistics, "email", NewInteger(500))
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd1, cmd2})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd1)
+		cmdList.Append(cmd2)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		
 		expected := "ALTER TABLE users ALTER COLUMN email SET NOT NULL, ALTER COLUMN email SET STATISTICS 500"
 		assert.Equal(t, expected, alterStmt.SqlString())
@@ -789,7 +833,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		relation := NewRangeVar("user_id_seq", "", "")
 		cmd := NewAlterTableCmd(AT_ColumnDefault, "increment_by", NewString("5"))
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_SEQUENCE
 		
 		expected := "ALTER SEQUENCE user_id_seq ALTER COLUMN increment_by SET DEFAULT '5'"
@@ -800,7 +846,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		relation := NewRangeVar("user_id_seq", "", "")
 		cmd := NewAlterTableCmd(AT_ColumnDefault, "increment_by", NewString("1"))
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_SEQUENCE
 		alterStmt.MissingOk = true
 		
@@ -813,7 +861,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		columnDef := NewColumnDef("status", NewTypeName([]string{"varchar"}), 0)
 		addColumnCmd := NewAddColumnCmd("", columnDef)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{addColumnCmd})
+		cmdList := NewNodeList()
+		cmdList.Append(addColumnCmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_VIEW
 		
 		expected := "ALTER VIEW user_view ADD COLUMN status varchar"
@@ -825,7 +875,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmd := NewAlterTableCmd(AT_DropColumn, "old_field", nil)
 		cmd.MissingOk = true
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_VIEW
 		alterStmt.MissingOk = true
 		
@@ -837,7 +889,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		relation := NewRangeVar("user_summary_mv", "", "")
 		cmd := NewAlterTableCmd(AT_SetNotNull, "created_at", nil)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_MATVIEW
 		
 		expected := "ALTER MATERIALIZED VIEW user_summary_mv ALTER COLUMN created_at SET NOT NULL"
@@ -848,7 +902,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		relation := NewRangeVar("user_summary_mv", "", "")
 		cmd := NewAlterTableCmd(AT_DropNotNull, "updated_at", nil)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_MATVIEW
 		alterStmt.MissingOk = true
 		
@@ -861,7 +917,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		columnDef := NewColumnDef("external_id", NewTypeName([]string{"bigint"}), 0)
 		addColumnCmd := NewAddColumnCmd("", columnDef)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{addColumnCmd})
+		cmdList := NewNodeList()
+		cmdList.Append(addColumnCmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_FOREIGN_TABLE
 		
 		expected := "ALTER FOREIGN TABLE remote_users ADD COLUMN external_id bigint"
@@ -872,7 +930,9 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		relation := NewRangeVar("remote_users", "", "")
 		cmd := NewAlterTableCmd(AT_DropColumn, "deprecated_field", nil)
 
-		alterStmt := NewAlterTableStmt(relation, []*AlterTableCmd{cmd})
+		cmdList := NewNodeList()
+		cmdList.Append(cmd)
+		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_FOREIGN_TABLE
 		alterStmt.MissingOk = true
 		

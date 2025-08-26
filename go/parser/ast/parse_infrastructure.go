@@ -51,7 +51,7 @@ func (r *RawStmt) StatementType() string {
 type A_Expr struct {
 	BaseNode
 	Kind     A_Expr_Kind // Expression type (operator, comparison, etc.)
-	Name     []*String   // Possibly-qualified operator name
+	Name     *NodeList   // Possibly-qualified operator name
 	Lexpr    Node        // Left operand
 	Rexpr    Node        // Right operand (or NULL for unary operators)
 	// Note: Location is handled by BaseNode.Loc
@@ -78,8 +78,9 @@ const (
 	AEXPR_NOT_BETWEEN_SYM               // NOT BETWEEN SYMMETRIC
 )
 
+
 // NewA_Expr creates a new A_Expr node.
-func NewA_Expr(kind A_Expr_Kind, name []*String, lexpr, rexpr Node, location int) *A_Expr {
+func NewA_Expr(kind A_Expr_Kind, name *NodeList, lexpr, rexpr Node, location int) *A_Expr {
 	return &A_Expr{
 		BaseNode: BaseNode{Tag: T_A_Expr, Loc: location},
 		Kind:     kind,
@@ -97,10 +98,18 @@ func (a *A_Expr) String() string {
 func (a *A_Expr) SqlString() string {
 	switch a.Kind {
 	case AEXPR_OP:
-		if len(a.Name) == 0 {
+		if a.Name == nil || a.Name.Len() == 0 {
 			return "UNKNOWN_OP"
 		}
-		op := a.Name[0].SVal
+		firstItem := a.Name.Items[0]
+		// For operators, we need the raw string value, not the SQL quoted version
+		var op string
+		if str, ok := firstItem.(*String); ok {
+			op = str.SVal
+		} else {
+			// Fallback for other node types - use their string representation
+			op = firstItem.String()
+		}
 		
 		// Unary operators (NOT, unary +, unary -)
 		if a.Lexpr == nil && a.Rexpr != nil {
@@ -307,7 +316,7 @@ func (p *ParenExpr) ExpressionType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:423-444
 type FuncCall struct {
 	BaseNode
-	Funcname       []*String    // Qualified function name
+	Funcname       *NodeList    // Qualified function name
 	Args           *NodeList    // List of arguments
 	AggOrder       *NodeList    // ORDER BY list for aggregates
 	AggFilter      Node         // FILTER clause for aggregates
@@ -320,7 +329,7 @@ type FuncCall struct {
 }
 
 // NewFuncCall creates a new FuncCall node.
-func NewFuncCall(funcname []*String, args *NodeList, location int) *FuncCall {
+func NewFuncCall(funcname *NodeList, args *NodeList, location int) *FuncCall {
 	funcCall := &FuncCall{
 		BaseNode:   BaseNode{Tag: T_FuncCall},
 		Funcname:   funcname,
@@ -332,8 +341,10 @@ func NewFuncCall(funcname []*String, args *NodeList, location int) *FuncCall {
 }
 
 func (f *FuncCall) String() string {
-	if len(f.Funcname) > 0 && f.Funcname[0] != nil {
-		return fmt.Sprintf("FuncCall{%s}@%d", f.Funcname[0].SVal, f.Location())
+	if f.Funcname != nil && len(f.Funcname.Items) > 0 {
+		if str, ok := f.Funcname.Items[0].(*String); ok {
+			return fmt.Sprintf("FuncCall{%s}@%d", str.SVal, f.Location())
+		}
 	}
 	return fmt.Sprintf("FuncCall@%d", f.Location())
 }
@@ -342,10 +353,10 @@ func (f *FuncCall) String() string {
 func (f *FuncCall) SqlString() string {
 	// Build function name (could be qualified like schema.func)
 	funcName := ""
-	if len(f.Funcname) > 0 {
+	if f.Funcname != nil && len(f.Funcname.Items) > 0 {
 		var nameParts []string
-		for _, part := range f.Funcname {
-			if part != nil {
+		for _, item := range f.Funcname.Items {
+			if part, ok := item.(*String); ok && part != nil {
 				// Normalize common function names to uppercase
 				name := part.SVal
 				switch strings.ToLower(name) {
@@ -1006,8 +1017,8 @@ type PartitionElem struct {
 	BaseNode
 	Name       string        // Name of column to partition on
 	Expr       Node          // Expression to partition on, or NULL
-	Collation  []*String     // Collation name
-	Opclass    []*String     // Operator class name
+	Collation  *NodeList     // Collation name
+	Opclass    *NodeList     // Operator class name
 }
 
 // NewPartitionElem creates a new PartitionElem node.
@@ -1016,8 +1027,8 @@ func NewPartitionElem(name string, expr Node, location int) *PartitionElem {
 		BaseNode:  BaseNode{Tag: T_PartitionElem},
 		Name:      name,
 		Expr:      expr,
-		Collation: []*String{},
-		Opclass:   []*String{},
+		Collation: NewNodeList(),
+		Opclass:   NewNodeList(),
 	}
 	partitionElem.SetLocation(location)
 	return partitionElem
@@ -1067,14 +1078,14 @@ func (t *TableSampleClause) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2524-2539
 type ObjectWithArgs struct {
 	BaseNode
-	Objname      []*String // Qualified object name
+	Objname      *NodeList // Qualified object name
 	Objargs      *NodeList // List of argument types (TypeName nodes)
 	ObjfuncArgs  *NodeList // List of function arguments for ALTER FUNCTION
 	ArgsUnspecified bool   // Arguments were omitted, so name must be unique
 }
 
 // NewObjectWithArgs creates a new ObjectWithArgs node.
-func NewObjectWithArgs(objname []*String, objargs *NodeList, argsUnspecified bool, location int) *ObjectWithArgs {
+func NewObjectWithArgs(objname *NodeList, objargs *NodeList, argsUnspecified bool, location int) *ObjectWithArgs {
 	objectWithArgs := &ObjectWithArgs{
 		BaseNode:        BaseNode{Tag: T_ObjectWithArgs},
 		Objname:         objname,
@@ -1087,8 +1098,10 @@ func NewObjectWithArgs(objname []*String, objargs *NodeList, argsUnspecified boo
 }
 
 func (o *ObjectWithArgs) String() string {
-	if len(o.Objname) > 0 && o.Objname[len(o.Objname)-1] != nil {
-		return fmt.Sprintf("ObjectWithArgs{%s}@%d", o.Objname[len(o.Objname)-1].SVal, o.Location())
+	if o.Objname != nil && len(o.Objname.Items) > 0 {
+		if str, ok := o.Objname.Items[len(o.Objname.Items)-1].(*String); ok {
+			return fmt.Sprintf("ObjectWithArgs{%s}@%d", str.SVal, o.Location())
+		}
 	}
 	return fmt.Sprintf("ObjectWithArgs@%d", o.Location())
 }

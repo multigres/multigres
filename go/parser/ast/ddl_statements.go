@@ -478,7 +478,7 @@ func (r *RoleSpec) String() string {
 // This is a placeholder implementation - full TypeName from parsenodes.h will be implemented later
 type TypeName struct {
 	BaseNode
-	Names       []string // qualified name (list of String)
+	Names       *NodeList // qualified name (list of String)
 	TypeOid     Oid      // type's OID (filled in by transformTypeName)
 	Setof       bool     // is a set?
 	PctType     bool     // %TYPE specified?
@@ -487,55 +487,117 @@ type TypeName struct {
 	ArrayBounds *NodeList // array bounds
 }
 
+// stringsToNodeList converts a slice of strings to a NodeList of String nodes
+func stringsToNodeList(names []string) *NodeList {
+	if len(names) == 0 {
+		return nil
+	}
+	nodeList := NewNodeList()
+	for _, name := range names {
+		nodeList.Append(NewString(name))
+	}
+	return nodeList
+}
+
+// nodeListToStrings converts a NodeList of String nodes back to a slice of strings
+func nodeListToStrings(nodeList *NodeList) []string {
+	if nodeList == nil {
+		return nil
+	}
+	var names []string
+	for _, item := range nodeList.Items {
+		if str, ok := item.(*String); ok {
+			names = append(names, str.SVal)
+		}
+	}
+	return names
+}
+
+// GetNames returns the Names as a slice of strings for testing purposes
+func (t *TypeName) GetNames() []string {
+	return nodeListToStrings(t.Names)
+}
+
+// GetKeys returns the Keys as a slice of strings for testing purposes
+func (c *Constraint) GetKeys() []string {
+	return nodeListToStrings(c.Keys)
+}
+
+// GetIncluding returns the Including as a slice of strings for testing purposes
+func (c *Constraint) GetIncluding() []string {
+	return nodeListToStrings(c.Including)
+}
+
+// GetFkAttrs returns the FkAttrs as a slice of strings for testing purposes
+func (c *Constraint) GetFkAttrs() []string {
+	return nodeListToStrings(c.FkAttrs)
+}
+
+// GetPkAttrs returns the PkAttrs as a slice of strings for testing purposes
+func (c *Constraint) GetPkAttrs() []string {
+	return nodeListToStrings(c.PkAttrs)
+}
+
+// GetFkDelSetCols returns the FkDelSetCols as a slice of strings for testing purposes
+func (c *Constraint) GetFkDelSetCols() []string {
+	return nodeListToStrings(c.FkDelSetCols)
+}
+
 // NewTypeName creates a new TypeName node.
 func NewTypeName(names []string) *TypeName {
 	return &TypeName{
 		BaseNode: BaseNode{Tag: T_TypeName},
-		Names:    names,
+		Names:    stringsToNodeList(names),
 	}
 }
 
 func (t *TypeName) String() string {
 	typeName := ""
-	if len(t.Names) > 0 {
-		typeName = t.Names[len(t.Names)-1]
+	if t.Names != nil && t.Names.Len() > 0 {
+		lastItem := t.Names.Items[t.Names.Len()-1]
+		if str, ok := lastItem.(*String); ok {
+			typeName = str.SVal
+		}
 	}
 	return fmt.Sprintf("TypeName(%s)@%d", typeName, t.Location())
 }
 
 // SqlString returns the SQL representation of the TypeName
 func (t *TypeName) SqlString() string {
-	if len(t.Names) == 0 {
+	if t.Names == nil || t.Names.Len() == 0 {
 		return ""
 	}
 	
 	// Join qualified names with dots (e.g., "schema.type")
 	var nameParts []string
-	for _, name := range t.Names {
-		// Normalize common type names - uppercase for basic types to match expected format
-		normalizedName := name
-		switch strings.ToLower(name) {
-		case "int", "integer":
-			normalizedName = "int" // Keep lowercase to match expected test output
-		case "varchar", "character varying":
-			normalizedName = "varchar"
-		case "bpchar":
-			normalizedName = "char" // Convert PostgreSQL internal name to user-friendly name
-		case "text":
-			normalizedName = "text"
-		case "timestamp", "timestamptz":
-			normalizedName = "timestamp"
-		case "bool", "boolean":
-			normalizedName = "boolean"
-		case "numeric", "decimal":
-			normalizedName = strings.ToLower(name)
-		case "real", "float4", "float8", "double precision":
-			normalizedName = strings.ToLower(name)
-		default:
-			// Keep original case for custom types
-			normalizedName = name
+	for _, item := range t.Names.Items {
+		if str, ok := item.(*String); ok {
+			name := str.SVal
+			// Normalize common type names - uppercase for basic types to match expected format
+			normalizedName := name
+			switch strings.ToLower(name) {
+			case "int", "integer":
+				normalizedName = "int" // Keep lowercase to match expected test output
+			case "varchar", "character varying":
+				normalizedName = "varchar"
+			case "bpchar":
+				normalizedName = "char" // Convert PostgreSQL internal name to user-friendly name
+			case "text":
+				normalizedName = "text"
+			case "timestamp", "timestamptz":
+				normalizedName = "timestamp"
+			case "bool", "boolean":
+				normalizedName = "boolean"
+			case "numeric", "decimal":
+				normalizedName = strings.ToLower(name)
+			case "real", "float4", "float8", "double precision":
+				normalizedName = strings.ToLower(name)
+			default:
+				// Keep original case for custom types
+				normalizedName = name
+			}
+			nameParts = append(nameParts, normalizedName)
 		}
-		nameParts = append(nameParts, normalizedName)
 	}
 	typeName := strings.Join(nameParts, ".")
 	
@@ -663,8 +725,8 @@ type Constraint struct {
 	GeneratedWhen      byte       // ALWAYS or BY DEFAULT - postgres/src/include/nodes/parsenodes.h:2742
 	Inhcount           int        // initial inheritance count to apply - postgres/src/include/nodes/parsenodes.h:2743
 	NullsNotDistinct   bool       // null treatment for UNIQUE constraints - postgres/src/include/nodes/parsenodes.h:2744
-	Keys               []string   // String nodes naming referenced key column(s) - postgres/src/include/nodes/parsenodes.h:2746
-	Including          []string   // String nodes naming referenced nonkey column(s) - postgres/src/include/nodes/parsenodes.h:2747
+	Keys               *NodeList  // String nodes naming referenced key column(s) - postgres/src/include/nodes/parsenodes.h:2746
+	Including          *NodeList  // String nodes naming referenced nonkey column(s) - postgres/src/include/nodes/parsenodes.h:2747
 	Exclusions         *NodeList  // list of (IndexElem, operator name) pairs - postgres/src/include/nodes/parsenodes.h:2748
 	Options            *NodeList  // options from WITH clause - postgres/src/include/nodes/parsenodes.h:2749
 	Indexname          string     // existing index to use; otherwise NULL - postgres/src/include/nodes/parsenodes.h:2750
@@ -673,12 +735,12 @@ type Constraint struct {
 	AccessMethod       string     // access method to use for the index - postgres/src/include/nodes/parsenodes.h:2753
 	WhereClause        Node       // partial index predicate - postgres/src/include/nodes/parsenodes.h:2754
 	Pktable            *RangeVar  // Primary key table for FOREIGN KEY - postgres/src/include/nodes/parsenodes.h:2755
-	FkAttrs            []string   // Attributes of foreign key - postgres/src/include/nodes/parsenodes.h:2756
-	PkAttrs            []string   // Corresponding attrs in PK table - postgres/src/include/nodes/parsenodes.h:2757
+	FkAttrs            *NodeList  // Attributes of foreign key - postgres/src/include/nodes/parsenodes.h:2756
+	PkAttrs            *NodeList  // Corresponding attrs in PK table - postgres/src/include/nodes/parsenodes.h:2757
 	FkMatchtype        byte       // FULL, PARTIAL, SIMPLE - postgres/src/include/nodes/parsenodes.h:2758
 	FkUpdAction        byte       // ON UPDATE action - postgres/src/include/nodes/parsenodes.h:2759
 	FkDelAction        byte       // ON DELETE action - postgres/src/include/nodes/parsenodes.h:2760
-	FkDelSetCols       []string   // ON DELETE SET NULL/DEFAULT (column_list) - postgres/src/include/nodes/parsenodes.h:2761
+	FkDelSetCols       *NodeList  // ON DELETE SET NULL/DEFAULT (column_list) - postgres/src/include/nodes/parsenodes.h:2761
 	OldConpfeqop       []Oid      // pg_constraint.conpfeqop of my former self - postgres/src/include/nodes/parsenodes.h:2762
 	OldPktableOid      Oid        // pg_class.oid of my former self - postgres/src/include/nodes/parsenodes.h:2763
 }
@@ -713,14 +775,14 @@ func (c *Constraint) SqlString() string {
 		return "DEFAULT"
 	case CONSTR_PRIMARY:
 		result := "PRIMARY KEY"
-		if len(c.Keys) > 0 {
-			result += " (" + strings.Join(c.Keys, ", ") + ")"
+		if c.Keys != nil && c.Keys.Len() > 0 {
+			result += " (" + strings.Join(nodeListToStrings(c.Keys), ", ") + ")"
 		}
 		return result
 	case CONSTR_UNIQUE:
 		result := "UNIQUE"
-		if len(c.Keys) > 0 {
-			result += " (" + strings.Join(c.Keys, ", ") + ")"
+		if c.Keys != nil && c.Keys.Len() > 0 {
+			result += " (" + strings.Join(nodeListToStrings(c.Keys), ", ") + ")"
 		}
 		return result
 	case CONSTR_CHECK:
@@ -733,19 +795,19 @@ func (c *Constraint) SqlString() string {
 		result := ""
 		// For column-level constraints, don't include "FOREIGN KEY"
 		// For table-level constraints, include it
-		if len(c.FkAttrs) > 0 {
-			result = "FOREIGN KEY (" + strings.Join(c.FkAttrs, ", ") + ")"
+		if c.FkAttrs != nil && c.FkAttrs.Len() > 0 {
+			result = "FOREIGN KEY (" + strings.Join(nodeListToStrings(c.FkAttrs), ", ") + ")"
 		} else {
 			result = "REFERENCES"
 		}
 		if c.Pktable != nil {
-			if len(c.FkAttrs) > 0 {
+			if c.FkAttrs != nil && c.FkAttrs.Len() > 0 {
 				result += " REFERENCES " + c.Pktable.SqlString()
 			} else {
 				result += " " + c.Pktable.SqlString()
 			}
-			if len(c.PkAttrs) > 0 {
-				result += " (" + strings.Join(c.PkAttrs, ", ") + ")"
+			if c.PkAttrs != nil && c.PkAttrs.Len() > 0 {
+				result += " (" + strings.Join(nodeListToStrings(c.PkAttrs), ", ") + ")"
 			}
 		}
 		
@@ -789,14 +851,14 @@ func (c *Constraint) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2339
 type AlterTableStmt struct {
 	BaseNode
-	Relation  *RangeVar        // table to work on - postgres/src/include/nodes/parsenodes.h:2341
-	Cmds      []*AlterTableCmd // list of subcommands - postgres/src/include/nodes/parsenodes.h:2342
-	Objtype   ObjectType       // type of object - postgres/src/include/nodes/parsenodes.h:2344
-	MissingOk bool             // skip error if table missing - postgres/src/include/nodes/parsenodes.h:2345
+	Relation  *RangeVar  // table to work on - postgres/src/include/nodes/parsenodes.h:2341
+	Cmds      *NodeList  // list of subcommands - postgres/src/include/nodes/parsenodes.h:2342
+	Objtype   ObjectType // type of object - postgres/src/include/nodes/parsenodes.h:2344
+	MissingOk bool       // skip error if table missing - postgres/src/include/nodes/parsenodes.h:2345
 }
 
 // NewAlterTableStmt creates a new AlterTableStmt node.
-func NewAlterTableStmt(relation *RangeVar, cmds []*AlterTableCmd) *AlterTableStmt {
+func NewAlterTableStmt(relation *RangeVar, cmds *NodeList) *AlterTableStmt {
 	return &AlterTableStmt{
 		BaseNode: BaseNode{Tag: T_AlterTableStmt},
 		Relation: relation,
@@ -810,7 +872,11 @@ func (a *AlterTableStmt) StatementType() string {
 }
 
 func (a *AlterTableStmt) String() string {
-	return fmt.Sprintf("AlterTableStmt(%s, %d cmds)@%d", a.Relation.RelName, len(a.Cmds), a.Location())
+	cmdCount := 0
+	if a.Cmds != nil {
+		cmdCount = a.Cmds.Len()
+	}
+	return fmt.Sprintf("AlterTableStmt(%s, %d cmds)@%d", a.Relation.RelName, cmdCount, a.Location())
 }
 
 // ReplicaIdentityStmt represents a REPLICA IDENTITY statement.
@@ -981,10 +1047,10 @@ func (a *AlterTableStmt) SqlString() string {
 	}
 	
 	// Add commands
-	if len(a.Cmds) > 0 {
+	if a.Cmds != nil && a.Cmds.Len() > 0 {
 		var cmdStrs []string
-		for _, cmd := range a.Cmds {
-			if cmd != nil {
+		for _, item := range a.Cmds.Items {
+			if cmd, ok := item.(*AlterTableCmd); ok && cmd != nil {
 				cmdStrs = append(cmdStrs, cmd.SqlString())
 			}
 		}
@@ -1210,9 +1276,9 @@ type IndexStmt struct {
 	Relation                 *RangeVar    // relation to build index on - postgres/src/include/nodes/parsenodes.h:3351
 	AccessMethod             string       // name of access method (eg. btree) - postgres/src/include/nodes/parsenodes.h:3352
 	TableSpace               string       // tablespace, or NULL for default - postgres/src/include/nodes/parsenodes.h:3353
-	IndexParams              []*IndexElem // columns to index: a list of IndexElem - postgres/src/include/nodes/parsenodes.h:3354
-	IndexIncludingParams     []*IndexElem // additional columns to index - postgres/src/include/nodes/parsenodes.h:3355
-	Options                  []*DefElem   // WITH clause options: a list of DefElem - postgres/src/include/nodes/parsenodes.h:3357
+	IndexParams              *NodeList // columns to index: a list of IndexElem - postgres/src/include/nodes/parsenodes.h:3354
+	IndexIncludingParams     *NodeList // additional columns to index - postgres/src/include/nodes/parsenodes.h:3355
+	Options                  *NodeList // WITH clause options: a list of DefElem - postgres/src/include/nodes/parsenodes.h:3357
 	WhereClause              Node         // qualification (partial-index predicate) - postgres/src/include/nodes/parsenodes.h:3358
 	ExcludeOpNames           *NodeList    // exclusion operator names, or NIL if none - postgres/src/include/nodes/parsenodes.h:3359
 	Idxcomment               string       // comment to apply to index, or NULL - postgres/src/include/nodes/parsenodes.h:3360
@@ -1233,7 +1299,7 @@ type IndexStmt struct {
 }
 
 // NewIndexStmt creates a new IndexStmt node.
-func NewIndexStmt(idxname string, relation *RangeVar, indexParams []*IndexElem) *IndexStmt {
+func NewIndexStmt(idxname string, relation *RangeVar, indexParams *NodeList) *IndexStmt {
 	return &IndexStmt{
 		BaseNode:     BaseNode{Tag: T_IndexStmt},
 		Idxname:      idxname,
@@ -1262,9 +1328,9 @@ type IndexElem struct {
 	Name          string      // name of attribute to index, or NULL - postgres/src/include/nodes/parsenodes.h:782
 	Expr          Node        // expression to index, or NULL - postgres/src/include/nodes/parsenodes.h:783
 	Indexcolname  string      // name for index column; NULL = default - postgres/src/include/nodes/parsenodes.h:784
-	Collation     []string    // name of collation; NIL = default - postgres/src/include/nodes/parsenodes.h:785
-	Opclass       []string    // name of desired opclass; NIL = default - postgres/src/include/nodes/parsenodes.h:786
-	Opclassopts   []*DefElem  // opclass-specific options, or NIL - postgres/src/include/nodes/parsenodes.h:787
+	Collation     *NodeList   // name of collation; NIL = default - postgres/src/include/nodes/parsenodes.h:785
+	Opclass       *NodeList   // name of desired opclass; NIL = default - postgres/src/include/nodes/parsenodes.h:786
+	Opclassopts   *NodeList   // opclass-specific options, or NIL - postgres/src/include/nodes/parsenodes.h:787
 	Ordering      SortByDir   // ASC/DESC/default - postgres/src/include/nodes/parsenodes.h:788
 	NullsOrdering SortByNulls // FIRST/LAST/default - postgres/src/include/nodes/parsenodes.h:789
 }
@@ -1486,7 +1552,7 @@ func (c *CreateExtensionStmt) String() string {
 func NewPrimaryKeyConstraint(conname string, keys []string) *Constraint {
 	constraint := NewConstraint(CONSTR_PRIMARY)
 	constraint.Conname = conname
-	constraint.Keys = keys
+	constraint.Keys = stringsToNodeList(keys)
 	return constraint
 }
 
@@ -1494,9 +1560,9 @@ func NewPrimaryKeyConstraint(conname string, keys []string) *Constraint {
 func NewForeignKeyConstraint(conname string, fkAttrs []string, pktable *RangeVar, pkAttrs []string) *Constraint {
 	constraint := NewConstraint(CONSTR_FOREIGN)
 	constraint.Conname = conname
-	constraint.FkAttrs = fkAttrs
+	constraint.FkAttrs = stringsToNodeList(fkAttrs)
 	constraint.Pktable = pktable
-	constraint.PkAttrs = pkAttrs
+	constraint.PkAttrs = stringsToNodeList(pkAttrs)
 	return constraint
 }
 
@@ -1504,7 +1570,7 @@ func NewForeignKeyConstraint(conname string, fkAttrs []string, pktable *RangeVar
 func NewUniqueConstraint(conname string, keys []string) *Constraint {
 	constraint := NewConstraint(CONSTR_UNIQUE)
 	constraint.Conname = conname
-	constraint.Keys = keys
+	constraint.Keys = stringsToNodeList(keys)
 	return constraint
 }
 
@@ -1512,7 +1578,7 @@ func NewUniqueConstraint(conname string, keys []string) *Constraint {
 func NewUniqueConstraintNullsNotDistinct(conname string, keys []string) *Constraint {
 	constraint := NewConstraint(CONSTR_UNIQUE)
 	constraint.Conname = conname
-	constraint.Keys = keys
+	constraint.Keys = stringsToNodeList(keys)
 	constraint.NullsNotDistinct = true
 	return constraint
 }
@@ -1557,7 +1623,7 @@ func NewDropConstraintCmd(constraintName string, behavior DropBehavior) *AlterTa
 }
 
 // NewUniqueIndex creates a unique index statement.
-func NewUniqueIndex(idxname string, relation *RangeVar, indexParams []*IndexElem) *IndexStmt {
+func NewUniqueIndex(idxname string, relation *RangeVar, indexParams *NodeList) *IndexStmt {
 	idx := NewIndexStmt(idxname, relation, indexParams)
 	idx.Unique = true
 	return idx
@@ -1626,10 +1692,10 @@ func (i *IndexStmt) SqlString() string {
 	}
 	
 	// Add index columns
-	if len(i.IndexParams) > 0 {
+	if i.IndexParams != nil && i.IndexParams.Len() > 0 {
 		var columnParts []string
-		for _, param := range i.IndexParams {
-			if param != nil {
+		for _, item := range i.IndexParams.Items {
+			if param, ok := item.(*IndexElem); ok && param != nil {
 				columnParts = append(columnParts, param.SqlString())
 			}
 		}
@@ -1637,10 +1703,10 @@ func (i *IndexStmt) SqlString() string {
 	}
 	
 	// Add INCLUDE columns if specified
-	if len(i.IndexIncludingParams) > 0 {
+	if i.IndexIncludingParams != nil && i.IndexIncludingParams.Len() > 0 {
 		var includeParts []string
-		for _, param := range i.IndexIncludingParams {
-			if param != nil {
+		for _, item := range i.IndexIncludingParams.Items {
+			if param, ok := item.(*IndexElem); ok && param != nil {
 				includeParts = append(includeParts, param.SqlString())
 			}
 		}
@@ -1653,10 +1719,10 @@ func (i *IndexStmt) SqlString() string {
 	}
 	
 	// Add WITH options if specified
-	if len(i.Options) > 0 {
+	if i.Options != nil && i.Options.Len() > 0 {
 		var optParts []string
-		for _, opt := range i.Options {
-			if opt != nil {
+		for _, item := range i.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
 				optParts = append(optParts, opt.SqlString())
 			}
 		}

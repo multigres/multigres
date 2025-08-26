@@ -434,9 +434,9 @@ func TestDDLSqlStringMethods(t *testing.T) {
 	t.Run("IndexStmt SqlString", func(t *testing.T) {
 		// Create a simple CREATE INDEX statement node
 		relation := ast.NewRangeVar("users", "", "")
-		indexStmt := ast.NewIndexStmt("idx_users_name", relation, []*ast.IndexElem{
-			ast.NewIndexElem("name"),
-		})
+		indexParams := ast.NewNodeList()
+		indexParams.Append(ast.NewIndexElem("name"))
+		indexStmt := ast.NewIndexStmt("idx_users_name", relation, indexParams)
 
 		sqlString := indexStmt.SqlString()
 		require.Contains(t, sqlString, "CREATE INDEX idx_users_name ON users")
@@ -467,14 +467,14 @@ func TestDDLSqlStringMethods(t *testing.T) {
 	t.Run("Constraint SqlString", func(t *testing.T) {
 		// Test PRIMARY KEY constraint
 		pkConstraint := ast.NewConstraint(ast.CONSTR_PRIMARY)
-		pkConstraint.Keys = []string{"id"}
+		pkConstraint.Keys = ast.NewNodeList(ast.NewString("id"))
 
 		sqlString := pkConstraint.SqlString()
 		require.Equal(t, "PRIMARY KEY (id)", sqlString)
 
 		// Test UNIQUE constraint
 		uniqueConstraint := ast.NewConstraint(ast.CONSTR_UNIQUE)
-		uniqueConstraint.Keys = []string{"email"}
+		uniqueConstraint.Keys = ast.NewNodeList(ast.NewString("email"))
 
 		sqlString2 := uniqueConstraint.SqlString()
 		require.Equal(t, "UNIQUE (email)", sqlString2)

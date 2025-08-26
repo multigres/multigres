@@ -342,24 +342,24 @@ func (q *Query) StatementType() string {
 type SelectStmt struct {
 	BaseNode
 	// Fields used in "leaf" SelectStmts - postgres/src/include/nodes/parsenodes.h:2120-2130
-	DistinctClause *NodeList    // NULL, list of DISTINCT ON exprs, or special marker for ALL
-	IntoClause     *IntoClause  // Target for SELECT INTO
-	TargetList     []*ResTarget // Target list
-	FromClause     *NodeList    // FROM clause
-	WhereClause    Node         // WHERE qualification
-	GroupClause    *NodeList    // GROUP BY clauses
-	GroupDistinct  bool         // Is this GROUP BY DISTINCT?
-	HavingClause   Node         // HAVING conditional-expression
-	WindowClause   *NodeList    // WINDOW window_name AS (...), ...
-	ValuesLists    []*NodeList  // Untransformed list of expression lists
+	DistinctClause *NodeList   // NULL, list of DISTINCT ON exprs, or special marker for ALL
+	IntoClause     *IntoClause // Target for SELECT INTO
+	TargetList     *NodeList   // Target list
+	FromClause     *NodeList   // FROM clause
+	WhereClause    Node        // WHERE qualification
+	GroupClause    *NodeList   // GROUP BY clauses
+	GroupDistinct  bool        // Is this GROUP BY DISTINCT?
+	HavingClause   Node        // HAVING conditional-expression
+	WindowClause   *NodeList   // WINDOW window_name AS (...), ...
+	ValuesLists    []*NodeList // Untransformed list of expression lists
 
 	// Fields used in both "leaf" and upper-level SelectStmts - postgres/src/include/nodes/parsenodes.h:2132-2137
-	SortClause    []*SortBy        // Sort clause
-	LimitOffset   Node             // Number of result tuples to skip
-	LimitCount    Node             // Number of result tuples to return
-	LimitOption   LimitOption      // Limit type option
-	LockingClause []*LockingClause // FOR UPDATE clauses
-	WithClause    *WithClause      // WITH clause
+	SortClause    []*SortBy   // Sort clause
+	LimitOffset   Node        // Number of result tuples to skip
+	LimitCount    Node        // Number of result tuples to return
+	LimitOption   LimitOption // Limit type option
+	LockingClause *NodeList   // FOR UPDATE clauses
+	WithClause    *WithClause // WITH clause
 
 	// Fields used only in upper-level SelectStmts - postgres/src/include/nodes/parsenodes.h:2139-2143
 	Op   SetOperation // Type of set operation
@@ -373,7 +373,7 @@ func NewSelectStmt() *SelectStmt {
 	return &SelectStmt{
 		BaseNode:       BaseNode{Tag: T_SelectStmt},
 		DistinctClause: nil,
-		TargetList:     []*ResTarget{},
+		TargetList:     NewNodeList(),
 		FromClause:     NewNodeList(),
 	}
 }
@@ -466,10 +466,10 @@ func (s *SelectStmt) SqlString() string {
 	}
 
 	// Target list (what to select)
-	if len(s.TargetList) > 0 {
+	if s.TargetList != nil && s.TargetList.Len() > 0 {
 		var targets []string
-		for _, target := range s.TargetList {
-			if target != nil {
+		for _, item := range s.TargetList.Items {
+			if target, ok := item.(*ResTarget); ok && target != nil {
 				targets = append(targets, target.SqlString())
 			}
 		}
@@ -552,9 +552,9 @@ func (s *SelectStmt) SqlString() string {
 	}
 
 	// FOR UPDATE/SHARE clauses
-	if len(s.LockingClause) > 0 {
-		for _, locking := range s.LockingClause {
-			if locking != nil {
+	if s.LockingClause != nil && s.LockingClause.Len() > 0 {
+		for _, item := range s.LockingClause.Items {
+			if locking, ok := item.(*LockingClause); ok && locking != nil {
 				parts = append(parts, locking.SqlString())
 			}
 		}
@@ -575,10 +575,10 @@ func (s *SelectStmt) SqlString() string {
 type InsertStmt struct {
 	BaseNode
 	Relation         *RangeVar         // Relation to insert into - postgres/src/include/nodes/parsenodes.h:2042
-	Cols             []*ResTarget      // Optional: names of the target columns - postgres/src/include/nodes/parsenodes.h:2043
+	Cols             *NodeList         // Optional: names of the target columns - postgres/src/include/nodes/parsenodes.h:2043
 	SelectStmt       Node              // Source SELECT/VALUES, or NULL - postgres/src/include/nodes/parsenodes.h:2044
 	OnConflictClause *OnConflictClause // ON CONFLICT clause - postgres/src/include/nodes/parsenodes.h:2045
-	ReturningList    []*ResTarget      // List of expressions to return - postgres/src/include/nodes/parsenodes.h:2046
+	ReturningList    *NodeList         // List of expressions to return - postgres/src/include/nodes/parsenodes.h:2046
 	WithClause       *WithClause       // WITH clause - postgres/src/include/nodes/parsenodes.h:2047
 	Override         OverridingKind    // OVERRIDING clause - postgres/src/include/nodes/parsenodes.h:2048
 }
@@ -619,11 +619,10 @@ func (i *InsertStmt) SqlString() string {
 	}
 
 	// Column list (if specified)
-	if len(i.Cols) > 0 {
+	if i.Cols != nil && i.Cols.Len() > 0 {
 		var cols []string
-		for _, col := range i.Cols {
-			// For INSERT column lists, we only need the column name
-			if col.Name != "" {
+		for _, item := range i.Cols.Items {
+			if col, ok := item.(*ResTarget); ok && col.Name != "" {
 				cols = append(cols, QuoteIdentifier(col.Name))
 			}
 		}
@@ -644,10 +643,12 @@ func (i *InsertStmt) SqlString() string {
 	}
 
 	// RETURNING clause
-	if len(i.ReturningList) > 0 {
+	if i.ReturningList != nil && i.ReturningList.Len() > 0 {
 		var returning []string
-		for _, ret := range i.ReturningList {
-			returning = append(returning, ret.SqlString())
+		for _, item := range i.ReturningList.Items {
+			if ret, ok := item.(*ResTarget); ok && ret != nil {
+				returning = append(returning, ret.SqlString())
+			}
 		}
 		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
 	}
@@ -659,12 +660,12 @@ func (i *InsertStmt) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2069
 type UpdateStmt struct {
 	BaseNode
-	Relation      *RangeVar    // Relation to update - postgres/src/include/nodes/parsenodes.h:2072
-	TargetList    []*ResTarget // Target list (of ResTarget) - postgres/src/include/nodes/parsenodes.h:2073
-	WhereClause   Node         // Qualifications - postgres/src/include/nodes/parsenodes.h:2074
-	FromClause    *NodeList    // Optional from clause for more tables - postgres/src/include/nodes/parsenodes.h:2075
-	ReturningList []*ResTarget // List of expressions to return - postgres/src/include/nodes/parsenodes.h:2076
-	WithClause    *WithClause  // WITH clause - postgres/src/include/nodes/parsenodes.h:2077
+	Relation      *RangeVar   // Relation to update - postgres/src/include/nodes/parsenodes.h:2072
+	TargetList    *NodeList   // Target list (of ResTarget) - postgres/src/include/nodes/parsenodes.h:2073
+	WhereClause   Node        // Qualifications - postgres/src/include/nodes/parsenodes.h:2074
+	FromClause    *NodeList   // Optional from clause for more tables - postgres/src/include/nodes/parsenodes.h:2075
+	ReturningList *NodeList   // List of expressions to return - postgres/src/include/nodes/parsenodes.h:2076
+	WithClause    *WithClause // WITH clause - postgres/src/include/nodes/parsenodes.h:2077
 }
 
 // NewUpdateStmt creates a new UpdateStmt node.
@@ -703,11 +704,10 @@ func (u *UpdateStmt) SqlString() string {
 	}
 
 	// SET clause
-	if len(u.TargetList) > 0 {
+	if u.TargetList != nil && u.TargetList.Len() > 0 {
 		var setClauses []string
-		for _, target := range u.TargetList {
-			// For UPDATE SET clauses, we need "column = value" format
-			if target.Name != "" && target.Val != nil {
+		for _, item := range u.TargetList.Items {
+			if target, ok := item.(*ResTarget); ok && target.Name != "" && target.Val != nil {
 				setClause := QuoteIdentifier(target.Name) + " = " + target.Val.SqlString()
 				setClauses = append(setClauses, setClause)
 			}
@@ -730,10 +730,12 @@ func (u *UpdateStmt) SqlString() string {
 	}
 
 	// RETURNING clause
-	if len(u.ReturningList) > 0 {
+	if u.ReturningList != nil && u.ReturningList.Len() > 0 {
 		var returning []string
-		for _, ret := range u.ReturningList {
-			returning = append(returning, ret.SqlString())
+		for _, item := range u.ReturningList.Items {
+			if ret, ok := item.(*ResTarget); ok && ret != nil {
+				returning = append(returning, ret.SqlString())
+			}
 		}
 		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
 	}
@@ -745,11 +747,11 @@ func (u *UpdateStmt) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2055
 type DeleteStmt struct {
 	BaseNode
-	Relation      *RangeVar    // Relation to delete from - postgres/src/include/nodes/parsenodes.h:2058
-	UsingClause   *NodeList    // Optional using clause for more tables - postgres/src/include/nodes/parsenodes.h:2059
-	WhereClause   Node         // Qualifications - postgres/src/include/nodes/parsenodes.h:2060
-	ReturningList []*ResTarget // List of expressions to return - postgres/src/include/nodes/parsenodes.h:2061
-	WithClause    *WithClause  // WITH clause - postgres/src/include/nodes/parsenodes.h:2062
+	Relation      *RangeVar   // Relation to delete from - postgres/src/include/nodes/parsenodes.h:2058
+	UsingClause   *NodeList   // Optional using clause for more tables - postgres/src/include/nodes/parsenodes.h:2059
+	WhereClause   Node        // Qualifications - postgres/src/include/nodes/parsenodes.h:2060
+	ReturningList *NodeList   // List of expressions to return - postgres/src/include/nodes/parsenodes.h:2061
+	WithClause    *WithClause // WITH clause - postgres/src/include/nodes/parsenodes.h:2062
 }
 
 // NewDeleteStmt creates a new DeleteStmt node.
@@ -802,10 +804,12 @@ func (d *DeleteStmt) SqlString() string {
 	}
 
 	// RETURNING clause
-	if len(d.ReturningList) > 0 {
+	if d.ReturningList != nil && d.ReturningList.Len() > 0 {
 		var returning []string
-		for _, ret := range d.ReturningList {
-			returning = append(returning, ret.SqlString())
+		for _, item := range d.ReturningList.Items {
+			if ret, ok := item.(*ResTarget); ok && ret != nil {
+				returning = append(returning, ret.SqlString())
+			}
 		}
 		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
 	}
@@ -823,7 +827,7 @@ type CreateStmt struct {
 	BaseNode
 	Relation       *RangeVar           // Relation to create - postgres/src/include/nodes/parsenodes.h:2651
 	TableElts      *NodeList           // Column definitions - postgres/src/include/nodes/parsenodes.h:2652
-	InhRelations   []*RangeVar         // Relations to inherit from - postgres/src/include/nodes/parsenodes.h:2653
+	InhRelations   *NodeList           // Relations to inherit from - postgres/src/include/nodes/parsenodes.h:2653
 	PartBound      *PartitionBoundSpec // FOR VALUES clause - parsenodes.h
 	PartSpec       *PartitionSpec      // PARTITION BY clause - parsenodes.h
 	OfTypename     *TypeName           // OF typename clause - parsenodes.h
@@ -1370,10 +1374,10 @@ func (c *CreateStmt) SqlString() string {
 	}
 
 	// Add INHERITS clause if specified
-	if len(c.InhRelations) > 0 {
+	if c.InhRelations != nil && c.InhRelations.Len() > 0 {
 		var inhParts []string
-		for _, inh := range c.InhRelations {
-			if inh != nil {
+		for _, item := range c.InhRelations.Items {
+			if inh, ok := item.(*RangeVar); ok && inh != nil {
 				inhParts = append(inhParts, inh.SqlString())
 			}
 		}

@@ -11,7 +11,6 @@ package parser
 
 import (
 	"fmt"
-	"strings"
 	"github.com/multigres/parser/go/parser/ast"
 )
 
@@ -24,48 +23,6 @@ type LexerInterface interface {
 
 // yySymType is the union type for semantic values
 // This will be expanded as we add more grammar rules
-
-// Helper functions for RenameStmt
-func qualifiedNameToStringList(node ast.Node) []*ast.String {
-	if rangeVar, ok := node.(*ast.RangeVar); ok {
-		result := []*ast.String{}
-		if rangeVar.SchemaName != "" {
-			result = append(result, ast.NewString(rangeVar.SchemaName))
-		}
-		result = append(result, ast.NewString(rangeVar.RelName))
-		return result
-	}
-	if nodeList, ok := node.(*ast.NodeList); ok {
-		result := []*ast.String{}
-		for _, item := range nodeList.Items {
-			if str, ok := item.(*ast.String); ok {
-				result = append(result, str)
-			}
-		}
-		return result
-	}
-	// Fallback: treat as single name
-	return []*ast.String{ast.NewString("unknown")}
-}
-
-func qualifiedNameToRangeVar(node ast.Node) *ast.RangeVar {
-	if rangeVar, ok := node.(*ast.RangeVar); ok {
-		return rangeVar
-	}
-	// Fallback: create from qualified name
-	return &ast.RangeVar{RelName: "unknown"}
-}
-
-// nodeListToStringSlice converts a NodeList to []string for TypeName
-func nodeListToStringSlice(nodeList *ast.NodeList) []string {
-	result := []string{}
-	for _, item := range nodeList.Items {
-		if str, ok := item.(*ast.String); ok {
-			result = append(result, str.SVal)
-		}
-	}
-	return result
-}
 
 %}
 
@@ -83,10 +40,9 @@ func nodeListToStringSlice(nodeList *ast.NodeList) []string {
 	stmt       ast.Stmt
 	stmtList   []ast.Stmt
 	list       *ast.NodeList
-	strList    []string
-	astStrList []*ast.String
 
 	// Specific AST node types
+	into       *ast.IntoClause
 	onconflict *ast.OnConflictClause
 	createStmt *ast.CreateStmt
 	indexStmt  *ast.IndexStmt
@@ -96,10 +52,14 @@ func nodeListToStringSlice(nodeList *ast.NodeList) []string {
 	constraint *ast.Constraint
 	indexElem  *ast.IndexElem
 	alterCmd   *ast.AlterTableCmd
-	rangeVar   *ast.RangeVar
+	with	   *ast.WithClause
+	rangevar   *ast.RangeVar
 	objType    ast.ObjectType
 	dropBehav  ast.DropBehavior
+	typnam     *ast.TypeName
+	partspec   *ast.PartitionSpec
 	partboundspec *ast.PartitionBoundSpec
+	oncommit   ast.OnCommitAction
 
 	// Location tracking
 	location   int
@@ -242,47 +202,48 @@ func nodeListToStringSlice(nodeList *ast.NodeList) []string {
 %type <stmtList>     parse_toplevel stmtmulti
 %type <stmt>         toplevel_stmt stmt
 %type <str>          ColId ColLabel name BareColLabel NonReservedWord generic_option_name RoleId
-%type <node>         name_list
-%type <list>         columnList
-%type <node>         qualified_name any_name
-%type <node>         qualified_name_list any_name_list
+%type <list>         name_list
+%type <list>         columnList any_name
+%type <list>         qualified_name_list any_name_list
 %type <str>          opt_single_name
 %type <str>          unreserved_keyword col_name_keyword type_func_name_keyword reserved_keyword bare_label_keyword
-%type <node>         opt_name_list
-%type <ival>         opt_drop_behavior
+%type <list>         opt_name_list
 %type <ival>         opt_if_exists opt_if_not_exists
 %type <ival>         opt_or_replace
-%type <ival>         opt_concurrently
-%type <node>         opt_with OptWith
+%type <bval>         opt_concurrently
+%type <node>         opt_with
 %type <node>         alter_using
 %type <list>         alter_generic_options alter_generic_option_list
 %type <node>         generic_option_arg alter_generic_option_elem
 %type <str>          set_access_method_name
 %type <node>         replica_identity
-%type <list>         func_args
+%type <list>         func_args OptWith
 %type <node>         function_with_argtypes aggregate_with_argtypes
 
 /* Expression types */
 %type <node>         a_expr b_expr c_expr AexprConst columnref
 %type <node>         func_expr
-%type <astStrList>   func_name
+%type <list>         func_name
 %type <list>         func_arg_list
 %type <node>         func_arg_expr
 %type <list>         indirection opt_indirection
 %type <node>         indirection_el opt_slice_bound
 %type <ival>         Iconst SignedIconst
 %type <str>          Sconst
-%type <node>         Typename SimpleTypename GenericType
-%type <node>         Numeric Bit Character ConstDatetime
 %type <str>          type_function_name character attr_name param_name
-%type <node>         CharacterWithLength CharacterWithoutLength BitWithLength BitWithoutLength
+%type <typnam>	     Typename SimpleTypename
+				     GenericType Numeric opt_float
+				     Character
+				     CharacterWithLength CharacterWithoutLength
+				     ConstDatetime
+				     Bit BitWithLength BitWithoutLength
+%type <typnam>	     func_type
 %type <list>         attrs opt_type_modifiers
 %type <ival>         opt_timezone opt_varying
-%type <node>         opt_float
-%type <node>         expr_list
+%type <list>         expr_list
 %type <list>         opt_sort_clause
 %type <node>         func_application within_group_clause filter_clause over_clause
-%type <astStrList>   qual_Op any_operator qual_all_Op
+%type <list>         qual_Op any_operator qual_all_Op
 %type <str>          all_Op MathOp
 %type <node>         in_expr
 %type <ival>         opt_asymmetric
@@ -292,14 +253,14 @@ func nodeListToStringSlice(nodeList *ast.NodeList) []string {
 /* Phase 3E DML statement types */
 %type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt CopyStmt
 %type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt
-%type <node>         insert_target insert_rest
+%type <node>         insert_rest
 %type <list>         insert_column_list set_clause_list set_target_list merge_when_list
 %type <node>         insert_column_item set_target
 %type <list>         set_clause
 %type <onconflict>   opt_on_conflict
 %type <node>         where_or_current_clause
-%type <list>         returning_clause
-%type <node>         merge_when_clause opt_merge_when_condition opt_conf_expr merge_update merge_delete merge_insert merge_values_clause index_elem index_elem_options opt_collate
+%type <list>         returning_clause merge_values_clause opt_collate
+%type <node>         merge_when_clause opt_merge_when_condition opt_conf_expr merge_update merge_delete merge_insert index_elem index_elem_options
 %type <ival>         override_kind merge_when_tgt_matched merge_when_tgt_not_matched opt_asc_desc opt_nulls_order
 %type <ival>         copy_from opt_program opt_freeze opt_verbose opt_analyze opt_full
 %type <str>          cursor_name copy_file_name
@@ -313,18 +274,18 @@ func nodeListToStringSlice(nodeList *ast.NodeList) []string {
 %type <list>         target_list opt_target_list
 %type <node>         target_el
 %type <list>         from_clause from_list
-%type <node>         table_ref relation_expr extended_relation_expr relation_expr_opt_alias
+%type <node>         table_ref
 %type <node>         where_clause opt_where_clause
 %type <node>         alias_clause opt_alias_clause opt_alias_clause_for_join_using
 %type <ival>         opt_all_clause
 %type <list>         distinct_clause opt_distinct_clause
-%type <node>         into_clause
+%type <into>	     into_clause
 /* Phase 3D JOIN and CTE types */
 %type <node>         joined_table
 %type <ival>         join_type opt_outer
-%type <node>         join_qual using_clause
-%type <node>         with_clause opt_with_clause
-%type <list>         cte_list
+%type <node>         join_qual
+%type <with>         with_clause opt_with_clause
+%type <list>         cte_list using_clause
 %type <node>         common_table_expr
 %type <ival>         opt_materialized
 %type <node>         opt_search_clause opt_cycle_clause
@@ -335,11 +296,10 @@ func nodeListToStringSlice(nodeList *ast.NodeList) []string {
 %type <node>         TableFuncElement
 %type <list>         rowsfrom_list
 %type <list>         rowsfrom_item
-%type <node>         opt_col_def_list
+%type <list>         opt_col_def_list
 %type <list>         table_func_column_list
 %type <node>         table_func_column
 %type <str>          param_name
-%type <node>         func_type
 %type <ival>         opt_ordinality
 %type <node>         xmltable
 %type <list>         xmltable_column_list
@@ -373,22 +333,22 @@ func nodeListToStringSlice(nodeList *ast.NodeList) []string {
 %type <list>         OptTableElementList TableElementList OptTypedTableElementList TypedTableElementList
 %type <node>         TableElement columnDef TableConstraint TableLikeClause TypedTableElement columnOptions
 %type <partboundspec>PartitionBoundSpec
-%type <node>         hash_partbound hash_partbound_elem ExclusionConstraintElem
-%type <list>         ExclusionConstraintList
+%type <node>         hash_partbound_elem ExclusionConstraintElem
+%type <list>         ExclusionConstraintList hash_partbound
 %type <ival>         TableLikeOptionList TableLikeOption ConstraintAttributeSpec ConstraintAttributeElem
 %type <list>         ColQualList
 %type <node>         ColConstraint ColConstraintElem ConstraintElem ConstraintAttr
 %type <bval>         opt_no_inherit opt_unique opt_unique_null_treatment
 %type <byt>          key_match
-%type <astStrList>   opt_c_include
+%type <list>         opt_c_include
 %type <node>         key_update key_delete key_action key_actions
-%type <node>         OptInherit
-%type <node>         OptPartitionSpec PartitionSpec
+%type <list>         OptInherit
+%type <partspec>     OptPartitionSpec PartitionSpec
 %type <list>         part_params
 %type <node>         part_elem
 %type <list>         reloptions reloption_list
 %type <node>         reloption_elem
-%type <ival>         OnCommitOption
+%type <oncommit>     OnCommitOption
 %type <str>          OptTableSpace OptConsTableSpace
 %type <str>          ExistingIndex
 %type <str>          access_method_clause
@@ -414,6 +374,8 @@ func nodeListToStringSlice(nodeList *ast.NodeList) []string {
 %type <node>         SeqOptElem alter_identity_column_option OptTempTableName
 %type <list>         opt_definition definition def_list
 %type <node>         def_elem
+%type <dropBehav>	 opt_drop_behavior
+%type <rangevar>	 qualified_name insert_target relation_expr extended_relation_expr relation_expr_opt_alias
 
 /* Start symbol */
 %start parse_toplevel
@@ -508,14 +470,14 @@ opt_single_name:
 		;
 
 opt_qualified_name:
-			any_name								{ $$ = $1.(*ast.NodeList) }
+			any_name								{ $$ = $1 }
 		|	/* EMPTY */								{ $$ = nil }
 		;
 
 opt_drop_behavior:
-			CASCADE									{ $$ = int(ast.DropCascade) }
-		|	RESTRICT								{ $$ = int(ast.DropRestrict) }
-		|	/* EMPTY */								{ $$ = int(ast.DropRestrict) }
+			CASCADE									{ $$ = ast.DropCascade }
+		|	RESTRICT								{ $$ = ast.DropRestrict }
+		|	/* EMPTY */								{ $$ = ast.DropRestrict }
 		;
 
 opt_if_exists:
@@ -534,8 +496,8 @@ opt_or_replace:
 		;
 
 opt_concurrently:
-			CONCURRENTLY							{ $$ = 1 }
-		|	/* EMPTY */								{ $$ = 0 }
+			CONCURRENTLY							{ $$ = true }
+		|	/* EMPTY */								{ $$ = false }
 		;
 
 OptWith:
@@ -577,7 +539,7 @@ name_list:
 			}
 		|	name_list ',' name
 			{
-				list := $1.(*ast.NodeList)
+				list := $1
 				list.Append(ast.NewString($3))
 				$$ = list
 			}
@@ -644,7 +606,7 @@ qualified_name_list:
 			}
 		|	qualified_name_list ',' qualified_name
 			{
-				list := $1.(*ast.NodeList)
+				list := $1
 				list.Append($3)
 				$$ = list
 			}
@@ -657,57 +619,57 @@ opt_table:	TABLE
 OptTempTableName:
 			TEMPORARY opt_table qualified_name
 				{
-					rangeVar := $3.(*ast.RangeVar)
+					rangeVar := $3
 					rangeVar.RelPersistence = ast.RELPERSISTENCE_TEMP
 					$$ = rangeVar
 				}
 		|	TEMP opt_table qualified_name
 				{
-					rangeVar := $3.(*ast.RangeVar)
+					rangeVar := $3
 					rangeVar.RelPersistence = ast.RELPERSISTENCE_TEMP
 					$$ = rangeVar
 				}
 		|	LOCAL TEMPORARY opt_table qualified_name
 				{
-					rangeVar := $4.(*ast.RangeVar)
+					rangeVar := $4
 					rangeVar.RelPersistence = ast.RELPERSISTENCE_TEMP
 					$$ = rangeVar
 				}
 		|	LOCAL TEMP opt_table qualified_name
 				{
-					rangeVar := $4.(*ast.RangeVar)
+					rangeVar := $4
 					rangeVar.RelPersistence = ast.RELPERSISTENCE_TEMP
 					$$ = rangeVar
 				}
 		|	GLOBAL TEMPORARY opt_table qualified_name
 				{
 					// GLOBAL is deprecated but still accepted
-					rangeVar := $4.(*ast.RangeVar)
+					rangeVar := $4
 					rangeVar.RelPersistence = ast.RELPERSISTENCE_TEMP
 					$$ = rangeVar
 				}
 		|	GLOBAL TEMP opt_table qualified_name
 				{
 					// GLOBAL is deprecated but still accepted
-					rangeVar := $4.(*ast.RangeVar)
+					rangeVar := $4
 					rangeVar.RelPersistence = ast.RELPERSISTENCE_TEMP
 					$$ = rangeVar
 				}
 		|	UNLOGGED opt_table qualified_name
 				{
-					rangeVar := $3.(*ast.RangeVar)
+					rangeVar := $3
 					rangeVar.RelPersistence = ast.RELPERSISTENCE_UNLOGGED
 					$$ = rangeVar
 				}
 		|	TABLE qualified_name
 				{
-					rangeVar := $2.(*ast.RangeVar)
+					rangeVar := $2
 					rangeVar.RelPersistence = ast.RELPERSISTENCE_PERMANENT
 					$$ = rangeVar
 				}
 		|	qualified_name
 				{
-					rangeVar := $1.(*ast.RangeVar)
+					rangeVar := $1
 					rangeVar.RelPersistence = ast.RELPERSISTENCE_PERMANENT
 					$$ = rangeVar
 				}
@@ -736,7 +698,7 @@ any_name_list:
 			}
 		|	any_name_list ',' any_name
 			{
-				list := $1.(*ast.NodeList)
+				list := $1
 				list.Append($3)
 				$$ = list
 			}
@@ -1759,76 +1721,76 @@ bare_label_keyword:
 a_expr:		c_expr								{ $$ = $1 }
 		|	'+' a_expr %prec UMINUS
 			{
-				name := []*ast.String{ast.NewString("+")}
+				name := ast.NewNodeList(ast.NewString("+"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
 			}
 		|	'-' a_expr %prec UMINUS
 			{
-				name := []*ast.String{ast.NewString("-")}
+				name := ast.NewNodeList(ast.NewString("-"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
 			}
 		|	a_expr TYPECAST Typename
 			{
-				$$ = ast.NewTypeCast($1, $3.(*ast.TypeName), 0)
+				$$ = ast.NewTypeCast($1, $3, 0)
 			}
 		|	a_expr '+' a_expr
 			{
-				name := []*ast.String{ast.NewString("+")}
+				name := ast.NewNodeList(ast.NewString("+"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr '-' a_expr
 			{
-				name := []*ast.String{ast.NewString("-")}
+				name := ast.NewNodeList(ast.NewString("-"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr '*' a_expr
 			{
-				name := []*ast.String{ast.NewString("*")}
+				name := ast.NewNodeList(ast.NewString("*"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr '/' a_expr
 			{
-				name := []*ast.String{ast.NewString("/")}
+				name := ast.NewNodeList(ast.NewString("/"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr '%' a_expr
 			{
-				name := []*ast.String{ast.NewString("%")}
+				name := ast.NewNodeList(ast.NewString("%"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr '^' a_expr
 			{
-				name := []*ast.String{ast.NewString("^")}
+				name := ast.NewNodeList(ast.NewString("^"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr '<' a_expr
 			{
-				name := []*ast.String{ast.NewString("<")}
+				name := ast.NewNodeList(ast.NewString("<"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr '>' a_expr
 			{
-				name := []*ast.String{ast.NewString(">")}
+				name := ast.NewNodeList(ast.NewString(">"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr '=' a_expr
 			{
-				name := []*ast.String{ast.NewString("=")}
+				name := ast.NewNodeList(ast.NewString("="))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr LESS_EQUALS a_expr
 			{
-				name := []*ast.String{ast.NewString("<=")}
+				name := ast.NewNodeList(ast.NewString("<="))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr GREATER_EQUALS a_expr
 			{
-				name := []*ast.String{ast.NewString(">=")}
+				name := ast.NewNodeList(ast.NewString(">="))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr NOT_EQUALS a_expr
 			{
-				name := []*ast.String{ast.NewString("<>")}
+				name := ast.NewNodeList(ast.NewString("<>"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	a_expr AND a_expr
@@ -1861,60 +1823,60 @@ a_expr:		c_expr								{ $$ = $1 }
 			}
 		|	a_expr LIKE a_expr
 			{
-				name := []*ast.String{ast.NewString("~~")}
+				name := ast.NewNodeList(ast.NewString("~~"))
 				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, $3, 0)
 			}
 		|	a_expr LIKE a_expr ESCAPE a_expr %prec LIKE
 			{
 				// Create like_escape function call
-				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
 				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($3, $5), 0)
-				name := []*ast.String{ast.NewString("~~")}
+				name := ast.NewNodeList(ast.NewString("~~"))
 				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, escapeFunc, 0)
 			}
 		|	a_expr NOT_LA LIKE a_expr %prec NOT_LA
 			{
-				name := []*ast.String{ast.NewString("!~~")}
+				name := ast.NewNodeList(ast.NewString("!~~"))
 				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, $4, 0)
 			}
 		|	a_expr NOT_LA LIKE a_expr ESCAPE a_expr %prec NOT_LA
 			{
 				// Create like_escape function call
-				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
 				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
-				name := []*ast.String{ast.NewString("!~~")}
+				name := ast.NewNodeList(ast.NewString("!~~"))
 				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, escapeFunc, 0)
 			}
 		|	a_expr ILIKE a_expr
 			{
-				name := []*ast.String{ast.NewString("~~*")}
+				name := ast.NewNodeList(ast.NewString("~~*"))
 				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, $3, 0)
 			}
 		|	a_expr ILIKE a_expr ESCAPE a_expr %prec ILIKE
 			{
 				// Create like_escape function call
-				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
 				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($3, $5), 0)
-				name := []*ast.String{ast.NewString("~~*")}
+				name := ast.NewNodeList(ast.NewString("~~*"))
 				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, escapeFunc, 0)
 			}
 		|	a_expr NOT_LA ILIKE a_expr %prec NOT_LA
 			{
-				name := []*ast.String{ast.NewString("!~~*")}
+				name := ast.NewNodeList(ast.NewString("!~~*"))
 				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, $4, 0)
 			}
 		|	a_expr NOT_LA ILIKE a_expr ESCAPE a_expr %prec NOT_LA
 			{
 				// Create like_escape function call
-				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("like_escape")}
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
 				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
-				name := []*ast.String{ast.NewString("!~~*")}
+				name := ast.NewNodeList(ast.NewString("!~~*"))
 				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, escapeFunc, 0)
 			}
 		|	a_expr COLLATE any_name
 			{
 				// Pass the NodeList directly to NewCollateClause
-				nodeList := $3.(*ast.NodeList)
+				nodeList := $3
 				collateClause := ast.NewCollateClause(nodeList)
 				collateClause.Arg = $1
 				$$ = collateClause
@@ -1922,13 +1884,13 @@ a_expr:		c_expr								{ $$ = $1 }
 		|	a_expr AT TIME ZONE a_expr %prec AT
 			{
 				// Create timezone function call
-				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("timezone")}
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("timezone"))
 				$$ = ast.NewFuncCall(funcName, ast.NewNodeList($5, $1), 0)
 			}
 		|	a_expr AT LOCAL %prec AT
 			{
 				// Create timezone function call with no argument
-				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("timezone")}
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("timezone"))
 				$$ = ast.NewFuncCall(funcName, ast.NewNodeList($1), 0)
 			}
 		|	a_expr qual_Op a_expr %prec Op
@@ -1941,58 +1903,58 @@ a_expr:		c_expr								{ $$ = $1 }
 			}
 		|	a_expr BETWEEN opt_asymmetric b_expr AND a_expr %prec BETWEEN
 			{
-				name := []*ast.String{ast.NewString("BETWEEN")}
+				name := ast.NewNodeList(ast.NewString("BETWEEN"))
 				$$ = ast.NewA_Expr(ast.AEXPR_BETWEEN, name, $1, ast.NewNodeList($4, $6), 0)
 			}
 		|	a_expr NOT_LA BETWEEN opt_asymmetric b_expr AND a_expr %prec NOT_LA
 			{
-				name := []*ast.String{ast.NewString("NOT BETWEEN")}
+				name := ast.NewNodeList(ast.NewString("NOT BETWEEN"))
 				$$ = ast.NewA_Expr(ast.AEXPR_NOT_BETWEEN, name, $1, ast.NewNodeList($5, $7), 0)
 			}
 		|	a_expr BETWEEN SYMMETRIC b_expr AND a_expr %prec BETWEEN
 			{
-				name := []*ast.String{ast.NewString("BETWEEN SYMMETRIC")}
+				name := ast.NewNodeList(ast.NewString("BETWEEN SYMMETRIC"))
 				$$ = ast.NewA_Expr(ast.AEXPR_BETWEEN_SYM, name, $1, ast.NewNodeList($4, $6), 0)
 			}
 		|	a_expr NOT_LA BETWEEN SYMMETRIC b_expr AND a_expr %prec NOT_LA
 			{
-				name := []*ast.String{ast.NewString("NOT BETWEEN SYMMETRIC")}
+				name := ast.NewNodeList(ast.NewString("NOT BETWEEN SYMMETRIC"))
 				$$ = ast.NewA_Expr(ast.AEXPR_NOT_BETWEEN_SYM, name, $1, ast.NewNodeList($5, $7), 0)
 			}
 		|	a_expr IN_P in_expr
 			{
-				name := []*ast.String{ast.NewString("=")}
+				name := ast.NewNodeList(ast.NewString("="))
 				$$ = ast.NewA_Expr(ast.AEXPR_IN, name, $1, $3, 0)
 			}
 		|	a_expr NOT_LA IN_P in_expr %prec NOT_LA
 			{
-				name := []*ast.String{ast.NewString("<>")}
+				name := ast.NewNodeList(ast.NewString("<>"))
 				$$ = ast.NewA_Expr(ast.AEXPR_IN, name, $1, $4, 0)
 			}
 		|	a_expr SIMILAR TO a_expr %prec SIMILAR
 			{
-				name := []*ast.String{ast.NewString("~")}
+				name := ast.NewNodeList(ast.NewString("~"))
 				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, $4, 0)
 			}
 		|	a_expr SIMILAR TO a_expr ESCAPE a_expr %prec SIMILAR
 			{
 				// Create similar_escape function call
-				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("similar_escape")}
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("similar_escape"))
 				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
-				name := []*ast.String{ast.NewString("~")}
+				name := ast.NewNodeList(ast.NewString("~"))
 				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
 			}
 		|	a_expr NOT_LA SIMILAR TO a_expr %prec NOT_LA
 			{
-				name := []*ast.String{ast.NewString("!~")}
+				name := ast.NewNodeList(ast.NewString("!~"))
 				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, $5, 0)
 			}
 		|	a_expr NOT_LA SIMILAR TO a_expr ESCAPE a_expr %prec NOT_LA
 			{
 				// Create similar_escape function call
-				funcName := []*ast.String{ast.NewString("pg_catalog"), ast.NewString("similar_escape")}
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("similar_escape"))
 				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($5, $7), 0)
-				name := []*ast.String{ast.NewString("!~")}
+				name := ast.NewNodeList(ast.NewString("!~"))
 				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
 			}
 		;
@@ -2000,76 +1962,76 @@ a_expr:		c_expr								{ $$ = $1 }
 b_expr:		c_expr								{ $$ = $1 }
 		|	b_expr TYPECAST Typename
 			{
-				$$ = ast.NewTypeCast($1, $3.(*ast.TypeName), 0)
+				$$ = ast.NewTypeCast($1, $3, 0)
 			}
 		|	'+' b_expr %prec UMINUS
 			{
-				name := []*ast.String{ast.NewString("+")}
+				name := ast.NewNodeList(ast.NewString("+"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
 			}
 		|	'-' b_expr %prec UMINUS
 			{
-				name := []*ast.String{ast.NewString("-")}
+				name := ast.NewNodeList(ast.NewString("-"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
 			}
 		|	b_expr '+' b_expr
 			{
-				name := []*ast.String{ast.NewString("+")}
+				name := ast.NewNodeList(ast.NewString("+"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr '-' b_expr
 			{
-				name := []*ast.String{ast.NewString("-")}
+				name := ast.NewNodeList(ast.NewString("-"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr '*' b_expr
 			{
-				name := []*ast.String{ast.NewString("*")}
+				name := ast.NewNodeList(ast.NewString("*"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr '/' b_expr
 			{
-				name := []*ast.String{ast.NewString("/")}
+				name := ast.NewNodeList(ast.NewString("/"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr '%' b_expr
 			{
-				name := []*ast.String{ast.NewString("%")}
+				name := ast.NewNodeList(ast.NewString("%"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr '^' b_expr
 			{
-				name := []*ast.String{ast.NewString("^")}
+				name := ast.NewNodeList(ast.NewString("^"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr '<' b_expr
 			{
-				name := []*ast.String{ast.NewString("<")}
+				name := ast.NewNodeList(ast.NewString("<"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr '>' b_expr
 			{
-				name := []*ast.String{ast.NewString(">")}
+				name := ast.NewNodeList(ast.NewString(">"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr '=' b_expr
 			{
-				name := []*ast.String{ast.NewString("=")}
+				name := ast.NewNodeList(ast.NewString("="))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr LESS_EQUALS b_expr
 			{
-				name := []*ast.String{ast.NewString("<=")}
+				name := ast.NewNodeList(ast.NewString("<="))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr GREATER_EQUALS b_expr
 			{
-				name := []*ast.String{ast.NewString(">=")}
+				name := ast.NewNodeList(ast.NewString(">="))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		|	b_expr NOT_EQUALS b_expr
 			{
-				name := []*ast.String{ast.NewString("<>")}
+				name := ast.NewNodeList(ast.NewString("<>"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
 		;
@@ -2211,20 +2173,15 @@ func_expr_windowless:
 
 func_name:	type_function_name
 			{
-				$$ = []*ast.String{ast.NewString($1)}
+				$$ = ast.NewNodeList(ast.NewString($1))
 			}
 		|	ColId indirection
 			{
 				// PostgreSQL uses check_func_name here
 				// We implement the logic inline - prepend ColId to indirection list
-				result := []*ast.String{ast.NewString($1)}
-
-				// Extract strings from indirection (which is a NodeList)
-				for _, node := range $2.Items {
-					if str, ok := node.(*ast.String); ok {
-						result = append(result, str)
-					}
-				}
+				items := []ast.Node{ast.NewString($1)}
+				items = append(items, $2.Items...)
+				result := ast.NewNodeList(items...)
 				$$ = result
 			}
 		;
@@ -2299,7 +2256,7 @@ expr_list:	a_expr
 			}
 		|	expr_list ',' a_expr
 			{
-				nodeList := $1.(*ast.NodeList)
+				nodeList := $1
 				nodeList.Append($3)
 				$$ = nodeList
 			}
@@ -2346,7 +2303,7 @@ attrs:		'.' attr_name
 
 opt_type_modifiers: '(' expr_list ')'
 			{
-				$$ = $2.(*ast.NodeList)
+				$$ = $2
 			}
 		|	/* EMPTY */
 			{
@@ -2356,18 +2313,16 @@ opt_type_modifiers: '(' expr_list ')'
 
 GenericType: type_function_name opt_type_modifiers
 			{
-				typeName := ast.NewTypeName([]string{$1})
+				typeName := makeTypeNameFromString($1)
 				// Note: In full implementation, would set type modifiers
 				$$ = typeName
 			}
 		|	type_function_name attrs opt_type_modifiers
 			{
 				// Create qualified type name from name + attrs
-				names := []string{$1}
-				for _, attr := range $2.Items {
-					names = append(names, attr.(*ast.String).SVal)
-				}
-				typeName := ast.NewTypeName(names)
+				name := ast.NewString($1)
+				names := &ast.NodeList{Items: append([]ast.Node{name}, $2.Items...)}
+				typeName := makeTypeNameFromNodeList(names)
 				// Note: In full implementation, would set type modifiers
 				$$ = typeName
 			}
@@ -2375,23 +2330,23 @@ GenericType: type_function_name opt_type_modifiers
 
 Numeric:	INT_P
 			{
-				$$ = ast.NewTypeName([]string{"int4"})
+				$$ = makeTypeNameFromString("int4")
 			}
 		|	INTEGER
 			{
-				$$ = ast.NewTypeName([]string{"int4"})
+				$$ = makeTypeNameFromString("int4")
 			}
 		|	SMALLINT
 			{
-				$$ = ast.NewTypeName([]string{"int2"})
+				$$ = makeTypeNameFromString("int2")
 			}
 		|	BIGINT
 			{
-				$$ = ast.NewTypeName([]string{"int8"})
+				$$ = makeTypeNameFromString("int8")
 			}
 		|	REAL
 			{
-				$$ = ast.NewTypeName([]string{"float4"})
+				$$ = makeTypeNameFromString("float4")
 			}
 		|	FLOAT_P opt_float
 			{
@@ -2399,23 +2354,23 @@ Numeric:	INT_P
 			}
 		|	DOUBLE_P PRECISION
 			{
-				$$ = ast.NewTypeName([]string{"float8"})
+				$$ = makeTypeNameFromString("float8")
 			}
 		|	DECIMAL_P opt_type_modifiers
 			{
-				$$ = ast.NewTypeName([]string{"numeric"})
+				$$ = makeTypeNameFromString("numeric")
 			}
 		|	DEC opt_type_modifiers
 			{
-				$$ = ast.NewTypeName([]string{"numeric"})
+				$$ = makeTypeNameFromString("numeric")
 			}
 		|	NUMERIC opt_type_modifiers
 			{
-				$$ = ast.NewTypeName([]string{"numeric"})
+				$$ = makeTypeNameFromString("numeric")
 			}
 		|	BOOLEAN_P
 			{
-				$$ = ast.NewTypeName([]string{"bool"})
+				$$ = makeTypeNameFromString("bool")
 			}
 		;
 
@@ -2487,7 +2442,7 @@ character:	CHARACTER opt_varying
 
 CharacterWithLength: character '(' Iconst ')'
 			{
-				typeName := ast.NewTypeName([]string{$1})
+				typeName := makeTypeNameFromString($1)
                 // Set typmods with the length parameter, similar to PostgreSQL's approach
                 lengthConst := ast.NewInteger(int($3))
                 typeName.Typmods = ast.NewNodeList()
@@ -2498,7 +2453,7 @@ CharacterWithLength: character '(' Iconst ')'
 
 CharacterWithoutLength: character
 			{
-				typeName := ast.NewTypeName([]string{$1})
+				typeName := makeTypeNameFromString($1)
 				// char defaults to char(1), varchar to no limit
 				if $1 == "bpchar" {
 					// CHAR defaults to CHAR(1)
@@ -2518,7 +2473,7 @@ BitWithLength: BIT opt_varying '(' expr_list ')'
 				} else {
 					typeName = "bit"
 				}
-				$$ = ast.NewTypeName([]string{typeName})
+				$$ = makeTypeNameFromString(typeName)
 			}
 		;
 
@@ -2530,7 +2485,7 @@ BitWithoutLength: BIT opt_varying
 				} else {
 					typeName = "bit"
 				}
-				$$ = ast.NewTypeName([]string{typeName})
+				$$ = makeTypeNameFromString(typeName)
 			}
 		;
 
@@ -2542,7 +2497,7 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 				} else {
 					typeName = "timestamp"
 				}
-				$$ = ast.NewTypeName([]string{typeName})
+				$$ = makeTypeNameFromString(typeName)
 			}
 		|	TIMESTAMP opt_timezone
 			{
@@ -2552,7 +2507,7 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 				} else {
 					typeName = "timestamp"
 				}
-				$$ = ast.NewTypeName([]string{typeName})
+				$$ = makeTypeNameFromString(typeName)
 			}
 		|	TIME '(' Iconst ')' opt_timezone
 			{
@@ -2562,7 +2517,7 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 				} else {
 					typeName = "time"
 				}
-				$$ = ast.NewTypeName([]string{typeName})
+				$$ = makeTypeNameFromString(typeName)
 			}
 		|	TIME opt_timezone
 			{
@@ -2572,7 +2527,7 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 				} else {
 					typeName = "time"
 				}
-				$$ = ast.NewTypeName([]string{typeName})
+				$$ = makeTypeNameFromString(typeName)
 			}
 		;
 
@@ -2588,23 +2543,23 @@ opt_varying: VARYING			{ $$ = 1 }
 opt_float:	'(' Iconst ')'
 			{
 				if $2 < 1 {
-					$$ = ast.NewTypeName([]string{"float4"})
+					$$ = makeTypeNameFromString("float4")
 				} else if $2 <= 7 {
-					$$ = ast.NewTypeName([]string{"float4"})
+					$$ = makeTypeNameFromString("float4")
 				} else {
-					$$ = ast.NewTypeName([]string{"float8"})
+					$$ = makeTypeNameFromString("float8")
 				}
 			}
 		|	/* EMPTY */
 			{
-				$$ = ast.NewTypeName([]string{"float8"})
+				$$ = makeTypeNameFromString("float8")
 			}
 		;
 
 /* Operators - matching PostgreSQL structure */
 qual_Op:	Op
 			{
-				$$ = []*ast.String{ast.NewString($1)}
+				$$ = ast.NewNodeList(ast.NewString($1))
 			}
 		|	OPERATOR '(' any_operator ')'
 			{
@@ -2615,7 +2570,7 @@ qual_Op:	Op
 qual_all_Op:
 			all_Op
 				{
-					$$ = []*ast.String{ast.NewString($1)}
+					$$ = ast.NewNodeList(ast.NewString($1))
 				}
 		|	OPERATOR '(' any_operator ')'
 				{
@@ -2643,11 +2598,13 @@ MathOp:		'+'								{ $$ = "+" }
 
 any_operator: all_Op
 			{
-				$$ = []*ast.String{ast.NewString($1)}
+				$$ = ast.NewNodeList(ast.NewString($1))
 			}
 		|	ColId '.' any_operator
 			{
-				$$ = append([]*ast.String{ast.NewString($1)}, $3...)
+				items := []ast.Node{ast.NewString($1)}
+				items = append(items, $3.Items...)
+				$$ = ast.NewNodeList(items...)
 			}
 		;
 
@@ -2707,7 +2664,7 @@ select_no_parens:
 		|	with_clause simple_select
 			{
 				selectStmt := $2.(*ast.SelectStmt)
-				selectStmt.WithClause = $1.(*ast.WithClause)
+				selectStmt.WithClause = $1
 				$$ = selectStmt
 			}
 		;
@@ -2722,9 +2679,9 @@ simple_select:
 			{
 				selectStmt := ast.NewSelectStmt()
 				if $3 != nil {
-					selectStmt.TargetList = convertToResTargetList($3.Items)
+					selectStmt.TargetList = $3
 				}
-				selectStmt.IntoClause = convertToIntoClause($4)
+				selectStmt.IntoClause = $4
 				selectStmt.FromClause = $5
 				selectStmt.WhereClause = $6
 				$$ = selectStmt
@@ -2735,9 +2692,9 @@ simple_select:
 				selectStmt := ast.NewSelectStmt()
 				selectStmt.DistinctClause = $2
 				if $3 != nil {
-					selectStmt.TargetList = convertToResTargetList($3.Items)
+					selectStmt.TargetList = $3
 				}
-				selectStmt.IntoClause = convertToIntoClause($4)
+				selectStmt.IntoClause = $4
 				selectStmt.FromClause = $5
 				selectStmt.WhereClause = $6
 				$$ = selectStmt
@@ -2748,7 +2705,7 @@ simple_select:
 				selectStmt := ast.NewSelectStmt()
 				// Create a ResTarget for *
 				starTarget := ast.NewResTarget("", ast.NewColumnRef(ast.NewA_Star(0)))
-				selectStmt.TargetList = []*ast.ResTarget{starTarget}
+				selectStmt.TargetList = ast.NewNodeList(starTarget)
 				selectStmt.FromClause = ast.NewNodeList($2)
 				$$ = selectStmt
 			}
@@ -2816,7 +2773,7 @@ from_list:
 table_ref:
 			relation_expr opt_alias_clause
 			{
-				rangeVar := $1.(*ast.RangeVar)
+				rangeVar := $1
 				if $2 != nil {
 					rangeVar.Alias = $2.(*ast.Alias)
 				}
@@ -2910,7 +2867,7 @@ table_ref:
 relation_expr:
 			qualified_name
 			{
-				rangeVar := $1.(*ast.RangeVar)
+				rangeVar := $1
 				rangeVar.Inh = true // inheritance query, implicitly
 				$$ = rangeVar
 			}
@@ -2923,19 +2880,19 @@ relation_expr:
 extended_relation_expr:
 			qualified_name '*'
 			{
-				rangeVar := $1.(*ast.RangeVar)
+				rangeVar := $1
 				rangeVar.Inh = true // inheritance query, explicitly
 				$$ = rangeVar
 			}
 		|	ONLY qualified_name
 			{
-				rangeVar := $2.(*ast.RangeVar)
+				rangeVar := $2
 				rangeVar.Inh = false // no inheritance
 				$$ = rangeVar
 			}
 		|	ONLY '(' qualified_name ')'
 			{
-				rangeVar := $3.(*ast.RangeVar)
+				rangeVar := $3
 				rangeVar.Inh = false // no inheritance
 				$$ = rangeVar
 			}
@@ -2949,13 +2906,13 @@ relation_expr_opt_alias:
 			}
 		|	relation_expr ColId
 			{
-				rangeVar := $1.(*ast.RangeVar)
+				rangeVar := $1
 				rangeVar.Alias = ast.NewAlias($2, nil)
 				$$ = rangeVar
 			}
 		|	relation_expr AS ColId
 			{
-				rangeVar := $1.(*ast.RangeVar)
+				rangeVar := $1
 				rangeVar.Alias = ast.NewAlias($3, nil)
 				$$ = rangeVar
 			}
@@ -3134,7 +3091,7 @@ common_table_expr:
 
 				// Set column names if provided
 				if $2 != nil {
-					cte.Aliascolnames = $2.(*ast.NodeList)
+					cte.Aliascolnames = $2
 				}
 
 				// Set materialized option
@@ -3212,7 +3169,7 @@ values_clause:
 			{
 				/* Create a SelectStmt with VALUES clause following PostgreSQL */
 				selectStmt := ast.NewSelectStmt()
-				exprList := $3.(*ast.NodeList)
+				exprList := $3
 				selectStmt.ValuesLists = []*ast.NodeList{exprList}
 				$$ = selectStmt
 			}
@@ -3220,7 +3177,7 @@ values_clause:
 			{
 				/* Add additional VALUES row to existing SelectStmt */
 				selectStmt := $1.(*ast.SelectStmt)
-				exprList := $4.(*ast.NodeList)
+				exprList := $4
 				selectStmt.ValuesLists = append(selectStmt.ValuesLists, exprList)
 				$$ = selectStmt
 			}
@@ -3269,7 +3226,7 @@ opt_alias_clause:
 alias_clause:
 			AS ColId '(' name_list ')'
 			{
-				nameList := $4.(*ast.NodeList)
+				nameList := $4
 				$$ = ast.NewAlias($2, nameList)
 			}
 		|	AS ColId
@@ -3278,7 +3235,7 @@ alias_clause:
 			}
 		|	ColId '(' name_list ')'
 			{
-				nameList := $3.(*ast.NodeList)
+				nameList := $3
 				$$ = ast.NewAlias($1, nameList)
 			}
 		|	ColId
@@ -3308,7 +3265,7 @@ opt_all_clause:
 
 distinct_clause:
 			DISTINCT								{ $$ = ast.NewNodeList() }
-		|	DISTINCT ON '(' expr_list ')'			{ $$ = $4.(*ast.NodeList) }
+		|	DISTINCT ON '(' expr_list ')'			{ $$ = $4 }
 		;
 
 opt_distinct_clause:
@@ -3324,7 +3281,7 @@ opt_distinct_clause:
 into_clause:
 			INTO qualified_name
 			{
-				$$ = ast.NewIntoClause($2.(*ast.RangeVar), nil, "", nil, ast.ONCOMMIT_NOOP, "", nil, false, 0)
+				$$ = ast.NewIntoClause($2, nil, "", nil, ast.ONCOMMIT_NOOP, "", nil, false, 0)
 			}
 		|	/* EMPTY */								{ $$ = nil }
 		;
@@ -3415,7 +3372,7 @@ table_func_column: param_name func_type
 				fp := &ast.FunctionParameter{
 					BaseNode: ast.BaseNode{Tag: ast.T_FunctionParameter},
 					Name:     &name,
-					ArgType:  $2.(*ast.TypeName),
+					ArgType:  $2,
 					Mode:     ast.FUNC_PARAM_TABLE,
 					DefExpr:  nil,
 				}
@@ -3446,7 +3403,7 @@ TableFuncElementList:
 TableFuncElement:
 			ColId Typename opt_collate_clause
 			{
-				columnDef := ast.NewColumnDef($1, $2.(*ast.TypeName), 0)
+				columnDef := ast.NewColumnDef($1, $2, 0)
 				// Note: opt_collate_clause support can be added when needed
 				// PostgreSQL sets: n->collClause = (CollateClause *) $3;
 				$$ = columnDef
@@ -3458,7 +3415,7 @@ opt_collate_clause:
 			COLLATE any_name
 			{
 				// Pass the NodeList directly to NewCollateClause
-				nameList := $2.(*ast.NodeList)
+				nameList := $2
 				$$ = ast.NewCollateClause(nameList)
 			}
 		|	/* EMPTY */		{ $$ = nil }
@@ -3576,7 +3533,7 @@ xmltable_column_list:
 xmltable_column_el:
 			ColId Typename
 			{
-				rangeTableFuncCol := ast.NewRangeTableFuncCol($1, $2.(*ast.TypeName), false, false, nil, nil, 0)
+				rangeTableFuncCol := ast.NewRangeTableFuncCol($1, $2, false, false, nil, nil, 0)
 				$$ = rangeTableFuncCol
 			}
 		|	ColId FOR ORDINALITY
@@ -3586,7 +3543,7 @@ xmltable_column_el:
 			}
 		|	ColId Typename xmltable_column_option_list
 			{
-				rangeTableFuncCol := ast.NewRangeTableFuncCol($1, $2.(*ast.TypeName), false, false, nil, nil, 0)
+				rangeTableFuncCol := ast.NewRangeTableFuncCol($1, $2, false, false, nil, nil, 0)
 				// TODO: Process column options from $3
 				$$ = rangeTableFuncCol
 			}
@@ -3841,7 +3798,7 @@ json_table_column_definition:
 			json_behavior_clause_opt
 			{
 				jsonTableCol := ast.NewJsonTableColumn(ast.JTC_REGULAR, $1)
-				jsonTableCol.TypeName = $2.(*ast.TypeName)
+				jsonTableCol.TypeName = $2
 				if $3 != nil {
 					strNode := $3.(*ast.String)
 					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
@@ -3855,7 +3812,7 @@ json_table_column_definition:
 			json_behavior_clause_opt
 			{
 				jsonTableCol := ast.NewJsonTableColumn(ast.JTC_FORMATTED, $1)
-				jsonTableCol.TypeName = $2.(*ast.TypeName)
+				jsonTableCol.TypeName = $2
 				if $4 != nil {
 					strNode := $4.(*ast.String)
 					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
@@ -3869,7 +3826,7 @@ json_table_column_definition:
 			json_on_error_clause_opt
 			{
 				jsonTableCol := ast.NewJsonTableColumn(ast.JTC_EXISTS, $1)
-				jsonTableCol.TypeName = $2.(*ast.TypeName)
+				jsonTableCol.TypeName = $2
 				if $4 != nil {
 					strNode := $4.(*ast.String)
 					jsonTableCol.Pathspec = ast.NewJsonTablePathSpec(strNode, "", 0)
@@ -3917,16 +3874,10 @@ InsertStmt:
 			opt_on_conflict returning_clause
 			{
 				insertStmt := $5.(*ast.InsertStmt)
-				insertStmt.Relation = $4.(*ast.RangeVar)
-				if $1 != nil {
-					insertStmt.WithClause = $1.(*ast.WithClause)
-				}
-				if $6 != nil {
-					insertStmt.OnConflictClause = $6
-				}
-				if $7 != nil {
-					insertStmt.ReturningList = convertToResTargetList(convertToNodeList($7))
-				}
+				insertStmt.Relation = $4
+				insertStmt.WithClause = $1
+				insertStmt.OnConflictClause = $6
+				insertStmt.ReturningList = $7
 				$$ = insertStmt
 			}
 		;
@@ -3938,7 +3889,7 @@ insert_target:
 			}
 		|	qualified_name AS ColId
 			{
-				rangeVar := $1.(*ast.RangeVar)
+				rangeVar := $1
 				rangeVar.Alias = ast.NewAlias($3, nil)
 				$$ = rangeVar
 			}
@@ -3961,18 +3912,14 @@ insert_rest:
 		|	'(' insert_column_list ')' SelectStmt
 			{
 				insertStmt := ast.NewInsertStmt(nil)
-				if $2 != nil {
-					insertStmt.Cols = convertToResTargetList($2.Items)
-				}
+				insertStmt.Cols = $2
 				insertStmt.SelectStmt = $4
 				$$ = insertStmt
 			}
 		|	'(' insert_column_list ')' OVERRIDING override_kind VALUE_P SelectStmt
 			{
 				insertStmt := ast.NewInsertStmt(nil)
-				if $2 != nil {
-					insertStmt.Cols = convertToResTargetList($2.Items)
-				}
+				insertStmt.Cols = $2
 				insertStmt.Override = ast.OverridingKind($5)
 				insertStmt.SelectStmt = $7
 				$$ = insertStmt
@@ -4014,7 +3961,7 @@ insert_column_item:
  * Optional column list for COPY statement
  */
 opt_column_list:
-			'(' name_list ')'				{ $$ = $2.(*ast.NodeList) }
+			'(' name_list ')'				{ $$ = $2 }
 		|	/* EMPTY */						{ $$ = nil }
 		;
 
@@ -4026,18 +3973,12 @@ UpdateStmt:
 			opt_with_clause UPDATE relation_expr_opt_alias SET set_clause_list
 			from_clause where_or_current_clause returning_clause
 			{
-				updateStmt := ast.NewUpdateStmt($3.(*ast.RangeVar))
-				if $1 != nil {
-					updateStmt.WithClause = $1.(*ast.WithClause)
-				}
-				updateStmt.TargetList = convertToResTargetList($5.Items)
-				if $6 != nil {
-					updateStmt.FromClause = $6
-				}
+				updateStmt := ast.NewUpdateStmt($3)
+				updateStmt.WithClause = $1
+				updateStmt.TargetList = $5
+				updateStmt.FromClause = $6
 				updateStmt.WhereClause = $7
-				if $8 != nil {
-					updateStmt.ReturningList = convertToResTargetList(convertToNodeList($8))
-				}
+				updateStmt.ReturningList = $8
 				$$ = updateStmt
 			}
 		;
@@ -4103,17 +4044,11 @@ DeleteStmt:
 			opt_with_clause DELETE_P FROM relation_expr_opt_alias
 			using_clause where_or_current_clause returning_clause
 			{
-				deleteStmt := ast.NewDeleteStmt($4.(*ast.RangeVar))
-				if $1 != nil {
-					deleteStmt.WithClause = $1.(*ast.WithClause)
-				}
-				if $5 != nil {
-					deleteStmt.UsingClause = $5.(*ast.NodeList)
-				}
+				deleteStmt := ast.NewDeleteStmt($4)
+				deleteStmt.WithClause = $1
+				deleteStmt.UsingClause = $5
 				deleteStmt.WhereClause = $6
-				if $7 != nil {
-					deleteStmt.ReturningList = convertToResTargetList(convertToNodeList($7))
-				}
+				deleteStmt.ReturningList = $7
 				$$ = deleteStmt
 			}
 		;
@@ -4143,10 +4078,8 @@ MergeStmt:
 				mergeStmt := &ast.MergeStmt{
 					BaseNode: ast.BaseNode{Tag: ast.T_MergeStmt},
 				}
-				if $1 != nil {
-					mergeStmt.WithClause = $1.(*ast.WithClause)
-				}
-				mergeStmt.Relation = $4.(*ast.RangeVar)
+				mergeStmt.WithClause = $1
+				mergeStmt.Relation = $4
 				mergeStmt.SourceRelation = $6
 				mergeStmt.JoinCondition = $8
 				if $9 != nil {
@@ -4156,9 +4089,7 @@ MergeStmt:
 						mergeStmt.MergeWhenClauses = append(mergeStmt.MergeWhenClauses, node.(*ast.MergeWhenClause))
 					}
 				}
-				if $10 != nil {
-					mergeStmt.ReturningList = $10
-				}
+				mergeStmt.ReturningList = $10
 				$$ = mergeStmt
 			}
 		;
@@ -4208,7 +4139,7 @@ CopyStmt:
 			{
 				copyStmt := &ast.CopyStmt{
 					BaseNode: ast.BaseNode{Tag: ast.T_CopyStmt},
-					Relation: $3.(*ast.RangeVar),
+					Relation: $3,
 					IsFrom:   $5 != 0,
 					IsProgram: $6 != 0,
 					Filename:  $7,
@@ -4671,14 +4602,14 @@ merge_insert:
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
 			mergeWhen.Override = ast.OVERRIDING_NOT_SET
-			mergeWhen.Values = $2.(*ast.NodeList)
+			mergeWhen.Values = $2
 			$$ = mergeWhen
 		}
 	|	INSERT OVERRIDING override_kind VALUE_P merge_values_clause
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
 			mergeWhen.Override = ast.OverridingKind($3)
-			mergeWhen.Values = $5.(*ast.NodeList)
+			mergeWhen.Values = $5
 			$$ = mergeWhen
 		}
 	|	INSERT '(' insert_column_list ')' merge_values_clause
@@ -4691,7 +4622,7 @@ merge_insert:
 					mergeWhen.TargetList = append(mergeWhen.TargetList, node.(*ast.ResTarget))
 				}
 			}
-			mergeWhen.Values = $5.(*ast.NodeList)
+			mergeWhen.Values = $5
 			$$ = mergeWhen
 		}
 	|	INSERT '(' insert_column_list ')' OVERRIDING override_kind VALUE_P merge_values_clause
@@ -4704,7 +4635,7 @@ merge_insert:
 					mergeWhen.TargetList = append(mergeWhen.TargetList, node.(*ast.ResTarget))
 				}
 			}
-			mergeWhen.Values = $8.(*ast.NodeList)
+			mergeWhen.Values = $8
 			$$ = mergeWhen
 		}
 	|	INSERT DEFAULT VALUES
@@ -4844,12 +4775,8 @@ index_elem_options:
 			indexElem := &ast.IndexElem{
 				BaseNode: ast.BaseNode{Tag: ast.T_IndexElem},
 			}
-			if $1 != nil {
-				indexElem.Collation = convertNodeToStringList($1)
-			}
-			if $2 != nil {
-				indexElem.Opclass = convertNodeToStringList($2)
-			}
+			indexElem.Collation = $1
+			indexElem.Opclass = $2
 			indexElem.Ordering = ast.SortByDir($3)
 			indexElem.NullsOrdering = ast.SortByNulls($4)
 			$$ = indexElem
@@ -4859,16 +4786,9 @@ index_elem_options:
 			indexElem := &ast.IndexElem{
 				BaseNode: ast.BaseNode{Tag: ast.T_IndexElem},
 			}
-			if $1 != nil {
-				indexElem.Collation = convertNodeToStringList($1)
-			}
-			if $2 != nil {
-				indexElem.Opclass = convertNodeToStringList($2)
-			}
-			if $3 != nil {
-				var relopts ast.Node = $3
-				indexElem.Opclassopts = convertToDefElemList(relopts)
-			}
+			indexElem.Collation = $1
+			indexElem.Opclass = $2
+			indexElem.Opclassopts = $3
 			indexElem.Ordering = ast.SortByDir($4)
 			indexElem.NullsOrdering = ast.SortByNulls($5)
 			$$ = indexElem
@@ -4920,32 +4840,32 @@ returning_clause:
 CreateStmt: CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 			OptInherit OptPartitionSpec table_access_method_clause OptWith OnCommitOption OptTableSpace
 				{
-					rangeVar := $4.(*ast.RangeVar)
+					rangeVar := $4
 					rangeVar.RelPersistence = $2
 					createStmt := ast.NewCreateStmt(rangeVar)
 					createStmt.TableElts = $6
-					createStmt.InhRelations = convertToRangeVarList($8)
-					createStmt.PartSpec = convertToPartitionSpec($9)
-					createStmt.AccessMethod = convertToString($10)
-					createStmt.Options = convertToNodeListPtr($11)
-					createStmt.OnCommit = convertToOnCommitAction($12)
-					createStmt.TableSpaceName = convertToString($13)
+					createStmt.InhRelations = $8
+					createStmt.PartSpec = $9
+					createStmt.AccessMethod = $10
+					createStmt.Options = $11
+					createStmt.OnCommit = $12
+					createStmt.TableSpaceName = $13
 					$$ = createStmt
 				}
 		|	CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name '('
 			OptTableElementList ')' OptInherit OptPartitionSpec table_access_method_clause
 			OptWith OnCommitOption OptTableSpace
 				{
-					rangeVar := $7.(*ast.RangeVar)
+					rangeVar := $7
 					rangeVar.RelPersistence = $2
 					createStmt := ast.NewCreateStmt(rangeVar)
 					createStmt.TableElts = $9
-					createStmt.InhRelations = convertToRangeVarList($11)
-					createStmt.PartSpec = convertToPartitionSpec($12)
-					createStmt.AccessMethod = convertToString($13)
-					createStmt.Options = convertToNodeListPtr($14)
-					createStmt.OnCommit = convertToOnCommitAction($15)
-					createStmt.TableSpaceName = convertToString($16)
+					createStmt.InhRelations = $11
+					createStmt.PartSpec = $12
+					createStmt.AccessMethod = $13
+					createStmt.Options = $14
+					createStmt.OnCommit = $15
+					createStmt.TableSpaceName = $16
 					createStmt.IfNotExists = true
 					$$ = createStmt
 				}
@@ -4953,32 +4873,32 @@ CreateStmt: CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 			OptTypedTableElementList OptPartitionSpec table_access_method_clause
 			OptWith OnCommitOption OptTableSpace
 				{
-					rangeVar := $4.(*ast.RangeVar)
+					rangeVar := $4
 					rangeVar.RelPersistence = $2
 					createStmt := ast.NewCreateStmt(rangeVar)
-					createStmt.OfTypename = convertToTypeName($6)
+					createStmt.OfTypename = makeTypeNameFromNodeList($6)
 					createStmt.TableElts = $7
-					createStmt.PartSpec = convertToPartitionSpec($8)
-					createStmt.AccessMethod = convertToString($9)
-					createStmt.Options = convertToNodeListPtr($10)
-					createStmt.OnCommit = convertToOnCommitAction($11)
-					createStmt.TableSpaceName = convertToString($12)
+					createStmt.PartSpec = $8
+					createStmt.AccessMethod = $9
+					createStmt.Options = $10
+					createStmt.OnCommit = $11
+					createStmt.TableSpaceName = $12
 					$$ = createStmt
 				}
 		|	CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name OF any_name
 			OptTypedTableElementList OptPartitionSpec table_access_method_clause
 			OptWith OnCommitOption OptTableSpace
 				{
-					rangeVar := $7.(*ast.RangeVar)
+					rangeVar := $7
 					rangeVar.RelPersistence = $2
 					createStmt := ast.NewCreateStmt(rangeVar)
-					createStmt.OfTypename = convertToTypeName($9)
+					createStmt.OfTypename = makeTypeNameFromNodeList($9)
 					createStmt.TableElts = $10
-					createStmt.PartSpec = convertToPartitionSpec($11)
-					createStmt.AccessMethod = convertToString($12)
-					createStmt.Options = convertToNodeListPtr($13)
-					createStmt.OnCommit = convertToOnCommitAction($14)
-					createStmt.TableSpaceName = convertToString($15)
+					createStmt.PartSpec = $11
+					createStmt.AccessMethod = $12
+					createStmt.Options = $13
+					createStmt.OnCommit = $14
+					createStmt.TableSpaceName = $15
 					createStmt.IfNotExists = true
 					$$ = createStmt
 				}
@@ -4986,34 +4906,34 @@ CreateStmt: CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 			OptTypedTableElementList PartitionBoundSpec OptPartitionSpec table_access_method_clause
 			OptWith OnCommitOption OptTableSpace
 				{
-					rangeVar := $4.(*ast.RangeVar)
+					rangeVar := $4
 					rangeVar.RelPersistence = $2
 					createStmt := ast.NewCreateStmt(rangeVar)
-					createStmt.InhRelations = []*ast.RangeVar{$7.(*ast.RangeVar)}
+					createStmt.InhRelations = ast.NewNodeList($7)
 					createStmt.TableElts = $8
 					createStmt.PartBound = $9
-					createStmt.PartSpec = convertToPartitionSpec($10)
-					createStmt.AccessMethod = convertToString($11)
-					createStmt.Options = convertToNodeListPtr($12)
-					createStmt.OnCommit = convertToOnCommitAction($13)
-					createStmt.TableSpaceName = convertToString($14)
+					createStmt.PartSpec = $10
+					createStmt.AccessMethod = $11
+					createStmt.Options = $12
+					createStmt.OnCommit = $13
+					createStmt.TableSpaceName = $14
 					$$ = createStmt
 				}
 		|	CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name PARTITION OF qualified_name
 			OptTypedTableElementList PartitionBoundSpec OptPartitionSpec table_access_method_clause
 			OptWith OnCommitOption OptTableSpace
 				{
-					rangeVar := $7.(*ast.RangeVar)
+					rangeVar := $7
 					rangeVar.RelPersistence = $2
 					createStmt := ast.NewCreateStmt(rangeVar)
-					createStmt.InhRelations = []*ast.RangeVar{$10.(*ast.RangeVar)}
+					createStmt.InhRelations = ast.NewNodeList($10)
 					createStmt.TableElts = $11
 					createStmt.PartBound = $12
-					createStmt.PartSpec = convertToPartitionSpec($13)
-					createStmt.AccessMethod = convertToString($14)
-					createStmt.Options = convertToNodeListPtr($15)
-					createStmt.OnCommit = convertToOnCommitAction($16)
-					createStmt.TableSpaceName = convertToString($17)
+					createStmt.PartSpec = $13
+					createStmt.AccessMethod = $14
+					createStmt.Options = $15
+					createStmt.OnCommit = $16
+					createStmt.TableSpaceName = $17
 					createStmt.IfNotExists = true
 					$$ = createStmt
 				}
@@ -5057,7 +4977,7 @@ TableElement:
 TableLikeClause:
 			LIKE qualified_name TableLikeOptionList
 				{
-					$$ = ast.NewTableLikeClause($2.(*ast.RangeVar), convertToTableLikeOption($3))
+					$$ = ast.NewTableLikeClause($2, ast.TableLikeOption($3))
 				}
 		;
 
@@ -5139,13 +5059,13 @@ columnOptions:
 			ColId ColQualList
 				{
 					colDef := ast.NewColumnDef($1, nil, 0)
-					colDef.Constraints = convertToConstraintList($2)
+					colDef.Constraints = $2
 					$$ = colDef
 				}
 		|	ColId WITH OPTIONS ColQualList
 				{
 					colDef := ast.NewColumnDef($1, nil, 0)
-					colDef.Constraints = convertToConstraintList($4)
+					colDef.Constraints = $4
 					$$ = colDef
 				}
 		;
@@ -5159,20 +5079,19 @@ PartitionBoundSpec:
 					hashSpec.IsDefault = false
 
 					// Parse hash partition bounds (modulus and remainder)
-					if hashOptions := convertToNodeListPtr($5); hashOptions != nil {
-						for _, optNode := range hashOptions.Items {
-							if defElem, ok := optNode.(*ast.DefElem); ok {
-								if defElem.Defname == "modulus" {
-									if intVal, ok := defElem.Arg.(*ast.A_Const); ok && intVal.Isnull == false {
-										if integerVal, ok := intVal.Val.(*ast.Integer); ok {
-											hashSpec.Modulus = integerVal.IVal
-										}
+					hashOptions := $5
+					for _, optNode := range hashOptions.Items {
+						if defElem, ok := optNode.(*ast.DefElem); ok {
+							if defElem.Defname == "modulus" {
+								if intVal, ok := defElem.Arg.(*ast.A_Const); ok && intVal.Isnull == false {
+									if integerVal, ok := intVal.Val.(*ast.Integer); ok {
+										hashSpec.Modulus = integerVal.IVal
 									}
-								} else if defElem.Defname == "remainder" {
-									if intVal, ok := defElem.Arg.(*ast.A_Const); ok && intVal.Isnull == false {
-										if integerVal, ok := intVal.Val.(*ast.Integer); ok {
-											hashSpec.Remainder = integerVal.IVal
-										}
+								}
+							} else if defElem.Defname == "remainder" {
+								if intVal, ok := defElem.Arg.(*ast.A_Const); ok && intVal.Isnull == false {
+									if integerVal, ok := intVal.Val.(*ast.Integer); ok {
+										hashSpec.Remainder = integerVal.IVal
 									}
 								}
 							}
@@ -5187,9 +5106,7 @@ PartitionBoundSpec:
 				{
 					listSpec := ast.NewPartitionBoundSpec(ast.PARTITION_STRATEGY_LIST)
 					listSpec.IsDefault = false
-					if exprList := convertToNodeListPtr($5); exprList != nil {
-						listSpec.ListDatums = []*ast.NodeList{exprList}
-					}
+					listSpec.ListDatums = $5
 					$$ = listSpec
 				}
 
@@ -5198,8 +5115,8 @@ PartitionBoundSpec:
 				{
 					rangeSpec := ast.NewPartitionBoundSpec(ast.PARTITION_STRATEGY_RANGE)
 					rangeSpec.IsDefault = false
-					rangeSpec.LowDatums = convertToNodeListPtr($5)
-					rangeSpec.HighDatums = convertToNodeListPtr($9)
+					rangeSpec.LowDatums = $5
+					rangeSpec.HighDatums = $9
 					$$ = rangeSpec
 				}
 
@@ -5226,10 +5143,9 @@ hash_partbound:
 			}
 	|	hash_partbound ',' hash_partbound_elem
 			{
-				if nodeList := convertToNodeListPtr($1); nodeList != nil {
-					nodeList.Append($3)
-					$$ = nodeList
-				}
+				nodeList := $1
+				nodeList.Append($3)
+				$$ = nodeList
 			}
 		;
 
@@ -5269,11 +5185,11 @@ generic_option_arg:
 columnDef:
 			ColId Typename opt_column_storage opt_column_compression create_generic_options ColQualList
 				{
-					colDef := ast.NewColumnDef($1, $2.(*ast.TypeName), 0)
-					colDef.StorageName = convertToString($3)
-					colDef.Compression = convertToString($4)
-					colDef.Fdwoptions = convertToNodeListPtr($5)
-					colDef.Constraints = convertToConstraintList($6)
+					colDef := ast.NewColumnDef($1, $2, 0)
+					colDef.StorageName = $3
+					colDef.Compression = $4
+					colDef.Fdwoptions = $5
+					colDef.Constraints = $6
 					$$ = colDef
 				}
 		;
@@ -5306,7 +5222,7 @@ ColConstraint:
 					 * the list built by ColQualList, but we split it out
 					 * again in SplitColQualList.
 					 */
-					collateClause := ast.NewCollateClause(convertToNodeListPtr($2))
+					collateClause := ast.NewCollateClause($2)
 					$$ = collateClause
 				}
 		;
@@ -5492,16 +5408,16 @@ ColConstraintElem:
 		|	UNIQUE opt_unique_null_treatment opt_definition OptConsTableSpace
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_UNIQUE)
-					constraint.Keys = []string{} // Will be filled by the parser
-					constraint.NullsNotDistinct = !convertToBool($2)
-					constraint.Options = convertDefElemListToNodeList(convertToDefElemList($3))
-					constraint.Indexspace = convertToString($4)
+					constraint.Keys = nil // Will be filled by the parser
+					constraint.NullsNotDistinct = !$2
+					constraint.Options = $3
+					constraint.Indexspace = $4
 					$$ = constraint
 				}
 		|	PRIMARY KEY opt_definition OptConsTableSpace
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_PRIMARY)
-					constraint.Keys = []string{} // Will be filled by the parser
+					constraint.Keys = nil // Will be filled by the parser
 					$$ = constraint
 				}
 		|	CHECK '(' a_expr ')' opt_no_inherit
@@ -5519,9 +5435,9 @@ ColConstraintElem:
 		|	REFERENCES qualified_name opt_column_list key_match key_actions
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_FOREIGN)
-					constraint.Pktable = $2.(*ast.RangeVar)
-					constraint.PkAttrs = convertNodeToStringList($3)
-					constraint.FkMatchtype = convertToMatchType($4)
+					constraint.Pktable = $2
+					constraint.PkAttrs = $3
+					constraint.FkMatchtype = $4
 					if actions, ok := $5.(*ast.KeyActions); ok && actions != nil {
 						constraint.FkUpdAction = actions.UpdateAction.Action
 						constraint.FkDelAction = actions.DeleteAction.Action
@@ -5532,7 +5448,7 @@ ColConstraintElem:
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_IDENTITY)
 					constraint.GeneratedWhen = $2
-					constraint.Options = convertDefElemListToNodeList(convertToDefElemList($5))
+					constraint.Options = $5
 					$$ = constraint
 				}
 		|	GENERATED generated_when AS '(' a_expr ')' STORED
@@ -5559,65 +5475,65 @@ ConstraintElem:
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_CHECK)
 					constraint.RawExpr = $3
-					processConstraintAttributeSpec(convertToInt($5), constraint)
+					processConstraintAttributeSpec($5, constraint)
 					$$ = constraint
 				}
 		|	UNIQUE opt_unique_null_treatment '(' columnList ')' opt_c_include opt_definition OptConsTableSpace
 			ConstraintAttributeSpec
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_UNIQUE)
-					constraint.NullsNotDistinct = !convertToBool($2)
-					constraint.Keys = convertNodeToStringList($4)
-					constraint.Including = convertAstStrListToStringSlice($6)
-					constraint.Options = convertDefElemListToNodeList(convertToDefElemList($7))
-					constraint.Indexspace = convertToString($8)
-					processConstraintAttributeSpec(convertToInt($9), constraint)
+					constraint.NullsNotDistinct = !$2
+					constraint.Keys = $4
+					constraint.Including = $6
+					constraint.Options = $7
+					constraint.Indexspace = $8
+					processConstraintAttributeSpec($9, constraint)
 					$$ = constraint
 				}
 		|	UNIQUE ExistingIndex ConstraintAttributeSpec
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_UNIQUE)
-					constraint.Indexname = convertToString($2)
+					constraint.Indexname = $2
 					// Clear lists for existing index
-					constraint.Keys = []string{}
-					constraint.Including = []string{}
-					processConstraintAttributeSpec(convertToInt($3), constraint)
+					constraint.Keys = nil
+					constraint.Including = nil
+					processConstraintAttributeSpec($3, constraint)
 					$$ = constraint
 				}
 		|	PRIMARY KEY '(' columnList ')' opt_c_include opt_definition OptConsTableSpace
 			ConstraintAttributeSpec
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_PRIMARY)
-					constraint.Keys = convertNodeToStringList($4)
-					constraint.Including = convertAstStrListToStringSlice($6)
-					constraint.Options = convertDefElemListToNodeList(convertToDefElemList($7))
-					constraint.Indexspace = convertToString($8)
-					processConstraintAttributeSpec(convertToInt($9), constraint)
+					constraint.Keys = $4
+					constraint.Including = $6
+					constraint.Options = $7
+					constraint.Indexspace = $8
+					processConstraintAttributeSpec($9, constraint)
 					$$ = constraint
 				}
 		|	PRIMARY KEY ExistingIndex ConstraintAttributeSpec
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_PRIMARY)
-					constraint.Indexname = convertToString($3)
+					constraint.Indexname = $3
 					// Clear lists for existing index
-					constraint.Keys = []string{}
-					constraint.Including = []string{}
-					processConstraintAttributeSpec(convertToInt($4), constraint)
+					constraint.Keys = nil
+					constraint.Including = nil
+					processConstraintAttributeSpec($4, constraint)
 					$$ = constraint
 				}
 		|	FOREIGN KEY '(' columnList ')' REFERENCES qualified_name
 			opt_column_list key_match key_actions ConstraintAttributeSpec
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_FOREIGN)
-					constraint.FkAttrs = convertNodeToStringList($4)
-					constraint.Pktable = $7.(*ast.RangeVar)
-					constraint.PkAttrs = convertNodeToStringList($8)
-					constraint.FkMatchtype = convertToMatchType($9)
+					constraint.FkAttrs = $4
+					constraint.Pktable = $7
+					constraint.PkAttrs = $8
+					constraint.FkMatchtype = $9
 					if actions, ok := $10.(*ast.KeyActions); ok && actions != nil {
 						constraint.FkUpdAction = actions.UpdateAction.Action
 						constraint.FkDelAction = actions.DeleteAction.Action
 					}
-					processConstraintAttributeSpec(convertToInt($11), constraint)
+					processConstraintAttributeSpec($11, constraint)
 					$$ = constraint
 				}
 		|	EXCLUDE access_method_clause '(' ExclusionConstraintList ')'
@@ -5625,13 +5541,13 @@ ConstraintElem:
 			ConstraintAttributeSpec
 				{
 					constraint := ast.NewConstraint(ast.CONSTR_EXCLUSION)
-					constraint.AccessMethod = convertToString($2)
-					constraint.Exclusions = convertToNodeListPtr($4)
-					constraint.Including = convertAstStrListToStringSlice($6)
-					constraint.Options = convertDefElemListToNodeList(convertToDefElemList($7))
-					constraint.Indexspace = convertToString($8)
+					constraint.AccessMethod = $2
+					constraint.Exclusions = $4
+					constraint.Including = $6
+					constraint.Options = $7
+					constraint.Indexspace = $8
 					constraint.WhereClause = $9
-					processConstraintAttributeSpec(convertToInt($10), constraint)
+					processConstraintAttributeSpec($10, constraint)
 					$$ = constraint
 				}
 		;
@@ -5660,19 +5576,19 @@ ExclusionConstraintElem:
 			index_elem WITH any_operator
 				{
 					// Create a NodeList with index_elem and operator (matching PostgreSQL's list_make2 approach)
-					$$ = ast.NewNodeList($1, ast.NewString(convertStringSliceToString($3)))
+					$$ = ast.NewNodeList($1, $3)
 				}
 		|	index_elem WITH OPERATOR '(' any_operator ')'
 				{
 					// Create a NodeList with index_elem and operator (matching PostgreSQL's list_make2 approach)
-					$$ = ast.NewNodeList($1, ast.NewString(convertStringSliceToString($5)))
+					$$ = ast.NewNodeList($1, $5)
 				}
 		;
 
 opt_c_include:
 			INCLUDE '(' columnList ')'
 				{
-					$$ = convertToStringList($3)
+					$$ = $3
 				}
 		|	/* EMPTY */
 				{
@@ -5819,7 +5735,7 @@ OptPartitionSpec:
 PartitionSpec:
 			PARTITION BY ColId '(' part_params ')'
 				{
-					partitionSpec := ast.NewPartitionSpec(ast.PartitionStrategy($3), convertToNodeListPtr($5))
+					partitionSpec := ast.NewPartitionSpec(ast.PartitionStrategy($3), $5)
 					$$ = partitionSpec
 				}
 		;
@@ -5841,22 +5757,22 @@ part_elem:
 			ColId opt_collate opt_qualified_name
 				{
 					partElem := ast.NewPartitionElem($1, nil, 0)
-					partElem.Collation = convertToStringList($2)
-					partElem.Opclass = convertToStringList($3)
+					partElem.Collation = $2
+					partElem.Opclass = $3
 					$$ = partElem
 				}
 		|	func_expr_windowless opt_collate opt_qualified_name
 				{
 					partElem := ast.NewPartitionElem("", $1, 0)
-					partElem.Collation = convertToStringList($2)
-					partElem.Opclass = convertToStringList($3)
+					partElem.Collation = $2
+					partElem.Opclass = $3
 					$$ = partElem
 				}
 		|	'(' a_expr ')' opt_collate opt_qualified_name
 				{
 					partElem := ast.NewPartitionElem("", $2, 0)
-					partElem.Collation = convertToStringList($4)
-					partElem.Opclass = convertToStringList($5)
+					partElem.Collation = $4
+					partElem.Opclass = $5
 					$$ = partElem
 				}
 		;
@@ -5867,10 +5783,10 @@ table_access_method_clause:
 		;
 
 OnCommitOption:
-			ON COMMIT DROP				{ $$ = int(ast.ONCOMMIT_DROP) }
-		|	ON COMMIT DELETE_P ROWS		{ $$ = int(ast.ONCOMMIT_DELETE_ROWS) }
-		|	ON COMMIT PRESERVE ROWS		{ $$ = int(ast.ONCOMMIT_PRESERVE_ROWS) }
-		|	/* EMPTY */					{ $$ = int(ast.ONCOMMIT_NOOP) }
+			ON COMMIT DROP				{ $$ = ast.ONCOMMIT_DROP }
+		|	ON COMMIT DELETE_P ROWS		{ $$ = ast.ONCOMMIT_DELETE_ROWS }
+		|	ON COMMIT PRESERVE ROWS		{ $$ = ast.ONCOMMIT_PRESERVE_ROWS }
+		|	/* EMPTY */					{ $$ = ast.ONCOMMIT_NOOP }
 		;
 
 OptTableSpace:
@@ -5898,14 +5814,14 @@ IndexStmt:	CREATE opt_unique INDEX opt_concurrently opt_single_name
 			ON relation_expr access_method_clause '(' index_params ')'
 			opt_include opt_unique_null_treatment opt_reloptions OptTableSpace where_clause
 				{
-					indexStmt := ast.NewIndexStmt($5, $7.(*ast.RangeVar), convertToIndexElemList($10))
-					indexStmt.Unique = convertToBool($2)
-					indexStmt.Concurrent = convertToBool($4)
-					indexStmt.AccessMethod = convertToString($8)
-					indexStmt.IndexIncludingParams = convertToIndexElemList($12)
-					indexStmt.NullsNotDistinct = !convertToBool($13)
-					indexStmt.Options = convertToDefElemList($14)
-					indexStmt.TableSpace = convertToString($15)
+					indexStmt := ast.NewIndexStmt($5, $7, $10)
+					indexStmt.Unique = $2
+					indexStmt.Concurrent = $4
+					indexStmt.AccessMethod = $8
+					indexStmt.IndexIncludingParams = $12
+					indexStmt.NullsNotDistinct = !$13
+					indexStmt.Options = $14
+					indexStmt.TableSpace = $15
 					indexStmt.WhereClause = $16
 					$$ = indexStmt
 				}
@@ -5913,15 +5829,15 @@ IndexStmt:	CREATE opt_unique INDEX opt_concurrently opt_single_name
 			ON relation_expr access_method_clause '(' index_params ')'
 			opt_include opt_unique_null_treatment opt_reloptions OptTableSpace where_clause
 				{
-					indexStmt := ast.NewIndexStmt($8, $10.(*ast.RangeVar), convertToIndexElemList($13))
-					indexStmt.Unique = convertToBool($2)
-					indexStmt.Concurrent = convertToBool($4)
+					indexStmt := ast.NewIndexStmt($8, $10, $13)
+					indexStmt.Unique = $2
+					indexStmt.Concurrent = $4
 					indexStmt.IfNotExists = true
-					indexStmt.AccessMethod = convertToString($11)
-					indexStmt.IndexIncludingParams = convertToIndexElemList($15)
-					indexStmt.NullsNotDistinct = !convertToBool($16)
-					indexStmt.Options = convertToDefElemList($17)
-					indexStmt.TableSpace = convertToString($18)
+					indexStmt.AccessMethod = $11
+					indexStmt.IndexIncludingParams = $15
+					indexStmt.NullsNotDistinct = !$16
+					indexStmt.Options = $17
+					indexStmt.TableSpace = $18
 					indexStmt.WhereClause = $19
 					$$ = indexStmt
 				}
@@ -5971,26 +5887,26 @@ opt_reloptions:
 AlterTableStmt:
 			ALTER TABLE relation_expr alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($3.(*ast.RangeVar), convertToAlterTableCmdList($4))
+					alterStmt := ast.NewAlterTableStmt($3, $4)
 					alterStmt.Objtype = ast.OBJECT_TABLE
 					$$ = alterStmt
 				}
 		|	ALTER TABLE IF_P EXISTS relation_expr alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($5.(*ast.RangeVar), convertToAlterTableCmdList($6))
+					alterStmt := ast.NewAlterTableStmt($5, $6)
 					alterStmt.Objtype = ast.OBJECT_TABLE
 					alterStmt.MissingOk = true
 					$$ = alterStmt
 				}
 		|	ALTER INDEX qualified_name alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($3.(*ast.RangeVar), convertToAlterTableCmdList($4))
+					alterStmt := ast.NewAlterTableStmt($3, $4)
 					alterStmt.Objtype = ast.OBJECT_INDEX
 					$$ = alterStmt
 				}
 		|	ALTER INDEX IF_P EXISTS qualified_name alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($5.(*ast.RangeVar), convertToAlterTableCmdList($6))
+					alterStmt := ast.NewAlterTableStmt($5, $6)
 					alterStmt.Objtype = ast.OBJECT_INDEX
 					alterStmt.MissingOk = true
 					$$ = alterStmt
@@ -5998,58 +5914,60 @@ AlterTableStmt:
 		|	ALTER INDEX qualified_name index_partition_cmd
 				{
 					// Index partition attachment - dedicated rule
-					alterStmt := ast.NewAlterTableStmt($3.(*ast.RangeVar), []*ast.AlterTableCmd{$4.(*ast.AlterTableCmd)})
+					cmdList := ast.NewNodeList()
+					cmdList.Append($4.(*ast.AlterTableCmd))
+					alterStmt := ast.NewAlterTableStmt($3, cmdList)
 					alterStmt.Objtype = ast.OBJECT_INDEX
 					$$ = alterStmt
 				}
 		|	ALTER SEQUENCE qualified_name alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($3.(*ast.RangeVar), convertToAlterTableCmdList($4))
+					alterStmt := ast.NewAlterTableStmt($3, $4)
 					alterStmt.Objtype = ast.OBJECT_SEQUENCE
 					$$ = alterStmt
 				}
 		|	ALTER SEQUENCE IF_P EXISTS qualified_name alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($5.(*ast.RangeVar), convertToAlterTableCmdList($6))
+					alterStmt := ast.NewAlterTableStmt($5, $6)
 					alterStmt.Objtype = ast.OBJECT_SEQUENCE
 					alterStmt.MissingOk = true
 					$$ = alterStmt
 				}
 		|	ALTER VIEW qualified_name alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($3.(*ast.RangeVar), convertToAlterTableCmdList($4))
+					alterStmt := ast.NewAlterTableStmt($3, $4)
 					alterStmt.Objtype = ast.OBJECT_VIEW
 					$$ = alterStmt
 				}
 		|	ALTER VIEW IF_P EXISTS qualified_name alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($5.(*ast.RangeVar), convertToAlterTableCmdList($6))
+					alterStmt := ast.NewAlterTableStmt($5, $6)
 					alterStmt.Objtype = ast.OBJECT_VIEW
 					alterStmt.MissingOk = true
 					$$ = alterStmt
 				}
 		|	ALTER MATERIALIZED VIEW qualified_name alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($4.(*ast.RangeVar), convertToAlterTableCmdList($5))
+					alterStmt := ast.NewAlterTableStmt($4, $5)
 					alterStmt.Objtype = ast.OBJECT_MATVIEW
 					$$ = alterStmt
 				}
 		|	ALTER MATERIALIZED VIEW IF_P EXISTS qualified_name alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($6.(*ast.RangeVar), convertToAlterTableCmdList($7))
+					alterStmt := ast.NewAlterTableStmt($6, $7)
 					alterStmt.Objtype = ast.OBJECT_MATVIEW
 					alterStmt.MissingOk = true
 					$$ = alterStmt
 				}
 		|	ALTER FOREIGN TABLE relation_expr alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($4.(*ast.RangeVar), convertToAlterTableCmdList($5))
+					alterStmt := ast.NewAlterTableStmt($4, $5)
 					alterStmt.Objtype = ast.OBJECT_FOREIGN_TABLE
 					$$ = alterStmt
 				}
 		|	ALTER FOREIGN TABLE IF_P EXISTS relation_expr alter_table_cmds
 				{
-					alterStmt := ast.NewAlterTableStmt($6.(*ast.RangeVar), convertToAlterTableCmdList($7))
+					alterStmt := ast.NewAlterTableStmt($6, $7)
 					alterStmt.Objtype = ast.OBJECT_FOREIGN_TABLE
 					alterStmt.MissingOk = true
 					$$ = alterStmt
@@ -6057,14 +5975,18 @@ AlterTableStmt:
 		|	ALTER TABLE relation_expr partition_cmd
 				{
 					// Partition commands - dedicated rule for partition-only operations
-					alterStmt := ast.NewAlterTableStmt($3.(*ast.RangeVar), []*ast.AlterTableCmd{$4.(*ast.AlterTableCmd)})
+					cmdList := ast.NewNodeList()
+					cmdList.Append($4.(*ast.AlterTableCmd))
+					alterStmt := ast.NewAlterTableStmt($3, cmdList)
 					alterStmt.Objtype = ast.OBJECT_TABLE
 					$$ = alterStmt
 				}
 		|	ALTER TABLE IF_P EXISTS relation_expr partition_cmd
 				{
 					// Partition commands with IF EXISTS
-					alterStmt := ast.NewAlterTableStmt($5.(*ast.RangeVar), []*ast.AlterTableCmd{$6.(*ast.AlterTableCmd)})
+					cmdList := ast.NewNodeList()
+					cmdList.Append($6.(*ast.AlterTableCmd))
+					alterStmt := ast.NewAlterTableStmt($5, cmdList)
 					alterStmt.Objtype = ast.OBJECT_TABLE
 					alterStmt.MissingOk = true
 					$$ = alterStmt
@@ -6080,7 +6002,7 @@ AlterTableStmt:
 				{
 					// Bulk tablespace move for tables owned by specific roles
 					moveStmt := ast.NewAlterTableMoveAllStmt($6, ast.OBJECT_TABLE, $12)
-					moveStmt.Roles = convertToNodeListPtr($9)
+					moveStmt.Roles = $9
 					moveStmt.Nowait = $13
 					$$ = moveStmt
 				}
@@ -6095,7 +6017,7 @@ AlterTableStmt:
 				{
 					// Bulk tablespace move for indexes owned by specific roles
 					moveStmt := ast.NewAlterTableMoveAllStmt($6, ast.OBJECT_INDEX, $12)
-					moveStmt.Roles = convertToNodeListPtr($9)
+					moveStmt.Roles = $9
 					moveStmt.Nowait = $13
 					$$ = moveStmt
 				}
@@ -6110,7 +6032,7 @@ AlterTableStmt:
 				{
 					// Bulk tablespace move for materialized views owned by specific roles
 					moveStmt := ast.NewAlterTableMoveAllStmt($7, ast.OBJECT_MATVIEW, $13)
-					moveStmt.Roles = convertToNodeListPtr($10)
+					moveStmt.Roles = $10
 					moveStmt.Nowait = $14
 					$$ = moveStmt
 				}
@@ -6352,7 +6274,7 @@ alter_table_cmd:
 		|	DROP opt_column IF_P EXISTS ColId opt_drop_behavior
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_DropColumn, $5, nil)
-					cmd.Behavior = convertToDropBehavior($6)
+					cmd.Behavior = $6
 					cmd.MissingOk = true
 					$$ = cmd
 				}
@@ -6360,7 +6282,7 @@ alter_table_cmd:
 		|	DROP opt_column ColId opt_drop_behavior
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_DropColumn, $3, nil)
-					cmd.Behavior = convertToDropBehavior($4)
+					cmd.Behavior = $4
 					cmd.MissingOk = false
 					$$ = cmd
 				}
@@ -6371,7 +6293,7 @@ alter_table_cmd:
 		|	ALTER opt_column ColId opt_set_data TYPE_P Typename opt_collate_clause alter_using
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_AlterColumnType, $3, nil)
-					def := ast.NewColumnDef("", $6.(*ast.TypeName), 0)
+					def := ast.NewColumnDef("", $6, 0)
 					def.Collclause = $7.(*ast.CollateClause)
 					def.RawDefault = $8
 					cmd.Def = def
@@ -6407,7 +6329,7 @@ alter_table_cmd:
 		|	DROP CONSTRAINT IF_P EXISTS name opt_drop_behavior
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_DropConstraint, $5, nil)
-					cmd.Behavior = convertToDropBehavior($6)
+					cmd.Behavior = $6
 					cmd.MissingOk = true
 					$$ = cmd
 				}
@@ -6415,7 +6337,7 @@ alter_table_cmd:
 		|	DROP CONSTRAINT name opt_drop_behavior
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_DropConstraint, $3, nil)
-					cmd.Behavior = convertToDropBehavior($4)
+					cmd.Behavior = $4
 					cmd.MissingOk = false
 					$$ = cmd
 				}
@@ -6517,7 +6439,7 @@ alter_table_cmd:
 			/* ALTER TABLE <name> OF <type_name> */
 		|	OF any_name
 				{
-					typeName := ast.NewTypeName(nodeListToStringSlice($2.(*ast.NodeList)))
+					typeName := makeTypeNameFromNodeList($2)
 					$$ = ast.NewAlterTableCmd(ast.AT_AddOf, "", typeName)
 				}
 			/* ALTER TABLE <name> NOT OF */
@@ -6588,7 +6510,7 @@ partition_cmd:
 			ATTACH PARTITION qualified_name PartitionBoundSpec
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_AttachPartition, "", nil)
-					partitionCmd := ast.NewPartitionCmd($3.(*ast.RangeVar), $4, false, 0)
+					partitionCmd := ast.NewPartitionCmd($3, $4, false, 0)
 					cmd.Def = partitionCmd
 					$$ = cmd
 				}
@@ -6596,14 +6518,14 @@ partition_cmd:
 		|	DETACH PARTITION qualified_name opt_concurrently
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_DetachPartition, "", nil)
-					partitionCmd := ast.NewPartitionCmd($3.(*ast.RangeVar), nil, $4 != 0, 0)
+					partitionCmd := ast.NewPartitionCmd($3, nil, $4, 0)
 					cmd.Def = partitionCmd
 					$$ = cmd
 				}
 		|	DETACH PARTITION qualified_name FINALIZE
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_DetachPartitionFinalize, "", nil)
-					partitionCmd := ast.NewPartitionCmd($3.(*ast.RangeVar), nil, false, 0)
+					partitionCmd := ast.NewPartitionCmd($3, nil, false, 0)
 					cmd.Def = partitionCmd
 					$$ = cmd
 				}
@@ -6614,7 +6536,7 @@ index_partition_cmd:
 			ATTACH PARTITION qualified_name
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_AttachPartition, "", nil)
-					partitionCmd := ast.NewPartitionCmd($3.(*ast.RangeVar), nil, false, 0)
+					partitionCmd := ast.NewPartitionCmd($3, nil, false, 0)
 					cmd.Def = partitionCmd
 					$$ = cmd
 				}
@@ -6643,10 +6565,10 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
 					}
 
-					n.RemoveType = convertToObjectType($2)
+					n.RemoveType = $2
 					n.MissingOk = true
-					n.Objects = $5.(*ast.NodeList)
-					n.Behavior = convertToDropBehavior($6)
+					n.Objects = $5
+					n.Behavior = $6
 					n.Concurrent = false
 					$$ = n
 				}
@@ -6656,10 +6578,10 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
 					}
 
-					n.RemoveType = convertToObjectType($2)
+					n.RemoveType = $2
 					n.MissingOk = false
-					n.Objects = $3.(*ast.NodeList)
-					n.Behavior = convertToDropBehavior($4)
+					n.Objects = $3
+					n.Behavior = $4
 					n.Concurrent = false
 					$$ = n
 				}
@@ -6669,10 +6591,10 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
 					}
 
-					n.RemoveType = convertToObjectType($2)
+					n.RemoveType = $2
 					n.MissingOk = true
-					n.Objects = $5.(*ast.NodeList)
-					n.Behavior = convertToDropBehavior($6)
+					n.Objects = $5
+					n.Behavior = $6
 					n.Concurrent = false
 					$$ = n
 				}
@@ -6682,10 +6604,10 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
 					}
 
-					n.RemoveType = convertToObjectType($2)
+					n.RemoveType = $2
 					n.MissingOk = false
-					n.Objects = $3.(*ast.NodeList)
-					n.Behavior = convertToDropBehavior($4)
+					n.Objects = $3
+					n.Behavior = $4
 					n.Concurrent = false
 					$$ = n
 				}
@@ -6695,11 +6617,11 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
 					}
 
-					n.RemoveType = convertToObjectType($2)
-					objects := $5.(*ast.NodeList)
+					n.RemoveType = $2
+					objects := $5
 					objects.Append(ast.NewString($3))
 					n.Objects = objects
-					n.Behavior = convertToDropBehavior($6)
+					n.Behavior = $6
 					n.MissingOk = false
 					n.Concurrent = false
 					$$ = n
@@ -6710,11 +6632,11 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
 					}
 
-					n.RemoveType = convertToObjectType($2)
-					objects := $7.(*ast.NodeList)
+					n.RemoveType = $2
+					objects := $7
 					objects.Append(ast.NewString($5))
 					n.Objects = objects
-					n.Behavior = convertToDropBehavior($8)
+					n.Behavior = $8
 					n.MissingOk = true
 					n.Concurrent = false
 					$$ = n
@@ -6728,7 +6650,7 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 					n.RemoveType = ast.OBJECT_TYPE
 					n.MissingOk = false
 					n.Objects = $3
-					n.Behavior = convertToDropBehavior($4)
+					n.Behavior = $4
 					n.Concurrent = false
 					$$ = n
 				}
@@ -6741,7 +6663,7 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 					n.RemoveType = ast.OBJECT_TYPE
 					n.MissingOk = true
 					n.Objects = $5
-					n.Behavior = convertToDropBehavior($6)
+					n.Behavior = $6
 					n.Concurrent = false
 					$$ = n
 				}
@@ -6754,7 +6676,7 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 					n.RemoveType = ast.OBJECT_DOMAIN
 					n.MissingOk = false
 					n.Objects = $3
-					n.Behavior = convertToDropBehavior($4)
+					n.Behavior = $4
 					n.Concurrent = false
 					$$ = n
 				}
@@ -6767,7 +6689,7 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 					n.RemoveType = ast.OBJECT_DOMAIN
 					n.MissingOk = true
 					n.Objects = $5
-					n.Behavior = convertToDropBehavior($6)
+					n.Behavior = $6
 					n.Concurrent = false
 					$$ = n
 				}
@@ -6779,8 +6701,8 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 
 					n.RemoveType = ast.OBJECT_INDEX
 					n.MissingOk = false
-					n.Objects = $4.(*ast.NodeList)
-					n.Behavior = convertToDropBehavior($5)
+					n.Objects = $4
+					n.Behavior = $5
 					n.Concurrent = true
 					$$ = n
 				}
@@ -6792,8 +6714,8 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 
 					n.RemoveType = ast.OBJECT_INDEX
 					n.MissingOk = true
-					n.Objects = $6.(*ast.NodeList)
-					n.Behavior = convertToDropBehavior($7)
+					n.Objects = $6
+					n.Behavior = $7
 					n.Concurrent = true
 					$$ = n
 				}
@@ -6883,7 +6805,7 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER COLLATION qualified_name RENAME TO name
+	|	ALTER COLLATION any_name RENAME TO name
 			{
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -6894,7 +6816,7 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER CONVERSION_P qualified_name RENAME TO name
+	|	ALTER CONVERSION_P any_name RENAME TO name
 			{
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -6916,7 +6838,7 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER DOMAIN_P qualified_name RENAME TO name
+	|	ALTER DOMAIN_P any_name RENAME TO name
 			{
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -6927,7 +6849,7 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER DOMAIN_P qualified_name RENAME CONSTRAINT name TO name
+	|	ALTER DOMAIN_P any_name RENAME CONSTRAINT name TO name
 			{
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -6983,17 +6905,13 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER OPERATOR CLASS qualified_name USING name RENAME TO name
+	|	ALTER OPERATOR CLASS any_name USING name RENAME TO name
 			{
 				/* lcons equivalent - create NodeList with string name prepended to qualified_name list */
 				list := ast.NewNodeList()
 				list.Append(ast.NewString($6))
-				if qualNameList, ok := $4.(*ast.NodeList); ok {
-					for _, item := range qualNameList.Items {
-						list.Append(item)
-					}
-				} else {
-					list.Append($4)
+				for _, item := range $4.Items {
+					list.Append(item)
 				}
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -7004,17 +6922,13 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER OPERATOR FAMILY qualified_name USING name RENAME TO name
+	|	ALTER OPERATOR FAMILY any_name USING name RENAME TO name
 			{
 				/* lcons equivalent - create NodeList with string name prepended to qualified_name list */
 				list := ast.NewNodeList()
 				list.Append(ast.NewString($6))
-				if qualNameList, ok := $4.(*ast.NodeList); ok {
-					for _, item := range qualNameList.Items {
-						list.Append(item)
-					}
-				} else {
-					list.Append($4)
+				for _, item := range $4.Items {
+					list.Append(item)
 				}
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -7030,7 +6944,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_POLICY,
-					Relation:     $5.(*ast.RangeVar),
+					Relation:     $5,
 					Subname:      $3,
 					Newname:      $8,
 					MissingOk:    false,
@@ -7042,7 +6956,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_POLICY,
-					Relation:     $7.(*ast.RangeVar),
+					Relation:     $7,
 					Subname:      $5,
 					Newname:      $10,
 					MissingOk:    true,
@@ -7120,7 +7034,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_TABLE,
-					Relation:     $3.(*ast.RangeVar),
+					Relation:     $3,
 					Newname:      $6,
 					MissingOk:    false,
 				}
@@ -7131,7 +7045,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_TABLE,
-					Relation:     $5.(*ast.RangeVar),
+					Relation:     $5,
 					Newname:      $8,
 					MissingOk:    true,
 				}
@@ -7142,7 +7056,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_SEQUENCE,
-					Relation:     $3.(*ast.RangeVar),
+					Relation:     $3,
 					Newname:      $6,
 					MissingOk:    false,
 				}
@@ -7153,7 +7067,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_SEQUENCE,
-					Relation:     $5.(*ast.RangeVar),
+					Relation:     $5,
 					Newname:      $8,
 					MissingOk:    true,
 				}
@@ -7164,7 +7078,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_VIEW,
-					Relation:     $3.(*ast.RangeVar),
+					Relation:     $3,
 					Newname:      $6,
 					MissingOk:    false,
 				}
@@ -7175,7 +7089,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_VIEW,
-					Relation:     $5.(*ast.RangeVar),
+					Relation:     $5,
 					Newname:      $8,
 					MissingOk:    true,
 				}
@@ -7186,7 +7100,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_MATVIEW,
-					Relation:     $4.(*ast.RangeVar),
+					Relation:     $4,
 					Newname:      $7,
 					MissingOk:    false,
 				}
@@ -7197,7 +7111,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_MATVIEW,
-					Relation:     $6.(*ast.RangeVar),
+					Relation:     $6,
 					Newname:      $9,
 					MissingOk:    true,
 				}
@@ -7208,7 +7122,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_INDEX,
-					Relation:     $3.(*ast.RangeVar),
+					Relation:     $3,
 					Newname:      $6,
 					MissingOk:    false,
 				}
@@ -7219,7 +7133,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_INDEX,
-					Relation:     $5.(*ast.RangeVar),
+					Relation:     $5,
 					Newname:      $8,
 					MissingOk:    true,
 				}
@@ -7230,7 +7144,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_FOREIGN_TABLE,
-					Relation:     $4.(*ast.RangeVar),
+					Relation:     $4,
 					Newname:      $7,
 					MissingOk:    false,
 				}
@@ -7241,7 +7155,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_FOREIGN_TABLE,
-					Relation:     $6.(*ast.RangeVar),
+					Relation:     $6,
 					Newname:      $9,
 					MissingOk:    true,
 				}
@@ -7253,7 +7167,7 @@ RenameStmt:
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_COLUMN,
 					RelationType: ast.OBJECT_TABLE,
-					Relation:     $3.(*ast.RangeVar),
+					Relation:     $3,
 					Subname:      $6,
 					Newname:      $8,
 					MissingOk:    false,
@@ -7266,7 +7180,7 @@ RenameStmt:
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_COLUMN,
 					RelationType: ast.OBJECT_TABLE,
-					Relation:     $5.(*ast.RangeVar),
+					Relation:     $5,
 					Subname:      $8,
 					Newname:      $10,
 					MissingOk:    true,
@@ -7279,7 +7193,7 @@ RenameStmt:
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_COLUMN,
 					RelationType: ast.OBJECT_VIEW,
-					Relation:     $3.(*ast.RangeVar),
+					Relation:     $3,
 					Subname:      $6,
 					Newname:      $8,
 					MissingOk:    false,
@@ -7292,7 +7206,7 @@ RenameStmt:
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_COLUMN,
 					RelationType: ast.OBJECT_VIEW,
-					Relation:     $5.(*ast.RangeVar),
+					Relation:     $5,
 					Subname:      $8,
 					Newname:      $10,
 					MissingOk:    true,
@@ -7305,7 +7219,7 @@ RenameStmt:
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_COLUMN,
 					RelationType: ast.OBJECT_MATVIEW,
-					Relation:     $4.(*ast.RangeVar),
+					Relation:     $4,
 					Subname:      $7,
 					Newname:      $9,
 					MissingOk:    false,
@@ -7318,7 +7232,7 @@ RenameStmt:
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_COLUMN,
 					RelationType: ast.OBJECT_MATVIEW,
-					Relation:     $6.(*ast.RangeVar),
+					Relation:     $6,
 					Subname:      $9,
 					Newname:      $11,
 					MissingOk:    true,
@@ -7330,7 +7244,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_TABCONSTRAINT,
-					Relation:     $3.(*ast.RangeVar),
+					Relation:     $3,
 					Subname:      $6,
 					Newname:      $8,
 					MissingOk:    false,
@@ -7342,7 +7256,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_TABCONSTRAINT,
-					Relation:     $5.(*ast.RangeVar),
+					Relation:     $5,
 					Subname:      $8,
 					Newname:      $10,
 					MissingOk:    true,
@@ -7355,7 +7269,7 @@ RenameStmt:
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_COLUMN,
 					RelationType: ast.OBJECT_FOREIGN_TABLE,
-					Relation:     $4.(*ast.RangeVar),
+					Relation:     $4,
 					Subname:      $7,
 					Newname:      $9,
 					MissingOk:    false,
@@ -7368,7 +7282,7 @@ RenameStmt:
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_COLUMN,
 					RelationType: ast.OBJECT_FOREIGN_TABLE,
-					Relation:     $6.(*ast.RangeVar),
+					Relation:     $6,
 					Subname:      $9,
 					Newname:      $11,
 					MissingOk:    true,
@@ -7380,7 +7294,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_RULE,
-					Relation:     $5.(*ast.RangeVar),
+					Relation:     $5,
 					Subname:      $3,
 					Newname:      $8,
 					MissingOk:    false,
@@ -7392,7 +7306,7 @@ RenameStmt:
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_TRIGGER,
-					Relation:     $5.(*ast.RangeVar),
+					Relation:     $5,
 					Subname:      $3,
 					Newname:      $8,
 					MissingOk:    false,
@@ -7443,7 +7357,7 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER STATISTICS qualified_name RENAME TO name
+	|	ALTER STATISTICS any_name RENAME TO name
 			{
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -7454,7 +7368,7 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER TEXT_P SEARCH PARSER qualified_name RENAME TO name
+	|	ALTER TEXT_P SEARCH PARSER any_name RENAME TO name
 			{
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -7465,7 +7379,7 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER TEXT_P SEARCH DICTIONARY qualified_name RENAME TO name
+	|	ALTER TEXT_P SEARCH DICTIONARY any_name RENAME TO name
 			{
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -7476,7 +7390,7 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER TEXT_P SEARCH TEMPLATE qualified_name RENAME TO name
+	|	ALTER TEXT_P SEARCH TEMPLATE any_name RENAME TO name
 			{
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -7487,7 +7401,7 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER TEXT_P SEARCH CONFIGURATION qualified_name RENAME TO name
+	|	ALTER TEXT_P SEARCH CONFIGURATION any_name RENAME TO name
 			{
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -7498,7 +7412,7 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER TYPE_P qualified_name RENAME TO name
+	|	ALTER TYPE_P any_name RENAME TO name
 			{
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -7509,13 +7423,17 @@ RenameStmt:
 				}
 				$$ = renameStmt
 			}
-	|	ALTER TYPE_P qualified_name RENAME ATTRIBUTE name TO name opt_drop_behavior
+	|	ALTER TYPE_P any_name RENAME ATTRIBUTE name TO name opt_drop_behavior
 			{
+			    rv, err := makeRangeVarFromAnyName($3, 0)
+				if err != nil {
+				    yylex.Error(err.Error())
+				}
 				renameStmt := &ast.RenameStmt{
 					BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
 					RenameType:   ast.OBJECT_ATTRIBUTE,
 					RelationType: ast.OBJECT_TYPE,
-					Relation:     qualifiedNameToRangeVar($3),
+					Relation:     rv,
 					Subname:      $6,
 					Newname:      $8,
 					Behavior:     ast.DropBehavior($9),
@@ -7536,7 +7454,7 @@ ConstraintAttributeSpec:
 		|	ConstraintAttributeSpec ConstraintAttributeElem
 			{
 				// Combine constraint attribute bits
-				newspec := convertToInt($1) | convertToInt($2)
+				newspec := $1 | $2
 
 				// Check for conflicts (NOT DEFERRABLE + INITIALLY DEFERRED)
 				if (newspec & (ast.CAS_NOT_DEFERRABLE | ast.CAS_INITIALLY_DEFERRED)) == (ast.CAS_NOT_DEFERRABLE | ast.CAS_INITIALLY_DEFERRED) {
@@ -7596,11 +7514,7 @@ def_arg:
 			func_type					{ $$ = $1 }
 		|	reserved_keyword			{ $$ = ast.NewString($1) }
 		|	qual_all_Op					{
-				nodeList := ast.NewNodeList()
-				for _, str := range $1 {
-					nodeList.Append(str)
-				}
-				$$ = nodeList
+				$$ = $1
 			}
 		|	NumericOnly					{ $$ = $1 }
 		|	Sconst						{ $$ = ast.NewString($1) }
@@ -7693,309 +7607,6 @@ def_elem:
 
 %%
 
-// Helper functions for converting between grammar types and AST types
-
-// KeyActionsHelper is a simple helper to hold both update and delete actions
-type KeyActionsHelper struct {
-	ast.BaseNode
-	UpdateAction byte
-	DeleteAction byte
-}
-
-// newKeyActionsHelper creates a new KeyActionsHelper
-func newKeyActionsHelper(updateAction, deleteAction byte) *KeyActionsHelper {
-	return &KeyActionsHelper{
-		BaseNode:     ast.BaseNode{Tag: ast.T_Invalid}, // Use T_Invalid for helper nodes
-		UpdateAction: updateAction,
-		DeleteAction: deleteAction,
-	}
-}
-
-// convertAstStrListToStringSlice converts []*ast.String to []string
-func convertAstStrListToStringSlice(astStrList []*ast.String) []string {
-	if astStrList == nil {
-		return nil
-	}
-	result := make([]string, len(astStrList))
-	for i, astStr := range astStrList {
-		if astStr != nil {
-			result[i] = astStr.SVal
-		}
-	}
-	return result
-}
-
-// convertStringSliceToString converts []*ast.String to a single operator string
-func convertStringSliceToString(astStrList []*ast.String) string {
-	if astStrList == nil || len(astStrList) == 0 {
-		return ""
-	}
-	// For operators, join with "." for qualified names like "pg_catalog.="
-	var parts []string
-	for _, astStr := range astStrList {
-		if astStr != nil {
-			parts = append(parts, astStr.SVal)
-		}
-	}
-	if len(parts) == 1 {
-		return parts[0]
-	}
-	return strings.Join(parts, ".")
-}
-
-// convertToResTargetList converts a slice of ast.Node to []*ast.ResTarget
-func convertToResTargetList(nodes []ast.Node) []*ast.ResTarget {
-	if nodes == nil {
-		return nil
-	}
-	targets := make([]*ast.ResTarget, len(nodes))
-	for i, node := range nodes {
-		if target, ok := node.(*ast.ResTarget); ok {
-			targets[i] = target
-		}
-	}
-	return targets
-}
-
-// convertToIntoClause converts an ast.Node to *ast.IntoClause
-func convertToIntoClause(node ast.Node) *ast.IntoClause {
-	if node == nil {
-		return nil
-	}
-	if intoClause, ok := node.(*ast.IntoClause); ok {
-		return intoClause
-	}
-	return nil
-}
-
-// convertToStringList converts an ast.Node to []*ast.String
-func convertToStringList(node ast.Node) []*ast.String {
-	if node == nil {
-		return nil
-	}
-	if nodeList, ok := node.(*ast.NodeList); ok {
-		strings := make([]*ast.String, len(nodeList.Items))
-		for i, item := range nodeList.Items {
-			if str, ok := item.(*ast.String); ok {
-				strings[i] = str
-			}
-		}
-		return strings
-	}
-	return nil
-}
-
-// convertNodeToStringList converts an ast.Node (which is a NodeList) to []string
-func convertNodeToStringList(node ast.Node) []string {
-	if node == nil {
-		return nil
-	}
-	if nodeList, ok := node.(*ast.NodeList); ok {
-		strings := make([]string, len(nodeList.Items))
-		for i, item := range nodeList.Items {
-			if str, ok := item.(*ast.String); ok {
-				strings[i] = str.SVal
-			}
-		}
-		return strings
-	}
-	return nil
-}
-
-// convertToNodeList converts an ast.Node to []ast.Node
-func convertToNodeList(node ast.Node) []ast.Node {
-	if node == nil {
-		return nil
-	}
-	if nodeList, ok := node.(*ast.NodeList); ok {
-		return nodeList.Items
-	}
-	// If it's a single node, wrap it in a slice
-	return []ast.Node{node}
-}
-
-// convertToNodeListPtr converts an ast.Node to *ast.NodeList
-func convertToNodeListPtr(node ast.Node) *ast.NodeList {
-	if node == nil {
-		return nil
-	}
-	if nodeList, ok := node.(*ast.NodeList); ok {
-		return nodeList
-	}
-	// If it's a single node, wrap it in a NodeList
-	result := ast.NewNodeList()
-	result.Append(node)
-	return result
-}
-
-// Phase 3F DDL Helper Functions
-// These functions convert between grammar types and AST types for DDL operations
-
-// convertToRangeVarList converts an ast.Node to []*ast.RangeVar
-func convertToRangeVarList(node ast.Node) []*ast.RangeVar {
-	if node == nil {
-		return nil
-	}
-	if nodeList, ok := node.(*ast.NodeList); ok {
-		rangeVars := make([]*ast.RangeVar, 0, len(nodeList.Items))
-		for _, item := range nodeList.Items {
-			if rangeVar, ok := item.(*ast.RangeVar); ok {
-				rangeVars = append(rangeVars, rangeVar)
-			}
-		}
-		return rangeVars
-	}
-	return nil
-}
-
-// convertToPartitionSpec converts an ast.Node to *ast.PartitionSpec
-func convertToPartitionSpec(node ast.Node) *ast.PartitionSpec {
-	// TODO: Implement proper PartitionSpec conversion when needed
-	return nil
-}
-
-// convertToOnCommitAction converts a string, int, or OnCommitAction to ast.OnCommitAction
-func convertToOnCommitAction(node interface{}) ast.OnCommitAction {
-	if node == nil {
-		return ast.ONCOMMIT_NOOP
-	}
-	switch v := node.(type) {
-	case ast.OnCommitAction:
-		return v
-	case int:
-		return ast.OnCommitAction(v)
-	case string:
-		switch v {
-		case "drop":
-			return ast.ONCOMMIT_DROP
-		case "delete_rows":
-			return ast.ONCOMMIT_DELETE_ROWS
-		case "preserve_rows":
-			return ast.ONCOMMIT_PRESERVE_ROWS
-		default:
-			return ast.ONCOMMIT_NOOP
-		}
-	}
-	return ast.ONCOMMIT_NOOP
-}
-
-// convertToString converts various types to string
-func convertToString(node interface{}) string {
-	if node == nil {
-		return ""
-	}
-	switch v := node.(type) {
-	case string:
-		return v
-	case *ast.String:
-		return v.SVal
-	}
-	return ""
-}
-
-// convertToConstraintList converts an ast.Node to []*ast.Constraint
-func convertToConstraintList(node ast.Node) *ast.NodeList {
-	if node == nil {
-		return ast.NewNodeList()
-	}
-	if nodeList, ok := node.(*ast.NodeList); ok {
-		return nodeList
-	}
-	return ast.NewNodeList()
-}
-
-// convertToMatchType converts a byte to PostgreSQL match type
-func convertToMatchType(node interface{}) byte {
-	if b, ok := node.(byte); ok {
-		return b
-	}
-	return byte('s') // default to SIMPLE
-}
-
-// convertToBool converts interface{} to bool
-func convertToBool(node interface{}) bool {
-	if b, ok := node.(bool); ok {
-		return b
-	}
-	if i, ok := node.(int); ok {
-		return i != 0
-	}
-	return false
-}
-
-// convertToIndexElemList converts an ast.Node to []*ast.IndexElem
-func convertToIndexElemList(node ast.Node) []*ast.IndexElem {
-	if node == nil {
-		return nil
-	}
-	nodeList, ok := node.(*ast.NodeList)
-	if !ok || nodeList == nil {
-		return nil
-	}
-	indexElems := make([]*ast.IndexElem, 0, len(nodeList.Items))
-	for _, item := range nodeList.Items {
-		if indexElem, ok := item.(*ast.IndexElem); ok {
-			indexElems = append(indexElems, indexElem)
-		}
-	}
-	return indexElems
-}
-
-// convertToDefElemList converts an ast.Node to []*ast.DefElem
-func convertToDefElemList(node ast.Node) []*ast.DefElem {
-	if node == nil {
-		return nil
-	}
-	nodeList, ok := node.(*ast.NodeList)
-	if !ok || nodeList == nil {
-		return nil
-	}
-	defElems := make([]*ast.DefElem, 0, len(nodeList.Items))
-	for _, item := range nodeList.Items {
-		if defElem, ok := item.(*ast.DefElem); ok {
-			defElems = append(defElems, defElem)
-		}
-	}
-	return defElems
-}
-
-// convertToAlterTableCmdList converts an ast.Node to []*ast.AlterTableCmd
-func convertToAlterTableCmdList(node ast.Node) []*ast.AlterTableCmd {
-	if node == nil {
-		return nil
-	}
-	if nodeList, ok := node.(*ast.NodeList); ok {
-		alterCmds := make([]*ast.AlterTableCmd, 0, len(nodeList.Items))
-		for _, item := range nodeList.Items {
-			if alterCmd, ok := item.(*ast.AlterTableCmd); ok {
-				alterCmds = append(alterCmds, alterCmd)
-			}
-		}
-		return alterCmds
-	}
-	return nil
-}
-
-// convertToDropBehavior converts interface{} to ast.DropBehavior
-func convertToDropBehavior(node interface{}) ast.DropBehavior {
-	if node == nil {
-		return ast.DropRestrict
-	}
-	if behavior, ok := node.(ast.DropBehavior); ok {
-		return behavior
-	}
-	return ast.DropRestrict
-}
-
-// convertToObjectType converts interface{} to ast.ObjectType
-func convertToObjectType(node interface{}) ast.ObjectType {
-	if objType, ok := node.(ast.ObjectType); ok {
-		return objType
-	}
-	return ast.OBJECT_TABLE
-}
-
-
 // Lex implements the lexer interface for goyacc
 func (l *Lexer) Lex(lval *yySymType) int {
 	token := l.NextToken()
@@ -8028,55 +7639,6 @@ func ParseSQL(input string) ([]ast.Stmt, error) {
 	}
 
 	return lexer.GetParseTree(), nil
-}
-
-func convertDefElemListToNodeList(defElems []*ast.DefElem) *ast.NodeList {
-	if defElems == nil {
-		return nil
-	}
-	nodeList := ast.NewNodeList()
-	for _, defElem := range defElems {
-		nodeList.Append(defElem)
-	}
-	return nodeList
-}
-
-
-// convertToTableLikeOption converts interface{} to ast.TableLikeOption
-func convertToTableLikeOption(node interface{}) ast.TableLikeOption {
-	if node == nil {
-		return ast.TableLikeOption(0)
-	}
-	switch v := node.(type) {
-	case ast.TableLikeOption:
-		return v
-	case int:
-		return ast.TableLikeOption(v)
-	}
-	return ast.TableLikeOption(0)
-}
-
-// convertToTypeName converts ast.Node to *ast.TypeName
-func convertToTypeName(node ast.Node) *ast.TypeName {
-	if node == nil {
-		return nil
-	}
-	switch v := node.(type) {
-	case *ast.TypeName:
-		return v
-	}
-	return nil
-}
-
-// convertToInt converts interface{} to int
-func convertToInt(val interface{}) int {
-	if val == nil {
-		return 0
-	}
-	if i, ok := val.(int); ok {
-		return i
-	}
-	return 0
 }
 
 // processConstraintAttributeSpec processes constraint attribute specification bitmask

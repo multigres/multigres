@@ -72,7 +72,7 @@ func TestRangeTblEntry(t *testing.T) {
 
 	t.Run("FunctionRTE", func(t *testing.T) {
 		rte := NewRangeTblEntry(RTE_FUNCTION, nil)
-		funcNode := NewRangeTblFunction(NewFuncCall([]*String{NewString("myfunction")}, nil, 0), 3)
+		funcNode := NewRangeTblFunction(NewFuncCall(&NodeList{Items: []Node{NewString("myfunction")}}, nil, 0), 3)
 		rte.Functions = []*RangeTblFunction{funcNode}
 		rte.FuncOrdinality = true
 
@@ -125,7 +125,7 @@ func TestRangeSubselect(t *testing.T) {
 func TestRangeFunction(t *testing.T) {
 	t.Run("NewRangeFunction", func(t *testing.T) {
 		// Create a NodeList containing a NodeList with a function
-		funcList := NewNodeList(NewFuncCall([]*String{NewString("func1")}, nil, 0))
+		funcList := NewNodeList(NewFuncCall(&NodeList{Items: []Node{NewString("func1")}}, nil, 0))
 		functions := NewNodeList(funcList)
 		alias := NewAlias("f", nil)
 		colDefs := []*ColumnDef{NewColumnDef("col1", NewTypeName([]string{"int4"}), 0)}
@@ -272,7 +272,7 @@ func TestRangeTableSample(t *testing.T) {
 // TestRangeTblFunction tests the RangeTblFunction node
 func TestRangeTblFunction(t *testing.T) {
 	t.Run("NewRangeTblFunction", func(t *testing.T) {
-		funcExpr := NewFuncCall([]*String{NewString("generate_series")}, NewNodeList(NewInteger(1), NewInteger(10)), 0)
+		funcExpr := NewFuncCall(&NodeList{Items: []Node{NewString("generate_series")}}, NewNodeList(NewInteger(1), NewInteger(10)), 0)
 		rtf := NewRangeTblFunction(funcExpr, 1)
 
 		require.NotNil(t, rtf)
@@ -283,7 +283,7 @@ func TestRangeTblFunction(t *testing.T) {
 	})
 
 	t.Run("WithColumnDefinitions", func(t *testing.T) {
-		funcExpr := NewFuncCall([]*String{NewString("myfunction")}, nil, 0)
+		funcExpr := NewFuncCall(&NodeList{Items: []Node{NewString("myfunction")}}, nil, 0)
 		rtf := NewRangeTblFunction(funcExpr, 3)
 		rtf.FuncColNames = []string{"col1", "col2", "col3"}
 		rtf.FuncColTypes = []Oid{23, 25, 16} // int4, text, bool

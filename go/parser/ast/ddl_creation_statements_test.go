@@ -73,7 +73,7 @@ func TestFetchDirection(t *testing.T) {
 func TestFunctionParameter(t *testing.T) {
 	t.Run("basic function parameter", func(t *testing.T) {
 		name := "param1"
-		argType := &TypeName{Names: []string{"int4"}}
+		argType := NewTypeName([]string{"int4"})
 		param := NewFunctionParameter(&name, argType, FUNC_PARAM_IN, nil)
 
 		assert.NotNil(t, param)
@@ -93,7 +93,7 @@ func TestFunctionParameter(t *testing.T) {
 
 	t.Run("parameter with default", func(t *testing.T) {
 		name := "param2"
-		argType := &TypeName{Names: []string{"text"}}
+		argType := NewTypeName([]string{"text"})
 		defaultExpr := &A_Const{Val: NewString("default_value")}
 		param := NewFunctionParameter(&name, argType, FUNC_PARAM_IN, defaultExpr)
 
@@ -111,7 +111,7 @@ func TestFunctionParameter(t *testing.T) {
 
 	t.Run("out parameter", func(t *testing.T) {
 		name := "result"
-		argType := &TypeName{Names: []string{"int4"}}
+		argType := NewTypeName([]string{"int4"})
 		param := NewFunctionParameter(&name, argType, FUNC_PARAM_OUT, nil)
 
 		str := param.String()
@@ -124,8 +124,8 @@ func TestFunctionParameter(t *testing.T) {
 func TestCreateFunctionStmt(t *testing.T) {
 	t.Run("basic function", func(t *testing.T) {
 		funcName := []*String{NewString("public"), NewString("test_func")}
-		returnType := &TypeName{Names: []string{"int4"}}
-		param1 := NewFunctionParameter(nil, &TypeName{Names: []string{"text"}}, FUNC_PARAM_IN, nil)
+		returnType := NewTypeName([]string{"int4"})
+		param1 := NewFunctionParameter(nil, NewTypeName([]string{"text"}), FUNC_PARAM_IN, nil)
 		
 		stmt := NewCreateFunctionStmt(false, false, funcName, []*FunctionParameter{param1}, returnType, nil, nil)
 
@@ -195,7 +195,7 @@ func TestCreateSeqStmt(t *testing.T) {
 
 func TestCreateOpClassItem(t *testing.T) {
 	t.Run("operator item", func(t *testing.T) {
-		name := &ObjectWithArgs{Objname: []*String{NewString("<")}}
+		name := &ObjectWithArgs{Objname: &NodeList{Items: []Node{NewString("<")}}}
 		item := NewCreateOpClassItem(1, name, 1, nil, nil, nil) // OPCLASS_ITEM_OPERATOR
 
 		assert.NotNil(t, item)
@@ -212,7 +212,7 @@ func TestCreateOpClassItem(t *testing.T) {
 	})
 
 	t.Run("function item", func(t *testing.T) {
-		name := &ObjectWithArgs{Objname: []*String{NewString("btint4cmp")}}
+		name := &ObjectWithArgs{Objname: &NodeList{Items: []Node{NewString("btint4cmp")}}}
 		item := NewCreateOpClassItem(2, name, 1, nil, nil, nil) // OPCLASS_ITEM_FUNCTION
 
 		str := item.String()
@@ -220,7 +220,7 @@ func TestCreateOpClassItem(t *testing.T) {
 	})
 
 	t.Run("storage item", func(t *testing.T) {
-		storedType := &TypeName{Names: []string{"int4"}}
+		storedType := NewTypeName([]string{"int4"})
 		item := NewCreateOpClassItem(3, nil, 0, nil, nil, storedType) // OPCLASS_ITEM_STORAGETYPE
 
 		str := item.String()
@@ -232,7 +232,7 @@ func TestCreateOpClassItem(t *testing.T) {
 func TestCreateOpClassStmt(t *testing.T) {
 	t.Run("basic operator class", func(t *testing.T) {
 		opClassName := []*String{NewString("int4_ops")}
-		dataType := &TypeName{Names: []string{"int4"}}
+		dataType := NewTypeName([]string{"int4"})
 		stmt := NewCreateOpClassStmt(opClassName, nil, "btree", dataType, nil, false)
 
 		assert.NotNil(t, stmt)
@@ -255,7 +255,7 @@ func TestCreateOpClassStmt(t *testing.T) {
 	t.Run("default operator class with family", func(t *testing.T) {
 		opClassName := []*String{NewString("int4_ops")}
 		opFamilyName := []*String{NewString("integer_ops")}
-		dataType := &TypeName{Names: []string{"int4"}}
+		dataType := NewTypeName([]string{"int4"})
 		stmt := NewCreateOpClassStmt(opClassName, opFamilyName, "btree", dataType, nil, true)
 
 		assert.True(t, stmt.IsDefault)
@@ -443,9 +443,9 @@ func TestCreateOpFamilyStmt(t *testing.T) {
 
 func TestCreateCastStmt(t *testing.T) {
 	t.Run("cast with function", func(t *testing.T) {
-		sourceType := &TypeName{Names: []string{"int4"}}
-		targetType := &TypeName{Names: []string{"text"}}
-		function := &ObjectWithArgs{Objname: []*String{NewString("int4out")}}
+		sourceType := NewTypeName([]string{"int4"})
+		targetType := NewTypeName([]string{"text"})
+		function := &ObjectWithArgs{Objname: &NodeList{Items: []Node{NewString("int4out")}}}
 		stmt := NewCreateCastStmt(sourceType, targetType, function, COERCION_EXPLICIT, false)
 
 		assert.NotNil(t, stmt)
@@ -466,8 +466,8 @@ func TestCreateCastStmt(t *testing.T) {
 	})
 
 	t.Run("cast without function", func(t *testing.T) {
-		sourceType := &TypeName{Names: []string{"int4"}}
-		targetType := &TypeName{Names: []string{"int8"}}
+		sourceType := NewTypeName([]string{"int4"})
+		targetType := NewTypeName([]string{"int8"})
 		stmt := NewCreateCastStmt(sourceType, targetType, nil, COERCION_IMPLICIT, false)
 
 		str := stmt.String()
@@ -475,8 +475,8 @@ func TestCreateCastStmt(t *testing.T) {
 	})
 
 	t.Run("inout cast", func(t *testing.T) {
-		sourceType := &TypeName{Names: []string{"int4"}}
-		targetType := &TypeName{Names: []string{"text"}}
+		sourceType := NewTypeName([]string{"int4"})
+		targetType := NewTypeName([]string{"text"})
 		stmt := NewCreateCastStmt(sourceType, targetType, nil, COERCION_EXPLICIT, true)
 
 		assert.True(t, stmt.Inout)
@@ -522,9 +522,9 @@ func TestCreateConversionStmt(t *testing.T) {
 
 func TestCreateTransformStmt(t *testing.T) {
 	t.Run("basic transform", func(t *testing.T) {
-		typeName := &TypeName{Names: []string{"hstore"}}
-		fromSql := &ObjectWithArgs{Objname: []*String{NewString("hstore_to_plperl")}}
-		toSql := &ObjectWithArgs{Objname: []*String{NewString("plperl_to_hstore")}}
+		typeName := NewTypeName([]string{"hstore"})
+		fromSql := &ObjectWithArgs{Objname: &NodeList{Items: []Node{NewString("hstore_to_plperl")}}}
+		toSql := &ObjectWithArgs{Objname: &NodeList{Items: []Node{NewString("plperl_to_hstore")}}}
 		stmt := NewCreateTransformStmt(false, typeName, "plperl", fromSql, toSql)
 
 		assert.NotNil(t, stmt)
@@ -545,7 +545,7 @@ func TestCreateTransformStmt(t *testing.T) {
 	})
 
 	t.Run("replace transform", func(t *testing.T) {
-		typeName := &TypeName{Names: []string{"hstore"}}
+		typeName := NewTypeName([]string{"hstore"})
 		stmt := NewCreateTransformStmt(true, typeName, "plperl", nil, nil)
 
 		assert.True(t, stmt.Replace)
@@ -557,7 +557,7 @@ func TestCreateTransformStmt(t *testing.T) {
 func TestDefineStmt(t *testing.T) {
 	t.Run("create aggregate", func(t *testing.T) {
 		defNames := []*String{NewString("my_avg")}
-		args := []*TypeName{{Names: []string{"int4"}}}
+		args := []*TypeName{NewTypeName([]string{"int4"})}
 		stmt := NewDefineStmt(OBJECT_AGGREGATE, false, defNames, args, nil, false, false)
 
 		assert.NotNil(t, stmt)
@@ -600,7 +600,7 @@ func TestDeclareCursorStmt(t *testing.T) {
 	t.Run("basic cursor", func(t *testing.T) {
 		portalName := "test_cursor"
 		query := &SelectStmt{
-			TargetList: []*ResTarget{{Val: &ColumnRef{Fields: NewNodeList(NewString("*"))}}},
+			TargetList: NewNodeList(&ResTarget{Val: &ColumnRef{Fields: NewNodeList(NewString("*"))}}),
 		}
 		stmt := NewDeclareCursorStmt(portalName, 0, query)
 
@@ -706,19 +706,19 @@ func TestDDLCreationStmtsIntegration(t *testing.T) {
 		// Create function parameters
 		param1 := NewFunctionParameter(
 			&[]string{"input_text"}[0],
-			&TypeName{Names: []string{"text"}},
+			NewTypeName([]string{"text"}),
 			FUNC_PARAM_IN,
 			nil,
 		)
 		param2 := NewFunctionParameter(
 			&[]string{"max_length"}[0],
-			&TypeName{Names: []string{"int4"}},
+			NewTypeName([]string{"int4"}),
 			FUNC_PARAM_IN,
 			&A_Const{Val: NewInteger(100)},
 		)
 		param3 := NewFunctionParameter(
 			&[]string{"result_length"}[0],
-			&TypeName{Names: []string{"int4"}},
+			NewTypeName([]string{"int4"}),
 			FUNC_PARAM_OUT,
 			nil,
 		)
@@ -729,7 +729,7 @@ func TestDDLCreationStmtsIntegration(t *testing.T) {
 			true,  // replace if exists
 			[]*String{NewString("public"), NewString("process_text")},
 			[]*FunctionParameter{param1, param2, param3},
-			&TypeName{Names: []string{"text"}},
+			NewTypeName([]string{"text"}),
 			nil,
 			nil,
 		)
@@ -749,7 +749,7 @@ func TestDDLCreationStmtsIntegration(t *testing.T) {
 		// Create operator class items
 		item1 := NewCreateOpClassItem(
 			1, // OPCLASS_ITEM_OPERATOR
-			&ObjectWithArgs{Objname: []*String{NewString("<")}},
+			&ObjectWithArgs{Objname: &NodeList{Items: []Node{NewString("<")}}},
 			1,
 			nil,
 			nil,
@@ -757,7 +757,7 @@ func TestDDLCreationStmtsIntegration(t *testing.T) {
 		)
 		item2 := NewCreateOpClassItem(
 			2, // OPCLASS_ITEM_FUNCTION
-			&ObjectWithArgs{Objname: []*String{NewString("btint4cmp")}},
+			&ObjectWithArgs{Objname: &NodeList{Items: []Node{NewString("btint4cmp")}}},
 			1,
 			nil,
 			nil,
@@ -769,7 +769,7 @@ func TestDDLCreationStmtsIntegration(t *testing.T) {
 			[]*String{NewString("my_int4_ops")},
 			[]*String{NewString("integer_ops")},
 			"btree",
-			&TypeName{Names: []string{"int4"}},
+			NewTypeName([]string{"int4"}),
 			[]*CreateOpClassItem{item1, item2},
 			true,
 		)

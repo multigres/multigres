@@ -51,7 +51,7 @@ func TestMergeStmt(t *testing.T) {
 	t.Run("NewMergeStmt", func(t *testing.T) {
 		relation := &RangeVar{RelName: "target_table"}
 		sourceRelation := &RangeVar{RelName: "source_table"}
-		joinCondition := &A_Expr{Name: []*String{{SVal: "="}}}
+		joinCondition := NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "="}}}, nil, nil, 0)
 
 		stmt := NewMergeStmt(relation, sourceRelation, joinCondition)
 
@@ -68,7 +68,7 @@ func TestMergeStmt(t *testing.T) {
 	t.Run("MergeStmtWithWhenClauses", func(t *testing.T) {
 		relation := &RangeVar{RelName: "target_table"}
 		sourceRelation := &RangeVar{RelName: "source_table"}
-		joinCondition := &A_Expr{Name: []*String{{SVal: "="}}}
+		joinCondition := NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "="}}}, nil, nil, 0)
 
 		stmt := NewMergeStmt(relation, sourceRelation, joinCondition)
 		whenClause := NewMergeWhenClause(MERGE_WHEN_MATCHED, CMD_UPDATE)
@@ -81,7 +81,7 @@ func TestMergeStmt(t *testing.T) {
 	t.Run("MergeStmtWithReturning", func(t *testing.T) {
 		relation := &RangeVar{RelName: "target_table"}
 		sourceRelation := &RangeVar{RelName: "source_table"}
-		joinCondition := &A_Expr{Name: []*String{{SVal: "="}}}
+		joinCondition := NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "="}}}, nil, nil, 0)
 
 		stmt := NewMergeStmt(relation, sourceRelation, joinCondition)
 		stmt.ReturningList = NewNodeList(&ColumnRef{Fields: NewNodeList(&String{SVal: "id"})})
@@ -155,10 +155,10 @@ func TestSetOperation(t *testing.T) {
 func TestSetOperationStmt(t *testing.T) {
 	t.Run("NewSetOperationStmt", func(t *testing.T) {
 		larg := &SelectStmt{
-			TargetList: []*ResTarget{NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "id"})})},
+			TargetList: NewNodeList(NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "id"})})),
 		}
 		rarg := &SelectStmt{
-			TargetList: []*ResTarget{NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "name"})})},
+			TargetList: NewNodeList(NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "name"})})),
 		}
 
 		stmt := NewSetOperationStmt(SETOP_UNION, false, larg, rarg)
@@ -226,7 +226,7 @@ func TestReturnStmt(t *testing.T) {
 	})
 
 	t.Run("ReturnStmtWithExpression", func(t *testing.T) {
-		returnVal := &FuncCall{Funcname: []*String{{SVal: "now"}}}
+		returnVal := &FuncCall{Funcname: &NodeList{Items: []Node{&String{SVal: "now"}}}}
 		stmt := NewReturnStmt(returnVal)
 
 		assert.Equal(t, returnVal, stmt.ReturnVal)
@@ -237,7 +237,7 @@ func TestReturnStmt(t *testing.T) {
 func TestPLAssignStmt(t *testing.T) {
 	t.Run("NewPLAssignStmt", func(t *testing.T) {
 		val := &SelectStmt{
-			TargetList: []*ResTarget{NewResTarget("", &A_Const{Val: &Integer{IVal: 42}})},
+			TargetList: NewNodeList(NewResTarget("", &A_Const{Val: &Integer{IVal: 42}})),
 		}
 		stmt := NewPLAssignStmt("myvar", val)
 
@@ -325,7 +325,7 @@ func TestOnConflictClause(t *testing.T) {
 
 	t.Run("OnConflictClauseWithWhere", func(t *testing.T) {
 		clause := NewOnConflictClause(ONCONFLICT_UPDATE)
-		clause.WhereClause = &A_Expr{Name: []*String{{SVal: ">"}}}
+		clause.WhereClause = NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: ">"}}}, nil, nil, 0)
 
 		assert.NotNil(t, clause.WhereClause)
 		assert.Contains(t, clause.String(), "WHERE")
@@ -354,7 +354,7 @@ func TestInferClause(t *testing.T) {
 
 	t.Run("InferClauseWithWhere", func(t *testing.T) {
 		clause := NewInferClause()
-		clause.WhereClause = &A_Expr{Name: []*String{{SVal: "IS NOT NULL"}}}
+		clause.WhereClause = NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "IS NOT NULL"}}}, nil, nil, 0)
 
 		assert.NotNil(t, clause.WhereClause)
 		assert.Contains(t, clause.String(), "WHERE")
@@ -559,7 +559,7 @@ func TestAlterOwnerStmt(t *testing.T) {
 	t.Run("AlterOwnerStmtWithObject", func(t *testing.T) {
 		newowner := &RoleSpec{Roletype: ROLESPEC_CSTRING, Rolename: "new_owner"}
 		stmt := NewAlterOwnerStmt(OBJECT_FUNCTION, newowner)
-		stmt.Object = &ObjectWithArgs{Objname: []*String{{SVal: "my_function"}}}
+		stmt.Object = &ObjectWithArgs{Objname: &NodeList{Items: []Node{&String{SVal: "my_function"}}}}
 
 		assert.NotNil(t, stmt.Object)
 		assert.Equal(t, OBJECT_FUNCTION, stmt.ObjectType)
@@ -594,7 +594,7 @@ func TestRuleStmt(t *testing.T) {
 	t.Run("RuleStmtWithWhere", func(t *testing.T) {
 		relation := &RangeVar{RelName: "test_table"}
 		stmt := NewRuleStmt(relation, "test_rule", CMD_UPDATE)
-		stmt.WhereClause = &A_Expr{Name: []*String{{SVal: "="}}}
+		stmt.WhereClause = NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "="}}}, nil, nil, 0)
 
 		assert.NotNil(t, stmt.WhereClause)
 		assert.Contains(t, stmt.String(), "WHERE")
@@ -694,11 +694,11 @@ func TestAdvancedStatementsIntegration(t *testing.T) {
 		mergeStmt := NewMergeStmt(
 			&RangeVar{RelName: "target"},
 			&RangeVar{RelName: "source"},
-			&A_Expr{Name: []*String{{SVal: "="}}},
+			NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "="}}}, nil, nil, 0),
 		)
 
 		whenMatched := NewMergeWhenClause(MERGE_WHEN_MATCHED, CMD_UPDATE)
-		whenMatched.TargetList = []*ResTarget{NewResTarget("updated_at", &FuncCall{Funcname: []*String{{SVal: "now"}}})}
+		whenMatched.TargetList = []*ResTarget{NewResTarget("updated_at", &FuncCall{Funcname: &NodeList{Items: []Node{&String{SVal: "now"}}}})}
 
 		whenNotMatched := NewMergeWhenClause(MERGE_WHEN_NOT_MATCHED_BY_TARGET, CMD_INSERT)
 		whenNotMatched.Values = NewNodeList(&A_Const{Val: &String{SVal: "new_value"}})
@@ -715,17 +715,17 @@ func TestAdvancedStatementsIntegration(t *testing.T) {
 	t.Run("ComplexSetOperation", func(t *testing.T) {
 		// Build nested set operations
 		leftSelect := &SelectStmt{
-			TargetList: []*ResTarget{NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "id"})})},
+			TargetList: NewNodeList(NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "id"})})),
 		}
 		rightSelect := &SelectStmt{
-			TargetList: []*ResTarget{NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "name"})})},
+			TargetList: NewNodeList(NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "name"})})),
 		}
 
 		union := NewSetOperationStmt(SETOP_UNION, true, leftSelect, rightSelect)
 		
 		// Nest this in another set operation
 		finalSelect := &SelectStmt{
-			TargetList: []*ResTarget{NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "value"})})},
+			TargetList: NewNodeList(NewResTarget("", &ColumnRef{Fields: NewNodeList(&String{SVal: "value"})})),
 		}
 		
 		except := NewSetOperationStmt(SETOP_EXCEPT, false, union, finalSelect)
@@ -741,14 +741,14 @@ func TestAdvancedStatementsIntegration(t *testing.T) {
 			{Name: "col1"},
 			{Name: "col2"},
 		}
-		infer.WhereClause = &A_Expr{Name: []*String{{SVal: "IS NOT NULL"}}}
+		infer.WhereClause = NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "IS NOT NULL"}}}, nil, nil, 0)
 
 		onConflict := NewOnConflictClause(ONCONFLICT_UPDATE)
 		onConflict.Infer = infer
 		onConflict.TargetList = []*ResTarget{
-			{Name: "updated_count", Val: &A_Expr{Name: []*String{{SVal: "+"}}}},
+			{Name: "updated_count", Val: NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "+"}}}, nil, nil, 0)},
 		}
-		onConflict.WhereClause = &A_Expr{Name: []*String{{SVal: ">"}}}
+		onConflict.WhereClause = NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: ">"}}}, nil, nil, 0)
 
 		str := onConflict.String()
 		assert.Contains(t, str, "ON CONFLICT")

@@ -287,7 +287,9 @@ func TestComplexStmtCreation(t *testing.T) {
 		nameTarget := NewResTarget("", NewColumnRef(NewString("name")))
 		ageTarget := NewResTarget("", NewColumnRef(NewString("age")))
 
-		stmt.TargetList = []*ResTarget{nameTarget, ageTarget}
+		stmt.TargetList = NewNodeList()
+		stmt.TargetList.Append(nameTarget)
+		stmt.TargetList.Append(ageTarget)
 
 		// Add FROM clause
 		fromTable := NewRangeVar("users", "", "")
@@ -298,7 +300,7 @@ func TestComplexStmtCreation(t *testing.T) {
 
 		// Verify structure
 		require.NotNil(t, stmt)
-		assert.Len(t, stmt.TargetList, 2)
+		assert.Equal(t, 2, stmt.TargetList.Len())
 		assert.Equal(t, 1, stmt.FromClause.Len())
 		assert.NotNil(t, stmt.WhereClause)
 	})
@@ -310,7 +312,9 @@ func TestComplexStmtCreation(t *testing.T) {
 		// Add target columns
 		nameCol := NewResTarget("", NewString("name"))
 		ageCol := NewResTarget("", NewString("age"))
-		stmt.Cols = []*ResTarget{nameCol, ageCol}
+		stmt.Cols = NewNodeList()
+		stmt.Cols.Append(nameCol)
+		stmt.Cols.Append(ageCol)
 
 		// Add VALUES (simulated as a simple node for now)
 		stmt.SelectStmt = NewString("VALUES ('John', 30)")
@@ -318,7 +322,7 @@ func TestComplexStmtCreation(t *testing.T) {
 		// Verify structure
 		require.NotNil(t, stmt)
 		assert.Equal(t, relation, stmt.Relation)
-		assert.Len(t, stmt.Cols, 2)
+		assert.Equal(t, 2, stmt.Cols.Len())
 		assert.NotNil(t, stmt.SelectStmt)
 	})
 
@@ -328,7 +332,8 @@ func TestComplexStmtCreation(t *testing.T) {
 
 		// Add SET clause targets
 		setTarget := NewResTarget("", NewColumnRef(NewString("age")))
-		stmt.TargetList = []*ResTarget{setTarget}
+		stmt.TargetList = NewNodeList()
+		stmt.TargetList.Append(setTarget)
 
 		// Add WHERE clause
 		stmt.WhereClause = NewColumnRef(NewString("id"))
@@ -336,7 +341,7 @@ func TestComplexStmtCreation(t *testing.T) {
 		// Verify structure
 		require.NotNil(t, stmt)
 		assert.Equal(t, relation, stmt.Relation)
-		assert.Len(t, stmt.TargetList, 1)
+		assert.Equal(t, 1, stmt.TargetList.Len())
 		assert.NotNil(t, stmt.WhereClause)
 	})
 }
@@ -348,7 +353,8 @@ func TestStmtNodeTraversal(t *testing.T) {
 
 	// Add a target with a column reference
 	target := NewResTarget("", NewColumnRef(NewString("name")))
-	stmt.TargetList = []*ResTarget{target}
+	stmt.TargetList = NewNodeList()
+	stmt.TargetList.Append(target)
 
 	// Add a table reference
 	table := NewRangeVar("users", "", "")
