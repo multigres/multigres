@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Tests
+name: Cluster Metadata Tests
 
 on:
   push:
@@ -21,7 +21,8 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  test-cluster-metadata:
+    name: Cluster Metadata Tests
     runs-on: ubuntu-24.04
 
     steps:
@@ -32,8 +33,14 @@ jobs:
       with:
         go-version: '1.25.0'
 
+    - name: Install etcd binary
+      run: |
+        curl -L https://github.com/etcd-io/etcd/releases/download/v3.5.0/etcd-v3.5.0-linux-amd64.tar.gz | tar xz
+        sudo cp etcd-v3.5.0-linux-amd64/etcd /usr/local/bin/
+        rm -rf etcd-v3.5.0-linux-amd64
+
     - name: Build
       run: make build
 
-    - name: Run tests
-      run: go test -v ./...
+    - name: Run cluster metadata tests
+      run: go test -v ./go/clustermetadata/...
