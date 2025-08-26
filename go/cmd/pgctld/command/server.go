@@ -20,13 +20,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
-	"os/signal"
-	"syscall"
+
+	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-	"google.golang.org/grpc"
 
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
@@ -43,45 +40,33 @@ var serverCmd = &cobra.Command{
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
-	logger := slog.Default()
+	servenv.Init()
 
-	port := viper.GetInt("grpc-port")
-
-	// Create gRPC server
-	grpcServer := grpc.NewServer()
+	// Get the configured logger
+	logger := servenv.GetLogger()
 
 	// Create and register our service
 	pgctldService := &PgCtldService{
 		logger: logger,
 	}
-	pb.RegisterPgCtldServer(grpcServer, pgctldService)
 
-	// Create listener
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return fmt.Errorf("failed to listen on port %d: %w", port, err)
-	}
+	servenv.OnRun(func() {
+		logger.Info("pgctld server starting up",
+			"grpc_port", servenv.GRPCPort(),
+		)
 
-	logger.Info("Starting pgctld gRPC server", "port", port)
-
-	// Handle graceful shutdown
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
-	// Start server in goroutine
-	go func() {
-		if err := grpcServer.Serve(lis); err != nil {
-			logger.Error("gRPC server failed", "error", err)
+		// Register gRPC service with the global GRPCServer
+		if servenv.GRPCCheckServiceMap("pgctld") {
+			pb.RegisterPgCtldServer(servenv.GRPCServer, pgctldService)
 		}
-	}()
+	})
 
-	logger.Info("pgctld gRPC server listening", "address", lis.Addr().String())
+	servenv.OnClose(func() {
+		logger.Info("pgctld server shutting down")
+		// TODO: add closing hooks
+	})
 
-	// Wait for shutdown signal
-	<-ctx.Done()
-
-	logger.Info("Shutting down pgctld gRPC server")
-	grpcServer.GracefulStop()
+	servenv.RunDefault()
 
 	return nil
 }

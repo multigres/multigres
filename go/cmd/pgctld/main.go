@@ -23,6 +23,7 @@ import (
 	"os"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
+	"github.com/multigres/multigres/go/servenv"
 )
 
 func main() {
@@ -30,4 +31,9 @@ func main() {
 		slog.Error("Command execution failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+func init() {
+	servenv.RegisterServiceCmd(command.Root)
+	servenv.InitServiceMap("grpc", "pgctld")
 }
