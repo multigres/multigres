@@ -151,19 +151,19 @@ const (
 // Constraint Attribute Specification (CAS) bitmask constants
 // Ported from postgres/src/include/parser/parse_node.h:46-52
 const (
-	CAS_NOT_DEFERRABLE        int = 0x01
-	CAS_DEFERRABLE            int = 0x02
-	CAS_INITIALLY_IMMEDIATE   int = 0x04
-	CAS_INITIALLY_DEFERRED    int = 0x08
-	CAS_NOT_VALID             int = 0x10
-	CAS_NO_INHERIT            int = 0x20
+	CAS_NOT_DEFERRABLE      int = 0x01
+	CAS_DEFERRABLE          int = 0x02
+	CAS_INITIALLY_IMMEDIATE int = 0x04
+	CAS_INITIALLY_DEFERRED  int = 0x08
+	CAS_NOT_VALID           int = 0x10
+	CAS_NO_INHERIT          int = 0x20
 )
 
 // Foreign Key Constraint Match Types
 // Ported from postgres/src/include/nodes/parsenodes.h:2665-2667
 const (
 	FKCONSTR_MATCH_FULL    byte = 'f' // MATCH FULL
-	FKCONSTR_MATCH_PARTIAL byte = 'p' // MATCH PARTIAL  
+	FKCONSTR_MATCH_PARTIAL byte = 'p' // MATCH PARTIAL
 	FKCONSTR_MATCH_SIMPLE  byte = 's' // MATCH SIMPLE (default)
 )
 
@@ -190,8 +190,8 @@ const (
 // Ported from postgres/src/backend/parser/gram.y:142-146
 type KeyAction struct {
 	BaseNode
-	Action byte       // FKCONSTR_ACTION_* constant
-	Cols   *NodeList  // optional column list for SET NULL/SET DEFAULT
+	Action byte      // FKCONSTR_ACTION_* constant
+	Cols   *NodeList // optional column list for SET NULL/SET DEFAULT
 }
 
 // KeyActions represents both update and delete actions for foreign keys
@@ -479,11 +479,11 @@ func (r *RoleSpec) String() string {
 type TypeName struct {
 	BaseNode
 	Names       *NodeList // qualified name (list of String)
-	TypeOid     Oid      // type's OID (filled in by transformTypeName)
-	Setof       bool     // is a set?
-	PctType     bool     // %TYPE specified?
+	TypeOid     Oid       // type's OID (filled in by transformTypeName)
+	Setof       bool      // is a set?
+	PctType     bool      // %TYPE specified?
 	Typmods     *NodeList // type modifier expression(s)
-	Typemod     int32    // prespecified type modifier
+	Typemod     int32     // prespecified type modifier
 	ArrayBounds *NodeList // array bounds
 }
 
@@ -567,7 +567,7 @@ func (t *TypeName) SqlString() string {
 	if t.Names == nil || t.Names.Len() == 0 {
 		return ""
 	}
-	
+
 	// Join qualified names with dots (e.g., "schema.type")
 	var nameParts []string
 	for _, item := range t.Names.Items {
@@ -600,7 +600,7 @@ func (t *TypeName) SqlString() string {
 		}
 	}
 	typeName := strings.Join(nameParts, ".")
-	
+
 	// Add type modifiers if present
 	if t.Typmods != nil && t.Typmods.Len() > 0 {
 		var modStrs []string
@@ -613,7 +613,7 @@ func (t *TypeName) SqlString() string {
 			typeName += "(" + strings.Join(modStrs, ", ") + ")"
 		}
 	}
-	
+
 	return typeName
 }
 
@@ -810,7 +810,7 @@ func (c *Constraint) SqlString() string {
 				result += " (" + strings.Join(nodeListToStrings(c.PkAttrs), ", ") + ")"
 			}
 		}
-		
+
 		// Add foreign key actions (only if explicitly set and not default NO ACTION)
 		if c.FkUpdAction != 0 && c.FkUpdAction != FKCONSTR_ACTION_NOACTION {
 			switch c.FkUpdAction {
@@ -824,7 +824,7 @@ func (c *Constraint) SqlString() string {
 				result += " ON UPDATE SET DEFAULT"
 			}
 		}
-		
+
 		if c.FkDelAction != 0 && c.FkDelAction != FKCONSTR_ACTION_NOACTION {
 			switch c.FkDelAction {
 			case FKCONSTR_ACTION_RESTRICT:
@@ -837,7 +837,7 @@ func (c *Constraint) SqlString() string {
 				result += " ON DELETE SET DEFAULT"
 			}
 		}
-		
+
 		return result
 	}
 	return ""
@@ -956,10 +956,10 @@ func (a *AlterTableMoveAllStmt) String() string {
 
 func (a *AlterTableMoveAllStmt) SqlString() string {
 	var parts []string
-	
+
 	// Start with ALTER
 	parts = append(parts, "ALTER")
-	
+
 	// Add object type
 	switch a.Objtype {
 	case OBJECT_TABLE:
@@ -971,10 +971,10 @@ func (a *AlterTableMoveAllStmt) SqlString() string {
 	default:
 		parts = append(parts, "TABLE")
 	}
-	
+
 	// Add ALL IN TABLESPACE
 	parts = append(parts, "ALL IN TABLESPACE", a.OrigTablespacename)
-	
+
 	// Add OWNED BY if roles specified
 	if a.Roles != nil && a.Roles.Len() > 0 {
 		parts = append(parts, "OWNED BY")
@@ -1000,24 +1000,24 @@ func (a *AlterTableMoveAllStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(roleNames, ", "))
 	}
-	
+
 	// Add SET TABLESPACE
 	parts = append(parts, "SET TABLESPACE", a.NewTablespacename)
-	
+
 	// Add NOWAIT if specified
 	if a.Nowait {
 		parts = append(parts, "NOWAIT")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 func (a *AlterTableStmt) SqlString() string {
 	var parts []string
-	
+
 	// Start with ALTER
 	parts = append(parts, "ALTER")
-	
+
 	// Add object type
 	switch a.Objtype {
 	case OBJECT_TABLE:
@@ -1035,17 +1035,17 @@ func (a *AlterTableStmt) SqlString() string {
 	default:
 		parts = append(parts, "TABLE")
 	}
-	
+
 	// Add IF EXISTS if specified
 	if a.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
-	
+
 	// Add relation name
 	if a.Relation != nil {
 		parts = append(parts, a.Relation.SqlString())
 	}
-	
+
 	// Add commands
 	if a.Cmds != nil && a.Cmds.Len() > 0 {
 		var cmdStrs []string
@@ -1058,7 +1058,7 @@ func (a *AlterTableStmt) SqlString() string {
 			parts = append(parts, strings.Join(cmdStrs, ", "))
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1093,7 +1093,7 @@ func (a *AlterTableCmd) String() string {
 
 func (a *AlterTableCmd) SqlString() string {
 	var parts []string
-	
+
 	switch a.Subtype {
 	case AT_AddColumn:
 		parts = append(parts, "ADD COLUMN")
@@ -1103,7 +1103,7 @@ func (a *AlterTableCmd) SqlString() string {
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
-		
+
 	case AT_DropColumn:
 		parts = append(parts, "DROP COLUMN")
 		if a.MissingOk {
@@ -1113,13 +1113,13 @@ func (a *AlterTableCmd) SqlString() string {
 		if a.Behavior == DropCascade {
 			parts = append(parts, "CASCADE")
 		}
-		
+
 	case AT_AlterColumnType:
 		parts = append(parts, "ALTER COLUMN", a.Name, "TYPE")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
-		
+
 	case AT_ColumnDefault:
 		parts = append(parts, "ALTER COLUMN", a.Name)
 		if a.Def != nil {
@@ -1127,31 +1127,31 @@ func (a *AlterTableCmd) SqlString() string {
 		} else {
 			parts = append(parts, "DROP DEFAULT")
 		}
-		
+
 	case AT_SetNotNull:
 		parts = append(parts, "ALTER COLUMN", a.Name, "SET NOT NULL")
-		
+
 	case AT_DropNotNull:
 		parts = append(parts, "ALTER COLUMN", a.Name, "DROP NOT NULL")
-		
+
 	case AT_SetStatistics:
 		parts = append(parts, "ALTER COLUMN", a.Name, "SET STATISTICS")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
-		
+
 	case AT_SetExpression:
 		parts = append(parts, "ALTER COLUMN", a.Name, "SET EXPRESSION AS")
 		if a.Def != nil {
 			parts = append(parts, "(", a.Def.SqlString(), ")")
 		}
-		
+
 	case AT_DropExpression:
 		parts = append(parts, "ALTER COLUMN", a.Name, "DROP EXPRESSION")
 		if a.MissingOk {
 			parts = append(parts, "IF EXISTS")
 		}
-		
+
 	case AT_AddConstraint:
 		parts = append(parts, "ADD")
 		if a.Def != nil {
@@ -1162,7 +1162,7 @@ func (a *AlterTableCmd) SqlString() string {
 				parts = append(parts, a.Def.SqlString())
 			}
 		}
-		
+
 	case AT_DropConstraint:
 		parts = append(parts, "DROP CONSTRAINT")
 		if a.MissingOk {
@@ -1172,62 +1172,62 @@ func (a *AlterTableCmd) SqlString() string {
 		if a.Behavior == DropCascade {
 			parts = append(parts, "CASCADE")
 		}
-		
+
 	case AT_ValidateConstraint:
 		parts = append(parts, "VALIDATE CONSTRAINT", a.Name)
-		
+
 	case AT_SetStorage:
 		parts = append(parts, "ALTER COLUMN", a.Name, "SET STORAGE")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
-		
+
 	case AT_SetCompression:
 		parts = append(parts, "ALTER COLUMN", a.Name, "SET COMPRESSION")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
-		
+
 	case AT_SetOptions:
 		parts = append(parts, "ALTER COLUMN", a.Name, "SET")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
-		
+
 	case AT_ResetOptions:
 		parts = append(parts, "ALTER COLUMN", a.Name, "RESET")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
-		
+
 	case AT_ClusterOn:
 		parts = append(parts, "CLUSTER ON", a.Name)
-		
+
 	case AT_DropCluster:
 		parts = append(parts, "SET WITHOUT CLUSTER")
-		
+
 	case AT_SetLogged:
 		parts = append(parts, "SET LOGGED")
-		
+
 	case AT_SetUnLogged:
 		parts = append(parts, "SET UNLOGGED")
-		
+
 	case AT_SetTableSpace:
 		parts = append(parts, "SET TABLESPACE", a.Name)
-		
+
 	case AT_ChangeOwner:
 		parts = append(parts, "OWNER TO")
 		if a.Newowner != nil {
 			parts = append(parts, a.Newowner.SqlString())
 		}
-		
+
 	case AT_AttachPartition:
 		parts = append(parts, "ATTACH PARTITION")
 		if a.Def != nil {
 			// a.Def should be a PartitionCmd containing the partition name and bound spec
 			parts = append(parts, a.Def.SqlString())
 		}
-		
+
 	case AT_DetachPartition:
 		parts = append(parts, "DETACH PARTITION")
 		if a.Def != nil {
@@ -1241,7 +1241,7 @@ func (a *AlterTableCmd) SqlString() string {
 				}
 			}
 		}
-		
+
 	case AT_DetachPartitionFinalize:
 		parts = append(parts, "DETACH PARTITION")
 		if a.Def != nil {
@@ -1252,7 +1252,7 @@ func (a *AlterTableCmd) SqlString() string {
 				}
 			}
 		}
-		
+
 	default:
 		// Fallback for unhandled subtypes
 		parts = append(parts, fmt.Sprintf("/* %s */", a.Subtype.String()))
@@ -1260,7 +1260,7 @@ func (a *AlterTableCmd) SqlString() string {
 			parts = append(parts, a.Name)
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1272,30 +1272,30 @@ func (a *AlterTableCmd) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3348
 type IndexStmt struct {
 	BaseNode
-	Idxname                  string       // name of new index, or NULL for default - postgres/src/include/nodes/parsenodes.h:3350
-	Relation                 *RangeVar    // relation to build index on - postgres/src/include/nodes/parsenodes.h:3351
-	AccessMethod             string       // name of access method (eg. btree) - postgres/src/include/nodes/parsenodes.h:3352
-	TableSpace               string       // tablespace, or NULL for default - postgres/src/include/nodes/parsenodes.h:3353
+	Idxname                  string    // name of new index, or NULL for default - postgres/src/include/nodes/parsenodes.h:3350
+	Relation                 *RangeVar // relation to build index on - postgres/src/include/nodes/parsenodes.h:3351
+	AccessMethod             string    // name of access method (eg. btree) - postgres/src/include/nodes/parsenodes.h:3352
+	TableSpace               string    // tablespace, or NULL for default - postgres/src/include/nodes/parsenodes.h:3353
 	IndexParams              *NodeList // columns to index: a list of IndexElem - postgres/src/include/nodes/parsenodes.h:3354
 	IndexIncludingParams     *NodeList // additional columns to index - postgres/src/include/nodes/parsenodes.h:3355
 	Options                  *NodeList // WITH clause options: a list of DefElem - postgres/src/include/nodes/parsenodes.h:3357
-	WhereClause              Node         // qualification (partial-index predicate) - postgres/src/include/nodes/parsenodes.h:3358
-	ExcludeOpNames           *NodeList    // exclusion operator names, or NIL if none - postgres/src/include/nodes/parsenodes.h:3359
-	Idxcomment               string       // comment to apply to index, or NULL - postgres/src/include/nodes/parsenodes.h:3360
-	IndexOid                 Oid          // OID of an existing index, if any - postgres/src/include/nodes/parsenodes.h:3361
-	OldNumber                uint32       // relfilenumber of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3362
-	OldCreateSubid           uint32       // rd_createSubid of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3363
-	OldFirstRelfilenodeSubid uint32       // rd_firstRelfilenodeSubid of existing storage - postgres/src/include/nodes/parsenodes.h:3364
-	Unique                   bool         // is index unique? - postgres/src/include/nodes/parsenodes.h:3365
-	NullsNotDistinct       bool         // null treatment in unique index - postgres/src/include/nodes/parsenodes.h:3366
-	Primary                  bool         // is index a primary key? - postgres/src/include/nodes/parsenodes.h:3367
-	Isconstraint             bool         // is it for a pkey/unique constraint? - postgres/src/include/nodes/parsenodes.h:3368
-	Deferrable               bool         // is the constraint DEFERRABLE? - postgres/src/include/nodes/parsenodes.h:3369
-	Initdeferred             bool         // is the constraint INITIALLY DEFERRED? - postgres/src/include/nodes/parsenodes.h:3370
-	Transformed              bool         // true when transformIndexStmt is finished - postgres/src/include/nodes/parsenodes.h:3371
-	Concurrent               bool         // should this be a concurrent index build? - postgres/src/include/nodes/parsenodes.h:3372
-	IfNotExists              bool         // just do nothing if index already exists? - postgres/src/include/nodes/parsenodes.h:3373
-	ResetDefaultTblspc       bool         // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:3374
+	WhereClause              Node      // qualification (partial-index predicate) - postgres/src/include/nodes/parsenodes.h:3358
+	ExcludeOpNames           *NodeList // exclusion operator names, or NIL if none - postgres/src/include/nodes/parsenodes.h:3359
+	Idxcomment               string    // comment to apply to index, or NULL - postgres/src/include/nodes/parsenodes.h:3360
+	IndexOid                 Oid       // OID of an existing index, if any - postgres/src/include/nodes/parsenodes.h:3361
+	OldNumber                uint32    // relfilenumber of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3362
+	OldCreateSubid           uint32    // rd_createSubid of existing storage, if any - postgres/src/include/nodes/parsenodes.h:3363
+	OldFirstRelfilenodeSubid uint32    // rd_firstRelfilenodeSubid of existing storage - postgres/src/include/nodes/parsenodes.h:3364
+	Unique                   bool      // is index unique? - postgres/src/include/nodes/parsenodes.h:3365
+	NullsNotDistinct         bool      // null treatment in unique index - postgres/src/include/nodes/parsenodes.h:3366
+	Primary                  bool      // is index a primary key? - postgres/src/include/nodes/parsenodes.h:3367
+	Isconstraint             bool      // is it for a pkey/unique constraint? - postgres/src/include/nodes/parsenodes.h:3368
+	Deferrable               bool      // is the constraint DEFERRABLE? - postgres/src/include/nodes/parsenodes.h:3369
+	Initdeferred             bool      // is the constraint INITIALLY DEFERRED? - postgres/src/include/nodes/parsenodes.h:3370
+	Transformed              bool      // true when transformIndexStmt is finished - postgres/src/include/nodes/parsenodes.h:3371
+	Concurrent               bool      // should this be a concurrent index build? - postgres/src/include/nodes/parsenodes.h:3372
+	IfNotExists              bool      // just do nothing if index already exists? - postgres/src/include/nodes/parsenodes.h:3373
+	ResetDefaultTblspc       bool      // reset default_tablespace prior to creating the index - postgres/src/include/nodes/parsenodes.h:3374
 }
 
 // NewIndexStmt creates a new IndexStmt node.
@@ -1655,42 +1655,42 @@ func NewExpressionIndexElem(expr Node) *IndexElem {
 // SqlString returns the SQL representation of CREATE INDEX statement
 func (i *IndexStmt) SqlString() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE")
-	
+
 	// Add UNIQUE if specified
 	if i.Unique {
 		parts = append(parts, "UNIQUE")
 	}
-	
+
 	parts = append(parts, "INDEX")
-	
+
 	// Add CONCURRENTLY if specified
 	if i.Concurrent {
 		parts = append(parts, "CONCURRENTLY")
 	}
-	
+
 	// Add IF NOT EXISTS if specified
 	if i.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
 	}
-	
+
 	// Add index name
 	if i.Idxname != "" {
 		parts = append(parts, i.Idxname)
 	}
-	
+
 	// Add ON table
 	parts = append(parts, "ON")
 	if i.Relation != nil {
 		parts = append(parts, i.Relation.SqlString())
 	}
-	
+
 	// Add access method if specified and not default
 	if i.AccessMethod != "" && i.AccessMethod != "btree" {
 		parts = append(parts, "USING", i.AccessMethod)
 	}
-	
+
 	// Add index columns
 	if i.IndexParams != nil && i.IndexParams.Len() > 0 {
 		var columnParts []string
@@ -1701,7 +1701,7 @@ func (i *IndexStmt) SqlString() string {
 		}
 		parts = append(parts, "("+strings.Join(columnParts, ", ")+")")
 	}
-	
+
 	// Add INCLUDE columns if specified
 	if i.IndexIncludingParams != nil && i.IndexIncludingParams.Len() > 0 {
 		var includeParts []string
@@ -1712,12 +1712,12 @@ func (i *IndexStmt) SqlString() string {
 		}
 		parts = append(parts, "INCLUDE", "("+strings.Join(includeParts, ", ")+")")
 	}
-	
+
 	// Add NULLS NOT DISTINCT if specified
 	if i.NullsNotDistinct {
 		parts = append(parts, "NULLS NOT DISTINCT")
 	}
-	
+
 	// Add WITH options if specified
 	if i.Options != nil && i.Options.Len() > 0 {
 		var optParts []string
@@ -1730,16 +1730,16 @@ func (i *IndexStmt) SqlString() string {
 			parts = append(parts, "WITH", "("+strings.Join(optParts, ", ")+")")
 		}
 	}
-	
+
 	// Add tablespace if specified
 	if i.TableSpace != "" {
 		parts = append(parts, "TABLESPACE", i.TableSpace)
 	}
-	
+
 	// Add WHERE clause if specified
 	if i.WhereClause != nil {
 		parts = append(parts, "WHERE", i.WhereClause.SqlString())
 	}
-	
+
 	return strings.Join(parts, " ")
 }

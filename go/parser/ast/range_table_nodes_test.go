@@ -159,10 +159,10 @@ func TestRangeTableFunc(t *testing.T) {
 	t.Run("NewRangeTableFunc", func(t *testing.T) {
 		docExpr := NewA_Const(NewString("document"), -1)
 		rowExpr := NewA_Const(NewString("/row"), -1)
-		namespaces := []*ResTarget{NewResTarget("namespace", NewA_Const(NewString("ns"), -1))}
-		columns := []*RangeTableFuncCol{
-			NewRangeTableFuncCol("col1", NewTypeName([]string{"text"}), false, false, nil, nil, 100),
-		}
+		namespaces := NewNodeList()
+		namespaces.Append(NewResTarget("namespace", NewA_Const(NewString("ns"), -1)))
+		columns := NewNodeList()
+		columns.Append(NewRangeTableFuncCol("col1", NewTypeName([]string{"text"}), false, false, nil, nil, 100))
 		alias := NewAlias("xmltab", nil)
 
 		rtf := NewRangeTableFunc(true, docExpr, rowExpr, namespaces, columns, alias, 100)
@@ -180,10 +180,9 @@ func TestRangeTableFunc(t *testing.T) {
 	})
 
 	t.Run("String", func(t *testing.T) {
-		columns := []*RangeTableFuncCol{
-			NewRangeTableFuncCol("col1", nil, false, false, nil, nil, 0),
-			NewRangeTableFuncCol("col2", nil, false, false, nil, nil, 0),
-		}
+		columns := NewNodeList()
+		columns.Append(NewRangeTableFuncCol("col1", nil, false, false, nil, nil, 0))
+		columns.Append(NewRangeTableFuncCol("col2", nil, false, false, nil, nil, 0))
 		rtf := NewRangeTableFunc(true, nil, nil, nil, columns, nil, 50)
 		str := rtf.String()
 

@@ -23,7 +23,7 @@ type MergeStmt struct {
 	Relation         *RangeVar          `json:"relation"`          // Target relation to merge into
 	SourceRelation   Node               `json:"sourceRelation"`    // Source relation
 	JoinCondition    Node               `json:"joinCondition"`     // Join condition between source and target
-	MergeWhenClauses []*MergeWhenClause `json:"mergeWhenClauses"`  // List of WHEN clauses
+	MergeWhenClauses *NodeList          `json:"mergeWhenClauses"`  // List of WHEN clauses
 	ReturningList    *NodeList          `json:"returningList"`     // List of expressions to return
 	WithClause       *WithClause        `json:"withClause"`        // WITH clause
 }
@@ -58,8 +58,12 @@ func (n *MergeStmt) String() string {
 	
 	parts = append(parts, "MERGE INTO", targetTable, "USING", sourceTable, "ON", n.JoinCondition.String())
 	
-	for _, clause := range n.MergeWhenClauses {
-		parts = append(parts, clause.String())
+	if n.MergeWhenClauses != nil {
+		for _, item := range n.MergeWhenClauses.Items {
+			if clause, ok := item.(*MergeWhenClause); ok {
+				parts = append(parts, clause.String())
+			}
+		}
 	}
 	
 	if n.ReturningList != nil && n.ReturningList.Len() > 0 {
@@ -100,9 +104,11 @@ func (m *MergeStmt) SqlString() string {
 	}
 	
 	// WHEN clauses
-	for _, clause := range m.MergeWhenClauses {
-		if clause != nil {
-			parts = append(parts, clause.SqlString())
+	if m.MergeWhenClauses != nil {
+		for _, item := range m.MergeWhenClauses.Items {
+			if clause, ok := item.(*MergeWhenClause); ok && clause != nil {
+				parts = append(parts, clause.SqlString())
+			}
 		}
 	}
 	
@@ -417,7 +423,7 @@ func NewPLAssignStmt(name string, val *SelectStmt) *PLAssignStmt {
 // Ported from postgres/src/include/nodes/parsenodes.h:1606-1613
 type InferClause struct {
 	BaseNode
-	IndexElems   []*IndexElem `json:"indexElems"`   // IndexElems to infer unique index
+	IndexElems   *NodeList    `json:"indexElems"`   // IndexElems to infer unique index
 	WhereClause  Node         `json:"whereClause"`  // Qualification (partial-index predicate)
 	Conname      string       `json:"conname"`      // Constraint name, or NULL if unnamed
 }
@@ -427,12 +433,16 @@ func (n *InferClause) node() {}
 func (n *InferClause) String() string {
 	var parts []string
 	
-	if len(n.IndexElems) > 0 {
-		elems := make([]string, len(n.IndexElems))
-		for i, elem := range n.IndexElems {
-			elems[i] = elem.String()
+	if n.IndexElems != nil && n.IndexElems.Len() > 0 {
+		var elems []string
+		for _, item := range n.IndexElems.Items {
+			if elem, ok := item.(*IndexElem); ok {
+				elems = append(elems, elem.String())
+			}
 		}
-		parts = append(parts, "("+strings.Join(elems, ", ")+")")
+		if len(elems) > 0 {
+			parts = append(parts, "("+strings.Join(elems, ", ")+")")
+		}
 	}
 	
 	if n.WhereClause != nil {
@@ -449,12 +459,16 @@ func (n *InferClause) String() string {
 func (n *InferClause) SqlString() string {
 	var parts []string
 	
-	if len(n.IndexElems) > 0 {
-		elems := make([]string, len(n.IndexElems))
-		for i, elem := range n.IndexElems {
-			elems[i] = elem.SqlString()
+	if n.IndexElems != nil && n.IndexElems.Len() > 0 {
+		var elems []string
+		for _, item := range n.IndexElems.Items {
+			if elem, ok := item.(*IndexElem); ok {
+				elems = append(elems, elem.SqlString())
+			}
 		}
-		parts = append(parts, "("+strings.Join(elems, ", ")+")")
+		if len(elems) > 0 {
+			parts = append(parts, "("+strings.Join(elems, ", ")+")")
+		}
 	}
 	
 	if n.WhereClause != nil {

@@ -72,9 +72,10 @@ func TestMergeStmt(t *testing.T) {
 
 		stmt := NewMergeStmt(relation, sourceRelation, joinCondition)
 		whenClause := NewMergeWhenClause(MERGE_WHEN_MATCHED, CMD_UPDATE)
-		stmt.MergeWhenClauses = []*MergeWhenClause{whenClause}
+		stmt.MergeWhenClauses = NewNodeList(whenClause)
 
-		assert.NotEmpty(t, stmt.MergeWhenClauses)
+		assert.NotNil(t, stmt.MergeWhenClauses)
+		assert.Equal(t, 1, stmt.MergeWhenClauses.Len())
 		assert.Contains(t, stmt.String(), "WHEN MATCHED")
 	})
 
@@ -312,13 +313,14 @@ func TestOnConflictClause(t *testing.T) {
 
 	t.Run("OnConflictClauseUpdate", func(t *testing.T) {
 		clause := NewOnConflictClause(ONCONFLICT_UPDATE)
-		clause.TargetList = []*ResTarget{{
+		clause.TargetList = NewNodeList(&ResTarget{
 			Name: "column1",
 			Val:  &A_Const{Val: &String{SVal: "value1"}},
-		}}
+		})
 
 		assert.Equal(t, ONCONFLICT_UPDATE, clause.Action)
-		assert.NotEmpty(t, clause.TargetList)
+		assert.NotNil(t, clause.TargetList)
+		assert.Equal(t, 1, clause.TargetList.Len())
 		assert.Contains(t, clause.String(), "DO UPDATE")
 		assert.Contains(t, clause.String(), "SET")
 	})
@@ -343,11 +345,12 @@ func TestInferClause(t *testing.T) {
 
 	t.Run("InferClauseWithIndexElems", func(t *testing.T) {
 		clause := NewInferClause()
-		clause.IndexElems = []*IndexElem{{
+		clause.IndexElems = NewNodeList(&IndexElem{
 			Name: "column1",
-		}}
+		})
 
-		assert.NotEmpty(t, clause.IndexElems)
+		assert.NotNil(t, clause.IndexElems)
+		assert.Equal(t, 1, clause.IndexElems.Len())
 		assert.Contains(t, clause.String(), "(")
 		assert.Contains(t, clause.String(), ")")
 	})
@@ -703,7 +706,7 @@ func TestAdvancedStatementsIntegration(t *testing.T) {
 		whenNotMatched := NewMergeWhenClause(MERGE_WHEN_NOT_MATCHED_BY_TARGET, CMD_INSERT)
 		whenNotMatched.Values = NewNodeList(&A_Const{Val: &String{SVal: "new_value"}})
 
-		mergeStmt.MergeWhenClauses = []*MergeWhenClause{whenMatched, whenNotMatched}
+		mergeStmt.MergeWhenClauses = NewNodeList(whenMatched, whenNotMatched)
 		mergeStmt.ReturningList = NewNodeList(&ColumnRef{Fields: NewNodeList(&String{SVal: "*"})})
 
 		assert.Contains(t, mergeStmt.String(), "MERGE INTO target USING source")
@@ -737,17 +740,17 @@ func TestAdvancedStatementsIntegration(t *testing.T) {
 	t.Run("OnConflictWithComplexInference", func(t *testing.T) {
 		// Build complex ON CONFLICT clause
 		infer := NewInferClause()
-		infer.IndexElems = []*IndexElem{
-			{Name: "col1"},
-			{Name: "col2"},
-		}
+		infer.IndexElems = NewNodeList(
+			&IndexElem{Name: "col1"},
+			&IndexElem{Name: "col2"},
+		)
 		infer.WhereClause = NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "IS NOT NULL"}}}, nil, nil, 0)
 
 		onConflict := NewOnConflictClause(ONCONFLICT_UPDATE)
 		onConflict.Infer = infer
-		onConflict.TargetList = []*ResTarget{
-			{Name: "updated_count", Val: NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "+"}}}, nil, nil, 0)},
-		}
+		onConflict.TargetList = NewNodeList(
+			&ResTarget{Name: "updated_count", Val: NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: "+"}}}, nil, nil, 0)},
+		)
 		onConflict.WhereClause = NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{&String{SVal: ">"}}}, nil, nil, 0)
 
 		str := onConflict.String()

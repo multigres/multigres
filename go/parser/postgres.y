@@ -60,6 +60,13 @@ type LexerInterface interface {
 	partspec   *ast.PartitionSpec
 	partboundspec *ast.PartitionBoundSpec
 	oncommit   ast.OnCommitAction
+	defelt     *ast.DefElem
+	target     *ast.ResTarget   // For select targets, insert columns
+	alias      *ast.Alias       // For table and column aliases
+	jtype      ast.JoinType     // For join type specifications
+	jexpr      *ast.JoinExpr    // For joined table expressions
+	keyaction  *ast.KeyAction   // For foreign key actions
+	keyactions *ast.KeyActions  // For foreign key action sets
 
 	// Location tracking
 	location   int
@@ -214,7 +221,8 @@ type LexerInterface interface {
 %type <node>         opt_with
 %type <node>         alter_using
 %type <list>         alter_generic_options alter_generic_option_list
-%type <node>         generic_option_arg alter_generic_option_elem
+%type <node>         generic_option_arg
+%type <defelt>       alter_generic_option_elem
 %type <str>          set_access_method_name
 %type <node>         replica_identity
 %type <list>         func_args OptWith
@@ -255,7 +263,7 @@ type LexerInterface interface {
 %type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt
 %type <node>         insert_rest
 %type <list>         insert_column_list set_clause_list set_target_list merge_when_list
-%type <node>         insert_column_item set_target
+%type <target>       insert_column_item set_target
 %type <list>         set_clause
 %type <onconflict>   opt_on_conflict
 %type <node>         where_or_current_clause
@@ -272,11 +280,11 @@ type LexerInterface interface {
 %type <list>         type_name_list
 %type <str>          opt_boolean_or_string NonReservedWord_or_Sconst
 %type <list>         target_list opt_target_list
-%type <node>         target_el
+%type <target>       target_el
 %type <list>         from_clause from_list
 %type <node>         table_ref
 %type <node>         where_clause opt_where_clause
-%type <node>         alias_clause opt_alias_clause opt_alias_clause_for_join_using
+%type <alias>        alias_clause opt_alias_clause opt_alias_clause_for_join_using
 %type <ival>         opt_all_clause
 %type <list>         distinct_clause opt_distinct_clause
 %type <into>	     into_clause
@@ -341,13 +349,14 @@ type LexerInterface interface {
 %type <bval>         opt_no_inherit opt_unique opt_unique_null_treatment
 %type <byt>          key_match
 %type <list>         opt_c_include
-%type <node>         key_update key_delete key_action key_actions
+%type <keyaction>    key_update key_delete key_action
+%type <keyactions>   key_actions
 %type <list>         OptInherit
 %type <partspec>     OptPartitionSpec PartitionSpec
 %type <list>         part_params
 %type <node>         part_elem
 %type <list>         reloptions reloption_list
-%type <node>         reloption_elem
+%type <defelt>       reloption_elem
 %type <oncommit>     OnCommitOption
 %type <str>          OptTableSpace OptConsTableSpace
 %type <str>          ExistingIndex
@@ -367,13 +376,15 @@ type LexerInterface interface {
 %type <str>          column_compression opt_column_compression column_storage opt_column_storage
 %type <list>         create_generic_options
 %type <list>         generic_option_list
-%type <node>         generic_option_elem generic_option_arg
+%type <defelt>       generic_option_elem
+%type <node>         generic_option_arg
 %type <bval>         opt_unique_null_treatment opt_recheck
 %type <byt>          generated_when
 %type <list>         SeqOptList OptParenthesizedSeqOptList alter_identity_column_option_list
-%type <node>         SeqOptElem alter_identity_column_option OptTempTableName
+%type <defelt>       SeqOptElem alter_identity_column_option
+%type <node>         OptTempTableName
 %type <list>         opt_definition definition def_list
-%type <node>         def_elem
+%type <defelt>       def_elem
 %type <dropBehav>	 opt_drop_behavior
 %type <rangevar>	 qualified_name insert_target relation_expr extended_relation_expr relation_expr_opt_alias
 
@@ -2775,7 +2786,7 @@ table_ref:
 			{
 				rangeVar := $1
 				if $2 != nil {
-					rangeVar.Alias = $2.(*ast.Alias)
+					rangeVar.Alias = $2
 				}
 				$$ = rangeVar
 			}
@@ -2785,7 +2796,7 @@ table_ref:
 				subquery := $1.(*ast.SelectStmt)
 				var alias *ast.Alias
 				if $2 != nil {
-					alias = $2.(*ast.Alias)
+					alias = $2
 				}
 				rangeSubselect := ast.NewRangeSubselect(false, subquery, alias)
 				$$ = rangeSubselect
@@ -2796,7 +2807,7 @@ table_ref:
 				subquery := $2.(*ast.SelectStmt)
 				var alias *ast.Alias
 				if $3 != nil {
-					alias = $3.(*ast.Alias)
+					alias = $3
 				}
 				rangeSubselect := ast.NewRangeSubselect(true, subquery, alias)
 				$$ = rangeSubselect
@@ -2808,14 +2819,14 @@ table_ref:
 		|	'(' joined_table ')' alias_clause
 			{
 				joinExpr := $2.(*ast.JoinExpr)
-				joinExpr.Alias = $4.(*ast.Alias)
+				joinExpr.Alias = $4
 				$$ = joinExpr
 			}
 		|	func_table opt_alias_clause
 			{
 				rangeFunc := $1.(*ast.RangeFunction)
 				if $2 != nil {
-					rangeFunc.Alias = $2.(*ast.Alias)
+					rangeFunc.Alias = $2
 				}
 				$$ = rangeFunc
 			}
@@ -2824,7 +2835,7 @@ table_ref:
 				rangeFunc := $2.(*ast.RangeFunction)
 				rangeFunc.Lateral = true
 				if $3 != nil {
-					rangeFunc.Alias = $3.(*ast.Alias)
+					rangeFunc.Alias = $3
 				}
 				$$ = rangeFunc
 			}
@@ -2832,7 +2843,7 @@ table_ref:
 			{
 				rangeTableFunc := $1.(*ast.RangeTableFunc)
 				if $2 != nil {
-					rangeTableFunc.Alias = $2.(*ast.Alias)
+					rangeTableFunc.Alias = $2
 				}
 				$$ = rangeTableFunc
 			}
@@ -2841,7 +2852,7 @@ table_ref:
 				rangeTableFunc := $2.(*ast.RangeTableFunc)
 				rangeTableFunc.Lateral = true
 				if $3 != nil {
-					rangeTableFunc.Alias = $3.(*ast.Alias)
+					rangeTableFunc.Alias = $3
 				}
 				$$ = rangeTableFunc
 			}
@@ -2849,7 +2860,7 @@ table_ref:
 			{
 				jsonTable := $1.(*ast.JsonTable)
 				if $2 != nil {
-					jsonTable.Alias = $2.(*ast.Alias)
+					jsonTable.Alias = $2
 				}
 				$$ = jsonTable
 			}
@@ -2858,7 +2869,7 @@ table_ref:
 				jsonTable := $2.(*ast.JsonTable)
 				jsonTable.Lateral = true
 				if $3 != nil {
-					jsonTable.Alias = $3.(*ast.Alias)
+					jsonTable.Alias = $3
 				}
 				$$ = jsonTable
 			}
@@ -3479,39 +3490,15 @@ xmltable:
 			{
 				// XMLTABLE(xpath_expr PASSING doc_expr COLUMNS ...)
 				// $3 is xpath_expr (should be RowExpr), $4 is doc_expr (should be DocExpr)
-				rangeTableFunc := ast.NewRangeTableFunc(false, $4.(ast.Expression), $3.(ast.Expression), nil, nil, nil, 0)
-				// Convert column list to RangeTableFuncCol
-				if $6 != nil {
-					columns := make([]*ast.RangeTableFuncCol, 0)
-					for _, col := range $6.Items {
-						columns = append(columns, col.(*ast.RangeTableFuncCol))
-					}
-					rangeTableFunc.Columns = columns
-				}
+				rangeTableFunc := ast.NewRangeTableFunc(false, $4.(ast.Expression), $3.(ast.Expression), nil, $6, nil, 0)
 				$$ = rangeTableFunc
 			}
 		|	XMLTABLE '(' XMLNAMESPACES '(' xml_namespace_list ')' ','
 			c_expr xmlexists_argument COLUMNS xmltable_column_list ')'
 			{
-				// Convert namespace list to []*ResTarget
-				var namespaces []*ast.ResTarget
-				if $5 != nil {
-					namespaces = make([]*ast.ResTarget, len($5.Items))
-					for i, item := range $5.Items {
-						namespaces[i] = item.(*ast.ResTarget)
-					}
-				}
 				// XMLTABLE(XMLNAMESPACES(...), xpath_expr PASSING doc_expr COLUMNS ...)
 				// $8 is xpath_expr (should be RowExpr), $9 is doc_expr (should be DocExpr)
-				rangeTableFunc := ast.NewRangeTableFunc(false, $9.(ast.Expression), $8.(ast.Expression), namespaces, nil, nil, 0)
-				// Convert column list to RangeTableFuncCol
-				if $11 != nil {
-					columns := make([]*ast.RangeTableFuncCol, 0)
-					for _, col := range $11.Items {
-						columns = append(columns, col.(*ast.RangeTableFuncCol))
-					}
-					rangeTableFunc.Columns = columns
-				}
+				rangeTableFunc := ast.NewRangeTableFunc(false, $9.(ast.Expression), $8.(ast.Expression), $5, $11, nil, 0)
 				$$ = rangeTableFunc
 			}
 		;
@@ -4001,7 +3988,7 @@ set_clause_list:
 set_clause:
 			set_target '=' a_expr
 			{
-				target := $1.(*ast.ResTarget)
+				target := $1
 				target.Val = $3
 				$$ = ast.NewNodeList(target)
 			}
@@ -4082,13 +4069,7 @@ MergeStmt:
 				mergeStmt.Relation = $4
 				mergeStmt.SourceRelation = $6
 				mergeStmt.JoinCondition = $8
-				if $9 != nil {
-					// Convert NodeList to slice of MergeWhenClause
-					nodeList := $9
-					for _, node := range nodeList.Items {
-						mergeStmt.MergeWhenClauses = append(mergeStmt.MergeWhenClauses, node.(*ast.MergeWhenClause))
-					}
-				}
+				mergeStmt.MergeWhenClauses = $9
 				mergeStmt.ReturningList = $10
 				$$ = mergeStmt
 			}
@@ -4120,15 +4101,15 @@ CopyStmt:
 					IsProgram: $6 != 0,
 					Filename:  $7,
 				}
+				// Initialize Options as empty NodeList
+				copyStmt.Options = ast.NewNodeList()
 				if $8 != nil {
-					if defElem, ok := $8.(*ast.DefElem); ok {
-						copyStmt.Options = append(copyStmt.Options, defElem)
-					}
+					copyStmt.Options.Append($8)
 				}
 				if $9 != nil {
 					nodeList := $9
 					for _, node := range nodeList.Items {
-						copyStmt.Options = append(copyStmt.Options, node.(*ast.DefElem))
+						copyStmt.Options.Append(node)
 					}
 				}
 				$$ = copyStmt
@@ -4144,24 +4125,21 @@ CopyStmt:
 					IsProgram: $6 != 0,
 					Filename:  $7,
 				}
-				// Convert column list NodeList to []string
-				if $4 != nil {
-					nodeList := $4
-					for _, node := range nodeList.Items {
-						copyStmt.Attlist = append(copyStmt.Attlist, node.(*ast.String).SVal)
-					}
-				}
-				// Handle legacy options - convert to []*DefElem
+				// Assign column list directly as NodeList
+				copyStmt.Attlist = $4
+				
+				// Initialize Options as empty NodeList and add options
+				copyStmt.Options = ast.NewNodeList()
 				if $2 != nil {
-					copyStmt.Options = append(copyStmt.Options, $2.(*ast.DefElem))
+					copyStmt.Options.Append($2)
 				}
 				if $8 != nil {
-					copyStmt.Options = append(copyStmt.Options, $8.(*ast.DefElem))
+					copyStmt.Options.Append($8)
 				}
 				if $10 != nil {
 					nodeList := $10
 					for _, node := range nodeList.Items {
-						copyStmt.Options = append(copyStmt.Options, node.(*ast.DefElem))
+						copyStmt.Options.Append(node)
 					}
 				}
 				if $11 != nil {
@@ -4193,11 +4171,7 @@ copy_file_name:
 opt_binary:
 			BINARY
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "format",
-					Arg:      ast.NewString("binary"),
-				}
+				$$ = ast.NewDefElem("format", ast.NewString("binary"))
 			}
 		|	/* EMPTY */				{ $$ = nil }
 		;
@@ -4205,11 +4179,7 @@ opt_binary:
 copy_delimiter:
 			opt_using DELIMITERS Sconst
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "delimiter",
-					Arg:      ast.NewString($3),
-				}
+				$$ = ast.NewDefElem("delimiter", ast.NewString($3))
 			}
 		|	/* EMPTY */				{ $$ = nil }
 		;
@@ -4237,123 +4207,63 @@ copy_opt_list:
 copy_opt_item:
 			BINARY
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "format",
-					Arg:      ast.NewString("binary"),
-				}
+				$$ = ast.NewDefElem("format", ast.NewString("binary"))
 			}
 		|	FREEZE
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "freeze",
-					Arg:      ast.NewString("true"),
-				}
+				$$ = ast.NewDefElem("freeze", ast.NewString("true"))
 			}
 		|	DELIMITER opt_as Sconst
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "delimiter",
-					Arg:      ast.NewString($3),
-				}
+				$$ = ast.NewDefElem("delimiter", ast.NewString($3))
 			}
 		|	NULL_P opt_as Sconst
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "null",
-					Arg:      ast.NewString($3),
-				}
+				$$ = ast.NewDefElem("null", ast.NewString($3))
 			}
 		|	CSV
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "format",
-					Arg:      ast.NewString("csv"),
-				}
+				$$ = ast.NewDefElem("format", ast.NewString("csv"))
 			}
 		|	HEADER_P
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "header",
-					Arg:      ast.NewString("true"),
-				}
+				$$ = ast.NewDefElem("header", ast.NewString("true"))
 			}
 		|	QUOTE opt_as Sconst
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "quote",
-					Arg:      ast.NewString($3),
-				}
+				$$ = ast.NewDefElem("quote", ast.NewString($3))
 			}
 		|	ESCAPE opt_as Sconst
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "escape",
-					Arg:      ast.NewString($3),
-				}
+				$$ = ast.NewDefElem("escape", ast.NewString($3))
 			}
 		|	FORCE QUOTE columnList
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "force_quote",
-					Arg:      $3,
-				}
+				$$ = ast.NewDefElem("force_quote", $3)
 			}
 		|	FORCE QUOTE '*'
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "force_quote",
-					Arg:      &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}},
-				}
+				$$ = ast.NewDefElem("force_quote", &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}})
 			}
 		|	FORCE NOT NULL_P columnList
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "force_not_null",
-					Arg:      $4,
-				}
+				$$ = ast.NewDefElem("force_not_null", $4)
 			}
 		|	FORCE NOT NULL_P '*'
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "force_not_null",
-					Arg:      &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}},
-				}
+				$$ = ast.NewDefElem("force_not_null", &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}})
 			}
 		|	FORCE NULL_P columnList
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "force_null",
-					Arg:      $3,
-				}
+				$$ = ast.NewDefElem("force_null", $3)
 			}
 		|	FORCE NULL_P '*'
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "force_null",
-					Arg:      &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}},
-				}
+				$$ = ast.NewDefElem("force_null", &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}})
 			}
 		|	ENCODING Sconst
 			{
-				$$ = &ast.DefElem{
-					BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-					Defname:  "encoding",
-					Arg:      ast.NewString($2),
-				}
+				$$ = ast.NewDefElem("encoding", ast.NewString($2))
 			}
 		;
 
@@ -4372,11 +4282,7 @@ copy_generic_opt_list:
 copy_generic_opt_elem:
 		ColLabel copy_generic_opt_arg
 		{
-			$$ = &ast.DefElem{
-				BaseNode: ast.BaseNode{Tag: ast.T_DefElem},
-				Defname:  $1,
-				Arg:      $2,
-			}
+			$$ = ast.NewDefElem($1, $2)
 		}
 	;
 
@@ -4668,13 +4574,7 @@ opt_on_conflict:
 				if $3 != nil {
 					onConflict.Infer = $3.(*ast.InferClause)
 				}
-				// Convert NodeList to []*ResTarget for SET clause
-				if $7 != nil {
-					nodeList := $7
-					for _, node := range nodeList.Items {
-						onConflict.TargetList = append(onConflict.TargetList, node.(*ast.ResTarget))
-					}
-				}
+				onConflict.TargetList = $7
 				onConflict.WhereClause = $8
 				$$ = onConflict
 			}
@@ -4701,14 +4601,8 @@ opt_conf_expr:
 			{
 				// Create InferClause for column-based conflict detection
 				infer := ast.NewInferClause()
-				// Convert NodeList to []*IndexElem
-				if $2 != nil {
-					nodeList := $2
-					for _, node := range nodeList.Items {
-						indexElem := node.(*ast.IndexElem)
-						infer.IndexElems = append(infer.IndexElems, indexElem)
-					}
-				}
+				// Assign IndexElems directly as NodeList
+				infer.IndexElems = $2
 				infer.WhereClause = $4
 				$$ = infer
 			}
@@ -5282,11 +5176,9 @@ alter_identity_column_option:
 				{
 					// SeqOptElem already returns a DefElem, so we can use it directly
 					// Check for invalid options as per PostgreSQL
-					if defElem, ok := $2.(*ast.DefElem); ok {
-						if defElem.Defname == "as" || defElem.Defname == "restart" || defElem.Defname == "owned_by" {
-							// For now, we'll just skip the error as we don't have AddError method
-							// In PostgreSQL, this would raise an error
-						}
+					defElem := $2
+					if defElem.Defname == "as" || defElem.Defname == "restart" || defElem.Defname == "owned_by" {
+						yylex.Error("sequence option not supported here")
 					}
 					$$ = $2
 				}
@@ -5438,7 +5330,7 @@ ColConstraintElem:
 					constraint.Pktable = $2
 					constraint.PkAttrs = $3
 					constraint.FkMatchtype = $4
-					if actions, ok := $5.(*ast.KeyActions); ok && actions != nil {
+					if actions := $5; actions != nil {
 						constraint.FkUpdAction = actions.UpdateAction.Action
 						constraint.FkDelAction = actions.DeleteAction.Action
 					}
@@ -5529,7 +5421,7 @@ ConstraintElem:
 					constraint.Pktable = $7
 					constraint.PkAttrs = $8
 					constraint.FkMatchtype = $9
-					if actions, ok := $10.(*ast.KeyActions); ok && actions != nil {
+					if actions := $10; actions != nil {
 						constraint.FkUpdAction = actions.UpdateAction.Action
 						constraint.FkDelAction = actions.DeleteAction.Action
 					}
@@ -5619,7 +5511,7 @@ key_actions:
 			key_update
 				{
 					n := &ast.KeyActions{}
-					n.UpdateAction = $1.(*ast.KeyAction)
+					n.UpdateAction = $1
 					n.DeleteAction = &ast.KeyAction{
 						Action: ast.FKCONSTR_ACTION_NOACTION,
 						Cols:   nil,
@@ -5633,21 +5525,21 @@ key_actions:
 						Action: ast.FKCONSTR_ACTION_NOACTION,
 						Cols:   nil,
 					}
-					n.DeleteAction = $1.(*ast.KeyAction)
+					n.DeleteAction = $1
 					$$ = n
 				}
 		|	key_update key_delete
 				{
 					n := &ast.KeyActions{}
-					n.UpdateAction = $1.(*ast.KeyAction)
-					n.DeleteAction = $2.(*ast.KeyAction)
+					n.UpdateAction = $1
+					n.DeleteAction = $2
 					$$ = n
 				}
 		|	key_delete key_update
 				{
 					n := &ast.KeyActions{}
-					n.UpdateAction = $2.(*ast.KeyAction)
-					n.DeleteAction = $1.(*ast.KeyAction)
+					n.UpdateAction = $2
+					n.DeleteAction = $1
 					$$ = n
 				}
 		|	/* EMPTY */
@@ -5668,7 +5560,7 @@ key_actions:
 key_update: ON UPDATE key_action
 			{
 				// Check for unsupported column lists on UPDATE actions
-				keyAction := $3.(*ast.KeyAction)
+				keyAction := $3
 				if keyAction.Cols != nil {
 					if len(keyAction.Cols.Items) > 0 {
 						yylex.Error("column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions")
@@ -7555,13 +7447,13 @@ alter_generic_option_elem:
 				}
 		|	SET generic_option_elem
 				{
-					elem := $2.(*ast.DefElem)
+					elem := $2
 					elem.Defaction = ast.DEFELEM_SET
 					$$ = elem
 				}
 		|	ADD_P generic_option_elem
 				{
-					elem := $2.(*ast.DefElem)
+					elem := $2
 					elem.Defaction = ast.DEFELEM_ADD
 					$$ = elem
 				}

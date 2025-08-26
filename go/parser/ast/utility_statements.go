@@ -659,11 +659,11 @@ type CopyStmt struct {
 	BaseNode
 	Relation    *RangeVar  // Relation to copy - postgres/src/include/nodes/parsenodes.h:2589
 	Query       Node       // Query to copy (SELECT/INSERT/UPDATE/DELETE) - postgres/src/include/nodes/parsenodes.h:2590
-	Attlist     []string   // List of column names (or NIL for all columns) - postgres/src/include/nodes/parsenodes.h:2591
+	Attlist     *NodeList  // List of column names (or NIL for all columns) - postgres/src/include/nodes/parsenodes.h:2591
 	IsFrom      bool       // TO or FROM - postgres/src/include/nodes/parsenodes.h:2592
 	IsProgram   bool       // Is 'filename' a program to popen? - postgres/src/include/nodes/parsenodes.h:2593
 	Filename    string     // Filename, or NULL for STDIN/STDOUT - postgres/src/include/nodes/parsenodes.h:2594
-	Options     []*DefElem // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:2595
+	Options     *NodeList  // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:2595
 	WhereClause Node       // WHERE condition (for COPY FROM WHERE) - postgres/src/include/nodes/parsenodes.h:2596
 }
 
@@ -733,9 +733,16 @@ func (cs *CopyStmt) SqlString() string {
 		}
 		
 		// Add column list if specified
-		if len(cs.Attlist) > 0 {
-			columns := "(" + strings.Join(cs.Attlist, ", ") + ")"
-			parts = append(parts, columns)
+		if cs.Attlist != nil && cs.Attlist.Len() > 0 {
+			var columns []string
+			for _, item := range cs.Attlist.Items {
+				if str, ok := item.(*String); ok {
+					columns = append(columns, str.SVal)
+				}
+			}
+			if len(columns) > 0 {
+				parts = append(parts, "("+strings.Join(columns, ", ")+")")
+			}
 		}
 	} else if cs.Query != nil {
 		// COPY (query)
@@ -766,12 +773,14 @@ func (cs *CopyStmt) SqlString() string {
 	}
 	
 	// Add options if any - always use modern parenthesized syntax
-	if len(cs.Options) > 0 {
+	if cs.Options != nil && cs.Options.Len() > 0 {
 		var optionParts []string
-		for _, option := range cs.Options {
-			optStr := formatCopyOption(option)
-			if optStr != "" {
-				optionParts = append(optionParts, optStr)
+		for _, item := range cs.Options.Items {
+			if option, ok := item.(*DefElem); ok {
+				optStr := formatCopyOption(option)
+				if optStr != "" {
+					optionParts = append(optionParts, optStr)
+				}
 			}
 		}
 		if len(optionParts) > 0 {

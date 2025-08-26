@@ -302,13 +302,13 @@ type RangeTableFunc struct {
 	Lateral    bool                   // does it have LATERAL prefix?
 	DocExpr    Node                   // document expression
 	RowExpr    Node                   // row generator expression
-	Namespaces []*ResTarget           // list of namespaces as ResTarget
-	Columns    []*RangeTableFuncCol   // list of RangeTableFuncCol
+	Namespaces *NodeList              // list of namespaces as ResTarget
+	Columns    *NodeList              // list of RangeTableFuncCol
 	Alias      *Alias                 // table alias & optional column aliases
 }
 
 // NewRangeTableFunc creates a new RangeTableFunc node.
-func NewRangeTableFunc(lateral bool, docExpr, rowExpr Node, namespaces []*ResTarget, columns []*RangeTableFuncCol, alias *Alias, location int) *RangeTableFunc {
+func NewRangeTableFunc(lateral bool, docExpr, rowExpr Node, namespaces, columns *NodeList, alias *Alias, location int) *RangeTableFunc {
 	return &RangeTableFunc{
 		BaseNode:   BaseNode{Tag: T_RangeTableFunc, Loc: location},
 		Lateral:    lateral,
@@ -325,7 +325,11 @@ func (r *RangeTableFunc) String() string {
 	if r.Lateral {
 		lateral = "LATERAL "
 	}
-	return fmt.Sprintf("RangeTableFunc{%s%d columns}@%d", lateral, len(r.Columns), r.Location())
+	colCount := 0
+	if r.Columns != nil {
+		colCount = r.Columns.Len()
+	}
+	return fmt.Sprintf("RangeTableFunc{%s%d columns}@%d", lateral, colCount, r.Location())
 }
 
 func (r *RangeTableFunc) StatementType() string {
@@ -354,13 +358,15 @@ func (r *RangeTableFunc) SqlString() string {
 		result.WriteString(r.DocExpr.SqlString())
 	}
 
-	if len(r.Columns) > 0 {
+	if r.Columns != nil && r.Columns.Len() > 0 {
 		result.WriteString(" COLUMNS ")
-		for i, col := range r.Columns {
+		for i, item := range r.Columns.Items {
 			if i > 0 {
 				result.WriteString(", ")
 			}
-			result.WriteString(col.SqlString())
+			if col, ok := item.(*RangeTableFuncCol); ok {
+				result.WriteString(col.SqlString())
+			}
 		}
 	}
 

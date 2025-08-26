@@ -1220,7 +1220,7 @@ type OnConflictClause struct {
 	BaseNode
 	Action      OnConflictAction `json:"action"`      // DO NOTHING or UPDATE?
 	Infer       *InferClause     `json:"infer"`       // Optional index inference clause
-	TargetList  []*ResTarget     `json:"targetList"`  // The target list (of ResTarget)
+	TargetList  *NodeList        `json:"targetList"`  // The target list (of ResTarget)
 	WhereClause Node             `json:"whereClause"` // Qualifications
 }
 
@@ -1236,12 +1236,16 @@ func (n *OnConflictClause) String() string {
 
 	parts = append(parts, n.Action.String())
 
-	if n.Action == ONCONFLICT_UPDATE && len(n.TargetList) > 0 {
-		targets := make([]string, len(n.TargetList))
-		for i, target := range n.TargetList {
-			targets[i] = target.String()
+	if n.Action == ONCONFLICT_UPDATE && n.TargetList != nil && n.TargetList.Len() > 0 {
+		var targets []string
+		for _, item := range n.TargetList.Items {
+			if target, ok := item.(*ResTarget); ok {
+				targets = append(targets, target.String())
+			}
 		}
-		parts = append(parts, "SET", strings.Join(targets, ", "))
+		if len(targets) > 0 {
+			parts = append(parts, "SET", strings.Join(targets, ", "))
+		}
 	}
 
 	if n.WhereClause != nil {
@@ -1261,17 +1265,21 @@ func (n *OnConflictClause) SqlString() string {
 
 	parts = append(parts, n.Action.SqlString())
 
-	if n.Action == ONCONFLICT_UPDATE && len(n.TargetList) > 0 {
-		targets := make([]string, len(n.TargetList))
-		for i, target := range n.TargetList {
-			// For ON CONFLICT DO UPDATE SET, format as "column = value" not "value AS column"
-			if target.Val != nil {
-				targets[i] = target.Name + " = " + target.Val.SqlString()
-			} else {
-				targets[i] = target.Name
+	if n.Action == ONCONFLICT_UPDATE && n.TargetList != nil && n.TargetList.Len() > 0 {
+		var targets []string
+		for _, item := range n.TargetList.Items {
+			if target, ok := item.(*ResTarget); ok {
+				// For ON CONFLICT DO UPDATE SET, format as "column = value" not "value AS column"
+				if target.Val != nil {
+					targets = append(targets, target.Name + " = " + target.Val.SqlString())
+				} else {
+					targets = append(targets, target.Name)
+				}
 			}
 		}
-		parts = append(parts, "SET", strings.Join(targets, ", "))
+		if len(targets) > 0 {
+			parts = append(parts, "SET", strings.Join(targets, ", "))
+		}
 	}
 
 	if n.WhereClause != nil {
