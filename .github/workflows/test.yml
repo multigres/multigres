@@ -36,12 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql postgresql-contrib postgresql-client-common postgresql-common
-          sudo systemctl start postgresql
-          sudo systemctl enable postgresql
-          # Create postgres user and set up basic auth
-          sudo -u postgres createuser --superuser $USER || true
-          sudo -u postgres psql -c "ALTER USER $USER CREATEDB;" || true
-          # Set up postgres user password for pgctld tests
+          # Set up postgres user password for tests
           sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" || true
 
       - name: Verify PostgreSQL Installation

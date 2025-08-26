@@ -322,13 +322,6 @@ func isPostgreSQLRunning(dataDir string) bool {
 	return isProcessRunning(pid)
 }
 
-func startPostgreSQL(dataDir string) error {
-	// Legacy function - use viper config
-	config := NewPostgresConfigFromViper()
-	config.DataDir = dataDir
-	return startPostgreSQLWithConfig(config)
-}
-
 func startPostgreSQLWithConfig(config *PostgresConfig) error {
 	// Use pg_ctl to start PostgreSQL properly as a daemon
 	args := []string{
@@ -368,35 +361,7 @@ func startPostgreSQLWithConfig(config *PostgresConfig) error {
 	return waitForPostgreSQLWithConfig(config)
 }
 
-// isPostgreSQLReady checks if PostgreSQL is ready to accept connections
-// by reading the postgresql.log file and checking for "ready" status
-func isPostgreSQLReady(dataDir string) bool {
-	logFile := filepath.Join(dataDir, "postgresql.log")
-	content, err := os.ReadFile(logFile)
-	if err != nil {
-		slog.Debug("Could not read postgresql.log", "error", err)
-		return false
-	}
-
-	// Check if any line contains "ready" or other startup completion indicators
-	lines := strings.Split(string(content), "\n")
-	slog.Debug("postgresql.log content", "lines", len(lines))
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		// Look for common PostgreSQL startup completion messages
-		if strings.Contains(line, "ready to accept connections") ||
-			strings.Contains(line, "database system is ready") ||
-			strings.Contains(line, "ready") {
-			return true
-		}
-	}
-
-	return false
-}
-
 func waitForPostgreSQL() error {
-	// Legacy function - use viper config
 	config := NewPostgresConfigFromViper()
 	return waitForPostgreSQLWithConfig(config)
 }

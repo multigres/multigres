@@ -135,14 +135,6 @@ func StopPostgreSQLWithConfig(config *PostgresConfig, mode string) error {
 	return nil
 }
 
-func stopPostgreSQL(dataDir, mode string, timeout int) error {
-	// Legacy function - use defaults for other config
-	config := NewPostgresConfigFromDefaults()
-	config.DataDir = dataDir
-	config.Timeout = timeout
-	return stopPostgreSQLWithConfig(config, mode)
-}
-
 func stopPostgreSQLWithConfig(config *PostgresConfig, mode string) error {
 	// First try using pg_ctl
 	if err := stopWithPgCtlWithConfig(config, mode); err != nil {
@@ -152,15 +144,13 @@ func stopPostgreSQLWithConfig(config *PostgresConfig, mode string) error {
 	return nil
 }
 
-func stopWithPgCtl(dataDir, mode string, timeout int) error {
-	// Legacy function - use defaults
-	config := NewPostgresConfigFromDefaults()
-	config.DataDir = dataDir
-	config.Timeout = timeout
-	return stopWithPgCtlWithConfig(config, mode)
-}
-
 func stopWithPgCtlWithConfig(config *PostgresConfig, mode string) error {
+	// Take a checkpoint before stopping PostgreSQL for clean shutdown
+	if err := takeCheckpoint(config); err != nil {
+		slog.Warn("Failed to take checkpoint before stop", "error", err, "data_dir", config.DataDir)
+		// Continue with stop even if checkpoint fails - it's not critical
+	}
+
 	args := []string{
 		"stop",
 		"-D", config.DataDir,
@@ -173,4 +163,36 @@ func stopWithPgCtlWithConfig(config *PostgresConfig, mode string) error {
 	cmd.Stderr = os.Stderr
 
 	return cmd.Run()
+}
+
+// takeCheckpoint executes a CHECKPOINT command to ensure all data is written to disk before shutdown
+func takeCheckpoint(config *PostgresConfig) error {
+	slog.Info("Taking checkpoint before stopping PostgreSQL", "data_dir", config.DataDir)
+
+	// Use psql to connect and execute CHECKPOINT
+	args := []string{
+		"-h", config.Host,
+		"-p", fmt.Sprintf("%d", config.Port),
+		"-U", config.User,
+		"-d", config.Database,
+		"-c", "CHECKPOINT;",
+		"-q", // quiet mode - suppress messages
+	}
+
+	cmd := exec.Command("psql", args...)
+
+	// Set environment to include PGPASSWORD if available
+	cmd.Env = os.Environ()
+	if config.Password != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("PGPASSWORD=%s", config.Password))
+	}
+
+	// Capture output to avoid cluttering the terminal
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("checkpoint command failed: %w, output: %s", err, string(output))
+	}
+
+	slog.Info("Checkpoint completed successfully", "data_dir", config.DataDir)
+	return nil
 }

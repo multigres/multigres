@@ -196,7 +196,6 @@ func formatUptime(seconds int64) string {
 }
 
 func isServerReady() bool {
-	// Legacy function - use viper config
 	config := NewPostgresConfigFromViper()
 	return isServerReadyWithConfig(config)
 }
@@ -213,7 +212,6 @@ func isServerReadyWithConfig(config *PostgresConfig) bool {
 }
 
 func getServerVersion() string {
-	// Legacy function - use viper config
 	config := NewPostgresConfigFromViper()
 	return getServerVersionWithConfig(config)
 }
