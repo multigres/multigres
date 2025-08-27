@@ -29,6 +29,10 @@ import (
 )
 
 func TestBinaryStartupShutdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping binary startup/shutdown tests in short mode")
+	}
+
 	binaries := []struct {
 		name string
 		port string
