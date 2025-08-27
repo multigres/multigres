@@ -91,6 +91,7 @@ const (
 	DatabaseFile = "Database"
 	GatewayFile  = "Gateway"
 	PoolerFile   = "Pooler"
+	OrchFile     = "Orch"
 )
 
 // Paths for all object types in the topology hierarchy.
@@ -99,6 +100,7 @@ const (
 	CellsPath     = "cells"
 	GatewaysPath  = "gateways"
 	PoolersPath   = "poolers"
+	OrchsPath     = "orchs"
 )
 
 // Factory is a factory interface to create Conn objects.
@@ -173,6 +175,16 @@ type CellStore interface {
 	UpdateMultiGatewayFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.MultiGateway) error) (*clustermetadatapb.MultiGateway, error)
 	DeleteMultiGateway(ctx context.Context, id *clustermetadatapb.ID) error
 	InitMultiGateway(ctx context.Context, multigateway *clustermetadatapb.MultiGateway, allowUpdate bool) error
+
+	// MultiOrch CRUD operations
+	GetMultiOrch(ctx context.Context, id *clustermetadatapb.ID) (*MultiOrchInfo, error)
+	GetMultiOrchIDsByCell(ctx context.Context, cell string) ([]*clustermetadatapb.ID, error)
+	GetMultiOrchsByCell(ctx context.Context, cellName string) ([]*MultiOrchInfo, error)
+	CreateMultiOrch(ctx context.Context, multiorch *clustermetadatapb.MultiOrch) error
+	UpdateMultiOrch(ctx context.Context, moi *MultiOrchInfo) error
+	UpdateMultiOrchFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.MultiOrch) error) (*clustermetadatapb.MultiOrch, error)
+	DeleteMultiOrch(ctx context.Context, id *clustermetadatapb.ID) error
+	InitMultiOrch(ctx context.Context, multiorch *clustermetadatapb.MultiOrch, allowUpdate bool) error
 }
 
 // Store is the full topology API that combines both global and cell operations.
