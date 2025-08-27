@@ -47,7 +47,7 @@ func TestEndToEndWithRealPostgreSQL(t *testing.T) {
 
 	// Check if PostgreSQL binaries are available
 	if !hasPostgreSQLBinaries() {
-		t.Skip("PostgreSQL binaries not found, skipping end-to-end tests")
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
 	}
 
 	tempDir, cleanup := testutil.TempDir(t, "pgctld_e2e_test")
@@ -109,7 +109,7 @@ func TestEndToEndGRPCWithRealPostgreSQL(t *testing.T) {
 
 	// Check if PostgreSQL binaries are available
 	if !hasPostgreSQLBinaries() {
-		t.Skip("PostgreSQL binaries not found, skipping end-to-end tests")
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
 	}
 
 	tempDir, cleanup := testutil.TempDir(t, "pgctld_grpc_e2e_test")
@@ -155,7 +155,7 @@ timeout: 30
 			}
 		}()
 
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(20 * time.Second)
 		serverStarted := false
 
 		for time.Now().Before(deadline) {
@@ -189,7 +189,7 @@ func TestEndToEndPerformance(t *testing.T) {
 
 	// Check if PostgreSQL binaries are available
 	if !hasPostgreSQLBinaries() {
-		t.Skip("PostgreSQL binaries not found, skipping performance tests")
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
 	}
 
 	tempDir, cleanup := testutil.TempDir(t, "pgctld_perf_test")
@@ -290,7 +290,7 @@ func TestEndToEndSystemIntegration(t *testing.T) {
 
 	// Check if PostgreSQL binaries are available
 	if !hasPostgreSQLBinaries() {
-		t.Skip("PostgreSQL binaries not found, skipping system integration tests")
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
 	}
 
 	tempDir, cleanup := testutil.TempDir(t, "pgctld_system_test")

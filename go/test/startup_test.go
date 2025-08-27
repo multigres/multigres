@@ -65,11 +65,21 @@ func testBinaryStartupShutdown(t *testing.T, binaryName, port string) {
 			"--topo-implementation", "memory",
 			"--log-level", "info")
 	case "multipooler":
-		cmd = exec.CommandContext(ctx, binaryPath, "--grpc-port", port, "--log-level", "info")
+		cmd = exec.CommandContext(ctx, binaryPath,
+			"--grpc-port", port,
+			"--topo-global-server-addresses", "127.0.0.1:8080",
+			"--topo-global-root", "/",
+			"--topo-implementation", "memory",
+			"--log-level", "info")
 	case "pgctld":
 		cmd = exec.CommandContext(ctx, binaryPath, "--grpc-port", port, "--log-level", "info")
 	case "multiorch":
-		cmd = exec.CommandContext(ctx, binaryPath, "--grpc-port", port, "--log-level", "info")
+		cmd = exec.CommandContext(ctx, binaryPath,
+			"--grpc-port", port,
+			"--topo-global-server-addresses", "127.0.0.1:8080",
+			"--topo-global-root", "/",
+			"--topo-implementation", "memory",
+			"--log-level", "info")
 	default:
 		require.Fail(t, "Unknown binary: %s", binaryName)
 	}
