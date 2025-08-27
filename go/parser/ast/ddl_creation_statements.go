@@ -103,7 +103,7 @@ func (fd FetchDirection) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3451-3458
 type FunctionParameter struct {
 	BaseNode
-	Name     *string                // parameter name, or nil if not given
+	Name     string                 // parameter name, or empty string if not given
 	ArgType  *TypeName              // type name for parameter type
 	Mode     FunctionParameterMode  // IN/OUT/INOUT/VARIADIC/TABLE/DEFAULT
 	DefExpr  Node                   // raw default expr, or nil if not given
@@ -117,8 +117,8 @@ func (fp *FunctionParameter) String() string {
 		parts = append(parts, fp.Mode.String())
 	}
 	
-	if fp.Name != nil {
-		parts = append(parts, *fp.Name)
+	if fp.Name != "" {
+		parts = append(parts, fp.Name)
 	}
 	
 	if fp.ArgType != nil {
@@ -132,8 +132,42 @@ func (fp *FunctionParameter) String() string {
 	return strings.Join(parts, " ")
 }
 
+// SqlString returns the SQL representation of FunctionParameter
+func (fp *FunctionParameter) SqlString() string {
+	var parts []string
+	
+	// Parameter mode
+	switch fp.Mode {
+	case FUNC_PARAM_IN:
+		// IN is default, don't need to specify
+	case FUNC_PARAM_OUT:
+		parts = append(parts, "OUT")
+	case FUNC_PARAM_INOUT:
+		parts = append(parts, "INOUT")
+	case FUNC_PARAM_VARIADIC:
+		parts = append(parts, "VARIADIC")
+	}
+	
+	// Parameter name
+	if fp.Name != "" {
+		parts = append(parts, fp.Name)
+	}
+	
+	// Parameter type
+	if fp.ArgType != nil {
+		parts = append(parts, fp.ArgType.SqlString())
+	}
+	
+	// Default value
+	if fp.DefExpr != nil {
+		parts = append(parts, "DEFAULT", fp.DefExpr.SqlString())
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 // NewFunctionParameter creates a new FunctionParameter node
-func NewFunctionParameter(name *string, argType *TypeName, mode FunctionParameterMode, defExpr Node) *FunctionParameter {
+func NewFunctionParameter(name string, argType *TypeName, mode FunctionParameterMode, defExpr Node) *FunctionParameter {
 	return &FunctionParameter{
 		BaseNode: BaseNode{Tag: T_FunctionParameter},
 		Name:     name,
@@ -146,13 +180,13 @@ func NewFunctionParameter(name *string, argType *TypeName, mode FunctionParamete
 // CreateFunctionStmt represents a CREATE FUNCTION statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3427-3437
 type CreateFunctionStmt struct {
-	IsProcedure bool                 // true for CREATE PROCEDURE
-	Replace     bool                 // true for CREATE OR REPLACE
-	FuncName    []*String            // qualified name of function to create
-	Parameters  []*FunctionParameter // list of function parameters
-	ReturnType  *TypeName            // the return type
-	Options     []*DefElem           // list of definition elements
-	SQLBody     Node                 // SQL body for SQL functions
+	IsProcedure bool        // true for CREATE PROCEDURE
+	Replace     bool        // true for CREATE OR REPLACE
+	FuncName    *NodeList   // qualified name of function to create
+	Parameters  *NodeList   // list of function parameters
+	ReturnType  *TypeName   // the return type
+	Options     *NodeList   // list of definition elements
+	SQLBody     Node        // SQL body for SQL functions
 }
 
 // node implements the Node interface
@@ -160,6 +194,110 @@ func (cfs *CreateFunctionStmt) node() {}
 
 // stmt implements the Stmt interface
 func (cfs *CreateFunctionStmt) stmt() {}
+
+// Location returns the statement's source location (dummy implementation)
+func (cfs *CreateFunctionStmt) Location() int {
+	return 0 // TODO: Implement proper location tracking
+}
+
+// NodeTag returns the node's type tag
+func (cfs *CreateFunctionStmt) NodeTag() NodeTag {
+	return T_CreateFunctionStmt
+}
+
+// StatementType returns the statement type for this node
+func (cfs *CreateFunctionStmt) StatementType() string {
+	if cfs.IsProcedure {
+		return "CREATE PROCEDURE"
+	}
+	return "CREATE FUNCTION"
+}
+
+// SqlString returns SQL representation of the CREATE FUNCTION statement
+func (cfs *CreateFunctionStmt) SqlString() string {
+	var parts []string
+	
+	// CREATE [OR REPLACE]
+	parts = append(parts, "CREATE")
+	if cfs.Replace {
+		parts = append(parts, "OR REPLACE")
+	}
+	
+	// FUNCTION or PROCEDURE
+	if cfs.IsProcedure {
+		parts = append(parts, "PROCEDURE")
+	} else {
+		parts = append(parts, "FUNCTION")
+	}
+	
+	// Function name
+	if cfs.FuncName != nil && cfs.FuncName.Len() > 0 {
+		var nameParts []string
+		for _, item := range cfs.FuncName.Items {
+			if name, ok := item.(*String); ok {
+				nameParts = append(nameParts, name.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(nameParts, "."))
+	}
+	
+	// Parameters
+	var paramStrs []string
+	if cfs.Parameters != nil {
+		for _, item := range cfs.Parameters.Items {
+			if param, ok := item.(*FunctionParameter); ok {
+				paramStrs = append(paramStrs, param.SqlString())
+			}
+		}
+	}
+	paramClause := "(" + strings.Join(paramStrs, ", ") + ")"
+	parts = append(parts, paramClause)
+	
+	// RETURNS type (for functions, not procedures)
+	if !cfs.IsProcedure && cfs.ReturnType != nil {
+		parts = append(parts, "RETURNS", cfs.ReturnType.SqlString())
+	}
+	
+	// Function options
+	var asClause string
+	if cfs.Options != nil {
+		for _, item := range cfs.Options.Items {
+			if option, ok := item.(*DefElem); ok {
+				if option.Defname == "language" {
+					if str, ok := option.Arg.(*String); ok {
+						parts = append(parts, "LANGUAGE", str.SVal)
+					}
+				} else if option.Defname == "as" {
+					if str, ok := option.Arg.(*String); ok {
+						// Wrap the AS clause content in $$ delimiters for proper SQL formatting
+						asClause = "$$" + str.SVal + "$$"
+					} else if list, ok := option.Arg.(*NodeList); ok {
+						// The AS clause might be in a NodeList
+						if len(list.Items) > 0 {
+							if str, ok := list.Items[0].(*String); ok {
+								// Wrap the AS clause content in $$ delimiters for proper SQL formatting
+								asClause = "$$" + str.SVal + "$$"
+							}
+						}
+					}
+				}
+				// Add other options as needed
+			}
+		}
+	}
+	
+	// Add AS clause if we found it
+	if asClause != "" {
+		parts = append(parts, "AS", asClause)
+	}
+	
+	// SQL body
+	if cfs.SQLBody != nil {
+		parts = append(parts, "AS", cfs.SQLBody.SqlString())
+	}
+	
+	return strings.Join(parts, " ")
+}
 
 // String returns string representation of CreateFunctionStmt
 func (cfs *CreateFunctionStmt) String() string {
@@ -176,19 +314,23 @@ func (cfs *CreateFunctionStmt) String() string {
 		parts = append(parts, "FUNCTION")
 	}
 	
-	if len(cfs.FuncName) > 0 {
+	if cfs.FuncName != nil && cfs.FuncName.Len() > 0 {
 		var nameStrs []string
-		for _, name := range cfs.FuncName {
-			nameStrs = append(nameStrs, name.SVal)
+		for _, item := range cfs.FuncName.Items {
+			if name, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, name.SVal)
+			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
 	
 	// Parameters
-	if len(cfs.Parameters) > 0 {
+	if cfs.Parameters != nil && cfs.Parameters.Len() > 0 {
 		var paramStrs []string
-		for _, param := range cfs.Parameters {
-			paramStrs = append(paramStrs, param.String())
+		for _, item := range cfs.Parameters.Items {
+			if param, ok := item.(*FunctionParameter); ok {
+				paramStrs = append(paramStrs, param.String())
+			}
 		}
 		parts = append(parts, "("+strings.Join(paramStrs, ", ")+")")
 	} else {
@@ -209,7 +351,7 @@ func (cfs *CreateFunctionStmt) String() string {
 }
 
 // NewCreateFunctionStmt creates a new CreateFunctionStmt node
-func NewCreateFunctionStmt(isProcedure, replace bool, funcName []*String, parameters []*FunctionParameter, returnType *TypeName, options []*DefElem, sqlBody Node) *CreateFunctionStmt {
+func NewCreateFunctionStmt(isProcedure, replace bool, funcName *NodeList, parameters *NodeList, returnType *TypeName, options *NodeList, sqlBody Node) *CreateFunctionStmt {
 	return &CreateFunctionStmt{
 		IsProcedure: isProcedure,
 		Replace:     replace,

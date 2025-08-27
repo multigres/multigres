@@ -444,9 +444,15 @@ func TestViewStmt(t *testing.T) {
 		view := NewRangeVar("user_info", "", "")
 		query := NewString("SELECT id, name FROM users")
 		viewStmt := NewViewStmt(view, query, false)
-		viewStmt.Aliases = []string{"user_id", "full_name"}
+		viewStmt.Aliases = &NodeList{Items: []Node{NewString("user_id"), NewString("full_name")}}
 
-		assert.Equal(t, []string{"user_id", "full_name"}, viewStmt.Aliases)
+		assert.Equal(t, 2, viewStmt.Aliases.Len())
+		if alias1, ok := viewStmt.Aliases.Items[0].(*String); ok {
+			assert.Equal(t, "user_id", alias1.SVal)
+		}
+		if alias2, ok := viewStmt.Aliases.Items[1].(*String); ok {
+			assert.Equal(t, "full_name", alias2.SVal)
+		}
 	})
 }
 
@@ -668,18 +674,26 @@ func TestDDLComplexExamples(t *testing.T) {
 		view := NewRangeVar("active_users", "", "")
 		query := NewString("SELECT id, name FROM users WHERE active = true")
 		viewStmt := NewViewStmt(view, query, true)
-		viewStmt.Aliases = []string{"user_id", "username"}
+		viewStmt.Aliases = &NodeList{Items: []Node{NewString("user_id"), NewString("username")}}
 		viewStmt.WithCheckOption = CASCADED_CHECK_OPTION
 
 		// Add options
 		securityBarrierOpt := NewDefElem("security_barrier", NewBoolean(true))
-		viewStmt.Options = []*DefElem{securityBarrierOpt}
+		viewStmt.Options = &NodeList{Items: []Node{securityBarrierOpt}}
 
 		assert.True(t, viewStmt.Replace)
-		assert.Equal(t, []string{"user_id", "username"}, viewStmt.Aliases)
+		assert.Equal(t, 2, viewStmt.Aliases.Len())
+		if alias1, ok := viewStmt.Aliases.Items[0].(*String); ok {
+			assert.Equal(t, "user_id", alias1.SVal)
+		}
+		if alias2, ok := viewStmt.Aliases.Items[1].(*String); ok {
+			assert.Equal(t, "username", alias2.SVal)
+		}
 		assert.Equal(t, CASCADED_CHECK_OPTION, viewStmt.WithCheckOption)
-		assert.Len(t, viewStmt.Options, 1)
-		assert.Equal(t, "security_barrier", viewStmt.Options[0].Defname)
+		assert.Equal(t, 1, viewStmt.Options.Len())
+		if defElem, ok := viewStmt.Options.Items[0].(*DefElem); ok {
+			assert.Equal(t, "security_barrier", defElem.Defname)
+		}
 	})
 }
 

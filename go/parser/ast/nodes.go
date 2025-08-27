@@ -40,6 +40,7 @@ const (
 	T_CreateSchemaStmt
 	T_CreateExtensionStmt
 	T_CreateDomainStmt
+	T_CreateFunctionStmt
 	T_FunctionParameter
 	T_RoleSpec
 	T_TypeName
@@ -299,6 +300,8 @@ func (nt NodeTag) String() string {
 		return "T_CreateExtensionStmt"
 	case T_CreateDomainStmt:
 		return "T_CreateDomainStmt"
+	case T_CreateFunctionStmt:
+		return "T_CreateFunctionStmt"
 	case T_FunctionParameter:
 		return "T_FunctionParameter"
 	case T_RoleSpec:

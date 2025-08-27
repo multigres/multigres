@@ -362,27 +362,27 @@
 - **Parser Integration**: ✅ Complete - compiles successfully
 - **PostgreSQL Compliance**: ✅ 100% for implemented features
 
-## Phase 3G: Advanced DDL (~100 rules)
+## Phase 3G: Advanced DDL (~100 rules) ✅ **CORE COMPLETE**
 
-### CREATE FUNCTION/PROCEDURE
-- ⬜ `CreateFunctionStmt` - CREATE FUNCTION
-- ⬜ `FUNCTION_or_PROCEDURE` - FUNCTION or PROCEDURE
-- ⬜ `func_args` - Function arguments
-- ⬜ `func_args_list` - Function argument list
-- ⬜ `func_arg` - Function argument
-- ⬜ `func_arg_with_default` - Arg with default
-- ⬜ `func_args_with_defaults` - Args with defaults
-- ⬜ `func_args_with_defaults_list` - List of args with defaults
-- ⬜ `func_return` - Function return type
-- ⬜ `func_type` - Function type
-- ⬜ `createfunc_opt_list` - Function options
-- ⬜ `createfunc_opt_item` - Function option item
-- ⬜ `common_func_opt_item` - Common function option
-- ⬜ `func_as` - Function body
-- ⬜ `opt_routine_body` - Optional routine body
-- ⬜ `routine_body_stmt` - Routine body statement
-- ⬜ `routine_body_stmt_list` - Routine body statements
-- ⬜ `opt_createfunc_opt_list` - Optional function options
+### CREATE FUNCTION/PROCEDURE ✅ COMPLETE
+- ✅ `CreateFunctionStmt` - CREATE FUNCTION
+- ✅ `FUNCTION_or_PROCEDURE` - FUNCTION or PROCEDURE
+- ✅ `func_args` - Function arguments
+- ✅ `func_args_list` - Function argument list
+- ✅ `func_arg` - Function argument
+- ✅ `func_arg_with_default` - Arg with default
+- ✅ `func_args_with_defaults` - Args with defaults
+- ✅ `func_args_with_defaults_list` - List of args with defaults
+- ✅ `func_return` - Function return type
+- ✅ `func_type` - Function type
+- ✅ `createfunc_opt_list` - Function options
+- ✅ `createfunc_opt_item` - Function option item
+- ✅ `common_func_opt_item` - Common function option
+- ✅ `func_as` - Function body
+- ✅ `opt_routine_body` - Optional routine body
+- ✅ `routine_body_stmt` - Routine body statement
+- ✅ `routine_body_stmt_list` - Routine body statements
+- ✅ `opt_createfunc_opt_list` - Optional function options
 
 ### ALTER FUNCTION
 - ⬜ `AlterFunctionStmt` - ALTER FUNCTION
@@ -390,27 +390,27 @@
 - ⬜ `function_with_argtypes` - Function with arg types
 - ⬜ `function_with_argtypes_list` - List of functions
 
-### CREATE TRIGGER
-- ⬜ `CreateTrigStmt` - CREATE TRIGGER
-- ⬜ `TriggerActionTime` - BEFORE/AFTER
-- ⬜ `TriggerEvents` - Trigger events
-- ⬜ `TriggerOneEvent` - Single trigger event
-- ⬜ `TriggerForSpec` - FOR specification
-- ⬜ `TriggerForOptEach` - FOR EACH option
-- ⬜ `TriggerForType` - ROW/STATEMENT
-- ⬜ `TriggerWhen` - WHEN clause
-- ⬜ `TriggerFuncArgs` - Trigger function args
-- ⬜ `TriggerFuncArg` - Single trigger arg
-- ⬜ `TriggerReferencing` - REFERENCING clause
-- ⬜ `TriggerTransitions` - Trigger transitions
-- ⬜ `TriggerTransition` - Single transition
-- ⬜ `TransitionOldOrNew` - OLD/NEW
-- ⬜ `TransitionRowOrTable` - ROW/TABLE
-- ⬜ `TransitionRelName` - Transition relation name
+### CREATE TRIGGER ✅ COMPLETE
+- ✅ `CreateTrigStmt` - CREATE TRIGGER
+- ✅ `TriggerActionTime` - BEFORE/AFTER/INSTEAD OF
+- ✅ `TriggerEvents` - Trigger events with column support
+- ✅ `TriggerOneEvent` - Single trigger event (including TRUNCATE)
+- ✅ `TriggerForSpec` - FOR specification
+- ✅ `TriggerForOptEach` - FOR EACH option
+- ✅ `TriggerForType` - ROW/STATEMENT
+- ✅ `TriggerWhen` - WHEN clause
+- ✅ `TriggerFuncArgs` - Trigger function args
+- ✅ `TriggerFuncArg` - Single trigger arg
+- ✅ `TriggerReferencing` - REFERENCING clause
+- ✅ `TriggerTransitions` - Trigger transitions
+- ✅ `TriggerTransition` - Single transition
+- ✅ `TransitionOldOrNew` - OLD/NEW
+- ✅ `TransitionRowOrTable` - ROW/TABLE
+- ✅ `TransitionRelName` - Transition relation name
 
-### CREATE VIEW
-- ⬜ `ViewStmt` - CREATE VIEW
-- ⬜ `opt_check_option` - CHECK OPTION
+### CREATE VIEW ✅ COMPLETE
+- ✅ `ViewStmt` - CREATE VIEW (including TEMP and RECURSIVE variants)
+- ✅ `opt_check_option` - CHECK OPTION
 
 ### CREATE MATERIALIZED VIEW
 - ⬜ `CreateMatViewStmt` - CREATE MATERIALIZED VIEW
@@ -1019,7 +1019,7 @@
 - Phase 3D (JOINs): 38/45 completed ✅ COMPLETE (all JOIN types, full CTE with SEARCH/CYCLE/MATERIALIZED, subqueries, LATERAL)
 - Phase 3E (DML): 50/50 completed ✅ COMPLETE (All DML statements including MERGE WHEN clauses, ON CONFLICT, and COPY fully implemented)
 - Phase 3F (Basic DDL): 60/80 completed ✅ COMPLETE (CREATE TABLE, CREATE INDEX, ALTER TABLE, DROP statements - 20 advanced rules deferred to Phase 3G)
-- Phase 3G (Advanced DDL): 0/100 completed
+- Phase 3G (Advanced DDL): 35/100 completed ✅ **CORE COMPLETE**
 - Phase 3H (Advanced SELECT): 0/60 completed
 - Phase 3I (Transaction/Admin): 0/80 completed
 - Phase 3J (PostgreSQL-Specific): 0/217 completed

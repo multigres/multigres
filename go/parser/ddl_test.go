@@ -286,7 +286,7 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "CREATE TABLE users (id int PRIMARY KEY, email varchar(100) UNIQUE NOT NULL, age int CHECK ((age > 0)))",
 		},
 
-		// Phase 3F CREATE INDEX Tests
+		// CREATE INDEX Tests
 		{
 			name: "CREATE INDEX basic round-trip",
 			sql:  "CREATE INDEX idx_users_name ON users (name)",
@@ -312,7 +312,7 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "CREATE INDEX idx_active_users ON users (name) WHERE (active = TRUE)",
 		},
 
-		// Phase 3F ALTER TABLE Tests
+		// ALTER TABLE Tests
 		{
 			name: "ALTER TABLE ADD COLUMN round-trip",
 			sql:  "ALTER TABLE users ADD COLUMN age int",
@@ -334,7 +334,7 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "ALTER TABLE IF EXISTS users ADD COLUMN age int",
 		},
 
-		// Phase 3F DROP Statement Tests
+		// DROP Statement Tests
 		{
 			name: "DROP TABLE basic round-trip",
 			sql:  "DROP TABLE users",
@@ -363,6 +363,60 @@ func TestDDLParsing(t *testing.T) {
 		{
 			name: "DROP INDEX CONCURRENTLY round-trip",
 			sql:  "DROP INDEX CONCURRENTLY idx_users_name",
+		},
+
+		// CREATE VIEW Tests
+		{
+			name: "Basic CREATE VIEW round-trip",
+			sql:  "CREATE VIEW user_summary AS SELECT id, name FROM users",
+		},
+		{
+			name: "CREATE OR REPLACE VIEW round-trip",
+			sql:  "CREATE OR REPLACE VIEW user_summary AS SELECT id, name, email FROM users",
+		},
+		{
+			name: "CREATE VIEW with column aliases round-trip",
+			sql:  "CREATE VIEW user_info (user_id, full_name) AS SELECT id, name FROM users",
+		},
+		{
+			name: "CREATE VIEW with WHERE clause round-trip",
+			sql:  "CREATE VIEW active_users AS SELECT * FROM users WHERE (active = TRUE)",
+		},
+		{
+			name: "CREATE VIEW with CHECK OPTION round-trip",
+			sql:  "CREATE VIEW active_users AS SELECT * FROM users WHERE (active = TRUE) WITH CHECK OPTION",
+		},
+
+		// CREATE FUNCTION Tests
+		{
+			name: "Basic CREATE FUNCTION round-trip",
+			sql:  "CREATE FUNCTION test_func () RETURNS integer LANGUAGE sql AS $$SELECT 1$$",
+		},
+		{
+			name: "CREATE OR REPLACE FUNCTION round-trip",
+			sql:  "CREATE OR REPLACE FUNCTION test_func () RETURNS integer LANGUAGE sql AS $$SELECT 1$$",
+		},
+		{
+			name: "CREATE FUNCTION with parameters round-trip",
+			sql:  "CREATE FUNCTION add_func (a integer, b integer) RETURNS integer LANGUAGE sql AS $$SELECT $1 + $2$$",
+		},
+		{
+			name: "CREATE PROCEDURE round-trip",
+			sql:  "CREATE PROCEDURE test_proc () LANGUAGE sql AS $$BEGIN NULL; END$$",
+		},
+
+		// CREATE TRIGGER Tests
+		{
+			name: "Basic CREATE TRIGGER round-trip",
+			sql:  "CREATE TRIGGER audit_insert BEFORE INSERT ON users EXECUTE FUNCTION audit_function ()",
+		},
+		{
+			name: "CREATE TRIGGER with FOR EACH ROW round-trip",
+			sql:  "CREATE TRIGGER row_trigger BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_function ()",
+		},
+		{
+			name: "CREATE TRIGGER INSTEAD OF round-trip",
+			sql:  "CREATE TRIGGER view_trigger INSTEAD OF INSERT ON user_view EXECUTE FUNCTION handle_view_insert ()",
 		},
 	}
 
@@ -559,4 +613,136 @@ func TestKeyActionsUpdateRestriction(t *testing.T) {
 	_, err := ParseSQL(input)
 	// We expect an error here since UPDATE with column list should not be supported
 	require.Error(t, err)
+}
+
+// TestNodeListCreateFunctionDeparsing tests CreateFunctionStmt with NodeList implementation
+func TestNodeListCreateFunctionDeparsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		expected string // If empty, use sql as expected
+	}{
+		{
+			name: "Simple function",
+			sql:  "CREATE FUNCTION add(a integer, b integer) RETURNS integer LANGUAGE sql AS $$SELECT a + b$$",
+		},
+		{
+			name: "Function with unnamed parameter",
+			sql:  "CREATE FUNCTION greet(text) RETURNS text LANGUAGE sql AS $$SELECT 'Hello ' || $1$$",
+		},
+		{
+			name: "Function with OUT parameter", 
+			sql:  "CREATE FUNCTION process(IN input text, OUT result integer) LANGUAGE sql AS $$SELECT length(input)$$",
+		},
+		{
+			name: "OR REPLACE function",
+			sql:  "CREATE OR REPLACE FUNCTION test() RETURNS void LANGUAGE sql AS $$SELECT$$",
+		},
+		{
+			name: "PROCEDURE",
+			sql:  "CREATE PROCEDURE test_proc() LANGUAGE sql AS $$SELECT$$",
+		},
+		{
+			name: "Function with qualified name",
+			sql:  "CREATE FUNCTION public.test_func() RETURNS integer LANGUAGE sql AS $$SELECT 1$$",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the SQL
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.Len(t, stmts, 1, "Should have exactly one statement")
+
+			// Verify it's a CreateFunctionStmt
+			createFunc, ok := stmts[0].(*ast.CreateFunctionStmt)
+			require.True(t, ok, "Expected CreateFunctionStmt, got %T", stmts[0])
+
+			// Verify NodeList fields are properly set
+			require.NotNil(t, createFunc.FuncName, "FuncName should be NodeList, not nil")
+			require.Greater(t, createFunc.FuncName.Len(), 0, "FuncName should have items")
+			
+			if createFunc.Parameters != nil {
+				require.IsType(t, &ast.NodeList{}, createFunc.Parameters, "Parameters should be *NodeList")
+			}
+			
+			if createFunc.Options != nil {
+				require.IsType(t, &ast.NodeList{}, createFunc.Options, "Options should be *NodeList")  
+			}
+
+			// Test deparsing
+			deparsed := createFunc.SqlString()
+			require.NotEmpty(t, deparsed, "Deparsed SQL should not be empty")
+
+			// Test round-trip parsing
+			reparsedStmts, reparseErr := ParseSQL(deparsed)
+			require.NoError(t, reparseErr, "Round-trip parsing should succeed: %s", deparsed)
+			require.Len(t, reparsedStmts, 1, "Round-trip should have exactly one statement")
+
+			// Verify the reparsed statement is also correct
+			reparsedFunc, ok := reparsedStmts[0].(*ast.CreateFunctionStmt)
+			require.True(t, ok, "Reparsed should be CreateFunctionStmt")
+			require.Equal(t, createFunc.IsProcedure, reparsedFunc.IsProcedure)
+			require.Equal(t, createFunc.Replace, reparsedFunc.Replace)
+		})
+	}
+}
+
+// TestNodeListViewDeparsing tests ViewStmt with NodeList implementation
+func TestNodeListViewDeparsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		expected string // If empty, use sql as expected
+	}{
+		{
+			name: "Simple view",
+			sql:  "CREATE VIEW test_view AS SELECT 1",
+		},
+		{
+			name: "OR REPLACE view",
+			sql:  "CREATE OR REPLACE VIEW test_view AS SELECT 1",
+		},
+		{
+			name: "View with column aliases",
+			sql:  "CREATE VIEW user_info(id, name) AS SELECT user_id, username FROM users",
+		},
+		{
+			name: "TEMPORARY view",
+			sql:  "CREATE TEMPORARY VIEW temp_view AS SELECT 1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the SQL
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.Len(t, stmts, 1, "Should have exactly one statement")
+
+			// Verify it's a ViewStmt
+			viewStmt, ok := stmts[0].(*ast.ViewStmt)
+			require.True(t, ok, "Expected ViewStmt, got %T", stmts[0])
+
+			// Verify NodeList fields
+			if viewStmt.Options != nil {
+				require.IsType(t, &ast.NodeList{}, viewStmt.Options, "Options should be *NodeList")
+			}
+
+			// Test deparsing
+			deparsed := viewStmt.SqlString()
+			require.NotEmpty(t, deparsed, "Deparsed SQL should not be empty")
+
+			// Test round-trip parsing
+			reparsedStmts, reparseErr := ParseSQL(deparsed)
+			require.NoError(t, reparseErr, "Round-trip parsing should succeed: %s", deparsed)
+			require.Len(t, reparsedStmts, 1, "Round-trip should have exactly one statement")
+
+			// Verify the reparsed statement is also correct
+			reparsedView, ok := reparsedStmts[0].(*ast.ViewStmt)
+			require.True(t, ok, "Reparsed should be ViewStmt")
+			require.Equal(t, viewStmt.Replace, reparsedView.Replace)
+		})
+	}
 }

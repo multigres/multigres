@@ -360,6 +360,11 @@ func (n *ReturnStmt) String() string {
 	return "RETURN"
 }
 
+// StatementType returns the statement type for this node
+func (n *ReturnStmt) StatementType() string {
+	return "RETURN"
+}
+
 // NewReturnStmt creates a new ReturnStmt node
 func NewReturnStmt(returnVal Node) *ReturnStmt {
 	return &ReturnStmt{

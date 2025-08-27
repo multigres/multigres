@@ -12,15 +12,15 @@ package parser
 import (
 	"fmt"
 	"unicode"
-	
+
 	"github.com/multigres/parser/go/parser/ast"
 )
 
 // Lexer represents the main lexer instance
 // Equivalent to PostgreSQL's scanner state management
 type Lexer struct {
-	context  *ParseContext // Thread-safe unified context
-	parseTree []ast.Stmt   // Parse tree result from parsing
+	context   *ParseContext // Thread-safe unified context
+	parseTree []ast.Stmt    // Parse tree result from parsing
 }
 
 // Import ast package (will be added at the top)
@@ -63,7 +63,7 @@ func (l *Lexer) nextTokenInternal() (*Token, error) {
 		// postgres/src/backend/parser/scan.l:105
 		startPos := l.context.CurrentPosition()
 		startScanPos := l.context.ScanPos()
-		
+
 		// Save position for error reporting (near text extraction)
 		l.context.SaveCurrentPosition()
 
@@ -254,7 +254,7 @@ func (l *Lexer) scanIdentifier(startPos, startScanPos int) (*Token, error) {
 // This implements the same extensible nested switch pattern PostgreSQL uses
 func (l *Lexer) checkLookaheadToken(keyword *KeywordInfo, text string) TokenType {
 	currentToken := keyword.TokenType
-	
+
 	// First level: Check if this token needs lookahead examination
 	// Based on PostgreSQL parser.c lines 138-161
 	needsLookahead := false
@@ -273,14 +273,14 @@ func (l *Lexer) checkLookaheadToken(keyword *KeywordInfo, text string) TokenType
 		// No lookahead needed for this token
 		return currentToken
 	}
-	
+
 	if !needsLookahead {
 		return currentToken
 	}
-	
+
 	// Get the next token for lookahead analysis
 	nextToken := l.peekNextTokenType()
-	
+
 	// Second level: Based on current + next token combination, determine if we need *_LA variant
 	// Based on PostgreSQL parser.c lines 195-321
 	switch currentToken {
@@ -289,32 +289,32 @@ func (l *Lexer) checkLookaheadToken(keyword *KeywordInfo, text string) TokenType
 		case JSON:
 			return FORMAT_LA
 		}
-		
+
 	case WITH:
 		switch nextToken {
 		case TIME, ORDINALITY:
 			return WITH_LA
 		}
-		
+
 	case NOT:
 		switch nextToken {
 		case BETWEEN, IN_P, LIKE, ILIKE, SIMILAR:
 			return NOT_LA
 		}
-		
+
 	case NULLS_P:
 		switch nextToken {
 		case FIRST_P: // LAST_P not yet implemented
 			return NULLS_LA
 		}
-		
+
 	case WITHOUT:
 		switch nextToken {
 		case TIME:
 			return WITHOUT_LA
 		}
 	}
-	
+
 	// No lookahead transformation needed
 	return currentToken
 }
@@ -325,27 +325,27 @@ func (l *Lexer) peekNextTokenType() TokenType {
 	// Save current position to restore later
 	savedPos := l.context.currentPosition
 	savedScanPos := l.context.scanPos
-	
+
 	defer func() {
 		// Restore position after lookahead
 		l.context.currentPosition = savedPos
 		l.context.scanPos = savedScanPos
 	}()
-	
+
 	// Skip whitespace to find next token
 	l.skipWhitespaceForLookahead()
-	
+
 	// Try to read the next identifier/keyword
 	nextWord := l.peekNextIdentifier()
 	if nextWord == "" {
 		return INVALID
 	}
-	
+
 	// Check if it's a keyword
 	if keyword := LookupKeyword(nextWord); keyword != nil {
 		return keyword.TokenType
 	}
-	
+
 	// Not a keyword, return IDENT
 	return IDENT
 }
@@ -353,14 +353,14 @@ func (l *Lexer) peekNextTokenType() TokenType {
 // peekNextIdentifier peeks at the next identifier without consuming it
 func (l *Lexer) peekNextIdentifier() string {
 	startScanPos := l.context.scanPos
-	
+
 	// Read first character
 	b, ok := l.context.CurrentByte()
 	if !ok || !IsIdentStart(b) {
 		return ""
 	}
 	l.context.NextByte()
-	
+
 	// Read rest of identifier
 	for {
 		b, ok := l.context.CurrentByte()
@@ -369,7 +369,7 @@ func (l *Lexer) peekNextIdentifier() string {
 		}
 		l.context.NextByte()
 	}
-	
+
 	return l.context.GetCurrentText(startScanPos)
 }
 
@@ -380,12 +380,12 @@ func (l *Lexer) skipWhitespaceForLookahead() {
 		if !ok {
 			break
 		}
-		
+
 		if unicode.IsSpace(rune(b)) {
 			l.context.NextByte()
 			continue
 		}
-		
+
 		// Skip single-line comments
 		if b == '-' {
 			nextBytes := l.context.PeekBytes(2)
@@ -401,14 +401,14 @@ func (l *Lexer) skipWhitespaceForLookahead() {
 				continue
 			}
 		}
-		
-		// Skip multi-line comments  
+
+		// Skip multi-line comments
 		if b == '/' {
 			nextBytes := l.context.PeekBytes(2)
 			if len(nextBytes) >= 2 && nextBytes[1] == '*' {
 				l.context.NextByte() // consume '/'
 				l.context.NextByte() // consume '*'
-				
+
 				// Skip until */
 				for {
 					b, ok := l.context.CurrentByte()
@@ -428,7 +428,7 @@ func (l *Lexer) skipWhitespaceForLookahead() {
 				continue
 			}
 		}
-		
+
 		// Not whitespace or comment
 		break
 	}
@@ -1038,12 +1038,12 @@ func (l *Lexer) scanExponentPart(startPos, startScanPos int, isFloat bool) (*Tok
 func (l *Lexer) processIntegerLiteral(text string, startPos int) *Token {
 	// Try to parse as 32-bit integer first
 	val, overflow := l.parseInteger32(text)
-	
+
 	if overflow {
 		// Integer too large, treat as float (like PostgreSQL)
 		return NewStringToken(FCONST, text, startPos, text)
 	}
-	
+
 	// Return as integer constant
 	return NewIntToken(int(val), startPos, text)
 }
@@ -1055,10 +1055,10 @@ func (l *Lexer) parseInteger32(s string) (int32, bool) {
 	if len(s) == 0 {
 		return 0, false
 	}
-	
+
 	ptr := 0
 	neg := false
-	
+
 	// Handle sign
 	if s[ptr] == '-' {
 		neg = true
@@ -1066,14 +1066,14 @@ func (l *Lexer) parseInteger32(s string) (int32, bool) {
 	} else if s[ptr] == '+' {
 		ptr++
 	}
-	
+
 	if ptr >= len(s) {
 		return 0, false
 	}
-	
+
 	var val uint32
 	var overflow bool
-	
+
 	// Determine base and parse accordingly
 	if ptr+1 < len(s) && s[ptr] == '0' {
 		switch s[ptr+1] {
@@ -1097,11 +1097,11 @@ func (l *Lexer) parseInteger32(s string) (int32, bool) {
 		// Regular decimal
 		val, overflow = l.parseDecimalInteger(s, ptr)
 	}
-	
+
 	if overflow {
 		return 0, true
 	}
-	
+
 	// Convert to signed and check bounds
 	if neg {
 		// Check if negation would overflow
@@ -1122,7 +1122,7 @@ func (l *Lexer) parseDecimalInteger(s string, start int) (uint32, bool) {
 	var val uint32
 	ptr := start
 	hasDigits := false
-	
+
 	for ptr < len(s) {
 		c := s[ptr]
 		if c >= '0' && c <= '9' {
@@ -1143,7 +1143,7 @@ func (l *Lexer) parseDecimalInteger(s string, start int) (uint32, bool) {
 			break
 		}
 	}
-	
+
 	return val, !hasDigits
 }
 
@@ -1152,11 +1152,11 @@ func (l *Lexer) parseHexInteger(s string, start int) (uint32, bool) {
 	var val uint32
 	ptr := start
 	hasDigits := false
-	
+
 	for ptr < len(s) {
 		c := s[ptr]
 		var digit uint32
-		
+
 		if c >= '0' && c <= '9' {
 			digit = uint32(c - '0')
 		} else if c >= 'a' && c <= 'f' {
@@ -1173,7 +1173,7 @@ func (l *Lexer) parseHexInteger(s string, start int) (uint32, bool) {
 		} else {
 			break
 		}
-		
+
 		// Check for overflow before shifting
 		if val > 0xFFFFFFFF/16 {
 			return 0, true
@@ -1182,7 +1182,7 @@ func (l *Lexer) parseHexInteger(s string, start int) (uint32, bool) {
 		hasDigits = true
 		ptr++
 	}
-	
+
 	return val, !hasDigits
 }
 
@@ -1191,7 +1191,7 @@ func (l *Lexer) parseOctalInteger(s string, start int) (uint32, bool) {
 	var val uint32
 	ptr := start
 	hasDigits := false
-	
+
 	for ptr < len(s) {
 		c := s[ptr]
 		if c >= '0' && c <= '7' {
@@ -1212,7 +1212,7 @@ func (l *Lexer) parseOctalInteger(s string, start int) (uint32, bool) {
 			break
 		}
 	}
-	
+
 	return val, !hasDigits
 }
 
@@ -1221,7 +1221,7 @@ func (l *Lexer) parseBinaryInteger(s string, start int) (uint32, bool) {
 	var val uint32
 	ptr := start
 	hasDigits := false
-	
+
 	for ptr < len(s) {
 		c := s[ptr]
 		if c == '0' || c == '1' {
@@ -1242,7 +1242,7 @@ func (l *Lexer) parseBinaryInteger(s string, start int) (uint32, bool) {
 			break
 		}
 	}
-	
+
 	return val, !hasDigits
 }
 
@@ -1389,4 +1389,3 @@ func (l *Lexer) GetErrors() []error {
 	}
 	return result
 }
-

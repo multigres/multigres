@@ -488,6 +488,149 @@ func NewResetStmt(name string) *VariableSetStmt {
 	return NewVariableSetStmt(VAR_RESET, name, nil, false)
 }
 
+// SqlString returns the SQL representation of the SET statement
+func (v *VariableSetStmt) SqlString() string {
+	var parts []string
+	
+	// Add SET
+	parts = append(parts, "SET")
+	
+	// Add LOCAL if applicable
+	if v.IsLocal {
+		parts = append(parts, "LOCAL")
+	}
+	
+	// Handle different kinds of SET statements
+	switch v.Kind {
+	case VAR_SET_VALUE:
+		// Handle specific PostgreSQL SET variants
+		switch v.Name {
+		case "timezone":
+			parts = append(parts, "TIME", "ZONE")
+		case "catalog":
+			parts = append(parts, "CATALOG")
+		case "search_path":
+			parts = append(parts, "SCHEMA")
+		case "client_encoding":
+			parts = append(parts, "NAMES")
+		case "role":
+			parts = append(parts, "ROLE")
+		case "session_authorization":
+			parts = append(parts, "SESSION", "AUTHORIZATION")
+		case "xmloption":
+			parts = append(parts, "XML", "OPTION")
+		case "transaction_snapshot":
+			parts = append(parts, "TRANSACTION", "SNAPSHOT")
+		default:
+			// Generic variable name
+			parts = append(parts, v.Name)
+		}
+		
+		// Add values (syntax depends on the specific SET variant)
+		if v.Args != nil && v.Args.Len() > 0 {
+			// For special cases that use specific syntax
+			if v.Name == "xmloption" {
+				// XML OPTION uses the value directly (DOCUMENT/CONTENT)
+				if str, ok := v.Args.Items[0].(*String); ok {
+					parts = append(parts, strings.ToUpper(str.SVal))
+				}
+			} else if v.Name == "timezone" || v.Name == "catalog" || v.Name == "search_path" || 
+					  v.Name == "client_encoding" || v.Name == "role" || 
+					  v.Name == "session_authorization" || v.Name == "transaction_snapshot" {
+				// PostgreSQL-specific forms don't use = (e.g., SET TIME ZONE 'UTC')
+				var values []string
+				for _, arg := range v.Args.Items {
+					if str, ok := arg.(*String); ok {
+						if needsQuoting(str.SVal) {
+							values = append(values, "'"+strings.ReplaceAll(str.SVal, "'", "''")+"'")
+						} else {
+							values = append(values, str.SVal)
+						}
+					} else if integer, ok := arg.(*Integer); ok {
+						values = append(values, fmt.Sprintf("%d", integer.IVal))
+					} else {
+						values = append(values, arg.SqlString())
+					}
+				}
+				if len(values) > 0 {
+					parts = append(parts, strings.Join(values, ", "))
+				}
+			} else {
+				// Generic variable: add = and values
+				parts = append(parts, "=")
+				var values []string
+				for _, arg := range v.Args.Items {
+					if str, ok := arg.(*String); ok {
+						if needsQuoting(str.SVal) {
+							values = append(values, "'"+strings.ReplaceAll(str.SVal, "'", "''")+"'")
+						} else {
+							values = append(values, str.SVal)
+						}
+					} else if integer, ok := arg.(*Integer); ok {
+						values = append(values, fmt.Sprintf("%d", integer.IVal))
+					} else {
+						values = append(values, arg.SqlString())
+					}
+				}
+				if len(values) > 0 {
+					parts = append(parts, strings.Join(values, ", "))
+				}
+			}
+		} else if v.Name == "client_encoding" {
+			// SET NAMES without arguments is valid
+		}
+		
+	case VAR_SET_DEFAULT:
+		// Handle SET var = DEFAULT or SET SESSION AUTHORIZATION DEFAULT
+		if v.Name == "session_authorization" {
+			parts = append(parts, "SESSION", "AUTHORIZATION", "DEFAULT")
+		} else {
+			parts = append(parts, v.Name, "=", "DEFAULT")
+		}
+		
+	case VAR_SET_CURRENT:
+		// Handle SET var FROM CURRENT
+		parts = append(parts, v.Name, "FROM", "CURRENT")
+		
+	case VAR_RESET:
+		// Handle RESET (this would be a different statement type normally)
+		parts[0] = "RESET" // Replace SET with RESET
+		parts = append(parts, v.Name)
+		
+	case VAR_RESET_ALL:
+		// Handle RESET ALL  
+		parts[0] = "RESET" // Replace SET with RESET
+		parts = append(parts, "ALL")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// needsQuoting determines if a string value needs to be quoted
+func needsQuoting(value string) bool {
+	// Don't quote certain special values that are keywords
+	upper := strings.ToUpper(value)
+	switch upper {
+	case "TRUE", "FALSE", "ON", "OFF", "DEFAULT":
+		return false
+	}
+	
+	// Quote if contains spaces, special characters, or non-ASCII
+	if strings.ContainsAny(value, " '\"`\\,;()[]{}") {
+		return true
+	}
+	
+	// Check if it's a simple number (integer or float)
+	if _, err := fmt.Sscanf(value, "%f", new(float64)); err == nil {
+		// It's a number, don't quote
+		return false
+	}
+	
+	// For anything else (including identifiers), quote it
+	// This is safer and matches PostgreSQL behavior for SET values
+	return true
+}
+
 func (vss *VariableSetStmt) String() string {
 	scope := ""
 	if vss.IsLocal {

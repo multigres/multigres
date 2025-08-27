@@ -74,10 +74,10 @@ func TestFunctionParameter(t *testing.T) {
 	t.Run("basic function parameter", func(t *testing.T) {
 		name := "param1"
 		argType := NewTypeName([]string{"int4"})
-		param := NewFunctionParameter(&name, argType, FUNC_PARAM_IN, nil)
+		param := NewFunctionParameter(name, argType, FUNC_PARAM_IN, nil)
 
 		assert.NotNil(t, param)
-		assert.Equal(t, &name, param.Name)
+		assert.Equal(t, name, param.Name)
 		assert.Equal(t, argType, param.ArgType)
 		assert.Equal(t, FUNC_PARAM_IN, param.Mode)
 		assert.Nil(t, param.DefExpr)
@@ -95,10 +95,10 @@ func TestFunctionParameter(t *testing.T) {
 		name := "param2"
 		argType := NewTypeName([]string{"text"})
 		defaultExpr := &A_Const{Val: NewString("default_value")}
-		param := NewFunctionParameter(&name, argType, FUNC_PARAM_IN, defaultExpr)
+		param := NewFunctionParameter(name, argType, FUNC_PARAM_IN, defaultExpr)
 
 		assert.NotNil(t, param)
-		assert.Equal(t, &name, param.Name)
+		assert.Equal(t, name, param.Name)
 		assert.Equal(t, argType, param.ArgType)
 		assert.Equal(t, FUNC_PARAM_IN, param.Mode)
 		assert.Equal(t, defaultExpr, param.DefExpr)
@@ -112,7 +112,7 @@ func TestFunctionParameter(t *testing.T) {
 	t.Run("out parameter", func(t *testing.T) {
 		name := "result"
 		argType := NewTypeName([]string{"int4"})
-		param := NewFunctionParameter(&name, argType, FUNC_PARAM_OUT, nil)
+		param := NewFunctionParameter(name, argType, FUNC_PARAM_OUT, nil)
 
 		str := param.String()
 		assert.Contains(t, str, "OUT")
@@ -123,17 +123,18 @@ func TestFunctionParameter(t *testing.T) {
 
 func TestCreateFunctionStmt(t *testing.T) {
 	t.Run("basic function", func(t *testing.T) {
-		funcName := []*String{NewString("public"), NewString("test_func")}
+		funcName := &NodeList{Items: []Node{NewString("public"), NewString("test_func")}}
 		returnType := NewTypeName([]string{"int4"})
-		param1 := NewFunctionParameter(nil, NewTypeName([]string{"text"}), FUNC_PARAM_IN, nil)
+		param1 := NewFunctionParameter("", NewTypeName([]string{"text"}), FUNC_PARAM_IN, nil)
+		parameters := &NodeList{Items: []Node{param1}}
 		
-		stmt := NewCreateFunctionStmt(false, false, funcName, []*FunctionParameter{param1}, returnType, nil, nil)
+		stmt := NewCreateFunctionStmt(false, false, funcName, parameters, returnType, nil, nil)
 
 		assert.NotNil(t, stmt)
 		assert.False(t, stmt.IsProcedure)
 		assert.False(t, stmt.Replace)
 		assert.Equal(t, funcName, stmt.FuncName)
-		assert.Len(t, stmt.Parameters, 1)
+		assert.Equal(t, 1, stmt.Parameters.Len())
 		assert.Equal(t, returnType, stmt.ReturnType)
 
 		// Test interfaces
@@ -147,7 +148,7 @@ func TestCreateFunctionStmt(t *testing.T) {
 	})
 
 	t.Run("replace procedure", func(t *testing.T) {
-		funcName := []*String{NewString("test_proc")}
+		funcName := &NodeList{Items: []Node{NewString("test_proc")}}
 		stmt := NewCreateFunctionStmt(true, true, funcName, nil, nil, nil, nil)
 
 		assert.True(t, stmt.IsProcedure)
@@ -705,37 +706,39 @@ func TestDDLCreationStmtsIntegration(t *testing.T) {
 	t.Run("complex function with multiple parameters", func(t *testing.T) {
 		// Create function parameters
 		param1 := NewFunctionParameter(
-			&[]string{"input_text"}[0],
+			"input_text",
 			NewTypeName([]string{"text"}),
 			FUNC_PARAM_IN,
 			nil,
 		)
 		param2 := NewFunctionParameter(
-			&[]string{"max_length"}[0],
+			"max_length",
 			NewTypeName([]string{"int4"}),
 			FUNC_PARAM_IN,
 			&A_Const{Val: NewInteger(100)},
 		)
 		param3 := NewFunctionParameter(
-			&[]string{"result_length"}[0],
+			"result_length",
 			NewTypeName([]string{"int4"}),
 			FUNC_PARAM_OUT,
 			nil,
 		)
 
 		// Create function statement
+		funcName := &NodeList{Items: []Node{NewString("public"), NewString("process_text")}}
+		parameters := &NodeList{Items: []Node{param1, param2, param3}}
 		stmt := NewCreateFunctionStmt(
 			false, // not a procedure
 			true,  // replace if exists
-			[]*String{NewString("public"), NewString("process_text")},
-			[]*FunctionParameter{param1, param2, param3},
+			funcName,
+			parameters,
 			NewTypeName([]string{"text"}),
 			nil,
 			nil,
 		)
 
 		require.NotNil(t, stmt)
-		assert.Len(t, stmt.Parameters, 3)
+		assert.Equal(t, 3, stmt.Parameters.Len())
 		assert.True(t, stmt.Replace)
 		assert.False(t, stmt.IsProcedure)
 

@@ -186,9 +186,11 @@ func TestTriggerWithTransitions(t *testing.T) {
 		IsTable:  true,
 	}
 
-	trigger.Transitions = []*TriggerTransition{oldTransition, newTransition}
+	trigger.Transitions = NewNodeList()
+	trigger.Transitions.Append(oldTransition)
+	trigger.Transitions.Append(newTransition)
 
-	assert.Len(t, trigger.Transitions, 2, "Expected 2 transition tables")
+	assert.Equal(t, 2, trigger.Transitions.Len(), "Expected 2 transition tables")
 
 	// Test string representation includes transition info
 	str := trigger.String()

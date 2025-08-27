@@ -528,7 +528,7 @@ type CreateTriggerStmt struct {
 	Constrrel    *RangeVar            // Opposite relation, if RI trigger - parsenodes.h:3014
 	Deferrable   bool                 // DEFERRABLE - parsenodes.h:3015
 	Initdeferred bool                 // INITIALLY DEFERRED - parsenodes.h:3016
-	Transitions  []*TriggerTransition // Transition table clauses - parsenodes.h:3017
+	Transitions  *NodeList           // Transition table clauses - parsenodes.h:3017
 }
 
 // TriggerType represents trigger event types.
@@ -666,11 +666,172 @@ func (cts *CreateTriggerStmt) String() string {
 	}
 
 	// Add transition information
-	if len(cts.Transitions) > 0 {
-		result += fmt.Sprintf(" (%d transitions)", len(cts.Transitions))
+	if cts.Transitions != nil && cts.Transitions.Len() > 0 {
+		result += fmt.Sprintf(" (%d transitions)", cts.Transitions.Len())
 	}
 
 	return result
+}
+
+// Location returns the location for this node
+func (cts *CreateTriggerStmt) Location() int {
+	return 0 // TODO: Implement proper location tracking
+}
+
+// NodeTag returns the node's type tag
+func (cts *CreateTriggerStmt) NodeTag() NodeTag {
+	return T_CreateTriggerStmt
+}
+
+// StatementType returns the statement type for this node
+func (cts *CreateTriggerStmt) StatementType() string {
+	if cts.IsConstraint {
+		return "CREATE CONSTRAINT TRIGGER"
+	}
+	return "CREATE TRIGGER"
+}
+
+// SqlString returns SQL representation of the CREATE TRIGGER statement
+func (cts *CreateTriggerStmt) SqlString() string {
+	var parts []string
+	
+	// CREATE [OR REPLACE] [CONSTRAINT] TRIGGER
+	parts = append(parts, "CREATE")
+	if cts.Replace {
+		parts = append(parts, "OR REPLACE")
+	}
+	if cts.IsConstraint {
+		parts = append(parts, "CONSTRAINT")
+	}
+	parts = append(parts, "TRIGGER", cts.Trigname)
+	
+	// Timing (BEFORE, AFTER, INSTEAD OF)
+	switch cts.Timing {
+	case TRIGGER_TIMING_BEFORE:
+		parts = append(parts, "BEFORE")
+	case TRIGGER_TIMING_AFTER:
+		parts = append(parts, "AFTER")
+	case TRIGGER_TIMING_INSTEAD:
+		parts = append(parts, "INSTEAD OF")
+	}
+	
+	// Events (INSERT, UPDATE, DELETE, TRUNCATE)
+	var events []string
+	if cts.Events&TRIGGER_TYPE_INSERT != 0 {
+		events = append(events, "INSERT")
+	}
+	if cts.Events&TRIGGER_TYPE_UPDATE != 0 {
+		updateEvent := "UPDATE"
+		// Add column list for UPDATE OF if present
+		if cts.Columns != nil && len(cts.Columns.Items) > 0 {
+			var colNames []string
+			for _, col := range cts.Columns.Items {
+				if str, ok := col.(*String); ok {
+					colNames = append(colNames, str.SVal)
+				}
+			}
+			if len(colNames) > 0 {
+				updateEvent = fmt.Sprintf("UPDATE OF %s", strings.Join(colNames, ", "))
+			}
+		}
+		events = append(events, updateEvent)
+	}
+	if cts.Events&TRIGGER_TYPE_DELETE != 0 {
+		events = append(events, "DELETE")
+	}
+	if cts.Events&TRIGGER_TYPE_TRUNCATE != 0 {
+		events = append(events, "TRUNCATE")
+	}
+	parts = append(parts, strings.Join(events, " OR "))
+	
+	// ON table
+	parts = append(parts, "ON")
+	if cts.Relation != nil {
+		parts = append(parts, cts.Relation.SqlString())
+	}
+	
+	// FROM constraint_table (for constraint triggers)
+	if cts.IsConstraint && cts.Constrrel != nil {
+		parts = append(parts, "FROM", cts.Constrrel.SqlString())
+	}
+	
+	// Deferrable options (for constraint triggers)
+	if cts.IsConstraint {
+		if cts.Deferrable {
+			parts = append(parts, "DEFERRABLE")
+			if cts.Initdeferred {
+				parts = append(parts, "INITIALLY DEFERRED")
+			} else {
+				parts = append(parts, "INITIALLY IMMEDIATE")
+			}
+		} else {
+			parts = append(parts, "NOT DEFERRABLE")
+		}
+	}
+	
+	// REFERENCING transitions
+	if cts.Transitions != nil && cts.Transitions.Len() > 0 {
+		parts = append(parts, "REFERENCING")
+		for i := 0; i < cts.Transitions.Len(); i++ {
+			trans := cts.Transitions.Items[i].(*TriggerTransition)
+			if trans.IsNew {
+				parts = append(parts, "NEW")
+			} else {
+				parts = append(parts, "OLD")
+			}
+			if trans.IsTable {
+				parts = append(parts, "TABLE")
+			} else {
+				parts = append(parts, "ROW")
+			}
+			parts = append(parts, "AS", trans.Name)
+		}
+	}
+	
+	// FOR EACH ROW/STATEMENT (only output if ROW is true, STATEMENT is default)
+	if cts.Row {
+		parts = append(parts, "FOR EACH ROW")
+	}
+	
+	// WHEN clause
+	if cts.WhenClause != nil {
+		parts = append(parts, "WHEN", fmt.Sprintf("(%s)", cts.WhenClause.SqlString()))
+	}
+	
+	// EXECUTE FUNCTION
+	parts = append(parts, "EXECUTE FUNCTION")
+	
+	// Function name
+	if cts.Funcname != nil {
+		var funcNames []string
+		for _, item := range cts.Funcname.Items {
+			if str, ok := item.(*String); ok {
+				funcNames = append(funcNames, str.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(funcNames, "."))
+	}
+	
+	// Function arguments
+	var argStrs []string
+	if cts.Args != nil && len(cts.Args.Items) > 0 {
+		for _, arg := range cts.Args.Items {
+			if str, ok := arg.(*String); ok {
+				// Check if it's a numeric string or needs quotes
+				if _, err := fmt.Sscanf(str.SVal, "%d", new(int)); err != nil {
+					// Not a number, add quotes
+					argStrs = append(argStrs, fmt.Sprintf("'%s'", str.SVal))
+				} else {
+					// It's a number
+					argStrs = append(argStrs, str.SVal)
+				}
+			}
+		}
+	}
+	argsClause := "(" + strings.Join(argStrs, ", ") + ")"
+	parts = append(parts, argsClause)
+	
+	return strings.Join(parts, " ")
 }
 
 // ==============================================================================

@@ -14,6 +14,11 @@ import (
 	"github.com/multigres/parser/go/parser/ast"
 )
 
+// Parser state for handling complex grammar constructs
+var parserState struct {
+	// Future parser state variables can be added here
+}
+
 // LexerInterface - implements the lexer interface expected by goyacc
 // Note: The actual Lexer struct is defined in lexer.go
 type LexerInterface interface {
@@ -67,6 +72,9 @@ type LexerInterface interface {
 	jexpr      *ast.JoinExpr    // For joined table expressions
 	keyaction  *ast.KeyAction   // For foreign key actions
 	keyactions *ast.KeyActions  // For foreign key action sets
+	funparam   *ast.FunctionParameter  // For function parameters
+	funparammode ast.FunctionParameterMode  // For parameter modes (IN/OUT/INOUT/VARIADIC)
+	vsetstmt   *ast.VariableSetStmt    // For SET/RESET statements
 
 	// Location tracking
 	location   int
@@ -230,8 +238,10 @@ type LexerInterface interface {
 
 /* Expression types */
 %type <node>         a_expr b_expr c_expr AexprConst columnref
-%type <node>         func_expr
-%type <list>         func_name
+%type <node>         func_expr case_expr case_arg case_default when_clause
+%type <list>         when_clause_list
+%type <node>         array_expr explicit_row implicit_row
+%type <list>         array_expr_list
 %type <list>         func_arg_list
 %type <node>         func_arg_expr
 %type <list>         indirection opt_indirection
@@ -274,12 +284,12 @@ type LexerInterface interface {
 %type <str>          cursor_name copy_file_name
 %type <node>         opt_binary copy_delimiter copy_opt_item
 %type <list>         copy_options copy_opt_list copy_generic_opt_list copy_generic_opt_arg_list opt_column_list index_elem_list index_params
-%type <node>         copy_generic_opt_elem copy_generic_opt_arg copy_generic_opt_arg_list_item NumericOnly
+%type <node>         copy_generic_opt_elem copy_generic_opt_arg copy_generic_opt_arg_list_item NumericOnly var_value
 %type <node>         set_statistics_value
 %type <ival>         opt_set_data
 %type <list>         type_name_list
-%type <str>          opt_boolean_or_string NonReservedWord_or_Sconst
-%type <list>         target_list opt_target_list
+%type <str>          opt_boolean_or_string NonReservedWord_or_Sconst var_name
+%type <list>         target_list opt_target_list var_list
 %type <target>       target_el
 %type <list>         from_clause from_list
 %type <node>         table_ref
@@ -306,7 +316,7 @@ type LexerInterface interface {
 %type <list>         rowsfrom_item
 %type <list>         opt_col_def_list
 %type <list>         table_func_column_list
-%type <node>         table_func_column
+// table_func_column type is declared with func_arg as <funparam>
 %type <str>          param_name
 %type <ival>         opt_ordinality
 %type <node>         xmltable
@@ -388,6 +398,35 @@ type LexerInterface interface {
 %type <dropBehav>	 opt_drop_behavior
 %type <rangevar>	 qualified_name insert_target relation_expr extended_relation_expr relation_expr_opt_alias
 
+%type <stmt>         CreateFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
+%type <vsetstmt>     generic_set set_rest set_rest_more generic_reset reset_rest SetResetClause FunctionSetResetClause
+%type <list>         func_name func_args_with_defaults func_args_with_defaults_list
+%type <funparam>     func_arg_with_default func_arg table_func_column
+%type <funparammode> arg_class
+%type <typnam>       func_return
+%type <list>         opt_createfunc_opt_list createfunc_opt_list transform_type_list
+%type <defelt>       createfunc_opt_item common_func_opt_item
+%type <node>         func_as opt_routine_body
+%type <stmt>         routine_body_stmt
+
+%type <ival>         TriggerActionTime
+%type <list>         TriggerOneEvent TriggerEvents
+%type <bval>         TriggerForSpec TriggerForType TransitionOldOrNew TransitionRowOrTable
+%type <list>         TriggerReferencing TriggerTransitions TriggerFuncArgs
+%type <node>         TriggerTransition TriggerWhen TriggerFuncArg
+%type <str>          TransitionRelName
+%type <rangevar>     OptConstrFromTable
+
+%type <list>         opt_column_list opt_reloptions
+%type <ival>         opt_check_option
+%type <list>         routine_body_stmt_list
+%type <node>         zone_value var_value
+%type <list>         var_list transaction_mode_list
+%type <node>         transaction_mode_item
+%type <str>          NonReservedWord_or_Sconst NonReservedWord opt_encoding iso_level
+%type <ival>         document_or_content
+%type <list>         attrs
+
 /* Start symbol */
 %start parse_toplevel
 
@@ -464,6 +503,11 @@ stmt:
 		|	AlterTableStmt							{ $$ = $1 }
 		|	DropStmt								{ $$ = $1 }
 		|	RenameStmt								{ $$ = $1 }
+		|	CreateFunctionStmt						{ $$ = $1 }
+		|	CreateTrigStmt							{ $$ = $1 }
+		|	ViewStmt								{ $$ = $1 }
+		|	VariableSetStmt							{ $$ = $1 }
+		|	VariableResetStmt						{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -1045,13 +1089,6 @@ unreserved_keyword:
 			| YEAR_P										{ $$ = "year" }
 			| YES_P										{ $$ = "yes" }
 			| ZONE										{ $$ = "zone" }
-		;
-
-/* Non-reserved words that can be used as identifiers */
-NonReservedWord:
-			unreserved_keyword						{ $$ = $1 }
-		|	col_name_keyword						{ $$ = $1 }
-		|	type_func_name_keyword					{ $$ = $1 }
 		;
 
 /* Column identifier --- keywords that can be column, table, etc names.
@@ -2067,7 +2104,52 @@ c_expr:		columnref							{ $$ = $1 }
 					$$ = parenExpr
 				}
 			}
+		|	case_expr							{ $$ = $1 }
 		|	func_expr							{ $$ = $1 }
+		|	select_with_parens					%prec UMINUS
+			{
+				$$ = ast.NewExprSublink($1)
+			}
+		|	select_with_parens indirection
+			{
+				sublink := ast.NewExprSublink($1)
+				$$ = ast.NewA_Indirection(sublink, $2, 0)
+			}
+		|	EXISTS select_with_parens
+			{
+				$$ = ast.NewExistsSublink($2)
+			}
+		|	ARRAY select_with_parens
+			{
+				$$ = ast.NewArraySublink($2)
+			}
+		|	ARRAY array_expr
+			{
+				$$ = $2
+			}
+		|	explicit_row
+			{
+				rowExpr := ast.NewRowConstructor($1.(*ast.NodeList))
+				rowExpr.RowFormat = ast.COERCE_EXPLICIT_CALL
+				$$ = rowExpr
+			}
+		|	implicit_row
+			{
+				rowExpr := ast.NewRowConstructor($1.(*ast.NodeList))
+				rowExpr.RowFormat = ast.COERCE_IMPLICIT_CAST
+				$$ = rowExpr
+			}
+		|	GROUPING '(' expr_list ')'
+			{
+				// TODO: Fix GROUPING function implementation
+				// Current implementation is simplified and needs proper expr_list handling
+				// The expr_list should be properly converted to NodeList and assigned to Args
+				grouping := &ast.GroupingFunc{
+					BaseExpr: ast.BaseExpr{BaseNode: ast.BaseNode{Tag: ast.T_GroupingFunc}},
+					Args:     nil, // We'll need to convert expr_list properly
+				}
+				$$ = grouping
+			}
 		;
 
 /* Constants */
@@ -2260,6 +2342,73 @@ func_arg_expr: a_expr
 			}
 		;
 
+/* CASE expressions */
+case_expr:	CASE case_arg when_clause_list case_default END_P
+			{
+				$$ = ast.NewCaseExpr(0, $2, $3, $4)
+			}
+		;
+
+case_arg:	a_expr									{ $$ = $1 }
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+when_clause_list:
+			when_clause							{ $$ = ast.NewNodeList($1) }
+		|	when_clause_list when_clause
+			{
+				$1.Append($2)
+				$$ = $1
+			}
+		;
+
+when_clause:
+			WHEN a_expr THEN a_expr
+			{
+				$$ = ast.NewCaseWhen($2, $4)
+			}
+		;
+
+case_default:
+			ELSE a_expr							{ $$ = $2 }
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+/* Array expressions */
+array_expr:	'[' expr_list ']'
+			{
+				$$ = ast.NewArrayConstructor($2)
+			}
+		|	'[' array_expr_list ']'
+			{
+				$$ = ast.NewArrayConstructor($2)
+			}
+		|	'[' ']'
+			{
+				$$ = ast.NewArrayConstructor(ast.NewNodeList())
+			}
+		;
+
+array_expr_list: array_expr						{ $$ = ast.NewNodeList($1) }
+		|	array_expr_list ',' array_expr
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+		;
+
+/* Row expressions */
+explicit_row:	ROW '(' expr_list ')'			{ $$ = $3 }
+		|	ROW '(' ')'							{ $$ = ast.NewNodeList() }
+		;
+
+implicit_row:	'(' expr_list ',' a_expr ')'
+			{
+				$2.Append($4)
+				$$ = $2
+			}
+		;
+
 /* Expression lists */
 expr_list:	a_expr
 			{
@@ -2296,9 +2445,6 @@ attr_name:	ColLabel						{ $$ = $1 }
 		;
 
 param_name:	type_function_name				{ $$ = $1 }
-		;
-
-func_type:	Typename							{ $$ = $1 }
 		;
 
 attrs:		'.' attr_name
@@ -2636,7 +2782,12 @@ opt_asymmetric:  /* EMPTY */					{ $$ = 0 }
 		|	ASYMMETRIC						{ $$ = 0 } /* ASYMMETRIC is default, no-op */
 		;
 
-in_expr:		'(' expr_list ')'
+in_expr:		select_with_parens
+			{
+				subLink := ast.NewSubLink(ast.ANY_SUBLINK, $1.(*ast.SelectStmt))
+				$$ = subLink
+			}
+		|	'(' expr_list ')'
 			{
 				$$ = $2
 			}
@@ -3379,15 +3530,13 @@ table_func_column_list:
  */
 table_func_column: param_name func_type
 			{
-				name := $1
-				fp := &ast.FunctionParameter{
+				$$ = &ast.FunctionParameter{
 					BaseNode: ast.BaseNode{Tag: ast.T_FunctionParameter},
-					Name:     &name,
+					Name:     $1,
 					ArgType:  $2,
 					Mode:     ast.FUNC_PARAM_TABLE,
 					DefExpr:  nil,
 				}
-				$$ = fp
 			}
 		;
 
@@ -3945,14 +4094,6 @@ insert_column_item:
 		;
 
 /*
- * Optional column list for COPY statement
- */
-opt_column_list:
-			'(' name_list ')'				{ $$ = $2 }
-		|	/* EMPTY */						{ $$ = nil }
-		;
-
-/*
  * UPDATE Statement
  * From postgres/src/backend/parser/gram.y:4538-4553
  */
@@ -4315,11 +4456,6 @@ opt_boolean_or_string:
 	|	FALSE_P							{ $$ = "false" }
 	|	ON								{ $$ = "on" }
 	|	NonReservedWord_or_Sconst		{ $$ = $1 }
-	;
-
-NonReservedWord_or_Sconst:
-		unreserved_keyword				{ $$ = $1 }
-	|	Sconst							{ $$ = $1 }
 	;
 
 NumericOnly:
@@ -6623,6 +6759,75 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 				}
 		;
 
+VariableSetStmt:
+			SET set_rest
+				{
+					stmt := $2
+					stmt.IsLocal = false
+					$$ = stmt
+				}
+		|	SET LOCAL set_rest
+				{
+					stmt := $3
+					stmt.IsLocal = true
+					$$ = stmt
+				}
+		|	SET SESSION set_rest
+				{
+					stmt := $3
+					stmt.IsLocal = false
+					$$ = stmt
+				}
+		;
+
+set_rest:
+		TRANSACTION transaction_mode_list
+			{
+				$$ = ast.NewVariableSetStmt(ast.VAR_SET_MULTI, "TRANSACTION", $2, false)
+			}
+	|	SESSION CHARACTERISTICS AS TRANSACTION transaction_mode_list
+			{
+				$$ = ast.NewVariableSetStmt(ast.VAR_SET_MULTI, "SESSION CHARACTERISTICS AS TRANSACTION", $5, false)
+			}
+	|	set_rest_more						{ $$ = $1 }
+	;
+
+reset_rest:
+		generic_reset							{ $$ = $1 }
+	|	TIME ZONE
+			{
+				$$ = ast.NewVariableSetStmt(ast.VAR_RESET, "timezone", nil, false)
+			}
+	|	TRANSACTION ISOLATION LEVEL
+			{
+				$$ = ast.NewVariableSetStmt(ast.VAR_RESET, "transaction_isolation", nil, false)
+			}
+	|	SESSION AUTHORIZATION
+			{
+				$$ = ast.NewVariableSetStmt(ast.VAR_RESET, "session_authorization", nil, false)
+			}
+	;
+
+generic_reset:
+		var_name
+			{
+				$$ = ast.NewVariableSetStmt(ast.VAR_RESET, $1, nil, false)
+			}
+	|	ALL
+			{
+				$$ = ast.NewVariableSetStmt(ast.VAR_RESET_ALL, "", nil, false)
+			}
+	;
+
+SetResetClause:
+		SET set_rest_more						{ $$ = $2 }
+	|	VariableResetStmt						{ $$ = $1.(*ast.VariableSetStmt) }
+	;
+
+VariableResetStmt:
+		RESET reset_rest						{ $$ = ast.Stmt($2) }
+	;
+
 /* object types taking any_name/any_name_list */
 object_type_any_name:
 			TABLE						{ $$ = ast.OBJECT_TABLE }
@@ -7412,6 +7617,942 @@ reloption_elem:
 				}
 		;
 
+/*****************************************************************************
+ *
+ *		CREATE FUNCTION/PROCEDURE statements
+ *
+ *****************************************************************************/
+
+CreateFunctionStmt:
+			CREATE opt_or_replace FUNCTION func_name func_args_with_defaults
+			RETURNS func_return opt_createfunc_opt_list opt_routine_body
+				{
+					stmt := &ast.CreateFunctionStmt{
+						IsProcedure: false,
+						Replace: $2 != 0,
+						FuncName: $4,
+						Parameters: $5,
+						ReturnType: $7,
+						Options: $8,
+						SQLBody: $9,
+					}
+					$$ = stmt
+				}
+		|	CREATE opt_or_replace FUNCTION func_name func_args_with_defaults
+			RETURNS TABLE '(' table_func_column_list ')' opt_createfunc_opt_list opt_routine_body
+				{
+					// Handle RETURNS TABLE variant
+					stmt := &ast.CreateFunctionStmt{
+						IsProcedure: false,
+						Replace: $2 != 0,
+						FuncName: $4,
+						Parameters: $5,
+						ReturnType: nil, // TODO: Handle table return type
+						Options: $11,
+						SQLBody: $12,
+					}
+					// TODO: Process table_func_column_list into appropriate return type
+					$$ = stmt
+				}
+		|	CREATE opt_or_replace FUNCTION func_name func_args_with_defaults
+			opt_createfunc_opt_list opt_routine_body
+				{
+					// No explicit return type (for procedures disguised as functions)
+					stmt := &ast.CreateFunctionStmt{
+						IsProcedure: false,
+						Replace: $2 != 0,
+						FuncName: $4,
+						Parameters: $5,
+						ReturnType: nil,
+						Options: $6,
+						SQLBody: $7,
+					}
+					$$ = stmt
+				}
+		|	CREATE opt_or_replace PROCEDURE func_name func_args_with_defaults
+			opt_createfunc_opt_list opt_routine_body
+				{
+					stmt := &ast.CreateFunctionStmt{
+						IsProcedure: true,
+						Replace: $2 != 0,
+						FuncName: $4,
+						Parameters: $5,
+						ReturnType: nil,
+						Options: $6,
+						SQLBody: $7,
+					}
+					$$ = stmt
+				}
+		;
+
+func_args_with_defaults:
+			'(' func_args_with_defaults_list ')'		{ $$ = $2 }
+		|	'(' ')'										{ $$ = nil }
+		;
+
+func_args_with_defaults_list:
+			func_arg_with_default
+				{
+					$$ = ast.NewNodeList($1)
+				}
+		|	func_args_with_defaults_list ',' func_arg_with_default
+				{
+					$1.Append($3)
+					$$ = $1
+				}
+		;
+
+func_arg_with_default:
+			func_arg
+				{
+					$$ = $1
+				}
+		|	func_arg DEFAULT a_expr
+				{
+					$1.DefExpr = $3
+					$$ = $1
+				}
+		|	func_arg '=' a_expr
+				{
+					$1.DefExpr = $3
+					$$ = $1
+				}
+		;
+
+func_arg:
+			arg_class param_name func_type
+				{
+					param := &ast.FunctionParameter{
+						Mode: $1,
+						Name: $2,
+						ArgType: $3,
+					}
+					$$ = param
+				}
+		|	param_name arg_class func_type
+				{
+					param := &ast.FunctionParameter{
+						Mode: $2,
+						Name: $1,
+						ArgType: $3,
+					}
+					$$ = param
+				}
+		|	param_name func_type
+				{
+					param := &ast.FunctionParameter{
+						Mode: ast.FUNC_PARAM_DEFAULT,
+						Name: $1,
+						ArgType: $2,
+					}
+					$$ = param
+				}
+		|	arg_class func_type
+				{
+					param := &ast.FunctionParameter{
+						Mode: $1,
+						Name: "",
+						ArgType: $2,
+					}
+					$$ = param
+				}
+		|	func_type
+				{
+					param := &ast.FunctionParameter{
+						Mode: ast.FUNC_PARAM_DEFAULT,
+						Name: "",
+						ArgType: $1,
+					}
+					$$ = param
+				}
+		;
+
+arg_class:
+			IN_P								{ $$ = ast.FUNC_PARAM_IN }
+		|	OUT_P								{ $$ = ast.FUNC_PARAM_OUT }
+		|	INOUT								{ $$ = ast.FUNC_PARAM_INOUT }
+		|	IN_P OUT_P							{ $$ = ast.FUNC_PARAM_INOUT }
+		|	VARIADIC							{ $$ = ast.FUNC_PARAM_VARIADIC }
+		;
+
+func_return:
+			func_type							{ $$ = $1 }
+		;
+
+func_type:
+			Typename							{ $$ = $1 }
+		|	type_function_name attrs '%' TYPE_P
+				{
+					// Handle %TYPE reference
+					list := ast.NewNodeList()
+					list.Append(ast.NewString($1))
+					$$ = &ast.TypeName{
+						Names: list,
+						// TODO: Add %TYPE indicator
+					}
+				}
+		|	SETOF type_function_name attrs '%' TYPE_P
+				{
+					// Handle SETOF %TYPE reference
+					list := ast.NewNodeList()
+					list.Append(ast.NewString($2))
+					$$ = &ast.TypeName{
+						Names: list,
+						Setof: true,
+					}
+				}
+		;
+
+opt_createfunc_opt_list:
+			createfunc_opt_list					{ $$ = $1 }
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+createfunc_opt_list:
+			createfunc_opt_item
+				{
+					list := ast.NewNodeList()
+					list.Append($1)
+					$$ = list
+				}
+		|	createfunc_opt_list createfunc_opt_item
+				{
+					$1.Append($2)
+					$$ = $1
+				}
+		;
+
+createfunc_opt_item:
+			AS func_as
+				{
+					$$ = ast.NewDefElem("as", $2)
+				}
+		|	LANGUAGE NonReservedWord_or_Sconst
+				{
+					$$ = ast.NewDefElem("language", ast.NewString($2))
+				}
+		|	TRANSFORM transform_type_list
+				{
+					$$ = ast.NewDefElem("transform", $2)
+				}
+		|	WINDOW
+				{
+					$$ = ast.NewDefElem("window", ast.NewBoolean(true))
+				}
+		|	common_func_opt_item
+				{
+					$$ = $1
+				}
+		;
+
+func_as:
+			Sconst								
+				{
+					list := ast.NewNodeList()
+					list.Append(ast.NewString($1))
+					$$ = list
+				}
+		|	Sconst ',' Sconst
+				{
+					list := ast.NewNodeList()
+					list.Append(ast.NewString($1))
+					list.Append(ast.NewString($3))
+					$$ = list
+				}
+		;
+
+transform_type_list:
+			FOR TYPE_P Typename
+				{
+					list := ast.NewNodeList()
+					list.Append($3)
+					$$ = list
+				}
+		|	transform_type_list ',' FOR TYPE_P Typename
+				{
+					$1.Append($5)
+					$$ = $1
+				}
+		;
+
+opt_routine_body:
+			ReturnStmt
+				{
+					$$ = $1
+				}
+		|	BEGIN_P ATOMIC routine_body_stmt_list END_P
+				{
+					/*
+					 * A compound statement is stored as a single-item list
+					 * containing the list of statements as its member.  That
+					 * way, the parse analysis code can tell apart an empty
+					 * body from no body at all.
+					 */
+					list := ast.NewNodeList()
+					list.Append($3)
+					$$ = list
+				}
+		|	/* EMPTY */
+				{
+					$$ = nil
+				}
+		;
+
+ReturnStmt:
+		RETURN a_expr
+			{
+				$$ = &ast.ReturnStmt{
+					ReturnVal: $2,
+				}
+			}
+		;
+
+routine_body_stmt_list:
+			routine_body_stmt_list routine_body_stmt ';'
+				{
+					/* As in stmtmulti, discard empty statements */
+					if $2 != nil {
+						$1.Append($2)
+						$$ = $1
+					} else {
+						$$ = $1
+					}
+				}
+		|	/* EMPTY */
+				{
+					$$ = ast.NewNodeList()
+				}
+		;
+
+routine_body_stmt:
+		stmt								{ $$ = $1 }
+		|	ReturnStmt							{ $$ = $1 }
+		;
+
+common_func_opt_item:
+			CALLED ON NULL_P INPUT_P
+				{
+					$$ = ast.NewDefElem("strict", ast.NewBoolean(false))
+				}
+		|	RETURNS NULL_P ON NULL_P INPUT_P
+				{
+					$$ = ast.NewDefElem("strict", ast.NewBoolean(true))
+				}
+		|	STRICT_P
+				{
+					$$ = ast.NewDefElem("strict", ast.NewBoolean(true))
+				}
+		|	IMMUTABLE
+				{
+					$$ = ast.NewDefElem("volatility", ast.NewString("immutable"))
+				}
+		|	STABLE
+				{
+					$$ = ast.NewDefElem("volatility", ast.NewString("stable"))
+				}
+		|	VOLATILE
+				{
+					$$ = ast.NewDefElem("volatility", ast.NewString("volatile"))
+				}
+		|	EXTERNAL SECURITY DEFINER
+				{
+					$$ = ast.NewDefElem("security", ast.NewBoolean(true))
+				}
+		|	EXTERNAL SECURITY INVOKER
+				{
+					$$ = ast.NewDefElem("security", ast.NewBoolean(false))
+				}
+		|	SECURITY DEFINER
+				{
+					$$ = ast.NewDefElem("security", ast.NewBoolean(true))
+				}
+		|	SECURITY INVOKER
+				{
+					$$ = ast.NewDefElem("security", ast.NewBoolean(false))
+				}
+		|	LEAKPROOF
+				{
+					$$ = ast.NewDefElem("leakproof", ast.NewBoolean(true))
+				}
+		|	NOT LEAKPROOF
+				{
+					$$ = ast.NewDefElem("leakproof", ast.NewBoolean(false))
+				}
+		|	COST NumericOnly
+				{
+					$$ = ast.NewDefElem("cost", $2)
+				}
+		|	ROWS NumericOnly
+				{
+					$$ = ast.NewDefElem("rows", $2)
+				}
+		|	SUPPORT any_name
+				{
+					$$ = ast.NewDefElem("support", $2)
+				}
+		|	FunctionSetResetClause
+				{
+					$$ = ast.NewDefElem("set", $1)
+				}
+		|	PARALLEL ColId
+				{
+					$$ = ast.NewDefElem("parallel", ast.NewString($2))
+				}
+		;
+
+FunctionSetResetClause:
+			SET set_rest_more
+				{
+					$$ = $2
+				}
+			| VariableResetStmt
+				{
+					$$ = $1.(*ast.VariableSetStmt)
+				} 
+		;
+
+/*****************************************************************************
+ *
+ *		CREATE TRIGGER statements - Phase 3G
+ *
+ * Exactly matches PostgreSQL CREATE TRIGGER grammar from gram.y
+ *****************************************************************************/
+
+CreateTrigStmt:
+			CREATE opt_or_replace TRIGGER name TriggerActionTime TriggerEvents ON
+			qualified_name TriggerReferencing TriggerForSpec TriggerWhen
+			EXECUTE FUNCTION_or_PROCEDURE func_name '(' TriggerFuncArgs ')'
+				{
+					// Extract events and columns from TriggerEvents list [events, columns]
+					eventsList := $6
+					events := eventsList.Items[0].(*ast.Integer).IVal
+					var columns *ast.NodeList
+					if eventsList.Items[1] != nil {
+						columns = eventsList.Items[1].(*ast.NodeList)
+					}
+					
+					stmt := &ast.CreateTriggerStmt{
+						Replace: $2 != 0,
+						IsConstraint: false,
+						Trigname: $4,
+						Relation: $8,
+						Funcname: $14,
+						Args: $16,
+						Row: $10,
+						Timing: int16($5),
+						Events: int16(events),
+						Columns: columns,
+						WhenClause: $11,
+						Transitions: $9,
+						Deferrable: false,
+						Initdeferred: false,
+						Constrrel: nil,
+					}
+					$$ = stmt
+				}
+		|	CREATE opt_or_replace CONSTRAINT TRIGGER name AFTER TriggerEvents ON
+			qualified_name OptConstrFromTable ConstraintAttributeSpec
+			FOR EACH ROW TriggerWhen
+			EXECUTE FUNCTION_or_PROCEDURE func_name '(' TriggerFuncArgs ')'
+				{
+					// Extract events and columns from TriggerEvents list [events, columns]
+					eventsList := $7
+					events := eventsList.Items[0].(*ast.Integer).IVal
+					var columns *ast.NodeList
+					if eventsList.Items[1] != nil {
+						columns = eventsList.Items[1].(*ast.NodeList)
+					}
+					
+					stmt := &ast.CreateTriggerStmt{
+						Replace: $2 != 0,
+						IsConstraint: true,
+						Trigname: $5,
+						Relation: $9,
+						Funcname: $18,
+						Args: $20,
+						Row: true,
+						Timing: int16(ast.TRIGGER_TIMING_AFTER),
+						Events: int16(events),
+						Columns: columns,
+						WhenClause: $15,
+						Transitions: nil,
+						Deferrable: true, // Default for constraint triggers
+						Initdeferred: false,
+						Constrrel: $10,
+					}
+					$$ = stmt
+				}
+		;
+
+TriggerActionTime:
+			BEFORE								{ $$ = ast.TRIGGER_TIMING_BEFORE }
+		|	AFTER								{ $$ = ast.TRIGGER_TIMING_AFTER }
+		|	INSTEAD OF							{ $$ = ast.TRIGGER_TIMING_INSTEAD }
+		;
+
+TriggerEvents:
+			TriggerOneEvent
+				{ $$ = $1 }
+		|	TriggerEvents OR TriggerOneEvent
+				{
+					// Extract event types and column lists from both sides
+					events1 := $1.Items[0].(*ast.Integer).IVal
+					events2 := $3.Items[0].(*ast.Integer).IVal
+					columns1 := $1.Items[1]
+					columns2 := $3.Items[1]
+					
+					// Check for duplicate events
+					if events1 & events2 != 0 {
+						// TODO: Generate parse error for duplicate trigger events
+					}
+					
+					// Create combined result [events1|events2, combined_columns] 
+					list := ast.NewNodeList()
+					list.Append(ast.NewInteger(events1 | events2))
+					
+					// Concatenate column lists (if any)
+					if columns1 != nil && columns2 != nil {
+						// Both have columns - concatenate
+						combinedCols := columns1.(*ast.NodeList)
+						if columns2List, ok := columns2.(*ast.NodeList); ok {
+							for _, item := range columns2List.Items {
+								combinedCols.Append(item)
+							}
+						}
+						list.Append(combinedCols)
+					} else if columns1 != nil {
+						list.Append(columns1)
+					} else if columns2 != nil {
+						list.Append(columns2) 
+					} else {
+						list.Append(nil)
+					}
+					
+					$$ = list
+				}
+		;
+
+TriggerOneEvent:
+			INSERT
+				{ 
+					list := ast.NewNodeList()
+					list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_INSERT)))
+					list.Append(nil) // No columns for INSERT
+					$$ = list
+				}
+		|	DELETE_P
+				{ 
+					list := ast.NewNodeList()
+					list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_DELETE)))
+					list.Append(nil) // No columns for DELETE
+					$$ = list
+				}
+		|	UPDATE
+				{ 
+					list := ast.NewNodeList()
+					list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_UPDATE)))
+					list.Append(nil) // No columns for UPDATE
+					$$ = list
+				}
+		|	UPDATE OF columnList
+				{ 
+					list := ast.NewNodeList()
+					list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_UPDATE)))
+					list.Append($3) // Column list for UPDATE OF
+					$$ = list
+				}
+		|	TRUNCATE
+				{ 
+					list := ast.NewNodeList()
+					list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_TRUNCATE)))
+					list.Append(nil) // No columns for TRUNCATE
+					$$ = list
+				}
+		;
+
+TriggerReferencing:
+			REFERENCING TriggerTransitions		{ $$ = $2 }
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+TriggerTransitions:
+			TriggerTransition					{ 
+				list := ast.NewNodeList()
+				list.Append($1)
+				$$ = list
+			}
+		|	TriggerTransitions TriggerTransition	{ 
+				$1.Append($2)
+				$$ = $1
+			}
+		;
+
+TriggerTransition:
+			TransitionOldOrNew TransitionRowOrTable opt_as TransitionRelName
+				{
+					trans := &ast.TriggerTransition{
+						Name: $4,
+						IsNew: $1,
+						IsTable: $2,
+					}
+					$$ = trans
+				}
+		;
+
+TransitionOldOrNew:
+			NEW			{ $$ = true }
+		|	OLD			{ $$ = false }
+		;
+
+TransitionRowOrTable:
+			TABLE		{ $$ = true }
+		|	ROW			{ $$ = false }
+		;
+
+TransitionRelName:
+			ColId		{ $$ = $1 }
+		;
+
+TriggerForSpec:
+			FOR TriggerForOptEach TriggerForType
+				{
+					$$ = $3
+				}
+		|	/* EMPTY */
+				{
+					// If ROW/STATEMENT not specified, default to STATEMENT
+					$$ = false
+				}
+		;
+
+TriggerForOptEach:
+			EACH
+		|	/* EMPTY */
+		;
+
+TriggerForType:
+			ROW					{ $$ = true }
+		|	STATEMENT			{ $$ = false }
+		;
+
+TriggerWhen:
+			WHEN '(' a_expr ')'				{ $$ = $3 }
+		|	/* EMPTY */						{ $$ = nil }
+		;
+
+FUNCTION_or_PROCEDURE:
+			FUNCTION
+		|	PROCEDURE
+		;
+
+TriggerFuncArgs:
+			TriggerFuncArg					{ 
+				list := ast.NewNodeList()
+				list.Append($1)
+				$$ = list
+			}
+		|	TriggerFuncArgs ',' TriggerFuncArg	{ 
+				$1.Append($3)
+				$$ = $1
+			}
+		|	/* EMPTY */						{ $$ = nil }
+		;
+
+TriggerFuncArg:
+			Iconst
+				{
+					$$ = ast.NewString(fmt.Sprintf("%d", $1))
+				}
+		|	FCONST								{ $$ = ast.NewString($1) }
+		|	Sconst								{ $$ = ast.NewString($1) }
+		|	ColLabel							{ $$ = ast.NewString($1) }
+		;
+
+OptConstrFromTable:
+			FROM qualified_name				{ $$ = $2 }
+		|	/* EMPTY */						{ $$ = nil }
+		;
+
+/*****************************************************************************
+ *
+ *		CREATE VIEW statements - Phase 3G  
+ *
+ * Exactly matches PostgreSQL CREATE VIEW grammar from gram.y
+ *****************************************************************************/
+
+ViewStmt:
+			CREATE OptTemp VIEW qualified_name opt_column_list opt_reloptions
+			AS SelectStmt opt_check_option
+				{
+					// Apply OptTemp persistence to the view RangeVar
+					view := $4
+					view.RelPersistence = rune($2)
+					stmt := &ast.ViewStmt{
+						View: view,
+						Aliases: $5,
+						Query: $8,
+						Replace: false,
+						Options: $6,
+						WithCheckOption: ast.ViewCheckOption($9),
+					}
+					$$ = stmt
+				}
+		|	CREATE OR REPLACE OptTemp VIEW qualified_name opt_column_list opt_reloptions
+			AS SelectStmt opt_check_option
+				{
+					// Apply OptTemp persistence to the view RangeVar  
+					view := $6
+					view.RelPersistence = rune($4)
+					stmt := &ast.ViewStmt{
+						View: view,
+						Aliases: $7,
+						Query: $10,
+						Replace: true,
+						Options: $8,
+						WithCheckOption: ast.ViewCheckOption($11),
+					}
+					$$ = stmt
+				}
+		|	CREATE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' opt_reloptions
+			AS SelectStmt opt_check_option
+				{
+					// RECURSIVE VIEW requires explicit column list
+					view := $5
+					view.RelPersistence = rune($2)
+					stmt := &ast.ViewStmt{
+						View: view,
+						Aliases: $7,
+						Query: $11,
+						Replace: false,
+						Options: $9,
+						WithCheckOption: ast.ViewCheckOption($12),
+					}
+					$$ = stmt
+				}
+		|	CREATE OR REPLACE OptTemp RECURSIVE VIEW qualified_name '(' columnList ')' opt_reloptions
+			AS SelectStmt opt_check_option
+				{
+					// RECURSIVE VIEW requires explicit column list
+					view := $7
+					view.RelPersistence = rune($4)
+					stmt := &ast.ViewStmt{
+						View: view,
+						Aliases: $9,
+						Query: $13,
+						Replace: true,
+						Options: $11,
+						WithCheckOption: ast.ViewCheckOption($14),
+					}
+					$$ = stmt
+				}
+		;
+
+opt_column_list:
+			'(' columnList ')'					{ $$ = $2 }
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+opt_check_option:
+			WITH CHECK OPTION					{ $$ = int(ast.CASCADED_CHECK_OPTION) }
+		|	WITH CASCADED CHECK OPTION			{ $$ = int(ast.CASCADED_CHECK_OPTION) }
+		|	WITH LOCAL CHECK OPTION				{ $$ = int(ast.LOCAL_CHECK_OPTION) }
+		|	/* EMPTY */							{ $$ = int(ast.NO_CHECK_OPTION) }
+		;
+
+set_rest_more:
+			generic_set							{ $$ = $1 }
+		|	var_name FROM CURRENT_P
+				{
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_CURRENT, $1, nil, false)
+				}
+		|	TIME ZONE zone_value
+				{
+					args := ast.NewNodeList($3)
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "timezone", args, false)
+				}
+		|	CATALOG_P Sconst
+				{
+					args := ast.NewNodeList(ast.NewString($2))
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "catalog", args, false)
+				}
+		|	SCHEMA Sconst
+				{
+					args := ast.NewNodeList(ast.NewString($2))
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "search_path", args, false)
+				}
+		|	NAMES opt_encoding
+				{
+					var args *ast.NodeList
+					if $2 != "" {
+						args = ast.NewNodeList(ast.NewString($2))
+					}
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "client_encoding", args, false)
+				}
+		|	ROLE NonReservedWord_or_Sconst
+				{
+					args := ast.NewNodeList(ast.NewString($2))
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "role", args, false)
+				}
+		|	SESSION AUTHORIZATION NonReservedWord_or_Sconst
+				{
+					args := ast.NewNodeList(ast.NewString($3))
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "session_authorization", args, false)
+				}
+		|	SESSION AUTHORIZATION DEFAULT
+				{
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, "session_authorization", nil, false)
+				}
+		|	XML_P OPTION document_or_content
+				{
+					var value string
+					if $3 == int(ast.XMLOPTION_DOCUMENT) {
+						value = "document"
+					} else {
+						value = "content"
+					}
+					args := ast.NewNodeList(ast.NewString(value))
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "xmloption", args, false)
+				}
+		|	TRANSACTION SNAPSHOT Sconst
+				{
+					args := ast.NewNodeList(ast.NewString($3))
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "transaction_snapshot", args, false)
+				}
+		;
+
+generic_set:
+			var_name TO var_list
+				{
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, $1, $3, false)
+				}
+		|	var_name '=' var_list
+				{
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, $1, $3, false)
+				}
+		|	var_name TO DEFAULT
+				{
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, $1, nil, false)
+				}
+		|	var_name '=' DEFAULT
+				{
+					$$ = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, $1, nil, false)
+				}
+		;
+
+var_name:
+			ColId									
+				{
+					$$ = $1
+				}
+		|	var_name '.' ColId
+				{
+					$$ = $1 + "." + $3
+				}
+		;
+
+var_list:
+			var_value								
+				{
+					list := ast.NewNodeList()
+					list.Append($1)
+					$$ = list
+				}
+		|	var_list ',' var_value
+				{
+					$1.Append($3)
+					$$ = $1
+				}
+		;
+
+var_value:
+			opt_boolean_or_string					{ $$ = ast.NewString($1) }
+		|	NumericOnly								{ $$ = $1 }
+		;
+
+zone_value:
+			Sconst									{ $$ = ast.NewString($1) }
+		|	IDENT									{ $$ = ast.NewString($1) }
+		|	NumericOnly								{ $$ = $1 }
+		|	DEFAULT									{ $$ = ast.NewString("default") }
+		|	LOCAL									{ $$ = ast.NewString("local") }
+	|	TRUE_P									{ $$ = ast.NewString("true") }
+	|	FALSE_P									{ $$ = ast.NewString("false") }
+	|	ON										{ $$ = ast.NewString("on") }
+	|	OFF										{ $$ = ast.NewString("off") }
+		;
+
+opt_encoding:
+			Sconst									{ $$ = $1 }
+		|	DEFAULT									{ $$ = "default" }
+		|	/* EMPTY */								{ $$ = "" }
+		;
+
+NonReservedWord_or_Sconst:
+			NonReservedWord							{ $$ = $1 }
+		|	Sconst									{ $$ = $1 }
+		;
+
+NonReservedWord:
+			IDENT									{ $$ = $1 }
+		|	unreserved_keyword						{ $$ = $1 }
+		|	col_name_keyword						{ $$ = $1 }
+		|	type_func_name_keyword					{ $$ = $1 }
+		;
+
+document_or_content:
+			DOCUMENT_P								{ $$ = int(ast.XMLOPTION_DOCUMENT) }
+		|	CONTENT_P								{ $$ = int(ast.XMLOPTION_CONTENT) }
+		;
+
+transaction_mode_list:
+			transaction_mode_item
+				{
+					list := ast.NewNodeList()
+					list.Append($1)
+					$$ = list
+				}
+		|	transaction_mode_list ',' transaction_mode_item
+				{
+					$1.Append($3)
+					$$ = $1
+				}
+		|	transaction_mode_list transaction_mode_item
+				{
+					$1.Append($2)
+					$$ = $1
+				}
+		;
+
+transaction_mode_item:
+			ISOLATION LEVEL iso_level
+				{
+					$$ = ast.NewDefElem("transaction_isolation", ast.NewString($3))
+				}
+		|	READ ONLY
+				{
+					$$ = ast.NewDefElem("transaction_read_only", ast.NewBoolean(true))
+				}
+		|	READ WRITE
+				{
+					$$ = ast.NewDefElem("transaction_read_only", ast.NewBoolean(false))
+				}
+		|	DEFERRABLE
+				{
+					$$ = ast.NewDefElem("transaction_deferrable", ast.NewBoolean(true))
+				}
+		|	NOT DEFERRABLE
+				{
+					$$ = ast.NewDefElem("transaction_deferrable", ast.NewBoolean(false))
+				}
+		;
+
+iso_level:
+			READ UNCOMMITTED						{ $$ = "read uncommitted" }
+		|	READ COMMITTED							{ $$ = "read committed" }
+		|	REPEATABLE READ							{ $$ = "repeatable read" }
+		|	SERIALIZABLE							{ $$ = "serializable" }
+		;
+
 def_arg:
 			func_type					{ $$ = $1 }
 		|	reserved_keyword			{ $$ = ast.NewString($1) }
@@ -7570,3 +8711,6 @@ func processConstraintAttributeSpec(casbits int, constraint *ast.Constraint) {
 		constraint.IsNoInherit = true
 	}
 }
+
+
+

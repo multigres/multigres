@@ -1413,10 +1413,10 @@ func (i *IndexElem) SqlString() string {
 type ViewStmt struct {
 	BaseNode
 	View            *RangeVar       // the view to be created - postgres/src/include/nodes/parsenodes.h:3742
-	Aliases         []string        // target column names - postgres/src/include/nodes/parsenodes.h:3743
+	Aliases         *NodeList       // target column names - postgres/src/include/nodes/parsenodes.h:3743
 	Query           Node            // the SELECT query (as a raw parse tree) - postgres/src/include/nodes/parsenodes.h:3744
 	Replace         bool            // replace an existing view? - postgres/src/include/nodes/parsenodes.h:3745
-	Options         []*DefElem      // options from WITH clause - postgres/src/include/nodes/parsenodes.h:3746
+	Options         *NodeList       // options from WITH clause - postgres/src/include/nodes/parsenodes.h:3746
 	WithCheckOption ViewCheckOption // WITH CHECK OPTION - postgres/src/include/nodes/parsenodes.h:3747
 }
 
@@ -1441,6 +1441,77 @@ func (v *ViewStmt) String() string {
 		replace = " OR REPLACE"
 	}
 	return fmt.Sprintf("ViewStmt(%s%s)@%d", v.View.RelName, replace, v.Location())
+}
+
+// SqlString returns the SQL representation of ViewStmt
+func (v *ViewStmt) SqlString() string {
+	var parts []string
+	
+	// CREATE [OR REPLACE] [TEMP] [RECURSIVE] VIEW
+	parts = append(parts, "CREATE")
+	if v.Replace {
+		parts = append(parts, "OR REPLACE")
+	}
+	
+	// Add TEMP/TEMPORARY if needed
+	if v.View != nil && v.View.RelPersistence == RELPERSISTENCE_TEMP {
+		parts = append(parts, "TEMPORARY")
+	} else if v.View != nil && v.View.RelPersistence == RELPERSISTENCE_UNLOGGED {
+		parts = append(parts, "UNLOGGED")
+	}
+	
+	// TODO: Add RECURSIVE support when we can detect recursive views
+	// For now, we can't easily determine if a view is recursive from the ViewStmt
+	
+	parts = append(parts, "VIEW")
+	
+	// View name
+	if v.View != nil {
+		parts = append(parts, v.View.SqlString())
+	}
+	
+	// Column aliases
+	if v.Aliases != nil && v.Aliases.Len() > 0 {
+		var aliasStrs []string
+		for _, item := range v.Aliases.Items {
+			if alias, ok := item.(*String); ok {
+				aliasStrs = append(aliasStrs, alias.SVal)
+			}
+		}
+		if len(aliasStrs) > 0 {
+			parts = append(parts, fmt.Sprintf("(%s)", strings.Join(aliasStrs, ", ")))
+		}
+	}
+	
+	// WITH options
+	if v.Options != nil && v.Options.Len() > 0 {
+		parts = append(parts, "WITH (")
+		var optStrs []string
+		for _, item := range v.Options.Items {
+			if opt, ok := item.(*DefElem); ok {
+				optStrs = append(optStrs, opt.SqlString())
+			}
+		}
+		parts = append(parts, strings.Join(optStrs, ", ")+")")
+	}
+	
+	// AS query
+	parts = append(parts, "AS")
+	if v.Query != nil {
+		parts = append(parts, v.Query.SqlString())
+	}
+	
+	// WITH CHECK OPTION
+	switch v.WithCheckOption {
+	case LOCAL_CHECK_OPTION:
+		parts = append(parts, "WITH LOCAL CHECK OPTION")
+	case CASCADED_CHECK_OPTION:
+		parts = append(parts, "WITH CHECK OPTION")
+	case NO_CHECK_OPTION:
+		// No check option
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // ==============================================================================

@@ -45,226 +45,258 @@ type KeywordInfo struct {
 
 // PostgreSQL keyword list ported from postgres/src/include/parser/kwlist.h
 // Now using parser-generated token constants directly
-// Note: This is a core subset for Phase 3A - full list will be expanded in later phases
 var Keywords = []KeywordInfo{
-	// Phase 3A keywords - using generated parser constants
-	{"add", ADD_P, UnreservedKeyword, true}, // Phase 3F: ADD for ALTER TABLE ADD COLUMN
+	{"add", ADD_P, UnreservedKeyword, true},
+	{"after", AFTER, UnreservedKeyword, true},
 	{"all", ALL, ReservedKeyword, true},
-	{"always", ALWAYS, UnreservedKeyword, true}, // Phase 3F: ALWAYS for identity columns
+	{"always", ALWAYS, UnreservedKeyword, true},
 	{"alter", ALTER, ReservedKeyword, false},
+	{"analyze", ANALYZE, UnreservedKeyword, true},
 	{"and", AND, ReservedKeyword, true},
 	{"as", AS, ReservedKeyword, false},
-	{"attach", ATTACH, UnreservedKeyword, true}, // Phase 3F: ATTACH for ALTER TABLE ATTACH PARTITION
+	{"attach", ATTACH, UnreservedKeyword, true},
+	{"authorization", AUTHORIZATION, UnreservedKeyword, true},
 
-	{"between", IDENT, ColNameKeyword, true}, // Will be replaced with BETWEEN token in Phase 3
-	{"bigint", IDENT, ColNameKeyword, true},  // Will be replaced with BIGINT token in Phase 3
+	{"before", BEFORE, UnreservedKeyword, true},
+	{"between", IDENT, ColNameKeyword, true},
+	{"bigint", IDENT, ColNameKeyword, true},
+	{"binary", BINARY, UnreservedKeyword, true},
 	{"bit", BIT, ColNameKeyword, true},
-	{"boolean", IDENT, ColNameKeyword, true},      // Will be replaced with BOOLEAN_P token in Phase 3
-	{"both", IDENT, ReservedKeyword, true},        // Will be replaced with BOTH token in Phase 3
-	{"breadth", BREADTH, UnreservedKeyword, true}, // Phase 3D: BREADTH FIRST for CTE SEARCH
-	{"by", BY, UnreservedKeyword, true},           // Phase 3D: BY for CTE SEARCH
+	{"boolean", IDENT, ColNameKeyword, true},
+	{"both", IDENT, ReservedKeyword, true},
+	{"breadth", BREADTH, UnreservedKeyword, true},
+	{"by", BY, UnreservedKeyword, true},
 
-	{"cascade", CASCADE, UnreservedKeyword, true},           // Phase 3F: CASCADE for DROP TABLE CASCADE
-	{"case", IDENT, ReservedKeyword, true},                  // Will be replaced with CASE token in Phase 3
-	{"cast", IDENT, ReservedKeyword, true},                  // Will be replaced with CAST token in Phase 3
-	{"char", IDENT, ColNameKeyword, false},                  // Will be replaced with CHAR_P token in Phase 3
-	{"character", IDENT, ColNameKeyword, false},             // Will be replaced with CHARACTER token in Phase 3
-	{"check", CHECK, ReservedKeyword, true},                 // Phase 3F: CHECK constraint for DDL
-	{"coalesce", IDENT, ColNameKeyword, true},               // Will be replaced with COALESCE token in Phase 3
-	{"cross", CROSS, TypeFuncNameKeyword, true},             // Phase 3D: CROSS JOIN keyword
-	{"collate", IDENT, ReservedKeyword, true},               // Will be replaced with COLLATE token in Phase 3
-	{"concurrently", CONCURRENTLY, UnreservedKeyword, true}, // Phase 3F: CONCURRENTLY for CREATE INDEX
-	{"cycle", CYCLE, UnreservedKeyword, true},               // Phase 3D: CYCLE for recursive CTEs
-	{"collation", IDENT, TypeFuncNameKeyword, true},         // Will be replaced with COLLATION token in Phase 3
-	{"column", COLUMN, ReservedKeyword, true},               // Phase 3F: COLUMN for DDL
+	{"cascade", CASCADE, UnreservedKeyword, true},
+	{"cascaded", CASCADED, UnreservedKeyword, true},
+	{"case", IDENT, ReservedKeyword, true},
+	{"cast", IDENT, ReservedKeyword, true},
+	{"catalog", CATALOG_P, UnreservedKeyword, true},
+	{"char", IDENT, ColNameKeyword, false},
+	{"character", IDENT, ColNameKeyword, false},
+	{"check", CHECK, ReservedKeyword, true},
+	{"coalesce", IDENT, ColNameKeyword, true},
+	{"collate", IDENT, ReservedKeyword, true},
+	{"collation", IDENT, TypeFuncNameKeyword, true},
+	{"column", COLUMN, ReservedKeyword, true},
+	{"columns", COLUMNS, UnreservedKeyword, true},
+	{"concurrently", CONCURRENTLY, UnreservedKeyword, true},
+	{"conditional", CONDITIONAL, UnreservedKeyword, true},
+	{"conflict", CONFLICT, UnreservedKeyword, true},
+	{"constraint", CONSTRAINT, ReservedKeyword, true},
+	{"content", CONTENT_P, UnreservedKeyword, true},
+	{"copy", COPY, ReservedKeyword, true},
 	{"create", CREATE, ReservedKeyword, false},
-	{"current", CURRENT_P, ReservedKeyword, false}, // Phase 3E: CURRENT keyword for cursor references
-	{"cursor", CURSOR, ReservedKeyword, true},      // Phase 3E: CURSOR for cursor operations
-	{"delete", DELETE_P, ReservedKeyword, false},   // Phase 3E: DELETE statement
+	{"cross", CROSS, TypeFuncNameKeyword, true},
+	{"current", CURRENT_P, ReservedKeyword, false},
+	{"current_catalog", IDENT, ReservedKeyword, true},
+	{"current_date", IDENT, ReservedKeyword, true},
+	{"current_role", IDENT, ReservedKeyword, true},
+	{"current_schema", IDENT, TypeFuncNameKeyword, true},
+	{"current_time", IDENT, ReservedKeyword, true},
+	{"current_timestamp", IDENT, ReservedKeyword, true},
+	{"current_user", IDENT, ReservedKeyword, true},
+	{"cursor", CURSOR, ReservedKeyword, true},
+	{"cycle", CYCLE, UnreservedKeyword, true},
+
+	{"dec", IDENT, ColNameKeyword, true},
+	{"decimal", IDENT, ColNameKeyword, true},
+	{"default", DEFAULT, ReservedKeyword, true},
+	{"deferrable", IDENT, ReservedKeyword, true},
+	{"delete", DELETE_P, ReservedKeyword, false},
+	{"depth", DEPTH, UnreservedKeyword, true},
+	{"desc", IDENT, ReservedKeyword, true},
+	{"detach", DETACH, UnreservedKeyword, true},
+	{"distinct", DISTINCT, ReservedKeyword, true},
+	{"do", DO, ReservedKeyword, true},
+	{"document", DOCUMENT_P, UnreservedKeyword, true},
 	{"drop", DROP, ReservedKeyword, false},
-	{"current_catalog", IDENT, ReservedKeyword, true},    // Will be replaced with CURRENT_CATALOG token in Phase 3
-	{"current_date", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_DATE token in Phase 3
-	{"current_role", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_ROLE token in Phase 3
-	{"current_schema", IDENT, TypeFuncNameKeyword, true}, // Will be replaced with CURRENT_SCHEMA token in Phase 3
-	{"current_time", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_TIME token in Phase 3
-	{"current_timestamp", IDENT, ReservedKeyword, true},  // Will be replaced with CURRENT_TIMESTAMP token in Phase 3
-	{"current_user", IDENT, ReservedKeyword, true},       // Will be replaced with CURRENT_USER token in Phase 3
 
-	{"dec", IDENT, ColNameKeyword, true},          // Will be replaced with DEC token in Phase 3
-	{"decimal", IDENT, ColNameKeyword, true},      // Will be replaced with DECIMAL_P token in Phase 3
-	{"default", DEFAULT, ReservedKeyword, true},   // Phase 3D: DEFAULT keyword for CYCLE clause
-	{"deferrable", IDENT, ReservedKeyword, true},  // Will be replaced with DEFERRABLE token in Phase 3
-	{"detach", DETACH, UnreservedKeyword, true},   // Phase 3F: DETACH for ALTER TABLE DETACH PARTITION
-	{"depth", DEPTH, UnreservedKeyword, true},     // Phase 3D: DEPTH FIRST for CTE SEARCH
-	{"desc", IDENT, ReservedKeyword, true},        // Will be replaced with DESC token in Phase 3
-	{"distinct", DISTINCT, ReservedKeyword, true}, // Phase 3C: DISTINCT clause
-	{"do", DO, ReservedKeyword, true},             // Phase 3E: DO NOTHING, DO UPDATE
-
-	{"else", IDENT, ReservedKeyword, true},   // Will be replaced with ELSE token in Phase 3
-	{"end", IDENT, ReservedKeyword, true},    // Will be replaced with END_P token in Phase 3
-	{"except", IDENT, ReservedKeyword, true}, // Will be replaced with EXCEPT token in Phase 3
+	{"each", EACH, UnreservedKeyword, true},
+	{"else", IDENT, ReservedKeyword, true},
+	{"empty", EMPTY, UnreservedKeyword, true},
+	{"encoding", ENCODING, UnreservedKeyword, true},
+	{"end", IDENT, ReservedKeyword, true},
+	{"error", ERROR, UnreservedKeyword, true},
+	{"except", IDENT, ReservedKeyword, true},
+	{"execute", EXECUTE, UnreservedKeyword, true},
 	{"exists", EXISTS, ColNameKeyword, true},
 
 	{"false", FALSE_P, ReservedKeyword, true},
-	{"fetch", IDENT, ReservedKeyword, true},         // Will be replaced with FETCH token in Phase 3
-	{"finalize", FINALIZE, UnreservedKeyword, true}, // Phase 3F: FINALIZE for DETACH PARTITION
-	{"first", FIRST_P, UnreservedKeyword, true},     // Phase 3D: FIRST for CTE SEARCH
-	{"float", IDENT, ColNameKeyword, true},          // Will be replaced with FLOAT_P token in Phase 3
-	{"for", IDENT, ReservedKeyword, true},           // Will be replaced with FOR token in Phase 3
-	{"foreign", FOREIGN, ReservedKeyword, true},     // Phase 3F: FOREIGN KEY for DDL
-	{"from", FROM, ReservedKeyword, true},           // Phase 3C: FROM clause
-	{"full", FULL, TypeFuncNameKeyword, true},       // Phase 3D: FULL OUTER JOIN keyword
+	{"fetch", IDENT, ReservedKeyword, true},
+	{"finalize", FINALIZE, UnreservedKeyword, true},
+	{"first", FIRST_P, UnreservedKeyword, true},
+	{"float", IDENT, ColNameKeyword, true},
+	{"for", FOR, ReservedKeyword, true},
+	{"foreign", FOREIGN, ReservedKeyword, true},
+	{"format", FORMAT, UnreservedKeyword, true},
+	{"freeze", FREEZE, UnreservedKeyword, true},
+	{"from", FROM, ReservedKeyword, true},
+	{"full", FULL, TypeFuncNameKeyword, true},
+	{"function", FUNCTION, UnreservedKeyword, true},
 
-	{"generated", GENERATED, UnreservedKeyword, true}, // Phase 3F: GENERATED for identity columns
-	{"global", GLOBAL, UnreservedKeyword, true},       // Phase 3F: GLOBAL for temporary tables
-	{"grant", IDENT, ReservedKeyword, true},           // Will be replaced with GRANT token in Phase 3
-	{"group", IDENT, ReservedKeyword, true},           // Will be replaced with GROUP_P token in Phase 3
+	{"generated", GENERATED, UnreservedKeyword, true},
+	{"global", GLOBAL, UnreservedKeyword, true},
+	{"grant", IDENT, ReservedKeyword, true},
+	{"group", GROUP_P, ReservedKeyword, true},
 
-	{"having", IDENT, ReservedKeyword, true}, // Will be replaced with HAVING token in Phase 3
+	{"having", IDENT, ReservedKeyword, true},
 
-	{"identity", IDENTITY_P, UnreservedKeyword, true}, // Phase 3F: IDENTITY for identity columns
-	{"if", IF_P, UnreservedKeyword, true},             // Phase 3F: IF for IF EXISTS/IF NOT EXISTS
-	{"in", IN_P, ReservedKeyword, true},               // Phase 3F: IN for partition bounds
-	{"include", INCLUDE, UnreservedKeyword, true},     // Phase 3F: INCLUDE for CREATE INDEX
-	{"index", INDEX, UnreservedKeyword, true},         // Phase 3F: INDEX for CREATE INDEX
-	{"initially", IDENT, ReservedKeyword, true},       // Will be replaced with INITIALLY token in Phase 3
-	{"inner", INNER_P, TypeFuncNameKeyword, true},     // Phase 3D: INNER JOIN keyword
-	{"insert", INSERT, ReservedKeyword, false},        // Phase 3E: INSERT statement
-	{"int", IDENT, ColNameKeyword, true},              // Will be replaced with INT_P token in Phase 3
-	{"integer", IDENT, ColNameKeyword, true},          // Will be replaced with INTEGER token in Phase 3
-	{"intersect", IDENT, ReservedKeyword, true},       // Will be replaced with INTERSECT token in Phase 3
-	{"into", INTO, ReservedKeyword, true},             // Phase 3C: INTO clause
-	{"is", IDENT, TypeFuncNameKeyword, true},          // Will be replaced with IS token in Phase 3
+	{"identity", IDENTITY_P, UnreservedKeyword, true},
+	{"if", IF_P, UnreservedKeyword, true},
+	{"in", IN_P, ReservedKeyword, true},
+	{"include", INCLUDE, UnreservedKeyword, true},
+	{"index", INDEX, UnreservedKeyword, true},
+	{"initially", IDENT, ReservedKeyword, true},
+	{"inner", INNER_P, TypeFuncNameKeyword, true},
+	{"inout", INOUT, UnreservedKeyword, true},
+	{"insert", INSERT, ReservedKeyword, false},
+	{"instead", INSTEAD, UnreservedKeyword, true},
+	{"int", IDENT, ColNameKeyword, true},
+	{"integer", IDENT, ColNameKeyword, true},
+	{"intersect", IDENT, ReservedKeyword, true},
+	{"into", INTO, ReservedKeyword, true},
+	{"is", IDENT, TypeFuncNameKeyword, true},
 
-	{"join", JOIN, TypeFuncNameKeyword, true}, // Phase 3D: JOIN keyword
+	{"join", JOIN, TypeFuncNameKeyword, true},
+	{"json", JSON, UnreservedKeyword, true},
+	{"json_array", JSON_ARRAY, UnreservedKeyword, true},
+	{"json_arrayagg", JSON_ARRAYAGG, UnreservedKeyword, true},
+	{"json_exists", JSON_EXISTS, UnreservedKeyword, true},
+	{"json_object", JSON_OBJECT, UnreservedKeyword, true},
+	{"json_objectagg", JSON_OBJECTAGG, UnreservedKeyword, true},
+	{"json_query", JSON_QUERY, UnreservedKeyword, true},
+	{"json_scalar", JSON_SCALAR, UnreservedKeyword, true},
+	{"json_serialize", JSON_SERIALIZE, UnreservedKeyword, true},
+	{"json_table", JSON_TABLE, UnreservedKeyword, true},
+	{"json_value", JSON_VALUE, UnreservedKeyword, true},
 
-	{"leading", IDENT, ReservedKeyword, true},   // Will be replaced with LEADING token in Phase 3
-	{"left", LEFT, TypeFuncNameKeyword, true},   // Phase 3D: LEFT JOIN keyword
-	{"like", IDENT, TypeFuncNameKeyword, true},  // Will be replaced with LIKE token in Phase 3
-	{"lateral", LATERAL, ReservedKeyword, true}, // Phase 3D: LATERAL subqueries
-	{"limit", IDENT, ReservedKeyword, true},     // Will be replaced with LIMIT token in Phase 3
-	{"local", LOCAL, UnreservedKeyword, true},   // Phase 3F: LOCAL for temporary tables
+	{"keep", KEEP, UnreservedKeyword, true},
+	{"key", KEY, UnreservedKeyword, true},
 
-	{"materialized", MATERIALIZED, UnreservedKeyword, true}, // Phase 3D: MATERIALIZED CTEs
-	{"merge", MERGE, ReservedKeyword, false},                // Phase 3E: MERGE statement
-	{"natural", NATURAL, TypeFuncNameKeyword, true},         // Phase 3D: NATURAL JOIN keyword
-	{"no", NO, UnreservedKeyword, true},                     // Phase 3F: NO keyword for sequence options
+	{"language", LANGUAGE, UnreservedKeyword, true},
+	{"lateral", LATERAL, ReservedKeyword, true},
+	{"leading", IDENT, ReservedKeyword, true},
+	{"left", LEFT, TypeFuncNameKeyword, true},
+	{"like", IDENT, TypeFuncNameKeyword, true},
+	{"limit", IDENT, ReservedKeyword, true},
+	{"local", LOCAL, UnreservedKeyword, true},
+
+	{"matched", MATCHED, UnreservedKeyword, true},
+	{"materialized", MATERIALIZED, UnreservedKeyword, true},
+	{"merge", MERGE, ReservedKeyword, false},
+
+	{"names", NAMES, UnreservedKeyword, true},
+	{"natural", NATURAL, TypeFuncNameKeyword, true},
+	{"nested", NESTED, UnreservedKeyword, true},
+	{"new", NEW, UnreservedKeyword, true},
+	{"no", NO, UnreservedKeyword, true},
 	{"not", NOT, ReservedKeyword, true},
+	{"nothing", NOTHING, UnreservedKeyword, true},
 	{"null", NULL_P, ReservedKeyword, true},
 	{"numeric", NUMERIC, ColNameKeyword, true},
 
-	{"of", OF, ReservedKeyword, true},        // Phase 3E: OF keyword for CURRENT OF
-	{"offset", IDENT, ReservedKeyword, true}, // Will be replaced with OFFSET token in Phase 3
-	{"on", ON, ReservedKeyword, true},        // Phase 3C: ON keyword for DISTINCT ON
-	{"only", ONLY, ReservedKeyword, true},    // Phase 3C: ONLY keyword
+	{"of", OF, ReservedKeyword, true},
+	{"offset", IDENT, ReservedKeyword, true},
+	{"old", OLD, UnreservedKeyword, true},
+	{"omit", OMIT, UnreservedKeyword, true},
+	{"on", ON, ReservedKeyword, true},
+	{"only", ONLY, ReservedKeyword, true},
+	{"option", OPTION, UnreservedKeyword, true},
 	{"or", OR, ReservedKeyword, true},
-	{"order", IDENT, ReservedKeyword, true},             // Will be replaced with ORDER token in Phase 3
-	{"partition", PARTITION, UnreservedKeyword, true},   // Phase 3F: PARTITION for ALTER TABLE ATTACH/DETACH PARTITION
-	{"outer", OUTER_P, TypeFuncNameKeyword, true},       // Phase 3D: OUTER JOIN keyword
-	{"overriding", OVERRIDING, UnreservedKeyword, true}, // Phase 3E: OVERRIDING clause for INSERT
+	{"order", IDENT, ReservedKeyword, true},
+	{"ordinality", ORDINALITY, UnreservedKeyword, true},
+	{"out", OUT_P, UnreservedKeyword, true},
+	{"outer", OUTER_P, TypeFuncNameKeyword, true},
+	{"overriding", OVERRIDING, UnreservedKeyword, true},
 
-	{"primary", PRIMARY, UnreservedKeyword, true}, // Phase 3F: PRIMARY KEY for DDL
+	{"partition", PARTITION, UnreservedKeyword, true},
+	{"passing", PASSING, UnreservedKeyword, true},
+	{"path", PATH, UnreservedKeyword, true},
+	{"primary", PRIMARY, UnreservedKeyword, true},
+	{"procedure", PROCEDURE, UnreservedKeyword, true},
+	{"program", PROGRAM, UnreservedKeyword, true},
 
-	{"real", IDENT, ColNameKeyword, true},               // Will be replaced with REAL token in Phase 3
-	{"recursive", RECURSIVE, UnreservedKeyword, true},   // Phase 3D: RECURSIVE CTEs
-	{"references", REFERENCES, UnreservedKeyword, true}, // Phase 3F: REFERENCES for foreign keys
-	{"rename", RENAME, UnreservedKeyword, true},         // Phase 3F: RENAME for ALTER statements
-	{"restrict", RESTRICT, UnreservedKeyword, true},     // Phase 3F: RESTRICT for DROP TABLE RESTRICT
-	{"returning", RETURNING, UnreservedKeyword, true},   // Phase 3E: RETURNING clause
-	{"right", RIGHT, TypeFuncNameKeyword, true},         // Phase 3D: RIGHT JOIN keyword
+	{"quotes", QUOTES, UnreservedKeyword, true},
 
-	{"search", SEARCH, UnreservedKeyword, true},     // Phase 3D: SEARCH for recursive CTEs
-	{"select", SELECT, ReservedKeyword, true},       // Phase 3C: SELECT statement
-	{"sequence", SEQUENCE, UnreservedKeyword, true}, // Phase 3F: SEQUENCE for ALTER SEQUENCE
-	{"set", SET, UnreservedKeyword, true},           // Phase 3D: SET for CTE SEARCH/CYCLE
-	{"session_user", IDENT, ReservedKeyword, true},  // Will be replaced with SESSION_USER token in Phase 3
-	{"smallint", IDENT, ColNameKeyword, true},       // Will be replaced with SMALLINT token in Phase 3
-	{"some", IDENT, ReservedKeyword, true},          // Will be replaced with SOME token in Phase 3
-	{"symmetric", IDENT, ReservedKeyword, true},     // Will be replaced with SYMMETRIC token in Phase 3
-	{"system", SYSTEM_P, UnreservedKeyword, true},   // Phase 3E: SYSTEM_P keyword for OVERRIDING SYSTEM VALUE
-	{"system_user", IDENT, ReservedKeyword, true},   // Will be replaced with SYSTEM_USER token in Phase 3
+	{"real", IDENT, ColNameKeyword, true},
+	{"recursive", RECURSIVE, UnreservedKeyword, true},
+	{"ref", REF_P, UnreservedKeyword, true},
+	{"references", REFERENCES, UnreservedKeyword, true},
+	{"referencing", REFERENCING, UnreservedKeyword, true},
+	{"rename", RENAME, UnreservedKeyword, true},
+	{"replace", REPLACE, UnreservedKeyword, true},
+	{"restrict", RESTRICT, UnreservedKeyword, true},
+	{"return", RETURN, UnreservedKeyword, true},
+	{"returning", RETURNING, UnreservedKeyword, true},
+	{"returns", RETURNS, UnreservedKeyword, true},
+	{"right", RIGHT, TypeFuncNameKeyword, true},
+	{"role", ROLE, UnreservedKeyword, true},
+	{"row", ROW, UnreservedKeyword, true},
+	{"rows", ROWS, UnreservedKeyword, true},
 
-	{"table", TABLE, ReservedKeyword, true},           // Phase 3C: TABLE keyword
-	{"temp", TEMP, UnreservedKeyword, true},           // Phase 3F: TEMP for temporary tables
-	{"temporary", TEMPORARY, UnreservedKeyword, true}, // Phase 3F: TEMPORARY for temporary tables
-	{"then", THEN, ReservedKeyword, true},             // Phase 3E: MERGE WHEN ... THEN
-	{"matched", MATCHED, UnreservedKeyword, true},     // Phase 3E: MERGE WHEN MATCHED
-	{"nothing", NOTHING, UnreservedKeyword, true},     // Phase 3E: DO NOTHING
-	{"source", SOURCE, UnreservedKeyword, true},       // Phase 3E: MERGE NOT MATCHED BY SOURCE
-	{"target", TARGET, UnreservedKeyword, true},       // Phase 3E: MERGE NOT MATCHED BY TARGET
+	{"scalar", SCALAR, UnreservedKeyword, true},
+	{"schema", SCHEMA, UnreservedKeyword, true},
+	{"search", SEARCH, UnreservedKeyword, true},
+	{"select", SELECT, ReservedKeyword, true},
+	{"sequence", SEQUENCE, UnreservedKeyword, true},
+	{"session", SESSION, UnreservedKeyword, true},
+	{"session_user", IDENT, ReservedKeyword, true},
+	{"set", SET, UnreservedKeyword, true},
+	{"smallint", IDENT, ColNameKeyword, true},
+	{"snapshot", SNAPSHOT, UnreservedKeyword, true},
+	{"some", IDENT, ReservedKeyword, true},
+	{"source", SOURCE, UnreservedKeyword, true},
+	{"statement", STATEMENT, UnreservedKeyword, true},
+	{"stdin", STDIN, UnreservedKeyword, true},
+	{"stdout", STDOUT, UnreservedKeyword, true},
+	{"string", STRING_P, UnreservedKeyword, true},
+	{"symmetric", IDENT, ReservedKeyword, true},
+	{"system", SYSTEM_P, UnreservedKeyword, true},
+	{"system_user", IDENT, ReservedKeyword, true},
 
-	{"copy", COPY, ReservedKeyword, true},             // Phase 3E: COPY statement
-	{"program", PROGRAM, UnreservedKeyword, true},     // Phase 3E: COPY PROGRAM
-	{"stdin", STDIN, UnreservedKeyword, true},         // Phase 3E: COPY STDIN
-	{"stdout", STDOUT, UnreservedKeyword, true},       // Phase 3E: COPY STDOUT
-	{"binary", BINARY, UnreservedKeyword, true},       // Phase 3E: COPY BINARY format
-	{"freeze", FREEZE, UnreservedKeyword, true},       // Phase 3E: COPY FREEZE option
-	{"conflict", CONFLICT, UnreservedKeyword, true},   // Phase 3E: ON CONFLICT clause
-	{"constraint", CONSTRAINT, ReservedKeyword, true}, // Phase 3E: CONSTRAINT for ON CONFLICT
-	{"verbose", VERBOSE, UnreservedKeyword, true},     // Phase 3E: VERBOSE option
-	{"analyze", ANALYZE, UnreservedKeyword, true},     // Phase 3E: ANALYZE option
-	{"time", IDENT, ColNameKeyword, true},             // Will be replaced with TIME token in Phase 3
-	{"timestamp", IDENT, ColNameKeyword, true},        // Will be replaced with TIMESTAMP token in Phase 3
-	{"to", TO, ReservedKeyword, true},                 // Phase 3D: TO keyword for CYCLE clause
-	{"trailing", IDENT, ReservedKeyword, true},        // Will be replaced with TRAILING token in Phase 3
+	{"table", TABLE, ReservedKeyword, true},
+	{"target", TARGET, UnreservedKeyword, true},
+	{"temp", TEMP, UnreservedKeyword, true},
+	{"temporary", TEMPORARY, UnreservedKeyword, true},
+	{"then", THEN, ReservedKeyword, true},
+	{"time", TIME, ColNameKeyword, true},
+	{"timestamp", IDENT, ColNameKeyword, true},
+	{"to", TO, ReservedKeyword, true},
+	{"trailing", IDENT, ReservedKeyword, true},
+	{"transaction", TRANSACTION, UnreservedKeyword, true},
+	{"trigger", TRIGGER, UnreservedKeyword, true},
 	{"true", TRUE_P, ReservedKeyword, true},
+	{"truncate", TRUNCATE, ReservedKeyword, true},
 
-	{"union", IDENT, ReservedKeyword, true},         // Will be replaced with UNION token in Phase 3
-	{"unique", UNIQUE, ReservedKeyword, true},       // Phase 3F: UNIQUE constraint for DDL
-	{"unlogged", UNLOGGED, UnreservedKeyword, true}, // Phase 3F: UNLOGGED for persistent tables
-	{"update", UPDATE, ReservedKeyword, false},      // Phase 3E: UPDATE statement
-	{"user", USER, UnreservedKeyword, true},         // Phase 3E: USER keyword for OVERRIDING USER VALUE
-	{"using", USING, ReservedKeyword, true},         // Phase 3D: USING clause for JOINs
+	{"unconditional", UNCONDITIONAL, UnreservedKeyword, true},
+	{"union", IDENT, ReservedKeyword, true},
+	{"unique", UNIQUE, ReservedKeyword, true},
+	{"unlogged", UNLOGGED, UnreservedKeyword, true},
+	{"update", UPDATE, ReservedKeyword, false},
+	{"user", USER, UnreservedKeyword, true},
+	{"using", USING, ReservedKeyword, true},
+	{"utf8", UTF8, UnreservedKeyword, true},
 
-	{"values", VALUES, UnreservedKeyword, true}, // Phase 3D: VALUES clause
-	{"varchar", VARCHAR, ColNameKeyword, true},  // Will be replaced with VARCHAR token in Phase 3
-	{"varying", IDENT, UnreservedKeyword, true}, // Will be replaced with VARYING token in Phase 3
-	{"view", VIEW, UnreservedKeyword, true},     // Phase 3F: VIEW for ALTER VIEW statements
+	{"value", VALUE_P, UnreservedKeyword, true},
+	{"values", VALUES, UnreservedKeyword, true},
+	{"varchar", VARCHAR, ColNameKeyword, true},
+	{"variadic", VARIADIC, UnreservedKeyword, true},
+	{"varying", IDENT, UnreservedKeyword, true},
+	{"verbose", VERBOSE, UnreservedKeyword, true},
+	{"view", VIEW, UnreservedKeyword, true},
 
-	{"when", WHEN, ReservedKeyword, true},   // Phase 3E: MERGE WHEN clause
-	{"where", WHERE, ReservedKeyword, true}, // Phase 3C: WHERE clause
+	{"when", WHEN, ReservedKeyword, true},
+	{"where", WHERE, ReservedKeyword, true},
 	{"with", WITH, ReservedKeyword, true},
+	{"without", WITHOUT, UnreservedKeyword, true},
+	{"wrapper", WRAPPER, UnreservedKeyword, true},
 
-	// Phase 3D: Table function keywords
-	{"columns", COLUMNS, UnreservedKeyword, true},       // COLUMNS clause for table functions
-	{"ordinality", ORDINALITY, UnreservedKeyword, true}, // WITH ORDINALITY for table functions
-	{"xmltable", XMLTABLE, UnreservedKeyword, true},     // XMLTABLE function
-	{"json_table", JSON_TABLE, UnreservedKeyword, true}, // JSON_TABLE function
-	{"rows", ROWS, UnreservedKeyword, true},             // ROWS FROM() syntax
-	{"path", PATH, UnreservedKeyword, true},             // PATH clause for JSON_TABLE
-	{"passing", PASSING, UnreservedKeyword, true},       // PASSING clause
-	{"for", FOR, ReservedKeyword, true},                 // FOR keyword
-	{"nested", NESTED, UnreservedKeyword, true},         // NESTED clause for JSON_TABLE
+	{"xml", XML_P, UnreservedKeyword, true},
+	{"xmlnamespaces", XMLNAMESPACES, ColNameKeyword, true},
+	{"xmltable", XMLTABLE, UnreservedKeyword, true},
 
-	// Phase 3D: JSON keywords
-	{"error", ERROR, UnreservedKeyword, true},                   // ERROR clause for JSON functions
-	{"empty", EMPTY, UnreservedKeyword, true},                   // EMPTY clause for JSON functions
-	{"wrapper", WRAPPER, UnreservedKeyword, true},               // WRAPPER clause for JSON functions
-	{"conditional", CONDITIONAL, UnreservedKeyword, true},       // CONDITIONAL for JSON functions
-	{"unconditional", UNCONDITIONAL, UnreservedKeyword, true},   // UNCONDITIONAL for JSON functions
-	{"quotes", QUOTES, UnreservedKeyword, true},                 // QUOTES clause for JSON functions
-	{"omit", OMIT, UnreservedKeyword, true},                     // OMIT clause for JSON functions
-	{"keep", KEEP, UnreservedKeyword, true},                     // KEEP clause for JSON functions
-	{"key", KEY, UnreservedKeyword, true},                       // Phase 3F: KEY for PRIMARY KEY, FOREIGN KEY
-	{"scalar", SCALAR, UnreservedKeyword, true},                 // SCALAR clause for JSON functions
-	{"string", STRING_P, UnreservedKeyword, true},               // STRING clause for JSON functions
-	{"encoding", ENCODING, UnreservedKeyword, true},             // ENCODING clause for JSON functions
-	{"value", VALUE_P, UnreservedKeyword, true},                 // VALUE clause for JSON functions
-	{"json_query", JSON_QUERY, UnreservedKeyword, true},         // JSON_QUERY function
-	{"json_value", JSON_VALUE, UnreservedKeyword, true},         // JSON_VALUE function
-	{"json_serialize", JSON_SERIALIZE, UnreservedKeyword, true}, // JSON_SERIALIZE function
-	{"json_object", JSON_OBJECT, UnreservedKeyword, true},       // JSON_OBJECT function
-	{"json_array", JSON_ARRAY, UnreservedKeyword, true},         // JSON_ARRAY function
-	{"json_objectagg", JSON_OBJECTAGG, UnreservedKeyword, true}, // JSON_OBJECTAGG function
-	{"json_arrayagg", JSON_ARRAYAGG, UnreservedKeyword, true},   // JSON_ARRAYAGG function
-	{"json_exists", JSON_EXISTS, UnreservedKeyword, true},       // JSON_EXISTS function
-	{"json_scalar", JSON_SCALAR, UnreservedKeyword, true},       // JSON_SCALAR function
-	{"format", FORMAT, UnreservedKeyword, true},                 // FORMAT clause
-	{"json", JSON, UnreservedKeyword, true},                     // JSON keyword
-	{"utf8", UTF8, UnreservedKeyword, true},                     // UTF8 encoding
-	{"without", WITHOUT, UnreservedKeyword, true},               // WITHOUT keyword
-	{"ref", REF_P, UnreservedKeyword, true},                     // REF keyword for XML PASSING
-	{"xmlnamespaces", XMLNAMESPACES, ColNameKeyword, true},      // XMLNAMESPACES for XMLTABLE
+	{"zone", ZONE, UnreservedKeyword, true},
 }
 
 // keywordLookupMap provides fast keyword lookup by name.
@@ -383,10 +415,8 @@ func (kc KeywordCategory) String() string {
 }
 
 // getKeywordTokenType returns the appropriate token type for a keyword.
-// In Phase 2, all keywords return IDENT (will be replaced in Phase 3 with proper tokens)
 // This preserves the identifier text while marking it for future keyword token assignment
 func getKeywordTokenType(keyword *KeywordInfo) TokenType {
 	// Return the keyword's specific token type
-	// In Phase 3, this will be replaced with goyacc-generated tokens
 	return keyword.TokenType
 }
