@@ -275,12 +275,7 @@ func (ts *store) DeleteMultiPooler(ctx context.Context, id *clustermetadatapb.ID
 
 // InitMultiPooler creates or updates a multipooler. If allowUpdate is true,
 // and a multipooler with the same ID exists, just update it.
-// If a multipooler is created as primary, and there is already a different
-// primary in the shard, allowPrimaryOverride must be set.
-func (ts *store) InitMultiPooler(ctx context.Context, mtpooler *clustermetadatapb.MultiPooler, allowPrimaryOverride, allowUpdate bool) error {
-	// TODO (@rafa): How are we going to do this? Is the topo suppose to try to discover
-	// where is the primary? We no longer have the shard metadata in the topo.
-	// In this context how do we discover where the ShardMetadata is???
+func (ts *store) InitMultiPooler(ctx context.Context, mtpooler *clustermetadatapb.MultiPooler, allowUpdate bool) error {
 	err := ts.CreateMultiPooler(ctx, mtpooler)
 	if errors.Is(err, &TopoError{Code: NodeExists}) && allowUpdate {
 		// Try to update then
