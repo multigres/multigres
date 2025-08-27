@@ -424,20 +424,25 @@ func TestClusterLifecycle(t *testing.T) {
 		// Step 2: Start cluster (up)
 		t.Log("Step 2: Starting cluster...")
 		upOutput, err := executeUpCommand(t, []string{"--config-path", tempDir})
-
-		// The up command may succeed or fail depending on external services (etcd)
-		// We're mainly testing that it doesn't crash and provides meaningful output
-		if err != nil {
-			t.Logf("Up command failed (this may be expected): %v\nOutput: %s", err, upOutput)
-		}
+		require.NoError(t, err, "Up command should succeed and start the cluster")
 
 		// Verify we got expected output
 		assert.Contains(t, upOutput, "Starting Multigres cluster")
 
-		// Check if etcd is mentioned in the output
-		if !strings.Contains(upOutput, "etcd") {
-			t.Logf("etcd not mentioned in output: %s", upOutput)
-		}
+		// Step 2.5: Verify etcd connectivity from the generated config
+		t.Log("Step 2.5: Verifying etcd connectivity...")
+		configData, err := os.ReadFile(configFile)
+		require.NoError(t, err, "Failed to read config file for etcd verification")
+
+		var config MultigressConfig
+		require.NoError(t, yaml.Unmarshal(configData, &config), "Failed to parse config file for etcd verification")
+
+		etcdAddress := config.Topology.EtcdDefaultAddress
+		require.NotEmpty(t, etcdAddress, "etcd address should be configured")
+
+		t.Logf("Checking etcd connectivity at: %s", etcdAddress)
+		// The up command should have started etcd and made it reachable
+		require.NoError(t, checkEtcdConnectivity(etcdAddress), "etcd should be reachable after cluster up command")
 
 		// Step 3: Stop cluster (down)
 		t.Log("Step 3: Stopping cluster...")
