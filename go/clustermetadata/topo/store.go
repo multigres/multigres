@@ -162,7 +162,7 @@ type CellStore interface {
 	UpdateMultiPooler(ctx context.Context, mpi *MultiPoolerInfo) error
 	UpdateMultiPoolerFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.MultiPooler) error) (*clustermetadatapb.MultiPooler, error)
 	DeleteMultiPooler(ctx context.Context, id *clustermetadatapb.ID) error
-	InitMultiPooler(ctx context.Context, multipooler *clustermetadatapb.MultiPooler, allowPrimaryOverride, allowUpdate bool) error
+	InitMultiPooler(ctx context.Context, multipooler *clustermetadatapb.MultiPooler, allowUpdate bool) error
 
 	// MultiGateway CRUD operations
 	GetMultiGateway(ctx context.Context, id *clustermetadatapb.ID) (*MultiGatewayInfo, error)

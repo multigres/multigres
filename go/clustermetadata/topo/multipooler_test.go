@@ -839,7 +839,7 @@ func TestInitMultiPooler(t *testing.T) {
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				}
 
-				err := ts.InitMultiPooler(ctx, multipooler, false, false)
+				err := ts.InitMultiPooler(ctx, multipooler, false)
 				require.NoError(t, err)
 
 				retrieved, err := ts.GetMultiPooler(ctx, multipooler.Id)
@@ -879,7 +879,7 @@ func TestInitMultiPooler(t *testing.T) {
 					ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 				}
 
-				err := ts.InitMultiPooler(ctx, updated, false, true)
+				err := ts.InitMultiPooler(ctx, updated, true)
 				require.NoError(t, err)
 
 				retrieved, err := ts.GetMultiPooler(ctx, original.Id)
@@ -919,7 +919,7 @@ func TestInitMultiPooler(t *testing.T) {
 					ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 				}
 
-				err := ts.InitMultiPooler(ctx, updated, false, false)
+				err := ts.InitMultiPooler(ctx, updated, false)
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topo.TopoError{Code: topo.NodeExists}))
 			},
@@ -956,7 +956,7 @@ func TestInitMultiPooler(t *testing.T) {
 					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 				}
 
-				err := ts.InitMultiPooler(ctx, updated, false, true)
+				err := ts.InitMultiPooler(ctx, updated, true)
 				require.Error(t, err)
 				require.Contains(t, err.Error(), "Cannot override with shard")
 			},
