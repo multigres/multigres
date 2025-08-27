@@ -17,7 +17,6 @@ package cluster
 import (
 	"fmt"
 	"os/exec"
-	"strings"
 
 	"github.com/multigres/multigres/go/servenv"
 
@@ -27,18 +26,16 @@ import (
 // stopMultigresContainers stops all containers with the multigres project label
 func stopMultigresContainers(clean bool) error {
 	// Check if docker is available
-	if _, err := exec.LookPath("docker"); err != nil {
-		return fmt.Errorf("docker not found in PATH: %w", err)
+	if err := CheckDockerAvailable(); err != nil {
+		return fmt.Errorf("docker not available: %w", err)
 	}
 
 	// Find all containers with the multigres project label
-	listCmd := exec.Command("docker", "ps", "-q", "--filter", "label=com.docker.compose.project=multigres")
-	output, err := listCmd.Output()
+	containerIDs, err := GetMultigresContainers()
 	if err != nil {
 		return fmt.Errorf("failed to list multigres containers: %w", err)
 	}
 
-	containerIDs := strings.Fields(strings.TrimSpace(string(output)))
 	if len(containerIDs) == 0 {
 		fmt.Println("No multigres containers are currently running")
 		return nil
@@ -48,15 +45,10 @@ func stopMultigresContainers(clean bool) error {
 
 	// Stop the containers
 	for _, containerID := range containerIDs {
-		// Get container name for better user feedback
-		nameCmd := exec.Command("docker", "inspect", containerID, "--format", "{{.Name}}")
-		nameOutput, err := nameCmd.Output()
-		containerName := strings.TrimSpace(strings.TrimPrefix(string(nameOutput), "/"))
-		if err != nil {
-			containerName = containerID[:12] // fallback to short ID
-		}
-
+		containerName := GetContainerName(containerID)
 		fmt.Printf("Stopping container: %s\n", containerName)
+
+		// Stop the container by ID
 		stopCmd := exec.Command("docker", "stop", containerID)
 		if err := stopCmd.Run(); err != nil {
 			fmt.Printf("Warning: failed to stop container %s: %v\n", containerName, err)
@@ -76,19 +68,14 @@ func stopMultigresContainers(clean bool) error {
 		}
 
 		// Remove the multigres network if it exists
-		networkName := "multigres-stack"
-		fmt.Printf("Removing network: %s\n", networkName)
-		removeNetworkCmd := exec.Command("docker", "network", "rm", networkName)
-		if err := removeNetworkCmd.Run(); err != nil {
-			fmt.Printf("Warning: failed to remove network %s: %v\n", networkName, err)
+		if err := RemoveMultigresNetwork(); err != nil {
+			fmt.Printf("Warning: failed to remove network: %v\n", err)
 		}
 
-		// Optionally remove volumes (commented out for safety - user data)
-		// fmt.Println("Removing named volumes...")
-		// removeVolumeCmd := exec.Command("docker", "volume", "rm", "multigres-etcd-data")
-		// if err := removeVolumeCmd.Run(); err != nil {
-		//     fmt.Printf("Warning: failed to remove volume: %v\n", err)
-		// }
+		fmt.Println("Removing named volumes...")
+		if err := RemoveVolume(EtcdDataVolume); err != nil {
+			fmt.Printf("Warning: failed to remove volume: %v\n", err)
+		}
 
 		fmt.Println("Clean up completed (volumes preserved)")
 	}
@@ -102,8 +89,8 @@ func runDown(cmd *cobra.Command, args []string) error {
 	fmt.Println("Stopping Multigres cluster...")
 
 	// Check if Docker is available early
-	if _, err := exec.LookPath("docker"); err != nil {
-		return fmt.Errorf("docker not found in PATH: %w", err)
+	if err := CheckDockerAvailable(); err != nil {
+		return fmt.Errorf("docker not available: %w", err)
 	}
 
 	// Get the clean flag

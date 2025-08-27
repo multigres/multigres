@@ -36,38 +36,6 @@ func checkEtcdConnectivity(address string) error {
 	return nil
 }
 
-// isOrbStackRunning checks if OrbStack is the Docker backend
-func isOrbStackRunning() bool {
-	cmd := exec.Command("docker", "info", "--format", "{{.Name}}")
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(string(output)), "orbstack")
-}
-
-// createMultigresNetwork creates a Docker network for Multigres components
-func createMultigresNetwork() error {
-	networkName := "multigres-stack"
-
-	// Check if network already exists
-	checkCmd := exec.Command("docker", "network", "ls", "--filter", fmt.Sprintf("name=%s", networkName), "--format", "{{.Name}}")
-	output, err := checkCmd.Output()
-	if err == nil && strings.TrimSpace(string(output)) == networkName {
-		fmt.Printf("Network '%s' already exists\n", networkName)
-		return nil
-	}
-
-	// Create network
-	createCmd := exec.Command("docker", "network", "create", networkName)
-	if err := createCmd.Run(); err != nil {
-		return fmt.Errorf("failed to create network %s: %w", networkName, err)
-	}
-
-	fmt.Printf("Created network: %s\n", networkName)
-	return nil
-}
-
 // startEtcdContainer starts an etcd container using Docker
 func startEtcdContainer(address string) error {
 	fmt.Printf("Starting etcd container for address: %s\n", address)
@@ -80,44 +48,37 @@ func startEtcdContainer(address string) error {
 	port := parts[1]
 
 	// Check if docker is available
-	if _, err := exec.LookPath("docker"); err != nil {
-		return fmt.Errorf("docker not found in PATH: %w", err)
-	}
-
-	// Detect if OrbStack is running
-	orbstackRunning := isOrbStackRunning()
-	if orbstackRunning {
-		fmt.Println("Detected OrbStack - using optimized configuration")
+	if err := CheckDockerAvailable(); err != nil {
+		return fmt.Errorf("docker not available: %w", err)
 	}
 
 	// Create Multigres network for better container orchestration
-	if err := createMultigresNetwork(); err != nil {
+	if err := CreateMultigresNetwork(); err != nil {
 		return fmt.Errorf("failed to create network: %w", err)
 	}
 
-	containerName := "multigres-etcd"
+	containerName := EtcdContainerName
 
 	// Check if container already exists
-	checkCmd := exec.Command("docker", "ps", "-q", "-f", fmt.Sprintf("name=%s", containerName))
-	output, err := checkCmd.Output()
-	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
+	if IsContainerRunning(containerName) {
 		fmt.Printf("etcd container '%s' is already running\n", containerName)
 		return nil
 	}
 
 	// Remove any stopped container with the same name
-	removeCmd := exec.Command("docker", "rm", "-f", containerName)
-	_ = removeCmd.Run()
+	if err := RemoveContainer(containerName); err != nil {
+		return fmt.Errorf("failed to remove container: %w", err)
+	}
 
 	// Calculate peer port (client port + 1 for convention)
 	clientPort := port
 	peerPort := fmt.Sprintf("%d", 2380) // Keep peer port standard for now
 
-	// Build Docker command with OrbStack optimizations and proper grouping labels
+	// Build Docker command with proper grouping labels
 	args := []string{
 		"run", "-d",
 		"--name", containerName,
-		"--network", "multigres-stack",
+		"--network", NetworkName,
 		"-p", fmt.Sprintf("%s:%s", clientPort, clientPort), // Map configured port to same port inside container
 		"-p", fmt.Sprintf("%s:%s", peerPort, peerPort), // Peer port mapping
 		"--restart", "unless-stopped",
@@ -125,19 +86,11 @@ func startEtcdContainer(address string) error {
 		"--health-interval", "10s",
 		"--health-timeout", "5s",
 		"--health-retries", "3",
-		// OrbStack grouping labels
+		// Multigres grouping labels
 		"--label", "com.docker.compose.project=multigres",
 		"--label", "com.docker.compose.service=etcd",
 		"--label", "multigres.component=etcd",
 		"--label", "multigres.stack=local",
-	}
-
-	// OrbStack-specific optimizations
-	if orbstackRunning {
-		args = append(args,
-			"--memory", "512m",
-			"--cpus", "0.5",
-		)
 	}
 
 	// Add environment variables and volume
@@ -150,7 +103,7 @@ func startEtcdContainer(address string) error {
 		"--env", fmt.Sprintf("ETCD_INITIAL_CLUSTER=default=http://0.0.0.0:%s", peerPort),
 		"--env", "ETCD_NAME=default",
 		"--env", "ETCD_DATA_DIR=/etcd-data",
-		"--volume", "multigres-etcd-data:/etcd-data",
+		"--volume", fmt.Sprintf("%s:/etcd-data", EtcdDataVolume),
 		"quay.io/coreos/etcd:v3.5.9",
 	)
 
@@ -192,8 +145,8 @@ func runUp(cmd *cobra.Command, args []string) error {
 	fmt.Println("Starting Multigres cluster...")
 
 	// Check if Docker is available early
-	if _, err := exec.LookPath("docker"); err != nil {
-		return fmt.Errorf("docker not found in PATH: %w", err)
+	if err := CheckDockerAvailable(); err != nil {
+		return fmt.Errorf("docker not available: %w", err)
 	}
 
 	// Get config paths from flags
