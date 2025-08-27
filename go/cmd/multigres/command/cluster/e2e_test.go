@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package init
+package cluster
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,18 +27,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// executeInitCommand builds and runs the actual multigres binary with "cluster init" command
-func executeInitCommand(t *testing.T, args []string) (string, error) {
-	// Create a separate temp directory for the binary to avoid conflicts
-	binaryDir, err := os.MkdirTemp("", "multigres_binary")
+var multigresBinary string
+var binaryTempDir string
+
+// TestMain runs before all tests to build the binary once
+func TestMain(m *testing.M) {
+	// Build multigres binary once for all tests
+	var err error
+	binaryTempDir, err = os.MkdirTemp("", "multigres_binary")
 	if err != nil {
-		t.Fatalf("Failed to create temp directory for binary: %v", err)
+		panic(fmt.Sprintf("Failed to create temp directory for binary: %v", err))
 	}
-	defer os.RemoveAll(binaryDir)
 
 	// Build multigres binary for testing (following pgctld pattern)
-	multigresBinary := filepath.Join(binaryDir, "multigres")
-	buildCmd := exec.Command("go", "build", "-o", multigresBinary, "../../..")
+	multigresBinary = filepath.Join(binaryTempDir, "multigres")
+	buildCmd := exec.Command("go", "build", "-o", multigresBinary, "../../")
 
 	// Set working directory to avoid issues with temp paths
 	wd, _ := os.Getwd()
@@ -45,9 +49,21 @@ func executeInitCommand(t *testing.T, args []string) (string, error) {
 
 	buildOutput, err := buildCmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("Failed to build multigres binary: %v\nOutput: %s", err, string(buildOutput))
+		panic(fmt.Sprintf("Failed to build multigres binary: %v\nOutput: %s", err, string(buildOutput)))
 	}
 
+	// Run all tests
+	exitCode := m.Run()
+
+	// Clean up binary
+	os.RemoveAll(binaryTempDir)
+
+	// Exit with the test result code
+	os.Exit(exitCode)
+}
+
+// executeInitCommand runs the actual multigres binary with "cluster init" command
+func executeInitCommand(t *testing.T, args []string) (string, error) {
 	// Prepare the full command: "multigres cluster init <args>"
 	cmdArgs := append([]string{"cluster", "init"}, args...)
 	cmd := exec.Command(multigresBinary, cmdArgs...)
@@ -344,6 +360,92 @@ topology:
     global-root-path: /test/global
     default-cell-name: test-zone
     default-cell-root-path: /test/zone
+    etcd-default-address: localhost:2379
 `
 	assert.YAMLEq(t, expectedYAML, string(configData))
+}
+
+// executeUpCommand runs the actual multigres binary with "cluster up" command
+func executeUpCommand(t *testing.T, args []string) (string, error) {
+	// Prepare the full command: "multigres cluster up <args>"
+	cmdArgs := append([]string{"cluster", "up"}, args...)
+	cmd := exec.Command(multigresBinary, cmdArgs...)
+
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+// executeDownCommand runs the actual multigres binary with "cluster down" command
+func executeDownCommand(t *testing.T, args []string) (string, error) {
+	// Prepare the full command: "multigres cluster down <args>"
+	cmdArgs := append([]string{"cluster", "down"}, args...)
+	cmd := exec.Command(multigresBinary, cmdArgs...)
+
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+// hasDocker checks if Docker is available in PATH
+func hasDocker() bool {
+	_, err := exec.LookPath("docker")
+	return err == nil
+}
+
+func TestClusterLifecycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
+
+	// Check if Docker is available
+	if !hasDocker() {
+		t.Skip("Docker not available, skipping cluster lifecycle tests")
+	}
+
+	t.Run("full cluster lifecycle: init -> up -> down", func(t *testing.T) {
+		// Setup test directory
+		tempDir, err := os.MkdirTemp("", "multigres_lifecycle_test")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
+
+		// Step 1: Initialize cluster configuration
+		t.Log("Step 1: Initializing cluster configuration...")
+		initOutput, err := executeInitCommand(t, []string{"--config-path", tempDir})
+		require.NoError(t, err, "Init command failed with output: %s", initOutput)
+		assert.Contains(t, initOutput, "Initializing Multigres cluster configuration")
+		assert.Contains(t, initOutput, "successfully")
+
+		// Verify config file was created
+		configFile := filepath.Join(tempDir, "multigres.yaml")
+		_, err = os.Stat(configFile)
+		require.NoError(t, err, "Config file should exist after init")
+
+		// Step 2: Start cluster (up)
+		t.Log("Step 2: Starting cluster...")
+		upOutput, err := executeUpCommand(t, []string{"--config-path", tempDir})
+
+		// The up command may succeed or fail depending on external services (etcd)
+		// We're mainly testing that it doesn't crash and provides meaningful output
+		if err != nil {
+			t.Logf("Up command failed (this may be expected): %v\nOutput: %s", err, upOutput)
+		}
+
+		// Verify we got expected output
+		assert.Contains(t, upOutput, "Starting Multigres cluster")
+
+		// Check if etcd is mentioned in the output
+		if !strings.Contains(upOutput, "etcd") {
+			t.Logf("etcd not mentioned in output: %s", upOutput)
+		}
+
+		// Step 3: Stop cluster (down)
+		t.Log("Step 3: Stopping cluster...")
+		downOutput, err := executeDownCommand(t, []string{"--config-path", tempDir})
+		require.NoError(t, err, "Down command failed with output: %s", downOutput)
+		assert.Contains(t, downOutput, "Stopping Multigres cluster")
+		assert.Contains(t, downOutput, "Multigres cluster stopped successfully")
+
+		t.Log("Cluster lifecycle test completed successfully")
+	})
 }
