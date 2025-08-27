@@ -45,6 +45,7 @@ build:
 	go build -o bin/multipooler ./go/cmd/multipooler
 	go build -o bin/pgctld ./go/cmd/pgctld
 	go build -o bin/multiorch ./go/cmd/multiorch
+	go build -o bin/multigres ./go/cmd/multigres
 
 # Build everything (proto + binaries)
 build-all: proto build
@@ -60,6 +61,7 @@ install:
 	go install ./go/cmd/multipooler
 	go install ./go/cmd/pgctld
 	go install ./go/cmd/multiorch
+	go install ./go/cmd/multigres
 
 # Run tests
 test:
