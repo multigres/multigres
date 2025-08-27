@@ -22,7 +22,7 @@ on:
 
 jobs:
   test-integration:
-    name: Cluster Metadata Tests
+    name: Run full integration test suite
     runs-on: ubuntu-24.04
 
     steps:
