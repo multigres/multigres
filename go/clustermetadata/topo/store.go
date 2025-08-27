@@ -66,6 +66,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 
@@ -286,6 +287,17 @@ func RegisterFactory(name string, factory Factory) {
 		log.Fatalf("Duplicate topo.Factory registration for %v", name)
 	}
 	factories[name] = factory
+}
+
+// GetAvailableImplementations returns a sorted list of all registered topology implementations.
+func GetAvailableImplementations() []string {
+	implementations := make([]string, 0, len(factories))
+	for name := range factories {
+		implementations = append(implementations, name)
+	}
+	// Sort for consistent output
+	slices.Sort(implementations)
+	return implementations
 }
 
 // NewWithFactory creates a new topology store based on the given Factory.
