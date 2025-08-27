@@ -5333,6 +5333,11 @@ ColConstraintElem:
 					if actions := $5; actions != nil {
 						constraint.FkUpdAction = actions.UpdateAction.Action
 						constraint.FkDelAction = actions.DeleteAction.Action
+						// Copy column list for SET NULL/SET DEFAULT on DELETE
+						if actions.DeleteAction.Action == ast.FKCONSTR_ACTION_SETNULL || 
+						   actions.DeleteAction.Action == ast.FKCONSTR_ACTION_SETDEFAULT {
+							constraint.FkDelSetCols = actions.DeleteAction.Cols
+						}
 					}
 					$$ = constraint
 				}
@@ -5424,6 +5429,11 @@ ConstraintElem:
 					if actions := $10; actions != nil {
 						constraint.FkUpdAction = actions.UpdateAction.Action
 						constraint.FkDelAction = actions.DeleteAction.Action
+						// Copy column list for SET NULL/SET DEFAULT on DELETE
+						if actions.DeleteAction.Action == ast.FKCONSTR_ACTION_SETNULL || 
+						   actions.DeleteAction.Action == ast.FKCONSTR_ACTION_SETDEFAULT {
+							constraint.FkDelSetCols = actions.DeleteAction.Cols
+						}
 					}
 					processConstraintAttributeSpec($11, constraint)
 					$$ = constraint

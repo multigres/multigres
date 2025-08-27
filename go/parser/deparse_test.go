@@ -364,7 +364,7 @@ func TestRoundTripParsing(t *testing.T) {
 }
 
 func TestOneCase(t *testing.T) {
-	query := "CREATE TABLE users (id int, name varchar(100), PRIMARY KEY (id))"
+	query := ""
 	output := ""
 	if query == "" {
 		t.Skip("No tests to run")

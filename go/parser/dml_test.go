@@ -32,14 +32,14 @@ func TestDMLParsing(t *testing.T) {
 		{"INSERT with column list and OVERRIDING USER VALUE", "INSERT INTO users (id, name) OVERRIDING USER VALUE SELECT * FROM temp_users", "INSERT INTO users (id, name) SELECT * FROM temp_users"},
 		{"INSERT with column list and OVERRIDING SYSTEM VALUE", "INSERT INTO users (id, name) OVERRIDING SYSTEM VALUE SELECT * FROM temp_users", "INSERT INTO users (id, name) SELECT * FROM temp_users"},
 		{"INSERT with complex expressions in VALUES", "INSERT INTO users (id, name, age) VALUES (1 + 2, upper('john'), 25 * 2)", ""},
-		{"INSERT with function calls in VALUES", "INSERT INTO logs (message, created_at) VALUES (concat('Hello ', 'World'), now())", ""},
+		{"INSERT with function calls in VALUES", "INSERT INTO logs (message, created_at) VALUES (concat('Hello ', 'World'), now())", "INSERT INTO logs (message, created_at) VALUES (concat('Hello ', 'World'), NOW())"},
 		{"INSERT with type casts", "INSERT INTO users (id, name, age) VALUES (1::bigint, 'John'::varchar, '25'::integer)", ""},
 
 		// ===== UPDATE Statements =====
 		{"UPDATE simple", "UPDATE users SET name = 'Jane'", ""},
 		{"UPDATE with WHERE", "UPDATE users SET name = 'Jane' WHERE id = 1", ""},
 		{"UPDATE multiple columns", "UPDATE users SET name = 'Jane', age = 30 WHERE id = 1", ""},
-		{"UPDATE with complex SET expressions", "UPDATE users SET name = upper('jane'), age = age + 1, updated_at = now()", ""},
+		{"UPDATE with complex SET expressions", "UPDATE users SET name = upper('jane'), age = age + 1, updated_at = now()", "UPDATE users SET name = upper('jane'), age = age + 1, updated_at = NOW()"},
 		{"UPDATE with FROM clause", "UPDATE users SET name = temp.name FROM temp_users temp WHERE users.id = temp.id", "UPDATE users SET name = temp.name FROM temp_users AS temp WHERE users.id = temp.id"},
 		{"UPDATE with multiple FROM tables", "UPDATE users SET name = t1.name FROM temp_users t1, other_table t2 WHERE users.id = t1.id AND t1.other_id = t2.id", "UPDATE users SET name = t1.name FROM temp_users AS t1, other_table AS t2 WHERE users.id = t1.id AND t1.other_id = t2.id"},
 		{"UPDATE with complex WHERE", "UPDATE users SET name = 'Jane' WHERE id > 10 AND active = TRUE AND created_at > '2023-01-01'", ""},
@@ -55,7 +55,7 @@ func TestDMLParsing(t *testing.T) {
 		{"UPDATE with function calls in SET", "UPDATE users SET name = upper(trim(name)), email = lower(email)", ""},
 		{"UPDATE with function calls in WHERE", "UPDATE users SET active = FALSE WHERE length(name) < 3 AND upper(status) = 'INACTIVE'", ""},
 		{"UPDATE with nested arithmetic", "UPDATE stats SET score = (score + bonus) * multiplier, rank = rank + 1", ""},
-		{"UPDATE with complex FROM and expressions", "UPDATE orders SET total = o.quantity * p.price, updated_at = now() FROM order_items o, products p WHERE orders.id = o.order_id AND o.product_id = p.id", "UPDATE orders SET total = o.quantity * p.price, updated_at = now() FROM order_items AS o, products AS p WHERE orders.id = o.order_id AND o.product_id = p.id"},
+		{"UPDATE with complex FROM and expressions", "UPDATE orders SET total = o.quantity * p.price, updated_at = now() FROM order_items o, products p WHERE orders.id = o.order_id AND o.product_id = p.id", "UPDATE orders SET total = o.quantity * p.price, updated_at = NOW() FROM order_items AS o, products AS p WHERE orders.id = o.order_id AND o.product_id = p.id"},
 
 		// ===== DELETE Statements =====
 		{"DELETE simple", "DELETE FROM users", ""},

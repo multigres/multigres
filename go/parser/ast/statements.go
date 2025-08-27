@@ -1474,8 +1474,8 @@ func (d *DropStmt) SqlString() string {
 	if d.Behavior == DropCascade {
 		parts = append(parts, "CASCADE")
 	}
-	// Note: We skip outputting RESTRICT as it's the default behavior
-	// and most tests expect it to be omitted unless explicitly specified
+	// Note: We don't output RESTRICT as it's the default behavior in PostgreSQL
+	// Only CASCADE needs to be explicitly specified
 
 	return strings.Join(parts, " ")
 }

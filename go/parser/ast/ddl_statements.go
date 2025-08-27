@@ -202,6 +202,45 @@ type KeyActions struct {
 	DeleteAction *KeyAction
 }
 
+// SqlString returns the SQL representation of KeyAction
+func (ka *KeyAction) SqlString() string {
+	if ka == nil {
+		return ""
+	}
+
+	var result string
+	switch ka.Action {
+	case FKCONSTR_ACTION_NOACTION:
+		result = "NO ACTION"
+	case FKCONSTR_ACTION_RESTRICT:
+		result = "RESTRICT"
+	case FKCONSTR_ACTION_CASCADE:
+		result = "CASCADE"
+	case FKCONSTR_ACTION_SETNULL:
+		result = "SET NULL"
+	case FKCONSTR_ACTION_SETDEFAULT:
+		result = "SET DEFAULT"
+	default:
+		result = "NO ACTION"
+	}
+
+	// Add column list if present (only valid for SET NULL and SET DEFAULT)
+	if ka.Cols != nil && len(ka.Cols.Items) > 0 {
+		if ka.Action == FKCONSTR_ACTION_SETNULL || ka.Action == FKCONSTR_ACTION_SETDEFAULT {
+			result += " ("
+			for i, col := range ka.Cols.Items {
+				if i > 0 {
+					result += ", "
+				}
+				result += col.SqlString()
+			}
+			result += ")"
+		}
+	}
+
+	return result
+}
+
 func (c ConstrType) String() string {
 	switch c {
 	case CONSTR_NULL:
@@ -572,31 +611,7 @@ func (t *TypeName) SqlString() string {
 	var nameParts []string
 	for _, item := range t.Names.Items {
 		if str, ok := item.(*String); ok {
-			name := str.SVal
-			// Normalize common type names - uppercase for basic types to match expected format
-			normalizedName := name
-			switch strings.ToLower(name) {
-			case "int", "integer":
-				normalizedName = "int" // Keep lowercase to match expected test output
-			case "varchar", "character varying":
-				normalizedName = "varchar"
-			case "bpchar":
-				normalizedName = "char" // Convert PostgreSQL internal name to user-friendly name
-			case "text":
-				normalizedName = "text"
-			case "timestamp", "timestamptz":
-				normalizedName = "timestamp"
-			case "bool", "boolean":
-				normalizedName = "boolean"
-			case "numeric", "decimal":
-				normalizedName = strings.ToLower(name)
-			case "real", "float4", "float8", "double precision":
-				normalizedName = strings.ToLower(name)
-			default:
-				// Keep original case for custom types
-				normalizedName = name
-			}
-			nameParts = append(nameParts, normalizedName)
+			nameParts = append(nameParts, str.SVal)
 		}
 	}
 	typeName := strings.Join(nameParts, ".")
@@ -773,6 +788,16 @@ func (c *Constraint) SqlString() string {
 			return "DEFAULT " + c.RawExpr.SqlString()
 		}
 		return "DEFAULT"
+	case CONSTR_IDENTITY:
+		result := "GENERATED "
+		if c.GeneratedWhen == ATTRIBUTE_IDENTITY_ALWAYS {
+			result += "ALWAYS"
+		} else if c.GeneratedWhen == ATTRIBUTE_IDENTITY_BY_DEFAULT {
+			result += "BY DEFAULT"
+		}
+		result += " AS IDENTITY"
+		// TODO: Add sequence options if c.Options is not nil
+		return result
 	case CONSTR_PRIMARY:
 		result := "PRIMARY KEY"
 		if c.Keys != nil && c.Keys.Len() > 0 {
@@ -807,7 +832,7 @@ func (c *Constraint) SqlString() string {
 				result += " " + c.Pktable.SqlString()
 			}
 			if c.PkAttrs != nil && c.PkAttrs.Len() > 0 {
-				result += " (" + strings.Join(nodeListToStrings(c.PkAttrs), ", ") + ")"
+				result += "(" + strings.Join(nodeListToStrings(c.PkAttrs), ", ") + ")"
 			}
 		}
 
@@ -833,8 +858,14 @@ func (c *Constraint) SqlString() string {
 				result += " ON DELETE CASCADE"
 			case FKCONSTR_ACTION_SETNULL:
 				result += " ON DELETE SET NULL"
+				if c.FkDelSetCols != nil && len(c.FkDelSetCols.Items) > 0 {
+					result += " (" + strings.Join(nodeListToStrings(c.FkDelSetCols), ", ") + ")"
+				}
 			case FKCONSTR_ACTION_SETDEFAULT:
 				result += " ON DELETE SET DEFAULT"
+				if c.FkDelSetCols != nil && len(c.FkDelSetCols.Items) > 0 {
+					result += " (" + strings.Join(nodeListToStrings(c.FkDelSetCols), ", ") + ")"
+				}
 			}
 		}
 
@@ -1251,6 +1282,12 @@ func (a *AlterTableCmd) SqlString() string {
 					parts = append(parts, partCmd.Name.SqlString(), "FINALIZE")
 				}
 			}
+		}
+
+	case AT_AddIdentity:
+		parts = append(parts, "ALTER COLUMN", a.Name, "ADD")
+		if a.Def != nil {
+			parts = append(parts, a.Def.SqlString())
 		}
 
 	default:
