@@ -1783,7 +1783,7 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		{TokenType('='), "=", "", true},
 		{SCONST, "'O''Reilly'", "O'Reilly", false}, // doubled quote handling
 		{AND, "AND", "", true},                     // keyword returns parser constant
-		{IDENT, "data", "", true},                  // identifier - skip value check for now
+		{DATA_P, "data", "", true},                 // identifier - skip value check for now
 		{TokenType('='), "=", "", true},
 		{XCONST, "X'deadbeef'", "deadbeef", false},
 	}

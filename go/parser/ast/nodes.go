@@ -38,6 +38,8 @@ const (
 	T_Constraint
 	T_ViewStmt
 	T_CreateSchemaStmt
+	T_CreateTableAsStmt
+	T_RefreshMatViewStmt
 	T_CreateExtensionStmt
 	T_CreateDomainStmt
 	T_CreateFunctionStmt
@@ -296,6 +298,10 @@ func (nt NodeTag) String() string {
 		return "T_ViewStmt"
 	case T_CreateSchemaStmt:
 		return "T_CreateSchemaStmt"
+	case T_CreateTableAsStmt:
+		return "T_CreateTableAsStmt"
+	case T_RefreshMatViewStmt:
+		return "T_RefreshMatViewStmt"
 	case T_CreateExtensionStmt:
 		return "T_CreateExtensionStmt"
 	case T_CreateDomainStmt:

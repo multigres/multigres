@@ -927,7 +927,7 @@ func TestAggref(t *testing.T) {
 
 	t.Run("Ordered-Set Aggregate", func(t *testing.T) {
 		arg := NewVar(1, 1, 23)
-		directArg := NewConst(25, 50, false)       // 0.5 for percentile
+		directArg := NewConst(25, 50, false)            // 0.5 for percentile
 		aggref := NewAggref(3972, 23, NewNodeList(arg)) // percentile_cont
 		aggref.Aggdirectargs = NewNodeList(directArg)
 		aggref.Aggorder = NewNodeList(arg)
@@ -1233,11 +1233,11 @@ func TestGroupingFunc(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		gf := NewGroupingFunc(nil, nil, nil, Index(0), 0)
-		
+
 		// Test Expression interface
 		var expr Expression = gf
 		assert.NotNil(t, expr)
-		
+
 		// Test Node interface
 		var node Node = gf
 		assert.Equal(t, T_GroupingFunc, node.NodeTag())
@@ -1277,10 +1277,10 @@ func TestWindowFuncRunCondition(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		wfrc := NewWindowFuncRunCondition(Oid(0), Oid(0), false, nil, 0)
-		
+
 		var expr Expression = wfrc
 		assert.NotNil(t, expr)
-		
+
 		var node Node = wfrc
 		assert.Equal(t, T_WindowFuncRunCondition, node.NodeTag())
 	})
@@ -1289,7 +1289,7 @@ func TestWindowFuncRunCondition(t *testing.T) {
 // TestMergeSupportFunc tests the MergeSupportFunc node implementation
 func TestMergeSupportFunc(t *testing.T) {
 	t.Run("NewMergeSupportFunc", func(t *testing.T) {
-		msfType := Oid(23) // int4
+		msfType := Oid(23)  // int4
 		msfCollid := Oid(0) // No collation
 		location := 300
 
@@ -1314,10 +1314,10 @@ func TestMergeSupportFunc(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		msf := NewMergeSupportFunc(Oid(0), Oid(0), 0)
-		
+
 		var expr Expression = msf
 		assert.NotNil(t, expr)
-		
+
 		var node Node = msf
 		assert.Equal(t, T_MergeSupportFunc, node.NodeTag())
 	})
@@ -1353,10 +1353,10 @@ func TestNamedArgExpr(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		nae := NewNamedArgExpr(nil, "", 0, 0)
-		
+
 		var expr Expression = nae
 		assert.NotNil(t, expr)
-		
+
 		var node Node = nae
 		assert.Equal(t, T_NamedArgExpr, node.NodeTag())
 	})
@@ -1392,10 +1392,10 @@ func TestCaseTestExpr(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		cte := NewCaseTestExpr(Oid(0), 0, Oid(0), 0)
-		
+
 		var expr Expression = cte
 		assert.NotNil(t, expr)
-		
+
 		var node Node = cte
 		assert.Equal(t, T_CaseTestExpr, node.NodeTag())
 	})
@@ -1450,10 +1450,10 @@ func TestMinMaxExpr(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		mme := NewMinMaxExpr(Oid(0), Oid(0), Oid(0), IS_GREATEST, nil, 0)
-		
+
 		var expr Expression = mme
 		assert.NotNil(t, expr)
-		
+
 		var node Node = mme
 		assert.Equal(t, T_MinMaxExpr, node.NodeTag())
 	})
@@ -1463,8 +1463,8 @@ func TestMinMaxExpr(t *testing.T) {
 func TestRowCompareExpr(t *testing.T) {
 	t.Run("NewRowCompareExpr", func(t *testing.T) {
 		rctype := ROWCOMPARE_LT
-		opnos := []Oid{Oid(96), Oid(97)} // Operator OIDs
-		opfamilies := []Oid{Oid(1), Oid(2)} // Operator family OIDs
+		opnos := []Oid{Oid(96), Oid(97)}          // Operator OIDs
+		opfamilies := []Oid{Oid(1), Oid(2)}       // Operator family OIDs
 		inputCollids := []Oid{Oid(100), Oid(101)} // Collation OIDs
 		largs := []Expression{NewConst(Oid(23), Datum(1), false)}
 		rargs := []Expression{NewConst(Oid(23), Datum(2), false)}
@@ -1511,10 +1511,10 @@ func TestRowCompareExpr(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		rce := NewRowCompareExpr(ROWCOMPARE_LT, nil, nil, nil, nil, nil, 0)
-		
+
 		var expr Expression = rce
 		assert.NotNil(t, expr)
-		
+
 		var node Node = rce
 		assert.Equal(t, T_RowCompareExpr, node.NodeTag())
 	})
@@ -1568,10 +1568,10 @@ func TestSQLValueFunction(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		svf := NewSQLValueFunction(SVFOP_CURRENT_DATE, Oid(0), 0, 0)
-		
+
 		var expr Expression = svf
 		assert.NotNil(t, expr)
-		
+
 		var node Node = svf
 		assert.Equal(t, T_SQLValueFunction, node.NodeTag())
 	})
@@ -1636,10 +1636,10 @@ func TestXmlExpr(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		xe := NewXmlExpr(IS_XMLCONCAT, "", nil, nil, nil, XMLOPTION_DOCUMENT, false, Oid(0), 0, 0)
-		
+
 		var expr Expression = xe
 		assert.NotNil(t, expr)
-		
+
 		var node Node = xe
 		assert.Equal(t, T_XmlExpr, node.NodeTag())
 	})
@@ -1718,20 +1718,20 @@ func TestTableFunc(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		tf := NewTableFunc(TFT_XMLTABLE, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, -1, 0)
-		
+
 		var node Node = tf
 		assert.Equal(t, T_TableFunc, node.NodeTag())
-		
+
 		var stmt Stmt = tf
 		assert.Equal(t, "TABLE_FUNC", stmt.StatementType())
 	})
 }
 
-// TestIntoClause tests the IntoClause node implementation  
+// TestIntoClause tests the IntoClause node implementation
 func TestIntoClause(t *testing.T) {
 	t.Run("NewIntoClause", func(t *testing.T) {
 		rel := NewRangeVar("table", "schema", "")
-		colNames := []string{"col1", "col2"}
+		colNames := NewNodeList(NewString("col1"), NewString("col2"))
 		accessMethod := "heap"
 		options := NewNodeList(NewDefElem("fillfactor", NewInteger(80)))
 		onCommit := ONCOMMIT_DELETE_ROWS
@@ -1782,10 +1782,10 @@ func TestIntoClause(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		ic := NewIntoClause(nil, nil, "", nil, ONCOMMIT_NOOP, "", nil, false, 0)
-		
+
 		var node Node = ic
 		assert.Equal(t, T_IntoClause, node.NodeTag())
-		
+
 		var stmt Stmt = ic
 		assert.Equal(t, "INTO_CLAUSE", stmt.StatementType())
 	})
@@ -1816,8 +1816,8 @@ func TestMergeAction(t *testing.T) {
 
 	t.Run("String with different match kinds and commands", func(t *testing.T) {
 		tests := []struct {
-			matchKind   MergeMatchKind
-			commandType CmdType
+			matchKind     MergeMatchKind
+			commandType   CmdType
 			expectedMatch string
 			expectedCmd   string
 		}{
@@ -1847,10 +1847,10 @@ func TestMergeAction(t *testing.T) {
 
 	t.Run("Interface Compliance", func(t *testing.T) {
 		ma := NewMergeAction(MERGE_WHEN_MATCHED, CMD_UPDATE, OVERRIDING_NOT_SET, nil, nil, nil, 0)
-		
+
 		var node Node = ma
 		assert.Equal(t, T_MergeAction, node.NodeTag())
-		
+
 		var stmt Stmt = ma
 		assert.Equal(t, "MERGE_ACTION", stmt.StatementType())
 	})

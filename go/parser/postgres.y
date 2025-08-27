@@ -75,6 +75,7 @@ type LexerInterface interface {
 	funparam   *ast.FunctionParameter  // For function parameters
 	funparammode ast.FunctionParameterMode  // For parameter modes (IN/OUT/INOUT/VARIADIC)
 	vsetstmt   *ast.VariableSetStmt    // For SET/RESET statements
+	rolespec   *ast.RoleSpec
 
 	// Location tracking
 	location   int
@@ -376,7 +377,7 @@ type LexerInterface interface {
 %type <list>         opt_include
 %type <list>         opt_qualified_name opt_reloptions
 %type <list>         alter_table_cmds role_list
-%type <node>         alter_table_cmd partition_cmd index_partition_cmd RoleSpec
+%type <node>         alter_table_cmd partition_cmd index_partition_cmd
 %type <bval>         opt_nowait
 %type <node>         alter_column_default
 %type <objType>	     object_type_any_name object_type_name object_type_name_on_any_name drop_type_name
@@ -397,8 +398,15 @@ type LexerInterface interface {
 %type <defelt>       def_elem
 %type <dropBehav>	 opt_drop_behavior
 %type <rangevar>	 qualified_name insert_target relation_expr extended_relation_expr relation_expr_opt_alias
+%type <bval>         opt_with_data
+%type <rune>         OptNoLog
+%type <into>         create_mv_target
+%type <list>         OptSchemaEltList
+%type <stmt>         schema_stmt
 
 %type <stmt>         CreateFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
+%type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt
+%type <rolespec>     RoleSpec
 %type <vsetstmt>     generic_set set_rest set_rest_more generic_reset reset_rest SetResetClause FunctionSetResetClause
 %type <list>         func_name func_args_with_defaults func_args_with_defaults_list
 %type <funparam>     func_arg_with_default func_arg table_func_column
@@ -506,6 +514,9 @@ stmt:
 		|	CreateFunctionStmt						{ $$ = $1 }
 		|	CreateTrigStmt							{ $$ = $1 }
 		|	ViewStmt								{ $$ = $1 }
+		|	CreateMatViewStmt						{ $$ = $1 }
+		|	RefreshMatViewStmt						{ $$ = $1 }
+		|	CreateSchemaStmt						{ $$ = $1 }
 		|	VariableSetStmt							{ $$ = $1 }
 		|	VariableResetStmt						{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
@@ -6111,7 +6122,7 @@ role_list:
 RoleId:
 			RoleSpec
 				{
-					roleSpec := $1.(*ast.RoleSpec)
+					roleSpec := $1
 
 					switch roleSpec.Roletype {
 					case ast.ROLESPEC_CSTRING:
@@ -6489,7 +6500,7 @@ alter_table_cmd:
 		|	OWNER TO RoleSpec
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_ChangeOwner, "", nil)
-					cmd.Newowner = $3.(*ast.RoleSpec)
+					cmd.Newowner = $3
 					$$ = cmd
 				}
 			/* ALTER TABLE <name> SET ACCESS METHOD { <amname> | DEFAULT } */
@@ -8357,6 +8368,120 @@ opt_check_option:
 		|	WITH CASCADED CHECK OPTION			{ $$ = int(ast.CASCADED_CHECK_OPTION) }
 		|	WITH LOCAL CHECK OPTION				{ $$ = int(ast.LOCAL_CHECK_OPTION) }
 		|	/* EMPTY */							{ $$ = int(ast.NO_CHECK_OPTION) }
+		;
+
+/*****************************************************************************
+ *
+ *		CREATE SCHEMA statements - Phase 3G
+ *
+ *****************************************************************************/
+
+CreateSchemaStmt:
+			CREATE SCHEMA opt_single_name AUTHORIZATION RoleSpec OptSchemaEltList
+				{
+					n := ast.NewCreateSchemaStmt($3, false)
+					n.Authrole = $5
+					n.SchemaElts = $6
+					$$ = n
+				}
+			| CREATE SCHEMA ColId OptSchemaEltList
+				{
+					n := ast.NewCreateSchemaStmt($3, false)
+					n.Authrole = nil
+					n.SchemaElts = $4
+					$$ = n
+				}
+			| CREATE SCHEMA IF_P NOT EXISTS opt_single_name AUTHORIZATION RoleSpec OptSchemaEltList
+				{
+					n := ast.NewCreateSchemaStmt($6, true)
+					n.Authrole = $8
+					n.SchemaElts = $9
+					$$ = n
+				}
+			| CREATE SCHEMA IF_P NOT EXISTS ColId OptSchemaEltList
+				{
+					n := ast.NewCreateSchemaStmt($6, true)
+					n.Authrole = nil
+					n.SchemaElts = $7
+					$$ = n
+				}
+		;
+
+/*****************************************************************************
+ *
+ *		CREATE MATERIALIZED VIEW statements - Phase 3G
+ *
+ *****************************************************************************/
+
+CreateMatViewStmt:
+		CREATE OptNoLog MATERIALIZED VIEW create_mv_target AS SelectStmt opt_with_data
+				{
+					ctas := ast.NewCreateTableAsStmt($7, $5, ast.OBJECT_MATVIEW, false, false)
+					/* cram additional flags into the IntoClause */
+					$5.Rel.RelPersistence = $2
+					$5.SkipData = !$8
+					$$ = ctas
+				}
+		| CREATE OptNoLog MATERIALIZED VIEW IF_P NOT EXISTS create_mv_target AS SelectStmt opt_with_data
+				{
+					ctas := ast.NewCreateTableAsStmt($10, $8, ast.OBJECT_MATVIEW, false, true)
+					/* cram additional flags into the IntoClause */
+					$8.Rel.RelPersistence = $2
+					$8.SkipData = !$11
+					$$ = ctas
+				}
+		;
+
+RefreshMatViewStmt:
+			REFRESH MATERIALIZED VIEW opt_concurrently qualified_name opt_with_data
+				{
+					n := ast.NewRefreshMatViewStmt($4, !$6, $5)
+					$$ = n
+				}
+		;
+
+OptNoLog:	UNLOGGED					{ $$ = ast.RELPERSISTENCE_UNLOGGED }
+			| /*EMPTY*/					{ $$ = ast.RELPERSISTENCE_PERMANENT }
+		;
+
+create_mv_target:
+			qualified_name opt_column_list table_access_method_clause opt_reloptions OptTableSpace
+				{
+					$$ = &ast.IntoClause{
+						Rel: $1,
+						ColNames: $2,
+						AccessMethod: $3,
+						Options: $4,
+						TableSpaceName: $5,
+					}
+				}
+		;
+
+opt_with_data:
+		WITH DATA_P								{ $$ = true }
+		|	WITH NO DATA_P						{ $$ = false }
+		|	/* EMPTY */							{ $$ = true }
+		;
+
+OptSchemaEltList:
+			OptSchemaEltList schema_stmt
+				{
+					if $1 == nil {
+						$$ = ast.NewNodeList($2)
+					} else {
+						$1.Append($2)
+						$$ = $1
+					}
+				}
+			| /* EMPTY */
+				{ $$ = nil }
+		;
+
+schema_stmt:
+			CreateStmt
+			| IndexStmt
+			| CreateTrigStmt
+			| ViewStmt
 		;
 
 set_rest_more:

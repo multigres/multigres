@@ -8,7 +8,7 @@ import (
 )
 
 // ==============================================================================
-// DDL CREATION STATEMENTS - PostgreSQL parsenodes.h DDL creation implementation  
+// DDL CREATION STATEMENTS - PostgreSQL parsenodes.h DDL creation implementation
 // Ported from postgres/src/include/nodes/parsenodes.h
 // ==============================================================================
 
@@ -17,10 +17,10 @@ import (
 type CoercionContext int
 
 const (
-	COERCION_IMPLICIT    CoercionContext = iota // coercion in context of expression
-	COERCION_ASSIGNMENT                         // coercion in context of assignment
-	COERCION_PLPGSQL                            // if no assignment cast, use CoerceViaIO
-	COERCION_EXPLICIT                           // explicit cast operation
+	COERCION_IMPLICIT   CoercionContext = iota // coercion in context of expression
+	COERCION_ASSIGNMENT                        // coercion in context of assignment
+	COERCION_PLPGSQL                           // if no assignment cast, use CoerceViaIO
+	COERCION_EXPLICIT                          // explicit cast operation
 )
 
 // String returns string representation of CoercionContext
@@ -45,11 +45,11 @@ type FunctionParameterMode int
 
 const (
 	FUNC_PARAM_IN       FunctionParameterMode = iota // input only
-	FUNC_PARAM_OUT                                    // output only
-	FUNC_PARAM_INOUT                                  // both
-	FUNC_PARAM_VARIADIC                               // variadic (always input)
-	FUNC_PARAM_TABLE                                  // table function output column
-	FUNC_PARAM_DEFAULT                                // default; effectively same as IN
+	FUNC_PARAM_OUT                                   // output only
+	FUNC_PARAM_INOUT                                 // both
+	FUNC_PARAM_VARIADIC                              // variadic (always input)
+	FUNC_PARAM_TABLE                                 // table function output column
+	FUNC_PARAM_DEFAULT                               // default; effectively same as IN
 )
 
 // String returns string representation of FunctionParameterMode
@@ -103,39 +103,39 @@ func (fd FetchDirection) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3451-3458
 type FunctionParameter struct {
 	BaseNode
-	Name     string                 // parameter name, or empty string if not given
-	ArgType  *TypeName              // type name for parameter type
-	Mode     FunctionParameterMode  // IN/OUT/INOUT/VARIADIC/TABLE/DEFAULT
-	DefExpr  Node                   // raw default expr, or nil if not given
+	Name    string                // parameter name, or empty string if not given
+	ArgType *TypeName             // type name for parameter type
+	Mode    FunctionParameterMode // IN/OUT/INOUT/VARIADIC/TABLE/DEFAULT
+	DefExpr Node                  // raw default expr, or nil if not given
 }
 
 // String returns string representation of FunctionParameter
 func (fp *FunctionParameter) String() string {
 	var parts []string
-	
+
 	if fp.Mode != FUNC_PARAM_IN && fp.Mode != FUNC_PARAM_DEFAULT {
 		parts = append(parts, fp.Mode.String())
 	}
-	
+
 	if fp.Name != "" {
 		parts = append(parts, fp.Name)
 	}
-	
+
 	if fp.ArgType != nil {
 		parts = append(parts, fp.ArgType.String())
 	}
-	
+
 	if fp.DefExpr != nil {
 		parts = append(parts, "DEFAULT", fp.DefExpr.String())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // SqlString returns the SQL representation of FunctionParameter
 func (fp *FunctionParameter) SqlString() string {
 	var parts []string
-	
+
 	// Parameter mode
 	switch fp.Mode {
 	case FUNC_PARAM_IN:
@@ -147,22 +147,22 @@ func (fp *FunctionParameter) SqlString() string {
 	case FUNC_PARAM_VARIADIC:
 		parts = append(parts, "VARIADIC")
 	}
-	
+
 	// Parameter name
 	if fp.Name != "" {
 		parts = append(parts, fp.Name)
 	}
-	
+
 	// Parameter type
 	if fp.ArgType != nil {
 		parts = append(parts, fp.ArgType.SqlString())
 	}
-	
+
 	// Default value
 	if fp.DefExpr != nil {
 		parts = append(parts, "DEFAULT", fp.DefExpr.SqlString())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -180,13 +180,13 @@ func NewFunctionParameter(name string, argType *TypeName, mode FunctionParameter
 // CreateFunctionStmt represents a CREATE FUNCTION statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3427-3437
 type CreateFunctionStmt struct {
-	IsProcedure bool        // true for CREATE PROCEDURE
-	Replace     bool        // true for CREATE OR REPLACE
-	FuncName    *NodeList   // qualified name of function to create
-	Parameters  *NodeList   // list of function parameters
-	ReturnType  *TypeName   // the return type
-	Options     *NodeList   // list of definition elements
-	SQLBody     Node        // SQL body for SQL functions
+	IsProcedure bool      // true for CREATE PROCEDURE
+	Replace     bool      // true for CREATE OR REPLACE
+	FuncName    *NodeList // qualified name of function to create
+	Parameters  *NodeList // list of function parameters
+	ReturnType  *TypeName // the return type
+	Options     *NodeList // list of definition elements
+	SQLBody     Node      // SQL body for SQL functions
 }
 
 // node implements the Node interface
@@ -216,20 +216,20 @@ func (cfs *CreateFunctionStmt) StatementType() string {
 // SqlString returns SQL representation of the CREATE FUNCTION statement
 func (cfs *CreateFunctionStmt) SqlString() string {
 	var parts []string
-	
+
 	// CREATE [OR REPLACE]
 	parts = append(parts, "CREATE")
 	if cfs.Replace {
 		parts = append(parts, "OR REPLACE")
 	}
-	
+
 	// FUNCTION or PROCEDURE
 	if cfs.IsProcedure {
 		parts = append(parts, "PROCEDURE")
 	} else {
 		parts = append(parts, "FUNCTION")
 	}
-	
+
 	// Function name
 	if cfs.FuncName != nil && cfs.FuncName.Len() > 0 {
 		var nameParts []string
@@ -240,7 +240,7 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(nameParts, "."))
 	}
-	
+
 	// Parameters
 	var paramStrs []string
 	if cfs.Parameters != nil {
@@ -252,12 +252,12 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 	}
 	paramClause := "(" + strings.Join(paramStrs, ", ") + ")"
 	parts = append(parts, paramClause)
-	
+
 	// RETURNS type (for functions, not procedures)
 	if !cfs.IsProcedure && cfs.ReturnType != nil {
 		parts = append(parts, "RETURNS", cfs.ReturnType.SqlString())
 	}
-	
+
 	// Function options
 	var asClause string
 	if cfs.Options != nil {
@@ -285,35 +285,35 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 			}
 		}
 	}
-	
+
 	// Add AS clause if we found it
 	if asClause != "" {
 		parts = append(parts, "AS", asClause)
 	}
-	
+
 	// SQL body
 	if cfs.SQLBody != nil {
 		parts = append(parts, "AS", cfs.SQLBody.SqlString())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // String returns string representation of CreateFunctionStmt
 func (cfs *CreateFunctionStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE")
 	if cfs.Replace {
 		parts = append(parts, "OR REPLACE")
 	}
-	
+
 	if cfs.IsProcedure {
 		parts = append(parts, "PROCEDURE")
 	} else {
 		parts = append(parts, "FUNCTION")
 	}
-	
+
 	if cfs.FuncName != nil && cfs.FuncName.Len() > 0 {
 		var nameStrs []string
 		for _, item := range cfs.FuncName.Items {
@@ -323,7 +323,7 @@ func (cfs *CreateFunctionStmt) String() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	// Parameters
 	if cfs.Parameters != nil && cfs.Parameters.Len() > 0 {
 		var paramStrs []string
@@ -336,7 +336,7 @@ func (cfs *CreateFunctionStmt) String() string {
 	} else {
 		parts = append(parts, "()")
 	}
-	
+
 	// Return type (only for functions, not procedures)
 	if !cfs.IsProcedure && cfs.ReturnType != nil {
 		if cfs.ReturnType.Names != nil && cfs.ReturnType.Names.Len() > 0 {
@@ -346,7 +346,7 @@ func (cfs *CreateFunctionStmt) String() string {
 			}
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -366,11 +366,11 @@ func NewCreateFunctionStmt(isProcedure, replace bool, funcName *NodeList, parame
 // CreateSeqStmt represents a CREATE SEQUENCE statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3117-3125
 type CreateSeqStmt struct {
-	Sequence     *RangeVar   // the sequence to create
-	Options      []*DefElem  // list of options
-	OwnerID      Oid         // ID of owner, or 0 for default (InvalidOid)
-	ForIdentity  bool        // true if for IDENTITY column
-	IfNotExists  bool        // true for IF NOT EXISTS
+	Sequence    *RangeVar  // the sequence to create
+	Options     []*DefElem // list of options
+	OwnerID     Oid        // ID of owner, or 0 for default (InvalidOid)
+	ForIdentity bool       // true if for IDENTITY column
+	IfNotExists bool       // true for IF NOT EXISTS
 }
 
 // node implements the Node interface
@@ -382,17 +382,17 @@ func (css *CreateSeqStmt) stmt() {}
 // String returns string representation of CreateSeqStmt
 func (css *CreateSeqStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE SEQUENCE")
-	
+
 	if css.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
 	}
-	
+
 	if css.Sequence != nil {
 		parts = append(parts, css.Sequence.String())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -410,12 +410,12 @@ func NewCreateSeqStmt(sequence *RangeVar, options []*DefElem, ownerID Oid, forId
 // CreateOpClassItem represents an item in a CREATE OPERATOR CLASS statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3184-3195
 type CreateOpClassItem struct {
-	ItemType     int              // OPCLASS_ITEM_OPERATOR, OPCLASS_ITEM_FUNCTION, or OPCLASS_ITEM_STORAGETYPE
-	Name         *ObjectWithArgs  // operator or function name and args
-	Number       int              // strategy num or support proc num
-	OrderFamily  []*String        // only used for ordering operators
-	ClassArgs    []*TypeName      // amproclefttype/amprocrighttype or amoplefttype/amoprighttype
-	StoredType   *TypeName        // datatype stored in index (for storage type items)
+	ItemType    int             // OPCLASS_ITEM_OPERATOR, OPCLASS_ITEM_FUNCTION, or OPCLASS_ITEM_STORAGETYPE
+	Name        *ObjectWithArgs // operator or function name and args
+	Number      int             // strategy num or support proc num
+	OrderFamily []*String       // only used for ordering operators
+	ClassArgs   []*TypeName     // amproclefttype/amprocrighttype or amoplefttype/amoprighttype
+	StoredType  *TypeName       // datatype stored in index (for storage type items)
 }
 
 // node implements the Node interface
@@ -424,7 +424,7 @@ func (oci *CreateOpClassItem) node() {}
 // String returns string representation of CreateOpClassItem
 func (oci *CreateOpClassItem) String() string {
 	var parts []string
-	
+
 	switch oci.ItemType {
 	case 1: // OPCLASS_ITEM_OPERATOR
 		parts = append(parts, "OPERATOR")
@@ -433,19 +433,19 @@ func (oci *CreateOpClassItem) String() string {
 	case 3: // OPCLASS_ITEM_STORAGETYPE
 		parts = append(parts, "STORAGE")
 	}
-	
+
 	if oci.Number > 0 {
 		parts = append(parts, fmt.Sprintf("%d", oci.Number))
 	}
-	
+
 	if oci.Name != nil {
 		parts = append(parts, oci.Name.String())
 	}
-	
+
 	if oci.StoredType != nil {
 		parts = append(parts, oci.StoredType.String())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -464,12 +464,12 @@ func NewCreateOpClassItem(itemType int, name *ObjectWithArgs, number int, orderF
 // CreateOpClassStmt represents a CREATE OPERATOR CLASS statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3169-3178
 type CreateOpClassStmt struct {
-	OpClassName   []*String            // qualified name (list of String)
-	OpFamilyName  []*String            // qualified name (list of String); nil if omitted
-	AmName        string               // name of index AM opclass is for
-	DataType      *TypeName            // datatype of indexed column
-	Items         []*CreateOpClassItem // list of CreateOpClassItem nodes
-	IsDefault     bool                 // should be marked as default for type?
+	OpClassName  []*String            // qualified name (list of String)
+	OpFamilyName []*String            // qualified name (list of String); nil if omitted
+	AmName       string               // name of index AM opclass is for
+	DataType     *TypeName            // datatype of indexed column
+	Items        []*CreateOpClassItem // list of CreateOpClassItem nodes
+	IsDefault    bool                 // should be marked as default for type?
 }
 
 // node implements the Node interface
@@ -481,9 +481,9 @@ func (cocs *CreateOpClassStmt) stmt() {}
 // String returns string representation of CreateOpClassStmt
 func (cocs *CreateOpClassStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE OPERATOR CLASS")
-	
+
 	if len(cocs.OpClassName) > 0 {
 		var nameStrs []string
 		for _, name := range cocs.OpClassName {
@@ -491,11 +491,11 @@ func (cocs *CreateOpClassStmt) String() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	if cocs.IsDefault {
 		parts = append(parts, "DEFAULT")
 	}
-	
+
 	parts = append(parts, "FOR TYPE")
 	if cocs.DataType != nil && cocs.DataType.Names != nil && cocs.DataType.Names.Len() > 0 {
 		lastItem := cocs.DataType.Names.Items[cocs.DataType.Names.Len()-1]
@@ -503,9 +503,9 @@ func (cocs *CreateOpClassStmt) String() string {
 			parts = append(parts, str.SVal)
 		}
 	}
-	
+
 	parts = append(parts, "USING", cocs.AmName)
-	
+
 	if len(cocs.OpFamilyName) > 0 {
 		var familyStrs []string
 		for _, name := range cocs.OpFamilyName {
@@ -513,7 +513,7 @@ func (cocs *CreateOpClassStmt) String() string {
 		}
 		parts = append(parts, "FAMILY", strings.Join(familyStrs, "."))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -545,9 +545,9 @@ func (cofs *CreateOpFamilyStmt) stmt() {}
 // String returns string representation of CreateOpFamilyStmt
 func (cofs *CreateOpFamilyStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE OPERATOR FAMILY")
-	
+
 	if len(cofs.OpFamilyName) > 0 {
 		var nameStrs []string
 		for _, name := range cofs.OpFamilyName {
@@ -555,9 +555,9 @@ func (cofs *CreateOpFamilyStmt) String() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	parts = append(parts, "USING", cofs.AmName)
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -572,11 +572,11 @@ func NewCreateOpFamilyStmt(opFamilyName []*String, amName string) *CreateOpFamil
 // CreateCastStmt represents a CREATE CAST statement
 // Ported from postgres/src/include/nodes/parsenodes.h:4002-4010
 type CreateCastStmt struct {
-	SourceType *TypeName        // source data type
-	TargetType *TypeName        // target data type
-	Func       *ObjectWithArgs  // conversion function, or nil
-	Context    CoercionContext  // coercion context
-	Inout      bool             // true for INOUT cast
+	SourceType *TypeName       // source data type
+	TargetType *TypeName       // target data type
+	Func       *ObjectWithArgs // conversion function, or nil
+	Context    CoercionContext // coercion context
+	Inout      bool            // true for INOUT cast
 }
 
 // node implements the Node interface
@@ -588,9 +588,9 @@ func (ccs *CreateCastStmt) stmt() {}
 // String returns string representation of CreateCastStmt
 func (ccs *CreateCastStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE CAST")
-	
+
 	if ccs.SourceType != nil && ccs.TargetType != nil {
 		sourceTypeName := ""
 		if ccs.SourceType.Names != nil && ccs.SourceType.Names.Len() > 0 {
@@ -608,7 +608,7 @@ func (ccs *CreateCastStmt) String() string {
 		}
 		parts = append(parts, "("+sourceTypeName+" AS "+targetTypeName+")")
 	}
-	
+
 	if ccs.Func != nil {
 		funcName := ""
 		if ccs.Func.Objname != nil && len(ccs.Func.Objname.Items) > 0 {
@@ -622,7 +622,7 @@ func (ccs *CreateCastStmt) String() string {
 	} else {
 		parts = append(parts, "WITHOUT FUNCTION")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -640,11 +640,11 @@ func NewCreateCastStmt(sourceType, targetType *TypeName, function *ObjectWithArg
 // CreateConversionStmt represents a CREATE CONVERSION statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3988-3996
 type CreateConversionStmt struct {
-	ConversionName    []*String // name of the conversion
-	ForEncodingName   string    // source encoding name
-	ToEncodingName    string    // destination encoding name
-	FuncName          []*String // qualified conversion function name
-	Def               bool      // true if this is a default conversion
+	ConversionName  []*String // name of the conversion
+	ForEncodingName string    // source encoding name
+	ToEncodingName  string    // destination encoding name
+	FuncName        []*String // qualified conversion function name
+	Def             bool      // true if this is a default conversion
 }
 
 // node implements the Node interface
@@ -656,13 +656,13 @@ func (ccs *CreateConversionStmt) stmt() {}
 // String returns string representation of CreateConversionStmt
 func (ccs *CreateConversionStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE")
 	if ccs.Def {
 		parts = append(parts, "DEFAULT")
 	}
 	parts = append(parts, "CONVERSION")
-	
+
 	if len(ccs.ConversionName) > 0 {
 		var nameStrs []string
 		for _, name := range ccs.ConversionName {
@@ -670,9 +670,9 @@ func (ccs *CreateConversionStmt) String() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	parts = append(parts, "FOR", ccs.ForEncodingName, "TO", ccs.ToEncodingName)
-	
+
 	if len(ccs.FuncName) > 0 {
 		var funcStrs []string
 		for _, name := range ccs.FuncName {
@@ -680,7 +680,7 @@ func (ccs *CreateConversionStmt) String() string {
 		}
 		parts = append(parts, "FROM", strings.Join(funcStrs, "."))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -698,11 +698,11 @@ func NewCreateConversionStmt(conversionName []*String, forEncodingName, toEncodi
 // CreateTransformStmt represents a CREATE TRANSFORM statement
 // Ported from postgres/src/include/nodes/parsenodes.h:4016-4024
 type CreateTransformStmt struct {
-	Replace   bool             // true for CREATE OR REPLACE
-	TypeName  *TypeName        // type name
-	Lang      string           // language name
-	FromSql   *ObjectWithArgs  // FROM SQL function
-	ToSql     *ObjectWithArgs  // TO SQL function
+	Replace  bool            // true for CREATE OR REPLACE
+	TypeName *TypeName       // type name
+	Lang     string          // language name
+	FromSql  *ObjectWithArgs // FROM SQL function
+	ToSql    *ObjectWithArgs // TO SQL function
 }
 
 // node implements the Node interface
@@ -714,19 +714,19 @@ func (cts *CreateTransformStmt) stmt() {}
 // String returns string representation of CreateTransformStmt
 func (cts *CreateTransformStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE")
 	if cts.Replace {
 		parts = append(parts, "OR REPLACE")
 	}
 	parts = append(parts, "TRANSFORM FOR")
-	
+
 	if cts.TypeName != nil {
 		parts = append(parts, cts.TypeName.String())
 	}
-	
+
 	parts = append(parts, "LANGUAGE", cts.Lang)
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -744,13 +744,13 @@ func NewCreateTransformStmt(replace bool, typeName *TypeName, lang string, fromS
 // DefineStmt represents a CREATE {AGGREGATE|OPERATOR|TYPE} statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3140-3150
 type DefineStmt struct {
-	Kind        ObjectType   // aggregate, operator, type
-	OldStyle    bool         // hack to signal old CREATE AGG syntax
-	DefNames    []*String    // qualified name (list of String)
-	Args        []*TypeName  // list of TypeName (if needed)
-	Definition  []*DefElem   // list of DefElem
-	IfNotExists bool         // true for IF NOT EXISTS
-	Replace     bool         // true for CREATE OR REPLACE
+	Kind        ObjectType  // aggregate, operator, type
+	OldStyle    bool        // hack to signal old CREATE AGG syntax
+	DefNames    []*String   // qualified name (list of String)
+	Args        []*TypeName // list of TypeName (if needed)
+	Definition  []*DefElem  // list of DefElem
+	IfNotExists bool        // true for IF NOT EXISTS
+	Replace     bool        // true for CREATE OR REPLACE
 }
 
 // node implements the Node interface
@@ -762,12 +762,12 @@ func (ds *DefineStmt) stmt() {}
 // String returns string representation of DefineStmt
 func (ds *DefineStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE")
 	if ds.Replace {
 		parts = append(parts, "OR REPLACE")
 	}
-	
+
 	switch ds.Kind {
 	case OBJECT_AGGREGATE:
 		parts = append(parts, "AGGREGATE")
@@ -778,11 +778,11 @@ func (ds *DefineStmt) String() string {
 	default:
 		parts = append(parts, "OBJECT")
 	}
-	
+
 	if ds.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
 	}
-	
+
 	if len(ds.DefNames) > 0 {
 		var nameStrs []string
 		for _, name := range ds.DefNames {
@@ -790,7 +790,7 @@ func (ds *DefineStmt) String() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -824,13 +824,13 @@ func (dcs *DeclareCursorStmt) stmt() {}
 // String returns string representation of DeclareCursorStmt
 func (dcs *DeclareCursorStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "DECLARE", dcs.PortalName, "CURSOR FOR")
-	
+
 	if dcs.Query != nil {
 		parts = append(parts, dcs.Query.String())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -861,13 +861,13 @@ func (fs *FetchStmt) stmt() {}
 // String returns string representation of FetchStmt
 func (fs *FetchStmt) String() string {
 	var parts []string
-	
+
 	if fs.IsMove {
 		parts = append(parts, "MOVE")
 	} else {
 		parts = append(parts, "FETCH")
 	}
-	
+
 	switch fs.Direction {
 	case FETCH_FORWARD:
 		if fs.HowMany == 9223372036854775807 { // FETCH_ALL = LONG_MAX
@@ -886,11 +886,11 @@ func (fs *FetchStmt) String() string {
 	case FETCH_RELATIVE:
 		parts = append(parts, fmt.Sprintf("RELATIVE %d", fs.HowMany))
 	}
-	
+
 	if fs.PortalName != "" {
 		parts = append(parts, "FROM", fs.PortalName)
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -947,9 +947,9 @@ func (ces *CreateEnumStmt) stmt() {}
 // String returns string representation of CreateEnumStmt
 func (ces *CreateEnumStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE TYPE")
-	
+
 	if len(ces.TypeName) > 0 {
 		var nameStrs []string
 		for _, name := range ces.TypeName {
@@ -957,9 +957,9 @@ func (ces *CreateEnumStmt) String() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	parts = append(parts, "AS ENUM")
-	
+
 	if len(ces.Vals) > 0 {
 		var valStrs []string
 		for _, val := range ces.Vals {
@@ -969,7 +969,7 @@ func (ces *CreateEnumStmt) String() string {
 	} else {
 		parts = append(parts, "()")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -984,8 +984,8 @@ func NewCreateEnumStmt(typeName []*String, vals []*String) *CreateEnumStmt {
 // CreateRangeStmt represents a CREATE TYPE ... AS RANGE statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3707-3712
 type CreateRangeStmt struct {
-	TypeName []*String   // qualified name (list of String)
-	Params   []*DefElem  // range parameters (list of DefElem)
+	TypeName []*String  // qualified name (list of String)
+	Params   []*DefElem // range parameters (list of DefElem)
 }
 
 // node implements the Node interface
@@ -997,9 +997,9 @@ func (crs *CreateRangeStmt) stmt() {}
 // String returns string representation of CreateRangeStmt
 func (crs *CreateRangeStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE TYPE")
-	
+
 	if len(crs.TypeName) > 0 {
 		var nameStrs []string
 		for _, name := range crs.TypeName {
@@ -1007,13 +1007,13 @@ func (crs *CreateRangeStmt) String() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	parts = append(parts, "AS RANGE")
-	
+
 	if len(crs.Params) > 0 {
-		parts = append(parts, "(...)")  // Simplified representation
+		parts = append(parts, "(...)") // Simplified representation
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1028,13 +1028,13 @@ func NewCreateRangeStmt(typeName []*String, params []*DefElem) *CreateRangeStmt 
 // CreateStatsStmt represents a CREATE STATISTICS statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3384-3394
 type CreateStatsStmt struct {
-	DefNames     []*String    // qualified name (list of String)
-	StatTypes    []*String    // stat types (list of String)
-	Exprs        *NodeList    // expressions to build statistics on
-	Relations    []*RangeVar  // rels to build stats on (list of RangeVar)
-	StxComment   *string      // comment to apply to stats, or nil
-	Transformed  bool         // true when transformStatsStmt is finished
-	IfNotExists  bool         // do nothing if stats name already exists
+	DefNames    []*String   // qualified name (list of String)
+	StatTypes   []*String   // stat types (list of String)
+	Exprs       *NodeList   // expressions to build statistics on
+	Relations   []*RangeVar // rels to build stats on (list of RangeVar)
+	StxComment  *string     // comment to apply to stats, or nil
+	Transformed bool        // true when transformStatsStmt is finished
+	IfNotExists bool        // do nothing if stats name already exists
 }
 
 // node implements the Node interface
@@ -1046,13 +1046,13 @@ func (css *CreateStatsStmt) stmt() {}
 // String returns string representation of CreateStatsStmt
 func (css *CreateStatsStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE STATISTICS")
-	
+
 	if css.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
 	}
-	
+
 	if len(css.DefNames) > 0 {
 		var nameStrs []string
 		for _, name := range css.DefNames {
@@ -1060,7 +1060,7 @@ func (css *CreateStatsStmt) String() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	if len(css.StatTypes) > 0 {
 		var typeStrs []string
 		for _, statType := range css.StatTypes {
@@ -1068,7 +1068,7 @@ func (css *CreateStatsStmt) String() string {
 		}
 		parts = append(parts, "("+strings.Join(typeStrs, ", ")+")")
 	}
-	
+
 	if len(css.Relations) > 0 {
 		parts = append(parts, "ON")
 		var relStrs []string
@@ -1077,7 +1077,7 @@ func (css *CreateStatsStmt) String() string {
 		}
 		parts = append(parts, strings.Join(relStrs, ", "))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1097,12 +1097,12 @@ func NewCreateStatsStmt(defNames []*String, statTypes []*String, exprs *NodeList
 // CreatePLangStmt represents a CREATE LANGUAGE statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3054-3063
 type CreatePLangStmt struct {
-	Replace     bool        // true => replace if already exists
-	PLName      string      // PL name
-	PLHandler   []*String   // PL call handler function (qualified name)
-	PLInline    []*String   // optional inline function (qualified name)
-	PLValidator []*String   // optional validator function (qualified name)
-	PLTrusted   bool        // PL is trusted
+	Replace     bool      // true => replace if already exists
+	PLName      string    // PL name
+	PLHandler   []*String // PL call handler function (qualified name)
+	PLInline    []*String // optional inline function (qualified name)
+	PLValidator []*String // optional validator function (qualified name)
+	PLTrusted   bool      // PL is trusted
 }
 
 // node implements the Node interface
@@ -1114,7 +1114,7 @@ func (cpls *CreatePLangStmt) stmt() {}
 // String returns string representation of CreatePLangStmt
 func (cpls *CreatePLangStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE")
 	if cpls.Replace {
 		parts = append(parts, "OR REPLACE")
@@ -1123,7 +1123,7 @@ func (cpls *CreatePLangStmt) String() string {
 		parts = append(parts, "TRUSTED")
 	}
 	parts = append(parts, "LANGUAGE", cpls.PLName)
-	
+
 	if len(cpls.PLHandler) > 0 {
 		var handlerStrs []string
 		for _, handler := range cpls.PLHandler {
@@ -1131,7 +1131,7 @@ func (cpls *CreatePLangStmt) String() string {
 		}
 		parts = append(parts, "HANDLER", strings.Join(handlerStrs, "."))
 	}
-	
+
 	if len(cpls.PLInline) > 0 {
 		var inlineStrs []string
 		for _, inline := range cpls.PLInline {
@@ -1139,7 +1139,7 @@ func (cpls *CreatePLangStmt) String() string {
 		}
 		parts = append(parts, "INLINE", strings.Join(inlineStrs, "."))
 	}
-	
+
 	if len(cpls.PLValidator) > 0 {
 		var validatorStrs []string
 		for _, validator := range cpls.PLValidator {
@@ -1147,7 +1147,7 @@ func (cpls *CreatePLangStmt) String() string {
 		}
 		parts = append(parts, "VALIDATOR", strings.Join(validatorStrs, "."))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1160,5 +1160,200 @@ func NewCreatePLangStmt(replace bool, plName string, plHandler, plInline, plVali
 		PLInline:    plInline,
 		PLValidator: plValidator,
 		PLTrusted:   plTrusted,
+	}
+}
+
+// CreateTableAsStmt represents CREATE TABLE AS and CREATE MATERIALIZED VIEW statements
+// Ported from postgres/src/include/nodes/parsenodes.h:3607-3615
+type CreateTableAsStmt struct {
+	BaseNode
+	Query        Node        // the query (generally a SelectStmt)
+	Into         *IntoClause // target relation
+	ObjType      ObjectType  // table or materialized view
+	IsSelectInto bool        // it's a SELECT INTO, not CREATE TABLE AS
+	IfNotExists  bool        // IF NOT EXISTS was specified
+}
+
+// Location returns the statement's source location (dummy implementation)
+func (ctas *CreateTableAsStmt) Location() int {
+	return 0 // TODO: Implement proper location tracking
+}
+
+// NodeTag returns the node's type tag
+func (ctas *CreateTableAsStmt) NodeTag() NodeTag {
+	return T_CreateTableAsStmt
+}
+
+// StatementType returns the statement type for this node
+func (ctas *CreateTableAsStmt) StatementType() string {
+	switch ctas.ObjType {
+	case OBJECT_MATVIEW:
+		return "CREATE MATERIALIZED VIEW"
+	default:
+		return "CREATE TABLE AS"
+	}
+}
+
+// SqlString returns SQL representation of the CREATE MATERIALIZED VIEW statement
+func (ctas *CreateTableAsStmt) SqlString() string {
+	var parts []string
+
+	// CREATE [MATERIALIZED]
+	parts = append(parts, "CREATE")
+	switch ctas.ObjType {
+	case OBJECT_MATVIEW:
+		// Check if UNLOGGED
+		if ctas.Into != nil && ctas.Into.Rel != nil && ctas.Into.Rel.RelPersistence == 'u' {
+			parts = append(parts, "UNLOGGED")
+		}
+		parts = append(parts, "MATERIALIZED VIEW")
+		if ctas.IfNotExists {
+			parts = append(parts, "IF NOT EXISTS")
+		}
+	default:
+		parts = append(parts, "TABLE")
+		if ctas.IfNotExists {
+			parts = append(parts, "IF NOT EXISTS")
+		}
+	}
+
+	// Target relation name and column list
+	if ctas.Into != nil {
+		targetStr := ctas.Into.TargetString()
+		if targetStr != "" {
+			parts = append(parts, targetStr)
+		}
+	}
+
+	// AS query
+	if ctas.Query != nil {
+		parts = append(parts, "AS", ctas.Query.SqlString())
+	}
+
+	// WITH [NO] DATA (for materialized views only)
+	if ctas.ObjType == OBJECT_MATVIEW && ctas.Into != nil {
+		if ctas.Into.SkipData {
+			parts = append(parts, "WITH NO DATA")
+		} else {
+			parts = append(parts, "WITH DATA")
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// String returns string representation of CreateTableAsStmt
+func (ctas *CreateTableAsStmt) String() string {
+	var parts []string
+
+	parts = append(parts, "CREATE")
+	switch ctas.ObjType {
+	case OBJECT_MATVIEW:
+		parts = append(parts, "MATERIALIZED VIEW")
+	default:
+		parts = append(parts, "TABLE")
+	}
+
+	if ctas.IfNotExists {
+		parts = append(parts, "IF NOT EXISTS")
+	}
+
+	if ctas.Into != nil && ctas.Into.Rel != nil {
+		parts = append(parts, ctas.Into.Rel.String())
+	}
+
+	parts = append(parts, "AS")
+	if ctas.Query != nil {
+		parts = append(parts, ctas.Query.String())
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// NewCreateTableAsStmt creates a new CreateTableAsStmt node
+func NewCreateTableAsStmt(query Node, into *IntoClause, objType ObjectType, isSelectInto, ifNotExists bool) *CreateTableAsStmt {
+	return &CreateTableAsStmt{
+		BaseNode:     BaseNode{Tag: T_CreateTableAsStmt},
+		Query:        query,
+		Into:         into,
+		ObjType:      objType,
+		IsSelectInto: isSelectInto,
+		IfNotExists:  ifNotExists,
+	}
+}
+
+// RefreshMatViewStmt represents a REFRESH MATERIALIZED VIEW statement
+// Ported from postgres/src/include/nodes/parsenodes.h:3617-3622
+type RefreshMatViewStmt struct {
+	BaseNode
+	Concurrent bool      // allow concurrent access?
+	SkipData   bool      // true for WITH NO DATA
+	Relation   *RangeVar // relation to refresh
+}
+
+// Location returns the statement's source location (dummy implementation)
+func (rmvs *RefreshMatViewStmt) Location() int {
+	return 0 // TODO: Implement proper location tracking
+}
+
+// NodeTag returns the node's type tag
+func (rmvs *RefreshMatViewStmt) NodeTag() NodeTag {
+	return T_RefreshMatViewStmt
+}
+
+// StatementType returns the statement type for this node
+func (rmvs *RefreshMatViewStmt) StatementType() string {
+	return "REFRESH MATERIALIZED VIEW"
+}
+
+// SqlString returns SQL representation of the REFRESH MATERIALIZED VIEW statement
+func (rmvs *RefreshMatViewStmt) SqlString() string {
+	var parts []string
+
+	parts = append(parts, "REFRESH MATERIALIZED VIEW")
+
+	if rmvs.Concurrent {
+		parts = append(parts, "CONCURRENTLY")
+	}
+
+	if rmvs.Relation != nil {
+		parts = append(parts, rmvs.Relation.SqlString())
+	}
+
+	if rmvs.SkipData {
+		parts = append(parts, "WITH NO DATA")
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// String returns string representation of RefreshMatViewStmt
+func (rmvs *RefreshMatViewStmt) String() string {
+	var parts []string
+
+	parts = append(parts, "REFRESH MATERIALIZED VIEW")
+
+	if rmvs.Concurrent {
+		parts = append(parts, "CONCURRENTLY")
+	}
+
+	if rmvs.Relation != nil {
+		parts = append(parts, rmvs.Relation.String())
+	}
+
+	if rmvs.SkipData {
+		parts = append(parts, "WITH NO DATA")
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// NewRefreshMatViewStmt creates a new RefreshMatViewStmt node
+func NewRefreshMatViewStmt(concurrent, skipData bool, relation *RangeVar) *RefreshMatViewStmt {
+	return &RefreshMatViewStmt{
+		BaseNode:   BaseNode{Tag: T_RefreshMatViewStmt},
+		Concurrent: concurrent,
+		SkipData:   skipData,
+		Relation:   relation,
 	}
 }

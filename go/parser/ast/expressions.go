@@ -1739,7 +1739,7 @@ func (t *TableFunc) StatementType() string {
 type IntoClause struct {
 	BaseNode
 	Rel            *RangeVar      // Target relation name
-	ColNames       []string       // Column names to assign, or NIL
+	ColNames       *NodeList      // Column names to assign, or NIL
 	AccessMethod   string         // Table access method
 	Options        *NodeList      // Options from WITH clause
 	OnCommit       OnCommitAction // What do we do at COMMIT?
@@ -1749,7 +1749,7 @@ type IntoClause struct {
 }
 
 // NewIntoClause creates a new IntoClause node.
-func NewIntoClause(rel *RangeVar, colNames []string, accessMethod string, options *NodeList, onCommit OnCommitAction, tableSpaceName string, viewQuery Node, skipData bool, location int) *IntoClause {
+func NewIntoClause(rel *RangeVar, colNames *NodeList, accessMethod string, options *NodeList, onCommit OnCommitAction, tableSpaceName string, viewQuery Node, skipData bool, location int) *IntoClause {
 	return &IntoClause{
 		BaseNode:       BaseNode{Tag: T_IntoClause, Loc: location},
 		Rel:            rel,
@@ -1778,6 +1778,33 @@ func (i *IntoClause) StatementType() string {
 }
 
 // SqlString returns the SQL representation of the IntoClause
+// TargetString returns just the target relation and column list without "INTO"
+func (i *IntoClause) TargetString() string {
+	if i.Rel == nil {
+		return ""
+	}
+	
+	var parts []string
+	
+	// Add the target relation
+	parts = append(parts, i.Rel.SqlString())
+	
+	// Add column names if specified
+	if i.ColNames != nil && len(i.ColNames.Items) > 0 {
+		var colNames []string
+		for _, item := range i.ColNames.Items {
+			if str, ok := item.(*String); ok {
+				colNames = append(colNames, str.SVal)
+			}
+		}
+		if len(colNames) > 0 {
+			parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colNames, ", ")))
+		}
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 func (i *IntoClause) SqlString() string {
 	if i.Rel == nil {
 		return ""
@@ -1789,8 +1816,16 @@ func (i *IntoClause) SqlString() string {
 	parts = append(parts, i.Rel.SqlString())
 	
 	// Add column names if specified
-	if len(i.ColNames) > 0 {
-		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(i.ColNames, ", ")))
+	if i.ColNames != nil && len(i.ColNames.Items) > 0 {
+		var colNames []string
+		for _, item := range i.ColNames.Items {
+			if str, ok := item.(*String); ok {
+				colNames = append(colNames, str.SVal)
+			}
+		}
+		if len(colNames) > 0 {
+			parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colNames, ", ")))
+		}
 	}
 	
 	// Add WITH options if present

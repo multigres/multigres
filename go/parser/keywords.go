@@ -99,6 +99,7 @@ var Keywords = []KeywordInfo{
 	{"cursor", CURSOR, ReservedKeyword, true},
 	{"cycle", CYCLE, UnreservedKeyword, true},
 
+	{"data", DATA_P, ColNameKeyword, true},
 	{"dec", IDENT, ColNameKeyword, true},
 	{"decimal", IDENT, ColNameKeyword, true},
 	{"default", DEFAULT, ReservedKeyword, true},
@@ -224,6 +225,7 @@ var Keywords = []KeywordInfo{
 	{"ref", REF_P, UnreservedKeyword, true},
 	{"references", REFERENCES, UnreservedKeyword, true},
 	{"referencing", REFERENCING, UnreservedKeyword, true},
+	{"refresh", REFRESH, UnreservedKeyword, true},
 	{"rename", RENAME, UnreservedKeyword, true},
 	{"replace", REPLACE, UnreservedKeyword, true},
 	{"restrict", RESTRICT, UnreservedKeyword, true},

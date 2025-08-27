@@ -412,16 +412,19 @@
 - ✅ `ViewStmt` - CREATE VIEW (including TEMP and RECURSIVE variants)
 - ✅ `opt_check_option` - CHECK OPTION
 
-### CREATE MATERIALIZED VIEW
-- ⬜ `CreateMatViewStmt` - CREATE MATERIALIZED VIEW
-- ⬜ `create_mv_target` - Materialized view target
-- ⬜ `opt_with_data` - WITH DATA option
-- ⬜ `RefreshMatViewStmt` - REFRESH MATERIALIZED VIEW
+### CREATE MATERIALIZED VIEW ✅ COMPLETE
+- ✅ `CreateMatViewStmt` - CREATE MATERIALIZED VIEW (fully implemented with PostgreSQL grammar)
+- ✅ `create_mv_target` - Materialized view target (complete with opt_column_list, table_access_method_clause, opt_reloptions, OptTableSpace)
+- ✅ `opt_with_data` - WITH DATA option (complete: WITH DATA, WITH NO DATA, default)
+- ✅ `RefreshMatViewStmt` - REFRESH MATERIALIZED VIEW (complete with opt_concurrently and opt_with_data)
+- ✅ `OptNoLog` - UNLOGGED support for materialized views
 
-### CREATE SCHEMA
-- ⬜ `CreateSchemaStmt` - CREATE SCHEMA
-- ⬜ `OptSchemaEltList` - Schema elements
-- ⬜ `schema_stmt` - Schema statement
+### CREATE SCHEMA ✅ COMPLETE  
+- ✅ `CreateSchemaStmt` - CREATE SCHEMA (fully implemented with all PostgreSQL variants)
+- ✅ `OptSchemaEltList` - Schema elements (complete list implementation)
+- ✅ `schema_stmt` - Schema statement (supports CreateStmt, IndexStmt, CreateTrigStmt, ViewStmt)
+- ✅ `opt_single_name` - Optional single name (used in AUTHORIZATION variant)
+- ✅ `RoleSpec` integration - Complete role specification support
 
 ### CREATE DOMAIN
 - ⬜ `CreateDomainStmt` - CREATE DOMAIN

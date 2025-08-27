@@ -418,6 +418,38 @@ func TestDDLParsing(t *testing.T) {
 			name: "CREATE TRIGGER INSTEAD OF round-trip",
 			sql:  "CREATE TRIGGER view_trigger INSTEAD OF INSERT ON user_view EXECUTE FUNCTION handle_view_insert ()",
 		},
+
+		// CREATE MATERIALIZED VIEW tests
+		{
+			name: "Simple materialized view",
+			sql:  "CREATE MATERIALIZED VIEW test_matview AS SELECT 1",
+			expected: "CREATE MATERIALIZED VIEW test_matview AS SELECT 1 WITH DATA",
+		},
+		{
+			name: "CREATE MATERIALIZED VIEW IF NOT EXISTS",
+			sql:  "CREATE MATERIALIZED VIEW IF NOT EXISTS test_matview AS SELECT 1",
+			expected: "CREATE MATERIALIZED VIEW IF NOT EXISTS test_matview AS SELECT 1 WITH DATA",
+		},
+
+		// CREATE SCHEMA tests
+		{
+			name: "Simple schema",
+			sql:  "CREATE SCHEMA test_schema",
+		},
+		{
+			name: "CREATE SCHEMA IF NOT EXISTS",
+			sql:  "CREATE SCHEMA IF NOT EXISTS test_schema",
+		},
+
+		// REFRESH MATERIALIZED VIEW tests  
+		{
+			name: "REFRESH MATERIALIZED VIEW",
+			sql:  "REFRESH MATERIALIZED VIEW test_matview",
+		},
+		{
+			name: "REFRESH MATERIALIZED VIEW CONCURRENTLY",
+			sql:  "REFRESH MATERIALIZED VIEW CONCURRENTLY test_matview",
+		},
 	}
 
 	for _, tt := range tests {

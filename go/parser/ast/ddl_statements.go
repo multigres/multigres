@@ -1618,6 +1618,23 @@ func (c *CreateSchemaStmt) String() string {
 	return fmt.Sprintf("CreateSchemaStmt(%s%s)@%d", c.Schemaname, ifNotExists, c.Location())
 }
 
+// SqlString returns SQL representation of the CREATE SCHEMA statement
+func (c *CreateSchemaStmt) SqlString() string {
+	var parts []string
+	
+	parts = append(parts, "CREATE SCHEMA")
+	
+	if c.IfNotExists {
+		parts = append(parts, "IF NOT EXISTS")
+	}
+	
+	if c.Schemaname != "" {
+		parts = append(parts, c.Schemaname)
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 // ==============================================================================
 // EXTENSION STATEMENTS
 // ==============================================================================
