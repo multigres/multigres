@@ -48,8 +48,9 @@ Configuration:
 		// Set multigres-specific config name
 		viper.SetConfigName("multigres")
 
-		// Call the standard servenv PreRunE
-		return servenv.CobraPreRunE(cmd, args)
+		// Load config (without the full servenv setup)
+		_, err := viperutil.LoadConfig()
+		return err
 	},
 }
 

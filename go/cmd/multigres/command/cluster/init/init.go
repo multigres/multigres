@@ -16,8 +16,8 @@ package init
 
 import (
 	"fmt"
-
-	"github.com/multigres/multigres/go/servenv"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -27,7 +27,37 @@ var Command = &cobra.Command{
 	Short: "Create a local cluster configuration",
 	Long:  "Initialize a new local Multigres cluster configuration that can be used with 'multigres cluster up'.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		servenv.FireRunHooks()
+		// Validate config paths exist
+		configPaths, err := cmd.Flags().GetStringSlice("config-path")
+		if err != nil {
+			return fmt.Errorf("failed to get config-path flag: %w", err)
+		}
+		if len(configPaths) == 0 {
+			return fmt.Errorf("no config paths specified")
+		}
+
+		for _, configPath := range configPaths {
+			absPath, err := filepath.Abs(configPath)
+			if err != nil {
+				cmd.SilenceUsage = true
+				return fmt.Errorf("failed to resolve config path %s: %w", configPath, err)
+			}
+
+			if _, err := os.Stat(absPath); os.IsNotExist(err) {
+				cmd.SilenceUsage = true
+				return fmt.Errorf("config path does not exist: %s", absPath)
+			} else if err != nil {
+				cmd.SilenceUsage = true
+				return fmt.Errorf("failed to access config path %s: %w", absPath, err)
+			}
+
+			// Check if it's a directory
+			if info, err := os.Stat(absPath); err == nil && !info.IsDir() {
+				cmd.SilenceUsage = true
+				return fmt.Errorf("config path is not a directory: %s", absPath)
+			}
+		}
+
 		fmt.Println("Initializing Multigres cluster configuration...")
 		// TODO: Implement cluster initialization logic
 		fmt.Println("Cluster configuration created successfully!")

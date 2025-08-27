@@ -16,7 +16,6 @@
 package main
 
 import (
-	"log/slog"
 	"os"
 
 	"github.com/multigres/multigres/go/cmd/multigres/command"
@@ -24,7 +23,6 @@ import (
 
 func main() {
 	if err := command.Root.Execute(); err != nil {
-		slog.Error("Command execution failed", "error", err)
 		os.Exit(1)
 	}
 }
