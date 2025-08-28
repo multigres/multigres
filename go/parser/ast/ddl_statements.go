@@ -1760,17 +1760,18 @@ func (c *CreateSchemaStmt) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2819
 type CreateExtensionStmt struct {
 	BaseNode
-	Extname     string     // extension name - postgres/src/include/nodes/parsenodes.h:2821
-	IfNotExists bool       // just do nothing if it already exists? - postgres/src/include/nodes/parsenodes.h:2822
-	Options     []*DefElem // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:2823
+	Extname     string    // extension name - postgres/src/include/nodes/parsenodes.h:2821
+	IfNotExists bool      // just do nothing if it already exists? - postgres/src/include/nodes/parsenodes.h:2822
+	Options     *NodeList // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:2823
 }
 
 // NewCreateExtensionStmt creates a new CreateExtensionStmt node.
-func NewCreateExtensionStmt(extname string, ifNotExists bool) *CreateExtensionStmt {
+func NewCreateExtensionStmt(extname string, ifNotExists bool, options *NodeList) *CreateExtensionStmt {
 	return &CreateExtensionStmt{
 		BaseNode:    BaseNode{Tag: T_CreateExtensionStmt},
 		Extname:     extname,
 		IfNotExists: ifNotExists,
+		Options:     options,
 	}
 }
 
@@ -1784,6 +1785,226 @@ func (c *CreateExtensionStmt) String() string {
 		ifNotExists = " IF NOT EXISTS"
 	}
 	return fmt.Sprintf("CreateExtensionStmt(%s%s)@%d", c.Extname, ifNotExists, c.Location())
+}
+
+
+// formatExtensionOption formats an extension option DefElem for SQL output
+func formatExtensionOption(opt *DefElem) string {
+	if opt == nil {
+		return ""
+	}
+
+	switch opt.Defname {
+	case "schema":
+		if opt.Arg != nil {
+			// Schema names are identifiers - use proper identifier quoting
+			if s, ok := opt.Arg.(*String); ok {
+				return "SCHEMA " + QuoteIdentifier(s.SVal)
+			}
+			return "SCHEMA " + opt.Arg.SqlString()
+		}
+		return ""
+	case "version":
+		if opt.Arg != nil {
+			return "VERSION " + opt.Arg.SqlString()
+		}
+		return ""
+	case "cascade":
+		if b, ok := opt.Arg.(*Boolean); ok && b.BoolVal {
+			return "CASCADE"
+		}
+		return ""
+	default:
+		// Fall back to default formatting
+		return opt.SqlString()
+	}
+}
+
+// SqlString returns the SQL representation of CreateExtensionStmt
+func (c *CreateExtensionStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "CREATE EXTENSION")
+
+	if c.IfNotExists {
+		parts = append(parts, "IF NOT EXISTS")
+	}
+
+	parts = append(parts, c.Extname)
+
+	// Add options if present
+	if c.Options != nil && c.Options.Len() > 0 {
+		for _, item := range c.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				optStr := formatExtensionOption(opt)
+				if optStr != "" {
+					parts = append(parts, optStr)
+				}
+			}
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// AlterExtensionStmt represents an ALTER EXTENSION statement.
+// Ported from postgres/src/include/nodes/parsenodes.h:2834
+type AlterExtensionStmt struct {
+	BaseNode
+	Extname string    // extension name
+	Options *NodeList // list of DefElem nodes
+}
+
+// NewAlterExtensionStmt creates a new AlterExtensionStmt node.
+func NewAlterExtensionStmt(extname string, options *NodeList) *AlterExtensionStmt {
+	return &AlterExtensionStmt{
+		BaseNode: BaseNode{Tag: T_AlterExtensionStmt},
+		Extname:  extname,
+		Options:  options,
+	}
+}
+
+func (a *AlterExtensionStmt) StatementType() string {
+	return "AlterExtensionStmt"
+}
+
+func (a *AlterExtensionStmt) String() string {
+	return fmt.Sprintf("AlterExtensionStmt(%s)@%d", a.Extname, a.Location())
+}
+
+// SqlString returns the SQL representation of AlterExtensionStmt
+func (a *AlterExtensionStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER EXTENSION", a.Extname, "UPDATE")
+
+	// Add options if present
+	if a.Options != nil && a.Options.Len() > 0 {
+		for _, item := range a.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				// Special handling for ALTER EXTENSION TO option
+				if opt.Defname == "to" && opt.Arg != nil {
+					parts = append(parts, "TO", opt.Arg.SqlString())
+				} else {
+					parts = append(parts, opt.SqlString())
+				}
+			}
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// AlterExtensionContentsStmt represents an ALTER EXTENSION ADD/DROP statement.
+// Ported from postgres/src/include/nodes/parsenodes.h:2842
+type AlterExtensionContentsStmt struct {
+	BaseNode
+	Extname string // extension name
+	Action  bool   // true = ADD, false = DROP
+	Objtype int    // object type from ObjectType enum
+	Object  Node   // qualified name of the object (can be String, NodeList, TypeName, etc.)
+}
+
+// NewAlterExtensionContentsStmt creates a new AlterExtensionContentsStmt node.
+func NewAlterExtensionContentsStmt(extname string, action bool, objtype int, object Node) *AlterExtensionContentsStmt {
+	return &AlterExtensionContentsStmt{
+		BaseNode: BaseNode{Tag: T_AlterExtensionContentsStmt},
+		Extname:  extname,
+		Action:   action,
+		Objtype:  objtype,
+		Object:   object,
+	}
+}
+
+func (a *AlterExtensionContentsStmt) StatementType() string {
+	return "AlterExtensionContentsStmt"
+}
+
+func (a *AlterExtensionContentsStmt) String() string {
+	action := "DROP"
+	if a.Action {
+		action = "ADD"
+	}
+	return fmt.Sprintf("AlterExtensionContentsStmt(%s %s)@%d", a.Extname, action, a.Location())
+}
+
+// SqlString returns the SQL representation of AlterExtensionContentsStmt
+func (a *AlterExtensionContentsStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER EXTENSION", a.Extname)
+
+	if a.Action {
+		parts = append(parts, "ADD")
+	} else {
+		parts = append(parts, "DROP")
+	}
+
+	// Add object type and handle special formatting cases
+	switch a.Objtype {
+	case int(OBJECT_AGGREGATE):
+		parts = append(parts, "AGGREGATE")
+	case int(OBJECT_CAST):
+		parts = append(parts, "CAST")
+		// For CAST, the object is a NodeList with two TypeNames
+		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
+			parts = append(parts, "(", nodeList.Items[0].SqlString(), "AS", nodeList.Items[1].SqlString(), ")")
+			return strings.Join(parts, " ")
+		}
+	case int(OBJECT_DOMAIN):
+		parts = append(parts, "DOMAIN")
+	case int(OBJECT_FUNCTION):
+		parts = append(parts, "FUNCTION")
+	case int(OBJECT_OPCLASS):
+		parts = append(parts, "OPERATOR CLASS")
+		// For OPERATOR CLASS, need to handle "name USING method" format
+		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
+			// First item is method name, rest are class name parts
+			methodStr := nodeList.Items[0].SqlString()
+			var nameStr string
+			for i := 1; i < nodeList.Len(); i++ {
+				if i > 1 {
+					nameStr += "."
+				}
+				nameStr += nodeList.Items[i].SqlString()
+			}
+			parts = append(parts, nameStr, "USING", methodStr)
+			return strings.Join(parts, " ")
+		}
+	case int(OBJECT_OPFAMILY):
+		parts = append(parts, "OPERATOR FAMILY")
+		// For OPERATOR FAMILY, need to handle "name USING method" format
+		if nodeList, ok := a.Object.(*NodeList); ok && nodeList.Len() >= 2 {
+			// First item is method name, rest are family name parts
+			methodStr := nodeList.Items[0].SqlString()
+			var nameStr string
+			for i := 1; i < nodeList.Len(); i++ {
+				if i > 1 {
+					nameStr += "."
+				}
+				nameStr += nodeList.Items[i].SqlString()
+			}
+			parts = append(parts, nameStr, "USING", methodStr)
+			return strings.Join(parts, " ")
+		}
+	case int(OBJECT_PROCEDURE):
+		parts = append(parts, "PROCEDURE")
+	case int(OBJECT_ROUTINE):
+		parts = append(parts, "ROUTINE")
+	case int(OBJECT_TYPE):
+		parts = append(parts, "TYPE")
+	case int(OBJECT_TABLE):
+		parts = append(parts, "TABLE")
+	case int(OBJECT_VIEW):
+		parts = append(parts, "VIEW")
+	default:
+		// For other object types, use simple case conversion
+		parts = append(parts, "OBJECT")
+	}
+
+	// Add object name for simple cases (non-special formatting)
+	if a.Object != nil && a.Objtype != int(OBJECT_CAST) && a.Objtype != int(OBJECT_OPCLASS) && a.Objtype != int(OBJECT_OPFAMILY) {
+		parts = append(parts, a.Object.SqlString())
+	}
+
+	return strings.Join(parts, " ")
 }
 
 // ==============================================================================

@@ -1110,6 +1110,37 @@ func (o *ObjectWithArgs) StatementType() string {
 	return "OBJECT_WITH_ARGS"
 }
 
+// SqlString returns the SQL representation of ObjectWithArgs
+func (o *ObjectWithArgs) SqlString() string {
+	var parts []string
+	
+	// Add object name
+	if o.Objname != nil && o.Objname.Len() > 0 {
+		var names []string
+		for _, item := range o.Objname.Items {
+			if str, ok := item.(*String); ok {
+				names = append(names, str.SVal)
+			}
+		}
+		if len(names) > 0 {
+			parts = append(parts, strings.Join(names, "."))
+		}
+	}
+	
+	// Add arguments if specified
+	if !o.ArgsUnspecified && o.Objargs != nil {
+		var args []string
+		for _, item := range o.Objargs.Items {
+			args = append(args, item.SqlString())
+		}
+		parts = append(parts, "("+strings.Join(args, ", ")+")")
+	} else if o.ArgsUnspecified {
+		// No parentheses when arguments are unspecified
+	}
+	
+	return strings.Join(parts, "")
+}
+
 // SinglePartitionSpec represents a single partition specification.
 // Ported from postgres/src/include/nodes/parsenodes.h:945-952
 type SinglePartitionSpec struct {

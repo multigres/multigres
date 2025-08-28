@@ -449,21 +449,21 @@
 - ⬜ `alter_type_cmd` - Single ALTER TYPE command (for non-enum types - deferred to Phase 3H)
 
 ### CREATE SEQUENCE
-- ⬜ `CreateSeqStmt` - CREATE SEQUENCE
-- ⬜ `AlterSeqStmt` - ALTER SEQUENCE
-- ⬜ `OptSeqOptList` - Sequence options
-- ⬜ `OptParenthesizedSeqOptList` - Parenthesized options
-- ⬜ `SeqOptList` - Sequence option list
-- ⬜ `SeqOptElem` - Sequence option element
+- ✅ `CreateSeqStmt` - CREATE SEQUENCE
+- ✅ `AlterSeqStmt` - ALTER SEQUENCE
+- ✅ `OptSeqOptList` - Sequence options
+- ✅ `OptParenthesizedSeqOptList` - Parenthesized options
+- ✅ `SeqOptList` - Sequence option list
+- ✅ `SeqOptElem` - Sequence option element
 
 ### CREATE EXTENSION
-- ⬜ `CreateExtensionStmt` - CREATE EXTENSION
-- ⬜ `create_extension_opt_list` - Extension options
-- ⬜ `create_extension_opt_item` - Extension option item
-- ⬜ `AlterExtensionStmt` - ALTER EXTENSION
-- ⬜ `alter_extension_opt_list` - ALTER extension options
-- ⬜ `alter_extension_opt_item` - ALTER extension option
-- ⬜ `AlterExtensionContentsStmt` - ALTER EXTENSION contents
+- ✅ `CreateExtensionStmt` - CREATE EXTENSION
+- ✅ `create_extension_opt_list` - Extension options
+- ✅ `create_extension_opt_item` - Extension option item
+- ✅ `AlterExtensionStmt` - ALTER EXTENSION
+- ✅ `alter_extension_opt_list` - ALTER extension options
+- ✅ `alter_extension_opt_item` - ALTER extension option
+- ✅ `AlterExtensionContentsStmt` - ALTER EXTENSION contents
 
 ### CREATE FOREIGN DATA WRAPPER
 - ⬜ `CreateFdwStmt` - CREATE FOREIGN DATA WRAPPER

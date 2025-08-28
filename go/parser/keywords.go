@@ -126,6 +126,7 @@ var Keywords = []KeywordInfo{
 	{"error", ERROR, UnreservedKeyword, true},
 	{"except", IDENT, ReservedKeyword, true},
 	{"execute", EXECUTE, UnreservedKeyword, true},
+	{"extension", EXTENSION, UnreservedKeyword, true},
 	{"exists", EXISTS, ColNameKeyword, true},
 
 	{"false", FALSE_P, ReservedKeyword, true},
@@ -237,6 +238,7 @@ var Keywords = []KeywordInfo{
 	{"rename", RENAME, UnreservedKeyword, true},
 	{"replace", REPLACE, UnreservedKeyword, true},
 	{"restrict", RESTRICT, UnreservedKeyword, true},
+	{"restart", RESTART, UnreservedKeyword, true},
 	{"return", RETURN, UnreservedKeyword, true},
 	{"returning", RETURNING, UnreservedKeyword, true},
 	{"returns", RETURNS, UnreservedKeyword, true},
@@ -298,6 +300,7 @@ var Keywords = []KeywordInfo{
 	{"variadic", VARIADIC, UnreservedKeyword, true},
 	{"varying", IDENT, UnreservedKeyword, true},
 	{"verbose", VERBOSE, UnreservedKeyword, true},
+	{"version", VERSION_P, UnreservedKeyword, true},
 	{"view", VIEW, UnreservedKeyword, true},
 
 	{"when", WHEN, ReservedKeyword, true},

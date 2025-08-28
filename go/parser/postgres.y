@@ -76,6 +76,7 @@ type LexerInterface interface {
 	funparammode ast.FunctionParameterMode  // For parameter modes (IN/OUT/INOUT/VARIADIC)
 	vsetstmt   *ast.VariableSetStmt    // For SET/RESET statements
 	rolespec   *ast.RoleSpec
+	objwithargs *ast.ObjectWithArgs
 
 	// Location tracking
 	location   int
@@ -235,7 +236,6 @@ type LexerInterface interface {
 %type <str>          set_access_method_name
 %type <node>         replica_identity
 %type <list>         func_args OptWith
-%type <node>         function_with_argtypes aggregate_with_argtypes
 
 /* Expression types */
 %type <node>         a_expr b_expr c_expr AexprConst columnref
@@ -245,7 +245,7 @@ type LexerInterface interface {
 %type <list>         array_expr_list
 %type <list>         func_arg_list
 %type <node>         func_arg_expr
-%type <list>         indirection opt_indirection
+%type <list>         indirection opt_indirection oper_argtypes
 %type <node>         indirection_el opt_slice_bound
 %type <ival>         Iconst SignedIconst
 %type <str>          Sconst
@@ -403,11 +403,15 @@ type LexerInterface interface {
 %type <into>         create_mv_target
 %type <list>         OptSchemaEltList
 %type <stmt>         schema_stmt
+%type <objwithargs>  function_with_argtypes aggregate_with_argtypes operator_with_argtypes
 
 %type <stmt>         CreateFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
 %type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt
-%type <stmt>         CreateDomainStmt AlterDomainStmt DefineStmt AlterEnumStmt
+%type <stmt>         CreateDomainStmt AlterDomainStmt DefineStmt AlterEnumStmt CreateSeqStmt AlterSeqStmt CreateExtensionStmt AlterExtensionStmt AlterExtensionContentsStmt
 %type <list>         definition def_list opt_enum_val_list enum_val_list
+%type <list>         OptSeqOptList OptParenthesizedSeqOptList SeqOptList create_extension_opt_list alter_extension_opt_list
+%type <defelt>       SeqOptElem create_extension_opt_item alter_extension_opt_item
+%type <ival>         add_drop
 %type <list>         aggr_args aggr_args_list old_aggr_definition old_aggr_list
 %type <defelt>       def_elem old_aggr_elem
 %type <node>         def_arg opt_as DomainConstraint DomainConstraintElem aggr_arg
@@ -527,6 +531,11 @@ stmt:
 		|	AlterDomainStmt							{ $$ = $1 }
 		|	DefineStmt								{ $$ = $1 }
 		|	AlterEnumStmt							{ $$ = $1 }
+		|	CreateSeqStmt							{ $$ = $1 }
+		|	AlterSeqStmt							{ $$ = $1 }
+		|	CreateExtensionStmt						{ $$ = $1 }
+		|	AlterExtensionStmt						{ $$ = $1 }
+		|	AlterExtensionContentsStmt				{ $$ = $1 }
 		|	VariableSetStmt							{ $$ = $1 }
 		|	VariableResetStmt						{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
@@ -6868,20 +6877,6 @@ object_type_any_name:
 		|	TEXT_P SEARCH CONFIGURATION	{ $$ = ast.OBJECT_TSCONFIGURATION }
 		;
 
-/*
- * object types taking name/name_list
- *
- * DROP handles some of them separately
- */
-
-object_type_name:
-			drop_type_name				{ $$ = $1 }
-		|	DATABASE					{ $$ = ast.OBJECT_DATABASE }
-		|	ROLE						{ $$ = ast.OBJECT_ROLE }
-		|	SUBSCRIPTION				{ $$ = ast.OBJECT_SUBSCRIPTION }
-		|	TABLESPACE					{ $$ = ast.OBJECT_TABLESPACE }
-		;
-
 /*****************************************************************************
  *
  *		QUERY:
@@ -6908,6 +6903,31 @@ function_with_argtypes:
 				$$ = objWithArgs
 			}
 	;
+
+operator_with_argtypes:
+		any_operator oper_argtypes
+			{
+				objWithArgs := &ast.ObjectWithArgs{
+					BaseNode: ast.BaseNode{Tag: ast.T_ObjectWithArgs},
+					Objname: $1,
+					Objargs: $2,
+				}
+				$$ = objWithArgs
+			}
+		;
+
+oper_argtypes:
+		'(' Typename ')'
+			{
+				yylex.Error("Use NONE to denote the missing argument of a unary operator.")
+				return 1
+			}
+		| '(' Typename ',' Typename ')'
+				{ $$ = ast.NewNodeList($2, $4) }
+		| '(' NONE ',' Typename ')'					/* left unary */
+				{ $$ = ast.NewNodeList(nil, $4) }
+		| '(' Typename ',' NONE ')'					/* right unary */
+				{ $$ = ast.NewNodeList($2, nil) }
 
 aggregate_with_argtypes:
 		func_name func_args
@@ -8597,6 +8617,222 @@ DefineStmt:
 				$$ = n
 			}
 	;
+
+/*****************************************************************************
+ *
+ *		CREATE SEQUENCE
+ *
+ *****************************************************************************/
+
+CreateSeqStmt:
+		CREATE OptTemp SEQUENCE qualified_name OptSeqOptList
+			{
+				n := ast.NewCreateSeqStmt($4, $5, 0, false, false)
+				$$ = n
+			}
+	|	CREATE OptTemp SEQUENCE IF_P NOT EXISTS qualified_name OptSeqOptList
+			{
+				n := ast.NewCreateSeqStmt($7, $8, 0, false, true)
+				$$ = n
+			}
+		;
+
+OptSeqOptList:
+			SeqOptList								{ $$ = $1 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+optby:		BY				{}
+		|	/* EMPTY */		{}
+		;
+
+/*****************************************************************************
+ *
+ *		ALTER SEQUENCE
+ *
+ *****************************************************************************/
+
+AlterSeqStmt:
+		ALTER SEQUENCE qualified_name SeqOptList
+			{
+				$$ = ast.NewAlterSeqStmt($3, $4, false, false)
+			}
+	|	ALTER SEQUENCE IF_P EXISTS qualified_name SeqOptList
+			{
+				$$ = ast.NewAlterSeqStmt($5, $6, false, true)
+			}
+		;
+
+/*****************************************************************************
+ *
+ *		CREATE EXTENSION
+ *
+ *****************************************************************************/
+
+CreateExtensionStmt:
+		CREATE EXTENSION name opt_with create_extension_opt_list
+			{
+				n := ast.NewCreateExtensionStmt($3, false, $5)
+				$$ = n
+			}
+	|	CREATE EXTENSION IF_P NOT EXISTS name opt_with create_extension_opt_list
+			{
+				n := ast.NewCreateExtensionStmt($6, true, $8)
+				$$ = n
+			}
+		;
+
+create_extension_opt_list:
+			create_extension_opt_list create_extension_opt_item
+			{
+				if $1 == nil {
+					$$ = ast.NewNodeList($2)
+				} else {
+					$1.Append($2)
+					$$ = $1
+				}
+			}
+		|	/* EMPTY */
+			{
+				$$ = nil
+			}
+		;
+
+create_extension_opt_item:
+			SCHEMA name
+			{
+				$$ = ast.NewDefElem("schema", ast.NewString($2))
+			}
+		|	VERSION_P NonReservedWord_or_Sconst
+			{
+				$$ = ast.NewDefElem("version", ast.NewString($2))
+			}
+		|	FROM NonReservedWord_or_Sconst
+			{
+				yylex.Error("CREATE EXTENSION ... FROM is no longer supported")
+				return 1;
+			}
+		|	CASCADE
+			{
+				$$ = ast.NewDefElem("cascade", ast.NewBoolean(true))
+			}
+		;
+
+/*****************************************************************************
+ *
+ *		ALTER EXTENSION
+ *
+ *****************************************************************************/
+
+AlterExtensionStmt:
+		ALTER EXTENSION name UPDATE alter_extension_opt_list
+			{
+				n := ast.NewAlterExtensionStmt($3, $5)
+				$$ = n
+			}
+		;
+
+alter_extension_opt_list:
+			alter_extension_opt_list alter_extension_opt_item
+			{
+				if $1 == nil {
+					$$ = ast.NewNodeList($2)
+				} else {
+					$1.Append($2)
+					$$ = $1
+				}
+			}
+		|	/* EMPTY */
+			{
+				$$ = nil
+			}
+		;
+
+alter_extension_opt_item:
+			TO NonReservedWord_or_Sconst
+			{
+				$$ = ast.NewDefElem("to", ast.NewString($2))
+			}
+		;
+
+/*****************************************************************************
+ *
+ *		ALTER EXTENSION contents
+ *
+ *****************************************************************************/
+
+AlterExtensionContentsStmt:
+		ALTER EXTENSION name add_drop object_type_name name
+			{
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int($5), ast.NewString($6))
+			}
+	|	ALTER EXTENSION name add_drop object_type_any_name any_name
+			{
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int($5), $6)
+			}
+	|	ALTER EXTENSION name add_drop AGGREGATE aggregate_with_argtypes
+			{
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_AGGREGATE), $6)
+			}
+	|	ALTER EXTENSION name add_drop CAST '(' Typename AS Typename ')'
+			{
+				// CAST takes two TypeNames as a NodeList
+				list := ast.NewNodeList($7)
+				list.Append($9)
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_CAST), list)
+			}
+	|	ALTER EXTENSION name add_drop DOMAIN_P Typename
+			{
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_DOMAIN), $6)
+			}
+	|	ALTER EXTENSION name add_drop FUNCTION function_with_argtypes
+			{
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_FUNCTION), $6)
+			}
+	|	ALTER EXTENSION name add_drop OPERATOR operator_with_argtypes
+			{
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_OPERATOR), $6)
+			}
+	|	ALTER EXTENSION name add_drop OPERATOR CLASS any_name USING name
+			{
+				// OPERATOR CLASS takes method name + class name as NodeList  
+				list := ast.NewNodeList(ast.NewString($9)) // method first
+				for _, item := range $7.Items {
+					list.Append(item) // then class name parts
+				}
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_OPCLASS), list)
+			}
+	|	ALTER EXTENSION name add_drop OPERATOR FAMILY any_name USING name
+			{
+				// OPERATOR FAMILY takes method name + family name as NodeList
+				list := ast.NewNodeList(ast.NewString($9)) // method first
+				for _, item := range $7.Items {
+					list.Append(item) // then family name parts  
+				}
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_OPFAMILY), list)
+			}
+	|	ALTER EXTENSION name add_drop PROCEDURE function_with_argtypes
+			{
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_PROCEDURE), $6)
+			}
+	|	ALTER EXTENSION name add_drop ROUTINE function_with_argtypes
+			{
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_ROUTINE), $6)
+			}
+	| ALTER EXTENSION name add_drop TRANSFORM FOR Typename LANGUAGE name
+			{
+				list := ast.NewNodeList($7, ast.NewString($9))
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_TRANSFORM), list)
+			}
+	|	ALTER EXTENSION name add_drop TYPE_P Typename
+			{
+				$$ = ast.NewAlterExtensionContentsStmt($3, $4 != 0, int(ast.OBJECT_TYPE), $6)
+			}
+		;
+
+add_drop:		ADD_P			{ $$ = 1 }
+		|		DROP			{ $$ = 0 }
+		;
 
 aggr_args:
 		'(' '*' ')'

@@ -118,7 +118,41 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "CREATE INDEX idx_users_name ON users (name) INCLUDE (email, created_at)",
 		},
 
-		// Note: CREATE SEQUENCE not implemented in Phase 3F
+		// CREATE SEQUENCE tests
+		{
+			name: "CREATE SEQUENCE basic",
+			sql:  "CREATE SEQUENCE test_seq",
+		},
+		{
+			name: "CREATE SEQUENCE IF NOT EXISTS",
+			sql:  "CREATE SEQUENCE IF NOT EXISTS test_seq",
+		},
+
+		// CREATE EXTENSION tests
+		{
+			name: "CREATE EXTENSION basic",
+			sql:  "CREATE EXTENSION postgis",
+		},
+		{
+			name: "CREATE EXTENSION IF NOT EXISTS",
+			sql:  "CREATE EXTENSION IF NOT EXISTS uuid_ossp",
+		},
+		{
+			name: "CREATE EXTENSION with VERSION",
+			sql:  "CREATE EXTENSION postgis VERSION '3.0'",
+		},
+		{
+			name: "CREATE EXTENSION with SCHEMA",
+			sql:  "CREATE EXTENSION postgis SCHEMA public",
+		},
+		{
+			name: "CREATE EXTENSION with CASCADE",
+			sql:  "CREATE EXTENSION postgis CASCADE",
+		},
+		{
+			name: "CREATE EXTENSION with multiple options",
+			sql:  "CREATE EXTENSION postgis VERSION '3.0' SCHEMA public CASCADE",
+		},
 
 		// ALTER TABLE tests
 		{
@@ -332,6 +366,26 @@ func TestDDLParsing(t *testing.T) {
 		{
 			name: "ALTER TABLE IF EXISTS round-trip",
 			sql:  "ALTER TABLE IF EXISTS users ADD COLUMN age int",
+		},
+
+		// ALTER SEQUENCE tests
+		{
+			name: "ALTER SEQUENCE basic",
+			sql:  "ALTER SEQUENCE test_seq RESTART",
+		},
+		{
+			name: "ALTER SEQUENCE IF EXISTS",
+			sql:  "ALTER SEQUENCE IF EXISTS test_seq CYCLE",
+		},
+
+		// ALTER EXTENSION tests
+		{
+			name: "ALTER EXTENSION UPDATE",
+			sql:  "ALTER EXTENSION postgis UPDATE",
+		},
+		{
+			name: "ALTER EXTENSION UPDATE TO version",
+			sql:  "ALTER EXTENSION postgis UPDATE TO '3.0'",
 		},
 
 		// DROP Statement Tests

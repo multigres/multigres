@@ -366,11 +366,12 @@ func NewCreateFunctionStmt(isProcedure, replace bool, funcName *NodeList, parame
 // CreateSeqStmt represents a CREATE SEQUENCE statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3117-3125
 type CreateSeqStmt struct {
-	Sequence    *RangeVar  // the sequence to create
-	Options     []*DefElem // list of options
-	OwnerID     Oid        // ID of owner, or 0 for default (InvalidOid)
-	ForIdentity bool       // true if for IDENTITY column
-	IfNotExists bool       // true for IF NOT EXISTS
+	BaseNode
+	Sequence    *RangeVar // the sequence to create
+	Options     *NodeList // list of options (DefElem nodes)
+	OwnerID     Oid       // ID of owner, or 0 for default (InvalidOid)
+	ForIdentity bool      // true if for IDENTITY column
+	IfNotExists bool      // true for IF NOT EXISTS
 }
 
 // node implements the Node interface
@@ -378,6 +379,11 @@ func (css *CreateSeqStmt) node() {}
 
 // stmt implements the Stmt interface
 func (css *CreateSeqStmt) stmt() {}
+
+// StatementType returns the type of statement
+func (css *CreateSeqStmt) StatementType() string {
+	return "CreateSeqStmt"
+}
 
 // String returns string representation of CreateSeqStmt
 func (css *CreateSeqStmt) String() string {
@@ -396,15 +402,148 @@ func (css *CreateSeqStmt) String() string {
 	return strings.Join(parts, " ")
 }
 
+// SqlString returns the SQL representation of CreateSeqStmt
+func (css *CreateSeqStmt) SqlString() string {
+	var parts []string
+
+	parts = append(parts, "CREATE SEQUENCE")
+
+	if css.IfNotExists {
+		parts = append(parts, "IF NOT EXISTS")
+	}
+
+	if css.Sequence != nil {
+		parts = append(parts, css.Sequence.SqlString())
+	}
+
+	// Add sequence options if present
+	if css.Options != nil && css.Options.Len() > 0 {
+		for _, item := range css.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				parts = append(parts, formatSeqOption(opt))
+			}
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
 // NewCreateSeqStmt creates a new CreateSeqStmt node
-func NewCreateSeqStmt(sequence *RangeVar, options []*DefElem, ownerID Oid, forIdentity, ifNotExists bool) *CreateSeqStmt {
+func NewCreateSeqStmt(sequence *RangeVar, options *NodeList, ownerID Oid, forIdentity, ifNotExists bool) *CreateSeqStmt {
 	return &CreateSeqStmt{
+		BaseNode:    BaseNode{Tag: T_CreateSeqStmt},
 		Sequence:    sequence,
 		Options:     options,
 		OwnerID:     ownerID,
 		ForIdentity: forIdentity,
 		IfNotExists: ifNotExists,
 	}
+}
+
+// AlterSeqStmt represents an ALTER SEQUENCE statement
+// Ported from postgres/src/include/nodes/parsenodes.h:3470-3477
+type AlterSeqStmt struct {
+	BaseNode
+	Sequence    *RangeVar // the sequence to alter
+	Options     *NodeList // list of DefElem options
+	ForIdentity bool      // for IDENTITY column
+	MissingOk   bool      // skip error if sequence doesn't exist
+}
+
+// NewAlterSeqStmt creates a new AlterSeqStmt node
+func NewAlterSeqStmt(sequence *RangeVar, options *NodeList, forIdentity, missingOk bool) *AlterSeqStmt {
+	return &AlterSeqStmt{
+		BaseNode:    BaseNode{Tag: T_AlterSeqStmt},
+		Sequence:    sequence,
+		Options:     options,
+		ForIdentity: forIdentity,
+		MissingOk:   missingOk,
+	}
+}
+
+// StatementType returns the statement type
+func (ass *AlterSeqStmt) StatementType() string {
+	return "AlterSeqStmt"
+}
+
+// String returns string representation of AlterSeqStmt
+func (ass *AlterSeqStmt) String() string {
+	ifExists := ""
+	if ass.MissingOk {
+		ifExists = " IF EXISTS"
+	}
+	return fmt.Sprintf("AlterSeqStmt(%s%s)@%d", ass.Sequence.String(), ifExists, ass.Location())
+}
+
+// formatSeqOption formats a sequence option DefElem for SQL output
+func formatSeqOption(opt *DefElem) string {
+	if opt == nil {
+		return ""
+	}
+
+	// Special handling for sequence-specific options
+	switch opt.Defname {
+	case "cycle":
+		if b, ok := opt.Arg.(*Boolean); ok && b.BoolVal {
+			return "CYCLE"
+		}
+		return "NO CYCLE"
+	case "restart":
+		if opt.Arg == nil {
+			return "RESTART"
+		}
+		return "RESTART WITH " + opt.Arg.SqlString()
+	case "start":
+		return "START WITH " + opt.Arg.SqlString()
+	case "increment":
+		return "INCREMENT BY " + opt.Arg.SqlString()
+	case "minvalue":
+		if opt.Arg == nil {
+			return "NO MINVALUE"
+		}
+		return "MINVALUE " + opt.Arg.SqlString()
+	case "maxvalue":
+		if opt.Arg == nil {
+			return "NO MAXVALUE"
+		}
+		return "MAXVALUE " + opt.Arg.SqlString()
+	case "cache":
+		return "CACHE " + opt.Arg.SqlString()
+	case "owned_by":
+		// TODO: Handle OWNED BY properly
+		return "OWNED BY " + opt.Arg.SqlString()
+	case "as":
+		return "AS " + opt.Arg.SqlString()
+	default:
+		// Fall back to default formatting
+		return opt.SqlString()
+	}
+}
+
+// SqlString returns the SQL representation of AlterSeqStmt
+func (ass *AlterSeqStmt) SqlString() string {
+	var parts []string
+
+	parts = append(parts, "ALTER SEQUENCE")
+
+	if ass.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+
+	if ass.Sequence != nil {
+		parts = append(parts, ass.Sequence.SqlString())
+	}
+
+	// Add sequence options if present
+	if ass.Options != nil && ass.Options.Len() > 0 {
+		for _, item := range ass.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				parts = append(parts, formatSeqOption(opt))
+			}
+		}
+	}
+
+	return strings.Join(parts, " ")
 }
 
 // CreateOpClassItem represents an item in a CREATE OPERATOR CLASS statement
@@ -868,13 +1007,13 @@ func NewDefineStmt(kind ObjectType, oldStyle bool, defNames *NodeList, args *Nod
 // SqlString returns the SQL representation of DefineStmt
 func (ds *DefineStmt) SqlString() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE")
-	
+
 	if ds.Replace {
 		parts = append(parts, "OR REPLACE")
 	}
-	
+
 	// Add object type
 	switch ds.Kind {
 	case OBJECT_TYPE:
@@ -894,12 +1033,12 @@ func (ds *DefineStmt) SqlString() string {
 	case OBJECT_COLLATION:
 		parts = append(parts, "COLLATION")
 	}
-	
+
 	// Add IF NOT EXISTS if present
 	if ds.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
 	}
-	
+
 	// Add name
 	if ds.DefNames != nil && len(ds.DefNames.Items) > 0 {
 		var nameStrs []string
@@ -910,7 +1049,7 @@ func (ds *DefineStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	// Add arguments for aggregates and operators
 	if ds.Args != nil && len(ds.Args.Items) > 0 {
 		var argStrs []string
@@ -936,7 +1075,7 @@ func (ds *DefineStmt) SqlString() string {
 			parts = append(parts, "("+strings.Join(argStrs, ", ")+")")
 		}
 	}
-	
+
 	// Add definition
 	if ds.Definition != nil && len(ds.Definition.Items) > 0 {
 		// Check if this is a FROM clause (for COLLATION FROM syntax)
@@ -958,7 +1097,7 @@ func (ds *DefineStmt) SqlString() string {
 				}
 			}
 		}
-		
+
 		// Normal definition with DefElem items
 		defParts := []string{}
 		for _, item := range ds.Definition.Items {
@@ -970,7 +1109,7 @@ func (ds *DefineStmt) SqlString() string {
 			parts = append(parts, "("+strings.Join(defParts, ", ")+")")
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1162,9 +1301,9 @@ func NewCreateEnumStmt(typeName *NodeList, vals *NodeList) *CreateEnumStmt {
 // SqlString returns the SQL representation of CreateEnumStmt
 func (ces *CreateEnumStmt) SqlString() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE TYPE")
-	
+
 	// Add type name
 	if ces.TypeName != nil && len(ces.TypeName.Items) > 0 {
 		var nameStrs []string
@@ -1175,9 +1314,9 @@ func (ces *CreateEnumStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	parts = append(parts, "AS ENUM")
-	
+
 	// Add enum values
 	if ces.Vals != nil && len(ces.Vals.Items) > 0 {
 		quotedVals := []string{}
@@ -1190,7 +1329,7 @@ func (ces *CreateEnumStmt) SqlString() string {
 	} else {
 		parts = append(parts, "()")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1198,8 +1337,8 @@ func (ces *CreateEnumStmt) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3684
 type CompositeTypeStmt struct {
 	BaseNode
-	Typevar     *RangeVar   // the composite type name
-	Coldeflist  *NodeList   // list of ColumnDef nodes
+	Typevar    *RangeVar // the composite type name
+	Coldeflist *NodeList // list of ColumnDef nodes
 }
 
 // node implements the Node interface
@@ -1216,15 +1355,15 @@ func (cts *CompositeTypeStmt) StatementType() string {
 // String returns string representation of CompositeTypeStmt
 func (cts *CompositeTypeStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE TYPE")
-	
+
 	if cts.Typevar != nil {
 		parts = append(parts, cts.Typevar.String())
 	}
-	
+
 	parts = append(parts, "AS (...)") // Simplified representation
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1240,16 +1379,16 @@ func NewCompositeTypeStmt(typevar *RangeVar, coldeflist *NodeList) *CompositeTyp
 // SqlString returns the SQL representation of CompositeTypeStmt
 func (cts *CompositeTypeStmt) SqlString() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE TYPE")
-	
+
 	// Add type name
 	if cts.Typevar != nil {
 		parts = append(parts, cts.Typevar.SqlString())
 	}
-	
+
 	parts = append(parts, "AS")
-	
+
 	// Add column definitions
 	if cts.Coldeflist != nil && len(cts.Coldeflist.Items) > 0 {
 		colDefs := []string{}
@@ -1262,7 +1401,7 @@ func (cts *CompositeTypeStmt) SqlString() string {
 	} else {
 		parts = append(parts, "()")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1270,12 +1409,12 @@ func (cts *CompositeTypeStmt) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3693
 type AlterEnumStmt struct {
 	BaseNode
-	TypeName            *NodeList // qualified name (list of String)
-	OldVal              string    // old enum value's name, if renaming
-	NewVal              string    // new enum value's name
-	NewValNeighbor      string    // neighboring enum value, if specified
-	NewValIsAfter       bool      // place new val after neighbor?
-	SkipIfNewValExists  bool      // ignore statement if new already exists
+	TypeName           *NodeList // qualified name (list of String)
+	OldVal             string    // old enum value's name, if renaming
+	NewVal             string    // new enum value's name
+	NewValNeighbor     string    // neighboring enum value, if specified
+	NewValIsAfter      bool      // place new val after neighbor?
+	SkipIfNewValExists bool      // ignore statement if new already exists
 }
 
 // node implements the Node interface
@@ -1292,9 +1431,9 @@ func (aes *AlterEnumStmt) StatementType() string {
 // String returns string representation of AlterEnumStmt
 func (aes *AlterEnumStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, "ALTER TYPE")
-	
+
 	if aes.TypeName != nil && len(aes.TypeName.Items) > 0 {
 		var nameStrs []string
 		for _, item := range aes.TypeName.Items {
@@ -1304,13 +1443,13 @@ func (aes *AlterEnumStmt) String() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	if aes.OldVal != "" {
 		parts = append(parts, "RENAME VALUE", aes.OldVal, "TO", aes.NewVal)
 	} else {
 		parts = append(parts, "ADD VALUE", aes.NewVal)
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1325,9 +1464,9 @@ func NewAlterEnumStmt(typeName *NodeList) *AlterEnumStmt {
 // SqlString returns the SQL representation of AlterEnumStmt
 func (aes *AlterEnumStmt) SqlString() string {
 	var parts []string
-	
+
 	parts = append(parts, "ALTER TYPE")
-	
+
 	// Add type name
 	if aes.TypeName != nil && len(aes.TypeName.Items) > 0 {
 		var nameStrs []string
@@ -1338,7 +1477,7 @@ func (aes *AlterEnumStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	if aes.OldVal != "" {
 		// RENAME VALUE
 		parts = append(parts, "RENAME VALUE", "'"+aes.OldVal+"'", "TO", "'"+aes.NewVal+"'")
@@ -1349,7 +1488,7 @@ func (aes *AlterEnumStmt) SqlString() string {
 			parts = append(parts, "IF NOT EXISTS")
 		}
 		parts = append(parts, "'"+aes.NewVal+"'")
-		
+
 		if aes.NewValNeighbor != "" {
 			if aes.NewValIsAfter {
 				parts = append(parts, "AFTER")
@@ -1359,7 +1498,7 @@ func (aes *AlterEnumStmt) SqlString() string {
 			parts = append(parts, "'"+aes.NewValNeighbor+"'")
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1419,9 +1558,9 @@ func NewCreateRangeStmt(typeName *NodeList, params *NodeList) *CreateRangeStmt {
 // SqlString returns the SQL representation of CreateRangeStmt
 func (crs *CreateRangeStmt) SqlString() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE TYPE")
-	
+
 	// Add type name
 	if crs.TypeName != nil && len(crs.TypeName.Items) > 0 {
 		var nameStrs []string
@@ -1432,9 +1571,9 @@ func (crs *CreateRangeStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	parts = append(parts, "AS RANGE")
-	
+
 	// Add parameters
 	if crs.Params != nil && len(crs.Params.Items) > 0 {
 		paramParts := []string{}
@@ -1445,7 +1584,7 @@ func (crs *CreateRangeStmt) SqlString() string {
 		}
 		parts = append(parts, "("+strings.Join(paramParts, ", ")+")")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 

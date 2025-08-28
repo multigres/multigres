@@ -529,7 +529,7 @@ func TestSchemaStmt(t *testing.T) {
 // TestExtensionStmt tests the CreateExtensionStmt node.
 func TestExtensionStmt(t *testing.T) {
 	t.Run("CreateExtension", func(t *testing.T) {
-		createExtStmt := NewCreateExtensionStmt("uuid-ossp", false)
+		createExtStmt := NewCreateExtensionStmt("uuid-ossp", false, nil)
 
 		assert.Equal(t, T_CreateExtensionStmt, createExtStmt.NodeTag())
 		assert.Equal(t, "CreateExtensionStmt", createExtStmt.StatementType())
@@ -544,21 +544,31 @@ func TestExtensionStmt(t *testing.T) {
 	})
 
 	t.Run("CreateExtensionIfNotExists", func(t *testing.T) {
-		createExtStmt := NewCreateExtensionStmt("postgis", true)
+		createExtStmt := NewCreateExtensionStmt("postgis", true, nil)
 
 		assert.True(t, createExtStmt.IfNotExists)
 		assert.Contains(t, createExtStmt.String(), "IF NOT EXISTS")
 	})
 
 	t.Run("CreateExtensionWithOptions", func(t *testing.T) {
-		createExtStmt := NewCreateExtensionStmt("plpgsql", false)
 		schemaOption := NewDefElem("schema", NewString("public"))
 		versionOption := NewDefElem("version", NewString("1.0"))
-		createExtStmt.Options = []*DefElem{schemaOption, versionOption}
+		options := NewNodeList(schemaOption)
+		options.Append(versionOption)
+		createExtStmt := NewCreateExtensionStmt("plpgsql", false, options)
 
-		assert.Len(t, createExtStmt.Options, 2)
-		assert.Equal(t, "schema", createExtStmt.Options[0].Defname)
-		assert.Equal(t, "version", createExtStmt.Options[1].Defname)
+		assert.NotNil(t, createExtStmt.Options)
+		assert.Equal(t, 2, createExtStmt.Options.Len())
+		
+		// Check the first option
+		if defElem, ok := createExtStmt.Options.Items[0].(*DefElem); ok {
+			assert.Equal(t, "schema", defElem.Defname)
+		}
+		
+		// Check the second option  
+		if defElem, ok := createExtStmt.Options.Items[1].(*DefElem); ok {
+			assert.Equal(t, "version", defElem.Defname)
+		}
 	})
 }
 
