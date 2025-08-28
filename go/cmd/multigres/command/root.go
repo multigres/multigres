@@ -45,6 +45,10 @@ Configuration:
   Environment variable MT_CONFIG_NAME can override the config filename.
   Use --config-file-not-found-handling to control behavior when no config is found.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Silence usage for application errors, but allow it for flag errors
+		// This gets called after flag parsing, so flag errors will still show usage
+		cmd.SilenceUsage = true
+
 		// Set multigres-specific config name
 		viper.SetConfigName("multigres")
 

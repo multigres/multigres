@@ -19,7 +19,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/multigres/multigres/go/provisioner"
+
 	"github.com/spf13/cobra"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,25 +32,25 @@ type TopologyConfig struct {
 	GlobalRootPath      string `yaml:"global-root-path"`
 	DefaultCellName     string `yaml:"default-cell-name"`
 	DefaultCellRootPath string `yaml:"default-cell-root-path"`
-	EtcdDefaultAddress  string `yaml:"etcd-default-address"`
 }
 
 // MultigressConfig represents the structure of the multigres configuration file
 type MultigressConfig struct {
-	Provisioner string         `yaml:"provisioner"`
-	Topology    TopologyConfig `yaml:"topology"`
+	Provisioner       string                 `yaml:"provisioner"`
+	ProvisionerConfig map[string]interface{} `yaml:"provisioner-config,omitempty"`
+	Topology          TopologyConfig         `yaml:"topology"`
 }
 
-// DefaultConfig returns a MultigressConfig with default values
-func DefaultConfig() *MultigressConfig {
+// DefaultConfig returns a MultigressConfig with default values from the given provisioner
+func DefaultConfig(p provisioner.Provisioner) *MultigressConfig {
 	return &MultigressConfig{
-		Provisioner: "local",
+		Provisioner:       p.Name(),
+		ProvisionerConfig: p.DefaultConfig(),
 		Topology: TopologyConfig{
 			Backend:             "etcd2",
 			GlobalRootPath:      "/multigres/global",
 			DefaultCellName:     "zone1",
 			DefaultCellRootPath: "/multigres/zone1",
-			EtcdDefaultAddress:  "localhost:2379",
 		},
 	}
 }

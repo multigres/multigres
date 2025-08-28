@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/provisioner"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -68,13 +69,20 @@ func validateConfigPaths(cmd *cobra.Command) ([]string, error) {
 
 // buildConfigFromFlags creates a MultigressConfig based on command flags
 func buildConfigFromFlags(cmd *cobra.Command) (*MultigressConfig, error) {
-	// Start with default config
-	config := DefaultConfig()
-
-	// Override with flag values if provided
-	if provisioner, _ := cmd.Flags().GetString("provisioner"); provisioner != "" {
-		config.Provisioner = provisioner
+	// Get provisioner name from flags or use default
+	provisionerName, _ := cmd.Flags().GetString("provisioner")
+	if provisionerName == "" {
+		provisionerName = "local" // default provisioner
 	}
+
+	// Create provisioner instance to get defaults
+	p, err := provisioner.GetProvisioner(provisionerName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create provisioner '%s': %w", provisionerName, err)
+	}
+
+	// Start with default config from provisioner
+	config := DefaultConfig(p)
 
 	if topoBackend, _ := cmd.Flags().GetString("topo-backend"); topoBackend != "" {
 		config.Topology.Backend = topoBackend
@@ -90,10 +98,6 @@ func buildConfigFromFlags(cmd *cobra.Command) (*MultigressConfig, error) {
 
 	if defaultCellRootPath, _ := cmd.Flags().GetString("topo-default-cell-root-path"); defaultCellRootPath != "" {
 		config.Topology.DefaultCellRootPath = defaultCellRootPath
-	}
-
-	if etcdDefaultAddress, _ := cmd.Flags().GetString("topo-etcd-default-address"); etcdDefaultAddress != "" {
-		config.Topology.EtcdDefaultAddress = etcdDefaultAddress
 	}
 
 	return config, nil
@@ -201,5 +205,4 @@ func init() {
 	InitCommand.Flags().String("topo-global-root-path", "/multigres/global", "Global topology root path")
 	InitCommand.Flags().String("topo-default-cell-name", "zone1", "Default cell name")
 	InitCommand.Flags().String("topo-default-cell-root-path", "/multigres/zone1", "Default cell root path")
-	InitCommand.Flags().String("topo-etcd-default-address", "localhost:2379", "Default etcd address with port")
 }

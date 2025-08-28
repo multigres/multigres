@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os/exec"
 
+	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
@@ -26,12 +27,12 @@ import (
 // stopMultigresContainers stops all containers with the multigres project label
 func stopMultigresContainers(clean bool) error {
 	// Check if docker is available
-	if err := CheckDockerAvailable(); err != nil {
+	if err := local.CheckDockerAvailable(); err != nil {
 		return fmt.Errorf("docker not available: %w", err)
 	}
 
 	// Find all containers with the multigres project label
-	containerIDs, err := GetMultigresContainers()
+	containerIDs, err := local.GetMultigresContainers()
 	if err != nil {
 		return fmt.Errorf("failed to list multigres containers: %w", err)
 	}
@@ -45,7 +46,7 @@ func stopMultigresContainers(clean bool) error {
 
 	// Stop the containers
 	for _, containerID := range containerIDs {
-		containerName := GetContainerName(containerID)
+		containerName := local.GetContainerName(containerID)
 		fmt.Printf("Stopping container: %s\n", containerName)
 
 		// Stop the container by ID
@@ -68,12 +69,12 @@ func stopMultigresContainers(clean bool) error {
 		}
 
 		// Remove the multigres network if it exists
-		if err := RemoveMultigresNetwork(); err != nil {
+		if err := local.RemoveMultigresNetwork(); err != nil {
 			fmt.Printf("Warning: failed to remove network: %v\n", err)
 		}
 
 		fmt.Println("Removing named volumes...")
-		if err := RemoveVolume(EtcdDataVolume); err != nil {
+		if err := local.RemoveVolume(local.EtcdDataVolume); err != nil {
 			fmt.Printf("Warning: failed to remove volume: %v\n", err)
 		}
 
@@ -89,7 +90,7 @@ func runDown(cmd *cobra.Command, args []string) error {
 	fmt.Println("Stopping Multigres cluster...")
 
 	// Check if Docker is available early
-	if err := CheckDockerAvailable(); err != nil {
+	if err := local.CheckDockerAvailable(); err != nil {
 		return fmt.Errorf("docker not available: %w", err)
 	}
 
@@ -116,7 +117,7 @@ func runDown(cmd *cobra.Command, args []string) error {
 	config, configFile, err := LoadConfig(configPaths)
 	if err == nil {
 		fmt.Printf("Using configuration from: %s\n", configFile)
-		fmt.Printf("Stopping cluster with etcd at: %s\n", config.Topology.EtcdDefaultAddress)
+		fmt.Printf("Stopping cluster with provisioner: %s\n", config.Provisioner)
 	} else {
 		fmt.Println("No configuration found, stopping all multigres containers")
 	}

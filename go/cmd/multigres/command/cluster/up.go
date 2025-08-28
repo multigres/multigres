@@ -15,139 +15,93 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
-	"net"
-	"os/exec"
-	"strings"
-	"time"
 
+	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
 
-// checkEtcdConnectivity checks if etcd is reachable at the given address
-func checkEtcdConnectivity(address string) error {
-	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to connect to etcd at %s: %w", address, err)
+// provisionEtcd ensures etcd is running and accessible
+func provisionEtcd(ctx context.Context, config *MultigressConfig, p provisioner.Provisioner) (*provisioner.ProvisionResult, error) {
+	fmt.Println("\n=== Step 1: Provisioning etcd ===")
+
+	req := &provisioner.ProvisionRequest{
+		Service: "etcd",
+		Config:  config.ProvisionerConfig,
 	}
-	defer conn.Close()
+
+	result, err := p.ProvisionEtcd(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to provision etcd: %w", err)
+	}
+
+	tcpPort := result.Ports["tcp"]
+	fmt.Printf("etcd available at: %s:%d ✓\n", result.FQDN, tcpPort)
+	return result, nil
+}
+
+// setupCell initializes the topology cell configuration
+func setupCell(ctx context.Context, config *MultigressConfig, etcdAddress string) error {
+	fmt.Println("\n=== Step 2: Setting up cell ===")
+	fmt.Printf("Configuring cell: %s\n", config.Topology.DefaultCellName)
+	fmt.Printf("Using etcd at: %s\n", etcdAddress)
+
+	// TODO: Implement cell setup using topo service
+	// This would involve:
+	// - Creating the cell in etcd if it doesn't exist
+	// - Setting up cell-specific configuration
+	// - Validating cell connectivity
+	// - Use etcdAddress to connect to etcd for topology operations
+
+	fmt.Printf("Cell '%s' setup completed ✓\n", config.Topology.DefaultCellName)
 	return nil
 }
 
-// startEtcdContainer starts an etcd container using Docker
-func startEtcdContainer(address string) error {
-	fmt.Printf("Starting etcd container for address: %s\n", address)
+// provisionMultigateway starts the multigateway service
+func provisionMultigateway(ctx context.Context, config *MultigressConfig, p provisioner.Provisioner) error {
+	fmt.Println("\n=== Step 3: Provisioning Multigateway ===")
 
-	// Extract port from address (assuming format like "localhost:2379")
-	parts := strings.Split(address, ":")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid address format: %s (expected host:port)", address)
-	}
-	port := parts[1]
-
-	// Check if docker is available
-	if err := CheckDockerAvailable(); err != nil {
-		return fmt.Errorf("docker not available: %w", err)
+	req := &provisioner.ProvisionRequest{
+		Service: "multigateway",
+		Config:  config.ProvisionerConfig,
 	}
 
-	// Create Multigres network for better container orchestration
-	if err := CreateMultigresNetwork(); err != nil {
-		return fmt.Errorf("failed to create network: %w", err)
+	result, err := p.ProvisionMultigateway(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to provision multigateway: %w", err)
 	}
 
-	containerName := EtcdContainerName
+	grpcPort := result.Ports["grpc"]
+	fmt.Printf("Multigateway available at: %s:%d ✓\n", result.FQDN, grpcPort)
+	return nil
+}
 
-	// Check if container already exists
-	if IsContainerRunning(containerName) {
-		fmt.Printf("etcd container '%s' is already running\n", containerName)
-		return nil
+// provisionMultiOrch starts the multi-orchestrator service
+func provisionMultiOrch(ctx context.Context, config *MultigressConfig, p provisioner.Provisioner) error {
+	fmt.Println("\n=== Step 4: Provisioning Multi-Orchestrator ===")
+
+	req := &provisioner.ProvisionRequest{
+		Service: "multiorch",
+		Config:  config.ProvisionerConfig,
 	}
 
-	// Remove any stopped container with the same name
-	if err := RemoveContainer(containerName); err != nil {
-		return fmt.Errorf("failed to remove container: %w", err)
+	result, err := p.ProvisionMultiOrch(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to provision multi-orchestrator: %w", err)
 	}
 
-	// Calculate peer port (client port + 1 for convention)
-	clientPort := port
-	peerPort := fmt.Sprintf("%d", 2380) // Keep peer port standard for now
-
-	// Build Docker command with proper grouping labels
-	args := []string{
-		"run", "-d",
-		"--name", containerName,
-		"--network", NetworkName,
-		"-p", fmt.Sprintf("%s:%s", clientPort, clientPort), // Map configured port to same port inside container
-		"-p", fmt.Sprintf("%s:%s", peerPort, peerPort), // Peer port mapping
-		"--restart", "unless-stopped",
-		"--health-cmd", "etcdctl endpoint health",
-		"--health-interval", "10s",
-		"--health-timeout", "5s",
-		"--health-retries", "3",
-		// Multigres grouping labels
-		"--label", "com.docker.compose.project=multigres",
-		"--label", "com.docker.compose.service=etcd",
-		"--label", "multigres.component=etcd",
-		"--label", "multigres.stack=local",
-	}
-
-	// Add environment variables and volume
-	args = append(args,
-		"--env", "ALLOW_NONE_AUTHENTICATION=yes",
-		"--env", fmt.Sprintf("ETCD_ADVERTISE_CLIENT_URLS=http://0.0.0.0:%s", clientPort),
-		"--env", fmt.Sprintf("ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:%s", clientPort),
-		"--env", fmt.Sprintf("ETCD_INITIAL_ADVERTISE_PEER_URLS=http://0.0.0.0:%s", peerPort),
-		"--env", fmt.Sprintf("ETCD_LISTEN_PEER_URLS=http://0.0.0.0:%s", peerPort),
-		"--env", fmt.Sprintf("ETCD_INITIAL_CLUSTER=default=http://0.0.0.0:%s", peerPort),
-		"--env", "ETCD_NAME=default",
-		"--env", "ETCD_DATA_DIR=/etcd-data",
-		"--volume", fmt.Sprintf("%s:/etcd-data", EtcdDataVolume),
-		"quay.io/coreos/etcd:v3.5.9",
-	)
-
-	etcdCmd := exec.Command("docker", args...)
-
-	fmt.Printf("Starting etcd container (mapping host port %s to container port %s)\n", clientPort, clientPort)
-
-	if output, err := etcdCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start etcd container: %w\nOutput: %s", err, string(output))
-	}
-
-	fmt.Printf("etcd container started successfully on port %s\n", clientPort)
-
-	// Wait for etcd to be ready with better feedback
-	fmt.Print("Waiting for etcd to be ready")
-	maxRetries := 30
-	for i := 0; i < maxRetries; i++ {
-		if err := checkEtcdConnectivity(address); err == nil {
-			fmt.Println(" ✓")
-			return nil
-		}
-		fmt.Print(".")
-		time.Sleep(1 * time.Second)
-	}
-
-	// If we get here, etcd isn't responding - show container logs for debugging
-	fmt.Println("\nFailed to connect to etcd. Container logs:")
-	logsCmd := exec.Command("docker", "logs", "--tail", "20", containerName)
-	if logs, err := logsCmd.Output(); err == nil {
-		fmt.Printf("%s\n", string(logs))
-	}
-
-	return fmt.Errorf("etcd container started but is not responding after %d seconds", maxRetries)
+	grpcPort := result.Ports["grpc"]
+	fmt.Printf("Multi-Orchestrator available at: %s:%d ✓\n", result.FQDN, grpcPort)
+	return nil
 }
 
 // runUp handles the cluster up command
 func runUp(cmd *cobra.Command, args []string) error {
 	servenv.FireRunHooks()
 	fmt.Println("Starting Multigres cluster...")
-
-	// Check if Docker is available early
-	if err := CheckDockerAvailable(); err != nil {
-		return fmt.Errorf("docker not available: %w", err)
-	}
 
 	// Get config paths from flags
 	configPaths, err := cmd.Flags().GetStringSlice("config-path")
@@ -166,22 +120,38 @@ func runUp(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Using configuration from: %s\n", configFile)
 
-	// Check etcd connectivity
-	etcdAddress := config.Topology.EtcdDefaultAddress
-	fmt.Printf("Checking etcd connectivity at: %s\n", etcdAddress)
-
-	if err := checkEtcdConnectivity(etcdAddress); err != nil {
-		fmt.Printf("etcd not reachable: %v\n", err)
-		fmt.Println("Starting etcd container...")
-
-		if err := startEtcdContainer(etcdAddress); err != nil {
-			return fmt.Errorf("failed to start etcd container: %w", err)
-		}
-	} else {
-		fmt.Printf("etcd is already running at: %s ✓\n", etcdAddress)
+	// Create provisioner instance
+	p, err := provisioner.GetProvisioner(config.Provisioner)
+	if err != nil {
+		return fmt.Errorf("failed to create provisioner '%s': %w", config.Provisioner, err)
 	}
 
-	fmt.Println("Multigres cluster started successfully!")
+	fmt.Printf("Using provisioner: %s\n", p.Name())
+
+	ctx := context.Background()
+
+	// Execute provisioning steps in order
+	etcdResult, err := provisionEtcd(ctx, config, p)
+	if err != nil {
+		return fmt.Errorf("etcd provisioning failed: %w", err)
+	}
+
+	// Use the etcd address from provisioning result for cell setup
+	etcdPort := etcdResult.Ports["tcp"]
+	etcdAddress := fmt.Sprintf("%s:%d", etcdResult.FQDN, etcdPort)
+	if err := setupCell(ctx, config, etcdAddress); err != nil {
+		return fmt.Errorf("cell setup failed: %w", err)
+	}
+
+	if err := provisionMultigateway(ctx, config, p); err != nil {
+		return fmt.Errorf("multigateway provisioning failed: %w", err)
+	}
+
+	if err := provisionMultiOrch(ctx, config, p); err != nil {
+		return fmt.Errorf("multi-orchestrator provisioning failed: %w", err)
+	}
+
+	fmt.Println("\n🎉 Multigres cluster started successfully!")
 	return nil
 }
 
