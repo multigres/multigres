@@ -50,6 +50,8 @@ const (
 	T_AlterForeignServerStmt
 	T_AlterUserMappingStmt
 	T_DropUserMappingStmt
+	T_CreateEventTrigStmt
+	T_AlterEventTrigStmt
 	T_CreateDomainStmt
 	T_DefineStmt
 	T_CreateEnumStmt
@@ -334,6 +336,10 @@ func (nt NodeTag) String() string {
 		return "T_AlterForeignServerStmt"
 	case T_AlterUserMappingStmt:
 		return "T_AlterUserMappingStmt"
+	case T_CreateEventTrigStmt:
+		return "T_CreateEventTrigStmt"
+	case T_AlterEventTrigStmt:
+		return "T_AlterEventTrigStmt"
 	case T_DropUserMappingStmt:
 		return "T_DropUserMappingStmt"
 	case T_CreateDomainStmt:

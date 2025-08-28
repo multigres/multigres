@@ -510,6 +510,43 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "ALTER USER MAPPING FOR alice SERVER myserver OPTIONS (ADD timeout '30')",
 		},
 
+		// CREATE EVENT TRIGGER tests
+		{
+			name: "CREATE EVENT TRIGGER basic",
+			sql:  "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_start EXECUTE FUNCTION my_trigger_func()",
+		},
+		{
+			name: "CREATE EVENT TRIGGER with WHEN clause",
+			sql:  "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_start WHEN tag IN ('CREATE TABLE', 'ALTER TABLE') EXECUTE FUNCTION my_trigger_func()",
+		},
+		{
+			name: "CREATE EVENT TRIGGER with multiple WHEN conditions",
+			sql:  "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_start WHEN tag IN ('CREATE TABLE') AND schema IN ('public') EXECUTE FUNCTION my_trigger_func()",
+		},
+		{
+			name: "CREATE EVENT TRIGGER using PROCEDURE",
+			sql:      "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_end EXECUTE PROCEDURE my_trigger_proc()",
+			expected: "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_end EXECUTE FUNCTION my_trigger_proc()",
+		},
+
+		// ALTER EVENT TRIGGER tests
+		{
+			name: "ALTER EVENT TRIGGER ENABLE",
+			sql:  "ALTER EVENT TRIGGER my_event_trigger ENABLE",
+		},
+		{
+			name: "ALTER EVENT TRIGGER ENABLE REPLICA",
+			sql:  "ALTER EVENT TRIGGER my_event_trigger ENABLE REPLICA",
+		},
+		{
+			name: "ALTER EVENT TRIGGER ENABLE ALWAYS",
+			sql:  "ALTER EVENT TRIGGER my_event_trigger ENABLE ALWAYS",
+		},
+		{
+			name: "ALTER EVENT TRIGGER DISABLE",
+			sql:  "ALTER EVENT TRIGGER my_event_trigger DISABLE",
+		},
+
 		// DROP User Mapping tests
 		{
 			name: "DROP USER MAPPING basic",

@@ -408,6 +408,12 @@ type LexerInterface interface {
 %type <stmt>         CreateFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
 %type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt
 %type <stmt>         CreateDomainStmt AlterDomainStmt DefineStmt AlterEnumStmt CreateSeqStmt AlterSeqStmt CreateExtensionStmt AlterExtensionStmt AlterExtensionContentsStmt
+%type <stmt>         CreateEventTrigStmt AlterEventTrigStmt
+/* TODO: Add type declarations for remaining CREATE statements 
+%type <stmt>         CreateTableSpaceStmt AlterTblSpcStmt CreatePolicyStmt AlterPolicyStmt
+%type <stmt>         CreateAmStmt CreateStatsStmt AlterStatsStmt CreatePublicationStmt AlterPublicationStmt CreateSubscriptionStmt AlterSubscriptionStmt
+%type <stmt>         CreateCastStmt CreateOpClassStmt CreateOpFamilyStmt AlterOpFamilyStmt CreateConversionStmt CreateTransformStmt CreatePLangStmt
+*/
 %type <stmt>         CreateFdwStmt AlterFdwStmt CreateForeignServerStmt AlterForeignServerStmt CreateForeignTableStmt CreateUserMappingStmt AlterUserMappingStmt DropUserMappingStmt
 %type <list>         definition def_list opt_enum_val_list enum_val_list
 %type <list>         OptSeqOptList OptParenthesizedSeqOptList SeqOptList create_extension_opt_list alter_extension_opt_list
@@ -417,6 +423,9 @@ type LexerInterface interface {
 %type <str>          opt_type foreign_server_version opt_foreign_server_version
 %type <rolespec>     auth_ident
 %type <list>         handler_name
+%type <list>         event_trigger_when_list event_trigger_value_list
+%type <defelt>       event_trigger_when_item
+%type <ival>         enable_trigger
 %type <ival>         add_drop
 %type <list>         aggr_args aggr_args_list old_aggr_definition old_aggr_list
 %type <defelt>       def_elem old_aggr_elem
@@ -550,6 +559,28 @@ stmt:
 		|	CreateUserMappingStmt					{ $$ = $1 }
 		|	AlterUserMappingStmt					{ $$ = $1 }
 		|	DropUserMappingStmt						{ $$ = $1 }
+		|	CreateEventTrigStmt						{ $$ = $1 }
+		|	AlterEventTrigStmt						{ $$ = $1 }
+		/* TODO: Implement remaining CREATE statements
+		|	CreateTableSpaceStmt					{ $$ = $1 }
+		|	AlterTblSpcStmt							{ $$ = $1 }
+		|	CreatePolicyStmt						{ $$ = $1 }
+		|	AlterPolicyStmt							{ $$ = $1 }
+		|	CreateAmStmt							{ $$ = $1 }
+		|	CreateStatsStmt							{ $$ = $1 }
+		|	AlterStatsStmt							{ $$ = $1 }
+		|	CreatePublicationStmt					{ $$ = $1 }
+		|	AlterPublicationStmt					{ $$ = $1 }
+		|	CreateSubscriptionStmt					{ $$ = $1 }
+		|	AlterSubscriptionStmt					{ $$ = $1 }
+		|	CreateCastStmt							{ $$ = $1 }
+		|	CreateOpClassStmt						{ $$ = $1 }
+		|	CreateOpFamilyStmt						{ $$ = $1 }
+		|	AlterOpFamilyStmt						{ $$ = $1 }
+		|	CreateConversionStmt					{ $$ = $1 }
+		|	CreateTransformStmt						{ $$ = $1 }
+		|	CreatePLangStmt							{ $$ = $1 }
+		*/
 		|	VariableSetStmt							{ $$ = $1 }
 		|	VariableResetStmt						{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
@@ -9559,6 +9590,69 @@ def_list:
 def_elem:
 			ColLabel					{ $$ = ast.NewDefElem($1, nil) }
 		|	ColLabel '=' def_arg		{ $$ = ast.NewDefElem($1, $3) }
+		;
+
+/*****************************************************************************
+ *
+ * CREATE/ALTER EVENT TRIGGER support
+ *
+ *****************************************************************************/
+
+CreateEventTrigStmt:
+		CREATE EVENT TRIGGER name ON ColLabel EXECUTE FUNCTION_or_PROCEDURE func_name '(' ')'
+			{
+				$$ = ast.NewCreateEventTrigStmt($4, $6, $9, nil)
+			}
+	|	CREATE EVENT TRIGGER name ON ColLabel WHEN event_trigger_when_list EXECUTE FUNCTION_or_PROCEDURE func_name '(' ')'
+			{
+				$$ = ast.NewCreateEventTrigStmt($4, $6, $11, $8)
+			}
+
+AlterEventTrigStmt:
+		ALTER EVENT TRIGGER name enable_trigger
+			{
+				$$ = ast.NewAlterEventTrigStmt($4, ast.TriggerFires($5))
+			}
+
+
+enable_trigger:
+		ENABLE_P				{ $$ = int(ast.TRIGGER_FIRES_ON_ORIGIN) }
+	|	ENABLE_P REPLICA		{ $$ = int(ast.TRIGGER_FIRES_ON_REPLICA) }
+	|	ENABLE_P ALWAYS			{ $$ = int(ast.TRIGGER_FIRES_ALWAYS) }
+	|	DISABLE_P				{ $$ = int(ast.TRIGGER_DISABLED) }
+	;
+
+event_trigger_when_list:
+		event_trigger_when_item
+			{
+				$$ = ast.NewNodeList()
+				$$.Append($1)
+			}
+	|	event_trigger_when_list AND event_trigger_when_item
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+		;
+
+event_trigger_when_item:
+		ColId IN_P '(' event_trigger_value_list ')'
+			{
+				$$ = ast.NewDefElem($1, $4)
+			}
+		;
+
+event_trigger_value_list:
+		SCONST
+			{
+				$$ = ast.NewNodeList()
+				$$.Append(ast.NewString($1))
+			}
+	|	event_trigger_value_list ',' SCONST
+			{
+				$1.Append(ast.NewString($3))
+				$$ = $1
+			}
 		;
 
 %%

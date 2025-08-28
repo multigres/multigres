@@ -2627,3 +2627,134 @@ func (d *DropUserMappingStmt) SqlString() string {
 
 	return strings.Join(parts, " ")
 }
+
+// Event trigger constants
+type TriggerFires int
+
+const (
+	TRIGGER_FIRES_ON_ORIGIN TriggerFires = iota
+	TRIGGER_FIRES_ON_REPLICA
+	TRIGGER_FIRES_ALWAYS
+	TRIGGER_DISABLED
+)
+
+// ==============================================================================
+// EVENT TRIGGER STATEMENTS
+// ==============================================================================
+
+// CreateEventTrigStmt represents CREATE EVENT TRIGGER statement
+// Ported from postgres/src/include/nodes/parsenodes.h CreateEventTrigStmt
+type CreateEventTrigStmt struct {
+	BaseNode
+	TrigName   string    `json:"trigname"`   // event trigger name
+	EventName  string    `json:"eventname"`  // event name (e.g., ddl_command_start)
+	FuncName   *NodeList `json:"funcname"`   // function name
+	WhenClause *NodeList `json:"whenclause"` // WHEN clause conditions
+}
+
+// NewCreateEventTrigStmt creates a new CreateEventTrigStmt node
+func NewCreateEventTrigStmt(trigname string, eventname string, funcname *NodeList, whenclause *NodeList) *CreateEventTrigStmt {
+	return &CreateEventTrigStmt{
+		BaseNode:   BaseNode{Tag: T_CreateEventTrigStmt},
+		TrigName:   trigname,
+		EventName:  eventname,
+		FuncName:   funcname,
+		WhenClause: whenclause,
+	}
+}
+
+func (c *CreateEventTrigStmt) StatementType() string {
+	return "CreateEventTrigStmt"
+}
+
+func (c *CreateEventTrigStmt) String() string {
+	return fmt.Sprintf("CreateEventTrigStmt(%s ON %s)@%d", c.TrigName, c.EventName, c.Location())
+}
+
+// SqlString returns the SQL representation of CreateEventTrigStmt
+func (c *CreateEventTrigStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "CREATE EVENT TRIGGER", c.TrigName, "ON", c.EventName)
+	
+	// Add WHEN clause if present
+	if c.WhenClause != nil && c.WhenClause.Len() > 0 {
+		var whenParts []string
+		for _, item := range c.WhenClause.Items {
+			if defElem, ok := item.(*DefElem); ok {
+				// Format as "defname IN (value1, value2, ...)"
+				if defElem.Arg != nil {
+					if valueList, ok := defElem.Arg.(*NodeList); ok {
+						var values []string
+						for _, val := range valueList.Items {
+							if strVal, ok := val.(*String); ok {
+								values = append(values, "'"+strVal.SVal+"'")
+							}
+						}
+						whenParts = append(whenParts, defElem.Defname+" IN ("+strings.Join(values, ", ")+")")
+					}
+				}
+			}
+		}
+		if len(whenParts) > 0 {
+			parts = append(parts, "WHEN", strings.Join(whenParts, " AND "))
+		}
+	}
+	
+	parts = append(parts, "EXECUTE FUNCTION")
+	if c.FuncName != nil {
+		var funcParts []string
+		for _, item := range c.FuncName.Items {
+			if strNode, ok := item.(*String); ok {
+				funcParts = append(funcParts, strNode.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(funcParts, ".")+"()")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// AlterEventTrigStmt represents ALTER EVENT TRIGGER statement
+// Ported from postgres/src/include/nodes/parsenodes.h AlterEventTrigStmt
+type AlterEventTrigStmt struct {
+	BaseNode
+	TrigName  string       `json:"trigname"`  // event trigger name
+	TgEnabled TriggerFires `json:"tgenabled"` // enable/disable state
+}
+
+// NewAlterEventTrigStmt creates a new AlterEventTrigStmt node
+func NewAlterEventTrigStmt(trigname string, tgenabled TriggerFires) *AlterEventTrigStmt {
+	return &AlterEventTrigStmt{
+		BaseNode:  BaseNode{Tag: T_AlterEventTrigStmt},
+		TrigName:  trigname,
+		TgEnabled: tgenabled,
+	}
+}
+
+func (a *AlterEventTrigStmt) StatementType() string {
+	return "AlterEventTrigStmt"
+}
+
+func (a *AlterEventTrigStmt) String() string {
+	return fmt.Sprintf("AlterEventTrigStmt(%s)@%d", a.TrigName, a.Location())
+}
+
+// SqlString returns the SQL representation of AlterEventTrigStmt
+func (a *AlterEventTrigStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER EVENT TRIGGER", a.TrigName)
+	
+	switch a.TgEnabled {
+	case TRIGGER_FIRES_ON_ORIGIN:
+		parts = append(parts, "ENABLE")
+	case TRIGGER_FIRES_ON_REPLICA:
+		parts = append(parts, "ENABLE REPLICA")
+	case TRIGGER_FIRES_ALWAYS:
+		parts = append(parts, "ENABLE ALWAYS")
+	case TRIGGER_DISABLED:
+		parts = append(parts, "DISABLE")
+	}
+	
+	return strings.Join(parts, " ")
+}
+

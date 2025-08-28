@@ -485,12 +485,12 @@
 - ✅ `DropUserMappingStmt` - DROP USER MAPPING
 
 ### CREATE EVENT TRIGGER
-- ⬜ `CreateEventTrigStmt` - CREATE EVENT TRIGGER
-- ⬜ `AlterEventTrigStmt` - ALTER EVENT TRIGGER
+- ✅ `CreateEventTrigStmt` - CREATE EVENT TRIGGER
+- ✅ `AlterEventTrigStmt` - ALTER EVENT TRIGGER
 - ⬜ `event` - Event specification
-- ⬜ `event_trigger_when_list` - Event trigger conditions
-- ⬜ `event_trigger_when_item` - Single condition
-- ⬜ `event_trigger_value_list` - Event trigger values
+- ✅ `event_trigger_when_list` - Event trigger conditions
+- ✅ `event_trigger_when_item` - Single condition
+- ✅ `event_trigger_value_list` - Event trigger values
 
 ### Other CREATE Statements
 - ⬜ `CreateTableSpaceStmt` - CREATE TABLESPACE
