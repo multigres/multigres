@@ -509,6 +509,22 @@ func (r *RoleSpec) String() string {
 	return fmt.Sprintf("RoleSpec(%s)@%d", r.Roletype, r.Location())
 }
 
+// SqlString returns the SQL representation of the role specification
+func (r *RoleSpec) SqlString() string {
+	switch r.Roletype {
+	case ROLESPEC_CSTRING:
+		return r.Rolename
+	case ROLESPEC_CURRENT_USER:
+		return "current_user"
+	case ROLESPEC_SESSION_USER:
+		return "session_user"
+	case ROLESPEC_PUBLIC:
+		return "public"
+	default:
+		return r.Rolename
+	}
+}
+
 // ==============================================================================
 // CORE DDL SUPPORTING STRUCTURES
 // ==============================================================================
@@ -2203,6 +2219,411 @@ func (i *IndexStmt) SqlString() string {
 	if i.WhereClause != nil {
 		parts = append(parts, "WHERE", i.WhereClause.SqlString())
 	}
+
+	return strings.Join(parts, " ")
+}
+
+// ==============================================================================
+// FOREIGN DATA WRAPPER AST NODES
+// ==============================================================================
+
+// CreateFdwStmt represents CREATE FOREIGN DATA WRAPPER statement
+// Ported from postgres/src/include/nodes/parsenodes.h CreateFdwStmt
+type CreateFdwStmt struct {
+	BaseNode
+	FdwName     string    `json:"fdwname"`     // foreign data wrapper name
+	FuncOptions *NodeList `json:"func_options"` // HANDLER/VALIDATOR options  
+	Options     *NodeList `json:"options"`     // OPTIONS clause
+}
+
+// NewCreateFdwStmt creates a new CreateFdwStmt node
+func NewCreateFdwStmt(fdwname string, funcOptions, options *NodeList) *CreateFdwStmt {
+	return &CreateFdwStmt{
+		BaseNode:    BaseNode{Tag: T_CreateFdwStmt},
+		FdwName:     fdwname,
+		FuncOptions: funcOptions,
+		Options:     options,
+	}
+}
+
+func (c *CreateFdwStmt) StatementType() string {
+	return "CreateFdwStmt"
+}
+
+func (c *CreateFdwStmt) String() string {
+	return fmt.Sprintf("CreateFdwStmt(%s)@%d", c.FdwName, c.Location())
+}
+
+// SqlString returns the SQL representation of CreateFdwStmt
+func (c *CreateFdwStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "CREATE FOREIGN DATA WRAPPER", c.FdwName)
+
+	// Add HANDLER/VALIDATOR options
+	if c.FuncOptions != nil && c.FuncOptions.Len() > 0 {
+		for _, item := range c.FuncOptions.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				// Special handling for HANDLER and VALIDATOR
+				switch opt.Defname {
+				case "handler":
+					if opt.Arg != nil {
+						if nodeList, ok := opt.Arg.(*NodeList); ok {
+							// Handle qualified function names (schema.function)
+							var funcParts []string
+							for _, funcItem := range nodeList.Items {
+								if strNode, ok := funcItem.(*String); ok {
+									funcParts = append(funcParts, strNode.SVal)
+								}
+							}
+							parts = append(parts, "HANDLER", strings.Join(funcParts, "."))
+						} else {
+							parts = append(parts, "HANDLER", opt.Arg.SqlString())
+						}
+					}
+				case "validator":
+					if opt.Arg != nil {
+						if nodeList, ok := opt.Arg.(*NodeList); ok {
+							// Handle qualified function names (schema.function)
+							var funcParts []string
+							for _, funcItem := range nodeList.Items {
+								if strNode, ok := funcItem.(*String); ok {
+									funcParts = append(funcParts, strNode.SVal)
+								}
+							}
+							parts = append(parts, "VALIDATOR", strings.Join(funcParts, "."))
+						} else {
+							parts = append(parts, "VALIDATOR", opt.Arg.SqlString())
+						}
+					}
+				default:
+					// For other options, use the standard format
+					parts = append(parts, opt.SqlString())
+				}
+			}
+		}
+	}
+
+	// Add OPTIONS clause
+	if c.Options != nil && c.Options.Len() > 0 {
+		var optParts []string
+		for _, item := range c.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				// For generic options, use PostgreSQL format: key 'value' (no =)
+				if opt.Arg != nil {
+					optParts = append(optParts, opt.Defname+" "+opt.Arg.SqlString())
+				} else {
+					optParts = append(optParts, opt.Defname)
+				}
+			}
+		}
+		parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// AlterFdwStmt represents ALTER FOREIGN DATA WRAPPER statement
+// Ported from postgres/src/include/nodes/parsenodes.h AlterFdwStmt
+type AlterFdwStmt struct {
+	BaseNode
+	FdwName     string    `json:"fdwname"`     // foreign data wrapper name
+	FuncOptions *NodeList `json:"func_options"` // HANDLER/VALIDATOR options
+	Options     *NodeList `json:"options"`     // OPTIONS clause
+}
+
+// NewAlterFdwStmt creates a new AlterFdwStmt node
+func NewAlterFdwStmt(fdwname string, funcOptions, options *NodeList) *AlterFdwStmt {
+	return &AlterFdwStmt{
+		BaseNode:    BaseNode{Tag: T_AlterFdwStmt},
+		FdwName:     fdwname,
+		FuncOptions: funcOptions,
+		Options:     options,
+	}
+}
+
+func (a *AlterFdwStmt) StatementType() string {
+	return "AlterFdwStmt"
+}
+
+func (a *AlterFdwStmt) String() string {
+	return fmt.Sprintf("AlterFdwStmt(%s)@%d", a.FdwName, a.Location())
+}
+
+// SqlString returns the SQL representation of AlterFdwStmt
+func (a *AlterFdwStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER FOREIGN DATA WRAPPER", a.FdwName)
+
+	// Add HANDLER/VALIDATOR options
+	if a.FuncOptions != nil && a.FuncOptions.Len() > 0 {
+		for _, item := range a.FuncOptions.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				// Special handling for HANDLER and VALIDATOR
+				switch opt.Defname {
+				case "handler":
+					if opt.Arg != nil {
+						if nodeList, ok := opt.Arg.(*NodeList); ok {
+							// Handle qualified function names (schema.function)
+							var funcParts []string
+							for _, funcItem := range nodeList.Items {
+								if strNode, ok := funcItem.(*String); ok {
+									funcParts = append(funcParts, strNode.SVal)
+								}
+							}
+							parts = append(parts, "HANDLER", strings.Join(funcParts, "."))
+						} else {
+							parts = append(parts, "HANDLER", opt.Arg.SqlString())
+						}
+					}
+				case "validator":
+					if opt.Arg != nil {
+						if nodeList, ok := opt.Arg.(*NodeList); ok {
+							// Handle qualified function names (schema.function)
+							var funcParts []string
+							for _, funcItem := range nodeList.Items {
+								if strNode, ok := funcItem.(*String); ok {
+									funcParts = append(funcParts, strNode.SVal)
+								}
+							}
+							parts = append(parts, "VALIDATOR", strings.Join(funcParts, "."))
+						} else {
+							parts = append(parts, "VALIDATOR", opt.Arg.SqlString())
+						}
+					}
+				default:
+					// For other options, use the standard format
+					parts = append(parts, opt.SqlString())
+				}
+			}
+		}
+	}
+
+	// Add OPTIONS clause
+	if a.Options != nil && a.Options.Len() > 0 {
+		var optParts []string
+		for _, item := range a.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				// For ALTER options, include the action (ADD/SET/DROP) prefix
+				var optStr string
+				switch opt.Defaction {
+				case DEFELEM_ADD:
+					if opt.Arg != nil {
+						optStr = "ADD " + opt.Defname + " " + opt.Arg.SqlString()
+					} else {
+						optStr = "ADD " + opt.Defname
+					}
+				case DEFELEM_SET:
+					if opt.Arg != nil {
+						optStr = "SET " + opt.Defname + " " + opt.Arg.SqlString()
+					} else {
+						optStr = "SET " + opt.Defname
+					}
+				case DEFELEM_DROP:
+					optStr = "DROP " + opt.Defname
+				default:
+					// DEFELEM_UNSPEC or other - use without action prefix
+					if opt.Arg != nil {
+						optStr = opt.Defname + " " + opt.Arg.SqlString()
+					} else {
+						optStr = opt.Defname
+					}
+				}
+				optParts = append(optParts, optStr)
+			}
+		}
+		parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
+	}
+
+	return strings.Join(parts, " ")
+}
+
+
+// AlterForeignServerStmt represents ALTER SERVER statement
+// Ported from postgres/src/include/nodes/parsenodes.h AlterForeignServerStmt
+type AlterForeignServerStmt struct {
+	BaseNode
+	Servername string    `json:"servername"` // server name
+	Version    string    `json:"version"`    // optional server version
+	Options    *NodeList `json:"options"`    // OPTIONS clause
+	HasVersion bool      `json:"has_version"` // whether version was specified
+}
+
+// NewAlterForeignServerStmt creates a new AlterForeignServerStmt node
+func NewAlterForeignServerStmt(servername, version string, options *NodeList, hasVersion bool) *AlterForeignServerStmt {
+	return &AlterForeignServerStmt{
+		BaseNode:   BaseNode{Tag: T_AlterForeignServerStmt},
+		Servername: servername,
+		Version:    version,
+		Options:    options,
+		HasVersion: hasVersion,
+	}
+}
+
+func (a *AlterForeignServerStmt) StatementType() string {
+	return "AlterForeignServerStmt"
+}
+
+func (a *AlterForeignServerStmt) String() string {
+	return fmt.Sprintf("AlterForeignServerStmt(%s)@%d", a.Servername, a.Location())
+}
+
+// SqlString returns the SQL representation of AlterForeignServerStmt
+func (a *AlterForeignServerStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER SERVER", a.Servername)
+
+	if a.HasVersion && a.Version != "" {
+		parts = append(parts, "VERSION", "'"+a.Version+"'")
+	}
+
+	// Add OPTIONS clause
+	if a.Options != nil && a.Options.Len() > 0 {
+		var optParts []string
+		for _, item := range a.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				// For ALTER options, include the action (ADD/SET/DROP) prefix
+				var optStr string
+				switch opt.Defaction {
+				case DEFELEM_ADD:
+					if opt.Arg != nil {
+						optStr = "ADD " + opt.Defname + " " + opt.Arg.SqlString()
+					} else {
+						optStr = "ADD " + opt.Defname
+					}
+				case DEFELEM_SET:
+					if opt.Arg != nil {
+						optStr = "SET " + opt.Defname + " " + opt.Arg.SqlString()
+					} else {
+						optStr = "SET " + opt.Defname
+					}
+				case DEFELEM_DROP:
+					optStr = "DROP " + opt.Defname
+				default:
+					// DEFELEM_UNSPEC or other - use without action prefix
+					if opt.Arg != nil {
+						optStr = opt.Defname + " " + opt.Arg.SqlString()
+					} else {
+						optStr = opt.Defname
+					}
+				}
+				optParts = append(optParts, optStr)
+			}
+		}
+		parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
+	}
+
+	return strings.Join(parts, " ")
+}
+
+
+// AlterUserMappingStmt represents ALTER USER MAPPING statement
+// Ported from postgres/src/include/nodes/parsenodes.h AlterUserMappingStmt
+type AlterUserMappingStmt struct {
+	BaseNode
+	User       *RoleSpec `json:"user"`       // user name or role
+	Servername string    `json:"servername"` // server name
+	Options    *NodeList `json:"options"`    // OPTIONS clause
+}
+
+// NewAlterUserMappingStmt creates a new AlterUserMappingStmt node
+func NewAlterUserMappingStmt(user *RoleSpec, servername string, options *NodeList) *AlterUserMappingStmt {
+	return &AlterUserMappingStmt{
+		BaseNode:   BaseNode{Tag: T_AlterUserMappingStmt},
+		User:       user,
+		Servername: servername,
+		Options:    options,
+	}
+}
+
+func (a *AlterUserMappingStmt) StatementType() string {
+	return "AlterUserMappingStmt"
+}
+
+func (a *AlterUserMappingStmt) String() string {
+	return fmt.Sprintf("AlterUserMappingStmt(%s@%s)@%d", a.User.SqlString(), a.Servername, a.Location())
+}
+
+// SqlString returns the SQL representation of AlterUserMappingStmt
+func (a *AlterUserMappingStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER USER MAPPING FOR", a.User.SqlString(), "SERVER", a.Servername)
+
+	// Add OPTIONS clause
+	if a.Options != nil && a.Options.Len() > 0 {
+		var optParts []string
+		for _, item := range a.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				// For ALTER options, include the action (ADD/SET/DROP) prefix
+				var optStr string
+				switch opt.Defaction {
+				case DEFELEM_ADD:
+					if opt.Arg != nil {
+						optStr = "ADD " + opt.Defname + " " + opt.Arg.SqlString()
+					} else {
+						optStr = "ADD " + opt.Defname
+					}
+				case DEFELEM_SET:
+					if opt.Arg != nil {
+						optStr = "SET " + opt.Defname + " " + opt.Arg.SqlString()
+					} else {
+						optStr = "SET " + opt.Defname
+					}
+				case DEFELEM_DROP:
+					optStr = "DROP " + opt.Defname
+				default:
+					// DEFELEM_UNSPEC or other - use without action prefix
+					if opt.Arg != nil {
+						optStr = opt.Defname + " " + opt.Arg.SqlString()
+					} else {
+						optStr = opt.Defname
+					}
+				}
+				optParts = append(optParts, optStr)
+			}
+		}
+		parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// DropUserMappingStmt represents DROP USER MAPPING statement
+// Ported from postgres/src/include/nodes/parsenodes.h DropUserMappingStmt
+type DropUserMappingStmt struct {
+	BaseNode
+	User       *RoleSpec `json:"user"`        // user name or role
+	Servername string    `json:"servername"`  // server name
+	MissingOk  bool      `json:"missing_ok"`  // IF EXISTS option
+}
+
+// NewDropUserMappingStmt creates a new DropUserMappingStmt node
+func NewDropUserMappingStmt(user *RoleSpec, servername string, missingOk bool) *DropUserMappingStmt {
+	return &DropUserMappingStmt{
+		BaseNode:   BaseNode{Tag: T_DropUserMappingStmt},
+		User:       user,
+		Servername: servername,
+		MissingOk:  missingOk,
+	}
+}
+
+func (d *DropUserMappingStmt) StatementType() string {
+	return "DropUserMappingStmt"
+}
+
+func (d *DropUserMappingStmt) String() string {
+	return fmt.Sprintf("DropUserMappingStmt(%s@%s)@%d", d.User.SqlString(), d.Servername, d.Location())
+}
+
+// SqlString returns the SQL representation of DropUserMappingStmt
+func (d *DropUserMappingStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "DROP USER MAPPING")
+	
+	if d.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+
+	parts = append(parts, "FOR", d.User.SqlString(), "SERVER", d.Servername)
 
 	return strings.Join(parts, " ")
 }

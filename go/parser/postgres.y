@@ -408,9 +408,15 @@ type LexerInterface interface {
 %type <stmt>         CreateFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
 %type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt
 %type <stmt>         CreateDomainStmt AlterDomainStmt DefineStmt AlterEnumStmt CreateSeqStmt AlterSeqStmt CreateExtensionStmt AlterExtensionStmt AlterExtensionContentsStmt
+%type <stmt>         CreateFdwStmt AlterFdwStmt CreateForeignServerStmt AlterForeignServerStmt CreateForeignTableStmt CreateUserMappingStmt AlterUserMappingStmt DropUserMappingStmt
 %type <list>         definition def_list opt_enum_val_list enum_val_list
 %type <list>         OptSeqOptList OptParenthesizedSeqOptList SeqOptList create_extension_opt_list alter_extension_opt_list
 %type <defelt>       SeqOptElem create_extension_opt_item alter_extension_opt_item
+%type <list>         opt_fdw_options fdw_options
+%type <defelt>       fdw_option
+%type <str>          opt_type foreign_server_version opt_foreign_server_version
+%type <rolespec>     auth_ident
+%type <list>         handler_name
 %type <ival>         add_drop
 %type <list>         aggr_args aggr_args_list old_aggr_definition old_aggr_list
 %type <defelt>       def_elem old_aggr_elem
@@ -536,6 +542,14 @@ stmt:
 		|	CreateExtensionStmt						{ $$ = $1 }
 		|	AlterExtensionStmt						{ $$ = $1 }
 		|	AlterExtensionContentsStmt				{ $$ = $1 }
+		|	CreateFdwStmt							{ $$ = $1 }
+		|	AlterFdwStmt							{ $$ = $1 }
+		|	CreateForeignServerStmt					{ $$ = $1 }
+		|	AlterForeignServerStmt					{ $$ = $1 }
+		|	CreateForeignTableStmt					{ $$ = $1 }
+		|	CreateUserMappingStmt					{ $$ = $1 }
+		|	AlterUserMappingStmt					{ $$ = $1 }
+		|	DropUserMappingStmt						{ $$ = $1 }
 		|	VariableSetStmt							{ $$ = $1 }
 		|	VariableResetStmt						{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
@@ -8833,6 +8847,173 @@ AlterExtensionContentsStmt:
 add_drop:		ADD_P			{ $$ = 1 }
 		|		DROP			{ $$ = 0 }
 		;
+
+/*****************************************************************************
+ *
+ * FOREIGN DATA WRAPPER support
+ *
+ *****************************************************************************/
+
+CreateFdwStmt: CREATE FOREIGN DATA_P WRAPPER name opt_fdw_options create_generic_options
+			{
+				$$ = ast.NewCreateFdwStmt($5, $6, $7)
+			}
+		;
+
+AlterFdwStmt: ALTER FOREIGN DATA_P WRAPPER name opt_fdw_options alter_generic_options
+			{
+				$$ = ast.NewAlterFdwStmt($5, $6, $7)
+			}
+		| ALTER FOREIGN DATA_P WRAPPER name fdw_options
+			{
+				$$ = ast.NewAlterFdwStmt($5, $6, nil)
+			}
+		;
+
+fdw_option:
+		HANDLER handler_name			{ $$ = ast.NewDefElem("handler", $2) }
+	|	NO HANDLER						{ $$ = ast.NewDefElem("handler", nil) }
+	|	VALIDATOR handler_name			{ $$ = ast.NewDefElem("validator", $2) }
+	|	NO VALIDATOR					{ $$ = ast.NewDefElem("validator", nil) }
+	;
+
+fdw_options:
+		fdw_option						{ $$ = ast.NewNodeList($1) }
+	|	fdw_options fdw_option			{ $1.Append($2); $$ = $1 }
+	;
+
+opt_fdw_options:
+		fdw_options						{ $$ = $1 }
+	|	/* EMPTY */						{ $$ = nil }
+	;
+
+handler_name:
+		name							{ $$ = ast.NewNodeList(ast.NewString($1)) }
+	|	name attrs						{ 
+										result := ast.NewNodeList(ast.NewString($1))
+										for _, item := range $2.Items {
+											result.Append(item)
+										}
+										$$ = result
+									}
+	;
+
+/*****************************************************************************
+ *
+ * CREATE/ALTER FOREIGN SERVER support
+ *
+ *****************************************************************************/
+
+CreateForeignServerStmt: CREATE SERVER name opt_type opt_foreign_server_version
+						 FOREIGN DATA_P WRAPPER name create_generic_options
+			{
+				$$ = ast.NewCreateForeignServerStmt($3, $4, $5, $9, $10, false)
+			}
+		| CREATE SERVER IF_P NOT EXISTS name opt_type opt_foreign_server_version
+						 FOREIGN DATA_P WRAPPER name create_generic_options
+			{
+				$$ = ast.NewCreateForeignServerStmt($6, $7, $8, $12, $13, true)
+			}
+		;
+
+AlterForeignServerStmt: ALTER SERVER name foreign_server_version alter_generic_options
+			{
+				$$ = ast.NewAlterForeignServerStmt($3, $4, $5, true)
+			}
+		| ALTER SERVER name foreign_server_version
+			{
+				$$ = ast.NewAlterForeignServerStmt($3, $4, nil, true)
+			}
+		| ALTER SERVER name alter_generic_options
+			{
+				$$ = ast.NewAlterForeignServerStmt($3, "", $4, false)
+			}
+		;
+
+opt_type:
+		TYPE_P Sconst				{ $$ = $2 }
+	|	/* EMPTY */					{ $$ = "" }
+	;
+
+foreign_server_version:
+		VERSION_P Sconst			{ $$ = $2 }
+	|	VERSION_P NULL_P			{ $$ = "" }
+	;
+
+opt_foreign_server_version:
+		foreign_server_version		{ $$ = $1 }
+	|	/* EMPTY */					{ $$ = "" }
+	;
+
+/*****************************************************************************
+ *
+ * CREATE FOREIGN TABLE support
+ *
+ *****************************************************************************/
+
+CreateForeignTableStmt:
+		CREATE FOREIGN TABLE qualified_name
+			'(' OptTableElementList ')'
+			OptInherit SERVER name create_generic_options
+			{
+				$$ = ast.NewCreateForeignTableStmt($4, $6, $8, $10, $11, nil, false)
+			}
+	|	CREATE FOREIGN TABLE IF_P NOT EXISTS qualified_name
+			'(' OptTableElementList ')'
+			OptInherit SERVER name create_generic_options
+			{
+				$$ = ast.NewCreateForeignTableStmt($7, $9, $11, $13, $14, nil, true)
+			}
+	|	CREATE FOREIGN TABLE qualified_name
+			PARTITION OF qualified_name OptTypedTableElementList PartitionBoundSpec
+			SERVER name create_generic_options
+			{
+				$$ = ast.NewCreateForeignTableStmt($4, $8, ast.NewNodeList($7), $11, $12, $9, false)
+			}
+	|	CREATE FOREIGN TABLE IF_P NOT EXISTS qualified_name
+			PARTITION OF qualified_name OptTypedTableElementList PartitionBoundSpec
+			SERVER name create_generic_options
+			{
+				$$ = ast.NewCreateForeignTableStmt($7, $11, ast.NewNodeList($10), $14, $15, $12, true)
+			}
+	;
+
+/*****************************************************************************
+ *
+ * CREATE/ALTER/DROP USER MAPPING support
+ *
+ *****************************************************************************/
+
+CreateUserMappingStmt: CREATE USER MAPPING FOR auth_ident SERVER name create_generic_options
+			{
+				$$ = ast.NewCreateUserMappingStmt($5, $7, $8, false)
+			}
+		| CREATE USER MAPPING IF_P NOT EXISTS FOR auth_ident SERVER name create_generic_options
+			{
+				$$ = ast.NewCreateUserMappingStmt($8, $10, $11, true)
+			}
+		;
+
+AlterUserMappingStmt: ALTER USER MAPPING FOR auth_ident SERVER name alter_generic_options
+			{
+				$$ = ast.NewAlterUserMappingStmt($5, $7, $8)
+			}
+		;
+
+DropUserMappingStmt: DROP USER MAPPING FOR auth_ident SERVER name
+			{
+				$$ = ast.NewDropUserMappingStmt($5, $7, false)
+			}
+		| DROP USER MAPPING IF_P EXISTS FOR auth_ident SERVER name
+			{
+				$$ = ast.NewDropUserMappingStmt($7, $9, true)
+			}
+		;
+
+auth_ident: 
+		RoleSpec					{ $$ = $1 }
+	|	USER						{ $$ = ast.NewRoleSpec(ast.ROLESPEC_CURRENT_USER, "") }
+	;
 
 aggr_args:
 		'(' '*' ')'

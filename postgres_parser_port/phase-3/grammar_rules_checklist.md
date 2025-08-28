@@ -466,23 +466,23 @@
 - ✅ `AlterExtensionContentsStmt` - ALTER EXTENSION contents
 
 ### CREATE FOREIGN DATA WRAPPER
-- ⬜ `CreateFdwStmt` - CREATE FOREIGN DATA WRAPPER
-- ⬜ `AlterFdwStmt` - ALTER FOREIGN DATA WRAPPER
-- ⬜ `fdw_options` - FDW options
-- ⬜ `fdw_option` - Single FDW option
-- ⬜ `opt_fdw_options` - Optional FDW options
+- ✅ `CreateFdwStmt` - CREATE FOREIGN DATA WRAPPER
+- ✅ `AlterFdwStmt` - ALTER FOREIGN DATA WRAPPER
+- ✅ `fdw_options` - FDW options
+- ✅ `fdw_option` - Single FDW option
+- ✅ `opt_fdw_options` - Optional FDW options
 
 ### CREATE FOREIGN TABLE
-- ⬜ `CreateForeignTableStmt` - CREATE FOREIGN TABLE
-- ⬜ `CreateForeignServerStmt` - CREATE SERVER
-- ⬜ `AlterForeignServerStmt` - ALTER SERVER
-- ⬜ `foreign_server_version` - Server version
-- ⬜ `opt_foreign_server_version` - Optional version
+- ✅ `CreateForeignTableStmt` - CREATE FOREIGN TABLE
+- ✅ `CreateForeignServerStmt` - CREATE SERVER
+- ✅ `AlterForeignServerStmt` - ALTER SERVER
+- ✅ `foreign_server_version` - Server version
+- ✅ `opt_foreign_server_version` - Optional version
 
 ### CREATE USER MAPPING
-- ⬜ `CreateUserMappingStmt` - CREATE USER MAPPING
-- ⬜ `AlterUserMappingStmt` - ALTER USER MAPPING
-- ⬜ `DropUserMappingStmt` - DROP USER MAPPING
+- ✅ `CreateUserMappingStmt` - CREATE USER MAPPING
+- ✅ `AlterUserMappingStmt` - ALTER USER MAPPING
+- ✅ `DropUserMappingStmt` - DROP USER MAPPING
 
 ### CREATE EVENT TRIGGER
 - ⬜ `CreateEventTrigStmt` - CREATE EVENT TRIGGER

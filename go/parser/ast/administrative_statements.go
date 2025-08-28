@@ -419,22 +419,21 @@ type CreateForeignServerStmt struct {
 }
 
 // NewCreateForeignServerStmt creates a new CreateForeignServerStmt node.
-func NewCreateForeignServerStmt(servername, fdwname string) *CreateForeignServerStmt {
-	return &CreateForeignServerStmt{
-		BaseNode:   BaseNode{Tag: T_CreateForeignServerStmt},
-		Servername: servername,
-		Fdwname:    fdwname,
-	}
-}
-
-// NewCreateForeignServerIfNotExistsStmt creates a CREATE FOREIGN SERVER IF NOT EXISTS statement.
-func NewCreateForeignServerIfNotExistsStmt(servername, fdwname string) *CreateForeignServerStmt {
+// NewCreateForeignServerStmt creates a new CreateForeignServerStmt node.
+func NewCreateForeignServerStmt(servername, servertype, version, fdwname string, options *NodeList, ifNotExists bool) *CreateForeignServerStmt {
 	return &CreateForeignServerStmt{
 		BaseNode:    BaseNode{Tag: T_CreateForeignServerStmt},
 		Servername:  servername,
+		Servertype:  servertype,
+		Version:     version,
 		Fdwname:     fdwname,
-		IfNotExists: true,
+		Options:     options,
+		IfNotExists: ifNotExists,
 	}
+}
+
+func (cfss *CreateForeignServerStmt) StatementType() string {
+	return "CreateForeignServerStmt"
 }
 
 func (cfss *CreateForeignServerStmt) String() string {
@@ -443,6 +442,51 @@ func (cfss *CreateForeignServerStmt) String() string {
 		ifNotExists = " IF NOT EXISTS"
 	}
 	return fmt.Sprintf("CreateForeignServerStmt(CREATE SERVER%s %s FOREIGN DATA WRAPPER %s)", ifNotExists, cfss.Servername, cfss.Fdwname)
+}
+
+// SqlString returns the SQL representation of the CREATE FOREIGN SERVER statement
+func (cfss *CreateForeignServerStmt) SqlString() string {
+	var parts []string
+	
+	// CREATE SERVER [IF NOT EXISTS]
+	parts = append(parts, "CREATE SERVER")
+	if cfss.IfNotExists {
+		parts = append(parts, "IF NOT EXISTS")
+	}
+	
+	// server name
+	parts = append(parts, cfss.Servername)
+	
+	// TYPE clause
+	if cfss.Servertype != "" {
+		parts = append(parts, "TYPE", "'"+cfss.Servertype+"'")
+	}
+	
+	// VERSION clause  
+	if cfss.Version != "" {
+		parts = append(parts, "VERSION", "'"+cfss.Version+"'")
+	}
+	
+	// FOREIGN DATA WRAPPER
+	parts = append(parts, "FOREIGN DATA WRAPPER", cfss.Fdwname)
+	
+	// OPTIONS clause
+	if cfss.Options != nil && cfss.Options.Len() > 0 {
+		var optParts []string
+		for _, item := range cfss.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				// For generic options, use PostgreSQL format: key 'value' (no =)
+				if opt.Arg != nil {
+					optParts = append(optParts, opt.Defname+" "+opt.Arg.SqlString())
+				} else {
+					optParts = append(optParts, opt.Defname)
+				}
+			}
+		}
+		parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // CreateForeignTableStmt represents CREATE FOREIGN TABLE statements.
@@ -456,16 +500,78 @@ type CreateForeignTableStmt struct {
 }
 
 // NewCreateForeignTableStmt creates a new CreateForeignTableStmt node.
-func NewCreateForeignTableStmt(base *CreateStmt, servername string) *CreateForeignTableStmt {
+// NewCreateForeignTableStmt creates a CreateForeignTableStmt from grammar components.
+func NewCreateForeignTableStmt(relation *RangeVar, tableElts, inhRelations *NodeList, servername string, options *NodeList, partBound *PartitionBoundSpec, ifNotExists bool) *CreateForeignTableStmt {
+	// Create the base CreateStmt
+	base := &CreateStmt{
+		BaseNode:     BaseNode{Tag: T_CreateStmt},
+		Relation:     relation,
+		TableElts:    tableElts,
+		InhRelations: inhRelations,
+		PartBound:    partBound,
+		IfNotExists:  ifNotExists,
+		OnCommit:     ONCOMMIT_NOOP,
+	}
+	
 	return &CreateForeignTableStmt{
 		BaseNode:   BaseNode{Tag: T_CreateForeignTableStmt},
 		Base:       base,
 		Servername: servername,
+		Options:    options,
 	}
+}
+
+func (cfts *CreateForeignTableStmt) StatementType() string {
+	return "CreateForeignTableStmt"
 }
 
 func (cfts *CreateForeignTableStmt) String() string {
 	return fmt.Sprintf("CreateForeignTableStmt(CREATE FOREIGN TABLE %s SERVER %s)", cfts.Base.Relation.RelName, cfts.Servername)
+}
+
+// SqlString returns the SQL representation of the CREATE FOREIGN TABLE statement
+func (cfts *CreateForeignTableStmt) SqlString() string {
+	var parts []string
+	
+	// CREATE FOREIGN TABLE [IF NOT EXISTS]
+	parts = append(parts, "CREATE FOREIGN TABLE")
+	if cfts.Base.IfNotExists {
+		parts = append(parts, "IF NOT EXISTS")
+	}
+	
+	// table name
+	parts = append(parts, cfts.Base.Relation.SqlString())
+	
+	// column definitions
+	if cfts.Base.TableElts != nil && cfts.Base.TableElts.Len() > 0 {
+		parts = append(parts, "("+cfts.Base.TableElts.SqlString()+")")
+	}
+	
+	// INHERITS clause
+	if cfts.Base.InhRelations != nil && cfts.Base.InhRelations.Len() > 0 {
+		parts = append(parts, "INHERITS", "("+cfts.Base.InhRelations.SqlString()+")")
+	}
+	
+	// SERVER clause
+	parts = append(parts, "SERVER", cfts.Servername)
+	
+	// OPTIONS clause
+	if cfts.Options != nil && cfts.Options.Len() > 0 {
+		var optParts []string
+		for _, item := range cfts.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				// For generic options, use PostgreSQL format: key 'value' (no =)
+				if opt.Arg != nil {
+					optParts = append(optParts, opt.Defname+" "+opt.Arg.SqlString())
+				} else {
+					optParts = append(optParts, opt.Defname)
+				}
+			}
+		}
+		parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // CreateUserMappingStmt represents CREATE USER MAPPING statements.
@@ -480,12 +586,19 @@ type CreateUserMappingStmt struct {
 }
 
 // NewCreateUserMappingStmt creates a new CreateUserMappingStmt node.
-func NewCreateUserMappingStmt(user *RoleSpec, servername string) *CreateUserMappingStmt {
+// NewCreateUserMappingStmt creates a new CreateUserMappingStmt node.
+func NewCreateUserMappingStmt(user *RoleSpec, servername string, options *NodeList, ifNotExists bool) *CreateUserMappingStmt {
 	return &CreateUserMappingStmt{
-		BaseNode:   BaseNode{Tag: T_CreateUserMappingStmt},
-		User:       user,
-		Servername: servername,
+		BaseNode:    BaseNode{Tag: T_CreateUserMappingStmt},
+		User:        user,
+		Servername:  servername,
+		Options:     options,
+		IfNotExists: ifNotExists,
 	}
+}
+
+func (cums *CreateUserMappingStmt) StatementType() string {
+	return "CreateUserMappingStmt"
 }
 
 func (cums *CreateUserMappingStmt) String() string {
@@ -494,6 +607,44 @@ func (cums *CreateUserMappingStmt) String() string {
 		ifNotExists = " IF NOT EXISTS"
 	}
 	return fmt.Sprintf("CreateUserMappingStmt(CREATE USER MAPPING%s FOR %s SERVER %s)", ifNotExists, cums.User, cums.Servername)
+}
+
+// SqlString returns the SQL representation of the CREATE USER MAPPING statement
+func (cums *CreateUserMappingStmt) SqlString() string {
+	var parts []string
+	
+	// CREATE USER MAPPING [IF NOT EXISTS]
+	parts = append(parts, "CREATE USER MAPPING")
+	if cums.IfNotExists {
+		parts = append(parts, "IF NOT EXISTS")
+	}
+	
+	// FOR user
+	parts = append(parts, "FOR")
+	if cums.User != nil {
+		parts = append(parts, cums.User.SqlString())
+	}
+	
+	// SERVER name
+	parts = append(parts, "SERVER", cums.Servername)
+	
+	// OPTIONS clause
+	if cums.Options != nil && cums.Options.Len() > 0 {
+		var optParts []string
+		for _, item := range cums.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				// For generic options, use PostgreSQL format: key 'value' (no =)
+				if opt.Arg != nil {
+					optParts = append(optParts, opt.Defname+" "+opt.Arg.SqlString())
+				} else {
+					optParts = append(optParts, opt.Defname)
+				}
+			}
+		}
+		parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // ==============================================================================

@@ -45,6 +45,11 @@ const (
 	T_CreateExtensionStmt
 	T_AlterExtensionStmt
 	T_AlterExtensionContentsStmt
+	T_CreateFdwStmt
+	T_AlterFdwStmt
+	T_AlterForeignServerStmt
+	T_AlterUserMappingStmt
+	T_DropUserMappingStmt
 	T_CreateDomainStmt
 	T_DefineStmt
 	T_CreateEnumStmt
@@ -321,6 +326,16 @@ func (nt NodeTag) String() string {
 		return "T_AlterExtensionStmt"
 	case T_AlterExtensionContentsStmt:
 		return "T_AlterExtensionContentsStmt"
+	case T_CreateFdwStmt:
+		return "T_CreateFdwStmt"
+	case T_AlterFdwStmt:
+		return "T_AlterFdwStmt"
+	case T_AlterForeignServerStmt:
+		return "T_AlterForeignServerStmt"
+	case T_AlterUserMappingStmt:
+		return "T_AlterUserMappingStmt"
+	case T_DropUserMappingStmt:
+		return "T_DropUserMappingStmt"
 	case T_CreateDomainStmt:
 		return "T_CreateDomainStmt"
 	case T_DefineStmt:

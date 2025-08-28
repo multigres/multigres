@@ -147,6 +147,7 @@ var Keywords = []KeywordInfo{
 	{"grant", IDENT, ReservedKeyword, true},
 	{"group", GROUP_P, ReservedKeyword, true},
 
+	{"handler", HANDLER, UnreservedKeyword, true},
 	{"having", IDENT, ReservedKeyword, true},
 
 	{"identity", IDENTITY_P, UnreservedKeyword, true},
@@ -154,6 +155,7 @@ var Keywords = []KeywordInfo{
 	{"in", IN_P, ReservedKeyword, true},
 	{"include", INCLUDE, UnreservedKeyword, true},
 	{"index", INDEX, UnreservedKeyword, true},
+	{"inherits", INHERITS, UnreservedKeyword, true},
 	{"initially", IDENT, ReservedKeyword, true},
 	{"inner", INNER_P, TypeFuncNameKeyword, true},
 	{"inout", INOUT, UnreservedKeyword, true},
@@ -189,6 +191,7 @@ var Keywords = []KeywordInfo{
 	{"limit", IDENT, ReservedKeyword, true},
 	{"local", LOCAL, UnreservedKeyword, true},
 
+	{"mapping", MAPPING, UnreservedKeyword, true},
 	{"matched", MATCHED, UnreservedKeyword, true},
 	{"materialized", MATERIALIZED, UnreservedKeyword, true},
 	{"merge", MERGE, ReservedKeyword, false},
@@ -211,6 +214,7 @@ var Keywords = []KeywordInfo{
 	{"only", ONLY, ReservedKeyword, true},
 	{"operator", OPERATOR, UnreservedKeyword, true},
 	{"option", OPTION, UnreservedKeyword, true},
+	{"options", OPTIONS, UnreservedKeyword, true},
 	{"or", OR, ReservedKeyword, true},
 	{"order", IDENT, ReservedKeyword, true},
 	{"ordinality", ORDINALITY, UnreservedKeyword, true},
@@ -252,6 +256,7 @@ var Keywords = []KeywordInfo{
 	{"search", SEARCH, UnreservedKeyword, true},
 	{"select", SELECT, ReservedKeyword, true},
 	{"sequence", SEQUENCE, UnreservedKeyword, true},
+	{"server", SERVER, UnreservedKeyword, true},
 	{"session", SESSION, UnreservedKeyword, true},
 	{"session_user", IDENT, ReservedKeyword, true},
 	{"set", SET, UnreservedKeyword, true},
@@ -294,6 +299,7 @@ var Keywords = []KeywordInfo{
 	{"utf8", UTF8, UnreservedKeyword, true},
 
 	{"validate", VALIDATE, UnreservedKeyword, true},
+	{"validator", VALIDATOR, UnreservedKeyword, true},
 	{"value", VALUE_P, UnreservedKeyword, true},
 	{"values", VALUES, UnreservedKeyword, true},
 	{"varchar", VARCHAR, ColNameKeyword, true},

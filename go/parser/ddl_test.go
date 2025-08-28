@@ -154,6 +154,94 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "CREATE EXTENSION postgis VERSION '3.0' SCHEMA public CASCADE",
 		},
 
+		// CREATE FOREIGN DATA WRAPPER tests
+		{
+			name: "CREATE FOREIGN DATA WRAPPER basic",
+			sql:  "CREATE FOREIGN DATA WRAPPER myfdw",
+		},
+		{
+			name: "CREATE FOREIGN DATA WRAPPER with HANDLER",
+			sql:  "CREATE FOREIGN DATA WRAPPER myfdw HANDLER myhandler",
+		},
+		{
+			name: "CREATE FOREIGN DATA WRAPPER with VALIDATOR",
+			sql:  "CREATE FOREIGN DATA WRAPPER myfdw VALIDATOR myvalidator",
+		},
+		{
+			name: "CREATE FOREIGN DATA WRAPPER with qualified HANDLER",
+			sql:  "CREATE FOREIGN DATA WRAPPER myfdw HANDLER myschema.myhandler",
+		},
+		{
+			name: "CREATE FOREIGN DATA WRAPPER with both HANDLER and VALIDATOR",
+			sql:  "CREATE FOREIGN DATA WRAPPER myfdw HANDLER myhandler VALIDATOR myvalidator",
+		},
+		{
+			name: "CREATE FOREIGN DATA WRAPPER with OPTIONS",
+			sql:  "CREATE FOREIGN DATA WRAPPER myfdw OPTIONS (library 'myfdw_lib', language 'C')",
+		},
+
+		// CREATE FOREIGN SERVER tests
+		{
+			name: "CREATE FOREIGN SERVER basic",
+			sql:  "CREATE SERVER myserver FOREIGN DATA WRAPPER myfdw",
+		},
+		{
+			name: "CREATE FOREIGN SERVER IF NOT EXISTS",
+			sql:  "CREATE SERVER IF NOT EXISTS myserver FOREIGN DATA WRAPPER myfdw",
+		},
+		{
+			name: "CREATE FOREIGN SERVER with TYPE",
+			sql:  "CREATE SERVER myserver TYPE 'postgresql' FOREIGN DATA WRAPPER myfdw",
+		},
+		{
+			name: "CREATE FOREIGN SERVER with VERSION",
+			sql:  "CREATE SERVER myserver VERSION '1.0' FOREIGN DATA WRAPPER myfdw",
+		},
+		{
+			name: "CREATE FOREIGN SERVER with OPTIONS",
+			sql:  "CREATE SERVER myserver FOREIGN DATA WRAPPER myfdw OPTIONS (host 'localhost', port '5432')",
+		},
+		{
+			name: "CREATE FOREIGN SERVER with all options",
+			sql:  "CREATE SERVER myserver TYPE 'postgresql' VERSION '15.0' FOREIGN DATA WRAPPER myfdw OPTIONS (host 'localhost')",
+		},
+
+		// CREATE FOREIGN TABLE tests
+		{
+			name: "CREATE FOREIGN TABLE basic",
+			sql:  "CREATE FOREIGN TABLE foreign_users (id int, name text) SERVER myserver",
+		},
+		{
+			name: "CREATE FOREIGN TABLE IF NOT EXISTS",
+			sql:  "CREATE FOREIGN TABLE IF NOT EXISTS foreign_users (id int, name text) SERVER myserver",
+		},
+		{
+			name: "CREATE FOREIGN TABLE with OPTIONS",
+			sql:  "CREATE FOREIGN TABLE foreign_users (id int, name text) SERVER myserver OPTIONS (table_name 'users')",
+		},
+		{
+			name: "CREATE FOREIGN TABLE with INHERITS",
+			sql:  "CREATE FOREIGN TABLE foreign_users (age int) INHERITS (base_table) SERVER myserver",
+		},
+
+		// CREATE USER MAPPING tests
+		{
+			name: "CREATE USER MAPPING basic",
+			sql:  "CREATE USER MAPPING FOR current_user SERVER myserver",
+		},
+		{
+			name: "CREATE USER MAPPING IF NOT EXISTS",
+			sql:  "CREATE USER MAPPING IF NOT EXISTS FOR current_user SERVER myserver",
+		},
+		{
+			name: "CREATE USER MAPPING with OPTIONS",
+			sql:  "CREATE USER MAPPING FOR current_user SERVER myserver OPTIONS (user 'remote_user', password 'secret')",
+		},
+		{
+			name: "CREATE USER MAPPING for specific user",
+			sql:  "CREATE USER MAPPING FOR alice SERVER myserver OPTIONS (user 'alice_remote')",
+		},
+
 		// ALTER TABLE tests
 		{
 			name: "ALTER TABLE ADD COLUMN",
@@ -386,6 +474,50 @@ func TestDDLParsing(t *testing.T) {
 		{
 			name: "ALTER EXTENSION UPDATE TO version",
 			sql:  "ALTER EXTENSION postgis UPDATE TO '3.0'",
+		},
+
+		// ALTER FOREIGN DATA WRAPPER tests
+		{
+			name: "ALTER FOREIGN DATA WRAPPER basic",
+			sql:  "ALTER FOREIGN DATA WRAPPER myfdw HANDLER newhandler",
+		},
+		{
+			name: "ALTER FOREIGN DATA WRAPPER with VALIDATOR",
+			sql:  "ALTER FOREIGN DATA WRAPPER myfdw VALIDATOR newvalidator",
+		},
+		{
+			name: "ALTER FOREIGN DATA WRAPPER with OPTIONS",
+			sql:  "ALTER FOREIGN DATA WRAPPER myfdw OPTIONS (ADD debug 'true', SET timeout '60', DROP log_file)",
+		},
+
+		// ALTER FOREIGN SERVER tests
+		{
+			name: "ALTER FOREIGN SERVER basic",
+			sql:  "ALTER SERVER myserver VERSION '2.0'",
+		},
+		{
+			name: "ALTER FOREIGN SERVER with OPTIONS",
+			sql:  "ALTER SERVER myserver OPTIONS (SET host 'newhost', ADD port '5433')",
+		},
+
+		// ALTER USER MAPPING tests
+		{
+			name: "ALTER USER MAPPING basic",
+			sql:  "ALTER USER MAPPING FOR current_user SERVER myserver OPTIONS (SET password 'newpass')",
+		},
+		{
+			name: "ALTER USER MAPPING for specific user",
+			sql:  "ALTER USER MAPPING FOR alice SERVER myserver OPTIONS (ADD timeout '30')",
+		},
+
+		// DROP User Mapping tests
+		{
+			name: "DROP USER MAPPING basic",
+			sql:  "DROP USER MAPPING FOR current_user SERVER myserver",
+		},
+		{
+			name: "DROP USER MAPPING IF EXISTS",
+			sql:  "DROP USER MAPPING IF EXISTS FOR alice SERVER myserver",
 		},
 
 		// DROP Statement Tests
