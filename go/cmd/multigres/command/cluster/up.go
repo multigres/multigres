@@ -16,10 +16,14 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/servenv"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"github.com/spf13/cobra"
 )
@@ -49,15 +53,41 @@ func setupCell(ctx context.Context, config *MultigressConfig, etcdAddress string
 	fmt.Printf("Configuring cell: %s\n", config.Topology.DefaultCellName)
 	fmt.Printf("Using etcd at: %s\n", etcdAddress)
 
-	// TODO: Implement cell setup using topo service
-	// This would involve:
-	// - Creating the cell in etcd if it doesn't exist
-	// - Setting up cell-specific configuration
-	// - Validating cell connectivity
-	// - Use etcdAddress to connect to etcd for topology operations
+	// Create topology store using the configured backend
+	ts, err := topo.OpenServer(config.Topology.Backend, config.Topology.GlobalRootPath, []string{etcdAddress})
+	if err != nil {
+		return fmt.Errorf("failed to connect to topology server: %w", err)
+	}
+	defer ts.Close()
 
-	fmt.Printf("Cell '%s' setup completed ✓\n", config.Topology.DefaultCellName)
-	return nil
+	// Check if cell already exists
+	cellName := config.Topology.DefaultCellName
+	_, err = ts.GetCell(ctx, cellName)
+	if err == nil {
+		fmt.Printf("Cell '%s' already exists ✓\n", cellName)
+		return nil
+	}
+
+	// Create the cell if it doesn't exist
+	if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
+		fmt.Printf("Creating cell '%s'...\n", cellName)
+
+		cellConfig := &clustermetadatapb.Cell{
+			Name:            cellName,
+			ServerAddresses: []string{etcdAddress},
+			Root:            config.Topology.DefaultCellRootPath,
+		}
+
+		if err := ts.CreateCell(ctx, cellName, cellConfig); err != nil {
+			return fmt.Errorf("failed to create cell '%s': %w", cellName, err)
+		}
+
+		fmt.Printf("Cell '%s' created successfully ✓\n", cellName)
+		return nil
+	}
+
+	// Some other error occurred
+	return fmt.Errorf("failed to check cell '%s': %w", cellName, err)
 }
 
 // provisionMultigateway starts the multigateway service

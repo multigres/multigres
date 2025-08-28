@@ -15,6 +15,7 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -27,6 +28,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/multigres/multigres/go/clustermetadata/topo"
+
+	_ "github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
 )
 
 var multigresBinary string
@@ -39,6 +44,38 @@ func checkEtcdConnectivity(address string) error {
 		return fmt.Errorf("failed to connect to etcd at %s: %w", address, err)
 	}
 	defer conn.Close()
+	return nil
+}
+
+// checkCellExistsInTopology checks if a cell exists in the topology server
+func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) error {
+	// Create topology store connection
+	ts, err := topo.OpenServer("etcd2", globalRootPath, []string{etcdAddress})
+	if err != nil {
+		return fmt.Errorf("failed to connect to topology server: %w", err)
+	}
+	defer ts.Close()
+
+	// Try to get the cell
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cell, err := ts.GetCell(ctx, cellName)
+	if err != nil {
+		return fmt.Errorf("failed to get cell '%s' from topology: %w", cellName, err)
+	}
+
+	// Verify cell has expected properties
+	if cell.Name != cellName {
+		return fmt.Errorf("cell name mismatch: expected %s, got %s", cellName, cell.Name)
+	}
+	if len(cell.ServerAddresses) == 0 {
+		return fmt.Errorf("cell '%s' has no server addresses", cellName)
+	}
+	if cell.Root == "" {
+		return fmt.Errorf("cell '%s' has no root path", cellName)
+	}
+
 	return nil
 }
 
@@ -453,6 +490,20 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Logf("Checking etcd connectivity at: %s", etcdAddress)
 		// The up command should have started etcd and made it reachable
 		require.NoError(t, checkEtcdConnectivity(etcdAddress), "etcd should be reachable after cluster up command")
+
+		// Step 2.6: Verify cell exists in topology
+		t.Log("Step 2.6: Verifying cell exists in topology...")
+		// Read the config to get topology settings
+		configData, err := os.ReadFile(configFile)
+		require.NoError(t, err)
+		var config MultigressConfig
+		err = yaml.Unmarshal(configData, &config)
+		require.NoError(t, err)
+
+		t.Logf("Checking cell '%s' exists in topology at %s with root path %s",
+			config.Topology.DefaultCellName, etcdAddress, config.Topology.GlobalRootPath)
+		require.NoError(t, checkCellExistsInTopology(etcdAddress, config.Topology.GlobalRootPath, config.Topology.DefaultCellName),
+			"cell should exist in topology after cluster up command")
 
 		// Step 3: Stop cluster (down)
 		t.Log("Step 3: Stopping cluster...")
