@@ -109,3 +109,96 @@ func TestMakeRangeVarFromAnyName(t *testing.T) {
 		assert.Contains(t, err.Error(), "expected string node")
 	})
 }
+
+func TestSplitColQualList(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		constraints, collClause := SplitColQualList(nil)
+		
+		assert.NotNil(t, constraints)
+		assert.Equal(t, 0, len(constraints.Items))
+		assert.Nil(t, collClause)
+	})
+	
+	t.Run("empty list", func(t *testing.T) {
+		qualList := ast.NewNodeList()
+		constraints, collClause := SplitColQualList(qualList)
+		
+		assert.NotNil(t, constraints)
+		assert.Equal(t, 0, len(constraints.Items))
+		assert.Nil(t, collClause)
+	})
+	
+	t.Run("single constraint", func(t *testing.T) {
+		constraint := ast.NewConstraint(ast.CONSTR_NOTNULL)
+		qualList := ast.NewNodeList()
+		qualList.Append(constraint)
+		
+		constraints, collClause := SplitColQualList(qualList)
+		
+		assert.NotNil(t, constraints)
+		assert.Equal(t, 1, len(constraints.Items))
+		assert.Equal(t, constraint, constraints.Items[0])
+		assert.Nil(t, collClause)
+	})
+	
+	t.Run("single collate clause", func(t *testing.T) {
+		collate := &ast.CollateClause{
+			Collname: ast.NewNodeList(),
+		}
+		collate.Collname.Append(ast.NewString("en_US"))
+		
+		qualList := ast.NewNodeList()
+		qualList.Append(collate)
+		
+		constraints, collClause := SplitColQualList(qualList)
+		
+		assert.NotNil(t, constraints)
+		assert.Equal(t, 0, len(constraints.Items))
+		assert.Equal(t, collate, collClause)
+	})
+	
+	t.Run("mixed constraints and collate", func(t *testing.T) {
+		constraint1 := ast.NewConstraint(ast.CONSTR_NOTNULL)
+		constraint2 := ast.NewConstraint(ast.CONSTR_CHECK)
+		collate := &ast.CollateClause{
+			Collname: ast.NewNodeList(),
+		}
+		collate.Collname.Append(ast.NewString("C"))
+		
+		qualList := ast.NewNodeList()
+		qualList.Append(constraint1)
+		qualList.Append(collate)
+		qualList.Append(constraint2)
+		
+		constraints, collClause := SplitColQualList(qualList)
+		
+		assert.NotNil(t, constraints)
+		assert.Equal(t, 2, len(constraints.Items))
+		assert.Equal(t, constraint1, constraints.Items[0])
+		assert.Equal(t, constraint2, constraints.Items[1])
+		assert.Equal(t, collate, collClause)
+	})
+	
+	t.Run("multiple collate clauses - last wins", func(t *testing.T) {
+		collate1 := &ast.CollateClause{
+			Collname: ast.NewNodeList(),
+		}
+		collate1.Collname.Append(ast.NewString("en_US"))
+		
+		collate2 := &ast.CollateClause{
+			Collname: ast.NewNodeList(),
+		}
+		collate2.Collname.Append(ast.NewString("C"))
+		
+		qualList := ast.NewNodeList()
+		qualList.Append(collate1)
+		qualList.Append(collate2)
+		
+		constraints, collClause := SplitColQualList(qualList)
+		
+		assert.NotNil(t, constraints)
+		assert.Equal(t, 0, len(constraints.Items))
+		// The last collate clause should win
+		assert.Equal(t, collate2, collClause)
+	})
+}

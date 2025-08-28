@@ -471,7 +471,7 @@ func TestRoundTripParsing(t *testing.T) {
 }
 
 func TestOneCase(t *testing.T) {
-	query := "CREATE MATERIALIZED VIEW test_matview AS SELECT 1 WITH DATA"
+	query := ""
 	output := ""
 	if query == "" {
 		t.Skip("No tests to run")

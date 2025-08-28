@@ -421,13 +421,13 @@ func TestDDLParsing(t *testing.T) {
 
 		// CREATE MATERIALIZED VIEW tests
 		{
-			name: "Simple materialized view",
-			sql:  "CREATE MATERIALIZED VIEW test_matview AS SELECT 1",
+			name:     "Simple materialized view",
+			sql:      "CREATE MATERIALIZED VIEW test_matview AS SELECT 1",
 			expected: "CREATE MATERIALIZED VIEW test_matview AS SELECT 1 WITH DATA",
 		},
 		{
-			name: "CREATE MATERIALIZED VIEW IF NOT EXISTS",
-			sql:  "CREATE MATERIALIZED VIEW IF NOT EXISTS test_matview AS SELECT 1",
+			name:     "CREATE MATERIALIZED VIEW IF NOT EXISTS",
+			sql:      "CREATE MATERIALIZED VIEW IF NOT EXISTS test_matview AS SELECT 1",
 			expected: "CREATE MATERIALIZED VIEW IF NOT EXISTS test_matview AS SELECT 1 WITH DATA",
 		},
 
@@ -441,7 +441,7 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "CREATE SCHEMA IF NOT EXISTS test_schema",
 		},
 
-		// REFRESH MATERIALIZED VIEW tests  
+		// REFRESH MATERIALIZED VIEW tests
 		{
 			name: "REFRESH MATERIALIZED VIEW",
 			sql:  "REFRESH MATERIALIZED VIEW test_matview",
@@ -449,6 +449,162 @@ func TestDDLParsing(t *testing.T) {
 		{
 			name: "REFRESH MATERIALIZED VIEW CONCURRENTLY",
 			sql:  "REFRESH MATERIALIZED VIEW CONCURRENTLY test_matview",
+		},
+
+		// CREATE DOMAIN tests
+		{
+			name: "Simple CREATE DOMAIN",
+			sql:  "CREATE DOMAIN email AS varchar(255)",
+		},
+		{
+			name: "CREATE DOMAIN with CHECK constraint",
+			sql:  "CREATE DOMAIN email AS varchar(255) CHECK (value LIKE '%@%.%')",
+		},
+		{
+			name: "CREATE DOMAIN with NOT NULL",
+			sql:  "CREATE DOMAIN positive_int AS int NOT NULL CHECK (value > 0)",
+		},
+		{
+			name: "CREATE DOMAIN with named constraint",
+			sql:  "CREATE DOMAIN email AS varchar(255) CONSTRAINT valid_email CHECK (value LIKE '%@%.%')",
+		},
+
+		// ALTER DOMAIN tests
+		{
+			name: "ALTER DOMAIN SET DEFAULT",
+			sql:  "ALTER DOMAIN email SET DEFAULT 'unknown@example.com'",
+		},
+		{
+			name: "ALTER DOMAIN DROP DEFAULT",
+			sql:  "ALTER DOMAIN email DROP DEFAULT",
+		},
+		{
+			name: "ALTER DOMAIN SET NOT NULL",
+			sql:  "ALTER DOMAIN email SET NOT NULL",
+		},
+		{
+			name: "ALTER DOMAIN DROP NOT NULL",
+			sql:  "ALTER DOMAIN email DROP NOT NULL",
+		},
+		{
+			name: "ALTER DOMAIN ADD CONSTRAINT",
+			sql:  "ALTER DOMAIN email ADD CHECK (length(value) > 5)",
+		},
+		{
+			name: "ALTER DOMAIN DROP CONSTRAINT",
+			sql:  "ALTER DOMAIN email DROP CONSTRAINT email_check",
+		},
+		{
+			name: "ALTER DOMAIN DROP CONSTRAINT IF EXISTS",
+			sql:  "ALTER DOMAIN email DROP CONSTRAINT IF EXISTS email_check CASCADE",
+		},
+		{
+			name: "ALTER DOMAIN VALIDATE CONSTRAINT",
+			sql:  "ALTER DOMAIN email VALIDATE CONSTRAINT email_check",
+		},
+
+		// CREATE TYPE tests
+		{
+			name: "CREATE TYPE ENUM",
+			sql:  "CREATE TYPE color AS ENUM ('red', 'green', 'blue')",
+		},
+		{
+			name: "CREATE TYPE ENUM empty",
+			sql:  "CREATE TYPE status AS ENUM ()",
+		},
+		{
+			name: "CREATE TYPE composite",
+			sql:  "CREATE TYPE point AS (x int, y int)",
+		},
+		{
+			name: "CREATE TYPE shell",
+			sql:  "CREATE TYPE mytype",
+		},
+		{
+			name: "CREATE TYPE with definition",
+			sql:  "CREATE TYPE mytype (input = mytype_in, output = mytype_out)",
+		},
+		{
+			name: "CREATE TYPE RANGE",
+			sql:  "CREATE TYPE int4_range AS RANGE (subtype = int4)",
+		},
+
+		// ALTER TYPE tests
+		{
+			name: "ALTER TYPE ADD VALUE",
+			sql:  "ALTER TYPE color ADD VALUE 'yellow'",
+		},
+		{
+			name: "ALTER TYPE ADD VALUE IF NOT EXISTS",
+			sql:  "ALTER TYPE color ADD VALUE IF NOT EXISTS 'purple'",
+		},
+		{
+			name: "ALTER TYPE ADD VALUE BEFORE",
+			sql:  "ALTER TYPE color ADD VALUE 'orange' BEFORE 'red'",
+		},
+		{
+			name: "ALTER TYPE ADD VALUE AFTER",
+			sql:  "ALTER TYPE color ADD VALUE 'cyan' AFTER 'blue'",
+		},
+
+		// CREATE AGGREGATE tests
+		{
+			name: "CREATE AGGREGATE basic",
+			sql:  "CREATE AGGREGATE avg_int (int4) (sfunc = int4_avg_accum, stype = int8)",
+		},
+		{
+			name: "CREATE OR REPLACE AGGREGATE",
+			sql:  "CREATE OR REPLACE AGGREGATE sum_int (int4) (sfunc = int4pl, stype = int8)",
+		},
+		{
+			name: "CREATE AGGREGATE old style",
+			sql:  "CREATE AGGREGATE myavg (basetype = int4, sfunc = int4_avg_accum, stype = int8)",
+		},
+
+		// CREATE OPERATOR tests
+		{
+			name: "CREATE OPERATOR basic",
+			sql:  "CREATE OPERATOR x.+ (leftarg = int4, rightarg = int4, function = int4eq)",
+		},
+		{
+			name: "CREATE OPERATOR with procedure",
+			sql:  "CREATE OPERATOR + (leftarg = box, rightarg = box, procedure = box_add)",
+		},
+
+		// CREATE TEXT SEARCH tests
+		{
+			name: "CREATE TEXT SEARCH PARSER",
+			sql:  "CREATE TEXT SEARCH PARSER my_parser (start = prsd_start, gettoken = prsd_nexttoken)",
+		},
+		{
+			name: "CREATE TEXT SEARCH DICTIONARY",
+			sql:  "CREATE TEXT SEARCH DICTIONARY my_dict (template = simple, stopwords = english)",
+		},
+		{
+			name: "CREATE TEXT SEARCH TEMPLATE",
+			sql:  "CREATE TEXT SEARCH TEMPLATE my_template (init = dsimple_init, lexize = dsimple_lexize)",
+		},
+		{
+			name: "CREATE TEXT SEARCH CONFIGURATION",
+			sql:  "CREATE TEXT SEARCH CONFIGURATION my_config (parser = default)",
+		},
+
+		// CREATE COLLATION tests
+		{
+			name: "CREATE COLLATION basic",
+			sql:  "CREATE COLLATION french (locale = 'fr_FR.utf8')",
+		},
+		{
+			name: "CREATE COLLATION IF NOT EXISTS",
+			sql:  "CREATE COLLATION IF NOT EXISTS german (locale = 'de_DE.utf8')",
+		},
+		{
+			name: "CREATE COLLATION FROM",
+			sql:  "CREATE COLLATION german FROM \"de_DE\"",
+		},
+		{
+			name: "CREATE COLLATION IF NOT EXISTS FROM",
+			sql:  "CREATE COLLATION IF NOT EXISTS french_copy FROM \"fr_FR\"",
 		},
 	}
 
@@ -663,7 +819,7 @@ func TestNodeListCreateFunctionDeparsing(t *testing.T) {
 			sql:  "CREATE FUNCTION greet(text) RETURNS text LANGUAGE sql AS $$SELECT 'Hello ' || $1$$",
 		},
 		{
-			name: "Function with OUT parameter", 
+			name: "Function with OUT parameter",
 			sql:  "CREATE FUNCTION process(IN input text, OUT result integer) LANGUAGE sql AS $$SELECT length(input)$$",
 		},
 		{
@@ -694,13 +850,13 @@ func TestNodeListCreateFunctionDeparsing(t *testing.T) {
 			// Verify NodeList fields are properly set
 			require.NotNil(t, createFunc.FuncName, "FuncName should be NodeList, not nil")
 			require.Greater(t, createFunc.FuncName.Len(), 0, "FuncName should have items")
-			
+
 			if createFunc.Parameters != nil {
 				require.IsType(t, &ast.NodeList{}, createFunc.Parameters, "Parameters should be *NodeList")
 			}
-			
+
 			if createFunc.Options != nil {
-				require.IsType(t, &ast.NodeList{}, createFunc.Options, "Options should be *NodeList")  
+				require.IsType(t, &ast.NodeList{}, createFunc.Options, "Options should be *NodeList")
 			}
 
 			// Test deparsing

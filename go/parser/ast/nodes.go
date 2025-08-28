@@ -42,6 +42,11 @@ const (
 	T_RefreshMatViewStmt
 	T_CreateExtensionStmt
 	T_CreateDomainStmt
+	T_DefineStmt
+	T_CreateEnumStmt
+	T_CreateRangeStmt
+	T_AlterEnumStmt
+	T_CompositeTypeStmt
 	T_CreateFunctionStmt
 	T_FunctionParameter
 	T_RoleSpec
@@ -306,6 +311,16 @@ func (nt NodeTag) String() string {
 		return "T_CreateExtensionStmt"
 	case T_CreateDomainStmt:
 		return "T_CreateDomainStmt"
+	case T_DefineStmt:
+		return "T_DefineStmt"
+	case T_CreateEnumStmt:
+		return "T_CreateEnumStmt"
+	case T_CreateRangeStmt:
+		return "T_CreateRangeStmt"
+	case T_AlterEnumStmt:
+		return "T_AlterEnumStmt"
+	case T_CompositeTypeStmt:
+		return "T_CompositeTypeStmt"
 	case T_CreateFunctionStmt:
 		return "T_CreateFunctionStmt"
 	case T_FunctionParameter:

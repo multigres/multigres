@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+
 	"github.com/multigres/parser/go/parser/ast"
 )
 
@@ -22,7 +23,7 @@ func makeTypeNameFromString(str string) *ast.TypeName {
 
 // makeRangeVarFromAnyName converts a list of (dotted) names to a RangeVar.
 // The "AnyName" refers to the any_name production in the grammar.
-// 
+//
 // This function should be used when you have an any_name (NodeList of String nodes)
 // but need a RangeVar for cases where the grammar has any_name but the AST expects
 // a relation reference. This mirrors PostgreSQL's approach in cases where they
@@ -30,7 +31,7 @@ func makeTypeNameFromString(str string) *ast.TypeName {
 //
 // Supports:
 //   - Single name: "table" -> RangeVar{RelName: "table"}
-//   - Schema qualified: "schema.table" -> RangeVar{SchemaName: "schema", RelName: "table"}  
+//   - Schema qualified: "schema.table" -> RangeVar{SchemaName: "schema", RelName: "table"}
 //   - Fully qualified: "catalog.schema.table" -> RangeVar{CatalogName: "catalog", SchemaName: "schema", RelName: "table"}
 //
 // Ported from PostgreSQL's makeRangeVarFromAnyName function.
@@ -41,6 +42,7 @@ func makeRangeVarFromAnyName(names *ast.NodeList, position int) (*ast.RangeVar, 
 
 	r := &ast.RangeVar{
 		BaseNode: ast.BaseNode{Tag: ast.T_RangeVar, Loc: position},
+		Inh:      true, // Default to inheritance enabled (no ONLY)
 	}
 
 	length := names.Len()
@@ -90,4 +92,125 @@ func makeRangeVarFromAnyName(names *ast.NodeList, position int) (*ast.RangeVar, 
 
 	r.RelPersistence = ast.RELPERSISTENCE_PERMANENT
 	return r, nil
+}
+
+// SplitColQualList separates a ColQualList (column qualifier list) into constraints and collate clauses.
+// This mirrors PostgreSQL's SplitColQualList function which is used to process column qualifiers
+// and domain qualifiers by separating them into appropriate lists.
+//
+// PostgreSQL reference: src/backend/parser/gram.tab.c:SplitColQualList
+//
+// Parameters:
+//   - qualList: A NodeList containing Constraint and CollateClause nodes
+//
+// Returns:
+//   - constraints: A NodeList of Constraint nodes
+//   - collClause: A single CollateClause (PostgreSQL allows only one COLLATE per column/domain)
+func SplitColQualList(qualList *ast.NodeList) (*ast.NodeList, *ast.CollateClause) {
+	var constraints []*ast.Constraint
+	var collClause *ast.CollateClause
+
+	if qualList == nil {
+		return ast.NewNodeList(), nil
+	}
+
+	for _, item := range qualList.Items {
+		switch node := item.(type) {
+		case *ast.Constraint:
+			constraints = append(constraints, node)
+		case *ast.CollateClause:
+			// PostgreSQL allows only one COLLATE clause per column/domain
+			// If multiple are specified, the last one wins
+			collClause = node
+		}
+	}
+
+	// Convert constraints slice to NodeList
+	constraintList := ast.NewNodeList()
+	for _, constraint := range constraints {
+		constraintList.Append(constraint)
+	}
+
+	return constraintList, collClause
+}
+
+// makeOrderedSetArgs processes arguments for hypothetical-set aggregates.
+// It validates VARIADIC argument consistency and returns a list containing:
+// - The concatenated direct and ordered arguments
+// - An integer indicating the number of direct arguments
+//
+// This mirrors PostgreSQL's makeOrderedSetArgs function.
+//
+// PostgreSQL reference: src/backend/parser/gram.y:makeOrderedSetArgs
+func makeOrderedSetArgs(directArgs *ast.NodeList, orderedArgs *ast.NodeList) (*ast.NodeList, error) {
+	if directArgs == nil {
+		directArgs = ast.NewNodeList()
+	}
+	if orderedArgs == nil {
+		orderedArgs = ast.NewNodeList()
+	}
+
+	// Check if the last direct argument is VARIADIC
+	if directArgs.Len() > 0 {
+		if lastParam, ok := directArgs.Items[directArgs.Len()-1].(*ast.FunctionParameter); ok {
+			if lastParam.Mode == ast.FUNC_PARAM_VARIADIC {
+				// PostgreSQL requires exactly one VARIADIC ordered argument of the same type
+				if orderedArgs.Len() != 1 {
+					return nil, fmt.Errorf("an ordered-set aggregate with a VARIADIC direct argument must have one VARIADIC aggregated argument of the same data type")
+				}
+
+				if firstOrdered, ok := orderedArgs.Items[0].(*ast.FunctionParameter); ok {
+					if firstOrdered.Mode != ast.FUNC_PARAM_VARIADIC {
+						return nil, fmt.Errorf("an ordered-set aggregate with a VARIADIC direct argument must have one VARIADIC aggregated argument of the same data type")
+					}
+					// TODO: Check that types are equal when we have proper type comparison
+					// For now, we skip type checking but drop the duplicate VARIADIC argument
+					orderedArgs = ast.NewNodeList()
+				}
+			}
+		}
+	}
+
+	// Store the number of direct arguments
+	numDirectArgs := ast.NewInteger(directArgs.Len())
+
+	// Concatenate direct and ordered arguments
+	allArgs := ast.NewNodeList()
+	for _, arg := range directArgs.Items {
+		allArgs.Append(arg)
+	}
+	for _, arg := range orderedArgs.Items {
+		allArgs.Append(arg)
+	}
+
+	// Return [concatenated_args, num_direct_args]
+	return ast.NewNodeList(allArgs, numDirectArgs), nil
+}
+
+// processConstraintAttributeSpec processes constraint attribute specification bits.
+// This is a simplified version of processCASbits from PostgreSQL.
+func processConstraintAttributeSpec(casbits int, constraint *ast.Constraint) {
+	if casbits&ast.CAS_DEFERRABLE != 0 {
+		constraint.Deferrable = true
+	} else if casbits&ast.CAS_NOT_DEFERRABLE != 0 {
+		constraint.Deferrable = false
+	}
+
+	if casbits&ast.CAS_INITIALLY_DEFERRED != 0 {
+		constraint.Initdeferred = true
+	} else if casbits&ast.CAS_INITIALLY_IMMEDIATE != 0 {
+		constraint.Initdeferred = false
+	}
+
+	if casbits&ast.CAS_NOT_VALID != 0 {
+		constraint.SkipValidation = true
+		constraint.InitiallyValid = false
+	} else {
+		constraint.SkipValidation = false
+		constraint.InitiallyValid = true
+	}
+
+	if casbits&ast.CAS_NO_INHERIT != 0 {
+		constraint.IsNoInherit = true
+	}
 }

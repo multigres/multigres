@@ -961,7 +961,7 @@ func TestTypeCastOperator(t *testing.T) {
 		{
 			name:     "chained type casts",
 			input:    "value::text::int",
-			expected: []TokenType{VALUE_P, TYPECAST, IDENT, TYPECAST, IDENT, EOF},
+			expected: []TokenType{VALUE_P, TYPECAST, TEXT_P, TYPECAST, IDENT, EOF},
 			values:   []string{"value", "::", "text", "::", "int", ""},
 		},
 		{
@@ -1074,7 +1074,7 @@ func TestComplexExpressions(t *testing.T) {
 		{
 			name:     "delimited identifier with type cast",
 			input:    `"column"::text`,
-			expected: []TokenType{IDENT, TYPECAST, IDENT, EOF},
+			expected: []TokenType{IDENT, TYPECAST, TEXT_P, EOF},
 			values:   []interface{}{"column", "::", "text", ""},
 		},
 		{
@@ -1082,7 +1082,7 @@ func TestComplexExpressions(t *testing.T) {
 			input: `SELECT "Col1"::int + $1 FROM "Table" WHERE x = $2::text`,
 			expected: []TokenType{
 				SELECT, IDENT, TYPECAST, IDENT, TokenType('+'), PARAM,
-				FROM, IDENT, WHERE, IDENT, TokenType('='), PARAM, TYPECAST, IDENT, EOF,
+				FROM, IDENT, WHERE, IDENT, TokenType('='), PARAM, TYPECAST, TEXT_P, EOF,
 			},
 			values: []interface{}{
 				"select", "Col1", "::", "int", "+", 1,

@@ -270,8 +270,10 @@ func TestCreateOpClassStmt(t *testing.T) {
 
 func TestCreateEnumStmt(t *testing.T) {
 	t.Run("basic enum", func(t *testing.T) {
-		typeName := []*String{NewString("mood")}
-		vals := []*String{NewString("sad"), NewString("ok"), NewString("happy")}
+		typeName := NewNodeList(NewString("mood"))
+		vals := NewNodeList(NewString("sad"))
+		vals.Append(NewString("ok"))
+		vals.Append(NewString("happy"))
 		stmt := NewCreateEnumStmt(typeName, vals)
 
 		assert.NotNil(t, stmt)
@@ -288,7 +290,7 @@ func TestCreateEnumStmt(t *testing.T) {
 	})
 
 	t.Run("empty enum", func(t *testing.T) {
-		typeName := []*String{NewString("empty_enum")}
+		typeName := NewNodeList(NewString("empty_enum"))
 		stmt := NewCreateEnumStmt(typeName, nil)
 
 		str := stmt.String()
@@ -298,8 +300,8 @@ func TestCreateEnumStmt(t *testing.T) {
 
 func TestCreateRangeStmt(t *testing.T) {
 	t.Run("basic range type", func(t *testing.T) {
-		typeName := []*String{NewString("int4range")}
-		params := []*DefElem{{Defname: "subtype", Arg: NewString("int4")}}
+		typeName := NewNodeList(NewString("int4range"))
+		params := NewNodeList(&DefElem{Defname: "subtype", Arg: NewString("int4")})
 		stmt := NewCreateRangeStmt(typeName, params)
 
 		assert.NotNil(t, stmt)
@@ -316,7 +318,7 @@ func TestCreateRangeStmt(t *testing.T) {
 	})
 
 	t.Run("range type without params", func(t *testing.T) {
-		typeName := []*String{NewString("simplerange")}
+		typeName := NewNodeList(NewString("simplerange"))
 		stmt := NewCreateRangeStmt(typeName, nil)
 
 		str := stmt.String()
@@ -557,8 +559,8 @@ func TestCreateTransformStmt(t *testing.T) {
 
 func TestDefineStmt(t *testing.T) {
 	t.Run("create aggregate", func(t *testing.T) {
-		defNames := []*String{NewString("my_avg")}
-		args := []*TypeName{NewTypeName([]string{"int4"})}
+		defNames := NewNodeList(NewString("my_avg"))
+		args := NewNodeList(NewTypeName([]string{"int4"}))
 		stmt := NewDefineStmt(OBJECT_AGGREGATE, false, defNames, args, nil, false, false)
 
 		assert.NotNil(t, stmt)
@@ -579,7 +581,7 @@ func TestDefineStmt(t *testing.T) {
 	})
 
 	t.Run("create operator with replace", func(t *testing.T) {
-		defNames := []*String{NewString("@")}
+		defNames := NewNodeList(NewString("@"))
 		stmt := NewDefineStmt(OBJECT_OPERATOR, false, defNames, nil, nil, false, true)
 
 		assert.True(t, stmt.Replace)
@@ -588,7 +590,7 @@ func TestDefineStmt(t *testing.T) {
 	})
 
 	t.Run("create type if not exists", func(t *testing.T) {
-		defNames := []*String{NewString("my_type")}
+		defNames := NewNodeList(NewString("my_type"))
 		stmt := NewDefineStmt(OBJECT_TYPE, false, defNames, nil, nil, true, false)
 
 		assert.True(t, stmt.IfNotExists)

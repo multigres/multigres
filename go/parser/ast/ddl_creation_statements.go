@@ -744,13 +744,14 @@ func NewCreateTransformStmt(replace bool, typeName *TypeName, lang string, fromS
 // DefineStmt represents a CREATE {AGGREGATE|OPERATOR|TYPE} statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3140-3150
 type DefineStmt struct {
-	Kind        ObjectType  // aggregate, operator, type
-	OldStyle    bool        // hack to signal old CREATE AGG syntax
-	DefNames    []*String   // qualified name (list of String)
-	Args        []*TypeName // list of TypeName (if needed)
-	Definition  []*DefElem  // list of DefElem
-	IfNotExists bool        // true for IF NOT EXISTS
-	Replace     bool        // true for CREATE OR REPLACE
+	BaseNode
+	Kind        ObjectType // aggregate, operator, type
+	OldStyle    bool       // hack to signal old CREATE AGG syntax
+	DefNames    *NodeList  // qualified name (list of String)
+	Args        *NodeList  // list of TypeName (if needed)
+	Definition  *NodeList  // list of DefElem
+	IfNotExists bool       // true for IF NOT EXISTS
+	Replace     bool       // true for CREATE OR REPLACE
 }
 
 // node implements the Node interface
@@ -758,6 +759,11 @@ func (ds *DefineStmt) node() {}
 
 // stmt implements the Stmt interface
 func (ds *DefineStmt) stmt() {}
+
+// StatementType returns the statement type
+func (ds *DefineStmt) StatementType() string {
+	return "DefineStmt"
+}
 
 // String returns string representation of DefineStmt
 func (ds *DefineStmt) String() string {
@@ -775,6 +781,16 @@ func (ds *DefineStmt) String() string {
 		parts = append(parts, "OPERATOR")
 	case OBJECT_TYPE:
 		parts = append(parts, "TYPE")
+	case OBJECT_TSPARSER:
+		parts = append(parts, "TEXT SEARCH PARSER")
+	case OBJECT_TSDICTIONARY:
+		parts = append(parts, "TEXT SEARCH DICTIONARY")
+	case OBJECT_TSTEMPLATE:
+		parts = append(parts, "TEXT SEARCH TEMPLATE")
+	case OBJECT_TSCONFIGURATION:
+		parts = append(parts, "TEXT SEARCH CONFIGURATION")
+	case OBJECT_COLLATION:
+		parts = append(parts, "COLLATION")
 	default:
 		parts = append(parts, "OBJECT")
 	}
@@ -783,20 +799,62 @@ func (ds *DefineStmt) String() string {
 		parts = append(parts, "IF NOT EXISTS")
 	}
 
-	if len(ds.DefNames) > 0 {
+	if ds.DefNames != nil && len(ds.DefNames.Items) > 0 {
 		var nameStrs []string
-		for _, name := range ds.DefNames {
-			nameStrs = append(nameStrs, name.SVal)
+		for _, item := range ds.DefNames.Items {
+			if name, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, name.SVal)
+			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
+	}
+
+	// Add arguments for aggregates and operators
+	if ds.Args != nil && len(ds.Args.Items) > 0 {
+		var argStrs []string
+		hasStarArg := false
+		for _, item := range ds.Args.Items {
+			// Check for nil which represents * in aggregates like COUNT(*)
+			if item == nil {
+				hasStarArg = true
+				continue
+			}
+			switch arg := item.(type) {
+			case *TypeName:
+				argStrs = append(argStrs, arg.SqlString())
+			case *FunctionParameter:
+				if arg.ArgType != nil {
+					argStrs = append(argStrs, arg.ArgType.SqlString())
+				}
+			}
+		}
+		if hasStarArg && len(argStrs) == 0 {
+			parts = append(parts, "(*)")
+		} else if len(argStrs) > 0 {
+			parts = append(parts, "("+strings.Join(argStrs, ", ")+")")
+		}
+	}
+
+	// Add definition
+	if ds.Definition != nil && len(ds.Definition.Items) > 0 {
+		var defStrs []string
+		for _, item := range ds.Definition.Items {
+			if defElem, ok := item.(*DefElem); ok {
+				defStrs = append(defStrs, defElem.String())
+			}
+		}
+		if len(defStrs) > 0 {
+			parts = append(parts, "("+strings.Join(defStrs, ", ")+")")
+		}
 	}
 
 	return strings.Join(parts, " ")
 }
 
 // NewDefineStmt creates a new DefineStmt node
-func NewDefineStmt(kind ObjectType, oldStyle bool, defNames []*String, args []*TypeName, definition []*DefElem, ifNotExists, replace bool) *DefineStmt {
+func NewDefineStmt(kind ObjectType, oldStyle bool, defNames *NodeList, args *NodeList, definition *NodeList, ifNotExists, replace bool) *DefineStmt {
 	return &DefineStmt{
+		BaseNode:    BaseNode{Tag: T_DefineStmt},
 		Kind:        kind,
 		OldStyle:    oldStyle,
 		DefNames:    defNames,
@@ -805,6 +863,115 @@ func NewDefineStmt(kind ObjectType, oldStyle bool, defNames []*String, args []*T
 		IfNotExists: ifNotExists,
 		Replace:     replace,
 	}
+}
+
+// SqlString returns the SQL representation of DefineStmt
+func (ds *DefineStmt) SqlString() string {
+	var parts []string
+	
+	parts = append(parts, "CREATE")
+	
+	if ds.Replace {
+		parts = append(parts, "OR REPLACE")
+	}
+	
+	// Add object type
+	switch ds.Kind {
+	case OBJECT_TYPE:
+		parts = append(parts, "TYPE")
+	case OBJECT_AGGREGATE:
+		parts = append(parts, "AGGREGATE")
+	case OBJECT_OPERATOR:
+		parts = append(parts, "OPERATOR")
+	case OBJECT_TSPARSER:
+		parts = append(parts, "TEXT SEARCH PARSER")
+	case OBJECT_TSDICTIONARY:
+		parts = append(parts, "TEXT SEARCH DICTIONARY")
+	case OBJECT_TSTEMPLATE:
+		parts = append(parts, "TEXT SEARCH TEMPLATE")
+	case OBJECT_TSCONFIGURATION:
+		parts = append(parts, "TEXT SEARCH CONFIGURATION")
+	case OBJECT_COLLATION:
+		parts = append(parts, "COLLATION")
+	}
+	
+	// Add IF NOT EXISTS if present
+	if ds.IfNotExists {
+		parts = append(parts, "IF NOT EXISTS")
+	}
+	
+	// Add name
+	if ds.DefNames != nil && len(ds.DefNames.Items) > 0 {
+		var nameStrs []string
+		for _, item := range ds.DefNames.Items {
+			if name, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, name.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(nameStrs, "."))
+	}
+	
+	// Add arguments for aggregates and operators
+	if ds.Args != nil && len(ds.Args.Items) > 0 {
+		var argStrs []string
+		hasStarArg := false
+		for _, item := range ds.Args.Items {
+			// Check for nil which represents * in aggregates like COUNT(*)
+			if item == nil {
+				hasStarArg = true
+				continue
+			}
+			switch arg := item.(type) {
+			case *TypeName:
+				argStrs = append(argStrs, arg.SqlString())
+			case *FunctionParameter:
+				if arg.ArgType != nil {
+					argStrs = append(argStrs, arg.ArgType.SqlString())
+				}
+			}
+		}
+		if hasStarArg && len(argStrs) == 0 {
+			parts = append(parts, "(*)")
+		} else if len(argStrs) > 0 {
+			parts = append(parts, "("+strings.Join(argStrs, ", ")+")")
+		}
+	}
+	
+	// Add definition
+	if ds.Definition != nil && len(ds.Definition.Items) > 0 {
+		// Check if this is a FROM clause (for COLLATION FROM syntax)
+		if ds.Kind == OBJECT_COLLATION && len(ds.Definition.Items) == 1 {
+			// Check if the first item is a NodeList (which indicates FROM syntax)
+			if firstItem := ds.Definition.Items[0]; firstItem != nil {
+				if nodeList, ok := firstItem.(*NodeList); ok {
+					// This is FROM syntax - handle qualified names in FROM clause
+					var nameStrs []string
+					for _, item := range nodeList.Items {
+						if name, ok := item.(*String); ok {
+							nameStrs = append(nameStrs, name.SVal)
+						}
+					}
+					if len(nameStrs) > 0 {
+						parts = append(parts, "FROM \""+strings.Join(nameStrs, ".")+"\"")
+						return strings.Join(parts, " ")
+					}
+				}
+			}
+		}
+		
+		// Normal definition with DefElem items
+		defParts := []string{}
+		for _, item := range ds.Definition.Items {
+			if def, ok := item.(*DefElem); ok {
+				defParts = append(defParts, def.SqlString())
+			}
+		}
+		if len(defParts) > 0 {
+			parts = append(parts, "("+strings.Join(defParts, ", ")+")")
+		}
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // DeclareCursorStmt represents a DECLARE cursor statement
@@ -934,8 +1101,9 @@ func NewClosePortalStmt(portalName *string) *ClosePortalStmt {
 // CreateEnumStmt represents a CREATE TYPE ... AS ENUM statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3696-3701
 type CreateEnumStmt struct {
-	TypeName []*String // qualified name (list of String)
-	Vals     []*String // enum values (list of String)
+	BaseNode
+	TypeName *NodeList // qualified name (list of String)
+	Vals     *NodeList // enum values (list of String)
 }
 
 // node implements the Node interface
@@ -944,26 +1112,35 @@ func (ces *CreateEnumStmt) node() {}
 // stmt implements the Stmt interface
 func (ces *CreateEnumStmt) stmt() {}
 
+// StatementType returns the statement type
+func (ces *CreateEnumStmt) StatementType() string {
+	return "CreateEnumStmt"
+}
+
 // String returns string representation of CreateEnumStmt
 func (ces *CreateEnumStmt) String() string {
 	var parts []string
 
 	parts = append(parts, "CREATE TYPE")
 
-	if len(ces.TypeName) > 0 {
+	if ces.TypeName != nil && len(ces.TypeName.Items) > 0 {
 		var nameStrs []string
-		for _, name := range ces.TypeName {
-			nameStrs = append(nameStrs, name.SVal)
+		for _, item := range ces.TypeName.Items {
+			if name, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, name.SVal)
+			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
 
 	parts = append(parts, "AS ENUM")
 
-	if len(ces.Vals) > 0 {
+	if ces.Vals != nil && len(ces.Vals.Items) > 0 {
 		var valStrs []string
-		for _, val := range ces.Vals {
-			valStrs = append(valStrs, "'"+val.SVal+"'")
+		for _, item := range ces.Vals.Items {
+			if val, ok := item.(*String); ok {
+				valStrs = append(valStrs, "'"+val.SVal+"'")
+			}
 		}
 		parts = append(parts, "("+strings.Join(valStrs, ", ")+")")
 	} else {
@@ -974,18 +1151,224 @@ func (ces *CreateEnumStmt) String() string {
 }
 
 // NewCreateEnumStmt creates a new CreateEnumStmt node
-func NewCreateEnumStmt(typeName []*String, vals []*String) *CreateEnumStmt {
+func NewCreateEnumStmt(typeName *NodeList, vals *NodeList) *CreateEnumStmt {
 	return &CreateEnumStmt{
+		BaseNode: BaseNode{Tag: T_CreateEnumStmt},
 		TypeName: typeName,
 		Vals:     vals,
 	}
 }
 
+// SqlString returns the SQL representation of CreateEnumStmt
+func (ces *CreateEnumStmt) SqlString() string {
+	var parts []string
+	
+	parts = append(parts, "CREATE TYPE")
+	
+	// Add type name
+	if ces.TypeName != nil && len(ces.TypeName.Items) > 0 {
+		var nameStrs []string
+		for _, item := range ces.TypeName.Items {
+			if name, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, name.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(nameStrs, "."))
+	}
+	
+	parts = append(parts, "AS ENUM")
+	
+	// Add enum values
+	if ces.Vals != nil && len(ces.Vals.Items) > 0 {
+		quotedVals := []string{}
+		for _, item := range ces.Vals.Items {
+			if val, ok := item.(*String); ok {
+				quotedVals = append(quotedVals, "'"+val.SVal+"'")
+			}
+		}
+		parts = append(parts, "("+strings.Join(quotedVals, ", ")+")")
+	} else {
+		parts = append(parts, "()")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// CompositeTypeStmt represents a CREATE TYPE ... AS (...) statement
+// Ported from postgres/src/include/nodes/parsenodes.h:3684
+type CompositeTypeStmt struct {
+	BaseNode
+	Typevar     *RangeVar   // the composite type name
+	Coldeflist  *NodeList   // list of ColumnDef nodes
+}
+
+// node implements the Node interface
+func (cts *CompositeTypeStmt) node() {}
+
+// stmt implements the Stmt interface
+func (cts *CompositeTypeStmt) stmt() {}
+
+// StatementType returns the statement type
+func (cts *CompositeTypeStmt) StatementType() string {
+	return "CompositeTypeStmt"
+}
+
+// String returns string representation of CompositeTypeStmt
+func (cts *CompositeTypeStmt) String() string {
+	var parts []string
+	
+	parts = append(parts, "CREATE TYPE")
+	
+	if cts.Typevar != nil {
+		parts = append(parts, cts.Typevar.String())
+	}
+	
+	parts = append(parts, "AS (...)") // Simplified representation
+	
+	return strings.Join(parts, " ")
+}
+
+// NewCompositeTypeStmt creates a new CompositeTypeStmt node
+func NewCompositeTypeStmt(typevar *RangeVar, coldeflist *NodeList) *CompositeTypeStmt {
+	return &CompositeTypeStmt{
+		BaseNode:   BaseNode{Tag: T_CompositeTypeStmt},
+		Typevar:    typevar,
+		Coldeflist: coldeflist,
+	}
+}
+
+// SqlString returns the SQL representation of CompositeTypeStmt
+func (cts *CompositeTypeStmt) SqlString() string {
+	var parts []string
+	
+	parts = append(parts, "CREATE TYPE")
+	
+	// Add type name
+	if cts.Typevar != nil {
+		parts = append(parts, cts.Typevar.SqlString())
+	}
+	
+	parts = append(parts, "AS")
+	
+	// Add column definitions
+	if cts.Coldeflist != nil && len(cts.Coldeflist.Items) > 0 {
+		colDefs := []string{}
+		for _, item := range cts.Coldeflist.Items {
+			if colDef, ok := item.(interface{ SqlString() string }); ok {
+				colDefs = append(colDefs, colDef.SqlString())
+			}
+		}
+		parts = append(parts, "("+strings.Join(colDefs, ", ")+")")
+	} else {
+		parts = append(parts, "()")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// AlterEnumStmt represents an ALTER TYPE ... ADD VALUE statement
+// Ported from postgres/src/include/nodes/parsenodes.h:3693
+type AlterEnumStmt struct {
+	BaseNode
+	TypeName            *NodeList // qualified name (list of String)
+	OldVal              string    // old enum value's name, if renaming
+	NewVal              string    // new enum value's name
+	NewValNeighbor      string    // neighboring enum value, if specified
+	NewValIsAfter       bool      // place new val after neighbor?
+	SkipIfNewValExists  bool      // ignore statement if new already exists
+}
+
+// node implements the Node interface
+func (aes *AlterEnumStmt) node() {}
+
+// stmt implements the Stmt interface
+func (aes *AlterEnumStmt) stmt() {}
+
+// StatementType returns the statement type
+func (aes *AlterEnumStmt) StatementType() string {
+	return "AlterEnumStmt"
+}
+
+// String returns string representation of AlterEnumStmt
+func (aes *AlterEnumStmt) String() string {
+	var parts []string
+	
+	parts = append(parts, "ALTER TYPE")
+	
+	if aes.TypeName != nil && len(aes.TypeName.Items) > 0 {
+		var nameStrs []string
+		for _, item := range aes.TypeName.Items {
+			if name, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, name.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(nameStrs, "."))
+	}
+	
+	if aes.OldVal != "" {
+		parts = append(parts, "RENAME VALUE", aes.OldVal, "TO", aes.NewVal)
+	} else {
+		parts = append(parts, "ADD VALUE", aes.NewVal)
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// NewAlterEnumStmt creates a new AlterEnumStmt node
+func NewAlterEnumStmt(typeName *NodeList) *AlterEnumStmt {
+	return &AlterEnumStmt{
+		BaseNode: BaseNode{Tag: T_AlterEnumStmt},
+		TypeName: typeName,
+	}
+}
+
+// SqlString returns the SQL representation of AlterEnumStmt
+func (aes *AlterEnumStmt) SqlString() string {
+	var parts []string
+	
+	parts = append(parts, "ALTER TYPE")
+	
+	// Add type name
+	if aes.TypeName != nil && len(aes.TypeName.Items) > 0 {
+		var nameStrs []string
+		for _, item := range aes.TypeName.Items {
+			if name, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, name.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(nameStrs, "."))
+	}
+	
+	if aes.OldVal != "" {
+		// RENAME VALUE
+		parts = append(parts, "RENAME VALUE", "'"+aes.OldVal+"'", "TO", "'"+aes.NewVal+"'")
+	} else {
+		// ADD VALUE
+		parts = append(parts, "ADD VALUE")
+		if aes.SkipIfNewValExists {
+			parts = append(parts, "IF NOT EXISTS")
+		}
+		parts = append(parts, "'"+aes.NewVal+"'")
+		
+		if aes.NewValNeighbor != "" {
+			if aes.NewValIsAfter {
+				parts = append(parts, "AFTER")
+			} else {
+				parts = append(parts, "BEFORE")
+			}
+			parts = append(parts, "'"+aes.NewValNeighbor+"'")
+		}
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 // CreateRangeStmt represents a CREATE TYPE ... AS RANGE statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3707-3712
 type CreateRangeStmt struct {
-	TypeName []*String  // qualified name (list of String)
-	Params   []*DefElem // range parameters (list of DefElem)
+	BaseNode
+	TypeName *NodeList // qualified name (list of String)
+	Params   *NodeList // range parameters (list of DefElem)
 }
 
 // node implements the Node interface
@@ -994,23 +1377,30 @@ func (crs *CreateRangeStmt) node() {}
 // stmt implements the Stmt interface
 func (crs *CreateRangeStmt) stmt() {}
 
+// StatementType returns the statement type
+func (crs *CreateRangeStmt) StatementType() string {
+	return "CreateRangeStmt"
+}
+
 // String returns string representation of CreateRangeStmt
 func (crs *CreateRangeStmt) String() string {
 	var parts []string
 
 	parts = append(parts, "CREATE TYPE")
 
-	if len(crs.TypeName) > 0 {
+	if crs.TypeName != nil && len(crs.TypeName.Items) > 0 {
 		var nameStrs []string
-		for _, name := range crs.TypeName {
-			nameStrs = append(nameStrs, name.SVal)
+		for _, item := range crs.TypeName.Items {
+			if name, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, name.SVal)
+			}
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
 
 	parts = append(parts, "AS RANGE")
 
-	if len(crs.Params) > 0 {
+	if crs.Params != nil && len(crs.Params.Items) > 0 {
 		parts = append(parts, "(...)") // Simplified representation
 	}
 
@@ -1018,11 +1408,45 @@ func (crs *CreateRangeStmt) String() string {
 }
 
 // NewCreateRangeStmt creates a new CreateRangeStmt node
-func NewCreateRangeStmt(typeName []*String, params []*DefElem) *CreateRangeStmt {
+func NewCreateRangeStmt(typeName *NodeList, params *NodeList) *CreateRangeStmt {
 	return &CreateRangeStmt{
+		BaseNode: BaseNode{Tag: T_CreateRangeStmt},
 		TypeName: typeName,
 		Params:   params,
 	}
+}
+
+// SqlString returns the SQL representation of CreateRangeStmt
+func (crs *CreateRangeStmt) SqlString() string {
+	var parts []string
+	
+	parts = append(parts, "CREATE TYPE")
+	
+	// Add type name
+	if crs.TypeName != nil && len(crs.TypeName.Items) > 0 {
+		var nameStrs []string
+		for _, item := range crs.TypeName.Items {
+			if name, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, name.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(nameStrs, "."))
+	}
+	
+	parts = append(parts, "AS RANGE")
+	
+	// Add parameters
+	if crs.Params != nil && len(crs.Params.Items) > 0 {
+		paramParts := []string{}
+		for _, item := range crs.Params.Items {
+			if param, ok := item.(*DefElem); ok {
+				paramParts = append(paramParts, param.SqlString())
+			}
+		}
+		parts = append(parts, "("+strings.Join(paramParts, ", ")+")")
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // CreateStatsStmt represents a CREATE STATISTICS statement

@@ -426,24 +426,27 @@
 - ✅ `opt_single_name` - Optional single name (used in AUTHORIZATION variant)
 - ✅ `RoleSpec` integration - Complete role specification support
 
-### CREATE DOMAIN
-- ⬜ `CreateDomainStmt` - CREATE DOMAIN
-- ⬜ `AlterDomainStmt` - ALTER DOMAIN
-- ⬜ `DomainConstraint` - Domain constraint
-- ⬜ `DomainConstraintElem` - Domain constraint element
+### CREATE DOMAIN ✅ COMPLETE
+- ✅ `CreateDomainStmt` - CREATE DOMAIN (fully implemented with constraints and collate support)
+- ✅ `AlterDomainStmt` - ALTER DOMAIN (all 7 variants: SET DEFAULT, DROP DEFAULT, SET NOT NULL, DROP NOT NULL, ADD CONSTRAINT, DROP CONSTRAINT, VALIDATE CONSTRAINT)
+- ✅ `DomainConstraint` - Domain constraint (CONSTRAINT name syntax support)
+- ✅ `DomainConstraintElem` - Domain constraint element (CHECK, NOT NULL, NULL constraint types)
+- ✅ `opt_as` - Optional AS keyword for CREATE DOMAIN
 
-### CREATE TYPE
-- ⬜ `DefineStmt` - DEFINE statement (types, etc.)
-- ⬜ `definition` - Definition list
-- ⬜ `def_list` - Definition element list
-- ⬜ `def_elem` - Definition element
-- ⬜ `def_arg` - Definition argument
-- ⬜ `AlterEnumStmt` - ALTER TYPE for enums
-- ⬜ `enum_val_list` - Enum value list
-- ⬜ `opt_enum_val_list` - Optional enum values
-- ⬜ `AlterTypeStmt` - ALTER TYPE
-- ⬜ `alter_type_cmds` - ALTER TYPE commands
-- ⬜ `alter_type_cmd` - Single ALTER TYPE command
+### CREATE TYPE ✅ COMPLETE
+- ✅ `DefineStmt` - DEFINE statement (CREATE TYPE with definition and shell types)
+- ✅ `definition` - Definition list for type parameters
+- ✅ `def_list` - Definition element list (comma-separated definition elements)
+- ✅ `def_elem` - Definition element (name = value and name-only forms)
+- ✅ `def_arg` - Definition argument (func_type, keywords, operators, numbers, strings, NONE)
+- ✅ `AlterEnumStmt` - ALTER TYPE for enums (ADD VALUE with IF NOT EXISTS, BEFORE, AFTER support)
+- ✅ `enum_val_list` - Enum value list (comma-separated string list)
+- ✅ `opt_enum_val_list` - Optional enum values (supports empty enum creation)
+
+**Notes:**
+- ⬜ `AlterTypeStmt` - ALTER TYPE (for non-enum types - deferred to Phase 3H)
+- ⬜ `alter_type_cmds` - ALTER TYPE commands (for non-enum types - deferred to Phase 3H)
+- ⬜ `alter_type_cmd` - Single ALTER TYPE command (for non-enum types - deferred to Phase 3H)
 
 ### CREATE SEQUENCE
 - ⬜ `CreateSeqStmt` - CREATE SEQUENCE

@@ -459,7 +459,8 @@ func TestViewStmt(t *testing.T) {
 // TestDomainStmts tests domain-related statements.
 func TestDomainStmts(t *testing.T) {
 	t.Run("CreateDomainStmt", func(t *testing.T) {
-		domainname := []string{"public", "email_domain"}
+		domainname := NewNodeList(NewString("public"))
+		domainname.Append(NewString("email_domain"))
 		typeName := NewTypeName([]string{"varchar"})
 		createDomainStmt := NewCreateDomainStmt(domainname, typeName)
 
@@ -475,7 +476,8 @@ func TestDomainStmts(t *testing.T) {
 	})
 
 	t.Run("AlterDomainStmt", func(t *testing.T) {
-		typeName := []string{"public", "email_domain"}
+		typeName := NewNodeList(NewString("public"))
+		typeName.Append(NewString("email_domain"))
 		alterDomainStmt := NewAlterDomainStmt('T', typeName) // 'T' for alter default
 
 		assert.Equal(t, T_AlterDomainStmt, alterDomainStmt.NodeTag())

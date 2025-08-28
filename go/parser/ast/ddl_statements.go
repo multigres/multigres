@@ -719,7 +719,16 @@ func (d *DefElem) String() string {
 // SqlString returns the SQL representation of DefElem
 func (d *DefElem) SqlString() string {
 	if d.Arg != nil {
-		return fmt.Sprintf("%s = %s", d.Defname, d.Arg.SqlString())
+		argStr := d.Arg.SqlString()
+		// Special handling for String nodes that should be identifiers, not quoted literals
+		if strNode, ok := d.Arg.(*String); ok {
+			// For common identifier values, don't quote them
+			switch strNode.SVal {
+			case "default":
+				argStr = strNode.SVal
+			}
+		}
+		return fmt.Sprintf("%s = %s", d.Defname, argStr)
 	}
 	return d.Defname
 }
@@ -811,7 +820,11 @@ func (c *Constraint) SqlString() string {
 		}
 		return result
 	case CONSTR_CHECK:
-		result := "CHECK"
+		result := ""
+		if c.Conname != "" {
+			result = "CONSTRAINT " + c.Conname + " "
+		}
+		result += "CHECK"
 		if c.RawExpr != nil {
 			result += " (" + c.RawExpr.SqlString() + ")"
 		}
@@ -1446,30 +1459,30 @@ func (v *ViewStmt) String() string {
 // SqlString returns the SQL representation of ViewStmt
 func (v *ViewStmt) SqlString() string {
 	var parts []string
-	
+
 	// CREATE [OR REPLACE] [TEMP] [RECURSIVE] VIEW
 	parts = append(parts, "CREATE")
 	if v.Replace {
 		parts = append(parts, "OR REPLACE")
 	}
-	
+
 	// Add TEMP/TEMPORARY if needed
 	if v.View != nil && v.View.RelPersistence == RELPERSISTENCE_TEMP {
 		parts = append(parts, "TEMPORARY")
 	} else if v.View != nil && v.View.RelPersistence == RELPERSISTENCE_UNLOGGED {
 		parts = append(parts, "UNLOGGED")
 	}
-	
+
 	// TODO: Add RECURSIVE support when we can detect recursive views
 	// For now, we can't easily determine if a view is recursive from the ViewStmt
-	
+
 	parts = append(parts, "VIEW")
-	
+
 	// View name
 	if v.View != nil {
 		parts = append(parts, v.View.SqlString())
 	}
-	
+
 	// Column aliases
 	if v.Aliases != nil && v.Aliases.Len() > 0 {
 		var aliasStrs []string
@@ -1482,7 +1495,7 @@ func (v *ViewStmt) SqlString() string {
 			parts = append(parts, fmt.Sprintf("(%s)", strings.Join(aliasStrs, ", ")))
 		}
 	}
-	
+
 	// WITH options
 	if v.Options != nil && v.Options.Len() > 0 {
 		parts = append(parts, "WITH (")
@@ -1494,13 +1507,13 @@ func (v *ViewStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(optStrs, ", ")+")")
 	}
-	
+
 	// AS query
 	parts = append(parts, "AS")
 	if v.Query != nil {
 		parts = append(parts, v.Query.SqlString())
 	}
-	
+
 	// WITH CHECK OPTION
 	switch v.WithCheckOption {
 	case LOCAL_CHECK_OPTION:
@@ -1510,7 +1523,7 @@ func (v *ViewStmt) SqlString() string {
 	case NO_CHECK_OPTION:
 		// No check option
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1523,7 +1536,7 @@ func (v *ViewStmt) SqlString() string {
 type AlterDomainStmt struct {
 	BaseNode
 	Subtype   byte         // T/N/O/C/X for alter type - postgres/src/include/nodes/parsenodes.h:2463
-	TypeName  []string     // domain to work on - postgres/src/include/nodes/parsenodes.h:2464
+	TypeName  *NodeList    // domain to work on - postgres/src/include/nodes/parsenodes.h:2464
 	Name      string       // column or constraint name to act on - postgres/src/include/nodes/parsenodes.h:2465
 	Def       Node         // definition of default or constraint - postgres/src/include/nodes/parsenodes.h:2466
 	Behavior  DropBehavior // RESTRICT or CASCADE for DROP cases - postgres/src/include/nodes/parsenodes.h:2467
@@ -1531,7 +1544,7 @@ type AlterDomainStmt struct {
 }
 
 // NewAlterDomainStmt creates a new AlterDomainStmt node.
-func NewAlterDomainStmt(subtype byte, typeName []string) *AlterDomainStmt {
+func NewAlterDomainStmt(subtype byte, typeName *NodeList) *AlterDomainStmt {
 	return &AlterDomainStmt{
 		BaseNode: BaseNode{Tag: T_AlterDomainStmt},
 		Subtype:  subtype,
@@ -1546,24 +1559,85 @@ func (a *AlterDomainStmt) StatementType() string {
 
 func (a *AlterDomainStmt) String() string {
 	domainName := ""
-	if len(a.TypeName) > 0 {
-		domainName = a.TypeName[len(a.TypeName)-1] // last part is the domain name
+	if a.TypeName != nil && len(a.TypeName.Items) > 0 {
+		if str, ok := a.TypeName.Items[len(a.TypeName.Items)-1].(*String); ok {
+			domainName = str.SVal // last part is the domain name
+		}
 	}
 	return fmt.Sprintf("AlterDomainStmt(%s)@%d", domainName, a.Location())
+}
+
+// SqlString returns the SQL representation of ALTER DOMAIN statement.
+func (a *AlterDomainStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER DOMAIN")
+
+	// Add domain name
+	if a.TypeName != nil && len(a.TypeName.Items) > 0 {
+		var nameStrs []string
+		for _, item := range a.TypeName.Items {
+			if str, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, str.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(nameStrs, "."))
+	}
+
+	// Handle different subtype commands
+	switch a.Subtype {
+	case 'T': // SET DEFAULT or DROP DEFAULT
+		if a.Def != nil {
+			parts = append(parts, "SET DEFAULT")
+			if defNode, ok := a.Def.(interface{ SqlString() string }); ok {
+				parts = append(parts, defNode.SqlString())
+			}
+		} else {
+			parts = append(parts, "DROP DEFAULT")
+		}
+	case 'N': // DROP NOT NULL
+		parts = append(parts, "DROP NOT NULL")
+	case 'O': // SET NOT NULL
+		parts = append(parts, "SET NOT NULL")
+	case 'C': // ADD CONSTRAINT
+		parts = append(parts, "ADD")
+		if a.Def != nil {
+			if defNode, ok := a.Def.(interface{ SqlString() string }); ok {
+				parts = append(parts, defNode.SqlString())
+			}
+		}
+	case 'X': // DROP CONSTRAINT
+		parts = append(parts, "DROP CONSTRAINT")
+		if a.MissingOk {
+			parts = append(parts, "IF EXISTS")
+		}
+		if a.Name != "" {
+			parts = append(parts, a.Name)
+		}
+		if a.Behavior == DropCascade {
+			parts = append(parts, "CASCADE")
+		}
+	case 'V': // VALIDATE CONSTRAINT
+		parts = append(parts, "VALIDATE CONSTRAINT")
+		if a.Name != "" {
+			parts = append(parts, a.Name)
+		}
+	}
+
+	return strings.Join(parts, " ")
 }
 
 // CreateDomainStmt represents a CREATE DOMAIN statement.
 // Ported from postgres/src/include/nodes/parsenodes.h:3156
 type CreateDomainStmt struct {
 	BaseNode
-	Domainname  []string       // qualified name (list of String) - postgres/src/include/nodes/parsenodes.h:3158
+	Domainname  *NodeList      // qualified name (list of String) - postgres/src/include/nodes/parsenodes.h:3158
 	TypeName    *TypeName      // the base type - postgres/src/include/nodes/parsenodes.h:3159
 	CollClause  *CollateClause // untransformed COLLATE spec, if any - postgres/src/include/nodes/parsenodes.h:3160
-	Constraints []*Constraint  // constraints (list of Constraint nodes) - postgres/src/include/nodes/parsenodes.h:3161
+	Constraints *NodeList      // constraints (list of Constraint nodes) - postgres/src/include/nodes/parsenodes.h:3161
 }
 
 // NewCreateDomainStmt creates a new CreateDomainStmt node.
-func NewCreateDomainStmt(domainname []string, typeName *TypeName) *CreateDomainStmt {
+func NewCreateDomainStmt(domainname *NodeList, typeName *TypeName) *CreateDomainStmt {
 	return &CreateDomainStmt{
 		BaseNode:   BaseNode{Tag: T_CreateDomainStmt},
 		Domainname: domainname,
@@ -1577,10 +1651,53 @@ func (c *CreateDomainStmt) StatementType() string {
 
 func (c *CreateDomainStmt) String() string {
 	domainName := ""
-	if len(c.Domainname) > 0 {
-		domainName = c.Domainname[len(c.Domainname)-1]
+	if c.Domainname != nil && len(c.Domainname.Items) > 0 {
+		if str, ok := c.Domainname.Items[len(c.Domainname.Items)-1].(*String); ok {
+			domainName = str.SVal
+		}
 	}
 	return fmt.Sprintf("CreateDomainStmt(%s)@%d", domainName, c.Location())
+}
+
+// SqlString returns the SQL representation of CREATE DOMAIN statement.
+func (c *CreateDomainStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "CREATE DOMAIN")
+
+	// Add domain name
+	if c.Domainname != nil && len(c.Domainname.Items) > 0 {
+		var nameStrs []string
+		for _, item := range c.Domainname.Items {
+			if str, ok := item.(*String); ok {
+				nameStrs = append(nameStrs, str.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(nameStrs, "."))
+	}
+
+	// Add AS keyword
+	parts = append(parts, "AS")
+
+	// Add type name
+	if c.TypeName != nil {
+		parts = append(parts, c.TypeName.SqlString())
+	}
+
+	// Add constraints
+	if c.Constraints != nil {
+		for _, item := range c.Constraints.Items {
+			if constraint, ok := item.(*Constraint); ok {
+				parts = append(parts, constraint.SqlString())
+			}
+		}
+	}
+
+	// Add collate clause
+	if c.CollClause != nil {
+		parts = append(parts, c.CollClause.SqlString())
+	}
+
+	return strings.Join(parts, " ")
 }
 
 // ==============================================================================
@@ -1621,17 +1738,17 @@ func (c *CreateSchemaStmt) String() string {
 // SqlString returns SQL representation of the CREATE SCHEMA statement
 func (c *CreateSchemaStmt) SqlString() string {
 	var parts []string
-	
+
 	parts = append(parts, "CREATE SCHEMA")
-	
+
 	if c.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
 	}
-	
+
 	if c.Schemaname != "" {
 		parts = append(parts, c.Schemaname)
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 

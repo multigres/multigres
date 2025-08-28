@@ -101,7 +101,7 @@ type LexerInterface interface {
 %token <keyword> FALSE_P ILIKE IN_P LIKE NULL_P SIMILAR TRUE_P UNKNOWN WHEN
 %token <keyword> IS ISNULL NOTNULL AT TIME ZONE LOCAL SYMMETRIC ASYMMETRIC TO
 %token <keyword> OPERATOR
-%token <keyword> SELECT FROM WHERE ONLY TABLE LIMIT OFFSET ORDER_P BY GROUP_P HAVING INTO ON
+%token <keyword> SELECT FROM WHERE ONLY TABLE LIMIT OFFSET BY GROUP_P HAVING INTO ON
 %token <keyword> JOIN INNER_P LEFT RIGHT FULL OUTER_P CROSS NATURAL USING
 %token <keyword> RECURSIVE MATERIALIZED LATERAL VALUES SEARCH BREADTH DEPTH CYCLE FIRST_P LAST_P SET ASC DESC
 /* DML keywords for Phase 3E */
@@ -406,6 +406,12 @@ type LexerInterface interface {
 
 %type <stmt>         CreateFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
 %type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt
+%type <stmt>         CreateDomainStmt AlterDomainStmt DefineStmt AlterEnumStmt
+%type <list>         definition def_list opt_enum_val_list enum_val_list
+%type <list>         aggr_args aggr_args_list old_aggr_definition old_aggr_list
+%type <defelt>       def_elem old_aggr_elem
+%type <node>         def_arg opt_as DomainConstraint DomainConstraintElem aggr_arg
+%type <ival>         opt_or_replace
 %type <rolespec>     RoleSpec
 %type <vsetstmt>     generic_set set_rest set_rest_more generic_reset reset_rest SetResetClause FunctionSetResetClause
 %type <list>         func_name func_args_with_defaults func_args_with_defaults_list
@@ -517,6 +523,10 @@ stmt:
 		|	CreateMatViewStmt						{ $$ = $1 }
 		|	RefreshMatViewStmt						{ $$ = $1 }
 		|	CreateSchemaStmt						{ $$ = $1 }
+		|	CreateDomainStmt						{ $$ = $1 }
+		|	AlterDomainStmt							{ $$ = $1 }
+		|	DefineStmt								{ $$ = $1 }
+		|	AlterEnumStmt							{ $$ = $1 }
 		|	VariableSetStmt							{ $$ = $1 }
 		|	VariableResetStmt						{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
@@ -3553,7 +3563,7 @@ table_func_column: param_name func_type
 
 /* Optional table function element list */
 OptTableFuncElementList:
-			AS '(' TableFuncElementList ')'		{ $$ = $3 }
+			TableFuncElementList					{ $$ = $1 }
 		|	/* EMPTY */								{ $$ = nil }
 		;
 
@@ -4547,7 +4557,9 @@ opt_using:
  */
 opt_as:
 			AS
+				{ $$ = nil }
 		|	/* EMPTY */
+				{ $$ = nil }
 		;
 
 /*
@@ -8409,6 +8421,365 @@ CreateSchemaStmt:
 
 /*****************************************************************************
  *
+ *		CREATE DOMAIN statements - Phase 3G
+ *
+ *****************************************************************************/
+
+CreateDomainStmt:
+		CREATE DOMAIN_P any_name opt_as Typename ColQualList
+			{
+				n := ast.NewCreateDomainStmt($3, $5)
+				// Use SplitColQualList to separate constraints and collate clause
+				constraints, collClause := SplitColQualList($6)
+				n.Constraints = constraints
+				n.CollClause = collClause
+				$$ = n
+			}
+	;
+
+/*****************************************************************************
+ *
+ *		ALTER DOMAIN statements - Phase 3G
+ *
+ *****************************************************************************/
+
+AlterDomainStmt:
+		ALTER DOMAIN_P any_name alter_column_default
+			{
+				n := ast.NewAlterDomainStmt('T', $3)
+				n.Def = $4
+				$$ = n
+			}
+	|	ALTER DOMAIN_P any_name DROP NOT NULL_P
+			{
+				n := ast.NewAlterDomainStmt('N', $3)
+				$$ = n
+			}
+	|	ALTER DOMAIN_P any_name SET NOT NULL_P
+			{
+				n := ast.NewAlterDomainStmt('O', $3)
+				$$ = n
+			}
+	|	ALTER DOMAIN_P any_name ADD_P DomainConstraint
+			{
+				n := ast.NewAlterDomainStmt('C', $3)
+				n.Def = $5
+				$$ = n
+			}
+	|	ALTER DOMAIN_P any_name DROP CONSTRAINT name opt_drop_behavior
+			{
+				n := ast.NewAlterDomainStmt('X', $3)
+				n.Name = $6
+				n.Behavior = $7
+				n.MissingOk = false
+				$$ = n
+			}
+	|	ALTER DOMAIN_P any_name DROP CONSTRAINT IF_P EXISTS name opt_drop_behavior
+			{
+				n := ast.NewAlterDomainStmt('X', $3)
+				n.Name = $8
+				n.Behavior = $9
+				n.MissingOk = true
+				$$ = n
+			}
+	|	ALTER DOMAIN_P any_name VALIDATE CONSTRAINT name
+			{
+				n := ast.NewAlterDomainStmt('V', $3)
+				n.Name = $6
+				$$ = n
+			}
+	;
+
+/*****************************************************************************
+ *
+ *		CREATE TYPE statements - Phase 3G
+ *
+ *****************************************************************************/
+
+DefineStmt:
+		CREATE opt_or_replace AGGREGATE func_name aggr_args definition
+			{
+				// Extract actual arguments from aggr_args which returns [args, position_indicator]
+				var args *ast.NodeList
+				if $5 != nil && $5.Len() > 0 {
+					// First element contains the actual arguments (or nil for *)
+					if firstElem, ok := $5.Items[0].(*ast.NodeList); ok {
+						args = firstElem
+					} else if $5.Items[0] == nil {
+						// Special case for COUNT(*) - create a list with a single nil element
+						args = ast.NewNodeList(nil)
+					}
+				}
+				n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, false, $4, args, $6, false, $2 != 0)
+				$$ = n
+			}
+	|	CREATE opt_or_replace AGGREGATE func_name old_aggr_definition
+			{
+				// old-style (pre-8.2) syntax for CREATE AGGREGATE
+				n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, true, $4, nil, $5, false, $2 != 0)
+				$$ = n
+			}
+	|	CREATE OPERATOR any_operator definition
+			{
+				n := ast.NewDefineStmt(ast.OBJECT_OPERATOR, false, $3, nil, $4, false, false)
+				$$ = n
+			}
+	|	CREATE TYPE_P any_name definition
+			{
+				n := ast.NewDefineStmt(ast.OBJECT_TYPE, false, $3, nil, $4, false, false)
+				$$ = n
+			}
+	|	CREATE TYPE_P any_name
+			{
+				// Shell type (identified by lack of definition)
+				n := ast.NewDefineStmt(ast.OBJECT_TYPE, false, $3, nil, nil, false, false)
+				$$ = n
+			}
+	|	CREATE TEXT_P SEARCH PARSER any_name definition
+			{
+				n := ast.NewDefineStmt(ast.OBJECT_TSPARSER, false, $5, nil, $6, false, false)
+				$$ = n
+			}
+	|	CREATE TEXT_P SEARCH DICTIONARY any_name definition
+			{
+				n := ast.NewDefineStmt(ast.OBJECT_TSDICTIONARY, false, $5, nil, $6, false, false)
+				$$ = n
+			}
+	|	CREATE TEXT_P SEARCH TEMPLATE any_name definition
+			{
+				n := ast.NewDefineStmt(ast.OBJECT_TSTEMPLATE, false, $5, nil, $6, false, false)
+				$$ = n
+			}
+	|	CREATE TEXT_P SEARCH CONFIGURATION any_name definition
+			{
+				n := ast.NewDefineStmt(ast.OBJECT_TSCONFIGURATION, false, $5, nil, $6, false, false)
+				$$ = n
+			}
+	|	CREATE COLLATION any_name definition
+			{
+				n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, $3, nil, $4, false, false)
+				$$ = n
+			}
+	|	CREATE COLLATION IF_P NOT EXISTS any_name definition
+			{
+				n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, $6, nil, $7, true, false)
+				$$ = n
+			}
+	|	CREATE COLLATION any_name FROM any_name
+			{
+				n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, $3, nil, ast.NewNodeList($5), false, false)
+				$$ = n
+			}
+	|	CREATE COLLATION IF_P NOT EXISTS any_name FROM any_name
+			{
+				n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, $6, nil, ast.NewNodeList($8), true, false)
+				$$ = n
+			}
+	|	CREATE TYPE_P any_name AS '(' OptTableFuncElementList ')'
+			{
+				typevar, err := makeRangeVarFromAnyName($3, 0)
+				if err != nil {
+					yylex.Error(fmt.Sprintf("invalid type name: %v", err))
+					return 1
+				}
+				
+				n := ast.NewCompositeTypeStmt(typevar, $6)
+				$$ = n
+			}
+	|	CREATE TYPE_P any_name AS ENUM_P '(' opt_enum_val_list ')'
+			{
+				n := ast.NewCreateEnumStmt($3, $7)
+				$$ = n
+			}
+	|	CREATE TYPE_P any_name AS RANGE definition
+			{
+				n := ast.NewCreateRangeStmt($3, $6)
+				$$ = n
+			}
+	;
+
+aggr_args:
+		'(' '*' ')'
+			{
+				// For aggregates like COUNT(*)
+				// Return a list with [nil, -1] matching PostgreSQL's list_make2(NIL, makeInteger(-1))
+				$$ = ast.NewNodeList(nil, ast.NewInteger(-1))
+			}
+	|	'(' aggr_args_list ')'
+			{
+				// Regular aggregate arguments
+				// Return a list with [args, -1] matching PostgreSQL's list_make2($2, makeInteger(-1))
+				$$ = ast.NewNodeList($2, ast.NewInteger(-1))
+			}
+	|	'(' ORDER BY aggr_args_list ')'
+			{
+				// Ordered-set aggregate without direct arguments
+				// Return a list with [args, 0] matching PostgreSQL's list_make2($4, makeInteger(0))
+				$$ = ast.NewNodeList($4, ast.NewInteger(0))
+			}
+	|	'(' aggr_args_list ORDER BY aggr_args_list ')'
+			{
+				// Hypothetical-set aggregate
+				// This is the only case requiring consistency checking in PostgreSQL
+				result, err := makeOrderedSetArgs($2, $5)
+				if err != nil {
+					yylex.Error(err.Error())
+					return 1
+				}
+				$$ = result
+			}
+	;
+
+aggr_args_list:
+		aggr_arg
+			{
+				$$ = ast.NewNodeList($1)
+			}
+	|	aggr_args_list ',' aggr_arg
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+	;
+
+aggr_arg:
+		func_arg
+			{
+				$$ = $1
+			}
+	;
+
+old_aggr_definition:
+		'(' old_aggr_list ')'
+			{
+				$$ = $2
+			}
+	;
+
+old_aggr_list:
+		old_aggr_elem
+			{
+				$$ = ast.NewNodeList($1)
+			}
+	|	old_aggr_list ',' old_aggr_elem
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+	;
+
+old_aggr_elem:
+		IDENT '=' def_arg
+			{
+				$$ = ast.NewDefElem($1, $3)
+			}
+	;
+
+AlterEnumStmt:
+		ALTER TYPE_P any_name ADD_P VALUE_P opt_if_not_exists Sconst
+			{
+				n := ast.NewAlterEnumStmt($3)
+				n.NewVal = $7
+				n.SkipIfNewValExists = $6 != 0
+				n.NewValIsAfter = true
+				$$ = n
+			}
+	|	ALTER TYPE_P any_name ADD_P VALUE_P opt_if_not_exists Sconst BEFORE Sconst
+			{
+				n := ast.NewAlterEnumStmt($3)
+				n.NewVal = $7
+				n.NewValNeighbor = $9
+				n.NewValIsAfter = false
+				n.SkipIfNewValExists = $6 != 0
+				$$ = n
+			}
+	|	ALTER TYPE_P any_name ADD_P VALUE_P opt_if_not_exists Sconst AFTER Sconst
+			{
+				n := ast.NewAlterEnumStmt($3)
+				n.NewVal = $7
+				n.NewValNeighbor = $9
+				n.NewValIsAfter = true
+				n.SkipIfNewValExists = $6 != 0
+				$$ = n
+			}
+	|	ALTER TYPE_P any_name RENAME VALUE_P Sconst TO Sconst
+			{
+				n := ast.NewAlterEnumStmt($3)
+				n.OldVal = $6
+				n.NewVal = $8
+				n.SkipIfNewValExists = false
+				$$ = n
+			}
+	|	ALTER TYPE_P any_name DROP VALUE_P Sconst
+			{
+				// Following PostgreSQL's approach - DROP VALUE is parsed but not implemented
+				// PostgreSQL throws an error saying "dropping an enum value is not implemented"
+				yylex.Error("dropping an enum value is not implemented")
+				return 1
+			}
+	;
+
+/*****************************************************************************
+ *
+ *		Supporting rules for CREATE DOMAIN and CREATE TYPE
+ *
+ *****************************************************************************/
+
+opt_enum_val_list:
+		enum_val_list
+			{ $$ = $1 }
+	|	/* EMPTY */
+			{ $$ = nil }
+	;
+
+enum_val_list:
+		Sconst
+			{ $$ = ast.NewNodeList(ast.NewString($1)) }
+	|	enum_val_list ',' Sconst
+			{ $1.Append(ast.NewString($3)); $$ = $1 }
+	;
+
+DomainConstraint:
+		CONSTRAINT name DomainConstraintElem
+			{
+				if constraint, ok := $3.(*ast.Constraint); ok {
+					constraint.Conname = $2
+					$$ = constraint
+				} else {
+					$$ = $3
+				}
+			}
+	|	DomainConstraintElem
+			{ $$ = $1 }
+	;
+
+DomainConstraintElem:
+		CHECK '(' a_expr ')' ConstraintAttributeSpec
+			{
+				n := ast.NewConstraint(ast.CONSTR_CHECK)
+				n.RawExpr = $3
+				n.CookedExpr = ""  // Empty string, not nil
+				// Process constraint attributes from $5
+				processConstraintAttributeSpec($5, n)
+				// PostgreSQL: n->initially_valid = !n->skip_validation
+				n.InitiallyValid = !n.SkipValidation
+				$$ = n
+			}
+	|	NOT NULL_P ConstraintAttributeSpec
+			{
+				n := ast.NewConstraint(ast.CONSTR_NOTNULL)
+				// In PostgreSQL, domain NOT NULL constraints have keys = list_make1(makeString("value"))
+				n.Keys = ast.NewNodeList(ast.NewString("value"))
+				// Process constraint attributes from $3
+				processConstraintAttributeSpec($3, n)
+				// PostgreSQL sets initially_valid = true for NOT NULL (no NOT VALID support yet)
+				n.InitiallyValid = true
+				$$ = n
+			}
+	;
+
+/*****************************************************************************
+ *
  *		CREATE MATERIALIZED VIEW statements - Phase 3G
  *
  *****************************************************************************/
@@ -8808,34 +9179,3 @@ func ParseSQL(input string) ([]ast.Stmt, error) {
 
 	return lexer.GetParseTree(), nil
 }
-
-// processConstraintAttributeSpec processes constraint attribute specification bitmask
-// This is a simplified version of processCASbits from PostgreSQL
-func processConstraintAttributeSpec(casbits int, constraint *ast.Constraint) {
-	if casbits & ast.CAS_DEFERRABLE != 0 {
-		constraint.Deferrable = true
-	} else if casbits & ast.CAS_NOT_DEFERRABLE != 0 {
-		constraint.Deferrable = false
-	}
-
-	if casbits & ast.CAS_INITIALLY_DEFERRED != 0 {
-		constraint.Initdeferred = true
-	} else if casbits & ast.CAS_INITIALLY_IMMEDIATE != 0 {
-		constraint.Initdeferred = false
-	}
-
-	if casbits & ast.CAS_NOT_VALID != 0 {
-		constraint.SkipValidation = true
-		constraint.InitiallyValid = false
-	} else {
-		constraint.SkipValidation = false
-		constraint.InitiallyValid = true
-	}
-
-	if casbits & ast.CAS_NO_INHERIT != 0 {
-		constraint.IsNoInherit = true
-	}
-}
-
-
-
