@@ -77,8 +77,30 @@ func FullyQualifiedHostname() (string, error) {
 	if len(ips) == 0 {
 		return "", fmt.Errorf("FullyQualifiedHostname: lookup of the IP of this machine's hostname (%v) did not return any IP address", hostname)
 	}
-	// If multiple IPs are returned, we only look at the first one.
-	localIP := ips[0]
+
+	// Prefer IPv4 addresses over IPv6 link-local addresses to avoid DNS timeout issues
+	var localIP string
+	for _, ip := range ips {
+		parsedIP := net.ParseIP(ip)
+		if parsedIP != nil {
+			// Prefer IPv4 addresses, or non-link-local IPv6
+			if parsedIP.To4() != nil {
+				// This is an IPv4 address - prefer it
+				localIP = ip
+				break
+			} else if !parsedIP.IsLinkLocalUnicast() {
+				// This is a non-link-local IPv6 address - acceptable
+				if localIP == "" {
+					localIP = ip
+				}
+			}
+		}
+	}
+
+	// If no preferred IP found, fall back to the first one
+	if localIP == "" {
+		localIP = ips[0]
+	}
 
 	// 3. Reverse lookup the IP. Example: localhost.localdomain
 	resolvedHostnames, err := net.LookupAddr(localIP)

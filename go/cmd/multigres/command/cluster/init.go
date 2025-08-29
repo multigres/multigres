@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/provisioner"
@@ -45,21 +44,17 @@ func validateConfigPaths(cmd *cobra.Command) ([]string, error) {
 	for _, configPath := range configPaths {
 		absPath, err := filepath.Abs(configPath)
 		if err != nil {
-			cmd.SilenceUsage = true
 			return nil, fmt.Errorf("failed to resolve config path %s: %w", configPath, err)
 		}
 
 		if _, err := os.Stat(absPath); os.IsNotExist(err) {
-			cmd.SilenceUsage = true
 			return nil, fmt.Errorf("config path does not exist: %s", absPath)
 		} else if err != nil {
-			cmd.SilenceUsage = true
 			return nil, fmt.Errorf("failed to access config path %s: %w", absPath, err)
 		}
 
 		// Check if it's a directory
 		if info, err := os.Stat(absPath); err == nil && !info.IsDir() {
-			cmd.SilenceUsage = true
 			return nil, fmt.Errorf("config path is not a directory: %s", absPath)
 		}
 	}
@@ -69,60 +64,46 @@ func validateConfigPaths(cmd *cobra.Command) ([]string, error) {
 
 // buildConfigFromFlags creates a MultigressConfig based on command flags
 func buildConfigFromFlags(cmd *cobra.Command) (*MultigressConfig, error) {
+	// Get config paths to substitute in provisioner config
+	configPaths, err := cmd.Flags().GetStringSlice("config-path")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config-path flag: %w", err)
+	}
+	if len(configPaths) == 0 {
+		return nil, fmt.Errorf("no config paths specified")
+	}
+
 	// Get provisioner name from flags or use default
 	provisionerName, _ := cmd.Flags().GetString("provisioner")
 	if provisionerName == "" {
 		provisionerName = "local" // default provisioner
 	}
 
-	// Create provisioner instance to get defaults
-	p, err := provisioner.GetProvisioner(provisionerName)
+	// Create default configuration for the specified provisioner
+	config, err := CreateDefaultConfig(provisionerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create provisioner '%s': %w", provisionerName, err)
-	}
-
-	// Start with default config from provisioner
-	config := DefaultConfig(p)
-
-	if topoBackend, _ := cmd.Flags().GetString("topo-backend"); topoBackend != "" {
-		config.Topology.Backend = topoBackend
-	}
-
-	if globalRootPath, _ := cmd.Flags().GetString("topo-global-root-path"); globalRootPath != "" {
-		config.Topology.GlobalRootPath = globalRootPath
-	}
-
-	if defaultCellName, _ := cmd.Flags().GetString("topo-default-cell-name"); defaultCellName != "" {
-		config.Topology.DefaultCellName = defaultCellName
-	}
-
-	if defaultCellRootPath, _ := cmd.Flags().GetString("topo-default-cell-root-path"); defaultCellRootPath != "" {
-		config.Topology.DefaultCellRootPath = defaultCellRootPath
+		return nil, fmt.Errorf("failed to create default config: %w", err)
 	}
 
 	return config, nil
 }
 
 // validateConfig validates the configuration values
-func validateConfig(cmd *cobra.Command, config *MultigressConfig) error {
-	// Validate provisioner
-	if config.Provisioner != "local" {
-		cmd.SilenceUsage = true
-		return fmt.Errorf("invalid provisioner: %s (only 'local' is supported)", config.Provisioner)
+func validateConfig(config *MultigressConfig) error {
+	// Validate provisioner name
+	if config.Provisioner == "" {
+		return fmt.Errorf("provisioner not specified")
 	}
 
-	// Validate topo backend
-	availableBackends := getAvailableTopoImplementations()
-	validBackend := false
-	for _, backend := range availableBackends {
-		if config.Topology.Backend == backend {
-			validBackend = true
-			break
-		}
+	// Create provisioner instance and use its validation
+	p, err := provisioner.GetProvisioner(config.Provisioner)
+	if err != nil {
+		return fmt.Errorf("failed to create provisioner: %w", err)
 	}
-	if !validBackend {
-		cmd.SilenceUsage = true
-		return fmt.Errorf("invalid topo backend: %s (available: %v)", config.Topology.Backend, availableBackends)
+
+	// Use the provisioner's own validation method
+	if err := p.ValidateConfig(config.ProvisionerConfig); err != nil {
+		return fmt.Errorf("provisioner config validation failed: %w", err)
 	}
 
 	return nil
@@ -137,14 +118,13 @@ func createConfigFile(cmd *cobra.Command, configPaths []string) (string, error) 
 	}
 
 	// Validate configuration
-	if err := validateConfig(cmd, config); err != nil {
+	if err := validateConfig(config); err != nil {
 		return "", err
 	}
 
 	// Marshal to YAML
 	yamlData, err := yaml.Marshal(config)
 	if err != nil {
-		cmd.SilenceUsage = true
 		return "", fmt.Errorf("failed to marshal config to YAML: %w", err)
 	}
 
@@ -154,13 +134,16 @@ func createConfigFile(cmd *cobra.Command, configPaths []string) (string, error) 
 
 	// Check if config file already exists
 	if _, err := os.Stat(configFile); err == nil {
-		cmd.SilenceUsage = true
 		return "", fmt.Errorf("config file already exists: %s", configFile)
 	}
 
+	// Print the generated configuration
+	fmt.Println("\nGenerated configuration:")
+	fmt.Println("======================")
+	fmt.Print(string(yamlData))
+
 	// Write config file
 	if err := os.WriteFile(configFile, yamlData, 0644); err != nil {
-		cmd.SilenceUsage = true
 		return "", fmt.Errorf("failed to write config file %s: %w", configFile, err)
 	}
 
@@ -196,13 +179,5 @@ var InitCommand = &cobra.Command{
 }
 
 func init() {
-	// Add flags for configuration options
-	availableBackends := getAvailableTopoImplementations()
-	backendsStr := strings.Join(availableBackends, ", ")
-
 	InitCommand.Flags().String("provisioner", "local", "Provisioner to use (only 'local' is supported)")
-	InitCommand.Flags().String("topo-backend", "etcd2", fmt.Sprintf("Topology backend to use (available: %s)", backendsStr))
-	InitCommand.Flags().String("topo-global-root-path", "/multigres/global", "Global topology root path")
-	InitCommand.Flags().String("topo-default-cell-name", "zone1", "Default cell name")
-	InitCommand.Flags().String("topo-default-cell-root-path", "/multigres/zone1", "Default cell root path")
 }

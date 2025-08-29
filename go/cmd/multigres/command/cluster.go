@@ -28,7 +28,7 @@ var clusterCmd = &cobra.Command{
 
 func init() {
 	// Register cluster subcommands
-	cluster.RegisterCommands(clusterCmd)
+	cluster.RegisterSubCommands(clusterCmd)
 
 	// Register cluster command with root
 	Root.AddCommand(clusterCmd)

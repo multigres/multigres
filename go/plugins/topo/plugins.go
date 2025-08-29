@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+// Package topo provides a central place to import all topology plugins.
+// This ensures that all topology implementations are available without
+// having to import them individually in each command.
+package topo
 
 import (
+	// Import all topology implementations here.
+	// This makes them available for registration and use.
+	_ "github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
 	_ "github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 )

@@ -16,122 +16,122 @@ package cluster
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"strings"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/servenv"
-
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"github.com/spf13/cobra"
 )
 
-// provisionEtcd ensures etcd is running and accessible
-func provisionEtcd(ctx context.Context, config *MultigressConfig, p provisioner.Provisioner) (*provisioner.ProvisionResult, error) {
-	fmt.Println("\n=== Step 1: Provisioning etcd ===")
-
-	req := &provisioner.ProvisionRequest{
-		Service: "etcd",
-		Config:  config.ProvisionerConfig,
-	}
-
-	result, err := p.ProvisionEtcd(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to provision etcd: %w", err)
-	}
-
-	tcpPort := result.Ports["tcp"]
-	fmt.Printf("etcd available at: %s:%d ✓\n", result.FQDN, tcpPort)
-	return result, nil
+// ServiceInfo holds information about a provisioned service
+type ServiceInfo struct {
+	Name    string
+	FQDN    string
+	Ports   map[string]int
+	LogFile string
 }
 
-// setupCell initializes the topology cell configuration
-func setupCell(ctx context.Context, config *MultigressConfig, etcdAddress string) error {
-	fmt.Println("\n=== Step 2: Setting up cell ===")
-	fmt.Printf("Configuring cell: %s\n", config.Topology.DefaultCellName)
-	fmt.Printf("Using etcd at: %s\n", etcdAddress)
+// ServiceSummary holds all provisioned services
+type ServiceSummary struct {
+	Services []ServiceInfo
+}
 
-	// Create topology store using the configured backend
-	ts, err := topo.OpenServer(config.Topology.Backend, config.Topology.GlobalRootPath, []string{etcdAddress})
-	if err != nil {
-		return fmt.Errorf("failed to connect to topology server: %w", err)
-	}
-	defer ts.Close()
-
-	// Check if cell already exists
-	cellName := config.Topology.DefaultCellName
-	_, err = ts.GetCell(ctx, cellName)
-	if err == nil {
-		fmt.Printf("Cell '%s' already exists ✓\n", cellName)
-		return nil
+// AddService adds a service to the summary
+func (s *ServiceSummary) AddService(name string, result *provisioner.ProvisionResult) {
+	// Extract log file path from metadata if available
+	logFile := ""
+	if result.Metadata != nil {
+		if logPath, ok := result.Metadata["log_file"].(string); ok {
+			logFile = logPath
+		}
 	}
 
-	// Create the cell if it doesn't exist
-	if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
-		fmt.Printf("Creating cell '%s'...\n", cellName)
+	s.Services = append(s.Services, ServiceInfo{
+		Name:    name,
+		FQDN:    result.FQDN,
+		Ports:   result.Ports,
+		LogFile: logFile,
+	})
+}
 
-		cellConfig := &clustermetadatapb.Cell{
-			Name:            cellName,
-			ServerAddresses: []string{etcdAddress},
-			Root:            config.Topology.DefaultCellRootPath,
+// PrintSummary prints a formatted summary of all provisioned services
+func (s *ServiceSummary) PrintSummary() {
+	fmt.Println(strings.Repeat("=", 65))
+	fmt.Println("🎉 - Multigres cluster started successfully!")
+	fmt.Println(strings.Repeat("=", 65))
+	fmt.Println()
+	fmt.Println("Provisioned Services")
+	fmt.Println("--------------------")
+	fmt.Println()
+
+	for _, service := range s.Services {
+		displayName := service.Name
+		switch service.Name {
+		case "etcd":
+			displayName = "etcd"
+		case "multigateway":
+			displayName = "Multigateway"
+		case "multipooler":
+			displayName = "Multipooler"
+		case "multiorch":
+			displayName = "MultiOrchestrator"
+		}
+		fmt.Printf("%s\n", displayName)
+		fmt.Printf("   Host: %s\n", service.FQDN)
+
+		if len(service.Ports) == 1 {
+			// Single port format
+			for portName, portNum := range service.Ports {
+				if portName == "http_port" {
+					fmt.Printf("   Port: %d → http://%s:%d\n", portNum, service.FQDN, portNum)
+				} else {
+					fmt.Printf("   Port: %d\n", portNum)
+				}
+			}
+		} else if len(service.Ports) > 1 {
+			// Multiple ports format
+			fmt.Printf("   Ports:\n")
+			for portName, portNum := range service.Ports {
+				displayPortName := strings.ToUpper(strings.Replace(portName, "_port", "", 1))
+				if portName == "http_port" {
+					fmt.Printf("     - %s: %d → http://%s:%d\n", displayPortName, portNum, service.FQDN, portNum)
+				} else {
+					fmt.Printf("     - %s: %d\n", displayPortName, portNum)
+				}
+			}
 		}
 
-		if err := ts.CreateCell(ctx, cellName, cellConfig); err != nil {
-			return fmt.Errorf("failed to create cell '%s': %w", cellName, err)
+		if service.LogFile != "" {
+			fmt.Printf("   Log: %s\n", service.LogFile)
 		}
-
-		fmt.Printf("Cell '%s' created successfully ✓\n", cellName)
-		return nil
+		fmt.Println()
 	}
 
-	// Some other error occurred
-	return fmt.Errorf("failed to check cell '%s': %w", cellName, err)
-}
+	fmt.Println(strings.Repeat("=", 65))
+	fmt.Println("✨ - Next steps:")
 
-// provisionMultigateway starts the multigateway service
-func provisionMultigateway(ctx context.Context, config *MultigressConfig, p provisioner.Provisioner) error {
-	fmt.Println("\n=== Step 3: Provisioning Multigateway ===")
-
-	req := &provisioner.ProvisionRequest{
-		Service: "multigateway",
-		Config:  config.ProvisionerConfig,
+	// Find services with HTTP ports and add direct links
+	for _, service := range s.Services {
+		if httpPort, exists := service.Ports["http_port"]; exists {
+			url := fmt.Sprintf("http://%s:%d", service.FQDN, httpPort)
+			fmt.Printf("- Open %s in your browser: %s\n", service.Name, url)
+		}
 	}
-
-	result, err := p.ProvisionMultigateway(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to provision multigateway: %w", err)
-	}
-
-	grpcPort := result.Ports["grpc"]
-	fmt.Printf("Multigateway available at: %s:%d ✓\n", result.FQDN, grpcPort)
-	return nil
-}
-
-// provisionMultiOrch starts the multi-orchestrator service
-func provisionMultiOrch(ctx context.Context, config *MultigressConfig, p provisioner.Provisioner) error {
-	fmt.Println("\n=== Step 4: Provisioning Multi-Orchestrator ===")
-
-	req := &provisioner.ProvisionRequest{
-		Service: "multiorch",
-		Config:  config.ProvisionerConfig,
-	}
-
-	result, err := p.ProvisionMultiOrch(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to provision multi-orchestrator: %w", err)
-	}
-
-	grpcPort := result.Ports["grpc"]
-	fmt.Printf("Multi-Orchestrator available at: %s:%d ✓\n", result.FQDN, grpcPort)
-	return nil
+	fmt.Println("- 🐘 Connect to PostgreSQL via Multigateway")
+	fmt.Println("- 🔍 Run `multigres cluster status` to check health")
+	fmt.Println("- 🛑 Run `multigres cluster down` to stop the cluster")
+	fmt.Println(strings.Repeat("=", 65))
 }
 
 // runUp handles the cluster up command
 func runUp(cmd *cobra.Command, args []string) error {
 	servenv.FireRunHooks()
-	fmt.Println("Starting Multigres cluster...")
+
+	fmt.Println("Multigres — Distributed Postgres made easy")
+	fmt.Println("=================================================================")
+	fmt.Println("✨ Bootstrapping your local Multigres cluster — this may take a few moments ✨")
 
 	// Get config paths from flags
 	configPaths, err := cmd.Flags().GetStringSlice("config-path")
@@ -142,13 +142,13 @@ func runUp(cmd *cobra.Command, args []string) error {
 		configPaths = []string{"."}
 	}
 
-	// Load configuration
+	// Load configuration to determine provisioner type
 	config, configFile, err := LoadConfig(configPaths)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	fmt.Printf("Using configuration from: %s\n", configFile)
+	fmt.Println("📄 - Config loaded from: " + configFile)
 
 	// Create provisioner instance
 	p, err := provisioner.GetProvisioner(config.Provisioner)
@@ -156,32 +156,36 @@ func runUp(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create provisioner '%s': %w", config.Provisioner, err)
 	}
 
-	fmt.Printf("Using provisioner: %s\n", p.Name())
+	// Let provisioner load its own configuration
+	if err := p.LoadConfig(configPaths); err != nil {
+		return fmt.Errorf("failed to load provisioner config: %w", err)
+	}
+
+	fmt.Println("🛠️  - Provisioner: " + p.Name())
+	fmt.Println()
+	fmt.Println("👋 Here we go! Starting core services...")
+	fmt.Println(strings.Repeat("=", 65))
+	fmt.Println()
 
 	ctx := context.Background()
 
-	// Execute provisioning steps in order
-	etcdResult, err := provisionEtcd(ctx, config, p)
+	// Initialize service summary to track all provisioned services
+	summary := &ServiceSummary{}
+
+	// Use the provisioner's Bootstrap method to provision all services
+	allResults, err := p.Bootstrap(ctx)
 	if err != nil {
-		return fmt.Errorf("etcd provisioning failed: %w", err)
+		return fmt.Errorf("cluster bootstrap failed: %w", err)
 	}
 
-	// Use the etcd address from provisioning result for cell setup
-	etcdPort := etcdResult.Ports["tcp"]
-	etcdAddress := fmt.Sprintf("%s:%d", etcdResult.FQDN, etcdPort)
-	if err := setupCell(ctx, config, etcdAddress); err != nil {
-		return fmt.Errorf("cell setup failed: %w", err)
+	// Add all returned services to summary dynamically
+	for _, result := range allResults {
+		summary.AddService(result.ServiceName, result)
 	}
 
-	if err := provisionMultigateway(ctx, config, p); err != nil {
-		return fmt.Errorf("multigateway provisioning failed: %w", err)
-	}
-
-	if err := provisionMultiOrch(ctx, config, p); err != nil {
-		return fmt.Errorf("multi-orchestrator provisioning failed: %w", err)
-	}
-
-	fmt.Println("\n🎉 Multigres cluster started successfully!")
+	// Print comprehensive summary
+	fmt.Println()
+	summary.PrintSummary()
 	return nil
 }
 

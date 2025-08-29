@@ -15,5 +15,5 @@
 package main
 
 import (
-	_ "github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	_ "github.com/multigres/multigres/go/plugins/topo"
 )

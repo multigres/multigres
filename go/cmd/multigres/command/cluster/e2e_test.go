@@ -16,12 +16,14 @@ package cluster
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -30,21 +32,162 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/provisioner/local"
+	"github.com/multigres/multigres/go/test/utils"
 
-	_ "github.com/multigres/multigres/go/clustermetadata/topo/etcdtopo"
+	_ "github.com/multigres/multigres/go/plugins/topo"
 )
 
 var multigresBinary string
 var binaryTempDir string
 
-// checkEtcdConnectivity checks if etcd is reachable at the given address
-func checkEtcdConnectivity(address string) error {
-	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+// testPortConfig holds test-specific port configuration to avoid conflicts
+type testPortConfig struct {
+	EtcdPort             int
+	MultigatewayHTTPPort int
+	MultigatewayGRPCPort int
+	MultipoolerGRPCPort  int
+	MultiorchGRPCPort    int
+}
+
+// getTestPortConfig returns a port configuration for tests that avoids conflicts
+func getTestPortConfig() *testPortConfig {
+	return &testPortConfig{
+		EtcdPort:             utils.GetNextEtcd2Port(),
+		MultigatewayHTTPPort: utils.GetNextPort(),
+		MultigatewayGRPCPort: utils.GetNextPort(),
+		MultipoolerGRPCPort:  utils.GetNextPort(),
+		MultiorchGRPCPort:    utils.GetNextPort(),
+	}
+}
+
+// checkPortAvailable checks if a port is available for binding
+func checkPortAvailable(port int) error {
+	address := fmt.Sprintf("localhost:%d", port)
+	conn, err := net.DialTimeout("tcp", address, 1*time.Second)
 	if err != nil {
-		return fmt.Errorf("failed to connect to etcd at %s: %w", address, err)
+		// Port is not in use, which is good
+		return nil
 	}
 	defer conn.Close()
+	return fmt.Errorf("port %d is already in use", port)
+}
+
+// checkAllPortsAvailable ensures all test ports are available before starting
+func checkAllPortsAvailable(config *testPortConfig) error {
+	ports := []int{
+		config.EtcdPort,
+		config.MultigatewayHTTPPort,
+		config.MultigatewayGRPCPort,
+		config.MultipoolerGRPCPort,
+		config.MultiorchGRPCPort,
+	}
+
+	for _, port := range ports {
+		if err := checkPortAvailable(port); err != nil {
+			return fmt.Errorf("port availability check failed: %w", err)
+		}
+	}
 	return nil
+}
+
+// killProcessByPID kills a process by PID using kill -9
+func killProcessByPID(pid int) error {
+	if pid <= 0 {
+		return fmt.Errorf("invalid PID: %d", pid)
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("failed to find process %d: %w", pid, err)
+	}
+
+	// Use kill -9 (SIGKILL) to forcefully terminate
+	err = process.Signal(syscall.SIGKILL)
+	if err != nil {
+		return fmt.Errorf("failed to kill process %d: %w", pid, err)
+	}
+
+	return nil
+}
+
+// cleanupTestProcesses kills all processes that were started during the test
+func cleanupTestProcesses(tempDir string) error {
+	serviceStates, err := getServiceStates(tempDir)
+	if err != nil {
+		// If we can't read service states, that's okay - maybe nothing was started
+		return nil
+	}
+
+	var errors []string
+	for serviceName, state := range serviceStates {
+		if state.PID > 0 {
+			fmt.Printf("Cleaning up %s process (PID: %d)...\n", serviceName, state.PID)
+			if err := killProcessByPID(state.PID); err != nil {
+				errors = append(errors, fmt.Sprintf("failed to kill %s (PID %d): %v", serviceName, state.PID, err))
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("cleanup errors: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
+}
+
+// createTestConfigWithPorts creates a test configuration file with custom ports
+func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (string, error) {
+	// Create the full configuration
+	config := &MultigressConfig{
+		Provisioner: "local",
+		ProvisionerConfig: map[string]interface{}{
+			"default-db-name":  "default",
+			"root-working-dir": tempDir,
+			"topology": map[string]interface{}{
+				"backend":                "etcd2",
+				"global-root-path":       "/multigres/global",
+				"default-cell-name":      "zone1",
+				"default-cell-root-path": "/multigres/zone1",
+			},
+			"etcd": map[string]interface{}{
+				"version":  "3.5.9",
+				"data-dir": filepath.Join(tempDir, "etcd-data"),
+				"port":     portConfig.EtcdPort,
+			},
+			"multigateway": map[string]interface{}{
+				"path":      filepath.Join(os.Getenv("MTROOT"), "bin", "multigateway"),
+				"http-port": portConfig.MultigatewayHTTPPort,
+				"grpc-port": portConfig.MultigatewayGRPCPort,
+				"pg-port":   15432, // Use default PG port
+				"log-level": "info",
+			},
+			"multipooler": map[string]interface{}{
+				"path":      filepath.Join(os.Getenv("MTROOT"), "bin", "multipooler"),
+				"grpc-port": portConfig.MultipoolerGRPCPort,
+				"log-level": "info",
+			},
+			"multiorch": map[string]interface{}{
+				"path":      filepath.Join(os.Getenv("MTROOT"), "bin", "multiorch"),
+				"grpc-port": portConfig.MultiorchGRPCPort,
+				"log-level": "info",
+			},
+		},
+	}
+
+	// Marshal to YAML
+	yamlData, err := yaml.Marshal(config)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal config to YAML: %w", err)
+	}
+
+	// Write config file
+	configFile := filepath.Join(tempDir, "multigres.yaml")
+	if err := os.WriteFile(configFile, yamlData, 0644); err != nil {
+		return "", fmt.Errorf("failed to write config file %s: %w", configFile, err)
+	}
+
+	return configFile, nil
 }
 
 // checkCellExistsInTopology checks if a cell exists in the topology server
@@ -79,13 +222,89 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 	return nil
 }
 
+// getServiceStates reads all service state files from the state directory
+func getServiceStates(configDir string) (map[string]local.LocalProvisionedService, error) {
+	stateDir := filepath.Join(configDir, "state")
+
+	// Check if state directory exists
+	if _, err := os.Stat(stateDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("state directory not found: %s", stateDir)
+	}
+
+	states := make(map[string]local.LocalProvisionedService)
+
+	// Helper function to load services from a directory
+	loadServicesFromDir := func(dir string) error {
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			return fmt.Errorf("failed to read directory %s: %w", dir, err)
+		}
+
+		for _, file := range files {
+			if !file.IsDir() && filepath.Ext(file.Name()) == ".json" {
+				filePath := filepath.Join(dir, file.Name())
+				data, err := os.ReadFile(filePath)
+				if err != nil {
+					continue // Skip files we can't read
+				}
+
+				var state local.LocalProvisionedService
+				if err := json.Unmarshal(data, &state); err != nil {
+					continue // Skip files we can't parse
+				}
+
+				states[state.Service] = state
+			}
+		}
+		return nil
+	}
+
+	// Load services from the root state directory (global services like etcd)
+	if err := loadServicesFromDir(stateDir); err != nil {
+		return nil, err
+	}
+
+	// Load services from database directories
+	dbsDir := filepath.Join(stateDir, "dbs")
+	if _, err := os.Stat(dbsDir); err == nil {
+		dbEntries, err := os.ReadDir(dbsDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read dbs directory %s: %w", dbsDir, err)
+		}
+
+		for _, dbEntry := range dbEntries {
+			if dbEntry.IsDir() {
+				dbDir := filepath.Join(dbsDir, dbEntry.Name())
+				if err := loadServicesFromDir(dbDir); err != nil {
+					return nil, fmt.Errorf("failed to load services from database %s: %w", dbEntry.Name(), err)
+				}
+			}
+		}
+	}
+
+	return states, nil
+}
+
+// checkServiceConnectivity checks if a service is reachable on its configured ports
+func checkServiceConnectivity(service string, state local.LocalProvisionedService) error {
+	for portName, port := range state.Ports {
+		address := fmt.Sprintf("%s:%d", state.FQDN, port)
+		conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+		if err != nil {
+			return fmt.Errorf("failed to connect to %s %s port at %s: %w", service, portName, address, err)
+		}
+		conn.Close()
+	}
+	return nil
+}
+
 // TestMain runs before all tests to build the binary once
 func TestMain(m *testing.M) {
 	// Build multigres binary once for all tests
 	var err error
 	binaryTempDir, err = os.MkdirTemp("", "multigres_binary")
 	if err != nil {
-		panic(fmt.Sprintf("Failed to create temp directory for binary: %v", err))
+		panic(fmt.Sprintf("Failed to create temp direetetory for binary: %v", err))
 	}
 
 	// Build multigres binary for testing (following pgctld pattern)
@@ -247,10 +466,15 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 
 	// Verify config values
 	assert.Equal(t, "local", config.Provisioner)
-	assert.Equal(t, "etcd2", config.Topology.Backend)
-	assert.Equal(t, "/multigres/global", config.Topology.GlobalRootPath)
-	assert.Equal(t, "zone1", config.Topology.DefaultCellName)
-	assert.Equal(t, "/multigres/zone1", config.Topology.DefaultCellRootPath)
+
+	// Extract topology config from provisioner config
+	topoConfig, ok := config.ProvisionerConfig["topology"].(map[string]interface{})
+	require.True(t, ok, "topology config should be present")
+
+	assert.Equal(t, "etcd2", topoConfig["backend"])
+	assert.Equal(t, "/multigres/global", topoConfig["global-root-path"])
+	assert.Equal(t, "zone1", topoConfig["default-cell-name"])
+	assert.Equal(t, "/multigres/zone1", topoConfig["default-cell-root-path"])
 }
 
 func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
@@ -276,146 +500,6 @@ func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
 	errorOutput := err.Error() + "\n" + output
 	assert.Contains(t, errorOutput, "config file already exists")
 	assert.Contains(t, errorOutput, existingConfig)
-}
-
-func TestInitCommandCustomFlags(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
-
-	// Setup test directory
-	tempDir, err := os.MkdirTemp("", "multigres_init_flags_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	// Execute command with custom flags using the actual binary
-	args := []string{
-		"--config-path", tempDir,
-		"--provisioner", "local",
-		"--topo-backend", "etcd2",
-		"--topo-global-root-path", "/custom/global",
-		"--topo-default-cell-name", "custom-cell",
-		"--topo-default-cell-root-path", "/custom/cell",
-	}
-	output, err := executeInitCommand(t, args)
-
-	// Command should succeed
-	require.NoError(t, err, "Command failed with output: %s", output)
-
-	// Check config file was created
-	configFile := filepath.Join(tempDir, "multigres.yaml")
-	_, err = os.Stat(configFile)
-	require.NoError(t, err, "Config file should exist")
-
-	// Read and validate config content
-	configData, err := os.ReadFile(configFile)
-	require.NoError(t, err)
-
-	var config MultigressConfig
-	err = yaml.Unmarshal(configData, &config)
-	require.NoError(t, err)
-
-	// Verify custom config values
-	assert.Equal(t, "local", config.Provisioner)
-	assert.Equal(t, "etcd2", config.Topology.Backend)
-	assert.Equal(t, "/custom/global", config.Topology.GlobalRootPath)
-	assert.Equal(t, "custom-cell", config.Topology.DefaultCellName)
-	assert.Equal(t, "/custom/cell", config.Topology.DefaultCellRootPath)
-}
-
-func TestInitCommandInvalidTopoBackend(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
-
-	// Setup test directory
-	tempDir, err := os.MkdirTemp("", "multigres_init_invalid_backend_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	// Execute command with invalid topo-backend using the actual binary
-	args := []string{"--config-path", tempDir, "--topo-backend", "invalid"}
-	output, err := executeInitCommand(t, args)
-
-	// Should fail with validation error
-	require.Error(t, err)
-	errorOutput := err.Error() + "\n" + output
-	assert.Contains(t, errorOutput, "invalid topo backend: invalid")
-	assert.Contains(t, errorOutput, "available: [etcd2")
-
-	// No config file should be created
-	configFile := filepath.Join(tempDir, "multigres.yaml")
-	_, err = os.Stat(configFile)
-	assert.True(t, os.IsNotExist(err), "Config file should not exist")
-}
-
-func TestInitCommandInvalidProvisioner(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
-
-	// Setup test directory
-	tempDir, err := os.MkdirTemp("", "multigres_init_invalid_provisioner_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	// Execute command with invalid provisioner using the actual binary
-	args := []string{"--config-path", tempDir, "--provisioner", "invalid"}
-	output, err := executeInitCommand(t, args)
-
-	// Should fail with validation error
-	require.Error(t, err)
-	errorOutput := err.Error() + "\n" + output
-	assert.Contains(t, errorOutput, "provisioner 'invalid' not found")
-	assert.Contains(t, errorOutput, "Available provisioners: [local]")
-
-	// No config file should be created
-	configFile := filepath.Join(tempDir, "multigres.yaml")
-	_, err = os.Stat(configFile)
-	assert.True(t, os.IsNotExist(err), "Config file should not exist")
-}
-
-func TestInitCommandAllCustomFlags(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
-
-	// Setup test directory
-	tempDir, err := os.MkdirTemp("", "multigres_init_all_flags_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	// Execute command with all custom flags using the actual binary
-	args := []string{
-		"--config-path", tempDir,
-		"--provisioner", "local",
-		"--topo-backend", "etcd2",
-		"--topo-global-root-path", "/test/global",
-		"--topo-default-cell-name", "test-zone",
-		"--topo-default-cell-root-path", "/test/zone",
-	}
-	output, err := executeInitCommand(t, args)
-	require.NoError(t, err, "Command failed with output: %s", output)
-
-	// Read config file
-	configFile := filepath.Join(tempDir, "multigres.yaml")
-	configData, err := os.ReadFile(configFile)
-	require.NoError(t, err)
-
-	// Parse the YAML to check structure
-	var parsedConfig map[string]interface{}
-	require.NoError(t, yaml.Unmarshal(configData, &parsedConfig))
-
-	// Check essential parts of the config (ignoring provisioner-config details)
-	assert.Equal(t, "local", parsedConfig["provisioner"])
-	assert.NotNil(t, parsedConfig["provisioner-config"]) // Should have provisioner config
-
-	topology, ok := parsedConfig["topology"].(map[string]interface{})
-	require.True(t, ok, "topology should be a map")
-	assert.Equal(t, "etcd2", topology["backend"])
-	assert.Equal(t, "/test/global", topology["global-root-path"])
-	assert.Equal(t, "test-zone", topology["default-cell-name"])
-	assert.Equal(t, "/test/zone", topology["default-cell-root-path"])
 }
 
 // executeUpCommand runs the actual multigres binary with "cluster up" command
@@ -449,10 +533,13 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Skip("skipping e2e test in short mode")
 	}
 
-	// Check if Docker is available
-	if !hasDocker() {
-		t.Skip("Docker not available, skipping cluster lifecycle tests")
-	}
+	// Require etcd binary to be available (required for local provisioner)
+	_, err := exec.LookPath("etcd")
+	require.NoError(t, err, "etcd binary must be available in PATH for cluster lifecycle tests")
+
+	// Require MTROOT environment variable to be set (needed for binary path resolution)
+	mtroot := os.Getenv("MTROOT")
+	require.NotEmpty(t, mtroot, "MTROOT environment variable must be set. Please run: source ./build.env")
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		// Setup test directory
@@ -460,39 +547,71 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 
+		// Always cleanup processes, even if test fails
+		defer func() {
+			if cleanupErr := cleanupTestProcesses(tempDir); cleanupErr != nil {
+				t.Logf("Warning: cleanup failed: %v", cleanupErr)
+			}
+		}()
+
 		t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
 
-		// Step 1: Initialize cluster configuration
-		t.Log("Step 1: Initializing cluster configuration...")
-		initOutput, err := executeInitCommand(t, []string{"--config-path", tempDir})
-		require.NoError(t, err, "Init command failed with output: %s", initOutput)
-		assert.Contains(t, initOutput, "Initializing Multigres cluster configuration")
-		assert.Contains(t, initOutput, "successfully")
+		// Step 0: Setup test ports and sanity checks
+		t.Log("Step 0: Setting up test ports and performing sanity checks...")
+		testPorts := getTestPortConfig()
+		require.NoError(t, checkAllPortsAvailable(testPorts),
+			"Test ports should be available before starting cluster")
 
-		// Verify config file was created
-		configFile := filepath.Join(tempDir, "multigres.yaml")
-		_, err = os.Stat(configFile)
-		require.NoError(t, err, "Config file should exist after init")
+		t.Logf("Using test ports - etcd:%d, multigateway-http:%d, multigateway-grpc:%d, multipooler:%d, multiorch:%d",
+			testPorts.EtcdPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort,
+			testPorts.MultipoolerGRPCPort, testPorts.MultiorchGRPCPort)
+
+		// Step 1: Create cluster configuration with test ports
+		t.Log("Step 1: Creating cluster configuration with test ports...")
+		configFile, err := createTestConfigWithPorts(tempDir, testPorts)
+		require.NoError(t, err, "Failed to create test configuration")
+		t.Logf("Created test configuration: %s", configFile)
+		// Print the actual config file contents
+		configContents, _ := os.ReadFile(configFile)
+		t.Logf("Config file contents:\n%s", string(configContents))
 
 		// Step 2: Start cluster (up)
 		t.Log("Step 2: Starting cluster...")
 		upOutput, err := executeUpCommand(t, []string{"--config-path", tempDir})
-		require.NoError(t, err, "Up command should succeed and start the cluster")
+		require.NoError(t, err, "Up command should succeed and start the cluster: %v", upOutput)
 
 		// Verify we got expected output
-		assert.Contains(t, upOutput, "Starting Multigres cluster")
+		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 
-		// Step 2.5: Verify etcd connectivity (test default etcd port)
-		t.Log("Step 2.5: Verifying etcd connectivity...")
-		// Since etcd address is now dynamic from provisioner, test the default port
-		etcdAddress := "localhost:2379"
+		// Step 2.5: Verify all services connectivity using state files
+		t.Log("Step 2.5: Verifying all services connectivity...")
 
-		t.Logf("Checking etcd connectivity at: %s", etcdAddress)
-		// The up command should have started etcd and made it reachable
-		require.NoError(t, checkEtcdConnectivity(etcdAddress), "etcd should be reachable after cluster up command")
+		// Read all service states from the state files
+		serviceStates, err := getServiceStates(tempDir)
+		require.NoError(t, err, "should be able to read service states")
+		require.NotEmpty(t, serviceStates, "should have at least one service running")
 
-		// Step 2.6: Verify cell exists in topology
+		// Check connectivity for each service
+		expectedServices := []string{"etcd", "multigateway", "multipooler", "multiorch"}
+		for _, serviceName := range expectedServices {
+			state, exists := serviceStates[serviceName]
+			require.True(t, exists, "service %s should have a state file", serviceName)
+
+			t.Logf("Checking %s connectivity at %s with ports %v", serviceName, state.FQDN, state.Ports)
+			require.NoError(t, checkServiceConnectivity(serviceName, state),
+				"%s should be reachable on its configured ports", serviceName)
+		}
+
+		// Step 2.6: Verify cell exists in topology using etcd from state
 		t.Log("Step 2.6: Verifying cell exists in topology...")
+
+		// Get etcd connection details from state
+		etcdState, exists := serviceStates["etcd"]
+		require.True(t, exists, "etcd service state should exist")
+		etcdPort, exists := etcdState.Ports["tcp"]
+		require.True(t, exists, "etcd should have tcp port defined")
+		etcdAddress := fmt.Sprintf("%s:%d", etcdState.FQDN, etcdPort)
+
 		// Read the config to get topology settings
 		configData, err := os.ReadFile(configFile)
 		require.NoError(t, err)
@@ -500,9 +619,16 @@ func TestClusterLifecycle(t *testing.T) {
 		err = yaml.Unmarshal(configData, &config)
 		require.NoError(t, err)
 
+		// Extract topology config from provisioner config
+		topoConfig, ok := config.ProvisionerConfig["topology"].(map[string]interface{})
+		require.True(t, ok, "topology config should be present")
+
+		cellName := topoConfig["default-cell-name"].(string)
+		globalRootPath := topoConfig["global-root-path"].(string)
+
 		t.Logf("Checking cell '%s' exists in topology at %s with root path %s",
-			config.Topology.DefaultCellName, etcdAddress, config.Topology.GlobalRootPath)
-		require.NoError(t, checkCellExistsInTopology(etcdAddress, config.Topology.GlobalRootPath, config.Topology.DefaultCellName),
+			cellName, etcdAddress, globalRootPath)
+		require.NoError(t, checkCellExistsInTopology(etcdAddress, globalRootPath, cellName),
 			"cell should exist in topology after cluster up command")
 
 		// Step 3: Stop cluster (down)
