@@ -11,6 +11,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 	"github.com/multigres/parser/go/parser/ast"
 )
 
@@ -77,6 +78,7 @@ type LexerInterface interface {
 	vsetstmt   *ast.VariableSetStmt    // For SET/RESET statements
 	rolespec   *ast.RoleSpec
 	objwithargs *ast.ObjectWithArgs
+	statelem   *ast.StatsElem
 
 	// Location tracking
 	location   int
@@ -226,12 +228,12 @@ type LexerInterface interface {
 %type <str>          unreserved_keyword col_name_keyword type_func_name_keyword reserved_keyword bare_label_keyword
 %type <list>         opt_name_list
 %type <ival>         opt_if_exists opt_if_not_exists
-%type <ival>         opt_or_replace
+%type <bval>         opt_or_replace
 %type <bval>         opt_concurrently
 %type <node>         opt_with
 %type <node>         alter_using
 %type <list>         alter_generic_options alter_generic_option_list
-%type <node>         generic_option_arg
+%type <node>         generic_option_arg set_statistics_value
 %type <defelt>       alter_generic_option_elem
 %type <str>          set_access_method_name
 %type <node>         replica_identity
@@ -286,7 +288,6 @@ type LexerInterface interface {
 %type <node>         opt_binary copy_delimiter copy_opt_item
 %type <list>         copy_options copy_opt_list copy_generic_opt_list copy_generic_opt_arg_list opt_column_list index_elem_list index_params
 %type <node>         copy_generic_opt_elem copy_generic_opt_arg copy_generic_opt_arg_list_item NumericOnly var_value
-%type <node>         set_statistics_value
 %type <ival>         opt_set_data
 %type <list>         type_name_list
 %type <str>          opt_boolean_or_string NonReservedWord_or_Sconst var_name
@@ -294,7 +295,7 @@ type LexerInterface interface {
 %type <target>       target_el
 %type <list>         from_clause from_list
 %type <node>         table_ref
-%type <node>         where_clause opt_where_clause
+%type <node>         where_clause OptWhereClause
 %type <alias>        alias_clause opt_alias_clause opt_alias_clause_for_join_using
 %type <ival>         opt_all_clause
 %type <list>         distinct_clause opt_distinct_clause
@@ -409,11 +410,9 @@ type LexerInterface interface {
 %type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt
 %type <stmt>         CreateDomainStmt AlterDomainStmt DefineStmt AlterEnumStmt CreateSeqStmt AlterSeqStmt CreateExtensionStmt AlterExtensionStmt AlterExtensionContentsStmt
 %type <stmt>         CreateEventTrigStmt AlterEventTrigStmt
-/* TODO: Add type declarations for remaining CREATE statements 
 %type <stmt>         CreateTableSpaceStmt AlterTblSpcStmt CreatePolicyStmt AlterPolicyStmt
 %type <stmt>         CreateAmStmt CreateStatsStmt AlterStatsStmt CreatePublicationStmt AlterPublicationStmt CreateSubscriptionStmt AlterSubscriptionStmt
 %type <stmt>         CreateCastStmt CreateOpClassStmt CreateOpFamilyStmt AlterOpFamilyStmt CreateConversionStmt CreateTransformStmt CreatePLangStmt
-*/
 %type <stmt>         CreateFdwStmt AlterFdwStmt CreateForeignServerStmt AlterForeignServerStmt CreateForeignTableStmt CreateUserMappingStmt AlterUserMappingStmt DropUserMappingStmt
 %type <list>         definition def_list opt_enum_val_list enum_val_list
 %type <list>         OptSeqOptList OptParenthesizedSeqOptList SeqOptList create_extension_opt_list alter_extension_opt_list
@@ -427,10 +426,20 @@ type LexerInterface interface {
 %type <defelt>       event_trigger_when_item
 %type <ival>         enable_trigger
 %type <ival>         add_drop
+%type <rolespec>     OptTableSpaceOwner
+%type <bval>         RowSecurityDefaultPermissive opt_default opt_trusted opt_procedural
+%type <str>          RowSecurityDefaultForCmd row_security_cmd
+%type <list>         RowSecurityDefaultToRole RowSecurityOptionalToRole
+%type <node>         RowSecurityOptionalExpr RowSecurityOptionalWithCheck
+%type <ival>         am_type cast_context
+%type <list>         stats_params pub_obj_list opclass_item_list opclass_drop_list transform_element_list
+%type <statelem>     stats_param
+%type <node>         PublicationObjSpec opclass_item opclass_drop
+%type <list>         opt_opfamily opt_inline_handler opt_validator validator_clause
+%type <bval>         opt_recheck
 %type <list>         aggr_args aggr_args_list old_aggr_definition old_aggr_list
 %type <defelt>       def_elem old_aggr_elem
 %type <node>         def_arg opt_as DomainConstraint DomainConstraintElem aggr_arg
-%type <ival>         opt_or_replace
 %type <rolespec>     RoleSpec
 %type <vsetstmt>     generic_set set_rest set_rest_more generic_reset reset_rest SetResetClause FunctionSetResetClause
 %type <list>         func_name func_args_with_defaults func_args_with_defaults_list
@@ -458,7 +467,7 @@ type LexerInterface interface {
 %type <node>         transaction_mode_item
 %type <str>          NonReservedWord_or_Sconst NonReservedWord opt_encoding iso_level
 %type <ival>         document_or_content
-%type <list>         attrs
+%type <list>         attrs opclass_purpose type_list
 
 /* Start symbol */
 %start parse_toplevel
@@ -561,7 +570,6 @@ stmt:
 		|	DropUserMappingStmt						{ $$ = $1 }
 		|	CreateEventTrigStmt						{ $$ = $1 }
 		|	AlterEventTrigStmt						{ $$ = $1 }
-		/* TODO: Implement remaining CREATE statements
 		|	CreateTableSpaceStmt					{ $$ = $1 }
 		|	AlterTblSpcStmt							{ $$ = $1 }
 		|	CreatePolicyStmt						{ $$ = $1 }
@@ -580,7 +588,6 @@ stmt:
 		|	CreateConversionStmt					{ $$ = $1 }
 		|	CreateTransformStmt						{ $$ = $1 }
 		|	CreatePLangStmt							{ $$ = $1 }
-		*/
 		|	VariableSetStmt							{ $$ = $1 }
 		|	VariableResetStmt						{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
@@ -621,8 +628,8 @@ opt_if_not_exists:
 		;
 
 opt_or_replace:
-			OR REPLACE								{ $$ = 1 }
-		|	/* EMPTY */								{ $$ = 0 }
+			OR REPLACE								{ $$ = true }
+		|	/* EMPTY */								{ $$ = false }
 		;
 
 opt_concurrently:
@@ -3429,10 +3436,6 @@ where_clause:
 		|	/* EMPTY */								{ $$ = nil }
 		;
 
-opt_where_clause:
-			where_clause							{ $$ = $1 }
-		;
-
 /*
  * WHERE clause variant for UPDATE and DELETE that supports CURRENT OF cursor
  * From postgres/src/backend/parser/gram.y where_or_current_clause
@@ -4589,8 +4592,8 @@ type_name_list:
 	;
 
 opt_procedural:
-		PROCEDURAL
-	|	/* EMPTY */
+		PROCEDURAL						{ $$ = true }
+	|	/* EMPTY */						{ $$ = false }
 	;
 
 opt_set_data:
@@ -7717,7 +7720,7 @@ CreateFunctionStmt:
 				{
 					stmt := &ast.CreateFunctionStmt{
 						IsProcedure: false,
-						Replace: $2 != 0,
+						Replace: $2,
 						FuncName: $4,
 						Parameters: $5,
 						ReturnType: $7,
@@ -7732,7 +7735,7 @@ CreateFunctionStmt:
 					// Handle RETURNS TABLE variant
 					stmt := &ast.CreateFunctionStmt{
 						IsProcedure: false,
-						Replace: $2 != 0,
+						Replace: $2,
 						FuncName: $4,
 						Parameters: $5,
 						ReturnType: nil, // TODO: Handle table return type
@@ -7748,7 +7751,7 @@ CreateFunctionStmt:
 					// No explicit return type (for procedures disguised as functions)
 					stmt := &ast.CreateFunctionStmt{
 						IsProcedure: false,
-						Replace: $2 != 0,
+						Replace: $2,
 						FuncName: $4,
 						Parameters: $5,
 						ReturnType: nil,
@@ -7762,7 +7765,7 @@ CreateFunctionStmt:
 				{
 					stmt := &ast.CreateFunctionStmt{
 						IsProcedure: true,
-						Replace: $2 != 0,
+						Replace: $2,
 						FuncName: $4,
 						Parameters: $5,
 						ReturnType: nil,
@@ -8120,7 +8123,7 @@ CreateTrigStmt:
 					}
 					
 					stmt := &ast.CreateTriggerStmt{
-						Replace: $2 != 0,
+						Replace: $2,
 						IsConstraint: false,
 						Trigname: $4,
 						Relation: $8,
@@ -8152,7 +8155,7 @@ CreateTrigStmt:
 					}
 					
 					stmt := &ast.CreateTriggerStmt{
-						Replace: $2 != 0,
+						Replace: $2,
 						IsConstraint: true,
 						Trigname: $5,
 						Relation: $9,
@@ -8575,13 +8578,13 @@ DefineStmt:
 						args = ast.NewNodeList(nil)
 					}
 				}
-				n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, false, $4, args, $6, false, $2 != 0)
+				n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, false, $4, args, $6, false, $2)
 				$$ = n
 			}
 	|	CREATE opt_or_replace AGGREGATE func_name old_aggr_definition
 			{
 				// old-style (pre-8.2) syntax for CREATE AGGREGATE
-				n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, true, $4, nil, $5, false, $2 != 0)
+				n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, true, $4, nil, $5, false, $2)
 				$$ = n
 			}
 	|	CREATE OPERATOR any_operator definition
@@ -9654,6 +9657,552 @@ event_trigger_value_list:
 				$$ = $1
 			}
 		;
+
+/*****************************************************************************
+ *
+ * CREATE/ALTER TABLESPACE support
+ *
+ *****************************************************************************/
+
+CreateTableSpaceStmt:
+		CREATE TABLESPACE name OptTableSpaceOwner LOCATION SCONST opt_reloptions
+			{
+				$$ = ast.NewCreateTableSpaceStmt($3, $4, $6, $7)
+			}
+		;
+
+OptTableSpaceOwner:
+		OWNER RoleSpec				{ $$ = $2 }
+		| /*EMPTY */				{ $$ = nil }
+		;
+
+AlterTblSpcStmt:
+		ALTER TABLESPACE name SET reloptions
+			{
+				$$ = ast.NewAlterTableSpaceStmt($3, $5, false)
+			}
+		| ALTER TABLESPACE name RESET reloptions
+			{
+				$$ = ast.NewAlterTableSpaceStmt($3, $5, true)
+			}
+		;
+
+/*****************************************************************************
+ *
+ * CREATE/ALTER POLICY support  
+ *
+ *****************************************************************************/
+
+CreatePolicyStmt:
+		CREATE POLICY name ON qualified_name RowSecurityDefaultPermissive
+			RowSecurityDefaultForCmd RowSecurityDefaultToRole
+			RowSecurityOptionalExpr RowSecurityOptionalWithCheck
+			{
+				$$ = ast.NewCreatePolicyStmt($3, $5, $6, $7, $8, $9, $10)
+			}
+		;
+
+AlterPolicyStmt:
+		ALTER POLICY name ON qualified_name RowSecurityOptionalToRole
+			RowSecurityOptionalExpr RowSecurityOptionalWithCheck
+			{
+				$$ = ast.NewAlterPolicyStmt($3, $5, $6, $7, $8)
+			}
+		;
+
+RowSecurityDefaultPermissive:
+		AS IDENT
+			{
+				// Check for "permissive" or "restrictive" (case-insensitive)
+				if strings.EqualFold($2, "permissive") {
+					$$ = true
+				} else if strings.EqualFold($2, "restrictive") {
+					$$ = false
+				} else {
+					// Parser will error on invalid value
+					yylex.Error("unrecognized row security option")
+					return 1
+				}
+			}
+		| /* EMPTY */				{ $$ = true }
+		;
+
+RowSecurityDefaultForCmd:
+		FOR row_security_cmd		{ $$ = $2 }
+		| /* EMPTY */				{ $$ = "all" }
+		;
+
+row_security_cmd:
+		ALL						{ $$ = "all" }
+		| SELECT					{ $$ = "select" }
+		| INSERT					{ $$ = "insert" }
+		| UPDATE					{ $$ = "update" }
+		| DELETE_P					{ $$ = "delete" }
+		;
+
+RowSecurityDefaultToRole:
+		TO role_list				{ $$ = $2 }
+		| /* EMPTY */				{ 
+			// Default to PUBLIC when no TO clause is specified
+			publicRole := ast.NewRoleSpec(ast.ROLESPEC_PUBLIC, "")
+			$$ = ast.NewNodeList(publicRole)
+		}
+		;
+
+RowSecurityOptionalToRole:
+		TO role_list				{ $$ = $2 }
+		| /* EMPTY */				{ $$ = nil }
+		;
+
+RowSecurityOptionalExpr:
+		USING '(' a_expr ')'		{ $$ = $3 }
+		| /* EMPTY */				{ $$ = nil }
+		;
+
+RowSecurityOptionalWithCheck:
+		WITH CHECK '(' a_expr ')'	{ $$ = $4 }
+		| /* EMPTY */				{ $$ = nil }
+		;
+
+/*****************************************************************************
+ *
+ * CREATE ACCESS METHOD support
+ *
+ *****************************************************************************/
+
+CreateAmStmt:
+		CREATE ACCESS METHOD name TYPE_P am_type HANDLER handler_name
+			{
+				$$ = ast.NewCreateAmStmt($4, ast.AmType($6), $8)
+			}
+		;
+
+am_type:
+		INDEX					{ $$ = int(ast.AMTYPE_INDEX) }
+		| TABLE					{ $$ = int(ast.AMTYPE_TABLE) }
+		;
+
+/*****************************************************************************
+ *
+ * CREATE/ALTER STATISTICS support
+ *
+ *****************************************************************************/
+
+CreateStatsStmt:
+		CREATE STATISTICS opt_qualified_name opt_name_list ON stats_params FROM from_list
+			{
+				$$ = ast.NewCreateStatsStmt($3, $4, $6, $8, "", false, false)
+			}
+		| CREATE STATISTICS IF_P NOT EXISTS any_name opt_name_list ON stats_params FROM from_list
+			{
+				$$ = ast.NewCreateStatsStmt($6, $7, $9, $11, "", false, true)
+			}
+		;
+
+AlterStatsStmt:
+		ALTER STATISTICS any_name SET STATISTICS set_statistics_value
+			{
+				$$ = ast.NewAlterStatsStmt($3, $6, false)
+			}
+		| ALTER STATISTICS IF_P EXISTS any_name SET STATISTICS set_statistics_value
+			{
+				$$ = ast.NewAlterStatsStmt($5, $8, true)
+			}
+		;
+
+stats_params:
+		stats_param						{ $$ = ast.NewNodeList(); $$.Append($1) }
+		| stats_params ',' stats_param		{ $1.Append($3); $$ = $1 }
+		;
+
+stats_param:
+		ColId								{ $$ = ast.NewStatsElem($1) }
+		| func_expr_windowless				{ $$ = ast.NewStatsElemExpr($1) }
+		| '(' a_expr ')'					{ $$ = ast.NewStatsElemExpr($2) }
+		;
+
+/*****************************************************************************
+ *
+ * CREATE/ALTER PUBLICATION support
+ *
+ *****************************************************************************/
+
+CreatePublicationStmt:
+		CREATE PUBLICATION name opt_definition
+			{
+				$$ = ast.NewCreatePublicationStmt($3, nil, false, $4)
+			}
+		| CREATE PUBLICATION name FOR ALL TABLES opt_definition
+			{
+				$$ = ast.NewCreatePublicationStmt($3, nil, true, $7)
+			}
+		| CREATE PUBLICATION name FOR pub_obj_list opt_definition
+			{
+				$$ = ast.NewCreatePublicationStmt($3, $5, false, $6)
+			}
+		;
+
+AlterPublicationStmt:
+		ALTER PUBLICATION name SET definition
+			{
+				$$ = ast.NewAlterPublicationStmt($3, $5, nil, ast.AP_SetOptions)
+			}
+		| ALTER PUBLICATION name ADD_P pub_obj_list
+			{
+				$$ = ast.NewAlterPublicationStmt($3, nil, $5, ast.AP_AddObjects)
+			}
+		| ALTER PUBLICATION name SET pub_obj_list
+			{
+				$$ = ast.NewAlterPublicationStmt($3, nil, $5, ast.AP_SetObjects)
+			}
+		| ALTER PUBLICATION name DROP pub_obj_list
+			{
+				$$ = ast.NewAlterPublicationStmt($3, nil, $5, ast.AP_DropObjects)
+			}
+		;
+
+pub_obj_list:
+		PublicationObjSpec						{ $$ = ast.NewNodeList(); $$.Append($1) }
+		| pub_obj_list ',' PublicationObjSpec	{ $1.Append($3); $$ = $1 }
+		;
+
+PublicationObjSpec:
+		TABLE relation_expr opt_column_list OptWhereClause
+			{
+				pubTable := ast.NewPublicationTable($2, $4, $3)
+				$$ = ast.NewPublicationObjSpecTable(ast.PUBLICATIONOBJ_TABLE, pubTable)
+			}
+		| TABLES IN_P SCHEMA ColId
+			{
+				$$ = ast.NewPublicationObjSpecName(ast.PUBLICATIONOBJ_TABLES_IN_SCHEMA, $4)
+			}
+		| TABLES IN_P SCHEMA CURRENT_SCHEMA
+			{
+				$$ = ast.NewPublicationObjSpec(ast.PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA)
+			}
+		| ColId opt_column_list OptWhereClause
+			{
+				// If either a row filter or column list is specified, create a PublicationTable object
+				if $2 != nil || $3 != nil {
+					// Create a simple RangeVar from the ColId
+					rangeVar := ast.NewRangeVar($1, "", "")
+					pubTable := ast.NewPublicationTable(rangeVar, $3, $2)
+					$$ = ast.NewPublicationObjSpecTable(ast.PUBLICATIONOBJ_CONTINUATION, pubTable)
+				} else {
+					$$ = ast.NewPublicationObjSpecName(ast.PUBLICATIONOBJ_CONTINUATION, $1)
+				}
+			}
+		| ColId indirection opt_column_list OptWhereClause
+			{
+				rangeVar := makeRangeVarFromQualifiedName($1, $2, -1)
+				pubTable := ast.NewPublicationTable(rangeVar, $4, $3)
+				$$ = ast.NewPublicationObjSpecTable(ast.PUBLICATIONOBJ_CONTINUATION, pubTable)
+			}
+		| extended_relation_expr opt_column_list OptWhereClause
+			{
+				pubTable := ast.NewPublicationTable($1, $3, $2)
+				$$ = ast.NewPublicationObjSpecTable(ast.PUBLICATIONOBJ_CONTINUATION, pubTable)
+			}
+		| CURRENT_SCHEMA
+			{
+				$$ = ast.NewPublicationObjSpec(ast.PUBLICATIONOBJ_CONTINUATION)
+			}
+		;
+
+OptWhereClause:
+			WHERE '(' a_expr ')'					{ $$ = $3; }
+			| /*EMPTY*/								{ $$ = nil; }
+		;
+
+/*****************************************************************************
+ *
+ * CREATE/ALTER SUBSCRIPTION support
+ *
+ *****************************************************************************/
+
+CreateSubscriptionStmt:
+		CREATE SUBSCRIPTION name CONNECTION Sconst PUBLICATION name_list opt_definition
+			{
+				$$ = ast.NewCreateSubscriptionStmt($3, $5, $7, $8)
+			}
+		;
+
+AlterSubscriptionStmt:
+		ALTER SUBSCRIPTION name SET definition
+			{
+				$$ = ast.NewAlterSubscriptionStmt($3, ast.ALTER_SUBSCRIPTION_OPTIONS, "", nil, $5)
+			}
+		| ALTER SUBSCRIPTION name CONNECTION Sconst
+			{
+				$$ = ast.NewAlterSubscriptionStmt($3, ast.ALTER_SUBSCRIPTION_CONNECTION, $5, nil, nil)
+			}
+		| ALTER SUBSCRIPTION name REFRESH PUBLICATION opt_definition
+			{
+				$$ = ast.NewAlterSubscriptionStmt($3, ast.ALTER_SUBSCRIPTION_REFRESH, "", nil, $6)
+			}
+		| ALTER SUBSCRIPTION name ADD_P PUBLICATION name_list opt_definition
+			{
+				$$ = ast.NewAlterSubscriptionStmt($3, ast.ALTER_SUBSCRIPTION_ADD_PUBLICATION, "", $6, $7)
+			}
+		| ALTER SUBSCRIPTION name DROP PUBLICATION name_list opt_definition
+			{
+				$$ = ast.NewAlterSubscriptionStmt($3, ast.ALTER_SUBSCRIPTION_DROP_PUBLICATION, "", $6, $7)
+			}
+		| ALTER SUBSCRIPTION name SET PUBLICATION name_list opt_definition
+			{
+				$$ = ast.NewAlterSubscriptionStmt($3, ast.ALTER_SUBSCRIPTION_SET_PUBLICATION, "", $6, $7)
+			}
+		| ALTER SUBSCRIPTION name ENABLE_P
+			{
+				enableOpt := ast.NewNodeList()
+				enableOpt.Append(ast.NewDefElem("enabled", ast.NewBoolean(true)))
+				$$ = ast.NewAlterSubscriptionStmt($3, ast.ALTER_SUBSCRIPTION_ENABLED, "", nil, enableOpt)
+			}
+		| ALTER SUBSCRIPTION name DISABLE_P
+			{
+				disableOpt := ast.NewNodeList()
+				disableOpt.Append(ast.NewDefElem("enabled", ast.NewBoolean(false)))
+				$$ = ast.NewAlterSubscriptionStmt($3, ast.ALTER_SUBSCRIPTION_ENABLED, "", nil, disableOpt)
+			}
+		| ALTER SUBSCRIPTION name SKIP definition
+			{
+				$$ = ast.NewAlterSubscriptionStmt($3, ast.ALTER_SUBSCRIPTION_SKIP, "", nil, $5)
+			}
+		;
+
+/*****************************************************************************
+ *
+ * CREATE CAST support
+ *
+ *****************************************************************************/
+
+CreateCastStmt:
+		CREATE CAST '(' Typename AS Typename ')' WITH FUNCTION function_with_argtypes cast_context
+			{
+				$$ = ast.NewCreateCastStmt($4, $6, $10, ast.CoercionContext($11), false)
+			}
+		| CREATE CAST '(' Typename AS Typename ')' WITHOUT FUNCTION cast_context
+			{
+				$$ = ast.NewCreateCastStmt($4, $6, nil, ast.CoercionContext($10), false)
+			}
+		| CREATE CAST '(' Typename AS Typename ')' WITH INOUT cast_context
+			{
+				$$ = ast.NewCreateCastStmt($4, $6, nil, ast.CoercionContext($10), true)
+			}
+		;
+
+cast_context:
+		AS IMPLICIT_P				{ $$ = int(ast.COERCION_IMPLICIT) }
+		| AS ASSIGNMENT				{ $$ = int(ast.COERCION_ASSIGNMENT) }
+		| /*EMPTY*/					{ $$ = int(ast.COERCION_EXPLICIT) }
+		;
+
+/*****************************************************************************
+ *
+ * CREATE OPERATOR CLASS support
+ *
+ *****************************************************************************/
+
+CreateOpClassStmt:
+		CREATE OPERATOR CLASS any_name opt_default FOR TYPE_P Typename
+		USING name opt_opfamily AS opclass_item_list
+			{
+				$$ = ast.NewCreateOpClassStmt($4, $11, $10, $8, $13, $5)
+			}
+		;
+
+opt_opfamily:
+		FAMILY any_name				{ $$ = $2 }
+		| /*EMPTY*/					{ $$ = nil }
+		;
+
+opclass_item_list:
+		opclass_item						{ $$ = ast.NewNodeList($1) }
+		| opclass_item_list ',' opclass_item	{ $1.Append($3); $$ = $1 }
+		;
+
+opclass_item:
+		OPERATOR Iconst any_operator opclass_purpose opt_recheck
+			{
+				// Create ObjectWithArgs for simple operator
+				owa := ast.NewObjectWithArgs($3, nil, false, -1)
+				$$ = ast.NewOpClassItemOperator($2, owa, $4)
+			}
+		| OPERATOR Iconst operator_with_argtypes opclass_purpose opt_recheck
+			{
+				$$ = ast.NewOpClassItemOperator($2, $3, $4)
+			}
+		| FUNCTION Iconst function_with_argtypes
+			{
+				$$ = ast.NewOpClassItemFunction($2, $3, nil)
+			}
+		| FUNCTION Iconst '(' type_list ')' function_with_argtypes
+			{
+				$$ = ast.NewOpClassItemFunction($2, $6, $4)
+			}
+		| STORAGE Typename
+			{
+				$$ = ast.NewOpClassItemStorage($2)
+			}
+		;
+
+opt_default:
+		DEFAULT						{ $$ = true }
+		| /*EMPTY*/					{ $$ = false }
+		;
+
+opclass_purpose:
+		FOR SEARCH					{ $$ = nil }
+		| FOR ORDER BY any_name		{ $$ = $4 }
+		| /*EMPTY*/					{ $$ = nil }
+		;
+
+type_list:
+		Typename						{ $$ = ast.NewNodeList($1) }
+		| type_list ',' Typename		{ $1.Append($3); $$ = $1 }
+		;
+
+/*****************************************************************************
+ *
+ * CREATE OPERATOR FAMILY support
+ *
+ *****************************************************************************/
+
+CreateOpFamilyStmt:
+		CREATE OPERATOR FAMILY any_name USING name
+			{
+				$$ = ast.NewCreateOpFamilyStmt($4, $6)
+			}
+		;
+
+/*****************************************************************************
+ *
+ * ALTER OPERATOR FAMILY support
+ *
+ *****************************************************************************/
+
+AlterOpFamilyStmt:
+		ALTER OPERATOR FAMILY any_name USING name ADD_P opclass_item_list
+			{
+				$$ = ast.NewAlterOpFamilyStmt($4, $6, false, $8)
+			}
+		| ALTER OPERATOR FAMILY any_name USING name DROP opclass_drop_list
+			{
+				$$ = ast.NewAlterOpFamilyStmt($4, $6, true, $8)
+			}
+		;
+
+opclass_drop_list:
+		opclass_drop						{ $$ = ast.NewNodeList($1) }
+		| opclass_drop_list ',' opclass_drop	{ $1.Append($3); $$ = $1 }
+		;
+
+opclass_drop:
+		OPERATOR Iconst '(' type_list ')'
+			{
+				// Create ObjectWithArgs for operator with args
+				owa := ast.NewObjectWithArgs(nil, $4, false, -1)
+				$$ = ast.NewOpClassItemOperator($2, owa, nil)
+			}
+		| FUNCTION Iconst '(' type_list ')'
+			{
+				// Create ObjectWithArgs for function with args
+				owa := ast.NewObjectWithArgs(nil, $4, false, -1)
+				$$ = ast.NewOpClassItemFunction($2, owa, nil)
+			}
+		;
+
+/*****************************************************************************
+ *
+ * CREATE CONVERSION support
+ *
+ *****************************************************************************/
+
+CreateConversionStmt:
+		CREATE opt_default CONVERSION_P any_name FOR Sconst TO Sconst FROM any_name
+			{
+				$$ = ast.NewCreateConversionStmt($4, $6, $8, $10, $2)
+			}
+		;
+
+/*****************************************************************************
+ *
+ * CREATE TRANSFORM support
+ *
+ *****************************************************************************/
+
+CreateTransformStmt:
+		CREATE opt_or_replace TRANSFORM FOR Typename LANGUAGE name '(' transform_element_list ')'
+			{
+				$$ = ast.NewCreateTransformStmt($2, $5, $7, linitial($9), lsecond($9))
+			}
+		;
+
+transform_element_list:
+		FROM SQL_P WITH FUNCTION function_with_argtypes ',' TO SQL_P WITH FUNCTION function_with_argtypes
+			{
+				$$ = ast.NewNodeList()
+				$$.Append($5)  // fromsql
+				$$.Append($11) // tosql
+			}
+		| TO SQL_P WITH FUNCTION function_with_argtypes ',' FROM SQL_P WITH FUNCTION function_with_argtypes
+			{
+				$$ = ast.NewNodeList()
+				$$.Append($11) // fromsql
+				$$.Append($5)  // tosql
+			}
+		| FROM SQL_P WITH FUNCTION function_with_argtypes
+			{
+				$$ = ast.NewNodeList()
+				$$.Append($5)  // fromsql
+				$$.Append(nil) // tosql
+			}
+		| TO SQL_P WITH FUNCTION function_with_argtypes
+			{
+				$$ = ast.NewNodeList()
+				$$.Append(nil) // fromsql
+				$$.Append($5)  // tosql
+			}
+		;
+
+/*****************************************************************************
+ *
+ * CREATE LANGUAGE support
+ *
+ *****************************************************************************/
+
+CreatePLangStmt:
+		CREATE opt_or_replace opt_trusted opt_procedural LANGUAGE name
+			{
+				// Parameterless CREATE LANGUAGE is now treated as CREATE EXTENSION
+				$$ = ast.NewCreateExtensionStmt($6, $2, nil)
+			}
+		| CREATE opt_or_replace opt_trusted opt_procedural LANGUAGE name
+		  HANDLER handler_name opt_inline_handler opt_validator
+			{
+				$$ = ast.NewCreatePLangStmt($2, $6, $8, $9, $10, $3)
+			}
+		;
+
+opt_trusted:
+		TRUSTED						{ $$ = true }
+		| /*EMPTY*/					{ $$ = false }
+		;
+
+
+opt_inline_handler:
+		INLINE_P handler_name		{ $$ = $2 }
+		| /*EMPTY*/					{ $$ = nil }
+		;
+
+opt_validator:
+		validator_clause			{ $$ = $1 }
+		| /*EMPTY*/					{ $$ = nil }
+		;
+
+validator_clause:
+		VALIDATOR handler_name					{ $$ = $2 }
+		| NO VALIDATOR							{ $$ = nil }
 
 %%
 

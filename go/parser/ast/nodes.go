@@ -52,6 +52,22 @@ const (
 	T_DropUserMappingStmt
 	T_CreateEventTrigStmt
 	T_AlterEventTrigStmt
+	T_CreateTableSpaceStmt
+	T_AlterTableSpaceStmt
+	T_CreateAmStmt
+	T_CreateStatsStmt
+	T_CreateCastStmt
+	T_AlterStatsStmt
+	T_CreatePublicationStmt
+	T_AlterPublicationStmt
+	T_PublicationTable
+	T_PublicationObjSpec
+	T_CreateSubscriptionStmt
+	T_AlterSubscriptionStmt
+	T_AlterOpFamilyStmt
+	T_CreateOpClassItem
+	T_CreateOpClassStmt
+	T_CreateOpFamilyStmt
 	T_CreateDomainStmt
 	T_DefineStmt
 	T_CreateEnumStmt
@@ -60,6 +76,9 @@ const (
 	T_CompositeTypeStmt
 	T_CreateFunctionStmt
 	T_FunctionParameter
+	T_CreateConversionStmt
+	T_CreateTransformStmt
+	T_CreatePLangStmt
 	T_RoleSpec
 	T_TypeName
 	T_CollateClause
@@ -340,6 +359,38 @@ func (nt NodeTag) String() string {
 		return "T_CreateEventTrigStmt"
 	case T_AlterEventTrigStmt:
 		return "T_AlterEventTrigStmt"
+	case T_CreateTableSpaceStmt:
+		return "T_CreateTableSpaceStmt"
+	case T_AlterTableSpaceStmt:
+		return "T_AlterTableSpaceStmt"
+	case T_CreateAmStmt:
+		return "T_CreateAmStmt"
+	case T_CreateStatsStmt:
+		return "T_CreateStatsStmt"
+	case T_CreateCastStmt:
+		return "T_CreateCastStmt"
+	case T_AlterStatsStmt:
+		return "T_AlterStatsStmt"
+	case T_CreatePublicationStmt:
+		return "T_CreatePublicationStmt"
+	case T_AlterPublicationStmt:
+		return "T_AlterPublicationStmt"
+	case T_PublicationTable:
+		return "T_PublicationTable"
+	case T_PublicationObjSpec:
+		return "T_PublicationObjSpec"
+	case T_CreateSubscriptionStmt:
+		return "T_CreateSubscriptionStmt"
+	case T_AlterSubscriptionStmt:
+		return "T_AlterSubscriptionStmt"
+	case T_AlterOpFamilyStmt:
+		return "T_AlterOpFamilyStmt"
+	case T_CreateOpClassItem:
+		return "T_CreateOpClassItem"
+	case T_CreateOpClassStmt:
+		return "T_CreateOpClassStmt"
+	case T_CreateOpFamilyStmt:
+		return "T_CreateOpFamilyStmt"
 	case T_DropUserMappingStmt:
 		return "T_DropUserMappingStmt"
 	case T_CreateDomainStmt:
@@ -358,6 +409,12 @@ func (nt NodeTag) String() string {
 		return "T_CreateFunctionStmt"
 	case T_FunctionParameter:
 		return "T_FunctionParameter"
+	case T_CreateConversionStmt:
+		return "T_CreateConversionStmt"
+	case T_CreateTransformStmt:
+		return "T_CreateTransformStmt"
+	case T_CreatePLangStmt:
+		return "T_CreatePLangStmt"
 	case T_RoleSpec:
 		return "T_RoleSpec"
 	case T_TypeName:

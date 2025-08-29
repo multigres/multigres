@@ -137,9 +137,7 @@ func TestCreateFunctionStmt(t *testing.T) {
 		assert.Equal(t, 1, stmt.Parameters.Len())
 		assert.Equal(t, returnType, stmt.ReturnType)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE FUNCTION")
@@ -173,9 +171,7 @@ func TestCreateSeqStmt(t *testing.T) {
 		assert.False(t, stmt.IfNotExists)
 		assert.Equal(t, Oid(0), stmt.OwnerID)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE SEQUENCE")
@@ -197,15 +193,14 @@ func TestCreateSeqStmt(t *testing.T) {
 func TestCreateOpClassItem(t *testing.T) {
 	t.Run("operator item", func(t *testing.T) {
 		name := &ObjectWithArgs{Objname: &NodeList{Items: []Node{NewString("<")}}}
-		item := NewCreateOpClassItem(1, name, 1, nil, nil, nil) // OPCLASS_ITEM_OPERATOR
+		item := NewCreateOpClassItem(OPCLASS_ITEM_OPERATOR, name, 1, nil, nil, nil)
 
 		assert.NotNil(t, item)
-		assert.Equal(t, 1, item.ItemType)
+		assert.Equal(t, OPCLASS_ITEM_OPERATOR, item.ItemType)
 		assert.Equal(t, name, item.Name)
 		assert.Equal(t, 1, item.Number)
 
-		// Test node interface
-		item.node()
+		// CreateOpClassItem doesn't implement node interface directly
 
 		str := item.String()
 		assert.Contains(t, str, "OPERATOR")
@@ -214,7 +209,7 @@ func TestCreateOpClassItem(t *testing.T) {
 
 	t.Run("function item", func(t *testing.T) {
 		name := &ObjectWithArgs{Objname: &NodeList{Items: []Node{NewString("btint4cmp")}}}
-		item := NewCreateOpClassItem(2, name, 1, nil, nil, nil) // OPCLASS_ITEM_FUNCTION
+		item := NewCreateOpClassItem(OPCLASS_ITEM_FUNCTION, name, 1, nil, nil, nil)
 
 		str := item.String()
 		assert.Contains(t, str, "FUNCTION")
@@ -222,7 +217,7 @@ func TestCreateOpClassItem(t *testing.T) {
 
 	t.Run("storage item", func(t *testing.T) {
 		storedType := NewTypeName([]string{"int4"})
-		item := NewCreateOpClassItem(3, nil, 0, nil, nil, storedType) // OPCLASS_ITEM_STORAGETYPE
+		item := NewCreateOpClassItem(OPCLASS_ITEM_STORAGETYPE, nil, 0, nil, nil, storedType)
 
 		str := item.String()
 		assert.Contains(t, str, "STORAGE")
@@ -232,7 +227,7 @@ func TestCreateOpClassItem(t *testing.T) {
 
 func TestCreateOpClassStmt(t *testing.T) {
 	t.Run("basic operator class", func(t *testing.T) {
-		opClassName := []*String{NewString("int4_ops")}
+		opClassName := &NodeList{Items: []Node{NewString("int4_ops")}}
 		dataType := NewTypeName([]string{"int4"})
 		stmt := NewCreateOpClassStmt(opClassName, nil, "btree", dataType, nil, false)
 
@@ -242,9 +237,7 @@ func TestCreateOpClassStmt(t *testing.T) {
 		assert.Equal(t, dataType, stmt.DataType)
 		assert.False(t, stmt.IsDefault)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE OPERATOR CLASS")
@@ -254,8 +247,8 @@ func TestCreateOpClassStmt(t *testing.T) {
 	})
 
 	t.Run("default operator class with family", func(t *testing.T) {
-		opClassName := []*String{NewString("int4_ops")}
-		opFamilyName := []*String{NewString("integer_ops")}
+		opClassName := &NodeList{Items: []Node{NewString("int4_ops")}}
+		opFamilyName := &NodeList{Items: []Node{NewString("integer_ops")}}
 		dataType := NewTypeName([]string{"int4"})
 		stmt := NewCreateOpClassStmt(opClassName, opFamilyName, "btree", dataType, nil, true)
 
@@ -280,9 +273,7 @@ func TestCreateEnumStmt(t *testing.T) {
 		assert.Equal(t, typeName, stmt.TypeName)
 		assert.Equal(t, vals, stmt.Vals)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE TYPE mood AS ENUM")
@@ -308,9 +299,7 @@ func TestCreateRangeStmt(t *testing.T) {
 		assert.Equal(t, typeName, stmt.TypeName)
 		assert.Equal(t, params, stmt.Params)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE TYPE int4range AS RANGE")
@@ -329,10 +318,10 @@ func TestCreateRangeStmt(t *testing.T) {
 
 func TestCreateStatsStmt(t *testing.T) {
 	t.Run("basic statistics", func(t *testing.T) {
-		defNames := []*String{NewString("my_stats")}
-		statTypes := []*String{NewString("ndistinct"), NewString("dependencies")}
-		relations := []*RangeVar{{RelName: "users"}}
-		stmt := NewCreateStatsStmt(defNames, statTypes, nil, relations, nil, false, false)
+		defNames := &NodeList{Items: []Node{NewString("my_stats")}}
+		statTypes := &NodeList{Items: []Node{NewString("ndistinct"), NewString("dependencies")}}
+		relations := &NodeList{Items: []Node{&RangeVar{RelName: "users"}}}
+		stmt := NewCreateStatsStmt(defNames, statTypes, nil, relations, "", false, false)
 
 		assert.NotNil(t, stmt)
 		assert.Equal(t, defNames, stmt.DefNames)
@@ -341,9 +330,7 @@ func TestCreateStatsStmt(t *testing.T) {
 		assert.False(t, stmt.Transformed)
 		assert.False(t, stmt.IfNotExists)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE STATISTICS my_stats")
@@ -353,9 +340,9 @@ func TestCreateStatsStmt(t *testing.T) {
 	})
 
 	t.Run("if not exists statistics", func(t *testing.T) {
-		defNames := []*String{NewString("my_stats")}
-		relations := []*RangeVar{{RelName: "users"}}
-		stmt := NewCreateStatsStmt(defNames, nil, nil, relations, nil, false, true)
+		defNames := &NodeList{Items: []Node{NewString("my_stats")}}
+		relations := &NodeList{Items: []Node{&RangeVar{RelName: "users"}}}
+		stmt := NewCreateStatsStmt(defNames, nil, nil, relations, "", false, true)
 
 		assert.True(t, stmt.IfNotExists)
 		str := stmt.String()
@@ -363,19 +350,19 @@ func TestCreateStatsStmt(t *testing.T) {
 	})
 
 	t.Run("statistics with comment", func(t *testing.T) {
-		defNames := []*String{NewString("my_stats")}
-		relations := []*RangeVar{{RelName: "users"}}
+		defNames := &NodeList{Items: []Node{NewString("my_stats")}}
+		relations := &NodeList{Items: []Node{&RangeVar{RelName: "users"}}}
 		comment := "Statistics for user table"
-		stmt := NewCreateStatsStmt(defNames, nil, nil, relations, &comment, true, false)
+		stmt := NewCreateStatsStmt(defNames, nil, nil, relations, comment, true, false)
 
 		assert.True(t, stmt.Transformed)
-		assert.Equal(t, &comment, stmt.StxComment)
+		assert.Equal(t, comment, stmt.StxComment)
 	})
 }
 
 func TestCreatePLangStmt(t *testing.T) {
 	t.Run("basic language", func(t *testing.T) {
-		plHandler := []*String{NewString("plperl_call_handler")}
+		plHandler := NewNodeList(NewString("plperl_call_handler"))
 		stmt := NewCreatePLangStmt(false, "plperl", plHandler, nil, nil, false)
 
 		assert.NotNil(t, stmt)
@@ -384,9 +371,7 @@ func TestCreatePLangStmt(t *testing.T) {
 		assert.Equal(t, plHandler, stmt.PLHandler)
 		assert.False(t, stmt.PLTrusted)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE LANGUAGE plperl")
@@ -394,9 +379,9 @@ func TestCreatePLangStmt(t *testing.T) {
 	})
 
 	t.Run("trusted language with replace", func(t *testing.T) {
-		plHandler := []*String{NewString("plpgsql_call_handler")}
-		plInline := []*String{NewString("plpgsql_inline_handler")}
-		plValidator := []*String{NewString("plpgsql_validator")}
+		plHandler := NewNodeList(NewString("plpgsql_call_handler"))
+		plInline := NewNodeList(NewString("plpgsql_inline_handler"))
+		plValidator := NewNodeList(NewString("plpgsql_validator"))
 		stmt := NewCreatePLangStmt(true, "plpgsql", plHandler, plInline, plValidator, true)
 
 		assert.True(t, stmt.Replace)
@@ -426,16 +411,14 @@ func TestCreatePLangStmt(t *testing.T) {
 
 func TestCreateOpFamilyStmt(t *testing.T) {
 	t.Run("basic operator family", func(t *testing.T) {
-		opFamilyName := []*String{NewString("integer_ops")}
+		opFamilyName := &NodeList{Items: []Node{NewString("integer_ops")}}
 		stmt := NewCreateOpFamilyStmt(opFamilyName, "btree")
 
 		assert.NotNil(t, stmt)
 		assert.Equal(t, opFamilyName, stmt.OpFamilyName)
 		assert.Equal(t, "btree", stmt.AmName)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE OPERATOR FAMILY")
@@ -458,9 +441,7 @@ func TestCreateCastStmt(t *testing.T) {
 		assert.Equal(t, COERCION_EXPLICIT, stmt.Context)
 		assert.False(t, stmt.Inout)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE CAST")
@@ -490,8 +471,8 @@ func TestCreateCastStmt(t *testing.T) {
 
 func TestCreateConversionStmt(t *testing.T) {
 	t.Run("basic conversion", func(t *testing.T) {
-		conversionName := []*String{NewString("utf8_to_latin1")}
-		funcName := []*String{NewString("utf8_to_iso8859_1")}
+		conversionName := &NodeList{Items: []Node{NewString("utf8_to_latin1")}}
+		funcName := &NodeList{Items: []Node{NewString("utf8_to_iso8859_1")}}
 		stmt := NewCreateConversionStmt(conversionName, "UTF8", "LATIN1", funcName, false)
 
 		assert.NotNil(t, stmt)
@@ -501,20 +482,18 @@ func TestCreateConversionStmt(t *testing.T) {
 		assert.Equal(t, funcName, stmt.FuncName)
 		assert.False(t, stmt.Def)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE CONVERSION")
 		assert.Contains(t, str, "utf8_to_latin1")
-		assert.Contains(t, str, "FOR UTF8 TO LATIN1")
+		assert.Contains(t, str, "FOR 'UTF8' TO 'LATIN1'")
 		assert.Contains(t, str, "FROM utf8_to_iso8859_1")
 	})
 
 	t.Run("default conversion", func(t *testing.T) {
-		conversionName := []*String{NewString("utf8_to_latin1")}
-		funcName := []*String{NewString("utf8_to_iso8859_1")}
+		conversionName := &NodeList{Items: []Node{NewString("utf8_to_latin1")}}
+		funcName := &NodeList{Items: []Node{NewString("utf8_to_iso8859_1")}}
 		stmt := NewCreateConversionStmt(conversionName, "UTF8", "LATIN1", funcName, true)
 
 		assert.True(t, stmt.Def)
@@ -537,9 +516,7 @@ func TestCreateTransformStmt(t *testing.T) {
 		assert.Equal(t, fromSql, stmt.FromSql)
 		assert.Equal(t, toSql, stmt.ToSql)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE TRANSFORM FOR")
@@ -571,9 +548,7 @@ func TestDefineStmt(t *testing.T) {
 		assert.False(t, stmt.IfNotExists)
 		assert.False(t, stmt.Replace)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "CREATE AGGREGATE")
@@ -612,9 +587,7 @@ func TestDeclareCursorStmt(t *testing.T) {
 		assert.Equal(t, 0, stmt.Options)
 		assert.Equal(t, query, stmt.Query)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "DECLARE test_cursor CURSOR FOR")
@@ -631,9 +604,7 @@ func TestFetchStmt(t *testing.T) {
 		assert.Equal(t, "test_cursor", stmt.PortalName)
 		assert.False(t, stmt.IsMove)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Contains(t, str, "FETCH 10")
@@ -686,9 +657,7 @@ func TestClosePortalStmt(t *testing.T) {
 		assert.NotNil(t, stmt.PortalName)
 		assert.Equal(t, portalName, *stmt.PortalName)
 
-		// Test interfaces
-		stmt.node()
-		stmt.stmt()
+		// CreateOpClassStmt implements StatementType and NodeTag methods
 
 		str := stmt.String()
 		assert.Equal(t, "CLOSE test_cursor", str)
@@ -771,16 +740,16 @@ func TestDDLCreationStmtsIntegration(t *testing.T) {
 
 		// Create operator class statement
 		stmt := NewCreateOpClassStmt(
-			[]*String{NewString("my_int4_ops")},
-			[]*String{NewString("integer_ops")},
+			&NodeList{Items: []Node{NewString("my_int4_ops")}},
+			&NodeList{Items: []Node{NewString("integer_ops")}},
 			"btree",
 			NewTypeName([]string{"int4"}),
-			[]*CreateOpClassItem{item1, item2},
+			&NodeList{Items: []Node{item1, item2}},
 			true,
 		)
 
 		require.NotNil(t, stmt)
-		assert.Len(t, stmt.Items, 2)
+		assert.Len(t, stmt.Items.Items, 2)
 		assert.True(t, stmt.IsDefault)
 
 		str := stmt.String()

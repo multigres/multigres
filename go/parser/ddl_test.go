@@ -154,6 +154,26 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "CREATE EXTENSION postgis VERSION '3.0' SCHEMA public CASCADE",
 		},
 
+		// CREATE CONVERSION tests
+		{
+			name: "CREATE CONVERSION basic",
+			sql:  "CREATE CONVERSION myconv FOR 'UTF8' TO 'LATIN1' FROM myconvfunc",
+		},
+		{
+			name: "CREATE DEFAULT CONVERSION",
+			sql:  "CREATE DEFAULT CONVERSION myconv FOR 'UTF8' TO 'LATIN1' FROM myconvfunc",
+		},
+
+		// CREATE LANGUAGE tests
+		{
+			name: "CREATE LANGUAGE basic",
+			sql:  "CREATE LANGUAGE plperl HANDLER plperl_call_handler",
+		},
+		{
+			name: "CREATE OR REPLACE LANGUAGE",
+			sql:  "CREATE OR REPLACE LANGUAGE plperl HANDLER plperl_call_handler",
+		},
+
 		// CREATE FOREIGN DATA WRAPPER tests
 		{
 			name: "CREATE FOREIGN DATA WRAPPER basic",
@@ -524,7 +544,7 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_start WHEN tag IN ('CREATE TABLE') AND schema IN ('public') EXECUTE FUNCTION my_trigger_func()",
 		},
 		{
-			name: "CREATE EVENT TRIGGER using PROCEDURE",
+			name:     "CREATE EVENT TRIGGER using PROCEDURE",
 			sql:      "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_end EXECUTE PROCEDURE my_trigger_proc()",
 			expected: "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_end EXECUTE FUNCTION my_trigger_proc()",
 		},
@@ -828,6 +848,154 @@ func TestDDLParsing(t *testing.T) {
 		{
 			name: "CREATE COLLATION IF NOT EXISTS FROM",
 			sql:  "CREATE COLLATION IF NOT EXISTS french_copy FROM \"fr_FR\"",
+		},
+
+		// CREATE SEQUENCE with additional options that are implemented
+		{
+			name: "CREATE SEQUENCE AS bigint",
+			sql:  "CREATE SEQUENCE bigint_seq AS bigint",
+		},
+
+		// CREATE TYPE with more complex definitions
+		{
+			name: "CREATE TYPE with multiple enum values",
+			sql:  "CREATE TYPE status_type AS ENUM ('pending', 'approved', 'rejected', 'cancelled')",
+		},
+		{
+			name: "CREATE TYPE composite with constraints",
+			sql:  "CREATE TYPE address AS (street text, city text, zipcode text)",
+		},
+		{
+			name: "CREATE TYPE DOMAIN",
+			sql:  "CREATE DOMAIN us_postal_code AS text CHECK (value ~ '^[0-9]{5}$' OR value ~ '^[0-9]{5}-[0-9]{4}$')",
+		},
+
+		// CREATE MATERIALIZED VIEW with WITH NO DATA (already implemented)
+		{
+			name: "CREATE MATERIALIZED VIEW WITH NO DATA",
+			sql:  "CREATE MATERIALIZED VIEW empty_matview AS SELECT * FROM users WITH NO DATA",
+		},
+
+		// CREATE FOREIGN DATA WRAPPER with all implemented options
+		{
+			name: "CREATE FOREIGN DATA WRAPPER with all options",
+			sql:  "CREATE FOREIGN DATA WRAPPER postgres_fdw HANDLER postgres_fdw_handler VALIDATOR postgres_fdw_validator OPTIONS (debug 'true')",
+		},
+
+		// More comprehensive EVENT TRIGGER tests with implemented options
+		{
+			name: "CREATE EVENT TRIGGER with complex WHEN",
+			sql:  "CREATE EVENT TRIGGER ddl_audit ON ddl_command_end WHEN tag IN ('CREATE TABLE', 'ALTER TABLE', 'DROP TABLE') AND command_tag IN ('CREATE', 'ALTER', 'DROP') EXECUTE FUNCTION audit_ddl()",
+		},
+
+		// Test REFRESH MATERIALIZED VIEW variations (implemented)
+		{
+			name: "REFRESH MATERIALIZED VIEW WITH NO DATA",
+			sql:  "REFRESH MATERIALIZED VIEW test_matview WITH NO DATA",
+		},
+
+		// === Comprehensive Phase 3G Additional Constructs Tests ===
+
+		// CREATE CONVERSION tests
+		{
+			name: "CREATE CONVERSION basic",
+			sql:  "CREATE CONVERSION test_conv FOR 'UTF8' TO 'LATIN1' FROM utf8_to_latin1",
+		},
+		{
+			name: "CREATE DEFAULT CONVERSION",
+			sql:  "CREATE DEFAULT CONVERSION test_conv FOR 'UTF8' TO 'LATIN1' FROM utf8_to_latin1",
+		},
+
+		// CREATE LANGUAGE tests
+		{
+			name: "CREATE LANGUAGE basic",
+			sql:  "CREATE LANGUAGE plperl HANDLER plperl_call_handler",
+		},
+		{
+			name: "CREATE OR REPLACE LANGUAGE",
+			sql:  "CREATE OR REPLACE LANGUAGE plperl HANDLER plperl_call_handler",
+		},
+		{
+			name: "CREATE TRUSTED LANGUAGE",
+			sql:  "CREATE TRUSTED LANGUAGE plperl HANDLER plperl_call_handler",
+		},
+		{
+			name: "CREATE LANGUAGE with VALIDATOR",
+			sql:  "CREATE LANGUAGE plperl HANDLER plperl_call_handler VALIDATOR plperl_validator",
+		},
+		{
+			name: "CREATE LANGUAGE with INLINE",
+			sql:  "CREATE LANGUAGE plperl HANDLER plperl_call_handler INLINE plperl_inline_handler",
+		},
+
+		// CREATE CAST tests
+		{
+			name: "CREATE CAST basic",
+			sql:  "CREATE CAST (integer AS text) WITH FUNCTION int4out()",
+		},
+		{
+			name: "CREATE CAST WITHOUT FUNCTION",
+			sql:  "CREATE CAST (integer AS bigint) WITHOUT FUNCTION",
+		},
+		{
+			name: "CREATE CAST WITH INOUT",
+			sql:  "CREATE CAST (integer AS text) WITH INOUT",
+		},
+
+		// CREATE OPERATOR CLASS tests
+		{
+			name: "CREATE OPERATOR CLASS basic",
+			sql:  "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree AS OPERATOR 1 <",
+		},
+		{
+			name: "CREATE OPERATOR CLASS DEFAULT",
+			sql:  "CREATE OPERATOR CLASS test_ops DEFAULT FOR TYPE int4 USING btree AS OPERATOR 1 <",
+		},
+		{
+			name: "CREATE OPERATOR CLASS with FAMILY",
+			sql:  "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree FAMILY test_family AS OPERATOR 1 <",
+		},
+
+		// CREATE OPERATOR FAMILY tests
+		{
+			name: "CREATE OPERATOR FAMILY basic",
+			sql:  "CREATE OPERATOR FAMILY test_family USING btree",
+		},
+
+		// ALTER OPERATOR FAMILY tests
+		{
+			name: "ALTER OPERATOR FAMILY ADD",
+			sql:  "ALTER OPERATOR FAMILY test_family USING btree ADD OPERATOR 1 <",
+		},
+		{
+			name: "ALTER OPERATOR FAMILY DROP",
+			sql:  "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1 (int4, int4)",
+		},
+
+		// CREATE TRANSFORM tests
+		{
+			name:     "CREATE TRANSFORM basic",
+			sql:      "CREATE TRANSFORM FOR int LANGUAGE sql (FROM SQL WITH FUNCTION int_to_sql(), TO SQL WITH FUNCTION sql_to_int())",
+			expected: "CREATE TRANSFORM FOR int LANGUAGE sql ( FROM SQL WITH FUNCTION int_to_sql(), TO SQL WITH FUNCTION sql_to_int() )",
+		},
+		{
+			name:     "CREATE OR REPLACE TRANSFORM",
+			sql:      "CREATE OR REPLACE TRANSFORM FOR text LANGUAGE plpython3u (FROM SQL WITH FUNCTION text_to_python())",
+			expected: "CREATE OR REPLACE TRANSFORM FOR text LANGUAGE plpython3u ( FROM SQL WITH FUNCTION text_to_python() )",
+		},
+
+		// CREATE STATISTICS tests
+		{
+			name: "CREATE STATISTICS basic",
+			sql:  "CREATE STATISTICS test_stats ON a, b FROM test_table",
+		},
+		{
+			name: "CREATE STATISTICS IF NOT EXISTS",
+			sql:  "CREATE STATISTICS IF NOT EXISTS test_stats (dependencies) ON a, b FROM test_table",
+		},
+		{
+			name: "CREATE STATISTICS with specific types",
+			sql:  "CREATE STATISTICS test_stats (ndistinct, dependencies) ON a, b FROM test_table",
 		},
 	}
 

@@ -20,12 +20,12 @@ import (
 // Ported from postgres/src/include/nodes/parsenodes.h:2084-2093
 type MergeStmt struct {
 	BaseNode
-	Relation         *RangeVar          `json:"relation"`          // Target relation to merge into
-	SourceRelation   Node               `json:"sourceRelation"`    // Source relation
-	JoinCondition    Node               `json:"joinCondition"`     // Join condition between source and target
-	MergeWhenClauses *NodeList          `json:"mergeWhenClauses"`  // List of WHEN clauses
-	ReturningList    *NodeList          `json:"returningList"`     // List of expressions to return
-	WithClause       *WithClause        `json:"withClause"`        // WITH clause
+	Relation         *RangeVar   `json:"relation"`         // Target relation to merge into
+	SourceRelation   Node        `json:"sourceRelation"`   // Source relation
+	JoinCondition    Node        `json:"joinCondition"`    // Join condition between source and target
+	MergeWhenClauses *NodeList   `json:"mergeWhenClauses"` // List of WHEN clauses
+	ReturningList    *NodeList   `json:"returningList"`    // List of expressions to return
+	WithClause       *WithClause `json:"withClause"`       // WITH clause
 }
 
 func (n *MergeStmt) node() {}
@@ -37,17 +37,17 @@ func (n *MergeStmt) StatementType() string {
 
 func (n *MergeStmt) String() string {
 	var parts []string
-	
+
 	if n.WithClause != nil {
 		parts = append(parts, n.WithClause.String())
 	}
-	
+
 	// Get proper table names from RangeVar
 	targetTable := n.Relation.RelName
 	if n.Relation.SchemaName != "" {
 		targetTable = n.Relation.SchemaName + "." + targetTable
 	}
-	
+
 	sourceTable := "source"
 	if sourceRv, ok := n.SourceRelation.(*RangeVar); ok {
 		sourceTable = sourceRv.RelName
@@ -55,9 +55,9 @@ func (n *MergeStmt) String() string {
 			sourceTable = sourceRv.SchemaName + "." + sourceTable
 		}
 	}
-	
+
 	parts = append(parts, "MERGE INTO", targetTable, "USING", sourceTable, "ON", n.JoinCondition.String())
-	
+
 	if n.MergeWhenClauses != nil {
 		for _, item := range n.MergeWhenClauses.Items {
 			if clause, ok := item.(*MergeWhenClause); ok {
@@ -65,7 +65,7 @@ func (n *MergeStmt) String() string {
 			}
 		}
 	}
-	
+
 	if n.ReturningList != nil && n.ReturningList.Len() > 0 {
 		returning := make([]string, n.ReturningList.Len())
 		for i, expr := range n.ReturningList.Items {
@@ -73,36 +73,36 @@ func (n *MergeStmt) String() string {
 		}
 		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // SqlString returns the SQL representation of the MergeStmt
 func (m *MergeStmt) SqlString() string {
 	var parts []string
-	
+
 	// WITH clause
 	if m.WithClause != nil {
 		parts = append(parts, m.WithClause.SqlString())
 	}
-	
+
 	// MERGE INTO target
 	parts = append(parts, "MERGE INTO")
 	if m.Relation != nil {
 		parts = append(parts, m.Relation.SqlString())
 	}
-	
+
 	// USING source
 	parts = append(parts, "USING")
 	if m.SourceRelation != nil {
 		parts = append(parts, m.SourceRelation.SqlString())
 	}
-	
+
 	// ON condition
 	if m.JoinCondition != nil {
 		parts = append(parts, "ON", m.JoinCondition.SqlString())
 	}
-	
+
 	// WHEN clauses
 	if m.MergeWhenClauses != nil {
 		for _, item := range m.MergeWhenClauses.Items {
@@ -111,7 +111,7 @@ func (m *MergeStmt) SqlString() string {
 			}
 		}
 	}
-	
+
 	// RETURNING clause
 	if m.ReturningList != nil && m.ReturningList.Len() > 0 {
 		var returning []string
@@ -120,7 +120,7 @@ func (m *MergeStmt) SqlString() string {
 		}
 		parts = append(parts, "RETURNING", strings.Join(returning, ", "))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -139,9 +139,9 @@ func NewMergeStmt(relation *RangeVar, sourceRelation Node, joinCondition Node) *
 type MergeMatchKind int
 
 const (
-	MERGE_WHEN_MATCHED MergeMatchKind = iota // WHEN MATCHED
-	MERGE_WHEN_NOT_MATCHED_BY_SOURCE         // WHEN NOT MATCHED BY SOURCE
-	MERGE_WHEN_NOT_MATCHED_BY_TARGET         // WHEN NOT MATCHED BY TARGET
+	MERGE_WHEN_MATCHED               MergeMatchKind = iota // WHEN MATCHED
+	MERGE_WHEN_NOT_MATCHED_BY_SOURCE                       // WHEN NOT MATCHED BY SOURCE
+	MERGE_WHEN_NOT_MATCHED_BY_TARGET                       // WHEN NOT MATCHED BY TARGET
 )
 
 func (m MergeMatchKind) String() string {
@@ -189,13 +189,13 @@ func (n *MergeWhenClause) node() {}
 func (n *MergeWhenClause) String() string {
 	var parts []string
 	parts = append(parts, n.MatchKind.String())
-	
+
 	if n.Condition != nil {
 		parts = append(parts, "AND", n.Condition.String())
 	}
-	
+
 	parts = append(parts, "THEN")
-	
+
 	switch n.CommandType {
 	case CMD_INSERT:
 		parts = append(parts, "INSERT")
@@ -223,20 +223,20 @@ func (n *MergeWhenClause) String() string {
 	case CMD_NOTHING:
 		parts = append(parts, "DO NOTHING")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 func (n *MergeWhenClause) SqlString() string {
 	var parts []string
 	parts = append(parts, n.MatchKind.SqlString())
-	
+
 	if n.Condition != nil {
 		parts = append(parts, "AND", n.Condition.SqlString())
 	}
-	
+
 	parts = append(parts, "THEN")
-	
+
 	switch n.CommandType {
 	case CMD_INSERT:
 		parts = append(parts, "INSERT")
@@ -263,7 +263,7 @@ func (n *MergeWhenClause) SqlString() string {
 		if len(n.TargetList) > 0 {
 			targets := make([]string, len(n.TargetList))
 			for i, target := range n.TargetList {
-				// For UPDATE SET, format as "column = value" not "value AS column"  
+				// For UPDATE SET, format as "column = value" not "value AS column"
 				if target.Val != nil {
 					targets[i] = target.Name + " = " + target.Val.SqlString()
 				} else {
@@ -277,14 +277,14 @@ func (n *MergeWhenClause) SqlString() string {
 	case CMD_NOTHING:
 		parts = append(parts, "DO NOTHING")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // NewMergeWhenClause creates a new MergeWhenClause node
 func NewMergeWhenClause(matchKind MergeMatchKind, commandType CmdType) *MergeWhenClause {
 	return &MergeWhenClause{
-		BaseNode:     BaseNode{Tag: T_MergeWhenClause},
+		BaseNode:    BaseNode{Tag: T_MergeWhenClause},
 		MatchKind:   matchKind,
 		CommandType: commandType,
 	}
@@ -300,14 +300,14 @@ func NewMergeWhenClause(matchKind MergeMatchKind, commandType CmdType) *MergeWhe
 // Ported from postgres/src/include/nodes/parsenodes.h:2185-2204
 type SetOperationStmt struct {
 	BaseNode
-	Op            SetOperation        `json:"op"`            // Type of set operation
-	All           bool                `json:"all"`           // ALL specified?
-	Larg          Node                `json:"larg"`          // Left child
-	Rarg          Node                `json:"rarg"`          // Right child
-	ColTypes      []Oid               `json:"colTypes"`      // OID list of output column type OIDs
-	ColTypmods    []int32             `json:"colTypmods"`    // Integer list of output column typmods
-	ColCollations []Oid               `json:"colCollations"` // OID list of output column collation OIDs
-	GroupClauses  []*SortGroupClause  `json:"groupClauses"`  // List of SortGroupClauses
+	Op            SetOperation       `json:"op"`            // Type of set operation
+	All           bool               `json:"all"`           // ALL specified?
+	Larg          Node               `json:"larg"`          // Left child
+	Rarg          Node               `json:"rarg"`          // Right child
+	ColTypes      []Oid              `json:"colTypes"`      // OID list of output column type OIDs
+	ColTypmods    []int32            `json:"colTypmods"`    // Integer list of output column typmods
+	ColCollations []Oid              `json:"colCollations"` // OID list of output column collation OIDs
+	GroupClauses  []*SortGroupClause `json:"groupClauses"`  // List of SortGroupClauses
 }
 
 func (n *SetOperationStmt) node() {}
@@ -315,16 +315,16 @@ func (n *SetOperationStmt) stmt() {}
 
 func (n *SetOperationStmt) String() string {
 	var parts []string
-	
+
 	parts = append(parts, n.Larg.String())
 	parts = append(parts, n.Op.String())
-	
+
 	if n.All {
 		parts = append(parts, "ALL")
 	}
-	
+
 	parts = append(parts, n.Rarg.String())
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -332,10 +332,10 @@ func (n *SetOperationStmt) String() string {
 func NewSetOperationStmt(op SetOperation, all bool, larg Node, rarg Node) *SetOperationStmt {
 	return &SetOperationStmt{
 		BaseNode: BaseNode{Tag: T_SetOperationStmt},
-		Op:      op,
-		All:     all,
-		Larg:    larg,
-		Rarg:    rarg,
+		Op:       op,
+		All:      all,
+		Larg:     larg,
+		Rarg:     rarg,
 	}
 }
 
@@ -368,7 +368,7 @@ func (n *ReturnStmt) StatementType() string {
 // NewReturnStmt creates a new ReturnStmt node
 func NewReturnStmt(returnVal Node) *ReturnStmt {
 	return &ReturnStmt{
-		BaseNode:   BaseNode{Tag: T_ReturnStmt},
+		BaseNode:  BaseNode{Tag: T_ReturnStmt},
 		ReturnVal: returnVal,
 	}
 }
@@ -377,11 +377,11 @@ func NewReturnStmt(returnVal Node) *ReturnStmt {
 // Ported from postgres/src/include/nodes/parsenodes.h:2224-2233
 type PLAssignStmt struct {
 	BaseNode
-	Name        string       `json:"name"`        // Initial column name
-	Indirection *NodeList    `json:"indirection"` // Subscripts and field names, if any
-	Nnames      int          `json:"nnames"`      // Number of names to use in ColumnRef
-	Val         *SelectStmt  `json:"val"`         // The PL/pgSQL expression to assign
-	Location    int          `json:"location"`    // Name's token location, or -1 if unknown
+	Name        string      `json:"name"`        // Initial column name
+	Indirection *NodeList   `json:"indirection"` // Subscripts and field names, if any
+	Nnames      int         `json:"nnames"`      // Number of names to use in ColumnRef
+	Val         *SelectStmt `json:"val"`         // The PL/pgSQL expression to assign
+	Location    int         `json:"location"`    // Name's token location, or -1 if unknown
 }
 
 func (n *PLAssignStmt) node() {}
@@ -390,26 +390,26 @@ func (n *PLAssignStmt) stmt() {}
 func (n *PLAssignStmt) String() string {
 	var parts []string
 	parts = append(parts, n.Name)
-	
+
 	if n.Indirection != nil {
 		for _, ind := range n.Indirection.Items {
 			parts = append(parts, "["+ind.String()+"]")
 		}
 	}
-	
+
 	parts = append(parts, ":=")
-	
+
 	if n.Val != nil {
 		parts = append(parts, n.Val.String())
 	}
-	
+
 	return strings.Join(parts, "")
 }
 
 // NewPLAssignStmt creates a new PLAssignStmt node
 func NewPLAssignStmt(name string, val *SelectStmt) *PLAssignStmt {
 	return &PLAssignStmt{
-		BaseNode:  BaseNode{Tag: T_PLAssignStmt},
+		BaseNode: BaseNode{Tag: T_PLAssignStmt},
 		Name:     name,
 		Val:      val,
 		Location: -1,
@@ -428,16 +428,16 @@ func NewPLAssignStmt(name string, val *SelectStmt) *PLAssignStmt {
 // Ported from postgres/src/include/nodes/parsenodes.h:1606-1613
 type InferClause struct {
 	BaseNode
-	IndexElems   *NodeList    `json:"indexElems"`   // IndexElems to infer unique index
-	WhereClause  Node         `json:"whereClause"`  // Qualification (partial-index predicate)
-	Conname      string       `json:"conname"`      // Constraint name, or NULL if unnamed
+	IndexElems  *NodeList `json:"indexElems"`  // IndexElems to infer unique index
+	WhereClause Node      `json:"whereClause"` // Qualification (partial-index predicate)
+	Conname     string    `json:"conname"`     // Constraint name, or NULL if unnamed
 }
 
 func (n *InferClause) node() {}
 
 func (n *InferClause) String() string {
 	var parts []string
-	
+
 	if n.IndexElems != nil && n.IndexElems.Len() > 0 {
 		var elems []string
 		for _, item := range n.IndexElems.Items {
@@ -449,21 +449,21 @@ func (n *InferClause) String() string {
 			parts = append(parts, "("+strings.Join(elems, ", ")+")")
 		}
 	}
-	
+
 	if n.WhereClause != nil {
 		parts = append(parts, "WHERE", n.WhereClause.String())
 	}
-	
+
 	if n.Conname != "" {
 		parts = append(parts, "ON CONSTRAINT", n.Conname)
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 func (n *InferClause) SqlString() string {
 	var parts []string
-	
+
 	if n.IndexElems != nil && n.IndexElems.Len() > 0 {
 		var elems []string
 		for _, item := range n.IndexElems.Items {
@@ -475,22 +475,22 @@ func (n *InferClause) SqlString() string {
 			parts = append(parts, "("+strings.Join(elems, ", ")+")")
 		}
 	}
-	
+
 	if n.WhereClause != nil {
 		parts = append(parts, "WHERE", n.WhereClause.SqlString())
 	}
-	
+
 	if n.Conname != "" {
 		parts = append(parts, "ON CONSTRAINT", n.Conname)
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // NewInferClause creates a new InferClause node
 func NewInferClause() *InferClause {
 	return &InferClause{
-		BaseNode:  BaseNode{Tag: T_InferClause},
+		BaseNode: BaseNode{Tag: T_InferClause},
 	}
 }
 
@@ -503,12 +503,12 @@ func NewInferClause() *InferClause {
 type WCOKind int
 
 const (
-	WCO_VIEW_CHECK WCOKind = iota // WCO on an auto-updatable view
-	WCO_RLS_INSERT_CHECK          // RLS INSERT WITH CHECK policy
-	WCO_RLS_UPDATE_CHECK          // RLS UPDATE WITH CHECK policy
-	WCO_RLS_CONFLICT_CHECK        // RLS ON CONFLICT DO UPDATE USING policy
-	WCO_RLS_MERGE_UPDATE_CHECK    // RLS MERGE UPDATE USING policy
-	WCO_RLS_MERGE_DELETE_CHECK    // RLS MERGE DELETE USING policy
+	WCO_VIEW_CHECK             WCOKind = iota // WCO on an auto-updatable view
+	WCO_RLS_INSERT_CHECK                      // RLS INSERT WITH CHECK policy
+	WCO_RLS_UPDATE_CHECK                      // RLS UPDATE WITH CHECK policy
+	WCO_RLS_CONFLICT_CHECK                    // RLS ON CONFLICT DO UPDATE USING policy
+	WCO_RLS_MERGE_UPDATE_CHECK                // RLS MERGE UPDATE USING policy
+	WCO_RLS_MERGE_DELETE_CHECK                // RLS MERGE DELETE USING policy
 )
 
 func (w WCOKind) String() string {
@@ -546,22 +546,22 @@ func (n *WithCheckOption) node() {}
 func (n *WithCheckOption) String() string {
 	var parts []string
 	parts = append(parts, "WITH")
-	
+
 	if n.Cascaded {
 		parts = append(parts, "CASCADED")
 	} else {
 		parts = append(parts, "LOCAL")
 	}
-	
+
 	parts = append(parts, "CHECK OPTION")
-	
+
 	return strings.Join(parts, " ")
 }
 
 // NewWithCheckOption creates a new WithCheckOption node
 func NewWithCheckOption(kind WCOKind, cascaded bool) *WithCheckOption {
 	return &WithCheckOption{
-		BaseNode:  BaseNode{Tag: T_WithCheckOption},
+		BaseNode: BaseNode{Tag: T_WithCheckOption},
 		Kind:     kind,
 		Cascaded: cascaded,
 	}
@@ -575,9 +575,9 @@ func NewWithCheckOption(kind WCOKind, cascaded bool) *WithCheckOption {
 // Ported from postgres/src/include/nodes/parsenodes.h:3240-3246
 type TruncateStmt struct {
 	BaseNode
-	Relations     []*RangeVar   `json:"relations"`     // Relations (RangeVars) to be truncated
-	RestartSeqs   bool          `json:"restartSeqs"`   // Restart owned sequences?
-	Behavior      DropBehavior  `json:"behavior"`      // RESTRICT or CASCADE behavior
+	Relations   []*RangeVar  `json:"relations"`   // Relations (RangeVars) to be truncated
+	RestartSeqs bool         `json:"restartSeqs"` // Restart owned sequences?
+	Behavior    DropBehavior `json:"behavior"`    // RESTRICT or CASCADE behavior
 }
 
 func (n *TruncateStmt) node() {}
@@ -586,7 +586,7 @@ func (n *TruncateStmt) stmt() {}
 func (n *TruncateStmt) String() string {
 	var parts []string
 	parts = append(parts, "TRUNCATE TABLE")
-	
+
 	if len(n.Relations) > 0 {
 		relations := make([]string, len(n.Relations))
 		for i, rel := range n.Relations {
@@ -594,22 +594,22 @@ func (n *TruncateStmt) String() string {
 		}
 		parts = append(parts, strings.Join(relations, ", "))
 	}
-	
+
 	if n.RestartSeqs {
 		parts = append(parts, "RESTART IDENTITY")
 	} else {
 		parts = append(parts, "CONTINUE IDENTITY")
 	}
-	
+
 	parts = append(parts, n.Behavior.String())
-	
+
 	return strings.Join(parts, " ")
 }
 
 // NewTruncateStmt creates a new TruncateStmt node
 func NewTruncateStmt(relations []*RangeVar) *TruncateStmt {
 	return &TruncateStmt{
-		BaseNode:   BaseNode{Tag: T_TruncateStmt},
+		BaseNode:  BaseNode{Tag: T_TruncateStmt},
 		Relations: relations,
 		Behavior:  DropRestrict,
 	}
@@ -630,13 +630,13 @@ func (n *CommentStmt) stmt() {}
 func (n *CommentStmt) String() string {
 	var parts []string
 	parts = append(parts, "COMMENT ON", n.Objtype.String(), n.Object.String(), "IS")
-	
+
 	if n.Comment != "" {
 		parts = append(parts, "'"+n.Comment+"'")
 	} else {
 		parts = append(parts, "NULL")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -644,9 +644,9 @@ func (n *CommentStmt) String() string {
 func NewCommentStmt(objtype ObjectType, object Node, comment string) *CommentStmt {
 	return &CommentStmt{
 		BaseNode: BaseNode{Tag: T_CommentStmt},
-		Objtype: objtype,
-		Object:  object,
-		Comment: comment,
+		Objtype:  objtype,
+		Object:   object,
+		Comment:  comment,
 	}
 }
 
@@ -664,9 +664,6 @@ type RenameStmt struct {
 	MissingOk    bool         `json:"missingOk"`    // Skip error if missing?
 }
 
-func (n *RenameStmt) node() {}
-func (n *RenameStmt) stmt() {}
-
 func (n *RenameStmt) StatementType() string {
 	return "RenameStmt"
 }
@@ -674,28 +671,28 @@ func (n *RenameStmt) StatementType() string {
 func (n *RenameStmt) String() string {
 	var parts []string
 	parts = append(parts, "ALTER", n.RenameType.String())
-	
+
 	if n.Relation != nil {
 		parts = append(parts, n.Relation.String())
 	} else if n.Object != nil {
 		parts = append(parts, n.Object.String())
 	}
-	
+
 	if n.Subname != "" {
 		parts = append(parts, "RENAME", n.Subname, "TO", n.Newname)
 	} else {
 		parts = append(parts, "RENAME TO", n.Newname)
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 func (n *RenameStmt) SqlString() string {
 	var parts []string
-	
+
 	// Start with ALTER
 	parts = append(parts, "ALTER")
-	
+
 	// Add object type
 	switch n.RenameType {
 	case OBJECT_COLUMN:
@@ -729,22 +726,22 @@ func (n *RenameStmt) SqlString() string {
 	default:
 		parts = append(parts, "TABLE")
 	}
-	
+
 	// Add IF EXISTS if specified
 	if n.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
-	
+
 	// Add relation/object name
 	if n.Relation != nil {
 		parts = append(parts, n.Relation.SqlString())
 	} else if n.Object != nil {
 		parts = append(parts, n.Object.SqlString())
 	}
-	
+
 	// Add RENAME clause
 	parts = append(parts, "RENAME")
-	
+
 	if n.RenameType == OBJECT_COLUMN {
 		// Column rename: RENAME [COLUMN] old_name TO new_name
 		parts = append(parts, "COLUMN", n.Subname, "TO", n.Newname)
@@ -755,14 +752,14 @@ func (n *RenameStmt) SqlString() string {
 		// Table/Index/View rename: RENAME TO new_name
 		parts = append(parts, "TO", n.Newname)
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // NewRenameStmt creates a new RenameStmt node
 func NewRenameStmt(renameType ObjectType, newname string) *RenameStmt {
 	return &RenameStmt{
-		BaseNode:    BaseNode{Tag: T_RenameStmt},
+		BaseNode:   BaseNode{Tag: T_RenameStmt},
 		RenameType: renameType,
 		Newname:    newname,
 		Behavior:   DropRestrict,
@@ -785,26 +782,26 @@ func (n *AlterOwnerStmt) stmt() {}
 func (n *AlterOwnerStmt) String() string {
 	var parts []string
 	parts = append(parts, "ALTER", n.ObjectType.String())
-	
+
 	if n.Relation != nil {
 		parts = append(parts, n.Relation.String())
 	} else if n.Object != nil {
 		parts = append(parts, n.Object.String())
 	}
-	
+
 	parts = append(parts, "OWNER TO")
-	
+
 	if n.Newowner != nil {
 		parts = append(parts, n.Newowner.String())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // NewAlterOwnerStmt creates a new AlterOwnerStmt node
 func NewAlterOwnerStmt(objectType ObjectType, newowner *RoleSpec) *AlterOwnerStmt {
 	return &AlterOwnerStmt{
-		BaseNode:    BaseNode{Tag: T_AlterOwnerStmt},
+		BaseNode:   BaseNode{Tag: T_AlterOwnerStmt},
 		ObjectType: objectType,
 		Newowner:   newowner,
 	}
@@ -829,11 +826,11 @@ func (n *RuleStmt) stmt() {}
 func (n *RuleStmt) String() string {
 	var parts []string
 	parts = append(parts, "CREATE")
-	
+
 	if n.Replace {
 		parts = append(parts, "OR REPLACE")
 	}
-	
+
 	// Get the proper table name from RangeVar
 	tableName := n.Relation.RelName
 	if n.Relation.SchemaName != "" {
@@ -842,19 +839,19 @@ func (n *RuleStmt) String() string {
 	if n.Relation.CatalogName != "" {
 		tableName = n.Relation.CatalogName + "." + tableName
 	}
-	
+
 	parts = append(parts, "RULE", n.Rulename, "AS ON", n.Event.String(), "TO", tableName)
-	
+
 	if n.WhereClause != nil {
 		parts = append(parts, "WHERE", n.WhereClause.String())
 	}
-	
+
 	parts = append(parts, "DO")
-	
+
 	if n.Instead {
 		parts = append(parts, "INSTEAD")
 	}
-	
+
 	if n.Actions == nil || n.Actions.Len() == 0 {
 		parts = append(parts, "NOTHING")
 	} else if n.Actions.Len() == 1 {
@@ -866,14 +863,14 @@ func (n *RuleStmt) String() string {
 		}
 		parts = append(parts, "("+strings.Join(actions, "; ")+")")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // NewRuleStmt creates a new RuleStmt node
 func NewRuleStmt(relation *RangeVar, rulename string, event CmdType) *RuleStmt {
 	return &RuleStmt{
-		BaseNode:  BaseNode{Tag: T_RuleStmt},
+		BaseNode: BaseNode{Tag: T_RuleStmt},
 		Relation: relation,
 		Rulename: rulename,
 		Event:    event,
@@ -895,7 +892,7 @@ func (n *LockStmt) stmt() {}
 func (n *LockStmt) String() string {
 	var parts []string
 	parts = append(parts, "LOCK TABLE")
-	
+
 	if len(n.Relations) > 0 {
 		relations := make([]string, len(n.Relations))
 		for i, rel := range n.Relations {
@@ -903,21 +900,21 @@ func (n *LockStmt) String() string {
 		}
 		parts = append(parts, strings.Join(relations, ", "))
 	}
-	
+
 	// Lock modes would need additional enum definition for proper string representation
 	parts = append(parts, fmt.Sprintf("IN MODE %d", n.Mode))
-	
+
 	if n.Nowait {
 		parts = append(parts, "NOWAIT")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // NewLockStmt creates a new LockStmt node
 func NewLockStmt(relations []*RangeVar, mode int) *LockStmt {
 	return &LockStmt{
-		BaseNode:   BaseNode{Tag: T_LockStmt},
+		BaseNode:  BaseNode{Tag: T_LockStmt},
 		Relations: relations,
 		Mode:      mode,
 	}

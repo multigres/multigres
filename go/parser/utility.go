@@ -6,6 +6,38 @@ import (
 	"github.com/multigres/parser/go/parser/ast"
 )
 
+// linitial returns the first element of a NodeList, equivalent to PostgreSQL's linitial()
+func linitial(list *ast.NodeList) ast.Node {
+	if list == nil || len(list.Items) == 0 {
+		return nil
+	}
+	return list.Items[0]
+}
+
+// lsecond returns the second element of a NodeList, equivalent to PostgreSQL's lsecond()
+func lsecond(list *ast.NodeList) ast.Node {
+	if list == nil || len(list.Items) < 2 {
+		return nil
+	}
+	return list.Items[1]
+}
+
+// lthird returns the third element of a NodeList, equivalent to PostgreSQL's lthird()
+func lthird(list *ast.NodeList) ast.Node {
+	if list == nil || len(list.Items) < 3 {
+		return nil
+	}
+	return list.Items[2]
+}
+
+// llast returns the last element of a NodeList, equivalent to PostgreSQL's llast()
+func llast(list *ast.NodeList) ast.Node {
+	if list == nil || len(list.Items) == 0 {
+		return nil
+	}
+	return list.Items[len(list.Items)-1]
+}
+
 // makeTypeNameFromNodeList converts *ast.NodeList to *ast.TypeName
 func makeTypeNameFromNodeList(list *ast.NodeList) *ast.TypeName {
 	return &ast.TypeName{
@@ -92,6 +124,75 @@ func makeRangeVarFromAnyName(names *ast.NodeList, position int) (*ast.RangeVar, 
 
 	r.RelPersistence = ast.RELPERSISTENCE_PERMANENT
 	return r, nil
+}
+
+// makeRangeVarFromQualifiedName constructs a RangeVar from a ColId and indirection list.
+// This mirrors PostgreSQL's makeRangeVarFromQualifiedName function which is used in
+// grammar rules that have "ColId indirection" patterns.
+//
+// The function handles:
+//   - ColId alone: "table" -> RangeVar{RelName: "table"}
+//   - ColId + single indirection: "schema" + [".table"] -> RangeVar{SchemaName: "schema", RelName: "table"}
+//   - ColId + multiple indirections: "catalog" + [".schema", ".table"] -> RangeVar{CatalogName: "catalog", SchemaName: "schema", RelName: "table"}
+//
+// Parameters:
+//   - name: The initial ColId string
+//   - indirection: NodeList containing the indirection elements (can be nil)
+//   - position: Source location for error reporting
+//
+// Returns the constructed RangeVar.
+//
+// Ported from PostgreSQL's makeRangeVarFromQualifiedName function.
+func makeRangeVarFromQualifiedName(name string, indirection *ast.NodeList, position int) *ast.RangeVar {
+	r := &ast.RangeVar{
+		BaseNode: ast.BaseNode{Tag: ast.T_RangeVar, Loc: position},
+		Inh:      true, // Default to inheritance enabled (no ONLY)
+	}
+
+	// Start with the base name
+	names := []string{name}
+
+	// Add indirection elements
+	if indirection != nil {
+		for _, item := range indirection.Items {
+			if str, ok := item.(*ast.String); ok {
+				names = append(names, str.SVal)
+			}
+			// Note: PostgreSQL also handles A_Star nodes for ".*" but we'll focus on String nodes for now
+		}
+	}
+
+	// Build RangeVar based on number of names
+	switch len(names) {
+	case 1:
+		// Single name: just the relation name
+		r.CatalogName = ""
+		r.SchemaName = ""
+		r.RelName = names[0]
+	case 2:
+		// Two names: schema.relation
+		r.CatalogName = ""
+		r.SchemaName = names[0]
+		r.RelName = names[1]
+	case 3:
+		// Three names: catalog.schema.relation
+		r.CatalogName = names[0]
+		r.SchemaName = names[1]
+		r.RelName = names[2]
+	default:
+		// For more than 3 names, use the last as relation, second-to-last as schema, third-to-last as catalog
+		// This is a fallback - PostgreSQL would likely error on too many names
+		if len(names) >= 3 {
+			r.CatalogName = names[len(names)-3]
+			r.SchemaName = names[len(names)-2]
+			r.RelName = names[len(names)-1]
+		} else {
+			r.RelName = names[len(names)-1]
+		}
+	}
+
+	r.RelPersistence = ast.RELPERSISTENCE_PERMANENT
+	return r
 }
 
 // SplitColQualList separates a ColQualList (column qualifier list) into constraints and collate clauses.

@@ -401,6 +401,17 @@ func (se *StatsElem) String() string {
 	return fmt.Sprintf("StatsElem(expr: %s)", se.Expr)
 }
 
+// SqlString returns the SQL representation of StatsElem
+func (se *StatsElem) SqlString() string {
+	if se.Name != "" {
+		return se.Name
+	}
+	if se.Expr != nil {
+		return se.Expr.SqlString()
+	}
+	return ""
+}
+
 // ==============================================================================
 // FOREIGN DATA WRAPPER STATEMENTS
 // ==============================================================================
@@ -1004,24 +1015,16 @@ type CreatePolicyStmt struct {
 }
 
 // NewCreatePolicyStmt creates a new CreatePolicyStmt node.
-func NewCreatePolicyStmt(policyName string, table *RangeVar, cmdName string) *CreatePolicyStmt {
+func NewCreatePolicyStmt(policyName string, table *RangeVar, permissive bool, cmdName string, roles *NodeList, qual Node, withCheck Node) *CreatePolicyStmt {
 	return &CreatePolicyStmt{
 		BaseNode:   BaseNode{Tag: T_CreatePolicyStmt},
 		PolicyName: policyName,
 		Table:      table,
 		CmdName:    cmdName,
-		Permissive: true, // Default to permissive
-	}
-}
-
-// NewRestrictivePolicyStmt creates a new restrictive policy.
-func NewRestrictivePolicyStmt(policyName string, table *RangeVar, cmdName string) *CreatePolicyStmt {
-	return &CreatePolicyStmt{
-		BaseNode:   BaseNode{Tag: T_CreatePolicyStmt},
-		PolicyName: policyName,
-		Table:      table,
-		CmdName:    cmdName,
-		Permissive: false,
+		Permissive: permissive,
+		Roles:      roles,
+		Qual:       qual,
+		WithCheck:  withCheck,
 	}
 }
 
@@ -1032,6 +1035,44 @@ func (cps *CreatePolicyStmt) String() string {
 	}
 
 	return fmt.Sprintf("CreatePolicyStmt(CREATE %s POLICY %s ON %s FOR %s)", policyType, cps.PolicyName, cps.Table.RelName, cps.CmdName)
+}
+
+func (cps *CreatePolicyStmt) StatementType() string {
+	return "CREATE POLICY"
+}
+
+// SqlString returns the SQL representation of CREATE POLICY statement
+func (cps *CreatePolicyStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "CREATE POLICY", cps.PolicyName, "ON")
+	
+	if cps.Table != nil {
+		parts = append(parts, cps.Table.SqlString())
+	}
+	
+	if cps.CmdName != "" {
+		parts = append(parts, "FOR", cps.CmdName)
+	}
+	
+	if cps.Roles != nil && cps.Roles.Len() > 0 {
+		roleStrs := make([]string, 0, cps.Roles.Len())
+		for i := 0; i < cps.Roles.Len(); i++ {
+			if roleSpec, ok := cps.Roles.Items[i].(*RoleSpec); ok {
+				roleStrs = append(roleStrs, roleSpec.SqlString())
+			}
+		}
+		parts = append(parts, "TO", strings.Join(roleStrs, ", "))
+	}
+	
+	if cps.Qual != nil {
+		parts = append(parts, "USING (", cps.Qual.SqlString(), ")")
+	}
+	
+	if cps.WithCheck != nil {
+		parts = append(parts, "WITH CHECK (", cps.WithCheck.SqlString(), ")")
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // AlterPolicyStmt represents ALTER POLICY statements.
@@ -1046,14 +1087,51 @@ type AlterPolicyStmt struct {
 }
 
 // NewAlterPolicyStmt creates a new AlterPolicyStmt node.
-func NewAlterPolicyStmt(policyName string, table *RangeVar) *AlterPolicyStmt {
+func NewAlterPolicyStmt(policyName string, table *RangeVar, roles *NodeList, qual Node, withCheck Node) *AlterPolicyStmt {
 	return &AlterPolicyStmt{
 		BaseNode:   BaseNode{Tag: T_AlterPolicyStmt},
 		PolicyName: policyName,
 		Table:      table,
+		Roles:      roles,
+		Qual:       qual,
+		WithCheck:  withCheck,
 	}
 }
 
 func (aps *AlterPolicyStmt) String() string {
 	return fmt.Sprintf("AlterPolicyStmt(ALTER POLICY %s ON %s)", aps.PolicyName, aps.Table.RelName)
+}
+
+func (aps *AlterPolicyStmt) StatementType() string {
+	return "ALTER POLICY"
+}
+
+// SqlString returns the SQL representation of ALTER POLICY statement
+func (aps *AlterPolicyStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER POLICY", aps.PolicyName, "ON")
+	
+	if aps.Table != nil {
+		parts = append(parts, aps.Table.SqlString())
+	}
+	
+	if aps.Roles != nil && aps.Roles.Len() > 0 {
+		roleStrs := make([]string, 0, aps.Roles.Len())
+		for i := 0; i < aps.Roles.Len(); i++ {
+			if roleSpec, ok := aps.Roles.Items[i].(*RoleSpec); ok {
+				roleStrs = append(roleStrs, roleSpec.SqlString())
+			}
+		}
+		parts = append(parts, "TO", strings.Join(roleStrs, ", "))
+	}
+	
+	if aps.Qual != nil {
+		parts = append(parts, "USING (", aps.Qual.SqlString(), ")")
+	}
+	
+	if aps.WithCheck != nil {
+		parts = append(parts, "WITH CHECK (", aps.WithCheck.SqlString(), ")")
+	}
+	
+	return strings.Join(parts, " ")
 }

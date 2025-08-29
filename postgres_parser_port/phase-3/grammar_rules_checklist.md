@@ -493,24 +493,24 @@
 - ✅ `event_trigger_value_list` - Event trigger values
 
 ### Other CREATE Statements
-- ⬜ `CreateTableSpaceStmt` - CREATE TABLESPACE
-- ⬜ `AlterTblSpcStmt` - ALTER TABLESPACE
-- ⬜ `CreatePolicyStmt` - CREATE POLICY
-- ⬜ `AlterPolicyStmt` - ALTER POLICY
-- ⬜ `CreateAmStmt` - CREATE ACCESS METHOD
-- ⬜ `CreateStatsStmt` - CREATE STATISTICS
-- ⬜ `AlterStatsStmt` - ALTER STATISTICS
-- ⬜ `CreatePublicationStmt` - CREATE PUBLICATION
-- ⬜ `AlterPublicationStmt` - ALTER PUBLICATION
-- ⬜ `CreateSubscriptionStmt` - CREATE SUBSCRIPTION
-- ⬜ `AlterSubscriptionStmt` - ALTER SUBSCRIPTION
-- ⬜ `CreateCastStmt` - CREATE CAST
-- ⬜ `CreateOpClassStmt` - CREATE OPERATOR CLASS
-- ⬜ `CreateOpFamilyStmt` - CREATE OPERATOR FAMILY
-- ⬜ `AlterOpFamilyStmt` - ALTER OPERATOR FAMILY
-- ⬜ `CreateConversionStmt` - CREATE CONVERSION
-- ⬜ `CreateTransformStmt` - CREATE TRANSFORM
-- ⬜ `CreatePLangStmt` - CREATE LANGUAGE
+- ✅ `CreateTableSpaceStmt` - CREATE TABLESPACE
+- ✅ `AlterTblSpcStmt` - ALTER TABLESPACE
+- ✅ `CreatePolicyStmt` - CREATE POLICY
+- ✅ `AlterPolicyStmt` - ALTER POLICY
+- ✅ `CreateAmStmt` - CREATE ACCESS METHOD
+- ✅ `CreateStatsStmt` - CREATE STATISTICS
+- ✅ `AlterStatsStmt` - ALTER STATISTICS
+- ✅ `CreatePublicationStmt` - CREATE PUBLICATION
+- ✅ `AlterPublicationStmt` - ALTER PUBLICATION
+- ✅ `CreateSubscriptionStmt` - CREATE SUBSCRIPTION
+- ✅ `AlterSubscriptionStmt` - ALTER SUBSCRIPTION
+- ✅ `CreateCastStmt` - CREATE CAST
+- ✅ `CreateOpClassStmt` - CREATE OPERATOR CLASS
+- ✅ `CreateOpFamilyStmt` - CREATE OPERATOR FAMILY
+- ✅ `AlterOpFamilyStmt` - ALTER OPERATOR FAMILY
+- ✅ `CreateConversionStmt` - CREATE CONVERSION
+- ✅ `CreateTransformStmt` - CREATE TRANSFORM
+- ✅ `CreatePLangStmt` - CREATE LANGUAGE
 
 ## Phase 3H: Advanced SELECT Features (~60 rules)
 

@@ -1803,7 +1803,6 @@ func (c *CreateExtensionStmt) String() string {
 	return fmt.Sprintf("CreateExtensionStmt(%s%s)@%d", c.Extname, ifNotExists, c.Location())
 }
 
-
 // formatExtensionOption formats an extension option DefElem for SQL output
 func formatExtensionOption(opt *DefElem) string {
 	if opt == nil {
@@ -2231,9 +2230,9 @@ func (i *IndexStmt) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h CreateFdwStmt
 type CreateFdwStmt struct {
 	BaseNode
-	FdwName     string    `json:"fdwname"`     // foreign data wrapper name
-	FuncOptions *NodeList `json:"func_options"` // HANDLER/VALIDATOR options  
-	Options     *NodeList `json:"options"`     // OPTIONS clause
+	FdwName     string    `json:"fdwname"`      // foreign data wrapper name
+	FuncOptions *NodeList `json:"func_options"` // HANDLER/VALIDATOR options
+	Options     *NodeList `json:"options"`      // OPTIONS clause
 }
 
 // NewCreateFdwStmt creates a new CreateFdwStmt node
@@ -2326,9 +2325,9 @@ func (c *CreateFdwStmt) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h AlterFdwStmt
 type AlterFdwStmt struct {
 	BaseNode
-	FdwName     string    `json:"fdwname"`     // foreign data wrapper name
+	FdwName     string    `json:"fdwname"`      // foreign data wrapper name
 	FuncOptions *NodeList `json:"func_options"` // HANDLER/VALIDATOR options
-	Options     *NodeList `json:"options"`     // OPTIONS clause
+	Options     *NodeList `json:"options"`      // OPTIONS clause
 }
 
 // NewAlterFdwStmt creates a new AlterFdwStmt node
@@ -2437,14 +2436,13 @@ func (a *AlterFdwStmt) SqlString() string {
 	return strings.Join(parts, " ")
 }
 
-
 // AlterForeignServerStmt represents ALTER SERVER statement
 // Ported from postgres/src/include/nodes/parsenodes.h AlterForeignServerStmt
 type AlterForeignServerStmt struct {
 	BaseNode
-	Servername string    `json:"servername"` // server name
-	Version    string    `json:"version"`    // optional server version
-	Options    *NodeList `json:"options"`    // OPTIONS clause
+	Servername string    `json:"servername"`  // server name
+	Version    string    `json:"version"`     // optional server version
+	Options    *NodeList `json:"options"`     // OPTIONS clause
 	HasVersion bool      `json:"has_version"` // whether version was specified
 }
 
@@ -2514,7 +2512,6 @@ func (a *AlterForeignServerStmt) SqlString() string {
 
 	return strings.Join(parts, " ")
 }
-
 
 // AlterUserMappingStmt represents ALTER USER MAPPING statement
 // Ported from postgres/src/include/nodes/parsenodes.h AlterUserMappingStmt
@@ -2591,9 +2588,9 @@ func (a *AlterUserMappingStmt) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h DropUserMappingStmt
 type DropUserMappingStmt struct {
 	BaseNode
-	User       *RoleSpec `json:"user"`        // user name or role
-	Servername string    `json:"servername"`  // server name
-	MissingOk  bool      `json:"missing_ok"`  // IF EXISTS option
+	User       *RoleSpec `json:"user"`       // user name or role
+	Servername string    `json:"servername"` // server name
+	MissingOk  bool      `json:"missing_ok"` // IF EXISTS option
 }
 
 // NewDropUserMappingStmt creates a new DropUserMappingStmt node
@@ -2618,7 +2615,7 @@ func (d *DropUserMappingStmt) String() string {
 func (d *DropUserMappingStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "DROP USER MAPPING")
-	
+
 	if d.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
@@ -2675,7 +2672,7 @@ func (c *CreateEventTrigStmt) String() string {
 func (c *CreateEventTrigStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "CREATE EVENT TRIGGER", c.TrigName, "ON", c.EventName)
-	
+
 	// Add WHEN clause if present
 	if c.WhenClause != nil && c.WhenClause.Len() > 0 {
 		var whenParts []string
@@ -2699,7 +2696,7 @@ func (c *CreateEventTrigStmt) SqlString() string {
 			parts = append(parts, "WHEN", strings.Join(whenParts, " AND "))
 		}
 	}
-	
+
 	parts = append(parts, "EXECUTE FUNCTION")
 	if c.FuncName != nil {
 		var funcParts []string
@@ -2710,7 +2707,7 @@ func (c *CreateEventTrigStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(funcParts, ".")+"()")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -2743,7 +2740,7 @@ func (a *AlterEventTrigStmt) String() string {
 func (a *AlterEventTrigStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "ALTER EVENT TRIGGER", a.TrigName)
-	
+
 	switch a.TgEnabled {
 	case TRIGGER_FIRES_ON_ORIGIN:
 		parts = append(parts, "ENABLE")
@@ -2754,7 +2751,6 @@ func (a *AlterEventTrigStmt) SqlString() string {
 	case TRIGGER_DISABLED:
 		parts = append(parts, "DISABLE")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
-
