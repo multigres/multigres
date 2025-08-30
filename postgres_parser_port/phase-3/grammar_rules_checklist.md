@@ -515,23 +515,23 @@
 ## Phase 3H: Advanced SELECT Features (~60 rules)
 
 ### GROUP BY
-- ⬜ `group_clause` - GROUP BY clause
-- ⬜ `group_by_list` - GROUP BY list
-- ⬜ `group_by_item` - GROUP BY item
-- ⬜ `rollup_clause` - ROLLUP clause
-- ⬜ `cube_clause` - CUBE clause
-- ⬜ `grouping_sets_clause` - GROUPING SETS
-- ⬜ `empty_grouping_set` - Empty grouping set
+- ✅ `group_clause` - GROUP BY clause
+- ✅ `group_by_list` - GROUP BY list
+- ✅ `group_by_item` - GROUP BY item
+- ✅ `rollup_clause` - ROLLUP clause
+- ✅ `cube_clause` - CUBE clause
+- ✅ `grouping_sets_clause` - GROUPING SETS
+- ✅ `empty_grouping_set` - Empty grouping set
 
 ### HAVING
-- ⬜ `having_clause` - HAVING clause
+- ✅ `having_clause` - HAVING clause
 
 ### ORDER BY
-- ⬜ `sort_clause` - ORDER BY clause
-- ⬜ `sortby_list` - Sort specification list
-- ⬜ `sortby` - Single sort specification
-- ⬜ `opt_asc_desc` - ASC/DESC option
-- ⬜ `opt_nulls_order` - NULLS FIRST/LAST
+- ✅ `sort_clause` - ORDER BY clause
+- ✅ `sortby_list` - Sort specification list
+- ✅ `sortby` - Single sort specification
+- ✅ `opt_asc_desc` - ASC/DESC option
+- ✅ `opt_nulls_order` - NULLS FIRST/LAST
 
 ### LIMIT/OFFSET
 - ⬜ `select_limit` - LIMIT clause

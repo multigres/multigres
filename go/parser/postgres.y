@@ -46,6 +46,7 @@ type LexerInterface interface {
 	stmt       ast.Stmt
 	stmtList   []ast.Stmt
 	list       *ast.NodeList
+	groupClause *ast.GroupClause
 
 	// Specific AST node types
 	into       *ast.IntoClause
@@ -62,6 +63,7 @@ type LexerInterface interface {
 	rangevar   *ast.RangeVar
 	objType    ast.ObjectType
 	dropBehav  ast.DropBehavior
+	setquant   ast.SetQuantifier
 	typnam     *ast.TypeName
 	partspec   *ast.PartitionSpec
 	partboundspec *ast.PartitionBoundSpec
@@ -238,6 +240,8 @@ type LexerInterface interface {
 %type <str>          set_access_method_name
 %type <node>         replica_identity
 %type <list>         func_args OptWith
+%type <groupClause>  group_clause
+%type <setquant>     set_quantifier
 
 /* Expression types */
 %type <node>         a_expr b_expr c_expr AexprConst columnref
@@ -261,17 +265,21 @@ type LexerInterface interface {
 %type <typnam>	     func_type
 %type <list>         attrs opt_type_modifiers
 %type <ival>         opt_timezone opt_varying
-%type <list>         expr_list
+%type <list>         expr_list row
 %type <list>         opt_sort_clause
 %type <node>         func_application within_group_clause filter_clause over_clause
-%type <list>         qual_Op any_operator qual_all_Op
+%type <list>         qual_Op any_operator qual_all_Op subquery_Op
 %type <str>          all_Op MathOp
 %type <node>         in_expr
-%type <ival>         opt_asymmetric
+%type <ival>         opt_asymmetric opt_asc_desc opt_nulls_order sub_type json_predicate_type_constraint
+%type <str>          unicode_normal_form  
+%type <bval>         json_key_uniqueness_constraint_opt
 
-/* SELECT statement types - Phase 3C */
+%type <list>         group_by_list sort_clause sortby_list
+%type <node>         group_by_item having_clause sortby
+%type <node>         empty_grouping_set rollup_clause cube_clause grouping_sets_clause
+
 %type <stmt>         SelectStmt PreparableStmt select_no_parens select_with_parens simple_select
-/* Phase 3E DML statement types */
 %type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt CopyStmt
 %type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt
 %type <node>         insert_rest
@@ -1849,6 +1857,26 @@ bare_label_keyword:
  */
 
 a_expr:		c_expr								{ $$ = $1 }
+		|	a_expr TYPECAST Typename
+			{
+				$$ = ast.NewTypeCast($1, $3, 0)
+			}
+		|	a_expr COLLATE any_name
+			{
+				collateClause := ast.NewCollateClause($3)
+				collateClause.Arg = $1
+				$$ = collateClause
+			}
+		|	a_expr AT TIME ZONE a_expr %prec AT
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("timezone"))
+				$$ = ast.NewFuncCall(funcName, ast.NewNodeList($5, $1), 0)
+			}
+		|	a_expr AT LOCAL %prec AT
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("timezone"))
+				$$ = ast.NewFuncCall(funcName, ast.NewNodeList($1), 0)
+			}
 		|	'+' a_expr %prec UMINUS
 			{
 				name := ast.NewNodeList(ast.NewString("+"))
@@ -1858,10 +1886,6 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				name := ast.NewNodeList(ast.NewString("-"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
-			}
-		|	a_expr TYPECAST Typename
-			{
-				$$ = ast.NewTypeCast($1, $3, 0)
 			}
 		|	a_expr '+' a_expr
 			{
@@ -1923,6 +1947,14 @@ a_expr:		c_expr								{ $$ = $1 }
 				name := ast.NewNodeList(ast.NewString("<>"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
 			}
+		|	a_expr qual_Op a_expr %prec Op
+			{
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, $2, $1, $3, 0)
+			}
+		|	qual_Op a_expr %prec Op
+			{
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, $1, nil, $2, 0)
+			}
 		|	a_expr AND a_expr
 			{
 				$$ = ast.NewBoolExpr(ast.AND_EXPR, ast.NewNodeList($1, $3))
@@ -1931,9 +1963,89 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				$$ = ast.NewBoolExpr(ast.OR_EXPR, ast.NewNodeList($1, $3))
 			}
-		|	NOT a_expr %prec NOT
+		|	NOT a_expr
 			{
 				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList($2))
+			}
+		|	NOT_LA a_expr %prec NOT
+			{
+				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList($2))
+			}
+		|	a_expr LIKE a_expr
+			{
+				name := ast.NewNodeList(ast.NewString("~~"))
+				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, $3, 0)
+			}
+		|	a_expr LIKE a_expr ESCAPE a_expr %prec LIKE
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($3, $5), 0)
+				name := ast.NewNodeList(ast.NewString("~~"))
+				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, escapeFunc, 0)
+			}
+		|	a_expr NOT_LA LIKE a_expr %prec NOT_LA
+			{
+				name := ast.NewNodeList(ast.NewString("!~~"))
+				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, $4, 0)
+			}
+		|	a_expr NOT_LA LIKE a_expr ESCAPE a_expr %prec NOT_LA
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
+				name := ast.NewNodeList(ast.NewString("!~~"))
+				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, escapeFunc, 0)
+			}
+		|	a_expr ILIKE a_expr
+			{
+				name := ast.NewNodeList(ast.NewString("~~*"))
+				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, $3, 0)
+			}
+		|	a_expr ILIKE a_expr ESCAPE a_expr %prec ILIKE
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($3, $5), 0)
+				name := ast.NewNodeList(ast.NewString("~~*"))
+				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, escapeFunc, 0)
+			}
+		|	a_expr NOT_LA ILIKE a_expr %prec NOT_LA
+			{
+				name := ast.NewNodeList(ast.NewString("!~~*"))
+				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, $4, 0)
+			}
+		|	a_expr NOT_LA ILIKE a_expr ESCAPE a_expr %prec NOT_LA
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
+				name := ast.NewNodeList(ast.NewString("!~~*"))
+				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, escapeFunc, 0)
+			}
+		|	a_expr SIMILAR TO a_expr %prec SIMILAR
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("similar_to_escape"))
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4), 0)
+				name := ast.NewNodeList(ast.NewString("~"))
+				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
+			}
+		|	a_expr SIMILAR TO a_expr ESCAPE a_expr %prec SIMILAR
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("similar_to_escape"))
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
+				name := ast.NewNodeList(ast.NewString("~"))
+				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
+			}
+		|	a_expr NOT_LA SIMILAR TO a_expr %prec NOT_LA
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("similar_to_escape"))
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($5), 0)
+				name := ast.NewNodeList(ast.NewString("!~"))
+				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
+			}
+		|	a_expr NOT_LA SIMILAR TO a_expr ESCAPE a_expr %prec NOT_LA
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("similar_to_escape"))
+				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($5, $7), 0)
+				name := ast.NewNodeList(ast.NewString("!~"))
+				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
 			}
 		|	a_expr IS NULL_P %prec IS
 			{
@@ -1951,85 +2063,48 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				$$ = ast.NewNullTest($1.(ast.Expression), ast.IS_NOT_NULL)
 			}
-		|	a_expr LIKE a_expr
+		|	row OVERLAPS row
 			{
-				name := ast.NewNodeList(ast.NewString("~~"))
-				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, $3, 0)
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("overlaps"))
+				leftList := $1
+				rightList := $3
+				combinedList := ast.NewNodeList()
+				combinedList.Items = append(leftList.Items, rightList.Items...)
+				$$ = ast.NewFuncCall(funcName, combinedList, 0)
 			}
-		|	a_expr LIKE a_expr ESCAPE a_expr %prec LIKE
+		|	a_expr IS TRUE_P %prec IS
 			{
-				// Create like_escape function call
-				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
-				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($3, $5), 0)
-				name := ast.NewNodeList(ast.NewString("~~"))
-				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, escapeFunc, 0)
+				$$ = ast.NewBooleanTest($1.(ast.Expression), ast.IS_TRUE)
 			}
-		|	a_expr NOT_LA LIKE a_expr %prec NOT_LA
+		|	a_expr IS NOT TRUE_P %prec IS
 			{
-				name := ast.NewNodeList(ast.NewString("!~~"))
-				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, $4, 0)
+				$$ = ast.NewBooleanTest($1.(ast.Expression), ast.IS_NOT_TRUE)
 			}
-		|	a_expr NOT_LA LIKE a_expr ESCAPE a_expr %prec NOT_LA
+		|	a_expr IS FALSE_P %prec IS
 			{
-				// Create like_escape function call
-				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
-				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
-				name := ast.NewNodeList(ast.NewString("!~~"))
-				$$ = ast.NewA_Expr(ast.AEXPR_LIKE, name, $1, escapeFunc, 0)
+				$$ = ast.NewBooleanTest($1.(ast.Expression), ast.IS_FALSE)
 			}
-		|	a_expr ILIKE a_expr
+		|	a_expr IS NOT FALSE_P %prec IS
 			{
-				name := ast.NewNodeList(ast.NewString("~~*"))
-				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, $3, 0)
+				$$ = ast.NewBooleanTest($1.(ast.Expression), ast.IS_NOT_FALSE)
 			}
-		|	a_expr ILIKE a_expr ESCAPE a_expr %prec ILIKE
+		|	a_expr IS UNKNOWN %prec IS
 			{
-				// Create like_escape function call
-				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
-				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($3, $5), 0)
-				name := ast.NewNodeList(ast.NewString("~~*"))
-				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, escapeFunc, 0)
+				$$ = ast.NewBooleanTest($1.(ast.Expression), ast.IS_UNKNOWN)
 			}
-		|	a_expr NOT_LA ILIKE a_expr %prec NOT_LA
+		|	a_expr IS NOT UNKNOWN %prec IS
 			{
-				name := ast.NewNodeList(ast.NewString("!~~*"))
-				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, $4, 0)
+				$$ = ast.NewBooleanTest($1.(ast.Expression), ast.IS_NOT_UNKNOWN)
 			}
-		|	a_expr NOT_LA ILIKE a_expr ESCAPE a_expr %prec NOT_LA
+		|	a_expr IS DISTINCT FROM a_expr %prec IS
 			{
-				// Create like_escape function call
-				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("like_escape"))
-				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
-				name := ast.NewNodeList(ast.NewString("!~~*"))
-				$$ = ast.NewA_Expr(ast.AEXPR_ILIKE, name, $1, escapeFunc, 0)
+				name := ast.NewNodeList(ast.NewString("="))
+				$$ = ast.NewA_Expr(ast.AEXPR_DISTINCT, name, $1, $5, 0)
 			}
-		|	a_expr COLLATE any_name
+		|	a_expr IS NOT DISTINCT FROM a_expr %prec IS
 			{
-				// Pass the NodeList directly to NewCollateClause
-				nodeList := $3
-				collateClause := ast.NewCollateClause(nodeList)
-				collateClause.Arg = $1
-				$$ = collateClause
-			}
-		|	a_expr AT TIME ZONE a_expr %prec AT
-			{
-				// Create timezone function call
-				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("timezone"))
-				$$ = ast.NewFuncCall(funcName, ast.NewNodeList($5, $1), 0)
-			}
-		|	a_expr AT LOCAL %prec AT
-			{
-				// Create timezone function call with no argument
-				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("timezone"))
-				$$ = ast.NewFuncCall(funcName, ast.NewNodeList($1), 0)
-			}
-		|	a_expr qual_Op a_expr %prec Op
-			{
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, $2, $1, $3, 0)
-			}
-		|	qual_Op a_expr %prec Op
-			{
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, $1, nil, $2, 0)
+				name := ast.NewNodeList(ast.NewString("="))
+				$$ = ast.NewA_Expr(ast.AEXPR_NOT_DISTINCT, name, $1, $6, 0)
 			}
 		|	a_expr BETWEEN opt_asymmetric b_expr AND a_expr %prec BETWEEN
 			{
@@ -2061,31 +2136,107 @@ a_expr:		c_expr								{ $$ = $1 }
 				name := ast.NewNodeList(ast.NewString("<>"))
 				$$ = ast.NewA_Expr(ast.AEXPR_IN, name, $1, $4, 0)
 			}
-		|	a_expr SIMILAR TO a_expr %prec SIMILAR
+		|	a_expr subquery_Op sub_type select_with_parens %prec Op
 			{
-				name := ast.NewNodeList(ast.NewString("~"))
-				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, $4, 0)
+				subLinkType := ast.SubLinkType($3)
+				operName := $2
+				sublink := ast.NewSubLink(subLinkType, $4)
+				sublink.Testexpr = $1
+				sublink.OperName = operName
+				$$ = sublink
 			}
-		|	a_expr SIMILAR TO a_expr ESCAPE a_expr %prec SIMILAR
+		|	a_expr subquery_Op sub_type '(' a_expr ')' %prec Op
 			{
-				// Create similar_escape function call
-				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("similar_escape"))
-				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($4, $6), 0)
-				name := ast.NewNodeList(ast.NewString("~"))
-				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
+				subLinkType := ast.SubLinkType($3)
+				operName := $2
+				if subLinkType == ast.ANY_SUBLINK {
+					$$ = ast.NewA_Expr(ast.AEXPR_OP_ANY, operName, $1, $5, 0)
+				} else {
+					$$ = ast.NewA_Expr(ast.AEXPR_OP_ALL, operName, $1, $5, 0)
+				}
 			}
-		|	a_expr NOT_LA SIMILAR TO a_expr %prec NOT_LA
+		| UNIQUE opt_unique_null_treatment select_with_parens
 			{
-				name := ast.NewNodeList(ast.NewString("!~"))
-				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, $5, 0)
+				yylex.Error("UNIQUE predicate is not yet implemented")
 			}
-		|	a_expr NOT_LA SIMILAR TO a_expr ESCAPE a_expr %prec NOT_LA
+		|	a_expr IS DOCUMENT_P %prec IS
 			{
-				// Create similar_escape function call
-				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("similar_escape"))
-				escapeFunc := ast.NewFuncCall(funcName, ast.NewNodeList($5, $7), 0)
-				name := ast.NewNodeList(ast.NewString("!~"))
-				$$ = ast.NewA_Expr(ast.AEXPR_SIMILAR, name, $1, escapeFunc, 0)
+				args := []ast.Expression{$1.(ast.Expression)}
+				$$ = ast.NewXmlExpr(ast.IS_DOCUMENT, "", nil, nil, args, ast.XMLOPTION_DOCUMENT, false, 0, 0, 0)
+			}
+		|	a_expr IS NOT DOCUMENT_P %prec IS
+			{
+				args := []ast.Expression{$1.(ast.Expression)}
+				xmlExpr := ast.NewXmlExpr(ast.IS_DOCUMENT, "", nil, nil, args, ast.XMLOPTION_DOCUMENT, false, 0, 0, 0)
+				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(xmlExpr))
+			}
+		|	a_expr IS NORMALIZED %prec IS
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("is_normalized"))
+				args := ast.NewNodeList($1)
+				$$ = ast.NewFuncCall(funcName, args, 0)
+			}
+		|	a_expr IS unicode_normal_form NORMALIZED %prec IS
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("is_normalized"))
+				normalFormConst := ast.NewA_Const(ast.NewString($3), 0)
+				args := ast.NewNodeList($1, normalFormConst)
+				$$ = ast.NewFuncCall(funcName, args, 0)
+			}
+		|	a_expr IS NOT NORMALIZED %prec IS
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("is_normalized"))
+				args := ast.NewNodeList($1)
+				isNormFunc := ast.NewFuncCall(funcName, args, 0)
+				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(isNormFunc))
+			}
+		|	a_expr IS NOT unicode_normal_form NORMALIZED %prec IS
+			{
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("is_normalized"))
+				normalFormConst := ast.NewA_Const(ast.NewString($4), 0)
+				args := ast.NewNodeList($1, normalFormConst)
+				isNormFunc := ast.NewFuncCall(funcName, args, 0)
+				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(isNormFunc))
+			}
+		|	a_expr IS json_predicate_type_constraint json_key_uniqueness_constraint_opt %prec IS
+			{
+				format := ast.NewJsonFormat(ast.JS_FORMAT_DEFAULT, ast.JS_ENC_DEFAULT, 0)
+				itemType := ast.JsonValueType($3)
+				uniqueKeys := $4
+				$$ = ast.NewJsonIsPredicate($1, format, itemType, uniqueKeys, 0)
+			}
+		/*
+		 * Required by SQL/JSON, but there are conflicts
+		|	a_expr json_format_clause IS json_predicate_type_constraint json_key_uniqueness_constraint_opt %prec IS
+			{
+				format := $2.(*ast.JsonFormat)
+				itemType := ast.JsonValueType($4)
+				uniqueKeys := $5
+				$$ = ast.NewJsonIsPredicate($1, format, itemType, uniqueKeys, 0)
+			}
+		*/
+		|	a_expr IS NOT json_predicate_type_constraint json_key_uniqueness_constraint_opt %prec IS
+			{
+				format := ast.NewJsonFormat(ast.JS_FORMAT_DEFAULT, ast.JS_ENC_DEFAULT, 0)
+				itemType := ast.JsonValueType($4)
+				uniqueKeys := $5
+				jsonPredicate := ast.NewJsonIsPredicate($1, format, itemType, uniqueKeys, 0)
+				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(jsonPredicate))
+			}
+		/*
+		 * Required by SQL/JSON, but there are conflicts
+		|	a_expr json_format_clause IS NOT json_predicate_type_constraint json_key_uniqueness_constraint_opt %prec IS
+			{
+				format := $2.(*ast.JsonFormat)
+				itemType := ast.JsonValueType($5)
+				uniqueKeys := $6
+				jsonPredicate := ast.NewJsonIsPredicate($1, format, itemType, uniqueKeys, 0)
+				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(jsonPredicate))
+			}
+		*/
+		|	DEFAULT
+			{
+				$$ = ast.NewSetToDefault(0, 0, 0)
 			}
 		;
 
@@ -2179,11 +2330,10 @@ c_expr:		columnref							{ $$ = $1 }
 			}
 		|	'(' a_expr ')' opt_indirection
 			{
-				parenExpr := ast.NewParenExpr($2, 0)
 				if $4 != nil {
-					$$ = ast.NewA_Indirection(parenExpr, $4, 0)
+					$$ = ast.NewParenExpr(ast.NewA_Indirection($2, $4, 0), 0)
 				} else {
-					$$ = parenExpr
+					$$ = ast.NewParenExpr($2,0)
 				}
 			}
 		|	case_expr							{ $$ = $1 }
@@ -2223,12 +2373,10 @@ c_expr:		columnref							{ $$ = $1 }
 			}
 		|	GROUPING '(' expr_list ')'
 			{
-				// TODO: Fix GROUPING function implementation
-				// Current implementation is simplified and needs proper expr_list handling
-				// The expr_list should be properly converted to NodeList and assigned to Args
+				exprList := $3
 				grouping := &ast.GroupingFunc{
 					BaseExpr: ast.BaseExpr{BaseNode: ast.BaseNode{Tag: ast.T_GroupingFunc}},
-					Args:     nil, // We'll need to convert expr_list properly
+					Args:     exprList,
 				}
 				$$ = grouping
 			}
@@ -2365,6 +2513,13 @@ func_application: func_name '(' ')'
 			{
 				$$ = ast.NewFuncCall($1, nil, 0)
 			}
+		|	func_name '(' '*' ')'
+			{
+				// Special case for aggregates like COUNT(*) - set AggStar to true
+				funcCall := ast.NewFuncCall($1, nil, 0)
+				funcCall.AggStar = true
+				$$ = funcCall
+			}
 		|	func_name '(' func_arg_list opt_sort_clause ')'
 			{
 				funcCall := ast.NewFuncCall($1, $3, 0)
@@ -2480,6 +2635,16 @@ array_expr_list: array_expr						{ $$ = ast.NewNodeList($1) }
 		;
 
 /* Row expressions */
+row:		ROW '(' expr_list ')'				{ $$ = $3 }
+		|	ROW '(' ')'							{ $$ = ast.NewNodeList() }
+		|	'(' expr_list ',' a_expr ')'
+			{
+				nodeList := $2
+				nodeList.Append($4)
+				$$ = nodeList
+			}
+		;
+
 explicit_row:	ROW '(' expr_list ')'			{ $$ = $3 }
 		|	ROW '(' ')'							{ $$ = ast.NewNodeList() }
 		;
@@ -2490,6 +2655,61 @@ implicit_row:	'(' expr_list ',' a_expr ')'
 				$$ = $2
 			}
 		;
+
+sub_type:	ANY										{ $$ = int(ast.ANY_SUBLINK) }
+		|	SOME									{ $$ = int(ast.ANY_SUBLINK) }
+		|	ALL										{ $$ = int(ast.ALL_SUBLINK) }
+		;
+
+subquery_Op:
+		all_Op
+			{
+				$$ = ast.NewNodeList(ast.NewString($1))
+			}
+		|	OPERATOR '(' any_operator ')'
+			{
+				$$ = $3
+			}
+		|	LIKE
+			{
+				$$ = ast.NewNodeList(ast.NewString("~~"))
+			}
+		|	NOT_LA LIKE
+			{
+				$$ = ast.NewNodeList(ast.NewString("!~~"))
+			}
+		|	ILIKE
+			{
+				$$ = ast.NewNodeList(ast.NewString("~~*"))
+			}
+		|	NOT_LA ILIKE
+			{
+				$$ = ast.NewNodeList(ast.NewString("!~~*"))
+			}
+		;
+
+unicode_normal_form:
+		NFC										{ $$ = "NFC" }
+	|	NFD										{ $$ = "NFD" }
+	|	NFKC									{ $$ = "NFKC" }
+	|	NFKD									{ $$ = "NFKD" }
+	;
+
+json_predicate_type_constraint:
+		JSON									{ $$ = int(ast.JS_TYPE_ANY) }
+	|	JSON VALUE_P							{ $$ = int(ast.JS_TYPE_ANY) }
+	|	JSON ARRAY								{ $$ = int(ast.JS_TYPE_ARRAY) }
+	|	JSON OBJECT_P							{ $$ = int(ast.JS_TYPE_OBJECT) }
+	|	JSON SCALAR								{ $$ = int(ast.JS_TYPE_SCALAR) }
+	;
+
+json_key_uniqueness_constraint_opt:
+		WITH UNIQUE KEYS						{ $$ = true }
+	|	WITH UNIQUE								{ $$ = true }
+	|	WITHOUT UNIQUE KEYS						{ $$ = false }
+	|	WITHOUT UNIQUE							{ $$ = false }
+	|	/* EMPTY */								{ $$ = false }
+	;
 
 /* Expression lists */
 expr_list:	a_expr
@@ -2905,10 +3125,25 @@ select_with_parens:
  */
 select_no_parens:
 			simple_select							{ $$ = $1 }
+		|	simple_select sort_clause
+			{
+				selectStmt := $1.(*ast.SelectStmt)
+				// Use NodeList directly for SortClause
+				selectStmt.SortClause = $2
+				$$ = selectStmt
+			}
 		|	with_clause simple_select
 			{
 				selectStmt := $2.(*ast.SelectStmt)
 				selectStmt.WithClause = $1
+				$$ = selectStmt
+			}
+		|	with_clause simple_select sort_clause
+			{
+				selectStmt := $2.(*ast.SelectStmt)
+				selectStmt.WithClause = $1
+				// Use NodeList directly for SortClause
+				selectStmt.SortClause = $3
 				$$ = selectStmt
 			}
 		;
@@ -2920,6 +3155,7 @@ select_no_parens:
 simple_select:
 			SELECT opt_all_clause opt_target_list
 			into_clause from_clause where_clause
+			group_clause having_clause
 			{
 				selectStmt := ast.NewSelectStmt()
 				if $3 != nil {
@@ -2928,10 +3164,16 @@ simple_select:
 				selectStmt.IntoClause = $4
 				selectStmt.FromClause = $5
 				selectStmt.WhereClause = $6
+				if $7 != nil {
+					selectStmt.GroupClause = $7.List
+					selectStmt.GroupDistinct = $7.Distinct
+				}
+				selectStmt.HavingClause = $8
 				$$ = selectStmt
 			}
 		|	SELECT distinct_clause target_list
 			into_clause from_clause where_clause
+			group_clause having_clause
 			{
 				selectStmt := ast.NewSelectStmt()
 				selectStmt.DistinctClause = $2
@@ -2941,6 +3183,11 @@ simple_select:
 				selectStmt.IntoClause = $4
 				selectStmt.FromClause = $5
 				selectStmt.WhereClause = $6
+				if $7 != nil {
+					selectStmt.GroupClause = $7.List
+					selectStmt.GroupDistinct = $7.Distinct
+				}
+				selectStmt.HavingClause = $8
 				$$ = selectStmt
 			}
 		|	TABLE relation_expr
@@ -3414,7 +3661,7 @@ values_clause:
 				/* Create a SelectStmt with VALUES clause following PostgreSQL */
 				selectStmt := ast.NewSelectStmt()
 				exprList := $3
-				selectStmt.ValuesLists = []*ast.NodeList{exprList}
+				selectStmt.ValuesLists = ast.NewNodeList(exprList)
 				$$ = selectStmt
 			}
 		|	values_clause ',' '(' expr_list ')'
@@ -3422,7 +3669,7 @@ values_clause:
 				/* Add additional VALUES row to existing SelectStmt */
 				selectStmt := $1.(*ast.SelectStmt)
 				exprList := $4
-				selectStmt.ValuesLists = append(selectStmt.ValuesLists, exprList)
+				selectStmt.ValuesLists.Append(exprList)
 				$$ = selectStmt
 			}
 		;
@@ -10203,6 +10450,101 @@ opt_validator:
 validator_clause:
 		VALIDATOR handler_name					{ $$ = $2 }
 		| NO VALIDATOR							{ $$ = nil }
+
+set_quantifier:
+		ALL										{ $$ = ast.SET_QUANTIFIER_ALL }
+		| DISTINCT								{ $$ = ast.SET_QUANTIFIER_DISTINCT }
+		| /*EMPTY*/								{ $$ = ast.SET_QUANTIFIER_DEFAULT }
+		;
+
+group_clause:
+		GROUP_P BY set_quantifier group_by_list
+			{
+				$$ = &ast.GroupClause{
+					Distinct: $3 == ast.SET_QUANTIFIER_DISTINCT,
+					List:     $4,
+				}
+			}
+	| /* EMPTY */
+			{
+				$$ = nil
+			}
+	;
+
+group_by_list:
+		group_by_item							{ $$ = ast.NewNodeList($1) }
+	|	group_by_list ',' group_by_item			{ $1.Append($3); $$ = $1 }
+	;
+
+group_by_item:
+		a_expr									{ $$ = $1 }
+	|	empty_grouping_set						{ $$ = $1 }
+	|	cube_clause								{ $$ = $1 }
+	|	rollup_clause							{ $$ = $1 }
+	|	grouping_sets_clause					{ $$ = $1 }
+	;
+
+empty_grouping_set:
+		'(' ')'
+			{
+				$$ = ast.NewGroupingSet(ast.GROUPING_SET_EMPTY, ast.NewNodeList(), 0)
+			}
+	;
+
+rollup_clause:
+		ROLLUP '(' expr_list ')'
+			{
+				$$ = ast.NewGroupingSet(ast.GROUPING_SET_ROLLUP, $3, 0)
+			}
+	;
+
+cube_clause:
+		CUBE '(' expr_list ')'
+			{
+				$$ = ast.NewGroupingSet(ast.GROUPING_SET_CUBE, $3, 0)
+			}
+	;
+
+grouping_sets_clause:
+		GROUPING SETS '(' group_by_list ')'
+			{
+				$$ = ast.NewGroupingSet(ast.GROUPING_SET_SETS, $4, 0)
+			}
+	;
+
+/*
+ * HAVING clause implementation
+ */
+having_clause:
+		HAVING a_expr							{ $$ = $2 }
+	|	/* EMPTY */								{ $$ = nil }
+	;
+
+/*
+ * ORDER BY clause implementation
+ */
+sort_clause:
+		ORDER BY sortby_list					{ $$ = $3 }
+	;
+
+sortby_list:
+		sortby									{ $$ = ast.NewNodeList($1) }
+	|	sortby_list ',' sortby					{ $1.Append($3); $$ = $1 }
+	;
+
+sortby:
+		a_expr USING qual_all_Op opt_nulls_order
+			{
+				sortBy := ast.NewSortBy($1, ast.SORTBY_USING, ast.SortByNulls($4), 0)
+				// Use qual_all_Op (NodeList) directly for UseOp
+				sortBy.UseOp = $3
+				$$ = sortBy
+			}
+	| a_expr opt_asc_desc opt_nulls_order
+			{
+				$$ = ast.NewSortBy($1, ast.SortByDir($2), ast.SortByNulls($3), 0)
+			}
+	;
 
 %%
 

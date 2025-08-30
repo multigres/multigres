@@ -557,6 +557,27 @@ func (r *RowExpr) String() string {
 	return fmt.Sprintf("RowExpr(%d fields)@%d", fieldCount, r.Location())
 }
 
+// SqlString returns the SQL representation of the row expression
+func (r *RowExpr) SqlString() string {
+	if r.Args == nil || len(r.Args.Items) == 0 {
+		return "ROW()"
+	}
+	
+	var items []string
+	for _, arg := range r.Args.Items {
+		if arg != nil {
+			items = append(items, arg.SqlString())
+		}
+	}
+	
+	// ROW expressions are typically written as just (expr1, expr2, ...)
+	// unless explicitly using ROW keyword
+	if r.RowFormat == COERCE_EXPLICIT_CALL {
+		return fmt.Sprintf("ROW(%s)", strings.Join(items, ", "))
+	}
+	return fmt.Sprintf("(%s)", strings.Join(items, ", "))
+}
+
 // ==============================================================================
 // TIER 2 CONVENIENCE CONSTRUCTORS
 // ==============================================================================
@@ -1345,14 +1366,14 @@ const (
 // Ported from postgres/src/include/nodes/primnodes.h:537-548
 type GroupingFunc struct {
 	BaseExpr
-	Args        []Expression // Arguments, not evaluated but kept for EXPLAIN
-	Refs        []uint32     // Resource sort group refs of arguments
-	Cols        []uint32     // Actual column positions set by planner
-	AggLevelsUp Index        // Same as Aggref.agglevelsup
+	Args        *NodeList // Arguments, not evaluated but kept for EXPLAIN
+	Refs        *NodeList // Resource sort group refs of arguments
+	Cols        *NodeList // Actual column positions set by planner
+	AggLevelsUp Index     // Same as Aggref.agglevelsup
 }
 
 // NewGroupingFunc creates a new GroupingFunc node.
-func NewGroupingFunc(args []Expression, refs, cols []uint32, aggLevelsUp Index, location int) *GroupingFunc {
+func NewGroupingFunc(args *NodeList, refs, cols *NodeList, aggLevelsUp Index, location int) *GroupingFunc {
 	return &GroupingFunc{
 		BaseExpr:    BaseExpr{BaseNode: BaseNode{Tag: T_GroupingFunc, Loc: location}},
 		Args:        args,
@@ -1367,7 +1388,11 @@ func (g *GroupingFunc) ExpressionType() string {
 }
 
 func (g *GroupingFunc) String() string {
-	return fmt.Sprintf("GroupingFunc{%d args, agglevelsup=%d}@%d", len(g.Args), g.AggLevelsUp, g.Location())
+	argsCount := 0
+	if g.Args != nil {
+		argsCount = len(g.Args.Items)
+	}
+	return fmt.Sprintf("GroupingFunc{%d args, agglevelsup=%d}@%d", argsCount, g.AggLevelsUp, g.Location())
 }
 
 // WindowFuncRunCondition represents a window function run condition

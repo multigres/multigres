@@ -20,8 +20,8 @@ import (
 type RawStmt struct {
 	BaseNode
 	Stmt         Stmt // The parsed statement tree
-	StmtLocation int       // Start location of stmt in original query string
-	StmtLen      int       // Length of stmt in original query string
+	StmtLocation int  // Start location of stmt in original query string
+	StmtLen      int  // Length of stmt in original query string
 }
 
 // NewRawStmt creates a new RawStmt node.
@@ -50,10 +50,10 @@ func (r *RawStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:329-339
 type A_Expr struct {
 	BaseNode
-	Kind     A_Expr_Kind // Expression type (operator, comparison, etc.)
-	Name     *NodeList   // Possibly-qualified operator name
-	Lexpr    Node        // Left operand
-	Rexpr    Node        // Right operand (or NULL for unary operators)
+	Kind  A_Expr_Kind // Expression type (operator, comparison, etc.)
+	Name  *NodeList   // Possibly-qualified operator name
+	Lexpr Node        // Left operand
+	Rexpr Node        // Right operand (or NULL for unary operators)
 	// Note: Location is handled by BaseNode.Loc
 }
 
@@ -62,22 +62,21 @@ type A_Expr struct {
 type A_Expr_Kind int
 
 const (
-	AEXPR_OP         A_Expr_Kind = iota // Normal operator
-	AEXPR_OP_ANY                        // Scalar op ANY (array)
-	AEXPR_OP_ALL                        // Scalar op ALL (array)
-	AEXPR_DISTINCT                      // IS DISTINCT FROM
-	AEXPR_NOT_DISTINCT                  // IS NOT DISTINCT FROM
-	AEXPR_NULLIF                        // NULLIF(a, b)
-	AEXPR_IN                            // IN (list)
-	AEXPR_LIKE                          // LIKE
-	AEXPR_ILIKE                         // ILIKE
-	AEXPR_SIMILAR                       // SIMILAR TO
-	AEXPR_BETWEEN                       // BETWEEN
-	AEXPR_NOT_BETWEEN                   // NOT BETWEEN
-	AEXPR_BETWEEN_SYM                   // BETWEEN SYMMETRIC
-	AEXPR_NOT_BETWEEN_SYM               // NOT BETWEEN SYMMETRIC
+	AEXPR_OP              A_Expr_Kind = iota // Normal operator
+	AEXPR_OP_ANY                             // Scalar op ANY (array)
+	AEXPR_OP_ALL                             // Scalar op ALL (array)
+	AEXPR_DISTINCT                           // IS DISTINCT FROM
+	AEXPR_NOT_DISTINCT                       // IS NOT DISTINCT FROM
+	AEXPR_NULLIF                             // NULLIF(a, b)
+	AEXPR_IN                                 // IN (list)
+	AEXPR_LIKE                               // LIKE
+	AEXPR_ILIKE                              // ILIKE
+	AEXPR_SIMILAR                            // SIMILAR TO
+	AEXPR_BETWEEN                            // BETWEEN
+	AEXPR_NOT_BETWEEN                        // NOT BETWEEN
+	AEXPR_BETWEEN_SYM                        // BETWEEN SYMMETRIC
+	AEXPR_NOT_BETWEEN_SYM                    // NOT BETWEEN SYMMETRIC
 )
-
 
 // NewA_Expr creates a new A_Expr node.
 func NewA_Expr(kind A_Expr_Kind, name *NodeList, lexpr, rexpr Node, location int) *A_Expr {
@@ -110,7 +109,7 @@ func (a *A_Expr) SqlString() string {
 			// Fallback for other node types - use their string representation
 			op = firstItem.String()
 		}
-		
+
 		// Unary operators (NOT, unary +, unary -)
 		if a.Lexpr == nil && a.Rexpr != nil {
 			if op == "NOT" {
@@ -119,31 +118,31 @@ func (a *A_Expr) SqlString() string {
 			// Unary + or -
 			return fmt.Sprintf("%s%s", op, a.Rexpr.SqlString())
 		}
-		
+
 		// Binary operators
 		if a.Lexpr != nil && a.Rexpr != nil {
 			leftStr := a.Lexpr.SqlString()
 			rightStr := a.Rexpr.SqlString()
 			return fmt.Sprintf("%s %s %s", leftStr, op, rightStr)
 		}
-		
+
 		return "UNKNOWN_EXPR"
-		
+
 	case AEXPR_LIKE:
 		if a.Lexpr != nil && a.Rexpr != nil {
 			leftStr := a.Lexpr.SqlString()
 			rightStr := a.Rexpr.SqlString()
 			return fmt.Sprintf("%s LIKE %s", leftStr, rightStr)
 		}
-		
+
 	case AEXPR_BETWEEN:
 		// For now, simplified - full BETWEEN would need more complex structure
 		return "BETWEEN_EXPR"
-		
+
 	default:
 		return fmt.Sprintf("A_EXPR_%d", a.Kind)
 	}
-	
+
 	return "UNKNOWN_A_EXPR"
 }
 
@@ -196,11 +195,11 @@ func (a *A_Const) SqlString() string {
 	if a.Isnull {
 		return "NULL"
 	}
-	
+
 	if a.Val == nil {
 		return "NULL"
 	}
-	
+
 	// Use the Value's SqlString() method
 	return a.Val.SqlString()
 }
@@ -217,7 +216,7 @@ func (a *A_Const) IsExpr() bool {
 // Ported from postgres/src/include/nodes/parsenodes.h:301-309
 type ParamRef struct {
 	BaseNode
-	Number   int // Parameter number (1-based)
+	Number int // Parameter number (1-based)
 }
 
 // NewParamRef creates a new ParamRef node.
@@ -287,12 +286,12 @@ func (t *TypeCast) SqlString() string {
 	if t.Arg != nil {
 		argStr = t.Arg.SqlString()
 	}
-	
+
 	typeStr := ""
 	if t.TypeName != nil {
 		typeStr = t.TypeName.SqlString()
 	}
-	
+
 	return fmt.Sprintf("%s::%s", argStr, typeStr)
 }
 
@@ -378,7 +377,7 @@ func (f *FuncCall) SqlString() string {
 		}
 		funcName = strings.Join(nameParts, ".")
 	}
-	
+
 	// Build argument list
 	argStrs := []string{}
 	if f.Args != nil {
@@ -388,7 +387,11 @@ func (f *FuncCall) SqlString() string {
 			}
 		}
 	}
-	
+
+	if f.AggStar {
+		argStrs = append(argStrs, "*")
+	}
+
 	return fmt.Sprintf("%s(%s)", funcName, strings.Join(argStrs, ", "))
 }
 
@@ -428,9 +431,9 @@ func (a *A_Star) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:456-462
 type A_Indices struct {
 	BaseNode
-	IsSlice   bool // True for slicing (e.g., array[1:3])
-	Lidx      Node // Lower index (NULL if not specified)
-	Uidx      Node // Upper index (NULL if not specified)
+	IsSlice bool // True for slicing (e.g., array[1:3])
+	Lidx    Node // Lower index (NULL if not specified)
+	Uidx    Node // Upper index (NULL if not specified)
 }
 
 // NewA_Indices creates a new A_Indices node for single index access.
@@ -472,15 +475,15 @@ func (a *A_Indices) SqlString() string {
 	if a.IsSlice {
 		// Slice syntax [lower:upper]
 		var lower, upper string
-		
+
 		if a.Lidx != nil {
 			lower = a.Lidx.SqlString()
 		}
-		
+
 		if a.Uidx != nil {
 			upper = a.Uidx.SqlString()
 		}
-		
+
 		return fmt.Sprintf("[%s:%s]", lower, upper)
 	} else {
 		// Single index syntax [index]
@@ -495,15 +498,15 @@ func (a *A_Indices) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:479-488
 type A_Indirection struct {
 	BaseNode
-	Arg       Node   // The base expression
+	Arg         Node      // The base expression
 	Indirection *NodeList // List of A_Indices and/or String nodes
 }
 
 // NewA_Indirection creates a new A_Indirection node.
 func NewA_Indirection(arg Node, indirection *NodeList, location int) *A_Indirection {
 	aIndirection := &A_Indirection{
-		BaseNode:   BaseNode{Tag: T_A_Indirection},
-		Arg:        arg,
+		BaseNode:    BaseNode{Tag: T_A_Indirection},
+		Arg:         arg,
 		Indirection: indirection,
 	}
 	aIndirection.SetLocation(location)
@@ -577,27 +580,27 @@ type ColumnDef struct {
 // SqlString generates SQL representation of a column definition
 func (c *ColumnDef) SqlString() string {
 	parts := []string{c.Colname}
-	
+
 	// Add type name
 	if c.TypeName != nil {
 		parts = append(parts, c.TypeName.SqlString())
 	}
-	
+
 	// Add NOT NULL constraint if specified
 	if c.IsNotNull {
 		parts = append(parts, "NOT NULL")
 	}
-	
+
 	// Add DEFAULT clause if specified
 	if c.RawDefault != nil {
 		parts = append(parts, "DEFAULT", c.RawDefault.SqlString())
 	}
-	
+
 	// Add collation if specified
 	if c.Collclause != nil {
 		parts = append(parts, "COLLATE", c.Collclause.SqlString())
 	}
-	
+
 	// Add constraints if any
 	if c.Constraints != nil && c.Constraints.Len() > 0 {
 		for _, item := range c.Constraints.Items {
@@ -609,7 +612,7 @@ func (c *ColumnDef) SqlString() string {
 			}
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -648,7 +651,7 @@ func (c *ColumnDef) StatementType() string {
 type WithClause struct {
 	BaseNode
 	Ctes      *NodeList // List of CommonTableExpr nodes
-	Recursive bool   // TRUE for WITH RECURSIVE
+	Recursive bool      // TRUE for WITH RECURSIVE
 }
 
 // NewWithClause creates a new WithClause node.
@@ -682,22 +685,22 @@ func (w *WithClause) SqlString() string {
 	if w.Ctes == nil || len(w.Ctes.Items) == 0 {
 		return ""
 	}
-	
+
 	parts := []string{"WITH"}
-	
+
 	if w.Recursive {
 		parts = append(parts, "RECURSIVE")
 	}
-	
+
 	var ctes []string
 	for _, cte := range w.Ctes.Items {
 		if cte != nil {
 			ctes = append(ctes, cte.SqlString())
 		}
 	}
-	
+
 	parts = append(parts, strings.Join(ctes, ", "))
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -791,7 +794,7 @@ type SortBy struct {
 	Node        Node        // Expression to sort on
 	SortbyDir   SortByDir   // ASC/DESC/USING/DEFAULT
 	SortbyNulls SortByNulls // NULLS FIRST/LAST
-	UseOp       []*String   // Name of operator to use for comparison
+	UseOp       *NodeList   // Name of operator to use for comparison
 }
 
 // NewSortBy creates a new complete SortBy node.
@@ -819,9 +822,9 @@ func (s *SortBy) SqlString() string {
 	if s.Node == nil {
 		return ""
 	}
-	
+
 	result := s.Node.SqlString()
-	
+
 	// Add sort direction
 	switch s.SortbyDir {
 	case SORTBY_ASC:
@@ -829,9 +832,9 @@ func (s *SortBy) SqlString() string {
 	case SORTBY_DESC:
 		result += " DESC"
 	case SORTBY_USING:
-		if len(s.UseOp) > 0 {
+		if s.UseOp != nil && s.UseOp.Len() > 0 {
 			var ops []string
-			for _, op := range s.UseOp {
+			for _, op := range s.UseOp.Items {
 				if op != nil {
 					ops = append(ops, op.SqlString())
 				}
@@ -839,7 +842,7 @@ func (s *SortBy) SqlString() string {
 			result += " USING " + strings.Join(ops, ".")
 		}
 	}
-	
+
 	// Add null ordering
 	switch s.SortbyNulls {
 	case SORTBY_NULLS_FIRST:
@@ -847,7 +850,7 @@ func (s *SortBy) SqlString() string {
 	case SORTBY_NULLS_LAST:
 		result += " NULLS LAST"
 	}
-	
+
 	return result
 }
 
@@ -855,8 +858,8 @@ func (s *SortBy) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:1506-1517
 type GroupingSet struct {
 	BaseNode
-	Kind     GroupingSetKind // Type of grouping set
-	Content  *NodeList       // List of expressions
+	Kind    GroupingSetKind // Type of grouping set
+	Content *NodeList       // List of expressions
 }
 
 // GroupingSetKind represents the type of grouping set.
@@ -890,13 +893,93 @@ func (g *GroupingSet) StatementType() string {
 	return "GROUPING_SET"
 }
 
+// SqlString returns the SQL representation of the GroupingSet
+func (g *GroupingSet) SqlString() string {
+	switch g.Kind {
+	case GROUPING_SET_EMPTY:
+		return "()"
+	case GROUPING_SET_SIMPLE:
+		// Simple grouping set - just return the content expressions
+		if g.Content != nil && len(g.Content.Items) > 0 {
+			var items []string
+			for _, item := range g.Content.Items {
+				if item != nil {
+					items = append(items, item.SqlString())
+				}
+			}
+			return strings.Join(items, ", ")
+		}
+		return ""
+	case GROUPING_SET_ROLLUP:
+		// ROLLUP(expr1, expr2, ...)
+		if g.Content != nil && len(g.Content.Items) > 0 {
+			var items []string
+			for _, item := range g.Content.Items {
+				if item != nil {
+					items = append(items, item.SqlString())
+				}
+			}
+			return fmt.Sprintf("ROLLUP(%s)", strings.Join(items, ", "))
+		}
+		return "ROLLUP()"
+	case GROUPING_SET_CUBE:
+		// CUBE(expr1, expr2, ...)
+		if g.Content != nil && len(g.Content.Items) > 0 {
+			var items []string
+			for _, item := range g.Content.Items {
+				if item != nil {
+					items = append(items, item.SqlString())
+				}
+			}
+			return fmt.Sprintf("CUBE(%s)", strings.Join(items, ", "))
+		}
+		return "CUBE()"
+	case GROUPING_SET_SETS:
+		// GROUPING SETS((expr1), (expr2), ...)
+		if g.Content != nil && len(g.Content.Items) > 0 {
+			var sets []string
+			for _, item := range g.Content.Items {
+				if item != nil {
+					// Each item should be a GroupingSet or expression
+					if gs, ok := item.(*GroupingSet); ok {
+						// Handle different GroupingSet kinds
+						if gs.Kind == GROUPING_SET_EMPTY {
+							// Empty grouping set: ()
+							sets = append(sets, "()")
+						} else if gs.Kind == GROUPING_SET_SIMPLE {
+							// Simple grouping set: (expr1, expr2)
+							sets = append(sets, fmt.Sprintf("(%s)", gs.SqlString()))
+						} else {
+							// Other grouping sets (ROLLUP, CUBE, etc)
+							sets = append(sets, gs.SqlString())
+						}
+					} else if _, ok := item.(*ParenExpr); ok {
+						// Parenthesized expression - already has parentheses
+						sets = append(sets, item.SqlString())
+					} else if _, ok := item.(*RowExpr); ok {
+						// Row expression - already has parentheses in its SqlString
+						sets = append(sets, item.SqlString())
+					} else {
+						// Simple expression - needs parentheses
+						sets = append(sets, fmt.Sprintf("(%s)", item.SqlString()))
+					}
+				}
+			}
+			return fmt.Sprintf("GROUPING SETS (%s)", strings.Join(sets, ", "))
+		}
+		return "GROUPING SETS ()"
+	default:
+		return "UNKNOWN_GROUPING_SET"
+	}
+}
+
 // LockingClause represents a complete locking clause (FOR UPDATE, FOR SHARE, etc.).
 // Ported from postgres/src/include/nodes/parsenodes.h:831-841
 type LockingClause struct {
 	BaseNode
-	LockedRels []*RangeVar      // For table locking, list of RangeVar
+	LockedRels []*RangeVar        // For table locking, list of RangeVar
 	Strength   LockClauseStrength // Lock strength
-	WaitPolicy LockWaitPolicy   // NOWAIT and SKIP LOCKED
+	WaitPolicy LockWaitPolicy     // NOWAIT and SKIP LOCKED
 }
 
 // LockClauseStrength represents lock strength.
@@ -936,7 +1019,7 @@ func (l *LockingClause) StatementType() string {
 // SqlString returns the SQL representation of the LockingClause
 func (l *LockingClause) SqlString() string {
 	parts := []string{}
-	
+
 	// Determine locking strength
 	switch l.Strength {
 	case LCS_FORKEYSHARE:
@@ -948,7 +1031,7 @@ func (l *LockingClause) SqlString() string {
 	case LCS_FORUPDATE:
 		parts = append(parts, "FOR UPDATE")
 	}
-	
+
 	// Add table names if specified
 	if len(l.LockedRels) > 0 {
 		var tables []string
@@ -959,7 +1042,7 @@ func (l *LockingClause) SqlString() string {
 		}
 		parts = append(parts, "OF", strings.Join(tables, ", "))
 	}
-	
+
 	// Add wait policy
 	switch l.WaitPolicy {
 	case LockWaitSkip:
@@ -967,7 +1050,7 @@ func (l *LockingClause) SqlString() string {
 	case LockWaitError:
 		parts = append(parts, "NOWAIT")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1015,10 +1098,10 @@ func (x *XmlSerialize) ExpressionType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:860-881
 type PartitionElem struct {
 	BaseNode
-	Name       string        // Name of column to partition on
-	Expr       Node          // Expression to partition on, or NULL
-	Collation  *NodeList     // Collation name
-	Opclass    *NodeList     // Operator class name
+	Name      string    // Name of column to partition on
+	Expr      Node      // Expression to partition on, or NULL
+	Collation *NodeList // Collation name
+	Opclass   *NodeList // Operator class name
 }
 
 // NewPartitionElem creates a new PartitionElem node.
@@ -1049,9 +1132,9 @@ func (p *PartitionElem) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:1344-1367
 type TableSampleClause struct {
 	BaseNode
-	Tsmhandler   Oid     // OID of the tablesample handler function
-	Args         *NodeList // List of tablesample arguments
-	Repeatable   Expr    // REPEATABLE expression, or NULL
+	Tsmhandler Oid       // OID of the tablesample handler function
+	Args       *NodeList // List of tablesample arguments
+	Repeatable Expr      // REPEATABLE expression, or NULL
 }
 
 // NewTableSampleClause creates a new TableSampleClause node.
@@ -1078,10 +1161,10 @@ func (t *TableSampleClause) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2524-2539
 type ObjectWithArgs struct {
 	BaseNode
-	Objname      *NodeList // Qualified object name
-	Objargs      *NodeList // List of argument types (TypeName nodes)
-	ObjfuncArgs  *NodeList // List of function arguments for ALTER FUNCTION
-	ArgsUnspecified bool   // Arguments were omitted, so name must be unique
+	Objname         *NodeList // Qualified object name
+	Objargs         *NodeList // List of argument types (TypeName nodes)
+	ObjfuncArgs     *NodeList // List of function arguments for ALTER FUNCTION
+	ArgsUnspecified bool      // Arguments were omitted, so name must be unique
 }
 
 // NewObjectWithArgs creates a new ObjectWithArgs node.
@@ -1113,7 +1196,7 @@ func (o *ObjectWithArgs) StatementType() string {
 // SqlString returns the SQL representation of ObjectWithArgs
 func (o *ObjectWithArgs) SqlString() string {
 	var parts []string
-	
+
 	// Add object name
 	if o.Objname != nil && o.Objname.Len() > 0 {
 		var names []string
@@ -1126,7 +1209,7 @@ func (o *ObjectWithArgs) SqlString() string {
 			parts = append(parts, strings.Join(names, "."))
 		}
 	}
-	
+
 	// Add arguments if specified
 	if !o.ArgsUnspecified && o.Objargs != nil {
 		var args []string
@@ -1137,7 +1220,7 @@ func (o *ObjectWithArgs) SqlString() string {
 	} else if o.ArgsUnspecified {
 		// No parentheses when arguments are unspecified
 	}
-	
+
 	return strings.Join(parts, "")
 }
 
@@ -1168,9 +1251,9 @@ func (s *SinglePartitionSpec) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:953-964
 type PartitionCmd struct {
 	BaseNode
-	Name      *RangeVar // Name of the partition
-	Bound     *PartitionBoundSpec // Partition bound specification
-	Concurrent bool     // CONCURRENTLY option
+	Name       *RangeVar           // Name of the partition
+	Bound      *PartitionBoundSpec // Partition bound specification
+	Concurrent bool                // CONCURRENTLY option
 }
 
 // NewPartitionCmd creates a new PartitionCmd node.
@@ -1191,17 +1274,17 @@ func (p *PartitionCmd) String() string {
 
 func (p *PartitionCmd) SqlString() string {
 	parts := []string{}
-	
+
 	// Add the partition name
 	if p.Name != nil {
 		parts = append(parts, p.Name.SqlString())
 	}
-	
+
 	// Add the partition bound specification if present (for ATTACH PARTITION)
 	if p.Bound != nil {
 		parts = append(parts, p.Bound.SqlString())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 

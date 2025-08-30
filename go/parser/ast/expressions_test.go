@@ -1202,9 +1202,9 @@ func TestEnumTypes(t *testing.T) {
 // TestGroupingFunc tests the GroupingFunc node implementation
 func TestGroupingFunc(t *testing.T) {
 	t.Run("NewGroupingFunc", func(t *testing.T) {
-		args := []Expression{NewConst(Oid(23), 1, false), NewConst(Oid(23), 2, false)}
-		refs := []uint32{1, 2}
-		cols := []uint32{10, 20}
+		args := NewNodeList(NewConst(Oid(23), 1, false), NewConst(Oid(23), 2, false))
+		refs := NewNodeList(NewInteger(1), NewInteger(2))
+		cols := NewNodeList(NewInteger(10), NewInteger(20))
 		aggLevelsUp := Index(0)
 		location := 150
 
@@ -1221,8 +1221,10 @@ func TestGroupingFunc(t *testing.T) {
 	})
 
 	t.Run("String", func(t *testing.T) {
-		args := []Expression{NewConst(Oid(23), 1, false)}
-		gf := NewGroupingFunc(args, []uint32{1}, []uint32{10}, Index(1), 200)
+		args := NewNodeList(NewConst(Oid(23), 1, false))
+		refs := NewNodeList(NewInteger(1))
+		cols := NewNodeList(NewInteger(10))
+		gf := NewGroupingFunc(args, refs, cols, Index(1), 200)
 		str := gf.String()
 
 		assert.Contains(t, str, "GroupingFunc")

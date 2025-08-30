@@ -303,6 +303,32 @@ func TestDeparsing(t *testing.T) {
 		{"CREATE TRIGGER AFTER UPDATE", "CREATE TRIGGER audit_trigger AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_func()", "CREATE TRIGGER audit_trigger AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_func ()"},
 		{"CREATE TRIGGER multiple events", "CREATE TRIGGER multi_trigger BEFORE INSERT OR UPDATE ON users FOR EACH ROW EXECUTE FUNCTION multi_func()", "CREATE TRIGGER multi_trigger BEFORE INSERT OR UPDATE ON users FOR EACH ROW EXECUTE FUNCTION multi_func ()"},
 		{"CREATE TRIGGER with arguments", "CREATE TRIGGER arg_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func('arg1', 123)", "CREATE TRIGGER arg_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func ('arg1', 123)"},
+
+		{"Basic GROUP BY", "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id", ""},
+		{"GROUP BY multiple columns", "SELECT dept_id, status, COUNT(*) FROM employees GROUP BY dept_id, status", ""},
+		{"GROUP BY with expression", "SELECT DATE(created_at), COUNT(*) FROM orders GROUP BY DATE(created_at)", ""},
+		{"GROUP BY ROLLUP", "SELECT year, quarter, SUM(sales) FROM sales GROUP BY ROLLUP(year, quarter)", ""},
+		{"GROUP BY CUBE", "SELECT category, subcategory, COUNT(*) FROM products GROUP BY CUBE(category, subcategory)", ""},
+		{"GROUP BY GROUPING SETS", "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY GROUPING SETS ((col1), (col2), ())", ""},
+		{"GROUP BY empty grouping set", "SELECT COUNT(*) FROM table1 GROUP BY ()", ""},
+
+		{"Basic HAVING", "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5", ""},
+		{"HAVING with AND", "SELECT dept_id, AVG(salary) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5 AND AVG(salary) > 50000", ""},
+		{"HAVING with complex expression", "SELECT category, SUM(amount) FROM transactions GROUP BY category HAVING SUM(amount) > 1000 AND COUNT(*) > 10", ""},
+
+		{"Basic ORDER BY", "SELECT name, age FROM users ORDER BY name", ""},
+		{"ORDER BY ASC/DESC", "SELECT name, age FROM users ORDER BY name ASC, age DESC", ""},
+		{"ORDER BY NULLS FIRST", "SELECT name, score FROM users ORDER BY score NULLS FIRST", ""},
+		{"ORDER BY NULLS LAST", "SELECT name, score FROM users ORDER BY score DESC NULLS LAST", ""},
+		{"ORDER BY multiple with mixed nulls", "SELECT name, score, age FROM users ORDER BY score ASC NULLS FIRST, age DESC NULLS LAST", ""},
+		{"ORDER BY with expression", "SELECT name FROM users ORDER BY UPPER(name)", ""},
+
+		{"GROUP BY + HAVING", "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5", ""},
+		{"GROUP BY + ORDER BY", "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id ORDER BY dept_id", ""},
+		{"HAVING + ORDER BY", "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5 ORDER BY COUNT(*) DESC", ""},
+		{"All three combined", "SELECT dept_id, AVG(salary) FROM employees GROUP BY dept_id HAVING AVG(salary) > 50000 ORDER BY AVG(salary) DESC", ""},
+		{"Advanced ROLLUP with ORDER BY", "SELECT year, quarter, SUM(sales) FROM sales GROUP BY ROLLUP(year, quarter) ORDER BY year NULLS LAST, quarter", ""},
+		{"Complex GROUPING SETS with HAVING and ORDER BY", "SELECT category, subcategory, COUNT(*), SUM(amount) FROM transactions GROUP BY GROUPING SETS ((category), (category, subcategory), ()) HAVING SUM(amount) > 1000 ORDER BY category NULLS FIRST, subcategory DESC", ""},
 	}
 
 	for _, tt := range tests {

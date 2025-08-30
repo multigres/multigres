@@ -62,6 +62,16 @@ const (
 
 // Note: DropBehavior and ObjectType are now defined in ddl_statements.go
 
+// SetQuantifier represents set quantifier options for GROUP BY and SELECT DISTINCT.
+// Ported from postgres/src/include/nodes/parsenodes.h:61
+type SetQuantifier int
+
+const (
+	SET_QUANTIFIER_DEFAULT  SetQuantifier = iota // No quantifier specified
+	SET_QUANTIFIER_ALL                           // ALL quantifier
+	SET_QUANTIFIER_DISTINCT                      // DISTINCT quantifier
+)
+
 // LimitOption represents LIMIT clause options.
 // Ported from postgres/src/include/nodes/nodes.h:428
 type LimitOption int
@@ -337,6 +347,14 @@ func (q *Query) StatementType() string {
 // DML STATEMENTS
 // ==============================================================================
 
+// GroupClause represents a GROUP BY clause with quantifier.
+// Private struct for the result of group_clause production
+// Ported from postgres/src/backend/parser/gram.y:135
+type GroupClause struct {
+	Distinct bool      // true if GROUP BY DISTINCT
+	List     *NodeList // list of GROUP BY expressions
+}
+
 // SelectStmt represents a raw SELECT statement before analysis.
 // Ported from postgres/src/include/nodes/parsenodes.h:2116
 type SelectStmt struct {
@@ -351,10 +369,10 @@ type SelectStmt struct {
 	GroupDistinct  bool        // Is this GROUP BY DISTINCT?
 	HavingClause   Node        // HAVING conditional-expression
 	WindowClause   *NodeList   // WINDOW window_name AS (...), ...
-	ValuesLists    []*NodeList // Untransformed list of expression lists
+	ValuesLists    *NodeList   // Untransformed list of expression lists
 
 	// Fields used in both "leaf" and upper-level SelectStmts - postgres/src/include/nodes/parsenodes.h:2132-2137
-	SortClause    []*SortBy   // Sort clause
+	SortClause    *NodeList   // Sort clause
 	LimitOffset   Node        // Number of result tuples to skip
 	LimitCount    Node        // Number of result tuples to return
 	LimitOption   LimitOption // Limit type option
@@ -425,12 +443,12 @@ func (s *SelectStmt) SqlString() string {
 	}
 
 	// Handle VALUES clause
-	if len(s.ValuesLists) > 0 {
+	if s.ValuesLists != nil && s.ValuesLists.Len() > 0 {
 		var valueRows []string
-		for _, row := range s.ValuesLists {
-			if row != nil && row.Items != nil {
+		for _, row := range s.ValuesLists.Items {
+			if rowList, ok := row.(*NodeList); ok && rowList.Items != nil {
 				var values []string
-				for _, val := range row.Items {
+				for _, val := range rowList.Items {
 					values = append(values, val.SqlString())
 				}
 				valueRows = append(valueRows, fmt.Sprintf("(%s)", strings.Join(values, ", ")))
@@ -500,7 +518,7 @@ func (s *SelectStmt) SqlString() string {
 	}
 
 	// GROUP BY clause
-	if s.GroupClause != nil && len(s.GroupClause.Items) > 0 {
+	if s.GroupClause != nil && s.GroupClause.Len() > 0 {
 		var groupItems []string
 		for _, group := range s.GroupClause.Items {
 			if group != nil {
@@ -531,9 +549,9 @@ func (s *SelectStmt) SqlString() string {
 	}
 
 	// ORDER BY clause (from SortClause)
-	if len(s.SortClause) > 0 {
+	if s.SortClause != nil && s.SortClause.Len() > 0 {
 		var sortItems []string
-		for _, sort := range s.SortClause {
+		for _, sort := range s.SortClause.Items {
 			if sort != nil {
 				sortItems = append(sortItems, sort.SqlString())
 			}

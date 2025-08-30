@@ -304,7 +304,7 @@ func (l *Lexer) checkLookaheadToken(keyword *KeywordInfo, text string) TokenType
 
 	case NULLS_P:
 		switch nextToken {
-		case FIRST_P: // LAST_P not yet implemented
+		case FIRST_P, LAST_P:
 			return NULLS_LA
 		}
 

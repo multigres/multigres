@@ -56,6 +56,7 @@ var Keywords = []KeywordInfo{
 	{"analyze", ANALYZE, UnreservedKeyword, true},
 	{"and", AND, ReservedKeyword, true},
 	{"as", AS, ReservedKeyword, false},
+	{"asc", ASC, UnreservedKeyword, true},
 	{"attach", ATTACH, UnreservedKeyword, true},
 	{"authorization", AUTHORIZATION, UnreservedKeyword, true},
 
@@ -93,6 +94,7 @@ var Keywords = []KeywordInfo{
 	{"copy", COPY, ReservedKeyword, true},
 	{"create", CREATE, ReservedKeyword, false},
 	{"cross", CROSS, TypeFuncNameKeyword, true},
+	{"cube", CUBE, UnreservedKeyword, true},
 	{"current", CURRENT_P, ReservedKeyword, false},
 	{"current_catalog", IDENT, ReservedKeyword, true},
 	{"current_date", IDENT, ReservedKeyword, true},
@@ -111,7 +113,7 @@ var Keywords = []KeywordInfo{
 	{"deferrable", IDENT, ReservedKeyword, true},
 	{"delete", DELETE_P, ReservedKeyword, false},
 	{"depth", DEPTH, UnreservedKeyword, true},
-	{"desc", IDENT, ReservedKeyword, true},
+	{"desc", DESC, UnreservedKeyword, true},
 	{"detach", DETACH, UnreservedKeyword, true},
 	{"dictionary", DICTIONARY, UnreservedKeyword, true},
 	{"disable", DISABLE_P, UnreservedKeyword, true},
@@ -153,9 +155,10 @@ var Keywords = []KeywordInfo{
 	{"global", GLOBAL, UnreservedKeyword, true},
 	{"grant", IDENT, ReservedKeyword, true},
 	{"group", GROUP_P, ReservedKeyword, true},
+	{"grouping", GROUPING, UnreservedKeyword, true},
 
 	{"handler", HANDLER, UnreservedKeyword, true},
-	{"having", IDENT, ReservedKeyword, true},
+	{"having", HAVING, ReservedKeyword, true},
 
 	{"identity", IDENTITY_P, UnreservedKeyword, true},
 	{"if", IF_P, UnreservedKeyword, true},
@@ -173,7 +176,7 @@ var Keywords = []KeywordInfo{
 	{"integer", IDENT, ColNameKeyword, true},
 	{"intersect", IDENT, ReservedKeyword, true},
 	{"into", INTO, ReservedKeyword, true},
-	{"is", IDENT, TypeFuncNameKeyword, true},
+	{"is", IS, TypeFuncNameKeyword, true},
 
 	{"join", JOIN, TypeFuncNameKeyword, true},
 	{"json", JSON, UnreservedKeyword, true},
@@ -192,6 +195,7 @@ var Keywords = []KeywordInfo{
 	{"key", KEY, UnreservedKeyword, true},
 
 	{"language", LANGUAGE, UnreservedKeyword, true},
+	{"last", LAST_P, UnreservedKeyword, true},
 	{"lateral", LATERAL, ReservedKeyword, true},
 	{"leading", IDENT, ReservedKeyword, true},
 	{"left", LEFT, TypeFuncNameKeyword, true},
@@ -213,6 +217,7 @@ var Keywords = []KeywordInfo{
 	{"not", NOT, ReservedKeyword, true},
 	{"nothing", NOTHING, UnreservedKeyword, true},
 	{"null", NULL_P, ReservedKeyword, true},
+	{"nulls", NULLS_P, UnreservedKeyword, true},
 	{"numeric", NUMERIC, ColNameKeyword, true},
 
 	{"of", OF, ReservedKeyword, true},
@@ -225,7 +230,7 @@ var Keywords = []KeywordInfo{
 	{"option", OPTION, UnreservedKeyword, true},
 	{"options", OPTIONS, UnreservedKeyword, true},
 	{"or", OR, ReservedKeyword, true},
-	{"order", IDENT, ReservedKeyword, true},
+	{"order", ORDER, ReservedKeyword, true},
 	{"ordinality", ORDINALITY, UnreservedKeyword, true},
 	{"out", OUT_P, UnreservedKeyword, true},
 	{"outer", OUTER_P, TypeFuncNameKeyword, true},
@@ -260,6 +265,7 @@ var Keywords = []KeywordInfo{
 	{"returns", RETURNS, UnreservedKeyword, true},
 	{"right", RIGHT, TypeFuncNameKeyword, true},
 	{"role", ROLE, UnreservedKeyword, true},
+	{"rollup", ROLLUP, UnreservedKeyword, true},
 	{"row", ROW, UnreservedKeyword, true},
 	{"rows", ROWS, UnreservedKeyword, true},
 
@@ -272,6 +278,7 @@ var Keywords = []KeywordInfo{
 	{"session", SESSION, UnreservedKeyword, true},
 	{"session_user", IDENT, ReservedKeyword, true},
 	{"set", SET, UnreservedKeyword, true},
+	{"sets", SETS, UnreservedKeyword, true},
 	{"smallint", IDENT, ColNameKeyword, true},
 	{"snapshot", SNAPSHOT, UnreservedKeyword, true},
 	{"some", IDENT, ReservedKeyword, true},
