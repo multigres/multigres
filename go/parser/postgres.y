@@ -20,6 +20,14 @@ var parserState struct {
 	// Future parser state variables can be added here
 }
 
+// SelectLimit - Private struct for the result of opt_select_limit production
+// Mirrors PostgreSQL's SelectLimit from gram.y:126-132
+type selectLimit struct {
+	limitOffset ast.Node
+	limitCount  ast.Node
+	limitOption ast.LimitOption
+}
+
 // LexerInterface - implements the lexer interface expected by goyacc
 // Note: The actual Lexer struct is defined in lexer.go
 type LexerInterface interface {
@@ -47,10 +55,12 @@ type LexerInterface interface {
 	stmtList   []ast.Stmt
 	list       *ast.NodeList
 	groupClause *ast.GroupClause
+	selectLimit *selectLimit
 
 	// Specific AST node types
 	into       *ast.IntoClause
 	onconflict *ast.OnConflictClause
+	windef     *ast.WindowDef
 	createStmt *ast.CreateStmt
 	indexStmt  *ast.IndexStmt
 	alterStmt  *ast.AlterTableStmt
@@ -243,6 +253,12 @@ type LexerInterface interface {
 %type <groupClause>  group_clause
 %type <setquant>     set_quantifier
 
+/* LIMIT/OFFSET types */
+%type <selectLimit>  opt_select_limit select_limit limit_clause
+%type <node>         offset_clause select_limit_value select_offset_value
+%type <node>         select_fetch_first_value I_or_F_const
+%type <ival>         row_or_rows first_or_next
+
 /* Expression types */
 %type <node>         a_expr b_expr c_expr AexprConst columnref
 %type <node>         func_expr case_expr case_arg case_default when_clause
@@ -267,7 +283,13 @@ type LexerInterface interface {
 %type <ival>         opt_timezone opt_varying
 %type <list>         expr_list row
 %type <list>         opt_sort_clause
-%type <node>         func_application within_group_clause filter_clause over_clause
+%type <node>         func_application within_group_clause filter_clause
+%type <list>         window_clause window_definition_list opt_partition_clause
+%type <windef>       window_definition window_specification over_clause
+%type <str>          opt_existing_window_name
+%type <windef>       opt_frame_clause frame_extent frame_bound
+%type <ival>         opt_window_exclusion_clause
+%type <list>         for_locking_clause opt_for_locking_clause
 %type <list>         qual_Op any_operator qual_all_Op subquery_Op
 %type <str>          all_Op MathOp
 %type <node>         in_expr
@@ -279,7 +301,7 @@ type LexerInterface interface {
 %type <node>         group_by_item having_clause sortby
 %type <node>         empty_grouping_set rollup_clause cube_clause grouping_sets_clause
 
-%type <stmt>         SelectStmt PreparableStmt select_no_parens select_with_parens simple_select
+%type <stmt>         SelectStmt PreparableStmt select_no_parens select_with_parens select_clause simple_select
 %type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt CopyStmt
 %type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt
 %type <node>         insert_rest
@@ -2483,9 +2505,26 @@ opt_indirection: /* EMPTY */						{ $$ = nil }
 /* Function calls */
 func_expr:	func_application within_group_clause filter_clause over_clause
 			{
-				// For now, just return the func_application
-				// Note: In full implementation, would apply within_group_clause, filter_clause, over_clause
-				$$ = $1
+				funcCall := $1.(*ast.FuncCall)
+				
+				// Apply within_group_clause if present
+				if $2 != nil {
+					// TODO: Implement within_group_clause handling
+					// funcCall.WithinGroupClause = $2
+				}
+				
+				// Apply filter_clause if present  
+				if $3 != nil {
+					// TODO: Implement filter_clause handling
+					// funcCall.FilterClause = $3
+				}
+				
+				// Apply over_clause if present (window functions)
+				if $4 != nil {
+					funcCall.Over = $4
+				}
+				
+				$$ = funcCall
 			}
 		;
 
@@ -3068,7 +3107,9 @@ any_operator: all_Op
 		;
 
 /* Supporting rules for expression grammar */
-opt_sort_clause: /* EMPTY */					{ $$ = nil }
+opt_sort_clause: 
+		sort_clause							{ $$ = $1 }
+	|	/* EMPTY */							{ $$ = nil }
 		;
 
 within_group_clause: /* EMPTY */				{ $$ = nil }
@@ -3077,8 +3118,6 @@ within_group_clause: /* EMPTY */				{ $$ = nil }
 filter_clause: /* EMPTY */					{ $$ = nil }
 		;
 
-over_clause: /* EMPTY */					{ $$ = nil }
-		;
 
 opt_asymmetric:  /* EMPTY */					{ $$ = 0 }
 		|	ASYMMETRIC						{ $$ = 0 } /* ASYMMETRIC is default, no-op */
@@ -3105,8 +3144,8 @@ in_expr:		select_with_parens
  * From postgres/src/backend/parser/gram.y:12678+
  */
 SelectStmt:
-			select_no_parens						{ $$ = $1 }
-		|	select_with_parens						{ $$ = $1 }
+			select_no_parens		%prec UMINUS				{ $$ = $1 }
+		|	select_with_parens		%prec UMINUS				{ $$ = $1 }
 		;
 
 PreparableStmt:
@@ -3119,33 +3158,102 @@ select_with_parens:
 		|	'(' select_with_parens ')'				{ $$ = $2 }
 		;
 
+
+/*
+ * select_clause - Core SELECT statement that can appear in set operations
+ * From postgres/src/backend/parser/gram.y:12757+
+ */
+select_clause:
+			simple_select							{ $$ = $1 }
+		|	select_with_parens						{ $$ = $1 }
+		;
+
 /*
  * This rule parses the equivalent of the standard's <query expression>.
+ * The locking clause (FOR UPDATE etc) may be before or after LIMIT/OFFSET.
  * From postgres/src/backend/parser/gram.y:12698+
  */
 select_no_parens:
-			simple_select							{ $$ = $1 }
-		|	simple_select sort_clause
+			simple_select						{ $$ = $1 }
+		|	select_clause sort_clause
 			{
 				selectStmt := $1.(*ast.SelectStmt)
 				// Use NodeList directly for SortClause
 				selectStmt.SortClause = $2
 				$$ = selectStmt
 			}
-		|	with_clause simple_select
+		|	select_clause opt_sort_clause for_locking_clause opt_select_limit
+			{
+				selectStmt := $1.(*ast.SelectStmt)
+				selectStmt.SortClause = $2
+				if $4 != nil {
+					selectStmt.LimitOffset = $4.limitOffset
+					selectStmt.LimitCount = $4.limitCount
+					selectStmt.LimitOption = $4.limitOption
+				}
+				$$ = selectStmt
+			}
+		|	select_clause opt_sort_clause select_limit opt_for_locking_clause
+			{
+				selectStmt := $1.(*ast.SelectStmt)
+				selectStmt.SortClause = $2
+				if $3 != nil {
+					selectStmt.LimitOffset = $3.limitOffset
+					selectStmt.LimitCount = $3.limitCount
+					selectStmt.LimitOption = $3.limitOption
+				}
+				$$ = selectStmt
+			}
+		|	with_clause select_clause
 			{
 				selectStmt := $2.(*ast.SelectStmt)
 				selectStmt.WithClause = $1
 				$$ = selectStmt
 			}
-		|	with_clause simple_select sort_clause
+		|	with_clause select_clause sort_clause
 			{
 				selectStmt := $2.(*ast.SelectStmt)
 				selectStmt.WithClause = $1
-				// Use NodeList directly for SortClause
 				selectStmt.SortClause = $3
 				$$ = selectStmt
 			}
+		|	with_clause select_clause opt_sort_clause for_locking_clause opt_select_limit
+			{
+				selectStmt := $2.(*ast.SelectStmt)
+				selectStmt.WithClause = $1
+				selectStmt.SortClause = $3
+				if $5 != nil {
+					selectStmt.LimitOffset = $5.limitOffset
+					selectStmt.LimitCount = $5.limitCount
+					selectStmt.LimitOption = $5.limitOption
+				}
+				$$ = selectStmt
+			}
+		|	with_clause select_clause opt_sort_clause select_limit opt_for_locking_clause
+			{
+				selectStmt := $2.(*ast.SelectStmt)
+				selectStmt.WithClause = $1
+				selectStmt.SortClause = $3
+				if $4 != nil {
+					selectStmt.LimitOffset = $4.limitOffset
+					selectStmt.LimitCount = $4.limitCount
+					selectStmt.LimitOption = $4.limitOption
+				}
+				$$ = selectStmt
+			}
+		;
+
+/*
+ * Locking clause support (FOR UPDATE, FOR SHARE, etc.)
+ * Placeholder implementation - TODO: Add full locking support
+ */
+for_locking_clause:
+		/* EMPTY */								{ $$ = nil }
+		;
+
+opt_for_locking_clause:
+		for_locking_clause						{ $$ = $1 }
+	|	/* EMPTY */								{ $$ = nil }
 		;
 
 /*
@@ -3155,7 +3263,7 @@ select_no_parens:
 simple_select:
 			SELECT opt_all_clause opt_target_list
 			into_clause from_clause where_clause
-			group_clause having_clause
+			group_clause having_clause window_clause
 			{
 				selectStmt := ast.NewSelectStmt()
 				if $3 != nil {
@@ -3169,11 +3277,12 @@ simple_select:
 					selectStmt.GroupDistinct = $7.Distinct
 				}
 				selectStmt.HavingClause = $8
+				selectStmt.WindowClause = $9
 				$$ = selectStmt
 			}
 		|	SELECT distinct_clause target_list
 			into_clause from_clause where_clause
-			group_clause having_clause
+			group_clause having_clause window_clause
 			{
 				selectStmt := ast.NewSelectStmt()
 				selectStmt.DistinctClause = $2
@@ -3188,6 +3297,7 @@ simple_select:
 					selectStmt.GroupDistinct = $7.Distinct
 				}
 				selectStmt.HavingClause = $8
+				selectStmt.WindowClause = $9
 				$$ = selectStmt
 			}
 		|	TABLE relation_expr
@@ -10544,6 +10654,353 @@ sortby:
 			{
 				$$ = ast.NewSortBy($1, ast.SortByDir($2), ast.SortByNulls($3), 0)
 			}
+	;
+
+/*
+ * WINDOW FUNCTIONS
+ * From postgres/src/backend/parser/gram.y:16203+
+ */
+window_clause:
+		WINDOW window_definition_list
+			{ $$ = $2 }
+	|	/* EMPTY */
+			{ $$ = nil }
+	;
+
+window_definition_list:
+		window_definition
+			{
+				$$ = ast.NewNodeList()
+				$$.Items = append($$.Items, $1)
+			}
+	|	window_definition_list ',' window_definition
+			{
+				$$ = $1
+				$$.Items = append($$.Items, $3)
+			}
+	;
+
+window_definition:
+		ColId AS window_specification
+			{
+				n := $3
+				n.Name = $1
+				$$ = n
+			}
+	;
+
+over_clause:
+		OVER window_specification
+			{ $$ = $2 }
+	|	OVER ColId
+			{
+				n := ast.NewWindowDef("", -1)
+				n.Refname = $2
+				n.FrameOptions = ast.FRAMEOPTION_DEFAULTS
+				$$ = n
+			}
+	|	/* EMPTY */
+			{ $$ = nil }
+	;
+
+window_specification:
+		'(' opt_existing_window_name opt_partition_clause opt_sort_clause opt_frame_clause ')'
+			{
+				n := ast.NewWindowDef("", -1)
+				n.Refname = $2
+				n.PartitionClause = $3
+				n.OrderClause = $4
+				
+				n.FrameOptions = $5.FrameOptions
+				n.StartOffset = $5.StartOffset
+				n.EndOffset = $5.EndOffset
+				$$ = n
+			}
+	;
+
+opt_existing_window_name:
+		ColId		{ $$ = $1 }
+	|	/* EMPTY */ %prec Op { $$ = "" }
+	;
+
+opt_partition_clause:
+		PARTITION BY expr_list	{ $$ = $3 }
+	|	/* EMPTY */				{ $$ = nil }
+	;
+
+opt_frame_clause:
+		RANGE frame_extent opt_window_exclusion_clause
+			{
+				n := $2
+				n.FrameOptions |= ast.FRAMEOPTION_NONDEFAULT | ast.FRAMEOPTION_RANGE
+				n.FrameOptions |= $3
+				$$ = n
+			}
+	|	ROWS frame_extent opt_window_exclusion_clause
+			{
+				n := $2
+				n.FrameOptions |= ast.FRAMEOPTION_NONDEFAULT | ast.FRAMEOPTION_ROWS
+				n.FrameOptions |= $3
+				$$ = n
+			}
+	|	GROUPS frame_extent opt_window_exclusion_clause
+			{
+				n := $2
+				n.FrameOptions |= ast.FRAMEOPTION_NONDEFAULT | ast.FRAMEOPTION_GROUPS
+				n.FrameOptions |= $3
+				$$ = n
+			}
+	|	/* EMPTY */
+			{
+				n := ast.NewWindowDef("", -1)
+				n.FrameOptions = ast.FRAMEOPTION_DEFAULTS
+				n.StartOffset = nil
+				n.EndOffset = nil
+				$$ = n
+			}
+	;
+
+frame_extent:
+		frame_bound
+			{
+				n := $1
+				// reject invalid cases - these would be runtime errors in PostgreSQL
+				if (n.FrameOptions & ast.FRAMEOPTION_START_UNBOUNDED_FOLLOWING) != 0 {
+					yylex.Error("frame start cannot be UNBOUNDED FOLLOWING")
+					return 1
+				} else if (n.FrameOptions & ast.FRAMEOPTION_START_OFFSET_FOLLOWING) != 0 {
+					yylex.Error("frame starting from following row cannot end with current row")
+					return 1
+				} 
+				n.FrameOptions |= ast.FRAMEOPTION_END_CURRENT_ROW
+				$$ = n
+			}
+	|	BETWEEN frame_bound AND frame_bound
+			{
+				n1 := $2
+				n2 := $4
+				
+				// form merged options
+				frameOptions := n1.FrameOptions
+				// shift converts START_ options to END_ options
+				frameOptions |= (n2.FrameOptions << 1)
+				frameOptions |= ast.FRAMEOPTION_BETWEEN
+				
+				// reject invalid cases
+				if (frameOptions & ast.FRAMEOPTION_START_UNBOUNDED_FOLLOWING) != 0 {
+					yylex.Error("frame start cannot be UNBOUNDED FOLLOWING")
+					return 1;
+				} else if (frameOptions & ast.FRAMEOPTION_END_UNBOUNDED_PRECEDING) != 0 {
+					yylex.Error("frame end cannot be UNBOUNDED PRECEDING")
+					return 1;
+				} else if (frameOptions & ast.FRAMEOPTION_START_CURRENT_ROW) != 0 &&
+						  (frameOptions & ast.FRAMEOPTION_END_OFFSET_PRECEDING) != 0 {
+					yylex.Error("frame starting from current row cannot have preceding rows")
+					return 1;
+				} else if (frameOptions & ast.FRAMEOPTION_START_OFFSET_FOLLOWING) != 0 &&
+						  ((frameOptions & ast.FRAMEOPTION_END_OFFSET_PRECEDING) != 0 ||
+						   (frameOptions & ast.FRAMEOPTION_END_CURRENT_ROW) != 0) {
+					yylex.Error("frame starting from following row cannot have preceding rows")
+					return 1;
+				} 
+				n1.FrameOptions = frameOptions
+				n1.EndOffset = n2.StartOffset
+				$$ = n1
+			}
+	;
+
+frame_bound:
+		UNBOUNDED PRECEDING
+			{
+				n := ast.NewWindowDef("", -1)
+				n.FrameOptions = ast.FRAMEOPTION_START_UNBOUNDED_PRECEDING
+				n.StartOffset = nil
+				n.EndOffset = nil
+				$$ = n
+			}
+	|	UNBOUNDED FOLLOWING
+			{
+				n := ast.NewWindowDef("", -1)
+				n.FrameOptions = ast.FRAMEOPTION_START_UNBOUNDED_FOLLOWING
+				n.StartOffset = nil
+				n.EndOffset = nil
+				$$ = n
+			}
+	|	CURRENT_P ROW
+			{
+				n := ast.NewWindowDef("", -1)
+				n.FrameOptions = ast.FRAMEOPTION_START_CURRENT_ROW
+				n.StartOffset = nil
+				n.EndOffset = nil
+				$$ = n
+			}
+	|	a_expr PRECEDING
+			{
+				n := ast.NewWindowDef("", -1)
+				n.FrameOptions = ast.FRAMEOPTION_START_OFFSET_PRECEDING
+				n.StartOffset = $1
+				n.EndOffset = nil
+				$$ = n
+			}
+	|	a_expr FOLLOWING
+			{
+				n := ast.NewWindowDef("", -1)
+				n.FrameOptions = ast.FRAMEOPTION_START_OFFSET_FOLLOWING
+				n.StartOffset = $1
+				n.EndOffset = nil
+				$$ = n
+			}
+	;
+
+opt_window_exclusion_clause:
+		EXCLUDE CURRENT_P ROW	{ $$ = ast.FRAMEOPTION_EXCLUDE_CURRENT_ROW }
+	|	EXCLUDE GROUP_P			{ $$ = ast.FRAMEOPTION_EXCLUDE_GROUP }
+	|	EXCLUDE TIES			{ $$ = ast.FRAMEOPTION_EXCLUDE_TIES }
+	|	EXCLUDE NO OTHERS		{ $$ = 0 }
+	|	/* EMPTY */				{ $$ = 0 }
+	;
+
+/*
+ * LIMIT/OFFSET clause support
+ * From postgres/src/backend/parser/gram.y:13116+
+ */
+select_limit:
+		limit_clause offset_clause
+			{
+				$$ = $1
+				$$.limitOffset = $2
+			}
+	|	offset_clause limit_clause
+			{
+				$$ = $2
+				$$.limitOffset = $1
+			}
+	|	limit_clause
+			{
+				$$ = $1
+			}
+	|	offset_clause
+			{
+				n := &selectLimit{}
+				n.limitOffset = $1
+				n.limitCount = nil
+				n.limitOption = ast.LIMIT_OPTION_COUNT
+				$$ = n
+			}
+	;
+
+opt_select_limit:
+		select_limit						{ $$ = $1 }
+	|	/* EMPTY */							{ $$ = nil }
+	;
+
+limit_clause:
+		LIMIT select_limit_value
+			{
+				n := &selectLimit{}
+				n.limitOffset = nil
+				n.limitCount = $2
+				n.limitOption = ast.LIMIT_OPTION_COUNT
+				$$ = n
+			}
+	|	LIMIT select_limit_value ',' select_offset_value
+			{
+				// Disabled because it was too confusing - PostgreSQL error
+				yylex.Error("LIMIT #,# syntax is not supported. Use separate LIMIT and OFFSET clauses.")
+				return 1;
+			}
+	/* SQL:2008 syntax - FETCH FIRST */
+	|	FETCH first_or_next select_fetch_first_value row_or_rows ONLY
+			{
+				n := &selectLimit{}
+				n.limitOffset = nil
+				n.limitCount = $3
+				n.limitOption = ast.LIMIT_OPTION_COUNT
+				$$ = n
+			}
+	|	FETCH first_or_next select_fetch_first_value row_or_rows WITH TIES
+			{
+				n := &selectLimit{}
+				n.limitOffset = nil
+				n.limitCount = $3
+				n.limitOption = ast.LIMIT_OPTION_WITH_TIES
+				$$ = n
+			}
+	|	FETCH first_or_next row_or_rows ONLY
+			{
+				n := &selectLimit{}
+				n.limitOffset = nil
+				n.limitCount = ast.NewA_Const(ast.NewInteger(1), -1)
+				n.limitOption = ast.LIMIT_OPTION_COUNT
+				$$ = n
+			}
+	|	FETCH first_or_next row_or_rows WITH TIES
+			{
+				n := &selectLimit{}
+				n.limitOffset = nil
+				n.limitCount = ast.NewA_Const(ast.NewInteger(1), -1)
+				n.limitOption = ast.LIMIT_OPTION_WITH_TIES
+				$$ = n
+			}
+	;
+
+offset_clause:
+		OFFSET select_offset_value
+			{ $$ = $2 }
+	/* SQL:2008 syntax */
+	|	OFFSET select_fetch_first_value row_or_rows
+			{ $$ = $2 }
+	;
+
+select_limit_value:
+		a_expr									{ $$ = $1 }
+	|	ALL
+			{
+				/* LIMIT ALL is represented as a NULL constant */
+				$$ = ast.NewA_Const(ast.NewNull(), -1)
+			}
+	;
+
+select_offset_value:
+		a_expr									{ $$ = $1 }
+	;
+
+/*
+ * Allowing full expressions without parentheses causes various parsing
+ * problems with the trailing ROW/ROWS key words. SQL spec only calls for
+ * <simple value specification>, which is either a literal or a parameter (but
+ * an <SQL parameter reference> could be an identifier, bringing up conflicts
+ * with ROW/ROWS). We solve this by leveraging the presence of ONLY (see above)
+ * to determine whether the expression is missing rather than trying to make it
+ * optional. With the extra productions, ONLY is not optional.
+ */
+select_fetch_first_value:
+		c_expr									{ $$ = $1 }
+	|	'+' I_or_F_const
+			{ 
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("+")}}, nil, $2, -1)
+			}
+	|	'-' I_or_F_const
+			{ 
+				// Create a unary minus expression
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("-")}}, nil, $2, -1)
+			}
+	;
+
+I_or_F_const:
+		Iconst									{ $$ = ast.NewA_Const(ast.NewInteger($1), -1) }
+	|	FCONST									{ $$ = ast.NewA_Const(ast.NewFloat($1), -1) }
+	;
+
+/* noise words */
+row_or_rows: 
+		ROW										{ $$ = 0 }
+	|	ROWS									{ $$ = 0 }
+	;
+
+first_or_next: 
+		FIRST_P									{ $$ = 0 }
+	|	NEXT									{ $$ = 0 }
 	;
 
 %%

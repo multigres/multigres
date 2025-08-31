@@ -2182,7 +2182,7 @@ func TestDMLExpressionDeparsing(t *testing.T) {
 		},
 		{
 			name: "DELETE with nested expressions in WHERE",
-			sql:  "DELETE FROM orders WHERE (total + tax) > (limit * 1.5) AND status = 'pending'",
+			sql:  "DELETE FROM orders WHERE (total + tax) > (limitval * 1.5) AND status = 'pending'",
 		},
 
 		// Expression combinations with type casts
@@ -2324,7 +2324,7 @@ func TestRenameStmtDeparsing(t *testing.T) {
 
 // TestRenameStmtDeparsing_FuturePhases tests RENAME operations for advanced PostgreSQL objects
 // that will be implemented in future phases. These tests are currently expected to fail.
-func TestRenameStmtDeparsing_FuturePhases(t *testing.T) {
+func TestRenameStmtDeparsing_Advanced(t *testing.T) {
 	t.Skip("Skipping advanced RENAME tests - these will be implemented in future phases")
 
 	tests := []struct {
@@ -2459,7 +2459,7 @@ func TestRenameStmtObjectTypes(t *testing.T) {
 }
 
 // TestRenameStmtObjectTypes_FuturePhases tests object type identification for advanced objects
-func TestRenameStmtObjectTypes_FuturePhases(t *testing.T) {
+func TestRenameStmtObjectTypes_Advanced(t *testing.T) {
 	t.Skip("Skipping advanced object type tests - these will be implemented in future phases")
 
 	tests := []struct {
@@ -2550,3 +2550,314 @@ func TestRenameStmtMissingOk(t *testing.T) {
 		})
 	}
 }
+
+
+func TestLimitOffsetDeparse(t *testing.T) {
+	tests := []struct {
+		name      string
+		sql       string
+		wantSql   string // expected deparse output
+		normalize bool   // if true, normalize the expected vs actual for comparison
+	}{
+		// Basic LIMIT tests
+		{
+			name:    "simple LIMIT",
+			sql:     "SELECT * FROM users LIMIT 10",
+			wantSql: "SELECT * FROM users LIMIT 10",
+		},
+		{
+			name:    "LIMIT with expression",
+			sql:     "SELECT * FROM users LIMIT 5 + 5",
+			wantSql: "SELECT * FROM users LIMIT 5 + 5",
+		},
+		{
+			name:    "LIMIT ALL",
+			sql:     "SELECT * FROM users LIMIT ALL",
+			wantSql: "SELECT * FROM users LIMIT ALL",
+		},
+
+		// Basic OFFSET tests
+		{
+			name:    "simple OFFSET",
+			sql:     "SELECT * FROM users OFFSET 20",
+			wantSql: "SELECT * FROM users OFFSET 20",
+		},
+		{
+			name:    "OFFSET with expression",
+			sql:     "SELECT * FROM users OFFSET 10 * 2",
+			wantSql: "SELECT * FROM users OFFSET 10 * 2",
+		},
+
+		// Combined LIMIT and OFFSET
+		{
+			name:    "LIMIT and OFFSET",
+			sql:     "SELECT * FROM users LIMIT 10 OFFSET 20",
+			wantSql: "SELECT * FROM users LIMIT 10 OFFSET 20",
+		},
+		{
+			name:    "OFFSET before LIMIT",
+			sql:     "SELECT * FROM users OFFSET 20 LIMIT 10",
+			wantSql: "SELECT * FROM users LIMIT 10 OFFSET 20", // Should normalize order
+		},
+
+		// SQL:2008 FETCH FIRST syntax - should deparse as LIMIT (matching PostgreSQL behavior)
+		{
+			name:    "FETCH FIRST ROW ONLY",
+			sql:     "SELECT * FROM users FETCH FIRST ROW ONLY",
+			wantSql: "SELECT * FROM users LIMIT 1",
+		},
+		{
+			name:    "FETCH FIRST ROWS ONLY (implicit 1)",
+			sql:     "SELECT * FROM users FETCH FIRST ROWS ONLY",
+			wantSql: "SELECT * FROM users LIMIT 1",
+		},
+		{
+			name:    "FETCH NEXT ROW ONLY",
+			sql:     "SELECT * FROM users FETCH NEXT ROW ONLY",
+			wantSql: "SELECT * FROM users LIMIT 1",
+		},
+		{
+			name:    "FETCH FIRST 5 ROWS ONLY",
+			sql:     "SELECT * FROM users FETCH FIRST 5 ROWS ONLY",
+			wantSql: "SELECT * FROM users LIMIT 5",
+		},
+		{
+			name:    "FETCH NEXT 10 ROWS ONLY",
+			sql:     "SELECT * FROM users FETCH NEXT 10 ROWS ONLY",
+			wantSql: "SELECT * FROM users LIMIT 10",
+		},
+
+		// FETCH with WITH TIES - must preserve FETCH FIRST syntax
+		{
+			name:    "FETCH FIRST ROW WITH TIES",
+			sql:     "SELECT * FROM users ORDER BY score FETCH FIRST ROW WITH TIES",
+			wantSql: "SELECT * FROM users ORDER BY score FETCH FIRST ROW WITH TIES",
+		},
+		{
+			name:    "FETCH FIRST 5 ROWS WITH TIES",
+			sql:     "SELECT * FROM users ORDER BY score FETCH FIRST 5 ROWS WITH TIES",
+			wantSql: "SELECT * FROM users ORDER BY score FETCH FIRST 5 ROWS WITH TIES",
+		},
+
+		// SQL:2008 OFFSET syntax with ROW/ROWS - should deparse as simple OFFSET
+		{
+			name:    "OFFSET with ROWS keyword",
+			sql:     "SELECT * FROM users OFFSET 10 ROWS",
+			wantSql: "SELECT * FROM users OFFSET 10",
+		},
+		{
+			name:    "OFFSET with ROW keyword",
+			sql:     "SELECT * FROM users OFFSET 1 ROW",
+			wantSql: "SELECT * FROM users OFFSET 1",
+		},
+
+		// Combined FETCH and OFFSET
+		{
+			name:    "OFFSET and FETCH FIRST",
+			sql:     "SELECT * FROM users OFFSET 20 FETCH FIRST 10 ROWS ONLY",
+			wantSql: "SELECT * FROM users LIMIT 10 OFFSET 20",
+		},
+
+		// Complex scenarios
+		{
+			name:    "ORDER BY with LIMIT",
+			sql:     "SELECT * FROM users ORDER BY name LIMIT 10",
+			wantSql: "SELECT * FROM users ORDER BY name LIMIT 10",
+		},
+		{
+			name:    "ORDER BY with FETCH FIRST WITH TIES",
+			sql:     "SELECT * FROM users ORDER BY score DESC FETCH FIRST 5 ROWS WITH TIES",
+			wantSql: "SELECT * FROM users ORDER BY score DESC FETCH FIRST 5 ROWS WITH TIES",
+		},
+		{
+			name:    "WHERE with LIMIT and OFFSET",
+			sql:     "SELECT * FROM users WHERE active = true OFFSET 50 LIMIT 25",
+			wantSql: "SELECT * FROM users WHERE active = TRUE LIMIT 25 OFFSET 50",
+		},
+
+		// Round-trip testing - these may have slight variations in formatting
+		{
+			name:    "Complex query with CTE and FETCH",
+			sql:     "WITH top_users AS (SELECT * FROM users ORDER BY score DESC FETCH FIRST 20 ROWS ONLY) SELECT * FROM top_users",
+			wantSql: "WITH top_users AS (SELECT * FROM users ORDER BY score DESC LIMIT 20) SELECT * FROM top_users",
+		},
+		{
+			name:    "Subquery with LIMIT",
+			sql:     "SELECT * FROM (SELECT * FROM users LIMIT 10) AS u WHERE u.age > 25",
+			wantSql: "SELECT * FROM (SELECT * FROM users LIMIT 10) AS u WHERE u.age > 25",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the SQL
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL")
+			require.NotEmpty(t, stmts, "No statements parsed")
+
+			// Get the parsed statement
+			stmt := stmts[0]
+			require.IsType(t, &ast.SelectStmt{}, stmt, "Expected SelectStmt")
+
+			// Deparse back to SQL
+			selectStmt := stmt.(*ast.SelectStmt)
+			actualSql := selectStmt.SqlString()
+
+			if tt.normalize {
+				// For FETCH FIRST tests, we normalize whitespace and case
+				expected := normalizeSQL(tt.wantSql)
+				actual := normalizeSQL(actualSql)
+				assert.Equal(t, expected, actual, "Deparsed SQL doesn't match expected")
+			} else {
+				// Exact match expected
+				assert.Equal(t, tt.wantSql, actualSql, "Deparsed SQL doesn't match expected")
+			}
+		})
+	}
+}
+
+// TestLimitOffsetRoundTrip tests that parsing and deparsing maintains semantic equivalence
+func TestLimitOffsetRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{"simple limit", "SELECT * FROM users LIMIT 10"},
+		{"limit with offset", "SELECT * FROM users LIMIT 10 OFFSET 5"},
+		{"fetch first only", "SELECT * FROM users FETCH FIRST 10 ROWS ONLY"},
+		{"fetch first with ties", "SELECT * FROM users ORDER BY id FETCH FIRST 5 ROWS WITH TIES"},
+		{"offset with rows", "SELECT * FROM users OFFSET 10 ROWS"},
+		{"complex query", "SELECT name, COUNT(*) FROM users WHERE active = true GROUP BY name ORDER BY COUNT(*) DESC LIMIT 20 OFFSET 10"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the original SQL
+			stmts1, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse original SQL")
+			require.NotEmpty(t, stmts1, "No statements parsed from original SQL")
+
+			// Deparse to get SQL string
+			stmt1 := stmts1[0].(*ast.SelectStmt)
+			sql2 := stmt1.SqlString()
+
+			// Parse the deparsed SQL
+			stmts2, err := ParseSQL(sql2)
+			require.NoError(t, err, "Failed to parse deparsed SQL: %s", sql2)
+			require.NotEmpty(t, stmts2, "No statements parsed from deparsed SQL")
+
+			// Compare the key fields
+			stmt2 := stmts2[0].(*ast.SelectStmt)
+
+			// The limit values should be semantically equivalent
+			if stmt1.LimitCount != nil && stmt2.LimitCount != nil {
+				assert.Equal(t, stmt1.LimitCount.SqlString(), stmt2.LimitCount.SqlString(), 
+					"LimitCount differs after round-trip")
+			} else {
+				assert.Equal(t, stmt1.LimitCount, stmt2.LimitCount, "LimitCount presence differs")
+			}
+
+			if stmt1.LimitOffset != nil && stmt2.LimitOffset != nil {
+				assert.Equal(t, stmt1.LimitOffset.SqlString(), stmt2.LimitOffset.SqlString(), 
+					"LimitOffset differs after round-trip")
+			} else {
+				assert.Equal(t, stmt1.LimitOffset, stmt2.LimitOffset, "LimitOffset presence differs")
+			}
+
+			// The limit option should be preserved for FETCH FIRST syntax
+			assert.Equal(t, stmt1.LimitOption, stmt2.LimitOption, 
+				"LimitOption differs after round-trip")
+		})
+	}
+}
+
+// TestLimitOffsetASTFields verifies that parsing correctly populates AST fields
+func TestLimitOffsetASTFields(t *testing.T) {
+	tests := []struct {
+		name         string
+		sql          string
+		expectLimit  string
+		expectOffset string
+		expectOption ast.LimitOption
+	}{
+		{
+			name:         "LIMIT only",
+			sql:          "SELECT * FROM users LIMIT 10",
+			expectLimit:  "10",
+			expectOffset: "",
+			expectOption: ast.LIMIT_OPTION_COUNT,
+		},
+		{
+			name:         "OFFSET only",
+			sql:          "SELECT * FROM users OFFSET 5",
+			expectLimit:  "",
+			expectOffset: "5",
+			expectOption: ast.LIMIT_OPTION_COUNT, // OFFSET sets this in the grammar
+		},
+		{
+			name:         "LIMIT and OFFSET",
+			sql:          "SELECT * FROM users LIMIT 10 OFFSET 5",
+			expectLimit:  "10",
+			expectOffset: "5",
+			expectOption: ast.LIMIT_OPTION_COUNT,
+		},
+		{
+			name:         "FETCH FIRST ONLY",
+			sql:          "SELECT * FROM users FETCH FIRST 10 ROWS ONLY",
+			expectLimit:  "10",
+			expectOffset: "",
+			expectOption: ast.LIMIT_OPTION_COUNT,
+		},
+		{
+			name:         "FETCH FIRST WITH TIES",
+			sql:          "SELECT * FROM users ORDER BY id FETCH FIRST 5 ROWS WITH TIES",
+			expectLimit:  "5",
+			expectOffset: "",
+			expectOption: ast.LIMIT_OPTION_WITH_TIES,
+		},
+		{
+			name:         "FETCH FIRST implicit 1 ONLY",
+			sql:          "SELECT * FROM users FETCH FIRST ROW ONLY",
+			expectLimit:  "1",
+			expectOffset: "",
+			expectOption: ast.LIMIT_OPTION_COUNT,
+		},
+		{
+			name:         "OFFSET with FETCH",
+			sql:          "SELECT * FROM users OFFSET 10 FETCH FIRST 5 ROWS ONLY",
+			expectLimit:  "5",
+			expectOffset: "10",
+			expectOption: ast.LIMIT_OPTION_COUNT,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL")
+			require.NotEmpty(t, stmts, "No statements parsed")
+
+			stmt := stmts[0].(*ast.SelectStmt)
+
+			// Check limit count
+			if tt.expectLimit != "" {
+				require.NotNil(t, stmt.LimitCount, "Expected LimitCount to be set")
+				assert.Equal(t, tt.expectLimit, stmt.LimitCount.SqlString(), "LimitCount value mismatch")
+			} else {
+				assert.Nil(t, stmt.LimitCount, "Expected LimitCount to be nil")
+			}
+
+			// Check limit offset
+			if tt.expectOffset != "" {
+				require.NotNil(t, stmt.LimitOffset, "Expected LimitOffset to be set")
+				assert.Equal(t, tt.expectOffset, stmt.LimitOffset.SqlString(), "LimitOffset value mismatch")
+			} else {
+				assert.Nil(t, stmt.LimitOffset, "Expected LimitOffset to be nil")
+			}
+
+			// Check limit option
+			assert.Equal(t, tt.expectOption, stmt.LimitOption, "LimitOption value mismatch")
+		})
+	}
+}
+

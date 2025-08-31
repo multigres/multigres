@@ -371,6 +371,40 @@ func (f *FuncCall) SqlString() string {
 					name = "LOCALTIME"
 				case "localtimestamp":
 					name = "LOCALTIMESTAMP"
+				// Window functions
+				case "row_number":
+					name = "ROW_NUMBER"
+				case "rank":
+					name = "RANK"
+				case "dense_rank":
+					name = "DENSE_RANK"
+				case "percent_rank":
+					name = "PERCENT_RANK"
+				case "cume_dist":
+					name = "CUME_DIST"
+				case "ntile":
+					name = "NTILE"
+				case "lag":
+					name = "LAG"
+				case "lead":
+					name = "LEAD"
+				case "first_value":
+					name = "FIRST_VALUE"
+				case "last_value":
+					name = "LAST_VALUE"
+				case "nth_value":
+					name = "NTH_VALUE"
+				// Aggregate functions commonly used as window functions
+				case "sum":
+					name = "SUM"
+				case "count":
+					name = "COUNT"
+				case "avg":
+					name = "AVG"
+				case "min":
+					name = "MIN"
+				case "max":
+					name = "MAX"
 				}
 				nameParts = append(nameParts, name)
 			}
@@ -392,7 +426,21 @@ func (f *FuncCall) SqlString() string {
 		argStrs = append(argStrs, "*")
 	}
 
-	return fmt.Sprintf("%s(%s)", funcName, strings.Join(argStrs, ", "))
+	result := fmt.Sprintf("%s(%s)", funcName, strings.Join(argStrs, ", "))
+	
+	// Add OVER clause for window functions
+	if f.Over != nil {
+		windowSpec := f.Over.SqlString()
+		if f.Over.Refname != "" {
+			// Window reference - no parentheses
+			result += " OVER " + windowSpec
+		} else {
+			// Window specification - with parentheses
+			result += " OVER (" + windowSpec + ")"
+		}
+	}
+	
+	return result
 }
 
 func (f *FuncCall) ExpressionType() string {
@@ -754,20 +802,46 @@ type WindowDef struct {
 	Name            string    // Window name (NULL for inline windows)
 	Refname         string    // Referenced window name, if any
 	PartitionClause *NodeList // PARTITION BY expression list
-	OrderClause     []*SortBy // ORDER BY (list of SortBy)
+	OrderClause     *NodeList // ORDER BY (list of SortBy)
 	FrameOptions    int       // Frame_option flags
 	StartOffset     Node      // Expression for start offset
 	EndOffset       Node      // Expression for end offset
 }
 
+// Frame option constants for WindowDef FrameOptions field.
+// Ported from postgres/src/include/nodes/parsenodes.h:581-605
+const (
+	FRAMEOPTION_NONDEFAULT                = 0x00001 // any specified?
+	FRAMEOPTION_RANGE                     = 0x00002 // RANGE behavior
+	FRAMEOPTION_ROWS                      = 0x00004 // ROWS behavior
+	FRAMEOPTION_GROUPS                    = 0x00008 // GROUPS behavior
+	FRAMEOPTION_BETWEEN                   = 0x00010 // BETWEEN given?
+	FRAMEOPTION_START_UNBOUNDED_PRECEDING = 0x00020 // start is UNBOUNDED PRECEDING
+	FRAMEOPTION_END_UNBOUNDED_PRECEDING   = 0x00040 // (disallowed)
+	FRAMEOPTION_START_UNBOUNDED_FOLLOWING = 0x00080 // (disallowed)
+	FRAMEOPTION_END_UNBOUNDED_FOLLOWING   = 0x00100 // end is UNBOUNDED FOLLOWING
+	FRAMEOPTION_START_CURRENT_ROW         = 0x00200 // start is CURRENT ROW
+	FRAMEOPTION_END_CURRENT_ROW           = 0x00400 // end is CURRENT ROW
+	FRAMEOPTION_START_OFFSET_PRECEDING    = 0x00800 // start is OFFSET PRECEDING
+	FRAMEOPTION_END_OFFSET_PRECEDING      = 0x01000 // end is OFFSET PRECEDING
+	FRAMEOPTION_START_OFFSET_FOLLOWING    = 0x02000 // start is OFFSET FOLLOWING
+	FRAMEOPTION_END_OFFSET_FOLLOWING      = 0x04000 // end is OFFSET FOLLOWING
+	FRAMEOPTION_EXCLUDE_CURRENT_ROW       = 0x08000 // omit current row
+	FRAMEOPTION_EXCLUDE_GROUP             = 0x10000 // omit current row & peers
+	FRAMEOPTION_EXCLUDE_TIES              = 0x20000 // omit current row's peers
+
+	// Compound options - postgres/src/include/nodes/parsenodes.h:600
+	FRAMEOPTION_START_OFFSET = FRAMEOPTION_START_OFFSET_PRECEDING | FRAMEOPTION_START_OFFSET_FOLLOWING
+	FRAMEOPTION_END_OFFSET   = FRAMEOPTION_END_OFFSET_PRECEDING | FRAMEOPTION_END_OFFSET_FOLLOWING
+	FRAMEOPTION_DEFAULTS     = FRAMEOPTION_RANGE | FRAMEOPTION_START_UNBOUNDED_PRECEDING | FRAMEOPTION_END_CURRENT_ROW
+)
+
 // NewWindowDef creates a new WindowDef node.
 func NewWindowDef(name string, location int) *WindowDef {
 	windowDef := &WindowDef{
-		BaseNode:        BaseNode{Tag: T_WindowDef},
-		Name:            name,
-		PartitionClause: NewNodeList(),
-		OrderClause:     []*SortBy{},
-		FrameOptions:    0,
+		BaseNode:     BaseNode{Tag: T_WindowDef},
+		Name:         name,
+		FrameOptions: FRAMEOPTION_DEFAULTS,
 	}
 	windowDef.SetLocation(location)
 	return windowDef
@@ -782,6 +856,148 @@ func (w *WindowDef) String() string {
 
 func (w *WindowDef) StatementType() string {
 	return "WINDOW_DEF"
+}
+
+func (w *WindowDef) SqlString() string {
+	return w.SqlStringForContext(false)
+}
+
+// renderFrameOptions converts frame options to SQL string
+func (w *WindowDef) renderFrameOptions() string {
+	var parts []string
+	
+	// Frame mode (ROWS, RANGE, or GROUPS)
+	if w.FrameOptions&FRAMEOPTION_ROWS != 0 {
+		parts = append(parts, "ROWS")
+	} else if w.FrameOptions&FRAMEOPTION_GROUPS != 0 {
+		parts = append(parts, "GROUPS")
+	} else if w.FrameOptions&FRAMEOPTION_RANGE != 0 {
+		parts = append(parts, "RANGE")
+	}
+	
+	// Handle BETWEEN clause
+	if w.FrameOptions&FRAMEOPTION_BETWEEN != 0 {
+		parts = append(parts, "BETWEEN")
+		
+		// Start boundary
+		startBoundary := w.renderFrameBoundary(true)
+		if startBoundary != "" {
+			parts = append(parts, startBoundary)
+		}
+		
+		parts = append(parts, "AND")
+		
+		// End boundary
+		endBoundary := w.renderFrameBoundary(false)
+		if endBoundary != "" {
+			parts = append(parts, endBoundary)
+		}
+	} else {
+		// Single boundary (no BETWEEN)
+		boundary := w.renderFrameBoundary(true)
+		if boundary != "" {
+			parts = append(parts, boundary)
+		}
+	}
+	
+	// Handle exclusion clause
+	if w.FrameOptions&FRAMEOPTION_EXCLUDE_CURRENT_ROW != 0 {
+		parts = append(parts, "EXCLUDE CURRENT ROW")
+	} else if w.FrameOptions&FRAMEOPTION_EXCLUDE_GROUP != 0 {
+		parts = append(parts, "EXCLUDE GROUP")
+	} else if w.FrameOptions&FRAMEOPTION_EXCLUDE_TIES != 0 {
+		parts = append(parts, "EXCLUDE TIES")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// renderFrameBoundary renders a single frame boundary (start or end)
+func (w *WindowDef) renderFrameBoundary(isStart bool) string {
+	var parts []string
+	
+	if isStart {
+		// Start boundary
+		if w.FrameOptions&FRAMEOPTION_START_UNBOUNDED_PRECEDING != 0 {
+			return "UNBOUNDED PRECEDING"
+		} else if w.FrameOptions&FRAMEOPTION_START_UNBOUNDED_FOLLOWING != 0 {
+			return "UNBOUNDED FOLLOWING"
+		} else if w.FrameOptions&FRAMEOPTION_START_CURRENT_ROW != 0 {
+			return "CURRENT ROW"
+		} else if w.FrameOptions&FRAMEOPTION_START_OFFSET_PRECEDING != 0 {
+			if w.StartOffset != nil {
+				return w.StartOffset.SqlString() + " PRECEDING"
+			}
+			return "PRECEDING"
+		} else if w.FrameOptions&FRAMEOPTION_START_OFFSET_FOLLOWING != 0 {
+			if w.StartOffset != nil {
+				return w.StartOffset.SqlString() + " FOLLOWING"
+			}
+			return "FOLLOWING"
+		}
+	} else {
+		// End boundary
+		if w.FrameOptions&FRAMEOPTION_END_UNBOUNDED_PRECEDING != 0 {
+			return "UNBOUNDED PRECEDING"
+		} else if w.FrameOptions&FRAMEOPTION_END_UNBOUNDED_FOLLOWING != 0 {
+			return "UNBOUNDED FOLLOWING"
+		} else if w.FrameOptions&FRAMEOPTION_END_CURRENT_ROW != 0 {
+			return "CURRENT ROW"
+		} else if w.FrameOptions&FRAMEOPTION_END_OFFSET_PRECEDING != 0 {
+			if w.EndOffset != nil {
+				return w.EndOffset.SqlString() + " PRECEDING"
+			}
+			return "PRECEDING"
+		} else if w.FrameOptions&FRAMEOPTION_END_OFFSET_FOLLOWING != 0 {
+			if w.EndOffset != nil {
+				return w.EndOffset.SqlString() + " FOLLOWING"
+			}
+			return "FOLLOWING"
+		}
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+func (w *WindowDef) SqlStringForContext(inWindowClause bool) string {
+	// If this is just a reference to a named window (in OVER clause), return just the name
+	if !inWindowClause && w.Refname != "" {
+		return w.Refname
+	}
+	
+	var parts []string
+	
+	// Add PARTITION BY clause
+	if w.PartitionClause != nil && w.PartitionClause.Len() > 0 {
+		var partitions []string
+		for _, item := range w.PartitionClause.Items {
+			if item != nil {
+				partitions = append(partitions, item.SqlString())
+			}
+		}
+		parts = append(parts, "PARTITION BY "+strings.Join(partitions, ", "))
+	}
+	
+	// Add ORDER BY clause
+	if w.OrderClause != nil && w.OrderClause.Len() > 0 {
+		var orders []string
+		for _, item := range w.OrderClause.Items {
+			if item != nil {
+				orders = append(orders, item.SqlString())
+			}
+		}
+		parts = append(parts, "ORDER BY "+strings.Join(orders, ", "))
+	}
+	
+	// Add frame specification
+	if w.FrameOptions != 0 && w.FrameOptions != FRAMEOPTION_DEFAULTS {
+		frameStr := w.renderFrameOptions()
+		if frameStr != "" {
+			parts = append(parts, frameStr)
+		}
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // Note: SortBy, SortByDir, and SortByNulls already exist in ddl_statements.go

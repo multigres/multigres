@@ -541,11 +541,21 @@ func (s *SelectStmt) SqlString() string {
 	if s.WindowClause != nil && len(s.WindowClause.Items) > 0 {
 		var windowItems []string
 		for _, window := range s.WindowClause.Items {
-			if window != nil {
-				windowItems = append(windowItems, window.SqlString())
+			if windowDef, ok := window.(*WindowDef); ok && windowDef != nil {
+				// For WINDOW clause, format as "name AS (specification)"
+				if windowDef.Name != "" {
+					spec := windowDef.SqlStringForContext(true)
+					if spec != "" {
+						windowItems = append(windowItems, windowDef.Name+" AS ("+spec+")")
+					} else {
+						windowItems = append(windowItems, windowDef.Name+" AS ()")
+					}
+				}
 			}
 		}
-		parts = append(parts, "WINDOW", strings.Join(windowItems, ", "))
+		if len(windowItems) > 0 {
+			parts = append(parts, "WINDOW "+strings.Join(windowItems, ", "))
+		}
 	}
 
 	// ORDER BY clause (from SortClause)
@@ -561,7 +571,28 @@ func (s *SelectStmt) SqlString() string {
 
 	// LIMIT clause
 	if s.LimitCount != nil {
-		parts = append(parts, "LIMIT", s.LimitCount.SqlString())
+		if s.LimitOption == LIMIT_OPTION_WITH_TIES {
+			// Use FETCH FIRST syntax for WITH TIES (required by SQL standard)
+			limitStr := "FETCH FIRST"
+			
+			// Check if the limit count is a constant 1 (implicit case)
+			if isConstantOne(s.LimitCount) {
+				limitStr += " ROW"
+			} else {
+				limitStr += " " + s.LimitCount.SqlString() + " ROWS"
+			}
+			
+			limitStr += " WITH TIES"
+			parts = append(parts, limitStr)
+		} else {
+			// Traditional LIMIT syntax (default for LIMIT_OPTION_COUNT)
+			// Handle LIMIT ALL case specially
+			limitValue := s.LimitCount.SqlString()
+			if limitValue == "NULL" {
+				limitValue = "ALL"
+			}
+			parts = append(parts, "LIMIT", limitValue)
+		}
 	}
 
 	// OFFSET clause
@@ -586,6 +617,22 @@ func (s *SelectStmt) SqlString() string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+// isConstantOne checks if a Node represents the constant integer 1
+func isConstantOne(node Node) bool {
+	if node == nil {
+		return false
+	}
+	
+	// Check if it's an A_Const with integer value 1
+	if aConst, ok := node.(*A_Const); ok {
+		if intVal, ok := aConst.Val.(*Integer); ok {
+			return intVal.IVal == 1
+		}
+	}
+	
+	return false
 }
 
 // InsertStmt represents an INSERT statement.

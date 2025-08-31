@@ -350,9 +350,9 @@ func TestWindowDef(t *testing.T) {
 	t.Run("default values", func(t *testing.T) {
 		windowDef := NewWindowDef("test", 0)
 
-		assert.Equal(t, 0, windowDef.PartitionClause.Len())
-		assert.Equal(t, 0, len(windowDef.OrderClause))
-		assert.Equal(t, 0, windowDef.FrameOptions)
+		assert.Nil(t, windowDef.PartitionClause)
+		assert.Nil(t, windowDef.OrderClause)
+		assert.Equal(t, FRAMEOPTION_DEFAULTS, windowDef.FrameOptions)
 	})
 
 	t.Run("inline window", func(t *testing.T) {

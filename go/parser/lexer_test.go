@@ -1296,8 +1296,8 @@ func TestSpecialLiteralRecognition(t *testing.T) {
 				text      string
 			}{
 				{BCONST, "B'101'"},
-				{IDENT, "BETWEEN"}, // keyword
-				{IDENT, "b"},       // identifier (no quote following)
+				{BETWEEN, "BETWEEN"}, // keyword
+				{IDENT, "b"},         // identifier (no quote following)
 				{XCONST, "X'FF'"},
 				{IDENT, "x"}, // identifier (no quote following)
 				{SCONST, "E'test'"},

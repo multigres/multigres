@@ -425,3 +425,79 @@ func TestComplexSelectStatements(t *testing.T) {
 		})
 	}
 }
+// TestWindowFunctions tests window function parsing
+func TestWindowFunctions(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		// Basic window functions
+		{"ROW_NUMBER window function", "SELECT ROW_NUMBER() OVER (ORDER BY id) FROM users"},
+		{"RANK window function with PARTITION BY", "SELECT RANK() OVER (PARTITION BY department ORDER BY salary DESC) FROM employees"},
+		{"DENSE_RANK window function", "SELECT DENSE_RANK() OVER (PARTITION BY category ORDER BY price) FROM products"},
+		{"LAG window function", "SELECT LAG(price, 1) OVER (ORDER BY date) FROM stock_prices"},
+		{"LEAD window function with default", "SELECT LEAD(value, 2, 0) OVER (PARTITION BY group_id ORDER BY seq) FROM data"},
+		{"FIRST_VALUE window function", "SELECT FIRST_VALUE(name) OVER (PARTITION BY dept ORDER BY hire_date) FROM employees"},
+		{"LAST_VALUE window function with frame", "SELECT LAST_VALUE(score) OVER (ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM scores"},
+		{"NTH_VALUE window function", "SELECT NTH_VALUE(amount, 2) OVER (ORDER BY date) FROM transactions"},
+		{"PERCENT_RANK window function", "SELECT PERCENT_RANK() OVER (ORDER BY score) FROM test_results"},
+		{"CUME_DIST window function", "SELECT CUME_DIST() OVER (ORDER BY salary) FROM employees"},
+		{"NTILE window function", "SELECT NTILE(4) OVER (ORDER BY score DESC) FROM students"},
+
+		// Aggregate functions as window functions
+		{"SUM window function", "SELECT SUM(amount) OVER (PARTITION BY account ORDER BY date) FROM transactions"},
+		{"COUNT window function", "SELECT COUNT(*) OVER (PARTITION BY region ORDER BY date ROWS UNBOUNDED PRECEDING) FROM sales"},
+		{"AVG window function with frame", "SELECT AVG(temperature) OVER (ORDER BY date ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM weather"},
+		{"MIN and MAX window functions", "SELECT MIN(price) OVER (PARTITION BY category), MAX(price) OVER (PARTITION BY category) FROM products"},
+
+		// Named windows
+		{"Named window definition", "SELECT ROW_NUMBER() OVER w FROM users WINDOW w AS (ORDER BY created_at)"},
+		{"Multiple named windows", "SELECT ROW_NUMBER() OVER w1, SUM(amount) OVER w2 FROM data WINDOW w1 AS (ORDER BY id), w2 AS (PARTITION BY type ORDER BY date)"},
+		{"Named window with inheritance", "SELECT ROW_NUMBER() OVER (w ORDER BY name) FROM users WINDOW w AS (PARTITION BY department)"},
+
+		// Frame specifications
+		{"ROWS frame - UNBOUNDED PRECEDING", "SELECT SUM(amount) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING) FROM sales"},
+		{"ROWS frame - n PRECEDING", "SELECT AVG(price) OVER (ORDER BY date ROWS 3 PRECEDING) FROM stocks"},
+		{"ROWS frame - CURRENT ROW", "SELECT SUM(quantity) OVER (ORDER BY id ROWS CURRENT ROW) FROM orders"},
+		{"ROWS frame - BETWEEN PRECEDING AND FOLLOWING", "SELECT AVG(amount) OVER (ORDER BY date ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM transactions"},
+		{"ROWS frame - BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW", "SELECT SUM(sales) OVER (PARTITION BY region ORDER BY month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM monthly_sales"},
+		{"ROWS frame - BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING", "SELECT COUNT(*) OVER (ORDER BY date ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM events"},
+		{"RANGE frame - UNBOUNDED PRECEDING", "SELECT SUM(amount) OVER (ORDER BY amount RANGE UNBOUNDED PRECEDING) FROM payments"},
+		{"RANGE frame - CURRENT ROW", "SELECT COUNT(*) OVER (ORDER BY score RANGE CURRENT ROW) FROM results"},
+		{"RANGE frame - BETWEEN PRECEDING AND FOLLOWING", "SELECT AVG(value) OVER (ORDER BY val RANGE BETWEEN (SELECT 3) PRECEDING AND (SELECT 4) FOLLOWING) FROM daily_metrics"},
+		{"GROUPS frame - UNBOUNDED PRECEDING", "SELECT FIRST_VALUE(name) OVER (ORDER BY score GROUPS UNBOUNDED PRECEDING) FROM players"},
+		{"GROUPS frame - n PRECEDING", "SELECT COUNT(*) OVER (ORDER BY category GROUPS 2 PRECEDING) FROM products"},
+		{"GROUPS frame - BETWEEN PRECEDING AND FOLLOWING", "SELECT SUM(amount) OVER (ORDER BY date GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM transactions"},
+
+		// Frame exclusion
+		{"Frame with EXCLUDE CURRENT ROW", "SELECT AVG(salary) OVER (PARTITION BY dept ORDER BY salary ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW) FROM employees"},
+		{"Frame with EXCLUDE GROUP", "SELECT SUM(amount) OVER (ORDER BY category GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP) FROM sales"},
+		{"Frame with EXCLUDE TIES", "SELECT COUNT(*) OVER (ORDER BY score ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) FROM test_scores"},
+		{"Frame with EXCLUDE NO OTHERS", "SELECT MAX(value) OVER (ORDER BY date ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING EXCLUDE NO OTHERS) FROM measurements"},
+
+		// Complex queries
+		{"Window function in WHERE clause (subquery)", "SELECT * FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) as rn FROM users) t WHERE rn <= 10"},
+		{"Multiple window functions", "SELECT id, ROW_NUMBER() OVER (ORDER BY salary), RANK() OVER (ORDER BY salary), PERCENT_RANK() OVER (ORDER BY salary) FROM employees"},
+		{"Window function with CASE expression", "SELECT CASE WHEN ROW_NUMBER() OVER (ORDER BY score DESC) <= 3 THEN 'Top 3' ELSE 'Other' END FROM students"},
+		{"Window function in ORDER BY", "SELECT name FROM employees ORDER BY ROW_NUMBER() OVER (PARTITION BY department ORDER BY hire_date)"},
+
+		// Edge cases
+		{"Window function with DISTINCT", "SELECT COUNT(DISTINCT category) OVER (PARTITION BY region) FROM products"},
+		{"Window function with ALL", "SELECT SUM(ALL amount) OVER (ORDER BY date) FROM transactions"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.NotEmpty(t, stmts, "No statements parsed")
+
+			stmt := stmts[0]
+			require.IsType(t, &ast.SelectStmt{}, stmt, "Expected SelectStmt")
+
+			selectStmt := stmt.(*ast.SelectStmt)
+			require.NotNil(t, selectStmt.TargetList, "TargetList should not be nil")
+			assert.True(t, len(selectStmt.TargetList.Items) > 0, "Should have at least one target")
+		})
+	}
+}

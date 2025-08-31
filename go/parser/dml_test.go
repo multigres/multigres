@@ -72,7 +72,7 @@ func TestDMLParsing(t *testing.T) {
 		{"DELETE with no WHERE clause", "DELETE FROM temp_table", ""},
 		{"DELETE with simple function in WHERE", "DELETE FROM users WHERE length(name) < 3", ""},
 		{"DELETE with arithmetic in WHERE", "DELETE FROM products WHERE (price * 0.9) < 10.00", ""},
-		{"DELETE with nested expressions in WHERE", "DELETE FROM orders WHERE (total + tax) > (limit * 1.5) AND status = 'pending'", ""},
+		{"DELETE with nested expressions in WHERE", "DELETE FROM orders WHERE (total + tax) > (limitval * 1.5) AND status = 'pending'", ""},
 
 		// ===== MERGE Statements =====
 		{"MERGE basic", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN DO NOTHING", ""},

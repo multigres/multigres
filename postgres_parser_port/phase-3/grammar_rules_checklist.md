@@ -534,27 +534,27 @@
 - ✅ `opt_nulls_order` - NULLS FIRST/LAST
 
 ### LIMIT/OFFSET
-- ⬜ `select_limit` - LIMIT clause
-- ⬜ `opt_select_limit` - Optional LIMIT
-- ⬜ `limit_clause` - LIMIT specification
-- ⬜ `offset_clause` - OFFSET clause
-- ⬜ `select_limit_value` - LIMIT value
-- ⬜ `select_offset_value` - OFFSET value
-- ⬜ `select_fetch_first_value` - FETCH FIRST value
-- ⬜ `row_or_rows` - ROW/ROWS keyword
-- ⬜ `first_or_next` - FIRST/NEXT keyword
+- ✅ `select_limit` - LIMIT clause
+- ✅ `opt_select_limit` - Optional LIMIT
+- ✅ `limit_clause` - LIMIT specification
+- ✅ `offset_clause` - OFFSET clause
+- ✅ `select_limit_value` - LIMIT value
+- ✅ `select_offset_value` - OFFSET value
+- ✅ `select_fetch_first_value` - FETCH FIRST value
+- ✅ `row_or_rows` - ROW/ROWS keyword
+- ✅ `first_or_next` - FIRST/NEXT keyword
 
 ### Window Functions
-- ⬜ `window_clause` - WINDOW clause
-- ⬜ `window_definition_list` - Window definitions
-- ⬜ `window_definition` - Single window definition
-- ⬜ `window_specification` - Window specification
-- ⬜ `over_clause` - OVER clause
-- ⬜ `opt_existing_window_name` - Existing window ref
-- ⬜ `opt_frame_clause` - Frame clause
-- ⬜ `frame_extent` - Frame extent
-- ⬜ `frame_bound` - Frame boundary
-- ⬜ `opt_window_exclusion_clause` - Exclusion clause
+- ✅ `window_clause` - WINDOW clause
+- ✅ `window_definition_list` - Window definitions
+- ✅ `window_definition` - Single window definition
+- ✅ `window_specification` - Window specification
+- ✅ `over_clause` - OVER clause
+- ✅ `opt_existing_window_name` - Existing window ref
+- ✅ `opt_frame_clause` - Frame clause
+- ✅ `frame_extent` - Frame extent
+- ✅ `frame_bound` - Frame boundary
+- ✅ `opt_window_exclusion_clause` - Exclusion clause
 
 ### Aggregate Functions
 - ⬜ `aggregate_with_argtypes` - Aggregate with types
