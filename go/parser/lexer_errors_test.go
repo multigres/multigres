@@ -3,6 +3,8 @@
  *
  * This file contains comprehensive tests for the error handling and recovery
  * mechanisms of the PostgreSQL-compatible lexer.
+ *
+ * Consolidated from errors_test.go and error handling tests from other lexer files
  */
 
 package parser
@@ -481,6 +483,152 @@ func (e LexerErrorType) String() string {
 		return "InvalidBinaryInteger"
 	default:
 		return "Unknown"
+	}
+}
+
+// TestErrorHandling tests basic error handling from lexer_test.go
+func TestErrorHandling(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		hasError bool
+	}{
+		{
+			name:     "Unterminated string",
+			input:    "'unterminated",
+			hasError: true,
+		},
+		{
+			name:     "Unterminated delimited identifier",
+			input:    "\"unterminated",
+			hasError: true,
+		},
+		{
+			name:     "Valid input",
+			input:    "'complete'",
+			hasError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+
+			// Consume all tokens - handle errors gracefully for error tests
+			for {
+				token := lexer.NextToken()
+				if token.Type == EOF {
+					break
+				}
+			}
+
+			hasError := lexer.GetContext().HasErrors()
+			assert.Equal(t, tt.hasError, hasError, "Error state mismatch")
+			if hasError {
+				for _, err := range lexer.GetContext().GetErrors() {
+					t.Logf("Error: %s", err.Error())
+				}
+			}
+		})
+	}
+}
+
+// TestStringErrors tests error cases in string processing
+func TestStringErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		tokenType TokenType
+	}{
+		{
+			name:      "Unterminated standard string",
+			input:     "'hello",
+			tokenType: USCONST,
+		},
+		{
+			name:      "Unterminated extended string",
+			input:     "E'hello",
+			tokenType: SCONST, // Extended strings return SCONST when unterminated
+		},
+		{
+			name:      "Unterminated bit string",
+			input:     "B'101",
+			tokenType: BCONST, // Bit strings return BCONST when unterminated
+		},
+		{
+			name:      "Unterminated hex string",
+			input:     "X'dead",
+			tokenType: XCONST, // Hex strings return XCONST when unterminated
+		},
+		{
+			name:      "Unterminated dollar-quoted string",
+			input:     "$tag$hello",
+			tokenType: USCONST,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			token := lexer.NextToken()
+
+			require.NotNil(t, token) // Errors are captured in token, not returned
+			assert.Equal(t, tt.tokenType, token.Type)
+			assert.True(t, len(lexer.context.Errors()) > 0, "Expected error to be recorded")
+		})
+	}
+}
+
+// TestStringLiteralErrorCases tests error cases for string literals
+func TestStringLiteralErrorCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		expectedType TokenType
+		shouldError  bool
+	}{
+		{
+			name:         "Unterminated string",
+			input:        "'unterminated",
+			expectedType: USCONST,
+			shouldError:  true,
+		},
+		{
+			name:         "Unterminated bit string",
+			input:        "B'unterminated",
+			expectedType: BCONST,
+			shouldError:  true,
+		},
+		{
+			name:         "Unterminated hex string",
+			input:        "X'unterminated",
+			expectedType: XCONST,
+			shouldError:  true,
+		},
+		{
+			name:         "Unterminated extended string",
+			input:        "E'unterminated",
+			expectedType: SCONST,
+			shouldError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lexer := NewLexer(tt.input)
+			token := lexer.NextToken()
+
+			require.NotNil(t, token, "Lexer should not return error (errors stored in context)")
+			assert.Equal(t, tt.expectedType, token.Type, "Token type should match expected error type")
+
+			ctx := lexer.GetContext()
+			if tt.shouldError {
+				assert.True(t, ctx.HasErrors(), "Should have lexer errors")
+				assert.Greater(t, len(ctx.Errors()), 0, "Should have at least one error")
+			} else {
+				assert.False(t, ctx.HasErrors(), "Should not have lexer errors")
+			}
+		})
 	}
 }
 

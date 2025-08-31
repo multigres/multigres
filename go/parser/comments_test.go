@@ -63,7 +63,7 @@ func TestSingleLineComments(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
@@ -210,7 +210,7 @@ func TestCommentsWithOperators(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
@@ -248,7 +248,7 @@ func TestCommentPositionTracking(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			// Filter out EOF token
 			nonEOFTokens := []Token{}
@@ -315,7 +315,7 @@ func TestCommentEdgeCases(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
@@ -326,16 +326,3 @@ func TestCommentEdgeCases(t *testing.T) {
 	}
 }
 
-// Helper function to scan all tokens from a lexer
-func scanAllTokens(t *testing.T, lexer *Lexer) []Token {
-	tokens := []Token{}
-	for {
-		token := lexer.NextToken()
-		require.NotNil(t, token)
-		tokens = append(tokens, *token)
-		if token.Type == EOF {
-			break
-		}
-	}
-	return tokens
-}

@@ -2,6 +2,9 @@ package parser
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestBasicParsing tests basic parser functionality with empty input and semicolons
@@ -39,79 +42,18 @@ func TestBasicParsing(t *testing.T) {
 			result := yyParse(lexer)
 			
 			if tt.wantError {
-				if result == 0 {
-					t.Errorf("expected parse error, but got success")
-				}
+				assert.NotEqual(t, 0, result, "expected parse error, but got success")
 			} else {
-				if result != 0 {
-					t.Errorf("expected parse success, but got error code %d", result)
-				}
+				assert.Equal(t, 0, result, "expected parse success, but got error code %d", result)
 				if lexer.HasErrors() {
 					errors := lexer.GetErrors()
-					t.Errorf("unexpected parse errors: %v", errors)
+					assert.False(t, true, "unexpected parse errors: %v", errors)
 				}
 			}
 		})
 	}
 }
 
-// TestLexerTokenGeneration tests that the lexer generates correct token sequences
-func TestLexerTokenGeneration(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		tokens []TokenType
-	}{
-		{
-			name:   "identifier token",
-			input:  "test_id",
-			tokens: []TokenType{IDENT},
-		},
-		{
-			name:   "integer constant",
-			input:  "123",
-			tokens: []TokenType{ICONST},
-		},
-		{
-			name:   "string constant",
-			input:  "'hello'",
-			tokens: []TokenType{SCONST},
-		},
-		{
-			name:   "multiple tokens",
-			input:  "id1, id2",
-			tokens: []TokenType{IDENT, ',', IDENT},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			lexer := NewLexer(tt.input)
-			
-			// Collect tokens
-			var tokens []TokenType
-			for {
-				token := lexer.NextToken()
-				if token == nil || token.Type == EOF {
-					break
-				}
-				tokens = append(tokens, token.Type)
-			}
-			
-			// Verify token sequence
-			if len(tokens) != len(tt.tokens) {
-				t.Errorf("expected %d tokens, got %d", len(tt.tokens), len(tokens))
-				return
-			}
-			
-			for i, expectedType := range tt.tokens {
-				if tokens[i] != expectedType {
-					t.Errorf("token %d: expected %v, got %v", i, expectedType, tokens[i])
-				}
-			}
-		})
-	}
-}
 
 // TestEmptyStatementParsing tests parsing of empty statements and semicolons
 func TestEmptyStatementParsing(t *testing.T) {
@@ -145,25 +87,16 @@ func TestEmptyStatementParsing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tree, err := ParseSQL(tt.input)
 			
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-				return
-			}
+			require.NoError(t, err, "unexpected error: %v", err)
 			
-			if !tt.expectTree && tree != nil {
-				t.Errorf("expected nil tree, got %v", tree)
+			if !tt.expectTree {
+				assert.Nil(t, tree, "expected nil tree, got %v", tree)
 				return
 			}
 			
 			if tt.expectTree {
-				if tree == nil {
-					t.Error("expected non-nil tree, got nil")
-					return
-				}
-				
-				if len(tree) != tt.stmtCount {
-					t.Errorf("expected %d statements, got %d", tt.stmtCount, len(tree))
-				}
+				require.NotNil(t, tree, "expected non-nil tree, got nil")
+				assert.Equal(t, tt.stmtCount, len(tree), "expected %d statements, got %d", tt.stmtCount, len(tree))
 			}
 		})
 	}
@@ -282,19 +215,12 @@ func TestLimitOffsetParsing(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			stmts, err := ParseSQL(test.input)
-			if err != nil {
-				t.Fatalf("Failed to parse: %v", err)
-			}
-
-			if len(stmts) != 1 {
-				t.Fatalf("Expected 1 statement, got %d", len(stmts))
-			}
+			require.NoError(t, err, "Failed to parse: %v", err)
+			require.Len(t, stmts, 1, "Expected 1 statement, got %d", len(stmts))
 
 			// Basic validation - just ensure it parses without error
 			// The actual AST structure validation can be more detailed if needed
-			if stmts[0] == nil {
-				t.Fatal("Parsed statement is nil")
-			}
+			assert.NotNil(t, stmts[0], "Parsed statement is nil")
 		})
 	}
 }
@@ -313,9 +239,7 @@ func TestLimitOffsetErrors(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := ParseSQL(test.input)
-			if err == nil {
-				t.Fatal("Expected parse error but got none")
-			}
+			assert.Error(t, err, "Expected parse error but got none")
 		})
 	}
 }

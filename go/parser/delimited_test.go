@@ -64,7 +64,7 @@ func TestDelimitedIdentifiers(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
@@ -118,7 +118,7 @@ func TestDelimitedIdentifierEscaping(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
@@ -219,7 +219,7 @@ func TestDelimitedIdentifierMultiline(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
@@ -265,7 +265,7 @@ func TestDelimitedIdentifierTruncation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
@@ -313,7 +313,7 @@ func TestUnicodeIdentifiers(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
@@ -361,7 +361,7 @@ func TestDelimitedIdentifierContext(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
@@ -409,7 +409,7 @@ func TestIdentifierComparison(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			lexer := NewLexer(test.input)
-			tokens := scanAllTokens(t, lexer)
+			tokens := ScanAllTokens(t, lexer)
 
 			require.Equal(t, len(test.expected), len(tokens))
 			for i, token := range tokens {
