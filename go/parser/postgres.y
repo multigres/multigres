@@ -2696,7 +2696,7 @@ unicode_normal_form:
 	;
 
 json_predicate_type_constraint:
-		JSON									{ $$ = int(ast.JS_TYPE_ANY) }
+		JSON	%prec UNBOUNDED					{ $$ = int(ast.JS_TYPE_ANY) }
 	|	JSON VALUE_P							{ $$ = int(ast.JS_TYPE_ANY) }
 	|	JSON ARRAY								{ $$ = int(ast.JS_TYPE_ARRAY) }
 	|	JSON OBJECT_P							{ $$ = int(ast.JS_TYPE_OBJECT) }
@@ -2705,10 +2705,10 @@ json_predicate_type_constraint:
 
 json_key_uniqueness_constraint_opt:
 		WITH UNIQUE KEYS						{ $$ = true }
-	|	WITH UNIQUE								{ $$ = true }
+	|	WITH UNIQUE				%prec UNBOUNDED	{ $$ = true }
 	|	WITHOUT UNIQUE KEYS						{ $$ = false }
-	|	WITHOUT UNIQUE							{ $$ = false }
-	|	/* EMPTY */								{ $$ = false }
+	|	WITHOUT UNIQUE			%prec UNBOUNDED	{ $$ = false }
+	|	/* EMPTY */				%prec UNBOUNDED	{ $$ = false }
 	;
 
 /* Expression lists */
