@@ -430,12 +430,12 @@ func TestGroupingSet(t *testing.T) {
 
 func TestLockingClause(t *testing.T) {
 	t.Run("basic construction", func(t *testing.T) {
-		lockedRels := []*RangeVar{NewRangeVar("test_table", "", "")}
+		lockedRels := NewNodeList([]Node{NewRangeVar("test_table", "", "")}...)
 		lockingClause := NewLockingClause(lockedRels, LCS_FORUPDATE, LockWaitBlock, 70)
 		lockingClause.SetLocation(70)
 
 		assert.Equal(t, T_LockingClause, lockingClause.NodeTag())
-		assert.Equal(t, 1, len(lockingClause.LockedRels))
+		assert.Equal(t, 1, lockingClause.LockedRels.Len())
 		assert.Equal(t, LCS_FORUPDATE, lockingClause.Strength)
 		assert.Equal(t, LockWaitBlock, lockingClause.WaitPolicy)
 		assert.Equal(t, "LOCKING_CLAUSE", lockingClause.StatementType())
@@ -443,7 +443,7 @@ func TestLockingClause(t *testing.T) {
 	})
 
 	t.Run("all strength values", func(t *testing.T) {
-		lockedRels := []*RangeVar{NewRangeVar("test_table", "", "")}
+		lockedRels := NewNodeList([]Node{NewRangeVar("test_table", "", "")}...)
 		strengths := []LockClauseStrength{
 			LCS_NONE, LCS_FORKEYSHARE, LCS_FORSHARE, LCS_FORNOKEYUPDATE, LCS_FORUPDATE,
 		}
@@ -459,7 +459,7 @@ func TestLockingClause(t *testing.T) {
 	})
 
 	t.Run("all wait policies", func(t *testing.T) {
-		lockedRels := []*RangeVar{NewRangeVar("test_table", "", "")}
+		lockedRels := NewNodeList([]Node{NewRangeVar("test_table", "", "")}...)
 		policies := []LockWaitPolicy{LockWaitBlock, LockWaitSkip, LockWaitError}
 
 		for _, policy := range policies {
@@ -644,7 +644,7 @@ func TestParseInfrastructureNodeInterfaces(t *testing.T) {
 			NewWindowDef("win", 0),
 			NewSortBy(nil, SORTBY_ASC, SORTBY_NULLS_DEFAULT, 0),
 			NewGroupingSet(GROUPING_SET_SIMPLE, NewNodeList(), 0),
-			NewLockingClause([]*RangeVar{}, LCS_FORUPDATE, LockWaitBlock, 0),
+			NewLockingClause(nil, LCS_FORUPDATE, LockWaitBlock, 0),
 			NewXmlSerialize(XMLOPTION_DOCUMENT, nil, nil, false, 0),
 			NewPartitionElem("col", nil, 0),
 			NewTableSampleClause(0, NewNodeList(), nil, 0),
@@ -699,7 +699,7 @@ func TestParseInfrastructureNodeInterfaces(t *testing.T) {
 			NewWindowDef("win", 0),
 			NewSortBy(nil, SORTBY_ASC, SORTBY_NULLS_DEFAULT, 0),
 			NewGroupingSet(GROUPING_SET_SIMPLE, NewNodeList(), 0),
-			NewLockingClause([]*RangeVar{}, LCS_FORUPDATE, LockWaitBlock, 0),
+			NewLockingClause(nil, LCS_FORUPDATE, LockWaitBlock, 0),
 			NewPartitionElem("col", nil, 0),
 			NewTableSampleClause(0, NewNodeList(), nil, 0),
 			NewObjectWithArgs(&NodeList{Items: []Node{}}, NewNodeList(), false, 0),

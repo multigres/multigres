@@ -265,7 +265,7 @@ type LexerInterface interface {
 %type <list>         when_clause_list
 %type <node>         array_expr explicit_row implicit_row
 %type <list>         array_expr_list
-%type <list>         func_arg_list
+%type <list>         func_arg_list aggregate_with_argtypes_list
 %type <node>         func_arg_expr
 %type <list>         indirection opt_indirection oper_argtypes
 %type <node>         indirection_el opt_slice_bound
@@ -283,13 +283,16 @@ type LexerInterface interface {
 %type <ival>         opt_timezone opt_varying
 %type <list>         expr_list row
 %type <list>         opt_sort_clause
-%type <node>         func_application within_group_clause filter_clause
+%type <node>         func_application filter_clause
+%type <list>         within_group_clause
 %type <list>         window_clause window_definition_list opt_partition_clause
 %type <windef>       window_definition window_specification over_clause
 %type <str>          opt_existing_window_name
 %type <windef>       opt_frame_clause frame_extent frame_bound
 %type <ival>         opt_window_exclusion_clause
-%type <list>         for_locking_clause opt_for_locking_clause
+%type <list>         for_locking_clause opt_for_locking_clause for_locking_items locked_rels_list
+%type <node>         for_locking_item
+%type <ival>         for_locking_strength opt_nowait_or_skip
 %type <list>         qual_Op any_operator qual_all_Op subquery_Op
 %type <str>          all_Op MathOp
 %type <node>         in_expr
@@ -2509,14 +2512,15 @@ func_expr:	func_application within_group_clause filter_clause over_clause
 				
 				// Apply within_group_clause if present
 				if $2 != nil {
-					// TODO: Implement within_group_clause handling
-					// funcCall.WithinGroupClause = $2
+					// WITHIN GROUP (ORDER BY ...) - store the sort list
+					funcCall.AggOrder = $2
+					funcCall.AggWithinGroup = true
 				}
 				
 				// Apply filter_clause if present  
 				if $3 != nil {
-					// TODO: Implement filter_clause handling
-					// funcCall.FilterClause = $3
+					// FILTER (WHERE condition) - store the filter expression
+					funcCall.AggFilter = $3
 				}
 				
 				// Apply over_clause if present (window functions)
@@ -3112,10 +3116,22 @@ opt_sort_clause:
 	|	/* EMPTY */							{ $$ = nil }
 		;
 
-within_group_clause: /* EMPTY */				{ $$ = nil }
+within_group_clause:
+		WITHIN GROUP_P '(' sort_clause ')'
+			{
+				// WITHIN GROUP (ORDER BY ...) for ordered-set aggregates
+				$$ = $4
+			}
+	|	/* EMPTY */								{ $$ = nil }
 		;
 
-filter_clause: /* EMPTY */					{ $$ = nil }
+filter_clause:
+		FILTER '(' WHERE a_expr ')'
+			{
+				// FILTER (WHERE condition) for aggregate filtering
+				$$ = $4
+			}
+	|	/* EMPTY */								{ $$ = nil }
 		;
 
 
@@ -3186,6 +3202,7 @@ select_no_parens:
 			{
 				selectStmt := $1.(*ast.SelectStmt)
 				selectStmt.SortClause = $2
+				selectStmt.LockingClause = $3  // Set the locking clause
 				if $4 != nil {
 					selectStmt.LimitOffset = $4.limitOffset
 					selectStmt.LimitCount = $4.limitCount
@@ -3202,6 +3219,7 @@ select_no_parens:
 					selectStmt.LimitCount = $3.limitCount
 					selectStmt.LimitOption = $3.limitOption
 				}
+				selectStmt.LockingClause = $4  // Set the locking clause
 				$$ = selectStmt
 			}
 		|	with_clause select_clause
@@ -3222,6 +3240,7 @@ select_no_parens:
 				selectStmt := $2.(*ast.SelectStmt)
 				selectStmt.WithClause = $1
 				selectStmt.SortClause = $3
+				selectStmt.LockingClause = $4  // Set the locking clause
 				if $5 != nil {
 					selectStmt.LimitOffset = $5.limitOffset
 					selectStmt.LimitCount = $5.limitCount
@@ -3239,21 +3258,67 @@ select_no_parens:
 					selectStmt.LimitCount = $4.limitCount
 					selectStmt.LimitOption = $4.limitOption
 				}
+				selectStmt.LockingClause = $5  // Set the locking clause
 				$$ = selectStmt
 			}
 		;
 
 /*
  * Locking clause support (FOR UPDATE, FOR SHARE, etc.)
- * Placeholder implementation - TODO: Add full locking support
+ * From postgres/src/backend/parser/gram.y:13362+
  */
 for_locking_clause:
-		/* EMPTY */								{ $$ = nil }
+		for_locking_items						{ $$ = $1 }
+	|	FOR READ ONLY							{ $$ = nil }  /* FOR READ ONLY means no locking */
 		;
 
 opt_for_locking_clause:
 		for_locking_clause						{ $$ = $1 }
 	|	/* EMPTY */								{ $$ = nil }
+		;
+
+for_locking_items:
+		for_locking_item
+			{
+				$$ = ast.NewNodeList($1)
+			}
+	|	for_locking_items for_locking_item
+			{
+				$1.Append($2)
+				$$ = $1
+			}
+		;
+
+for_locking_item:
+		for_locking_strength locked_rels_list opt_nowait_or_skip
+			{
+				lockingClause := &ast.LockingClause{
+					BaseNode:   ast.BaseNode{Tag: ast.T_LockingClause},
+					Strength:   ast.LockClauseStrength($1),
+					LockedRels: $2,  // Store as *NodeList directly
+					WaitPolicy: ast.LockWaitPolicy($3),
+				}
+				$$ = lockingClause
+			}
+		;
+
+for_locking_strength:
+		FOR UPDATE									{ $$ = int(ast.LCS_FORUPDATE) }
+	|	FOR NO KEY UPDATE							{ $$ = int(ast.LCS_FORNOKEYUPDATE) }
+	|	FOR SHARE									{ $$ = int(ast.LCS_FORSHARE) }
+	|	FOR KEY SHARE								{ $$ = int(ast.LCS_FORKEYSHARE) }
+		;
+
+locked_rels_list:
+		OF qualified_name_list						{ $$ = $2 }
+	|	/* EMPTY */									{ $$ = nil }
+		;
+
+
+opt_nowait_or_skip:
+		NOWAIT										{ $$ = int(ast.LockWaitError) }
+	|	SKIP LOCKED									{ $$ = int(ast.LockWaitSkip) }
+	|	/* EMPTY */									{ $$ = int(ast.LockWaitBlock) }
 		;
 
 /*
@@ -6526,7 +6591,7 @@ alter_table_cmds:
 				}
 		;
 
-/* Optional NOWAIT - stub for now */
+/* Optional NOWAIT - for ALTER TABLE */  
 opt_nowait:
 			NOWAIT				{ $$ = true }
 		|	/* EMPTY */			{ $$ = false }
@@ -7347,6 +7412,11 @@ aggregate_with_argtypes:
 				$$ = objWithArgs
 			}
 	;
+
+aggregate_with_argtypes_list:
+		aggregate_with_argtypes					{ $$ = ast.NewNodeList($1) }
+		| aggregate_with_argtypes_list ',' aggregate_with_argtypes
+												{ $1.Append($3); $$ = $1 }
 
 RenameStmt:
 		ALTER AGGREGATE aggregate_with_argtypes RENAME TO name

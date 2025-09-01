@@ -329,6 +329,47 @@ func TestDeparsing(t *testing.T) {
 		{"All three combined", "SELECT dept_id, AVG(salary) FROM employees GROUP BY dept_id HAVING AVG(salary) > 50000 ORDER BY AVG(salary) DESC", ""},
 		{"Advanced ROLLUP with ORDER BY", "SELECT year, quarter, SUM(sales) FROM sales GROUP BY ROLLUP(year, quarter) ORDER BY year NULLS LAST, quarter", ""},
 		{"Complex GROUPING SETS with HAVING and ORDER BY", "SELECT category, subcategory, COUNT(*), SUM(amount) FROM transactions GROUP BY GROUPING SETS ((category), (category, subcategory), ()) HAVING SUM(amount) > 1000 ORDER BY category NULLS FIRST, subcategory DESC", ""},
+
+		// Aggregate functions with FILTER clause
+		{"Aggregate with FILTER", "SELECT COUNT(*) FILTER (WHERE active = TRUE) FROM users", ""},
+		{"SUM with FILTER", "SELECT SUM(amount) FILTER (WHERE status = 'paid') FROM invoices", ""},
+		{"Multiple aggregates with FILTER", "SELECT COUNT(*) FILTER (WHERE active), SUM(sales) FILTER (WHERE region = 'US') FROM data", ""},
+		{"Aggregate FILTER with GROUP BY", "SELECT dept, AVG(salary) FILTER (WHERE experience > 5) FROM employees GROUP BY dept", ""},
+		
+		// Aggregate functions with WITHIN GROUP clause
+		{"percentile_cont WITHIN GROUP", "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY score) FROM results", ""},
+		{"mode WITHIN GROUP", "SELECT mode() WITHIN GROUP (ORDER BY value) FROM measurements", ""},
+		{"string_agg WITHIN GROUP", "SELECT string_agg(name, ',') WITHIN GROUP (ORDER BY name) FROM users", ""},
+		{"WITHIN GROUP with DESC", "SELECT percentile_disc(0.9) WITHIN GROUP (ORDER BY amount DESC) FROM transactions", ""},
+		
+		// Combined FILTER and WITHIN GROUP
+		{"Aggregate with FILTER and WITHIN GROUP", "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY score) FILTER (WHERE valid = TRUE) FROM tests", ""},
+		
+		// FOR UPDATE/SHARE locking clauses
+		{"Simple FOR UPDATE", "SELECT * FROM users FOR UPDATE", ""},
+		{"FOR UPDATE with table", "SELECT * FROM users u FOR UPDATE OF u", "SELECT * FROM users AS u FOR UPDATE OF u"},
+		{"FOR UPDATE NOWAIT", "SELECT * FROM accounts FOR UPDATE NOWAIT", ""},
+		{"FOR UPDATE SKIP LOCKED", "SELECT * FROM queue FOR UPDATE SKIP LOCKED", ""},
+		
+		// FOR NO KEY UPDATE
+		{"FOR NO KEY UPDATE", "SELECT * FROM settings FOR NO KEY UPDATE", ""},
+		{"FOR NO KEY UPDATE SKIP LOCKED", "SELECT * FROM tasks FOR NO KEY UPDATE SKIP LOCKED", ""},
+		
+		// FOR SHARE variants
+		{"FOR SHARE", "SELECT * FROM products FOR SHARE", ""},
+		{"FOR SHARE NOWAIT", "SELECT * FROM inventory FOR SHARE NOWAIT", ""},
+		{"FOR KEY SHARE", "SELECT * FROM categories FOR KEY SHARE", ""},
+		{"FOR KEY SHARE SKIP LOCKED", "SELECT * FROM jobs FOR KEY SHARE SKIP LOCKED", ""},
+		
+		// Multiple locking clauses
+		{"Multiple locking clauses", "SELECT * FROM t1, t2 FOR UPDATE OF t1 FOR SHARE OF t2", ""},
+		
+		// FOR READ ONLY (semantically equivalent to no locking, so deparsed without FOR READ ONLY)
+		{"FOR READ ONLY", "SELECT * FROM logs FOR READ ONLY", "SELECT * FROM logs"},
+		
+		// Locking with other clauses
+		{"Locking with ORDER BY LIMIT", "SELECT * FROM queue ORDER BY priority LIMIT 10 FOR UPDATE SKIP LOCKED", ""},
+		{"Locking with GROUP BY", "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id FOR UPDATE", ""},
 	}
 
 	for _, tt := range tests {

@@ -428,6 +428,22 @@ func (f *FuncCall) SqlString() string {
 
 	result := fmt.Sprintf("%s(%s)", funcName, strings.Join(argStrs, ", "))
 	
+	// Add WITHIN GROUP clause for ordered-set aggregates
+	if f.AggWithinGroup && f.AggOrder != nil && f.AggOrder.Len() > 0 {
+		var orderItems []string
+		for _, item := range f.AggOrder.Items {
+			if item != nil {
+				orderItems = append(orderItems, item.SqlString())
+			}
+		}
+		result += " WITHIN GROUP (ORDER BY " + strings.Join(orderItems, ", ") + ")"
+	}
+	
+	// Add FILTER clause for filtered aggregates
+	if f.AggFilter != nil {
+		result += " FILTER (WHERE " + f.AggFilter.SqlString() + ")"
+	}
+	
 	// Add OVER clause for window functions
 	if f.Over != nil {
 		windowSpec := f.Over.SqlString()
@@ -1193,7 +1209,7 @@ func (g *GroupingSet) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:831-841
 type LockingClause struct {
 	BaseNode
-	LockedRels []*RangeVar        // For table locking, list of RangeVar
+	LockedRels *NodeList          // For table locking, list of RangeVar nodes
 	Strength   LockClauseStrength // Lock strength
 	WaitPolicy LockWaitPolicy     // NOWAIT and SKIP LOCKED
 }
@@ -1213,7 +1229,7 @@ const (
 // Note: LockWaitPolicy already exists in query_execution_nodes.go
 
 // NewLockingClause creates a new LockingClause node.
-func NewLockingClause(lockedRels []*RangeVar, strength LockClauseStrength, waitPolicy LockWaitPolicy, location int) *LockingClause {
+func NewLockingClause(lockedRels *NodeList, strength LockClauseStrength, waitPolicy LockWaitPolicy, location int) *LockingClause {
 	lockingClause := &LockingClause{
 		BaseNode:   BaseNode{Tag: T_LockingClause},
 		LockedRels: lockedRels,
@@ -1249,10 +1265,10 @@ func (l *LockingClause) SqlString() string {
 	}
 
 	// Add table names if specified
-	if len(l.LockedRels) > 0 {
+	if l.LockedRels != nil && l.LockedRels.Len() > 0 {
 		var tables []string
-		for _, rel := range l.LockedRels {
-			if rel != nil {
+		for _, item := range l.LockedRels.Items {
+			if rel, ok := item.(*RangeVar); ok && rel != nil {
 				tables = append(tables, rel.SqlString())
 			}
 		}

@@ -557,26 +557,26 @@
 - ✅ `opt_window_exclusion_clause` - Exclusion clause
 
 ### Aggregate Functions
-- ⬜ `aggregate_with_argtypes` - Aggregate with types
-- ⬜ `aggregate_with_argtypes_list` - Aggregate list
-- ⬜ `aggr_arg` - Aggregate argument
-- ⬜ `aggr_args` - Aggregate arguments
-- ⬜ `aggr_args_list` - Aggregate argument list
-- ⬜ `old_aggr_definition` - Old aggregate def
-- ⬜ `old_aggr_list` - Old aggregate list
-- ⬜ `old_aggr_elem` - Old aggregate element
-- ⬜ `within_group_clause` - WITHIN GROUP
-- ⬜ `filter_clause` - FILTER clause
+- ✅ `aggregate_with_argtypes` - Aggregate with types
+- ✅ `aggregate_with_argtypes_list` - Aggregate list
+- ✅ `aggr_arg` - Aggregate argument
+- ✅ `aggr_args` - Aggregate arguments
+- ✅ `aggr_args_list` - Aggregate argument list
+- ✅ `old_aggr_definition` - Old aggregate def
+- ✅ `old_aggr_list` - Old aggregate list
+- ✅ `old_aggr_elem` - Old aggregate element
+- ✅ `within_group_clause` - WITHIN GROUP
+- ✅ `filter_clause` - FILTER clause
 
 ### FOR UPDATE/SHARE
-- ⬜ `for_locking_clause` - FOR UPDATE/SHARE
-- ⬜ `opt_for_locking_clause` - Optional locking
-- ⬜ `for_locking_items` - Locking items
-- ⬜ `for_locking_item` - Single locking item
-- ⬜ `for_locking_strength` - Locking strength
-- ⬜ `locked_rels_list` - Locked relations
-- ⬜ `opt_nowait` - NOWAIT option
-- ⬜ `opt_nowait_or_skip` - NOWAIT or SKIP LOCKED
+- ✅ `for_locking_clause` - FOR UPDATE/SHARE
+- ✅ `opt_for_locking_clause` - Optional locking
+- ✅ `for_locking_items` - Locking items
+- ✅ `for_locking_item` - Single locking item
+- ✅ `for_locking_strength` - Locking strength
+- ✅ `locked_rels_list` - Locked relations
+- ✅ `opt_nowait` - NOWAIT option (existing)
+- ✅ `opt_nowait_or_skip` - NOWAIT or SKIP LOCKED
 
 ### INTO Clause
 - ⬜ `into_clause` - INTO clause

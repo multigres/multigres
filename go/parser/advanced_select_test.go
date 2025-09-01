@@ -501,3 +501,100 @@ func TestWindowFunctions(t *testing.T) {
 		})
 	}
 }
+
+// TestAggregateFunctionsWithFilterAndWithinGroup tests aggregate functions with FILTER and WITHIN GROUP clauses
+func TestAggregateFunctionsWithFilterAndWithinGroup(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		// Basic FILTER clause tests
+		{"COUNT with FILTER", "SELECT COUNT(*) FILTER (WHERE status = 'active') FROM users"},
+		{"SUM with FILTER", "SELECT SUM(amount) FILTER (WHERE date > '2024-01-01') FROM transactions"},
+		{"AVG with FILTER and GROUP BY", "SELECT department, AVG(salary) FILTER (WHERE experience > 5) FROM employees GROUP BY department"},
+		{"Multiple aggregates with FILTER", "SELECT COUNT(*) FILTER (WHERE active), SUM(value) FILTER (WHERE type = 'sale') FROM records"},
+		{"FILTER with complex condition", "SELECT MAX(price) FILTER (WHERE category = 'electronics' AND in_stock = true) FROM products"},
+		
+		// WITHIN GROUP clause tests
+		{"percentile_cont with WITHIN GROUP", "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY salary) FROM employees"},
+		{"mode with WITHIN GROUP", "SELECT mode() WITHIN GROUP (ORDER BY category) FROM products"},
+		{"string_agg with WITHIN GROUP", "SELECT string_agg(name, ', ') WITHIN GROUP (ORDER BY name) FROM users"},
+		{"WITHIN GROUP with DESC", "SELECT percentile_disc(0.9) WITHIN GROUP (ORDER BY score DESC) FROM tests"},
+		
+		// Combined FILTER and WITHIN GROUP
+		{"Aggregate with both FILTER and WITHIN GROUP", "SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY score) FILTER (WHERE status = 'completed') FROM tests"},
+		
+		// With window functions
+		{"Aggregate with FILTER and OVER", "SELECT SUM(amount) FILTER (WHERE type = 'credit') OVER (PARTITION BY account_id) FROM transactions"},
+		{"COUNT FILTER with window", "SELECT COUNT(*) FILTER (WHERE active = true) OVER (ORDER BY created_at) FROM users"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.NotEmpty(t, stmts, "No statements parsed")
+			
+			stmt := stmts[0]
+			require.IsType(t, &ast.SelectStmt{}, stmt, "Expected SelectStmt")
+		})
+	}
+}
+
+// TestLockingClauses tests FOR UPDATE/SHARE locking clauses
+func TestLockingClauses(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		// Basic FOR UPDATE
+		{"Simple FOR UPDATE", "SELECT * FROM users FOR UPDATE"},
+		{"FOR UPDATE with specific tables", "SELECT * FROM users u, orders o WHERE u.id = o.user_id FOR UPDATE OF u"},
+		{"FOR UPDATE NOWAIT", "SELECT * FROM accounts WHERE balance > 1000 FOR UPDATE NOWAIT"},
+		{"FOR UPDATE SKIP LOCKED", "SELECT * FROM queue WHERE processed = false FOR UPDATE SKIP LOCKED"},
+		
+		// FOR NO KEY UPDATE
+		{"FOR NO KEY UPDATE", "SELECT * FROM settings FOR NO KEY UPDATE"},
+		{"FOR NO KEY UPDATE SKIP LOCKED", "SELECT * FROM tasks FOR NO KEY UPDATE SKIP LOCKED"},
+		{"FOR NO KEY UPDATE with specific table", "SELECT * FROM users u, posts p WHERE u.id = p.user_id FOR NO KEY UPDATE OF u"},
+		
+		// FOR SHARE
+		{"Simple FOR SHARE", "SELECT * FROM products FOR SHARE"},
+		{"FOR SHARE with multiple tables", "SELECT * FROM orders o, items i WHERE o.id = i.order_id FOR SHARE OF o, i"},
+		{"FOR SHARE NOWAIT", "SELECT * FROM inventory FOR SHARE NOWAIT"},
+		
+		// FOR KEY SHARE
+		{"FOR KEY SHARE", "SELECT * FROM categories FOR KEY SHARE"},
+		{"FOR KEY SHARE NOWAIT", "SELECT * FROM configs FOR KEY SHARE NOWAIT"},
+		{"FOR KEY SHARE SKIP LOCKED", "SELECT * FROM jobs FOR KEY SHARE SKIP LOCKED"},
+		
+		// Multiple locking clauses
+		{"Multiple locking clauses", "SELECT * FROM users u, accounts a WHERE u.id = a.user_id FOR UPDATE OF u FOR SHARE OF a"},
+		{"Mixed locking strengths", "SELECT * FROM t1, t2, t3 WHERE t1.id = t2.ref_id AND t2.id = t3.ref_id FOR UPDATE OF t1 FOR NO KEY UPDATE OF t2 FOR SHARE OF t3"},
+		
+		// FOR READ ONLY
+		{"FOR READ ONLY", "SELECT * FROM logs FOR READ ONLY"},
+		
+		// With other clauses
+		{"Locking with ORDER BY and LIMIT", "SELECT * FROM queue ORDER BY priority DESC LIMIT 10 FOR UPDATE SKIP LOCKED"},
+		{"Locking with GROUP BY", "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id FOR UPDATE"},
+		{"Locking with subquery", "SELECT * FROM (SELECT * FROM users WHERE active = true) AS u FOR UPDATE"},
+		{"Locking with JOIN", "SELECT * FROM users u JOIN accounts a ON u.id = a.user_id FOR UPDATE OF u"},
+		{"Locking with CTE", "WITH active_users AS (SELECT * FROM users WHERE active = true) SELECT * FROM active_users FOR UPDATE"},
+		
+		// Complex combinations
+		{"Aggregate with FILTER and locking", "SELECT user_id, COUNT(*) FILTER (WHERE status = 'pending') FROM orders GROUP BY user_id FOR UPDATE"},
+		{"WITHIN GROUP with locking", "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY amount) FROM transactions FOR SHARE"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
+			require.NotEmpty(t, stmts, "No statements parsed")
+			
+			stmt := stmts[0]
+			require.IsType(t, &ast.SelectStmt{}, stmt, "Expected SelectStmt")
+		})
+	}
+}
