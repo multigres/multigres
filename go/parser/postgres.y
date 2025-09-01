@@ -372,6 +372,15 @@ type LexerInterface interface {
 %type <node>         json_value_expr
 %type <list>         json_arguments
 %type <node>         json_argument
+%type <list>         json_value_expr_list  
+%type <node>         json_aggregate_func
+%type <node>         json_name_and_value
+%type <list>         json_name_and_value_list
+%type <bval>         json_object_constructor_null_clause_opt
+%type <bval>         json_array_constructor_null_clause_opt
+%type <bval>         json_key_uniqueness_constraint_opt
+%type <list>         json_array_aggregate_order_by_clause_opt
+%type <node>         json_returning_clause_opt
 %type <node>         json_passing_clause_opt
 %type <node>         json_on_error_clause_opt
 %type <node>         json_behavior
@@ -2530,11 +2539,45 @@ func_expr:	func_application within_group_clause filter_clause over_clause
 				
 				$$ = funcCall
 			}
+		|	json_aggregate_func filter_clause over_clause
+			{
+				jsonAgg := $1
+				
+				// Create or get the Constructor
+				var constructor *ast.JsonAggConstructor
+				
+				// Handle the filter_clause and over_clause by setting them in the Constructor
+				switch jsonFunc := jsonAgg.(type) {
+				case *ast.JsonObjectAgg:
+					if jsonFunc.Constructor == nil {
+						jsonFunc.Constructor = ast.NewJsonAggConstructor(nil)
+					}
+					constructor = jsonFunc.Constructor
+				case *ast.JsonArrayAgg:
+					if jsonFunc.Constructor == nil {
+						jsonFunc.Constructor = ast.NewJsonAggConstructor(nil)
+					}
+					constructor = jsonFunc.Constructor
+				}
+				
+				// Set filter and over clauses outside the switch (DRY)
+				if constructor != nil {
+					if $2 != nil {
+						constructor.AggFilter = $2.(ast.Node)
+					}
+					if $3 != nil {
+						constructor.Over = $3
+					}
+				}
+				
+				$$ = jsonAgg
+			}
 		;
 
 /* Function expression without window clause - used in table functions */
 func_expr_windowless:
 			func_application                    { $$ = $1 }
+		|	json_aggregate_func					{ $$ = $1 }
 		;
 
 func_name:	type_function_name
@@ -3941,9 +3984,9 @@ opt_distinct_clause:
  * From postgres/src/backend/parser/gram.y:15700+
  */
 into_clause:
-			INTO qualified_name
+			INTO OptTempTableName
 			{
-				$$ = ast.NewIntoClause($2, nil, "", nil, ast.ONCOMMIT_NOOP, "", nil, false, 0)
+				$$ = ast.NewIntoClause($2.(*ast.RangeVar), nil, "", nil, ast.ONCOMMIT_NOOP, "", nil, false, 0)
 			}
 		|	/* EMPTY */								{ $$ = nil }
 		;
@@ -4286,6 +4329,104 @@ json_argument:
 				jsonArg := ast.NewJsonArgument($1.(*ast.JsonValueExpr), $3)
 				$$ = jsonArg
 			}
+
+json_value_expr_list:
+			json_value_expr								{ $$ = ast.NewNodeList($1) }
+		|	json_value_expr_list ',' json_value_expr	{ $1.Append($3); $$ = $1 }
+		;
+
+/* JSON name and value rules - exact PostgreSQL grammar match */
+json_name_and_value_list:
+			json_name_and_value
+			{ 
+				$$ = ast.NewNodeList($1) 
+			}
+		|	json_name_and_value_list ',' json_name_and_value
+			{ 
+				$1.Append($3); $$ = $1 
+			}
+		;
+
+json_name_and_value:
+/* Supporting this syntax seems to require major surgery
+			KEY c_expr VALUE_P json_value_expr
+				{ $$ = makeJsonKeyValue($2, $4); }
+			|
+*/
+			c_expr VALUE_P json_value_expr
+			{
+				$$ = ast.NewJsonKeyValue($1.(ast.Expr),$3.(*ast.JsonValueExpr))
+			}
+		|	a_expr ':' json_value_expr
+			{
+				$$ = ast.NewJsonKeyValue($1.(ast.Expr),$3.(*ast.JsonValueExpr))
+			}
+		;
+
+/* JSON constructor null clauses - exact PostgreSQL grammar match */
+json_object_constructor_null_clause_opt:
+			NULL_P ON NULL_P					{ $$ = false }
+		|	ABSENT ON NULL_P					{ $$ = true }
+		|	/* EMPTY */							{ $$ = false }
+		;
+
+json_array_constructor_null_clause_opt:
+			NULL_P ON NULL_P					{ $$ = false }
+		|	ABSENT ON NULL_P					{ $$ = true }
+		|	/* EMPTY */							{ $$ = true }
+		;
+
+/* JSON array order by clause - exact PostgreSQL grammar match */
+json_array_aggregate_order_by_clause_opt:
+			ORDER BY sortby_list				{ $$ = $3 }
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+/* JSON aggregate functions - exact PostgreSQL grammar match */
+json_aggregate_func:
+			JSON_OBJECTAGG '('
+				json_name_and_value
+				json_object_constructor_null_clause_opt
+				json_key_uniqueness_constraint_opt
+				json_returning_clause_opt
+			')'
+			{
+				var jsonOutput *ast.JsonOutput;
+				if $6 != nil {
+					jsonOutput = $6.(*ast.JsonOutput)
+				}
+				constructor := ast.NewJsonAggConstructor(jsonOutput)
+				
+				$$ = ast.NewJsonObjectAgg(constructor, $3.(*ast.JsonKeyValue), $4, $5)
+			}
+		|	JSON_ARRAYAGG '('
+				json_value_expr
+				json_array_aggregate_order_by_clause_opt
+				json_array_constructor_null_clause_opt
+				json_returning_clause_opt
+			')'
+			{
+				var jsonOutput *ast.JsonOutput;
+				if $6 != nil {
+					jsonOutput = $6.(*ast.JsonOutput)
+				}
+				constructor := ast.NewJsonAggConstructor(jsonOutput)
+				constructor.AggOrder = $4
+				$$ = ast.NewJsonArrayAgg(constructor, $3.(*ast.JsonValueExpr), $5)
+			}
+		;
+
+json_returning_clause_opt:
+			RETURNING Typename json_format_clause_opt
+			{
+				var jsonFormat *ast.JsonFormat
+				if $3 != nil {
+					jsonFormat = $3.(*ast.JsonFormat)
+				}
+				$$ = ast.NewJsonOutput($2, ast.NewJsonReturning(jsonFormat, 0, 0));
+			}
+		|	/* EMPTY */								{ $$ = nil }
+		;
 
 /* JSON behavior */
 json_behavior:

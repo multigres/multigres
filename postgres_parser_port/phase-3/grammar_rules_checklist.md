@@ -82,12 +82,12 @@
 
 ### Lists ✅ PARTIAL (Basic lists implemented)
 - ✅ `expr_list` - Expression list
-- ⬜ `type_list` - Type list (deferred to Phase 3F)
-- ⬜ `array_expr` - Array expression (deferred to Phase 3E)
-- ⬜ `array_expr_list` - Array expression list (deferred to Phase 3E)
-- ⬜ `row` - Row expression (deferred to Phase 3E)
-- ⬜ `explicit_row` - Explicit row constructor (deferred to Phase 3E)
-- ⬜ `implicit_row` - Implicit row constructor (deferred to Phase 3E)
+- ✅ `type_list` - Type list (deferred to Phase 3F)
+- ✅ `array_expr` - Array expression (deferred to Phase 3E)
+- ✅ `array_expr_list` - Array expression list (deferred to Phase 3E)
+- ✅ `row` - Row expression (deferred to Phase 3E)
+- ✅ `explicit_row` - Explicit row constructor (deferred to Phase 3E)
+- ✅ `implicit_row` - Implicit row constructor (deferred to Phase 3E)
 
 ## Phase 3C: SELECT Statement Core (~35 rules) ⚠️ MOSTLY COMPLETE (~80-85%)
 
@@ -579,20 +579,20 @@
 - ✅ `opt_nowait_or_skip` - NOWAIT or SKIP LOCKED
 
 ### INTO Clause
-- ⬜ `into_clause` - INTO clause
+- ✅ `into_clause` - INTO clause
 
 ### JSON Functions
-- ⬜ `json_aggregate_func` - JSON aggregate
-- ⬜ `json_argument` - JSON argument
-- ⬜ `json_arguments` - JSON arguments
-- ⬜ `json_value_expr` - JSON value expression
-- ⬜ `json_value_expr_list` - JSON value list
-- ⬜ `json_format_clause` - JSON FORMAT
-- ⬜ `json_format_clause_opt` - Optional FORMAT
-- ⬜ `json_returning_clause_opt` - RETURNING clause
-- ⬜ `json_passing_clause_opt` - PASSING clause
-- ⬜ `json_on_error_clause_opt` - ON ERROR clause
-- ⬜ `json_wrapper_behavior` - Wrapper behavior
+- ✅ `json_aggregate_func` - JSON aggregate
+- ✅ `json_argument` - JSON argument
+- ✅ `json_arguments` - JSON arguments
+- ✅ `json_value_expr` - JSON value expression
+- ✅ `json_value_expr_list` - JSON value list
+- ✅ `json_format_clause` - JSON FORMAT
+- ✅ `json_format_clause_opt` - Optional FORMAT
+- ✅ `json_returning_clause_opt` - RETURNING clause
+- ✅ `json_passing_clause_opt` - PASSING clause
+- ✅ `json_on_error_clause_opt` - ON ERROR clause
+- ✅ `json_wrapper_behavior` - Wrapper behavior
 
 ## Phase 3I: Transaction & Administrative (~80 rules)
 

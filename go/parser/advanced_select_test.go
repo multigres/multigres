@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/multigres/parser/go/parser/ast"
@@ -91,7 +92,7 @@ func TestGroupByAdvanced(t *testing.T) {
 				selectStmt := node.(*ast.SelectStmt)
 				assert.NotNil(t, selectStmt.GroupClause)
 				assert.Equal(t, 1, selectStmt.GroupClause.Len())
-				
+
 				// Check that the group item is a GroupingSet
 				groupItem := selectStmt.GroupClause.Items[0]
 				groupingSet, ok := groupItem.(*ast.GroupingSet)
@@ -106,7 +107,7 @@ func TestGroupByAdvanced(t *testing.T) {
 				selectStmt := node.(*ast.SelectStmt)
 				assert.NotNil(t, selectStmt.GroupClause)
 				assert.Equal(t, 1, selectStmt.GroupClause.Len())
-				
+
 				groupItem := selectStmt.GroupClause.Items[0]
 				groupingSet, ok := groupItem.(*ast.GroupingSet)
 				assert.True(t, ok, "Expected GroupingSet")
@@ -120,7 +121,7 @@ func TestGroupByAdvanced(t *testing.T) {
 				selectStmt := node.(*ast.SelectStmt)
 				assert.NotNil(t, selectStmt.GroupClause)
 				assert.Equal(t, 1, selectStmt.GroupClause.Len())
-				
+
 				groupItem := selectStmt.GroupClause.Items[0]
 				groupingSet, ok := groupItem.(*ast.GroupingSet)
 				assert.True(t, ok, "Expected GroupingSet")
@@ -134,7 +135,7 @@ func TestGroupByAdvanced(t *testing.T) {
 				selectStmt := node.(*ast.SelectStmt)
 				assert.NotNil(t, selectStmt.GroupClause)
 				assert.Equal(t, 1, selectStmt.GroupClause.Len())
-				
+
 				groupItem := selectStmt.GroupClause.Items[0]
 				groupingSet, ok := groupItem.(*ast.GroupingSet)
 				assert.True(t, ok, "Expected GroupingSet")
@@ -237,7 +238,7 @@ func TestOrderByClause(t *testing.T) {
 				selectStmt := node.(*ast.SelectStmt)
 				assert.NotNil(t, selectStmt.SortClause)
 				assert.Equal(t, 1, selectStmt.SortClause.Len())
-				
+
 				sortBy := selectStmt.SortClause.Items[0].(*ast.SortBy)
 				assert.Equal(t, ast.SORTBY_DEFAULT, sortBy.SortbyDir)
 				assert.Equal(t, ast.SORTBY_NULLS_DEFAULT, sortBy.SortbyNulls)
@@ -250,7 +251,7 @@ func TestOrderByClause(t *testing.T) {
 				selectStmt := node.(*ast.SelectStmt)
 				assert.NotNil(t, selectStmt.SortClause)
 				assert.Equal(t, 1, selectStmt.SortClause.Len())
-				
+
 				sortBy := selectStmt.SortClause.Items[0].(*ast.SortBy)
 				assert.Equal(t, ast.SORTBY_ASC, sortBy.SortbyDir)
 				assert.Equal(t, ast.SORTBY_NULLS_DEFAULT, sortBy.SortbyNulls)
@@ -263,7 +264,7 @@ func TestOrderByClause(t *testing.T) {
 				selectStmt := node.(*ast.SelectStmt)
 				assert.NotNil(t, selectStmt.SortClause)
 				assert.Equal(t, 1, selectStmt.SortClause.Len())
-				
+
 				sortBy := selectStmt.SortClause.Items[0].(*ast.SortBy)
 				assert.Equal(t, ast.SORTBY_DESC, sortBy.SortbyDir)
 				assert.Equal(t, ast.SORTBY_NULLS_DEFAULT, sortBy.SortbyNulls)
@@ -276,7 +277,7 @@ func TestOrderByClause(t *testing.T) {
 				selectStmt := node.(*ast.SelectStmt)
 				assert.NotNil(t, selectStmt.SortClause)
 				assert.Equal(t, 1, selectStmt.SortClause.Len())
-				
+
 				sortBy := selectStmt.SortClause.Items[0].(*ast.SortBy)
 				assert.Equal(t, ast.SORTBY_DEFAULT, sortBy.SortbyDir)
 				assert.Equal(t, ast.SORTBY_NULLS_FIRST, sortBy.SortbyNulls)
@@ -289,7 +290,7 @@ func TestOrderByClause(t *testing.T) {
 				selectStmt := node.(*ast.SelectStmt)
 				assert.NotNil(t, selectStmt.SortClause)
 				assert.Equal(t, 1, selectStmt.SortClause.Len())
-				
+
 				sortBy := selectStmt.SortClause.Items[0].(*ast.SortBy)
 				assert.Equal(t, ast.SORTBY_DESC, sortBy.SortbyDir)
 				assert.Equal(t, ast.SORTBY_NULLS_LAST, sortBy.SortbyNulls)
@@ -302,12 +303,12 @@ func TestOrderByClause(t *testing.T) {
 				selectStmt := node.(*ast.SelectStmt)
 				assert.NotNil(t, selectStmt.SortClause)
 				assert.Equal(t, 2, selectStmt.SortClause.Len())
-				
+
 				// First sort column
 				sortBy1 := selectStmt.SortClause.Items[0].(*ast.SortBy)
 				assert.Equal(t, ast.SORTBY_ASC, sortBy1.SortbyDir)
 				assert.Equal(t, ast.SORTBY_NULLS_DEFAULT, sortBy1.SortbyNulls)
-				
+
 				// Second sort column
 				sortBy2 := selectStmt.SortClause.Items[1].(*ast.SortBy)
 				assert.Equal(t, ast.SORTBY_DESC, sortBy2.SortbyDir)
@@ -346,7 +347,7 @@ func TestComplexSelectStatements(t *testing.T) {
 	}{
 		{
 			name: "GROUP BY + HAVING + ORDER BY",
-			sql:  `SELECT dept_id, COUNT(*), AVG(salary) 
+			sql: `SELECT dept_id, COUNT(*), AVG(salary) 
 					FROM employees 
 					GROUP BY dept_id 
 					HAVING COUNT(*) > 5 
@@ -362,7 +363,7 @@ func TestComplexSelectStatements(t *testing.T) {
 		},
 		{
 			name: "Complex GROUP BY with ROLLUP and ORDER BY",
-			sql:  `SELECT year, quarter, SUM(sales) 
+			sql: `SELECT year, quarter, SUM(sales) 
 					FROM sales_data 
 					GROUP BY ROLLUP(year, quarter) 
 					ORDER BY year, quarter NULLS LAST`,
@@ -372,7 +373,7 @@ func TestComplexSelectStatements(t *testing.T) {
 				assert.NotNil(t, selectStmt.SortClause)
 				assert.Equal(t, 1, selectStmt.GroupClause.Len())
 				assert.Equal(t, 2, selectStmt.SortClause.Len())
-				
+
 				// Check ROLLUP grouping set
 				groupItem := selectStmt.GroupClause.Items[0]
 				groupingSet, ok := groupItem.(*ast.GroupingSet)
@@ -382,7 +383,7 @@ func TestComplexSelectStatements(t *testing.T) {
 		},
 		{
 			name: "All features combined",
-			sql:  `SELECT category, subcategory, COUNT(*), SUM(amount)
+			sql: `SELECT category, subcategory, COUNT(*), SUM(amount)
 					FROM transactions
 					WHERE amount > 0
 					GROUP BY GROUPING SETS ((category), (category, subcategory), ())
@@ -396,7 +397,7 @@ func TestComplexSelectStatements(t *testing.T) {
 				assert.NotNil(t, selectStmt.SortClause)
 				assert.Equal(t, 1, selectStmt.GroupClause.Len())
 				assert.Equal(t, 2, selectStmt.SortClause.Len())
-				
+
 				// Check GROUPING SETS
 				groupItem := selectStmt.GroupClause.Items[0]
 				groupingSet, ok := groupItem.(*ast.GroupingSet)
@@ -425,6 +426,7 @@ func TestComplexSelectStatements(t *testing.T) {
 		})
 	}
 }
+
 // TestWindowFunctions tests window function parsing
 func TestWindowFunctions(t *testing.T) {
 	tests := []struct {
@@ -514,16 +516,16 @@ func TestAggregateFunctionsWithFilterAndWithinGroup(t *testing.T) {
 		{"AVG with FILTER and GROUP BY", "SELECT department, AVG(salary) FILTER (WHERE experience > 5) FROM employees GROUP BY department"},
 		{"Multiple aggregates with FILTER", "SELECT COUNT(*) FILTER (WHERE active), SUM(value) FILTER (WHERE type = 'sale') FROM records"},
 		{"FILTER with complex condition", "SELECT MAX(price) FILTER (WHERE category = 'electronics' AND in_stock = true) FROM products"},
-		
+
 		// WITHIN GROUP clause tests
 		{"percentile_cont with WITHIN GROUP", "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY salary) FROM employees"},
 		{"mode with WITHIN GROUP", "SELECT mode() WITHIN GROUP (ORDER BY category) FROM products"},
 		{"string_agg with WITHIN GROUP", "SELECT string_agg(name, ', ') WITHIN GROUP (ORDER BY name) FROM users"},
 		{"WITHIN GROUP with DESC", "SELECT percentile_disc(0.9) WITHIN GROUP (ORDER BY score DESC) FROM tests"},
-		
+
 		// Combined FILTER and WITHIN GROUP
 		{"Aggregate with both FILTER and WITHIN GROUP", "SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY score) FILTER (WHERE status = 'completed') FROM tests"},
-		
+
 		// With window functions
 		{"Aggregate with FILTER and OVER", "SELECT SUM(amount) FILTER (WHERE type = 'credit') OVER (PARTITION BY account_id) FROM transactions"},
 		{"COUNT FILTER with window", "SELECT COUNT(*) FILTER (WHERE active = true) OVER (ORDER BY created_at) FROM users"},
@@ -534,7 +536,7 @@ func TestAggregateFunctionsWithFilterAndWithinGroup(t *testing.T) {
 			stmts, err := ParseSQL(tt.sql)
 			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
 			require.NotEmpty(t, stmts, "No statements parsed")
-			
+
 			stmt := stmts[0]
 			require.IsType(t, &ast.SelectStmt{}, stmt, "Expected SelectStmt")
 		})
@@ -552,36 +554,36 @@ func TestLockingClauses(t *testing.T) {
 		{"FOR UPDATE with specific tables", "SELECT * FROM users u, orders o WHERE u.id = o.user_id FOR UPDATE OF u"},
 		{"FOR UPDATE NOWAIT", "SELECT * FROM accounts WHERE balance > 1000 FOR UPDATE NOWAIT"},
 		{"FOR UPDATE SKIP LOCKED", "SELECT * FROM queue WHERE processed = false FOR UPDATE SKIP LOCKED"},
-		
+
 		// FOR NO KEY UPDATE
 		{"FOR NO KEY UPDATE", "SELECT * FROM settings FOR NO KEY UPDATE"},
 		{"FOR NO KEY UPDATE SKIP LOCKED", "SELECT * FROM tasks FOR NO KEY UPDATE SKIP LOCKED"},
 		{"FOR NO KEY UPDATE with specific table", "SELECT * FROM users u, posts p WHERE u.id = p.user_id FOR NO KEY UPDATE OF u"},
-		
+
 		// FOR SHARE
 		{"Simple FOR SHARE", "SELECT * FROM products FOR SHARE"},
 		{"FOR SHARE with multiple tables", "SELECT * FROM orders o, items i WHERE o.id = i.order_id FOR SHARE OF o, i"},
 		{"FOR SHARE NOWAIT", "SELECT * FROM inventory FOR SHARE NOWAIT"},
-		
+
 		// FOR KEY SHARE
 		{"FOR KEY SHARE", "SELECT * FROM categories FOR KEY SHARE"},
 		{"FOR KEY SHARE NOWAIT", "SELECT * FROM configs FOR KEY SHARE NOWAIT"},
 		{"FOR KEY SHARE SKIP LOCKED", "SELECT * FROM jobs FOR KEY SHARE SKIP LOCKED"},
-		
+
 		// Multiple locking clauses
 		{"Multiple locking clauses", "SELECT * FROM users u, accounts a WHERE u.id = a.user_id FOR UPDATE OF u FOR SHARE OF a"},
 		{"Mixed locking strengths", "SELECT * FROM t1, t2, t3 WHERE t1.id = t2.ref_id AND t2.id = t3.ref_id FOR UPDATE OF t1 FOR NO KEY UPDATE OF t2 FOR SHARE OF t3"},
-		
+
 		// FOR READ ONLY
 		{"FOR READ ONLY", "SELECT * FROM logs FOR READ ONLY"},
-		
+
 		// With other clauses
 		{"Locking with ORDER BY and LIMIT", "SELECT * FROM queue ORDER BY priority DESC LIMIT 10 FOR UPDATE SKIP LOCKED"},
 		{"Locking with GROUP BY", "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id FOR UPDATE"},
 		{"Locking with subquery", "SELECT * FROM (SELECT * FROM users WHERE active = true) AS u FOR UPDATE"},
 		{"Locking with JOIN", "SELECT * FROM users u JOIN accounts a ON u.id = a.user_id FOR UPDATE OF u"},
 		{"Locking with CTE", "WITH active_users AS (SELECT * FROM users WHERE active = true) SELECT * FROM active_users FOR UPDATE"},
-		
+
 		// Complex combinations
 		{"Aggregate with FILTER and locking", "SELECT user_id, COUNT(*) FILTER (WHERE status = 'pending') FROM orders GROUP BY user_id FOR UPDATE"},
 		{"WITHIN GROUP with locking", "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY amount) FROM transactions FOR SHARE"},
@@ -592,9 +594,197 @@ func TestLockingClauses(t *testing.T) {
 			stmts, err := ParseSQL(tt.sql)
 			require.NoError(t, err, "Failed to parse SQL: %s", tt.sql)
 			require.NotEmpty(t, stmts, "No statements parsed")
-			
+
 			stmt := stmts[0]
 			require.IsType(t, &ast.SelectStmt{}, stmt, "Expected SelectStmt")
+		})
+	}
+}
+
+// TestINTOClause tests the INTO clause parsing for SELECT statements
+func TestINTOClause(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		expected *ast.IntoClause
+	}{
+		{
+			name: "Simple INTO",
+			sql:  "SELECT * INTO new_table FROM users",
+			expected: &ast.IntoClause{
+				Rel: &ast.RangeVar{
+					RelName: "new_table",
+				},
+			},
+		},
+		{
+			name: "INTO TEMPORARY table",
+			sql:  "SELECT * INTO TEMPORARY temp_users FROM users",
+			expected: &ast.IntoClause{
+				Rel: &ast.RangeVar{
+					RelName:        "temp_users",
+					RelPersistence: ast.RELPERSISTENCE_TEMP,
+				},
+			},
+		},
+		{
+			name: "INTO TEMP table",
+			sql:  "SELECT * INTO TEMP temp_users FROM users",
+			expected: &ast.IntoClause{
+				Rel: &ast.RangeVar{
+					RelName:        "temp_users",
+					RelPersistence: ast.RELPERSISTENCE_TEMP,
+				},
+			},
+		},
+		{
+			name: "INTO LOCAL TEMPORARY table",
+			sql:  "SELECT * INTO LOCAL TEMPORARY local_temp_users FROM users",
+			expected: &ast.IntoClause{
+				Rel: &ast.RangeVar{
+					RelName:        "local_temp_users",
+					RelPersistence: ast.RELPERSISTENCE_TEMP,
+				},
+			},
+		},
+		{
+			name: "INTO UNLOGGED table",
+			sql:  "SELECT * INTO UNLOGGED unlogged_users FROM users",
+			expected: &ast.IntoClause{
+				Rel: &ast.RangeVar{
+					RelName:        "unlogged_users",
+					RelPersistence: ast.RELPERSISTENCE_UNLOGGED,
+				},
+			},
+		},
+		{
+			name: "INTO TABLE explicit",
+			sql:  "SELECT * INTO TABLE explicit_table FROM users",
+			expected: &ast.IntoClause{
+				Rel: &ast.RangeVar{
+					RelName:        "explicit_table",
+					RelPersistence: ast.RELPERSISTENCE_PERMANENT,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+
+			selectStmt, ok := stmts[0].(*ast.SelectStmt)
+			require.True(t, ok, "Expected SelectStmt, got %T", stmts[0])
+			require.NotNil(t, selectStmt.IntoClause)
+
+			// Check basic INTO clause structure
+			assert.NotNil(t, selectStmt.IntoClause.Rel)
+			assert.Equal(t, tt.expected.Rel.RelName, selectStmt.IntoClause.Rel.RelName)
+
+			// Check persistence if specified in expected
+			if tt.expected.Rel.RelPersistence != 0 {
+				assert.Equal(t, tt.expected.Rel.RelPersistence, selectStmt.IntoClause.Rel.RelPersistence)
+			}
+		})
+	}
+}
+
+// TestJSONAggregateFunctions tests JSON aggregate function parsing
+func TestJSONAggregateFunctions(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		nodeType ast.NodeTag
+	}{
+		{
+			name:     "JSON_OBJECTAGG simple",
+			sql:      "SELECT JSON_OBJECTAGG('name' VALUE value) FROM users",
+			nodeType: ast.T_JsonObjectAgg,
+		},
+		{
+			name:     "JSON_ARRAYAGG simple",
+			sql:      "SELECT JSON_ARRAYAGG(name) FROM users",
+			nodeType: ast.T_JsonArrayAgg,
+		},
+		{
+			name:     "JSON_OBJECTAGG with RETURNING",
+			sql:      "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FROM users",
+			nodeType: ast.T_JsonObjectAgg,
+		},
+		{
+			name:     "JSON_ARRAYAGG with RETURNING",
+			sql:      "SELECT JSON_ARRAYAGG(name RETURNING JSONB) FROM users",
+			nodeType: ast.T_JsonArrayAgg,
+		},
+		{
+			name:     "JSON_OBJECTAGG with FILTER",
+			sql:      "SELECT JSON_OBJECTAGG('key' VALUE value) FILTER (WHERE value IS NOT NULL) FROM users",
+			nodeType: ast.T_JsonObjectAgg,
+		},
+		{
+			name:     "JSON_ARRAYAGG with OVER window",
+			sql:      "SELECT JSON_ARRAYAGG(name) OVER (PARTITION BY department) FROM users",
+			nodeType: ast.T_JsonArrayAgg,
+		},
+		{
+			name:     "JSON_OBJECTAGG with FILTER and OVER",
+			sql:      "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FILTER (WHERE value > 0) OVER (ORDER BY id) FROM users",
+			nodeType: ast.T_JsonObjectAgg,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmts, err := ParseSQL(tt.sql)
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+
+			selectStmt, ok := stmts[0].(*ast.SelectStmt)
+			require.True(t, ok, "Expected SelectStmt, got %T", stmts[0])
+			require.NotNil(t, selectStmt.TargetList)
+			require.Len(t, selectStmt.TargetList.Items, 1)
+
+			target := selectStmt.TargetList.Items[0].(*ast.ResTarget)
+			require.NotNil(t, target.Val)
+
+			// For JSON aggregate functions, we expect them to be expression nodes
+			expr := target.Val
+			require.NotNil(t, expr)
+
+			// Check that the node type matches expectations
+			switch tt.nodeType {
+			case ast.T_JsonObjectAgg:
+				jsonObj, ok := expr.(*ast.JsonObjectAgg)
+				assert.True(t, ok, "Expected JsonObjectAgg, got %T", expr)
+
+				// For FILTER and OVER test cases, check Constructor fields
+				if strings.Contains(tt.sql, "FILTER") || strings.Contains(tt.sql, "OVER") {
+					assert.NotNil(t, jsonObj.Constructor, "Constructor should be set for FILTER/OVER clauses")
+					if strings.Contains(tt.sql, "FILTER") {
+						assert.NotNil(t, jsonObj.Constructor.AggFilter, "AggFilter should be set")
+					}
+					if strings.Contains(tt.sql, "OVER") {
+						assert.NotNil(t, jsonObj.Constructor.Over, "Over should be set")
+					}
+				}
+
+			case ast.T_JsonArrayAgg:
+				jsonArr, ok := expr.(*ast.JsonArrayAgg)
+				assert.True(t, ok, "Expected JsonArrayAgg, got %T", expr)
+
+				// For FILTER and OVER test cases, check Constructor fields
+				if strings.Contains(tt.sql, "FILTER") || strings.Contains(tt.sql, "OVER") {
+					assert.NotNil(t, jsonArr.Constructor, "Constructor should be set for FILTER/OVER clauses")
+					if strings.Contains(tt.sql, "FILTER") {
+						assert.NotNil(t, jsonArr.Constructor.AggFilter, "AggFilter should be set")
+					}
+					if strings.Contains(tt.sql, "OVER") {
+						assert.NotNil(t, jsonArr.Constructor.Over, "Over should be set")
+					}
+				}
+			}
 		})
 	}
 }

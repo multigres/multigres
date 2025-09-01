@@ -1837,6 +1837,13 @@ func (i *IntoClause) SqlString() string {
 	
 	parts := []string{"INTO"}
 	
+	// Add persistence keywords if present
+	if i.Rel.RelPersistence == RELPERSISTENCE_TEMP {
+		parts = append(parts, "TEMPORARY")
+	} else if i.Rel.RelPersistence == RELPERSISTENCE_UNLOGGED {
+		parts = append(parts, "UNLOGGED")
+	}
+	
 	// Add the target relation
 	parts = append(parts, i.Rel.SqlString())
 	

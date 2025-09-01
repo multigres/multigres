@@ -200,7 +200,6 @@ func TestJsonReturning(t *testing.T) {
 		assert.Equal(t, format, returning.Format)
 		assert.Equal(t, Oid(25), returning.Typid)
 		assert.Equal(t, int32(256), returning.Typmod)
-		assert.Equal(t, "JsonReturning", returning.String())
 	})
 }
 

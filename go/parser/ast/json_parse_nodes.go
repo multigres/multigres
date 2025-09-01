@@ -311,12 +311,13 @@ func (n *JsonFormat) String() string {
 	return formatStr
 }
 
-func (n *JsonReturning) node() {}
-func (n *JsonReturning) String() string {
-	return "JsonReturning"
+// SqlString returns the SQL representation of JsonReturning
+func (n *JsonReturning) SqlString() string {
+	// For now, just return the type name representation
+	// Full implementation would need access to type system for proper type names
+	return "TEXT" // placeholder - in a real implementation this would resolve n.Typid to a type name
 }
 
-func (n *JsonValueExpr) node() {}
 func (n *JsonValueExpr) String() string {
 	return "JsonValueExpr"
 }
@@ -340,7 +341,6 @@ func (n *JsonValueExpr) SqlString() string {
 func (n *JsonValueExpr) IsExpr() bool           { return true }
 func (n *JsonValueExpr) ExpressionType() string { return "JsonValueExpr" }
 
-func (n *JsonBehavior) node() {}
 func (n *JsonBehavior) String() string {
 	behaviorStr := "NULL"
 	switch n.Btype {
@@ -364,17 +364,14 @@ func (n *JsonBehavior) String() string {
 	return behaviorStr
 }
 
-func (n *JsonOutput) node() {}
 func (n *JsonOutput) String() string {
 	return "JsonOutput"
 }
 
-func (n *JsonArgument) node() {}
 func (n *JsonArgument) String() string {
 	return "JsonArgument"
 }
 
-func (n *JsonFuncExpr) node() {}
 func (n *JsonFuncExpr) String() string {
 	opStr := "JSON_EXISTS"
 	switch n.Op {
@@ -390,7 +387,6 @@ func (n *JsonFuncExpr) String() string {
 func (n *JsonFuncExpr) IsExpr() bool           { return true }
 func (n *JsonFuncExpr) ExpressionType() string { return "JsonFuncExpr" }
 
-func (n *JsonTablePathSpec) node() {}
 func (n *JsonTablePathSpec) String() string {
 	return "JsonTablePathSpec"
 }
@@ -403,7 +399,6 @@ func (n *JsonTablePathSpec) SqlString() string {
 	return ""
 }
 
-func (n *JsonTable) node() {}
 func (n *JsonTable) String() string {
 	return "JsonTable"
 }
@@ -423,7 +418,7 @@ func (n *JsonTable) SqlString() string {
 		result.WriteString(n.ContextItem.SqlString())
 	}
 
-	// Path specification 
+	// Path specification
 	if n.Pathspec != nil {
 		result.WriteString(", ")
 		result.WriteString(n.Pathspec.SqlString())
@@ -471,7 +466,6 @@ func (n *JsonTable) SqlString() string {
 	return result.String()
 }
 
-func (n *JsonTableColumn) node() {}
 func (n *JsonTableColumn) String() string {
 	return "JsonTableColumn"
 }
@@ -564,9 +558,23 @@ func (n *JsonTableColumn) SqlString() string {
 	return result.String()
 }
 
-func (n *JsonKeyValue) node() {}
 func (n *JsonKeyValue) String() string {
 	return "JsonKeyValue"
+}
+
+// SqlString returns the SQL representation of JsonKeyValue
+func (n *JsonKeyValue) SqlString() string {
+	var result strings.Builder
+
+	if n.Key != nil {
+		result.WriteString(n.Key.SqlString())
+	}
+	result.WriteString(" VALUE ")
+	if n.Value != nil {
+		result.WriteString(n.Value.SqlString())
+	}
+
+	return result.String()
 }
 
 func (n *JsonParseExpr) node() {}
@@ -616,6 +624,27 @@ func (n *JsonAggConstructor) String() string {
 	return "JsonAggConstructor"
 }
 
+// SqlString returns the SQL representation of filter and over clauses
+func (n *JsonAggConstructor) SqlString() string {
+	var result strings.Builder
+	
+	// Add FILTER clause if present
+	if n.AggFilter != nil {
+		result.WriteString(" FILTER (WHERE ")
+		result.WriteString(n.AggFilter.SqlString())
+		result.WriteString(")")
+	}
+	
+	// Add OVER clause if present
+	if n.Over != nil {
+		result.WriteString(" OVER (")
+		result.WriteString(n.Over.SqlString())
+		result.WriteString(")")
+	}
+	
+	return result.String()
+}
+
 func (n *JsonObjectAgg) node() {}
 func (n *JsonObjectAgg) String() string {
 	return "JsonObjectAgg"
@@ -623,12 +652,72 @@ func (n *JsonObjectAgg) String() string {
 func (n *JsonObjectAgg) IsExpr() bool           { return true }
 func (n *JsonObjectAgg) ExpressionType() string { return "JsonObjectAgg" }
 
+// SqlString returns the SQL representation of JsonObjectAgg
+func (n *JsonObjectAgg) SqlString() string {
+	var result strings.Builder
+	result.WriteString("JSON_OBJECTAGG(")
+
+	if n.Arg != nil {
+		result.WriteString(n.Arg.SqlString())
+	}
+
+	// Add RETURNING clause if present
+	if n.Constructor != nil && n.Constructor.Output != nil {
+		if n.Constructor.Output.TypeName != nil {
+			result.WriteString(" RETURNING ")
+			result.WriteString(n.Constructor.Output.TypeName.SqlString())
+		} else if n.Constructor.Output.Returning != nil {
+			result.WriteString(" RETURNING ")
+			result.WriteString(n.Constructor.Output.Returning.SqlString())
+		}
+	}
+
+	result.WriteString(")")
+	
+	// Add FILTER and OVER clauses if present
+	if n.Constructor != nil {
+		result.WriteString(n.Constructor.SqlString())
+	}
+	
+	return result.String()
+}
+
 func (n *JsonArrayAgg) node() {}
 func (n *JsonArrayAgg) String() string {
 	return "JsonArrayAgg"
 }
 func (n *JsonArrayAgg) IsExpr() bool           { return true }
 func (n *JsonArrayAgg) ExpressionType() string { return "JsonArrayAgg" }
+
+// SqlString returns the SQL representation of JsonArrayAgg
+func (n *JsonArrayAgg) SqlString() string {
+	var result strings.Builder
+	result.WriteString("JSON_ARRAYAGG(")
+
+	if n.Arg != nil {
+		result.WriteString(n.Arg.SqlString())
+	}
+
+	// Add RETURNING clause if present
+	if n.Constructor != nil && n.Constructor.Output != nil {
+		if n.Constructor.Output.TypeName != nil {
+			result.WriteString(" RETURNING ")
+			result.WriteString(n.Constructor.Output.TypeName.SqlString())
+		} else if n.Constructor.Output.Returning != nil {
+			result.WriteString(" RETURNING ")
+			result.WriteString(n.Constructor.Output.Returning.SqlString())
+		}
+	}
+
+	result.WriteString(")")
+	
+	// Add FILTER and OVER clauses if present
+	if n.Constructor != nil {
+		result.WriteString(n.Constructor.SqlString())
+	}
+	
+	return result.String()
+}
 
 // Constructor functions
 
@@ -831,13 +920,13 @@ func NewJsonArrayAgg(constructor *JsonAggConstructor, arg *JsonValueExpr, absent
 type JsonConstructorType int
 
 const (
-	JSCTOR_JSON_OBJECT JsonConstructorType = iota + 1 // JSON_OBJECT constructor
-	JSCTOR_JSON_ARRAY                                 // JSON_ARRAY constructor  
-	JSCTOR_JSON_OBJECTAGG                             // JSON_OBJECTAGG constructor
-	JSCTOR_JSON_ARRAYAGG                              // JSON_ARRAYAGG constructor
-	JSCTOR_JSON_PARSE                                 // JSON_PARSE constructor
-	JSCTOR_JSON_SCALAR                                // JSON_SCALAR constructor
-	JSCTOR_JSON_SERIALIZE                             // JSON_SERIALIZE constructor
+	JSCTOR_JSON_OBJECT    JsonConstructorType = iota + 1 // JSON_OBJECT constructor
+	JSCTOR_JSON_ARRAY                                    // JSON_ARRAY constructor
+	JSCTOR_JSON_OBJECTAGG                                // JSON_OBJECTAGG constructor
+	JSCTOR_JSON_ARRAYAGG                                 // JSON_ARRAYAGG constructor
+	JSCTOR_JSON_PARSE                                    // JSON_PARSE constructor
+	JSCTOR_JSON_SCALAR                                   // JSON_SCALAR constructor
+	JSCTOR_JSON_SERIALIZE                                // JSON_SERIALIZE constructor
 )
 
 // JsonConstructorExpr represents a wrapper over FuncExpr/Aggref/WindowFunc for SQL/JSON constructors
@@ -879,10 +968,10 @@ func NewJsonConstructorExpr(constructorType JsonConstructorType, args *NodeList,
 // Ported from postgres/src/include/nodes/primnodes.h:1732-1740
 type JsonIsPredicate struct {
 	BaseNode
-	Expr       Node           // subject expression
-	Format     *JsonFormat    // FORMAT clause, if specified
-	ItemType   JsonValueType  // JSON item type
-	UniqueKeys bool           // check key uniqueness?
+	Expr       Node          // subject expression
+	Format     *JsonFormat   // FORMAT clause, if specified
+	ItemType   JsonValueType // JSON item type
+	UniqueKeys bool          // check key uniqueness?
 }
 
 func (j *JsonIsPredicate) String() string {
@@ -904,21 +993,21 @@ func NewJsonIsPredicate(expr Node, format *JsonFormat, itemType JsonValueType, u
 // Ported from postgres/src/include/nodes/primnodes.h:1813-1860
 type JsonExpr struct {
 	BaseExpr
-	Op                JsonExprOp     // JSON expression operation type
-	ColumnName        string         // JSON_TABLE() column name or empty if not for JSON_TABLE()
-	FormattedExpr     Node           // jsonb-valued expression to query
-	Format            *JsonFormat    // Format of the above expression needed by ruleutils.c
-	PathSpec          Node           // jsonpath-valued expression containing the query pattern
-	Returning         *JsonReturning // Expected type/format of the output
-	PassingNames      []string       // PASSING argument names
-	PassingValues     *NodeList      // PASSING argument values
-	OnEmpty           *JsonBehavior  // User-specified or default ON EMPTY behavior
-	OnError           *JsonBehavior  // User-specified or default ON ERROR behavior
-	UseIOCoercion     bool           // Information about converting the result to RETURNING type
-	UseJsonCoercion   bool           // Additional conversion information
-	Wrapper           JsonWrapper    // WRAPPER specification for JSON_QUERY
-	OmitQuotes        bool           // KEEP or OMIT QUOTES for singleton scalars returned by JSON_QUERY()
-	Collation         Oid            // JsonExpr's collation
+	Op              JsonExprOp     // JSON expression operation type
+	ColumnName      string         // JSON_TABLE() column name or empty if not for JSON_TABLE()
+	FormattedExpr   Node           // jsonb-valued expression to query
+	Format          *JsonFormat    // Format of the above expression needed by ruleutils.c
+	PathSpec        Node           // jsonpath-valued expression containing the query pattern
+	Returning       *JsonReturning // Expected type/format of the output
+	PassingNames    []string       // PASSING argument names
+	PassingValues   *NodeList      // PASSING argument values
+	OnEmpty         *JsonBehavior  // User-specified or default ON EMPTY behavior
+	OnError         *JsonBehavior  // User-specified or default ON ERROR behavior
+	UseIOCoercion   bool           // Information about converting the result to RETURNING type
+	UseJsonCoercion bool           // Additional conversion information
+	Wrapper         JsonWrapper    // WRAPPER specification for JSON_QUERY
+	OmitQuotes      bool           // KEEP or OMIT QUOTES for singleton scalars returned by JSON_QUERY()
+	Collation       Oid            // JsonExpr's collation
 }
 
 func (j *JsonExpr) ExpressionType() string {
@@ -993,11 +1082,11 @@ func NewJsonTablePlan(location int) *JsonTablePlan {
 // Ported from postgres/src/include/nodes/primnodes.h:1893-1916
 type JsonTablePathScan struct {
 	BaseNode
-	Path        *JsonTablePath // JSON path to evaluate
-	ErrorOnError bool          // ERROR/EMPTY ON ERROR behavior; only significant in the plan for the top-level path
-	Child       *JsonTablePlan // Plan(s) for nested columns, if any
-	ColMin      int            // 0-based index in TableFunc.colvalexprs of the 1st column covered by this plan
-	ColMax      int            // 0-based index in TableFunc.colvalexprs of the last column covered by this plan
+	Path         *JsonTablePath // JSON path to evaluate
+	ErrorOnError bool           // ERROR/EMPTY ON ERROR behavior; only significant in the plan for the top-level path
+	Child        *JsonTablePlan // Plan(s) for nested columns, if any
+	ColMin       int            // 0-based index in TableFunc.colvalexprs of the 1st column covered by this plan
+	ColMax       int            // 0-based index in TableFunc.colvalexprs of the last column covered by this plan
 }
 
 func (j *JsonTablePathScan) String() string {

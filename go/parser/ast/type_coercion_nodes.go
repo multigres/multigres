@@ -6,6 +6,7 @@ package ast
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ==============================================================================
@@ -461,6 +462,22 @@ func (nt *NullTest) String() string {
 	}
 	
 	return fmt.Sprintf("NullTest(%s %s%s)", nt.Arg, testStr, row)
+}
+
+// SqlString returns the SQL representation of NullTest
+func (nt *NullTest) SqlString() string {
+	var result strings.Builder
+	
+	result.WriteString(nt.Arg.SqlString())
+	
+	switch nt.Nulltesttype {
+	case IS_NULL:
+		result.WriteString(" IS NULL")
+	case IS_NOT_NULL:
+		result.WriteString(" IS NOT NULL")
+	}
+	
+	return result.String()
 }
 
 // BoolTestType represents the type of boolean test.
