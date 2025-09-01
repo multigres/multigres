@@ -90,6 +90,7 @@ const (
 	T_AccessPriv
 	T_CreateRoleStmt
 	T_AlterRoleStmt
+	T_AlterRoleSetStmt
 	T_DropRoleStmt
 	T_VariableSetStmt
 	T_VariableShowStmt
@@ -433,6 +434,8 @@ func (nt NodeTag) String() string {
 		return "T_CreateRoleStmt"
 	case T_AlterRoleStmt:
 		return "T_AlterRoleStmt"
+	case T_AlterRoleSetStmt:
+		return "T_AlterRoleSetStmt"
 	case T_DropRoleStmt:
 		return "T_DropRoleStmt"
 	case T_VariableSetStmt:

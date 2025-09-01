@@ -597,33 +597,30 @@
 ## Phase 3I: Transaction & Administrative (~80 rules)
 
 ### Transaction Control
-- ⬜ `TransactionStmt` - Transaction statement
-- ⬜ `TransactionStmtLegacy` - Legacy transaction
-- ⬜ `opt_transaction` - TRANSACTION keyword
-- ⬜ `opt_transaction_chain` - AND CHAIN option
-- ⬜ `transaction_mode_list` - Transaction modes
-- ⬜ `transaction_mode_list_or_empty` - Optional modes
-- ⬜ `transaction_mode_item` - Single mode
-
-### SAVEPOINT
-- ⬜ `savepoint_level` - Savepoint level
+- ✅ `TransactionStmt` - Transaction statement
+- ✅ `TransactionStmtLegacy` - Legacy transaction
+- ✅ `opt_transaction` - TRANSACTION keyword
+- ✅ `opt_transaction_chain` - AND CHAIN option
+- ✅ `transaction_mode_list` - Transaction modes
+- ✅ `transaction_mode_list_or_empty` - Optional modes
+- ✅ `transaction_mode_item` - Single mode
 
 ### Security - Roles
-- ⬜ `CreateRoleStmt` - CREATE ROLE
-- ⬜ `AlterRoleStmt` - ALTER ROLE
+- ✅ `CreateRoleStmt` - CREATE ROLE
+- ✅ `AlterRoleStmt` - ALTER ROLE
 - ⬜ `AlterRoleSetStmt` - ALTER ROLE SET
-- ⬜ `DropRoleStmt` - DROP ROLE
-- ⬜ `CreateGroupStmt` - CREATE GROUP
-- ⬜ `AlterGroupStmt` - ALTER GROUP
-- ⬜ `CreateUserStmt` - CREATE USER
-- ⬜ `CreateOptRoleElem` - Role option
-- ⬜ `AlterOptRoleElem` - ALTER role option
-- ⬜ `AlterOptRoleList` - ALTER role options
-- ⬜ `RoleId` - Role identifier
-- ⬜ `RoleSpec` - Role specification
-- ⬜ `role_list` - Role list
-- ⬜ `add_drop` - ADD/DROP keyword
-- ⬜ `opt_granted_by` - GRANTED BY clause
+- ✅ `DropRoleStmt` - DROP ROLE
+- ✅ `CreateGroupStmt` - CREATE GROUP
+- ✅ `AlterGroupStmt` - ALTER GROUP
+- ✅ `CreateUserStmt` - CREATE USER
+- ✅ `CreateOptRoleElem` - Role option
+- ✅ `AlterOptRoleElem` - ALTER role option
+- ✅ `AlterOptRoleList` - ALTER role options
+- ✅ `RoleId` - Role identifier
+- ✅ `RoleSpec` - Role specification
+- ✅ `role_list` - Role list
+- ✅ `add_drop` - ADD/DROP keyword
+- ✅ `opt_granted_by` - GRANTED BY clause
 
 ### GRANT/REVOKE
 - ⬜ `GrantStmt` - GRANT statement

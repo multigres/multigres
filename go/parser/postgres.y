@@ -449,6 +449,14 @@ type LexerInterface interface {
 %type <objwithargs>  function_with_argtypes aggregate_with_argtypes operator_with_argtypes
 
 %type <stmt>         CreateFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
+%type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt
+%type <str>          opt_in_database
+%type <bval>         opt_transaction_chain
+%type <defelt>       CreateOptRoleElem AlterOptRoleElem
+%type <list>         transaction_mode_list transaction_mode_list_or_empty OptRoleList AlterOptRoleList role_list
+%type <rolespec>     RoleSpec
+%type <str>          RoleId
+%type <ival>         add_drop
 %type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt
 %type <stmt>         CreateDomainStmt AlterDomainStmt DefineStmt AlterEnumStmt CreateSeqStmt AlterSeqStmt CreateExtensionStmt AlterExtensionStmt AlterExtensionContentsStmt
 %type <stmt>         CreateEventTrigStmt AlterEventTrigStmt
@@ -568,6 +576,7 @@ toplevel_stmt:
 			{
 				$$ = $1
 			}
+		|	TransactionStmtLegacy					{ $$ = $1 }
 		;
 
 /*
@@ -632,6 +641,14 @@ stmt:
 		|	CreatePLangStmt							{ $$ = $1 }
 		|	VariableSetStmt							{ $$ = $1 }
 		|	VariableResetStmt						{ $$ = $1 }
+		|	TransactionStmt							{ $$ = $1 }
+		|	CreateRoleStmt							{ $$ = $1 }
+		|	AlterRoleStmt							{ $$ = $1 }
+		|	AlterRoleSetStmt						{ $$ = $1 }
+		|	DropRoleStmt							{ $$ = $1 }
+		|	CreateGroupStmt							{ $$ = $1 }
+		|	AlterGroupStmt							{ $$ = $1 }
+		|	CreateUserStmt							{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -7463,7 +7480,7 @@ generic_reset:
 	;
 
 SetResetClause:
-		SET set_rest_more						{ $$ = $2 }
+		SET set_rest							{ $$ = $2 }
 	|	VariableResetStmt						{ $$ = $1.(*ast.VariableSetStmt) }
 	;
 
@@ -9446,10 +9463,6 @@ AlterExtensionContentsStmt:
 			}
 		;
 
-add_drop:		ADD_P			{ $$ = 1 }
-		|		DROP			{ $$ = 0 }
-		;
-
 /*****************************************************************************
  *
  * FOREIGN DATA WRAPPER support
@@ -10066,6 +10079,11 @@ iso_level:
 		|	READ COMMITTED							{ $$ = "read committed" }
 		|	REPEATABLE READ							{ $$ = "repeatable read" }
 		|	SERIALIZABLE							{ $$ = "serializable" }
+		;
+
+transaction_mode_list_or_empty:
+			transaction_mode_list				{ $$ = $1 }
+		|	/* EMPTY */							{ $$ = nil }
 		;
 
 def_arg:
@@ -11213,6 +11231,348 @@ first_or_next:
 		FIRST_P									{ $$ = 0 }
 	|	NEXT									{ $$ = 0 }
 	;
+
+/*****************************************************************************
+ *
+ * TRANSACTIONS:
+ * BEGIN / COMMIT / ROLLBACK / SAVEPOINT
+ * (ported from postgres/src/backend/parser/gram.y:14290-14400)
+ *
+ *****************************************************************************/
+
+TransactionStmt:
+			ABORT_P opt_transaction opt_transaction_chain
+				{
+					stmt := ast.NewTransactionStmt(ast.TRANS_STMT_ROLLBACK)
+					stmt.Chain = $3
+					$$ = stmt
+				}
+		|	START TRANSACTION transaction_mode_list_or_empty
+				{
+					stmt := ast.NewTransactionStmt(ast.TRANS_STMT_START)
+					stmt.Options = $3
+					$$ = stmt
+				}
+		|	COMMIT opt_transaction opt_transaction_chain
+				{
+					stmt := ast.NewTransactionStmt(ast.TRANS_STMT_COMMIT)
+					stmt.Chain = $3
+					$$ = stmt
+				}
+		|	ROLLBACK opt_transaction opt_transaction_chain
+				{
+					stmt := ast.NewTransactionStmt(ast.TRANS_STMT_ROLLBACK)
+					stmt.Chain = $3
+					$$ = stmt
+				}
+		|	SAVEPOINT ColId
+				{
+					stmt := ast.NewSavepointStmt($2)
+					$$ = stmt
+				}
+		|	RELEASE SAVEPOINT ColId
+				{
+					stmt := ast.NewReleaseStmt($3)
+					$$ = stmt
+				}
+		|	RELEASE ColId
+				{
+					stmt := ast.NewReleaseStmt($2)
+					$$ = stmt
+				}
+		|	ROLLBACK opt_transaction TO SAVEPOINT ColId
+				{
+					stmt := ast.NewRollbackToStmt($5)
+					$$ = stmt
+				}
+		|	ROLLBACK opt_transaction TO ColId
+				{
+					stmt := ast.NewRollbackToStmt($4)
+					$$ = stmt
+				}
+		|	PREPARE TRANSACTION Sconst
+				{
+					stmt := ast.NewTransactionStmt(ast.TRANS_STMT_PREPARE)
+					stmt.Gid = $3
+					$$ = stmt
+				}
+		|	COMMIT PREPARED Sconst
+				{
+					stmt := ast.NewTransactionStmt(ast.TRANS_STMT_COMMIT_PREPARED)
+					stmt.Gid = $3
+					$$ = stmt
+				}
+		|	ROLLBACK PREPARED Sconst
+				{
+					stmt := ast.NewTransactionStmt(ast.TRANS_STMT_ROLLBACK_PREPARED)
+					stmt.Gid = $3
+					$$ = stmt
+				}
+		;
+
+TransactionStmtLegacy:
+	END_P opt_transaction opt_transaction_chain
+				{
+					stmt := ast.NewTransactionStmt(ast.TRANS_STMT_COMMIT)
+					stmt.Chain = $3
+					$$ = stmt
+				}
+|	BEGIN_P opt_transaction transaction_mode_list_or_empty
+				{
+					stmt := ast.NewTransactionStmt(ast.TRANS_STMT_BEGIN)
+					stmt.Options = $3
+					$$ = stmt
+				}
+
+opt_transaction:
+			WORK								{ }
+		|	TRANSACTION							{ }
+		|	/* EMPTY */							{ }
+		;
+
+opt_transaction_chain:
+			AND CHAIN							{ $$ = true }
+		|	AND NO CHAIN						{ $$ = false }
+		|	/* EMPTY */							{ $$ = false }
+		;
+
+
+/*****************************************************************************
+ *
+ * CREATE/ALTER/DROP ROLE
+ * (ported from postgres/src/backend/parser/gram.y:4430-4570)
+ *
+ *****************************************************************************/
+
+CreateRoleStmt:
+			CREATE ROLE RoleId opt_with OptRoleList
+				{
+					$$ = ast.NewCreateRoleStmt(ast.ROLESTMT_ROLE, $3, $5)
+				}
+		;
+
+CreateUserStmt:
+			CREATE USER RoleId opt_with OptRoleList
+				{
+					$$ = ast.NewCreateRoleStmt(ast.ROLESTMT_USER, $3, $5)
+				}
+		;
+
+CreateGroupStmt:
+			CREATE GROUP_P RoleId opt_with OptRoleList
+				{
+					$$ = ast.NewCreateRoleStmt(ast.ROLESTMT_GROUP, $3, $5)
+				}
+		;
+
+AlterRoleStmt:
+			ALTER ROLE RoleSpec opt_with AlterOptRoleList
+				{
+					as := ast.NewAlterRoleStmt($3, $5) 
+					as.Action = +1
+					$$ = as
+				}
+		|	ALTER USER RoleSpec opt_with AlterOptRoleList
+				{
+					as := ast.NewAlterRoleStmt($3, $5)
+					as.Action = +1
+					$$ = as
+				}
+		;
+
+AlterRoleSetStmt:
+		ALTER ROLE RoleSpec opt_in_database SetResetClause
+			{
+				$$ = ast.NewAlterRoleSetStmt($3, $4, $5)
+			}
+	|	ALTER ROLE ALL opt_in_database SetResetClause
+			{
+				$$ = ast.NewAlterRoleSetStmt(nil, $4, $5)
+			}
+	|	ALTER USER RoleSpec opt_in_database SetResetClause
+			{
+				$$ = ast.NewAlterRoleSetStmt($3, $4, $5)
+			}
+	|	ALTER USER ALL opt_in_database SetResetClause
+			{
+				$$ = ast.NewAlterRoleSetStmt(nil, $4, $5)
+			}
+	;
+
+opt_in_database:
+		/* EMPTY */			{ $$ = "" }
+	|	IN_P DATABASE name	{ $$ = $3 }
+	;
+
+AlterGroupStmt:
+			ALTER GROUP_P RoleSpec add_drop USER role_list
+				{
+					options := ast.NewNodeList(ast.NewDefElem("rolemembers", $6))
+					stmt := ast.NewAlterRoleStmt($3, options)
+					stmt.Action = $4
+					$$ = stmt
+				}
+		;
+
+DropRoleStmt:
+			DROP ROLE role_list
+				{
+					$$ = ast.NewDropRoleStmt($3, false)
+				}
+		|	DROP ROLE IF_P EXISTS role_list
+				{
+					$$ = ast.NewDropRoleStmt($5, true)
+				}
+		|	DROP USER role_list
+				{
+					$$ = ast.NewDropRoleStmt($3, false)
+				}
+		|	DROP USER IF_P EXISTS role_list
+				{
+					$$ = ast.NewDropRoleStmt($5, true)
+				}
+		|	DROP GROUP_P role_list
+				{
+					$$ = ast.NewDropRoleStmt($3, false)
+				}
+		|	DROP GROUP_P IF_P EXISTS role_list
+				{
+					$$ = ast.NewDropRoleStmt($5, true)
+				}
+		;
+
+/* Role options for CREATE ROLE and ALTER ROLE */
+OptRoleList:
+			OptRoleList CreateOptRoleElem
+				{
+					if $1 == nil {
+						list := ast.NewNodeList()
+						list.Append($2)
+						$$ = list
+					} else {
+						list := $1
+						list.Append($2)
+						$$ = list
+					}
+				}
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+AlterOptRoleList:
+			AlterOptRoleList AlterOptRoleElem
+				{
+					if $1 == nil {
+						list := ast.NewNodeList()
+						list.Append($2)
+						$$ = list
+					} else {
+						list := $1
+						list.Append($2)
+						$$ = list
+					}
+				}
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+CreateOptRoleElem:
+			AlterOptRoleElem					{ $$ = $1 }
+		|	SYSID Iconst
+				{
+					$$ = ast.NewDefElem("sysid", ast.NewInteger($2))
+				}
+		|	ADMIN role_list
+				{
+					$$ = ast.NewDefElem("adminmembers", $2)
+				}
+		|	ROLE role_list
+				{
+					$$ = ast.NewDefElem("rolemembers", $2)
+				}
+		|	IN_P ROLE role_list
+				{
+					$$ = ast.NewDefElem("addroleto", $3)
+				}
+		|	IN_P GROUP_P role_list
+				{
+					$$ = ast.NewDefElem("addroleto", $3)
+				}
+		;
+
+AlterOptRoleElem:
+			PASSWORD Sconst
+				{
+					$$ = ast.NewDefElem("password", ast.NewString($2))
+				}
+		|	PASSWORD NULL_P
+				{
+					$$ = ast.NewDefElem("password", nil)
+				}
+		|	ENCRYPTED PASSWORD Sconst
+				{
+					$$ = ast.NewDefElem("password", ast.NewString($3))
+				}
+		|	UNENCRYPTED PASSWORD Sconst
+				{
+					yylex.Error("UNENCRYPTED PASSWORD is no longer supported")
+					return 1
+				}
+		|	INHERIT
+				{
+					$$ = ast.NewDefElem("inherit", ast.NewBoolean(true))
+				}
+		|	IDENT
+				{
+					// Handle identifiers like PostgreSQL does with string comparisons
+					if $1 == "superuser" {
+						$$ = ast.NewDefElem("superuser", ast.NewBoolean(true))
+					} else if $1 == "nosuperuser" {
+						$$ = ast.NewDefElem("superuser", ast.NewBoolean(false))
+					} else if $1 == "createrole" {
+						$$ = ast.NewDefElem("createrole", ast.NewBoolean(true))
+					} else if $1 == "nocreaterole" {
+						$$ = ast.NewDefElem("createrole", ast.NewBoolean(false))
+					} else if $1 == "createdb" {
+						$$ = ast.NewDefElem("createdb", ast.NewBoolean(true))
+					} else if $1 == "nocreatedb" {
+						$$ = ast.NewDefElem("createdb", ast.NewBoolean(false))
+					} else if $1 == "login" {
+						$$ = ast.NewDefElem("canlogin", ast.NewBoolean(true))
+					} else if $1 == "nologin" {
+						$$ = ast.NewDefElem("canlogin", ast.NewBoolean(false))
+					} else if $1 == "replication" {
+						$$ = ast.NewDefElem("isreplication", ast.NewBoolean(true))
+					} else if $1 == "noreplication" {
+						$$ = ast.NewDefElem("isreplication", ast.NewBoolean(false))
+					} else if $1 == "bypassrls" {
+						$$ = ast.NewDefElem("bypassrls", ast.NewBoolean(true))
+					} else if $1 == "nobypassrls" {
+						$$ = ast.NewDefElem("bypassrls", ast.NewBoolean(false))
+					} else if $1 == "noinherit" {
+						$$ = ast.NewDefElem("inherit", ast.NewBoolean(false))
+					} else {
+						// Return error for unrecognized role option
+						yylex.Error("unrecognized role option \"" + $1 + "\"")
+						$$ = nil
+					}
+				}
+		|	CONNECTION LIMIT SignedIconst
+				{
+					$$ = ast.NewDefElem("connectionlimit", ast.NewInteger($3))
+				}
+		|	VALID UNTIL Sconst
+				{
+					$$ = ast.NewDefElem("validUntil", ast.NewString($3))
+				}
+		| 	USER role_list
+				{
+					$$ = ast.NewDefElem("rolemembers", $2);
+				}
+		;
+
+add_drop:
+			ADD_P									{ $$ = 1 }
+		|	DROP									{ $$ = -1 }
+		;
 
 %%
 

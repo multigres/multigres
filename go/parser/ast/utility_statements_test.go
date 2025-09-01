@@ -98,11 +98,12 @@ func TestGrantStmts(t *testing.T) {
 	})
 
 	t.Run("AccessPriv", func(t *testing.T) {
-		priv := NewAccessPriv("SELECT", []string{"id", "name"})
+		cols := NewNodeList(NewString("id"), NewString("name"))
+		priv := NewAccessPriv("SELECT", cols)
 
 		assert.Equal(t, T_AccessPriv, priv.NodeTag())
 		assert.Equal(t, "SELECT", priv.PrivName)
-		assert.Equal(t, []string{"id", "name"}, priv.Cols)
+		assert.Equal(t, cols, priv.Cols)
 		assert.Contains(t, priv.String(), "SELECT")
 		assert.Contains(t, priv.String(), "2 cols")
 
@@ -115,7 +116,7 @@ func TestGrantStmts(t *testing.T) {
 		privilege := NewAccessPriv("SELECT", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "alice")
 
-		stmt := NewGrantStmt(OBJECT_TABLE, NewNodeList(relation), []*AccessPriv{privilege}, []*RoleSpec{grantee})
+		stmt := NewGrantStmt(OBJECT_TABLE, NewNodeList(relation), NewNodeList(privilege), NewNodeList(grantee))
 
 		assert.Equal(t, T_GrantStmt, stmt.NodeTag())
 		assert.Equal(t, "GRANT", stmt.StatementType())
@@ -123,8 +124,8 @@ func TestGrantStmts(t *testing.T) {
 		assert.Equal(t, OBJECT_TABLE, stmt.Objtype)
 		assert.Equal(t, ACL_TARGET_OBJECT, stmt.Targtype)
 		assert.Equal(t, 1, stmt.Objects.Len())
-		assert.Len(t, stmt.Privileges, 1)
-		assert.Len(t, stmt.Grantees, 1)
+		assert.Equal(t, 1, len(stmt.Privileges.Items))
+		assert.Equal(t, 1, len(stmt.Grantees.Items))
 		assert.Contains(t, stmt.String(), "GRANT")
 
 		// Test interface compliance
@@ -137,7 +138,7 @@ func TestGrantStmts(t *testing.T) {
 		privilege := NewAccessPriv("INSERT", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "bob")
 
-		stmt := NewRevokeStmt(OBJECT_TABLE, NewNodeList(relation), []*AccessPriv{privilege}, []*RoleSpec{grantee})
+		stmt := NewRevokeStmt(OBJECT_TABLE, NewNodeList(relation), NewNodeList(privilege), NewNodeList(grantee))
 
 		assert.False(t, stmt.IsGrant)
 		assert.Equal(t, "REVOKE", stmt.StatementType())
@@ -148,13 +149,13 @@ func TestGrantStmts(t *testing.T) {
 		role := NewRoleSpec(ROLESPEC_CSTRING, "admin")
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "alice")
 
-		stmt := NewGrantRoleStmt([]*RoleSpec{role}, []*RoleSpec{grantee})
+		stmt := NewGrantRoleStmt(NewNodeList(role), NewNodeList(grantee))
 
 		assert.Equal(t, T_GrantRoleStmt, stmt.NodeTag())
 		assert.Equal(t, "GRANT_ROLE", stmt.StatementType())
 		assert.True(t, stmt.IsGrant)
-		assert.Len(t, stmt.GrantedRoles, 1)
-		assert.Len(t, stmt.GranteeRoles, 1)
+		assert.Equal(t, 1, len(stmt.GrantedRoles.Items))
+		assert.Equal(t, 1, len(stmt.GranteeRoles.Items))
 		assert.Contains(t, stmt.String(), "GRANT")
 
 		// Test interface compliance
@@ -166,7 +167,7 @@ func TestGrantStmts(t *testing.T) {
 		role := NewRoleSpec(ROLESPEC_CSTRING, "admin")
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "alice")
 
-		stmt := NewRevokeRoleStmt([]*RoleSpec{role}, []*RoleSpec{grantee})
+		stmt := NewRevokeRoleStmt(NewNodeList(role), NewNodeList(grantee))
 
 		assert.False(t, stmt.IsGrant)
 		assert.Equal(t, "REVOKE_ROLE", stmt.StatementType())
@@ -184,13 +185,13 @@ func TestRoleStmts(t *testing.T) {
 
 	t.Run("CreateRoleStmt", func(t *testing.T) {
 		passwordOpt := NewDefElem("password", NewString("secret"))
-		stmt := NewCreateRoleStmt(ROLESTMT_ROLE, "alice", []*DefElem{passwordOpt})
+		stmt := NewCreateRoleStmt(ROLESTMT_ROLE, "alice", NewNodeList(passwordOpt))
 
 		assert.Equal(t, T_CreateRoleStmt, stmt.NodeTag())
 		assert.Equal(t, "CREATE_ROLE", stmt.StatementType())
 		assert.Equal(t, ROLESTMT_ROLE, stmt.StmtType)
 		assert.Equal(t, "alice", stmt.Role)
-		assert.Len(t, stmt.Options, 1)
+		assert.Equal(t, 1, len(stmt.Options.Items))
 		assert.Contains(t, stmt.String(), "alice")
 
 		// Test interface compliance
@@ -201,12 +202,12 @@ func TestRoleStmts(t *testing.T) {
 	t.Run("AlterRoleStmt", func(t *testing.T) {
 		role := NewRoleSpec(ROLESPEC_CSTRING, "alice")
 		loginOpt := NewDefElem("login", NewBoolean(true))
-		stmt := NewAlterRoleStmt(role, []*DefElem{loginOpt})
+		stmt := NewAlterRoleStmt(role, NewNodeList(loginOpt))
 
 		assert.Equal(t, T_AlterRoleStmt, stmt.NodeTag())
 		assert.Equal(t, "ALTER_ROLE", stmt.StatementType())
 		assert.Equal(t, role, stmt.Role)
-		assert.Len(t, stmt.Options, 1)
+		assert.Equal(t, 1, len(stmt.Options.Items))
 		assert.Contains(t, stmt.String(), "alice")
 
 		// Test interface compliance
@@ -217,11 +218,11 @@ func TestRoleStmts(t *testing.T) {
 	t.Run("DropRoleStmt", func(t *testing.T) {
 		role1 := NewRoleSpec(ROLESPEC_CSTRING, "alice")
 		role2 := NewRoleSpec(ROLESPEC_CSTRING, "bob")
-		stmt := NewDropRoleStmt([]*RoleSpec{role1, role2}, true)
+		stmt := NewDropRoleStmt(NewNodeList(role1, role2), true)
 
 		assert.Equal(t, T_DropRoleStmt, stmt.NodeTag())
 		assert.Equal(t, "DROP_ROLE", stmt.StatementType())
-		assert.Len(t, stmt.Roles, 2)
+		assert.Equal(t, 2, len(stmt.Roles.Items))
 		assert.True(t, stmt.MissingOk)
 		assert.Contains(t, stmt.String(), "IF EXISTS")
 
@@ -658,26 +659,26 @@ func TestUtilityComplexExamples(t *testing.T) {
 		// Create role
 		passwordOpt := NewDefElem("password", NewString("secret"))
 		loginOpt := NewDefElem("login", NewBoolean(true))
-		createStmt := NewCreateRoleStmt(ROLESTMT_ROLE, "alice", []*DefElem{passwordOpt, loginOpt})
+		createStmt := NewCreateRoleStmt(ROLESTMT_ROLE, "alice", NewNodeList(passwordOpt, loginOpt))
 
 		// Grant privilege
 		relation := NewRangeVar("users", "", "")
 		privilege := NewAccessPriv("SELECT", nil)
 		grantee := NewRoleSpec(ROLESPEC_CSTRING, "alice")
-		grantStmt := NewGrantStmt(OBJECT_TABLE, NewNodeList(relation), []*AccessPriv{privilege}, []*RoleSpec{grantee})
+		grantStmt := NewGrantStmt(OBJECT_TABLE, NewNodeList(relation), NewNodeList(privilege), NewNodeList(grantee))
 
 		// Alter role
 		role := NewRoleSpec(ROLESPEC_CSTRING, "alice")
-		alterStmt := NewAlterRoleStmt(role, []*DefElem{})
+		alterStmt := NewAlterRoleStmt(role, NewNodeList())
 
 		// Drop role
-		dropStmt := NewDropRoleStmt([]*RoleSpec{role}, false)
+		dropStmt := NewDropRoleStmt(NewNodeList(role), false)
 
 		assert.Equal(t, "alice", createStmt.Role)
-		assert.Len(t, createStmt.Options, 2)
+		assert.Equal(t, 2, len(createStmt.Options.Items))
 		assert.True(t, grantStmt.IsGrant)
 		assert.Equal(t, "alice", alterStmt.Role.Rolename)
-		assert.Len(t, dropStmt.Roles, 1)
+		assert.Equal(t, 1, len(dropStmt.Roles.Items))
 	})
 
 	t.Run("ComplexVacuum", func(t *testing.T) {

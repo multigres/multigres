@@ -3,7 +3,7 @@
  *
  * This file contains tests for basic lexer functionality including:
  * - Token type recognition
- * - Basic lexing operations  
+ * - Basic lexing operations
  * - Token classification methods
  * - Position tracking
  * - Thread safety
@@ -283,7 +283,7 @@ func TestLexerTokenGeneration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lexer := NewLexer(tt.input)
-			
+
 			// Collect tokens
 			var tokens []TokenType
 			for {
@@ -293,10 +293,10 @@ func TestLexerTokenGeneration(t *testing.T) {
 				}
 				tokens = append(tokens, token.Type)
 			}
-			
+
 			// Verify token sequence
 			require.Equal(t, len(tt.tokens), len(tokens), "expected %d tokens, got %d", len(tt.tokens), len(tokens))
-			
+
 			for i, expectedType := range tt.tokens {
 				assert.Equal(t, expectedType, tokens[i], "token %d: expected %v, got %v", i, expectedType, tokens[i])
 			}

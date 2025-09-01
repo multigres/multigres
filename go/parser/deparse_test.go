@@ -384,6 +384,110 @@ func TestDeparsing(t *testing.T) {
 		// Locking with other clauses
 		{"Locking with ORDER BY LIMIT", "SELECT * FROM queue ORDER BY priority LIMIT 10 FOR UPDATE SKIP LOCKED", ""},
 		{"Locking with GROUP BY", "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id FOR UPDATE", ""},
+
+		// Basic transaction commands
+		{"BEGIN", "BEGIN", ""},
+		{"START TRANSACTION", "START TRANSACTION", ""},
+		{"COMMIT", "COMMIT", ""},
+		{"ROLLBACK", "ROLLBACK", ""},
+		{"END (synonym for COMMIT)", "END", "COMMIT"},
+		{"ABORT (synonym for ROLLBACK)", "ABORT", "ROLLBACK"},
+
+		// Transaction with options (basic - detailed options testing may need more work)
+		{"BEGIN ISOLATION LEVEL SERIALIZABLE", "BEGIN ISOLATION LEVEL SERIALIZABLE", ""},
+		{"BEGIN READ ONLY", "BEGIN READ ONLY", ""},
+		{"BEGIN READ WRITE", "BEGIN READ WRITE", ""},
+		{"BEGIN DEFERRABLE", "BEGIN DEFERRABLE", ""},
+		{"START TRANSACTION ISOLATION LEVEL READ COMMITTED", "START TRANSACTION ISOLATION LEVEL READ COMMITTED", ""},
+
+		// Transaction chaining
+		{"COMMIT AND CHAIN", "COMMIT AND CHAIN", ""},
+		{"ROLLBACK AND NO CHAIN", "ROLLBACK AND NO CHAIN", "ROLLBACK"},
+
+		// Savepoints
+		{"SAVEPOINT basic", "SAVEPOINT my_savepoint", ""},
+		{"RELEASE SAVEPOINT", "RELEASE SAVEPOINT my_savepoint", ""},
+		{"RELEASE without SAVEPOINT keyword", "RELEASE my_savepoint", "RELEASE SAVEPOINT my_savepoint"},
+		{"ROLLBACK TO SAVEPOINT", "ROLLBACK TO SAVEPOINT my_savepoint", ""},
+		{"ROLLBACK TO without SAVEPOINT keyword", "ROLLBACK TO my_savepoint", "ROLLBACK TO SAVEPOINT my_savepoint"},
+
+		// Prepared transactions
+		{"PREPARE TRANSACTION", "PREPARE TRANSACTION 'transaction_123'", ""},
+		{"COMMIT PREPARED", "COMMIT PREPARED 'transaction_123'", ""},
+		{"ROLLBACK PREPARED", "ROLLBACK PREPARED 'transaction_123'", ""},
+
+		// CREATE ROLE/USER/GROUP statements
+		{"CREATE ROLE basic", "CREATE ROLE testuser", ""},
+		{"CREATE USER basic", "CREATE USER testuser", ""},
+		{"CREATE GROUP basic", "CREATE GROUP testgroup", ""},
+
+		// CREATE ROLE with options
+		{"CREATE ROLE with PASSWORD", "CREATE ROLE testuser WITH PASSWORD 'secret'", ""},
+		{"CREATE USER with SUPERUSER", "CREATE USER testuser WITH SUPERUSER", ""},
+		{"CREATE ROLE with LOGIN", "CREATE ROLE testuser WITH LOGIN", ""},
+		{"CREATE ROLE with NOLOGIN", "CREATE ROLE testuser WITH NOLOGIN", ""},
+		{"CREATE ROLE with INHERIT", "CREATE ROLE testuser WITH INHERIT", ""},
+		{"CREATE ROLE with NOINHERIT", "CREATE ROLE testuser WITH NOINHERIT", ""},
+		{"CREATE ROLE with CREATEROLE", "CREATE ROLE testuser WITH CREATEROLE", ""},
+		{"CREATE ROLE with NOCREATEROLE", "CREATE ROLE testuser WITH NOCREATEROLE", ""},
+		{"CREATE ROLE with CREATEDB", "CREATE ROLE testuser WITH CREATEDB", ""},
+		{"CREATE ROLE with NOCREATEDB", "CREATE ROLE testuser WITH NOCREATEDB", ""},
+		{"CREATE ROLE with REPLICATION", "CREATE ROLE testuser WITH REPLICATION", ""},
+		{"CREATE ROLE with NOREPLICATION", "CREATE ROLE testuser WITH NOREPLICATION", ""},
+		{"CREATE ROLE with CONNECTION LIMIT", "CREATE ROLE testuser WITH CONNECTION LIMIT 10", ""},
+		{"CREATE ROLE with VALID UNTIL", "CREATE ROLE testuser WITH VALID UNTIL '2025-12-31'", ""},
+		{"CREATE ROLE with multiple options", "CREATE USER testuser WITH SUPERUSER CREATEDB", ""},
+		{"CREATE ROLE with IN ROLE", "CREATE ROLE testuser WITH IN ROLE admin_role", ""},
+		{"CREATE ROLE with ADMIN", "CREATE ROLE testuser WITH ADMIN admin_role", ""},
+
+		// ALTER ROLE/USER statements
+		{"ALTER ROLE basic", "ALTER ROLE testuser WITH PASSWORD 'newsecret'", ""},
+		{"ALTER USER basic", "ALTER USER testuser WITH SUPERUSER", "ALTER ROLE TESTUSER WITH SUPERUSER"},
+		{"ALTER ROLE with CURRENT_USER", "ALTER ROLE CURRENT_USER WITH PASSWORD 'newsecret'", ""},
+		{"ALTER USER with SESSION_USER", "ALTER USER SESSION_USER WITH NOSUPERUSER", "ALTER ROLE SESSION_USER WITH NOSUPERUSER"},
+		{"ALTER ROLE multiple options", "ALTER ROLE testuser WITH NOSUPERUSER NOINHERIT", ""},
+
+		// ALTER GROUP statements (group membership)
+		{"ALTER GROUP ADD USER", "ALTER GROUP testgroup ADD USER testuser", ""},
+		{"ALTER GROUP DROP USER", "ALTER GROUP testgroup DROP USER testuser", ""},
+		{"ALTER GROUP ADD multiple users", "ALTER GROUP testgroup ADD USER user1, user2, user3", ""},
+		{"ALTER GROUP DROP multiple users", "ALTER GROUP testgroup DROP USER user1, user2, user3", ""},
+
+		// DROP ROLE/USER/GROUP statements (USER and GROUP are synonyms for ROLE)
+		{"DROP ROLE basic", "DROP ROLE testuser", ""},
+		{"DROP USER basic", "DROP USER testuser", "DROP ROLE testuser"},
+		{"DROP GROUP basic", "DROP GROUP testgroup", "DROP ROLE testgroup"},
+		{"DROP ROLE IF EXISTS", "DROP ROLE IF EXISTS testuser", ""},
+		{"DROP USER IF EXISTS", "DROP USER IF EXISTS testuser", "DROP ROLE IF EXISTS testuser"},
+		{"DROP GROUP IF EXISTS", "DROP GROUP IF EXISTS testgroup", "DROP ROLE IF EXISTS testgroup"},
+		{"DROP ROLE multiple", "DROP ROLE user1, user2, user3", ""},
+		{"DROP USER multiple with IF EXISTS", "DROP USER IF EXISTS user1, user2, user3", "DROP ROLE IF EXISTS user1, user2, user3"},
+
+		// ALTER ROLE SET statements
+		{"ALTER ROLE SET basic", "ALTER ROLE testuser SET search_path TO public", ""},
+		{"ALTER ROLE SET with string value", "ALTER ROLE testuser SET timezone TO 'UTC'", "ALTER ROLE testuser SET timezone TO UTC"},
+		{"ALTER ROLE SET with multiple values", "ALTER ROLE testuser SET search_path TO schema1, schema2", ""},
+		{"ALTER ROLE SET with numeric value", "ALTER ROLE testuser SET work_mem TO 1024", ""},
+		{"ALTER ROLE SET with boolean value", "ALTER ROLE testuser SET log_statement TO on", ""},
+		{"ALTER ROLE SET in database", "ALTER ROLE testuser IN DATABASE mydb SET search_path TO public", ""},
+		{"ALTER ROLE SET in database with string", "ALTER ROLE testuser IN DATABASE mydb SET timezone TO 'UTC'", "ALTER ROLE testuser IN DATABASE mydb SET timezone TO UTC"},
+		{"ALTER ROLE RESET basic", "ALTER ROLE testuser RESET search_path", ""},
+		{"ALTER ROLE RESET ALL", "ALTER ROLE testuser RESET ALL", ""},
+		{"ALTER ROLE RESET in database", "ALTER ROLE testuser IN DATABASE mydb RESET search_path", ""},
+		{"ALTER ROLE RESET ALL in database", "ALTER ROLE testuser IN DATABASE mydb RESET ALL", ""},
+		{"ALTER USER SET", "ALTER USER testuser SET search_path TO public", "ALTER ROLE testuser SET search_path TO public"},
+		{"ALTER USER SET in database", "ALTER USER testuser IN DATABASE mydb SET timezone TO 'UTC'", "ALTER ROLE testuser IN DATABASE mydb SET timezone TO UTC"},
+		{"ALTER USER RESET", "ALTER USER testuser RESET search_path", "ALTER ROLE testuser RESET search_path"},
+		{"ALTER ROLE ALL SET", "ALTER ROLE ALL SET search_path TO public", ""},
+		{"ALTER ROLE ALL SET in database", "ALTER ROLE ALL IN DATABASE mydb SET search_path TO public", ""},
+		{"ALTER ROLE ALL RESET", "ALTER ROLE ALL RESET search_path", ""},
+		{"ALTER ROLE ALL RESET in database", "ALTER ROLE ALL IN DATABASE mydb RESET ALL", ""},
+		{"ALTER USER ALL SET", "ALTER USER ALL SET search_path TO public", "ALTER ROLE ALL SET search_path TO public"},
+		{"ALTER USER ALL RESET", "ALTER USER ALL RESET search_path", "ALTER ROLE ALL RESET search_path"},
+		{"ALTER ROLE SET log_statement", "ALTER ROLE testuser SET log_statement TO 'all'", ""},
+		{"ALTER ROLE SET shared_preload_libraries", "ALTER ROLE testuser SET shared_preload_libraries TO 'pg_stat_statements'", "ALTER ROLE TESTUSER SET SHARED_PRELOAD_LIBRARIES TO PG_STAT_STATEMENTS"},
+		{"ALTER ROLE SET with quoted identifier", "ALTER ROLE \"test-user\" SET search_path TO public", "ALTER ROLE TEST-USER SET SEARCH_PATH TO PUBLIC"},
+		{"ALTER ROLE SET with DEFAULT", "ALTER ROLE testuser SET search_path TO DEFAULT", ""},
 	}
 
 	for _, tt := range tests {
@@ -408,6 +512,15 @@ func TestDeparsing(t *testing.T) {
 
 			assert.Equal(t, normalizedExpected, normalizedDeparsed,
 				"Deparsed SQL should match expected.\nOriginal: %s\nDeparsed: %s\nExpected: %s",
+				tt.input, deparsed, expected)
+
+			statements, err = ParseSQL(deparsed)
+			require.NoError(t, err, "Parse should succeed for: %s", tt.input)
+			require.Len(t, statements, 1, "Should have exactly one statement")
+			deparsed = statements[0].SqlString()
+			normalizedDeparsed = normalizeSQL(deparsed)
+			assert.Equal(t, normalizedExpected, normalizedDeparsed,
+				"Second Deparsed SQL should match expected.\nOriginal: %s\nDeparsed: %s\nExpected: %s",
 				tt.input, deparsed, expected)
 		})
 	}

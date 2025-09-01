@@ -60,7 +60,7 @@ func (t TransactionStmtKind) String() string {
 type TransactionStmt struct {
 	BaseNode
 	Kind          TransactionStmtKind // Kind of transaction statement - postgres/src/include/nodes/parsenodes.h:3670
-	Options       []*DefElem          // List of DefElem nodes for BEGIN/START - postgres/src/include/nodes/parsenodes.h:3671
+	Options       *NodeList           // List of DefElem nodes for BEGIN/START - postgres/src/include/nodes/parsenodes.h:3671
 	SavepointName string              // Savepoint name for SAVEPOINT/RELEASE/ROLLBACK TO - postgres/src/include/nodes/parsenodes.h:3672
 	Gid           string              // String identifier for two-phase commit - postgres/src/include/nodes/parsenodes.h:3673
 	Chain         bool                // AND CHAIN option - postgres/src/include/nodes/parsenodes.h:3674
@@ -133,6 +133,83 @@ func (ts *TransactionStmt) StatementType() string {
 	return ts.Kind.String()
 }
 
+func (ts *TransactionStmt) SqlString() string {
+	var parts []string
+
+	switch ts.Kind {
+	case TRANS_STMT_BEGIN:
+		parts = append(parts, "BEGIN")
+	case TRANS_STMT_START:
+		parts = append(parts, "START", "TRANSACTION")
+	case TRANS_STMT_COMMIT:
+		parts = append(parts, "COMMIT")
+	case TRANS_STMT_ROLLBACK:
+		parts = append(parts, "ROLLBACK")
+	case TRANS_STMT_SAVEPOINT:
+		parts = append(parts, "SAVEPOINT")
+		if ts.SavepointName != "" {
+			parts = append(parts, ts.SavepointName)
+		}
+	case TRANS_STMT_RELEASE:
+		parts = append(parts, "RELEASE")
+		if ts.SavepointName != "" {
+			parts = append(parts, "SAVEPOINT", ts.SavepointName)
+		}
+	case TRANS_STMT_ROLLBACK_TO:
+		parts = append(parts, "ROLLBACK", "TO")
+		if ts.SavepointName != "" {
+			parts = append(parts, "SAVEPOINT", ts.SavepointName)
+		}
+	case TRANS_STMT_PREPARE:
+		parts = append(parts, "PREPARE", "TRANSACTION")
+		if ts.Gid != "" {
+			parts = append(parts, fmt.Sprintf("'%s'", ts.Gid))
+		}
+	case TRANS_STMT_COMMIT_PREPARED:
+		parts = append(parts, "COMMIT", "PREPARED")
+		if ts.Gid != "" {
+			parts = append(parts, fmt.Sprintf("'%s'", ts.Gid))
+		}
+	case TRANS_STMT_ROLLBACK_PREPARED:
+		parts = append(parts, "ROLLBACK", "PREPARED")
+		if ts.Gid != "" {
+			parts = append(parts, fmt.Sprintf("'%s'", ts.Gid))
+		}
+	}
+
+	// Add transaction options for BEGIN/START TRANSACTION
+	if (ts.Kind == TRANS_STMT_BEGIN || ts.Kind == TRANS_STMT_START) && ts.Options != nil && len(ts.Options.Items) > 0 {
+		var optionParts []string
+		for _, item := range ts.Options.Items {
+			if defElem, ok := item.(*DefElem); ok {
+				optionParts = append(optionParts, formatTransactionOption(defElem))
+			}
+		}
+		if len(optionParts) > 0 {
+			parts = append(parts, strings.Join(optionParts, " "))
+		}
+	}
+
+	// Add AND CHAIN / AND NO CHAIN for COMMIT/ROLLBACK
+	if ts.Kind == TRANS_STMT_COMMIT || ts.Kind == TRANS_STMT_ROLLBACK {
+		if ts.Chain {
+			parts = append(parts, "AND", "CHAIN")
+		} else if ts.Options != nil {
+			// Check if we have an explicit "no chain" option
+			for _, item := range ts.Options.Items {
+				if defElem, ok := item.(*DefElem); ok && defElem.Defname == "chain" {
+					if boolVal, ok := defElem.Arg.(*Boolean); ok && !boolVal.BoolVal {
+						parts = append(parts, "AND", "NO", "CHAIN")
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
 // ==============================================================================
 // SECURITY STATEMENTS - GRANT/REVOKE - PostgreSQL parsenodes.h:2491-2565
 // ==============================================================================
@@ -168,8 +245,8 @@ type GrantStmt struct {
 	Targtype    GrantTargetType // Type of target - postgres/src/include/nodes/parsenodes.h:2495
 	Objtype     ObjectType      // Kind of object being operated on - postgres/src/include/nodes/parsenodes.h:2496
 	Objects     *NodeList       // List of RangeVar nodes, or list of String nodes - postgres/src/include/nodes/parsenodes.h:2497
-	Privileges  []*AccessPriv   // List of AccessPriv nodes - postgres/src/include/nodes/parsenodes.h:2498
-	Grantees    []*RoleSpec     // List of RoleSpec nodes - postgres/src/include/nodes/parsenodes.h:2499
+	Privileges  *NodeList       // List of AccessPriv nodes - postgres/src/include/nodes/parsenodes.h:2498
+	Grantees    *NodeList       // List of RoleSpec nodes - postgres/src/include/nodes/parsenodes.h:2499
 	GrantOption bool            // Grant or revoke grant option - postgres/src/include/nodes/parsenodes.h:2500
 	Grantor     *RoleSpec       // Set by GRANTED BY (when not NULL) - postgres/src/include/nodes/parsenodes.h:2501
 	Behavior    DropBehavior    // Drop behavior - postgres/src/include/nodes/parsenodes.h:2502
@@ -179,12 +256,12 @@ type GrantStmt struct {
 // Ported from postgres/src/include/nodes/parsenodes.h:2540
 type AccessPriv struct {
 	BaseNode
-	PrivName string   // String name of privilege - postgres/src/include/nodes/parsenodes.h:2510
-	Cols     []string // List of column names (or NIL) - postgres/src/include/nodes/parsenodes.h:2511
+	PrivName string    // String name of privilege - postgres/src/include/nodes/parsenodes.h:2510
+	Cols     *NodeList // List of column names (or NIL) - postgres/src/include/nodes/parsenodes.h:2511
 }
 
 // NewGrantStmt creates a new GRANT statement.
-func NewGrantStmt(objtype ObjectType, objects *NodeList, privileges []*AccessPriv, grantees []*RoleSpec) *GrantStmt {
+func NewGrantStmt(objtype ObjectType, objects *NodeList, privileges *NodeList, grantees *NodeList) *GrantStmt {
 	return &GrantStmt{
 		BaseNode:   BaseNode{Tag: T_GrantStmt},
 		IsGrant:    true,
@@ -198,7 +275,7 @@ func NewGrantStmt(objtype ObjectType, objects *NodeList, privileges []*AccessPri
 }
 
 // NewRevokeStmt creates a new REVOKE statement.
-func NewRevokeStmt(objtype ObjectType, objects *NodeList, privileges []*AccessPriv, grantees []*RoleSpec) *GrantStmt {
+func NewRevokeStmt(objtype ObjectType, objects *NodeList, privileges *NodeList, grantees *NodeList) *GrantStmt {
 	return &GrantStmt{
 		BaseNode:   BaseNode{Tag: T_GrantStmt},
 		IsGrant:    false,
@@ -212,7 +289,7 @@ func NewRevokeStmt(objtype ObjectType, objects *NodeList, privileges []*AccessPr
 }
 
 // NewAccessPriv creates a new AccessPriv node.
-func NewAccessPriv(privName string, cols []string) *AccessPriv {
+func NewAccessPriv(privName string, cols *NodeList) *AccessPriv {
 	return &AccessPriv{
 		BaseNode: BaseNode{Tag: T_AccessPriv},
 		PrivName: privName,
@@ -240,8 +317,8 @@ func (gs *GrantStmt) StatementType() string {
 }
 
 func (ap *AccessPriv) String() string {
-	if len(ap.Cols) > 0 {
-		return fmt.Sprintf("AccessPriv(%s on %d cols)@%d", ap.PrivName, len(ap.Cols), ap.Location())
+	if ap.Cols != nil && len(ap.Cols.Items) > 0 {
+		return fmt.Sprintf("AccessPriv(%s on %d cols)@%d", ap.PrivName, len(ap.Cols.Items), ap.Location())
 	}
 	return fmt.Sprintf("AccessPriv(%s)@%d", ap.PrivName, ap.Location())
 }
@@ -250,16 +327,16 @@ func (ap *AccessPriv) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2556
 type GrantRoleStmt struct {
 	BaseNode
-	GrantedRoles []*RoleSpec  // List of roles to be granted/revoked - postgres/src/include/nodes/parsenodes.h:2559
-	GranteeRoles []*RoleSpec  // List of member roles to add/delete - postgres/src/include/nodes/parsenodes.h:2560
+	GrantedRoles *NodeList    // List of roles to be granted/revoked - postgres/src/include/nodes/parsenodes.h:2559
+	GranteeRoles *NodeList    // List of member roles to add/delete - postgres/src/include/nodes/parsenodes.h:2560
 	IsGrant      bool         // True = GRANT, false = REVOKE - postgres/src/include/nodes/parsenodes.h:2561
-	Opt          []*DefElem   // Options e.g. WITH GRANT OPTION - postgres/src/include/nodes/parsenodes.h:2562
+	Opt          *NodeList    // Options e.g. WITH GRANT OPTION - postgres/src/include/nodes/parsenodes.h:2562
 	Grantor      *RoleSpec    // Set by GRANTED BY (when not NULL) - postgres/src/include/nodes/parsenodes.h:2563
 	Behavior     DropBehavior // Drop behavior for REVOKE - postgres/src/include/nodes/parsenodes.h:2564
 }
 
 // NewGrantRoleStmt creates a new GRANT role statement.
-func NewGrantRoleStmt(grantedRoles, granteeRoles []*RoleSpec) *GrantRoleStmt {
+func NewGrantRoleStmt(grantedRoles, granteeRoles *NodeList) *GrantRoleStmt {
 	return &GrantRoleStmt{
 		BaseNode:     BaseNode{Tag: T_GrantRoleStmt},
 		GrantedRoles: grantedRoles,
@@ -270,7 +347,7 @@ func NewGrantRoleStmt(grantedRoles, granteeRoles []*RoleSpec) *GrantRoleStmt {
 }
 
 // NewRevokeRoleStmt creates a new REVOKE role statement.
-func NewRevokeRoleStmt(grantedRoles, granteeRoles []*RoleSpec) *GrantRoleStmt {
+func NewRevokeRoleStmt(grantedRoles, granteeRoles *NodeList) *GrantRoleStmt {
 	return &GrantRoleStmt{
 		BaseNode:     BaseNode{Tag: T_GrantRoleStmt},
 		GrantedRoles: grantedRoles,
@@ -281,7 +358,7 @@ func NewRevokeRoleStmt(grantedRoles, granteeRoles []*RoleSpec) *GrantRoleStmt {
 }
 
 // NewGrantRoleStmtWithOptions creates a new GRANT role statement with options.
-func NewGrantRoleStmtWithOptions(grantedRoles, granteeRoles []*RoleSpec, opt []*DefElem) *GrantRoleStmt {
+func NewGrantRoleStmtWithOptions(grantedRoles, granteeRoles *NodeList, opt *NodeList) *GrantRoleStmt {
 	return &GrantRoleStmt{
 		BaseNode:     BaseNode{Tag: T_GrantRoleStmt},
 		GrantedRoles: grantedRoles,
@@ -297,7 +374,15 @@ func (grs *GrantRoleStmt) String() string {
 	if grs.IsGrant {
 		action = "GRANT"
 	}
-	return fmt.Sprintf("GrantRoleStmt(%s %d roles to %d grantees)@%d", action, len(grs.GrantedRoles), len(grs.GranteeRoles), grs.Location())
+	grantedCount := 0
+	if grs.GrantedRoles != nil {
+		grantedCount = len(grs.GrantedRoles.Items)
+	}
+	granteeCount := 0
+	if grs.GranteeRoles != nil {
+		granteeCount = len(grs.GranteeRoles.Items)
+	}
+	return fmt.Sprintf("GrantRoleStmt(%s %d roles to %d grantees)@%d", action, grantedCount, granteeCount, grs.Location())
 }
 
 func (grs *GrantRoleStmt) StatementType() string {
@@ -317,8 +402,8 @@ type RoleStatementType int
 
 const (
 	ROLESTMT_ROLE  RoleStatementType = iota // CREATE/ALTER/DROP ROLE
-	ROLESTMT_USER                      // CREATE/ALTER/DROP USER
-	ROLESTMT_GROUP                     // CREATE/ALTER/DROP GROUP
+	ROLESTMT_USER                           // CREATE/ALTER/DROP USER
+	ROLESTMT_GROUP                          // CREATE/ALTER/DROP GROUP
 )
 
 func (r RoleStatementType) String() string {
@@ -339,12 +424,12 @@ func (r RoleStatementType) String() string {
 type CreateRoleStmt struct {
 	BaseNode
 	StmtType RoleStatementType // Role type: ROLE, USER, or GROUP - postgres/src/include/nodes/parsenodes.h:3084
-	Role     string       // Role name - postgres/src/include/nodes/parsenodes.h:3085
-	Options  []*DefElem   // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3086
+	Role     string            // Role name - postgres/src/include/nodes/parsenodes.h:3085
+	Options  *NodeList         // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3086
 }
 
 // NewCreateRoleStmt creates a new CREATE ROLE statement.
-func NewCreateRoleStmt(stmtType RoleStatementType, role string, options []*DefElem) *CreateRoleStmt {
+func NewCreateRoleStmt(stmtType RoleStatementType, role string, options *NodeList) *CreateRoleStmt {
 	return &CreateRoleStmt{
 		BaseNode: BaseNode{Tag: T_CreateRoleStmt},
 		StmtType: stmtType,
@@ -354,24 +439,175 @@ func NewCreateRoleStmt(stmtType RoleStatementType, role string, options []*DefEl
 }
 
 func (crs *CreateRoleStmt) String() string {
-	return fmt.Sprintf("CreateRoleStmt(%s %s, %d options)@%d", crs.StmtType, crs.Role, len(crs.Options), crs.Location())
+	optionCount := 0
+	if crs.Options != nil {
+		optionCount = len(crs.Options.Items)
+	}
+	return fmt.Sprintf("CreateRoleStmt(%s %s, %d options)@%d", crs.StmtType, crs.Role, optionCount, crs.Location())
 }
 
 func (crs *CreateRoleStmt) StatementType() string {
 	return fmt.Sprintf("CREATE_%s", crs.StmtType)
 }
 
+func (crs *CreateRoleStmt) SqlString() string {
+	var parts []string
+
+	parts = append(parts, "CREATE")
+	parts = append(parts, crs.StmtType.String())
+	parts = append(parts, crs.Role)
+
+	// Add options if present
+	if crs.Options != nil && len(crs.Options.Items) > 0 {
+		var optionParts []string
+		for _, item := range crs.Options.Items {
+			if defElem, ok := item.(*DefElem); ok {
+				optionParts = append(optionParts, formatRoleOption(defElem))
+			}
+		}
+		if len(optionParts) > 0 {
+			parts = append(parts, "WITH")
+			parts = append(parts, strings.Join(optionParts, " "))
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// formatRoleOption formats a DefElem as a role option without the = sign
+func formatRoleOption(d *DefElem) string {
+	// Handle special role options that need transformation from internal names to SQL syntax
+	switch strings.ToLower(d.Defname) {
+	case "canlogin":
+		if boolVal, ok := d.Arg.(*Boolean); ok {
+			if boolVal.BoolVal {
+				return "LOGIN"
+			} else {
+				return "NOLOGIN"
+			}
+		}
+	case "inherit":
+		if boolVal, ok := d.Arg.(*Boolean); ok {
+			if boolVal.BoolVal {
+				return "INHERIT"
+			} else {
+				return "NOINHERIT"
+			}
+		}
+	case "createrole":
+		if boolVal, ok := d.Arg.(*Boolean); ok {
+			if boolVal.BoolVal {
+				return "CREATEROLE"
+			} else {
+				return "NOCREATEROLE"
+			}
+		}
+	case "createdb":
+		if boolVal, ok := d.Arg.(*Boolean); ok {
+			if boolVal.BoolVal {
+				return "CREATEDB"
+			} else {
+				return "NOCREATEDB"
+			}
+		}
+	case "isreplication":
+		if boolVal, ok := d.Arg.(*Boolean); ok {
+			if boolVal.BoolVal {
+				return "REPLICATION"
+			} else {
+				return "NOREPLICATION"
+			}
+		}
+	case "issuperuser", "superuser":
+		if boolVal, ok := d.Arg.(*Boolean); ok {
+			if boolVal.BoolVal {
+				return "SUPERUSER"
+			} else {
+				return "NOSUPERUSER"
+			}
+		}
+	case "connectionlimit":
+		if d.Arg != nil {
+			return fmt.Sprintf("CONNECTION LIMIT %s", d.Arg.SqlString())
+		}
+	case "validuntil":
+		if d.Arg != nil {
+			return fmt.Sprintf("VALID UNTIL %s", d.Arg.SqlString())
+		}
+	case "addroleto":
+		if d.Arg != nil {
+			return fmt.Sprintf("IN ROLE %s", d.Arg.SqlString())
+		}
+	case "rolemembers":
+		if d.Arg != nil {
+			return fmt.Sprintf("ROLE %s", d.Arg.SqlString())
+		}
+	case "adminmembers":
+		if d.Arg != nil {
+			return fmt.Sprintf("ADMIN %s", d.Arg.SqlString())
+		}
+	case "password":
+		if d.Arg != nil {
+			return fmt.Sprintf("PASSWORD %s", d.Arg.SqlString())
+		}
+	}
+
+	// Default formatting for other options
+	if d.Arg != nil {
+		argStr := d.Arg.SqlString()
+		return fmt.Sprintf("%s %s", strings.ToUpper(d.Defname), argStr)
+	}
+	return strings.ToUpper(d.Defname)
+}
+
+// formatTransactionOption formats a DefElem as a transaction option
+func formatTransactionOption(d *DefElem) string {
+	// Handle special transaction options that need transformation from internal names to SQL syntax
+	switch strings.ToLower(d.Defname) {
+	case "transaction_isolation":
+		if d.Arg != nil {
+			// Special handling for isolation levels - don't quote them
+			if strNode, ok := d.Arg.(*String); ok {
+				return fmt.Sprintf("ISOLATION LEVEL %s", strings.ToUpper(strNode.SVal))
+			}
+			return fmt.Sprintf("ISOLATION LEVEL %s", d.Arg.SqlString())
+		}
+	case "transaction_read_only":
+		if boolVal, ok := d.Arg.(*Boolean); ok {
+			if boolVal.BoolVal {
+				return "READ ONLY"
+			} else {
+				return "READ WRITE"
+			}
+		}
+	case "transaction_deferrable":
+		if boolVal, ok := d.Arg.(*Boolean); ok {
+			if boolVal.BoolVal {
+				return "DEFERRABLE"
+			} else {
+				return "NOT DEFERRABLE"
+			}
+		}
+	}
+
+	// Default formatting for other transaction options
+	if d.Arg != nil {
+		return fmt.Sprintf("%s %s", strings.ToUpper(d.Defname), d.Arg.SqlString())
+	}
+	return strings.ToUpper(d.Defname)
+}
+
 // AlterRoleStmt represents an ALTER ROLE/USER/GROUP statement.
 // Ported from postgres/src/include/nodes/parsenodes.h:3089
 type AlterRoleStmt struct {
 	BaseNode
-	Role    *RoleSpec  // Role to alter - postgres/src/include/nodes/parsenodes.h:3092
-	Options []*DefElem // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3093
-	Action  int        // +1 = add members, -1 = drop members - postgres/src/include/nodes/parsenodes.h:3094
+	Role    *RoleSpec // Role to alter - postgres/src/include/nodes/parsenodes.h:3092
+	Options *NodeList // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3093
+	Action  int       // +1 = add members, -1 = drop members - postgres/src/include/nodes/parsenodes.h:3094
 }
 
 // NewAlterRoleStmt creates a new ALTER ROLE statement.
-func NewAlterRoleStmt(role *RoleSpec, options []*DefElem) *AlterRoleStmt {
+func NewAlterRoleStmt(role *RoleSpec, options *NodeList) *AlterRoleStmt {
 	return &AlterRoleStmt{
 		BaseNode: BaseNode{Tag: T_AlterRoleStmt},
 		Role:     role,
@@ -385,23 +621,205 @@ func (ars *AlterRoleStmt) String() string {
 	if ars.Role != nil {
 		roleName = ars.Role.Rolename
 	}
-	return fmt.Sprintf("AlterRoleStmt(%s, %d options)@%d", roleName, len(ars.Options), ars.Location())
+	optionCount := 0
+	if ars.Options != nil {
+		optionCount = len(ars.Options.Items)
+	}
+	return fmt.Sprintf("AlterRoleStmt(%s, %d options)@%d", roleName, optionCount, ars.Location())
 }
 
 func (ars *AlterRoleStmt) StatementType() string {
 	return "ALTER_ROLE"
 }
 
+func (ars *AlterRoleStmt) SqlString() string {
+	var parts []string
+
+	// Check if this is an ALTER GROUP statement by examining the options for rolemembers
+	isAlterGroup := false
+	if ars.Options != nil {
+		for _, item := range ars.Options.Items {
+			if defElem, ok := item.(*DefElem); ok && defElem.Defname == "rolemembers" {
+				isAlterGroup = true
+				break
+			}
+		}
+	}
+
+	if isAlterGroup {
+		// ALTER GROUP ADD/DROP USER statement
+		parts = append(parts, "ALTER", "GROUP")
+		if ars.Role != nil {
+			parts = append(parts, ars.Role.Rolename)
+		}
+
+		// Add ADD/DROP USER action
+		if ars.Action == 1 { // ADD
+			parts = append(parts, "ADD", "USER")
+		} else { // DROP
+			parts = append(parts, "DROP", "USER")
+		}
+
+		// Add role list from options
+		if ars.Options != nil && len(ars.Options.Items) > 0 {
+			var roleNames []string
+			for _, item := range ars.Options.Items {
+				if defElem, ok := item.(*DefElem); ok && defElem.Defname == "rolemembers" {
+					if nodeList, ok := defElem.Arg.(*NodeList); ok {
+						for _, roleItem := range nodeList.Items {
+							if roleSpec, ok := roleItem.(*RoleSpec); ok {
+								roleNames = append(roleNames, roleSpec.Rolename)
+							}
+						}
+					}
+				}
+			}
+			if len(roleNames) > 0 {
+				parts = append(parts, strings.Join(roleNames, ", "))
+			}
+		}
+	} else {
+		// Regular ALTER ROLE/USER
+		parts = append(parts, "ALTER", "ROLE")
+		if ars.Role != nil {
+			parts = append(parts, ars.Role.Rolename)
+		}
+
+		// Add options if present
+		if ars.Options != nil && len(ars.Options.Items) > 0 {
+			var optionParts []string
+			for _, item := range ars.Options.Items {
+				if defElem, ok := item.(*DefElem); ok {
+					optionParts = append(optionParts, formatRoleOption(defElem))
+				}
+			}
+			if len(optionParts) > 0 {
+				parts = append(parts, "WITH")
+				parts = append(parts, strings.Join(optionParts, " "))
+			}
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// AlterRoleSetStmt represents an ALTER ROLE/USER SET/RESET statement.
+// Ported from postgres/src/include/nodes/parsenodes.h:3097
+type AlterRoleSetStmt struct {
+	BaseNode
+	Role     *RoleSpec        // Role to modify - postgres/src/include/nodes/parsenodes.h:3100
+	Database string           // Database name, or empty string - postgres/src/include/nodes/parsenodes.h:3101
+	Setstmt  *VariableSetStmt // SET or RESET subcommand - postgres/src/include/nodes/parsenodes.h:3102
+}
+
+// NewAlterRoleSetStmt creates a new ALTER ROLE SET statement.
+func NewAlterRoleSetStmt(role *RoleSpec, database string, setstmt *VariableSetStmt) *AlterRoleSetStmt {
+	return &AlterRoleSetStmt{
+		BaseNode: BaseNode{Tag: T_AlterRoleSetStmt},
+		Role:     role,
+		Database: database,
+		Setstmt:  setstmt,
+	}
+}
+
+func (arss *AlterRoleSetStmt) String() string {
+	roleName := "ALL"
+	if arss.Role != nil {
+		roleName = arss.Role.Rolename
+	}
+	dbInfo := ""
+	if arss.Database != "" {
+		dbInfo = fmt.Sprintf(" IN DATABASE %s", arss.Database)
+	}
+	return fmt.Sprintf("AlterRoleSetStmt(%s%s)@%d", roleName, dbInfo, arss.Location())
+}
+
+func (arss *AlterRoleSetStmt) StatementType() string {
+	return "ALTER_ROLE_SET"
+}
+
+func (arss *AlterRoleSetStmt) SqlString() string {
+	var parts []string
+
+	parts = append(parts, "ALTER", "ROLE")
+
+	if arss.Role != nil {
+		parts = append(parts, arss.Role.Rolename)
+	} else {
+		parts = append(parts, "ALL")
+	}
+
+	if arss.Database != "" {
+		parts = append(parts, "IN", "DATABASE", arss.Database)
+	}
+
+	if arss.Setstmt != nil {
+		// Format the SET/RESET clause specifically for ALTER ROLE
+		if arss.Setstmt.Kind == VAR_SET_VALUE {
+			parts = append(parts, "SET", arss.Setstmt.Name)
+			if arss.Setstmt.Args != nil && arss.Setstmt.Args.Len() > 0 {
+				parts = append(parts, "TO")
+				argParts := []string{}
+				for _, arg := range arss.Setstmt.Args.Items {
+					// Format arguments using keyword-aware quoting
+					if strNode, ok := arg.(*String); ok {
+						val := strNode.SVal
+						if shouldQuoteValue(val) {
+							argParts = append(argParts, QuoteStringLiteral(val))
+						} else {
+							argParts = append(argParts, val)
+						}
+					} else {
+						argParts = append(argParts, arg.SqlString())
+					}
+				}
+				parts = append(parts, strings.Join(argParts, ", "))
+			}
+		} else if arss.Setstmt.Kind == VAR_SET_DEFAULT {
+			parts = append(parts, "SET", arss.Setstmt.Name, "TO", "DEFAULT")
+		} else if arss.Setstmt.Kind == VAR_SET_CURRENT {
+			parts = append(parts, "SET", arss.Setstmt.Name, "FROM", "CURRENT")
+		} else if arss.Setstmt.Kind == VAR_SET_MULTI {
+			// For multi-valued SET like search_path
+			parts = append(parts, "SET", arss.Setstmt.Name)
+			if arss.Setstmt.Args != nil && arss.Setstmt.Args.Len() > 0 {
+				parts = append(parts, "TO")
+				argParts := []string{}
+				for _, arg := range arss.Setstmt.Args.Items {
+					// Format arguments using keyword-aware quoting
+					if strNode, ok := arg.(*String); ok {
+						val := strNode.SVal
+						if shouldQuoteValue(val) {
+							argParts = append(argParts, QuoteStringLiteral(val))
+						} else {
+							argParts = append(argParts, val)
+						}
+					} else {
+						argParts = append(argParts, arg.SqlString())
+					}
+				}
+				parts = append(parts, strings.Join(argParts, ", "))
+			}
+		} else if arss.Setstmt.Kind == VAR_RESET {
+			parts = append(parts, "RESET", arss.Setstmt.Name)
+		} else if arss.Setstmt.Kind == VAR_RESET_ALL {
+			parts = append(parts, "RESET", "ALL")
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
 // DropRoleStmt represents a DROP ROLE/USER/GROUP statement.
 // Ported from postgres/src/include/nodes/parsenodes.h:3105
 type DropRoleStmt struct {
 	BaseNode
-	Roles     []*RoleSpec // List of roles to remove - postgres/src/include/nodes/parsenodes.h:3108
-	MissingOk bool        // Skip error if a role is missing? - postgres/src/include/nodes/parsenodes.h:3109
+	Roles     *NodeList // List of roles to remove - postgres/src/include/nodes/parsenodes.h:3108
+	MissingOk bool      // Skip error if a role is missing? - postgres/src/include/nodes/parsenodes.h:3109
 }
 
 // NewDropRoleStmt creates a new DROP ROLE statement.
-func NewDropRoleStmt(roles []*RoleSpec, missingOk bool) *DropRoleStmt {
+func NewDropRoleStmt(roles *NodeList, missingOk bool) *DropRoleStmt {
 	return &DropRoleStmt{
 		BaseNode:  BaseNode{Tag: T_DropRoleStmt},
 		Roles:     roles,
@@ -414,11 +832,40 @@ func (drs *DropRoleStmt) String() string {
 	if drs.MissingOk {
 		ifExists = "IF EXISTS "
 	}
-	return fmt.Sprintf("DropRoleStmt(%s%d roles)@%d", ifExists, len(drs.Roles), drs.Location())
+	roleCount := 0
+	if drs.Roles != nil {
+		roleCount = len(drs.Roles.Items)
+	}
+	return fmt.Sprintf("DropRoleStmt(%s%d roles)@%d", ifExists, roleCount, drs.Location())
 }
 
 func (drs *DropRoleStmt) StatementType() string {
 	return "DROP_ROLE"
+}
+
+func (drs *DropRoleStmt) SqlString() string {
+	var parts []string
+
+	parts = append(parts, "DROP", "ROLE")
+
+	if drs.MissingOk {
+		parts = append(parts, "IF", "EXISTS")
+	}
+
+	// Add role names
+	if drs.Roles != nil && len(drs.Roles.Items) > 0 {
+		var roleNames []string
+		for _, item := range drs.Roles.Items {
+			if roleSpec, ok := item.(*RoleSpec); ok {
+				roleNames = append(roleNames, roleSpec.Rolename)
+			}
+		}
+		if len(roleNames) > 0 {
+			parts = append(parts, strings.Join(roleNames, ", "))
+		}
+	}
+
+	return strings.Join(parts, " ")
 }
 
 // ==============================================================================
@@ -491,15 +938,15 @@ func NewResetStmt(name string) *VariableSetStmt {
 // SqlString returns the SQL representation of the SET statement
 func (v *VariableSetStmt) SqlString() string {
 	var parts []string
-	
+
 	// Add SET
 	parts = append(parts, "SET")
-	
+
 	// Add LOCAL if applicable
 	if v.IsLocal {
 		parts = append(parts, "LOCAL")
 	}
-	
+
 	// Handle different kinds of SET statements
 	switch v.Kind {
 	case VAR_SET_VALUE:
@@ -525,7 +972,7 @@ func (v *VariableSetStmt) SqlString() string {
 			// Generic variable name
 			parts = append(parts, v.Name)
 		}
-		
+
 		// Add values (syntax depends on the specific SET variant)
 		if v.Args != nil && v.Args.Len() > 0 {
 			// For special cases that use specific syntax
@@ -534,9 +981,9 @@ func (v *VariableSetStmt) SqlString() string {
 				if str, ok := v.Args.Items[0].(*String); ok {
 					parts = append(parts, strings.ToUpper(str.SVal))
 				}
-			} else if v.Name == "timezone" || v.Name == "catalog" || v.Name == "search_path" || 
-					  v.Name == "client_encoding" || v.Name == "role" || 
-					  v.Name == "session_authorization" || v.Name == "transaction_snapshot" {
+			} else if v.Name == "timezone" || v.Name == "catalog" || v.Name == "search_path" ||
+				v.Name == "client_encoding" || v.Name == "role" ||
+				v.Name == "session_authorization" || v.Name == "transaction_snapshot" {
 				// PostgreSQL-specific forms don't use = (e.g., SET TIME ZONE 'UTC')
 				var values []string
 				for _, arg := range v.Args.Items {
@@ -579,7 +1026,7 @@ func (v *VariableSetStmt) SqlString() string {
 		} else if v.Name == "client_encoding" {
 			// SET NAMES without arguments is valid
 		}
-		
+
 	case VAR_SET_DEFAULT:
 		// Handle SET var = DEFAULT or SET SESSION AUTHORIZATION DEFAULT
 		if v.Name == "session_authorization" {
@@ -587,22 +1034,22 @@ func (v *VariableSetStmt) SqlString() string {
 		} else {
 			parts = append(parts, v.Name, "=", "DEFAULT")
 		}
-		
+
 	case VAR_SET_CURRENT:
 		// Handle SET var FROM CURRENT
 		parts = append(parts, v.Name, "FROM", "CURRENT")
-		
+
 	case VAR_RESET:
 		// Handle RESET (this would be a different statement type normally)
 		parts[0] = "RESET" // Replace SET with RESET
 		parts = append(parts, v.Name)
-		
+
 	case VAR_RESET_ALL:
-		// Handle RESET ALL  
+		// Handle RESET ALL
 		parts[0] = "RESET" // Replace SET with RESET
 		parts = append(parts, "ALL")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -614,18 +1061,18 @@ func needsQuoting(value string) bool {
 	case "TRUE", "FALSE", "ON", "OFF", "DEFAULT":
 		return false
 	}
-	
+
 	// Quote if contains spaces, special characters, or non-ASCII
 	if strings.ContainsAny(value, " '\"`\\,;()[]{}") {
 		return true
 	}
-	
+
 	// Check if it's a simple number (integer or float)
 	if _, err := fmt.Sscanf(value, "%f", new(float64)); err == nil {
 		// It's a number, don't quote
 		return false
 	}
-	
+
 	// For anything else (including identifiers), quote it
 	// This is safer and matches PostgreSQL behavior for SET values
 	return true
@@ -729,7 +1176,7 @@ func (ps *PrepareStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:4044
 type ExecuteStmt struct {
 	BaseNode
-	Name   string // Statement name - postgres/src/include/nodes/parsenodes.h:4047
+	Name   string    // Statement name - postgres/src/include/nodes/parsenodes.h:4047
 	Params *NodeList // List of parameter expressions - postgres/src/include/nodes/parsenodes.h:4048
 }
 
@@ -800,14 +1247,14 @@ func (ds *DeallocateStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2586
 type CopyStmt struct {
 	BaseNode
-	Relation    *RangeVar  // Relation to copy - postgres/src/include/nodes/parsenodes.h:2589
-	Query       Node       // Query to copy (SELECT/INSERT/UPDATE/DELETE) - postgres/src/include/nodes/parsenodes.h:2590
-	Attlist     *NodeList  // List of column names (or NIL for all columns) - postgres/src/include/nodes/parsenodes.h:2591
-	IsFrom      bool       // TO or FROM - postgres/src/include/nodes/parsenodes.h:2592
-	IsProgram   bool       // Is 'filename' a program to popen? - postgres/src/include/nodes/parsenodes.h:2593
-	Filename    string     // Filename, or NULL for STDIN/STDOUT - postgres/src/include/nodes/parsenodes.h:2594
-	Options     *NodeList  // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:2595
-	WhereClause Node       // WHERE condition (for COPY FROM WHERE) - postgres/src/include/nodes/parsenodes.h:2596
+	Relation    *RangeVar // Relation to copy - postgres/src/include/nodes/parsenodes.h:2589
+	Query       Node      // Query to copy (SELECT/INSERT/UPDATE/DELETE) - postgres/src/include/nodes/parsenodes.h:2590
+	Attlist     *NodeList // List of column names (or NIL for all columns) - postgres/src/include/nodes/parsenodes.h:2591
+	IsFrom      bool      // TO or FROM - postgres/src/include/nodes/parsenodes.h:2592
+	IsProgram   bool      // Is 'filename' a program to popen? - postgres/src/include/nodes/parsenodes.h:2593
+	Filename    string    // Filename, or NULL for STDIN/STDOUT - postgres/src/include/nodes/parsenodes.h:2594
+	Options     *NodeList // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:2595
+	WhereClause Node      // WHERE condition (for COPY FROM WHERE) - postgres/src/include/nodes/parsenodes.h:2596
 }
 
 // NewCopyStmt creates a new COPY statement.
@@ -863,10 +1310,10 @@ func (cs *CopyStmt) StatementType() string {
 // SqlString returns the SQL representation of the COPY statement
 func (cs *CopyStmt) SqlString() string {
 	var parts []string
-	
+
 	// Start with COPY
 	parts = append(parts, "COPY")
-	
+
 	if cs.Relation != nil {
 		// COPY table_name
 		if cs.Relation.SchemaName != "" {
@@ -874,7 +1321,7 @@ func (cs *CopyStmt) SqlString() string {
 		} else {
 			parts = append(parts, cs.Relation.RelName)
 		}
-		
+
 		// Add column list if specified
 		if cs.Attlist != nil && cs.Attlist.Len() > 0 {
 			var columns []string
@@ -891,30 +1338,30 @@ func (cs *CopyStmt) SqlString() string {
 		// COPY (query)
 		parts = append(parts, "("+cs.Query.SqlString()+")")
 	}
-	
+
 	// Add direction (FROM/TO)
 	if cs.IsFrom {
 		parts = append(parts, "FROM")
 	} else {
 		parts = append(parts, "TO")
 	}
-	
+
 	// Add PROGRAM if specified
 	if cs.IsProgram {
 		parts = append(parts, "PROGRAM")
 	}
-	
+
 	// Add filename or STDIN/STDOUT
 	if cs.Filename == "" {
 		if cs.IsFrom {
 			parts = append(parts, "STDIN")
 		} else {
-			parts = append(parts, "STDOUT") 
+			parts = append(parts, "STDOUT")
 		}
 	} else {
 		parts = append(parts, "'"+cs.Filename+"'")
 	}
-	
+
 	// Add options if any - always use modern parenthesized syntax
 	if cs.Options != nil && cs.Options.Len() > 0 {
 		var optionParts []string
@@ -930,25 +1377,24 @@ func (cs *CopyStmt) SqlString() string {
 			parts = append(parts, "("+strings.Join(optionParts, ", ")+")")
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
-
 
 // formatCopyOption formats a single COPY option for the canonical parenthesized syntax
 func formatCopyOption(option *DefElem) string {
 	if option.Defname == "" {
 		return ""
 	}
-	
+
 	optionName := option.Defname
-	
+
 	// Handle different types of option arguments
 	if option.Arg == nil {
 		// Boolean option with no explicit value (defaults to true)
 		return optionName
 	}
-	
+
 	switch arg := option.Arg.(type) {
 	case *String:
 		if arg.SVal == "true" || arg.SVal == "on" || arg.SVal == "1" {
