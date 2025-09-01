@@ -30,12 +30,12 @@ func TestJoinParsing(t *testing.T) {
 		{
 			name:     "JOIN with USING",
 			sql:      "SELECT * FROM users JOIN orders USING (user_id)",
-			expected: "SELECT * FROM users INNER JOIN orders USING ('user_id')",
+			expected: "SELECT * FROM users INNER JOIN orders USING (user_id)",
 		},
 		{
 			name:     "CROSS JOIN",
 			sql:      "SELECT * FROM users CROSS JOIN orders",
-			expected: "SELECT * FROM users INNER JOIN orders",
+			expected: "SELECT * FROM users INNER JOIN orders ON TRUE",
 		},
 		{
 			name:     "NATURAL JOIN",

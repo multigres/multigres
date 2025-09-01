@@ -7,6 +7,18 @@ import (
 	"strings"
 )
 
+// shouldQuoteValue determines if a value should be quoted as a string literal.
+// It uses the same logic as QuoteIdentifier to determine if quoting is needed.
+func shouldQuoteValue(val string) bool {
+	if val == "" {
+		return true
+	}
+	
+	// Use the same logic as QuoteIdentifier to determine if quoting is needed
+	return QuoteIdentifier(val) != val
+}
+
+
 // ==============================================================================
 // TRANSACTION CONTROL STATEMENTS - PostgreSQL parsenodes.h:3653-3679
 // ==============================================================================
@@ -744,7 +756,7 @@ func (arss *AlterRoleSetStmt) SqlString() string {
 	parts = append(parts, "ALTER", "ROLE")
 
 	if arss.Role != nil {
-		parts = append(parts, arss.Role.Rolename)
+		parts = append(parts, QuoteIdentifier(arss.Role.Rolename))
 	} else {
 		parts = append(parts, "ALL")
 	}
@@ -764,10 +776,11 @@ func (arss *AlterRoleSetStmt) SqlString() string {
 					// Format arguments using keyword-aware quoting
 					if strNode, ok := arg.(*String); ok {
 						val := strNode.SVal
-						if shouldQuoteValue(val) {
-							argParts = append(argParts, QuoteStringLiteral(val))
-						} else {
+						// For SET values, prefer unquoted identifiers when possible
+						if !shouldQuoteValue(val) {
 							argParts = append(argParts, val)
+						} else {
+							argParts = append(argParts, QuoteStringLiteral(val))
 						}
 					} else {
 						argParts = append(argParts, arg.SqlString())
@@ -789,10 +802,11 @@ func (arss *AlterRoleSetStmt) SqlString() string {
 					// Format arguments using keyword-aware quoting
 					if strNode, ok := arg.(*String); ok {
 						val := strNode.SVal
-						if shouldQuoteValue(val) {
-							argParts = append(argParts, QuoteStringLiteral(val))
-						} else {
+						// For SET values, prefer unquoted identifiers when possible
+						if !shouldQuoteValue(val) {
 							argParts = append(argParts, val)
+						} else {
+							argParts = append(argParts, QuoteStringLiteral(val))
 						}
 					} else {
 						argParts = append(argParts, arg.SqlString())
@@ -957,7 +971,13 @@ func (v *VariableSetStmt) SqlString() string {
 		case "catalog":
 			parts = append(parts, "CATALOG")
 		case "search_path":
-			parts = append(parts, "SCHEMA")
+			// For single schema, use SET SCHEMA syntax (more idiomatic)
+			// For multiple schemas, use SET search_path = syntax
+			if v.Args != nil && v.Args.Len() == 1 {
+				parts = append(parts, "SCHEMA")
+			} else {
+				parts = append(parts, "search_path")
+			}
 		case "client_encoding":
 			parts = append(parts, "NAMES")
 		case "role":
@@ -981,10 +1001,11 @@ func (v *VariableSetStmt) SqlString() string {
 				if str, ok := v.Args.Items[0].(*String); ok {
 					parts = append(parts, strings.ToUpper(str.SVal))
 				}
-			} else if v.Name == "timezone" || v.Name == "catalog" || v.Name == "search_path" ||
+			} else if v.Name == "timezone" || v.Name == "catalog" ||
 				v.Name == "client_encoding" || v.Name == "role" ||
-				v.Name == "session_authorization" || v.Name == "transaction_snapshot" {
-				// PostgreSQL-specific forms don't use = (e.g., SET TIME ZONE 'UTC')
+				v.Name == "session_authorization" || v.Name == "transaction_snapshot" ||
+				(v.Name == "search_path" && v.Args != nil && v.Args.Len() == 1) {
+				// PostgreSQL-specific forms don't use = (e.g., SET TIME ZONE 'UTC', SET SCHEMA 'public')
 				var values []string
 				for _, arg := range v.Args.Items {
 					if str, ok := arg.(*String); ok {

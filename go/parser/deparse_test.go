@@ -103,9 +103,9 @@ func TestDeparsing(t *testing.T) {
 		{"LEFT JOIN", "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id", "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id"},
 		{"RIGHT JOIN", "SELECT * FROM users RIGHT JOIN orders ON users.id = orders.user_id", "SELECT * FROM users RIGHT OUTER JOIN orders ON users.id = orders.user_id"},
 		{"FULL JOIN", "SELECT * FROM users FULL JOIN orders ON users.id = orders.user_id", "SELECT * FROM users FULL OUTER JOIN orders ON users.id = orders.user_id"},
-		{"CROSS JOIN", "SELECT * FROM users CROSS JOIN orders", "SELECT * FROM users INNER JOIN orders"},
+		{"CROSS JOIN", "SELECT * FROM users CROSS JOIN orders", "SELECT * FROM users INNER JOIN orders ON TRUE"},
 		{"NATURAL JOIN", "SELECT * FROM users NATURAL JOIN orders", ""},
-		{"JOIN with USING", "SELECT * FROM users JOIN orders USING (user_id)", "SELECT * FROM users INNER JOIN orders USING ('user_id')"},
+		{"JOIN with USING", "SELECT * FROM users JOIN orders USING (user_id)", "SELECT * FROM users INNER JOIN orders USING (user_id)"},
 		{"JOIN implicit INNER", "SELECT * FROM users JOIN orders ON users.id = orders.user_id", "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id"},
 
 		// JOIN operations - Advanced
@@ -116,11 +116,11 @@ func TestDeparsing(t *testing.T) {
 		{"NATURAL LEFT JOIN", "SELECT * FROM users NATURAL LEFT JOIN orders", ""},
 		{"NATURAL RIGHT JOIN", "SELECT * FROM users NATURAL RIGHT JOIN orders", ""},
 		{"NATURAL FULL JOIN", "SELECT * FROM users NATURAL FULL JOIN orders", ""},
-		{"Multiple column USING", "SELECT * FROM users JOIN orders USING (user_id, created_date)", "SELECT * FROM users INNER JOIN orders USING ('user_id', 'created_date')"},
+		{"Multiple column USING", "SELECT * FROM users JOIN orders USING (user_id, created_date)", "SELECT * FROM users INNER JOIN orders USING (user_id, created_date)"},
 
 		// JOIN operations - Complex
 		{"Chained JOINs", "SELECT * FROM users JOIN orders ON users.id = orders.user_id JOIN products ON orders.product_id = products.id", "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id INNER JOIN products ON orders.product_id = products.id"},
-		{"Mixed JOIN types", "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id CROSS JOIN categories", "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id INNER JOIN categories"},
+		{"Mixed JOIN types", "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id CROSS JOIN categories", "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id INNER JOIN categories ON TRUE"},
 		{"Parenthesized JOIN", "SELECT * FROM users JOIN (orders JOIN products ON orders.product_id = products.id) ON users.id = orders.user_id", "SELECT * FROM users INNER JOIN (orders INNER JOIN products ON orders.product_id = products.id) ON users.id = orders.user_id"},
 		{"JOIN with table aliases", "SELECT * FROM users u JOIN orders o ON u.id = o.user_id", "SELECT * FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id"},
 
@@ -256,7 +256,7 @@ func TestDeparsing(t *testing.T) {
 		{"SET boolean value true", "SET enable_seqscan = TRUE", ""},
 		{"SET boolean value false", "SET enable_hashjoin = FALSE", ""},
 		{"SET variable to ON", "SET autocommit = ON", ""},
-		{"SET multiple values", "SET search_path = 'schema1', 'schema2', 'public'", "SET SCHEMA 'schema1', 'schema2', 'public'"}, // Gets parsed as SET SCHEMA
+		{"SET multiple values", "SET search_path = 'schema1', 'schema2', 'public'", ""}, // Should remain as SET search_path
 
 		// Definition constructs (name = value pairs in option lists)
 		// These are used in CREATE statements with WITH clauses and constraint options
@@ -465,18 +465,18 @@ func TestDeparsing(t *testing.T) {
 
 		// ALTER ROLE SET statements
 		{"ALTER ROLE SET basic", "ALTER ROLE testuser SET search_path TO public", ""},
-		{"ALTER ROLE SET with string value", "ALTER ROLE testuser SET timezone TO 'UTC'", "ALTER ROLE testuser SET timezone TO UTC"},
+		{"ALTER ROLE SET with string value", "ALTER ROLE testuser SET timezone TO 'UTC'", ""},
 		{"ALTER ROLE SET with multiple values", "ALTER ROLE testuser SET search_path TO schema1, schema2", ""},
 		{"ALTER ROLE SET with numeric value", "ALTER ROLE testuser SET work_mem TO 1024", ""},
-		{"ALTER ROLE SET with boolean value", "ALTER ROLE testuser SET log_statement TO on", ""},
+		{"ALTER ROLE SET with boolean value", "ALTER ROLE testuser SET log_statement TO on", "ALTER ROLE testuser SET log_statement TO 'on'"},
 		{"ALTER ROLE SET in database", "ALTER ROLE testuser IN DATABASE mydb SET search_path TO public", ""},
-		{"ALTER ROLE SET in database with string", "ALTER ROLE testuser IN DATABASE mydb SET timezone TO 'UTC'", "ALTER ROLE testuser IN DATABASE mydb SET timezone TO UTC"},
+		{"ALTER ROLE SET in database with string", "ALTER ROLE testuser IN DATABASE mydb SET timezone TO 'UTC'", ""},
 		{"ALTER ROLE RESET basic", "ALTER ROLE testuser RESET search_path", ""},
 		{"ALTER ROLE RESET ALL", "ALTER ROLE testuser RESET ALL", ""},
 		{"ALTER ROLE RESET in database", "ALTER ROLE testuser IN DATABASE mydb RESET search_path", ""},
 		{"ALTER ROLE RESET ALL in database", "ALTER ROLE testuser IN DATABASE mydb RESET ALL", ""},
 		{"ALTER USER SET", "ALTER USER testuser SET search_path TO public", "ALTER ROLE testuser SET search_path TO public"},
-		{"ALTER USER SET in database", "ALTER USER testuser IN DATABASE mydb SET timezone TO 'UTC'", "ALTER ROLE testuser IN DATABASE mydb SET timezone TO UTC"},
+		{"ALTER USER SET in database", "ALTER USER testuser IN DATABASE mydb SET timezone TO 'UTC'", "ALTER ROLE testuser IN DATABASE mydb SET timezone TO 'UTC'"},
 		{"ALTER USER RESET", "ALTER USER testuser RESET search_path", "ALTER ROLE testuser RESET search_path"},
 		{"ALTER ROLE ALL SET", "ALTER ROLE ALL SET search_path TO public", ""},
 		{"ALTER ROLE ALL SET in database", "ALTER ROLE ALL IN DATABASE mydb SET search_path TO public", ""},
@@ -486,7 +486,7 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER USER ALL RESET", "ALTER USER ALL RESET search_path", "ALTER ROLE ALL RESET search_path"},
 		{"ALTER ROLE SET log_statement", "ALTER ROLE testuser SET log_statement TO 'all'", ""},
 		{"ALTER ROLE SET shared_preload_libraries", "ALTER ROLE testuser SET shared_preload_libraries TO 'pg_stat_statements'", "ALTER ROLE TESTUSER SET SHARED_PRELOAD_LIBRARIES TO PG_STAT_STATEMENTS"},
-		{"ALTER ROLE SET with quoted identifier", "ALTER ROLE \"test-user\" SET search_path TO public", "ALTER ROLE TEST-USER SET SEARCH_PATH TO PUBLIC"},
+		{"ALTER ROLE SET with quoted identifier", "ALTER ROLE \"test-user\" SET search_path TO public", "ALTER ROLE \"test-user\" SET search_path TO public"},
 		{"ALTER ROLE SET with DEFAULT", "ALTER ROLE testuser SET search_path TO DEFAULT", ""},
 	}
 

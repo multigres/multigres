@@ -240,12 +240,21 @@ func (je *JoinExpr) SqlString() string {
 			if i > 0 {
 				result.WriteString(", ")
 			}
-			result.WriteString(col.SqlString())
+			// For USING clause, treat String nodes as identifiers, not string literals
+			if strNode, ok := col.(*String); ok {
+				result.WriteString(QuoteIdentifier(strNode.SVal))
+			} else {
+				result.WriteString(col.SqlString())
+			}
 		}
 		result.WriteString(")")
 	} else if je.Quals != nil {
 		result.WriteString(" ON ")
 		result.WriteString(je.Quals.SqlString())
+	} else if je.Jointype == JOIN_INNER && !je.IsNatural {
+		// For INNER JOIN without qualifications (converted from CROSS JOIN), add ON TRUE
+		// This is semantically equivalent to CROSS JOIN
+		result.WriteString(" ON TRUE")
 	}
 
 	return result.String()

@@ -166,26 +166,3 @@ func FormatSchemaQualifiedName(schema, name string) string {
 func FormatFullyQualifiedName(database, schema, name string) string {
 	return FormatQualifiedName(database, schema, name)
 }
-
-// shouldQuoteValue determines if a value from NonReservedWord_or_Sconst should be quoted.
-func shouldQuoteValue(val string) bool {
-	if val == "" {
-		return true
-	}
-
-	// Only quote values that look like reserved keywords
-	// This is a simplified version where we list all the reserved keywords
-	switch strings.ToLower(val) {
-	case "all", "and", "any", "as", "case", "check", "collate", "column", "constraint",
-		"create", "current_date", "current_time", "current_timestamp", "current_user",
-		"default", "distinct", "do", "else", "end", "except", "false", "fetch",
-		"for", "foreign", "from", "grant", "group", "having", "in", "initially",
-		"intersect", "into", "is", "join", "leading", "limit", "not", "null",
-		"only", "or", "order", "placing", "primary", "references", "select",
-		"session_user", "some", "table", "then", "to", "trailing", "true",
-		"union", "unique", "user", "using", "when", "where", "with":
-		return true
-	}
-
-	return false
-}
