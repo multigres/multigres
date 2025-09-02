@@ -1449,6 +1449,11 @@ func (m *MergeSupportFunc) String() string {
 	return fmt.Sprintf("MergeSupportFunc{type=%d, collid=%d}@%d", m.MsfType, m.MsfCollid, m.Location())
 }
 
+// SqlString returns the SQL representation of MergeSupportFunc
+func (m *MergeSupportFunc) SqlString() string {
+	return "MERGE_ACTION()"
+}
+
 // NamedArgExpr represents a named argument expression
 // Ported from postgres/src/include/nodes/primnodes.h:787-795
 type NamedArgExpr struct {

@@ -61,6 +61,22 @@ func TestDeparsing(t *testing.T) {
 		{"JSON_ARRAYAGG with OVER", "SELECT JSON_ARRAYAGG(name) OVER (PARTITION BY department) FROM users", ""},
 		{"JSON_OBJECTAGG with FILTER and OVER", "SELECT JSON_OBJECTAGG('key' VALUE val RETURNING TEXT) FILTER (WHERE val > 0) OVER (ORDER BY id) FROM users", ""},
 
+		// JSON constructor functions (Phase 3H)
+		{"JSON_OBJECT legacy", "SELECT json_object('name', 'John', 'age', 30)", ""},
+		{"JSON_OBJECT constructor simple", "SELECT JSON_OBJECT('name' VALUE 'John', 'age' VALUE 30)", ""},
+		{"JSON_OBJECT empty", "SELECT JSON_OBJECT()", ""},
+		{"JSON_OBJECT with returning", "SELECT JSON_OBJECT('key' VALUE 'value' RETURNING TEXT)", ""},
+		{"JSON_ARRAY constructor", "SELECT JSON_ARRAY('a' FORMAT JSON, 'b', 'c')", ""},
+		{"JSON_ARRAY empty", "SELECT JSON_ARRAY()", ""},
+		{"JSON_ARRAY with subquery", "SELECT JSON_ARRAY(SELECT name FROM users)", ""},
+		{"JSON_SCALAR", "SELECT JSON_SCALAR('test')", ""},
+		{"JSON parse", "SELECT JSON('{\"name\": \"John\"}')", ""},
+		{"JSON_SERIALIZE", "SELECT JSON_SERIALIZE('{\"name\": \"John\"}')", ""},
+		{"JSON_VALUE", "SELECT JSON_VALUE('{\"name\": \"John\"}', '$.name')", ""},
+		{"JSON_EXISTS", "SELECT JSON_EXISTS('{\"name\": \"John\"}', '$.name')", ""},
+		{"JSON_QUERY", "SELECT JSON_QUERY('{\"items\": [1,2,3]}', '$.items')", ""},
+		{"MERGE_ACTION", "SELECT MERGE_ACTION()", ""},
+
 		// Column references
 		{"Simple column", "SELECT name FROM users", ""},
 		{"Qualified column", "SELECT users.name FROM users", ""},

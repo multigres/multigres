@@ -354,14 +354,14 @@ func (f *FuncCall) SqlString() string {
 	funcName := ""
 	if f.Funcname != nil && len(f.Funcname.Items) > 0 {
 		var nameParts []string
-		
+
 		for i, item := range f.Funcname.Items {
 			if part, ok := item.(*String); ok && part != nil {
 				// Skip pg_catalog schema for built-in functions
 				if i == 0 && strings.ToLower(part.SVal) == "pg_catalog" {
 					continue
 				}
-				
+
 				// Normalize common function names to uppercase
 				name := part.SVal
 				switch strings.ToLower(name) {
@@ -446,7 +446,7 @@ func (f *FuncCall) SqlString() string {
 	}
 
 	result := fmt.Sprintf("%s(%s)", funcName, strings.Join(argStrs, ", "))
-	
+
 	// Add WITHIN GROUP clause for ordered-set aggregates
 	if f.AggWithinGroup && f.AggOrder != nil && f.AggOrder.Len() > 0 {
 		var orderItems []string
@@ -457,12 +457,12 @@ func (f *FuncCall) SqlString() string {
 		}
 		result += " WITHIN GROUP (ORDER BY " + strings.Join(orderItems, ", ") + ")"
 	}
-	
+
 	// Add FILTER clause for filtered aggregates
 	if f.AggFilter != nil {
 		result += " FILTER (WHERE " + f.AggFilter.SqlString() + ")"
 	}
-	
+
 	// Add OVER clause for window functions
 	if f.Over != nil {
 		windowSpec := f.Over.SqlString()
@@ -474,7 +474,7 @@ func (f *FuncCall) SqlString() string {
 			result += " OVER (" + windowSpec + ")"
 		}
 	}
-	
+
 	return result
 }
 
@@ -900,7 +900,7 @@ func (w *WindowDef) SqlString() string {
 // renderFrameOptions converts frame options to SQL string
 func (w *WindowDef) renderFrameOptions() string {
 	var parts []string
-	
+
 	// Frame mode (ROWS, RANGE, or GROUPS)
 	if w.FrameOptions&FRAMEOPTION_ROWS != 0 {
 		parts = append(parts, "ROWS")
@@ -909,19 +909,19 @@ func (w *WindowDef) renderFrameOptions() string {
 	} else if w.FrameOptions&FRAMEOPTION_RANGE != 0 {
 		parts = append(parts, "RANGE")
 	}
-	
+
 	// Handle BETWEEN clause
 	if w.FrameOptions&FRAMEOPTION_BETWEEN != 0 {
 		parts = append(parts, "BETWEEN")
-		
+
 		// Start boundary
 		startBoundary := w.renderFrameBoundary(true)
 		if startBoundary != "" {
 			parts = append(parts, startBoundary)
 		}
-		
+
 		parts = append(parts, "AND")
-		
+
 		// End boundary
 		endBoundary := w.renderFrameBoundary(false)
 		if endBoundary != "" {
@@ -934,7 +934,7 @@ func (w *WindowDef) renderFrameOptions() string {
 			parts = append(parts, boundary)
 		}
 	}
-	
+
 	// Handle exclusion clause
 	if w.FrameOptions&FRAMEOPTION_EXCLUDE_CURRENT_ROW != 0 {
 		parts = append(parts, "EXCLUDE CURRENT ROW")
@@ -943,14 +943,14 @@ func (w *WindowDef) renderFrameOptions() string {
 	} else if w.FrameOptions&FRAMEOPTION_EXCLUDE_TIES != 0 {
 		parts = append(parts, "EXCLUDE TIES")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // renderFrameBoundary renders a single frame boundary (start or end)
 func (w *WindowDef) renderFrameBoundary(isStart bool) string {
 	var parts []string
-	
+
 	if isStart {
 		// Start boundary
 		if w.FrameOptions&FRAMEOPTION_START_UNBOUNDED_PRECEDING != 0 {
@@ -990,7 +990,7 @@ func (w *WindowDef) renderFrameBoundary(isStart bool) string {
 			return "FOLLOWING"
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -999,9 +999,9 @@ func (w *WindowDef) SqlStringForContext(inWindowClause bool) string {
 	if !inWindowClause && w.Refname != "" {
 		return w.Refname
 	}
-	
+
 	var parts []string
-	
+
 	// Add PARTITION BY clause
 	if w.PartitionClause != nil && w.PartitionClause.Len() > 0 {
 		var partitions []string
@@ -1012,7 +1012,7 @@ func (w *WindowDef) SqlStringForContext(inWindowClause bool) string {
 		}
 		parts = append(parts, "PARTITION BY "+strings.Join(partitions, ", "))
 	}
-	
+
 	// Add ORDER BY clause
 	if w.OrderClause != nil && w.OrderClause.Len() > 0 {
 		var orders []string
@@ -1023,7 +1023,7 @@ func (w *WindowDef) SqlStringForContext(inWindowClause bool) string {
 		}
 		parts = append(parts, "ORDER BY "+strings.Join(orders, ", "))
 	}
-	
+
 	// Add frame specification
 	if w.FrameOptions != 0 && w.FrameOptions != FRAMEOPTION_DEFAULTS {
 		frameStr := w.renderFrameOptions()
@@ -1031,7 +1031,7 @@ func (w *WindowDef) SqlStringForContext(inWindowClause bool) string {
 			parts = append(parts, frameStr)
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1556,9 +1556,6 @@ func (p *PartitionCmd) StatementType() string {
 // ==============================================================================
 // SUPPORTING CONSTANTS AND HELPER TYPES
 // ==============================================================================
-
-// InvalidOid represents an invalid object identifier.
-const InvalidOid = Oid(0)
 
 // char represents a single character (PostgreSQL char type).
 type char byte

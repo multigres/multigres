@@ -311,6 +311,18 @@ func (n *JsonFormat) String() string {
 	return formatStr
 }
 
+// SqlString returns the SQL representation of JsonFormat
+func (n *JsonFormat) SqlString() string {
+	switch n.FormatType {
+	case JS_FORMAT_JSON:
+		return "JSON"
+	case JS_FORMAT_JSONB:
+		return "JSONB"
+	default:
+		return ""
+	}
+}
+
 // SqlString returns the SQL representation of JsonReturning
 func (n *JsonReturning) SqlString() string {
 	// For now, just return the type name representation
@@ -386,6 +398,39 @@ func (n *JsonFuncExpr) String() string {
 }
 func (n *JsonFuncExpr) IsExpr() bool           { return true }
 func (n *JsonFuncExpr) ExpressionType() string { return "JsonFuncExpr" }
+
+// SqlString returns the SQL representation of JsonFuncExpr
+func (n *JsonFuncExpr) SqlString() string {
+	var result strings.Builder
+	
+	switch n.Op {
+	case JSON_EXISTS_OP:
+		result.WriteString("JSON_EXISTS(")
+	case JSON_QUERY_OP:
+		result.WriteString("JSON_QUERY(")
+	case JSON_VALUE_OP:
+		result.WriteString("JSON_VALUE(")
+	default:
+		result.WriteString("JSON_FUNC(")
+	}
+
+	if n.ContextItem != nil {
+		result.WriteString(n.ContextItem.SqlString())
+	}
+
+	if n.Pathspec != nil {
+		result.WriteString(", ")
+		result.WriteString(n.Pathspec.SqlString())
+	}
+
+	if n.Output != nil && n.Output.TypeName != nil {
+		result.WriteString(" RETURNING ")
+		result.WriteString(n.Output.TypeName.SqlString())
+	}
+
+	result.WriteString(")")
+	return result.String()
+}
 
 func (n *JsonTablePathSpec) String() string {
 	return "JsonTablePathSpec"
@@ -584,12 +629,48 @@ func (n *JsonParseExpr) String() string {
 func (n *JsonParseExpr) IsExpr() bool           { return true }
 func (n *JsonParseExpr) ExpressionType() string { return "JsonParseExpr" }
 
+// SqlString returns the SQL representation of JsonParseExpr
+func (n *JsonParseExpr) SqlString() string {
+	var result strings.Builder
+	result.WriteString("JSON(")
+
+	if n.Expr != nil {
+		result.WriteString(n.Expr.SqlString())
+	}
+
+	if n.Output != nil && n.Output.TypeName != nil {
+		result.WriteString(" RETURNING ")
+		result.WriteString(n.Output.TypeName.SqlString())
+	}
+
+	result.WriteString(")")
+	return result.String()
+}
+
 func (n *JsonScalarExpr) node() {}
 func (n *JsonScalarExpr) String() string {
 	return "JsonScalarExpr"
 }
 func (n *JsonScalarExpr) IsExpr() bool           { return true }
 func (n *JsonScalarExpr) ExpressionType() string { return "JsonScalarExpr" }
+
+// SqlString returns the SQL representation of JsonScalarExpr
+func (n *JsonScalarExpr) SqlString() string {
+	var result strings.Builder
+	result.WriteString("JSON_SCALAR(")
+
+	if n.Expr != nil {
+		result.WriteString(n.Expr.SqlString())
+	}
+
+	if n.Output != nil && n.Output.TypeName != nil {
+		result.WriteString(" RETURNING ")
+		result.WriteString(n.Output.TypeName.SqlString())
+	}
+
+	result.WriteString(")")
+	return result.String()
+}
 
 func (n *JsonSerializeExpr) node() {}
 func (n *JsonSerializeExpr) String() string {
@@ -598,12 +679,55 @@ func (n *JsonSerializeExpr) String() string {
 func (n *JsonSerializeExpr) IsExpr() bool           { return true }
 func (n *JsonSerializeExpr) ExpressionType() string { return "JsonSerializeExpr" }
 
+// SqlString returns the SQL representation of JsonSerializeExpr
+func (n *JsonSerializeExpr) SqlString() string {
+	var result strings.Builder
+	result.WriteString("JSON_SERIALIZE(")
+
+	if n.Expr != nil {
+		result.WriteString(n.Expr.SqlString())
+	}
+
+	if n.Output != nil && n.Output.TypeName != nil {
+		result.WriteString(" RETURNING ")
+		result.WriteString(n.Output.TypeName.SqlString())
+	}
+
+	result.WriteString(")")
+	return result.String()
+}
+
 func (n *JsonObjectConstructor) node() {}
 func (n *JsonObjectConstructor) String() string {
 	return "JsonObjectConstructor"
 }
 func (n *JsonObjectConstructor) IsExpr() bool           { return true }
 func (n *JsonObjectConstructor) ExpressionType() string { return "JsonObjectConstructor" }
+
+// SqlString returns the SQL representation of JsonObjectConstructor
+func (n *JsonObjectConstructor) SqlString() string {
+	var result strings.Builder
+	result.WriteString("JSON_OBJECT(")
+
+	if n.Exprs != nil && len(n.Exprs.Items) > 0 {
+		for i, item := range n.Exprs.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			if kv, ok := item.(*JsonKeyValue); ok {
+				result.WriteString(kv.SqlString())
+			}
+		}
+	}
+
+	if n.Output != nil && n.Output.TypeName != nil {
+		result.WriteString(" RETURNING ")
+		result.WriteString(n.Output.TypeName.SqlString())
+	}
+
+	result.WriteString(")")
+	return result.String()
+}
 
 func (n *JsonArrayConstructor) node() {}
 func (n *JsonArrayConstructor) String() string {
@@ -612,12 +736,62 @@ func (n *JsonArrayConstructor) String() string {
 func (n *JsonArrayConstructor) IsExpr() bool           { return true }
 func (n *JsonArrayConstructor) ExpressionType() string { return "JsonArrayConstructor" }
 
+// SqlString returns the SQL representation of JsonArrayConstructor
+func (n *JsonArrayConstructor) SqlString() string {
+	var result strings.Builder
+	result.WriteString("JSON_ARRAY(")
+
+	if n.Exprs != nil && len(n.Exprs.Items) > 0 {
+		for i, item := range n.Exprs.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			if ve, ok := item.(*JsonValueExpr); ok {
+				result.WriteString(ve.SqlString())
+			} else {
+				result.WriteString(item.SqlString())
+			}
+		}
+	}
+
+	if n.Output != nil && n.Output.TypeName != nil {
+		result.WriteString(" RETURNING ")
+		result.WriteString(n.Output.TypeName.SqlString())
+	}
+
+	result.WriteString(")")
+	return result.String()
+}
+
 func (n *JsonArrayQueryConstructor) node() {}
 func (n *JsonArrayQueryConstructor) String() string {
 	return "JsonArrayQueryConstructor"
 }
 func (n *JsonArrayQueryConstructor) IsExpr() bool           { return true }
 func (n *JsonArrayQueryConstructor) ExpressionType() string { return "JsonArrayQueryConstructor" }
+
+// SqlString returns the SQL representation of JsonArrayQueryConstructor
+func (n *JsonArrayQueryConstructor) SqlString() string {
+	var result strings.Builder
+	result.WriteString("JSON_ARRAY(")
+
+	if n.Query != nil {
+		result.WriteString(n.Query.SqlString())
+	}
+
+	if n.Format != nil {
+		result.WriteString(" FORMAT ")
+		result.WriteString(n.Format.SqlString())
+	}
+
+	if n.Output != nil && n.Output.TypeName != nil {
+		result.WriteString(" RETURNING ")
+		result.WriteString(n.Output.TypeName.SqlString())
+	}
+
+	result.WriteString(")")
+	return result.String()
+}
 
 func (n *JsonAggConstructor) node() {}
 func (n *JsonAggConstructor) String() string {

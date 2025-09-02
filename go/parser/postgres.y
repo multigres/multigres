@@ -2885,6 +2885,162 @@ func_expr_common_subexpr:
 				args := ast.NewNodeList($3, $5, $6)
 				$$ = ast.NewXmlExpr(ast.IS_XMLROOT, "", nil, nil, args, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
 			}
+		|	JSON_OBJECT '(' func_arg_list ')'
+			{
+				/* Support for legacy (non-standard) json_object() */
+				funcName := ast.NewNodeList(ast.NewString("json_object"))
+				funcCall := ast.NewFuncCall(funcName, $3, 0)
+				funcCall.Funcformat = ast.COERCE_EXPLICIT_CALL
+				$$ = funcCall
+			}
+		|	JSON_OBJECT '(' json_name_and_value_list
+			json_object_constructor_null_clause_opt
+			json_key_uniqueness_constraint_opt
+			json_returning_clause_opt ')'
+			{
+				n := ast.NewJsonObjectConstructor($3, $4, $5)
+				if $6 != nil {
+					n.Output = $6.(*ast.JsonOutput)
+				}
+				$$ = n
+			}
+		|	JSON_OBJECT '(' json_returning_clause_opt ')'
+			{
+				n := ast.NewJsonObjectConstructor(nil, false, false)
+				if $3 != nil {
+					n.Output = $3.(*ast.JsonOutput)
+				}
+				$$ = n
+			}
+		|	JSON_ARRAY '('
+			json_value_expr_list
+			json_array_constructor_null_clause_opt
+			json_returning_clause_opt
+		')'
+			{
+				n := ast.NewJsonArrayConstructor($3, $4)
+				if $5 != nil {
+					n.Output = $5.(*ast.JsonOutput)
+				}
+				$$ = n
+			}
+		|	JSON_ARRAY '('
+			select_no_parens
+			json_format_clause_opt
+			json_returning_clause_opt
+		')'
+			{
+				n := ast.NewJsonArrayQueryConstructor($3, true) /* XXX: absent_on_null = true */
+				if $4 != nil {
+					n.Format = $4.(*ast.JsonFormat)
+				}
+				if $5 != nil {
+					n.Output = $5.(*ast.JsonOutput)
+				}
+				$$ = n
+			}
+		|	JSON_ARRAY '('
+			json_returning_clause_opt
+		')'
+			{
+				n := ast.NewJsonArrayConstructor(nil, true)
+				if $3 != nil {
+					n.Output = $3.(*ast.JsonOutput)
+				}
+				$$ = n
+			}
+		|	JSON '(' json_value_expr json_key_uniqueness_constraint_opt ')'
+			{
+				n := ast.NewJsonParseExpr($3.(*ast.JsonValueExpr), $4)
+				n.Output = nil
+				$$ = n
+			}
+		|	JSON_SCALAR '(' a_expr ')'
+			{
+				n := ast.NewJsonScalarExpr($3.(ast.Expr))
+				n.Output = nil
+				$$ = n
+			}
+		|	JSON_SERIALIZE '(' json_value_expr json_returning_clause_opt ')'
+			{
+				n := ast.NewJsonSerializeExpr($3.(*ast.JsonValueExpr))
+				if $4 != nil {
+					n.Output = $4.(*ast.JsonOutput)
+				}
+				$$ = n
+			}
+		|	MERGE_ACTION '(' ')'
+			{
+				m := ast.NewMergeSupportFunc(ast.TEXTOID, ast.InvalidOid, 0)
+				$$ = m
+			}
+		|	JSON_QUERY '('
+			json_value_expr ',' a_expr json_passing_clause_opt
+			json_returning_clause_opt
+			json_wrapper_behavior
+			json_quotes_clause_opt
+			json_behavior_clause_opt
+		')'
+			{
+				n := ast.NewJsonFuncExpr(ast.JSON_QUERY_OP, $3.(*ast.JsonValueExpr), $5)
+				if $6 != nil {
+					n.Passing = $6.(*ast.NodeList)
+				}
+				if $7 != nil {
+					n.Output = $7.(*ast.JsonOutput)
+				}
+				n.Wrapper = ast.JsonWrapper($8)
+				n.Quotes = ast.JsonQuotes($9)
+				if $10 != nil {
+					behaviors := $10.(*ast.NodeList)
+					if linitial(behaviors) != nil {
+						n.OnEmpty = linitial(behaviors).(*ast.JsonBehavior)
+					}
+					if lsecond(behaviors) != nil {
+						n.OnError = lsecond(behaviors).(*ast.JsonBehavior)
+					}
+				}
+				$$ = n
+			}
+		|	JSON_EXISTS '('
+			json_value_expr ',' a_expr json_passing_clause_opt
+			json_on_error_clause_opt
+		')'
+			{
+				n := ast.NewJsonFuncExpr(ast.JSON_EXISTS_OP, $3.(*ast.JsonValueExpr), $5)
+				if $6 != nil {
+					n.Passing = $6.(*ast.NodeList)
+				}
+				n.Output = nil
+				if $7 != nil {
+					n.OnError = $7.(*ast.JsonBehavior)
+				}
+				$$ = n
+			}
+		|	JSON_VALUE '('
+			json_value_expr ',' a_expr json_passing_clause_opt
+			json_returning_clause_opt
+			json_behavior_clause_opt
+		')'
+			{
+				n := ast.NewJsonFuncExpr(ast.JSON_VALUE_OP, $3.(*ast.JsonValueExpr), $5)
+				if $6 != nil {
+					n.Passing = $6.(*ast.NodeList)
+				}
+				if $7 != nil {
+					n.Output = $7.(*ast.JsonOutput)
+				}
+				if $8 != nil {
+					behaviors := $8.(*ast.NodeList)
+					if linitial(behaviors) != nil {
+						n.OnEmpty = linitial(behaviors).(*ast.JsonBehavior)
+					}
+					if lsecond(behaviors) != nil {
+						n.OnError = lsecond(behaviors).(*ast.JsonBehavior)
+					}
+				}
+				$$ = n
+			}
 		|	XMLSERIALIZE '(' document_or_content a_expr AS SimpleTypename xml_indent_option ')'
 			{
 				// XmlSerialize node - n->xmloption = $3; n->expr = $4; n->typeName = $6; n->indent = $7;
