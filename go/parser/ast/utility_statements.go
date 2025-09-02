@@ -1089,9 +1089,18 @@ func needsQuoting(value string) bool {
 	}
 
 	// Check if it's a simple number (integer or float)
-	if _, err := fmt.Sscanf(value, "%f", new(float64)); err == nil {
-		// It's a number, don't quote
+	var parsed float64
+	var remainder string
+	n, err := fmt.Sscanf(value, "%f%s", &parsed, &remainder)
+	if err == nil && n == 1 {
+		// It's a pure number with no trailing characters, don't quote
 		return false
+	}
+	
+	// If it starts with a number but has additional characters (like "256MB"), quote it
+	if err == nil && n == 2 {
+		// Has trailing characters, needs quoting
+		return true
 	}
 
 	// For anything else (including identifiers), quote it

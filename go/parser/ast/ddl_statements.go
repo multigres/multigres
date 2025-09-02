@@ -90,12 +90,16 @@ func (o ObjectType) String() string {
 		return "FUNCTION"
 	case OBJECT_INDEX:
 		return "INDEX"
+	case OBJECT_ROUTINE:
+		return "ROUTINE"
 	case OBJECT_SCHEMA:
 		return "SCHEMA"
 	case OBJECT_SEQUENCE:
 		return "SEQUENCE"
 	case OBJECT_TABLE:
 		return "TABLE"
+	case OBJECT_TYPE:
+		return "TYPE"
 	case OBJECT_VIEW:
 		return "VIEW"
 	default:
@@ -815,6 +819,82 @@ func (d *DefElem) SqlString() string {
 	return d.Defname
 }
 
+// SqlStringForFunction returns the SQL representation of DefElem for function options
+// This handles the special formatting needed for ALTER FUNCTION statements
+func (d *DefElem) SqlStringForFunction() string {
+	switch d.Defname {
+	case "volatility":
+		if strNode, ok := d.Arg.(*String); ok {
+			return strings.ToUpper(strNode.SVal)
+		}
+	case "strict":
+		if boolNode, ok := d.Arg.(*Boolean); ok {
+			if boolNode.BoolVal {
+				return "STRICT"
+			} else {
+				return "CALLED ON NULL INPUT"
+			}
+		}
+	case "leakproof":
+		if boolNode, ok := d.Arg.(*Boolean); ok {
+			if boolNode.BoolVal {
+				return "LEAKPROOF"
+			} else {
+				return "NOT LEAKPROOF"
+			}
+		}
+	case "security":
+		if boolNode, ok := d.Arg.(*Boolean); ok {
+			if boolNode.BoolVal {
+				return "SECURITY DEFINER"
+			} else {
+				return "SECURITY INVOKER"
+			}
+		}
+	case "cost":
+		if d.Arg != nil {
+			return fmt.Sprintf("COST %s", d.Arg.SqlString())
+		}
+	case "rows":
+		if d.Arg != nil {
+			return fmt.Sprintf("ROWS %s", d.Arg.SqlString())
+		}
+	case "parallel":
+		if strNode, ok := d.Arg.(*String); ok {
+			return fmt.Sprintf("PARALLEL %s", strings.ToUpper(strNode.SVal))
+		}
+	case "support":
+		if d.Arg != nil {
+			// For SUPPORT, we want the unquoted function name
+			if nodeList, ok := d.Arg.(*NodeList); ok && nodeList.Len() > 0 {
+				// Handle qualified names like schema.func_name
+				nameStrs := make([]string, 0, nodeList.Len())
+				for i := 0; i < nodeList.Len(); i++ {
+					if strNode, ok := nodeList.Items[i].(*String); ok {
+						nameStrs = append(nameStrs, strNode.SVal)
+					}
+				}
+				return fmt.Sprintf("SUPPORT %s", strings.Join(nameStrs, "."))
+			} else if strNode, ok := d.Arg.(*String); ok {
+				return fmt.Sprintf("SUPPORT %s", strNode.SVal)
+			} else {
+				return fmt.Sprintf("SUPPORT %s", d.Arg.SqlString())
+			}
+		}
+	case "set":
+		// Handle SET/RESET operations via FunctionSetResetClause
+		if d.Arg != nil {
+			return d.Arg.SqlString()
+		}
+	default:
+		// For other options, fall back to the standard format
+		return d.SqlString()
+	}
+	
+	// Fallback for cases where Arg is nil or doesn't match expected type
+	return d.Defname
+}
+
 // Constraint represents a constraint definition.
 // Ported from postgres/src/include/nodes/parsenodes.h:2728
 type Constraint struct {
@@ -1158,6 +1238,8 @@ func (a *AlterTableStmt) SqlString() string {
 		parts = append(parts, "MATERIALIZED VIEW")
 	case OBJECT_FOREIGN_TABLE:
 		parts = append(parts, "FOREIGN TABLE")
+	case OBJECT_TYPE:
+		parts = append(parts, "TYPE")
 	default:
 		parts = append(parts, "TABLE")
 	}
@@ -1177,7 +1259,12 @@ func (a *AlterTableStmt) SqlString() string {
 		var cmdStrs []string
 		for _, item := range a.Cmds.Items {
 			if cmd, ok := item.(*AlterTableCmd); ok && cmd != nil {
-				cmdStrs = append(cmdStrs, cmd.SqlString())
+				if a.Objtype == OBJECT_TYPE {
+					// For composite types, use ATTRIBUTE instead of COLUMN
+					cmdStrs = append(cmdStrs, cmd.SqlStringForCompositeType())
+				} else {
+					cmdStrs = append(cmdStrs, cmd.SqlString())
+				}
 			}
 		}
 		if len(cmdStrs) > 0 {
@@ -1391,6 +1478,61 @@ func (a *AlterTableCmd) SqlString() string {
 		if a.Name != "" {
 			parts = append(parts, a.Name)
 		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// SqlStringForCompositeType returns the SQL string for composite type operations using ATTRIBUTE instead of COLUMN
+func (a *AlterTableCmd) SqlStringForCompositeType() string {
+	var parts []string
+
+	switch a.Subtype {
+	case AT_AddColumn:
+		parts = append(parts, "ADD ATTRIBUTE")
+		if a.MissingOk {
+			parts = append(parts, "IF NOT EXISTS")
+		}
+		if a.Def != nil {
+			parts = append(parts, a.Def.SqlString())
+		}
+
+	case AT_DropColumn:
+		parts = append(parts, "DROP ATTRIBUTE")
+		if a.MissingOk {
+			parts = append(parts, "IF EXISTS")
+		}
+		parts = append(parts, a.Name)
+		if a.Behavior == DropCascade {
+			parts = append(parts, "CASCADE")
+		}
+
+	case AT_AlterColumnType:
+		parts = append(parts, "ALTER ATTRIBUTE", a.Name, "TYPE")
+		if colDef, ok := a.Def.(*ColumnDef); ok && colDef != nil {
+			// For ALTER ATTRIBUTE, we only want the type part, not the full column definition
+			if colDef.TypeName != nil {
+				parts = append(parts, colDef.TypeName.SqlString())
+			}
+			// Add collation if specified
+			if colDef.Collclause != nil {
+				parts = append(parts, "COLLATE", colDef.Collclause.SqlString())
+			}
+		} else if a.Def != nil {
+			parts = append(parts, a.Def.SqlString())
+		}
+
+	case AT_ColumnDefault:
+		parts = append(parts, "ALTER ATTRIBUTE", a.Name)
+		if a.Def != nil {
+			parts = append(parts, "SET DEFAULT", a.Def.SqlString())
+		} else {
+			parts = append(parts, "DROP DEFAULT")
+		}
+
+	default:
+		// For other operations, use the regular SqlString method
+		return a.SqlString()
 	}
 
 	return strings.Join(parts, " ")

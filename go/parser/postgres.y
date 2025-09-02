@@ -249,7 +249,7 @@ type LexerInterface interface {
 %type <defelt>       alter_generic_option_elem
 %type <str>          set_access_method_name
 %type <node>         replica_identity
-%type <list>         func_args OptWith
+%type <list>         func_args func_args_list OptWith
 %type <groupClause>  group_clause
 %type <setquant>     set_quantifier
 
@@ -450,8 +450,12 @@ type LexerInterface interface {
 %type <list>         OptSchemaEltList
 %type <stmt>         schema_stmt
 %type <objwithargs>  function_with_argtypes aggregate_with_argtypes operator_with_argtypes
+%type <list>         alterfunc_opt_list function_with_argtypes_list
+%type <list>         alter_type_cmds
+%type <node>         alter_type_cmd
+%type <ival>     	 event
 
-%type <stmt>         CreateFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
+%type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
 %type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt
 %type <str>          opt_in_database
 %type <bval>         opt_transaction_chain
@@ -461,7 +465,7 @@ type LexerInterface interface {
 %type <str>          RoleId
 %type <ival>         add_drop
 %type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt
-%type <stmt>         CreateDomainStmt AlterDomainStmt DefineStmt AlterEnumStmt CreateSeqStmt AlterSeqStmt CreateExtensionStmt AlterExtensionStmt AlterExtensionContentsStmt
+%type <stmt>         CreateDomainStmt AlterDomainStmt DefineStmt AlterTypeStmt AlterCompositeTypeStmt AlterEnumStmt CreateSeqStmt AlterSeqStmt CreateExtensionStmt AlterExtensionStmt AlterExtensionContentsStmt
 %type <stmt>         CreateEventTrigStmt AlterEventTrigStmt
 %type <stmt>         CreateTableSpaceStmt AlterTblSpcStmt CreatePolicyStmt AlterPolicyStmt
 %type <stmt>         CreateAmStmt CreateStatsStmt AlterStatsStmt CreatePublicationStmt AlterPublicationStmt CreateSubscriptionStmt AlterSubscriptionStmt
@@ -500,7 +504,9 @@ type LexerInterface interface {
 %type <funparammode> arg_class
 %type <typnam>       func_return
 %type <list>         opt_createfunc_opt_list createfunc_opt_list transform_type_list
-%type <defelt>       createfunc_opt_item common_func_opt_item
+%type <defelt>       createfunc_opt_item common_func_opt_item operator_def_elem
+%type <list>         operator_def_list
+%type <node>         operator_def_arg
 %type <node>         func_as opt_routine_body
 %type <stmt>         routine_body_stmt
 
@@ -602,6 +608,7 @@ stmt:
 		|	DropStmt								{ $$ = $1 }
 		|	RenameStmt								{ $$ = $1 }
 		|	CreateFunctionStmt						{ $$ = $1 }
+		|	AlterFunctionStmt						{ $$ = $1 }
 		|	CreateTrigStmt							{ $$ = $1 }
 		|	ViewStmt								{ $$ = $1 }
 		|	CreateMatViewStmt						{ $$ = $1 }
@@ -610,6 +617,8 @@ stmt:
 		|	CreateDomainStmt						{ $$ = $1 }
 		|	AlterDomainStmt							{ $$ = $1 }
 		|	DefineStmt								{ $$ = $1 }
+		|	AlterTypeStmt							{ $$ = $1 }
+		|	AlterCompositeTypeStmt					{ $$ = $1 }
 		|	AlterEnumStmt							{ $$ = $1 }
 		|	CreateSeqStmt							{ $$ = $1 }
 		|	AlterSeqStmt							{ $$ = $1 }
@@ -6028,7 +6037,7 @@ NumericOnly:
 	|	'-' FCONST
 		{
 			f := ast.NewFloat($2)
-			f.FVal = "-" + f.FVal
+			doNegateFloat(f)
 			$$ = f
 		}
 	|	SignedIconst					{ $$ = ast.NewInteger($1) }
@@ -8421,20 +8430,19 @@ object_type_any_name:
 /* For now, simplified function/aggregate specs until we implement full argument support */
 
 func_args:
-		'(' ')' { $$ = ast.NewNodeList() }
+		'(' func_args_list ')' { $$ = $2 }
+	|	'(' ')' { $$ = ast.NewNodeList() }
 	;
 
-function_with_argtypes:
-		func_name func_args
+func_args_list:
+		func_arg
 			{
-				objWithArgs := &ast.ObjectWithArgs{
-					BaseNode: ast.BaseNode{Tag: ast.T_ObjectWithArgs},
-					Objname: $1,
-					Objargs: $2,
-					ObjfuncArgs: $2,
-					ArgsUnspecified: false,
-				}
-				$$ = objWithArgs
+				$$ = ast.NewNodeList($1)
+			}
+	|	func_args_list ',' func_arg
+			{
+				$1.Append($3)
+				$$ = $1
 			}
 	;
 
@@ -9509,77 +9517,6 @@ routine_body_stmt_list:
 routine_body_stmt:
 		stmt								{ $$ = $1 }
 		|	ReturnStmt							{ $$ = $1 }
-		;
-
-common_func_opt_item:
-			CALLED ON NULL_P INPUT_P
-				{
-					$$ = ast.NewDefElem("strict", ast.NewBoolean(false))
-				}
-		|	RETURNS NULL_P ON NULL_P INPUT_P
-				{
-					$$ = ast.NewDefElem("strict", ast.NewBoolean(true))
-				}
-		|	STRICT_P
-				{
-					$$ = ast.NewDefElem("strict", ast.NewBoolean(true))
-				}
-		|	IMMUTABLE
-				{
-					$$ = ast.NewDefElem("volatility", ast.NewString("immutable"))
-				}
-		|	STABLE
-				{
-					$$ = ast.NewDefElem("volatility", ast.NewString("stable"))
-				}
-		|	VOLATILE
-				{
-					$$ = ast.NewDefElem("volatility", ast.NewString("volatile"))
-				}
-		|	EXTERNAL SECURITY DEFINER
-				{
-					$$ = ast.NewDefElem("security", ast.NewBoolean(true))
-				}
-		|	EXTERNAL SECURITY INVOKER
-				{
-					$$ = ast.NewDefElem("security", ast.NewBoolean(false))
-				}
-		|	SECURITY DEFINER
-				{
-					$$ = ast.NewDefElem("security", ast.NewBoolean(true))
-				}
-		|	SECURITY INVOKER
-				{
-					$$ = ast.NewDefElem("security", ast.NewBoolean(false))
-				}
-		|	LEAKPROOF
-				{
-					$$ = ast.NewDefElem("leakproof", ast.NewBoolean(true))
-				}
-		|	NOT LEAKPROOF
-				{
-					$$ = ast.NewDefElem("leakproof", ast.NewBoolean(false))
-				}
-		|	COST NumericOnly
-				{
-					$$ = ast.NewDefElem("cost", $2)
-				}
-		|	ROWS NumericOnly
-				{
-					$$ = ast.NewDefElem("rows", $2)
-				}
-		|	SUPPORT any_name
-				{
-					$$ = ast.NewDefElem("support", $2)
-				}
-		|	FunctionSetResetClause
-				{
-					$$ = ast.NewDefElem("set", $1)
-				}
-		|	PARALLEL ColId
-				{
-					$$ = ast.NewDefElem("parallel", ast.NewString($2))
-				}
 		;
 
 FunctionSetResetClause:
@@ -12497,6 +12434,279 @@ opt_repeatable_clause:
 			{
 				$$ = nil
 			}
+		;
+
+/*****************************************************************************
+ * 
+ * ALTER FUNCTION statement
+ * 
+ * Ported from postgres/src/backend/parser/gram.y AlterFunctionStmt
+ *****************************************************************************/
+
+AlterFunctionStmt:
+			ALTER FUNCTION function_with_argtypes alterfunc_opt_list opt_restrict
+				{
+					n := ast.NewAlterFunctionStmt(ast.OBJECT_FUNCTION, $3, $4)
+					$$ = n
+				}
+			| ALTER PROCEDURE function_with_argtypes alterfunc_opt_list opt_restrict
+				{
+					n := ast.NewAlterFunctionStmt(ast.OBJECT_PROCEDURE, $3, $4)
+					$$ = n
+				}
+			| ALTER ROUTINE function_with_argtypes alterfunc_opt_list opt_restrict
+				{
+					n := ast.NewAlterFunctionStmt(ast.OBJECT_ROUTINE, $3, $4)
+					$$ = n
+				}
+		;
+
+alterfunc_opt_list:
+			/* At least one option must be specified */
+			common_func_opt_item					{ $$ = ast.NewNodeList($1) }
+			| alterfunc_opt_list common_func_opt_item { $1.Append($2); $$ = $1 }
+		;
+
+/* Common function options that can be used in both CREATE and ALTER */
+common_func_opt_item:
+			CALLED ON NULL_P INPUT_P
+				{
+					$$ = ast.NewDefElem("strict", ast.NewBoolean(false))
+				}
+			| RETURNS NULL_P ON NULL_P INPUT_P
+				{
+					$$ = ast.NewDefElem("strict", ast.NewBoolean(true))
+				}
+			| STRICT_P
+				{
+					$$ = ast.NewDefElem("strict", ast.NewBoolean(true))
+				}
+			| IMMUTABLE
+				{
+					$$ = ast.NewDefElem("volatility", ast.NewString("immutable"))
+				}
+			| STABLE
+				{
+					$$ = ast.NewDefElem("volatility", ast.NewString("stable"))
+				}
+			| VOLATILE
+				{
+					$$ = ast.NewDefElem("volatility", ast.NewString("volatile"))
+				}
+			| EXTERNAL SECURITY DEFINER
+				{
+					$$ = ast.NewDefElem("security", ast.NewBoolean(true))
+				}
+			| EXTERNAL SECURITY INVOKER
+				{
+					$$ = ast.NewDefElem("security", ast.NewBoolean(false))
+				}
+			| SECURITY DEFINER
+				{
+					$$ = ast.NewDefElem("security", ast.NewBoolean(true))
+				}
+			| SECURITY INVOKER
+				{
+					$$ = ast.NewDefElem("security", ast.NewBoolean(false))
+				}
+			| LEAKPROOF
+				{
+					$$ = ast.NewDefElem("leakproof", ast.NewBoolean(true))
+				}
+			| NOT LEAKPROOF
+				{
+					$$ = ast.NewDefElem("leakproof", ast.NewBoolean(false))
+				}
+			| COST NumericOnly
+				{
+					$$ = ast.NewDefElem("cost", $2)
+				}
+			| ROWS NumericOnly
+				{
+					$$ = ast.NewDefElem("rows", $2)
+				}
+			| SUPPORT any_name
+				{
+					$$ = ast.NewDefElem("support", $2)
+				}
+			| FunctionSetResetClause
+				{
+					/* we abuse the normal content of a DefElem here */
+					$$ = ast.NewDefElem("set", $1)
+				}
+			| PARALLEL ColId
+				{
+					$$ = ast.NewDefElem("parallel", ast.NewString($2))
+				}
+		;
+
+operator_def_list:
+			operator_def_elem						{ $$ = ast.NewNodeList($1) }
+			| operator_def_list ',' operator_def_elem	{ $1.Append($3); $$ = $1 }
+		;
+
+operator_def_elem:
+			ColLabel '=' NONE
+				{
+					$$ = ast.NewDefElem($1, nil)
+				}
+			| ColLabel '=' operator_def_arg
+				{
+					$$ = ast.NewDefElem($1, $3)
+				}
+			| ColLabel
+				{
+					$$ = ast.NewDefElem($1, nil)
+				}
+		;
+
+operator_def_arg:
+			func_type						{ $$ = $1 }
+			| reserved_keyword				{ $$ = ast.NewString($1) }
+			| qual_all_Op					{ $$ = $1 }
+			| NumericOnly					{ $$ = $1 }
+			| Sconst						{ $$ = ast.NewString($1) }
+		;
+
+/* Ignored, merely for SQL compliance */
+opt_restrict:
+			RESTRICT
+			| /* EMPTY */
+		;
+
+function_with_argtypes:
+			func_name func_args
+				{
+					n := ast.NewEmptyObjectWithArgs()
+					n.Objname = $1
+					n.Objargs = ast.ExtractArgTypes($2)
+					n.ObjfuncArgs = $2
+					$$ = n
+				}
+			/*
+			 * Because of reduce/reduce conflicts, we can't use func_name
+			 * below, but we can write it out the long way, which actually
+			 * allows more cases.
+			 */
+			| type_func_name_keyword
+				{
+					n := ast.NewEmptyObjectWithArgs()
+					n.Objname = ast.NewNodeList(ast.NewString($1))
+					n.ArgsUnspecified = true
+					$$ = n
+				}
+			| ColId
+				{
+					n := ast.NewEmptyObjectWithArgs()
+					n.Objname = ast.NewNodeList(ast.NewString($1))
+					n.ArgsUnspecified = true
+					$$ = n
+				}
+			| ColId indirection
+				{
+					n := ast.NewEmptyObjectWithArgs()
+					nameList := ast.NewNodeList(ast.NewString($1))
+					// Append indirection elements
+					for i := 0; i < $2.Len(); i++ {
+						nameList.Append($2.Items[i])
+					}
+					n.Objname = nameList
+					n.ArgsUnspecified = true
+					$$ = n
+				}
+		;
+
+function_with_argtypes_list:
+			function_with_argtypes					{ $$ = ast.NewNodeList($1) }
+			| function_with_argtypes_list ',' function_with_argtypes
+													{ $1.Append($3); $$ = $1 }
+		;
+
+/*****************************************************************************
+ * 
+ * ALTER TYPE statements
+ * 
+ * Ported from postgres/src/backend/parser/gram.y
+ *****************************************************************************/
+
+AlterTypeStmt:
+			ALTER TYPE_P any_name SET '(' operator_def_list ')'
+				{
+					n := ast.NewAlterTypeStmt($3, $6)
+					$$ = n
+				}
+		;
+
+AlterCompositeTypeStmt:
+			ALTER TYPE_P any_name alter_type_cmds
+				{
+					relation, err := makeRangeVarFromAnyName($3, 0)
+					if err != nil {
+						yylex.Error("invalid type name")
+						return 1
+					}
+					n := ast.NewAlterTableStmt(relation, $4)
+					n.Objtype = ast.OBJECT_TYPE  // Mark this as a composite type alteration
+					$$ = n
+				}
+		;
+
+alter_type_cmds:
+			alter_type_cmd							{ $$ = ast.NewNodeList($1) }
+			| alter_type_cmds ',' alter_type_cmd	{ $1.Append($3); $$ = $1 }
+		;
+
+alter_type_cmd:
+			/* ALTER TYPE <name> ADD ATTRIBUTE <coldef> [RESTRICT|CASCADE] */
+			ADD_P ATTRIBUTE TableFuncElement opt_drop_behavior
+				{
+					n := ast.NewAlterTableCmd(ast.AT_AddColumn, "", $3)
+					n.Behavior = $4
+					$$ = n
+				}
+			/* ALTER TYPE <name> DROP ATTRIBUTE IF EXISTS <attname> [RESTRICT|CASCADE] */
+			| DROP ATTRIBUTE IF_P EXISTS ColId opt_drop_behavior
+				{
+					n := ast.NewAlterTableCmd(ast.AT_DropColumn, $5, nil)
+					n.Behavior = $6
+					n.MissingOk = true
+					$$ = n
+				}
+			/* ALTER TYPE <name> DROP ATTRIBUTE <attname> [RESTRICT|CASCADE] */
+			| DROP ATTRIBUTE ColId opt_drop_behavior
+				{
+					n := ast.NewAlterTableCmd(ast.AT_DropColumn, $3, nil)
+					n.Behavior = $4
+					n.MissingOk = false
+					$$ = n
+				}
+			/* ALTER TYPE <name> ALTER ATTRIBUTE <attname> [SET DATA] TYPE <typename> [RESTRICT|CASCADE] */
+			| ALTER ATTRIBUTE ColId opt_set_data TYPE_P Typename opt_collate_clause opt_drop_behavior
+				{
+					def := ast.NewColumnDef($3, $6, -1)
+					n := ast.NewAlterTableCmd(ast.AT_AlterColumnType, $3, def)
+					n.Behavior = $8
+					/* We only use these fields of the ColumnDef node */
+					def.TypeName = $6
+					if collClause, ok := $7.(*ast.CollateClause); ok {
+						def.Collclause = collClause
+					}
+					def.RawDefault = nil
+					$$ = n
+				}
+		;
+
+/*****************************************************************************
+ * 
+ * EVENT specification for rules
+ * 
+ * Ported from postgres/src/backend/parser/gram.y
+ *****************************************************************************/
+
+event:		SELECT									{ $$ = int(ast.CMD_SELECT) }
+			| UPDATE								{ $$ = int(ast.CMD_UPDATE) }
+			| DELETE_P								{ $$ = int(ast.CMD_DELETE) }
+			| INSERT								{ $$ = int(ast.CMD_INSERT) }
 		;
 
 %%

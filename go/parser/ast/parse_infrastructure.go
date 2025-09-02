@@ -1485,6 +1485,36 @@ func (o *ObjectWithArgs) SqlString() string {
 	return strings.Join(parts, "")
 }
 
+// ExtractArgTypes extracts argument types from function arguments
+// This function is used to convert FunctionParameter nodes to TypeName nodes
+func ExtractArgTypes(funcArgs *NodeList) *NodeList {
+	if funcArgs == nil {
+		return nil
+	}
+	
+	argTypes := NewNodeList()
+	for i := 0; i < funcArgs.Len(); i++ {
+		if funcParam, ok := funcArgs.Items[i].(*FunctionParameter); ok {
+			if funcParam.ArgType != nil {
+				argTypes.Append(funcParam.ArgType)
+			}
+		}
+	}
+	
+	return argTypes
+}
+
+// NewEmptyObjectWithArgs creates a new ObjectWithArgs node with empty constructor
+func NewEmptyObjectWithArgs() *ObjectWithArgs {
+	return &ObjectWithArgs{
+		BaseNode:        BaseNode{Tag: T_ObjectWithArgs},
+		Objname:         nil,
+		Objargs:         nil,
+		ObjfuncArgs:     nil,
+		ArgsUnspecified: false,
+	}
+}
+
 // SinglePartitionSpec represents a single partition specification.
 // Ported from postgres/src/include/nodes/parsenodes.h:945-952
 type SinglePartitionSpec struct {

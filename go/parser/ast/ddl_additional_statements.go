@@ -726,6 +726,133 @@ func (a *AlterOpFamilyStmt) SqlString() string {
 }
 
 // =============================================================================
+// ALTER FUNCTION Statement
+// =============================================================================
+
+// AlterFunctionStmt represents ALTER FUNCTION statement
+// Ported from postgres/src/include/nodes/parsenodes.h AlterFunctionStmt
+type AlterFunctionStmt struct {
+	BaseNode
+	ObjType ObjectType         `json:"objtype"` // OBJECT_FUNCTION or OBJECT_PROCEDURE
+	Func    *ObjectWithArgs    `json:"func"`    // name and args of function
+	Actions *NodeList          `json:"actions"` // list of DefElem
+}
+
+func NewAlterFunctionStmt(objType ObjectType, funcWithArgs *ObjectWithArgs, actions *NodeList) *AlterFunctionStmt {
+	return &AlterFunctionStmt{
+		BaseNode: BaseNode{Tag: T_AlterFunctionStmt},
+		ObjType:  objType,
+		Func:     funcWithArgs,
+		Actions:  actions,
+	}
+}
+
+func (a *AlterFunctionStmt) String() string {
+	objTypeStr := "FUNCTION"
+	if a.ObjType == OBJECT_PROCEDURE {
+		objTypeStr = "PROCEDURE"
+	}
+	return fmt.Sprintf("AlterFunctionStmt(%s)@%d", objTypeStr, a.BaseNode.Location())
+}
+
+func (a *AlterFunctionStmt) StatementType() string {
+	return "AlterFunctionStmt"
+}
+
+// SqlString returns the SQL representation of ALTER FUNCTION statement
+func (a *AlterFunctionStmt) SqlString() string {
+	var parts []string
+	
+	if a.ObjType == OBJECT_PROCEDURE {
+		parts = append(parts, "ALTER PROCEDURE")
+	} else if a.ObjType == OBJECT_ROUTINE {
+		parts = append(parts, "ALTER ROUTINE")
+	} else {
+		parts = append(parts, "ALTER FUNCTION")
+	}
+	
+	if a.Func != nil {
+		parts = append(parts, a.Func.SqlString())
+	}
+	
+	if a.Actions != nil && a.Actions.Len() > 0 {
+		actionStrs := make([]string, 0, a.Actions.Len())
+		for i := 0; i < a.Actions.Len(); i++ {
+			if defElem, ok := a.Actions.Items[i].(*DefElem); ok {
+				actionStrs = append(actionStrs, defElem.SqlStringForFunction())
+			}
+		}
+		if len(actionStrs) > 0 {
+			parts = append(parts, strings.Join(actionStrs, " "))
+		}
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// =============================================================================
+// ALTER TYPE Statements
+// =============================================================================
+
+// AlterTypeStmt represents ALTER TYPE statement (for base types)
+// Ported from postgres/src/include/nodes/parsenodes.h AlterTypeStmt
+type AlterTypeStmt struct {
+	BaseNode
+	TypeName *NodeList `json:"typename"` // type name (possibly qualified)
+	Options  *NodeList `json:"options"`  // List of DefElem nodes
+}
+
+func NewAlterTypeStmt(typeName *NodeList, options *NodeList) *AlterTypeStmt {
+	return &AlterTypeStmt{
+		BaseNode: BaseNode{Tag: T_AlterTypeStmt},
+		TypeName: typeName,
+		Options:  options,
+	}
+}
+
+func (a *AlterTypeStmt) String() string {
+	return fmt.Sprintf("AlterTypeStmt@%d", a.BaseNode.Location())
+}
+
+func (a *AlterTypeStmt) StatementType() string {
+	return "AlterTypeStmt"
+}
+
+// SqlString returns the SQL representation of ALTER TYPE statement
+func (a *AlterTypeStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER TYPE")
+	
+	if a.TypeName != nil && a.TypeName.Len() > 0 {
+		nameStrs := make([]string, 0, a.TypeName.Len())
+		for i := 0; i < a.TypeName.Len(); i++ {
+			if strNode, ok := a.TypeName.Items[i].(*String); ok {
+				nameStrs = append(nameStrs, strNode.SVal)
+			}
+		}
+		parts = append(parts, strings.Join(nameStrs, "."))
+	}
+	
+	if a.Options != nil && a.Options.Len() > 0 {
+		optionStrs := make([]string, 0, a.Options.Len())
+		for i := 0; i < a.Options.Len(); i++ {
+			if defElem, ok := a.Options.Items[i].(*DefElem); ok {
+				if defElem.Arg != nil {
+					optionStrs = append(optionStrs, strings.ToUpper(defElem.Defname)+" = "+defElem.Arg.SqlString())
+				} else {
+					// When Arg is nil, it represents "= NONE" in PostgreSQL
+					optionStrs = append(optionStrs, strings.ToUpper(defElem.Defname)+" = NONE")
+				}
+			}
+		}
+		parts = append(parts, "SET", "("+strings.Join(optionStrs, ", ")+")")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+
+// =============================================================================
 // Supporting Types for OPERATOR CLASS
 // =============================================================================
 

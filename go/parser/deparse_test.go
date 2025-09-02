@@ -504,6 +504,51 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER ROLE SET shared_preload_libraries", "ALTER ROLE testuser SET shared_preload_libraries TO 'pg_stat_statements'", "ALTER ROLE TESTUSER SET SHARED_PRELOAD_LIBRARIES TO PG_STAT_STATEMENTS"},
 		{"ALTER ROLE SET with quoted identifier", "ALTER ROLE \"test-user\" SET search_path TO public", "ALTER ROLE \"test-user\" SET search_path TO public"},
 		{"ALTER ROLE SET with DEFAULT", "ALTER ROLE testuser SET search_path TO DEFAULT", ""},
+		
+		// ALTER FUNCTION statements
+		{"ALTER FUNCTION basic", "ALTER FUNCTION my_func() VOLATILE", ""},
+		{"ALTER FUNCTION with args", "ALTER FUNCTION test_func(INT, TEXT) STABLE", ""},
+		{"ALTER FUNCTION immutable", "ALTER FUNCTION calc_tax(NUMERIC) IMMUTABLE", ""},
+		{"ALTER FUNCTION strict", "ALTER FUNCTION validate_input(text) STRICT", ""},
+		{"ALTER FUNCTION leakproof", "ALTER FUNCTION secure_hash(text) LEAKPROOF", ""},
+		{"ALTER FUNCTION security definer", "ALTER FUNCTION admin_func() SECURITY DEFINER", ""},
+		{"ALTER FUNCTION cost", "ALTER FUNCTION expensive_calc() COST 1000", ""},
+		{"ALTER FUNCTION rows", "ALTER FUNCTION return_rows() ROWS 100", ""},
+		{"ALTER PROCEDURE basic", "ALTER PROCEDURE my_proc() VOLATILE", ""},
+		{"ALTER PROCEDURE with args", "ALTER PROCEDURE update_stats(INT, TEXT) IMMUTABLE", ""},
+		
+		// ALTER ROUTINE statements
+		{"ALTER ROUTINE basic", "ALTER ROUTINE my_routine() VOLATILE", ""},
+		{"ALTER ROUTINE with args", "ALTER ROUTINE calc_stats(INT, TEXT) STABLE", ""},
+		{"ALTER ROUTINE immutable", "ALTER ROUTINE hash_func(text) IMMUTABLE", ""},
+		{"ALTER ROUTINE strict", "ALTER ROUTINE validate_data(text) STRICT", ""},
+		{"ALTER ROUTINE leakproof", "ALTER ROUTINE secure_routine(text) LEAKPROOF", ""},
+		{"ALTER ROUTINE security definer", "ALTER ROUTINE admin_routine() SECURITY DEFINER", ""},
+		{"ALTER ROUTINE cost", "ALTER ROUTINE expensive_routine() COST 1000", ""},
+		{"ALTER ROUTINE rows", "ALTER ROUTINE return_data() ROWS 100", ""},
+		
+		// Additional function options
+		{"ALTER FUNCTION with SUPPORT", "ALTER FUNCTION test_func() SUPPORT support_func", ""},
+		{"ALTER FUNCTION with PARALLEL SAFE", "ALTER FUNCTION calc_func() PARALLEL SAFE", ""},
+		{"ALTER FUNCTION with PARALLEL UNSAFE", "ALTER FUNCTION risky_func() PARALLEL UNSAFE", ""},
+		{"ALTER FUNCTION with PARALLEL RESTRICTED", "ALTER FUNCTION limited_func() PARALLEL RESTRICTED", ""},
+		{"ALTER FUNCTION with SET", "ALTER FUNCTION config_func() SET work_mem = '256MB'", ""},
+		{"ALTER FUNCTION with RESET", "ALTER FUNCTION config_func() RESET work_mem", ""},
+		{"ALTER ROUTINE with SUPPORT", "ALTER ROUTINE test_routine() SUPPORT support_routine", ""},
+		{"ALTER ROUTINE with PARALLEL SAFE", "ALTER ROUTINE calc_routine() PARALLEL SAFE", ""},
+		{"ALTER PROCEDURE with PARALLEL UNSAFE", "ALTER PROCEDURE risky_proc() PARALLEL UNSAFE", ""},
+		
+		// ALTER TYPE statements  
+		{"ALTER TYPE with options", "ALTER TYPE my_type SET (RECEIVE = my_receive)", ""},
+		{"ALTER TYPE SET multiple options", "ALTER TYPE custom_type SET (RECEIVE = recv_func, SEND = send_func)", ""},
+		{"ALTER TYPE SET with string", "ALTER TYPE text_type SET (ANALYZE = analyze_text)", ""},
+		{"ALTER TYPE SET with numeric", "ALTER TYPE float_type SET (ALIGNMENT = 8)", ""},
+		{"ALTER TYPE SET option to NONE", "ALTER TYPE my_type SET (STORAGE = NONE)", ""},
+		{"ALTER TYPE composite add attribute", "ALTER TYPE person ADD ATTRIBUTE phone text", ""},
+		{"ALTER TYPE composite drop attribute", "ALTER TYPE person DROP ATTRIBUTE email", ""},
+		{"ALTER TYPE composite drop attribute if exists", "ALTER TYPE person DROP ATTRIBUTE IF EXISTS old_field", ""},
+		{"ALTER TYPE composite alter attribute", "ALTER TYPE person ALTER ATTRIBUTE name TYPE varchar(100)", ""},
+		{"ALTER TYPE composite alter attribute with collate", "ALTER TYPE person ALTER ATTRIBUTE name TYPE VARCHAR(100) COLLATE C", ""},
 	}
 
 	for _, tt := range tests {

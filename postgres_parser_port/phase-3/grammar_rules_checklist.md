@@ -385,10 +385,14 @@
 - ✅ `opt_createfunc_opt_list` - Optional function options
 
 ### ALTER FUNCTION
-- ⬜ `AlterFunctionStmt` - ALTER FUNCTION
-- ⬜ `alterfunc_opt_list` - ALTER FUNCTION options
-- ⬜ `function_with_argtypes` - Function with arg types
-- ⬜ `function_with_argtypes_list` - List of functions
+- ✅ `AlterFunctionStmt` - ALTER FUNCTION
+- ✅ `alterfunc_opt_list` - ALTER FUNCTION options
+- ✅ `function_with_argtypes` - Function with arg types
+- ✅ `function_with_argtypes_list` - List of functions
+- ✅ `AlterTypeStmt` - ALTER TYPE (for non-enum types)
+- ✅ `alter_type_cmds` - ALTER TYPE commands (for non-enum types)
+- ✅ `alter_type_cmd` - Single ALTER TYPE command (for non-enum types)
+- ✅ `event` - Event specification
 
 ### CREATE TRIGGER ✅ COMPLETE
 - ✅ `CreateTrigStmt` - CREATE TRIGGER
@@ -443,11 +447,6 @@
 - ✅ `enum_val_list` - Enum value list (comma-separated string list)
 - ✅ `opt_enum_val_list` - Optional enum values (supports empty enum creation)
 
-**Notes:**
-- ⬜ `AlterTypeStmt` - ALTER TYPE (for non-enum types - deferred to Phase 3H)
-- ⬜ `alter_type_cmds` - ALTER TYPE commands (for non-enum types - deferred to Phase 3H)
-- ⬜ `alter_type_cmd` - Single ALTER TYPE command (for non-enum types - deferred to Phase 3H)
-
 ### CREATE SEQUENCE
 - ✅ `CreateSeqStmt` - CREATE SEQUENCE
 - ✅ `AlterSeqStmt` - ALTER SEQUENCE
@@ -487,7 +486,6 @@
 ### CREATE EVENT TRIGGER
 - ✅ `CreateEventTrigStmt` - CREATE EVENT TRIGGER
 - ✅ `AlterEventTrigStmt` - ALTER EVENT TRIGGER
-- ⬜ `event` - Event specification
 - ✅ `event_trigger_when_list` - Event trigger conditions
 - ✅ `event_trigger_when_item` - Single condition
 - ✅ `event_trigger_value_list` - Event trigger values
@@ -608,7 +606,7 @@
 ### Security - Roles
 - ✅ `CreateRoleStmt` - CREATE ROLE
 - ✅ `AlterRoleStmt` - ALTER ROLE
-- ⬜ `AlterRoleSetStmt` - ALTER ROLE SET
+- ✅ `AlterRoleSetStmt` - ALTER ROLE SET
 - ✅ `DropRoleStmt` - DROP ROLE
 - ✅ `CreateGroupStmt` - CREATE GROUP
 - ✅ `AlterGroupStmt` - ALTER GROUP
@@ -905,7 +903,7 @@
 
 ### Type System Details
 - ✅ `ConstTypename` - Constant type name
-- ⬜ `NumericOnly` - Numeric only
+- ✅ `NumericOnly` - Numeric only
 - ⬜ `NumericOnly_list` - Numeric list
 - ⬜ `BitWithLength` - Bit with length
 - ⬜ `BitWithoutLength` - Bit without length

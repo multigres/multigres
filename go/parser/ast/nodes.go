@@ -58,6 +58,8 @@ const (
 	T_CreateStatsStmt
 	T_CreateCastStmt
 	T_AlterStatsStmt
+	T_AlterFunctionStmt
+	T_AlterTypeStmt
 	T_CreatePublicationStmt
 	T_AlterPublicationStmt
 	T_PublicationTable
@@ -372,6 +374,10 @@ func (nt NodeTag) String() string {
 		return "T_CreateCastStmt"
 	case T_AlterStatsStmt:
 		return "T_AlterStatsStmt"
+	case T_AlterFunctionStmt:
+		return "T_AlterFunctionStmt"
+	case T_AlterTypeStmt:
+		return "T_AlterTypeStmt"
 	case T_CreatePublicationStmt:
 		return "T_CreatePublicationStmt"
 	case T_AlterPublicationStmt:
