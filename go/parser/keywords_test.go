@@ -32,8 +32,8 @@ func TestKeywordLookup(t *testing.T) {
 		{"where keyword", "where", true, WHERE, ReservedKeyword},
 
 		// Column name keywords
-		{"integer type", "integer", true, IDENT, ColNameKeyword},
-		{"boolean type", "boolean", true, IDENT, ColNameKeyword},
+		{"integer type", "integer", true, INTEGER, ColNameKeyword},
+		{"boolean type", "boolean", true, BOOLEAN_P, ColNameKeyword},
 
 		// Unreserved keywords
 		{"breadth keyword", "breadth", true, BREADTH, UnreservedKeyword},

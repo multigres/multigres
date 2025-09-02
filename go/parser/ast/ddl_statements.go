@@ -515,9 +515,9 @@ func (r *RoleSpec) SqlString() string {
 	case ROLESPEC_CSTRING:
 		return r.Rolename
 	case ROLESPEC_CURRENT_USER:
-		return "current_user"
+		return "CURRENT_USER"
 	case ROLESPEC_SESSION_USER:
-		return "session_user"
+		return "SESSION_USER"
 	case ROLESPEC_PUBLIC:
 		return "public"
 	default:
@@ -618,6 +618,69 @@ func (t *TypeName) String() string {
 }
 
 // SqlString returns the SQL representation of the TypeName
+// normalizeTypeName converts PostgreSQL internal type names to standard SQL type names
+func normalizeTypeName(typeName string) string {
+	// Strip schema qualification for built-in types
+	if strings.Contains(typeName, ".") {
+		parts := strings.Split(typeName, ".")
+		if len(parts) == 2 && (parts[0] == "pg_catalog" || parts[0] == "public") {
+			typeName = parts[1]
+		}
+	}
+
+	// Map PostgreSQL internal names to standard SQL names
+	switch strings.ToLower(typeName) {
+	case "int4", "int":
+		return "INT"
+	case "int8", "bigint":
+		return "BIGINT"
+	case "int2", "smallint":
+		return "SMALLINT"
+	case "float":
+		return "FLOAT"
+	case "float4", "real":
+		return "REAL"
+	case "float8", "double precision":
+		return "DOUBLE PRECISION"
+	case "bool", "boolean":
+		return "BOOLEAN"
+	case "bpchar", "char":
+		return "CHAR"
+	case "varchar":
+		return "VARCHAR"
+	case "text":
+		return "TEXT"
+	case "numeric":
+		return "NUMERIC"
+	case "decimal":
+		return "DECIMAL"
+	case "timestamp":
+		return "TIMESTAMP"
+	case "timestamptz":
+		return "TIMESTAMP WITH TIME ZONE"
+	case "time":
+		return "TIME"
+	case "timetz":
+		return "TIME WITH TIME ZONE"
+	case "date":
+		return "DATE"
+	case "interval":
+		return "INTERVAL"
+	case "bytea":
+		return "BYTEA"
+	case "uuid":
+		return "UUID"
+	case "json":
+		return "JSON"
+	case "jsonb":
+		return "JSONB"
+	case "xml":
+		return "XML"
+	default:
+		return typeName
+	}
+}
+
 func (t *TypeName) SqlString() string {
 	if t.Names == nil || t.Names.Len() == 0 {
 		return ""
@@ -631,6 +694,9 @@ func (t *TypeName) SqlString() string {
 		}
 	}
 	typeName := strings.Join(nameParts, ".")
+
+	// Normalize the type name to standard SQL
+	typeName = normalizeTypeName(typeName)
 
 	// Add type modifiers if present
 	if t.Typmods != nil && t.Typmods.Len() > 0 {

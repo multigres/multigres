@@ -1410,10 +1410,10 @@ func TestMinMaxExpr(t *testing.T) {
 		minMaxCollid := Oid(0)
 		inputCollid := Oid(0)
 		op := IS_GREATEST
-		args := []Expression{
+		args := NewNodeList(
 			NewConst(Oid(23), Datum(1), false),
 			NewConst(Oid(23), Datum(2), false),
-		}
+		)
 		location := 600
 
 		mme := NewMinMaxExpr(minMaxType, minMaxCollid, inputCollid, op, args, location)
@@ -1429,7 +1429,7 @@ func TestMinMaxExpr(t *testing.T) {
 	})
 
 	t.Run("String GREATEST", func(t *testing.T) {
-		args := []Expression{NewConst(Oid(23), Datum(1), false)}
+		args := NewNodeList(NewConst(Oid(23), Datum(1), false))
 		mme := NewMinMaxExpr(Oid(23), Oid(0), Oid(0), IS_GREATEST, args, 650)
 		str := mme.String()
 
@@ -1440,7 +1440,7 @@ func TestMinMaxExpr(t *testing.T) {
 	})
 
 	t.Run("String LEAST", func(t *testing.T) {
-		args := []Expression{NewConst(Oid(23), Datum(1), false)}
+		args := NewNodeList(NewConst(Oid(23), Datum(1), false))
 		mme := NewMinMaxExpr(Oid(23), Oid(0), Oid(0), IS_LEAST, args, 700)
 		str := mme.String()
 
@@ -1584,9 +1584,9 @@ func TestXmlExpr(t *testing.T) {
 	t.Run("NewXmlExpr", func(t *testing.T) {
 		op := IS_XMLCONCAT
 		name := "test_element"
-		namedArgs := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
-		argNames := []string{"attr_name"}
-		args := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
+		namedArgs := NewNodeList(NewConst(Oid(25), Datum(uintptr(0)), false))
+		argNames := NewNodeList(NewString("attr_name"))
+		args := NewNodeList(NewConst(Oid(25), Datum(uintptr(0)), false))
 		xmloption := XMLOPTION_DOCUMENT
 		indent := true
 		typ := Oid(142) // xml type OID
@@ -1625,7 +1625,7 @@ func TestXmlExpr(t *testing.T) {
 		}
 
 		for _, tt := range tests {
-			args := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
+			args := NewNodeList(NewConst(Oid(25), Datum(uintptr(0)), false))
 			xe := NewXmlExpr(tt.op, "", nil, nil, args, XMLOPTION_DOCUMENT, false, Oid(142), -1, 1050)
 			str := xe.String()
 

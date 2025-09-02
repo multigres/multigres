@@ -196,7 +196,7 @@ func TestCommentsWithOperators(t *testing.T) {
 		{
 			name:     "complex operator with comment",
 			input:    "a::/*type cast*/int",
-			expected: []TokenType{IDENT, TYPECAST, IDENT, EOF},
+			expected: []TokenType{IDENT, TYPECAST, INT_P, EOF},
 			values:   []string{"a", "::", "int", ""},
 		},
 		{
@@ -325,4 +325,3 @@ func TestCommentEdgeCases(t *testing.T) {
 		})
 	}
 }
-

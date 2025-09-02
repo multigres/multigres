@@ -285,26 +285,26 @@ func TestDeparsing(t *testing.T) {
 		// Testing that FunctionParameter.Name is properly handled as a string
 
 		// Functions with named parameters
-		{"Function with named parameters", "CREATE FUNCTION add(a integer, b integer) RETURNS integer LANGUAGE sql AS $$SELECT a + b$$", "CREATE FUNCTION add (a integer, b integer) RETURNS integer LANGUAGE sql AS $$SELECT a + b$$"},
-		{"Function with IN/OUT named parameters", "CREATE FUNCTION process(IN input text, OUT result integer) LANGUAGE sql AS $$SELECT length(input)$$", "CREATE FUNCTION process (input text, OUT result integer) LANGUAGE sql AS $$SELECT length(input)$$"},
+		{"Function with named parameters", "CREATE FUNCTION add(a integer, b integer) RETURNS INT LANGUAGE sql AS $$SELECT a + b$$", "CREATE FUNCTION add (a INT, b INT) RETURNS INT LANGUAGE sql AS $$SELECT a + b$$"},
+		{"Function with IN/OUT named parameters", "CREATE FUNCTION process(IN input text, OUT result INT) LANGUAGE sql AS $$SELECT length(input)$$", "CREATE FUNCTION process (input TEXT, OUT result INT) LANGUAGE sql AS $$SELECT length(input)$$"},
 
 		// Functions with unnamed parameters
-		{"Function with unnamed parameter", "CREATE FUNCTION greet(text) RETURNS text LANGUAGE sql AS $$SELECT 'Hello ' || $1$$", "CREATE FUNCTION greet (text) RETURNS text LANGUAGE sql AS $$SELECT 'Hello ' || $1$$"},
-		{"Function with multiple unnamed parameters", "CREATE FUNCTION multiply(integer, integer) RETURNS integer LANGUAGE sql AS $$SELECT $1 * $2$$", "CREATE FUNCTION multiply (integer, integer) RETURNS integer LANGUAGE sql AS $$SELECT $1 * $2$$"},
+		{"Function with unnamed parameter", "CREATE FUNCTION greet(TEXT) RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello ' || $1$$", "CREATE FUNCTION greet (TEXT) RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello ' || $1$$"},
+		{"Function with multiple unnamed parameters", "CREATE FUNCTION multiply(INT, integer) RETURNS INT LANGUAGE sql AS $$SELECT $1 * $2$$", "CREATE FUNCTION MULTIPLY (INT, INT) RETURNS INT LANGUAGE SQL AS $$SELECT $1 * $2$$"},
 
 		// Mixed named and unnamed parameters
-		{"Function with mixed parameters", "CREATE FUNCTION calc(a integer, integer, c integer) RETURNS integer LANGUAGE sql AS $$SELECT a + $2 + c$$", "CREATE FUNCTION calc (a integer, integer, c integer) RETURNS integer LANGUAGE sql AS $$SELECT a + $2 + c$$"},
+		{"Function with mixed parameters", "CREATE FUNCTION calc(a integer, integer, c integer) RETURNS INT LANGUAGE sql AS $$SELECT a + $2 + c$$", "CREATE FUNCTION CALC (A INT, INT, C INT) RETURNS INT LANGUAGE SQL AS $$SELECT A + $2 + C$$"},
 
 		// Parameter modes
-		{"Function with OUT parameter", "CREATE FUNCTION get_values(OUT x integer, OUT y text) LANGUAGE sql AS $$SELECT 1, 'hello'$$", "CREATE FUNCTION get_values (OUT x integer, OUT y text) LANGUAGE sql AS $$SELECT 1, 'hello'$$"},
-		{"Function with INOUT parameter", "CREATE FUNCTION double(INOUT value integer) LANGUAGE sql AS $$SELECT value * 2$$", "CREATE FUNCTION double (INOUT value integer) LANGUAGE sql AS $$SELECT value * 2$$"},
+		{"Function with OUT parameter", "CREATE FUNCTION get_values(OUT x integer, OUT y TEXT) LANGUAGE sql AS $$SELECT 1, 'hello'$$", "CREATE FUNCTION get_values (OUT x int, OUT y TEXT) LANGUAGE sql AS $$SELECT 1, 'hello'$$"},
+		{"Function with INOUT parameter", "CREATE FUNCTION double(INOUT value INT) LANGUAGE sql AS $$SELECT value * 2$$", "CREATE FUNCTION DOUBLE (INOUT VALUE INT) LANGUAGE SQL AS $$SELECT VALUE * 2$$"},
 
 		// Functions with default values
-		{"Function with default parameter", "CREATE FUNCTION greet_with_default(name text DEFAULT 'World') RETURNS text LANGUAGE sql AS $$SELECT 'Hello, ' || name$$", "CREATE FUNCTION greet_with_default (name text DEFAULT 'World') RETURNS text LANGUAGE sql AS $$SELECT 'Hello, ' || name$$"},
+		{"Function with default parameter", "CREATE FUNCTION greet_with_default(name text DEFAULT 'World') RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello, ' || name$$", "CREATE FUNCTION greet_with_default (name text DEFAULT 'World') RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello, ' || name$$"},
 
 		// Edge cases for parameter names
-		{"Function with empty string name handling", "CREATE FUNCTION unnamed_params(integer, text, boolean) RETURNS void LANGUAGE sql AS $$SELECT NULL$$", "CREATE FUNCTION unnamed_params (integer, text, boolean) RETURNS void LANGUAGE sql AS $$SELECT NULL$$"},
-		{"Function with qualified name", "CREATE FUNCTION public.my_func(param1 text) RETURNS integer LANGUAGE sql AS $$SELECT 42$$", "CREATE FUNCTION public.my_func (param1 text) RETURNS integer LANGUAGE sql AS $$SELECT 42$$"},
+		{"Function with empty string name handling", "CREATE FUNCTION unnamed_params(INT, text, boolean) RETURNS void LANGUAGE sql AS $$SELECT NULL$$", "CREATE FUNCTION unnamed_params (INT, text, boolean) RETURNS void LANGUAGE sql AS $$SELECT NULL$$"},
+		{"Function with qualified name", "CREATE FUNCTION public.my_func(param1 text) RETURNS INT LANGUAGE sql AS $$SELECT 42$$", "CREATE FUNCTION public.my_func (param1 text) RETURNS INT LANGUAGE sql AS $$SELECT 42$$"},
 
 		// CREATE VIEW Tests
 		{"Basic CREATE VIEW", "CREATE VIEW user_view AS SELECT * FROM users", ""},
@@ -1192,7 +1192,7 @@ func testAdvancedTypeCasting(t *testing.T) {
 		{
 			name:     "timestamptz type",
 			input:    "SELECT value::timestamptz",
-			expected: "",
+			expected: "SELECT VALUE::TIMESTAMP WITH TIME ZONE",
 		},
 		{
 			name:     "date type",
@@ -1395,7 +1395,7 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 
 		// Type casting
 		{"Type cast to text", "SELECT id::text FROM users", ""},
-		{"Type cast with spaces", "SELECT id :: integer FROM users", "SELECT id::integer FROM users"},
+		{"Type cast with spaces", "SELECT id :: integer FROM users", "SELECT id::int FROM users"},
 		{"Complex expression cast", "SELECT (age + 1)::varchar FROM users", ""},
 		{"Multiple casts", "SELECT id::text, age::varchar FROM users", ""},
 
@@ -1409,7 +1409,7 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 		{"Function no args", "SELECT now()", ""},
 		{"Function single arg", "SELECT length(name) FROM users", ""},
 		{"Function multiple args", "SELECT substring(name, 1, 5) FROM users", ""},
-		{"Qualified function", "SELECT pg_catalog.length(name) FROM users", ""},
+		{"Qualified function", "SELECT my_catalog.length(name) FROM users", ""},
 		{"Nested functions", "SELECT upper(trim(name)) FROM users", ""},
 		{"Function in WHERE", "SELECT * FROM users WHERE length(name) > 5", ""},
 

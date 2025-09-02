@@ -45,7 +45,7 @@ func TestDMLParsing(t *testing.T) {
 		{"INSERT with column list and OVERRIDING SYSTEM VALUE", "INSERT INTO users (id, name) OVERRIDING SYSTEM VALUE SELECT * FROM temp_users", "INSERT INTO users (id, name) SELECT * FROM temp_users"},
 		{"INSERT with complex expressions in VALUES", "INSERT INTO users (id, name, age) VALUES (1 + 2, upper('john'), 25 * 2)", ""},
 		{"INSERT with function calls in VALUES", "INSERT INTO logs (message, created_at) VALUES (concat('Hello ', 'World'), now())", "INSERT INTO logs (message, created_at) VALUES (concat('Hello ', 'World'), NOW())"},
-		{"INSERT with type casts", "INSERT INTO users (id, name, age) VALUES (1::bigint, 'John'::varchar, '25'::integer)", ""},
+		{"INSERT with type casts", "INSERT INTO users (id, name, age) VALUES (1::bigint, 'John'::varchar, '25'::int)", "INSERT INTO users (id, name, age) VALUES (1::BIGINT, 'John'::VARCHAR, '25'::INT)"},
 
 		// ===== UPDATE Statements =====
 		{"UPDATE simple", "UPDATE users SET name = 'Jane'", ""},
@@ -63,7 +63,7 @@ func TestDMLParsing(t *testing.T) {
 		{"UPDATE with ONLY modifier", "UPDATE ONLY parent_table SET name = 'updated'", ""},
 		{"UPDATE with no WHERE clause", "UPDATE users SET active = TRUE", ""},
 		{"UPDATE with arithmetic expressions", "UPDATE products SET price = price * 1.1, updated_count = updated_count + 1", ""},
-		{"UPDATE with type casts", "UPDATE users SET score = '95.5'::decimal, active = 'true'::boolean", ""},
+		{"UPDATE with type casts", "UPDATE users SET score = '95.5'::numeric, active = 'true'::boolean", "UPDATE users SET score = '95.5'::NUMERIC, active = 'true'::BOOLEAN"},
 		{"UPDATE with function calls in SET", "UPDATE users SET name = upper(trim(name)), email = lower(email)", ""},
 		{"UPDATE with function calls in WHERE", "UPDATE users SET active = FALSE WHERE length(name) < 3 AND upper(status) = 'INACTIVE'", ""},
 		{"UPDATE with nested arithmetic", "UPDATE stats SET score = (score + bonus) * multiplier, rank = rank + 1", ""},
@@ -126,7 +126,7 @@ func TestDMLParsing(t *testing.T) {
 		{"INSERT with nested function calls", "INSERT INTO users (name, email) VALUES (upper(trim('  john  ')), lower(concat('john', '@', 'example.com')))", ""},
 		{"INSERT with arithmetic in VALUES", "INSERT INTO products (id, price, discounted_price) VALUES (1, 100.00, 100.00 * 0.9)", ""},
 		{"INSERT with parenthesized expressions", "INSERT INTO products (total) VALUES ((price + tax) * quantity)", ""},
-		{"INSERT with type casts and expressions", "INSERT INTO logs (level, message, count) VALUES (upper('info')::text, concat('Log: ', details), (1 + retry_count)::integer)", ""},
+		{"INSERT with type casts and expressions", "INSERT INTO logs (level, message, count) VALUES (upper('info')::text, concat('Log: ', details), (1 + retry_count)::int)", "INSERT INTO logs (level, message, count) VALUES (upper('info')::TEXT, concat('Log: ', details), (1 + retry_count)::INT)"},
 		{"INSERT with deeply nested functions", "INSERT INTO processed (data) VALUES (upper(substring(trim(input_data), 1, 10)))", ""},
 	}
 
@@ -146,79 +146,81 @@ func TestDDLParsing(t *testing.T) {
 	}{
 		// CREATE TABLE tests
 		{
-			name: "Simple CREATE TABLE",
-			sql:  "CREATE TABLE users (id int, name varchar(100))",
+			name:     "Simple CREATE TABLE",
+			sql:      "CREATE TABLE users (id int, name varchar(100))",
+			expected: "CREATE TABLE users (id INT, name VARCHAR(100))",
 		},
 		{
-			name: "CREATE TABLE with PRIMARY KEY",
-			sql:  "CREATE TABLE users (id int PRIMARY KEY, name varchar(100))",
+			name:     "CREATE TABLE with PRIMARY KEY",
+			sql:      "CREATE TABLE users (id int PRIMARY KEY, name varchar(100))",
+			expected: "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100))",
 		},
 		{
 			name: "CREATE TABLE with NOT NULL",
-			sql:  "CREATE TABLE users (id int NOT NULL, name varchar(100) NOT NULL)",
+			sql:  "CREATE TABLE users (id INT NOT NULL, name VARCHAR(100) NOT NULL)",
 		},
 		{
 			name: "CREATE TABLE with DEFAULT",
-			sql:  "CREATE TABLE users (id int DEFAULT 0, created_at timestamp DEFAULT NOW())",
+			sql:  "CREATE TABLE users (id INT DEFAULT 0, created_at TIMESTAMP DEFAULT NOW())",
 		},
 		{
 			name: "CREATE TABLE with UNIQUE constraint",
-			sql:  "CREATE TABLE users (id int, email varchar(100) UNIQUE)",
+			sql:  "CREATE TABLE users (id INT, email VARCHAR(100) UNIQUE)",
 		},
 		{
 			name: "CREATE TABLE with CHECK constraint",
-			sql:  "CREATE TABLE users (id int, age int CHECK (age > 0))",
+			sql:  "CREATE TABLE users (id INT, age INT CHECK (age > 0))",
 		},
 		{
 			name: "CREATE TABLE with table-level PRIMARY KEY",
-			sql:  "CREATE TABLE users (id int, name varchar(100), PRIMARY KEY (id))",
+			sql:  "CREATE TABLE users (id INT, name VARCHAR(100), PRIMARY KEY (id))",
 		},
 		{
 			name: "CREATE TABLE with FOREIGN KEY",
-			sql:  "CREATE TABLE orders (id int, user_id int REFERENCES users(id))",
+			sql:  "CREATE TABLE orders (id INT, user_id INT REFERENCES users(id))",
 		},
 		{
 			name: "CREATE TABLE IF NOT EXISTS",
-			sql:  "CREATE TABLE IF NOT EXISTS users (id int, name varchar(100))",
+			sql:  "CREATE TABLE IF NOT EXISTS users (id INT, name VARCHAR(100))",
 		},
 		{
 			name: "CREATE TABLE with multiple constraints",
-			sql:  "CREATE TABLE users (id int PRIMARY KEY, email varchar(100) UNIQUE NOT NULL, age int CHECK (age > 0))",
+			sql:  "CREATE TABLE users (id INT PRIMARY KEY, email VARCHAR(100) UNIQUE NOT NULL, age INT CHECK (age > 0))",
 		},
 
 		// Temporary table creation tests (OptTempTableName)
 		{
 			name: "CREATE TEMPORARY TABLE",
-			sql:  "CREATE TEMPORARY TABLE temp_users (id int, name varchar(100))",
+			sql:  "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))",
 		},
 		{
 			name:     "CREATE TEMP TABLE",
-			sql:      "CREATE TEMP TABLE temp_users (id int, name varchar(100))",
-			expected: "CREATE TEMPORARY TABLE temp_users (id int, name varchar(100))",
+			sql:      "CREATE TEMP TABLE temp_users (id INT, name varchar(100))",
+			expected: "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))",
 		},
 		{
 			name:     "CREATE LOCAL TEMPORARY TABLE",
-			sql:      "CREATE LOCAL TEMPORARY TABLE temp_users (id int, name varchar(100))",
-			expected: "CREATE TEMPORARY TABLE temp_users (id int, name varchar(100))",
+			sql:      "CREATE LOCAL TEMPORARY TABLE temp_users (id INT, name varchar(100))",
+			expected: "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))",
 		},
 		{
 			name:     "CREATE LOCAL TEMP TABLE",
-			sql:      "CREATE LOCAL TEMP TABLE temp_users (id int, name varchar(100))",
-			expected: "CREATE TEMPORARY TABLE temp_users (id int, name varchar(100))",
+			sql:      "CREATE LOCAL TEMP TABLE temp_users (id INT, name varchar(100))",
+			expected: "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))",
 		},
 		{
 			name:     "CREATE GLOBAL TEMPORARY TABLE",
-			sql:      "CREATE GLOBAL TEMPORARY TABLE temp_users (id int, name varchar(100))",
-			expected: "CREATE TEMPORARY TABLE temp_users (id int, name varchar(100))",
+			sql:      "CREATE GLOBAL TEMPORARY TABLE temp_users (id INT, name varchar(100))",
+			expected: "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))",
 		},
 		{
 			name:     "CREATE GLOBAL TEMP TABLE",
-			sql:      "CREATE GLOBAL TEMP TABLE temp_users (id int, name varchar(100))",
-			expected: "CREATE TEMPORARY TABLE temp_users (id int, name varchar(100))",
+			sql:      "CREATE GLOBAL TEMP TABLE temp_users (id INT, name varchar(100))",
+			expected: "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))",
 		},
 		{
 			name: "CREATE UNLOGGED TABLE",
-			sql:  "CREATE UNLOGGED TABLE unlogged_users (id int, name varchar(100))",
+			sql:  "CREATE UNLOGGED TABLE unlogged_users (id INT, name VARCHAR(100))",
 		},
 
 		// CREATE INDEX tests
@@ -358,33 +360,33 @@ func TestDDLParsing(t *testing.T) {
 		// CREATE FOREIGN TABLE tests
 		{
 			name: "CREATE FOREIGN TABLE basic",
-			sql:  "CREATE FOREIGN TABLE foreign_users (id int, name text) SERVER myserver",
+			sql:  "CREATE FOREIGN TABLE foreign_users (id INT, name TEXT) SERVER myserver",
 		},
 		{
 			name: "CREATE FOREIGN TABLE IF NOT EXISTS",
-			sql:  "CREATE FOREIGN TABLE IF NOT EXISTS foreign_users (id int, name text) SERVER myserver",
+			sql:  "CREATE FOREIGN TABLE IF NOT EXISTS foreign_users (id INT, name TEXT) SERVER myserver",
 		},
 		{
 			name: "CREATE FOREIGN TABLE with OPTIONS",
-			sql:  "CREATE FOREIGN TABLE foreign_users (id int, name text) SERVER myserver OPTIONS (table_name 'users')",
+			sql:  "CREATE FOREIGN TABLE foreign_users (id INT, name TEXT) SERVER myserver OPTIONS (table_name 'users')",
 		},
 		{
 			name: "CREATE FOREIGN TABLE with INHERITS",
-			sql:  "CREATE FOREIGN TABLE foreign_users (age int) INHERITS (base_table) SERVER myserver",
+			sql:  "CREATE FOREIGN TABLE foreign_users (age INT) INHERITS (base_table) SERVER myserver",
 		},
 
 		// CREATE USER MAPPING tests
 		{
 			name: "CREATE USER MAPPING basic",
-			sql:  "CREATE USER MAPPING FOR current_user SERVER myserver",
+			sql:  "CREATE USER MAPPING FOR CURRENT_USER SERVER myserver",
 		},
 		{
 			name: "CREATE USER MAPPING IF NOT EXISTS",
-			sql:  "CREATE USER MAPPING IF NOT EXISTS FOR current_user SERVER myserver",
+			sql:  "CREATE USER MAPPING IF NOT EXISTS FOR CURRENT_USER SERVER myserver",
 		},
 		{
 			name: "CREATE USER MAPPING with OPTIONS",
-			sql:  "CREATE USER MAPPING FOR current_user SERVER myserver OPTIONS (user 'remote_user', password 'secret')",
+			sql:  "CREATE USER MAPPING FOR CURRENT_USER SERVER myserver OPTIONS (user 'remote_user', password 'secret')",
 		},
 		{
 			name: "CREATE USER MAPPING for specific user",
@@ -394,7 +396,7 @@ func TestDDLParsing(t *testing.T) {
 		// ALTER TABLE tests
 		{
 			name: "ALTER TABLE ADD COLUMN",
-			sql:  "ALTER TABLE users ADD COLUMN age int",
+			sql:  "ALTER TABLE users ADD COLUMN age INT",
 		},
 		{
 			name: "ALTER TABLE DROP COLUMN",
@@ -498,23 +500,23 @@ func TestDDLParsing(t *testing.T) {
 		},
 		{
 			name: "CREATE TABLE with FOREIGN KEY ON DELETE SET NULL",
-			sql:  "CREATE TABLE test (id int REFERENCES parent(id) ON DELETE SET NULL)",
+			sql:  "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET NULL)",
 		},
 		{
 			name: "CREATE TABLE with FOREIGN KEY ON DELETE SET NULL with column list",
-			sql:  "CREATE TABLE test (id int REFERENCES parent(id) ON DELETE SET NULL (id))",
+			sql:  "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET NULL (id))",
 		},
 		{
 			name: "CREATE TABLE with FOREIGN KEY ON DELETE SET DEFAULT with column list",
-			sql:  "CREATE TABLE test (id int REFERENCES parent(id) ON DELETE SET DEFAULT (id))",
+			sql:  "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET DEFAULT (id))",
 		},
 		{
 			name: "CREATE TABLE with FOREIGN KEY ON DELETE CASCADE",
-			sql:  "CREATE TABLE test (id int REFERENCES parent(id) ON DELETE CASCADE)",
+			sql:  "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE CASCADE)",
 		},
 		{
 			name: "CREATE TABLE with FOREIGN KEY ON UPDATE RESTRICT",
-			sql:  "CREATE TABLE test (id int REFERENCES parent(id) ON UPDATE RESTRICT)",
+			sql:  "CREATE TABLE test (id INT REFERENCES parent(id) ON UPDATE RESTRICT)",
 		},
 
 		// CREATE VIEW Tests
@@ -542,15 +544,15 @@ func TestDDLParsing(t *testing.T) {
 		// CREATE FUNCTION Tests
 		{
 			name: "Basic CREATE FUNCTION round-trip",
-			sql:  "CREATE FUNCTION test_func () RETURNS integer LANGUAGE sql AS $$SELECT 1$$",
+			sql:  "CREATE FUNCTION test_func () RETURNS INT LANGUAGE sql AS $$SELECT 1$$",
 		},
 		{
 			name: "CREATE OR REPLACE FUNCTION round-trip",
-			sql:  "CREATE OR REPLACE FUNCTION test_func () RETURNS integer LANGUAGE sql AS $$SELECT 1$$",
+			sql:  "CREATE OR REPLACE FUNCTION test_func () RETURNS INT LANGUAGE sql AS $$SELECT 1$$",
 		},
 		{
 			name: "CREATE FUNCTION with parameters round-trip",
-			sql:  "CREATE FUNCTION add_func (a integer, b integer) RETURNS integer LANGUAGE sql AS $$SELECT $1 + $2$$",
+			sql:  "CREATE FUNCTION add_func (a INT, b INT) RETURNS INT LANGUAGE sql AS $$SELECT $1 + $2$$",
 		},
 		{
 			name: "CREATE PROCEDURE round-trip",
@@ -606,19 +608,19 @@ func TestDDLParsing(t *testing.T) {
 		// CREATE DOMAIN tests
 		{
 			name: "Simple CREATE DOMAIN",
-			sql:  "CREATE DOMAIN email AS varchar(255)",
+			sql:  "CREATE DOMAIN email AS VARCHAR(255)",
 		},
 		{
 			name: "CREATE DOMAIN with CHECK constraint",
-			sql:  "CREATE DOMAIN email AS varchar(255) CHECK (value LIKE '%@%.%')",
+			sql:  "CREATE DOMAIN email AS VARCHAR(255) CHECK (value LIKE '%@%.%')",
 		},
 		{
 			name: "CREATE DOMAIN with NOT NULL",
-			sql:  "CREATE DOMAIN positive_int AS int NOT NULL CHECK (value > 0)",
+			sql:  "CREATE DOMAIN positive_int AS INT NOT NULL CHECK (value > 0)",
 		},
 		{
 			name: "CREATE DOMAIN with named constraint",
-			sql:  "CREATE DOMAIN email AS varchar(255) CONSTRAINT valid_email CHECK (value LIKE '%@%.%')",
+			sql:  "CREATE DOMAIN email AS VARCHAR(255) CONSTRAINT valid_email CHECK (value LIKE '%@%.%')",
 		},
 
 		// ALTER DOMAIN tests
@@ -666,7 +668,7 @@ func TestDDLParsing(t *testing.T) {
 		},
 		{
 			name: "CREATE TYPE composite",
-			sql:  "CREATE TYPE point AS (x int, y int)",
+			sql:  "CREATE TYPE point AS (x INT, y INT)",
 		},
 		{
 			name: "CREATE TYPE shell",
@@ -677,8 +679,9 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "CREATE TYPE mytype (input = mytype_in, output = mytype_out)",
 		},
 		{
-			name: "CREATE TYPE RANGE",
-			sql:  "CREATE TYPE int4_range AS RANGE (subtype = int4)",
+			name:     "CREATE TYPE RANGE",
+			sql:      "CREATE TYPE int4_range AS RANGE (subtype = int4)",
+			expected: "CREATE TYPE int4_range AS RANGE (subtype = INT)",
 		},
 
 		// ALTER TYPE tests
@@ -701,22 +704,26 @@ func TestDDLParsing(t *testing.T) {
 
 		// CREATE AGGREGATE tests
 		{
-			name: "CREATE AGGREGATE basic",
-			sql:  "CREATE AGGREGATE avg_int (int4) (sfunc = int4_avg_accum, stype = int8)",
+			name:     "CREATE AGGREGATE basic",
+			sql:      "CREATE AGGREGATE avg_int (int4) (sfunc = int4_avg_accum, stype = int8)",
+			expected: "CREATE AGGREGATE avg_int (INT) (sfunc = int4_avg_accum, stype = BIGINT)",
 		},
 		{
-			name: "CREATE OR REPLACE AGGREGATE",
-			sql:  "CREATE OR REPLACE AGGREGATE sum_int (int4) (sfunc = int4pl, stype = int8)",
+			name:     "CREATE OR REPLACE AGGREGATE",
+			sql:      "CREATE OR REPLACE AGGREGATE sum_int (int4) (sfunc = int4pl, stype = int8)",
+			expected: "CREATE OR REPLACE AGGREGATE sum_int (INT) (sfunc = int4pl, stype = BIGINT)",
 		},
 		{
-			name: "CREATE AGGREGATE old style",
-			sql:  "CREATE AGGREGATE myavg (basetype = int4, sfunc = int4_avg_accum, stype = int8)",
+			name:     "CREATE AGGREGATE old style",
+			sql:      "CREATE AGGREGATE myavg (basetype = int4, sfunc = int4_avg_accum, stype = int8)",
+			expected: "CREATE AGGREGATE myavg (basetype = INT, sfunc = int4_avg_accum, stype = BIGINT)",
 		},
 
 		// CREATE OPERATOR tests
 		{
-			name: "CREATE OPERATOR basic",
-			sql:  "CREATE OPERATOR x.+ (leftarg = int4, rightarg = int4, function = int4eq)",
+			name:     "CREATE OPERATOR basic",
+			sql:      "CREATE OPERATOR x.+ (leftarg = int4, rightarg = int4, function = int4eq)",
+			expected: "CREATE OPERATOR x.+ (leftarg = INT, rightarg = INT, function = int4eq)",
 		},
 		{
 			name: "CREATE OPERATOR with procedure",
@@ -799,7 +806,7 @@ func TestDDLParsing(t *testing.T) {
 		// DROP User Mapping tests
 		{
 			name: "DROP USER MAPPING basic",
-			sql:  "DROP USER MAPPING FOR current_user SERVER myserver",
+			sql:  "DROP USER MAPPING FOR CURRENT_USER SERVER myserver",
 		},
 		{
 			name: "DROP USER MAPPING IF EXISTS",
@@ -816,7 +823,7 @@ func TestDDLParsing(t *testing.T) {
 		// CREATE SEQUENCE with additional options that are implemented
 		{
 			name: "CREATE SEQUENCE AS bigint",
-			sql:  "CREATE SEQUENCE bigint_seq AS bigint",
+			sql:  "CREATE SEQUENCE bigint_seq AS BIGINT",
 		},
 
 		// CREATE TYPE with more complex definitions
@@ -826,11 +833,11 @@ func TestDDLParsing(t *testing.T) {
 		},
 		{
 			name: "CREATE TYPE composite with constraints",
-			sql:  "CREATE TYPE address AS (street text, city text, zipcode text)",
+			sql:  "CREATE TYPE address AS (street TEXT, city TEXT, zipcode TEXT)",
 		},
 		{
 			name: "CREATE TYPE DOMAIN",
-			sql:  "CREATE DOMAIN us_postal_code AS text CHECK (value ~ '^[0-9]{5}$' OR value ~ '^[0-9]{5}-[0-9]{4}$')",
+			sql:  "CREATE DOMAIN us_postal_code AS TEXT CHECK (value ~ '^[0-9]{5}$' OR value ~ '^[0-9]{5}-[0-9]{4}$')",
 		},
 
 		// CREATE MATERIALIZED VIEW with WITH NO DATA (already implemented)
@@ -894,29 +901,32 @@ func TestDDLParsing(t *testing.T) {
 		// CREATE CAST tests
 		{
 			name: "CREATE CAST basic",
-			sql:  "CREATE CAST (integer AS text) WITH FUNCTION int4out()",
+			sql:  "CREATE CAST (INT AS TEXT) WITH FUNCTION int4out()",
 		},
 		{
 			name: "CREATE CAST WITHOUT FUNCTION",
-			sql:  "CREATE CAST (integer AS bigint) WITHOUT FUNCTION",
+			sql:  "CREATE CAST (INT AS BIGINT) WITHOUT FUNCTION",
 		},
 		{
 			name: "CREATE CAST WITH INOUT",
-			sql:  "CREATE CAST (integer AS text) WITH INOUT",
+			sql:  "CREATE CAST (INT AS TEXT) WITH INOUT",
 		},
 
 		// CREATE OPERATOR CLASS tests
 		{
-			name: "CREATE OPERATOR CLASS basic",
-			sql:  "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree AS OPERATOR 1 <",
+			name:     "CREATE OPERATOR CLASS basic",
+			sql:      "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree AS OPERATOR 1 <",
+			expected: "CREATE OPERATOR CLASS test_ops FOR TYPE INT USING btree AS OPERATOR 1 <",
 		},
 		{
-			name: "CREATE OPERATOR CLASS DEFAULT",
-			sql:  "CREATE OPERATOR CLASS test_ops DEFAULT FOR TYPE int4 USING btree AS OPERATOR 1 <",
+			name:     "CREATE OPERATOR CLASS DEFAULT",
+			sql:      "CREATE OPERATOR CLASS test_ops DEFAULT FOR TYPE int4 USING btree AS OPERATOR 1 <",
+			expected: "CREATE OPERATOR CLASS test_ops DEFAULT FOR TYPE INT USING btree AS OPERATOR 1 <",
 		},
 		{
-			name: "CREATE OPERATOR CLASS with FAMILY",
-			sql:  "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree FAMILY test_family AS OPERATOR 1 <",
+			name:     "CREATE OPERATOR CLASS with FAMILY",
+			sql:      "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree FAMILY test_family AS OPERATOR 1 <",
+			expected: "CREATE OPERATOR CLASS test_ops FOR TYPE INT USING btree FAMILY test_family AS OPERATOR 1 <",
 		},
 
 		// CREATE OPERATOR FAMILY tests
@@ -931,20 +941,21 @@ func TestDDLParsing(t *testing.T) {
 			sql:  "ALTER OPERATOR FAMILY test_family USING btree ADD OPERATOR 1 <",
 		},
 		{
-			name: "ALTER OPERATOR FAMILY DROP",
-			sql:  "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1 (int4, int4)",
+			name:     "ALTER OPERATOR FAMILY DROP",
+			sql:      "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1 (int4, int4)",
+			expected: "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1 (INT, INT)",
 		},
 
 		// CREATE TRANSFORM tests
 		{
 			name:     "CREATE TRANSFORM basic",
 			sql:      "CREATE TRANSFORM FOR int LANGUAGE sql (FROM SQL WITH FUNCTION int_to_sql(), TO SQL WITH FUNCTION sql_to_int())",
-			expected: "CREATE TRANSFORM FOR int LANGUAGE sql ( FROM SQL WITH FUNCTION int_to_sql(), TO SQL WITH FUNCTION sql_to_int() )",
+			expected: "CREATE TRANSFORM FOR INT LANGUAGE sql ( FROM SQL WITH FUNCTION int_to_sql(), TO SQL WITH FUNCTION sql_to_int() )",
 		},
 		{
 			name:     "CREATE OR REPLACE TRANSFORM",
 			sql:      "CREATE OR REPLACE TRANSFORM FOR text LANGUAGE plpython3u (FROM SQL WITH FUNCTION text_to_python())",
-			expected: "CREATE OR REPLACE TRANSFORM FOR text LANGUAGE plpython3u ( FROM SQL WITH FUNCTION text_to_python() )",
+			expected: "CREATE OR REPLACE TRANSFORM FOR TEXT LANGUAGE plpython3u ( FROM SQL WITH FUNCTION text_to_python() )",
 		},
 
 		// CREATE STATISTICS tests
@@ -1021,7 +1032,7 @@ func TestDDLSqlStringMethods(t *testing.T) {
 
 		sqlString := createStmt.SqlString()
 		require.Contains(t, sqlString, "CREATE TABLE users")
-		require.Contains(t, sqlString, "(id int)")
+		require.Contains(t, sqlString, "(id INT)")
 
 		t.Logf("CreateStmt SqlString: %s", sqlString)
 	})
@@ -1170,7 +1181,7 @@ func TestNodeListCreateFunctionDeparsing(t *testing.T) {
 		},
 		{
 			name: "Function with unnamed parameter",
-			sql:  "CREATE FUNCTION greet(text) RETURNS text LANGUAGE sql AS $$SELECT 'Hello ' || $1$$",
+			sql:  "CREATE FUNCTION greet(text) RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello ' || $1$$",
 		},
 		{
 			name: "Function with OUT parameter",

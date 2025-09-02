@@ -1507,15 +1507,15 @@ func (c *CaseTestExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1506-1517
 type MinMaxExpr struct {
 	BaseExpr
-	MinMaxType   Oid          // Common type of arguments and result
-	MinMaxCollid Oid          // OID of collation of result
-	InputCollid  Oid          // OID of collation that function should use
-	Op           MinMaxOp     // Function to execute
-	Args         []Expression // The arguments
+	MinMaxType   Oid       // Common type of arguments and result
+	MinMaxCollid Oid       // OID of collation of result
+	InputCollid  Oid       // OID of collation that function should use
+	Op           MinMaxOp  // Function to execute
+	Args         *NodeList // The arguments
 }
 
 // NewMinMaxExpr creates a new MinMaxExpr node.
-func NewMinMaxExpr(minMaxType, minMaxCollid, inputCollid Oid, op MinMaxOp, args []Expression, location int) *MinMaxExpr {
+func NewMinMaxExpr(minMaxType, minMaxCollid, inputCollid Oid, op MinMaxOp, args *NodeList, location int) *MinMaxExpr {
 	return &MinMaxExpr{
 		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_MinMaxExpr, Loc: location}},
 		MinMaxType:   minMaxType,
@@ -1535,7 +1535,11 @@ func (m *MinMaxExpr) String() string {
 	if m.Op == IS_LEAST {
 		opStr = "LEAST"
 	}
-	return fmt.Sprintf("MinMaxExpr{%s, %d args}@%d", opStr, len(m.Args), m.Location())
+	argCount := 0
+	if m.Args != nil {
+		argCount = len(m.Args.Items)
+	}
+	return fmt.Sprintf("MinMaxExpr{%s, %d args}@%d", opStr, argCount, m.Location())
 }
 
 // RowCompareExpr represents a row comparison expression
@@ -1648,9 +1652,9 @@ type XmlExpr struct {
 	BaseExpr
 	Op        XmlExprOp     // XML function ID
 	Name      string        // Name in xml(NAME foo ...) syntaxes
-	NamedArgs []Expression  // Non-XML expressions for xml_attributes
-	ArgNames  []string      // Parallel list of String values
-	Args      []Expression  // List of expressions
+	NamedArgs *NodeList     // Non-XML expressions for xml_attributes
+	ArgNames  *NodeList     // Parallel list of String values
+	Args      *NodeList     // List of expressions
 	Xmloption XmlOptionType // DOCUMENT or CONTENT
 	Indent    bool          // INDENT option for XMLSERIALIZE
 	Type      Oid           // Target type for XMLSERIALIZE
@@ -1658,7 +1662,7 @@ type XmlExpr struct {
 }
 
 // NewXmlExpr creates a new XmlExpr node.
-func NewXmlExpr(op XmlExprOp, name string, namedArgs []Expression, argNames []string, args []Expression, xmloption XmlOptionType, indent bool, typ Oid, typeMod, location int) *XmlExpr {
+func NewXmlExpr(op XmlExprOp, name string, namedArgs, argNames, args *NodeList, xmloption XmlOptionType, indent bool, typ Oid, typeMod, location int) *XmlExpr {
 	return &XmlExpr{
 		BaseExpr:  BaseExpr{BaseNode: BaseNode{Tag: T_XmlExpr, Loc: location}},
 		Op:        op,
@@ -1699,7 +1703,11 @@ func (x *XmlExpr) String() string {
 	default:
 		opStr = "UNKNOWN"
 	}
-	return fmt.Sprintf("XmlExpr{%s, %d args}@%d", opStr, len(x.Args), x.Location())
+	argCount := 0
+	if x.Args != nil {
+		argCount = len(x.Args.Items)
+	}
+	return fmt.Sprintf("XmlExpr{%s, %d args}@%d", opStr, argCount, x.Location())
 }
 
 // TableFunc represents a table function such as XMLTABLE and JSON_TABLE

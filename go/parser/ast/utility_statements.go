@@ -662,7 +662,7 @@ func (ars *AlterRoleStmt) SqlString() string {
 		// ALTER GROUP ADD/DROP USER statement
 		parts = append(parts, "ALTER", "GROUP")
 		if ars.Role != nil {
-			parts = append(parts, ars.Role.Rolename)
+			parts = append(parts, ars.Role.SqlString())
 		}
 
 		// Add ADD/DROP USER action
@@ -694,7 +694,7 @@ func (ars *AlterRoleStmt) SqlString() string {
 		// Regular ALTER ROLE/USER
 		parts = append(parts, "ALTER", "ROLE")
 		if ars.Role != nil {
-			parts = append(parts, ars.Role.Rolename)
+			parts = append(parts, ars.Role.SqlString())
 		}
 
 		// Add options if present

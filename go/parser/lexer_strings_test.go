@@ -585,7 +585,7 @@ func TestCharacterDispatchOrdering(t *testing.T) {
 			}{
 				{IDENT, "E"},          // identifier
 				{SCONST, "E'string'"}, // extended string
-				{IDENT, "ESCAPE"},     // keyword
+				{ESCAPE, "ESCAPE"},    // keyword
 			},
 		},
 		{
@@ -595,9 +595,9 @@ func TestCharacterDispatchOrdering(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{IDENT, "B"},        // identifier
-				{BCONST, "B'1010'"}, // bit string
-				{IDENT, "BOOLEAN"},  // keyword
+				{IDENT, "B"},           // identifier
+				{BCONST, "B'1010'"},    // bit string
+				{BOOLEAN_P, "BOOLEAN"}, // keyword
 			},
 		},
 		{
@@ -607,9 +607,9 @@ func TestCharacterDispatchOrdering(t *testing.T) {
 				tokenType TokenType
 				text      string
 			}{
-				{IDENT, "X"},        // identifier
-				{XCONST, "X'DEAD'"}, // hex string
-				{IDENT, "XMLPARSE"}, // keyword
+				{IDENT, "X"},           // identifier
+				{XCONST, "X'DEAD'"},    // hex string
+				{XMLPARSE, "XMLPARSE"}, // keyword
 			},
 		},
 		{
@@ -621,7 +621,7 @@ func TestCharacterDispatchOrdering(t *testing.T) {
 			}{
 				{IDENT, "N"},        // identifier
 				{SCONST, "N'test'"}, // national string
-				{IDENT, "NULLIF"},   // keyword
+				{NULLIF, "NULLIF"},  // keyword
 			},
 		},
 		{
@@ -978,7 +978,7 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		{FROM, "FROM", "", true},   // FROM is now a keyword in Phase 3C
 		{TABLE, "table", "", true}, // TABLE is now a keyword in Phase 3C
 		{WHERE, "WHERE", "", true}, // WHERE is now a keyword in Phase 3C
-		{IDENT, "name", "", true},  // identifier - skip value check for now
+		{NAME_P, "name", "", true}, // identifier - skip value check for now
 		{TokenType('='), "=", "", true},
 		{SCONST, "'O''Reilly'", "O'Reilly", false}, // doubled quote handling
 		{AND, "AND", "", true},                     // keyword returns parser constant

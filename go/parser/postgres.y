@@ -118,7 +118,7 @@ type LexerInterface interface {
 %token <keyword> OPERATOR
 %token <keyword> SELECT FROM WHERE ONLY TABLE LIMIT OFFSET BY GROUP_P HAVING INTO ON
 %token <keyword> JOIN INNER_P LEFT RIGHT FULL OUTER_P CROSS NATURAL USING
-%token <keyword> RECURSIVE MATERIALIZED LATERAL VALUES SEARCH BREADTH DEPTH CYCLE FIRST_P LAST_P SET ASC DESC
+%token <keyword> RECURSIVE MATERIALIZED VALUES SEARCH BREADTH DEPTH CYCLE FIRST_P LAST_P SET ASC DESC
 /* DML keywords for Phase 3E */
 %token <keyword> INSERT UPDATE DELETE_P MERGE RETURNING CONFLICT OVERRIDING USER SYSTEM_P
 %token <keyword> MATCHED THEN SOURCE TARGET DO NOTHING
@@ -232,7 +232,7 @@ type LexerInterface interface {
  */
 %type <stmtList>     parse_toplevel stmtmulti
 %type <stmt>         toplevel_stmt stmt
-%type <str>          ColId ColLabel name BareColLabel NonReservedWord generic_option_name RoleId
+%type <str>          ColId ColLabel name BareColLabel NonReservedWord generic_option_name RoleId extract_arg
 %type <list>         name_list
 %type <list>         columnList any_name
 %type <list>         qualified_name_list any_name_list
@@ -261,11 +261,13 @@ type LexerInterface interface {
 
 /* Expression types */
 %type <node>         a_expr b_expr c_expr AexprConst columnref
-%type <node>         func_expr case_expr case_arg case_default when_clause
+%type <node>         func_expr func_expr_common_subexpr case_expr case_arg case_default when_clause
 %type <list>         when_clause_list
 %type <node>         array_expr explicit_row implicit_row
-%type <list>         array_expr_list
-%type <list>         func_arg_list aggregate_with_argtypes_list
+%type <list>         array_expr_list xml_attributes
+%type <list>         func_arg_list func_arg_list_opt aggregate_with_argtypes_list substr_list trim_list extract_list overlay_list position_list xml_attribute_list
+%type <bval>         xml_whitespace_option xml_indent_option
+%type <node>         xml_root_version opt_xml_root_standalone
 %type <node>         func_arg_expr
 %type <list>         indirection opt_indirection oper_argtypes
 %type <node>         indirection_el opt_slice_bound
@@ -309,7 +311,7 @@ type LexerInterface interface {
 %type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt
 %type <node>         insert_rest
 %type <list>         insert_column_list set_clause_list set_target_list merge_when_list
-%type <target>       insert_column_item set_target
+%type <target>       insert_column_item set_target xml_attribute_el
 %type <list>         set_clause
 %type <onconflict>   opt_on_conflict
 %type <node>         where_or_current_clause
@@ -2212,12 +2214,12 @@ a_expr:		c_expr								{ $$ = $1 }
 			}
 		|	a_expr IS DOCUMENT_P %prec IS
 			{
-				args := []ast.Expression{$1.(ast.Expression)}
+				args := ast.NewNodeList($1.(ast.Expression))
 				$$ = ast.NewXmlExpr(ast.IS_DOCUMENT, "", nil, nil, args, ast.XMLOPTION_DOCUMENT, false, 0, 0, 0)
 			}
 		|	a_expr IS NOT DOCUMENT_P %prec IS
 			{
-				args := []ast.Expression{$1.(ast.Expression)}
+				args := ast.NewNodeList($1.(ast.Expression))
 				xmlExpr := ast.NewXmlExpr(ast.IS_DOCUMENT, "", nil, nil, args, ast.XMLOPTION_DOCUMENT, false, 0, 0, 0)
 				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(xmlExpr))
 			}
@@ -2589,7 +2591,469 @@ func_expr:	func_application within_group_clause filter_clause over_clause
 				
 				$$ = jsonAgg
 			}
+		|	func_expr_common_subexpr
+			{ $$ = $1 }
 		;
+
+/* Common expressions appearing in func_expr */
+func_expr_common_subexpr:
+			COLLATION FOR '(' a_expr ')'
+			{
+				// SystemFuncName("pg_collation_for") 
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("pg_collation_for"))
+				funcCall := ast.NewFuncCall(funcName, ast.NewNodeList($4), 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	CURRENT_DATE
+			{
+				// makeSQLValueFunction(SVFOP_CURRENT_DATE, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_CURRENT_DATE, 0, -1, 0)
+			}
+		|	CURRENT_TIME
+			{
+				// makeSQLValueFunction(SVFOP_CURRENT_TIME, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_CURRENT_TIME, 0, -1, 0)
+			}
+		|	CURRENT_TIME '(' Iconst ')'
+			{
+				// makeSQLValueFunction(SVFOP_CURRENT_TIME_N, $3, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_CURRENT_TIME_N, 0, $3, 0)
+			}
+		|	CURRENT_TIMESTAMP
+			{
+				// makeSQLValueFunction(SVFOP_CURRENT_TIMESTAMP, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_CURRENT_TIMESTAMP, 0, -1, 0)
+			}
+		|	CURRENT_TIMESTAMP '(' Iconst ')'
+			{
+				// makeSQLValueFunction(SVFOP_CURRENT_TIMESTAMP_N, $3, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_CURRENT_TIMESTAMP_N, 0, $3, 0)
+			}
+		|	LOCALTIME
+			{
+				// makeSQLValueFunction(SVFOP_LOCALTIME, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_LOCALTIME, 0, -1, 0)
+			}
+		|	LOCALTIME '(' Iconst ')'
+			{
+				// makeSQLValueFunction(SVFOP_LOCALTIME_N, $3, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_LOCALTIME_N, 0, $3, 0)
+			}
+		|	LOCALTIMESTAMP
+			{
+				// makeSQLValueFunction(SVFOP_LOCALTIMESTAMP, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_LOCALTIMESTAMP, 0, -1, 0)
+			}
+		|	LOCALTIMESTAMP '(' Iconst ')'
+			{
+				// makeSQLValueFunction(SVFOP_LOCALTIMESTAMP_N, $3, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_LOCALTIMESTAMP_N, 0, $3, 0)
+			}
+		|	CURRENT_ROLE
+			{
+				// makeSQLValueFunction(SVFOP_CURRENT_ROLE, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_CURRENT_ROLE, 0, -1, 0)
+			}
+		|	CURRENT_USER
+			{
+				// makeSQLValueFunction(SVFOP_CURRENT_USER, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_CURRENT_USER, 0, -1, 0)
+			}
+		|	SESSION_USER
+			{
+				// makeSQLValueFunction(SVFOP_SESSION_USER, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_SESSION_USER, 0, -1, 0)
+			}
+		|	SYSTEM_USER
+			{
+				// SystemFuncName("system_user")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("system_user"))
+				funcCall := ast.NewFuncCall(funcName, nil, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	USER
+			{
+				// makeSQLValueFunction(SVFOP_USER, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_USER, 0, -1, 0)
+			}
+		|	CURRENT_CATALOG
+			{
+				// makeSQLValueFunction(SVFOP_CURRENT_CATALOG, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_CURRENT_CATALOG, 0, -1, 0)
+			}
+		|	CURRENT_SCHEMA
+			{
+				// makeSQLValueFunction(SVFOP_CURRENT_SCHEMA, -1, @1)
+				$$ = ast.NewSQLValueFunction(ast.SVFOP_CURRENT_SCHEMA, 0, -1, 0)
+			}
+		|	CAST '(' a_expr AS Typename ')'
+			{
+				$$ = ast.NewTypeCast($3, $5, 0)
+			}
+		|	EXTRACT '(' extract_list ')'
+			{
+				// SystemFuncName("extract")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("extract"))
+				funcCall := ast.NewFuncCall(funcName, $3, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	NORMALIZE '(' a_expr ')'
+			{
+				// SystemFuncName("normalize")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("normalize"))
+				funcCall := ast.NewFuncCall(funcName, ast.NewNodeList($3), 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	NORMALIZE '(' a_expr ',' unicode_normal_form ')'
+			{
+				// SystemFuncName("normalize")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("normalize"))
+				args := ast.NewNodeList($3)
+				args.Items = append(args.Items, ast.NewA_Const(ast.NewString($5), -1))
+				funcCall := ast.NewFuncCall(funcName, args, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	OVERLAY '(' overlay_list ')'
+			{
+				// SystemFuncName("overlay")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("overlay"))
+				funcCall := ast.NewFuncCall(funcName, $3, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	OVERLAY '(' func_arg_list_opt ')'
+			{
+				// SystemFuncName("overlay")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("overlay"))
+				funcCall := ast.NewFuncCall(funcName, $3, 0)
+				funcCall.Funcformat = ast.COERCE_EXPLICIT_CALL
+				$$ = funcCall
+			}
+		|	POSITION '(' position_list ')'
+			{
+				// SystemFuncName("position")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("position"))
+				funcCall := ast.NewFuncCall(funcName, $3, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	SUBSTRING '(' substr_list ')'
+			{
+				// SystemFuncName("substring")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("substring"))
+				funcCall := ast.NewFuncCall(funcName, $3, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	SUBSTRING '(' func_arg_list_opt ')'
+			{
+				// SystemFuncName("substring")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("substring"))
+				funcCall := ast.NewFuncCall(funcName, $3, 0)
+				funcCall.Funcformat = ast.COERCE_EXPLICIT_CALL
+				$$ = funcCall
+			}
+		|	TREAT '(' a_expr AS Typename ')'
+			{
+				// SystemFuncName("treat")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), llast($5.Names))
+				args := ast.NewNodeList($3)
+				funcCall := ast.NewFuncCall(funcName, args, 0)
+				funcCall.Funcformat = ast.COERCE_EXPLICIT_CALL
+				$$ = funcCall
+			}
+		|	TRIM '(' BOTH trim_list ')'
+			{
+				// SystemFuncName("btrim")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("btrim"))
+				funcCall := ast.NewFuncCall(funcName, $4, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	TRIM '(' LEADING trim_list ')'
+			{
+				// SystemFuncName("ltrim")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("ltrim"))
+				funcCall := ast.NewFuncCall(funcName, $4, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	TRIM '(' TRAILING trim_list ')'
+			{
+				// SystemFuncName("rtrim")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("rtrim"))
+				funcCall := ast.NewFuncCall(funcName, $4, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	TRIM '(' trim_list ')'
+			{
+				// SystemFuncName("btrim")
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("btrim"))
+				funcCall := ast.NewFuncCall(funcName, $3, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	NULLIF '(' a_expr ',' a_expr ')'
+			{
+				// makeSimpleA_Expr(AEXPR_NULLIF, "=", $3, $5, @1)
+				operName := ast.NewNodeList(ast.NewString("="))
+				$$ = ast.NewA_Expr(ast.AEXPR_NULLIF, operName, $3, $5, 0)
+			}
+		|	COALESCE '(' expr_list ')'
+			{
+				// CoalesceExpr *c = makeNode(CoalesceExpr); c->args = $3; c->location = @1
+				$$ = ast.NewCoalesceExpr(0, $3)
+			}
+		|	GREATEST '(' expr_list ')'
+			{
+				// MinMaxExpr *v = makeNode(MinMaxExpr); v->args = $3; v->op = IS_GREATEST; v->location = @1
+				$$ = ast.NewMinMaxExpr(0, 0, 0, ast.IS_GREATEST, $3, 0)
+			}
+		|	LEAST '(' expr_list ')'
+			{
+				// MinMaxExpr *v = makeNode(MinMaxExpr); v->args = $3; v->op = IS_LEAST; v->location = @1
+				$$ = ast.NewMinMaxExpr(0, 0, 0, ast.IS_LEAST, $3, 0)
+			}
+		|	XMLCONCAT '(' expr_list ')'
+			{
+				// makeXmlExpr(IS_XMLCONCAT, NULL, NIL, $3, @1)
+				$$ = ast.NewXmlExpr(ast.IS_XMLCONCAT, "", nil, nil, $3, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+			}
+		|	XMLELEMENT '(' NAME_P ColLabel ')'
+			{
+				// makeXmlExpr(IS_XMLELEMENT, $4, NIL, NIL, @1)
+				$$ = ast.NewXmlExpr(ast.IS_XMLELEMENT, $4, nil, nil, nil, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+			}
+		|	XMLELEMENT '(' NAME_P ColLabel ',' xml_attributes ')'
+			{
+				// makeXmlExpr(IS_XMLELEMENT, $4, $6, NIL, @1)
+				$$ = ast.NewXmlExpr(ast.IS_XMLELEMENT, $4, $6, nil, nil, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+			}
+		|	XMLELEMENT '(' NAME_P ColLabel ',' expr_list ')'
+			{
+				// makeXmlExpr(IS_XMLELEMENT, $4, NIL, $6, @1)
+				$$ = ast.NewXmlExpr(ast.IS_XMLELEMENT, $4, nil, nil, $6, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+			}
+		|	XMLELEMENT '(' NAME_P ColLabel ',' xml_attributes ',' expr_list ')'
+			{
+				// makeXmlExpr(IS_XMLELEMENT, $4, $6, $8, @1)
+				$$ = ast.NewXmlExpr(ast.IS_XMLELEMENT, $4, $6, nil, $8, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+			}
+		|	XMLFOREST '(' xml_attribute_list ')'
+			{
+				// makeXmlExpr(IS_XMLFOREST, NULL, $3, NIL, @1)
+				$$ = ast.NewXmlExpr(ast.IS_XMLFOREST, "", $3, nil, nil, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+			}
+		|	XMLPARSE '(' document_or_content a_expr xml_whitespace_option ')'
+			{
+				// makeXmlExpr(IS_XMLPARSE, NULL, NIL, list_make2($4, makeBoolAConst($5, -1)), @1)
+				// x->xmloption = $3
+				wsOption := ast.NewA_Const(ast.NewBoolean($5), -1)
+				args := ast.NewNodeList($4, wsOption)
+				xmlOption := ast.XmlOptionType($3)
+				$$ = ast.NewXmlExpr(ast.IS_XMLPARSE, "", nil, nil, args, xmlOption, false, 0, -1, 0)
+			}
+		|	XMLEXISTS '(' c_expr xmlexists_argument ')'
+			{
+				// SystemFuncName("xmlexists") - xmlexists(A PASSING [BY REF] B [BY REF]) is converted to xmlexists(A, B)
+				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("xmlexists"))
+				args := ast.NewNodeList($3, $4)
+				funcCall := ast.NewFuncCall(funcName, args, 0)
+				funcCall.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = funcCall
+			}
+		|	XMLPI '(' NAME_P ColLabel ')'
+			{
+				// makeXmlExpr(IS_XMLPI, $4, NIL, NIL, @1)
+				$$ = ast.NewXmlExpr(ast.IS_XMLPI, $4, nil, nil, nil, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+			}
+		|	XMLPI '(' NAME_P ColLabel ',' a_expr ')'
+			{
+				// makeXmlExpr(IS_XMLPI, $4, NIL, list_make1($6), @1)
+				args := ast.NewNodeList($6)
+				$$ = ast.NewXmlExpr(ast.IS_XMLPI, $4, nil, nil, args, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+			}
+		|	XMLROOT '(' a_expr ',' xml_root_version opt_xml_root_standalone ')'
+			{
+				// makeXmlExpr(IS_XMLROOT, NULL, NIL, list_make3(...), @1)
+				args := ast.NewNodeList($3, $5, $6)
+				$$ = ast.NewXmlExpr(ast.IS_XMLROOT, "", nil, nil, args, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+			}
+		|	XMLSERIALIZE '(' document_or_content a_expr AS SimpleTypename xml_indent_option ')'
+			{
+				// XmlSerialize node - n->xmloption = $3; n->expr = $4; n->typeName = $6; n->indent = $7;
+				xmlOption := ast.XmlOptionType($3)
+				$$ = ast.NewXmlSerialize(xmlOption, $4, $6, $7, 0)
+			}
+		;
+
+/* Supporting rules for func_expr_common_subexpr */
+func_arg_list_opt:
+		func_arg_list
+		{
+			$$ = $1
+		}
+	|	/* EMPTY */
+		{
+			$$ = nil
+		}
+	;
+
+substr_list:
+		a_expr FROM a_expr FOR a_expr
+		{
+			$$ = ast.NewNodeList($1, $3, $5)
+		}
+	|	a_expr FOR a_expr FROM a_expr
+		{
+			$$ = ast.NewNodeList($1, $3, $5)
+		}
+	|	a_expr FROM a_expr
+		{
+			$$ = ast.NewNodeList($1, $3)
+		}
+	|	a_expr FOR a_expr
+		{
+			sysTypeName := &ast.TypeName{
+				Names: ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("int4")),
+				Typemod: -1,
+			}
+			tc := ast.NewTypeCast($3, sysTypeName, -1)
+			$$ = ast.NewNodeList($1, ast.NewInteger(1), tc)
+		}
+	| 	a_expr SIMILAR a_expr ESCAPE a_expr
+		{
+			$$ = ast.NewNodeList($1, $3, $5)
+		}
+	;
+
+trim_list:
+		a_expr FROM expr_list
+		{
+			$3.Append($1)
+			$$ = $3
+		}
+	|	FROM expr_list
+		{
+			$$ = $2
+		}
+	|	expr_list
+		{
+			$$ = $1
+		}
+	;
+
+extract_list:
+		extract_arg FROM a_expr
+		{
+			// list_make2(makeStringConst($1, @1), $3)
+			$$ = ast.NewNodeList(ast.NewString($1), $3)
+		}
+	;
+
+/* Allow delimited string Sconst in extract_arg as an SQL extension.
+ * - thomas 2001-04-12
+ */
+extract_arg:
+		IDENT										{ $$ = $1 }
+	|	YEAR_P										{ $$ = "year" }
+	|	MONTH_P										{ $$ = "month" }
+	|	DAY_P										{ $$ = "day" }
+	|	HOUR_P										{ $$ = "hour" }
+	|	MINUTE_P									{ $$ = "minute" }
+	|	SECOND_P									{ $$ = "second" }
+	|	Sconst										{ $$ = $1 }
+	;
+
+overlay_list:
+		a_expr PLACING a_expr FROM a_expr FOR a_expr
+		{
+			/* overlay(A PLACING B FROM C FOR D) is converted to overlay(A, B, C, D) */
+			$$ = ast.NewNodeList($1, $3, $5, $7)
+		}
+	|	a_expr PLACING a_expr FROM a_expr
+		{
+			/* overlay(A PLACING B FROM C) is converted to overlay(A, B, C) */
+			$$ = ast.NewNodeList($1, $3, $5)
+		}
+	;
+
+/* position_list uses b_expr not a_expr to avoid conflict with general IN */
+position_list:
+		b_expr IN_P b_expr						{ $$ = ast.NewNodeList($3, $1) }
+	;
+
+xml_attributes: XMLATTRIBUTES '(' xml_attribute_list ')'	{ $$ = $3; }
+		;
+
+xml_attribute_list:
+		xml_attribute_el
+		{
+			$$ = ast.NewNodeList($1)
+		}
+	|	xml_attribute_list ',' xml_attribute_el
+		{
+			$1.Items = append($1.Items, $3)
+			$$ = $1
+		}
+	;
+
+xml_attribute_el:
+		a_expr AS ColLabel
+		{
+			$$ = ast.NewResTarget($3, $1)
+		}
+	|	a_expr
+		{
+			$$ = ast.NewResTarget("", $1)
+		}
+	;
+
+xml_whitespace_option: PRESERVE WHITESPACE_P		{ $$ = true; }
+		| STRIP_P WHITESPACE_P						{ $$ = false; }
+		| /*EMPTY*/									{ $$ = false; }
+	;
+
+xml_indent_option: INDENT							{ $$ = true; }
+		| NO INDENT									{ $$ = false; }
+		| /*EMPTY*/									{ $$ = false; }
+	;
+
+xml_root_version:
+		VERSION_P a_expr
+		{
+			$$ = $2
+		}
+	|	VERSION_P NO VALUE_P
+		{
+			$$ = ast.NewA_Const(ast.NewNull(), 0)
+		}
+	;
+
+opt_xml_root_standalone:
+		',' STANDALONE_P YES_P
+		{
+			$$ = ast.NewA_Const(ast.NewInteger(int(ast.XML_STANDALONE_YES)), 0)
+		}
+	|	',' STANDALONE_P NO
+		{
+			$$ = ast.NewA_Const(ast.NewInteger(int(ast.XML_STANDALONE_NO)), 0)
+		}
+	|	',' STANDALONE_P NO VALUE_P
+		{
+			$$ = ast.NewA_Const(ast.NewInteger(int(ast.XML_STANDALONE_NO_VALUE)), 0)
+		}
+	|	/* EMPTY */
+		{
+			$$ = ast.NewA_Const(ast.NewInteger(int(ast.XML_STANDALONE_OMITTED)), 0)
+		}
+	;
 
 /* Function expression without window clause - used in table functions */
 func_expr_windowless:
@@ -2921,14 +3385,17 @@ Numeric:	INT_P
 		|	DECIMAL_P opt_type_modifiers
 			{
 				$$ = makeTypeNameFromString("numeric")
+				$$.Typmods = $2
 			}
 		|	DEC opt_type_modifiers
 			{
 				$$ = makeTypeNameFromString("numeric")
+				$$.Typmods = $2
 			}
 		|	NUMERIC opt_type_modifiers
 			{
 				$$ = makeTypeNameFromString("numeric")
+				$$.Typmods = $2
 			}
 		|	BOOLEAN_P
 			{
@@ -3516,7 +3983,7 @@ table_ref:
 				rangeSubselect := ast.NewRangeSubselect(false, subquery, alias)
 				$$ = rangeSubselect
 			}
-		|	LATERAL select_with_parens opt_alias_clause
+		|	LATERAL_P select_with_parens opt_alias_clause
 			{
 				/* LATERAL subquery in FROM clause */
 				subquery := $2.(*ast.SelectStmt)
@@ -3545,7 +4012,7 @@ table_ref:
 				}
 				$$ = rangeFunc
 			}
-		|	LATERAL func_table opt_alias_clause
+		|	LATERAL_P func_table opt_alias_clause
 			{
 				rangeFunc := $2.(*ast.RangeFunction)
 				rangeFunc.Lateral = true
@@ -3562,7 +4029,7 @@ table_ref:
 				}
 				$$ = rangeTableFunc
 			}
-		|	LATERAL xmltable opt_alias_clause
+		|	LATERAL_P xmltable opt_alias_clause
 			{
 				rangeTableFunc := $2.(*ast.RangeTableFunc)
 				rangeTableFunc.Lateral = true
@@ -3579,7 +4046,7 @@ table_ref:
 				}
 				$$ = jsonTable
 			}
-		|	LATERAL json_table opt_alias_clause
+		|	LATERAL_P json_table opt_alias_clause
 			{
 				jsonTable := $2.(*ast.JsonTable)
 				jsonTable.Lateral = true

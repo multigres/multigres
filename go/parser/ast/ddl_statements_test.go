@@ -559,13 +559,13 @@ func TestExtensionStmt(t *testing.T) {
 
 		assert.NotNil(t, createExtStmt.Options)
 		assert.Equal(t, 2, createExtStmt.Options.Len())
-		
+
 		// Check the first option
 		if defElem, ok := createExtStmt.Options.Items[0].(*DefElem); ok {
 			assert.Equal(t, "schema", defElem.Defname)
 		}
-		
-		// Check the second option  
+
+		// Check the second option
 		if defElem, ok := createExtStmt.Options.Items[1].(*DefElem); ok {
 			assert.Equal(t, "version", defElem.Defname)
 		}
@@ -719,8 +719,8 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList := NewNodeList()
 		cmdList.Append(addColumnCmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
-		
-		expected := "ALTER TABLE users ADD COLUMN email varchar"
+
+		expected := "ALTER TABLE users ADD COLUMN email VARCHAR"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
 
@@ -732,7 +732,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList := NewNodeList()
 		cmdList.Append(dropColumnCmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
-		
+
 		expected := "ALTER TABLE users DROP COLUMN IF EXISTS old_field CASCADE"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -745,8 +745,8 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList := NewNodeList()
 		cmdList.Append(cmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
-		
-		expected := "ALTER TABLE users ALTER COLUMN id TYPE bigint"
+
+		expected := "ALTER TABLE users ALTER COLUMN id TYPE BIGINT"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
 
@@ -757,7 +757,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList := NewNodeList()
 		cmdList.Append(cmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
-		
+
 		expected := "ALTER TABLE users ALTER COLUMN email SET NOT NULL"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -769,7 +769,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList := NewNodeList()
 		cmdList.Append(cmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
-		
+
 		expected := "ALTER TABLE users ALTER COLUMN email DROP NOT NULL"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -782,7 +782,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList := NewNodeList()
 		cmdList.Append(cmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
-		
+
 		expected := "ALTER TABLE users ALTER COLUMN status SET DEFAULT 'unknown'"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -794,7 +794,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList := NewNodeList()
 		cmdList.Append(cmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
-		
+
 		expected := "ALTER TABLE users ALTER COLUMN status DROP DEFAULT"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -807,7 +807,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList := NewNodeList()
 		cmdList.Append(cmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
-		
+
 		expected := "ALTER TABLE users ALTER COLUMN email SET STATISTICS 1000"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -820,7 +820,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList.Append(cmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_INDEX
-		
+
 		expected := "ALTER INDEX idx_users_email SET TABLESPACE fast_storage"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -834,14 +834,14 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_INDEX
 		alterStmt.MissingOk = true
-		
+
 		expected := "ALTER INDEX IF EXISTS idx_users_email SET TABLESPACE fast_storage"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
 
 	t.Run("MultipleCommands", func(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
-		
+
 		cmd1 := NewAlterTableCmd(AT_SetNotNull, "email", nil)
 		cmd2 := NewAlterTableCmd(AT_SetStatistics, "email", NewInteger(500))
 
@@ -849,7 +849,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList.Append(cmd1)
 		cmdList.Append(cmd2)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
-		
+
 		expected := "ALTER TABLE users ALTER COLUMN email SET NOT NULL, ALTER COLUMN email SET STATISTICS 500"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -863,7 +863,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList.Append(cmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_SEQUENCE
-		
+
 		expected := "ALTER SEQUENCE user_id_seq ALTER COLUMN increment_by SET DEFAULT '5'"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -877,7 +877,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_SEQUENCE
 		alterStmt.MissingOk = true
-		
+
 		expected := "ALTER SEQUENCE IF EXISTS user_id_seq ALTER COLUMN increment_by SET DEFAULT '1'"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -891,8 +891,8 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList.Append(addColumnCmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_VIEW
-		
-		expected := "ALTER VIEW user_view ADD COLUMN status varchar"
+
+		expected := "ALTER VIEW user_view ADD COLUMN status VARCHAR"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
 
@@ -906,7 +906,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_VIEW
 		alterStmt.MissingOk = true
-		
+
 		expected := "ALTER VIEW IF EXISTS user_view DROP COLUMN IF EXISTS old_field"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -919,7 +919,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList.Append(cmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_MATVIEW
-		
+
 		expected := "ALTER MATERIALIZED VIEW user_summary_mv ALTER COLUMN created_at SET NOT NULL"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -933,7 +933,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_MATVIEW
 		alterStmt.MissingOk = true
-		
+
 		expected := "ALTER MATERIALIZED VIEW IF EXISTS user_summary_mv ALTER COLUMN updated_at DROP NOT NULL"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
@@ -947,8 +947,8 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		cmdList.Append(addColumnCmd)
 		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_FOREIGN_TABLE
-		
-		expected := "ALTER FOREIGN TABLE remote_users ADD COLUMN external_id bigint"
+
+		expected := "ALTER FOREIGN TABLE remote_users ADD COLUMN external_id BIGINT"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})
 
@@ -961,7 +961,7 @@ func TestAlterTableStmtSqlString(t *testing.T) {
 		alterStmt := NewAlterTableStmt(relation, cmdList)
 		alterStmt.Objtype = OBJECT_FOREIGN_TABLE
 		alterStmt.MissingOk = true
-		
+
 		expected := "ALTER FOREIGN TABLE IF EXISTS remote_users DROP COLUMN deprecated_field"
 		assert.Equal(t, expected, alterStmt.SqlString())
 	})

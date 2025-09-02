@@ -451,7 +451,7 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 				{GREATER_EQUALS, ">="},
 				{ICONST, "100"},
 				{AND, "AND"}, // keyword returns parser constant
-				{IDENT, "name"},
+				{NAME_P, "name"},
 				{NOT_EQUALS, "<>"},
 				{SCONST, "'test'"},
 				{OR, "OR"}, // keyword returns parser constant
@@ -461,7 +461,7 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 				{TokenType('('), "("},
 				{TokenType(')'), ")"},
 				{TYPECAST, "::"},
-				{IDENT, "int"},
+				{INT_P, "int"},
 			},
 		},
 	}
@@ -572,7 +572,7 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		{SELECT, "SELECT"}, // SELECT is now a keyword in Phase 3C
 		{IDENT, "u"},
 		{TokenType('.'), "."},
-		{IDENT, "name"},
+		{NAME_P, "name"},
 		{TokenType(','), ","},
 		{IDENT, "p"},
 		{TokenType('.'), "."},
@@ -604,7 +604,7 @@ func TestComprehensiveSQLLexing(t *testing.T) {
 		{TokenType('('), "("},
 		{TokenType(')'), ")"},
 		{TYPECAST, "::"},
-		{IDENT, "timestamp"}, // keyword
+		{TIMESTAMP, "timestamp"}, // keyword
 		{TokenType(';'), ";"},
 	}
 

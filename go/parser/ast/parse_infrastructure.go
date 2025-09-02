@@ -354,8 +354,14 @@ func (f *FuncCall) SqlString() string {
 	funcName := ""
 	if f.Funcname != nil && len(f.Funcname.Items) > 0 {
 		var nameParts []string
-		for _, item := range f.Funcname.Items {
+		
+		for i, item := range f.Funcname.Items {
 			if part, ok := item.(*String); ok && part != nil {
+				// Skip pg_catalog schema for built-in functions
+				if i == 0 && strings.ToLower(part.SVal) == "pg_catalog" {
+					continue
+				}
+				
 				// Normalize common function names to uppercase
 				name := part.SVal
 				switch strings.ToLower(name) {
@@ -405,6 +411,19 @@ func (f *FuncCall) SqlString() string {
 					name = "MIN"
 				case "max":
 					name = "MAX"
+				// Special SQL functions that should use their original syntax
+				case "extract":
+					name = "EXTRACT"
+				case "overlay":
+					name = "OVERLAY"
+				case "position":
+					name = "POSITION"
+				case "substring":
+					name = "substring"
+				case "trim":
+					name = "trim"
+				case "btrim":
+					name = "trim"
 				}
 				nameParts = append(nameParts, name)
 			}
@@ -1303,6 +1322,16 @@ type XmlOptionType int
 const (
 	XMLOPTION_DOCUMENT XmlOptionType = iota
 	XMLOPTION_CONTENT
+)
+
+// XmlStandaloneType represents XML standalone options for XMLROOT
+type XmlStandaloneType int
+
+const (
+	XML_STANDALONE_YES XmlStandaloneType = iota
+	XML_STANDALONE_NO
+	XML_STANDALONE_NO_VALUE
+	XML_STANDALONE_OMITTED
 )
 
 // NewXmlSerialize creates a new XmlSerialize node.
