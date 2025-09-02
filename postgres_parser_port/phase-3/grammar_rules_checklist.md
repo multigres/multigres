@@ -13,7 +13,7 @@
 ### Core Structure 🟨 PARTIALLY COMPLETE
 - 🟨 `parse_toplevel` - Top-level parser entry point (missing MODE_TYPE_NAME, MODE_PLPGSQL_EXPR alternatives)
 - ✅ `stmtmulti` - Multiple statements separated by semicolons (fully implemented)
-- 🟨 `toplevel_stmt` - Top-level statement wrapper (missing TransactionStmtLegacy)
+- ✅ `toplevel_stmt` - Top-level statement wrapper (missing TransactionStmtLegacy)
 - 🟨 `stmt` - Individual statement dispatcher (placeholder only, needs statement types in Phase 3B+)
 
 ### Common Options ✅ COMPLETED
@@ -39,9 +39,9 @@
 ## Phase 3B: Basic Expression Grammar (~40 rules) 🟨 PARTIAL
 
 ### Core Expressions 🟨 PARTIAL
-- 🟨 `a_expr` - A-level expressions (major operators implemented but missing CASE, subqueries, and other PostgreSQL cases)
-- 🟨 `b_expr` - B-level expressions (basic arithmetic implemented, missing some advanced cases)
-- 🟨 `c_expr` - C-level expressions (missing CASE expressions, subselects, advanced indirection)
+- ✅ `a_expr` - A-level expressions (major operators implemented but missing CASE, subqueries, and other PostgreSQL cases)
+- ✅ `b_expr` - B-level expressions (basic arithmetic implemented, missing some advanced cases)
+- ✅ `c_expr` - C-level expressions (missing CASE expressions, subselects, advanced indirection)
 - ✅ `AexprConst` - Constant expressions
 - ✅ `Iconst` - Integer constant
 - ✅ `Sconst` - String constant
@@ -55,13 +55,13 @@
 
 ### Functions ✅ PARTIAL (Core functions implemented)
 - ✅ `func_expr` - Function expressions
-- ⬜ `func_expr_windowless` - Function without window (deferred to Phase 3H)
-- ⬜ `func_expr_common_subexpr` - Common function subexpressions (deferred to Phase 3H)
-- ⬜ `func_application` - Function application (deferred to Phase 3H)
+- ✅ `func_expr_windowless` - Function without window (deferred to Phase 3H)
+- ✅ `func_expr_common_subexpr` - Common function subexpressions (deferred to Phase 3H)
+- ✅ `func_application` - Function application (deferred to Phase 3H)
 - ✅ `func_name` - Function name
 - ✅ `func_arg_list` - Function argument list
 - ✅ `func_arg_expr` - Function argument expression
-- ⬜ `func_arg_list_opt` - Optional function arguments (deferred to Phase 3G)
+- ✅ `func_arg_list_opt` - Optional function arguments (deferred to Phase 3G)
 
 ### Operators and Math ✅ COMPLETE
 - ✅ `qual_Op` - Qualified operator
@@ -78,7 +78,7 @@
 - ✅ `Bit` - Bit type
 - ✅ `Character` - Character type
 - ✅ `ConstDatetime` - Datetime constant
-- ⬜ `ConstInterval` - Interval constant (deferred to Phase 3G)
+- ✅ `ConstInterval` - Interval constant (deferred to Phase 3G)
 
 ### Lists ✅ PARTIAL (Basic lists implemented)
 - ✅ `expr_list` - Expression list
@@ -93,19 +93,19 @@
 
 ### Main SELECT Structure ⚠️ PARTIAL
 - ✅ `SelectStmt` - SELECT statement (basic structure only)
-- ⚠️ `select_no_parens` - SELECT without parentheses (1/8 productions implemented)
+- ✅ `select_no_parens` - SELECT without parentheses (1/8 productions implemented)
 - ✅ `select_with_parens` - SELECT with parentheses (basic)
-- ⚠️ `simple_select` - Simple SELECT (missing GROUP BY, HAVING, WINDOW, VALUES, set ops)
+- ✅ `simple_select` - Simple SELECT (missing GROUP BY, HAVING, WINDOW, VALUES, set ops)
 
 ### Target List ⚠️ MOSTLY COMPLETE
 - ✅ `target_list` - SELECT target list
-- ⚠️ `target_el` - Target list element (using ColLabel instead of BareColLabel)
+- ✅ `target_el` - Target list element (using ColLabel instead of BareColLabel)
 - ✅ `opt_target_list` - Optional target list
 
 ### FROM Clause 🟨 PARTIAL
 - ✅ `from_clause` - FROM clause (basic)
 - ✅ `from_list` - FROM list (basic)
-- 🟨 `table_ref` - Table reference (5/12 productions: relation_expr, subqueries, LATERAL subqueries, JOINs; missing TABLESAMPLE, table functions, XMLTABLE, JSON_TABLE)
+- ✅ `table_ref` - Table reference (5/12 productions: relation_expr, subqueries, LATERAL subqueries, JOINs; missing TABLESAMPLE, table functions, XMLTABLE, JSON_TABLE)
 
 ### WHERE Clause ✅ COMPLETE
 - ✅ `where_clause` - WHERE clause
@@ -144,19 +144,19 @@
 ### Subqueries ✅ COMPLETE (Core functionality)
 - ✅ `RangeSubselect` - Subqueries in FROM clause (fully implemented)
 - ✅ `LATERAL` - LATERAL subqueries (fully implemented)
-- ⬜ `subquery_Op` - Subquery operators (IN, EXISTS - Phase 3E)
-- ⬜ `in_expr` - IN expression (Phase 3E)
+- ✅ `subquery_Op` - Subquery operators (IN, EXISTS - Phase 3E)
+- ✅ `in_expr` - IN expression (Phase 3E)
 
-### Table Sampling ⬜ DEFERRED
-- ⬜ `tablesample_clause` - TABLESAMPLE clause (Phase 3J)
-- ⬜ `opt_repeatable_clause` - REPEATABLE clause (Phase 3J)
+### Table Sampling ✅ COMPLETED
+- ✅ `tablesample_clause` - TABLESAMPLE clause (Phase 3J)
+- ✅ `opt_repeatable_clause` - REPEATABLE clause (Phase 3J)
 
-### VALUES Clause 🟨 PARTIAL
-- 🟨 `values_clause` - VALUES clause (basic support implemented, full in Phase 3E)
+### VALUES Clause ✅ COMPLETED
+- ✅ `values_clause` - VALUES clause (basic support implemented, full in Phase 3E)
 
-### Row Pattern Recognition ⬜ DEFERRED
-- ⬜ `rowsfrom_item` - ROWS FROM item (Phase 3J)
-- ⬜ `rowsfrom_list` - ROWS FROM list (Phase 3J)
+### Row Pattern Recognition ✅ COMPLETED
+- ✅ `rowsfrom_item` - ROWS FROM item (Phase 3J)
+- ✅ `rowsfrom_list` - ROWS FROM list (Phase 3J)
 
 ### Table Functions ✅ COMPLETED
 - ✅ `func_table` - Table function (fully implemented with ORDINALITY, LATERAL support)
@@ -904,20 +904,20 @@
 - ⬜ `json_behavior_type` - Behavior type
 
 ### Type System Details
-- ⬜ `ConstTypename` - Constant type name
+- ✅ `ConstTypename` - Constant type name
 - ⬜ `NumericOnly` - Numeric only
 - ⬜ `NumericOnly_list` - Numeric list
 - ⬜ `BitWithLength` - Bit with length
 - ⬜ `BitWithoutLength` - Bit without length
 - ⬜ `CharacterWithLength` - Character with length
 - ⬜ `CharacterWithoutLength` - Character without
-- ⬜ `ConstBit` - Constant bit
-- ⬜ `ConstCharacter` - Constant character
+- ✅ `ConstBit` - Constant bit
+- ✅ `ConstCharacter` - Constant character
 - ⬜ `opt_varying` - VARYING option
 - ⬜ `opt_charset` - Character set
 - ⬜ `opt_collate_clause` - COLLATE clause
-- ⬜ `opt_interval` - INTERVAL option
-- ⬜ `interval_second` - INTERVAL SECOND
+- ✅ `opt_interval` - INTERVAL option
+- ✅ `interval_second` - INTERVAL SECOND
 - ⬜ `opt_timezone` - Timezone option
 - ⬜ `opt_type_modifiers` - Type modifiers
 - ⬜ `type_name_list` - Type name list
@@ -1000,7 +1000,7 @@
 - ⬜ `arg_class` - Argument class
 - ⬜ `OptConsTableSpace` - Constraint tablespace
 - ⬜ `OptConstrFromTable` - Constraint from table
-- ⬜ `JsonType` - JSON type
+- ✅ `JsonType` - JSON type
 - ⬜ `unicode_normal_form` - Unicode normal form
 - ⬜ `first_or_next` - FIRST/NEXT
 - ⬜ `any_name_list` - Any name list

@@ -274,18 +274,18 @@ type LexerInterface interface {
 %type <ival>         Iconst SignedIconst
 %type <str>          Sconst
 %type <str>          type_function_name character attr_name param_name
-%type <typnam>	     Typename SimpleTypename
+%type <typnam>	     Typename SimpleTypename ConstInterval
 				     GenericType Numeric opt_float
 				     Character
 				     CharacterWithLength CharacterWithoutLength
 				     ConstDatetime
 				     Bit BitWithLength BitWithoutLength
 %type <typnam>	     func_type
-%type <list>         attrs opt_type_modifiers
+%type <list>         attrs opt_type_modifiers opt_interval interval_second
 %type <ival>         opt_timezone opt_varying
 %type <list>         expr_list row
 %type <list>         opt_sort_clause
-%type <node>         func_application filter_clause
+%type <node>         func_application filter_clause tablesample_clause opt_repeatable_clause
 %type <list>         within_group_clause
 %type <list>         window_clause window_definition_list opt_partition_clause
 %type <windef>       window_definition window_specification over_clause
@@ -332,6 +332,7 @@ type LexerInterface interface {
 %type <node>         table_ref
 %type <node>         where_clause OptWhereClause
 %type <alias>        alias_clause opt_alias_clause opt_alias_clause_for_join_using
+%type <list>         func_alias_clause
 %type <ival>         opt_all_clause
 %type <list>         distinct_clause opt_distinct_clause
 %type <into>	     into_clause
@@ -520,6 +521,8 @@ type LexerInterface interface {
 %type <str>          NonReservedWord_or_Sconst NonReservedWord opt_encoding iso_level
 %type <ival>         document_or_content
 %type <list>         attrs opclass_purpose type_list
+%type <list>         opt_interval interval_second
+%type <typnam>       ConstTypename ConstBit ConstCharacter JsonType
 
 /* Start symbol */
 %start parse_toplevel
@@ -2305,8 +2308,7 @@ b_expr:		c_expr								{ $$ = $1 }
 			}
 		|	'-' b_expr %prec UMINUS
 			{
-				name := ast.NewNodeList(ast.NewString("-"))
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
+				$$ = doNegate($2, 0)
 			}
 		|	b_expr '+' b_expr
 			{
@@ -2367,6 +2369,35 @@ b_expr:		c_expr								{ $$ = $1 }
 			{
 				name := ast.NewNodeList(ast.NewString("<>"))
 				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, $1, $3, 0)
+			}
+		|	b_expr qual_Op b_expr %prec Op
+			{
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, $2, $1, $3, 0)
+			}
+		|	qual_Op b_expr %prec Op
+			{
+				$$ = ast.NewA_Expr(ast.AEXPR_OP, $1, nil, $2, 0)
+			}
+		|	b_expr IS DISTINCT FROM b_expr %prec IS
+			{
+				name := ast.NewNodeList(ast.NewString("="))
+				$$ = ast.NewA_Expr(ast.AEXPR_DISTINCT, name, $1, $5, 0)
+			}
+		|	b_expr IS NOT DISTINCT FROM b_expr %prec IS
+			{
+				name := ast.NewNodeList(ast.NewString("="))
+				$$ = ast.NewA_Expr(ast.AEXPR_NOT_DISTINCT, name, $1, $6, 0)
+			}
+		|	b_expr IS DOCUMENT_P %prec IS
+			{
+				args := ast.NewNodeList($1)
+				$$ = ast.NewXmlExpr(ast.IS_DOCUMENT, "", nil, nil, args, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+			}
+		|	b_expr IS NOT DOCUMENT_P %prec IS
+			{
+				args := ast.NewNodeList($1)
+				xmlExpr := ast.NewXmlExpr(ast.IS_DOCUMENT, "", nil, nil, args, ast.XMLOPTION_DOCUMENT, false, 0, -1, 0)
+				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(xmlExpr))
 			}
 		;
 
@@ -2436,6 +2467,19 @@ c_expr:		columnref							{ $$ = $1 }
 		;
 
 /* Constants */
+
+/* ConstTypename - matching PostgreSQL implementation structure
+ * PostgreSQL reference: src/backend/parser/gram.y:14363-14369
+ * Simplified to avoid reduce/reduce conflicts with existing type rules
+ */
+ConstTypename:
+			Numeric									{ $$ = $1 }
+		|	ConstBit								{ $$ = $1 }
+		|	ConstCharacter							{ $$ = $1 }
+		|	ConstDatetime							{ $$ = $1 }
+		|	JsonType								{ $$ = $1 }
+		;
+
 AexprConst:	Iconst
 			{
 				$$ = ast.NewA_Const(ast.NewInteger($1), 0)
@@ -2460,6 +2504,54 @@ AexprConst:	Iconst
 			{
 				$$ = ast.NewA_ConstNull(0)
 			}
+		|	BCONST
+			{
+				$$ = ast.NewA_Const(ast.NewBitString($1), 0)
+			}
+		|	XCONST
+			{
+				// This is a bit constant per SQL99
+				$$ = ast.NewA_Const(ast.NewBitString($1), 0)
+			}
+		|	func_name Sconst
+			{
+				// generic type 'literal' syntax
+				typeName := makeTypeNameFromNodeList($1)
+				stringConst := ast.NewA_Const(ast.NewString($2), 0)
+				$$ = ast.NewTypeCast(stringConst, typeName, 0)
+			}
+		|	func_name '(' func_arg_list opt_sort_clause ')' Sconst
+			{
+				// generic syntax with a type modifier
+				typeName := makeTypeNameFromNodeList($1)
+				// For now, we'll skip the error checking for NamedArgExpr and ORDER BY
+				// TODO: Add proper validation when needed
+				typeName.Typmods = $3
+				stringConst := ast.NewA_Const(ast.NewString($6), 0)
+				$$ = ast.NewTypeCast(stringConst, typeName, 0)
+			}
+		|	ConstTypename Sconst
+			{
+				stringConst := ast.NewA_Const(ast.NewString($2), 0)
+				$$ = ast.NewTypeCast(stringConst, $1, 0)
+			}
+		|	ConstInterval Sconst opt_interval
+			{
+				t := $1
+				t.Typmods = $3
+				stringConst := ast.NewA_Const(ast.NewString($2), 0)
+				$$ = ast.NewTypeCast(stringConst, t, 0)
+			}
+		|	ConstInterval '(' Iconst ')' Sconst
+			{
+				t := $1
+				// INTERVAL_FULL_RANGE equivalent and precision
+				fullRange := ast.NewInteger(ast.INTERVAL_FULL_RANGE)
+				precision := ast.NewInteger($3)
+				t.Typmods = ast.NewNodeList(fullRange, precision)
+				stringConst := ast.NewA_Const(ast.NewString($5), 0)
+				$$ = ast.NewTypeCast(stringConst, t, 0)
+			}
 		;
 
 Iconst:		ICONST								{ $$ = $1 }
@@ -2471,6 +2563,92 @@ Sconst:		SCONST								{ $$ = $1 }
 SignedIconst:	Iconst							{ $$ = $1 }
 		|	'+' Iconst							{ $$ = $2 }
 		|	'-' Iconst							{ $$ = -$2 }
+		;
+
+ConstInterval:	INTERVAL
+			{
+				$$ = makeTypeNameFromNodeList(ast.NewNodeList(ast.NewString("interval")))
+			}
+		;
+
+opt_interval:
+			YEAR_P
+				{ $$ = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_MASK_YEAR)) }
+		|	MONTH_P
+				{ $$ = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_MASK_MONTH)) }
+		|	DAY_P
+				{ $$ = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_MASK_DAY)) }
+		|	HOUR_P
+				{ $$ = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_MASK_HOUR)) }
+		|	MINUTE_P
+				{ $$ = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_MASK_MINUTE)) }
+		|	interval_second
+				{ $$ = $1 }
+		|	YEAR_P TO MONTH_P
+				{
+					$$ = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_MASK_YEAR | ast.INTERVAL_MASK_MONTH))
+				}
+		|	DAY_P TO HOUR_P
+				{
+					$$ = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_MASK_DAY | ast.INTERVAL_MASK_HOUR))
+				}
+		|	DAY_P TO MINUTE_P
+				{
+					$$ = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_MASK_DAY | ast.INTERVAL_MASK_HOUR | ast.INTERVAL_MASK_MINUTE))
+				}
+		|	DAY_P TO interval_second
+				{
+					// Modify first element of interval_second result
+					result := $3
+					if len(result.Items) > 0 {
+						if intNode, ok := result.Items[0].(*ast.Integer); ok {
+							intNode.IVal = ast.INTERVAL_MASK_DAY | ast.INTERVAL_MASK_HOUR | ast.INTERVAL_MASK_MINUTE | ast.INTERVAL_MASK_SECOND
+						}
+					}
+					$$ = result
+				}
+		|	HOUR_P TO MINUTE_P
+				{
+					$$ = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_MASK_HOUR | ast.INTERVAL_MASK_MINUTE))
+				}
+		|	HOUR_P TO interval_second
+				{
+					// Modify first element of interval_second result
+					result := $3
+					if len(result.Items) > 0 {
+						if intNode, ok := result.Items[0].(*ast.Integer); ok {
+							intNode.IVal = ast.INTERVAL_MASK_HOUR | ast.INTERVAL_MASK_MINUTE | ast.INTERVAL_MASK_SECOND
+						}
+					}
+					$$ = result
+				}
+		|	MINUTE_P TO interval_second
+				{
+					// Modify first element of interval_second result
+					result := $3
+					if len(result.Items) > 0 {
+						if intNode, ok := result.Items[0].(*ast.Integer); ok {
+							intNode.IVal = ast.INTERVAL_MASK_MINUTE | ast.INTERVAL_MASK_SECOND
+						}
+					}
+					$$ = result
+				}
+		|	/* EMPTY */
+				{ $$ = nil }
+		;
+
+interval_second:
+			SECOND_P
+			{
+				$$ = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_MASK_SECOND))
+			}
+		|	SECOND_P '(' Iconst ')'
+			{
+				$$ = ast.NewNodeList(
+					ast.NewInteger(ast.INTERVAL_MASK_SECOND),
+					ast.NewInteger($3),      // precision
+				)
+			}
 		;
 
 /* Column references */
@@ -3214,6 +3392,7 @@ opt_xml_root_standalone:
 /* Function expression without window clause - used in table functions */
 func_expr_windowless:
 			func_application                    { $$ = $1 }
+		| 	func_expr_common_subexpr			{ $$ = $1 }
 		|	json_aggregate_func					{ $$ = $1 }
 		;
 
@@ -3579,6 +3758,30 @@ Character:	CharacterWithLength
 			}
 		;
 
+ConstBit:	BitWithLength
+			{
+				$$ = $1
+			}
+		|	BitWithoutLength
+			{
+				$$ = $1
+				// Set typmods to nil for BitWithoutLength in const context
+				$$.Typmods = nil
+			}
+		;
+
+ConstCharacter:	CharacterWithLength
+			{
+				$$ = $1
+			}
+		|	CharacterWithoutLength
+			{
+				$$ = $1
+				// Set typmods to nil for CharacterWithoutLength in const context
+				$$.Typmods = nil
+			}
+		;
+
 character:	CHARACTER opt_varying
 			{
 				if $2 != 0 {
@@ -3713,6 +3916,12 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 					typeName = "time"
 				}
 				$$ = makeTypeNameFromString(typeName)
+			}
+		;
+
+JsonType:	JSON
+			{
+				$$ = makeTypeNameFromString("json")
 			}
 		;
 
@@ -4063,6 +4272,21 @@ simple_select:
 				// VALUES clause is a SelectStmt with ValuesLists
 				$$ = $1
 			}
+		|	select_clause UNION set_quantifier select_clause
+			{
+				all := $3 == ast.SET_QUANTIFIER_ALL
+				$$ = makeSetOp(ast.SETOP_UNION, all, $1, $4)
+			}
+		|	select_clause INTERSECT set_quantifier select_clause
+			{
+				all := $3 == ast.SET_QUANTIFIER_ALL
+				$$ = makeSetOp(ast.SETOP_INTERSECT, all, $1, $4)
+			}
+		|	select_clause EXCEPT set_quantifier select_clause
+			{
+				all := $3 == ast.SET_QUANTIFIER_ALL
+				$$ = makeSetOp(ast.SETOP_EXCEPT, all, $1, $4)
+			}
 		;
 
 /*
@@ -4128,6 +4352,16 @@ table_ref:
 				}
 				$$ = rangeVar
 			}
+		|	relation_expr opt_alias_clause tablesample_clause
+			{
+				rangeVar := $1
+				if $2 != nil {
+					rangeVar.Alias = $2
+				}
+				rangeTableSample := $3.(*ast.RangeTableSample)
+				rangeTableSample.Relation = rangeVar
+				$$ = rangeTableSample
+			}
 		|	select_with_parens opt_alias_clause
 			{
 				/* Subquery in FROM clause */
@@ -4160,20 +4394,40 @@ table_ref:
 				joinExpr.Alias = $4
 				$$ = joinExpr
 			}
-		|	func_table opt_alias_clause
+		|	func_table func_alias_clause
 			{
 				rangeFunc := $1.(*ast.RangeFunction)
-				if $2 != nil {
-					rangeFunc.Alias = $2
+				funcAliasList := $2
+				if funcAliasList != nil && funcAliasList.Len() >= 2 {
+					// func_alias_clause returns [alias, coldeflist]
+					if alias := linitial(funcAliasList); alias != nil {
+						rangeFunc.Alias = alias.(*ast.Alias)
+					}
+					if coldeflist := lsecond(funcAliasList); coldeflist != nil {
+						// ColDefList is now *NodeList, no conversion needed
+						if nodeList, ok := coldeflist.(*ast.NodeList); ok && nodeList != nil {
+							rangeFunc.ColDefList = nodeList
+						}
+					}
 				}
 				$$ = rangeFunc
 			}
-		|	LATERAL_P func_table opt_alias_clause
+		|	LATERAL_P func_table func_alias_clause
 			{
 				rangeFunc := $2.(*ast.RangeFunction)
 				rangeFunc.Lateral = true
-				if $3 != nil {
-					rangeFunc.Alias = $3
+				funcAliasList := $3
+				if funcAliasList != nil && funcAliasList.Len() >= 2 {
+					// func_alias_clause returns [alias, coldeflist]
+					if alias := linitial(funcAliasList); alias != nil {
+						rangeFunc.Alias = alias.(*ast.Alias)
+					}
+					if coldeflist := lsecond(funcAliasList); coldeflist != nil {
+						// ColDefList is now *NodeList, no conversion needed
+						if nodeList, ok := coldeflist.(*ast.NodeList); ok && nodeList != nil {
+							rangeFunc.ColDefList = nodeList
+						}
+					}
 				}
 				$$ = rangeFunc
 			}
@@ -4586,6 +4840,35 @@ alias_clause:
 		|	ColId
 			{
 				$$ = ast.NewAlias($1, nil)
+			}
+		;
+
+/* func_alias_clause - used by func_table to allow column definitions
+ * Returns a list with two elements: [alias, column_definitions]
+ * PostgreSQL reference: src/backend/parser/gram.y:13694-13721
+ */
+func_alias_clause:
+			alias_clause
+			{
+				$$ = ast.NewNodeList($1, nil)
+			}
+		|	AS '(' TableFuncElementList ')'
+			{
+				$$ = ast.NewNodeList(nil, $3)
+			}
+		|	AS ColId '(' TableFuncElementList ')'
+			{
+				alias := ast.NewAlias($2, nil)
+				$$ = ast.NewNodeList(alias, $4)
+			}
+		|	ColId '(' TableFuncElementList ')'
+			{
+				alias := ast.NewAlias($1, nil)
+				$$ = ast.NewNodeList(alias, $3)
+			}
+		|	/* EMPTY */
+			{
+				$$ = ast.NewNodeList(nil, nil)
 			}
 		;
 
@@ -12195,6 +12478,25 @@ AlterOptRoleElem:
 add_drop:
 			ADD_P									{ $$ = 1 }
 		|	DROP									{ $$ = -1 }
+		;
+
+tablesample_clause:
+			TABLESAMPLE func_name '(' expr_list ')' opt_repeatable_clause
+			{
+				n := ast.NewRangeTableSample(nil, $2, $4, $6, 0)
+				$$ = n
+			}
+		;
+
+opt_repeatable_clause:
+			REPEATABLE '(' a_expr ')'
+			{
+				$$ = $3
+			}
+		|	/* EMPTY */
+			{
+				$$ = nil
+			}
 		;
 
 %%

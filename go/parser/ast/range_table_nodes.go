@@ -205,11 +205,11 @@ type RangeFunction struct {
 	IsRowsFrom  bool        // is result of ROWS FROM() syntax?
 	Functions   *NodeList   // list of per-function information (each item is a NodeList with function + column definitions)
 	Alias       *Alias      // table alias & optional column aliases
-	ColDefList  []*ColumnDef // list of ColumnDef nodes to describe result of function returning RECORD
+	ColDefList  *NodeList    // list of ColumnDef nodes to describe result of function returning RECORD
 }
 
 // NewRangeFunction creates a new RangeFunction node.
-func NewRangeFunction(lateral, ordinality, isRowsFrom bool, functions *NodeList, alias *Alias, colDefList []*ColumnDef) *RangeFunction {
+func NewRangeFunction(lateral, ordinality, isRowsFrom bool, functions *NodeList, alias *Alias, colDefList *NodeList) *RangeFunction {
 	return &RangeFunction{
 		BaseNode:   BaseNode{Tag: T_RangeFunction},
 		Lateral:    lateral,

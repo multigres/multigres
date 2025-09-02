@@ -128,7 +128,7 @@ func TestRangeFunction(t *testing.T) {
 		funcList := NewNodeList(NewFuncCall(&NodeList{Items: []Node{NewString("func1")}}, nil, 0))
 		functions := NewNodeList(funcList)
 		alias := NewAlias("f", nil)
-		colDefs := []*ColumnDef{NewColumnDef("col1", NewTypeName([]string{"int4"}), 0)}
+		colDefs := NewNodeList(NewColumnDef("col1", NewTypeName([]string{"int4"}), 0))
 
 		rf := NewRangeFunction(true, true, true, functions, alias, colDefs)
 

@@ -315,3 +315,51 @@ func processConstraintAttributeSpec(casbits int, constraint *ast.Constraint) {
 		constraint.IsNoInherit = true
 	}
 }
+
+// doNegate handles negation of nodes, equivalent to PostgreSQL's doNegate()
+// Ported from postgres/src/backend/parser/gram.y:doNegate
+func doNegate(n ast.Node, location int) ast.Node {
+	if aConst, ok := n.(*ast.A_Const); ok {
+		aConst.SetLocation(location)
+
+		if intVal, ok := aConst.Val.(*ast.Integer); ok {
+			intVal.IVal = -intVal.IVal
+			return n
+		}
+		if floatVal, ok := aConst.Val.(*ast.Float); ok {
+			doNegateFloat(floatVal)
+			return n
+		}
+	}
+
+	// Default: create unary minus expression
+	name := ast.NewNodeList(ast.NewString("-"))
+	return ast.NewA_Expr(ast.AEXPR_OP, name, nil, n, location)
+}
+
+// doNegateFloat handles negation of float values
+// Ported from postgres/src/backend/parser/gram.y:doNegateFloat
+func doNegateFloat(v *ast.Float) {
+	oldval := v.FVal
+	if len(oldval) > 0 && oldval[0] == '+' {
+		// Remove leading +
+		v.FVal = "-" + oldval[1:]
+	} else if len(oldval) > 0 && oldval[0] == '-' {
+		// Remove leading -
+		v.FVal = oldval[1:]
+	} else {
+		// Add leading -
+		v.FVal = "-" + oldval
+	}
+}
+
+// makeSetOp creates a set operation (UNION, INTERSECT, EXCEPT) SelectStmt
+// Ported from postgres/src/backend/parser/gram.y:makeSetOp
+func makeSetOp(op ast.SetOperation, all bool, larg ast.Stmt, rarg ast.Stmt) ast.Stmt {
+	n := ast.NewSelectStmt()
+	n.Op = op
+	n.All = all
+	n.Larg = larg.(*ast.SelectStmt)
+	n.Rarg = rarg.(*ast.SelectStmt)
+	return n
+}
