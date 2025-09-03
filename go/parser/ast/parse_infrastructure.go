@@ -237,6 +237,11 @@ func (p *ParamRef) ExpressionType() string {
 	return "PARAM_REF"
 }
 
+// SqlString returns the SQL representation of the ParamRef
+func (p *ParamRef) SqlString() string {
+	return fmt.Sprintf("$%d", p.Number)
+}
+
 // TypeCast represents a type cast expression (CAST(expr AS type) or expr::type).
 // Ported from postgres/src/include/nodes/parsenodes.h:370-380
 type TypeCast struct {

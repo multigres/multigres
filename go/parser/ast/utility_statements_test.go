@@ -416,12 +416,14 @@ func TestQueryAnalysisStmts(t *testing.T) {
 	t.Run("PrepareStmt", func(t *testing.T) {
 		query := NewSelectStmt()
 		argtype := NewTypeName([]string{"integer"})
-		stmt := NewPrepareStmt("get_user", []*TypeName{argtype}, query)
+		argtypes := NewNodeList()
+		argtypes.Append(argtype)
+		stmt := NewPrepareStmt("get_user", argtypes, query)
 
 		assert.Equal(t, T_PrepareStmt, stmt.NodeTag())
 		assert.Equal(t, "PREPARE", stmt.StatementType())
 		assert.Equal(t, "get_user", stmt.Name)
-		assert.Len(t, stmt.Argtypes, 1)
+		assert.Equal(t, 1, stmt.Argtypes.Len())
 		assert.Equal(t, query, stmt.Query)
 		assert.Contains(t, stmt.String(), "get_user")
 
@@ -810,7 +812,9 @@ func TestUtilityComplexExamples(t *testing.T) {
 
 		query := NewSelectStmt()
 		argtype := NewTypeName([]string{"integer"})
-		prepareStmt := NewPrepareStmt("get_user", []*TypeName{argtype}, query)
+		argtypes := NewNodeList()
+		argtypes.Append(argtype)
+		prepareStmt := NewPrepareStmt("get_user", argtypes, query)
 
 		param := NewInteger(123)
 		executeStmt := NewExecuteStmt("get_user", NewNodeList(param))
@@ -818,7 +822,7 @@ func TestUtilityComplexExamples(t *testing.T) {
 		deallocateStmt := NewDeallocateStmt("get_user")
 
 		assert.Equal(t, "get_user", prepareStmt.Name)
-		assert.Len(t, prepareStmt.Argtypes, 1)
+		assert.Equal(t, 1, prepareStmt.Argtypes.Len())
 		assert.Equal(t, "get_user", executeStmt.Name)
 		assert.Equal(t, 1, executeStmt.Params.Len())
 		assert.Equal(t, "get_user", deallocateStmt.Name)

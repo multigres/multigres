@@ -102,6 +102,9 @@ const (
 	T_PrepareStmt
 	T_ExecuteStmt
 	T_DeallocateStmt
+	T_DeclareCursorStmt
+	T_FetchStmt
+	T_ClosePortalStmt
 	T_CopyStmt
 	T_VacuumStmt
 	T_VacuumRelation
@@ -460,6 +463,12 @@ func (nt NodeTag) String() string {
 		return "T_ExecuteStmt"
 	case T_DeallocateStmt:
 		return "T_DeallocateStmt"
+	case T_DeclareCursorStmt:
+		return "T_DeclareCursorStmt"
+	case T_FetchStmt:
+		return "T_FetchStmt"
+	case T_ClosePortalStmt:
+		return "T_ClosePortalStmt"
 	case T_CopyStmt:
 		return "T_CopyStmt"
 	case T_VacuumStmt:

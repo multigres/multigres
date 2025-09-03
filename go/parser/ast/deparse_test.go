@@ -272,6 +272,122 @@ func TestRoundTripCompatibility(t *testing.T) {
 			},
 			expected: "users AS u",
 		},
+		// Cursor statements
+		{
+			name:     "simple DECLARE CURSOR",
+			node:     NewDeclareCursorStmt("my_cursor", CURSOR_OPT_FAST_PLAN, NewSelectStmt()),
+			expected: "DECLARE my_cursor CURSOR FOR SELECT *",
+		},
+		{
+			name:     "DECLARE CURSOR with SCROLL",
+			node:     NewDeclareCursorStmt("scroll_cursor", CURSOR_OPT_SCROLL|CURSOR_OPT_FAST_PLAN, NewSelectStmt()),
+			expected: "DECLARE scroll_cursor SCROLL CURSOR FOR SELECT *",
+		},
+		{
+			name:     "DECLARE CURSOR with BINARY and HOLD",
+			node:     NewDeclareCursorStmt("complex_cursor", CURSOR_OPT_BINARY|CURSOR_OPT_HOLD|CURSOR_OPT_FAST_PLAN, NewSelectStmt()),
+			expected: "DECLARE complex_cursor BINARY CURSOR WITH HOLD FOR SELECT *",
+		},
+		{
+			name:     "simple FETCH statement",
+			node:     NewFetchStmt(FETCH_FORWARD, 1, "my_cursor", false),
+			expected: "FETCH FROM my_cursor",
+		},
+		{
+			name:     "FETCH 5 rows",
+			node:     NewFetchStmt(FETCH_FORWARD, 5, "my_cursor", false),
+			expected: "FETCH 5 FROM my_cursor",
+		},
+		{
+			name:     "FETCH ALL",
+			node:     NewFetchStmt(FETCH_FORWARD, FETCH_ALL, "my_cursor", false),
+			expected: "FETCH ALL FROM my_cursor",
+		},
+		{
+			name:     "FETCH BACKWARD",
+			node:     NewFetchStmt(FETCH_BACKWARD, 1, "my_cursor", false),
+			expected: "FETCH BACKWARD FROM my_cursor",
+		},
+		{
+			name:     "FETCH FIRST",
+			node:     NewFetchStmt(FETCH_ABSOLUTE, 1, "my_cursor", false),
+			expected: "FETCH FIRST FROM my_cursor",
+		},
+		{
+			name:     "FETCH LAST",
+			node:     NewFetchStmt(FETCH_ABSOLUTE, -1, "my_cursor", false),
+			expected: "FETCH LAST FROM my_cursor",
+		},
+		{
+			name:     "simple MOVE statement",
+			node:     NewFetchStmt(FETCH_FORWARD, 1, "my_cursor", true),
+			expected: "MOVE FROM my_cursor",
+		},
+		{
+			name:     "MOVE ALL",
+			node:     NewFetchStmt(FETCH_FORWARD, FETCH_ALL, "my_cursor", true),
+			expected: "MOVE ALL FROM my_cursor",
+		},
+		{
+			name:     "simple CLOSE statement",
+			node:     func() *ClosePortalStmt { name := "my_cursor"; return NewClosePortalStmt(&name) }(),
+			expected: "CLOSE my_cursor",
+		},
+		{
+			name:     "CLOSE ALL statement",
+			node:     NewClosePortalStmt(nil),
+			expected: "CLOSE ALL",
+		},
+		// Prepared statements
+		{
+			name:     "simple PREPARE without parameters",
+			node:     NewPrepareStmt("simple_plan", nil, NewSelectStmt()),
+			expected: "PREPARE simple_plan AS SELECT *",
+		},
+		{
+			name: "PREPARE with one parameter",
+			node: func() *PrepareStmt {
+				argtypes := NewNodeList()
+				argtypes.Append(NewTypeName([]string{"integer"}))
+				return NewPrepareStmt("plan_with_param", argtypes, NewSelectStmt())
+			}(),
+			expected: "PREPARE plan_with_param ( integer ) AS SELECT *",
+		},
+		{
+			name: "PREPARE with multiple parameters",
+			node: func() *PrepareStmt {
+				argtypes := NewNodeList()
+				argtypes.Append(NewTypeName([]string{"integer"}))
+				argtypes.Append(NewTypeName([]string{"text"}))
+				return NewPrepareStmt("plan_multi_param", argtypes, NewSelectStmt())
+			}(),
+			expected: "PREPARE plan_multi_param ( integer, TEXT ) AS SELECT *",
+		},
+		{
+			name:     "simple EXECUTE without parameters",
+			node:     NewExecuteStmt("simple_plan", nil),
+			expected: "EXECUTE simple_plan",
+		},
+		{
+			name: "EXECUTE with parameters",
+			node: func() *ExecuteStmt {
+				params := NewNodeList()
+				params.Append(NewInteger(123))
+				params.Append(NewString("hello"))
+				return NewExecuteStmt("plan_with_params", params)
+			}(),
+			expected: "EXECUTE plan_with_params ( 123, 'hello' )",
+		},
+		{
+			name:     "simple DEALLOCATE",
+			node:     NewDeallocateStmt("my_plan"),
+			expected: "DEALLOCATE my_plan",
+		},
+		{
+			name:     "DEALLOCATE ALL",
+			node:     NewDeallocateAllStmt(),
+			expected: "DEALLOCATE ALL",
+		},
 	}
 
 	for _, tt := range tests {

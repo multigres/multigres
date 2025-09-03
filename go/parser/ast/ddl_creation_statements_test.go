@@ -127,7 +127,7 @@ func TestCreateFunctionStmt(t *testing.T) {
 		returnType := NewTypeName([]string{"int4"})
 		param1 := NewFunctionParameter("", NewTypeName([]string{"text"}), FUNC_PARAM_IN, nil)
 		parameters := &NodeList{Items: []Node{param1}}
-		
+
 		stmt := NewCreateFunctionStmt(false, false, funcName, parameters, returnType, nil, nil)
 
 		assert.NotNil(t, stmt)
@@ -589,7 +589,7 @@ func TestDeclareCursorStmt(t *testing.T) {
 
 		// CreateOpClassStmt implements StatementType and NodeTag methods
 
-		str := stmt.String()
+		str := stmt.SqlString()
 		assert.Contains(t, str, "DECLARE test_cursor CURSOR FOR")
 	})
 }
@@ -606,7 +606,7 @@ func TestFetchStmt(t *testing.T) {
 
 		// CreateOpClassStmt implements StatementType and NodeTag methods
 
-		str := stmt.String()
+		str := stmt.SqlString()
 		assert.Contains(t, str, "FETCH 10")
 		assert.Contains(t, str, "FROM test_cursor")
 	})
@@ -614,37 +614,37 @@ func TestFetchStmt(t *testing.T) {
 	t.Run("fetch all", func(t *testing.T) {
 		stmt := NewFetchStmt(FETCH_FORWARD, 9223372036854775807, "test_cursor", false) // FETCH_ALL
 
-		str := stmt.String()
+		str := stmt.SqlString()
 		assert.Contains(t, str, "FETCH ALL")
 	})
 
 	t.Run("fetch backward", func(t *testing.T) {
 		stmt := NewFetchStmt(FETCH_BACKWARD, 5, "test_cursor", false)
 
-		str := stmt.String()
+		str := stmt.SqlString()
 		assert.Contains(t, str, "FETCH BACKWARD 5")
 	})
 
 	t.Run("fetch absolute", func(t *testing.T) {
 		stmt := NewFetchStmt(FETCH_ABSOLUTE, 100, "test_cursor", false)
 
-		str := stmt.String()
+		str := stmt.SqlString()
 		assert.Contains(t, str, "FETCH ABSOLUTE 100")
 	})
 
 	t.Run("fetch relative", func(t *testing.T) {
 		stmt := NewFetchStmt(FETCH_RELATIVE, -10, "test_cursor", false)
 
-		str := stmt.String()
+		str := stmt.SqlString()
 		assert.Contains(t, str, "FETCH RELATIVE -10")
 	})
 
 	t.Run("move statement", func(t *testing.T) {
-		stmt := NewFetchStmt(FETCH_FORWARD, 1, "test_cursor", true)
+		stmt := NewFetchStmt(FETCH_FORWARD, 12, "test_cursor", true)
 
 		assert.True(t, stmt.IsMove)
-		str := stmt.String()
-		assert.Contains(t, str, "MOVE 1")
+		str := stmt.SqlString()
+		assert.Contains(t, str, "MOVE 12")
 	})
 }
 
@@ -659,7 +659,7 @@ func TestClosePortalStmt(t *testing.T) {
 
 		// CreateOpClassStmt implements StatementType and NodeTag methods
 
-		str := stmt.String()
+		str := stmt.SqlString()
 		assert.Equal(t, "CLOSE test_cursor", str)
 	})
 
@@ -667,7 +667,7 @@ func TestClosePortalStmt(t *testing.T) {
 		stmt := NewClosePortalStmt(nil)
 
 		assert.Nil(t, stmt.PortalName)
-		str := stmt.String()
+		str := stmt.SqlString()
 		assert.Equal(t, "CLOSE ALL", str)
 	})
 }

@@ -321,6 +321,7 @@ type PrivTarget struct {
 %type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt CopyStmt
 %type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt
 %type <stmt>         ClusterStmt ReindexStmt CheckPointStmt DiscardStmt
+%type <stmt>         DeclareCursorStmt FetchStmt ClosePortalStmt PrepareStmt ExecuteStmt DeallocateStmt
 %type <node>         insert_rest
 %type <list>         insert_column_list set_clause_list set_target_list merge_when_list
 %type <target>       insert_column_item set_target xml_attribute_el
@@ -332,6 +333,10 @@ type PrivTarget struct {
 %type <ival>         override_kind merge_when_tgt_matched merge_when_tgt_not_matched opt_asc_desc opt_nulls_order
 %type <ival>         copy_from opt_program opt_freeze opt_verbose opt_analyze opt_full
 %type <str>          cursor_name copy_file_name
+%type <ival>         cursor_options opt_hold from_in opt_from_in
+%type <stmt>         fetch_args
+%type <list>         prep_type_clause execute_param_clause
+%type <into>         create_as_target
 %type <node>         opt_binary copy_delimiter copy_opt_item
 %type <list>         copy_options copy_opt_list copy_generic_opt_list copy_generic_opt_arg_list opt_column_list index_elem_list index_params
 %type <node>         copy_generic_opt_elem copy_generic_opt_arg copy_generic_opt_arg_list_item NumericOnly var_value
@@ -704,6 +709,12 @@ stmt:
 		|	ReindexStmt								{ $$ = $1 }
 		|	CheckPointStmt							{ $$ = $1 }
 		|	DiscardStmt								{ $$ = $1 }
+		|	DeclareCursorStmt						{ $$ = $1 }
+		|	FetchStmt								{ $$ = $1 }
+		|	ClosePortalStmt							{ $$ = $1 }
+		|	PrepareStmt								{ $$ = $1 }
+		|	ExecuteStmt								{ $$ = $1 }
+		|	DeallocateStmt							{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -4104,11 +4115,6 @@ in_expr:		select_with_parens
 SelectStmt:
 			select_no_parens		%prec UMINUS				{ $$ = $1 }
 		|	select_with_parens		%prec UMINUS				{ $$ = $1 }
-		;
-
-PreparableStmt:
-			SelectStmt								{ $$ = $1 }
-			/* TODO: Add InsertStmt, UpdateStmt, DeleteStmt, MergeStmt when implemented */
 		;
 
 select_with_parens:
@@ -13515,6 +13521,238 @@ event:		SELECT									{ $$ = int(ast.CMD_SELECT) }
 			| UPDATE								{ $$ = int(ast.CMD_UPDATE) }
 			| DELETE_P								{ $$ = int(ast.CMD_DELETE) }
 			| INSERT								{ $$ = int(ast.CMD_INSERT) }
+		;
+
+/*****************************************************************************
+ *
+ * CURSOR STATEMENTS
+ *
+ *****************************************************************************/
+
+DeclareCursorStmt: DECLARE cursor_name cursor_options CURSOR opt_hold FOR SelectStmt
+				{
+					$$ = ast.NewDeclareCursorStmt($2, $3|$5|ast.CURSOR_OPT_FAST_PLAN, $7)
+				}
+		;
+
+cursor_options:
+			cursor_options BINARY
+				{
+					$$ = $1 | ast.CURSOR_OPT_BINARY
+				}
+		|	cursor_options INSENSITIVE
+				{
+					$$ = $1 | ast.CURSOR_OPT_INSENSITIVE
+				}
+		|	cursor_options ASENSITIVE
+				{
+					$$ = $1 | ast.CURSOR_OPT_ASENSITIVE
+				}
+		|	cursor_options SCROLL
+				{
+					$$ = $1 | ast.CURSOR_OPT_SCROLL
+				}
+		|	cursor_options NO SCROLL
+				{
+					$$ = $1 | ast.CURSOR_OPT_NO_SCROLL
+				}
+		|	/* EMPTY */								{ $$ = 0 }
+		;
+
+opt_hold:	WITH HOLD								{ $$ = ast.CURSOR_OPT_HOLD }
+		|	WITHOUT HOLD							{ $$ = 0 }
+		|	/* EMPTY */								{ $$ = 0 }
+		;
+
+FetchStmt:	FETCH fetch_args
+				{
+					stmt := $2.(*ast.FetchStmt)
+					stmt.IsMove = false
+					$$ = stmt
+				}
+		|	MOVE fetch_args
+				{
+					stmt := $2.(*ast.FetchStmt)
+					stmt.IsMove = true
+					$$ = stmt
+				}
+		;
+
+fetch_args:	cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, $1, false)
+				}
+		|	from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, $2, false)
+				}
+		|	NEXT opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, $3, false)
+				}
+		|	PRIOR opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_BACKWARD, 1, $3, false)
+				}
+		|	FIRST_P opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_ABSOLUTE, 1, $3, false)
+				}
+		|	LAST_P opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_ABSOLUTE, -1, $3, false)
+				}
+		|	ABSOLUTE_P SignedIconst opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_ABSOLUTE, int64($2), $4, false)
+				}
+		|	RELATIVE_P SignedIconst opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_RELATIVE, int64($2), $4, false)
+				}
+		|	SignedIconst opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_FORWARD, int64($1), $3, false)
+				}
+		|	ALL opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_FORWARD, ast.FETCH_ALL, $3, false)
+				}
+		|	FORWARD opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, $3, false)
+				}
+		|	FORWARD SignedIconst opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_FORWARD, int64($2), $4, false)
+				}
+		|	FORWARD ALL opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_FORWARD, ast.FETCH_ALL, $4, false)
+				}
+		|	BACKWARD opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_BACKWARD, 1, $3, false)
+				}
+		|	BACKWARD SignedIconst opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_BACKWARD, int64($2), $4, false)
+				}
+		|	BACKWARD ALL opt_from_in cursor_name
+				{
+					$$ = ast.NewFetchStmt(ast.FETCH_BACKWARD, ast.FETCH_ALL, $4, false)
+				}
+		;
+
+from_in:	FROM									{ $$ = 0 }
+		|	IN_P									{ $$ = 0 }
+		;
+
+opt_from_in:
+			from_in									{ $$ = 0 }
+		|	/* EMPTY */								{ $$ = 0 }
+		;
+
+ClosePortalStmt:
+			CLOSE cursor_name
+				{
+					name := $2
+					$$ = ast.NewClosePortalStmt(&name)
+				}
+		|	CLOSE ALL
+				{
+					$$ = ast.NewClosePortalStmt(nil)
+				}
+		;
+
+/*****************************************************************************
+ *
+ * PREPARED STATEMENTS
+ *
+ *****************************************************************************/
+
+PrepareStmt: PREPARE name prep_type_clause AS PreparableStmt
+				{
+					$$ = ast.NewPrepareStmt($2, $3, $5)
+				}
+		;
+
+prep_type_clause:
+			'(' type_list ')'
+				{
+					$$ = $2
+				}
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+PreparableStmt:
+			SelectStmt								{ $$ = $1 }
+		|	InsertStmt								{ $$ = $1 }
+		|	UpdateStmt								{ $$ = $1 }
+		|	DeleteStmt								{ $$ = $1 }
+		|	MergeStmt								{ $$ = $1 }
+		;
+
+ExecuteStmt: EXECUTE name execute_param_clause
+				{
+					$$ = ast.NewExecuteStmt($2, $3)
+				}
+		|	CREATE OptTemp TABLE create_as_target AS EXECUTE name execute_param_clause opt_with_data
+				{
+					executeStmt := ast.NewExecuteStmt($7, $8)
+					ctas := ast.NewCreateTableAsStmt(executeStmt, $4, ast.OBJECT_TABLE, false, false)
+					// Set relpersistence from OptTemp (following PostgreSQL pattern)
+					$4.Rel.RelPersistence = $2
+					// Set skipData from opt_with_data (following PostgreSQL pattern)
+					$4.SkipData = !$9
+					$$ = ctas
+				}
+		|	CREATE OptTemp TABLE IF_P NOT EXISTS create_as_target AS EXECUTE name execute_param_clause opt_with_data
+				{
+					executeStmt := ast.NewExecuteStmt($10, $11)
+					ctas := ast.NewCreateTableAsStmt(executeStmt, $7, ast.OBJECT_TABLE, false, true)
+					// Set relpersistence from OptTemp (following PostgreSQL pattern)
+					$7.Rel.RelPersistence = $2
+					// Set skipData from opt_with_data (following PostgreSQL pattern)
+					$7.SkipData = !$12
+					$$ = ctas
+				}
+		;
+
+execute_param_clause:
+			'(' expr_list ')'
+				{
+					$$ = $2
+				}
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+/* CREATE TABLE AS target - simplified version of PostgreSQL's create_as_target */
+create_as_target:
+		qualified_name opt_column_list table_access_method_clause OptWith OnCommitOption OptTableSpace
+			{
+				into := ast.NewIntoClause($1, $2, $3, $4, $5, $6, nil, false, 0)
+				$$ = into
+			}
+		;
+
+DeallocateStmt:
+			DEALLOCATE name
+				{
+					$$ = ast.NewDeallocateStmt($2)
+				}
+		|	DEALLOCATE PREPARE name
+				{
+					$$ = ast.NewDeallocateStmt($3)
+				}
+		|	DEALLOCATE ALL
+				{
+					$$ = ast.NewDeallocateAllStmt()
+				}
+		|	DEALLOCATE PREPARE ALL
+				{
+					$$ = ast.NewDeallocateAllStmt()
+				}
 		;
 
 %%

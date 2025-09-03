@@ -693,23 +693,23 @@
 ## Phase 3J: PostgreSQL-Specific & Edge Cases (~200+ rules)
 
 ### Cursors
-- ⬜ `DeclareCursorStmt` - DECLARE CURSOR
-- ⬜ `cursor_name` - Cursor name
-- ⬜ `cursor_options` - Cursor options
-- ⬜ `opt_hold` - WITH HOLD option
-- ⬜ `FetchStmt` - FETCH statement
-- ⬜ `fetch_args` - FETCH arguments
-- ⬜ `from_in` - FROM/IN keyword
-- ⬜ `opt_from_in` - Optional FROM/IN
-- ⬜ `ClosePortalStmt` - CLOSE cursor
+- ✅ `DeclareCursorStmt` - DECLARE CURSOR
+- ✅ `cursor_name` - Cursor name
+- ✅ `cursor_options` - Cursor options
+- ✅ `opt_hold` - WITH HOLD option
+- ✅ `FetchStmt` - FETCH statement
+- ✅ `fetch_args` - FETCH arguments
+- ✅ `from_in` - FROM/IN keyword
+- ✅ `opt_from_in` - Optional FROM/IN
+- ✅ `ClosePortalStmt` - CLOSE cursor
 
 ### Prepared Statements
-- ⬜ `PrepareStmt` - PREPARE statement
-- ⬜ `prep_type_clause` - Type clause
-- ⬜ `PreparableStmt` - Preparable statement
-- ⬜ `ExecuteStmt` - EXECUTE statement
-- ⬜ `execute_param_clause` - Parameter clause
-- ⬜ `DeallocateStmt` - DEALLOCATE
+- ✅ `PrepareStmt` - PREPARE statement
+- ✅ `prep_type_clause` - Type clause
+- ✅ `PreparableStmt` - Preparable statement
+- ✅ `ExecuteStmt` - EXECUTE statement
+- ✅ `execute_param_clause` - Parameter clause
+- ✅ `DeallocateStmt` - DEALLOCATE
 
 ### LISTEN/NOTIFY
 - ⬜ `ListenStmt` - LISTEN statement

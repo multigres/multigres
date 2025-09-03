@@ -1758,13 +1758,13 @@ func formatExplainOption(option *DefElem) string {
 // Ported from postgres/src/include/nodes/parsenodes.h:4030
 type PrepareStmt struct {
 	BaseNode
-	Name     string      // Statement name - postgres/src/include/nodes/parsenodes.h:4033
-	Argtypes []*TypeName // List of TypeName nodes (specified arg types) - postgres/src/include/nodes/parsenodes.h:4034
-	Query    Node        // Statement to prepare - postgres/src/include/nodes/parsenodes.h:4035
+	Name     string    // Statement name - postgres/src/include/nodes/parsenodes.h:4033
+	Argtypes *NodeList // List of TypeName nodes (specified arg types) - postgres/src/include/nodes/parsenodes.h:4034
+	Query    Node      // Statement to prepare - postgres/src/include/nodes/parsenodes.h:4035
 }
 
 // NewPrepareStmt creates a new PREPARE statement.
-func NewPrepareStmt(name string, argtypes []*TypeName, query Node) *PrepareStmt {
+func NewPrepareStmt(name string, argtypes *NodeList, query Node) *PrepareStmt {
 	return &PrepareStmt{
 		BaseNode: BaseNode{Tag: T_PrepareStmt},
 		Name:     name,
@@ -1774,7 +1774,11 @@ func NewPrepareStmt(name string, argtypes []*TypeName, query Node) *PrepareStmt 
 }
 
 func (ps *PrepareStmt) String() string {
-	return fmt.Sprintf("PrepareStmt(%s, %d argtypes)@%d", ps.Name, len(ps.Argtypes), ps.Location())
+	argCount := 0
+	if ps.Argtypes != nil {
+		argCount = ps.Argtypes.Len()
+	}
+	return fmt.Sprintf("PrepareStmt(%s, %d argtypes)@%d", ps.Name, argCount, ps.Location())
 }
 
 func (ps *PrepareStmt) StatementType() string {
@@ -1787,11 +1791,13 @@ func (ps *PrepareStmt) SqlString() string {
 	parts = append(parts, "PREPARE", ps.Name)
 
 	// Add argument types if present
-	if len(ps.Argtypes) > 0 {
+	if ps.Argtypes != nil && ps.Argtypes.Len() > 0 {
 		parts = append(parts, "(")
 		var typeNames []string
-		for _, argtype := range ps.Argtypes {
-			typeNames = append(typeNames, argtype.SqlString())
+		for _, argtype := range ps.Argtypes.Items {
+			if typeName, ok := argtype.(*TypeName); ok {
+				typeNames = append(typeNames, typeName.SqlString())
+			}
 		}
 		parts = append(parts, strings.Join(typeNames, ", "))
 		parts = append(parts, ")")
@@ -1801,7 +1807,11 @@ func (ps *PrepareStmt) SqlString() string {
 
 	// Add the query
 	if ps.Query != nil {
-		parts = append(parts, ps.Query.SqlString())
+		if sqlNode, ok := ps.Query.(interface{ SqlString() string }); ok {
+			parts = append(parts, sqlNode.SqlString())
+		} else {
+			parts = append(parts, "<query>")
+		}
 	}
 
 	return strings.Join(parts, " ")
@@ -2689,4 +2699,12 @@ func (us *UnlistenStmt) String() string {
 
 func (us *UnlistenStmt) StatementType() string {
 	return "UNLISTEN"
+}
+
+// SqlString returns the SQL representation of the UNLISTEN statement
+func (us *UnlistenStmt) SqlString() string {
+	if us.Conditionname == "*" {
+		return "UNLISTEN *"
+	}
+	return fmt.Sprintf("UNLISTEN %s", us.Conditionname)
 }

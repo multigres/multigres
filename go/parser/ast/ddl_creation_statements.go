@@ -83,6 +83,25 @@ const (
 	FETCH_RELATIVE                       // relative position, howMany is offset
 )
 
+// FETCH_ALL constant for fetching all rows
+// Ported from postgres/src/include/nodes/parsenodes.h:3326
+const FETCH_ALL = 9223372036854775807 // LONG_MAX
+
+// Cursor option constants
+// Ported from postgres/src/include/nodes/parsenodes.h:3275-3291
+const (
+	CURSOR_OPT_BINARY       = 0x0001 // BINARY
+	CURSOR_OPT_SCROLL       = 0x0002 // SCROLL explicitly given
+	CURSOR_OPT_NO_SCROLL    = 0x0004 // NO SCROLL explicitly given
+	CURSOR_OPT_INSENSITIVE  = 0x0008 // INSENSITIVE
+	CURSOR_OPT_ASENSITIVE   = 0x0010 // ASENSITIVE
+	CURSOR_OPT_HOLD         = 0x0020 // WITH HOLD
+	CURSOR_OPT_FAST_PLAN    = 0x0100 // prefer fast-start plan
+	CURSOR_OPT_GENERIC_PLAN = 0x0200 // force use of generic plan
+	CURSOR_OPT_CUSTOM_PLAN  = 0x0400 // force use of custom plan
+	CURSOR_OPT_PARALLEL_OK  = 0x0800 // parallel mode OK
+)
+
 // String returns string representation of FetchDirection
 func (fd FetchDirection) String() string {
 	switch fd {
@@ -1373,25 +1392,58 @@ func (ds *DefineStmt) SqlString() string {
 // DeclareCursorStmt represents a DECLARE cursor statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3293-3299
 type DeclareCursorStmt struct {
+	BaseNode
 	PortalName string // name of the portal (cursor)
 	Options    int    // bitmask of options
 	Query      Node   // the query (raw parse tree)
 }
 
-// node implements the Node interface
-func (dcs *DeclareCursorStmt) node() {}
-
-// stmt implements the Stmt interface
-func (dcs *DeclareCursorStmt) stmt() {}
-
 // String returns string representation of DeclareCursorStmt
 func (dcs *DeclareCursorStmt) String() string {
+	return fmt.Sprintf("DeclareCursorStmt(%s, %d options)@%d", dcs.PortalName, dcs.Options, dcs.Location())
+}
+
+func (dcs *DeclareCursorStmt) StatementType() string {
+	return "DECLARE CURSOR"
+}
+
+// SqlString returns the SQL representation of the DECLARE CURSOR statement
+func (dcs *DeclareCursorStmt) SqlString() string {
 	var parts []string
+	parts = append(parts, "DECLARE", dcs.PortalName)
 
-	parts = append(parts, "DECLARE", dcs.PortalName, "CURSOR FOR")
+	// Add cursor options
+	if dcs.Options&CURSOR_OPT_BINARY != 0 {
+		parts = append(parts, "BINARY")
+	}
+	if dcs.Options&CURSOR_OPT_INSENSITIVE != 0 {
+		parts = append(parts, "INSENSITIVE")
+	}
+	if dcs.Options&CURSOR_OPT_ASENSITIVE != 0 {
+		parts = append(parts, "ASENSITIVE")
+	}
+	if dcs.Options&CURSOR_OPT_SCROLL != 0 {
+		parts = append(parts, "SCROLL")
+	}
+	if dcs.Options&CURSOR_OPT_NO_SCROLL != 0 {
+		parts = append(parts, "NO", "SCROLL")
+	}
 
+	parts = append(parts, "CURSOR")
+
+	if dcs.Options&CURSOR_OPT_HOLD != 0 {
+		parts = append(parts, "WITH", "HOLD")
+	}
+
+	parts = append(parts, "FOR")
+
+	// Add the query
 	if dcs.Query != nil {
-		parts = append(parts, dcs.Query.String())
+		if sqlNode, ok := dcs.Query.(interface{ SqlString() string }); ok {
+			parts = append(parts, sqlNode.SqlString())
+		} else {
+			parts = append(parts, "<query>")
+		}
 	}
 
 	return strings.Join(parts, " ")
@@ -1400,6 +1452,7 @@ func (dcs *DeclareCursorStmt) String() string {
 // NewDeclareCursorStmt creates a new DeclareCursorStmt node
 func NewDeclareCursorStmt(portalName string, options int, query Node) *DeclareCursorStmt {
 	return &DeclareCursorStmt{
+		BaseNode:   BaseNode{Tag: T_DeclareCursorStmt},
 		PortalName: portalName,
 		Options:    options,
 		Query:      query,
@@ -1409,6 +1462,7 @@ func NewDeclareCursorStmt(portalName string, options int, query Node) *DeclareCu
 // FetchStmt represents a FETCH statement (also MOVE)
 // Ported from postgres/src/include/nodes/parsenodes.h:3328-3335
 type FetchStmt struct {
+	BaseNode
 	Direction  FetchDirection // see FetchDirection enum
 	HowMany    int64          // number of rows, or position argument
 	PortalName string         // name of portal (cursor)
@@ -1423,6 +1477,22 @@ func (fs *FetchStmt) stmt() {}
 
 // String returns string representation of FetchStmt
 func (fs *FetchStmt) String() string {
+	verb := "FETCH"
+	if fs.IsMove {
+		verb = "MOVE"
+	}
+	return fmt.Sprintf("%sStmt(%s, dir=%d, howMany=%d)@%d", verb, fs.PortalName, fs.Direction, fs.HowMany, fs.Location())
+}
+
+func (fs *FetchStmt) StatementType() string {
+	if fs.IsMove {
+		return "MOVE"
+	}
+	return "FETCH"
+}
+
+// SqlString returns the SQL representation of the FETCH/MOVE statement
+func (fs *FetchStmt) SqlString() string {
 	var parts []string
 
 	if fs.IsMove {
@@ -1431,35 +1501,44 @@ func (fs *FetchStmt) String() string {
 		parts = append(parts, "FETCH")
 	}
 
+	// Handle direction and count
 	switch fs.Direction {
 	case FETCH_FORWARD:
-		if fs.HowMany == 9223372036854775807 { // FETCH_ALL = LONG_MAX
+		if fs.HowMany == 1 {
+			// Default case - just FETCH/MOVE cursor_name
+		} else if fs.HowMany == FETCH_ALL {
 			parts = append(parts, "ALL")
 		} else {
 			parts = append(parts, fmt.Sprintf("%d", fs.HowMany))
 		}
 	case FETCH_BACKWARD:
-		if fs.HowMany == 9223372036854775807 { // FETCH_ALL = LONG_MAX
-			parts = append(parts, "BACKWARD ALL")
+		if fs.HowMany == 1 {
+			parts = append(parts, "BACKWARD")
+		} else if fs.HowMany == FETCH_ALL {
+			parts = append(parts, "BACKWARD", "ALL")
 		} else {
-			parts = append(parts, fmt.Sprintf("BACKWARD %d", fs.HowMany))
+			parts = append(parts, "BACKWARD", fmt.Sprintf("%d", fs.HowMany))
 		}
 	case FETCH_ABSOLUTE:
-		parts = append(parts, fmt.Sprintf("ABSOLUTE %d", fs.HowMany))
+		if fs.HowMany == 1 {
+			parts = append(parts, "FIRST")
+		} else if fs.HowMany == -1 {
+			parts = append(parts, "LAST")
+		} else {
+			parts = append(parts, "ABSOLUTE", fmt.Sprintf("%d", fs.HowMany))
+		}
 	case FETCH_RELATIVE:
-		parts = append(parts, fmt.Sprintf("RELATIVE %d", fs.HowMany))
+		parts = append(parts, "RELATIVE", fmt.Sprintf("%d", fs.HowMany))
 	}
 
-	if fs.PortalName != "" {
-		parts = append(parts, "FROM", fs.PortalName)
-	}
-
+	parts = append(parts, "FROM", fs.PortalName)
 	return strings.Join(parts, " ")
 }
 
 // NewFetchStmt creates a new FetchStmt node
 func NewFetchStmt(direction FetchDirection, howMany int64, portalName string, isMove bool) *FetchStmt {
 	return &FetchStmt{
+		BaseNode:   BaseNode{Tag: T_FetchStmt},
 		Direction:  direction,
 		HowMany:    howMany,
 		PortalName: portalName,
@@ -1470,6 +1549,7 @@ func NewFetchStmt(direction FetchDirection, howMany int64, portalName string, is
 // ClosePortalStmt represents a CLOSE statement
 // Ported from postgres/src/include/nodes/parsenodes.h:3305-3310
 type ClosePortalStmt struct {
+	BaseNode
 	PortalName *string // name of the portal (cursor); nil means CLOSE ALL
 }
 
@@ -1481,15 +1561,29 @@ func (cps *ClosePortalStmt) stmt() {}
 
 // String returns string representation of ClosePortalStmt
 func (cps *ClosePortalStmt) String() string {
+	name := "ALL"
+	if cps.PortalName != nil {
+		name = *cps.PortalName
+	}
+	return fmt.Sprintf("ClosePortalStmt(%s)@%d", name, cps.Location())
+}
+
+func (cps *ClosePortalStmt) StatementType() string {
+	return "CLOSE"
+}
+
+// SqlString returns the SQL representation of the CLOSE statement
+func (cps *ClosePortalStmt) SqlString() string {
 	if cps.PortalName == nil {
 		return "CLOSE ALL"
 	}
-	return "CLOSE " + *cps.PortalName
+	return fmt.Sprintf("CLOSE %s", *cps.PortalName)
 }
 
 // NewClosePortalStmt creates a new ClosePortalStmt node
 func NewClosePortalStmt(portalName *string) *ClosePortalStmt {
 	return &ClosePortalStmt{
+		BaseNode:   BaseNode{Tag: T_ClosePortalStmt},
 		PortalName: portalName,
 	}
 }
