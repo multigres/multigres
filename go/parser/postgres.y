@@ -35,6 +35,14 @@ type LexerInterface interface {
 	Error(s string)
 }
 
+// PrivTarget - represents a privilege target for GRANT/REVOKE statements
+// Internal struct for handling privilege_target grammar rule
+type PrivTarget struct {
+	targtype ast.GrantTargetType
+	objtype  ast.ObjectType
+	objs     *ast.NodeList
+}
+
 // yySymType is the union type for semantic values
 // This will be expanded as we add more grammar rules
 
@@ -91,6 +99,8 @@ type LexerInterface interface {
 	rolespec   *ast.RoleSpec
 	objwithargs *ast.ObjectWithArgs
 	statelem   *ast.StatsElem
+	accesspriv *ast.AccessPriv         // For privilege specifications
+	privtarget *PrivTarget             // For privilege target specifications
 
 	// Location tracking
 	location   int
@@ -247,9 +257,9 @@ type LexerInterface interface {
 %type <list>         alter_generic_options alter_generic_option_list
 %type <node>         generic_option_arg set_statistics_value
 %type <defelt>       alter_generic_option_elem
-%type <str>          set_access_method_name
+%type <str>          set_access_method_name parameter_name
 %type <node>         replica_identity
-%type <list>         func_args func_args_list OptWith
+%type <list>         func_args func_args_list OptWith parameter_name_list NumericOnly_list
 %type <groupClause>  group_clause
 %type <setquant>     set_quantifier
 
@@ -456,12 +466,18 @@ type LexerInterface interface {
 %type <ival>     	 event
 
 %type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
-%type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt
+%type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt GrantStmt RevokeStmt GrantRoleStmt RevokeRoleStmt
 %type <str>          opt_in_database
 %type <bval>         opt_transaction_chain
 %type <defelt>       CreateOptRoleElem AlterOptRoleElem
 %type <list>         transaction_mode_list transaction_mode_list_or_empty OptRoleList AlterOptRoleList role_list
-%type <rolespec>     RoleSpec
+%type <list>         privileges privilege_list grantee_list grant_role_opt_list
+%type <accesspriv>   privilege
+%type <rolespec>     RoleSpec grantee opt_granted_by
+%type <bval>         opt_grant_grant_option
+%type <node>         grant_role_opt_value
+%type <defelt>       grant_role_opt
+%type <privtarget>   privilege_target
 %type <str>          RoleId
 %type <ival>         add_drop
 %type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt
@@ -663,6 +679,10 @@ stmt:
 		|	CreateGroupStmt							{ $$ = $1 }
 		|	AlterGroupStmt							{ $$ = $1 }
 		|	CreateUserStmt							{ $$ = $1 }
+		|	GrantStmt								{ $$ = $1 }
+		|	RevokeStmt								{ $$ = $1 }
+		|	GrantRoleStmt							{ $$ = $1 }
+		|	RevokeRoleStmt							{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -12416,6 +12436,364 @@ add_drop:
 			ADD_P									{ $$ = 1 }
 		|	DROP									{ $$ = -1 }
 		;
+
+/*****************************************************************************
+ *
+ * GRANT and REVOKE statements
+ * (ported from postgres/src/backend/parser/gram.y:7535-7920)
+ *
+ *****************************************************************************/
+
+GrantStmt:	GRANT privileges ON privilege_target TO grantee_list
+			opt_grant_grant_option opt_granted_by
+				{
+					n := ast.NewGrantStmt($4.objtype, $4.objs, $2, $6)
+					n.Targtype = $4.targtype
+					n.GrantOption = $7
+					n.Grantor = $8
+					$$ = n
+				}
+		;
+
+RevokeStmt:
+			REVOKE privileges ON privilege_target
+			FROM grantee_list opt_granted_by opt_drop_behavior
+				{
+					n := ast.NewRevokeStmt($4.objtype, $4.objs, $2, $6)
+					n.Targtype = $4.targtype
+					n.Grantor = $7
+					n.Behavior = $8
+					$$ = n
+				}
+			| REVOKE GRANT OPTION FOR privileges ON privilege_target
+			FROM grantee_list opt_granted_by opt_drop_behavior
+				{
+					n := ast.NewRevokeStmt($7.objtype, $7.objs, $5, $9)
+					n.Targtype = $7.targtype
+					n.GrantOption = true
+					n.Grantor = $10
+					n.Behavior = $11
+					$$ = n
+				}
+		;
+
+GrantRoleStmt:
+			GRANT privilege_list TO role_list opt_granted_by
+				{
+					stmt := ast.NewGrantRoleStmt($2, $4)
+					stmt.Grantor = $5
+					$$ = stmt
+				}
+		  | GRANT privilege_list TO role_list WITH grant_role_opt_list opt_granted_by
+				{
+					stmt := ast.NewGrantRoleStmtWithOptions($2, $4, $6)
+					stmt.Grantor = $7
+					$$ = stmt
+				}
+		;
+
+RevokeRoleStmt:
+			REVOKE privilege_list FROM role_list opt_granted_by opt_drop_behavior
+				{
+					stmt := ast.NewRevokeRoleStmt($2, $4)
+					stmt.Grantor = $5
+					stmt.Behavior = $6
+					$$ = stmt
+				}
+			| REVOKE ColId OPTION FOR privilege_list FROM role_list opt_granted_by opt_drop_behavior
+				{
+					opt := ast.NewDefElem($2, ast.NewBoolean(false))
+					stmt := ast.NewRevokeRoleStmt($5, $7)
+					stmt.Opt = &ast.NodeList{Items: []ast.Node{opt}}
+					stmt.Grantor = $8
+					stmt.Behavior = $9
+					$$ = stmt
+				}
+		;
+
+/* either ALL [PRIVILEGES] or a list of individual privileges */
+privileges: privilege_list
+				{ $$ = $1 }
+			| ALL
+				{ $$ = nil }
+			| ALL PRIVILEGES
+				{ $$ = nil }
+			| ALL '(' columnList ')'
+				{
+					ap := ast.NewAccessPriv("", $3)
+					$$ = ast.NewNodeList(ap)
+				}
+			| ALL PRIVILEGES '(' columnList ')'
+				{
+					ap := ast.NewAccessPriv("", $4)
+					$$ = ast.NewNodeList(ap)
+				}
+		;
+
+privilege_list:	privilege							{ $$ = ast.NewNodeList($1) }
+			| privilege_list ',' privilege			{ $1.Items = append($1.Items, $3); $$ = $1 }
+		;
+
+privilege:	SELECT opt_column_list
+			{
+				$$ = ast.NewAccessPriv("SELECT", $2)
+			}
+		| REFERENCES opt_column_list
+			{
+				$$ = ast.NewAccessPriv("REFERENCES", $2)
+			}
+		| CREATE opt_column_list
+			{
+				$$ = ast.NewAccessPriv("CREATE", $2)
+			}
+		| ALTER SYSTEM_P
+			{
+				$$ = ast.NewAccessPriv("ALTER SYSTEM", nil)
+			}
+		| ColId opt_column_list
+			{
+				$$ = ast.NewAccessPriv($1, $2)
+			}
+		;
+
+/* Don't bother trying to fold the first two rules into one using
+ * opt_table.  You're going to get conflicts.
+ */
+privilege_target:
+			qualified_name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_TABLE,
+						objs:     $1,
+					}
+				}
+			| TABLE qualified_name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_TABLE,
+						objs:     $2,
+					}
+				}
+			| SEQUENCE qualified_name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_SEQUENCE,
+						objs:     $2,
+					}
+				}
+			| FOREIGN DATA_P WRAPPER name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_FDW,
+						objs:     $4,
+					}
+				}
+			| FOREIGN SERVER name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_FOREIGN_SERVER,
+						objs:     $3,
+					}
+				}
+			| FUNCTION function_with_argtypes_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_FUNCTION,
+						objs:     $2,
+					}
+				}
+			| PROCEDURE function_with_argtypes_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_PROCEDURE,
+						objs:     $2,
+					}
+				}
+			| ROUTINE function_with_argtypes_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_ROUTINE,
+						objs:     $2,
+					}
+				}
+			| DATABASE name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_DATABASE,
+						objs:     $2,
+					}
+				}
+			| DOMAIN_P any_name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_DOMAIN,
+						objs:     $2,
+					}
+				}
+			| LANGUAGE name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_LANGUAGE,
+						objs:     $2,
+					}
+				}
+			| LARGE_P OBJECT_P NumericOnly_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_LARGEOBJECT,
+						objs:     $3,
+					}
+				}
+			| PARAMETER parameter_name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_PARAMETER_ACL,
+						objs:     $2,
+					}
+				}
+			| SCHEMA name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_SCHEMA,
+						objs:     $2,
+					}
+				}
+			| TABLESPACE name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_TABLESPACE,
+						objs:     $2,
+					}
+				}
+			| TYPE_P any_name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_OBJECT,
+						objtype:  ast.OBJECT_TYPE,
+						objs:     $2,
+					}
+				}
+			| ALL TABLES IN_P SCHEMA name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
+						objtype:  ast.OBJECT_TABLE,
+						objs:     $5,
+					}
+				}
+			| ALL SEQUENCES IN_P SCHEMA name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
+						objtype:  ast.OBJECT_SEQUENCE,
+						objs:     $5,
+					}
+				}
+			| ALL FUNCTIONS IN_P SCHEMA name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
+						objtype:  ast.OBJECT_FUNCTION,
+						objs:     $5,
+					}
+				}
+			| ALL PROCEDURES IN_P SCHEMA name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
+						objtype:  ast.OBJECT_PROCEDURE,
+						objs:     $5,
+					}
+				}
+			| ALL ROUTINES IN_P SCHEMA name_list
+				{
+					$$ = &PrivTarget{
+						targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
+						objtype:  ast.OBJECT_ROUTINE,
+						objs:     $5,
+					}
+				}
+		;
+
+
+grantee_list:
+			grantee									{ $$ = ast.NewNodeList($1) }
+			| grantee_list ',' grantee				{ $1.Items = append($1.Items, $3); $$ = $1 }
+		;
+
+grantee:
+			RoleSpec								{ $$ = $1 }
+			| GROUP_P RoleSpec						{ $$ = $2 }
+		;
+
+
+opt_grant_grant_option:
+			WITH GRANT OPTION { $$ = true }
+			| /*EMPTY*/ { $$ = false }
+		;
+
+grant_role_opt_list:
+			grant_role_opt_list ',' grant_role_opt	{ $1.Items = append($1.Items, $3); $$ = $1 }
+			| grant_role_opt						{ $$ = ast.NewNodeList($1) }
+		;
+
+grant_role_opt:
+		ColLabel grant_role_opt_value
+			{
+				$$ = ast.NewDefElem($1, $2)
+			}
+		;
+
+grant_role_opt_value:
+		OPTION			{ $$ = ast.NewBoolean(true) }
+		| TRUE_P		{ $$ = ast.NewBoolean(true) }
+		| FALSE_P		{ $$ = ast.NewBoolean(false) }
+		;
+
+opt_granted_by: GRANTED BY RoleSpec						{ $$ = $3 }
+			| /*EMPTY*/									{ $$ = nil }
+		;
+
+parameter_name_list:
+		parameter_name
+			{
+				$$ = ast.NewNodeList(ast.NewString($1))
+			}
+		| parameter_name_list ',' parameter_name
+			{
+				$1.Append(ast.NewString($3))
+				$$ = $1
+			}
+		;
+
+parameter_name:
+		ColId
+			{
+				$$ = $1;
+			}
+		| parameter_name '.' ColId
+			{
+				$$ = $1 + "." + $3
+			}
+		;
+
+NumericOnly_list:	NumericOnly						{ $$ = ast.NewNodeList($1) }
+		| NumericOnly_list ',' NumericOnly			{ $1.Append($3); $$ = $1 }
 
 tablesample_clause:
 			TABLESAMPLE func_name '(' expr_list ')' opt_repeatable_clause

@@ -621,20 +621,20 @@
 - ✅ `opt_granted_by` - GRANTED BY clause
 
 ### GRANT/REVOKE
-- ⬜ `GrantStmt` - GRANT statement
-- ⬜ `RevokeStmt` - REVOKE statement
-- ⬜ `GrantRoleStmt` - GRANT role
-- ⬜ `RevokeRoleStmt` - REVOKE role
-- ⬜ `grant_role_opt` - Grant role option
-- ⬜ `grant_role_opt_list` - Grant role options
-- ⬜ `grant_role_opt_value` - Grant option value
-- ⬜ `privileges` - Privilege list
-- ⬜ `privilege_list` - Individual privileges
-- ⬜ `privilege` - Single privilege
-- ⬜ `privilege_target` - Privilege target
-- ⬜ `grantee_list` - Grantee list
-- ⬜ `grantee` - Single grantee
-- ⬜ `opt_grant_grant_option` - WITH GRANT OPTION
+- ✅ `GrantStmt` - GRANT statement
+- ✅ `RevokeStmt` - REVOKE statement
+- ✅ `GrantRoleStmt` - GRANT role
+- ✅ `RevokeRoleStmt` - REVOKE role
+- ✅ `grant_role_opt` - Grant role option
+- ✅ `grant_role_opt_list` - Grant role options
+- ✅ `grant_role_opt_value` - Grant option value
+- ✅ `privileges` - Privilege list
+- ✅ `privilege_list` - Individual privileges
+- ✅ `privilege` - Single privilege
+- ✅ `privilege_target` - Privilege target
+- ✅ `grantee_list` - Grantee list
+- ✅ `grantee` - Single grantee
+- ✅ `opt_grant_grant_option` - WITH GRANT OPTION
 
 ### DEFAULT PRIVILEGES
 - ⬜ `AlterDefaultPrivilegesStmt` - ALTER DEFAULT PRIVILEGES

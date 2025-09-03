@@ -404,6 +404,218 @@ func (grs *GrantRoleStmt) StatementType() string {
 	return "REVOKE_ROLE"
 }
 
+// SqlString returns the SQL representation of the GRANT/REVOKE statement
+func (gs *GrantStmt) SqlString() string {
+	var parts []string
+
+	// Start with GRANT or REVOKE
+	if gs.IsGrant {
+		parts = append(parts, "GRANT")
+	} else {
+		parts = append(parts, "REVOKE")
+	}
+
+	// Add GRANT OPTION FOR if this is a grant option revoke
+	if !gs.IsGrant && gs.GrantOption {
+		parts = append(parts, "GRANT", "OPTION", "FOR")
+	}
+
+	// Add privileges
+	if gs.Privileges == nil || len(gs.Privileges.Items) == 0 {
+		parts = append(parts, "ALL", "PRIVILEGES")
+	} else {
+		var privParts []string
+		for _, item := range gs.Privileges.Items {
+			if priv, ok := item.(*AccessPriv); ok {
+				privStr := strings.ToUpper(priv.PrivName)
+				if priv.Cols != nil && len(priv.Cols.Items) > 0 {
+					var colNames []string
+					for _, col := range priv.Cols.Items {
+						if colStr, ok := col.(*String); ok {
+							colNames = append(colNames, colStr.SVal)
+						}
+					}
+					if len(colNames) > 0 {
+						privStr += " (" + strings.Join(colNames, ", ") + ")"
+					}
+				}
+				privParts = append(privParts, privStr)
+			}
+		}
+		parts = append(parts, strings.Join(privParts, ", "))
+	}
+
+	// Add ON
+	parts = append(parts, "ON")
+
+	// Add target type specific keywords
+	if gs.Targtype == ACL_TARGET_ALL_IN_SCHEMA {
+		parts = append(parts, "ALL")
+		switch gs.Objtype {
+		case OBJECT_TABLE:
+			parts = append(parts, "TABLES")
+		case OBJECT_SEQUENCE:
+			parts = append(parts, "SEQUENCES")
+		case OBJECT_FUNCTION:
+			parts = append(parts, "FUNCTIONS")
+		}
+		parts = append(parts, "IN", "SCHEMA")
+	} else {
+		// Add explicit object type if not table
+		switch gs.Objtype {
+		case OBJECT_SEQUENCE:
+			parts = append(parts, "SEQUENCE")
+		case OBJECT_DATABASE:
+			parts = append(parts, "DATABASE")
+		case OBJECT_SCHEMA:
+			parts = append(parts, "SCHEMA")
+		case OBJECT_FUNCTION:
+			parts = append(parts, "FUNCTION")
+		case OBJECT_TABLE:
+			// TABLE is optional, but we can add it for clarity in certain contexts
+			// parts = append(parts, "TABLE")
+		}
+	}
+
+	// Add object names
+	if gs.Objects != nil && len(gs.Objects.Items) > 0 {
+		var objNames []string
+		for _, obj := range gs.Objects.Items {
+			if rangeVar, ok := obj.(*RangeVar); ok {
+				name := rangeVar.RelName
+				if rangeVar.SchemaName != "" {
+					name = rangeVar.SchemaName + "." + name
+				}
+				objNames = append(objNames, name)
+			} else if str, ok := obj.(*String); ok {
+				objNames = append(objNames, str.SVal)
+			} else if objWithArgs, ok := obj.(*ObjectWithArgs); ok {
+				// For functions, use the SqlString method
+				objNames = append(objNames, objWithArgs.SqlString())
+			}
+		}
+		parts = append(parts, strings.Join(objNames, ", "))
+	}
+
+	// Add TO/FROM
+	if gs.IsGrant {
+		parts = append(parts, "TO")
+	} else {
+		parts = append(parts, "FROM")
+	}
+
+	// Add grantees
+	if gs.Grantees != nil && len(gs.Grantees.Items) > 0 {
+		var granteeNames []string
+		for _, grantee := range gs.Grantees.Items {
+			if roleSpec, ok := grantee.(*RoleSpec); ok {
+				granteeNames = append(granteeNames, roleSpec.Rolename)
+			}
+		}
+		parts = append(parts, strings.Join(granteeNames, ", "))
+	}
+
+	// Add WITH GRANT OPTION for GRANT statements
+	if gs.IsGrant && gs.GrantOption {
+		parts = append(parts, "WITH", "GRANT", "OPTION")
+	}
+
+	// Add GRANTED BY
+	if gs.Grantor != nil {
+		parts = append(parts, "GRANTED", "BY", gs.Grantor.Rolename)
+	}
+
+	// Add CASCADE/RESTRICT for REVOKE statements
+	if !gs.IsGrant && gs.Behavior != DropRestrict {
+		switch gs.Behavior {
+		case DropCascade:
+			parts = append(parts, "CASCADE")
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// SqlString returns the SQL representation of the GRANT/REVOKE role statement
+func (grs *GrantRoleStmt) SqlString() string {
+	var parts []string
+
+	// Start with GRANT or REVOKE
+	if grs.IsGrant {
+		parts = append(parts, "GRANT")
+	} else {
+		parts = append(parts, "REVOKE")
+	}
+
+	// Add role names
+	if grs.GrantedRoles != nil && len(grs.GrantedRoles.Items) > 0 {
+		var roleNames []string
+		for _, role := range grs.GrantedRoles.Items {
+			if roleSpec, ok := role.(*RoleSpec); ok {
+				roleNames = append(roleNames, roleSpec.Rolename)
+			} else if accessPriv, ok := role.(*AccessPriv); ok {
+				roleNames = append(roleNames, accessPriv.PrivName)
+			}
+		}
+		parts = append(parts, strings.Join(roleNames, ", "))
+	}
+
+	// Add TO/FROM
+	if grs.IsGrant {
+		parts = append(parts, "TO")
+	} else {
+		parts = append(parts, "FROM")
+	}
+
+	// Add grantee roles
+	if grs.GranteeRoles != nil && len(grs.GranteeRoles.Items) > 0 {
+		var granteeNames []string
+		for _, grantee := range grs.GranteeRoles.Items {
+			if roleSpec, ok := grantee.(*RoleSpec); ok {
+				granteeNames = append(granteeNames, roleSpec.Rolename)
+			}
+		}
+		parts = append(parts, strings.Join(granteeNames, ", "))
+	}
+
+	// Add WITH options for GRANT role statements
+	if grs.IsGrant && grs.Opt != nil && len(grs.Opt.Items) > 0 {
+		parts = append(parts, "WITH")
+		var optParts []string
+		for _, opt := range grs.Opt.Items {
+			if defElem, ok := opt.(*DefElem); ok {
+				optStr := strings.ToUpper(defElem.Defname)
+				if defElem.Arg != nil {
+					if boolVal, ok := defElem.Arg.(*Boolean); ok && boolVal.BoolVal {
+						optStr += " OPTION"
+					}
+				} else {
+					optStr += " OPTION"
+				}
+				optParts = append(optParts, optStr)
+			}
+		}
+		if len(optParts) > 0 {
+			parts = append(parts, strings.Join(optParts, " "))
+		}
+	}
+
+	// Add GRANTED BY
+	if grs.Grantor != nil {
+		parts = append(parts, "GRANTED", "BY", grs.Grantor.Rolename)
+	}
+
+	// Add CASCADE/RESTRICT for REVOKE statements
+	if !grs.IsGrant && grs.Behavior != DropRestrict {
+		switch grs.Behavior {
+		case DropCascade:
+			parts = append(parts, "CASCADE")
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
 // ==============================================================================
 // ROLE MANAGEMENT STATEMENTS - PostgreSQL parsenodes.h:3074-3103
 // ==============================================================================
