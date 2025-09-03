@@ -89,6 +89,7 @@ const (
 	T_TransactionStmt
 	T_GrantStmt
 	T_GrantRoleStmt
+	T_AlterDefaultPrivilegesStmt
 	T_AccessPriv
 	T_CreateRoleStmt
 	T_AlterRoleStmt
@@ -434,6 +435,8 @@ func (nt NodeTag) String() string {
 		return "T_GrantStmt"
 	case T_GrantRoleStmt:
 		return "T_GrantRoleStmt"
+	case T_AlterDefaultPrivilegesStmt:
+		return "T_AlterDefaultPrivilegesStmt"
 	case T_AccessPriv:
 		return "T_AccessPriv"
 	case T_CreateRoleStmt:

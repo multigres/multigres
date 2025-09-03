@@ -173,6 +173,100 @@ func TestGrantStmts(t *testing.T) {
 		assert.Equal(t, "REVOKE_ROLE", stmt.StatementType())
 		assert.Contains(t, stmt.String(), "REVOKE")
 	})
+
+	t.Run("AlterDefaultPrivilegesStmt", func(t *testing.T) {
+		// Test with FOR ROLE and IN SCHEMA options
+		roleList := NewNodeList(NewRoleSpec(ROLESPEC_CSTRING, "alice"))
+		schemaList := NewNodeList(NewString("public"))
+		options := NewNodeList(
+			NewDefElem("roles", roleList),
+			NewDefElem("schemas", schemaList),
+		)
+
+		// Create GRANT action
+		privilege := NewAccessPriv("SELECT", nil)
+		grantee := NewRoleSpec(ROLESPEC_CSTRING, "bob")
+		action := NewGrantStmt(OBJECT_TABLE, nil, NewNodeList(privilege), NewNodeList(grantee))
+		action.Targtype = ACL_TARGET_DEFAULTS
+
+		stmt := NewAlterDefaultPrivilegesStmt(options, action)
+
+		assert.Equal(t, T_AlterDefaultPrivilegesStmt, stmt.NodeTag())
+		assert.Equal(t, "ALTER_DEFAULT_PRIVILEGES", stmt.StatementType())
+		assert.Equal(t, 2, len(stmt.Options.Items))
+		assert.Equal(t, action, stmt.Action)
+		assert.Contains(t, stmt.String(), "GRANT")
+		assert.Contains(t, stmt.String(), "2 options")
+
+		// Test interface compliance
+		var _ Node = stmt
+		var _ Stmt = stmt
+	})
+
+	t.Run("AlterDefaultPrivilegesStmt_Revoke", func(t *testing.T) {
+		// Test REVOKE action without options
+		options := &NodeList{Items: []Node{}}
+		
+		// Create REVOKE action
+		privilege := NewAccessPriv("INSERT", nil)
+		grantee := NewRoleSpec(ROLESPEC_CSTRING, "charlie")
+		action := NewRevokeStmt(OBJECT_FUNCTION, nil, NewNodeList(privilege), NewNodeList(grantee))
+		action.Targtype = ACL_TARGET_DEFAULTS
+
+		stmt := NewAlterDefaultPrivilegesStmt(options, action)
+
+		assert.Equal(t, T_AlterDefaultPrivilegesStmt, stmt.NodeTag())
+		assert.Equal(t, "ALTER_DEFAULT_PRIVILEGES", stmt.StatementType())
+		assert.Equal(t, 0, len(stmt.Options.Items))
+		assert.Equal(t, action, stmt.Action)
+		assert.Contains(t, stmt.String(), "REVOKE")
+		assert.Contains(t, stmt.String(), "0 options")
+	})
+
+	t.Run("AlterDefaultPrivilegesStmt_SqlString", func(t *testing.T) {
+		// Test SQL string generation
+		roleList := NewNodeList(NewString("alice"))
+		schemaList := NewNodeList(NewString("public"))
+		options := NewNodeList(
+			NewDefElem("roles", roleList),
+			NewDefElem("schemas", schemaList),
+		)
+
+		// Create GRANT ALL PRIVILEGES action
+		grantee := NewRoleSpec(ROLESPEC_CSTRING, "bob")
+		action := NewGrantStmt(OBJECT_TABLE, nil, nil, NewNodeList(grantee))
+		action.Targtype = ACL_TARGET_DEFAULTS
+
+		stmt := NewAlterDefaultPrivilegesStmt(options, action)
+		sqlStr := stmt.SqlString()
+
+		assert.Contains(t, sqlStr, "ALTER DEFAULT PRIVILEGES")
+		assert.Contains(t, sqlStr, "FOR ROLE alice")
+		assert.Contains(t, sqlStr, "IN SCHEMA public")
+		assert.Contains(t, sqlStr, "GRANT ALL PRIVILEGES")
+		assert.Contains(t, sqlStr, "ON TABLES")
+		assert.Contains(t, sqlStr, "TO bob")
+	})
+
+	t.Run("AlterDefaultPrivilegesStmt_SqlString_Functions", func(t *testing.T) {
+		// Test with FUNCTIONS target and specific privileges
+		options := &NodeList{Items: []Node{}}
+		
+		privilege := NewAccessPriv("EXECUTE", nil)
+		grantee := NewRoleSpec(ROLESPEC_CSTRING, "dev_role")
+		action := NewGrantStmt(OBJECT_FUNCTION, nil, NewNodeList(privilege), NewNodeList(grantee))
+		action.Targtype = ACL_TARGET_DEFAULTS
+		action.GrantOption = true
+
+		stmt := NewAlterDefaultPrivilegesStmt(options, action)
+		sqlStr := stmt.SqlString()
+
+		assert.Contains(t, sqlStr, "ALTER DEFAULT PRIVILEGES")
+		assert.Contains(t, sqlStr, "GRANT EXECUTE")
+		assert.Contains(t, sqlStr, "ON FUNCTIONS")
+		assert.Contains(t, sqlStr, "TO dev_role")
+		assert.Contains(t, sqlStr, "WITH GRANT OPTION")
+	})
 }
 
 // TestRoleStmts tests role management statements.

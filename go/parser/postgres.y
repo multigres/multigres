@@ -466,16 +466,17 @@ type PrivTarget struct {
 %type <ival>     	 event
 
 %type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
-%type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt GrantStmt RevokeStmt GrantRoleStmt RevokeRoleStmt
+%type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt GrantStmt RevokeStmt GrantRoleStmt RevokeRoleStmt AlterDefaultPrivilegesStmt
 %type <str>          opt_in_database
 %type <bval>         opt_transaction_chain
-%type <defelt>       CreateOptRoleElem AlterOptRoleElem
-%type <list>         transaction_mode_list transaction_mode_list_or_empty OptRoleList AlterOptRoleList role_list
+%type <defelt>       CreateOptRoleElem AlterOptRoleElem DefACLOption
+%type <list>         transaction_mode_list transaction_mode_list_or_empty OptRoleList AlterOptRoleList role_list DefACLOptionList
 %type <list>         privileges privilege_list grantee_list grant_role_opt_list
+%type <ival>         defacl_privilege_target
 %type <accesspriv>   privilege
 %type <rolespec>     RoleSpec grantee opt_granted_by
 %type <bval>         opt_grant_grant_option
-%type <node>         grant_role_opt_value
+%type <node>         grant_role_opt_value DefACLAction
 %type <defelt>       grant_role_opt
 %type <privtarget>   privilege_target
 %type <str>          RoleId
@@ -683,6 +684,7 @@ stmt:
 		|	RevokeStmt								{ $$ = $1 }
 		|	GrantRoleStmt							{ $$ = $1 }
 		|	RevokeRoleStmt							{ $$ = $1 }
+		|	AlterDefaultPrivilegesStmt				{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -12509,6 +12511,81 @@ RevokeRoleStmt:
 					stmt.Behavior = $9
 					$$ = stmt
 				}
+		;
+
+/*****************************************************************************
+ *
+ * ALTER DEFAULT PRIVILEGES statement
+ * (ported from postgres/src/backend/parser/gram.y)
+ *
+ *****************************************************************************/
+
+AlterDefaultPrivilegesStmt:
+			ALTER DEFAULT PRIVILEGES DefACLOptionList DefACLAction
+				{
+					$$ = ast.NewAlterDefaultPrivilegesStmt($4, $5.(*ast.GrantStmt))
+				}
+		;
+
+DefACLOptionList:
+			DefACLOptionList DefACLOption			{ $1.Append($2); $$ = $1 }
+			| /* EMPTY */							{ $$ = ast.NewNodeList() }
+		;
+
+DefACLOption:
+			IN_P SCHEMA name_list
+				{
+					$$ = ast.NewDefElem("schemas", $3)
+				}
+			| FOR ROLE role_list
+				{
+					$$ = ast.NewDefElem("roles", $3)
+				}
+			| FOR USER role_list
+				{
+					$$ = ast.NewDefElem("roles", $3)
+				}
+		;
+
+/*
+ * This should match GRANT/REVOKE, except that individual target objects
+ * are not mentioned and we only allow a subset of object types.
+ */
+DefACLAction:
+			GRANT privileges ON defacl_privilege_target TO grantee_list
+			opt_grant_grant_option
+				{
+					n := ast.NewGrantStmt(ast.ObjectType($4), nil, $2, $6)
+					n.Targtype = ast.ACL_TARGET_DEFAULTS
+					n.GrantOption = $7
+					$$ = n
+				}
+			| REVOKE privileges ON defacl_privilege_target
+			FROM grantee_list opt_drop_behavior
+				{
+					n := ast.NewRevokeStmt(ast.ObjectType($4), nil, $2, $6)
+					n.Targtype = ast.ACL_TARGET_DEFAULTS
+					n.Behavior = $7
+					$$ = n
+				}
+			| REVOKE GRANT OPTION FOR privileges ON defacl_privilege_target
+			FROM grantee_list opt_drop_behavior
+				{
+					n := ast.NewRevokeStmt(ast.ObjectType($7), nil, $5, $9)
+					n.Targtype = ast.ACL_TARGET_DEFAULTS
+					n.GrantOption = true
+					n.Behavior = $10
+					$$ = n
+				}
+		;
+
+defacl_privilege_target:
+			TABLES			{ $$ = int(ast.OBJECT_TABLE) }
+			| FUNCTIONS		{ $$ = int(ast.OBJECT_FUNCTION) }
+			| ROUTINES		{ $$ = int(ast.OBJECT_FUNCTION) }
+			| SEQUENCES		{ $$ = int(ast.OBJECT_SEQUENCE) }
+			| TYPES_P		{ $$ = int(ast.OBJECT_TYPE) }
+			| SCHEMAS		{ $$ = int(ast.OBJECT_SCHEMA) }
 		;
 
 /* either ALL [PRIVILEGES] or a list of individual privileges */

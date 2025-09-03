@@ -617,6 +617,185 @@ func (grs *GrantRoleStmt) SqlString() string {
 }
 
 // ==============================================================================
+// ALTER DEFAULT PRIVILEGES STATEMENT - PostgreSQL parsenodes.h:2571-2576
+// ==============================================================================
+
+// AlterDefaultPrivilegesStmt represents ALTER DEFAULT PRIVILEGES statement.
+// Ported from postgres/src/include/nodes/parsenodes.h:2571
+type AlterDefaultPrivilegesStmt struct {
+	BaseNode
+	Options *NodeList  // List of DefElem - postgres/src/include/nodes/parsenodes.h:2574
+	Action  *GrantStmt // GRANT/REVOKE action (with objects=NIL) - postgres/src/include/nodes/parsenodes.h:2575
+}
+
+// NewAlterDefaultPrivilegesStmt creates a new ALTER DEFAULT PRIVILEGES statement.
+func NewAlterDefaultPrivilegesStmt(options *NodeList, action *GrantStmt) *AlterDefaultPrivilegesStmt {
+	return &AlterDefaultPrivilegesStmt{
+		BaseNode: BaseNode{Tag: T_AlterDefaultPrivilegesStmt},
+		Options:  options,
+		Action:   action,
+	}
+}
+
+func (adps *AlterDefaultPrivilegesStmt) String() string {
+	optionsCount := 0
+	if adps.Options != nil {
+		optionsCount = len(adps.Options.Items)
+	}
+	action := "REVOKE"
+	if adps.Action != nil && adps.Action.IsGrant {
+		action = "GRANT"
+	}
+	return fmt.Sprintf("AlterDefaultPrivilegesStmt(%s with %d options)@%d", action, optionsCount, adps.Location())
+}
+
+func (adps *AlterDefaultPrivilegesStmt) StatementType() string {
+	return "ALTER_DEFAULT_PRIVILEGES"
+}
+
+// SqlString returns the SQL representation of the ALTER DEFAULT PRIVILEGES statement
+func (adps *AlterDefaultPrivilegesStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER", "DEFAULT", "PRIVILEGES")
+
+	// Add options (FOR ROLE first, then IN SCHEMA for consistent ordering)
+	if adps.Options != nil && len(adps.Options.Items) > 0 {
+		// First pass: collect role options
+		for _, opt := range adps.Options.Items {
+			if defElem, ok := opt.(*DefElem); ok && defElem.Defname == "roles" {
+				parts = append(parts, "FOR", "ROLE")
+				if defElem.Arg != nil {
+					if nodeList, ok := defElem.Arg.(*NodeList); ok {
+						var roleNames []string
+						for _, role := range nodeList.Items {
+							if roleSpec, ok := role.(*RoleSpec); ok {
+								roleNames = append(roleNames, roleSpec.SqlString())
+							} else if str, ok := role.(*String); ok {
+								roleNames = append(roleNames, str.SVal)
+							}
+						}
+						parts = append(parts, strings.Join(roleNames, ", "))
+					}
+				}
+				break // Only one role option expected
+			}
+		}
+		
+		// Second pass: collect schema options
+		for _, opt := range adps.Options.Items {
+			if defElem, ok := opt.(*DefElem); ok && defElem.Defname == "schemas" {
+				parts = append(parts, "IN", "SCHEMA")
+				if defElem.Arg != nil {
+					if nodeList, ok := defElem.Arg.(*NodeList); ok {
+						var schemaNames []string
+						for _, schema := range nodeList.Items {
+							if str, ok := schema.(*String); ok {
+								schemaNames = append(schemaNames, str.SVal)
+							}
+						}
+						parts = append(parts, strings.Join(schemaNames, ", "))
+					}
+				}
+				break // Only one schema option expected
+			}
+		}
+	}
+
+	// Add the action (GRANT/REVOKE statement)
+	if adps.Action != nil {
+		// Construct the action part manually since it's a special form
+		if adps.Action.IsGrant {
+			parts = append(parts, "GRANT")
+		} else {
+			parts = append(parts, "REVOKE")
+		}
+
+		// Add GRANT OPTION FOR if this is a grant option revoke
+		if !adps.Action.IsGrant && adps.Action.GrantOption {
+			parts = append(parts, "GRANT", "OPTION", "FOR")
+		}
+
+		// Add privileges
+		if adps.Action.Privileges == nil || len(adps.Action.Privileges.Items) == 0 {
+			parts = append(parts, "ALL", "PRIVILEGES")
+		} else {
+			var privParts []string
+			for _, item := range adps.Action.Privileges.Items {
+				if priv, ok := item.(*AccessPriv); ok {
+					privStr := strings.ToUpper(priv.PrivName)
+					if priv.Cols != nil && len(priv.Cols.Items) > 0 {
+						var colNames []string
+						for _, col := range priv.Cols.Items {
+							if str, ok := col.(*String); ok {
+								colNames = append(colNames, str.SVal)
+							}
+						}
+						privStr += " (" + strings.Join(colNames, ", ") + ")"
+					}
+					privParts = append(privParts, privStr)
+				}
+			}
+			parts = append(parts, strings.Join(privParts, ", "))
+		}
+
+		// Add ON
+		parts = append(parts, "ON")
+
+		// Add target type - for default privileges, this is always the object type
+		switch adps.Action.Objtype {
+		case OBJECT_TABLE:
+			parts = append(parts, "TABLES")
+		case OBJECT_SEQUENCE:
+			parts = append(parts, "SEQUENCES")
+		case OBJECT_FUNCTION:
+			parts = append(parts, "FUNCTIONS")
+		case OBJECT_TYPE:
+			parts = append(parts, "TYPES")
+		case OBJECT_SCHEMA:
+			parts = append(parts, "SCHEMAS")
+		}
+
+		// Add TO/FROM
+		if adps.Action.IsGrant {
+			parts = append(parts, "TO")
+		} else {
+			parts = append(parts, "FROM")
+		}
+
+		// Add grantees
+		if adps.Action.Grantees != nil && len(adps.Action.Grantees.Items) > 0 {
+			var granteeNames []string
+			for _, grantee := range adps.Action.Grantees.Items {
+				if roleSpec, ok := grantee.(*RoleSpec); ok {
+					granteeNames = append(granteeNames, roleSpec.SqlString())
+				}
+			}
+			parts = append(parts, strings.Join(granteeNames, ", "))
+		}
+
+		// Add WITH GRANT OPTION for GRANT statements
+		if adps.Action.IsGrant && adps.Action.GrantOption {
+			parts = append(parts, "WITH", "GRANT", "OPTION")
+		}
+
+		// Add GRANTED BY
+		if adps.Action.Grantor != nil {
+			parts = append(parts, "GRANTED", "BY", adps.Action.Grantor.SqlString())
+		}
+
+		// Add CASCADE/RESTRICT for REVOKE statements
+		if !adps.Action.IsGrant && adps.Action.Behavior != DropRestrict {
+			switch adps.Action.Behavior {
+			case DropCascade:
+				parts = append(parts, "CASCADE")
+			}
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// ==============================================================================
 // ROLE MANAGEMENT STATEMENTS - PostgreSQL parsenodes.h:3074-3103
 // ==============================================================================
 

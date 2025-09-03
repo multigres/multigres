@@ -637,31 +637,31 @@
 - ✅ `opt_grant_grant_option` - WITH GRANT OPTION
 
 ### DEFAULT PRIVILEGES
-- ⬜ `AlterDefaultPrivilegesStmt` - ALTER DEFAULT PRIVILEGES
-- ⬜ `DefACLOptionList` - Default ACL options
-- ⬜ `DefACLOption` - Single ACL option
-- ⬜ `DefACLAction` - ACL action
-- ⬜ `defacl_privilege_target` - ACL privilege target
+- ✅ `AlterDefaultPrivilegesStmt` - ALTER DEFAULT PRIVILEGES
+- ✅ `DefACLOptionList` - Default ACL options
+- ✅ `DefACLOption` - Single ACL option
+- ✅ `DefACLAction` - ACL action
+- ✅ `defacl_privilege_target` - ACL privilege target
 
 ### SET/SHOW/RESET
-- ⬜ `VariableSetStmt` - SET statement
-- ⬜ `set_rest` - SET rest
-- ⬜ `set_rest_more` - Additional SET options
-- ⬜ `generic_set` - Generic SET
-- ⬜ `var_name` - Variable name
-- ⬜ `var_list` - Variable list
-- ⬜ `var_value` - Variable value
-- ⬜ `iso_level` - Isolation level
-- ⬜ `opt_boolean_or_string` - Boolean or string
-- ⬜ `zone_value` - Timezone value
-- ⬜ `opt_encoding` - Encoding option
-- ⬜ `NonReservedWord_or_Sconst` - Non-reserved or string
-- ⬜ `VariableResetStmt` - RESET statement
-- ⬜ `reset_rest` - RESET rest
-- ⬜ `generic_reset` - Generic RESET
+- ✅ `VariableSetStmt` - SET statement
+- ✅ `set_rest` - SET rest
+- ✅ `set_rest_more` - Additional SET options
+- ✅ `generic_set` - Generic SET
+- ✅ `var_name` - Variable name
+- ✅ `var_list` - Variable list
+- ✅ `var_value` - Variable value
+- ✅ `iso_level` - Isolation level
+- ✅ `opt_boolean_or_string` - Boolean or string
+- ✅ `zone_value` - Timezone value
+- ✅ `opt_encoding` - Encoding option
+- ✅ `NonReservedWord_or_Sconst` - Non-reserved or string
+- ✅ `VariableResetStmt` - RESET statement
+- ✅ `reset_rest` - RESET rest
+- ✅ `generic_reset` - Generic RESET
 - ⬜ `VariableShowStmt` - SHOW statement
-- ⬜ `SetResetClause` - SET/RESET clause
-- ⬜ `FunctionSetResetClause` - Function SET/RESET
+- ✅ `SetResetClause` - SET/RESET clause
+- ✅ `FunctionSetResetClause` - Function SET/RESET
 - ⬜ `AlterSystemStmt` - ALTER SYSTEM
 
 ### EXPLAIN
