@@ -11,6 +11,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 	"unicode"
 
 	"github.com/multigres/parser/go/parser/ast"
@@ -712,14 +713,18 @@ func (l *Lexer) isDollarQuoteStart() bool {
 	// Now we have the opening delimiter, extract it
 	openingDelimiter := string(next[:pos+1])
 
-	// Special case for "$$": treat as two separate operators only when followed by whitespace
-	// This handles the ambiguity between "$1 $$" (param + two ops) vs "$$hello$$" (dollar-quoted string)
+	// For "$$", we need to look ahead to see if there's a closing "$$" to determine
+	// if this should be treated as a dollar-quoted string or separate operators
 	if openingDelimiter == "$$" {
-		// If we're at the end of input or next character is whitespace, treat as separate operators
-		if pos+1 >= len(next) || unicode.IsSpace(rune(next[pos+1])) {
+		// Look for closing $$ in the remaining input
+		remainingInput := string(next[pos+1:])
+		if strings.Contains(remainingInput, "$$") {
+			// Found closing delimiter, treat as dollar-quoted string
+			return true
+		} else {
+			// No closing delimiter found, treat as separate operators
 			return false
 		}
-		// Otherwise, treat as dollar-quoted string (e.g., "$$hello$$")
 	}
 
 	// We have a valid opening delimiter (e.g., $tag$), so this should be treated

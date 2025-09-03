@@ -663,9 +663,116 @@ type CommentStmt struct {
 func (n *CommentStmt) node() {}
 func (n *CommentStmt) stmt() {}
 
+func (n *CommentStmt) StatementType() string {
+	return "CommentStmt"
+}
+
 func (n *CommentStmt) String() string {
+	return n.SqlString()
+}
+
+func (n *CommentStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "COMMENT ON", n.Objtype.String(), n.Object.String(), "IS")
+	
+	// Handle special object types that need custom formatting
+	switch n.Objtype {
+	case OBJECT_TABCONSTRAINT:
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) > 1 {
+			// Last item is constraint name, preceding items are table name
+			constraintName := ""
+			var tableNameParts []string
+			
+			for i, item := range nodeList.Items {
+				if str, ok := item.(*String); ok {
+					if i == len(nodeList.Items)-1 {
+						constraintName = str.SVal
+					} else {
+						tableNameParts = append(tableNameParts, str.SVal)
+					}
+				}
+			}
+			
+			tableName := FormatQualifiedName(tableNameParts...)
+			parts = append(parts, "COMMENT ON CONSTRAINT", QuoteIdentifier(constraintName), "ON", tableName, "IS")
+		}
+	
+	case OBJECT_DOMCONSTRAINT:
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
+			// First item is TypeName, second is constraint name (as String)
+			domainName := ""
+			constraintName := ""
+			
+			// Get the domain TypeName and format it
+			if typeName, ok := nodeList.Items[0].(*TypeName); ok {
+				domainName = typeName.SqlString()
+			}
+			
+			// Get the constraint name
+			if str, ok := nodeList.Items[1].(*String); ok {
+				constraintName = str.SVal
+			}
+			
+			parts = append(parts, "COMMENT ON CONSTRAINT", QuoteIdentifier(constraintName), "ON DOMAIN", domainName, "IS")
+		}
+	
+	case OBJECT_TRANSFORM:
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
+			// First item is Typename, second is language name  
+			typeName := nodeList.Items[0].SqlString()
+			if str, ok := nodeList.Items[1].(*String); ok {
+				parts = append(parts, "COMMENT ON TRANSFORM FOR", typeName, "LANGUAGE", QuoteIdentifier(str.SVal), "IS")
+			}
+		}
+	
+	case OBJECT_OPCLASS:
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) > 1 {
+			// First item is access method, rest are class name parts
+			if str, ok := nodeList.Items[0].(*String); ok {
+				accessMethod := str.SVal
+				var classNameParts []string
+				for i := 1; i < len(nodeList.Items); i++ {
+					if str, ok := nodeList.Items[i].(*String); ok {
+						classNameParts = append(classNameParts, str.SVal)
+					}
+				}
+				className := FormatQualifiedName(classNameParts...)
+				parts = append(parts, "COMMENT ON OPERATOR CLASS", className, "USING", QuoteIdentifier(accessMethod), "IS")
+			}
+		}
+	
+	case OBJECT_OPFAMILY:
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) > 1 {
+			// First item is access method, rest are family name parts
+			if str, ok := nodeList.Items[0].(*String); ok {
+				accessMethod := str.SVal
+				var familyNameParts []string
+				for i := 1; i < len(nodeList.Items); i++ {
+					if str, ok := nodeList.Items[i].(*String); ok {
+						familyNameParts = append(familyNameParts, str.SVal)
+					}
+				}
+				familyName := FormatQualifiedName(familyNameParts...)
+				parts = append(parts, "COMMENT ON OPERATOR FAMILY", familyName, "USING", QuoteIdentifier(accessMethod), "IS")
+			}
+		}
+	
+	case OBJECT_LARGEOBJECT:
+		// NumericOnly should format directly
+		parts = append(parts, "COMMENT ON LARGE OBJECT", n.Object.SqlString(), "IS")
+	
+	case OBJECT_CAST:
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
+			// First is source type, second is target type
+			sourceType := nodeList.Items[0].SqlString()
+			targetType := nodeList.Items[1].SqlString()
+			parts = append(parts, "COMMENT ON CAST (", sourceType, "AS", targetType, ") IS")
+		}
+	
+	default:
+		// Regular format for other object types
+		objectName := formatObjectName(n.Object)
+		parts = append(parts, "COMMENT ON", n.Objtype.String(), objectName, "IS")
+	}
 
 	if n.Comment != "" {
 		parts = append(parts, "'"+n.Comment+"'")
@@ -676,6 +783,25 @@ func (n *CommentStmt) String() string {
 	return strings.Join(parts, " ")
 }
 
+// formatObjectName formats a Node (NodeList of String nodes or single String) as a qualified identifier
+func formatObjectName(obj Node) string {
+	if nodeList, ok := obj.(*NodeList); ok && len(nodeList.Items) > 0 {
+		var parts []string
+		for _, item := range nodeList.Items {
+			if str, ok := item.(*String); ok {
+				parts = append(parts, str.SVal)
+			}
+		}
+		return FormatQualifiedName(parts...)
+	}
+	// Handle single String nodes (from object_type_name rules)
+	if str, ok := obj.(*String); ok {
+		return QuoteIdentifier(str.SVal)
+	}
+	// Fallback to regular SqlString for other node types (Typename, etc.)
+	return obj.SqlString()
+}
+
 // NewCommentStmt creates a new CommentStmt node
 func NewCommentStmt(objtype ObjectType, object Node, comment string) *CommentStmt {
 	return &CommentStmt{
@@ -683,6 +809,154 @@ func NewCommentStmt(objtype ObjectType, object Node, comment string) *CommentStm
 		Objtype:  objtype,
 		Object:   object,
 		Comment:  comment,
+	}
+}
+
+// SecLabelStmt represents SECURITY LABEL statements
+// Ported from postgres/src/include/nodes/parsenodes.h:3267-3274
+type SecLabelStmt struct {
+	BaseNode
+	Objtype  ObjectType `json:"objtype"`  // Object's type
+	Object   Node       `json:"object"`   // Qualified name of the object
+	Provider string     `json:"provider"` // Label provider (or NULL)
+	Label    string     `json:"label"`    // New security label to be assigned
+}
+
+func (n *SecLabelStmt) node() {}
+func (n *SecLabelStmt) stmt() {}
+
+func (n *SecLabelStmt) StatementType() string {
+	return "SecLabelStmt"
+}
+
+func (n *SecLabelStmt) String() string {
+	return n.SqlString()
+}
+
+func (n *SecLabelStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "SECURITY LABEL")
+	
+	if n.Provider != "" {
+		parts = append(parts, "FOR", n.Provider)
+	}
+	
+	// Format object name as qualified identifier, not string literal
+	objectName := formatObjectName(n.Object)
+	parts = append(parts, "ON", n.Objtype.String(), objectName, "IS")
+
+	if n.Label != "" {
+		parts = append(parts, "'"+n.Label+"'")
+	} else {
+		parts = append(parts, "NULL")
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// NewSecLabelStmt creates a new SecLabelStmt node
+func NewSecLabelStmt(objtype ObjectType, object Node, provider string, label string) *SecLabelStmt {
+	return &SecLabelStmt{
+		BaseNode: BaseNode{Tag: T_SecLabelStmt},
+		Objtype:  objtype,
+		Object:   object,
+		Provider: provider,
+		Label:    label,
+	}
+}
+
+// DoStmt represents DO statements
+// Ported from postgres/src/include/nodes/parsenodes.h:3437-3441
+type DoStmt struct {
+	BaseNode
+	Args *NodeList `json:"args"` // List of DefElem nodes
+}
+
+func (n *DoStmt) node() {}
+func (n *DoStmt) stmt() {}
+
+func (n *DoStmt) StatementType() string {
+	return "DoStmt"
+}
+
+func (n *DoStmt) String() string {
+	return n.SqlString()
+}
+
+func (n *DoStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "DO")
+	
+	if n.Args != nil {
+		var language string
+		var code string
+		
+		// Process DefElem arguments to extract language and code
+		for _, arg := range n.Args.Items {
+			if defElem, ok := arg.(*DefElem); ok {
+				switch defElem.Defname {
+				case "language":
+					if str, ok := defElem.Arg.(*String); ok {
+						language = str.SVal
+					}
+				case "as":
+					if str, ok := defElem.Arg.(*String); ok {
+						code = str.SVal
+					}
+				}
+			}
+		}
+		
+		// Format according to PostgreSQL DO statement syntax
+		if language != "" {
+			parts = append(parts, "LANGUAGE", QuoteIdentifier(language))
+		}
+		
+		if code != "" {
+			// Use single quotes for the code block
+			parts = append(parts, QuoteStringLiteral(code))
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// NewDoStmt creates a new DoStmt node
+func NewDoStmt(args *NodeList) *DoStmt {
+	return &DoStmt{
+		BaseNode: BaseNode{Tag: T_DoStmt},
+		Args:     args,
+	}
+}
+
+// CallStmt represents CALL statements
+// Ported from postgres/src/include/nodes/parsenodes.h:3451-3458
+type CallStmt struct {
+	BaseNode
+	Funccall *FuncCall `json:"funccall"` // from the parser
+	// Note: funcexpr and outargs are used at execution time, not parsing
+}
+
+func (n *CallStmt) node() {}
+func (n *CallStmt) stmt() {}
+
+func (n *CallStmt) StatementType() string {
+	return "CallStmt"
+}
+
+func (n *CallStmt) String() string {
+	return n.SqlString()
+}
+
+func (n *CallStmt) SqlString() string {
+	return "CALL " + n.Funccall.SqlString()
+}
+
+// NewCallStmt creates a new CallStmt node
+func NewCallStmt(funccall *FuncCall) *CallStmt {
+	return &CallStmt{
+		BaseNode: BaseNode{Tag: T_CallStmt},
+		Funccall: funccall,
 	}
 }
 

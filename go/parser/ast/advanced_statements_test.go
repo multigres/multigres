@@ -501,6 +501,101 @@ func TestCommentStmt(t *testing.T) {
 	})
 }
 
+func TestSecLabelStmt(t *testing.T) {
+	t.Run("NewSecLabelStmtWithProvider", func(t *testing.T) {
+		object := &RangeVar{RelName: "test_table"}
+		stmt := NewSecLabelStmt(OBJECT_TABLE, object, "selinux", "system_u:object_r:sepgsql_table_t:s0")
+
+		require.NotNil(t, stmt)
+		assert.Equal(t, T_SecLabelStmt, stmt.Tag)
+		assert.Equal(t, OBJECT_TABLE, stmt.Objtype)
+		assert.Equal(t, object, stmt.Object)
+		assert.Equal(t, "selinux", stmt.Provider)
+		assert.Equal(t, "system_u:object_r:sepgsql_table_t:s0", stmt.Label)
+		assert.Contains(t, stmt.String(), "SECURITY LABEL")
+		assert.Contains(t, stmt.String(), "FOR selinux")
+		assert.Contains(t, stmt.String(), "ON")
+		assert.Contains(t, stmt.String(), "IS")
+		assert.Contains(t, stmt.String(), "'system_u:object_r:sepgsql_table_t:s0'")
+	})
+
+	t.Run("NewSecLabelStmtWithoutProvider", func(t *testing.T) {
+		object := &RangeVar{RelName: "test_table"}
+		stmt := NewSecLabelStmt(OBJECT_TABLE, object, "", "confidential")
+
+		assert.Equal(t, "", stmt.Provider)
+		assert.NotContains(t, stmt.String(), "FOR")
+		assert.Contains(t, stmt.String(), "'confidential'")
+	})
+
+	t.Run("SecLabelStmtRemoveLabel", func(t *testing.T) {
+		object := &RangeVar{RelName: "test_table"}
+		stmt := NewSecLabelStmt(OBJECT_TABLE, object, "selinux", "")
+
+		assert.Equal(t, "", stmt.Label)
+		assert.Contains(t, stmt.String(), "NULL")
+	})
+}
+
+func TestDoStmt(t *testing.T) {
+	t.Run("NewDoStmtWithLanguage", func(t *testing.T) {
+		codeDefElem := &DefElem{Defname: "as", Arg: &String{SVal: "BEGIN; COMMIT; END;"}}
+		langDefElem := &DefElem{Defname: "language", Arg: &String{SVal: "plpgsql"}}
+		args := NewNodeList(codeDefElem, langDefElem)
+		stmt := NewDoStmt(args)
+
+		require.NotNil(t, stmt)
+		assert.Equal(t, T_DoStmt, stmt.Tag)
+		assert.Equal(t, 2, stmt.Args.Len())
+		assert.Equal(t, codeDefElem, stmt.Args.Items[0])
+		assert.Equal(t, langDefElem, stmt.Args.Items[1])
+		assert.Contains(t, stmt.String(), "DO")
+	})
+
+	t.Run("NewDoStmtCodeOnly", func(t *testing.T) {
+		codeDefElem := &DefElem{Defname: "as", Arg: &String{SVal: "$$ SELECT 1; $$"}}
+		args := NewNodeList(codeDefElem)
+		stmt := NewDoStmt(args)
+
+		assert.Equal(t, 1, stmt.Args.Len())
+		assert.Equal(t, codeDefElem, stmt.Args.Items[0])
+	})
+}
+
+func TestCallStmt(t *testing.T) {
+	t.Run("NewCallStmt", func(t *testing.T) {
+		funcNameList := &NodeList{Items: []Node{&String{SVal: "my_procedure"}}}
+		argsList := &NodeList{Items: []Node{
+			&A_Const{Val: &Integer{IVal: 1}},
+			&A_Const{Val: &String{SVal: "test"}},
+		}}
+		funccall := &FuncCall{
+			Funcname: funcNameList,
+			Args:     argsList,
+		}
+		stmt := NewCallStmt(funccall)
+
+		require.NotNil(t, stmt)
+		assert.Equal(t, T_CallStmt, stmt.Tag)
+		assert.Equal(t, funccall, stmt.Funccall)
+		assert.Contains(t, stmt.String(), "CALL")
+		assert.Contains(t, stmt.String(), "my_procedure")
+	})
+
+	t.Run("CallStmtNoArgs", func(t *testing.T) {
+		funcNameList := &NodeList{Items: []Node{&String{SVal: "simple_proc"}}}
+		funccall := &FuncCall{
+			Funcname: funcNameList,
+			Args:     &NodeList{Items: []Node{}},
+		}
+		stmt := NewCallStmt(funccall)
+
+		assert.Equal(t, funccall, stmt.Funccall)
+		assert.Contains(t, stmt.String(), "CALL")
+		assert.Contains(t, stmt.String(), "simple_proc")
+	})
+}
+
 func TestRenameStmt(t *testing.T) {
 	t.Run("NewRenameStmt", func(t *testing.T) {
 		stmt := NewRenameStmt(OBJECT_TABLE, "new_name")

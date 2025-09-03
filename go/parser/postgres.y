@@ -477,7 +477,7 @@ type PrivTarget struct {
 %type <ival>     	 event
 
 %type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt ExplainStmt VacuumStmt VariableShowStmt AlterSystemStmt ExplainableStmt AnalyzeStmt
-%type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt GrantStmt RevokeStmt GrantRoleStmt RevokeRoleStmt AlterDefaultPrivilegesStmt
+%type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt GrantStmt RevokeStmt GrantRoleStmt RevokeRoleStmt AlterDefaultPrivilegesStmt CommentStmt SecLabelStmt DoStmt CallStmt
 %type <str>          opt_in_database
 %type <bval>         opt_transaction_chain
 %type <defelt>       CreateOptRoleElem AlterOptRoleElem DefACLOption
@@ -497,6 +497,9 @@ type PrivTarget struct {
 %type <bval>         opt_grant_grant_option
 %type <node>         grant_role_opt_value DefACLAction
 %type <defelt>       grant_role_opt
+%type <str>          comment_text opt_provider security_label
+%type <list>         dostmt_opt_list
+%type <defelt>       dostmt_opt_item
 %type <privtarget>   privilege_target
 %type <str>          RoleId
 %type <ival>         add_drop
@@ -725,6 +728,10 @@ stmt:
 		|	LoadStmt								{ $$ = $1 }
 		|	LockStmt								{ $$ = $1 }
 		|	TruncateStmt							{ $$ = $1 }
+		|	CommentStmt								{ $$ = $1 }
+		|	SecLabelStmt							{ $$ = $1 }
+		|	DoStmt									{ $$ = $1 }
+		|	CallStmt								{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -13964,6 +13971,230 @@ TruncateStmt:
 				stmt.RestartSeqs = $4
 				stmt.Behavior = $5
 				$$ = stmt
+			}
+		;
+
+/*
+ * COMMENT ON statement
+ * From postgres/src/backend/parser/gram.y:4933-4971
+ */
+CommentStmt:
+		COMMENT ON object_type_any_name any_name IS comment_text
+			{
+				$$ = ast.NewCommentStmt($3, $4, $6)
+			}
+		|	COMMENT ON COLUMN any_name IS comment_text
+			{
+				$$ = ast.NewCommentStmt(ast.OBJECT_COLUMN, $4, $6)
+			}
+		|	COMMENT ON object_type_name name IS comment_text
+			{
+				$$ = ast.NewCommentStmt($3, ast.NewString($4), $6)
+			}
+		|	COMMENT ON TYPE_P Typename IS comment_text
+			{
+				$$ = ast.NewCommentStmt(ast.OBJECT_TYPE, $4, $6)
+			}
+		|	COMMENT ON DOMAIN_P Typename IS comment_text
+			{
+				$$ = ast.NewCommentStmt(ast.OBJECT_DOMAIN, $4, $6)
+			}
+		|	COMMENT ON AGGREGATE aggregate_with_argtypes IS comment_text
+			{
+				$$ = ast.NewCommentStmt(ast.OBJECT_AGGREGATE, $4, $6)
+			}
+		|	COMMENT ON FUNCTION function_with_argtypes IS comment_text
+			{
+				$$ = ast.NewCommentStmt(ast.OBJECT_FUNCTION, $4, $6)
+			}
+		|	COMMENT ON OPERATOR operator_with_argtypes IS comment_text
+			{
+				$$ = ast.NewCommentStmt(ast.OBJECT_OPERATOR, $4, $6)
+			}
+		|	COMMENT ON CONSTRAINT name ON any_name IS comment_text
+			{
+				// For table constraints, append constraint name to table name list
+				newObj := $6
+				newObj.Append(ast.NewString($4))
+				$$ = ast.NewCommentStmt(ast.OBJECT_TABCONSTRAINT, newObj, $8)
+			}
+		|	COMMENT ON CONSTRAINT name ON DOMAIN_P any_name IS comment_text
+			{
+				// For domain constraints, we need a list of [TypeName, constraint_name]
+				// This matches PostgreSQL's approach where they comment:
+				// "should use Typename not any_name in the production, but
+				// there's a shift/reduce conflict if we do that, so fix it up here."
+				objList := ast.NewNodeList()
+				objList.Append(makeTypeNameFromNodeList($7))  // Convert any_name to TypeName
+				objList.Append(ast.NewString($4))              // Add constraint name
+				$$ = ast.NewCommentStmt(ast.OBJECT_DOMCONSTRAINT, objList, $9)
+			}
+		|	COMMENT ON object_type_name_on_any_name name ON any_name IS comment_text
+			{
+				// For object types that need name ON any_name: append name to any_name list
+				newObj := $6
+				newObj.Append(ast.NewString($4))
+				$$ = ast.NewCommentStmt($3, newObj, $8)
+			}
+		|	COMMENT ON PROCEDURE function_with_argtypes IS comment_text
+			{
+				$$ = ast.NewCommentStmt(ast.OBJECT_PROCEDURE, $4, $6)
+			}
+		|	COMMENT ON ROUTINE function_with_argtypes IS comment_text
+			{
+				$$ = ast.NewCommentStmt(ast.OBJECT_ROUTINE, $4, $6)
+			}
+		|	COMMENT ON TRANSFORM FOR Typename LANGUAGE name IS comment_text
+			{
+				// Transform: typename + language name
+				transformObj := ast.NewNodeList()
+				transformObj.Append($5)  // Typename
+				transformObj.Append(ast.NewString($7))  // Language name
+				$$ = ast.NewCommentStmt(ast.OBJECT_TRANSFORM, transformObj, $9)
+			}
+		|	COMMENT ON OPERATOR CLASS any_name USING name IS comment_text
+			{
+				// Operator class: access method + class name
+				opclassObj := ast.NewNodeList()
+				opclassObj.Append(ast.NewString($7))  // Access method name first
+				for _, item := range $5.Items {
+					opclassObj.Append(item)  // Class name parts
+				}
+				$$ = ast.NewCommentStmt(ast.OBJECT_OPCLASS, opclassObj, $9)
+			}
+		|	COMMENT ON OPERATOR FAMILY any_name USING name IS comment_text
+			{
+				// Operator family: access method + family name  
+				opfamilyObj := ast.NewNodeList()
+				opfamilyObj.Append(ast.NewString($7))  // Access method name first
+				for _, item := range $5.Items {
+					opfamilyObj.Append(item)  // Family name parts
+				}
+				$$ = ast.NewCommentStmt(ast.OBJECT_OPFAMILY, opfamilyObj, $9)
+			}
+		|	COMMENT ON LARGE_P OBJECT_P NumericOnly IS comment_text
+			{
+				$$ = ast.NewCommentStmt(ast.OBJECT_LARGEOBJECT, $5, $7)
+			}
+		|	COMMENT ON CAST '(' Typename AS Typename ')' IS comment_text
+			{
+				// Cast: source type + target type
+				castObj := ast.NewNodeList()
+				castObj.Append($5)  // Source typename
+				castObj.Append($7)  // Target typename
+				$$ = ast.NewCommentStmt(ast.OBJECT_CAST, castObj, $10)
+			}
+		;
+
+/*
+ * comment_text
+ * From postgres/src/backend/parser/gram.y:5006-5009
+ */
+comment_text:
+		Sconst		{ $$ = $1 }
+	|	NULL_P		{ $$ = "" }
+		;
+
+/*
+ * SECURITY LABEL statement
+ * From postgres/src/backend/parser/gram.y:5011-5032
+ */
+SecLabelStmt:
+		SECURITY LABEL opt_provider ON object_type_any_name any_name IS security_label
+			{
+				$$ = ast.NewSecLabelStmt($5, $6, $3, $8)
+			}
+		|	SECURITY LABEL opt_provider ON COLUMN any_name IS security_label
+			{
+				$$ = ast.NewSecLabelStmt(ast.OBJECT_COLUMN, $6, $3, $8)
+			}
+		|	SECURITY LABEL opt_provider ON object_type_name name IS security_label
+			{
+				$$ = ast.NewSecLabelStmt($5, ast.NewString($6), $3, $8)
+			}
+		|	SECURITY LABEL opt_provider ON TYPE_P Typename IS security_label
+			{
+				$$ = ast.NewSecLabelStmt(ast.OBJECT_TYPE, $6, $3, $8)
+			}
+		|	SECURITY LABEL opt_provider ON DOMAIN_P Typename IS security_label
+			{
+				$$ = ast.NewSecLabelStmt(ast.OBJECT_DOMAIN, $6, $3, $8)
+			}
+		|	SECURITY LABEL opt_provider ON AGGREGATE aggregate_with_argtypes IS security_label
+			{
+				$$ = ast.NewSecLabelStmt(ast.OBJECT_AGGREGATE, $6, $3, $8)
+			}
+		|	SECURITY LABEL opt_provider ON FUNCTION function_with_argtypes IS security_label
+			{
+				$$ = ast.NewSecLabelStmt(ast.OBJECT_FUNCTION, $6, $3, $8)
+			}
+		|	SECURITY LABEL opt_provider ON LARGE_P OBJECT_P NumericOnly IS security_label
+			{
+				$$ = ast.NewSecLabelStmt(ast.OBJECT_LARGEOBJECT, $7, $3, $9)
+			}
+		|	SECURITY LABEL opt_provider ON PROCEDURE function_with_argtypes IS security_label
+			{
+				$$ = ast.NewSecLabelStmt(ast.OBJECT_PROCEDURE, $6, $3, $8)
+			}
+		|	SECURITY LABEL opt_provider ON ROUTINE function_with_argtypes IS security_label
+			{
+				$$ = ast.NewSecLabelStmt(ast.OBJECT_ROUTINE, $6, $3, $8)
+			}
+		;
+
+/*
+ * opt_provider and security_label
+ * From postgres/src/backend/parser/gram.y:5034-5042
+ */
+opt_provider:
+		FOR NonReservedWord_or_Sconst	{ $$ = $2 }
+	|	/* EMPTY */						{ $$ = "" }
+		;
+
+security_label:
+		Sconst		{ $$ = $1 }
+	|	NULL_P		{ $$ = "" }
+		;
+
+/*
+ * DO statement
+ * From postgres/src/backend/parser/gram.y:5044-5050
+ */
+DoStmt:
+		DO dostmt_opt_list
+			{
+				$$ = ast.NewDoStmt($2)
+			}
+		;
+
+/*
+ * dostmt_opt_list and dostmt_opt_item
+ * From postgres/src/backend/parser/gram.y:5052-5071
+ */
+dostmt_opt_list:
+		dostmt_opt_item						{ $$ = ast.NewNodeList($1) }
+	|	dostmt_opt_list dostmt_opt_item		{ $$ = $1; $$.Append($2) }
+		;
+
+dostmt_opt_item:
+		Sconst
+			{
+				$$ = ast.NewDefElem("as", ast.NewString($1))
+			}
+	|	LANGUAGE NonReservedWord_or_Sconst
+			{
+				$$ = ast.NewDefElem("language", ast.NewString($2))
+			}
+		;
+
+/*
+ * CALL statement
+ * From postgres/src/backend/parser/gram.y:5073-5078
+ */
+CallStmt:
+		CALL func_application
+			{
+				$$ = ast.NewCallStmt($2.(*ast.FuncCall))
 			}
 		;
 

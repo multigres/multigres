@@ -807,6 +807,44 @@ func TestDeparsing(t *testing.T) {
 		// Column definitions with arrays in various contexts
 		{"ALTER TABLE add array column", "ALTER TABLE test ADD COLUMN new_col INT[]", ""},
 		{"ALTER TABLE add bounded array column", "ALTER TABLE test ADD COLUMN new_col INT[10]", ""},
+
+		// ===== COMMENT Statements =====
+		{"COMMENT ON TABLE", "COMMENT ON TABLE users IS 'User information table'", ""},
+		{"COMMENT ON TABLE with NULL", "COMMENT ON TABLE users IS NULL", ""},
+		{"COMMENT ON COLUMN", "COMMENT ON COLUMN users.name IS 'User full name'", ""},
+		{"COMMENT ON INDEX", "COMMENT ON INDEX idx_users_name IS 'Index for user names'", ""},
+		{"COMMENT ON VIEW", "COMMENT ON VIEW user_view IS 'Active users view'", ""},
+		{"COMMENT ON SEQUENCE", "COMMENT ON SEQUENCE user_id_seq IS 'User ID sequence'", ""},
+		{"COMMENT ON FUNCTION", "COMMENT ON FUNCTION get_user(integer) IS 'Get user by ID'", "COMMENT ON FUNCTION get_user(INT) IS 'Get user by ID'"},
+		{"COMMENT ON ROLE", "COMMENT ON ROLE admin IS 'Administrator role'", ""},
+		{"COMMENT ON DATABASE", "COMMENT ON DATABASE mydb IS 'Main database'", ""},
+		{"COMMENT ON CONSTRAINT", "COMMENT ON CONSTRAINT users_pkey ON users IS 'Primary key constraint'", ""},
+		{"COMMENT ON CONSTRAINT ON DOMAIN", "COMMENT ON CONSTRAINT email_check ON DOMAIN email IS 'Email format constraint'", ""},
+		{"COMMENT ON PROCEDURE", "COMMENT ON PROCEDURE update_user(integer, text) IS 'Update user procedure'", "COMMENT ON PROCEDURE update_user(INT, TEXT) IS 'Update user procedure'"},
+		{"COMMENT ON ROUTINE", "COMMENT ON ROUTINE calculate_total(numeric, numeric) IS 'Total calculation routine'", "COMMENT ON ROUTINE calculate_total(NUMERIC, NUMERIC) IS 'Total calculation routine'"},
+		{"COMMENT ON TRANSFORM", "COMMENT ON TRANSFORM FOR integer LANGUAGE plpgsql IS 'Integer transform'", "COMMENT ON TRANSFORM FOR INT LANGUAGE plpgsql IS 'Integer transform'"},
+		{"COMMENT ON OPERATOR CLASS", "COMMENT ON OPERATOR CLASS int4_ops USING btree IS 'Integer B-tree ops'", ""},
+		{"COMMENT ON OPERATOR FAMILY", "COMMENT ON OPERATOR FAMILY integer_ops USING hash IS 'Integer hash family'", ""},
+		{"COMMENT ON LARGE OBJECT", "COMMENT ON LARGE OBJECT 152344 IS 'User avatar image'", ""},
+		{"COMMENT ON CAST", "COMMENT ON CAST (integer AS bigint) IS 'Integer to bigint cast'", "COMMENT ON CAST ( INT AS BIGINT ) IS 'Integer to bigint cast'"},
+
+		// ===== SECURITY LABEL Statements =====
+		{"SECURITY LABEL ON TABLE", "SECURITY LABEL ON TABLE users IS 'classified'", ""},
+		{"SECURITY LABEL with provider", "SECURITY LABEL FOR selinux ON TABLE users IS 'system_u:object_r:sepgsql_table_t:s0'", ""},
+		{"SECURITY LABEL ON COLUMN", "SECURITY LABEL ON COLUMN users.ssn IS 'top-secret'", ""},
+		{"SECURITY LABEL ON COLUMN with provider", "SECURITY LABEL FOR selinux ON COLUMN users.ssn IS 'system_u:object_r:sepgsql_secret_table_t:s0'", ""},
+		{"SECURITY LABEL with NULL", "SECURITY LABEL ON TABLE users IS NULL", ""},
+
+		// ===== DO Statements =====
+		{"DO with simple string", "DO 'BEGIN RAISE NOTICE ''Test''; END'", ""},
+		{"DO with dollar-quoted string", "DO $$ BEGIN RAISE NOTICE 'Hello World'; END $$", "DO ' BEGIN RAISE NOTICE ''Hello World''; END '"},
+		{"DO with language and dollar-quoted", "DO LANGUAGE plpgsql $$ BEGIN RAISE NOTICE 'Hello'; END $$", "DO LANGUAGE plpgsql ' BEGIN RAISE NOTICE ''Hello''; END '"},
+
+		// ===== CALL Statements =====
+		{"CALL simple procedure", "CALL my_procedure()", ""},
+		{"CALL procedure with parameters", "CALL update_user(123, 'John Doe')", ""},
+		{"CALL procedure with mixed parameters", "CALL complex_proc(1, 'test', TRUE, NULL)", ""},
+		{"CALL qualified procedure name", "CALL public.my_procedure(42)", ""},
 	}
 
 	for _, tt := range tests {

@@ -730,18 +730,18 @@
 - ✅ `opt_restart_seqs` - RESTART IDENTITY
 
 ### Comments and Labels
-- ⬜ `CommentStmt` - COMMENT statement
-- ⬜ `comment_text` - Comment text
-- ⬜ `SecLabelStmt` - SECURITY LABEL
-- ⬜ `security_label` - Security label text
+- ✅ `CommentStmt` - COMMENT statement
+- ✅ `comment_text` - Comment text
+- ✅ `SecLabelStmt` - SECURITY LABEL
+- ✅ `security_label` - Security label text
 
 ### DO Block
-- ⬜ `DoStmt` - DO statement
-- ⬜ `dostmt_opt_list` - DO options
-- ⬜ `dostmt_opt_item` - DO option item
+- ✅ `DoStmt` - DO statement
+- ✅ `dostmt_opt_list` - DO options
+- ✅ `dostmt_opt_item` - DO option item
 
 ### CALL
-- ⬜ `CallStmt` - CALL statement
+- ✅ `CallStmt` - CALL statement
 
 ### RENAME
 - ✅ `RenameStmt` - RENAME statement

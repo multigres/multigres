@@ -223,6 +223,9 @@ const (
 	T_MergeWhenClause
 	T_TruncateStmt
 	T_CommentStmt
+	T_SecLabelStmt
+	T_DoStmt
+	T_CallStmt
 	T_RenameStmt
 	T_AlterOwnerStmt
 	T_RuleStmt
@@ -690,6 +693,12 @@ func (nt NodeTag) String() string {
 		return "T_TruncateStmt"
 	case T_CommentStmt:
 		return "T_CommentStmt"
+	case T_SecLabelStmt:
+		return "T_SecLabelStmt"
+	case T_DoStmt:
+		return "T_DoStmt"
+	case T_CallStmt:
+		return "T_CallStmt"
 	case T_RenameStmt:
 		return "T_RenameStmt"
 	case T_AlterOwnerStmt:
