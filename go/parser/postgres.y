@@ -101,6 +101,7 @@ type PrivTarget struct {
 	statelem   *ast.StatsElem
 	accesspriv *ast.AccessPriv         // For privilege specifications
 	privtarget *PrivTarget             // For privilege target specifications
+	vacrel     *ast.VacuumRelation     // For vacuum relation specifications
 
 	// Location tracking
 	location   int
@@ -465,11 +466,16 @@ type PrivTarget struct {
 %type <node>         alter_type_cmd
 %type <ival>     	 event
 
-%type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt
+%type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt ExplainStmt VacuumStmt VariableShowStmt AlterSystemStmt ExplainableStmt AnalyzeStmt
 %type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt GrantStmt RevokeStmt GrantRoleStmt RevokeRoleStmt AlterDefaultPrivilegesStmt
 %type <str>          opt_in_database
 %type <bval>         opt_transaction_chain
 %type <defelt>       CreateOptRoleElem AlterOptRoleElem DefACLOption
+%type <list>         utility_option_list opt_vacuum_relation_list vacuum_relation_list
+%type <defelt>       utility_option_elem
+%type <str>          utility_option_name analyze_keyword
+%type <node>         utility_option_arg
+%type <vacrel>       vacuum_relation
 %type <list>         transaction_mode_list transaction_mode_list_or_empty OptRoleList AlterOptRoleList role_list DefACLOptionList
 %type <list>         privileges privilege_list grantee_list grant_role_opt_list
 %type <ival>         defacl_privilege_target
@@ -685,6 +691,11 @@ stmt:
 		|	GrantRoleStmt							{ $$ = $1 }
 		|	RevokeRoleStmt							{ $$ = $1 }
 		|	AlterDefaultPrivilegesStmt				{ $$ = $1 }
+		|	ExplainStmt								{ $$ = $1 }
+		|	VacuumStmt								{ $$ = $1 }
+		| 	AnalyzeStmt								{ $$ = $1 }
+		|	VariableShowStmt						{ $$ = $1 }
+		|	AlterSystemStmt							{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -8423,6 +8434,194 @@ SetResetClause:
 
 VariableResetStmt:
 		RESET reset_rest						{ $$ = ast.Stmt($2) }
+	;
+
+/*
+ * EXPLAIN Statement
+ * Ported from postgres/src/backend/parser/gram.y
+ */
+ExplainStmt:
+		EXPLAIN ExplainableStmt
+			{
+				$$ = ast.NewExplainStmt($2, nil)
+			}
+	|	EXPLAIN analyze_keyword opt_verbose ExplainableStmt
+			{
+				options := ast.NewNodeList(ast.NewDefElem("analyze", nil))
+				if $3 != 0 {
+					options.Append(ast.NewDefElem("verbose", nil))
+				}
+				$$ = ast.NewExplainStmt($4, options)
+			}
+	|	EXPLAIN VERBOSE ExplainableStmt
+			{
+				options := ast.NewNodeList(ast.NewDefElem("verbose", nil))
+				$$ = ast.NewExplainStmt($3, options)
+			}
+	|	EXPLAIN '(' utility_option_list ')' ExplainableStmt
+			{
+				$$ = ast.NewExplainStmt($5, $3)
+			}
+	;
+
+utility_option_list:
+		utility_option_elem
+			{
+				$$ = ast.NewNodeList($1)
+			}
+	|	utility_option_list ',' utility_option_elem
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+	;
+
+utility_option_elem:
+		utility_option_name utility_option_arg
+			{
+				$$ = ast.NewDefElem($1, $2)
+			}
+	;
+
+utility_option_name:
+		NonReservedWord						{ $$ = $1 }
+	|	analyze_keyword						{ $$ = "analyze" }
+	| 	FORMAT_LA							{ $$ = "format" }
+	;
+
+utility_option_arg:
+		opt_boolean_or_string				{ $$ = ast.NewString($1) }
+	|	NumericOnly							{ $$ = $1 }
+	|	/* EMPTY */							{ $$ = nil }
+	;
+
+ExplainableStmt:
+		SelectStmt							{ $$ = $1 }
+	|	InsertStmt							{ $$ = $1 }
+	|	UpdateStmt							{ $$ = $1 }
+	|	DeleteStmt							{ $$ = $1 }
+	|	MergeStmt							{ $$ = $1 }
+	|	CreateMatViewStmt					{ $$ = $1 }
+	|	RefreshMatViewStmt					{ $$ = $1 }
+	;
+
+/*
+ * VACUUM/ANALYZE Statement
+ * Ported from postgres/src/backend/parser/gram.y
+ */
+VacuumStmt:
+		VACUUM opt_full opt_freeze opt_verbose opt_analyze opt_vacuum_relation_list
+			{
+				var optionsList *ast.NodeList
+				if $2 != 0 || $3 != 0 || $4 != 0 || $5 != 0 {
+					optionsList = ast.NewNodeList()
+					if $2 != 0 {
+						optionsList.Append(ast.NewDefElem("full", ast.NewBoolean(true)))
+					}
+					if $3 != 0 {
+						optionsList.Append(ast.NewDefElem("freeze", ast.NewBoolean(true)))
+					}
+					if $4 != 0 {
+						optionsList.Append(ast.NewDefElem("verbose", ast.NewBoolean(true)))
+					}
+					if $5 != 0 {
+						optionsList.Append(ast.NewDefElem("analyze", ast.NewBoolean(true)))
+					}
+				}
+				
+				$$ = ast.NewVacuumStmt(optionsList, $6)
+			}
+	|	VACUUM '(' utility_option_list ')' opt_vacuum_relation_list
+			{
+				$$ = ast.NewVacuumStmt($3, $5)
+			}
+	;
+
+AnalyzeStmt:
+		analyze_keyword opt_verbose opt_vacuum_relation_list
+			{
+				var optionsList *ast.NodeList
+				if $2 != 0 {
+					optionsList = ast.NewNodeList(ast.NewDefElem("verbose", ast.NewBoolean(true)))
+				}
+				
+				$$ = ast.NewAnalyzeStmt(optionsList, $3)
+			}
+	|	analyze_keyword '(' utility_option_list ')' opt_vacuum_relation_list
+			{
+				$$ = ast.NewAnalyzeStmt($3, $5)
+			}
+	;
+
+opt_vacuum_relation_list:
+		vacuum_relation_list				{ $$ = $1 }
+	|	/* EMPTY */							{ $$ = nil }
+	;
+
+vacuum_relation_list:
+		vacuum_relation
+			{
+				$$ = ast.NewNodeList($1)
+			}
+	|	vacuum_relation_list ',' vacuum_relation
+			{
+				$1.Append($3)
+				$$ = $1
+			}
+	;
+
+vacuum_relation:
+		qualified_name opt_name_list
+			{
+				$$ = ast.NewVacuumRelation($1, $2)
+			}
+	;
+
+analyze_keyword:
+		ANALYZE								{ $$ = "analyze" }
+		| ANALYSE /* British */				{ $$ = "analyse" }
+	;
+
+/*
+ * SHOW Statement
+ * Ported from postgres/src/backend/parser/gram.y
+ */
+VariableShowStmt:
+		SHOW var_name
+			{
+				$$ = ast.NewVariableShowStmt($2)
+			}
+	|	SHOW TIME ZONE
+			{
+				$$ = ast.NewVariableShowStmt("timezone")
+			}
+	|	SHOW TRANSACTION ISOLATION LEVEL
+			{
+				$$ = ast.NewVariableShowStmt("transaction_isolation")
+			}
+	|	SHOW SESSION AUTHORIZATION
+			{
+				$$ = ast.NewVariableShowStmt("session_authorization")
+			}
+	|	SHOW ALL
+			{
+				$$ = ast.NewVariableShowStmt("all")
+			}
+	;
+
+/*
+ * ALTER SYSTEM Statement
+ * Ported from postgres/src/backend/parser/gram.y
+ */
+AlterSystemStmt:
+		ALTER SYSTEM_P SET generic_set
+			{
+				$$ = ast.NewAlterSystemStmt($4)
+			}
+	|	ALTER SYSTEM_P RESET generic_reset
+			{
+				$$ = ast.NewAlterSystemStmt($4)
+			}
 	;
 
 /* object types taking any_name/any_name_list */

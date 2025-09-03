@@ -659,26 +659,26 @@
 - ✅ `VariableResetStmt` - RESET statement
 - ✅ `reset_rest` - RESET rest
 - ✅ `generic_reset` - Generic RESET
-- ⬜ `VariableShowStmt` - SHOW statement
 - ✅ `SetResetClause` - SET/RESET clause
 - ✅ `FunctionSetResetClause` - Function SET/RESET
-- ⬜ `AlterSystemStmt` - ALTER SYSTEM
 
 ### EXPLAIN
-- ⬜ `ExplainStmt` - EXPLAIN statement
+- ✅ `ExplainStmt` - EXPLAIN statement
 - ⬜ `ExplainableStmt` - Explainable statement
-- ⬜ `utility_option_list` - Utility options
-- ⬜ `utility_option_elem` - Utility option element
-- ⬜ `utility_option_name` - Option name
-- ⬜ `utility_option_arg` - Option argument
+- ✅ `utility_option_list` - Utility options
+- ✅ `utility_option_elem` - Utility option element
+- ✅ `utility_option_name` - Option name
+- ✅ `utility_option_arg` - Option argument
+- ✅ `VariableShowStmt` - SHOW statement
+- ✅ `AlterSystemStmt` - ALTER SYSTEM
 
 ### VACUUM/ANALYZE
-- ⬜ `VacuumStmt` - VACUUM statement
-- ⬜ `AnalyzeStmt` - ANALYZE statement
-- ⬜ `vacuum_relation_list` - Vacuum relations
-- ⬜ `vacuum_relation` - Single vacuum relation
-- ⬜ `opt_vacuum_relation_list` - Optional relations
-- ⬜ `analyze_keyword` - ANALYZE/ANALYSE
+- ✅ `VacuumStmt` - VACUUM statement
+- ✅ `AnalyzeStmt` - ANALYZE statement
+- ✅ `vacuum_relation_list` - Vacuum relations
+- ✅ `vacuum_relation` - Single vacuum relation
+- ✅ `opt_vacuum_relation_list` - Optional relations
+- ✅ `analyze_keyword` - ANALYZE/ANALYSE
 
 ### Other Administrative
 - ⬜ `ClusterStmt` - CLUSTER statement

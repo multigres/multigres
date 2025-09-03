@@ -1537,6 +1537,84 @@ func (vss *VariableShowStmt) StatementType() string {
 	return "SHOW"
 }
 
+// SqlString returns the SQL representation of the SHOW statement
+func (vss *VariableShowStmt) SqlString() string {
+	return "SHOW " + vss.Name
+}
+
+// ==============================================================================
+// SYSTEM CONFIGURATION STATEMENTS - ALTER SYSTEM - PostgreSQL parsenodes.h:3812-3816
+// ==============================================================================
+
+// AlterSystemStmt represents an ALTER SYSTEM statement.
+// Ported from postgres/src/include/nodes/parsenodes.h:3812
+type AlterSystemStmt struct {
+	BaseNode
+	Setstmt *VariableSetStmt // SET subcommand - postgres/src/include/nodes/parsenodes.h:3815
+}
+
+// NewAlterSystemStmt creates a new ALTER SYSTEM statement.
+func NewAlterSystemStmt(setstmt *VariableSetStmt) *AlterSystemStmt {
+	return &AlterSystemStmt{
+		BaseNode: BaseNode{Tag: T_AlterSystemStmt},
+		Setstmt:  setstmt,
+	}
+}
+
+func (ass *AlterSystemStmt) String() string {
+	var setInfo string
+	if ass.Setstmt != nil {
+		setInfo = ass.Setstmt.Name
+	}
+	return fmt.Sprintf("AlterSystemStmt(%s)@%d", setInfo, ass.Location())
+}
+
+func (ass *AlterSystemStmt) StatementType() string {
+	return "ALTER_SYSTEM"
+}
+
+// SqlString returns the SQL representation of the ALTER SYSTEM statement
+func (ass *AlterSystemStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER", "SYSTEM")
+
+	if ass.Setstmt != nil {
+		// Format the SET/RESET clause specifically for ALTER SYSTEM
+		switch ass.Setstmt.Kind {
+		case VAR_SET_VALUE:
+			parts = append(parts, "SET", ass.Setstmt.Name)
+			if ass.Setstmt.Args != nil && ass.Setstmt.Args.Len() > 0 {
+				parts = append(parts, "=")
+				var values []string
+				for _, arg := range ass.Setstmt.Args.Items {
+					if str, ok := arg.(*String); ok {
+						if needsQuoting(str.SVal) {
+							values = append(values, "'"+strings.ReplaceAll(str.SVal, "'", "''")+"'")
+						} else {
+							values = append(values, str.SVal)
+						}
+					} else if integer, ok := arg.(*Integer); ok {
+						values = append(values, fmt.Sprintf("%d", integer.IVal))
+					} else {
+						values = append(values, arg.SqlString())
+					}
+				}
+				if len(values) > 0 {
+					parts = append(parts, strings.Join(values, ", "))
+				}
+			}
+		case VAR_SET_DEFAULT:
+			parts = append(parts, "SET", ass.Setstmt.Name, "=", "DEFAULT")
+		case VAR_RESET:
+			parts = append(parts, "RESET", ass.Setstmt.Name)
+		case VAR_RESET_ALL:
+			parts = append(parts, "RESET", "ALL")
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
 // ==============================================================================
 // QUERY ANALYSIS STATEMENTS - EXPLAIN/PREPARE/EXECUTE - PostgreSQL parsenodes.h:3868-4070
 // ==============================================================================
@@ -1545,12 +1623,12 @@ func (vss *VariableShowStmt) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3868
 type ExplainStmt struct {
 	BaseNode
-	Query   Node       // The query to explain - postgres/src/include/nodes/parsenodes.h:3871
-	Options []*DefElem // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3872
+	Query   Node      // The query to explain - postgres/src/include/nodes/parsenodes.h:3871
+	Options *NodeList // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3872
 }
 
 // NewExplainStmt creates a new EXPLAIN statement.
-func NewExplainStmt(query Node, options []*DefElem) *ExplainStmt {
+func NewExplainStmt(query Node, options *NodeList) *ExplainStmt {
 	return &ExplainStmt{
 		BaseNode: BaseNode{Tag: T_ExplainStmt},
 		Query:    query,
@@ -1559,11 +1637,121 @@ func NewExplainStmt(query Node, options []*DefElem) *ExplainStmt {
 }
 
 func (es *ExplainStmt) String() string {
-	return fmt.Sprintf("ExplainStmt(%d options)@%d", len(es.Options), es.Location())
+	optionCount := 0
+	if es.Options != nil {
+		optionCount = es.Options.Len()
+	}
+	return fmt.Sprintf("ExplainStmt(%d options)@%d", optionCount, es.Location())
 }
 
 func (es *ExplainStmt) StatementType() string {
 	return "EXPLAIN"
+}
+
+// SqlString returns the SQL representation of the EXPLAIN statement
+func (es *ExplainStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "EXPLAIN")
+
+	// Add options
+	if es.Options != nil && es.Options.Len() > 0 {
+		// Try to use simple syntax for common cases
+		if canUseSimpleSyntax(es.Options) {
+			for _, item := range es.Options.Items {
+				if option, ok := item.(*DefElem); ok {
+					parts = append(parts, strings.ToUpper(option.Defname))
+				}
+			}
+		} else {
+			// Use parentheses format for complex options
+			var optionParts []string
+			for _, item := range es.Options.Items {
+				if option, ok := item.(*DefElem); ok {
+					optStr := formatExplainOption(option)
+					if optStr != "" {
+						optionParts = append(optionParts, optStr)
+					}
+				}
+			}
+			if len(optionParts) > 0 {
+				parts = append(parts, "("+strings.Join(optionParts, ", ")+")")
+			}
+		}
+	}
+
+	// Add the query
+	if es.Query != nil {
+		parts = append(parts, es.Query.SqlString())
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// canUseSimpleSyntax determines if we can use EXPLAIN ANALYZE/VERBOSE syntax
+// instead of EXPLAIN (option_name value) syntax
+func canUseSimpleSyntax(options *NodeList) bool {
+	if options == nil || options.Len() == 0 {
+		return false
+	}
+
+	// Check if all options are simple boolean options with no explicit values
+	for _, item := range options.Items {
+		if option, ok := item.(*DefElem); ok {
+			// Only ANALYZE and VERBOSE can use simple syntax
+			if option.Defname != "analyze" && option.Defname != "verbose" {
+				return false
+			}
+			// Option must have nil argument (no explicit value)
+			if option.Arg != nil {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+
+	return true
+}
+
+// formatExplainOption formats a single EXPLAIN option
+func formatExplainOption(option *DefElem) string {
+	if option.Defname == "" {
+		return ""
+	}
+
+	optionName := strings.ToUpper(option.Defname)
+
+	// Handle different types of option arguments
+	if option.Arg == nil {
+		// Boolean option with no explicit value (defaults to true)
+		return optionName + " true"
+	}
+
+	switch arg := option.Arg.(type) {
+	case *String:
+		if arg.SVal == "true" || arg.SVal == "on" || arg.SVal == "1" {
+			return optionName + " true"
+		} else if arg.SVal == "false" || arg.SVal == "off" || arg.SVal == "0" {
+			return optionName + " false"
+		} else {
+			// String value - don't quote for EXPLAIN options like FORMAT JSON
+			return optionName + " " + strings.ToUpper(arg.SVal)
+		}
+	case *Boolean:
+		if arg.BoolVal {
+			return optionName + " true"
+		} else {
+			return optionName + " false"
+		}
+	case *Integer:
+		return optionName + " " + fmt.Sprintf("%d", arg.IVal)
+	default:
+		// Fallback for other types
+		if stringer, ok := arg.(interface{ SqlString() string }); ok {
+			return optionName + " " + stringer.SqlString()
+		}
+		return optionName + " true"
+	}
 }
 
 // PrepareStmt represents a PREPARE statement.
@@ -1593,6 +1781,32 @@ func (ps *PrepareStmt) StatementType() string {
 	return "PREPARE"
 }
 
+// SqlString returns the SQL representation of the PREPARE statement
+func (ps *PrepareStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "PREPARE", ps.Name)
+
+	// Add argument types if present
+	if len(ps.Argtypes) > 0 {
+		parts = append(parts, "(")
+		var typeNames []string
+		for _, argtype := range ps.Argtypes {
+			typeNames = append(typeNames, argtype.SqlString())
+		}
+		parts = append(parts, strings.Join(typeNames, ", "))
+		parts = append(parts, ")")
+	}
+
+	parts = append(parts, "AS")
+
+	// Add the query
+	if ps.Query != nil {
+		parts = append(parts, ps.Query.SqlString())
+	}
+
+	return strings.Join(parts, " ")
+}
+
 // ExecuteStmt represents an EXECUTE statement.
 // Ported from postgres/src/include/nodes/parsenodes.h:4044
 type ExecuteStmt struct {
@@ -1620,6 +1834,25 @@ func (es *ExecuteStmt) String() string {
 
 func (es *ExecuteStmt) StatementType() string {
 	return "EXECUTE"
+}
+
+// SqlString returns the SQL representation of the EXECUTE statement
+func (es *ExecuteStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "EXECUTE", es.Name)
+
+	// Add parameters if present
+	if es.Params != nil && es.Params.Len() > 0 {
+		parts = append(parts, "(")
+		var paramValues []string
+		for _, param := range es.Params.Items {
+			paramValues = append(paramValues, param.SqlString())
+		}
+		parts = append(parts, strings.Join(paramValues, ", "))
+		parts = append(parts, ")")
+	}
+
+	return strings.Join(parts, " ")
 }
 
 // DeallocateStmt represents a DEALLOCATE statement.
@@ -1658,6 +1891,20 @@ func (ds *DeallocateStmt) String() string {
 
 func (ds *DeallocateStmt) StatementType() string {
 	return "DEALLOCATE"
+}
+
+// SqlString returns the SQL representation of the DEALLOCATE statement
+func (ds *DeallocateStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "DEALLOCATE")
+
+	if ds.IsAll || ds.Name == "" {
+		parts = append(parts, "ALL")
+	} else {
+		parts = append(parts, ds.Name)
+	}
+
+	return strings.Join(parts, " ")
 }
 
 // ==============================================================================
@@ -1863,9 +2110,9 @@ func formatCopyOption(option *DefElem) string {
 // Ported from postgres/src/include/nodes/parsenodes.h:3837
 type VacuumStmt struct {
 	BaseNode
-	Options     []*DefElem        // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3840
-	Rels        []*VacuumRelation // List of VacuumRelation, or NIL for all - postgres/src/include/nodes/parsenodes.h:3841
-	IsVacuumcmd bool              // True for VACUUM, false for ANALYZE - postgres/src/include/nodes/parsenodes.h:3842
+	Options     *NodeList // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3840
+	Rels        *NodeList // List of VacuumRelation, or NIL for all - postgres/src/include/nodes/parsenodes.h:3841
+	IsVacuumcmd bool      // True for VACUUM, false for ANALYZE - postgres/src/include/nodes/parsenodes.h:3842
 }
 
 // VacuumRelation represents a relation in a VACUUM statement.
@@ -1873,12 +2120,12 @@ type VacuumStmt struct {
 type VacuumRelation struct {
 	BaseNode
 	Relation *RangeVar // Relation to vacuum - postgres/src/include/nodes/parsenodes.h:3848
-	Oid      uint32    // OID of relation, for RangeVar-less VacuumStmt - postgres/src/include/nodes/parsenodes.h:3849
-	VaCols   []string  // List of column names, or NIL for all - postgres/src/include/nodes/parsenodes.h:3850
+	Oid      Oid       // OID of relation, for RangeVar-less VacuumStmt - postgres/src/include/nodes/parsenodes.h:3849
+	VaCols   *NodeList // List of column names, or NIL for all - postgres/src/include/nodes/parsenodes.h:3850
 }
 
 // NewVacuumStmt creates a new VACUUM statement.
-func NewVacuumStmt(options []*DefElem, rels []*VacuumRelation) *VacuumStmt {
+func NewVacuumStmt(options *NodeList, rels *NodeList) *VacuumStmt {
 	return &VacuumStmt{
 		BaseNode:    BaseNode{Tag: T_VacuumStmt},
 		Options:     options,
@@ -1888,7 +2135,7 @@ func NewVacuumStmt(options []*DefElem, rels []*VacuumRelation) *VacuumStmt {
 }
 
 // NewAnalyzeStmt creates a new ANALYZE statement.
-func NewAnalyzeStmt(options []*DefElem, rels []*VacuumRelation) *VacuumStmt {
+func NewAnalyzeStmt(options *NodeList, rels *NodeList) *VacuumStmt {
 	return &VacuumStmt{
 		BaseNode:    BaseNode{Tag: T_VacuumStmt},
 		Options:     options,
@@ -1898,11 +2145,12 @@ func NewAnalyzeStmt(options []*DefElem, rels []*VacuumRelation) *VacuumStmt {
 }
 
 // NewVacuumRelation creates a new VacuumRelation node.
-func NewVacuumRelation(relation *RangeVar, vaCols []string) *VacuumRelation {
+func NewVacuumRelation(relation *RangeVar, vaCols *NodeList) *VacuumRelation {
 	return &VacuumRelation{
 		BaseNode: BaseNode{Tag: T_VacuumRelation},
 		Relation: relation,
 		VaCols:   vaCols,
+		Oid:      InvalidOid,
 	}
 }
 
@@ -1911,7 +2159,15 @@ func (vs *VacuumStmt) String() string {
 	if vs.IsVacuumcmd {
 		action = "VACUUM"
 	}
-	return fmt.Sprintf("VacuumStmt(%s, %d rels, %d options)@%d", action, len(vs.Rels), len(vs.Options), vs.Location())
+	relCount := 0
+	if vs.Rels != nil {
+		relCount = vs.Rels.Len()
+	}
+	optionCount := 0
+	if vs.Options != nil {
+		optionCount = vs.Options.Len()
+	}
+	return fmt.Sprintf("VacuumStmt(%s, %d rels, %d options)@%d", action, relCount, optionCount, vs.Location())
 }
 
 func (vs *VacuumStmt) StatementType() string {
@@ -1921,12 +2177,142 @@ func (vs *VacuumStmt) StatementType() string {
 	return "ANALYZE"
 }
 
+// SqlString returns the SQL representation of the VACUUM/ANALYZE statement
+func (vs *VacuumStmt) SqlString() string {
+	var parts []string
+
+	// Start with VACUUM or ANALYZE
+	if vs.IsVacuumcmd {
+		parts = append(parts, "VACUUM")
+	} else {
+		parts = append(parts, "ANALYZE")
+	}
+
+	// Add options in parentheses if present (modern syntax)
+	if vs.Options != nil && vs.Options.Len() > 0 {
+		var optionParts []string
+		for _, item := range vs.Options.Items {
+			if option, ok := item.(*DefElem); ok {
+				optStr := formatVacuumOption(option)
+				if optStr != "" {
+					optionParts = append(optionParts, optStr)
+				}
+			}
+		}
+		if len(optionParts) > 0 {
+			parts = append(parts, "("+strings.Join(optionParts, ", ")+")")
+		}
+	}
+
+	// Add relations if present
+	if vs.Rels != nil && vs.Rels.Len() > 0 {
+		var relParts []string
+		for _, item := range vs.Rels.Items {
+			if rel, ok := item.(*VacuumRelation); ok {
+				if rel.Relation != nil {
+					relName := rel.Relation.RelName
+					if rel.Relation.SchemaName != "" {
+						relName = rel.Relation.SchemaName + "." + relName
+					}
+
+					// Add column list if present
+					if rel.VaCols != nil && rel.VaCols.Len() > 0 {
+						var colNames []string
+						for _, item := range rel.VaCols.Items {
+							if str, ok := item.(*String); ok {
+								colNames = append(colNames, str.SVal)
+							}
+						}
+						if len(colNames) > 0 {
+							relName += " (" + strings.Join(colNames, ", ") + ")"
+						}
+					}
+
+					relParts = append(relParts, relName)
+				}
+			}
+		}
+		if len(relParts) > 0 {
+			parts = append(parts, strings.Join(relParts, ", "))
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// isSimpleVacuumOption determines if a VACUUM option can be written without a value
+func isSimpleVacuumOption(optionName string) bool {
+	switch strings.ToLower(optionName) {
+	case "full", "verbose", "analyze", "freeze", "disable_page_skipping":
+		return true
+	default:
+		return false
+	}
+}
+
+// formatVacuumOption formats a single VACUUM option
+func formatVacuumOption(option *DefElem) string {
+	if option.Defname == "" {
+		return ""
+	}
+
+	optionName := strings.ToUpper(option.Defname)
+
+	// Handle different types of option arguments
+	if option.Arg == nil {
+		// For simple boolean options like FULL, VERBOSE, ANALYZE, FREEZE, just return the name
+		if isSimpleVacuumOption(option.Defname) {
+			return optionName
+		}
+		// Other options with no explicit value (defaults to true)
+		return optionName + " true"
+	}
+
+	switch arg := option.Arg.(type) {
+	case *String:
+		if arg.SVal == "true" || arg.SVal == "on" || arg.SVal == "1" {
+			// For simple boolean options that are true, just return the name
+			if isSimpleVacuumOption(option.Defname) {
+				return optionName
+			}
+			return optionName + " true"
+		} else if arg.SVal == "false" || arg.SVal == "off" || arg.SVal == "0" {
+			return optionName + " false"
+		} else {
+			// String value - quote it for VACUUM options
+			return optionName + " '" + arg.SVal + "'"
+		}
+	case *Boolean:
+		if arg.BoolVal {
+			// For simple boolean options that are true, just return the name
+			if isSimpleVacuumOption(option.Defname) {
+				return optionName
+			}
+			return optionName + " true"
+		} else {
+			return optionName + " false"
+		}
+	case *Integer:
+		return optionName + " " + fmt.Sprintf("%d", arg.IVal)
+	default:
+		// Fallback for other types
+		if stringer, ok := arg.(interface{ SqlString() string }); ok {
+			return optionName + " " + stringer.SqlString()
+		}
+		return optionName + " true"
+	}
+}
+
 func (vr *VacuumRelation) String() string {
 	relName := ""
 	if vr.Relation != nil {
 		relName = vr.Relation.RelName
 	}
-	return fmt.Sprintf("VacuumRelation(%s, %d cols)@%d", relName, len(vr.VaCols), vr.Location())
+	colCount := 0
+	if vr.VaCols != nil {
+		colCount = vr.VaCols.Len()
+	}
+	return fmt.Sprintf("VacuumRelation(%s, %d cols)@%d", relName, colCount, vr.Location())
 }
 
 // ReindexObjectType represents the type of object to reindex.

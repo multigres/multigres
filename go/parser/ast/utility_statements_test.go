@@ -400,12 +400,12 @@ func TestQueryAnalysisStmts(t *testing.T) {
 	t.Run("ExplainStmt", func(t *testing.T) {
 		query := NewSelectStmt()
 		analyzeOpt := NewDefElem("analyze", NewBoolean(true))
-		stmt := NewExplainStmt(query, []*DefElem{analyzeOpt})
+		stmt := NewExplainStmt(query, NewNodeList(analyzeOpt))
 
 		assert.Equal(t, T_ExplainStmt, stmt.NodeTag())
 		assert.Equal(t, "EXPLAIN", stmt.StatementType())
 		assert.Equal(t, query, stmt.Query)
-		assert.Len(t, stmt.Options, 1)
+		assert.Equal(t, 1, stmt.Options.Len())
 		assert.Contains(t, stmt.String(), "1 options")
 
 		// Test interface compliance
@@ -507,11 +507,12 @@ func TestCopyStmts(t *testing.T) {
 func TestMaintenanceStmts(t *testing.T) {
 	t.Run("VacuumRelation", func(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
-		vr := NewVacuumRelation(relation, []string{"name", "email"})
+		colList := NewNodeList(NewString("name"), NewString("email"))
+		vr := NewVacuumRelation(relation, colList)
 
 		assert.Equal(t, T_VacuumRelation, vr.NodeTag())
 		assert.Equal(t, relation, vr.Relation)
-		assert.Equal(t, []string{"name", "email"}, vr.VaCols)
+		assert.Equal(t, 2, vr.VaCols.Len())
 		assert.Contains(t, vr.String(), "users")
 
 		// Test interface compliance
@@ -522,13 +523,15 @@ func TestMaintenanceStmts(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		vr := NewVacuumRelation(relation, nil)
 		verboseOpt := NewDefElem("verbose", NewBoolean(true))
-		stmt := NewVacuumStmt([]*DefElem{verboseOpt}, []*VacuumRelation{vr})
+		options := NewNodeList(verboseOpt)
+		rels := NewNodeList(vr)
+		stmt := NewVacuumStmt(options, rels)
 
 		assert.Equal(t, T_VacuumStmt, stmt.NodeTag())
 		assert.Equal(t, "VACUUM", stmt.StatementType())
 		assert.True(t, stmt.IsVacuumcmd)
-		assert.Len(t, stmt.Options, 1)
-		assert.Len(t, stmt.Rels, 1)
+		assert.Equal(t, 1, stmt.Options.Len())
+		assert.Equal(t, 1, stmt.Rels.Len())
 		assert.Contains(t, stmt.String(), "VACUUM")
 
 		// Test interface compliance
@@ -539,7 +542,8 @@ func TestMaintenanceStmts(t *testing.T) {
 	t.Run("AnalyzeStmt", func(t *testing.T) {
 		relation := NewRangeVar("users", "", "")
 		vr := NewVacuumRelation(relation, nil)
-		stmt := NewAnalyzeStmt(nil, []*VacuumRelation{vr})
+		rels := NewNodeList(vr)
+		stmt := NewAnalyzeStmt(nil, rels)
 
 		assert.False(t, stmt.IsVacuumcmd)
 		assert.Equal(t, "ANALYZE", stmt.StatementType())
@@ -779,17 +783,23 @@ func TestUtilityComplexExamples(t *testing.T) {
 		// VACUUM (VERBOSE, ANALYZE) users (name, email);
 
 		relation := NewRangeVar("users", "", "")
-		vr := NewVacuumRelation(relation, []string{"name", "email"})
+		colList := NewNodeList(NewString("name"), NewString("email"))
+		vr := NewVacuumRelation(relation, colList)
 
 		verboseOpt := NewDefElem("verbose", NewBoolean(true))
 		analyzeOpt := NewDefElem("analyze", NewBoolean(true))
+		options := NewNodeList(verboseOpt, analyzeOpt)
+		rels := NewNodeList(vr)
 
-		stmt := NewVacuumStmt([]*DefElem{verboseOpt, analyzeOpt}, []*VacuumRelation{vr})
+		stmt := NewVacuumStmt(options, rels)
 
 		assert.True(t, stmt.IsVacuumcmd)
-		assert.Len(t, stmt.Options, 2)
-		assert.Len(t, stmt.Rels, 1)
-		assert.Equal(t, []string{"name", "email"}, stmt.Rels[0].VaCols)
+		assert.Equal(t, 2, stmt.Options.Len())
+		assert.Equal(t, 1, stmt.Rels.Len())
+		
+		// Check that the first relation has the expected columns
+		firstRel := stmt.Rels.Items[0].(*VacuumRelation)
+		assert.Equal(t, 2, firstRel.VaCols.Len())
 		assert.Contains(t, stmt.String(), "VACUUM")
 	})
 

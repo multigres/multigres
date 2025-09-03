@@ -646,6 +646,51 @@ func TestDeparsing(t *testing.T) {
 		// Schema and role combinations
 		{"ALTER DEFAULT PRIVILEGES multiple schemas", "ALTER DEFAULT PRIVILEGES IN SCHEMA public, test GRANT SELECT ON TABLES TO dev_role", ""},
 		{"ALTER DEFAULT PRIVILEGES multiple roles", "ALTER DEFAULT PRIVILEGES FOR ROLE alice, bob GRANT SELECT ON TABLES TO dev_role", ""},
+
+		// EXPLAIN statements
+		{"EXPLAIN simple", "EXPLAIN SELECT * FROM users", ""},
+		{"EXPLAIN ANALYZE", "EXPLAIN ANALYZE SELECT * FROM users", ""},
+		{"EXPLAIN VERBOSE", "EXPLAIN VERBOSE SELECT * FROM users", ""},
+		{"EXPLAIN ANALYZE VERBOSE", "EXPLAIN ANALYZE VERBOSE SELECT * FROM users", ""},
+		{"EXPLAIN with parentheses", "EXPLAIN (ANALYZE, VERBOSE) SELECT * FROM users", "EXPLAIN ANALYZE VERBOSE SELECT * FROM users"},
+		{"EXPLAIN with format option", "EXPLAIN (FORMAT JSON) SELECT * FROM users", ""},
+		{"EXPLAIN INSERT", "EXPLAIN INSERT INTO users (name) VALUES ('test')", ""},
+		{"EXPLAIN UPDATE", "EXPLAIN UPDATE users SET name = 'updated'", ""},
+		{"EXPLAIN DELETE", "EXPLAIN DELETE FROM users WHERE id = 1", ""},
+		{"EXPLAIN MERGE", "EXPLAIN MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET name = source.name", ""},
+		{"EXPLAIN REFRESH MATERIALIZED VIEW", "EXPLAIN REFRESH MATERIALIZED VIEW user_stats", ""},
+
+		// VACUUM statements
+		{"VACUUM simple", "VACUUM", ""},
+		{"VACUUM table", "VACUUM users", ""},
+		{"VACUUM with schema", "VACUUM public.users", ""},
+		{"VACUUM with columns", "VACUUM users (name, email)", ""},
+		{"VACUUM with options", "VACUUM (FULL, VERBOSE) users", ""},
+		{"VACUUM FULL", "VACUUM FULL users", "VACUUM (FULL) users"},
+		{"VACUUM VERBOSE", "VACUUM VERBOSE users", "VACUUM (VERBOSE) users"},
+		{"VACUUM ANALYZE", "VACUUM ANALYZE users", "VACUUM (ANALYZE) users"},
+		{"VACUUM FREEZE", "VACUUM FREEZE users", "VACUUM (FREEZE) users"},
+		{"VACUUM multiple options", "VACUUM FULL VERBOSE ANALYZE users", "VACUUM (FULL, VERBOSE, ANALYZE) users"},
+		{"VACUUM multiple tables", "VACUUM users, orders", ""},
+
+		// ANALYZE statements
+		{"ANALYZE simple", "ANALYZE", ""},
+		{"ANALYZE table", "ANALYZE users", ""},
+		{"ANALYZE with columns", "ANALYZE users (name, email)", ""},
+		{"ANALYZE with options", "ANALYZE (VERBOSE) users", ""},
+		{"ANALYZE VERBOSE", "ANALYZE VERBOSE users", "ANALYZE (VERBOSE) users"},
+
+		// SHOW statements
+		{"SHOW simple", "SHOW search_path", ""},
+		{"SHOW ALL", "SHOW ALL", ""},
+		{"SHOW timezone", "SHOW timezone", ""},
+		{"SHOW work_mem", "SHOW work_mem", ""},
+
+		// ALTER SYSTEM statements
+		{"ALTER SYSTEM SET", "ALTER SYSTEM SET work_mem = '256MB'", ""},
+		{"ALTER SYSTEM SET with unit", "ALTER SYSTEM SET shared_buffers = '1GB'", ""},
+		{"ALTER SYSTEM RESET", "ALTER SYSTEM RESET work_mem", ""},
+		{"ALTER SYSTEM RESET ALL", "ALTER SYSTEM RESET ALL", ""},
 	}
 
 	for _, tt := range tests {

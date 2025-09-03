@@ -97,6 +97,7 @@ const (
 	T_DropRoleStmt
 	T_VariableSetStmt
 	T_VariableShowStmt
+	T_AlterSystemStmt
 	T_ExplainStmt
 	T_PrepareStmt
 	T_ExecuteStmt
