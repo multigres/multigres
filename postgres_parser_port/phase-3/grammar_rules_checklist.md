@@ -681,14 +681,14 @@
 - ✅ `analyze_keyword` - ANALYZE/ANALYSE
 
 ### Other Administrative
-- ⬜ `ClusterStmt` - CLUSTER statement
-- ⬜ `cluster_index_specification` - Cluster index
-- ⬜ `ReindexStmt` - REINDEX statement
-- ⬜ `reindex_target_all` - REINDEX all target
-- ⬜ `reindex_target_relation` - REINDEX relation
-- ⬜ `opt_reindex_option_list` - REINDEX options
-- ⬜ `CheckPointStmt` - CHECKPOINT
-- ⬜ `DiscardStmt` - DISCARD statement
+- ✅ `ClusterStmt` - CLUSTER statement
+- ✅ `cluster_index_specification` - Cluster index
+- ✅ `ReindexStmt` - REINDEX statement
+- ✅ `reindex_target_all` - REINDEX all target
+- ✅ `reindex_target_relation` - REINDEX relation
+- ✅ `opt_reindex_option_list` - REINDEX options
+- ✅ `CheckPointStmt` - CHECKPOINT
+- ✅ `DiscardStmt` - DISCARD statement
 
 ## Phase 3J: PostgreSQL-Specific & Edge Cases (~200+ rules)
 

@@ -2351,11 +2351,11 @@ type ReindexStmt struct {
 	Kind     ReindexObjectType // Object type to reindex - postgres/src/include/nodes/parsenodes.h:3977
 	Relation *RangeVar         // Table or index to reindex - postgres/src/include/nodes/parsenodes.h:3978
 	Name     string            // Name of database to reindex - postgres/src/include/nodes/parsenodes.h:3979
-	Params   []*DefElem        // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3980
+	Params   *NodeList         // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3980
 }
 
 // NewReindexStmt creates a new REINDEX statement.
-func NewReindexStmt(kind ReindexObjectType, relation *RangeVar, name string, params []*DefElem) *ReindexStmt {
+func NewReindexStmt(kind ReindexObjectType, relation *RangeVar, name string, params *NodeList) *ReindexStmt {
 	return &ReindexStmt{
 		BaseNode: BaseNode{Tag: T_ReindexStmt},
 		Kind:     kind,
@@ -2392,17 +2392,68 @@ func (rs *ReindexStmt) StatementType() string {
 	return "REINDEX"
 }
 
+func (rs *ReindexStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "REINDEX")
+	
+	// Add options if present
+	hasConcurrently := false
+	if rs.Params != nil && rs.Params.Len() > 0 {
+		var options []string
+		for _, param := range rs.Params.Items {
+			if defElem, ok := param.(*DefElem); ok {
+				if defElem.Defname == "concurrently" {
+					hasConcurrently = true
+				} else {
+					options = append(options, defElem.Defname)
+				}
+			}
+		}
+		if len(options) > 0 {
+			parts = append(parts, "("+strings.Join(options, ", ")+")")
+		}
+	}
+	
+	// Add object type and target
+	switch rs.Kind {
+	case REINDEX_OBJECT_INDEX:
+		parts = append(parts, "INDEX")
+	case REINDEX_OBJECT_TABLE:
+		parts = append(parts, "TABLE")
+	case REINDEX_OBJECT_SCHEMA:
+		parts = append(parts, "SCHEMA")
+	case REINDEX_OBJECT_SYSTEM:
+		parts = append(parts, "SYSTEM")
+	case REINDEX_OBJECT_DATABASE:
+		parts = append(parts, "DATABASE")
+	}
+	
+	// Add CONCURRENTLY if specified
+	if hasConcurrently {
+		parts = append(parts, "CONCURRENTLY")
+	}
+	
+	// Add target name
+	if rs.Relation != nil {
+		parts = append(parts, rs.Relation.RelName)
+	} else if rs.Name != "" {
+		parts = append(parts, rs.Name)
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 // ClusterStmt represents a CLUSTER statement.
 // Ported from postgres/src/include/nodes/parsenodes.h:3822-3828
 type ClusterStmt struct {
 	BaseNode
-	Relation  *RangeVar  // Relation to cluster - postgres/src/include/nodes/parsenodes.h:3825
-	Indexname string     // Index name or NULL - postgres/src/include/nodes/parsenodes.h:3826
-	Params    []*DefElem // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3827
+	Relation  *RangeVar // Relation to cluster - postgres/src/include/nodes/parsenodes.h:3825
+	Indexname string    // Index name or NULL - postgres/src/include/nodes/parsenodes.h:3826
+	Params    *NodeList // List of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3827
 }
 
 // NewClusterStmt creates a new CLUSTER statement.
-func NewClusterStmt(relation *RangeVar, indexname string, params []*DefElem) *ClusterStmt {
+func NewClusterStmt(relation *RangeVar, indexname string, params *NodeList) *ClusterStmt {
 	return &ClusterStmt{
 		BaseNode:  BaseNode{Tag: T_ClusterStmt},
 		Relation:  relation,
@@ -2421,6 +2472,36 @@ func (cs *ClusterStmt) String() string {
 
 func (cs *ClusterStmt) StatementType() string {
 	return "CLUSTER"
+}
+
+func (cs *ClusterStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "CLUSTER")
+	
+	// Add options if present
+	if cs.Params != nil && cs.Params.Len() > 0 {
+		var options []string
+		for _, param := range cs.Params.Items {
+			if defElem, ok := param.(*DefElem); ok {
+				options = append(options, defElem.Defname)
+			}
+		}
+		if len(options) > 0 {
+			parts = append(parts, "("+strings.Join(options, ", ")+")")
+		}
+	}
+	
+	// Add table name if specified
+	if cs.Relation != nil {
+		parts = append(parts, cs.Relation.RelName)
+		
+		// Add index specification if present
+		if cs.Indexname != "" {
+			parts = append(parts, "USING", cs.Indexname)
+		}
+	}
+	
+	return strings.Join(parts, " ")
 }
 
 // ==============================================================================
@@ -2445,6 +2526,10 @@ func (cps *CheckPointStmt) String() string {
 }
 
 func (cps *CheckPointStmt) StatementType() string {
+	return "CHECKPOINT"
+}
+
+func (cps *CheckPointStmt) SqlString() string {
 	return "CHECKPOINT"
 }
 
@@ -2495,6 +2580,10 @@ func (ds *DiscardStmt) String() string {
 
 func (ds *DiscardStmt) StatementType() string {
 	return "DISCARD"
+}
+
+func (ds *DiscardStmt) SqlString() string {
+	return "DISCARD " + ds.Target.String()
 }
 
 // LoadStmt represents a LOAD statement.

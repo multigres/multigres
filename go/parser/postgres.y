@@ -320,6 +320,7 @@ type PrivTarget struct {
 %type <stmt>         SelectStmt PreparableStmt select_no_parens select_with_parens select_clause simple_select
 %type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt CopyStmt
 %type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt
+%type <stmt>         ClusterStmt ReindexStmt CheckPointStmt DiscardStmt
 %type <node>         insert_rest
 %type <list>         insert_column_list set_clause_list set_target_list merge_when_list
 %type <target>       insert_column_item set_target xml_attribute_el
@@ -476,6 +477,9 @@ type PrivTarget struct {
 %type <str>          utility_option_name analyze_keyword
 %type <node>         utility_option_arg
 %type <vacrel>       vacuum_relation
+%type <str>          cluster_index_specification
+%type <ival>         reindex_target_relation reindex_target_all
+%type <list>         opt_reindex_option_list
 %type <list>         transaction_mode_list transaction_mode_list_or_empty OptRoleList AlterOptRoleList role_list DefACLOptionList
 %type <list>         privileges privilege_list grantee_list grant_role_opt_list
 %type <ival>         defacl_privilege_target
@@ -696,6 +700,10 @@ stmt:
 		| 	AnalyzeStmt								{ $$ = $1 }
 		|	VariableShowStmt						{ $$ = $1 }
 		|	AlterSystemStmt							{ $$ = $1 }
+		|	ClusterStmt								{ $$ = $1 }
+		|	ReindexStmt								{ $$ = $1 }
+		|	CheckPointStmt							{ $$ = $1 }
+		|	DiscardStmt								{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -8623,6 +8631,152 @@ AlterSystemStmt:
 				$$ = ast.NewAlterSystemStmt($4)
 			}
 	;
+
+/*
+ * CLUSTER statement
+ * Ported from postgres/src/backend/parser/gram.y
+ */
+ClusterStmt:
+			CLUSTER '(' utility_option_list ')' qualified_name cluster_index_specification
+				{
+					$$ = ast.NewClusterStmt($5, $6, $3)
+				}
+		|	CLUSTER '(' utility_option_list ')'
+				{
+					$$ = ast.NewClusterStmt(nil, "", $3)
+				}
+		|	CLUSTER opt_verbose qualified_name cluster_index_specification
+				{
+					var params *ast.NodeList
+					if $2 != 0 {
+						verboseDefElem := ast.NewDefElem("verbose", nil)
+						params = ast.NewNodeList(verboseDefElem)
+					}
+					$$ = ast.NewClusterStmt($3, $4, params)
+				}
+		|	CLUSTER opt_verbose
+				{
+					var params *ast.NodeList
+					if $2 != 0 {
+						verboseDefElem := ast.NewDefElem("verbose", nil)
+						params = ast.NewNodeList(verboseDefElem)
+					}
+					$$ = ast.NewClusterStmt(nil, "", params)
+				}
+		|	CLUSTER opt_verbose name ON qualified_name
+				{
+					var params *ast.NodeList
+					if $2 != 0 {
+						verboseDefElem := ast.NewDefElem("verbose", nil)
+						params = ast.NewNodeList(verboseDefElem)
+					}
+					$$ = ast.NewClusterStmt($5, $3, params)
+				}
+		;
+
+cluster_index_specification:
+			USING name							{ $$ = $2 }
+		|	/* EMPTY */							{ $$ = "" }
+		;
+
+/*
+ * REINDEX statement
+ * Ported from postgres/src/backend/parser/gram.y:5777-5806
+ */
+ReindexStmt:
+			REINDEX opt_reindex_option_list reindex_target_relation opt_concurrently qualified_name
+				{
+					params := $2
+					if $4 {
+						concurrentlyDefElem := ast.NewDefElem("concurrently", nil)
+						if params == nil {
+							params = ast.NewNodeList(concurrentlyDefElem)
+						} else {
+							params.Append(concurrentlyDefElem)
+						}
+					}
+					$$ = ast.NewReindexStmt(ast.ReindexObjectType($3), $5, "", params)
+				}
+		|	REINDEX opt_reindex_option_list SCHEMA opt_concurrently name
+				{
+					params := $2
+					if $4 {
+						concurrentlyDefElem := ast.NewDefElem("concurrently", nil)
+						if params == nil {
+							params = ast.NewNodeList(concurrentlyDefElem)
+						} else {
+							params.Append(concurrentlyDefElem)
+						}
+					}
+					$$ = ast.NewReindexStmt(ast.REINDEX_OBJECT_SCHEMA, nil, $5, params)
+				}
+		|	REINDEX opt_reindex_option_list reindex_target_all opt_concurrently opt_single_name
+				{
+					params := $2
+					if $4 {
+						concurrentlyDefElem := ast.NewDefElem("concurrently", nil)
+						if params == nil {
+							params = ast.NewNodeList(concurrentlyDefElem)
+						} else {
+							params.Append(concurrentlyDefElem)
+						}
+					}
+					$$ = ast.NewReindexStmt(ast.ReindexObjectType($3), nil, $5, params)
+				}
+		;
+
+reindex_target_relation:
+			INDEX								{ $$ = int(ast.REINDEX_OBJECT_INDEX) }
+		|	TABLE								{ $$ = int(ast.REINDEX_OBJECT_TABLE) }
+		;
+
+reindex_target_all:
+			SYSTEM_P							{ $$ = int(ast.REINDEX_OBJECT_SYSTEM) }
+		|	DATABASE							{ $$ = int(ast.REINDEX_OBJECT_DATABASE) }
+		;
+
+opt_reindex_option_list:
+			'(' utility_option_list ')'			{ $$ = $2 }
+		|	/* EMPTY */							{ $$ = nil }
+		;
+
+/*
+ * CHECKPOINT statement
+ * Ported from postgres/src/backend/parser/gram.y:5808-5815
+ */
+CheckPointStmt:
+			CHECKPOINT
+				{
+					$$ = ast.NewCheckPointStmt()
+				}
+		;
+
+/*
+ * DISCARD statement
+ * Ported from postgres/src/backend/parser/gram.y:5824-5863
+ */
+DiscardStmt:
+			DISCARD ALL
+				{
+					$$ = ast.NewDiscardStmt(ast.DISCARD_ALL)
+				}
+		|	DISCARD TEMP
+				{
+					$$ = ast.NewDiscardStmt(ast.DISCARD_TEMP)
+				}
+		|	DISCARD TEMPORARY
+				{
+					$$ = ast.NewDiscardStmt(ast.DISCARD_TEMP)
+				}
+		|	DISCARD PLANS
+				{
+					$$ = ast.NewDiscardStmt(ast.DISCARD_PLANS)
+				}
+		|	DISCARD SEQUENCES
+				{
+					$$ = ast.NewDiscardStmt(ast.DISCARD_SEQUENCES)
+				}
+		;
 
 /* object types taking any_name/any_name_list */
 object_type_any_name:

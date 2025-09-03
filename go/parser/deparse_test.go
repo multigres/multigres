@@ -691,6 +691,37 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER SYSTEM SET with unit", "ALTER SYSTEM SET shared_buffers = '1GB'", ""},
 		{"ALTER SYSTEM RESET", "ALTER SYSTEM RESET work_mem", ""},
 		{"ALTER SYSTEM RESET ALL", "ALTER SYSTEM RESET ALL", ""},
+
+		// CLUSTER statements - PostgreSQL-compatible syntax
+		{"CLUSTER simple", "CLUSTER", ""},
+		{"CLUSTER table", "CLUSTER users", ""},
+		{"CLUSTER table with index", "CLUSTER users USING idx_users_id", ""},
+		{"CLUSTER with utility options", "CLUSTER (VERBOSE) users USING idx_users_id", ""},
+		{"CLUSTER with utility options only", "CLUSTER (VERBOSE)", ""},
+		{"CLUSTER VERBOSE table", "CLUSTER VERBOSE users USING idx_users_id", "CLUSTER (VERBOSE) users USING idx_users_id"},
+		{"CLUSTER VERBOSE only", "CLUSTER VERBOSE", "CLUSTER (VERBOSE)"},
+		{"CLUSTER old syntax", "CLUSTER idx_users_id ON users", "CLUSTER users USING idx_users_id"},
+		{"CLUSTER VERBOSE old syntax", "CLUSTER VERBOSE idx_users_id ON users", "CLUSTER (VERBOSE) users USING idx_users_id"},
+
+		// REINDEX statements
+		{"REINDEX INDEX", "REINDEX INDEX idx_users_email", ""},
+		{"REINDEX TABLE", "REINDEX TABLE users", ""},
+		{"REINDEX SCHEMA", "REINDEX SCHEMA public", ""},
+		{"REINDEX SYSTEM", "REINDEX SYSTEM", ""},
+		{"REINDEX DATABASE", "REINDEX DATABASE mydb", ""},
+		{"REINDEX with options", "REINDEX (VERBOSE) INDEX idx_users_email", ""},
+		{"REINDEX CONCURRENTLY", "REINDEX INDEX CONCURRENTLY idx_users_email", ""},
+		{"REINDEX with options and CONCURRENTLY", "REINDEX (VERBOSE) INDEX CONCURRENTLY idx_users_email", ""},
+
+		// CHECKPOINT statements
+		{"CHECKPOINT", "CHECKPOINT", ""},
+
+		// DISCARD statements
+		{"DISCARD ALL", "DISCARD ALL", ""},
+		{"DISCARD TEMP", "DISCARD TEMP", ""},
+		{"DISCARD TEMPORARY", "DISCARD TEMPORARY", "DISCARD TEMP"},
+		{"DISCARD PLANS", "DISCARD PLANS", ""},
+		{"DISCARD SEQUENCES", "DISCARD SEQUENCES", ""},
 	}
 
 	for _, tt := range tests {
