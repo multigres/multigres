@@ -1,0 +1,72 @@
+#!/bin/bash
+# Copyright 2019 The Vitess Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# git goimports pre-commit hook
+#
+# Automatically formats Go imports and stages them for commit.
+# This script handles files that need goimports formatting by applying
+# the formatting and re-staging the files.
+#
+# Modifications Copyright 2025 The Multigres Authors.
+
+
+# Required version of goimports
+REQUIRED_VERSION="v0.36.0"
+
+# Check if goimports is installed
+if ! command -v goimports >/dev/null 2>&1; then
+  echo "goimports not found. Installing version $REQUIRED_VERSION..."
+  go install golang.org/x/tools/cmd/goimports@$REQUIRED_VERSION
+fi
+
+# Get list of Go files to check
+gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep -v '^pb/')
+
+# Exit if no Go files to process
+[ -z "$gofiles" ] && exit 0
+
+# Check for files with improperly formatted imports
+unformatted=$(goimports -l $gofiles 2>&1)
+
+# Exit if all files are already formatted
+[ -z "$unformatted" ] && exit 0
+
+# Some files need import formatting - format them and re-stage
+echo "Formatting Go imports..."
+
+# Deduplicate files first in case a file has multiple errors
+files=$(
+  # Split the "goimports" output on newlines only
+  OLDIFS=$IFS
+  IFS='
+'
+  for line in $unformatted; do
+    # Strip everything after the first ':', including it
+    echo ${line/:*/}
+  done |
+    # Remove duplicates
+    sort -u
+  IFS=$OLDIFS
+)
+
+# Format each file and re-stage it
+for f in $files; do
+  echo "  Formatting imports in $f"
+  goimports -w "$f"
+  git add "$f"
+done
+
+echo "Go imports have been formatted and re-staged for commit."
+exit 0
