@@ -690,6 +690,13 @@ func (t *TypeName) SqlString() string {
 		return ""
 	}
 
+	var result string
+
+	// Add SETOF prefix if present
+	if t.Setof {
+		result = "SETOF "
+	}
+
 	// Join qualified names with dots (e.g., "schema.type")
 	var nameParts []string
 	for _, item := range t.Names.Items {
@@ -715,7 +722,22 @@ func (t *TypeName) SqlString() string {
 		}
 	}
 
-	return typeName
+	result += typeName
+
+	// Add array bounds if present
+	if t.ArrayBounds != nil && t.ArrayBounds.Len() > 0 {
+		for _, bound := range t.ArrayBounds.Items {
+			if intBound, ok := bound.(*Integer); ok {
+				if intBound.IVal == -1 {
+					result += "[]"
+				} else {
+					result += fmt.Sprintf("[%d]", intBound.IVal)
+				}
+			}
+		}
+	}
+
+	return result
 }
 
 // CollateClause represents a COLLATE clause.

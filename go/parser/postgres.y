@@ -246,8 +246,11 @@ type PrivTarget struct {
 %type <str>          ColId ColLabel name BareColLabel NonReservedWord generic_option_name RoleId extract_arg
 %type <list>         name_list
 %type <list>         columnList any_name
-%type <list>         qualified_name_list any_name_list
+%type <list>         qualified_name_list any_name_list relation_expr_list
 %type <str>          opt_single_name
+%type <str>          notify_payload file_name
+%type <ival>         opt_lock lock_type
+%type <bval>         opt_nowait opt_restart_seqs
 %type <str>          unreserved_keyword col_name_keyword type_func_name_keyword reserved_keyword bare_label_keyword
 %type <list>         opt_name_list
 %type <ival>         opt_if_exists opt_if_not_exists
@@ -292,7 +295,7 @@ type PrivTarget struct {
 				     ConstDatetime
 				     Bit BitWithLength BitWithoutLength
 %type <typnam>	     func_type
-%type <list>         attrs opt_type_modifiers opt_interval interval_second
+%type <list>         attrs opt_type_modifiers opt_interval interval_second opt_array_bounds
 %type <ival>         opt_timezone opt_varying
 %type <list>         expr_list row
 %type <list>         opt_sort_clause
@@ -322,6 +325,7 @@ type PrivTarget struct {
 %type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt
 %type <stmt>         ClusterStmt ReindexStmt CheckPointStmt DiscardStmt
 %type <stmt>         DeclareCursorStmt FetchStmt ClosePortalStmt PrepareStmt ExecuteStmt DeallocateStmt
+%type <stmt>         ListenStmt UnlistenStmt NotifyStmt LoadStmt LockStmt TruncateStmt
 %type <node>         insert_rest
 %type <list>         insert_column_list set_clause_list set_target_list merge_when_list
 %type <target>       insert_column_item set_target xml_attribute_el
@@ -715,6 +719,12 @@ stmt:
 		|	PrepareStmt								{ $$ = $1 }
 		|	ExecuteStmt								{ $$ = $1 }
 		|	DeallocateStmt							{ $$ = $1 }
+		|	ListenStmt								{ $$ = $1 }
+		|	UnlistenStmt							{ $$ = $1 }
+		|	NotifyStmt								{ $$ = $1 }
+		|	LoadStmt								{ $$ = $1 }
+		|	LockStmt								{ $$ = $1 }
+		|	TruncateStmt							{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -867,6 +877,19 @@ qualified_name_list:
 				$$ = ast.NewNodeList($1)
 			}
 		|	qualified_name_list ',' qualified_name
+			{
+				list := $1
+				list.Append($3)
+				$$ = list
+			}
+		;
+
+relation_expr_list:
+		relation_expr
+			{
+				$$ = ast.NewNodeList($1)
+			}
+	|	relation_expr_list ',' relation_expr
 			{
 				list := $1
 				list.Append($3)
@@ -3688,9 +3711,63 @@ expr_list:	a_expr
 		;
 
 /* Type specifications */
-Typename:	SimpleTypename
+Typename:	SimpleTypename opt_array_bounds
 			{
 				$$ = $1
+				$$.ArrayBounds = $2
+			}
+		|	SETOF SimpleTypename opt_array_bounds
+			{
+				$$ = $2
+				$$.ArrayBounds = $3
+				$$.Setof = true
+			}
+		|	SimpleTypename ARRAY '[' Iconst ']'
+			{
+				$$ = $1
+				$$.ArrayBounds = ast.NewNodeList(ast.NewInteger($4))
+			}
+		|	SETOF SimpleTypename ARRAY '[' Iconst ']'
+			{
+				$$ = $2
+				$$.ArrayBounds = ast.NewNodeList(ast.NewInteger($5))
+				$$.Setof = true
+			}
+		|	SimpleTypename ARRAY
+			{
+				$$ = $1
+				$$.ArrayBounds = ast.NewNodeList(ast.NewInteger(-1))
+			}
+		|	SETOF SimpleTypename ARRAY
+			{
+				$$ = $2
+				$$.ArrayBounds = ast.NewNodeList(ast.NewInteger(-1))
+				$$.Setof = true
+			}
+		;
+
+opt_array_bounds:
+			opt_array_bounds '[' ']'
+			{
+				if $1 == nil {
+					$$ = ast.NewNodeList()
+				} else {
+					$$ = $1
+				}
+				$$.Append(ast.NewInteger(-1))
+			}
+		|	opt_array_bounds '[' Iconst ']'
+			{
+				if $1 == nil {
+					$$ = ast.NewNodeList()
+				} else {
+					$$ = $1
+				}
+				$$.Append(ast.NewInteger($3))
+			}
+		|	/* EMPTY */
+			{
+				$$ = nil
 			}
 		;
 
@@ -3699,6 +3776,17 @@ SimpleTypename: GenericType						{ $$ = $1 }
 		|	Bit									{ $$ = $1 }
 		|	Character							{ $$ = $1 }
 		|	ConstDatetime						{ $$ = $1 }
+		| 	ConstInterval opt_interval
+			{
+				$$ = $1;
+				$$.Typmods = $2;
+			}
+		| ConstInterval '(' Iconst ')'
+			{
+				$$ = $1;
+				$$.Typmods = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_FULL_RANGE), ast.NewInteger($3));
+			}
+		| JsonType								{ $$ = $1; }
 		;
 
 type_function_name: IDENT					{ $$ = $1 }
@@ -3710,6 +3798,9 @@ attr_name:	ColLabel						{ $$ = $1 }
 		;
 
 param_name:	type_function_name				{ $$ = $1 }
+		;
+
+file_name:	Sconst								{ $$ = $1 }
 		;
 
 attrs:		'.' attr_name
@@ -3922,7 +4013,9 @@ BitWithLength: BIT opt_varying '(' expr_list ')'
 				} else {
 					typeName = "bit"
 				}
-				$$ = makeTypeNameFromString(typeName)
+				tn := makeTypeNameFromString(typeName)
+				tn.Typmods = $4
+				$$ = tn
 			}
 		;
 
@@ -3946,7 +4039,9 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 				} else {
 					typeName = "timestamp"
 				}
-				$$ = makeTypeNameFromString(typeName)
+				tn := makeTypeNameFromString(typeName)
+				tn.Typmods = ast.NewNodeList(ast.NewInteger($3))
+				$$ = tn
 			}
 		|	TIMESTAMP opt_timezone
 			{
@@ -3966,7 +4061,9 @@ ConstDatetime: TIMESTAMP '(' Iconst ')' opt_timezone
 				} else {
 					typeName = "time"
 				}
-				$$ = makeTypeNameFromString(typeName)
+				tn := makeTypeNameFromString(typeName)
+				tn.Typmods = ast.NewNodeList(ast.NewInteger($3))
+				$$ = tn
 			}
 		|	TIME opt_timezone
 			{
@@ -11224,13 +11321,24 @@ var_value:
 zone_value:
 			Sconst									{ $$ = ast.NewString($1) }
 		|	IDENT									{ $$ = ast.NewString($1) }
+		|	ConstInterval Sconst opt_interval
+			{
+				t := $1
+				t.Typmods = $3
+				stringConst := ast.NewA_Const(ast.NewString($2), 0)
+				$$ = ast.NewTypeCast(stringConst, t, 0)
+			}
+		|	ConstInterval '(' Iconst ')' Sconst
+			{
+				t := $1
+				// INTERVAL_FULL_RANGE equivalent and precision
+				t.Typmods = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_FULL_RANGE), ast.NewInteger($3))
+				stringConst := ast.NewA_Const(ast.NewString($5), 0)
+				$$ = ast.NewTypeCast(stringConst, t, 0)
+			}
 		|	NumericOnly								{ $$ = $1 }
 		|	DEFAULT									{ $$ = ast.NewString("default") }
 		|	LOCAL									{ $$ = ast.NewString("local") }
-	|	TRUE_P									{ $$ = ast.NewString("true") }
-	|	FALSE_P									{ $$ = ast.NewString("false") }
-	|	ON										{ $$ = ast.NewString("on") }
-	|	OFF										{ $$ = ast.NewString("off") }
 		;
 
 opt_encoding:
@@ -13753,6 +13861,120 @@ DeallocateStmt:
 				{
 					$$ = ast.NewDeallocateAllStmt()
 				}
+		;
+
+/*
+ * LISTEN statement
+ * From postgres/src/backend/parser/gram.y:10952-10958
+ */
+ListenStmt:
+		LISTEN ColId
+			{
+				$$ = ast.NewListenStmt($2)
+			}
+		;
+
+/*
+ * UNLISTEN statement
+ * From postgres/src/backend/parser/gram.y:10961-10975
+ */
+UnlistenStmt:
+		UNLISTEN ColId
+			{
+				$$ = ast.NewUnlistenStmt($2)
+			}
+	|	UNLISTEN '*'
+			{
+				$$ = ast.NewUnlistenAllStmt()
+			}
+		;
+
+/*
+ * NOTIFY statement
+ * From postgres/src/backend/parser/gram.y:10937-10943
+ */
+NotifyStmt:
+		NOTIFY ColId notify_payload
+			{
+				$$ = ast.NewNotifyStmt($2, $3)
+			}
+		;
+
+/*
+ * Notify payload
+ * From postgres/src/backend/parser/gram.y:10947-10950
+ */
+notify_payload:
+		',' Sconst		{ $$ = $2 }
+	|	/* EMPTY */		{ $$ = "" }
+		;
+
+/*
+ * LOAD statement
+ * From postgres/src/backend/parser/gram.y:11260-11265
+ */
+LoadStmt:
+		LOAD file_name
+			{
+				$$ = ast.NewLoadStmt($2)
+			}
+		;
+
+/*
+ * LOCK statement
+ * From postgres/src/backend/parser/gram.y:12309-12317
+ */
+LockStmt:
+		LOCK_P opt_table relation_expr_list opt_lock opt_nowait
+			{
+				stmt := ast.NewLockStmt($3, ast.LockMode($4))
+				stmt.Nowait = $5
+				$$ = stmt
+			}
+		;
+
+/*
+ * Lock mode options
+ * From postgres/src/backend/parser/gram.y:12320-12336
+ */
+opt_lock:
+		IN_P lock_type MODE		{ $$ = $2 }
+	|	/* EMPTY */				{ $$ = int(ast.AccessExclusiveLock) }
+		;
+
+lock_type:
+		ACCESS SHARE				{ $$ = int(ast.AccessShareLock) }
+	|	ROW SHARE					{ $$ = int(ast.RowShareLock) }
+	|	ROW EXCLUSIVE				{ $$ = int(ast.RowExclusiveLock) }
+	|	SHARE UPDATE EXCLUSIVE		{ $$ = int(ast.ShareUpdateExclusiveLock) }
+	|	SHARE						{ $$ = int(ast.ShareLock) }
+	|	SHARE ROW EXCLUSIVE			{ $$ = int(ast.ShareRowExclusiveLock) }
+	|	EXCLUSIVE					{ $$ = int(ast.ExclusiveLock) }
+	|	ACCESS EXCLUSIVE			{ $$ = int(ast.AccessExclusiveLock) }
+		;
+
+/*
+ * TRUNCATE statement
+ * From postgres/src/backend/parser/gram.y:7025-7036
+ */
+TruncateStmt:
+		TRUNCATE opt_table relation_expr_list opt_restart_seqs opt_drop_behavior
+			{
+				stmt := ast.NewTruncateStmt($3)
+				stmt.RestartSeqs = $4
+				stmt.Behavior = $5
+				$$ = stmt
+			}
+		;
+
+/*
+ * RESTART IDENTITY option for TRUNCATE
+ * From postgres/src/backend/parser/gram.y:7037-7040
+ */
+opt_restart_seqs:
+		CONTINUE_P IDENTITY_P	{ $$ = false }
+	|	RESTART IDENTITY_P		{ $$ = true }
+	|	/* EMPTY */				{ $$ = false }
 		;
 
 %%

@@ -2619,6 +2619,11 @@ func (ls *LoadStmt) StatementType() string {
 	return "LOAD"
 }
 
+// SqlString returns the SQL representation of the LOAD statement
+func (ls *LoadStmt) SqlString() string {
+	return fmt.Sprintf("LOAD '%s'", ls.Filename)
+}
+
 // NotifyStmt represents a NOTIFY statement.
 // Ported from postgres/src/include/nodes/parsenodes.h:3622-3627
 type NotifyStmt struct {
@@ -2647,6 +2652,14 @@ func (ns *NotifyStmt) StatementType() string {
 	return "NOTIFY"
 }
 
+// SqlString returns the SQL representation of the NOTIFY statement
+func (ns *NotifyStmt) SqlString() string {
+	if ns.Payload != "" {
+		return fmt.Sprintf("NOTIFY %s, '%s'", ns.Conditionname, ns.Payload)
+	}
+	return fmt.Sprintf("NOTIFY %s", ns.Conditionname)
+}
+
 // ListenStmt represents a LISTEN statement.
 // Ported from postgres/src/include/nodes/parsenodes.h:3633-3637
 type ListenStmt struct {
@@ -2668,6 +2681,11 @@ func (ls *ListenStmt) String() string {
 
 func (ls *ListenStmt) StatementType() string {
 	return "LISTEN"
+}
+
+// SqlString returns the SQL representation of the LISTEN statement
+func (ls *ListenStmt) SqlString() string {
+	return fmt.Sprintf("LISTEN %s", ls.Conditionname)
 }
 
 // UnlistenStmt represents an UNLISTEN statement.

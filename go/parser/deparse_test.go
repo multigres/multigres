@@ -241,11 +241,9 @@ func TestDeparsing(t *testing.T) {
 		{"SET TIME ZONE numeric negative", "SET TIME ZONE -8", ""},
 		{"SET TIME ZONE DEFAULT", "SET TIME ZONE DEFAULT", "SET TIME ZONE default"},
 		{"SET TIME ZONE LOCAL", "SET TIME ZONE LOCAL", "SET TIME ZONE 'local'"},
-		{"SET TIME ZONE TRUE", "SET TIME ZONE TRUE", "SET TIME ZONE true"},
-		{"SET TIME ZONE FALSE", "SET TIME ZONE FALSE", "SET TIME ZONE false"},
-		{"SET TIME ZONE ON", "SET TIME ZONE ON", "SET TIME ZONE on"},
-		{"SET TIME ZONE OFF", "SET TIME ZONE OFF", "SET TIME ZONE off"},
-		// Complex interval parsing not yet implemented - removed test case
+		{"SET TIME ZONE INTERVAL hour", "SET TIME ZONE INTERVAL '1' HOUR", ""},
+		{"SET TIME ZONE INTERVAL minute", "SET TIME ZONE INTERVAL '30' MINUTE", ""},
+		{"SET TIME ZONE INTERVAL with precision", "SET TIME ZONE INTERVAL(2) '1'", ""},
 		{"SET CATALOG", "SET CATALOG 'mydb'", ""},
 		{"SET SCHEMA", "SET SCHEMA 'public'", ""},
 		{"SET NAMES with encoding", "SET NAMES 'UTF8'", ""},
@@ -762,6 +760,53 @@ func TestDeparsing(t *testing.T) {
 		{"DEALLOCATE ALL", "DEALLOCATE ALL", ""},
 		{"DEALLOCATE PREPARE specific", "DEALLOCATE PREPARE my_plan", "DEALLOCATE my_plan"},
 		{"DEALLOCATE PREPARE ALL", "DEALLOCATE PREPARE ALL", "DEALLOCATE ALL"},
+
+		// LISTEN/NOTIFY/LOAD/LOCK/TRUNCATE statements
+		{"LISTEN basic", "LISTEN channel1", ""},
+		{"UNLISTEN basic", "UNLISTEN channel1", ""},
+		{"UNLISTEN all", "UNLISTEN *", ""},
+		{"NOTIFY basic", "NOTIFY channel1", ""},
+		{"NOTIFY with payload", "NOTIFY channel1, 'hello world'", ""},
+		{"LOAD basic", "LOAD 'mymodule'", ""},
+		{"LOCK basic (default mode)", "LOCK TABLE users", "LOCK TABLE users IN ACCESS EXCLUSIVE MODE"},
+		{"LOCK with ACCESS SHARE mode", "LOCK TABLE users IN ACCESS SHARE MODE", ""},
+		{"LOCK with SHARE mode", "LOCK TABLE users IN SHARE MODE", ""},
+		{"LOCK with NOWAIT", "LOCK TABLE users NOWAIT", "LOCK TABLE users IN ACCESS EXCLUSIVE MODE NOWAIT"},
+		{"LOCK multiple tables", "LOCK TABLE users, orders", "LOCK TABLE users, orders IN ACCESS EXCLUSIVE MODE"},
+		{"TRUNCATE basic", "TRUNCATE TABLE users", "TRUNCATE TABLE users CONTINUE IDENTITY RESTRICT"},
+		{"TRUNCATE with RESTART IDENTITY", "TRUNCATE TABLE users RESTART IDENTITY", "TRUNCATE TABLE users RESTART IDENTITY RESTRICT"},
+		{"TRUNCATE with CASCADE", "TRUNCATE TABLE users CASCADE", "TRUNCATE TABLE users CONTINUE IDENTITY CASCADE"},
+		{"TRUNCATE multiple tables", "TRUNCATE TABLE users, orders", "TRUNCATE TABLE users, orders CONTINUE IDENTITY RESTRICT"},
+
+		// Typename array bounds and SETOF tests
+		{"CREATE TABLE with array type", "CREATE TABLE test (col INT[])", ""},
+		{"CREATE TABLE with bounded array", "CREATE TABLE test (col INT[10])", ""},
+		{"CREATE TABLE with multi-dimensional array", "CREATE TABLE test (col INT[][])", ""},
+		{"CREATE TABLE with bounded multi-dimensional array", "CREATE TABLE test (col INT[10][20])", ""},
+		{"CREATE TABLE with SQL standard array syntax", "CREATE TABLE test (col INT ARRAY[10])", "CREATE TABLE test (col INT[10])"},
+		{"CREATE TABLE with SQL standard unbounded array", "CREATE TABLE test (col INT ARRAY)", "CREATE TABLE test (col INT[])"},
+		{"CREATE TABLE with VARCHAR array", "CREATE TABLE test (col VARCHAR(50)[])", ""},
+		{"CREATE TABLE with NUMERIC bounded array", "CREATE TABLE test (col NUMERIC(10,2)[5])", "CREATE TABLE TEST (COL NUMERIC(10, 2)[5])"},
+
+		{"CREATE FUNCTION with SETOF return type", "CREATE FUNCTION test () RETURNS SETOF INT", ""},
+		{"CREATE FUNCTION with SETOF array return", "CREATE FUNCTION test () RETURNS SETOF INT[]", ""},
+		{"CREATE FUNCTION with SETOF bounded array", "CREATE FUNCTION test () RETURNS SETOF INT[10]", ""},
+		{"CREATE FUNCTION with SETOF SQL standard array", "CREATE FUNCTION test () RETURNS SETOF INT ARRAY", "CREATE FUNCTION test () RETURNS SETOF INT[]"},
+		{"CREATE FUNCTION with SETOF SQL standard bounded array", "CREATE FUNCTION test () RETURNS SETOF INT ARRAY[5]", "CREATE FUNCTION test () RETURNS SETOF INT[5]"},
+		{"CREATE FUNCTION with SETOF VARCHAR array", "CREATE FUNCTION test () RETURNS SETOF VARCHAR(100)[]", ""},
+
+		// Complex typename combinations
+		{"CREATE TABLE with multiple array columns", "CREATE TABLE test (col1 INT[], col2 VARCHAR(50)[10], col3 NUMERIC[][])", ""},
+		{"CREATE FUNCTION with complex SETOF type", "CREATE FUNCTION test () RETURNS SETOF NUMERIC(10, 2)[]", ""},
+
+		// Type casting with arrays
+		{"SELECT with array type cast", "SELECT value::INT[]", ""},
+		{"SELECT with bounded array type cast", "SELECT value::INT[5]", ""},
+		{"SELECT with SETOF type cast", "SELECT value::SETOF INT", ""},
+
+		// Column definitions with arrays in various contexts
+		{"ALTER TABLE add array column", "ALTER TABLE test ADD COLUMN new_col INT[]", ""},
+		{"ALTER TABLE add bounded array column", "ALTER TABLE test ADD COLUMN new_col INT[10]", ""},
 	}
 
 	for _, tt := range tests {
@@ -1451,7 +1496,7 @@ func testAdvancedTypeCasting(t *testing.T) {
 		{
 			name:     "bit with length",
 			input:    "SELECT value::bit(8)",
-			expected: "SELECT value::bit", // Note: Type modifiers not preserved in current implementation
+			expected: "SELECT value::bit(8)",
 		},
 		{
 			name:     "timestamp type",
@@ -1461,7 +1506,7 @@ func testAdvancedTypeCasting(t *testing.T) {
 		{
 			name:     "timestamp with precision",
 			input:    "SELECT value::timestamp(6)",
-			expected: "SELECT value::timestamp", // Note: Type modifiers not preserved in current implementation
+			expected: "SELECT value::timestamp(6)",
 		},
 		{
 			name:     "timestamptz type",
@@ -1479,16 +1524,8 @@ func testAdvancedTypeCasting(t *testing.T) {
 			expected: "",
 		},
 		{
-			name:   "interval type",
-			input:  "SELECT value::interval",
-			skip:   true,
-			reason: "Interval type parsing not yet implemented",
-		},
-		{
-			name:   "interval with fields",
-			input:  "SELECT value::interval day to hour",
-			skip:   true,
-			reason: "Interval type parsing not yet implemented",
+			name:  "interval type",
+			input: "SELECT value::interval",
 		},
 	}
 

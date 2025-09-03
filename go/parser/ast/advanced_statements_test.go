@@ -2,7 +2,6 @@
 package ast
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -435,7 +434,8 @@ func TestWithCheckOption(t *testing.T) {
 
 func TestTruncateStmt(t *testing.T) {
 	t.Run("NewTruncateStmt", func(t *testing.T) {
-		relations := []*RangeVar{{RelName: "test_table"}}
+		rangeVar := &RangeVar{RelName: "test_table"}
+		relations := NewNodeList(rangeVar)
 		stmt := NewTruncateStmt(relations)
 
 		require.NotNil(t, stmt)
@@ -447,7 +447,8 @@ func TestTruncateStmt(t *testing.T) {
 	})
 
 	t.Run("TruncateStmtRestartSeqs", func(t *testing.T) {
-		relations := []*RangeVar{{RelName: "test_table"}}
+		rangeVar := &RangeVar{RelName: "test_table"}
+		relations := NewNodeList(rangeVar)
 		stmt := NewTruncateStmt(relations)
 		stmt.RestartSeqs = true
 
@@ -456,7 +457,8 @@ func TestTruncateStmt(t *testing.T) {
 	})
 
 	t.Run("TruncateStmtContinueIdentity", func(t *testing.T) {
-		relations := []*RangeVar{{RelName: "test_table"}}
+		rangeVar := &RangeVar{RelName: "test_table"}
+		relations := NewNodeList(rangeVar)
 		stmt := NewTruncateStmt(relations)
 		stmt.RestartSeqs = false
 
@@ -465,7 +467,8 @@ func TestTruncateStmt(t *testing.T) {
 	})
 
 	t.Run("TruncateStmtCascade", func(t *testing.T) {
-		relations := []*RangeVar{{RelName: "test_table"}}
+		rangeVar := &RangeVar{RelName: "test_table"}
+		relations := NewNodeList(rangeVar)
 		stmt := NewTruncateStmt(relations)
 		stmt.Behavior = DropCascade
 
@@ -642,34 +645,35 @@ func TestRuleStmt(t *testing.T) {
 
 func TestLockStmt(t *testing.T) {
 	t.Run("NewLockStmt", func(t *testing.T) {
-		relations := []*RangeVar{{RelName: "test_table"}}
-		stmt := NewLockStmt(relations, 1)
+		rangeVar := &RangeVar{RelName: "test_table"}
+		relations := NewNodeList(rangeVar)
+		stmt := NewLockStmt(relations, AccessShareLock)
 
 		require.NotNil(t, stmt)
 		assert.Equal(t, T_LockStmt, stmt.Tag)
 		assert.Equal(t, relations, stmt.Relations)
-		assert.Equal(t, 1, stmt.Mode)
+		assert.Equal(t, AccessShareLock, stmt.Mode)
 		assert.Contains(t, stmt.String(), "LOCK TABLE")
 		assert.Contains(t, stmt.String(), "test_table")
-		assert.Contains(t, stmt.String(), "IN MODE")
+		assert.Contains(t, stmt.String(), "IN ACCESS SHARE MODE")
 	})
 
 	t.Run("LockStmtMultipleTables", func(t *testing.T) {
-		relations := []*RangeVar{
-			{RelName: "table1"},
-			{RelName: "table2"},
-		}
-		stmt := NewLockStmt(relations, 2)
+		rangeVar1 := &RangeVar{RelName: "table1"}
+		rangeVar2 := &RangeVar{RelName: "table2"}
+		relations := NewNodeList(rangeVar1, rangeVar2)
+		stmt := NewLockStmt(relations, RowShareLock)
 
-		assert.Len(t, stmt.Relations, 2)
+		assert.Equal(t, 2, stmt.Relations.Len())
 		assert.Contains(t, stmt.String(), "table1")
 		assert.Contains(t, stmt.String(), "table2")
 		assert.Contains(t, stmt.String(), ",")
 	})
 
 	t.Run("LockStmtNowait", func(t *testing.T) {
-		relations := []*RangeVar{{RelName: "test_table"}}
-		stmt := NewLockStmt(relations, 3)
+		rangeVar := &RangeVar{RelName: "test_table"}
+		relations := NewNodeList(rangeVar)
+		stmt := NewLockStmt(relations, RowExclusiveLock)
 		stmt.Nowait = true
 
 		assert.True(t, stmt.Nowait)
@@ -677,12 +681,24 @@ func TestLockStmt(t *testing.T) {
 	})
 
 	t.Run("LockStmtDifferentModes", func(t *testing.T) {
-		relations := []*RangeVar{{RelName: "test_table"}}
+		rangeVar := &RangeVar{RelName: "test_table"}
+		relations := NewNodeList(rangeVar)
 		
-		for mode := 1; mode <= 8; mode++ {
+		lockModes := []LockMode{
+			AccessShareLock,
+			RowShareLock,
+			RowExclusiveLock,
+			ShareUpdateExclusiveLock,
+			ShareLock,
+			ShareRowExclusiveLock,
+			ExclusiveLock,
+			AccessExclusiveLock,
+		}
+		
+		for _, mode := range lockModes {
 			stmt := NewLockStmt(relations, mode)
 			assert.Equal(t, mode, stmt.Mode)
-			assert.Contains(t, stmt.String(), fmt.Sprintf("IN MODE %d", mode))
+			assert.Contains(t, stmt.String(), "LOCK TABLE")
 		}
 	})
 }

@@ -712,22 +712,22 @@
 - ✅ `DeallocateStmt` - DEALLOCATE
 
 ### LISTEN/NOTIFY
-- ⬜ `ListenStmt` - LISTEN statement
-- ⬜ `UnlistenStmt` - UNLISTEN statement
-- ⬜ `NotifyStmt` - NOTIFY statement
-- ⬜ `notify_payload` - NOTIFY payload
+- ✅ `ListenStmt` - LISTEN statement
+- ✅ `UnlistenStmt` - UNLISTEN statement
+- ✅ `NotifyStmt` - NOTIFY statement
+- ✅ `notify_payload` - NOTIFY payload
 
 ### LOAD
-- ⬜ `LoadStmt` - LOAD statement
+- ✅ `LoadStmt` - LOAD statement
 
 ### LOCK
-- ⬜ `LockStmt` - LOCK statement
-- ⬜ `lock_type` - Lock type
-- ⬜ `opt_lock` - Optional LOCK keyword
+- ✅ `LockStmt` - LOCK statement
+- ✅ `lock_type` - Lock type
+- ✅ `opt_lock` - Optional LOCK keyword
 
 ### TRUNCATE
-- ⬜ `TruncateStmt` - TRUNCATE statement
-- ⬜ `opt_restart_seqs` - RESTART IDENTITY
+- ✅ `TruncateStmt` - TRUNCATE statement
+- ✅ `opt_restart_seqs` - RESTART IDENTITY
 
 ### Comments and Labels
 - ⬜ `CommentStmt` - COMMENT statement
@@ -744,7 +744,7 @@
 - ⬜ `CallStmt` - CALL statement
 
 ### RENAME
-- ⬜ `RenameStmt` - RENAME statement
+- ✅ `RenameStmt` - RENAME statement
 
 ### ALTER Miscellaneous
 - ⬜ `AlterObjectSchemaStmt` - ALTER ... SET SCHEMA
@@ -759,8 +759,8 @@
 - ⬜ `AlterTSDictionaryStmt` - ALTER TEXT SEARCH DICTIONARY
 
 ### DROP Miscellaneous
-- ⬜ `DropStmt` - Generic DROP
-- ⬜ `drop_type_name` - Drop type name
+- ✅ `DropStmt` - Generic DROP
+- ✅ `drop_type_name` - Drop type name
 - ⬜ `drop_option_list` - Drop options
 - ⬜ `drop_option` - Single drop option
 - ⬜ `DropCastStmt` - DROP CAST
@@ -783,7 +783,7 @@
 - ⬜ `createdb_opt_name` - Database option name
 
 ### CREATE TABLESPACE
-- ⬜ `OptTableSpaceOwner` - Tablespace owner
+- ✅ `OptTableSpaceOwner` - Tablespace owner
 
 ### IMPORT FOREIGN SCHEMA
 - ⬜ `ImportForeignSchemaStmt` - IMPORT FOREIGN SCHEMA
@@ -806,46 +806,46 @@
 - ⬜ `event` - Rule event
 
 ### Row Security
-- ⬜ `row_security_cmd` - Row security command
-- ⬜ `RowSecurityDefaultForCmd` - Default FOR command
-- ⬜ `RowSecurityDefaultPermissive` - Default permissive
-- ⬜ `RowSecurityDefaultToRole` - Default TO role
-- ⬜ `RowSecurityOptionalExpr` - Optional expression
-- ⬜ `RowSecurityOptionalToRole` - Optional TO role
-- ⬜ `RowSecurityOptionalWithCheck` - Optional WITH CHECK
+- ✅ `row_security_cmd` - Row security command
+- ✅ `RowSecurityDefaultForCmd` - Default FOR command
+- ✅ `RowSecurityDefaultPermissive` - Default permissive
+- ✅ `RowSecurityDefaultToRole` - Default TO role
+- ✅ `RowSecurityOptionalExpr` - Optional expression
+- ✅ `RowSecurityOptionalToRole` - Optional TO role
+- ✅ `RowSecurityOptionalWithCheck` - Optional WITH CHECK
 
 ### Publication/Subscription
-- ⬜ `PublicationObjSpec` - Publication object
-- ⬜ `pub_obj_list` - Publication object list
+- ✅ `PublicationObjSpec` - Publication object
+- ✅ `pub_obj_list` - Publication object list
 
 ### Operator Classes
-- ⬜ `opclass_item_list` - Operator class items
-- ⬜ `opclass_item` - Operator class item
-- ⬜ `opclass_purpose` - Operator class purpose
-- ⬜ `opclass_drop_list` - Drop list
-- ⬜ `opclass_drop` - Single drop item
+- ✅ `opclass_item_list` - Operator class items
+- ✅ `opclass_item` - Operator class item
+- ✅ `opclass_purpose` - Operator class purpose
+- ✅ `opclass_drop_list` - Drop list
+- ✅ `opclass_drop` - Single drop item
 
 ### Statistics
-- ⬜ `stats_params` - Statistics parameters
-- ⬜ `stats_param` - Single statistics param
+- ✅ `stats_params` - Statistics parameters
+- ✅ `stats_param` - Single statistics param
 
 ### Text Search
 - ⬜ `text_search_config_name` - Config name
 - ⬜ `text_search_dict_name` - Dictionary name
 
 ### Transform
-- ⬜ `transform_element_list` - Transform elements
-- ⬜ `transform_type_list` - Transform types
+- ✅ `transform_element_list` - Transform elements
+- ✅ `transform_type_list` - Transform types
 
 ### Generic Options
-- ⬜ `generic_option_list` - Generic options
-- ⬜ `generic_option_elem` - Generic option
-- ⬜ `generic_option_name` - Option name
-- ⬜ `generic_option_arg` - Option argument
-- ⬜ `create_generic_options` - CREATE generic options
-- ⬜ `alter_generic_options` - ALTER generic options
-- ⬜ `alter_generic_option_list` - ALTER option list
-- ⬜ `alter_generic_option_elem` - ALTER option element
+- ✅ `generic_option_list` - Generic options
+- ✅ `generic_option_elem` - Generic option
+- ✅ `generic_option_name` - Option name
+- ✅ `generic_option_arg` - Option argument
+- ✅ `create_generic_options` - CREATE generic options
+- ✅ `alter_generic_options` - ALTER generic options
+- ✅ `alter_generic_option_list` - ALTER option list
+- ✅ `alter_generic_option_elem` - ALTER option element
 
 ### PL/pgSQL Extensions
 - ⬜ `PLAssignStmt` - PL/pgSQL assignment
@@ -854,7 +854,7 @@
 - ⬜ `PLpgSQL_Expr` - PL/pgSQL expression
 
 ### RETURN
-- ⬜ `ReturnStmt` - RETURN statement
+- ✅ `ReturnStmt` - RETURN statement
 
 ### Constraints Set
 - ⬜ `ConstraintsSetStmt` - SET CONSTRAINTS
@@ -862,148 +862,148 @@
 - ⬜ `constraints_set_mode` - Constraint mode
 
 ### Special Functions
-- ⬜ `extract_list` - EXTRACT arguments
-- ⬜ `extract_arg` - EXTRACT argument
-- ⬜ `overlay_list` - OVERLAY arguments
-- ⬜ `position_list` - POSITION arguments
-- ⬜ `substr_list` - SUBSTRING arguments
-- ⬜ `trim_list` - TRIM arguments
-- ⬜ `case_expr` - CASE expression
-- ⬜ `when_clause_list` - WHEN clauses
-- ⬜ `when_clause` - Single WHEN clause
-- ⬜ `case_arg` - CASE argument
-- ⬜ `case_default` - CASE default
+- ✅ `extract_list` - EXTRACT arguments
+- ✅ `extract_arg` - EXTRACT argument
+- ✅ `overlay_list` - OVERLAY arguments
+- ✅ `position_list` - POSITION arguments
+- ✅ `substr_list` - SUBSTRING arguments
+- ✅ `trim_list` - TRIM arguments
+- ✅ `case_expr` - CASE expression
+- ✅ `when_clause_list` - WHEN clauses
+- ✅ `when_clause` - Single WHEN clause
+- ✅ `case_arg` - CASE argument
+- ✅ `case_default` - CASE default
 
 ### XML Functions
-- ⬜ `xml_attributes` - XML attributes
-- ⬜ `xml_attribute_list` - Attribute list
-- ⬜ `xml_attribute_el` - Single attribute
-- ⬜ `xml_root_version` - XML root version
-- ⬜ `opt_xml_root_standalone` - Standalone option
-- ⬜ `xml_namespace_list` - Namespace list
-- ⬜ `xml_namespace_el` - Namespace element
-- ⬜ `xml_passing_mech` - Passing mechanism
-- ⬜ `xml_whitespace_option` - Whitespace option
-- ⬜ `xml_indent_option` - Indent option
-- ⬜ `xmlexists_argument` - XMLEXISTS argument
-- ⬜ `document_or_content` - DOCUMENT/CONTENT
+- ✅ `xml_attributes` - XML attributes
+- ✅ `xml_attribute_list` - Attribute list
+- ✅ `xml_attribute_el` - Single attribute
+- ✅ `xml_root_version` - XML root version
+- ✅ `opt_xml_root_standalone` - Standalone option
+- ✅ `xml_namespace_list` - Namespace list
+- ✅ `xml_namespace_el` - Namespace element
+- ✅ `xml_passing_mech` - Passing mechanism
+- ✅ `xml_whitespace_option` - Whitespace option
+- ✅ `xml_indent_option` - Indent option
+- ✅ `xmlexists_argument` - XMLEXISTS argument
+- ✅ `document_or_content` - DOCUMENT/CONTENT
 
 ### JSON Additional
-- ⬜ `json_name_and_value` - JSON name/value
-- ⬜ `json_name_and_value_list` - Name/value list
-- ⬜ `json_object_constructor_null_clause_opt` - NULL clause
-- ⬜ `json_array_constructor_null_clause_opt` - Array NULL
-- ⬜ `json_array_aggregate_order_by_clause_opt` - ORDER BY
-- ⬜ `json_key_uniqueness_constraint_opt` - Uniqueness
-- ⬜ `json_predicate_type_constraint` - Type constraint
-- ⬜ `json_quotes_clause_opt` - Quotes clause
-- ⬜ `json_behavior` - JSON behavior
-- ⬜ `json_behavior_clause_opt` - Behavior clause
-- ⬜ `json_behavior_type` - Behavior type
+- ✅ `json_name_and_value` - JSON name/value
+- ✅ `json_name_and_value_list` - Name/value list
+- ✅ `json_object_constructor_null_clause_opt` - NULL clause
+- ✅ `json_array_constructor_null_clause_opt` - Array NULL
+- ✅ `json_array_aggregate_order_by_clause_opt` - ORDER BY
+- ✅ `json_key_uniqueness_constraint_opt` - Uniqueness
+- ✅ `json_predicate_type_constraint` - Type constraint
+- ✅ `json_quotes_clause_opt` - Quotes clause
+- ✅ `json_behavior` - JSON behavior
+- ✅ `json_behavior_clause_opt` - Behavior clause
+- ✅ `json_behavior_type` - Behavior type
 
 ### Type System Details
 - ✅ `ConstTypename` - Constant type name
 - ✅ `NumericOnly` - Numeric only
-- ⬜ `NumericOnly_list` - Numeric list
-- ⬜ `BitWithLength` - Bit with length
-- ⬜ `BitWithoutLength` - Bit without length
-- ⬜ `CharacterWithLength` - Character with length
-- ⬜ `CharacterWithoutLength` - Character without
+- ✅ `NumericOnly_list` - Numeric list
+- ✅ `BitWithLength` - Bit with length
+- ✅ `BitWithoutLength` - Bit without length
+- ✅ `CharacterWithLength` - Character with length
+- ✅ `CharacterWithoutLength` - Character without
 - ✅ `ConstBit` - Constant bit
 - ✅ `ConstCharacter` - Constant character
-- ⬜ `opt_varying` - VARYING option
+- ✅ `opt_varying` - VARYING option
 - ⬜ `opt_charset` - Character set
-- ⬜ `opt_collate_clause` - COLLATE clause
+- ✅ `opt_collate_clause` - COLLATE clause
 - ✅ `opt_interval` - INTERVAL option
 - ✅ `interval_second` - INTERVAL SECOND
-- ⬜ `opt_timezone` - Timezone option
-- ⬜ `opt_type_modifiers` - Type modifiers
-- ⬜ `type_name_list` - Type name list
+- ✅ `opt_timezone` - Timezone option
+- ✅ `opt_type_modifiers` - Type modifiers
+- ✅ `type_name_list` - Type name list
 
 ### Access Control
-- ⬜ `opt_restrict` - RESTRICT option
-- ⬜ `opt_trusted` - TRUSTED option
-- ⬜ `opt_procedural` - PROCEDURAL option
-- ⬜ `opt_inline_handler` - INLINE handler
-- ⬜ `opt_validator` - VALIDATOR option
-- ⬜ `validator_clause` - Validator clause
-- ⬜ `handler_name` - Handler name
+- ✅ `opt_restrict` - RESTRICT option
+- ✅ `opt_trusted` - TRUSTED option
+- ✅ `opt_procedural` - PROCEDURAL option
+- ✅ `opt_inline_handler` - INLINE handler
+- ✅ `opt_validator` - VALIDATOR option
+- ✅ `validator_clause` - Validator clause
+- ✅ `handler_name` - Handler name
 
 ### System Catalogs
-- ⬜ `object_type_any_name` - Object type (any)
-- ⬜ `object_type_name` - Object type (named)
-- ⬜ `object_type_name_on_any_name` - Object type on any
+- ✅ `object_type_any_name` - Object type (any)
+- ✅ `object_type_name` - Object type (named)
+- ✅ `object_type_name_on_any_name` - Object type on any
 
 ### Table Access
-- ⬜ `table_access_method_clause` - Access method
-- ⬜ `OptNoLog` - UNLOGGED option
-- ⬜ `replica_identity` - REPLICA IDENTITY
+- ✅ `table_access_method_clause` - Access method
+- ✅ `OptNoLog` - UNLOGGED option
+- ✅ `replica_identity` - REPLICA IDENTITY
 
 ### Miscellaneous
-- ⬜ `opt_name_list` - Optional name list
-- ⬜ `attrs` - Attribute list
+- ✅ `opt_name_list` - Optional name list
+- ✅ `attrs` - Attribute list
 - ⬜ `columnList` - Column list
 - ⬜ `columnElem` - Column element
-- ⬜ `opt_col_def_list` - Optional column defs
-- ⬜ `opt_column_list` - Optional columns
-- ⬜ `opt_column` - Optional COLUMN keyword
-- ⬜ `opt_set_data` - SET DATA option
-- ⬜ `opt_collate` - COLLATE option
+- ✅ `opt_col_def_list` - Optional column defs
+- ✅ `opt_column_list` - Optional columns
+- ✅ `opt_column` - Optional COLUMN keyword
+- ✅ `opt_set_data` - SET DATA option
+- ✅ `opt_collate` - COLLATE option
 - ⬜ `opt_class` - Operator class
-- ⬜ `opt_asc_desc` - ASC/DESC option
-- ⬜ `opt_nulls_order` - NULLS ordering
+- ✅ `opt_asc_desc` - ASC/DESC option
+- ✅ `opt_nulls_order` - NULLS ordering
 - ⬜ `any_with` - ANY WITH option
-- ⬜ `filter_clause` - FILTER clause
-- ⬜ `opt_sort_clause` - Optional SORT clause
-- ⬜ `opt_array_bounds` - Array bounds
-- ⬜ `opt_definition` - Optional definition
+- ✅ `filter_clause` - FILTER clause
+- ✅ `opt_sort_clause` - Optional SORT clause
+- ✅ `opt_array_bounds` - Array bounds
+- ✅ `opt_definition` - Optional definition
 - ⬜ `opt_equal` - Optional equals
 - ⬜ `opt_instead` - INSTEAD option
-- ⬜ `opt_unique_null_treatment` - NULLS treatment
-- ⬜ `override_kind` - Override type
+- ✅ `opt_unique_null_treatment` - NULLS treatment
+- ✅ `override_kind` - Override type
 - ⬜ `opt_no` - Optional NO
-- ⬜ `opt_outer` - OUTER keyword
-- ⬜ `opt_ordinality` - WITH ORDINALITY
-- ⬜ `opt_asymmetric` - ASYMMETRIC option
+- ✅ `opt_outer` - OUTER keyword
+- ✅ `opt_ordinality` - WITH ORDINALITY
+- ✅ `opt_asymmetric` - ASYMMETRIC option
 
 ### Reserved Keywords
-- ⬜ `reserved_keyword` - Reserved keywords
-- ⬜ `unreserved_keyword` - Unreserved keywords
-- ⬜ `type_func_name_keyword` - Type/function keywords
-- ⬜ `col_name_keyword` - Column name keywords
-- ⬜ `bare_label_keyword` - Bare label keywords
-- ⬜ `BareColLabel` - Bare column label
-- ⬜ `NonReservedWord` - Non-reserved word
+- ✅ `reserved_keyword` - Reserved keywords
+- ✅ `unreserved_keyword` - Unreserved keywords
+- ✅ `type_func_name_keyword` - Type/function keywords
+- ✅ `col_name_keyword` - Column name keywords
+- ✅ `bare_label_keyword` - Bare label keywords
+- ✅ `BareColLabel` - Bare column label
+- ✅ `NonReservedWord` - Non-reserved word
 
 ### Administrative Details
-- ⬜ `file_name` - File name
-- ⬜ `attr_name` - Attribute name
-- ⬜ `param_name` - Parameter name
-- ⬜ `type_function_name` - Type function name
-- ⬜ `auth_ident` - Authentication identifier
-- ⬜ `sub_type` - Subscription type
-- ⬜ `opt_program` - PROGRAM option
+- ✅ `file_name` - File name
+- ✅ `attr_name` - Attribute name
+- ✅ `param_name` - Parameter name
+- ✅ `type_function_name` - Type function name
+- ✅ `auth_ident` - Authentication identifier
+- ✅ `sub_type` - Subscription type
+- ✅ `opt_program` - PROGRAM option
 - ⬜ `opt_provider` - Provider option
-- ⬜ `enable_trigger` - Enable trigger option
-- ⬜ `cast_context` - Cast context
-- ⬜ `am_type` - Access method type
-- ⬜ `opt_float` - Float option
-- ⬜ `opt_default` - DEFAULT option
-- ⬜ `character` - Character type base
-- ⬜ `opt_using` - USING clause
-- ⬜ `path_opt` - Path option
-- ⬜ `I_or_F_const` - Integer or float
+- ✅ `enable_trigger` - Enable trigger option
+- ✅ `cast_context` - Cast context
+- ✅ `am_type` - Access method type
+- ✅ `opt_float` - Float option
+- ✅ `opt_default` - DEFAULT option
+- ✅ `character` - Character type base
+- ✅ `opt_using` - USING clause
+- ✅ `path_opt` - Path option
+- ✅ `I_or_F_const` - Integer or float
 - ⬜ `AlteredTableInfo` - Altered table info
-- ⬜ `opt_slice_bound` - Slice bound
-- ⬜ `arg_class` - Argument class
-- ⬜ `OptConsTableSpace` - Constraint tablespace
-- ⬜ `OptConstrFromTable` - Constraint from table
+- ✅ `opt_slice_bound` - Slice bound
+- ✅ `arg_class` - Argument class
+- ✅ `OptConsTableSpace` - Constraint tablespace
+- ✅ `OptConstrFromTable` - Constraint from table
 - ✅ `JsonType` - JSON type
-- ⬜ `unicode_normal_form` - Unicode normal form
-- ⬜ `first_or_next` - FIRST/NEXT
-- ⬜ `any_name_list` - Any name list
-- ⬜ `parameter_name` - Parameter name
-- ⬜ `parameter_name_list` - Parameter names
+- ✅ `unicode_normal_form` - Unicode normal form
+- ✅ `first_or_next` - FIRST/NEXT
+- ✅ `any_name_list` - Any name list
+- ✅ `parameter_name` - Parameter name
+- ✅ `parameter_name_list` - Parameter names
 
 ## Progress Summary
 

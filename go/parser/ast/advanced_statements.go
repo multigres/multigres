@@ -575,7 +575,7 @@ func NewWithCheckOption(kind WCOKind, cascaded bool) *WithCheckOption {
 // Ported from postgres/src/include/nodes/parsenodes.h:3240-3246
 type TruncateStmt struct {
 	BaseNode
-	Relations   []*RangeVar  `json:"relations"`   // Relations (RangeVars) to be truncated
+	Relations   *NodeList    `json:"relations"`   // Relations (RangeVars) to be truncated
 	RestartSeqs bool         `json:"restartSeqs"` // Restart owned sequences?
 	Behavior    DropBehavior `json:"behavior"`    // RESTRICT or CASCADE behavior
 }
@@ -587,10 +587,10 @@ func (n *TruncateStmt) String() string {
 	var parts []string
 	parts = append(parts, "TRUNCATE TABLE")
 
-	if len(n.Relations) > 0 {
-		relations := make([]string, len(n.Relations))
-		for i, rel := range n.Relations {
-			relations[i] = rel.String()
+	if n.Relations != nil && n.Relations.Len() > 0 {
+		relations := make([]string, n.Relations.Len())
+		for i, item := range n.Relations.Items {
+			relations[i] = item.String()
 		}
 		parts = append(parts, strings.Join(relations, ", "))
 	}
@@ -607,12 +607,48 @@ func (n *TruncateStmt) String() string {
 }
 
 // NewTruncateStmt creates a new TruncateStmt node
-func NewTruncateStmt(relations []*RangeVar) *TruncateStmt {
+func NewTruncateStmt(relations *NodeList) *TruncateStmt {
 	return &TruncateStmt{
 		BaseNode:  BaseNode{Tag: T_TruncateStmt},
 		Relations: relations,
 		Behavior:  DropRestrict,
 	}
+}
+
+// StatementType implements the Stmt interface
+func (n *TruncateStmt) StatementType() string {
+	return "TRUNCATE"
+}
+
+// SqlString returns the SQL representation of the TRUNCATE statement
+func (n *TruncateStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "TRUNCATE TABLE")
+
+	if n.Relations != nil && n.Relations.Len() > 0 {
+		relations := make([]string, n.Relations.Len())
+		for i, item := range n.Relations.Items {
+			if rangeVar, ok := item.(*RangeVar); ok {
+				relations[i] = rangeVar.RelName
+			}
+		}
+		parts = append(parts, strings.Join(relations, ", "))
+	}
+
+	if n.RestartSeqs {
+		parts = append(parts, "RESTART IDENTITY")
+	} else {
+		parts = append(parts, "CONTINUE IDENTITY")
+	}
+
+	switch n.Behavior {
+	case DropCascade:
+		parts = append(parts, "CASCADE")
+	case DropRestrict:
+		parts = append(parts, "RESTRICT")
+	}
+
+	return strings.Join(parts, " ")
 }
 
 // CommentStmt represents COMMENT ON statements
@@ -877,13 +913,29 @@ func NewRuleStmt(relation *RangeVar, rulename string, event CmdType) *RuleStmt {
 	}
 }
 
+// Lock mode constants based on PostgreSQL's LOCKMODE
+// From postgres/src/include/storage/lockdefs.h
+type LockMode int
+
+const (
+	NoLock LockMode = iota
+	AccessShareLock
+	RowShareLock
+	RowExclusiveLock
+	ShareUpdateExclusiveLock
+	ShareLock
+	ShareRowExclusiveLock
+	ExclusiveLock
+	AccessExclusiveLock
+)
+
 // LockStmt represents LOCK TABLE statements
 // Ported from postgres/src/include/nodes/parsenodes.h:3942-3948
 type LockStmt struct {
 	BaseNode
-	Relations []*RangeVar `json:"relations"` // Relations to lock
-	Mode      int         `json:"mode"`      // Lock mode
-	Nowait    bool        `json:"nowait"`    // No wait mode
+	Relations *NodeList `json:"relations"` // Relations to lock
+	Mode      LockMode  `json:"mode"`      // Lock mode
+	Nowait    bool      `json:"nowait"`    // No wait mode
 }
 
 func (n *LockStmt) node() {}
@@ -893,16 +945,35 @@ func (n *LockStmt) String() string {
 	var parts []string
 	parts = append(parts, "LOCK TABLE")
 
-	if len(n.Relations) > 0 {
-		relations := make([]string, len(n.Relations))
-		for i, rel := range n.Relations {
-			relations[i] = rel.String()
+	if n.Relations != nil && n.Relations.Len() > 0 {
+		relations := make([]string, n.Relations.Len())
+		for i, item := range n.Relations.Items {
+			relations[i] = item.String()
 		}
 		parts = append(parts, strings.Join(relations, ", "))
 	}
 
-	// Lock modes would need additional enum definition for proper string representation
-	parts = append(parts, fmt.Sprintf("IN MODE %d", n.Mode))
+	// Add lock mode
+	switch n.Mode {
+	case AccessShareLock:
+		parts = append(parts, "IN ACCESS SHARE MODE")
+	case RowShareLock:
+		parts = append(parts, "IN ROW SHARE MODE")
+	case RowExclusiveLock:
+		parts = append(parts, "IN ROW EXCLUSIVE MODE")
+	case ShareUpdateExclusiveLock:
+		parts = append(parts, "IN SHARE UPDATE EXCLUSIVE MODE")
+	case ShareLock:
+		parts = append(parts, "IN SHARE MODE")
+	case ShareRowExclusiveLock:
+		parts = append(parts, "IN SHARE ROW EXCLUSIVE MODE")
+	case ExclusiveLock:
+		parts = append(parts, "IN EXCLUSIVE MODE")
+	case AccessExclusiveLock:
+		parts = append(parts, "IN ACCESS EXCLUSIVE MODE")
+	default:
+		parts = append(parts, "IN ACCESS EXCLUSIVE MODE")
+	}
 
 	if n.Nowait {
 		parts = append(parts, "NOWAIT")
@@ -912,10 +983,59 @@ func (n *LockStmt) String() string {
 }
 
 // NewLockStmt creates a new LockStmt node
-func NewLockStmt(relations []*RangeVar, mode int) *LockStmt {
+func NewLockStmt(relations *NodeList, mode LockMode) *LockStmt {
 	return &LockStmt{
 		BaseNode:  BaseNode{Tag: T_LockStmt},
 		Relations: relations,
 		Mode:      mode,
 	}
+}
+
+// StatementType implements the Stmt interface
+func (n *LockStmt) StatementType() string {
+	return "LOCK"
+}
+
+// SqlString returns the SQL representation of the LOCK statement
+func (n *LockStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "LOCK TABLE")
+
+	if n.Relations != nil && n.Relations.Len() > 0 {
+		relations := make([]string, n.Relations.Len())
+		for i, item := range n.Relations.Items {
+			if rangeVar, ok := item.(*RangeVar); ok {
+				relations[i] = rangeVar.RelName
+			}
+		}
+		parts = append(parts, strings.Join(relations, ", "))
+	}
+
+	// Add lock mode
+	switch n.Mode {
+	case AccessShareLock:
+		parts = append(parts, "IN ACCESS SHARE MODE")
+	case RowShareLock:
+		parts = append(parts, "IN ROW SHARE MODE")
+	case RowExclusiveLock:
+		parts = append(parts, "IN ROW EXCLUSIVE MODE")
+	case ShareUpdateExclusiveLock:
+		parts = append(parts, "IN SHARE UPDATE EXCLUSIVE MODE")
+	case ShareLock:
+		parts = append(parts, "IN SHARE MODE")
+	case ShareRowExclusiveLock:
+		parts = append(parts, "IN SHARE ROW EXCLUSIVE MODE")
+	case ExclusiveLock:
+		parts = append(parts, "IN EXCLUSIVE MODE")
+	case AccessExclusiveLock:
+		parts = append(parts, "IN ACCESS EXCLUSIVE MODE")
+	default:
+		parts = append(parts, "IN ACCESS EXCLUSIVE MODE")
+	}
+
+	if n.Nowait {
+		parts = append(parts, "NOWAIT")
+	}
+
+	return strings.Join(parts, " ")
 }

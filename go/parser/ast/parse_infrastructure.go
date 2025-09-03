@@ -297,7 +297,67 @@ func (t *TypeCast) SqlString() string {
 		typeStr = t.TypeName.SqlString()
 	}
 
+	// Special handling for INTERVAL literals - convert back to INTERVAL 'value' UNIT syntax
+	if t.TypeName != nil && t.TypeName.Names != nil && t.TypeName.Names.Len() > 0 {
+		if firstItem, ok := t.TypeName.Names.Items[0].(*String); ok && firstItem.SVal == "interval" {
+			if t.TypeName.Typmods != nil && t.TypeName.Typmods.Len() > 0 {
+				if firstMod, ok := t.TypeName.Typmods.Items[0].(*Integer); ok {
+					intervalUnit := intervalMaskToString(firstMod.IVal)
+					if intervalUnit == "FULL_RANGE" {
+						if t.TypeName.Typmods.Len() == 2 {
+							// INTERVAL(precision) 'value' format for full range with precision
+							if precision, ok := t.TypeName.Typmods.Items[1].(*Integer); ok {
+								return fmt.Sprintf("INTERVAL(%d) %s", precision.IVal, argStr)
+							}
+						}
+						// INTERVAL 'value' format for full range without precision 
+						return fmt.Sprintf("INTERVAL %s", argStr)
+					} else if intervalUnit != "" {
+						// INTERVAL 'value' UNIT format for specific units
+						return fmt.Sprintf("INTERVAL %s %s", argStr, intervalUnit)
+					}
+				}
+			}
+		}
+	}
+
 	return fmt.Sprintf("%s::%s", argStr, typeStr)
+}
+
+// intervalMaskToString converts an interval mask to its string representation
+func intervalMaskToString(mask int) string {
+	switch mask {
+	case INTERVAL_MASK_YEAR:
+		return "YEAR"
+	case INTERVAL_MASK_MONTH:
+		return "MONTH" 
+	case INTERVAL_MASK_DAY:
+		return "DAY"
+	case INTERVAL_MASK_HOUR:
+		return "HOUR"
+	case INTERVAL_MASK_MINUTE:
+		return "MINUTE"
+	case INTERVAL_MASK_SECOND:
+		return "SECOND"
+	case INTERVAL_MASK_YEAR | INTERVAL_MASK_MONTH:
+		return "YEAR TO MONTH"
+	case INTERVAL_MASK_DAY | INTERVAL_MASK_HOUR:
+		return "DAY TO HOUR"
+	case INTERVAL_MASK_DAY | INTERVAL_MASK_MINUTE:
+		return "DAY TO MINUTE"
+	case INTERVAL_MASK_DAY | INTERVAL_MASK_SECOND:
+		return "DAY TO SECOND"
+	case INTERVAL_MASK_HOUR | INTERVAL_MASK_MINUTE:
+		return "HOUR TO MINUTE"
+	case INTERVAL_MASK_HOUR | INTERVAL_MASK_SECOND:
+		return "HOUR TO SECOND"
+	case INTERVAL_MASK_MINUTE | INTERVAL_MASK_SECOND:
+		return "MINUTE TO SECOND"
+	case INTERVAL_FULL_RANGE:
+		return "FULL_RANGE" // Special marker for precision-only intervals
+	default:
+		return ""
+	}
 }
 
 // SqlString returns the SQL representation of the ParenExpr (preserves parentheses)
