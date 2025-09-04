@@ -844,21 +844,21 @@
 - ✅ `alter_generic_option_elem` - ALTER option element
 
 ### PL/pgSQL Extensions
-- ⬜ `PLAssignStmt` - PL/pgSQL assignment
-- ⬜ `plassign_target` - Assignment target
-- ⬜ `plassign_equals` - Assignment operator
-- ⬜ `PLpgSQL_Expr` - PL/pgSQL expression
-- ⬜ `RemoveFuncStmt`
-- ⬜ `RemoveAggrStmt`
-- ⬜ `RemoveOperStmt`
+- ✅ `PLAssignStmt` - PL/pgSQL assignment
+- ✅ `plassign_target` - Assignment target
+- ✅ `plassign_equals` - Assignment operator
+- ✅ `PLpgSQL_Expr` - PL/pgSQL expression
+- ✅ `RemoveFuncStmt`
+- ✅ `RemoveAggrStmt`
+- ✅ `RemoveOperStmt`
+
+### Constraints Set
+- ✅ `ConstraintsSetStmt` - SET CONSTRAINTS
+- ✅ `constraints_set_list` - Constraint list
+- ✅ `constraints_set_mode` - Constraint mode
 
 ### RETURN
 - ✅ `ReturnStmt` - RETURN statement
-
-### Constraints Set
-- ⬜ `ConstraintsSetStmt` - SET CONSTRAINTS
-- ⬜ `constraints_set_list` - Constraint list
-- ⬜ `constraints_set_mode` - Constraint mode
 
 ### Special Functions
 - ✅ `extract_list` - EXTRACT arguments

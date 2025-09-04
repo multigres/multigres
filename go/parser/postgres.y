@@ -483,12 +483,12 @@ type ImportQual struct {
 %type <list>         OptSchemaEltList RuleActionList RuleActionMulti
 %type <stmt>         schema_stmt RuleActionStmt RuleActionStmtOrEmpty
 %type <objwithargs>  function_with_argtypes aggregate_with_argtypes operator_with_argtypes
-%type <list>         alterfunc_opt_list function_with_argtypes_list
+%type <list>         alterfunc_opt_list function_with_argtypes_list operator_with_argtypes_list
 %type <list>         alter_type_cmds
 %type <node>         alter_type_cmd
 %type <ival>     	 event
 
-%type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt ExplainStmt VacuumStmt VariableShowStmt AlterSystemStmt ExplainableStmt AnalyzeStmt
+%type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt ConstraintsSetStmt PLAssignStmt PLpgSQL_Expr RemoveFuncStmt RemoveAggrStmt RemoveOperStmt ExplainStmt VacuumStmt VariableShowStmt AlterSystemStmt ExplainableStmt AnalyzeStmt
 %type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt GrantStmt RevokeStmt GrantRoleStmt RevokeRoleStmt AlterDefaultPrivilegesStmt CommentStmt SecLabelStmt DoStmt CallStmt
 %type <str>          opt_in_database
 %type <bval>         opt_transaction_chain
@@ -533,7 +533,9 @@ type ImportQual struct {
 %type <defelt>       SeqOptElem create_extension_opt_item alter_extension_opt_item
 %type <list>         opt_fdw_options fdw_options createdb_opt_list createdb_opt_items drop_option_list
 %type <defelt>       fdw_option createdb_opt_item drop_option
-%type <str>          createdb_opt_name
+%type <str>          createdb_opt_name plassign_target
+%type <list>         constraints_set_list
+%type <bval>         constraints_set_mode
 %type <str>          opt_type foreign_server_version opt_foreign_server_version
 %type <rolespec>     auth_ident
 %type <list>         handler_name
@@ -729,6 +731,10 @@ stmt:
 		|	CreatePLangStmt							{ $$ = $1 }
 		|	VariableSetStmt							{ $$ = $1 }
 		|	VariableResetStmt						{ $$ = $1 }
+		|	ConstraintsSetStmt						{ $$ = $1 }
+		|	RemoveFuncStmt							{ $$ = $1 }
+		|	RemoveAggrStmt							{ $$ = $1 }
+		|	RemoveOperStmt							{ $$ = $1 }
 		|	TransactionStmt							{ $$ = $1 }
 		|	CreateRoleStmt							{ $$ = $1 }
 		|	AlterRoleStmt							{ $$ = $1 }
@@ -8664,6 +8670,139 @@ DropSubscriptionStmt: DROP SUBSCRIPTION name opt_drop_behavior
 				}
 		;
 
+/*
+ * DROP FUNCTION/AGGREGATE/OPERATOR Statements - Phase 3J PostgreSQL Extensions
+ * Ported from postgres/src/backend/parser/gram.y
+ */
+RemoveFuncStmt:
+		DROP FUNCTION function_with_argtypes_list opt_drop_behavior
+			{
+				n := &ast.DropStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+				}
+				n.RemoveType = ast.OBJECT_FUNCTION
+				n.Objects = $3
+				n.Behavior = $4
+				n.MissingOk = false
+				n.Concurrent = false
+				$$ = n
+			}
+	|	DROP FUNCTION IF_P EXISTS function_with_argtypes_list opt_drop_behavior
+			{
+				n := &ast.DropStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+				}
+				n.RemoveType = ast.OBJECT_FUNCTION
+				n.Objects = $5
+				n.Behavior = $6
+				n.MissingOk = true
+				n.Concurrent = false
+				$$ = n
+			}
+	|	DROP PROCEDURE function_with_argtypes_list opt_drop_behavior
+			{
+				n := &ast.DropStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+				}
+				n.RemoveType = ast.OBJECT_PROCEDURE
+				n.Objects = $3
+				n.Behavior = $4
+				n.MissingOk = false
+				n.Concurrent = false
+				$$ = n
+			}
+	|	DROP PROCEDURE IF_P EXISTS function_with_argtypes_list opt_drop_behavior
+			{
+				n := &ast.DropStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+				}
+				n.RemoveType = ast.OBJECT_PROCEDURE
+				n.Objects = $5
+				n.Behavior = $6
+				n.MissingOk = true
+				n.Concurrent = false
+				$$ = n
+			}
+	|	DROP ROUTINE function_with_argtypes_list opt_drop_behavior
+			{
+				n := &ast.DropStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+				}
+				n.RemoveType = ast.OBJECT_ROUTINE
+				n.Objects = $3
+				n.Behavior = $4
+				n.MissingOk = false
+				n.Concurrent = false
+				$$ = n
+			}
+	|	DROP ROUTINE IF_P EXISTS function_with_argtypes_list opt_drop_behavior
+			{
+				n := &ast.DropStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+				}
+				n.RemoveType = ast.OBJECT_ROUTINE
+				n.Objects = $5
+				n.Behavior = $6
+				n.MissingOk = true
+				n.Concurrent = false
+				$$ = n
+			}
+	;
+
+RemoveAggrStmt:
+		DROP AGGREGATE aggregate_with_argtypes_list opt_drop_behavior
+			{
+				n := &ast.DropStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+				}
+				n.RemoveType = ast.OBJECT_AGGREGATE
+				n.Objects = $3
+				n.Behavior = $4
+				n.MissingOk = false
+				n.Concurrent = false
+				$$ = n
+			}
+	|	DROP AGGREGATE IF_P EXISTS aggregate_with_argtypes_list opt_drop_behavior
+			{
+				n := &ast.DropStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+				}
+				n.RemoveType = ast.OBJECT_AGGREGATE
+				n.Objects = $5
+				n.Behavior = $6
+				n.MissingOk = true
+				n.Concurrent = false
+				$$ = n
+			}
+	;
+
+RemoveOperStmt:
+		DROP OPERATOR operator_with_argtypes_list opt_drop_behavior
+			{
+				n := &ast.DropStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+				}
+				n.RemoveType = ast.OBJECT_OPERATOR
+				n.Objects = $3
+				n.Behavior = $4
+				n.MissingOk = false
+				n.Concurrent = false
+				$$ = n
+			}
+	|	DROP OPERATOR IF_P EXISTS operator_with_argtypes_list opt_drop_behavior
+			{
+				n := &ast.DropStmt{
+					BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+				}
+				n.RemoveType = ast.OBJECT_OPERATOR
+				n.Objects = $5
+				n.Behavior = $6
+				n.MissingOk = true
+				n.Concurrent = false
+				$$ = n
+			}
+	;
+
 VariableSetStmt:
 			SET set_rest
 				{
@@ -8731,6 +8870,78 @@ SetResetClause:
 
 VariableResetStmt:
 		RESET reset_rest						{ $$ = ast.Stmt($2) }
+	;
+
+/*
+ * SET CONSTRAINTS Statement - Phase 3J PostgreSQL Extensions
+ * Ported from postgres/src/backend/parser/gram.y
+ */
+ConstraintsSetStmt:
+		SET CONSTRAINTS constraints_set_list constraints_set_mode
+			{
+				$$ = ast.NewConstraintsSetStmt($3, $4)
+			}
+	;
+
+constraints_set_list:
+		ALL						{ $$ = nil }
+	|	qualified_name_list		{ $$ = $1 }
+	;
+
+constraints_set_mode:
+		DEFERRED				{ $$ = true }
+	|	IMMEDIATE				{ $$ = false }
+	;
+
+/*
+ * PL/pgSQL Assignment Statement - Phase 3J PostgreSQL Extensions
+ * Ported from postgres/src/backend/parser/gram.y
+ */
+PLpgSQL_Expr: 
+		opt_distinct_clause opt_target_list
+		from_clause where_clause
+		group_clause having_clause window_clause
+		opt_sort_clause opt_select_limit opt_for_locking_clause
+			{
+				n := ast.NewSelectStmt()
+				n.DistinctClause = $1
+				n.TargetList = $2
+				n.FromClause = $3
+				n.WhereClause = $4
+				if $5 != nil {
+					n.GroupClause = $5.List
+					n.GroupDistinct = $5.Distinct
+				}
+				n.HavingClause = $6
+				n.WindowClause = $7
+				n.SortClause = $8
+				if $9 != nil {
+					n.LimitOffset = $9.limitOffset
+					n.LimitCount = $9.limitCount
+					n.LimitOption = $9.limitOption
+				}
+				n.LockingClause = $10
+				$$ = n
+			}
+	;
+
+PLAssignStmt: 
+		plassign_target opt_indirection plassign_equals PLpgSQL_Expr
+			{
+				n := ast.NewPLAssignStmt($1, $4.(*ast.SelectStmt))
+				n.Indirection = $2
+				$$ = n
+			}
+	;
+
+plassign_target: 
+		ColId							{ $$ = $1 }
+	|	PARAM							{ $$ = fmt.Sprintf("$%d", $1) }
+	;
+
+plassign_equals: 
+		COLON_EQUALS
+	|	'='
 	;
 
 /*
@@ -13981,6 +14192,12 @@ function_with_argtypes:
 function_with_argtypes_list:
 			function_with_argtypes					{ $$ = ast.NewNodeList($1) }
 			| function_with_argtypes_list ',' function_with_argtypes
+													{ $1.Append($3); $$ = $1 }
+		;
+
+operator_with_argtypes_list:
+			operator_with_argtypes					{ $$ = ast.NewNodeList($1) }
+			| operator_with_argtypes_list ',' operator_with_argtypes
 													{ $1.Append($3); $$ = $1 }
 		;
 

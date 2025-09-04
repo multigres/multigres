@@ -123,6 +123,7 @@ const (
 	T_NotifyStmt
 	T_ListenStmt
 	T_UnlistenStmt
+	T_ConstraintsSetStmt
 
 	// Expression nodes
 	T_Expr
@@ -525,6 +526,8 @@ func (nt NodeTag) String() string {
 		return "T_ListenStmt"
 	case T_UnlistenStmt:
 		return "T_UnlistenStmt"
+	case T_ConstraintsSetStmt:
+		return "T_ConstraintsSetStmt"
 	case T_Expr:
 		return "T_Expr"
 	case T_Var:

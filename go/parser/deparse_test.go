@@ -1058,6 +1058,40 @@ func TestDeparsing(t *testing.T) {
 			input:    "CREATE RULE log_rule AS ON DELETE TO users DO ALSO INSERT INTO audit_log (action, table_name) VALUES ('DELETE', 'users')",
 			expected: "CREATE RULE log_rule AS ON DELETE TO users DO INSERT INTO audit_log (action, table_name) VALUES ('DELETE', 'users')",
 		},
+
+		// ===== SET CONSTRAINTS Statements =====
+		{"SET CONSTRAINTS ALL DEFERRED", "SET CONSTRAINTS ALL DEFERRED", ""},
+		{"SET CONSTRAINTS ALL IMMEDIATE", "SET CONSTRAINTS ALL IMMEDIATE", ""},
+		{"SET CONSTRAINTS single", "SET CONSTRAINTS constraint1 DEFERRED", ""},
+		{"SET CONSTRAINTS multiple", "SET CONSTRAINTS constraint1, constraint2 IMMEDIATE", ""},
+
+		// ===== DROP FUNCTION Statements =====
+		{"DROP FUNCTION basic", "DROP FUNCTION myfunc()", ""},
+		{"DROP FUNCTION with args", "DROP FUNCTION myfunc(integer, text)", "DROP FUNCTION myfunc(INT, TEXT)"},
+		{"DROP FUNCTION IF EXISTS", "DROP FUNCTION IF EXISTS myfunc(integer)", "DROP FUNCTION IF EXISTS myfunc(INT)"},
+		{"DROP FUNCTION CASCADE", "DROP FUNCTION myfunc() CASCADE", ""},
+
+		// ===== DROP PROCEDURE Statements =====
+		{"DROP PROCEDURE basic", "DROP PROCEDURE myproc()", ""},
+		{"DROP PROCEDURE with args", "DROP PROCEDURE myproc(integer, text)", "DROP PROCEDURE myproc(INT, TEXT)"},
+		{"DROP PROCEDURE IF EXISTS", "DROP PROCEDURE IF EXISTS myproc(integer)", "DROP PROCEDURE IF EXISTS myproc(INT)"},
+		{"DROP PROCEDURE CASCADE", "DROP PROCEDURE myproc() CASCADE", ""},
+
+		// ===== DROP ROUTINE Statements =====
+		{"DROP ROUTINE basic", "DROP ROUTINE myroutine()", ""},
+		{"DROP ROUTINE with args", "DROP ROUTINE myroutine(integer, text)", "DROP ROUTINE myroutine(INT, TEXT)"},
+		{"DROP ROUTINE IF EXISTS", "DROP ROUTINE IF EXISTS myroutine(integer)", "DROP ROUTINE IF EXISTS myroutine(INT)"},
+		{"DROP ROUTINE CASCADE", "DROP ROUTINE myroutine() CASCADE", ""},
+
+		// ===== DROP AGGREGATE Statements =====
+		{"DROP AGGREGATE basic", "DROP AGGREGATE myaggr(integer)", "DROP AGGREGATE myaggr(INT)"},
+		{"DROP AGGREGATE IF EXISTS", "DROP AGGREGATE IF EXISTS myaggr(integer)", "DROP AGGREGATE IF EXISTS myaggr(INT)"},
+		{"DROP AGGREGATE RESTRICT", "DROP AGGREGATE myaggr(integer) RESTRICT", "DROP AGGREGATE myaggr(INT)"},
+
+		// ===== DROP OPERATOR Statements =====
+		{"DROP OPERATOR basic", "DROP OPERATOR + (integer, integer)", "DROP OPERATOR +(INT, INT)"},
+		{"DROP OPERATOR IF EXISTS", "DROP OPERATOR IF EXISTS + (integer, integer)", "DROP OPERATOR IF EXISTS +(INT, INT)"},
+		{"DROP OPERATOR CASCADE", "DROP OPERATOR + (integer, integer) CASCADE", "DROP OPERATOR +(INT, INT) CASCADE"},
 	}
 
 	for _, tt := range tests {

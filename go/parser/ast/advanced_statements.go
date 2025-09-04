@@ -381,11 +381,15 @@ type PLAssignStmt struct {
 	Indirection *NodeList   `json:"indirection"` // Subscripts and field names, if any
 	Nnames      int         `json:"nnames"`      // Number of names to use in ColumnRef
 	Val         *SelectStmt `json:"val"`         // The PL/pgSQL expression to assign
-	Location    int         `json:"location"`    // Name's token location, or -1 if unknown
 }
 
 func (n *PLAssignStmt) node() {}
 func (n *PLAssignStmt) stmt() {}
+
+// StatementType returns the statement type
+func (n *PLAssignStmt) StatementType() string {
+	return "PL_ASSIGN"
+}
 
 func (n *PLAssignStmt) String() string {
 	var parts []string
@@ -406,13 +410,17 @@ func (n *PLAssignStmt) String() string {
 	return strings.Join(parts, "")
 }
 
+// SqlString returns the SQL representation of the PLAssignStmt
+func (n *PLAssignStmt) SqlString() string {
+	return n.String()
+}
+
 // NewPLAssignStmt creates a new PLAssignStmt node
 func NewPLAssignStmt(name string, val *SelectStmt) *PLAssignStmt {
 	return &PLAssignStmt{
-		BaseNode: BaseNode{Tag: T_PLAssignStmt},
+		BaseNode: BaseNode{Tag: T_PLAssignStmt, Loc: -1},
 		Name:     name,
 		Val:      val,
-		Location: -1,
 	}
 }
 

@@ -2726,3 +2726,78 @@ func (us *UnlistenStmt) SqlString() string {
 	}
 	return fmt.Sprintf("UNLISTEN %s", us.Conditionname)
 }
+
+// ==============================================================================
+// CONSTRAINTS SET STATEMENT - Phase 3J PostgreSQL Extensions
+// ==============================================================================
+
+// ConstraintsSetStmt represents SET CONSTRAINTS statement
+// Ported from postgres/src/include/nodes/parsenodes.h
+type ConstraintsSetStmt struct {
+	BaseNode
+	Constraints *NodeList `json:"constraints"` // List of names as RangeVars
+	Deferred    bool      `json:"deferred"`    // true=DEFERRED, false=IMMEDIATE
+}
+
+func (n *ConstraintsSetStmt) node() {}
+func (n *ConstraintsSetStmt) stmt() {}
+
+// StatementType returns the statement type
+func (n *ConstraintsSetStmt) StatementType() string {
+	return "SET_CONSTRAINTS"
+}
+
+// NewConstraintsSetStmt creates a new ConstraintsSetStmt node
+func NewConstraintsSetStmt(constraints *NodeList, deferred bool) *ConstraintsSetStmt {
+	return &ConstraintsSetStmt{
+		BaseNode:    BaseNode{Tag: T_ConstraintsSetStmt},
+		Constraints: constraints,
+		Deferred:    deferred,
+	}
+}
+
+// String returns a string representation of the ConstraintsSetStmt
+func (n *ConstraintsSetStmt) String() string {
+	parts := []string{"SET CONSTRAINTS"}
+	
+	if n.Constraints == nil || len(n.Constraints.Items) == 0 {
+		parts = append(parts, "ALL")
+	} else {
+		constraintNames := make([]string, 0)
+		for _, constraint := range n.Constraints.Items {
+			if rangeVar, ok := constraint.(*RangeVar); ok {
+				constraintNames = append(constraintNames, rangeVar.RelName)
+			} else if nodeList, ok := constraint.(*NodeList); ok && len(nodeList.Items) > 0 {
+				// Handle qualified name (schema.constraint)
+				nameStr := ""
+				for i, item := range nodeList.Items {
+					if i > 0 {
+						nameStr += "."
+					}
+					if strNode, ok := item.(*String); ok {
+						nameStr += strNode.SVal
+					} else {
+						nameStr += item.String()
+					}
+				}
+				constraintNames = append(constraintNames, nameStr)
+			} else {
+				constraintNames = append(constraintNames, constraint.String())
+			}
+		}
+		parts = append(parts, strings.Join(constraintNames, ", "))
+	}
+	
+	if n.Deferred {
+		parts = append(parts, "DEFERRED")
+	} else {
+		parts = append(parts, "IMMEDIATE")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// SqlString returns the SQL representation of the SET CONSTRAINTS statement
+func (n *ConstraintsSetStmt) SqlString() string {
+	return n.String()
+}

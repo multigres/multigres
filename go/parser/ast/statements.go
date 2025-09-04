@@ -1529,7 +1529,10 @@ func (d *DropStmt) SqlString() string {
 	if d.Objects != nil && len(d.Objects.Items) > 0 {
 		var nameParts []string
 		for _, obj := range d.Objects.Items {
-			if nodeList, ok := obj.(*NodeList); ok {
+			if objWithArgs, ok := obj.(*ObjectWithArgs); ok {
+				// Handle functions, aggregates, operators with arguments
+				nameParts = append(nameParts, objWithArgs.SqlString())
+			} else if nodeList, ok := obj.(*NodeList); ok {
 				// Handle qualified names (schema.table)
 				var qualParts []string
 				for _, nameItem := range nodeList.Items {
