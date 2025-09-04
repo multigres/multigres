@@ -44,13 +44,13 @@ func TestDeparsing(t *testing.T) {
 		{"Complex arithmetic", "SELECT ((1 + 2) * 3)", ""},
 
 		// Type casting
-		{"Type cast simple", "SELECT id::text FROM users", ""},
-		{"Type cast expression", "SELECT (age + 1)::varchar FROM users", ""},
+		{"Type cast simple", "SELECT id::TEXT FROM users", ""},
+		{"Type cast expression", "SELECT (age + 1)::varchar FROM users", "SELECT (age + 1)::VARCHAR FROM users"},
 
 		// Function calls
-		{"Function no args", "SELECT now()", ""},
-		{"Function with arg", "SELECT length('hello')", "SELECT length('hello')"},
-		{"Function multiple args", "SELECT substring('hello', 1, 3)", "SELECT substring('hello', 1, 3)"},
+		{"Function no args", "SELECT now()", "SELECT NOW()"},
+		{"Function with arg", "SELECT length('hello')", ""},
+		{"Function multiple args", "SELECT substring('hello', 1, 3)", ""},
 
 		// JSON aggregate functions
 		{"JSON_OBJECTAGG simple", "SELECT JSON_OBJECTAGG('name' VALUE value) FROM users", ""},
@@ -103,10 +103,10 @@ func TestDeparsing(t *testing.T) {
 		// SELECT INTO
 		{"SELECT INTO", "SELECT * INTO new_table FROM users", ""},
 		{"SELECT INTO TEMPORARY", "SELECT * INTO TEMPORARY temp_users FROM users", ""},
-		{"SELECT INTO TEMP", "SELECT * INTO TEMP temp_users FROM users", "SELECT * INTO TEMPORARY TEMP_USERS FROM USERS"},
-		{"SELECT INTO LOCAL TEMPORARY", "SELECT * INTO LOCAL TEMPORARY local_temp_users FROM users", "SELECT * INTO TEMPORARY LOCAL_TEMP_USERS FROM USERS"},
+		{"SELECT INTO TEMP", "SELECT * INTO TEMP temp_users FROM users", "SELECT * INTO TEMPORARY temp_users FROM users"},
+		{"SELECT INTO LOCAL TEMPORARY", "SELECT * INTO LOCAL TEMPORARY local_temp_users FROM users", "SELECT * INTO TEMPORARY local_temp_users FROM users"},
 		{"SELECT INTO UNLOGGED", "SELECT * INTO UNLOGGED unlogged_users FROM users", ""},
-		{"SELECT INTO TABLE explicit", "SELECT * INTO TABLE explicit_table FROM users", "SELECT * INTO EXPLICIT_TABLE FROM USERS"},
+		{"SELECT INTO TABLE explicit", "SELECT * INTO TABLE explicit_table FROM users", "SELECT * INTO explicit_table FROM users"},
 
 		// TABLE statement (simplified SELECT)
 		{"TABLE statement", "TABLE users", "SELECT * FROM users"},
@@ -267,9 +267,9 @@ func TestDeparsing(t *testing.T) {
 		{"SET qualified variable name", "SET application.setting = 'value'", ""},
 		{"SET multiple word variable", "SET log_statement = 'all'", ""},
 		{"SET numeric value", "SET work_mem = 1024", ""},
-		{"SET boolean value true", "SET enable_seqscan = TRUE", ""},
-		{"SET boolean value false", "SET enable_hashjoin = FALSE", ""},
-		{"SET variable to ON", "SET autocommit = ON", ""},
+		{"SET boolean value true", "SET enable_seqscan = true", ""},
+		{"SET boolean value false", "SET enable_hashjoin = false", ""},
+		{"SET variable to ON", "SET autocommit = on", ""},
 		{"SET multiple values", "SET search_path = 'schema1', 'schema2', 'public'", ""}, // Should remain as SET search_path
 
 		// Definition constructs (name = value pairs in option lists)
@@ -304,21 +304,21 @@ func TestDeparsing(t *testing.T) {
 
 		// Functions with unnamed parameters
 		{"Function with unnamed parameter", "CREATE FUNCTION greet(TEXT) RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello ' || $1$$", "CREATE FUNCTION greet (TEXT) RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello ' || $1$$"},
-		{"Function with multiple unnamed parameters", "CREATE FUNCTION multiply(INT, integer) RETURNS INT LANGUAGE sql AS $$SELECT $1 * $2$$", "CREATE FUNCTION MULTIPLY (INT, INT) RETURNS INT LANGUAGE SQL AS $$SELECT $1 * $2$$"},
+		{"Function with multiple unnamed parameters", "CREATE FUNCTION multiply(INT, integer) RETURNS INT LANGUAGE sql AS $$SELECT $1 * $2$$", "CREATE FUNCTION multiply (INT, INT) RETURNS INT LANGUAGE sql AS $$SELECT $1 * $2$$"},
 
 		// Mixed named and unnamed parameters
-		{"Function with mixed parameters", "CREATE FUNCTION calc(a integer, integer, c integer) RETURNS INT LANGUAGE sql AS $$SELECT a + $2 + c$$", "CREATE FUNCTION CALC (A INT, INT, C INT) RETURNS INT LANGUAGE SQL AS $$SELECT A + $2 + C$$"},
+		{"Function with mixed parameters", "CREATE FUNCTION calc(a integer, integer, c integer) RETURNS INT LANGUAGE sql AS $$SELECT a + $2 + c$$", "CREATE FUNCTION calc (a INT, INT, c INT) RETURNS INT LANGUAGE sql AS $$SELECT a + $2 + c$$"},
 
 		// Parameter modes
-		{"Function with OUT parameter", "CREATE FUNCTION get_values(OUT x integer, OUT y TEXT) LANGUAGE sql AS $$SELECT 1, 'hello'$$", "CREATE FUNCTION get_values (OUT x int, OUT y TEXT) LANGUAGE sql AS $$SELECT 1, 'hello'$$"},
-		{"Function with INOUT parameter", "CREATE FUNCTION double(INOUT value INT) LANGUAGE sql AS $$SELECT value * 2$$", "CREATE FUNCTION DOUBLE (INOUT VALUE INT) LANGUAGE SQL AS $$SELECT VALUE * 2$$"},
+		{"Function with OUT parameter", "CREATE FUNCTION get_values(OUT x integer, OUT y TEXT) LANGUAGE sql AS $$SELECT 1, 'hello'$$", "CREATE FUNCTION get_values (OUT x INT, OUT y TEXT) LANGUAGE sql AS $$SELECT 1, 'hello'$$"},
+		{"Function with INOUT parameter", "CREATE FUNCTION double(INOUT value INT) LANGUAGE sql AS $$SELECT value * 2$$", "CREATE FUNCTION double (INOUT value INT) LANGUAGE sql AS $$SELECT value * 2$$"},
 
 		// Functions with default values
-		{"Function with default parameter", "CREATE FUNCTION greet_with_default(name text DEFAULT 'World') RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello, ' || name$$", "CREATE FUNCTION greet_with_default (name text DEFAULT 'World') RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello, ' || name$$"},
+		{"Function with default parameter", "CREATE FUNCTION greet_with_default(name text DEFAULT 'World') RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello, ' || name$$", "CREATE FUNCTION greet_with_default (name TEXT DEFAULT 'World') RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello, ' || name$$"},
 
 		// Edge cases for parameter names
-		{"Function with empty string name handling", "CREATE FUNCTION unnamed_params(INT, text, boolean) RETURNS void LANGUAGE sql AS $$SELECT NULL$$", "CREATE FUNCTION unnamed_params (INT, text, boolean) RETURNS void LANGUAGE sql AS $$SELECT NULL$$"},
-		{"Function with qualified name", "CREATE FUNCTION public.my_func(param1 text) RETURNS INT LANGUAGE sql AS $$SELECT 42$$", "CREATE FUNCTION public.my_func (param1 text) RETURNS INT LANGUAGE sql AS $$SELECT 42$$"},
+		{"Function with empty string name handling", "CREATE FUNCTION unnamed_params(INT, text, boolean) RETURNS void LANGUAGE sql AS $$SELECT NULL$$", "CREATE FUNCTION unnamed_params (INT, TEXT, BOOLEAN) RETURNS void LANGUAGE sql AS $$SELECT NULL$$"},
+		{"Function with qualified name", "CREATE FUNCTION public.my_func(param1 text) RETURNS INT LANGUAGE sql AS $$SELECT 42$$", "CREATE FUNCTION public.my_func (param1 TEXT) RETURNS INT LANGUAGE sql AS $$SELECT 42$$"},
 
 		// CREATE VIEW Tests
 		{"Basic CREATE VIEW", "CREATE VIEW user_view AS SELECT * FROM users", ""},
@@ -334,7 +334,7 @@ func TestDeparsing(t *testing.T) {
 
 		{"Basic GROUP BY", "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id", ""},
 		{"GROUP BY multiple columns", "SELECT dept_id, status, COUNT(*) FROM employees GROUP BY dept_id, status", ""},
-		{"GROUP BY with expression", "SELECT DATE(created_at), COUNT(*) FROM orders GROUP BY DATE(created_at)", ""},
+		{"GROUP BY with expression", "SELECT DATE(created_at), COUNT(*) FROM orders GROUP BY DATE(created_at)", "SELECT date(created_at), COUNT(*) FROM orders GROUP BY date(created_at)"},
 		{"GROUP BY ROLLUP", "SELECT year, quarter, SUM(sales) FROM sales GROUP BY ROLLUP(year, quarter)", ""},
 		{"GROUP BY CUBE", "SELECT category, subcategory, COUNT(*) FROM products GROUP BY CUBE(category, subcategory)", ""},
 		{"GROUP BY GROUPING SETS", "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY GROUPING SETS ((col1), (col2), ())", ""},
@@ -349,7 +349,7 @@ func TestDeparsing(t *testing.T) {
 		{"ORDER BY NULLS FIRST", "SELECT name, score FROM users ORDER BY score NULLS FIRST", ""},
 		{"ORDER BY NULLS LAST", "SELECT name, score FROM users ORDER BY score DESC NULLS LAST", ""},
 		{"ORDER BY multiple with mixed nulls", "SELECT name, score, age FROM users ORDER BY score ASC NULLS FIRST, age DESC NULLS LAST", ""},
-		{"ORDER BY with expression", "SELECT name FROM users ORDER BY UPPER(name)", ""},
+		{"ORDER BY with expression", "SELECT name FROM users ORDER BY upper(name)", ""},
 
 		{"GROUP BY + HAVING", "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5", ""},
 		{"GROUP BY + ORDER BY", "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id ORDER BY dept_id", ""},
@@ -456,7 +456,7 @@ func TestDeparsing(t *testing.T) {
 
 		// ALTER ROLE/USER statements
 		{"ALTER ROLE basic", "ALTER ROLE testuser WITH PASSWORD 'newsecret'", ""},
-		{"ALTER USER basic", "ALTER USER testuser WITH SUPERUSER", "ALTER ROLE TESTUSER WITH SUPERUSER"},
+		{"ALTER USER basic", "ALTER USER testuser WITH SUPERUSER", "ALTER ROLE testuser WITH SUPERUSER"},
 		{"ALTER ROLE with CURRENT_USER", "ALTER ROLE CURRENT_USER WITH PASSWORD 'newsecret'", ""},
 		{"ALTER USER with SESSION_USER", "ALTER USER SESSION_USER WITH NOSUPERUSER", "ALTER ROLE SESSION_USER WITH NOSUPERUSER"},
 		{"ALTER ROLE multiple options", "ALTER ROLE testuser WITH NOSUPERUSER NOINHERIT", ""},
@@ -499,7 +499,7 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER USER ALL SET", "ALTER USER ALL SET search_path TO public", "ALTER ROLE ALL SET search_path TO public"},
 		{"ALTER USER ALL RESET", "ALTER USER ALL RESET search_path", "ALTER ROLE ALL RESET search_path"},
 		{"ALTER ROLE SET log_statement", "ALTER ROLE testuser SET log_statement TO 'all'", ""},
-		{"ALTER ROLE SET shared_preload_libraries", "ALTER ROLE testuser SET shared_preload_libraries TO 'pg_stat_statements'", "ALTER ROLE TESTUSER SET SHARED_PRELOAD_LIBRARIES TO PG_STAT_STATEMENTS"},
+		{"ALTER ROLE SET shared_preload_libraries", "ALTER ROLE testuser SET shared_preload_libraries TO 'pg_stat_statements'", "ALTER ROLE testuser SET shared_preload_libraries TO pg_stat_statements"},
 		{"ALTER ROLE SET with quoted identifier", "ALTER ROLE \"test-user\" SET search_path TO public", "ALTER ROLE \"test-user\" SET search_path TO public"},
 		{"ALTER ROLE SET with DEFAULT", "ALTER ROLE testuser SET search_path TO DEFAULT", ""},
 
@@ -507,8 +507,8 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER FUNCTION basic", "ALTER FUNCTION my_func() VOLATILE", ""},
 		{"ALTER FUNCTION with args", "ALTER FUNCTION test_func(INT, TEXT) STABLE", ""},
 		{"ALTER FUNCTION immutable", "ALTER FUNCTION calc_tax(NUMERIC) IMMUTABLE", ""},
-		{"ALTER FUNCTION strict", "ALTER FUNCTION validate_input(text) STRICT", ""},
-		{"ALTER FUNCTION leakproof", "ALTER FUNCTION secure_hash(text) LEAKPROOF", ""},
+		{"ALTER FUNCTION strict", "ALTER FUNCTION validate_input(TEXT) STRICT", ""},
+		{"ALTER FUNCTION leakproof", "ALTER FUNCTION secure_hash(TEXT) LEAKPROOF", ""},
 		{"ALTER FUNCTION security definer", "ALTER FUNCTION admin_func() SECURITY DEFINER", ""},
 		{"ALTER FUNCTION cost", "ALTER FUNCTION expensive_calc() COST 1000", ""},
 		{"ALTER FUNCTION rows", "ALTER FUNCTION return_rows() ROWS 100", ""},
@@ -518,9 +518,9 @@ func TestDeparsing(t *testing.T) {
 		// ALTER ROUTINE statements
 		{"ALTER ROUTINE basic", "ALTER ROUTINE my_routine() VOLATILE", ""},
 		{"ALTER ROUTINE with args", "ALTER ROUTINE calc_stats(INT, TEXT) STABLE", ""},
-		{"ALTER ROUTINE immutable", "ALTER ROUTINE hash_func(text) IMMUTABLE", ""},
-		{"ALTER ROUTINE strict", "ALTER ROUTINE validate_data(text) STRICT", ""},
-		{"ALTER ROUTINE leakproof", "ALTER ROUTINE secure_routine(text) LEAKPROOF", ""},
+		{"ALTER ROUTINE immutable", "ALTER ROUTINE hash_func(TEXT) IMMUTABLE", ""},
+		{"ALTER ROUTINE strict", "ALTER ROUTINE validate_data(TEXT) STRICT", ""},
+		{"ALTER ROUTINE leakproof", "ALTER ROUTINE secure_routine(TEXT) LEAKPROOF", ""},
 		{"ALTER ROUTINE security definer", "ALTER ROUTINE admin_routine() SECURITY DEFINER", ""},
 		{"ALTER ROUTINE cost", "ALTER ROUTINE expensive_routine() COST 1000", ""},
 		{"ALTER ROUTINE rows", "ALTER ROUTINE return_data() ROWS 100", ""},
@@ -542,11 +542,11 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER TYPE SET with string", "ALTER TYPE text_type SET (ANALYZE = analyze_text)", ""},
 		{"ALTER TYPE SET with numeric", "ALTER TYPE float_type SET (ALIGNMENT = 8)", ""},
 		{"ALTER TYPE SET option to NONE", "ALTER TYPE my_type SET (STORAGE = NONE)", ""},
-		{"ALTER TYPE composite add attribute", "ALTER TYPE person ADD ATTRIBUTE phone text", ""},
+		{"ALTER TYPE composite add attribute", "ALTER TYPE person ADD ATTRIBUTE phone TEXT", ""},
 		{"ALTER TYPE composite drop attribute", "ALTER TYPE person DROP ATTRIBUTE email", ""},
 		{"ALTER TYPE composite drop attribute if exists", "ALTER TYPE person DROP ATTRIBUTE IF EXISTS old_field", ""},
-		{"ALTER TYPE composite alter attribute", "ALTER TYPE person ALTER ATTRIBUTE name TYPE varchar(100)", ""},
-		{"ALTER TYPE composite alter attribute with collate", "ALTER TYPE person ALTER ATTRIBUTE name TYPE VARCHAR(100) COLLATE C", ""},
+		{"ALTER TYPE composite alter attribute", "ALTER TYPE person ALTER ATTRIBUTE name TYPE VARCHAR(100)", ""},
+		{"ALTER TYPE composite alter attribute with collate", "ALTER TYPE person ALTER ATTRIBUTE name TYPE VARCHAR(100) COLLATE c", ""},
 
 		// GRANT/REVOKE statements
 		{"GRANT SELECT on table", "GRANT SELECT ON users TO alice", ""},
@@ -680,7 +680,7 @@ func TestDeparsing(t *testing.T) {
 
 		// SHOW statements
 		{"SHOW simple", "SHOW search_path", ""},
-		{"SHOW ALL", "SHOW ALL", ""},
+		{"SHOW ALL", "SHOW ALL", "SHOW all"},
 		{"SHOW timezone", "SHOW timezone", ""},
 		{"SHOW work_mem", "SHOW work_mem", ""},
 
@@ -694,12 +694,12 @@ func TestDeparsing(t *testing.T) {
 		{"CLUSTER simple", "CLUSTER", ""},
 		{"CLUSTER table", "CLUSTER users", ""},
 		{"CLUSTER table with index", "CLUSTER users USING idx_users_id", ""},
-		{"CLUSTER with utility options", "CLUSTER (VERBOSE) users USING idx_users_id", ""},
-		{"CLUSTER with utility options only", "CLUSTER (VERBOSE)", ""},
-		{"CLUSTER VERBOSE table", "CLUSTER VERBOSE users USING idx_users_id", "CLUSTER (VERBOSE) users USING idx_users_id"},
-		{"CLUSTER VERBOSE only", "CLUSTER VERBOSE", "CLUSTER (VERBOSE)"},
+		{"CLUSTER with utility options", "CLUSTER (verbose) users USING idx_users_id", ""},
+		{"CLUSTER with utility options only", "CLUSTER (verbose)", ""},
+		{"CLUSTER verbose table", "CLUSTER verbose users USING idx_users_id", "CLUSTER (verbose) users USING idx_users_id"},
+		{"CLUSTER verbose only", "CLUSTER verbose", "CLUSTER (verbose)"},
 		{"CLUSTER old syntax", "CLUSTER idx_users_id ON users", "CLUSTER users USING idx_users_id"},
-		{"CLUSTER VERBOSE old syntax", "CLUSTER VERBOSE idx_users_id ON users", "CLUSTER (VERBOSE) users USING idx_users_id"},
+		{"CLUSTER verbose old syntax", "CLUSTER verbose idx_users_id ON users", "CLUSTER (verbose) users USING idx_users_id"},
 
 		// REINDEX statements
 		{"REINDEX INDEX", "REINDEX INDEX idx_users_email", ""},
@@ -707,9 +707,9 @@ func TestDeparsing(t *testing.T) {
 		{"REINDEX SCHEMA", "REINDEX SCHEMA public", ""},
 		{"REINDEX SYSTEM", "REINDEX SYSTEM", ""},
 		{"REINDEX DATABASE", "REINDEX DATABASE mydb", ""},
-		{"REINDEX with options", "REINDEX (VERBOSE) INDEX idx_users_email", ""},
+		{"REINDEX with options", "REINDEX (verbose) INDEX idx_users_email", ""},
 		{"REINDEX CONCURRENTLY", "REINDEX INDEX CONCURRENTLY idx_users_email", ""},
-		{"REINDEX with options and CONCURRENTLY", "REINDEX (VERBOSE) INDEX CONCURRENTLY idx_users_email", ""},
+		{"REINDEX with options and CONCURRENTLY", "REINDEX (verbose) INDEX CONCURRENTLY idx_users_email", ""},
 
 		// CHECKPOINT statements
 		{"CHECKPOINT", "CHECKPOINT", ""},
@@ -786,7 +786,7 @@ func TestDeparsing(t *testing.T) {
 		{"CREATE TABLE with SQL standard array syntax", "CREATE TABLE test (col INT ARRAY[10])", "CREATE TABLE test (col INT[10])"},
 		{"CREATE TABLE with SQL standard unbounded array", "CREATE TABLE test (col INT ARRAY)", "CREATE TABLE test (col INT[])"},
 		{"CREATE TABLE with VARCHAR array", "CREATE TABLE test (col VARCHAR(50)[])", ""},
-		{"CREATE TABLE with NUMERIC bounded array", "CREATE TABLE test (col NUMERIC(10,2)[5])", "CREATE TABLE TEST (COL NUMERIC(10, 2)[5])"},
+		{"CREATE TABLE with NUMERIC bounded array", "CREATE TABLE test (col NUMERIC(10,2)[5])", "CREATE TABLE test (col NUMERIC(10, 2)[5])"},
 
 		{"CREATE FUNCTION with SETOF return type", "CREATE FUNCTION test () RETURNS SETOF INT", ""},
 		{"CREATE FUNCTION with SETOF array return", "CREATE FUNCTION test () RETURNS SETOF INT[]", ""},
@@ -851,13 +851,13 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER SEQUENCE SET SCHEMA", "ALTER SEQUENCE user_id_seq SET SCHEMA public", ""},
 		{"ALTER VIEW SET SCHEMA", "ALTER VIEW user_view SET SCHEMA reporting", ""},
 		{"ALTER MATERIALIZED VIEW SET SCHEMA", "ALTER MATERIALIZED VIEW user_summary SET SCHEMA analytics", ""},
-		{"ALTER FUNCTION SET SCHEMA", "ALTER FUNCTION calculate_total(integer) SET SCHEMA utilities", "ALTER FUNCTION CALCULATE_TOTAL(INT) SET SCHEMA UTILITIES"},
-		{"ALTER PROCEDURE SET SCHEMA", "ALTER PROCEDURE update_user(integer, text) SET SCHEMA admin", "ALTER PROCEDURE update_user(INT, TEXT) SET SCHEMA ADMIN"},
-		{"ALTER ROUTINE SET SCHEMA", "ALTER ROUTINE process_data(text) SET SCHEMA jobs", "ALTER ROUTINE PROCESS_DATA(TEXT) SET SCHEMA JOBS"},
-		{"ALTER AGGREGATE SET SCHEMA", "ALTER AGGREGATE my_avg(integer) SET SCHEMA math", "ALTER AGGREGATE MY_AVG(INT) SET SCHEMA MATH"},
-		{"ALTER OPERATOR SET SCHEMA", "ALTER OPERATOR public.+(integer, integer) SET SCHEMA math", "ALTER OPERATOR PUBLIC.+(INT, INT) SET SCHEMA MATH"},
-		{"ALTER OPERATOR CLASS SET SCHEMA", "ALTER OPERATOR CLASS integer_ops USING btree SET SCHEMA indexes", "ALTER OPERATOR CLASS INTEGER_OPS USING BTREE SET SCHEMA INDEXES"},
-		{"ALTER OPERATOR FAMILY SET SCHEMA", "ALTER OPERATOR FAMILY integer_ops USING btree SET SCHEMA indexes", "ALTER OPERATOR FAMILY INTEGER_OPS USING BTREE SET SCHEMA INDEXES"},
+		{"ALTER FUNCTION SET SCHEMA", "ALTER FUNCTION calculate_total(integer) SET SCHEMA utilities", "ALTER FUNCTION calculate_total(INT) SET SCHEMA utilities"},
+		{"ALTER PROCEDURE SET SCHEMA", "ALTER PROCEDURE update_user(integer, text) SET SCHEMA admin", "ALTER PROCEDURE update_user(INT, TEXT) SET SCHEMA admin"},
+		{"ALTER ROUTINE SET SCHEMA", "ALTER ROUTINE process_data(text) SET SCHEMA jobs", "ALTER ROUTINE process_data(TEXT) SET SCHEMA jobs"},
+		{"ALTER AGGREGATE SET SCHEMA", "ALTER AGGREGATE my_avg(integer) SET SCHEMA math", "ALTER AGGREGATE my_avg(INT) SET SCHEMA math"},
+		{"ALTER OPERATOR SET SCHEMA", "ALTER OPERATOR public.+(integer, integer) SET SCHEMA math", "ALTER OPERATOR public.+(INT, INT) SET SCHEMA math"},
+		{"ALTER OPERATOR CLASS SET SCHEMA", "ALTER OPERATOR CLASS integer_ops USING btree SET SCHEMA indexes", "ALTER OPERATOR CLASS integer_ops USING btree SET SCHEMA indexes"},
+		{"ALTER OPERATOR FAMILY SET SCHEMA", "ALTER OPERATOR FAMILY integer_ops USING btree SET SCHEMA indexes", "ALTER OPERATOR FAMILY integer_ops USING btree SET SCHEMA indexes"},
 		{"ALTER COLLATION SET SCHEMA", "ALTER COLLATION my_collation SET SCHEMA locale", ""},
 		{"ALTER CONVERSION SET SCHEMA", "ALTER CONVERSION my_conversion SET SCHEMA encoding", ""},
 		{"ALTER DOMAIN SET SCHEMA", "ALTER DOMAIN email_domain SET SCHEMA types", ""},
@@ -879,11 +879,11 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER TABLE OWNER TO CURRENT_USER", "ALTER TABLE users OWNER TO CURRENT_USER", ""},
 		{"ALTER TABLE OWNER TO CURRENT_ROLE", "ALTER TABLE users OWNER TO CURRENT_ROLE", ""},
 		{"ALTER TABLE OWNER TO SESSION_USER", "ALTER TABLE users OWNER TO SESSION_USER", ""},
-		{"ALTER FUNCTION OWNER TO", "ALTER FUNCTION calculate_total(integer) OWNER TO developer", "ALTER FUNCTION calculate_total(INT) OWNER TO DEVELOPER"},
-		{"ALTER PROCEDURE OWNER TO", "ALTER PROCEDURE update_user(integer, text) OWNER TO admin", "ALTER PROCEDURE update_user(INT, TEXT) OWNER TO ADMIN"},
-		{"ALTER ROUTINE OWNER TO", "ALTER ROUTINE process_data(text) OWNER TO service", "ALTER ROUTINE PROCESS_DATA(TEXT) OWNER TO SERVICE"},
-		{"ALTER AGGREGATE OWNER TO", "ALTER AGGREGATE my_avg(integer) OWNER TO analyst", "ALTER AGGREGATE MY_AVG(INT) OWNER TO ANALYST"},
-		{"ALTER OPERATOR OWNER TO", "ALTER OPERATOR public.+(integer, integer) OWNER TO math_user", "ALTER OPERATOR PUBLIC.+(INT, INT) OWNER TO MATH_USER"},
+		{"ALTER FUNCTION OWNER TO", "ALTER FUNCTION calculate_total(integer) OWNER TO developer", "ALTER FUNCTION calculate_total(INT) OWNER TO developer"},
+		{"ALTER PROCEDURE OWNER TO", "ALTER PROCEDURE update_user(integer, text) OWNER TO admin", "ALTER PROCEDURE update_user(INT, TEXT) OWNER TO admin"},
+		{"ALTER ROUTINE OWNER TO", "ALTER ROUTINE process_data(text) OWNER TO service", "ALTER ROUTINE process_data(TEXT) OWNER TO service"},
+		{"ALTER AGGREGATE OWNER TO", "ALTER AGGREGATE my_avg(integer) OWNER TO analyst", "ALTER AGGREGATE my_avg(INT) OWNER TO analyst"},
+		{"ALTER OPERATOR OWNER TO", "ALTER OPERATOR public.+(integer, integer) OWNER TO math_user", "ALTER OPERATOR public.+(INT, INT) OWNER TO math_user"},
 		{"ALTER LANGUAGE OWNER TO", "ALTER LANGUAGE plpgsql OWNER TO superuser", ""},
 		{"ALTER LARGE OBJECT OWNER TO", "ALTER LARGE OBJECT 12345 OWNER TO file_user", ""},
 		{"ALTER OPERATOR CLASS OWNER TO", "ALTER OPERATOR CLASS integer_ops USING btree OWNER TO index_admin", ""},
@@ -903,14 +903,14 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER TEXT SEARCH CONFIGURATION OWNER TO", "ALTER TEXT SEARCH CONFIGURATION my_config OWNER TO search_admin", ""},
 
 		// ===== ALTER Operator Statements =====
-		{"ALTER OPERATOR SET SCHEMA", "ALTER OPERATOR public.+(integer, integer) SET SCHEMA math", "ALTER OPERATOR PUBLIC.+(INT, INT) SET SCHEMA MATH"},
-		{"ALTER OPERATOR OWNER TO", "ALTER OPERATOR public.+(integer, integer) OWNER TO math_user", "ALTER OPERATOR PUBLIC.+(INT, INT) OWNER TO MATH_USER"},
-		{"ALTER OPERATOR SET (property)", "ALTER OPERATOR public.+(integer, integer) SET (RESTRICT = my_restrict_func)", "ALTER OPERATOR PUBLIC.+(INT, INT) SET ( RESTRICT = MY_RESTRICT_FUNC )"},
+		{"ALTER OPERATOR SET SCHEMA", "ALTER OPERATOR public.+(integer, integer) SET SCHEMA math", "ALTER OPERATOR public.+(INT, INT) SET SCHEMA math"},
+		{"ALTER OPERATOR OWNER TO", "ALTER OPERATOR public.+(integer, integer) OWNER TO math_user", "ALTER OPERATOR public.+(INT, INT) OWNER TO math_user"},
+		{"ALTER OPERATOR SET (property)", "ALTER OPERATOR public.+(integer, integer) SET (RESTRICT = my_restrict_func)", "ALTER OPERATOR public.+(INT, INT) SET ( restrict = my_restrict_func )"},
 
 		// ===== ALTER Object Depends Statements =====
-		{"ALTER FUNCTION DEPENDS ON EXTENSION", "ALTER FUNCTION calculate_total(integer) DEPENDS ON EXTENSION mathext", "ALTER FUNCTION CALCULATE_TOTAL(INT) DEPENDS ON EXTENSION MATHEXT"},
-		{"ALTER PROCEDURE DEPENDS ON EXTENSION", "ALTER PROCEDURE update_user(integer, text) DEPENDS ON EXTENSION adminext", "ALTER PROCEDURE UPDATE_USER(INT, TEXT) DEPENDS ON EXTENSION ADMINEXT"},
-		{"ALTER ROUTINE DEPENDS ON EXTENSION", "ALTER ROUTINE process_data(text) DEPENDS ON EXTENSION jobsext", ""},
+		{"ALTER FUNCTION DEPENDS ON EXTENSION", "ALTER FUNCTION calculate_total(integer) DEPENDS ON EXTENSION mathext", "ALTER FUNCTION calculate_total(INT) DEPENDS ON EXTENSION mathext"},
+		{"ALTER PROCEDURE DEPENDS ON EXTENSION", "ALTER PROCEDURE update_user(integer, text) DEPENDS ON EXTENSION adminext", "ALTER PROCEDURE update_user(INT, TEXT) DEPENDS ON EXTENSION adminext"},
+		{"ALTER ROUTINE DEPENDS ON EXTENSION", "ALTER ROUTINE process_data(TEXT) DEPENDS ON EXTENSION jobsext", ""},
 		{"ALTER TRIGGER DEPENDS ON EXTENSION", "ALTER TRIGGER update_trigger ON users DEPENDS ON EXTENSION triggerext", ""},
 		{"ALTER MATERIALIZED VIEW DEPENDS ON EXTENSION", "ALTER MATERIALIZED VIEW user_summary DEPENDS ON EXTENSION viewext", ""},
 		{"ALTER INDEX DEPENDS ON EXTENSION", "ALTER INDEX idx_users DEPENDS ON EXTENSION indexext", ""},
@@ -922,8 +922,8 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER DATABASE REFRESH COLLATION VERSION", "ALTER DATABASE mydb REFRESH COLLATION VERSION", ""},
 
 		// ===== ALTER Database Set Statements =====
-		{"ALTER DATABASE SET parameter", "ALTER DATABASE mydb SET work_mem TO '64MB'", "ALTER DATABASE MYDB SET WORK_MEM = '64MB'"},
-		{"ALTER DATABASE SET parameter DEFAULT", "ALTER DATABASE mydb SET work_mem TO DEFAULT", "ALTER DATABASE MYDB SET WORK_MEM = DEFAULT"},
+		{"ALTER DATABASE SET parameter", "ALTER DATABASE mydb SET work_mem TO '64MB'", "ALTER DATABASE mydb SET work_mem = '64MB'"},
+		{"ALTER DATABASE SET parameter DEFAULT", "ALTER DATABASE mydb SET work_mem TO DEFAULT", "ALTER DATABASE mydb SET work_mem = DEFAULT"},
 		{"ALTER DATABASE RESET parameter", "ALTER DATABASE mydb RESET work_mem", ""},
 		{"ALTER DATABASE RESET ALL", "ALTER DATABASE mydb RESET ALL", ""},
 
@@ -935,7 +935,7 @@ func TestDeparsing(t *testing.T) {
 		{"ALTER TEXT SEARCH CONFIGURATION DROP MAPPING IF EXISTS", "ALTER TEXT SEARCH CONFIGURATION my_config DROP MAPPING IF EXISTS FOR word", ""},
 
 		// ===== ALTER Text Search Dictionary Statements =====
-		{"ALTER TEXT SEARCH DICTIONARY OPTION", "ALTER TEXT SEARCH DICTIONARY my_dict (StopWords = 'custom')", ""},
+		{"ALTER TEXT SEARCH DICTIONARY OPTION", "ALTER TEXT SEARCH DICTIONARY my_dict (stopwords = 'custom')", ""},
 	}
 
 	for _, tt := range tests {
@@ -1055,7 +1055,7 @@ func TestRoundTripParsing(t *testing.T) {
 
 		// Expressions
 		{"SELECT 1 + 2 * 3", ""},
-		{"SELECT age::text FROM users", ""},
+		{"SELECT age::TEXT FROM users", ""},
 		{"SELECT length(name) FROM users", ""},
 
 		// Complex queries
@@ -1323,9 +1323,6 @@ func TestXMLTableDeparsing(t *testing.T) {
 // - Removing extra whitespace
 // - Removing trailing semicolons
 func normalizeSQL(sql string) string {
-	// Convert to uppercase
-	sql = strings.ToUpper(sql)
-
 	// Replace multiple spaces with single space
 	sql = strings.Join(strings.Fields(sql), " ")
 
@@ -1618,43 +1615,41 @@ func testAdvancedTypeCasting(t *testing.T) {
 		reason   string
 	}{
 		{
-			name:     "bit type casting",
-			input:    "SELECT value::bit",
-			expected: "",
+			name:  "bit type casting",
+			input: "SELECT value::bit",
 		},
 		{
-			name:     "bit with length",
-			input:    "SELECT value::bit(8)",
-			expected: "SELECT value::bit(8)",
+			name:  "bit with length",
+			input: "SELECT value::bit(8)",
 		},
 		{
 			name:     "timestamp type",
-			input:    "SELECT value::timestamp",
+			input:    "SELECT value::TIMESTAMP",
 			expected: "",
 		},
 		{
 			name:     "timestamp with precision",
 			input:    "SELECT value::timestamp(6)",
-			expected: "SELECT value::timestamp(6)",
+			expected: "SELECT value::TIMESTAMP(6)",
 		},
 		{
 			name:     "timestamptz type",
 			input:    "SELECT value::timestamptz",
-			expected: "SELECT VALUE::TIMESTAMP WITH TIME ZONE",
+			expected: "SELECT value::TIMESTAMP WITH TIME ZONE",
 		},
 		{
 			name:     "date type",
-			input:    "SELECT value::date",
+			input:    "SELECT value::DATE",
 			expected: "",
 		},
 		{
 			name:     "time type",
-			input:    "SELECT value::time",
+			input:    "SELECT value::TIME",
 			expected: "",
 		},
 		{
 			name:  "interval type",
-			input: "SELECT value::interval",
+			input: "SELECT value::INTERVAL",
 		},
 	}
 
@@ -1834,10 +1829,10 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 		{"Mixed arithmetic", "SELECT id + age * 2 FROM users", ""},
 
 		// Type casting
-		{"Type cast to text", "SELECT id::text FROM users", ""},
-		{"Type cast with spaces", "SELECT id :: integer FROM users", "SELECT id::int FROM users"},
-		{"Complex expression cast", "SELECT (age + 1)::varchar FROM users", ""},
-		{"Multiple casts", "SELECT id::text, age::varchar FROM users", ""},
+		{"Type cast to text", "SELECT id::text FROM users", "SELECT id::TEXT FROM users"},
+		{"Type cast with spaces", "SELECT id :: integer FROM users", "SELECT id::INT FROM users"},
+		{"Complex expression cast", "SELECT (age + 1)::varchar FROM users", "SELECT (age + 1)::VARCHAR FROM users"},
+		{"Multiple casts", "SELECT id::text, age::varchar FROM users", "SELECT id::TEXT, age::VARCHAR FROM users"},
 
 		// Column references
 		{"Simple column reference", "SELECT id FROM users", ""},
@@ -1846,7 +1841,7 @@ func TestComprehensiveSELECTDeparsing(t *testing.T) {
 		{"Multiple qualified columns", "SELECT u.id, u.name FROM users AS u", ""},
 
 		// Function calls
-		{"Function no args", "SELECT now()", ""},
+		{"Function no args", "SELECT now()", "SELECT NOW()"},
 		{"Function single arg", "SELECT length(name) FROM users", ""},
 		{"Function multiple args", "SELECT substring(name, 1, 5) FROM users", ""},
 		{"Qualified function", "SELECT my_catalog.length(name) FROM users", ""},
@@ -1942,7 +1937,7 @@ func TestOperatorPrecedenceDeparsing(t *testing.T) {
 		{"Deeply nested arithmetic", "SELECT ((1 + 2) * 3) - (4 / 2)", ""},
 		{"Mixed arithmetic and comparison", "SELECT * FROM users WHERE (age * 2) + 5 > 30", ""},
 		{"Function call precedence", "SELECT length(name) + 10 FROM users", ""},
-		{"Type cast precedence", "SELECT age::text FROM users", ""},
+		{"Type cast precedence", "SELECT age::text FROM users", "SELECT age::TEXT FROM users"},
 
 		// WHERE clause complex precedence
 		{"Complex WHERE precedence", "SELECT * FROM users WHERE id = 1 OR id = 2 AND active", ""},
