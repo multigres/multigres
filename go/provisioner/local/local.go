@@ -738,14 +738,6 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		return nil, fmt.Errorf("multigateway process validation failed: %w", err)
 	}
 
-	// Wait for multigateway to be ready
-	address := fmt.Sprintf("localhost:%d", httpPort)
-	if err := p.waitForServiceReady("multigateway", address); err != nil {
-		logs := p.readServiceLogs(logFile, 20)
-		return nil, fmt.Errorf("multigateway readiness check failed: %w\n\nLast 20 lines from multigateway logs:\n%s", err, logs)
-	}
-	fmt.Printf(" ready ✓\n")
-
 	// Create provision state
 	service := &LocalProvisionedService{
 		ID:         serviceID,
@@ -762,6 +754,14 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	if err := p.saveServiceState(service, req.DatabaseName); err != nil {
 		fmt.Printf("Warning: failed to save service state: %v\n", err)
 	}
+
+	// Wait for multigateway to be ready
+	address := fmt.Sprintf("localhost:%d", httpPort)
+	if err := p.waitForServiceReady("multigateway", address); err != nil {
+		logs := p.readServiceLogs(logFile, 20)
+		return nil, fmt.Errorf("multigateway readiness check failed: %w\n\nLast 20 lines from multigateway logs:\n%s", err, logs)
+	}
+	fmt.Printf(" ready ✓\n")
 
 	return &provisioner.ProvisionResult{
 		ServiceName: "multigateway",

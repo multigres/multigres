@@ -156,7 +156,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 		},
 		Etcd: local.EtcdConfig{
 			Version: "3.5.9",
-			DataDir: filepath.Join(tempDir, "etcd-data"),
+			DataDir: filepath.Join(tempDir, "data", "etcd-data"),
 			Port:    portConfig.EtcdPort,
 		},
 		Multigateway: local.MultigatewayConfig{
@@ -628,12 +628,12 @@ func TestClusterLifecycle(t *testing.T) {
 
 		t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
 
-		// Step 0: Build service binaries in the test directory
-		t.Log("Step 0: Building service binaries...")
+		// Build service binaries in the test directory
+		t.Log("Building service binaries...")
 		require.NoError(t, buildServiceBinaries(tempDir), "Failed to build service binaries")
 
-		// Step 1: Setup test ports and sanity checks
-		t.Log("Step 1: Setting up test ports and performing sanity checks...")
+		// Setup test ports and sanity checks
+		t.Log("Setting up test ports and performing sanity checks...")
 		testPorts := getTestPortConfig()
 		require.NoError(t, checkAllPortsAvailable(testPorts),
 			"Test ports should be available before starting cluster")
@@ -642,8 +642,8 @@ func TestClusterLifecycle(t *testing.T) {
 			testPorts.EtcdPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort,
 			testPorts.MultipoolerGRPCPort, testPorts.MultiorchGRPCPort)
 
-		// Step 2: Create cluster configuration with test ports
-		t.Log("Step 2: Creating cluster configuration with test ports...")
+		// Create cluster configuration with test ports
+		t.Log("Creating cluster configuration with test ports...")
 		configFile, err := createTestConfigWithPorts(tempDir, testPorts)
 		require.NoError(t, err, "Failed to create test configuration")
 		t.Logf("Created test configuration: %s", configFile)
@@ -651,16 +651,16 @@ func TestClusterLifecycle(t *testing.T) {
 		configContents, _ := os.ReadFile(configFile)
 		t.Logf("Config file contents:\n%s", string(configContents))
 
-		// Step 3: Start cluster (up)
-		t.Log("Step 3: Starting cluster...")
+		// Start cluster (up)
+		t.Log("Starting cluster...")
 		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir})
 		require.NoError(t, err, "Up command should succeed and start the cluster: %v", upOutput)
 
 		// Verify we got expected output
 		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 
-		// Step 3.5: Verify all services connectivity using state files
-		t.Log("Step 3.5: Verifying all services connectivity...")
+		// Verify all services connectivity using state files
+		t.Log("Verifying all services connectivity...")
 
 		// Read all service states from the state files
 		serviceStates, err := getServiceStates(tempDir)
@@ -676,10 +676,15 @@ func TestClusterLifecycle(t *testing.T) {
 			t.Logf("Checking %s connectivity at %s with ports %v", serviceName, state.FQDN, state.Ports)
 			require.NoError(t, checkServiceConnectivity(serviceName, state),
 				"%s should be reachable on its configured ports", serviceName)
+
+			// If service has a datadir defined, verify it exists
+			if state.DataDir != "" {
+				assert.DirExists(t, state.DataDir, "service %s datadir should exist at %s", serviceName, state.DataDir)
+			}
 		}
 
-		// Step 3.6: Verify cell exists in topology using etcd from state
-		t.Log("Step 3.6: Verifying cell exists in topology...")
+		// Verify cell exists in topology using etcd from state
+		t.Log("Verifying cell exists in topology...")
 
 		// Get etcd connection details from state
 		etcdState, exists := serviceStates["etcd"]
@@ -707,13 +712,82 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, checkCellExistsInTopology(etcdAddress, globalRootPath, cellName),
 			"cell should exist in topology after cluster up command")
 
-		// Step 4: Stop cluster (down)
-		t.Log("Step 4: Stopping cluster...")
+		// Stop cluster (down)
+		t.Log("Stopping cluster...")
 		downOutput, err := executeStopCommand(t, []string{"--config-path", tempDir})
 		require.NoError(t, err, "Down command failed with output: %s", downOutput)
 		assert.Contains(t, downOutput, "Stopping Multigres cluster")
 		assert.Contains(t, downOutput, "Multigres cluster stopped successfully")
 
+		// Verify data directories still exist after normal stop but are empty
+		t.Log("Verifying data directories exist but are empty after normal stop...")
+
+		assert.DirExists(t, filepath.Join(tempDir, "data"))
+		assert.DirExists(t, filepath.Join(tempDir, "data", "etcd-data"))
+		assert.DirExists(t, filepath.Join(tempDir, "logs"))
+		assert.DirExists(t, filepath.Join(tempDir, "state"))
+
+		// Verify logs directory tree contains no files (subdirectories are ok, but they should be empty)
+		assert.NoError(t, assertDirectoryTreeEmpty(filepath.Join(tempDir, "logs")),
+			"logs directory tree should contain no files after normal stop")
+
+		// Verify state directory is empty (no state files)
+		assert.Empty(t, assertDirectoryTreeEmpty(filepath.Join(tempDir, "state")), "state directory should be empty after normal stop")
+
+		// Start and stop with --clean flag
+		t.Log("Testing clean stop behavior...")
+		_, err = executeStartCommand(t, []string{"--config-path", tempDir})
+		require.NoError(t, err, "Second start should succeed")
+
+		// Stop with --clean flag
+		downCleanOutput, err := executeStopCommand(t, []string{"--config-path", tempDir, "--clean"})
+		require.NoError(t, err, "Clean stop should succeed")
+		assert.Contains(t, downCleanOutput, "clean mode, all data for this local cluster will be deleted")
+		assert.Contains(t, downCleanOutput, "Cleaned up data directory")
+		assert.Contains(t, downCleanOutput, "Cleaned up state directory")
+		assert.Contains(t, downCleanOutput, "Cleaned up logs directory")
+
+		// Verify all data directories are completely removed
+		t.Log("Verifying all data directories are removed after clean stop...")
+		assert.NoFileExists(t, filepath.Join(tempDir, "data"))
+		assert.NoFileExists(t, filepath.Join(tempDir, "state"))
+		assert.NoFileExists(t, filepath.Join(tempDir, "logs"))
+
+		// Only config file and bin directory should remain
+		entries, err := os.ReadDir(tempDir)
+		require.NoError(t, err)
+
+		var remainingDirs []string
+		for _, entry := range entries {
+			if entry.IsDir() {
+				remainingDirs = append(remainingDirs, entry.Name())
+			}
+		}
+		assert.ElementsMatch(t, []string{"bin"}, remainingDirs, "Only bin directory should remain after clean")
+
 		t.Log("Cluster lifecycle test completed successfully")
+	})
+}
+
+// assertDirectoryTreeEmpty recursively checks that a directory tree contains no files,
+// only empty directories. Returns an error if any files are found.
+func assertDirectoryTreeEmpty(rootPath string) error {
+	return filepath.WalkDir(rootPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip the root directory itself
+		if path == rootPath {
+			return nil
+		}
+
+		// If it's a file, that's an error - no files should exist
+		if !d.IsDir() {
+			return fmt.Errorf("found file in directory tree: %s", path)
+		}
+
+		// It's a directory, which is fine - continue walking
+		return nil
 	})
 }
