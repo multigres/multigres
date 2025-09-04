@@ -113,8 +113,8 @@ func (s *ServiceSummary) PrintSummary() {
 	fmt.Println(strings.Repeat("=", 65))
 }
 
-// runUp handles the cluster up command
-func runUp(cmd *cobra.Command, args []string) error {
+// start handles the cluster up command
+func start(cmd *cobra.Command, args []string) error {
 	servenv.FireRunHooks()
 
 	fmt.Println("Multigres — Distributed Postgres made easy")
@@ -177,11 +177,11 @@ func runUp(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var UpCommand = &cobra.Command{
-	Use:   "up",
+var StartCommand = &cobra.Command{
+	Use:   "start",
 	Short: "Start local cluster",
 	Long:  "Start a local Multigres cluster using the configuration created with 'multigres cluster init'.",
-	RunE:  runUp,
+	RunE:  start,
 }
 
 func init() {

@@ -45,8 +45,8 @@ func teardownAllServices(ctx context.Context, provisionerName string, configPath
 	return nil
 }
 
-// runDown handles the cluster down command
-func runDown(cmd *cobra.Command, args []string) error {
+// down handles the cluster down command
+func down(cmd *cobra.Command, args []string) error {
 	servenv.FireRunHooks()
 	fmt.Println("Stopping Multigres cluster...")
 
@@ -89,14 +89,13 @@ func runDown(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var DownCommand = &cobra.Command{
-	Use:   "down",
+var StopCommand = &cobra.Command{
+	Use:   "stop",
 	Short: "Stop local cluster",
 	Long:  "Stop the local Multigres cluster. Use --clean to fully tear down all resources.",
-	RunE:  runDown,
+	RunE:  down,
 }
 
 func init() {
-	DownCommand.Flags().Bool("clean", false, "Fully tear down all cluster resources")
-	// config-path is provided by viperutil via root command
+	StopCommand.Flags().Bool("clean", false, "Fully tear down all cluster resources")
 }

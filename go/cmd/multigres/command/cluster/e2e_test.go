@@ -577,30 +577,24 @@ func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
 	assert.Contains(t, errorOutput, existingConfig)
 }
 
-// executeUpCommand runs the actual multigres binary with "cluster up" command
-func executeUpCommand(t *testing.T, args []string) (string, error) {
+// executeStartCommand runs the actual multigres binary with "cluster up" command
+func executeStartCommand(t *testing.T, args []string) (string, error) {
 	// Prepare the full command: "multigres cluster up <args>"
-	cmdArgs := append([]string{"cluster", "up"}, args...)
+	cmdArgs := append([]string{"cluster", "start"}, args...)
 	cmd := exec.Command(multigresBinary, cmdArgs...)
 
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
 
-// executeDownCommand runs the actual multigres binary with "cluster down" command
-func executeDownCommand(t *testing.T, args []string) (string, error) {
+// executeStopCommand runs the actual multigres binary with "cluster down" command
+func executeStopCommand(t *testing.T, args []string) (string, error) {
 	// Prepare the full command: "multigres cluster down <args>"
-	cmdArgs := append([]string{"cluster", "down"}, args...)
+	cmdArgs := append([]string{"cluster", "stop"}, args...)
 	cmd := exec.Command(multigresBinary, cmdArgs...)
 
 	output, err := cmd.CombinedOutput()
 	return string(output), err
-}
-
-// hasDocker checks if Docker is available in PATH
-func hasDocker() bool {
-	_, err := exec.LookPath("docker")
-	return err == nil
 }
 
 func TestClusterLifecycle(t *testing.T) {
@@ -654,7 +648,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Step 3: Start cluster (up)
 		t.Log("Step 3: Starting cluster...")
-		upOutput, err := executeUpCommand(t, []string{"--config-path", tempDir})
+		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir})
 		require.NoError(t, err, "Up command should succeed and start the cluster: %v", upOutput)
 
 		// Verify we got expected output
@@ -710,7 +704,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Step 4: Stop cluster (down)
 		t.Log("Step 4: Stopping cluster...")
-		downOutput, err := executeDownCommand(t, []string{"--config-path", tempDir})
+		downOutput, err := executeStopCommand(t, []string{"--config-path", tempDir})
 		require.NoError(t, err, "Down command failed with output: %s", downOutput)
 		assert.Contains(t, downOutput, "Stopping Multigres cluster")
 		assert.Contains(t, downOutput, "Multigres cluster stopped successfully")
