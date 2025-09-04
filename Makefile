@@ -30,7 +30,7 @@ tools:
 proto: tools $(PROTO_GO_OUTS)
 
 pb: $(PROTO_SRCS)
-	. ./build.env && \
+	source ./build.env && \
 	$$MTROOT/dist/protoc-$$PROTOC_VER/bin/protoc --go_out=. \
 		--go-grpc_out=. \
 		--proto_path=proto $(PROTO_SRCS) && \
@@ -45,6 +45,7 @@ build:
 	go build -o bin/multipooler ./go/cmd/multipooler
 	go build -o bin/pgctld ./go/cmd/pgctld
 	go build -o bin/multiorch ./go/cmd/multiorch
+	go build -o bin/multigres ./go/cmd/multigres
 
 # Build everything (proto + binaries)
 build-all: proto build
@@ -60,13 +61,17 @@ install:
 	go install ./go/cmd/multipooler
 	go install ./go/cmd/pgctld
 	go install ./go/cmd/multiorch
+	go install ./go/cmd/multigres
 
 # Run tests
 test:
-	go test ./...
+	source ./build.env && go test ./...
+
+test-short:
+	source ./build.env && go test -short -v ./...
 
 # Clean build and dependencies
-clean_all: clean
+clean-all: clean
 	echo "Removing build dependencies..."
-	. ./build.env && rm -rf $$MTROOT/dist $$MTROOT/bin
+	source ./build.env && rm -rf $$MTROOT/dist $$MTROOT/bin
 	echo "Build dependencies removed. Run 'make tools' to reinstall."

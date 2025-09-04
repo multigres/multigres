@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"time"
 
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpcmiddleware "github.com/grpc-ecosystem/go-grpc-middleware"
 
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
@@ -285,7 +285,7 @@ func serveGRPC() {
 	slog.Info("Listening for gRPC calls on port", "grpcPort", gRPCPort)
 	listener, err := net.Listen("tcp", net.JoinHostPort(gRPCBindAddress, strconv.Itoa(gRPCPort)))
 	if err != nil {
-		slog.Error("Cannot listen on the provided port", "err", err)
+		slog.Error("Cannot listen on the provided grpc port", "err", err)
 		os.Exit(1)
 	}
 
@@ -388,8 +388,8 @@ func (collector *serverInterceptorBuilder) Build() []grpc.ServerOption {
 		return []grpc.ServerOption{}
 	default:
 		return []grpc.ServerOption{
-			grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(collector.unaryInterceptors...)),
-			grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(collector.streamInterceptors...)),
+			grpc.UnaryInterceptor(grpcmiddleware.ChainUnaryServer(collector.unaryInterceptors...)),
+			grpc.StreamInterceptor(grpcmiddleware.ChainStreamServer(collector.streamInterceptors...)),
 		}
 	}
 }

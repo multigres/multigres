@@ -53,3 +53,6 @@ yarn-debug.log*
 yarn-error.log*
 
 dist/*
+
+# Local development directory
+multigres_local/

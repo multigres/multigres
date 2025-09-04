@@ -12,8 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// multigres is the command-line companion for managing and developing with Multigres clusters.
 package main
 
 import (
-	_ "github.com/multigres/multigres/go/plugins/topo"
+	"os"
+
+	"github.com/multigres/multigres/go/cmd/multigres/command"
 )
+
+func main() {
+	if err := command.Root.Execute(); err != nil {
+		os.Exit(1)
+	}
+}

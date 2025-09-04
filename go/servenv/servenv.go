@@ -38,8 +38,8 @@ import (
 )
 
 var (
-	// port is part of the flags used when calling RegisterDefaultFlags.
-	port        int
+	// httpPort is part of the flags used when calling RegisterDefaultFlags.
+	httpPort    int
 	bindAddress string
 
 	// mutex used to protect the Init function
@@ -108,11 +108,17 @@ func GetInitStartTime() time.Time {
 func populateListeningURL(port int32) {
 	host, err := netutil.FullyQualifiedHostname()
 	if err != nil {
+		slog.Warn("Failed to get fully qualified hostname, falling back to simple hostname",
+			"error", err,
+			"note", "This may indicate DNS configuration issues but service will continue normally")
 		host, err = os.Hostname()
 		if err != nil {
 			slog.Error("os.Hostname() failed", "err", err)
 			os.Exit(1)
 		}
+		slog.Info("Using simple hostname for service URL", "hostname", host)
+	} else {
+		slog.Info("Using fully qualified hostname for service URL", "hostname", host)
 	}
 	ListeningURL = url.URL{
 		Scheme: "http",
@@ -203,19 +209,25 @@ func FireRunHooks() {
 // If calling this, then call RunDefault()
 func RegisterDefaultFlags() {
 	OnParse(func(fs *pflag.FlagSet) {
-		fs.IntVar(&port, "port", port, "port for the server")
+		fs.IntVar(&httpPort, "http-port", httpPort, "HTTP port for the server")
 		fs.StringVar(&bindAddress, "bind-address", bindAddress, "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
 	})
 }
 
-// Port returns the value of the `--port` flag.
+// HTTPPort returns the value of the `--http-port` flag.
+func HTTPPort() int {
+	return httpPort
+}
+
+// Port returns the value of the `--http-port` flag.
+// Deprecated: Use HTTPPort() instead.
 func Port() int {
-	return port
+	return httpPort
 }
 
 // RunDefault calls Run() with the parameters from the flags.
 func RunDefault() {
-	Run(bindAddress, port)
+	Run(bindAddress, httpPort)
 }
 
 var (

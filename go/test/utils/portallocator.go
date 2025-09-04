@@ -15,6 +15,7 @@
 package utils
 
 import (
+	"os"
 	"sync"
 )
 
@@ -25,9 +26,17 @@ const (
 
 var (
 	// Global state for port allocation
-	portMutex   sync.Mutex
-	portCounter int
+	portMutex      sync.Mutex
+	portCounter    int
+	basePortOffset int
 )
+
+func init() {
+	// Use process ID to create unique port ranges for different test processes
+	// This prevents conflicts when running tests from different packages simultaneously
+	pid := os.Getpid()
+	basePortOffset = (pid % 100) * 100 // Use last 2 digits of PID, multiply by 100 for range
+}
 
 // GetNextPort returns the next available port for tests
 func GetNextPort() int {
@@ -36,14 +45,16 @@ func GetNextPort() int {
 
 	// Simple deterministic approach: just increment and return the next port
 	portCounter++
-	port := BasePort + portCounter
-
+	port := BasePort + basePortOffset + portCounter
 	return port
 }
 
-// GetCounter returns the current port counter (useful for debugging)
-func GetCounter() int {
-	portMutex.Lock()
-	defer portMutex.Unlock()
-	return portCounter
+// GetNextEtcd2Port returns the next available port for tests
+func GetNextEtcd2Port() int {
+	port := GetNextPort()
+	// Let's skip two ports as they will be use by etcd.
+	// This way other services will not conflict with etcd.
+	GetNextPort()
+	GetNextPort()
+	return port
 }

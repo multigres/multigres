@@ -18,11 +18,14 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/multigres/multigres/go/test/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,10 +40,10 @@ func TestBinaryStartupShutdown(t *testing.T) {
 		name string
 		port string
 	}{
-		{"multigateway", "15432"}, // Use different port to avoid conflicts
-		{"multipooler", "15100"},
-		{"pgctld", "15200"},
-		{"multiorch", "15300"},
+		// Note: multigateway removed because it requires topology setup with registered cells
+		// The e2e cluster tests provide comprehensive coverage for multigateway startup/shutdown
+		{"pgctld", fmt.Sprintf("%d", utils.GetNextPort())},
+		{"multiorch", fmt.Sprintf("%d", utils.GetNextPort())},
 	}
 
 	for _, binary := range binaries {
@@ -61,20 +64,6 @@ func testBinaryStartupShutdown(t *testing.T, binaryName, port string) {
 	// Start the binary with custom port
 	var cmd *exec.Cmd
 	switch binaryName {
-	case "multigateway":
-		cmd = exec.CommandContext(ctx, binaryPath,
-			"--port", port,
-			"--topo-global-server-addresses", "127.0.0.1:8080",
-			"--topo-global-root", "/",
-			"--topo-implementation", "memory",
-			"--log-level", "info")
-	case "multipooler":
-		cmd = exec.CommandContext(ctx, binaryPath,
-			"--grpc-port", port,
-			"--topo-global-server-addresses", "127.0.0.1:8080",
-			"--topo-global-root", "/",
-			"--topo-implementation", "memory",
-			"--log-level", "info")
 	case "pgctld":
 		cmd = exec.CommandContext(ctx, binaryPath, "--grpc-port", port, "--log-level", "info")
 	case "multiorch":

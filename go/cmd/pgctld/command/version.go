@@ -84,8 +84,7 @@ func runVersion(cmd *cobra.Command, args []string) error {
 	}
 
 	// Display version information for CLI users
-	fmt.Print(strings.TrimSpace(result.Version))
-	fmt.Println()
+	fmt.Println(strings.TrimSpace(result.Version))
 
 	return nil
 }

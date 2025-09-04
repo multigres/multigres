@@ -19,10 +19,18 @@ limitations under the License.
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/netutil"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
@@ -30,6 +38,10 @@ import (
 
 var (
 	pgctldAddr string
+	cell       string
+	serviceID  string
+	// multipoolerID stores the ID for deregistration during shutdown
+	multipoolerID *clustermetadatapb.ID
 
 	Main = &cobra.Command{
 		Use:     "multipooler",
@@ -40,6 +52,48 @@ var (
 		RunE:    run,
 	}
 )
+
+// CheckCellFlags validates the cell flag against available cells in the topology.
+// It helps avoid strange behaviors when multipooler runs but actually does not work
+// due to referencing non-existent cells.
+func CheckCellFlags(ts topo.Store, cell string) error {
+	if ts == nil {
+		return fmt.Errorf("topo server cannot be nil")
+	}
+
+	// Validate cell flag is set
+	if cell == "" {
+		return fmt.Errorf("cell flag must be set")
+	}
+
+	// Create context with timeout for topology operations
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Get all known cells from topology with timeout
+	cellsInTopo, err := ts.GetCellNames(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get cells from topology (timeout after 2s): %w", err)
+	}
+	if len(cellsInTopo) == 0 {
+		return fmt.Errorf("topo server should have at least one cell configured")
+	}
+
+	// Check if the specified cell exists in topology
+	hasCell := false
+	for _, v := range cellsInTopo {
+		if v == cell {
+			hasCell = true
+			break
+		}
+	}
+	if !hasCell {
+		return fmt.Errorf("cell '%s' does not exist in topology. Available cells: [%s]",
+			cell, strings.Join(cellsInTopo, ", "))
+	}
+
+	return nil
+}
 
 func main() {
 	if err := Main.Execute(); err != nil {
@@ -62,20 +116,72 @@ func run(cmd *cobra.Command, args []string) error {
 	ts := topo.Open()
 	defer func() { _ = ts.Close() }()
 
+	// Validate cell configuration early to fail fast if misconfigured
+	if err := CheckCellFlags(ts, cell); err != nil {
+		logger.Error("Cell validation failed", "error", err)
+		return fmt.Errorf("cell validation failed: %w", err)
+	}
+	logger.Info("Cell validation passed", "cell", cell)
+
 	servenv.OnRun(func() {
 		// Flags are parsed now.
 		logger.Info("multipooler starting up",
 			"pgctld_addr", pgctldAddr,
+			"cell", cell,
+			"http_port", servenv.HTTPPort(),
 			"grpc_port", servenv.GRPCPort(),
 		)
+
+		// Register with topology service
+		hostname, err := netutil.FullyQualifiedHostname()
+		if err != nil {
+			logger.Warn("Failed to get fully qualified hostname, falling back to simple hostname", "error", err)
+			hostname, err = os.Hostname()
+			if err != nil {
+				logger.Error("Failed to get hostname", "error", err)
+				return
+			}
+		}
+
+		// Create MultiPooler instance for topo registration
+		multipooler := topo.NewMultiPooler(serviceID, cell, hostname)
+		multipooler.PortMap["grpc"] = int32(servenv.GRPCPort())
+		multipooler.PortMap["http"] = int32(servenv.HTTPPort())
+
+		// Store ID for deregistration during shutdown
+		multipoolerID = multipooler.Id
+
+		// Register with topology
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := ts.InitMultiPooler(ctx, multipooler, true); err != nil {
+			logger.Error("Failed to register multipooler with topology", "error", err)
+		} else {
+			logger.Info("Successfully registered multipooler with topology", "id", multipooler.Id)
+		}
+
+		// TEMPORARY: Add a demo HTTP endpoint for testing - this will be removed later
+		servenv.HTTPHandleFunc("/discovery/status", handleStatusEndpoint)
+		logger.Info("TEMPORARY: Discovery HTTP endpoint available at /discovery/status (for testing only)")
 	})
 	servenv.OnClose(func() {
 		logger.Info("multipooler shutting down")
-		// TODO: adds closing hooks
+
+		// Deregister from topology service
+		if multipoolerID != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := ts.DeleteMultiPooler(ctx, multipoolerID); err != nil {
+				logger.Error("Failed to deregister multipooler from topology", "error", err, "id", multipoolerID)
+			} else {
+				logger.Info("Successfully deregistered multipooler from topology", "id", multipoolerID)
+			}
+		}
 	})
 	// TODO: Initialize gRPC connection to pgctld
 	// TODO: Setup health check endpoint
-	// TODO: Register with topology service
 	servenv.RunDefault()
 
 	return nil
@@ -86,4 +192,38 @@ func init() {
 
 	// Adds multipooler specific flags
 	Main.Flags().StringVar(&pgctldAddr, "pgctld-addr", "localhost:15200", "Address of pgctld gRPC service")
+	Main.Flags().StringVar(&cell, "cell", "", "cell to use")
+	Main.Flags().StringVar(&serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
+}
+
+// StatusResponse represents the response from the temporary status endpoint
+// TEMPORARY: This is only for testing and will be removed later
+type StatusResponse struct {
+	ServiceType string                `json:"service_type"`
+	Cell        string                `json:"cell"`
+	ServiceID   string                `json:"service_id"`
+	ID          *clustermetadatapb.ID `json:"id"`
+	PgctldAddr  string                `json:"pgctld_addr"`
+	Status      string                `json:"status"`
+	Message     string                `json:"message"`
+}
+
+// handleStatusEndpoint handles the temporary HTTP endpoint that shows multipooler status
+// TEMPORARY: This is only for testing and will be removed later
+func handleStatusEndpoint(w http.ResponseWriter, r *http.Request) {
+	response := StatusResponse{
+		ServiceType: "multipooler",
+		Cell:        cell,
+		ServiceID:   serviceID,
+		ID:          multipoolerID,
+		PgctldAddr:  pgctldAddr,
+		Status:      "running",
+		Message:     "TEMPORARY: This endpoint is for testing only and will be removed",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }

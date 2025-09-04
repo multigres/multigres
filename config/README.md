@@ -56,10 +56,10 @@ Cluster orchestration service for consensus and failover.
 
 ```bash
 # Using command line flags
-./bin/multigateway --port 5432 --log-level debug
+./bin/multigateway --http-port 5432 --log-level debug
 
 # Using environment variables
-MULTIGATEWAY_PORT=5432 MULTIGATEWAY_LOG_LEVEL=debug ./bin/multigateway
+MULTIGATEWAY_HTTP_PORT=5432 MULTIGATEWAY_LOG_LEVEL=debug ./bin/multigateway
 
 # Using config file
 ./bin/multigateway --config ./my-config.yaml

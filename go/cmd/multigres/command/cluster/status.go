@@ -12,8 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package cluster
 
 import (
-	_ "github.com/multigres/multigres/go/plugins/topo"
+	"fmt"
+
+	"github.com/multigres/multigres/go/servenv"
+
+	"github.com/spf13/cobra"
 )
+
+var StatusCommand = &cobra.Command{
+	Use:   "status",
+	Short: "Show cluster health",
+	Long:  "Display the current health and status of the Multigres cluster.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		servenv.FireRunHooks()
+		fmt.Println("Checking Multigres cluster status...")
+		// TODO: Implement cluster status logic
+		fmt.Println("Cluster status: Running")
+		return nil
+	},
+}
