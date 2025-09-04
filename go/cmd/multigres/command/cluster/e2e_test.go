@@ -38,8 +38,8 @@ import (
 	_ "github.com/multigres/multigres/go/plugins/topo"
 )
 
+// Global variable to hold the multigres binary path, built once in TestMain
 var multigresBinary string
-var binaryTempDir string
 
 // testPortConfig holds test-specific port configuration to avoid conflicts
 type testPortConfig struct {
@@ -138,45 +138,60 @@ func cleanupTestProcesses(tempDir string) error {
 
 // createTestConfigWithPorts creates a test configuration file with custom ports
 func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (string, error) {
-	// Create the full configuration
-	config := &MultigresConfig{
-		Provisioner: "local",
-		ProvisionerConfig: map[string]interface{}{
-			"default-db-name":  "default",
-			"root-working-dir": tempDir,
-			"topology": map[string]interface{}{
-				"backend":                "etcd2",
-				"global-root-path":       "/multigres/global",
-				"default-cell-name":      "zone1",
-				"default-cell-root-path": "/multigres/zone1",
-			},
-			"etcd": map[string]interface{}{
-				"version":  "3.5.9",
-				"data-dir": filepath.Join(tempDir, "etcd-data"),
-				"port":     portConfig.EtcdPort,
-			},
-			"multigateway": map[string]interface{}{
-				"path":      filepath.Join(os.Getenv("MTROOT"), "bin", "multigateway"),
-				"http-port": portConfig.MultigatewayHTTPPort,
-				"grpc-port": portConfig.MultigatewayGRPCPort,
-				"pg-port":   15432, // Use default PG port
-				"log-level": "info",
-			},
-			"multipooler": map[string]interface{}{
-				"path":      filepath.Join(os.Getenv("MTROOT"), "bin", "multipooler"),
-				"grpc-port": portConfig.MultipoolerGRPCPort,
-				"log-level": "info",
-			},
-			"multiorch": map[string]interface{}{
-				"path":      filepath.Join(os.Getenv("MTROOT"), "bin", "multiorch"),
-				"grpc-port": portConfig.MultiorchGRPCPort,
-				"log-level": "info",
-			},
+	// Create a typed configuration using LocalProvisionerConfig
+	binPath := filepath.Join(tempDir, "bin")
+	localConfig := &local.LocalProvisionerConfig{
+		RootWorkingDir: tempDir,
+		DefaultDbName:  "default",
+		Topology: local.TopologyConfig{
+			Backend:             "etcd2",
+			GlobalRootPath:      "/multigres/global",
+			DefaultCellName:     "zone1",
+			DefaultCellRootPath: "/multigres/zone1",
+		},
+		Etcd: local.EtcdConfig{
+			Version: "3.5.9",
+			DataDir: filepath.Join(tempDir, "etcd-data"),
+			Port:    portConfig.EtcdPort,
+		},
+		Multigateway: local.MultigatewayConfig{
+			Path:     filepath.Join(binPath, "multigateway"),
+			HttpPort: portConfig.MultigatewayHTTPPort,
+			GrpcPort: portConfig.MultigatewayGRPCPort,
+			PgPort:   15432, // Use default PG port
+			LogLevel: "info",
+		},
+		Multipooler: local.MultipoolerConfig{
+			Path:     filepath.Join(binPath, "multipooler"),
+			GrpcPort: portConfig.MultipoolerGRPCPort,
+			LogLevel: "info",
+		},
+		Multiorch: local.MultiorchConfig{
+			Path:     filepath.Join(binPath, "multiorch"),
+			GrpcPort: portConfig.MultiorchGRPCPort,
+			LogLevel: "info",
 		},
 	}
 
+	// Convert the typed config to map[string]interface{} via YAML marshaling
+	yamlData, err := yaml.Marshal(localConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal local config to YAML: %w", err)
+	}
+
+	var configMap map[string]interface{}
+	if err := yaml.Unmarshal(yamlData, &configMap); err != nil {
+		return "", fmt.Errorf("failed to unmarshal local config to map: %w", err)
+	}
+
+	// Create the full configuration
+	config := &MultigresConfig{
+		Provisioner:       "local",
+		ProvisionerConfig: configMap,
+	}
+
 	// Marshal to YAML
-	yamlData, err := yaml.Marshal(config)
+	yamlData, err = yaml.Marshal(config)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal config to YAML: %w", err)
 	}
@@ -288,7 +303,7 @@ func getServiceStates(configDir string) (map[string]local.LocalProvisionedServic
 // checkServiceConnectivity checks if a service is reachable on its configured ports
 func checkServiceConnectivity(service string, state local.LocalProvisionedService) error {
 	for portName, port := range state.Ports {
-		address := fmt.Sprintf("%s:%d", state.FQDN, port)
+		address := net.JoinHostPort(state.FQDN, fmt.Sprintf("%d", port))
 		conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 		if err != nil {
 			return fmt.Errorf("failed to connect to %s %s port at %s: %w", service, portName, address, err)
@@ -298,33 +313,93 @@ func checkServiceConnectivity(service string, state local.LocalProvisionedServic
 	return nil
 }
 
-// TestMain runs before all tests to build the binary once
-func TestMain(m *testing.M) {
-	// Build multigres binary once for all tests
-	var err error
-	binaryTempDir, err = os.MkdirTemp("", "multigres_binary")
+// buildMultigresBinary builds the multigres binary and returns its path
+func buildMultigresBinary() (string, error) {
+	// Create a temporary directory for the multigres binary
+	tempDir, err := os.MkdirTemp("", "multigres_binary_")
 	if err != nil {
-		panic(fmt.Sprintf("Failed to create temp direetetory for binary: %v", err))
+		return "", fmt.Errorf("failed to create temp directory for multigres binary: %v", err)
 	}
 
-	// Build multigres binary for testing (following pgctld pattern)
-	multigresBinary = filepath.Join(binaryTempDir, "multigres")
-	buildCmd := exec.Command("go", "build", "-o", multigresBinary, "../../")
+	// Require MTROOT environment variable
+	projectRoot := os.Getenv("MTROOT")
+	if projectRoot == "" {
+		return "", fmt.Errorf("MTROOT environment variable must be set. Please run: source ./build.env")
+	}
 
-	// Set working directory to avoid issues with temp paths
-	wd, _ := os.Getwd()
-	buildCmd.Dir = wd
+	// Build multigres binary
+	binaryPath := filepath.Join(tempDir, "multigres")
+	sourceDir := filepath.Join(projectRoot, "go/cmd", "multigres")
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, sourceDir)
+	buildCmd.Dir = projectRoot
 
 	buildOutput, err := buildCmd.CombinedOutput()
 	if err != nil {
-		panic(fmt.Sprintf("Failed to build multigres binary: %v\nOutput: %s", err, string(buildOutput)))
+		return "", fmt.Errorf("failed to build multigres: %v\nOutput: %s", err, string(buildOutput))
 	}
+
+	return binaryPath, nil
+}
+
+// buildServiceBinaries builds service binaries (not multigres) in the specified directory
+func buildServiceBinaries(tempDir string) error {
+	// Create bin directory inside temp directory
+	binDir := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		return fmt.Errorf("failed to create bin directory: %v", err)
+	}
+
+	// Require MTROOT environment variable
+	projectRoot := os.Getenv("MTROOT")
+	if projectRoot == "" {
+		return fmt.Errorf("MTROOT environment variable must be set. Please run: source ./build.env")
+	}
+
+	// Build service binaries (excluding multigres which is built separately)
+	binaries := []string{
+		"multigateway",
+		"multiorch",
+		"multipooler",
+		"pgctld",
+	}
+
+	for _, binaryName := range binaries {
+		// Define binary paths in the bin directory
+		binaryPath := filepath.Join(binDir, binaryName)
+		sourceDir := filepath.Join(projectRoot, "go/cmd", binaryName)
+		buildCmd := exec.Command("go", "build", "-o", binaryPath, sourceDir)
+		buildCmd.Dir = projectRoot
+
+		buildOutput, err := buildCmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to build %s: %v\nOutput: %s", binaryName, err, string(buildOutput))
+		}
+	}
+
+	return nil
+}
+
+// TestMain runs before all tests
+func TestMain(m *testing.M) {
+	var err error
+
+	// Build multigres binary once for all tests
+	multigresBinary, err = buildMultigresBinary()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to build multigres binary: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Clean up multigres binary after all tests
+	defer func() {
+		if multigresBinary != "" {
+			// Remove the temp directory containing the multigres binary
+			os.RemoveAll(filepath.Dir(multigresBinary))
+		}
+	}()
 
 	// Run all tests
 	exitCode := m.Run()
-
-	// Clean up binary
-	os.RemoveAll(binaryTempDir)
 
 	// Exit with the test result code
 	os.Exit(exitCode)
@@ -537,9 +612,7 @@ func TestClusterLifecycle(t *testing.T) {
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd binary must be available in PATH for cluster lifecycle tests")
 
-	// Require MTROOT environment variable to be set (needed for binary path resolution)
-	mtroot := os.Getenv("MTROOT")
-	require.NotEmpty(t, mtroot, "MTROOT environment variable must be set. Please run: source ./build.env")
+	// Binaries are built in TestMain, no need for MTROOT environment variable
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		// Setup test directory
@@ -556,8 +629,12 @@ func TestClusterLifecycle(t *testing.T) {
 
 		t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
 
-		// Step 0: Setup test ports and sanity checks
-		t.Log("Step 0: Setting up test ports and performing sanity checks...")
+		// Step 0: Build service binaries in the test directory
+		t.Log("Step 0: Building service binaries...")
+		require.NoError(t, buildServiceBinaries(tempDir), "Failed to build service binaries")
+
+		// Step 1: Setup test ports and sanity checks
+		t.Log("Step 1: Setting up test ports and performing sanity checks...")
 		testPorts := getTestPortConfig()
 		require.NoError(t, checkAllPortsAvailable(testPorts),
 			"Test ports should be available before starting cluster")
@@ -566,8 +643,8 @@ func TestClusterLifecycle(t *testing.T) {
 			testPorts.EtcdPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort,
 			testPorts.MultipoolerGRPCPort, testPorts.MultiorchGRPCPort)
 
-		// Step 1: Create cluster configuration with test ports
-		t.Log("Step 1: Creating cluster configuration with test ports...")
+		// Step 2: Create cluster configuration with test ports
+		t.Log("Step 2: Creating cluster configuration with test ports...")
 		configFile, err := createTestConfigWithPorts(tempDir, testPorts)
 		require.NoError(t, err, "Failed to create test configuration")
 		t.Logf("Created test configuration: %s", configFile)
@@ -575,16 +652,16 @@ func TestClusterLifecycle(t *testing.T) {
 		configContents, _ := os.ReadFile(configFile)
 		t.Logf("Config file contents:\n%s", string(configContents))
 
-		// Step 2: Start cluster (up)
-		t.Log("Step 2: Starting cluster...")
+		// Step 3: Start cluster (up)
+		t.Log("Step 3: Starting cluster...")
 		upOutput, err := executeUpCommand(t, []string{"--config-path", tempDir})
 		require.NoError(t, err, "Up command should succeed and start the cluster: %v", upOutput)
 
 		// Verify we got expected output
 		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 
-		// Step 2.5: Verify all services connectivity using state files
-		t.Log("Step 2.5: Verifying all services connectivity...")
+		// Step 3.5: Verify all services connectivity using state files
+		t.Log("Step 3.5: Verifying all services connectivity...")
 
 		// Read all service states from the state files
 		serviceStates, err := getServiceStates(tempDir)
@@ -602,8 +679,8 @@ func TestClusterLifecycle(t *testing.T) {
 				"%s should be reachable on its configured ports", serviceName)
 		}
 
-		// Step 2.6: Verify cell exists in topology using etcd from state
-		t.Log("Step 2.6: Verifying cell exists in topology...")
+		// Step 3.6: Verify cell exists in topology using etcd from state
+		t.Log("Step 3.6: Verifying cell exists in topology...")
 
 		// Get etcd connection details from state
 		etcdState, exists := serviceStates["etcd"]
@@ -631,8 +708,8 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, checkCellExistsInTopology(etcdAddress, globalRootPath, cellName),
 			"cell should exist in topology after cluster up command")
 
-		// Step 3: Stop cluster (down)
-		t.Log("Step 3: Stopping cluster...")
+		// Step 4: Stop cluster (down)
+		t.Log("Step 4: Stopping cluster...")
 		downOutput, err := executeDownCommand(t, []string{"--config-path", tempDir})
 		require.NoError(t, err, "Down command failed with output: %s", downOutput)
 		assert.Contains(t, downOutput, "Stopping Multigres cluster")
