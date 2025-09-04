@@ -61,7 +61,7 @@ func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 
 	// Get our two ports to listen to.
 	if port == 0 {
-		port = utils.GetNextPort()
+		port = utils.GetNextEtcd2Port()
 	}
 
 	// Check if ports are available before starting etcd

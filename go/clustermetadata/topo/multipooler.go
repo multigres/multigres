@@ -21,6 +21,7 @@ import (
 	"path"
 
 	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"google.golang.org/protobuf/proto"
 
@@ -31,7 +32,7 @@ import (
 // If name is empty, a random name will be generated.
 func NewMultiPooler(name string, cell, host string) *clustermetadatapb.MultiPooler {
 	if name == "" {
-		name = RandomString(8)
+		name = stringutil.RandomString(8)
 	}
 	return &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
@@ -82,7 +83,7 @@ func NewMultiPoolerInfo(multipooler *clustermetadatapb.MultiPooler, version Vers
 
 // MultiPoolerIDString returns the string representation of a MultiPooler ID
 func MultiPoolerIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
+	return fmt.Sprintf("%s-%s-%s", stringutil.ComponentTypeToString(id.Component), id.Cell, id.Name)
 }
 
 // GetMultiPooler is a high level function to read multipooler data.

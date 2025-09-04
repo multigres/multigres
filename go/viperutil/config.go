@@ -58,8 +58,8 @@ var (
 	configName = Configure(
 		"config.name",
 		Options[string]{
-			Default:  "vtconfig",
-			EnvVars:  []string{"VT_CONFIG_NAME"},
+			Default:  "mtconfig",
+			EnvVars:  []string{"MT_CONFIG_NAME"},
 			FlagName: "config-name",
 		},
 	)

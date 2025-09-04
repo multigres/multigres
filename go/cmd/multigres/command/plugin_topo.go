@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package command
 
 import (
-	_ "github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
+	_ "github.com/multigres/multigres/go/plugins/topo"
 )

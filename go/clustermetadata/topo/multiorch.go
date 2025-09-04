@@ -21,6 +21,7 @@ import (
 	"path"
 
 	"github.com/multigres/multigres/go/mterrors"
+	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"google.golang.org/protobuf/proto"
 
@@ -31,7 +32,7 @@ import (
 // If name is empty, a random name will be generated.
 func NewMultiOrch(name string, cell, host string) *clustermetadatapb.MultiOrch {
 	if name == "" {
-		name = RandomString(8)
+		name = stringutil.RandomString(8)
 	}
 	return &clustermetadatapb.MultiOrch{
 		Id: &clustermetadatapb.ID{
@@ -82,7 +83,7 @@ func NewMultiOrchInfo(multiorch *clustermetadatapb.MultiOrch, version Version) *
 
 // MultiOrchIDString returns the string representation of a MultiOrch ID
 func MultiOrchIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s-%s-%s", ComponentTypeToString(id.Component), id.Cell, id.Name)
+	return fmt.Sprintf("%s-%s-%s", stringutil.ComponentTypeToString(id.Component), id.Cell, id.Name)
 }
 
 // GetMultiOrch is a high level function to read multiorch data.

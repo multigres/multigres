@@ -20,6 +20,7 @@ package servenv
 
 import (
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -39,6 +40,7 @@ func HTTPHandleFunc(pattern string, handler func(http.ResponseWriter, *http.Requ
 
 // HTTPServe starts the HTTP server for the internal servenv mux on the listener.
 func HTTPServe(l net.Listener) error {
+	slog.Info("Listening for HTTP calls on port", "httpPort", httpPort)
 	err := http.Serve(l, mux.Mux)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil
