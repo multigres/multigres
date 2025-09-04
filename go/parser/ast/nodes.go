@@ -57,6 +57,7 @@ const (
 	T_DropTableSpaceStmt
 	T_DropOwnedStmt
 	T_ReassignOwnedStmt
+	T_ImportForeignSchemaStmt
 	T_CreateTableSpaceStmt
 	T_AlterTableSpaceStmt
 	T_CreateAmStmt
@@ -395,6 +396,8 @@ func (nt NodeTag) String() string {
 		return "T_DropOwnedStmt"
 	case T_ReassignOwnedStmt:
 		return "T_ReassignOwnedStmt"
+	case T_ImportForeignSchemaStmt:
+		return "T_ImportForeignSchemaStmt"
 	case T_CreateTableSpaceStmt:
 		return "T_CreateTableSpaceStmt"
 	case T_AlterTableSpaceStmt:

@@ -786,9 +786,9 @@
 - ✅ `OptTableSpaceOwner` - Tablespace owner
 
 ### IMPORT FOREIGN SCHEMA
-- ⬜ `ImportForeignSchemaStmt` - IMPORT FOREIGN SCHEMA
-- ⬜ `import_qualification` - Import qualification
-- ⬜ `import_qualification_type` - Qualification type
+- ✅ `ImportForeignSchemaStmt` - IMPORT FOREIGN SCHEMA
+- ✅ `import_qualification` - Import qualification
+- ✅ `import_qualification_type` - Qualification type
 
 ### CREATE ASSERTION
 - ⬜ `CreateAssertionStmt` - CREATE ASSERTION

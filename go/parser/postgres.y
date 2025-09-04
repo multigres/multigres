@@ -43,6 +43,13 @@ type PrivTarget struct {
 	objs     *ast.NodeList
 }
 
+// ImportQual - Private struct for the result of import_qualification production
+// Matches PostgreSQL's ImportQual from gram.y
+type ImportQual struct {
+	typ        ast.ImportForeignSchemaType
+	tableNames *ast.NodeList
+}
+
 // yySymType is the union type for semantic values
 // This will be expanded as we add more grammar rules
 
@@ -102,6 +109,8 @@ type PrivTarget struct {
 	accesspriv *ast.AccessPriv         // For privilege specifications
 	privtarget *PrivTarget             // For privilege target specifications
 	vacrel     *ast.VacuumRelation     // For vacuum relation specifications
+	importqual *ImportQual             // For import qualification specifications
+	importqualtype ast.ImportForeignSchemaType // For import qualification type
 
 	// Location tracking
 	location   int
@@ -501,6 +510,8 @@ type PrivTarget struct {
 %type <list>         dostmt_opt_list
 %type <defelt>       dostmt_opt_item
 %type <privtarget>   privilege_target
+%type <importqual>   import_qualification
+%type <importqualtype> import_qualification_type
 %type <str>          RoleId
 %type <ival>         add_drop
 %type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt CreatedbStmt DropdbStmt DropTableSpaceStmt DropOwnedStmt ReassignOwnedStmt
@@ -510,7 +521,7 @@ type PrivTarget struct {
 %type <stmt>         CreateTableSpaceStmt AlterTblSpcStmt CreatePolicyStmt AlterPolicyStmt
 %type <stmt>         CreateAmStmt CreateStatsStmt AlterStatsStmt CreatePublicationStmt AlterPublicationStmt CreateSubscriptionStmt AlterSubscriptionStmt
 %type <stmt>         CreateCastStmt CreateOpClassStmt CreateOpFamilyStmt AlterOpFamilyStmt CreateConversionStmt CreateTransformStmt CreatePLangStmt
-%type <stmt>         CreateFdwStmt AlterFdwStmt CreateForeignServerStmt AlterForeignServerStmt CreateForeignTableStmt CreateUserMappingStmt AlterUserMappingStmt DropUserMappingStmt
+%type <stmt>         CreateFdwStmt AlterFdwStmt CreateForeignServerStmt AlterForeignServerStmt CreateForeignTableStmt ImportForeignSchemaStmt CreateUserMappingStmt AlterUserMappingStmt DropUserMappingStmt
 %type <stmt>         AlterObjectSchemaStmt AlterOwnerStmt AlterOperatorStmt AlterObjectDependsStmt
 %type <stmt>         AlterCollationStmt AlterDatabaseStmt AlterDatabaseSetStmt
 %type <stmt>         AlterTSConfigurationStmt AlterTSDictionaryStmt
@@ -686,6 +697,7 @@ stmt:
 		|	CreateForeignServerStmt					{ $$ = $1 }
 		|	AlterForeignServerStmt					{ $$ = $1 }
 		|	CreateForeignTableStmt					{ $$ = $1 }
+		|	ImportForeignSchemaStmt					{ $$ = $1 }
 		|	CreateUserMappingStmt					{ $$ = $1 }
 		|	AlterUserMappingStmt					{ $$ = $1 }
 		|	DropUserMappingStmt						{ $$ = $1 }
@@ -11172,6 +11184,52 @@ CreateForeignTableStmt:
 				$$ = ast.NewCreateForeignTableStmt($7, $11, ast.NewNodeList($10), $14, $15, $12, true)
 			}
 	;
+
+/*****************************************************************************
+ *
+ * IMPORT FOREIGN SCHEMA support
+ *
+ *****************************************************************************/
+
+ImportForeignSchemaStmt:
+		IMPORT_P FOREIGN SCHEMA name import_qualification
+		FROM SERVER name INTO name create_generic_options
+			{
+				stmt := ast.NewImportForeignSchemaStmt(
+					ast.NewString($8),     // server name
+					ast.NewString($4),     // remote schema
+					ast.NewString($10),    // local schema
+					$5.typ,                // list type
+					$5.tableNames,         // table list
+					$11,                   // options
+				)
+				$$ = stmt
+			}
+		;
+
+import_qualification:
+		import_qualification_type '(' relation_expr_list ')'
+			{
+				qual := &ImportQual{
+					typ:        $1,
+					tableNames: $3,
+				}
+				$$ = qual
+			}
+		| /* EMPTY */
+			{
+				qual := &ImportQual{
+					typ:        ast.FDW_IMPORT_SCHEMA_ALL,
+					tableNames: nil,
+				}
+				$$ = qual
+			}
+		;
+
+import_qualification_type:
+		LIMIT TO						{ $$ = ast.FDW_IMPORT_SCHEMA_LIMIT_TO }
+		| EXCEPT						{ $$ = ast.FDW_IMPORT_SCHEMA_EXCEPT }
+		;
 
 /*****************************************************************************
  *

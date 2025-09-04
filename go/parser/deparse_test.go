@@ -988,6 +988,13 @@ func TestDeparsing(t *testing.T) {
 		{"DROP SUBSCRIPTION simple", "DROP SUBSCRIPTION mysub", "DROP SUBSCRIPTION mysub RESTRICT"},
 		{"DROP SUBSCRIPTION IF EXISTS", "DROP SUBSCRIPTION IF EXISTS mysub CASCADE", ""},
 		{"DROP SUBSCRIPTION with RESTRICT", "DROP SUBSCRIPTION mysub RESTRICT", ""},
+
+		// ===== IMPORT FOREIGN SCHEMA Tests =====
+		{"IMPORT FOREIGN SCHEMA basic", "IMPORT FOREIGN SCHEMA remote_schema FROM SERVER myserver INTO local_schema", ""},
+		{"IMPORT FOREIGN SCHEMA with LIMIT TO", "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO (users, orders) FROM SERVER myserver INTO local_schema", "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO ( users, orders ) FROM SERVER myserver INTO local_schema"},
+		{"IMPORT FOREIGN SCHEMA with EXCEPT", "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp_table) FROM SERVER myserver INTO local_schema", "IMPORT FOREIGN SCHEMA remote_schema EXCEPT ( temp_table ) FROM SERVER myserver INTO local_schema"},
+		{"IMPORT FOREIGN SCHEMA with multiple tables in LIMIT TO", "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO (users, orders, products) FROM SERVER myserver INTO local_schema", "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO ( users, orders, products ) FROM SERVER myserver INTO local_schema"},
+		{"IMPORT FOREIGN SCHEMA with multiple tables in EXCEPT", "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp1, temp2, temp3) FROM SERVER myserver INTO local_schema", "IMPORT FOREIGN SCHEMA remote_schema EXCEPT ( temp1, temp2, temp3 ) FROM SERVER myserver INTO local_schema"},
 	}
 
 	for _, tt := range tests {
