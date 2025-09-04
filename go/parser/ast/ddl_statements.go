@@ -596,6 +596,8 @@ func (r *RoleSpec) SqlString() string {
 		return "CURRENT_USER"
 	case ROLESPEC_SESSION_USER:
 		return "SESSION_USER"
+	case ROLESPEC_CURRENT_ROLE:
+		return "CURRENT_ROLE"
 	case ROLESPEC_PUBLIC:
 		return "public"
 	default:
@@ -986,7 +988,7 @@ func (d *DefElem) SqlStringForFunction() string {
 		// For other options, fall back to the standard format
 		return d.SqlString()
 	}
-	
+
 	// Fallback for cases where Arg is nil or doesn't match expected type
 	return d.Defname
 }
@@ -1174,11 +1176,7 @@ func (a *AlterTableStmt) StatementType() string {
 }
 
 func (a *AlterTableStmt) String() string {
-	cmdCount := 0
-	if a.Cmds != nil {
-		cmdCount = a.Cmds.Len()
-	}
-	return fmt.Sprintf("AlterTableStmt(%s, %d cmds)@%d", a.Relation.RelName, cmdCount, a.Location())
+	return a.SqlString()
 }
 
 // ReplicaIdentityStmt represents a REPLICA IDENTITY statement.

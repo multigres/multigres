@@ -230,6 +230,16 @@ const (
 	T_AlterOwnerStmt
 	T_RuleStmt
 	T_LockStmt
+	T_AlterObjectSchemaStmt
+	T_AlterOperatorStmt
+	T_AlterObjectDependsStmt
+	T_AlterCollationStmt
+	T_AlterDatabaseStmt
+	T_AlterDatabaseSetStmt
+	T_AlterDatabaseRefreshCollStmt
+	T_AlterCompositeTypeStmt
+	T_AlterTSConfigurationStmt
+	T_AlterTSDictionaryStmt
 
 	// Range table and FROM clause nodes - Phase 1D (9 nodes)
 	T_RangeTblEntry
@@ -707,6 +717,26 @@ func (nt NodeTag) String() string {
 		return "T_RuleStmt"
 	case T_LockStmt:
 		return "T_LockStmt"
+	case T_AlterObjectSchemaStmt:
+		return "T_AlterObjectSchemaStmt"
+	case T_AlterOperatorStmt:
+		return "T_AlterOperatorStmt"
+	case T_AlterObjectDependsStmt:
+		return "T_AlterObjectDependsStmt"
+	case T_AlterCollationStmt:
+		return "T_AlterCollationStmt"
+	case T_AlterDatabaseStmt:
+		return "T_AlterDatabaseStmt"
+	case T_AlterDatabaseSetStmt:
+		return "T_AlterDatabaseSetStmt"
+	case T_AlterDatabaseRefreshCollStmt:
+		return "T_AlterDatabaseRefreshCollStmt"
+	case T_AlterCompositeTypeStmt:
+		return "T_AlterCompositeTypeStmt"
+	case T_AlterTSConfigurationStmt:
+		return "T_AlterTSConfigurationStmt"
+	case T_AlterTSDictionaryStmt:
+		return "T_AlterTSDictionaryStmt"
 	case T_RangeTblEntry:
 		return "T_RangeTblEntry"
 	case T_RangeSubselect:

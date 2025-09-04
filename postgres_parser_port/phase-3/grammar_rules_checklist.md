@@ -747,16 +747,16 @@
 - ✅ `RenameStmt` - RENAME statement
 
 ### ALTER Miscellaneous
-- ⬜ `AlterObjectSchemaStmt` - ALTER ... SET SCHEMA
-- ⬜ `AlterOwnerStmt` - ALTER ... OWNER TO
-- ⬜ `AlterOperatorStmt` - ALTER OPERATOR
-- ⬜ `AlterObjectDependsStmt` - ALTER ... DEPENDS
-- ⬜ `AlterCollationStmt` - ALTER COLLATION
-- ⬜ `AlterDatabaseStmt` - ALTER DATABASE
-- ⬜ `AlterDatabaseSetStmt` - ALTER DATABASE SET
-- ⬜ `AlterCompositeTypeStmt` - ALTER TYPE (composite)
-- ⬜ `AlterTSConfigurationStmt` - ALTER TEXT SEARCH CONFIG
-- ⬜ `AlterTSDictionaryStmt` - ALTER TEXT SEARCH DICTIONARY
+- ✅ `AlterObjectSchemaStmt` - ALTER ... SET SCHEMA
+- ✅ `AlterOwnerStmt` - ALTER ... OWNER TO
+- ✅ `AlterOperatorStmt` - ALTER OPERATOR
+- ✅ `AlterObjectDependsStmt` - ALTER ... DEPENDS
+- ✅ `AlterCollationStmt` - ALTER COLLATION
+- ✅ `AlterDatabaseStmt` - ALTER DATABASE
+- ✅ `AlterDatabaseSetStmt` - ALTER DATABASE SET
+- ✅ `AlterCompositeTypeStmt` - ALTER TYPE (composite)
+- ✅ `AlterTSConfigurationStmt` - ALTER TEXT SEARCH CONFIG
+- ✅ `AlterTSDictionaryStmt` - ALTER TEXT SEARCH DICTIONARY
 
 ### DROP Miscellaneous
 - ✅ `DropStmt` - Generic DROP
@@ -777,10 +777,10 @@
 
 ### CREATE DATABASE
 - ⬜ `CreatedbStmt` - CREATE DATABASE
-- ⬜ `createdb_opt_list` - Database options
-- ⬜ `createdb_opt_items` - Database option items
-- ⬜ `createdb_opt_item` - Single database option
-- ⬜ `createdb_opt_name` - Database option name
+- ✅ `createdb_opt_list` - Database options
+- ✅ `createdb_opt_items` - Database option items
+- ✅ `createdb_opt_item` - Single database option
+- ✅ `createdb_opt_name` - Database option name
 
 ### CREATE TABLESPACE
 - ✅ `OptTableSpaceOwner` - Tablespace owner
@@ -952,16 +952,16 @@
 - ⬜ `opt_class` - Operator class
 - ✅ `opt_asc_desc` - ASC/DESC option
 - ✅ `opt_nulls_order` - NULLS ordering
-- ⬜ `any_with` - ANY WITH option
+- ✅ `any_with` - ANY WITH option
 - ✅ `filter_clause` - FILTER clause
 - ✅ `opt_sort_clause` - Optional SORT clause
 - ✅ `opt_array_bounds` - Array bounds
 - ✅ `opt_definition` - Optional definition
-- ⬜ `opt_equal` - Optional equals
+- ✅ `opt_equal` - Optional equals
 - ⬜ `opt_instead` - INSTEAD option
 - ✅ `opt_unique_null_treatment` - NULLS treatment
 - ✅ `override_kind` - Override type
-- ⬜ `opt_no` - Optional NO
+- ✅ `opt_no` - Optional NO
 - ✅ `opt_outer` - OUTER keyword
 - ✅ `opt_ordinality` - WITH ORDINALITY
 - ✅ `opt_asymmetric` - ASYMMETRIC option

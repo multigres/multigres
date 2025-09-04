@@ -234,7 +234,7 @@ func TestAlterTableStmt(t *testing.T) {
 		assert.Equal(t, 1, alterStmt.Cmds.Len())
 		assert.Equal(t, OBJECT_TABLE, alterStmt.Objtype)
 		assert.Contains(t, alterStmt.String(), "users")
-		assert.Contains(t, alterStmt.String(), "1 cmds")
+		assert.Contains(t, alterStmt.String(), "ADD COLUMN")
 
 		// Test interface compliance
 		var _ Node = alterStmt
@@ -648,7 +648,7 @@ func TestDDLComplexExamples(t *testing.T) {
 		assert.Equal(t, AT_AddColumn, alterStmt.Cmds.Items[0].(*AlterTableCmd).Subtype)
 		assert.Equal(t, AT_AddConstraint, alterStmt.Cmds.Items[1].(*AlterTableCmd).Subtype)
 		assert.Equal(t, AT_DropColumn, alterStmt.Cmds.Items[2].(*AlterTableCmd).Subtype)
-		assert.Contains(t, alterStmt.String(), "3 cmds")
+		assert.Contains(t, alterStmt.String(), "ALTER TABLE users ADD COLUMN 'VARCHAR(255)', ADD CONSTRAINT uk_email UNIQUE (email), DROP COLUMN old_field CASCADE")
 	})
 
 	t.Run("ComplexIndex", func(t *testing.T) {

@@ -673,7 +673,7 @@ func (n *CommentStmt) String() string {
 
 func (n *CommentStmt) SqlString() string {
 	var parts []string
-	
+
 	// Handle special object types that need custom formatting
 	switch n.Objtype {
 	case OBJECT_TABCONSTRAINT:
@@ -681,7 +681,7 @@ func (n *CommentStmt) SqlString() string {
 			// Last item is constraint name, preceding items are table name
 			constraintName := ""
 			var tableNameParts []string
-			
+
 			for i, item := range nodeList.Items {
 				if str, ok := item.(*String); ok {
 					if i == len(nodeList.Items)-1 {
@@ -691,39 +691,39 @@ func (n *CommentStmt) SqlString() string {
 					}
 				}
 			}
-			
+
 			tableName := FormatQualifiedName(tableNameParts...)
 			parts = append(parts, "COMMENT ON CONSTRAINT", QuoteIdentifier(constraintName), "ON", tableName, "IS")
 		}
-	
+
 	case OBJECT_DOMCONSTRAINT:
 		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
 			// First item is TypeName, second is constraint name (as String)
 			domainName := ""
 			constraintName := ""
-			
+
 			// Get the domain TypeName and format it
 			if typeName, ok := nodeList.Items[0].(*TypeName); ok {
 				domainName = typeName.SqlString()
 			}
-			
+
 			// Get the constraint name
 			if str, ok := nodeList.Items[1].(*String); ok {
 				constraintName = str.SVal
 			}
-			
+
 			parts = append(parts, "COMMENT ON CONSTRAINT", QuoteIdentifier(constraintName), "ON DOMAIN", domainName, "IS")
 		}
-	
+
 	case OBJECT_TRANSFORM:
 		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
-			// First item is Typename, second is language name  
+			// First item is Typename, second is language name
 			typeName := nodeList.Items[0].SqlString()
 			if str, ok := nodeList.Items[1].(*String); ok {
 				parts = append(parts, "COMMENT ON TRANSFORM FOR", typeName, "LANGUAGE", QuoteIdentifier(str.SVal), "IS")
 			}
 		}
-	
+
 	case OBJECT_OPCLASS:
 		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) > 1 {
 			// First item is access method, rest are class name parts
@@ -739,7 +739,7 @@ func (n *CommentStmt) SqlString() string {
 				parts = append(parts, "COMMENT ON OPERATOR CLASS", className, "USING", QuoteIdentifier(accessMethod), "IS")
 			}
 		}
-	
+
 	case OBJECT_OPFAMILY:
 		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) > 1 {
 			// First item is access method, rest are family name parts
@@ -755,11 +755,11 @@ func (n *CommentStmt) SqlString() string {
 				parts = append(parts, "COMMENT ON OPERATOR FAMILY", familyName, "USING", QuoteIdentifier(accessMethod), "IS")
 			}
 		}
-	
+
 	case OBJECT_LARGEOBJECT:
 		// NumericOnly should format directly
 		parts = append(parts, "COMMENT ON LARGE OBJECT", n.Object.SqlString(), "IS")
-	
+
 	case OBJECT_CAST:
 		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
 			// First is source type, second is target type
@@ -767,7 +767,7 @@ func (n *CommentStmt) SqlString() string {
 			targetType := nodeList.Items[1].SqlString()
 			parts = append(parts, "COMMENT ON CAST (", sourceType, "AS", targetType, ") IS")
 		}
-	
+
 	default:
 		// Regular format for other object types
 		objectName := formatObjectName(n.Object)
@@ -836,11 +836,11 @@ func (n *SecLabelStmt) String() string {
 func (n *SecLabelStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "SECURITY LABEL")
-	
+
 	if n.Provider != "" {
 		parts = append(parts, "FOR", n.Provider)
 	}
-	
+
 	// Format object name as qualified identifier, not string literal
 	objectName := formatObjectName(n.Object)
 	parts = append(parts, "ON", n.Objtype.String(), objectName, "IS")
@@ -886,11 +886,11 @@ func (n *DoStmt) String() string {
 func (n *DoStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "DO")
-	
+
 	if n.Args != nil {
 		var language string
 		var code string
-		
+
 		// Process DefElem arguments to extract language and code
 		for _, arg := range n.Args.Items {
 			if defElem, ok := arg.(*DefElem); ok {
@@ -906,12 +906,12 @@ func (n *DoStmt) SqlString() string {
 				}
 			}
 		}
-		
+
 		// Format according to PostgreSQL DO statement syntax
 		if language != "" {
 			parts = append(parts, "LANGUAGE", QuoteIdentifier(language))
 		}
-		
+
 		if code != "" {
 			// Use single quotes for the code block
 			parts = append(parts, QuoteStringLiteral(code))
@@ -1086,26 +1086,81 @@ type AlterOwnerStmt struct {
 	Newowner   *RoleSpec  `json:"newowner"`   // The new owner
 }
 
-func (n *AlterOwnerStmt) node() {}
-func (n *AlterOwnerStmt) stmt() {}
-
 func (n *AlterOwnerStmt) String() string {
-	var parts []string
-	parts = append(parts, "ALTER", n.ObjectType.String())
+	return n.SqlString()
+}
 
+// SqlString returns the SQL representation of the AlterOwnerStmt
+func (n *AlterOwnerStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "ALTER")
+
+	// Add object type
+	parts = append(parts, n.ObjectType.String())
+
+	// Add object name
 	if n.Relation != nil {
-		parts = append(parts, n.Relation.String())
+		parts = append(parts, n.Relation.SqlString())
 	} else if n.Object != nil {
-		parts = append(parts, n.Object.String())
+		// Special handling for NodeList objects
+		if nodeList, ok := n.Object.(*NodeList); ok {
+			if n.ObjectType == OBJECT_OPCLASS || n.ObjectType == OBJECT_OPFAMILY {
+				// Format as "name USING method" where first item is method, rest is name
+				if nodeList.Len() >= 2 {
+					methodStr := ""
+					if str, ok := nodeList.Items[0].(*String); ok {
+						methodStr = str.SVal
+					} else {
+						methodStr = nodeList.Items[0].SqlString()
+					}
+					
+					var nameStr string
+					for i := 1; i < nodeList.Len(); i++ {
+						if i > 1 {
+							nameStr += "."
+						}
+						if str, ok := nodeList.Items[i].(*String); ok {
+							nameStr += QuoteIdentifier(str.SVal)
+						} else {
+							nameStr += nodeList.Items[i].SqlString()
+						}
+					}
+					parts = append(parts, nameStr, "USING", methodStr)
+				} else {
+					parts = append(parts, n.Object.SqlString())
+				}
+			} else {
+				// For other object types, handle as qualified identifier names
+				var nameParts []string
+				for _, item := range nodeList.Items {
+					if str, ok := item.(*String); ok {
+						nameParts = append(nameParts, QuoteIdentifier(str.SVal))
+					} else {
+						nameParts = append(nameParts, item.SqlString())
+					}
+				}
+				parts = append(parts, strings.Join(nameParts, "."))
+			}
+		} else if str, ok := n.Object.(*String); ok {
+			// Handle simple string identifiers
+			parts = append(parts, QuoteIdentifier(str.SVal))
+		} else {
+			parts = append(parts, n.Object.SqlString())
+		}
 	}
 
+	// Add OWNER TO clause
 	parts = append(parts, "OWNER TO")
-
 	if n.Newowner != nil {
-		parts = append(parts, n.Newowner.String())
+		parts = append(parts, n.Newowner.SqlString())
 	}
 
 	return strings.Join(parts, " ")
+}
+
+// StatementType returns the statement type
+func (n *AlterOwnerStmt) StatementType() string {
+	return "ALTER"
 }
 
 // NewAlterOwnerStmt creates a new AlterOwnerStmt node
@@ -1129,9 +1184,6 @@ type RuleStmt struct {
 	Actions     *NodeList `json:"actions"`     // The action statements
 	Replace     bool      `json:"replace"`     // OR REPLACE
 }
-
-func (n *RuleStmt) node() {}
-func (n *RuleStmt) stmt() {}
 
 func (n *RuleStmt) String() string {
 	var parts []string
@@ -1211,9 +1263,6 @@ type LockStmt struct {
 	Mode      LockMode  `json:"mode"`      // Lock mode
 	Nowait    bool      `json:"nowait"`    // No wait mode
 }
-
-func (n *LockStmt) node() {}
-func (n *LockStmt) stmt() {}
 
 func (n *LockStmt) String() string {
 	var parts []string

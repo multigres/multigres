@@ -250,7 +250,7 @@ type PrivTarget struct {
 %type <str>          opt_single_name
 %type <str>          notify_payload file_name
 %type <ival>         opt_lock lock_type
-%type <bval>         opt_nowait opt_restart_seqs
+%type <bval>         opt_nowait opt_restart_seqs opt_no
 %type <str>          unreserved_keyword col_name_keyword type_func_name_keyword reserved_keyword bare_label_keyword
 %type <list>         opt_name_list
 %type <ival>         opt_if_exists opt_if_not_exists
@@ -510,6 +510,9 @@ type PrivTarget struct {
 %type <stmt>         CreateAmStmt CreateStatsStmt AlterStatsStmt CreatePublicationStmt AlterPublicationStmt CreateSubscriptionStmt AlterSubscriptionStmt
 %type <stmt>         CreateCastStmt CreateOpClassStmt CreateOpFamilyStmt AlterOpFamilyStmt CreateConversionStmt CreateTransformStmt CreatePLangStmt
 %type <stmt>         CreateFdwStmt AlterFdwStmt CreateForeignServerStmt AlterForeignServerStmt CreateForeignTableStmt CreateUserMappingStmt AlterUserMappingStmt DropUserMappingStmt
+%type <stmt>         AlterObjectSchemaStmt AlterOwnerStmt AlterOperatorStmt AlterObjectDependsStmt
+%type <stmt>         AlterCollationStmt AlterDatabaseStmt AlterDatabaseSetStmt
+%type <stmt>         AlterTSConfigurationStmt AlterTSDictionaryStmt
 %type <list>         definition def_list opt_enum_val_list enum_val_list
 %type <list>         OptSeqOptList OptParenthesizedSeqOptList SeqOptList create_extension_opt_list alter_extension_opt_list
 %type <defelt>       SeqOptElem create_extension_opt_item alter_extension_opt_item
@@ -544,7 +547,9 @@ type PrivTarget struct {
 %type <typnam>       func_return
 %type <list>         opt_createfunc_opt_list createfunc_opt_list transform_type_list
 %type <defelt>       createfunc_opt_item common_func_opt_item operator_def_elem
-%type <list>         operator_def_list
+%type <list>         operator_def_list createdb_opt_list createdb_opt_items
+%type <defelt>       createdb_opt_item
+%type <str>          createdb_opt_name
 %type <node>         operator_def_arg
 %type <node>         func_as opt_routine_body
 %type <stmt>         routine_body_stmt
@@ -732,6 +737,15 @@ stmt:
 		|	SecLabelStmt							{ $$ = $1 }
 		|	DoStmt									{ $$ = $1 }
 		|	CallStmt								{ $$ = $1 }
+		|	AlterObjectSchemaStmt					{ $$ = $1 }
+		|	AlterOwnerStmt							{ $$ = $1 }
+		|	AlterOperatorStmt						{ $$ = $1 }
+		|	AlterObjectDependsStmt					{ $$ = $1 }
+		|	AlterCollationStmt						{ $$ = $1 }
+		|	AlterDatabaseStmt						{ $$ = $1 }
+		|	AlterDatabaseSetStmt					{ $$ = $1 }
+		|	AlterTSConfigurationStmt				{ $$ = $1 }
+		|	AlterTSDictionaryStmt					{ $$ = $1 }
 		|	/* Empty for now - will add other statement types in later phases */
 			{
 				$$ = nil
@@ -14196,6 +14210,679 @@ CallStmt:
 			{
 				$$ = ast.NewCallStmt($2.(*ast.FuncCall))
 			}
+		;
+
+/*****************************************************************************
+ *
+ * ALTER ... SET SCHEMA statements
+ *
+ *****************************************************************************/
+
+AlterObjectSchemaStmt:
+			ALTER AGGREGATE aggregate_with_argtypes SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_AGGREGATE, $6)
+					stmt.Object = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER COLLATION any_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_COLLATION, $6)
+					stmt.Object = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER CONVERSION_P any_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_CONVERSION, $6)
+					stmt.Object = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER DOMAIN_P any_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_DOMAIN, $6)
+					stmt.Object = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER EXTENSION name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_EXTENSION, $6)
+					stmt.Object = ast.NewString($3)
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER FUNCTION function_with_argtypes SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_FUNCTION, $6)
+					stmt.Object = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER OPERATOR operator_with_argtypes SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_OPERATOR, $6)
+					stmt.Object = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER OPERATOR CLASS any_name USING name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_OPCLASS, $9)
+					// Create list with access method name first, then class name
+					objList := ast.NewNodeList(ast.NewString($6))
+					for _, item := range $4.Items {
+						objList.Append(item)
+					}
+					stmt.Object = objList
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER OPERATOR FAMILY any_name USING name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_OPFAMILY, $9)
+					// Create list with access method name first, then family name
+					objList := ast.NewNodeList(ast.NewString($6))
+					for _, item := range $4.Items {
+						objList.Append(item)
+					}
+					stmt.Object = objList
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER PROCEDURE function_with_argtypes SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_PROCEDURE, $6)
+					stmt.Object = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER ROUTINE function_with_argtypes SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_ROUTINE, $6)
+					stmt.Object = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER TABLE relation_expr SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TABLE, $6)
+					stmt.Relation = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER TABLE IF_P EXISTS relation_expr SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TABLE, $8)
+					stmt.Relation = $5
+					stmt.MissingOk = true
+					$$ = stmt
+				}
+		|	ALTER STATISTICS any_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_STATISTIC_EXT, $6)
+					stmt.Object = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER TEXT_P SEARCH PARSER any_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSPARSER, $8)
+					stmt.Object = $5
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER TEXT_P SEARCH DICTIONARY any_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSDICTIONARY, $8)
+					stmt.Object = $5
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER TEXT_P SEARCH TEMPLATE any_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSTEMPLATE, $8)
+					stmt.Object = $5
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER TEXT_P SEARCH CONFIGURATION any_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSCONFIGURATION, $8)
+					stmt.Object = $5
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER SEQUENCE qualified_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_SEQUENCE, $6)
+					stmt.Relation = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER SEQUENCE IF_P EXISTS qualified_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_SEQUENCE, $8)
+					stmt.Relation = $5
+					stmt.MissingOk = true
+					$$ = stmt
+				}
+		|	ALTER VIEW qualified_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_VIEW, $6)
+					stmt.Relation = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER VIEW IF_P EXISTS qualified_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_VIEW, $8)
+					stmt.Relation = $5
+					stmt.MissingOk = true
+					$$ = stmt
+				}
+		|	ALTER MATERIALIZED VIEW qualified_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_MATVIEW, $7)
+					stmt.Relation = $4
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER MATERIALIZED VIEW IF_P EXISTS qualified_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_MATVIEW, $9)
+					stmt.Relation = $6
+					stmt.MissingOk = true
+					$$ = stmt
+				}
+		|	ALTER FOREIGN TABLE relation_expr SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_FOREIGN_TABLE, $7)
+					stmt.Relation = $4
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER FOREIGN TABLE IF_P EXISTS relation_expr SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_FOREIGN_TABLE, $9)
+					stmt.Relation = $6
+					stmt.MissingOk = true
+					$$ = stmt
+				}
+		|	ALTER TYPE_P any_name SET SCHEMA name
+				{
+					stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TYPE, $6)
+					stmt.Object = $3
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		;
+
+/*****************************************************************************
+ *
+ * ALTER ... OWNER TO statements
+ *
+ *****************************************************************************/
+
+AlterOwnerStmt:
+			ALTER AGGREGATE aggregate_with_argtypes OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_AGGREGATE,
+						Object:     $3,
+						Newowner:   $6,
+					}
+				}
+		|	ALTER COLLATION any_name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_COLLATION,
+						Object:     $3,
+						Newowner:   $6,
+					}
+				}
+		|	ALTER CONVERSION_P any_name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_CONVERSION,
+						Object:     $3,
+						Newowner:   $6,
+					}
+				}
+		|	ALTER DATABASE name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_DATABASE,
+						Object:     ast.NewString($3),
+						Newowner:   $6,
+					}
+				}
+		|	ALTER DOMAIN_P any_name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_DOMAIN,
+						Object:     $3,
+						Newowner:   $6,
+					}
+				}
+		|	ALTER FUNCTION function_with_argtypes OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_FUNCTION,
+						Object:     $3,
+						Newowner:   $6,
+					}
+				}
+		|	ALTER opt_procedural LANGUAGE name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_LANGUAGE,
+						Object:     ast.NewString($4),
+						Newowner:   $7,
+					}
+				}
+		|	ALTER LARGE_P OBJECT_P NumericOnly OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_LARGEOBJECT,
+						Object:     $4,
+						Newowner:   $7,
+					}
+				}
+		|	ALTER OPERATOR operator_with_argtypes OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_OPERATOR,
+						Object:     $3,
+						Newowner:   $6,
+					}
+				}
+		|	ALTER OPERATOR CLASS any_name USING name OWNER TO RoleSpec
+				{
+					list := ast.NewNodeList(ast.NewString($6))
+					for _, item := range $4.Items {
+						list.Append(item)
+					}
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_OPCLASS,
+						Object:     list,
+						Newowner:   $9,
+					}
+				}
+		|	ALTER OPERATOR FAMILY any_name USING name OWNER TO RoleSpec
+				{
+					list := ast.NewNodeList(ast.NewString($6))
+					for _, item := range $4.Items {
+						list.Append(item)
+					}
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_OPFAMILY,
+						Object:     list,
+						Newowner:   $9,
+					}
+				}
+		|	ALTER PROCEDURE function_with_argtypes OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_PROCEDURE,
+						Object:     $3,
+						Newowner:   $6,
+					}
+				}
+		|	ALTER ROUTINE function_with_argtypes OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_ROUTINE,
+						Object:     $3,
+						Newowner:   $6,
+					}
+				}
+		|	ALTER SCHEMA name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_SCHEMA,
+						Object:     ast.NewString($3),
+						Newowner:   $6,
+					}
+				}
+		|	ALTER TYPE_P any_name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_TYPE,
+						Object:     $3,
+						Newowner:   $6,
+					}
+				}
+		|	ALTER TABLESPACE name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_TABLESPACE,
+						Object:     ast.NewString($3),
+						Newowner:   $6,
+					}
+				}
+		|	ALTER STATISTICS any_name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_STATISTIC_EXT,
+						Object:     $3,
+						Newowner:   $6,
+					}
+				}
+		|	ALTER TEXT_P SEARCH DICTIONARY any_name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_TSDICTIONARY,
+						Object:     $5,
+						Newowner:   $8,
+					}
+				}
+		|	ALTER TEXT_P SEARCH CONFIGURATION any_name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_TSCONFIGURATION,
+						Object:     $5,
+						Newowner:   $8,
+					}
+				}
+		|	ALTER FOREIGN DATA_P WRAPPER name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_FDW,
+						Object:     ast.NewString($5),
+						Newowner:   $8,
+					}
+				}
+		|	ALTER SERVER name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_FOREIGN_SERVER,
+						Object:     ast.NewString($3),
+						Newowner:   $6,
+					}
+				}
+		|	ALTER EVENT TRIGGER name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_EVENT_TRIGGER,
+						Object:     ast.NewString($4),
+						Newowner:   $7,
+					}
+				}
+		|	ALTER PUBLICATION name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_PUBLICATION,
+						Object:     ast.NewString($3),
+						Newowner:   $6,
+					}
+				}
+		|	ALTER SUBSCRIPTION name OWNER TO RoleSpec
+				{
+					$$ = &ast.AlterOwnerStmt{
+						BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
+						ObjectType: ast.OBJECT_SUBSCRIPTION,
+						Object:     ast.NewString($3),
+						Newowner:   $6,
+					}
+				}
+		;
+
+/*****************************************************************************
+ *
+ * ALTER OPERATOR statements
+ *
+ *****************************************************************************/
+
+AlterOperatorStmt:
+			ALTER OPERATOR operator_with_argtypes SET '(' operator_def_list ')'
+				{
+					$$ = ast.NewAlterOperatorStmt($3, $6)
+				}
+		;
+
+/*****************************************************************************
+ *
+ * ALTER ... DEPENDS ON EXTENSION statements
+ *
+ *****************************************************************************/
+
+AlterObjectDependsStmt:
+			ALTER FUNCTION function_with_argtypes opt_no DEPENDS ON EXTENSION name
+				{
+					stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_FUNCTION, ast.NewString($8), $4)
+					stmt.Object = $3
+					$$ = stmt
+				}
+		|	ALTER PROCEDURE function_with_argtypes opt_no DEPENDS ON EXTENSION name
+				{
+					stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_PROCEDURE, ast.NewString($8), $4)
+					stmt.Object = $3
+					$$ = stmt
+				}
+		|	ALTER ROUTINE function_with_argtypes opt_no DEPENDS ON EXTENSION name
+				{
+					stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_ROUTINE, ast.NewString($8), $4)
+					stmt.Object = $3
+					$$ = stmt
+				}
+		|	ALTER TRIGGER name ON qualified_name opt_no DEPENDS ON EXTENSION name
+				{
+					stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_TRIGGER, ast.NewString($10), $6)
+					stmt.Relation = $5
+					stmt.Object = ast.NewString($3)
+					$$ = stmt
+				}
+		|	ALTER MATERIALIZED VIEW qualified_name opt_no DEPENDS ON EXTENSION name
+				{
+					stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_MATVIEW, ast.NewString($9), $5)
+					stmt.Relation = $4
+					$$ = stmt
+				}
+		|	ALTER INDEX qualified_name opt_no DEPENDS ON EXTENSION name
+				{
+					stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_INDEX, ast.NewString($8), $4)
+					stmt.Relation = $3
+					$$ = stmt
+				}
+		;
+
+opt_no:		NO				{ $$ = true }
+		|	/* EMPTY */		{ $$ = false }
+		;
+
+/*****************************************************************************
+ *
+ * ALTER COLLATION statements
+ *
+ *****************************************************************************/
+
+AlterCollationStmt:
+			ALTER COLLATION any_name REFRESH VERSION_P
+				{
+					$$ = ast.NewAlterCollationStmt($3)
+				}
+		;
+
+/*****************************************************************************
+ *
+ * ALTER DATABASE statements
+ *
+ *****************************************************************************/
+
+AlterDatabaseStmt:
+			ALTER DATABASE name WITH createdb_opt_list
+				{
+					$$ = ast.NewAlterDatabaseStmt($3, $5)
+				}
+		|	ALTER DATABASE name createdb_opt_list
+				{
+					$$ = ast.NewAlterDatabaseStmt($3, $4)
+				}
+		|	ALTER DATABASE name SET TABLESPACE name
+				{
+					optList := ast.NewNodeList()
+					optList.Append(ast.NewDefElem("tablespace", ast.NewString($6)))
+					$$ = ast.NewAlterDatabaseStmt($3, optList)
+				}
+		|	ALTER DATABASE name REFRESH COLLATION VERSION_P
+				{
+					$$ = ast.NewAlterDatabaseRefreshCollStmt($3)
+				}
+		;
+
+createdb_opt_list:
+			createdb_opt_items						{ $$ = $1 }
+		|	/* EMPTY */								{ $$ = nil }
+		;
+
+createdb_opt_items:
+			createdb_opt_item						{ $$ = ast.NewNodeList($1) }
+		|	createdb_opt_items createdb_opt_item	{ $1.Append($2); $$ = $1 }
+		;
+
+createdb_opt_item:
+			createdb_opt_name opt_equal SignedIconst
+				{
+					$$ = ast.NewDefElem($1, ast.NewInteger($3))
+				}
+		|	createdb_opt_name opt_equal opt_boolean_or_string
+				{
+					$$ = ast.NewDefElem($1, ast.NewString($3))
+				}
+		|	createdb_opt_name opt_equal DEFAULT
+				{
+					$$ = ast.NewDefElem($1, nil)
+				}
+		;
+
+createdb_opt_name:
+			IDENT									{ $$ = $1 }
+		|	CONNECTION LIMIT						{ $$ = "connection_limit" }
+		|	ENCODING								{ $$ = "encoding" }
+		|	LOCATION								{ $$ = "location" }
+		|	OWNER									{ $$ = "owner" }
+		|	TABLESPACE								{ $$ = "tablespace" }
+		|	TEMPLATE								{ $$ = "template" }
+		;
+
+opt_equal:	'='										{ }
+		|	/* EMPTY */								{ }
+		;
+
+AlterDatabaseSetStmt:
+			ALTER DATABASE name SetResetClause
+				{
+					$$ = ast.NewAlterDatabaseSetStmt($3, $4)
+				}
+		;
+
+/*****************************************************************************
+ *
+ * ALTER TEXT SEARCH CONFIGURATION statements
+ *
+ *****************************************************************************/
+
+AlterTSConfigurationStmt:
+			ALTER TEXT_P SEARCH CONFIGURATION any_name ADD_P MAPPING FOR name_list any_with any_name_list
+				{
+					stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_ADD_MAPPING, $5)
+					stmt.Tokentype = $9
+					stmt.Dicts = $11
+					stmt.Override = false
+					stmt.Replace = false
+					$$ = stmt
+				}
+		|	ALTER TEXT_P SEARCH CONFIGURATION any_name ALTER MAPPING FOR name_list any_with any_name_list
+				{
+					stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_ALTER_MAPPING_FOR_TOKEN, $5)
+					stmt.Tokentype = $9
+					stmt.Dicts = $11
+					stmt.Override = true
+					stmt.Replace = false
+					$$ = stmt
+				}
+		|	ALTER TEXT_P SEARCH CONFIGURATION any_name ALTER MAPPING REPLACE any_name any_with any_name
+				{
+					stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_REPLACE_DICT, $5)
+					stmt.Tokentype = nil
+					// Create a list with two elements: old dict and new dict
+					stmt.Dicts = ast.NewNodeList()
+					stmt.Dicts.Append($9)
+					stmt.Dicts.Append($11)
+					stmt.Override = false
+					stmt.Replace = true
+					$$ = stmt
+				}
+		|	ALTER TEXT_P SEARCH CONFIGURATION any_name ALTER MAPPING FOR name_list REPLACE any_name any_with any_name
+				{
+					stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_REPLACE_DICT_FOR_TOKEN, $5)
+					stmt.Tokentype = $9
+					// Create a list with two elements: old dict and new dict
+					stmt.Dicts = ast.NewNodeList()
+					stmt.Dicts.Append($11)
+					stmt.Dicts.Append($13)
+					stmt.Override = false
+					stmt.Replace = true
+					$$ = stmt
+				}
+		|	ALTER TEXT_P SEARCH CONFIGURATION any_name DROP MAPPING FOR name_list
+				{
+					stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_DROP_MAPPING, $5)
+					stmt.Tokentype = $9
+					stmt.MissingOk = false
+					$$ = stmt
+				}
+		|	ALTER TEXT_P SEARCH CONFIGURATION any_name DROP MAPPING IF_P EXISTS FOR name_list
+				{
+					stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_DROP_MAPPING, $5)
+					stmt.Tokentype = $11
+					stmt.MissingOk = true
+					$$ = stmt
+				}
+		;
+
+/* Use this if TIME or ORDINALITY after WITH should be taken as an identifier */
+any_with:	WITH
+			| WITH_LA
+		;
+
+/*****************************************************************************
+ *
+ * ALTER TEXT SEARCH DICTIONARY statements
+ *
+ *****************************************************************************/
+
+AlterTSDictionaryStmt:
+			ALTER TEXT_P SEARCH DICTIONARY any_name definition
+				{
+					$$ = ast.NewAlterTSDictionaryStmt($5, $6)
+				}
 		;
 
 /*
