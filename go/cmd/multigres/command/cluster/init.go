@@ -62,8 +62,8 @@ func validateConfigPaths(cmd *cobra.Command) ([]string, error) {
 	return configPaths, nil
 }
 
-// buildConfigFromFlags creates a MultigressConfig based on command flags
-func buildConfigFromFlags(cmd *cobra.Command) (*MultigressConfig, error) {
+// buildConfigFromFlags creates a MultigresConfig based on command flags
+func buildConfigFromFlags(cmd *cobra.Command) (*MultigresConfig, error) {
 	// Get config paths to substitute in provisioner config
 	configPaths, err := cmd.Flags().GetStringSlice("config-path")
 	if err != nil {
@@ -80,7 +80,7 @@ func buildConfigFromFlags(cmd *cobra.Command) (*MultigressConfig, error) {
 	}
 
 	// Create default configuration for the specified provisioner
-	config, err := CreateDefaultConfig(provisionerName)
+	config, err := createDefaultConfig(provisionerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create default config: %w", err)
 	}
@@ -89,7 +89,7 @@ func buildConfigFromFlags(cmd *cobra.Command) (*MultigressConfig, error) {
 }
 
 // validateConfig validates the configuration values
-func validateConfig(config *MultigressConfig) error {
+func validateConfig(config *MultigresConfig) error {
 	// Validate provisioner name
 	if config.Provisioner == "" {
 		return fmt.Errorf("provisioner not specified")
@@ -169,6 +169,22 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Created configuration file: %s\n", configFile)
 	fmt.Println("Cluster configuration created successfully!")
 	return nil
+}
+
+// createDefaultConfig creates a default configuration for the specified provisioner
+func createDefaultConfig(provisionerName string) (*MultigresConfig, error) {
+	// Get default config from the provisioner
+	p, err := provisioner.GetProvisioner(provisionerName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provisioner '%s': %w", provisionerName, err)
+	}
+
+	defaultConfig := p.DefaultConfig()
+
+	return &MultigresConfig{
+		Provisioner:       provisionerName,
+		ProvisionerConfig: defaultConfig,
+	}, nil
 }
 
 var InitCommand = &cobra.Command{

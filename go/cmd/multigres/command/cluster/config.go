@@ -19,22 +19,17 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/multigres/multigres/go/provisioner"
-	"github.com/multigres/multigres/go/provisioner/local"
-
-	"github.com/spf13/cobra"
-
 	"gopkg.in/yaml.v3"
 )
 
-// MultigressConfig represents the structure of the multigres configuration file
-type MultigressConfig struct {
+// MultigresConfig represents the structure of the multigres configuration file
+type MultigresConfig struct {
 	Provisioner       string                 `yaml:"provisioner"`
 	ProvisionerConfig map[string]interface{} `yaml:"provisioner-config,omitempty"`
 }
 
 // LoadConfig loads the multigres configuration from the specified paths
-func LoadConfig(configPaths []string) (*MultigressConfig, string, error) {
+func LoadConfig(configPaths []string) (*MultigresConfig, string, error) {
 	// Try to find the config file in the provided paths
 	for _, configPath := range configPaths {
 		configFile := filepath.Join(configPath, "multigres.yaml")
@@ -44,7 +39,7 @@ func LoadConfig(configPaths []string) (*MultigressConfig, string, error) {
 				return nil, "", fmt.Errorf("failed to read config file %s: %w", configFile, err)
 			}
 
-			var config MultigressConfig
+			var config MultigresConfig
 			if err := yaml.Unmarshal(data, &config); err != nil {
 				return nil, "", fmt.Errorf("failed to parse config file %s: %w", configFile, err)
 			}
@@ -59,48 +54,4 @@ func LoadConfig(configPaths []string) (*MultigressConfig, string, error) {
 	}
 
 	return nil, "", fmt.Errorf("multigres.yaml not found in any of the provided paths: %v", configPaths)
-}
-
-// CreateDefaultConfig creates a default configuration for the specified provisioner
-func CreateDefaultConfig(provisionerName string) (*MultigressConfig, error) {
-	// Get default config from the provisioner
-	p, err := provisioner.GetProvisioner(provisionerName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get provisioner '%s': %w", provisionerName, err)
-	}
-
-	defaultConfig := p.DefaultConfig()
-
-	return &MultigressConfig{
-		Provisioner:       provisionerName,
-		ProvisionerConfig: defaultConfig,
-	}, nil
-}
-
-// GetTypedLocalConfig returns a typed local provisioner configuration if the provisioner is "local"
-func (c *MultigressConfig) GetTypedLocalConfig() (*local.LocalProvisionerConfig, error) {
-	if c.Provisioner != "local" {
-		return nil, fmt.Errorf("provisioner is not 'local', got: %s", c.Provisioner)
-	}
-
-	// Convert map[string]interface{} to typed config via YAML marshaling
-	yamlData, err := yaml.Marshal(c.ProvisionerConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal provisioner config: %w", err)
-	}
-
-	var typedConfig local.LocalProvisionerConfig
-	if err := yaml.Unmarshal(yamlData, &typedConfig); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal provisioner config: %w", err)
-	}
-
-	return &typedConfig, nil
-}
-
-// RegisterSubCommands registers all cluster subcommands with the given parent command
-func RegisterSubCommands(parent *cobra.Command) {
-	parent.AddCommand(InitCommand)
-	parent.AddCommand(UpCommand)
-	parent.AddCommand(DownCommand)
-	parent.AddCommand(StatusCommand)
 }

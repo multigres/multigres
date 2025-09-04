@@ -139,7 +139,7 @@ func cleanupTestProcesses(tempDir string) error {
 // createTestConfigWithPorts creates a test configuration file with custom ports
 func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (string, error) {
 	// Create the full configuration
-	config := &MultigressConfig{
+	config := &MultigresConfig{
 		Provisioner: "local",
 		ProvisionerConfig: map[string]interface{}{
 			"default-db-name":  "default",
@@ -460,7 +460,7 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	configData, err := os.ReadFile(configFile)
 	require.NoError(t, err)
 
-	var config MultigressConfig
+	var config MultigresConfig
 	err = yaml.Unmarshal(configData, &config)
 	require.NoError(t, err)
 
@@ -615,7 +615,7 @@ func TestClusterLifecycle(t *testing.T) {
 		// Read the config to get topology settings
 		configData, err := os.ReadFile(configFile)
 		require.NoError(t, err)
-		var config MultigressConfig
+		var config MultigresConfig
 		err = yaml.Unmarshal(configData, &config)
 		require.NoError(t, err)
 
