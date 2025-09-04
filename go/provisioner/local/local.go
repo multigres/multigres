@@ -1365,41 +1365,42 @@ func (p *localProvisioner) stopProcessByPID(pid int) error {
 // Bootstrap sets up etcd and creates the default database
 func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.ProvisionResult, error) {
 	fmt.Println("=== Bootstrapping Multigres cluster ===")
+	fmt.Println("")
 
 	var allResults []*provisioner.ProvisionResult
 
-	// 1. Provision etcd
+	// Provision etcd
 	fmt.Println("=== Provisioning etcd ===")
 	etcdResult, err := p.provisionEtcd(ctx, &provisioner.ProvisionRequest{Service: "etcd"})
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision etcd: %w", err)
 	}
+	fmt.Println("")
+
+	// Setup default cell using the configured cell name
 
 	tcpPort := etcdResult.Ports["tcp"]
 	fmt.Printf("🌐 - etcd available at: %s:%d\n", etcdResult.FQDN, tcpPort)
 	allResults = append(allResults, etcdResult)
 
-	// 2. Get etcd address for database provisioning
 	etcdAddress := fmt.Sprintf("%s:%d", etcdResult.FQDN, tcpPort)
 
-	// 3. Get topology config to get the default cell name
 	topoConfig, err := p.getTopologyConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get topology config: %w", err)
 	}
 
-	// 4. Setup default cell using the configured cell name
 	if err := p.setupDefaultCell(ctx, topoConfig.DefaultCellName, etcdAddress); err != nil {
 		return nil, fmt.Errorf("failed to setup default cell %s: %w", topoConfig.DefaultCellName, err)
 	}
+	fmt.Println("")
 
-	// 5. Get default database name from config
+	// Setup default database
 	defaultDBName, err := p.getDefaultDatabaseName()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get default database name: %w", err)
 	}
 
-	// 6. Provision default database (this provisions all services but not cell setup)
 	databaseResults, err := p.ProvisionDatabase(ctx, defaultDBName, etcdAddress)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision default database: %w", err)
@@ -1407,7 +1408,6 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 
 	allResults = append(allResults, databaseResults...)
 
-	fmt.Printf("Bootstrap completed successfully with %d services\n", len(allResults))
 	return allResults, nil
 }
 
@@ -1498,6 +1498,7 @@ func (p *localProvisioner) getDefaultDatabaseName() (string, error) {
 // ProvisionDatabase provisions a complete database stack (assumes etcd is already running and cell is configured)
 func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName string, etcdAddress string) ([]*provisioner.ProvisionResult, error) {
 	fmt.Printf("=== Provisioning database: %s ===\n", databaseName)
+	fmt.Println("")
 
 	// Get topology configuration from provisioner config
 	topoConfig := p.config.Topology
@@ -1527,7 +1528,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	results = append(results, multigatewayResult)
 
 	// Provision multipooler
-	fmt.Println("=== Starting Multipooler ===")
+	fmt.Println("\n=== Starting Multipooler ===")
 	multipoolerReq := &provisioner.ProvisionRequest{
 		Service:      "multipooler",
 		DatabaseName: databaseName,
@@ -1549,7 +1550,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	results = append(results, multipoolerResult)
 
 	// Provision multiorch
-	fmt.Println("=== Starting MultiOrchestrator ===")
+	fmt.Println("\n=== Starting MultiOrchestrator ===")
 	multiorchReq := &provisioner.ProvisionRequest{
 		Service:      "multiorch",
 		DatabaseName: databaseName,
@@ -1569,7 +1570,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 	results = append(results, multiorchResult)
 
-	fmt.Printf("Database %s provisioned successfully with %d services\n", databaseName, len(results))
+	fmt.Printf("\nDatabase %s provisioned successfully with %d services\n", databaseName, len(results))
 	return results, nil
 }
 
