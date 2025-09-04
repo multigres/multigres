@@ -995,6 +995,69 @@ func TestDeparsing(t *testing.T) {
 		{"IMPORT FOREIGN SCHEMA with EXCEPT", "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp_table) FROM SERVER myserver INTO local_schema", "IMPORT FOREIGN SCHEMA remote_schema EXCEPT ( temp_table ) FROM SERVER myserver INTO local_schema"},
 		{"IMPORT FOREIGN SCHEMA with multiple tables in LIMIT TO", "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO (users, orders, products) FROM SERVER myserver INTO local_schema", "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO ( users, orders, products ) FROM SERVER myserver INTO local_schema"},
 		{"IMPORT FOREIGN SCHEMA with multiple tables in EXCEPT", "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp1, temp2, temp3) FROM SERVER myserver INTO local_schema", "IMPORT FOREIGN SCHEMA remote_schema EXCEPT ( temp1, temp2, temp3 ) FROM SERVER myserver INTO local_schema"},
+		// CREATE TABLE AS statements
+		{
+			name:     "CREATE TABLE AS basic",
+			input:    "CREATE TABLE new_table AS SELECT * FROM old_table",
+			expected: "",
+		},
+		{
+			name:     "CREATE TABLE AS with IF NOT EXISTS",
+			input:    "CREATE TABLE IF NOT EXISTS new_table AS SELECT id, name FROM users",
+			expected: "",
+		},
+		{
+			name:     "CREATE TEMP TABLE AS",
+			input:    "CREATE TEMP TABLE temp_table AS SELECT * FROM source",
+			expected: "",
+		},
+		{
+			name:     "CREATE TABLE AS with WITH DATA",
+			input:    "CREATE TABLE new_table AS SELECT * FROM old_table WITH DATA",
+			expected: "CREATE TABLE new_table AS SELECT * FROM old_table", // WITH DATA is the default and omitted
+		},
+		{
+			name:     "CREATE TABLE AS with WITH NO DATA",
+			input:    "CREATE TABLE new_table AS SELECT * FROM old_table WITH NO DATA",
+			expected: "",
+		},
+
+		// CREATE RULE statements
+		{
+			name:     "CREATE RULE basic notify",
+			input:    "CREATE RULE notify_me AS ON UPDATE TO mytable DO NOTIFY mytable",
+			expected: "",
+		},
+		{
+			name:     "CREATE RULE with INSTEAD",
+			input:    "CREATE RULE my_rule AS ON INSERT TO view1 DO INSTEAD INSERT INTO table1 VALUES (NEW.id, NEW.name)",
+			expected: "CREATE RULE my_rule AS ON INSERT TO view1 DO INSTEAD INSERT INTO table1 VALUES (new.id, new.name)", // identifiers normalized to lowercase
+		},
+		{
+			name:     "CREATE RULE with NOTHING",
+			input:    "CREATE RULE ignore_updates AS ON UPDATE TO protected_table DO NOTHING",
+			expected: "",
+		},
+		{
+			name:     "CREATE RULE with multiple actions",
+			input:    "CREATE RULE complex_rule AS ON DELETE TO users DO (DELETE FROM user_logs WHERE (user_id = OLD.id); NOTIFY user_deleted)",
+			expected: "CREATE RULE complex_rule AS ON DELETE TO users DO (DELETE FROM user_logs WHERE (user_id = old.id); NOTIFY user_deleted)", // identifiers normalized to lowercase
+		},
+		{
+			name:     "CREATE OR REPLACE RULE",
+			input:    "CREATE OR REPLACE RULE update_rule AS ON UPDATE TO accounts DO UPDATE stats SET count = (count + 1)",
+			expected: "",
+		},
+		{
+			name:     "CREATE RULE with WHERE clause",
+			input:    "CREATE RULE conditional_rule AS ON UPDATE TO accounts WHERE (balance > 0) DO NOTIFY account_updated",
+			expected: "",
+		},
+		{
+			name:     "CREATE RULE with ALSO",
+			input:    "CREATE RULE log_rule AS ON DELETE TO users DO ALSO INSERT INTO audit_log (action, table_name) VALUES ('DELETE', 'users')",
+			expected: "CREATE RULE log_rule AS ON DELETE TO users DO INSERT INTO audit_log (action, table_name) VALUES ('DELETE', 'users')",
+		},
 	}
 
 	for _, tt := range tests {

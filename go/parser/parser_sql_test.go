@@ -575,14 +575,12 @@ func TestDDLParsing(t *testing.T) {
 
 		// CREATE MATERIALIZED VIEW tests
 		{
-			name:     "Simple materialized view",
-			sql:      "CREATE MATERIALIZED VIEW test_matview AS SELECT 1",
-			expected: "CREATE MATERIALIZED VIEW test_matview AS SELECT 1 WITH DATA",
+			name: "Simple materialized view",
+			sql:  "CREATE MATERIALIZED VIEW test_matview AS SELECT 1",
 		},
 		{
-			name:     "CREATE MATERIALIZED VIEW IF NOT EXISTS",
-			sql:      "CREATE MATERIALIZED VIEW IF NOT EXISTS test_matview AS SELECT 1",
-			expected: "CREATE MATERIALIZED VIEW IF NOT EXISTS test_matview AS SELECT 1 WITH DATA",
+			name: "CREATE MATERIALIZED VIEW IF NOT EXISTS",
+			sql:  "CREATE MATERIALIZED VIEW IF NOT EXISTS test_matview AS SELECT 1",
 		},
 
 		// CREATE SCHEMA tests

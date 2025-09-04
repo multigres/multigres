@@ -2238,12 +2238,18 @@ func (ctas *CreateTableAsStmt) StatementType() string {
 func (ctas *CreateTableAsStmt) SqlString() string {
 	var parts []string
 
-	// CREATE [MATERIALIZED]
+	// CREATE [TEMP] [MATERIALIZED]
 	parts = append(parts, "CREATE")
+	
+	// Handle TEMP keyword for regular tables
+	if ctas.Into != nil && ctas.Into.Rel != nil && ctas.Into.Rel.RelPersistence == RELPERSISTENCE_TEMP {
+		parts = append(parts, "TEMP")
+	}
+	
 	switch ctas.ObjType {
 	case OBJECT_MATVIEW:
 		// Check if UNLOGGED
-		if ctas.Into != nil && ctas.Into.Rel != nil && ctas.Into.Rel.RelPersistence == 'u' {
+		if ctas.Into != nil && ctas.Into.Rel != nil && ctas.Into.Rel.RelPersistence == RELPERSISTENCE_UNLOGGED {
 			parts = append(parts, "UNLOGGED")
 		}
 		parts = append(parts, "MATERIALIZED VIEW")
@@ -2270,13 +2276,13 @@ func (ctas *CreateTableAsStmt) SqlString() string {
 		parts = append(parts, "AS", ctas.Query.SqlString())
 	}
 
-	// WITH [NO] DATA (for materialized views only)
-	if ctas.ObjType == OBJECT_MATVIEW && ctas.Into != nil {
+	// WITH [NO] DATA 
+	if ctas.Into != nil {
 		if ctas.Into.SkipData {
 			parts = append(parts, "WITH NO DATA")
-		} else {
-			parts = append(parts, "WITH DATA")
 		}
+		// Note: Only add "WITH DATA" explicitly if it was explicitly specified
+		// PostgreSQL's default is WITH DATA, so we omit it to match original SQL
 	}
 
 	return strings.Join(parts, " ")
@@ -2287,6 +2293,10 @@ func (ctas *CreateTableAsStmt) String() string {
 	var parts []string
 
 	parts = append(parts, "CREATE")
+	if ctas.Into != nil && ctas.Into.Rel != nil && ctas.Into.Rel.RelPersistence == RELPERSISTENCE_TEMP {
+		parts = append(parts, "TEMP")
+	}
+
 	switch ctas.ObjType {
 	case OBJECT_MATVIEW:
 		parts = append(parts, "MATERIALIZED VIEW")
@@ -2305,6 +2315,16 @@ func (ctas *CreateTableAsStmt) String() string {
 	parts = append(parts, "AS")
 	if ctas.Query != nil {
 		parts = append(parts, ctas.Query.String())
+	}
+
+	// Add WITH DATA/NO DATA clause if applicable
+	if ctas.Into != nil {
+		if ctas.Into.SkipData {
+			parts = append(parts, "WITH NO DATA")
+		} else {
+			// Only add "WITH DATA" if it's explicit (to match PostgreSQL behavior)
+			// For now, we'll omit it since PostgreSQL's default is WITH DATA
+		}
 	}
 
 	return strings.Join(parts, " ")
@@ -2395,5 +2415,80 @@ func NewRefreshMatViewStmt(concurrent, skipData bool, relation *RangeVar) *Refre
 		Concurrent: concurrent,
 		SkipData:   skipData,
 		Relation:   relation,
+	}
+}
+
+// CreateAssertionStmt represents CREATE ASSERTION statement
+// Note: This is not yet implemented in PostgreSQL but the grammar rule exists
+// Ported from postgres/src/backend/parser/gram.y:9847-9855
+type CreateAssertionStmt struct {
+	BaseNode
+	Name               *NodeList // Assertion name (qualified name)
+	CheckClause        Node      // Check constraint expression
+	ConstraintAttrSpec *NodeList // Constraint attributes (e.g., DEFERRABLE)
+}
+
+// String returns string representation of CreateAssertionStmt
+func (n *CreateAssertionStmt) String() string {
+	var parts []string
+	parts = append(parts, "CREATE ASSERTION")
+
+	if n.Name != nil && n.Name.Len() > 0 {
+		names := make([]string, 0, n.Name.Len())
+		for i := 0; i < n.Name.Len(); i++ {
+			if item := n.Name.Items[i]; item != nil {
+				if str, ok := item.(*String); ok {
+					names = append(names, str.SVal)
+				} else {
+					names = append(names, fmt.Sprintf("%v", item))
+				}
+			}
+		}
+		parts = append(parts, strings.Join(names, "."))
+	}
+
+	if n.CheckClause != nil {
+		parts = append(parts, fmt.Sprintf("CHECK (%v)", n.CheckClause))
+	}
+
+	if n.ConstraintAttrSpec != nil && n.ConstraintAttrSpec.Len() > 0 {
+		// Add constraint attributes if any
+		for i := 0; i < n.ConstraintAttrSpec.Len(); i++ {
+			if attr := n.ConstraintAttrSpec.Items[i]; attr != nil {
+				parts = append(parts, fmt.Sprintf("%v", attr))
+			}
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// SqlString returns SQL representation of CreateAssertionStmt
+func (n *CreateAssertionStmt) SqlString() string {
+	return n.String()
+}
+
+// StatementType returns the statement type
+func (n *CreateAssertionStmt) StatementType() string {
+	return "CREATE ASSERTION"
+}
+
+// Location returns the statement's source location
+func (n *CreateAssertionStmt) Location() int {
+	return n.BaseNode.Loc
+}
+
+// NodeTag returns the node's type tag
+func (n *CreateAssertionStmt) NodeTag() NodeTag {
+	return T_CreateAssertionStmt
+}
+
+// NewCreateAssertionStmt creates a new CreateAssertionStmt node
+func NewCreateAssertionStmt(name *NodeList, check Node, attrs *NodeList) *CreateAssertionStmt {
+	return &CreateAssertionStmt{
+		BaseNode:           BaseNode{Tag: T_CreateAssertionStmt},
+		Name:               name,
+		CheckClause:        check,
+		ConstraintAttrSpec: attrs,
 	}
 }

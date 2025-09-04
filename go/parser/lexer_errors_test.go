@@ -707,3 +707,30 @@ func TestRealWorldErrorScenarios(t *testing.T) {
 		})
 	}
 }
+
+func TestErrors(t *testing.T) {
+	testcases := []struct {
+		name        string
+		sql         string
+		errorWanted string
+	}{
+		// CREATE ASSERTION statements
+		{
+			name:        "CREATE ASSERTION basic",
+			sql:         "CREATE ASSERTION my_assertion CHECK (balance >= 0)",
+			errorWanted: "CREATE ASSERTION is not yet implemented",
+		},
+		{
+			name:        "CREATE ASSERTION complex",
+			sql:         "CREATE ASSERTION emp_check CHECK ((salary > 0 AND department IS NOT NULL))",
+			errorWanted: "CREATE ASSERTION is not yet implemented",
+		},
+	}
+
+	for _, tt := range testcases {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseSQL(tt.sql)
+			require.ErrorContains(t, err, tt.errorWanted)
+		})
+	}
+}

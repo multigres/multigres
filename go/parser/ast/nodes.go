@@ -41,6 +41,7 @@ const (
 	T_CreateSeqStmt
 	T_AlterSeqStmt
 	T_CreateTableAsStmt
+	T_CreateAssertionStmt
 	T_RefreshMatViewStmt
 	T_CreateExtensionStmt
 	T_AlterExtensionStmt
@@ -366,6 +367,8 @@ func (nt NodeTag) String() string {
 		return "T_AlterSeqStmt"
 	case T_CreateTableAsStmt:
 		return "T_CreateTableAsStmt"
+	case T_CreateAssertionStmt:
+		return "T_CreateAssertionStmt"
 	case T_RefreshMatViewStmt:
 		return "T_RefreshMatViewStmt"
 	case T_CreateExtensionStmt:

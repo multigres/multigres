@@ -1113,7 +1113,7 @@ func (n *AlterOwnerStmt) SqlString() string {
 					} else {
 						methodStr = nodeList.Items[0].SqlString()
 					}
-					
+
 					var nameStr string
 					for i := 1; i < nodeList.Len(); i++ {
 						if i > 1 {
@@ -1205,7 +1205,12 @@ func (n *RuleStmt) String() string {
 	parts = append(parts, "RULE", n.Rulename, "AS ON", n.Event.String(), "TO", tableName)
 
 	if n.WhereClause != nil {
-		parts = append(parts, "WHERE", n.WhereClause.String())
+		// Use SqlString() for proper expression deparsing
+		if sqlStringer, ok := n.WhereClause.(interface{ SqlString() string }); ok {
+			parts = append(parts, "WHERE", sqlStringer.SqlString())
+		} else {
+			parts = append(parts, "WHERE", n.WhereClause.String())
+		}
 	}
 
 	parts = append(parts, "DO")
@@ -1217,16 +1222,40 @@ func (n *RuleStmt) String() string {
 	if n.Actions == nil || n.Actions.Len() == 0 {
 		parts = append(parts, "NOTHING")
 	} else if n.Actions.Len() == 1 {
-		parts = append(parts, n.Actions.Items[0].String())
+		if stmt, ok := n.Actions.Items[0].(Stmt); ok {
+			parts = append(parts, stmt.SqlString())
+		} else {
+			parts = append(parts, n.Actions.Items[0].String())
+		}
 	} else {
 		actions := make([]string, n.Actions.Len())
 		for i, action := range n.Actions.Items {
-			actions[i] = action.String()
+			if stmt, ok := action.(Stmt); ok {
+				actions[i] = stmt.SqlString()
+			} else {
+				actions[i] = action.String()
+			}
 		}
 		parts = append(parts, "("+strings.Join(actions, "; ")+")")
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func (n *RuleStmt) StatementType() string {
+	return "CREATE RULE"
+}
+
+func (n *RuleStmt) Location() int {
+	return n.BaseNode.Loc
+}
+
+func (n *RuleStmt) NodeTag() NodeTag {
+	return T_RuleStmt
+}
+
+func (n *RuleStmt) SqlString() string {
+	return n.String()
 }
 
 // NewRuleStmt creates a new RuleStmt node

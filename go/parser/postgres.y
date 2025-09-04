@@ -77,6 +77,9 @@ type ImportQual struct {
 	onconflict *ast.OnConflictClause
 	windef     *ast.WindowDef
 	createStmt *ast.CreateStmt
+	createAsStmt *ast.CreateTableAsStmt
+	createAssertionStmt *ast.CreateAssertionStmt
+	ruleStmt   *ast.RuleStmt
 	indexStmt  *ast.IndexStmt
 	alterStmt  *ast.AlterTableStmt
 	dropStmt   *ast.DropStmt
@@ -164,8 +167,8 @@ type ImportQual struct {
 %token <keyword> TIMESTAMP INTERVAL INT_P DECIMAL_P DEC BOOLEAN_P
 %token <keyword> VARIADIC
 /* Unreserved keywords - additional tokens */
-%token <keyword> ABORT_P ABSENT ABSOLUTE_P ACCESS ACTION ADD_P ADMIN AFTER AGGREGATE ALSO ALWAYS
-%token <keyword> ANALYSE ASENSITIVE ASSERTION ASSIGNMENT ATOMIC ATTACH ATTRIBUTE AUTHORIZATION
+%token <keyword> ABORT_P ABSENT ABSOLUTE_P ACCESS ACTION ADD_P ADMIN AFTER AGGREGATE ALSO ALWAYS ASSERTION
+%token <keyword> ANALYSE ASENSITIVE ASSIGNMENT ATOMIC ATTACH ATTRIBUTE AUTHORIZATION
 %token <keyword> BACKWARD BEFORE BEGIN_P CACHE CALL CALLED CASCADED CATALOG_P CHAIN CHARACTERISTICS
 %token <keyword> CHECKPOINT CLASS CLOSE CLUSTER COALESCE COLLATION COMMENT COMMENTS COMMIT COMMITTED
 %token <keyword> COMPRESSION CONFIGURATION CONNECTION CONSTRAINTS CONTENT_P CONTINUE_P CONVERSION_P
@@ -331,7 +334,7 @@ type ImportQual struct {
 
 %type <stmt>         SelectStmt PreparableStmt select_no_parens select_with_parens select_clause simple_select
 %type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt CopyStmt
-%type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt
+%type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt CreateAsStmt CreateAssertionStmt RuleStmt
 %type <stmt>         ClusterStmt ReindexStmt CheckPointStmt DiscardStmt
 %type <stmt>         DeclareCursorStmt FetchStmt ClosePortalStmt PrepareStmt ExecuteStmt DeallocateStmt
 %type <stmt>         ListenStmt UnlistenStmt NotifyStmt LoadStmt LockStmt TruncateStmt
@@ -474,11 +477,11 @@ type ImportQual struct {
 %type <defelt>       def_elem
 %type <dropBehav>	 opt_drop_behavior
 %type <rangevar>	 qualified_name insert_target relation_expr extended_relation_expr relation_expr_opt_alias
-%type <bval>         opt_with_data
+%type <bval>         opt_with_data opt_instead
 %type <rune>         OptNoLog
 %type <into>         create_mv_target
-%type <list>         OptSchemaEltList
-%type <stmt>         schema_stmt
+%type <list>         OptSchemaEltList RuleActionList RuleActionMulti
+%type <stmt>         schema_stmt RuleActionStmt RuleActionStmtOrEmpty
 %type <objwithargs>  function_with_argtypes aggregate_with_argtypes operator_with_argtypes
 %type <list>         alterfunc_opt_list function_with_argtypes_list
 %type <list>         alter_type_cmds
@@ -670,6 +673,9 @@ stmt:
 		|	ViewStmt								{ $$ = $1 }
 		|	CreateMatViewStmt						{ $$ = $1 }
 		|	RefreshMatViewStmt						{ $$ = $1 }
+		|	CreateAsStmt							{ $$ = $1 }
+		|	CreateAssertionStmt						{ $$ = $1 }
+		|	RuleStmt								{ $$ = $1 }
 		|	CreateSchemaStmt						{ $$ = $1 }
 		|	CreatedbStmt							{ $$ = $1 }
 		|	DropdbStmt								{ $$ = $1 }
@@ -11479,6 +11485,123 @@ RefreshMatViewStmt:
 					n := ast.NewRefreshMatViewStmt($4, !$6, $5)
 					$$ = n
 				}
+		;
+
+/*****************************************************************************
+ *
+ *		CREATE ASSERTION statement 
+ *		Note: Not yet implemented in PostgreSQL, returns error
+ *
+ *****************************************************************************/
+
+CreateAssertionStmt:
+		CREATE ASSERTION any_name CHECK '(' a_expr ')' ConstraintAttributeSpec
+			{
+				yylex.Error("CREATE ASSERTION is not yet implemented")
+				return 1
+				// PostgreSQL doesn't actually implement CREATE ASSERTION yet.
+				// $$ = ast.NewCreateAssertionStmt($3, $6, nil)
+			}
+		;
+
+/*****************************************************************************
+ *
+ *		CREATE TABLE AS and CREATE TABLE ... AS SELECT
+ *
+ *****************************************************************************/
+
+CreateAsStmt:
+		CREATE OptTemp TABLE create_as_target AS SelectStmt opt_with_data
+			{
+				ctas := ast.NewCreateTableAsStmt($6, $4, ast.OBJECT_TABLE, false, false)
+				/* cram additional flags into the IntoClause */
+				if $4.Rel != nil {
+					$4.Rel.RelPersistence = $2
+				}
+				$4.SkipData = !$7
+				$$ = ctas
+			}
+		| CREATE OptTemp TABLE IF_P NOT EXISTS create_as_target AS SelectStmt opt_with_data
+			{
+				ctas := ast.NewCreateTableAsStmt($9, $7, ast.OBJECT_TABLE, false, true)
+				/* cram additional flags into the IntoClause */
+				if $7.Rel != nil {
+					$7.Rel.RelPersistence = $2
+				}
+				$7.SkipData = !$10
+				$$ = ctas
+			}
+		;
+
+/*****************************************************************************
+ *
+ *		RULE statements
+ *
+ *****************************************************************************/
+
+RuleStmt:	CREATE opt_or_replace RULE name AS
+			ON event TO qualified_name where_clause
+			DO opt_instead RuleActionList
+			{
+				n := &ast.RuleStmt{
+					BaseNode:    ast.BaseNode{Tag: ast.T_RuleStmt},
+					Replace:     $2,
+					Relation:    $9,
+					Rulename:    $4,
+					WhereClause: $10,
+					Event:       ast.CmdType($7),
+					Instead:     $12,
+					Actions:     $13,
+				}
+				$$ = n
+			}
+		;
+
+RuleActionList:
+			NOTHING									{ $$ = nil }
+			| RuleActionStmt						{ $$ = ast.NewNodeList($1) }
+			| '(' RuleActionMulti ')'				{ $$ = $2 }
+		;
+
+RuleActionMulti:
+			RuleActionMulti ';' RuleActionStmtOrEmpty
+				{ 
+					if $3 != nil {
+						if $1 != nil {
+							$1.Items = append($1.Items, $3)
+							$$ = $1
+						} else {
+							$$ = ast.NewNodeList($3)
+						}
+					}
+				}
+			| RuleActionStmtOrEmpty
+				{ 
+					if $1 != nil {
+						$$ = ast.NewNodeList($1)
+					} else {
+						$$ = nil
+					}
+				}
+		;
+
+RuleActionStmt:
+			SelectStmt
+			| InsertStmt
+			| UpdateStmt
+			| DeleteStmt
+			| NotifyStmt
+		;
+
+RuleActionStmtOrEmpty:
+			RuleActionStmt							{ $$ = $1 }
+			|	/*EMPTY*/							{ $$ = nil }
+		;
+
+opt_instead:
+			INSTEAD									{ $$ = true }
+			| ALSO									{ $$ = false }
+			| /*EMPTY*/								{ $$ = false }
 		;
 
 OptNoLog:	UNLOGGED					{ $$ = ast.RELPERSISTENCE_UNLOGGED }

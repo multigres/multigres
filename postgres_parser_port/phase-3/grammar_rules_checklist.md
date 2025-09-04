@@ -791,19 +791,19 @@
 - ✅ `import_qualification_type` - Qualification type
 
 ### CREATE ASSERTION
-- ⬜ `CreateAssertionStmt` - CREATE ASSERTION
+- ✅ `CreateAssertionStmt` - CREATE ASSERTION
 
 ### CREATE AS
-- ⬜ `CreateAsStmt` - CREATE TABLE AS
-- ⬜ `create_as_target` - CREATE AS target
+- ✅ `CreateAsStmt` - CREATE TABLE AS
+- ✅ `create_as_target` - CREATE AS target
 
 ### RULES
-- ⬜ `RuleStmt` - CREATE RULE
-- ⬜ `RuleActionList` - Rule actions
-- ⬜ `RuleActionMulti` - Multiple rule actions
-- ⬜ `RuleActionStmt` - Rule action statement
-- ⬜ `RuleActionStmtOrEmpty` - Optional rule action
-- ⬜ `event` - Rule event
+- ✅ `RuleStmt` - CREATE RULE
+- ✅ `RuleActionList` - Rule actions
+- ✅ `RuleActionMulti` - Multiple rule actions
+- ✅ `RuleActionStmt` - Rule action statement
+- ✅ `RuleActionStmtOrEmpty` - Optional rule action
+- ✅ `event` - Rule event
 
 ### Row Security
 - ✅ `row_security_cmd` - Row security command
@@ -828,10 +828,6 @@
 ### Statistics
 - ✅ `stats_params` - Statistics parameters
 - ✅ `stats_param` - Single statistics param
-
-### Text Search
-- ⬜ `text_search_config_name` - Config name
-- ⬜ `text_search_dict_name` - Dictionary name
 
 ### Transform
 - ✅ `transform_element_list` - Transform elements
@@ -959,7 +955,7 @@
 - ✅ `opt_array_bounds` - Array bounds
 - ✅ `opt_definition` - Optional definition
 - ✅ `opt_equal` - Optional equals
-- ⬜ `opt_instead` - INSTEAD option
+- ✅ `opt_instead` - INSTEAD option
 - ✅ `opt_unique_null_treatment` - NULLS treatment
 - ✅ `override_kind` - Override type
 - ✅ `opt_no` - Optional NO
