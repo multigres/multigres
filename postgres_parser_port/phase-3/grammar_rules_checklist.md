@@ -761,22 +761,22 @@
 ### DROP Miscellaneous
 - ✅ `DropStmt` - Generic DROP
 - ✅ `drop_type_name` - Drop type name
-- ⬜ `drop_option_list` - Drop options
-- ⬜ `drop_option` - Single drop option
-- ⬜ `DropCastStmt` - DROP CAST
-- ⬜ `DropOpClassStmt` - DROP OPERATOR CLASS
-- ⬜ `DropOpFamilyStmt` - DROP OPERATOR FAMILY
-- ⬜ `DropOwnedStmt` - DROP OWNED
-- ⬜ `DropdbStmt` - DROP DATABASE
-- ⬜ `DropTableSpaceStmt` - DROP TABLESPACE
-- ⬜ `DropTransformStmt` - DROP TRANSFORM
-- ⬜ `DropSubscriptionStmt` - DROP SUBSCRIPTION
+- ✅ `drop_option_list` - Drop options
+- ✅ `drop_option` - Single drop option
+- ✅ `DropCastStmt` - DROP CAST
+- ✅ `DropOpClassStmt` - DROP OPERATOR CLASS
+- ✅ `DropOpFamilyStmt` - DROP OPERATOR FAMILY
+- ✅ `DropOwnedStmt` - DROP OWNED
+- ✅ `DropdbStmt` - DROP DATABASE
+- ✅ `DropTableSpaceStmt` - DROP TABLESPACE
+- ✅ `DropTransformStmt` - DROP TRANSFORM
+- ✅ `DropSubscriptionStmt` - DROP SUBSCRIPTION
 
 ### REASSIGN OWNED
-- ⬜ `ReassignOwnedStmt` - REASSIGN OWNED
+- ✅ `ReassignOwnedStmt` - REASSIGN OWNED
 
 ### CREATE DATABASE
-- ⬜ `CreatedbStmt` - CREATE DATABASE
+- ✅ `CreatedbStmt` - CREATE DATABASE
 - ✅ `createdb_opt_list` - Database options
 - ✅ `createdb_opt_items` - Database option items
 - ✅ `createdb_opt_item` - Single database option
@@ -852,6 +852,9 @@
 - ⬜ `plassign_target` - Assignment target
 - ⬜ `plassign_equals` - Assignment operator
 - ⬜ `PLpgSQL_Expr` - PL/pgSQL expression
+- ⬜ `RemoveFuncStmt`
+- ⬜ `RemoveAggrStmt`
+- ⬜ `RemoveOperStmt`
 
 ### RETURN
 - ✅ `ReturnStmt` - RETURN statement
@@ -912,7 +915,6 @@
 - ✅ `ConstBit` - Constant bit
 - ✅ `ConstCharacter` - Constant character
 - ✅ `opt_varying` - VARYING option
-- ⬜ `opt_charset` - Character set
 - ✅ `opt_collate_clause` - COLLATE clause
 - ✅ `opt_interval` - INTERVAL option
 - ✅ `interval_second` - INTERVAL SECOND
@@ -942,14 +944,13 @@
 ### Miscellaneous
 - ✅ `opt_name_list` - Optional name list
 - ✅ `attrs` - Attribute list
-- ⬜ `columnList` - Column list
-- ⬜ `columnElem` - Column element
+- ✅ `columnList` - Column list
+- ✅ `columnElem` - Column element
 - ✅ `opt_col_def_list` - Optional column defs
 - ✅ `opt_column_list` - Optional columns
 - ✅ `opt_column` - Optional COLUMN keyword
 - ✅ `opt_set_data` - SET DATA option
 - ✅ `opt_collate` - COLLATE option
-- ⬜ `opt_class` - Operator class
 - ✅ `opt_asc_desc` - ASC/DESC option
 - ✅ `opt_nulls_order` - NULLS ordering
 - ✅ `any_with` - ANY WITH option
@@ -983,7 +984,7 @@
 - ✅ `auth_ident` - Authentication identifier
 - ✅ `sub_type` - Subscription type
 - ✅ `opt_program` - PROGRAM option
-- ⬜ `opt_provider` - Provider option
+- ✅ `opt_provider` - Provider option
 - ✅ `enable_trigger` - Enable trigger option
 - ✅ `cast_context` - Cast context
 - ✅ `am_type` - Access method type
@@ -993,7 +994,6 @@
 - ✅ `opt_using` - USING clause
 - ✅ `path_opt` - Path option
 - ✅ `I_or_F_const` - Integer or float
-- ⬜ `AlteredTableInfo` - Altered table info
 - ✅ `opt_slice_bound` - Slice bound
 - ✅ `arg_class` - Argument class
 - ✅ `OptConsTableSpace` - Constraint tablespace

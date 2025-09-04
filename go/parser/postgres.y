@@ -270,7 +270,7 @@ type PrivTarget struct {
 /* LIMIT/OFFSET types */
 %type <selectLimit>  opt_select_limit select_limit limit_clause
 %type <node>         offset_clause select_limit_value select_offset_value
-%type <node>         select_fetch_first_value I_or_F_const
+%type <node>         select_fetch_first_value I_or_F_const columnElem
 %type <ival>         row_or_rows first_or_next
 
 /* Expression types */
@@ -503,7 +503,8 @@ type PrivTarget struct {
 %type <privtarget>   privilege_target
 %type <str>          RoleId
 %type <ival>         add_drop
-%type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt
+%type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt CreatedbStmt DropdbStmt DropTableSpaceStmt DropOwnedStmt ReassignOwnedStmt
+%type <stmt>		 DropCastStmt DropOpClassStmt DropOpFamilyStmt DropTransformStmt DropSubscriptionStmt
 %type <stmt>         CreateDomainStmt AlterDomainStmt DefineStmt AlterTypeStmt AlterCompositeTypeStmt AlterEnumStmt CreateSeqStmt AlterSeqStmt CreateExtensionStmt AlterExtensionStmt AlterExtensionContentsStmt
 %type <stmt>         CreateEventTrigStmt AlterEventTrigStmt
 %type <stmt>         CreateTableSpaceStmt AlterTblSpcStmt CreatePolicyStmt AlterPolicyStmt
@@ -516,8 +517,9 @@ type PrivTarget struct {
 %type <list>         definition def_list opt_enum_val_list enum_val_list
 %type <list>         OptSeqOptList OptParenthesizedSeqOptList SeqOptList create_extension_opt_list alter_extension_opt_list
 %type <defelt>       SeqOptElem create_extension_opt_item alter_extension_opt_item
-%type <list>         opt_fdw_options fdw_options
-%type <defelt>       fdw_option
+%type <list>         opt_fdw_options fdw_options createdb_opt_list createdb_opt_items drop_option_list
+%type <defelt>       fdw_option createdb_opt_item drop_option
+%type <str>          createdb_opt_name
 %type <str>          opt_type foreign_server_version opt_foreign_server_version
 %type <rolespec>     auth_ident
 %type <list>         handler_name
@@ -658,6 +660,16 @@ stmt:
 		|	CreateMatViewStmt						{ $$ = $1 }
 		|	RefreshMatViewStmt						{ $$ = $1 }
 		|	CreateSchemaStmt						{ $$ = $1 }
+		|	CreatedbStmt							{ $$ = $1 }
+		|	DropdbStmt								{ $$ = $1 }
+		|	DropTableSpaceStmt						{ $$ = $1 }
+		|	DropOwnedStmt							{ $$ = $1 }
+		| 	DropCastStmt							{ $$ = $1 }
+		| 	DropOpClassStmt							{ $$ = $1 }
+		| 	DropOpFamilyStmt						{ $$ = $1 }
+		| 	DropTransformStmt						{ $$ = $1 }
+		| 	DropSubscriptionStmt					{ $$ = $1 }
+		|	ReassignOwnedStmt						{ $$ = $1 }
 		|	CreateDomainStmt						{ $$ = $1 }
 		|	AlterDomainStmt							{ $$ = $1 }
 		|	DefineStmt								{ $$ = $1 }
@@ -839,14 +851,20 @@ name_list:
 		;
 
 columnList:
-			ColId
+			columnElem
 			{
-				$$ = ast.NewNodeList(ast.NewString($1))
+				$$ = ast.NewNodeList($1)
 			}
-		|	columnList ',' ColId
+		|	columnList ',' columnElem
 			{
-				$1.Append(ast.NewString($3))
+				$1.Append($3)
 				$$ = $1
+			}
+		;
+
+columnElem: ColId
+			{
+				$$ = ast.NewString($1);
 			}
 		;
 
@@ -8497,6 +8515,135 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 					n.Concurrent = true
 					$$ = n
 				}
+
+DropCastStmt:	DROP CAST opt_if_exists '(' Typename AS Typename ')' opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+
+					n.RemoveType = ast.OBJECT_CAST
+					n.Objects = ast.NewNodeList(ast.NewNodeList($5, $7))
+					n.Behavior = $9
+					n.MissingOk = ($3 == 1)
+					n.Concurrent = false
+					$$ = n
+				}
+
+DropOpClassStmt: DROP OPERATOR CLASS any_name USING name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+
+					// Create a new list with the USING name prepended to any_name
+					objects := ast.NewNodeList(ast.NewString($6))
+					for _, item := range $4.Items {
+						objects.Append(item)
+					}
+					n.Objects = ast.NewNodeList(objects)
+					n.RemoveType = ast.OBJECT_OPCLASS
+					n.Behavior = $7
+					n.MissingOk = false
+					n.Concurrent = false
+					$$ = n
+				}
+			| DROP OPERATOR CLASS IF_P EXISTS any_name USING name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+
+					// Create a new list with the USING name prepended to any_name
+					objects := ast.NewNodeList(ast.NewString($8))
+					for _, item := range $6.Items {
+						objects.Append(item)
+					}
+					n.Objects = ast.NewNodeList(objects)
+					n.RemoveType = ast.OBJECT_OPCLASS
+					n.Behavior = $9
+					n.MissingOk = true
+					n.Concurrent = false
+					$$ = n
+				}
+
+DropOpFamilyStmt: DROP OPERATOR FAMILY any_name USING name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+
+					// Create a new list with the USING name prepended to any_name
+					objects := ast.NewNodeList(ast.NewString($6))
+					for _, item := range $4.Items {
+						objects.Append(item)
+					}
+					n.Objects = ast.NewNodeList(objects)
+					n.RemoveType = ast.OBJECT_OPFAMILY
+					n.Behavior = $7
+					n.MissingOk = false
+					n.Concurrent = false
+					$$ = n
+				}
+			| DROP OPERATOR FAMILY IF_P EXISTS any_name USING name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+
+					// Create a new list with the USING name prepended to any_name
+					objects := ast.NewNodeList(ast.NewString($8))
+					for _, item := range $6.Items {
+						objects.Append(item)
+					}
+					n.Objects = ast.NewNodeList(objects)
+					n.RemoveType = ast.OBJECT_OPFAMILY
+					n.Behavior = $9
+					n.MissingOk = true
+					n.Concurrent = false
+					$$ = n
+				}
+
+DropTransformStmt: DROP TRANSFORM opt_if_exists FOR Typename LANGUAGE name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+
+					n.RemoveType = ast.OBJECT_TRANSFORM
+					n.Objects = ast.NewNodeList(ast.NewNodeList($5, ast.NewString($7)))
+					n.Behavior = $8
+					n.MissingOk = ($3 == 1)
+					n.Concurrent = false
+					$$ = n
+				}
+
+DropSubscriptionStmt: DROP SUBSCRIPTION name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+
+					n.RemoveType = ast.OBJECT_SUBSCRIPTION
+					n.Objects = ast.NewNodeList(ast.NewNodeList(ast.NewString($3)))
+					n.Behavior = $4
+					n.MissingOk = false
+					n.Concurrent = false
+					$$ = n
+				}
+			| DROP SUBSCRIPTION IF_P EXISTS name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+
+					n.RemoveType = ast.OBJECT_SUBSCRIPTION
+					n.Objects = ast.NewNodeList(ast.NewNodeList(ast.NewString($5)))
+					n.Behavior = $6
+					n.MissingOk = true
+					n.Concurrent = false
+					$$ = n
+				}
 		;
 
 VariableSetStmt:
@@ -10412,6 +10559,97 @@ CreateSchemaStmt:
 					n.SchemaElts = $7
 					$$ = n
 				}
+		;
+
+/*****************************************************************************
+ *
+ *		CREATE DATABASE statements - Phase 3J
+ *
+ *****************************************************************************/
+
+CreatedbStmt:
+		CREATE DATABASE name opt_with createdb_opt_list
+			{
+				n := ast.NewCreatedbStmt($3, $5)
+				$$ = n
+			}
+		;
+
+/*****************************************************************************
+ *
+ *		DROP DATABASE statements - Phase 3J
+ *
+ *****************************************************************************/
+
+DropdbStmt: DROP DATABASE name
+			{
+				n := ast.NewDropdbStmt($3, false, nil)
+				$$ = n
+			}
+		| DROP DATABASE IF_P EXISTS name
+			{
+				n := ast.NewDropdbStmt($5, true, nil)
+				$$ = n
+			}
+		| DROP DATABASE name opt_with '(' drop_option_list ')'
+			{
+				n := ast.NewDropdbStmt($3, false, $6)
+				$$ = n
+			}
+		| DROP DATABASE IF_P EXISTS name opt_with '(' drop_option_list ')'
+			{
+				n := ast.NewDropdbStmt($5, true, $8)
+				$$ = n
+			}
+		;
+
+drop_option_list:
+		drop_option							{ $$ = ast.NewNodeList($1) }
+		| drop_option_list ',' drop_option	{ $$ = $1; $$.Append($3) }
+		;
+
+drop_option:
+		FORCE									{ $$ = ast.NewDefElem("force", nil) }
+		;
+
+/*****************************************************************************
+ *
+ *		DROP TABLESPACE statements - Phase 3J
+ *
+ *****************************************************************************/
+
+DropTableSpaceStmt: DROP TABLESPACE name
+			{
+				n := ast.NewDropTableSpaceStmt($3, false)
+				$$ = n
+			}
+		| DROP TABLESPACE IF_P EXISTS name
+			{
+				n := ast.NewDropTableSpaceStmt($5, true)
+				$$ = n
+			}
+		;
+
+/*****************************************************************************
+ *
+ *		DROP OWNED / REASSIGN OWNED statements - Phase 3J
+ *
+ *****************************************************************************/
+
+DropOwnedStmt:
+		DROP OWNED BY role_list opt_drop_behavior
+			{
+				n := ast.NewDropOwnedStmt($4, $5)
+				$$ = n
+			}
+		;
+
+ReassignOwnedStmt:
+		REASSIGN OWNED BY role_list TO RoleSpec
+			{
+				n := ast.NewReassignOwnedStmt($4, $6)
+				$$ = n
+			}
 		;
 
 /*****************************************************************************

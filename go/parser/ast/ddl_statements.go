@@ -3056,3 +3056,296 @@ func (a *AlterEventTrigStmt) SqlString() string {
 
 	return strings.Join(parts, " ")
 }
+
+// ==============================================================================
+// DATABASE STATEMENTS
+// ==============================================================================
+
+// CreatedbStmt represents a CREATE DATABASE statement.
+// Ported from postgres/src/include/nodes/parsenodes.h:3787
+type CreatedbStmt struct {
+	BaseNode
+	Dbname  string    // name of database to create - postgres/src/include/nodes/parsenodes.h:3789
+	Options *NodeList // list of DefElem nodes - postgres/src/include/nodes/parsenodes.h:3790
+}
+
+// NewCreatedbStmt creates a new CreatedbStmt node.
+func NewCreatedbStmt(dbname string, options *NodeList) *CreatedbStmt {
+	return &CreatedbStmt{
+		BaseNode: BaseNode{Tag: T_CreatedbStmt},
+		Dbname:   dbname,
+		Options:  options,
+	}
+}
+
+func (c *CreatedbStmt) StatementType() string {
+	return "CREATE DATABASE"
+}
+
+func (c *CreatedbStmt) String() string {
+	return fmt.Sprintf("CreatedbStmt(%s)@%d", c.Dbname, c.Location())
+}
+
+// SqlString returns the SQL representation of CreatedbStmt
+func (c *CreatedbStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "CREATE DATABASE", c.Dbname)
+	
+	// Add options if present
+	if c.Options != nil && c.Options.Len() > 0 {
+		var opts []string
+		for _, item := range c.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				opts = append(opts, c.formatDatabaseOption(opt))
+			}
+		}
+		if len(opts) > 0 {
+			parts = append(parts, "WITH", strings.Join(opts, " "))
+		}
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// formatDatabaseOption formats database options with proper PostgreSQL keywords
+func (c *CreatedbStmt) formatDatabaseOption(opt *DefElem) string {
+	// Map option names to their proper PostgreSQL keywords
+	optName := opt.Defname
+	switch optName {
+	case "template":
+		optName = "TEMPLATE"
+	case "encoding":
+		optName = "ENCODING"
+	case "connection_limit":
+		optName = "CONNECTION LIMIT"
+	case "owner":
+		optName = "OWNER"
+	case "tablespace":
+		optName = "TABLESPACE"
+	case "location":
+		optName = "LOCATION"
+	default:
+		optName = strings.ToUpper(optName)
+	}
+	
+	if opt.Arg != nil {
+		argStr := opt.Arg.SqlString()
+		// For identifiers that should not be quoted
+		if strNode, ok := opt.Arg.(*String); ok {
+			switch opt.Defname {
+			case "template", "owner", "tablespace":
+				// These should be unquoted identifiers
+				argStr = strNode.SVal
+			case "encoding", "location":
+				// These should remain as quoted strings
+				argStr = strNode.SqlString()
+			}
+		}
+		return fmt.Sprintf("%s = %s", optName, argStr)
+	}
+	return optName
+}
+
+// DropdbStmt represents a DROP DATABASE statement.
+// Ported from postgres/src/include/nodes/parsenodes.h:3800
+type DropdbStmt struct {
+	BaseNode
+	Dbname    string    // database to drop - postgres/src/include/nodes/parsenodes.h:3803
+	MissingOk bool      // skip error if db is missing? - postgres/src/include/nodes/parsenodes.h:3804
+	Options   *NodeList // currently only FORCE is supported - postgres/src/include/nodes/parsenodes.h:3805
+}
+
+// NewDropdbStmt creates a new DropdbStmt node.
+func NewDropdbStmt(dbname string, missingOk bool, options *NodeList) *DropdbStmt {
+	return &DropdbStmt{
+		BaseNode:  BaseNode{Tag: T_DropdbStmt},
+		Dbname:    dbname,
+		MissingOk: missingOk,
+		Options:   options,
+	}
+}
+
+func (d *DropdbStmt) StatementType() string {
+	return "DROP DATABASE"
+}
+
+func (d *DropdbStmt) String() string {
+	ifExists := ""
+	if d.MissingOk {
+		ifExists = " IF EXISTS"
+	}
+	return fmt.Sprintf("DropdbStmt(%s%s)@%d", d.Dbname, ifExists, d.Location())
+}
+
+// SqlString returns the SQL representation of DropdbStmt
+func (d *DropdbStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "DROP DATABASE")
+	
+	if d.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+	
+	parts = append(parts, d.Dbname)
+	
+	// Add options if present (e.g., FORCE)
+	if d.Options != nil && d.Options.Len() > 0 {
+		var opts []string
+		for _, item := range d.Options.Items {
+			if opt, ok := item.(*DefElem); ok && opt != nil {
+				if opt.Defname == "force" {
+					opts = append(opts, "FORCE")
+				}
+			}
+		}
+		if len(opts) > 0 {
+			parts = append(parts, "WITH ("+strings.Join(opts, ", ")+")")
+		}
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// DropTableSpaceStmt represents a DROP TABLESPACE statement.
+// Ported from postgres/src/include/nodes/parsenodes.h:2790
+type DropTableSpaceStmt struct {
+	BaseNode
+	Tablespacename string // tablespace to drop - postgres/src/include/nodes/parsenodes.h:2792
+	MissingOk      bool   // skip error if missing? - postgres/src/include/nodes/parsenodes.h:2793
+}
+
+// NewDropTableSpaceStmt creates a new DropTableSpaceStmt node.
+func NewDropTableSpaceStmt(tablespacename string, missingOk bool) *DropTableSpaceStmt {
+	return &DropTableSpaceStmt{
+		BaseNode:       BaseNode{Tag: T_DropTableSpaceStmt},
+		Tablespacename: tablespacename,
+		MissingOk:      missingOk,
+	}
+}
+
+func (d *DropTableSpaceStmt) StatementType() string {
+	return "DROP TABLESPACE"
+}
+
+func (d *DropTableSpaceStmt) String() string {
+	ifExists := ""
+	if d.MissingOk {
+		ifExists = " IF EXISTS"
+	}
+	return fmt.Sprintf("DropTableSpaceStmt(%s%s)@%d", d.Tablespacename, ifExists, d.Location())
+}
+
+// SqlString returns the SQL representation of DropTableSpaceStmt
+func (d *DropTableSpaceStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "DROP TABLESPACE")
+	
+	if d.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+	
+	parts = append(parts, d.Tablespacename)
+	
+	return strings.Join(parts, " ")
+}
+
+// ==============================================================================
+// OWNERSHIP STATEMENTS
+// ==============================================================================
+
+// DropOwnedStmt represents a DROP OWNED statement.
+// Ported from postgres/src/include/nodes/parsenodes.h:4075
+type DropOwnedStmt struct {
+	BaseNode
+	Roles    *NodeList    // list of RoleSpec - postgres/src/include/nodes/parsenodes.h:4078
+	Behavior DropBehavior // CASCADE or RESTRICT - postgres/src/include/nodes/parsenodes.h:4079
+}
+
+// NewDropOwnedStmt creates a new DropOwnedStmt node.
+func NewDropOwnedStmt(roles *NodeList, behavior DropBehavior) *DropOwnedStmt {
+	return &DropOwnedStmt{
+		BaseNode: BaseNode{Tag: T_DropOwnedStmt},
+		Roles:    roles,
+		Behavior: behavior,
+	}
+}
+
+func (d *DropOwnedStmt) StatementType() string {
+	return "DROP OWNED"
+}
+
+func (d *DropOwnedStmt) String() string {
+	return fmt.Sprintf("DropOwnedStmt(%d roles)@%d", d.Roles.Len(), d.Location())
+}
+
+// SqlString returns the SQL representation of DropOwnedStmt
+func (d *DropOwnedStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "DROP OWNED BY")
+	
+	// Add role list
+	if d.Roles != nil {
+		var roleNames []string
+		for _, item := range d.Roles.Items {
+			if role, ok := item.(*RoleSpec); ok {
+				roleNames = append(roleNames, role.SqlString())
+			}
+		}
+		parts = append(parts, strings.Join(roleNames, ", "))
+	}
+	
+	// Add behavior
+	parts = append(parts, d.Behavior.String())
+	
+	return strings.Join(parts, " ")
+}
+
+// ReassignOwnedStmt represents a REASSIGN OWNED statement.
+// Ported from postgres/src/include/nodes/parsenodes.h:4084
+type ReassignOwnedStmt struct {
+	BaseNode
+	Roles   *NodeList // list of RoleSpec - postgres/src/include/nodes/parsenodes.h:4087
+	Newrole *RoleSpec // new owner - postgres/src/include/nodes/parsenodes.h:4088
+}
+
+// NewReassignOwnedStmt creates a new ReassignOwnedStmt node.
+func NewReassignOwnedStmt(roles *NodeList, newrole *RoleSpec) *ReassignOwnedStmt {
+	return &ReassignOwnedStmt{
+		BaseNode: BaseNode{Tag: T_ReassignOwnedStmt},
+		Roles:    roles,
+		Newrole:  newrole,
+	}
+}
+
+func (r *ReassignOwnedStmt) StatementType() string {
+	return "REASSIGN OWNED"
+}
+
+func (r *ReassignOwnedStmt) String() string {
+	return fmt.Sprintf("ReassignOwnedStmt(%d roles)@%d", r.Roles.Len(), r.Location())
+}
+
+// SqlString returns the SQL representation of ReassignOwnedStmt
+func (r *ReassignOwnedStmt) SqlString() string {
+	var parts []string
+	parts = append(parts, "REASSIGN OWNED BY")
+	
+	// Add role list
+	if r.Roles != nil {
+		var roleNames []string
+		for _, item := range r.Roles.Items {
+			if role, ok := item.(*RoleSpec); ok {
+				roleNames = append(roleNames, role.SqlString())
+			}
+		}
+		parts = append(parts, strings.Join(roleNames, ", "))
+	}
+	
+	parts = append(parts, "TO")
+	
+	if r.Newrole != nil {
+		parts = append(parts, r.Newrole.SqlString())
+	}
+	
+	return strings.Join(parts, " ")
+}

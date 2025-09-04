@@ -1496,6 +1496,20 @@ func (d *DropStmt) SqlString() string {
 
 	parts = append(parts, "DROP")
 
+	// Handle special cases first
+	switch d.RemoveType {
+	case OBJECT_CAST:
+		return d.sqlStringForDropCast()
+	case OBJECT_OPCLASS:
+		return d.sqlStringForDropOpClass()
+	case OBJECT_OPFAMILY:
+		return d.sqlStringForDropOpFamily()
+	case OBJECT_TRANSFORM:
+		return d.sqlStringForDropTransform()
+	case OBJECT_SUBSCRIPTION:
+		return d.sqlStringForDropSubscription()
+	}
+
 	// Add object type
 	if d.RemoveType != 0 {
 		parts = append(parts, d.RemoveType.String())
@@ -1542,5 +1556,204 @@ func (d *DropStmt) SqlString() string {
 	// Note: We don't output RESTRICT as it's the default behavior in PostgreSQL
 	// Only CASCADE needs to be explicitly specified
 
+	return strings.Join(parts, " ")
+}
+
+// sqlStringForDropCast handles DROP CAST (source_type AS target_type)
+func (d *DropStmt) sqlStringForDropCast() string {
+	var parts []string
+	parts = append(parts, "DROP CAST")
+	
+	if d.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+	
+	// Objects should contain a single NodeList with [source_type, target_type]
+	if d.Objects != nil && len(d.Objects.Items) > 0 {
+		if typeList, ok := d.Objects.Items[0].(*NodeList); ok && len(typeList.Items) >= 2 {
+			sourceType := typeList.Items[0]
+			targetType := typeList.Items[1]
+			
+			parts = append(parts, "(")
+			if srcTypeName, ok := sourceType.(*TypeName); ok {
+				parts = append(parts, srcTypeName.SqlString())
+			}
+			parts = append(parts, "AS")
+			if tgtTypeName, ok := targetType.(*TypeName); ok {
+				parts = append(parts, tgtTypeName.SqlString())
+			}
+			parts = append(parts, ")")
+		}
+	}
+	
+	if d.Behavior == DropCascade {
+		parts = append(parts, "CASCADE")
+	} else if d.Behavior == DropRestrict {
+		parts = append(parts, "RESTRICT")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// sqlStringForDropOpClass handles DROP OPERATOR CLASS name USING access_method
+func (d *DropStmt) sqlStringForDropOpClass() string {
+	var parts []string
+	parts = append(parts, "DROP OPERATOR CLASS")
+	
+	if d.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+	
+	// Objects should contain a single NodeList with [access_method, ...names]
+	if d.Objects != nil && len(d.Objects.Items) > 0 {
+		if objList, ok := d.Objects.Items[0].(*NodeList); ok {
+			// First item is access method, rest are qualified name parts
+			if len(objList.Items) > 0 {
+				accessMethod := ""
+				var nameParts []string
+				
+				// First item is access method
+				if strVal, ok := objList.Items[0].(*String); ok {
+					accessMethod = strVal.SVal
+				}
+				
+				// Rest are name parts
+				for i := 1; i < len(objList.Items); i++ {
+					if strVal, ok := objList.Items[i].(*String); ok {
+						nameParts = append(nameParts, strVal.SVal)
+					}
+				}
+				
+				// Add qualified name
+				if len(nameParts) > 0 {
+					parts = append(parts, strings.Join(nameParts, "."))
+				}
+				
+				// Add USING access_method
+				if accessMethod != "" {
+					parts = append(parts, "USING", accessMethod)
+				}
+			}
+		}
+	}
+	
+	if d.Behavior == DropCascade {
+		parts = append(parts, "CASCADE")
+	} else if d.Behavior == DropRestrict {
+		parts = append(parts, "RESTRICT")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// sqlStringForDropOpFamily handles DROP OPERATOR FAMILY name USING access_method
+func (d *DropStmt) sqlStringForDropOpFamily() string {
+	var parts []string
+	parts = append(parts, "DROP OPERATOR FAMILY")
+	
+	if d.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+	
+	// Same logic as DROP OPERATOR CLASS
+	if d.Objects != nil && len(d.Objects.Items) > 0 {
+		if objList, ok := d.Objects.Items[0].(*NodeList); ok {
+			if len(objList.Items) > 0 {
+				accessMethod := ""
+				var nameParts []string
+				
+				// First item is access method
+				if strVal, ok := objList.Items[0].(*String); ok {
+					accessMethod = strVal.SVal
+				}
+				
+				// Rest are name parts
+				for i := 1; i < len(objList.Items); i++ {
+					if strVal, ok := objList.Items[i].(*String); ok {
+						nameParts = append(nameParts, strVal.SVal)
+					}
+				}
+				
+				// Add qualified name
+				if len(nameParts) > 0 {
+					parts = append(parts, strings.Join(nameParts, "."))
+				}
+				
+				// Add USING access_method
+				if accessMethod != "" {
+					parts = append(parts, "USING", accessMethod)
+				}
+			}
+		}
+	}
+	
+	if d.Behavior == DropCascade {
+		parts = append(parts, "CASCADE")
+	} else if d.Behavior == DropRestrict {
+		parts = append(parts, "RESTRICT")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// sqlStringForDropTransform handles DROP TRANSFORM FOR type LANGUAGE lang
+func (d *DropStmt) sqlStringForDropTransform() string {
+	var parts []string
+	parts = append(parts, "DROP TRANSFORM")
+	
+	if d.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+	
+	// Objects should contain a single NodeList with [type, language_name]
+	if d.Objects != nil && len(d.Objects.Items) > 0 {
+		if typeList, ok := d.Objects.Items[0].(*NodeList); ok && len(typeList.Items) >= 2 {
+			typeName := typeList.Items[0]
+			langName := typeList.Items[1]
+			
+			parts = append(parts, "FOR")
+			if typNode, ok := typeName.(*TypeName); ok {
+				parts = append(parts, typNode.SqlString())
+			}
+			parts = append(parts, "LANGUAGE")
+			if strVal, ok := langName.(*String); ok {
+				parts = append(parts, strVal.SVal)
+			}
+		}
+	}
+	
+	if d.Behavior == DropCascade {
+		parts = append(parts, "CASCADE")
+	} else if d.Behavior == DropRestrict {
+		parts = append(parts, "RESTRICT")
+	}
+	
+	return strings.Join(parts, " ")
+}
+
+// sqlStringForDropSubscription handles DROP SUBSCRIPTION name
+func (d *DropStmt) sqlStringForDropSubscription() string {
+	var parts []string
+	parts = append(parts, "DROP SUBSCRIPTION")
+	
+	if d.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+	
+	// Objects should contain a single NodeList with subscription name
+	if d.Objects != nil && len(d.Objects.Items) > 0 {
+		if nameList, ok := d.Objects.Items[0].(*NodeList); ok && len(nameList.Items) > 0 {
+			if strVal, ok := nameList.Items[0].(*String); ok {
+				parts = append(parts, strVal.SVal)
+			}
+		}
+	}
+	
+	if d.Behavior == DropCascade {
+		parts = append(parts, "CASCADE")
+	} else if d.Behavior == DropRestrict {
+		parts = append(parts, "RESTRICT")
+	}
+	
 	return strings.Join(parts, " ")
 }

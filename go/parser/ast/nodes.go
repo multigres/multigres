@@ -52,6 +52,11 @@ const (
 	T_DropUserMappingStmt
 	T_CreateEventTrigStmt
 	T_AlterEventTrigStmt
+	T_CreatedbStmt
+	T_DropdbStmt
+	T_DropTableSpaceStmt
+	T_DropOwnedStmt
+	T_ReassignOwnedStmt
 	T_CreateTableSpaceStmt
 	T_AlterTableSpaceStmt
 	T_CreateAmStmt
@@ -380,6 +385,16 @@ func (nt NodeTag) String() string {
 		return "T_CreateEventTrigStmt"
 	case T_AlterEventTrigStmt:
 		return "T_AlterEventTrigStmt"
+	case T_CreatedbStmt:
+		return "T_CreatedbStmt"
+	case T_DropdbStmt:
+		return "T_DropdbStmt"
+	case T_DropTableSpaceStmt:
+		return "T_DropTableSpaceStmt"
+	case T_DropOwnedStmt:
+		return "T_DropOwnedStmt"
+	case T_ReassignOwnedStmt:
+		return "T_ReassignOwnedStmt"
 	case T_CreateTableSpaceStmt:
 		return "T_CreateTableSpaceStmt"
 	case T_AlterTableSpaceStmt:
