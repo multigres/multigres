@@ -354,7 +354,7 @@ type ImportQual struct {
 %type <list>         prep_type_clause execute_param_clause
 %type <into>         create_as_target
 %type <node>         opt_binary copy_delimiter copy_opt_item
-%type <list>         copy_options copy_opt_list copy_generic_opt_list copy_generic_opt_arg_list opt_column_list index_elem_list index_params
+%type <list>         copy_options copy_opt_list copy_generic_opt_list copy_generic_opt_arg_list opt_column_list index_params
 %type <node>         copy_generic_opt_elem copy_generic_opt_arg copy_generic_opt_arg_list_item NumericOnly var_value
 %type <ival>         opt_set_data
 %type <list>         type_name_list
@@ -652,11 +652,6 @@ toplevel_stmt:
 		|	TransactionStmtLegacy					{ $$ = $1 }
 		;
 
-/*
- * Generic SQL statement
- * This is highly simplified for now - will expand significantly
- * From postgres/src/backend/parser/gram.y:1075 onwards
- */
 stmt:
 			SelectStmt								{ $$ = $1 }
 		|	InsertStmt								{ $$ = $1 }
@@ -782,7 +777,7 @@ stmt:
 		|	AlterDatabaseSetStmt					{ $$ = $1 }
 		|	AlterTSConfigurationStmt				{ $$ = $1 }
 		|	AlterTSDictionaryStmt					{ $$ = $1 }
-		|	/* Empty for now - will add other statement types in later phases */
+		|	/* EMPTY */
 			{
 				$$ = nil
 			}
@@ -5114,7 +5109,7 @@ distinct_clause:
 
 opt_distinct_clause:
 			distinct_clause							{ $$ = $1 }
-		|	/* EMPTY */								{ $$ = nil }
+		|	opt_all_clause							{ $$ = nil }
 		;
 
 
@@ -6534,21 +6529,6 @@ opt_conf_expr:
 		|	/* EMPTY */
 			{
 				$$ = nil
-			}
-		;
-
-/*
- * Simple index element list for ON CONFLICT
- * For now, just supports column names - full index expressions can be added later
- */
-index_elem_list:
-			ColId
-			{
-				$$ = ast.NewNodeList(ast.NewString($1))
-			}
-		|	index_elem_list ',' ColId
-			{
-				$1.Append(ast.NewString($3)); $$ = $1
 			}
 		;
 
@@ -9009,8 +8989,11 @@ ExplainableStmt:
 	|	UpdateStmt							{ $$ = $1 }
 	|	DeleteStmt							{ $$ = $1 }
 	|	MergeStmt							{ $$ = $1 }
+	| 	DeclareCursorStmt					{ $$ = $1 }
+	| 	CreateAsStmt						{ $$ = $1 }
 	|	CreateMatViewStmt					{ $$ = $1 }
 	|	RefreshMatViewStmt					{ $$ = $1 }
+	| 	ExecuteStmt							{ $$ = $1 }
 	;
 
 /*
@@ -11082,10 +11065,6 @@ CreateSeqStmt:
 OptSeqOptList:
 			SeqOptList								{ $$ = $1 }
 		|	/* EMPTY */								{ $$ = nil }
-		;
-
-optby:		BY				{}
-		|	/* EMPTY */		{}
 		;
 
 /*****************************************************************************

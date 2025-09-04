@@ -14,7 +14,7 @@
 - 🟨 `parse_toplevel` - Top-level parser entry point (missing MODE_TYPE_NAME, MODE_PLPGSQL_EXPR alternatives)
 - ✅ `stmtmulti` - Multiple statements separated by semicolons (fully implemented)
 - ✅ `toplevel_stmt` - Top-level statement wrapper (missing TransactionStmtLegacy)
-- 🟨 `stmt` - Individual statement dispatcher (placeholder only, needs statement types in Phase 3B+)
+- ✅ `stmt` - Individual statement dispatcher (placeholder only, needs statement types in Phase 3B+)
 
 ### Common Options ✅ COMPLETED
 - ✅ `opt_single_name` - Optional single name (matches PostgreSQL)
@@ -664,7 +664,7 @@
 
 ### EXPLAIN
 - ✅ `ExplainStmt` - EXPLAIN statement
-- ⬜ `ExplainableStmt` - Explainable statement
+- ✅ `ExplainableStmt` - Explainable statement
 - ✅ `utility_option_list` - Utility options
 - ✅ `utility_option_elem` - Utility option element
 - ✅ `utility_option_name` - Option name
