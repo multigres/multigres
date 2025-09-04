@@ -67,18 +67,7 @@ func (s *ServiceSummary) PrintSummary() {
 	fmt.Println()
 
 	for _, service := range s.Services {
-		displayName := service.Name
-		switch service.Name {
-		case "etcd":
-			displayName = "etcd"
-		case "multigateway":
-			displayName = "Multigateway"
-		case "multipooler":
-			displayName = "Multipooler"
-		case "multiorch":
-			displayName = "MultiOrchestrator"
-		}
-		fmt.Printf("%s\n", displayName)
+		fmt.Printf("%s\n", service.Name)
 		fmt.Printf("   Host: %s\n", service.FQDN)
 
 		if len(service.Ports) == 1 {
@@ -119,9 +108,8 @@ func (s *ServiceSummary) PrintSummary() {
 			fmt.Printf("- Open %s in your browser: %s\n", service.Name, url)
 		}
 	}
-	fmt.Println("- 🐘 Connect to PostgreSQL via Multigateway")
-	fmt.Println("- 🔍 Run `multigres cluster status` to check health")
-	fmt.Println("- 🛑 Run `multigres cluster down` to stop the cluster")
+	fmt.Println("- 🐘 Connect to PostgreSQL via Multigateway: TODO")
+	fmt.Println("- 🛑 Run multigres cluster down to stop the cluster")
 	fmt.Println(strings.Repeat("=", 65))
 }
 
