@@ -57,7 +57,7 @@ func down(cmd *cobra.Command, args []string) error {
 	}
 
 	if clean {
-		fmt.Println("Clean mode: will remove service data")
+		fmt.Println("Warning: clean mode, all data for this local cluster will be deleted")
 	}
 
 	// Get config paths from flags

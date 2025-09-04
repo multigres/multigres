@@ -88,37 +88,11 @@ func buildConfigFromFlags(cmd *cobra.Command) (*MultigresConfig, error) {
 	return config, nil
 }
 
-// validateConfig validates the configuration values
-func validateConfig(config *MultigresConfig) error {
-	// Validate provisioner name
-	if config.Provisioner == "" {
-		return fmt.Errorf("provisioner not specified")
-	}
-
-	// Create provisioner instance and use its validation
-	p, err := provisioner.GetProvisioner(config.Provisioner)
-	if err != nil {
-		return fmt.Errorf("failed to create provisioner: %w", err)
-	}
-
-	// Use the provisioner's own validation method
-	if err := p.ValidateConfig(config.ProvisionerConfig); err != nil {
-		return fmt.Errorf("provisioner config validation failed: %w", err)
-	}
-
-	return nil
-}
-
 // createConfigFile creates and writes the multigres configuration file
 func createConfigFile(cmd *cobra.Command, configPaths []string) (string, error) {
 	// Build configuration from flags
 	config, err := buildConfigFromFlags(cmd)
 	if err != nil {
-		return "", err
-	}
-
-	// Validate configuration
-	if err := validateConfig(config); err != nil {
 		return "", err
 	}
 

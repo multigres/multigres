@@ -149,6 +149,10 @@ func (p *localProvisioner) LoadConfig(configPaths []string) error {
 				return fmt.Errorf("config file %s is for provisioner '%s', not 'local'", configFile, fullConfig.Provisioner)
 			}
 
+			if err := p.ValidateConfig(fullConfig.ProvisionerConfig); err != nil {
+				return fmt.Errorf("failed to validate config file %s: %w", configFile, err)
+			}
+
 			// Convert the provisioner-config section to our typed config
 			yamlData, err := yaml.Marshal(fullConfig.ProvisionerConfig)
 			if err != nil {
@@ -165,12 +169,6 @@ func (p *localProvisioner) LoadConfig(configPaths []string) error {
 	}
 
 	return fmt.Errorf("multigres.yaml not found in any of the provided paths: %v", configPaths)
-}
-
-// SetDataDir sets the base data directory for this provisioner instance
-func (p *localProvisioner) SetDataDir(dataDir string) error {
-	p.dataDir = dataDir
-	return nil
 }
 
 // DefaultConfig returns the default configuration for the local provisioner
@@ -199,7 +197,7 @@ func (p *localProvisioner) DefaultConfig() map[string]interface{} {
 		},
 		Etcd: EtcdConfig{
 			Version: "3.5.9",
-			DataDir: filepath.Join(baseDir, "etcd-data"),
+			DataDir: filepath.Join(baseDir, "data", "etcd-data"),
 			Port:    2379,
 		},
 		Multigateway: MultigatewayConfig{
@@ -239,54 +237,6 @@ func (p *localProvisioner) DefaultConfig() map[string]interface{} {
 	}
 
 	return configMap
-}
-
-// CreateDefaultConfig creates a typed default configuration for the local provisioner
-func CreateDefaultConfig() (*LocalProvisionerConfig, error) {
-	// Use MTROOT environment variable if set, otherwise fall back to current directory
-	mtroot := os.Getenv("MTROOT")
-	baseDir := "."
-	binDir := "bin"
-
-	if mtroot != "" {
-		baseDir = mtroot
-		binDir = filepath.Join(mtroot, "bin")
-	}
-
-	return &LocalProvisionerConfig{
-		RootWorkingDir: baseDir,
-		DefaultDbName:  "default",
-		Topology: TopologyConfig{
-			Backend:             "etcd2",
-			GlobalRootPath:      "/multigres/global",
-			DefaultCellName:     "zone1",
-			DefaultCellRootPath: "/multigres/zone1",
-		},
-		Etcd: EtcdConfig{
-			Version: "3.5.9",
-			DataDir: filepath.Join(baseDir, "etcd-data"),
-			Port:    2379,
-		},
-		Multigateway: MultigatewayConfig{
-			Path:     filepath.Join(binDir, "multigateway"),
-			HttpPort: 15001,
-			GrpcPort: 15990,
-			PgPort:   15432,
-			LogLevel: "info",
-		},
-		Multipooler: MultipoolerConfig{
-			Path:     filepath.Join(binDir, "multipooler"),
-			HttpPort: 15100,
-			GrpcPort: 16001,
-			LogLevel: "info",
-		},
-		Multiorch: MultiorchConfig{
-			Path:     filepath.Join(binDir, "multiorch"),
-			HttpPort: 15300,
-			GrpcPort: 16000,
-			LogLevel: "info",
-		},
-	}, nil
 }
 
 // provisionEtcd provisions etcd using local binary
@@ -589,6 +539,10 @@ func (p *localProvisioner) getStateDir() string {
 // getLogsDir returns the path to the logs directory
 func (p *localProvisioner) getLogsDir() string {
 	return filepath.Join(p.getRootWorkingDir(), "logs")
+}
+
+func (p *localProvisioner) getDataDir() string {
+	return filepath.Join(p.getRootWorkingDir(), "data")
 }
 
 // createLogFile creates a log file path and ensures the directory exists
@@ -1315,9 +1269,14 @@ func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisio
 		}
 	}
 
+	// Remove state file
+	if err := p.removeServiceState(req.ServiceID, req.Service, req.DatabaseName); err != nil {
+		fmt.Printf("Warning: failed to remove etcd state file: %v\n", err)
+	}
+
 	// Clean up data directory if requested
 	if req.Clean && service.DataDir != "" {
-		fmt.Printf("Cleaning etcd data directory: %s\n", service.DataDir)
+		fmt.Printf("Cleaning service data directory: %s\n", service.DataDir)
 		if err := os.RemoveAll(service.DataDir); err != nil {
 			return fmt.Errorf("failed to remove etcd data directory: %w", err)
 		}
@@ -1423,7 +1382,6 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 	etcdAddress := fmt.Sprintf("localhost:%d", etcdPort)
 
 	// 1. Deprovision database services first
-	fmt.Printf("=== Deprovisioning database: %s ===\n", config.DefaultDbName)
 	if err := p.DeprovisionDatabase(ctx, config.DefaultDbName, etcdAddress); err != nil {
 		fmt.Printf("Warning: failed to deprovision database: %v\n", err)
 	}
@@ -1446,19 +1404,26 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 			if err := p.deprovisionService(ctx, req); err != nil {
 				fmt.Printf("Warning: failed to deprovision etcd: %v\n", err)
 			}
-			// Remove state file
-			if err := p.removeServiceState(service.ID, "etcd", ""); err != nil {
-				fmt.Printf("Warning: failed to remove etcd state file: %v\n", err)
-			}
+			// There is a single etcd, we can break now
 			break
 		}
 	}
 
-	// 3. Clean up logs directory if requested
+	// 3. Clean up logs, state, and data directories if requested
 	if clean {
 		logsDir := p.getLogsDir()
 		if err := p.cleanupLogsDirectory(logsDir); err != nil {
 			fmt.Printf("Warning: failed to clean up logs directory: %v\n", err)
+		}
+
+		stateDir := p.getStateDir()
+		if err := p.cleanupStateDirectory(stateDir); err != nil {
+			fmt.Printf("Warning: failed to clean up state directory: %v\n", err)
+		}
+
+		dataDir := p.getDataDir()
+		if err := p.cleanupDataDirectory(dataDir); err != nil {
+			fmt.Printf("Warning: failed to clean up data directory: %v\n", err)
 		}
 	}
 
@@ -1479,6 +1444,38 @@ func (p *localProvisioner) cleanupLogsDirectory(logsDir string) error {
 	}
 
 	fmt.Printf("Cleaned up logs directory: %s\n", logsDir)
+	return nil
+}
+
+// cleanupStateDirectory removes the entire state directory and all its contents
+func (p *localProvisioner) cleanupStateDirectory(stateDir string) error {
+	// Check if state directory exists
+	if _, err := os.Stat(stateDir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to clean up
+	}
+
+	// Remove the entire state directory
+	if err := os.RemoveAll(stateDir); err != nil {
+		return fmt.Errorf("failed to remove state directory %s: %w", stateDir, err)
+	}
+
+	fmt.Printf("Cleaned up state directory: %s\n", stateDir)
+	return nil
+}
+
+// cleanupDataDirectory removes the entire data directory and all its contents
+func (p *localProvisioner) cleanupDataDirectory(dataDir string) error {
+	// Check if data directory exists
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		return nil // Directory doesn't exist, nothing to clean up
+	}
+
+	// Remove the entire data directory
+	if err := os.RemoveAll(dataDir); err != nil {
+		return fmt.Errorf("failed to remove data directory %s: %w", dataDir, err)
+	}
+
+	fmt.Printf("Cleaned up data directory: %s\n", dataDir)
 	return nil
 }
 
