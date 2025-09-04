@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -38,8 +39,12 @@ import (
 	_ "github.com/multigres/multigres/go/plugins/topo"
 )
 
-// Global variable to hold the multigres binary path, built once in TestMain
-var multigresBinary string
+// Global variables for lazy binary building
+var (
+	multigresBinary string
+	buildOnce       sync.Once
+	buildError      error
+)
 
 // testPortConfig holds test-specific port configuration to avoid conflicts
 type testPortConfig struct {
@@ -379,27 +384,35 @@ func buildServiceBinaries(tempDir string) error {
 	return nil
 }
 
-// TestMain runs before all tests
-func TestMain(m *testing.M) {
-	var err error
-
-	// Build multigres binary once for all tests
-	multigresBinary, err = buildMultigresBinary()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to build multigres binary: %v\n", err)
-		os.Exit(1)
+// ensureBinaryBuilt ensures the multigres binary is built exactly once
+// It should be called at the start of each test function
+func ensureBinaryBuilt(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
 	}
 
-	// Clean up multigres binary after all tests
-	defer func() {
-		if multigresBinary != "" {
-			// Remove the temp directory containing the multigres binary
-			os.RemoveAll(filepath.Dir(multigresBinary))
+	buildOnce.Do(func() {
+		var err error
+		multigresBinary, err = buildMultigresBinary()
+		if err != nil {
+			buildError = fmt.Errorf("failed to build multigres binary: %w", err)
 		}
-	}()
+	})
 
+	if buildError != nil {
+		t.Fatalf("Binary build failed: %v", buildError)
+	}
+}
+
+// TestMain runs before all tests
+func TestMain(m *testing.M) {
 	// Run all tests
 	exitCode := m.Run()
+
+	// Clean up multigres binary after all tests if it was built
+	if multigresBinary != "" {
+		os.RemoveAll(filepath.Dir(multigresBinary))
+	}
 
 	// Exit with the test result code
 	os.Exit(exitCode)
@@ -416,9 +429,7 @@ func executeInitCommand(t *testing.T, args []string) (string, error) {
 }
 
 func TestInitCommand(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
+	ensureBinaryBuilt(t)
 
 	tests := []struct {
 		name           string
@@ -508,9 +519,7 @@ func TestInitCommand(t *testing.T) {
 }
 
 func TestInitCommandConfigFileCreation(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
+	ensureBinaryBuilt(t)
 
 	// Setup test directory
 	tempDir, err := os.MkdirTemp("", "multigres_init_config_test")
@@ -553,9 +562,7 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 }
 
 func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
+	ensureBinaryBuilt(t)
 
 	// Setup test directory
 	tempDir, err := os.MkdirTemp("", "multigres_init_exists_test")
@@ -598,9 +605,7 @@ func executeStopCommand(t *testing.T, args []string) (string, error) {
 }
 
 func TestClusterLifecycle(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
+	ensureBinaryBuilt(t)
 
 	// Require etcd binary to be available (required for local provisioner)
 	_, err := exec.LookPath("etcd")
