@@ -27,18 +27,3 @@ Consider writing an RFC for:
 4. **Decision**: RFC is accepted, rejected, or requires further iteration
 5. **Implementation**: If accepted, implementation can begin
 6. **Archive**: Completed RFCs are kept for historical reference
-
-## Naming Convention
-
-RFCs should be named using the following pattern:
-- `RFC-XXXX-title-in-kebab-case.md`
-- Where XXXX is a zero-padded 4-digit number (e.g., RFC-0001, RFC-0042)
-- Use the next available number in sequence
-
-## Status Definitions
-
-- **Draft**: Initial proposal, still being written
-- **Review**: Ready for community review and feedback
-- **Accepted**: Approved for implementation
-- **Rejected**: Not approved, with reasoning documented
-- **Implemented**: Implementation completed and deployed
