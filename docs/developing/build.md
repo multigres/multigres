@@ -55,7 +55,7 @@ make test
 To run only unit tests (skipping integration tests):
 
 ```bash
-make test short
+make test-short
 ```
 
 ## Cleaning
