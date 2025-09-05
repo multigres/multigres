@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	"github.com/multigres/multigres/go/netutil"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/postgres"
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
@@ -42,6 +43,10 @@ var (
 	multigatewayID *clustermetadatapb.ID
 	// poolerDiscovery handles discovery of multipoolers
 	poolerDiscovery *PoolerDiscovery
+	// pgServer is the PostgreSQL protocol server
+	pgServer *postgres.Server
+	// pgPort is the PostgreSQL port to listen on
+	pgPort int
 
 	Main = &cobra.Command{
 		Use:     "multigateway",
@@ -124,6 +129,7 @@ func run(cmd *cobra.Command, args []string) error {
 			"cell", cell,
 			"http_port", servenv.HTTPPort(),
 			"grpc_port", servenv.GRPCPort(),
+			"pg_port", pgPort,
 		)
 
 		// Register with topology service
@@ -163,9 +169,56 @@ func run(cmd *cobra.Command, args []string) error {
 		// Add a demo HTTP endpoint to show discovered poolers
 		servenv.HTTPHandleFunc("/discovery/poolers", handlePoolersEndpoint)
 		logger.Info("Discovery HTTP endpoint available at /discovery/poolers")
+		
+		// Start PostgreSQL protocol server
+		if pgPort > 0 {
+			pgConfig := postgres.ServerConfig{
+				Address:    fmt.Sprintf(":%d", pgPort),
+				AuthMethod: "trust", // Start with trust auth for development
+				Parameters: map[string]string{
+					"server_version":     "15.0 (Multigres)",
+					"server_encoding":    "UTF8",
+					"client_encoding":    "UTF8",
+					"DateStyle":          "ISO, MDY",
+					"TimeZone":           "UTC",
+					"integer_datetimes":  "on",
+				},
+				MaxConnections: 100,
+			}
+			
+			// Create handler
+			pgHandler := NewPostgresHandler(logger, poolerDiscovery)
+			
+			// Create server
+			pgServer = postgres.NewServer(pgConfig, pgHandler, logger)
+			
+			// Start listening
+			if err := pgServer.Listen(); err != nil {
+				logger.Error("Failed to start PostgreSQL server", "error", err)
+				return
+			}
+			
+			// Start serving connections in a goroutine
+			go func() {
+				if err := pgServer.Serve(); err != nil {
+					logger.Error("PostgreSQL server error", "error", err)
+				}
+			}()
+			
+			logger.Info("PostgreSQL server started", "port", pgPort)
+		}
 	})
 	servenv.OnClose(func() {
 		logger.Info("multigateway shutting down")
+
+		// Stop PostgreSQL server
+		if pgServer != nil {
+			if err := pgServer.Close(); err != nil {
+				logger.Error("Failed to stop PostgreSQL server", "error", err)
+			} else {
+				logger.Info("PostgreSQL server stopped")
+			}
+		}
 
 		// Stop pooler discovery
 		if poolerDiscovery != nil {
@@ -195,6 +248,7 @@ func init() {
 
 	// Adds multigateway specific flags
 	Main.Flags().StringVar(&cell, "cell", cell, "cell to use")
+	Main.Flags().IntVar(&pgPort, "pg-port", 5432, "PostgreSQL port to listen on (0 to disable)")
 }
 
 // DiscoveryResponse represents the response from the discovery endpoint
