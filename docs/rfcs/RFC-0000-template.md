@@ -110,24 +110,17 @@ All new RFCs should follow this template:
 
 ## Alternatives Considered
 
-- Using GitHub issues for design discussions (rejected: less formal, harder to track)
-- Using external documentation systems (rejected: prefer keeping with code)
-- No formal process (rejected: leads to inconsistent decision-making)
+[Document alternatives that were considered for this design]
 
 ## Compatibility
 
-This template is compatible with all existing and future RFCs.
-
 ## Testing
 
-Template effectiveness will be evaluated based on:
-- Ease of use for RFC authors
-- Quality of resulting documentation
-- Effectiveness in design review process
+[What is the testing plan for this feature/change in terms of unit/integration tests]
 
 ## References
 
-- Inspired by RFC processes from Rust, Kubernetes, and other open source projects
+- [show references that we used for this RFC]
 
 ## Changelog
 
