@@ -33,11 +33,12 @@ jobs:
         with:
           go-version: "1.25.0"
 
+      - name: Validate generated files
+        run: make validate-generated-files
+        shell: bash
+
       - name: Build
         run: make build
 
       - name: Run short tests
         run: go test -short -v ./...
-
-      - name: Validate generated files
-        run: make validate-generated-files
