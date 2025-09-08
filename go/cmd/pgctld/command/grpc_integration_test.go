@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -352,12 +351,12 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (*grpc.Server, n
 	t.Setenv("PGDATA", dataDir)
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-	// Configure viper for the test
-	viper.Set("pg-data-dir", dataDir)
-	viper.Set("pg-port", 5432)
-	viper.Set("pg-host", "localhost")
-	viper.Set("pg-user", "postgres")
-	viper.Set("pg-database", "postgres")
+	// Configure flag variables for the test (instead of viper)
+	pgDataDir = dataDir
+	pgPort = 5432
+	pgHost = "localhost"
+	pgUser = "postgres"
+	pgDatabase = "postgres"
 
 	// Register the service
 	pb.RegisterPgCtldServer(grpcServer, service)

@@ -24,7 +24,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -105,7 +104,7 @@ func TestRunStatus(t *testing.T) {
 				defer cleanupViper()
 			} else {
 				// For empty dataDir test, clear any existing viper config
-				viper.Set("pg-data-dir", "")
+				pgDataDir = ""
 			}
 
 			// Capture output

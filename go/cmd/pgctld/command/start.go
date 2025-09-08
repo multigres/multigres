@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
@@ -57,30 +56,30 @@ type PostgresConfig struct {
 // NewPostgresConfigFromViper creates a PostgresConfig from current viper settings
 func NewPostgresConfigFromViper() *PostgresConfig {
 	return &PostgresConfig{
-		DataDir:    viper.GetString("pg-data-dir"),
-		Port:       viper.GetInt("pg-port"),
-		Host:       viper.GetString("pg-host"),
-		User:       viper.GetString("pg-user"),
-		Database:   viper.GetString("pg-database"),
-		Password:   viper.GetString("pg-password"),
-		SocketDir:  viper.GetString("pg-socket-dir"),
-		ConfigFile: viper.GetString("pg-config-file"),
-		Timeout:    viper.GetInt("timeout"),
+		DataDir:    pgDataDir,
+		Port:       pgPort,
+		Host:       pgHost,
+		User:       pgUser,
+		Database:   pgDatabase,
+		Password:   pgPassword,
+		SocketDir:  pgSocketDir,
+		ConfigFile: pgConfigFile,
+		Timeout:    timeout,
 	}
 }
 
 // NewPostgresConfigFromDefaults creates a PostgresConfig with default values and viper fallbacks
 func NewPostgresConfigFromDefaults() *PostgresConfig {
 	return &PostgresConfig{
-		DataDir:    viper.GetString("pg-data-dir"),
-		Port:       5432,
-		Host:       "localhost",
-		User:       "postgres",
-		Database:   "postgres",
-		Password:   "",
-		SocketDir:  "/tmp",
-		ConfigFile: "",
-		Timeout:    30,
+		DataDir:    pgDataDir,
+		Port:       pgPort,
+		Host:       pgHost,
+		User:       pgUser,
+		Database:   pgDatabase,
+		Password:   pgPassword,
+		SocketDir:  pgSocketDir,
+		ConfigFile: pgConfigFile,
+		Timeout:    timeout,
 	}
 }
 
@@ -133,11 +132,11 @@ func NewPostgresConfigFromStatusRequest(req *pb.StatusRequest) *PostgresConfig {
 }
 
 func init() {
-	Root.AddCommand(startCmd)
+	// Add start-specific flags (these override the root flags)
+	startCmd.Flags().StringVarP(&pgSocketDir, "pg-socket-dir", "s", pgSocketDir, "PostgreSQL socket directory")
+	startCmd.Flags().StringVarP(&pgConfigFile, "pg-config-file", "c", pgConfigFile, "PostgreSQL configuration file")
 
-	// Add start-specific flags
-	startCmd.Flags().StringP("pg-socket-dir", "s", "/tmp", "PostgreSQL socket directory")
-	startCmd.Flags().StringP("pg-config-file", "c", "", "PostgreSQL configuration file")
+	Root.AddCommand(startCmd)
 }
 
 var startCmd = &cobra.Command{
@@ -163,14 +162,8 @@ Examples:
 
 func runStart(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
-
-	// Override with command-specific flags if provided
-	if cmd.Flags().Changed("pg-socket-dir") {
-		config.SocketDir, _ = cmd.Flags().GetString("pg-socket-dir")
-	}
-	if cmd.Flags().Changed("pg-config-file") {
-		config.ConfigFile, _ = cmd.Flags().GetString("pg-config-file")
-	}
+	fmt.Printf("YESSS THIS IS BEING CALLED\n")
+	fmt.Printf("config: %+v\n", config)
 
 	result, err := StartPostgreSQLWithResult(config)
 	if err != nil {

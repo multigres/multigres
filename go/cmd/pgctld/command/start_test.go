@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -284,7 +283,7 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		defer cleanupViper()
 
 		// Override timeout to 1 second for test
-		viper.Set("timeout", 1)
+		timeout = 1
 
 		err := waitForPostgreSQL()
 		assert.Error(t, err)

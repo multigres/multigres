@@ -54,7 +54,7 @@ Examples:
   pgctld init -d /var/lib/postgresql/instance2/data
 
   # Initialize using config file settings
-  pgctld init --config /etc/pgctld/config.yaml`,
+  pgctld init --config-file /etc/pgctld/config.yaml`,
 	RunE: runInit,
 }
 

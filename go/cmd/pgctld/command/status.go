@@ -127,7 +127,6 @@ func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
 
 func runStatus(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
-
 	// No local flag overrides needed - all flags are global now
 
 	result, err := GetStatusWithResult(config)
