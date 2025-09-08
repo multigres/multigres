@@ -119,7 +119,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 				return config
 			},
 			expectError:   true,
-			errorContains: "data-dir is required",
+			errorContains: "pg-data-dir is required",
 		},
 		{
 			name: "default mode when empty string provided",

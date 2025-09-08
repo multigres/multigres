@@ -51,9 +51,9 @@ func init() {
 	Root.PersistentFlags().String("pg-password", "", "PostgreSQL password")
 
 	// PostgreSQL server management flags
-	Root.PersistentFlags().StringP("data-dir", "d", "", "PostgreSQL data directory")
-	Root.PersistentFlags().String("config-file", "", "PostgreSQL configuration file")
-	Root.PersistentFlags().String("socket-dir", "/tmp", "PostgreSQL socket directory")
+	Root.PersistentFlags().StringP("pg-data-dir", "d", "", "PostgreSQL data directory")
+	Root.PersistentFlags().String("pg-config-file", "", "PostgreSQL configuration file")
+	Root.PersistentFlags().String("pg-socket-dir", "/tmp", "PostgreSQL socket directory")
 	Root.PersistentFlags().IntP("timeout", "t", 30, "Operation timeout in seconds")
 
 	// Logging

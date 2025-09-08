@@ -105,7 +105,7 @@ func TestRunStatus(t *testing.T) {
 				defer cleanupViper()
 			} else {
 				// For empty dataDir test, clear any existing viper config
-				viper.Set("data-dir", "")
+				viper.Set("pg-data-dir", "")
 			}
 
 			// Capture output

@@ -31,8 +31,8 @@ func SetupTestViper(t *testing.T, dataDir string) func() {
 	// Store original values
 	originalValues := make(map[string]interface{})
 	keys := []string{
-		"data-dir", "pg-port", "pg-host", "pg-database", "pg-user",
-		"socket-dir", "timeout", "log-level",
+		"pg-data-dir", "pg-port", "pg-host", "pg-database", "pg-user",
+		"pg-socket-dir", "timeout", "log-level",
 	}
 
 	for _, key := range keys {
@@ -40,12 +40,12 @@ func SetupTestViper(t *testing.T, dataDir string) func() {
 	}
 
 	// Set test values
-	viper.Set("data-dir", dataDir)
+	viper.Set("pg-data-dir", dataDir)
 	viper.Set("pg-port", 5432)
 	viper.Set("pg-host", "localhost")
 	viper.Set("pg-database", "postgres")
 	viper.Set("pg-user", "postgres")
-	viper.Set("socket-dir", "/tmp")
+	viper.Set("pg-socket-dir", "/tmp")
 	viper.Set("timeout", 30)
 	viper.Set("log-level", "error") // Reduce noise during tests
 

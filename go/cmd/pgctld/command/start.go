@@ -57,14 +57,14 @@ type PostgresConfig struct {
 // NewPostgresConfigFromViper creates a PostgresConfig from current viper settings
 func NewPostgresConfigFromViper() *PostgresConfig {
 	return &PostgresConfig{
-		DataDir:    viper.GetString("data-dir"),
+		DataDir:    viper.GetString("pg-data-dir"),
 		Port:       viper.GetInt("pg-port"),
 		Host:       viper.GetString("pg-host"),
 		User:       viper.GetString("pg-user"),
 		Database:   viper.GetString("pg-database"),
 		Password:   viper.GetString("pg-password"),
-		SocketDir:  viper.GetString("socket-dir"),
-		ConfigFile: viper.GetString("config-file"),
+		SocketDir:  viper.GetString("pg-socket-dir"),
+		ConfigFile: viper.GetString("pg-config-file"),
 		Timeout:    viper.GetInt("timeout"),
 	}
 }
@@ -72,7 +72,7 @@ func NewPostgresConfigFromViper() *PostgresConfig {
 // NewPostgresConfigFromDefaults creates a PostgresConfig with default values and viper fallbacks
 func NewPostgresConfigFromDefaults() *PostgresConfig {
 	return &PostgresConfig{
-		DataDir:    viper.GetString("data-dir"),
+		DataDir:    viper.GetString("pg-data-dir"),
 		Port:       5432,
 		Host:       "localhost",
 		User:       "postgres",
@@ -136,8 +136,8 @@ func init() {
 	Root.AddCommand(startCmd)
 
 	// Add start-specific flags
-	startCmd.Flags().StringP("socket-dir", "s", "/tmp", "PostgreSQL socket directory")
-	startCmd.Flags().StringP("config-file", "c", "", "PostgreSQL configuration file")
+	startCmd.Flags().StringP("pg-socket-dir", "s", "/tmp", "PostgreSQL socket directory")
+	startCmd.Flags().StringP("pg-config-file", "c", "", "PostgreSQL configuration file")
 }
 
 var startCmd = &cobra.Command{
@@ -151,13 +151,13 @@ CLI flags take precedence over config file and environment variable settings.
 
 Examples:
   # Start with default settings
-  pgctld start --data-dir /var/lib/postgresql/data
+  pgctld start --pg-data-dir /var/lib/postgresql/data
 
   # Start on custom port
-  pgctld start --data-dir /var/lib/postgresql/data --port 5433
+  pgctld start --pg-data-dir /var/lib/postgresql/data --port 5433
 
   # Start with custom socket directory and config file
-  pgctld start --data-dir /var/lib/postgresql/data -s /var/run/postgresql -c /etc/postgresql/custom.conf`,
+  pgctld start --pg-data-dir /var/lib/postgresql/data -s /var/run/postgresql -c /etc/postgresql/custom.conf`,
 	RunE: runStart,
 }
 
@@ -165,11 +165,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
 
 	// Override with command-specific flags if provided
-	if cmd.Flags().Changed("socket-dir") {
-		config.SocketDir, _ = cmd.Flags().GetString("socket-dir")
+	if cmd.Flags().Changed("pg-socket-dir") {
+		config.SocketDir, _ = cmd.Flags().GetString("pg-socket-dir")
 	}
-	if cmd.Flags().Changed("config-file") {
-		config.ConfigFile, _ = cmd.Flags().GetString("config-file")
+	if cmd.Flags().Changed("pg-config-file") {
+		config.ConfigFile, _ = cmd.Flags().GetString("pg-config-file")
 	}
 
 	result, err := StartPostgreSQLWithResult(config)
@@ -196,7 +196,7 @@ func StartPostgreSQLWithResult(config *PostgresConfig) (*StartResult, error) {
 	result := &StartResult{}
 
 	if config.DataDir == "" {
-		return nil, fmt.Errorf("data-dir is required")
+		return nil, fmt.Errorf("pg-data-dir is required")
 	}
 
 	// Check if data directory exists and is initialized

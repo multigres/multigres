@@ -353,7 +353,7 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (*grpc.Server, n
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 	// Configure viper for the test
-	viper.Set("data-dir", dataDir)
+	viper.Set("pg-data-dir", dataDir)
 	viper.Set("pg-port", 5432)
 	viper.Set("pg-host", "localhost")
 	viper.Set("pg-user", "postgres")

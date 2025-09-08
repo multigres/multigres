@@ -33,8 +33,8 @@ type RestartResult struct {
 func init() {
 	Root.AddCommand(restartCmd)
 	restartCmd.Flags().String("mode", "fast", "Shutdown mode for stop phase: smart, fast, or immediate")
-	restartCmd.Flags().StringP("socket-dir", "s", "/tmp", "PostgreSQL socket directory")
-	restartCmd.Flags().StringP("config-file", "c", "", "PostgreSQL configuration file")
+	restartCmd.Flags().StringP("pg-socket-dir", "s", "/tmp", "PostgreSQL socket directory")
+	restartCmd.Flags().StringP("pg-config-file", "c", "", "PostgreSQL configuration file")
 }
 
 var restartCmd = &cobra.Command{
@@ -48,13 +48,13 @@ CLI flags take precedence over config file and environment variable settings.
 
 Examples:
   # Restart with default settings
-  pgctld restart --data-dir /var/lib/postgresql/data
+  pgctld restart --pg-data-dir /var/lib/postgresql/data
 
   # Restart on custom port with smart stop mode
-  pgctld restart --data-dir /var/lib/postgresql/data --port 5433 --mode smart
+  pgctld restart --pg-data-dir /var/lib/postgresql/data --port 5433 --mode smart
 
   # Restart with custom config and timeout
-  pgctld restart -d /var/lib/postgresql/data -c /etc/postgresql/custom.conf --timeout 60
+  pgctld restart -d /var/lib/postgresql/data -c /etc/multigres/pgctld.yaml --timeout 60 --pg-config-file /etc/postgresql/custom.conf
 
   # Restart with immediate stop and custom socket directory
   pgctld restart -d /data --mode immediate -s /var/run/postgresql`,
@@ -104,11 +104,11 @@ func runRestart(cmd *cobra.Command, args []string) error {
 	mode, _ := cmd.Flags().GetString("mode")
 
 	// Override with command-specific flags if provided
-	if cmd.Flags().Changed("socket-dir") {
-		config.SocketDir, _ = cmd.Flags().GetString("socket-dir")
+	if cmd.Flags().Changed("pg-socket-dir") {
+		config.SocketDir, _ = cmd.Flags().GetString("pg-socket-dir")
 	}
-	if cmd.Flags().Changed("config-file") {
-		config.ConfigFile, _ = cmd.Flags().GetString("config-file")
+	if cmd.Flags().Changed("pg-config-file") {
+		config.ConfigFile, _ = cmd.Flags().GetString("pg-config-file")
 	}
 
 	result, err := RestartPostgreSQLWithResult(config, mode)
