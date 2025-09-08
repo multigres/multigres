@@ -126,7 +126,7 @@ func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 	// No local flag overrides needed - all flags are global now
 
 	result, err := GetStatusWithResult(config)
@@ -195,7 +195,7 @@ func formatUptime(seconds int64) string {
 }
 
 func isServerReady() bool {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 	return isServerReadyWithConfig(config)
 }
 
@@ -211,7 +211,7 @@ func isServerReadyWithConfig(config *PostgresConfig) bool {
 }
 
 func getServerVersion() string {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 	return getServerVersionWithConfig(config)
 }
 

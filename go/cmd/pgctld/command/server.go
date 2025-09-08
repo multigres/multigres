@@ -209,7 +209,7 @@ func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*p
 	s.logger.Debug("gRPC Version request")
 
 	// Create config from base viper settings
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 
 	// Override with request parameters if provided
 	if req.Host != "" {

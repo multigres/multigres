@@ -87,7 +87,7 @@ func InitDataDirWithResult(config *PostgresConfig) (*InitResult, error) {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 
 	result, err := InitDataDirWithResult(config)
 	if err != nil {

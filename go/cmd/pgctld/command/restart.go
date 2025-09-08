@@ -100,7 +100,7 @@ func RestartPostgreSQLWithResult(config *PostgresConfig, mode string) (*RestartR
 }
 
 func runRestart(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 	mode, _ := cmd.Flags().GetString("mode")
 
 	// Override with command-specific flags if provided

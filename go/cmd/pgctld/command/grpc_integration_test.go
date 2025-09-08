@@ -51,8 +51,8 @@ func TestGRPCServerIntegration(t *testing.T) {
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 	// Create and start gRPC server
-	grpcServer, lis := createTestGRPCServer(t, dataDir, binDir)
-	defer grpcServer.Stop()
+	lis, cleanupServer := createTestGRPCServer(t, dataDir, binDir)
+	defer cleanupServer()
 
 	// Connect to the gRPC server
 	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -134,8 +134,8 @@ func TestGRPCErrorHandling(t *testing.T) {
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 	// Create and start gRPC server
-	grpcServer, lis := createTestGRPCServer(t, dataDir, binDir)
-	defer grpcServer.Stop()
+	lis, cleanupServer := createTestGRPCServer(t, dataDir, binDir)
+	defer cleanupServer()
 
 	// Connect to the gRPC server
 	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -215,8 +215,8 @@ func TestGRPCConcurrentRequests(t *testing.T) {
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 	// Create and start gRPC server
-	grpcServer, lis := createTestGRPCServer(t, dataDir, binDir)
-	defer grpcServer.Stop()
+	lis, cleanupServer := createTestGRPCServer(t, dataDir, binDir)
+	defer cleanupServer()
 
 	// Connect to the gRPC server
 	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -295,8 +295,8 @@ func TestGRPCWithDifferentConfigurations(t *testing.T) {
 
 	t.Run("different_stop_modes", func(t *testing.T) {
 		// Create and start gRPC server
-		grpcServer, lis := createTestGRPCServer(t, dataDir, binDir)
-		defer grpcServer.Stop()
+		lis, cleanupServer := createTestGRPCServer(t, dataDir, binDir)
+		defer cleanupServer()
 
 		// Connect to the gRPC server
 		conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -332,8 +332,12 @@ func TestGRPCWithDifferentConfigurations(t *testing.T) {
 }
 
 // createTestGRPCServer creates and starts a gRPC server for testing
-func createTestGRPCServer(t *testing.T, dataDir, binDir string) (*grpc.Server, net.Listener) {
+// Returns the server, listener, and a cleanup function
+func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, func()) {
 	t.Helper()
+
+	// Setup cleanup for global variables
+	cleanupViper := SetupTestPgCtldCleanup(t)
 
 	// Find a free port
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -371,5 +375,11 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (*grpc.Server, n
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
 
-	return grpcServer, lis
+	// Return cleanup function that stops server and cleans up global variables
+	cleanup := func() {
+		grpcServer.Stop()
+		cleanupViper()
+	}
+
+	return lis, cleanup
 }

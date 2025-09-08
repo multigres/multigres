@@ -53,21 +53,6 @@ type PostgresConfig struct {
 	Timeout    int
 }
 
-// NewPostgresConfigFromViper creates a PostgresConfig from current viper settings
-func NewPostgresConfigFromViper() *PostgresConfig {
-	return &PostgresConfig{
-		DataDir:    pgDataDir,
-		Port:       pgPort,
-		Host:       pgHost,
-		User:       pgUser,
-		Database:   pgDatabase,
-		Password:   pgPassword,
-		SocketDir:  pgSocketDir,
-		ConfigFile: pgConfigFile,
-		Timeout:    timeout,
-	}
-}
-
 // NewPostgresConfigFromDefaults creates a PostgresConfig with default values and viper fallbacks
 func NewPostgresConfigFromDefaults() *PostgresConfig {
 	return &PostgresConfig{
@@ -161,7 +146,7 @@ Examples:
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 
 	result, err := StartPostgreSQLWithResult(config)
 	if err != nil {
@@ -353,7 +338,7 @@ func startPostgreSQLWithConfig(config *PostgresConfig) error {
 }
 
 func waitForPostgreSQL() error {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 	return waitForPostgreSQLWithConfig(config)
 }
 
