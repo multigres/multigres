@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+SHELL := /bin/bash
+
 .PHONY: all build build-all clean install test proto tools clean_build_dep
 
 # Default target
