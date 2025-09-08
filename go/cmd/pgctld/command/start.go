@@ -148,6 +148,14 @@ Examples:
 func runStart(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromDefaults()
 
+	// Override with command-specific flags if provided
+	if cmd.Flags().Changed("pg-socket-dir") {
+		config.SocketDir, _ = cmd.Flags().GetString("pg-socket-dir")
+	}
+	if cmd.Flags().Changed("pg-config-file") {
+		config.ConfigFile, _ = cmd.Flags().GetString("pg-config-file")
+	}
+
 	result, err := StartPostgreSQLWithResult(config)
 	if err != nil {
 		return err
