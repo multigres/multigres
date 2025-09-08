@@ -1,0 +1,673 @@
+[
+  {
+    "comment": "BEGIN",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "START TRANSACTION",
+    "query": "START TRANSACTION"
+  },
+  {
+    "comment": "COMMIT",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "ROLLBACK",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "END (synonym for COMMIT)",
+    "query": "END",
+    "expected": "COMMIT"
+  },
+  {
+    "comment": "ABORT (synonym for ROLLBACK)",
+    "query": "ABORT",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "BEGIN ISOLATION LEVEL SERIALIZABLE",
+    "query": "BEGIN ISOLATION LEVEL SERIALIZABLE"
+  },
+  {
+    "comment": "BEGIN READ ONLY",
+    "query": "BEGIN READ ONLY"
+  },
+  {
+    "comment": "BEGIN READ WRITE",
+    "query": "BEGIN READ WRITE"
+  },
+  {
+    "comment": "BEGIN DEFERRABLE",
+    "query": "BEGIN DEFERRABLE"
+  },
+  {
+    "comment": "START TRANSACTION ISOLATION LEVEL READ COMMITTED",
+    "query": "START TRANSACTION ISOLATION LEVEL READ COMMITTED"
+  },
+  {
+    "comment": "COMMIT AND CHAIN",
+    "query": "COMMIT AND CHAIN"
+  },
+  {
+    "comment": "ROLLBACK AND NO CHAIN",
+    "query": "ROLLBACK AND NO CHAIN",
+    "expected": "ROLLBACK"
+  },
+  {
+    "comment": "SAVEPOINT basic",
+    "query": "SAVEPOINT my_savepoint"
+  },
+  {
+    "comment": "RELEASE SAVEPOINT",
+    "query": "RELEASE SAVEPOINT my_savepoint"
+  },
+  {
+    "comment": "RELEASE without SAVEPOINT keyword",
+    "query": "RELEASE my_savepoint",
+    "expected": "RELEASE SAVEPOINT my_savepoint"
+  },
+  {
+    "comment": "ROLLBACK TO SAVEPOINT",
+    "query": "ROLLBACK TO SAVEPOINT my_savepoint"
+  },
+  {
+    "comment": "ROLLBACK TO without SAVEPOINT keyword",
+    "query": "ROLLBACK TO my_savepoint",
+    "expected": "ROLLBACK TO SAVEPOINT my_savepoint"
+  },
+  {
+    "comment": "PREPARE TRANSACTION",
+    "query": "PREPARE TRANSACTION 'transaction_123'"
+  },
+  {
+    "comment": "COMMIT PREPARED",
+    "query": "COMMIT PREPARED 'transaction_123'"
+  },
+  {
+    "comment": "ROLLBACK PREPARED",
+    "query": "ROLLBACK PREPARED 'transaction_123'"
+  },
+  {
+    "comment": "EXPLAIN simple",
+    "query": "EXPLAIN SELECT * FROM users"
+  },
+  {
+    "comment": "EXPLAIN ANALYZE",
+    "query": "EXPLAIN ANALYZE SELECT * FROM users"
+  },
+  {
+    "comment": "EXPLAIN VERBOSE",
+    "query": "EXPLAIN VERBOSE SELECT * FROM users"
+  },
+  {
+    "comment": "EXPLAIN ANALYZE VERBOSE",
+    "query": "EXPLAIN ANALYZE VERBOSE SELECT * FROM users"
+  },
+  {
+    "comment": "EXPLAIN with parentheses",
+    "query": "EXPLAIN (ANALYZE, VERBOSE) SELECT * FROM users",
+    "expected": "EXPLAIN ANALYZE VERBOSE SELECT * FROM users"
+  },
+  {
+    "comment": "EXPLAIN with format option",
+    "query": "EXPLAIN (FORMAT JSON) SELECT * FROM users"
+  },
+  {
+    "comment": "EXPLAIN INSERT",
+    "query": "EXPLAIN INSERT INTO users (name) VALUES ('test')"
+  },
+  {
+    "comment": "EXPLAIN UPDATE",
+    "query": "EXPLAIN UPDATE users SET name = 'updated'"
+  },
+  {
+    "comment": "EXPLAIN DELETE",
+    "query": "EXPLAIN DELETE FROM users WHERE id = 1"
+  },
+  {
+    "comment": "EXPLAIN MERGE",
+    "query": "EXPLAIN MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET name = source.name"
+  },
+  {
+    "comment": "EXPLAIN REFRESH MATERIALIZED VIEW",
+    "query": "EXPLAIN REFRESH MATERIALIZED VIEW user_stats"
+  },
+  {
+    "comment": "VACUUM simple",
+    "query": "VACUUM"
+  },
+  {
+    "comment": "VACUUM table",
+    "query": "VACUUM users"
+  },
+  {
+    "comment": "VACUUM with schema",
+    "query": "VACUUM public.users"
+  },
+  {
+    "comment": "VACUUM with columns",
+    "query": "VACUUM users (name, email)"
+  },
+  {
+    "comment": "VACUUM with options",
+    "query": "VACUUM (FULL, VERBOSE) users"
+  },
+  {
+    "comment": "VACUUM FULL",
+    "query": "VACUUM FULL users",
+    "expected": "VACUUM (FULL) users"
+  },
+  {
+    "comment": "VACUUM VERBOSE",
+    "query": "VACUUM VERBOSE users",
+    "expected": "VACUUM (VERBOSE) users"
+  },
+  {
+    "comment": "VACUUM ANALYZE",
+    "query": "VACUUM ANALYZE users",
+    "expected": "VACUUM (ANALYZE) users"
+  },
+  {
+    "comment": "VACUUM FREEZE",
+    "query": "VACUUM FREEZE users",
+    "expected": "VACUUM (FREEZE) users"
+  },
+  {
+    "comment": "VACUUM multiple options",
+    "query": "VACUUM FULL VERBOSE ANALYZE users",
+    "expected": "VACUUM (FULL, VERBOSE, ANALYZE) users"
+  },
+  {
+    "comment": "VACUUM multiple tables",
+    "query": "VACUUM users, orders"
+  },
+  {
+    "comment": "ANALYZE simple",
+    "query": "ANALYZE"
+  },
+  {
+    "comment": "ANALYZE table",
+    "query": "ANALYZE users"
+  },
+  {
+    "comment": "ANALYZE with columns",
+    "query": "ANALYZE users (name, email)"
+  },
+  {
+    "comment": "ANALYZE with options",
+    "query": "ANALYZE (VERBOSE) users"
+  },
+  {
+    "comment": "ANALYZE VERBOSE",
+    "query": "ANALYZE VERBOSE users",
+    "expected": "ANALYZE (VERBOSE) users"
+  },
+  {
+    "comment": "SHOW simple",
+    "query": "SHOW search_path"
+  },
+  {
+    "comment": "SHOW ALL",
+    "query": "SHOW ALL",
+    "expected": "SHOW all"
+  },
+  {
+    "comment": "SHOW timezone",
+    "query": "SHOW timezone"
+  },
+  {
+    "comment": "SHOW work_mem",
+    "query": "SHOW work_mem"
+  },
+  {
+    "comment": "ALTER SYSTEM SET",
+    "query": "ALTER SYSTEM SET work_mem = '256MB'"
+  },
+  {
+    "comment": "ALTER SYSTEM SET with unit",
+    "query": "ALTER SYSTEM SET shared_buffers = '1GB'"
+  },
+  {
+    "comment": "ALTER SYSTEM RESET",
+    "query": "ALTER SYSTEM RESET work_mem"
+  },
+  {
+    "comment": "ALTER SYSTEM RESET ALL",
+    "query": "ALTER SYSTEM RESET ALL"
+  },
+  {
+    "comment": "CLUSTER simple",
+    "query": "CLUSTER"
+  },
+  {
+    "comment": "CLUSTER table",
+    "query": "CLUSTER users"
+  },
+  {
+    "comment": "CLUSTER table with index",
+    "query": "CLUSTER users USING idx_users_id"
+  },
+  {
+    "comment": "CLUSTER with utility options",
+    "query": "CLUSTER (verbose) users USING idx_users_id"
+  },
+  {
+    "comment": "CLUSTER with utility options only",
+    "query": "CLUSTER (verbose)"
+  },
+  {
+    "comment": "CLUSTER verbose table",
+    "query": "CLUSTER verbose users USING idx_users_id",
+    "expected": "CLUSTER (verbose) users USING idx_users_id"
+  },
+  {
+    "comment": "CLUSTER verbose only",
+    "query": "CLUSTER verbose",
+    "expected": "CLUSTER (verbose)"
+  },
+  {
+    "comment": "CLUSTER old syntax",
+    "query": "CLUSTER idx_users_id ON users",
+    "expected": "CLUSTER users USING idx_users_id"
+  },
+  {
+    "comment": "CLUSTER verbose old syntax",
+    "query": "CLUSTER verbose idx_users_id ON users",
+    "expected": "CLUSTER (verbose) users USING idx_users_id"
+  },
+  {
+    "comment": "REINDEX INDEX",
+    "query": "REINDEX INDEX idx_users_email"
+  },
+  {
+    "comment": "REINDEX TABLE",
+    "query": "REINDEX TABLE users"
+  },
+  {
+    "comment": "REINDEX SCHEMA",
+    "query": "REINDEX SCHEMA public"
+  },
+  {
+    "comment": "REINDEX SYSTEM",
+    "query": "REINDEX SYSTEM"
+  },
+  {
+    "comment": "REINDEX DATABASE",
+    "query": "REINDEX DATABASE mydb"
+  },
+  {
+    "comment": "REINDEX with options",
+    "query": "REINDEX (verbose) INDEX idx_users_email"
+  },
+  {
+    "comment": "REINDEX CONCURRENTLY",
+    "query": "REINDEX INDEX CONCURRENTLY idx_users_email"
+  },
+  {
+    "comment": "REINDEX with options and CONCURRENTLY",
+    "query": "REINDEX (verbose) INDEX CONCURRENTLY idx_users_email"
+  },
+  {
+    "comment": "CHECKPOINT",
+    "query": "CHECKPOINT"
+  },
+  {
+    "comment": "DISCARD ALL",
+    "query": "DISCARD ALL"
+  },
+  {
+    "comment": "DISCARD TEMP",
+    "query": "DISCARD TEMP"
+  },
+  {
+    "comment": "DISCARD TEMPORARY",
+    "query": "DISCARD TEMPORARY",
+    "expected": "DISCARD TEMP"
+  },
+  {
+    "comment": "DISCARD PLANS",
+    "query": "DISCARD PLANS"
+  },
+  {
+    "comment": "DISCARD SEQUENCES",
+    "query": "DISCARD SEQUENCES"
+  },
+  {
+    "comment": "DECLARE cursor simple",
+    "query": "DECLARE my_cursor CURSOR FOR SELECT * FROM users"
+  },
+  {
+    "comment": "DECLARE cursor with SCROLL",
+    "query": "DECLARE scroll_cursor SCROLL CURSOR FOR SELECT id FROM orders"
+  },
+  {
+    "comment": "DECLARE cursor with NO SCROLL",
+    "query": "DECLARE no_scroll_cursor NO SCROLL CURSOR FOR SELECT name FROM products"
+  },
+  {
+    "comment": "DECLARE cursor BINARY",
+    "query": "DECLARE binary_cursor BINARY CURSOR FOR SELECT data FROM files"
+  },
+  {
+    "comment": "DECLARE cursor INSENSITIVE",
+    "query": "DECLARE insensitive_cursor INSENSITIVE CURSOR FOR SELECT value FROM config"
+  },
+  {
+    "comment": "DECLARE cursor with multiple options",
+    "query": "DECLARE multi_cursor SCROLL BINARY CURSOR FOR SELECT * FROM logs",
+    "expected": "DECLARE multi_cursor BINARY SCROLL CURSOR FOR SELECT * FROM logs"
+  },
+  {
+    "comment": "FETCH FORWARD",
+    "query": "FETCH FORWARD 10 FROM my_cursor",
+    "expected": "FETCH 10 FROM my_cursor"
+  },
+  {
+    "comment": "FETCH NEXT",
+    "query": "FETCH NEXT FROM next_cursor",
+    "expected": "FETCH FROM next_cursor"
+  },
+  {
+    "comment": "FETCH PRIOR",
+    "query": "FETCH PRIOR FROM prior_cursor",
+    "expected": "FETCH BACKWARD FROM prior_cursor"
+  },
+  {
+    "comment": "FETCH FIRST",
+    "query": "FETCH FIRST FROM first_cursor"
+  },
+  {
+    "comment": "FETCH LAST",
+    "query": "FETCH LAST FROM last_cursor"
+  },
+  {
+    "comment": "FETCH ALL",
+    "query": "FETCH ALL FROM all_cursor"
+  },
+  {
+    "comment": "MOVE FORWARD",
+    "query": "MOVE FORWARD 5 FROM my_cursor",
+    "expected": "MOVE 5 FROM my_cursor"
+  },
+  {
+    "comment": "MOVE NEXT",
+    "query": "MOVE NEXT FROM next_cursor",
+    "expected": "MOVE FROM next_cursor"
+  },
+  {
+    "comment": "MOVE PRIOR",
+    "query": "MOVE PRIOR FROM prior_cursor",
+    "expected": "MOVE BACKWARD FROM prior_cursor"
+  },
+  {
+    "comment": "MOVE FIRST",
+    "query": "MOVE FIRST FROM first_cursor"
+  },
+  {
+    "comment": "MOVE LAST",
+    "query": "MOVE LAST FROM last_cursor"
+  },
+  {
+    "comment": "MOVE ALL",
+    "query": "MOVE ALL FROM all_cursor"
+  },
+  {
+    "comment": "CLOSE cursor",
+    "query": "CLOSE my_cursor"
+  },
+  {
+    "comment": "CLOSE ALL cursors",
+    "query": "CLOSE ALL"
+  },
+  {
+    "comment": "PREPARE simple",
+    "query": "PREPARE my_plan AS SELECT * FROM users"
+  },
+  {
+    "comment": "PREPARE with parameter types",
+    "query": "PREPARE typed_plan (INTEGER, TEXT) AS SELECT * FROM users WHERE id = $1",
+    "expected": "PREPARE typed_plan ( INT, TEXT ) AS SELECT * FROM users WHERE id = $1"
+  },
+  {
+    "comment": "PREPARE INSERT",
+    "query": "PREPARE insert_plan (TEXT, INTEGER) AS INSERT INTO users (name, age) VALUES ($1, $2)",
+    "expected": "PREPARE insert_plan ( TEXT, INT ) AS INSERT INTO users (name, age) VALUES ($1, $2)"
+  },
+  {
+    "comment": "PREPARE UPDATE",
+    "query": "PREPARE update_plan (INTEGER, TEXT) AS UPDATE users SET name = $2 WHERE id = $1",
+    "expected": "PREPARE update_plan ( INT, TEXT ) AS UPDATE users SET name = $2 WHERE id = $1"
+  },
+  {
+    "comment": "PREPARE DELETE",
+    "query": "PREPARE delete_plan (INTEGER) AS DELETE FROM users WHERE id = $1",
+    "expected": "PREPARE delete_plan ( INT ) AS DELETE FROM users WHERE id = $1"
+  },
+  {
+    "comment": "EXECUTE simple",
+    "query": "EXECUTE my_plan"
+  },
+  {
+    "comment": "EXECUTE with parameters",
+    "query": "EXECUTE param_plan (123, 'test')",
+    "expected": "EXECUTE param_plan ( 123, 'test' )"
+  },
+  {
+    "comment": "EXECUTE with NULL parameter",
+    "query": "EXECUTE null_plan (NULL)",
+    "expected": "EXECUTE null_plan ( NULL )"
+  },
+  {
+    "comment": "EXECUTE with string parameters",
+    "query": "EXECUTE string_plan ('hello', 'world')",
+    "expected": "EXECUTE string_plan ( 'hello', 'world' )"
+  },
+  {
+    "comment": "EXECUTE with numeric parameters",
+    "query": "EXECUTE numeric_plan (42, 3.14)",
+    "expected": "EXECUTE numeric_plan ( 42, 3.14 )"
+  },
+  {
+    "comment": "EXECUTE with boolean parameters",
+    "query": "EXECUTE bool_plan (TRUE, FALSE)",
+    "expected": "EXECUTE bool_plan ( TRUE, FALSE )"
+  },
+  {
+    "comment": "EXECUTE with mixed parameters",
+    "query": "EXECUTE mixed_plan (1, 'text', TRUE, NULL)",
+    "expected": "EXECUTE mixed_plan ( 1, 'text', TRUE, NULL )"
+  },
+  {
+    "comment": "DEALLOCATE specific",
+    "query": "DEALLOCATE my_plan"
+  },
+  {
+    "comment": "DEALLOCATE ALL",
+    "query": "DEALLOCATE ALL"
+  },
+  {
+    "comment": "DEALLOCATE PREPARE specific",
+    "query": "DEALLOCATE PREPARE my_plan",
+    "expected": "DEALLOCATE my_plan"
+  },
+  {
+    "comment": "DEALLOCATE PREPARE ALL",
+    "query": "DEALLOCATE PREPARE ALL",
+    "expected": "DEALLOCATE ALL"
+  },
+  {
+    "comment": "LISTEN basic",
+    "query": "LISTEN channel1"
+  },
+  {
+    "comment": "UNLISTEN basic",
+    "query": "UNLISTEN channel1"
+  },
+  {
+    "comment": "UNLISTEN all",
+    "query": "UNLISTEN *"
+  },
+  {
+    "comment": "NOTIFY basic",
+    "query": "NOTIFY channel1"
+  },
+  {
+    "comment": "NOTIFY with payload",
+    "query": "NOTIFY channel1, 'hello world'"
+  },
+  {
+    "comment": "LOAD basic",
+    "query": "LOAD 'mymodule'"
+  },
+  {
+    "comment": "LOCK basic (default mode)",
+    "query": "LOCK TABLE users",
+    "expected": "LOCK TABLE users IN ACCESS EXCLUSIVE MODE"
+  },
+  {
+    "comment": "LOCK with ACCESS SHARE mode",
+    "query": "LOCK TABLE users IN ACCESS SHARE MODE"
+  },
+  {
+    "comment": "LOCK with SHARE mode",
+    "query": "LOCK TABLE users IN SHARE MODE"
+  },
+  {
+    "comment": "LOCK with NOWAIT",
+    "query": "LOCK TABLE users NOWAIT",
+    "expected": "LOCK TABLE users IN ACCESS EXCLUSIVE MODE NOWAIT"
+  },
+  {
+    "comment": "LOCK multiple tables",
+    "query": "LOCK TABLE users, orders",
+    "expected": "LOCK TABLE users, orders IN ACCESS EXCLUSIVE MODE"
+  },
+  {
+    "comment": "COMMENT ON TABLE",
+    "query": "COMMENT ON TABLE users IS 'User information table'"
+  },
+  {
+    "comment": "COMMENT ON TABLE with NULL",
+    "query": "COMMENT ON TABLE users IS NULL"
+  },
+  {
+    "comment": "COMMENT ON COLUMN",
+    "query": "COMMENT ON COLUMN users.name IS 'User full name'"
+  },
+  {
+    "comment": "COMMENT ON INDEX",
+    "query": "COMMENT ON INDEX idx_users_name IS 'Index for user names'"
+  },
+  {
+    "comment": "COMMENT ON VIEW",
+    "query": "COMMENT ON VIEW user_view IS 'Active users view'"
+  },
+  {
+    "comment": "COMMENT ON SEQUENCE",
+    "query": "COMMENT ON SEQUENCE user_id_seq IS 'User ID sequence'"
+  },
+  {
+    "comment": "COMMENT ON FUNCTION",
+    "query": "COMMENT ON FUNCTION get_user(integer) IS 'Get user by ID'",
+    "expected": "COMMENT ON FUNCTION get_user(INT) IS 'Get user by ID'"
+  },
+  {
+    "comment": "COMMENT ON ROLE",
+    "query": "COMMENT ON ROLE admin IS 'Administrator role'"
+  },
+  {
+    "comment": "COMMENT ON DATABASE",
+    "query": "COMMENT ON DATABASE mydb IS 'Main database'"
+  },
+  {
+    "comment": "COMMENT ON CONSTRAINT",
+    "query": "COMMENT ON CONSTRAINT users_pkey ON users IS 'Primary key constraint'"
+  },
+  {
+    "comment": "COMMENT ON CONSTRAINT ON DOMAIN",
+    "query": "COMMENT ON CONSTRAINT email_check ON DOMAIN email IS 'Email format constraint'"
+  },
+  {
+    "comment": "COMMENT ON PROCEDURE",
+    "query": "COMMENT ON PROCEDURE update_user(integer, text) IS 'Update user procedure'",
+    "expected": "COMMENT ON PROCEDURE update_user(INT, TEXT) IS 'Update user procedure'"
+  },
+  {
+    "comment": "COMMENT ON ROUTINE",
+    "query": "COMMENT ON ROUTINE calculate_total(numeric, numeric) IS 'Total calculation routine'",
+    "expected": "COMMENT ON ROUTINE calculate_total(NUMERIC, NUMERIC) IS 'Total calculation routine'"
+  },
+  {
+    "comment": "COMMENT ON TRANSFORM",
+    "query": "COMMENT ON TRANSFORM FOR integer LANGUAGE plpgsql IS 'Integer transform'",
+    "expected": "COMMENT ON TRANSFORM FOR INT LANGUAGE plpgsql IS 'Integer transform'"
+  },
+  {
+    "comment": "COMMENT ON OPERATOR CLASS",
+    "query": "COMMENT ON OPERATOR CLASS int4_ops USING btree IS 'Integer B-tree ops'"
+  },
+  {
+    "comment": "COMMENT ON OPERATOR FAMILY",
+    "query": "COMMENT ON OPERATOR FAMILY integer_ops USING hash IS 'Integer hash family'"
+  },
+  {
+    "comment": "COMMENT ON LARGE OBJECT",
+    "query": "COMMENT ON LARGE OBJECT 152344 IS 'User avatar image'"
+  },
+  {
+    "comment": "COMMENT ON CAST",
+    "query": "COMMENT ON CAST (integer AS bigint) IS 'Integer to bigint cast'",
+    "expected": "COMMENT ON CAST ( INT AS BIGINT ) IS 'Integer to bigint cast'"
+  },
+  {
+    "comment": "SECURITY LABEL ON TABLE",
+    "query": "SECURITY LABEL ON TABLE users IS 'classified'"
+  },
+  {
+    "comment": "SECURITY LABEL with provider",
+    "query": "SECURITY LABEL FOR selinux ON TABLE users IS 'system_u:object_r:sepgsql_table_t:s0'"
+  },
+  {
+    "comment": "SECURITY LABEL ON COLUMN",
+    "query": "SECURITY LABEL ON COLUMN users.ssn IS 'top-secret'"
+  },
+  {
+    "comment": "SECURITY LABEL ON COLUMN with provider",
+    "query": "SECURITY LABEL FOR selinux ON COLUMN users.ssn IS 'system_u:object_r:sepgsql_secret_table_t:s0'"
+  },
+  {
+    "comment": "SECURITY LABEL with NULL",
+    "query": "SECURITY LABEL ON TABLE users IS NULL"
+  },
+  {
+    "comment": "DO with simple string",
+    "query": "DO 'BEGIN RAISE NOTICE ''Test''; END'"
+  },
+  {
+    "comment": "DO with dollar-quoted string",
+    "query": "DO $$ BEGIN RAISE NOTICE 'Hello World'; END $$",
+    "expected": "DO ' BEGIN RAISE NOTICE ''Hello World''; END '"
+  },
+  {
+    "comment": "DO with language and dollar-quoted",
+    "query": "DO LANGUAGE plpgsql $$ BEGIN RAISE NOTICE 'Hello'; END $$",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN RAISE NOTICE ''Hello''; END '"
+  },
+  {
+    "comment": "CALL simple procedure",
+    "query": "CALL my_procedure()"
+  },
+  {
+    "comment": "CALL procedure with parameters",
+    "query": "CALL update_user(123, 'John Doe')"
+  },
+  {
+    "comment": "CALL procedure with mixed parameters",
+    "query": "CALL complex_proc(1, 'test', TRUE, NULL)"
+  },
+  {
+    "comment": "CALL qualified procedure name",
+    "query": "CALL public.my_procedure(42)"
+  }
+]

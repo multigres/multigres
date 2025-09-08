@@ -1,0 +1,111 @@
+[
+  {
+    "comment": "COPY FROM basic",
+    "query": "COPY users FROM '/path/to/file.csv'"
+  },
+  {
+    "comment": "COPY FROM with BINARY",
+    "query": "COPY users FROM '/path/to/file.dat' BINARY",
+    "expected": "COPY users FROM '/path/to/file.dat' (format 'binary')"
+  },
+  {
+    "comment": "COPY FROM with new syntax basic",
+    "query": "COPY users FROM '/path/to/file.csv' (format 'csv')"
+  },
+  {
+    "comment": "COPY FROM with header option",
+    "query": "COPY users FROM '/path/to/file.csv' (format 'csv', header true)"
+  },
+  {
+    "comment": "COPY FROM with delimiter option",
+    "query": "COPY users FROM '/path/to/file.csv' (format 'csv', delimiter ',')"
+  },
+  {
+    "comment": "COPY FROM with quote option",
+    "query": "COPY users FROM '/path/to/file.csv' (format 'csv', quote '\"')"
+  },
+  {
+    "comment": "COPY FROM with escape option",
+    "query": "COPY users FROM '/path/to/file.csv' (format 'csv', escape '\\\\')"
+  },
+  {
+    "comment": "COPY FROM with force_quote all",
+    "query": "COPY users FROM '/path/to/file.csv' (format 'csv', force_quote *)"
+  },
+  {
+    "comment": "COPY FROM with encoding option",
+    "query": "COPY users FROM '/path/to/file.csv' (format 'csv', encoding 'UTF8')"
+  },
+  {
+    "comment": "COPY FROM with boolean values",
+    "query": "COPY users FROM '/path/to/file.csv' (header true, freeze false)"
+  },
+  {
+    "comment": "COPY FROM with numeric values",
+    "query": "COPY users FROM '/path/to/file.csv' (header_line 1, skip_rows 2)"
+  },
+  {
+    "comment": "COPY FROM with default values",
+    "query": "COPY users FROM '/path/to/file.csv' (format default, header default)"
+  },
+  {
+    "comment": "COPY TO basic",
+    "query": "COPY users TO '/path/to/file.csv'"
+  },
+  {
+    "comment": "COPY TO with new syntax",
+    "query": "COPY users TO '/path/to/file.csv' (format 'csv', header true)"
+  },
+  {
+    "comment": "COPY TO with multiple new options",
+    "query": "COPY users TO '/path/to/file.csv' (format 'csv', header true, delimiter ',')"
+  },
+  {
+    "comment": "COPY FROM with column list new syntax",
+    "query": "COPY users (id, name, email) FROM '/path/to/file.csv' (format 'csv')"
+  },
+  {
+    "comment": "COPY TO with column list new syntax",
+    "query": "COPY users (id, name, email) TO '/path/to/file.csv' (format 'csv')"
+  },
+  {
+    "comment": "COPY FROM qualified table new syntax",
+    "query": "COPY public.users FROM '/path/to/file.csv' (format 'csv')"
+  },
+  {
+    "comment": "COPY FROM PROGRAM new syntax",
+    "query": "COPY users FROM PROGRAM 'cat /path/to/file.csv' (format 'csv')"
+  },
+  {
+    "comment": "COPY TO PROGRAM new syntax",
+    "query": "COPY users TO PROGRAM 'gzip \u003e /path/to/file.csv.gz' (format 'csv')"
+  },
+  {
+    "comment": "COPY FROM STDIN new syntax",
+    "query": "COPY users FROM STDIN (format 'csv')"
+  },
+  {
+    "comment": "COPY TO STDOUT new syntax",
+    "query": "COPY users TO STDOUT (format 'csv')"
+  },
+  {
+    "comment": "TRUNCATE basic",
+    "query": "TRUNCATE TABLE users",
+    "expected": "TRUNCATE TABLE users CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "TRUNCATE with RESTART IDENTITY",
+    "query": "TRUNCATE TABLE users RESTART IDENTITY",
+    "expected": "TRUNCATE TABLE users RESTART IDENTITY RESTRICT"
+  },
+  {
+    "comment": "TRUNCATE with CASCADE",
+    "query": "TRUNCATE TABLE users CASCADE",
+    "expected": "TRUNCATE TABLE users CONTINUE IDENTITY CASCADE"
+  },
+  {
+    "comment": "TRUNCATE multiple tables",
+    "query": "TRUNCATE TABLE users, orders",
+    "expected": "TRUNCATE TABLE users, orders CONTINUE IDENTITY RESTRICT"
+  }
+]

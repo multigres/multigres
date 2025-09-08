@@ -1,0 +1,1564 @@
+[
+  {
+    "comment": "ALTER TABLE ATTACH PARTITION with default",
+    "query": "ALTER TABLE parent_table ATTACH PARTITION child_table DEFAULT"
+  },
+  {
+    "comment": "ALTER TABLE ATTACH PARTITION with range",
+    "query": "ALTER TABLE parent_table ATTACH PARTITION child_table FOR VALUES FROM (1) TO (100)"
+  },
+  {
+    "comment": "ALTER TABLE ATTACH PARTITION with list",
+    "query": "ALTER TABLE parent_table ATTACH PARTITION child_table FOR VALUES IN (1, 2, 3)"
+  },
+  {
+    "comment": "ALTER TABLE DETACH PARTITION",
+    "query": "ALTER TABLE parent_table DETACH PARTITION child_table"
+  },
+  {
+    "comment": "ALTER TABLE DETACH PARTITION CONCURRENTLY",
+    "query": "ALTER TABLE parent_table DETACH PARTITION child_table CONCURRENTLY"
+  },
+  {
+    "comment": "ALTER TABLE DETACH PARTITION FINALIZE",
+    "query": "ALTER TABLE parent_table DETACH PARTITION child_table FINALIZE"
+  },
+  {
+    "comment": "ALTER INDEX ATTACH PARTITION",
+    "query": "ALTER INDEX parent_index ATTACH PARTITION child_index"
+  },
+  {
+    "comment": "CREATE INDEX with options",
+    "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = 85)"
+  },
+  {
+    "comment": "CREATE UNIQUE INDEX with options",
+    "query": "CREATE UNIQUE INDEX test_idx ON test (id) WITH (fillfactor = 75)"
+  },
+  {
+    "comment": "CREATE INDEX with multiple options",
+    "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = 80, fastupdate = off)"
+  },
+  {
+    "comment": "Definition with boolean true",
+    "query": "CREATE INDEX test_idx ON test (id) WITH (fastupdate = on)",
+    "expected": "CREATE INDEX test_idx ON test (id) WITH (fastupdate = 'on')"
+  },
+  {
+    "comment": "Definition with boolean false",
+    "query": "CREATE INDEX test_idx ON test (id) WITH (fastupdate = off)"
+  },
+  {
+    "comment": "Definition with string value",
+    "query": "CREATE INDEX test_idx ON test (id) WITH (buffering = 'auto')"
+  },
+  {
+    "comment": "Definition with numeric value",
+    "query": "CREATE INDEX test_idx ON test (id) WITH (pages_per_range = 128)"
+  },
+  {
+    "comment": "Definition with identifier value",
+    "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = auto)"
+  },
+  {
+    "comment": "Definition with quoted identifier",
+    "query": "CREATE INDEX test_idx ON test (id) WITH (\"custom_option\" = 'value')",
+    "expected": "CREATE INDEX test_idx ON test (id) WITH (custom_option = 'value')"
+  },
+  {
+    "comment": "Definition with mixed value types",
+    "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = 80, fastupdate = on, buffering = 'auto')",
+    "expected": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = 80, fastupdate = 'on', buffering = 'auto')"
+  },
+  {
+    "comment": "Function with named parameters",
+    "query": "CREATE FUNCTION add(a integer, b integer) RETURNS INT LANGUAGE sql AS $$SELECT a + b$$",
+    "expected": "CREATE FUNCTION add (a INT, b INT) RETURNS INT LANGUAGE sql AS $$SELECT a + b$$"
+  },
+  {
+    "comment": "Function with IN/OUT named parameters",
+    "query": "CREATE FUNCTION process(IN input text, OUT result INT) LANGUAGE sql AS $$SELECT length(input)$$",
+    "expected": "CREATE FUNCTION process (input TEXT, OUT result INT) LANGUAGE sql AS $$SELECT length(input)$$"
+  },
+  {
+    "comment": "Function with unnamed parameter",
+    "query": "CREATE FUNCTION greet(TEXT) RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello ' || $1$$",
+    "expected": "CREATE FUNCTION greet (TEXT) RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello ' || $1$$"
+  },
+  {
+    "comment": "Function with multiple unnamed parameters",
+    "query": "CREATE FUNCTION multiply(INT, integer) RETURNS INT LANGUAGE sql AS $$SELECT $1 * $2$$",
+    "expected": "CREATE FUNCTION multiply (INT, INT) RETURNS INT LANGUAGE sql AS $$SELECT $1 * $2$$"
+  },
+  {
+    "comment": "Function with mixed parameters",
+    "query": "CREATE FUNCTION calc(a integer, integer, c integer) RETURNS INT LANGUAGE sql AS $$SELECT a + $2 + c$$",
+    "expected": "CREATE FUNCTION calc (a INT, INT, c INT) RETURNS INT LANGUAGE sql AS $$SELECT a + $2 + c$$"
+  },
+  {
+    "comment": "Function with OUT parameter",
+    "query": "CREATE FUNCTION get_values(OUT x integer, OUT y TEXT) LANGUAGE sql AS $$SELECT 1, 'hello'$$",
+    "expected": "CREATE FUNCTION get_values (OUT x INT, OUT y TEXT) LANGUAGE sql AS $$SELECT 1, 'hello'$$"
+  },
+  {
+    "comment": "Function with INOUT parameter",
+    "query": "CREATE FUNCTION double(INOUT value INT) LANGUAGE sql AS $$SELECT value * 2$$",
+    "expected": "CREATE FUNCTION double (INOUT value INT) LANGUAGE sql AS $$SELECT value * 2$$"
+  },
+  {
+    "comment": "Function with default parameter",
+    "query": "CREATE FUNCTION greet_with_default(name text DEFAULT 'World') RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello, ' || name$$",
+    "expected": "CREATE FUNCTION greet_with_default (name TEXT DEFAULT 'World') RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello, ' || name$$"
+  },
+  {
+    "comment": "Function with empty string name handling",
+    "query": "CREATE FUNCTION unnamed_params(INT, text, boolean) RETURNS void LANGUAGE sql AS $$SELECT NULL$$",
+    "expected": "CREATE FUNCTION unnamed_params (INT, TEXT, BOOLEAN) RETURNS void LANGUAGE sql AS $$SELECT NULL$$"
+  },
+  {
+    "comment": "Function with qualified name",
+    "query": "CREATE FUNCTION public.my_func(param1 text) RETURNS INT LANGUAGE sql AS $$SELECT 42$$",
+    "expected": "CREATE FUNCTION public.my_func (param1 TEXT) RETURNS INT LANGUAGE sql AS $$SELECT 42$$"
+  },
+  {
+    "comment": "Basic CREATE VIEW",
+    "query": "CREATE VIEW user_view AS SELECT * FROM users"
+  },
+  {
+    "comment": "CREATE OR REPLACE VIEW",
+    "query": "CREATE OR REPLACE VIEW user_view AS SELECT * FROM users"
+  },
+  {
+    "comment": "VIEW with column aliases",
+    "query": "CREATE VIEW user_summary (id, full_name) AS SELECT id, name FROM users"
+  },
+  {
+    "comment": "VIEW with qualified name",
+    "query": "CREATE VIEW public.user_view AS SELECT * FROM users"
+  },
+  {
+    "comment": "Basic CREATE TRIGGER",
+    "query": "CREATE TRIGGER my_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func()",
+    "expected": "CREATE TRIGGER my_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func ()"
+  },
+  {
+    "comment": "CREATE TRIGGER AFTER UPDATE",
+    "query": "CREATE TRIGGER audit_trigger AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_func()",
+    "expected": "CREATE TRIGGER audit_trigger AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_func ()"
+  },
+  {
+    "comment": "CREATE TRIGGER multiple events",
+    "query": "CREATE TRIGGER multi_trigger BEFORE INSERT OR UPDATE ON users FOR EACH ROW EXECUTE FUNCTION multi_func()",
+    "expected": "CREATE TRIGGER multi_trigger BEFORE INSERT OR UPDATE ON users FOR EACH ROW EXECUTE FUNCTION multi_func ()"
+  },
+  {
+    "comment": "CREATE TRIGGER with arguments",
+    "query": "CREATE TRIGGER arg_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func('arg1', 123)",
+    "expected": "CREATE TRIGGER arg_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func ('arg1', 123)"
+  },
+  {
+    "comment": "CREATE ROLE basic",
+    "query": "CREATE ROLE testuser"
+  },
+  {
+    "comment": "CREATE USER basic",
+    "query": "CREATE USER testuser"
+  },
+  {
+    "comment": "CREATE GROUP basic",
+    "query": "CREATE GROUP testgroup"
+  },
+  {
+    "comment": "CREATE ROLE with PASSWORD",
+    "query": "CREATE ROLE testuser WITH PASSWORD 'secret'"
+  },
+  {
+    "comment": "CREATE USER with SUPERUSER",
+    "query": "CREATE USER testuser WITH SUPERUSER"
+  },
+  {
+    "comment": "CREATE ROLE with LOGIN",
+    "query": "CREATE ROLE testuser WITH LOGIN"
+  },
+  {
+    "comment": "CREATE ROLE with NOLOGIN",
+    "query": "CREATE ROLE testuser WITH NOLOGIN"
+  },
+  {
+    "comment": "CREATE ROLE with INHERIT",
+    "query": "CREATE ROLE testuser WITH INHERIT"
+  },
+  {
+    "comment": "CREATE ROLE with NOINHERIT",
+    "query": "CREATE ROLE testuser WITH NOINHERIT"
+  },
+  {
+    "comment": "CREATE ROLE with CREATEROLE",
+    "query": "CREATE ROLE testuser WITH CREATEROLE"
+  },
+  {
+    "comment": "CREATE ROLE with NOCREATEROLE",
+    "query": "CREATE ROLE testuser WITH NOCREATEROLE"
+  },
+  {
+    "comment": "CREATE ROLE with CREATEDB",
+    "query": "CREATE ROLE testuser WITH CREATEDB"
+  },
+  {
+    "comment": "CREATE ROLE with NOCREATEDB",
+    "query": "CREATE ROLE testuser WITH NOCREATEDB"
+  },
+  {
+    "comment": "CREATE ROLE with REPLICATION",
+    "query": "CREATE ROLE testuser WITH REPLICATION"
+  },
+  {
+    "comment": "CREATE ROLE with NOREPLICATION",
+    "query": "CREATE ROLE testuser WITH NOREPLICATION"
+  },
+  {
+    "comment": "CREATE ROLE with CONNECTION LIMIT",
+    "query": "CREATE ROLE testuser WITH CONNECTION LIMIT 10"
+  },
+  {
+    "comment": "CREATE ROLE with VALID UNTIL",
+    "query": "CREATE ROLE testuser WITH VALID UNTIL '2025-12-31'"
+  },
+  {
+    "comment": "CREATE ROLE with multiple options",
+    "query": "CREATE USER testuser WITH SUPERUSER CREATEDB"
+  },
+  {
+    "comment": "CREATE ROLE with IN ROLE",
+    "query": "CREATE ROLE testuser WITH IN ROLE admin_role"
+  },
+  {
+    "comment": "CREATE ROLE with ADMIN",
+    "query": "CREATE ROLE testuser WITH ADMIN admin_role"
+  },
+  {
+    "comment": "ALTER ROLE basic",
+    "query": "ALTER ROLE testuser WITH PASSWORD 'newsecret'"
+  },
+  {
+    "comment": "ALTER USER basic",
+    "query": "ALTER USER testuser WITH SUPERUSER",
+    "expected": "ALTER ROLE testuser WITH SUPERUSER"
+  },
+  {
+    "comment": "ALTER ROLE with CURRENT_USER",
+    "query": "ALTER ROLE CURRENT_USER WITH PASSWORD 'newsecret'"
+  },
+  {
+    "comment": "ALTER USER with SESSION_USER",
+    "query": "ALTER USER SESSION_USER WITH NOSUPERUSER",
+    "expected": "ALTER ROLE SESSION_USER WITH NOSUPERUSER"
+  },
+  {
+    "comment": "ALTER ROLE multiple options",
+    "query": "ALTER ROLE testuser WITH NOSUPERUSER NOINHERIT"
+  },
+  {
+    "comment": "ALTER GROUP ADD USER",
+    "query": "ALTER GROUP testgroup ADD USER testuser"
+  },
+  {
+    "comment": "ALTER GROUP DROP USER",
+    "query": "ALTER GROUP testgroup DROP USER testuser"
+  },
+  {
+    "comment": "ALTER GROUP ADD multiple users",
+    "query": "ALTER GROUP testgroup ADD USER user1, user2, user3"
+  },
+  {
+    "comment": "ALTER GROUP DROP multiple users",
+    "query": "ALTER GROUP testgroup DROP USER user1, user2, user3"
+  },
+  {
+    "comment": "DROP ROLE basic",
+    "query": "DROP ROLE testuser"
+  },
+  {
+    "comment": "DROP USER basic",
+    "query": "DROP USER testuser",
+    "expected": "DROP ROLE testuser"
+  },
+  {
+    "comment": "DROP GROUP basic",
+    "query": "DROP GROUP testgroup",
+    "expected": "DROP ROLE testgroup"
+  },
+  {
+    "comment": "DROP ROLE IF EXISTS",
+    "query": "DROP ROLE IF EXISTS testuser"
+  },
+  {
+    "comment": "DROP USER IF EXISTS",
+    "query": "DROP USER IF EXISTS testuser",
+    "expected": "DROP ROLE IF EXISTS testuser"
+  },
+  {
+    "comment": "DROP GROUP IF EXISTS",
+    "query": "DROP GROUP IF EXISTS testgroup",
+    "expected": "DROP ROLE IF EXISTS testgroup"
+  },
+  {
+    "comment": "DROP ROLE multiple",
+    "query": "DROP ROLE user1, user2, user3"
+  },
+  {
+    "comment": "DROP USER multiple with IF EXISTS",
+    "query": "DROP USER IF EXISTS user1, user2, user3",
+    "expected": "DROP ROLE IF EXISTS user1, user2, user3"
+  },
+  {
+    "comment": "ALTER ROLE SET basic",
+    "query": "ALTER ROLE testuser SET search_path TO public"
+  },
+  {
+    "comment": "ALTER ROLE SET with string value",
+    "query": "ALTER ROLE testuser SET timezone TO 'UTC'"
+  },
+  {
+    "comment": "ALTER ROLE SET with multiple values",
+    "query": "ALTER ROLE testuser SET search_path TO schema1, schema2"
+  },
+  {
+    "comment": "ALTER ROLE SET with numeric value",
+    "query": "ALTER ROLE testuser SET work_mem TO 1024"
+  },
+  {
+    "comment": "ALTER ROLE SET with boolean value",
+    "query": "ALTER ROLE testuser SET log_statement TO on",
+    "expected": "ALTER ROLE testuser SET log_statement TO 'on'"
+  },
+  {
+    "comment": "ALTER ROLE SET in database",
+    "query": "ALTER ROLE testuser IN DATABASE mydb SET search_path TO public"
+  },
+  {
+    "comment": "ALTER ROLE SET in database with string",
+    "query": "ALTER ROLE testuser IN DATABASE mydb SET timezone TO 'UTC'"
+  },
+  {
+    "comment": "ALTER ROLE RESET basic",
+    "query": "ALTER ROLE testuser RESET search_path"
+  },
+  {
+    "comment": "ALTER ROLE RESET ALL",
+    "query": "ALTER ROLE testuser RESET ALL"
+  },
+  {
+    "comment": "ALTER ROLE RESET in database",
+    "query": "ALTER ROLE testuser IN DATABASE mydb RESET search_path"
+  },
+  {
+    "comment": "ALTER ROLE RESET ALL in database",
+    "query": "ALTER ROLE testuser IN DATABASE mydb RESET ALL"
+  },
+  {
+    "comment": "ALTER USER SET",
+    "query": "ALTER USER testuser SET search_path TO public",
+    "expected": "ALTER ROLE testuser SET search_path TO public"
+  },
+  {
+    "comment": "ALTER USER SET in database",
+    "query": "ALTER USER testuser IN DATABASE mydb SET timezone TO 'UTC'",
+    "expected": "ALTER ROLE testuser IN DATABASE mydb SET timezone TO 'UTC'"
+  },
+  {
+    "comment": "ALTER USER RESET",
+    "query": "ALTER USER testuser RESET search_path",
+    "expected": "ALTER ROLE testuser RESET search_path"
+  },
+  {
+    "comment": "ALTER ROLE ALL SET",
+    "query": "ALTER ROLE ALL SET search_path TO public"
+  },
+  {
+    "comment": "ALTER ROLE ALL SET in database",
+    "query": "ALTER ROLE ALL IN DATABASE mydb SET search_path TO public"
+  },
+  {
+    "comment": "ALTER ROLE ALL RESET",
+    "query": "ALTER ROLE ALL RESET search_path"
+  },
+  {
+    "comment": "ALTER ROLE ALL RESET in database",
+    "query": "ALTER ROLE ALL IN DATABASE mydb RESET ALL"
+  },
+  {
+    "comment": "ALTER USER ALL SET",
+    "query": "ALTER USER ALL SET search_path TO public",
+    "expected": "ALTER ROLE ALL SET search_path TO public"
+  },
+  {
+    "comment": "ALTER USER ALL RESET",
+    "query": "ALTER USER ALL RESET search_path",
+    "expected": "ALTER ROLE ALL RESET search_path"
+  },
+  {
+    "comment": "ALTER ROLE SET log_statement",
+    "query": "ALTER ROLE testuser SET log_statement TO 'all'"
+  },
+  {
+    "comment": "ALTER ROLE SET shared_preload_libraries",
+    "query": "ALTER ROLE testuser SET shared_preload_libraries TO 'pg_stat_statements'",
+    "expected": "ALTER ROLE testuser SET shared_preload_libraries TO pg_stat_statements"
+  },
+  {
+    "comment": "ALTER ROLE SET with quoted identifier",
+    "query": "ALTER ROLE \"test-user\" SET search_path TO public",
+    "expected": "ALTER ROLE \"test-user\" SET search_path TO public"
+  },
+  {
+    "comment": "ALTER ROLE SET with DEFAULT",
+    "query": "ALTER ROLE testuser SET search_path TO DEFAULT"
+  },
+  {
+    "comment": "ALTER FUNCTION basic",
+    "query": "ALTER FUNCTION my_func() VOLATILE"
+  },
+  {
+    "comment": "ALTER FUNCTION with args",
+    "query": "ALTER FUNCTION test_func(INT, TEXT) STABLE"
+  },
+  {
+    "comment": "ALTER FUNCTION immutable",
+    "query": "ALTER FUNCTION calc_tax(NUMERIC) IMMUTABLE"
+  },
+  {
+    "comment": "ALTER FUNCTION strict",
+    "query": "ALTER FUNCTION validate_input(TEXT) STRICT"
+  },
+  {
+    "comment": "ALTER FUNCTION leakproof",
+    "query": "ALTER FUNCTION secure_hash(TEXT) LEAKPROOF"
+  },
+  {
+    "comment": "ALTER FUNCTION security definer",
+    "query": "ALTER FUNCTION admin_func() SECURITY DEFINER"
+  },
+  {
+    "comment": "ALTER FUNCTION cost",
+    "query": "ALTER FUNCTION expensive_calc() COST 1000"
+  },
+  {
+    "comment": "ALTER FUNCTION rows",
+    "query": "ALTER FUNCTION return_rows() ROWS 100"
+  },
+  {
+    "comment": "ALTER PROCEDURE basic",
+    "query": "ALTER PROCEDURE my_proc() VOLATILE"
+  },
+  {
+    "comment": "ALTER PROCEDURE with args",
+    "query": "ALTER PROCEDURE update_stats(INT, TEXT) IMMUTABLE"
+  },
+  {
+    "comment": "ALTER ROUTINE basic",
+    "query": "ALTER ROUTINE my_routine() VOLATILE"
+  },
+  {
+    "comment": "ALTER ROUTINE with args",
+    "query": "ALTER ROUTINE calc_stats(INT, TEXT) STABLE"
+  },
+  {
+    "comment": "ALTER ROUTINE immutable",
+    "query": "ALTER ROUTINE hash_func(TEXT) IMMUTABLE"
+  },
+  {
+    "comment": "ALTER ROUTINE strict",
+    "query": "ALTER ROUTINE validate_data(TEXT) STRICT"
+  },
+  {
+    "comment": "ALTER ROUTINE leakproof",
+    "query": "ALTER ROUTINE secure_routine(TEXT) LEAKPROOF"
+  },
+  {
+    "comment": "ALTER ROUTINE security definer",
+    "query": "ALTER ROUTINE admin_routine() SECURITY DEFINER"
+  },
+  {
+    "comment": "ALTER ROUTINE cost",
+    "query": "ALTER ROUTINE expensive_routine() COST 1000"
+  },
+  {
+    "comment": "ALTER ROUTINE rows",
+    "query": "ALTER ROUTINE return_data() ROWS 100"
+  },
+  {
+    "comment": "ALTER FUNCTION with SUPPORT",
+    "query": "ALTER FUNCTION test_func() SUPPORT support_func"
+  },
+  {
+    "comment": "ALTER FUNCTION with PARALLEL SAFE",
+    "query": "ALTER FUNCTION calc_func() PARALLEL SAFE"
+  },
+  {
+    "comment": "ALTER FUNCTION with PARALLEL UNSAFE",
+    "query": "ALTER FUNCTION risky_func() PARALLEL UNSAFE"
+  },
+  {
+    "comment": "ALTER FUNCTION with PARALLEL RESTRICTED",
+    "query": "ALTER FUNCTION limited_func() PARALLEL RESTRICTED"
+  },
+  {
+    "comment": "ALTER FUNCTION with SET",
+    "query": "ALTER FUNCTION config_func() SET work_mem = '256MB'"
+  },
+  {
+    "comment": "ALTER FUNCTION with RESET",
+    "query": "ALTER FUNCTION config_func() RESET work_mem"
+  },
+  {
+    "comment": "ALTER ROUTINE with SUPPORT",
+    "query": "ALTER ROUTINE test_routine() SUPPORT support_routine"
+  },
+  {
+    "comment": "ALTER ROUTINE with PARALLEL SAFE",
+    "query": "ALTER ROUTINE calc_routine() PARALLEL SAFE"
+  },
+  {
+    "comment": "ALTER PROCEDURE with PARALLEL UNSAFE",
+    "query": "ALTER PROCEDURE risky_proc() PARALLEL UNSAFE"
+  },
+  {
+    "comment": "ALTER TYPE with options",
+    "query": "ALTER TYPE my_type SET (RECEIVE = my_receive)"
+  },
+  {
+    "comment": "ALTER TYPE SET multiple options",
+    "query": "ALTER TYPE custom_type SET (RECEIVE = recv_func, SEND = send_func)"
+  },
+  {
+    "comment": "ALTER TYPE SET with string",
+    "query": "ALTER TYPE text_type SET (ANALYZE = analyze_text)"
+  },
+  {
+    "comment": "ALTER TYPE SET with numeric",
+    "query": "ALTER TYPE float_type SET (ALIGNMENT = 8)"
+  },
+  {
+    "comment": "ALTER TYPE SET option to NONE",
+    "query": "ALTER TYPE my_type SET (STORAGE = NONE)"
+  },
+  {
+    "comment": "ALTER TYPE composite add attribute",
+    "query": "ALTER TYPE person ADD ATTRIBUTE phone TEXT"
+  },
+  {
+    "comment": "ALTER TYPE composite drop attribute",
+    "query": "ALTER TYPE person DROP ATTRIBUTE email"
+  },
+  {
+    "comment": "ALTER TYPE composite drop attribute if exists",
+    "query": "ALTER TYPE person DROP ATTRIBUTE IF EXISTS old_field"
+  },
+  {
+    "comment": "ALTER TYPE composite alter attribute",
+    "query": "ALTER TYPE person ALTER ATTRIBUTE name TYPE VARCHAR(100)"
+  },
+  {
+    "comment": "ALTER TYPE composite alter attribute with collate",
+    "query": "ALTER TYPE person ALTER ATTRIBUTE name TYPE VARCHAR(100) COLLATE c"
+  },
+  {
+    "comment": "GRANT SELECT on table",
+    "query": "GRANT SELECT ON users TO alice"
+  },
+  {
+    "comment": "GRANT multiple privileges",
+    "query": "GRANT SELECT, INSERT ON users TO alice"
+  },
+  {
+    "comment": "GRANT ALL privileges",
+    "query": "GRANT ALL ON users TO alice",
+    "expected": "GRANT ALL PRIVILEGES ON users TO alice"
+  },
+  {
+    "comment": "GRANT ALL PRIVILEGES",
+    "query": "GRANT ALL PRIVILEGES ON users TO alice"
+  },
+  {
+    "comment": "GRANT with WITH GRANT OPTION",
+    "query": "GRANT SELECT ON users TO alice WITH GRANT OPTION"
+  },
+  {
+    "comment": "GRANT to multiple users",
+    "query": "GRANT SELECT ON users TO alice, bob"
+  },
+  {
+    "comment": "GRANT to GROUP",
+    "query": "GRANT SELECT ON users TO GROUP admin",
+    "expected": "GRANT SELECT ON users TO admin"
+  },
+  {
+    "comment": "GRANT on TABLE explicitly",
+    "query": "GRANT SELECT ON TABLE users TO alice",
+    "expected": "GRANT SELECT ON users TO alice"
+  },
+  {
+    "comment": "GRANT on SEQUENCE",
+    "query": "GRANT USAGE ON SEQUENCE users_id_seq TO alice"
+  },
+  {
+    "comment": "GRANT on DATABASE",
+    "query": "GRANT CONNECT ON DATABASE mydb TO alice"
+  },
+  {
+    "comment": "GRANT on SCHEMA",
+    "query": "GRANT USAGE ON SCHEMA public TO alice"
+  },
+  {
+    "comment": "GRANT on FUNCTION",
+    "query": "GRANT EXECUTE ON FUNCTION get_user(integer) TO alice",
+    "expected": "GRANT EXECUTE ON FUNCTION get_user(INT) TO alice"
+  },
+  {
+    "comment": "GRANT on ALL TABLES IN SCHEMA",
+    "query": "GRANT SELECT ON ALL TABLES IN SCHEMA public TO alice"
+  },
+  {
+    "comment": "GRANT on ALL SEQUENCES IN SCHEMA",
+    "query": "GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO alice"
+  },
+  {
+    "comment": "GRANT on ALL FUNCTIONS IN SCHEMA",
+    "query": "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO alice"
+  },
+  {
+    "comment": "REVOKE SELECT on table",
+    "query": "REVOKE SELECT ON users FROM alice"
+  },
+  {
+    "comment": "REVOKE multiple privileges",
+    "query": "REVOKE SELECT, INSERT ON users FROM alice"
+  },
+  {
+    "comment": "REVOKE ALL privileges",
+    "query": "REVOKE ALL ON users FROM alice",
+    "expected": "REVOKE ALL PRIVILEGES ON users FROM alice"
+  },
+  {
+    "comment": "REVOKE from multiple users",
+    "query": "REVOKE SELECT ON users FROM alice, bob"
+  },
+  {
+    "comment": "REVOKE GRANT OPTION FOR",
+    "query": "REVOKE GRANT OPTION FOR SELECT ON users FROM alice"
+  },
+  {
+    "comment": "GRANT role to user",
+    "query": "GRANT admin TO alice"
+  },
+  {
+    "comment": "GRANT multiple roles",
+    "query": "GRANT admin, manager TO alice"
+  },
+  {
+    "comment": "GRANT role to multiple users",
+    "query": "GRANT admin TO alice, bob"
+  },
+  {
+    "comment": "REVOKE role from user",
+    "query": "REVOKE admin FROM alice"
+  },
+  {
+    "comment": "REVOKE multiple roles",
+    "query": "REVOKE admin, manager FROM alice"
+  },
+  {
+    "comment": "GRANT with column list",
+    "query": "GRANT SELECT (id, name) ON users TO alice"
+  },
+  {
+    "comment": "GRANT with qualified table",
+    "query": "GRANT SELECT ON public.users TO alice"
+  },
+  {
+    "comment": "GRANT with GRANTED BY",
+    "query": "GRANT SELECT ON users TO alice GRANTED BY admin"
+  },
+  {
+    "comment": "REVOKE with GRANTED BY",
+    "query": "REVOKE SELECT ON users FROM alice GRANTED BY admin"
+  },
+  {
+    "comment": "REVOKE with CASCADE",
+    "query": "REVOKE SELECT ON users FROM alice CASCADE"
+  },
+  {
+    "comment": "REVOKE with RESTRICT",
+    "query": "REVOKE SELECT ON users FROM alice RESTRICT",
+    "expected": "REVOKE SELECT ON users FROM alice"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES basic GRANT",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO alice"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES basic REVOKE",
+    "query": "ALTER DEFAULT PRIVILEGES REVOKE INSERT ON FUNCTIONS FROM bob"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES FOR ROLE",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT ALL PRIVILEGES ON TABLES TO bob"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES FOR USER",
+    "query": "ALTER DEFAULT PRIVILEGES FOR USER alice GRANT SELECT ON SEQUENCES TO bob",
+    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT SELECT ON SEQUENCES TO bob"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES IN SCHEMA",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO dev_role"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES FOR ROLE IN SCHEMA",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE alice IN SCHEMA public GRANT SELECT ON TABLES TO bob"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES IN SCHEMA FOR ROLE",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA public FOR ROLE alice GRANT INSERT ON SEQUENCES TO bob",
+    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE alice IN SCHEMA public GRANT INSERT ON SEQUENCES TO bob"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON TABLES",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT, INSERT ON TABLES TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON FUNCTIONS",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON ROUTINES",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON ROUTINES TO user1",
+    "expected": "ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON SEQUENCES",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT ON SEQUENCES TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON TYPES",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT USAGE ON TYPES TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON SCHEMAS",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT USAGE ON SCHEMAS TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES multiple privileges",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT, INSERT, UPDATE ON TABLES TO alice"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ALL PRIVILEGES",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT ALL PRIVILEGES ON FUNCTIONS TO public"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES WITH GRANT OPTION",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO alice WITH GRANT OPTION"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES REVOKE basic",
+    "query": "ALTER DEFAULT PRIVILEGES REVOKE SELECT ON TABLES FROM alice"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES REVOKE GRANT OPTION",
+    "query": "ALTER DEFAULT PRIVILEGES REVOKE GRANT OPTION FOR SELECT ON TABLES FROM alice"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES REVOKE CASCADE",
+    "query": "ALTER DEFAULT PRIVILEGES REVOKE SELECT ON TABLES FROM alice CASCADE"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES multiple grantees",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO alice, bob, charlie"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES multiple schemas",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA public, test GRANT SELECT ON TABLES TO dev_role"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES multiple roles",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE alice, bob GRANT SELECT ON TABLES TO dev_role"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES basic GRANT",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO alice"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES basic REVOKE",
+    "query": "ALTER DEFAULT PRIVILEGES REVOKE INSERT ON FUNCTIONS FROM bob"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES FOR ROLE",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT ALL PRIVILEGES ON TABLES TO bob",
+    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT ALL PRIVILEGES ON TABLES TO bob"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES FOR USER",
+    "query": "ALTER DEFAULT PRIVILEGES FOR USER alice GRANT SELECT ON SEQUENCES TO bob",
+    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT SELECT ON SEQUENCES TO bob"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES IN SCHEMA",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO dev_role"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES FOR ROLE IN SCHEMA",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE alice IN SCHEMA public GRANT SELECT ON TABLES TO bob",
+    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE alice IN SCHEMA public GRANT SELECT ON TABLES TO bob"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES IN SCHEMA FOR ROLE",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA public FOR ROLE alice GRANT INSERT ON SEQUENCES TO bob",
+    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE alice IN SCHEMA public GRANT INSERT ON SEQUENCES TO bob"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON TABLES",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT, INSERT ON TABLES TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON FUNCTIONS",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON ROUTINES",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON ROUTINES TO user1",
+    "expected": "ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON SEQUENCES",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT ON SEQUENCES TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON TYPES",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT USAGE ON TYPES TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ON SCHEMAS",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT USAGE ON SCHEMAS TO user1"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES multiple privileges",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT, INSERT, UPDATE ON TABLES TO alice"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES ALL PRIVILEGES",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT ALL PRIVILEGES ON FUNCTIONS TO public"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES WITH GRANT OPTION",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO alice WITH GRANT OPTION"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES REVOKE basic",
+    "query": "ALTER DEFAULT PRIVILEGES REVOKE SELECT ON TABLES FROM alice"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES REVOKE GRANT OPTION",
+    "query": "ALTER DEFAULT PRIVILEGES REVOKE GRANT OPTION FOR SELECT ON TABLES FROM alice"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES REVOKE CASCADE",
+    "query": "ALTER DEFAULT PRIVILEGES REVOKE SELECT ON TABLES FROM alice CASCADE"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES multiple grantees",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO alice, bob, charlie"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES multiple schemas",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA public, test GRANT SELECT ON TABLES TO dev_role"
+  },
+  {
+    "comment": "ALTER DEFAULT PRIVILEGES multiple roles",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE alice, bob GRANT SELECT ON TABLES TO dev_role"
+  },
+  {
+    "comment": "ALTER SEQUENCE SET SCHEMA",
+    "query": "ALTER SEQUENCE user_id_seq SET SCHEMA public"
+  },
+  {
+    "comment": "ALTER VIEW SET SCHEMA",
+    "query": "ALTER VIEW user_view SET SCHEMA reporting"
+  },
+  {
+    "comment": "ALTER MATERIALIZED VIEW SET SCHEMA",
+    "query": "ALTER MATERIALIZED VIEW user_summary SET SCHEMA analytics"
+  },
+  {
+    "comment": "ALTER FUNCTION SET SCHEMA",
+    "query": "ALTER FUNCTION calculate_total(integer) SET SCHEMA utilities",
+    "expected": "ALTER FUNCTION calculate_total(INT) SET SCHEMA utilities"
+  },
+  {
+    "comment": "ALTER PROCEDURE SET SCHEMA",
+    "query": "ALTER PROCEDURE update_user(integer, text) SET SCHEMA admin",
+    "expected": "ALTER PROCEDURE update_user(INT, TEXT) SET SCHEMA admin"
+  },
+  {
+    "comment": "ALTER ROUTINE SET SCHEMA",
+    "query": "ALTER ROUTINE process_data(text) SET SCHEMA jobs",
+    "expected": "ALTER ROUTINE process_data(TEXT) SET SCHEMA jobs"
+  },
+  {
+    "comment": "ALTER AGGREGATE SET SCHEMA",
+    "query": "ALTER AGGREGATE my_avg(integer) SET SCHEMA math",
+    "expected": "ALTER AGGREGATE my_avg(INT) SET SCHEMA math"
+  },
+  {
+    "comment": "ALTER OPERATOR SET SCHEMA",
+    "query": "ALTER OPERATOR public.+(integer, integer) SET SCHEMA math",
+    "expected": "ALTER OPERATOR public.+(INT, INT) SET SCHEMA math"
+  },
+  {
+    "comment": "ALTER OPERATOR CLASS SET SCHEMA",
+    "query": "ALTER OPERATOR CLASS integer_ops USING btree SET SCHEMA indexes",
+    "expected": "ALTER OPERATOR CLASS integer_ops USING btree SET SCHEMA indexes"
+  },
+  {
+    "comment": "ALTER OPERATOR FAMILY SET SCHEMA",
+    "query": "ALTER OPERATOR FAMILY integer_ops USING btree SET SCHEMA indexes",
+    "expected": "ALTER OPERATOR FAMILY integer_ops USING btree SET SCHEMA indexes"
+  },
+  {
+    "comment": "ALTER COLLATION SET SCHEMA",
+    "query": "ALTER COLLATION my_collation SET SCHEMA locale"
+  },
+  {
+    "comment": "ALTER CONVERSION SET SCHEMA",
+    "query": "ALTER CONVERSION my_conversion SET SCHEMA encoding"
+  },
+  {
+    "comment": "ALTER DOMAIN SET SCHEMA",
+    "query": "ALTER DOMAIN email_domain SET SCHEMA types"
+  },
+  {
+    "comment": "ALTER EXTENSION SET SCHEMA",
+    "query": "ALTER EXTENSION hstore SET SCHEMA public"
+  },
+  {
+    "comment": "ALTER FOREIGN TABLE SET SCHEMA",
+    "query": "ALTER FOREIGN TABLE remote_users SET SCHEMA foreignt"
+  },
+  {
+    "comment": "ALTER STATISTICS SET SCHEMA",
+    "query": "ALTER STATISTICS user_stats SET SCHEMA analytics"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH PARSER SET SCHEMA",
+    "query": "ALTER TEXT SEARCH PARSER my_parser SET SCHEMA search"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH DICTIONARY SET SCHEMA",
+    "query": "ALTER TEXT SEARCH DICTIONARY my_dict SET SCHEMA search"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH TEMPLATE SET SCHEMA",
+    "query": "ALTER TEXT SEARCH TEMPLATE my_template SET SCHEMA search"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH CONFIGURATION SET SCHEMA",
+    "query": "ALTER TEXT SEARCH CONFIGURATION my_config SET SCHEMA searcht"
+  },
+  {
+    "comment": "ALTER TYPE SET SCHEMA",
+    "query": "ALTER TYPE custom_type SET SCHEMA types"
+  },
+  {
+    "comment": "ALTER TABLE OWNER TO",
+    "query": "ALTER TABLE users OWNER TO admin"
+  },
+  {
+    "comment": "ALTER INDEX OWNER TO",
+    "query": "ALTER INDEX idx_users OWNER TO dba"
+  },
+  {
+    "comment": "ALTER SEQUENCE OWNER TO",
+    "query": "ALTER SEQUENCE user_id_seq OWNER TO app_user"
+  },
+  {
+    "comment": "ALTER VIEW OWNER TO",
+    "query": "ALTER VIEW user_view OWNER TO report_user"
+  },
+  {
+    "comment": "ALTER MATERIALIZED VIEW OWNER TO",
+    "query": "ALTER MATERIALIZED VIEW user_summary OWNER TO analytics"
+  },
+  {
+    "comment": "ALTER TABLE OWNER TO CURRENT_USER",
+    "query": "ALTER TABLE users OWNER TO CURRENT_USER"
+  },
+  {
+    "comment": "ALTER TABLE OWNER TO CURRENT_ROLE",
+    "query": "ALTER TABLE users OWNER TO CURRENT_ROLE"
+  },
+  {
+    "comment": "ALTER TABLE OWNER TO SESSION_USER",
+    "query": "ALTER TABLE users OWNER TO SESSION_USER"
+  },
+  {
+    "comment": "ALTER FUNCTION OWNER TO",
+    "query": "ALTER FUNCTION calculate_total(integer) OWNER TO developer",
+    "expected": "ALTER FUNCTION calculate_total(INT) OWNER TO developer"
+  },
+  {
+    "comment": "ALTER PROCEDURE OWNER TO",
+    "query": "ALTER PROCEDURE update_user(integer, text) OWNER TO admin",
+    "expected": "ALTER PROCEDURE update_user(INT, TEXT) OWNER TO admin"
+  },
+  {
+    "comment": "ALTER ROUTINE OWNER TO",
+    "query": "ALTER ROUTINE process_data(text) OWNER TO service",
+    "expected": "ALTER ROUTINE process_data(TEXT) OWNER TO service"
+  },
+  {
+    "comment": "ALTER AGGREGATE OWNER TO",
+    "query": "ALTER AGGREGATE my_avg(integer) OWNER TO analyst",
+    "expected": "ALTER AGGREGATE my_avg(INT) OWNER TO analyst"
+  },
+  {
+    "comment": "ALTER OPERATOR OWNER TO",
+    "query": "ALTER OPERATOR public.+(integer, integer) OWNER TO math_user",
+    "expected": "ALTER OPERATOR public.+(INT, INT) OWNER TO math_user"
+  },
+  {
+    "comment": "ALTER LANGUAGE OWNER TO",
+    "query": "ALTER LANGUAGE plpgsql OWNER TO superuser"
+  },
+  {
+    "comment": "ALTER LARGE OBJECT OWNER TO",
+    "query": "ALTER LARGE OBJECT 12345 OWNER TO file_user"
+  },
+  {
+    "comment": "ALTER OPERATOR CLASS OWNER TO",
+    "query": "ALTER OPERATOR CLASS integer_ops USING btree OWNER TO index_admin"
+  },
+  {
+    "comment": "ALTER OPERATOR FAMILY OWNER TO",
+    "query": "ALTER OPERATOR FAMILY integer_ops USING btree OWNER TO index_admin"
+  },
+  {
+    "comment": "ALTER SCHEMA OWNER TO",
+    "query": "ALTER SCHEMA public OWNER TO schema_admin"
+  },
+  {
+    "comment": "ALTER TYPE OWNER TO",
+    "query": "ALTER TYPE custom_type OWNER TO type_admin"
+  },
+  {
+    "comment": "ALTER DOMAIN OWNER TO",
+    "query": "ALTER DOMAIN email_domain OWNER TO type_admin"
+  },
+  {
+    "comment": "ALTER COLLATION OWNER TO",
+    "query": "ALTER COLLATION my_collation OWNER TO locale_admin"
+  },
+  {
+    "comment": "ALTER CONVERSION OWNER TO",
+    "query": "ALTER CONVERSION my_conversion OWNER TO encoding_admin"
+  },
+  {
+    "comment": "ALTER FOREIGN DATA WRAPPER OWNER TO",
+    "query": "ALTER FOREIGN DATA WRAPPER my_fdw OWNER TO fdw_admin"
+  },
+  {
+    "comment": "ALTER SERVER OWNER TO",
+    "query": "ALTER SERVER remote_server OWNER TO server_admin"
+  },
+  {
+    "comment": "ALTER DATABASE OWNER TO",
+    "query": "ALTER DATABASE mydb OWNER TO db_admin"
+  },
+  {
+    "comment": "ALTER TABLESPACE OWNER TO",
+    "query": "ALTER TABLESPACE my_tablespace OWNER TO storage_admin"
+  },
+  {
+    "comment": "ALTER FOREIGN TABLE OWNER TO",
+    "query": "ALTER FOREIGN TABLE remote_users OWNER TO foreign_admin"
+  },
+  {
+    "comment": "ALTER STATISTICS OWNER TO",
+    "query": "ALTER STATISTICS user_stats OWNER TO stats_admin"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH DICTIONARY OWNER TO",
+    "query": "ALTER TEXT SEARCH DICTIONARY my_dict OWNER TO search_admin"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH CONFIGURATION OWNER TO",
+    "query": "ALTER TEXT SEARCH CONFIGURATION my_config OWNER TO search_admin"
+  },
+  {
+    "comment": "ALTER OPERATOR SET SCHEMA",
+    "query": "ALTER OPERATOR public.+(integer, integer) SET SCHEMA math",
+    "expected": "ALTER OPERATOR public.+(INT, INT) SET SCHEMA math"
+  },
+  {
+    "comment": "ALTER OPERATOR OWNER TO",
+    "query": "ALTER OPERATOR public.+(integer, integer) OWNER TO math_user",
+    "expected": "ALTER OPERATOR public.+(INT, INT) OWNER TO math_user"
+  },
+  {
+    "comment": "ALTER OPERATOR SET (property)",
+    "query": "ALTER OPERATOR public.+(integer, integer) SET (RESTRICT = my_restrict_func)",
+    "expected": "ALTER OPERATOR public.+(INT, INT) SET ( restrict = my_restrict_func )"
+  },
+  {
+    "comment": "ALTER FUNCTION DEPENDS ON EXTENSION",
+    "query": "ALTER FUNCTION calculate_total(integer) DEPENDS ON EXTENSION mathext",
+    "expected": "ALTER FUNCTION calculate_total(INT) DEPENDS ON EXTENSION mathext"
+  },
+  {
+    "comment": "ALTER PROCEDURE DEPENDS ON EXTENSION",
+    "query": "ALTER PROCEDURE update_user(integer, text) DEPENDS ON EXTENSION adminext",
+    "expected": "ALTER PROCEDURE update_user(INT, TEXT) DEPENDS ON EXTENSION adminext"
+  },
+  {
+    "comment": "ALTER ROUTINE DEPENDS ON EXTENSION",
+    "query": "ALTER ROUTINE process_data(TEXT) DEPENDS ON EXTENSION jobsext"
+  },
+  {
+    "comment": "ALTER TRIGGER DEPENDS ON EXTENSION",
+    "query": "ALTER TRIGGER update_trigger ON users DEPENDS ON EXTENSION triggerext"
+  },
+  {
+    "comment": "ALTER MATERIALIZED VIEW DEPENDS ON EXTENSION",
+    "query": "ALTER MATERIALIZED VIEW user_summary DEPENDS ON EXTENSION viewext"
+  },
+  {
+    "comment": "ALTER INDEX DEPENDS ON EXTENSION",
+    "query": "ALTER INDEX idx_users DEPENDS ON EXTENSION indexext"
+  },
+  {
+    "comment": "ALTER COLLATION REFRESH VERSION",
+    "query": "ALTER COLLATION my_collation REFRESH VERSION"
+  },
+  {
+    "comment": "ALTER DATABASE REFRESH COLLATION VERSION",
+    "query": "ALTER DATABASE mydb REFRESH COLLATION VERSION"
+  },
+  {
+    "comment": "ALTER DATABASE SET parameter",
+    "query": "ALTER DATABASE mydb SET work_mem TO '64MB'",
+    "expected": "ALTER DATABASE mydb SET work_mem = '64MB'"
+  },
+  {
+    "comment": "ALTER DATABASE SET parameter DEFAULT",
+    "query": "ALTER DATABASE mydb SET work_mem TO DEFAULT",
+    "expected": "ALTER DATABASE mydb SET work_mem = DEFAULT"
+  },
+  {
+    "comment": "ALTER DATABASE RESET parameter",
+    "query": "ALTER DATABASE mydb RESET work_mem"
+  },
+  {
+    "comment": "ALTER DATABASE RESET ALL",
+    "query": "ALTER DATABASE mydb RESET ALL"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH CONFIGURATION ADD MAPPING",
+    "query": "ALTER TEXT SEARCH CONFIGURATION my_config ADD MAPPING FOR word WITH simple"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH CONFIGURATION ALTER MAPPING",
+    "query": "ALTER TEXT SEARCH CONFIGURATION my_config ALTER MAPPING FOR word WITH english_stem, simple"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH CONFIGURATION ALTER MAPPING REPLACE",
+    "query": "ALTER TEXT SEARCH CONFIGURATION my_config ALTER MAPPING FOR word REPLACE simple WITH english_stem"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH CONFIGURATION DROP MAPPING",
+    "query": "ALTER TEXT SEARCH CONFIGURATION my_config DROP MAPPING FOR word"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH CONFIGURATION DROP MAPPING IF EXISTS",
+    "query": "ALTER TEXT SEARCH CONFIGURATION my_config DROP MAPPING IF EXISTS FOR word"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH DICTIONARY OPTION",
+    "query": "ALTER TEXT SEARCH DICTIONARY my_dict (stopwords = 'custom')"
+  },
+  {
+    "comment": "CREATE DATABASE simple",
+    "query": "CREATE DATABASE mydb"
+  },
+  {
+    "comment": "CREATE DATABASE with options",
+    "query": "CREATE DATABASE mydb WITH TEMPLATE = template0 ENCODING = 'UTF8'"
+  },
+  {
+    "comment": "CREATE DATABASE with CONNECTION LIMIT",
+    "query": "CREATE DATABASE mydb WITH CONNECTION LIMIT = 100"
+  },
+  {
+    "comment": "CREATE DATABASE with OWNER",
+    "query": "CREATE DATABASE mydb WITH OWNER = postgres"
+  },
+  {
+    "comment": "CREATE DATABASE with TABLESPACE",
+    "query": "CREATE DATABASE mydb WITH TABLESPACE = pg_default"
+  },
+  {
+    "comment": "CREATE DATABASE with LOCATION",
+    "query": "CREATE DATABASE mydb WITH LOCATION = '/var/lib/postgresql/data'"
+  },
+  {
+    "comment": "DROP DATABASE simple",
+    "query": "DROP DATABASE mydb"
+  },
+  {
+    "comment": "DROP DATABASE IF EXISTS",
+    "query": "DROP DATABASE IF EXISTS mydb"
+  },
+  {
+    "comment": "DROP DATABASE with FORCE",
+    "query": "DROP DATABASE mydb WITH (FORCE)"
+  },
+  {
+    "comment": "DROP DATABASE IF EXISTS with FORCE",
+    "query": "DROP DATABASE IF EXISTS mydb WITH (FORCE)"
+  },
+  {
+    "comment": "DROP TABLESPACE simple",
+    "query": "DROP TABLESPACE mytablespace"
+  },
+  {
+    "comment": "DROP TABLESPACE IF EXISTS",
+    "query": "DROP TABLESPACE IF EXISTS mytablespace"
+  },
+  {
+    "comment": "DROP OWNED simple",
+    "query": "DROP OWNED BY myuser",
+    "expected": "DROP OWNED BY myuser RESTRICT"
+  },
+  {
+    "comment": "DROP OWNED multiple users",
+    "query": "DROP OWNED BY user1, user2 CASCADE"
+  },
+  {
+    "comment": "DROP OWNED with RESTRICT",
+    "query": "DROP OWNED BY myuser RESTRICT"
+  },
+  {
+    "comment": "REASSIGN OWNED simple",
+    "query": "REASSIGN OWNED BY olduser TO newuser"
+  },
+  {
+    "comment": "REASSIGN OWNED multiple users",
+    "query": "REASSIGN OWNED BY user1, user2 TO newowner"
+  },
+  {
+    "comment": "DROP CAST simple",
+    "query": "DROP CAST (TEXT AS INT)",
+    "expected": "DROP CAST ( TEXT AS INT ) RESTRICT"
+  },
+  {
+    "comment": "DROP CAST IF EXISTS",
+    "query": "DROP CAST IF EXISTS (TEXT AS INT) CASCADE",
+    "expected": "DROP CAST IF EXISTS ( TEXT AS INT ) CASCADE"
+  },
+  {
+    "comment": "DROP CAST with RESTRICT",
+    "query": "DROP CAST (VARCHAR AS BIGINT) RESTRICT",
+    "expected": "DROP CAST ( VARCHAR AS BIGINT ) RESTRICT"
+  },
+  {
+    "comment": "DROP OPERATOR CLASS simple",
+    "query": "DROP OPERATOR CLASS myopclass USING btree",
+    "expected": "DROP OPERATOR CLASS myopclass USING btree RESTRICT"
+  },
+  {
+    "comment": "DROP OPERATOR CLASS IF EXISTS",
+    "query": "DROP OPERATOR CLASS IF EXISTS myopclass USING btree CASCADE"
+  },
+  {
+    "comment": "DROP OPERATOR CLASS qualified",
+    "query": "DROP OPERATOR CLASS public.myopclass USING btree RESTRICT"
+  },
+  {
+    "comment": "DROP OPERATOR FAMILY simple",
+    "query": "DROP OPERATOR FAMILY myopfamily USING btree",
+    "expected": "DROP OPERATOR FAMILY myopfamily USING btree RESTRICT"
+  },
+  {
+    "comment": "DROP OPERATOR FAMILY IF EXISTS",
+    "query": "DROP OPERATOR FAMILY IF EXISTS myopfamily USING btree CASCADE"
+  },
+  {
+    "comment": "DROP OPERATOR FAMILY qualified",
+    "query": "DROP OPERATOR FAMILY public.myopfamily USING btree RESTRICT"
+  },
+  {
+    "comment": "DROP TRANSFORM simple",
+    "query": "DROP TRANSFORM FOR INT LANGUAGE sql",
+    "expected": "DROP TRANSFORM FOR INT LANGUAGE sql RESTRICT"
+  },
+  {
+    "comment": "DROP TRANSFORM IF EXISTS",
+    "query": "DROP TRANSFORM IF EXISTS FOR INT LANGUAGE sql CASCADE"
+  },
+  {
+    "comment": "DROP TRANSFORM with RESTRICT",
+    "query": "DROP TRANSFORM FOR VARCHAR LANGUAGE plpython3u RESTRICT"
+  },
+  {
+    "comment": "DROP SUBSCRIPTION simple",
+    "query": "DROP SUBSCRIPTION mysub",
+    "expected": "DROP SUBSCRIPTION mysub RESTRICT"
+  },
+  {
+    "comment": "DROP SUBSCRIPTION IF EXISTS",
+    "query": "DROP SUBSCRIPTION IF EXISTS mysub CASCADE"
+  },
+  {
+    "comment": "DROP SUBSCRIPTION with RESTRICT",
+    "query": "DROP SUBSCRIPTION mysub RESTRICT"
+  },
+  {
+    "comment": "IMPORT FOREIGN SCHEMA basic",
+    "query": "IMPORT FOREIGN SCHEMA remote_schema FROM SERVER myserver INTO local_schema"
+  },
+  {
+    "comment": "IMPORT FOREIGN SCHEMA with LIMIT TO",
+    "query": "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO (users, orders) FROM SERVER myserver INTO local_schema",
+    "expected": "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO ( users, orders ) FROM SERVER myserver INTO local_schema"
+  },
+  {
+    "comment": "IMPORT FOREIGN SCHEMA with EXCEPT",
+    "query": "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp_table) FROM SERVER myserver INTO local_schema",
+    "expected": "IMPORT FOREIGN SCHEMA remote_schema EXCEPT ( temp_table ) FROM SERVER myserver INTO local_schema"
+  },
+  {
+    "comment": "IMPORT FOREIGN SCHEMA with multiple tables in LIMIT TO",
+    "query": "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO (users, orders, products) FROM SERVER myserver INTO local_schema",
+    "expected": "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO ( users, orders, products ) FROM SERVER myserver INTO local_schema"
+  },
+  {
+    "comment": "IMPORT FOREIGN SCHEMA with multiple tables in EXCEPT",
+    "query": "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp1, temp2, temp3) FROM SERVER myserver INTO local_schema",
+    "expected": "IMPORT FOREIGN SCHEMA remote_schema EXCEPT ( temp1, temp2, temp3 ) FROM SERVER myserver INTO local_schema"
+  },
+  {
+    "comment": "CREATE TABLE AS basic",
+    "query": "CREATE TABLE new_table AS SELECT * FROM old_table"
+  },
+  {
+    "comment": "CREATE TABLE AS with IF NOT EXISTS",
+    "query": "CREATE TABLE IF NOT EXISTS new_table AS SELECT id, name FROM users"
+  },
+  {
+    "comment": "CREATE TEMP TABLE AS",
+    "query": "CREATE TEMP TABLE temp_table AS SELECT * FROM source"
+  },
+  {
+    "comment": "CREATE TABLE AS with WITH DATA",
+    "query": "CREATE TABLE new_table AS SELECT * FROM old_table WITH DATA",
+    "expected": "CREATE TABLE new_table AS SELECT * FROM old_table"
+  },
+  {
+    "comment": "CREATE TABLE AS with WITH NO DATA",
+    "query": "CREATE TABLE new_table AS SELECT * FROM old_table WITH NO DATA"
+  },
+  {
+    "comment": "CREATE RULE basic notify",
+    "query": "CREATE RULE notify_me AS ON UPDATE TO mytable DO NOTIFY mytable"
+  },
+  {
+    "comment": "CREATE RULE with INSTEAD",
+    "query": "CREATE RULE my_rule AS ON INSERT TO view1 DO INSTEAD INSERT INTO table1 VALUES (NEW.id, NEW.name)",
+    "expected": "CREATE RULE my_rule AS ON INSERT TO view1 DO INSTEAD INSERT INTO table1 VALUES (new.id, new.name)"
+  },
+  {
+    "comment": "CREATE RULE with NOTHING",
+    "query": "CREATE RULE ignore_updates AS ON UPDATE TO protected_table DO NOTHING"
+  },
+  {
+    "comment": "CREATE RULE with multiple actions",
+    "query": "CREATE RULE complex_rule AS ON DELETE TO users DO (DELETE FROM user_logs WHERE (user_id = OLD.id); NOTIFY user_deleted)",
+    "expected": "CREATE RULE complex_rule AS ON DELETE TO users DO (DELETE FROM user_logs WHERE (user_id = old.id); NOTIFY user_deleted)"
+  },
+  {
+    "comment": "CREATE OR REPLACE RULE",
+    "query": "CREATE OR REPLACE RULE update_rule AS ON UPDATE TO accounts DO UPDATE stats SET count = (count + 1)"
+  },
+  {
+    "comment": "CREATE RULE with WHERE clause",
+    "query": "CREATE RULE conditional_rule AS ON UPDATE TO accounts WHERE (balance \u003e 0) DO NOTIFY account_updated"
+  },
+  {
+    "comment": "CREATE RULE with ALSO",
+    "query": "CREATE RULE log_rule AS ON DELETE TO users DO ALSO INSERT INTO audit_log (action, table_name) VALUES ('DELETE', 'users')",
+    "expected": "CREATE RULE log_rule AS ON DELETE TO users DO INSERT INTO audit_log (action, table_name) VALUES ('DELETE', 'users')"
+  },
+  {
+    "comment": "DROP FUNCTION basic",
+    "query": "DROP FUNCTION myfunc()"
+  },
+  {
+    "comment": "DROP FUNCTION with args",
+    "query": "DROP FUNCTION myfunc(integer, text)",
+    "expected": "DROP FUNCTION myfunc(INT, TEXT)"
+  },
+  {
+    "comment": "DROP FUNCTION IF EXISTS",
+    "query": "DROP FUNCTION IF EXISTS myfunc(integer)",
+    "expected": "DROP FUNCTION IF EXISTS myfunc(INT)"
+  },
+  {
+    "comment": "DROP FUNCTION CASCADE",
+    "query": "DROP FUNCTION myfunc() CASCADE"
+  },
+  {
+    "comment": "DROP PROCEDURE basic",
+    "query": "DROP PROCEDURE myproc()"
+  },
+  {
+    "comment": "DROP PROCEDURE with args",
+    "query": "DROP PROCEDURE myproc(integer, text)",
+    "expected": "DROP PROCEDURE myproc(INT, TEXT)"
+  },
+  {
+    "comment": "DROP PROCEDURE IF EXISTS",
+    "query": "DROP PROCEDURE IF EXISTS myproc(integer)",
+    "expected": "DROP PROCEDURE IF EXISTS myproc(INT)"
+  },
+  {
+    "comment": "DROP PROCEDURE CASCADE",
+    "query": "DROP PROCEDURE myproc() CASCADE"
+  },
+  {
+    "comment": "DROP ROUTINE basic",
+    "query": "DROP ROUTINE myroutine()"
+  },
+  {
+    "comment": "DROP ROUTINE with args",
+    "query": "DROP ROUTINE myroutine(integer, text)",
+    "expected": "DROP ROUTINE myroutine(INT, TEXT)"
+  },
+  {
+    "comment": "DROP ROUTINE IF EXISTS",
+    "query": "DROP ROUTINE IF EXISTS myroutine(integer)",
+    "expected": "DROP ROUTINE IF EXISTS myroutine(INT)"
+  },
+  {
+    "comment": "DROP ROUTINE CASCADE",
+    "query": "DROP ROUTINE myroutine() CASCADE"
+  },
+  {
+    "comment": "DROP AGGREGATE basic",
+    "query": "DROP AGGREGATE myaggr(integer)",
+    "expected": "DROP AGGREGATE myaggr(INT)"
+  },
+  {
+    "comment": "DROP AGGREGATE IF EXISTS",
+    "query": "DROP AGGREGATE IF EXISTS myaggr(integer)",
+    "expected": "DROP AGGREGATE IF EXISTS myaggr(INT)"
+  },
+  {
+    "comment": "DROP AGGREGATE RESTRICT",
+    "query": "DROP AGGREGATE myaggr(integer) RESTRICT",
+    "expected": "DROP AGGREGATE myaggr(INT)"
+  },
+  {
+    "comment": "DROP OPERATOR basic",
+    "query": "DROP OPERATOR + (integer, integer)",
+    "expected": "DROP OPERATOR +(INT, INT)"
+  },
+  {
+    "comment": "DROP OPERATOR IF EXISTS",
+    "query": "DROP OPERATOR IF EXISTS + (integer, integer)",
+    "expected": "DROP OPERATOR IF EXISTS +(INT, INT)"
+  },
+  {
+    "comment": "DROP OPERATOR CASCADE",
+    "query": "DROP OPERATOR + (integer, integer) CASCADE",
+    "expected": "DROP OPERATOR +(INT, INT) CASCADE"
+  },
+  {
+    "comment": "ALTER TABLE SET SCHEMA",
+    "query": "ALTER TABLE users SET SCHEMA public"
+  },
+  {
+    "comment": "ALTER TABLE add array column",
+    "query": "ALTER TABLE test ADD COLUMN new_col INT[]"
+  },
+  {
+    "comment": "ALTER TABLE add bounded array column",
+    "query": "ALTER TABLE test ADD COLUMN new_col INT[10]"
+  },
+  {
+    "comment": "CREATE TABLE with array type",
+    "query": "CREATE TABLE test (col INT[])"
+  },
+  {
+    "comment": "CREATE TABLE with bounded array",
+    "query": "CREATE TABLE test (col INT[10])"
+  },
+  {
+    "comment": "CREATE TABLE with multi-dimensional array",
+    "query": "CREATE TABLE test (col INT[][])"
+  },
+  {
+    "comment": "CREATE TABLE with bounded multi-dimensional array",
+    "query": "CREATE TABLE test (col INT[10][20])"
+  },
+  {
+    "comment": "CREATE TABLE with SQL standard array syntax",
+    "query": "CREATE TABLE test (col INT ARRAY[10])",
+    "expected": "CREATE TABLE test (col INT[10])"
+  },
+  {
+    "comment": "CREATE TABLE with SQL standard unbounded array",
+    "query": "CREATE TABLE test (col INT ARRAY)",
+    "expected": "CREATE TABLE test (col INT[])"
+  },
+  {
+    "comment": "CREATE TABLE with VARCHAR array",
+    "query": "CREATE TABLE test (col VARCHAR(50)[])"
+  },
+  {
+    "comment": "CREATE TABLE with NUMERIC bounded array",
+    "query": "CREATE TABLE test (col NUMERIC(10,2)[5])",
+    "expected": "CREATE TABLE test (col NUMERIC(10, 2)[5])"
+  },
+  {
+    "comment": "CREATE FUNCTION with SETOF return type",
+    "query": "CREATE FUNCTION test () RETURNS SETOF INT"
+  },
+  {
+    "comment": "CREATE FUNCTION with SETOF array return",
+    "query": "CREATE FUNCTION test () RETURNS SETOF INT[]"
+  },
+  {
+    "comment": "CREATE FUNCTION with SETOF bounded array",
+    "query": "CREATE FUNCTION test () RETURNS SETOF INT[10]"
+  },
+  {
+    "comment": "CREATE FUNCTION with SETOF SQL standard array",
+    "query": "CREATE FUNCTION test () RETURNS SETOF INT ARRAY",
+    "expected": "CREATE FUNCTION test () RETURNS SETOF INT[]"
+  },
+  {
+    "comment": "CREATE FUNCTION with SETOF SQL standard bounded array",
+    "query": "CREATE FUNCTION test () RETURNS SETOF INT ARRAY[5]",
+    "expected": "CREATE FUNCTION test () RETURNS SETOF INT[5]"
+  },
+  {
+    "comment": "CREATE FUNCTION with SETOF VARCHAR array",
+    "query": "CREATE FUNCTION test () RETURNS SETOF VARCHAR(100)[]"
+  },
+  {
+    "comment": "CREATE TABLE with multiple array columns",
+    "query": "CREATE TABLE test (col1 INT[], col2 VARCHAR(50)[10], col3 NUMERIC[][])"
+  },
+  {
+    "comment": "CREATE FUNCTION with complex SETOF type",
+    "query": "CREATE FUNCTION test () RETURNS SETOF NUMERIC(10, 2)[]"
+  }
+]

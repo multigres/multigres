@@ -173,6 +173,10 @@ func getParserOutput(query string) (string, error) {
 // TestParsing is used test the parsing support.
 func (s *parseTestSuite) TestParsing() {
 	s.testFile("select_cases.json")
+	s.testFile("misc_cases.json")
+	s.testFile("ddl_cases.json")
+	s.testFile("dml_cases.json")
+	s.testFile("set_cases.json")
 }
 
 // TestOne is for testing a single case during development
