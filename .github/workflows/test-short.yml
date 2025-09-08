@@ -38,3 +38,6 @@ jobs:
 
       - name: Run short tests
         run: go test -short -v ./...
+
+      - name: Validate generated files
+        run: make validate-generated-files
