@@ -1,0 +1,50 @@
+[
+  {
+    "comment": "Simple SELECT statement",
+    "query": "SELECT 1"
+  },
+  {
+    "comment": "SELECT statement with expected normalization",
+    "query": "select   1",
+    "expected": "SELECT 1"
+  },
+  {
+    "comment": "SELECT with FROM clause",
+    "query": "SELECT * FROM users"
+  },
+  {
+    "comment": "SELECT with WHERE clause",
+    "query": "SELECT id, name FROM users WHERE id = 1"
+  },
+  {
+    "comment": "SELECT with JOIN",
+    "query": "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id",
+    "expected": "SELECT u.name, o.total FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id"
+  },
+  {
+    "comment": "SELECT with GROUP BY",
+    "query": "SELECT department, COUNT(*) FROM employees GROUP BY department"
+  },
+  {
+    "comment": "SELECT with ORDER BY",
+    "query": "SELECT * FROM products ORDER BY price DESC"
+  },
+  {
+    "comment": "SELECT with LIMIT",
+    "query": "SELECT * FROM logs LIMIT 10"
+  },
+  {
+    "comment": "SELECT with CTE",
+    "query": "WITH active_users AS (SELECT * FROM users WHERE active = true) SELECT * FROM active_users",
+    "expected": "WITH active_users AS (SELECT * FROM users WHERE active = TRUE) SELECT * FROM active_users"
+  },
+  {
+    "comment": "SELECT with window function",
+    "query": "SELECT name, salary, RANK() OVER (ORDER BY salary DESC) FROM employees"
+  },
+  {
+    "comment": "Invalid SELECT - should error",
+    "query": "SELECT FROM WHERE",
+    "error": "parse error at position 17: syntax error"
+  }
+]
