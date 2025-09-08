@@ -110,7 +110,7 @@ func TestPgCtldService_Start(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			cleanupViper := testutil.SetupTestViper(t, dataDir)
+			cleanupViper := SetupTestPgCtldCleanup(t)
 			defer cleanupViper()
 
 			service := &PgCtldService{
@@ -193,7 +193,7 @@ func TestPgCtldService_Stop(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			cleanupViper := testutil.SetupTestViper(t, dataDir)
+			cleanupViper := SetupTestPgCtldCleanup(t)
 			defer cleanupViper()
 
 			service := &PgCtldService{
@@ -261,7 +261,7 @@ func TestPgCtldService_Status(t *testing.T) {
 			dataDir := tt.setupDataDir(baseDir)
 			tt.request.DataDir = dataDir
 
-			cleanupViper := testutil.SetupTestViper(t, dataDir)
+			cleanupViper := SetupTestPgCtldCleanup(t)
 			defer cleanupViper()
 
 			service := &PgCtldService{
@@ -292,7 +292,7 @@ func TestPgCtldService_Restart(t *testing.T) {
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		cleanupViper := testutil.SetupTestViper(t, dataDir)
+		cleanupViper := SetupTestPgCtldCleanup(t)
 		defer cleanupViper()
 
 		service := &PgCtldService{
@@ -327,7 +327,7 @@ func TestPgCtldService_ReloadConfig(t *testing.T) {
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		cleanupViper := testutil.SetupTestViper(t, dataDir)
+		cleanupViper := SetupTestPgCtldCleanup(t)
 		defer cleanupViper()
 
 		service := &PgCtldService{
@@ -352,7 +352,7 @@ func TestPgCtldService_ReloadConfig(t *testing.T) {
 		dataDir := testutil.CreateDataDir(t, baseDir, true)
 		// No PID file = not running
 
-		cleanupViper := testutil.SetupTestViper(t, dataDir)
+		cleanupViper := SetupTestPgCtldCleanup(t)
 		defer cleanupViper()
 
 		service := &PgCtldService{
@@ -380,7 +380,7 @@ func TestPgCtldService_Version(t *testing.T) {
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		cleanupViper := testutil.SetupTestViper(t, "")
+		cleanupViper := SetupTestPgCtldCleanup(t)
 		defer cleanupViper()
 
 		service := &PgCtldService{

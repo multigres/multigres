@@ -162,8 +162,6 @@ Examples:
 
 func runStart(cmd *cobra.Command, args []string) error {
 	config := NewPostgresConfigFromViper()
-	fmt.Printf("YESSS THIS IS BEING CALLED\n")
-	fmt.Printf("config: %+v\n", config)
 
 	result, err := StartPostgreSQLWithResult(config)
 	if err != nil {

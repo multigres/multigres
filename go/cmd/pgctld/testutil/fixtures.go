@@ -17,45 +17,8 @@ limitations under the License.
 package testutil
 
 import (
-	"testing"
-
-	"github.com/spf13/viper"
-
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
-
-// SetupTestViper configures viper with test-specific settings
-func SetupTestViper(t *testing.T, dataDir string) func() {
-	t.Helper()
-
-	// Store original values
-	originalValues := make(map[string]interface{})
-	keys := []string{
-		"pg-data-dir", "pg-port", "pg-host", "pg-database", "pg-user",
-		"pg-socket-dir", "timeout", "log-level",
-	}
-
-	for _, key := range keys {
-		originalValues[key] = viper.Get(key)
-	}
-
-	// Set test values
-	viper.Set("pg-data-dir", dataDir)
-	viper.Set("pg-port", 5432)
-	viper.Set("pg-host", "localhost")
-	viper.Set("pg-database", "postgres")
-	viper.Set("pg-user", "postgres")
-	viper.Set("pg-socket-dir", "/tmp")
-	viper.Set("timeout", 30)
-	viper.Set("log-level", "error") // Reduce noise during tests
-
-	// Return cleanup function
-	return func() {
-		for key, value := range originalValues {
-			viper.Set(key, value)
-		}
-	}
-}
 
 // TestConfig provides test configuration constants
 type TestConfig struct {

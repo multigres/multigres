@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -81,6 +80,10 @@ func TestRunStart(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_start_test")
 			defer cleanup()
 
+			// Setup cleanup for cobra command execution
+			cleanupViper := SetupTestPgCtldCleanup(t)
+			defer cleanupViper()
+
 			dataDir := tt.setupDataDir(baseDir)
 
 			// Setup mock binaries if needed
@@ -95,15 +98,16 @@ func TestRunStart(t *testing.T) {
 				defer os.Setenv("PATH", originalPath)
 			}
 
-			// Setup viper configuration
-			cleanupViper := testutil.SetupTestViper(t, dataDir)
-			defer cleanupViper()
+			cmd := Root
 
-			// Create and execute command
-			cmd := &cobra.Command{}
-			args := []string{}
+			// Set up the command arguments
+			args := []string{"start"}
+			if dataDir != "" {
+				args = append(args, "--pg-data-dir", dataDir)
+			}
+			cmd.SetArgs(args)
 
-			err := runStart(cmd, args)
+			err := cmd.Execute()
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -258,7 +262,7 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		defer os.Setenv("PATH", originalPath)
 
 		// Setup viper with short timeout
-		cleanupViper := testutil.SetupTestViper(t, "")
+		cleanupViper := SetupTestPgCtldCleanup(t)
 		defer cleanupViper()
 
 		err := waitForPostgreSQL()
@@ -279,7 +283,7 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		defer os.Setenv("PATH", originalPath)
 
 		// Setup viper with very short timeout
-		cleanupViper := testutil.SetupTestViper(t, "")
+		cleanupViper := SetupTestPgCtldCleanup(t)
 		defer cleanupViper()
 
 		// Override timeout to 1 second for test
