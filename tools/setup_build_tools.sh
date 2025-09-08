@@ -25,6 +25,7 @@ PROTOC_VERSION="$PROTOC_VER"
 ADDLICENSE_VERSION="$ADDLICENSE_VER"
 PROTOC_GEN_GO_VERSION="$PROTOC_GEN_GO_VER"
 PROTOC_GEN_GO_GRPC_VERSION="$PROTOC_GEN_GO_GRPC_VER"
+GOIMPORTS_VERSION="$GOIMPORTS_VER"
 ETCD_VERSION="$ETCD_VER"
 
 get_platform() {
@@ -160,6 +161,12 @@ install_go_plugins() {
     if ! command -v protoc-gen-go-grpc >/dev/null 2>&1; then
         echo "Installing protoc-gen-go-grpc $PROTOC_GEN_GO_GRPC_VERSION..."
         go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$PROTOC_GEN_GO_GRPC_VERSION
+    fi
+
+    # Check if goimports is installed
+    if ! command -v goimports >/dev/null 2>&1; then
+    echo "goimports not found. Installing version $GOIMPORTS_VERSION..."
+    go install golang.org/x/tools/cmd/goimports@$GOIMPORTS_VERSION
     fi
 }
 
