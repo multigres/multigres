@@ -37,7 +37,7 @@ Get started with:
 
 Configuration:
   Multigres automatically searches for configuration files in this order:
-  1. File specified by --config flag (if provided)
+  1. File specified by --config-file flag (if provided)
   2. Files named 'multigres' with supported extensions (.yaml, .yml, .json, .toml) 
      in directories specified by --config-path flags
   3. Current working directory (default search path)
@@ -59,9 +59,6 @@ Configuration:
 }
 
 func init() {
-	// Register config flags from viperutil
-	viperutil.RegisterFlags(Root.PersistentFlags())
-
 	// Override the default display value for multigres
 	if flag := Root.PersistentFlags().Lookup("config-name"); flag != nil {
 		flag.DefValue = "multigres"
