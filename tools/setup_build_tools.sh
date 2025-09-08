@@ -143,6 +143,8 @@ install_etcd() {
         unzip -q "$filename"
     fi
 
+    set -x
+
     rm "$filename"
     mkdir -p "$MTROOT"
     ln -snf "$dist/etcd-${version}-${platform}-${arch}/etcd" "$MTROOT/bin/etcd"
