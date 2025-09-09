@@ -61,7 +61,7 @@ func TestEndToEndWithRealPostgreSQL(t *testing.T) {
 # Test pgctld configuration for e2e tests
 log-level: info
 timeout: 30
-`), 0644)
+`), 0o644)
 	require.NoError(t, err)
 
 	// Build pgctld binary for testing
@@ -126,7 +126,7 @@ func TestEndToEndGRPCWithRealPostgreSQL(t *testing.T) {
 # Test pgctld configuration for gRPC e2e tests
 log-level: info
 timeout: 30
-`), 0644)
+`), 0o644)
 	require.NoError(t, err)
 
 	// Build pgctld binary for testing
@@ -206,7 +206,7 @@ func TestEndToEndPerformance(t *testing.T) {
 # Test pgctld configuration for performance tests
 log-level: info
 timeout: 30
-`), 0644)
+`), 0o644)
 	require.NoError(t, err)
 
 	// Build pgctld binary for testing
@@ -307,7 +307,7 @@ func TestEndToEndSystemIntegration(t *testing.T) {
 # Test pgctld configuration for system integration tests
 log-level: info
 timeout: 30
-`), 0644)
+`), 0o644)
 	require.NoError(t, err)
 
 	// Build pgctld binary for testing
@@ -383,7 +383,7 @@ shared_buffers = 64MB
 log_statement = 'all'
 log_min_messages = info
 `
-		err = os.WriteFile(configFile, []byte(customConfig), 0644)
+		err = os.WriteFile(configFile, []byte(customConfig), 0o644)
 		require.NoError(t, err)
 
 		// Reload configuration

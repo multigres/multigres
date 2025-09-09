@@ -149,7 +149,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 				originalPath := os.Getenv("PATH")
@@ -241,7 +241,7 @@ func TestRunStop(t *testing.T) {
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 				originalPath := os.Getenv("PATH")
@@ -311,7 +311,7 @@ func TestStopPostgreSQLWithConfig(t *testing.T) {
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 				originalPath := os.Getenv("PATH")
@@ -394,7 +394,7 @@ func TestTakeCheckpoint(t *testing.T) {
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 
 				if tt.name == "checkpoint failure - psql command fails" {
 					// Create a psql that always fails

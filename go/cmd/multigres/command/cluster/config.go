@@ -24,8 +24,8 @@ import (
 
 // MultigresConfig represents the structure of the multigres configuration file
 type MultigresConfig struct {
-	Provisioner       string                 `yaml:"provisioner"`
-	ProvisionerConfig map[string]interface{} `yaml:"provisioner-config,omitempty"`
+	Provisioner       string         `yaml:"provisioner"`
+	ProvisionerConfig map[string]any `yaml:"provisioner-config,omitempty"`
 }
 
 // LoadConfig loads the multigres configuration from the specified paths

@@ -28,12 +28,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/clustermetadata/topo"
+	"github.com/multigres/multigres/go/clustermetadata/topo/test"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/test/utils"
 
-	"github.com/multigres/multigres/go/clustermetadata/topo"
-	"github.com/multigres/multigres/go/clustermetadata/topo/test"
-
+	"github.com/stretchr/testify/require"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -52,9 +52,8 @@ func checkPortAvailable(port int) error {
 // startEtcd starts an etcd subprocess, and waits for it to be ready.
 func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 	// Check if etcd is available in PATH
-	if _, err := exec.LookPath("etcd"); err != nil {
-		t.Fatalf("etcd not found in PATH: %v", err)
-	}
+	_, err := exec.LookPath("etcd")
+	require.NoError(t, err, "etcd not found in PATH")
 
 	// Create a temporary directory.
 	dataDir := t.TempDir()
@@ -65,12 +64,10 @@ func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 	}
 
 	// Check if ports are available before starting etcd
-	if err := checkPortAvailable(port); err != nil {
-		t.Fatalf("Port check failed: %v", err)
-	}
-	if err := checkPortAvailable(port + 1); err != nil {
-		t.Fatalf("Peer port check failed: %v", err)
-	}
+	err = checkPortAvailable(port)
+	require.NoError(t, err, "Port check failed")
+	err = checkPortAvailable(port + 1)
+	require.NoError(t, err, "Peer port check failed")
 
 	name := "multigres_unit_test"
 	clientAddr := fmt.Sprintf("http://localhost:%v", port)
@@ -85,19 +82,15 @@ func startEtcd(t *testing.T, port int) (string, *exec.Cmd) {
 		"-listen-peer-urls", peerAddr,
 		"-initial-cluster", initialCluster,
 		"-data-dir", dataDir)
-	err := cmd.Start()
-	if err != nil {
-		t.Fatalf("failed to start etcd: %v", err)
-	}
+	err = cmd.Start()
+	require.NoError(t, err, "failed to start etcd")
 
 	// Create a client to connect to the created etcd.
 	cli, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{clientAddr},
 		DialTimeout: 5 * time.Second,
 	})
-	if err != nil {
-		t.Fatalf("newCellClient(%v) failed: %v", clientAddr, err)
-	}
+	require.NoError(t, err, "newCellClient(%v) failed", clientAddr)
 	defer cli.Close()
 
 	// Wait until we can list "/", or timeout.
@@ -159,24 +152,20 @@ func TestEtcd2Topo(t *testing.T) {
 
 		// Create the server on the new root.
 		ts, err := topo.OpenServer("etcd2", path.Join(testRoot, topo.GlobalCell), []string{clientAddr})
-		if err != nil {
-			t.Fatalf("OpenServer() failed: %v", err)
-		}
+		require.NoError(t, err, "OpenServer() failed")
 
 		// Create the CellInfo.
-		if err := ts.CreateCell(context.Background(), test.LocalCellName, &clustermetadatapb.Cell{
+		err = ts.CreateCell(context.Background(), test.LocalCellName, &clustermetadatapb.Cell{
 			ServerAddresses: []string{clientAddr},
 			Root:            path.Join(testRoot, test.LocalCellName),
-		}); err != nil {
-			t.Fatalf("CreateCellInfo() failed: %v", err)
-		}
+		})
+		require.NoError(t, err, "CreateCellInfo() failed")
 
 		return ts
 	}
 
 	// Run the TopoServerTestSuite tests.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	test.TopoServerTestSuite(t, ctx, func() topo.Store {
 		return newServer()
 	})
@@ -193,33 +182,24 @@ func TestEtcd2Topo(t *testing.T) {
 func testDatabaseLock(t *testing.T, ts topo.Store) {
 	ctx := context.Background()
 	databasePath := path.Join(topo.DatabasesPath, "test_database")
-	if err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{}); err != nil {
-		t.Fatalf("CreateKeyspace: %v", err)
-	}
+	err := ts.CreateDatabase(ctx, "test_database", &clustermetadatapb.Database{})
+	require.NoError(t, err, "CreateKeyspace")
 
 	conn, err := ts.ConnForCell(ctx, topo.GlobalCell)
-	if err != nil {
-		t.Fatalf("ConnForCell failed: %v", err)
-	}
+	require.NoError(t, err, "ConnForCell failed")
 
 	// Long TTL, unlock before lease runs out.
 	leaseTTL = 1000
 	lockDescriptor, err := conn.Lock(ctx, databasePath, "ttl")
-	if err != nil {
-		t.Fatalf("Lock failed: %v", err)
-	}
-	if err := lockDescriptor.Unlock(ctx); err != nil {
-		t.Fatalf("Unlock failed: %v", err)
-	}
+	require.NoError(t, err, "Lock failed")
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock failed")
 
 	// Short TTL, make sure it doesn't expire.
 	leaseTTL = 1
 	lockDescriptor, err = conn.Lock(ctx, databasePath, "short ttl")
-	if err != nil {
-		t.Fatalf("Lock failed: %v", err)
-	}
+	require.NoError(t, err, "Lock failed")
 	time.Sleep(2 * time.Second)
-	if err := lockDescriptor.Unlock(ctx); err != nil {
-		t.Fatalf("Unlock failed: %v", err)
-	}
+	err = lockDescriptor.Unlock(ctx)
+	require.NoError(t, err, "Unlock failed")
 }

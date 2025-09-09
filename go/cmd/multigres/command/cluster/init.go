@@ -117,7 +117,7 @@ func createConfigFile(cmd *cobra.Command, configPaths []string) (string, error) 
 	fmt.Print(string(yamlData))
 
 	// Write config file
-	if err := os.WriteFile(configFile, yamlData, 0644); err != nil {
+	if err := os.WriteFile(configFile, yamlData, 0o644); err != nil {
 		return "", fmt.Errorf("failed to write config file %s: %w", configFile, err)
 	}
 

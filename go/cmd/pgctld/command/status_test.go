@@ -93,7 +93,7 @@ func TestRunStatus(t *testing.T) {
 			// Setup mock binaries if needed
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 				originalPath := os.Getenv("PATH")
@@ -170,7 +170,7 @@ func TestIsServerReady(t *testing.T) {
 			defer cleanup()
 
 			binDir := filepath.Join(baseDir, "bin")
-			require.NoError(t, os.MkdirAll(binDir, 0755))
+			require.NoError(t, os.MkdirAll(binDir, 0o755))
 			tt.setupBinary(binDir)
 
 			originalPath := os.Getenv("PATH")
@@ -214,7 +214,7 @@ func TestGetServerVersion(t *testing.T) {
 			defer cleanup()
 
 			binDir := filepath.Join(baseDir, "bin")
-			require.NoError(t, os.MkdirAll(binDir, 0755))
+			require.NoError(t, os.MkdirAll(binDir, 0o755))
 			tt.setupBinary(binDir)
 
 			originalPath := os.Getenv("PATH")

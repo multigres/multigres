@@ -47,7 +47,7 @@ port = 5433
 max_connections = 100
 shared_buffers = 128MB
 log_statement = 'all'
-`), 0644)
+`), 0o644)
 	require.NoError(t, err)
 
 	// Create a pgctld config file to avoid config file errors
@@ -56,12 +56,12 @@ log_statement = 'all'
 # Test pgctld configuration
 log-level: info
 timeout: 30
-`), 0644)
+`), 0o644)
 	require.NoError(t, err)
 
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err = os.MkdirAll(binDir, 0755)
+	err = os.MkdirAll(binDir, 0o755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
@@ -154,12 +154,12 @@ func TestMultipleStartStopCycles(t *testing.T) {
 # Test pgctld configuration
 log-level: info
 timeout: 30
-`), 0644)
+`), 0o644)
 	require.NoError(t, err)
 
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err = os.MkdirAll(binDir, 0755)
+	err = os.MkdirAll(binDir, 0o755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
@@ -237,12 +237,12 @@ func TestConfigurationChanges(t *testing.T) {
 # Test pgctld configuration
 log-level: info
 timeout: 30
-`), 0644)
+`), 0o644)
 	require.NoError(t, err)
 
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err = os.MkdirAll(binDir, 0755)
+	err = os.MkdirAll(binDir, 0o755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
@@ -273,7 +273,7 @@ timeout: 30
 max_connections = 200
 shared_buffers = 256MB
 log_min_messages = info
-`), 0644)
+`), 0o644)
 		require.NoError(t, err)
 
 		// Reload configuration
@@ -310,12 +310,12 @@ func TestErrorRecovery(t *testing.T) {
 # Test pgctld configuration
 log-level: info
 timeout: 30
-`), 0644)
+`), 0o644)
 	require.NoError(t, err)
 
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err = os.MkdirAll(binDir, 0755)
+	err = os.MkdirAll(binDir, 0o755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 

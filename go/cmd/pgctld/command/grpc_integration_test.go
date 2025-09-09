@@ -46,7 +46,7 @@ func TestGRPCServerIntegration(t *testing.T) {
 
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err := os.MkdirAll(binDir, 0755)
+	err := os.MkdirAll(binDir, 0o755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
@@ -129,7 +129,7 @@ func TestGRPCErrorHandling(t *testing.T) {
 
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err := os.MkdirAll(binDir, 0755)
+	err := os.MkdirAll(binDir, 0o755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
@@ -210,7 +210,7 @@ func TestGRPCConcurrentRequests(t *testing.T) {
 
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err := os.MkdirAll(binDir, 0755)
+	err := os.MkdirAll(binDir, 0o755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
@@ -289,7 +289,7 @@ func TestGRPCWithDifferentConfigurations(t *testing.T) {
 
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
-	err := os.MkdirAll(binDir, 0755)
+	err := os.MkdirAll(binDir, 0o755)
 	require.NoError(t, err)
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 

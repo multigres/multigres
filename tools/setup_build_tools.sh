@@ -27,6 +27,7 @@ PROTOC_GEN_GO_VERSION="$PROTOC_GEN_GO_VER"
 PROTOC_GEN_GO_GRPC_VERSION="$PROTOC_GEN_GO_GRPC_VER"
 GOIMPORTS_VERSION="$GOIMPORTS_VER"
 ETCD_VERSION="$ETCD_VER"
+GOFUMPT_VERSION="$GOFUMPT_VER"
 
 get_platform() {
     case $(uname) in
@@ -175,6 +176,11 @@ install_go_tools() {
     if ! command -v addlicense >/dev/null 2>&1; then
         echo "Installing addlicense $ADDLICENSE_VERSION..."
         go install github.com/google/addlicense@$ADDLICENSE_VERSION
+    fi
+    # Install gofumpt if not already installed
+    if ! command -v gofumpt >/dev/null 2>&1; then
+        echo "Installing gofumpt $GOFUMPT_VERSION..."
+        go install mvdan.cc/gofumpt@$GOFUMPT_VERSION
     fi
 }
 

@@ -80,7 +80,7 @@ func (s *Server) Watch(ctx context.Context, filePath string) (*topo.WatchData, <
 		defer close(notifications)
 		defer outerCancel()
 
-		var rev = initial.Header.Revision
+		rev := initial.Header.Revision
 		var watchRetries int
 		for {
 			select {
@@ -204,7 +204,7 @@ func (s *Server) WatchRecursive(ctx context.Context, dirpath string) ([]*topo.Wa
 		defer close(notifications)
 		defer outerCancel()
 
-		var rev = initial.Header.Revision
+		rev := initial.Header.Revision
 		var watchRetries int
 		for {
 			select {

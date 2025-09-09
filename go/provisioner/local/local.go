@@ -101,17 +101,17 @@ var _ provisioner.Provisioner = (*localProvisioner)(nil)
 
 // LocalProvisionedService represents a service instance that has been provisioned
 type LocalProvisionedService struct {
-	ID         string                 `json:"id"`                    // Unique instance ID
-	Service    string                 `json:"service"`               // Service name (etcd, multigateway, etc.)
-	PID        int                    `json:"pid,omitempty"`         // For binary processes
-	BinaryPath string                 `json:"binary-path,omitempty"` // Path to the binary
-	DataDir    string                 `json:"data-dir,omitempty"`    // Data directory
-	LogFile    string                 `json:"log-file,omitempty"`    // Path to log file
-	Ports      map[string]int         `json:"ports"`                 // Port mappings
-	FQDN       string                 `json:"fqdn"`                  // Hostname/FQDN
-	Runtime    string                 `json:"runtime"`               // "binary"
-	StartedAt  time.Time              `json:"started-at"`            // When it was started
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`    // Additional metadata
+	ID         string         `json:"id"`                    // Unique instance ID
+	Service    string         `json:"service"`               // Service name (etcd, multigateway, etc.)
+	PID        int            `json:"pid,omitempty"`         // For binary processes
+	BinaryPath string         `json:"binary-path,omitempty"` // Path to the binary
+	DataDir    string         `json:"data-dir,omitempty"`    // Data directory
+	LogFile    string         `json:"log-file,omitempty"`    // Path to log file
+	Ports      map[string]int `json:"ports"`                 // Port mappings
+	FQDN       string         `json:"fqdn"`                  // Hostname/FQDN
+	Runtime    string         `json:"runtime"`               // "binary"
+	StartedAt  time.Time      `json:"started-at"`            // When it was started
+	Metadata   map[string]any `json:"metadata,omitempty"`    // Additional metadata
 }
 
 const (
@@ -137,8 +137,8 @@ func (p *localProvisioner) LoadConfig(configPaths []string) error {
 
 			// Parse the full config file
 			var fullConfig struct {
-				Provisioner       string                 `yaml:"provisioner"`
-				ProvisionerConfig map[string]interface{} `yaml:"provisioner-config,omitempty"`
+				Provisioner       string         `yaml:"provisioner"`
+				ProvisionerConfig map[string]any `yaml:"provisioner-config,omitempty"`
 			}
 			if err := yaml.Unmarshal(data, &fullConfig); err != nil {
 				return fmt.Errorf("failed to parse config file %s: %w", configFile, err)
@@ -172,7 +172,7 @@ func (p *localProvisioner) LoadConfig(configPaths []string) error {
 }
 
 // DefaultConfig returns the default configuration for the local provisioner
-func (p *localProvisioner) DefaultConfig() map[string]interface{} {
+func (p *localProvisioner) DefaultConfig() map[string]any {
 	// Use MTROOT environment variable if set, otherwise fall back to current directory
 	mtroot := os.Getenv("MTROOT")
 	baseDir := "."
@@ -221,19 +221,19 @@ func (p *localProvisioner) DefaultConfig() map[string]interface{} {
 		},
 	}
 
-	// Convert to map[string]interface{} via YAML marshaling
+	// Convert to map[string]any via YAML marshaling
 	yamlData, err := yaml.Marshal(localConfig)
 	if err != nil {
 		// Fallback to empty config if marshaling fails
 		fmt.Printf("Warning: failed to marshal default config: %v\n", err)
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
 
-	var configMap map[string]interface{}
+	var configMap map[string]any
 	if err := yaml.Unmarshal(yamlData, &configMap); err != nil {
 		// Fallback to empty config if unmarshaling fails
 		fmt.Printf("Warning: failed to unmarshal default config: %v\n", err)
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
 
 	return configMap
@@ -260,7 +260,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 			ServiceName: "etcd",
 			FQDN:        existingService.FQDN,
 			Ports:       existingService.Ports,
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"service_id": existingService.ID,
 				"log_file":   existingService.LogFile,
 			},
@@ -296,7 +296,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 	dataDir := dir
 
 	// Create data directory
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create etcd data directory %s: %w", dataDir, err)
 	}
 
@@ -368,7 +368,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 		Ports: map[string]int{
 			"tcp": port,
 		},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"runtime":     "binary",
 			"pid":         etcdCmd.Process.Pid,
 			"binary-path": etcdBinary,
@@ -380,7 +380,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 }
 
 // findBinary finds a binary by name, checking PATH first, then optional configured path
-func (p *localProvisioner) findBinary(name string, serviceConfig map[string]interface{}) (string, error) {
+func (p *localProvisioner) findBinary(name string, serviceConfig map[string]any) (string, error) {
 	// First try to find in PATH
 	if binaryPath, err := exec.LookPath(name); err == nil {
 		return binaryPath, nil
@@ -489,10 +489,7 @@ func (p *localProvisioner) readServiceLogs(logFile string, lines int) string {
 	}
 
 	// Return last 'lines' lines or all lines if fewer exist
-	start := len(logLines) - lines
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(logLines)-lines, 0)
 
 	result := strings.Join(logLines[start:], "\n")
 	if result == "" {
@@ -559,7 +556,7 @@ func (p *localProvisioner) createLogFile(serviceName, serviceID, databaseName st
 	}
 
 	// Create the service-specific log directory
-	if err := os.MkdirAll(serviceLogDir, 0755); err != nil {
+	if err := os.MkdirAll(serviceLogDir, 0o755); err != nil {
 		return "", fmt.Errorf("failed to create log directory %s: %w", serviceLogDir, err)
 	}
 
@@ -601,7 +598,7 @@ func (p *localProvisioner) saveServiceState(service *LocalProvisionedService, da
 		targetDir = stateDir
 	}
 
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create state directory %s: %w", targetDir, err)
 	}
 
@@ -614,7 +611,7 @@ func (p *localProvisioner) saveServiceState(service *LocalProvisionedService, da
 		return fmt.Errorf("failed to marshal service state: %w", err)
 	}
 
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write service state file %s: %w", filePath, err)
 	}
 
@@ -663,7 +660,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 			ServiceName: "multigateway",
 			FQDN:        existingService.FQDN,
 			Ports:       existingService.Ports,
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"service_id": existingService.ID,
 				"log_file":   existingService.LogFile,
 			},
@@ -770,7 +767,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 			"http_port": httpPort,
 			"grpc_port": grpcPort,
 		},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"service_id": serviceID,
 			"log_file":   logFile,
 		},
@@ -795,7 +792,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 			ServiceName: "multipooler",
 			FQDN:        existingService.FQDN,
 			Ports:       existingService.Ports,
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"service_id": existingService.ID,
 				"log_file":   existingService.LogFile,
 			},
@@ -898,7 +895,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		Ports: map[string]int{
 			"grpc_port": grpcPort,
 		},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"service_id": serviceID,
 			"log_file":   logFile,
 		},
@@ -923,7 +920,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 			ServiceName: "multiorch",
 			FQDN:        existingService.FQDN,
 			Ports:       existingService.Ports,
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"service_id": existingService.ID,
 				"log_file":   existingService.LogFile,
 			},
@@ -1020,7 +1017,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		Ports: map[string]int{
 			"grpc_port": grpcPort,
 		},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"service_id": serviceID,
 			"log_file":   logFile,
 		},
@@ -1507,7 +1504,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	multigatewayReq := &provisioner.ProvisionRequest{
 		Service:      "multigateway",
 		DatabaseName: databaseName,
-		Params: map[string]interface{}{
+		Params: map[string]any{
 			"etcd_address":     etcdAddress,
 			"topo_backend":     topoConfig.Backend,
 			"topo_global_root": topoConfig.GlobalRootPath,
@@ -1529,7 +1526,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	multipoolerReq := &provisioner.ProvisionRequest{
 		Service:      "multipooler",
 		DatabaseName: databaseName,
-		Params: map[string]interface{}{
+		Params: map[string]any{
 			"etcd_address":     etcdAddress,
 			"topo_backend":     topoConfig.Backend,
 			"topo_global_root": topoConfig.GlobalRootPath,
@@ -1551,7 +1548,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	multiorchReq := &provisioner.ProvisionRequest{
 		Service:      "multiorch",
 		DatabaseName: databaseName,
-		Params: map[string]interface{}{
+		Params: map[string]any{
 			"etcd_address":     etcdAddress,
 			"topo_backend":     topoConfig.Backend,
 			"topo_global_root": topoConfig.GlobalRootPath,
@@ -1664,7 +1661,7 @@ func (p *localProvisioner) getTopologyConfig() (*TopologyConfig, error) {
 }
 
 // ValidateConfig validates the local provisioner configuration
-func (p *localProvisioner) ValidateConfig(config map[string]interface{}) error {
+func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 	// Convert to typed configuration for validation
 	typedConfig := &LocalProvisionerConfig{}
 	yamlData, err := yaml.Marshal(config)
@@ -1697,16 +1694,16 @@ func (p *localProvisioner) ValidateConfig(config map[string]interface{}) error {
 }
 
 // getServiceConfig gets the configuration for a specific service
-func (p *localProvisioner) getServiceConfig(service string) map[string]interface{} {
+func (p *localProvisioner) getServiceConfig(service string) map[string]any {
 	switch service {
 	case "etcd":
-		return map[string]interface{}{
+		return map[string]any{
 			"version":  p.config.Etcd.Version,
 			"data-dir": p.config.Etcd.DataDir,
 			"port":     p.config.Etcd.Port,
 		}
 	case "multigateway":
-		return map[string]interface{}{
+		return map[string]any{
 			"path":      p.config.Multigateway.Path,
 			"http_port": p.config.Multigateway.HttpPort,
 			"grpc_port": p.config.Multigateway.GrpcPort,
@@ -1714,14 +1711,14 @@ func (p *localProvisioner) getServiceConfig(service string) map[string]interface
 			"log_level": p.config.Multigateway.LogLevel,
 		}
 	case "multipooler":
-		return map[string]interface{}{
+		return map[string]any{
 			"path":      p.config.Multipooler.Path,
 			"http_port": p.config.Multipooler.HttpPort,
 			"grpc_port": p.config.Multipooler.GrpcPort,
 			"log_level": p.config.Multipooler.LogLevel,
 		}
 	case "multiorch":
-		return map[string]interface{}{
+		return map[string]any{
 			"path":      p.config.Multiorch.Path,
 			"http_port": p.config.Multiorch.HttpPort,
 			"grpc_port": p.config.Multiorch.GrpcPort,
@@ -1729,7 +1726,7 @@ func (p *localProvisioner) getServiceConfig(service string) map[string]interface
 		}
 	default:
 		// Return empty config if not found
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
 }
 

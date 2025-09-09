@@ -293,7 +293,6 @@ func ParseFlags(cmd string) {
 	}
 
 	loadViper(cmd)
-
 }
 
 // ParseFlagsForTests initializes flags but skips the version, filesystem
