@@ -669,5 +669,323 @@
   {
     "comment": "CALL qualified procedure name",
     "query": "CALL public.my_procedure(42)"
+  },
+  {
+    "comment": "Simple PREPARE without parameters",
+    "query": "PREPARE simple_plan AS SELECT * FROM users"
+  },
+  {
+    "comment": "PREPARE with one parameter",
+    "query": "PREPARE plan_with_param (integer) AS SELECT * FROM users WHERE id = $1",
+    "expected": "PREPARE plan_with_param ( INT ) AS SELECT * FROM users WHERE id = $1"
+  },
+  {
+    "comment": "PREPARE with multiple parameters",
+    "query": "PREPARE multi_param_plan (integer, text, boolean) AS SELECT * FROM users WHERE id = $1 AND name = $2 AND active = $3",
+    "expected": "PREPARE multi_param_plan ( INT, TEXT, BOOLEAN ) AS SELECT * FROM users WHERE id = $1 AND name = $2 AND active = $3"
+  },
+  {
+    "comment": "PREPARE with qualified type names",
+    "query": "PREPARE qualified_types (pg_catalog.int4, pg_catalog.text) AS SELECT $1::int4, $2::text",
+    "expected": "PREPARE qualified_types ( INT, TEXT ) AS SELECT $1::INT, $2::TEXT"
+  },
+  {
+    "comment": "PREPARE with complex query",
+    "query": "PREPARE complex_query (integer) AS SELECT u.id, u.name, p.title FROM users u JOIN posts p ON u.id = p.author_id WHERE u.id = $1 ORDER BY p.created_at DESC",
+    "expected": "PREPARE complex_query ( INT ) AS SELECT u.id, u.name, p.title FROM users AS u INNER JOIN posts AS p ON u.id = p.author_id WHERE u.id = $1 ORDER BY p.created_at DESC"
+  },
+  {
+    "comment": "PREPARE INSERT statement",
+    "query": "PREPARE insert_user (text, text, integer) AS INSERT INTO users (name, email, age) VALUES ($1, $2, $3)",
+    "expected": "PREPARE insert_user ( TEXT, TEXT, INT ) AS INSERT INTO users (name, email, age) VALUES ($1, $2, $3)"
+  },
+  {
+    "comment": "PREPARE UPDATE statement",
+    "query": "PREPARE update_user (text, integer) AS UPDATE users SET name = $1 WHERE id = $2",
+    "expected": "PREPARE update_user ( TEXT, INT ) AS UPDATE users SET name = $1 WHERE id = $2"
+  },
+  {
+    "comment": "PREPARE DELETE statement",
+    "query": "PREPARE delete_user (integer) AS DELETE FROM users WHERE id = $1",
+    "expected": "PREPARE delete_user ( INT ) AS DELETE FROM users WHERE id = $1"
+  },
+  {
+    "comment": "PREPARE with custom type",
+    "query": "PREPARE custom_type_query (user_status) AS SELECT * FROM users WHERE status = $1",
+    "expected": "PREPARE custom_type_query ( user_status ) AS SELECT * FROM users WHERE status = $1"
+  },
+  {
+    "comment": "EXECUTE without parameters",
+    "query": "EXECUTE simple_plan"
+  },
+  {
+    "comment": "EXECUTE with one parameter",
+    "query": "EXECUTE plan_with_param (123)",
+    "expected": "EXECUTE plan_with_param ( 123 )"
+  },
+  {
+    "comment": "EXECUTE with multiple parameters",
+    "query": "EXECUTE multi_param_plan (123, 'John Doe', TRUE)",
+    "expected": "EXECUTE multi_param_plan ( 123, 'John Doe', TRUE )"
+  },
+  {
+    "comment": "EXECUTE with string parameters",
+    "query": "EXECUTE user_query ('admin', 'password123')",
+    "expected": "EXECUTE user_query ( 'admin', 'password123' )"
+  },
+  {
+    "comment": "EXECUTE with NULL parameter",
+    "query": "EXECUTE nullable_query (NULL)",
+    "expected": "EXECUTE nullable_query ( NULL )"
+  },
+  {
+    "comment": "EXECUTE with numeric parameters",
+    "query": "EXECUTE numeric_query (42, 3.14159, -100)",
+    "expected": "EXECUTE numeric_query ( 42, 3.14159, -100 )"
+  },
+  {
+    "comment": "EXECUTE with boolean parameters",
+    "query": "EXECUTE boolean_query (TRUE, FALSE)",
+    "expected": "EXECUTE boolean_query ( TRUE, FALSE )"
+  },
+  {
+    "comment": "EXECUTE with mixed parameters",
+    "query": "EXECUTE mixed_query (1, 'test', TRUE, NULL, 3.14)",
+    "expected": "EXECUTE mixed_query ( 1, 'test', TRUE, NULL, 3.14 )"
+  },
+  {
+    "comment": "EXECUTE with function call parameter",
+    "query": "EXECUTE time_query (NOW())",
+    "expected": "EXECUTE time_query ( NOW() )"
+  },
+  {
+    "comment": "EXECUTE with expression parameters",
+    "query": "EXECUTE calc_query (1 + 2, 'prefix' || 'suffix')",
+    "expected": "EXECUTE calc_query ( 1 + 2, 'prefix' || 'suffix' )"
+  },
+  {
+    "comment": "DEALLOCATE specific statement",
+    "query": "DEALLOCATE my_plan"
+  },
+  {
+    "comment": "DEALLOCATE ALL statements",
+    "query": "DEALLOCATE ALL"
+  },
+  {
+    "comment": "DEALLOCATE PREPARE specific statement",
+    "query": "DEALLOCATE PREPARE my_plan",
+    "expected": "DEALLOCATE my_plan"
+  },
+  {
+    "comment": "DEALLOCATE PREPARE ALL statements",
+    "query": "DEALLOCATE PREPARE ALL",
+    "expected": "DEALLOCATE ALL"
+  },
+  {
+    "comment": "PREPARE with very long name",
+    "query": "PREPARE very_long_prepared_statement_name_that_exceeds_normal_length AS SELECT 1"
+  },
+  {
+    "comment": "PREPARE with complex subquery",
+    "query": "PREPARE subquery_plan (integer) AS SELECT * FROM users WHERE id IN (SELECT user_id FROM posts WHERE author_id = $1)",
+    "expected": "PREPARE subquery_plan ( INT ) AS SELECT * FROM users WHERE id IN (SELECT user_id FROM posts WHERE author_id = $1)"
+  },
+  {
+    "comment": "PREPARE with window function",
+    "query": "PREPARE window_plan (text) AS SELECT name, ROW_NUMBER() OVER (ORDER BY created_at) as rank FROM users WHERE department = $1",
+    "expected": "PREPARE window_plan ( TEXT ) AS SELECT name, ROW_NUMBER() OVER (ORDER BY created_at) AS rank FROM users WHERE department = $1"
+  },
+  {
+    "comment": "EXECUTE with type cast in parameter",
+    "query": "EXECUTE plan_name ('123'::integer)",
+    "expected": "EXECUTE plan_name ( '123'::INT )"
+  },
+  {
+    "comment": "FETCH from cursor",
+    "query": "FETCH FROM my_cursor"
+  },
+  {
+    "comment": "FETCH IN cursor",
+    "query": "FETCH IN my_cursor",
+    "expected": "FETCH FROM my_cursor"
+  },
+  {
+    "comment": "FETCH count from cursor",
+    "query": "FETCH 5 FROM my_cursor"
+  },
+  {
+    "comment": "FETCH count in cursor",
+    "query": "FETCH 10 IN my_cursor",
+    "expected": "FETCH 10 FROM my_cursor"
+  },
+  {
+    "comment": "FETCH NEXT from cursor",
+    "query": "FETCH NEXT FROM my_cursor",
+    "expected": "FETCH FROM my_cursor"
+  },
+  {
+    "comment": "FETCH NEXT in cursor",
+    "query": "FETCH NEXT IN my_cursor",
+    "expected": "FETCH FROM my_cursor"
+  },
+  {
+    "comment": "FETCH PRIOR from cursor",
+    "query": "FETCH PRIOR FROM my_cursor",
+    "expected": "FETCH BACKWARD FROM my_cursor"
+  },
+  {
+    "comment": "FETCH PRIOR in cursor",
+    "query": "FETCH PRIOR IN my_cursor",
+    "expected": "FETCH BACKWARD FROM my_cursor"
+  },
+  {
+    "comment": "FETCH FIRST from cursor",
+    "query": "FETCH FIRST FROM my_cursor"
+  },
+  {
+    "comment": "FETCH FIRST in cursor",
+    "query": "FETCH FIRST IN my_cursor",
+    "expected": "FETCH FIRST FROM my_cursor"
+  },
+  {
+    "comment": "FETCH LAST from cursor",
+    "query": "FETCH LAST FROM my_cursor"
+  },
+  {
+    "comment": "FETCH LAST in cursor",
+    "query": "FETCH LAST IN my_cursor",
+    "expected": "FETCH LAST FROM my_cursor"
+  },
+  {
+    "comment": "FETCH ABSOLUTE positive",
+    "query": "FETCH ABSOLUTE 100 FROM my_cursor"
+  },
+  {
+    "comment": "FETCH ABSOLUTE negative",
+    "query": "FETCH ABSOLUTE -50 IN my_cursor",
+    "expected": "FETCH ABSOLUTE -50 FROM my_cursor"
+  },
+  {
+    "comment": "FETCH RELATIVE positive",
+    "query": "FETCH RELATIVE 10 FROM my_cursor"
+  },
+  {
+    "comment": "FETCH RELATIVE negative",
+    "query": "FETCH RELATIVE -5 IN my_cursor",
+    "expected": "FETCH RELATIVE -5 FROM my_cursor"
+  },
+  {
+    "comment": "FETCH ALL from cursor",
+    "query": "FETCH ALL FROM my_cursor"
+  },
+  {
+    "comment": "FETCH ALL in cursor",
+    "query": "FETCH ALL IN my_cursor",
+    "expected": "FETCH ALL FROM my_cursor"
+  },
+  {
+    "comment": "FETCH FORWARD from cursor",
+    "query": "FETCH FORWARD FROM my_cursor",
+    "expected": "FETCH FROM my_cursor"
+  },
+  {
+    "comment": "FETCH FORWARD count",
+    "query": "FETCH FORWARD 3 FROM my_cursor",
+    "expected": "FETCH 3 FROM my_cursor"
+  },
+  {
+    "comment": "FETCH FORWARD ALL",
+    "query": "FETCH FORWARD ALL FROM my_cursor",
+    "expected": "FETCH ALL FROM my_cursor"
+  },
+  {
+    "comment": "FETCH BACKWARD from cursor",
+    "query": "FETCH BACKWARD FROM my_cursor"
+  },
+  {
+    "comment": "FETCH BACKWARD count",
+    "query": "FETCH BACKWARD 7 FROM my_cursor"
+  },
+  {
+    "comment": "FETCH BACKWARD ALL",
+    "query": "FETCH BACKWARD ALL FROM my_cursor"
+  },
+  {
+    "comment": "MOVE from cursor",
+    "query": "MOVE FROM my_cursor"
+  },
+  {
+    "comment": "MOVE IN cursor",
+    "query": "MOVE IN my_cursor",
+    "expected": "MOVE FROM my_cursor"
+  },
+  {
+    "comment": "MOVE count from cursor",
+    "query": "MOVE 5 FROM my_cursor"
+  },
+  {
+    "comment": "MOVE NEXT from cursor",
+    "query": "MOVE NEXT FROM my_cursor",
+    "expected": "MOVE FROM my_cursor"
+  },
+  {
+    "comment": "MOVE PRIOR from cursor",
+    "query": "MOVE PRIOR FROM my_cursor",
+    "expected": "MOVE BACKWARD FROM my_cursor"
+  },
+  {
+    "comment": "MOVE FIRST from cursor",
+    "query": "MOVE FIRST FROM my_cursor"
+  },
+  {
+    "comment": "MOVE LAST from cursor",
+    "query": "MOVE LAST FROM my_cursor"
+  },
+  {
+    "comment": "MOVE ABSOLUTE",
+    "query": "MOVE ABSOLUTE 50 FROM my_cursor"
+  },
+  {
+    "comment": "MOVE RELATIVE",
+    "query": "MOVE RELATIVE -10 FROM my_cursor"
+  },
+  {
+    "comment": "MOVE ALL from cursor",
+    "query": "MOVE ALL FROM my_cursor"
+  },
+  {
+    "comment": "MOVE FORWARD",
+    "query": "MOVE FORWARD FROM my_cursor",
+    "expected": "MOVE FROM my_cursor"
+  },
+  {
+    "comment": "MOVE FORWARD count",
+    "query": "MOVE FORWARD 2 FROM my_cursor",
+    "expected": "MOVE 2 FROM my_cursor"
+  },
+  {
+    "comment": "MOVE FORWARD ALL",
+    "query": "MOVE FORWARD ALL FROM my_cursor",
+    "expected": "MOVE ALL FROM my_cursor"
+  },
+  {
+    "comment": "MOVE BACKWARD",
+    "query": "MOVE BACKWARD FROM my_cursor"
+  },
+  {
+    "comment": "MOVE BACKWARD count",
+    "query": "MOVE BACKWARD 4 FROM my_cursor"
+  },
+  {
+    "comment": "MOVE BACKWARD ALL",
+    "query": "MOVE BACKWARD ALL FROM my_cursor"
+  },
+  {
+    "comment": "CLOSE specific cursor",
+    "query": "CLOSE my_cursor"
+  },
+  {
+    "comment": "CLOSE ALL cursors",
+    "query": "CLOSE ALL"
   }
 ]

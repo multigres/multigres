@@ -2725,5 +2725,111 @@
   {
     "comment": "CREATE STATISTICS with specific types",
     "query": "CREATE STATISTICS test_stats (ndistinct, dependencies) ON a, b FROM test_table"
+  },
+  {
+    "comment": "CREATE TABLE AS EXECUTE without parameters",
+    "query": "CREATE TABLE result_table AS EXECUTE my_plan"
+  },
+  {
+    "comment": "CREATE TABLE AS EXECUTE with parameters",
+    "query": "CREATE TABLE user_results AS EXECUTE user_query (123, 'admin')",
+    "expected": "CREATE TABLE user_results AS EXECUTE user_query ( 123, 'admin' )"
+  },
+  {
+    "comment": "CREATE TABLE AS EXECUTE with qualified table name",
+    "query": "CREATE TABLE public.results AS EXECUTE data_plan (1, 2, 3)",
+    "expected": "CREATE TABLE public.results AS EXECUTE data_plan ( 1, 2, 3 )"
+  },
+  {
+    "comment": "CREATE TEMPORARY TABLE AS EXECUTE",
+    "query": "CREATE TEMPORARY TABLE temp_results AS EXECUTE temp_plan",
+    "expected": "CREATE TEMP TABLE temp_results AS EXECUTE temp_plan"
+  },
+  {
+    "comment": "CREATE TEMP TABLE AS EXECUTE with parameters",
+    "query": "CREATE TEMP TABLE temp_data AS EXECUTE analysis_plan (100, 'report')",
+    "expected": "CREATE TEMP TABLE temp_data AS EXECUTE analysis_plan ( 100, 'report' )"
+  },
+  {
+    "comment": "CREATE TABLE IF NOT EXISTS AS EXECUTE",
+    "query": "CREATE TABLE IF NOT EXISTS backup_table AS EXECUTE backup_plan"
+  },
+  {
+    "comment": "CREATE TEMPORARY TABLE IF NOT EXISTS AS EXECUTE",
+    "query": "CREATE TEMPORARY TABLE IF NOT EXISTS temp_backup AS EXECUTE temp_backup_plan (1, 2)",
+    "expected": "CREATE TEMP TABLE IF NOT EXISTS temp_backup AS EXECUTE temp_backup_plan ( 1, 2 )"
+  },
+  {
+    "comment": "CREATE TEMP TABLE IF NOT EXISTS AS EXECUTE",
+    "query": "CREATE TEMP TABLE IF NOT EXISTS summary AS EXECUTE summary_plan ('monthly')",
+    "expected": "CREATE TEMP TABLE IF NOT EXISTS summary AS EXECUTE summary_plan ( 'monthly' )"
+  },
+  {
+    "comment": "CREATE TABLE AS EXECUTE with WITH DATA",
+    "query": "CREATE TABLE results AS EXECUTE my_plan WITH DATA",
+    "expected": "CREATE TABLE results AS EXECUTE my_plan"
+  },
+  {
+    "comment": "CREATE TABLE AS EXECUTE with WITH NO DATA",
+    "query": "CREATE TABLE empty_results AS EXECUTE my_plan WITH NO DATA"
+  },
+  {
+    "comment": "CREATE TEMPORARY TABLE AS EXECUTE with WITH DATA",
+    "query": "CREATE TEMPORARY TABLE temp_results AS EXECUTE temp_plan WITH DATA",
+    "expected": "CREATE TEMP TABLE temp_results AS EXECUTE temp_plan"
+  },
+  {
+    "comment": "CREATE TEMP TABLE IF NOT EXISTS AS EXECUTE with WITH NO DATA",
+    "query": "CREATE TEMP TABLE IF NOT EXISTS summary AS EXECUTE summary_plan WITH NO DATA"
+  },
+  {
+    "comment": "CREATE TABLE AS EXECUTE with column list",
+    "query": "CREATE TABLE results (id, name, value) AS EXECUTE my_plan"
+  },
+  {
+    "comment": "CREATE TABLE AS EXECUTE with WITH options",
+    "query": "CREATE TABLE results WITH (fillfactor=80) AS EXECUTE my_plan",
+    "expected": "CREATE TABLE results WITH (fillfactor = 80) AS EXECUTE my_plan"
+  },
+  {
+    "comment": "CREATE TABLE AS EXECUTE with USING access method",
+    "query": "CREATE TABLE results USING heap AS EXECUTE my_plan"
+  },
+  {
+    "comment": "Simple DECLARE CURSOR",
+    "query": "DECLARE my_cursor CURSOR FOR SELECT * FROM users"
+  },
+  {
+    "comment": "DECLARE CURSOR with BINARY",
+    "query": "DECLARE binary_cursor BINARY CURSOR FOR SELECT * FROM data"
+  },
+  {
+    "comment": "DECLARE CURSOR with INSENSITIVE",
+    "query": "DECLARE insensitive_cursor INSENSITIVE CURSOR FOR SELECT * FROM users"
+  },
+  {
+    "comment": "DECLARE CURSOR with ASENSITIVE",
+    "query": "DECLARE asensitive_cursor ASENSITIVE CURSOR FOR SELECT * FROM users"
+  },
+  {
+    "comment": "DECLARE CURSOR with SCROLL",
+    "query": "DECLARE scroll_cursor SCROLL CURSOR FOR SELECT * FROM users"
+  },
+  {
+    "comment": "DECLARE CURSOR with NO SCROLL",
+    "query": "DECLARE noscroll_cursor NO SCROLL CURSOR FOR SELECT * FROM users"
+  },
+  {
+    "comment": "DECLARE CURSOR with WITH HOLD",
+    "query": "DECLARE hold_cursor CURSOR WITH HOLD FOR SELECT * FROM users"
+  },
+  {
+    "comment": "DECLARE CURSOR with multiple options",
+    "query": "DECLARE complex_cursor BINARY INSENSITIVE SCROLL CURSOR WITH HOLD FOR SELECT * FROM users"
+  },
+  {
+    "comment": "DECLARE CURSOR with complex query",
+    "query": "DECLARE query_cursor CURSOR FOR SELECT u.id, u.name FROM users u WHERE u.active = TRUE ORDER BY u.name",
+    "expected": "DECLARE query_cursor CURSOR FOR SELECT u.id, u.name FROM users AS u WHERE u.active = TRUE ORDER BY u.name"
   }
 ]

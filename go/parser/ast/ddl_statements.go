@@ -3090,7 +3090,7 @@ func (c *CreatedbStmt) String() string {
 func (c *CreatedbStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "CREATE DATABASE", c.Dbname)
-	
+
 	// Add options if present
 	if c.Options != nil && c.Options.Len() > 0 {
 		var opts []string
@@ -3103,7 +3103,7 @@ func (c *CreatedbStmt) SqlString() string {
 			parts = append(parts, "WITH", strings.Join(opts, " "))
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -3127,7 +3127,7 @@ func (c *CreatedbStmt) formatDatabaseOption(opt *DefElem) string {
 	default:
 		optName = strings.ToUpper(optName)
 	}
-	
+
 	if opt.Arg != nil {
 		argStr := opt.Arg.SqlString()
 		// For identifiers that should not be quoted
@@ -3181,13 +3181,13 @@ func (d *DropdbStmt) String() string {
 func (d *DropdbStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "DROP DATABASE")
-	
+
 	if d.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
-	
+
 	parts = append(parts, d.Dbname)
-	
+
 	// Add options if present (e.g., FORCE)
 	if d.Options != nil && d.Options.Len() > 0 {
 		var opts []string
@@ -3202,7 +3202,7 @@ func (d *DropdbStmt) SqlString() string {
 			parts = append(parts, "WITH ("+strings.Join(opts, ", ")+")")
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -3239,13 +3239,13 @@ func (d *DropTableSpaceStmt) String() string {
 func (d *DropTableSpaceStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "DROP TABLESPACE")
-	
+
 	if d.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
-	
+
 	parts = append(parts, d.Tablespacename)
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -3282,7 +3282,7 @@ func (d *DropOwnedStmt) String() string {
 func (d *DropOwnedStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "DROP OWNED BY")
-	
+
 	// Add role list
 	if d.Roles != nil {
 		var roleNames []string
@@ -3293,10 +3293,10 @@ func (d *DropOwnedStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(roleNames, ", "))
 	}
-	
+
 	// Add behavior
 	parts = append(parts, d.Behavior.String())
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -3329,7 +3329,7 @@ func (r *ReassignOwnedStmt) String() string {
 func (r *ReassignOwnedStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "REASSIGN OWNED BY")
-	
+
 	// Add role list
 	if r.Roles != nil {
 		var roleNames []string
@@ -3340,13 +3340,13 @@ func (r *ReassignOwnedStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(roleNames, ", "))
 	}
-	
+
 	parts = append(parts, "TO")
-	
+
 	if r.Newrole != nil {
 		parts = append(parts, r.Newrole.SqlString())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -3382,16 +3382,16 @@ func (t ImportForeignSchemaType) String() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:4105-4115
 type ImportForeignSchemaStmt struct {
 	BaseNode
-	ServerName   *String                  // FDW server name
-	RemoteSchema *String                  // remote schema name to query  
-	LocalSchema  *String                  // local schema to create objects in
-	ListType     ImportForeignSchemaType  // type of table list
-	TableList    *NodeList                // List of RangeVar
-	Options      *NodeList                // list of options to pass to FDW
+	ServerName   *String                 // FDW server name
+	RemoteSchema *String                 // remote schema name to query
+	LocalSchema  *String                 // local schema to create objects in
+	ListType     ImportForeignSchemaType // type of table list
+	TableList    *NodeList               // List of RangeVar
+	Options      *NodeList               // list of options to pass to FDW
 }
 
 // NewImportForeignSchemaStmt creates a new ImportForeignSchemaStmt node
-func NewImportForeignSchemaStmt(serverName, remoteSchema, localSchema *String, 
+func NewImportForeignSchemaStmt(serverName, remoteSchema, localSchema *String,
 	listType ImportForeignSchemaType, tableList, options *NodeList) *ImportForeignSchemaStmt {
 	return &ImportForeignSchemaStmt{
 		BaseNode:     BaseNode{Tag: T_ImportForeignSchemaStmt},
@@ -3409,7 +3409,7 @@ func (i *ImportForeignSchemaStmt) StatementType() string {
 }
 
 func (i *ImportForeignSchemaStmt) String() string {
-	return fmt.Sprintf("ImportForeignSchemaStmt(%s from %s into %s)@%d", 
+	return fmt.Sprintf("ImportForeignSchemaStmt(%s from %s into %s)@%d",
 		i.RemoteSchema.SVal, i.ServerName.SVal, i.LocalSchema.SVal, i.Location())
 }
 
@@ -3417,11 +3417,11 @@ func (i *ImportForeignSchemaStmt) String() string {
 func (i *ImportForeignSchemaStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "IMPORT FOREIGN SCHEMA")
-	
+
 	if i.RemoteSchema != nil {
 		parts = append(parts, QuoteIdentifier(i.RemoteSchema.SVal))
 	}
-	
+
 	// Add import qualification
 	if i.ListType != FDW_IMPORT_SCHEMA_ALL {
 		parts = append(parts, i.ListType.String())
@@ -3437,17 +3437,17 @@ func (i *ImportForeignSchemaStmt) SqlString() string {
 			parts = append(parts, ")")
 		}
 	}
-	
+
 	parts = append(parts, "FROM SERVER")
 	if i.ServerName != nil {
 		parts = append(parts, QuoteIdentifier(i.ServerName.SVal))
 	}
-	
+
 	parts = append(parts, "INTO")
 	if i.LocalSchema != nil {
 		parts = append(parts, QuoteIdentifier(i.LocalSchema.SVal))
 	}
-	
+
 	// Add options
 	if i.Options != nil && i.Options.Len() > 0 {
 		parts = append(parts, "OPTIONS")
@@ -3461,6 +3461,6 @@ func (i *ImportForeignSchemaStmt) SqlString() string {
 		parts = append(parts, strings.Join(optionStrings, ", "))
 		parts = append(parts, ")")
 	}
-	
+
 	return strings.Join(parts, " ")
 }

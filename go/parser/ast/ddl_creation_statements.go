@@ -2240,12 +2240,12 @@ func (ctas *CreateTableAsStmt) SqlString() string {
 
 	// CREATE [TEMP] [MATERIALIZED]
 	parts = append(parts, "CREATE")
-	
+
 	// Handle TEMP keyword for regular tables
 	if ctas.Into != nil && ctas.Into.Rel != nil && ctas.Into.Rel.RelPersistence == RELPERSISTENCE_TEMP {
 		parts = append(parts, "TEMP")
 	}
-	
+
 	switch ctas.ObjType {
 	case OBJECT_MATVIEW:
 		// Check if UNLOGGED
@@ -2269,6 +2269,22 @@ func (ctas *CreateTableAsStmt) SqlString() string {
 		if targetStr != "" {
 			parts = append(parts, targetStr)
 		}
+		
+		// Add USING access method if present
+		if ctas.Into.AccessMethod != "" {
+			parts = append(parts, "USING", ctas.Into.AccessMethod)
+		}
+		
+		// Add WITH options if present
+		if ctas.Into.Options != nil && len(ctas.Into.Options.Items) > 0 {
+			var opts []string
+			for _, opt := range ctas.Into.Options.Items {
+				if opt != nil {
+					opts = append(opts, opt.SqlString())
+				}
+			}
+			parts = append(parts, "WITH", fmt.Sprintf("(%s)", strings.Join(opts, ", ")))
+		}
 	}
 
 	// AS query
@@ -2276,7 +2292,7 @@ func (ctas *CreateTableAsStmt) SqlString() string {
 		parts = append(parts, "AS", ctas.Query.SqlString())
 	}
 
-	// WITH [NO] DATA 
+	// WITH [NO] DATA
 	if ctas.Into != nil {
 		if ctas.Into.SkipData {
 			parts = append(parts, "WITH NO DATA")
