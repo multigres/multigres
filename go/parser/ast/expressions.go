@@ -920,6 +920,89 @@ func (s *SubLink) ExpressionType() string {
 	return "SubLink"
 }
 
+// SqlString returns the SQL representation of the SubLink
+func (s *SubLink) SqlString() string {
+	if s == nil {
+		return ""
+	}
+	
+	// Handle different sublink types
+	switch s.SubLinkType {
+	case EXISTS_SUBLINK:
+		// EXISTS(subquery)
+		return fmt.Sprintf("EXISTS (%s)", s.Subselect.SqlString())
+		
+	case ALL_SUBLINK:
+		// expr op ALL(subquery)
+		if s.Testexpr != nil && s.OperName != nil && len(s.OperName.Items) > 0 {
+			op := extractOperatorFromNodeList(s.OperName)
+			return fmt.Sprintf("%s %s ALL (%s)", s.Testexpr.SqlString(), op, s.Subselect.SqlString())
+		}
+		return fmt.Sprintf("ALL (%s)", s.Subselect.SqlString())
+		
+	case ANY_SUBLINK:
+		// expr op ANY(subquery) - includes IN which is = ANY
+		if s.Testexpr != nil && s.OperName != nil && len(s.OperName.Items) > 0 {
+			op := extractOperatorFromNodeList(s.OperName)
+			// Special case: IN is syntactic sugar for = ANY
+			if op == "=" {
+				return fmt.Sprintf("%s IN (%s)", s.Testexpr.SqlString(), s.Subselect.SqlString())
+			}
+			return fmt.Sprintf("%s %s ANY (%s)", s.Testexpr.SqlString(), op, s.Subselect.SqlString())
+		}
+		return fmt.Sprintf("ANY (%s)", s.Subselect.SqlString())
+		
+	case ROWCOMPARE_SUBLINK:
+		// (expr list) op (subquery)
+		if s.Testexpr != nil && s.OperName != nil && len(s.OperName.Items) > 0 {
+			op := extractOperatorFromNodeList(s.OperName)
+			return fmt.Sprintf("%s %s (%s)", s.Testexpr.SqlString(), op, s.Subselect.SqlString())
+		}
+		return fmt.Sprintf("(%s)", s.Subselect.SqlString())
+		
+	case EXPR_SUBLINK:
+		// Simple scalar subquery: (subquery)
+		return fmt.Sprintf("(%s)", s.Subselect.SqlString())
+		
+	case MULTIEXPR_SUBLINK:
+		// Multiple expressions - just wrap in parentheses
+		return fmt.Sprintf("(%s)", s.Subselect.SqlString())
+		
+	case ARRAY_SUBLINK:
+		// ARRAY(subquery)
+		return fmt.Sprintf("ARRAY(%s)", s.Subselect.SqlString())
+		
+	case CTE_SUBLINK:
+		// For SubPlans only - shouldn't appear in normal SQL
+		return fmt.Sprintf("(%s)", s.Subselect.SqlString())
+		
+	default:
+		// Fallback to simple subquery
+		return fmt.Sprintf("(%s)", s.Subselect.SqlString())
+	}
+}
+
+// extractOperatorFromNodeList extracts the operator string from a NodeList
+func extractOperatorFromNodeList(list *NodeList) string {
+	if list == nil || len(list.Items) == 0 {
+		return ""
+	}
+	
+	// The operator is typically stored as a String node in the list
+	for _, item := range list.Items {
+		if str, ok := item.(*String); ok && str != nil {
+			return str.SVal
+		}
+	}
+	
+	// Fallback: try to get SqlString of first item
+	if list.Items[0] != nil {
+		return list.Items[0].SqlString()
+	}
+	
+	return ""
+}
+
 func (s *SubLink) String() string {
 	test := ""
 	if s.Testexpr != nil {

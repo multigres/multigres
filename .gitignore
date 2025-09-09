@@ -34,3 +34,6 @@ go.work.sum
 
 # Claude Code settings
 .claude/
+
+# expected results of a test
+go/parser/testdata/expected

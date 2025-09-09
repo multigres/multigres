@@ -21,6 +21,22 @@
     "query": "COPY users FROM '/path/to/file.csv' (format 'csv', delimiter ',')"
   },
   {
+    "comment": "COPY users FROM '/path/to/file.csv'",
+    "query": "COPY users FROM '/path/to/file.csv'"
+  },
+  {
+    "comment": "COPY users FROM '/path/to/file.csv' (format 'csv')",
+    "query": "COPY users FROM '/path/to/file.csv' (format 'csv')"
+  },
+  {
+    "comment": "COPY users (id, name) FROM '/path/to/file.csv' (format 'csv')",
+    "query": "COPY users (id, name) FROM '/path/to/file.csv' (format 'csv')"
+  },
+  {
+    "comment": "COPY users TO '/path/to/file.csv' (format 'csv', header true)",
+    "query": "COPY users TO '/path/to/file.csv' (format 'csv', header true)"
+  },
+  {
     "comment": "COPY FROM with quote option",
     "query": "COPY users FROM '/path/to/file.csv' (format 'csv', quote '\"')"
   },
@@ -107,5 +123,367 @@
     "comment": "TRUNCATE multiple tables",
     "query": "TRUNCATE TABLE users, orders",
     "expected": "TRUNCATE TABLE users, orders CONTINUE IDENTITY RESTRICT"
+  },
+  {
+    "comment": "INSERT with nested function calls",
+    "query": "INSERT INTO users (name, email) VALUES (upper(trim('  john  ')), lower(concat('john', '@', 'example.com')))"
+  },
+  {
+    "comment": "INSERT with arithmetic in VALUES",
+    "query": "INSERT INTO products (id, price, discounted_price) VALUES (1, 100.00, 100.00 * 0.9)"
+  },
+  {
+    "comment": "INSERT with parenthesized expressions",
+    "query": "INSERT INTO products (total) VALUES ((price + tax) * quantity)"
+  },
+  {
+    "comment": "UPDATE with complex SET expressions",
+    "query": "UPDATE products SET price = price * (1 + tax_rate), updated_at = now()",
+    "expected": "UPDATE products SET price = price * (1 + tax_rate), updated_at = NOW()"
+  },
+  {
+    "comment": "UPDATE with nested arithmetic",
+    "query": "UPDATE stats SET score = (score + bonus) * multiplier, rank = rank + 1"
+  },
+  {
+    "comment": "UPDATE with function calls in SET",
+    "query": "UPDATE users SET name = upper(trim(name)), email = lower(email)"
+  },
+  {
+    "comment": "DELETE with arithmetic in WHERE",
+    "query": "DELETE FROM products WHERE (price * 0.9) \u003c 10.00"
+  },
+  {
+    "comment": "UPDATE with function calls in WHERE",
+    "query": "UPDATE users SET active = FALSE WHERE length(name) \u003c 3 AND upper(status) = 'INACTIVE'"
+  },
+  {
+    "comment": "DELETE with nested expressions in WHERE",
+    "query": "DELETE FROM orders WHERE (total + tax) \u003e (limitval * 1.5) AND status = 'pending'"
+  },
+  {
+    "comment": "INSERT with type casts and expressions",
+    "query": "INSERT INTO logs (level, message, count) VALUES (upper('info')::text, concat('Log: ', details), (1 + retry_count)::integer)",
+    "expected": "INSERT INTO logs (level, message, count) VALUES (upper('info')::TEXT, concat('Log: ', details), (1 + retry_count)::INT)"
+  },
+  {
+    "comment": "UPDATE with complex FROM and expressions",
+    "query": "UPDATE orders SET total = o.quantity * p.price, updated_at = now() FROM order_items o, products p WHERE orders.id = o.order_id AND o.product_id = p.id",
+    "expected": "UPDATE orders SET total = o.quantity * p.price, updated_at = NOW() FROM order_items AS o, products AS p WHERE orders.id = o.order_id AND o.product_id = p.id"
+  },
+  {
+    "comment": "INSERT with deeply nested functions",
+    "query": "INSERT INTO processed (data) VALUES (upper(substring(trim(input_data), 1, 10)))"
+  },
+  {
+    "comment": "UPDATE with multiple function calls",
+    "query": "UPDATE users SET full_name = concat(upper(first_name), ' ', upper(last_name)), slug = lower(replace(name, ' ', '-'))"
+  },
+  {
+    "comment": "INSERT basic VALUES",
+    "query": "INSERT INTO users VALUES (1, 'John')"
+  },
+  {
+    "comment": "INSERT with column list",
+    "query": "INSERT INTO users (id, name) VALUES (1, 'John')"
+  },
+  {
+    "comment": "INSERT multiple VALUES",
+    "query": "INSERT INTO users (id, name) VALUES (1, 'John'), (2, 'Jane')"
+  },
+  {
+    "comment": "INSERT with DEFAULT VALUES",
+    "query": "INSERT INTO users DEFAULT VALUES"
+  },
+  {
+    "comment": "INSERT with SELECT",
+    "query": "INSERT INTO users SELECT id, name FROM temp_users"
+  },
+  {
+    "comment": "INSERT with subquery",
+    "query": "INSERT INTO users (SELECT id, name FROM temp_users WHERE active = TRUE)"
+  },
+  {
+    "comment": "INSERT with RETURNING single column",
+    "query": "INSERT INTO users (name) VALUES ('John') RETURNING id"
+  },
+  {
+    "comment": "INSERT with RETURNING multiple columns",
+    "query": "INSERT INTO users (name) VALUES ('John') RETURNING id, name, created_at"
+  },
+  {
+    "comment": "INSERT with RETURNING *",
+    "query": "INSERT INTO users (name) VALUES ('John') RETURNING *"
+  },
+  {
+    "comment": "INSERT with qualified table name",
+    "query": "INSERT INTO public.users (name) VALUES ('John')"
+  },
+  {
+    "comment": "INSERT with table alias",
+    "query": "INSERT INTO users AS u (name) VALUES ('John')"
+  },
+  {
+    "comment": "INSERT with WITH clause",
+    "query": "WITH temp AS (SELECT 'John' as name) INSERT INTO users (name) SELECT name FROM temp",
+    "expected": "WITH temp AS (SELECT 'John' AS name) INSERT INTO users (name) SELECT name FROM temp"
+  },
+  {
+    "comment": "INSERT with complex expressions in VALUES",
+    "query": "INSERT INTO users (id, name, age) VALUES (1 + 2, upper('john'), 25 * 2)"
+  },
+  {
+    "comment": "UPDATE simple",
+    "query": "UPDATE users SET name = 'Jane'"
+  },
+  {
+    "comment": "UPDATE with WHERE",
+    "query": "UPDATE users SET name = 'Jane' WHERE id = 1"
+  },
+  {
+    "comment": "UPDATE multiple columns",
+    "query": "UPDATE users SET name = 'Jane', age = 30 WHERE id = 1"
+  },
+  {
+    "comment": "UPDATE with complex SET expressions",
+    "query": "UPDATE users SET name = upper('jane'), age = age + 1, updated_at = now()",
+    "expected": "UPDATE users SET name = upper('jane'), age = age + 1, updated_at = NOW()"
+  },
+  {
+    "comment": "UPDATE with FROM clause",
+    "query": "UPDATE users SET name = temp.name FROM temp_users temp WHERE users.id = temp.id",
+    "expected": "UPDATE users SET name = temp.name FROM temp_users AS temp WHERE users.id = temp.id"
+  },
+  {
+    "comment": "UPDATE with multiple FROM tables",
+    "query": "UPDATE users SET name = t1.name FROM temp_users t1, other_table t2 WHERE users.id = t1.id AND t1.other_id = t2.id",
+    "expected": "UPDATE users SET name = t1.name FROM temp_users AS t1, other_table AS t2 WHERE users.id = t1.id AND t1.other_id = t2.id"
+  },
+  {
+    "comment": "UPDATE with complex WHERE",
+    "query": "UPDATE users SET name = 'Jane' WHERE id \u003e 10 AND active = TRUE AND created_at \u003e '2023-01-01'"
+  },
+  {
+    "comment": "UPDATE with RETURNING single column",
+    "query": "UPDATE users SET name = 'Jane' WHERE id = 1 RETURNING id"
+  },
+  {
+    "comment": "UPDATE with RETURNING multiple columns",
+    "query": "UPDATE users SET name = 'Jane' WHERE id = 1 RETURNING id, name, updated_at"
+  },
+  {
+    "comment": "UPDATE with RETURNING *",
+    "query": "UPDATE users SET name = 'Jane' WHERE id = 1 RETURNING *"
+  },
+  {
+    "comment": "UPDATE with qualified table",
+    "query": "UPDATE public.users SET name = 'Jane' WHERE id = 1"
+  },
+  {
+    "comment": "UPDATE with WITH clause",
+    "query": "WITH temp AS (SELECT id FROM active_users) UPDATE users SET active = FALSE WHERE id IN (SELECT id FROM temp)",
+    "expected": "WITH temp AS (SELECT id FROM active_users) UPDATE users SET active = FALSE WHERE id IN ANY (SELECT id FROM temp)"
+  },
+  {
+    "comment": "UPDATE with subquery in SET",
+    "query": "UPDATE users SET name = (SELECT name FROM profiles WHERE profiles.user_id = users.id)"
+  },
+  {
+    "comment": "UPDATE with subquery in WHERE",
+    "query": "UPDATE users SET active = FALSE WHERE id IN (SELECT user_id FROM banned_users)",
+    "expected": "UPDATE users SET active = FALSE WHERE id IN ANY (SELECT user_id FROM banned_users)"
+  },
+  {
+    "comment": "DELETE simple",
+    "query": "DELETE FROM users"
+  },
+  {
+    "comment": "DELETE with WHERE",
+    "query": "DELETE FROM users WHERE id = 1"
+  },
+  {
+    "comment": "DELETE with complex WHERE",
+    "query": "DELETE FROM users WHERE active = FALSE AND created_at \u003c '2020-01-01'"
+  },
+  {
+    "comment": "DELETE with USING clause",
+    "query": "DELETE FROM users USING temp_users temp WHERE users.id = temp.id",
+    "expected": "DELETE FROM users USING temp_users AS temp WHERE users.id = temp.id"
+  },
+  {
+    "comment": "DELETE with multiple USING tables",
+    "query": "DELETE FROM users USING temp_users t1, other_table t2 WHERE users.id = t1.id AND t1.other_id = t2.id",
+    "expected": "DELETE FROM users USING temp_users AS t1, other_table AS t2 WHERE users.id = t1.id AND t1.other_id = t2.id"
+  },
+  {
+    "comment": "DELETE with RETURNING single column",
+    "query": "DELETE FROM users WHERE id = 1 RETURNING id"
+  },
+  {
+    "comment": "DELETE with RETURNING multiple columns",
+    "query": "DELETE FROM users WHERE id = 1 RETURNING id, name, deleted_at"
+  },
+  {
+    "comment": "DELETE with RETURNING *",
+    "query": "DELETE FROM users WHERE id = 1 RETURNING *"
+  },
+  {
+    "comment": "DELETE with qualified table",
+    "query": "DELETE FROM public.users WHERE id = 1"
+  },
+  {
+    "comment": "DELETE with WITH clause",
+    "query": "WITH temp AS (SELECT id FROM inactive_users) DELETE FROM users WHERE id IN (SELECT id FROM temp)",
+    "expected": "WITH temp AS (SELECT id FROM inactive_users) DELETE FROM users WHERE id IN ANY (SELECT id FROM temp)"
+  },
+  {
+    "comment": "DELETE with subquery in WHERE",
+    "query": "DELETE FROM users WHERE id IN (SELECT user_id FROM temp_table)",
+    "expected": "DELETE FROM users WHERE id IN ANY (SELECT user_id FROM temp_table)"
+  },
+  {
+    "comment": "MERGE basic",
+    "query": "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "MERGE with qualified tables",
+    "query": "MERGE INTO public.target USING staging.source ON target.id = source.id WHEN MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "MERGE with table aliases",
+    "query": "MERGE INTO target AS t USING source AS s ON t.id = s.id WHEN MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "MERGE with complex join condition",
+    "query": "MERGE INTO target USING source ON target.id = source.id AND target.version = source.version WHEN MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "MERGE with subquery as source",
+    "query": "MERGE INTO target USING (SELECT * FROM source WHERE active = TRUE) AS s ON target.id = s.id WHEN MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "MERGE with WITH clause",
+    "query": "WITH filtered AS (SELECT * FROM source WHERE active = TRUE) MERGE INTO target USING filtered ON target.id = filtered.id WHEN MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "INSERT with function calls in VALUES",
+    "query": "INSERT INTO logs (message, created_at) VALUES (concat('Hello ', 'World'), now())",
+    "expected": "INSERT INTO logs (message, created_at) VALUES (concat('Hello ', 'World'), NOW())"
+  },
+  {
+    "comment": "UPDATE with arithmetic expressions",
+    "query": "UPDATE products SET price = price * 1.1, updated_count = updated_count + 1"
+  },
+  {
+    "comment": "DELETE with function in WHERE",
+    "query": "DELETE FROM users WHERE length(name) \u003c 3 OR extract(year FROM created_at) \u003c 2020"
+  },
+  {
+    "comment": "DELETE with simple function in WHERE",
+    "query": "DELETE FROM users WHERE length(name) \u003c 3"
+  },
+  {
+    "comment": "INSERT with type casts",
+    "query": "INSERT INTO users (id, name, age) VALUES (1::bigint, 'John'::varchar, '25'::integer)",
+    "expected": "INSERT INTO users (id, name, age) VALUES (1::BIGINT, 'John'::VARCHAR, '25'::INT)"
+  },
+  {
+    "comment": "UPDATE with type casts",
+    "query": "UPDATE users SET score = '95.5'::decimal, active = 'true'::boolean",
+    "expected": "UPDATE users SET score = '95.5'::NUMERIC, active = 'true'::BOOLEAN"
+  },
+  {
+    "comment": "INSERT with ONLY modifier",
+    "query": "INSERT INTO ONLY parent_table (id, name) VALUES (1, 'test')",
+    "error": "parse error at position 16: syntax error"
+  },
+  {
+    "comment": "UPDATE with ONLY modifier",
+    "query": "UPDATE ONLY parent_table SET name = 'updated'"
+  },
+  {
+    "comment": "DELETE with ONLY modifier",
+    "query": "DELETE FROM ONLY parent_table WHERE id = 1"
+  },
+  {
+    "comment": "INSERT with empty column list and VALUES",
+    "query": "INSERT INTO users () VALUES ()",
+    "error": "parse error at position 20: syntax error"
+  },
+  {
+    "comment": "UPDATE with no WHERE clause",
+    "query": "UPDATE users SET active = TRUE"
+  },
+  {
+    "comment": "DELETE with no WHERE clause",
+    "query": "DELETE FROM temp_table"
+  },
+  {
+    "comment": "INSERT with VALUES",
+    "query": "INSERT INTO users VALUES (1, 'John')"
+  },
+  {
+    "comment": "INSERT with column list and VALUES",
+    "query": "INSERT INTO users (id, name) VALUES (1, 'John')"
+  },
+  {
+    "comment": "INSERT with SELECT",
+    "query": "INSERT INTO users SELECT * FROM temp_users"
+  },
+  {
+    "comment": "INSERT with DEFAULT VALUES",
+    "query": "INSERT INTO users DEFAULT VALUES"
+  },
+  {
+    "comment": "INSERT with RETURNING",
+    "query": "INSERT INTO users (name) VALUES ('John') RETURNING id"
+  },
+  {
+    "comment": "INSERT with schema qualified table",
+    "query": "INSERT INTO public.users (name) VALUES ('John')"
+  },
+  {
+    "comment": "simple UPDATE",
+    "query": "UPDATE users SET name = 'Jane'"
+  },
+  {
+    "comment": "UPDATE with WHERE",
+    "query": "UPDATE users SET name = 'Jane' WHERE id = 1"
+  },
+  {
+    "comment": "UPDATE with RETURNING",
+    "query": "UPDATE users SET name = 'Jane' RETURNING id, name"
+  },
+  {
+    "comment": "UPDATE with multiple columns",
+    "query": "UPDATE users SET name = 'Jane', age = 30 WHERE id = 1"
+  },
+  {
+    "comment": "UPDATE with schema qualified table",
+    "query": "UPDATE public.users SET name = 'Jane'"
+  },
+  {
+    "comment": "simple DELETE",
+    "query": "DELETE FROM users"
+  },
+  {
+    "comment": "DELETE with WHERE",
+    "query": "DELETE FROM users WHERE id = 1"
+  },
+  {
+    "comment": "DELETE with RETURNING",
+    "query": "DELETE FROM users WHERE id = 1 RETURNING name"
+  },
+  {
+    "comment": "DELETE with schema qualified table",
+    "query": "DELETE FROM public.users WHERE id = 1"
+  },
+  {
+    "comment": "basic MERGE",
+    "query": "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN DO NOTHING"
+  },
+  {
+    "comment": "MERGE with schema qualified tables",
+    "query": "MERGE INTO public.target USING staging.source ON target.id = source.id WHEN MATCHED THEN DO NOTHING"
   }
 ]

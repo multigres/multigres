@@ -1005,6 +1005,56 @@ func (n *RenameStmt) String() string {
 	return strings.Join(parts, " ")
 }
 
+// formatRenameObjectName formats the object name for a RenameStmt based on the object type
+// Uses QuoteIdentifier to properly handle identifier quoting rules
+func formatRenameObjectName(renameType ObjectType, object Node) string {
+	if object == nil {
+		return ""
+	}
+	
+	// Handle NodeList objects - format as qualified identifier
+	if nodeList, ok := object.(*NodeList); ok {
+		// Special handling for OPERATOR CLASS and OPERATOR FAMILY
+		// When NodeList has 2 items, first is access method, second is name
+		if (renameType == OBJECT_OPCLASS || renameType == OBJECT_OPFAMILY) && len(nodeList.Items) == 2 {
+			// Format as "name USING method"
+			name := ""
+			method := ""
+			if str, ok := nodeList.Items[1].(*String); ok {
+				name = QuoteIdentifier(str.SVal)
+			} else {
+				name = nodeList.Items[1].SqlString()
+			}
+			if str, ok := nodeList.Items[0].(*String); ok {
+				method = str.SVal
+			} else {
+				method = nodeList.Items[0].SqlString()
+			}
+			return name + " USING " + method
+		}
+		
+		// Default NodeList handling for other cases
+		var nameParts []string
+		for _, item := range nodeList.Items {
+			if str, ok := item.(*String); ok {
+				// Use QuoteIdentifier for proper identifier quoting
+				nameParts = append(nameParts, QuoteIdentifier(str.SVal))
+			} else {
+				nameParts = append(nameParts, item.SqlString())
+			}
+		}
+		return strings.Join(nameParts, ".")
+	}
+	
+	// Handle String objects - format as identifier
+	if str, ok := object.(*String); ok {
+		return QuoteIdentifier(str.SVal)
+	}
+	
+	// Default: use object's SqlString
+	return object.SqlString()
+}
+
 func (n *RenameStmt) SqlString() string {
 	var parts []string
 
@@ -1041,34 +1091,133 @@ func (n *RenameStmt) SqlString() string {
 		parts = append(parts, "FOREIGN TABLE")
 	case OBJECT_TABCONSTRAINT:
 		parts = append(parts, "TABLE")
+	case OBJECT_DATABASE:
+		parts = append(parts, "DATABASE")
+	case OBJECT_SCHEMA:
+		parts = append(parts, "SCHEMA")
+	case OBJECT_ROLE:
+		parts = append(parts, "ROLE")
+	case OBJECT_TABLESPACE:
+		parts = append(parts, "TABLESPACE")
+	case OBJECT_DOMAIN:
+		parts = append(parts, "DOMAIN")
+	case OBJECT_DOMCONSTRAINT:
+		parts = append(parts, "DOMAIN")
+	case OBJECT_TYPE:
+		parts = append(parts, "TYPE")
+	case OBJECT_ATTRIBUTE:
+		parts = append(parts, "TYPE")
+	case OBJECT_FUNCTION:
+		parts = append(parts, "FUNCTION")
+	case OBJECT_PROCEDURE:
+		parts = append(parts, "PROCEDURE")
+	case OBJECT_ROUTINE:
+		parts = append(parts, "ROUTINE")
+	case OBJECT_AGGREGATE:
+		parts = append(parts, "AGGREGATE")
+	case OBJECT_COLLATION:
+		parts = append(parts, "COLLATION")
+	case OBJECT_CONVERSION:
+		parts = append(parts, "CONVERSION")
+	case OBJECT_LANGUAGE:
+		parts = append(parts, "LANGUAGE")
+	case OBJECT_OPCLASS:
+		parts = append(parts, "OPERATOR CLASS")
+	case OBJECT_OPFAMILY:
+		parts = append(parts, "OPERATOR FAMILY")
+	case OBJECT_POLICY:
+		parts = append(parts, "POLICY")
+	case OBJECT_RULE:
+		parts = append(parts, "RULE")
+	case OBJECT_TRIGGER:
+		parts = append(parts, "TRIGGER")
+	case OBJECT_EVENT_TRIGGER:
+		parts = append(parts, "EVENT TRIGGER")
+	case OBJECT_PUBLICATION:
+		parts = append(parts, "PUBLICATION")
+	case OBJECT_SUBSCRIPTION:
+		parts = append(parts, "SUBSCRIPTION")
+	case OBJECT_FDW:
+		parts = append(parts, "FOREIGN DATA WRAPPER")
+	case OBJECT_FOREIGN_SERVER:
+		parts = append(parts, "SERVER")
+	case OBJECT_STATISTIC_EXT:
+		parts = append(parts, "STATISTICS")
+	case OBJECT_TSPARSER:
+		parts = append(parts, "TEXT SEARCH PARSER")
+	case OBJECT_TSDICTIONARY:
+		parts = append(parts, "TEXT SEARCH DICTIONARY")
+	case OBJECT_TSTEMPLATE:
+		parts = append(parts, "TEXT SEARCH TEMPLATE")
+	case OBJECT_TSCONFIGURATION:
+		parts = append(parts, "TEXT SEARCH CONFIGURATION")
 	default:
-		parts = append(parts, "TABLE")
+		// Use the generic String() method for any unhandled cases
+		parts = append(parts, n.RenameType.String())
 	}
 
-	// Add IF EXISTS if specified
-	if n.MissingOk {
+	// Add IF EXISTS if specified (for POLICY/RULE/TRIGGER, it goes after the object name)
+	if n.MissingOk && n.RenameType != OBJECT_POLICY && n.RenameType != OBJECT_RULE && n.RenameType != OBJECT_TRIGGER {
 		parts = append(parts, "IF EXISTS")
 	}
 
-	// Add relation/object name
-	if n.Relation != nil {
-		parts = append(parts, n.Relation.SqlString())
-	} else if n.Object != nil {
-		parts = append(parts, n.Object.SqlString())
-	}
+	// Handle different rename patterns
+	if n.RenameType == OBJECT_POLICY || n.RenameType == OBJECT_RULE || n.RenameType == OBJECT_TRIGGER {
+		// These have special syntax: ALTER <type> [IF EXISTS] old_name ON tablename RENAME TO new_name
+		if n.MissingOk {
+			parts = append(parts, "IF EXISTS")
+		}
 
-	// Add RENAME clause
-	parts = append(parts, "RENAME")
+		// Add old name
+		if n.Subname != "" {
+			parts = append(parts, n.Subname)
+		}
 
-	if n.RenameType == OBJECT_COLUMN {
-		// Column rename: RENAME [COLUMN] old_name TO new_name
-		parts = append(parts, "COLUMN", n.Subname, "TO", n.Newname)
+		// Add ON tablename
+		if n.Relation != nil {
+			parts = append(parts, "ON", n.Relation.SqlString())
+		}
+
+		parts = append(parts, "RENAME", "TO", n.Newname)
+	} else if n.RenameType == OBJECT_COLUMN {
+		// Column rename: ALTER <type> tablename RENAME [COLUMN] old_name TO new_name
+		if n.Relation != nil {
+			parts = append(parts, n.Relation.SqlString())
+		}
+		parts = append(parts, "RENAME", "COLUMN", n.Subname, "TO", n.Newname)
 	} else if n.RenameType == OBJECT_TABCONSTRAINT {
-		// Constraint rename: RENAME CONSTRAINT old_name TO new_name
-		parts = append(parts, "CONSTRAINT", n.Subname, "TO", n.Newname)
+		// Constraint rename: ALTER TABLE tablename RENAME CONSTRAINT old_name TO new_name
+		if n.Relation != nil {
+			parts = append(parts, n.Relation.SqlString())
+		}
+		parts = append(parts, "RENAME", "CONSTRAINT", n.Subname, "TO", n.Newname)
+	} else if n.RenameType == OBJECT_DOMCONSTRAINT {
+		// Domain constraint rename: ALTER DOMAIN domain_name RENAME CONSTRAINT old_name TO new_name
+		if n.Relation != nil {
+			parts = append(parts, n.Relation.SqlString())
+		} else if n.Object != nil {
+			// Use the helper function to format domain name properly
+			parts = append(parts, formatRenameObjectName(n.RenameType, n.Object))
+		}
+		parts = append(parts, "RENAME", "CONSTRAINT", n.Subname, "TO", n.Newname)
+	} else if n.RenameType == OBJECT_ATTRIBUTE {
+		// Type attribute rename: ALTER TYPE type_name RENAME ATTRIBUTE old_name TO new_name
+		if n.Relation != nil {
+			parts = append(parts, n.Relation.SqlString())
+		}
+		parts = append(parts, "RENAME", "ATTRIBUTE", n.Subname, "TO", n.Newname)
 	} else {
-		// Table/Index/View rename: RENAME TO new_name
-		parts = append(parts, "TO", n.Newname)
+		// Default rename: ALTER <type> old_name RENAME TO new_name
+		if n.Relation != nil {
+			parts = append(parts, n.Relation.SqlString())
+		} else if n.Object != nil {
+			// Use the helper function to format object name based on type
+			parts = append(parts, formatRenameObjectName(n.RenameType, n.Object))
+		} else if n.Subname != "" {
+			// For DATABASE, SCHEMA, ROLE, etc., the old name might be in Subname
+			parts = append(parts, n.Subname)
+		}
+		parts = append(parts, "RENAME", "TO", n.Newname)
 	}
 
 	return strings.Join(parts, " ")

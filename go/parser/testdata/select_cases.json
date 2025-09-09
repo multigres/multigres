@@ -65,13 +65,11 @@
   },
   {
     "comment": "Unary minus",
-    "query": "SELECT -42",
-    "expected": "SELECT -42"
+    "query": "SELECT -42"
   },
   {
     "comment": "Unary plus",
-    "query": "SELECT +42",
-    "expected": "SELECT +42"
+    "query": "SELECT +42"
   },
   {
     "comment": "Complex arithmetic",
@@ -201,8 +199,7 @@
   },
   {
     "comment": "String constant",
-    "query": "SELECT 'hello'",
-    "expected": "SELECT 'hello'"
+    "query": "SELECT 'hello'"
   },
   {
     "comment": "Boolean TRUE",
@@ -683,5 +680,895 @@
   {
     "comment": "SELECT with SETOF type cast",
     "query": "SELECT value::SETOF INT"
+  },
+  {
+    "comment": "Nested arithmetic",
+    "query": "SELECT ((1 + 2) * (3 - 4))"
+  },
+  {
+    "comment": "Division and modulo",
+    "query": "SELECT (10 / 3) % 2"
+  },
+  {
+    "comment": "Power operator",
+    "query": "SELECT 2 ^ 3"
+  },
+  {
+    "comment": "Not equal",
+    "query": "SELECT * FROM users WHERE id \u003c\u003e 1"
+  },
+  {
+    "comment": "Less than or equal",
+    "query": "SELECT * FROM users WHERE age \u003c= 65"
+  },
+  {
+    "comment": "Greater than or equal",
+    "query": "SELECT * FROM users WHERE age \u003e= 18"
+  },
+  {
+    "comment": "Complex AND/OR",
+    "query": "SELECT * FROM users WHERE ((active = TRUE OR admin = TRUE) AND NOT deleted)"
+  },
+  {
+    "comment": "Nested NOT",
+    "query": "SELECT * FROM users WHERE NOT NOT active"
+  },
+  {
+    "comment": "Arithmetic in WHERE",
+    "query": "SELECT * FROM users WHERE (age * 2) \u003e 50"
+  },
+  {
+    "comment": "Function in expression",
+    "query": "SELECT * FROM users WHERE length(name) \u003e 5"
+  },
+  {
+    "comment": "Column arithmetic",
+    "query": "SELECT age + 1 FROM users"
+  },
+  {
+    "comment": "Column with function",
+    "query": "SELECT upper(name) FROM users"
+  },
+  {
+    "comment": "Deeply nested",
+    "query": "SELECT (((1 + 2) * 3) - 4) / 5"
+  },
+  {
+    "comment": "Mixed operators",
+    "query": "SELECT * FROM users WHERE (age + 5) * 2 \u003e 30"
+  },
+  {
+    "comment": "SELECT * FROM users",
+    "query": "SELECT * FROM users"
+  },
+  {
+    "comment": "SELECT id, name FROM users WHERE active = TRUE",
+    "query": "SELECT id, name FROM users WHERE active = TRUE"
+  },
+  {
+    "comment": "SELECT DISTINCT department FROM employees",
+    "query": "SELECT DISTINCT department FROM employees"
+  },
+  {
+    "comment": "SELECT 1 + 2 * 3",
+    "query": "SELECT 1 + 2 * 3"
+  },
+  {
+    "comment": "SELECT age::TEXT FROM users",
+    "query": "SELECT age::TEXT FROM users"
+  },
+  {
+    "comment": "SELECT length(name) FROM users",
+    "query": "SELECT length(name) FROM users"
+  },
+  {
+    "comment": "SELECT * FROM users WHERE (age \u003e 18 AND active = TRUE)",
+    "query": "SELECT * FROM users WHERE (age \u003e 18 AND active = TRUE)"
+  },
+  {
+    "comment": "SELECT id AS user_id, name AS user_name FROM users AS u",
+    "query": "SELECT id AS user_id, name AS user_name FROM users AS u"
+  },
+  {
+    "comment": "SELECT * FROM users, orders WHERE users.id = orders.user_id",
+    "query": "SELECT * FROM users, orders WHERE users.id = orders.user_id"
+  },
+  {
+    "comment": "TABLE users",
+    "query": "TABLE users",
+    "expected": "SELECT * FROM users"
+  },
+  {
+    "comment": "SELECT * FROM ONLY users",
+    "query": "SELECT * FROM ONLY users"
+  },
+  {
+    "comment": "SELECT * INTO backup FROM users",
+    "query": "SELECT * INTO backup FROM users"
+  },
+  {
+    "comment": "Simple function table",
+    "query": "SELECT * FROM generate_series(1, 5)"
+  },
+  {
+    "comment": "Function table with ORDINALITY",
+    "query": "SELECT * FROM generate_series(1, 5) WITH ORDINALITY"
+  },
+  {
+    "comment": "LATERAL function table",
+    "query": "SELECT * FROM LATERAL generate_series(1, t.max_val)"
+  },
+  {
+    "comment": "Function table with alias",
+    "query": "SELECT * FROM generate_series(1, 5) AS t"
+  },
+  {
+    "comment": "Basic XMLTABLE",
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS id INT, name TEXT)"
+  },
+  {
+    "comment": "XMLTABLE with FOR ORDINALITY",
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS pos FOR ORDINALITY, id INT)"
+  },
+  {
+    "comment": "LATERAL XMLTABLE",
+    "query": "SELECT * FROM LATERAL XMLTABLE('/root/item' PASSING t.xml_data COLUMNS id INT)"
+  },
+  {
+    "comment": "Column alias with AS",
+    "query": "SELECT id AS user_id"
+  },
+  {
+    "comment": "Column alias without AS",
+    "query": "SELECT id user_id",
+    "expected": "SELECT id AS user_id"
+  },
+  {
+    "comment": "Multiple column aliases",
+    "query": "SELECT id AS user_id, name AS user_name"
+  },
+  {
+    "comment": "Table alias with AS",
+    "query": "SELECT * FROM users AS u"
+  },
+  {
+    "comment": "Table alias without AS",
+    "query": "SELECT * FROM users u",
+    "expected": "SELECT * FROM users AS u"
+  },
+  {
+    "comment": "Complex aliases",
+    "query": "SELECT u.id AS user_id FROM users AS u"
+  },
+  {
+    "comment": "Function with alias",
+    "query": "SELECT length(name) AS name_length FROM users"
+  },
+  {
+    "comment": "Expression with alias",
+    "query": "SELECT age + 1 AS next_age FROM users"
+  },
+  {
+    "comment": "simple limit",
+    "query": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "limit with offset",
+    "query": "SELECT * FROM users LIMIT 10 OFFSET 5"
+  },
+  {
+    "comment": "fetch first only",
+    "query": "SELECT * FROM users FETCH FIRST 10 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "fetch first with ties",
+    "query": "SELECT * FROM users ORDER BY id FETCH FIRST 5 ROWS WITH TIES"
+  },
+  {
+    "comment": "offset with rows",
+    "query": "SELECT * FROM users OFFSET 10 ROWS",
+    "expected": "SELECT * FROM users OFFSET 10"
+  },
+  {
+    "comment": "complex query",
+    "query": "SELECT name, COUNT(*) FROM users WHERE active = true GROUP BY name ORDER BY COUNT(*) DESC LIMIT 20 OFFSET 10",
+    "expected": "SELECT name, COUNT(*) FROM users WHERE active = TRUE GROUP BY name ORDER BY COUNT(*) DESC LIMIT 20 OFFSET 10"
+  },
+  {
+    "comment": "simple LIMIT",
+    "query": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "LIMIT with expression",
+    "query": "SELECT * FROM users LIMIT 5 + 5"
+  },
+  {
+    "comment": "LIMIT ALL",
+    "query": "SELECT * FROM users LIMIT ALL"
+  },
+  {
+    "comment": "simple OFFSET",
+    "query": "SELECT * FROM users OFFSET 20"
+  },
+  {
+    "comment": "OFFSET with expression",
+    "query": "SELECT * FROM users OFFSET 10 * 2"
+  },
+  {
+    "comment": "LIMIT and OFFSET",
+    "query": "SELECT * FROM users LIMIT 10 OFFSET 20"
+  },
+  {
+    "comment": "OFFSET before LIMIT",
+    "query": "SELECT * FROM users OFFSET 20 LIMIT 10",
+    "expected": "SELECT * FROM users LIMIT 10 OFFSET 20"
+  },
+  {
+    "comment": "FETCH FIRST ROW ONLY",
+    "query": "SELECT * FROM users FETCH FIRST ROW ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "FETCH FIRST ROWS ONLY (implicit 1)",
+    "query": "SELECT * FROM users FETCH FIRST ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "FETCH NEXT ROW ONLY",
+    "query": "SELECT * FROM users FETCH NEXT ROW ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "FETCH FIRST 5 ROWS ONLY",
+    "query": "SELECT * FROM users FETCH FIRST 5 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 5"
+  },
+  {
+    "comment": "FETCH NEXT 10 ROWS ONLY",
+    "query": "SELECT * FROM users FETCH NEXT 10 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "FETCH FIRST ROW WITH TIES",
+    "query": "SELECT * FROM users ORDER BY score FETCH FIRST ROW WITH TIES"
+  },
+  {
+    "comment": "FETCH FIRST 5 ROWS WITH TIES",
+    "query": "SELECT * FROM users ORDER BY score FETCH FIRST 5 ROWS WITH TIES"
+  },
+  {
+    "comment": "OFFSET with ROWS keyword",
+    "query": "SELECT * FROM users OFFSET 10 ROWS",
+    "expected": "SELECT * FROM users OFFSET 10"
+  },
+  {
+    "comment": "OFFSET with ROW keyword",
+    "query": "SELECT * FROM users OFFSET 1 ROW",
+    "expected": "SELECT * FROM users OFFSET 1"
+  },
+  {
+    "comment": "OFFSET and FETCH FIRST",
+    "query": "SELECT * FROM users OFFSET 20 FETCH FIRST 10 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 10 OFFSET 20"
+  },
+  {
+    "comment": "ORDER BY with LIMIT",
+    "query": "SELECT * FROM users ORDER BY name LIMIT 10"
+  },
+  {
+    "comment": "ORDER BY with FETCH FIRST WITH TIES",
+    "query": "SELECT * FROM users ORDER BY score DESC FETCH FIRST 5 ROWS WITH TIES"
+  },
+  {
+    "comment": "WHERE with LIMIT and OFFSET",
+    "query": "SELECT * FROM users WHERE active = true OFFSET 50 LIMIT 25",
+    "expected": "SELECT * FROM users WHERE active = TRUE LIMIT 25 OFFSET 50"
+  },
+  {
+    "comment": "Complex query with CTE and FETCH",
+    "query": "WITH top_users AS (SELECT * FROM users ORDER BY score DESC FETCH FIRST 20 ROWS ONLY) SELECT * FROM top_users",
+    "expected": "WITH top_users AS (SELECT * FROM users ORDER BY score DESC LIMIT 20) SELECT * FROM top_users"
+  },
+  {
+    "comment": "Subquery with LIMIT",
+    "query": "SELECT * FROM (SELECT * FROM users LIMIT 10) AS u WHERE u.age \u003e 25"
+  },
+  {
+    "comment": "Simple function table",
+    "query": "SELECT * FROM generate_series(1, 5)"
+  },
+  {
+    "comment": "Function table with ORDINALITY",
+    "query": "SELECT * FROM generate_series(1, 5) WITH ORDINALITY"
+  },
+  {
+    "comment": "LATERAL function table",
+    "query": "SELECT * FROM LATERAL generate_series(1, t.max_val)"
+  },
+  {
+    "comment": "ROWS FROM syntax",
+    "query": "SELECT * FROM ROWS FROM (generate_series(1, 5))"
+  },
+  {
+    "comment": "ROWS FROM with ORDINALITY",
+    "query": "SELECT * FROM ROWS FROM (generate_series(1, 5)) WITH ORDINALITY"
+  },
+  {
+    "comment": "Basic XMLTABLE",
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS id INT, name TEXT)"
+  },
+  {
+    "comment": "XMLTABLE with FOR ORDINALITY",
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS pos FOR ORDINALITY, id INT)"
+  },
+  {
+    "comment": "LATERAL XMLTABLE",
+    "query": "SELECT * FROM LATERAL XMLTABLE('/root/item' PASSING t.xml_data COLUMNS id INT)"
+  },
+  {
+    "comment": "Basic JSON_TABLE",
+    "query": "SELECT * FROM JSON_TABLE('{}', '$' COLUMNS (id INT))"
+  },
+  {
+    "comment": "JSON_TABLE with FOR ORDINALITY",
+    "query": "SELECT * FROM JSON_TABLE('{\"items\": [1, 2, 3]}', '$.items[*]' COLUMNS (pos FOR ORDINALITY, val INT PATH '$'))"
+  },
+  {
+    "comment": "JSON_TABLE with EXISTS column",
+    "query": "SELECT * FROM JSON_TABLE('{\"items\": [{\"id\": 1}]}', '$.items[*]' COLUMNS (has_id BOOLEAN EXISTS PATH '$.id'))"
+  },
+  {
+    "comment": "JSON_TABLE with NESTED columns",
+    "query": "SELECT * FROM JSON_TABLE('{\"items\": [{\"props\": {\"a\": 1}}]}', '$.items[*]' COLUMNS (NESTED PATH '$.props' COLUMNS (a INT PATH '$.a')))"
+  },
+  {
+    "comment": "LATERAL JSON_TABLE",
+    "query": "SELECT * FROM LATERAL JSON_TABLE(t.json_data, '$.items[*]' COLUMNS (id INT PATH '$.id'))"
+  },
+  {
+    "comment": "Function table with alias",
+    "query": "SELECT * FROM generate_series(1, 5) AS t"
+  },
+  {
+    "comment": "XMLTABLE with alias",
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003c/root\u003e' COLUMNS id INT) AS xt"
+  },
+  {
+    "comment": "JSON_TABLE with alias",
+    "query": "SELECT * FROM JSON_TABLE('[]', '$[*]' COLUMNS (id INT)) AS jt"
+  },
+  {
+    "comment": "Function table with column aliases",
+    "query": "SELECT * FROM generate_series(1, 5) AS t(num)"
+  },
+  {
+    "comment": "MATERIALIZED CTE deparsing",
+    "query": "WITH stats AS MATERIALIZED (SELECT COUNT(a) FROM users) SELECT * FROM stats"
+  },
+  {
+    "comment": "NOT MATERIALIZED CTE deparsing",
+    "query": "WITH stats AS NOT MATERIALIZED (SELECT COUNT(a) FROM users) SELECT * FROM stats"
+  },
+  {
+    "comment": "RECURSIVE MATERIALIZED CTE",
+    "query": "WITH RECURSIVE t AS MATERIALIZED (SELECT 1) SELECT * FROM t"
+  },
+  {
+    "comment": "SEARCH DEPTH FIRST single column",
+    "query": "WITH RECURSIVE t AS (SELECT id FROM tree) SEARCH DEPTH FIRST BY id SET seq SELECT * FROM t"
+  },
+  {
+    "comment": "SEARCH BREADTH FIRST single column",
+    "query": "WITH RECURSIVE t AS (SELECT id FROM tree) SEARCH BREADTH FIRST BY id SET seq SELECT * FROM t"
+  },
+  {
+    "comment": "CYCLE simple form single column",
+    "query": "WITH RECURSIVE t AS (SELECT id FROM tree) CYCLE id SET mark USING path SELECT * FROM t"
+  },
+  {
+    "comment": "CYCLE full form single column",
+    "query": "WITH RECURSIVE t AS (SELECT id FROM tree) CYCLE id SET mark TO TRUE DEFAULT FALSE USING path SELECT * FROM t"
+  },
+  {
+    "comment": "MATERIALIZED with SEARCH",
+    "query": "WITH RECURSIVE tree AS MATERIALIZED (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq SELECT * FROM tree"
+  },
+  {
+    "comment": "SEARCH with CYCLE",
+    "query": "WITH RECURSIVE tree AS (SELECT id FROM nodes) SEARCH DEPTH FIRST BY id SET search_seq CYCLE id SET is_cycle USING path SELECT * FROM tree"
+  },
+  {
+    "comment": "JOIN with table aliases",
+    "query": "SELECT u.name, o.total FROM users u INNER JOIN orders o ON u.id = o.user_id",
+    "expected": "SELECT u.name, o.total FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id"
+  },
+  {
+    "comment": "JOIN with complex ON condition",
+    "query": "SELECT * FROM users u JOIN orders o ON u.id = o.user_id AND u.active = TRUE",
+    "expected": "SELECT * FROM users AS u INNER JOIN orders AS o ON u.id = o.user_id AND u.active = TRUE"
+  },
+  {
+    "comment": "NATURAL JOIN with explicit type",
+    "query": "SELECT * FROM users NATURAL INNER JOIN orders",
+    "expected": "SELECT * FROM users NATURAL JOIN orders"
+  },
+  {
+    "comment": "NATURAL LEFT JOIN",
+    "query": "SELECT * FROM users NATURAL LEFT JOIN orders"
+  },
+  {
+    "comment": "NATURAL RIGHT JOIN",
+    "query": "SELECT * FROM users NATURAL RIGHT JOIN orders"
+  },
+  {
+    "comment": "NATURAL FULL JOIN",
+    "query": "SELECT * FROM users NATURAL FULL JOIN orders"
+  },
+  {
+    "comment": "LATERAL with simple subquery",
+    "query": "SELECT * FROM users u, LATERAL (SELECT * FROM orders o WHERE o.user_id = u.id) AS recent_orders",
+    "expected": "SELECT * FROM users AS u, LATERAL (SELECT * FROM orders AS o WHERE o.user_id = u.id) AS recent_orders"
+  },
+  {
+    "comment": "Nested subqueries in FROM",
+    "query": "SELECT * FROM (SELECT id FROM (SELECT user_id AS id FROM orders) AS inner_sub) AS outer_sub"
+  },
+  {
+    "comment": "Addition and multiplication",
+    "query": "SELECT 1 + 2 * 3"
+  },
+  {
+    "comment": "Parentheses override precedence",
+    "query": "SELECT (1 + 2) * 3"
+  },
+  {
+    "comment": "Multiple operators",
+    "query": "SELECT 1 + 2 * 3 - 4 / 2"
+  },
+  {
+    "comment": "Unary and binary",
+    "query": "SELECT -1 + 2"
+  },
+  {
+    "comment": "Power has highest precedence",
+    "query": "SELECT 2 + 3 ^ 2"
+  },
+  {
+    "comment": "Modulo precedence",
+    "query": "SELECT 10 + 5 % 3"
+  },
+  {
+    "comment": "Comparison and logical",
+    "query": "SELECT * FROM users WHERE age \u003e 18 AND active"
+  },
+  {
+    "comment": "Mixed precedence",
+    "query": "SELECT * FROM users WHERE age + 1 \u003e 18 AND NOT deleted"
+  },
+  {
+    "comment": "OR has lower precedence than AND",
+    "query": "SELECT * FROM users WHERE active AND verified OR admin"
+  },
+  {
+    "comment": "Parentheses with logical",
+    "query": "SELECT * FROM users WHERE (active OR admin) AND verified"
+  },
+  {
+    "comment": "Deeply nested arithmetic",
+    "query": "SELECT ((1 + 2) * 3) - (4 / 2)"
+  },
+  {
+    "comment": "Mixed arithmetic and comparison",
+    "query": "SELECT * FROM users WHERE (age * 2) + 5 \u003e 30"
+  },
+  {
+    "comment": "Function call precedence",
+    "query": "SELECT length(name) + 10 FROM users"
+  },
+  {
+    "comment": "Type cast precedence",
+    "query": "SELECT age::text FROM users",
+    "expected": "SELECT age::TEXT FROM users"
+  },
+  {
+    "comment": "Complex WHERE precedence",
+    "query": "SELECT * FROM users WHERE id = 1 OR id = 2 AND active"
+  },
+  {
+    "comment": "WHERE with parentheses",
+    "query": "SELECT * FROM users WHERE (id = 1 OR id = 2) AND active"
+  },
+  {
+    "comment": "NOT precedence",
+    "query": "SELECT * FROM users WHERE NOT active AND verified"
+  },
+  {
+    "comment": "NOT with parentheses",
+    "query": "SELECT * FROM users WHERE NOT (active AND verified)"
+  },
+  {
+    "comment": "Simple SELECT star",
+    "query": "SELECT *"
+  },
+  {
+    "comment": "SELECT single column",
+    "query": "SELECT id"
+  },
+  {
+    "comment": "SELECT with column alias AS",
+    "query": "SELECT id AS user_id"
+  },
+  {
+    "comment": "SELECT with column alias implicit",
+    "query": "SELECT id user_id",
+    "expected": "SELECT id AS user_id"
+  },
+  {
+    "comment": "SELECT multiple columns",
+    "query": "SELECT id, name"
+  },
+  {
+    "comment": "SELECT all columns from table",
+    "query": "SELECT * FROM users"
+  },
+  {
+    "comment": "FROM with table alias AS",
+    "query": "SELECT * FROM users AS u"
+  },
+  {
+    "comment": "FROM with table alias implicit",
+    "query": "SELECT * FROM users u",
+    "expected": "SELECT * FROM users AS u"
+  },
+  {
+    "comment": "FROM with qualified table",
+    "query": "SELECT * FROM public.users"
+  },
+  {
+    "comment": "FROM with ONLY modifier",
+    "query": "SELECT * FROM ONLY users"
+  },
+  {
+    "comment": "FROM multiple tables",
+    "query": "SELECT * FROM users, orders"
+  },
+  {
+    "comment": "SELECT without FROM",
+    "query": "SELECT 1"
+  },
+  {
+    "comment": "SELECT DISTINCT single",
+    "query": "SELECT DISTINCT id"
+  },
+  {
+    "comment": "SELECT DISTINCT multiple",
+    "query": "SELECT DISTINCT id, name"
+  },
+  {
+    "comment": "SELECT DISTINCT ON single",
+    "query": "SELECT DISTINCT ON (id) name"
+  },
+  {
+    "comment": "SELECT DISTINCT ON multiple",
+    "query": "SELECT DISTINCT ON (department, level) name"
+  },
+  {
+    "comment": "WHERE simple boolean",
+    "query": "SELECT * FROM users WHERE active"
+  },
+  {
+    "comment": "WHERE equality",
+    "query": "SELECT * FROM users WHERE id = 1"
+  },
+  {
+    "comment": "WHERE not equal",
+    "query": "SELECT * FROM users WHERE id \u003c\u003e 1"
+  },
+  {
+    "comment": "WHERE less than",
+    "query": "SELECT * FROM users WHERE age \u003c 30"
+  },
+  {
+    "comment": "WHERE greater than",
+    "query": "SELECT * FROM users WHERE age \u003e 18"
+  },
+  {
+    "comment": "WHERE less or equal",
+    "query": "SELECT * FROM users WHERE age \u003c= 65"
+  },
+  {
+    "comment": "WHERE greater or equal",
+    "query": "SELECT * FROM users WHERE age \u003e= 18"
+  },
+  {
+    "comment": "WHERE complex AND",
+    "query": "SELECT * FROM users WHERE id \u003e 10 AND active = TRUE"
+  },
+  {
+    "comment": "WHERE complex OR",
+    "query": "SELECT * FROM users WHERE admin = TRUE OR moderator = TRUE"
+  },
+  {
+    "comment": "WHERE complex NOT",
+    "query": "SELECT * FROM users WHERE NOT deleted"
+  },
+  {
+    "comment": "WHERE mixed logical",
+    "query": "SELECT * FROM users WHERE (active = TRUE OR admin = TRUE) AND NOT deleted"
+  },
+  {
+    "comment": "Arithmetic addition",
+    "query": "SELECT 1 + 2"
+  },
+  {
+    "comment": "Arithmetic subtraction",
+    "query": "SELECT 5 - 3"
+  },
+  {
+    "comment": "Arithmetic multiplication",
+    "query": "SELECT 4 * 6"
+  },
+  {
+    "comment": "Arithmetic division",
+    "query": "SELECT 10 / 2"
+  },
+  {
+    "comment": "Arithmetic modulo",
+    "query": "SELECT 10 % 3"
+  },
+  {
+    "comment": "Arithmetic power",
+    "query": "SELECT 2 ^ 3"
+  },
+  {
+    "comment": "Unary plus",
+    "query": "SELECT +42"
+  },
+  {
+    "comment": "Unary minus",
+    "query": "SELECT -42"
+  },
+  {
+    "comment": "Complex arithmetic",
+    "query": "SELECT (1 + 2) * 3 - 4 / 2"
+  },
+  {
+    "comment": "Column arithmetic",
+    "query": "SELECT age + 1 FROM users"
+  },
+  {
+    "comment": "Mixed arithmetic",
+    "query": "SELECT id + age * 2 FROM users"
+  },
+  {
+    "comment": "Type cast to text",
+    "query": "SELECT id::text FROM users",
+    "expected": "SELECT id::TEXT FROM users"
+  },
+  {
+    "comment": "Type cast with spaces",
+    "query": "SELECT id :: integer FROM users",
+    "expected": "SELECT id::INT FROM users"
+  },
+  {
+    "comment": "Complex expression cast",
+    "query": "SELECT (age + 1)::varchar FROM users",
+    "expected": "SELECT (age + 1)::VARCHAR FROM users"
+  },
+  {
+    "comment": "Multiple casts",
+    "query": "SELECT id::text, age::varchar FROM users",
+    "expected": "SELECT id::TEXT, age::VARCHAR FROM users"
+  },
+  {
+    "comment": "Simple column reference",
+    "query": "SELECT id FROM users"
+  },
+  {
+    "comment": "Qualified column reference",
+    "query": "SELECT users.id FROM users"
+  },
+  {
+    "comment": "Schema qualified column",
+    "query": "SELECT public.users.id FROM public.users"
+  },
+  {
+    "comment": "Multiple qualified columns",
+    "query": "SELECT u.id, u.name FROM users AS u"
+  },
+  {
+    "comment": "Function no args",
+    "query": "SELECT now()",
+    "expected": "SELECT NOW()"
+  },
+  {
+    "comment": "Function single arg",
+    "query": "SELECT length(name) FROM users"
+  },
+  {
+    "comment": "Function multiple args",
+    "query": "SELECT substring(name, 1, 5) FROM users"
+  },
+  {
+    "comment": "Qualified function",
+    "query": "SELECT my_catalog.length(name) FROM users"
+  },
+  {
+    "comment": "Nested functions",
+    "query": "SELECT upper(trim(name)) FROM users"
+  },
+  {
+    "comment": "Function in WHERE",
+    "query": "SELECT * FROM users WHERE length(name) \u003e 5"
+  },
+  {
+    "comment": "Integer constant",
+    "query": "SELECT 42"
+  },
+  {
+    "comment": "Negative integer",
+    "query": "SELECT -123"
+  },
+  {
+    "comment": "Float constant",
+    "query": "SELECT 3.14"
+  },
+  {
+    "comment": "String literal",
+    "query": "SELECT 'hello world'"
+  },
+  {
+    "comment": "Boolean TRUE",
+    "query": "SELECT TRUE"
+  },
+  {
+    "comment": "Boolean FALSE",
+    "query": "SELECT FALSE"
+  },
+  {
+    "comment": "NULL constant",
+    "query": "SELECT NULL"
+  },
+  {
+    "comment": "SELECT INTO basic",
+    "query": "SELECT * INTO backup_users FROM users"
+  },
+  {
+    "comment": "SELECT INTO with WHERE",
+    "query": "SELECT id, name INTO temp_users FROM users WHERE active = TRUE"
+  },
+  {
+    "comment": "TABLE statement",
+    "query": "TABLE users",
+    "expected": "SELECT * FROM users"
+  },
+  {
+    "comment": "TABLE with qualified name",
+    "query": "TABLE public.users",
+    "expected": "SELECT * FROM public.users"
+  },
+  {
+    "comment": "Complex SELECT with all features",
+    "query": "SELECT u.id AS user_id, upper(u.name) AS user_name FROM users AS u WHERE u.active = TRUE AND u.age \u003e 18"
+  },
+  {
+    "comment": "Multiple expressions with aliases",
+    "query": "SELECT id AS user_id, name AS user_name, age + 1 AS next_age FROM users"
+  },
+  {
+    "comment": "Arithmetic in WHERE with functions",
+    "query": "SELECT * FROM users WHERE length(name) + age \u003e 25"
+  },
+  {
+    "comment": "column list in function",
+    "query": "SELECT func(a, b, c)"
+  },
+  {
+    "comment": "multiple column references",
+    "query": "SELECT a, b, c FROM table1"
+  },
+  {
+    "comment": "qualified column list",
+    "query": "SELECT t1.a, t2.b, t3.c FROM t1, t2, t3"
+  },
+  {
+    "comment": "array subscript",
+    "query": "SELECT column_val[1]"
+  },
+  {
+    "comment": "array slice",
+    "query": "SELECT column_val[1:5]"
+  },
+  {
+    "comment": "field access",
+    "query": "SELECT record.field"
+  },
+  {
+    "comment": "nested field access",
+    "query": "SELECT record.subrecord.field"
+  },
+  {
+    "comment": "mixed indirection",
+    "query": "SELECT array_col[1].field"
+  },
+  {
+    "comment": "qualified operator",
+    "query": "SELECT a OPERATOR(pg_catalog.+) b"
+  },
+  {
+    "comment": "schema qualified operator",
+    "query": "SELECT a OPERATOR(myschema.=) b"
+  },
+  {
+    "comment": "custom operator",
+    "query": "SELECT a OPERATOR(public.@@) b"
+  },
+  {
+    "comment": "bit type casting",
+    "query": "SELECT value::bit"
+  },
+  {
+    "comment": "bit with length",
+    "query": "SELECT value::bit(8)"
+  },
+  {
+    "comment": "timestamp type",
+    "query": "SELECT value::TIMESTAMP"
+  },
+  {
+    "comment": "timestamp with precision",
+    "query": "SELECT value::timestamp(6)",
+    "expected": "SELECT value::TIMESTAMP(6)"
+  },
+  {
+    "comment": "timestamptz type",
+    "query": "SELECT value::timestamptz",
+    "expected": "SELECT value::TIMESTAMP WITH TIME ZONE"
+  },
+  {
+    "comment": "date type",
+    "query": "SELECT value::DATE"
+  },
+  {
+    "comment": "time type",
+    "query": "SELECT value::TIME"
+  },
+  {
+    "comment": "interval type",
+    "query": "SELECT value::INTERVAL"
+  },
+  {
+    "comment": "select all",
+    "query": "SELECT ALL * FROM users",
+    "expected": "SELECT * FROM users"
+  },
+  {
+    "comment": "select all with columns",
+    "query": "SELECT ALL id, name FROM users",
+    "expected": "SELECT id, name FROM users"
+  },
+  {
+    "comment": "select all with where",
+    "query": "SELECT ALL * FROM users WHERE active = true",
+    "expected": "SELECT * FROM users WHERE active = TRUE"
+  },
+  {
+    "comment": "two simple statements",
+    "query": "SELECT 1; SELECT 2"
+  },
+  {
+    "comment": "multiple statements with different types",
+    "query": "SELECT * FROM users; SELECT name FROM orders"
+  },
+  {
+    "comment": "statements with whitespace",
+    "query": "SELECT 1;   SELECT 2;   SELECT 3",
+    "expected": "SELECT 1; SELECT 2; SELECT 3"
+  },
+  {
+    "comment": "trailing semicolon",
+    "query": "SELECT 1; SELECT 2;",
+    "expected": "SELECT 1; SELECT 2"
   }
 ]

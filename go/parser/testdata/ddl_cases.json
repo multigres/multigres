@@ -408,8 +408,7 @@
   },
   {
     "comment": "ALTER ROLE SET with quoted identifier",
-    "query": "ALTER ROLE \"test-user\" SET search_path TO public",
-    "expected": "ALTER ROLE \"test-user\" SET search_path TO public"
+    "query": "ALTER ROLE \"test-user\" SET search_path TO public"
   },
   {
     "comment": "ALTER ROLE SET with DEFAULT",
@@ -794,8 +793,7 @@
   },
   {
     "comment": "ALTER DEFAULT PRIVILEGES FOR ROLE",
-    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT ALL PRIVILEGES ON TABLES TO bob",
-    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT ALL PRIVILEGES ON TABLES TO bob"
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT ALL PRIVILEGES ON TABLES TO bob"
   },
   {
     "comment": "ALTER DEFAULT PRIVILEGES FOR USER",
@@ -808,8 +806,7 @@
   },
   {
     "comment": "ALTER DEFAULT PRIVILEGES FOR ROLE IN SCHEMA",
-    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE alice IN SCHEMA public GRANT SELECT ON TABLES TO bob",
-    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE alice IN SCHEMA public GRANT SELECT ON TABLES TO bob"
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE alice IN SCHEMA public GRANT SELECT ON TABLES TO bob"
   },
   {
     "comment": "ALTER DEFAULT PRIVILEGES IN SCHEMA FOR ROLE",
@@ -916,13 +913,11 @@
   },
   {
     "comment": "ALTER OPERATOR CLASS SET SCHEMA",
-    "query": "ALTER OPERATOR CLASS integer_ops USING btree SET SCHEMA indexes",
-    "expected": "ALTER OPERATOR CLASS integer_ops USING btree SET SCHEMA indexes"
+    "query": "ALTER OPERATOR CLASS integer_ops USING btree SET SCHEMA indexes"
   },
   {
     "comment": "ALTER OPERATOR FAMILY SET SCHEMA",
-    "query": "ALTER OPERATOR FAMILY integer_ops USING btree SET SCHEMA indexes",
-    "expected": "ALTER OPERATOR FAMILY integer_ops USING btree SET SCHEMA indexes"
+    "query": "ALTER OPERATOR FAMILY integer_ops USING btree SET SCHEMA indexes"
   },
   {
     "comment": "ALTER COLLATION SET SCHEMA",
@@ -1560,5 +1555,447 @@
   {
     "comment": "CREATE FUNCTION with complex SETOF type",
     "query": "CREATE FUNCTION test () RETURNS SETOF NUMERIC(10, 2)[]"
+  },
+  {
+    "comment": "TABLE without IF EXISTS",
+    "query": "ALTER TABLE users RENAME TO customers"
+  },
+  {
+    "comment": "TABLE with IF EXISTS",
+    "query": "ALTER TABLE IF EXISTS users RENAME TO customers"
+  },
+  {
+    "comment": "INDEX without IF EXISTS",
+    "query": "ALTER INDEX users_idx RENAME TO customers_idx"
+  },
+  {
+    "comment": "INDEX with IF EXISTS",
+    "query": "ALTER INDEX IF EXISTS users_idx RENAME TO customers_idx"
+  },
+  {
+    "comment": "VIEW without IF EXISTS",
+    "query": "ALTER VIEW user_view RENAME TO customer_view"
+  },
+  {
+    "comment": "VIEW with IF EXISTS",
+    "query": "ALTER VIEW IF EXISTS user_view RENAME TO customer_view"
+  },
+  {
+    "comment": "SEQUENCE without IF EXISTS",
+    "query": "ALTER SEQUENCE user_id_seq RENAME TO customer_id_seq"
+  },
+  {
+    "comment": "SEQUENCE with IF EXISTS",
+    "query": "ALTER SEQUENCE IF EXISTS user_id_seq RENAME TO customer_id_seq"
+  },
+  {
+    "comment": "MATERIALIZED VIEW without IF EXISTS",
+    "query": "ALTER MATERIALIZED VIEW mat_view RENAME TO new_mat_view"
+  },
+  {
+    "comment": "MATERIALIZED VIEW with IF EXISTS",
+    "query": "ALTER MATERIALIZED VIEW IF EXISTS mat_view RENAME TO new_mat_view"
+  },
+  {
+    "comment": "FOREIGN TABLE without IF EXISTS",
+    "query": "ALTER FOREIGN TABLE foreign_users RENAME TO foreign_customers"
+  },
+  {
+    "comment": "FOREIGN TABLE with IF EXISTS",
+    "query": "ALTER FOREIGN TABLE IF EXISTS foreign_users RENAME TO foreign_customers"
+  },
+  {
+    "comment": "COLUMN without IF EXISTS",
+    "query": "ALTER TABLE users RENAME COLUMN name TO full_name"
+  },
+  {
+    "comment": "COLUMN with IF EXISTS",
+    "query": "ALTER TABLE IF EXISTS users RENAME COLUMN name TO full_name"
+  },
+  {
+    "comment": "CONSTRAINT without IF EXISTS",
+    "query": "ALTER TABLE users RENAME CONSTRAINT old_c TO new_c"
+  },
+  {
+    "comment": "CONSTRAINT with IF EXISTS",
+    "query": "ALTER TABLE IF EXISTS users RENAME CONSTRAINT old_c TO new_c"
+  },
+  {
+    "comment": "DATABASE",
+    "query": "ALTER DATABASE old_db RENAME TO new_db"
+  },
+  {
+    "comment": "SCHEMA",
+    "query": "ALTER SCHEMA old_schema RENAME TO new_schema"
+  },
+  {
+    "comment": "ROLE",
+    "query": "ALTER ROLE old_role RENAME TO new_role"
+  },
+  {
+    "comment": "USER",
+    "query": "ALTER USER old_user RENAME TO new_user",
+    "expected": "ALTER ROLE old_user RENAME TO new_user"
+  },
+  {
+    "comment": "GROUP",
+    "query": "ALTER GROUP old_group RENAME TO new_group",
+    "expected": "ALTER ROLE old_group RENAME TO new_group"
+  },
+  {
+    "comment": "TABLESPACE",
+    "query": "ALTER TABLESPACE old_ts RENAME TO new_ts"
+  },
+  {
+    "comment": "DOMAIN",
+    "query": "ALTER DOMAIN old_domain RENAME TO new_domain"
+  },
+  {
+    "comment": "DOMAIN CONSTRAINT",
+    "query": "ALTER DOMAIN my_domain RENAME CONSTRAINT old_check TO new_check"
+  },
+  {
+    "comment": "TYPE",
+    "query": "ALTER TYPE old_type RENAME TO new_type"
+  },
+  {
+    "comment": "TYPE ATTRIBUTE",
+    "query": "ALTER TYPE my_type RENAME ATTRIBUTE old_attr TO new_attr"
+  },
+  {
+    "comment": "FUNCTION",
+    "query": "ALTER FUNCTION old_func() RENAME TO new_func"
+  },
+  {
+    "comment": "PROCEDURE",
+    "query": "ALTER PROCEDURE old_proc() RENAME TO new_proc"
+  },
+  {
+    "comment": "ROUTINE",
+    "query": "ALTER ROUTINE old_routine() RENAME TO new_routine"
+  },
+  {
+    "comment": "AGGREGATE",
+    "query": "ALTER AGGREGATE old_agg() RENAME TO new_agg"
+  },
+  {
+    "comment": "COLLATION",
+    "query": "ALTER COLLATION old_collation RENAME TO new_collation"
+  },
+  {
+    "comment": "CONVERSION",
+    "query": "ALTER CONVERSION old_conv RENAME TO new_conv"
+  },
+  {
+    "comment": "LANGUAGE",
+    "query": "ALTER LANGUAGE old_lang RENAME TO new_lang"
+  },
+  {
+    "comment": "PROCEDURAL LANGUAGE",
+    "query": "ALTER PROCEDURAL LANGUAGE old_lang RENAME TO new_lang",
+    "expected": "ALTER LANGUAGE old_lang RENAME TO new_lang"
+  },
+  {
+    "comment": "OPERATOR CLASS",
+    "query": "ALTER OPERATOR CLASS old_class USING btree RENAME TO new_class"
+  },
+  {
+    "comment": "OPERATOR FAMILY",
+    "query": "ALTER OPERATOR FAMILY old_family USING btree RENAME TO new_family"
+  },
+  {
+    "comment": "POLICY",
+    "query": "ALTER POLICY old_policy ON users RENAME TO new_policy"
+  },
+  {
+    "comment": "RULE",
+    "query": "ALTER RULE old_rule ON users RENAME TO new_rule"
+  },
+  {
+    "comment": "TRIGGER",
+    "query": "ALTER TRIGGER old_trigger ON users RENAME TO new_trigger"
+  },
+  {
+    "comment": "EVENT TRIGGER",
+    "query": "ALTER EVENT TRIGGER old_event_trigger RENAME TO new_event_trigger"
+  },
+  {
+    "comment": "PUBLICATION",
+    "query": "ALTER PUBLICATION old_pub RENAME TO new_pub"
+  },
+  {
+    "comment": "SUBSCRIPTION",
+    "query": "ALTER SUBSCRIPTION old_sub RENAME TO new_sub"
+  },
+  {
+    "comment": "FOREIGN DATA WRAPPER",
+    "query": "ALTER FOREIGN DATA WRAPPER old_fdw RENAME TO new_fdw"
+  },
+  {
+    "comment": "SERVER",
+    "query": "ALTER SERVER old_server RENAME TO new_server"
+  },
+  {
+    "comment": "STATISTICS",
+    "query": "ALTER STATISTICS old_stats RENAME TO new_stats"
+  },
+  {
+    "comment": "TEXT SEARCH PARSER",
+    "query": "ALTER TEXT SEARCH PARSER old_parser RENAME TO new_parser"
+  },
+  {
+    "comment": "TEXT SEARCH DICTIONARY",
+    "query": "ALTER TEXT SEARCH DICTIONARY old_dict RENAME TO new_dict"
+  },
+  {
+    "comment": "TEXT SEARCH TEMPLATE",
+    "query": "ALTER TEXT SEARCH TEMPLATE old_template RENAME TO new_template"
+  },
+  {
+    "comment": "TEXT SEARCH CONFIGURATION",
+    "query": "ALTER TEXT SEARCH CONFIGURATION old_config RENAME TO new_config"
+  },
+  {
+    "comment": "ALTER DATABASE RENAME",
+    "query": "ALTER DATABASE old_db RENAME TO new_db"
+  },
+  {
+    "comment": "ALTER SCHEMA RENAME",
+    "query": "ALTER SCHEMA old_schema RENAME TO new_schema"
+  },
+  {
+    "comment": "ALTER ROLE RENAME",
+    "query": "ALTER ROLE old_role RENAME TO new_role"
+  },
+  {
+    "comment": "ALTER USER RENAME",
+    "query": "ALTER USER old_user RENAME TO new_user",
+    "expected": "ALTER ROLE old_user RENAME TO new_user"
+  },
+  {
+    "comment": "ALTER GROUP RENAME",
+    "query": "ALTER GROUP old_group RENAME TO new_group",
+    "expected": "ALTER ROLE old_group RENAME TO new_group"
+  },
+  {
+    "comment": "ALTER TABLESPACE RENAME",
+    "query": "ALTER TABLESPACE old_ts RENAME TO new_ts"
+  },
+  {
+    "comment": "ALTER DOMAIN RENAME",
+    "query": "ALTER DOMAIN old_domain RENAME TO new_domain"
+  },
+  {
+    "comment": "ALTER DOMAIN RENAME CONSTRAINT",
+    "query": "ALTER DOMAIN my_domain RENAME CONSTRAINT old_check TO new_check"
+  },
+  {
+    "comment": "ALTER TYPE RENAME",
+    "query": "ALTER TYPE old_type RENAME TO new_type"
+  },
+  {
+    "comment": "ALTER TYPE RENAME ATTRIBUTE",
+    "query": "ALTER TYPE my_type RENAME ATTRIBUTE old_attr TO new_attr"
+  },
+  {
+    "comment": "ALTER FUNCTION RENAME",
+    "query": "ALTER FUNCTION old_func() RENAME TO new_func"
+  },
+  {
+    "comment": "ALTER PROCEDURE RENAME",
+    "query": "ALTER PROCEDURE old_proc() RENAME TO new_proc"
+  },
+  {
+    "comment": "ALTER ROUTINE RENAME",
+    "query": "ALTER ROUTINE old_routine() RENAME TO new_routine"
+  },
+  {
+    "comment": "ALTER AGGREGATE RENAME",
+    "query": "ALTER AGGREGATE old_agg() RENAME TO new_agg"
+  },
+  {
+    "comment": "ALTER COLLATION RENAME",
+    "query": "ALTER COLLATION old_collation RENAME TO new_collation"
+  },
+  {
+    "comment": "ALTER CONVERSION RENAME",
+    "query": "ALTER CONVERSION old_conv RENAME TO new_conv"
+  },
+  {
+    "comment": "ALTER LANGUAGE RENAME",
+    "query": "ALTER LANGUAGE old_lang RENAME TO new_lang"
+  },
+  {
+    "comment": "ALTER PROCEDURAL LANGUAGE RENAME",
+    "query": "ALTER PROCEDURAL LANGUAGE old_lang RENAME TO new_lang",
+    "expected": "ALTER LANGUAGE old_lang RENAME TO new_lang"
+  },
+  {
+    "comment": "ALTER OPERATOR CLASS RENAME",
+    "query": "ALTER OPERATOR CLASS old_class USING btree RENAME TO new_class"
+  },
+  {
+    "comment": "ALTER OPERATOR FAMILY RENAME",
+    "query": "ALTER OPERATOR FAMILY old_family USING btree RENAME TO new_family"
+  },
+  {
+    "comment": "ALTER POLICY RENAME",
+    "query": "ALTER POLICY old_policy ON users RENAME TO new_policy"
+  },
+  {
+    "comment": "ALTER POLICY RENAME IF EXISTS",
+    "query": "ALTER POLICY IF EXISTS old_policy ON users RENAME TO new_policy"
+  },
+  {
+    "comment": "ALTER RULE RENAME",
+    "query": "ALTER RULE old_rule ON users RENAME TO new_rule"
+  },
+  {
+    "comment": "ALTER TRIGGER RENAME",
+    "query": "ALTER TRIGGER old_trigger ON users RENAME TO new_trigger"
+  },
+  {
+    "comment": "ALTER EVENT TRIGGER RENAME",
+    "query": "ALTER EVENT TRIGGER old_event_trigger RENAME TO new_event_trigger"
+  },
+  {
+    "comment": "ALTER PUBLICATION RENAME",
+    "query": "ALTER PUBLICATION old_pub RENAME TO new_pub"
+  },
+  {
+    "comment": "ALTER SUBSCRIPTION RENAME",
+    "query": "ALTER SUBSCRIPTION old_sub RENAME TO new_sub"
+  },
+  {
+    "comment": "ALTER FOREIGN DATA WRAPPER RENAME",
+    "query": "ALTER FOREIGN DATA WRAPPER old_fdw RENAME TO new_fdw"
+  },
+  {
+    "comment": "ALTER SERVER RENAME",
+    "query": "ALTER SERVER old_server RENAME TO new_server"
+  },
+  {
+    "comment": "ALTER STATISTICS RENAME",
+    "query": "ALTER STATISTICS old_stats RENAME TO new_stats"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH PARSER RENAME",
+    "query": "ALTER TEXT SEARCH PARSER old_parser RENAME TO new_parser"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH DICTIONARY RENAME",
+    "query": "ALTER TEXT SEARCH DICTIONARY old_dict RENAME TO new_dict"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH TEMPLATE RENAME",
+    "query": "ALTER TEXT SEARCH TEMPLATE old_template RENAME TO new_template"
+  },
+  {
+    "comment": "ALTER TEXT SEARCH CONFIGURATION RENAME",
+    "query": "ALTER TEXT SEARCH CONFIGURATION old_config RENAME TO new_config"
+  },
+  {
+    "comment": "ALTER TABLE with schema",
+    "query": "ALTER TABLE public.users RENAME TO customers"
+  },
+  {
+    "comment": "ALTER INDEX with schema",
+    "query": "ALTER INDEX public.users_idx RENAME TO customers_idx"
+  },
+  {
+    "comment": "ALTER SEQUENCE with schema",
+    "query": "ALTER SEQUENCE public.user_id_seq RENAME TO customer_id_seq"
+  },
+  {
+    "comment": "ALTER VIEW with schema",
+    "query": "ALTER VIEW public.user_view RENAME TO customer_view"
+  },
+  {
+    "comment": "ALTER TABLE RENAME",
+    "query": "ALTER TABLE users RENAME TO customers"
+  },
+  {
+    "comment": "ALTER TABLE RENAME IF EXISTS",
+    "query": "ALTER TABLE IF EXISTS users RENAME TO customers"
+  },
+  {
+    "comment": "ALTER TABLE RENAME COLUMN",
+    "query": "ALTER TABLE users RENAME COLUMN name TO full_name"
+  },
+  {
+    "comment": "ALTER TABLE RENAME COLUMN IF EXISTS",
+    "query": "ALTER TABLE IF EXISTS users RENAME COLUMN name TO full_name"
+  },
+  {
+    "comment": "ALTER VIEW RENAME COLUMN",
+    "query": "ALTER VIEW user_view RENAME COLUMN name TO full_name"
+  },
+  {
+    "comment": "ALTER VIEW RENAME COLUMN IF EXISTS",
+    "query": "ALTER VIEW IF EXISTS user_view RENAME COLUMN name TO full_name"
+  },
+  {
+    "comment": "ALTER MATERIALIZED VIEW RENAME COLUMN",
+    "query": "ALTER MATERIALIZED VIEW mat_view RENAME COLUMN name TO full_name"
+  },
+  {
+    "comment": "ALTER MATERIALIZED VIEW RENAME COLUMN IF EXISTS",
+    "query": "ALTER MATERIALIZED VIEW IF EXISTS mat_view RENAME COLUMN name TO full_name"
+  },
+  {
+    "comment": "ALTER FOREIGN TABLE RENAME COLUMN",
+    "query": "ALTER FOREIGN TABLE foreign_users RENAME COLUMN name TO full_name"
+  },
+  {
+    "comment": "ALTER FOREIGN TABLE RENAME COLUMN IF EXISTS",
+    "query": "ALTER FOREIGN TABLE IF EXISTS foreign_users RENAME COLUMN name TO full_name"
+  },
+  {
+    "comment": "ALTER TABLE RENAME CONSTRAINT",
+    "query": "ALTER TABLE users RENAME CONSTRAINT old_constraint TO new_constraint"
+  },
+  {
+    "comment": "ALTER TABLE RENAME CONSTRAINT IF EXISTS",
+    "query": "ALTER TABLE IF EXISTS users RENAME CONSTRAINT old_constraint TO new_constraint"
+  },
+  {
+    "comment": "ALTER INDEX RENAME",
+    "query": "ALTER INDEX users_idx RENAME TO customers_idx"
+  },
+  {
+    "comment": "ALTER INDEX RENAME IF EXISTS",
+    "query": "ALTER INDEX IF EXISTS users_idx RENAME TO customers_idx"
+  },
+  {
+    "comment": "ALTER SEQUENCE RENAME",
+    "query": "ALTER SEQUENCE user_id_seq RENAME TO customer_id_seq"
+  },
+  {
+    "comment": "ALTER SEQUENCE RENAME IF EXISTS",
+    "query": "ALTER SEQUENCE IF EXISTS user_id_seq RENAME TO customer_id_seq"
+  },
+  {
+    "comment": "ALTER VIEW RENAME",
+    "query": "ALTER VIEW user_view RENAME TO customer_view"
+  },
+  {
+    "comment": "ALTER VIEW RENAME IF EXISTS",
+    "query": "ALTER VIEW IF EXISTS user_view RENAME TO customer_view"
+  },
+  {
+    "comment": "ALTER MATERIALIZED VIEW RENAME",
+    "query": "ALTER MATERIALIZED VIEW mat_view RENAME TO new_mat_view"
+  },
+  {
+    "comment": "ALTER MATERIALIZED VIEW RENAME IF EXISTS",
+    "query": "ALTER MATERIALIZED VIEW IF EXISTS mat_view RENAME TO new_mat_view"
+  },
+  {
+    "comment": "ALTER FOREIGN TABLE RENAME",
+    "query": "ALTER FOREIGN TABLE foreign_users RENAME TO foreign_customers"
+  },
+  {
+    "comment": "ALTER FOREIGN TABLE RENAME IF EXISTS",
+    "query": "ALTER FOREIGN TABLE IF EXISTS foreign_users RENAME TO foreign_customers"
   }
 ]

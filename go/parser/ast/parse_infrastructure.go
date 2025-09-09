@@ -100,6 +100,36 @@ func (a *A_Expr) SqlString() string {
 		if a.Name == nil || a.Name.Len() == 0 {
 			return "UNKNOWN_OP"
 		}
+		
+		// Check if this is a qualified operator (OPERATOR(schema.op) syntax)
+		// Qualified operators have multiple items in the Name list
+		if a.Name.Len() > 1 {
+			// This is a qualified operator - format as OPERATOR(schema.op)
+			var parts []string
+			for _, item := range a.Name.Items {
+				if str, ok := item.(*String); ok {
+					parts = append(parts, str.SVal)
+				} else {
+					parts = append(parts, item.String())
+				}
+			}
+			// Join the parts with dots (e.g., "pg_catalog" "+" becomes "pg_catalog.+")
+			qualifiedOp := strings.Join(parts, ".")
+			
+			// Format the expression with OPERATOR syntax
+			if a.Lexpr != nil && a.Rexpr != nil {
+				leftStr := a.Lexpr.SqlString()
+				rightStr := a.Rexpr.SqlString()
+				return fmt.Sprintf("%s OPERATOR(%s) %s", leftStr, qualifiedOp, rightStr)
+			}
+			// Unary qualified operator (rare but possible)
+			if a.Lexpr == nil && a.Rexpr != nil {
+				return fmt.Sprintf("OPERATOR(%s) %s", qualifiedOp, a.Rexpr.SqlString())
+			}
+			return "UNKNOWN_EXPR"
+		}
+		
+		// Simple operator (not qualified)
 		firstItem := a.Name.Items[0]
 		// For operators, we need the raw string value, not the SQL quoted version
 		var op string
@@ -127,6 +157,20 @@ func (a *A_Expr) SqlString() string {
 		}
 
 		return "UNKNOWN_EXPR"
+
+	case AEXPR_IN:
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			// Check if Rexpr is a SubLink (for subqueries)
+			if sublink, ok := a.Rexpr.(*SubLink); ok {
+				// SubLink will handle its own deparsing  
+				return fmt.Sprintf("%s IN %s", leftStr, sublink.SqlString())
+			}
+			// Otherwise, it's a list of values
+			rightStr := a.Rexpr.SqlString()
+			return fmt.Sprintf("%s IN (%s)", leftStr, rightStr)
+		}
+		return "IN_EXPR"
 
 	case AEXPR_LIKE:
 		if a.Lexpr != nil && a.Rexpr != nil {
@@ -510,7 +554,21 @@ func (f *FuncCall) SqlString() string {
 		argStrs = append(argStrs, "*")
 	}
 
-	result := fmt.Sprintf("%s(%s)", funcName, strings.Join(argStrs, ", "))
+	// Handle special function syntax
+	var result string
+	if strings.ToLower(funcName) == "extract" && len(argStrs) >= 2 {
+		// EXTRACT function uses special syntax: EXTRACT(field FROM source)
+		// The first argument should be the field name without quotes, the second is the source
+		field := argStrs[0]
+		// Remove quotes from field name if it's a string literal
+		if len(field) >= 2 && field[0] == '\'' && field[len(field)-1] == '\'' {
+			field = field[1 : len(field)-1]
+		}
+		// Use lowercase for function name to match PostgreSQL style
+		result = fmt.Sprintf("extract(%s FROM %s)", field, strings.Join(argStrs[1:], ", "))
+	} else {
+		result = fmt.Sprintf("%s(%s)", funcName, strings.Join(argStrs, ", "))
+	}
 
 	// Add WITHIN GROUP clause for ordered-set aggregates
 	if f.AggWithinGroup && f.AggOrder != nil && f.AggOrder.Len() > 0 {

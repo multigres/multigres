@@ -574,14 +574,14 @@ func (s *SelectStmt) SqlString() string {
 		if s.LimitOption == LIMIT_OPTION_WITH_TIES {
 			// Use FETCH FIRST syntax for WITH TIES (required by SQL standard)
 			limitStr := "FETCH FIRST"
-			
+
 			// Check if the limit count is a constant 1 (implicit case)
 			if isConstantOne(s.LimitCount) {
 				limitStr += " ROW"
 			} else {
 				limitStr += " " + s.LimitCount.SqlString() + " ROWS"
 			}
-			
+
 			limitStr += " WITH TIES"
 			parts = append(parts, limitStr)
 		} else {
@@ -624,14 +624,14 @@ func isConstantOne(node Node) bool {
 	if node == nil {
 		return false
 	}
-	
+
 	// Check if it's an A_Const with integer value 1
 	if aConst, ok := node.(*A_Const); ok {
 		if intVal, ok := aConst.Val.(*Integer); ok {
 			return intVal.IVal == 1
 		}
 	}
-	
+
 	return false
 }
 
@@ -696,7 +696,22 @@ func (i *InsertStmt) SqlString() string {
 	// SelectStmt/VALUES clause
 	if i.SelectStmt != nil {
 		selectStr := i.SelectStmt.SqlString()
-		parts = append(parts, selectStr)
+		// If the INSERT has parentheses around the SELECT, we need to preserve them
+		// This is determined by checking if the original query had parentheses
+		// For now, we'll check if this is a simple SELECT vs a subquery by looking at the SelectStmt
+		// If it has a WHERE clause or other complexity, it's likely a subquery that should be parenthesized
+		if selectStmt, ok := i.SelectStmt.(*SelectStmt); ok {
+			if selectStmt.WhereClause != nil || selectStmt.GroupClause != nil || selectStmt.HavingClause != nil ||
+				selectStmt.SortClause != nil || selectStmt.LimitOffset != nil || selectStmt.LimitCount != nil {
+				// This appears to be a complex SELECT that was likely parenthesized in the original
+				parts = append(parts, fmt.Sprintf("(%s)", selectStr))
+			} else {
+				parts = append(parts, selectStr)
+			}
+		} else {
+			// Not a SelectStmt, could be VALUES clause, append as is
+			parts = append(parts, selectStr)
+		}
 	} else {
 		// DEFAULT VALUES case (SelectStmt is nil)
 		parts = append(parts, "DEFAULT VALUES")
@@ -1336,7 +1351,7 @@ func (n *OnConflictClause) SqlString() string {
 			if target, ok := item.(*ResTarget); ok {
 				// For ON CONFLICT DO UPDATE SET, format as "column = value" not "value AS column"
 				if target.Val != nil {
-					targets = append(targets, target.Name + " = " + target.Val.SqlString())
+					targets = append(targets, target.Name+" = "+target.Val.SqlString())
 				} else {
 					targets = append(targets, target.Name)
 				}
@@ -1566,17 +1581,17 @@ func (d *DropStmt) SqlString() string {
 func (d *DropStmt) sqlStringForDropCast() string {
 	var parts []string
 	parts = append(parts, "DROP CAST")
-	
+
 	if d.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
-	
+
 	// Objects should contain a single NodeList with [source_type, target_type]
 	if d.Objects != nil && len(d.Objects.Items) > 0 {
 		if typeList, ok := d.Objects.Items[0].(*NodeList); ok && len(typeList.Items) >= 2 {
 			sourceType := typeList.Items[0]
 			targetType := typeList.Items[1]
-			
+
 			parts = append(parts, "(")
 			if srcTypeName, ok := sourceType.(*TypeName); ok {
 				parts = append(parts, srcTypeName.SqlString())
@@ -1588,13 +1603,13 @@ func (d *DropStmt) sqlStringForDropCast() string {
 			parts = append(parts, ")")
 		}
 	}
-	
+
 	if d.Behavior == DropCascade {
 		parts = append(parts, "CASCADE")
 	} else if d.Behavior == DropRestrict {
 		parts = append(parts, "RESTRICT")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1602,11 +1617,11 @@ func (d *DropStmt) sqlStringForDropCast() string {
 func (d *DropStmt) sqlStringForDropOpClass() string {
 	var parts []string
 	parts = append(parts, "DROP OPERATOR CLASS")
-	
+
 	if d.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
-	
+
 	// Objects should contain a single NodeList with [access_method, ...names]
 	if d.Objects != nil && len(d.Objects.Items) > 0 {
 		if objList, ok := d.Objects.Items[0].(*NodeList); ok {
@@ -1614,24 +1629,24 @@ func (d *DropStmt) sqlStringForDropOpClass() string {
 			if len(objList.Items) > 0 {
 				accessMethod := ""
 				var nameParts []string
-				
+
 				// First item is access method
 				if strVal, ok := objList.Items[0].(*String); ok {
 					accessMethod = strVal.SVal
 				}
-				
+
 				// Rest are name parts
 				for i := 1; i < len(objList.Items); i++ {
 					if strVal, ok := objList.Items[i].(*String); ok {
 						nameParts = append(nameParts, strVal.SVal)
 					}
 				}
-				
+
 				// Add qualified name
 				if len(nameParts) > 0 {
 					parts = append(parts, strings.Join(nameParts, "."))
 				}
-				
+
 				// Add USING access_method
 				if accessMethod != "" {
 					parts = append(parts, "USING", accessMethod)
@@ -1639,13 +1654,13 @@ func (d *DropStmt) sqlStringForDropOpClass() string {
 			}
 		}
 	}
-	
+
 	if d.Behavior == DropCascade {
 		parts = append(parts, "CASCADE")
 	} else if d.Behavior == DropRestrict {
 		parts = append(parts, "RESTRICT")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1653,35 +1668,35 @@ func (d *DropStmt) sqlStringForDropOpClass() string {
 func (d *DropStmt) sqlStringForDropOpFamily() string {
 	var parts []string
 	parts = append(parts, "DROP OPERATOR FAMILY")
-	
+
 	if d.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
-	
+
 	// Same logic as DROP OPERATOR CLASS
 	if d.Objects != nil && len(d.Objects.Items) > 0 {
 		if objList, ok := d.Objects.Items[0].(*NodeList); ok {
 			if len(objList.Items) > 0 {
 				accessMethod := ""
 				var nameParts []string
-				
+
 				// First item is access method
 				if strVal, ok := objList.Items[0].(*String); ok {
 					accessMethod = strVal.SVal
 				}
-				
+
 				// Rest are name parts
 				for i := 1; i < len(objList.Items); i++ {
 					if strVal, ok := objList.Items[i].(*String); ok {
 						nameParts = append(nameParts, strVal.SVal)
 					}
 				}
-				
+
 				// Add qualified name
 				if len(nameParts) > 0 {
 					parts = append(parts, strings.Join(nameParts, "."))
 				}
-				
+
 				// Add USING access_method
 				if accessMethod != "" {
 					parts = append(parts, "USING", accessMethod)
@@ -1689,13 +1704,13 @@ func (d *DropStmt) sqlStringForDropOpFamily() string {
 			}
 		}
 	}
-	
+
 	if d.Behavior == DropCascade {
 		parts = append(parts, "CASCADE")
 	} else if d.Behavior == DropRestrict {
 		parts = append(parts, "RESTRICT")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1703,17 +1718,17 @@ func (d *DropStmt) sqlStringForDropOpFamily() string {
 func (d *DropStmt) sqlStringForDropTransform() string {
 	var parts []string
 	parts = append(parts, "DROP TRANSFORM")
-	
+
 	if d.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
-	
+
 	// Objects should contain a single NodeList with [type, language_name]
 	if d.Objects != nil && len(d.Objects.Items) > 0 {
 		if typeList, ok := d.Objects.Items[0].(*NodeList); ok && len(typeList.Items) >= 2 {
 			typeName := typeList.Items[0]
 			langName := typeList.Items[1]
-			
+
 			parts = append(parts, "FOR")
 			if typNode, ok := typeName.(*TypeName); ok {
 				parts = append(parts, typNode.SqlString())
@@ -1724,13 +1739,13 @@ func (d *DropStmt) sqlStringForDropTransform() string {
 			}
 		}
 	}
-	
+
 	if d.Behavior == DropCascade {
 		parts = append(parts, "CASCADE")
 	} else if d.Behavior == DropRestrict {
 		parts = append(parts, "RESTRICT")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1738,11 +1753,11 @@ func (d *DropStmt) sqlStringForDropTransform() string {
 func (d *DropStmt) sqlStringForDropSubscription() string {
 	var parts []string
 	parts = append(parts, "DROP SUBSCRIPTION")
-	
+
 	if d.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
-	
+
 	// Objects should contain a single NodeList with subscription name
 	if d.Objects != nil && len(d.Objects.Items) > 0 {
 		if nameList, ok := d.Objects.Items[0].(*NodeList); ok && len(nameList.Items) > 0 {
@@ -1751,12 +1766,12 @@ func (d *DropStmt) sqlStringForDropSubscription() string {
 			}
 		}
 	}
-	
+
 	if d.Behavior == DropCascade {
 		parts = append(parts, "CASCADE")
 	} else if d.Behavior == DropRestrict {
 		parts = append(parts, "RESTRICT")
 	}
-	
+
 	return strings.Join(parts, " ")
 }

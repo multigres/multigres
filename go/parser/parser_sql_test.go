@@ -32,7 +32,7 @@ func TestDMLParsing(t *testing.T) {
 		{"INSERT multiple VALUES", "INSERT INTO users (id, name) VALUES (1, 'John'), (2, 'Jane')", ""},
 		{"INSERT with DEFAULT VALUES", "INSERT INTO users DEFAULT VALUES", ""},
 		{"INSERT with SELECT", "INSERT INTO users SELECT id, name FROM temp_users", ""},
-		{"INSERT with subquery", "INSERT INTO users (SELECT id, name FROM temp_users WHERE active = TRUE)", "INSERT INTO users SELECT id, name FROM temp_users WHERE active = TRUE"},
+		{"INSERT with subquery", "INSERT INTO users (SELECT id, name FROM temp_users WHERE active = TRUE)", ""},
 		{"INSERT with RETURNING single column", "INSERT INTO users (name) VALUES ('John') RETURNING id", ""},
 		{"INSERT with RETURNING multiple columns", "INSERT INTO users (name) VALUES ('John') RETURNING id, name, created_at", ""},
 		{"INSERT with RETURNING *", "INSERT INTO users (name) VALUES ('John') RETURNING *", ""},
