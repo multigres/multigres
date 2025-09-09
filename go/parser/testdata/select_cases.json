@@ -2020,5 +2020,76 @@
   {
     "comment": "WITHIN GROUP with locking",
     "query": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY amount) FROM transactions FOR SHARE"
+  },
+  {
+    "comment": "INNER JOIN",
+    "query": "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "LEFT JOIN",
+    "query": "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id",
+    "expected": "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id"
+  },
+  {
+    "comment": "JOIN with USING",
+    "query": "SELECT * FROM users JOIN orders USING (user_id)",
+    "expected": "SELECT * FROM users INNER JOIN orders USING (user_id)"
+  },
+  {
+    "comment": "CROSS JOIN",
+    "query": "SELECT * FROM users CROSS JOIN orders",
+    "expected": "SELECT * FROM users INNER JOIN orders ON TRUE"
+  },
+  {
+    "comment": "NATURAL JOIN",
+    "query": "SELECT * FROM users NATURAL JOIN orders"
+  },
+  {
+    "comment": "Basic CTE",
+    "query": "WITH user_stats AS (SELECT user_id FROM orders) SELECT * FROM user_stats"
+  },
+  {
+    "comment": "Recursive CTE",
+    "query": "WITH RECURSIVE t AS (SELECT 1) SELECT * FROM t"
+  },
+  {
+    "comment": "Multiple CTEs",
+    "query": "WITH stats AS (SELECT * FROM orders), totals AS (SELECT amount FROM stats) SELECT * FROM totals"
+  },
+  {
+    "comment": "Subquery in FROM",
+    "query": "SELECT * FROM (SELECT user_id FROM orders) AS stats"
+  },
+  {
+    "comment": "LATERAL subquery",
+    "query": "SELECT * FROM users, LATERAL (SELECT * FROM orders) AS user_orders"
+  },
+  {
+    "comment": "MATERIALIZED CTE",
+    "query": "WITH user_stats AS MATERIALIZED (SELECT user_id FROM orders) SELECT * FROM user_stats"
+  },
+  {
+    "comment": "NOT MATERIALIZED CTE",
+    "query": "WITH user_stats AS NOT MATERIALIZED (SELECT user_id FROM orders) SELECT * FROM user_stats"
+  },
+  {
+    "comment": "CTE with SEARCH DEPTH FIRST",
+    "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) SEARCH DEPTH FIRST BY id SET search_seq SELECT * FROM org_chart"
+  },
+  {
+    "comment": "CTE with SEARCH BREADTH FIRST",
+    "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) SEARCH BREADTH FIRST BY id SET search_seq SELECT * FROM org_chart"
+  },
+  {
+    "comment": "CTE with CYCLE simple",
+    "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) CYCLE id SET is_cycle USING path SELECT * FROM org_chart"
+  },
+  {
+    "comment": "CTE with CYCLE full",
+    "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) CYCLE id SET is_cycle TO TRUE DEFAULT FALSE USING path SELECT * FROM org_chart"
+  },
+  {
+    "comment": "CTE with both SEARCH and CYCLE",
+    "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) SEARCH DEPTH FIRST BY id SET search_seq CYCLE id SET is_cycle USING path SELECT * FROM org_chart"
   }
 ]
