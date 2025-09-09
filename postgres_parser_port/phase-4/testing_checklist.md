@@ -6,11 +6,11 @@ This phase focuses on building a robust testing infrastructure for the PostgreSQ
 ## 1. File-Based Test Harness ⬜
 
 ### Infrastructure Setup
-- [ ] Create `testdata/` directory structure in `go/parser/`
-- [ ] Design test file format with SQL and expected outcomes
-- [ ] Implement test file discovery mechanism
-- [ ] Build test runner with automatic file detection
-- [ ] Add test result reporting and statistics
+- [x] Create `testdata/` directory structure in `go/parser/`
+- [x] Design test file format with SQL and expected outcomes
+- [x] Implement test file discovery mechanism
+- [x] Build test runner with automatic file detection
+- [x] Add test result reporting and statistics
 
 ### Test File Organization
 ```
@@ -28,11 +28,11 @@ go/parser/testdata/
 ```
 
 ### Migration Tasks
-- [ ] Convert existing inline tests from `parser_sql_test.go` to JSON format
-- [ ] Create `dml_cases.json` from existing DML tests
-- [ ] Create `ddl_cases.json` from existing DDL tests
-- [ ] Create `select_cases.json` from existing SELECT tests
-- [ ] Document JSON test case structure
+- [x] Convert existing inline tests from `parser_sql_test.go` to JSON format
+- [x] Create `dml_cases.json` from existing DML tests
+- [x] Create `ddl_cases.json` from existing DDL tests
+- [x] Create `select_cases.json` from existing SELECT tests
+- [x] Document JSON test case structure
 
 ### Test Case JSON Format
 ```json
@@ -44,13 +44,6 @@ go/parser/testdata/
   "error": "Expected error message if query should fail",
 }
 ```
-
-Features:
-- [ ] Support for expected parsed output comparison
-- [ ] Support for AST structure validation
-- [ ] Support for error message validation
-- [ ] Support for performance benchmarking flags
-- [ ] Documentation for JSON test format
 
 ## 2. PostgreSQL Regression Test Suite Integration ⬜
 
