@@ -1570,5 +1570,447 @@
     "comment": "trailing semicolon",
     "query": "SELECT 1; SELECT 2;",
     "expected": "SELECT 1; SELECT 2"
-  }
+  },
+  {
+			"comment": "simple GROUP BY",
+			"query":  "SELECT col1, COUNT(*) FROM table1 GROUP BY col1"
+		},
+		{
+			"comment": "GROUP BY multiple columns",
+			"query":  "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY col1, col2"
+		},
+		{
+			"comment": "GROUP BY with expression",
+			"query":  "SELECT DATE(created_at), COUNT(*) FROM table1 GROUP BY DATE(created_at)"
+		},
+		{
+			"comment": "GROUP BY with ORDER BY",
+			"query":  "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 ORDER BY col1"
+		},
+    {
+			"comment": "GROUP BY ROLLUP",
+			"query":  "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY ROLLUP(col1, col2)"
+		},
+		{
+			"comment": "GROUP BY CUBE",
+			"query":  "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY CUBE(col1, col2)"
+		},
+		{
+			"comment": "GROUP BY GROUPING SETS",
+			"query":  "SELECT col1, col2, COUNT(*) FROM table1 GROUP BY GROUPING SETS ((col1), (col2), ())"
+		},
+		{
+			"comment": "GROUP BY empty grouping set",
+			"query":  "SELECT COUNT(*) FROM table1 GROUP BY ()"
+		},
+    {
+			"comment": "simple HAVING",
+			"query":  "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) > 1"
+		},
+		{
+			"comment": "HAVING with AND",
+			"query":  "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) > 1 AND col1 IS NOT NULL"
+		},
+		{
+			"comment": "HAVING with ORDER BY",
+			"query":  "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) > 1 ORDER BY col1"
+		},
+    {
+			"comment": "simple ORDER BY",
+			"query":  "SELECT col1, col2 FROM table1 ORDER BY col1"
+		},
+		{
+			"comment": "ORDER BY ASC",
+			"query":  "SELECT col1, col2 FROM table1 ORDER BY col1 ASC"
+		},
+		{
+			"comment": "ORDER BY DESC",
+			"query":  "SELECT col1, col2 FROM table1 ORDER BY col1 DESC"
+		},
+		{
+			"comment": "ORDER BY NULLS FIRST",
+			"query":  "SELECT col1, col2 FROM table1 ORDER BY col1 NULLS FIRST"
+		},
+		{
+			"comment": "ORDER BY DESC NULLS LAST",
+			"query":  "SELECT col1, col2 FROM table1 ORDER BY col1 DESC NULLS LAST"
+		},
+		{
+			"comment": "ORDER BY multiple columns",
+			"query":  "SELECT col1, col2 FROM table1 ORDER BY col1 ASC, col2 DESC NULLS FIRST"
+		},
+    {
+			"comment": "GROUP BY + HAVING + ORDER BY",
+			"query": "SELECT dept_id, COUNT(*), AVG(salary) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5 ORDER BY dept_id ASC"
+		},
+		{
+			"comment": "Complex GROUP BY with ROLLUP and ORDER BY",
+			"query": "SELECT year, quarter, SUM(sales) FROM sales_data GROUP BY ROLLUP(year, quarter) ORDER BY year, quarter NULLS LAST"
+		},
+		{
+			"comment": "All features combined",
+			"query": "SELECT category, subcategory, COUNT(*), SUM(amount) FROM transactions WHERE amount > 0 GROUP BY GROUPING SETS ((category), (category, subcategory), ()) HAVING SUM(amount) > 1000 ORDER BY category NULLS FIRST, subcategory DESC"
+		},
+    {
+			"comment":     "JSON_OBJECTAGG simple",
+			"query":      "SELECT JSON_OBJECTAGG('name' VALUE value) FROM users"
+		},
+		{
+			"comment":     "JSON_ARRAYAGG simple",
+			"query":      "SELECT JSON_ARRAYAGG(name) FROM users"
+		},
+		{
+			"comment":     "JSON_OBJECTAGG with RETURNING",
+			"query":      "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FROM users"
+		},
+		{
+			"comment":     "JSON_ARRAYAGG with RETURNING",
+			"query":      "SELECT JSON_ARRAYAGG(name RETURNING JSONB) FROM users"
+		},
+		{
+			"comment":     "JSON_OBJECTAGG with FILTER",
+			"query":      "SELECT JSON_OBJECTAGG('key' VALUE value) FILTER (WHERE value IS NOT NULL) FROM users"
+		},
+		{
+			"comment":     "JSON_ARRAYAGG with OVER window",
+			"query":      "SELECT JSON_ARRAYAGG(name) OVER (PARTITION BY department) FROM users"
+		},
+		{
+			"comment":     "JSON_OBJECTAGG with FILTER and OVER",
+			"query":      "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FILTER (WHERE value > 0) OVER (ORDER BY id) FROM users"
+		},
+    {
+			"comment": "Simple INTO",
+			"query":  "SELECT * INTO new_table FROM users"
+		},
+		{
+			"comment": "INTO TEMPORARY table",
+			"query":  "SELECT * INTO TEMPORARY temp_users FROM users"
+		},
+		{
+			"comment": "INTO TEMP table",
+			"query":  "SELECT * INTO TEMP temp_users FROM users"
+		},
+		{
+			"comment": "INTO LOCAL TEMPORARY table",
+			"query":  "SELECT * INTO LOCAL TEMPORARY local_temp_users FROM users"
+		},
+		{
+			"comment": "INTO UNLOGGED table",
+			"query":  "SELECT * INTO UNLOGGED unlogged_users FROM users"
+		},
+		{
+			"comment": "INTO TABLE explicit",
+			"query":  "SELECT * INTO TABLE explicit_table FROM users"
+		},
+    {
+			"comment": "ROW_NUMBER window function",
+			"query":  "SELECT ROW_NUMBER() OVER (ORDER BY id) FROM users"
+		},
+		{
+			"comment": "RANK window function with PARTITION BY",
+			"query":  "SELECT RANK() OVER (PARTITION BY department ORDER BY salary DESC) FROM employees"
+		},
+		{
+			"comment": "DENSE_RANK window function",
+			"query":  "SELECT DENSE_RANK() OVER (PARTITION BY category ORDER BY price) FROM products"
+		},
+		{
+			"comment": "LAG window function",
+			"query":  "SELECT LAG(price, 1) OVER (ORDER BY date) FROM stock_prices"
+		},
+		{
+			"comment": "LEAD window function with default",
+			"query":  "SELECT LEAD(value, 2, 0) OVER (PARTITION BY group_id ORDER BY seq) FROM data"
+		},
+		{
+			"comment": "FIRST_VALUE window function",
+			"query":  "SELECT FIRST_VALUE(name) OVER (PARTITION BY dept ORDER BY hire_date) FROM employees"
+		},
+		{
+			"comment": "LAST_VALUE window function with frame",
+			"query":  "SELECT LAST_VALUE(score) OVER (ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM scores"
+		},
+		{
+			"comment": "NTH_VALUE window function",
+			"query":  "SELECT NTH_VALUE(amount, 2) OVER (ORDER BY date) FROM transactions"
+		},
+		{
+			"comment": "PERCENT_RANK window function",
+			"query":  "SELECT PERCENT_RANK() OVER (ORDER BY score) FROM test_results"
+		},
+		{
+			"comment": "CUME_DIST window function",
+			"query":  "SELECT CUME_DIST() OVER (ORDER BY salary) FROM employees"
+		},
+		{
+			"comment": "NTILE window function",
+			"query":  "SELECT NTILE(4) OVER (ORDER BY score DESC) FROM students"
+		},
+		{
+			"comment": "SUM window function",
+			"query":  "SELECT SUM(amount) OVER (PARTITION BY account ORDER BY date) FROM transactions"
+		},
+		{
+			"comment": "COUNT window function",
+			"query":  "SELECT COUNT(*) OVER (PARTITION BY region ORDER BY date ROWS UNBOUNDED PRECEDING) FROM sales"
+		},
+		{
+			"comment": "AVG window function with frame",
+			"query":  "SELECT AVG(temperature) OVER (ORDER BY date ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM weather"
+		},
+		{
+			"comment": "MIN and MAX window functions",
+			"query":  "SELECT MIN(price) OVER (PARTITION BY category), MAX(price) OVER (PARTITION BY category) FROM products"
+		},
+		{
+			"comment": "Named window definition",
+			"query":  "SELECT ROW_NUMBER() OVER w FROM users WINDOW w AS (ORDER BY created_at)"
+		},
+		{
+			"comment": "Multiple named windows",
+			"query":  "SELECT ROW_NUMBER() OVER w1, SUM(amount) OVER w2 FROM data WINDOW w1 AS (ORDER BY id), w2 AS (PARTITION BY type ORDER BY date)"
+		},
+		{
+			"comment": "Named window with inheritance",
+			"query":  "SELECT ROW_NUMBER() OVER (w ORDER BY name) FROM users WINDOW w AS (PARTITION BY department)"
+		},
+		{
+			"comment": "ROWS frame - UNBOUNDED PRECEDING",
+			"query":  "SELECT SUM(amount) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING) FROM sales"
+		},
+		{
+			"comment": "ROWS frame - n PRECEDING",
+			"query":  "SELECT AVG(price) OVER (ORDER BY date ROWS 3 PRECEDING) FROM stocks"
+		},
+		{
+			"comment": "ROWS frame - CURRENT ROW",
+			"query":  "SELECT SUM(quantity) OVER (ORDER BY id ROWS CURRENT ROW) FROM orders"
+		},
+		{
+			"comment": "ROWS frame - BETWEEN PRECEDING AND FOLLOWING",
+			"query":  "SELECT AVG(amount) OVER (ORDER BY date ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM transactions"
+		},
+		{
+			"comment": "ROWS frame - BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+			"query":  "SELECT SUM(sales) OVER (PARTITION BY region ORDER BY month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM monthly_sales"
+		},
+		{
+			"comment": "ROWS frame - BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
+			"query":  "SELECT COUNT(*) OVER (ORDER BY date ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM events"
+		},
+		{
+			"comment": "RANGE frame - UNBOUNDED PRECEDING",
+			"query":  "SELECT SUM(amount) OVER (ORDER BY amount RANGE UNBOUNDED PRECEDING) FROM payments"
+		},
+		{
+			"comment": "RANGE frame - CURRENT ROW",
+			"query":  "SELECT COUNT(*) OVER (ORDER BY score RANGE CURRENT ROW) FROM results"
+		},
+		{
+			"comment": "RANGE frame - BETWEEN PRECEDING AND FOLLOWING",
+			"query":  "SELECT AVG(value) OVER (ORDER BY val RANGE BETWEEN (SELECT 3) PRECEDING AND (SELECT 4) FOLLOWING) FROM daily_metrics"
+		},
+		{
+			"comment": "GROUPS frame - UNBOUNDED PRECEDING",
+			"query":  "SELECT FIRST_VALUE(name) OVER (ORDER BY score GROUPS UNBOUNDED PRECEDING) FROM players"
+		},
+		{
+			"comment": "GROUPS frame - n PRECEDING",
+			"query":  "SELECT COUNT(*) OVER (ORDER BY category GROUPS 2 PRECEDING) FROM products"
+		},
+		{
+			"comment": "GROUPS frame - BETWEEN PRECEDING AND FOLLOWING",
+			"query":  "SELECT SUM(amount) OVER (ORDER BY date GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM transactions"
+		},
+		{
+			"comment": "Frame with EXCLUDE CURRENT ROW",
+			"query":  "SELECT AVG(salary) OVER (PARTITION BY dept ORDER BY salary ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW) FROM employees"
+		},
+		{
+			"comment": "Frame with EXCLUDE GROUP",
+			"query":  "SELECT SUM(amount) OVER (ORDER BY category GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP) FROM sales"
+		},
+		{
+			"comment": "Frame with EXCLUDE TIES",
+			"query":  "SELECT COUNT(*) OVER (ORDER BY score ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) FROM test_scores"
+		},
+		{
+			"comment": "Frame with EXCLUDE NO OTHERS",
+			"query":  "SELECT MAX(value) OVER (ORDER BY date ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING EXCLUDE NO OTHERS) FROM measurements"
+		},
+		{
+			"comment": "Window function in WHERE clause (subquery)",
+			"query":  "SELECT * FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) as rn FROM users) t WHERE rn <= 10"
+		},
+		{
+			"comment": "Multiple window functions",
+			"query":  "SELECT id, ROW_NUMBER() OVER (ORDER BY salary), RANK() OVER (ORDER BY salary), PERCENT_RANK() OVER (ORDER BY salary) FROM employees"
+		},
+		{
+			"comment": "Window function with CASE expression",
+			"query":  "SELECT CASE WHEN ROW_NUMBER() OVER (ORDER BY score DESC) <= 3 THEN 'Top 3' ELSE 'Other' END FROM students"
+		},
+		{
+			"comment": "Window function in ORDER BY",
+			"query":  "SELECT name FROM employees ORDER BY ROW_NUMBER() OVER (PARTITION BY department ORDER BY hire_date)"
+		},
+		{
+			"comment": "Window function with DISTINCT",
+			"query":  "SELECT COUNT(DISTINCT category) OVER (PARTITION BY region) FROM products"
+		},
+		{
+			"comment": "Window function with ALL",
+			"query":  "SELECT SUM(ALL amount) OVER (ORDER BY date) FROM transactions"
+		},
+    {
+			"comment": "COUNT with FILTER",
+			"query":  "SELECT COUNT(*) FILTER (WHERE status = 'active') FROM users"
+		},
+		{
+			"comment": "SUM with FILTER",
+			"query":  "SELECT SUM(amount) FILTER (WHERE date > '2024-01-01') FROM transactions"
+		},
+		{
+			"comment": "AVG with FILTER and GROUP BY",
+			"query":  "SELECT department, AVG(salary) FILTER (WHERE experience > 5) FROM employees GROUP BY department"
+		},
+		{
+			"comment": "Multiple aggregates with FILTER",
+			"query":  "SELECT COUNT(*) FILTER (WHERE active), SUM(value) FILTER (WHERE type = 'sale') FROM records"
+		},
+		{
+			"comment": "FILTER with complex condition",
+			"query":  "SELECT MAX(price) FILTER (WHERE category = 'electronics' AND in_stock = true) FROM products"
+		},
+
+		{
+			"comment": "percentile_cont with WITHIN GROUP",
+			"query":  "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY salary) FROM employees"
+		},
+		{
+			"comment": "mode with WITHIN GROUP",
+			"query":  "SELECT mode() WITHIN GROUP (ORDER BY category) FROM products"
+		},
+		{
+			"comment": "string_agg with WITHIN GROUP",
+			"query":  "SELECT string_agg(name, ', ') WITHIN GROUP (ORDER BY name) FROM users"
+		},
+		{
+			"comment": "WITHIN GROUP with DESC",
+			"query":  "SELECT percentile_disc(0.9) WITHIN GROUP (ORDER BY score DESC) FROM tests"
+		},
+
+		{
+			"comment": "Aggregate with both FILTER and WITHIN GROUP",
+			"query":  "SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY score) FILTER (WHERE status = 'completed') FROM tests"
+		},
+
+		{
+			"comment": "Aggregate with FILTER and OVER",
+			"query":  "SELECT SUM(amount) FILTER (WHERE type = 'credit') OVER (PARTITION BY account_id) FROM transactions"
+		},
+		{
+			"comment": "COUNT FILTER with window",
+			"query":  "SELECT COUNT(*) FILTER (WHERE active = true) OVER (ORDER BY created_at) FROM users"
+		},
+    {
+			"comment": "Simple FOR UPDATE",
+			"query":  "SELECT * FROM users FOR UPDATE"
+		},
+		{
+			"comment": "FOR UPDATE with specific tables",
+			"query":  "SELECT * FROM users u, orders o WHERE u.id = o.user_id FOR UPDATE OF u"
+		},
+		{
+			"comment": "FOR UPDATE NOWAIT",
+			"query":  "SELECT * FROM accounts WHERE balance > 1000 FOR UPDATE NOWAIT"
+		},
+		{
+			"comment": "FOR UPDATE SKIP LOCKED",
+			"query":  "SELECT * FROM queue WHERE processed = false FOR UPDATE SKIP LOCKED"
+		},
+
+		{
+			"comment": "FOR NO KEY UPDATE",
+			"query":  "SELECT * FROM settings FOR NO KEY UPDATE"
+		},
+		{
+			"comment": "FOR NO KEY UPDATE SKIP LOCKED",
+			"query":  "SELECT * FROM tasks FOR NO KEY UPDATE SKIP LOCKED"
+		},
+		{
+			"comment": "FOR NO KEY UPDATE with specific table",
+			"query":  "SELECT * FROM users u, posts p WHERE u.id = p.user_id FOR NO KEY UPDATE OF u"
+		},
+
+		{
+			"comment": "Simple FOR SHARE",
+			"query":  "SELECT * FROM products FOR SHARE"
+		},
+		{
+			"comment": "FOR SHARE with multiple tables",
+			"query":  "SELECT * FROM orders o, items i WHERE o.id = i.order_id FOR SHARE OF o, i"
+		},
+		{
+			"comment": "FOR SHARE NOWAIT",
+			"query":  "SELECT * FROM inventory FOR SHARE NOWAIT"
+		},
+
+		{
+			"comment": "FOR KEY SHARE",
+			"query":  "SELECT * FROM categories FOR KEY SHARE"
+		},
+		{
+			"comment": "FOR KEY SHARE NOWAIT",
+			"query":  "SELECT * FROM configs FOR KEY SHARE NOWAIT"
+		},
+		{
+			"comment": "FOR KEY SHARE SKIP LOCKED",
+			"query":  "SELECT * FROM jobs FOR KEY SHARE SKIP LOCKED"
+		},
+
+		{
+			"comment": "Multiple locking clauses",
+			"query":  "SELECT * FROM users u, accounts a WHERE u.id = a.user_id FOR UPDATE OF u FOR SHARE OF a"
+		},
+		{
+			"comment": "Mixed locking strengths",
+			"query":  "SELECT * FROM t1, t2, t3 WHERE t1.id = t2.ref_id AND t2.id = t3.ref_id FOR UPDATE OF t1 FOR NO KEY UPDATE OF t2 FOR SHARE OF t3"
+		},
+
+		{
+			"comment": "FOR READ ONLY",
+			"query":  "SELECT * FROM logs FOR READ ONLY"
+		},
+
+		{
+			"comment": "Locking with ORDER BY and LIMIT",
+			"query":  "SELECT * FROM queue ORDER BY priority DESC LIMIT 10 FOR UPDATE SKIP LOCKED"
+		},
+		{
+			"comment": "Locking with GROUP BY",
+			"query":  "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id FOR UPDATE"
+		},
+		{
+			"comment": "Locking with subquery",
+			"query":  "SELECT * FROM (SELECT * FROM users WHERE active = true) AS u FOR UPDATE"
+		},
+		{
+			"comment": "Locking with JOIN",
+			"query":  "SELECT * FROM users u JOIN accounts a ON u.id = a.user_id FOR UPDATE OF u"
+		},
+		{
+			"comment": "Locking with CTE",
+			"query":  "WITH active_users AS (SELECT * FROM users WHERE active = true) SELECT * FROM active_users FOR UPDATE"
+		},
+
+		{
+			"comment": "Aggregate with FILTER and locking",
+			"query":  "SELECT user_id, COUNT(*) FILTER (WHERE status = 'pending') FROM orders GROUP BY user_id FOR UPDATE"
+		},
+		{
+			"comment": "WITHIN GROUP with locking",
+			"query":  "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY amount) FROM transactions FOR SHARE"
+		}
 ]
