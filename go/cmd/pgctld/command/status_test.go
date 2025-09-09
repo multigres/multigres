@@ -23,8 +23,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -76,7 +74,7 @@ func TestRunStatus(t *testing.T) {
 			},
 			setupBinaries: false,
 			expectError:   true,
-			errorContains: "data-dir is required",
+			errorContains: "pg-data-dir is required",
 		},
 	}
 
@@ -85,6 +83,10 @@ func TestRunStatus(t *testing.T) {
 			// Setup temporary directories
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_status_test")
 			defer cleanup()
+
+			// Setup cleanup for cobra command execution
+			cleanupViper := SetupTestPgCtldCleanup(t)
+			defer cleanupViper()
 
 			dataDir := tt.setupDataDir(baseDir)
 
@@ -99,25 +101,20 @@ func TestRunStatus(t *testing.T) {
 				defer os.Setenv("PATH", originalPath)
 			}
 
-			// Setup viper configuration
-			if dataDir != "" {
-				cleanupViper := testutil.SetupTestViper(t, dataDir)
-				defer cleanupViper()
-			} else {
-				// For empty dataDir test, clear any existing viper config
-				viper.Set("data-dir", "")
-			}
-
 			// Capture output
 			oldStdout := os.Stdout
 			r, w, _ := os.Pipe()
 			os.Stdout = w
 
-			// Create and execute command
-			cmd := &cobra.Command{}
-			args := []string{}
+			// Use Root command to get all persistent flags and execute status subcommand
+			cmd := Root
+			args := []string{"status"}
+			if dataDir != "" {
+				args = append(args, "--pg-data-dir", dataDir)
+			}
+			cmd.SetArgs(args)
 
-			err := runStatus(cmd, args)
+			err := cmd.Execute()
 			// Restore stdout and read captured output
 			w.Close()
 			os.Stdout = oldStdout
@@ -180,7 +177,7 @@ func TestIsServerReady(t *testing.T) {
 			os.Setenv("PATH", binDir+":"+originalPath)
 			defer os.Setenv("PATH", originalPath)
 
-			cleanupViper := testutil.SetupTestViper(t, "")
+			cleanupViper := SetupTestPgCtldCleanup(t)
 			defer cleanupViper()
 
 			result := isServerReady()
@@ -224,7 +221,7 @@ func TestGetServerVersion(t *testing.T) {
 			os.Setenv("PATH", binDir+":"+originalPath)
 			defer os.Setenv("PATH", originalPath)
 
-			cleanupViper := testutil.SetupTestViper(t, "")
+			cleanupViper := SetupTestPgCtldCleanup(t)
 			defer cleanupViper()
 
 			result := getServerVersion()

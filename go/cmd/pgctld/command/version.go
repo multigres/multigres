@@ -74,7 +74,7 @@ func GetVersionWithResult(config *PostgresConfig) (*VersionResult, error) {
 }
 
 func runVersion(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 
 	// No local flag overrides needed - all flags are global now
 
