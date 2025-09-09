@@ -293,7 +293,6 @@ func ParseFlags(cmd string) {
 	}
 
 	loadViper(cmd)
-
 }
 
 // ParseFlagsForTests initializes flags but skips the version, filesystem
@@ -384,6 +383,8 @@ func init() {
 	// common flags for things like tracing / stats / grpc common flags
 	// Register logging flags by default
 	RegisterLoggingFlags()
+
+	OnParse(viperutil.RegisterFlags)
 }
 
 // TestingEndtoend is true when this Multigres binary is being run as part of an endtoend test suite

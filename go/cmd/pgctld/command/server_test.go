@@ -103,14 +103,14 @@ func TestPgCtldService_Start(t *testing.T) {
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 				// Mock PATH
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			cleanupViper := testutil.SetupTestViper(t, dataDir)
+			cleanupViper := SetupTestPgCtldCleanup(t)
 			defer cleanupViper()
 
 			service := &PgCtldService{
@@ -188,12 +188,12 @@ func TestPgCtldService_Stop(t *testing.T) {
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			cleanupViper := testutil.SetupTestViper(t, dataDir)
+			cleanupViper := SetupTestPgCtldCleanup(t)
 			defer cleanupViper()
 
 			service := &PgCtldService{
@@ -261,7 +261,7 @@ func TestPgCtldService_Status(t *testing.T) {
 			dataDir := tt.setupDataDir(baseDir)
 			tt.request.DataDir = dataDir
 
-			cleanupViper := testutil.SetupTestViper(t, dataDir)
+			cleanupViper := SetupTestPgCtldCleanup(t)
 			defer cleanupViper()
 
 			service := &PgCtldService{
@@ -288,11 +288,11 @@ func TestPgCtldService_Restart(t *testing.T) {
 		testutil.CreatePIDFile(t, dataDir, 12345)
 
 		binDir := filepath.Join(baseDir, "bin")
-		require.NoError(t, os.MkdirAll(binDir, 0755))
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		cleanupViper := testutil.SetupTestViper(t, dataDir)
+		cleanupViper := SetupTestPgCtldCleanup(t)
 		defer cleanupViper()
 
 		service := &PgCtldService{
@@ -323,11 +323,11 @@ func TestPgCtldService_ReloadConfig(t *testing.T) {
 		testutil.CreatePIDFile(t, dataDir, 12345)
 
 		binDir := filepath.Join(baseDir, "bin")
-		require.NoError(t, os.MkdirAll(binDir, 0755))
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		cleanupViper := testutil.SetupTestViper(t, dataDir)
+		cleanupViper := SetupTestPgCtldCleanup(t)
 		defer cleanupViper()
 
 		service := &PgCtldService{
@@ -352,7 +352,7 @@ func TestPgCtldService_ReloadConfig(t *testing.T) {
 		dataDir := testutil.CreateDataDir(t, baseDir, true)
 		// No PID file = not running
 
-		cleanupViper := testutil.SetupTestViper(t, dataDir)
+		cleanupViper := SetupTestPgCtldCleanup(t)
 		defer cleanupViper()
 
 		service := &PgCtldService{
@@ -376,11 +376,11 @@ func TestPgCtldService_Version(t *testing.T) {
 		defer cleanup()
 
 		binDir := filepath.Join(baseDir, "bin")
-		require.NoError(t, os.MkdirAll(binDir, 0755))
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		cleanupViper := testutil.SetupTestViper(t, "")
+		cleanupViper := SetupTestPgCtldCleanup(t)
 		defer cleanupViper()
 
 		service := &PgCtldService{
@@ -410,7 +410,7 @@ func TestPgCtldService_InitDataDir(t *testing.T) {
 		dataDir := filepath.Join(baseDir, "data")
 
 		binDir := filepath.Join(baseDir, "bin")
-		require.NoError(t, os.MkdirAll(binDir, 0755))
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 

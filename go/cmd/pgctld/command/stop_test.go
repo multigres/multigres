@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -119,7 +118,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 				return config
 			},
 			expectError:   true,
-			errorContains: "data-dir is required",
+			errorContains: "pg-data-dir is required",
 		},
 		{
 			name: "default mode when empty string provided",
@@ -150,7 +149,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 				originalPath := os.Getenv("PATH")
@@ -234,11 +233,15 @@ func TestRunStop(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_run_stop_test")
 			defer cleanup()
 
+			// Setup cleanup for cobra command execution
+			cleanupViper := SetupTestPgCtldCleanup(t)
+			defer cleanupViper()
+
 			dataDir := tt.setupDataDir(baseDir)
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 				originalPath := os.Getenv("PATH")
@@ -246,15 +249,16 @@ func TestRunStop(t *testing.T) {
 				defer os.Setenv("PATH", originalPath)
 			}
 
-			cleanupViper := testutil.SetupTestViper(t, dataDir)
-			defer cleanupViper()
+			cmd := Root
 
-			// Create command and set mode flag
-			cmd := &cobra.Command{}
-			cmd.Flags().String("mode", "fast", "Shutdown mode")
-			require.NoError(t, cmd.Flags().Set("mode", tt.mode))
+			// Set up the command arguments
+			args := []string{"stop", "--mode", tt.mode}
+			if dataDir != "" {
+				args = append(args, "--pg-data-dir", dataDir)
+			}
+			cmd.SetArgs(args)
 
-			err := runStop(cmd, []string{})
+			err := cmd.Execute()
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -307,7 +311,7 @@ func TestStopPostgreSQLWithConfig(t *testing.T) {
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 				originalPath := os.Getenv("PATH")
@@ -390,7 +394,7 @@ func TestTakeCheckpoint(t *testing.T) {
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 
 				if tt.name == "checkpoint failure - psql command fails" {
 					// Create a psql that always fails

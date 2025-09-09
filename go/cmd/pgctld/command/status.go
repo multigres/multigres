@@ -58,13 +58,13 @@ CLI flags take precedence over config file and environment variable settings.
 
 Examples:
   # Check status with default settings
-  pgctld status --data-dir /var/lib/postgresql/data
+  pgctld status --pg-data-dir /var/lib/postgresql/data
 
   # Check status of PostgreSQL on custom port
-  pgctld status --data-dir /var/lib/postgresql/data --port 5433
+  pgctld status --pg-data-dir /var/lib/postgresql/data --port 5433
 
   # Check status with specific connection parameters
-  pgctld status -d /var/lib/postgresql/data -H remotehost -U admin --database mydb
+  pgctld status -d /var/lib/postgresql/data -H remotehost -U admin --pg-database mydb
 
   # Check status of multiple instances
   pgctld status -d /var/lib/postgresql/instance1 -p 5432
@@ -82,7 +82,7 @@ func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
 	}
 
 	if config.DataDir == "" {
-		return nil, fmt.Errorf("data-dir is required")
+		return nil, fmt.Errorf("pg-data-dir is required")
 	}
 
 	// Check if data directory is initialized
@@ -126,8 +126,7 @@ func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromViper()
-
+	config := NewPostgresConfigFromDefaults()
 	// No local flag overrides needed - all flags are global now
 
 	result, err := GetStatusWithResult(config)
@@ -196,7 +195,7 @@ func formatUptime(seconds int64) string {
 }
 
 func isServerReady() bool {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 	return isServerReadyWithConfig(config)
 }
 
@@ -212,7 +211,7 @@ func isServerReadyWithConfig(config *PostgresConfig) bool {
 }
 
 func getServerVersion() string {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 	return getServerVersionWithConfig(config)
 }
 

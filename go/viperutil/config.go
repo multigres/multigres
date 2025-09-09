@@ -51,7 +51,7 @@ var (
 	configType = Configure(
 		"config.type",
 		Options[string]{
-			EnvVars:  []string{"VT_CONFIG_TYPE"},
+			EnvVars:  []string{"MT_CONFIG_TYPE"},
 			FlagName: "config-type",
 		},
 	)
@@ -66,7 +66,7 @@ var (
 	configFile = Configure(
 		"config.file",
 		Options[string]{
-			EnvVars:  []string{"VT_CONFIG_FILE"},
+			EnvVars:  []string{"MT_CONFIG_FILE"},
 			FlagName: "config-file",
 		},
 	)
@@ -82,7 +82,7 @@ var (
 		"config.persistence.min_interval",
 		Options[time.Duration]{
 			Default:  time.Second,
-			EnvVars:  []string{"VT_CONFIG_PERSISTENCE_MIN_INTERVAL"},
+			EnvVars:  []string{"MT_CONFIG_PERSISTENCE_MIN_INTERVAL"},
 			FlagName: "config-persistence-min-interval",
 		},
 	)

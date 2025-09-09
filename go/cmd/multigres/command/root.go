@@ -59,9 +59,6 @@ Configuration:
 }
 
 func init() {
-	// Register config flags from viperutil
-	viperutil.RegisterFlags(Root.PersistentFlags())
-
 	// Override the default display value for multigres
 	if flag := Root.PersistentFlags().Lookup("config-name"); flag != nil {
 		flag.DefValue = "multigres"

@@ -87,7 +87,7 @@ func ReloadPostgreSQLConfigWithResult(config *PostgresConfig) (*ReloadResult, er
 }
 
 func runReload(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 
 	result, err := ReloadPostgreSQLConfigWithResult(config)
 	if err != nil {

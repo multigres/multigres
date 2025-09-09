@@ -48,13 +48,13 @@ file and environment variable settings.
 
 Examples:
   # Initialize data directory
-  pgctld init --data-dir /var/lib/postgresql/data
+  pgctld init --pg-data-dir /var/lib/postgresql/data
 
   # Initialize with existing configuration
   pgctld init -d /var/lib/postgresql/instance2/data
 
   # Initialize using config file settings
-  pgctld init --config /etc/pgctld/config.yaml`,
+  pgctld init --config-file /etc/pgctld/config.yaml`,
 	RunE: runInit,
 }
 
@@ -64,7 +64,7 @@ func InitDataDirWithResult(config *PostgresConfig) (*InitResult, error) {
 	result := &InitResult{}
 
 	if config.DataDir == "" {
-		return nil, fmt.Errorf("data-dir is required")
+		return nil, fmt.Errorf("pg-data-dir is required")
 	}
 
 	// Check if data directory is already initialized
@@ -87,7 +87,7 @@ func InitDataDirWithResult(config *PostgresConfig) (*InitResult, error) {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 
 	result, err := InitDataDirWithResult(config)
 	if err != nil {

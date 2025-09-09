@@ -29,14 +29,16 @@ import (
 )
 
 func init() {
-	Root.AddCommand(serverCmd)
+	Root.AddCommand(ServerCmd)
 }
 
-var serverCmd = &cobra.Command{
-	Use:   "server",
-	Short: "Run pgctld as a gRPC server daemon",
-	Long:  `Run pgctld as a background gRPC server daemon to handle PostgreSQL management requests.`,
-	RunE:  runServer,
+var ServerCmd = &cobra.Command{
+	Use:     "server",
+	Short:   "Run pgctld as a gRPC server daemon",
+	Long:    `Run pgctld as a background gRPC server daemon to handle PostgreSQL management requests.`,
+	RunE:    runServer,
+	Args:    cobra.NoArgs,
+	PreRunE: servenv.CobraPreRunE,
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
@@ -207,7 +209,7 @@ func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*p
 	s.logger.Debug("gRPC Version request")
 
 	// Create config from base viper settings
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 
 	// Override with request parameters if provided
 	if req.Host != "" {

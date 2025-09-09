@@ -19,9 +19,8 @@ Modifications Copyright 2025 The Multigres Authors.
 package servenv
 
 import (
-	"testing"
-
 	"context"
+	"testing"
 
 	"google.golang.org/grpc"
 )

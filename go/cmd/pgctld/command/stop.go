@@ -52,21 +52,21 @@ Shutdown modes:
 
 Examples:
   # Stop with default settings (fast mode)
-  pgctld stop --data-dir /var/lib/postgresql/data
+  pgctld stop --pg-data-dir /var/lib/postgresql/data
 
   # Stop with smart mode (wait for sessions)
-  pgctld stop --data-dir /var/lib/postgresql/data --mode smart
+  pgctld stop --pg-data-dir /var/lib/postgresql/data --mode smart
 
   # Stop with custom timeout
-  pgctld stop --data-dir /var/lib/postgresql/data --timeout 120
+  pgctld stop --pg-data-dir /var/lib/postgresql/data --timeout 120
 
   # Force immediate stop with short timeout
-  pgctld stop --data-dir /var/lib/postgresql/data --mode immediate --timeout 10`,
+  pgctld stop --pg-data-dir /var/lib/postgresql/data --mode immediate --timeout 10`,
 	RunE: runStop,
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromViper()
+	config := NewPostgresConfigFromDefaults()
 	mode, _ := cmd.Flags().GetString("mode")
 
 	// No local flag overrides needed - all flags are global now
@@ -92,7 +92,7 @@ func StopPostgreSQLWithResult(config *PostgresConfig, mode string) (*StopResult,
 	result := &StopResult{}
 
 	if config.DataDir == "" {
-		return nil, fmt.Errorf("data-dir is required")
+		return nil, fmt.Errorf("pg-data-dir is required")
 	}
 
 	// Default mode to "fast" if not specified
