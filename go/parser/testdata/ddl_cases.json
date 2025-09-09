@@ -2831,5 +2831,72 @@
     "comment": "DECLARE CURSOR with complex query",
     "query": "DECLARE query_cursor CURSOR FOR SELECT u.id, u.name FROM users u WHERE u.active = TRUE ORDER BY u.name",
     "expected": "DECLARE query_cursor CURSOR FOR SELECT u.id, u.name FROM users AS u WHERE u.active = TRUE ORDER BY u.name"
+  },
+  {
+    "comment": "Simple view",
+    "query": "CREATE VIEW test_view AS SELECT 1"
+  },
+  {
+    "comment": "OR REPLACE view",
+    "query": "CREATE OR REPLACE VIEW test_view AS SELECT 1"
+  },
+  {
+    "comment": "View with column aliases",
+    "query": "CREATE VIEW user_info(id, name) AS SELECT user_id, username FROM users",
+    "expected": "CREATE VIEW user_info (id, name) AS SELECT user_id, username FROM users"
+  },
+  {
+    "comment": "TEMPORARY view",
+    "query": "CREATE TEMPORARY VIEW temp_view AS SELECT 1"
+  },
+  {
+    "comment": "Simple function",
+    "query": "CREATE FUNCTION add(a integer, b integer) RETURNS integer LANGUAGE sql AS $$SELECT a + b$$",
+    "expected": "CREATE FUNCTION add (a INT, b INT) RETURNS INT LANGUAGE sql AS $$SELECT a + b$$"
+  },
+  {
+    "comment": "Function with unnamed parameter",
+    "query": "CREATE FUNCTION greet(text) RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello ' || $1$$",
+    "expected": "CREATE FUNCTION greet (TEXT) RETURNS TEXT LANGUAGE sql AS $$SELECT 'Hello ' || $1$$"
+  },
+  {
+    "comment": "Function with OUT parameter",
+    "query": "CREATE FUNCTION process(IN input text, OUT result integer) LANGUAGE sql AS $$SELECT length(input)$$",
+    "expected": "CREATE FUNCTION process (input TEXT, OUT result INT) LANGUAGE sql AS $$SELECT length(input)$$"
+  },
+  {
+    "comment": "OR REPLACE function",
+    "query": "CREATE OR REPLACE FUNCTION test() RETURNS void LANGUAGE sql AS $$SELECT$$",
+    "expected": "CREATE OR REPLACE FUNCTION test () RETURNS void LANGUAGE sql AS $$SELECT$$"
+  },
+  {
+    "comment": "PROCEDURE",
+    "query": "CREATE PROCEDURE test_proc() LANGUAGE sql AS $$SELECT$$",
+    "expected": "CREATE PROCEDURE test_proc () LANGUAGE sql AS $$SELECT$$"
+  },
+  {
+    "comment": "Function with qualified name",
+    "query": "CREATE FUNCTION public.test_func() RETURNS integer LANGUAGE sql AS $$SELECT 1$$",
+    "expected": "CREATE FUNCTION public.test_func () RETURNS INT LANGUAGE sql AS $$SELECT 1$$"
+  },
+  {
+    "comment": "Key Actions default",
+    "query": "CREATE TABLE test (id int REFERENCES parent(id) ON DELETE SET DEFAULT (id));",
+    "expected": "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET DEFAULT (id))"
+  },
+  {
+    "comment": "ON update set null",
+    "query": "CREATE TABLE test (id int REFERENCES parent(id) ON UPDATE SET NULL (id));",
+    "error": "parse error at position 71: column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions"
+  },
+  {
+    "comment": "SET NULL without column list",
+    "query": "CREATE TABLE test (id int REFERENCES parent(id) ON DELETE SET NULL);",
+    "expected": "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET NULL)"
+  },
+  {
+    "comment": "SET NULL with column list",
+    "query": "CREATE TABLE test (id int REFERENCES parent(id) ON DELETE SET NULL (id));",
+    "expected": "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET NULL (id))"
   }
 ]
