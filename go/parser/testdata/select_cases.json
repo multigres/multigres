@@ -2091,5 +2091,116 @@
   {
     "comment": "CTE with both SEARCH and CYCLE",
     "query": "WITH RECURSIVE org_chart AS (SELECT id FROM employees) SEARCH DEPTH FIRST BY id SET search_seq CYCLE id SET is_cycle USING path SELECT * FROM org_chart"
+  },
+  {
+    "comment": "simple limit",
+    "query": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "simple offset",
+    "query": "SELECT * FROM users OFFSET 5"
+  },
+  {
+    "comment": "limit with offset",
+    "query": "SELECT * FROM users LIMIT 10 OFFSET 5"
+  },
+  {
+    "comment": "offset with limit",
+    "query": "SELECT * FROM users OFFSET 5 LIMIT 10",
+    "expected": "SELECT * FROM users LIMIT 10 OFFSET 5"
+  },
+  {
+    "comment": "limit all",
+    "query": "SELECT * FROM users LIMIT ALL"
+  },
+  {
+    "comment": "limit with expression",
+    "query": "SELECT * FROM users LIMIT 5 + 5"
+  },
+  {
+    "comment": "offset with expression",
+    "query": "SELECT * FROM users OFFSET 2 * 3"
+  },
+  {
+    "comment": "fetch first row only",
+    "query": "SELECT * FROM users FETCH FIRST ROW ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "fetch first rows only",
+    "query": "SELECT * FROM users FETCH FIRST ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "fetch next row only",
+    "query": "SELECT * FROM users FETCH NEXT ROW ONLY",
+    "expected": "SELECT * FROM users LIMIT 1"
+  },
+  {
+    "comment": "fetch first 5 rows only",
+    "query": "SELECT * FROM users FETCH FIRST 5 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 5"
+  },
+  {
+    "comment": "fetch next 10 rows only",
+    "query": "SELECT * FROM users FETCH NEXT 10 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 10"
+  },
+  {
+    "comment": "fetch first with ties",
+    "query": "SELECT * FROM users ORDER BY score FETCH FIRST ROW WITH TIES"
+  },
+  {
+    "comment": "fetch first 5 rows with ties",
+    "query": "SELECT * FROM users ORDER BY score FETCH FIRST 5 ROWS WITH TIES"
+  },
+  {
+    "comment": "offset with fetch first",
+    "query": "SELECT * FROM users OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY",
+    "expected": "SELECT * FROM users LIMIT 5 OFFSET 10"
+  },
+  {
+    "comment": "offset with row keyword",
+    "query": "SELECT * FROM users OFFSET 10 ROW",
+    "expected": "SELECT * FROM users OFFSET 10"
+  },
+  {
+    "comment": "offset with rows keyword",
+    "query": "SELECT * FROM users OFFSET 10 ROWS",
+    "expected": "SELECT * FROM users OFFSET 10"
+  },
+  {
+    "comment": "order by with limit",
+    "query": "SELECT * FROM users ORDER BY id LIMIT 10"
+  },
+  {
+    "comment": "order by with limit and offset",
+    "query": "SELECT * FROM users ORDER BY id LIMIT 10 OFFSET 5"
+  },
+  {
+    "comment": "order by with fetch first",
+    "query": "SELECT * FROM users ORDER BY score DESC FETCH FIRST 3 ROWS ONLY",
+    "expected": "SELECT * FROM users ORDER BY score DESC LIMIT 3"
+  },
+  {
+    "comment": "order by with fetch first with ties",
+    "query": "SELECT * FROM users ORDER BY score DESC FETCH FIRST 3 ROWS WITH TIES"
+  },
+  {
+    "comment": "with clause and limit",
+    "query": "WITH top_users AS (SELECT * FROM users) SELECT * FROM top_users LIMIT 10"
+  },
+  {
+    "comment": "subquery with limit",
+    "query": "SELECT * FROM (SELECT * FROM users LIMIT 10) AS limited_users"
+  },
+  {
+    "comment": "limit with complex expression",
+    "query": "SELECT * FROM users LIMIT (SELECT COUNT(*) / 10 FROM users)"
+  },
+  {
+    "comment": "deprecated limit comma syntax",
+    "query": "SELECT * FROM users LIMIT 10, 5",
+    "error": "parse error at position 31: LIMIT #,# syntax is not supported. Use separate LIMIT and OFFSET clauses."
   }
 ]
