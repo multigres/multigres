@@ -53,14 +53,14 @@ func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 	t.Helper()
 
 	dataDir := filepath.Join(baseDir, "data")
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("Failed to create data dir: %v", err)
 	}
 
 	if initialized {
 		// Create PG_VERSION file to indicate initialized data directory
 		pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
-		if err := os.WriteFile(pgVersionFile, []byte("15.0\n"), 0644); err != nil {
+		if err := os.WriteFile(pgVersionFile, []byte("15.0\n"), 0o644); err != nil {
 			t.Fatalf("Failed to create PG_VERSION file: %v", err)
 		}
 
@@ -73,14 +73,14 @@ func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 
 		for _, file := range files {
 			path := filepath.Join(dataDir, file)
-			if err := os.WriteFile(path, []byte("# Test config\n"), 0644); err != nil {
+			if err := os.WriteFile(path, []byte("# Test config\n"), 0o644); err != nil {
 				t.Fatalf("Failed to create file %s: %v", file, err)
 			}
 		}
 
 		// Create base directory
 		baseSubDir := filepath.Join(dataDir, "base")
-		if err := os.MkdirAll(baseSubDir, 0700); err != nil {
+		if err := os.MkdirAll(baseSubDir, 0o700); err != nil {
 			t.Fatalf("Failed to create base dir: %v", err)
 		}
 	}
@@ -120,7 +120,7 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	}
 
 	pidContent := strings.Join(content, "\n") + "\n"
-	if err := os.WriteFile(pidFile, []byte(pidContent), 0644); err != nil {
+	if err := os.WriteFile(pidFile, []byte(pidContent), 0o644); err != nil {
 		t.Fatalf("Failed to create PID file: %v", err)
 	}
 }
@@ -165,7 +165,6 @@ func cleanupMockProcesses(t *testing.T, tempDir string) {
 		}
 		return nil
 	})
-
 	if err != nil {
 		t.Logf("Warning: failed to walk temp directory for cleanup: %v", err)
 	}

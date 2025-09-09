@@ -56,7 +56,7 @@ type ProvisionResult struct {
 	// Ports maps protocol names to their port numbers (e.g., "grpc" -> 2379, "http" -> 2380)
 	Ports map[string]int
 	// Metadata contains additional provisioner-specific information
-	Metadata map[string]interface{}
+	Metadata map[string]any
 }
 
 // ProvisionRequest contains the parameters for provisioning a service.
@@ -67,7 +67,7 @@ type ProvisionRequest struct {
 	// DatabaseName is the name of the database this service belongs to (empty for global services like etcd)
 	DatabaseName string
 	// Params contains additional parameters that can be passed to the provisioner
-	Params map[string]interface{}
+	Params map[string]any
 }
 
 // DeprovisionRequest contains the parameters for deprovisioning a service.
@@ -96,7 +96,7 @@ type Provisioner interface {
 	// settings for the provisioner.
 	// TODO: We can have better typing in the future here,
 	// but we can wait until we start implementing other provisioners
-	DefaultConfig() map[string]interface{}
+	DefaultConfig() map[string]any
 
 	// LoadConfig loads the provisioner-specific configuration from the given config paths.
 	// The provisioner will search for config files in the provided paths and load
@@ -141,7 +141,7 @@ type Provisioner interface {
 	// This method checks that the provided configuration is valid for
 	// this provisioner. It should return an error if the configuration
 	// is invalid or missing required fields.
-	ValidateConfig(config map[string]interface{}) error
+	ValidateConfig(config map[string]any) error
 }
 
 // Factory is a function that creates a new provisioner instance.
@@ -149,12 +149,10 @@ type Provisioner interface {
 // and are registered with the provisioner system using RegisterProvisioner.
 type Factory func() (Provisioner, error)
 
-var (
-	// provisionerFactories holds the registered provisioner factories.
-	// This map associates provisioner names with their factory functions,
-	// allowing the system to create provisioner instances by name.
-	provisionerFactories = make(map[string]Factory)
-)
+// provisionerFactories holds the registered provisioner factories.
+// This map associates provisioner names with their factory functions,
+// allowing the system to create provisioner instances by name.
+var provisionerFactories = make(map[string]Factory)
 
 // RegisterProvisioner registers a provisioner factory with the given name.
 // This function allows provisioner implementations to be registered with

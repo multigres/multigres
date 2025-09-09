@@ -137,7 +137,7 @@ func GetFuncForType[T any]() func(v *viper.Viper) func(key string) T {
 					}
 				}
 			case reflect.Interface:
-				f = func(v *viper.Viper) func(key string) map[string]interface{} {
+				f = func(v *viper.Viper) func(key string) map[string]any {
 					return v.GetStringMap
 				}
 			}

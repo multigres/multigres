@@ -123,7 +123,7 @@ func MockBinary(t *testing.T, binDir, name, content string) string {
 %s
 `, name, content)
 
-	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
+	if err := os.WriteFile(binPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("Failed to create mock binary %s: %v", name, err)
 	}
 

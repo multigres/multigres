@@ -29,7 +29,7 @@ func SetupTestViper(t *testing.T, dataDir string) func() {
 	t.Helper()
 
 	// Store original values
-	originalValues := make(map[string]interface{})
+	originalValues := make(map[string]any)
 	keys := []string{
 		"data-dir", "pg-port", "pg-host", "pg-database", "pg-user",
 		"socket-dir", "timeout", "log-level",

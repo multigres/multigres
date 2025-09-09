@@ -15,7 +15,6 @@
 package memorytopo
 
 import (
-	"context"
 	"testing"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
@@ -24,8 +23,7 @@ import (
 
 func TestMemoryTopo(t *testing.T) {
 	// Run the TopoServerTestSuite tests.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	test.TopoServerTestSuite(t, ctx, func() topo.Store {
 		return NewServer(ctx, test.LocalCellName)
 	})
