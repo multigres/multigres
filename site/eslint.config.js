@@ -20,6 +20,9 @@ export default [
       globals: {
         JSX: 'readonly',
         React: 'readonly',
+        window: 'readonly',
+        console: 'readonly',
+        process: 'readonly',
       },
     },
     plugins: {
