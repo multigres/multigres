@@ -89,7 +89,7 @@ func TestRunStart(t *testing.T) {
 			// Setup mock binaries if needed
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
-				require.NoError(t, os.MkdirAll(binDir, 0755))
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 				// Add to PATH for test
@@ -219,7 +219,7 @@ func TestInitializeDataDir(t *testing.T) {
 
 		// Setup mock initdb binary
 		binDir := filepath.Join(baseDir, "bin")
-		require.NoError(t, os.MkdirAll(binDir, 0755))
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 		// Add to PATH for test
@@ -254,7 +254,7 @@ func TestWaitForPostgreSQL(t *testing.T) {
 
 		// Setup mock pg_isready that succeeds
 		binDir := filepath.Join(baseDir, "bin")
-		require.NoError(t, os.MkdirAll(binDir, 0755))
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 		originalPath := os.Getenv("PATH")
@@ -275,7 +275,7 @@ func TestWaitForPostgreSQL(t *testing.T) {
 
 		// Create mock pg_isready that always fails
 		binDir := filepath.Join(baseDir, "bin")
-		require.NoError(t, os.MkdirAll(binDir, 0755))
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.MockBinary(t, binDir, "pg_isready", "exit 1")
 
 		originalPath := os.Getenv("PATH")

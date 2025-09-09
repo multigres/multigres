@@ -178,13 +178,13 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 		},
 	}
 
-	// Convert the typed config to map[string]interface{} via YAML marshaling
+	// Convert the typed config to map[string]any via YAML marshaling
 	yamlData, err := yaml.Marshal(localConfig)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal local config to YAML: %w", err)
 	}
 
-	var configMap map[string]interface{}
+	var configMap map[string]any
 	if err := yaml.Unmarshal(yamlData, &configMap); err != nil {
 		return "", fmt.Errorf("failed to unmarshal local config to map: %w", err)
 	}
@@ -203,7 +203,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 
 	// Write config file
 	configFile := filepath.Join(tempDir, "multigres.yaml")
-	if err := os.WriteFile(configFile, yamlData, 0644); err != nil {
+	if err := os.WriteFile(configFile, yamlData, 0o644); err != nil {
 		return "", fmt.Errorf("failed to write config file %s: %w", configFile, err)
 	}
 
@@ -350,7 +350,7 @@ func buildMultigresBinary() (string, error) {
 func buildServiceBinaries(tempDir string) error {
 	// Create bin directory inside temp directory
 	binDir := filepath.Join(tempDir, "bin")
-	if err := os.MkdirAll(binDir, 0755); err != nil {
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create bin directory: %v", err)
 	}
 
@@ -552,7 +552,7 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	assert.Equal(t, "local", config.Provisioner)
 
 	// Extract topology config from provisioner config
-	topoConfig, ok := config.ProvisionerConfig["topology"].(map[string]interface{})
+	topoConfig, ok := config.ProvisionerConfig["topology"].(map[string]any)
 	require.True(t, ok, "topology config should be present")
 
 	assert.Equal(t, "etcd2", topoConfig["backend"])
@@ -571,7 +571,7 @@ func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
 
 	// Create existing config file
 	existingConfig := filepath.Join(tempDir, "multigres.yaml")
-	err = os.WriteFile(existingConfig, []byte("existing: config"), 0644)
+	err = os.WriteFile(existingConfig, []byte("existing: config"), 0o644)
 	require.NoError(t, err)
 
 	// Execute command using the actual binary
@@ -701,7 +701,7 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, err)
 
 		// Extract topology config from provisioner config
-		topoConfig, ok := config.ProvisionerConfig["topology"].(map[string]interface{})
+		topoConfig, ok := config.ProvisionerConfig["topology"].(map[string]any)
 		require.True(t, ok, "topology config should be present")
 
 		cellName := topoConfig["default-cell-name"].(string)

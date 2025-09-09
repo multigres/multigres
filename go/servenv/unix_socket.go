@@ -26,11 +26,9 @@ import (
 	"github.com/spf13/pflag"
 )
 
-var (
-	// socketFile has the flag used when calling
-	// RegisterDefaultSocketFileFlags.
-	socketFile string
-)
+// socketFile has the flag used when calling
+// RegisterDefaultSocketFileFlags.
+var socketFile string
 
 // serveSocketFile listen to the named socket and serves RPCs on it.
 func serveSocketFile() {

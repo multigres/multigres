@@ -112,7 +112,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("config-file", configFile.Default(), "Full path of the config file (with extension) to use. If set, --config-path, --config-type, and --config-name are ignored.")
 	fs.Duration("config-persistence-min-interval", configPersistenceMinInterval.Default(), "minimum interval between persisting dynamic config changes back to disk (if no change has occurred, nothing is done).")
 
-	var h = configFileNotFoundHandling.Default()
+	h := configFileNotFoundHandling.Default()
 	fs.Var(&h, "config-file-not-found-handling", fmt.Sprintf("Behavior when a config file is not found. (Options: %s)", strings.Join(handlingNames, ", ")))
 
 	BindFlags(fs, configPaths, configType, configName, configFile, configFileNotFoundHandling, configPersistenceMinInterval)

@@ -70,7 +70,7 @@ linters:
         path: ^proto/
 formatters:
   enable:
-    - gofmt
+    - gofumpt
     - goimports
   settings:
     goimports:

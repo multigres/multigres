@@ -95,7 +95,7 @@ type Factory struct {
 	// callstats allows us to keep track of how many topo.conn calls
 	// we make (Create, Get, Update, Delete, List, ListDir, etc).
 	// TODO: Implement stats
-	//callstats *stats.CountersWithMultiLabels
+	// callstats *stats.CountersWithMultiLabels
 }
 
 type errorSpec struct {
@@ -179,7 +179,7 @@ func (c *conn) dial(ctx context.Context) error {
 
 // Close is part of the topo.Conn interface.
 func (c *conn) Close() error {
-	//c.factory.callstats.Add([]string{"Close"}, 1)
+	// c.factory.callstats.Add([]string{"Close"}, 1)
 	c.closed.Store(true)
 	return nil
 }

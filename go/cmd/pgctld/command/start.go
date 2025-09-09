@@ -254,7 +254,7 @@ func isDataDirInitialized(dataDir string) bool {
 
 func initializeDataDir(dataDir string) error {
 	// Create data directory if it doesn't exist
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 

@@ -17,9 +17,8 @@ limitations under the License.
 package etcdtopo
 
 import (
-	"errors"
-
 	"context"
+	"errors"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 
