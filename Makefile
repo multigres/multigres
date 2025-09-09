@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+SHELL := /bin/bash
+
 .PHONY: all build build-all clean install test proto tools clean_build_dep
 
 # Default target
@@ -36,7 +38,8 @@ pb: $(PROTO_SRCS)
 		--proto_path=proto $(PROTO_SRCS) && \
 	mkdir -p go/pb && \
 	cp -Rf github.com/multigres/multigres/go/pb/* go/pb/ && \
-	rm -rf github.com/
+	rm -rf github.com/ && \
+	goimports -w go/pb/
 
 # Build Go binaries only
 build:
@@ -75,3 +78,18 @@ clean-all: clean
 	echo "Removing build dependencies..."
 	source ./build.env && rm -rf $$MTROOT/dist $$MTROOT/bin
 	echo "Build dependencies removed. Run 'make tools' to reinstall."
+
+validate-generated-files: clean build-all
+	echo ""
+	echo "Checking files modified during build..."
+	MODIFIED_FILES=$$(git status --porcelain | grep "^ M" | awk '{print $$2}') ; \
+	if [ -n "$$MODIFIED_FILES" ]; then \
+		echo "Modified files found:"; \
+		echo; \
+		echo "$$MODIFIED_FILES"; \
+		echo; \
+		echo "Please run 'make build-all' and commit the changes"; \
+		exit 1; \
+	else \
+		echo "Generated files are up-to-date."; \
+	fi
