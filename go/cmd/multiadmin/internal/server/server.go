@@ -19,9 +19,7 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
-	"net"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
@@ -40,12 +38,6 @@ type MultiAdminServer struct {
 
 	// logger for structured logging
 	logger *slog.Logger
-
-	// grpcServer is the gRPC server instance
-	grpcServer *grpc.Server
-
-	// listener is the network listener
-	listener net.Listener
 }
 
 // NewMultiAdminServer creates a new MultiAdminServer instance
@@ -56,40 +48,10 @@ func NewMultiAdminServer(ts topo.Store, logger *slog.Logger) *MultiAdminServer {
 	}
 }
 
-// Start starts the gRPC server on the specified port
-func (s *MultiAdminServer) Start(port int) error {
-	// Create listener
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return fmt.Errorf("failed to listen on port %d: %w", port, err)
-	}
-	s.listener = lis
-
-	// Create gRPC server
-	s.grpcServer = grpc.NewServer()
-
-	// Register the service
-	multiadminpb.RegisterMultiAdminServiceServer(s.grpcServer, s)
-
-	s.logger.Info("MultiAdmin gRPC server starting", "port", port)
-
-	// Start serving (this blocks)
-	if err := s.grpcServer.Serve(lis); err != nil {
-		return fmt.Errorf("failed to serve gRPC: %w", err)
-	}
-
-	return nil
-}
-
-// Stop gracefully stops the gRPC server
-func (s *MultiAdminServer) Stop() {
-	if s.grpcServer != nil {
-		s.logger.Info("Stopping MultiAdmin gRPC server")
-		s.grpcServer.GracefulStop()
-	}
-	if s.listener != nil {
-		s.listener.Close()
-	}
+// RegisterWithGRPCServer registers the MultiAdmin service with the provided gRPC server
+func (s *MultiAdminServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
+	multiadminpb.RegisterMultiAdminServiceServer(grpcServer, s)
+	s.logger.Info("MultiAdmin service registered with gRPC server")
 }
 
 // GetCell retrieves information about a specific cell

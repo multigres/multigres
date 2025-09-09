@@ -56,6 +56,7 @@ type LocalProvisionerConfig struct {
 	Multigateway   MultigatewayConfig `yaml:"multigateway"`
 	Multipooler    MultipoolerConfig  `yaml:"multipooler"`
 	Multiorch      MultiorchConfig    `yaml:"multiorch"`
+	Multiadmin     MultiadminConfig   `yaml:"multiadmin"`
 }
 
 // EtcdConfig holds etcd service configuration
@@ -84,6 +85,14 @@ type MultipoolerConfig struct {
 
 // MultiorchConfig holds multiorch service configuration
 type MultiorchConfig struct {
+	Path     string `yaml:"path"`
+	HttpPort int    `yaml:"http-port"`
+	GrpcPort int    `yaml:"grpc-port"`
+	LogLevel string `yaml:"log-level"`
+}
+
+// MultiadminConfig holds multiadmin service configuration
+type MultiadminConfig struct {
 	Path     string `yaml:"path"`
 	HttpPort int    `yaml:"http-port"`
 	GrpcPort int    `yaml:"grpc-port"`
@@ -203,7 +212,7 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 		Multigateway: MultigatewayConfig{
 			Path:     filepath.Join(binDir, "multigateway"),
 			HttpPort: 15001,
-			GrpcPort: 15990,
+			GrpcPort: 15991,
 			PgPort:   15432,
 			LogLevel: "info",
 		},
@@ -217,6 +226,12 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 			Path:     filepath.Join(binDir, "multiorch"),
 			HttpPort: 15300,
 			GrpcPort: 16000,
+			LogLevel: "info",
+		},
+		Multiadmin: MultiadminConfig{
+			Path:     filepath.Join(binDir, "multiadmin"),
+			HttpPort: 15000,
+			GrpcPort: 15990,
 			LogLevel: "info",
 		},
 	}
@@ -774,6 +789,137 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	}, nil
 }
 
+// provisionMultiadmin provisions multiadmin using local binary
+func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
+	// Sanity check: ensure this method is called for multiadmin service
+	if req.Service != "multiadmin" {
+		return nil, fmt.Errorf("provisionMultiadmin called for wrong service type: %s", req.Service)
+	}
+
+	// Check if multiadmin is already running
+	existingService, err := p.findRunningService("multiadmin")
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for existing multiadmin service: %w", err)
+	}
+
+	if existingService != nil {
+		fmt.Printf("multiadmin is already running (PID %d) ✓\n", existingService.PID)
+		return &provisioner.ProvisionResult{
+			ServiceName: "multiadmin",
+			FQDN:        existingService.FQDN,
+			Ports:       existingService.Ports,
+			Metadata: map[string]any{
+				"service_id": existingService.ID,
+				"log_file":   existingService.LogFile,
+			},
+		}, nil
+	}
+
+	// Get multiadmin config
+	multiadminConfig := p.getServiceConfig("multiadmin")
+
+	// Get HTTP port from config
+	httpPort := 15000
+	if p, ok := multiadminConfig["http_port"].(int); ok {
+		httpPort = p
+	}
+
+	// Get gRPC port from config
+	grpcPort := 15990
+	if p, ok := multiadminConfig["grpc_port"].(int); ok {
+		grpcPort = p
+	}
+
+	// Get parameters from request
+	etcdAddress := req.Params["etcd_address"].(string)
+	topoBackend := req.Params["topo_backend"].(string)
+	topoGlobalRoot := req.Params["topo_global_root"].(string)
+
+	// Get log level
+	logLevel := "info"
+	if level, ok := multiadminConfig["log_level"].(string); ok {
+		logLevel = level
+	}
+
+	// Find multiadmin binary
+	multiadminBinary, err := p.findBinary("multiadmin", multiadminConfig)
+	if err != nil {
+		return nil, fmt.Errorf("multiadmin binary not found: %w", err)
+	}
+
+	// Generate unique ID for this service instance (needed for log file)
+	serviceID := stringutil.RandomString(8)
+
+	// Create log file path
+	logFile, err := p.createLogFile("multiadmin", serviceID, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log file: %w", err)
+	}
+
+	// Build command arguments
+	args := []string{
+		"--http-port", fmt.Sprintf("%d", httpPort),
+		"--grpc-port", fmt.Sprintf("%d", grpcPort),
+		"--topo-global-server-addresses", etcdAddress,
+		"--topo-global-root", topoGlobalRoot,
+		"--topo-implementation", topoBackend,
+		"--log-level", logLevel,
+		"--log-output", logFile,
+	}
+
+	// Start multiadmin process
+	multiadminCmd := exec.CommandContext(context.Background(), multiadminBinary, args...)
+
+	fmt.Printf("▶️  - Launching multiadmin (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
+
+	if err := multiadminCmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start multiadmin: %w", err)
+	}
+
+	// Validate process is running
+	if err := p.validateProcessRunning(multiadminCmd.Process.Pid); err != nil {
+		return nil, fmt.Errorf("multiadmin process validation failed: %w", err)
+	}
+
+	// Create provision state
+	service := &LocalProvisionedService{
+		ID:         serviceID,
+		Service:    "multiadmin",
+		PID:        multiadminCmd.Process.Pid,
+		BinaryPath: multiadminBinary,
+		Ports:      map[string]int{"http_port": httpPort, "grpc_port": grpcPort},
+		FQDN:       "localhost",
+		LogFile:    logFile,
+		StartedAt:  time.Now(),
+	}
+
+	// Save service state to disk
+	if err := p.saveServiceState(service, ""); err != nil {
+		fmt.Printf("Warning: failed to save service state: %v\n", err)
+	}
+
+	// Wait for multiadmin to be ready (check HTTP port)
+	address := fmt.Sprintf("localhost:%d", httpPort)
+	if err := p.waitForServiceReady("multiadmin", address); err != nil {
+		logs := p.readServiceLogs(logFile, 20)
+		return nil, fmt.Errorf("multiadmin readiness check failed: %w\n\nLast 20 lines from multiadmin logs:\n%s", err, logs)
+	}
+	fmt.Printf(" ready ✓\n")
+
+	return &provisioner.ProvisionResult{
+		ServiceName: "multiadmin",
+		FQDN:        "localhost",
+		Ports: map[string]int{
+			"http_port": httpPort,
+			"grpc_port": grpcPort,
+		},
+		Metadata: map[string]any{
+			"service_id": serviceID,
+			"log_file":   logFile,
+		},
+	}, nil
+}
+
 // provisionMultipooler provisions multipooler using local binary
 func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
 	// Sanity check: ensure this method is called for multipooler service
@@ -1182,6 +1328,58 @@ func (p *localProvisioner) loadEtcdServices() ([]*LocalProvisionedService, error
 	return services, nil
 }
 
+// loadGlobalServices loads all global services (non-database services) from state files
+func (p *localProvisioner) loadGlobalServices() ([]*LocalProvisionedService, error) {
+	stateDir := p.getStateDir()
+
+	// Check if state directory exists
+	if _, err := os.Stat(stateDir); os.IsNotExist(err) {
+		return nil, nil // No state directory, no services running
+	}
+
+	entries, err := os.ReadDir(stateDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory %s: %w", stateDir, err)
+	}
+
+	var services []*LocalProvisionedService
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			// Parse filename: serviceName_serviceID.json
+			name := strings.TrimSuffix(entry.Name(), ".json")
+			parts := strings.SplitN(name, "_", 2)
+			if len(parts) != 2 {
+				continue
+			}
+
+			serviceName := parts[0]
+			serviceID := parts[1]
+
+			// Load global services (non-etcd services can be included here)
+			if serviceName == "multiadmin" || serviceName == "etcd" {
+				req := &provisioner.DeprovisionRequest{
+					Service:      serviceName,
+					ServiceID:    serviceID,
+					DatabaseName: "", // global services have no database name
+				}
+
+				service, err := p.loadServiceState(req)
+				if err != nil {
+					// Log warning but continue with other services
+					fmt.Printf("Warning: failed to load state for global service %s: %v\n", serviceID, err)
+					continue
+				}
+
+				if service != nil {
+					services = append(services, service)
+				}
+			}
+		}
+	}
+
+	return services, nil
+}
+
 // findRunningDbService finds a running service by service name within a specific database
 func (p *localProvisioner) findRunningDbService(serviceName, databaseName string) (*LocalProvisionedService, error) {
 	services, err := p.loadDbProvisionedServices(databaseName)
@@ -1222,6 +1420,28 @@ func (p *localProvisioner) findRunningEtcdService() (*LocalProvisionedService, e
 	}
 
 	return nil, nil // No running etcd service found
+}
+
+// findRunningService finds a running service by service name (for global services like multiadmin)
+func (p *localProvisioner) findRunningService(serviceName string) (*LocalProvisionedService, error) {
+	// For global services like multiadmin, we use the same approach as etcd but generalized
+	services, err := p.loadEtcdServices() // Reuse the same storage mechanism
+	if err != nil {
+		return nil, fmt.Errorf("failed to load service states: %w", err)
+	}
+
+	for _, service := range services {
+		if service.Service == serviceName {
+			// Check if the service is actually still running
+			if service.PID > 0 {
+				if err := p.validateProcessRunning(service.PID); err == nil {
+					return service, nil
+				}
+			}
+		}
+	}
+
+	return nil, nil // No running service found
 }
 
 // stopService stops a specific service based on its type using the internal methods
@@ -1351,6 +1571,30 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	}
 	fmt.Println("")
 
+	// Provision multiadmin (global admin service)
+	fmt.Println("=== Starting MultiAdmin ===")
+	multiadminReq := &provisioner.ProvisionRequest{
+		Service: "multiadmin",
+		Params: map[string]any{
+			"etcd_address":     etcdAddress,
+			"topo_backend":     topoConfig.Backend,
+			"topo_global_root": topoConfig.GlobalRootPath,
+		},
+	}
+
+	multiadminResult, err := p.provisionMultiadmin(ctx, multiadminReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to provision multiadmin: %w", err)
+	}
+	if httpPort, ok := multiadminResult.Ports["http_port"]; ok {
+		fmt.Printf("🌐 - Available at: http://%s:%d\n", multiadminResult.FQDN, httpPort)
+	}
+	if grpcPort, ok := multiadminResult.Ports["grpc_port"]; ok {
+		fmt.Printf("🌐 - gRPC available at: %s:%d\n", multiadminResult.FQDN, grpcPort)
+	}
+	allResults = append(allResults, multiadminResult)
+	fmt.Println("")
+
 	// Setup default database
 	defaultDBName, err := p.getDefaultDatabaseName()
 	if err != nil {
@@ -1383,7 +1627,28 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 		fmt.Printf("Warning: failed to deprovision database: %v\n", err)
 	}
 
-	// 2. Deprovision etcd last
+	// 2. Deprovision global services (multiadmin)
+	fmt.Println("=== Deprovisioning global services ===")
+	globalServices, err := p.loadGlobalServices()
+	if err != nil {
+		fmt.Printf("Warning: failed to load global service states: %v\n", err)
+	} else {
+		for _, service := range globalServices {
+			if service.Service == "multiadmin" {
+				req := &provisioner.DeprovisionRequest{
+					Service:      "multiadmin",
+					ServiceID:    service.ID,
+					DatabaseName: "", // multiadmin is a global service
+					Clean:        clean,
+				}
+				if err := p.deprovisionService(ctx, req); err != nil {
+					fmt.Printf("Warning: failed to deprovision multiadmin: %v\n", err)
+				}
+			}
+		}
+	}
+
+	// 3. Deprovision etcd last
 	fmt.Println("=== Deprovisioning etcd ===")
 	etcdServices, err := p.loadEtcdServices()
 	if err != nil {
@@ -1406,7 +1671,7 @@ func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
 		}
 	}
 
-	// 3. Clean up logs, state, and data directories if requested
+	// 4. Clean up logs, state, and data directories if requested
 	if clean {
 		logsDir := p.getLogsDir()
 		if err := p.cleanupLogsDirectory(logsDir); err != nil {

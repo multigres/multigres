@@ -70,13 +70,12 @@ func run(cmd *cobra.Command, args []string) error {
 			"grpc_port", servenv.GRPCPort(),
 		)
 
-		// Start the multiadmin gRPC server
-		adminServer = server.NewMultiAdminServer(ts, logger)
-		go func() {
-			if err := adminServer.Start(servenv.GRPCPort()); err != nil {
-				logger.Error("Failed to start multiadmin gRPC server", "error", err)
-			}
-		}()
+		// Register multiadmin gRPC service with servenv's GRPCServer
+		if servenv.GRPCCheckServiceMap("multiadmin") {
+			adminServer = server.NewMultiAdminServer(ts, logger)
+			adminServer.RegisterWithGRPCServer(servenv.GRPCServer)
+			logger.Info("MultiAdmin gRPC service registered with servenv")
+		}
 
 		// Add HTTP endpoints for cluster management
 		servenv.HTTPHandleFunc("/admin/status", handleStatusEndpoint)
@@ -86,12 +85,6 @@ func run(cmd *cobra.Command, args []string) error {
 
 	servenv.OnClose(func() {
 		logger.Info("multiadmin shutting down")
-
-		// Stop the multiadmin gRPC server
-		if adminServer != nil {
-			adminServer.Stop()
-			logger.Info("MultiAdmin gRPC server stopped")
-		}
 	})
 
 	servenv.RunDefault()
@@ -101,6 +94,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 func init() {
 	servenv.RegisterServiceCmd(Main)
+	servenv.RegisterGRPCServerFlags()
 }
 
 // AdminStatusResponse represents the response from the admin status endpoint
