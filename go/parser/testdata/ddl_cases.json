@@ -1997,5 +1997,733 @@
   {
     "comment": "ALTER FOREIGN TABLE RENAME IF EXISTS",
     "query": "ALTER FOREIGN TABLE IF EXISTS foreign_users RENAME TO foreign_customers"
+  },
+  {
+    "comment": "Simple CREATE TABLE",
+    "query": "CREATE TABLE users (id int, name varchar(100))",
+    "expected": "CREATE TABLE users (id INT, name VARCHAR(100))"
+  },
+  {
+    "comment": "CREATE TABLE with PRIMARY KEY",
+    "query": "CREATE TABLE users (id int PRIMARY KEY, name varchar(100))",
+    "expected": "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100))"
+  },
+  {
+    "comment": "CREATE TABLE with NOT NULL",
+    "query": "CREATE TABLE users (id INT NOT NULL, name VARCHAR(100) NOT NULL)"
+  },
+  {
+    "comment": "CREATE TABLE with DEFAULT",
+    "query": "CREATE TABLE users (id INT DEFAULT 0, created_at TIMESTAMP DEFAULT NOW())"
+  },
+  {
+    "comment": "CREATE TABLE with UNIQUE constraint",
+    "query": "CREATE TABLE users (id INT, email VARCHAR(100) UNIQUE)"
+  },
+  {
+    "comment": "CREATE TABLE with CHECK constraint",
+    "query": "CREATE TABLE users (id INT, age INT CHECK (age \u003e 0))"
+  },
+  {
+    "comment": "CREATE TABLE with table-level PRIMARY KEY",
+    "query": "CREATE TABLE users (id INT, name VARCHAR(100), PRIMARY KEY (id))"
+  },
+  {
+    "comment": "CREATE TABLE with FOREIGN KEY",
+    "query": "CREATE TABLE orders (id INT, user_id INT REFERENCES users(id))"
+  },
+  {
+    "comment": "CREATE TABLE IF NOT EXISTS",
+    "query": "CREATE TABLE IF NOT EXISTS users (id INT, name VARCHAR(100))"
+  },
+  {
+    "comment": "CREATE TABLE with multiple constraints",
+    "query": "CREATE TABLE users (id INT PRIMARY KEY, email VARCHAR(100) UNIQUE NOT NULL, age INT CHECK (age \u003e 0))"
+  },
+  {
+    "comment": "CREATE TEMPORARY TABLE",
+    "query": "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))"
+  },
+  {
+    "comment": "CREATE TEMP TABLE",
+    "query": "CREATE TEMP TABLE temp_users (id INT, name varchar(100))",
+    "expected": "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))"
+  },
+  {
+    "comment": "CREATE LOCAL TEMPORARY TABLE",
+    "query": "CREATE LOCAL TEMPORARY TABLE temp_users (id INT, name varchar(100))",
+    "expected": "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))"
+  },
+  {
+    "comment": "CREATE LOCAL TEMP TABLE",
+    "query": "CREATE LOCAL TEMP TABLE temp_users (id INT, name varchar(100))",
+    "expected": "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))"
+  },
+  {
+    "comment": "CREATE GLOBAL TEMPORARY TABLE",
+    "query": "CREATE GLOBAL TEMPORARY TABLE temp_users (id INT, name varchar(100))",
+    "expected": "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))"
+  },
+  {
+    "comment": "CREATE GLOBAL TEMP TABLE",
+    "query": "CREATE GLOBAL TEMP TABLE temp_users (id INT, name varchar(100))",
+    "expected": "CREATE TEMPORARY TABLE temp_users (id INT, name VARCHAR(100))"
+  },
+  {
+    "comment": "CREATE UNLOGGED TABLE",
+    "query": "CREATE UNLOGGED TABLE unlogged_users (id INT, name VARCHAR(100))"
+  },
+  {
+    "comment": "Simple CREATE INDEX",
+    "query": "CREATE INDEX idx_users_name ON users (name)"
+  },
+  {
+    "comment": "CREATE UNIQUE INDEX",
+    "query": "CREATE UNIQUE INDEX idx_users_email ON users (email)"
+  },
+  {
+    "comment": "CREATE INDEX with multiple columns",
+    "query": "CREATE INDEX idx_users_name_email ON users (name, email)"
+  },
+  {
+    "comment": "CREATE INDEX CONCURRENTLY",
+    "query": "CREATE INDEX CONCURRENTLY idx_users_name ON users (name)"
+  },
+  {
+    "comment": "CREATE INDEX IF NOT EXISTS",
+    "query": "CREATE INDEX IF NOT EXISTS idx_users_name ON users (name)"
+  },
+  {
+    "comment": "CREATE INDEX with INCLUDE",
+    "query": "CREATE INDEX idx_users_name ON users (name) INCLUDE (email, created_at)"
+  },
+  {
+    "comment": "CREATE SEQUENCE basic",
+    "query": "CREATE SEQUENCE test_seq"
+  },
+  {
+    "comment": "CREATE SEQUENCE IF NOT EXISTS",
+    "query": "CREATE SEQUENCE IF NOT EXISTS test_seq"
+  },
+  {
+    "comment": "CREATE EXTENSION basic",
+    "query": "CREATE EXTENSION postgis"
+  },
+  {
+    "comment": "CREATE EXTENSION IF NOT EXISTS",
+    "query": "CREATE EXTENSION IF NOT EXISTS uuid_ossp"
+  },
+  {
+    "comment": "CREATE EXTENSION with VERSION",
+    "query": "CREATE EXTENSION postgis VERSION '3.0'"
+  },
+  {
+    "comment": "CREATE EXTENSION with SCHEMA",
+    "query": "CREATE EXTENSION postgis SCHEMA public"
+  },
+  {
+    "comment": "CREATE EXTENSION with CASCADE",
+    "query": "CREATE EXTENSION postgis CASCADE"
+  },
+  {
+    "comment": "CREATE EXTENSION with multiple options",
+    "query": "CREATE EXTENSION postgis VERSION '3.0' SCHEMA public CASCADE"
+  },
+  {
+    "comment": "CREATE CONVERSION basic",
+    "query": "CREATE CONVERSION myconv FOR 'UTF8' TO 'LATIN1' FROM myconvfunc"
+  },
+  {
+    "comment": "CREATE DEFAULT CONVERSION",
+    "query": "CREATE DEFAULT CONVERSION myconv FOR 'UTF8' TO 'LATIN1' FROM myconvfunc"
+  },
+  {
+    "comment": "CREATE LANGUAGE basic",
+    "query": "CREATE LANGUAGE plperl HANDLER plperl_call_handler"
+  },
+  {
+    "comment": "CREATE OR REPLACE LANGUAGE",
+    "query": "CREATE OR REPLACE LANGUAGE plperl HANDLER plperl_call_handler"
+  },
+  {
+    "comment": "CREATE FOREIGN DATA WRAPPER basic",
+    "query": "CREATE FOREIGN DATA WRAPPER myfdw"
+  },
+  {
+    "comment": "CREATE FOREIGN DATA WRAPPER with HANDLER",
+    "query": "CREATE FOREIGN DATA WRAPPER myfdw HANDLER myhandler"
+  },
+  {
+    "comment": "CREATE FOREIGN DATA WRAPPER with VALIDATOR",
+    "query": "CREATE FOREIGN DATA WRAPPER myfdw VALIDATOR myvalidator"
+  },
+  {
+    "comment": "CREATE FOREIGN DATA WRAPPER with qualified HANDLER",
+    "query": "CREATE FOREIGN DATA WRAPPER myfdw HANDLER myschema.myhandler"
+  },
+  {
+    "comment": "CREATE FOREIGN DATA WRAPPER with both HANDLER and VALIDATOR",
+    "query": "CREATE FOREIGN DATA WRAPPER myfdw HANDLER myhandler VALIDATOR myvalidator"
+  },
+  {
+    "comment": "CREATE FOREIGN DATA WRAPPER with OPTIONS",
+    "query": "CREATE FOREIGN DATA WRAPPER myfdw OPTIONS (library 'myfdw_lib', language 'C')"
+  },
+  {
+    "comment": "CREATE FOREIGN SERVER basic",
+    "query": "CREATE SERVER myserver FOREIGN DATA WRAPPER myfdw"
+  },
+  {
+    "comment": "CREATE FOREIGN SERVER IF NOT EXISTS",
+    "query": "CREATE SERVER IF NOT EXISTS myserver FOREIGN DATA WRAPPER myfdw"
+  },
+  {
+    "comment": "CREATE FOREIGN SERVER with TYPE",
+    "query": "CREATE SERVER myserver TYPE 'postgresql' FOREIGN DATA WRAPPER myfdw"
+  },
+  {
+    "comment": "CREATE FOREIGN SERVER with VERSION",
+    "query": "CREATE SERVER myserver VERSION '1.0' FOREIGN DATA WRAPPER myfdw"
+  },
+  {
+    "comment": "CREATE FOREIGN SERVER with OPTIONS",
+    "query": "CREATE SERVER myserver FOREIGN DATA WRAPPER myfdw OPTIONS (host 'localhost', port '5432')"
+  },
+  {
+    "comment": "CREATE FOREIGN SERVER with all options",
+    "query": "CREATE SERVER myserver TYPE 'postgresql' VERSION '15.0' FOREIGN DATA WRAPPER myfdw OPTIONS (host 'localhost')"
+  },
+  {
+    "comment": "CREATE FOREIGN TABLE basic",
+    "query": "CREATE FOREIGN TABLE foreign_users (id INT, name TEXT) SERVER myserver"
+  },
+  {
+    "comment": "CREATE FOREIGN TABLE IF NOT EXISTS",
+    "query": "CREATE FOREIGN TABLE IF NOT EXISTS foreign_users (id INT, name TEXT) SERVER myserver"
+  },
+  {
+    "comment": "CREATE FOREIGN TABLE with OPTIONS",
+    "query": "CREATE FOREIGN TABLE foreign_users (id INT, name TEXT) SERVER myserver OPTIONS (table_name 'users')"
+  },
+  {
+    "comment": "CREATE FOREIGN TABLE with INHERITS",
+    "query": "CREATE FOREIGN TABLE foreign_users (age INT) INHERITS (base_table) SERVER myserver"
+  },
+  {
+    "comment": "CREATE USER MAPPING basic",
+    "query": "CREATE USER MAPPING FOR CURRENT_USER SERVER myserver"
+  },
+  {
+    "comment": "CREATE USER MAPPING IF NOT EXISTS",
+    "query": "CREATE USER MAPPING IF NOT EXISTS FOR CURRENT_USER SERVER myserver"
+  },
+  {
+    "comment": "CREATE USER MAPPING with OPTIONS",
+    "query": "CREATE USER MAPPING FOR CURRENT_USER SERVER myserver OPTIONS (user 'remote_user', password 'secret')"
+  },
+  {
+    "comment": "CREATE USER MAPPING for specific user",
+    "query": "CREATE USER MAPPING FOR alice SERVER myserver OPTIONS (user 'alice_remote')"
+  },
+  {
+    "comment": "ALTER TABLE ADD COLUMN",
+    "query": "ALTER TABLE users ADD COLUMN age INT"
+  },
+  {
+    "comment": "ALTER TABLE DROP COLUMN",
+    "query": "ALTER TABLE users DROP COLUMN age"
+  },
+  {
+    "comment": "ALTER TABLE ADD CONSTRAINT",
+    "query": "ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email)"
+  },
+  {
+    "comment": "ALTER TABLE DROP CONSTRAINT",
+    "query": "ALTER TABLE users DROP CONSTRAINT users_email_unique"
+  },
+  {
+    "comment": "ALTER TABLE ALTER COLUMN SET DEFAULT",
+    "query": "ALTER TABLE users ALTER COLUMN age SET DEFAULT 0"
+  },
+  {
+    "comment": "ALTER TABLE ALTER COLUMN DROP DEFAULT",
+    "query": "ALTER TABLE users ALTER COLUMN age DROP DEFAULT"
+  },
+  {
+    "comment": "ALTER TABLE ALTER COLUMN SET NOT NULL",
+    "query": "ALTER TABLE users ALTER COLUMN email SET NOT NULL"
+  },
+  {
+    "comment": "ALTER TABLE ALTER COLUMN DROP NOT NULL",
+    "query": "ALTER TABLE users ALTER COLUMN email DROP NOT NULL"
+  },
+  {
+    "comment": "ALTER TABLE ALTER COLUMN ADD GENERATED BY DEFAULT AS IDENTITY",
+    "query": "ALTER TABLE users ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY"
+  },
+  {
+    "comment": "ALTER TABLE ALTER COLUMN ADD GENERATED ALWAYS AS IDENTITY",
+    "query": "ALTER TABLE users ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY"
+  },
+  {
+    "comment": "ALTER TABLE ATTACH PARTITION with default bound",
+    "query": "ALTER TABLE parent_table ATTACH PARTITION child_table DEFAULT"
+  },
+  {
+    "comment": "ALTER TABLE ATTACH PARTITION with range bound",
+    "query": "ALTER TABLE parent_table ATTACH PARTITION child_table FOR VALUES FROM (1) TO (100)"
+  },
+  {
+    "comment": "ALTER TABLE ATTACH PARTITION with list bound",
+    "query": "ALTER TABLE parent_table ATTACH PARTITION child_table FOR VALUES IN (1, 2, 3)"
+  },
+  {
+    "comment": "ALTER TABLE DETACH PARTITION",
+    "query": "ALTER TABLE parent_table DETACH PARTITION child_table"
+  },
+  {
+    "comment": "ALTER TABLE DETACH PARTITION CONCURRENTLY",
+    "query": "ALTER TABLE parent_table DETACH PARTITION child_table CONCURRENTLY"
+  },
+  {
+    "comment": "ALTER TABLE DETACH PARTITION FINALIZE",
+    "query": "ALTER TABLE parent_table DETACH PARTITION child_table FINALIZE"
+  },
+  {
+    "comment": "ALTER INDEX ATTACH PARTITION",
+    "query": "ALTER INDEX parent_index ATTACH PARTITION child_index"
+  },
+  {
+    "comment": "DROP TABLE",
+    "query": "DROP TABLE users"
+  },
+  {
+    "comment": "DROP TABLE IF EXISTS",
+    "query": "DROP TABLE IF EXISTS users"
+  },
+  {
+    "comment": "DROP TABLE CASCADE",
+    "query": "DROP TABLE users CASCADE"
+  },
+  {
+    "comment": "DROP TABLE multiple",
+    "query": "DROP TABLE users, orders, products"
+  },
+  {
+    "comment": "DROP INDEX",
+    "query": "DROP INDEX idx_users_name"
+  },
+  {
+    "comment": "DROP INDEX IF EXISTS",
+    "query": "DROP INDEX IF EXISTS idx_users_name"
+  },
+  {
+    "comment": "DROP INDEX CONCURRENTLY",
+    "query": "DROP INDEX CONCURRENTLY idx_users_name"
+  },
+  {
+    "comment": "CREATE TABLE with FOREIGN KEY ON DELETE SET NULL",
+    "query": "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET NULL)"
+  },
+  {
+    "comment": "CREATE TABLE with FOREIGN KEY ON DELETE SET NULL with column list",
+    "query": "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET NULL (id))"
+  },
+  {
+    "comment": "CREATE TABLE with FOREIGN KEY ON DELETE SET DEFAULT with column list",
+    "query": "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET DEFAULT (id))"
+  },
+  {
+    "comment": "CREATE TABLE with FOREIGN KEY ON DELETE CASCADE",
+    "query": "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE CASCADE)"
+  },
+  {
+    "comment": "CREATE TABLE with FOREIGN KEY ON UPDATE RESTRICT",
+    "query": "CREATE TABLE test (id INT REFERENCES parent(id) ON UPDATE RESTRICT)"
+  },
+  {
+    "comment": "Basic CREATE VIEW round-trip",
+    "query": "CREATE VIEW user_summary AS SELECT id, name FROM users"
+  },
+  {
+    "comment": "CREATE OR REPLACE VIEW round-trip",
+    "query": "CREATE OR REPLACE VIEW user_summary AS SELECT id, name, email FROM users"
+  },
+  {
+    "comment": "CREATE VIEW with column aliases round-trip",
+    "query": "CREATE VIEW user_info (user_id, full_name) AS SELECT id, name FROM users"
+  },
+  {
+    "comment": "CREATE VIEW with WHERE clause round-trip",
+    "query": "CREATE VIEW active_users AS SELECT * FROM users WHERE (active = TRUE)"
+  },
+  {
+    "comment": "CREATE VIEW with CHECK OPTION round-trip",
+    "query": "CREATE VIEW active_users AS SELECT * FROM users WHERE (active = TRUE) WITH CHECK OPTION"
+  },
+  {
+    "comment": "Basic CREATE FUNCTION round-trip",
+    "query": "CREATE FUNCTION test_func () RETURNS INT LANGUAGE sql AS $$SELECT 1$$"
+  },
+  {
+    "comment": "CREATE OR REPLACE FUNCTION round-trip",
+    "query": "CREATE OR REPLACE FUNCTION test_func () RETURNS INT LANGUAGE sql AS $$SELECT 1$$"
+  },
+  {
+    "comment": "CREATE FUNCTION with parameters round-trip",
+    "query": "CREATE FUNCTION add_func (a INT, b INT) RETURNS INT LANGUAGE sql AS $$SELECT $1 + $2$$"
+  },
+  {
+    "comment": "CREATE PROCEDURE round-trip",
+    "query": "CREATE PROCEDURE test_proc () LANGUAGE sql AS $$BEGIN NULL; END$$"
+  },
+  {
+    "comment": "Basic CREATE TRIGGER round-trip",
+    "query": "CREATE TRIGGER audit_insert BEFORE INSERT ON users EXECUTE FUNCTION audit_function ()"
+  },
+  {
+    "comment": "CREATE TRIGGER with FOR EACH ROW round-trip",
+    "query": "CREATE TRIGGER row_trigger BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_function ()"
+  },
+  {
+    "comment": "CREATE TRIGGER INSTEAD OF round-trip",
+    "query": "CREATE TRIGGER view_trigger INSTEAD OF INSERT ON user_view EXECUTE FUNCTION handle_view_insert ()"
+  },
+  {
+    "comment": "Simple materialized view",
+    "query": "CREATE MATERIALIZED VIEW test_matview AS SELECT 1"
+  },
+  {
+    "comment": "CREATE MATERIALIZED VIEW IF NOT EXISTS",
+    "query": "CREATE MATERIALIZED VIEW IF NOT EXISTS test_matview AS SELECT 1"
+  },
+  {
+    "comment": "Simple schema",
+    "query": "CREATE SCHEMA test_schema"
+  },
+  {
+    "comment": "CREATE SCHEMA IF NOT EXISTS",
+    "query": "CREATE SCHEMA IF NOT EXISTS test_schema"
+  },
+  {
+    "comment": "REFRESH MATERIALIZED VIEW",
+    "query": "REFRESH MATERIALIZED VIEW test_matview"
+  },
+  {
+    "comment": "REFRESH MATERIALIZED VIEW CONCURRENTLY",
+    "query": "REFRESH MATERIALIZED VIEW CONCURRENTLY test_matview"
+  },
+  {
+    "comment": "Simple CREATE DOMAIN",
+    "query": "CREATE DOMAIN email AS VARCHAR(255)"
+  },
+  {
+    "comment": "CREATE DOMAIN with CHECK constraint",
+    "query": "CREATE DOMAIN email AS VARCHAR(255) CHECK (value LIKE '%@%.%')"
+  },
+  {
+    "comment": "CREATE DOMAIN with NOT NULL",
+    "query": "CREATE DOMAIN positive_int AS INT NOT NULL CHECK (value \u003e 0)"
+  },
+  {
+    "comment": "CREATE DOMAIN with named constraint",
+    "query": "CREATE DOMAIN email AS VARCHAR(255) CONSTRAINT valid_email CHECK (value LIKE '%@%.%')"
+  },
+  {
+    "comment": "ALTER DOMAIN SET DEFAULT",
+    "query": "ALTER DOMAIN email SET DEFAULT 'unknown@example.com'"
+  },
+  {
+    "comment": "ALTER DOMAIN DROP DEFAULT",
+    "query": "ALTER DOMAIN email DROP DEFAULT"
+  },
+  {
+    "comment": "ALTER DOMAIN SET NOT NULL",
+    "query": "ALTER DOMAIN email SET NOT NULL"
+  },
+  {
+    "comment": "ALTER DOMAIN DROP NOT NULL",
+    "query": "ALTER DOMAIN email DROP NOT NULL"
+  },
+  {
+    "comment": "ALTER DOMAIN ADD CONSTRAINT",
+    "query": "ALTER DOMAIN email ADD CHECK (length(value) \u003e 5)"
+  },
+  {
+    "comment": "ALTER DOMAIN DROP CONSTRAINT",
+    "query": "ALTER DOMAIN email DROP CONSTRAINT email_check"
+  },
+  {
+    "comment": "ALTER DOMAIN DROP CONSTRAINT IF EXISTS",
+    "query": "ALTER DOMAIN email DROP CONSTRAINT IF EXISTS email_check CASCADE"
+  },
+  {
+    "comment": "ALTER DOMAIN VALIDATE CONSTRAINT",
+    "query": "ALTER DOMAIN email VALIDATE CONSTRAINT email_check"
+  },
+  {
+    "comment": "CREATE TYPE ENUM",
+    "query": "CREATE TYPE color AS ENUM ('red', 'green', 'blue')"
+  },
+  {
+    "comment": "CREATE TYPE ENUM empty",
+    "query": "CREATE TYPE status AS ENUM ()"
+  },
+  {
+    "comment": "CREATE TYPE composite",
+    "query": "CREATE TYPE point AS (x INT, y INT)"
+  },
+  {
+    "comment": "CREATE TYPE shell",
+    "query": "CREATE TYPE mytype"
+  },
+  {
+    "comment": "CREATE TYPE with definition",
+    "query": "CREATE TYPE mytype (input = mytype_in, output = mytype_out)"
+  },
+  {
+    "comment": "CREATE TYPE RANGE",
+    "query": "CREATE TYPE int4_range AS RANGE (subtype = int4)",
+    "expected": "CREATE TYPE int4_range AS RANGE (subtype = INT)"
+  },
+  {
+    "comment": "ALTER TYPE ADD VALUE",
+    "query": "ALTER TYPE color ADD VALUE 'yellow'"
+  },
+  {
+    "comment": "ALTER TYPE ADD VALUE IF NOT EXISTS",
+    "query": "ALTER TYPE color ADD VALUE IF NOT EXISTS 'purple'"
+  },
+  {
+    "comment": "ALTER TYPE ADD VALUE BEFORE",
+    "query": "ALTER TYPE color ADD VALUE 'orange' BEFORE 'red'"
+  },
+  {
+    "comment": "ALTER TYPE ADD VALUE AFTER",
+    "query": "ALTER TYPE color ADD VALUE 'cyan' AFTER 'blue'"
+  },
+  {
+    "comment": "CREATE AGGREGATE basic",
+    "query": "CREATE AGGREGATE avg_int (int4) (sfunc = int4_avg_accum, stype = int8)",
+    "expected": "CREATE AGGREGATE avg_int (INT) (sfunc = int4_avg_accum, stype = BIGINT)"
+  },
+  {
+    "comment": "CREATE OR REPLACE AGGREGATE",
+    "query": "CREATE OR REPLACE AGGREGATE sum_int (int4) (sfunc = int4pl, stype = int8)",
+    "expected": "CREATE OR REPLACE AGGREGATE sum_int (INT) (sfunc = int4pl, stype = BIGINT)"
+  },
+  {
+    "comment": "CREATE AGGREGATE old style",
+    "query": "CREATE AGGREGATE myavg (basetype = int4, sfunc = int4_avg_accum, stype = int8)",
+    "expected": "CREATE AGGREGATE myavg (basetype = INT, sfunc = int4_avg_accum, stype = BIGINT)"
+  },
+  {
+    "comment": "CREATE OPERATOR basic",
+    "query": "CREATE OPERATOR x.+ (leftarg = int4, rightarg = int4, function = int4eq)",
+    "expected": "CREATE OPERATOR x.+ (leftarg = INT, rightarg = INT, function = int4eq)"
+  },
+  {
+    "comment": "CREATE OPERATOR with procedure",
+    "query": "CREATE OPERATOR + (leftarg = box, rightarg = box, procedure = box_add)"
+  },
+  {
+    "comment": "CREATE TEXT SEARCH PARSER",
+    "query": "CREATE TEXT SEARCH PARSER my_parser (start = prsd_start, gettoken = prsd_nexttoken)"
+  },
+  {
+    "comment": "CREATE TEXT SEARCH DICTIONARY",
+    "query": "CREATE TEXT SEARCH DICTIONARY my_dict (template = simple, stopwords = english)"
+  },
+  {
+    "comment": "CREATE TEXT SEARCH TEMPLATE",
+    "query": "CREATE TEXT SEARCH TEMPLATE my_template (init = dsimple_init, lexize = dsimple_lexize)"
+  },
+  {
+    "comment": "CREATE TEXT SEARCH CONFIGURATION",
+    "query": "CREATE TEXT SEARCH CONFIGURATION my_config (parser = default)"
+  },
+  {
+    "comment": "CREATE COLLATION basic",
+    "query": "CREATE COLLATION french (locale = 'fr_FR.utf8')"
+  },
+  {
+    "comment": "CREATE COLLATION IF NOT EXISTS",
+    "query": "CREATE COLLATION IF NOT EXISTS german (locale = 'de_DE.utf8')"
+  },
+  {
+    "comment": "CREATE COLLATION FROM",
+    "query": "CREATE COLLATION german FROM \"de_DE\""
+  },
+  {
+    "comment": "CREATE COLLATION IF NOT EXISTS FROM",
+    "query": "CREATE COLLATION IF NOT EXISTS french_copy FROM \"fr_FR\""
+  },
+  {
+    "comment": "CREATE EVENT TRIGGER basic",
+    "query": "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_start EXECUTE FUNCTION my_trigger_func()"
+  },
+  {
+    "comment": "CREATE EVENT TRIGGER with WHEN clause",
+    "query": "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_start WHEN tag IN ('CREATE TABLE', 'ALTER TABLE') EXECUTE FUNCTION my_trigger_func()"
+  },
+  {
+    "comment": "CREATE EVENT TRIGGER with multiple WHEN conditions",
+    "query": "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_start WHEN tag IN ('CREATE TABLE') AND schema IN ('public') EXECUTE FUNCTION my_trigger_func()"
+  },
+  {
+    "comment": "CREATE EVENT TRIGGER using PROCEDURE",
+    "query": "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_end EXECUTE PROCEDURE my_trigger_proc()",
+    "expected": "CREATE EVENT TRIGGER my_event_trigger ON ddl_command_end EXECUTE FUNCTION my_trigger_proc()"
+  },
+  {
+    "comment": "ALTER EVENT TRIGGER ENABLE",
+    "query": "ALTER EVENT TRIGGER my_event_trigger ENABLE"
+  },
+  {
+    "comment": "ALTER EVENT TRIGGER ENABLE REPLICA",
+    "query": "ALTER EVENT TRIGGER my_event_trigger ENABLE REPLICA"
+  },
+  {
+    "comment": "ALTER EVENT TRIGGER ENABLE ALWAYS",
+    "query": "ALTER EVENT TRIGGER my_event_trigger ENABLE ALWAYS"
+  },
+  {
+    "comment": "ALTER EVENT TRIGGER DISABLE",
+    "query": "ALTER EVENT TRIGGER my_event_trigger DISABLE"
+  },
+  {
+    "comment": "DROP USER MAPPING basic",
+    "query": "DROP USER MAPPING FOR CURRENT_USER SERVER myserver"
+  },
+  {
+    "comment": "DROP USER MAPPING IF EXISTS",
+    "query": "DROP USER MAPPING IF EXISTS FOR alice SERVER myserver"
+  },
+  {
+    "comment": "DROP TABLE RESTRICT round-trip",
+    "query": "DROP TABLE users RESTRICT",
+    "expected": "DROP TABLE users"
+  },
+  {
+    "comment": "CREATE SEQUENCE AS bigint",
+    "query": "CREATE SEQUENCE bigint_seq AS BIGINT"
+  },
+  {
+    "comment": "CREATE TYPE with multiple enum values",
+    "query": "CREATE TYPE status_type AS ENUM ('pending', 'approved', 'rejected', 'cancelled')"
+  },
+  {
+    "comment": "CREATE TYPE composite with constraints",
+    "query": "CREATE TYPE address AS (street TEXT, city TEXT, zipcode TEXT)"
+  },
+  {
+    "comment": "CREATE TYPE DOMAIN",
+    "query": "CREATE DOMAIN us_postal_code AS TEXT CHECK (value ~ '^[0-9]{5}$' OR value ~ '^[0-9]{5}-[0-9]{4}$')"
+  },
+  {
+    "comment": "CREATE MATERIALIZED VIEW WITH NO DATA",
+    "query": "CREATE MATERIALIZED VIEW empty_matview AS SELECT * FROM users WITH NO DATA"
+  },
+  {
+    "comment": "CREATE FOREIGN DATA WRAPPER with all options",
+    "query": "CREATE FOREIGN DATA WRAPPER postgres_fdw HANDLER postgres_fdw_handler VALIDATOR postgres_fdw_validator OPTIONS (debug 'true')"
+  },
+  {
+    "comment": "CREATE EVENT TRIGGER with complex WHEN",
+    "query": "CREATE EVENT TRIGGER ddl_audit ON ddl_command_end WHEN tag IN ('CREATE TABLE', 'ALTER TABLE', 'DROP TABLE') AND command_tag IN ('CREATE', 'ALTER', 'DROP') EXECUTE FUNCTION audit_ddl()"
+  },
+  {
+    "comment": "REFRESH MATERIALIZED VIEW WITH NO DATA",
+    "query": "REFRESH MATERIALIZED VIEW test_matview WITH NO DATA"
+  },
+  {
+    "comment": "CREATE CONVERSION basic",
+    "query": "CREATE CONVERSION test_conv FOR 'UTF8' TO 'LATIN1' FROM utf8_to_latin1"
+  },
+  {
+    "comment": "CREATE DEFAULT CONVERSION",
+    "query": "CREATE DEFAULT CONVERSION test_conv FOR 'UTF8' TO 'LATIN1' FROM utf8_to_latin1"
+  },
+  {
+    "comment": "CREATE LANGUAGE basic",
+    "query": "CREATE LANGUAGE plperl HANDLER plperl_call_handler"
+  },
+  {
+    "comment": "CREATE OR REPLACE LANGUAGE",
+    "query": "CREATE OR REPLACE LANGUAGE plperl HANDLER plperl_call_handler"
+  },
+  {
+    "comment": "CREATE TRUSTED LANGUAGE",
+    "query": "CREATE TRUSTED LANGUAGE plperl HANDLER plperl_call_handler"
+  },
+  {
+    "comment": "CREATE LANGUAGE with VALIDATOR",
+    "query": "CREATE LANGUAGE plperl HANDLER plperl_call_handler VALIDATOR plperl_validator"
+  },
+  {
+    "comment": "CREATE LANGUAGE with INLINE",
+    "query": "CREATE LANGUAGE plperl HANDLER plperl_call_handler INLINE plperl_inline_handler"
+  },
+  {
+    "comment": "CREATE CAST basic",
+    "query": "CREATE CAST (INT AS TEXT) WITH FUNCTION int4out()"
+  },
+  {
+    "comment": "CREATE CAST WITHOUT FUNCTION",
+    "query": "CREATE CAST (INT AS BIGINT) WITHOUT FUNCTION"
+  },
+  {
+    "comment": "CREATE CAST WITH INOUT",
+    "query": "CREATE CAST (INT AS TEXT) WITH INOUT"
+  },
+  {
+    "comment": "CREATE OPERATOR CLASS basic",
+    "query": "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree AS OPERATOR 1 \u003c",
+    "expected": "CREATE OPERATOR CLASS test_ops FOR TYPE INT USING btree AS OPERATOR 1 \u003c"
+  },
+  {
+    "comment": "CREATE OPERATOR CLASS DEFAULT",
+    "query": "CREATE OPERATOR CLASS test_ops DEFAULT FOR TYPE int4 USING btree AS OPERATOR 1 \u003c",
+    "expected": "CREATE OPERATOR CLASS test_ops DEFAULT FOR TYPE INT USING btree AS OPERATOR 1 \u003c"
+  },
+  {
+    "comment": "CREATE OPERATOR CLASS with FAMILY",
+    "query": "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree FAMILY test_family AS OPERATOR 1 \u003c",
+    "expected": "CREATE OPERATOR CLASS test_ops FOR TYPE INT USING btree FAMILY test_family AS OPERATOR 1 \u003c"
+  },
+  {
+    "comment": "CREATE OPERATOR FAMILY basic",
+    "query": "CREATE OPERATOR FAMILY test_family USING btree"
+  },
+  {
+    "comment": "ALTER OPERATOR FAMILY ADD",
+    "query": "ALTER OPERATOR FAMILY test_family USING btree ADD OPERATOR 1 \u003c"
+  },
+  {
+    "comment": "ALTER OPERATOR FAMILY DROP",
+    "query": "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1 (int4, int4)",
+    "expected": "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1 (INT, INT)"
+  },
+  {
+    "comment": "CREATE TRANSFORM basic",
+    "query": "CREATE TRANSFORM FOR int LANGUAGE sql (FROM SQL WITH FUNCTION int_to_sql(), TO SQL WITH FUNCTION sql_to_int())",
+    "expected": "CREATE TRANSFORM FOR INT LANGUAGE sql ( FROM SQL WITH FUNCTION int_to_sql(), TO SQL WITH FUNCTION sql_to_int() )"
+  },
+  {
+    "comment": "CREATE OR REPLACE TRANSFORM",
+    "query": "CREATE OR REPLACE TRANSFORM FOR text LANGUAGE plpython3u (FROM SQL WITH FUNCTION text_to_python())",
+    "expected": "CREATE OR REPLACE TRANSFORM FOR TEXT LANGUAGE plpython3u ( FROM SQL WITH FUNCTION text_to_python() )"
+  },
+  {
+    "comment": "CREATE STATISTICS basic",
+    "query": "CREATE STATISTICS test_stats ON a, b FROM test_table"
+  },
+  {
+    "comment": "CREATE STATISTICS IF NOT EXISTS",
+    "query": "CREATE STATISTICS IF NOT EXISTS test_stats (dependencies) ON a, b FROM test_table"
+  },
+  {
+    "comment": "CREATE STATISTICS with specific types",
+    "query": "CREATE STATISTICS test_stats (ndistinct, dependencies) ON a, b FROM test_table"
   }
 ]
