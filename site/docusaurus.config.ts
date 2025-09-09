@@ -1,11 +1,25 @@
 import { themes as prismThemes } from 'prism-react-renderer'
 import type { Config } from '@docusaurus/types'
 import type * as Preset from '@docusaurus/preset-classic'
+import * as dotenv from 'dotenv'
+
+dotenv.config()
 
 const config: Config = {
   title: 'Multigres',
   tagline: 'Multigres: Vitess for Postgres',
   favicon: 'img/favicon.ico',
+
+  customFields: {
+    POSTHOG_API_KEY:
+      process.env.NODE_ENV === 'development'
+        ? process.env.NEXT_PUBLIC_POSTHOG_STAGING_KEY
+        : process.env.NEXT_PUBLIC_POSTHOG_KEY || '',
+    POSTHOG_API_HOST:
+      process.env.NODE_ENV === 'development'
+        ? process.env.NEXT_PUBLIC_POSTHOG_STAGING_HOST
+        : process.env.NEXT_PUBLIC_POSTHOG_HOST || '',
+  },
 
   // Set the production url of your site here
   url: 'https://multigres.com',
@@ -37,14 +51,12 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          editUrl:
-            'https://github.com/multigres/multigres/tree/main/site/',
+          editUrl: 'https://github.com/multigres/multigres/tree/main/site/',
           sidebarCollapsed: false,
         },
         blog: {
           showReadingTime: true,
-          editUrl:
-            'https://github.com/multigres/multigres/tree/main/site/',
+          editUrl: 'https://github.com/multigres/multigres/tree/main/site/',
         },
         theme: {
           customCss: './src/css/custom.css',
