@@ -399,6 +399,45 @@ func (c *CaseExpr) String() string {
 	return fmt.Sprintf("CaseExpr(%d whens, else:%t)@%d", whenCount, hasElse, c.Location())
 }
 
+func (c *CaseExpr) SqlString() string {
+	if c == nil {
+		return ""
+	}
+	
+	var result strings.Builder
+	
+	// Start with CASE
+	result.WriteString("CASE")
+	
+	// Add the case argument if present (for simple CASE expressions)
+	if c.Arg != nil {
+		result.WriteString(" ")
+		result.WriteString(c.Arg.SqlString())
+	}
+	
+	// Add WHEN clauses
+	if c.Args != nil {
+		for _, when := range c.Args.Items {
+			if caseWhen, ok := when.(*CaseWhen); ok {
+				result.WriteString(" WHEN ")
+				result.WriteString(caseWhen.Expr.SqlString())
+				result.WriteString(" THEN ")
+				result.WriteString(caseWhen.Result.SqlString())
+			}
+		}
+	}
+	
+	// Add ELSE clause if present
+	if c.Defresult != nil {
+		result.WriteString(" ELSE ")
+		result.WriteString(c.Defresult.SqlString())
+	}
+	
+	result.WriteString(" END")
+	
+	return result.String()
+}
+
 // CaseWhen represents a WHEN clause in a CASE expression.
 // Ported from postgres/src/include/nodes/primnodes.h:1322
 type CaseWhen struct {

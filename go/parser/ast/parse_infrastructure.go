@@ -555,6 +555,7 @@ func (f *FuncCall) SqlString() string {
 
 	// Build argument list
 	argStrs := []string{}
+	
 	if f.Args != nil {
 		for _, arg := range f.Args.Items {
 			if arg != nil {
@@ -565,6 +566,25 @@ func (f *FuncCall) SqlString() string {
 
 	if f.AggStar {
 		argStrs = append(argStrs, "*")
+	}
+	
+	// Prepend DISTINCT qualifier if needed
+	if f.AggDistinct && len(argStrs) > 0 {
+		argStrs[0] = "DISTINCT " + argStrs[0]
+	}
+
+	// Add ORDER BY clause inside function parentheses if present (for aggregates that aren't WITHIN GROUP)
+	var funcArgs string
+	if f.AggOrder != nil && f.AggOrder.Len() > 0 && !f.AggWithinGroup {
+		var orderItems []string
+		for _, item := range f.AggOrder.Items {
+			if item != nil {
+				orderItems = append(orderItems, item.SqlString())
+			}
+		}
+		funcArgs = strings.Join(argStrs, ", ") + " ORDER BY " + strings.Join(orderItems, ", ")
+	} else {
+		funcArgs = strings.Join(argStrs, ", ")
 	}
 
 	// Handle special function syntax
@@ -580,7 +600,7 @@ func (f *FuncCall) SqlString() string {
 		// Use lowercase for function name to match PostgreSQL style
 		result = fmt.Sprintf("extract(%s FROM %s)", field, strings.Join(argStrs[1:], ", "))
 	} else {
-		result = fmt.Sprintf("%s(%s)", funcName, strings.Join(argStrs, ", "))
+		result = fmt.Sprintf("%s(%s)", funcName, funcArgs)
 	}
 
 	// Add WITHIN GROUP clause for ordered-set aggregates
@@ -602,11 +622,17 @@ func (f *FuncCall) SqlString() string {
 	// Add OVER clause for window functions
 	if f.Over != nil {
 		windowSpec := f.Over.SqlString()
-		if f.Over.Refname != "" {
-			// Window reference - no parentheses
+		// Check if this is ONLY a window reference (no additional clauses)
+		hasOnlyReference := f.Over.Refname != "" &&
+			(f.Over.PartitionClause == nil || f.Over.PartitionClause.Len() == 0) &&
+			(f.Over.OrderClause == nil || f.Over.OrderClause.Len() == 0) &&
+			(f.Over.FrameOptions == 0 || f.Over.FrameOptions == FRAMEOPTION_DEFAULTS)
+		
+		if hasOnlyReference {
+			// Pure window reference - no parentheses
 			result += " OVER " + windowSpec
 		} else {
-			// Window specification - with parentheses
+			// Window specification or reference with additional clauses - with parentheses
 			result += " OVER (" + windowSpec + ")"
 		}
 	}
@@ -1131,12 +1157,12 @@ func (w *WindowDef) renderFrameBoundary(isStart bool) string {
 }
 
 func (w *WindowDef) SqlStringForContext(inWindowClause bool) string {
-	// If this is just a reference to a named window (in OVER clause), return just the name
-	if !inWindowClause && w.Refname != "" {
-		return w.Refname
-	}
-
 	var parts []string
+	
+	// Add window reference if present
+	if w.Refname != "" {
+		parts = append(parts, w.Refname)
+	}
 
 	// Add PARTITION BY clause
 	if w.PartitionClause != nil && w.PartitionClause.Len() > 0 {

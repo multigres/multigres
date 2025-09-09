@@ -3611,13 +3611,19 @@ func_application: func_name '(' ')'
 		|	func_name '(' ALL func_arg_list opt_sort_clause ')'
 			{
 				funcCall := ast.NewFuncCall($1, $4, 0)
-				// Note: In full implementation, would mark as aggregate and set agg_order from $5
+				funcCall.AggDistinct = false  // ALL is explicit (though this is default)
+				if $5 != nil {
+					funcCall.AggOrder = $5
+				}
 				$$ = funcCall
 			}
 		|	func_name '(' DISTINCT func_arg_list opt_sort_clause ')'
 			{
 				funcCall := ast.NewFuncCall($1, $4, 0)
-				// Note: In full implementation, would set agg_distinct = true and agg_order from $5
+				funcCall.AggDistinct = true
+				if $5 != nil {
+					funcCall.AggOrder = $5
+				}
 				$$ = funcCall
 			}
 		;
