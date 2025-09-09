@@ -1,0 +1,1142 @@
+[
+  {
+    "comment": "tsearch - Statement 1",
+    "query": "SELECT oid, dictname FROM pg_ts_dict WHERE dictnamespace = 0 OR dictowner = 0 OR dicttemplate = 0"
+  },
+  {
+    "comment": "tsearch - Statement 2",
+    "query": "SELECT oid, tmplname FROM pg_ts_template WHERE tmplnamespace = 0 OR tmpllexize = 0"
+  },
+  {
+    "comment": "tsearch - Statement 3",
+    "query": "SELECT oid, cfgname FROM pg_ts_config WHERE cfgnamespace = 0 OR cfgowner = 0 OR cfgparser = 0"
+  },
+  {
+    "comment": "tsearch - Statement 4",
+    "query": "SELECT mapcfg, maptokentype, mapseqno FROM pg_ts_config_map WHERE mapcfg = 0 OR mapdict = 0"
+  },
+  {
+    "comment": "tsearch - Statement 5",
+    "query": "SELECT * FROM ( SELECT oid AS cfgid, (ts_token_type(cfgparser)).tokid AS tokid FROM pg_ts_config ) AS tt RIGHT JOIN pg_ts_config_map AS m ON (tt.cfgid=m.mapcfg AND tt.tokid=m.maptokentype) WHERE tt.cfgid IS NULL OR tt.tokid IS NULL"
+  },
+  {
+    "comment": "tsearch - Statement 6",
+    "query": "CREATE TABLE test_tsvector( t text, a tsvector )"
+  },
+  {
+    "comment": "tsearch - Statement 7",
+    "query": "ANALYZE test_tsvector"
+  },
+  {
+    "comment": "tsearch - Statement 8",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'wr|qh'"
+  },
+  {
+    "comment": "tsearch - Statement 9",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'wr&qh'"
+  },
+  {
+    "comment": "tsearch - Statement 10",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'eq&yt'"
+  },
+  {
+    "comment": "tsearch - Statement 11",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'eq|yt'"
+  },
+  {
+    "comment": "tsearch - Statement 12",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '(eq&yt)|(wr&qh)'"
+  },
+  {
+    "comment": "tsearch - Statement 13",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '(eq|yt)&(wr|qh)'"
+  },
+  {
+    "comment": "tsearch - Statement 14",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'w:*|q:*'"
+  },
+  {
+    "comment": "tsearch - Statement 15",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ any ('{wr,qh}')"
+  },
+  {
+    "comment": "tsearch - Statement 16",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'no_such_lexeme'"
+  },
+  {
+    "comment": "tsearch - Statement 17",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!no_such_lexeme'"
+  },
+  {
+    "comment": "tsearch - Statement 18",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'pl <-> yh'"
+  },
+  {
+    "comment": "tsearch - Statement 19",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'yh <-> pl'"
+  },
+  {
+    "comment": "tsearch - Statement 20",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'qe <2> qt'"
+  },
+  {
+    "comment": "tsearch - Statement 21",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> yh'"
+  },
+  {
+    "comment": "tsearch - Statement 22",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> !yh'"
+  },
+  {
+    "comment": "tsearch - Statement 23",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!yh <-> pl'"
+  },
+  {
+    "comment": "tsearch - Statement 24",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!qe <2> qt'"
+  },
+  {
+    "comment": "tsearch - Statement 25",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!(pl <-> yh)'"
+  },
+  {
+    "comment": "tsearch - Statement 26",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!(yh <-> pl)'"
+  },
+  {
+    "comment": "tsearch - Statement 27",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!(qe <2> qt)'"
+  },
+  {
+    "comment": "tsearch - Statement 28",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'wd:A'"
+  },
+  {
+    "comment": "tsearch - Statement 29",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'wd:D'"
+  },
+  {
+    "comment": "tsearch - Statement 30",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!wd:A'"
+  },
+  {
+    "comment": "tsearch - Statement 31",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!wd:D'"
+  },
+  {
+    "comment": "tsearch - Statement 32",
+    "query": "create index wowidx on test_tsvector using gist (a)"
+  },
+  {
+    "comment": "tsearch - Statement 33",
+    "query": "SET enable_seqscan=OFF"
+  },
+  {
+    "comment": "tsearch - Statement 34",
+    "query": "SET enable_indexscan=ON"
+  },
+  {
+    "comment": "tsearch - Statement 35",
+    "query": "SET enable_bitmapscan=OFF"
+  },
+  {
+    "comment": "tsearch - Statement 36",
+    "query": "explain (costs off) SELECT count(*) FROM test_tsvector WHERE a @@ 'wr|qh'"
+  },
+  {
+    "comment": "tsearch - Statement 37",
+    "query": "SET enable_indexscan=OFF"
+  },
+  {
+    "comment": "tsearch - Statement 38",
+    "query": "SET enable_bitmapscan=ON"
+  },
+  {
+    "comment": "tsearch - Statement 39",
+    "query": "CREATE INDEX wowidx1 ON test_tsvector USING gist (a tsvector_ops(foo=1))"
+  },
+  {
+    "comment": "tsearch - Statement 40",
+    "query": "CREATE INDEX wowidx1 ON test_tsvector USING gist (a tsvector_ops(siglen=0))"
+  },
+  {
+    "comment": "tsearch - Statement 41",
+    "query": "CREATE INDEX wowidx1 ON test_tsvector USING gist (a tsvector_ops(siglen=2048))"
+  },
+  {
+    "comment": "tsearch - Statement 42",
+    "query": "CREATE INDEX wowidx1 ON test_tsvector USING gist (a tsvector_ops(siglen=100,foo='bar'))"
+  },
+  {
+    "comment": "tsearch - Statement 43",
+    "query": "CREATE INDEX wowidx1 ON test_tsvector USING gist (a tsvector_ops(siglen=100, siglen = 200))"
+  },
+  {
+    "comment": "tsearch - Statement 44",
+    "query": "CREATE INDEX wowidx2 ON test_tsvector USING gist (a tsvector_ops(siglen=1))"
+  },
+  {
+    "comment": "tsearch - Statement 45",
+    "query": "DROP INDEX wowidx2"
+  },
+  {
+    "comment": "tsearch - Statement 46",
+    "query": "CREATE INDEX wowidx ON test_tsvector USING gist (a tsvector_ops(siglen=484))"
+  },
+  {
+    "comment": "tsearch - Statement 47",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "tsearch - Statement 48",
+    "query": "RESET enable_indexscan"
+  },
+  {
+    "comment": "tsearch - Statement 49",
+    "query": "RESET enable_bitmapscan"
+  },
+  {
+    "comment": "tsearch - Statement 50",
+    "query": "DROP INDEX wowidx"
+  },
+  {
+    "comment": "tsearch - Statement 51",
+    "query": "CREATE INDEX wowidx ON test_tsvector USING gin (a)"
+  },
+  {
+    "comment": "tsearch - Statement 52",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tsvector WHERE a @@ '!qh'"
+  },
+  {
+    "comment": "tsearch - Statement 53",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ '!qh'"
+  },
+  {
+    "comment": "tsearch - Statement 54",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM test_tsvector WHERE a @@ 'wr' AND a @@ '!qh'"
+  },
+  {
+    "comment": "tsearch - Statement 55",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ 'wr' AND a @@ '!qh'"
+  },
+  {
+    "comment": "tsearch - Statement 56",
+    "query": "INSERT INTO test_tsvector VALUES ('???', 'DFG:1A,2B,6C,10 FGH')"
+  },
+  {
+    "comment": "tsearch - Statement 57",
+    "query": "SELECT * FROM ts_stat('SELECT a FROM test_tsvector') ORDER BY ndoc DESC, nentry DESC, word LIMIT 10"
+  },
+  {
+    "comment": "tsearch - Statement 58",
+    "query": "SELECT * FROM ts_stat('SELECT a FROM test_tsvector', 'AB') ORDER BY ndoc DESC, nentry DESC, word"
+  },
+  {
+    "comment": "tsearch - Statement 59",
+    "query": "SELECT ts_lexize('english_stem', 'skies')"
+  },
+  {
+    "comment": "tsearch - Statement 60",
+    "query": "SELECT ts_lexize('english_stem', 'identity')"
+  },
+  {
+    "comment": "tsearch - Statement 61",
+    "query": "SELECT * FROM ts_token_type('default')"
+  },
+  {
+    "comment": "tsearch - Statement 62",
+    "query": "SELECT * FROM ts_parse('default', '345 qwe@efd.r '' http://www.com/ http://aew.werc.ewr/?ad=qwe&dw 1aew.werc.ewr/?ad=qwe&dw 2aew.werc.ewr http://3aew.werc.ewr/?ad=qwe&dw http://4aew.werc.ewr http://5aew.werc.ewr:8100/?  ad=qwe&dw 6aew.werc.ewr:8100/?ad=qwe&dw 7aew.werc.ewr:8100/?ad=qwe&dw=%20%32 +4.0e-10 qwe qwe qwqwe 234.435 455 5.005 teodor@stack.net teodor@123-stack.net 123_teodor@stack.net 123-teodor@stack.net qwe-wer asdf <fr>qwer jf sdjk<we hjwer <werrwe> ewr1> ewri2 <a href=\"qwe<qwe>\"> /usr/local/fff /awdf/dwqe/4325 rewt/ewr wefjn /wqe-324/ewr gist.h gist.h.c gist.c. readline 4.2 4.2. 4.2, readline-4.2 readline-4.2. 234 <i <b> wow  < jqw <> qwerty')"
+  },
+  {
+    "comment": "tsearch - Statement 63",
+    "query": "SELECT to_tsvector('english', '345 qwe@efd.r '' http://www.com/ http://aew.werc.ewr/?ad=qwe&dw 1aew.werc.ewr/?ad=qwe&dw 2aew.werc.ewr http://3aew.werc.ewr/?ad=qwe&dw http://4aew.werc.ewr http://5aew.werc.ewr:8100/?  ad=qwe&dw 6aew.werc.ewr:8100/?ad=qwe&dw 7aew.werc.ewr:8100/?ad=qwe&dw=%20%32 +4.0e-10 qwe qwe qwqwe 234.435 455 5.005 teodor@stack.net teodor@123-stack.net 123_teodor@stack.net 123-teodor@stack.net qwe-wer asdf <fr>qwer jf sdjk<we hjwer <werrwe> ewr1> ewri2 <a href=\"qwe<qwe>\"> /usr/local/fff /awdf/dwqe/4325 rewt/ewr wefjn /wqe-324/ewr gist.h gist.h.c gist.c. readline 4.2 4.2. 4.2, readline-4.2 readline-4.2. 234 <i <b> wow  < jqw <> qwerty')"
+  },
+  {
+    "comment": "tsearch - Statement 64",
+    "query": "SELECT length(to_tsvector('english', '345 qwe@efd.r '' http://www.com/ http://aew.werc.ewr/?ad=qwe&dw 1aew.werc.ewr/?ad=qwe&dw 2aew.werc.ewr http://3aew.werc.ewr/?ad=qwe&dw http://4aew.werc.ewr http://5aew.werc.ewr:8100/?  ad=qwe&dw 6aew.werc.ewr:8100/?ad=qwe&dw 7aew.werc.ewr:8100/?ad=qwe&dw=%20%32 +4.0e-10 qwe qwe qwqwe 234.435 455 5.005 teodor@stack.net teodor@123-stack.net 123_teodor@stack.net 123-teodor@stack.net qwe-wer asdf <fr>qwer jf sdjk<we hjwer <werrwe> ewr1> ewri2 <a href=\"qwe<qwe>\"> /usr/local/fff /awdf/dwqe/4325 rewt/ewr wefjn /wqe-324/ewr gist.h gist.h.c gist.c. readline 4.2 4.2. 4.2, readline-4.2 readline-4.2. 234 <i <b> wow  < jqw <> qwerty'))"
+  },
+  {
+    "comment": "tsearch - Statement 65",
+    "query": "SELECT * from ts_debug('english', '<myns:foo-bar_baz.blurfl>abc&nm1;def&#xa9;ghi&#245;jkl</myns:foo-bar_baz.blurfl>')"
+  },
+  {
+    "comment": "tsearch - Statement 66",
+    "query": "SELECT * from ts_debug('english', 'http://www.harewoodsolutions.co.uk/press.aspx</span>')"
+  },
+  {
+    "comment": "tsearch - Statement 67",
+    "query": "SELECT * from ts_debug('english', 'http://aew.wer0c.ewr/id?ad=qwe&dw<span>')"
+  },
+  {
+    "comment": "tsearch - Statement 68",
+    "query": "SELECT * from ts_debug('english', 'http://5aew.werc.ewr:8100/?')"
+  },
+  {
+    "comment": "tsearch - Statement 69",
+    "query": "SELECT * from ts_debug('english', '5aew.werc.ewr:8100/?xx')"
+  },
+  {
+    "comment": "tsearch - Statement 70",
+    "query": "SELECT token, alias, dictionaries, dictionaries is null as dnull, array_dims(dictionaries) as ddims, lexemes, lexemes is null as lnull, array_dims(lexemes) as ldims from ts_debug('english', 'a title')"
+  },
+  {
+    "comment": "tsearch - Statement 71",
+    "query": "SELECT to_tsquery('english', 'qwe & sKies ')"
+  },
+  {
+    "comment": "tsearch - Statement 72",
+    "query": "SELECT to_tsquery('simple', 'qwe & sKies ')"
+  },
+  {
+    "comment": "tsearch - Statement 73",
+    "query": "SELECT to_tsquery('english', '''the wether'':dc & ''           sKies '':BC ')"
+  },
+  {
+    "comment": "tsearch - Statement 74",
+    "query": "SELECT to_tsquery('english', 'asd&(and|fghj)')"
+  },
+  {
+    "comment": "tsearch - Statement 75",
+    "query": "SELECT to_tsquery('english', '(asd&and)|fghj')"
+  },
+  {
+    "comment": "tsearch - Statement 76",
+    "query": "SELECT to_tsquery('english', '(asd&!and)|fghj')"
+  },
+  {
+    "comment": "tsearch - Statement 77",
+    "query": "SELECT to_tsquery('english', '(the|and&(i&1))&fghj')"
+  },
+  {
+    "comment": "tsearch - Statement 78",
+    "query": "SELECT plainto_tsquery('english', 'the and z 1))& fghj')"
+  },
+  {
+    "comment": "tsearch - Statement 79",
+    "query": "SELECT plainto_tsquery('english', 'foo bar') && plainto_tsquery('english', 'asd')"
+  },
+  {
+    "comment": "tsearch - Statement 80",
+    "query": "SELECT plainto_tsquery('english', 'foo bar') || plainto_tsquery('english', 'asd fg')"
+  },
+  {
+    "comment": "tsearch - Statement 81",
+    "query": "SELECT plainto_tsquery('english', 'foo bar') || !!plainto_tsquery('english', 'asd fg')"
+  },
+  {
+    "comment": "tsearch - Statement 82",
+    "query": "SELECT plainto_tsquery('english', 'foo bar') && 'asd | fg'"
+  },
+  {
+    "comment": "tsearch - Statement 83",
+    "query": "SELECT to_tsquery('english', '!(a & !b) & c')"
+  },
+  {
+    "comment": "tsearch - Statement 84",
+    "query": "SELECT to_tsquery('english', '!(a & !b)')"
+  },
+  {
+    "comment": "tsearch - Statement 85",
+    "query": "SELECT to_tsquery('english', '(1 <-> 2) <-> a')"
+  },
+  {
+    "comment": "tsearch - Statement 86",
+    "query": "SELECT to_tsquery('english', '(1 <-> a) <-> 2')"
+  },
+  {
+    "comment": "tsearch - Statement 87",
+    "query": "SELECT to_tsquery('english', '(a <-> 1) <-> 2')"
+  },
+  {
+    "comment": "tsearch - Statement 88",
+    "query": "SELECT to_tsquery('english', 'a <-> (1 <-> 2)')"
+  },
+  {
+    "comment": "tsearch - Statement 89",
+    "query": "SELECT to_tsquery('english', '1 <-> (a <-> 2)')"
+  },
+  {
+    "comment": "tsearch - Statement 90",
+    "query": "SELECT to_tsquery('english', '1 <-> (2 <-> a)')"
+  },
+  {
+    "comment": "tsearch - Statement 91",
+    "query": "SELECT to_tsquery('english', '(1 <-> 2) <3> a')"
+  },
+  {
+    "comment": "tsearch - Statement 92",
+    "query": "SELECT to_tsquery('english', '(1 <-> a) <3> 2')"
+  },
+  {
+    "comment": "tsearch - Statement 93",
+    "query": "SELECT to_tsquery('english', '(a <-> 1) <3> 2')"
+  },
+  {
+    "comment": "tsearch - Statement 94",
+    "query": "SELECT to_tsquery('english', 'a <3> (1 <-> 2)')"
+  },
+  {
+    "comment": "tsearch - Statement 95",
+    "query": "SELECT to_tsquery('english', '1 <3> (a <-> 2)')"
+  },
+  {
+    "comment": "tsearch - Statement 96",
+    "query": "SELECT to_tsquery('english', '1 <3> (2 <-> a)')"
+  },
+  {
+    "comment": "tsearch - Statement 97",
+    "query": "SELECT to_tsquery('english', '(1 <3> 2) <-> a')"
+  },
+  {
+    "comment": "tsearch - Statement 98",
+    "query": "SELECT to_tsquery('english', '(1 <3> a) <-> 2')"
+  },
+  {
+    "comment": "tsearch - Statement 99",
+    "query": "SELECT to_tsquery('english', '(a <3> 1) <-> 2')"
+  },
+  {
+    "comment": "tsearch - Statement 100",
+    "query": "SELECT to_tsquery('english', 'a <-> (1 <3> 2)')"
+  },
+  {
+    "comment": "tsearch - Statement 101",
+    "query": "SELECT to_tsquery('english', '1 <-> (a <3> 2)')"
+  },
+  {
+    "comment": "tsearch - Statement 102",
+    "query": "SELECT to_tsquery('english', '1 <-> (2 <3> a)')"
+  },
+  {
+    "comment": "tsearch - Statement 103",
+    "query": "SELECT to_tsquery('english', '((a <-> 1) <-> 2) <-> s')"
+  },
+  {
+    "comment": "tsearch - Statement 104",
+    "query": "SELECT to_tsquery('english', '(2 <-> (a <-> 1)) <-> s')"
+  },
+  {
+    "comment": "tsearch - Statement 105",
+    "query": "SELECT to_tsquery('english', '((1 <-> a) <-> 2) <-> s')"
+  },
+  {
+    "comment": "tsearch - Statement 106",
+    "query": "SELECT to_tsquery('english', '(2 <-> (1 <-> a)) <-> s')"
+  },
+  {
+    "comment": "tsearch - Statement 107",
+    "query": "SELECT to_tsquery('english', 's <-> ((a <-> 1) <-> 2)')"
+  },
+  {
+    "comment": "tsearch - Statement 108",
+    "query": "SELECT to_tsquery('english', 's <-> (2 <-> (a <-> 1))')"
+  },
+  {
+    "comment": "tsearch - Statement 109",
+    "query": "SELECT to_tsquery('english', 's <-> ((1 <-> a) <-> 2)')"
+  },
+  {
+    "comment": "tsearch - Statement 110",
+    "query": "SELECT to_tsquery('english', 's <-> (2 <-> (1 <-> a))')"
+  },
+  {
+    "comment": "tsearch - Statement 111",
+    "query": "SELECT to_tsquery('english', '((a <-> 1) <-> s) <-> 2')"
+  },
+  {
+    "comment": "tsearch - Statement 112",
+    "query": "SELECT to_tsquery('english', '(s <-> (a <-> 1)) <-> 2')"
+  },
+  {
+    "comment": "tsearch - Statement 113",
+    "query": "SELECT to_tsquery('english', '((1 <-> a) <-> s) <-> 2')"
+  },
+  {
+    "comment": "tsearch - Statement 114",
+    "query": "SELECT to_tsquery('english', '(s <-> (1 <-> a)) <-> 2')"
+  },
+  {
+    "comment": "tsearch - Statement 115",
+    "query": "SELECT to_tsquery('english', '2 <-> ((a <-> 1) <-> s)')"
+  },
+  {
+    "comment": "tsearch - Statement 116",
+    "query": "SELECT to_tsquery('english', '2 <-> (s <-> (a <-> 1))')"
+  },
+  {
+    "comment": "tsearch - Statement 117",
+    "query": "SELECT to_tsquery('english', '2 <-> ((1 <-> a) <-> s)')"
+  },
+  {
+    "comment": "tsearch - Statement 118",
+    "query": "SELECT to_tsquery('english', '2 <-> (s <-> (1 <-> a))')"
+  },
+  {
+    "comment": "tsearch - Statement 119",
+    "query": "SELECT to_tsquery('english', 'foo <-> (a <-> (the <-> bar))')"
+  },
+  {
+    "comment": "tsearch - Statement 120",
+    "query": "SELECT to_tsquery('english', '((foo <-> a) <-> the) <-> bar')"
+  },
+  {
+    "comment": "tsearch - Statement 121",
+    "query": "SELECT to_tsquery('english', 'foo <-> a <-> the <-> bar')"
+  },
+  {
+    "comment": "tsearch - Statement 122",
+    "query": "SELECT phraseto_tsquery('english', 'PostgreSQL can be extended by the user in many ways')"
+  },
+  {
+    "comment": "tsearch - Statement 123",
+    "query": "SELECT ts_rank_cd(to_tsvector('english', ' Day after day, day after day, We stuck, nor breath nor motion, As idle as a painted Ship Upon a painted Ocean. Water, water, every where And all the boards did shrink"
+  },
+  {
+    "comment": "tsearch - Statement 124",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) '), to_tsquery('english', 'paint&water'))"
+  },
+  {
+    "comment": "tsearch - Statement 125",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) '), to_tsquery('english', 'breath&motion&water'))"
+  },
+  {
+    "comment": "tsearch - Statement 126",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) '), to_tsquery('english', 'ocean'))"
+  },
+  {
+    "comment": "tsearch - Statement 127",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) '), to_tsquery('english', 'painted <-> Ship'))"
+  },
+  {
+    "comment": "tsearch - Statement 128",
+    "query": "SELECT ts_rank_cd(strip(to_tsvector('both stripped')), to_tsquery('both & stripped'))"
+  },
+  {
+    "comment": "tsearch - Statement 129",
+    "query": "SELECT ts_rank_cd(to_tsvector('unstripped') || strip(to_tsvector('stripped')), to_tsquery('unstripped & stripped'))"
+  },
+  {
+    "comment": "tsearch - Statement 130",
+    "query": "SELECT ts_headline('english', ' Day after day, day after day, We stuck, nor breath nor motion, As idle as a painted Ship Upon a painted Ocean. Water, water, every where And all the boards did shrink"
+  },
+  {
+    "comment": "tsearch - Statement 131",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'paint&water'))"
+  },
+  {
+    "comment": "tsearch - Statement 132",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'breath&motion&water'))"
+  },
+  {
+    "comment": "tsearch - Statement 133",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'ocean'))"
+  },
+  {
+    "comment": "tsearch - Statement 134",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'day & drink'))"
+  },
+  {
+    "comment": "tsearch - Statement 135",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'day | drink'))"
+  },
+  {
+    "comment": "tsearch - Statement 136",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'day | !drink'))"
+  },
+  {
+    "comment": "tsearch - Statement 137",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'painted <-> Ship & drink'))"
+  },
+  {
+    "comment": "tsearch - Statement 138",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'painted <-> Ship | drink'))"
+  },
+  {
+    "comment": "tsearch - Statement 139",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'painted <-> Ship | !drink'))"
+  },
+  {
+    "comment": "tsearch - Statement 140",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', phraseto_tsquery('english', 'painted Ocean'))"
+  },
+  {
+    "comment": "tsearch - Statement 141",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', phraseto_tsquery('english', 'idle as a painted Ship'))"
+  },
+  {
+    "comment": "tsearch - Statement 142",
+    "query": "SELECT ts_headline('english', 'Lorem ipsum urna.  Nullam nullam ullamcorper urna.', to_tsquery('english','Lorem') && phraseto_tsquery('english','ullamcorper urna'), 'MaxWords=100, MinWords=1')"
+  },
+  {
+    "comment": "tsearch - Statement 143",
+    "query": "SELECT ts_headline('english', 'Lorem ipsum urna.  Nullam nullam ullamcorper urna.', phraseto_tsquery('english','ullamcorper urna'), 'MaxWords=100, MinWords=5')"
+  },
+  {
+    "comment": "tsearch - Statement 144",
+    "query": "SELECT ts_headline('english', ' <html> <! <body> Sea view wow <u>foo bar</u> <i>qq</i> <a href=\"http://www.google.com/foo.bar.html\" target=\"_blank\">YES &nbsp;</a> ff-bg <script> document.write(15)"
+  },
+  {
+    "comment": "tsearch - Statement 145",
+    "query": "</script> </body> </html>', to_tsquery('english', 'sea&foo'), 'HighlightAll=true')"
+  },
+  {
+    "comment": "tsearch - Statement 146",
+    "query": "SELECT ts_headline('simple', '1 2 3 1 3'::text, '1 <-> 3', 'MaxWords=2, MinWords=1')"
+  },
+  {
+    "comment": "tsearch - Statement 147",
+    "query": "SELECT ts_headline('simple', '1 2 3 1 3'::text, '1 & 3', 'MaxWords=4, MinWords=1')"
+  },
+  {
+    "comment": "tsearch - Statement 148",
+    "query": "SELECT ts_headline('simple', '1 2 3 1 3'::text, '1 <-> 3', 'MaxWords=4, MinWords=1')"
+  },
+  {
+    "comment": "tsearch - Statement 149",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'ocean'), 'MaxFragments=1')"
+  },
+  {
+    "comment": "tsearch - Statement 150",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'Coleridge & stuck'), 'MaxFragments=2')"
+  },
+  {
+    "comment": "tsearch - Statement 151",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'ocean & seahorse'), 'MaxFragments=1')"
+  },
+  {
+    "comment": "tsearch - Statement 152",
+    "query": "Water, water, every where, Nor any drop to drink. S. T. Coleridge (1772-1834) ', to_tsquery('english', 'Coleridge & stuck'), 'MaxFragments=2,FragmentDelimiter=***')"
+  },
+  {
+    "comment": "tsearch - Statement 153",
+    "query": "SELECT ts_headline('english', 'Lorem ipsum urna.  Nullam nullam ullamcorper urna.', to_tsquery('english','Lorem') && phraseto_tsquery('english','ullamcorper urna'), 'MaxFragments=100, MaxWords=100, MinWords=1')"
+  },
+  {
+    "comment": "tsearch - Statement 154",
+    "query": "SELECT ts_headline('english', '', to_tsquery('english', ''))"
+  },
+  {
+    "comment": "tsearch - Statement 155",
+    "query": "SELECT ts_headline('english', 'foo bar', to_tsquery('english', ''))"
+  },
+  {
+    "comment": "tsearch - Statement 156",
+    "query": "CREATE TABLE test_tsquery (txtkeyword TEXT, txtsample TEXT)"
+  },
+  {
+    "comment": "tsearch - Statement 157",
+    "query": "UPDATE test_tsquery SET keyword = to_tsquery('english', txtkeyword)"
+  },
+  {
+    "comment": "tsearch - Statement 158",
+    "query": "ALTER TABLE test_tsquery ADD COLUMN sample tsquery"
+  },
+  {
+    "comment": "tsearch - Statement 159",
+    "query": "UPDATE test_tsquery SET sample = to_tsquery('english', txtsample::text)"
+  },
+  {
+    "comment": "tsearch - Statement 160",
+    "query": "SELECT COUNT(*) FROM test_tsquery WHERE keyword <  'new <-> york'"
+  },
+  {
+    "comment": "tsearch - Statement 161",
+    "query": "SELECT COUNT(*) FROM test_tsquery WHERE keyword <= 'new <-> york'"
+  },
+  {
+    "comment": "tsearch - Statement 162",
+    "query": "SELECT COUNT(*) FROM test_tsquery WHERE keyword = 'new <-> york'"
+  },
+  {
+    "comment": "tsearch - Statement 163",
+    "query": "SELECT COUNT(*) FROM test_tsquery WHERE keyword >= 'new <-> york'"
+  },
+  {
+    "comment": "tsearch - Statement 164",
+    "query": "SELECT COUNT(*) FROM test_tsquery WHERE keyword >  'new <-> york'"
+  },
+  {
+    "comment": "tsearch - Statement 165",
+    "query": "CREATE UNIQUE INDEX bt_tsq ON test_tsquery (keyword)"
+  },
+  {
+    "comment": "tsearch - Statement 166",
+    "query": "SELECT ts_rewrite('foo & bar & qq & new & york',  'new & york'::tsquery, 'big & apple | nyc | new & york & city')"
+  },
+  {
+    "comment": "tsearch - Statement 167",
+    "query": "SELECT ts_rewrite(ts_rewrite('new & !york ', 'york', '!jersey'), 'jersey', 'mexico')"
+  },
+  {
+    "comment": "tsearch - Statement 168",
+    "query": "SELECT ts_rewrite('moscow', 'SELECT keyword, sample FROM test_tsquery'::text )"
+  },
+  {
+    "comment": "tsearch - Statement 169",
+    "query": "SELECT ts_rewrite('moscow & hotel', 'SELECT keyword, sample FROM test_tsquery'::text )"
+  },
+  {
+    "comment": "tsearch - Statement 170",
+    "query": "SELECT ts_rewrite('bar & qq & foo & (new <-> york)', 'SELECT keyword, sample FROM test_tsquery'::text )"
+  },
+  {
+    "comment": "tsearch - Statement 171",
+    "query": "SELECT ts_rewrite( 'moscow', 'SELECT keyword, sample FROM test_tsquery')"
+  },
+  {
+    "comment": "tsearch - Statement 172",
+    "query": "SELECT ts_rewrite( 'moscow & hotel', 'SELECT keyword, sample FROM test_tsquery')"
+  },
+  {
+    "comment": "tsearch - Statement 173",
+    "query": "SELECT ts_rewrite( 'bar & qq & foo & (new <-> york)', 'SELECT keyword, sample FROM test_tsquery')"
+  },
+  {
+    "comment": "tsearch - Statement 174",
+    "query": "SELECT ts_rewrite('1 & (2 <-> 3)', 'SELECT keyword, sample FROM test_tsquery'::text )"
+  },
+  {
+    "comment": "tsearch - Statement 175",
+    "query": "SELECT ts_rewrite('1 & (2 <2> 3)', 'SELECT keyword, sample FROM test_tsquery'::text )"
+  },
+  {
+    "comment": "tsearch - Statement 176",
+    "query": "SELECT ts_rewrite('5 <-> (1 & (2 <-> 3))', 'SELECT keyword, sample FROM test_tsquery'::text )"
+  },
+  {
+    "comment": "tsearch - Statement 177",
+    "query": "SELECT ts_rewrite('5 <-> (6 | 8)', 'SELECT keyword, sample FROM test_tsquery'::text )"
+  },
+  {
+    "comment": "tsearch - Statement 178",
+    "query": "SELECT ts_rewrite(to_tsquery('5 & (6 | 5)'), to_tsquery('5'), to_tsquery(''))"
+  },
+  {
+    "comment": "tsearch - Statement 179",
+    "query": "SELECT ts_rewrite(to_tsquery('!5'), to_tsquery('5'), to_tsquery(''))"
+  },
+  {
+    "comment": "tsearch - Statement 180",
+    "query": "SELECT keyword FROM test_tsquery WHERE keyword @> 'new'"
+  },
+  {
+    "comment": "tsearch - Statement 181",
+    "query": "SELECT keyword FROM test_tsquery WHERE keyword @> 'moscow'"
+  },
+  {
+    "comment": "tsearch - Statement 182",
+    "query": "SELECT keyword FROM test_tsquery WHERE keyword <@ 'new'"
+  },
+  {
+    "comment": "tsearch - Statement 183",
+    "query": "SELECT keyword FROM test_tsquery WHERE keyword <@ 'moscow'"
+  },
+  {
+    "comment": "tsearch - Statement 184",
+    "query": "SELECT ts_rewrite( query, 'SELECT keyword, sample FROM test_tsquery' ) FROM to_tsquery('english', 'moscow') AS query"
+  },
+  {
+    "comment": "tsearch - Statement 185",
+    "query": "SELECT ts_rewrite( query, 'SELECT keyword, sample FROM test_tsquery' ) FROM to_tsquery('english', 'moscow & hotel') AS query"
+  },
+  {
+    "comment": "tsearch - Statement 186",
+    "query": "SELECT ts_rewrite( query, 'SELECT keyword, sample FROM test_tsquery' ) FROM to_tsquery('english', 'bar & qq & foo & (new <-> york)') AS query"
+  },
+  {
+    "comment": "tsearch - Statement 187",
+    "query": "CREATE INDEX qq ON test_tsquery USING gist (keyword tsquery_ops)"
+  },
+  {
+    "comment": "tsearch - Statement 188",
+    "query": "SELECT ts_rewrite(tsquery_phrase('foo', 'foo'), 'foo', 'bar | baz')"
+  },
+  {
+    "comment": "tsearch - Statement 189",
+    "query": "SELECT to_tsvector('foo bar') @@ ts_rewrite(tsquery_phrase('foo', 'foo'), 'foo', 'bar | baz')"
+  },
+  {
+    "comment": "tsearch - Statement 190",
+    "query": "SELECT to_tsvector('bar baz') @@ ts_rewrite(tsquery_phrase('foo', 'foo'), 'foo', 'bar | baz')"
+  },
+  {
+    "comment": "tsearch - Statement 191",
+    "query": "SET default_text_search_config=simple"
+  },
+  {
+    "comment": "tsearch - Statement 192",
+    "query": "SELECT to_tsvector('SKIES My booKs')"
+  },
+  {
+    "comment": "tsearch - Statement 193",
+    "query": "SELECT plainto_tsquery('SKIES My booKs')"
+  },
+  {
+    "comment": "tsearch - Statement 194",
+    "query": "SELECT to_tsquery('SKIES & My | booKs')"
+  },
+  {
+    "comment": "tsearch - Statement 195",
+    "query": "SET default_text_search_config=english"
+  },
+  {
+    "comment": "tsearch - Statement 196",
+    "query": "CREATE TRIGGER tsvectorupdate BEFORE UPDATE OR INSERT ON test_tsvector FOR EACH ROW EXECUTE PROCEDURE tsvector_update_trigger(a, 'pg_catalog.english', t)"
+  },
+  {
+    "comment": "tsearch - Statement 197",
+    "query": "SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty')"
+  },
+  {
+    "comment": "tsearch - Statement 198",
+    "query": "INSERT INTO test_tsvector (t) VALUES ('345 qwerty')"
+  },
+  {
+    "comment": "tsearch - Statement 199",
+    "query": "UPDATE test_tsvector SET t = null WHERE t = '345 qwerty'"
+  },
+  {
+    "comment": "tsearch - Statement 200",
+    "query": "explain (costs off) select * from test_tsquery, to_tsquery('new') q where txtsample @@ q"
+  },
+  {
+    "comment": "tsearch - Statement 201",
+    "query": "explain (costs off) select * from test_tsquery, to_tsquery('english', 'new') q where txtsample @@ q"
+  },
+  {
+    "comment": "tsearch - Statement 202",
+    "query": "create temp table pendtest (ts tsvector)"
+  },
+  {
+    "comment": "tsearch - Statement 203",
+    "query": "create index pendtest_idx on pendtest using gin(ts)"
+  },
+  {
+    "comment": "tsearch - Statement 204",
+    "query": "insert into pendtest values (to_tsvector('Lore ipsam'))"
+  },
+  {
+    "comment": "tsearch - Statement 205",
+    "query": "insert into pendtest values (to_tsvector('Lore ipsum'))"
+  },
+  {
+    "comment": "tsearch - Statement 206",
+    "query": "select * from pendtest where 'ipsu:*'::tsquery @@ ts"
+  },
+  {
+    "comment": "tsearch - Statement 207",
+    "query": "select * from pendtest where 'ipsa:*'::tsquery @@ ts"
+  },
+  {
+    "comment": "tsearch - Statement 208",
+    "query": "select * from pendtest where 'ips:*'::tsquery @@ ts"
+  },
+  {
+    "comment": "tsearch - Statement 209",
+    "query": "select * from pendtest where 'ipt:*'::tsquery @@ ts"
+  },
+  {
+    "comment": "tsearch - Statement 210",
+    "query": "select * from pendtest where 'ipi:*'::tsquery @@ ts"
+  },
+  {
+    "comment": "tsearch - Statement 211",
+    "query": "create temp table phrase_index_test(fts tsvector)"
+  },
+  {
+    "comment": "tsearch - Statement 212",
+    "query": "insert into phrase_index_test values ('A fat cat has just eaten a rat.')"
+  },
+  {
+    "comment": "tsearch - Statement 213",
+    "query": "insert into phrase_index_test values (to_tsvector('english', 'A fat cat has just eaten a rat.'))"
+  },
+  {
+    "comment": "tsearch - Statement 214",
+    "query": "create index phrase_index_test_idx on phrase_index_test using gin(fts)"
+  },
+  {
+    "comment": "tsearch - Statement 215",
+    "query": "set enable_seqscan = off"
+  },
+  {
+    "comment": "tsearch - Statement 216",
+    "query": "select * from phrase_index_test where fts @@ phraseto_tsquery('english', 'fat cat')"
+  },
+  {
+    "comment": "tsearch - Statement 217",
+    "query": "set enable_seqscan = on"
+  },
+  {
+    "comment": "tsearch - Statement 218",
+    "query": "select websearch_to_tsquery('simple', 'I have a fat:*ABCD cat')"
+  },
+  {
+    "comment": "tsearch - Statement 219",
+    "query": "select websearch_to_tsquery('simple', 'orange:**AABBCCDD')"
+  },
+  {
+    "comment": "tsearch - Statement 220",
+    "query": "select websearch_to_tsquery('simple', 'fat:A!cat:B|rat:C<')"
+  },
+  {
+    "comment": "tsearch - Statement 221",
+    "query": "select websearch_to_tsquery('simple', 'fat:A : cat:B')"
+  },
+  {
+    "comment": "tsearch - Statement 222",
+    "query": "select websearch_to_tsquery('simple', 'fat*rat')"
+  },
+  {
+    "comment": "tsearch - Statement 223",
+    "query": "select websearch_to_tsquery('simple', 'fat-rat')"
+  },
+  {
+    "comment": "tsearch - Statement 224",
+    "query": "select websearch_to_tsquery('simple', 'fat_rat')"
+  },
+  {
+    "comment": "tsearch - Statement 225",
+    "query": "select websearch_to_tsquery('simple', 'abc : def')"
+  },
+  {
+    "comment": "tsearch - Statement 226",
+    "query": "select websearch_to_tsquery('simple', 'abc:def')"
+  },
+  {
+    "comment": "tsearch - Statement 227",
+    "query": "select websearch_to_tsquery('simple', 'a:::b')"
+  },
+  {
+    "comment": "tsearch - Statement 228",
+    "query": "select websearch_to_tsquery('simple', 'abc:d')"
+  },
+  {
+    "comment": "tsearch - Statement 229",
+    "query": "select websearch_to_tsquery('simple', ':')"
+  },
+  {
+    "comment": "tsearch - Statement 230",
+    "query": "select websearch_to_tsquery('simple', 'abc & def')"
+  },
+  {
+    "comment": "tsearch - Statement 231",
+    "query": "select websearch_to_tsquery('simple', 'abc | def')"
+  },
+  {
+    "comment": "tsearch - Statement 232",
+    "query": "select websearch_to_tsquery('simple', 'abc <-> def')"
+  },
+  {
+    "comment": "tsearch - Statement 233",
+    "query": "select websearch_to_tsquery('simple', 'abc (pg or class)')"
+  },
+  {
+    "comment": "tsearch - Statement 234",
+    "query": "select websearch_to_tsquery('simple', '(foo bar) or (ding dong)')"
+  },
+  {
+    "comment": "tsearch - Statement 235",
+    "query": "select websearch_to_tsquery('english', 'My brand new smartphone')"
+  },
+  {
+    "comment": "tsearch - Statement 236",
+    "query": "select websearch_to_tsquery('english', 'My brand \"new smartphone\"')"
+  },
+  {
+    "comment": "tsearch - Statement 237",
+    "query": "select websearch_to_tsquery('english', 'My brand \"new -smartphone\"')"
+  },
+  {
+    "comment": "tsearch - Statement 238",
+    "query": "select websearch_to_tsquery('simple', 'cat or rat')"
+  },
+  {
+    "comment": "tsearch - Statement 239",
+    "query": "select websearch_to_tsquery('simple', 'cat \"OR\" rat')"
+  },
+  {
+    "comment": "tsearch - Statement 240",
+    "query": "select websearch_to_tsquery('simple', 'cat OR')"
+  },
+  {
+    "comment": "tsearch - Statement 241",
+    "query": "select websearch_to_tsquery('simple', 'OR rat')"
+  },
+  {
+    "comment": "tsearch - Statement 242",
+    "query": "select websearch_to_tsquery('simple', '\"fat cat OR rat\"')"
+  },
+  {
+    "comment": "tsearch - Statement 243",
+    "query": "select websearch_to_tsquery('simple', 'fat (cat OR rat')"
+  },
+  {
+    "comment": "tsearch - Statement 244",
+    "query": "select websearch_to_tsquery('simple', 'or OR or')"
+  },
+  {
+    "comment": "tsearch - Statement 245",
+    "query": "select websearch_to_tsquery('simple', '\"fat cat\"or\"fat rat\"')"
+  },
+  {
+    "comment": "tsearch - Statement 246",
+    "query": "select websearch_to_tsquery('simple', 'fat or(rat')"
+  },
+  {
+    "comment": "tsearch - Statement 247",
+    "query": "select websearch_to_tsquery('simple', 'fat or)rat')"
+  },
+  {
+    "comment": "tsearch - Statement 248",
+    "query": "select websearch_to_tsquery('simple', 'fat or&rat')"
+  },
+  {
+    "comment": "tsearch - Statement 249",
+    "query": "select websearch_to_tsquery('simple', 'fat or|rat')"
+  },
+  {
+    "comment": "tsearch - Statement 250",
+    "query": "select websearch_to_tsquery('simple', 'fat or!rat')"
+  },
+  {
+    "comment": "tsearch - Statement 251",
+    "query": "select websearch_to_tsquery('simple', 'fat or<rat')"
+  },
+  {
+    "comment": "tsearch - Statement 252",
+    "query": "select websearch_to_tsquery('simple', 'fat or>rat')"
+  },
+  {
+    "comment": "tsearch - Statement 253",
+    "query": "select websearch_to_tsquery('simple', 'fat or ')"
+  },
+  {
+    "comment": "tsearch - Statement 254",
+    "query": "select websearch_to_tsquery('simple', 'abc orange')"
+  },
+  {
+    "comment": "tsearch - Statement 255",
+    "query": "select websearch_to_tsquery('simple', 'abc OR1234')"
+  },
+  {
+    "comment": "tsearch - Statement 256",
+    "query": "select websearch_to_tsquery('simple', 'abc or-abc')"
+  },
+  {
+    "comment": "tsearch - Statement 257",
+    "query": "select websearch_to_tsquery('simple', 'abc OR_abc')"
+  },
+  {
+    "comment": "tsearch - Statement 258",
+    "query": "select websearch_to_tsquery('english', '\"pg_class pg')"
+  },
+  {
+    "comment": "tsearch - Statement 259",
+    "query": "select websearch_to_tsquery('english', 'pg_class pg\"')"
+  },
+  {
+    "comment": "tsearch - Statement 260",
+    "query": "select websearch_to_tsquery('english', '\"pg_class pg\"')"
+  },
+  {
+    "comment": "tsearch - Statement 261",
+    "query": "select websearch_to_tsquery('english', '\"pg_class : pg\"')"
+  },
+  {
+    "comment": "tsearch - Statement 262",
+    "query": "select websearch_to_tsquery('english', 'abc \"pg_class pg\"')"
+  },
+  {
+    "comment": "tsearch - Statement 263",
+    "query": "select websearch_to_tsquery('english', '\"pg_class pg\" def')"
+  },
+  {
+    "comment": "tsearch - Statement 264",
+    "query": "select websearch_to_tsquery('english', 'abc \"pg pg_class pg\" def')"
+  },
+  {
+    "comment": "tsearch - Statement 265",
+    "query": "select websearch_to_tsquery('english', ' or \"pg pg_class pg\" or ')"
+  },
+  {
+    "comment": "tsearch - Statement 266",
+    "query": "select websearch_to_tsquery('english', '\"\"pg pg_class pg\"\"')"
+  },
+  {
+    "comment": "tsearch - Statement 267",
+    "query": "select websearch_to_tsquery('english', 'abc \"\"\"\"\" def')"
+  },
+  {
+    "comment": "tsearch - Statement 268",
+    "query": "select websearch_to_tsquery('english', 'cat -\"fat rat\"')"
+  },
+  {
+    "comment": "tsearch - Statement 269",
+    "query": "select websearch_to_tsquery('english', 'cat -\"fat rat\" cheese')"
+  },
+  {
+    "comment": "tsearch - Statement 270",
+    "query": "select websearch_to_tsquery('english', 'abc \"def -\"')"
+  },
+  {
+    "comment": "tsearch - Statement 271",
+    "query": "select websearch_to_tsquery('english', 'abc \"def :\"')"
+  },
+  {
+    "comment": "tsearch - Statement 272",
+    "query": "select websearch_to_tsquery('english', '\"A fat cat\" has just eaten a -rat.')"
+  },
+  {
+    "comment": "tsearch - Statement 273",
+    "query": "select websearch_to_tsquery('english', '\"A fat cat\" has just eaten OR !rat.')"
+  },
+  {
+    "comment": "tsearch - Statement 274",
+    "query": "select websearch_to_tsquery('english', '\"A fat cat\" has just (+eaten OR -rat)')"
+  },
+  {
+    "comment": "tsearch - Statement 275",
+    "query": "select websearch_to_tsquery('english', 'this is ----fine')"
+  },
+  {
+    "comment": "tsearch - Statement 276",
+    "query": "select websearch_to_tsquery('english', '(()) )))) this ||| is && -fine, \"dear friend\" OR good')"
+  },
+  {
+    "comment": "tsearch - Statement 277",
+    "query": "select websearch_to_tsquery('english', 'an old <-> cat \" is fine &&& too')"
+  },
+  {
+    "comment": "tsearch - Statement 278",
+    "query": "select websearch_to_tsquery('english', '\"A the\" OR just on')"
+  },
+  {
+    "comment": "tsearch - Statement 279",
+    "query": "select websearch_to_tsquery('english', '\"a fat cat\" ate a rat')"
+  },
+  {
+    "comment": "tsearch - Statement 280",
+    "query": "select to_tsvector('english', 'A fat cat ate a rat') @@ websearch_to_tsquery('english', '\"a fat cat\" ate a rat')"
+  },
+  {
+    "comment": "tsearch - Statement 281",
+    "query": "select to_tsvector('english', 'A fat grey cat ate a rat') @@ websearch_to_tsquery('english', '\"a fat cat\" ate a rat')"
+  },
+  {
+    "comment": "tsearch - Statement 282",
+    "query": "select websearch_to_tsquery('''')"
+  },
+  {
+    "comment": "tsearch - Statement 283",
+    "query": "select websearch_to_tsquery('''abc''''def''')"
+  },
+  {
+    "comment": "tsearch - Statement 284",
+    "query": "select websearch_to_tsquery('\\abc')"
+  },
+  {
+    "comment": "tsearch - Statement 285",
+    "query": "select websearch_to_tsquery('\\')"
+  }
+]

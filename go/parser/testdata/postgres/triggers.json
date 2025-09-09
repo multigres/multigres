@@ -1,0 +1,3646 @@
+[
+  {
+    "comment": "triggers - Statement 1",
+    "query": "CREATE FUNCTION check_primary_key () RETURNS trigger AS :'refintlib' LANGUAGE C"
+  },
+  {
+    "comment": "triggers - Statement 2",
+    "query": "CREATE FUNCTION check_foreign_key () RETURNS trigger AS :'refintlib' LANGUAGE C"
+  },
+  {
+    "comment": "triggers - Statement 3",
+    "query": "CREATE FUNCTION trigger_return_old () RETURNS trigger AS :'regresslib' LANGUAGE C"
+  },
+  {
+    "comment": "triggers - Statement 4",
+    "query": "CREATE FUNCTION set_ttdummy (int4) RETURNS int4 AS :'regresslib' LANGUAGE C STRICT"
+  },
+  {
+    "comment": "triggers - Statement 5",
+    "query": "create table pkeys (pkey1 int4 not null, pkey2 text not null)"
+  },
+  {
+    "comment": "triggers - Statement 6",
+    "query": "create table fkeys (fkey1 int4, fkey2 text, fkey3 int)"
+  },
+  {
+    "comment": "triggers - Statement 7",
+    "query": "create table fkeys2 (fkey21 int4, fkey22 text, pkey23 int not null)"
+  },
+  {
+    "comment": "triggers - Statement 8",
+    "query": "create index fkeys_i on fkeys (fkey1, fkey2)"
+  },
+  {
+    "comment": "triggers - Statement 9",
+    "query": "create index fkeys2_i on fkeys2 (fkey21, fkey22)"
+  },
+  {
+    "comment": "triggers - Statement 10",
+    "query": "create index fkeys2p_i on fkeys2 (pkey23)"
+  },
+  {
+    "comment": "triggers - Statement 11",
+    "query": "insert into pkeys values (10, '1')"
+  },
+  {
+    "comment": "triggers - Statement 12",
+    "query": "insert into pkeys values (20, '2')"
+  },
+  {
+    "comment": "triggers - Statement 13",
+    "query": "insert into pkeys values (30, '3')"
+  },
+  {
+    "comment": "triggers - Statement 14",
+    "query": "insert into pkeys values (40, '4')"
+  },
+  {
+    "comment": "triggers - Statement 15",
+    "query": "insert into pkeys values (50, '5')"
+  },
+  {
+    "comment": "triggers - Statement 16",
+    "query": "insert into pkeys values (60, '6')"
+  },
+  {
+    "comment": "triggers - Statement 17",
+    "query": "create unique index pkeys_i on pkeys (pkey1, pkey2)"
+  },
+  {
+    "comment": "triggers - Statement 18",
+    "query": "create trigger check_fkeys_pkey_exist before insert or update on fkeys for each row execute function check_primary_key ('fkey1', 'fkey2', 'pkeys', 'pkey1', 'pkey2')"
+  },
+  {
+    "comment": "triggers - Statement 19",
+    "query": "create trigger check_fkeys_pkey2_exist before insert or update on fkeys for each row execute function check_primary_key ('fkey3', 'fkeys2', 'pkey23')"
+  },
+  {
+    "comment": "triggers - Statement 20",
+    "query": "create trigger check_fkeys2_pkey_exist before insert or update on fkeys2 for each row execute procedure check_primary_key ('fkey21', 'fkey22', 'pkeys', 'pkey1', 'pkey2')"
+  },
+  {
+    "comment": "triggers - Statement 21",
+    "query": "COMMENT ON TRIGGER check_fkeys2_pkey_bad ON fkeys2 IS 'wrong'"
+  },
+  {
+    "comment": "triggers - Statement 22",
+    "query": "COMMENT ON TRIGGER check_fkeys2_pkey_exist ON fkeys2 IS 'right'"
+  },
+  {
+    "comment": "triggers - Statement 23",
+    "query": "COMMENT ON TRIGGER check_fkeys2_pkey_exist ON fkeys2 IS NULL"
+  },
+  {
+    "comment": "triggers - Statement 24",
+    "query": "create trigger check_pkeys_fkey_cascade before delete or update on pkeys for each row execute procedure check_foreign_key (2, 'cascade', 'pkey1', 'pkey2', 'fkeys', 'fkey1', 'fkey2', 'fkeys2', 'fkey21', 'fkey22')"
+  },
+  {
+    "comment": "triggers - Statement 25",
+    "query": "create trigger check_fkeys2_fkey_restrict before delete or update on fkeys2 for each row execute procedure check_foreign_key (1, 'restrict', 'pkey23', 'fkeys', 'fkey3')"
+  },
+  {
+    "comment": "triggers - Statement 26",
+    "query": "insert into fkeys2 values (10, '1', 1)"
+  },
+  {
+    "comment": "triggers - Statement 27",
+    "query": "insert into fkeys2 values (30, '3', 2)"
+  },
+  {
+    "comment": "triggers - Statement 28",
+    "query": "insert into fkeys2 values (40, '4', 5)"
+  },
+  {
+    "comment": "triggers - Statement 29",
+    "query": "insert into fkeys2 values (50, '5', 3)"
+  },
+  {
+    "comment": "triggers - Statement 30",
+    "query": "insert into fkeys2 values (70, '5', 3)"
+  },
+  {
+    "comment": "triggers - Statement 31",
+    "query": "insert into fkeys values (10, '1', 2)"
+  },
+  {
+    "comment": "triggers - Statement 32",
+    "query": "insert into fkeys values (30, '3', 3)"
+  },
+  {
+    "comment": "triggers - Statement 33",
+    "query": "insert into fkeys values (40, '4', 2)"
+  },
+  {
+    "comment": "triggers - Statement 34",
+    "query": "insert into fkeys values (50, '5', 2)"
+  },
+  {
+    "comment": "triggers - Statement 35",
+    "query": "insert into fkeys values (70, '5', 1)"
+  },
+  {
+    "comment": "triggers - Statement 36",
+    "query": "insert into fkeys values (60, '6', 4)"
+  },
+  {
+    "comment": "triggers - Statement 37",
+    "query": "delete from pkeys where pkey1 = 30 and pkey2 = '3'"
+  },
+  {
+    "comment": "triggers - Statement 38",
+    "query": "delete from pkeys where pkey1 = 40 and pkey2 = '4'"
+  },
+  {
+    "comment": "triggers - Statement 39",
+    "query": "update pkeys set pkey1 = 7, pkey2 = '70' where pkey1 = 50 and pkey2 = '5'"
+  },
+  {
+    "comment": "triggers - Statement 40",
+    "query": "update pkeys set pkey1 = 7, pkey2 = '70' where pkey1 = 10 and pkey2 = '1'"
+  },
+  {
+    "comment": "triggers - Statement 41",
+    "query": "SELECT trigger_name, event_manipulation, event_object_schema, event_object_table, action_order, action_condition, action_orientation, action_timing, action_reference_old_table, action_reference_new_table FROM information_schema.triggers WHERE event_object_table in ('pkeys', 'fkeys', 'fkeys2') ORDER BY trigger_name COLLATE \"C\", 2"
+  },
+  {
+    "comment": "triggers - Statement 42",
+    "query": "DROP TABLE pkeys"
+  },
+  {
+    "comment": "triggers - Statement 43",
+    "query": "DROP TABLE fkeys"
+  },
+  {
+    "comment": "triggers - Statement 44",
+    "query": "DROP TABLE fkeys2"
+  },
+  {
+    "comment": "triggers - Statement 45",
+    "query": "create table trigtest (f1 int, f2 text)"
+  },
+  {
+    "comment": "triggers - Statement 46",
+    "query": "create trigger trigger_return_old before insert or delete or update on trigtest for each row execute procedure trigger_return_old()"
+  },
+  {
+    "comment": "triggers - Statement 47",
+    "query": "insert into trigtest values(1, 'foo')"
+  },
+  {
+    "comment": "triggers - Statement 48",
+    "query": "select * from trigtest"
+  },
+  {
+    "comment": "triggers - Statement 49",
+    "query": "update trigtest set f2 = f2 || 'bar'"
+  },
+  {
+    "comment": "triggers - Statement 50",
+    "query": "delete from trigtest"
+  },
+  {
+    "comment": "triggers - Statement 51",
+    "query": "create function f1_times_10() returns trigger as $$ begin new.f1 := new.f1 * 10; return new; end $$ language plpgsql"
+  },
+  {
+    "comment": "triggers - Statement 52",
+    "query": "create trigger trigger_alpha before insert or update on trigtest for each row execute procedure f1_times_10()"
+  },
+  {
+    "comment": "triggers - Statement 53",
+    "query": "create trigger trigger_zed before insert or update on trigtest for each row execute procedure f1_times_10()"
+  },
+  {
+    "comment": "triggers - Statement 54",
+    "query": "drop trigger trigger_alpha on trigtest"
+  },
+  {
+    "comment": "triggers - Statement 55",
+    "query": "drop table trigtest"
+  },
+  {
+    "comment": "triggers - Statement 56",
+    "query": "create table trigtest ( a integer, b bool default true not null, c text default 'xyzzy' not null)"
+  },
+  {
+    "comment": "triggers - Statement 57",
+    "query": "insert into trigtest values(1)"
+  },
+  {
+    "comment": "triggers - Statement 58",
+    "query": "alter table trigtest add column d integer default 42 not null"
+  },
+  {
+    "comment": "triggers - Statement 59",
+    "query": "update trigtest set a = 2 where a = 1 returning *"
+  },
+  {
+    "comment": "triggers - Statement 60",
+    "query": "alter table trigtest drop column b"
+  },
+  {
+    "comment": "triggers - Statement 61",
+    "query": "create sequence ttdummy_seq increment 10 start 0 minvalue 0"
+  },
+  {
+    "comment": "triggers - Statement 62",
+    "query": "create table tttest ( price_id\tint4, price_val\tint4, price_on\tint4, price_off\tint4 default 999999 )"
+  },
+  {
+    "comment": "triggers - Statement 63",
+    "query": "create trigger ttdummy before delete or update on tttest for each row execute procedure ttdummy (price_on, price_off)"
+  },
+  {
+    "comment": "triggers - Statement 64",
+    "query": "create trigger ttserial before insert or update on tttest for each row execute procedure autoinc (price_on, ttdummy_seq)"
+  },
+  {
+    "comment": "triggers - Statement 65",
+    "query": "insert into tttest values (1, 1, null)"
+  },
+  {
+    "comment": "triggers - Statement 66",
+    "query": "insert into tttest values (2, 2, null)"
+  },
+  {
+    "comment": "triggers - Statement 67",
+    "query": "insert into tttest values (3, 3, 0)"
+  },
+  {
+    "comment": "triggers - Statement 68",
+    "query": "select * from tttest"
+  },
+  {
+    "comment": "triggers - Statement 69",
+    "query": "delete from tttest where price_id = 2"
+  },
+  {
+    "comment": "triggers - Statement 70",
+    "query": "select * from tttest where price_off = 999999"
+  },
+  {
+    "comment": "triggers - Statement 71",
+    "query": "update tttest set price_val = 30 where price_id = 3"
+  },
+  {
+    "comment": "triggers - Statement 72",
+    "query": "update tttest set price_id = 5 where price_id = 3"
+  },
+  {
+    "comment": "triggers - Statement 73",
+    "query": "select set_ttdummy(0)"
+  },
+  {
+    "comment": "triggers - Statement 74",
+    "query": "delete from tttest where price_id = 5"
+  },
+  {
+    "comment": "triggers - Statement 75",
+    "query": "update tttest set price_off = 999999 where price_val = 30"
+  },
+  {
+    "comment": "triggers - Statement 76",
+    "query": "select set_ttdummy(1)"
+  },
+  {
+    "comment": "triggers - Statement 77",
+    "query": "update tttest set price_on = -1 where price_id = 1"
+  },
+  {
+    "comment": "triggers - Statement 78",
+    "query": "select * from tttest where price_on <= 35 and price_off > 35 and price_id = 5"
+  },
+  {
+    "comment": "triggers - Statement 79",
+    "query": "drop table tttest"
+  },
+  {
+    "comment": "triggers - Statement 80",
+    "query": "drop sequence ttdummy_seq"
+  },
+  {
+    "comment": "triggers - Statement 81",
+    "query": "CREATE TABLE log_table (tstamp timestamp default timeofday()::timestamp)"
+  },
+  {
+    "comment": "triggers - Statement 82",
+    "query": "CREATE TABLE main_table (a int unique, b int)"
+  },
+  {
+    "comment": "triggers - Statement 83",
+    "query": "COPY main_table (a,b) FROM stdin"
+  },
+  {
+    "comment": "triggers - Statement 84",
+    "query": "5\t10 20\t20 30\t10 50\t35 80\t15 \\. CREATE FUNCTION trigger_func() RETURNS trigger LANGUAGE plpgsql AS ' BEGIN RAISE NOTICE ''trigger_func(%) called: action = %, when = %, level = %'', TG_ARGV[0], TG_OP, TG_WHEN, TG_LEVEL"
+  },
+  {
+    "comment": "triggers - Statement 85",
+    "query": "RETURN NULL"
+  },
+  {
+    "comment": "triggers - Statement 86",
+    "query": "END;'"
+  },
+  {
+    "comment": "triggers - Statement 87",
+    "query": "CREATE TRIGGER before_ins_stmt_trig BEFORE INSERT ON main_table FOR EACH STATEMENT EXECUTE PROCEDURE trigger_func('before_ins_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 88",
+    "query": "CREATE TRIGGER after_ins_stmt_trig AFTER INSERT ON main_table FOR EACH STATEMENT EXECUTE PROCEDURE trigger_func('after_ins_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 89",
+    "query": "CREATE TRIGGER after_upd_stmt_trig AFTER UPDATE ON main_table EXECUTE PROCEDURE trigger_func('after_upd_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 90",
+    "query": "INSERT INTO main_table (a, b) VALUES (5, 10) ON CONFLICT (a) DO UPDATE SET b = EXCLUDED.b"
+  },
+  {
+    "comment": "triggers - Statement 91",
+    "query": "CREATE TRIGGER after_upd_row_trig AFTER UPDATE ON main_table FOR EACH ROW EXECUTE PROCEDURE trigger_func('after_upd_row')"
+  },
+  {
+    "comment": "triggers - Statement 92",
+    "query": "INSERT INTO main_table DEFAULT VALUES"
+  },
+  {
+    "comment": "triggers - Statement 93",
+    "query": "UPDATE main_table SET a = a + 1 WHERE b < 30"
+  },
+  {
+    "comment": "triggers - Statement 94",
+    "query": "UPDATE main_table SET a = a + 2 WHERE b > 100"
+  },
+  {
+    "comment": "triggers - Statement 95",
+    "query": "ALTER TABLE main_table DROP CONSTRAINT main_table_a_key"
+  },
+  {
+    "comment": "triggers - Statement 96",
+    "query": "COPY main_table (a, b) FROM stdin"
+  },
+  {
+    "comment": "triggers - Statement 97",
+    "query": "30\t40 50\t60 \\. SELECT * FROM main_table ORDER BY a, b"
+  },
+  {
+    "comment": "triggers - Statement 98",
+    "query": "CREATE TRIGGER modified_a BEFORE UPDATE OF a ON main_table FOR EACH ROW WHEN (OLD.a <> NEW.a) EXECUTE PROCEDURE trigger_func('modified_a')"
+  },
+  {
+    "comment": "triggers - Statement 99",
+    "query": "CREATE TRIGGER modified_any BEFORE UPDATE OF a ON main_table FOR EACH ROW WHEN (OLD.* IS DISTINCT FROM NEW.*) EXECUTE PROCEDURE trigger_func('modified_any')"
+  },
+  {
+    "comment": "triggers - Statement 100",
+    "query": "CREATE TRIGGER insert_a AFTER INSERT ON main_table FOR EACH ROW WHEN (NEW.a = 123) EXECUTE PROCEDURE trigger_func('insert_a')"
+  },
+  {
+    "comment": "triggers - Statement 101",
+    "query": "CREATE TRIGGER delete_a AFTER DELETE ON main_table FOR EACH ROW WHEN (OLD.a = 123) EXECUTE PROCEDURE trigger_func('delete_a')"
+  },
+  {
+    "comment": "triggers - Statement 102",
+    "query": "CREATE TRIGGER insert_when BEFORE INSERT ON main_table FOR EACH STATEMENT WHEN (true) EXECUTE PROCEDURE trigger_func('insert_when')"
+  },
+  {
+    "comment": "triggers - Statement 103",
+    "query": "CREATE TRIGGER delete_when AFTER DELETE ON main_table FOR EACH STATEMENT WHEN (true) EXECUTE PROCEDURE trigger_func('delete_when')"
+  },
+  {
+    "comment": "triggers - Statement 104",
+    "query": "SELECT trigger_name, event_manipulation, event_object_schema, event_object_table, action_order, action_condition, action_orientation, action_timing, action_reference_old_table, action_reference_new_table FROM information_schema.triggers WHERE event_object_table IN ('main_table') ORDER BY trigger_name COLLATE \"C\", 2"
+  },
+  {
+    "comment": "triggers - Statement 105",
+    "query": "INSERT INTO main_table (a) VALUES (123), (456)"
+  },
+  {
+    "comment": "triggers - Statement 106",
+    "query": "COPY main_table FROM stdin"
+  },
+  {
+    "comment": "triggers - Statement 107",
+    "query": "123\t999 456\t999 \\. DELETE FROM main_table WHERE a IN (123, 456)"
+  },
+  {
+    "comment": "triggers - Statement 108",
+    "query": "UPDATE main_table SET a = 50, b = 60"
+  },
+  {
+    "comment": "triggers - Statement 109",
+    "query": "SELECT * FROM main_table ORDER BY a, b"
+  },
+  {
+    "comment": "triggers - Statement 110",
+    "query": "SELECT pg_get_triggerdef(oid, true) FROM pg_trigger WHERE tgrelid = 'main_table'::regclass AND tgname = 'modified_a'"
+  },
+  {
+    "comment": "triggers - Statement 111",
+    "query": "SELECT pg_get_triggerdef(oid, false) FROM pg_trigger WHERE tgrelid = 'main_table'::regclass AND tgname = 'modified_a'"
+  },
+  {
+    "comment": "triggers - Statement 112",
+    "query": "SELECT pg_get_triggerdef(oid, true) FROM pg_trigger WHERE tgrelid = 'main_table'::regclass AND tgname = 'modified_any'"
+  },
+  {
+    "comment": "triggers - Statement 113",
+    "query": "ALTER TRIGGER modified_a ON main_table RENAME TO modified_modified_a"
+  },
+  {
+    "comment": "triggers - Statement 114",
+    "query": "SELECT count(*) FROM pg_trigger WHERE tgrelid = 'main_table'::regclass AND tgname = 'modified_a'"
+  },
+  {
+    "comment": "triggers - Statement 115",
+    "query": "SELECT count(*) FROM pg_trigger WHERE tgrelid = 'main_table'::regclass AND tgname = 'modified_modified_a'"
+  },
+  {
+    "comment": "triggers - Statement 116",
+    "query": "DROP TRIGGER modified_modified_a ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 117",
+    "query": "DROP TRIGGER modified_any ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 118",
+    "query": "DROP TRIGGER insert_a ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 119",
+    "query": "DROP TRIGGER delete_a ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 120",
+    "query": "DROP TRIGGER insert_when ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 121",
+    "query": "DROP TRIGGER delete_when ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 122",
+    "query": "create table table_with_oids(a int)"
+  },
+  {
+    "comment": "triggers - Statement 123",
+    "query": "insert into table_with_oids values (1)"
+  },
+  {
+    "comment": "triggers - Statement 124",
+    "query": "create trigger oid_unchanged_trig after update on table_with_oids for each row when (new.tableoid = old.tableoid AND new.tableoid <> 0) execute procedure trigger_func('after_upd_oid_unchanged')"
+  },
+  {
+    "comment": "triggers - Statement 125",
+    "query": "update table_with_oids set a = a + 1"
+  },
+  {
+    "comment": "triggers - Statement 126",
+    "query": "drop table table_with_oids"
+  },
+  {
+    "comment": "triggers - Statement 127",
+    "query": "DROP TRIGGER after_upd_row_trig ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 128",
+    "query": "CREATE TRIGGER before_upd_a_row_trig BEFORE UPDATE OF a ON main_table FOR EACH ROW EXECUTE PROCEDURE trigger_func('before_upd_a_row')"
+  },
+  {
+    "comment": "triggers - Statement 129",
+    "query": "CREATE TRIGGER after_upd_b_row_trig AFTER UPDATE OF b ON main_table FOR EACH ROW EXECUTE PROCEDURE trigger_func('after_upd_b_row')"
+  },
+  {
+    "comment": "triggers - Statement 130",
+    "query": "CREATE TRIGGER after_upd_a_b_row_trig AFTER UPDATE OF a, b ON main_table FOR EACH ROW EXECUTE PROCEDURE trigger_func('after_upd_a_b_row')"
+  },
+  {
+    "comment": "triggers - Statement 131",
+    "query": "CREATE TRIGGER before_upd_a_stmt_trig BEFORE UPDATE OF a ON main_table FOR EACH STATEMENT EXECUTE PROCEDURE trigger_func('before_upd_a_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 132",
+    "query": "CREATE TRIGGER after_upd_b_stmt_trig AFTER UPDATE OF b ON main_table FOR EACH STATEMENT EXECUTE PROCEDURE trigger_func('after_upd_b_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 133",
+    "query": "SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid = 'main_table'::regclass AND tgname = 'after_upd_a_b_row_trig'"
+  },
+  {
+    "comment": "triggers - Statement 134",
+    "query": "UPDATE main_table SET a = 50"
+  },
+  {
+    "comment": "triggers - Statement 135",
+    "query": "UPDATE main_table SET b = 10"
+  },
+  {
+    "comment": "triggers - Statement 136",
+    "query": "CREATE TABLE some_t (some_col boolean NOT NULL)"
+  },
+  {
+    "comment": "triggers - Statement 137",
+    "query": "CREATE FUNCTION dummy_update_func() RETURNS trigger AS $$ BEGIN RAISE NOTICE 'dummy_update_func(%) called: action = %, old = %, new = %', TG_ARGV[0], TG_OP, OLD, NEW"
+  },
+  {
+    "comment": "triggers - Statement 138",
+    "query": "RETURN NEW"
+  },
+  {
+    "comment": "triggers - Statement 139",
+    "query": "END"
+  },
+  {
+    "comment": "triggers - Statement 140",
+    "query": "$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "triggers - Statement 141",
+    "query": "CREATE TRIGGER some_trig_before BEFORE UPDATE ON some_t FOR EACH ROW EXECUTE PROCEDURE dummy_update_func('before')"
+  },
+  {
+    "comment": "triggers - Statement 142",
+    "query": "CREATE TRIGGER some_trig_aftera AFTER UPDATE ON some_t FOR EACH ROW WHEN (NOT OLD.some_col AND NEW.some_col) EXECUTE PROCEDURE dummy_update_func('aftera')"
+  },
+  {
+    "comment": "triggers - Statement 143",
+    "query": "CREATE TRIGGER some_trig_afterb AFTER UPDATE ON some_t FOR EACH ROW WHEN (NOT NEW.some_col) EXECUTE PROCEDURE dummy_update_func('afterb')"
+  },
+  {
+    "comment": "triggers - Statement 144",
+    "query": "INSERT INTO some_t VALUES (TRUE)"
+  },
+  {
+    "comment": "triggers - Statement 145",
+    "query": "UPDATE some_t SET some_col = TRUE"
+  },
+  {
+    "comment": "triggers - Statement 146",
+    "query": "UPDATE some_t SET some_col = FALSE"
+  },
+  {
+    "comment": "triggers - Statement 147",
+    "query": "DROP TABLE some_t"
+  },
+  {
+    "comment": "triggers - Statement 148",
+    "query": "CREATE TRIGGER error_upd_and_col BEFORE UPDATE OR UPDATE OF a ON main_table FOR EACH ROW EXECUTE PROCEDURE trigger_func('error_upd_and_col')"
+  },
+  {
+    "comment": "triggers - Statement 149",
+    "query": "CREATE TRIGGER error_upd_a_a BEFORE UPDATE OF a, a ON main_table FOR EACH ROW EXECUTE PROCEDURE trigger_func('error_upd_a_a')"
+  },
+  {
+    "comment": "triggers - Statement 150",
+    "query": "CREATE TRIGGER error_ins_a BEFORE INSERT OF a ON main_table FOR EACH ROW EXECUTE PROCEDURE trigger_func('error_ins_a')"
+  },
+  {
+    "comment": "triggers - Statement 151",
+    "query": "CREATE TRIGGER error_ins_when BEFORE INSERT OR UPDATE ON main_table FOR EACH ROW WHEN (OLD.a <> NEW.a) EXECUTE PROCEDURE trigger_func('error_ins_old')"
+  },
+  {
+    "comment": "triggers - Statement 152",
+    "query": "CREATE TRIGGER error_del_when BEFORE DELETE OR UPDATE ON main_table FOR EACH ROW WHEN (OLD.a <> NEW.a) EXECUTE PROCEDURE trigger_func('error_del_new')"
+  },
+  {
+    "comment": "triggers - Statement 153",
+    "query": "CREATE TRIGGER error_del_when BEFORE INSERT OR UPDATE ON main_table FOR EACH ROW WHEN (NEW.tableoid <> 0) EXECUTE PROCEDURE trigger_func('error_when_sys_column')"
+  },
+  {
+    "comment": "triggers - Statement 154",
+    "query": "CREATE TRIGGER error_stmt_when BEFORE UPDATE OF a ON main_table FOR EACH STATEMENT WHEN (OLD.* IS DISTINCT FROM NEW.*) EXECUTE PROCEDURE trigger_func('error_stmt_when')"
+  },
+  {
+    "comment": "triggers - Statement 155",
+    "query": "ALTER TABLE main_table DROP COLUMN b"
+  },
+  {
+    "comment": "triggers - Statement 156",
+    "query": "begin"
+  },
+  {
+    "comment": "triggers - Statement 157",
+    "query": "DROP TRIGGER after_upd_a_b_row_trig ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 158",
+    "query": "DROP TRIGGER after_upd_b_row_trig ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 159",
+    "query": "DROP TRIGGER after_upd_b_stmt_trig ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 160",
+    "query": "rollback"
+  },
+  {
+    "comment": "triggers - Statement 161",
+    "query": "create table trigtest (i serial primary key)"
+  },
+  {
+    "comment": "triggers - Statement 162",
+    "query": "create table trigtest2 (i int references trigtest(i) on delete cascade)"
+  },
+  {
+    "comment": "triggers - Statement 163",
+    "query": "create function trigtest() returns trigger as $$ begin raise notice '% % % %', TG_TABLE_NAME, TG_OP, TG_WHEN, TG_LEVEL"
+  },
+  {
+    "comment": "triggers - Statement 164",
+    "query": "end;$$ language plpgsql"
+  },
+  {
+    "comment": "triggers - Statement 165",
+    "query": "create trigger trigtest_b_row_tg before insert or update or delete on trigtest for each row execute procedure trigtest()"
+  },
+  {
+    "comment": "triggers - Statement 166",
+    "query": "create trigger trigtest_a_row_tg after insert or update or delete on trigtest for each row execute procedure trigtest()"
+  },
+  {
+    "comment": "triggers - Statement 167",
+    "query": "create trigger trigtest_b_stmt_tg before insert or update or delete on trigtest for each statement execute procedure trigtest()"
+  },
+  {
+    "comment": "triggers - Statement 168",
+    "query": "create trigger trigtest_a_stmt_tg after insert or update or delete on trigtest for each statement execute procedure trigtest()"
+  },
+  {
+    "comment": "triggers - Statement 169",
+    "query": "insert into trigtest default values"
+  },
+  {
+    "comment": "triggers - Statement 170",
+    "query": "alter table trigtest disable trigger trigtest_b_row_tg"
+  },
+  {
+    "comment": "triggers - Statement 171",
+    "query": "alter table trigtest disable trigger user"
+  },
+  {
+    "comment": "triggers - Statement 172",
+    "query": "alter table trigtest enable trigger trigtest_a_stmt_tg"
+  },
+  {
+    "comment": "triggers - Statement 173",
+    "query": "set session_replication_role = replica"
+  },
+  {
+    "comment": "triggers - Statement 174",
+    "query": "alter table trigtest enable always trigger trigtest_a_stmt_tg"
+  },
+  {
+    "comment": "triggers - Statement 175",
+    "query": "reset session_replication_role"
+  },
+  {
+    "comment": "triggers - Statement 176",
+    "query": "insert into trigtest2 values(1)"
+  },
+  {
+    "comment": "triggers - Statement 177",
+    "query": "insert into trigtest2 values(2)"
+  },
+  {
+    "comment": "triggers - Statement 178",
+    "query": "delete from trigtest where i=2"
+  },
+  {
+    "comment": "triggers - Statement 179",
+    "query": "select * from trigtest2"
+  },
+  {
+    "comment": "triggers - Statement 180",
+    "query": "alter table trigtest disable trigger all"
+  },
+  {
+    "comment": "triggers - Statement 181",
+    "query": "delete from trigtest where i=1"
+  },
+  {
+    "comment": "triggers - Statement 182",
+    "query": "drop table trigtest2"
+  },
+  {
+    "comment": "triggers - Statement 183",
+    "query": "CREATE TABLE trigger_test ( i int, v varchar )"
+  },
+  {
+    "comment": "triggers - Statement 184",
+    "query": "CREATE OR REPLACE FUNCTION trigger_data()  RETURNS trigger LANGUAGE plpgsql AS $$ declare argstr text"
+  },
+  {
+    "comment": "triggers - Statement 185",
+    "query": "relid text"
+  },
+  {
+    "comment": "triggers - Statement 186",
+    "query": "begin relid := TG_relid::regclass"
+  },
+  {
+    "comment": "triggers - Statement 187",
+    "query": "raise NOTICE 'TG_NAME: %', TG_name"
+  },
+  {
+    "comment": "triggers - Statement 188",
+    "query": "raise NOTICE 'TG_WHEN: %', TG_when"
+  },
+  {
+    "comment": "triggers - Statement 189",
+    "query": "raise NOTICE 'TG_LEVEL: %', TG_level"
+  },
+  {
+    "comment": "triggers - Statement 190",
+    "query": "raise NOTICE 'TG_OP: %', TG_op"
+  },
+  {
+    "comment": "triggers - Statement 191",
+    "query": "raise NOTICE 'TG_RELID::regclass: %', relid"
+  },
+  {
+    "comment": "triggers - Statement 192",
+    "query": "raise NOTICE 'TG_RELNAME: %', TG_relname"
+  },
+  {
+    "comment": "triggers - Statement 193",
+    "query": "raise NOTICE 'TG_TABLE_NAME: %', TG_table_name"
+  },
+  {
+    "comment": "triggers - Statement 194",
+    "query": "raise NOTICE 'TG_TABLE_SCHEMA: %', TG_table_schema"
+  },
+  {
+    "comment": "triggers - Statement 195",
+    "query": "raise NOTICE 'TG_NARGS: %', TG_nargs"
+  },
+  {
+    "comment": "triggers - Statement 196",
+    "query": "argstr := '['"
+  },
+  {
+    "comment": "triggers - Statement 197",
+    "query": "for i in 0 .. TG_nargs - 1 loop if i > 0 then argstr := argstr || ', '"
+  },
+  {
+    "comment": "triggers - Statement 198",
+    "query": "end if"
+  },
+  {
+    "comment": "triggers - Statement 199",
+    "query": "argstr := argstr || TG_argv[i]"
+  },
+  {
+    "comment": "triggers - Statement 200",
+    "query": "end loop"
+  },
+  {
+    "comment": "triggers - Statement 201",
+    "query": "argstr := argstr || ']'"
+  },
+  {
+    "comment": "triggers - Statement 202",
+    "query": "raise NOTICE 'TG_ARGV: %', argstr"
+  },
+  {
+    "comment": "triggers - Statement 203",
+    "query": "if TG_OP != 'INSERT' then raise NOTICE 'OLD: %', OLD"
+  },
+  {
+    "comment": "triggers - Statement 204",
+    "query": "if TG_OP != 'DELETE' then raise NOTICE 'NEW: %', NEW"
+  },
+  {
+    "comment": "triggers - Statement 205",
+    "query": "if TG_OP = 'DELETE' then return OLD"
+  },
+  {
+    "comment": "triggers - Statement 206",
+    "query": "else return NEW"
+  },
+  {
+    "comment": "triggers - Statement 207",
+    "query": "$$"
+  },
+  {
+    "comment": "triggers - Statement 208",
+    "query": "CREATE TRIGGER show_trigger_data_trig BEFORE INSERT OR UPDATE OR DELETE ON trigger_test FOR EACH ROW EXECUTE PROCEDURE trigger_data(23,'skidoo')"
+  },
+  {
+    "comment": "triggers - Statement 209",
+    "query": "insert into trigger_test values(1,'insert')"
+  },
+  {
+    "comment": "triggers - Statement 210",
+    "query": "update trigger_test set v = 'update' where i = 1"
+  },
+  {
+    "comment": "triggers - Statement 211",
+    "query": "delete from trigger_test"
+  },
+  {
+    "comment": "triggers - Statement 212",
+    "query": "DROP TRIGGER show_trigger_data_trig on trigger_test"
+  },
+  {
+    "comment": "triggers - Statement 213",
+    "query": "DROP FUNCTION trigger_data()"
+  },
+  {
+    "comment": "triggers - Statement 214",
+    "query": "DROP TABLE trigger_test"
+  },
+  {
+    "comment": "triggers - Statement 215",
+    "query": "CREATE TABLE trigger_test (f1 int, f2 text, f3 text)"
+  },
+  {
+    "comment": "triggers - Statement 216",
+    "query": "CREATE FUNCTION mytrigger() RETURNS trigger LANGUAGE plpgsql as $$ begin if row(old.*) = row(new.*) then raise notice 'row % not changed', new.f1"
+  },
+  {
+    "comment": "triggers - Statement 217",
+    "query": "else raise notice 'row % changed', new.f1"
+  },
+  {
+    "comment": "triggers - Statement 218",
+    "query": "end$$"
+  },
+  {
+    "comment": "triggers - Statement 219",
+    "query": "CREATE TRIGGER t BEFORE UPDATE ON trigger_test FOR EACH ROW EXECUTE PROCEDURE mytrigger()"
+  },
+  {
+    "comment": "triggers - Statement 220",
+    "query": "INSERT INTO trigger_test VALUES(1, 'foo', 'bar')"
+  },
+  {
+    "comment": "triggers - Statement 221",
+    "query": "INSERT INTO trigger_test VALUES(2, 'baz', 'quux')"
+  },
+  {
+    "comment": "triggers - Statement 222",
+    "query": "UPDATE trigger_test SET f3 = 'bar'"
+  },
+  {
+    "comment": "triggers - Statement 223",
+    "query": "UPDATE trigger_test SET f3 = NULL"
+  },
+  {
+    "comment": "triggers - Statement 224",
+    "query": "CREATE OR REPLACE FUNCTION mytrigger() RETURNS trigger LANGUAGE plpgsql as $$ begin if row(old.*) is distinct from row(new.*) then raise notice 'row % changed', new.f1"
+  },
+  {
+    "comment": "triggers - Statement 225",
+    "query": "else raise notice 'row % not changed', new.f1"
+  },
+  {
+    "comment": "triggers - Statement 226",
+    "query": "DROP FUNCTION mytrigger()"
+  },
+  {
+    "comment": "triggers - Statement 227",
+    "query": "CREATE FUNCTION serializable_update_trig() RETURNS trigger LANGUAGE plpgsql AS $$ declare rec record"
+  },
+  {
+    "comment": "triggers - Statement 228",
+    "query": "begin new.description = 'updated in trigger'"
+  },
+  {
+    "comment": "triggers - Statement 229",
+    "query": "CREATE TABLE serializable_update_tab ( id int, filler  text, description text )"
+  },
+  {
+    "comment": "triggers - Statement 230",
+    "query": "CREATE TRIGGER serializable_update_trig BEFORE UPDATE ON serializable_update_tab FOR EACH ROW EXECUTE PROCEDURE serializable_update_trig()"
+  },
+  {
+    "comment": "triggers - Statement 231",
+    "query": "INSERT INTO serializable_update_tab SELECT a, repeat('xyzxz', 100), 'new' FROM generate_series(1, 50) a"
+  },
+  {
+    "comment": "triggers - Statement 232",
+    "query": "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"
+  },
+  {
+    "comment": "triggers - Statement 233",
+    "query": "UPDATE serializable_update_tab SET description = 'no no', id = 1 WHERE id = 1"
+  },
+  {
+    "comment": "triggers - Statement 234",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "triggers - Statement 235",
+    "query": "SELECT description FROM serializable_update_tab WHERE id = 1"
+  },
+  {
+    "comment": "triggers - Statement 236",
+    "query": "DROP TABLE serializable_update_tab"
+  },
+  {
+    "comment": "triggers - Statement 237",
+    "query": "CREATE TABLE min_updates_test ( f1\ttext, f2 int, f3 int)"
+  },
+  {
+    "comment": "triggers - Statement 238",
+    "query": "INSERT INTO min_updates_test VALUES ('a',1,2),('b','2',null)"
+  },
+  {
+    "comment": "triggers - Statement 239",
+    "query": "CREATE TRIGGER z_min_update BEFORE UPDATE ON min_updates_test FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger()"
+  },
+  {
+    "comment": "triggers - Statement 240",
+    "query": "UPDATE min_updates_test SET f2 = f2 + 1"
+  },
+  {
+    "comment": "triggers - Statement 241",
+    "query": "UPDATE min_updates_test SET f3 = 2 WHERE f3 is null"
+  },
+  {
+    "comment": "triggers - Statement 242",
+    "query": "DROP TABLE min_updates_test"
+  },
+  {
+    "comment": "triggers - Statement 243",
+    "query": "CREATE VIEW main_view AS SELECT a, b FROM main_table"
+  },
+  {
+    "comment": "triggers - Statement 244",
+    "query": "CREATE OR REPLACE FUNCTION view_trigger() RETURNS trigger LANGUAGE plpgsql AS $$ declare argstr text := ''"
+  },
+  {
+    "comment": "triggers - Statement 245",
+    "query": "begin for i in 0 .. TG_nargs - 1 loop if i > 0 then argstr := argstr || ', '"
+  },
+  {
+    "comment": "triggers - Statement 246",
+    "query": "raise notice '% % % % (%)', TG_TABLE_NAME, TG_WHEN, TG_OP, TG_LEVEL, argstr"
+  },
+  {
+    "comment": "triggers - Statement 247",
+    "query": "if TG_LEVEL = 'ROW' then if TG_OP = 'INSERT' then raise NOTICE 'NEW: %', NEW"
+  },
+  {
+    "comment": "triggers - Statement 248",
+    "query": "INSERT INTO main_table VALUES (NEW.a, NEW.b)"
+  },
+  {
+    "comment": "triggers - Statement 249",
+    "query": "if TG_OP = 'UPDATE' then raise NOTICE 'OLD: %, NEW: %', OLD, NEW"
+  },
+  {
+    "comment": "triggers - Statement 250",
+    "query": "UPDATE main_table SET a = NEW.a, b = NEW.b WHERE a = OLD.a AND b = OLD.b"
+  },
+  {
+    "comment": "triggers - Statement 251",
+    "query": "if NOT FOUND then RETURN NULL; end if"
+  },
+  {
+    "comment": "triggers - Statement 252",
+    "query": "if TG_OP = 'DELETE' then raise NOTICE 'OLD: %', OLD"
+  },
+  {
+    "comment": "triggers - Statement 253",
+    "query": "DELETE FROM main_table WHERE a = OLD.a AND b = OLD.b"
+  },
+  {
+    "comment": "triggers - Statement 254",
+    "query": "RETURN OLD"
+  },
+  {
+    "comment": "triggers - Statement 255",
+    "query": "CREATE TRIGGER invalid_trig BEFORE INSERT ON main_view FOR EACH ROW EXECUTE PROCEDURE trigger_func('before_ins_row')"
+  },
+  {
+    "comment": "triggers - Statement 256",
+    "query": "CREATE TRIGGER invalid_trig BEFORE UPDATE ON main_view FOR EACH ROW EXECUTE PROCEDURE trigger_func('before_upd_row')"
+  },
+  {
+    "comment": "triggers - Statement 257",
+    "query": "CREATE TRIGGER invalid_trig BEFORE DELETE ON main_view FOR EACH ROW EXECUTE PROCEDURE trigger_func('before_del_row')"
+  },
+  {
+    "comment": "triggers - Statement 258",
+    "query": "CREATE TRIGGER invalid_trig AFTER INSERT ON main_view FOR EACH ROW EXECUTE PROCEDURE trigger_func('before_ins_row')"
+  },
+  {
+    "comment": "triggers - Statement 259",
+    "query": "CREATE TRIGGER invalid_trig AFTER UPDATE ON main_view FOR EACH ROW EXECUTE PROCEDURE trigger_func('before_upd_row')"
+  },
+  {
+    "comment": "triggers - Statement 260",
+    "query": "CREATE TRIGGER invalid_trig AFTER DELETE ON main_view FOR EACH ROW EXECUTE PROCEDURE trigger_func('before_del_row')"
+  },
+  {
+    "comment": "triggers - Statement 261",
+    "query": "CREATE TRIGGER invalid_trig BEFORE TRUNCATE ON main_view EXECUTE PROCEDURE trigger_func('before_tru_row')"
+  },
+  {
+    "comment": "triggers - Statement 262",
+    "query": "CREATE TRIGGER invalid_trig AFTER TRUNCATE ON main_view EXECUTE PROCEDURE trigger_func('before_tru_row')"
+  },
+  {
+    "comment": "triggers - Statement 263",
+    "query": "CREATE TRIGGER invalid_trig INSTEAD OF INSERT ON main_table FOR EACH ROW EXECUTE PROCEDURE view_trigger('instead_of_ins')"
+  },
+  {
+    "comment": "triggers - Statement 264",
+    "query": "CREATE TRIGGER invalid_trig INSTEAD OF UPDATE ON main_table FOR EACH ROW EXECUTE PROCEDURE view_trigger('instead_of_upd')"
+  },
+  {
+    "comment": "triggers - Statement 265",
+    "query": "CREATE TRIGGER invalid_trig INSTEAD OF DELETE ON main_table FOR EACH ROW EXECUTE PROCEDURE view_trigger('instead_of_del')"
+  },
+  {
+    "comment": "triggers - Statement 266",
+    "query": "CREATE TRIGGER invalid_trig INSTEAD OF UPDATE ON main_view FOR EACH ROW WHEN (OLD.a <> NEW.a) EXECUTE PROCEDURE view_trigger('instead_of_upd')"
+  },
+  {
+    "comment": "triggers - Statement 267",
+    "query": "CREATE TRIGGER invalid_trig INSTEAD OF UPDATE OF a ON main_view FOR EACH ROW EXECUTE PROCEDURE view_trigger('instead_of_upd')"
+  },
+  {
+    "comment": "triggers - Statement 268",
+    "query": "CREATE TRIGGER invalid_trig INSTEAD OF UPDATE ON main_view EXECUTE PROCEDURE view_trigger('instead_of_upd')"
+  },
+  {
+    "comment": "triggers - Statement 269",
+    "query": "CREATE TRIGGER instead_of_insert_trig INSTEAD OF INSERT ON main_view FOR EACH ROW EXECUTE PROCEDURE view_trigger('instead_of_ins')"
+  },
+  {
+    "comment": "triggers - Statement 270",
+    "query": "CREATE TRIGGER instead_of_update_trig INSTEAD OF UPDATE ON main_view FOR EACH ROW EXECUTE PROCEDURE view_trigger('instead_of_upd')"
+  },
+  {
+    "comment": "triggers - Statement 271",
+    "query": "CREATE TRIGGER instead_of_delete_trig INSTEAD OF DELETE ON main_view FOR EACH ROW EXECUTE PROCEDURE view_trigger('instead_of_del')"
+  },
+  {
+    "comment": "triggers - Statement 272",
+    "query": "CREATE TRIGGER before_ins_stmt_trig BEFORE INSERT ON main_view FOR EACH STATEMENT EXECUTE PROCEDURE view_trigger('before_view_ins_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 273",
+    "query": "CREATE TRIGGER before_upd_stmt_trig BEFORE UPDATE ON main_view FOR EACH STATEMENT EXECUTE PROCEDURE view_trigger('before_view_upd_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 274",
+    "query": "CREATE TRIGGER before_del_stmt_trig BEFORE DELETE ON main_view FOR EACH STATEMENT EXECUTE PROCEDURE view_trigger('before_view_del_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 275",
+    "query": "CREATE TRIGGER after_ins_stmt_trig AFTER INSERT ON main_view FOR EACH STATEMENT EXECUTE PROCEDURE view_trigger('after_view_ins_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 276",
+    "query": "CREATE TRIGGER after_upd_stmt_trig AFTER UPDATE ON main_view FOR EACH STATEMENT EXECUTE PROCEDURE view_trigger('after_view_upd_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 277",
+    "query": "CREATE TRIGGER after_del_stmt_trig AFTER DELETE ON main_view FOR EACH STATEMENT EXECUTE PROCEDURE view_trigger('after_view_del_stmt')"
+  },
+  {
+    "comment": "triggers - Statement 278",
+    "query": "INSERT INTO main_view VALUES (21, 31) RETURNING a, b"
+  },
+  {
+    "comment": "triggers - Statement 279",
+    "query": "UPDATE main_view SET b = 31 WHERE a = 20"
+  },
+  {
+    "comment": "triggers - Statement 280",
+    "query": "UPDATE main_view SET b = 32 WHERE a = 21 AND b = 31 RETURNING a, b"
+  },
+  {
+    "comment": "triggers - Statement 281",
+    "query": "DROP TRIGGER before_upd_a_row_trig ON main_table"
+  },
+  {
+    "comment": "triggers - Statement 282",
+    "query": "UPDATE main_view SET b = 0 WHERE false"
+  },
+  {
+    "comment": "triggers - Statement 283",
+    "query": "DELETE FROM main_view WHERE a IN (20,21)"
+  },
+  {
+    "comment": "triggers - Statement 284",
+    "query": "DELETE FROM main_view WHERE a = 31 RETURNING a, b"
+  },
+  {
+    "comment": "triggers - Statement 285",
+    "query": "DROP TRIGGER instead_of_delete_trig ON main_view"
+  },
+  {
+    "comment": "triggers - Statement 286",
+    "query": "CREATE TABLE country_table ( country_id        serial primary key, country_name    text unique not null, continent        text not null )"
+  },
+  {
+    "comment": "triggers - Statement 287",
+    "query": "INSERT INTO country_table (country_name, continent) VALUES ('Japan', 'Asia'), ('UK', 'Europe'), ('USA', 'North America') RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 288",
+    "query": "CREATE TABLE city_table ( city_id        serial primary key, city_name    text not null, population    bigint, country_id    int references country_table )"
+  },
+  {
+    "comment": "triggers - Statement 289",
+    "query": "CREATE VIEW city_view AS SELECT city_id, city_name, population, country_name, continent FROM city_table ci LEFT JOIN country_table co ON co.country_id = ci.country_id"
+  },
+  {
+    "comment": "triggers - Statement 290",
+    "query": "CREATE FUNCTION city_insert() RETURNS trigger LANGUAGE plpgsql AS $$ declare ctry_id int"
+  },
+  {
+    "comment": "triggers - Statement 291",
+    "query": "begin if NEW.country_name IS NOT NULL then SELECT country_id, continent INTO ctry_id, NEW.continent FROM country_table WHERE country_name = NEW.country_name"
+  },
+  {
+    "comment": "triggers - Statement 292",
+    "query": "if NOT FOUND then raise exception 'No such country: \"%\"', NEW.country_name"
+  },
+  {
+    "comment": "triggers - Statement 293",
+    "query": "else NEW.continent := NULL"
+  },
+  {
+    "comment": "triggers - Statement 294",
+    "query": "if NEW.city_id IS NOT NULL then INSERT INTO city_table VALUES(NEW.city_id, NEW.city_name, NEW.population, ctry_id)"
+  },
+  {
+    "comment": "triggers - Statement 295",
+    "query": "else INSERT INTO city_table(city_name, population, country_id) VALUES(NEW.city_name, NEW.population, ctry_id) RETURNING city_id INTO NEW.city_id"
+  },
+  {
+    "comment": "triggers - Statement 296",
+    "query": "CREATE TRIGGER city_insert_trig INSTEAD OF INSERT ON city_view FOR EACH ROW EXECUTE PROCEDURE city_insert()"
+  },
+  {
+    "comment": "triggers - Statement 297",
+    "query": "CREATE FUNCTION city_delete() RETURNS trigger LANGUAGE plpgsql AS $$ begin DELETE FROM city_table WHERE city_id = OLD.city_id"
+  },
+  {
+    "comment": "triggers - Statement 298",
+    "query": "CREATE TRIGGER city_delete_trig INSTEAD OF DELETE ON city_view FOR EACH ROW EXECUTE PROCEDURE city_delete()"
+  },
+  {
+    "comment": "triggers - Statement 299",
+    "query": "CREATE FUNCTION city_update() RETURNS trigger LANGUAGE plpgsql AS $$ declare ctry_id int"
+  },
+  {
+    "comment": "triggers - Statement 300",
+    "query": "begin if NEW.country_name IS DISTINCT FROM OLD.country_name then SELECT country_id, continent INTO ctry_id, NEW.continent FROM country_table WHERE country_name = NEW.country_name"
+  },
+  {
+    "comment": "triggers - Statement 301",
+    "query": "UPDATE city_table SET city_name = NEW.city_name, population = NEW.population, country_id = ctry_id WHERE city_id = OLD.city_id"
+  },
+  {
+    "comment": "triggers - Statement 302",
+    "query": "else UPDATE city_table SET city_name = NEW.city_name, population = NEW.population WHERE city_id = OLD.city_id"
+  },
+  {
+    "comment": "triggers - Statement 303",
+    "query": "NEW.continent := OLD.continent"
+  },
+  {
+    "comment": "triggers - Statement 304",
+    "query": "CREATE TRIGGER city_update_trig INSTEAD OF UPDATE ON city_view FOR EACH ROW EXECUTE PROCEDURE city_update()"
+  },
+  {
+    "comment": "triggers - Statement 305",
+    "query": "INSERT INTO city_view(city_name, population) VALUES('London', 7556900) RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 306",
+    "query": "INSERT INTO city_view(city_name, country_name) VALUES('Washington DC', 'USA') RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 307",
+    "query": "INSERT INTO city_view(city_id, city_name) VALUES(123456, 'New York') RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 308",
+    "query": "INSERT INTO city_view VALUES(234567, 'Birmingham', 1016800, 'UK', 'EU') RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 309",
+    "query": "UPDATE city_view SET country_name = 'Japon' WHERE city_name = 'Tokyo'"
+  },
+  {
+    "comment": "triggers - Statement 310",
+    "query": "UPDATE city_view SET country_name = 'Japan' WHERE city_name = 'Takyo'"
+  },
+  {
+    "comment": "triggers - Statement 311",
+    "query": "UPDATE city_view SET country_name = 'Japan' WHERE city_name = 'Tokyo' RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 312",
+    "query": "UPDATE city_view SET population = 13010279 WHERE city_name = 'Tokyo' RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 313",
+    "query": "UPDATE city_view SET country_name = 'UK' WHERE city_name = 'New York' RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 314",
+    "query": "UPDATE city_view SET country_name = 'USA', population = 8391881 WHERE city_name = 'New York' RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 315",
+    "query": "UPDATE city_view SET continent = 'EU' WHERE continent = 'Europe' RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 316",
+    "query": "UPDATE city_view v1 SET country_name = v2.country_name FROM city_view v2 WHERE v2.city_name = 'Birmingham' AND v1.city_name = 'London' RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 317",
+    "query": "DELETE FROM city_view WHERE city_name = 'Birmingham' RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 318",
+    "query": "SELECT count(*) FROM european_city_view"
+  },
+  {
+    "comment": "triggers - Statement 319",
+    "query": "CREATE FUNCTION no_op_trig_fn() RETURNS trigger LANGUAGE plpgsql AS 'begin RETURN NULL; end'"
+  },
+  {
+    "comment": "triggers - Statement 320",
+    "query": "CREATE TRIGGER no_op_trig INSTEAD OF INSERT OR UPDATE OR DELETE ON european_city_view FOR EACH ROW EXECUTE PROCEDURE no_op_trig_fn()"
+  },
+  {
+    "comment": "triggers - Statement 321",
+    "query": "UPDATE european_city_view SET population = 10000"
+  },
+  {
+    "comment": "triggers - Statement 322",
+    "query": "DELETE FROM european_city_view"
+  },
+  {
+    "comment": "triggers - Statement 323",
+    "query": "CREATE RULE european_city_update_rule AS ON UPDATE TO european_city_view DO INSTEAD UPDATE city_view SET city_name = NEW.city_name, population = NEW.population, country_name = NEW.country_name WHERE city_id = OLD.city_id RETURNING NEW.*"
+  },
+  {
+    "comment": "triggers - Statement 324",
+    "query": "CREATE RULE european_city_delete_rule AS ON DELETE TO european_city_view DO INSTEAD DELETE FROM city_view WHERE city_id = OLD.city_id RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 325",
+    "query": "UPDATE european_city_view SET country_name = 'UK' WHERE city_name = 'Cambridge'"
+  },
+  {
+    "comment": "triggers - Statement 326",
+    "query": "DELETE FROM european_city_view WHERE city_name = 'Cambridge'"
+  },
+  {
+    "comment": "triggers - Statement 327",
+    "query": "UPDATE city_view SET country_name = 'UK' WHERE city_name = 'Cambridge' RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 328",
+    "query": "UPDATE european_city_view SET population = 122800 WHERE city_name = 'Cambridge' RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 329",
+    "query": "DELETE FROM european_city_view WHERE city_name = 'Cambridge' RETURNING *"
+  },
+  {
+    "comment": "triggers - Statement 330",
+    "query": "UPDATE city_view v SET population = 599657 FROM city_table ci, country_table co WHERE ci.city_name = 'Washington DC' and co.country_name = 'USA' AND v.city_id = ci.city_id AND v.country_name = co.country_name RETURNING co.country_id, v.country_name, v.city_id, v.city_name, v.population"
+  },
+  {
+    "comment": "triggers - Statement 331",
+    "query": "DROP TABLE city_table CASCADE"
+  },
+  {
+    "comment": "triggers - Statement 332",
+    "query": "DROP TABLE country_table"
+  },
+  {
+    "comment": "triggers - Statement 333",
+    "query": "create table depth_a (id int not null primary key)"
+  },
+  {
+    "comment": "triggers - Statement 334",
+    "query": "create table depth_b (id int not null primary key)"
+  },
+  {
+    "comment": "triggers - Statement 335",
+    "query": "create table depth_c (id int not null primary key)"
+  },
+  {
+    "comment": "triggers - Statement 336",
+    "query": "create function depth_a_tf() returns trigger language plpgsql as $$ begin raise notice '%: depth = %', tg_name, pg_trigger_depth()"
+  },
+  {
+    "comment": "triggers - Statement 337",
+    "query": "insert into depth_b values (new.id)"
+  },
+  {
+    "comment": "triggers - Statement 338",
+    "query": "raise notice '%: depth = %', tg_name, pg_trigger_depth()"
+  },
+  {
+    "comment": "triggers - Statement 339",
+    "query": "create trigger depth_a_tr before insert on depth_a for each row execute procedure depth_a_tf()"
+  },
+  {
+    "comment": "triggers - Statement 340",
+    "query": "create function depth_b_tf() returns trigger language plpgsql as $$ begin raise notice '%: depth = %', tg_name, pg_trigger_depth()"
+  },
+  {
+    "comment": "triggers - Statement 341",
+    "query": "begin execute 'insert into depth_c values (' || new.id::text || ')'"
+  },
+  {
+    "comment": "triggers - Statement 342",
+    "query": "exception when sqlstate 'U9999' then raise notice 'SQLSTATE = U9999: depth = %', pg_trigger_depth()"
+  },
+  {
+    "comment": "triggers - Statement 343",
+    "query": "if new.id = 1 then execute 'insert into depth_c values (' || new.id::text || ')'"
+  },
+  {
+    "comment": "triggers - Statement 344",
+    "query": "create trigger depth_b_tr before insert on depth_b for each row execute procedure depth_b_tf()"
+  },
+  {
+    "comment": "triggers - Statement 345",
+    "query": "create function depth_c_tf() returns trigger language plpgsql as $$ begin raise notice '%: depth = %', tg_name, pg_trigger_depth()"
+  },
+  {
+    "comment": "triggers - Statement 346",
+    "query": "if new.id = 1 then raise exception sqlstate 'U9999'"
+  },
+  {
+    "comment": "triggers - Statement 347",
+    "query": "create trigger depth_c_tr before insert on depth_c for each row execute procedure depth_c_tf()"
+  },
+  {
+    "comment": "triggers - Statement 348",
+    "query": "select pg_trigger_depth()"
+  },
+  {
+    "comment": "triggers - Statement 349",
+    "query": "insert into depth_a values (1)"
+  },
+  {
+    "comment": "triggers - Statement 350",
+    "query": "insert into depth_a values (2)"
+  },
+  {
+    "comment": "triggers - Statement 351",
+    "query": "drop table depth_a, depth_b, depth_c"
+  },
+  {
+    "comment": "triggers - Statement 352",
+    "query": "drop function depth_a_tf()"
+  },
+  {
+    "comment": "triggers - Statement 353",
+    "query": "drop function depth_b_tf()"
+  },
+  {
+    "comment": "triggers - Statement 354",
+    "query": "drop function depth_c_tf()"
+  },
+  {
+    "comment": "triggers - Statement 355",
+    "query": "create temp table parent ( aid int not null primary key, val1 text, val2 text, val3 text, val4 text, bcnt int not null default 0)"
+  },
+  {
+    "comment": "triggers - Statement 356",
+    "query": "create temp table child ( bid int not null primary key, aid int not null, val1 text)"
+  },
+  {
+    "comment": "triggers - Statement 357",
+    "query": "create function parent_upd_func() returns trigger language plpgsql as $$ begin if old.val1 <> new.val1 then new.val2 = new.val1"
+  },
+  {
+    "comment": "triggers - Statement 358",
+    "query": "delete from child where child.aid = new.aid and child.val1 = new.val1"
+  },
+  {
+    "comment": "triggers - Statement 359",
+    "query": "create trigger parent_upd_trig before update on parent for each row execute procedure parent_upd_func()"
+  },
+  {
+    "comment": "triggers - Statement 360",
+    "query": "create function parent_del_func() returns trigger language plpgsql as $$ begin delete from child where aid = old.aid"
+  },
+  {
+    "comment": "triggers - Statement 361",
+    "query": "create trigger parent_del_trig before delete on parent for each row execute procedure parent_del_func()"
+  },
+  {
+    "comment": "triggers - Statement 362",
+    "query": "create function child_ins_func() returns trigger language plpgsql as $$ begin update parent set bcnt = bcnt + 1 where aid = new.aid"
+  },
+  {
+    "comment": "triggers - Statement 363",
+    "query": "create trigger child_ins_trig after insert on child for each row execute procedure child_ins_func()"
+  },
+  {
+    "comment": "triggers - Statement 364",
+    "query": "create function child_del_func() returns trigger language plpgsql as $$ begin update parent set bcnt = bcnt - 1 where aid = old.aid"
+  },
+  {
+    "comment": "triggers - Statement 365",
+    "query": "create trigger child_del_trig after delete on child for each row execute procedure child_del_func()"
+  },
+  {
+    "comment": "triggers - Statement 366",
+    "query": "insert into parent values (1, 'a', 'a', 'a', 'a', 0)"
+  },
+  {
+    "comment": "triggers - Statement 367",
+    "query": "insert into child values (10, 1, 'b')"
+  },
+  {
+    "comment": "triggers - Statement 368",
+    "query": "select * from parent; select * from child"
+  },
+  {
+    "comment": "triggers - Statement 369",
+    "query": "update parent set val1 = 'b' where aid = 1"
+  },
+  {
+    "comment": "triggers - Statement 370",
+    "query": "merge into parent p using (values (1)) as v(id) on p.aid = v.id when matched then update set val1 = 'b'"
+  },
+  {
+    "comment": "triggers - Statement 371",
+    "query": "delete from parent where aid = 1"
+  },
+  {
+    "comment": "triggers - Statement 372",
+    "query": "merge into parent p using (values (1)) as v(id) on p.aid = v.id when matched then delete"
+  },
+  {
+    "comment": "triggers - Statement 373",
+    "query": "create or replace function parent_del_func() returns trigger language plpgsql as $$ begin delete from child where aid = old.aid"
+  },
+  {
+    "comment": "triggers - Statement 374",
+    "query": "if found then delete from parent where aid = old.aid"
+  },
+  {
+    "comment": "triggers - Statement 375",
+    "query": "drop table parent, child"
+  },
+  {
+    "comment": "triggers - Statement 376",
+    "query": "drop function parent_upd_func()"
+  },
+  {
+    "comment": "triggers - Statement 377",
+    "query": "drop function parent_del_func()"
+  },
+  {
+    "comment": "triggers - Statement 378",
+    "query": "drop function child_ins_func()"
+  },
+  {
+    "comment": "triggers - Statement 379",
+    "query": "drop function child_del_func()"
+  },
+  {
+    "comment": "triggers - Statement 380",
+    "query": "create temp table self_ref_trigger ( id int primary key, parent int references self_ref_trigger, data text, nchildren int not null default 0 )"
+  },
+  {
+    "comment": "triggers - Statement 381",
+    "query": "create function self_ref_trigger_ins_func() returns trigger language plpgsql as $$ begin if new.parent is not null then update self_ref_trigger set nchildren = nchildren + 1 where id = new.parent"
+  },
+  {
+    "comment": "triggers - Statement 382",
+    "query": "create trigger self_ref_trigger_ins_trig before insert on self_ref_trigger for each row execute procedure self_ref_trigger_ins_func()"
+  },
+  {
+    "comment": "triggers - Statement 383",
+    "query": "create function self_ref_trigger_del_func() returns trigger language plpgsql as $$ begin if old.parent is not null then update self_ref_trigger set nchildren = nchildren - 1 where id = old.parent"
+  },
+  {
+    "comment": "triggers - Statement 384",
+    "query": "create trigger self_ref_trigger_del_trig before delete on self_ref_trigger for each row execute procedure self_ref_trigger_del_func()"
+  },
+  {
+    "comment": "triggers - Statement 385",
+    "query": "insert into self_ref_trigger values (1, null, 'root')"
+  },
+  {
+    "comment": "triggers - Statement 386",
+    "query": "insert into self_ref_trigger values (2, 1, 'root child A')"
+  },
+  {
+    "comment": "triggers - Statement 387",
+    "query": "insert into self_ref_trigger values (3, 1, 'root child B')"
+  },
+  {
+    "comment": "triggers - Statement 388",
+    "query": "insert into self_ref_trigger values (4, 2, 'grandchild 1')"
+  },
+  {
+    "comment": "triggers - Statement 389",
+    "query": "insert into self_ref_trigger values (5, 3, 'grandchild 2')"
+  },
+  {
+    "comment": "triggers - Statement 390",
+    "query": "update self_ref_trigger set data = 'root!' where id = 1"
+  },
+  {
+    "comment": "triggers - Statement 391",
+    "query": "select * from self_ref_trigger"
+  },
+  {
+    "comment": "triggers - Statement 392",
+    "query": "delete from self_ref_trigger"
+  },
+  {
+    "comment": "triggers - Statement 393",
+    "query": "drop table self_ref_trigger"
+  },
+  {
+    "comment": "triggers - Statement 394",
+    "query": "drop function self_ref_trigger_ins_func()"
+  },
+  {
+    "comment": "triggers - Statement 395",
+    "query": "drop function self_ref_trigger_del_func()"
+  },
+  {
+    "comment": "triggers - Statement 396",
+    "query": "create table stmt_trig_on_empty_upd (a int)"
+  },
+  {
+    "comment": "triggers - Statement 397",
+    "query": "create table stmt_trig_on_empty_upd1 () inherits (stmt_trig_on_empty_upd)"
+  },
+  {
+    "comment": "triggers - Statement 398",
+    "query": "create function update_stmt_notice() returns trigger as $$ begin raise notice 'updating %', TG_TABLE_NAME"
+  },
+  {
+    "comment": "triggers - Statement 399",
+    "query": "create trigger before_stmt_trigger before update on stmt_trig_on_empty_upd execute procedure update_stmt_notice()"
+  },
+  {
+    "comment": "triggers - Statement 400",
+    "query": "create trigger before_stmt_trigger before update on stmt_trig_on_empty_upd1 execute procedure update_stmt_notice()"
+  },
+  {
+    "comment": "triggers - Statement 401",
+    "query": "update stmt_trig_on_empty_upd set a = a where false returning a+1 as aa"
+  },
+  {
+    "comment": "triggers - Statement 402",
+    "query": "update stmt_trig_on_empty_upd1 set a = a where false returning a+1 as aa"
+  },
+  {
+    "comment": "triggers - Statement 403",
+    "query": "drop table stmt_trig_on_empty_upd cascade"
+  },
+  {
+    "comment": "triggers - Statement 404",
+    "query": "drop function update_stmt_notice()"
+  },
+  {
+    "comment": "triggers - Statement 405",
+    "query": "create table trigger_ddl_table ( col1 integer, col2 integer )"
+  },
+  {
+    "comment": "triggers - Statement 406",
+    "query": "create function trigger_ddl_func() returns trigger as $$ begin alter table trigger_ddl_table add primary key (col1)"
+  },
+  {
+    "comment": "triggers - Statement 407",
+    "query": "end$$ language plpgsql"
+  },
+  {
+    "comment": "triggers - Statement 408",
+    "query": "create trigger trigger_ddl_func before insert on trigger_ddl_table for each row execute procedure trigger_ddl_func()"
+  },
+  {
+    "comment": "triggers - Statement 409",
+    "query": "insert into trigger_ddl_table values (1, 42)"
+  },
+  {
+    "comment": "triggers - Statement 410",
+    "query": "create or replace function trigger_ddl_func() returns trigger as $$ begin create index on trigger_ddl_table (col2)"
+  },
+  {
+    "comment": "triggers - Statement 411",
+    "query": "drop table trigger_ddl_table"
+  },
+  {
+    "comment": "triggers - Statement 412",
+    "query": "drop function trigger_ddl_func()"
+  },
+  {
+    "comment": "triggers - Statement 413",
+    "query": "create table upsert (key int4 primary key, color text)"
+  },
+  {
+    "comment": "triggers - Statement 414",
+    "query": "create function upsert_before_func() returns trigger language plpgsql as $$ begin if (TG_OP = 'UPDATE') then raise warning 'before update (old): %', old.*::text"
+  },
+  {
+    "comment": "triggers - Statement 415",
+    "query": "raise warning 'before update (new): %', new.*::text"
+  },
+  {
+    "comment": "triggers - Statement 416",
+    "query": "elsif (TG_OP = 'INSERT') then raise warning 'before insert (new): %', new.*::text"
+  },
+  {
+    "comment": "triggers - Statement 417",
+    "query": "if new.key % 2 = 0 then new.key := new.key + 1"
+  },
+  {
+    "comment": "triggers - Statement 418",
+    "query": "new.color := new.color || ' trig modified'"
+  },
+  {
+    "comment": "triggers - Statement 419",
+    "query": "raise warning 'before insert (new, modified): %', new.*::text"
+  },
+  {
+    "comment": "triggers - Statement 420",
+    "query": "create trigger upsert_before_trig before insert or update on upsert for each row execute procedure upsert_before_func()"
+  },
+  {
+    "comment": "triggers - Statement 421",
+    "query": "create function upsert_after_func() returns trigger language plpgsql as $$ begin if (TG_OP = 'UPDATE') then raise warning 'after update (old): %', old.*::text"
+  },
+  {
+    "comment": "triggers - Statement 422",
+    "query": "raise warning 'after update (new): %', new.*::text"
+  },
+  {
+    "comment": "triggers - Statement 423",
+    "query": "elsif (TG_OP = 'INSERT') then raise warning 'after insert (new): %', new.*::text"
+  },
+  {
+    "comment": "triggers - Statement 424",
+    "query": "create trigger upsert_after_trig after insert or update on upsert for each row execute procedure upsert_after_func()"
+  },
+  {
+    "comment": "triggers - Statement 425",
+    "query": "insert into upsert values(1, 'black') on conflict (key) do update set color = 'updated ' || upsert.color"
+  },
+  {
+    "comment": "triggers - Statement 426",
+    "query": "insert into upsert values(2, 'red') on conflict (key) do update set color = 'updated ' || upsert.color"
+  },
+  {
+    "comment": "triggers - Statement 427",
+    "query": "insert into upsert values(3, 'orange') on conflict (key) do update set color = 'updated ' || upsert.color"
+  },
+  {
+    "comment": "triggers - Statement 428",
+    "query": "insert into upsert values(4, 'green') on conflict (key) do update set color = 'updated ' || upsert.color"
+  },
+  {
+    "comment": "triggers - Statement 429",
+    "query": "insert into upsert values(5, 'purple') on conflict (key) do update set color = 'updated ' || upsert.color"
+  },
+  {
+    "comment": "triggers - Statement 430",
+    "query": "insert into upsert values(6, 'white') on conflict (key) do update set color = 'updated ' || upsert.color"
+  },
+  {
+    "comment": "triggers - Statement 431",
+    "query": "insert into upsert values(7, 'pink') on conflict (key) do update set color = 'updated ' || upsert.color"
+  },
+  {
+    "comment": "triggers - Statement 432",
+    "query": "insert into upsert values(8, 'yellow') on conflict (key) do update set color = 'updated ' || upsert.color"
+  },
+  {
+    "comment": "triggers - Statement 433",
+    "query": "select * from upsert"
+  },
+  {
+    "comment": "triggers - Statement 434",
+    "query": "drop table upsert"
+  },
+  {
+    "comment": "triggers - Statement 435",
+    "query": "drop function upsert_before_func()"
+  },
+  {
+    "comment": "triggers - Statement 436",
+    "query": "drop function upsert_after_func()"
+  },
+  {
+    "comment": "triggers - Statement 437",
+    "query": "create table my_table (i int)"
+  },
+  {
+    "comment": "triggers - Statement 438",
+    "query": "create view my_view as select * from my_table"
+  },
+  {
+    "comment": "triggers - Statement 439",
+    "query": "create function my_trigger_function() returns trigger as $$ begin end; $$ language plpgsql"
+  },
+  {
+    "comment": "triggers - Statement 440",
+    "query": "create trigger my_trigger after update on my_view referencing old table as old_table for each statement execute procedure my_trigger_function()"
+  },
+  {
+    "comment": "triggers - Statement 441",
+    "query": "drop function my_trigger_function()"
+  },
+  {
+    "comment": "triggers - Statement 442",
+    "query": "drop view my_view"
+  },
+  {
+    "comment": "triggers - Statement 443",
+    "query": "drop table my_table"
+  },
+  {
+    "comment": "triggers - Statement 444",
+    "query": "create table parted_trig (a int) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 445",
+    "query": "create function trigger_nothing() returns trigger language plpgsql as $$ begin end; $$"
+  },
+  {
+    "comment": "triggers - Statement 446",
+    "query": "create trigger failed instead of update on parted_trig for each row execute procedure trigger_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 447",
+    "query": "create trigger failed after update on parted_trig referencing old table as old_table for each row execute procedure trigger_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 448",
+    "query": "drop table parted_trig"
+  },
+  {
+    "comment": "triggers - Statement 449",
+    "query": "create table trigpart (a int, b int) partition by range (a)"
+  },
+  {
+    "comment": "triggers - Statement 450",
+    "query": "create table trigpart1 partition of trigpart for values from (0) to (1000)"
+  },
+  {
+    "comment": "triggers - Statement 451",
+    "query": "create trigger trg1 after insert on trigpart for each row execute procedure trigger_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 452",
+    "query": "create table trigpart2 partition of trigpart for values from (1000) to (2000)"
+  },
+  {
+    "comment": "triggers - Statement 453",
+    "query": "create table trigpart3 (like trigpart)"
+  },
+  {
+    "comment": "triggers - Statement 454",
+    "query": "alter table trigpart attach partition trigpart3 for values from (2000) to (3000)"
+  },
+  {
+    "comment": "triggers - Statement 455",
+    "query": "create table trigpart4 partition of trigpart for values from (3000) to (4000) partition by range (a)"
+  },
+  {
+    "comment": "triggers - Statement 456",
+    "query": "create table trigpart41 partition of trigpart4 for values from (3000) to (3500)"
+  },
+  {
+    "comment": "triggers - Statement 457",
+    "query": "create table trigpart42 (like trigpart)"
+  },
+  {
+    "comment": "triggers - Statement 458",
+    "query": "alter table trigpart4 attach partition trigpart42 for values from (3500) to (4000)"
+  },
+  {
+    "comment": "triggers - Statement 459",
+    "query": "select tgrelid::regclass, tgname, tgfoid::regproc from pg_trigger where tgrelid::regclass::text like 'trigpart%' order by tgrelid::regclass::text"
+  },
+  {
+    "comment": "triggers - Statement 460",
+    "query": "drop trigger trg1 on trigpart1"
+  },
+  {
+    "comment": "triggers - Statement 461",
+    "query": "drop trigger trg1 on trigpart2"
+  },
+  {
+    "comment": "triggers - Statement 462",
+    "query": "drop trigger trg1 on trigpart3"
+  },
+  {
+    "comment": "triggers - Statement 463",
+    "query": "drop table trigpart2"
+  },
+  {
+    "comment": "triggers - Statement 464",
+    "query": "drop trigger trg1 on trigpart"
+  },
+  {
+    "comment": "triggers - Statement 465",
+    "query": "alter table trigpart detach partition trigpart4"
+  },
+  {
+    "comment": "triggers - Statement 466",
+    "query": "drop trigger trg1 on trigpart41"
+  },
+  {
+    "comment": "triggers - Statement 467",
+    "query": "drop table trigpart4"
+  },
+  {
+    "comment": "triggers - Statement 468",
+    "query": "alter table trigpart detach partition trigpart3"
+  },
+  {
+    "comment": "triggers - Statement 469",
+    "query": "drop table trigpart3"
+  },
+  {
+    "comment": "triggers - Statement 470",
+    "query": "select tgrelid::regclass::text, tgname, tgfoid::regproc, tgenabled, tgisinternal from pg_trigger where tgname ~ '^trg1' order by 1"
+  },
+  {
+    "comment": "triggers - Statement 471",
+    "query": "create trigger trg1 after insert on trigpart3 for each row execute procedure trigger_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 472",
+    "query": "create trigger samename after delete on trigpart execute function trigger_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 473",
+    "query": "create trigger samename after delete on trigpart1 execute function trigger_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 474",
+    "query": "drop function trigger_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 475",
+    "query": "create table parted_stmt_trig (a int) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 476",
+    "query": "create table parted_stmt_trig1 partition of parted_stmt_trig for values in (1)"
+  },
+  {
+    "comment": "triggers - Statement 477",
+    "query": "create table parted_stmt_trig2 partition of parted_stmt_trig for values in (2)"
+  },
+  {
+    "comment": "triggers - Statement 478",
+    "query": "create table parted2_stmt_trig (a int) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 479",
+    "query": "create table parted2_stmt_trig1 partition of parted2_stmt_trig for values in (1)"
+  },
+  {
+    "comment": "triggers - Statement 480",
+    "query": "create table parted2_stmt_trig2 partition of parted2_stmt_trig for values in (2)"
+  },
+  {
+    "comment": "triggers - Statement 481",
+    "query": "create or replace function trigger_notice() returns trigger as $$ begin raise notice 'trigger % on % % % for %', TG_NAME, TG_TABLE_NAME, TG_WHEN, TG_OP, TG_LEVEL"
+  },
+  {
+    "comment": "triggers - Statement 482",
+    "query": "if TG_LEVEL = 'ROW' then return NEW"
+  },
+  {
+    "comment": "triggers - Statement 483",
+    "query": "create trigger trig_ins_before before insert on parted_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 484",
+    "query": "create trigger trig_ins_after after insert on parted_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 485",
+    "query": "create trigger trig_upd_before before update on parted_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 486",
+    "query": "create trigger trig_upd_after after update on parted_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 487",
+    "query": "create trigger trig_del_before before delete on parted_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 488",
+    "query": "create trigger trig_del_after after delete on parted_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 489",
+    "query": "create trigger trig_ins_after_parent after insert on parted_stmt_trig for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 490",
+    "query": "create trigger trig_upd_after_parent after update on parted_stmt_trig for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 491",
+    "query": "create trigger trig_del_after_parent after delete on parted_stmt_trig for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 492",
+    "query": "create trigger trig_ins_before_child before insert on parted_stmt_trig1 for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 493",
+    "query": "create trigger trig_ins_after_child after insert on parted_stmt_trig1 for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 494",
+    "query": "create trigger trig_upd_before_child before update on parted_stmt_trig1 for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 495",
+    "query": "create trigger trig_upd_after_child after update on parted_stmt_trig1 for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 496",
+    "query": "create trigger trig_del_before_child before delete on parted_stmt_trig1 for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 497",
+    "query": "create trigger trig_del_after_child after delete on parted_stmt_trig1 for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 498",
+    "query": "create trigger trig_ins_before_3 before insert on parted2_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 499",
+    "query": "create trigger trig_ins_after_3 after insert on parted2_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 500",
+    "query": "create trigger trig_upd_before_3 before update on parted2_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 501",
+    "query": "create trigger trig_upd_after_3 after update on parted2_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 502",
+    "query": "create trigger trig_del_before_3 before delete on parted2_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 503",
+    "query": "create trigger trig_del_after_3 after delete on parted2_stmt_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 504",
+    "query": "with ins (a) as ( insert into parted2_stmt_trig values (1), (2) returning a ) insert into parted_stmt_trig select a from ins returning tableoid::regclass, a"
+  },
+  {
+    "comment": "triggers - Statement 505",
+    "query": "with upd as ( update parted2_stmt_trig set a = a ) update parted_stmt_trig  set a = a"
+  },
+  {
+    "comment": "triggers - Statement 506",
+    "query": "delete from parted_stmt_trig"
+  },
+  {
+    "comment": "triggers - Statement 507",
+    "query": "copy parted_stmt_trig(a) from stdin"
+  },
+  {
+    "comment": "triggers - Statement 508",
+    "query": "1 2 \\. copy parted_stmt_trig1(a) from stdin"
+  },
+  {
+    "comment": "triggers - Statement 509",
+    "query": "1 \\. alter table parted_stmt_trig disable trigger trig_ins_after_parent"
+  },
+  {
+    "comment": "triggers - Statement 510",
+    "query": "insert into parted_stmt_trig values (1)"
+  },
+  {
+    "comment": "triggers - Statement 511",
+    "query": "alter table parted_stmt_trig enable trigger trig_ins_after_parent"
+  },
+  {
+    "comment": "triggers - Statement 512",
+    "query": "drop table parted_stmt_trig, parted2_stmt_trig"
+  },
+  {
+    "comment": "triggers - Statement 513",
+    "query": "create table parted_trig (a int) partition by range (a)"
+  },
+  {
+    "comment": "triggers - Statement 514",
+    "query": "create table parted_trig_1 partition of parted_trig for values from (0) to (1000) partition by range (a)"
+  },
+  {
+    "comment": "triggers - Statement 515",
+    "query": "create table parted_trig_1_1 partition of parted_trig_1 for values from (0) to (100)"
+  },
+  {
+    "comment": "triggers - Statement 516",
+    "query": "create table parted_trig_2 partition of parted_trig for values from (1000) to (2000)"
+  },
+  {
+    "comment": "triggers - Statement 517",
+    "query": "create trigger zzz after insert on parted_trig for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 518",
+    "query": "create trigger mmm after insert on parted_trig_1_1 for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 519",
+    "query": "create trigger aaa after insert on parted_trig_1 for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 520",
+    "query": "create trigger bbb after insert on parted_trig for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 521",
+    "query": "create trigger qqq after insert on parted_trig_1_1 for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 522",
+    "query": "insert into parted_trig values (50), (1500)"
+  },
+  {
+    "comment": "triggers - Statement 523",
+    "query": "create table parted_trig1 partition of parted_trig for values in (1)"
+  },
+  {
+    "comment": "triggers - Statement 524",
+    "query": "create table parted_trig2 partition of parted_trig for values in (2)"
+  },
+  {
+    "comment": "triggers - Statement 525",
+    "query": "insert into parted_trig values (1)"
+  },
+  {
+    "comment": "triggers - Statement 526",
+    "query": "if TG_LEVEL = 'ROW' then if TG_OP = 'DELETE' then return OLD"
+  },
+  {
+    "comment": "triggers - Statement 527",
+    "query": "create trigger parted_trig_before_stmt before insert or update or delete on parted_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 528",
+    "query": "create trigger parted_trig_before_row before insert or update or delete on parted_trig for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 529",
+    "query": "create trigger parted_trig_after_row after insert or update or delete on parted_trig for each row execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 530",
+    "query": "create trigger parted_trig_after_stmt after insert or update or delete on parted_trig for each statement execute procedure trigger_notice()"
+  },
+  {
+    "comment": "triggers - Statement 531",
+    "query": "update parted_trig set a = 2 where a = 1"
+  },
+  {
+    "comment": "triggers - Statement 532",
+    "query": "merge into parted_trig using (select 1) as ss on true when matched and a = 2 then update set a = 1"
+  },
+  {
+    "comment": "triggers - Statement 533",
+    "query": "create or replace function trigger_notice() returns trigger as $$ declare arg1 text = TG_ARGV[0]"
+  },
+  {
+    "comment": "triggers - Statement 534",
+    "query": "arg2 integer = TG_ARGV[1]"
+  },
+  {
+    "comment": "triggers - Statement 535",
+    "query": "begin raise notice 'trigger % on % % % for % args % %', TG_NAME, TG_TABLE_NAME, TG_WHEN, TG_OP, TG_LEVEL, arg1, arg2"
+  },
+  {
+    "comment": "triggers - Statement 536",
+    "query": "create trigger aaa after insert on parted_trig for each row execute procedure trigger_notice('quirky', 1)"
+  },
+  {
+    "comment": "triggers - Statement 537",
+    "query": "create table parted_trig3 (like parted_trig)"
+  },
+  {
+    "comment": "triggers - Statement 538",
+    "query": "alter table parted_trig attach partition parted_trig3 for values in (3)"
+  },
+  {
+    "comment": "triggers - Statement 539",
+    "query": "insert into parted_trig values (1), (2), (3)"
+  },
+  {
+    "comment": "triggers - Statement 540",
+    "query": "create function bark(text) returns bool language plpgsql immutable as $$ begin raise notice '% <- woof!', $1; return true; end; $$"
+  },
+  {
+    "comment": "triggers - Statement 541",
+    "query": "create or replace function trigger_notice_ab() returns trigger as $$ begin raise notice 'trigger % on % % % for %: (a,b)=(%,%)', TG_NAME, TG_TABLE_NAME, TG_WHEN, TG_OP, TG_LEVEL, NEW.a, NEW.b"
+  },
+  {
+    "comment": "triggers - Statement 542",
+    "query": "create table parted_irreg_ancestor (fd text, b text, fd2 int, fd3 int, a int) partition by range (b)"
+  },
+  {
+    "comment": "triggers - Statement 543",
+    "query": "alter table parted_irreg_ancestor drop column fd, drop column fd2, drop column fd3"
+  },
+  {
+    "comment": "triggers - Statement 544",
+    "query": "create table parted_irreg (fd int, a int, fd2 int, b text) partition by range (b)"
+  },
+  {
+    "comment": "triggers - Statement 545",
+    "query": "alter table parted_irreg drop column fd, drop column fd2"
+  },
+  {
+    "comment": "triggers - Statement 546",
+    "query": "alter table parted_irreg_ancestor attach partition parted_irreg for values from ('aaaa') to ('zzzz')"
+  },
+  {
+    "comment": "triggers - Statement 547",
+    "query": "create table parted1_irreg (b text, fd int, a int)"
+  },
+  {
+    "comment": "triggers - Statement 548",
+    "query": "alter table parted1_irreg drop column fd"
+  },
+  {
+    "comment": "triggers - Statement 549",
+    "query": "alter table parted_irreg attach partition parted1_irreg for values from ('aaaa') to ('bbbb')"
+  },
+  {
+    "comment": "triggers - Statement 550",
+    "query": "create trigger parted_trig after insert on parted_irreg for each row execute procedure trigger_notice_ab()"
+  },
+  {
+    "comment": "triggers - Statement 551",
+    "query": "create trigger parted_trig_odd after insert on parted_irreg for each row when (bark(new.b) AND new.a % 2 = 1) execute procedure trigger_notice_ab()"
+  },
+  {
+    "comment": "triggers - Statement 552",
+    "query": "insert into parted_irreg values (1, 'aardvark'), (2, 'aanimals')"
+  },
+  {
+    "comment": "triggers - Statement 553",
+    "query": "insert into parted1_irreg values ('aardwolf', 2)"
+  },
+  {
+    "comment": "triggers - Statement 554",
+    "query": "insert into parted_irreg_ancestor values ('aasvogel', 3)"
+  },
+  {
+    "comment": "triggers - Statement 555",
+    "query": "drop table parted_irreg_ancestor"
+  },
+  {
+    "comment": "triggers - Statement 556",
+    "query": "create table parted (a int, b int, c text) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 557",
+    "query": "create table parted_1 partition of parted for values in (1) partition by list (b)"
+  },
+  {
+    "comment": "triggers - Statement 558",
+    "query": "create table parted_1_1 partition of parted_1 for values in (1)"
+  },
+  {
+    "comment": "triggers - Statement 559",
+    "query": "create function parted_trigfunc() returns trigger language plpgsql as $$ begin new.a = new.a + 1"
+  },
+  {
+    "comment": "triggers - Statement 560",
+    "query": "insert into parted values (1, 1, 'uno uno v1')"
+  },
+  {
+    "comment": "triggers - Statement 561",
+    "query": "create trigger t before insert or update or delete on parted for each row execute function parted_trigfunc()"
+  },
+  {
+    "comment": "triggers - Statement 562",
+    "query": "insert into parted values (1, 1, 'uno uno v2')"
+  },
+  {
+    "comment": "triggers - Statement 563",
+    "query": "update parted set c = c || 'v3'"
+  },
+  {
+    "comment": "triggers - Statement 564",
+    "query": "create or replace function parted_trigfunc() returns trigger language plpgsql as $$ begin new.b = new.b + 1"
+  },
+  {
+    "comment": "triggers - Statement 565",
+    "query": "insert into parted values (1, 1, 'uno uno v4')"
+  },
+  {
+    "comment": "triggers - Statement 566",
+    "query": "update parted set c = c || 'v5'"
+  },
+  {
+    "comment": "triggers - Statement 567",
+    "query": "create or replace function parted_trigfunc() returns trigger language plpgsql as $$ begin new.c = new.c || ' did '|| TG_OP"
+  },
+  {
+    "comment": "triggers - Statement 568",
+    "query": "insert into parted values (1, 1, 'uno uno')"
+  },
+  {
+    "comment": "triggers - Statement 569",
+    "query": "update parted set c = c || ' v6'"
+  },
+  {
+    "comment": "triggers - Statement 570",
+    "query": "select tableoid::regclass, * from parted"
+  },
+  {
+    "comment": "triggers - Statement 571",
+    "query": "truncate table parted"
+  },
+  {
+    "comment": "triggers - Statement 572",
+    "query": "create table parted_2 partition of parted for values in (2)"
+  },
+  {
+    "comment": "triggers - Statement 573",
+    "query": "insert into parted values (1, 1, 'uno uno v5')"
+  },
+  {
+    "comment": "triggers - Statement 574",
+    "query": "update parted set a = 2"
+  },
+  {
+    "comment": "triggers - Statement 575",
+    "query": "create or replace function parted_trigfunc2() returns trigger language plpgsql as $$ begin new.a = new.a + 1"
+  },
+  {
+    "comment": "triggers - Statement 576",
+    "query": "create trigger t2 before update on parted for each row execute function parted_trigfunc2()"
+  },
+  {
+    "comment": "triggers - Statement 577",
+    "query": "insert into parted values (1, 1, 'uno uno v6')"
+  },
+  {
+    "comment": "triggers - Statement 578",
+    "query": "create table parted_3 partition of parted for values in (3)"
+  },
+  {
+    "comment": "triggers - Statement 579",
+    "query": "update parted set a = a + 1"
+  },
+  {
+    "comment": "triggers - Statement 580",
+    "query": "update parted set a = 0"
+  },
+  {
+    "comment": "triggers - Statement 581",
+    "query": "drop table parted"
+  },
+  {
+    "comment": "triggers - Statement 582",
+    "query": "create table parted (a int, b int, c text) partition by list ((a + b))"
+  },
+  {
+    "comment": "triggers - Statement 583",
+    "query": "create or replace function parted_trigfunc() returns trigger language plpgsql as $$ begin new.a = new.a + new.b"
+  },
+  {
+    "comment": "triggers - Statement 584",
+    "query": "create table parted_1 partition of parted for values in (1, 2)"
+  },
+  {
+    "comment": "triggers - Statement 585",
+    "query": "create table parted_2 partition of parted for values in (3, 4)"
+  },
+  {
+    "comment": "triggers - Statement 586",
+    "query": "create trigger t before insert or update on parted for each row execute function parted_trigfunc()"
+  },
+  {
+    "comment": "triggers - Statement 587",
+    "query": "insert into parted values (0, 1, 'zero win')"
+  },
+  {
+    "comment": "triggers - Statement 588",
+    "query": "insert into parted values (1, 1, 'one fail')"
+  },
+  {
+    "comment": "triggers - Statement 589",
+    "query": "insert into parted values (1, 2, 'two fail')"
+  },
+  {
+    "comment": "triggers - Statement 590",
+    "query": "select * from parted"
+  },
+  {
+    "comment": "triggers - Statement 591",
+    "query": "drop function parted_trigfunc()"
+  },
+  {
+    "comment": "triggers - Statement 592",
+    "query": "create table parted_constr_ancestor (a int, b text) partition by range (b)"
+  },
+  {
+    "comment": "triggers - Statement 593",
+    "query": "create table parted_constr (a int, b text) partition by range (b)"
+  },
+  {
+    "comment": "triggers - Statement 594",
+    "query": "alter table parted_constr_ancestor attach partition parted_constr for values from ('aaaa') to ('zzzz')"
+  },
+  {
+    "comment": "triggers - Statement 595",
+    "query": "create table parted1_constr (a int, b text)"
+  },
+  {
+    "comment": "triggers - Statement 596",
+    "query": "alter table parted_constr attach partition parted1_constr for values from ('aaaa') to ('bbbb')"
+  },
+  {
+    "comment": "triggers - Statement 597",
+    "query": "create constraint trigger parted_trig after insert on parted_constr_ancestor deferrable for each row execute procedure trigger_notice_ab()"
+  },
+  {
+    "comment": "triggers - Statement 598",
+    "query": "create constraint trigger parted_trig_two after insert on parted_constr deferrable initially deferred for each row when (bark(new.b) AND new.a % 2 = 1) execute procedure trigger_notice_ab()"
+  },
+  {
+    "comment": "triggers - Statement 599",
+    "query": "insert into parted_constr values (1, 'aardvark')"
+  },
+  {
+    "comment": "triggers - Statement 600",
+    "query": "insert into parted1_constr values (2, 'aardwolf')"
+  },
+  {
+    "comment": "triggers - Statement 601",
+    "query": "insert into parted_constr_ancestor values (3, 'aasvogel')"
+  },
+  {
+    "comment": "triggers - Statement 602",
+    "query": "set constraints parted_trig deferred"
+  },
+  {
+    "comment": "triggers - Statement 603",
+    "query": "insert into parted1_constr values (2, 'aardwolf'), (3, 'aasvogel')"
+  },
+  {
+    "comment": "triggers - Statement 604",
+    "query": "drop table parted_constr_ancestor"
+  },
+  {
+    "comment": "triggers - Statement 605",
+    "query": "drop function bark(text)"
+  },
+  {
+    "comment": "triggers - Statement 606",
+    "query": "create table parted_trigger (a int, b text) partition by range (a)"
+  },
+  {
+    "comment": "triggers - Statement 607",
+    "query": "create table parted_trigger_1 partition of parted_trigger for values from (0) to (1000)"
+  },
+  {
+    "comment": "triggers - Statement 608",
+    "query": "create table parted_trigger_2 (drp int, a int, b text)"
+  },
+  {
+    "comment": "triggers - Statement 609",
+    "query": "alter table parted_trigger_2 drop column drp"
+  },
+  {
+    "comment": "triggers - Statement 610",
+    "query": "alter table parted_trigger attach partition parted_trigger_2 for values from (1000) to (2000)"
+  },
+  {
+    "comment": "triggers - Statement 611",
+    "query": "create trigger parted_trigger after update on parted_trigger for each row when (new.a % 2 = 1 and length(old.b) >= 2) execute procedure trigger_notice_ab()"
+  },
+  {
+    "comment": "triggers - Statement 612",
+    "query": "create table parted_trigger_3 (b text, a int) partition by range (length(b))"
+  },
+  {
+    "comment": "triggers - Statement 613",
+    "query": "create table parted_trigger_3_1 partition of parted_trigger_3 for values from (1) to (3)"
+  },
+  {
+    "comment": "triggers - Statement 614",
+    "query": "create table parted_trigger_3_2 partition of parted_trigger_3 for values from (3) to (5)"
+  },
+  {
+    "comment": "triggers - Statement 615",
+    "query": "alter table parted_trigger attach partition parted_trigger_3 for values from (2000) to (3000)"
+  },
+  {
+    "comment": "triggers - Statement 616",
+    "query": "insert into parted_trigger values (0, 'a'), (1, 'bbb'), (2, 'bcd'), (3, 'c'), (1000, 'c'), (1001, 'ddd'), (1002, 'efg'), (1003, 'f'), (2000, 'e'), (2001, 'fff'), (2002, 'ghi'), (2003, 'h')"
+  },
+  {
+    "comment": "triggers - Statement 617",
+    "query": "update parted_trigger set a = a + 2"
+  },
+  {
+    "comment": "triggers - Statement 618",
+    "query": "drop table parted_trigger"
+  },
+  {
+    "comment": "triggers - Statement 619",
+    "query": "create table parted_referenced (a int)"
+  },
+  {
+    "comment": "triggers - Statement 620",
+    "query": "create table unparted_trigger (a int, b text)"
+  },
+  {
+    "comment": "triggers - Statement 621",
+    "query": "create constraint trigger parted_trigger after update on parted_trigger from parted_referenced for each row execute procedure trigger_notice_ab()"
+  },
+  {
+    "comment": "triggers - Statement 622",
+    "query": "create constraint trigger parted_trigger after update on unparted_trigger from parted_referenced for each row execute procedure trigger_notice_ab()"
+  },
+  {
+    "comment": "triggers - Statement 623",
+    "query": "select tgname, conname, t.tgrelid::regclass, t.tgconstrrelid::regclass, c.conrelid::regclass, c.confrelid::regclass from pg_trigger t join pg_constraint c on (t.tgconstraint = c.oid) where tgname = 'parted_trigger' order by t.tgrelid::regclass::text"
+  },
+  {
+    "comment": "triggers - Statement 624",
+    "query": "drop table parted_referenced, parted_trigger, unparted_trigger"
+  },
+  {
+    "comment": "triggers - Statement 625",
+    "query": "create trigger parted_trigger after update of b on parted_trigger for each row execute procedure trigger_notice_ab()"
+  },
+  {
+    "comment": "triggers - Statement 626",
+    "query": "create table parted_trigger_3_1 partition of parted_trigger_3 for values from (1) to (4)"
+  },
+  {
+    "comment": "triggers - Statement 627",
+    "query": "create table parted_trigger_3_2 partition of parted_trigger_3 for values from (4) to (8)"
+  },
+  {
+    "comment": "triggers - Statement 628",
+    "query": "insert into parted_trigger values (0, 'a'), (1000, 'c'), (2000, 'e'), (2001, 'eeee')"
+  },
+  {
+    "comment": "triggers - Statement 629",
+    "query": "update parted_trigger set b = b || 'b'"
+  },
+  {
+    "comment": "triggers - Statement 630",
+    "query": "drop function trigger_notice_ab()"
+  },
+  {
+    "comment": "triggers - Statement 631",
+    "query": "create table trg_clone (a int) partition by range (a)"
+  },
+  {
+    "comment": "triggers - Statement 632",
+    "query": "create table trg_clone1 partition of trg_clone for values from (0) to (1000)"
+  },
+  {
+    "comment": "triggers - Statement 633",
+    "query": "alter table trg_clone add constraint uniq unique (a) deferrable"
+  },
+  {
+    "comment": "triggers - Statement 634",
+    "query": "create table trg_clone2 partition of trg_clone for values from (1000) to (2000)"
+  },
+  {
+    "comment": "triggers - Statement 635",
+    "query": "create table trg_clone3 partition of trg_clone for values from (2000) to (3000) partition by range (a)"
+  },
+  {
+    "comment": "triggers - Statement 636",
+    "query": "create table trg_clone_3_3 partition of trg_clone3 for values from (2000) to (2100)"
+  },
+  {
+    "comment": "triggers - Statement 637",
+    "query": "select tgrelid::regclass, count(*) from pg_trigger where tgrelid::regclass in ('trg_clone', 'trg_clone1', 'trg_clone2', 'trg_clone3', 'trg_clone_3_3') group by tgrelid::regclass order by tgrelid::regclass"
+  },
+  {
+    "comment": "triggers - Statement 638",
+    "query": "drop table trg_clone"
+  },
+  {
+    "comment": "triggers - Statement 639",
+    "query": "create table parent (a int)"
+  },
+  {
+    "comment": "triggers - Statement 640",
+    "query": "create table child1 () inherits (parent)"
+  },
+  {
+    "comment": "triggers - Statement 641",
+    "query": "create function trig_nothing() returns trigger language plpgsql as $$ begin return null; end $$"
+  },
+  {
+    "comment": "triggers - Statement 642",
+    "query": "create trigger tg after insert on parent for each row execute function trig_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 643",
+    "query": "create trigger tg after insert on child1 for each row execute function trig_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 644",
+    "query": "alter table parent disable trigger tg"
+  },
+  {
+    "comment": "triggers - Statement 645",
+    "query": "select tgrelid::regclass, tgname, tgenabled from pg_trigger where tgrelid in ('parent'::regclass, 'child1'::regclass) order by tgrelid::regclass::text"
+  },
+  {
+    "comment": "triggers - Statement 646",
+    "query": "alter table only parent enable always trigger tg"
+  },
+  {
+    "comment": "triggers - Statement 647",
+    "query": "drop table parent, child1"
+  },
+  {
+    "comment": "triggers - Statement 648",
+    "query": "create table parent (a int) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 649",
+    "query": "create table child1 partition of parent for values in (1)"
+  },
+  {
+    "comment": "triggers - Statement 650",
+    "query": "create trigger tg after insert on parent for each row execute procedure trig_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 651",
+    "query": "create trigger tg_stmt after insert on parent for statement execute procedure trig_nothing()"
+  },
+  {
+    "comment": "triggers - Statement 652",
+    "query": "select tgrelid::regclass, tgname, tgenabled from pg_trigger where tgrelid in ('parent'::regclass, 'child1'::regclass) order by tgrelid::regclass::text, tgname"
+  },
+  {
+    "comment": "triggers - Statement 653",
+    "query": "alter table parent enable always trigger tg_stmt"
+  },
+  {
+    "comment": "triggers - Statement 654",
+    "query": "alter table parent enable always trigger tg"
+  },
+  {
+    "comment": "triggers - Statement 655",
+    "query": "alter table parent disable trigger user"
+  },
+  {
+    "comment": "triggers - Statement 656",
+    "query": "create table parent (a int primary key, f int references parent) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 657",
+    "query": "select tgrelid::regclass, rtrim(tgname, '0123456789') as tgname, tgfoid::regproc, tgenabled from pg_trigger where tgrelid in ('parent'::regclass, 'child1'::regclass) order by tgrelid::regclass::text, tgfoid"
+  },
+  {
+    "comment": "triggers - Statement 658",
+    "query": "alter table parent disable trigger all"
+  },
+  {
+    "comment": "triggers - Statement 659",
+    "query": "CREATE TABLE trgfire (i int) PARTITION BY RANGE (i)"
+  },
+  {
+    "comment": "triggers - Statement 660",
+    "query": "CREATE TABLE trgfire1 PARTITION OF trgfire FOR VALUES FROM (1) TO (10)"
+  },
+  {
+    "comment": "triggers - Statement 661",
+    "query": "CREATE OR REPLACE FUNCTION tgf() RETURNS trigger LANGUAGE plpgsql AS $$ begin raise exception 'except'; end $$"
+  },
+  {
+    "comment": "triggers - Statement 662",
+    "query": "CREATE TRIGGER tg AFTER INSERT ON trgfire FOR EACH ROW EXECUTE FUNCTION tgf()"
+  },
+  {
+    "comment": "triggers - Statement 663",
+    "query": "INSERT INTO trgfire VALUES (1)"
+  },
+  {
+    "comment": "triggers - Statement 664",
+    "query": "ALTER TABLE trgfire DISABLE TRIGGER tg"
+  },
+  {
+    "comment": "triggers - Statement 665",
+    "query": "CREATE TABLE trgfire2 PARTITION OF trgfire FOR VALUES FROM (10) TO (20)"
+  },
+  {
+    "comment": "triggers - Statement 666",
+    "query": "INSERT INTO trgfire VALUES (11)"
+  },
+  {
+    "comment": "triggers - Statement 667",
+    "query": "CREATE TABLE trgfire3 (LIKE trgfire)"
+  },
+  {
+    "comment": "triggers - Statement 668",
+    "query": "ALTER TABLE trgfire ATTACH PARTITION trgfire3 FOR VALUES FROM (20) TO (30)"
+  },
+  {
+    "comment": "triggers - Statement 669",
+    "query": "INSERT INTO trgfire VALUES (21)"
+  },
+  {
+    "comment": "triggers - Statement 670",
+    "query": "CREATE TABLE trgfire4 PARTITION OF trgfire FOR VALUES FROM (30) TO (40) PARTITION BY LIST (i)"
+  },
+  {
+    "comment": "triggers - Statement 671",
+    "query": "CREATE TABLE trgfire4_30 PARTITION OF trgfire4 FOR VALUES IN (30)"
+  },
+  {
+    "comment": "triggers - Statement 672",
+    "query": "INSERT INTO trgfire VALUES (30)"
+  },
+  {
+    "comment": "triggers - Statement 673",
+    "query": "CREATE TABLE trgfire5 (LIKE trgfire) PARTITION BY LIST (i)"
+  },
+  {
+    "comment": "triggers - Statement 674",
+    "query": "CREATE TABLE trgfire5_40 PARTITION OF trgfire5 FOR VALUES IN (40)"
+  },
+  {
+    "comment": "triggers - Statement 675",
+    "query": "ALTER TABLE trgfire ATTACH PARTITION trgfire5 FOR VALUES FROM (40) TO (50)"
+  },
+  {
+    "comment": "triggers - Statement 676",
+    "query": "INSERT INTO trgfire VALUES (40)"
+  },
+  {
+    "comment": "triggers - Statement 677",
+    "query": "SELECT tgrelid::regclass, tgenabled FROM pg_trigger WHERE tgrelid::regclass IN (SELECT oid from pg_class where relname LIKE 'trgfire%') ORDER BY tgrelid::regclass::text"
+  },
+  {
+    "comment": "triggers - Statement 678",
+    "query": "ALTER TABLE trgfire ENABLE TRIGGER tg"
+  },
+  {
+    "comment": "triggers - Statement 679",
+    "query": "DROP TABLE trgfire"
+  },
+  {
+    "comment": "triggers - Statement 680",
+    "query": "DROP FUNCTION tgf()"
+  },
+  {
+    "comment": "triggers - Statement 681",
+    "query": "create or replace function dump_insert() returns trigger language plpgsql as $$ begin raise notice 'trigger = %, new table = %', TG_NAME, (select string_agg(new_table::text, ', ' order by a) from new_table)"
+  },
+  {
+    "comment": "triggers - Statement 682",
+    "query": "create or replace function dump_update() returns trigger language plpgsql as $$ begin raise notice 'trigger = %, old table = %, new table = %', TG_NAME, (select string_agg(old_table::text, ', ' order by a) from old_table), (select string_agg(new_table::text, ', ' order by a) from new_table)"
+  },
+  {
+    "comment": "triggers - Statement 683",
+    "query": "create or replace function dump_delete() returns trigger language plpgsql as $$ begin raise notice 'trigger = %, old table = %', TG_NAME, (select string_agg(old_table::text, ', ' order by a) from old_table)"
+  },
+  {
+    "comment": "triggers - Statement 684",
+    "query": "create table parent (a text, b int) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 685",
+    "query": "create table child1 partition of parent for values in ('AAA')"
+  },
+  {
+    "comment": "triggers - Statement 686",
+    "query": "create table child2 (x int, a text, b int)"
+  },
+  {
+    "comment": "triggers - Statement 687",
+    "query": "alter table child2 drop column x"
+  },
+  {
+    "comment": "triggers - Statement 688",
+    "query": "alter table parent attach partition child2 for values in ('BBB')"
+  },
+  {
+    "comment": "triggers - Statement 689",
+    "query": "create table child3 (b int, a text)"
+  },
+  {
+    "comment": "triggers - Statement 690",
+    "query": "alter table parent attach partition child3 for values in ('CCC')"
+  },
+  {
+    "comment": "triggers - Statement 691",
+    "query": "create trigger parent_insert_trig after insert on parent referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 692",
+    "query": "create trigger parent_update_trig after update on parent referencing old table as old_table new table as new_table for each statement execute procedure dump_update()"
+  },
+  {
+    "comment": "triggers - Statement 693",
+    "query": "create trigger parent_delete_trig after delete on parent referencing old table as old_table for each statement execute procedure dump_delete()"
+  },
+  {
+    "comment": "triggers - Statement 694",
+    "query": "create trigger child1_insert_trig after insert on child1 referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 695",
+    "query": "create trigger child1_update_trig after update on child1 referencing old table as old_table new table as new_table for each statement execute procedure dump_update()"
+  },
+  {
+    "comment": "triggers - Statement 696",
+    "query": "create trigger child1_delete_trig after delete on child1 referencing old table as old_table for each statement execute procedure dump_delete()"
+  },
+  {
+    "comment": "triggers - Statement 697",
+    "query": "create trigger child2_insert_trig after insert on child2 referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 698",
+    "query": "create trigger child2_update_trig after update on child2 referencing old table as old_table new table as new_table for each statement execute procedure dump_update()"
+  },
+  {
+    "comment": "triggers - Statement 699",
+    "query": "create trigger child2_delete_trig after delete on child2 referencing old table as old_table for each statement execute procedure dump_delete()"
+  },
+  {
+    "comment": "triggers - Statement 700",
+    "query": "create trigger child3_insert_trig after insert on child3 referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 701",
+    "query": "create trigger child3_update_trig after update on child3 referencing old table as old_table new table as new_table for each statement execute procedure dump_update()"
+  },
+  {
+    "comment": "triggers - Statement 702",
+    "query": "create trigger child3_delete_trig after delete on child3 referencing old table as old_table for each statement execute procedure dump_delete()"
+  },
+  {
+    "comment": "triggers - Statement 703",
+    "query": "SELECT trigger_name, event_manipulation, event_object_schema, event_object_table, action_order, action_condition, action_orientation, action_timing, action_reference_old_table, action_reference_new_table FROM information_schema.triggers WHERE event_object_table IN ('parent', 'child1', 'child2', 'child3') ORDER BY trigger_name COLLATE \"C\", 2"
+  },
+  {
+    "comment": "triggers - Statement 704",
+    "query": "insert into child1 values ('AAA', 42)"
+  },
+  {
+    "comment": "triggers - Statement 705",
+    "query": "insert into child2 values ('BBB', 42)"
+  },
+  {
+    "comment": "triggers - Statement 706",
+    "query": "insert into child3 values (42, 'CCC')"
+  },
+  {
+    "comment": "triggers - Statement 707",
+    "query": "update parent set b = b + 1"
+  },
+  {
+    "comment": "triggers - Statement 708",
+    "query": "delete from parent"
+  },
+  {
+    "comment": "triggers - Statement 709",
+    "query": "insert into parent values ('AAA', 42)"
+  },
+  {
+    "comment": "triggers - Statement 710",
+    "query": "insert into parent values ('BBB', 42)"
+  },
+  {
+    "comment": "triggers - Statement 711",
+    "query": "insert into parent values ('CCC', 42)"
+  },
+  {
+    "comment": "triggers - Statement 712",
+    "query": "delete from child1"
+  },
+  {
+    "comment": "triggers - Statement 713",
+    "query": "delete from child2"
+  },
+  {
+    "comment": "triggers - Statement 714",
+    "query": "delete from child3"
+  },
+  {
+    "comment": "triggers - Statement 715",
+    "query": "copy parent (a, b) from stdin"
+  },
+  {
+    "comment": "triggers - Statement 716",
+    "query": "AAA\t42 BBB\t42 CCC\t42 \\. drop trigger child1_insert_trig on child1"
+  },
+  {
+    "comment": "triggers - Statement 717",
+    "query": "drop trigger child1_update_trig on child1"
+  },
+  {
+    "comment": "triggers - Statement 718",
+    "query": "drop trigger child1_delete_trig on child1"
+  },
+  {
+    "comment": "triggers - Statement 719",
+    "query": "drop trigger child2_insert_trig on child2"
+  },
+  {
+    "comment": "triggers - Statement 720",
+    "query": "drop trigger child2_update_trig on child2"
+  },
+  {
+    "comment": "triggers - Statement 721",
+    "query": "drop trigger child2_delete_trig on child2"
+  },
+  {
+    "comment": "triggers - Statement 722",
+    "query": "drop trigger child3_insert_trig on child3"
+  },
+  {
+    "comment": "triggers - Statement 723",
+    "query": "drop trigger child3_update_trig on child3"
+  },
+  {
+    "comment": "triggers - Statement 724",
+    "query": "drop trigger child3_delete_trig on child3"
+  },
+  {
+    "comment": "triggers - Statement 725",
+    "query": "AAA\t42 BBB\t42 CCC\t42 \\. create or replace function intercept_insert() returns trigger language plpgsql as $$ begin new.b = new.b + 1000"
+  },
+  {
+    "comment": "triggers - Statement 726",
+    "query": "create trigger intercept_insert_child3 before insert on child3 for each row execute procedure intercept_insert()"
+  },
+  {
+    "comment": "triggers - Statement 727",
+    "query": "insert into parent values ('AAA', 42), ('BBB', 42), ('CCC', 66)"
+  },
+  {
+    "comment": "triggers - Statement 728",
+    "query": "AAA\t42 BBB\t42 CCC\t234 \\. drop table child1, child2, child3, parent"
+  },
+  {
+    "comment": "triggers - Statement 729",
+    "query": "drop function intercept_insert()"
+  },
+  {
+    "comment": "triggers - Statement 730",
+    "query": "create table child partition of parent for values in ('AAA')"
+  },
+  {
+    "comment": "triggers - Statement 731",
+    "query": "create trigger child_row_trig after insert on child referencing new table as new_table for each row execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 732",
+    "query": "alter table parent detach partition child"
+  },
+  {
+    "comment": "triggers - Statement 733",
+    "query": "alter table parent attach partition child for values in ('AAA')"
+  },
+  {
+    "comment": "triggers - Statement 734",
+    "query": "drop trigger child_row_trig on child"
+  },
+  {
+    "comment": "triggers - Statement 735",
+    "query": "drop table child, parent"
+  },
+  {
+    "comment": "triggers - Statement 736",
+    "query": "create or replace function dump_update_new() returns trigger language plpgsql as $$ begin raise notice 'trigger = %, new table = %', TG_NAME, (select string_agg(new_table::text, ', ' order by a) from new_table)"
+  },
+  {
+    "comment": "triggers - Statement 737",
+    "query": "create or replace function dump_update_old() returns trigger language plpgsql as $$ begin raise notice 'trigger = %, old table = %', TG_NAME, (select string_agg(old_table::text, ', ' order by a) from old_table)"
+  },
+  {
+    "comment": "triggers - Statement 738",
+    "query": "create table trans_tab_parent (a text) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 739",
+    "query": "create table trans_tab_child1 partition of trans_tab_parent for values in ('AAA1', 'AAA2')"
+  },
+  {
+    "comment": "triggers - Statement 740",
+    "query": "create table trans_tab_child2 partition of trans_tab_parent for values in ('BBB1', 'BBB2')"
+  },
+  {
+    "comment": "triggers - Statement 741",
+    "query": "create trigger trans_tab_parent_update_trig after update on trans_tab_parent referencing old table as old_table for each statement execute procedure dump_update_old()"
+  },
+  {
+    "comment": "triggers - Statement 742",
+    "query": "create trigger trans_tab_parent_insert_trig after insert on trans_tab_parent referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 743",
+    "query": "create trigger trans_tab_parent_delete_trig after delete on trans_tab_parent referencing old table as old_table for each statement execute procedure dump_delete()"
+  },
+  {
+    "comment": "triggers - Statement 744",
+    "query": "insert into trans_tab_parent values ('AAA1'), ('BBB1')"
+  },
+  {
+    "comment": "triggers - Statement 745",
+    "query": "update trans_tab_parent set a = 'BBB2' where a = 'AAA1'"
+  },
+  {
+    "comment": "triggers - Statement 746",
+    "query": "drop trigger trans_tab_parent_update_trig on trans_tab_parent"
+  },
+  {
+    "comment": "triggers - Statement 747",
+    "query": "create trigger trans_tab_parent_update_trig after update on trans_tab_parent referencing new table as new_table for each statement execute procedure dump_update_new()"
+  },
+  {
+    "comment": "triggers - Statement 748",
+    "query": "update trans_tab_parent set a = 'AAA2' where a = 'BBB1'"
+  },
+  {
+    "comment": "triggers - Statement 749",
+    "query": "delete from trans_tab_parent"
+  },
+  {
+    "comment": "triggers - Statement 750",
+    "query": "drop table trans_tab_parent, trans_tab_child1, trans_tab_child2"
+  },
+  {
+    "comment": "triggers - Statement 751",
+    "query": "drop function dump_update_new, dump_update_old"
+  },
+  {
+    "comment": "triggers - Statement 752",
+    "query": "create table parent (a text, b int)"
+  },
+  {
+    "comment": "triggers - Statement 753",
+    "query": "create table child2 (b int, a text)"
+  },
+  {
+    "comment": "triggers - Statement 754",
+    "query": "alter table child2 inherit parent"
+  },
+  {
+    "comment": "triggers - Statement 755",
+    "query": "create table child3 (c text) inherits (parent)"
+  },
+  {
+    "comment": "triggers - Statement 756",
+    "query": "insert into child2 values (42, 'BBB')"
+  },
+  {
+    "comment": "triggers - Statement 757",
+    "query": "insert into child3 values ('CCC', 42, 'foo')"
+  },
+  {
+    "comment": "triggers - Statement 758",
+    "query": "AAA\t42 BBB\t42 CCC\t42 \\. create index on parent(b)"
+  },
+  {
+    "comment": "triggers - Statement 759",
+    "query": "DDD\t42 \\. drop trigger child1_insert_trig on child1"
+  },
+  {
+    "comment": "triggers - Statement 760",
+    "query": "drop table child1, child2, child3, parent"
+  },
+  {
+    "comment": "triggers - Statement 761",
+    "query": "create table child () inherits (parent)"
+  },
+  {
+    "comment": "triggers - Statement 762",
+    "query": "alter table child no inherit parent"
+  },
+  {
+    "comment": "triggers - Statement 763",
+    "query": "alter table child inherit parent"
+  },
+  {
+    "comment": "triggers - Statement 764",
+    "query": "create table table1 (a int)"
+  },
+  {
+    "comment": "triggers - Statement 765",
+    "query": "create table table2 (a text)"
+  },
+  {
+    "comment": "triggers - Statement 766",
+    "query": "create trigger table1_trig after insert on table1 referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 767",
+    "query": "create trigger table2_trig after insert on table2 referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 768",
+    "query": "with wcte as (insert into table1 values (42)) insert into table2 values ('hello world')"
+  },
+  {
+    "comment": "triggers - Statement 769",
+    "query": "with wcte as (insert into table1 values (43)) insert into table1 values (44)"
+  },
+  {
+    "comment": "triggers - Statement 770",
+    "query": "select * from table1"
+  },
+  {
+    "comment": "triggers - Statement 771",
+    "query": "select * from table2"
+  },
+  {
+    "comment": "triggers - Statement 772",
+    "query": "drop table table1"
+  },
+  {
+    "comment": "triggers - Statement 773",
+    "query": "drop table table2"
+  },
+  {
+    "comment": "triggers - Statement 774",
+    "query": "create table my_table (a int primary key, b text)"
+  },
+  {
+    "comment": "triggers - Statement 775",
+    "query": "create trigger my_table_insert_trig after insert on my_table referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 776",
+    "query": "create trigger my_table_update_trig after update on my_table referencing old table as old_table new table as new_table for each statement execute procedure dump_update()"
+  },
+  {
+    "comment": "triggers - Statement 777",
+    "query": "insert into my_table values (1, 'AAA'), (2, 'BBB') on conflict (a) do update set b = my_table.b || ':' || excluded.b"
+  },
+  {
+    "comment": "triggers - Statement 778",
+    "query": "insert into my_table values (1, 'AAA'), (2, 'BBB'), (3, 'CCC'), (4, 'DDD') on conflict (a) do update set b = my_table.b || ':' || excluded.b"
+  },
+  {
+    "comment": "triggers - Statement 779",
+    "query": "insert into my_table values (3, 'CCC'), (4, 'DDD') on conflict (a) do update set b = my_table.b || ':' || excluded.b"
+  },
+  {
+    "comment": "triggers - Statement 780",
+    "query": "create table iocdu_tt_parted (a int primary key, b text) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 781",
+    "query": "create table iocdu_tt_parted1 partition of iocdu_tt_parted for values in (1)"
+  },
+  {
+    "comment": "triggers - Statement 782",
+    "query": "create table iocdu_tt_parted2 partition of iocdu_tt_parted for values in (2)"
+  },
+  {
+    "comment": "triggers - Statement 783",
+    "query": "create table iocdu_tt_parted3 partition of iocdu_tt_parted for values in (3)"
+  },
+  {
+    "comment": "triggers - Statement 784",
+    "query": "create table iocdu_tt_parted4 partition of iocdu_tt_parted for values in (4)"
+  },
+  {
+    "comment": "triggers - Statement 785",
+    "query": "create trigger iocdu_tt_parted_insert_trig after insert on iocdu_tt_parted referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 786",
+    "query": "create trigger iocdu_tt_parted_update_trig after update on iocdu_tt_parted referencing old table as old_table new table as new_table for each statement execute procedure dump_update()"
+  },
+  {
+    "comment": "triggers - Statement 787",
+    "query": "insert into iocdu_tt_parted values (1, 'AAA'), (2, 'BBB') on conflict (a) do update set b = iocdu_tt_parted.b || ':' || excluded.b"
+  },
+  {
+    "comment": "triggers - Statement 788",
+    "query": "insert into iocdu_tt_parted values (1, 'AAA'), (2, 'BBB'), (3, 'CCC'), (4, 'DDD') on conflict (a) do update set b = iocdu_tt_parted.b || ':' || excluded.b"
+  },
+  {
+    "comment": "triggers - Statement 789",
+    "query": "insert into iocdu_tt_parted values (3, 'CCC'), (4, 'DDD') on conflict (a) do update set b = iocdu_tt_parted.b || ':' || excluded.b"
+  },
+  {
+    "comment": "triggers - Statement 790",
+    "query": "drop table iocdu_tt_parted"
+  },
+  {
+    "comment": "triggers - Statement 791",
+    "query": "create trigger my_table_multievent_trig after insert or update on my_table referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 792",
+    "query": "create trigger my_table_col_update_trig after update of b on my_table referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 793",
+    "query": "create table refd_table (a int primary key, b text)"
+  },
+  {
+    "comment": "triggers - Statement 794",
+    "query": "create table trig_table (a int, b text, foreign key (a) references refd_table on update cascade on delete cascade )"
+  },
+  {
+    "comment": "triggers - Statement 795",
+    "query": "create trigger trig_table_before_trig before insert or update or delete on trig_table for each statement execute procedure trigger_func('trig_table')"
+  },
+  {
+    "comment": "triggers - Statement 796",
+    "query": "create trigger trig_table_insert_trig after insert on trig_table referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 797",
+    "query": "create trigger trig_table_update_trig after update on trig_table referencing old table as old_table new table as new_table for each statement execute procedure dump_update()"
+  },
+  {
+    "comment": "triggers - Statement 798",
+    "query": "create trigger trig_table_delete_trig after delete on trig_table referencing old table as old_table for each statement execute procedure dump_delete()"
+  },
+  {
+    "comment": "triggers - Statement 799",
+    "query": "insert into refd_table values (1, 'one'), (2, 'two'), (3, 'three')"
+  },
+  {
+    "comment": "triggers - Statement 800",
+    "query": "insert into trig_table values (1, 'one a'), (1, 'one b'), (2, 'two a'), (2, 'two b'), (3, 'three a'), (3, 'three b')"
+  },
+  {
+    "comment": "triggers - Statement 801",
+    "query": "update refd_table set a = 11 where b = 'one'"
+  },
+  {
+    "comment": "triggers - Statement 802",
+    "query": "select * from trig_table"
+  },
+  {
+    "comment": "triggers - Statement 803",
+    "query": "delete from refd_table where length(b) = 3"
+  },
+  {
+    "comment": "triggers - Statement 804",
+    "query": "drop table refd_table, trig_table"
+  },
+  {
+    "comment": "triggers - Statement 805",
+    "query": "create table refd_table (id int primary key)"
+  },
+  {
+    "comment": "triggers - Statement 806",
+    "query": "create table trig_table (fk int references refd_table initially deferred)"
+  },
+  {
+    "comment": "triggers - Statement 807",
+    "query": "insert into trig_table values (1)"
+  },
+  {
+    "comment": "triggers - Statement 808",
+    "query": "drop table refd_table cascade"
+  },
+  {
+    "comment": "triggers - Statement 809",
+    "query": "drop table trig_table"
+  },
+  {
+    "comment": "triggers - Statement 810",
+    "query": "create table self_ref (a int primary key, b int references self_ref(a) on delete cascade)"
+  },
+  {
+    "comment": "triggers - Statement 811",
+    "query": "create trigger self_ref_before_trig before delete on self_ref for each statement execute procedure trigger_func('self_ref')"
+  },
+  {
+    "comment": "triggers - Statement 812",
+    "query": "create trigger self_ref_r_trig after delete on self_ref referencing old table as old_table for each row execute procedure dump_delete()"
+  },
+  {
+    "comment": "triggers - Statement 813",
+    "query": "create trigger self_ref_s_trig after delete on self_ref referencing old table as old_table for each statement execute procedure dump_delete()"
+  },
+  {
+    "comment": "triggers - Statement 814",
+    "query": "insert into self_ref values (1, null), (2, 1), (3, 2)"
+  },
+  {
+    "comment": "triggers - Statement 815",
+    "query": "delete from self_ref where a = 1"
+  },
+  {
+    "comment": "triggers - Statement 816",
+    "query": "drop trigger self_ref_r_trig on self_ref"
+  },
+  {
+    "comment": "triggers - Statement 817",
+    "query": "insert into self_ref values (1, null), (2, 1), (3, 2), (4, 3)"
+  },
+  {
+    "comment": "triggers - Statement 818",
+    "query": "drop table self_ref"
+  },
+  {
+    "comment": "triggers - Statement 819",
+    "query": "create table merge_target_table (a int primary key, b text)"
+  },
+  {
+    "comment": "triggers - Statement 820",
+    "query": "create trigger merge_target_table_insert_trig after insert on merge_target_table referencing new table as new_table for each statement execute procedure dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 821",
+    "query": "create trigger merge_target_table_update_trig after update on merge_target_table referencing old table as old_table new table as new_table for each statement execute procedure dump_update()"
+  },
+  {
+    "comment": "triggers - Statement 822",
+    "query": "create trigger merge_target_table_delete_trig after delete on merge_target_table referencing old table as old_table for each statement execute procedure dump_delete()"
+  },
+  {
+    "comment": "triggers - Statement 823",
+    "query": "create table merge_source_table (a int, b text)"
+  },
+  {
+    "comment": "triggers - Statement 824",
+    "query": "insert into merge_source_table values (1, 'initial1'), (2, 'initial2'), (3, 'initial3'), (4, 'initial4')"
+  },
+  {
+    "comment": "triggers - Statement 825",
+    "query": "merge into merge_target_table t using merge_source_table s on t.a = s.a when not matched then insert values (a, b)"
+  },
+  {
+    "comment": "triggers - Statement 826",
+    "query": "merge into merge_target_table t using merge_source_table s on t.a = s.a when matched and s.a <= 2 then update set b = t.b || ' updated by merge' when matched and s.a > 2 then delete when not matched then insert values (a, b)"
+  },
+  {
+    "comment": "triggers - Statement 827",
+    "query": "merge into merge_target_table t using merge_source_table s on t.a = s.a when matched and s.a <= 2 then update set b = t.b || ' updated again by merge' when matched and s.a > 2 then delete when not matched then insert values (a, b)"
+  },
+  {
+    "comment": "triggers - Statement 828",
+    "query": "drop table merge_source_table, merge_target_table"
+  },
+  {
+    "comment": "triggers - Statement 829",
+    "query": "drop function dump_insert()"
+  },
+  {
+    "comment": "triggers - Statement 830",
+    "query": "drop function dump_update()"
+  },
+  {
+    "comment": "triggers - Statement 831",
+    "query": "drop function dump_delete()"
+  },
+  {
+    "comment": "triggers - Statement 832",
+    "query": "create table my_table (id integer)"
+  },
+  {
+    "comment": "triggers - Statement 833",
+    "query": "create function funcA() returns trigger as $$ begin raise notice 'hello from funcA'"
+  },
+  {
+    "comment": "triggers - Statement 834",
+    "query": "end; $$ language plpgsql"
+  },
+  {
+    "comment": "triggers - Statement 835",
+    "query": "create function funcB() returns trigger as $$ begin raise notice 'hello from funcB'"
+  },
+  {
+    "comment": "triggers - Statement 836",
+    "query": "create trigger my_trig after insert on my_table for each row execute procedure funcA()"
+  },
+  {
+    "comment": "triggers - Statement 837",
+    "query": "create trigger my_trig before insert on my_table for each row execute procedure funcB()"
+  },
+  {
+    "comment": "triggers - Statement 838",
+    "query": "insert into my_table values (1)"
+  },
+  {
+    "comment": "triggers - Statement 839",
+    "query": "create or replace trigger my_trig before insert on my_table for each row execute procedure funcB()"
+  },
+  {
+    "comment": "triggers - Statement 840",
+    "query": "insert into my_table values (2)"
+  },
+  {
+    "comment": "triggers - Statement 841",
+    "query": "table my_table"
+  },
+  {
+    "comment": "triggers - Statement 842",
+    "query": "create table default_parted_trig partition of parted_trig default"
+  },
+  {
+    "comment": "triggers - Statement 843",
+    "query": "create or replace trigger my_trig after insert on parted_trig for each row execute procedure funcA()"
+  },
+  {
+    "comment": "triggers - Statement 844",
+    "query": "insert into parted_trig (a) values (50)"
+  },
+  {
+    "comment": "triggers - Statement 845",
+    "query": "create or replace trigger my_trig after insert on parted_trig for each row execute procedure funcB()"
+  },
+  {
+    "comment": "triggers - Statement 846",
+    "query": "create or replace trigger my_trig after insert on parted_trig_1 for each row execute procedure funcB()"
+  },
+  {
+    "comment": "triggers - Statement 847",
+    "query": "drop trigger my_trig on parted_trig"
+  },
+  {
+    "comment": "triggers - Statement 848",
+    "query": "create trigger my_trig after insert on parted_trig_1 for each row execute procedure funcA()"
+  },
+  {
+    "comment": "triggers - Statement 849",
+    "query": "create trigger my_trig after insert on parted_trig for each row execute procedure funcB()"
+  },
+  {
+    "comment": "triggers - Statement 850",
+    "query": "drop function funcA()"
+  },
+  {
+    "comment": "triggers - Statement 851",
+    "query": "drop function funcB()"
+  },
+  {
+    "comment": "triggers - Statement 852",
+    "query": "create table trigger_parted (a int primary key) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 853",
+    "query": "create function trigger_parted_trigfunc() returns trigger language plpgsql as $$ begin end; $$"
+  },
+  {
+    "comment": "triggers - Statement 854",
+    "query": "create trigger aft_row after insert or update on trigger_parted for each row execute function trigger_parted_trigfunc()"
+  },
+  {
+    "comment": "triggers - Statement 855",
+    "query": "create table trigger_parted_p1 partition of trigger_parted for values in (1) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 856",
+    "query": "create table trigger_parted_p1_1 partition of trigger_parted_p1 for values in (1)"
+  },
+  {
+    "comment": "triggers - Statement 857",
+    "query": "create table trigger_parted_p2 partition of trigger_parted for values in (2) partition by list (a)"
+  },
+  {
+    "comment": "triggers - Statement 858",
+    "query": "create table trigger_parted_p2_2 partition of trigger_parted_p2 for values in (2)"
+  },
+  {
+    "comment": "triggers - Statement 859",
+    "query": "alter table only trigger_parted_p2 disable trigger aft_row"
+  },
+  {
+    "comment": "triggers - Statement 860",
+    "query": "alter table trigger_parted_p2_2 enable always trigger aft_row"
+  },
+  {
+    "comment": "triggers - Statement 861",
+    "query": "create table convslot_test_parent (col1 text primary key)"
+  },
+  {
+    "comment": "triggers - Statement 862",
+    "query": "create table convslot_test_child (col1 text primary key, foreign key (col1) references convslot_test_parent(col1) on delete cascade on update cascade )"
+  },
+  {
+    "comment": "triggers - Statement 863",
+    "query": "alter table convslot_test_child add column col2 text not null default 'tutu'"
+  },
+  {
+    "comment": "triggers - Statement 864",
+    "query": "insert into convslot_test_parent(col1) values ('1')"
+  },
+  {
+    "comment": "triggers - Statement 865",
+    "query": "insert into convslot_test_child(col1) values ('1')"
+  },
+  {
+    "comment": "triggers - Statement 866",
+    "query": "insert into convslot_test_parent(col1) values ('3')"
+  },
+  {
+    "comment": "triggers - Statement 867",
+    "query": "insert into convslot_test_child(col1) values ('3')"
+  },
+  {
+    "comment": "triggers - Statement 868",
+    "query": "create function convslot_trig1() returns trigger language plpgsql AS $$ begin raise notice 'trigger = %, old_table = %', TG_NAME, (select string_agg(old_table::text, ', ' order by col1) from old_table)"
+  },
+  {
+    "comment": "triggers - Statement 869",
+    "query": "end; $$"
+  },
+  {
+    "comment": "triggers - Statement 870",
+    "query": "create function convslot_trig2() returns trigger language plpgsql AS $$ begin raise notice 'trigger = %, new table = %', TG_NAME, (select string_agg(new_table::text, ', ' order by col1) from new_table)"
+  },
+  {
+    "comment": "triggers - Statement 871",
+    "query": "create trigger but_trigger after update on convslot_test_child referencing new table as new_table for each statement execute function convslot_trig2()"
+  },
+  {
+    "comment": "triggers - Statement 872",
+    "query": "update convslot_test_parent set col1 = col1 || '1'"
+  },
+  {
+    "comment": "triggers - Statement 873",
+    "query": "create function convslot_trig3() returns trigger language plpgsql AS $$ begin raise notice 'trigger = %, old_table = %, new table = %', TG_NAME, (select string_agg(old_table::text, ', ' order by col1) from old_table), (select string_agg(new_table::text, ', ' order by col1) from new_table)"
+  },
+  {
+    "comment": "triggers - Statement 874",
+    "query": "create trigger but_trigger2 after update on convslot_test_child referencing old table as old_table new table as new_table for each statement execute function convslot_trig3()"
+  },
+  {
+    "comment": "triggers - Statement 875",
+    "query": "create trigger bdt_trigger after delete on convslot_test_child referencing old table as old_table for each statement execute function convslot_trig1()"
+  },
+  {
+    "comment": "triggers - Statement 876",
+    "query": "delete from convslot_test_parent"
+  },
+  {
+    "comment": "triggers - Statement 877",
+    "query": "drop table convslot_test_child, convslot_test_parent"
+  },
+  {
+    "comment": "triggers - Statement 878",
+    "query": "drop function convslot_trig1()"
+  },
+  {
+    "comment": "triggers - Statement 879",
+    "query": "drop function convslot_trig2()"
+  },
+  {
+    "comment": "triggers - Statement 880",
+    "query": "drop function convslot_trig3()"
+  },
+  {
+    "comment": "triggers - Statement 881",
+    "query": "create table convslot_test_parent (id int primary key, val int) partition by range (id)"
+  },
+  {
+    "comment": "triggers - Statement 882",
+    "query": "create table convslot_test_part (val int, id int not null)"
+  },
+  {
+    "comment": "triggers - Statement 883",
+    "query": "alter table convslot_test_parent attach partition convslot_test_part for values from (1) to (1000)"
+  },
+  {
+    "comment": "triggers - Statement 884",
+    "query": "create function convslot_trig4() returns trigger as $$begin raise exception 'BOOM!'; end$$ language plpgsql"
+  },
+  {
+    "comment": "triggers - Statement 885",
+    "query": "create trigger convslot_test_parent_update after update on convslot_test_parent referencing old table as old_rows new table as new_rows for each statement execute procedure convslot_trig4()"
+  },
+  {
+    "comment": "triggers - Statement 886",
+    "query": "insert into convslot_test_parent (id, val) values (1, 2)"
+  },
+  {
+    "comment": "triggers - Statement 887",
+    "query": "savepoint svp"
+  },
+  {
+    "comment": "triggers - Statement 888",
+    "query": "update convslot_test_parent set val = 3"
+  },
+  {
+    "comment": "triggers - Statement 889",
+    "query": "rollback to savepoint svp"
+  },
+  {
+    "comment": "triggers - Statement 890",
+    "query": "drop table convslot_test_parent"
+  },
+  {
+    "comment": "triggers - Statement 891",
+    "query": "drop function convslot_trig4()"
+  },
+  {
+    "comment": "triggers - Statement 892",
+    "query": "create table grandparent (id int, primary key (id)) partition by range (id)"
+  },
+  {
+    "comment": "triggers - Statement 893",
+    "query": "create table middle partition of grandparent for values from (1) to (10) partition by range (id)"
+  },
+  {
+    "comment": "triggers - Statement 894",
+    "query": "create table chi partition of middle for values from (1) to (5)"
+  },
+  {
+    "comment": "triggers - Statement 895",
+    "query": "create table cho partition of middle for values from (6) to (10)"
+  },
+  {
+    "comment": "triggers - Statement 896",
+    "query": "create function f () returns trigger as $$ begin return new; end; $$ language plpgsql"
+  },
+  {
+    "comment": "triggers - Statement 897",
+    "query": "create trigger a after insert on grandparent for each row execute procedure f()"
+  },
+  {
+    "comment": "triggers - Statement 898",
+    "query": "alter trigger a on grandparent rename to b"
+  },
+  {
+    "comment": "triggers - Statement 899",
+    "query": "select tgrelid::regclass, tgname, (select tgname from pg_trigger tr where tr.oid = pg_trigger.tgparentid) parent_tgname from pg_trigger where tgrelid in (select relid from pg_partition_tree('grandparent')) order by tgname, tgrelid::regclass::text COLLATE \"C\""
+  },
+  {
+    "comment": "triggers - Statement 900",
+    "query": "alter trigger a on only grandparent rename to b"
+  },
+  {
+    "comment": "triggers - Statement 901",
+    "query": "alter trigger b on middle rename to c"
+  },
+  {
+    "comment": "triggers - Statement 902",
+    "query": "create trigger c after insert on middle for each row execute procedure f()"
+  },
+  {
+    "comment": "triggers - Statement 903",
+    "query": "alter trigger b on grandparent rename to c"
+  },
+  {
+    "comment": "triggers - Statement 904",
+    "query": "create trigger p after insert on grandparent for each statement execute function f()"
+  },
+  {
+    "comment": "triggers - Statement 905",
+    "query": "create trigger p after insert on middle for each statement execute function f()"
+  },
+  {
+    "comment": "triggers - Statement 906",
+    "query": "alter trigger p on grandparent rename to q"
+  },
+  {
+    "comment": "triggers - Statement 907",
+    "query": "drop table grandparent"
+  },
+  {
+    "comment": "triggers - Statement 908",
+    "query": "create trigger parenttrig after insert on parent for each row execute procedure f()"
+  },
+  {
+    "comment": "triggers - Statement 909",
+    "query": "create trigger parenttrig after insert on child for each row execute procedure f()"
+  },
+  {
+    "comment": "triggers - Statement 910",
+    "query": "alter trigger parenttrig on parent rename to anothertrig"
+  },
+  {
+    "comment": "triggers - Statement 911",
+    "query": "drop function f()"
+  }
+]

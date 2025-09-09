@@ -1,0 +1,58 @@
+[
+  {
+    "comment": "reindex_catalog - Statement 1",
+    "query": "REINDEX TABLE pg_class"
+  },
+  {
+    "comment": "reindex_catalog - Statement 2",
+    "query": "REINDEX TABLE pg_index"
+  },
+  {
+    "comment": "reindex_catalog - Statement 3",
+    "query": "REINDEX TABLE pg_operator"
+  },
+  {
+    "comment": "reindex_catalog - Statement 4",
+    "query": "REINDEX TABLE pg_database"
+  },
+  {
+    "comment": "reindex_catalog - Statement 5",
+    "query": "REINDEX TABLE pg_shdescription"
+  },
+  {
+    "comment": "reindex_catalog - Statement 6",
+    "query": "REINDEX INDEX pg_class_oid_index"
+  },
+  {
+    "comment": "reindex_catalog - Statement 7",
+    "query": "REINDEX INDEX pg_class_relname_nsp_index"
+  },
+  {
+    "comment": "reindex_catalog - Statement 8",
+    "query": "REINDEX INDEX pg_index_indexrelid_index"
+  },
+  {
+    "comment": "reindex_catalog - Statement 9",
+    "query": "REINDEX INDEX pg_index_indrelid_index"
+  },
+  {
+    "comment": "reindex_catalog - Statement 10",
+    "query": "REINDEX INDEX pg_database_oid_index"
+  },
+  {
+    "comment": "reindex_catalog - Statement 11",
+    "query": "REINDEX INDEX pg_shdescription_o_c_index"
+  },
+  {
+    "comment": "reindex_catalog - Statement 12",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "reindex_catalog - Statement 13",
+    "query": "SET min_parallel_table_scan_size = 0"
+  },
+  {
+    "comment": "reindex_catalog - Statement 14",
+    "query": "ROLLBACK"
+  }
+]

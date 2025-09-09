@@ -114,7 +114,7 @@ func (s *parseTestSuite) testFile(filename string) {
 
 		// Write updated test file if there were failures
 		if s.outputDir != "" && failed {
-			name := strings.TrimSuffix(filename, filepath.Ext(filename))
+			name := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
 			name = filepath.Join(s.outputDir, name+".json")
 			file, err := os.Create(name)
 			require.NoError(t, err)
@@ -199,6 +199,24 @@ func (s *parseTestSuite) TestParsing() {
 func (s *parseTestSuite) TestOne() {
 	// This can be used to test a single case file during development
 	s.testFile("onecase.json")
+}
+
+// TestPostgresTestsParsing runs tests from all PostgreSQL test files
+// The tests have been ported over from ./src/test/regress/sql in the postgres code.
+func (s *parseTestSuite) TestPostgresTestsParsing() {
+	// Read all JSON files from the postgres directory
+	postgresDir := "testdata/postgres"
+	files, err := os.ReadDir(postgresDir)
+	if err != nil {
+		s.T().Fatalf("Failed to read postgres test directory: %v", err)
+	}
+
+	// Test each JSON file
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			s.testFile(filepath.Join("postgres", file.Name()))
+		}
+	}
 }
 
 // TestDeparsing tests round-trip parsing and deparsing for all supported constructs

@@ -229,12 +229,12 @@ func (f *FuncExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:813
 type OpExpr struct {
 	BaseExpr
-	Opno         Oid    // pg_operator OID - postgres/src/include/nodes/primnodes.h:816
-	Opfuncid     Oid    // Underlying function OID - postgres/src/include/nodes/primnodes.h:817
-	Opresulttype Oid    // Result type - postgres/src/include/nodes/primnodes.h:818
-	Opretset     bool   // Returns set? - postgres/src/include/nodes/primnodes.h:819
-	Opcollid     Oid    // Result collation - postgres/src/include/nodes/primnodes.h:820
-	Inputcollid  Oid    // Input collation - postgres/src/include/nodes/primnodes.h:821
+	Opno         Oid       // pg_operator OID - postgres/src/include/nodes/primnodes.h:816
+	Opfuncid     Oid       // Underlying function OID - postgres/src/include/nodes/primnodes.h:817
+	Opresulttype Oid       // Result type - postgres/src/include/nodes/primnodes.h:818
+	Opretset     bool      // Returns set? - postgres/src/include/nodes/primnodes.h:819
+	Opcollid     Oid       // Result collation - postgres/src/include/nodes/primnodes.h:820
+	Inputcollid  Oid       // Input collation - postgres/src/include/nodes/primnodes.h:821
 	Args         *NodeList // Operator arguments (1 or 2) - postgres/src/include/nodes/primnodes.h:822
 }
 
@@ -295,7 +295,7 @@ func (b *BoolExpr) SqlString() string {
 	if b.Args == nil || len(b.Args.Items) == 0 {
 		return ""
 	}
-	
+
 	switch b.Boolop {
 	case AND_EXPR:
 		var parts []string
@@ -307,7 +307,7 @@ func (b *BoolExpr) SqlString() string {
 		// Don't add parentheses - let ParenExpr handle explicit parentheses
 		// and let precedence rules determine when they're needed
 		return strings.Join(parts, " AND ")
-		
+
 	case OR_EXPR:
 		var parts []string
 		for _, arg := range b.Args.Items {
@@ -318,16 +318,16 @@ func (b *BoolExpr) SqlString() string {
 		// Don't add parentheses - let ParenExpr handle explicit parentheses
 		// and let precedence rules determine when they're needed
 		return strings.Join(parts, " OR ")
-		
+
 	case NOT_EXPR:
 		if len(b.Args.Items) > 0 && b.Args.Items[0] != nil {
 			return fmt.Sprintf("NOT %s", b.Args.Items[0].SqlString())
 		}
-		
+
 	default:
 		return "UNKNOWN_BOOL_EXPR"
 	}
-	
+
 	return ""
 }
 
@@ -368,11 +368,11 @@ func NewUnaryOp(opno Oid, arg Node) *OpExpr {
 // Ported from postgres/src/include/nodes/primnodes.h:1306
 type CaseExpr struct {
 	BaseExpr
-	Casetype   Oid    // Result type - postgres/src/include/nodes/primnodes.h:1309
-	Casecollid Oid    // Result collation - postgres/src/include/nodes/primnodes.h:1310
-	Arg        Node   // Implicit comparison argument - postgres/src/include/nodes/primnodes.h:1311
+	Casetype   Oid       // Result type - postgres/src/include/nodes/primnodes.h:1309
+	Casecollid Oid       // Result collation - postgres/src/include/nodes/primnodes.h:1310
+	Arg        Node      // Implicit comparison argument - postgres/src/include/nodes/primnodes.h:1311
 	Args       *NodeList // List of WHEN clauses - postgres/src/include/nodes/primnodes.h:1312
-	Defresult  Node   // Default result (ELSE) - postgres/src/include/nodes/primnodes.h:1313
+	Defresult  Node      // Default result (ELSE) - postgres/src/include/nodes/primnodes.h:1313
 }
 
 // NewCaseExpr creates a new CaseExpr node.
@@ -403,18 +403,18 @@ func (c *CaseExpr) SqlString() string {
 	if c == nil {
 		return ""
 	}
-	
+
 	var result strings.Builder
-	
+
 	// Start with CASE
 	result.WriteString("CASE")
-	
+
 	// Add the case argument if present (for simple CASE expressions)
 	if c.Arg != nil {
 		result.WriteString(" ")
 		result.WriteString(c.Arg.SqlString())
 	}
-	
+
 	// Add WHEN clauses
 	if c.Args != nil {
 		for _, when := range c.Args.Items {
@@ -426,15 +426,15 @@ func (c *CaseExpr) SqlString() string {
 			}
 		}
 	}
-	
+
 	// Add ELSE clause if present
 	if c.Defresult != nil {
 		result.WriteString(" ELSE ")
 		result.WriteString(c.Defresult.SqlString())
 	}
-	
+
 	result.WriteString(" END")
-	
+
 	return result.String()
 }
 
@@ -467,8 +467,8 @@ func (cw *CaseWhen) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:1484
 type CoalesceExpr struct {
 	BaseExpr
-	Coalescetype   Oid    // Result type - postgres/src/include/nodes/primnodes.h:1487
-	Coalescecollid Oid    // Result collation - postgres/src/include/nodes/primnodes.h:1488
+	Coalescetype   Oid       // Result type - postgres/src/include/nodes/primnodes.h:1487
+	Coalescecollid Oid       // Result collation - postgres/src/include/nodes/primnodes.h:1488
 	Args           *NodeList // Argument expressions - postgres/src/include/nodes/primnodes.h:1489
 }
 
@@ -493,15 +493,37 @@ func (c *CoalesceExpr) String() string {
 	return fmt.Sprintf("CoalesceExpr(%d args)@%d", argCount, c.Location())
 }
 
+// SqlString returns the SQL representation of CoalesceExpr
+func (c *CoalesceExpr) SqlString() string {
+	var result strings.Builder
+	result.WriteString("COALESCE(")
+
+	if c.Args != nil && len(c.Args.Items) > 0 {
+		for i, arg := range c.Args.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			if expr, ok := arg.(Expression); ok {
+				result.WriteString(expr.SqlString())
+			} else {
+				result.WriteString("<unknown>")
+			}
+		}
+	}
+
+	result.WriteString(")")
+	return result.String()
+}
+
 // ArrayExpr represents an ARRAY[] constructor expression.
 // Ported from postgres/src/include/nodes/primnodes.h:1370
 type ArrayExpr struct {
 	BaseExpr
-	ArrayTypeid   Oid    // Array type OID - postgres/src/include/nodes/primnodes.h:1373
-	ArrayCollid   Oid    // Array collation - postgres/src/include/nodes/primnodes.h:1374
-	ElementTypeid Oid    // Element type OID - postgres/src/include/nodes/primnodes.h:1375
+	ArrayTypeid   Oid       // Array type OID - postgres/src/include/nodes/primnodes.h:1373
+	ArrayCollid   Oid       // Array collation - postgres/src/include/nodes/primnodes.h:1374
+	ElementTypeid Oid       // Element type OID - postgres/src/include/nodes/primnodes.h:1375
 	Elements      *NodeList // Array elements - postgres/src/include/nodes/primnodes.h:1376
-	Multidims     bool   // Multi-dimensional? - postgres/src/include/nodes/primnodes.h:1377
+	Multidims     bool      // Multi-dimensional? - postgres/src/include/nodes/primnodes.h:1377
 }
 
 // NewArrayExpr creates a new ArrayExpr node.
@@ -516,6 +538,51 @@ func NewArrayExpr(arrayTypeid Oid, elementTypeid Oid, elements *NodeList) *Array
 
 func (a *ArrayExpr) ExpressionType() string {
 	return "ArrayExpr"
+}
+
+// SqlString formats the ArrayExpr as ARRAY[...] syntax
+func (a *ArrayExpr) SqlString() string {
+	if a.Elements == nil || len(a.Elements.Items) == 0 {
+		return "ARRAY[]"
+	}
+
+	// Check if all elements are arrays to use compact multidimensional syntax
+	allArrays := true
+	for _, element := range a.Elements.Items {
+		if element != nil {
+			if _, ok := element.(*ArrayExpr); !ok {
+				allArrays = false
+				break
+			}
+		}
+	}
+
+	if allArrays && len(a.Elements.Items) > 0 {
+		// Use compact [[...],[...]] syntax for arrays of arrays
+		var compactItems []string
+		for _, element := range a.Elements.Items {
+			if arrayExpr, ok := element.(*ArrayExpr); ok {
+				var subItems []string
+				for _, subElement := range arrayExpr.Elements.Items {
+					if subElement != nil {
+						subItems = append(subItems, subElement.SqlString())
+					}
+				}
+				compactItems = append(compactItems, fmt.Sprintf("[%s]", strings.Join(subItems, ",")))
+			}
+		}
+		return fmt.Sprintf("ARRAY[%s]", strings.Join(compactItems, ","))
+	}
+
+	// Regular array syntax
+	var items []string
+	for _, element := range a.Elements.Items {
+		if element != nil {
+			items = append(items, element.SqlString())
+		}
+	}
+
+	return fmt.Sprintf("ARRAY[%s]", strings.Join(items, ","))
 }
 
 func (a *ArrayExpr) String() string {
@@ -534,12 +601,12 @@ func (a *ArrayExpr) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:893
 type ScalarArrayOpExpr struct {
 	BaseExpr
-	Opno        Oid    // pg_operator OID - postgres/src/include/nodes/primnodes.h:896
-	Opfuncid    Oid    // Comparison function OID - postgres/src/include/nodes/primnodes.h:897
-	Hashfuncid  Oid    // Hash function OID (optimization) - postgres/src/include/nodes/primnodes.h:898
-	Negfuncid   Oid    // Negation function OID - postgres/src/include/nodes/primnodes.h:899
-	UseOr       bool   // True for ANY, false for ALL - postgres/src/include/nodes/primnodes.h:900
-	Inputcollid Oid    // Input collation - postgres/src/include/nodes/primnodes.h:901
+	Opno        Oid       // pg_operator OID - postgres/src/include/nodes/primnodes.h:896
+	Opfuncid    Oid       // Comparison function OID - postgres/src/include/nodes/primnodes.h:897
+	Hashfuncid  Oid       // Hash function OID (optimization) - postgres/src/include/nodes/primnodes.h:898
+	Negfuncid   Oid       // Negation function OID - postgres/src/include/nodes/primnodes.h:899
+	UseOr       bool      // True for ANY, false for ALL - postgres/src/include/nodes/primnodes.h:900
+	Inputcollid Oid       // Input collation - postgres/src/include/nodes/primnodes.h:901
 	Args        *NodeList // Scalar and array operands - postgres/src/include/nodes/primnodes.h:902
 }
 
@@ -601,14 +668,14 @@ func (r *RowExpr) SqlString() string {
 	if r.Args == nil || len(r.Args.Items) == 0 {
 		return "ROW()"
 	}
-	
+
 	var items []string
 	for _, arg := range r.Args.Items {
 		if arg != nil {
 			items = append(items, arg.SqlString())
 		}
 	}
-	
+
 	// ROW expressions are typically written as just (expr1, expr2, ...)
 	// unless explicitly using ROW keyword
 	if r.RowFormat == COERCE_EXPLICIT_CALL {
@@ -835,25 +902,25 @@ func (a AggSplit) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:439
 type Aggref struct {
 	BaseExpr
-	Aggfnoid      Oid      // pg_proc OID of the aggregate - postgres/src/include/nodes/primnodes.h:481
-	Aggtype       Oid      // Result type OID - postgres/src/include/nodes/primnodes.h:483
-	Aggcollid     Oid      // Result collation - postgres/src/include/nodes/primnodes.h:485
-	Inputcollid   Oid      // Input collation - postgres/src/include/nodes/primnodes.h:487
-	Aggtranstype  Oid      // Transition value type - postgres/src/include/nodes/primnodes.h:492
-	Aggargtypes   []Oid    // Argument type OIDs - postgres/src/include/nodes/primnodes.h:494
+	Aggfnoid      Oid       // pg_proc OID of the aggregate - postgres/src/include/nodes/primnodes.h:481
+	Aggtype       Oid       // Result type OID - postgres/src/include/nodes/primnodes.h:483
+	Aggcollid     Oid       // Result collation - postgres/src/include/nodes/primnodes.h:485
+	Inputcollid   Oid       // Input collation - postgres/src/include/nodes/primnodes.h:487
+	Aggtranstype  Oid       // Transition value type - postgres/src/include/nodes/primnodes.h:492
+	Aggargtypes   []Oid     // Argument type OIDs - postgres/src/include/nodes/primnodes.h:494
 	Aggdirectargs *NodeList // Direct arguments for ordered-set aggs - postgres/src/include/nodes/primnodes.h:495
 	Args          *NodeList // Aggregated arguments - postgres/src/include/nodes/primnodes.h:496
 	Aggorder      *NodeList // ORDER BY expressions - postgres/src/include/nodes/primnodes.h:497
 	Aggdistinct   *NodeList // DISTINCT expressions - postgres/src/include/nodes/primnodes.h:498
-	Aggfilter     Node     // FILTER expression - postgres/src/include/nodes/primnodes.h:499
-	Aggstar       bool     // True if argument list was '*' - postgres/src/include/nodes/primnodes.h:501
-	Aggvariadic   bool     // True if variadic args combined - postgres/src/include/nodes/primnodes.h:505
-	Aggkind       byte     // Aggregate kind - postgres/src/include/nodes/primnodes.h:507
-	Aggpresorted  bool     // Input already sorted - postgres/src/include/nodes/primnodes.h:509
-	Agglevelsup   Index    // > 0 if agg belongs to outer query - postgres/src/include/nodes/primnodes.h:511
-	Aggsplit      AggSplit // Expected splitting mode - postgres/src/include/nodes/primnodes.h:513
-	Aggno         int      // Unique ID within Agg node - postgres/src/include/nodes/primnodes.h:515
-	Aggtransno    int      // Unique ID of transition state - postgres/src/include/nodes/primnodes.h:517
+	Aggfilter     Node      // FILTER expression - postgres/src/include/nodes/primnodes.h:499
+	Aggstar       bool      // True if argument list was '*' - postgres/src/include/nodes/primnodes.h:501
+	Aggvariadic   bool      // True if variadic args combined - postgres/src/include/nodes/primnodes.h:505
+	Aggkind       byte      // Aggregate kind - postgres/src/include/nodes/primnodes.h:507
+	Aggpresorted  bool      // Input already sorted - postgres/src/include/nodes/primnodes.h:509
+	Agglevelsup   Index     // > 0 if agg belongs to outer query - postgres/src/include/nodes/primnodes.h:511
+	Aggsplit      AggSplit  // Expected splitting mode - postgres/src/include/nodes/primnodes.h:513
+	Aggno         int       // Unique ID within Agg node - postgres/src/include/nodes/primnodes.h:515
+	Aggtransno    int       // Unique ID of transition state - postgres/src/include/nodes/primnodes.h:517
 }
 
 // NewAggref creates a new Aggref node.
@@ -890,16 +957,16 @@ func (a *Aggref) String() string {
 // Ported from postgres/src/include/nodes/primnodes.h:563
 type WindowFunc struct {
 	BaseExpr
-	Winfnoid     Oid    // pg_proc OID of the function - postgres/src/include/nodes/primnodes.h:593
-	Wintype      Oid    // Result type OID - postgres/src/include/nodes/primnodes.h:595
-	Wincollid    Oid    // Result collation - postgres/src/include/nodes/primnodes.h:597
-	Inputcollid  Oid    // Input collation - postgres/src/include/nodes/primnodes.h:599
+	Winfnoid     Oid       // pg_proc OID of the function - postgres/src/include/nodes/primnodes.h:593
+	Wintype      Oid       // Result type OID - postgres/src/include/nodes/primnodes.h:595
+	Wincollid    Oid       // Result collation - postgres/src/include/nodes/primnodes.h:597
+	Inputcollid  Oid       // Input collation - postgres/src/include/nodes/primnodes.h:599
 	Args         *NodeList // Arguments to window function - postgres/src/include/nodes/primnodes.h:601
-	Aggfilter    Node   // FILTER expression - postgres/src/include/nodes/primnodes.h:603
+	Aggfilter    Node      // FILTER expression - postgres/src/include/nodes/primnodes.h:603
 	RunCondition *NodeList // List of run conditions - postgres/src/include/nodes/primnodes.h:605
-	Winref       Index  // Index of associated WindowClause - postgres/src/include/nodes/primnodes.h:607
-	Winstar      bool   // True if argument list was '*' - postgres/src/include/nodes/primnodes.h:609
-	Winagg       bool   // Is function a simple aggregate? - postgres/src/include/nodes/primnodes.h:611
+	Winref       Index     // Index of associated WindowClause - postgres/src/include/nodes/primnodes.h:607
+	Winstar      bool      // True if argument list was '*' - postgres/src/include/nodes/primnodes.h:609
+	Winagg       bool      // Is function a simple aggregate? - postgres/src/include/nodes/primnodes.h:611
 }
 
 // NewWindowFunc creates a new WindowFunc node.
@@ -964,13 +1031,13 @@ func (s *SubLink) SqlString() string {
 	if s == nil {
 		return ""
 	}
-	
+
 	// Handle different sublink types
 	switch s.SubLinkType {
 	case EXISTS_SUBLINK:
 		// EXISTS(subquery)
 		return fmt.Sprintf("EXISTS (%s)", s.Subselect.SqlString())
-		
+
 	case ALL_SUBLINK:
 		// expr op ALL(subquery)
 		if s.Testexpr != nil && s.OperName != nil && len(s.OperName.Items) > 0 {
@@ -978,7 +1045,7 @@ func (s *SubLink) SqlString() string {
 			return fmt.Sprintf("%s %s ALL (%s)", s.Testexpr.SqlString(), op, s.Subselect.SqlString())
 		}
 		return fmt.Sprintf("ALL (%s)", s.Subselect.SqlString())
-		
+
 	case ANY_SUBLINK:
 		// expr op ANY(subquery) - includes IN which is = ANY
 		if s.Testexpr != nil {
@@ -993,7 +1060,7 @@ func (s *SubLink) SqlString() string {
 			}
 		}
 		return fmt.Sprintf("ANY (%s)", s.Subselect.SqlString())
-		
+
 	case ROWCOMPARE_SUBLINK:
 		// (expr list) op (subquery)
 		if s.Testexpr != nil && s.OperName != nil && len(s.OperName.Items) > 0 {
@@ -1001,23 +1068,23 @@ func (s *SubLink) SqlString() string {
 			return fmt.Sprintf("%s %s (%s)", s.Testexpr.SqlString(), op, s.Subselect.SqlString())
 		}
 		return fmt.Sprintf("(%s)", s.Subselect.SqlString())
-		
+
 	case EXPR_SUBLINK:
 		// Simple scalar subquery: (subquery)
 		return fmt.Sprintf("(%s)", s.Subselect.SqlString())
-		
+
 	case MULTIEXPR_SUBLINK:
 		// Multiple expressions - just wrap in parentheses
 		return fmt.Sprintf("(%s)", s.Subselect.SqlString())
-		
+
 	case ARRAY_SUBLINK:
 		// ARRAY(subquery)
 		return fmt.Sprintf("ARRAY(%s)", s.Subselect.SqlString())
-		
+
 	case CTE_SUBLINK:
 		// For SubPlans only - shouldn't appear in normal SQL
 		return fmt.Sprintf("(%s)", s.Subselect.SqlString())
-		
+
 	default:
 		// Fallback to simple subquery
 		return fmt.Sprintf("(%s)", s.Subselect.SqlString())
@@ -1029,19 +1096,19 @@ func extractOperatorFromNodeList(list *NodeList) string {
 	if list == nil || len(list.Items) == 0 {
 		return ""
 	}
-	
+
 	// The operator is typically stored as a String node in the list
 	for _, item := range list.Items {
 		if str, ok := item.(*String); ok && str != nil {
 			return str.SVal
 		}
 	}
-	
+
 	// Fallback: try to get SqlString of first item
 	if list.Items[0] != nil {
 		return list.Items[0].SqlString()
 	}
-	
+
 	return ""
 }
 
@@ -1520,6 +1587,20 @@ func (g *GroupingFunc) String() string {
 	return fmt.Sprintf("GroupingFunc{%d args, agglevelsup=%d}@%d", argsCount, g.AggLevelsUp, g.Location())
 }
 
+// SqlString returns the SQL representation of GroupingFunc
+func (g *GroupingFunc) SqlString() string {
+	if g.Args == nil || len(g.Args.Items) == 0 {
+		return "GROUPING()"
+	}
+
+	var argStrs []string
+	for _, arg := range g.Args.Items {
+		argStrs = append(argStrs, arg.SqlString())
+	}
+
+	return fmt.Sprintf("GROUPING(%s)", strings.Join(argStrs, ", "))
+}
+
 // WindowFuncRunCondition represents a window function run condition
 // Ported from postgres/src/include/nodes/primnodes.h:596-609
 type WindowFuncRunCondition struct {
@@ -1606,6 +1687,15 @@ func (n *NamedArgExpr) String() string {
 	return fmt.Sprintf("NamedArgExpr{name='%s', argnum=%d}@%d", n.Name, n.ArgNumber, n.Location())
 }
 
+// SqlString returns the SQL representation of NamedArgExpr
+func (n *NamedArgExpr) SqlString() string {
+	// Format as: name => value
+	if n.Arg != nil {
+		return fmt.Sprintf("%s => %s", n.Name, n.Arg.SqlString())
+	}
+	return n.Name + " => NULL"
+}
+
 // CaseTestExpr represents a CASE test expression
 // Ported from postgres/src/include/nodes/primnodes.h:1352-1359
 type CaseTestExpr struct {
@@ -1670,6 +1760,37 @@ func (m *MinMaxExpr) String() string {
 		argCount = len(m.Args.Items)
 	}
 	return fmt.Sprintf("MinMaxExpr{%s, %d args}@%d", opStr, argCount, m.Location())
+}
+
+// SqlString returns the SQL representation of MinMaxExpr
+func (m *MinMaxExpr) SqlString() string {
+	var result strings.Builder
+
+	// Write the function name
+	if m.Op == IS_LEAST {
+		result.WriteString("LEAST")
+	} else {
+		result.WriteString("GREATEST")
+	}
+
+	result.WriteString("(")
+
+	// Write the arguments
+	if m.Args != nil && len(m.Args.Items) > 0 {
+		for i, arg := range m.Args.Items {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			if expr, ok := arg.(Expression); ok {
+				result.WriteString(expr.SqlString())
+			} else {
+				result.WriteString("<unknown>")
+			}
+		}
+	}
+
+	result.WriteString(")")
+	return result.String()
 }
 
 // RowCompareExpr represents a row comparison expression
@@ -1776,6 +1897,44 @@ func (s *SQLValueFunction) String() string {
 	return fmt.Sprintf("SQLValueFunction{%s}@%d", opStr, s.Location())
 }
 
+// SqlString returns the SQL representation of SQLValueFunction
+func (s *SQLValueFunction) SqlString() string {
+	switch s.Op {
+	case SVFOP_CURRENT_DATE:
+		return "CURRENT_DATE"
+	case SVFOP_CURRENT_TIME:
+		return "CURRENT_TIME"
+	case SVFOP_CURRENT_TIME_N:
+		return fmt.Sprintf("CURRENT_TIME(%d)", s.TypeMod)
+	case SVFOP_CURRENT_TIMESTAMP:
+		return "CURRENT_TIMESTAMP"
+	case SVFOP_CURRENT_TIMESTAMP_N:
+		return fmt.Sprintf("CURRENT_TIMESTAMP(%d)", s.TypeMod)
+	case SVFOP_LOCALTIME:
+		return "LOCALTIME"
+	case SVFOP_LOCALTIME_N:
+		return fmt.Sprintf("LOCALTIME(%d)", s.TypeMod)
+	case SVFOP_LOCALTIMESTAMP:
+		return "LOCALTIMESTAMP"
+	case SVFOP_LOCALTIMESTAMP_N:
+		return fmt.Sprintf("LOCALTIMESTAMP(%d)", s.TypeMod)
+	case SVFOP_CURRENT_ROLE:
+		return "CURRENT_ROLE"
+	case SVFOP_CURRENT_USER:
+		return "CURRENT_USER"
+	case SVFOP_USER:
+		return "USER"
+	case SVFOP_SESSION_USER:
+		return "SESSION_USER"
+	case SVFOP_CURRENT_CATALOG:
+		return "CURRENT_CATALOG"
+	case SVFOP_CURRENT_SCHEMA:
+		return "CURRENT_SCHEMA"
+	default:
+		return "UNKNOWN_VALUE_FUNCTION"
+	}
+}
+
 // XmlExpr represents various SQL/XML functions requiring special grammar
 // Ported from postgres/src/include/nodes/primnodes.h:1596-1618
 type XmlExpr struct {
@@ -1838,6 +1997,121 @@ func (x *XmlExpr) String() string {
 		argCount = len(x.Args.Items)
 	}
 	return fmt.Sprintf("XmlExpr{%s, %d args}@%d", opStr, argCount, x.Location())
+}
+
+// SqlString returns the SQL representation of XmlExpr
+func (x *XmlExpr) SqlString() string {
+	var result strings.Builder
+	
+	switch x.Op {
+	case IS_XMLCONCAT:
+		result.WriteString("XMLCONCAT(")
+		if x.Args != nil {
+			for i, arg := range x.Args.Items {
+				if i > 0 {
+					result.WriteString(", ")
+				}
+				if arg != nil {
+					result.WriteString(arg.SqlString())
+				}
+			}
+		}
+		result.WriteString(")")
+		
+	case IS_XMLELEMENT:
+		result.WriteString("XMLELEMENT(NAME ")
+		result.WriteString(x.Name)
+		if x.Args != nil && len(x.Args.Items) > 0 {
+			result.WriteString(", ")
+			for i, arg := range x.Args.Items {
+				if i > 0 {
+					result.WriteString(", ")
+				}
+				if arg != nil {
+					result.WriteString(arg.SqlString())
+				}
+			}
+		}
+		result.WriteString(")")
+		
+	case IS_XMLFOREST:
+		result.WriteString("XMLFOREST(")
+		if x.Args != nil {
+			for i, arg := range x.Args.Items {
+				if i > 0 {
+					result.WriteString(", ")
+				}
+				if arg != nil {
+					result.WriteString(arg.SqlString())
+				}
+			}
+		}
+		result.WriteString(")")
+		
+	case IS_XMLPARSE:
+		result.WriteString("XMLPARSE(")
+		switch x.Xmloption {
+		case XMLOPTION_DOCUMENT:
+			result.WriteString("DOCUMENT ")
+		case XMLOPTION_CONTENT:
+			result.WriteString("CONTENT ")
+		}
+		if x.Args != nil && len(x.Args.Items) > 0 && x.Args.Items[0] != nil {
+			result.WriteString(x.Args.Items[0].SqlString())
+		}
+		result.WriteString(")")
+		
+	case IS_XMLPI:
+		result.WriteString("XMLPI(NAME ")
+		result.WriteString(x.Name)
+		if x.Args != nil && len(x.Args.Items) > 0 {
+			result.WriteString(", ")
+			result.WriteString(x.Args.Items[0].SqlString())
+		}
+		result.WriteString(")")
+		
+	case IS_XMLROOT:
+		result.WriteString("XMLROOT(")
+		if x.Args != nil && len(x.Args.Items) > 0 {
+			result.WriteString(x.Args.Items[0].SqlString())
+			if len(x.Args.Items) > 1 {
+				result.WriteString(", VERSION ")
+				result.WriteString(x.Args.Items[1].SqlString())
+			}
+		}
+		result.WriteString(")")
+		
+	case IS_XMLSERIALIZE:
+		result.WriteString("XMLSERIALIZE(")
+		switch x.Xmloption {
+		case XMLOPTION_DOCUMENT:
+			result.WriteString("DOCUMENT ")
+		case XMLOPTION_CONTENT:
+			result.WriteString("CONTENT ")
+		}
+		if x.Args != nil && len(x.Args.Items) > 0 && x.Args.Items[0] != nil {
+			result.WriteString(x.Args.Items[0].SqlString())
+		}
+		result.WriteString(" AS ")
+		// Type information would be in the Type field, but for basic implementation
+		// we'll just use a placeholder
+		result.WriteString("TEXT")
+		if x.Indent {
+			result.WriteString(" INDENT")
+		}
+		result.WriteString(")")
+		
+	case IS_DOCUMENT:
+		if x.Args != nil && len(x.Args.Items) > 0 && x.Args.Items[0] != nil {
+			result.WriteString(x.Args.Items[0].SqlString())
+		}
+		result.WriteString(" IS DOCUMENT")
+		
+	default:
+		result.WriteString("UNKNOWN_XML_EXPR")
+	}
+	
+	return result.String()
 }
 
 // TableFunc represents a table function such as XMLTABLE and JSON_TABLE
@@ -1946,12 +2220,12 @@ func (i *IntoClause) TargetString() string {
 	if i.Rel == nil {
 		return ""
 	}
-	
+
 	var parts []string
-	
+
 	// Add the target relation
 	parts = append(parts, i.Rel.SqlString())
-	
+
 	// Add column names if specified
 	if i.ColNames != nil && len(i.ColNames.Items) > 0 {
 		var colNames []string
@@ -1964,7 +2238,7 @@ func (i *IntoClause) TargetString() string {
 			parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colNames, ", ")))
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1972,19 +2246,19 @@ func (i *IntoClause) SqlString() string {
 	if i.Rel == nil {
 		return ""
 	}
-	
+
 	parts := []string{"INTO"}
-	
+
 	// Add persistence keywords if present
 	if i.Rel.RelPersistence == RELPERSISTENCE_TEMP {
 		parts = append(parts, "TEMPORARY")
 	} else if i.Rel.RelPersistence == RELPERSISTENCE_UNLOGGED {
 		parts = append(parts, "UNLOGGED")
 	}
-	
+
 	// Add the target relation
 	parts = append(parts, i.Rel.SqlString())
-	
+
 	// Add column names if specified
 	if i.ColNames != nil && len(i.ColNames.Items) > 0 {
 		var colNames []string
@@ -1997,7 +2271,7 @@ func (i *IntoClause) SqlString() string {
 			parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colNames, ", ")))
 		}
 	}
-	
+
 	// Add WITH options if present
 	if i.Options != nil && len(i.Options.Items) > 0 {
 		var opts []string
@@ -2008,7 +2282,7 @@ func (i *IntoClause) SqlString() string {
 		}
 		parts = append(parts, "WITH", fmt.Sprintf("(%s)", strings.Join(opts, ", ")))
 	}
-	
+
 	// Add ON COMMIT clause
 	switch i.OnCommit {
 	case ONCOMMIT_DROP:
@@ -2018,17 +2292,17 @@ func (i *IntoClause) SqlString() string {
 	case ONCOMMIT_PRESERVE_ROWS:
 		parts = append(parts, "ON COMMIT PRESERVE ROWS")
 	}
-	
+
 	// Add TABLESPACE clause
 	if i.TableSpaceName != "" {
 		parts = append(parts, "TABLESPACE", QuoteIdentifier(i.TableSpaceName))
 	}
-	
+
 	// Add WITH NO DATA if specified
 	if i.SkipData {
 		parts = append(parts, "WITH NO DATA")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 

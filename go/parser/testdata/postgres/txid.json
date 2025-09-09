@@ -1,0 +1,178 @@
+[
+  {
+    "comment": "txid - Statement 1",
+    "query": "select '12:13:'::txid_snapshot"
+  },
+  {
+    "comment": "txid - Statement 2",
+    "query": "select '12:18:14,16'::txid_snapshot"
+  },
+  {
+    "comment": "txid - Statement 3",
+    "query": "select '12:16:14,14'::txid_snapshot"
+  },
+  {
+    "comment": "txid - Statement 4",
+    "query": "select '31:12:'::txid_snapshot"
+  },
+  {
+    "comment": "txid - Statement 5",
+    "query": "select '0:1:'::txid_snapshot"
+  },
+  {
+    "comment": "txid - Statement 6",
+    "query": "select '12:13:0'::txid_snapshot"
+  },
+  {
+    "comment": "txid - Statement 7",
+    "query": "select '12:16:14,13'::txid_snapshot"
+  },
+  {
+    "comment": "txid - Statement 8",
+    "query": "create temp table snapshot_test ( nr\tinteger, snap\ttxid_snapshot )"
+  },
+  {
+    "comment": "txid - Statement 9",
+    "query": "insert into snapshot_test values (1, '12:13:')"
+  },
+  {
+    "comment": "txid - Statement 10",
+    "query": "insert into snapshot_test values (2, '12:20:13,15,18')"
+  },
+  {
+    "comment": "txid - Statement 11",
+    "query": "insert into snapshot_test values (3, '100001:100009:100005,100007,100008')"
+  },
+  {
+    "comment": "txid - Statement 12",
+    "query": "insert into snapshot_test values (4, '100:150:101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131')"
+  },
+  {
+    "comment": "txid - Statement 13",
+    "query": "select snap from snapshot_test order by nr"
+  },
+  {
+    "comment": "txid - Statement 14",
+    "query": "select  txid_snapshot_xmin(snap), txid_snapshot_xmax(snap), txid_snapshot_xip(snap) from snapshot_test order by nr"
+  },
+  {
+    "comment": "txid - Statement 15",
+    "query": "select id, txid_visible_in_snapshot(id, snap) from snapshot_test, generate_series(11, 21) id where nr = 2"
+  },
+  {
+    "comment": "txid - Statement 16",
+    "query": "select id, txid_visible_in_snapshot(id, snap) from snapshot_test, generate_series(90, 160) id where nr = 4"
+  },
+  {
+    "comment": "txid - Statement 17",
+    "query": "select txid_current() >= txid_snapshot_xmin(txid_current_snapshot())"
+  },
+  {
+    "comment": "txid - Statement 18",
+    "query": "select txid_visible_in_snapshot(txid_current(), txid_current_snapshot())"
+  },
+  {
+    "comment": "txid - Statement 19",
+    "query": "select txid_snapshot '1000100010001000:1000100010001100:1000100010001012,1000100010001013'"
+  },
+  {
+    "comment": "txid - Statement 20",
+    "query": "select txid_visible_in_snapshot('1000100010001012', '1000100010001000:1000100010001100:1000100010001012,1000100010001013')"
+  },
+  {
+    "comment": "txid - Statement 21",
+    "query": "select txid_visible_in_snapshot('1000100010001015', '1000100010001000:1000100010001100:1000100010001012,1000100010001013')"
+  },
+  {
+    "comment": "txid - Statement 22",
+    "query": "SELECT txid_snapshot '1:9223372036854775807:3'"
+  },
+  {
+    "comment": "txid - Statement 23",
+    "query": "SELECT txid_snapshot '1:9223372036854775808:3'"
+  },
+  {
+    "comment": "txid - Statement 24",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "txid - Statement 25",
+    "query": "SELECT txid_current_if_assigned() IS NULL"
+  },
+  {
+    "comment": "txid - Statement 26",
+    "query": "SELECT txid_current()"
+  },
+  {
+    "comment": "txid - Statement 27",
+    "query": "SELECT txid_current_if_assigned() IS NOT DISTINCT FROM BIGINT :'txid_current'"
+  },
+  {
+    "comment": "txid - Statement 28",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "txid - Statement 29",
+    "query": "SELECT txid_current() AS committed"
+  },
+  {
+    "comment": "txid - Statement 30",
+    "query": "SELECT txid_current() AS rolledback"
+  },
+  {
+    "comment": "txid - Statement 31",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "txid - Statement 32",
+    "query": "SELECT txid_current() AS inprogress"
+  },
+  {
+    "comment": "txid - Statement 33",
+    "query": "SELECT txid_status(:committed) AS committed"
+  },
+  {
+    "comment": "txid - Statement 34",
+    "query": "SELECT txid_status(:rolledback) AS rolledback"
+  },
+  {
+    "comment": "txid - Statement 35",
+    "query": "SELECT txid_status(:inprogress) AS inprogress"
+  },
+  {
+    "comment": "txid - Statement 36",
+    "query": "SELECT txid_status(1)"
+  },
+  {
+    "comment": "txid - Statement 37",
+    "query": "SELECT txid_status(2)"
+  },
+  {
+    "comment": "txid - Statement 38",
+    "query": "SELECT txid_status(3)"
+  },
+  {
+    "comment": "txid - Statement 39",
+    "query": "CREATE FUNCTION test_future_xid_status(bigint) RETURNS void LANGUAGE plpgsql AS $$ BEGIN PERFORM txid_status($1)"
+  },
+  {
+    "comment": "txid - Statement 40",
+    "query": "RAISE EXCEPTION 'didn''t ERROR at xid in the future as expected'"
+  },
+  {
+    "comment": "txid - Statement 41",
+    "query": "EXCEPTION WHEN invalid_parameter_value THEN RAISE NOTICE 'Got expected error for xid in the future'"
+  },
+  {
+    "comment": "txid - Statement 42",
+    "query": "END"
+  },
+  {
+    "comment": "txid - Statement 43",
+    "query": "$$"
+  },
+  {
+    "comment": "txid - Statement 44",
+    "query": "SELECT test_future_xid_status(:inprogress + 10000)"
+  }
+]

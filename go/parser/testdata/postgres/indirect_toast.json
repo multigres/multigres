@@ -1,0 +1,86 @@
+[
+  {
+    "comment": "indirect_toast - Statement 1",
+    "query": "SET default_toast_compression = 'pglz'"
+  },
+  {
+    "comment": "indirect_toast - Statement 2",
+    "query": "CREATE TABLE indtoasttest(descr text, cnt int DEFAULT 0, f1 text, f2 text)"
+  },
+  {
+    "comment": "indirect_toast - Statement 3",
+    "query": "INSERT INTO indtoasttest(descr, f1, f2) VALUES('two-compressed', repeat('1234567890',1000), repeat('1234567890',1000))"
+  },
+  {
+    "comment": "indirect_toast - Statement 4",
+    "query": "INSERT INTO indtoasttest(descr, f1, f2) VALUES('two-toasted', repeat('1234567890',30000), repeat('1234567890',50000))"
+  },
+  {
+    "comment": "indirect_toast - Statement 5",
+    "query": "INSERT INTO indtoasttest(descr, f1, f2) VALUES('one-compressed,one-null', NULL, repeat('1234567890',1000))"
+  },
+  {
+    "comment": "indirect_toast - Statement 6",
+    "query": "INSERT INTO indtoasttest(descr, f1, f2) VALUES('one-toasted,one-null', NULL, repeat('1234567890',50000))"
+  },
+  {
+    "comment": "indirect_toast - Statement 7",
+    "query": "SELECT descr, substring(make_tuple_indirect(indtoasttest)::text, 1, 200) FROM indtoasttest"
+  },
+  {
+    "comment": "indirect_toast - Statement 8",
+    "query": "UPDATE indtoasttest SET cnt = cnt +1 RETURNING substring(indtoasttest::text, 1, 200)"
+  },
+  {
+    "comment": "indirect_toast - Statement 9",
+    "query": "UPDATE indtoasttest SET cnt = cnt +1, f1 = f1 RETURNING substring(indtoasttest::text, 1, 200)"
+  },
+  {
+    "comment": "indirect_toast - Statement 10",
+    "query": "UPDATE indtoasttest SET cnt = cnt +1, f1 = f1||'' RETURNING substring(indtoasttest::text, 1, 200)"
+  },
+  {
+    "comment": "indirect_toast - Statement 11",
+    "query": "UPDATE indtoasttest SET cnt = cnt +1, f1 = '-'||f1||'-' RETURNING substring(indtoasttest::text, 1, 200)"
+  },
+  {
+    "comment": "indirect_toast - Statement 12",
+    "query": "SELECT substring(indtoasttest::text, 1, 200) FROM indtoasttest"
+  },
+  {
+    "comment": "indirect_toast - Statement 13",
+    "query": "VACUUM FREEZE indtoasttest"
+  },
+  {
+    "comment": "indirect_toast - Statement 14",
+    "query": "CREATE FUNCTION update_using_indirect() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW := make_tuple_indirect(NEW)"
+  },
+  {
+    "comment": "indirect_toast - Statement 15",
+    "query": "RETURN NEW"
+  },
+  {
+    "comment": "indirect_toast - Statement 16",
+    "query": "END$$"
+  },
+  {
+    "comment": "indirect_toast - Statement 17",
+    "query": "CREATE TRIGGER indtoasttest_update_indirect BEFORE INSERT OR UPDATE ON indtoasttest FOR EACH ROW EXECUTE PROCEDURE update_using_indirect()"
+  },
+  {
+    "comment": "indirect_toast - Statement 18",
+    "query": "INSERT INTO indtoasttest(descr, f1, f2) VALUES('one-toasted,one-null, via indirect', repeat('1234567890',30000), NULL)"
+  },
+  {
+    "comment": "indirect_toast - Statement 19",
+    "query": "DROP TABLE indtoasttest"
+  },
+  {
+    "comment": "indirect_toast - Statement 20",
+    "query": "DROP FUNCTION update_using_indirect()"
+  },
+  {
+    "comment": "indirect_toast - Statement 21",
+    "query": "RESET default_toast_compression"
+  }
+]

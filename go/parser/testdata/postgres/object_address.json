@@ -1,0 +1,350 @@
+[
+  {
+    "comment": "object_address - Statement 1",
+    "query": "SET client_min_messages TO 'warning'"
+  },
+  {
+    "comment": "object_address - Statement 2",
+    "query": "DROP ROLE IF EXISTS regress_addr_user"
+  },
+  {
+    "comment": "object_address - Statement 3",
+    "query": "RESET client_min_messages"
+  },
+  {
+    "comment": "object_address - Statement 4",
+    "query": "CREATE USER regress_addr_user"
+  },
+  {
+    "comment": "object_address - Statement 5",
+    "query": "CREATE SCHEMA addr_nsp"
+  },
+  {
+    "comment": "object_address - Statement 6",
+    "query": "SET search_path TO 'addr_nsp'"
+  },
+  {
+    "comment": "object_address - Statement 7",
+    "query": "CREATE FOREIGN DATA WRAPPER addr_fdw"
+  },
+  {
+    "comment": "object_address - Statement 8",
+    "query": "CREATE SERVER addr_fserv FOREIGN DATA WRAPPER addr_fdw"
+  },
+  {
+    "comment": "object_address - Statement 9",
+    "query": "CREATE TEXT SEARCH DICTIONARY addr_ts_dict (template=simple)"
+  },
+  {
+    "comment": "object_address - Statement 10",
+    "query": "CREATE TEXT SEARCH CONFIGURATION addr_ts_conf (copy=english)"
+  },
+  {
+    "comment": "object_address - Statement 11",
+    "query": "CREATE TEXT SEARCH TEMPLATE addr_ts_temp (lexize=dsimple_lexize)"
+  },
+  {
+    "comment": "object_address - Statement 12",
+    "query": "CREATE TEXT SEARCH PARSER addr_ts_prs (start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype)"
+  },
+  {
+    "comment": "object_address - Statement 13",
+    "query": "CREATE TABLE addr_nsp.gentable ( a serial primary key CONSTRAINT a_chk CHECK (a > 0), b text DEFAULT 'hello' )"
+  },
+  {
+    "comment": "object_address - Statement 14",
+    "query": "CREATE TABLE addr_nsp.parttable ( a int PRIMARY KEY ) PARTITION BY RANGE (a)"
+  },
+  {
+    "comment": "object_address - Statement 15",
+    "query": "CREATE VIEW addr_nsp.genview AS SELECT * from addr_nsp.gentable"
+  },
+  {
+    "comment": "object_address - Statement 16",
+    "query": "CREATE MATERIALIZED VIEW addr_nsp.genmatview AS SELECT * FROM addr_nsp.gentable"
+  },
+  {
+    "comment": "object_address - Statement 17",
+    "query": "CREATE TYPE addr_nsp.gencomptype AS (a int)"
+  },
+  {
+    "comment": "object_address - Statement 18",
+    "query": "CREATE TYPE addr_nsp.genenum AS ENUM ('one', 'two')"
+  },
+  {
+    "comment": "object_address - Statement 19",
+    "query": "CREATE FOREIGN TABLE addr_nsp.genftable (a int) SERVER addr_fserv"
+  },
+  {
+    "comment": "object_address - Statement 20",
+    "query": "CREATE AGGREGATE addr_nsp.genaggr(int4) (sfunc = int4pl, stype = int4)"
+  },
+  {
+    "comment": "object_address - Statement 21",
+    "query": "CREATE DOMAIN addr_nsp.gendomain AS int4 CONSTRAINT domconstr CHECK (value > 0)"
+  },
+  {
+    "comment": "object_address - Statement 22",
+    "query": "CREATE FUNCTION addr_nsp.trig() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN END; $$"
+  },
+  {
+    "comment": "object_address - Statement 23",
+    "query": "CREATE TRIGGER t BEFORE INSERT ON addr_nsp.gentable FOR EACH ROW EXECUTE PROCEDURE addr_nsp.trig()"
+  },
+  {
+    "comment": "object_address - Statement 24",
+    "query": "CREATE POLICY genpol ON addr_nsp.gentable"
+  },
+  {
+    "comment": "object_address - Statement 25",
+    "query": "CREATE PROCEDURE addr_nsp.proc(int4) LANGUAGE SQL AS $$ $$"
+  },
+  {
+    "comment": "object_address - Statement 26",
+    "query": "CREATE SERVER \"integer\" FOREIGN DATA WRAPPER addr_fdw"
+  },
+  {
+    "comment": "object_address - Statement 27",
+    "query": "CREATE USER MAPPING FOR regress_addr_user SERVER \"integer\""
+  },
+  {
+    "comment": "object_address - Statement 28",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_addr_user IN SCHEMA public GRANT ALL ON TABLES TO regress_addr_user"
+  },
+  {
+    "comment": "object_address - Statement 29",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_addr_user REVOKE DELETE ON TABLES FROM regress_addr_user"
+  },
+  {
+    "comment": "object_address - Statement 30",
+    "query": "CREATE TRANSFORM FOR int LANGUAGE SQL ( FROM SQL WITH FUNCTION prsd_lextype(internal), TO SQL WITH FUNCTION int4recv(internal))"
+  },
+  {
+    "comment": "object_address - Statement 31",
+    "query": "SET client_min_messages = 'ERROR'"
+  },
+  {
+    "comment": "object_address - Statement 32",
+    "query": "CREATE PUBLICATION addr_pub FOR TABLE addr_nsp.gentable"
+  },
+  {
+    "comment": "object_address - Statement 33",
+    "query": "CREATE PUBLICATION addr_pub_schema FOR TABLES IN SCHEMA addr_nsp"
+  },
+  {
+    "comment": "object_address - Statement 34",
+    "query": "CREATE SUBSCRIPTION regress_addr_sub CONNECTION '' PUBLICATION bar WITH (connect = false, slot_name = NONE)"
+  },
+  {
+    "comment": "object_address - Statement 35",
+    "query": "CREATE STATISTICS addr_nsp.gentable_stat ON a, b FROM addr_nsp.gentable"
+  },
+  {
+    "comment": "object_address - Statement 36",
+    "query": "SELECT pg_get_object_address('stone', '{}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 37",
+    "query": "SELECT pg_get_object_address('table', '{}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 38",
+    "query": "SELECT pg_get_object_address('table', '{NULL}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 39",
+    "query": "DO $$ DECLARE objtype text"
+  },
+  {
+    "comment": "object_address - Statement 40",
+    "query": "BEGIN FOR objtype IN VALUES ('toast table'), ('index column'), ('sequence column'), ('toast table column'), ('view column'), ('materialized view column') LOOP BEGIN PERFORM pg_get_object_address(objtype, '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 41",
+    "query": "EXCEPTION WHEN invalid_parameter_value THEN RAISE WARNING 'error for %: %', objtype, sqlerrm"
+  },
+  {
+    "comment": "object_address - Statement 42",
+    "query": "END"
+  },
+  {
+    "comment": "object_address - Statement 43",
+    "query": "END LOOP"
+  },
+  {
+    "comment": "object_address - Statement 44",
+    "query": "$$"
+  },
+  {
+    "comment": "object_address - Statement 45",
+    "query": "select * from pg_get_object_address('operator of access method', '{btree,integer_ops,1}', '{int4,bool}')"
+  },
+  {
+    "comment": "object_address - Statement 46",
+    "query": "select * from pg_get_object_address('operator of access method', '{btree,integer_ops,99}', '{int4,int4}')"
+  },
+  {
+    "comment": "object_address - Statement 47",
+    "query": "select * from pg_get_object_address('function of access method', '{btree,integer_ops,1}', '{int4,bool}')"
+  },
+  {
+    "comment": "object_address - Statement 48",
+    "query": "select * from pg_get_object_address('function of access method', '{btree,integer_ops,99}', '{int4,int4}')"
+  },
+  {
+    "comment": "object_address - Statement 49",
+    "query": "names   text[]"
+  },
+  {
+    "comment": "object_address - Statement 50",
+    "query": "args    text[]"
+  },
+  {
+    "comment": "object_address - Statement 51",
+    "query": "BEGIN FOR objtype IN VALUES ('table'), ('index'), ('sequence'), ('view'), ('materialized view'), ('foreign table'), ('table column'), ('foreign table column'), ('aggregate'), ('function'), ('procedure'), ('type'), ('cast'), ('table constraint'), ('domain constraint'), ('conversion'), ('default value'), ('operator'), ('operator class'), ('operator family'), ('rule'), ('trigger'), ('text search parser'), ('text search dictionary'), ('text search template'), ('text search configuration'), ('policy'), ('user mapping'), ('default acl'), ('transform'), ('operator of access method'), ('function of access method'), ('publication namespace'), ('publication relation') LOOP FOR names IN VALUES ('{eins}'), ('{addr_nsp, zwei}'), ('{eins, zwei, drei}') LOOP FOR args IN VALUES ('{}'), ('{integer}') LOOP BEGIN PERFORM pg_get_object_address(objtype, names, args)"
+  },
+  {
+    "comment": "object_address - Statement 52",
+    "query": "EXCEPTION WHEN OTHERS THEN RAISE WARNING 'error for %,%,%: %', objtype, names, args, sqlerrm"
+  },
+  {
+    "comment": "object_address - Statement 53",
+    "query": "SELECT pg_get_object_address('language', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 54",
+    "query": "SELECT pg_get_object_address('language', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 55",
+    "query": "SELECT pg_get_object_address('large object', '{123}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 56",
+    "query": "SELECT pg_get_object_address('large object', '{123,456}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 57",
+    "query": "SELECT pg_get_object_address('large object', '{blargh}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 58",
+    "query": "SELECT pg_get_object_address('schema', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 59",
+    "query": "SELECT pg_get_object_address('schema', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 60",
+    "query": "SELECT pg_get_object_address('role', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 61",
+    "query": "SELECT pg_get_object_address('role', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 62",
+    "query": "SELECT pg_get_object_address('database', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 63",
+    "query": "SELECT pg_get_object_address('database', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 64",
+    "query": "SELECT pg_get_object_address('tablespace', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 65",
+    "query": "SELECT pg_get_object_address('tablespace', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 66",
+    "query": "SELECT pg_get_object_address('foreign-data wrapper', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 67",
+    "query": "SELECT pg_get_object_address('foreign-data wrapper', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 68",
+    "query": "SELECT pg_get_object_address('server', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 69",
+    "query": "SELECT pg_get_object_address('server', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 70",
+    "query": "SELECT pg_get_object_address('extension', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 71",
+    "query": "SELECT pg_get_object_address('extension', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 72",
+    "query": "SELECT pg_get_object_address('event trigger', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 73",
+    "query": "SELECT pg_get_object_address('event trigger', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 74",
+    "query": "SELECT pg_get_object_address('access method', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 75",
+    "query": "SELECT pg_get_object_address('access method', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 76",
+    "query": "SELECT pg_get_object_address('publication', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 77",
+    "query": "SELECT pg_get_object_address('publication', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 78",
+    "query": "SELECT pg_get_object_address('subscription', '{one}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 79",
+    "query": "SELECT pg_get_object_address('subscription', '{one,two}', '{}')"
+  },
+  {
+    "comment": "object_address - Statement 80",
+    "query": "DROP FOREIGN DATA WRAPPER addr_fdw CASCADE"
+  },
+  {
+    "comment": "object_address - Statement 81",
+    "query": "DROP PUBLICATION addr_pub"
+  },
+  {
+    "comment": "object_address - Statement 82",
+    "query": "DROP PUBLICATION addr_pub_schema"
+  },
+  {
+    "comment": "object_address - Statement 83",
+    "query": "DROP SUBSCRIPTION regress_addr_sub"
+  },
+  {
+    "comment": "object_address - Statement 84",
+    "query": "DROP SCHEMA addr_nsp CASCADE"
+  },
+  {
+    "comment": "object_address - Statement 85",
+    "query": "DROP OWNED BY regress_addr_user"
+  },
+  {
+    "comment": "object_address - Statement 86",
+    "query": "DROP USER regress_addr_user"
+  },
+  {
+    "comment": "object_address - Statement 87",
+    "query": "WITH objects (classid, objid, objsubid) AS (VALUES ('pg_class'::regclass, 0, 0), ('pg_class'::regclass, 'pg_class'::regclass, 100), ('pg_proc'::regclass, 0, 0), ('pg_type'::regclass, 0, 0), ('pg_cast'::regclass, 0, 0), ('pg_collation'::regclass, 0, 0), ('pg_constraint'::regclass, 0, 0), ('pg_conversion'::regclass, 0, 0), ('pg_attrdef'::regclass, 0, 0), ('pg_language'::regclass, 0, 0), ('pg_largeobject'::regclass, 0, 0), ('pg_operator'::regclass, 0, 0), ('pg_opclass'::regclass, 0, 0), ('pg_opfamily'::regclass, 0, 0), ('pg_am'::regclass, 0, 0), ('pg_amop'::regclass, 0, 0), ('pg_amproc'::regclass, 0, 0), ('pg_rewrite'::regclass, 0, 0), ('pg_trigger'::regclass, 0, 0), ('pg_namespace'::regclass, 0, 0), ('pg_statistic_ext'::regclass, 0, 0), ('pg_ts_parser'::regclass, 0, 0), ('pg_ts_dict'::regclass, 0, 0), ('pg_ts_template'::regclass, 0, 0), ('pg_ts_config'::regclass, 0, 0), ('pg_authid'::regclass, 0, 0), ('pg_auth_members'::regclass, 0, 0), ('pg_database'::regclass, 0, 0), ('pg_tablespace'::regclass, 0, 0), ('pg_foreign_data_wrapper'::regclass, 0, 0), ('pg_foreign_server'::regclass, 0, 0), ('pg_user_mapping'::regclass, 0, 0), ('pg_default_acl'::regclass, 0, 0), ('pg_extension'::regclass, 0, 0), ('pg_event_trigger'::regclass, 0, 0), ('pg_parameter_acl'::regclass, 0, 0), ('pg_policy'::regclass, 0, 0), ('pg_publication'::regclass, 0, 0), ('pg_publication_namespace'::regclass, 0, 0), ('pg_publication_rel'::regclass, 0, 0), ('pg_subscription'::regclass, 0, 0), ('pg_transform'::regclass, 0, 0) ) SELECT ROW(pg_identify_object(objects.classid, objects.objid, objects.objsubid)) AS ident, ROW(pg_identify_object_as_address(objects.classid, objects.objid, objects.objsubid)) AS addr, pg_describe_object(objects.classid, objects.objid, objects.objsubid) AS descr FROM objects ORDER BY objects.classid, objects.objid, objects.objsubid"
+  }
+]

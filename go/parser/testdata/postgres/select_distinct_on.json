@@ -1,0 +1,34 @@
+[
+  {
+    "comment": "select_distinct_on - Statement 1",
+    "query": "SELECT DISTINCT ON (string4) string4, two, ten FROM onek ORDER BY string4 using <, two using >, ten using <"
+  },
+  {
+    "comment": "select_distinct_on - Statement 2",
+    "query": "SELECT DISTINCT ON (string4, ten) string4, two, ten FROM onek ORDER BY string4 using <, two using <, ten using <"
+  },
+  {
+    "comment": "select_distinct_on - Statement 3",
+    "query": "SELECT DISTINCT ON (string4, ten) string4, ten, two FROM onek ORDER BY string4 using <, ten using >, two using <"
+  },
+  {
+    "comment": "select_distinct_on - Statement 4",
+    "query": "select distinct on (1) floor(random()) as r, f1 from int4_tbl order by 1,2"
+  },
+  {
+    "comment": "select_distinct_on - Statement 5",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT ON (four) four,two FROM tenk1 WHERE four = 0 ORDER BY 1"
+  },
+  {
+    "comment": "select_distinct_on - Statement 6",
+    "query": "SELECT DISTINCT ON (four) four,two FROM tenk1 WHERE four = 0 ORDER BY 1"
+  },
+  {
+    "comment": "select_distinct_on - Statement 7",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT ON (four) four,two FROM tenk1 WHERE four = 0 ORDER BY 1,2"
+  },
+  {
+    "comment": "select_distinct_on - Statement 8",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT ON (four) four,hundred FROM tenk1 WHERE four = 0 ORDER BY 1,2"
+  }
+]

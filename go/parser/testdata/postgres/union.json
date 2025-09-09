@@ -1,0 +1,622 @@
+[
+  {
+    "comment": "union - Statement 1",
+    "query": "SELECT 1 AS two UNION SELECT 2 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 2",
+    "query": "SELECT 1 AS one UNION SELECT 1 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 3",
+    "query": "SELECT 1 AS two UNION ALL SELECT 2"
+  },
+  {
+    "comment": "union - Statement 4",
+    "query": "SELECT 1 AS two UNION ALL SELECT 1"
+  },
+  {
+    "comment": "union - Statement 5",
+    "query": "SELECT 1 AS three UNION SELECT 2 UNION SELECT 3 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 6",
+    "query": "SELECT 1 AS two UNION SELECT 2 UNION SELECT 2 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 7",
+    "query": "SELECT 1 AS three UNION SELECT 2 UNION ALL SELECT 2 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 8",
+    "query": "SELECT 1.1 AS two UNION SELECT 2.2 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 9",
+    "query": "SELECT 1.1 AS two UNION SELECT 2 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 10",
+    "query": "SELECT 1 AS two UNION SELECT 2.2 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 11",
+    "query": "SELECT 1 AS one UNION SELECT 1.0::float8 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 12",
+    "query": "SELECT 1.1 AS two UNION ALL SELECT 2 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 13",
+    "query": "SELECT 1.0::float8 AS two UNION ALL SELECT 1 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 14",
+    "query": "SELECT 1.1 AS three UNION SELECT 2 UNION SELECT 3 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 15",
+    "query": "SELECT 1.1::float8 AS two UNION SELECT 2 UNION SELECT 2.0::float8 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 16",
+    "query": "SELECT 1.1 AS three UNION SELECT 2 UNION ALL SELECT 2 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 17",
+    "query": "SELECT 1.1 AS two UNION (SELECT 2 UNION ALL SELECT 2) ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 18",
+    "query": "SELECT f1 AS five FROM FLOAT8_TBL UNION SELECT f1 FROM FLOAT8_TBL ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 19",
+    "query": "SELECT f1 AS ten FROM FLOAT8_TBL UNION ALL SELECT f1 FROM FLOAT8_TBL"
+  },
+  {
+    "comment": "union - Statement 20",
+    "query": "SELECT f1 AS nine FROM FLOAT8_TBL UNION SELECT f1 FROM INT4_TBL ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 21",
+    "query": "SELECT f1 AS ten FROM FLOAT8_TBL UNION ALL SELECT f1 FROM INT4_TBL"
+  },
+  {
+    "comment": "union - Statement 22",
+    "query": "SELECT f1 AS five FROM FLOAT8_TBL WHERE f1 BETWEEN -1e6 AND 1e6 UNION SELECT f1 FROM INT4_TBL WHERE f1 BETWEEN 0 AND 1000000 ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 23",
+    "query": "SELECT CAST(f1 AS char(4)) AS three FROM VARCHAR_TBL UNION SELECT f1 FROM CHAR_TBL ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 24",
+    "query": "SELECT f1 AS three FROM VARCHAR_TBL UNION SELECT CAST(f1 AS varchar) FROM CHAR_TBL ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 25",
+    "query": "SELECT f1 AS eight FROM VARCHAR_TBL UNION ALL SELECT f1 FROM CHAR_TBL"
+  },
+  {
+    "comment": "union - Statement 26",
+    "query": "SELECT f1 AS five FROM TEXT_TBL UNION SELECT f1 FROM VARCHAR_TBL UNION SELECT TRIM(TRAILING FROM f1) FROM CHAR_TBL ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 27",
+    "query": "SELECT q2 FROM int8_tbl INTERSECT SELECT q1 FROM int8_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 28",
+    "query": "SELECT q2 FROM int8_tbl INTERSECT ALL SELECT q1 FROM int8_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 29",
+    "query": "SELECT q2 FROM int8_tbl EXCEPT SELECT q1 FROM int8_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 30",
+    "query": "SELECT q2 FROM int8_tbl EXCEPT ALL SELECT q1 FROM int8_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 31",
+    "query": "SELECT q2 FROM int8_tbl EXCEPT ALL SELECT DISTINCT q1 FROM int8_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 32",
+    "query": "SELECT q1 FROM int8_tbl EXCEPT SELECT q2 FROM int8_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 33",
+    "query": "SELECT q1 FROM int8_tbl EXCEPT ALL SELECT q2 FROM int8_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 34",
+    "query": "SELECT q1 FROM int8_tbl EXCEPT ALL SELECT DISTINCT q2 FROM int8_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 35",
+    "query": "SELECT q1 FROM int8_tbl EXCEPT ALL SELECT q1 FROM int8_tbl FOR NO KEY UPDATE"
+  },
+  {
+    "comment": "union - Statement 36",
+    "query": "(SELECT 1,2,3 UNION SELECT 4,5,6) INTERSECT SELECT 4,5,6"
+  },
+  {
+    "comment": "union - Statement 37",
+    "query": "(SELECT 1,2,3 UNION SELECT 4,5,6 ORDER BY 1,2) INTERSECT SELECT 4,5,6"
+  },
+  {
+    "comment": "union - Statement 38",
+    "query": "(SELECT 1,2,3 UNION SELECT 4,5,6) EXCEPT SELECT 4,5,6"
+  },
+  {
+    "comment": "union - Statement 39",
+    "query": "(SELECT 1,2,3 UNION SELECT 4,5,6 ORDER BY 1,2) EXCEPT SELECT 4,5,6"
+  },
+  {
+    "comment": "union - Statement 40",
+    "query": "set enable_hashagg to on"
+  },
+  {
+    "comment": "union - Statement 41",
+    "query": "explain (costs off) select count(*) from ( select unique1 from tenk1 union select fivethous from tenk1 ) ss"
+  },
+  {
+    "comment": "union - Statement 42",
+    "query": "select count(*) from ( select unique1 from tenk1 union select fivethous from tenk1 ) ss"
+  },
+  {
+    "comment": "union - Statement 43",
+    "query": "explain (costs off) select count(*) from ( select unique1 from tenk1 intersect select fivethous from tenk1 ) ss"
+  },
+  {
+    "comment": "union - Statement 44",
+    "query": "select count(*) from ( select unique1 from tenk1 intersect select fivethous from tenk1 ) ss"
+  },
+  {
+    "comment": "union - Statement 45",
+    "query": "explain (costs off) select unique1 from tenk1 except select unique2 from tenk1 where unique2 != 10"
+  },
+  {
+    "comment": "union - Statement 46",
+    "query": "select unique1 from tenk1 except select unique2 from tenk1 where unique2 != 10"
+  },
+  {
+    "comment": "union - Statement 47",
+    "query": "set enable_hashagg to off"
+  },
+  {
+    "comment": "union - Statement 48",
+    "query": "reset enable_hashagg"
+  },
+  {
+    "comment": "union - Statement 49",
+    "query": "explain (costs off) select x from (values ('11'::varbit), ('10'::varbit)) _(x) union select x from (values ('11'::varbit), ('10'::varbit)) _(x)"
+  },
+  {
+    "comment": "union - Statement 50",
+    "query": "explain (costs off) select x from (values (array[1, 2]), (array[1, 3])) _(x) union select x from (values (array[1, 2]), (array[1, 4])) _(x)"
+  },
+  {
+    "comment": "union - Statement 51",
+    "query": "select x from (values (array[1, 2]), (array[1, 3])) _(x) union select x from (values (array[1, 2]), (array[1, 4])) _(x)"
+  },
+  {
+    "comment": "union - Statement 52",
+    "query": "explain (costs off) select x from (values (array[1, 2]), (array[1, 3])) _(x) intersect select x from (values (array[1, 2]), (array[1, 4])) _(x)"
+  },
+  {
+    "comment": "union - Statement 53",
+    "query": "select x from (values (array[1, 2]), (array[1, 3])) _(x) intersect select x from (values (array[1, 2]), (array[1, 4])) _(x)"
+  },
+  {
+    "comment": "union - Statement 54",
+    "query": "explain (costs off) select x from (values (array[1, 2]), (array[1, 3])) _(x) except select x from (values (array[1, 2]), (array[1, 4])) _(x)"
+  },
+  {
+    "comment": "union - Statement 55",
+    "query": "select x from (values (array[1, 2]), (array[1, 3])) _(x) except select x from (values (array[1, 2]), (array[1, 4])) _(x)"
+  },
+  {
+    "comment": "union - Statement 56",
+    "query": "explain (costs off) select x from (values (array['10'::varbit]), (array['11'::varbit])) _(x) union select x from (values (array['10'::varbit]), (array['01'::varbit])) _(x)"
+  },
+  {
+    "comment": "union - Statement 57",
+    "query": "select x from (values (array['10'::varbit]), (array['11'::varbit])) _(x) union select x from (values (array['10'::varbit]), (array['01'::varbit])) _(x)"
+  },
+  {
+    "comment": "union - Statement 58",
+    "query": "explain (costs off) select x from (values (row(1, 2)), (row(1, 3))) _(x) union select x from (values (row(1, 2)), (row(1, 4))) _(x)"
+  },
+  {
+    "comment": "union - Statement 59",
+    "query": "select x from (values (row(1, 2)), (row(1, 3))) _(x) union select x from (values (row(1, 2)), (row(1, 4))) _(x)"
+  },
+  {
+    "comment": "union - Statement 60",
+    "query": "explain (costs off) select x from (values (row(1, 2)), (row(1, 3))) _(x) intersect select x from (values (row(1, 2)), (row(1, 4))) _(x)"
+  },
+  {
+    "comment": "union - Statement 61",
+    "query": "select x from (values (row(1, 2)), (row(1, 3))) _(x) intersect select x from (values (row(1, 2)), (row(1, 4))) _(x)"
+  },
+  {
+    "comment": "union - Statement 62",
+    "query": "explain (costs off) select x from (values (row(1, 2)), (row(1, 3))) _(x) except select x from (values (row(1, 2)), (row(1, 4))) _(x)"
+  },
+  {
+    "comment": "union - Statement 63",
+    "query": "select x from (values (row(1, 2)), (row(1, 3))) _(x) except select x from (values (row(1, 2)), (row(1, 4))) _(x)"
+  },
+  {
+    "comment": "union - Statement 64",
+    "query": "explain (costs off) select x from (values (row('10'::varbit)), (row('11'::varbit))) _(x) union select x from (values (row('10'::varbit)), (row('01'::varbit))) _(x)"
+  },
+  {
+    "comment": "union - Statement 65",
+    "query": "select x from (values (row('10'::varbit)), (row('11'::varbit))) _(x) union select x from (values (row('10'::varbit)), (row('01'::varbit))) _(x)"
+  },
+  {
+    "comment": "union - Statement 66",
+    "query": "create type ct1 as (f1 varbit)"
+  },
+  {
+    "comment": "union - Statement 67",
+    "query": "explain (costs off) select x from (values (row('10'::varbit)::ct1), (row('11'::varbit)::ct1)) _(x) union select x from (values (row('10'::varbit)::ct1), (row('01'::varbit)::ct1)) _(x)"
+  },
+  {
+    "comment": "union - Statement 68",
+    "query": "select x from (values (row('10'::varbit)::ct1), (row('11'::varbit)::ct1)) _(x) union select x from (values (row('10'::varbit)::ct1), (row('01'::varbit)::ct1)) _(x)"
+  },
+  {
+    "comment": "union - Statement 69",
+    "query": "drop type ct1"
+  },
+  {
+    "comment": "union - Statement 70",
+    "query": "explain (costs off) select '123'::xid union select '123'::xid"
+  },
+  {
+    "comment": "union - Statement 71",
+    "query": "SELECT f1 FROM float8_tbl INTERSECT SELECT f1 FROM int4_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 72",
+    "query": "SELECT f1 FROM float8_tbl EXCEPT SELECT f1 FROM int4_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 73",
+    "query": "SELECT q1 FROM int8_tbl INTERSECT SELECT q2 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl  ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 74",
+    "query": "SELECT q1 FROM int8_tbl INTERSECT (((SELECT q2 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl))) ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 75",
+    "query": "(((SELECT q1 FROM int8_tbl INTERSECT SELECT q2 FROM int8_tbl ORDER BY 1))) UNION ALL SELECT q2 FROM int8_tbl"
+  },
+  {
+    "comment": "union - Statement 76",
+    "query": "SELECT q1 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl EXCEPT SELECT q1 FROM int8_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 77",
+    "query": "SELECT q1 FROM int8_tbl UNION ALL (((SELECT q2 FROM int8_tbl EXCEPT SELECT q1 FROM int8_tbl ORDER BY 1)))"
+  },
+  {
+    "comment": "union - Statement 78",
+    "query": "(((SELECT q1 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl))) EXCEPT SELECT q1 FROM int8_tbl ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 79",
+    "query": "SELECT q1,q2 FROM int8_tbl EXCEPT SELECT q2,q1 FROM int8_tbl ORDER BY q2,q1"
+  },
+  {
+    "comment": "union - Statement 80",
+    "query": "SELECT q1 FROM int8_tbl EXCEPT SELECT q2 FROM int8_tbl ORDER BY q2 LIMIT 1"
+  },
+  {
+    "comment": "union - Statement 81",
+    "query": "SELECT q1 FROM int8_tbl EXCEPT (((SELECT q2 FROM int8_tbl ORDER BY q2 LIMIT 1))) ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 82",
+    "query": "(((((select * from int8_tbl)))))"
+  },
+  {
+    "comment": "union - Statement 83",
+    "query": "select union select"
+  },
+  {
+    "comment": "union - Statement 84",
+    "query": "select intersect select"
+  },
+  {
+    "comment": "union - Statement 85",
+    "query": "select except select"
+  },
+  {
+    "comment": "union - Statement 86",
+    "query": "set enable_hashagg = true"
+  },
+  {
+    "comment": "union - Statement 87",
+    "query": "set enable_sort = false"
+  },
+  {
+    "comment": "union - Statement 88",
+    "query": "explain (costs off) select from generate_series(1,5) intersect select from generate_series(1,3)"
+  },
+  {
+    "comment": "union - Statement 89",
+    "query": "select from generate_series(1,5) union all select from generate_series(1,3)"
+  },
+  {
+    "comment": "union - Statement 90",
+    "query": "select from generate_series(1,5) intersect select from generate_series(1,3)"
+  },
+  {
+    "comment": "union - Statement 91",
+    "query": "select from generate_series(1,5) intersect all select from generate_series(1,3)"
+  },
+  {
+    "comment": "union - Statement 92",
+    "query": "select from generate_series(1,5) except select from generate_series(1,3)"
+  },
+  {
+    "comment": "union - Statement 93",
+    "query": "select from generate_series(1,5) except all select from generate_series(1,3)"
+  },
+  {
+    "comment": "union - Statement 94",
+    "query": "set enable_hashagg = false"
+  },
+  {
+    "comment": "union - Statement 95",
+    "query": "set enable_sort = true"
+  },
+  {
+    "comment": "union - Statement 96",
+    "query": "explain (costs off) select from generate_series(1,5) union select from generate_series(1,3)"
+  },
+  {
+    "comment": "union - Statement 97",
+    "query": "select from generate_series(1,5) union select from generate_series(1,3)"
+  },
+  {
+    "comment": "union - Statement 98",
+    "query": "with cte as materialized (select s from generate_series(1,5) s) select from cte union select from cte"
+  },
+  {
+    "comment": "union - Statement 99",
+    "query": "with cte as not materialized (select s from generate_series(1,5) s) select from cte union select from cte"
+  },
+  {
+    "comment": "union - Statement 100",
+    "query": "reset enable_sort"
+  },
+  {
+    "comment": "union - Statement 101",
+    "query": "SELECT a.f1 FROM (SELECT 'test' AS f1 FROM varchar_tbl) a UNION SELECT b.f1 FROM (SELECT f1 FROM varchar_tbl) b ORDER BY 1"
+  },
+  {
+    "comment": "union - Statement 102",
+    "query": "SELECT '3.4'::numeric UNION SELECT 'foo'"
+  },
+  {
+    "comment": "union - Statement 103",
+    "query": "CREATE TEMP TABLE t1 (a text, b text)"
+  },
+  {
+    "comment": "union - Statement 104",
+    "query": "CREATE INDEX t1_ab_idx on t1 ((a || b))"
+  },
+  {
+    "comment": "union - Statement 105",
+    "query": "CREATE TEMP TABLE t2 (ab text primary key)"
+  },
+  {
+    "comment": "union - Statement 106",
+    "query": "INSERT INTO t1 VALUES ('a', 'b'), ('x', 'y')"
+  },
+  {
+    "comment": "union - Statement 107",
+    "query": "INSERT INTO t2 VALUES ('ab'), ('xy')"
+  },
+  {
+    "comment": "union - Statement 108",
+    "query": "set enable_seqscan = off"
+  },
+  {
+    "comment": "union - Statement 109",
+    "query": "set enable_indexscan = on"
+  },
+  {
+    "comment": "union - Statement 110",
+    "query": "set enable_bitmapscan = off"
+  },
+  {
+    "comment": "union - Statement 111",
+    "query": "set enable_sort = off"
+  },
+  {
+    "comment": "union - Statement 112",
+    "query": "explain (costs off) SELECT * FROM (SELECT a || b AS ab FROM t1 UNION ALL SELECT * FROM t2) t WHERE ab = 'ab'"
+  },
+  {
+    "comment": "union - Statement 113",
+    "query": "explain (costs off) SELECT * FROM (SELECT a || b AS ab FROM t1 UNION SELECT * FROM t2) t WHERE ab = 'ab'"
+  },
+  {
+    "comment": "union - Statement 114",
+    "query": "CREATE TEMP TABLE t1c (b text, a text)"
+  },
+  {
+    "comment": "union - Statement 115",
+    "query": "ALTER TABLE t1c INHERIT t1"
+  },
+  {
+    "comment": "union - Statement 116",
+    "query": "CREATE TEMP TABLE t2c (primary key (ab)) INHERITS (t2)"
+  },
+  {
+    "comment": "union - Statement 117",
+    "query": "INSERT INTO t1c VALUES ('v', 'w'), ('c', 'd'), ('m', 'n'), ('e', 'f')"
+  },
+  {
+    "comment": "union - Statement 118",
+    "query": "INSERT INTO t2c VALUES ('vw'), ('cd'), ('mn'), ('ef')"
+  },
+  {
+    "comment": "union - Statement 119",
+    "query": "CREATE INDEX t1c_ab_idx on t1c ((a || b))"
+  },
+  {
+    "comment": "union - Statement 120",
+    "query": "set enable_seqscan = on"
+  },
+  {
+    "comment": "union - Statement 121",
+    "query": "set enable_indexonlyscan = off"
+  },
+  {
+    "comment": "union - Statement 122",
+    "query": "explain (costs off) SELECT * FROM (SELECT a || b AS ab FROM t1 UNION ALL SELECT ab FROM t2) t ORDER BY 1 LIMIT 8"
+  },
+  {
+    "comment": "union - Statement 123",
+    "query": "SELECT * FROM (SELECT a || b AS ab FROM t1 UNION ALL SELECT ab FROM t2) t ORDER BY 1 LIMIT 8"
+  },
+  {
+    "comment": "union - Statement 124",
+    "query": "reset enable_seqscan"
+  },
+  {
+    "comment": "union - Statement 125",
+    "query": "reset enable_indexscan"
+  },
+  {
+    "comment": "union - Statement 126",
+    "query": "reset enable_bitmapscan"
+  },
+  {
+    "comment": "union - Statement 127",
+    "query": "create table events (event_id int primary key)"
+  },
+  {
+    "comment": "union - Statement 128",
+    "query": "create table other_events (event_id int primary key)"
+  },
+  {
+    "comment": "union - Statement 129",
+    "query": "create table events_child () inherits (events)"
+  },
+  {
+    "comment": "union - Statement 130",
+    "query": "explain (costs off) select event_id from (select event_id from events union all select event_id from other_events) ss order by event_id"
+  },
+  {
+    "comment": "union - Statement 131",
+    "query": "drop table events_child, events, other_events"
+  },
+  {
+    "comment": "union - Statement 132",
+    "query": "reset enable_indexonlyscan"
+  },
+  {
+    "comment": "union - Statement 133",
+    "query": "explain (costs off) SELECT * FROM (SELECT 1 AS t, * FROM tenk1 a UNION ALL SELECT 2 AS t, * FROM tenk1 b) c WHERE t = 2"
+  },
+  {
+    "comment": "union - Statement 134",
+    "query": "explain (costs off) SELECT * FROM (SELECT 1 AS t, 2 AS x UNION SELECT 2 AS t, 4 AS x) ss WHERE x < 4 ORDER BY x"
+  },
+  {
+    "comment": "union - Statement 135",
+    "query": "SELECT * FROM (SELECT 1 AS t, 2 AS x UNION SELECT 2 AS t, 4 AS x) ss WHERE x < 4 ORDER BY x"
+  },
+  {
+    "comment": "union - Statement 136",
+    "query": "explain (costs off) SELECT * FROM (SELECT 1 AS t, generate_series(1,10) AS x UNION SELECT 2 AS t, 4 AS x) ss WHERE x < 4 ORDER BY x"
+  },
+  {
+    "comment": "union - Statement 137",
+    "query": "SELECT * FROM (SELECT 1 AS t, generate_series(1,10) AS x UNION SELECT 2 AS t, 4 AS x) ss WHERE x < 4 ORDER BY x"
+  },
+  {
+    "comment": "union - Statement 138",
+    "query": "explain (costs off) SELECT * FROM (SELECT 1 AS t, (random()*3)::int AS x UNION SELECT 2 AS t, 4 AS x) ss WHERE x > 3 ORDER BY x"
+  },
+  {
+    "comment": "union - Statement 139",
+    "query": "SELECT * FROM (SELECT 1 AS t, (random()*3)::int AS x UNION SELECT 2 AS t, 4 AS x) ss WHERE x > 3 ORDER BY x"
+  },
+  {
+    "comment": "union - Statement 140",
+    "query": "explain (costs off) select distinct q1 from (select distinct * from int8_tbl i81 union all select distinct * from int8_tbl i82) ss where q2 = q2"
+  },
+  {
+    "comment": "union - Statement 141",
+    "query": "select distinct q1 from (select distinct * from int8_tbl i81 union all select distinct * from int8_tbl i82) ss where q2 = q2"
+  },
+  {
+    "comment": "union - Statement 142",
+    "query": "explain (costs off) select distinct q1 from (select distinct * from int8_tbl i81 union all select distinct * from int8_tbl i82) ss where -q1 = q2"
+  },
+  {
+    "comment": "union - Statement 143",
+    "query": "select distinct q1 from (select distinct * from int8_tbl i81 union all select distinct * from int8_tbl i82) ss where -q1 = q2"
+  },
+  {
+    "comment": "union - Statement 144",
+    "query": "create function expensivefunc(int) returns int language plpgsql immutable strict cost 10000 as $$begin return $1; end$$"
+  },
+  {
+    "comment": "union - Statement 145",
+    "query": "create temp table t3 as select generate_series(-1000,1000) as x"
+  },
+  {
+    "comment": "union - Statement 146",
+    "query": "create index t3i on t3 (expensivefunc(x))"
+  },
+  {
+    "comment": "union - Statement 147",
+    "query": "analyze t3"
+  },
+  {
+    "comment": "union - Statement 148",
+    "query": "explain (costs off) select * from (select * from t3 a union all select * from t3 b) ss join int4_tbl on f1 = expensivefunc(x)"
+  },
+  {
+    "comment": "union - Statement 149",
+    "query": "select * from (select * from t3 a union all select * from t3 b) ss join int4_tbl on f1 = expensivefunc(x)"
+  },
+  {
+    "comment": "union - Statement 150",
+    "query": "drop table t3"
+  },
+  {
+    "comment": "union - Statement 151",
+    "query": "drop function expensivefunc(int)"
+  },
+  {
+    "comment": "union - Statement 152",
+    "query": "explain (costs off) select * from (select *, 0 as x from int8_tbl a union all select *, 1 as x from int8_tbl b) ss where (x = 0) or (q1 >= q2 and q1 <= q2)"
+  },
+  {
+    "comment": "union - Statement 153",
+    "query": "select * from (select *, 0 as x from int8_tbl a union all select *, 1 as x from int8_tbl b) ss where (x = 0) or (q1 >= q2 and q1 <= q2)"
+  },
+  {
+    "comment": "union - Statement 154",
+    "query": "explain (costs off) select t1.unique1 from tenk1 t1 inner join tenk2 t2 on t1.tenthous = t2.tenthous and t2.thousand = 0 union all (values(1)) limit 1"
+  },
+  {
+    "comment": "union - Statement 155",
+    "query": "explain (costs off) select * from tenk1 t1 left join lateral (select t1.tenthous from tenk2 t2 union all (values(1))) on true limit 1"
+  }
+]

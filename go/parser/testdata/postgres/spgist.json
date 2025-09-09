@@ -1,0 +1,122 @@
+[
+  {
+    "comment": "spgist - Statement 1",
+    "query": "create table spgist_point_tbl(id int4, p point)"
+  },
+  {
+    "comment": "spgist - Statement 2",
+    "query": "create index spgist_point_idx on spgist_point_tbl using spgist(p) with (fillfactor = 75)"
+  },
+  {
+    "comment": "spgist - Statement 3",
+    "query": "insert into spgist_point_tbl (id, p) select g, point(g*10, g*10) from generate_series(1, 10) g"
+  },
+  {
+    "comment": "spgist - Statement 4",
+    "query": "delete from spgist_point_tbl where id < 5"
+  },
+  {
+    "comment": "spgist - Statement 5",
+    "query": "vacuum spgist_point_tbl"
+  },
+  {
+    "comment": "spgist - Statement 6",
+    "query": "insert into spgist_point_tbl (id, p) select g,      point(g*10, g*10) from generate_series(1, 10000) g"
+  },
+  {
+    "comment": "spgist - Statement 7",
+    "query": "insert into spgist_point_tbl (id, p) select g+100000, point(g*10+1, g*10+1) from generate_series(1, 10000) g"
+  },
+  {
+    "comment": "spgist - Statement 8",
+    "query": "delete from spgist_point_tbl where id % 2 = 1"
+  },
+  {
+    "comment": "spgist - Statement 9",
+    "query": "delete from spgist_point_tbl where id < 10000"
+  },
+  {
+    "comment": "spgist - Statement 10",
+    "query": "create table spgist_box_tbl(id serial, b box)"
+  },
+  {
+    "comment": "spgist - Statement 11",
+    "query": "insert into spgist_box_tbl(b) select box(point(i,j),point(i+s,j+s)) from generate_series(1,100,5) i, generate_series(1,100,5) j, generate_series(1,10) s"
+  },
+  {
+    "comment": "spgist - Statement 12",
+    "query": "create index spgist_box_idx on spgist_box_tbl using spgist (b)"
+  },
+  {
+    "comment": "spgist - Statement 13",
+    "query": "select count(*) from (values (point(5,5)),(point(8,8)),(point(12,12))) v(p) where exists(select * from spgist_box_tbl b where b.b && box(v.p,v.p))"
+  },
+  {
+    "comment": "spgist - Statement 14",
+    "query": "create table spgist_text_tbl(id int4, t text)"
+  },
+  {
+    "comment": "spgist - Statement 15",
+    "query": "create index spgist_text_idx on spgist_text_tbl using spgist(t)"
+  },
+  {
+    "comment": "spgist - Statement 16",
+    "query": "insert into spgist_text_tbl (id, t) select g, 'f' || repeat('o', 100) || g from generate_series(1, 10000) g union all select g, 'baaaaaaaaaaaaaar' || g from generate_series(1, 1000) g"
+  },
+  {
+    "comment": "spgist - Statement 17",
+    "query": "insert into spgist_text_tbl (id, t) select -g, 'f' || repeat('o', 100-g) || 'surprise' from generate_series(1, 100) g"
+  },
+  {
+    "comment": "spgist - Statement 18",
+    "query": "create index spgist_point_idx2 on spgist_point_tbl using spgist(p) with (fillfactor = 9)"
+  },
+  {
+    "comment": "spgist - Statement 19",
+    "query": "create index spgist_point_idx2 on spgist_point_tbl using spgist(p) with (fillfactor = 101)"
+  },
+  {
+    "comment": "spgist - Statement 20",
+    "query": "alter index spgist_point_idx set (fillfactor = 90)"
+  },
+  {
+    "comment": "spgist - Statement 21",
+    "query": "reindex index spgist_point_idx"
+  },
+  {
+    "comment": "spgist - Statement 22",
+    "query": "create domain spgist_text as varchar"
+  },
+  {
+    "comment": "spgist - Statement 23",
+    "query": "create table spgist_domain_tbl (f1 spgist_text)"
+  },
+  {
+    "comment": "spgist - Statement 24",
+    "query": "create index spgist_domain_idx on spgist_domain_tbl using spgist(f1)"
+  },
+  {
+    "comment": "spgist - Statement 25",
+    "query": "insert into spgist_domain_tbl values('fee'), ('fi'), ('fo'), ('fum')"
+  },
+  {
+    "comment": "spgist - Statement 26",
+    "query": "explain (costs off) select * from spgist_domain_tbl where f1 = 'fo'"
+  },
+  {
+    "comment": "spgist - Statement 27",
+    "query": "select * from spgist_domain_tbl where f1 = 'fo'"
+  },
+  {
+    "comment": "spgist - Statement 28",
+    "query": "create unlogged table spgist_unlogged_tbl(id serial, b box)"
+  },
+  {
+    "comment": "spgist - Statement 29",
+    "query": "create index spgist_unlogged_idx on spgist_unlogged_tbl using spgist (b)"
+  },
+  {
+    "comment": "spgist - Statement 30",
+    "query": "insert into spgist_unlogged_tbl(b) select box(point(i,j)) from generate_series(1,100,5) i, generate_series(1,10,5) j"
+  }
+]

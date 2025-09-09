@@ -1062,6 +1062,10 @@ func (c *ColumnRef) ExpressionType() string {
 	return "ColumnRef"
 }
 
+func (c *ColumnRef) IsExpr() bool {
+	return true
+}
+
 // ==============================================================================
 // PLACEHOLDER TYPES - To be fully implemented later
 // ==============================================================================

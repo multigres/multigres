@@ -1,0 +1,42 @@
+[
+  {
+    "comment": "bitmapops - Statement 1",
+    "query": "CREATE TABLE bmscantest (a int, b int, t text)"
+  },
+  {
+    "comment": "bitmapops - Statement 2",
+    "query": "INSERT INTO bmscantest SELECT (r%53), (r%59), 'foooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' FROM generate_series(1,70000) r"
+  },
+  {
+    "comment": "bitmapops - Statement 3",
+    "query": "CREATE INDEX i_bmtest_a ON bmscantest(a)"
+  },
+  {
+    "comment": "bitmapops - Statement 4",
+    "query": "CREATE INDEX i_bmtest_b ON bmscantest(b)"
+  },
+  {
+    "comment": "bitmapops - Statement 5",
+    "query": "set enable_indexscan=false"
+  },
+  {
+    "comment": "bitmapops - Statement 6",
+    "query": "set enable_seqscan=false"
+  },
+  {
+    "comment": "bitmapops - Statement 7",
+    "query": "set work_mem = 64"
+  },
+  {
+    "comment": "bitmapops - Statement 8",
+    "query": "SELECT count(*) FROM bmscantest WHERE a = 1 AND b = 1"
+  },
+  {
+    "comment": "bitmapops - Statement 9",
+    "query": "SELECT count(*) FROM bmscantest WHERE a = 1 OR b = 1"
+  },
+  {
+    "comment": "bitmapops - Statement 10",
+    "query": "DROP TABLE bmscantest"
+  }
+]

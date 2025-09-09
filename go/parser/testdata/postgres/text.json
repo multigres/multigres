@@ -1,0 +1,294 @@
+[
+  {
+    "comment": "text - Statement 1",
+    "query": "SELECT text 'this is a text string' = text 'this is a text string' AS true"
+  },
+  {
+    "comment": "text - Statement 2",
+    "query": "SELECT text 'this is a text string' = text 'this is a text strin' AS false"
+  },
+  {
+    "comment": "text - Statement 3",
+    "query": "SELECT * FROM TEXT_TBL"
+  },
+  {
+    "comment": "text - Statement 4",
+    "query": "select length(42)"
+  },
+  {
+    "comment": "text - Statement 5",
+    "query": "select 'four: '::text || 2+2"
+  },
+  {
+    "comment": "text - Statement 6",
+    "query": "select 'four: ' || 2+2"
+  },
+  {
+    "comment": "text - Statement 7",
+    "query": "select 3 || 4.0"
+  },
+  {
+    "comment": "text - Statement 8",
+    "query": "/* * various string functions */ select concat('one')"
+  },
+  {
+    "comment": "text - Statement 9",
+    "query": "select concat(1,2,3,'hello',true, false, to_date('20100309','YYYYMMDD'))"
+  },
+  {
+    "comment": "text - Statement 10",
+    "query": "select concat_ws('#','one')"
+  },
+  {
+    "comment": "text - Statement 11",
+    "query": "select concat_ws('#',1,2,3,'hello',true, false, to_date('20100309','YYYYMMDD'))"
+  },
+  {
+    "comment": "text - Statement 12",
+    "query": "select concat_ws(',',10,20,null,30)"
+  },
+  {
+    "comment": "text - Statement 13",
+    "query": "select concat_ws('',10,20,null,30)"
+  },
+  {
+    "comment": "text - Statement 14",
+    "query": "select concat_ws(NULL,10,20,null,30) is null"
+  },
+  {
+    "comment": "text - Statement 15",
+    "query": "select reverse('abcde')"
+  },
+  {
+    "comment": "text - Statement 16",
+    "query": "select i, left('ahoj', i), right('ahoj', i) from generate_series(-5, 5) t(i) order by i"
+  },
+  {
+    "comment": "text - Statement 17",
+    "query": "select quote_literal('')"
+  },
+  {
+    "comment": "text - Statement 18",
+    "query": "select quote_literal('abc''')"
+  },
+  {
+    "comment": "text - Statement 19",
+    "query": "select quote_literal(e'\\\\')"
+  },
+  {
+    "comment": "text - Statement 20",
+    "query": "select concat(variadic array[1,2,3])"
+  },
+  {
+    "comment": "text - Statement 21",
+    "query": "select concat_ws(',', variadic array[1,2,3])"
+  },
+  {
+    "comment": "text - Statement 22",
+    "query": "select concat_ws(',', variadic NULL::int[])"
+  },
+  {
+    "comment": "text - Statement 23",
+    "query": "select concat(variadic NULL::int[]) is NULL"
+  },
+  {
+    "comment": "text - Statement 24",
+    "query": "select concat(variadic '{}'::int[]) = ''"
+  },
+  {
+    "comment": "text - Statement 25",
+    "query": "select concat_ws(',', variadic 10)"
+  },
+  {
+    "comment": "text - Statement 26",
+    "query": "/* * format */ select format(NULL)"
+  },
+  {
+    "comment": "text - Statement 27",
+    "query": "select format('Hello')"
+  },
+  {
+    "comment": "text - Statement 28",
+    "query": "select format('Hello %s', 'World')"
+  },
+  {
+    "comment": "text - Statement 29",
+    "query": "select format('Hello %%')"
+  },
+  {
+    "comment": "text - Statement 30",
+    "query": "select format('Hello %%%%')"
+  },
+  {
+    "comment": "text - Statement 31",
+    "query": "select format('Hello %s %s', 'World')"
+  },
+  {
+    "comment": "text - Statement 32",
+    "query": "select format('Hello %s')"
+  },
+  {
+    "comment": "text - Statement 33",
+    "query": "select format('Hello %x', 20)"
+  },
+  {
+    "comment": "text - Statement 34",
+    "query": "select format('INSERT INTO %I VALUES(%L,%L)', 'mytab', 10, 'Hello')"
+  },
+  {
+    "comment": "text - Statement 35",
+    "query": "select format('%s%s%s','Hello', NULL,'World')"
+  },
+  {
+    "comment": "text - Statement 36",
+    "query": "select format('INSERT INTO %I VALUES(%L,%L)', 'mytab', 10, NULL)"
+  },
+  {
+    "comment": "text - Statement 37",
+    "query": "select format('INSERT INTO %I VALUES(%L,%L)', 'mytab', NULL, 'Hello')"
+  },
+  {
+    "comment": "text - Statement 38",
+    "query": "select format('INSERT INTO %I VALUES(%L,%L)', NULL, 10, 'Hello')"
+  },
+  {
+    "comment": "text - Statement 39",
+    "query": "select format('%1$s %3$s', 1, 2, 3)"
+  },
+  {
+    "comment": "text - Statement 40",
+    "query": "select format('%1$s %12$s', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)"
+  },
+  {
+    "comment": "text - Statement 41",
+    "query": "select format('%1$s %4$s', 1, 2, 3)"
+  },
+  {
+    "comment": "text - Statement 42",
+    "query": "select format('%1$s %13$s', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)"
+  },
+  {
+    "comment": "text - Statement 43",
+    "query": "select format('%0$s', 'Hello')"
+  },
+  {
+    "comment": "text - Statement 44",
+    "query": "select format('%*0$s', 'Hello')"
+  },
+  {
+    "comment": "text - Statement 45",
+    "query": "select format('%1$', 1)"
+  },
+  {
+    "comment": "text - Statement 46",
+    "query": "select format('%1$1', 1)"
+  },
+  {
+    "comment": "text - Statement 47",
+    "query": "select format('Hello %s %1$s %s', 'World', 'Hello again')"
+  },
+  {
+    "comment": "text - Statement 48",
+    "query": "select format('Hello %s %s, %2$s %2$s', 'World', 'Hello again')"
+  },
+  {
+    "comment": "text - Statement 49",
+    "query": "select format('%s, %s', variadic array['Hello','World'])"
+  },
+  {
+    "comment": "text - Statement 50",
+    "query": "select format('%s, %s', variadic array[1, 2])"
+  },
+  {
+    "comment": "text - Statement 51",
+    "query": "select format('%s, %s', variadic array[true, false])"
+  },
+  {
+    "comment": "text - Statement 52",
+    "query": "select format('%s, %s', variadic array[true, false]::text[])"
+  },
+  {
+    "comment": "text - Statement 53",
+    "query": "select format('%2$s, %1$s', variadic array['first', 'second'])"
+  },
+  {
+    "comment": "text - Statement 54",
+    "query": "select format('%2$s, %1$s', variadic array[1, 2])"
+  },
+  {
+    "comment": "text - Statement 55",
+    "query": "select format('Hello', variadic NULL::int[])"
+  },
+  {
+    "comment": "text - Statement 56",
+    "query": "select format(string_agg('%s',','), variadic array_agg(i)) from generate_series(1,200) g(i)"
+  },
+  {
+    "comment": "text - Statement 57",
+    "query": "select format('>>%10s<<', 'Hello')"
+  },
+  {
+    "comment": "text - Statement 58",
+    "query": "select format('>>%10s<<', NULL)"
+  },
+  {
+    "comment": "text - Statement 59",
+    "query": "select format('>>%10s<<', '')"
+  },
+  {
+    "comment": "text - Statement 60",
+    "query": "select format('>>%-10s<<', '')"
+  },
+  {
+    "comment": "text - Statement 61",
+    "query": "select format('>>%-10s<<', 'Hello')"
+  },
+  {
+    "comment": "text - Statement 62",
+    "query": "select format('>>%-10s<<', NULL)"
+  },
+  {
+    "comment": "text - Statement 63",
+    "query": "select format('>>%1$10s<<', 'Hello')"
+  },
+  {
+    "comment": "text - Statement 64",
+    "query": "select format('>>%1$-10I<<', 'Hello')"
+  },
+  {
+    "comment": "text - Statement 65",
+    "query": "select format('>>%2$*1$L<<', 10, 'Hello')"
+  },
+  {
+    "comment": "text - Statement 66",
+    "query": "select format('>>%2$*1$L<<', 10, NULL)"
+  },
+  {
+    "comment": "text - Statement 67",
+    "query": "select format('>>%2$*1$L<<', -10, NULL)"
+  },
+  {
+    "comment": "text - Statement 68",
+    "query": "select format('>>%*s<<', 10, 'Hello')"
+  },
+  {
+    "comment": "text - Statement 69",
+    "query": "select format('>>%*1$s<<', 10, 'Hello')"
+  },
+  {
+    "comment": "text - Statement 70",
+    "query": "select format('>>%-s<<', 'Hello')"
+  },
+  {
+    "comment": "text - Statement 71",
+    "query": "select format('>>%10L<<', NULL)"
+  },
+  {
+    "comment": "text - Statement 72",
+    "query": "select format('>>%2$*1$L<<', NULL, 'Hello')"
+  },
+  {
+    "comment": "text - Statement 73",
+    "query": "select format('>>%2$*1$L<<', 0, 'Hello')"
+  }
+]

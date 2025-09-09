@@ -1,0 +1,1850 @@
+[
+  {
+    "comment": "arrays - Statement 1",
+    "query": "CREATE TABLE array_op_test ( seqno\t\tint4, i\t\t\tint4[], t\t\t\ttext[] )"
+  },
+  {
+    "comment": "arrays - Statement 2",
+    "query": "ANALYZE array_op_test"
+  },
+  {
+    "comment": "arrays - Statement 3",
+    "query": "INSERT INTO arrtest (a[1:5], b[1:1][1:2][1:2], c, d, f, g) VALUES ('{1,2,3,4,5}', '{{{0,0},{1,2}}}', '{}', '{}', '{}', '{}')"
+  },
+  {
+    "comment": "arrays - Statement 4",
+    "query": "UPDATE arrtest SET e[0] = '1.1'"
+  },
+  {
+    "comment": "arrays - Statement 5",
+    "query": "UPDATE arrtest SET e[1] = '2.2'"
+  },
+  {
+    "comment": "arrays - Statement 6",
+    "query": "INSERT INTO arrtest (f) VALUES ('{\"too long\"}')"
+  },
+  {
+    "comment": "arrays - Statement 7",
+    "query": "INSERT INTO arrtest (a, b[1:2][1:2], c, d, e, f, g) VALUES ('{11,12,23}', '{{3,4},{4,5}}', '{\"foobar\"}', '{{\"elt1\", \"elt2\"}}', '{\"3.4\", \"6.7\"}', '{\"abc\",\"abcde\"}', '{\"abc\",\"abcde\"}')"
+  },
+  {
+    "comment": "arrays - Statement 8",
+    "query": "INSERT INTO arrtest (a, b[1:2], c, d[1:2]) VALUES ('{}', '{3,4}', '{foo,bar}', '{bar,foo}')"
+  },
+  {
+    "comment": "arrays - Statement 9",
+    "query": "INSERT INTO arrtest (b[2]) VALUES(now())"
+  },
+  {
+    "comment": "arrays - Statement 10",
+    "query": "INSERT INTO arrtest (b[1:2]) VALUES(now())"
+  },
+  {
+    "comment": "arrays - Statement 11",
+    "query": "SELECT * FROM arrtest"
+  },
+  {
+    "comment": "arrays - Statement 12",
+    "query": "SELECT arrtest.a[1], arrtest.b[1][1][1], arrtest.c[1], arrtest.d[1][1], arrtest.e[0] FROM arrtest"
+  },
+  {
+    "comment": "arrays - Statement 13",
+    "query": "SELECT a[1], b[1][1][1], c[1], d[1][1], e[0] FROM arrtest"
+  },
+  {
+    "comment": "arrays - Statement 14",
+    "query": "SELECT a[1:3], b[1:1][1:2][1:2], c[1:2], d[1:1][1:2] FROM arrtest"
+  },
+  {
+    "comment": "arrays - Statement 15",
+    "query": "SELECT array_ndims(a) AS a,array_ndims(b) AS b,array_ndims(c) AS c FROM arrtest"
+  },
+  {
+    "comment": "arrays - Statement 16",
+    "query": "SELECT array_dims(a) AS a,array_dims(b) AS b,array_dims(c) AS c FROM arrtest"
+  },
+  {
+    "comment": "arrays - Statement 17",
+    "query": "SELECT * FROM arrtest WHERE a[1] < 5 and c = '{\"foobar\"}'::_name"
+  },
+  {
+    "comment": "arrays - Statement 18",
+    "query": "UPDATE arrtest SET a[1:2] = '{16,25}' WHERE NOT a = '{}'::_int2"
+  },
+  {
+    "comment": "arrays - Statement 19",
+    "query": "UPDATE arrtest SET b[1:1][1:1][1:2] = '{113, 117}', b[1:1][1:2][2:2] = '{142, 147}' WHERE array_dims(b) = '[1:1][1:2][1:2]'"
+  },
+  {
+    "comment": "arrays - Statement 20",
+    "query": "UPDATE arrtest SET c[2:2] = '{\"new_word\"}' WHERE array_dims(c) is not null"
+  },
+  {
+    "comment": "arrays - Statement 21",
+    "query": "SELECT a,b,c FROM arrtest"
+  },
+  {
+    "comment": "arrays - Statement 22",
+    "query": "SELECT a[1:3], b[1:1][1:2][1:2], c[1:2], d[1:1][2:2] FROM arrtest"
+  },
+  {
+    "comment": "arrays - Statement 23",
+    "query": "SELECT b[1:1][2][2], d[1:1][2] FROM arrtest"
+  },
+  {
+    "comment": "arrays - Statement 24",
+    "query": "INSERT INTO arrtest(a) VALUES('{1,null,3}')"
+  },
+  {
+    "comment": "arrays - Statement 25",
+    "query": "SELECT a FROM arrtest"
+  },
+  {
+    "comment": "arrays - Statement 26",
+    "query": "UPDATE arrtest SET a[4] = NULL WHERE a[2] IS NULL"
+  },
+  {
+    "comment": "arrays - Statement 27",
+    "query": "SELECT a FROM arrtest WHERE a[2] IS NULL"
+  },
+  {
+    "comment": "arrays - Statement 28",
+    "query": "DELETE FROM arrtest WHERE a[2] IS NULL AND b IS NULL"
+  },
+  {
+    "comment": "arrays - Statement 29",
+    "query": "SELECT pg_input_is_valid('{1,2,3}', 'integer[]')"
+  },
+  {
+    "comment": "arrays - Statement 30",
+    "query": "SELECT pg_input_is_valid('{1,2', 'integer[]')"
+  },
+  {
+    "comment": "arrays - Statement 31",
+    "query": "SELECT pg_input_is_valid('{1,zed}', 'integer[]')"
+  },
+  {
+    "comment": "arrays - Statement 32",
+    "query": "SELECT * FROM pg_input_error_info('{1,zed}', 'integer[]')"
+  },
+  {
+    "comment": "arrays - Statement 33",
+    "query": "select '{{1,2,3},{4,5,6},{7,8,9}}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 34",
+    "query": "select ('{{1,2,3},{4,5,6},{7,8,9}}'::int[])[1:2][2]"
+  },
+  {
+    "comment": "arrays - Statement 35",
+    "query": "select '[0:2][0:2]={{1,2,3},{4,5,6},{7,8,9}}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 36",
+    "query": "select ('[0:2][0:2]={{1,2,3},{4,5,6},{7,8,9}}'::int[])[1:2][2]"
+  },
+  {
+    "comment": "arrays - Statement 37",
+    "query": "SELECT ('{}'::int[])[1][2][3][4][5][6][7]"
+  },
+  {
+    "comment": "arrays - Statement 38",
+    "query": "SELECT ('{{{1},{2},{3}},{{4},{5},{6}}}'::int[])[1][NULL][1]"
+  },
+  {
+    "comment": "arrays - Statement 39",
+    "query": "SELECT ('{{{1},{2},{3}},{{4},{5},{6}}}'::int[])[1][NULL:1][1]"
+  },
+  {
+    "comment": "arrays - Statement 40",
+    "query": "SELECT ('{{{1},{2},{3}},{{4},{5},{6}}}'::int[])[1][1:NULL][1]"
+  },
+  {
+    "comment": "arrays - Statement 41",
+    "query": "UPDATE arrtest SET c[NULL] = '{\"can''t assign\"}' WHERE array_dims(c) is not null"
+  },
+  {
+    "comment": "arrays - Statement 42",
+    "query": "UPDATE arrtest SET c[NULL:1] = '{\"can''t assign\"}' WHERE array_dims(c) is not null"
+  },
+  {
+    "comment": "arrays - Statement 43",
+    "query": "UPDATE arrtest SET c[1:NULL] = '{\"can''t assign\"}' WHERE array_dims(c) is not null"
+  },
+  {
+    "comment": "arrays - Statement 44",
+    "query": "SELECT (now())[1]"
+  },
+  {
+    "comment": "arrays - Statement 45",
+    "query": "CREATE TEMP TABLE arrtest_s ( a       int2[], b       int2[][] )"
+  },
+  {
+    "comment": "arrays - Statement 46",
+    "query": "INSERT INTO arrtest_s VALUES ('{1,2,3,4,5}', '{{1,2,3}, {4,5,6}, {7,8,9}}')"
+  },
+  {
+    "comment": "arrays - Statement 47",
+    "query": "INSERT INTO arrtest_s VALUES ('[0:4]={1,2,3,4,5}', '[0:2][0:2]={{1,2,3}, {4,5,6}, {7,8,9}}')"
+  },
+  {
+    "comment": "arrays - Statement 48",
+    "query": "SELECT * FROM arrtest_s"
+  },
+  {
+    "comment": "arrays - Statement 49",
+    "query": "SELECT a[:3], b[:2][:2] FROM arrtest_s"
+  },
+  {
+    "comment": "arrays - Statement 50",
+    "query": "SELECT a[2:], b[2:][2:] FROM arrtest_s"
+  },
+  {
+    "comment": "arrays - Statement 51",
+    "query": "SELECT a[:], b[:] FROM arrtest_s"
+  },
+  {
+    "comment": "arrays - Statement 52",
+    "query": "UPDATE arrtest_s SET a[:3] = '{11, 12, 13}', b[:2][:2] = '{{11,12}, {14,15}}' WHERE array_lower(a,1) = 1"
+  },
+  {
+    "comment": "arrays - Statement 53",
+    "query": "UPDATE arrtest_s SET a[3:] = '{23, 24, 25}', b[2:][2:] = '{{25,26}, {28,29}}'"
+  },
+  {
+    "comment": "arrays - Statement 54",
+    "query": "UPDATE arrtest_s SET a[:] = '{11, 12, 13, 14, 15}'"
+  },
+  {
+    "comment": "arrays - Statement 55",
+    "query": "UPDATE arrtest_s SET a[:] = '{23, 24, 25}'"
+  },
+  {
+    "comment": "arrays - Statement 56",
+    "query": "INSERT INTO arrtest_s VALUES(NULL, NULL)"
+  },
+  {
+    "comment": "arrays - Statement 57",
+    "query": "CREATE TEMP TABLE point_tbl AS SELECT * FROM public.point_tbl"
+  },
+  {
+    "comment": "arrays - Statement 58",
+    "query": "INSERT INTO POINT_TBL(f1) VALUES (NULL)"
+  },
+  {
+    "comment": "arrays - Statement 59",
+    "query": "SELECT f1[0:1] FROM POINT_TBL"
+  },
+  {
+    "comment": "arrays - Statement 60",
+    "query": "SELECT f1[0:] FROM POINT_TBL"
+  },
+  {
+    "comment": "arrays - Statement 61",
+    "query": "SELECT f1[:1] FROM POINT_TBL"
+  },
+  {
+    "comment": "arrays - Statement 62",
+    "query": "SELECT f1[:] FROM POINT_TBL"
+  },
+  {
+    "comment": "arrays - Statement 63",
+    "query": "UPDATE point_tbl SET f1[0] = 10 WHERE f1 IS NULL RETURNING *"
+  },
+  {
+    "comment": "arrays - Statement 64",
+    "query": "INSERT INTO point_tbl(f1[0]) VALUES(0) RETURNING *"
+  },
+  {
+    "comment": "arrays - Statement 65",
+    "query": "UPDATE point_tbl SET f1[0] = NULL WHERE f1::text = '(10,10)'::point::text RETURNING *"
+  },
+  {
+    "comment": "arrays - Statement 66",
+    "query": "UPDATE point_tbl SET f1[0] = -10, f1[1] = -10 WHERE f1::text = '(10,10)'::point::text RETURNING *"
+  },
+  {
+    "comment": "arrays - Statement 67",
+    "query": "UPDATE point_tbl SET f1[3] = 10 WHERE f1::text = '(-10,-10)'::point::text RETURNING *"
+  },
+  {
+    "comment": "arrays - Statement 68",
+    "query": "CREATE TEMP TABLE arrtest1 (i int[], t text[])"
+  },
+  {
+    "comment": "arrays - Statement 69",
+    "query": "insert into arrtest1 values(array[1,2,null,4], array['one','two',null,'four'])"
+  },
+  {
+    "comment": "arrays - Statement 70",
+    "query": "select * from arrtest1"
+  },
+  {
+    "comment": "arrays - Statement 71",
+    "query": "update arrtest1 set i[2] = 22, t[2] = 'twenty-two'"
+  },
+  {
+    "comment": "arrays - Statement 72",
+    "query": "update arrtest1 set i[5] = 5, t[5] = 'five'"
+  },
+  {
+    "comment": "arrays - Statement 73",
+    "query": "update arrtest1 set i[8] = 8, t[8] = 'eight'"
+  },
+  {
+    "comment": "arrays - Statement 74",
+    "query": "update arrtest1 set i[0] = 0, t[0] = 'zero'"
+  },
+  {
+    "comment": "arrays - Statement 75",
+    "query": "update arrtest1 set i[-3] = -3, t[-3] = 'minus-three'"
+  },
+  {
+    "comment": "arrays - Statement 76",
+    "query": "update arrtest1 set i[0:2] = array[10,11,12], t[0:2] = array['ten','eleven','twelve']"
+  },
+  {
+    "comment": "arrays - Statement 77",
+    "query": "update arrtest1 set i[8:10] = array[18,null,20], t[8:10] = array['p18',null,'p20']"
+  },
+  {
+    "comment": "arrays - Statement 78",
+    "query": "update arrtest1 set i[11:12] = array[null,22], t[11:12] = array[null,'p22']"
+  },
+  {
+    "comment": "arrays - Statement 79",
+    "query": "update arrtest1 set i[15:16] = array[null,26], t[15:16] = array[null,'p26']"
+  },
+  {
+    "comment": "arrays - Statement 80",
+    "query": "update arrtest1 set i[-5:-3] = array[-15,-14,-13], t[-5:-3] = array['m15','m14','m13']"
+  },
+  {
+    "comment": "arrays - Statement 81",
+    "query": "update arrtest1 set i[-7:-6] = array[-17,null], t[-7:-6] = array['m17',null]"
+  },
+  {
+    "comment": "arrays - Statement 82",
+    "query": "update arrtest1 set i[-12:-10] = array[-22,null,-20], t[-12:-10] = array['m22',null,'m20']"
+  },
+  {
+    "comment": "arrays - Statement 83",
+    "query": "delete from arrtest1"
+  },
+  {
+    "comment": "arrays - Statement 84",
+    "query": "update arrtest1 set i[0:5] = array[0,1,2,null,4,5], t[0:5] = array['z','p1','p2',null,'p4','p5']"
+  },
+  {
+    "comment": "arrays - Statement 85",
+    "query": "CREATE TEMP TABLE arrtest2 (i integer ARRAY[4], f float8[], n numeric[], t text[], d timestamp[])"
+  },
+  {
+    "comment": "arrays - Statement 86",
+    "query": "INSERT INTO arrtest2 VALUES( ARRAY[[[113,142],[1,147]]], ARRAY[1.1,1.2,1.3]::float8[], ARRAY[1.1,1.2,1.3], ARRAY[[['aaa','aab'],['aba','abb'],['aca','acb']],[['baa','bab'],['bba','bbb'],['bca','bcb']]], ARRAY['19620326','19931223','19970117']::timestamp[] )"
+  },
+  {
+    "comment": "arrays - Statement 87",
+    "query": "CREATE TEMP TABLE arrtest_f (f0 int, f1 text, f2 float8)"
+  },
+  {
+    "comment": "arrays - Statement 88",
+    "query": "insert into arrtest_f values(1,'cat1',1.21)"
+  },
+  {
+    "comment": "arrays - Statement 89",
+    "query": "insert into arrtest_f values(2,'cat1',1.24)"
+  },
+  {
+    "comment": "arrays - Statement 90",
+    "query": "insert into arrtest_f values(3,'cat1',1.18)"
+  },
+  {
+    "comment": "arrays - Statement 91",
+    "query": "insert into arrtest_f values(4,'cat1',1.26)"
+  },
+  {
+    "comment": "arrays - Statement 92",
+    "query": "insert into arrtest_f values(5,'cat1',1.15)"
+  },
+  {
+    "comment": "arrays - Statement 93",
+    "query": "insert into arrtest_f values(6,'cat2',1.15)"
+  },
+  {
+    "comment": "arrays - Statement 94",
+    "query": "insert into arrtest_f values(7,'cat2',1.26)"
+  },
+  {
+    "comment": "arrays - Statement 95",
+    "query": "insert into arrtest_f values(8,'cat2',1.32)"
+  },
+  {
+    "comment": "arrays - Statement 96",
+    "query": "insert into arrtest_f values(9,'cat2',1.30)"
+  },
+  {
+    "comment": "arrays - Statement 97",
+    "query": "CREATE TEMP TABLE arrtest_i (f0 int, f1 text, f2 int)"
+  },
+  {
+    "comment": "arrays - Statement 98",
+    "query": "insert into arrtest_i values(1,'cat1',21)"
+  },
+  {
+    "comment": "arrays - Statement 99",
+    "query": "insert into arrtest_i values(2,'cat1',24)"
+  },
+  {
+    "comment": "arrays - Statement 100",
+    "query": "insert into arrtest_i values(3,'cat1',18)"
+  },
+  {
+    "comment": "arrays - Statement 101",
+    "query": "insert into arrtest_i values(4,'cat1',26)"
+  },
+  {
+    "comment": "arrays - Statement 102",
+    "query": "insert into arrtest_i values(5,'cat1',15)"
+  },
+  {
+    "comment": "arrays - Statement 103",
+    "query": "insert into arrtest_i values(6,'cat2',15)"
+  },
+  {
+    "comment": "arrays - Statement 104",
+    "query": "insert into arrtest_i values(7,'cat2',26)"
+  },
+  {
+    "comment": "arrays - Statement 105",
+    "query": "insert into arrtest_i values(8,'cat2',32)"
+  },
+  {
+    "comment": "arrays - Statement 106",
+    "query": "insert into arrtest_i values(9,'cat2',30)"
+  },
+  {
+    "comment": "arrays - Statement 107",
+    "query": "SELECT t.f[1][3][1] AS \"131\", t.f[2][2][1] AS \"221\" FROM ( SELECT ARRAY[[[111,112],[121,122],[131,132]],[[211,212],[221,122],[231,232]]] AS f ) AS t"
+  },
+  {
+    "comment": "arrays - Statement 108",
+    "query": "SELECT ARRAY[[[[[['hello'],['world']]]]]]"
+  },
+  {
+    "comment": "arrays - Statement 109",
+    "query": "SELECT ARRAY[ARRAY['hello'],ARRAY['world']]"
+  },
+  {
+    "comment": "arrays - Statement 110",
+    "query": "SELECT ARRAY(select f2 from arrtest_f order by f2) AS \"ARRAY\""
+  },
+  {
+    "comment": "arrays - Statement 111",
+    "query": "SELECT '{1,null,3}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 112",
+    "query": "SELECT ARRAY[1,NULL,3]"
+  },
+  {
+    "comment": "arrays - Statement 113",
+    "query": "SELECT array_append(array[42], 6) AS \"{42,6}\""
+  },
+  {
+    "comment": "arrays - Statement 114",
+    "query": "SELECT array_prepend(6, array[42]) AS \"{6,42}\""
+  },
+  {
+    "comment": "arrays - Statement 115",
+    "query": "SELECT array_cat(ARRAY[1,2], ARRAY[3,4]) AS \"{1,2,3,4}\""
+  },
+  {
+    "comment": "arrays - Statement 116",
+    "query": "SELECT array_cat(ARRAY[1,2], ARRAY[[3,4],[5,6]]) AS \"{{1,2},{3,4},{5,6}}\""
+  },
+  {
+    "comment": "arrays - Statement 117",
+    "query": "SELECT array_cat(ARRAY[[3,4],[5,6]], ARRAY[1,2]) AS \"{{3,4},{5,6},{1,2}}\""
+  },
+  {
+    "comment": "arrays - Statement 118",
+    "query": "SELECT array_position(ARRAY[1,2,3,4,5], 4)"
+  },
+  {
+    "comment": "arrays - Statement 119",
+    "query": "SELECT array_position(ARRAY[5,3,4,2,1], 4)"
+  },
+  {
+    "comment": "arrays - Statement 120",
+    "query": "SELECT array_position(ARRAY[[1,2],[3,4]], 3)"
+  },
+  {
+    "comment": "arrays - Statement 121",
+    "query": "SELECT array_position(ARRAY['sun','mon','tue','wed','thu','fri','sat'], 'mon')"
+  },
+  {
+    "comment": "arrays - Statement 122",
+    "query": "SELECT array_position(ARRAY['sun','mon','tue','wed','thu','fri','sat'], 'sat')"
+  },
+  {
+    "comment": "arrays - Statement 123",
+    "query": "SELECT array_position(ARRAY['sun','mon','tue','wed','thu','fri','sat'], NULL)"
+  },
+  {
+    "comment": "arrays - Statement 124",
+    "query": "SELECT array_position(ARRAY['sun','mon','tue','wed','thu',NULL,'fri','sat'], NULL)"
+  },
+  {
+    "comment": "arrays - Statement 125",
+    "query": "SELECT array_position(ARRAY['sun','mon','tue','wed','thu',NULL,'fri','sat'], 'sat')"
+  },
+  {
+    "comment": "arrays - Statement 126",
+    "query": "SELECT array_positions(NULL, 10)"
+  },
+  {
+    "comment": "arrays - Statement 127",
+    "query": "SELECT array_positions(NULL, NULL::int)"
+  },
+  {
+    "comment": "arrays - Statement 128",
+    "query": "SELECT array_positions(ARRAY[1,2,3,4,5,6,1,2,3,4,5,6], 4)"
+  },
+  {
+    "comment": "arrays - Statement 129",
+    "query": "SELECT array_positions(ARRAY[[1,2],[3,4]], 4)"
+  },
+  {
+    "comment": "arrays - Statement 130",
+    "query": "SELECT array_positions(ARRAY[1,2,3,4,5,6,1,2,3,4,5,6], NULL)"
+  },
+  {
+    "comment": "arrays - Statement 131",
+    "query": "SELECT array_positions(ARRAY[1,2,3,NULL,5,6,1,2,3,NULL,5,6], NULL)"
+  },
+  {
+    "comment": "arrays - Statement 132",
+    "query": "SELECT array_length(array_positions(ARRAY(SELECT 'AAAAAAAAAAAAAAAAAAAAAAAAA'::text || i % 10 FROM generate_series(1,100) g(i)), 'AAAAAAAAAAAAAAAAAAAAAAAAA5'), 1)"
+  },
+  {
+    "comment": "arrays - Statement 133",
+    "query": "DO $$ DECLARE o int"
+  },
+  {
+    "comment": "arrays - Statement 134",
+    "query": "a int[] := ARRAY[1,2,3,2,3,1,2]"
+  },
+  {
+    "comment": "arrays - Statement 135",
+    "query": "BEGIN o := array_position(a, 2)"
+  },
+  {
+    "comment": "arrays - Statement 136",
+    "query": "WHILE o IS NOT NULL LOOP RAISE NOTICE '%', o"
+  },
+  {
+    "comment": "arrays - Statement 137",
+    "query": "o := array_position(a, 2, o + 1)"
+  },
+  {
+    "comment": "arrays - Statement 138",
+    "query": "END LOOP"
+  },
+  {
+    "comment": "arrays - Statement 139",
+    "query": "END $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "arrays - Statement 140",
+    "query": "SELECT array_position('[2:4]={1,2,3}'::int[], 1)"
+  },
+  {
+    "comment": "arrays - Statement 141",
+    "query": "SELECT array_positions('[2:4]={1,2,3}'::int[], 1)"
+  },
+  {
+    "comment": "arrays - Statement 142",
+    "query": "SELECT array_position(ids, (1, 1)), array_positions(ids, (1, 1)) FROM (VALUES (ARRAY[(0, 0), (1, 1)]), (ARRAY[(1, 1)]) ) AS f (ids)"
+  },
+  {
+    "comment": "arrays - Statement 143",
+    "query": "SELECT a FROM arrtest WHERE b = ARRAY[[[113,142],[1,147]]]"
+  },
+  {
+    "comment": "arrays - Statement 144",
+    "query": "SELECT NOT ARRAY[1.1,1.2,1.3] = ARRAY[1.1,1.2,1.3] AS \"FALSE\""
+  },
+  {
+    "comment": "arrays - Statement 145",
+    "query": "SELECT ARRAY[1,2] || 3 AS \"{1,2,3}\""
+  },
+  {
+    "comment": "arrays - Statement 146",
+    "query": "SELECT 0 || ARRAY[1,2] AS \"{0,1,2}\""
+  },
+  {
+    "comment": "arrays - Statement 147",
+    "query": "SELECT ARRAY[1,2] || ARRAY[3,4] AS \"{1,2,3,4}\""
+  },
+  {
+    "comment": "arrays - Statement 148",
+    "query": "SELECT ARRAY[[['hello','world']]] || ARRAY[[['happy','birthday']]] AS \"ARRAY\""
+  },
+  {
+    "comment": "arrays - Statement 149",
+    "query": "SELECT ARRAY[[1,2],[3,4]] || ARRAY[5,6] AS \"{{1,2},{3,4},{5,6}}\""
+  },
+  {
+    "comment": "arrays - Statement 150",
+    "query": "SELECT ARRAY[0,0] || ARRAY[1,1] || ARRAY[2,2] AS \"{0,0,1,1,2,2}\""
+  },
+  {
+    "comment": "arrays - Statement 151",
+    "query": "SELECT 0 || ARRAY[1,2] || 3 AS \"{0,1,2,3}\""
+  },
+  {
+    "comment": "arrays - Statement 152",
+    "query": "SELECT ARRAY[1.1] || ARRAY[2,3,4]"
+  },
+  {
+    "comment": "arrays - Statement 153",
+    "query": "SELECT array_agg(x) || array_agg(x) FROM (VALUES (ROW(1,2)), (ROW(3,4))) v(x)"
+  },
+  {
+    "comment": "arrays - Statement 154",
+    "query": "SELECT ROW(1,2) || array_agg(x) FROM (VALUES (ROW(3,4)), (ROW(5,6))) v(x)"
+  },
+  {
+    "comment": "arrays - Statement 155",
+    "query": "SELECT * FROM array_op_test WHERE i @> '{32}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 156",
+    "query": "SELECT * FROM array_op_test WHERE i && '{32}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 157",
+    "query": "SELECT * FROM array_op_test WHERE i @> '{17}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 158",
+    "query": "SELECT * FROM array_op_test WHERE i && '{17}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 159",
+    "query": "SELECT * FROM array_op_test WHERE i @> '{32,17}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 160",
+    "query": "SELECT * FROM array_op_test WHERE i && '{32,17}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 161",
+    "query": "SELECT * FROM array_op_test WHERE i <@ '{38,34,32,89}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 162",
+    "query": "SELECT * FROM array_op_test WHERE i = '{}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 163",
+    "query": "SELECT * FROM array_op_test WHERE i @> '{}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 164",
+    "query": "SELECT * FROM array_op_test WHERE i && '{}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 165",
+    "query": "SELECT * FROM array_op_test WHERE i <@ '{}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 166",
+    "query": "SELECT * FROM array_op_test WHERE i = '{NULL}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 167",
+    "query": "SELECT * FROM array_op_test WHERE i @> '{NULL}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 168",
+    "query": "SELECT * FROM array_op_test WHERE i && '{NULL}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 169",
+    "query": "SELECT * FROM array_op_test WHERE i <@ '{NULL}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 170",
+    "query": "SELECT * FROM array_op_test WHERE t @> '{AAAAAAAA72908}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 171",
+    "query": "SELECT * FROM array_op_test WHERE t && '{AAAAAAAA72908}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 172",
+    "query": "SELECT * FROM array_op_test WHERE t @> '{AAAAAAAAAA646}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 173",
+    "query": "SELECT * FROM array_op_test WHERE t && '{AAAAAAAAAA646}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 174",
+    "query": "SELECT * FROM array_op_test WHERE t @> '{AAAAAAAA72908,AAAAAAAAAA646}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 175",
+    "query": "SELECT * FROM array_op_test WHERE t && '{AAAAAAAA72908,AAAAAAAAAA646}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 176",
+    "query": "SELECT * FROM array_op_test WHERE t <@ '{AAAAAAAA72908,AAAAAAAAAAAAAAAAAAA17075,AA88409,AAAAAAAAAAAAAAAAAA36842,AAAAAAA48038,AAAAAAAAAAAAAA10611}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 177",
+    "query": "SELECT * FROM array_op_test WHERE t = '{}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 178",
+    "query": "SELECT * FROM array_op_test WHERE t @> '{}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 179",
+    "query": "SELECT * FROM array_op_test WHERE t && '{}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 180",
+    "query": "SELECT * FROM array_op_test WHERE t <@ '{}' ORDER BY seqno"
+  },
+  {
+    "comment": "arrays - Statement 181",
+    "query": "SELECT ARRAY[1,2,3]::text[]::int[]::float8[] AS \"{1,2,3}\""
+  },
+  {
+    "comment": "arrays - Statement 182",
+    "query": "SELECT pg_typeof(ARRAY[1,2,3]::text[]::int[]::float8[]) AS \"double precision[]\""
+  },
+  {
+    "comment": "arrays - Statement 183",
+    "query": "SELECT ARRAY[['a','bc'],['def','hijk']]::text[]::varchar[] AS \"{{a,bc},{def,hijk}}\""
+  },
+  {
+    "comment": "arrays - Statement 184",
+    "query": "SELECT pg_typeof(ARRAY[['a','bc'],['def','hijk']]::text[]::varchar[]) AS \"character varying[]\""
+  },
+  {
+    "comment": "arrays - Statement 185",
+    "query": "SELECT CAST(ARRAY[[[[[['a','bb','ccc']]]]]] as text[]) as \"{{{{{{a,bb,ccc}}}}}}\""
+  },
+  {
+    "comment": "arrays - Statement 186",
+    "query": "SELECT NULL::text[]::int[] AS \"NULL\""
+  },
+  {
+    "comment": "arrays - Statement 187",
+    "query": "select 33 = any ('{1,2,3}')"
+  },
+  {
+    "comment": "arrays - Statement 188",
+    "query": "select 33 = any ('{1,2,33}')"
+  },
+  {
+    "comment": "arrays - Statement 189",
+    "query": "select 33 = all ('{1,2,33}')"
+  },
+  {
+    "comment": "arrays - Statement 190",
+    "query": "select 33 >= all ('{1,2,33}')"
+  },
+  {
+    "comment": "arrays - Statement 191",
+    "query": "select null::int >= all ('{1,2,33}')"
+  },
+  {
+    "comment": "arrays - Statement 192",
+    "query": "select null::int >= all ('{}')"
+  },
+  {
+    "comment": "arrays - Statement 193",
+    "query": "select null::int >= any ('{}')"
+  },
+  {
+    "comment": "arrays - Statement 194",
+    "query": "select 33.4 = any (array[1,2,3])"
+  },
+  {
+    "comment": "arrays - Statement 195",
+    "query": "select 33.4 > all (array[1,2,3])"
+  },
+  {
+    "comment": "arrays - Statement 196",
+    "query": "select 33 * any ('{1,2,3}')"
+  },
+  {
+    "comment": "arrays - Statement 197",
+    "query": "select 33 * any (44)"
+  },
+  {
+    "comment": "arrays - Statement 198",
+    "query": "select 33 = any (null::int[])"
+  },
+  {
+    "comment": "arrays - Statement 199",
+    "query": "select null::int = any ('{1,2,3}')"
+  },
+  {
+    "comment": "arrays - Statement 200",
+    "query": "select 33 = any ('{1,null,3}')"
+  },
+  {
+    "comment": "arrays - Statement 201",
+    "query": "select 33 = any ('{1,null,33}')"
+  },
+  {
+    "comment": "arrays - Statement 202",
+    "query": "select 33 = all (null::int[])"
+  },
+  {
+    "comment": "arrays - Statement 203",
+    "query": "select null::int = all ('{1,2,3}')"
+  },
+  {
+    "comment": "arrays - Statement 204",
+    "query": "select 33 = all ('{1,null,3}')"
+  },
+  {
+    "comment": "arrays - Statement 205",
+    "query": "select 33 = all ('{33,null,33}')"
+  },
+  {
+    "comment": "arrays - Statement 206",
+    "query": "SELECT -1 != ALL(ARRAY(SELECT NULLIF(g.i, 900) FROM generate_series(1,1000) g(i)))"
+  },
+  {
+    "comment": "arrays - Statement 207",
+    "query": "create temp table arr_tbl (f1 int[] unique)"
+  },
+  {
+    "comment": "arrays - Statement 208",
+    "query": "insert into arr_tbl values ('{1,2,3}')"
+  },
+  {
+    "comment": "arrays - Statement 209",
+    "query": "insert into arr_tbl values ('{1,2}')"
+  },
+  {
+    "comment": "arrays - Statement 210",
+    "query": "insert into arr_tbl values ('{2,3,4}')"
+  },
+  {
+    "comment": "arrays - Statement 211",
+    "query": "insert into arr_tbl values ('{1,5,3}')"
+  },
+  {
+    "comment": "arrays - Statement 212",
+    "query": "insert into arr_tbl values ('{1,2,10}')"
+  },
+  {
+    "comment": "arrays - Statement 213",
+    "query": "set enable_seqscan to off"
+  },
+  {
+    "comment": "arrays - Statement 214",
+    "query": "set enable_bitmapscan to off"
+  },
+  {
+    "comment": "arrays - Statement 215",
+    "query": "select * from arr_tbl where f1 > '{1,2,3}' and f1 <= '{1,5,3}'"
+  },
+  {
+    "comment": "arrays - Statement 216",
+    "query": "select * from arr_tbl where f1 >= '{1,2,3}' and f1 < '{1,5,3}'"
+  },
+  {
+    "comment": "arrays - Statement 217",
+    "query": "create temp table arr_pk_tbl (pk int4 primary key, f1 int[])"
+  },
+  {
+    "comment": "arrays - Statement 218",
+    "query": "insert into arr_pk_tbl values (1, '{1,2,3}')"
+  },
+  {
+    "comment": "arrays - Statement 219",
+    "query": "insert into arr_pk_tbl values (1, '{3,4,5}') on conflict (pk) do update set f1[1] = excluded.f1[1], f1[3] = excluded.f1[3] returning pk, f1"
+  },
+  {
+    "comment": "arrays - Statement 220",
+    "query": "insert into arr_pk_tbl(pk, f1[1:2]) values (1, '{6,7,8}') on conflict (pk) do update set f1[1] = excluded.f1[1], f1[2] = excluded.f1[2], f1[3] = excluded.f1[3] returning pk, f1"
+  },
+  {
+    "comment": "arrays - Statement 221",
+    "query": "reset enable_seqscan"
+  },
+  {
+    "comment": "arrays - Statement 222",
+    "query": "reset enable_bitmapscan"
+  },
+  {
+    "comment": "arrays - Statement 223",
+    "query": "update arr_pk_tbl set f1[2147483647] = 42 where pk = 10"
+  },
+  {
+    "comment": "arrays - Statement 224",
+    "query": "update arr_pk_tbl set f1[2147483646:2147483647] = array[4,2] where pk = 10"
+  },
+  {
+    "comment": "arrays - Statement 225",
+    "query": "insert into arr_pk_tbl(pk, f1[0:2147483647]) values (2, '{}')"
+  },
+  {
+    "comment": "arrays - Statement 226",
+    "query": "insert into arr_pk_tbl(pk, f1[-2147483648:2147483647]) values (2, '{}')"
+  },
+  {
+    "comment": "arrays - Statement 227",
+    "query": "do $$ declare a int[]"
+  },
+  {
+    "comment": "arrays - Statement 228",
+    "query": "begin a := '[-2147483648:-2147483647]={1,2}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 229",
+    "query": "a[2147483647] := 42"
+  },
+  {
+    "comment": "arrays - Statement 230",
+    "query": "end $$"
+  },
+  {
+    "comment": "arrays - Statement 231",
+    "query": "select 'foo' like any (array['%a', '%b'])"
+  },
+  {
+    "comment": "arrays - Statement 232",
+    "query": "select 'foo' like all (array['f%', '%o'])"
+  },
+  {
+    "comment": "arrays - Statement 233",
+    "query": "select 'foo' like all (array['f%', '%b'])"
+  },
+  {
+    "comment": "arrays - Statement 234",
+    "query": "select 'foo' not like any (array['%a', '%b'])"
+  },
+  {
+    "comment": "arrays - Statement 235",
+    "query": "select 'foo' not like all (array['%a', '%o'])"
+  },
+  {
+    "comment": "arrays - Statement 236",
+    "query": "select 'foo' ilike any (array['%A', '%O'])"
+  },
+  {
+    "comment": "arrays - Statement 237",
+    "query": "select 'foo' ilike all (array['F%', '%O'])"
+  },
+  {
+    "comment": "arrays - Statement 238",
+    "query": "select '{{1,{2}},{2,3}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 239",
+    "query": "select E'{{1,2},\\\\{2,3}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 240",
+    "query": "select '{\"a\"b}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 241",
+    "query": "select '{a\"b\"}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 242",
+    "query": "select '{\"a\"\"b\"}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 243",
+    "query": "select '{{\"1 2\" x},{3}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 244",
+    "query": "select '{{\"1 2\"} x,{3}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 245",
+    "query": "select '{}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 246",
+    "query": "select '{ }}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 247",
+    "query": "select '}{'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 248",
+    "query": "select '{foo{}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 249",
+    "query": "select '{\"foo\"{}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 250",
+    "query": "select '{foo,,bar}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 251",
+    "query": "select '{{1},{{2}}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 252",
+    "query": "select '{{{1}},{2}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 253",
+    "query": "select '{{},{{}}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 254",
+    "query": "select '{{{}},{}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 255",
+    "query": "select '{{1},{}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 256",
+    "query": "select '{{},{1}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 257",
+    "query": "select '[1:0]={}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 258",
+    "query": "select '[2147483646:2147483647]={1,2}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 259",
+    "query": "select '[1:-1]={}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 260",
+    "query": "select '[2]={1}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 261",
+    "query": "select '[1:]={1}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 262",
+    "query": "select '[:1]={1}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 263",
+    "query": "select array[]"
+  },
+  {
+    "comment": "arrays - Statement 264",
+    "query": "select '{{1,},{1},}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 265",
+    "query": "select '{{1,},{1}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 266",
+    "query": "select '{{1,}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 267",
+    "query": "select '{1,}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 268",
+    "query": "select '[21474836488:21474836489]={1,2}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 269",
+    "query": "select '[-2147483649:-2147483648]={1,2}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 270",
+    "query": "select '{}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 271",
+    "query": "select '{{},{}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 272",
+    "query": "select '{{{1,2,3,4},{2,3,4,5}},{{3,4,5,6},{4,5,6,7}}}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 273",
+    "query": "select '{null,n\\ull,\"null\"}'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 274",
+    "query": "select '{ ab\\c , \"ab\\\"c\" }'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 275",
+    "query": "select '{0 second  ,0 second}'::interval[]"
+  },
+  {
+    "comment": "arrays - Statement 276",
+    "query": "select '{ { \",\" } , { 3 } }'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 277",
+    "query": "select '  {   {  \"  0 second  \"   ,  0 second  }   }'::text[]"
+  },
+  {
+    "comment": "arrays - Statement 278",
+    "query": "select '{ 0 second, @ 1 hour @ 42 minutes @ 20 seconds }'::interval[]"
+  },
+  {
+    "comment": "arrays - Statement 279",
+    "query": "select array[]::text[]"
+  },
+  {
+    "comment": "arrays - Statement 280",
+    "query": "select '[2]={1,7}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 281",
+    "query": "select '[0:1]={1.1,2.2}'::float8[]"
+  },
+  {
+    "comment": "arrays - Statement 282",
+    "query": "select '[2147483646:2147483646]={1}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 283",
+    "query": "select '[-2147483648:-2147483647]={1,2}'::int[]"
+  },
+  {
+    "comment": "arrays - Statement 284",
+    "query": "CREATE TEMP TABLE arraggtest ( f1 INT[], f2 TEXT[][], f3 FLOAT[])"
+  },
+  {
+    "comment": "arrays - Statement 285",
+    "query": "INSERT INTO arraggtest (f1, f2, f3) VALUES ('{1,2,3,4}','{{grey,red},{blue,blue}}','{1.6, 0.0}')"
+  },
+  {
+    "comment": "arrays - Statement 286",
+    "query": "INSERT INTO arraggtest (f1, f2, f3) VALUES ('{1,2,3}','{{grey,red},{grey,blue}}','{1.6}')"
+  },
+  {
+    "comment": "arrays - Statement 287",
+    "query": "SELECT max(f1), min(f1), max(f2), min(f2), max(f3), min(f3) FROM arraggtest"
+  },
+  {
+    "comment": "arrays - Statement 288",
+    "query": "INSERT INTO arraggtest (f1, f2, f3) VALUES ('{3,3,2,4,5,6}','{{white,yellow},{pink,orange}}','{2.1,3.3,1.8,1.7,1.6}')"
+  },
+  {
+    "comment": "arrays - Statement 289",
+    "query": "INSERT INTO arraggtest (f1, f2, f3) VALUES ('{2}','{{black,red},{green,orange}}','{1.6,2.2,2.6,0.4}')"
+  },
+  {
+    "comment": "arrays - Statement 290",
+    "query": "INSERT INTO arraggtest (f1, f2, f3) VALUES ('{4,2,6,7,8,1}','{{red},{black},{purple},{blue},{blue}}',NULL)"
+  },
+  {
+    "comment": "arrays - Statement 291",
+    "query": "INSERT INTO arraggtest (f1, f2, f3) VALUES ('{}','{{pink,white,blue,red,grey,orange}}','{2.1,1.87,1.4,2.2}')"
+  },
+  {
+    "comment": "arrays - Statement 292",
+    "query": "create type comptype as (f1 int, f2 text)"
+  },
+  {
+    "comment": "arrays - Statement 293",
+    "query": "create table comptable (c1 comptype, c2 comptype[])"
+  },
+  {
+    "comment": "arrays - Statement 294",
+    "query": "insert into comptable values (row(1,'foo'), array[row(2,'bar')::comptype, row(3,'baz')::comptype])"
+  },
+  {
+    "comment": "arrays - Statement 295",
+    "query": "create type _comptype as enum('fooey')"
+  },
+  {
+    "comment": "arrays - Statement 296",
+    "query": "select * from comptable"
+  },
+  {
+    "comment": "arrays - Statement 297",
+    "query": "select c2[2].f2 from comptable"
+  },
+  {
+    "comment": "arrays - Statement 298",
+    "query": "drop type _comptype"
+  },
+  {
+    "comment": "arrays - Statement 299",
+    "query": "drop table comptable"
+  },
+  {
+    "comment": "arrays - Statement 300",
+    "query": "drop type comptype"
+  },
+  {
+    "comment": "arrays - Statement 301",
+    "query": "create or replace function unnest1(anyarray) returns setof anyelement as $$ select $1[s] from generate_subscripts($1,1) g(s)"
+  },
+  {
+    "comment": "arrays - Statement 302",
+    "query": "$$ language sql immutable"
+  },
+  {
+    "comment": "arrays - Statement 303",
+    "query": "create or replace function unnest2(anyarray) returns setof anyelement as $$ select $1[s1][s2] from generate_subscripts($1,1) g1(s1), generate_subscripts($1,2) g2(s2)"
+  },
+  {
+    "comment": "arrays - Statement 304",
+    "query": "select * from unnest1(array[1,2,3])"
+  },
+  {
+    "comment": "arrays - Statement 305",
+    "query": "select * from unnest2(array[[1,2,3],[4,5,6]])"
+  },
+  {
+    "comment": "arrays - Statement 306",
+    "query": "drop function unnest1(anyarray)"
+  },
+  {
+    "comment": "arrays - Statement 307",
+    "query": "drop function unnest2(anyarray)"
+  },
+  {
+    "comment": "arrays - Statement 308",
+    "query": "select array_fill(null::integer, array[3,3],array[2,2])"
+  },
+  {
+    "comment": "arrays - Statement 309",
+    "query": "select array_fill(null::integer, array[3,3])"
+  },
+  {
+    "comment": "arrays - Statement 310",
+    "query": "select array_fill(null::text, array[3,3],array[2,2])"
+  },
+  {
+    "comment": "arrays - Statement 311",
+    "query": "select array_fill(null::text, array[3,3])"
+  },
+  {
+    "comment": "arrays - Statement 312",
+    "query": "select array_fill(7, array[3,3],array[2,2])"
+  },
+  {
+    "comment": "arrays - Statement 313",
+    "query": "select array_fill(7, array[3,3])"
+  },
+  {
+    "comment": "arrays - Statement 314",
+    "query": "select array_fill('juhu'::text, array[3,3],array[2,2])"
+  },
+  {
+    "comment": "arrays - Statement 315",
+    "query": "select array_fill('juhu'::text, array[3,3])"
+  },
+  {
+    "comment": "arrays - Statement 316",
+    "query": "select a, a = '{}' as is_eq, array_dims(a) from (select array_fill(42, array[0]) as a) ss"
+  },
+  {
+    "comment": "arrays - Statement 317",
+    "query": "select a, a = '{}' as is_eq, array_dims(a) from (select array_fill(42, '{}') as a) ss"
+  },
+  {
+    "comment": "arrays - Statement 318",
+    "query": "select a, a = '{}' as is_eq, array_dims(a) from (select array_fill(42, '{}', '{}') as a) ss"
+  },
+  {
+    "comment": "arrays - Statement 319",
+    "query": "select array_fill(1, null, array[2,2])"
+  },
+  {
+    "comment": "arrays - Statement 320",
+    "query": "select array_fill(1, array[2,2], null)"
+  },
+  {
+    "comment": "arrays - Statement 321",
+    "query": "select array_fill(1, array[2,2], '{}')"
+  },
+  {
+    "comment": "arrays - Statement 322",
+    "query": "select array_fill(1, array[3,3], array[1,1,1])"
+  },
+  {
+    "comment": "arrays - Statement 323",
+    "query": "select array_fill(1, array[1,2,null])"
+  },
+  {
+    "comment": "arrays - Statement 324",
+    "query": "select array_fill(1, array[[1,2],[3,4]])"
+  },
+  {
+    "comment": "arrays - Statement 325",
+    "query": "select string_to_array('1|2|3', '|')"
+  },
+  {
+    "comment": "arrays - Statement 326",
+    "query": "select string_to_array('1|2|3|', '|')"
+  },
+  {
+    "comment": "arrays - Statement 327",
+    "query": "select string_to_array('1||2|3||', '||')"
+  },
+  {
+    "comment": "arrays - Statement 328",
+    "query": "select string_to_array('1|2|3', '')"
+  },
+  {
+    "comment": "arrays - Statement 329",
+    "query": "select string_to_array('', '|')"
+  },
+  {
+    "comment": "arrays - Statement 330",
+    "query": "select string_to_array('1|2|3', NULL)"
+  },
+  {
+    "comment": "arrays - Statement 331",
+    "query": "select string_to_array(NULL, '|') IS NULL"
+  },
+  {
+    "comment": "arrays - Statement 332",
+    "query": "select string_to_array('abc', '')"
+  },
+  {
+    "comment": "arrays - Statement 333",
+    "query": "select string_to_array('abc', '', 'abc')"
+  },
+  {
+    "comment": "arrays - Statement 334",
+    "query": "select string_to_array('abc', ',')"
+  },
+  {
+    "comment": "arrays - Statement 335",
+    "query": "select string_to_array('abc', ',', 'abc')"
+  },
+  {
+    "comment": "arrays - Statement 336",
+    "query": "select string_to_array('1,2,3,4,,6', ',')"
+  },
+  {
+    "comment": "arrays - Statement 337",
+    "query": "select string_to_array('1,2,3,4,,6', ',', '')"
+  },
+  {
+    "comment": "arrays - Statement 338",
+    "query": "select string_to_array('1,2,3,4,*,6', ',', '*')"
+  },
+  {
+    "comment": "arrays - Statement 339",
+    "query": "select v, v is null as \"is null\" from string_to_table('1|2|3', '|') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 340",
+    "query": "select v, v is null as \"is null\" from string_to_table('1|2|3|', '|') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 341",
+    "query": "select v, v is null as \"is null\" from string_to_table('1||2|3||', '||') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 342",
+    "query": "select v, v is null as \"is null\" from string_to_table('1|2|3', '') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 343",
+    "query": "select v, v is null as \"is null\" from string_to_table('', '|') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 344",
+    "query": "select v, v is null as \"is null\" from string_to_table('1|2|3', NULL) g(v)"
+  },
+  {
+    "comment": "arrays - Statement 345",
+    "query": "select v, v is null as \"is null\" from string_to_table(NULL, '|') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 346",
+    "query": "select v, v is null as \"is null\" from string_to_table('abc', '') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 347",
+    "query": "select v, v is null as \"is null\" from string_to_table('abc', '', 'abc') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 348",
+    "query": "select v, v is null as \"is null\" from string_to_table('abc', ',') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 349",
+    "query": "select v, v is null as \"is null\" from string_to_table('abc', ',', 'abc') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 350",
+    "query": "select v, v is null as \"is null\" from string_to_table('1,2,3,4,,6', ',') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 351",
+    "query": "select v, v is null as \"is null\" from string_to_table('1,2,3,4,,6', ',', '') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 352",
+    "query": "select v, v is null as \"is null\" from string_to_table('1,2,3,4,*,6', ',', '*') g(v)"
+  },
+  {
+    "comment": "arrays - Statement 353",
+    "query": "select array_to_string(NULL::int4[], ',') IS NULL"
+  },
+  {
+    "comment": "arrays - Statement 354",
+    "query": "select array_to_string('{}'::int4[], ',')"
+  },
+  {
+    "comment": "arrays - Statement 355",
+    "query": "select array_to_string(array[1,2,3,4,NULL,6], ',')"
+  },
+  {
+    "comment": "arrays - Statement 356",
+    "query": "select array_to_string(array[1,2,3,4,NULL,6], ',', '*')"
+  },
+  {
+    "comment": "arrays - Statement 357",
+    "query": "select array_to_string(array[1,2,3,4,NULL,6], NULL)"
+  },
+  {
+    "comment": "arrays - Statement 358",
+    "query": "select array_to_string(array[1,2,3,4,NULL,6], ',', NULL)"
+  },
+  {
+    "comment": "arrays - Statement 359",
+    "query": "select array_to_string(string_to_array('1|2|3', '|'), '|')"
+  },
+  {
+    "comment": "arrays - Statement 360",
+    "query": "select array_length(array[1,2,3], 1)"
+  },
+  {
+    "comment": "arrays - Statement 361",
+    "query": "select array_length(array[[1,2,3], [4,5,6]], 0)"
+  },
+  {
+    "comment": "arrays - Statement 362",
+    "query": "select array_length(array[[1,2,3], [4,5,6]], 1)"
+  },
+  {
+    "comment": "arrays - Statement 363",
+    "query": "select array_length(array[[1,2,3], [4,5,6]], 2)"
+  },
+  {
+    "comment": "arrays - Statement 364",
+    "query": "select array_length(array[[1,2,3], [4,5,6]], 3)"
+  },
+  {
+    "comment": "arrays - Statement 365",
+    "query": "select cardinality(NULL::int[])"
+  },
+  {
+    "comment": "arrays - Statement 366",
+    "query": "select cardinality('{}'::int[])"
+  },
+  {
+    "comment": "arrays - Statement 367",
+    "query": "select cardinality(array[1,2,3])"
+  },
+  {
+    "comment": "arrays - Statement 368",
+    "query": "select cardinality('[2:4]={5,6,7}'::int[])"
+  },
+  {
+    "comment": "arrays - Statement 369",
+    "query": "select cardinality('{{1,2}}'::int[])"
+  },
+  {
+    "comment": "arrays - Statement 370",
+    "query": "select cardinality('{{1,2},{3,4},{5,6}}'::int[])"
+  },
+  {
+    "comment": "arrays - Statement 371",
+    "query": "select cardinality('{{{1,9},{5,6}},{{2,3},{3,4}}}'::int[])"
+  },
+  {
+    "comment": "arrays - Statement 372",
+    "query": "select array_agg(unique1) from (select unique1 from tenk1 where unique1 < 15 order by unique1) ss"
+  },
+  {
+    "comment": "arrays - Statement 373",
+    "query": "select array_agg(ten) from (select ten from tenk1 where unique1 < 15 order by unique1) ss"
+  },
+  {
+    "comment": "arrays - Statement 374",
+    "query": "select array_agg(nullif(ten, 4)) from (select ten from tenk1 where unique1 < 15 order by unique1) ss"
+  },
+  {
+    "comment": "arrays - Statement 375",
+    "query": "select array_agg(unique1) from tenk1 where unique1 < -15"
+  },
+  {
+    "comment": "arrays - Statement 376",
+    "query": "select array_agg(ar) from (values ('{1,2}'::int[]), ('{3,4}'::int[])) v(ar)"
+  },
+  {
+    "comment": "arrays - Statement 377",
+    "query": "select array_agg(distinct ar order by ar desc) from (select array[i / 2] from generate_series(1,10) a(i)) b(ar)"
+  },
+  {
+    "comment": "arrays - Statement 378",
+    "query": "select array_agg(ar) from (select array_agg(array[i, i+1, i-1]) from generate_series(1,2) a(i)) b(ar)"
+  },
+  {
+    "comment": "arrays - Statement 379",
+    "query": "select array_agg(array[i+1.2, i+1.3, i+1.4]) from generate_series(1,3) g(i)"
+  },
+  {
+    "comment": "arrays - Statement 380",
+    "query": "select array_agg(array['Hello', i::text]) from generate_series(9,11) g(i)"
+  },
+  {
+    "comment": "arrays - Statement 381",
+    "query": "select array_agg(array[i, nullif(i, 3), i+1]) from generate_series(1,4) g(i)"
+  },
+  {
+    "comment": "arrays - Statement 382",
+    "query": "select array_agg('{}'::int[]) from generate_series(1,2)"
+  },
+  {
+    "comment": "arrays - Statement 383",
+    "query": "select array_agg(null::int[]) from generate_series(1,2)"
+  },
+  {
+    "comment": "arrays - Statement 384",
+    "query": "select array_agg(ar) from (values ('{1,2}'::int[]), ('{3}'::int[])) v(ar)"
+  },
+  {
+    "comment": "arrays - Statement 385",
+    "query": "select unnest(array[1,2,3])"
+  },
+  {
+    "comment": "arrays - Statement 386",
+    "query": "select * from unnest(array[1,2,3])"
+  },
+  {
+    "comment": "arrays - Statement 387",
+    "query": "select unnest(array[1,2,3,4.5]::float8[])"
+  },
+  {
+    "comment": "arrays - Statement 388",
+    "query": "select unnest(array[1,2,3,4.5]::numeric[])"
+  },
+  {
+    "comment": "arrays - Statement 389",
+    "query": "select unnest(array[1,2,3,null,4,null,null,5,6])"
+  },
+  {
+    "comment": "arrays - Statement 390",
+    "query": "select unnest(array[1,2,3,null,4,null,null,5,6]::text[])"
+  },
+  {
+    "comment": "arrays - Statement 391",
+    "query": "select abs(unnest(array[1,2,null,-3]))"
+  },
+  {
+    "comment": "arrays - Statement 392",
+    "query": "select array_remove(array[1,2,2,3], 2)"
+  },
+  {
+    "comment": "arrays - Statement 393",
+    "query": "select array_remove(array[1,2,2,3], 5)"
+  },
+  {
+    "comment": "arrays - Statement 394",
+    "query": "select array_remove(array[1,NULL,NULL,3], NULL)"
+  },
+  {
+    "comment": "arrays - Statement 395",
+    "query": "select array_remove(array['A','CC','D','C','RR'], 'RR')"
+  },
+  {
+    "comment": "arrays - Statement 396",
+    "query": "select array_remove(array[1.0, 2.1, 3.3], 1)"
+  },
+  {
+    "comment": "arrays - Statement 397",
+    "query": "select array_remove('{{1,2,2},{1,4,3}}', 2)"
+  },
+  {
+    "comment": "arrays - Statement 398",
+    "query": "select array_remove(array['X','X','X'], 'X') = '{}'"
+  },
+  {
+    "comment": "arrays - Statement 399",
+    "query": "select array_replace(array[1,2,5,4],5,3)"
+  },
+  {
+    "comment": "arrays - Statement 400",
+    "query": "select array_replace(array[1,2,5,4],5,NULL)"
+  },
+  {
+    "comment": "arrays - Statement 401",
+    "query": "select array_replace(array[1,2,NULL,4,NULL],NULL,5)"
+  },
+  {
+    "comment": "arrays - Statement 402",
+    "query": "select array_replace(array['A','B','DD','B'],'B','CC')"
+  },
+  {
+    "comment": "arrays - Statement 403",
+    "query": "select array_replace(array[1,NULL,3],NULL,NULL)"
+  },
+  {
+    "comment": "arrays - Statement 404",
+    "query": "select array_replace(array['AB',NULL,'CDE'],NULL,'12')"
+  },
+  {
+    "comment": "arrays - Statement 405",
+    "query": "select array(select array[i,i/2] from generate_series(1,5) i)"
+  },
+  {
+    "comment": "arrays - Statement 406",
+    "query": "select array(select array['Hello', i::text] from generate_series(9,11) i)"
+  },
+  {
+    "comment": "arrays - Statement 407",
+    "query": "select pg_typeof(array(select '11 22 33'::int2vector from generate_series(1,5)))"
+  },
+  {
+    "comment": "arrays - Statement 408",
+    "query": "select array(select '11 22 33'::int2vector from generate_series(1,5))"
+  },
+  {
+    "comment": "arrays - Statement 409",
+    "query": "select unnest(array(select '11 22 33'::int2vector from generate_series(1,5)))"
+  },
+  {
+    "comment": "arrays - Statement 410",
+    "query": "select pg_typeof(array(select '11 22 33'::oidvector from generate_series(1,5)))"
+  },
+  {
+    "comment": "arrays - Statement 411",
+    "query": "select array(select '11 22 33'::oidvector from generate_series(1,5))"
+  },
+  {
+    "comment": "arrays - Statement 412",
+    "query": "select unnest(array(select '11 22 33'::oidvector from generate_series(1,5)))"
+  },
+  {
+    "comment": "arrays - Statement 413",
+    "query": "select pg_typeof(array['11 22 33'::int2vector])"
+  },
+  {
+    "comment": "arrays - Statement 414",
+    "query": "select array['11 22 33'::int2vector]"
+  },
+  {
+    "comment": "arrays - Statement 415",
+    "query": "select pg_typeof(unnest(array['11 22 33'::int2vector]))"
+  },
+  {
+    "comment": "arrays - Statement 416",
+    "query": "select unnest(array['11 22 33'::int2vector])"
+  },
+  {
+    "comment": "arrays - Statement 417",
+    "query": "select pg_typeof(unnest('11 22 33'::int2vector))"
+  },
+  {
+    "comment": "arrays - Statement 418",
+    "query": "select unnest('11 22 33'::int2vector)"
+  },
+  {
+    "comment": "arrays - Statement 419",
+    "query": "select pg_typeof(array['11 22 33'::oidvector])"
+  },
+  {
+    "comment": "arrays - Statement 420",
+    "query": "select array['11 22 33'::oidvector]"
+  },
+  {
+    "comment": "arrays - Statement 421",
+    "query": "select pg_typeof(unnest(array['11 22 33'::oidvector]))"
+  },
+  {
+    "comment": "arrays - Statement 422",
+    "query": "select unnest(array['11 22 33'::oidvector])"
+  },
+  {
+    "comment": "arrays - Statement 423",
+    "query": "select pg_typeof(unnest('11 22 33'::oidvector))"
+  },
+  {
+    "comment": "arrays - Statement 424",
+    "query": "select unnest('11 22 33'::oidvector)"
+  },
+  {
+    "comment": "arrays - Statement 425",
+    "query": "create temp table t1 (f1 int8_tbl[])"
+  },
+  {
+    "comment": "arrays - Statement 426",
+    "query": "insert into t1 (f1[5].q1) values(42)"
+  },
+  {
+    "comment": "arrays - Statement 427",
+    "query": "select * from t1"
+  },
+  {
+    "comment": "arrays - Statement 428",
+    "query": "update t1 set f1[5].q2 = 43"
+  },
+  {
+    "comment": "arrays - Statement 429",
+    "query": "create temp table src (f1 text)"
+  },
+  {
+    "comment": "arrays - Statement 430",
+    "query": "insert into src select string_agg(random()::text,'') from generate_series(1,10000)"
+  },
+  {
+    "comment": "arrays - Statement 431",
+    "query": "create type textandtext as (c1 text, c2 text)"
+  },
+  {
+    "comment": "arrays - Statement 432",
+    "query": "create temp table dest (f1 textandtext[])"
+  },
+  {
+    "comment": "arrays - Statement 433",
+    "query": "insert into dest select array[row(f1,f1)::textandtext] from src"
+  },
+  {
+    "comment": "arrays - Statement 434",
+    "query": "select length(fipshash((f1[1]).c2)) from dest"
+  },
+  {
+    "comment": "arrays - Statement 435",
+    "query": "delete from src"
+  },
+  {
+    "comment": "arrays - Statement 436",
+    "query": "truncate table src"
+  },
+  {
+    "comment": "arrays - Statement 437",
+    "query": "drop table src"
+  },
+  {
+    "comment": "arrays - Statement 438",
+    "query": "drop table dest"
+  },
+  {
+    "comment": "arrays - Statement 439",
+    "query": "drop type textandtext"
+  },
+  {
+    "comment": "arrays - Statement 440",
+    "query": "SELECT op, width_bucket(op::numeric, ARRAY[1, 3, 5, 10.0]::numeric[]) AS wb_n1, width_bucket(op::numeric, ARRAY[0, 5.5, 9.99]::numeric[]) AS wb_n2, width_bucket(op::numeric, ARRAY[-6, -5, 2.0]::numeric[]) AS wb_n3, width_bucket(op::float8, ARRAY[1, 3, 5, 10.0]::float8[]) AS wb_f1, width_bucket(op::float8, ARRAY[0, 5.5, 9.99]::float8[]) AS wb_f2, width_bucket(op::float8, ARRAY[-6, -5, 2.0]::float8[]) AS wb_f3 FROM (VALUES (-5.2), (-0.0000000001), (0.000000000001), (1), (1.99999999999999), (2), (2.00000000000001), (3), (4), (4.5), (5), (5.5), (6), (7), (8), (9), (9.99999999999999), (10), (10.0000000000001) ) v(op)"
+  },
+  {
+    "comment": "arrays - Statement 441",
+    "query": "SELECT op, width_bucket(op, ARRAY[1, 3, 9, 'NaN', 'NaN']::float8[]) AS wb FROM (VALUES (-5.2::float8), (4::float8), (77::float8), ('NaN'::float8) ) v(op)"
+  },
+  {
+    "comment": "arrays - Statement 442",
+    "query": "SELECT op, width_bucket(op, ARRAY[1, 3, 5, 10]) AS wb_1 FROM generate_series(0,11) as op"
+  },
+  {
+    "comment": "arrays - Statement 443",
+    "query": "SELECT width_bucket(now(), array['yesterday', 'today', 'tomorrow']::timestamptz[])"
+  },
+  {
+    "comment": "arrays - Statement 444",
+    "query": "SELECT width_bucket(5, ARRAY[3])"
+  },
+  {
+    "comment": "arrays - Statement 445",
+    "query": "SELECT width_bucket(5, '{}')"
+  },
+  {
+    "comment": "arrays - Statement 446",
+    "query": "SELECT width_bucket('5'::text, ARRAY[3, 4]::integer[])"
+  },
+  {
+    "comment": "arrays - Statement 447",
+    "query": "SELECT width_bucket(5, ARRAY[3, 4, NULL])"
+  },
+  {
+    "comment": "arrays - Statement 448",
+    "query": "SELECT width_bucket(5, ARRAY[ARRAY[1, 2], ARRAY[3, 4]])"
+  },
+  {
+    "comment": "arrays - Statement 449",
+    "query": "SELECT arr, trim_array(arr, 2) FROM (VALUES ('{1,2,3,4,5,6}'::bigint[]), ('{1,2}'), ('[10:16]={1,2,3,4,5,6,7}'), ('[-15:-10]={1,2,3,4,5,6}'), ('{{1,10},{2,20},{3,30},{4,40}}')) v(arr)"
+  },
+  {
+    "comment": "arrays - Statement 450",
+    "query": "SELECT trim_array(ARRAY[1, 2, 3], -1)"
+  },
+  {
+    "comment": "arrays - Statement 451",
+    "query": "SELECT trim_array(ARRAY[1, 2, 3], 10)"
+  },
+  {
+    "comment": "arrays - Statement 452",
+    "query": "SELECT trim_array(ARRAY[]::int[], 1)"
+  },
+  {
+    "comment": "arrays - Statement 453",
+    "query": "SELECT array_shuffle('{1,2,3,4,5,6}'::int[]) <@ '{1,2,3,4,5,6}'"
+  },
+  {
+    "comment": "arrays - Statement 454",
+    "query": "SELECT array_shuffle('{1,2,3,4,5,6}'::int[]) @> '{1,2,3,4,5,6}'"
+  },
+  {
+    "comment": "arrays - Statement 455",
+    "query": "SELECT array_dims(array_shuffle('[-1:2][2:3]={{1,2},{3,NULL},{5,6},{7,8}}'::int[]))"
+  },
+  {
+    "comment": "arrays - Statement 456",
+    "query": "SELECT array_dims(array_shuffle('{{{1,2},{3,NULL}},{{5,6},{7,8}},{{9,10},{11,12}}}'::int[]))"
+  },
+  {
+    "comment": "arrays - Statement 457",
+    "query": "SELECT array_sample('{1,2,3,4,5,6}'::int[], 3) <@ '{1,2,3,4,5,6}'"
+  },
+  {
+    "comment": "arrays - Statement 458",
+    "query": "SELECT array_length(array_sample('{1,2,3,4,5,6}'::int[], 3), 1)"
+  },
+  {
+    "comment": "arrays - Statement 459",
+    "query": "SELECT array_dims(array_sample('[-1:2][2:3]={{1,2},{3,NULL},{5,6},{7,8}}'::int[], 3))"
+  },
+  {
+    "comment": "arrays - Statement 460",
+    "query": "SELECT array_dims(array_sample('{{{1,2},{3,NULL}},{{5,6},{7,8}},{{9,10},{11,12}}}'::int[], 2))"
+  },
+  {
+    "comment": "arrays - Statement 461",
+    "query": "SELECT array_sample('{1,2,3,4,5,6}'::int[], -1)"
+  },
+  {
+    "comment": "arrays - Statement 462",
+    "query": "SELECT array_sample('{1,2,3,4,5,6}'::int[], 7)"
+  }
+]

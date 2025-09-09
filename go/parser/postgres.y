@@ -5271,8 +5271,9 @@ TableFuncElement:
 			ColId Typename opt_collate_clause
 			{
 				columnDef := ast.NewColumnDef($1, $2, 0)
-				// Note: opt_collate_clause support can be added when needed
-				// PostgreSQL sets: n->collClause = (CollateClause *) $3;
+				if collClause, ok := $3.(*ast.CollateClause); ok {
+					columnDef.Collclause = collClause
+				}
 				$$ = columnDef
 			}
 		;
@@ -8124,7 +8125,9 @@ alter_table_cmd:
 				{
 					cmd := ast.NewAlterTableCmd(ast.AT_AlterColumnType, $3, nil)
 					def := ast.NewColumnDef("", $6, 0)
-					def.Collclause = $7.(*ast.CollateClause)
+					if collClause, ok := $7.(*ast.CollateClause); ok {
+						def.Collclause = collClause
+					}
 					def.RawDefault = $8
 					cmd.Def = def
 					$$ = cmd
@@ -10264,9 +10267,14 @@ func_type:
 					// Handle %TYPE reference
 					list := ast.NewNodeList()
 					list.Append(ast.NewString($1))
+					// Add attrs to the names list
+					for _, attr := range $2.Items {
+						list.Append(attr)
+					}
 					$$ = &ast.TypeName{
+						BaseNode: ast.BaseNode{Tag: ast.T_TypeName},
 						Names: list,
-						// TODO: Add %TYPE indicator
+						PctType: true,
 					}
 				}
 		|	SETOF type_function_name attrs '%' TYPE_P
@@ -10274,9 +10282,15 @@ func_type:
 					// Handle SETOF %TYPE reference
 					list := ast.NewNodeList()
 					list.Append(ast.NewString($2))
+					// Add attrs to the names list
+					for _, attr := range $3.Items {
+						list.Append(attr)
+					}
 					$$ = &ast.TypeName{
+						BaseNode: ast.BaseNode{Tag: ast.T_TypeName},
 						Names: list,
 						Setof: true,
+						PctType: true,
 					}
 				}
 		;
@@ -10379,9 +10393,7 @@ opt_routine_body:
 ReturnStmt:
 		RETURN a_expr
 			{
-				$$ = &ast.ReturnStmt{
-					ReturnVal: $2,
-				}
+				$$ = ast.NewReturnStmt($2)
 			}
 		;
 

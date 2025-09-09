@@ -1,0 +1,202 @@
+[
+  {
+    "comment": "alter_operator - Statement 1",
+    "query": "CREATE FUNCTION alter_op_test_fn(boolean, boolean) RETURNS boolean AS $$ SELECT NULL::BOOLEAN; $$ LANGUAGE sql IMMUTABLE"
+  },
+  {
+    "comment": "alter_operator - Statement 2",
+    "query": "CREATE FUNCTION customcontsel(internal, oid, internal, integer) RETURNS float8 AS 'contsel' LANGUAGE internal STABLE STRICT"
+  },
+  {
+    "comment": "alter_operator - Statement 3",
+    "query": "CREATE OPERATOR === ( LEFTARG = boolean, RIGHTARG = boolean, PROCEDURE = alter_op_test_fn, COMMUTATOR = ===, NEGATOR = !==, RESTRICT = customcontsel, JOIN = contjoinsel, HASHES, MERGES )"
+  },
+  {
+    "comment": "alter_operator - Statement 4",
+    "query": "SELECT pg_describe_object(refclassid,refobjid,refobjsubid) as ref, deptype FROM pg_depend WHERE classid = 'pg_operator'::regclass AND objid = '===(bool,bool)'::regoperator ORDER BY 1"
+  },
+  {
+    "comment": "alter_operator - Statement 5",
+    "query": "ALTER OPERATOR === (boolean, boolean) SET (RESTRICT = NONE)"
+  },
+  {
+    "comment": "alter_operator - Statement 6",
+    "query": "ALTER OPERATOR === (boolean, boolean) SET (JOIN = NONE)"
+  },
+  {
+    "comment": "alter_operator - Statement 7",
+    "query": "SELECT oprrest, oprjoin FROM pg_operator WHERE oprname = '===' AND oprleft = 'boolean'::regtype AND oprright = 'boolean'::regtype"
+  },
+  {
+    "comment": "alter_operator - Statement 8",
+    "query": "ALTER OPERATOR === (boolean, boolean) SET (RESTRICT = contsel)"
+  },
+  {
+    "comment": "alter_operator - Statement 9",
+    "query": "ALTER OPERATOR === (boolean, boolean) SET (JOIN = contjoinsel)"
+  },
+  {
+    "comment": "alter_operator - Statement 10",
+    "query": "ALTER OPERATOR === (boolean, boolean) SET (RESTRICT = NONE, JOIN = NONE)"
+  },
+  {
+    "comment": "alter_operator - Statement 11",
+    "query": "ALTER OPERATOR === (boolean, boolean) SET (RESTRICT = customcontsel, JOIN = contjoinsel)"
+  },
+  {
+    "comment": "alter_operator - Statement 12",
+    "query": "ALTER OPERATOR === (boolean, boolean) SET (RESTRICT = non_existent_func)"
+  },
+  {
+    "comment": "alter_operator - Statement 13",
+    "query": "ALTER OPERATOR === (boolean, boolean) SET (JOIN = non_existent_func)"
+  },
+  {
+    "comment": "alter_operator - Statement 14",
+    "query": "ALTER OPERATOR & (bit, bit) SET (\"Restrict\" = _int_contsel, \"Join\" = _int_contjoinsel)"
+  },
+  {
+    "comment": "alter_operator - Statement 15",
+    "query": "CREATE USER regress_alter_op_user"
+  },
+  {
+    "comment": "alter_operator - Statement 16",
+    "query": "SET SESSION AUTHORIZATION regress_alter_op_user"
+  },
+  {
+    "comment": "alter_operator - Statement 17",
+    "query": "RESET SESSION AUTHORIZATION"
+  },
+  {
+    "comment": "alter_operator - Statement 18",
+    "query": "CREATE FUNCTION alter_op_test_fn_bool_real(boolean, real) RETURNS boolean AS $$ SELECT NULL::BOOLEAN; $$ LANGUAGE sql IMMUTABLE"
+  },
+  {
+    "comment": "alter_operator - Statement 19",
+    "query": "CREATE FUNCTION alter_op_test_fn_real_bool(real, boolean) RETURNS boolean AS $$ SELECT NULL::BOOLEAN; $$ LANGUAGE sql IMMUTABLE"
+  },
+  {
+    "comment": "alter_operator - Statement 20",
+    "query": "CREATE OPERATOR === ( LEFTARG = boolean, RIGHTARG = real, PROCEDURE = alter_op_test_fn_bool_real )"
+  },
+  {
+    "comment": "alter_operator - Statement 21",
+    "query": "CREATE OPERATOR ==== ( LEFTARG = real, RIGHTARG = boolean, PROCEDURE = alter_op_test_fn_real_bool )"
+  },
+  {
+    "comment": "alter_operator - Statement 22",
+    "query": "CREATE OPERATOR !==== ( LEFTARG = boolean, RIGHTARG = real, PROCEDURE = alter_op_test_fn_bool_real )"
+  },
+  {
+    "comment": "alter_operator - Statement 23",
+    "query": "ALTER OPERATOR === (boolean, real) SET (MERGES = false)"
+  },
+  {
+    "comment": "alter_operator - Statement 24",
+    "query": "ALTER OPERATOR === (boolean, real) SET (HASHES = false)"
+  },
+  {
+    "comment": "alter_operator - Statement 25",
+    "query": "ALTER OPERATOR === (boolean, real) SET (MERGES)"
+  },
+  {
+    "comment": "alter_operator - Statement 26",
+    "query": "ALTER OPERATOR === (boolean, real) SET (HASHES)"
+  },
+  {
+    "comment": "alter_operator - Statement 27",
+    "query": "SELECT oprcanmerge, oprcanhash FROM pg_operator WHERE oprname = '===' AND oprleft = 'boolean'::regtype AND oprright = 'real'::regtype"
+  },
+  {
+    "comment": "alter_operator - Statement 28",
+    "query": "ALTER OPERATOR === (boolean, real) SET (COMMUTATOR = ====)"
+  },
+  {
+    "comment": "alter_operator - Statement 29",
+    "query": "SELECT op.oprname AS operator_name, com.oprname AS commutator_name, com.oprcode AS commutator_func FROM pg_operator op INNER JOIN pg_operator com ON (op.oid = com.oprcom AND op.oprcom = com.oid) WHERE op.oprname = '===' AND op.oprleft = 'boolean'::regtype AND op.oprright = 'real'::regtype"
+  },
+  {
+    "comment": "alter_operator - Statement 30",
+    "query": "ALTER OPERATOR === (boolean, real) SET (NEGATOR = ===)"
+  },
+  {
+    "comment": "alter_operator - Statement 31",
+    "query": "ALTER OPERATOR === (boolean, real) SET (NEGATOR = !====)"
+  },
+  {
+    "comment": "alter_operator - Statement 32",
+    "query": "SELECT op.oprname AS operator_name, neg.oprname AS negator_name, neg.oprcode AS negator_func FROM pg_operator op INNER JOIN pg_operator neg ON (op.oid = neg.oprnegate AND op.oprnegate = neg.oid) WHERE op.oprname = '===' AND op.oprleft = 'boolean'::regtype AND op.oprright = 'real'::regtype"
+  },
+  {
+    "comment": "alter_operator - Statement 33",
+    "query": "SELECT oprcanmerge, oprcanhash, pg_describe_object('pg_operator'::regclass, oprcom, 0) AS commutator, pg_describe_object('pg_operator'::regclass, oprnegate, 0) AS negator FROM pg_operator WHERE oprname = '===' AND oprleft = 'boolean'::regtype AND oprright = 'real'::regtype"
+  },
+  {
+    "comment": "alter_operator - Statement 34",
+    "query": "CREATE OPERATOR @= ( LEFTARG = real, RIGHTARG = boolean, PROCEDURE = alter_op_test_fn_real_bool )"
+  },
+  {
+    "comment": "alter_operator - Statement 35",
+    "query": "CREATE OPERATOR @!= ( LEFTARG = boolean, RIGHTARG = real, PROCEDURE = alter_op_test_fn_bool_real )"
+  },
+  {
+    "comment": "alter_operator - Statement 36",
+    "query": "ALTER OPERATOR === (boolean, real) SET (COMMUTATOR = @=)"
+  },
+  {
+    "comment": "alter_operator - Statement 37",
+    "query": "ALTER OPERATOR === (boolean, real) SET (NEGATOR = @!=)"
+  },
+  {
+    "comment": "alter_operator - Statement 38",
+    "query": "ALTER OPERATOR @=(real, boolean) SET (COMMUTATOR = ===)"
+  },
+  {
+    "comment": "alter_operator - Statement 39",
+    "query": "ALTER OPERATOR @!=(boolean, real) SET (NEGATOR = ===)"
+  },
+  {
+    "comment": "alter_operator - Statement 40",
+    "query": "DROP USER regress_alter_op_user"
+  },
+  {
+    "comment": "alter_operator - Statement 41",
+    "query": "DROP OPERATOR === (boolean, boolean)"
+  },
+  {
+    "comment": "alter_operator - Statement 42",
+    "query": "DROP OPERATOR === (boolean, real)"
+  },
+  {
+    "comment": "alter_operator - Statement 43",
+    "query": "DROP OPERATOR ==== (real, boolean)"
+  },
+  {
+    "comment": "alter_operator - Statement 44",
+    "query": "DROP OPERATOR !==== (boolean, real)"
+  },
+  {
+    "comment": "alter_operator - Statement 45",
+    "query": "DROP OPERATOR @= (real, boolean)"
+  },
+  {
+    "comment": "alter_operator - Statement 46",
+    "query": "DROP OPERATOR @!= (boolean, real)"
+  },
+  {
+    "comment": "alter_operator - Statement 47",
+    "query": "DROP FUNCTION customcontsel(internal, oid, internal, integer)"
+  },
+  {
+    "comment": "alter_operator - Statement 48",
+    "query": "DROP FUNCTION alter_op_test_fn(boolean, boolean)"
+  },
+  {
+    "comment": "alter_operator - Statement 49",
+    "query": "DROP FUNCTION alter_op_test_fn_bool_real(boolean, real)"
+  },
+  {
+    "comment": "alter_operator - Statement 50",
+    "query": "DROP FUNCTION alter_op_test_fn_real_bool(real, boolean)"
+  }
+]

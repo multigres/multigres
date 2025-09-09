@@ -1,0 +1,106 @@
+[
+  {
+    "comment": "combocid - Statement 1",
+    "query": "CREATE TEMP TABLE combocidtest (foobar int)"
+  },
+  {
+    "comment": "combocid - Statement 2",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "combocid - Statement 3",
+    "query": "INSERT INTO combocidtest SELECT 1 LIMIT 0"
+  },
+  {
+    "comment": "combocid - Statement 4",
+    "query": "INSERT INTO combocidtest VALUES (1)"
+  },
+  {
+    "comment": "combocid - Statement 5",
+    "query": "INSERT INTO combocidtest VALUES (2)"
+  },
+  {
+    "comment": "combocid - Statement 6",
+    "query": "SELECT ctid,cmin,* FROM combocidtest"
+  },
+  {
+    "comment": "combocid - Statement 7",
+    "query": "SAVEPOINT s1"
+  },
+  {
+    "comment": "combocid - Statement 8",
+    "query": "UPDATE combocidtest SET foobar = foobar + 10"
+  },
+  {
+    "comment": "combocid - Statement 9",
+    "query": "ROLLBACK TO s1"
+  },
+  {
+    "comment": "combocid - Statement 10",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "combocid - Statement 11",
+    "query": "INSERT INTO combocidtest VALUES (333)"
+  },
+  {
+    "comment": "combocid - Statement 12",
+    "query": "DECLARE c CURSOR FOR SELECT ctid,cmin,* FROM combocidtest"
+  },
+  {
+    "comment": "combocid - Statement 13",
+    "query": "DELETE FROM combocidtest"
+  },
+  {
+    "comment": "combocid - Statement 14",
+    "query": "FETCH ALL FROM c"
+  },
+  {
+    "comment": "combocid - Statement 15",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "combocid - Statement 16",
+    "query": "INSERT INTO combocidtest VALUES (444)"
+  },
+  {
+    "comment": "combocid - Statement 17",
+    "query": "SELECT ctid,cmin,* FROM combocidtest FOR UPDATE"
+  },
+  {
+    "comment": "combocid - Statement 18",
+    "query": "CREATE TABLE IF NOT EXISTS testcase( id int PRIMARY KEY, balance numeric )"
+  },
+  {
+    "comment": "combocid - Statement 19",
+    "query": "INSERT INTO testcase VALUES (1, 0)"
+  },
+  {
+    "comment": "combocid - Statement 20",
+    "query": "SELECT * FROM testcase WHERE testcase.id = 1 FOR UPDATE"
+  },
+  {
+    "comment": "combocid - Statement 21",
+    "query": "UPDATE testcase SET balance = balance + 400 WHERE id=1"
+  },
+  {
+    "comment": "combocid - Statement 22",
+    "query": "SAVEPOINT subxact"
+  },
+  {
+    "comment": "combocid - Statement 23",
+    "query": "UPDATE testcase SET balance = balance - 100 WHERE id=1"
+  },
+  {
+    "comment": "combocid - Statement 24",
+    "query": "ROLLBACK TO SAVEPOINT subxact"
+  },
+  {
+    "comment": "combocid - Statement 25",
+    "query": "SELECT * FROM testcase WHERE id = 1 FOR UPDATE"
+  },
+  {
+    "comment": "combocid - Statement 26",
+    "query": "DROP TABLE testcase"
+  }
+]

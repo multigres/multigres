@@ -1,0 +1,142 @@
+[
+  {
+    "comment": "macaddr - Statement 1",
+    "query": "CREATE TABLE macaddr_data (a int, b macaddr)"
+  },
+  {
+    "comment": "macaddr - Statement 2",
+    "query": "INSERT INTO macaddr_data VALUES (1, '08:00:2b:01:02:03')"
+  },
+  {
+    "comment": "macaddr - Statement 3",
+    "query": "INSERT INTO macaddr_data VALUES (2, '08-00-2b-01-02-03')"
+  },
+  {
+    "comment": "macaddr - Statement 4",
+    "query": "INSERT INTO macaddr_data VALUES (3, '08002b:010203')"
+  },
+  {
+    "comment": "macaddr - Statement 5",
+    "query": "INSERT INTO macaddr_data VALUES (4, '08002b-010203')"
+  },
+  {
+    "comment": "macaddr - Statement 6",
+    "query": "INSERT INTO macaddr_data VALUES (5, '0800.2b01.0203')"
+  },
+  {
+    "comment": "macaddr - Statement 7",
+    "query": "INSERT INTO macaddr_data VALUES (6, '0800-2b01-0203')"
+  },
+  {
+    "comment": "macaddr - Statement 8",
+    "query": "INSERT INTO macaddr_data VALUES (7, '08002b010203')"
+  },
+  {
+    "comment": "macaddr - Statement 9",
+    "query": "INSERT INTO macaddr_data VALUES (8, '0800:2b01:0203')"
+  },
+  {
+    "comment": "macaddr - Statement 10",
+    "query": "INSERT INTO macaddr_data VALUES (9, 'not even close')"
+  },
+  {
+    "comment": "macaddr - Statement 11",
+    "query": "INSERT INTO macaddr_data VALUES (10, '08:00:2b:01:02:04')"
+  },
+  {
+    "comment": "macaddr - Statement 12",
+    "query": "INSERT INTO macaddr_data VALUES (11, '08:00:2b:01:02:02')"
+  },
+  {
+    "comment": "macaddr - Statement 13",
+    "query": "INSERT INTO macaddr_data VALUES (12, '08:00:2a:01:02:03')"
+  },
+  {
+    "comment": "macaddr - Statement 14",
+    "query": "INSERT INTO macaddr_data VALUES (13, '08:00:2c:01:02:03')"
+  },
+  {
+    "comment": "macaddr - Statement 15",
+    "query": "INSERT INTO macaddr_data VALUES (14, '08:00:2a:01:02:04')"
+  },
+  {
+    "comment": "macaddr - Statement 16",
+    "query": "SELECT * FROM macaddr_data"
+  },
+  {
+    "comment": "macaddr - Statement 17",
+    "query": "CREATE INDEX macaddr_data_btree ON macaddr_data USING btree (b)"
+  },
+  {
+    "comment": "macaddr - Statement 18",
+    "query": "CREATE INDEX macaddr_data_hash ON macaddr_data USING hash (b)"
+  },
+  {
+    "comment": "macaddr - Statement 19",
+    "query": "SELECT a, b, trunc(b) FROM macaddr_data ORDER BY 2, 1"
+  },
+  {
+    "comment": "macaddr - Statement 20",
+    "query": "SELECT b <  '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr - Statement 21",
+    "query": "SELECT b >  '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr - Statement 22",
+    "query": "SELECT b >  '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr - Statement 23",
+    "query": "SELECT b <= '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr - Statement 24",
+    "query": "SELECT b >= '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr - Statement 25",
+    "query": "SELECT b =  '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr - Statement 26",
+    "query": "SELECT b <> '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr - Statement 27",
+    "query": "SELECT b <> '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr - Statement 28",
+    "query": "SELECT ~b                       FROM macaddr_data"
+  },
+  {
+    "comment": "macaddr - Statement 29",
+    "query": "SELECT  b & '00:00:00:ff:ff:ff' FROM macaddr_data"
+  },
+  {
+    "comment": "macaddr - Statement 30",
+    "query": "SELECT  b | '01:02:03:04:05:06' FROM macaddr_data"
+  },
+  {
+    "comment": "macaddr - Statement 31",
+    "query": "DROP TABLE macaddr_data"
+  },
+  {
+    "comment": "macaddr - Statement 32",
+    "query": "SELECT pg_input_is_valid('08:00:2b:01:02:ZZ', 'macaddr')"
+  },
+  {
+    "comment": "macaddr - Statement 33",
+    "query": "SELECT * FROM pg_input_error_info('08:00:2b:01:02:ZZ', 'macaddr')"
+  },
+  {
+    "comment": "macaddr - Statement 34",
+    "query": "SELECT pg_input_is_valid('08:00:2b:01:02:', 'macaddr')"
+  },
+  {
+    "comment": "macaddr - Statement 35",
+    "query": "SELECT * FROM pg_input_error_info('08:00:2b:01:02:', 'macaddr')"
+  }
+]

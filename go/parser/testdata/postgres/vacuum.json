@@ -1,0 +1,842 @@
+[
+  {
+    "comment": "vacuum - Statement 1",
+    "query": "CREATE TABLE vactst (i INT)"
+  },
+  {
+    "comment": "vacuum - Statement 2",
+    "query": "INSERT INTO vactst VALUES (1)"
+  },
+  {
+    "comment": "vacuum - Statement 3",
+    "query": "INSERT INTO vactst SELECT * FROM vactst"
+  },
+  {
+    "comment": "vacuum - Statement 4",
+    "query": "INSERT INTO vactst VALUES (0)"
+  },
+  {
+    "comment": "vacuum - Statement 5",
+    "query": "SELECT count(*) FROM vactst"
+  },
+  {
+    "comment": "vacuum - Statement 6",
+    "query": "DELETE FROM vactst WHERE i != 0"
+  },
+  {
+    "comment": "vacuum - Statement 7",
+    "query": "SELECT * FROM vactst"
+  },
+  {
+    "comment": "vacuum - Statement 8",
+    "query": "VACUUM FULL vactst"
+  },
+  {
+    "comment": "vacuum - Statement 9",
+    "query": "UPDATE vactst SET i = i + 1"
+  },
+  {
+    "comment": "vacuum - Statement 10",
+    "query": "VACUUM (FULL) vactst"
+  },
+  {
+    "comment": "vacuum - Statement 11",
+    "query": "DELETE FROM vactst"
+  },
+  {
+    "comment": "vacuum - Statement 12",
+    "query": "VACUUM (FULL, FREEZE) vactst"
+  },
+  {
+    "comment": "vacuum - Statement 13",
+    "query": "VACUUM (ANALYZE, FULL) vactst"
+  },
+  {
+    "comment": "vacuum - Statement 14",
+    "query": "CREATE TABLE vaccluster (i INT PRIMARY KEY)"
+  },
+  {
+    "comment": "vacuum - Statement 15",
+    "query": "ALTER TABLE vaccluster CLUSTER ON vaccluster_pkey"
+  },
+  {
+    "comment": "vacuum - Statement 16",
+    "query": "CLUSTER vaccluster"
+  },
+  {
+    "comment": "vacuum - Statement 17",
+    "query": "CREATE FUNCTION do_analyze() RETURNS VOID VOLATILE LANGUAGE SQL AS 'ANALYZE pg_am'"
+  },
+  {
+    "comment": "vacuum - Statement 18",
+    "query": "CREATE FUNCTION wrap_do_analyze(c INT) RETURNS INT IMMUTABLE LANGUAGE SQL AS 'SELECT $1 FROM public.do_analyze()'"
+  },
+  {
+    "comment": "vacuum - Statement 19",
+    "query": "CREATE INDEX ON vaccluster(wrap_do_analyze(i))"
+  },
+  {
+    "comment": "vacuum - Statement 20",
+    "query": "INSERT INTO vaccluster VALUES (1), (2)"
+  },
+  {
+    "comment": "vacuum - Statement 21",
+    "query": "ANALYZE vaccluster"
+  },
+  {
+    "comment": "vacuum - Statement 22",
+    "query": "INSERT INTO vactst SELECT generate_series(1, 300)"
+  },
+  {
+    "comment": "vacuum - Statement 23",
+    "query": "DELETE FROM vactst WHERE i % 7 = 0"
+  },
+  {
+    "comment": "vacuum - Statement 24",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "vacuum - Statement 25",
+    "query": "INSERT INTO vactst SELECT generate_series(301, 400)"
+  },
+  {
+    "comment": "vacuum - Statement 26",
+    "query": "DELETE FROM vactst WHERE i % 5 <> 0"
+  },
+  {
+    "comment": "vacuum - Statement 27",
+    "query": "ANALYZE vactst"
+  },
+  {
+    "comment": "vacuum - Statement 28",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "vacuum - Statement 29",
+    "query": "CREATE TABLE past_inh_parent ()"
+  },
+  {
+    "comment": "vacuum - Statement 30",
+    "query": "CREATE TABLE past_inh_child () INHERITS (past_inh_parent)"
+  },
+  {
+    "comment": "vacuum - Statement 31",
+    "query": "INSERT INTO past_inh_child DEFAULT VALUES"
+  },
+  {
+    "comment": "vacuum - Statement 32",
+    "query": "ANALYZE past_inh_parent"
+  },
+  {
+    "comment": "vacuum - Statement 33",
+    "query": "SELECT reltuples, relhassubclass FROM pg_class WHERE oid = 'past_inh_parent'::regclass"
+  },
+  {
+    "comment": "vacuum - Statement 34",
+    "query": "DROP TABLE past_inh_child"
+  },
+  {
+    "comment": "vacuum - Statement 35",
+    "query": "CREATE TABLE past_parted (i int) PARTITION BY LIST(i)"
+  },
+  {
+    "comment": "vacuum - Statement 36",
+    "query": "CREATE TABLE past_part PARTITION OF past_parted FOR VALUES IN (1)"
+  },
+  {
+    "comment": "vacuum - Statement 37",
+    "query": "INSERT INTO past_parted VALUES (1),(1)"
+  },
+  {
+    "comment": "vacuum - Statement 38",
+    "query": "ANALYZE past_parted"
+  },
+  {
+    "comment": "vacuum - Statement 39",
+    "query": "DROP TABLE past_part"
+  },
+  {
+    "comment": "vacuum - Statement 40",
+    "query": "SELECT reltuples, relhassubclass FROM pg_class WHERE oid = 'past_parted'::regclass"
+  },
+  {
+    "comment": "vacuum - Statement 41",
+    "query": "VACUUM FULL pg_am"
+  },
+  {
+    "comment": "vacuum - Statement 42",
+    "query": "VACUUM FULL pg_class"
+  },
+  {
+    "comment": "vacuum - Statement 43",
+    "query": "VACUUM FULL pg_database"
+  },
+  {
+    "comment": "vacuum - Statement 44",
+    "query": "VACUUM FULL vaccluster"
+  },
+  {
+    "comment": "vacuum - Statement 45",
+    "query": "VACUUM (DISABLE_PAGE_SKIPPING) vaccluster"
+  },
+  {
+    "comment": "vacuum - Statement 46",
+    "query": "CREATE TABLE pvactst (i INT, a INT[], p POINT) with (autovacuum_enabled = off)"
+  },
+  {
+    "comment": "vacuum - Statement 47",
+    "query": "INSERT INTO pvactst SELECT i, array[1,2,3], point(i, i+1) FROM generate_series(1,1000) i"
+  },
+  {
+    "comment": "vacuum - Statement 48",
+    "query": "CREATE INDEX btree_pvactst ON pvactst USING btree (i)"
+  },
+  {
+    "comment": "vacuum - Statement 49",
+    "query": "CREATE INDEX hash_pvactst ON pvactst USING hash (i)"
+  },
+  {
+    "comment": "vacuum - Statement 50",
+    "query": "CREATE INDEX brin_pvactst ON pvactst USING brin (i)"
+  },
+  {
+    "comment": "vacuum - Statement 51",
+    "query": "CREATE INDEX gin_pvactst ON pvactst USING gin (a)"
+  },
+  {
+    "comment": "vacuum - Statement 52",
+    "query": "CREATE INDEX gist_pvactst ON pvactst USING gist (p)"
+  },
+  {
+    "comment": "vacuum - Statement 53",
+    "query": "CREATE INDEX spgist_pvactst ON pvactst USING spgist (p)"
+  },
+  {
+    "comment": "vacuum - Statement 54",
+    "query": "CREATE TABLE pvactst2 (i INT) WITH (autovacuum_enabled = off)"
+  },
+  {
+    "comment": "vacuum - Statement 55",
+    "query": "INSERT INTO pvactst2 SELECT generate_series(1, 1000)"
+  },
+  {
+    "comment": "vacuum - Statement 56",
+    "query": "CREATE INDEX ON pvactst2 (i)"
+  },
+  {
+    "comment": "vacuum - Statement 57",
+    "query": "SET min_parallel_index_scan_size to 0"
+  },
+  {
+    "comment": "vacuum - Statement 58",
+    "query": "VACUUM (PARALLEL 2) pvactst"
+  },
+  {
+    "comment": "vacuum - Statement 59",
+    "query": "UPDATE pvactst SET i = i WHERE i < 1000"
+  },
+  {
+    "comment": "vacuum - Statement 60",
+    "query": "VACUUM (PARALLEL 0) pvactst"
+  },
+  {
+    "comment": "vacuum - Statement 61",
+    "query": "VACUUM (PARALLEL -1) pvactst"
+  },
+  {
+    "comment": "vacuum - Statement 62",
+    "query": "VACUUM (PARALLEL 2, INDEX_CLEANUP FALSE) pvactst"
+  },
+  {
+    "comment": "vacuum - Statement 63",
+    "query": "VACUUM (PARALLEL 2, FULL TRUE) pvactst"
+  },
+  {
+    "comment": "vacuum - Statement 64",
+    "query": "VACUUM (PARALLEL) pvactst"
+  },
+  {
+    "comment": "vacuum - Statement 65",
+    "query": "SET maintenance_work_mem TO 64"
+  },
+  {
+    "comment": "vacuum - Statement 66",
+    "query": "VACUUM (PARALLEL 2) pvactst2"
+  },
+  {
+    "comment": "vacuum - Statement 67",
+    "query": "DELETE FROM pvactst2 WHERE i < 1000"
+  },
+  {
+    "comment": "vacuum - Statement 68",
+    "query": "RESET maintenance_work_mem"
+  },
+  {
+    "comment": "vacuum - Statement 69",
+    "query": "CREATE TEMPORARY TABLE tmp (a int PRIMARY KEY)"
+  },
+  {
+    "comment": "vacuum - Statement 70",
+    "query": "CREATE INDEX tmp_idx1 ON tmp (a)"
+  },
+  {
+    "comment": "vacuum - Statement 71",
+    "query": "VACUUM (PARALLEL 1, FULL FALSE) tmp"
+  },
+  {
+    "comment": "vacuum - Statement 72",
+    "query": "VACUUM (PARALLEL 0, FULL TRUE) tmp"
+  },
+  {
+    "comment": "vacuum - Statement 73",
+    "query": "RESET min_parallel_index_scan_size"
+  },
+  {
+    "comment": "vacuum - Statement 74",
+    "query": "DROP TABLE pvactst"
+  },
+  {
+    "comment": "vacuum - Statement 75",
+    "query": "DROP TABLE pvactst2"
+  },
+  {
+    "comment": "vacuum - Statement 76",
+    "query": "CREATE TABLE no_index_cleanup (i INT PRIMARY KEY, t TEXT)"
+  },
+  {
+    "comment": "vacuum - Statement 77",
+    "query": "CREATE INDEX no_index_cleanup_idx ON no_index_cleanup(t)"
+  },
+  {
+    "comment": "vacuum - Statement 78",
+    "query": "ALTER TABLE no_index_cleanup ALTER COLUMN t SET STORAGE EXTERNAL"
+  },
+  {
+    "comment": "vacuum - Statement 79",
+    "query": "INSERT INTO no_index_cleanup(i, t) VALUES (generate_series(1,30), repeat('1234567890',269))"
+  },
+  {
+    "comment": "vacuum - Statement 80",
+    "query": "VACUUM (INDEX_CLEANUP TRUE, FULL TRUE) no_index_cleanup"
+  },
+  {
+    "comment": "vacuum - Statement 81",
+    "query": "VACUUM (FULL TRUE) no_index_cleanup"
+  },
+  {
+    "comment": "vacuum - Statement 82",
+    "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = false)"
+  },
+  {
+    "comment": "vacuum - Statement 83",
+    "query": "DELETE FROM no_index_cleanup WHERE i < 15"
+  },
+  {
+    "comment": "vacuum - Statement 84",
+    "query": "VACUUM no_index_cleanup"
+  },
+  {
+    "comment": "vacuum - Statement 85",
+    "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = true)"
+  },
+  {
+    "comment": "vacuum - Statement 86",
+    "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = auto)"
+  },
+  {
+    "comment": "vacuum - Statement 87",
+    "query": "INSERT INTO no_index_cleanup(i, t) VALUES (generate_series(31,60), repeat('1234567890',269))"
+  },
+  {
+    "comment": "vacuum - Statement 88",
+    "query": "DELETE FROM no_index_cleanup WHERE i < 45"
+  },
+  {
+    "comment": "vacuum - Statement 89",
+    "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = off, toast.vacuum_index_cleanup = yes)"
+  },
+  {
+    "comment": "vacuum - Statement 90",
+    "query": "ALTER TABLE no_index_cleanup SET (vacuum_index_cleanup = true, toast.vacuum_index_cleanup = false)"
+  },
+  {
+    "comment": "vacuum - Statement 91",
+    "query": "VACUUM (INDEX_CLEANUP FALSE) vaccluster"
+  },
+  {
+    "comment": "vacuum - Statement 92",
+    "query": "VACUUM (INDEX_CLEANUP AUTO) vactst"
+  },
+  {
+    "comment": "vacuum - Statement 93",
+    "query": "VACUUM (INDEX_CLEANUP FALSE, FREEZE TRUE) vaccluster"
+  },
+  {
+    "comment": "vacuum - Statement 94",
+    "query": "CREATE TEMP TABLE vac_truncate_test(i INT NOT NULL, j text) WITH (vacuum_truncate=true, autovacuum_enabled=false)"
+  },
+  {
+    "comment": "vacuum - Statement 95",
+    "query": "INSERT INTO vac_truncate_test VALUES (1, NULL), (NULL, NULL)"
+  },
+  {
+    "comment": "vacuum - Statement 96",
+    "query": "VACUUM (TRUNCATE FALSE, DISABLE_PAGE_SKIPPING) vac_truncate_test"
+  },
+  {
+    "comment": "vacuum - Statement 97",
+    "query": "SELECT pg_relation_size('vac_truncate_test') > 0"
+  },
+  {
+    "comment": "vacuum - Statement 98",
+    "query": "VACUUM (DISABLE_PAGE_SKIPPING) vac_truncate_test"
+  },
+  {
+    "comment": "vacuum - Statement 99",
+    "query": "SELECT pg_relation_size('vac_truncate_test') = 0"
+  },
+  {
+    "comment": "vacuum - Statement 100",
+    "query": "VACUUM (TRUNCATE FALSE, FULL TRUE) vac_truncate_test"
+  },
+  {
+    "comment": "vacuum - Statement 101",
+    "query": "DROP TABLE vac_truncate_test"
+  },
+  {
+    "comment": "vacuum - Statement 102",
+    "query": "CREATE TABLE vacparted (a int, b char) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "vacuum - Statement 103",
+    "query": "CREATE TABLE vacparted1 PARTITION OF vacparted FOR VALUES IN (1)"
+  },
+  {
+    "comment": "vacuum - Statement 104",
+    "query": "INSERT INTO vacparted VALUES (1, 'a')"
+  },
+  {
+    "comment": "vacuum - Statement 105",
+    "query": "UPDATE vacparted SET b = 'b'"
+  },
+  {
+    "comment": "vacuum - Statement 106",
+    "query": "VACUUM (ANALYZE) vacparted"
+  },
+  {
+    "comment": "vacuum - Statement 107",
+    "query": "VACUUM (FULL) vacparted"
+  },
+  {
+    "comment": "vacuum - Statement 108",
+    "query": "VACUUM (FREEZE) vacparted"
+  },
+  {
+    "comment": "vacuum - Statement 109",
+    "query": "VACUUM ANALYZE vacparted(a,b,a)"
+  },
+  {
+    "comment": "vacuum - Statement 110",
+    "query": "ANALYZE vacparted(a,b,b)"
+  },
+  {
+    "comment": "vacuum - Statement 111",
+    "query": "CREATE TABLE vacparted_i (a int primary key, b varchar(100)) PARTITION BY HASH (a)"
+  },
+  {
+    "comment": "vacuum - Statement 112",
+    "query": "CREATE TABLE vacparted_i1 PARTITION OF vacparted_i FOR VALUES WITH (MODULUS 2, REMAINDER 0)"
+  },
+  {
+    "comment": "vacuum - Statement 113",
+    "query": "CREATE TABLE vacparted_i2 PARTITION OF vacparted_i FOR VALUES WITH (MODULUS 2, REMAINDER 1)"
+  },
+  {
+    "comment": "vacuum - Statement 114",
+    "query": "INSERT INTO vacparted_i SELECT i, 'test_'|| i from generate_series(1,10) i"
+  },
+  {
+    "comment": "vacuum - Statement 115",
+    "query": "VACUUM (ANALYZE) vacparted_i"
+  },
+  {
+    "comment": "vacuum - Statement 116",
+    "query": "VACUUM (FULL) vacparted_i"
+  },
+  {
+    "comment": "vacuum - Statement 117",
+    "query": "VACUUM (FREEZE) vacparted_i"
+  },
+  {
+    "comment": "vacuum - Statement 118",
+    "query": "SELECT relname, relhasindex FROM pg_class WHERE relname LIKE 'vacparted_i%' AND relkind IN ('p','r') ORDER BY relname"
+  },
+  {
+    "comment": "vacuum - Statement 119",
+    "query": "DROP TABLE vacparted_i"
+  },
+  {
+    "comment": "vacuum - Statement 120",
+    "query": "VACUUM vaccluster, vactst"
+  },
+  {
+    "comment": "vacuum - Statement 121",
+    "query": "VACUUM vacparted, does_not_exist"
+  },
+  {
+    "comment": "vacuum - Statement 122",
+    "query": "VACUUM (FREEZE) vacparted, vaccluster, vactst"
+  },
+  {
+    "comment": "vacuum - Statement 123",
+    "query": "VACUUM (FREEZE) does_not_exist, vaccluster"
+  },
+  {
+    "comment": "vacuum - Statement 124",
+    "query": "VACUUM ANALYZE vactst, vacparted (a)"
+  },
+  {
+    "comment": "vacuum - Statement 125",
+    "query": "VACUUM ANALYZE vactst (does_not_exist), vacparted (b)"
+  },
+  {
+    "comment": "vacuum - Statement 126",
+    "query": "VACUUM FULL vacparted, vactst"
+  },
+  {
+    "comment": "vacuum - Statement 127",
+    "query": "VACUUM FULL vactst, vacparted (a, b), vaccluster (i)"
+  },
+  {
+    "comment": "vacuum - Statement 128",
+    "query": "ANALYZE vactst, vacparted"
+  },
+  {
+    "comment": "vacuum - Statement 129",
+    "query": "ANALYZE vacparted (b), vactst"
+  },
+  {
+    "comment": "vacuum - Statement 130",
+    "query": "ANALYZE vactst, does_not_exist, vacparted"
+  },
+  {
+    "comment": "vacuum - Statement 131",
+    "query": "ANALYZE vactst (i), vacparted (does_not_exist)"
+  },
+  {
+    "comment": "vacuum - Statement 132",
+    "query": "ANALYZE vactst, vactst"
+  },
+  {
+    "comment": "vacuum - Statement 133",
+    "query": "ANALYZE (VERBOSE) does_not_exist"
+  },
+  {
+    "comment": "vacuum - Statement 134",
+    "query": "ANALYZE (nonexistent-arg) does_not_exist"
+  },
+  {
+    "comment": "vacuum - Statement 135",
+    "query": "ANALYZE (nonexistentarg) does_not_exit"
+  },
+  {
+    "comment": "vacuum - Statement 136",
+    "query": "SET client_min_messages TO 'ERROR'"
+  },
+  {
+    "comment": "vacuum - Statement 137",
+    "query": "ANALYZE (SKIP_LOCKED, VERBOSE) does_not_exist"
+  },
+  {
+    "comment": "vacuum - Statement 138",
+    "query": "ANALYZE (VERBOSE, SKIP_LOCKED) does_not_exist"
+  },
+  {
+    "comment": "vacuum - Statement 139",
+    "query": "VACUUM (SKIP_LOCKED) vactst"
+  },
+  {
+    "comment": "vacuum - Statement 140",
+    "query": "VACUUM (SKIP_LOCKED, FULL) vactst"
+  },
+  {
+    "comment": "vacuum - Statement 141",
+    "query": "ANALYZE (SKIP_LOCKED) vactst"
+  },
+  {
+    "comment": "vacuum - Statement 142",
+    "query": "RESET client_min_messages"
+  },
+  {
+    "comment": "vacuum - Statement 143",
+    "query": "SET default_transaction_isolation = serializable"
+  },
+  {
+    "comment": "vacuum - Statement 144",
+    "query": "VACUUM vactst"
+  },
+  {
+    "comment": "vacuum - Statement 145",
+    "query": "RESET default_transaction_isolation"
+  },
+  {
+    "comment": "vacuum - Statement 146",
+    "query": "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE"
+  },
+  {
+    "comment": "vacuum - Statement 147",
+    "query": "CREATE TABLE vac_option_tab (a INT, t TEXT)"
+  },
+  {
+    "comment": "vacuum - Statement 148",
+    "query": "INSERT INTO vac_option_tab SELECT a, 't' || a FROM generate_series(1, 10) AS a"
+  },
+  {
+    "comment": "vacuum - Statement 149",
+    "query": "ALTER TABLE vac_option_tab ALTER COLUMN t SET STORAGE EXTERNAL"
+  },
+  {
+    "comment": "vacuum - Statement 150",
+    "query": "CREATE VIEW vac_option_tab_counts AS SELECT CASE WHEN c.relname IS NULL THEN 'main' ELSE 'toast' END as rel, s.vacuum_count FROM pg_stat_all_tables s LEFT JOIN pg_class c ON s.relid = c.reltoastrelid WHERE c.relname = 'vac_option_tab' OR s.relname = 'vac_option_tab' ORDER BY rel"
+  },
+  {
+    "comment": "vacuum - Statement 151",
+    "query": "VACUUM (PROCESS_TOAST TRUE) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 152",
+    "query": "SELECT * FROM vac_option_tab_counts"
+  },
+  {
+    "comment": "vacuum - Statement 153",
+    "query": "VACUUM (PROCESS_TOAST FALSE) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 154",
+    "query": "VACUUM (PROCESS_TOAST FALSE, FULL) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 155",
+    "query": "VACUUM (PROCESS_MAIN FALSE) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 156",
+    "query": "VACUUM (PROCESS_MAIN FALSE, PROCESS_TOAST FALSE) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 157",
+    "query": "SELECT relfilenode AS main_filenode FROM pg_class WHERE relname = 'vac_option_tab'"
+  },
+  {
+    "comment": "vacuum - Statement 158",
+    "query": "SELECT t.relfilenode AS toast_filenode FROM pg_class c, pg_class t WHERE c.reltoastrelid = t.oid AND c.relname = 'vac_option_tab'"
+  },
+  {
+    "comment": "vacuum - Statement 159",
+    "query": "VACUUM (PROCESS_MAIN FALSE, FULL) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 160",
+    "query": "SELECT relfilenode = :main_filenode AS is_same_main_filenode FROM pg_class WHERE relname = 'vac_option_tab'"
+  },
+  {
+    "comment": "vacuum - Statement 161",
+    "query": "SELECT t.relfilenode = :toast_filenode AS is_same_toast_filenode FROM pg_class c, pg_class t WHERE c.reltoastrelid = t.oid AND c.relname = 'vac_option_tab'"
+  },
+  {
+    "comment": "vacuum - Statement 162",
+    "query": "VACUUM (BUFFER_USAGE_LIMIT '512 kB') vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 163",
+    "query": "ANALYZE (BUFFER_USAGE_LIMIT '512 kB') vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 164",
+    "query": "VACUUM (BUFFER_USAGE_LIMIT 0) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 165",
+    "query": "ANALYZE (BUFFER_USAGE_LIMIT 0) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 166",
+    "query": "VACUUM (BUFFER_USAGE_LIMIT 16777220) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 167",
+    "query": "VACUUM (BUFFER_USAGE_LIMIT 120) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 168",
+    "query": "VACUUM (BUFFER_USAGE_LIMIT 10000000000) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 169",
+    "query": "VACUUM (BUFFER_USAGE_LIMIT '512 kB', FULL) vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 170",
+    "query": "VACUUM (SKIP_DATABASE_STATS) vactst"
+  },
+  {
+    "comment": "vacuum - Statement 171",
+    "query": "VACUUM (ONLY_DATABASE_STATS)"
+  },
+  {
+    "comment": "vacuum - Statement 172",
+    "query": "VACUUM (ONLY_DATABASE_STATS) vactst"
+  },
+  {
+    "comment": "vacuum - Statement 173",
+    "query": "DROP VIEW vac_option_tab_counts"
+  },
+  {
+    "comment": "vacuum - Statement 174",
+    "query": "DROP TABLE vac_option_tab"
+  },
+  {
+    "comment": "vacuum - Statement 175",
+    "query": "DROP TABLE vaccluster"
+  },
+  {
+    "comment": "vacuum - Statement 176",
+    "query": "DROP TABLE vactst"
+  },
+  {
+    "comment": "vacuum - Statement 177",
+    "query": "DROP TABLE vacparted"
+  },
+  {
+    "comment": "vacuum - Statement 178",
+    "query": "DROP TABLE no_index_cleanup"
+  },
+  {
+    "comment": "vacuum - Statement 179",
+    "query": "CREATE TABLE vacowned (a int)"
+  },
+  {
+    "comment": "vacuum - Statement 180",
+    "query": "CREATE TABLE vacowned_parted (a int) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "vacuum - Statement 181",
+    "query": "CREATE TABLE vacowned_part1 PARTITION OF vacowned_parted FOR VALUES IN (1)"
+  },
+  {
+    "comment": "vacuum - Statement 182",
+    "query": "CREATE TABLE vacowned_part2 PARTITION OF vacowned_parted FOR VALUES IN (2)"
+  },
+  {
+    "comment": "vacuum - Statement 183",
+    "query": "CREATE ROLE regress_vacuum"
+  },
+  {
+    "comment": "vacuum - Statement 184",
+    "query": "SET ROLE regress_vacuum"
+  },
+  {
+    "comment": "vacuum - Statement 185",
+    "query": "VACUUM vacowned"
+  },
+  {
+    "comment": "vacuum - Statement 186",
+    "query": "ANALYZE vacowned"
+  },
+  {
+    "comment": "vacuum - Statement 187",
+    "query": "VACUUM (ANALYZE) vacowned"
+  },
+  {
+    "comment": "vacuum - Statement 188",
+    "query": "VACUUM pg_catalog.pg_class"
+  },
+  {
+    "comment": "vacuum - Statement 189",
+    "query": "ANALYZE pg_catalog.pg_class"
+  },
+  {
+    "comment": "vacuum - Statement 190",
+    "query": "VACUUM (ANALYZE) pg_catalog.pg_class"
+  },
+  {
+    "comment": "vacuum - Statement 191",
+    "query": "VACUUM pg_catalog.pg_authid"
+  },
+  {
+    "comment": "vacuum - Statement 192",
+    "query": "ANALYZE pg_catalog.pg_authid"
+  },
+  {
+    "comment": "vacuum - Statement 193",
+    "query": "VACUUM (ANALYZE) pg_catalog.pg_authid"
+  },
+  {
+    "comment": "vacuum - Statement 194",
+    "query": "VACUUM vacowned_parted"
+  },
+  {
+    "comment": "vacuum - Statement 195",
+    "query": "VACUUM vacowned_part1"
+  },
+  {
+    "comment": "vacuum - Statement 196",
+    "query": "VACUUM vacowned_part2"
+  },
+  {
+    "comment": "vacuum - Statement 197",
+    "query": "ANALYZE vacowned_parted"
+  },
+  {
+    "comment": "vacuum - Statement 198",
+    "query": "ANALYZE vacowned_part1"
+  },
+  {
+    "comment": "vacuum - Statement 199",
+    "query": "ANALYZE vacowned_part2"
+  },
+  {
+    "comment": "vacuum - Statement 200",
+    "query": "VACUUM (ANALYZE) vacowned_parted"
+  },
+  {
+    "comment": "vacuum - Statement 201",
+    "query": "VACUUM (ANALYZE) vacowned_part1"
+  },
+  {
+    "comment": "vacuum - Statement 202",
+    "query": "VACUUM (ANALYZE) vacowned_part2"
+  },
+  {
+    "comment": "vacuum - Statement 203",
+    "query": "RESET ROLE"
+  },
+  {
+    "comment": "vacuum - Statement 204",
+    "query": "ALTER TABLE vacowned_parted OWNER TO regress_vacuum"
+  },
+  {
+    "comment": "vacuum - Statement 205",
+    "query": "ALTER TABLE vacowned_part1 OWNER TO regress_vacuum"
+  },
+  {
+    "comment": "vacuum - Statement 206",
+    "query": "ALTER TABLE vacowned_parted OWNER TO CURRENT_USER"
+  },
+  {
+    "comment": "vacuum - Statement 207",
+    "query": "ALTER TABLE vacowned_part1 OWNER TO CURRENT_USER"
+  },
+  {
+    "comment": "vacuum - Statement 208",
+    "query": "DROP TABLE vacowned"
+  },
+  {
+    "comment": "vacuum - Statement 209",
+    "query": "DROP TABLE vacowned_parted"
+  },
+  {
+    "comment": "vacuum - Statement 210",
+    "query": "DROP ROLE regress_vacuum"
+  }
+]

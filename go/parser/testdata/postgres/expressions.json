@@ -1,0 +1,274 @@
+[
+  {
+    "comment": "expressions - Statement 1",
+    "query": "SELECT date(now())::text = current_date::text"
+  },
+  {
+    "comment": "expressions - Statement 2",
+    "query": "SELECT now()::timetz::text = current_time::text"
+  },
+  {
+    "comment": "expressions - Statement 3",
+    "query": "SELECT now()::timetz(4)::text = current_time(4)::text"
+  },
+  {
+    "comment": "expressions - Statement 4",
+    "query": "SELECT now()::time::text = localtime::text"
+  },
+  {
+    "comment": "expressions - Statement 5",
+    "query": "SELECT now()::time(3)::text = localtime(3)::text"
+  },
+  {
+    "comment": "expressions - Statement 6",
+    "query": "SELECT current_timestamp = NOW()"
+  },
+  {
+    "comment": "expressions - Statement 7",
+    "query": "SELECT length(current_timestamp::text) >= length(current_timestamp(0)::text)"
+  },
+  {
+    "comment": "expressions - Statement 8",
+    "query": "SELECT now()::timestamp::text = localtimestamp::text"
+  },
+  {
+    "comment": "expressions - Statement 9",
+    "query": "SELECT current_time = current_time(7)"
+  },
+  {
+    "comment": "expressions - Statement 10",
+    "query": "SELECT current_timestamp = current_timestamp(7)"
+  },
+  {
+    "comment": "expressions - Statement 11",
+    "query": "SELECT localtime = localtime(7)"
+  },
+  {
+    "comment": "expressions - Statement 12",
+    "query": "SELECT localtimestamp = localtimestamp(7)"
+  },
+  {
+    "comment": "expressions - Statement 13",
+    "query": "SELECT current_catalog = current_database()"
+  },
+  {
+    "comment": "expressions - Statement 14",
+    "query": "SELECT current_schema"
+  },
+  {
+    "comment": "expressions - Statement 15",
+    "query": "SET search_path = 'notme'"
+  },
+  {
+    "comment": "expressions - Statement 16",
+    "query": "SET search_path = 'pg_catalog'"
+  },
+  {
+    "comment": "expressions - Statement 17",
+    "query": "RESET search_path"
+  },
+  {
+    "comment": "expressions - Statement 18",
+    "query": "begin"
+  },
+  {
+    "comment": "expressions - Statement 19",
+    "query": "create table numeric_tbl (f1 numeric(18,3), f2 numeric)"
+  },
+  {
+    "comment": "expressions - Statement 20",
+    "query": "create view numeric_view as select f1, f1::numeric(16,4) as f1164, f1::numeric as f1n, f2, f2::numeric(16,4) as f2164, f2::numeric as f2n from numeric_tbl"
+  },
+  {
+    "comment": "expressions - Statement 21",
+    "query": "create table bpchar_tbl (f1 character(16) unique, f2 bpchar)"
+  },
+  {
+    "comment": "expressions - Statement 22",
+    "query": "create view bpchar_view as select f1, f1::character(14) as f114, f1::bpchar as f1n, f2, f2::character(14) as f214, f2::bpchar as f2n from bpchar_tbl"
+  },
+  {
+    "comment": "expressions - Statement 23",
+    "query": "rollback"
+  },
+  {
+    "comment": "expressions - Statement 24",
+    "query": "explain (verbose, costs off) select random() IN (1, 4, 8.0)"
+  },
+  {
+    "comment": "expressions - Statement 25",
+    "query": "explain (verbose, costs off) select random()::int IN (1, 4, 8.0)"
+  },
+  {
+    "comment": "expressions - Statement 26",
+    "query": "select '(0,0)'::point in ('(0,0,0,0)'::box, point(0,0))"
+  },
+  {
+    "comment": "expressions - Statement 27",
+    "query": "create function return_int_input(int) returns int as $$ begin return $1"
+  },
+  {
+    "comment": "expressions - Statement 28",
+    "query": "end"
+  },
+  {
+    "comment": "expressions - Statement 29",
+    "query": "$$ language plpgsql stable"
+  },
+  {
+    "comment": "expressions - Statement 30",
+    "query": "create function return_text_input(text) returns text as $$ begin return $1"
+  },
+  {
+    "comment": "expressions - Statement 31",
+    "query": "select return_int_input(1) in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)"
+  },
+  {
+    "comment": "expressions - Statement 32",
+    "query": "select return_int_input(1) in (10, 9, 2, 8, 3, 7, 4, 6, 5, null)"
+  },
+  {
+    "comment": "expressions - Statement 33",
+    "query": "select return_int_input(1) in (null, null, null, null, null, null, null, null, null, null, null)"
+  },
+  {
+    "comment": "expressions - Statement 34",
+    "query": "select return_int_input(1) in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1, null)"
+  },
+  {
+    "comment": "expressions - Statement 35",
+    "query": "select return_int_input(null::int) in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)"
+  },
+  {
+    "comment": "expressions - Statement 36",
+    "query": "select return_int_input(null::int) in (10, 9, 2, 8, 3, 7, 4, 6, 5, null)"
+  },
+  {
+    "comment": "expressions - Statement 37",
+    "query": "select return_text_input('a') in ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j')"
+  },
+  {
+    "comment": "expressions - Statement 38",
+    "query": "select return_int_input(1) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)"
+  },
+  {
+    "comment": "expressions - Statement 39",
+    "query": "select return_int_input(1) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, 0)"
+  },
+  {
+    "comment": "expressions - Statement 40",
+    "query": "select return_int_input(1) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, 2, null)"
+  },
+  {
+    "comment": "expressions - Statement 41",
+    "query": "select return_int_input(1) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1, null)"
+  },
+  {
+    "comment": "expressions - Statement 42",
+    "query": "select return_int_input(1) not in (null, null, null, null, null, null, null, null, null, null, null)"
+  },
+  {
+    "comment": "expressions - Statement 43",
+    "query": "select return_int_input(null::int) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, 1)"
+  },
+  {
+    "comment": "expressions - Statement 44",
+    "query": "select return_int_input(null::int) not in (10, 9, 2, 8, 3, 7, 4, 6, 5, null)"
+  },
+  {
+    "comment": "expressions - Statement 45",
+    "query": "select return_text_input('a') not in ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j')"
+  },
+  {
+    "comment": "expressions - Statement 46",
+    "query": "create type myint"
+  },
+  {
+    "comment": "expressions - Statement 47",
+    "query": "create function myintin(cstring) returns myint strict immutable language internal as 'int4in'"
+  },
+  {
+    "comment": "expressions - Statement 48",
+    "query": "create function myintout(myint) returns cstring strict immutable language internal as 'int4out'"
+  },
+  {
+    "comment": "expressions - Statement 49",
+    "query": "create function myinthash(myint) returns integer strict immutable language internal as 'hashint4'"
+  },
+  {
+    "comment": "expressions - Statement 50",
+    "query": "create type myint (input = myintin, output = myintout, like = int4)"
+  },
+  {
+    "comment": "expressions - Statement 51",
+    "query": "create cast (int4 as myint) without function"
+  },
+  {
+    "comment": "expressions - Statement 52",
+    "query": "create cast (myint as int4) without function"
+  },
+  {
+    "comment": "expressions - Statement 53",
+    "query": "create function myinteq(myint, myint) returns bool as $$ begin if $1 is null and $2 is null then return true"
+  },
+  {
+    "comment": "expressions - Statement 54",
+    "query": "else return $1::int = $2::int"
+  },
+  {
+    "comment": "expressions - Statement 55",
+    "query": "end if"
+  },
+  {
+    "comment": "expressions - Statement 56",
+    "query": "$$ language plpgsql immutable"
+  },
+  {
+    "comment": "expressions - Statement 57",
+    "query": "create function myintne(myint, myint) returns bool as $$ begin return not myinteq($1, $2)"
+  },
+  {
+    "comment": "expressions - Statement 58",
+    "query": "create operator = ( leftarg    = myint, rightarg   = myint, commutator = =, negator    = <>, procedure  = myinteq, restrict   = eqsel, join       = eqjoinsel, merges )"
+  },
+  {
+    "comment": "expressions - Statement 59",
+    "query": "create operator <> ( leftarg    = myint, rightarg   = myint, commutator = <>, negator    = =, procedure  = myintne, restrict   = eqsel, join       = eqjoinsel, merges )"
+  },
+  {
+    "comment": "expressions - Statement 60",
+    "query": "create operator class myint_ops default for type myint using hash as operator    1   =  (myint, myint), function    1   myinthash(myint)"
+  },
+  {
+    "comment": "expressions - Statement 61",
+    "query": "create table inttest (a myint)"
+  },
+  {
+    "comment": "expressions - Statement 62",
+    "query": "insert into inttest values(1::myint),(null)"
+  },
+  {
+    "comment": "expressions - Statement 63",
+    "query": "select * from inttest where a in (1::myint,2::myint,3::myint,4::myint,5::myint,6::myint,7::myint,8::myint,9::myint, null)"
+  },
+  {
+    "comment": "expressions - Statement 64",
+    "query": "select * from inttest where a not in (1::myint,2::myint,3::myint,4::myint,5::myint,6::myint,7::myint,8::myint,9::myint, null)"
+  },
+  {
+    "comment": "expressions - Statement 65",
+    "query": "select * from inttest where a not in (0::myint,2::myint,3::myint,4::myint,5::myint,6::myint,7::myint,8::myint,9::myint, null)"
+  },
+  {
+    "comment": "expressions - Statement 66",
+    "query": "select * from inttest where a in (1::myint,2::myint,3::myint,4::myint,5::myint, null)"
+  },
+  {
+    "comment": "expressions - Statement 67",
+    "query": "select * from inttest where a not in (1::myint,2::myint,3::myint,4::myint,5::myint, null)"
+  },
+  {
+    "comment": "expressions - Statement 68",
+    "query": "select * from inttest where a not in (0::myint,2::myint,3::myint,4::myint,5::myint, null)"
+  }
+]

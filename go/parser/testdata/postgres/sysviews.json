@@ -1,0 +1,102 @@
+[
+  {
+    "comment": "sysviews - Statement 1",
+    "query": "select count(*) >= 0 as ok from pg_available_extension_versions"
+  },
+  {
+    "comment": "sysviews - Statement 2",
+    "query": "select count(*) >= 0 as ok from pg_available_extensions"
+  },
+  {
+    "comment": "sysviews - Statement 3",
+    "query": "select name, ident, parent, level, total_bytes >= free_bytes from pg_backend_memory_contexts where level = 0"
+  },
+  {
+    "comment": "sysviews - Statement 4",
+    "query": "begin"
+  },
+  {
+    "comment": "sysviews - Statement 5",
+    "query": "declare cur cursor for select left(a,10), b from (values(repeat('a', 512 * 1024),1),(repeat('b', 512),2)) v(a,b) order by v.a desc"
+  },
+  {
+    "comment": "sysviews - Statement 6",
+    "query": "fetch 1 from cur"
+  },
+  {
+    "comment": "sysviews - Statement 7",
+    "query": "select name, parent, total_bytes > 0, total_nblocks, free_bytes > 0, free_chunks from pg_backend_memory_contexts where name = 'Caller tuples'"
+  },
+  {
+    "comment": "sysviews - Statement 8",
+    "query": "rollback"
+  },
+  {
+    "comment": "sysviews - Statement 9",
+    "query": "select count(*) > 20 as ok from pg_config"
+  },
+  {
+    "comment": "sysviews - Statement 10",
+    "query": "select count(*) = 0 as ok from pg_cursors"
+  },
+  {
+    "comment": "sysviews - Statement 11",
+    "query": "select count(*) >= 0 as ok from pg_file_settings"
+  },
+  {
+    "comment": "sysviews - Statement 12",
+    "query": "select count(*) > 0 as ok, count(*) FILTER (WHERE error IS NOT NULL) = 0 AS no_err from pg_hba_file_rules"
+  },
+  {
+    "comment": "sysviews - Statement 13",
+    "query": "select count(*) >= 0 as ok, count(*) FILTER (WHERE error IS NOT NULL) = 0 AS no_err from pg_ident_file_mappings"
+  },
+  {
+    "comment": "sysviews - Statement 14",
+    "query": "select count(*) > 0 as ok from pg_locks"
+  },
+  {
+    "comment": "sysviews - Statement 15",
+    "query": "select count(*) = 0 as ok from pg_prepared_statements"
+  },
+  {
+    "comment": "sysviews - Statement 16",
+    "query": "select count(*) >= 0 as ok from pg_prepared_xacts"
+  },
+  {
+    "comment": "sysviews - Statement 17",
+    "query": "select count(*) > 0 as ok from pg_stat_slru"
+  },
+  {
+    "comment": "sysviews - Statement 18",
+    "query": "select count(*) = 1 as ok from pg_stat_wal"
+  },
+  {
+    "comment": "sysviews - Statement 19",
+    "query": "select count(*) = 0 as ok from pg_stat_wal_receiver"
+  },
+  {
+    "comment": "sysviews - Statement 20",
+    "query": "select name, setting from pg_settings where name like 'enable%'"
+  },
+  {
+    "comment": "sysviews - Statement 21",
+    "query": "select type, count(*) > 0 as ok FROM pg_wait_events where type <> 'InjectionPoint' group by type order by type COLLATE \"C\""
+  },
+  {
+    "comment": "sysviews - Statement 22",
+    "query": "select count(distinct utc_offset) >= 24 as ok from pg_timezone_names"
+  },
+  {
+    "comment": "sysviews - Statement 23",
+    "query": "select count(distinct utc_offset) >= 24 as ok from pg_timezone_abbrevs"
+  },
+  {
+    "comment": "sysviews - Statement 24",
+    "query": "set timezone_abbreviations = 'Australia'"
+  },
+  {
+    "comment": "sysviews - Statement 25",
+    "query": "set timezone_abbreviations = 'India'"
+  }
+]

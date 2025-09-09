@@ -1,0 +1,70 @@
+[
+  {
+    "comment": "mvcc - Statement 1",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "mvcc - Statement 2",
+    "query": "SET LOCAL enable_seqscan = false"
+  },
+  {
+    "comment": "mvcc - Statement 3",
+    "query": "SET LOCAL enable_indexonlyscan = false"
+  },
+  {
+    "comment": "mvcc - Statement 4",
+    "query": "SET LOCAL enable_bitmapscan = false"
+  },
+  {
+    "comment": "mvcc - Statement 5",
+    "query": "CREATE TABLE clean_aborted_self(key int, data text)"
+  },
+  {
+    "comment": "mvcc - Statement 6",
+    "query": "CREATE INDEX clean_aborted_self_key ON clean_aborted_self(key)"
+  },
+  {
+    "comment": "mvcc - Statement 7",
+    "query": "INSERT INTO clean_aborted_self (key, data) VALUES (-1, 'just to allocate metapage')"
+  },
+  {
+    "comment": "mvcc - Statement 8",
+    "query": "SELECT pg_relation_size('clean_aborted_self_key') AS clean_aborted_self_key_before"
+  },
+  {
+    "comment": "mvcc - Statement 9",
+    "query": "DO $$ BEGIN FOR i IN 1..100 LOOP BEGIN IF EXISTS(SELECT * FROM clean_aborted_self WHERE key > 0 AND key < 100) THEN RAISE data_corrupted USING MESSAGE = 'these rows should not exist'"
+  },
+  {
+    "comment": "mvcc - Statement 10",
+    "query": "END IF"
+  },
+  {
+    "comment": "mvcc - Statement 11",
+    "query": "INSERT INTO clean_aborted_self SELECT g.i, 'rolling back in a sec' FROM generate_series(1, 100) g(i)"
+  },
+  {
+    "comment": "mvcc - Statement 12",
+    "query": "RAISE reading_sql_data_not_permitted USING MESSAGE = 'round and round again'"
+  },
+  {
+    "comment": "mvcc - Statement 13",
+    "query": "EXCEPTION WHEN reading_sql_data_not_permitted THEN END"
+  },
+  {
+    "comment": "mvcc - Statement 14",
+    "query": "END LOOP"
+  },
+  {
+    "comment": "mvcc - Statement 15",
+    "query": "END;$$"
+  },
+  {
+    "comment": "mvcc - Statement 16",
+    "query": "SELECT :clean_aborted_self_key_before AS size_before, pg_relation_size('clean_aborted_self_key') size_after WHERE :clean_aborted_self_key_before != pg_relation_size('clean_aborted_self_key')"
+  },
+  {
+    "comment": "mvcc - Statement 17",
+    "query": "ROLLBACK"
+  }
+]

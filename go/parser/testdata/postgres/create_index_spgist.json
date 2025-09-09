@@ -1,0 +1,446 @@
+[
+  {
+    "comment": "create_index_spgist - Statement 1",
+    "query": "CREATE TABLE quad_point_tbl AS SELECT point(unique1,unique2) AS p FROM tenk1"
+  },
+  {
+    "comment": "create_index_spgist - Statement 2",
+    "query": "INSERT INTO quad_point_tbl SELECT '(333.0,400.0)'::point FROM generate_series(1,1000)"
+  },
+  {
+    "comment": "create_index_spgist - Statement 3",
+    "query": "INSERT INTO quad_point_tbl VALUES (NULL), (NULL), (NULL)"
+  },
+  {
+    "comment": "create_index_spgist - Statement 4",
+    "query": "CREATE INDEX sp_quad_ind ON quad_point_tbl USING spgist (p)"
+  },
+  {
+    "comment": "create_index_spgist - Statement 5",
+    "query": "CREATE TABLE kd_point_tbl AS SELECT * FROM quad_point_tbl"
+  },
+  {
+    "comment": "create_index_spgist - Statement 6",
+    "query": "CREATE INDEX sp_kd_ind ON kd_point_tbl USING spgist (p kd_point_ops)"
+  },
+  {
+    "comment": "create_index_spgist - Statement 7",
+    "query": "CREATE TABLE radix_text_tbl AS SELECT name AS t FROM road WHERE name !~ '^[0-9]'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 8",
+    "query": "INSERT INTO radix_text_tbl SELECT 'P0123456789abcdef' FROM generate_series(1,1000)"
+  },
+  {
+    "comment": "create_index_spgist - Statement 9",
+    "query": "INSERT INTO radix_text_tbl VALUES ('P0123456789abcde')"
+  },
+  {
+    "comment": "create_index_spgist - Statement 10",
+    "query": "INSERT INTO radix_text_tbl VALUES ('P0123456789abcdefF')"
+  },
+  {
+    "comment": "create_index_spgist - Statement 11",
+    "query": "CREATE INDEX sp_radix_ind ON radix_text_tbl USING spgist (t)"
+  },
+  {
+    "comment": "create_index_spgist - Statement 12",
+    "query": "SET enable_seqscan = ON"
+  },
+  {
+    "comment": "create_index_spgist - Statement 13",
+    "query": "SET enable_indexscan = OFF"
+  },
+  {
+    "comment": "create_index_spgist - Statement 14",
+    "query": "SET enable_bitmapscan = OFF"
+  },
+  {
+    "comment": "create_index_spgist - Statement 15",
+    "query": "SELECT count(*) FROM quad_point_tbl WHERE p IS NULL"
+  },
+  {
+    "comment": "create_index_spgist - Statement 16",
+    "query": "SELECT count(*) FROM quad_point_tbl WHERE p IS NOT NULL"
+  },
+  {
+    "comment": "create_index_spgist - Statement 17",
+    "query": "SELECT count(*) FROM quad_point_tbl"
+  },
+  {
+    "comment": "create_index_spgist - Statement 18",
+    "query": "SELECT count(*) FROM quad_point_tbl WHERE p <@ box '(200,200,1000,1000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 19",
+    "query": "SELECT count(*) FROM quad_point_tbl WHERE box '(200,200,1000,1000)' @> p"
+  },
+  {
+    "comment": "create_index_spgist - Statement 20",
+    "query": "SELECT count(*) FROM quad_point_tbl WHERE p << '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 21",
+    "query": "SELECT count(*) FROM quad_point_tbl WHERE p >> '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 22",
+    "query": "SELECT count(*) FROM quad_point_tbl WHERE p <<| '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 23",
+    "query": "SELECT count(*) FROM quad_point_tbl WHERE p |>> '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 24",
+    "query": "SELECT count(*) FROM quad_point_tbl WHERE p ~= '(4585, 365)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 25",
+    "query": "CREATE TEMP TABLE quad_point_tbl_ord_seq1 AS SELECT row_number() OVER (ORDER BY p <-> '0,0') n, p <-> '0,0' dist, p FROM quad_point_tbl"
+  },
+  {
+    "comment": "create_index_spgist - Statement 26",
+    "query": "CREATE TEMP TABLE quad_point_tbl_ord_seq2 AS SELECT row_number() OVER (ORDER BY p <-> '0,0') n, p <-> '0,0' dist, p FROM quad_point_tbl WHERE p <@ box '(200,200,1000,1000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 27",
+    "query": "CREATE TEMP TABLE quad_point_tbl_ord_seq3 AS SELECT row_number() OVER (ORDER BY p <-> '333,400') n, p <-> '333,400' dist, p FROM quad_point_tbl WHERE p IS NOT NULL"
+  },
+  {
+    "comment": "create_index_spgist - Statement 28",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdef'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 29",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcde'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 30",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdefF'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 31",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         Ct  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 32",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         Ct  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 33",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         Ct  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 34",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         Ct  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 35",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t =    'Aztec                         Ct  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 36",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t =    'Worth                         St  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 37",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         St  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 38",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         St  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 39",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         St  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 40",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t ~>~  'Worth                         St  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 41",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE t ^@  'Worth'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 42",
+    "query": "SET enable_seqscan = OFF"
+  },
+  {
+    "comment": "create_index_spgist - Statement 43",
+    "query": "SET enable_indexscan = ON"
+  },
+  {
+    "comment": "create_index_spgist - Statement 44",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_point_tbl WHERE p IS NULL"
+  },
+  {
+    "comment": "create_index_spgist - Statement 45",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_point_tbl WHERE p IS NOT NULL"
+  },
+  {
+    "comment": "create_index_spgist - Statement 46",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_point_tbl"
+  },
+  {
+    "comment": "create_index_spgist - Statement 47",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_point_tbl WHERE p <@ box '(200,200,1000,1000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 48",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_point_tbl WHERE box '(200,200,1000,1000)' @> p"
+  },
+  {
+    "comment": "create_index_spgist - Statement 49",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_point_tbl WHERE p << '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 50",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_point_tbl WHERE p >> '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 51",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_point_tbl WHERE p <<| '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 52",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_point_tbl WHERE p |>> '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 53",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM quad_point_tbl WHERE p ~= '(4585, 365)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 54",
+    "query": "EXPLAIN (COSTS OFF) SELECT row_number() OVER (ORDER BY p <-> '0,0') n, p <-> '0,0' dist, p FROM quad_point_tbl"
+  },
+  {
+    "comment": "create_index_spgist - Statement 55",
+    "query": "CREATE TEMP TABLE quad_point_tbl_ord_idx1 AS SELECT row_number() OVER (ORDER BY p <-> '0,0') n, p <-> '0,0' dist, p FROM quad_point_tbl"
+  },
+  {
+    "comment": "create_index_spgist - Statement 56",
+    "query": "SELECT * FROM quad_point_tbl_ord_seq1 seq FULL JOIN quad_point_tbl_ord_idx1 idx ON seq.n = idx.n WHERE seq.dist IS DISTINCT FROM idx.dist"
+  },
+  {
+    "comment": "create_index_spgist - Statement 57",
+    "query": "EXPLAIN (COSTS OFF) SELECT row_number() OVER (ORDER BY p <-> '0,0') n, p <-> '0,0' dist, p FROM quad_point_tbl WHERE p <@ box '(200,200,1000,1000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 58",
+    "query": "CREATE TEMP TABLE quad_point_tbl_ord_idx2 AS SELECT row_number() OVER (ORDER BY p <-> '0,0') n, p <-> '0,0' dist, p FROM quad_point_tbl WHERE p <@ box '(200,200,1000,1000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 59",
+    "query": "SELECT * FROM quad_point_tbl_ord_seq2 seq FULL JOIN quad_point_tbl_ord_idx2 idx ON seq.n = idx.n WHERE seq.dist IS DISTINCT FROM idx.dist"
+  },
+  {
+    "comment": "create_index_spgist - Statement 60",
+    "query": "EXPLAIN (COSTS OFF) SELECT row_number() OVER (ORDER BY p <-> '333,400') n, p <-> '333,400' dist, p FROM quad_point_tbl WHERE p IS NOT NULL"
+  },
+  {
+    "comment": "create_index_spgist - Statement 61",
+    "query": "CREATE TEMP TABLE quad_point_tbl_ord_idx3 AS SELECT row_number() OVER (ORDER BY p <-> '333,400') n, p <-> '333,400' dist, p FROM quad_point_tbl WHERE p IS NOT NULL"
+  },
+  {
+    "comment": "create_index_spgist - Statement 62",
+    "query": "SELECT * FROM quad_point_tbl_ord_seq3 seq FULL JOIN quad_point_tbl_ord_idx3 idx ON seq.n = idx.n WHERE seq.dist IS DISTINCT FROM idx.dist"
+  },
+  {
+    "comment": "create_index_spgist - Statement 63",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM kd_point_tbl WHERE p <@ box '(200,200,1000,1000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 64",
+    "query": "SELECT count(*) FROM kd_point_tbl WHERE p <@ box '(200,200,1000,1000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 65",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM kd_point_tbl WHERE box '(200,200,1000,1000)' @> p"
+  },
+  {
+    "comment": "create_index_spgist - Statement 66",
+    "query": "SELECT count(*) FROM kd_point_tbl WHERE box '(200,200,1000,1000)' @> p"
+  },
+  {
+    "comment": "create_index_spgist - Statement 67",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM kd_point_tbl WHERE p << '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 68",
+    "query": "SELECT count(*) FROM kd_point_tbl WHERE p << '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 69",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM kd_point_tbl WHERE p >> '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 70",
+    "query": "SELECT count(*) FROM kd_point_tbl WHERE p >> '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 71",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM kd_point_tbl WHERE p <<| '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 72",
+    "query": "SELECT count(*) FROM kd_point_tbl WHERE p <<| '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 73",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM kd_point_tbl WHERE p |>> '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 74",
+    "query": "SELECT count(*) FROM kd_point_tbl WHERE p |>> '(5000, 4000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 75",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM kd_point_tbl WHERE p ~= '(4585, 365)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 76",
+    "query": "SELECT count(*) FROM kd_point_tbl WHERE p ~= '(4585, 365)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 77",
+    "query": "EXPLAIN (COSTS OFF) SELECT row_number() OVER (ORDER BY p <-> '0,0') n, p <-> '0,0' dist, p FROM kd_point_tbl"
+  },
+  {
+    "comment": "create_index_spgist - Statement 78",
+    "query": "CREATE TEMP TABLE kd_point_tbl_ord_idx1 AS SELECT row_number() OVER (ORDER BY p <-> '0,0') n, p <-> '0,0' dist, p FROM kd_point_tbl"
+  },
+  {
+    "comment": "create_index_spgist - Statement 79",
+    "query": "SELECT * FROM quad_point_tbl_ord_seq1 seq FULL JOIN kd_point_tbl_ord_idx1 idx ON seq.n = idx.n WHERE seq.dist IS DISTINCT FROM idx.dist"
+  },
+  {
+    "comment": "create_index_spgist - Statement 80",
+    "query": "EXPLAIN (COSTS OFF) SELECT row_number() OVER (ORDER BY p <-> '0,0') n, p <-> '0,0' dist, p FROM kd_point_tbl WHERE p <@ box '(200,200,1000,1000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 81",
+    "query": "CREATE TEMP TABLE kd_point_tbl_ord_idx2 AS SELECT row_number() OVER (ORDER BY p <-> '0,0') n, p <-> '0,0' dist, p FROM kd_point_tbl WHERE p <@ box '(200,200,1000,1000)'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 82",
+    "query": "SELECT * FROM quad_point_tbl_ord_seq2 seq FULL JOIN kd_point_tbl_ord_idx2 idx ON seq.n = idx.n WHERE seq.dist IS DISTINCT FROM idx.dist"
+  },
+  {
+    "comment": "create_index_spgist - Statement 83",
+    "query": "EXPLAIN (COSTS OFF) SELECT row_number() OVER (ORDER BY p <-> '333,400') n, p <-> '333,400' dist, p FROM kd_point_tbl WHERE p IS NOT NULL"
+  },
+  {
+    "comment": "create_index_spgist - Statement 84",
+    "query": "CREATE TEMP TABLE kd_point_tbl_ord_idx3 AS SELECT row_number() OVER (ORDER BY p <-> '333,400') n, p <-> '333,400' dist, p FROM kd_point_tbl WHERE p IS NOT NULL"
+  },
+  {
+    "comment": "create_index_spgist - Statement 85",
+    "query": "SELECT * FROM quad_point_tbl_ord_seq3 seq FULL JOIN kd_point_tbl_ord_idx3 idx ON seq.n = idx.n WHERE seq.dist IS DISTINCT FROM idx.dist"
+  },
+  {
+    "comment": "create_index_spgist - Statement 86",
+    "query": "SET extra_float_digits = 0"
+  },
+  {
+    "comment": "create_index_spgist - Statement 87",
+    "query": "CREATE INDEX ON quad_point_tbl_ord_seq1 USING spgist(p) INCLUDE(dist)"
+  },
+  {
+    "comment": "create_index_spgist - Statement 88",
+    "query": "EXPLAIN (COSTS OFF) SELECT p, dist FROM quad_point_tbl_ord_seq1 ORDER BY p <-> '0,0' LIMIT 10"
+  },
+  {
+    "comment": "create_index_spgist - Statement 89",
+    "query": "SELECT p, dist FROM quad_point_tbl_ord_seq1 ORDER BY p <-> '0,0' LIMIT 10"
+  },
+  {
+    "comment": "create_index_spgist - Statement 90",
+    "query": "RESET extra_float_digits"
+  },
+  {
+    "comment": "create_index_spgist - Statement 91",
+    "query": "SELECT (SELECT p FROM kd_point_tbl ORDER BY p <-> pt, p <-> '0,0' LIMIT 1) FROM (VALUES (point '1,2'), (NULL), ('1234,5678')) pts(pt)"
+  },
+  {
+    "comment": "create_index_spgist - Statement 92",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdef'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 93",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcde'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 94",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t = 'P0123456789abcdefF'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 95",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t <    'Aztec                         Ct  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 96",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t ~<~  'Aztec                         Ct  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 97",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t <=   'Aztec                         Ct  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 98",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t ~<=~ 'Aztec                         Ct  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 99",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t =    'Aztec                         Ct  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 100",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t =    'Worth                         St  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 101",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t >=   'Worth                         St  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 102",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t ~>=~ 'Worth                         St  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 103",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t >    'Worth                         St  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 104",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t ~>~  'Worth                         St  '"
+  },
+  {
+    "comment": "create_index_spgist - Statement 105",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE t ^@\t 'Worth'"
+  },
+  {
+    "comment": "create_index_spgist - Statement 106",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM radix_text_tbl WHERE starts_with(t, 'Worth')"
+  },
+  {
+    "comment": "create_index_spgist - Statement 107",
+    "query": "SELECT count(*) FROM radix_text_tbl WHERE starts_with(t, 'Worth')"
+  },
+  {
+    "comment": "create_index_spgist - Statement 108",
+    "query": "SET enable_bitmapscan = ON"
+  },
+  {
+    "comment": "create_index_spgist - Statement 109",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "create_index_spgist - Statement 110",
+    "query": "RESET enable_indexscan"
+  },
+  {
+    "comment": "create_index_spgist - Statement 111",
+    "query": "RESET enable_bitmapscan"
+  }
+]

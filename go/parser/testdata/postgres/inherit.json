@@ -1,0 +1,2210 @@
+[
+  {
+    "comment": "inherit - Statement 1",
+    "query": "CREATE TABLE a (aa TEXT)"
+  },
+  {
+    "comment": "inherit - Statement 2",
+    "query": "CREATE TABLE b (bb TEXT) INHERITS (a)"
+  },
+  {
+    "comment": "inherit - Statement 3",
+    "query": "CREATE TABLE c (cc TEXT) INHERITS (a)"
+  },
+  {
+    "comment": "inherit - Statement 4",
+    "query": "CREATE TABLE d (dd TEXT) INHERITS (b,c,a)"
+  },
+  {
+    "comment": "inherit - Statement 5",
+    "query": "INSERT INTO a(aa) VALUES('aaa')"
+  },
+  {
+    "comment": "inherit - Statement 6",
+    "query": "INSERT INTO a(aa) VALUES('aaaa')"
+  },
+  {
+    "comment": "inherit - Statement 7",
+    "query": "INSERT INTO a(aa) VALUES('aaaaa')"
+  },
+  {
+    "comment": "inherit - Statement 8",
+    "query": "INSERT INTO a(aa) VALUES('aaaaaa')"
+  },
+  {
+    "comment": "inherit - Statement 9",
+    "query": "INSERT INTO a(aa) VALUES('aaaaaaa')"
+  },
+  {
+    "comment": "inherit - Statement 10",
+    "query": "INSERT INTO a(aa) VALUES('aaaaaaaa')"
+  },
+  {
+    "comment": "inherit - Statement 11",
+    "query": "INSERT INTO b(aa) VALUES('bbb')"
+  },
+  {
+    "comment": "inherit - Statement 12",
+    "query": "INSERT INTO b(aa) VALUES('bbbb')"
+  },
+  {
+    "comment": "inherit - Statement 13",
+    "query": "INSERT INTO b(aa) VALUES('bbbbb')"
+  },
+  {
+    "comment": "inherit - Statement 14",
+    "query": "INSERT INTO b(aa) VALUES('bbbbbb')"
+  },
+  {
+    "comment": "inherit - Statement 15",
+    "query": "INSERT INTO b(aa) VALUES('bbbbbbb')"
+  },
+  {
+    "comment": "inherit - Statement 16",
+    "query": "INSERT INTO b(aa) VALUES('bbbbbbbb')"
+  },
+  {
+    "comment": "inherit - Statement 17",
+    "query": "INSERT INTO c(aa) VALUES('ccc')"
+  },
+  {
+    "comment": "inherit - Statement 18",
+    "query": "INSERT INTO c(aa) VALUES('cccc')"
+  },
+  {
+    "comment": "inherit - Statement 19",
+    "query": "INSERT INTO c(aa) VALUES('ccccc')"
+  },
+  {
+    "comment": "inherit - Statement 20",
+    "query": "INSERT INTO c(aa) VALUES('cccccc')"
+  },
+  {
+    "comment": "inherit - Statement 21",
+    "query": "INSERT INTO c(aa) VALUES('ccccccc')"
+  },
+  {
+    "comment": "inherit - Statement 22",
+    "query": "INSERT INTO c(aa) VALUES('cccccccc')"
+  },
+  {
+    "comment": "inherit - Statement 23",
+    "query": "INSERT INTO d(aa) VALUES('ddd')"
+  },
+  {
+    "comment": "inherit - Statement 24",
+    "query": "INSERT INTO d(aa) VALUES('dddd')"
+  },
+  {
+    "comment": "inherit - Statement 25",
+    "query": "INSERT INTO d(aa) VALUES('ddddd')"
+  },
+  {
+    "comment": "inherit - Statement 26",
+    "query": "INSERT INTO d(aa) VALUES('dddddd')"
+  },
+  {
+    "comment": "inherit - Statement 27",
+    "query": "INSERT INTO d(aa) VALUES('ddddddd')"
+  },
+  {
+    "comment": "inherit - Statement 28",
+    "query": "INSERT INTO d(aa) VALUES('dddddddd')"
+  },
+  {
+    "comment": "inherit - Statement 29",
+    "query": "SELECT relname, a.* FROM a, pg_class where a.tableoid = pg_class.oid"
+  },
+  {
+    "comment": "inherit - Statement 30",
+    "query": "SELECT relname, b.* FROM b, pg_class where b.tableoid = pg_class.oid"
+  },
+  {
+    "comment": "inherit - Statement 31",
+    "query": "SELECT relname, c.* FROM c, pg_class where c.tableoid = pg_class.oid"
+  },
+  {
+    "comment": "inherit - Statement 32",
+    "query": "SELECT relname, d.* FROM d, pg_class where d.tableoid = pg_class.oid"
+  },
+  {
+    "comment": "inherit - Statement 33",
+    "query": "SELECT relname, a.* FROM ONLY a, pg_class where a.tableoid = pg_class.oid"
+  },
+  {
+    "comment": "inherit - Statement 34",
+    "query": "SELECT relname, b.* FROM ONLY b, pg_class where b.tableoid = pg_class.oid"
+  },
+  {
+    "comment": "inherit - Statement 35",
+    "query": "SELECT relname, c.* FROM ONLY c, pg_class where c.tableoid = pg_class.oid"
+  },
+  {
+    "comment": "inherit - Statement 36",
+    "query": "SELECT relname, d.* FROM ONLY d, pg_class where d.tableoid = pg_class.oid"
+  },
+  {
+    "comment": "inherit - Statement 37",
+    "query": "UPDATE a SET aa='zzzz' WHERE aa='aaaa'"
+  },
+  {
+    "comment": "inherit - Statement 38",
+    "query": "UPDATE ONLY a SET aa='zzzzz' WHERE aa='aaaaa'"
+  },
+  {
+    "comment": "inherit - Statement 39",
+    "query": "UPDATE b SET aa='zzz' WHERE aa='aaa'"
+  },
+  {
+    "comment": "inherit - Statement 40",
+    "query": "UPDATE ONLY b SET aa='zzz' WHERE aa='aaa'"
+  },
+  {
+    "comment": "inherit - Statement 41",
+    "query": "UPDATE a SET aa='zzzzzz' WHERE aa LIKE 'aaa%'"
+  },
+  {
+    "comment": "inherit - Statement 42",
+    "query": "UPDATE b SET aa='new'"
+  },
+  {
+    "comment": "inherit - Statement 43",
+    "query": "UPDATE a SET aa='new'"
+  },
+  {
+    "comment": "inherit - Statement 44",
+    "query": "DELETE FROM ONLY c WHERE aa='new'"
+  },
+  {
+    "comment": "inherit - Statement 45",
+    "query": "DELETE FROM a"
+  },
+  {
+    "comment": "inherit - Statement 46",
+    "query": "CREATE TEMP TABLE z (b TEXT, PRIMARY KEY(aa, b)) inherits (a)"
+  },
+  {
+    "comment": "inherit - Statement 47",
+    "query": "INSERT INTO z VALUES (NULL, 'text')"
+  },
+  {
+    "comment": "inherit - Statement 48",
+    "query": "create table some_tab (f1 int, f2 int, f3 int, check (f1 < 10) no inherit)"
+  },
+  {
+    "comment": "inherit - Statement 49",
+    "query": "create table some_tab_child () inherits(some_tab)"
+  },
+  {
+    "comment": "inherit - Statement 50",
+    "query": "insert into some_tab_child select i, i+1, 0 from generate_series(1,1000) i"
+  },
+  {
+    "comment": "inherit - Statement 51",
+    "query": "create index on some_tab_child(f1, f2)"
+  },
+  {
+    "comment": "inherit - Statement 52",
+    "query": "create function some_tab_stmt_trig_func() returns trigger as $$begin raise notice 'updating some_tab'; return NULL; end;$$ language plpgsql"
+  },
+  {
+    "comment": "inherit - Statement 53",
+    "query": "create trigger some_tab_stmt_trig before update on some_tab execute function some_tab_stmt_trig_func()"
+  },
+  {
+    "comment": "inherit - Statement 54",
+    "query": "explain (costs off) update some_tab set f3 = 11 where f1 = 12 and f2 = 13"
+  },
+  {
+    "comment": "inherit - Statement 55",
+    "query": "update some_tab set f3 = 11 where f1 = 12 and f2 = 13"
+  },
+  {
+    "comment": "inherit - Statement 56",
+    "query": "drop table some_tab cascade"
+  },
+  {
+    "comment": "inherit - Statement 57",
+    "query": "drop function some_tab_stmt_trig_func()"
+  },
+  {
+    "comment": "inherit - Statement 58",
+    "query": "create table some_tab (a int, b int)"
+  },
+  {
+    "comment": "inherit - Statement 59",
+    "query": "create table some_tab_child () inherits (some_tab)"
+  },
+  {
+    "comment": "inherit - Statement 60",
+    "query": "insert into some_tab_child values(1,2)"
+  },
+  {
+    "comment": "inherit - Statement 61",
+    "query": "explain (verbose, costs off) update some_tab set a = a + 1 where false"
+  },
+  {
+    "comment": "inherit - Statement 62",
+    "query": "update some_tab set a = a + 1 where false"
+  },
+  {
+    "comment": "inherit - Statement 63",
+    "query": "explain (verbose, costs off) update some_tab set a = a + 1 where false returning b, a"
+  },
+  {
+    "comment": "inherit - Statement 64",
+    "query": "update some_tab set a = a + 1 where false returning b, a"
+  },
+  {
+    "comment": "inherit - Statement 65",
+    "query": "table some_tab"
+  },
+  {
+    "comment": "inherit - Statement 66",
+    "query": "create temp table foo(f1 int, f2 int)"
+  },
+  {
+    "comment": "inherit - Statement 67",
+    "query": "create temp table foo2(f3 int) inherits (foo)"
+  },
+  {
+    "comment": "inherit - Statement 68",
+    "query": "create temp table bar(f1 int, f2 int)"
+  },
+  {
+    "comment": "inherit - Statement 69",
+    "query": "create temp table bar2(f3 int) inherits (bar)"
+  },
+  {
+    "comment": "inherit - Statement 70",
+    "query": "insert into foo values(1,1)"
+  },
+  {
+    "comment": "inherit - Statement 71",
+    "query": "insert into foo values(3,3)"
+  },
+  {
+    "comment": "inherit - Statement 72",
+    "query": "insert into foo2 values(2,2,2)"
+  },
+  {
+    "comment": "inherit - Statement 73",
+    "query": "insert into foo2 values(3,3,3)"
+  },
+  {
+    "comment": "inherit - Statement 74",
+    "query": "insert into bar values(1,1)"
+  },
+  {
+    "comment": "inherit - Statement 75",
+    "query": "insert into bar values(2,2)"
+  },
+  {
+    "comment": "inherit - Statement 76",
+    "query": "insert into bar values(3,3)"
+  },
+  {
+    "comment": "inherit - Statement 77",
+    "query": "insert into bar values(4,4)"
+  },
+  {
+    "comment": "inherit - Statement 78",
+    "query": "insert into bar2 values(1,1,1)"
+  },
+  {
+    "comment": "inherit - Statement 79",
+    "query": "insert into bar2 values(2,2,2)"
+  },
+  {
+    "comment": "inherit - Statement 80",
+    "query": "insert into bar2 values(3,3,3)"
+  },
+  {
+    "comment": "inherit - Statement 81",
+    "query": "insert into bar2 values(4,4,4)"
+  },
+  {
+    "comment": "inherit - Statement 82",
+    "query": "update bar set f2 = f2 + 100 where f1 in (select f1 from foo)"
+  },
+  {
+    "comment": "inherit - Statement 83",
+    "query": "select tableoid::regclass::text as relname, bar.* from bar order by 1,2"
+  },
+  {
+    "comment": "inherit - Statement 84",
+    "query": "update bar set f2 = f2 + 100 from ( select f1 from foo union all select f1+3 from foo ) ss where bar.f1 = ss.f1"
+  },
+  {
+    "comment": "inherit - Statement 85",
+    "query": "create table some_tab (a int)"
+  },
+  {
+    "comment": "inherit - Statement 86",
+    "query": "insert into some_tab values (0)"
+  },
+  {
+    "comment": "inherit - Statement 87",
+    "query": "insert into some_tab_child values (1)"
+  },
+  {
+    "comment": "inherit - Statement 88",
+    "query": "create table parted_tab (a int, b char) partition by list (a)"
+  },
+  {
+    "comment": "inherit - Statement 89",
+    "query": "create table parted_tab_part1 partition of parted_tab for values in (1)"
+  },
+  {
+    "comment": "inherit - Statement 90",
+    "query": "create table parted_tab_part2 partition of parted_tab for values in (2)"
+  },
+  {
+    "comment": "inherit - Statement 91",
+    "query": "create table parted_tab_part3 partition of parted_tab for values in (3)"
+  },
+  {
+    "comment": "inherit - Statement 92",
+    "query": "insert into parted_tab values (1, 'a'), (2, 'a'), (3, 'a')"
+  },
+  {
+    "comment": "inherit - Statement 93",
+    "query": "update parted_tab set b = 'b' from (select a from some_tab union all select a+1 from some_tab) ss (a) where parted_tab.a = ss.a"
+  },
+  {
+    "comment": "inherit - Statement 94",
+    "query": "select tableoid::regclass::text as relname, parted_tab.* from parted_tab order by 1,2"
+  },
+  {
+    "comment": "inherit - Statement 95",
+    "query": "truncate parted_tab"
+  },
+  {
+    "comment": "inherit - Statement 96",
+    "query": "update parted_tab set b = 'b' from (select 0 from parted_tab union all select 1 from parted_tab) ss (a) where parted_tab.a = ss.a"
+  },
+  {
+    "comment": "inherit - Statement 97",
+    "query": "explain update parted_tab set a = 2 where false"
+  },
+  {
+    "comment": "inherit - Statement 98",
+    "query": "drop table parted_tab"
+  },
+  {
+    "comment": "inherit - Statement 99",
+    "query": "create table mlparted_tab (a int, b char, c text) partition by list (a)"
+  },
+  {
+    "comment": "inherit - Statement 100",
+    "query": "create table mlparted_tab_part1 partition of mlparted_tab for values in (1)"
+  },
+  {
+    "comment": "inherit - Statement 101",
+    "query": "create table mlparted_tab_part2 partition of mlparted_tab for values in (2) partition by list (b)"
+  },
+  {
+    "comment": "inherit - Statement 102",
+    "query": "create table mlparted_tab_part3 partition of mlparted_tab for values in (3)"
+  },
+  {
+    "comment": "inherit - Statement 103",
+    "query": "create table mlparted_tab_part2a partition of mlparted_tab_part2 for values in ('a')"
+  },
+  {
+    "comment": "inherit - Statement 104",
+    "query": "create table mlparted_tab_part2b partition of mlparted_tab_part2 for values in ('b')"
+  },
+  {
+    "comment": "inherit - Statement 105",
+    "query": "insert into mlparted_tab values (1, 'a'), (2, 'a'), (2, 'b'), (3, 'a')"
+  },
+  {
+    "comment": "inherit - Statement 106",
+    "query": "update mlparted_tab mlp set c = 'xxx' from (select a from some_tab union all select a+1 from some_tab) ss (a) where (mlp.a = ss.a and mlp.b = 'b') or mlp.a = 3"
+  },
+  {
+    "comment": "inherit - Statement 107",
+    "query": "select tableoid::regclass::text as relname, mlparted_tab.* from mlparted_tab order by 1,2"
+  },
+  {
+    "comment": "inherit - Statement 108",
+    "query": "drop table mlparted_tab"
+  },
+  {
+    "comment": "inherit - Statement 109",
+    "query": "/* Test multiple inheritance of column defaults */ CREATE TABLE firstparent (tomorrow date default now()::date + 1)"
+  },
+  {
+    "comment": "inherit - Statement 110",
+    "query": "CREATE TABLE secondparent (tomorrow date default  now() :: date  +  1)"
+  },
+  {
+    "comment": "inherit - Statement 111",
+    "query": "CREATE TABLE jointchild () INHERITS (firstparent, secondparent)"
+  },
+  {
+    "comment": "inherit - Statement 112",
+    "query": "CREATE TABLE thirdparent (tomorrow date default now()::date - 1)"
+  },
+  {
+    "comment": "inherit - Statement 113",
+    "query": "CREATE TABLE otherchild () INHERITS (firstparent, thirdparent)"
+  },
+  {
+    "comment": "inherit - Statement 114",
+    "query": "CREATE TABLE otherchild (tomorrow date default now()) INHERITS (firstparent, thirdparent)"
+  },
+  {
+    "comment": "inherit - Statement 115",
+    "query": "DROP TABLE firstparent, secondparent, jointchild, thirdparent, otherchild"
+  },
+  {
+    "comment": "inherit - Statement 116",
+    "query": "insert into d values('test','one','two','three')"
+  },
+  {
+    "comment": "inherit - Statement 117",
+    "query": "alter table a alter column aa type integer using bit_length(aa)"
+  },
+  {
+    "comment": "inherit - Statement 118",
+    "query": "select * from d"
+  },
+  {
+    "comment": "inherit - Statement 119",
+    "query": "create temp table parent1(f1 int, f2 int)"
+  },
+  {
+    "comment": "inherit - Statement 120",
+    "query": "create temp table parent2(f1 int, f3 bigint)"
+  },
+  {
+    "comment": "inherit - Statement 121",
+    "query": "create temp table childtab(f4 int) inherits(parent1, parent2)"
+  },
+  {
+    "comment": "inherit - Statement 122",
+    "query": "alter table parent1 alter column f1 type bigint"
+  },
+  {
+    "comment": "inherit - Statement 123",
+    "query": "alter table parent1 alter column f2 type bigint"
+  },
+  {
+    "comment": "inherit - Statement 124",
+    "query": "create table p1(ff1 int)"
+  },
+  {
+    "comment": "inherit - Statement 125",
+    "query": "alter table p1 add constraint p1chk check (ff1 > 0) no inherit"
+  },
+  {
+    "comment": "inherit - Statement 126",
+    "query": "alter table p1 add constraint p2chk check (ff1 > 10)"
+  },
+  {
+    "comment": "inherit - Statement 127",
+    "query": "select pc.relname, pgc.conname, pgc.contype, pgc.conislocal, pgc.coninhcount, pgc.connoinherit from pg_class as pc inner join pg_constraint as pgc on (pgc.conrelid = pc.oid) where pc.relname = 'p1' order by 1,2"
+  },
+  {
+    "comment": "inherit - Statement 128",
+    "query": "create table c1 () inherits (p1)"
+  },
+  {
+    "comment": "inherit - Statement 129",
+    "query": "drop table p1 cascade"
+  },
+  {
+    "comment": "inherit - Statement 130",
+    "query": "create table base (i integer)"
+  },
+  {
+    "comment": "inherit - Statement 131",
+    "query": "create table derived () inherits (base)"
+  },
+  {
+    "comment": "inherit - Statement 132",
+    "query": "create table more_derived (like derived, b int) inherits (derived)"
+  },
+  {
+    "comment": "inherit - Statement 133",
+    "query": "insert into derived (i) values (0)"
+  },
+  {
+    "comment": "inherit - Statement 134",
+    "query": "select derived::base from derived"
+  },
+  {
+    "comment": "inherit - Statement 135",
+    "query": "select NULL::derived::base"
+  },
+  {
+    "comment": "inherit - Statement 136",
+    "query": "explain (verbose on, costs off) select row(i, b)::more_derived::derived::base from more_derived"
+  },
+  {
+    "comment": "inherit - Statement 137",
+    "query": "explain (verbose on, costs off) select (1, 2)::more_derived::derived::base"
+  },
+  {
+    "comment": "inherit - Statement 138",
+    "query": "drop table more_derived"
+  },
+  {
+    "comment": "inherit - Statement 139",
+    "query": "drop table derived"
+  },
+  {
+    "comment": "inherit - Statement 140",
+    "query": "drop table base"
+  },
+  {
+    "comment": "inherit - Statement 141",
+    "query": "create table p2(f1 text)"
+  },
+  {
+    "comment": "inherit - Statement 142",
+    "query": "create function p2text(p2) returns text as 'select $1.f1' language sql"
+  },
+  {
+    "comment": "inherit - Statement 143",
+    "query": "create table c1(f3 int) inherits(p1,p2)"
+  },
+  {
+    "comment": "inherit - Statement 144",
+    "query": "insert into c1 values(123456789, 'hi', 42)"
+  },
+  {
+    "comment": "inherit - Statement 145",
+    "query": "select p2text(c1.*) from c1"
+  },
+  {
+    "comment": "inherit - Statement 146",
+    "query": "drop function p2text(p2)"
+  },
+  {
+    "comment": "inherit - Statement 147",
+    "query": "drop table c1"
+  },
+  {
+    "comment": "inherit - Statement 148",
+    "query": "drop table p2"
+  },
+  {
+    "comment": "inherit - Statement 149",
+    "query": "drop table p1"
+  },
+  {
+    "comment": "inherit - Statement 150",
+    "query": "CREATE TABLE ac (aa TEXT)"
+  },
+  {
+    "comment": "inherit - Statement 151",
+    "query": "alter table ac add constraint ac_check check (aa is not null)"
+  },
+  {
+    "comment": "inherit - Statement 152",
+    "query": "CREATE TABLE bc (bb TEXT) INHERITS (ac)"
+  },
+  {
+    "comment": "inherit - Statement 153",
+    "query": "select pc.relname, pgc.conname, pgc.contype, pgc.conislocal, pgc.coninhcount, pg_get_expr(pgc.conbin, pc.oid) as consrc from pg_class as pc inner join pg_constraint as pgc on (pgc.conrelid = pc.oid) where pc.relname in ('ac', 'bc') order by 1,2"
+  },
+  {
+    "comment": "inherit - Statement 154",
+    "query": "insert into ac (aa) values (NULL)"
+  },
+  {
+    "comment": "inherit - Statement 155",
+    "query": "insert into bc (aa) values (NULL)"
+  },
+  {
+    "comment": "inherit - Statement 156",
+    "query": "alter table bc drop constraint ac_check"
+  },
+  {
+    "comment": "inherit - Statement 157",
+    "query": "alter table ac drop constraint ac_check"
+  },
+  {
+    "comment": "inherit - Statement 158",
+    "query": "alter table ac add check (aa is not null)"
+  },
+  {
+    "comment": "inherit - Statement 159",
+    "query": "alter table bc drop constraint ac_aa_check"
+  },
+  {
+    "comment": "inherit - Statement 160",
+    "query": "alter table ac drop constraint ac_aa_check"
+  },
+  {
+    "comment": "inherit - Statement 161",
+    "query": "alter table bc no inherit ac"
+  },
+  {
+    "comment": "inherit - Statement 162",
+    "query": "drop table bc"
+  },
+  {
+    "comment": "inherit - Statement 163",
+    "query": "drop table ac"
+  },
+  {
+    "comment": "inherit - Statement 164",
+    "query": "create table ac (a int constraint check_a check (a <> 0))"
+  },
+  {
+    "comment": "inherit - Statement 165",
+    "query": "create table bc (a int constraint check_a check (a <> 0), b int constraint check_b check (b <> 0)) inherits (ac)"
+  },
+  {
+    "comment": "inherit - Statement 166",
+    "query": "create table bc (b int constraint check_b check (b <> 0))"
+  },
+  {
+    "comment": "inherit - Statement 167",
+    "query": "create table cc (c int constraint check_c check (c <> 0)) inherits (ac, bc)"
+  },
+  {
+    "comment": "inherit - Statement 168",
+    "query": "select pc.relname, pgc.conname, pgc.contype, pgc.conislocal, pgc.coninhcount, pg_get_expr(pgc.conbin, pc.oid) as consrc from pg_class as pc inner join pg_constraint as pgc on (pgc.conrelid = pc.oid) where pc.relname in ('ac', 'bc', 'cc') order by 1,2"
+  },
+  {
+    "comment": "inherit - Statement 169",
+    "query": "alter table cc no inherit bc"
+  },
+  {
+    "comment": "inherit - Statement 170",
+    "query": "drop table cc"
+  },
+  {
+    "comment": "inherit - Statement 171",
+    "query": "create table p1(f1 int)"
+  },
+  {
+    "comment": "inherit - Statement 172",
+    "query": "create table p2(f2 int)"
+  },
+  {
+    "comment": "inherit - Statement 173",
+    "query": "insert into c1 values(1,-1,2)"
+  },
+  {
+    "comment": "inherit - Statement 174",
+    "query": "alter table p2 add constraint cc check (f2>0)"
+  },
+  {
+    "comment": "inherit - Statement 175",
+    "query": "alter table p2 add check (f2>0)"
+  },
+  {
+    "comment": "inherit - Statement 176",
+    "query": "delete from c1"
+  },
+  {
+    "comment": "inherit - Statement 177",
+    "query": "insert into c1 values(1,1,2)"
+  },
+  {
+    "comment": "inherit - Statement 178",
+    "query": "create table c2(f3 int) inherits(p1,p2)"
+  },
+  {
+    "comment": "inherit - Statement 179",
+    "query": "drop table p2 cascade"
+  },
+  {
+    "comment": "inherit - Statement 180",
+    "query": "create table pp1 (f1 int)"
+  },
+  {
+    "comment": "inherit - Statement 181",
+    "query": "create table cc1 (f2 text, f3 int) inherits (pp1)"
+  },
+  {
+    "comment": "inherit - Statement 182",
+    "query": "alter table pp1 add column a1 int check (a1 > 0)"
+  },
+  {
+    "comment": "inherit - Statement 183",
+    "query": "CREATE TABLE inht1 (a int, b int)"
+  },
+  {
+    "comment": "inherit - Statement 184",
+    "query": "CREATE TABLE inhs1 (b int, c int)"
+  },
+  {
+    "comment": "inherit - Statement 185",
+    "query": "CREATE TABLE inhts (d int) INHERITS (inht1, inhs1)"
+  },
+  {
+    "comment": "inherit - Statement 186",
+    "query": "ALTER TABLE inht1 RENAME a TO aa"
+  },
+  {
+    "comment": "inherit - Statement 187",
+    "query": "ALTER TABLE inht1 RENAME b TO bb"
+  },
+  {
+    "comment": "inherit - Statement 188",
+    "query": "ALTER TABLE inhts RENAME aa TO aaa"
+  },
+  {
+    "comment": "inherit - Statement 189",
+    "query": "ALTER TABLE inhts RENAME d TO dd"
+  },
+  {
+    "comment": "inherit - Statement 190",
+    "query": "CREATE TABLE inhta ()"
+  },
+  {
+    "comment": "inherit - Statement 191",
+    "query": "CREATE TABLE inhtb () INHERITS (inhta)"
+  },
+  {
+    "comment": "inherit - Statement 192",
+    "query": "CREATE TABLE inhtc () INHERITS (inhtb)"
+  },
+  {
+    "comment": "inherit - Statement 193",
+    "query": "CREATE TABLE inhtd () INHERITS (inhta, inhtb, inhtc)"
+  },
+  {
+    "comment": "inherit - Statement 194",
+    "query": "ALTER TABLE inhta ADD COLUMN i int, ADD COLUMN j bigint DEFAULT 1"
+  },
+  {
+    "comment": "inherit - Statement 195",
+    "query": "CREATE TABLE inht2 (x int) INHERITS (inht1)"
+  },
+  {
+    "comment": "inherit - Statement 196",
+    "query": "CREATE TABLE inht3 (y int) INHERITS (inht1)"
+  },
+  {
+    "comment": "inherit - Statement 197",
+    "query": "CREATE TABLE inht4 (z int) INHERITS (inht2, inht3)"
+  },
+  {
+    "comment": "inherit - Statement 198",
+    "query": "ALTER TABLE inht1 RENAME aa TO aaa"
+  },
+  {
+    "comment": "inherit - Statement 199",
+    "query": "ALTER TABLE inht1 RENAME aaa TO aaaa"
+  },
+  {
+    "comment": "inherit - Statement 200",
+    "query": "DROP TABLE inht1, inhs1 CASCADE"
+  },
+  {
+    "comment": "inherit - Statement 201",
+    "query": "CREATE TABLE test_constraints (id int, val1 varchar, val2 int, UNIQUE(val1, val2))"
+  },
+  {
+    "comment": "inherit - Statement 202",
+    "query": "CREATE TABLE test_constraints_inh () INHERITS (test_constraints)"
+  },
+  {
+    "comment": "inherit - Statement 203",
+    "query": "DROP TABLE test_constraints"
+  },
+  {
+    "comment": "inherit - Statement 204",
+    "query": "CREATE TABLE test_ex_constraints ( c circle, EXCLUDE USING gist (c WITH &&) )"
+  },
+  {
+    "comment": "inherit - Statement 205",
+    "query": "CREATE TABLE test_ex_constraints_inh () INHERITS (test_ex_constraints)"
+  },
+  {
+    "comment": "inherit - Statement 206",
+    "query": "DROP TABLE test_ex_constraints"
+  },
+  {
+    "comment": "inherit - Statement 207",
+    "query": "CREATE TABLE test_primary_constraints(id int PRIMARY KEY)"
+  },
+  {
+    "comment": "inherit - Statement 208",
+    "query": "CREATE TABLE test_foreign_constraints(id1 int REFERENCES test_primary_constraints(id))"
+  },
+  {
+    "comment": "inherit - Statement 209",
+    "query": "CREATE TABLE test_foreign_constraints_inh () INHERITS (test_foreign_constraints)"
+  },
+  {
+    "comment": "inherit - Statement 210",
+    "query": "DROP TABLE test_foreign_constraints"
+  },
+  {
+    "comment": "inherit - Statement 211",
+    "query": "DROP TABLE test_primary_constraints"
+  },
+  {
+    "comment": "inherit - Statement 212",
+    "query": "create table inh_fk_1 (a int primary key)"
+  },
+  {
+    "comment": "inherit - Statement 213",
+    "query": "insert into inh_fk_1 values (1), (2), (3)"
+  },
+  {
+    "comment": "inherit - Statement 214",
+    "query": "create table inh_fk_2 (x int primary key, y int references inh_fk_1 on delete cascade)"
+  },
+  {
+    "comment": "inherit - Statement 215",
+    "query": "insert into inh_fk_2 values (11, 1), (22, 2), (33, 3)"
+  },
+  {
+    "comment": "inherit - Statement 216",
+    "query": "create table inh_fk_2_child () inherits (inh_fk_2)"
+  },
+  {
+    "comment": "inherit - Statement 217",
+    "query": "insert into inh_fk_2_child values (111, 1), (222, 2)"
+  },
+  {
+    "comment": "inherit - Statement 218",
+    "query": "delete from inh_fk_1 where a = 1"
+  },
+  {
+    "comment": "inherit - Statement 219",
+    "query": "select * from inh_fk_1 order by 1"
+  },
+  {
+    "comment": "inherit - Statement 220",
+    "query": "select * from inh_fk_2 order by 1, 2"
+  },
+  {
+    "comment": "inherit - Statement 221",
+    "query": "drop table inh_fk_1, inh_fk_2, inh_fk_2_child"
+  },
+  {
+    "comment": "inherit - Statement 222",
+    "query": "create table p1_c1() inherits(p1)"
+  },
+  {
+    "comment": "inherit - Statement 223",
+    "query": "alter table p1 add constraint inh_check_constraint1 check (f1 > 0)"
+  },
+  {
+    "comment": "inherit - Statement 224",
+    "query": "alter table p1_c1 add constraint inh_check_constraint1 check (f1 > 0)"
+  },
+  {
+    "comment": "inherit - Statement 225",
+    "query": "alter table p1_c1 add constraint inh_check_constraint2 check (f1 < 10)"
+  },
+  {
+    "comment": "inherit - Statement 226",
+    "query": "alter table p1 add constraint inh_check_constraint2 check (f1 < 10)"
+  },
+  {
+    "comment": "inherit - Statement 227",
+    "query": "select conrelid::regclass::text as relname, conname, conislocal, coninhcount from pg_constraint where conname like 'inh\\_check\\_constraint%' order by 1, 2"
+  },
+  {
+    "comment": "inherit - Statement 228",
+    "query": "create table p1(f1 int constraint f1_pos CHECK (f1 > 0))"
+  },
+  {
+    "comment": "inherit - Statement 229",
+    "query": "create table p1_c1 (f1 int constraint f1_pos CHECK (f1 > 0)) inherits (p1)"
+  },
+  {
+    "comment": "inherit - Statement 230",
+    "query": "alter table p1_c1 drop constraint f1_pos"
+  },
+  {
+    "comment": "inherit - Statement 231",
+    "query": "alter table p1 drop constraint f1_pos"
+  },
+  {
+    "comment": "inherit - Statement 232",
+    "query": "create table p2(f1 int constraint f1_pos CHECK (f1 > 0))"
+  },
+  {
+    "comment": "inherit - Statement 233",
+    "query": "create table p1p2_c1 (f1 int) inherits (p1, p2)"
+  },
+  {
+    "comment": "inherit - Statement 234",
+    "query": "create table p1p2_c2 (f1 int constraint f1_pos CHECK (f1 > 0)) inherits (p1, p2)"
+  },
+  {
+    "comment": "inherit - Statement 235",
+    "query": "alter table p2 drop constraint f1_pos"
+  },
+  {
+    "comment": "inherit - Statement 236",
+    "query": "create table p1_c1() inherits (p1)"
+  },
+  {
+    "comment": "inherit - Statement 237",
+    "query": "create table p1_c2() inherits (p1)"
+  },
+  {
+    "comment": "inherit - Statement 238",
+    "query": "create table p1_c1c2() inherits (p1_c1, p1_c2)"
+  },
+  {
+    "comment": "inherit - Statement 239",
+    "query": "create table p1_c2(constraint f1_pos CHECK (f1 > 0)) inherits (p1)"
+  },
+  {
+    "comment": "inherit - Statement 240",
+    "query": "create table p1_c1c2() inherits (p1_c1, p1_c2, p1)"
+  },
+  {
+    "comment": "inherit - Statement 241",
+    "query": "alter table p1_c2 drop constraint f1_pos"
+  },
+  {
+    "comment": "inherit - Statement 242",
+    "query": "alter table p1_c1c2 drop constraint f1_pos"
+  },
+  {
+    "comment": "inherit - Statement 243",
+    "query": "create table invalid_check_con(f1 int)"
+  },
+  {
+    "comment": "inherit - Statement 244",
+    "query": "create table invalid_check_con_child() inherits(invalid_check_con)"
+  },
+  {
+    "comment": "inherit - Statement 245",
+    "query": "alter table invalid_check_con_child add constraint inh_check_constraint check(f1 > 0) not valid"
+  },
+  {
+    "comment": "inherit - Statement 246",
+    "query": "alter table invalid_check_con add constraint inh_check_constraint check(f1 > 0)"
+  },
+  {
+    "comment": "inherit - Statement 247",
+    "query": "alter table invalid_check_con_child drop constraint inh_check_constraint"
+  },
+  {
+    "comment": "inherit - Statement 248",
+    "query": "insert into invalid_check_con values(0)"
+  },
+  {
+    "comment": "inherit - Statement 249",
+    "query": "alter table invalid_check_con_child add constraint inh_check_constraint check(f1 > 0)"
+  },
+  {
+    "comment": "inherit - Statement 250",
+    "query": "alter table invalid_check_con add constraint inh_check_constraint check(f1 > 0) not valid"
+  },
+  {
+    "comment": "inherit - Statement 251",
+    "query": "insert into invalid_check_con_child values(0)"
+  },
+  {
+    "comment": "inherit - Statement 252",
+    "query": "select conrelid::regclass::text as relname, conname, convalidated, conislocal, coninhcount, connoinherit from pg_constraint where conname like 'inh\\_check\\_constraint%' order by 1, 2"
+  },
+  {
+    "comment": "inherit - Statement 253",
+    "query": "create temp table patest0 (id, x) as select x, x from generate_series(0,1000) x"
+  },
+  {
+    "comment": "inherit - Statement 254",
+    "query": "create temp table patest1() inherits (patest0)"
+  },
+  {
+    "comment": "inherit - Statement 255",
+    "query": "insert into patest1 select x, x from generate_series(0,1000) x"
+  },
+  {
+    "comment": "inherit - Statement 256",
+    "query": "create temp table patest2() inherits (patest0)"
+  },
+  {
+    "comment": "inherit - Statement 257",
+    "query": "insert into patest2 select x, x from generate_series(0,1000) x"
+  },
+  {
+    "comment": "inherit - Statement 258",
+    "query": "create index patest0i on patest0(id)"
+  },
+  {
+    "comment": "inherit - Statement 259",
+    "query": "create index patest1i on patest1(id)"
+  },
+  {
+    "comment": "inherit - Statement 260",
+    "query": "create index patest2i on patest2(id)"
+  },
+  {
+    "comment": "inherit - Statement 261",
+    "query": "analyze patest0"
+  },
+  {
+    "comment": "inherit - Statement 262",
+    "query": "analyze patest1"
+  },
+  {
+    "comment": "inherit - Statement 263",
+    "query": "analyze patest2"
+  },
+  {
+    "comment": "inherit - Statement 264",
+    "query": "explain (costs off) select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1"
+  },
+  {
+    "comment": "inherit - Statement 265",
+    "query": "select * from patest0 join (select f1 from int4_tbl limit 1) ss on id = f1"
+  },
+  {
+    "comment": "inherit - Statement 266",
+    "query": "drop index patest2i"
+  },
+  {
+    "comment": "inherit - Statement 267",
+    "query": "drop table patest0 cascade"
+  },
+  {
+    "comment": "inherit - Statement 268",
+    "query": "create table matest0 (id serial primary key, name text)"
+  },
+  {
+    "comment": "inherit - Statement 269",
+    "query": "create table matest1 (id integer primary key) inherits (matest0)"
+  },
+  {
+    "comment": "inherit - Statement 270",
+    "query": "create table matest2 (id integer primary key) inherits (matest0)"
+  },
+  {
+    "comment": "inherit - Statement 271",
+    "query": "create table matest3 (id integer primary key) inherits (matest0)"
+  },
+  {
+    "comment": "inherit - Statement 272",
+    "query": "create index matest0i on matest0 ((1-id))"
+  },
+  {
+    "comment": "inherit - Statement 273",
+    "query": "create index matest1i on matest1 ((1-id))"
+  },
+  {
+    "comment": "inherit - Statement 274",
+    "query": "create index matest3i on matest3 ((1-id))"
+  },
+  {
+    "comment": "inherit - Statement 275",
+    "query": "insert into matest1 (name) values ('Test 1')"
+  },
+  {
+    "comment": "inherit - Statement 276",
+    "query": "insert into matest1 (name) values ('Test 2')"
+  },
+  {
+    "comment": "inherit - Statement 277",
+    "query": "insert into matest2 (name) values ('Test 3')"
+  },
+  {
+    "comment": "inherit - Statement 278",
+    "query": "insert into matest2 (name) values ('Test 4')"
+  },
+  {
+    "comment": "inherit - Statement 279",
+    "query": "insert into matest3 (name) values ('Test 5')"
+  },
+  {
+    "comment": "inherit - Statement 280",
+    "query": "insert into matest3 (name) values ('Test 6')"
+  },
+  {
+    "comment": "inherit - Statement 281",
+    "query": "set enable_indexscan = off"
+  },
+  {
+    "comment": "inherit - Statement 282",
+    "query": "explain (verbose, costs off) select * from matest0 order by 1-id"
+  },
+  {
+    "comment": "inherit - Statement 283",
+    "query": "select * from matest0 order by 1-id"
+  },
+  {
+    "comment": "inherit - Statement 284",
+    "query": "explain (verbose, costs off) select min(1-id) from matest0"
+  },
+  {
+    "comment": "inherit - Statement 285",
+    "query": "select min(1-id) from matest0"
+  },
+  {
+    "comment": "inherit - Statement 286",
+    "query": "reset enable_indexscan"
+  },
+  {
+    "comment": "inherit - Statement 287",
+    "query": "set enable_seqscan = off"
+  },
+  {
+    "comment": "inherit - Statement 288",
+    "query": "set enable_parallel_append = off"
+  },
+  {
+    "comment": "inherit - Statement 289",
+    "query": "reset enable_seqscan"
+  },
+  {
+    "comment": "inherit - Statement 290",
+    "query": "reset enable_parallel_append"
+  },
+  {
+    "comment": "inherit - Statement 291",
+    "query": "explain (verbose, costs off) select 1 - id as c from (select id from matest3 t1 union all select id * 2 from matest3 t2) ss order by c"
+  },
+  {
+    "comment": "inherit - Statement 292",
+    "query": "select 1 - id as c from (select id from matest3 t1 union all select id * 2 from matest3 t2) ss order by c"
+  },
+  {
+    "comment": "inherit - Statement 293",
+    "query": "drop table matest0 cascade"
+  },
+  {
+    "comment": "inherit - Statement 294",
+    "query": "create table matest0 (a int, b int, c int, d int)"
+  },
+  {
+    "comment": "inherit - Statement 295",
+    "query": "create table matest1 () inherits(matest0)"
+  },
+  {
+    "comment": "inherit - Statement 296",
+    "query": "create index matest0i on matest0 (b, c)"
+  },
+  {
+    "comment": "inherit - Statement 297",
+    "query": "create index matest1i on matest1 (b, c)"
+  },
+  {
+    "comment": "inherit - Statement 298",
+    "query": "set enable_nestloop = off"
+  },
+  {
+    "comment": "inherit - Statement 299",
+    "query": "explain (costs off) select t1.* from matest0 t1, matest0 t2 where t1.b = t2.b and t2.c = t2.d order by t1.b limit 10"
+  },
+  {
+    "comment": "inherit - Statement 300",
+    "query": "reset enable_nestloop"
+  },
+  {
+    "comment": "inherit - Statement 301",
+    "query": "create table matest0(a int primary key)"
+  },
+  {
+    "comment": "inherit - Statement 302",
+    "query": "create table matest1() inherits (matest0)"
+  },
+  {
+    "comment": "inherit - Statement 303",
+    "query": "insert into matest0 select generate_series(1, 400)"
+  },
+  {
+    "comment": "inherit - Statement 304",
+    "query": "insert into matest1 select generate_series(1, 200)"
+  },
+  {
+    "comment": "inherit - Statement 305",
+    "query": "analyze matest0"
+  },
+  {
+    "comment": "inherit - Statement 306",
+    "query": "analyze matest1"
+  },
+  {
+    "comment": "inherit - Statement 307",
+    "query": "explain (costs off) select * from matest0 where a < 100 order by a"
+  },
+  {
+    "comment": "inherit - Statement 308",
+    "query": "set enable_indexscan = on"
+  },
+  {
+    "comment": "inherit - Statement 309",
+    "query": "set enable_bitmapscan = off"
+  },
+  {
+    "comment": "inherit - Statement 310",
+    "query": "explain (costs off) SELECT thousand, tenthous FROM tenk1 UNION ALL SELECT thousand, thousand FROM tenk1 ORDER BY thousand, tenthous"
+  },
+  {
+    "comment": "inherit - Statement 311",
+    "query": "explain (costs off) SELECT thousand, tenthous, thousand+tenthous AS x FROM tenk1 UNION ALL SELECT 42, 42, hundred FROM tenk1 ORDER BY thousand, tenthous"
+  },
+  {
+    "comment": "inherit - Statement 312",
+    "query": "explain (costs off) SELECT thousand, tenthous FROM tenk1 UNION ALL SELECT thousand, random()::integer FROM tenk1 ORDER BY thousand, tenthous"
+  },
+  {
+    "comment": "inherit - Statement 313",
+    "query": "explain (costs off) SELECT min(x) FROM (SELECT unique1 AS x FROM tenk1 a UNION ALL SELECT unique2 AS x FROM tenk1 b) s"
+  },
+  {
+    "comment": "inherit - Statement 314",
+    "query": "explain (costs off) SELECT min(y) FROM (SELECT unique1 AS x, unique1 AS y FROM tenk1 a UNION ALL SELECT unique2 AS x, unique2 AS y FROM tenk1 b) s"
+  },
+  {
+    "comment": "inherit - Statement 315",
+    "query": "explain (costs off) SELECT x, y FROM (SELECT thousand AS x, tenthous AS y FROM tenk1 a UNION ALL SELECT unique2 AS x, unique2 AS y FROM tenk1 b) s ORDER BY x, y"
+  },
+  {
+    "comment": "inherit - Statement 316",
+    "query": "explain (costs off) SELECT ARRAY(SELECT f.i FROM ( (SELECT d + g.i FROM generate_series(4, 30, 3) d ORDER BY 1) UNION ALL (SELECT d + g.i FROM generate_series(0, 30, 5) d ORDER BY 1) ) f(i) ORDER BY f.i LIMIT 10) FROM generate_series(1, 3) g(i)"
+  },
+  {
+    "comment": "inherit - Statement 317",
+    "query": "SELECT ARRAY(SELECT f.i FROM ( (SELECT d + g.i FROM generate_series(4, 30, 3) d ORDER BY 1) UNION ALL (SELECT d + g.i FROM generate_series(0, 30, 5) d ORDER BY 1) ) f(i) ORDER BY f.i LIMIT 10) FROM generate_series(1, 3) g(i)"
+  },
+  {
+    "comment": "inherit - Statement 318",
+    "query": "reset enable_bitmapscan"
+  },
+  {
+    "comment": "inherit - Statement 319",
+    "query": "create table inhpar(f1 int, f2 name)"
+  },
+  {
+    "comment": "inherit - Statement 320",
+    "query": "create table inhcld(f2 name, f1 int)"
+  },
+  {
+    "comment": "inherit - Statement 321",
+    "query": "alter table inhcld inherit inhpar"
+  },
+  {
+    "comment": "inherit - Statement 322",
+    "query": "insert into inhpar select x, x::text from generate_series(1,5) x"
+  },
+  {
+    "comment": "inherit - Statement 323",
+    "query": "insert into inhcld select x::text, x from generate_series(6,10) x"
+  },
+  {
+    "comment": "inherit - Statement 324",
+    "query": "explain (verbose, costs off) update inhpar i set (f1, f2) = (select i.f1, i.f2 || '-' from int4_tbl limit 1)"
+  },
+  {
+    "comment": "inherit - Statement 325",
+    "query": "update inhpar i set (f1, f2) = (select i.f1, i.f2 || '-' from int4_tbl limit 1)"
+  },
+  {
+    "comment": "inherit - Statement 326",
+    "query": "select * from inhpar"
+  },
+  {
+    "comment": "inherit - Statement 327",
+    "query": "drop table inhpar cascade"
+  },
+  {
+    "comment": "inherit - Statement 328",
+    "query": "create table inhpar(f1 int primary key, f2 name) partition by range (f1)"
+  },
+  {
+    "comment": "inherit - Statement 329",
+    "query": "create table inhcld1(f2 name, f1 int primary key)"
+  },
+  {
+    "comment": "inherit - Statement 330",
+    "query": "create table inhcld2(f1 int primary key, f2 name)"
+  },
+  {
+    "comment": "inherit - Statement 331",
+    "query": "alter table inhpar attach partition inhcld1 for values from (1) to (5)"
+  },
+  {
+    "comment": "inherit - Statement 332",
+    "query": "alter table inhpar attach partition inhcld2 for values from (5) to (100)"
+  },
+  {
+    "comment": "inherit - Statement 333",
+    "query": "insert into inhpar select x, x::text from generate_series(1,10) x"
+  },
+  {
+    "comment": "inherit - Statement 334",
+    "query": "insert into inhpar as i values (3), (7) on conflict (f1) do update set (f1, f2) = (select i.f1, i.f2 || '+')"
+  },
+  {
+    "comment": "inherit - Statement 335",
+    "query": "select * from inhpar order by f1"
+  },
+  {
+    "comment": "inherit - Statement 336",
+    "query": "create table cnullparent (f1 int)"
+  },
+  {
+    "comment": "inherit - Statement 337",
+    "query": "create table cnullchild (check (f1 = 1 or f1 = null)) inherits(cnullparent)"
+  },
+  {
+    "comment": "inherit - Statement 338",
+    "query": "insert into cnullchild values(1)"
+  },
+  {
+    "comment": "inherit - Statement 339",
+    "query": "insert into cnullchild values(2)"
+  },
+  {
+    "comment": "inherit - Statement 340",
+    "query": "insert into cnullchild values(null)"
+  },
+  {
+    "comment": "inherit - Statement 341",
+    "query": "select * from cnullparent"
+  },
+  {
+    "comment": "inherit - Statement 342",
+    "query": "select * from cnullparent where f1 = 2"
+  },
+  {
+    "comment": "inherit - Statement 343",
+    "query": "drop table cnullparent cascade"
+  },
+  {
+    "comment": "inherit - Statement 344",
+    "query": "create role regress_alice"
+  },
+  {
+    "comment": "inherit - Statement 345",
+    "query": "create role regress_bob"
+  },
+  {
+    "comment": "inherit - Statement 346",
+    "query": "grant all on schema public to regress_alice, regress_bob"
+  },
+  {
+    "comment": "inherit - Statement 347",
+    "query": "grant regress_alice to regress_bob"
+  },
+  {
+    "comment": "inherit - Statement 348",
+    "query": "set session authorization regress_alice"
+  },
+  {
+    "comment": "inherit - Statement 349",
+    "query": "create table inh_parent (a int not null)"
+  },
+  {
+    "comment": "inherit - Statement 350",
+    "query": "set session authorization regress_bob"
+  },
+  {
+    "comment": "inherit - Statement 351",
+    "query": "create table inh_child () inherits (inh_parent)"
+  },
+  {
+    "comment": "inherit - Statement 352",
+    "query": "alter table inh_parent alter a drop not null"
+  },
+  {
+    "comment": "inherit - Statement 353",
+    "query": "reset session authorization"
+  },
+  {
+    "comment": "inherit - Statement 354",
+    "query": "drop table inh_parent, inh_child"
+  },
+  {
+    "comment": "inherit - Statement 355",
+    "query": "revoke all on schema public from regress_alice, regress_bob"
+  },
+  {
+    "comment": "inherit - Statement 356",
+    "query": "drop role regress_alice, regress_bob"
+  },
+  {
+    "comment": "inherit - Statement 357",
+    "query": "create table inh_perm_parent (a1 int)"
+  },
+  {
+    "comment": "inherit - Statement 358",
+    "query": "create temp table inh_temp_parent (a1 int)"
+  },
+  {
+    "comment": "inherit - Statement 359",
+    "query": "create temp table inh_temp_child () inherits (inh_perm_parent)"
+  },
+  {
+    "comment": "inherit - Statement 360",
+    "query": "create table inh_perm_child () inherits (inh_temp_parent)"
+  },
+  {
+    "comment": "inherit - Statement 361",
+    "query": "create temp table inh_temp_child_2 () inherits (inh_temp_parent)"
+  },
+  {
+    "comment": "inherit - Statement 362",
+    "query": "insert into inh_perm_parent values (1)"
+  },
+  {
+    "comment": "inherit - Statement 363",
+    "query": "insert into inh_temp_parent values (2)"
+  },
+  {
+    "comment": "inherit - Statement 364",
+    "query": "insert into inh_temp_child values (3)"
+  },
+  {
+    "comment": "inherit - Statement 365",
+    "query": "insert into inh_temp_child_2 values (4)"
+  },
+  {
+    "comment": "inherit - Statement 366",
+    "query": "select tableoid::regclass, a1 from inh_perm_parent"
+  },
+  {
+    "comment": "inherit - Statement 367",
+    "query": "select tableoid::regclass, a1 from inh_temp_parent"
+  },
+  {
+    "comment": "inherit - Statement 368",
+    "query": "drop table inh_perm_parent cascade"
+  },
+  {
+    "comment": "inherit - Statement 369",
+    "query": "drop table inh_temp_parent cascade"
+  },
+  {
+    "comment": "inherit - Statement 370",
+    "query": "create table list_parted ( a\tvarchar ) partition by list (a)"
+  },
+  {
+    "comment": "inherit - Statement 371",
+    "query": "create table part_ab_cd partition of list_parted for values in ('ab', 'cd')"
+  },
+  {
+    "comment": "inherit - Statement 372",
+    "query": "create table part_ef_gh partition of list_parted for values in ('ef', 'gh')"
+  },
+  {
+    "comment": "inherit - Statement 373",
+    "query": "create table part_null_xy partition of list_parted for values in (null, 'xy')"
+  },
+  {
+    "comment": "inherit - Statement 374",
+    "query": "explain (costs off) select * from list_parted"
+  },
+  {
+    "comment": "inherit - Statement 375",
+    "query": "explain (costs off) select * from list_parted where a is null"
+  },
+  {
+    "comment": "inherit - Statement 376",
+    "query": "explain (costs off) select * from list_parted where a is not null"
+  },
+  {
+    "comment": "inherit - Statement 377",
+    "query": "explain (costs off) select * from list_parted where a in ('ab', 'cd', 'ef')"
+  },
+  {
+    "comment": "inherit - Statement 378",
+    "query": "explain (costs off) select * from list_parted where a = 'ab' or a in (null, 'cd')"
+  },
+  {
+    "comment": "inherit - Statement 379",
+    "query": "explain (costs off) select * from list_parted where a = 'ab'"
+  },
+  {
+    "comment": "inherit - Statement 380",
+    "query": "create table range_list_parted ( a\tint, b\tchar(2) ) partition by range (a)"
+  },
+  {
+    "comment": "inherit - Statement 381",
+    "query": "create table part_1_10 partition of range_list_parted for values from (1) to (10) partition by list (b)"
+  },
+  {
+    "comment": "inherit - Statement 382",
+    "query": "create table part_1_10_ab partition of part_1_10 for values in ('ab')"
+  },
+  {
+    "comment": "inherit - Statement 383",
+    "query": "create table part_1_10_cd partition of part_1_10 for values in ('cd')"
+  },
+  {
+    "comment": "inherit - Statement 384",
+    "query": "create table part_10_20 partition of range_list_parted for values from (10) to (20) partition by list (b)"
+  },
+  {
+    "comment": "inherit - Statement 385",
+    "query": "create table part_10_20_ab partition of part_10_20 for values in ('ab')"
+  },
+  {
+    "comment": "inherit - Statement 386",
+    "query": "create table part_10_20_cd partition of part_10_20 for values in ('cd')"
+  },
+  {
+    "comment": "inherit - Statement 387",
+    "query": "create table part_21_30 partition of range_list_parted for values from (21) to (30) partition by list (b)"
+  },
+  {
+    "comment": "inherit - Statement 388",
+    "query": "create table part_21_30_ab partition of part_21_30 for values in ('ab')"
+  },
+  {
+    "comment": "inherit - Statement 389",
+    "query": "create table part_21_30_cd partition of part_21_30 for values in ('cd')"
+  },
+  {
+    "comment": "inherit - Statement 390",
+    "query": "create table part_40_inf partition of range_list_parted for values from (40) to (maxvalue) partition by list (b)"
+  },
+  {
+    "comment": "inherit - Statement 391",
+    "query": "create table part_40_inf_ab partition of part_40_inf for values in ('ab')"
+  },
+  {
+    "comment": "inherit - Statement 392",
+    "query": "create table part_40_inf_cd partition of part_40_inf for values in ('cd')"
+  },
+  {
+    "comment": "inherit - Statement 393",
+    "query": "create table part_40_inf_null partition of part_40_inf for values in (null)"
+  },
+  {
+    "comment": "inherit - Statement 394",
+    "query": "explain (costs off) select * from range_list_parted"
+  },
+  {
+    "comment": "inherit - Statement 395",
+    "query": "explain (costs off) select * from range_list_parted where a = 5"
+  },
+  {
+    "comment": "inherit - Statement 396",
+    "query": "explain (costs off) select * from range_list_parted where b = 'ab'"
+  },
+  {
+    "comment": "inherit - Statement 397",
+    "query": "explain (costs off) select * from range_list_parted where a between 3 and 23 and b in ('ab')"
+  },
+  {
+    "comment": "inherit - Statement 398",
+    "query": "/* Should select no rows because range partition key cannot be null */ explain (costs off) select * from range_list_parted where a is null"
+  },
+  {
+    "comment": "inherit - Statement 399",
+    "query": "/* Should only select rows from the null-accepting partition */ explain (costs off) select * from range_list_parted where b is null"
+  },
+  {
+    "comment": "inherit - Statement 400",
+    "query": "explain (costs off) select * from range_list_parted where a is not null and a < 67"
+  },
+  {
+    "comment": "inherit - Statement 401",
+    "query": "explain (costs off) select * from range_list_parted where a >= 30"
+  },
+  {
+    "comment": "inherit - Statement 402",
+    "query": "drop table list_parted"
+  },
+  {
+    "comment": "inherit - Statement 403",
+    "query": "drop table range_list_parted"
+  },
+  {
+    "comment": "inherit - Statement 404",
+    "query": "create table mcrparted (a int, b int, c int) partition by range (a, abs(b), c)"
+  },
+  {
+    "comment": "inherit - Statement 405",
+    "query": "create table mcrparted_def partition of mcrparted default"
+  },
+  {
+    "comment": "inherit - Statement 406",
+    "query": "create table mcrparted0 partition of mcrparted for values from (minvalue, minvalue, minvalue) to (1, 1, 1)"
+  },
+  {
+    "comment": "inherit - Statement 407",
+    "query": "create table mcrparted1 partition of mcrparted for values from (1, 1, 1) to (10, 5, 10)"
+  },
+  {
+    "comment": "inherit - Statement 408",
+    "query": "create table mcrparted2 partition of mcrparted for values from (10, 5, 10) to (10, 10, 10)"
+  },
+  {
+    "comment": "inherit - Statement 409",
+    "query": "create table mcrparted3 partition of mcrparted for values from (11, 1, 1) to (20, 10, 10)"
+  },
+  {
+    "comment": "inherit - Statement 410",
+    "query": "create table mcrparted4 partition of mcrparted for values from (20, 10, 10) to (20, 20, 20)"
+  },
+  {
+    "comment": "inherit - Statement 411",
+    "query": "create table mcrparted5 partition of mcrparted for values from (20, 20, 20) to (maxvalue, maxvalue, maxvalue)"
+  },
+  {
+    "comment": "inherit - Statement 412",
+    "query": "explain (costs off) select * from mcrparted where a = 0"
+  },
+  {
+    "comment": "inherit - Statement 413",
+    "query": "explain (costs off) select * from mcrparted where a = 10 and abs(b) < 5"
+  },
+  {
+    "comment": "inherit - Statement 414",
+    "query": "explain (costs off) select * from mcrparted where a = 10 and abs(b) = 5"
+  },
+  {
+    "comment": "inherit - Statement 415",
+    "query": "explain (costs off) select * from mcrparted where abs(b) = 5"
+  },
+  {
+    "comment": "inherit - Statement 416",
+    "query": "explain (costs off) select * from mcrparted where a > -1"
+  },
+  {
+    "comment": "inherit - Statement 417",
+    "query": "explain (costs off) select * from mcrparted where a = 20 and abs(b) = 10 and c > 10"
+  },
+  {
+    "comment": "inherit - Statement 418",
+    "query": "explain (costs off) select * from mcrparted where a = 20 and c > 20"
+  },
+  {
+    "comment": "inherit - Statement 419",
+    "query": "create table parted_minmax (a int, b varchar(16)) partition by range (a)"
+  },
+  {
+    "comment": "inherit - Statement 420",
+    "query": "create table parted_minmax1 partition of parted_minmax for values from (1) to (10)"
+  },
+  {
+    "comment": "inherit - Statement 421",
+    "query": "create index parted_minmax1i on parted_minmax1 (a, b)"
+  },
+  {
+    "comment": "inherit - Statement 422",
+    "query": "insert into parted_minmax values (1,'12345')"
+  },
+  {
+    "comment": "inherit - Statement 423",
+    "query": "explain (costs off) select min(a), max(a) from parted_minmax where b = '12345'"
+  },
+  {
+    "comment": "inherit - Statement 424",
+    "query": "select min(a), max(a) from parted_minmax where b = '12345'"
+  },
+  {
+    "comment": "inherit - Statement 425",
+    "query": "drop table parted_minmax"
+  },
+  {
+    "comment": "inherit - Statement 426",
+    "query": "create index mcrparted_a_abs_c_idx on mcrparted (a, abs(b), c)"
+  },
+  {
+    "comment": "inherit - Statement 427",
+    "query": "explain (costs off) select * from mcrparted order by a, abs(b), c"
+  },
+  {
+    "comment": "inherit - Statement 428",
+    "query": "drop table mcrparted_def"
+  },
+  {
+    "comment": "inherit - Statement 429",
+    "query": "explain (costs off) select * from mcrparted order by a desc, abs(b) desc, c desc"
+  },
+  {
+    "comment": "inherit - Statement 430",
+    "query": "drop table mcrparted5"
+  },
+  {
+    "comment": "inherit - Statement 431",
+    "query": "create table mcrparted5 partition of mcrparted for values from (20, 20, 20) to (maxvalue, maxvalue, maxvalue) partition by list (a)"
+  },
+  {
+    "comment": "inherit - Statement 432",
+    "query": "create table mcrparted5a partition of mcrparted5 for values in(20)"
+  },
+  {
+    "comment": "inherit - Statement 433",
+    "query": "create table mcrparted5_def partition of mcrparted5 default"
+  },
+  {
+    "comment": "inherit - Statement 434",
+    "query": "drop table mcrparted5_def"
+  },
+  {
+    "comment": "inherit - Statement 435",
+    "query": "explain (costs off) select a, abs(b) from mcrparted order by a, abs(b), c"
+  },
+  {
+    "comment": "inherit - Statement 436",
+    "query": "explain (costs off) select * from mcrparted where a < 20 order by a, abs(b), c"
+  },
+  {
+    "comment": "inherit - Statement 437",
+    "query": "set enable_bitmapscan to off"
+  },
+  {
+    "comment": "inherit - Statement 438",
+    "query": "set enable_sort to off"
+  },
+  {
+    "comment": "inherit - Statement 439",
+    "query": "create table mclparted (a int) partition by list(a)"
+  },
+  {
+    "comment": "inherit - Statement 440",
+    "query": "create table mclparted1 partition of mclparted for values in(1)"
+  },
+  {
+    "comment": "inherit - Statement 441",
+    "query": "create table mclparted2 partition of mclparted for values in(2)"
+  },
+  {
+    "comment": "inherit - Statement 442",
+    "query": "create index on mclparted (a)"
+  },
+  {
+    "comment": "inherit - Statement 443",
+    "query": "explain (costs off) select * from mclparted order by a"
+  },
+  {
+    "comment": "inherit - Statement 444",
+    "query": "create table mclparted3_5 partition of mclparted for values in(3,5)"
+  },
+  {
+    "comment": "inherit - Statement 445",
+    "query": "create table mclparted4 partition of mclparted for values in(4)"
+  },
+  {
+    "comment": "inherit - Statement 446",
+    "query": "explain (costs off) select * from mclparted where a in(3,4,5) order by a"
+  },
+  {
+    "comment": "inherit - Statement 447",
+    "query": "create table mclparted_null partition of mclparted for values in(null)"
+  },
+  {
+    "comment": "inherit - Statement 448",
+    "query": "create table mclparted_def partition of mclparted default"
+  },
+  {
+    "comment": "inherit - Statement 449",
+    "query": "explain (costs off) select * from mclparted where a in(1,2,4) order by a"
+  },
+  {
+    "comment": "inherit - Statement 450",
+    "query": "explain (costs off) select * from mclparted where a in(1,2,4) or a is null order by a"
+  },
+  {
+    "comment": "inherit - Statement 451",
+    "query": "drop table mclparted_null"
+  },
+  {
+    "comment": "inherit - Statement 452",
+    "query": "create table mclparted_0_null partition of mclparted for values in(0,null)"
+  },
+  {
+    "comment": "inherit - Statement 453",
+    "query": "explain (costs off) select * from mclparted where a in(0,1,2,4) order by a"
+  },
+  {
+    "comment": "inherit - Statement 454",
+    "query": "explain (costs off) select * from mclparted where a in(1,2,4,100) order by a"
+  },
+  {
+    "comment": "inherit - Statement 455",
+    "query": "drop table mclparted"
+  },
+  {
+    "comment": "inherit - Statement 456",
+    "query": "reset enable_sort"
+  },
+  {
+    "comment": "inherit - Statement 457",
+    "query": "drop index mcrparted_a_abs_c_idx"
+  },
+  {
+    "comment": "inherit - Statement 458",
+    "query": "create index on mcrparted1 (a, abs(b), c)"
+  },
+  {
+    "comment": "inherit - Statement 459",
+    "query": "create index on mcrparted2 (a, abs(b), c)"
+  },
+  {
+    "comment": "inherit - Statement 460",
+    "query": "create index on mcrparted3 (a, abs(b), c)"
+  },
+  {
+    "comment": "inherit - Statement 461",
+    "query": "create index on mcrparted4 (a, abs(b), c)"
+  },
+  {
+    "comment": "inherit - Statement 462",
+    "query": "explain (costs off) select * from mcrparted where a < 20 order by a, abs(b), c limit 1"
+  },
+  {
+    "comment": "inherit - Statement 463",
+    "query": "set enable_bitmapscan = 0"
+  },
+  {
+    "comment": "inherit - Statement 464",
+    "query": "explain (costs off) select * from mcrparted where a = 10 order by a, abs(b), c"
+  },
+  {
+    "comment": "inherit - Statement 465",
+    "query": "drop table mcrparted"
+  },
+  {
+    "comment": "inherit - Statement 466",
+    "query": "create table bool_lp (b bool) partition by list(b)"
+  },
+  {
+    "comment": "inherit - Statement 467",
+    "query": "create table bool_lp_true partition of bool_lp for values in(true)"
+  },
+  {
+    "comment": "inherit - Statement 468",
+    "query": "create table bool_lp_false partition of bool_lp for values in(false)"
+  },
+  {
+    "comment": "inherit - Statement 469",
+    "query": "create index on bool_lp (b)"
+  },
+  {
+    "comment": "inherit - Statement 470",
+    "query": "explain (costs off) select * from bool_lp order by b"
+  },
+  {
+    "comment": "inherit - Statement 471",
+    "query": "drop table bool_lp"
+  },
+  {
+    "comment": "inherit - Statement 472",
+    "query": "create table bool_rp (b bool, a int) partition by range(b,a)"
+  },
+  {
+    "comment": "inherit - Statement 473",
+    "query": "create table bool_rp_false_1k partition of bool_rp for values from (false,0) to (false,1000)"
+  },
+  {
+    "comment": "inherit - Statement 474",
+    "query": "create table bool_rp_true_1k partition of bool_rp for values from (true,0) to (true,1000)"
+  },
+  {
+    "comment": "inherit - Statement 475",
+    "query": "create table bool_rp_false_2k partition of bool_rp for values from (false,1000) to (false,2000)"
+  },
+  {
+    "comment": "inherit - Statement 476",
+    "query": "create table bool_rp_true_2k partition of bool_rp for values from (true,1000) to (true,2000)"
+  },
+  {
+    "comment": "inherit - Statement 477",
+    "query": "create index on bool_rp (b,a)"
+  },
+  {
+    "comment": "inherit - Statement 478",
+    "query": "explain (costs off) select * from bool_rp where b = true order by b,a"
+  },
+  {
+    "comment": "inherit - Statement 479",
+    "query": "explain (costs off) select * from bool_rp where b = false order by b,a"
+  },
+  {
+    "comment": "inherit - Statement 480",
+    "query": "explain (costs off) select * from bool_rp where b = true order by a"
+  },
+  {
+    "comment": "inherit - Statement 481",
+    "query": "explain (costs off) select * from bool_rp where b = false order by a"
+  },
+  {
+    "comment": "inherit - Statement 482",
+    "query": "drop table bool_rp"
+  },
+  {
+    "comment": "inherit - Statement 483",
+    "query": "create table range_parted (a int, b int, c int) partition by range(a, b)"
+  },
+  {
+    "comment": "inherit - Statement 484",
+    "query": "create table range_parted1 partition of range_parted for values from (0,0) to (10,10)"
+  },
+  {
+    "comment": "inherit - Statement 485",
+    "query": "create table range_parted2 partition of range_parted for values from (10,10) to (20,20)"
+  },
+  {
+    "comment": "inherit - Statement 486",
+    "query": "create index on range_parted (a,b,c)"
+  },
+  {
+    "comment": "inherit - Statement 487",
+    "query": "explain (costs off) select * from range_parted order by a,b,c"
+  },
+  {
+    "comment": "inherit - Statement 488",
+    "query": "explain (costs off) select * from range_parted order by a desc,b desc,c desc"
+  },
+  {
+    "comment": "inherit - Statement 489",
+    "query": "drop table range_parted"
+  },
+  {
+    "comment": "inherit - Statement 490",
+    "query": "create table permtest_parent (a int, b text, c text) partition by list (a)"
+  },
+  {
+    "comment": "inherit - Statement 491",
+    "query": "create table permtest_child (b text, c text, a int) partition by list (b)"
+  },
+  {
+    "comment": "inherit - Statement 492",
+    "query": "create table permtest_grandchild (c text, b text, a int)"
+  },
+  {
+    "comment": "inherit - Statement 493",
+    "query": "alter table permtest_child attach partition permtest_grandchild for values in ('a')"
+  },
+  {
+    "comment": "inherit - Statement 494",
+    "query": "alter table permtest_parent attach partition permtest_child for values in (1)"
+  },
+  {
+    "comment": "inherit - Statement 495",
+    "query": "create index on permtest_parent (left(c, 3))"
+  },
+  {
+    "comment": "inherit - Statement 496",
+    "query": "insert into permtest_parent select 1, 'a', left(fipshash(i::text), 5) from generate_series(0, 100) i"
+  },
+  {
+    "comment": "inherit - Statement 497",
+    "query": "analyze permtest_parent"
+  },
+  {
+    "comment": "inherit - Statement 498",
+    "query": "create role regress_no_child_access"
+  },
+  {
+    "comment": "inherit - Statement 499",
+    "query": "revoke all on permtest_grandchild from regress_no_child_access"
+  },
+  {
+    "comment": "inherit - Statement 500",
+    "query": "grant select on permtest_parent to regress_no_child_access"
+  },
+  {
+    "comment": "inherit - Statement 501",
+    "query": "set session authorization regress_no_child_access"
+  },
+  {
+    "comment": "inherit - Statement 502",
+    "query": "explain (costs off) select * from permtest_parent p1 inner join permtest_parent p2 on p1.a = p2.a and p1.c ~ 'a1$'"
+  },
+  {
+    "comment": "inherit - Statement 503",
+    "query": "explain (costs off) select * from permtest_parent p1 inner join permtest_parent p2 on p1.a = p2.a and left(p1.c, 3) ~ 'a1$'"
+  },
+  {
+    "comment": "inherit - Statement 504",
+    "query": "revoke all on permtest_parent from regress_no_child_access"
+  },
+  {
+    "comment": "inherit - Statement 505",
+    "query": "grant select(a,c) on permtest_parent to regress_no_child_access"
+  },
+  {
+    "comment": "inherit - Statement 506",
+    "query": "explain (costs off) select p2.a, p1.c from permtest_parent p1 inner join permtest_parent p2 on p1.a = p2.a and p1.c ~ 'a1$'"
+  },
+  {
+    "comment": "inherit - Statement 507",
+    "query": "explain (costs off) select p2.a, p1.c from permtest_parent p1 inner join permtest_parent p2 on p1.a = p2.a and left(p1.c, 3) ~ 'a1$'"
+  },
+  {
+    "comment": "inherit - Statement 508",
+    "query": "drop role regress_no_child_access"
+  },
+  {
+    "comment": "inherit - Statement 509",
+    "query": "drop table permtest_parent"
+  },
+  {
+    "comment": "inherit - Statement 510",
+    "query": "CREATE TABLE errtst_parent ( partid int not null, shdata int not null, data int NOT NULL DEFAULT 0, CONSTRAINT shdata_small CHECK(shdata < 3) ) PARTITION BY RANGE (partid)"
+  },
+  {
+    "comment": "inherit - Statement 511",
+    "query": "CREATE TABLE errtst_child_fastdef ( partid int not null, shdata int not null, CONSTRAINT shdata_small CHECK(shdata < 3) )"
+  },
+  {
+    "comment": "inherit - Statement 512",
+    "query": "CREATE TABLE errtst_child_plaindef ( partid int not null, shdata int not null, data int NOT NULL DEFAULT 0, CONSTRAINT shdata_small CHECK(shdata < 3), CHECK(data < 10) )"
+  },
+  {
+    "comment": "inherit - Statement 513",
+    "query": "CREATE TABLE errtst_child_reorder ( data int NOT NULL DEFAULT 0, shdata int not null, partid int not null, CONSTRAINT shdata_small CHECK(shdata < 3), CHECK(data < 10) )"
+  },
+  {
+    "comment": "inherit - Statement 514",
+    "query": "ALTER TABLE errtst_child_fastdef ADD COLUMN data int NOT NULL DEFAULT 0"
+  },
+  {
+    "comment": "inherit - Statement 515",
+    "query": "ALTER TABLE errtst_child_fastdef ADD CONSTRAINT errtest_child_fastdef_data_check CHECK (data < 10)"
+  },
+  {
+    "comment": "inherit - Statement 516",
+    "query": "ALTER TABLE errtst_parent ATTACH PARTITION errtst_child_fastdef FOR VALUES FROM (0) TO (10)"
+  },
+  {
+    "comment": "inherit - Statement 517",
+    "query": "ALTER TABLE errtst_parent ATTACH PARTITION errtst_child_plaindef FOR VALUES FROM (10) TO (20)"
+  },
+  {
+    "comment": "inherit - Statement 518",
+    "query": "ALTER TABLE errtst_parent ATTACH PARTITION errtst_child_reorder FOR VALUES FROM (20) TO (30)"
+  },
+  {
+    "comment": "inherit - Statement 519",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ( '0', '1', '5')"
+  },
+  {
+    "comment": "inherit - Statement 520",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ('10', '1', '5')"
+  },
+  {
+    "comment": "inherit - Statement 521",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ('20', '1', '5')"
+  },
+  {
+    "comment": "inherit - Statement 522",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ( '0', '1', '10')"
+  },
+  {
+    "comment": "inherit - Statement 523",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ('10', '1', '10')"
+  },
+  {
+    "comment": "inherit - Statement 524",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ('20', '1', '10')"
+  },
+  {
+    "comment": "inherit - Statement 525",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ( '0', '1', NULL)"
+  },
+  {
+    "comment": "inherit - Statement 526",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ('10', '1', NULL)"
+  },
+  {
+    "comment": "inherit - Statement 527",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ('20', '1', NULL)"
+  },
+  {
+    "comment": "inherit - Statement 528",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ( '0', '5', '5')"
+  },
+  {
+    "comment": "inherit - Statement 529",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ('10', '5', '5')"
+  },
+  {
+    "comment": "inherit - Statement 530",
+    "query": "INSERT INTO errtst_parent(partid, shdata, data) VALUES ('20', '5', '5')"
+  },
+  {
+    "comment": "inherit - Statement 531",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "inherit - Statement 532",
+    "query": "UPDATE errtst_parent SET data = data + 1 WHERE partid = 0"
+  },
+  {
+    "comment": "inherit - Statement 533",
+    "query": "UPDATE errtst_parent SET data = data + 1 WHERE partid = 10"
+  },
+  {
+    "comment": "inherit - Statement 534",
+    "query": "UPDATE errtst_parent SET data = data + 1 WHERE partid = 20"
+  },
+  {
+    "comment": "inherit - Statement 535",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "inherit - Statement 536",
+    "query": "UPDATE errtst_parent SET data = data + 10 WHERE partid = 0"
+  },
+  {
+    "comment": "inherit - Statement 537",
+    "query": "UPDATE errtst_parent SET data = data + 10 WHERE partid = 10"
+  },
+  {
+    "comment": "inherit - Statement 538",
+    "query": "UPDATE errtst_parent SET data = data + 10 WHERE partid = 20"
+  },
+  {
+    "comment": "inherit - Statement 539",
+    "query": "UPDATE errtst_child_fastdef SET partid = 1 WHERE partid = 0"
+  },
+  {
+    "comment": "inherit - Statement 540",
+    "query": "UPDATE errtst_child_plaindef SET partid = 11 WHERE partid = 10"
+  },
+  {
+    "comment": "inherit - Statement 541",
+    "query": "UPDATE errtst_child_reorder SET partid = 21 WHERE partid = 20"
+  },
+  {
+    "comment": "inherit - Statement 542",
+    "query": "UPDATE errtst_child_fastdef SET partid = partid + 10 WHERE partid = 0"
+  },
+  {
+    "comment": "inherit - Statement 543",
+    "query": "UPDATE errtst_child_plaindef SET partid = partid + 10 WHERE partid = 10"
+  },
+  {
+    "comment": "inherit - Statement 544",
+    "query": "UPDATE errtst_child_reorder SET partid = partid + 10 WHERE partid = 20"
+  },
+  {
+    "comment": "inherit - Statement 545",
+    "query": "UPDATE errtst_parent SET partid = 10, data = data + 1 WHERE partid = 0"
+  },
+  {
+    "comment": "inherit - Statement 546",
+    "query": "UPDATE errtst_parent SET partid = 20, data = data + 1 WHERE partid = 10"
+  },
+  {
+    "comment": "inherit - Statement 547",
+    "query": "UPDATE errtst_parent SET partid = 0, data = data + 1 WHERE partid = 20"
+  },
+  {
+    "comment": "inherit - Statement 548",
+    "query": "UPDATE errtst_parent SET partid = 10, data = data + 10 WHERE partid = 0"
+  },
+  {
+    "comment": "inherit - Statement 549",
+    "query": "UPDATE errtst_parent SET partid = 20, data = data + 10 WHERE partid = 10"
+  },
+  {
+    "comment": "inherit - Statement 550",
+    "query": "UPDATE errtst_parent SET partid = 0, data = data + 10 WHERE partid = 20"
+  },
+  {
+    "comment": "inherit - Statement 551",
+    "query": "UPDATE errtst_parent SET partid = 30, data = data + 10 WHERE partid = 20"
+  },
+  {
+    "comment": "inherit - Statement 552",
+    "query": "DROP TABLE errtst_parent"
+  }
+]

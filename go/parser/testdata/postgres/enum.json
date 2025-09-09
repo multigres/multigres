@@ -1,0 +1,554 @@
+[
+  {
+    "comment": "enum - Statement 1",
+    "query": "CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple')"
+  },
+  {
+    "comment": "enum - Statement 2",
+    "query": "SELECT COUNT(*) FROM pg_enum WHERE enumtypid = 'rainbow'::regtype"
+  },
+  {
+    "comment": "enum - Statement 3",
+    "query": "SELECT 'red'::rainbow"
+  },
+  {
+    "comment": "enum - Statement 4",
+    "query": "SELECT 'mauve'::rainbow"
+  },
+  {
+    "comment": "enum - Statement 5",
+    "query": "SELECT pg_input_is_valid('red', 'rainbow')"
+  },
+  {
+    "comment": "enum - Statement 6",
+    "query": "SELECT pg_input_is_valid('mauve', 'rainbow')"
+  },
+  {
+    "comment": "enum - Statement 7",
+    "query": "SELECT * FROM pg_input_error_info('mauve', 'rainbow')"
+  },
+  {
+    "comment": "enum - Statement 8",
+    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'planets'::regtype ORDER BY 2"
+  },
+  {
+    "comment": "enum - Statement 9",
+    "query": "ALTER TYPE planets ADD VALUE 'uranus'"
+  },
+  {
+    "comment": "enum - Statement 10",
+    "query": "ALTER TYPE planets ADD VALUE 'mercury' BEFORE 'venus'"
+  },
+  {
+    "comment": "enum - Statement 11",
+    "query": "ALTER TYPE planets ADD VALUE 'saturn' BEFORE 'uranus'"
+  },
+  {
+    "comment": "enum - Statement 12",
+    "query": "ALTER TYPE planets ADD VALUE 'jupiter' AFTER 'mars'"
+  },
+  {
+    "comment": "enum - Statement 13",
+    "query": "ALTER TYPE planets ADD VALUE 'neptune' AFTER 'uranus'"
+  },
+  {
+    "comment": "enum - Statement 14",
+    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'planets'::regtype ORDER BY enumlabel::planets"
+  },
+  {
+    "comment": "enum - Statement 15",
+    "query": "ALTER TYPE planets ADD VALUE 'plutoplutoplutoplutoplutoplutoplutoplutoplutoplutoplutoplutoplutopluto'"
+  },
+  {
+    "comment": "enum - Statement 16",
+    "query": "ALTER TYPE planets ADD VALUE 'pluto' AFTER 'zeus'"
+  },
+  {
+    "comment": "enum - Statement 17",
+    "query": "ALTER TYPE planets ADD VALUE 'mercury'"
+  },
+  {
+    "comment": "enum - Statement 18",
+    "query": "ALTER TYPE planets ADD VALUE IF NOT EXISTS 'mercury'"
+  },
+  {
+    "comment": "enum - Statement 19",
+    "query": "SELECT enum_last(NULL::planets)"
+  },
+  {
+    "comment": "enum - Statement 20",
+    "query": "ALTER TYPE planets ADD VALUE IF NOT EXISTS 'pluto'"
+  },
+  {
+    "comment": "enum - Statement 21",
+    "query": "create type insenum as enum ('L1', 'L2')"
+  },
+  {
+    "comment": "enum - Statement 22",
+    "query": "alter type insenum add value 'i1' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 23",
+    "query": "alter type insenum add value 'i2' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 24",
+    "query": "alter type insenum add value 'i3' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 25",
+    "query": "alter type insenum add value 'i4' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 26",
+    "query": "alter type insenum add value 'i5' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 27",
+    "query": "alter type insenum add value 'i6' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 28",
+    "query": "alter type insenum add value 'i7' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 29",
+    "query": "alter type insenum add value 'i8' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 30",
+    "query": "alter type insenum add value 'i9' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 31",
+    "query": "alter type insenum add value 'i10' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 32",
+    "query": "alter type insenum add value 'i11' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 33",
+    "query": "alter type insenum add value 'i12' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 34",
+    "query": "alter type insenum add value 'i13' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 35",
+    "query": "alter type insenum add value 'i14' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 36",
+    "query": "alter type insenum add value 'i15' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 37",
+    "query": "alter type insenum add value 'i16' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 38",
+    "query": "alter type insenum add value 'i17' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 39",
+    "query": "alter type insenum add value 'i18' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 40",
+    "query": "alter type insenum add value 'i19' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 41",
+    "query": "alter type insenum add value 'i20' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 42",
+    "query": "alter type insenum add value 'i21' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 43",
+    "query": "alter type insenum add value 'i22' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 44",
+    "query": "alter type insenum add value 'i23' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 45",
+    "query": "alter type insenum add value 'i24' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 46",
+    "query": "alter type insenum add value 'i25' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 47",
+    "query": "alter type insenum add value 'i26' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 48",
+    "query": "alter type insenum add value 'i27' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 49",
+    "query": "alter type insenum add value 'i28' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 50",
+    "query": "alter type insenum add value 'i29' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 51",
+    "query": "alter type insenum add value 'i30' before 'L2'"
+  },
+  {
+    "comment": "enum - Statement 52",
+    "query": "SELECT enumlabel, case when enumsortorder > 20 then null else enumsortorder end as so FROM pg_enum WHERE enumtypid = 'insenum'::regtype ORDER BY enumsortorder"
+  },
+  {
+    "comment": "enum - Statement 53",
+    "query": "CREATE TABLE enumtest (col rainbow)"
+  },
+  {
+    "comment": "enum - Statement 54",
+    "query": "INSERT INTO enumtest values ('red'), ('orange'), ('yellow'), ('green')"
+  },
+  {
+    "comment": "enum - Statement 55",
+    "query": "COPY enumtest FROM stdin"
+  },
+  {
+    "comment": "enum - Statement 56",
+    "query": "blue purple \\. SELECT * FROM enumtest"
+  },
+  {
+    "comment": "enum - Statement 57",
+    "query": "SELECT * FROM enumtest WHERE col = 'orange'"
+  },
+  {
+    "comment": "enum - Statement 58",
+    "query": "SELECT * FROM enumtest WHERE col <> 'orange' ORDER BY col"
+  },
+  {
+    "comment": "enum - Statement 59",
+    "query": "SELECT * FROM enumtest WHERE col > 'yellow' ORDER BY col"
+  },
+  {
+    "comment": "enum - Statement 60",
+    "query": "SELECT * FROM enumtest WHERE col >= 'yellow' ORDER BY col"
+  },
+  {
+    "comment": "enum - Statement 61",
+    "query": "SELECT * FROM enumtest WHERE col < 'green' ORDER BY col"
+  },
+  {
+    "comment": "enum - Statement 62",
+    "query": "SELECT * FROM enumtest WHERE col <= 'green' ORDER BY col"
+  },
+  {
+    "comment": "enum - Statement 63",
+    "query": "SELECT 'red'::rainbow::text || 'hithere'"
+  },
+  {
+    "comment": "enum - Statement 64",
+    "query": "SELECT 'red'::text::rainbow = 'red'::rainbow"
+  },
+  {
+    "comment": "enum - Statement 65",
+    "query": "SELECT min(col) FROM enumtest"
+  },
+  {
+    "comment": "enum - Statement 66",
+    "query": "SELECT max(col) FROM enumtest"
+  },
+  {
+    "comment": "enum - Statement 67",
+    "query": "SELECT max(col) FROM enumtest WHERE col < 'green'"
+  },
+  {
+    "comment": "enum - Statement 68",
+    "query": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "enum - Statement 69",
+    "query": "SET enable_bitmapscan = off"
+  },
+  {
+    "comment": "enum - Statement 70",
+    "query": "CREATE UNIQUE INDEX enumtest_btree ON enumtest USING btree (col)"
+  },
+  {
+    "comment": "enum - Statement 71",
+    "query": "DROP INDEX enumtest_btree"
+  },
+  {
+    "comment": "enum - Statement 72",
+    "query": "CREATE INDEX enumtest_hash ON enumtest USING hash (col)"
+  },
+  {
+    "comment": "enum - Statement 73",
+    "query": "DROP INDEX enumtest_hash"
+  },
+  {
+    "comment": "enum - Statement 74",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "enum - Statement 75",
+    "query": "RESET enable_bitmapscan"
+  },
+  {
+    "comment": "enum - Statement 76",
+    "query": "CREATE DOMAIN rgb AS rainbow CHECK (VALUE IN ('red', 'green', 'blue'))"
+  },
+  {
+    "comment": "enum - Statement 77",
+    "query": "SELECT 'red'::rgb"
+  },
+  {
+    "comment": "enum - Statement 78",
+    "query": "SELECT 'purple'::rgb"
+  },
+  {
+    "comment": "enum - Statement 79",
+    "query": "SELECT 'purple'::rainbow::rgb"
+  },
+  {
+    "comment": "enum - Statement 80",
+    "query": "DROP DOMAIN rgb"
+  },
+  {
+    "comment": "enum - Statement 81",
+    "query": "SELECT '{red,green,blue}'::rainbow[]"
+  },
+  {
+    "comment": "enum - Statement 82",
+    "query": "SELECT ('{red,green,blue}'::rainbow[])[2]"
+  },
+  {
+    "comment": "enum - Statement 83",
+    "query": "SELECT 'red' = ANY ('{red,green,blue}'::rainbow[])"
+  },
+  {
+    "comment": "enum - Statement 84",
+    "query": "SELECT 'yellow' = ANY ('{red,green,blue}'::rainbow[])"
+  },
+  {
+    "comment": "enum - Statement 85",
+    "query": "SELECT 'red' = ALL ('{red,green,blue}'::rainbow[])"
+  },
+  {
+    "comment": "enum - Statement 86",
+    "query": "SELECT 'red' = ALL ('{red,red}'::rainbow[])"
+  },
+  {
+    "comment": "enum - Statement 87",
+    "query": "SELECT enum_first(NULL::rainbow)"
+  },
+  {
+    "comment": "enum - Statement 88",
+    "query": "SELECT enum_last('green'::rainbow)"
+  },
+  {
+    "comment": "enum - Statement 89",
+    "query": "SELECT enum_range(NULL::rainbow)"
+  },
+  {
+    "comment": "enum - Statement 90",
+    "query": "SELECT enum_range('orange'::rainbow, 'green'::rainbow)"
+  },
+  {
+    "comment": "enum - Statement 91",
+    "query": "SELECT enum_range(NULL, 'green'::rainbow)"
+  },
+  {
+    "comment": "enum - Statement 92",
+    "query": "SELECT enum_range('orange'::rainbow, NULL)"
+  },
+  {
+    "comment": "enum - Statement 93",
+    "query": "SELECT enum_range(NULL::rainbow, NULL)"
+  },
+  {
+    "comment": "enum - Statement 94",
+    "query": "CREATE FUNCTION echo_me(anyenum) RETURNS text AS $$ BEGIN RETURN $1::text || 'omg'"
+  },
+  {
+    "comment": "enum - Statement 95",
+    "query": "END $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "enum - Statement 96",
+    "query": "SELECT echo_me('red'::rainbow)"
+  },
+  {
+    "comment": "enum - Statement 97",
+    "query": "CREATE FUNCTION echo_me(rainbow) RETURNS text AS $$ BEGIN RETURN $1::text || 'wtf'"
+  },
+  {
+    "comment": "enum - Statement 98",
+    "query": "DROP FUNCTION echo_me(anyenum)"
+  },
+  {
+    "comment": "enum - Statement 99",
+    "query": "SELECT echo_me('red')"
+  },
+  {
+    "comment": "enum - Statement 100",
+    "query": "DROP FUNCTION echo_me(rainbow)"
+  },
+  {
+    "comment": "enum - Statement 101",
+    "query": "CREATE TABLE enumtest_parent (id rainbow PRIMARY KEY)"
+  },
+  {
+    "comment": "enum - Statement 102",
+    "query": "CREATE TABLE enumtest_child (parent rainbow REFERENCES enumtest_parent)"
+  },
+  {
+    "comment": "enum - Statement 103",
+    "query": "INSERT INTO enumtest_parent VALUES ('red')"
+  },
+  {
+    "comment": "enum - Statement 104",
+    "query": "INSERT INTO enumtest_child VALUES ('red')"
+  },
+  {
+    "comment": "enum - Statement 105",
+    "query": "INSERT INTO enumtest_child VALUES ('blue')"
+  },
+  {
+    "comment": "enum - Statement 106",
+    "query": "DELETE FROM enumtest_parent"
+  },
+  {
+    "comment": "enum - Statement 107",
+    "query": "CREATE TYPE bogus AS ENUM('good', 'bad', 'ugly')"
+  },
+  {
+    "comment": "enum - Statement 108",
+    "query": "CREATE TABLE enumtest_bogus_child(parent bogus REFERENCES enumtest_parent)"
+  },
+  {
+    "comment": "enum - Statement 109",
+    "query": "DROP TYPE bogus"
+  },
+  {
+    "comment": "enum - Statement 110",
+    "query": "ALTER TYPE rainbow RENAME VALUE 'red' TO 'crimson'"
+  },
+  {
+    "comment": "enum - Statement 111",
+    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'rainbow'::regtype ORDER BY 2"
+  },
+  {
+    "comment": "enum - Statement 112",
+    "query": "ALTER TYPE rainbow RENAME VALUE 'blue' TO 'green'"
+  },
+  {
+    "comment": "enum - Statement 113",
+    "query": "CREATE TYPE bogus AS ENUM('good')"
+  },
+  {
+    "comment": "enum - Statement 114",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "enum - Statement 115",
+    "query": "ALTER TYPE bogus ADD VALUE 'new'"
+  },
+  {
+    "comment": "enum - Statement 116",
+    "query": "SAVEPOINT x"
+  },
+  {
+    "comment": "enum - Statement 117",
+    "query": "SELECT 'new'::bogus"
+  },
+  {
+    "comment": "enum - Statement 118",
+    "query": "ROLLBACK TO x"
+  },
+  {
+    "comment": "enum - Statement 119",
+    "query": "SELECT enum_first(null::bogus)"
+  },
+  {
+    "comment": "enum - Statement 120",
+    "query": "SELECT enum_last(null::bogus)"
+  },
+  {
+    "comment": "enum - Statement 121",
+    "query": "SELECT enum_range(null::bogus)"
+  },
+  {
+    "comment": "enum - Statement 122",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "enum - Statement 123",
+    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'bogus'::regtype ORDER BY 2"
+  },
+  {
+    "comment": "enum - Statement 124",
+    "query": "ALTER TYPE bogus RENAME TO bogon"
+  },
+  {
+    "comment": "enum - Statement 125",
+    "query": "ALTER TYPE bogon ADD VALUE 'bad'"
+  },
+  {
+    "comment": "enum - Statement 126",
+    "query": "SELECT 'bad'::bogon"
+  },
+  {
+    "comment": "enum - Statement 127",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "enum - Statement 128",
+    "query": "ALTER TYPE bogus RENAME VALUE 'good' to 'bad'"
+  },
+  {
+    "comment": "enum - Statement 129",
+    "query": "SELECT 'bad'::bogus"
+  },
+  {
+    "comment": "enum - Statement 130",
+    "query": "CREATE TYPE bogus AS ENUM('good','bad','ugly')"
+  },
+  {
+    "comment": "enum - Statement 131",
+    "query": "select enum_range(null::bogon)"
+  },
+  {
+    "comment": "enum - Statement 132",
+    "query": "ALTER TYPE bogon ADD VALUE 'ugly'"
+  },
+  {
+    "comment": "enum - Statement 133",
+    "query": "DROP TABLE enumtest_child"
+  },
+  {
+    "comment": "enum - Statement 134",
+    "query": "DROP TABLE enumtest_parent"
+  },
+  {
+    "comment": "enum - Statement 135",
+    "query": "DROP TABLE enumtest"
+  },
+  {
+    "comment": "enum - Statement 136",
+    "query": "DROP TYPE rainbow"
+  },
+  {
+    "comment": "enum - Statement 137",
+    "query": "SELECT COUNT(*) FROM pg_type WHERE typname = 'rainbow'"
+  },
+  {
+    "comment": "enum - Statement 138",
+    "query": "SELECT * FROM pg_enum WHERE NOT EXISTS (SELECT 1 FROM pg_type WHERE pg_type.oid = enumtypid)"
+  }
+]

@@ -1,0 +1,1598 @@
+[
+  {
+    "comment": "domain - Statement 1",
+    "query": "create domain domaindroptest int4"
+  },
+  {
+    "comment": "domain - Statement 2",
+    "query": "comment on domain domaindroptest is 'About to drop this..'"
+  },
+  {
+    "comment": "domain - Statement 3",
+    "query": "create domain dependenttypetest domaindroptest"
+  },
+  {
+    "comment": "domain - Statement 4",
+    "query": "drop domain domaindroptest"
+  },
+  {
+    "comment": "domain - Statement 5",
+    "query": "drop domain domaindroptest cascade"
+  },
+  {
+    "comment": "domain - Statement 6",
+    "query": "create domain domainvarchar varchar(5)"
+  },
+  {
+    "comment": "domain - Statement 7",
+    "query": "create domain domainnumeric numeric(8,2)"
+  },
+  {
+    "comment": "domain - Statement 8",
+    "query": "create domain domainint4 int4"
+  },
+  {
+    "comment": "domain - Statement 9",
+    "query": "create domain domaintext text"
+  },
+  {
+    "comment": "domain - Statement 10",
+    "query": "SELECT cast('123456' as domainvarchar)"
+  },
+  {
+    "comment": "domain - Statement 11",
+    "query": "SELECT cast('12345' as domainvarchar)"
+  },
+  {
+    "comment": "domain - Statement 12",
+    "query": "create table basictest ( testint4 domainint4 , testtext domaintext , testvarchar domainvarchar , testnumeric domainnumeric )"
+  },
+  {
+    "comment": "domain - Statement 13",
+    "query": "INSERT INTO basictest values ('88', 'haha', 'short', '123.12')"
+  },
+  {
+    "comment": "domain - Statement 14",
+    "query": "INSERT INTO basictest values ('88', 'haha', 'short text', '123.12')"
+  },
+  {
+    "comment": "domain - Statement 15",
+    "query": "INSERT INTO basictest values ('88', 'haha', 'short', '123.1212')"
+  },
+  {
+    "comment": "domain - Statement 16",
+    "query": "COPY basictest (testvarchar) FROM stdin"
+  },
+  {
+    "comment": "domain - Statement 17",
+    "query": "notsoshorttext \\. COPY basictest (testvarchar) FROM stdin"
+  },
+  {
+    "comment": "domain - Statement 18",
+    "query": "short \\. select * from basictest"
+  },
+  {
+    "comment": "domain - Statement 19",
+    "query": "select testtext || testvarchar as concat, testnumeric + 42 as sum from basictest"
+  },
+  {
+    "comment": "domain - Statement 20",
+    "query": "select pg_typeof(coalesce(4::domainint4, 7))"
+  },
+  {
+    "comment": "domain - Statement 21",
+    "query": "select pg_typeof(coalesce(4::domainint4, 7::domainint4))"
+  },
+  {
+    "comment": "domain - Statement 22",
+    "query": "drop table basictest"
+  },
+  {
+    "comment": "domain - Statement 23",
+    "query": "drop domain domainvarchar restrict"
+  },
+  {
+    "comment": "domain - Statement 24",
+    "query": "drop domain domainnumeric restrict"
+  },
+  {
+    "comment": "domain - Statement 25",
+    "query": "drop domain domainint4 restrict"
+  },
+  {
+    "comment": "domain - Statement 26",
+    "query": "drop domain domaintext"
+  },
+  {
+    "comment": "domain - Statement 27",
+    "query": "create domain positiveint int4 check(value > 0)"
+  },
+  {
+    "comment": "domain - Statement 28",
+    "query": "create domain weirdfloat float8 check((1 / value) < 10)"
+  },
+  {
+    "comment": "domain - Statement 29",
+    "query": "select pg_input_is_valid('1', 'positiveint')"
+  },
+  {
+    "comment": "domain - Statement 30",
+    "query": "select pg_input_is_valid('junk', 'positiveint')"
+  },
+  {
+    "comment": "domain - Statement 31",
+    "query": "select pg_input_is_valid('-1', 'positiveint')"
+  },
+  {
+    "comment": "domain - Statement 32",
+    "query": "select * from pg_input_error_info('junk', 'positiveint')"
+  },
+  {
+    "comment": "domain - Statement 33",
+    "query": "select * from pg_input_error_info('-1', 'positiveint')"
+  },
+  {
+    "comment": "domain - Statement 34",
+    "query": "select * from pg_input_error_info('junk', 'weirdfloat')"
+  },
+  {
+    "comment": "domain - Statement 35",
+    "query": "select * from pg_input_error_info('0.01', 'weirdfloat')"
+  },
+  {
+    "comment": "domain - Statement 36",
+    "query": "select * from pg_input_error_info('0', 'weirdfloat')"
+  },
+  {
+    "comment": "domain - Statement 37",
+    "query": "drop domain positiveint"
+  },
+  {
+    "comment": "domain - Statement 38",
+    "query": "drop domain weirdfloat"
+  },
+  {
+    "comment": "domain - Statement 39",
+    "query": "create domain domainint4arr int4[1]"
+  },
+  {
+    "comment": "domain - Statement 40",
+    "query": "create domain domainchar4arr varchar(4)[2][3]"
+  },
+  {
+    "comment": "domain - Statement 41",
+    "query": "create table domarrtest ( testint4arr domainint4arr , testchar4arr domainchar4arr )"
+  },
+  {
+    "comment": "domain - Statement 42",
+    "query": "INSERT INTO domarrtest values ('{2,2}', '{{\"a\",\"b\"},{\"c\",\"d\"}}')"
+  },
+  {
+    "comment": "domain - Statement 43",
+    "query": "INSERT INTO domarrtest values ('{{2,2},{2,2}}', '{{\"a\",\"b\"}}')"
+  },
+  {
+    "comment": "domain - Statement 44",
+    "query": "INSERT INTO domarrtest values ('{2,2}', '{{\"a\",\"b\"},{\"c\",\"d\"},{\"e\",\"f\"}}')"
+  },
+  {
+    "comment": "domain - Statement 45",
+    "query": "INSERT INTO domarrtest values ('{2,2}', '{{\"a\"},{\"c\"}}')"
+  },
+  {
+    "comment": "domain - Statement 46",
+    "query": "INSERT INTO domarrtest values (NULL, '{{\"a\",\"b\",\"c\"},{\"d\",\"e\",\"f\"}}')"
+  },
+  {
+    "comment": "domain - Statement 47",
+    "query": "INSERT INTO domarrtest values (NULL, '{{\"toolong\",\"b\",\"c\"},{\"d\",\"e\",\"f\"}}')"
+  },
+  {
+    "comment": "domain - Statement 48",
+    "query": "INSERT INTO domarrtest (testint4arr[1], testint4arr[3]) values (11,22)"
+  },
+  {
+    "comment": "domain - Statement 49",
+    "query": "select * from domarrtest"
+  },
+  {
+    "comment": "domain - Statement 50",
+    "query": "select testint4arr[1], testchar4arr[2:2] from domarrtest"
+  },
+  {
+    "comment": "domain - Statement 51",
+    "query": "select array_dims(testint4arr), array_dims(testchar4arr) from domarrtest"
+  },
+  {
+    "comment": "domain - Statement 52",
+    "query": "COPY domarrtest FROM stdin"
+  },
+  {
+    "comment": "domain - Statement 53",
+    "query": "{3,4}\t{q,w,e} \\N\t\\N \\. COPY domarrtest FROM stdin"
+  },
+  {
+    "comment": "domain - Statement 54",
+    "query": "{3,4}\t{qwerty,w,e} \\. select * from domarrtest"
+  },
+  {
+    "comment": "domain - Statement 55",
+    "query": "update domarrtest set testint4arr[1] = testint4arr[1] + 1, testint4arr[3] = testint4arr[3] - 1 where testchar4arr is null"
+  },
+  {
+    "comment": "domain - Statement 56",
+    "query": "select * from domarrtest where testchar4arr is null"
+  },
+  {
+    "comment": "domain - Statement 57",
+    "query": "drop table domarrtest"
+  },
+  {
+    "comment": "domain - Statement 58",
+    "query": "drop domain domainint4arr restrict"
+  },
+  {
+    "comment": "domain - Statement 59",
+    "query": "drop domain domainchar4arr restrict"
+  },
+  {
+    "comment": "domain - Statement 60",
+    "query": "create domain dia as int[]"
+  },
+  {
+    "comment": "domain - Statement 61",
+    "query": "select '{1,2,3}'::dia"
+  },
+  {
+    "comment": "domain - Statement 62",
+    "query": "select array_dims('{1,2,3}'::dia)"
+  },
+  {
+    "comment": "domain - Statement 63",
+    "query": "select pg_typeof('{1,2,3}'::dia)"
+  },
+  {
+    "comment": "domain - Statement 64",
+    "query": "select pg_typeof('{1,2,3}'::dia || 42)"
+  },
+  {
+    "comment": "domain - Statement 65",
+    "query": "drop domain dia"
+  },
+  {
+    "comment": "domain - Statement 66",
+    "query": "create type comptype as (r float8, i float8)"
+  },
+  {
+    "comment": "domain - Statement 67",
+    "query": "create domain dcomptype as comptype"
+  },
+  {
+    "comment": "domain - Statement 68",
+    "query": "create table dcomptable (d1 dcomptype unique)"
+  },
+  {
+    "comment": "domain - Statement 69",
+    "query": "insert into dcomptable values (row(1,2)::dcomptype)"
+  },
+  {
+    "comment": "domain - Statement 70",
+    "query": "insert into dcomptable values (row(3,4)::comptype)"
+  },
+  {
+    "comment": "domain - Statement 71",
+    "query": "insert into dcomptable (d1.r) values(11)"
+  },
+  {
+    "comment": "domain - Statement 72",
+    "query": "select * from dcomptable"
+  },
+  {
+    "comment": "domain - Statement 73",
+    "query": "select (d1).r, (d1).i, (d1).* from dcomptable"
+  },
+  {
+    "comment": "domain - Statement 74",
+    "query": "update dcomptable set d1.r = (d1).r + 1 where (d1).i > 0"
+  },
+  {
+    "comment": "domain - Statement 75",
+    "query": "alter domain dcomptype add constraint c1 check ((value).r <= (value).i)"
+  },
+  {
+    "comment": "domain - Statement 76",
+    "query": "alter domain dcomptype add constraint c2 check ((value).r > (value).i)"
+  },
+  {
+    "comment": "domain - Statement 77",
+    "query": "select row(2,1)::dcomptype"
+  },
+  {
+    "comment": "domain - Statement 78",
+    "query": "insert into dcomptable values (row(1,2)::comptype)"
+  },
+  {
+    "comment": "domain - Statement 79",
+    "query": "insert into dcomptable values (row(2,1)::comptype)"
+  },
+  {
+    "comment": "domain - Statement 80",
+    "query": "insert into dcomptable (d1.r) values(99)"
+  },
+  {
+    "comment": "domain - Statement 81",
+    "query": "insert into dcomptable (d1.r, d1.i) values(99, 100)"
+  },
+  {
+    "comment": "domain - Statement 82",
+    "query": "insert into dcomptable (d1.r, d1.i) values(100, 99)"
+  },
+  {
+    "comment": "domain - Statement 83",
+    "query": "update dcomptable set d1.r = (d1).r - 1, d1.i = (d1).i + 1 where (d1).i > 0"
+  },
+  {
+    "comment": "domain - Statement 84",
+    "query": "explain (verbose, costs off) update dcomptable set d1.r = (d1).r - 1, d1.i = (d1).i + 1 where (d1).i > 0"
+  },
+  {
+    "comment": "domain - Statement 85",
+    "query": "create rule silly as on delete to dcomptable do instead update dcomptable set d1.r = (d1).r - 1, d1.i = (d1).i + 1 where (d1).i > 0"
+  },
+  {
+    "comment": "domain - Statement 86",
+    "query": "select makedcomp(1,2)"
+  },
+  {
+    "comment": "domain - Statement 87",
+    "query": "select makedcomp(2,1)"
+  },
+  {
+    "comment": "domain - Statement 88",
+    "query": "select * from makedcomp(1,2) m"
+  },
+  {
+    "comment": "domain - Statement 89",
+    "query": "select m, m is not null from makedcomp(1,2) m"
+  },
+  {
+    "comment": "domain - Statement 90",
+    "query": "drop function makedcomp(float8, float8)"
+  },
+  {
+    "comment": "domain - Statement 91",
+    "query": "drop table dcomptable"
+  },
+  {
+    "comment": "domain - Statement 92",
+    "query": "drop type comptype cascade"
+  },
+  {
+    "comment": "domain - Statement 93",
+    "query": "alter domain dcomptype add constraint c1 check ((value).r > 0)"
+  },
+  {
+    "comment": "domain - Statement 94",
+    "query": "comment on constraint c1 on domain dcomptype is 'random commentary'"
+  },
+  {
+    "comment": "domain - Statement 95",
+    "query": "select row(0,1)::dcomptype"
+  },
+  {
+    "comment": "domain - Statement 96",
+    "query": "alter type comptype alter attribute r type varchar"
+  },
+  {
+    "comment": "domain - Statement 97",
+    "query": "alter type comptype alter attribute r type bigint"
+  },
+  {
+    "comment": "domain - Statement 98",
+    "query": "alter type comptype drop attribute r"
+  },
+  {
+    "comment": "domain - Statement 99",
+    "query": "alter type comptype drop attribute i"
+  },
+  {
+    "comment": "domain - Statement 100",
+    "query": "select conname, obj_description(oid, 'pg_constraint') from pg_constraint where contypid = 'dcomptype'::regtype"
+  },
+  {
+    "comment": "domain - Statement 101",
+    "query": "create domain dcomptypea as comptype[]"
+  },
+  {
+    "comment": "domain - Statement 102",
+    "query": "create table dcomptable (d1 dcomptypea unique)"
+  },
+  {
+    "comment": "domain - Statement 103",
+    "query": "insert into dcomptable values (array[row(1,2)]::dcomptypea)"
+  },
+  {
+    "comment": "domain - Statement 104",
+    "query": "insert into dcomptable values (array[row(3,4), row(5,6)]::comptype[])"
+  },
+  {
+    "comment": "domain - Statement 105",
+    "query": "insert into dcomptable values (array[row(7,8)::comptype, row(9,10)::comptype])"
+  },
+  {
+    "comment": "domain - Statement 106",
+    "query": "insert into dcomptable (d1[1]) values(row(9,10))"
+  },
+  {
+    "comment": "domain - Statement 107",
+    "query": "insert into dcomptable (d1[1].r) values(11)"
+  },
+  {
+    "comment": "domain - Statement 108",
+    "query": "select d1[2], d1[1].r, d1[1].i from dcomptable"
+  },
+  {
+    "comment": "domain - Statement 109",
+    "query": "update dcomptable set d1[2] = row(d1[2].i, d1[2].r)"
+  },
+  {
+    "comment": "domain - Statement 110",
+    "query": "update dcomptable set d1[1].r = d1[1].r + 1 where d1[1].i > 0"
+  },
+  {
+    "comment": "domain - Statement 111",
+    "query": "alter domain dcomptypea add constraint c1 check (value[1].r <= value[1].i)"
+  },
+  {
+    "comment": "domain - Statement 112",
+    "query": "alter domain dcomptypea add constraint c2 check (value[1].r > value[1].i)"
+  },
+  {
+    "comment": "domain - Statement 113",
+    "query": "select array[row(2,1)]::dcomptypea"
+  },
+  {
+    "comment": "domain - Statement 114",
+    "query": "insert into dcomptable values (array[row(1,2)]::comptype[])"
+  },
+  {
+    "comment": "domain - Statement 115",
+    "query": "insert into dcomptable values (array[row(2,1)]::comptype[])"
+  },
+  {
+    "comment": "domain - Statement 116",
+    "query": "insert into dcomptable (d1[1].r) values(99)"
+  },
+  {
+    "comment": "domain - Statement 117",
+    "query": "insert into dcomptable (d1[1].r, d1[1].i) values(99, 100)"
+  },
+  {
+    "comment": "domain - Statement 118",
+    "query": "insert into dcomptable (d1[1].r, d1[1].i) values(100, 99)"
+  },
+  {
+    "comment": "domain - Statement 119",
+    "query": "update dcomptable set d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 where d1[1].i > 0"
+  },
+  {
+    "comment": "domain - Statement 120",
+    "query": "explain (verbose, costs off) update dcomptable set d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 where d1[1].i > 0"
+  },
+  {
+    "comment": "domain - Statement 121",
+    "query": "create rule silly as on delete to dcomptable do instead update dcomptable set d1[1].r = d1[1].r - 1, d1[1].i = d1[1].i + 1 where d1[1].i > 0"
+  },
+  {
+    "comment": "domain - Statement 122",
+    "query": "create domain posint as int check (value > 0)"
+  },
+  {
+    "comment": "domain - Statement 123",
+    "query": "create table pitable (f1 posint[])"
+  },
+  {
+    "comment": "domain - Statement 124",
+    "query": "insert into pitable values(array[42])"
+  },
+  {
+    "comment": "domain - Statement 125",
+    "query": "insert into pitable values(array[-1])"
+  },
+  {
+    "comment": "domain - Statement 126",
+    "query": "insert into pitable values('{0}')"
+  },
+  {
+    "comment": "domain - Statement 127",
+    "query": "update pitable set f1[1] = f1[1] + 1"
+  },
+  {
+    "comment": "domain - Statement 128",
+    "query": "update pitable set f1[1] = 0"
+  },
+  {
+    "comment": "domain - Statement 129",
+    "query": "select * from pitable"
+  },
+  {
+    "comment": "domain - Statement 130",
+    "query": "drop table pitable"
+  },
+  {
+    "comment": "domain - Statement 131",
+    "query": "create domain vc4 as varchar(4)"
+  },
+  {
+    "comment": "domain - Statement 132",
+    "query": "create table vc4table (f1 vc4[])"
+  },
+  {
+    "comment": "domain - Statement 133",
+    "query": "insert into vc4table values(array['too long'])"
+  },
+  {
+    "comment": "domain - Statement 134",
+    "query": "insert into vc4table values(array['too long']::vc4[])"
+  },
+  {
+    "comment": "domain - Statement 135",
+    "query": "select * from vc4table"
+  },
+  {
+    "comment": "domain - Statement 136",
+    "query": "drop table vc4table"
+  },
+  {
+    "comment": "domain - Statement 137",
+    "query": "drop type vc4"
+  },
+  {
+    "comment": "domain - Statement 138",
+    "query": "create domain dposinta as posint[]"
+  },
+  {
+    "comment": "domain - Statement 139",
+    "query": "create table dposintatable (f1 dposinta[])"
+  },
+  {
+    "comment": "domain - Statement 140",
+    "query": "insert into dposintatable values(array[array[42]])"
+  },
+  {
+    "comment": "domain - Statement 141",
+    "query": "insert into dposintatable values(array[array[42]::posint[]])"
+  },
+  {
+    "comment": "domain - Statement 142",
+    "query": "insert into dposintatable values(array[array[42]::dposinta])"
+  },
+  {
+    "comment": "domain - Statement 143",
+    "query": "select f1, f1[1], (f1[1])[1] from dposintatable"
+  },
+  {
+    "comment": "domain - Statement 144",
+    "query": "select pg_typeof(f1) from dposintatable"
+  },
+  {
+    "comment": "domain - Statement 145",
+    "query": "select pg_typeof(f1[1]) from dposintatable"
+  },
+  {
+    "comment": "domain - Statement 146",
+    "query": "select pg_typeof(f1[1][1]) from dposintatable"
+  },
+  {
+    "comment": "domain - Statement 147",
+    "query": "select pg_typeof((f1[1])[1]) from dposintatable"
+  },
+  {
+    "comment": "domain - Statement 148",
+    "query": "update dposintatable set f1[2] = array[99]"
+  },
+  {
+    "comment": "domain - Statement 149",
+    "query": "select f1, f1[1], (f1[2])[1] from dposintatable"
+  },
+  {
+    "comment": "domain - Statement 150",
+    "query": "update dposintatable set f1[2][1] = array[97]"
+  },
+  {
+    "comment": "domain - Statement 151",
+    "query": "update dposintatable set (f1[2])[1] = array[98]"
+  },
+  {
+    "comment": "domain - Statement 152",
+    "query": "drop table dposintatable"
+  },
+  {
+    "comment": "domain - Statement 153",
+    "query": "drop domain posint cascade"
+  },
+  {
+    "comment": "domain - Statement 154",
+    "query": "create type comptype as (cf1 int, cf2 int)"
+  },
+  {
+    "comment": "domain - Statement 155",
+    "query": "create domain dcomptype as comptype check ((value).cf1 > 0)"
+  },
+  {
+    "comment": "domain - Statement 156",
+    "query": "create table dcomptable (f1 dcomptype[])"
+  },
+  {
+    "comment": "domain - Statement 157",
+    "query": "insert into dcomptable values (null)"
+  },
+  {
+    "comment": "domain - Statement 158",
+    "query": "update dcomptable set f1[1].cf2 = 5"
+  },
+  {
+    "comment": "domain - Statement 159",
+    "query": "table dcomptable"
+  },
+  {
+    "comment": "domain - Statement 160",
+    "query": "update dcomptable set f1[1].cf1 = -1"
+  },
+  {
+    "comment": "domain - Statement 161",
+    "query": "update dcomptable set f1[1].cf1 = 1"
+  },
+  {
+    "comment": "domain - Statement 162",
+    "query": "alter domain dcomptype drop constraint dcomptype_check"
+  },
+  {
+    "comment": "domain - Statement 163",
+    "query": "create domain dnotnull varchar(15) NOT NULL"
+  },
+  {
+    "comment": "domain - Statement 164",
+    "query": "create domain dnull    varchar(15)"
+  },
+  {
+    "comment": "domain - Statement 165",
+    "query": "create domain dcheck   varchar(15) NOT NULL CHECK (VALUE = 'a' OR VALUE = 'c' OR VALUE = 'd')"
+  },
+  {
+    "comment": "domain - Statement 166",
+    "query": "create table nulltest ( col1 dnotnull , col2 dnotnull NULL , col3 dnull    NOT NULL , col4 dnull , col5 dcheck CHECK (col5 IN ('c', 'd')) )"
+  },
+  {
+    "comment": "domain - Statement 167",
+    "query": "INSERT INTO nulltest DEFAULT VALUES"
+  },
+  {
+    "comment": "domain - Statement 168",
+    "query": "INSERT INTO nulltest values ('a', 'b', 'c', 'd', 'c')"
+  },
+  {
+    "comment": "domain - Statement 169",
+    "query": "insert into nulltest values ('a', 'b', 'c', 'd', NULL)"
+  },
+  {
+    "comment": "domain - Statement 170",
+    "query": "insert into nulltest values ('a', 'b', 'c', 'd', 'a')"
+  },
+  {
+    "comment": "domain - Statement 171",
+    "query": "INSERT INTO nulltest values (NULL, 'b', 'c', 'd', 'd')"
+  },
+  {
+    "comment": "domain - Statement 172",
+    "query": "INSERT INTO nulltest values ('a', NULL, 'c', 'd', 'c')"
+  },
+  {
+    "comment": "domain - Statement 173",
+    "query": "INSERT INTO nulltest values ('a', 'b', NULL, 'd', 'c')"
+  },
+  {
+    "comment": "domain - Statement 174",
+    "query": "INSERT INTO nulltest values ('a', 'b', 'c', NULL, 'd')"
+  },
+  {
+    "comment": "domain - Statement 175",
+    "query": "COPY nulltest FROM stdin"
+  },
+  {
+    "comment": "domain - Statement 176",
+    "query": "a\tb\t\\N\td\td \\. COPY nulltest FROM stdin"
+  },
+  {
+    "comment": "domain - Statement 177",
+    "query": "a\tb\tc\td\t\\N \\. COPY nulltest FROM stdin"
+  },
+  {
+    "comment": "domain - Statement 178",
+    "query": "a\tb\tc\t\\N\tc a\tb\tc\t\\N\td a\tb\tc\t\\N\ta \\. select * from nulltest"
+  },
+  {
+    "comment": "domain - Statement 179",
+    "query": "SELECT cast('1' as dnotnull)"
+  },
+  {
+    "comment": "domain - Statement 180",
+    "query": "SELECT cast(NULL as dnotnull)"
+  },
+  {
+    "comment": "domain - Statement 181",
+    "query": "SELECT cast(cast(NULL as dnull) as dnotnull)"
+  },
+  {
+    "comment": "domain - Statement 182",
+    "query": "SELECT cast(col4 as dnotnull) from nulltest"
+  },
+  {
+    "comment": "domain - Statement 183",
+    "query": "drop table nulltest"
+  },
+  {
+    "comment": "domain - Statement 184",
+    "query": "drop domain dnotnull restrict"
+  },
+  {
+    "comment": "domain - Statement 185",
+    "query": "drop domain dnull restrict"
+  },
+  {
+    "comment": "domain - Statement 186",
+    "query": "drop domain dcheck restrict"
+  },
+  {
+    "comment": "domain - Statement 187",
+    "query": "create domain ddef1 int4 DEFAULT 3"
+  },
+  {
+    "comment": "domain - Statement 188",
+    "query": "create domain ddef2 oid DEFAULT '12'"
+  },
+  {
+    "comment": "domain - Statement 189",
+    "query": "create domain ddef3 text DEFAULT 5"
+  },
+  {
+    "comment": "domain - Statement 190",
+    "query": "create sequence ddef4_seq"
+  },
+  {
+    "comment": "domain - Statement 191",
+    "query": "create domain ddef4 int4 DEFAULT nextval('ddef4_seq')"
+  },
+  {
+    "comment": "domain - Statement 192",
+    "query": "create domain ddef5 numeric(8,2) NOT NULL DEFAULT '12.12'"
+  },
+  {
+    "comment": "domain - Statement 193",
+    "query": "create table defaulttest ( col1 ddef1 , col2 ddef2 , col3 ddef3 , col4 ddef4 PRIMARY KEY , col5 ddef1 NOT NULL DEFAULT NULL , col6 ddef2 DEFAULT '88' , col7 ddef4 DEFAULT 8000 , col8 ddef5 )"
+  },
+  {
+    "comment": "domain - Statement 194",
+    "query": "insert into defaulttest(col4) values(0)"
+  },
+  {
+    "comment": "domain - Statement 195",
+    "query": "alter table defaulttest alter column col5 drop default"
+  },
+  {
+    "comment": "domain - Statement 196",
+    "query": "insert into defaulttest default values"
+  },
+  {
+    "comment": "domain - Statement 197",
+    "query": "alter table defaulttest alter column col5 set default null"
+  },
+  {
+    "comment": "domain - Statement 198",
+    "query": "COPY defaulttest(col5) FROM stdin"
+  },
+  {
+    "comment": "domain - Statement 199",
+    "query": "42 \\. select * from defaulttest"
+  },
+  {
+    "comment": "domain - Statement 200",
+    "query": "drop table defaulttest cascade"
+  },
+  {
+    "comment": "domain - Statement 201",
+    "query": "create domain dnotnulltest integer"
+  },
+  {
+    "comment": "domain - Statement 202",
+    "query": "create table domnotnull ( col1 dnotnulltest , col2 dnotnulltest )"
+  },
+  {
+    "comment": "domain - Statement 203",
+    "query": "insert into domnotnull default values"
+  },
+  {
+    "comment": "domain - Statement 204",
+    "query": "alter domain dnotnulltest set not null"
+  },
+  {
+    "comment": "domain - Statement 205",
+    "query": "update domnotnull set col1 = 5"
+  },
+  {
+    "comment": "domain - Statement 206",
+    "query": "update domnotnull set col2 = 6"
+  },
+  {
+    "comment": "domain - Statement 207",
+    "query": "update domnotnull set col1 = null"
+  },
+  {
+    "comment": "domain - Statement 208",
+    "query": "alter domain dnotnulltest drop not null"
+  },
+  {
+    "comment": "domain - Statement 209",
+    "query": "alter domain dnotnulltest add constraint dnotnulltest_notnull not null"
+  },
+  {
+    "comment": "domain - Statement 210",
+    "query": "select conname, pg_get_constraintdef(oid) from pg_constraint where contypid = 'dnotnulltest'::regtype"
+  },
+  {
+    "comment": "domain - Statement 211",
+    "query": "alter domain dnotnulltest drop constraint dnotnulltest_notnull"
+  },
+  {
+    "comment": "domain - Statement 212",
+    "query": "drop domain dnotnulltest cascade"
+  },
+  {
+    "comment": "domain - Statement 213",
+    "query": "create table domdeftest (col1 ddef1)"
+  },
+  {
+    "comment": "domain - Statement 214",
+    "query": "insert into domdeftest default values"
+  },
+  {
+    "comment": "domain - Statement 215",
+    "query": "select * from domdeftest"
+  },
+  {
+    "comment": "domain - Statement 216",
+    "query": "alter domain ddef1 set default '42'"
+  },
+  {
+    "comment": "domain - Statement 217",
+    "query": "alter domain ddef1 drop default"
+  },
+  {
+    "comment": "domain - Statement 218",
+    "query": "drop table domdeftest"
+  },
+  {
+    "comment": "domain - Statement 219",
+    "query": "create domain con as integer"
+  },
+  {
+    "comment": "domain - Statement 220",
+    "query": "create table domcontest (col1 con)"
+  },
+  {
+    "comment": "domain - Statement 221",
+    "query": "insert into domcontest values (1)"
+  },
+  {
+    "comment": "domain - Statement 222",
+    "query": "insert into domcontest values (2)"
+  },
+  {
+    "comment": "domain - Statement 223",
+    "query": "alter domain con add constraint t check (VALUE < 1)"
+  },
+  {
+    "comment": "domain - Statement 224",
+    "query": "alter domain con add constraint t check (VALUE < 34)"
+  },
+  {
+    "comment": "domain - Statement 225",
+    "query": "alter domain con add check (VALUE > 0)"
+  },
+  {
+    "comment": "domain - Statement 226",
+    "query": "insert into domcontest values (42)"
+  },
+  {
+    "comment": "domain - Statement 227",
+    "query": "insert into domcontest values (5)"
+  },
+  {
+    "comment": "domain - Statement 228",
+    "query": "alter domain con drop constraint t"
+  },
+  {
+    "comment": "domain - Statement 229",
+    "query": "insert into domcontest values (-5)"
+  },
+  {
+    "comment": "domain - Statement 230",
+    "query": "alter domain con drop constraint nonexistent"
+  },
+  {
+    "comment": "domain - Statement 231",
+    "query": "alter domain con drop constraint if exists nonexistent"
+  },
+  {
+    "comment": "domain - Statement 232",
+    "query": "create domain connotnull integer"
+  },
+  {
+    "comment": "domain - Statement 233",
+    "query": "create table domconnotnulltest ( col1 connotnull , col2 connotnull )"
+  },
+  {
+    "comment": "domain - Statement 234",
+    "query": "insert into domconnotnulltest default values"
+  },
+  {
+    "comment": "domain - Statement 235",
+    "query": "alter domain connotnull add not null"
+  },
+  {
+    "comment": "domain - Statement 236",
+    "query": "update domconnotnulltest set col1 = 5"
+  },
+  {
+    "comment": "domain - Statement 237",
+    "query": "update domconnotnulltest set col2 = 6"
+  },
+  {
+    "comment": "domain - Statement 238",
+    "query": "alter domain connotnull add constraint constr1 not null"
+  },
+  {
+    "comment": "domain - Statement 239",
+    "query": "select count(*) from pg_constraint where contypid = 'connotnull'::regtype and contype = 'n'"
+  },
+  {
+    "comment": "domain - Statement 240",
+    "query": "alter domain connotnull add constraint constr1bis not null"
+  },
+  {
+    "comment": "domain - Statement 241",
+    "query": "alter domain connotnull drop constraint constr1"
+  },
+  {
+    "comment": "domain - Statement 242",
+    "query": "update domconnotnulltest set col1 = null"
+  },
+  {
+    "comment": "domain - Statement 243",
+    "query": "drop domain connotnull cascade"
+  },
+  {
+    "comment": "domain - Statement 244",
+    "query": "drop table domconnotnulltest"
+  },
+  {
+    "comment": "domain - Statement 245",
+    "query": "create domain things AS INT"
+  },
+  {
+    "comment": "domain - Statement 246",
+    "query": "CREATE TABLE thethings (stuff things)"
+  },
+  {
+    "comment": "domain - Statement 247",
+    "query": "INSERT INTO thethings (stuff) VALUES (55)"
+  },
+  {
+    "comment": "domain - Statement 248",
+    "query": "ALTER DOMAIN things ADD CONSTRAINT meow CHECK (VALUE < 11)"
+  },
+  {
+    "comment": "domain - Statement 249",
+    "query": "ALTER DOMAIN things ADD CONSTRAINT meow CHECK (VALUE < 11) NOT VALID"
+  },
+  {
+    "comment": "domain - Statement 250",
+    "query": "ALTER DOMAIN things VALIDATE CONSTRAINT meow"
+  },
+  {
+    "comment": "domain - Statement 251",
+    "query": "UPDATE thethings SET stuff = 10"
+  },
+  {
+    "comment": "domain - Statement 252",
+    "query": "create table domtab (col1 integer)"
+  },
+  {
+    "comment": "domain - Statement 253",
+    "query": "create domain dom as integer"
+  },
+  {
+    "comment": "domain - Statement 254",
+    "query": "create view domview as select cast(col1 as dom) from domtab"
+  },
+  {
+    "comment": "domain - Statement 255",
+    "query": "insert into domtab (col1) values (null)"
+  },
+  {
+    "comment": "domain - Statement 256",
+    "query": "insert into domtab (col1) values (5)"
+  },
+  {
+    "comment": "domain - Statement 257",
+    "query": "select * from domview"
+  },
+  {
+    "comment": "domain - Statement 258",
+    "query": "alter domain dom set not null"
+  },
+  {
+    "comment": "domain - Statement 259",
+    "query": "alter domain dom drop not null"
+  },
+  {
+    "comment": "domain - Statement 260",
+    "query": "alter domain dom add constraint domchkgt6 check(value > 6)"
+  },
+  {
+    "comment": "domain - Statement 261",
+    "query": "alter domain dom drop constraint domchkgt6 restrict"
+  },
+  {
+    "comment": "domain - Statement 262",
+    "query": "drop domain ddef1 restrict"
+  },
+  {
+    "comment": "domain - Statement 263",
+    "query": "drop domain ddef2 restrict"
+  },
+  {
+    "comment": "domain - Statement 264",
+    "query": "drop domain ddef3 restrict"
+  },
+  {
+    "comment": "domain - Statement 265",
+    "query": "drop domain ddef4 restrict"
+  },
+  {
+    "comment": "domain - Statement 266",
+    "query": "drop domain ddef5 restrict"
+  },
+  {
+    "comment": "domain - Statement 267",
+    "query": "drop sequence ddef4_seq"
+  },
+  {
+    "comment": "domain - Statement 268",
+    "query": "create domain vchar4 varchar(4)"
+  },
+  {
+    "comment": "domain - Statement 269",
+    "query": "create domain dinter vchar4 check (substring(VALUE, 1, 1) = 'x')"
+  },
+  {
+    "comment": "domain - Statement 270",
+    "query": "create domain dtop dinter check (substring(VALUE, 2, 1) = '1')"
+  },
+  {
+    "comment": "domain - Statement 271",
+    "query": "select 'x123'::dtop"
+  },
+  {
+    "comment": "domain - Statement 272",
+    "query": "select 'x1234'::dtop"
+  },
+  {
+    "comment": "domain - Statement 273",
+    "query": "select 'y1234'::dtop"
+  },
+  {
+    "comment": "domain - Statement 274",
+    "query": "select 'y123'::dtop"
+  },
+  {
+    "comment": "domain - Statement 275",
+    "query": "select 'yz23'::dtop"
+  },
+  {
+    "comment": "domain - Statement 276",
+    "query": "select 'xz23'::dtop"
+  },
+  {
+    "comment": "domain - Statement 277",
+    "query": "create temp table dtest(f1 dtop)"
+  },
+  {
+    "comment": "domain - Statement 278",
+    "query": "insert into dtest values('x123')"
+  },
+  {
+    "comment": "domain - Statement 279",
+    "query": "insert into dtest values('x1234')"
+  },
+  {
+    "comment": "domain - Statement 280",
+    "query": "insert into dtest values('y1234')"
+  },
+  {
+    "comment": "domain - Statement 281",
+    "query": "insert into dtest values('y123')"
+  },
+  {
+    "comment": "domain - Statement 282",
+    "query": "insert into dtest values('yz23')"
+  },
+  {
+    "comment": "domain - Statement 283",
+    "query": "insert into dtest values('xz23')"
+  },
+  {
+    "comment": "domain - Statement 284",
+    "query": "drop table dtest"
+  },
+  {
+    "comment": "domain - Statement 285",
+    "query": "drop domain vchar4 cascade"
+  },
+  {
+    "comment": "domain - Statement 286",
+    "query": "create domain str_domain as text not null"
+  },
+  {
+    "comment": "domain - Statement 287",
+    "query": "create table domain_test (a int, b int)"
+  },
+  {
+    "comment": "domain - Statement 288",
+    "query": "insert into domain_test values (1, 2)"
+  },
+  {
+    "comment": "domain - Statement 289",
+    "query": "alter table domain_test add column c str_domain"
+  },
+  {
+    "comment": "domain - Statement 290",
+    "query": "create domain str_domain2 as text check (value <> 'foo') default 'foo'"
+  },
+  {
+    "comment": "domain - Statement 291",
+    "query": "alter table domain_test add column d str_domain2"
+  },
+  {
+    "comment": "domain - Statement 292",
+    "query": "create domain pos_int as int4 check (value > 0) not null"
+  },
+  {
+    "comment": "domain - Statement 293",
+    "query": "prepare s1 as select $1::pos_int = 10 as \"is_ten\""
+  },
+  {
+    "comment": "domain - Statement 294",
+    "query": "execute s1(10)"
+  },
+  {
+    "comment": "domain - Statement 295",
+    "query": "execute s1(0)"
+  },
+  {
+    "comment": "domain - Statement 296",
+    "query": "execute s1(NULL)"
+  },
+  {
+    "comment": "domain - Statement 297",
+    "query": "create function doubledecrement(p1 pos_int) returns pos_int as $$ declare v pos_int"
+  },
+  {
+    "comment": "domain - Statement 298",
+    "query": "begin return p1"
+  },
+  {
+    "comment": "domain - Statement 299",
+    "query": "end$$ language plpgsql"
+  },
+  {
+    "comment": "domain - Statement 300",
+    "query": "select doubledecrement(3)"
+  },
+  {
+    "comment": "domain - Statement 301",
+    "query": "create or replace function doubledecrement(p1 pos_int) returns pos_int as $$ declare v pos_int := 0"
+  },
+  {
+    "comment": "domain - Statement 302",
+    "query": "create or replace function doubledecrement(p1 pos_int) returns pos_int as $$ declare v pos_int := 1"
+  },
+  {
+    "comment": "domain - Statement 303",
+    "query": "begin v := p1 - 1"
+  },
+  {
+    "comment": "domain - Statement 304",
+    "query": "return v - 1"
+  },
+  {
+    "comment": "domain - Statement 305",
+    "query": "select doubledecrement(null)"
+  },
+  {
+    "comment": "domain - Statement 306",
+    "query": "select doubledecrement(0)"
+  },
+  {
+    "comment": "domain - Statement 307",
+    "query": "select doubledecrement(1)"
+  },
+  {
+    "comment": "domain - Statement 308",
+    "query": "select doubledecrement(2)"
+  },
+  {
+    "comment": "domain - Statement 309",
+    "query": "create domain posint as int4"
+  },
+  {
+    "comment": "domain - Statement 310",
+    "query": "create type ddtest1 as (f1 posint)"
+  },
+  {
+    "comment": "domain - Statement 311",
+    "query": "create table ddtest2(f1 ddtest1)"
+  },
+  {
+    "comment": "domain - Statement 312",
+    "query": "insert into ddtest2 values(row(-1))"
+  },
+  {
+    "comment": "domain - Statement 313",
+    "query": "alter domain posint add constraint c1 check(value >= 0)"
+  },
+  {
+    "comment": "domain - Statement 314",
+    "query": "drop table ddtest2"
+  },
+  {
+    "comment": "domain - Statement 315",
+    "query": "create table ddtest2(f1 ddtest1[])"
+  },
+  {
+    "comment": "domain - Statement 316",
+    "query": "insert into ddtest2 values('{(-1)}')"
+  },
+  {
+    "comment": "domain - Statement 317",
+    "query": "create domain ddtest1d as ddtest1"
+  },
+  {
+    "comment": "domain - Statement 318",
+    "query": "create table ddtest2(f1 ddtest1d)"
+  },
+  {
+    "comment": "domain - Statement 319",
+    "query": "insert into ddtest2 values('(-1)')"
+  },
+  {
+    "comment": "domain - Statement 320",
+    "query": "drop domain ddtest1d"
+  },
+  {
+    "comment": "domain - Statement 321",
+    "query": "create domain ddtest1d as ddtest1[]"
+  },
+  {
+    "comment": "domain - Statement 322",
+    "query": "create type rposint as range (subtype = posint)"
+  },
+  {
+    "comment": "domain - Statement 323",
+    "query": "create table ddtest2(f1 rposint)"
+  },
+  {
+    "comment": "domain - Statement 324",
+    "query": "insert into ddtest2 values('(-1,3]')"
+  },
+  {
+    "comment": "domain - Statement 325",
+    "query": "drop type rposint"
+  },
+  {
+    "comment": "domain - Statement 326",
+    "query": "create domain posint2 as posint check (value % 2 = 0)"
+  },
+  {
+    "comment": "domain - Statement 327",
+    "query": "create table ddtest2(f1 posint2)"
+  },
+  {
+    "comment": "domain - Statement 328",
+    "query": "insert into ddtest2 values(11)"
+  },
+  {
+    "comment": "domain - Statement 329",
+    "query": "insert into ddtest2 values(-2)"
+  },
+  {
+    "comment": "domain - Statement 330",
+    "query": "insert into ddtest2 values(2)"
+  },
+  {
+    "comment": "domain - Statement 331",
+    "query": "alter domain posint add constraint c2 check(value >= 10)"
+  },
+  {
+    "comment": "domain - Statement 332",
+    "query": "alter domain posint add constraint c2 check(value > 0)"
+  },
+  {
+    "comment": "domain - Statement 333",
+    "query": "drop type ddtest1"
+  },
+  {
+    "comment": "domain - Statement 334",
+    "query": "create or replace function array_elem_check(numeric) returns numeric as $$ declare x numeric(4,2)[1]"
+  },
+  {
+    "comment": "domain - Statement 335",
+    "query": "begin x[1] := $1"
+  },
+  {
+    "comment": "domain - Statement 336",
+    "query": "return x[1]"
+  },
+  {
+    "comment": "domain - Statement 337",
+    "query": "select array_elem_check(121.00)"
+  },
+  {
+    "comment": "domain - Statement 338",
+    "query": "select array_elem_check(1.23456)"
+  },
+  {
+    "comment": "domain - Statement 339",
+    "query": "create domain mynums as numeric(4,2)[1]"
+  },
+  {
+    "comment": "domain - Statement 340",
+    "query": "create or replace function array_elem_check(numeric) returns numeric as $$ declare x mynums"
+  },
+  {
+    "comment": "domain - Statement 341",
+    "query": "create domain mynums2 as mynums"
+  },
+  {
+    "comment": "domain - Statement 342",
+    "query": "create or replace function array_elem_check(numeric) returns numeric as $$ declare x mynums2"
+  },
+  {
+    "comment": "domain - Statement 343",
+    "query": "drop function array_elem_check(numeric)"
+  },
+  {
+    "comment": "domain - Statement 344",
+    "query": "create domain orderedpair as int[2] check (value[1] < value[2])"
+  },
+  {
+    "comment": "domain - Statement 345",
+    "query": "select array[1,2]::orderedpair"
+  },
+  {
+    "comment": "domain - Statement 346",
+    "query": "select array[2,1]::orderedpair"
+  },
+  {
+    "comment": "domain - Statement 347",
+    "query": "create temp table op (f1 orderedpair)"
+  },
+  {
+    "comment": "domain - Statement 348",
+    "query": "insert into op values (array[1,2])"
+  },
+  {
+    "comment": "domain - Statement 349",
+    "query": "insert into op values (array[2,1])"
+  },
+  {
+    "comment": "domain - Statement 350",
+    "query": "update op set f1[2] = 3"
+  },
+  {
+    "comment": "domain - Statement 351",
+    "query": "update op set f1[2] = 0"
+  },
+  {
+    "comment": "domain - Statement 352",
+    "query": "select * from op"
+  },
+  {
+    "comment": "domain - Statement 353",
+    "query": "create or replace function array_elem_check(int) returns int as $$ declare x orderedpair := '{1,2}'"
+  },
+  {
+    "comment": "domain - Statement 354",
+    "query": "begin x[2] := $1"
+  },
+  {
+    "comment": "domain - Statement 355",
+    "query": "return x[2]"
+  },
+  {
+    "comment": "domain - Statement 356",
+    "query": "select array_elem_check(3)"
+  },
+  {
+    "comment": "domain - Statement 357",
+    "query": "select array_elem_check(-1)"
+  },
+  {
+    "comment": "domain - Statement 358",
+    "query": "drop function array_elem_check(int)"
+  },
+  {
+    "comment": "domain - Statement 359",
+    "query": "create domain di as int"
+  },
+  {
+    "comment": "domain - Statement 360",
+    "query": "create function dom_check(int) returns di as $$ declare d di"
+  },
+  {
+    "comment": "domain - Statement 361",
+    "query": "begin d := $1::di"
+  },
+  {
+    "comment": "domain - Statement 362",
+    "query": "return d"
+  },
+  {
+    "comment": "domain - Statement 363",
+    "query": "end $$ language plpgsql immutable"
+  },
+  {
+    "comment": "domain - Statement 364",
+    "query": "select dom_check(0)"
+  },
+  {
+    "comment": "domain - Statement 365",
+    "query": "alter domain di add constraint pos check (value > 0)"
+  },
+  {
+    "comment": "domain - Statement 366",
+    "query": "alter domain di drop constraint pos"
+  },
+  {
+    "comment": "domain - Statement 367",
+    "query": "create or replace function dom_check(int) returns di as $$ declare d di"
+  },
+  {
+    "comment": "domain - Statement 368",
+    "query": "begin d := $1"
+  },
+  {
+    "comment": "domain - Statement 369",
+    "query": "drop function dom_check(int)"
+  },
+  {
+    "comment": "domain - Statement 370",
+    "query": "drop domain di"
+  },
+  {
+    "comment": "domain - Statement 371",
+    "query": "create function sql_is_distinct_from(anyelement, anyelement) returns boolean language sql as 'select $1 is distinct from $2 limit 1'"
+  },
+  {
+    "comment": "domain - Statement 372",
+    "query": "create domain inotnull int check (sql_is_distinct_from(value, null))"
+  },
+  {
+    "comment": "domain - Statement 373",
+    "query": "select 1::inotnull"
+  },
+  {
+    "comment": "domain - Statement 374",
+    "query": "select null::inotnull"
+  },
+  {
+    "comment": "domain - Statement 375",
+    "query": "create table dom_table (x inotnull)"
+  },
+  {
+    "comment": "domain - Statement 376",
+    "query": "insert into dom_table values ('1')"
+  },
+  {
+    "comment": "domain - Statement 377",
+    "query": "insert into dom_table values (1)"
+  },
+  {
+    "comment": "domain - Statement 378",
+    "query": "insert into dom_table values (null)"
+  },
+  {
+    "comment": "domain - Statement 379",
+    "query": "drop table dom_table"
+  },
+  {
+    "comment": "domain - Statement 380",
+    "query": "drop domain inotnull"
+  },
+  {
+    "comment": "domain - Statement 381",
+    "query": "drop function sql_is_distinct_from(anyelement, anyelement)"
+  },
+  {
+    "comment": "domain - Statement 382",
+    "query": "create domain testdomain1 as int"
+  },
+  {
+    "comment": "domain - Statement 383",
+    "query": "alter domain testdomain1 rename to testdomain2"
+  },
+  {
+    "comment": "domain - Statement 384",
+    "query": "alter type testdomain2 rename to testdomain3"
+  },
+  {
+    "comment": "domain - Statement 385",
+    "query": "drop domain testdomain3"
+  },
+  {
+    "comment": "domain - Statement 386",
+    "query": "create domain testdomain1 as int constraint unsigned check (value > 0)"
+  },
+  {
+    "comment": "domain - Statement 387",
+    "query": "alter domain testdomain1 rename constraint unsigned to unsigned_foo"
+  },
+  {
+    "comment": "domain - Statement 388",
+    "query": "alter domain testdomain1 drop constraint unsigned_foo"
+  },
+  {
+    "comment": "domain - Statement 389",
+    "query": "drop domain testdomain1"
+  },
+  {
+    "comment": "domain - Statement 390",
+    "query": "create domain mytext as text"
+  },
+  {
+    "comment": "domain - Statement 391",
+    "query": "create domain mytext_child_1 as mytext"
+  },
+  {
+    "comment": "domain - Statement 392",
+    "query": "select pg_basetype('mytext'::regtype)"
+  },
+  {
+    "comment": "domain - Statement 393",
+    "query": "select pg_basetype('mytext_child_1'::regtype)"
+  },
+  {
+    "comment": "domain - Statement 394",
+    "query": "select pg_basetype(1)"
+  },
+  {
+    "comment": "domain - Statement 395",
+    "query": "drop domain mytext cascade"
+  },
+  {
+    "comment": "domain - Statement 396",
+    "query": "SELECT * FROM information_schema.column_domain_usage WHERE domain_name IN ('con', 'dom', 'pos_int', 'things') ORDER BY domain_name"
+  },
+  {
+    "comment": "domain - Statement 397",
+    "query": "SELECT * FROM information_schema.domain_constraints WHERE domain_name IN ('con', 'dom', 'pos_int', 'things') ORDER BY constraint_name"
+  },
+  {
+    "comment": "domain - Statement 398",
+    "query": "SELECT * FROM information_schema.domains WHERE domain_name IN ('con', 'dom', 'pos_int', 'things') ORDER BY domain_name"
+  },
+  {
+    "comment": "domain - Statement 399",
+    "query": "SELECT * FROM information_schema.check_constraints WHERE (constraint_schema, constraint_name) IN (SELECT constraint_schema, constraint_name FROM information_schema.domain_constraints WHERE domain_name IN ('con', 'dom', 'pos_int', 'things')) ORDER BY constraint_name"
+  }
+]

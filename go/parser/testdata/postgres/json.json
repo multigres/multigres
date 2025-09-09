@@ -1,0 +1,1774 @@
+[
+  {
+    "comment": "json - Statement 1",
+    "query": "SELECT '\"\"'::json"
+  },
+  {
+    "comment": "json - Statement 2",
+    "query": "SELECT $$''$$::json"
+  },
+  {
+    "comment": "json - Statement 3",
+    "query": "SELECT '\"abc\"'::json"
+  },
+  {
+    "comment": "json - Statement 4",
+    "query": "SELECT '\"abc'::json"
+  },
+  {
+    "comment": "json - Statement 5",
+    "query": "SELECT '\"abc def\"'::json;\t\t\t\t\t-- ERROR, unescaped newline in string constant SELECT '\"\\n\\\"\\\\\"'::json"
+  },
+  {
+    "comment": "json - Statement 6",
+    "query": "SELECT '\"\\v\"'::json"
+  },
+  {
+    "comment": "json - Statement 7",
+    "query": "SELECT ('\"'||repeat('.', 12)||'abc\"')::json"
+  },
+  {
+    "comment": "json - Statement 8",
+    "query": "SELECT ('\"'||repeat('.', 12)||'abc\\n\"')::json"
+  },
+  {
+    "comment": "json - Statement 9",
+    "query": "SELECT '1'::json"
+  },
+  {
+    "comment": "json - Statement 10",
+    "query": "SELECT '0'::json"
+  },
+  {
+    "comment": "json - Statement 11",
+    "query": "SELECT '01'::json"
+  },
+  {
+    "comment": "json - Statement 12",
+    "query": "SELECT '0.1'::json"
+  },
+  {
+    "comment": "json - Statement 13",
+    "query": "SELECT '9223372036854775808'::json"
+  },
+  {
+    "comment": "json - Statement 14",
+    "query": "SELECT '1e100'::json"
+  },
+  {
+    "comment": "json - Statement 15",
+    "query": "SELECT '1.3e100'::json"
+  },
+  {
+    "comment": "json - Statement 16",
+    "query": "SELECT '1f2'::json"
+  },
+  {
+    "comment": "json - Statement 17",
+    "query": "SELECT '0.x1'::json"
+  },
+  {
+    "comment": "json - Statement 18",
+    "query": "SELECT '1.3ex100'::json"
+  },
+  {
+    "comment": "json - Statement 19",
+    "query": "SELECT '[]'::json"
+  },
+  {
+    "comment": "json - Statement 20",
+    "query": "SELECT '[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]'::json"
+  },
+  {
+    "comment": "json - Statement 21",
+    "query": "SELECT '[1,2]'::json"
+  },
+  {
+    "comment": "json - Statement 22",
+    "query": "SELECT '[1,2,]'::json"
+  },
+  {
+    "comment": "json - Statement 23",
+    "query": "SELECT '[1,2'::json"
+  },
+  {
+    "comment": "json - Statement 24",
+    "query": "SELECT '[1,[2]'::json"
+  },
+  {
+    "comment": "json - Statement 25",
+    "query": "SELECT '{}'::json"
+  },
+  {
+    "comment": "json - Statement 26",
+    "query": "SELECT '{\"abc\"}'::json"
+  },
+  {
+    "comment": "json - Statement 27",
+    "query": "SELECT '{\"abc\":1}'::json"
+  },
+  {
+    "comment": "json - Statement 28",
+    "query": "SELECT '{1:\"abc\"}'::json"
+  },
+  {
+    "comment": "json - Statement 29",
+    "query": "SELECT '{\"abc\",1}'::json"
+  },
+  {
+    "comment": "json - Statement 30",
+    "query": "SELECT '{\"abc\"=1}'::json"
+  },
+  {
+    "comment": "json - Statement 31",
+    "query": "SELECT '{\"abc\"::1}'::json"
+  },
+  {
+    "comment": "json - Statement 32",
+    "query": "SELECT '{\"abc\":1,\"def\":2,\"ghi\":[3,4],\"hij\":{\"klm\":5,\"nop\":[6]}}'::json"
+  },
+  {
+    "comment": "json - Statement 33",
+    "query": "SELECT '{\"abc\":1:2}'::json"
+  },
+  {
+    "comment": "json - Statement 34",
+    "query": "SELECT '{\"abc\":1,3}'::json"
+  },
+  {
+    "comment": "json - Statement 35",
+    "query": "SET max_stack_depth = '100kB'"
+  },
+  {
+    "comment": "json - Statement 36",
+    "query": "SELECT repeat('[', 10000)::json"
+  },
+  {
+    "comment": "json - Statement 37",
+    "query": "SELECT repeat('{\"a\":', 10000)::json"
+  },
+  {
+    "comment": "json - Statement 38",
+    "query": "RESET max_stack_depth"
+  },
+  {
+    "comment": "json - Statement 39",
+    "query": "SELECT 'true'::json"
+  },
+  {
+    "comment": "json - Statement 40",
+    "query": "SELECT 'false'::json"
+  },
+  {
+    "comment": "json - Statement 41",
+    "query": "SELECT 'null'::json"
+  },
+  {
+    "comment": "json - Statement 42",
+    "query": "SELECT ' true '::json"
+  },
+  {
+    "comment": "json - Statement 43",
+    "query": "SELECT 'true false'::json"
+  },
+  {
+    "comment": "json - Statement 44",
+    "query": "SELECT 'true, false'::json"
+  },
+  {
+    "comment": "json - Statement 45",
+    "query": "SELECT 'truf'::json"
+  },
+  {
+    "comment": "json - Statement 46",
+    "query": "SELECT 'trues'::json"
+  },
+  {
+    "comment": "json - Statement 47",
+    "query": "SELECT ''::json"
+  },
+  {
+    "comment": "json - Statement 48",
+    "query": "SELECT '    '::json"
+  },
+  {
+    "comment": "json - Statement 49",
+    "query": "SELECT '{ \"one\": 1, \"two\":\"two\", \"three\": true}'::json; -- OK SELECT '{ \"one\": 1, \"two\":,\"two\", \"three\": true}'::json"
+  },
+  {
+    "comment": "json - Statement 50",
+    "query": "SELECT '{ \"one\": 1, \"two\":\"two\", \"averyveryveryveryveryveryveryveryveryverylongfieldname\":}'::json"
+  },
+  {
+    "comment": "json - Statement 51",
+    "query": "select pg_input_is_valid('{\"a\":true}', 'json')"
+  },
+  {
+    "comment": "json - Statement 52",
+    "query": "select pg_input_is_valid('{\"a\":true', 'json')"
+  },
+  {
+    "comment": "json - Statement 53",
+    "query": "select * from pg_input_error_info('{\"a\":true', 'json')"
+  },
+  {
+    "comment": "json - Statement 54",
+    "query": "SELECT array_to_json(array(select 1 as a))"
+  },
+  {
+    "comment": "json - Statement 55",
+    "query": "SELECT array_to_json(array_agg(q),false) from (select x as b, x * 2 as c from generate_series(1,3) x) q"
+  },
+  {
+    "comment": "json - Statement 56",
+    "query": "SELECT array_to_json(array_agg(q),true) from (select x as b, x * 2 as c from generate_series(1,3) x) q"
+  },
+  {
+    "comment": "json - Statement 57",
+    "query": "SELECT array_to_json(array_agg(q),false) FROM ( SELECT $$a$$ || x AS b, y AS c, ARRAY[ROW(x.*,ARRAY[1,2,3]), ROW(y.*,ARRAY[4,5,6])] AS z FROM generate_series(1,2) x, generate_series(4,5) y) q"
+  },
+  {
+    "comment": "json - Statement 58",
+    "query": "SELECT array_to_json(array_agg(x),false) from generate_series(5,10) x"
+  },
+  {
+    "comment": "json - Statement 59",
+    "query": "SELECT array_to_json('{{1,5},{99,100}}'::int[])"
+  },
+  {
+    "comment": "json - Statement 60",
+    "query": "SELECT row_to_json(row(1,'foo'))"
+  },
+  {
+    "comment": "json - Statement 61",
+    "query": "SELECT row_to_json(q) FROM (SELECT $$a$$ || x AS b, y AS c, ARRAY[ROW(x.*,ARRAY[1,2,3]), ROW(y.*,ARRAY[4,5,6])] AS z FROM generate_series(1,2) x, generate_series(4,5) y) q"
+  },
+  {
+    "comment": "json - Statement 62",
+    "query": "SELECT row_to_json(q,true) FROM (SELECT $$a$$ || x AS b, y AS c, ARRAY[ROW(x.*,ARRAY[1,2,3]), ROW(y.*,ARRAY[4,5,6])] AS z FROM generate_series(1,2) x, generate_series(4,5) y) q"
+  },
+  {
+    "comment": "json - Statement 63",
+    "query": "CREATE TEMP TABLE rows AS SELECT x, 'txt' || x as y FROM generate_series(1,3) AS x"
+  },
+  {
+    "comment": "json - Statement 64",
+    "query": "SELECT row_to_json(q,true) FROM rows q"
+  },
+  {
+    "comment": "json - Statement 65",
+    "query": "SELECT row_to_json(row((select array_agg(x) as d from generate_series(5,10) x)),false)"
+  },
+  {
+    "comment": "json - Statement 66",
+    "query": "analyze rows"
+  },
+  {
+    "comment": "json - Statement 67",
+    "query": "select attname, to_json(histogram_bounds) histogram_bounds from pg_stats where tablename = 'rows' and schemaname = pg_my_temp_schema()::regnamespace::text order by 1"
+  },
+  {
+    "comment": "json - Statement 68",
+    "query": "select to_json(timestamp '2014-05-28 12:22:35.614298')"
+  },
+  {
+    "comment": "json - Statement 69",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "json - Statement 70",
+    "query": "SET LOCAL TIME ZONE 10.5"
+  },
+  {
+    "comment": "json - Statement 71",
+    "query": "select to_json(timestamptz '2014-05-28 12:22:35.614298-04')"
+  },
+  {
+    "comment": "json - Statement 72",
+    "query": "SET LOCAL TIME ZONE -8"
+  },
+  {
+    "comment": "json - Statement 73",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "json - Statement 74",
+    "query": "select to_json(date '2014-05-28')"
+  },
+  {
+    "comment": "json - Statement 75",
+    "query": "select to_json(date 'Infinity')"
+  },
+  {
+    "comment": "json - Statement 76",
+    "query": "select to_json(date '-Infinity')"
+  },
+  {
+    "comment": "json - Statement 77",
+    "query": "select to_json(timestamp 'Infinity')"
+  },
+  {
+    "comment": "json - Statement 78",
+    "query": "select to_json(timestamp '-Infinity')"
+  },
+  {
+    "comment": "json - Statement 79",
+    "query": "select to_json(timestamptz 'Infinity')"
+  },
+  {
+    "comment": "json - Statement 80",
+    "query": "select to_json(timestamptz '-Infinity')"
+  },
+  {
+    "comment": "json - Statement 81",
+    "query": "SELECT json_agg(q) FROM ( SELECT $$a$$ || x AS b, y AS c, ARRAY[ROW(x.*,ARRAY[1,2,3]), ROW(y.*,ARRAY[4,5,6])] AS z FROM generate_series(1,2) x, generate_series(4,5) y) q"
+  },
+  {
+    "comment": "json - Statement 82",
+    "query": "SELECT json_agg(q ORDER BY x, y) FROM rows q"
+  },
+  {
+    "comment": "json - Statement 83",
+    "query": "UPDATE rows SET x = NULL WHERE x = 1"
+  },
+  {
+    "comment": "json - Statement 84",
+    "query": "SELECT json_agg(q ORDER BY x NULLS FIRST, y) FROM rows q"
+  },
+  {
+    "comment": "json - Statement 85",
+    "query": "SELECT row_to_json(q) FROM (SELECT 'NaN'::float8 AS \"float8field\") q"
+  },
+  {
+    "comment": "json - Statement 86",
+    "query": "SELECT row_to_json(q) FROM (SELECT 'Infinity'::float8 AS \"float8field\") q"
+  },
+  {
+    "comment": "json - Statement 87",
+    "query": "SELECT row_to_json(q) FROM (SELECT '-Infinity'::float8 AS \"float8field\") q"
+  },
+  {
+    "comment": "json - Statement 88",
+    "query": "SELECT row_to_json(q) FROM (SELECT '{\"a\":1,\"b\": [2,3,4,\"d\",\"e\",\"f\"],\"c\":{\"p\":1,\"q\":2}}'::json AS \"jsonfield\") q"
+  },
+  {
+    "comment": "json - Statement 89",
+    "query": "CREATE TEMP TABLE test_json ( json_type text, test_json json )"
+  },
+  {
+    "comment": "json - Statement 90",
+    "query": "INSERT INTO test_json VALUES ('scalar','\"a scalar\"'), ('array','[\"zero\", \"one\",\"two\",null,\"four\",\"five\", [1,2,3],{\"f1\":9}]'), ('object','{\"field1\":\"val1\",\"field2\":\"val2\",\"field3\":null, \"field4\": 4, \"field5\": [1,2,3], \"field6\": {\"f1\":9}}')"
+  },
+  {
+    "comment": "json - Statement 91",
+    "query": "SELECT test_json -> 'x' FROM test_json WHERE json_type = 'scalar'"
+  },
+  {
+    "comment": "json - Statement 92",
+    "query": "SELECT test_json -> 'x' FROM test_json WHERE json_type = 'array'"
+  },
+  {
+    "comment": "json - Statement 93",
+    "query": "SELECT test_json -> 'x' FROM test_json WHERE json_type = 'object'"
+  },
+  {
+    "comment": "json - Statement 94",
+    "query": "SELECT test_json->'field2' FROM test_json WHERE json_type = 'object'"
+  },
+  {
+    "comment": "json - Statement 95",
+    "query": "SELECT test_json->>'field2' FROM test_json WHERE json_type = 'object'"
+  },
+  {
+    "comment": "json - Statement 96",
+    "query": "SELECT test_json -> 2 FROM test_json WHERE json_type = 'scalar'"
+  },
+  {
+    "comment": "json - Statement 97",
+    "query": "SELECT test_json -> 2 FROM test_json WHERE json_type = 'array'"
+  },
+  {
+    "comment": "json - Statement 98",
+    "query": "SELECT test_json -> -1 FROM test_json WHERE json_type = 'array'"
+  },
+  {
+    "comment": "json - Statement 99",
+    "query": "SELECT test_json -> 2 FROM test_json WHERE json_type = 'object'"
+  },
+  {
+    "comment": "json - Statement 100",
+    "query": "SELECT test_json->>2 FROM test_json WHERE json_type = 'array'"
+  },
+  {
+    "comment": "json - Statement 101",
+    "query": "SELECT test_json ->> 6 FROM test_json WHERE json_type = 'array'"
+  },
+  {
+    "comment": "json - Statement 102",
+    "query": "SELECT test_json ->> 7 FROM test_json WHERE json_type = 'array'"
+  },
+  {
+    "comment": "json - Statement 103",
+    "query": "SELECT test_json ->> 'field4' FROM test_json WHERE json_type = 'object'"
+  },
+  {
+    "comment": "json - Statement 104",
+    "query": "SELECT test_json ->> 'field5' FROM test_json WHERE json_type = 'object'"
+  },
+  {
+    "comment": "json - Statement 105",
+    "query": "SELECT test_json ->> 'field6' FROM test_json WHERE json_type = 'object'"
+  },
+  {
+    "comment": "json - Statement 106",
+    "query": "SELECT json_object_keys(test_json) FROM test_json WHERE json_type = 'scalar'"
+  },
+  {
+    "comment": "json - Statement 107",
+    "query": "SELECT json_object_keys(test_json) FROM test_json WHERE json_type = 'array'"
+  },
+  {
+    "comment": "json - Statement 108",
+    "query": "SELECT json_object_keys(test_json) FROM test_json WHERE json_type = 'object'"
+  },
+  {
+    "comment": "json - Statement 109",
+    "query": "select count(*) from (select json_object_keys(json_object(array_agg(g))) from (select unnest(array['f'||n,n::text])as g from generate_series(1,300) as n) x ) y"
+  },
+  {
+    "comment": "json - Statement 110",
+    "query": "select (test_json->'field3') is null as expect_false from test_json where json_type = 'object'"
+  },
+  {
+    "comment": "json - Statement 111",
+    "query": "select (test_json->>'field3') is null as expect_true from test_json where json_type = 'object'"
+  },
+  {
+    "comment": "json - Statement 112",
+    "query": "select (test_json->3) is null as expect_false from test_json where json_type = 'array'"
+  },
+  {
+    "comment": "json - Statement 113",
+    "query": "select (test_json->>3) is null as expect_true from test_json where json_type = 'array'"
+  },
+  {
+    "comment": "json - Statement 114",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> null::text"
+  },
+  {
+    "comment": "json - Statement 115",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> null::int"
+  },
+  {
+    "comment": "json - Statement 116",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> 1"
+  },
+  {
+    "comment": "json - Statement 117",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> -1"
+  },
+  {
+    "comment": "json - Statement 118",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> 'z'"
+  },
+  {
+    "comment": "json - Statement 119",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json -> ''"
+  },
+  {
+    "comment": "json - Statement 120",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -> 1"
+  },
+  {
+    "comment": "json - Statement 121",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -> 3"
+  },
+  {
+    "comment": "json - Statement 122",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json -> 'z'"
+  },
+  {
+    "comment": "json - Statement 123",
+    "query": "select '{\"a\": \"c\", \"b\": null}'::json -> 'b'"
+  },
+  {
+    "comment": "json - Statement 124",
+    "query": "select '\"foo\"'::json -> 1"
+  },
+  {
+    "comment": "json - Statement 125",
+    "query": "select '\"foo\"'::json -> 'z'"
+  },
+  {
+    "comment": "json - Statement 126",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json ->> null::text"
+  },
+  {
+    "comment": "json - Statement 127",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json ->> null::int"
+  },
+  {
+    "comment": "json - Statement 128",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json ->> 1"
+  },
+  {
+    "comment": "json - Statement 129",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json ->> 'z'"
+  },
+  {
+    "comment": "json - Statement 130",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json ->> ''"
+  },
+  {
+    "comment": "json - Statement 131",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json ->> 1"
+  },
+  {
+    "comment": "json - Statement 132",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json ->> 3"
+  },
+  {
+    "comment": "json - Statement 133",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json ->> 'z'"
+  },
+  {
+    "comment": "json - Statement 134",
+    "query": "select '{\"a\": \"c\", \"b\": null}'::json ->> 'b'"
+  },
+  {
+    "comment": "json - Statement 135",
+    "query": "select '\"foo\"'::json ->> 1"
+  },
+  {
+    "comment": "json - Statement 136",
+    "query": "select '\"foo\"'::json ->> 'z'"
+  },
+  {
+    "comment": "json - Statement 137",
+    "query": "SELECT json_array_length('[1,2,3,{\"f1\":1,\"f2\":[5,6]},4]')"
+  },
+  {
+    "comment": "json - Statement 138",
+    "query": "SELECT json_array_length('[]')"
+  },
+  {
+    "comment": "json - Statement 139",
+    "query": "SELECT json_array_length('{\"f1\":1,\"f2\":[5,6]}')"
+  },
+  {
+    "comment": "json - Statement 140",
+    "query": "SELECT json_array_length('4')"
+  },
+  {
+    "comment": "json - Statement 141",
+    "query": "select json_each('{\"f1\":[1,2,3],\"f2\":{\"f3\":1},\"f4\":null}')"
+  },
+  {
+    "comment": "json - Statement 142",
+    "query": "select * from json_each('{\"f1\":[1,2,3],\"f2\":{\"f3\":1},\"f4\":null,\"f5\":99,\"f6\":\"stringy\"}') q"
+  },
+  {
+    "comment": "json - Statement 143",
+    "query": "select json_each_text('{\"f1\":[1,2,3],\"f2\":{\"f3\":1},\"f4\":null,\"f5\":\"null\"}')"
+  },
+  {
+    "comment": "json - Statement 144",
+    "query": "select * from json_each_text('{\"f1\":[1,2,3],\"f2\":{\"f3\":1},\"f4\":null,\"f5\":99,\"f6\":\"stringy\"}') q"
+  },
+  {
+    "comment": "json - Statement 145",
+    "query": "select json_extract_path('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f4','f6')"
+  },
+  {
+    "comment": "json - Statement 146",
+    "query": "select json_extract_path('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2')"
+  },
+  {
+    "comment": "json - Statement 147",
+    "query": "select json_extract_path('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2',0::text)"
+  },
+  {
+    "comment": "json - Statement 148",
+    "query": "select json_extract_path('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2',1::text)"
+  },
+  {
+    "comment": "json - Statement 149",
+    "query": "select json_extract_path_text('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f4','f6')"
+  },
+  {
+    "comment": "json - Statement 150",
+    "query": "select json_extract_path_text('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2')"
+  },
+  {
+    "comment": "json - Statement 151",
+    "query": "select json_extract_path_text('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2',0::text)"
+  },
+  {
+    "comment": "json - Statement 152",
+    "query": "select json_extract_path_text('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2',1::text)"
+  },
+  {
+    "comment": "json - Statement 153",
+    "query": "select json_extract_path('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":null,\"f6\":\"stringy\"}}','f4','f5') is null as expect_false"
+  },
+  {
+    "comment": "json - Statement 154",
+    "query": "select json_extract_path_text('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":null,\"f6\":\"stringy\"}}','f4','f5') is null as expect_true"
+  },
+  {
+    "comment": "json - Statement 155",
+    "query": "select json_extract_path('{\"f2\":{\"f3\":1},\"f4\":[0,1,2,null]}','f4','3') is null as expect_false"
+  },
+  {
+    "comment": "json - Statement 156",
+    "query": "select json_extract_path_text('{\"f2\":{\"f3\":1},\"f4\":[0,1,2,null]}','f4','3') is null as expect_true"
+  },
+  {
+    "comment": "json - Statement 157",
+    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>array['f4','f6']"
+  },
+  {
+    "comment": "json - Statement 158",
+    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>array['f2']"
+  },
+  {
+    "comment": "json - Statement 159",
+    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>array['f2','0']"
+  },
+  {
+    "comment": "json - Statement 160",
+    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>array['f2','1']"
+  },
+  {
+    "comment": "json - Statement 161",
+    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>>array['f4','f6']"
+  },
+  {
+    "comment": "json - Statement 162",
+    "query": "select '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>>array['f2']"
+  },
+  {
+    "comment": "json - Statement 163",
+    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>>array['f2','0']"
+  },
+  {
+    "comment": "json - Statement 164",
+    "query": "select '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::json#>>array['f2','1']"
+  },
+  {
+    "comment": "json - Statement 165",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> '{}'"
+  },
+  {
+    "comment": "json - Statement 166",
+    "query": "select '[1,2,3]'::json #> '{}'"
+  },
+  {
+    "comment": "json - Statement 167",
+    "query": "select '\"foo\"'::json #> '{}'"
+  },
+  {
+    "comment": "json - Statement 168",
+    "query": "select '42'::json #> '{}'"
+  },
+  {
+    "comment": "json - Statement 169",
+    "query": "select 'null'::json #> '{}'"
+  },
+  {
+    "comment": "json - Statement 170",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a']"
+  },
+  {
+    "comment": "json - Statement 171",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a', null]"
+  },
+  {
+    "comment": "json - Statement 172",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a', '']"
+  },
+  {
+    "comment": "json - Statement 173",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a','b']"
+  },
+  {
+    "comment": "json - Statement 174",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a','b','c']"
+  },
+  {
+    "comment": "json - Statement 175",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a','b','c','d']"
+  },
+  {
+    "comment": "json - Statement 176",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #> array['a','z','c']"
+  },
+  {
+    "comment": "json - Statement 177",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #> array['a','1','b']"
+  },
+  {
+    "comment": "json - Statement 178",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #> array['a','z','b']"
+  },
+  {
+    "comment": "json - Statement 179",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #> array['1','b']"
+  },
+  {
+    "comment": "json - Statement 180",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #> array['z','b']"
+  },
+  {
+    "comment": "json - Statement 181",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::json #> array['1','b']"
+  },
+  {
+    "comment": "json - Statement 182",
+    "query": "select '\"foo\"'::json #> array['z']"
+  },
+  {
+    "comment": "json - Statement 183",
+    "query": "select '42'::json #> array['f2']"
+  },
+  {
+    "comment": "json - Statement 184",
+    "query": "select '42'::json #> array['0']"
+  },
+  {
+    "comment": "json - Statement 185",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> '{}'"
+  },
+  {
+    "comment": "json - Statement 186",
+    "query": "select '[1,2,3]'::json #>> '{}'"
+  },
+  {
+    "comment": "json - Statement 187",
+    "query": "select '\"foo\"'::json #>> '{}'"
+  },
+  {
+    "comment": "json - Statement 188",
+    "query": "select '42'::json #>> '{}'"
+  },
+  {
+    "comment": "json - Statement 189",
+    "query": "select 'null'::json #>> '{}'"
+  },
+  {
+    "comment": "json - Statement 190",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a']"
+  },
+  {
+    "comment": "json - Statement 191",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a', null]"
+  },
+  {
+    "comment": "json - Statement 192",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a', '']"
+  },
+  {
+    "comment": "json - Statement 193",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a','b']"
+  },
+  {
+    "comment": "json - Statement 194",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a','b','c']"
+  },
+  {
+    "comment": "json - Statement 195",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a','b','c','d']"
+  },
+  {
+    "comment": "json - Statement 196",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::json #>> array['a','z','c']"
+  },
+  {
+    "comment": "json - Statement 197",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #>> array['a','1','b']"
+  },
+  {
+    "comment": "json - Statement 198",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::json #>> array['a','z','b']"
+  },
+  {
+    "comment": "json - Statement 199",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #>> array['1','b']"
+  },
+  {
+    "comment": "json - Statement 200",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::json #>> array['z','b']"
+  },
+  {
+    "comment": "json - Statement 201",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::json #>> array['1','b']"
+  },
+  {
+    "comment": "json - Statement 202",
+    "query": "select '\"foo\"'::json #>> array['z']"
+  },
+  {
+    "comment": "json - Statement 203",
+    "query": "select '42'::json #>> array['f2']"
+  },
+  {
+    "comment": "json - Statement 204",
+    "query": "select '42'::json #>> array['0']"
+  },
+  {
+    "comment": "json - Statement 205",
+    "query": "select json_array_elements('[1,true,[1,[2,3]],null,{\"f1\":1,\"f2\":[7,8,9]},false,\"stringy\"]')"
+  },
+  {
+    "comment": "json - Statement 206",
+    "query": "select * from json_array_elements('[1,true,[1,[2,3]],null,{\"f1\":1,\"f2\":[7,8,9]},false,\"stringy\"]') q"
+  },
+  {
+    "comment": "json - Statement 207",
+    "query": "select json_array_elements_text('[1,true,[1,[2,3]],null,{\"f1\":1,\"f2\":[7,8,9]},false,\"stringy\"]')"
+  },
+  {
+    "comment": "json - Statement 208",
+    "query": "select * from json_array_elements_text('[1,true,[1,[2,3]],null,{\"f1\":1,\"f2\":[7,8,9]},false,\"stringy\"]') q"
+  },
+  {
+    "comment": "json - Statement 209",
+    "query": "create type jpop as (a text, b int, c timestamp)"
+  },
+  {
+    "comment": "json - Statement 210",
+    "query": "CREATE DOMAIN js_int_not_null  AS int     NOT NULL"
+  },
+  {
+    "comment": "json - Statement 211",
+    "query": "CREATE DOMAIN js_int_array_1d  AS int[]   CHECK(array_length(VALUE, 1) = 3)"
+  },
+  {
+    "comment": "json - Statement 212",
+    "query": "CREATE DOMAIN js_int_array_2d  AS int[][] CHECK(array_length(VALUE, 2) = 3)"
+  },
+  {
+    "comment": "json - Statement 213",
+    "query": "create type j_unordered_pair as (x int, y int)"
+  },
+  {
+    "comment": "json - Statement 214",
+    "query": "create domain j_ordered_pair as j_unordered_pair check((value).x <= (value).y)"
+  },
+  {
+    "comment": "json - Statement 215",
+    "query": "CREATE TYPE jsrec AS ( i\tint, ia\t_int4, ia1\tint[], ia2\tint[][], ia3\tint[][][], ia1d\tjs_int_array_1d, ia2d\tjs_int_array_2d, t\ttext, ta\ttext[], c\tchar(10), ca\tchar(10)[], ts\ttimestamp, js\tjson, jsb\tjsonb, jsa\tjson[], rec\tjpop, reca\tjpop[] )"
+  },
+  {
+    "comment": "json - Statement 216",
+    "query": "CREATE TYPE jsrec_i_not_null AS ( i\tjs_int_not_null )"
+  },
+  {
+    "comment": "json - Statement 217",
+    "query": "select * from json_populate_record(null::jpop,'{\"a\":\"blurfl\",\"x\":43.2}') q"
+  },
+  {
+    "comment": "json - Statement 218",
+    "query": "select * from json_populate_record(row('x',3,'2012-12-31 15:30:56')::jpop,'{\"a\":\"blurfl\",\"x\":43.2}') q"
+  },
+  {
+    "comment": "json - Statement 219",
+    "query": "select * from json_populate_record(null::jpop,'{\"a\":[100,200,false],\"x\":43.2}') q"
+  },
+  {
+    "comment": "json - Statement 220",
+    "query": "select * from json_populate_record(row('x',3,'2012-12-31 15:30:56')::jpop,'{\"a\":[100,200,false],\"x\":43.2}') q"
+  },
+  {
+    "comment": "json - Statement 221",
+    "query": "select * from json_populate_record(row('x',3,'2012-12-31 15:30:56')::jpop,'{\"c\":[100,200,false],\"x\":43.2}') q"
+  },
+  {
+    "comment": "json - Statement 222",
+    "query": "select * from json_populate_record(row('x',3,'2012-12-31 15:30:56')::jpop,'{}') q"
+  },
+  {
+    "comment": "json - Statement 223",
+    "query": "SELECT i FROM json_populate_record(NULL::jsrec_i_not_null, '{\"x\": 43.2}') q"
+  },
+  {
+    "comment": "json - Statement 224",
+    "query": "SELECT i FROM json_populate_record(NULL::jsrec_i_not_null, '{\"i\": null}') q"
+  },
+  {
+    "comment": "json - Statement 225",
+    "query": "SELECT i FROM json_populate_record(NULL::jsrec_i_not_null, '{\"i\": 12345}') q"
+  },
+  {
+    "comment": "json - Statement 226",
+    "query": "SELECT ia FROM json_populate_record(NULL::jsrec, '{\"ia\": null}') q"
+  },
+  {
+    "comment": "json - Statement 227",
+    "query": "SELECT ia FROM json_populate_record(NULL::jsrec, '{\"ia\": 123}') q"
+  },
+  {
+    "comment": "json - Statement 228",
+    "query": "SELECT ia FROM json_populate_record(NULL::jsrec, '{\"ia\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "json - Statement 229",
+    "query": "SELECT ia FROM json_populate_record(NULL::jsrec, '{\"ia\": [[1, 2], [3, 4]]}') q"
+  },
+  {
+    "comment": "json - Statement 230",
+    "query": "SELECT ia FROM json_populate_record(NULL::jsrec, '{\"ia\": [[1], 2]}') q"
+  },
+  {
+    "comment": "json - Statement 231",
+    "query": "SELECT ia FROM json_populate_record(NULL::jsrec, '{\"ia\": [[1], [2, 3]]}') q"
+  },
+  {
+    "comment": "json - Statement 232",
+    "query": "SELECT ia FROM json_populate_record(NULL::jsrec, '{\"ia\": \"{1,2,3}\"}') q"
+  },
+  {
+    "comment": "json - Statement 233",
+    "query": "SELECT ia1 FROM json_populate_record(NULL::jsrec, '{\"ia1\": null}') q"
+  },
+  {
+    "comment": "json - Statement 234",
+    "query": "SELECT ia1 FROM json_populate_record(NULL::jsrec, '{\"ia1\": 123}') q"
+  },
+  {
+    "comment": "json - Statement 235",
+    "query": "SELECT ia1 FROM json_populate_record(NULL::jsrec, '{\"ia1\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "json - Statement 236",
+    "query": "SELECT ia1 FROM json_populate_record(NULL::jsrec, '{\"ia1\": [[1, 2, 3]]}') q"
+  },
+  {
+    "comment": "json - Statement 237",
+    "query": "SELECT ia1d FROM json_populate_record(NULL::jsrec, '{\"ia1d\": null}') q"
+  },
+  {
+    "comment": "json - Statement 238",
+    "query": "SELECT ia1d FROM json_populate_record(NULL::jsrec, '{\"ia1d\": 123}') q"
+  },
+  {
+    "comment": "json - Statement 239",
+    "query": "SELECT ia1d FROM json_populate_record(NULL::jsrec, '{\"ia1d\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "json - Statement 240",
+    "query": "SELECT ia1d FROM json_populate_record(NULL::jsrec, '{\"ia1d\": [1, \"2\", null]}') q"
+  },
+  {
+    "comment": "json - Statement 241",
+    "query": "SELECT ia2 FROM json_populate_record(NULL::jsrec, '{\"ia2\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "json - Statement 242",
+    "query": "SELECT ia2 FROM json_populate_record(NULL::jsrec, '{\"ia2\": [[1, 2], [null, 4]]}') q"
+  },
+  {
+    "comment": "json - Statement 243",
+    "query": "SELECT ia2 FROM json_populate_record(NULL::jsrec, '{\"ia2\": [[], []]}') q"
+  },
+  {
+    "comment": "json - Statement 244",
+    "query": "SELECT ia2 FROM json_populate_record(NULL::jsrec, '{\"ia2\": [[1, 2], [3]]}') q"
+  },
+  {
+    "comment": "json - Statement 245",
+    "query": "SELECT ia2 FROM json_populate_record(NULL::jsrec, '{\"ia2\": [[1, 2], 3, 4]}') q"
+  },
+  {
+    "comment": "json - Statement 246",
+    "query": "SELECT ia2d FROM json_populate_record(NULL::jsrec, '{\"ia2d\": [[1, \"2\"], [null, 4]]}') q"
+  },
+  {
+    "comment": "json - Statement 247",
+    "query": "SELECT ia2d FROM json_populate_record(NULL::jsrec, '{\"ia2d\": [[1, \"2\", 3], [null, 5, 6]]}') q"
+  },
+  {
+    "comment": "json - Statement 248",
+    "query": "SELECT ia3 FROM json_populate_record(NULL::jsrec, '{\"ia3\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "json - Statement 249",
+    "query": "SELECT ia3 FROM json_populate_record(NULL::jsrec, '{\"ia3\": [[1, 2], [null, 4]]}') q"
+  },
+  {
+    "comment": "json - Statement 250",
+    "query": "SELECT ia3 FROM json_populate_record(NULL::jsrec, '{\"ia3\": [ [[], []], [[], []], [[], []] ]}') q"
+  },
+  {
+    "comment": "json - Statement 251",
+    "query": "SELECT ia3 FROM json_populate_record(NULL::jsrec, '{\"ia3\": [ [[1, 2]], [[3, 4]] ]}') q"
+  },
+  {
+    "comment": "json - Statement 252",
+    "query": "SELECT ia3 FROM json_populate_record(NULL::jsrec, '{\"ia3\": [ [[1, 2], [3, 4]], [[5, 6], [7, 8]] ]}') q"
+  },
+  {
+    "comment": "json - Statement 253",
+    "query": "SELECT ia3 FROM json_populate_record(NULL::jsrec, '{\"ia3\": [ [[1, 2], [3, 4]], [[5, 6], [7, 8], [9, 10]] ]}') q"
+  },
+  {
+    "comment": "json - Statement 254",
+    "query": "SELECT ta FROM json_populate_record(NULL::jsrec, '{\"ta\": null}') q"
+  },
+  {
+    "comment": "json - Statement 255",
+    "query": "SELECT ta FROM json_populate_record(NULL::jsrec, '{\"ta\": 123}') q"
+  },
+  {
+    "comment": "json - Statement 256",
+    "query": "SELECT ta FROM json_populate_record(NULL::jsrec, '{\"ta\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "json - Statement 257",
+    "query": "SELECT ta FROM json_populate_record(NULL::jsrec, '{\"ta\": [[1, 2, 3], {\"k\": \"v\"}]}') q"
+  },
+  {
+    "comment": "json - Statement 258",
+    "query": "SELECT c FROM json_populate_record(NULL::jsrec, '{\"c\": null}') q"
+  },
+  {
+    "comment": "json - Statement 259",
+    "query": "SELECT c FROM json_populate_record(NULL::jsrec, '{\"c\": \"aaa\"}') q"
+  },
+  {
+    "comment": "json - Statement 260",
+    "query": "SELECT c FROM json_populate_record(NULL::jsrec, '{\"c\": \"aaaaaaaaaa\"}') q"
+  },
+  {
+    "comment": "json - Statement 261",
+    "query": "SELECT c FROM json_populate_record(NULL::jsrec, '{\"c\": \"aaaaaaaaaaaaa\"}') q"
+  },
+  {
+    "comment": "json - Statement 262",
+    "query": "SELECT ca FROM json_populate_record(NULL::jsrec, '{\"ca\": null}') q"
+  },
+  {
+    "comment": "json - Statement 263",
+    "query": "SELECT ca FROM json_populate_record(NULL::jsrec, '{\"ca\": 123}') q"
+  },
+  {
+    "comment": "json - Statement 264",
+    "query": "SELECT ca FROM json_populate_record(NULL::jsrec, '{\"ca\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "json - Statement 265",
+    "query": "SELECT ca FROM json_populate_record(NULL::jsrec, '{\"ca\": [\"aaaaaaaaaaaaaaaa\"]}') q"
+  },
+  {
+    "comment": "json - Statement 266",
+    "query": "SELECT ca FROM json_populate_record(NULL::jsrec, '{\"ca\": [[1, 2, 3], {\"k\": \"v\"}]}') q"
+  },
+  {
+    "comment": "json - Statement 267",
+    "query": "SELECT js FROM json_populate_record(NULL::jsrec, '{\"js\": null}') q"
+  },
+  {
+    "comment": "json - Statement 268",
+    "query": "SELECT js FROM json_populate_record(NULL::jsrec, '{\"js\": true}') q"
+  },
+  {
+    "comment": "json - Statement 269",
+    "query": "SELECT js FROM json_populate_record(NULL::jsrec, '{\"js\": 123.45}') q"
+  },
+  {
+    "comment": "json - Statement 270",
+    "query": "SELECT js FROM json_populate_record(NULL::jsrec, '{\"js\": \"123.45\"}') q"
+  },
+  {
+    "comment": "json - Statement 271",
+    "query": "SELECT js FROM json_populate_record(NULL::jsrec, '{\"js\": \"abc\"}') q"
+  },
+  {
+    "comment": "json - Statement 272",
+    "query": "SELECT js FROM json_populate_record(NULL::jsrec, '{\"js\": [123, \"123\", null, {\"key\": \"value\"}]}') q"
+  },
+  {
+    "comment": "json - Statement 273",
+    "query": "SELECT js FROM json_populate_record(NULL::jsrec, '{\"js\": {\"a\": \"bbb\", \"b\": null, \"c\": 123.45}}') q"
+  },
+  {
+    "comment": "json - Statement 274",
+    "query": "SELECT jsb FROM json_populate_record(NULL::jsrec, '{\"jsb\": null}') q"
+  },
+  {
+    "comment": "json - Statement 275",
+    "query": "SELECT jsb FROM json_populate_record(NULL::jsrec, '{\"jsb\": true}') q"
+  },
+  {
+    "comment": "json - Statement 276",
+    "query": "SELECT jsb FROM json_populate_record(NULL::jsrec, '{\"jsb\": 123.45}') q"
+  },
+  {
+    "comment": "json - Statement 277",
+    "query": "SELECT jsb FROM json_populate_record(NULL::jsrec, '{\"jsb\": \"123.45\"}') q"
+  },
+  {
+    "comment": "json - Statement 278",
+    "query": "SELECT jsb FROM json_populate_record(NULL::jsrec, '{\"jsb\": \"abc\"}') q"
+  },
+  {
+    "comment": "json - Statement 279",
+    "query": "SELECT jsb FROM json_populate_record(NULL::jsrec, '{\"jsb\": [123, \"123\", null, {\"key\": \"value\"}]}') q"
+  },
+  {
+    "comment": "json - Statement 280",
+    "query": "SELECT jsb FROM json_populate_record(NULL::jsrec, '{\"jsb\": {\"a\": \"bbb\", \"b\": null, \"c\": 123.45}}') q"
+  },
+  {
+    "comment": "json - Statement 281",
+    "query": "SELECT jsa FROM json_populate_record(NULL::jsrec, '{\"jsa\": null}') q"
+  },
+  {
+    "comment": "json - Statement 282",
+    "query": "SELECT jsa FROM json_populate_record(NULL::jsrec, '{\"jsa\": 123}') q"
+  },
+  {
+    "comment": "json - Statement 283",
+    "query": "SELECT jsa FROM json_populate_record(NULL::jsrec, '{\"jsa\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "json - Statement 284",
+    "query": "SELECT jsa FROM json_populate_record(NULL::jsrec, '{\"jsa\": [\"aaa\", null, [1, 2, \"3\", {}], { \"k\" : \"v\" }]}') q"
+  },
+  {
+    "comment": "json - Statement 285",
+    "query": "SELECT rec FROM json_populate_record(NULL::jsrec, '{\"rec\": 123}') q"
+  },
+  {
+    "comment": "json - Statement 286",
+    "query": "SELECT rec FROM json_populate_record(NULL::jsrec, '{\"rec\": [1, 2]}') q"
+  },
+  {
+    "comment": "json - Statement 287",
+    "query": "SELECT rec FROM json_populate_record(NULL::jsrec, '{\"rec\": {\"a\": \"abc\", \"c\": \"01.02.2003\", \"x\": 43.2}}') q"
+  },
+  {
+    "comment": "json - Statement 288",
+    "query": "SELECT rec FROM json_populate_record(NULL::jsrec, '{\"rec\": \"(abc,42,01.02.2003)\"}') q"
+  },
+  {
+    "comment": "json - Statement 289",
+    "query": "SELECT reca FROM json_populate_record(NULL::jsrec, '{\"reca\": 123}') q"
+  },
+  {
+    "comment": "json - Statement 290",
+    "query": "SELECT reca FROM json_populate_record(NULL::jsrec, '{\"reca\": [1, 2]}') q"
+  },
+  {
+    "comment": "json - Statement 291",
+    "query": "SELECT reca FROM json_populate_record(NULL::jsrec, '{\"reca\": [{\"a\": \"abc\", \"b\": 456}, null, {\"c\": \"01.02.2003\", \"x\": 43.2}]}') q"
+  },
+  {
+    "comment": "json - Statement 292",
+    "query": "SELECT reca FROM json_populate_record(NULL::jsrec, '{\"reca\": [\"(abc,42,01.02.2003)\"]}') q"
+  },
+  {
+    "comment": "json - Statement 293",
+    "query": "SELECT reca FROM json_populate_record(NULL::jsrec, '{\"reca\": \"{\\\"(abc,42,01.02.2003)\\\"}\"}') q"
+  },
+  {
+    "comment": "json - Statement 294",
+    "query": "SELECT rec FROM json_populate_record( row(NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL, row('x',3,'2012-12-31 15:30:56')::jpop,NULL)::jsrec, '{\"rec\": {\"a\": \"abc\", \"c\": \"01.02.2003\", \"x\": 43.2}}' ) q"
+  },
+  {
+    "comment": "json - Statement 295",
+    "query": "SELECT json_populate_record(null::record, '{\"x\": 0, \"y\": 1}')"
+  },
+  {
+    "comment": "json - Statement 296",
+    "query": "SELECT json_populate_record(row(1,2), '{\"f1\": 0, \"f2\": 1}')"
+  },
+  {
+    "comment": "json - Statement 297",
+    "query": "SELECT * FROM json_populate_record(null::record, '{\"x\": 776}') AS (x int, y int)"
+  },
+  {
+    "comment": "json - Statement 298",
+    "query": "SELECT json_populate_record(null::j_ordered_pair, '{\"x\": 0, \"y\": 1}')"
+  },
+  {
+    "comment": "json - Statement 299",
+    "query": "SELECT json_populate_record(row(1,2)::j_ordered_pair, '{\"x\": 0}')"
+  },
+  {
+    "comment": "json - Statement 300",
+    "query": "SELECT json_populate_record(row(1,2)::j_ordered_pair, '{\"x\": 1, \"y\": 0}')"
+  },
+  {
+    "comment": "json - Statement 301",
+    "query": "select * from json_populate_recordset(null::jpop,'[{\"a\":\"blurfl\",\"x\":43.2},{\"b\":3,\"c\":\"2012-01-20 10:42:53\"}]') q"
+  },
+  {
+    "comment": "json - Statement 302",
+    "query": "select * from json_populate_recordset(row('def',99,null)::jpop,'[{\"a\":\"blurfl\",\"x\":43.2},{\"b\":3,\"c\":\"2012-01-20 10:42:53\"}]') q"
+  },
+  {
+    "comment": "json - Statement 303",
+    "query": "select * from json_populate_recordset(row('def',99,null)::jpop,'[{\"a\":[100,200,300],\"x\":43.2},{\"a\":{\"z\":true},\"b\":3,\"c\":\"2012-01-20 10:42:53\"}]') q"
+  },
+  {
+    "comment": "json - Statement 304",
+    "query": "select * from json_populate_recordset(row('def',99,null)::jpop,'[{\"c\":[100,200,300],\"x\":43.2},{\"a\":{\"z\":true},\"b\":3,\"c\":\"2012-01-20 10:42:53\"}]') q"
+  },
+  {
+    "comment": "json - Statement 305",
+    "query": "create type jpop2 as (a int, b json, c int, d int)"
+  },
+  {
+    "comment": "json - Statement 306",
+    "query": "select * from json_populate_recordset(null::jpop2, '[{\"a\":2,\"c\":3,\"b\":{\"z\":4},\"d\":6}]') q"
+  },
+  {
+    "comment": "json - Statement 307",
+    "query": "SELECT json_populate_recordset(null::record, '[{\"x\": 0, \"y\": 1}]')"
+  },
+  {
+    "comment": "json - Statement 308",
+    "query": "SELECT json_populate_recordset(row(1,2), '[{\"f1\": 0, \"f2\": 1}]')"
+  },
+  {
+    "comment": "json - Statement 309",
+    "query": "SELECT i, json_populate_recordset(row(i,50), '[{\"f1\":\"42\"},{\"f2\":\"43\"}]') FROM (VALUES (1),(2)) v(i)"
+  },
+  {
+    "comment": "json - Statement 310",
+    "query": "SELECT * FROM json_populate_recordset(null::record, '[{\"x\": 776}]') AS (x int, y int)"
+  },
+  {
+    "comment": "json - Statement 311",
+    "query": "SELECT json_populate_recordset(null::record, '[]')"
+  },
+  {
+    "comment": "json - Statement 312",
+    "query": "SELECT json_populate_recordset(row(1,2), '[]')"
+  },
+  {
+    "comment": "json - Statement 313",
+    "query": "SELECT * FROM json_populate_recordset(NULL::jpop,'[]') q"
+  },
+  {
+    "comment": "json - Statement 314",
+    "query": "SELECT * FROM json_populate_recordset(null::record, '[]') AS (x int, y int)"
+  },
+  {
+    "comment": "json - Statement 315",
+    "query": "SELECT json_populate_recordset(null::j_ordered_pair, '[{\"x\": 0, \"y\": 1}]')"
+  },
+  {
+    "comment": "json - Statement 316",
+    "query": "SELECT json_populate_recordset(row(1,2)::j_ordered_pair, '[{\"x\": 0}, {\"y\": 3}]')"
+  },
+  {
+    "comment": "json - Statement 317",
+    "query": "SELECT json_populate_recordset(row(1,2)::j_ordered_pair, '[{\"x\": 1, \"y\": 0}]')"
+  },
+  {
+    "comment": "json - Statement 318",
+    "query": "select * from json_populate_recordset(row(0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)"
+  },
+  {
+    "comment": "json - Statement 319",
+    "query": "select * from json_populate_recordset(row(0::int,0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)"
+  },
+  {
+    "comment": "json - Statement 320",
+    "query": "select * from json_populate_recordset(row(0::int,0::int,0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)"
+  },
+  {
+    "comment": "json - Statement 321",
+    "query": "select * from json_populate_recordset(row(1000000000::int,50::int),'[{\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)"
+  },
+  {
+    "comment": "json - Statement 322",
+    "query": "CREATE TEMP TABLE jspoptest (js json)"
+  },
+  {
+    "comment": "json - Statement 323",
+    "query": "INSERT INTO jspoptest SELECT '{ \"jsa\": [1, \"2\", null, 4], \"rec\": {\"a\": \"abc\", \"c\": \"01.02.2003\", \"x\": 43.2}, \"reca\": [{\"a\": \"abc\", \"b\": 456}, null, {\"c\": \"01.02.2003\", \"x\": 43.2}] }'::json FROM generate_series(1, 3)"
+  },
+  {
+    "comment": "json - Statement 324",
+    "query": "SELECT (json_populate_record(NULL::jsrec, js)).* FROM jspoptest"
+  },
+  {
+    "comment": "json - Statement 325",
+    "query": "DROP TYPE jsrec"
+  },
+  {
+    "comment": "json - Statement 326",
+    "query": "DROP TYPE jsrec_i_not_null"
+  },
+  {
+    "comment": "json - Statement 327",
+    "query": "DROP DOMAIN js_int_not_null"
+  },
+  {
+    "comment": "json - Statement 328",
+    "query": "DROP DOMAIN js_int_array_1d"
+  },
+  {
+    "comment": "json - Statement 329",
+    "query": "DROP DOMAIN js_int_array_2d"
+  },
+  {
+    "comment": "json - Statement 330",
+    "query": "DROP DOMAIN j_ordered_pair"
+  },
+  {
+    "comment": "json - Statement 331",
+    "query": "DROP TYPE j_unordered_pair"
+  },
+  {
+    "comment": "json - Statement 332",
+    "query": "select value, json_typeof(value) from (values (json '123.4'), (json '-1'), (json '\"foo\"'), (json 'true'), (json 'false'), (json 'null'), (json '[1, 2, 3]'), (json '[]'), (json '{\"x\":\"foo\", \"y\":123}'), (json '{}'), (NULL::json)) as data(value)"
+  },
+  {
+    "comment": "json - Statement 333",
+    "query": "SELECT json_build_array('a',1,'b',1.2,'c',true,'d',null,'e',json '{\"x\": 3, \"y\": [1,2,3]}')"
+  },
+  {
+    "comment": "json - Statement 334",
+    "query": "SELECT json_build_array('a', NULL)"
+  },
+  {
+    "comment": "json - Statement 335",
+    "query": "SELECT json_build_array(VARIADIC NULL::text[])"
+  },
+  {
+    "comment": "json - Statement 336",
+    "query": "SELECT json_build_array(VARIADIC '{}'::text[])"
+  },
+  {
+    "comment": "json - Statement 337",
+    "query": "SELECT json_build_array(VARIADIC '{a,b,c}'::text[])"
+  },
+  {
+    "comment": "json - Statement 338",
+    "query": "SELECT json_build_array(VARIADIC ARRAY['a', NULL]::text[])"
+  },
+  {
+    "comment": "json - Statement 339",
+    "query": "SELECT json_build_array(VARIADIC '{1,2,3,4}'::text[])"
+  },
+  {
+    "comment": "json - Statement 340",
+    "query": "SELECT json_build_array(VARIADIC '{1,2,3,4}'::int[])"
+  },
+  {
+    "comment": "json - Statement 341",
+    "query": "SELECT json_build_array(VARIADIC '{{1,4},{2,5},{3,6}}'::int[][])"
+  },
+  {
+    "comment": "json - Statement 342",
+    "query": "SELECT json_build_object('a',1,'b',1.2,'c',true,'d',null,'e',json '{\"x\": 3, \"y\": [1,2,3]}')"
+  },
+  {
+    "comment": "json - Statement 343",
+    "query": "SELECT json_build_object( 'a', json_build_object('b',false,'c',99), 'd', json_build_object('e',array[9,8,7]::int[], 'f', (select row_to_json(r) from ( select relkind, oid::regclass as name from pg_class where relname = 'pg_class') r)))"
+  },
+  {
+    "comment": "json - Statement 344",
+    "query": "SELECT json_build_object('{a,b,c}'::text[])"
+  },
+  {
+    "comment": "json - Statement 345",
+    "query": "SELECT json_build_object('{a,b,c}'::text[], '{d,e,f}'::text[])"
+  },
+  {
+    "comment": "json - Statement 346",
+    "query": "SELECT json_build_object('a', 'b', 'c')"
+  },
+  {
+    "comment": "json - Statement 347",
+    "query": "SELECT json_build_object(NULL, 'a')"
+  },
+  {
+    "comment": "json - Statement 348",
+    "query": "SELECT json_build_object('a', NULL)"
+  },
+  {
+    "comment": "json - Statement 349",
+    "query": "SELECT json_build_object(VARIADIC NULL::text[])"
+  },
+  {
+    "comment": "json - Statement 350",
+    "query": "SELECT json_build_object(VARIADIC '{}'::text[])"
+  },
+  {
+    "comment": "json - Statement 351",
+    "query": "SELECT json_build_object(VARIADIC '{a,b,c}'::text[])"
+  },
+  {
+    "comment": "json - Statement 352",
+    "query": "SELECT json_build_object(VARIADIC ARRAY['a', NULL]::text[])"
+  },
+  {
+    "comment": "json - Statement 353",
+    "query": "SELECT json_build_object(VARIADIC ARRAY[NULL, 'a']::text[])"
+  },
+  {
+    "comment": "json - Statement 354",
+    "query": "SELECT json_build_object(VARIADIC '{1,2,3,4}'::text[])"
+  },
+  {
+    "comment": "json - Statement 355",
+    "query": "SELECT json_build_object(VARIADIC '{1,2,3,4}'::int[])"
+  },
+  {
+    "comment": "json - Statement 356",
+    "query": "SELECT json_build_object(VARIADIC '{{1,4},{2,5},{3,6}}'::int[][])"
+  },
+  {
+    "comment": "json - Statement 357",
+    "query": "SELECT json_build_array()"
+  },
+  {
+    "comment": "json - Statement 358",
+    "query": "SELECT json_build_object()"
+  },
+  {
+    "comment": "json - Statement 359",
+    "query": "SELECT json_build_object(1,2)"
+  },
+  {
+    "comment": "json - Statement 360",
+    "query": "SELECT json_build_object(null,2)"
+  },
+  {
+    "comment": "json - Statement 361",
+    "query": "SELECT json_build_object(r,2) FROM (SELECT 1 AS a, 2 AS b) r"
+  },
+  {
+    "comment": "json - Statement 362",
+    "query": "SELECT json_build_object(json '{\"a\":1,\"b\":2}', 3)"
+  },
+  {
+    "comment": "json - Statement 363",
+    "query": "SELECT json_build_object('{1,2,3}'::int[], 3)"
+  },
+  {
+    "comment": "json - Statement 364",
+    "query": "CREATE TEMP TABLE foo (serial_num int, name text, type text)"
+  },
+  {
+    "comment": "json - Statement 365",
+    "query": "INSERT INTO foo VALUES (847001,'t15','GE1043')"
+  },
+  {
+    "comment": "json - Statement 366",
+    "query": "INSERT INTO foo VALUES (847002,'t16','GE1043')"
+  },
+  {
+    "comment": "json - Statement 367",
+    "query": "INSERT INTO foo VALUES (847003,'sub-alpha','GESS90')"
+  },
+  {
+    "comment": "json - Statement 368",
+    "query": "SELECT json_build_object('turbines',json_object_agg(serial_num,json_build_object('name',name,'type',type))) FROM foo"
+  },
+  {
+    "comment": "json - Statement 369",
+    "query": "SELECT json_object_agg(name, type) FROM foo"
+  },
+  {
+    "comment": "json - Statement 370",
+    "query": "INSERT INTO foo VALUES (999999, NULL, 'bar')"
+  },
+  {
+    "comment": "json - Statement 371",
+    "query": "SELECT json_object('{}')"
+  },
+  {
+    "comment": "json - Statement 372",
+    "query": "SELECT json_object('{}', '{}')"
+  },
+  {
+    "comment": "json - Statement 373",
+    "query": "SELECT json_object('{a,1,b,2,3,NULL,\"d e f\",\"a b c\"}')"
+  },
+  {
+    "comment": "json - Statement 374",
+    "query": "SELECT json_object('{{a,1},{b,2},{3,NULL},{\"d e f\",\"a b c\"}}')"
+  },
+  {
+    "comment": "json - Statement 375",
+    "query": "SELECT json_object('{a,b,c}')"
+  },
+  {
+    "comment": "json - Statement 376",
+    "query": "SELECT json_object('{{a},{b}}')"
+  },
+  {
+    "comment": "json - Statement 377",
+    "query": "SELECT json_object('{{a,b,c},{b,c,d}}')"
+  },
+  {
+    "comment": "json - Statement 378",
+    "query": "SELECT json_object('{{{a,b},{c,d}},{{b,c},{d,e}}}')"
+  },
+  {
+    "comment": "json - Statement 379",
+    "query": "select json_object('{a,b,c,\"d e f\"}','{1,2,3,\"a b c\"}')"
+  },
+  {
+    "comment": "json - Statement 380",
+    "query": "SELECT json_object('{{a,1},{b,2},{3,NULL},{\"d e f\",\"a b c\"}}', '{{a,1},{b,2},{3,NULL},{\"d e f\",\"a b c\"}}')"
+  },
+  {
+    "comment": "json - Statement 381",
+    "query": "select json_object('{a,b,c,\"d e f\",g}','{1,2,3,\"a b c\"}')"
+  },
+  {
+    "comment": "json - Statement 382",
+    "query": "select json_object('{a,b,c,\"d e f\"}','{1,2,3,\"a b c\",g}')"
+  },
+  {
+    "comment": "json - Statement 383",
+    "query": "select json_object('{a,b,NULL,\"d e f\"}','{1,2,3,\"a b c\"}')"
+  },
+  {
+    "comment": "json - Statement 384",
+    "query": "select json_object('{a,b,\"\",\"d e f\"}','{1,2,3,\"a b c\"}')"
+  },
+  {
+    "comment": "json - Statement 385",
+    "query": "select json_object_agg_unique(mod(i,100), i) from generate_series(0, 199) i"
+  },
+  {
+    "comment": "json - Statement 386",
+    "query": "select * from json_to_record('{\"a\":1,\"b\":\"foo\",\"c\":\"bar\"}') as x(a int, b text, d text)"
+  },
+  {
+    "comment": "json - Statement 387",
+    "query": "select * from json_to_recordset('[{\"a\":1,\"b\":\"foo\",\"d\":false},{\"a\":2,\"b\":\"bar\",\"c\":true}]') as x(a int, b text, c boolean)"
+  },
+  {
+    "comment": "json - Statement 388",
+    "query": "select * from json_to_recordset('[{\"a\":1,\"b\":{\"d\":\"foo\"},\"c\":true},{\"a\":2,\"c\":false,\"b\":{\"d\":\"bar\"}}]') as x(a int, b json, c boolean)"
+  },
+  {
+    "comment": "json - Statement 389",
+    "query": "select *, c is null as c_is_null from json_to_record('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}'::json) as t(a int, b json, c text, x int, ca char(5)[], ia int[][], r jpop)"
+  },
+  {
+    "comment": "json - Statement 390",
+    "query": "select *, c is null as c_is_null from json_to_recordset('[{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8}]'::json) as t(a int, b json, c text, x int)"
+  },
+  {
+    "comment": "json - Statement 391",
+    "query": "select * from json_to_record('{\"ia\": null}') as x(ia _int4)"
+  },
+  {
+    "comment": "json - Statement 392",
+    "query": "select * from json_to_record('{\"ia\": 123}') as x(ia _int4)"
+  },
+  {
+    "comment": "json - Statement 393",
+    "query": "select * from json_to_record('{\"ia\": [1, \"2\", null, 4]}') as x(ia _int4)"
+  },
+  {
+    "comment": "json - Statement 394",
+    "query": "select * from json_to_record('{\"ia\": [[1, 2], [3, 4]]}') as x(ia _int4)"
+  },
+  {
+    "comment": "json - Statement 395",
+    "query": "select * from json_to_record('{\"ia\": [[1], 2]}') as x(ia _int4)"
+  },
+  {
+    "comment": "json - Statement 396",
+    "query": "select * from json_to_record('{\"ia\": [[1], [2, 3]]}') as x(ia _int4)"
+  },
+  {
+    "comment": "json - Statement 397",
+    "query": "select * from json_to_record('{\"ia2\": [1, 2, 3]}') as x(ia2 int[][])"
+  },
+  {
+    "comment": "json - Statement 398",
+    "query": "select * from json_to_record('{\"ia2\": [[1, 2], [3, 4]]}') as x(ia2 int4[][])"
+  },
+  {
+    "comment": "json - Statement 399",
+    "query": "select * from json_to_record('{\"ia2\": [[[1], [2], [3]]]}') as x(ia2 int4[][])"
+  },
+  {
+    "comment": "json - Statement 400",
+    "query": "select * from json_to_record('{\"out\": {\"key\": 1}}') as x(out json)"
+  },
+  {
+    "comment": "json - Statement 401",
+    "query": "select * from json_to_record('{\"out\": [{\"key\": 1}]}') as x(out json)"
+  },
+  {
+    "comment": "json - Statement 402",
+    "query": "select * from json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out json)"
+  },
+  {
+    "comment": "json - Statement 403",
+    "query": "select * from json_to_record('{\"out\": {\"key\": 1}}') as x(out jsonb)"
+  },
+  {
+    "comment": "json - Statement 404",
+    "query": "select * from json_to_record('{\"out\": [{\"key\": 1}]}') as x(out jsonb)"
+  },
+  {
+    "comment": "json - Statement 405",
+    "query": "select * from json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out jsonb)"
+  },
+  {
+    "comment": "json - Statement 406",
+    "query": "select json_strip_nulls(null)"
+  },
+  {
+    "comment": "json - Statement 407",
+    "query": "select json_strip_nulls('1')"
+  },
+  {
+    "comment": "json - Statement 408",
+    "query": "select json_strip_nulls('\"a string\"')"
+  },
+  {
+    "comment": "json - Statement 409",
+    "query": "select json_strip_nulls('null')"
+  },
+  {
+    "comment": "json - Statement 410",
+    "query": "select json_strip_nulls('[1,2,null,3,4]')"
+  },
+  {
+    "comment": "json - Statement 411",
+    "query": "select json_strip_nulls('{\"a\":1,\"b\":null,\"c\":[2,null,3],\"d\":{\"e\":4,\"f\":null}}')"
+  },
+  {
+    "comment": "json - Statement 412",
+    "query": "select json_strip_nulls('[1,{\"a\":1,\"b\":null,\"c\":2},3]')"
+  },
+  {
+    "comment": "json - Statement 413",
+    "query": "select json_strip_nulls('{\"a\": {\"b\": null, \"c\": null}, \"d\": {} }')"
+  },
+  {
+    "comment": "json - Statement 414",
+    "query": "select to_tsvector('{\"a\": \"aaa bbb ddd ccc\", \"b\": [\"eee fff ggg\"], \"c\": {\"d\": \"hhh iii\"}}'::json)"
+  },
+  {
+    "comment": "json - Statement 415",
+    "query": "select to_tsvector('simple', '{\"a\": \"aaa bbb ddd ccc\", \"b\": [\"eee fff ggg\"], \"c\": {\"d\": \"hhh iii\"}}'::json)"
+  },
+  {
+    "comment": "json - Statement 416",
+    "query": "select to_tsvector('english', '{\"a\": \"aaa in bbb ddd ccc\", \"b\": [\"the eee fff ggg\"], \"c\": {\"d\": \"hhh. iii\"}}'::json)"
+  },
+  {
+    "comment": "json - Statement 417",
+    "query": "select to_tsvector('english', '{\"a\": \"aaa in bbb ddd ccc\", \"b\": 123, \"c\": 456}'::json)"
+  },
+  {
+    "comment": "json - Statement 418",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, '\"all\"')"
+  },
+  {
+    "comment": "json - Statement 419",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, '\"key\"')"
+  },
+  {
+    "comment": "json - Statement 420",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, '\"string\"')"
+  },
+  {
+    "comment": "json - Statement 421",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, '\"numeric\"')"
+  },
+  {
+    "comment": "json - Statement 422",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, '\"boolean\"')"
+  },
+  {
+    "comment": "json - Statement 423",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, '[\"string\", \"numeric\"]')"
+  },
+  {
+    "comment": "json - Statement 424",
+    "query": "select to_tsvector('\"\"'::json)"
+  },
+  {
+    "comment": "json - Statement 425",
+    "query": "select to_tsvector('{}'::json)"
+  },
+  {
+    "comment": "json - Statement 426",
+    "query": "select to_tsvector('[]'::json)"
+  },
+  {
+    "comment": "json - Statement 427",
+    "query": "select to_tsvector('null'::json)"
+  },
+  {
+    "comment": "json - Statement 428",
+    "query": "select json_to_tsvector('\"\"'::json, '\"all\"')"
+  },
+  {
+    "comment": "json - Statement 429",
+    "query": "select json_to_tsvector('{}'::json, '\"all\"')"
+  },
+  {
+    "comment": "json - Statement 430",
+    "query": "select json_to_tsvector('[]'::json, '\"all\"')"
+  },
+  {
+    "comment": "json - Statement 431",
+    "query": "select json_to_tsvector('null'::json, '\"all\"')"
+  },
+  {
+    "comment": "json - Statement 432",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, '\"\"')"
+  },
+  {
+    "comment": "json - Statement 433",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, '{}')"
+  },
+  {
+    "comment": "json - Statement 434",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, '[]')"
+  },
+  {
+    "comment": "json - Statement 435",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, 'null')"
+  },
+  {
+    "comment": "json - Statement 436",
+    "query": "select json_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::json, '[\"all\", null]')"
+  },
+  {
+    "comment": "json - Statement 437",
+    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb & ddd & hhh'))"
+  },
+  {
+    "comment": "json - Statement 438",
+    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb & ddd & hhh'))"
+  },
+  {
+    "comment": "json - Statement 439",
+    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')"
+  },
+  {
+    "comment": "json - Statement 440",
+    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::json, tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')"
+  },
+  {
+    "comment": "json - Statement 441",
+    "query": "select ts_headline('null'::json, tsquery('aaa & bbb'))"
+  },
+  {
+    "comment": "json - Statement 442",
+    "query": "select ts_headline('{}'::json, tsquery('aaa & bbb'))"
+  },
+  {
+    "comment": "json - Statement 443",
+    "query": "select ts_headline('[]'::json, tsquery('aaa & bbb'))"
+  }
+]

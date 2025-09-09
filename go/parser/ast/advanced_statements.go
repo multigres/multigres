@@ -360,6 +360,14 @@ func (n *ReturnStmt) String() string {
 	return "RETURN"
 }
 
+// SqlString returns the SQL representation of ReturnStmt
+func (n *ReturnStmt) SqlString() string {
+	if n.ReturnVal != nil {
+		return "RETURN " + n.ReturnVal.SqlString()
+	}
+	return "RETURN"
+}
+
 // StatementType returns the statement type for this node
 func (n *ReturnStmt) StatementType() string {
 	return "RETURN"
@@ -1011,7 +1019,7 @@ func formatRenameObjectName(renameType ObjectType, object Node) string {
 	if object == nil {
 		return ""
 	}
-	
+
 	// Handle NodeList objects - format as qualified identifier
 	if nodeList, ok := object.(*NodeList); ok {
 		// Special handling for OPERATOR CLASS and OPERATOR FAMILY
@@ -1032,7 +1040,7 @@ func formatRenameObjectName(renameType ObjectType, object Node) string {
 			}
 			return name + " USING " + method
 		}
-		
+
 		// Default NodeList handling for other cases
 		var nameParts []string
 		for _, item := range nodeList.Items {
@@ -1045,12 +1053,12 @@ func formatRenameObjectName(renameType ObjectType, object Node) string {
 		}
 		return strings.Join(nameParts, ".")
 	}
-	
+
 	// Handle String objects - format as identifier
 	if str, ok := object.(*String); ok {
 		return QuoteIdentifier(str.SVal)
 	}
-	
+
 	// Default: use object's SqlString
 	return object.SqlString()
 }

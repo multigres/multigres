@@ -1,0 +1,450 @@
+[
+  {
+    "comment": "sqljson_jsontable - Statement 1",
+    "query": "SELECT JSON_TABLE('[]', '$')"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 2",
+    "query": "SELECT * FROM JSON_TABLE('[]', 'strict $.a' COLUMNS (js2 int PATH '$') DEFAULT 1 ON ERROR)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 3",
+    "query": "SELECT * FROM JSON_TABLE('[]', 'strict $.a' COLUMNS (js2 int PATH '$') NULL ON ERROR)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 4",
+    "query": "SELECT * FROM JSON_TABLE('[]', 'strict $.a' COLUMNS (js2 int PATH '$') EMPTY ON ERROR)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 5",
+    "query": "SELECT * FROM JSON_TABLE('[]', 'strict $.a' COLUMNS (js2 int PATH '$') ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 6",
+    "query": "SELECT * FROM JSON_TABLE(jsonb'\"1.23\"', '$.a' as js2 COLUMNS (js2 int path '$'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 7",
+    "query": "SELECT * FROM JSON_TABLE(NULL, '$' COLUMNS ())"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 8",
+    "query": "SELECT * FROM JSON_TABLE (NULL::jsonb, '$' COLUMNS (v1 timestamp)) AS f (v1, v2)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 9",
+    "query": "SELECT * FROM JSON_TABLE(jsonb'\"1.23\"', '$.a' COLUMNS (js2 int path '$', js2 int path '$'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 10",
+    "query": "create type comp as (a int, b int)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 11",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '{\"rec\": \"(1,2)\"}', '$' COLUMNS (id FOR ORDINALITY, comp comp path '$.rec' omit quotes)) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 12",
+    "query": "drop type comp"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 13",
+    "query": "SELECT * FROM JSON_TABLE(NULL::jsonb, '$' COLUMNS (foo int)) bar"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 14",
+    "query": "SELECT * FROM JSON_TABLE(jsonb'\"1.23\"', 'strict $.a' COLUMNS (js2 int PATH '$'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 15",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '123', '$' COLUMNS (item int PATH '$', foo int)) bar"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 16",
+    "query": "CREATE DOMAIN jsonb_test_domain AS text CHECK (value <> 'foo')"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 17",
+    "query": "CREATE TEMP TABLE json_table_test (js) AS (VALUES ('1'), ('[]'), ('{}'), ('[1, 1.23, \"2\", \"aaaaaaa\", \"foo\", null, false, true, {\"aaa\": 123}, \"[1,2]\", \"\\\"str\\\"\"]') )"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 18",
+    "query": "SELECT * FROM json_table_test vals LEFT OUTER JOIN JSON_TABLE( vals.js::jsonb, 'lax $[*]' COLUMNS ( id FOR ORDINALITY, \"int\" int PATH '$', \"text\" text PATH '$', \"char(4)\" char(4) PATH '$', \"bool\" bool PATH '$', \"numeric\" numeric PATH '$', \"domain\" jsonb_test_domain PATH '$', js json PATH '$', jb jsonb PATH '$' ) ) jt ON true"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 19",
+    "query": "SELECT * FROM json_table_test vals LEFT OUTER JOIN JSON_TABLE( vals.js::jsonb, 'lax $[*]' COLUMNS ( id FOR ORDINALITY, jst text    FORMAT JSON  PATH '$', jsc char(4) FORMAT JSON  PATH '$', jsv varchar(4) FORMAT JSON  PATH '$', jsb jsonb FORMAT JSON PATH '$', jsbq jsonb FORMAT JSON PATH '$' OMIT QUOTES ) ) jt ON true"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 20",
+    "query": "SELECT * FROM json_table_test vals LEFT OUTER JOIN JSON_TABLE( vals.js::jsonb, 'lax $[*]' COLUMNS ( id FOR ORDINALITY, exists1 bool EXISTS PATH '$.aaa', exists2 int EXISTS PATH '$.aaa', exists3 int EXISTS PATH 'strict $.aaa' UNKNOWN ON ERROR, exists4 text EXISTS PATH 'strict $.aaa' FALSE ON ERROR ) ) jt ON true"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 21",
+    "query": "SELECT * FROM json_table_test vals LEFT OUTER JOIN JSON_TABLE( vals.js::jsonb, 'lax $[*]' COLUMNS ( id FOR ORDINALITY, aaa int, aaa1 int PATH '$.aaa', js2 json PATH '$', jsb2w jsonb PATH '$' WITH WRAPPER, jsb2q jsonb PATH '$' OMIT QUOTES, ia int[] PATH '$', ta text[] PATH '$', jba jsonb[] PATH '$' ) ) jt ON true"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 22",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '{\"d1\": \"H\"}', '$' COLUMNS (js1 jsonb_test_domain PATH '$.a2' DEFAULT '\"foo1\"'::jsonb::text ON EMPTY))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 23",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '{\"d1\": \"H\"}', '$' COLUMNS (js1 jsonb_test_domain PATH '$.a2' DEFAULT 'foo'::jsonb_test_domain ON EMPTY))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 24",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '{\"d1\": \"H\"}', '$' COLUMNS (js1 jsonb_test_domain PATH '$.a2' DEFAULT 'foo1'::jsonb_test_domain ON EMPTY))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 25",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '{\"d1\": \"foo\"}', '$' COLUMNS (js1 jsonb_test_domain PATH '$.d1' DEFAULT 'foo2'::jsonb_test_domain ON ERROR))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 26",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '{\"d1\": \"foo\"}', '$' COLUMNS (js1 oid[] PATH '$.d2' DEFAULT '{1}'::int[]::oid[] ON EMPTY))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 27",
+    "query": "CREATE VIEW jsonb_table_view2 AS SELECT * FROM JSON_TABLE( jsonb 'null', 'lax $[*]' PASSING 1 + 2 AS a, json '\"foo\"' AS \"b c\" COLUMNS ( \"int\" int PATH '$', \"text\" text PATH '$', \"char(4)\" char(4) PATH '$', \"bool\" bool PATH '$', \"numeric\" numeric PATH '$', \"domain\" jsonb_test_domain PATH '$'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 28",
+    "query": "CREATE VIEW jsonb_table_view3 AS SELECT * FROM JSON_TABLE( jsonb 'null', 'lax $[*]' PASSING 1 + 2 AS a, json '\"foo\"' AS \"b c\" COLUMNS ( js json PATH '$', jb jsonb PATH '$', jst text    FORMAT JSON  PATH '$', jsc char(4) FORMAT JSON  PATH '$', jsv varchar(4) FORMAT JSON  PATH '$'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 29",
+    "query": "CREATE VIEW jsonb_table_view4 AS SELECT * FROM JSON_TABLE( jsonb 'null', 'lax $[*]' PASSING 1 + 2 AS a, json '\"foo\"' AS \"b c\" COLUMNS ( jsb jsonb   FORMAT JSON PATH '$', jsbq jsonb FORMAT JSON PATH '$' OMIT QUOTES, aaa int, aaa1 int PATH '$.aaa'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 30",
+    "query": "CREATE VIEW jsonb_table_view5 AS SELECT * FROM JSON_TABLE( jsonb 'null', 'lax $[*]' PASSING 1 + 2 AS a, json '\"foo\"' AS \"b c\" COLUMNS ( exists1 bool EXISTS PATH '$.aaa', exists2 int EXISTS PATH '$.aaa' TRUE ON ERROR, exists3 text EXISTS PATH 'strict $.aaa' UNKNOWN ON ERROR))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 31",
+    "query": "CREATE VIEW jsonb_table_view6 AS SELECT * FROM JSON_TABLE( jsonb 'null', 'lax $[*]' PASSING 1 + 2 AS a, json '\"foo\"' AS \"b c\" COLUMNS ( js2 json PATH '$', jsb2w jsonb PATH '$' WITH WRAPPER, jsb2q jsonb PATH '$' OMIT QUOTES, ia int[] PATH '$', ta text[] PATH '$', jba jsonb[] PATH '$'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 32",
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT * FROM jsonb_table_view3"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 33",
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT * FROM jsonb_table_view4"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 34",
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT * FROM jsonb_table_view5"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 35",
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT * FROM jsonb_table_view6"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 36",
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT * FROM JSON_TABLE( jsonb 'null', 'lax $[*]' PASSING 1 + 2 AS a, json '\"foo\"' AS \"b c\" COLUMNS ( id FOR ORDINALITY, \"int\" int PATH '$', \"text\" text PATH '$' )) json_table_func"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 37",
+    "query": "EXPLAIN (COSTS OFF, FORMAT JSON, VERBOSE) SELECT * FROM JSON_TABLE( jsonb 'null', 'lax $[*]' PASSING 1 + 2 AS a, json '\"foo\"' AS \"b c\" COLUMNS ( id FOR ORDINALITY, \"int\" int PATH '$', \"text\" text PATH '$' )) json_table_func"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 38",
+    "query": "DROP VIEW jsonb_table_view2"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 39",
+    "query": "DROP VIEW jsonb_table_view3"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 40",
+    "query": "DROP VIEW jsonb_table_view4"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 41",
+    "query": "DROP VIEW jsonb_table_view5"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 42",
+    "query": "DROP VIEW jsonb_table_view6"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 43",
+    "query": "DROP DOMAIN jsonb_test_domain"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 44",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (id FOR ORDINALITY, id2 FOR ORDINALITY, a int PATH '$.a' ERROR ON EMPTY)) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 45",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (id FOR ORDINALITY, a int PATH '$' ERROR ON EMPTY)) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 46",
+    "query": "SELECT * FROM (VALUES ('1'), ('\"err\"')) vals(js), JSON_TABLE(vals.js::jsonb, '$' COLUMNS (a int PATH '$')) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 47",
+    "query": "SELECT * FROM (VALUES ('1'), ('\"err\"')) vals(js) LEFT OUTER JOIN JSON_TABLE(vals.js::jsonb, '$' COLUMNS (a int PATH '$' ERROR ON ERROR)) jt ON true"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 48",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int PATH '$.a' ERROR ON EMPTY)) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 49",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int PATH 'strict $.a' ERROR ON ERROR) ERROR ON ERROR) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 50",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int PATH 'lax $.a' ERROR ON EMPTY) ERROR ON ERROR) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 51",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a int PATH '$'   DEFAULT 1 ON EMPTY DEFAULT 2 ON ERROR)) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 52",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a int PATH 'strict $.a' DEFAULT 1 ON EMPTY DEFAULT 2 ON ERROR)) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 53",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a int PATH 'lax $.a' DEFAULT 1 ON EMPTY DEFAULT 2 ON ERROR)) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 54",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a int4 EXISTS PATH '$.a' ERROR ON ERROR))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 55",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a int4 EXISTS PATH '$' ERROR ON ERROR))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 56",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a int2 EXISTS PATH '$.a'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 57",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a int8 EXISTS PATH '$.a'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 58",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a float4 EXISTS PATH '$.a'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 59",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a char(3) EXISTS PATH '$.a'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 60",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a char(3) EXISTS PATH '$.a' ERROR ON ERROR))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 61",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a char(5) EXISTS PATH '$.a' ERROR ON ERROR))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 62",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a json EXISTS PATH '$.a'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 63",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a jsonb EXISTS PATH '$.a'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 64",
+    "query": "CREATE DOMAIN dint4 AS int"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 65",
+    "query": "CREATE DOMAIN dint4_0 AS int CHECK (VALUE <> 0 )"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 66",
+    "query": "SELECT a, a::bool FROM JSON_TABLE(jsonb '\"a\"', '$' COLUMNS (a dint4 EXISTS PATH '$.a' ))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 67",
+    "query": "SELECT a, a::bool FROM JSON_TABLE(jsonb '{\"a\":1}', '$' COLUMNS (a dint4_0 EXISTS PATH '$.b'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 68",
+    "query": "SELECT a, a::bool FROM JSON_TABLE(jsonb '{\"a\":1}', '$' COLUMNS (a dint4_0 EXISTS PATH '$.b' ERROR ON ERROR))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 69",
+    "query": "SELECT a, a::bool FROM JSON_TABLE(jsonb '{\"a\":1}', '$' COLUMNS (a dint4_0 EXISTS PATH '$.b' FALSE ON ERROR))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 70",
+    "query": "SELECT a, a::bool FROM JSON_TABLE(jsonb '{\"a\":1}', '$' COLUMNS (a dint4_0 EXISTS PATH '$.b' TRUE ON ERROR))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 71",
+    "query": "DROP DOMAIN dint4, dint4_0"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 72",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"world\"', '$' COLUMNS (item text PATH '$' KEEP QUOTES ON SCALAR STRING))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 73",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"world\"', '$' COLUMNS (item text PATH '$' OMIT QUOTES ON SCALAR STRING))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 74",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"world\"', '$' COLUMNS (item text FORMAT JSON PATH '$' KEEP QUOTES))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 75",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"world\"', '$' COLUMNS (item text FORMAT JSON PATH '$' OMIT QUOTES))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 76",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"world\"', '$' COLUMNS (item text FORMAT JSON PATH '$' WITHOUT WRAPPER KEEP QUOTES))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 77",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"world\"', '$' COLUMNS (item text PATH '$' WITHOUT WRAPPER OMIT QUOTES))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 78",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"world\"', '$' COLUMNS (item text FORMAT JSON PATH '$' WITH WRAPPER))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 79",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"world\"', '$' COLUMNS (item text PATH '$' WITH WRAPPER OMIT QUOTES))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 80",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '\"world\"', '$' COLUMNS (item text FORMAT JSON PATH '$' WITH WRAPPER KEEP QUOTES))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 81",
+    "query": "SELECT * FROM JSON_TABLE( jsonb '[1,2,3]', '$[*] ? (@ < $x)' PASSING 3 AS x COLUMNS (y text FORMAT JSON PATH '$') ) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 82",
+    "query": "SELECT * FROM JSON_TABLE( jsonb '[1,2,3]', '$[*] ? (@ < $x)' PASSING 10 AS x, 3 AS y COLUMNS (a text FORMAT JSON PATH '$ ? (@ < $y)') ) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 83",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '{\"a\": 123}', '$' || '.' || 'a' COLUMNS (foo int))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 84",
+    "query": "SELECT * FROM JSON_TABLE('{\"a\": [{\"b\": \"1\"}, {\"b\": \"2\"}]}', '$' COLUMNS (b json path '$.a[*].b' ERROR ON ERROR))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 85",
+    "query": "SELECT * FROM JSON_TABLE( jsonb '[]', '$' AS a COLUMNS ( b int, NESTED PATH '$' AS a COLUMNS ( c int ) ) ) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 86",
+    "query": "SELECT * FROM JSON_TABLE( jsonb '[]', '$' AS a COLUMNS ( b int, NESTED PATH '$' AS n_a COLUMNS ( c int ) ) ) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 87",
+    "query": "SELECT * FROM JSON_TABLE( jsonb '[]', '$' COLUMNS ( b int, NESTED PATH '$' AS b COLUMNS ( c int ) ) ) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 88",
+    "query": "SELECT * FROM JSON_TABLE( jsonb '[]', '$' COLUMNS ( NESTED PATH '$' AS a COLUMNS ( b int ), NESTED PATH '$' COLUMNS ( NESTED PATH '$' AS a COLUMNS ( c int ) ) ) ) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 89",
+    "query": "CREATE TEMP TABLE jsonb_table_test (js jsonb)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 90",
+    "query": "INSERT INTO jsonb_table_test VALUES ( '[ {\"a\":  1,  \"b\": [], \"c\": []}, {\"a\":  2,  \"b\": [1, 2, 3], \"c\": [10, null, 20]}, {\"a\":  3,  \"b\": [1, 2], \"c\": []}, {\"x\": \"4\", \"b\": [1, 2], \"c\": 123} ]' )"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 91",
+    "query": "select jt.* from jsonb_table_test jtt, json_table ( jtt.js,'strict $[*]' as p columns ( n for ordinality, a int path 'lax $.a' default -1 on empty, nested path 'strict $.b[*]' as pb columns (b_id for ordinality, b int path '$' ), nested path 'strict $.c[*]' as pc columns (c_id for ordinality, c int path '$' ) ) ) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 92",
+    "query": "SELECT * FROM generate_series(1, 3) x, generate_series(1, 3) y, JSON_TABLE(jsonb '[[1,2,3],[2,3,4,5],[3,4,5,6]]', 'strict $[*] ? (@[*] <= $x)' PASSING x AS x, y AS y COLUMNS ( y text FORMAT JSON PATH '$', NESTED PATH 'strict $[*] ? (@ == $y)' COLUMNS ( z int PATH '$' ) ) ) jt"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 93",
+    "query": "CREATE VIEW jsonb_table_view_nested AS SELECT * FROM JSON_TABLE( jsonb 'null', 'lax $[*]' PASSING 1 + 2 AS a, json '\"foo\"' AS \"b c\" COLUMNS ( id FOR ORDINALITY, NESTED PATH '$[1]' AS p1 COLUMNS ( a1 int, NESTED PATH '$[*]' AS \"p1 1\" COLUMNS ( a11 text ), b1 text ), NESTED PATH '$[2]' AS p2 COLUMNS ( NESTED PATH '$[*]' AS \"p2:1\" COLUMNS ( a21 text ), NESTED PATH '$[*]' AS p22 COLUMNS ( a22 text ) ) ) )"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 94",
+    "query": "CREATE TABLE s (js jsonb)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 95",
+    "query": "INSERT INTO s VALUES ('{\"a\":{\"za\":[{\"z1\": [11,2222]},{\"z21\": [22, 234,2345]},{\"z22\": [32, 204,145]}]},\"c\": 3}'), ('{\"a\":{\"za\":[{\"z1\": [21,4222]},{\"z21\": [32, 134,1345]}]},\"c\": 10}')"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 96",
+    "query": "SELECT sub.* FROM s, JSON_TABLE(js, '$' PASSING 32 AS x, 13 AS y COLUMNS ( xx int path '$.c', NESTED PATH '$.a.za[1]' columns (NESTED PATH '$.z21[*]' COLUMNS (z21 int path '$?(@ >= $\"x\")' ERROR ON ERROR)) )) sub"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 97",
+    "query": "SELECT sub.* FROM s, (VALUES (23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( NESTED PATH '$.a.za[2]' COLUMNS ( NESTED PATH '$.z22[*]' as z22 COLUMNS (c int PATH '$')), NESTED PATH '$.a.za[1]' columns (d int[] PATH '$.z21'), NESTED PATH '$.a.za[0]' columns (NESTED PATH '$.z1[*]' as z1 COLUMNS (a int PATH  '$')), xx1 int PATH '$.c', NESTED PATH '$.a.za[1]'  columns (NESTED PATH '$.z21[*]' as z21 COLUMNS (b int PATH '$')), xx int PATH '$.c' )) sub"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 98",
+    "query": "SELECT sub.* FROM s, (VALUES (23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[0].z1[*]' COLUMNS (NESTED PATH '$ ?(@ >= ($\"x\" -2))' COLUMNS (a int PATH '$')), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ >= ($\"x\" -2))' COLUMNS (b int PATH '$')) )) sub"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 99",
+    "query": "SELECT sub.* FROM s, (VALUES (23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*]' COLUMNS (b int PATH '$')), NESTED PATH '$.a.za[1] ? (@.z21[*] >= ($\"x\"-1))' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" + 3))' as z22 COLUMNS (a int PATH '$ ? (@ >= ($\"y\" + 12))')), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" +121))' as z21 COLUMNS (c int PATH '$ ? (@ > ($\"x\" +111))')) )) sub"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 100",
+    "query": "SELECT sub.* FROM s, (values(23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[2]' COLUMNS (NESTED PATH '$.z22[*]' as z22 COLUMNS (c int PATH '$')), NESTED PATH '$.a.za[1]' COLUMNS (d json PATH '$ ? (@.z21[*] == ($\"x\" -1))'), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ >= ($\"x\" -2))' as z1 COLUMNS (a int PATH '$')), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" +121))' as z21 COLUMNS (b int PATH '$ ? (@ > ($\"x\" +111))' DEFAULT 0 ON EMPTY)) )) sub"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 101",
+    "query": "CREATE OR REPLACE VIEW jsonb_table_view7 AS SELECT sub.* FROM s, (values(23)) x(x), generate_series(13, 13) y, JSON_TABLE(js, '$' AS c1 PASSING x AS x, y AS y COLUMNS ( xx1 int PATH '$.c', NESTED PATH '$.a.za[2]' COLUMNS (NESTED PATH '$.z22[*]' as z22 COLUMNS (c int PATH '$' WITHOUT WRAPPER OMIT QUOTES)), NESTED PATH '$.a.za[1]' COLUMNS (d json PATH '$ ? (@.z21[*] == ($\"x\" -1))' WITH WRAPPER), NESTED PATH '$.a.za[0]' COLUMNS (NESTED PATH '$.z1[*] ? (@ >= ($\"x\" -2))' as z1 COLUMNS (a int PATH '$' KEEP QUOTES)), NESTED PATH '$.a.za[1]' COLUMNS (NESTED PATH '$.z21[*] ? (@ >= ($\"y\" +121))' as z21 COLUMNS (b int PATH '$ ? (@ > ($\"x\" +111))' DEFAULT 0 ON EMPTY)) )) sub"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 102",
+    "query": "DROP TABLE s"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 103",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int exists empty object on empty))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 104",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int) NULL ON ERROR)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 105",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int true on empty))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 106",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int omit quotes true on error))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 107",
+    "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int exists empty object on error))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 108",
+    "query": "CREATE VIEW json_table_view8 AS SELECT * from JSON_TABLE('\"a\"', '$' COLUMNS (a text PATH '$'))"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 109",
+    "query": "CREATE VIEW json_table_view9 AS SELECT * from JSON_TABLE('\"a\"', '$' COLUMNS (a text PATH '$') ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 110",
+    "query": "DROP VIEW json_table_view8, json_table_view9"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 111",
+    "query": "CREATE VIEW json_table_view8 AS SELECT * from JSON_TABLE('\"a\"', '$' COLUMNS (a text PATH '$') EMPTY ON ERROR)"
+  },
+  {
+    "comment": "sqljson_jsontable - Statement 112",
+    "query": "CREATE VIEW json_table_view9 AS SELECT * from JSON_TABLE('\"a\"', '$' COLUMNS (a text PATH '$') EMPTY ARRAY ON ERROR)"
+  }
+]

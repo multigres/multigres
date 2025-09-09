@@ -1,0 +1,82 @@
+[
+  {
+    "comment": "varchar - Statement 1",
+    "query": "CREATE TEMP TABLE VARCHAR_TBL(f1 varchar(1))"
+  },
+  {
+    "comment": "varchar - Statement 2",
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('a')"
+  },
+  {
+    "comment": "varchar - Statement 3",
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('1')"
+  },
+  {
+    "comment": "varchar - Statement 4",
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES (2)"
+  },
+  {
+    "comment": "varchar - Statement 5",
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('3')"
+  },
+  {
+    "comment": "varchar - Statement 6",
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('')"
+  },
+  {
+    "comment": "varchar - Statement 7",
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('cd')"
+  },
+  {
+    "comment": "varchar - Statement 8",
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('c     ')"
+  },
+  {
+    "comment": "varchar - Statement 9",
+    "query": "SELECT * FROM VARCHAR_TBL"
+  },
+  {
+    "comment": "varchar - Statement 10",
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 <> 'a'"
+  },
+  {
+    "comment": "varchar - Statement 11",
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 = 'a'"
+  },
+  {
+    "comment": "varchar - Statement 12",
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 < 'a'"
+  },
+  {
+    "comment": "varchar - Statement 13",
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 <= 'a'"
+  },
+  {
+    "comment": "varchar - Statement 14",
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 > 'a'"
+  },
+  {
+    "comment": "varchar - Statement 15",
+    "query": "SELECT c.* FROM VARCHAR_TBL c WHERE c.f1 >= 'a'"
+  },
+  {
+    "comment": "varchar - Statement 16",
+    "query": "DROP TABLE VARCHAR_TBL"
+  },
+  {
+    "comment": "varchar - Statement 17",
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('abcde')"
+  },
+  {
+    "comment": "varchar - Statement 18",
+    "query": "SELECT pg_input_is_valid('abcd  ', 'varchar(4)')"
+  },
+  {
+    "comment": "varchar - Statement 19",
+    "query": "SELECT pg_input_is_valid('abcde', 'varchar(4)')"
+  },
+  {
+    "comment": "varchar - Statement 20",
+    "query": "SELECT * FROM pg_input_error_info('abcde', 'varchar(4)')"
+  }
+]

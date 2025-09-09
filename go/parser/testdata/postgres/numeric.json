@@ -1,0 +1,3958 @@
+[
+  {
+    "comment": "numeric - Statement 1",
+    "query": "CREATE TABLE num_data (id int4, val numeric(210,10))"
+  },
+  {
+    "comment": "numeric - Statement 2",
+    "query": "CREATE TABLE num_exp_add (id1 int4, id2 int4, expected numeric(210,10))"
+  },
+  {
+    "comment": "numeric - Statement 3",
+    "query": "CREATE TABLE num_exp_sub (id1 int4, id2 int4, expected numeric(210,10))"
+  },
+  {
+    "comment": "numeric - Statement 4",
+    "query": "CREATE TABLE num_exp_div (id1 int4, id2 int4, expected numeric(210,10))"
+  },
+  {
+    "comment": "numeric - Statement 5",
+    "query": "CREATE TABLE num_exp_mul (id1 int4, id2 int4, expected numeric(210,10))"
+  },
+  {
+    "comment": "numeric - Statement 6",
+    "query": "CREATE TABLE num_exp_sqrt (id int4, expected numeric(210,10))"
+  },
+  {
+    "comment": "numeric - Statement 7",
+    "query": "CREATE TABLE num_exp_ln (id int4, expected numeric(210,10))"
+  },
+  {
+    "comment": "numeric - Statement 8",
+    "query": "CREATE TABLE num_exp_log10 (id int4, expected numeric(210,10))"
+  },
+  {
+    "comment": "numeric - Statement 9",
+    "query": "CREATE TABLE num_exp_power_10_ln (id int4, expected numeric(210,10))"
+  },
+  {
+    "comment": "numeric - Statement 10",
+    "query": "CREATE TABLE num_result (id1 int4, id2 int4, result numeric(210,10))"
+  },
+  {
+    "comment": "numeric - Statement 11",
+    "query": "BEGIN TRANSACTION"
+  },
+  {
+    "comment": "numeric - Statement 12",
+    "query": "INSERT INTO num_exp_add VALUES (0,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 13",
+    "query": "INSERT INTO num_exp_sub VALUES (0,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 14",
+    "query": "INSERT INTO num_exp_mul VALUES (0,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 15",
+    "query": "INSERT INTO num_exp_div VALUES (0,0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 16",
+    "query": "INSERT INTO num_exp_add VALUES (0,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 17",
+    "query": "INSERT INTO num_exp_sub VALUES (0,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 18",
+    "query": "INSERT INTO num_exp_mul VALUES (0,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 19",
+    "query": "INSERT INTO num_exp_div VALUES (0,1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 20",
+    "query": "INSERT INTO num_exp_add VALUES (0,2,'-34338492.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 21",
+    "query": "INSERT INTO num_exp_sub VALUES (0,2,'34338492.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 22",
+    "query": "INSERT INTO num_exp_mul VALUES (0,2,'0')"
+  },
+  {
+    "comment": "numeric - Statement 23",
+    "query": "INSERT INTO num_exp_div VALUES (0,2,'0')"
+  },
+  {
+    "comment": "numeric - Statement 24",
+    "query": "INSERT INTO num_exp_add VALUES (0,3,'4.31')"
+  },
+  {
+    "comment": "numeric - Statement 25",
+    "query": "INSERT INTO num_exp_sub VALUES (0,3,'-4.31')"
+  },
+  {
+    "comment": "numeric - Statement 26",
+    "query": "INSERT INTO num_exp_mul VALUES (0,3,'0')"
+  },
+  {
+    "comment": "numeric - Statement 27",
+    "query": "INSERT INTO num_exp_div VALUES (0,3,'0')"
+  },
+  {
+    "comment": "numeric - Statement 28",
+    "query": "INSERT INTO num_exp_add VALUES (0,4,'7799461.4119')"
+  },
+  {
+    "comment": "numeric - Statement 29",
+    "query": "INSERT INTO num_exp_sub VALUES (0,4,'-7799461.4119')"
+  },
+  {
+    "comment": "numeric - Statement 30",
+    "query": "INSERT INTO num_exp_mul VALUES (0,4,'0')"
+  },
+  {
+    "comment": "numeric - Statement 31",
+    "query": "INSERT INTO num_exp_div VALUES (0,4,'0')"
+  },
+  {
+    "comment": "numeric - Statement 32",
+    "query": "INSERT INTO num_exp_add VALUES (0,5,'16397.038491')"
+  },
+  {
+    "comment": "numeric - Statement 33",
+    "query": "INSERT INTO num_exp_sub VALUES (0,5,'-16397.038491')"
+  },
+  {
+    "comment": "numeric - Statement 34",
+    "query": "INSERT INTO num_exp_mul VALUES (0,5,'0')"
+  },
+  {
+    "comment": "numeric - Statement 35",
+    "query": "INSERT INTO num_exp_div VALUES (0,5,'0')"
+  },
+  {
+    "comment": "numeric - Statement 36",
+    "query": "INSERT INTO num_exp_add VALUES (0,6,'93901.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 37",
+    "query": "INSERT INTO num_exp_sub VALUES (0,6,'-93901.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 38",
+    "query": "INSERT INTO num_exp_mul VALUES (0,6,'0')"
+  },
+  {
+    "comment": "numeric - Statement 39",
+    "query": "INSERT INTO num_exp_div VALUES (0,6,'0')"
+  },
+  {
+    "comment": "numeric - Statement 40",
+    "query": "INSERT INTO num_exp_add VALUES (0,7,'-83028485')"
+  },
+  {
+    "comment": "numeric - Statement 41",
+    "query": "INSERT INTO num_exp_sub VALUES (0,7,'83028485')"
+  },
+  {
+    "comment": "numeric - Statement 42",
+    "query": "INSERT INTO num_exp_mul VALUES (0,7,'0')"
+  },
+  {
+    "comment": "numeric - Statement 43",
+    "query": "INSERT INTO num_exp_div VALUES (0,7,'0')"
+  },
+  {
+    "comment": "numeric - Statement 44",
+    "query": "INSERT INTO num_exp_add VALUES (0,8,'74881')"
+  },
+  {
+    "comment": "numeric - Statement 45",
+    "query": "INSERT INTO num_exp_sub VALUES (0,8,'-74881')"
+  },
+  {
+    "comment": "numeric - Statement 46",
+    "query": "INSERT INTO num_exp_mul VALUES (0,8,'0')"
+  },
+  {
+    "comment": "numeric - Statement 47",
+    "query": "INSERT INTO num_exp_div VALUES (0,8,'0')"
+  },
+  {
+    "comment": "numeric - Statement 48",
+    "query": "INSERT INTO num_exp_add VALUES (0,9,'-24926804.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 49",
+    "query": "INSERT INTO num_exp_sub VALUES (0,9,'24926804.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 50",
+    "query": "INSERT INTO num_exp_mul VALUES (0,9,'0')"
+  },
+  {
+    "comment": "numeric - Statement 51",
+    "query": "INSERT INTO num_exp_div VALUES (0,9,'0')"
+  },
+  {
+    "comment": "numeric - Statement 52",
+    "query": "INSERT INTO num_exp_add VALUES (1,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 53",
+    "query": "INSERT INTO num_exp_sub VALUES (1,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 54",
+    "query": "INSERT INTO num_exp_mul VALUES (1,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 55",
+    "query": "INSERT INTO num_exp_div VALUES (1,0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 56",
+    "query": "INSERT INTO num_exp_add VALUES (1,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 57",
+    "query": "INSERT INTO num_exp_sub VALUES (1,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 58",
+    "query": "INSERT INTO num_exp_mul VALUES (1,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 59",
+    "query": "INSERT INTO num_exp_div VALUES (1,1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 60",
+    "query": "INSERT INTO num_exp_add VALUES (1,2,'-34338492.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 61",
+    "query": "INSERT INTO num_exp_sub VALUES (1,2,'34338492.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 62",
+    "query": "INSERT INTO num_exp_mul VALUES (1,2,'0')"
+  },
+  {
+    "comment": "numeric - Statement 63",
+    "query": "INSERT INTO num_exp_div VALUES (1,2,'0')"
+  },
+  {
+    "comment": "numeric - Statement 64",
+    "query": "INSERT INTO num_exp_add VALUES (1,3,'4.31')"
+  },
+  {
+    "comment": "numeric - Statement 65",
+    "query": "INSERT INTO num_exp_sub VALUES (1,3,'-4.31')"
+  },
+  {
+    "comment": "numeric - Statement 66",
+    "query": "INSERT INTO num_exp_mul VALUES (1,3,'0')"
+  },
+  {
+    "comment": "numeric - Statement 67",
+    "query": "INSERT INTO num_exp_div VALUES (1,3,'0')"
+  },
+  {
+    "comment": "numeric - Statement 68",
+    "query": "INSERT INTO num_exp_add VALUES (1,4,'7799461.4119')"
+  },
+  {
+    "comment": "numeric - Statement 69",
+    "query": "INSERT INTO num_exp_sub VALUES (1,4,'-7799461.4119')"
+  },
+  {
+    "comment": "numeric - Statement 70",
+    "query": "INSERT INTO num_exp_mul VALUES (1,4,'0')"
+  },
+  {
+    "comment": "numeric - Statement 71",
+    "query": "INSERT INTO num_exp_div VALUES (1,4,'0')"
+  },
+  {
+    "comment": "numeric - Statement 72",
+    "query": "INSERT INTO num_exp_add VALUES (1,5,'16397.038491')"
+  },
+  {
+    "comment": "numeric - Statement 73",
+    "query": "INSERT INTO num_exp_sub VALUES (1,5,'-16397.038491')"
+  },
+  {
+    "comment": "numeric - Statement 74",
+    "query": "INSERT INTO num_exp_mul VALUES (1,5,'0')"
+  },
+  {
+    "comment": "numeric - Statement 75",
+    "query": "INSERT INTO num_exp_div VALUES (1,5,'0')"
+  },
+  {
+    "comment": "numeric - Statement 76",
+    "query": "INSERT INTO num_exp_add VALUES (1,6,'93901.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 77",
+    "query": "INSERT INTO num_exp_sub VALUES (1,6,'-93901.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 78",
+    "query": "INSERT INTO num_exp_mul VALUES (1,6,'0')"
+  },
+  {
+    "comment": "numeric - Statement 79",
+    "query": "INSERT INTO num_exp_div VALUES (1,6,'0')"
+  },
+  {
+    "comment": "numeric - Statement 80",
+    "query": "INSERT INTO num_exp_add VALUES (1,7,'-83028485')"
+  },
+  {
+    "comment": "numeric - Statement 81",
+    "query": "INSERT INTO num_exp_sub VALUES (1,7,'83028485')"
+  },
+  {
+    "comment": "numeric - Statement 82",
+    "query": "INSERT INTO num_exp_mul VALUES (1,7,'0')"
+  },
+  {
+    "comment": "numeric - Statement 83",
+    "query": "INSERT INTO num_exp_div VALUES (1,7,'0')"
+  },
+  {
+    "comment": "numeric - Statement 84",
+    "query": "INSERT INTO num_exp_add VALUES (1,8,'74881')"
+  },
+  {
+    "comment": "numeric - Statement 85",
+    "query": "INSERT INTO num_exp_sub VALUES (1,8,'-74881')"
+  },
+  {
+    "comment": "numeric - Statement 86",
+    "query": "INSERT INTO num_exp_mul VALUES (1,8,'0')"
+  },
+  {
+    "comment": "numeric - Statement 87",
+    "query": "INSERT INTO num_exp_div VALUES (1,8,'0')"
+  },
+  {
+    "comment": "numeric - Statement 88",
+    "query": "INSERT INTO num_exp_add VALUES (1,9,'-24926804.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 89",
+    "query": "INSERT INTO num_exp_sub VALUES (1,9,'24926804.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 90",
+    "query": "INSERT INTO num_exp_mul VALUES (1,9,'0')"
+  },
+  {
+    "comment": "numeric - Statement 91",
+    "query": "INSERT INTO num_exp_div VALUES (1,9,'0')"
+  },
+  {
+    "comment": "numeric - Statement 92",
+    "query": "INSERT INTO num_exp_add VALUES (2,0,'-34338492.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 93",
+    "query": "INSERT INTO num_exp_sub VALUES (2,0,'-34338492.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 94",
+    "query": "INSERT INTO num_exp_mul VALUES (2,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 95",
+    "query": "INSERT INTO num_exp_div VALUES (2,0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 96",
+    "query": "INSERT INTO num_exp_add VALUES (2,1,'-34338492.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 97",
+    "query": "INSERT INTO num_exp_sub VALUES (2,1,'-34338492.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 98",
+    "query": "INSERT INTO num_exp_mul VALUES (2,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 99",
+    "query": "INSERT INTO num_exp_div VALUES (2,1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 100",
+    "query": "INSERT INTO num_exp_add VALUES (2,2,'-68676984.430794094')"
+  },
+  {
+    "comment": "numeric - Statement 101",
+    "query": "INSERT INTO num_exp_sub VALUES (2,2,'0')"
+  },
+  {
+    "comment": "numeric - Statement 102",
+    "query": "INSERT INTO num_exp_mul VALUES (2,2,'1179132047626883.596862135856320209')"
+  },
+  {
+    "comment": "numeric - Statement 103",
+    "query": "INSERT INTO num_exp_div VALUES (2,2,'1.00000000000000000000')"
+  },
+  {
+    "comment": "numeric - Statement 104",
+    "query": "INSERT INTO num_exp_add VALUES (2,3,'-34338487.905397047')"
+  },
+  {
+    "comment": "numeric - Statement 105",
+    "query": "INSERT INTO num_exp_sub VALUES (2,3,'-34338496.525397047')"
+  },
+  {
+    "comment": "numeric - Statement 106",
+    "query": "INSERT INTO num_exp_mul VALUES (2,3,'-147998901.44836127257')"
+  },
+  {
+    "comment": "numeric - Statement 107",
+    "query": "INSERT INTO num_exp_div VALUES (2,3,'-7967167.56737750510440835266')"
+  },
+  {
+    "comment": "numeric - Statement 108",
+    "query": "INSERT INTO num_exp_add VALUES (2,4,'-26539030.803497047')"
+  },
+  {
+    "comment": "numeric - Statement 109",
+    "query": "INSERT INTO num_exp_sub VALUES (2,4,'-42137953.627297047')"
+  },
+  {
+    "comment": "numeric - Statement 110",
+    "query": "INSERT INTO num_exp_mul VALUES (2,4,'-267821744976817.8111137106593')"
+  },
+  {
+    "comment": "numeric - Statement 111",
+    "query": "INSERT INTO num_exp_div VALUES (2,4,'-4.40267480046830116685')"
+  },
+  {
+    "comment": "numeric - Statement 112",
+    "query": "INSERT INTO num_exp_add VALUES (2,5,'-34322095.176906047')"
+  },
+  {
+    "comment": "numeric - Statement 113",
+    "query": "INSERT INTO num_exp_sub VALUES (2,5,'-34354889.253888047')"
+  },
+  {
+    "comment": "numeric - Statement 114",
+    "query": "INSERT INTO num_exp_mul VALUES (2,5,'-563049578578.769242506736077')"
+  },
+  {
+    "comment": "numeric - Statement 115",
+    "query": "INSERT INTO num_exp_div VALUES (2,5,'-2094.18866914563535496429')"
+  },
+  {
+    "comment": "numeric - Statement 116",
+    "query": "INSERT INTO num_exp_add VALUES (2,6,'-34244590.637766787')"
+  },
+  {
+    "comment": "numeric - Statement 117",
+    "query": "INSERT INTO num_exp_sub VALUES (2,6,'-34432393.793027307')"
+  },
+  {
+    "comment": "numeric - Statement 118",
+    "query": "INSERT INTO num_exp_mul VALUES (2,6,'-3224438592470.18449811926184222')"
+  },
+  {
+    "comment": "numeric - Statement 119",
+    "query": "INSERT INTO num_exp_div VALUES (2,6,'-365.68599891479766440940')"
+  },
+  {
+    "comment": "numeric - Statement 120",
+    "query": "INSERT INTO num_exp_add VALUES (2,7,'-117366977.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 121",
+    "query": "INSERT INTO num_exp_sub VALUES (2,7,'48689992.784602953')"
+  },
+  {
+    "comment": "numeric - Statement 122",
+    "query": "INSERT INTO num_exp_mul VALUES (2,7,'2851072985828710.485883795')"
+  },
+  {
+    "comment": "numeric - Statement 123",
+    "query": "INSERT INTO num_exp_div VALUES (2,7,'.41357483778485235518')"
+  },
+  {
+    "comment": "numeric - Statement 124",
+    "query": "INSERT INTO num_exp_add VALUES (2,8,'-34263611.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 125",
+    "query": "INSERT INTO num_exp_sub VALUES (2,8,'-34413373.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 126",
+    "query": "INSERT INTO num_exp_mul VALUES (2,8,'-2571300635581.146276407')"
+  },
+  {
+    "comment": "numeric - Statement 127",
+    "query": "INSERT INTO num_exp_div VALUES (2,8,'-458.57416721727870888476')"
+  },
+  {
+    "comment": "numeric - Statement 128",
+    "query": "INSERT INTO num_exp_add VALUES (2,9,'-59265296.260444467')"
+  },
+  {
+    "comment": "numeric - Statement 129",
+    "query": "INSERT INTO num_exp_sub VALUES (2,9,'-9411688.170349627')"
+  },
+  {
+    "comment": "numeric - Statement 130",
+    "query": "INSERT INTO num_exp_mul VALUES (2,9,'855948866655588.453741509242968740')"
+  },
+  {
+    "comment": "numeric - Statement 131",
+    "query": "INSERT INTO num_exp_div VALUES (2,9,'1.37757299946438931811')"
+  },
+  {
+    "comment": "numeric - Statement 132",
+    "query": "INSERT INTO num_exp_add VALUES (3,0,'4.31')"
+  },
+  {
+    "comment": "numeric - Statement 133",
+    "query": "INSERT INTO num_exp_sub VALUES (3,0,'4.31')"
+  },
+  {
+    "comment": "numeric - Statement 134",
+    "query": "INSERT INTO num_exp_mul VALUES (3,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 135",
+    "query": "INSERT INTO num_exp_div VALUES (3,0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 136",
+    "query": "INSERT INTO num_exp_add VALUES (3,1,'4.31')"
+  },
+  {
+    "comment": "numeric - Statement 137",
+    "query": "INSERT INTO num_exp_sub VALUES (3,1,'4.31')"
+  },
+  {
+    "comment": "numeric - Statement 138",
+    "query": "INSERT INTO num_exp_mul VALUES (3,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 139",
+    "query": "INSERT INTO num_exp_div VALUES (3,1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 140",
+    "query": "INSERT INTO num_exp_add VALUES (3,2,'-34338487.905397047')"
+  },
+  {
+    "comment": "numeric - Statement 141",
+    "query": "INSERT INTO num_exp_sub VALUES (3,2,'34338496.525397047')"
+  },
+  {
+    "comment": "numeric - Statement 142",
+    "query": "INSERT INTO num_exp_mul VALUES (3,2,'-147998901.44836127257')"
+  },
+  {
+    "comment": "numeric - Statement 143",
+    "query": "INSERT INTO num_exp_div VALUES (3,2,'-.00000012551512084352')"
+  },
+  {
+    "comment": "numeric - Statement 144",
+    "query": "INSERT INTO num_exp_add VALUES (3,3,'8.62')"
+  },
+  {
+    "comment": "numeric - Statement 145",
+    "query": "INSERT INTO num_exp_sub VALUES (3,3,'0')"
+  },
+  {
+    "comment": "numeric - Statement 146",
+    "query": "INSERT INTO num_exp_mul VALUES (3,3,'18.5761')"
+  },
+  {
+    "comment": "numeric - Statement 147",
+    "query": "INSERT INTO num_exp_div VALUES (3,3,'1.00000000000000000000')"
+  },
+  {
+    "comment": "numeric - Statement 148",
+    "query": "INSERT INTO num_exp_add VALUES (3,4,'7799465.7219')"
+  },
+  {
+    "comment": "numeric - Statement 149",
+    "query": "INSERT INTO num_exp_sub VALUES (3,4,'-7799457.1019')"
+  },
+  {
+    "comment": "numeric - Statement 150",
+    "query": "INSERT INTO num_exp_mul VALUES (3,4,'33615678.685289')"
+  },
+  {
+    "comment": "numeric - Statement 151",
+    "query": "INSERT INTO num_exp_div VALUES (3,4,'.00000055260225961552')"
+  },
+  {
+    "comment": "numeric - Statement 152",
+    "query": "INSERT INTO num_exp_add VALUES (3,5,'16401.348491')"
+  },
+  {
+    "comment": "numeric - Statement 153",
+    "query": "INSERT INTO num_exp_sub VALUES (3,5,'-16392.728491')"
+  },
+  {
+    "comment": "numeric - Statement 154",
+    "query": "INSERT INTO num_exp_mul VALUES (3,5,'70671.23589621')"
+  },
+  {
+    "comment": "numeric - Statement 155",
+    "query": "INSERT INTO num_exp_div VALUES (3,5,'.00026285234387695504')"
+  },
+  {
+    "comment": "numeric - Statement 156",
+    "query": "INSERT INTO num_exp_add VALUES (3,6,'93905.88763026')"
+  },
+  {
+    "comment": "numeric - Statement 157",
+    "query": "INSERT INTO num_exp_sub VALUES (3,6,'-93897.26763026')"
+  },
+  {
+    "comment": "numeric - Statement 158",
+    "query": "INSERT INTO num_exp_mul VALUES (3,6,'404715.7995864206')"
+  },
+  {
+    "comment": "numeric - Statement 159",
+    "query": "INSERT INTO num_exp_div VALUES (3,6,'.00004589912234457595')"
+  },
+  {
+    "comment": "numeric - Statement 160",
+    "query": "INSERT INTO num_exp_add VALUES (3,7,'-83028480.69')"
+  },
+  {
+    "comment": "numeric - Statement 161",
+    "query": "INSERT INTO num_exp_sub VALUES (3,7,'83028489.31')"
+  },
+  {
+    "comment": "numeric - Statement 162",
+    "query": "INSERT INTO num_exp_mul VALUES (3,7,'-357852770.35')"
+  },
+  {
+    "comment": "numeric - Statement 163",
+    "query": "INSERT INTO num_exp_div VALUES (3,7,'-.00000005190989574240')"
+  },
+  {
+    "comment": "numeric - Statement 164",
+    "query": "INSERT INTO num_exp_add VALUES (3,8,'74885.31')"
+  },
+  {
+    "comment": "numeric - Statement 165",
+    "query": "INSERT INTO num_exp_sub VALUES (3,8,'-74876.69')"
+  },
+  {
+    "comment": "numeric - Statement 166",
+    "query": "INSERT INTO num_exp_mul VALUES (3,8,'322737.11')"
+  },
+  {
+    "comment": "numeric - Statement 167",
+    "query": "INSERT INTO num_exp_div VALUES (3,8,'.00005755799201399553')"
+  },
+  {
+    "comment": "numeric - Statement 168",
+    "query": "INSERT INTO num_exp_add VALUES (3,9,'-24926799.735047420')"
+  },
+  {
+    "comment": "numeric - Statement 169",
+    "query": "INSERT INTO num_exp_sub VALUES (3,9,'24926808.355047420')"
+  },
+  {
+    "comment": "numeric - Statement 170",
+    "query": "INSERT INTO num_exp_mul VALUES (3,9,'-107434525.43415438020')"
+  },
+  {
+    "comment": "numeric - Statement 171",
+    "query": "INSERT INTO num_exp_div VALUES (3,9,'-.00000017290624149854')"
+  },
+  {
+    "comment": "numeric - Statement 172",
+    "query": "INSERT INTO num_exp_add VALUES (4,0,'7799461.4119')"
+  },
+  {
+    "comment": "numeric - Statement 173",
+    "query": "INSERT INTO num_exp_sub VALUES (4,0,'7799461.4119')"
+  },
+  {
+    "comment": "numeric - Statement 174",
+    "query": "INSERT INTO num_exp_mul VALUES (4,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 175",
+    "query": "INSERT INTO num_exp_div VALUES (4,0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 176",
+    "query": "INSERT INTO num_exp_add VALUES (4,1,'7799461.4119')"
+  },
+  {
+    "comment": "numeric - Statement 177",
+    "query": "INSERT INTO num_exp_sub VALUES (4,1,'7799461.4119')"
+  },
+  {
+    "comment": "numeric - Statement 178",
+    "query": "INSERT INTO num_exp_mul VALUES (4,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 179",
+    "query": "INSERT INTO num_exp_div VALUES (4,1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 180",
+    "query": "INSERT INTO num_exp_add VALUES (4,2,'-26539030.803497047')"
+  },
+  {
+    "comment": "numeric - Statement 181",
+    "query": "INSERT INTO num_exp_sub VALUES (4,2,'42137953.627297047')"
+  },
+  {
+    "comment": "numeric - Statement 182",
+    "query": "INSERT INTO num_exp_mul VALUES (4,2,'-267821744976817.8111137106593')"
+  },
+  {
+    "comment": "numeric - Statement 183",
+    "query": "INSERT INTO num_exp_div VALUES (4,2,'-.22713465002993920385')"
+  },
+  {
+    "comment": "numeric - Statement 184",
+    "query": "INSERT INTO num_exp_add VALUES (4,3,'7799465.7219')"
+  },
+  {
+    "comment": "numeric - Statement 185",
+    "query": "INSERT INTO num_exp_sub VALUES (4,3,'7799457.1019')"
+  },
+  {
+    "comment": "numeric - Statement 186",
+    "query": "INSERT INTO num_exp_mul VALUES (4,3,'33615678.685289')"
+  },
+  {
+    "comment": "numeric - Statement 187",
+    "query": "INSERT INTO num_exp_div VALUES (4,3,'1809619.81714617169373549883')"
+  },
+  {
+    "comment": "numeric - Statement 188",
+    "query": "INSERT INTO num_exp_add VALUES (4,4,'15598922.8238')"
+  },
+  {
+    "comment": "numeric - Statement 189",
+    "query": "INSERT INTO num_exp_sub VALUES (4,4,'0')"
+  },
+  {
+    "comment": "numeric - Statement 190",
+    "query": "INSERT INTO num_exp_mul VALUES (4,4,'60831598315717.14146161')"
+  },
+  {
+    "comment": "numeric - Statement 191",
+    "query": "INSERT INTO num_exp_div VALUES (4,4,'1.00000000000000000000')"
+  },
+  {
+    "comment": "numeric - Statement 192",
+    "query": "INSERT INTO num_exp_add VALUES (4,5,'7815858.450391')"
+  },
+  {
+    "comment": "numeric - Statement 193",
+    "query": "INSERT INTO num_exp_sub VALUES (4,5,'7783064.373409')"
+  },
+  {
+    "comment": "numeric - Statement 194",
+    "query": "INSERT INTO num_exp_mul VALUES (4,5,'127888068979.9935054429')"
+  },
+  {
+    "comment": "numeric - Statement 195",
+    "query": "INSERT INTO num_exp_div VALUES (4,5,'475.66281046305802686061')"
+  },
+  {
+    "comment": "numeric - Statement 196",
+    "query": "INSERT INTO num_exp_add VALUES (4,6,'7893362.98953026')"
+  },
+  {
+    "comment": "numeric - Statement 197",
+    "query": "INSERT INTO num_exp_sub VALUES (4,6,'7705559.83426974')"
+  },
+  {
+    "comment": "numeric - Statement 198",
+    "query": "INSERT INTO num_exp_mul VALUES (4,6,'732381731243.745115764094')"
+  },
+  {
+    "comment": "numeric - Statement 199",
+    "query": "INSERT INTO num_exp_div VALUES (4,6,'83.05996138436129499606')"
+  },
+  {
+    "comment": "numeric - Statement 200",
+    "query": "INSERT INTO num_exp_add VALUES (4,7,'-75229023.5881')"
+  },
+  {
+    "comment": "numeric - Statement 201",
+    "query": "INSERT INTO num_exp_sub VALUES (4,7,'90827946.4119')"
+  },
+  {
+    "comment": "numeric - Statement 202",
+    "query": "INSERT INTO num_exp_mul VALUES (4,7,'-647577464846017.9715')"
+  },
+  {
+    "comment": "numeric - Statement 203",
+    "query": "INSERT INTO num_exp_div VALUES (4,7,'-.09393717604145131637')"
+  },
+  {
+    "comment": "numeric - Statement 204",
+    "query": "INSERT INTO num_exp_add VALUES (4,8,'7874342.4119')"
+  },
+  {
+    "comment": "numeric - Statement 205",
+    "query": "INSERT INTO num_exp_sub VALUES (4,8,'7724580.4119')"
+  },
+  {
+    "comment": "numeric - Statement 206",
+    "query": "INSERT INTO num_exp_mul VALUES (4,8,'584031469984.4839')"
+  },
+  {
+    "comment": "numeric - Statement 207",
+    "query": "INSERT INTO num_exp_div VALUES (4,8,'104.15808298366741897143')"
+  },
+  {
+    "comment": "numeric - Statement 208",
+    "query": "INSERT INTO num_exp_add VALUES (4,9,'-17127342.633147420')"
+  },
+  {
+    "comment": "numeric - Statement 209",
+    "query": "INSERT INTO num_exp_sub VALUES (4,9,'32726265.456947420')"
+  },
+  {
+    "comment": "numeric - Statement 210",
+    "query": "INSERT INTO num_exp_mul VALUES (4,9,'-194415646271340.1815956522980')"
+  },
+  {
+    "comment": "numeric - Statement 211",
+    "query": "INSERT INTO num_exp_div VALUES (4,9,'-.31289456112403769409')"
+  },
+  {
+    "comment": "numeric - Statement 212",
+    "query": "INSERT INTO num_exp_add VALUES (5,0,'16397.038491')"
+  },
+  {
+    "comment": "numeric - Statement 213",
+    "query": "INSERT INTO num_exp_sub VALUES (5,0,'16397.038491')"
+  },
+  {
+    "comment": "numeric - Statement 214",
+    "query": "INSERT INTO num_exp_mul VALUES (5,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 215",
+    "query": "INSERT INTO num_exp_div VALUES (5,0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 216",
+    "query": "INSERT INTO num_exp_add VALUES (5,1,'16397.038491')"
+  },
+  {
+    "comment": "numeric - Statement 217",
+    "query": "INSERT INTO num_exp_sub VALUES (5,1,'16397.038491')"
+  },
+  {
+    "comment": "numeric - Statement 218",
+    "query": "INSERT INTO num_exp_mul VALUES (5,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 219",
+    "query": "INSERT INTO num_exp_div VALUES (5,1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 220",
+    "query": "INSERT INTO num_exp_add VALUES (5,2,'-34322095.176906047')"
+  },
+  {
+    "comment": "numeric - Statement 221",
+    "query": "INSERT INTO num_exp_sub VALUES (5,2,'34354889.253888047')"
+  },
+  {
+    "comment": "numeric - Statement 222",
+    "query": "INSERT INTO num_exp_mul VALUES (5,2,'-563049578578.769242506736077')"
+  },
+  {
+    "comment": "numeric - Statement 223",
+    "query": "INSERT INTO num_exp_div VALUES (5,2,'-.00047751189505192446')"
+  },
+  {
+    "comment": "numeric - Statement 224",
+    "query": "INSERT INTO num_exp_add VALUES (5,3,'16401.348491')"
+  },
+  {
+    "comment": "numeric - Statement 225",
+    "query": "INSERT INTO num_exp_sub VALUES (5,3,'16392.728491')"
+  },
+  {
+    "comment": "numeric - Statement 226",
+    "query": "INSERT INTO num_exp_mul VALUES (5,3,'70671.23589621')"
+  },
+  {
+    "comment": "numeric - Statement 227",
+    "query": "INSERT INTO num_exp_div VALUES (5,3,'3804.41728329466357308584')"
+  },
+  {
+    "comment": "numeric - Statement 228",
+    "query": "INSERT INTO num_exp_add VALUES (5,4,'7815858.450391')"
+  },
+  {
+    "comment": "numeric - Statement 229",
+    "query": "INSERT INTO num_exp_sub VALUES (5,4,'-7783064.373409')"
+  },
+  {
+    "comment": "numeric - Statement 230",
+    "query": "INSERT INTO num_exp_mul VALUES (5,4,'127888068979.9935054429')"
+  },
+  {
+    "comment": "numeric - Statement 231",
+    "query": "INSERT INTO num_exp_div VALUES (5,4,'.00210232958726897192')"
+  },
+  {
+    "comment": "numeric - Statement 232",
+    "query": "INSERT INTO num_exp_add VALUES (5,5,'32794.076982')"
+  },
+  {
+    "comment": "numeric - Statement 233",
+    "query": "INSERT INTO num_exp_sub VALUES (5,5,'0')"
+  },
+  {
+    "comment": "numeric - Statement 234",
+    "query": "INSERT INTO num_exp_mul VALUES (5,5,'268862871.275335557081')"
+  },
+  {
+    "comment": "numeric - Statement 235",
+    "query": "INSERT INTO num_exp_div VALUES (5,5,'1.00000000000000000000')"
+  },
+  {
+    "comment": "numeric - Statement 236",
+    "query": "INSERT INTO num_exp_add VALUES (5,6,'110298.61612126')"
+  },
+  {
+    "comment": "numeric - Statement 237",
+    "query": "INSERT INTO num_exp_sub VALUES (5,6,'-77504.53913926')"
+  },
+  {
+    "comment": "numeric - Statement 238",
+    "query": "INSERT INTO num_exp_mul VALUES (5,6,'1539707782.76899778633766')"
+  },
+  {
+    "comment": "numeric - Statement 239",
+    "query": "INSERT INTO num_exp_div VALUES (5,6,'.17461941433576102689')"
+  },
+  {
+    "comment": "numeric - Statement 240",
+    "query": "INSERT INTO num_exp_add VALUES (5,7,'-83012087.961509')"
+  },
+  {
+    "comment": "numeric - Statement 241",
+    "query": "INSERT INTO num_exp_sub VALUES (5,7,'83044882.038491')"
+  },
+  {
+    "comment": "numeric - Statement 242",
+    "query": "INSERT INTO num_exp_mul VALUES (5,7,'-1361421264394.416135')"
+  },
+  {
+    "comment": "numeric - Statement 243",
+    "query": "INSERT INTO num_exp_div VALUES (5,7,'-.00019748690453643710')"
+  },
+  {
+    "comment": "numeric - Statement 244",
+    "query": "INSERT INTO num_exp_add VALUES (5,8,'91278.038491')"
+  },
+  {
+    "comment": "numeric - Statement 245",
+    "query": "INSERT INTO num_exp_sub VALUES (5,8,'-58483.961509')"
+  },
+  {
+    "comment": "numeric - Statement 246",
+    "query": "INSERT INTO num_exp_mul VALUES (5,8,'1227826639.244571')"
+  },
+  {
+    "comment": "numeric - Statement 247",
+    "query": "INSERT INTO num_exp_div VALUES (5,8,'.21897461960978085228')"
+  },
+  {
+    "comment": "numeric - Statement 248",
+    "query": "INSERT INTO num_exp_add VALUES (5,9,'-24910407.006556420')"
+  },
+  {
+    "comment": "numeric - Statement 249",
+    "query": "INSERT INTO num_exp_sub VALUES (5,9,'24943201.083538420')"
+  },
+  {
+    "comment": "numeric - Statement 250",
+    "query": "INSERT INTO num_exp_mul VALUES (5,9,'-408725765384.257043660243220')"
+  },
+  {
+    "comment": "numeric - Statement 251",
+    "query": "INSERT INTO num_exp_div VALUES (5,9,'-.00065780749354660427')"
+  },
+  {
+    "comment": "numeric - Statement 252",
+    "query": "INSERT INTO num_exp_add VALUES (6,0,'93901.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 253",
+    "query": "INSERT INTO num_exp_sub VALUES (6,0,'93901.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 254",
+    "query": "INSERT INTO num_exp_mul VALUES (6,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 255",
+    "query": "INSERT INTO num_exp_div VALUES (6,0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 256",
+    "query": "INSERT INTO num_exp_add VALUES (6,1,'93901.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 257",
+    "query": "INSERT INTO num_exp_sub VALUES (6,1,'93901.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 258",
+    "query": "INSERT INTO num_exp_mul VALUES (6,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 259",
+    "query": "INSERT INTO num_exp_div VALUES (6,1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 260",
+    "query": "INSERT INTO num_exp_add VALUES (6,2,'-34244590.637766787')"
+  },
+  {
+    "comment": "numeric - Statement 261",
+    "query": "INSERT INTO num_exp_sub VALUES (6,2,'34432393.793027307')"
+  },
+  {
+    "comment": "numeric - Statement 262",
+    "query": "INSERT INTO num_exp_mul VALUES (6,2,'-3224438592470.18449811926184222')"
+  },
+  {
+    "comment": "numeric - Statement 263",
+    "query": "INSERT INTO num_exp_div VALUES (6,2,'-.00273458651128995823')"
+  },
+  {
+    "comment": "numeric - Statement 264",
+    "query": "INSERT INTO num_exp_add VALUES (6,3,'93905.88763026')"
+  },
+  {
+    "comment": "numeric - Statement 265",
+    "query": "INSERT INTO num_exp_sub VALUES (6,3,'93897.26763026')"
+  },
+  {
+    "comment": "numeric - Statement 266",
+    "query": "INSERT INTO num_exp_mul VALUES (6,3,'404715.7995864206')"
+  },
+  {
+    "comment": "numeric - Statement 267",
+    "query": "INSERT INTO num_exp_div VALUES (6,3,'21786.90896293735498839907')"
+  },
+  {
+    "comment": "numeric - Statement 268",
+    "query": "INSERT INTO num_exp_add VALUES (6,4,'7893362.98953026')"
+  },
+  {
+    "comment": "numeric - Statement 269",
+    "query": "INSERT INTO num_exp_sub VALUES (6,4,'-7705559.83426974')"
+  },
+  {
+    "comment": "numeric - Statement 270",
+    "query": "INSERT INTO num_exp_mul VALUES (6,4,'732381731243.745115764094')"
+  },
+  {
+    "comment": "numeric - Statement 271",
+    "query": "INSERT INTO num_exp_div VALUES (6,4,'.01203949512295682469')"
+  },
+  {
+    "comment": "numeric - Statement 272",
+    "query": "INSERT INTO num_exp_add VALUES (6,5,'110298.61612126')"
+  },
+  {
+    "comment": "numeric - Statement 273",
+    "query": "INSERT INTO num_exp_sub VALUES (6,5,'77504.53913926')"
+  },
+  {
+    "comment": "numeric - Statement 274",
+    "query": "INSERT INTO num_exp_mul VALUES (6,5,'1539707782.76899778633766')"
+  },
+  {
+    "comment": "numeric - Statement 275",
+    "query": "INSERT INTO num_exp_div VALUES (6,5,'5.72674008674192359679')"
+  },
+  {
+    "comment": "numeric - Statement 276",
+    "query": "INSERT INTO num_exp_add VALUES (6,6,'187803.15526052')"
+  },
+  {
+    "comment": "numeric - Statement 277",
+    "query": "INSERT INTO num_exp_sub VALUES (6,6,'0')"
+  },
+  {
+    "comment": "numeric - Statement 278",
+    "query": "INSERT INTO num_exp_mul VALUES (6,6,'8817506281.4517452372676676')"
+  },
+  {
+    "comment": "numeric - Statement 279",
+    "query": "INSERT INTO num_exp_div VALUES (6,6,'1.00000000000000000000')"
+  },
+  {
+    "comment": "numeric - Statement 280",
+    "query": "INSERT INTO num_exp_add VALUES (6,7,'-82934583.42236974')"
+  },
+  {
+    "comment": "numeric - Statement 281",
+    "query": "INSERT INTO num_exp_sub VALUES (6,7,'83122386.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 282",
+    "query": "INSERT INTO num_exp_mul VALUES (6,7,'-7796505729750.37795610')"
+  },
+  {
+    "comment": "numeric - Statement 283",
+    "query": "INSERT INTO num_exp_div VALUES (6,7,'-.00113095617281538980')"
+  },
+  {
+    "comment": "numeric - Statement 284",
+    "query": "INSERT INTO num_exp_add VALUES (6,8,'168782.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 285",
+    "query": "INSERT INTO num_exp_sub VALUES (6,8,'19020.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 286",
+    "query": "INSERT INTO num_exp_mul VALUES (6,8,'7031444034.53149906')"
+  },
+  {
+    "comment": "numeric - Statement 287",
+    "query": "INSERT INTO num_exp_div VALUES (6,8,'1.25401073209839612184')"
+  },
+  {
+    "comment": "numeric - Statement 288",
+    "query": "INSERT INTO num_exp_add VALUES (6,9,'-24832902.467417160')"
+  },
+  {
+    "comment": "numeric - Statement 289",
+    "query": "INSERT INTO num_exp_sub VALUES (6,9,'25020705.622677680')"
+  },
+  {
+    "comment": "numeric - Statement 290",
+    "query": "INSERT INTO num_exp_mul VALUES (6,9,'-2340666225110.29929521292692920')"
+  },
+  {
+    "comment": "numeric - Statement 291",
+    "query": "INSERT INTO num_exp_div VALUES (6,9,'-.00376709254265256789')"
+  },
+  {
+    "comment": "numeric - Statement 292",
+    "query": "INSERT INTO num_exp_add VALUES (7,0,'-83028485')"
+  },
+  {
+    "comment": "numeric - Statement 293",
+    "query": "INSERT INTO num_exp_sub VALUES (7,0,'-83028485')"
+  },
+  {
+    "comment": "numeric - Statement 294",
+    "query": "INSERT INTO num_exp_mul VALUES (7,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 295",
+    "query": "INSERT INTO num_exp_div VALUES (7,0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 296",
+    "query": "INSERT INTO num_exp_add VALUES (7,1,'-83028485')"
+  },
+  {
+    "comment": "numeric - Statement 297",
+    "query": "INSERT INTO num_exp_sub VALUES (7,1,'-83028485')"
+  },
+  {
+    "comment": "numeric - Statement 298",
+    "query": "INSERT INTO num_exp_mul VALUES (7,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 299",
+    "query": "INSERT INTO num_exp_div VALUES (7,1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 300",
+    "query": "INSERT INTO num_exp_add VALUES (7,2,'-117366977.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 301",
+    "query": "INSERT INTO num_exp_sub VALUES (7,2,'-48689992.784602953')"
+  },
+  {
+    "comment": "numeric - Statement 302",
+    "query": "INSERT INTO num_exp_mul VALUES (7,2,'2851072985828710.485883795')"
+  },
+  {
+    "comment": "numeric - Statement 303",
+    "query": "INSERT INTO num_exp_div VALUES (7,2,'2.41794207151503385700')"
+  },
+  {
+    "comment": "numeric - Statement 304",
+    "query": "INSERT INTO num_exp_add VALUES (7,3,'-83028480.69')"
+  },
+  {
+    "comment": "numeric - Statement 305",
+    "query": "INSERT INTO num_exp_sub VALUES (7,3,'-83028489.31')"
+  },
+  {
+    "comment": "numeric - Statement 306",
+    "query": "INSERT INTO num_exp_mul VALUES (7,3,'-357852770.35')"
+  },
+  {
+    "comment": "numeric - Statement 307",
+    "query": "INSERT INTO num_exp_div VALUES (7,3,'-19264149.65197215777262180974')"
+  },
+  {
+    "comment": "numeric - Statement 308",
+    "query": "INSERT INTO num_exp_add VALUES (7,4,'-75229023.5881')"
+  },
+  {
+    "comment": "numeric - Statement 309",
+    "query": "INSERT INTO num_exp_sub VALUES (7,4,'-90827946.4119')"
+  },
+  {
+    "comment": "numeric - Statement 310",
+    "query": "INSERT INTO num_exp_mul VALUES (7,4,'-647577464846017.9715')"
+  },
+  {
+    "comment": "numeric - Statement 311",
+    "query": "INSERT INTO num_exp_div VALUES (7,4,'-10.64541262725136247686')"
+  },
+  {
+    "comment": "numeric - Statement 312",
+    "query": "INSERT INTO num_exp_add VALUES (7,5,'-83012087.961509')"
+  },
+  {
+    "comment": "numeric - Statement 313",
+    "query": "INSERT INTO num_exp_sub VALUES (7,5,'-83044882.038491')"
+  },
+  {
+    "comment": "numeric - Statement 314",
+    "query": "INSERT INTO num_exp_mul VALUES (7,5,'-1361421264394.416135')"
+  },
+  {
+    "comment": "numeric - Statement 315",
+    "query": "INSERT INTO num_exp_div VALUES (7,5,'-5063.62688881730941836574')"
+  },
+  {
+    "comment": "numeric - Statement 316",
+    "query": "INSERT INTO num_exp_add VALUES (7,6,'-82934583.42236974')"
+  },
+  {
+    "comment": "numeric - Statement 317",
+    "query": "INSERT INTO num_exp_sub VALUES (7,6,'-83122386.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 318",
+    "query": "INSERT INTO num_exp_mul VALUES (7,6,'-7796505729750.37795610')"
+  },
+  {
+    "comment": "numeric - Statement 319",
+    "query": "INSERT INTO num_exp_div VALUES (7,6,'-884.20756174009028770294')"
+  },
+  {
+    "comment": "numeric - Statement 320",
+    "query": "INSERT INTO num_exp_add VALUES (7,7,'-166056970')"
+  },
+  {
+    "comment": "numeric - Statement 321",
+    "query": "INSERT INTO num_exp_sub VALUES (7,7,'0')"
+  },
+  {
+    "comment": "numeric - Statement 322",
+    "query": "INSERT INTO num_exp_mul VALUES (7,7,'6893729321395225')"
+  },
+  {
+    "comment": "numeric - Statement 323",
+    "query": "INSERT INTO num_exp_div VALUES (7,7,'1.00000000000000000000')"
+  },
+  {
+    "comment": "numeric - Statement 324",
+    "query": "INSERT INTO num_exp_add VALUES (7,8,'-82953604')"
+  },
+  {
+    "comment": "numeric - Statement 325",
+    "query": "INSERT INTO num_exp_sub VALUES (7,8,'-83103366')"
+  },
+  {
+    "comment": "numeric - Statement 326",
+    "query": "INSERT INTO num_exp_mul VALUES (7,8,'-6217255985285')"
+  },
+  {
+    "comment": "numeric - Statement 327",
+    "query": "INSERT INTO num_exp_div VALUES (7,8,'-1108.80577182462841041118')"
+  },
+  {
+    "comment": "numeric - Statement 328",
+    "query": "INSERT INTO num_exp_add VALUES (7,9,'-107955289.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 329",
+    "query": "INSERT INTO num_exp_sub VALUES (7,9,'-58101680.954952580')"
+  },
+  {
+    "comment": "numeric - Statement 330",
+    "query": "INSERT INTO num_exp_mul VALUES (7,9,'2069634775752159.035758700')"
+  },
+  {
+    "comment": "numeric - Statement 331",
+    "query": "INSERT INTO num_exp_div VALUES (7,9,'3.33089171198810413382')"
+  },
+  {
+    "comment": "numeric - Statement 332",
+    "query": "INSERT INTO num_exp_add VALUES (8,0,'74881')"
+  },
+  {
+    "comment": "numeric - Statement 333",
+    "query": "INSERT INTO num_exp_sub VALUES (8,0,'74881')"
+  },
+  {
+    "comment": "numeric - Statement 334",
+    "query": "INSERT INTO num_exp_mul VALUES (8,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 335",
+    "query": "INSERT INTO num_exp_div VALUES (8,0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 336",
+    "query": "INSERT INTO num_exp_add VALUES (8,1,'74881')"
+  },
+  {
+    "comment": "numeric - Statement 337",
+    "query": "INSERT INTO num_exp_sub VALUES (8,1,'74881')"
+  },
+  {
+    "comment": "numeric - Statement 338",
+    "query": "INSERT INTO num_exp_mul VALUES (8,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 339",
+    "query": "INSERT INTO num_exp_div VALUES (8,1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 340",
+    "query": "INSERT INTO num_exp_add VALUES (8,2,'-34263611.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 341",
+    "query": "INSERT INTO num_exp_sub VALUES (8,2,'34413373.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 342",
+    "query": "INSERT INTO num_exp_mul VALUES (8,2,'-2571300635581.146276407')"
+  },
+  {
+    "comment": "numeric - Statement 343",
+    "query": "INSERT INTO num_exp_div VALUES (8,2,'-.00218067233500788615')"
+  },
+  {
+    "comment": "numeric - Statement 344",
+    "query": "INSERT INTO num_exp_add VALUES (8,3,'74885.31')"
+  },
+  {
+    "comment": "numeric - Statement 345",
+    "query": "INSERT INTO num_exp_sub VALUES (8,3,'74876.69')"
+  },
+  {
+    "comment": "numeric - Statement 346",
+    "query": "INSERT INTO num_exp_mul VALUES (8,3,'322737.11')"
+  },
+  {
+    "comment": "numeric - Statement 347",
+    "query": "INSERT INTO num_exp_div VALUES (8,3,'17373.78190255220417633410')"
+  },
+  {
+    "comment": "numeric - Statement 348",
+    "query": "INSERT INTO num_exp_add VALUES (8,4,'7874342.4119')"
+  },
+  {
+    "comment": "numeric - Statement 349",
+    "query": "INSERT INTO num_exp_sub VALUES (8,4,'-7724580.4119')"
+  },
+  {
+    "comment": "numeric - Statement 350",
+    "query": "INSERT INTO num_exp_mul VALUES (8,4,'584031469984.4839')"
+  },
+  {
+    "comment": "numeric - Statement 351",
+    "query": "INSERT INTO num_exp_div VALUES (8,4,'.00960079113741758956')"
+  },
+  {
+    "comment": "numeric - Statement 352",
+    "query": "INSERT INTO num_exp_add VALUES (8,5,'91278.038491')"
+  },
+  {
+    "comment": "numeric - Statement 353",
+    "query": "INSERT INTO num_exp_sub VALUES (8,5,'58483.961509')"
+  },
+  {
+    "comment": "numeric - Statement 354",
+    "query": "INSERT INTO num_exp_mul VALUES (8,5,'1227826639.244571')"
+  },
+  {
+    "comment": "numeric - Statement 355",
+    "query": "INSERT INTO num_exp_div VALUES (8,5,'4.56673929509287019456')"
+  },
+  {
+    "comment": "numeric - Statement 356",
+    "query": "INSERT INTO num_exp_add VALUES (8,6,'168782.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 357",
+    "query": "INSERT INTO num_exp_sub VALUES (8,6,'-19020.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 358",
+    "query": "INSERT INTO num_exp_mul VALUES (8,6,'7031444034.53149906')"
+  },
+  {
+    "comment": "numeric - Statement 359",
+    "query": "INSERT INTO num_exp_div VALUES (8,6,'.79744134113322314424')"
+  },
+  {
+    "comment": "numeric - Statement 360",
+    "query": "INSERT INTO num_exp_add VALUES (8,7,'-82953604')"
+  },
+  {
+    "comment": "numeric - Statement 361",
+    "query": "INSERT INTO num_exp_sub VALUES (8,7,'83103366')"
+  },
+  {
+    "comment": "numeric - Statement 362",
+    "query": "INSERT INTO num_exp_mul VALUES (8,7,'-6217255985285')"
+  },
+  {
+    "comment": "numeric - Statement 363",
+    "query": "INSERT INTO num_exp_div VALUES (8,7,'-.00090187120721280172')"
+  },
+  {
+    "comment": "numeric - Statement 364",
+    "query": "INSERT INTO num_exp_add VALUES (8,8,'149762')"
+  },
+  {
+    "comment": "numeric - Statement 365",
+    "query": "INSERT INTO num_exp_sub VALUES (8,8,'0')"
+  },
+  {
+    "comment": "numeric - Statement 366",
+    "query": "INSERT INTO num_exp_mul VALUES (8,8,'5607164161')"
+  },
+  {
+    "comment": "numeric - Statement 367",
+    "query": "INSERT INTO num_exp_div VALUES (8,8,'1.00000000000000000000')"
+  },
+  {
+    "comment": "numeric - Statement 368",
+    "query": "INSERT INTO num_exp_add VALUES (8,9,'-24851923.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 369",
+    "query": "INSERT INTO num_exp_sub VALUES (8,9,'25001685.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 370",
+    "query": "INSERT INTO num_exp_mul VALUES (8,9,'-1866544013697.195857020')"
+  },
+  {
+    "comment": "numeric - Statement 371",
+    "query": "INSERT INTO num_exp_div VALUES (8,9,'-.00300403532938582735')"
+  },
+  {
+    "comment": "numeric - Statement 372",
+    "query": "INSERT INTO num_exp_add VALUES (9,0,'-24926804.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 373",
+    "query": "INSERT INTO num_exp_sub VALUES (9,0,'-24926804.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 374",
+    "query": "INSERT INTO num_exp_mul VALUES (9,0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 375",
+    "query": "INSERT INTO num_exp_div VALUES (9,0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 376",
+    "query": "INSERT INTO num_exp_add VALUES (9,1,'-24926804.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 377",
+    "query": "INSERT INTO num_exp_sub VALUES (9,1,'-24926804.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 378",
+    "query": "INSERT INTO num_exp_mul VALUES (9,1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 379",
+    "query": "INSERT INTO num_exp_div VALUES (9,1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 380",
+    "query": "INSERT INTO num_exp_add VALUES (9,2,'-59265296.260444467')"
+  },
+  {
+    "comment": "numeric - Statement 381",
+    "query": "INSERT INTO num_exp_sub VALUES (9,2,'9411688.170349627')"
+  },
+  {
+    "comment": "numeric - Statement 382",
+    "query": "INSERT INTO num_exp_mul VALUES (9,2,'855948866655588.453741509242968740')"
+  },
+  {
+    "comment": "numeric - Statement 383",
+    "query": "INSERT INTO num_exp_div VALUES (9,2,'.72591434384152961526')"
+  },
+  {
+    "comment": "numeric - Statement 384",
+    "query": "INSERT INTO num_exp_add VALUES (9,3,'-24926799.735047420')"
+  },
+  {
+    "comment": "numeric - Statement 385",
+    "query": "INSERT INTO num_exp_sub VALUES (9,3,'-24926808.355047420')"
+  },
+  {
+    "comment": "numeric - Statement 386",
+    "query": "INSERT INTO num_exp_mul VALUES (9,3,'-107434525.43415438020')"
+  },
+  {
+    "comment": "numeric - Statement 387",
+    "query": "INSERT INTO num_exp_div VALUES (9,3,'-5783481.21694835730858468677')"
+  },
+  {
+    "comment": "numeric - Statement 388",
+    "query": "INSERT INTO num_exp_add VALUES (9,4,'-17127342.633147420')"
+  },
+  {
+    "comment": "numeric - Statement 389",
+    "query": "INSERT INTO num_exp_sub VALUES (9,4,'-32726265.456947420')"
+  },
+  {
+    "comment": "numeric - Statement 390",
+    "query": "INSERT INTO num_exp_mul VALUES (9,4,'-194415646271340.1815956522980')"
+  },
+  {
+    "comment": "numeric - Statement 391",
+    "query": "INSERT INTO num_exp_div VALUES (9,4,'-3.19596478892958416484')"
+  },
+  {
+    "comment": "numeric - Statement 392",
+    "query": "INSERT INTO num_exp_add VALUES (9,5,'-24910407.006556420')"
+  },
+  {
+    "comment": "numeric - Statement 393",
+    "query": "INSERT INTO num_exp_sub VALUES (9,5,'-24943201.083538420')"
+  },
+  {
+    "comment": "numeric - Statement 394",
+    "query": "INSERT INTO num_exp_mul VALUES (9,5,'-408725765384.257043660243220')"
+  },
+  {
+    "comment": "numeric - Statement 395",
+    "query": "INSERT INTO num_exp_div VALUES (9,5,'-1520.20159364322004505807')"
+  },
+  {
+    "comment": "numeric - Statement 396",
+    "query": "INSERT INTO num_exp_add VALUES (9,6,'-24832902.467417160')"
+  },
+  {
+    "comment": "numeric - Statement 397",
+    "query": "INSERT INTO num_exp_sub VALUES (9,6,'-25020705.622677680')"
+  },
+  {
+    "comment": "numeric - Statement 398",
+    "query": "INSERT INTO num_exp_mul VALUES (9,6,'-2340666225110.29929521292692920')"
+  },
+  {
+    "comment": "numeric - Statement 399",
+    "query": "INSERT INTO num_exp_div VALUES (9,6,'-265.45671195426965751280')"
+  },
+  {
+    "comment": "numeric - Statement 400",
+    "query": "INSERT INTO num_exp_add VALUES (9,7,'-107955289.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 401",
+    "query": "INSERT INTO num_exp_sub VALUES (9,7,'58101680.954952580')"
+  },
+  {
+    "comment": "numeric - Statement 402",
+    "query": "INSERT INTO num_exp_mul VALUES (9,7,'2069634775752159.035758700')"
+  },
+  {
+    "comment": "numeric - Statement 403",
+    "query": "INSERT INTO num_exp_div VALUES (9,7,'.30021990699995814689')"
+  },
+  {
+    "comment": "numeric - Statement 404",
+    "query": "INSERT INTO num_exp_add VALUES (9,8,'-24851923.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 405",
+    "query": "INSERT INTO num_exp_sub VALUES (9,8,'-25001685.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 406",
+    "query": "INSERT INTO num_exp_mul VALUES (9,8,'-1866544013697.195857020')"
+  },
+  {
+    "comment": "numeric - Statement 407",
+    "query": "INSERT INTO num_exp_div VALUES (9,8,'-332.88556569820675471748')"
+  },
+  {
+    "comment": "numeric - Statement 408",
+    "query": "INSERT INTO num_exp_add VALUES (9,9,'-49853608.090094840')"
+  },
+  {
+    "comment": "numeric - Statement 409",
+    "query": "INSERT INTO num_exp_sub VALUES (9,9,'0')"
+  },
+  {
+    "comment": "numeric - Statement 410",
+    "query": "INSERT INTO num_exp_mul VALUES (9,9,'621345559900192.420120630048656400')"
+  },
+  {
+    "comment": "numeric - Statement 411",
+    "query": "INSERT INTO num_exp_div VALUES (9,9,'1.00000000000000000000')"
+  },
+  {
+    "comment": "numeric - Statement 412",
+    "query": "COMMIT TRANSACTION"
+  },
+  {
+    "comment": "numeric - Statement 413",
+    "query": "INSERT INTO num_exp_sqrt VALUES (0,'0')"
+  },
+  {
+    "comment": "numeric - Statement 414",
+    "query": "INSERT INTO num_exp_sqrt VALUES (1,'0')"
+  },
+  {
+    "comment": "numeric - Statement 415",
+    "query": "INSERT INTO num_exp_sqrt VALUES (2,'5859.90547836712524903505')"
+  },
+  {
+    "comment": "numeric - Statement 416",
+    "query": "INSERT INTO num_exp_sqrt VALUES (3,'2.07605394920266944396')"
+  },
+  {
+    "comment": "numeric - Statement 417",
+    "query": "INSERT INTO num_exp_sqrt VALUES (4,'2792.75158435189147418923')"
+  },
+  {
+    "comment": "numeric - Statement 418",
+    "query": "INSERT INTO num_exp_sqrt VALUES (5,'128.05092147657509145473')"
+  },
+  {
+    "comment": "numeric - Statement 419",
+    "query": "INSERT INTO num_exp_sqrt VALUES (6,'306.43364311096782703406')"
+  },
+  {
+    "comment": "numeric - Statement 420",
+    "query": "INSERT INTO num_exp_sqrt VALUES (7,'9111.99676251039939975230')"
+  },
+  {
+    "comment": "numeric - Statement 421",
+    "query": "INSERT INTO num_exp_sqrt VALUES (8,'273.64392922189960397542')"
+  },
+  {
+    "comment": "numeric - Statement 422",
+    "query": "INSERT INTO num_exp_sqrt VALUES (9,'4992.67503899937593364766')"
+  },
+  {
+    "comment": "numeric - Statement 423",
+    "query": "INSERT INTO num_exp_ln VALUES (0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 424",
+    "query": "INSERT INTO num_exp_ln VALUES (1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 425",
+    "query": "INSERT INTO num_exp_ln VALUES (2,'17.35177750493897715514')"
+  },
+  {
+    "comment": "numeric - Statement 426",
+    "query": "INSERT INTO num_exp_ln VALUES (3,'1.46093790411565641971')"
+  },
+  {
+    "comment": "numeric - Statement 427",
+    "query": "INSERT INTO num_exp_ln VALUES (4,'15.86956523951936572464')"
+  },
+  {
+    "comment": "numeric - Statement 428",
+    "query": "INSERT INTO num_exp_ln VALUES (5,'9.70485601768871834038')"
+  },
+  {
+    "comment": "numeric - Statement 429",
+    "query": "INSERT INTO num_exp_ln VALUES (6,'11.45000246622944403127')"
+  },
+  {
+    "comment": "numeric - Statement 430",
+    "query": "INSERT INTO num_exp_ln VALUES (7,'18.23469429965478772991')"
+  },
+  {
+    "comment": "numeric - Statement 431",
+    "query": "INSERT INTO num_exp_ln VALUES (8,'11.22365546576315513668')"
+  },
+  {
+    "comment": "numeric - Statement 432",
+    "query": "INSERT INTO num_exp_ln VALUES (9,'17.03145425013166006962')"
+  },
+  {
+    "comment": "numeric - Statement 433",
+    "query": "INSERT INTO num_exp_log10 VALUES (0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 434",
+    "query": "INSERT INTO num_exp_log10 VALUES (1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 435",
+    "query": "INSERT INTO num_exp_log10 VALUES (2,'7.53578122160797276459')"
+  },
+  {
+    "comment": "numeric - Statement 436",
+    "query": "INSERT INTO num_exp_log10 VALUES (3,'.63447727016073160075')"
+  },
+  {
+    "comment": "numeric - Statement 437",
+    "query": "INSERT INTO num_exp_log10 VALUES (4,'6.89206461372691743345')"
+  },
+  {
+    "comment": "numeric - Statement 438",
+    "query": "INSERT INTO num_exp_log10 VALUES (5,'4.21476541614777768626')"
+  },
+  {
+    "comment": "numeric - Statement 439",
+    "query": "INSERT INTO num_exp_log10 VALUES (6,'4.97267288886207207671')"
+  },
+  {
+    "comment": "numeric - Statement 440",
+    "query": "INSERT INTO num_exp_log10 VALUES (7,'7.91922711353275546914')"
+  },
+  {
+    "comment": "numeric - Statement 441",
+    "query": "INSERT INTO num_exp_log10 VALUES (8,'4.87437163556421004138')"
+  },
+  {
+    "comment": "numeric - Statement 442",
+    "query": "INSERT INTO num_exp_log10 VALUES (9,'7.39666659961986567059')"
+  },
+  {
+    "comment": "numeric - Statement 443",
+    "query": "INSERT INTO num_exp_power_10_ln VALUES (0,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 444",
+    "query": "INSERT INTO num_exp_power_10_ln VALUES (1,'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 445",
+    "query": "INSERT INTO num_exp_power_10_ln VALUES (2,'224790267919917955.13261618583642653184')"
+  },
+  {
+    "comment": "numeric - Statement 446",
+    "query": "INSERT INTO num_exp_power_10_ln VALUES (3,'28.90266599445155957393')"
+  },
+  {
+    "comment": "numeric - Statement 447",
+    "query": "INSERT INTO num_exp_power_10_ln VALUES (4,'7405685069594999.07733999469386277636')"
+  },
+  {
+    "comment": "numeric - Statement 448",
+    "query": "INSERT INTO num_exp_power_10_ln VALUES (5,'5068226527.32127265408584640098')"
+  },
+  {
+    "comment": "numeric - Statement 449",
+    "query": "INSERT INTO num_exp_power_10_ln VALUES (6,'281839893606.99372343357047819067')"
+  },
+  {
+    "comment": "numeric - Statement 450",
+    "query": "INSERT INTO num_exp_power_10_ln VALUES (7,'1716699575118597095.42330819910640247627')"
+  },
+  {
+    "comment": "numeric - Statement 451",
+    "query": "INSERT INTO num_exp_power_10_ln VALUES (8,'167361463828.07491320069016125952')"
+  },
+  {
+    "comment": "numeric - Statement 452",
+    "query": "INSERT INTO num_exp_power_10_ln VALUES (9,'107511333880052007.04141124673540337457')"
+  },
+  {
+    "comment": "numeric - Statement 453",
+    "query": "INSERT INTO num_data VALUES (0, '0')"
+  },
+  {
+    "comment": "numeric - Statement 454",
+    "query": "INSERT INTO num_data VALUES (1, '0')"
+  },
+  {
+    "comment": "numeric - Statement 455",
+    "query": "INSERT INTO num_data VALUES (2, '-34338492.215397047')"
+  },
+  {
+    "comment": "numeric - Statement 456",
+    "query": "INSERT INTO num_data VALUES (3, '4.31')"
+  },
+  {
+    "comment": "numeric - Statement 457",
+    "query": "INSERT INTO num_data VALUES (4, '7799461.4119')"
+  },
+  {
+    "comment": "numeric - Statement 458",
+    "query": "INSERT INTO num_data VALUES (5, '16397.038491')"
+  },
+  {
+    "comment": "numeric - Statement 459",
+    "query": "INSERT INTO num_data VALUES (6, '93901.57763026')"
+  },
+  {
+    "comment": "numeric - Statement 460",
+    "query": "INSERT INTO num_data VALUES (7, '-83028485')"
+  },
+  {
+    "comment": "numeric - Statement 461",
+    "query": "INSERT INTO num_data VALUES (8, '74881')"
+  },
+  {
+    "comment": "numeric - Statement 462",
+    "query": "INSERT INTO num_data VALUES (9, '-24926804.045047420')"
+  },
+  {
+    "comment": "numeric - Statement 463",
+    "query": "CREATE UNIQUE INDEX num_exp_add_idx ON num_exp_add (id1, id2)"
+  },
+  {
+    "comment": "numeric - Statement 464",
+    "query": "CREATE UNIQUE INDEX num_exp_sub_idx ON num_exp_sub (id1, id2)"
+  },
+  {
+    "comment": "numeric - Statement 465",
+    "query": "CREATE UNIQUE INDEX num_exp_div_idx ON num_exp_div (id1, id2)"
+  },
+  {
+    "comment": "numeric - Statement 466",
+    "query": "CREATE UNIQUE INDEX num_exp_mul_idx ON num_exp_mul (id1, id2)"
+  },
+  {
+    "comment": "numeric - Statement 467",
+    "query": "CREATE UNIQUE INDEX num_exp_sqrt_idx ON num_exp_sqrt (id)"
+  },
+  {
+    "comment": "numeric - Statement 468",
+    "query": "CREATE UNIQUE INDEX num_exp_ln_idx ON num_exp_ln (id)"
+  },
+  {
+    "comment": "numeric - Statement 469",
+    "query": "CREATE UNIQUE INDEX num_exp_log10_idx ON num_exp_log10 (id)"
+  },
+  {
+    "comment": "numeric - Statement 470",
+    "query": "CREATE UNIQUE INDEX num_exp_power_10_ln_idx ON num_exp_power_10_ln (id)"
+  },
+  {
+    "comment": "numeric - Statement 471",
+    "query": "VACUUM ANALYZE num_exp_add"
+  },
+  {
+    "comment": "numeric - Statement 472",
+    "query": "VACUUM ANALYZE num_exp_sub"
+  },
+  {
+    "comment": "numeric - Statement 473",
+    "query": "VACUUM ANALYZE num_exp_div"
+  },
+  {
+    "comment": "numeric - Statement 474",
+    "query": "VACUUM ANALYZE num_exp_mul"
+  },
+  {
+    "comment": "numeric - Statement 475",
+    "query": "VACUUM ANALYZE num_exp_sqrt"
+  },
+  {
+    "comment": "numeric - Statement 476",
+    "query": "VACUUM ANALYZE num_exp_ln"
+  },
+  {
+    "comment": "numeric - Statement 477",
+    "query": "VACUUM ANALYZE num_exp_log10"
+  },
+  {
+    "comment": "numeric - Statement 478",
+    "query": "VACUUM ANALYZE num_exp_power_10_ln"
+  },
+  {
+    "comment": "numeric - Statement 479",
+    "query": "DELETE FROM num_result"
+  },
+  {
+    "comment": "numeric - Statement 480",
+    "query": "INSERT INTO num_result SELECT t1.id, t2.id, t1.val + t2.val FROM num_data t1, num_data t2"
+  },
+  {
+    "comment": "numeric - Statement 481",
+    "query": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result t1, num_exp_add t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != t2.expected"
+  },
+  {
+    "comment": "numeric - Statement 482",
+    "query": "INSERT INTO num_result SELECT t1.id, t2.id, round(t1.val + t2.val, 10) FROM num_data t1, num_data t2"
+  },
+  {
+    "comment": "numeric - Statement 483",
+    "query": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 10) as expected FROM num_result t1, num_exp_add t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != round(t2.expected, 10)"
+  },
+  {
+    "comment": "numeric - Statement 484",
+    "query": "INSERT INTO num_result SELECT t1.id, t2.id, t1.val - t2.val FROM num_data t1, num_data t2"
+  },
+  {
+    "comment": "numeric - Statement 485",
+    "query": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result t1, num_exp_sub t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != t2.expected"
+  },
+  {
+    "comment": "numeric - Statement 486",
+    "query": "INSERT INTO num_result SELECT t1.id, t2.id, round(t1.val - t2.val, 40) FROM num_data t1, num_data t2"
+  },
+  {
+    "comment": "numeric - Statement 487",
+    "query": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 40) FROM num_result t1, num_exp_sub t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != round(t2.expected, 40)"
+  },
+  {
+    "comment": "numeric - Statement 488",
+    "query": "INSERT INTO num_result SELECT t1.id, t2.id, t1.val * t2.val FROM num_data t1, num_data t2"
+  },
+  {
+    "comment": "numeric - Statement 489",
+    "query": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result t1, num_exp_mul t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != t2.expected"
+  },
+  {
+    "comment": "numeric - Statement 490",
+    "query": "INSERT INTO num_result SELECT t1.id, t2.id, round(t1.val * t2.val, 30) FROM num_data t1, num_data t2"
+  },
+  {
+    "comment": "numeric - Statement 491",
+    "query": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 30) as expected FROM num_result t1, num_exp_mul t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != round(t2.expected, 30)"
+  },
+  {
+    "comment": "numeric - Statement 492",
+    "query": "INSERT INTO num_result SELECT t1.id, t2.id, t1.val / t2.val FROM num_data t1, num_data t2 WHERE t2.val != '0.0'"
+  },
+  {
+    "comment": "numeric - Statement 493",
+    "query": "SELECT t1.id1, t1.id2, t1.result, t2.expected FROM num_result t1, num_exp_div t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != t2.expected"
+  },
+  {
+    "comment": "numeric - Statement 494",
+    "query": "INSERT INTO num_result SELECT t1.id, t2.id, round(t1.val / t2.val, 80) FROM num_data t1, num_data t2 WHERE t2.val != '0.0'"
+  },
+  {
+    "comment": "numeric - Statement 495",
+    "query": "SELECT t1.id1, t1.id2, t1.result, round(t2.expected, 80) as expected FROM num_result t1, num_exp_div t2 WHERE t1.id1 = t2.id1 AND t1.id2 = t2.id2 AND t1.result != round(t2.expected, 80)"
+  },
+  {
+    "comment": "numeric - Statement 496",
+    "query": "INSERT INTO num_result SELECT id, 0, SQRT(ABS(val)) FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 497",
+    "query": "SELECT t1.id1, t1.result, t2.expected FROM num_result t1, num_exp_sqrt t2 WHERE t1.id1 = t2.id AND t1.result != t2.expected"
+  },
+  {
+    "comment": "numeric - Statement 498",
+    "query": "INSERT INTO num_result SELECT id, 0, LN(ABS(val)) FROM num_data WHERE val != '0.0'"
+  },
+  {
+    "comment": "numeric - Statement 499",
+    "query": "SELECT t1.id1, t1.result, t2.expected FROM num_result t1, num_exp_ln t2 WHERE t1.id1 = t2.id AND t1.result != t2.expected"
+  },
+  {
+    "comment": "numeric - Statement 500",
+    "query": "INSERT INTO num_result SELECT id, 0, LOG(numeric '10', ABS(val)) FROM num_data WHERE val != '0.0'"
+  },
+  {
+    "comment": "numeric - Statement 501",
+    "query": "SELECT t1.id1, t1.result, t2.expected FROM num_result t1, num_exp_log10 t2 WHERE t1.id1 = t2.id AND t1.result != t2.expected"
+  },
+  {
+    "comment": "numeric - Statement 502",
+    "query": "INSERT INTO num_result SELECT id, 0, POWER(numeric '10', LN(ABS(round(val,200)))) FROM num_data WHERE val != '0.0'"
+  },
+  {
+    "comment": "numeric - Statement 503",
+    "query": "SELECT t1.id1, t1.result, t2.expected FROM num_result t1, num_exp_power_10_ln t2 WHERE t1.id1 = t2.id AND t1.result != t2.expected"
+  },
+  {
+    "comment": "numeric - Statement 504",
+    "query": "WITH v(x) AS (VALUES('0'::numeric),('1'),('-1'),('4.2'),('inf'),('-inf'),('nan')) SELECT x1, x2, x1 + x2 AS sum, x1 - x2 AS diff, x1 * x2 AS prod FROM v AS v1(x1), v AS v2(x2)"
+  },
+  {
+    "comment": "numeric - Statement 505",
+    "query": "WITH v(x) AS (VALUES('0'::numeric),('1'),('-1'),('4.2'),('inf'),('-inf'),('nan')) SELECT x1, x2, x1 / x2 AS quot, x1 % x2 AS mod, div(x1, x2) AS div FROM v AS v1(x1), v AS v2(x2) WHERE x2 != 0"
+  },
+  {
+    "comment": "numeric - Statement 506",
+    "query": "SELECT 'inf'::numeric / '0'"
+  },
+  {
+    "comment": "numeric - Statement 507",
+    "query": "SELECT '-inf'::numeric / '0'"
+  },
+  {
+    "comment": "numeric - Statement 508",
+    "query": "SELECT 'nan'::numeric / '0'"
+  },
+  {
+    "comment": "numeric - Statement 509",
+    "query": "SELECT '0'::numeric / '0'"
+  },
+  {
+    "comment": "numeric - Statement 510",
+    "query": "SELECT 'inf'::numeric % '0'"
+  },
+  {
+    "comment": "numeric - Statement 511",
+    "query": "SELECT '-inf'::numeric % '0'"
+  },
+  {
+    "comment": "numeric - Statement 512",
+    "query": "SELECT 'nan'::numeric % '0'"
+  },
+  {
+    "comment": "numeric - Statement 513",
+    "query": "SELECT '0'::numeric % '0'"
+  },
+  {
+    "comment": "numeric - Statement 514",
+    "query": "SELECT div('inf'::numeric, '0')"
+  },
+  {
+    "comment": "numeric - Statement 515",
+    "query": "SELECT div('-inf'::numeric, '0')"
+  },
+  {
+    "comment": "numeric - Statement 516",
+    "query": "SELECT div('nan'::numeric, '0')"
+  },
+  {
+    "comment": "numeric - Statement 517",
+    "query": "SELECT div('0'::numeric, '0')"
+  },
+  {
+    "comment": "numeric - Statement 518",
+    "query": "WITH v(x) AS (VALUES('0'::numeric),('1'),('-1'),('4.2'),('-7.777'),('inf'),('-inf'),('nan')) SELECT x, -x as minusx, abs(x), floor(x), ceil(x), sign(x), numeric_inc(x) as inc FROM v"
+  },
+  {
+    "comment": "numeric - Statement 519",
+    "query": "WITH v(x) AS (VALUES('0'::numeric),('1'),('-1'),('4.2'),('-7.777'),('inf'),('-inf'),('nan')) SELECT x, round(x), round(x,1) as round1, trunc(x), trunc(x,1) as trunc1 FROM v"
+  },
+  {
+    "comment": "numeric - Statement 520",
+    "query": "WITH v(x) AS (VALUES('0'::numeric),('1'),('-1'),('4.2'),('-7.777'),('1e340'),('-1e340'), ('inf'),('-inf'),('nan'), ('inf'),('-inf'),('nan')) SELECT substring(x::text, 1, 32) FROM v ORDER BY x"
+  },
+  {
+    "comment": "numeric - Statement 521",
+    "query": "WITH v(x) AS (VALUES('0'::numeric),('1'),('4.2'),('inf'),('nan')) SELECT x, sqrt(x) FROM v"
+  },
+  {
+    "comment": "numeric - Statement 522",
+    "query": "SELECT sqrt('-1'::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 523",
+    "query": "SELECT sqrt('-inf'::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 524",
+    "query": "WITH v(x) AS (VALUES('1'::numeric),('4.2'),('inf'),('nan')) SELECT x, log(x), log10(x), ln(x) FROM v"
+  },
+  {
+    "comment": "numeric - Statement 525",
+    "query": "SELECT ln('0'::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 526",
+    "query": "SELECT ln('-1'::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 527",
+    "query": "SELECT ln('-inf'::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 528",
+    "query": "WITH v(x) AS (VALUES('2'::numeric),('4.2'),('inf'),('nan')) SELECT x1, x2, log(x1, x2) FROM v AS v1(x1), v AS v2(x2)"
+  },
+  {
+    "comment": "numeric - Statement 529",
+    "query": "SELECT log('0'::numeric, '10')"
+  },
+  {
+    "comment": "numeric - Statement 530",
+    "query": "SELECT log('10'::numeric, '0')"
+  },
+  {
+    "comment": "numeric - Statement 531",
+    "query": "SELECT log('-inf'::numeric, '10')"
+  },
+  {
+    "comment": "numeric - Statement 532",
+    "query": "SELECT log('10'::numeric, '-inf')"
+  },
+  {
+    "comment": "numeric - Statement 533",
+    "query": "SELECT log('inf'::numeric, '0')"
+  },
+  {
+    "comment": "numeric - Statement 534",
+    "query": "SELECT log('inf'::numeric, '-inf')"
+  },
+  {
+    "comment": "numeric - Statement 535",
+    "query": "SELECT log('-inf'::numeric, 'inf')"
+  },
+  {
+    "comment": "numeric - Statement 536",
+    "query": "WITH v(x) AS (VALUES('0'::numeric),('1'),('2'),('4.2'),('inf'),('nan')) SELECT x1, x2, power(x1, x2) FROM v AS v1(x1), v AS v2(x2) WHERE x1 != 0 OR x2 >= 0"
+  },
+  {
+    "comment": "numeric - Statement 537",
+    "query": "SELECT power('0'::numeric, '-1')"
+  },
+  {
+    "comment": "numeric - Statement 538",
+    "query": "SELECT power('0'::numeric, '-inf')"
+  },
+  {
+    "comment": "numeric - Statement 539",
+    "query": "SELECT power('-1'::numeric, 'inf')"
+  },
+  {
+    "comment": "numeric - Statement 540",
+    "query": "SELECT power('-2'::numeric, '3')"
+  },
+  {
+    "comment": "numeric - Statement 541",
+    "query": "SELECT power('-2'::numeric, '3.3')"
+  },
+  {
+    "comment": "numeric - Statement 542",
+    "query": "SELECT power('-2'::numeric, '-1')"
+  },
+  {
+    "comment": "numeric - Statement 543",
+    "query": "SELECT power('-2'::numeric, '-1.5')"
+  },
+  {
+    "comment": "numeric - Statement 544",
+    "query": "SELECT power('-2'::numeric, 'inf')"
+  },
+  {
+    "comment": "numeric - Statement 545",
+    "query": "SELECT power('-2'::numeric, '-inf')"
+  },
+  {
+    "comment": "numeric - Statement 546",
+    "query": "SELECT power('inf'::numeric, '-2')"
+  },
+  {
+    "comment": "numeric - Statement 547",
+    "query": "SELECT power('inf'::numeric, '-inf')"
+  },
+  {
+    "comment": "numeric - Statement 548",
+    "query": "SELECT power('-inf'::numeric, '2')"
+  },
+  {
+    "comment": "numeric - Statement 549",
+    "query": "SELECT power('-inf'::numeric, '3')"
+  },
+  {
+    "comment": "numeric - Statement 550",
+    "query": "SELECT power('-inf'::numeric, '4.5')"
+  },
+  {
+    "comment": "numeric - Statement 551",
+    "query": "SELECT power('-inf'::numeric, '-2')"
+  },
+  {
+    "comment": "numeric - Statement 552",
+    "query": "SELECT power('-inf'::numeric, '-3')"
+  },
+  {
+    "comment": "numeric - Statement 553",
+    "query": "SELECT power('-inf'::numeric, '0')"
+  },
+  {
+    "comment": "numeric - Statement 554",
+    "query": "SELECT power('-inf'::numeric, 'inf')"
+  },
+  {
+    "comment": "numeric - Statement 555",
+    "query": "SELECT power('-inf'::numeric, '-inf')"
+  },
+  {
+    "comment": "numeric - Statement 556",
+    "query": "SELECT AVG(val) FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 557",
+    "query": "SELECT MAX(val) FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 558",
+    "query": "SELECT MIN(val) FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 559",
+    "query": "SELECT STDDEV(val) FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 560",
+    "query": "SELECT VARIANCE(val) FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 561",
+    "query": "CREATE TABLE fract_only (id int, val numeric(4,4))"
+  },
+  {
+    "comment": "numeric - Statement 562",
+    "query": "INSERT INTO fract_only VALUES (1, '0.0')"
+  },
+  {
+    "comment": "numeric - Statement 563",
+    "query": "INSERT INTO fract_only VALUES (2, '0.1')"
+  },
+  {
+    "comment": "numeric - Statement 564",
+    "query": "INSERT INTO fract_only VALUES (3, '1.0')"
+  },
+  {
+    "comment": "numeric - Statement 565",
+    "query": "INSERT INTO fract_only VALUES (4, '-0.9999')"
+  },
+  {
+    "comment": "numeric - Statement 566",
+    "query": "INSERT INTO fract_only VALUES (5, '0.99994')"
+  },
+  {
+    "comment": "numeric - Statement 567",
+    "query": "INSERT INTO fract_only VALUES (6, '0.99995')"
+  },
+  {
+    "comment": "numeric - Statement 568",
+    "query": "INSERT INTO fract_only VALUES (7, '0.00001')"
+  },
+  {
+    "comment": "numeric - Statement 569",
+    "query": "INSERT INTO fract_only VALUES (8, '0.00017')"
+  },
+  {
+    "comment": "numeric - Statement 570",
+    "query": "INSERT INTO fract_only VALUES (9, 'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 571",
+    "query": "INSERT INTO fract_only VALUES (10, 'Inf')"
+  },
+  {
+    "comment": "numeric - Statement 572",
+    "query": "INSERT INTO fract_only VALUES (11, '-Inf')"
+  },
+  {
+    "comment": "numeric - Statement 573",
+    "query": "SELECT * FROM fract_only"
+  },
+  {
+    "comment": "numeric - Statement 574",
+    "query": "DROP TABLE fract_only"
+  },
+  {
+    "comment": "numeric - Statement 575",
+    "query": "SELECT (-9223372036854775808.5)::int8"
+  },
+  {
+    "comment": "numeric - Statement 576",
+    "query": "SELECT (-9223372036854775808.4)::int8"
+  },
+  {
+    "comment": "numeric - Statement 577",
+    "query": "SELECT 9223372036854775807.4::int8"
+  },
+  {
+    "comment": "numeric - Statement 578",
+    "query": "SELECT 9223372036854775807.5::int8"
+  },
+  {
+    "comment": "numeric - Statement 579",
+    "query": "SELECT (-2147483648.5)::int4"
+  },
+  {
+    "comment": "numeric - Statement 580",
+    "query": "SELECT (-2147483648.4)::int4"
+  },
+  {
+    "comment": "numeric - Statement 581",
+    "query": "SELECT 2147483647.4::int4"
+  },
+  {
+    "comment": "numeric - Statement 582",
+    "query": "SELECT 2147483647.5::int4"
+  },
+  {
+    "comment": "numeric - Statement 583",
+    "query": "SELECT (-32768.5)::int2"
+  },
+  {
+    "comment": "numeric - Statement 584",
+    "query": "SELECT (-32768.4)::int2"
+  },
+  {
+    "comment": "numeric - Statement 585",
+    "query": "SELECT 32767.4::int2"
+  },
+  {
+    "comment": "numeric - Statement 586",
+    "query": "SELECT 32767.5::int2"
+  },
+  {
+    "comment": "numeric - Statement 587",
+    "query": "SELECT 'NaN'::float8::numeric"
+  },
+  {
+    "comment": "numeric - Statement 588",
+    "query": "SELECT 'Infinity'::float8::numeric"
+  },
+  {
+    "comment": "numeric - Statement 589",
+    "query": "SELECT '-Infinity'::float8::numeric"
+  },
+  {
+    "comment": "numeric - Statement 590",
+    "query": "SELECT 'NaN'::numeric::float8"
+  },
+  {
+    "comment": "numeric - Statement 591",
+    "query": "SELECT 'Infinity'::numeric::float8"
+  },
+  {
+    "comment": "numeric - Statement 592",
+    "query": "SELECT '-Infinity'::numeric::float8"
+  },
+  {
+    "comment": "numeric - Statement 593",
+    "query": "SELECT 'NaN'::float4::numeric"
+  },
+  {
+    "comment": "numeric - Statement 594",
+    "query": "SELECT 'Infinity'::float4::numeric"
+  },
+  {
+    "comment": "numeric - Statement 595",
+    "query": "SELECT '-Infinity'::float4::numeric"
+  },
+  {
+    "comment": "numeric - Statement 596",
+    "query": "SELECT 'NaN'::numeric::float4"
+  },
+  {
+    "comment": "numeric - Statement 597",
+    "query": "SELECT 'Infinity'::numeric::float4"
+  },
+  {
+    "comment": "numeric - Statement 598",
+    "query": "SELECT '-Infinity'::numeric::float4"
+  },
+  {
+    "comment": "numeric - Statement 599",
+    "query": "SELECT '42'::int2::numeric"
+  },
+  {
+    "comment": "numeric - Statement 600",
+    "query": "SELECT 'NaN'::numeric::int2"
+  },
+  {
+    "comment": "numeric - Statement 601",
+    "query": "SELECT 'Infinity'::numeric::int2"
+  },
+  {
+    "comment": "numeric - Statement 602",
+    "query": "SELECT '-Infinity'::numeric::int2"
+  },
+  {
+    "comment": "numeric - Statement 603",
+    "query": "SELECT 'NaN'::numeric::int4"
+  },
+  {
+    "comment": "numeric - Statement 604",
+    "query": "SELECT 'Infinity'::numeric::int4"
+  },
+  {
+    "comment": "numeric - Statement 605",
+    "query": "SELECT '-Infinity'::numeric::int4"
+  },
+  {
+    "comment": "numeric - Statement 606",
+    "query": "SELECT 'NaN'::numeric::int8"
+  },
+  {
+    "comment": "numeric - Statement 607",
+    "query": "SELECT 'Infinity'::numeric::int8"
+  },
+  {
+    "comment": "numeric - Statement 608",
+    "query": "SELECT '-Infinity'::numeric::int8"
+  },
+  {
+    "comment": "numeric - Statement 609",
+    "query": "CREATE TABLE ceil_floor_round (a numeric)"
+  },
+  {
+    "comment": "numeric - Statement 610",
+    "query": "INSERT INTO ceil_floor_round VALUES ('-5.5')"
+  },
+  {
+    "comment": "numeric - Statement 611",
+    "query": "INSERT INTO ceil_floor_round VALUES ('-5.499999')"
+  },
+  {
+    "comment": "numeric - Statement 612",
+    "query": "INSERT INTO ceil_floor_round VALUES ('9.5')"
+  },
+  {
+    "comment": "numeric - Statement 613",
+    "query": "INSERT INTO ceil_floor_round VALUES ('9.4999999')"
+  },
+  {
+    "comment": "numeric - Statement 614",
+    "query": "INSERT INTO ceil_floor_round VALUES ('0.0')"
+  },
+  {
+    "comment": "numeric - Statement 615",
+    "query": "INSERT INTO ceil_floor_round VALUES ('0.0000001')"
+  },
+  {
+    "comment": "numeric - Statement 616",
+    "query": "INSERT INTO ceil_floor_round VALUES ('-0.000001')"
+  },
+  {
+    "comment": "numeric - Statement 617",
+    "query": "SELECT a, ceil(a), ceiling(a), floor(a), round(a) FROM ceil_floor_round"
+  },
+  {
+    "comment": "numeric - Statement 618",
+    "query": "DROP TABLE ceil_floor_round"
+  },
+  {
+    "comment": "numeric - Statement 619",
+    "query": "SELECT i as pow, round((-2.5 * 10 ^ i)::numeric, -i), round((-1.5 * 10 ^ i)::numeric, -i), round((-0.5 * 10 ^ i)::numeric, -i), round((0.5 * 10 ^ i)::numeric, -i), round((1.5 * 10 ^ i)::numeric, -i), round((2.5 * 10 ^ i)::numeric, -i) FROM generate_series(-5,5) AS t(i)"
+  },
+  {
+    "comment": "numeric - Statement 620",
+    "query": "SELECT round(4.4e131071, -131071) = 4e131071"
+  },
+  {
+    "comment": "numeric - Statement 621",
+    "query": "SELECT round(4.5e131071, -131071) = 5e131071"
+  },
+  {
+    "comment": "numeric - Statement 622",
+    "query": "SELECT round(4.5e131071, -131072)"
+  },
+  {
+    "comment": "numeric - Statement 623",
+    "query": "SELECT round(5.5e131071, -131072)"
+  },
+  {
+    "comment": "numeric - Statement 624",
+    "query": "SELECT round(5.5e131071, -131073)"
+  },
+  {
+    "comment": "numeric - Statement 625",
+    "query": "SELECT round(5.5e131071, -1000000)"
+  },
+  {
+    "comment": "numeric - Statement 626",
+    "query": "SELECT round(5e-16383, 1000000) = 5e-16383"
+  },
+  {
+    "comment": "numeric - Statement 627",
+    "query": "SELECT round(5e-16383, 16383) = 5e-16383"
+  },
+  {
+    "comment": "numeric - Statement 628",
+    "query": "SELECT round(5e-16383, 16382) = 1e-16382"
+  },
+  {
+    "comment": "numeric - Statement 629",
+    "query": "SELECT round(5e-16383, 16381) = 0"
+  },
+  {
+    "comment": "numeric - Statement 630",
+    "query": "SELECT trunc(9.9e131071, -131071) = 9e131071"
+  },
+  {
+    "comment": "numeric - Statement 631",
+    "query": "SELECT trunc(9.9e131071, -131072)"
+  },
+  {
+    "comment": "numeric - Statement 632",
+    "query": "SELECT trunc(9.9e131071, -131073)"
+  },
+  {
+    "comment": "numeric - Statement 633",
+    "query": "SELECT trunc(9.9e131071, -1000000)"
+  },
+  {
+    "comment": "numeric - Statement 634",
+    "query": "SELECT trunc(5e-16383, 1000000) = 5e-16383"
+  },
+  {
+    "comment": "numeric - Statement 635",
+    "query": "SELECT trunc(5e-16383, 16383) = 5e-16383"
+  },
+  {
+    "comment": "numeric - Statement 636",
+    "query": "SELECT trunc(5e-16383, 16382) = 0"
+  },
+  {
+    "comment": "numeric - Statement 637",
+    "query": "SELECT width_bucket(5.0, 3.0, 4.0, 0)"
+  },
+  {
+    "comment": "numeric - Statement 638",
+    "query": "SELECT width_bucket(5.0, 3.0, 4.0, -5)"
+  },
+  {
+    "comment": "numeric - Statement 639",
+    "query": "SELECT width_bucket(3.5, 3.0, 3.0, 888)"
+  },
+  {
+    "comment": "numeric - Statement 640",
+    "query": "SELECT width_bucket(5.0::float8, 3.0::float8, 4.0::float8, 0)"
+  },
+  {
+    "comment": "numeric - Statement 641",
+    "query": "SELECT width_bucket(5.0::float8, 3.0::float8, 4.0::float8, -5)"
+  },
+  {
+    "comment": "numeric - Statement 642",
+    "query": "SELECT width_bucket(3.5::float8, 3.0::float8, 3.0::float8, 888)"
+  },
+  {
+    "comment": "numeric - Statement 643",
+    "query": "SELECT width_bucket('NaN', 3.0, 4.0, 888)"
+  },
+  {
+    "comment": "numeric - Statement 644",
+    "query": "SELECT width_bucket(0::float8, 'NaN', 4.0::float8, 888)"
+  },
+  {
+    "comment": "numeric - Statement 645",
+    "query": "SELECT width_bucket(2.0, 3.0, '-inf', 888)"
+  },
+  {
+    "comment": "numeric - Statement 646",
+    "query": "SELECT width_bucket(0::float8, '-inf', 4.0::float8, 888)"
+  },
+  {
+    "comment": "numeric - Statement 647",
+    "query": "CREATE TABLE width_bucket_test (operand_num numeric, operand_f8 float8)"
+  },
+  {
+    "comment": "numeric - Statement 648",
+    "query": "COPY width_bucket_test (operand_num) FROM stdin"
+  },
+  {
+    "comment": "numeric - Statement 649",
+    "query": "-5.2 -0.0000000001 0.000000000001 1 1.99999999999999 2 2.00000000000001 3 4 4.5 5 5.5 6 7 8 9 9.99999999999999 10 10.0000000000001 \\. UPDATE width_bucket_test SET operand_f8 = operand_num::float8"
+  },
+  {
+    "comment": "numeric - Statement 650",
+    "query": "SELECT operand_num, width_bucket(operand_num, 0, 10, 5) AS wb_1, width_bucket(operand_f8, 0, 10, 5) AS wb_1f, width_bucket(operand_num, 10, 0, 5) AS wb_2, width_bucket(operand_f8, 10, 0, 5) AS wb_2f, width_bucket(operand_num, 2, 8, 4) AS wb_3, width_bucket(operand_f8, 2, 8, 4) AS wb_3f, width_bucket(operand_num, 5.0, 5.5, 20) AS wb_4, width_bucket(operand_f8, 5.0, 5.5, 20) AS wb_4f, width_bucket(operand_num, -25, 25, 10) AS wb_5, width_bucket(operand_f8, -25, 25, 10) AS wb_5f FROM width_bucket_test"
+  },
+  {
+    "comment": "numeric - Statement 651",
+    "query": "SELECT width_bucket(0.0::numeric, 'Infinity'::numeric, 5, 10)"
+  },
+  {
+    "comment": "numeric - Statement 652",
+    "query": "SELECT width_bucket(0.0::numeric, 5, '-Infinity'::numeric, 20)"
+  },
+  {
+    "comment": "numeric - Statement 653",
+    "query": "SELECT width_bucket('Infinity'::numeric, 1, 10, 10), width_bucket('-Infinity'::numeric, 1, 10, 10)"
+  },
+  {
+    "comment": "numeric - Statement 654",
+    "query": "SELECT width_bucket(0.0::float8, 'Infinity'::float8, 5, 10)"
+  },
+  {
+    "comment": "numeric - Statement 655",
+    "query": "SELECT width_bucket(0.0::float8, 5, '-Infinity'::float8, 20)"
+  },
+  {
+    "comment": "numeric - Statement 656",
+    "query": "SELECT width_bucket('Infinity'::float8, 1, 10, 10), width_bucket('-Infinity'::float8, 1, 10, 10)"
+  },
+  {
+    "comment": "numeric - Statement 657",
+    "query": "DROP TABLE width_bucket_test"
+  },
+  {
+    "comment": "numeric - Statement 658",
+    "query": "SELECT x, width_bucket(x::float8, 10, 100, 9) as flt, width_bucket(x::numeric, 10, 100, 9) as num FROM generate_series(0, 110, 10) x"
+  },
+  {
+    "comment": "numeric - Statement 659",
+    "query": "SELECT x, width_bucket(x::float8, 100, 10, 9) as flt, width_bucket(x::numeric, 100, 10, 9) as num FROM generate_series(0, 110, 10) x"
+  },
+  {
+    "comment": "numeric - Statement 660",
+    "query": "SELECT width_bucket(0, -1e100::numeric, 1, 10)"
+  },
+  {
+    "comment": "numeric - Statement 661",
+    "query": "SELECT width_bucket(0, -1e100::float8, 1, 10)"
+  },
+  {
+    "comment": "numeric - Statement 662",
+    "query": "SELECT width_bucket(1, 1e100::numeric, 0, 10)"
+  },
+  {
+    "comment": "numeric - Statement 663",
+    "query": "SELECT width_bucket(1, 1e100::float8, 0, 10)"
+  },
+  {
+    "comment": "numeric - Statement 664",
+    "query": "SELECT oper, low, high, cnt, width_bucket(oper, low, high, cnt) FROM (SELECT 1.797e+308::float8 AS big, 5e-324::float8 AS tiny) as v, LATERAL (VALUES (10.5::float8, -big, big, 1), (10.5::float8, -big, big, 2), (10.5::float8, -big, big, 3), (big / 4, -big / 2, big / 2, 10), (10.5::float8, big, -big, 1), (10.5::float8, big, -big, 2), (10.5::float8, big, -big, 3), (big / 4, big / 2, -big / 2, 10), (0, 0, tiny, 4), (tiny, 0, tiny, 4), (0, 0, 1, 2147483647), (1, 1, 0, 2147483647) ) as sample(oper, low, high, cnt)"
+  },
+  {
+    "comment": "numeric - Statement 665",
+    "query": "SELECT width_bucket(1::float8, 0, 1, 2147483647)"
+  },
+  {
+    "comment": "numeric - Statement 666",
+    "query": "SELECT width_bucket(0::float8, 1, 0, 2147483647)"
+  },
+  {
+    "comment": "numeric - Statement 667",
+    "query": "SELECT to_char(val, '9G999G999G999G999G999') FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 668",
+    "query": "SELECT to_char(val, '9G999G999G999G999G999D999G999G999G999G999') FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 669",
+    "query": "SELECT to_char(val, '9999999999999999.999999999999999PR') FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 670",
+    "query": "SELECT to_char(val, '9999999999999999.999999999999999S') FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 671",
+    "query": "SELECT to_char(val, 'MI9999999999999999.999999999999999')     FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 672",
+    "query": "SELECT to_char(val, 'FMS9999999999999999.999999999999999')    FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 673",
+    "query": "SELECT to_char(val, 'FM9999999999999999.999999999999999THPR') FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 674",
+    "query": "SELECT to_char(val, 'SG9999999999999999.999999999999999th')   FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 675",
+    "query": "SELECT to_char(val, '0999999999999999.999999999999999')       FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 676",
+    "query": "SELECT to_char(val, 'S0999999999999999.999999999999999')      FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 677",
+    "query": "SELECT to_char(val, 'FM0999999999999999.999999999999999')     FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 678",
+    "query": "SELECT to_char(val, 'FM9999999999999999.099999999999999') \tFROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 679",
+    "query": "SELECT to_char(val, 'FM9999999999990999.990999999999999') \tFROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 680",
+    "query": "SELECT to_char(val, 'FM0999999999999999.999909999999999') \tFROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 681",
+    "query": "SELECT to_char(val, 'FM9999999990999999.099999999999999') \tFROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 682",
+    "query": "SELECT to_char(val, 'L9999999999999999.099999999999999')\tFROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 683",
+    "query": "SELECT to_char(val, 'FM9999999999999999.99999999999999')\tFROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 684",
+    "query": "SELECT to_char(val, 'S 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 . 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9') FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 685",
+    "query": "SELECT to_char(val, 'FMS 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 . 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9') FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 686",
+    "query": "SELECT to_char(val, E'99999 \"text\" 9999 \"9999\" 999 \"\\\\\"text between quote marks\\\\\"\" 9999') FROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 687",
+    "query": "SELECT to_char(val, '999999SG9999999999')\t\t\tFROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 688",
+    "query": "SELECT to_char(val, 'FM9999999999999999.999999999999999')\tFROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 689",
+    "query": "SELECT to_char(val, '9.999EEEE')\t\t\t\tFROM num_data"
+  },
+  {
+    "comment": "numeric - Statement 690",
+    "query": "WITH v(val) AS (VALUES('0'::numeric),('-4.2'),('4.2e9'),('1.2e-5'),('inf'),('-inf'),('nan')) SELECT val, to_char(val, '9.999EEEE') as numeric, to_char(val::float8, '9.999EEEE') as float8, to_char(val::float4, '9.999EEEE') as float4 FROM v"
+  },
+  {
+    "comment": "numeric - Statement 691",
+    "query": "WITH v(exp) AS (VALUES(-16379),(-16378),(-1234),(-789),(-45),(-5),(-4),(-3),(-2),(-1),(0), (1),(2),(3),(4),(5),(38),(275),(2345),(45678),(131070),(131071)) SELECT exp, to_char(('1.2345e'||exp)::numeric, '9.999EEEE') as numeric FROM v"
+  },
+  {
+    "comment": "numeric - Statement 692",
+    "query": "WITH v(val) AS (VALUES('0'::numeric),('-4.2'),('4.2e9'),('1.2e-5'),('inf'),('-inf'),('nan')) SELECT val, to_char(val, 'MI9999999999.99') as numeric, to_char(val::float8, 'MI9999999999.99') as float8, to_char(val::float4, 'MI9999999999.99') as float4 FROM v"
+  },
+  {
+    "comment": "numeric - Statement 693",
+    "query": "WITH v(val) AS (VALUES('0'::numeric),('-4.2'),('4.2e9'),('1.2e-5'),('inf'),('-inf'),('nan')) SELECT val, to_char(val, 'MI99.99') as numeric, to_char(val::float8, 'MI99.99') as float8, to_char(val::float4, 'MI99.99') as float4 FROM v"
+  },
+  {
+    "comment": "numeric - Statement 694",
+    "query": "SELECT to_char('100'::numeric, 'FM999.9')"
+  },
+  {
+    "comment": "numeric - Statement 695",
+    "query": "SELECT to_char('100'::numeric, 'FM999.')"
+  },
+  {
+    "comment": "numeric - Statement 696",
+    "query": "SELECT to_char('100'::numeric, 'FM999')"
+  },
+  {
+    "comment": "numeric - Statement 697",
+    "query": "SELECT to_char('12345678901'::float8, 'FM9999999999D9999900000000000000000')"
+  },
+  {
+    "comment": "numeric - Statement 698",
+    "query": "SELECT to_char('100'::numeric, 'foo999')"
+  },
+  {
+    "comment": "numeric - Statement 699",
+    "query": "SELECT to_char('100'::numeric, 'f\\oo999')"
+  },
+  {
+    "comment": "numeric - Statement 700",
+    "query": "SELECT to_char('100'::numeric, 'f\\\\oo999')"
+  },
+  {
+    "comment": "numeric - Statement 701",
+    "query": "SELECT to_char('100'::numeric, 'f\\\"oo999')"
+  },
+  {
+    "comment": "numeric - Statement 702",
+    "query": "SELECT to_char('100'::numeric, 'f\\\\\"oo999')"
+  },
+  {
+    "comment": "numeric - Statement 703",
+    "query": "SELECT to_char('100'::numeric, 'f\"ool\"999')"
+  },
+  {
+    "comment": "numeric - Statement 704",
+    "query": "SELECT to_char('100'::numeric, 'f\"\\ool\"999')"
+  },
+  {
+    "comment": "numeric - Statement 705",
+    "query": "SELECT to_char('100'::numeric, 'f\"\\\\ool\"999')"
+  },
+  {
+    "comment": "numeric - Statement 706",
+    "query": "SELECT to_char('100'::numeric, 'f\"ool\\\"999')"
+  },
+  {
+    "comment": "numeric - Statement 707",
+    "query": "SELECT to_char('100'::numeric, 'f\"ool\\\\\"999')"
+  },
+  {
+    "comment": "numeric - Statement 708",
+    "query": "SET lc_numeric = 'C'"
+  },
+  {
+    "comment": "numeric - Statement 709",
+    "query": "SELECT to_number('-34,338,492', '99G999G999')"
+  },
+  {
+    "comment": "numeric - Statement 710",
+    "query": "SELECT to_number('-34,338,492.654,878', '99G999G999D999G999')"
+  },
+  {
+    "comment": "numeric - Statement 711",
+    "query": "SELECT to_number('<564646.654564>', '999999.999999PR')"
+  },
+  {
+    "comment": "numeric - Statement 712",
+    "query": "SELECT to_number('0.00001-', '9.999999S')"
+  },
+  {
+    "comment": "numeric - Statement 713",
+    "query": "SELECT to_number('5.01-', 'FM9.999999S')"
+  },
+  {
+    "comment": "numeric - Statement 714",
+    "query": "SELECT to_number('5.01-', 'FM9.999999MI')"
+  },
+  {
+    "comment": "numeric - Statement 715",
+    "query": "SELECT to_number('5 4 4 4 4 8 . 7 8', '9 9 9 9 9 9 . 9 9')"
+  },
+  {
+    "comment": "numeric - Statement 716",
+    "query": "SELECT to_number('.01', 'FM9.99')"
+  },
+  {
+    "comment": "numeric - Statement 717",
+    "query": "SELECT to_number('.0', '99999999.99999999')"
+  },
+  {
+    "comment": "numeric - Statement 718",
+    "query": "SELECT to_number('0', '99.99')"
+  },
+  {
+    "comment": "numeric - Statement 719",
+    "query": "SELECT to_number('.-01', 'S99.99')"
+  },
+  {
+    "comment": "numeric - Statement 720",
+    "query": "SELECT to_number('.01-', '99.99S')"
+  },
+  {
+    "comment": "numeric - Statement 721",
+    "query": "SELECT to_number(' . 0 1-', ' 9 9 . 9 9 S')"
+  },
+  {
+    "comment": "numeric - Statement 722",
+    "query": "SELECT to_number('34,50','999,99')"
+  },
+  {
+    "comment": "numeric - Statement 723",
+    "query": "SELECT to_number('123,000','999G')"
+  },
+  {
+    "comment": "numeric - Statement 724",
+    "query": "SELECT to_number('123456','999G999')"
+  },
+  {
+    "comment": "numeric - Statement 725",
+    "query": "SELECT to_number('$1234.56','L9,999.99')"
+  },
+  {
+    "comment": "numeric - Statement 726",
+    "query": "SELECT to_number('$1234.56','L99,999.99')"
+  },
+  {
+    "comment": "numeric - Statement 727",
+    "query": "SELECT to_number('$1,234.56','L99,999.99')"
+  },
+  {
+    "comment": "numeric - Statement 728",
+    "query": "SELECT to_number('1234.56','L99,999.99')"
+  },
+  {
+    "comment": "numeric - Statement 729",
+    "query": "SELECT to_number('1,234.56','L99,999.99')"
+  },
+  {
+    "comment": "numeric - Statement 730",
+    "query": "SELECT to_number('42nd', '99th')"
+  },
+  {
+    "comment": "numeric - Statement 731",
+    "query": "RESET lc_numeric"
+  },
+  {
+    "comment": "numeric - Statement 732",
+    "query": "CREATE TABLE num_input_test (n1 numeric)"
+  },
+  {
+    "comment": "numeric - Statement 733",
+    "query": "INSERT INTO num_input_test(n1) VALUES (' 123')"
+  },
+  {
+    "comment": "numeric - Statement 734",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('   3245874    ')"
+  },
+  {
+    "comment": "numeric - Statement 735",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('  -93853')"
+  },
+  {
+    "comment": "numeric - Statement 736",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('555.50')"
+  },
+  {
+    "comment": "numeric - Statement 737",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('-555.50')"
+  },
+  {
+    "comment": "numeric - Statement 738",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('NaN ')"
+  },
+  {
+    "comment": "numeric - Statement 739",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('        nan')"
+  },
+  {
+    "comment": "numeric - Statement 740",
+    "query": "INSERT INTO num_input_test(n1) VALUES (' inf ')"
+  },
+  {
+    "comment": "numeric - Statement 741",
+    "query": "INSERT INTO num_input_test(n1) VALUES (' +inf ')"
+  },
+  {
+    "comment": "numeric - Statement 742",
+    "query": "INSERT INTO num_input_test(n1) VALUES (' -inf ')"
+  },
+  {
+    "comment": "numeric - Statement 743",
+    "query": "INSERT INTO num_input_test(n1) VALUES (' Infinity ')"
+  },
+  {
+    "comment": "numeric - Statement 744",
+    "query": "INSERT INTO num_input_test(n1) VALUES (' +inFinity ')"
+  },
+  {
+    "comment": "numeric - Statement 745",
+    "query": "INSERT INTO num_input_test(n1) VALUES (' -INFINITY ')"
+  },
+  {
+    "comment": "numeric - Statement 746",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('12_000_000_000')"
+  },
+  {
+    "comment": "numeric - Statement 747",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('12_000.123_456')"
+  },
+  {
+    "comment": "numeric - Statement 748",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('23_000_000_000e-1_0')"
+  },
+  {
+    "comment": "numeric - Statement 749",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('.000_000_000_123e1_0')"
+  },
+  {
+    "comment": "numeric - Statement 750",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('.000_000_000_123e+1_1')"
+  },
+  {
+    "comment": "numeric - Statement 751",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('0b10001110111100111100001001010')"
+  },
+  {
+    "comment": "numeric - Statement 752",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('  -0B_1010_1011_0101_0100_1010_1001_1000_1100_1110_1011_0001_1111_0000_1010_1101_0010  ')"
+  },
+  {
+    "comment": "numeric - Statement 753",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('  +0o112402761777 ')"
+  },
+  {
+    "comment": "numeric - Statement 754",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('-0O0012_5524_5230_6334_3167_0261')"
+  },
+  {
+    "comment": "numeric - Statement 755",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('-0x0000000000000000000000000deadbeef')"
+  },
+  {
+    "comment": "numeric - Statement 756",
+    "query": "INSERT INTO num_input_test(n1) VALUES (' 0X_30b1_F33a_6DF0_bD4E_64DF_9BdA_7D15 ')"
+  },
+  {
+    "comment": "numeric - Statement 757",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('     ')"
+  },
+  {
+    "comment": "numeric - Statement 758",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('   1234   %')"
+  },
+  {
+    "comment": "numeric - Statement 759",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('xyz')"
+  },
+  {
+    "comment": "numeric - Statement 760",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('- 1234')"
+  },
+  {
+    "comment": "numeric - Statement 761",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('5 . 0')"
+  },
+  {
+    "comment": "numeric - Statement 762",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('5. 0   ')"
+  },
+  {
+    "comment": "numeric - Statement 763",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('')"
+  },
+  {
+    "comment": "numeric - Statement 764",
+    "query": "INSERT INTO num_input_test(n1) VALUES (' N aN ')"
+  },
+  {
+    "comment": "numeric - Statement 765",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('+NaN')"
+  },
+  {
+    "comment": "numeric - Statement 766",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('-NaN')"
+  },
+  {
+    "comment": "numeric - Statement 767",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('+ infinity')"
+  },
+  {
+    "comment": "numeric - Statement 768",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('_123')"
+  },
+  {
+    "comment": "numeric - Statement 769",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('123_')"
+  },
+  {
+    "comment": "numeric - Statement 770",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('12__34')"
+  },
+  {
+    "comment": "numeric - Statement 771",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('123_.456')"
+  },
+  {
+    "comment": "numeric - Statement 772",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('123._456')"
+  },
+  {
+    "comment": "numeric - Statement 773",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('1.2e_34')"
+  },
+  {
+    "comment": "numeric - Statement 774",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('1.2e34_')"
+  },
+  {
+    "comment": "numeric - Statement 775",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('1.2e3__4')"
+  },
+  {
+    "comment": "numeric - Statement 776",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('0b1112')"
+  },
+  {
+    "comment": "numeric - Statement 777",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('0c1112')"
+  },
+  {
+    "comment": "numeric - Statement 778",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('0o12345678')"
+  },
+  {
+    "comment": "numeric - Statement 779",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('0x1eg')"
+  },
+  {
+    "comment": "numeric - Statement 780",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('0x12.34')"
+  },
+  {
+    "comment": "numeric - Statement 781",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('0x__1234')"
+  },
+  {
+    "comment": "numeric - Statement 782",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('0x1234_')"
+  },
+  {
+    "comment": "numeric - Statement 783",
+    "query": "INSERT INTO num_input_test(n1) VALUES ('0x12__34')"
+  },
+  {
+    "comment": "numeric - Statement 784",
+    "query": "SELECT * FROM num_input_test"
+  },
+  {
+    "comment": "numeric - Statement 785",
+    "query": "SELECT pg_input_is_valid('34.5', 'numeric')"
+  },
+  {
+    "comment": "numeric - Statement 786",
+    "query": "SELECT pg_input_is_valid('34xyz', 'numeric')"
+  },
+  {
+    "comment": "numeric - Statement 787",
+    "query": "SELECT pg_input_is_valid('1e400000', 'numeric')"
+  },
+  {
+    "comment": "numeric - Statement 788",
+    "query": "SELECT * FROM pg_input_error_info('1e400000', 'numeric')"
+  },
+  {
+    "comment": "numeric - Statement 789",
+    "query": "SELECT pg_input_is_valid('1234.567', 'numeric(8,4)')"
+  },
+  {
+    "comment": "numeric - Statement 790",
+    "query": "SELECT pg_input_is_valid('1234.567', 'numeric(7,4)')"
+  },
+  {
+    "comment": "numeric - Statement 791",
+    "query": "SELECT * FROM pg_input_error_info('1234.567', 'numeric(7,4)')"
+  },
+  {
+    "comment": "numeric - Statement 792",
+    "query": "SELECT * FROM pg_input_error_info('0x1234.567', 'numeric')"
+  },
+  {
+    "comment": "numeric - Statement 793",
+    "query": "CREATE TABLE num_typemod_test ( millions numeric(3, -6), thousands numeric(3, -3), units numeric(3, 0), thousandths numeric(3, 3), millionths numeric(3, 6) )"
+  },
+  {
+    "comment": "numeric - Statement 794",
+    "query": "INSERT INTO num_typemod_test VALUES (654321, 654, 0.654, 0.000654, 0.000000654)"
+  },
+  {
+    "comment": "numeric - Statement 795",
+    "query": "INSERT INTO num_typemod_test VALUES (2345678, 2345, 2.345, 0.002345, 0.000002345)"
+  },
+  {
+    "comment": "numeric - Statement 796",
+    "query": "INSERT INTO num_typemod_test VALUES (7654321, 7654, 7.654, 0.007654, 0.000007654)"
+  },
+  {
+    "comment": "numeric - Statement 797",
+    "query": "INSERT INTO num_typemod_test VALUES (12345678, 12345, 12.345, 0.012345, 0.000012345)"
+  },
+  {
+    "comment": "numeric - Statement 798",
+    "query": "INSERT INTO num_typemod_test VALUES (87654321, 87654, 87.654, 0.087654, 0.000087654)"
+  },
+  {
+    "comment": "numeric - Statement 799",
+    "query": "INSERT INTO num_typemod_test VALUES (123456789, 123456, 123.456, 0.123456, 0.000123456)"
+  },
+  {
+    "comment": "numeric - Statement 800",
+    "query": "INSERT INTO num_typemod_test VALUES (987654321, 987654, 987.654, 0.987654, 0.000987654)"
+  },
+  {
+    "comment": "numeric - Statement 801",
+    "query": "INSERT INTO num_typemod_test VALUES ('NaN', 'NaN', 'NaN', 'NaN', 'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 802",
+    "query": "SELECT scale(millions), * FROM num_typemod_test ORDER BY millions"
+  },
+  {
+    "comment": "numeric - Statement 803",
+    "query": "INSERT INTO num_typemod_test (millions) VALUES ('inf')"
+  },
+  {
+    "comment": "numeric - Statement 804",
+    "query": "INSERT INTO num_typemod_test (millions) VALUES (999500000)"
+  },
+  {
+    "comment": "numeric - Statement 805",
+    "query": "INSERT INTO num_typemod_test (thousands) VALUES (999500)"
+  },
+  {
+    "comment": "numeric - Statement 806",
+    "query": "INSERT INTO num_typemod_test (units) VALUES (999.5)"
+  },
+  {
+    "comment": "numeric - Statement 807",
+    "query": "INSERT INTO num_typemod_test (thousandths) VALUES (0.9995)"
+  },
+  {
+    "comment": "numeric - Statement 808",
+    "query": "INSERT INTO num_typemod_test (millionths) VALUES (0.0009995)"
+  },
+  {
+    "comment": "numeric - Statement 809",
+    "query": "select 4790999999999999999999999999999999999999999999999999999999999999999999999999999999999999 * 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+  },
+  {
+    "comment": "numeric - Statement 810",
+    "query": "select 4789999999999999999999999999999999999999999999999999999999999999999999999999999999999999 * 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+  },
+  {
+    "comment": "numeric - Statement 811",
+    "query": "select 4770999999999999999999999999999999999999999999999999999999999999999999999999999999999999 * 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+  },
+  {
+    "comment": "numeric - Statement 812",
+    "query": "select 4769999999999999999999999999999999999999999999999999999999999999999999999999999999999999 * 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+  },
+  {
+    "comment": "numeric - Statement 813",
+    "query": "select trim_scale((0.1 - 2e-16383) * (0.1 - 3e-16383))"
+  },
+  {
+    "comment": "numeric - Statement 814",
+    "query": "select 999999999999999999999::numeric/1000000000000000000000"
+  },
+  {
+    "comment": "numeric - Statement 815",
+    "query": "select div(999999999999999999999::numeric,1000000000000000000000)"
+  },
+  {
+    "comment": "numeric - Statement 816",
+    "query": "select mod(999999999999999999999::numeric,1000000000000000000000)"
+  },
+  {
+    "comment": "numeric - Statement 817",
+    "query": "select div(-9999999999999999999999::numeric,1000000000000000000000)"
+  },
+  {
+    "comment": "numeric - Statement 818",
+    "query": "select mod(-9999999999999999999999::numeric,1000000000000000000000)"
+  },
+  {
+    "comment": "numeric - Statement 819",
+    "query": "select div(-9999999999999999999999::numeric,1000000000000000000000)*1000000000000000000000 + mod(-9999999999999999999999::numeric,1000000000000000000000)"
+  },
+  {
+    "comment": "numeric - Statement 820",
+    "query": "select mod (70.0,70)"
+  },
+  {
+    "comment": "numeric - Statement 821",
+    "query": "select div (70.0,70)"
+  },
+  {
+    "comment": "numeric - Statement 822",
+    "query": "select 70.0 / 70"
+  },
+  {
+    "comment": "numeric - Statement 823",
+    "query": "select 12345678901234567890 % 123"
+  },
+  {
+    "comment": "numeric - Statement 824",
+    "query": "select 12345678901234567890 / 123"
+  },
+  {
+    "comment": "numeric - Statement 825",
+    "query": "select div(12345678901234567890, 123)"
+  },
+  {
+    "comment": "numeric - Statement 826",
+    "query": "select div(12345678901234567890, 123) * 123 + 12345678901234567890 % 123"
+  },
+  {
+    "comment": "numeric - Statement 827",
+    "query": "select sqrt(1.000000000000003::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 828",
+    "query": "select sqrt(1.000000000000004::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 829",
+    "query": "select sqrt(96627521408608.56340355805::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 830",
+    "query": "select sqrt(96627521408608.56340355806::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 831",
+    "query": "select sqrt(515549506212297735.073688290367::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 832",
+    "query": "select sqrt(515549506212297735.073688290368::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 833",
+    "query": "select sqrt(8015491789940783531003294973900306::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 834",
+    "query": "select sqrt(8015491789940783531003294973900307::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 835",
+    "query": "select 10.0 ^ -2147483648 as rounds_to_zero"
+  },
+  {
+    "comment": "numeric - Statement 836",
+    "query": "select 10.0 ^ -2147483647 as rounds_to_zero"
+  },
+  {
+    "comment": "numeric - Statement 837",
+    "query": "select 10.0 ^ 2147483647 as overflows"
+  },
+  {
+    "comment": "numeric - Statement 838",
+    "query": "select 117743296169.0 ^ 1000000000 as overflows"
+  },
+  {
+    "comment": "numeric - Statement 839",
+    "query": "select 3.789 ^ 21.0000000000000000"
+  },
+  {
+    "comment": "numeric - Statement 840",
+    "query": "select 3.789 ^ 35.0000000000000000"
+  },
+  {
+    "comment": "numeric - Statement 841",
+    "query": "select 1.2 ^ 345"
+  },
+  {
+    "comment": "numeric - Statement 842",
+    "query": "select 0.12 ^ (-20)"
+  },
+  {
+    "comment": "numeric - Statement 843",
+    "query": "select 1.000000000123 ^ (-2147483648)"
+  },
+  {
+    "comment": "numeric - Statement 844",
+    "query": "select coalesce(nullif(0.9999999999 ^ 23300000000000, 0), 0) as rounds_to_zero"
+  },
+  {
+    "comment": "numeric - Statement 845",
+    "query": "select round(((1 - 1.500012345678e-1000) ^ 1.45e1003) * 1e1000)"
+  },
+  {
+    "comment": "numeric - Statement 846",
+    "query": "select 0.12 ^ (-25)"
+  },
+  {
+    "comment": "numeric - Statement 847",
+    "query": "select 0.5678 ^ (-85)"
+  },
+  {
+    "comment": "numeric - Statement 848",
+    "query": "select coalesce(nullif(0.9999999999 ^ 70000000000000, 0), 0) as underflows"
+  },
+  {
+    "comment": "numeric - Statement 849",
+    "query": "select (-1.0) ^ 2147483646"
+  },
+  {
+    "comment": "numeric - Statement 850",
+    "query": "select (-1.0) ^ 2147483647"
+  },
+  {
+    "comment": "numeric - Statement 851",
+    "query": "select (-1.0) ^ 2147483648"
+  },
+  {
+    "comment": "numeric - Statement 852",
+    "query": "select (-1.0) ^ 1000000000000000"
+  },
+  {
+    "comment": "numeric - Statement 853",
+    "query": "select (-1.0) ^ 1000000000000001"
+  },
+  {
+    "comment": "numeric - Statement 854",
+    "query": "select n, 10.0 ^ n as \"10^n\", (10.0 ^ n) * (10.0 ^ (-n)) = 1 as ok from generate_series(-20, 20) n"
+  },
+  {
+    "comment": "numeric - Statement 855",
+    "query": "select 0.0 ^ 0.0"
+  },
+  {
+    "comment": "numeric - Statement 856",
+    "query": "select (-12.34) ^ 0.0"
+  },
+  {
+    "comment": "numeric - Statement 857",
+    "query": "select 12.34 ^ 0.0"
+  },
+  {
+    "comment": "numeric - Statement 858",
+    "query": "select 0.0 ^ 12.34"
+  },
+  {
+    "comment": "numeric - Statement 859",
+    "query": "select 'NaN'::numeric ^ 'NaN'::numeric"
+  },
+  {
+    "comment": "numeric - Statement 860",
+    "query": "select 'NaN'::numeric ^ 0"
+  },
+  {
+    "comment": "numeric - Statement 861",
+    "query": "select 'NaN'::numeric ^ 1"
+  },
+  {
+    "comment": "numeric - Statement 862",
+    "query": "select 0 ^ 'NaN'::numeric"
+  },
+  {
+    "comment": "numeric - Statement 863",
+    "query": "select 1 ^ 'NaN'::numeric"
+  },
+  {
+    "comment": "numeric - Statement 864",
+    "query": "select 0.0 ^ (-12.34)"
+  },
+  {
+    "comment": "numeric - Statement 865",
+    "query": "select (-12.34) ^ 1.2"
+  },
+  {
+    "comment": "numeric - Statement 866",
+    "query": "select 32.1 ^ 9.8"
+  },
+  {
+    "comment": "numeric - Statement 867",
+    "query": "select 32.1 ^ (-9.8)"
+  },
+  {
+    "comment": "numeric - Statement 868",
+    "query": "select 12.3 ^ 45.6"
+  },
+  {
+    "comment": "numeric - Statement 869",
+    "query": "select 12.3 ^ (-45.6)"
+  },
+  {
+    "comment": "numeric - Statement 870",
+    "query": "select 1.234 ^ 5678"
+  },
+  {
+    "comment": "numeric - Statement 871",
+    "query": "select exp(0.0)"
+  },
+  {
+    "comment": "numeric - Statement 872",
+    "query": "select exp(1.0)"
+  },
+  {
+    "comment": "numeric - Statement 873",
+    "query": "select exp(1.0::numeric(71,70))"
+  },
+  {
+    "comment": "numeric - Statement 874",
+    "query": "select exp('nan'::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 875",
+    "query": "select exp('inf'::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 876",
+    "query": "select exp('-inf'::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 877",
+    "query": "select coalesce(nullif(exp(-5000::numeric), 0), 0) as rounds_to_zero"
+  },
+  {
+    "comment": "numeric - Statement 878",
+    "query": "select coalesce(nullif(exp(-10000::numeric), 0), 0) as underflows"
+  },
+  {
+    "comment": "numeric - Statement 879",
+    "query": "select exp(32.999)"
+  },
+  {
+    "comment": "numeric - Statement 880",
+    "query": "select exp(-32.999)"
+  },
+  {
+    "comment": "numeric - Statement 881",
+    "query": "select exp(123.456)"
+  },
+  {
+    "comment": "numeric - Statement 882",
+    "query": "select exp(-123.456)"
+  },
+  {
+    "comment": "numeric - Statement 883",
+    "query": "select exp(1234.5678)"
+  },
+  {
+    "comment": "numeric - Statement 884",
+    "query": "select * from generate_series(0.0::numeric, 4.0::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 885",
+    "query": "select * from generate_series(0.1::numeric, 4.0::numeric, 1.3::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 886",
+    "query": "select * from generate_series(4.0::numeric, -1.5::numeric, -2.2::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 887",
+    "query": "select * from generate_series(-100::numeric, 100::numeric, 0::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 888",
+    "query": "select * from generate_series(-100::numeric, 100::numeric, 'nan'::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 889",
+    "query": "select * from generate_series('nan'::numeric, 100::numeric, 10::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 890",
+    "query": "select * from generate_series(0::numeric, 'nan'::numeric, 10::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 891",
+    "query": "select * from generate_series('inf'::numeric, 'inf'::numeric, 10::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 892",
+    "query": "select * from generate_series(0::numeric, 'inf'::numeric, 10::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 893",
+    "query": "select * from generate_series(0::numeric, '42'::numeric, '-inf'::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 894",
+    "query": "select (i / (10::numeric ^ 131071))::numeric(1,0) from generate_series(6 * (10::numeric ^ 131071), 9 * (10::numeric ^ 131071), 10::numeric ^ 131071) as a(i)"
+  },
+  {
+    "comment": "numeric - Statement 895",
+    "query": "select * from generate_series(1::numeric, 3::numeric) i, generate_series(i,3) j"
+  },
+  {
+    "comment": "numeric - Statement 896",
+    "query": "select * from generate_series(1::numeric, 3::numeric) i, generate_series(1,i) j"
+  },
+  {
+    "comment": "numeric - Statement 897",
+    "query": "select * from generate_series(1::numeric, 3::numeric) i, generate_series(1,5,i) j"
+  },
+  {
+    "comment": "numeric - Statement 898",
+    "query": "select ln(-12.34)"
+  },
+  {
+    "comment": "numeric - Statement 899",
+    "query": "select ln(0.0)"
+  },
+  {
+    "comment": "numeric - Statement 900",
+    "query": "select ln(1.2345678e-28)"
+  },
+  {
+    "comment": "numeric - Statement 901",
+    "query": "select ln(0.0456789)"
+  },
+  {
+    "comment": "numeric - Statement 902",
+    "query": "select ln(0.349873948359354029493948309745709580730482050975)"
+  },
+  {
+    "comment": "numeric - Statement 903",
+    "query": "select ln(0.99949452)"
+  },
+  {
+    "comment": "numeric - Statement 904",
+    "query": "select ln(1.00049687395)"
+  },
+  {
+    "comment": "numeric - Statement 905",
+    "query": "select ln(1234.567890123456789)"
+  },
+  {
+    "comment": "numeric - Statement 906",
+    "query": "select ln(5.80397490724e5)"
+  },
+  {
+    "comment": "numeric - Statement 907",
+    "query": "select ln(9.342536355e34)"
+  },
+  {
+    "comment": "numeric - Statement 908",
+    "query": "select log(-12.34)"
+  },
+  {
+    "comment": "numeric - Statement 909",
+    "query": "select log(0.0)"
+  },
+  {
+    "comment": "numeric - Statement 910",
+    "query": "select log(1.234567e-89)"
+  },
+  {
+    "comment": "numeric - Statement 911",
+    "query": "select log(3.4634998359873254962349856073435545)"
+  },
+  {
+    "comment": "numeric - Statement 912",
+    "query": "select log(9.999999999999999999)"
+  },
+  {
+    "comment": "numeric - Statement 913",
+    "query": "select log(10.00000000000000000)"
+  },
+  {
+    "comment": "numeric - Statement 914",
+    "query": "select log(10.00000000000000001)"
+  },
+  {
+    "comment": "numeric - Statement 915",
+    "query": "select log(590489.45235237)"
+  },
+  {
+    "comment": "numeric - Statement 916",
+    "query": "select log(-12.34, 56.78)"
+  },
+  {
+    "comment": "numeric - Statement 917",
+    "query": "select log(-12.34, -56.78)"
+  },
+  {
+    "comment": "numeric - Statement 918",
+    "query": "select log(12.34, -56.78)"
+  },
+  {
+    "comment": "numeric - Statement 919",
+    "query": "select log(0.0, 12.34)"
+  },
+  {
+    "comment": "numeric - Statement 920",
+    "query": "select log(12.34, 0.0)"
+  },
+  {
+    "comment": "numeric - Statement 921",
+    "query": "select log(1.0, 12.34)"
+  },
+  {
+    "comment": "numeric - Statement 922",
+    "query": "select log(1.23e-89, 6.4689e45)"
+  },
+  {
+    "comment": "numeric - Statement 923",
+    "query": "select log(0.99923, 4.58934e34)"
+  },
+  {
+    "comment": "numeric - Statement 924",
+    "query": "select log(1.000016, 8.452010e18)"
+  },
+  {
+    "comment": "numeric - Statement 925",
+    "query": "select log(3.1954752e47, 9.4792021e-73)"
+  },
+  {
+    "comment": "numeric - Statement 926",
+    "query": "select scale(numeric 'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 927",
+    "query": "select scale(numeric 'inf')"
+  },
+  {
+    "comment": "numeric - Statement 928",
+    "query": "select scale(NULL::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 929",
+    "query": "select scale(1.12)"
+  },
+  {
+    "comment": "numeric - Statement 930",
+    "query": "select scale(0)"
+  },
+  {
+    "comment": "numeric - Statement 931",
+    "query": "select scale(0.00)"
+  },
+  {
+    "comment": "numeric - Statement 932",
+    "query": "select scale(1.12345)"
+  },
+  {
+    "comment": "numeric - Statement 933",
+    "query": "select scale(110123.12475871856128)"
+  },
+  {
+    "comment": "numeric - Statement 934",
+    "query": "select scale(-1123.12471856128)"
+  },
+  {
+    "comment": "numeric - Statement 935",
+    "query": "select scale(-13.000000000000000)"
+  },
+  {
+    "comment": "numeric - Statement 936",
+    "query": "select min_scale(numeric 'NaN') is NULL"
+  },
+  {
+    "comment": "numeric - Statement 937",
+    "query": "select min_scale(numeric 'inf') is NULL"
+  },
+  {
+    "comment": "numeric - Statement 938",
+    "query": "select min_scale(0)"
+  },
+  {
+    "comment": "numeric - Statement 939",
+    "query": "select min_scale(0.00)"
+  },
+  {
+    "comment": "numeric - Statement 940",
+    "query": "select min_scale(1.0)"
+  },
+  {
+    "comment": "numeric - Statement 941",
+    "query": "select min_scale(1.1)"
+  },
+  {
+    "comment": "numeric - Statement 942",
+    "query": "select min_scale(1.12)"
+  },
+  {
+    "comment": "numeric - Statement 943",
+    "query": "select min_scale(1.123)"
+  },
+  {
+    "comment": "numeric - Statement 944",
+    "query": "select min_scale(1.1234)"
+  },
+  {
+    "comment": "numeric - Statement 945",
+    "query": "select min_scale(1.12345)"
+  },
+  {
+    "comment": "numeric - Statement 946",
+    "query": "select min_scale(1.1000)"
+  },
+  {
+    "comment": "numeric - Statement 947",
+    "query": "select min_scale(1e100)"
+  },
+  {
+    "comment": "numeric - Statement 948",
+    "query": "select trim_scale(numeric 'NaN')"
+  },
+  {
+    "comment": "numeric - Statement 949",
+    "query": "select trim_scale(numeric 'inf')"
+  },
+  {
+    "comment": "numeric - Statement 950",
+    "query": "select trim_scale(1.120)"
+  },
+  {
+    "comment": "numeric - Statement 951",
+    "query": "select trim_scale(0)"
+  },
+  {
+    "comment": "numeric - Statement 952",
+    "query": "select trim_scale(0.00)"
+  },
+  {
+    "comment": "numeric - Statement 953",
+    "query": "select trim_scale(1.1234500)"
+  },
+  {
+    "comment": "numeric - Statement 954",
+    "query": "select trim_scale(110123.12475871856128000)"
+  },
+  {
+    "comment": "numeric - Statement 955",
+    "query": "select trim_scale(-1123.124718561280000000)"
+  },
+  {
+    "comment": "numeric - Statement 956",
+    "query": "select trim_scale(-13.00000000000000000000)"
+  },
+  {
+    "comment": "numeric - Statement 957",
+    "query": "select trim_scale(1e100)"
+  },
+  {
+    "comment": "numeric - Statement 958",
+    "query": "SELECT SUM(9999::numeric) FROM generate_series(1, 100000)"
+  },
+  {
+    "comment": "numeric - Statement 959",
+    "query": "SELECT SUM((-9999)::numeric) FROM generate_series(1, 100000)"
+  },
+  {
+    "comment": "numeric - Statement 960",
+    "query": "CREATE TABLE num_variance (a numeric)"
+  },
+  {
+    "comment": "numeric - Statement 961",
+    "query": "INSERT INTO num_variance VALUES (0)"
+  },
+  {
+    "comment": "numeric - Statement 962",
+    "query": "INSERT INTO num_variance VALUES (3e-500)"
+  },
+  {
+    "comment": "numeric - Statement 963",
+    "query": "INSERT INTO num_variance VALUES (-3e-500)"
+  },
+  {
+    "comment": "numeric - Statement 964",
+    "query": "INSERT INTO num_variance VALUES (4e-500 - 1e-16383)"
+  },
+  {
+    "comment": "numeric - Statement 965",
+    "query": "INSERT INTO num_variance VALUES (-4e-500 + 1e-16383)"
+  },
+  {
+    "comment": "numeric - Statement 966",
+    "query": "SELECT trim_scale(variance(a) * 1e1000) FROM num_variance"
+  },
+  {
+    "comment": "numeric - Statement 967",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "numeric - Statement 968",
+    "query": "ALTER TABLE num_variance SET (parallel_workers = 4)"
+  },
+  {
+    "comment": "numeric - Statement 969",
+    "query": "SET LOCAL parallel_setup_cost = 0"
+  },
+  {
+    "comment": "numeric - Statement 970",
+    "query": "SET LOCAL max_parallel_workers_per_gather = 4"
+  },
+  {
+    "comment": "numeric - Statement 971",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "numeric - Statement 972",
+    "query": "DELETE FROM num_variance"
+  },
+  {
+    "comment": "numeric - Statement 973",
+    "query": "INSERT INTO num_variance SELECT 9e131071 + x FROM generate_series(1, 5) x"
+  },
+  {
+    "comment": "numeric - Statement 974",
+    "query": "SELECT variance(a) FROM num_variance"
+  },
+  {
+    "comment": "numeric - Statement 975",
+    "query": "DROP TABLE num_variance"
+  },
+  {
+    "comment": "numeric - Statement 976",
+    "query": "SELECT a, b, gcd(a, b), gcd(a, -b), gcd(-b, a), gcd(-b, -a) FROM (VALUES (0::numeric, 0::numeric), (0::numeric, numeric 'NaN'), (0::numeric, 46375::numeric), (433125::numeric, 46375::numeric), (43312.5::numeric, 4637.5::numeric), (4331.250::numeric, 463.75000::numeric), ('inf', '0'), ('inf', '42'), ('inf', 'inf') ) AS v(a, b)"
+  },
+  {
+    "comment": "numeric - Statement 977",
+    "query": "SELECT a,b, lcm(a, b), lcm(a, -b), lcm(-b, a), lcm(-b, -a) FROM (VALUES (0::numeric, 0::numeric), (0::numeric, numeric 'NaN'), (0::numeric, 13272::numeric), (13272::numeric, 13272::numeric), (423282::numeric, 13272::numeric), (42328.2::numeric, 1327.2::numeric), (4232.820::numeric, 132.72000::numeric), ('inf', '0'), ('inf', '42'), ('inf', 'inf') ) AS v(a, b)"
+  },
+  {
+    "comment": "numeric - Statement 978",
+    "query": "SELECT lcm(9999 * (10::numeric)^131068 + (10::numeric^131068 - 1), 2)"
+  },
+  {
+    "comment": "numeric - Statement 979",
+    "query": "SELECT factorial(4)"
+  },
+  {
+    "comment": "numeric - Statement 980",
+    "query": "SELECT factorial(15)"
+  },
+  {
+    "comment": "numeric - Statement 981",
+    "query": "SELECT factorial(100000)"
+  },
+  {
+    "comment": "numeric - Statement 982",
+    "query": "SELECT factorial(0)"
+  },
+  {
+    "comment": "numeric - Statement 983",
+    "query": "SELECT factorial(-4)"
+  },
+  {
+    "comment": "numeric - Statement 984",
+    "query": "SELECT pg_lsn(23783416::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 985",
+    "query": "SELECT pg_lsn(0::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 986",
+    "query": "SELECT pg_lsn(18446744073709551615::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 987",
+    "query": "SELECT pg_lsn(-1::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 988",
+    "query": "SELECT pg_lsn(18446744073709551616::numeric)"
+  },
+  {
+    "comment": "numeric - Statement 989",
+    "query": "SELECT pg_lsn('NaN'::numeric)"
+  }
+]

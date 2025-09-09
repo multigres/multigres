@@ -1,0 +1,10 @@
+[
+  {
+    "comment": "infinite_recurse - Statement 1",
+    "query": "create function infinite_recurse() returns int as 'select infinite_recurse()' language sql"
+  },
+  {
+    "comment": "infinite_recurse - Statement 2",
+    "query": "SELECT version() ~ 'powerpc64[^,]*-linux-gnu' AS skip_test"
+  }
+]

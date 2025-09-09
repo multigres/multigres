@@ -1,0 +1,134 @@
+[
+  {
+    "comment": "copyselect - Statement 1",
+    "query": "create table test1 (id serial, t text)"
+  },
+  {
+    "comment": "copyselect - Statement 2",
+    "query": "insert into test1 (t) values ('a')"
+  },
+  {
+    "comment": "copyselect - Statement 3",
+    "query": "insert into test1 (t) values ('b')"
+  },
+  {
+    "comment": "copyselect - Statement 4",
+    "query": "insert into test1 (t) values ('c')"
+  },
+  {
+    "comment": "copyselect - Statement 5",
+    "query": "insert into test1 (t) values ('d')"
+  },
+  {
+    "comment": "copyselect - Statement 6",
+    "query": "insert into test1 (t) values ('e')"
+  },
+  {
+    "comment": "copyselect - Statement 7",
+    "query": "create table test2 (id serial, t text)"
+  },
+  {
+    "comment": "copyselect - Statement 8",
+    "query": "insert into test2 (t) values ('A')"
+  },
+  {
+    "comment": "copyselect - Statement 9",
+    "query": "insert into test2 (t) values ('B')"
+  },
+  {
+    "comment": "copyselect - Statement 10",
+    "query": "insert into test2 (t) values ('C')"
+  },
+  {
+    "comment": "copyselect - Statement 11",
+    "query": "insert into test2 (t) values ('D')"
+  },
+  {
+    "comment": "copyselect - Statement 12",
+    "query": "insert into test2 (t) values ('E')"
+  },
+  {
+    "comment": "copyselect - Statement 13",
+    "query": "create view v_test1 as select 'v_'||t from test1"
+  },
+  {
+    "comment": "copyselect - Statement 14",
+    "query": "copy test1 to stdout"
+  },
+  {
+    "comment": "copyselect - Statement 15",
+    "query": "copy v_test1 to stdout"
+  },
+  {
+    "comment": "copyselect - Statement 16",
+    "query": "copy (select t from test1 where id=1) to stdout"
+  },
+  {
+    "comment": "copyselect - Statement 17",
+    "query": "copy (select t from test1 where id=3 for update) to stdout"
+  },
+  {
+    "comment": "copyselect - Statement 18",
+    "query": "copy (select t into temp test3 from test1 where id=3) to stdout"
+  },
+  {
+    "comment": "copyselect - Statement 19",
+    "query": "copy (select * from test1) from stdin"
+  },
+  {
+    "comment": "copyselect - Statement 20",
+    "query": "copy (select * from test1) (t,id) to stdout"
+  },
+  {
+    "comment": "copyselect - Statement 21",
+    "query": "copy (select * from test1 join test2 using (id)) to stdout"
+  },
+  {
+    "comment": "copyselect - Statement 22",
+    "query": "copy (select t from test1 where id = 1 UNION select * from v_test1 ORDER BY 1) to stdout"
+  },
+  {
+    "comment": "copyselect - Statement 23",
+    "query": "copy (select * from (select t from test1 where id = 1 UNION select * from v_test1 ORDER BY 1) t1) to stdout"
+  },
+  {
+    "comment": "copyselect - Statement 24",
+    "query": "copy (select t from test1 where id = 1) to stdout csv header force quote t"
+  },
+  {
+    "comment": "copyselect - Statement 25",
+    "query": "drop view v_test1"
+  },
+  {
+    "comment": "copyselect - Statement 26",
+    "query": "drop table test1"
+  },
+  {
+    "comment": "copyselect - Statement 27",
+    "query": "copy (select 1) to stdout\\; select 1/0"
+  },
+  {
+    "comment": "copyselect - Statement 28",
+    "query": "select 1/0\\; copy (select 1) to stdout"
+  },
+  {
+    "comment": "copyselect - Statement 29",
+    "query": "copy (select 1) to stdout\\; copy (select 2) to stdout\\; select 3\\; select 4"
+  },
+  {
+    "comment": "copyselect - Statement 30",
+    "query": "create table test3 (c int)"
+  },
+  {
+    "comment": "copyselect - Statement 31",
+    "query": "select 0\\; copy test3 from stdin\\; copy test3 from stdin\\; select 1"
+  },
+  {
+    "comment": "copyselect - Statement 32",
+    "query": "1 \\. 2 \\. select * from test3"
+  },
+  {
+    "comment": "copyselect - Statement 33",
+    "query": "drop table test3"
+  }
+]

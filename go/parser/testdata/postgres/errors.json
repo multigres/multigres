@@ -1,0 +1,342 @@
+[
+  {
+    "comment": "errors - Statement 1",
+    "query": "select 1"
+  },
+  {
+    "comment": "errors - Statement 2",
+    "query": "select"
+  },
+  {
+    "comment": "errors - Statement 3",
+    "query": "select * from nonesuch"
+  },
+  {
+    "comment": "errors - Statement 4",
+    "query": "select nonesuch from pg_database"
+  },
+  {
+    "comment": "errors - Statement 5",
+    "query": "select distinct from pg_database"
+  },
+  {
+    "comment": "errors - Statement 6",
+    "query": "select * from pg_database where nonesuch = pg_database.datname"
+  },
+  {
+    "comment": "errors - Statement 7",
+    "query": "select * from pg_database where pg_database.datname = nonesuch"
+  },
+  {
+    "comment": "errors - Statement 8",
+    "query": "select distinct on (foobar) * from pg_database"
+  },
+  {
+    "comment": "errors - Statement 9",
+    "query": "select null from pg_database group by datname for update"
+  },
+  {
+    "comment": "errors - Statement 10",
+    "query": "select null from pg_database group by grouping sets (()) for update"
+  },
+  {
+    "comment": "errors - Statement 11",
+    "query": "delete from"
+  },
+  {
+    "comment": "errors - Statement 12",
+    "query": "delete from nonesuch"
+  },
+  {
+    "comment": "errors - Statement 13",
+    "query": "drop table"
+  },
+  {
+    "comment": "errors - Statement 14",
+    "query": "drop table nonesuch"
+  },
+  {
+    "comment": "errors - Statement 15",
+    "query": "alter table rename"
+  },
+  {
+    "comment": "errors - Statement 16",
+    "query": "alter table nonesuch rename to newnonesuch"
+  },
+  {
+    "comment": "errors - Statement 17",
+    "query": "alter table nonesuch rename to stud_emp"
+  },
+  {
+    "comment": "errors - Statement 18",
+    "query": "alter table stud_emp rename to student"
+  },
+  {
+    "comment": "errors - Statement 19",
+    "query": "alter table stud_emp rename to stud_emp"
+  },
+  {
+    "comment": "errors - Statement 20",
+    "query": "alter table nonesuchrel rename column nonesuchatt to newnonesuchatt"
+  },
+  {
+    "comment": "errors - Statement 21",
+    "query": "alter table emp rename column nonesuchatt to newnonesuchatt"
+  },
+  {
+    "comment": "errors - Statement 22",
+    "query": "alter table emp rename column salary to manager"
+  },
+  {
+    "comment": "errors - Statement 23",
+    "query": "alter table emp rename column salary to ctid"
+  },
+  {
+    "comment": "errors - Statement 24",
+    "query": "abort"
+  },
+  {
+    "comment": "errors - Statement 25",
+    "query": "end"
+  },
+  {
+    "comment": "errors - Statement 26",
+    "query": "create aggregate newavg2 (sfunc = int4pl, basetype = int4, stype = int4, finalfunc = int2um, initcond = '0')"
+  },
+  {
+    "comment": "errors - Statement 27",
+    "query": "create aggregate newcnt1 (sfunc = int4inc, stype = int4, initcond = '0')"
+  },
+  {
+    "comment": "errors - Statement 28",
+    "query": "drop index"
+  },
+  {
+    "comment": "errors - Statement 29",
+    "query": "drop index 314159"
+  },
+  {
+    "comment": "errors - Statement 30",
+    "query": "drop index nonesuch"
+  },
+  {
+    "comment": "errors - Statement 31",
+    "query": "drop aggregate"
+  },
+  {
+    "comment": "errors - Statement 32",
+    "query": "drop aggregate newcnt1"
+  },
+  {
+    "comment": "errors - Statement 33",
+    "query": "drop aggregate 314159 (int)"
+  },
+  {
+    "comment": "errors - Statement 34",
+    "query": "drop aggregate newcnt (nonesuch)"
+  },
+  {
+    "comment": "errors - Statement 35",
+    "query": "drop aggregate nonesuch (int4)"
+  },
+  {
+    "comment": "errors - Statement 36",
+    "query": "drop aggregate newcnt (float4)"
+  },
+  {
+    "comment": "errors - Statement 37",
+    "query": "drop function ()"
+  },
+  {
+    "comment": "errors - Statement 38",
+    "query": "drop function 314159()"
+  },
+  {
+    "comment": "errors - Statement 39",
+    "query": "drop function nonesuch()"
+  },
+  {
+    "comment": "errors - Statement 40",
+    "query": "drop type"
+  },
+  {
+    "comment": "errors - Statement 41",
+    "query": "drop type 314159"
+  },
+  {
+    "comment": "errors - Statement 42",
+    "query": "drop type nonesuch"
+  },
+  {
+    "comment": "errors - Statement 43",
+    "query": "drop operator"
+  },
+  {
+    "comment": "errors - Statement 44",
+    "query": "drop operator equals"
+  },
+  {
+    "comment": "errors - Statement 45",
+    "query": "drop operator ==="
+  },
+  {
+    "comment": "errors - Statement 46",
+    "query": "drop operator int4, int4"
+  },
+  {
+    "comment": "errors - Statement 47",
+    "query": "drop operator (int4, int4)"
+  },
+  {
+    "comment": "errors - Statement 48",
+    "query": "drop operator === ()"
+  },
+  {
+    "comment": "errors - Statement 49",
+    "query": "drop operator === (int4)"
+  },
+  {
+    "comment": "errors - Statement 50",
+    "query": "drop operator === (int4, int4)"
+  },
+  {
+    "comment": "errors - Statement 51",
+    "query": "drop operator = (nonesuch)"
+  },
+  {
+    "comment": "errors - Statement 52",
+    "query": "drop operator = ( , int4)"
+  },
+  {
+    "comment": "errors - Statement 53",
+    "query": "drop operator = (nonesuch, int4)"
+  },
+  {
+    "comment": "errors - Statement 54",
+    "query": "drop operator = (int4, nonesuch)"
+  },
+  {
+    "comment": "errors - Statement 55",
+    "query": "drop operator = (int4, )"
+  },
+  {
+    "comment": "errors - Statement 56",
+    "query": "drop rule"
+  },
+  {
+    "comment": "errors - Statement 57",
+    "query": "drop rule 314159"
+  },
+  {
+    "comment": "errors - Statement 58",
+    "query": "drop rule nonesuch on noplace"
+  },
+  {
+    "comment": "errors - Statement 59",
+    "query": "drop tuple rule nonesuch"
+  },
+  {
+    "comment": "errors - Statement 60",
+    "query": "drop instance rule nonesuch on noplace"
+  },
+  {
+    "comment": "errors - Statement 61",
+    "query": "drop rewrite rule nonesuch"
+  },
+  {
+    "comment": "errors - Statement 62",
+    "query": "select 1/0"
+  },
+  {
+    "comment": "errors - Statement 63",
+    "query": "select 1::int8/0"
+  },
+  {
+    "comment": "errors - Statement 64",
+    "query": "select 1/0::int8"
+  },
+  {
+    "comment": "errors - Statement 65",
+    "query": "select 1::int2/0"
+  },
+  {
+    "comment": "errors - Statement 66",
+    "query": "select 1/0::int2"
+  },
+  {
+    "comment": "errors - Statement 67",
+    "query": "select 1::numeric/0"
+  },
+  {
+    "comment": "errors - Statement 68",
+    "query": "select 1/0::numeric"
+  },
+  {
+    "comment": "errors - Statement 69",
+    "query": "select 1::float8/0"
+  },
+  {
+    "comment": "errors - Statement 70",
+    "query": "select 1/0::float8"
+  },
+  {
+    "comment": "errors - Statement 71",
+    "query": "select 1::float4/0"
+  },
+  {
+    "comment": "errors - Statement 72",
+    "query": "select 1/0::float4"
+  },
+  {
+    "comment": "errors - Statement 73",
+    "query": "xxx"
+  },
+  {
+    "comment": "errors - Statement 74",
+    "query": "CREATE foo"
+  },
+  {
+    "comment": "errors - Statement 75",
+    "query": "CREATE TABLE"
+  },
+  {
+    "comment": "errors - Statement 76",
+    "query": "CREATE TABLE \\g INSERT INTO foo VALUES(123) foo"
+  },
+  {
+    "comment": "errors - Statement 77",
+    "query": "INSERT INTO 123 VALUES(123)"
+  },
+  {
+    "comment": "errors - Statement 78",
+    "query": "INSERT INTO foo VALUES(123) 123"
+  },
+  {
+    "comment": "errors - Statement 79",
+    "query": "CREATE TABLE foo (id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL)"
+  },
+  {
+    "comment": "errors - Statement 80",
+    "query": "CREATE TABLE foo(id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL)"
+  },
+  {
+    "comment": "errors - Statement 81",
+    "query": "CREATE TABLE foo( id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL, id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY)"
+  },
+  {
+    "comment": "errors - Statement 82",
+    "query": "CREATE TEMPORARY TABLE foo(id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL)"
+  },
+  {
+    "comment": "errors - Statement 83",
+    "query": "CREATE TEMPORARY TABLE foo( id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL, id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY)"
+  },
+  {
+    "comment": "errors - Statement 84",
+    "query": "CREATE TEMPORARY TABLE foo (id INT4 UNIQUE NOT NULL, idx INT4 UNIQUE NOT NULL, idy INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL, idz INT4 UNIQUE NOT NULL, idv INT4 UNIQUE NOT NULL)"
+  },
+  {
+    "comment": "errors - Statement 85",
+    "query": "CREATE TEMPORARY TABLE foo (id INT4 UNIQUE NOT NULL , idm INT4 UNIQUE NOT NULL, idx INT4 UNIQUE NOT NULL, idy INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL, idz INT4 UNIQUE NOT NULL, idv INT4 UNIQUE NOT NULL)"
+  }
+]

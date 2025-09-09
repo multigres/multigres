@@ -1,0 +1,150 @@
+[
+  {
+    "comment": "copydml - Statement 1",
+    "query": "create table copydml_test (id serial, t text)"
+  },
+  {
+    "comment": "copydml - Statement 2",
+    "query": "insert into copydml_test (t) values ('a')"
+  },
+  {
+    "comment": "copydml - Statement 3",
+    "query": "insert into copydml_test (t) values ('b')"
+  },
+  {
+    "comment": "copydml - Statement 4",
+    "query": "insert into copydml_test (t) values ('c')"
+  },
+  {
+    "comment": "copydml - Statement 5",
+    "query": "insert into copydml_test (t) values ('d')"
+  },
+  {
+    "comment": "copydml - Statement 6",
+    "query": "insert into copydml_test (t) values ('e')"
+  },
+  {
+    "comment": "copydml - Statement 7",
+    "query": "copy (insert into copydml_test (t) values ('f') returning id) to stdout"
+  },
+  {
+    "comment": "copydml - Statement 8",
+    "query": "copy (update copydml_test set t = 'g' where t = 'f' returning id) to stdout"
+  },
+  {
+    "comment": "copydml - Statement 9",
+    "query": "copy (delete from copydml_test where t = 'g' returning id) to stdout"
+  },
+  {
+    "comment": "copydml - Statement 10",
+    "query": "copy (insert into copydml_test default values) to stdout"
+  },
+  {
+    "comment": "copydml - Statement 11",
+    "query": "copy (update copydml_test set t = 'g') to stdout"
+  },
+  {
+    "comment": "copydml - Statement 12",
+    "query": "copy (delete from copydml_test) to stdout"
+  },
+  {
+    "comment": "copydml - Statement 13",
+    "query": "create rule qqq as on insert to copydml_test do instead nothing"
+  },
+  {
+    "comment": "copydml - Statement 14",
+    "query": "drop rule qqq on copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 15",
+    "query": "create rule qqq as on insert to copydml_test do also delete from copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 16",
+    "query": "create rule qqq as on insert to copydml_test do instead (delete from copydml_test; delete from copydml_test)"
+  },
+  {
+    "comment": "copydml - Statement 17",
+    "query": "create rule qqq as on insert to copydml_test where new.t <> 'f' do instead delete from copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 18",
+    "query": "create rule qqq as on update to copydml_test do instead nothing"
+  },
+  {
+    "comment": "copydml - Statement 19",
+    "query": "copy (update copydml_test set t = 'f') to stdout"
+  },
+  {
+    "comment": "copydml - Statement 20",
+    "query": "create rule qqq as on update to copydml_test do also delete from copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 21",
+    "query": "create rule qqq as on update to copydml_test do instead (delete from copydml_test; delete from copydml_test)"
+  },
+  {
+    "comment": "copydml - Statement 22",
+    "query": "create rule qqq as on update to copydml_test where new.t <> 'f' do instead delete from copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 23",
+    "query": "create rule qqq as on delete to copydml_test do instead nothing"
+  },
+  {
+    "comment": "copydml - Statement 24",
+    "query": "create rule qqq as on delete to copydml_test do also insert into copydml_test default values"
+  },
+  {
+    "comment": "copydml - Statement 25",
+    "query": "create rule qqq as on delete to copydml_test do instead (insert into copydml_test default values; insert into copydml_test default values)"
+  },
+  {
+    "comment": "copydml - Statement 26",
+    "query": "create rule qqq as on delete to copydml_test where old.t <> 'f' do instead insert into copydml_test default values"
+  },
+  {
+    "comment": "copydml - Statement 27",
+    "query": "create rule qqq as on insert to copydml_test do instead notify copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 28",
+    "query": "create function qqq_trig() returns trigger as $$ begin if tg_op in ('INSERT', 'UPDATE') then raise notice '% % %', tg_when, tg_op, new.id"
+  },
+  {
+    "comment": "copydml - Statement 29",
+    "query": "return new"
+  },
+  {
+    "comment": "copydml - Statement 30",
+    "query": "else raise notice '% % %', tg_when, tg_op, old.id"
+  },
+  {
+    "comment": "copydml - Statement 31",
+    "query": "return old"
+  },
+  {
+    "comment": "copydml - Statement 32",
+    "query": "end if"
+  },
+  {
+    "comment": "copydml - Statement 33",
+    "query": "end $$ language plpgsql"
+  },
+  {
+    "comment": "copydml - Statement 34",
+    "query": "create trigger qqqbef before insert or update or delete on copydml_test for each row execute procedure qqq_trig()"
+  },
+  {
+    "comment": "copydml - Statement 35",
+    "query": "create trigger qqqaf after insert or update or delete on copydml_test for each row execute procedure qqq_trig()"
+  },
+  {
+    "comment": "copydml - Statement 36",
+    "query": "drop table copydml_test"
+  },
+  {
+    "comment": "copydml - Statement 37",
+    "query": "drop function qqq_trig()"
+  }
+]

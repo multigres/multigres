@@ -15,7 +15,7 @@ import (
 // ==============================================================================
 
 // Type aliases for PostgreSQL types
-type AclMode uint32    // Access control mode bitmask
+type AclMode uint32      // Access control mode bitmask
 type Cardinality float64 // Row count estimates
 
 // TableFunc placeholder removed - now implemented in expressions.go
@@ -25,15 +25,15 @@ type Cardinality float64 // Row count estimates
 type RTEKind int
 
 const (
-	RTE_RELATION         RTEKind = iota // ordinary relation reference
-	RTE_SUBQUERY                        // subquery in FROM
-	RTE_JOIN                            // join
-	RTE_FUNCTION                        // function in FROM
-	RTE_TABLEFUNC                       // TableFunc(.., column list)
-	RTE_VALUES                          // VALUES (<exprlist>), (<exprlist>), ...
-	RTE_CTE                             // common table expr (WITH list element)
-	RTE_NAMEDTUPLESTORE                 // tuplestore, e.g. for AFTER triggers
-	RTE_RESULT                          // RTE represents an empty FROM clause
+	RTE_RELATION        RTEKind = iota // ordinary relation reference
+	RTE_SUBQUERY                       // subquery in FROM
+	RTE_JOIN                           // join
+	RTE_FUNCTION                       // function in FROM
+	RTE_TABLEFUNC                      // TableFunc(.., column list)
+	RTE_VALUES                         // VALUES (<exprlist>), (<exprlist>), ...
+	RTE_CTE                            // common table expr (WITH list element)
+	RTE_NAMEDTUPLESTORE                // tuplestore, e.g. for AFTER triggers
+	RTE_RESULT                         // RTE represents an empty FROM clause
 )
 
 // String returns the string representation of RTEKind.
@@ -69,56 +69,56 @@ type RangeTblEntry struct {
 	BaseNode
 
 	// Fields valid in all RTEs
-	Alias     *Alias  // user-written alias clause, if any
-	Eref      *Alias  // expanded reference names
-	RteKind   RTEKind // see RTEKind enum above
-	Lateral   bool    // was LATERAL specified?
-	InFromCl  bool    // present in FROM clause?
-	
+	Alias    *Alias  // user-written alias clause, if any
+	Eref     *Alias  // expanded reference names
+	RteKind  RTEKind // see RTEKind enum above
+	Lateral  bool    // was LATERAL specified?
+	InFromCl bool    // present in FROM clause?
+
 	// Fields valid for a plain relation RTE (RTE_RELATION)
-	Relid         Oid    // OID of the relation
-	Inh           bool   // inheritance requested?
-	RelKind       byte   // relation kind (see pg_class.relkind)
-	RelLockMode   int    // lock level that query requires on the rel
-	PermInfoIndex int    // index of RTEPermissionInfo entry, or 0
+	Relid         Oid                // OID of the relation
+	Inh           bool               // inheritance requested?
+	RelKind       byte               // relation kind (see pg_class.relkind)
+	RelLockMode   int                // lock level that query requires on the rel
+	PermInfoIndex int                // index of RTEPermissionInfo entry, or 0
 	TableSample   *TableSampleClause // sampling info, or NULL
-	
+
 	// Fields valid for a subquery RTE (RTE_SUBQUERY)
 	Subquery        *Query // the sub-query
 	SecurityBarrier bool   // is from security_barrier view?
-	
+
 	// Fields valid for a join RTE (RTE_JOIN)
-	JoinType        JoinType // type of join
-	JoinMergedCols  int      // number of merged (JOIN USING) columns
-	JoinAliasVars   *NodeList // list of alias-var expansions
-	JoinLeftCols    []int    // left-side input column numbers
-	JoinRightCols   []int    // right-side input column numbers
-	JoinUsingAlias  *Alias   // alias clause attached directly to JOIN/USING
-	
+	JoinType       JoinType  // type of join
+	JoinMergedCols int       // number of merged (JOIN USING) columns
+	JoinAliasVars  *NodeList // list of alias-var expansions
+	JoinLeftCols   []int     // left-side input column numbers
+	JoinRightCols  []int     // right-side input column numbers
+	JoinUsingAlias *Alias    // alias clause attached directly to JOIN/USING
+
 	// Fields valid for a function RTE (RTE_FUNCTION)
-	Functions        []*RangeTblFunction // list of RangeTblFunction nodes
-	FuncOrdinality   bool                // is this called WITH ORDINALITY?
-	
+	Functions      []*RangeTblFunction // list of RangeTblFunction nodes
+	FuncOrdinality bool                // is this called WITH ORDINALITY?
+
 	// Fields valid for a TableFunc RTE (RTE_TABLEFUNC)
 	TableFunc *TableFunc // table function specification
-	
+
 	// Fields valid for a values RTE (RTE_VALUES)
 	ValuesLists []*NodeList // list of expression lists
-	
+
 	// Fields valid for a CTE RTE (RTE_CTE)
 	CteName       string // name of the WITH list item
 	CteLevelsUp   Index  // number of query levels up
 	SelfReference bool   // is this a recursive self-reference?
-	
+
 	// Fields valid for CTE, VALUES, ENR, and TableFunc RTEs
-	ColTypes      []Oid    // OID list of column type OIDs
-	ColTypMods    []int    // integer list of column typmods
-	ColCollations []Oid    // OID list of column collation OIDs
-	
+	ColTypes      []Oid // OID list of column type OIDs
+	ColTypMods    []int // integer list of column typmods
+	ColCollations []Oid // OID list of column collation OIDs
+
 	// Fields valid for ENR RTEs (RTE_NAMEDTUPLESTORE)
-	EnrName    string      // name of ephemeral named relation
-	EnrTuples  Cardinality // estimated or actual from caller
-	
+	EnrName   string      // name of ephemeral named relation
+	EnrTuples Cardinality // estimated or actual from caller
+
 	// Security-related fields
 	SecurityQuals *NodeList // security barrier quals to apply, if any
 }
@@ -144,8 +144,8 @@ func (r *RangeTblEntry) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:615-621
 type RangeSubselect struct {
 	BaseNode
-	Lateral  bool  // does it have LATERAL prefix?
-	Subquery Node  // the untransformed sub-select clause
+	Lateral  bool   // does it have LATERAL prefix?
+	Subquery Node   // the untransformed sub-select clause
 	Alias    *Alias // table alias & optional column aliases
 }
 
@@ -200,12 +200,12 @@ func (r *RangeSubselect) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:637-647
 type RangeFunction struct {
 	BaseNode
-	Lateral     bool        // does it have LATERAL prefix?
-	Ordinality  bool        // does it have WITH ORDINALITY suffix?
-	IsRowsFrom  bool        // is result of ROWS FROM() syntax?
-	Functions   *NodeList   // list of per-function information (each item is a NodeList with function + column definitions)
-	Alias       *Alias      // table alias & optional column aliases
-	ColDefList  *NodeList    // list of ColumnDef nodes to describe result of function returning RECORD
+	Lateral    bool      // does it have LATERAL prefix?
+	Ordinality bool      // does it have WITH ORDINALITY suffix?
+	IsRowsFrom bool      // is result of ROWS FROM() syntax?
+	Functions  *NodeList // list of per-function information (each item is a NodeList with function + column definitions)
+	Alias      *Alias    // table alias & optional column aliases
+	ColDefList *NodeList // list of ColumnDef nodes to describe result of function returning RECORD
 }
 
 // NewRangeFunction creates a new RangeFunction node.
@@ -299,12 +299,12 @@ func (r *RangeFunction) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:655-665
 type RangeTableFunc struct {
 	BaseNode
-	Lateral    bool                   // does it have LATERAL prefix?
-	DocExpr    Node                   // document expression
-	RowExpr    Node                   // row generator expression
-	Namespaces *NodeList              // list of namespaces as ResTarget
-	Columns    *NodeList              // list of RangeTableFuncCol
-	Alias      *Alias                 // table alias & optional column aliases
+	Lateral    bool      // does it have LATERAL prefix?
+	DocExpr    Node      // document expression
+	RowExpr    Node      // row generator expression
+	Namespaces *NodeList // list of namespaces as ResTarget
+	Columns    *NodeList // list of RangeTableFuncCol
+	Alias      *Alias    // table alias & optional column aliases
 }
 
 // NewRangeTableFunc creates a new RangeTableFunc node.
@@ -346,13 +346,13 @@ func (r *RangeTableFunc) SqlString() string {
 
 	// For now, we assume this is XMLTABLE since that's what we're implementing
 	result.WriteString("XMLTABLE(")
-	
+
 	// XMLTABLE syntax: XMLTABLE(xpath_expression PASSING document_expression COLUMNS ...)
 	// RowExpr is the XPath expression, DocExpr is the document
 	if r.RowExpr != nil {
 		result.WriteString(r.RowExpr.SqlString())
 	}
-	
+
 	if r.DocExpr != nil {
 		result.WriteString(" PASSING ")
 		result.WriteString(r.DocExpr.SqlString())
@@ -436,10 +436,10 @@ func (r *RangeTableFuncCol) SqlString() string {
 			result.WriteString(" ")
 			result.WriteString(r.TypeName.SqlString())
 		}
-		
+
 		// Add other options like PATH, DEFAULT, etc. if present
 		// These would be processed from the grammar but for now we'll handle the basic case
-		
+
 		if r.IsNotNull {
 			result.WriteString(" NOT NULL")
 		}
@@ -453,10 +453,10 @@ func (r *RangeTableFuncCol) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:695-703
 type RangeTableSample struct {
 	BaseNode
-	Relation   Node     // relation to be sampled
+	Relation   Node      // relation to be sampled
 	Method     *NodeList // sampling method name (possibly qualified)
 	Args       *NodeList // argument(s) for sampling method
-	Repeatable Node     // REPEATABLE expression, or NULL if none
+	Repeatable Node      // REPEATABLE expression, or NULL if none
 }
 
 // NewRangeTableSample creates a new RangeTableSample node.
@@ -482,6 +482,48 @@ func (r *RangeTableSample) String() string {
 	return fmt.Sprintf("RangeTableSample{%d args%s}@%d", argCount, repeatable, r.Location())
 }
 
+// SqlString returns the SQL representation of RangeTableSample
+func (r *RangeTableSample) SqlString() string {
+	var parts []string
+
+	// Add relation
+	if r.Relation != nil {
+		parts = append(parts, r.Relation.SqlString())
+	}
+
+	// Add TABLESAMPLE keyword
+	parts = append(parts, "TABLESAMPLE")
+
+	// Add method name
+	if r.Method != nil && len(r.Method.Items) > 0 {
+		var methodParts []string
+		for _, item := range r.Method.Items {
+			methodParts = append(methodParts, item.SqlString())
+		}
+		parts = append(parts, strings.Join(methodParts, "."))
+	}
+
+	// Add arguments if any
+	if r.Args != nil && len(r.Args.Items) > 0 {
+		var argStrs []string
+		for _, arg := range r.Args.Items {
+			if node, ok := arg.(Node); ok {
+				argStrs = append(argStrs, node.SqlString())
+			}
+		}
+		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(argStrs, ", ")))
+	} else {
+		parts = append(parts, "()")
+	}
+
+	// Add REPEATABLE clause if present
+	if r.Repeatable != nil {
+		parts = append(parts, "REPEATABLE", fmt.Sprintf("(%s)", r.Repeatable.SqlString()))
+	}
+
+	return strings.Join(parts, " ")
+}
+
 func (r *RangeTableSample) StatementType() string {
 	return "RANGE_TABLE_SAMPLE"
 }
@@ -491,13 +533,13 @@ func (r *RangeTableSample) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:1317-1337
 type RangeTblFunction struct {
 	BaseNode
-	FuncExpr        Node     // expression tree for func call
-	FuncColCount    int      // number of columns it contributes to RTE
-	FuncColNames    []string // column names (list of String)
-	FuncColTypes    []Oid    // OID list of column type OIDs
-	FuncColTypMods  []int    // integer list of column typmods
+	FuncExpr          Node     // expression tree for func call
+	FuncColCount      int      // number of columns it contributes to RTE
+	FuncColNames      []string // column names (list of String)
+	FuncColTypes      []Oid    // OID list of column type OIDs
+	FuncColTypMods    []int    // integer list of column typmods
 	FuncColCollations []Oid    // OID list of column collation OIDs
-	FuncParams      []int    // PARAM_EXEC Param IDs affecting this func (set during planning)
+	FuncParams        []int    // PARAM_EXEC Param IDs affecting this func (set during planning)
 }
 
 // NewRangeTblFunction creates a new RangeTblFunction node.
@@ -522,13 +564,13 @@ func (r *RangeTblFunction) StatementType() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:1286-1297
 type RTEPermissionInfo struct {
 	BaseNode
-	Relid         Oid       // relation OID
-	Inh           bool      // separately check inheritance children?
-	RequiredPerms AclMode   // bitmask of required access permissions
-	CheckAsUser   Oid       // if valid, check access as this role
-	SelectedCols  []int     // columns needing SELECT permission (simplified from Bitmapset)
-	InsertedCols  []int     // columns needing INSERT permission (simplified from Bitmapset)
-	UpdatedCols   []int     // columns needing UPDATE permission (simplified from Bitmapset)
+	Relid         Oid     // relation OID
+	Inh           bool    // separately check inheritance children?
+	RequiredPerms AclMode // bitmask of required access permissions
+	CheckAsUser   Oid     // if valid, check access as this role
+	SelectedCols  []int   // columns needing SELECT permission (simplified from Bitmapset)
+	InsertedCols  []int   // columns needing INSERT permission (simplified from Bitmapset)
+	UpdatedCols   []int   // columns needing UPDATE permission (simplified from Bitmapset)
 }
 
 // NewRTEPermissionInfo creates a new RTEPermissionInfo node.

@@ -590,6 +590,9 @@ func (l *Lexer) scanBitString(startPos, startScanPos int) (*Token, error) {
 
 	// Clear literal buffer
 	ctx.StartLiteral()
+	
+	// Add 'b' prefix to match PostgreSQL's scan.l line 511: addlitchar('b', yyscanner);
+	ctx.AddLiteral("b")
 
 	// Skip 'B' prefix and opening quote
 	ctx.AdvanceBy(1) // Skip B
@@ -637,6 +640,9 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 
 	// Clear literal buffer
 	ctx.StartLiteral()
+	
+	// Add 'x' prefix to match PostgreSQL's scan.l line 529: addlitchar('x', yyscanner);
+	ctx.AddLiteral("x")
 
 	// Skip 'X' prefix and opening quote
 	ctx.AdvanceBy(1) // Skip X

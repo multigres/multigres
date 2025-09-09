@@ -1,0 +1,54 @@
+[
+  {
+    "comment": "vacuum_parallel - Statement 1",
+    "query": "SET max_parallel_maintenance_workers TO 4"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 2",
+    "query": "SET min_parallel_index_scan_size TO '128kB'"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 3",
+    "query": "CREATE TABLE parallel_vacuum_table (a int) WITH (autovacuum_enabled = off)"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 4",
+    "query": "INSERT INTO parallel_vacuum_table SELECT i from generate_series(1, 10000) i"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 5",
+    "query": "CREATE INDEX regular_sized_index ON parallel_vacuum_table(a)"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 6",
+    "query": "CREATE INDEX typically_sized_index ON parallel_vacuum_table(a)"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 7",
+    "query": "CREATE INDEX vacuum_in_leader_small_index ON parallel_vacuum_table((1))"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 8",
+    "query": "SELECT EXISTS ( SELECT 1 FROM pg_class WHERE oid = 'vacuum_in_leader_small_index'::regclass AND pg_relation_size(oid) < pg_size_bytes(current_setting('min_parallel_index_scan_size')) ) as leader_will_handle_small_index"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 9",
+    "query": "SELECT count(*) as trigger_parallel_vacuum_nindexes FROM pg_class WHERE oid in ('regular_sized_index'::regclass, 'typically_sized_index'::regclass) AND pg_relation_size(oid) >= pg_size_bytes(current_setting('min_parallel_index_scan_size'))"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 10",
+    "query": "DELETE FROM parallel_vacuum_table"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 11",
+    "query": "VACUUM (PARALLEL 4, INDEX_CLEANUP ON) parallel_vacuum_table"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 12",
+    "query": "RESET max_parallel_maintenance_workers"
+  },
+  {
+    "comment": "vacuum_parallel - Statement 13",
+    "query": "RESET min_parallel_index_scan_size"
+  }
+]

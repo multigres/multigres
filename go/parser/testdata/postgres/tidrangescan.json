@@ -1,0 +1,174 @@
+[
+  {
+    "comment": "tidrangescan - Statement 1",
+    "query": "SET enable_seqscan TO off"
+  },
+  {
+    "comment": "tidrangescan - Statement 2",
+    "query": "CREATE TABLE tidrangescan(id integer, data text)"
+  },
+  {
+    "comment": "tidrangescan - Statement 3",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE ctid < '(1, 0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 4",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid < '(1, 0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 5",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE ctid > '(9, 0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 6",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid > '(9, 0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 7",
+    "query": "INSERT INTO tidrangescan SELECT i,repeat('x', 100) FROM generate_series(1,200) AS s(i)"
+  },
+  {
+    "comment": "tidrangescan - Statement 8",
+    "query": "DELETE FROM tidrangescan WHERE substring(ctid::text FROM ',(\\d+)\\)')::integer > 10 OR substring(ctid::text FROM '\\((\\d+),')::integer > 2"
+  },
+  {
+    "comment": "tidrangescan - Statement 9",
+    "query": "VACUUM tidrangescan"
+  },
+  {
+    "comment": "tidrangescan - Statement 10",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE ctid < '(1,0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 11",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid < '(1,0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 12",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE ctid <= '(1,5)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 13",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid <= '(1,5)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 14",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE ctid < '(0,0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 15",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid < '(0,0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 16",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE ctid > '(2,8)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 17",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid > '(2,8)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 18",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE '(2,8)' < ctid"
+  },
+  {
+    "comment": "tidrangescan - Statement 19",
+    "query": "SELECT ctid FROM tidrangescan WHERE '(2,8)' < ctid"
+  },
+  {
+    "comment": "tidrangescan - Statement 20",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE ctid >= '(2,8)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 21",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid >= '(2,8)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 22",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE ctid >= '(100,0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 23",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid >= '(100,0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 24",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE ctid > '(1,4)' AND '(1,7)' >= ctid"
+  },
+  {
+    "comment": "tidrangescan - Statement 25",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid > '(1,4)' AND '(1,7)' >= ctid"
+  },
+  {
+    "comment": "tidrangescan - Statement 26",
+    "query": "EXPLAIN (COSTS OFF) SELECT ctid FROM tidrangescan WHERE '(1,7)' >= ctid AND ctid > '(1,4)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 27",
+    "query": "SELECT ctid FROM tidrangescan WHERE '(1,7)' >= ctid AND ctid > '(1,4)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 28",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid > '(0,65535)' AND ctid < '(1,0)' LIMIT 1"
+  },
+  {
+    "comment": "tidrangescan - Statement 29",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid < '(0,0)' LIMIT 1"
+  },
+  {
+    "comment": "tidrangescan - Statement 30",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid > '(4294967295,65535)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 31",
+    "query": "SELECT ctid FROM tidrangescan WHERE ctid >= (SELECT NULL::tid)"
+  },
+  {
+    "comment": "tidrangescan - Statement 32",
+    "query": "EXPLAIN (COSTS OFF) SELECT t.ctid,t2.c FROM tidrangescan t, LATERAL (SELECT count(*) c FROM tidrangescan t2 WHERE t2.ctid <= t.ctid) t2 WHERE t.ctid < '(1,0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 33",
+    "query": "SELECT t.ctid,t2.c FROM tidrangescan t, LATERAL (SELECT count(*) c FROM tidrangescan t2 WHERE t2.ctid <= t.ctid) t2 WHERE t.ctid < '(1,0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 34",
+    "query": "EXPLAIN (COSTS OFF) DECLARE c SCROLL CURSOR FOR SELECT ctid FROM tidrangescan WHERE ctid < '(1,0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 35",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "tidrangescan - Statement 36",
+    "query": "DECLARE c SCROLL CURSOR FOR SELECT ctid FROM tidrangescan WHERE ctid < '(1,0)'"
+  },
+  {
+    "comment": "tidrangescan - Statement 37",
+    "query": "FETCH NEXT c"
+  },
+  {
+    "comment": "tidrangescan - Statement 38",
+    "query": "FETCH PRIOR c"
+  },
+  {
+    "comment": "tidrangescan - Statement 39",
+    "query": "FETCH FIRST c"
+  },
+  {
+    "comment": "tidrangescan - Statement 40",
+    "query": "FETCH LAST c"
+  },
+  {
+    "comment": "tidrangescan - Statement 41",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "tidrangescan - Statement 42",
+    "query": "DROP TABLE tidrangescan"
+  },
+  {
+    "comment": "tidrangescan - Statement 43",
+    "query": "RESET enable_seqscan"
+  }
+]

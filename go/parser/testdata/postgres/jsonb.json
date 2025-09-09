@@ -1,0 +1,3662 @@
+[
+  {
+    "comment": "jsonb - Statement 1",
+    "query": "SELECT '\"\"'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 2",
+    "query": "SELECT $$''$$::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 3",
+    "query": "SELECT '\"abc\"'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 4",
+    "query": "SELECT '\"abc'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 5",
+    "query": "SELECT '\"abc def\"'::jsonb;\t\t\t\t\t-- ERROR, unescaped newline in string constant SELECT '\"\\n\\\"\\\\\"'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 6",
+    "query": "SELECT '\"\\v\"'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 7",
+    "query": "SELECT '1'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 8",
+    "query": "SELECT '0'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 9",
+    "query": "SELECT '01'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 10",
+    "query": "SELECT '0.1'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 11",
+    "query": "SELECT '9223372036854775808'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 12",
+    "query": "SELECT '1e100'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 13",
+    "query": "SELECT '1.3e100'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 14",
+    "query": "SELECT '1f2'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 15",
+    "query": "SELECT '0.x1'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 16",
+    "query": "SELECT '1.3ex100'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 17",
+    "query": "SELECT '[]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 18",
+    "query": "SELECT '[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 19",
+    "query": "SELECT '[1,2]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 20",
+    "query": "SELECT '[1,2,]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 21",
+    "query": "SELECT '[1,2'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 22",
+    "query": "SELECT '[1,[2]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 23",
+    "query": "SELECT '{}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 24",
+    "query": "SELECT '{\"abc\"}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 25",
+    "query": "SELECT '{\"abc\":1}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 26",
+    "query": "SELECT '{1:\"abc\"}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 27",
+    "query": "SELECT '{\"abc\",1}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 28",
+    "query": "SELECT '{\"abc\"=1}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 29",
+    "query": "SELECT '{\"abc\"::1}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 30",
+    "query": "SELECT '{\"abc\":1,\"def\":2,\"ghi\":[3,4],\"hij\":{\"klm\":5,\"nop\":[6]}}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 31",
+    "query": "SELECT '{\"abc\":1:2}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 32",
+    "query": "SELECT '{\"abc\":1,3}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 33",
+    "query": "SET max_stack_depth = '100kB'"
+  },
+  {
+    "comment": "jsonb - Statement 34",
+    "query": "SELECT repeat('[', 10000)::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 35",
+    "query": "SELECT repeat('{\"a\":', 10000)::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 36",
+    "query": "RESET max_stack_depth"
+  },
+  {
+    "comment": "jsonb - Statement 37",
+    "query": "SELECT 'true'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 38",
+    "query": "SELECT 'false'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 39",
+    "query": "SELECT 'null'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 40",
+    "query": "SELECT ' true '::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 41",
+    "query": "SELECT 'true false'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 42",
+    "query": "SELECT 'true, false'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 43",
+    "query": "SELECT 'truf'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 44",
+    "query": "SELECT 'trues'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 45",
+    "query": "SELECT ''::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 46",
+    "query": "SELECT '    '::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 47",
+    "query": "SELECT '{ \"one\": 1, \"two\":\"two\", \"three\": true}'::jsonb; -- OK SELECT '{ \"one\": 1, \"two\":,\"two\", \"three\": true}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 48",
+    "query": "SELECT '{ \"one\": 1, \"two\":\"two\", \"averyveryveryveryveryveryveryveryveryverylongfieldname\":}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 49",
+    "query": "select pg_input_is_valid('{\"a\":true}', 'jsonb')"
+  },
+  {
+    "comment": "jsonb - Statement 50",
+    "query": "select pg_input_is_valid('{\"a\":true', 'jsonb')"
+  },
+  {
+    "comment": "jsonb - Statement 51",
+    "query": "select * from pg_input_error_info('{\"a\":true', 'jsonb')"
+  },
+  {
+    "comment": "jsonb - Statement 52",
+    "query": "select * from pg_input_error_info('{\"a\":1e1000000}', 'jsonb')"
+  },
+  {
+    "comment": "jsonb - Statement 53",
+    "query": "SELECT array_to_json(ARRAY [jsonb '{\"a\":1}', jsonb '{\"b\":[2,3]}'])"
+  },
+  {
+    "comment": "jsonb - Statement 54",
+    "query": "CREATE TEMP TABLE rows AS SELECT x, 'txt' || x as y FROM generate_series(1,3) AS x"
+  },
+  {
+    "comment": "jsonb - Statement 55",
+    "query": "analyze rows"
+  },
+  {
+    "comment": "jsonb - Statement 56",
+    "query": "select attname, to_jsonb(histogram_bounds) histogram_bounds from pg_stats where tablename = 'rows' and schemaname = pg_my_temp_schema()::regnamespace::text order by 1"
+  },
+  {
+    "comment": "jsonb - Statement 57",
+    "query": "select to_jsonb(timestamp '2014-05-28 12:22:35.614298')"
+  },
+  {
+    "comment": "jsonb - Statement 58",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "jsonb - Statement 59",
+    "query": "SET LOCAL TIME ZONE 10.5"
+  },
+  {
+    "comment": "jsonb - Statement 60",
+    "query": "select to_jsonb(timestamptz '2014-05-28 12:22:35.614298-04')"
+  },
+  {
+    "comment": "jsonb - Statement 61",
+    "query": "SET LOCAL TIME ZONE -8"
+  },
+  {
+    "comment": "jsonb - Statement 62",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "jsonb - Statement 63",
+    "query": "select to_jsonb(date '2014-05-28')"
+  },
+  {
+    "comment": "jsonb - Statement 64",
+    "query": "select to_jsonb(date 'Infinity')"
+  },
+  {
+    "comment": "jsonb - Statement 65",
+    "query": "select to_jsonb(date '-Infinity')"
+  },
+  {
+    "comment": "jsonb - Statement 66",
+    "query": "select to_jsonb(timestamp 'Infinity')"
+  },
+  {
+    "comment": "jsonb - Statement 67",
+    "query": "select to_jsonb(timestamp '-Infinity')"
+  },
+  {
+    "comment": "jsonb - Statement 68",
+    "query": "select to_jsonb(timestamptz 'Infinity')"
+  },
+  {
+    "comment": "jsonb - Statement 69",
+    "query": "select to_jsonb(timestamptz '-Infinity')"
+  },
+  {
+    "comment": "jsonb - Statement 70",
+    "query": "SELECT jsonb_agg(q) FROM ( SELECT $$a$$ || x AS b, y AS c, ARRAY[ROW(x.*,ARRAY[1,2,3]), ROW(y.*,ARRAY[4,5,6])] AS z FROM generate_series(1,2) x, generate_series(4,5) y) q"
+  },
+  {
+    "comment": "jsonb - Statement 71",
+    "query": "SELECT jsonb_agg(q ORDER BY x, y) FROM rows q"
+  },
+  {
+    "comment": "jsonb - Statement 72",
+    "query": "UPDATE rows SET x = NULL WHERE x = 1"
+  },
+  {
+    "comment": "jsonb - Statement 73",
+    "query": "SELECT jsonb_agg(q ORDER BY x NULLS FIRST, y) FROM rows q"
+  },
+  {
+    "comment": "jsonb - Statement 74",
+    "query": "CREATE TEMP TABLE test_jsonb ( json_type text, test_json jsonb )"
+  },
+  {
+    "comment": "jsonb - Statement 75",
+    "query": "INSERT INTO test_jsonb VALUES ('scalar','\"a scalar\"'), ('array','[\"zero\", \"one\",\"two\",null,\"four\",\"five\", [1,2,3],{\"f1\":9}]'), ('object','{\"field1\":\"val1\",\"field2\":\"val2\",\"field3\":null, \"field4\": 4, \"field5\": [1,2,3], \"field6\": {\"f1\":9}}')"
+  },
+  {
+    "comment": "jsonb - Statement 76",
+    "query": "SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'scalar'"
+  },
+  {
+    "comment": "jsonb - Statement 77",
+    "query": "SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'array'"
+  },
+  {
+    "comment": "jsonb - Statement 78",
+    "query": "SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 79",
+    "query": "SELECT test_json -> 'field2' FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 80",
+    "query": "SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'scalar'"
+  },
+  {
+    "comment": "jsonb - Statement 81",
+    "query": "SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'array'"
+  },
+  {
+    "comment": "jsonb - Statement 82",
+    "query": "SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 83",
+    "query": "SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'scalar'"
+  },
+  {
+    "comment": "jsonb - Statement 84",
+    "query": "SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'array'"
+  },
+  {
+    "comment": "jsonb - Statement 85",
+    "query": "SELECT test_json -> 9 FROM test_jsonb WHERE json_type = 'array'"
+  },
+  {
+    "comment": "jsonb - Statement 86",
+    "query": "SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 87",
+    "query": "SELECT test_json ->> 6 FROM test_jsonb WHERE json_type = 'array'"
+  },
+  {
+    "comment": "jsonb - Statement 88",
+    "query": "SELECT test_json ->> 7 FROM test_jsonb WHERE json_type = 'array'"
+  },
+  {
+    "comment": "jsonb - Statement 89",
+    "query": "SELECT test_json ->> 'field4' FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 90",
+    "query": "SELECT test_json ->> 'field5' FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 91",
+    "query": "SELECT test_json ->> 'field6' FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 92",
+    "query": "SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'scalar'"
+  },
+  {
+    "comment": "jsonb - Statement 93",
+    "query": "SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'array'"
+  },
+  {
+    "comment": "jsonb - Statement 94",
+    "query": "SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 95",
+    "query": "SELECT jsonb_object_keys(test_json) FROM test_jsonb WHERE json_type = 'scalar'"
+  },
+  {
+    "comment": "jsonb - Statement 96",
+    "query": "SELECT jsonb_object_keys(test_json) FROM test_jsonb WHERE json_type = 'array'"
+  },
+  {
+    "comment": "jsonb - Statement 97",
+    "query": "SELECT jsonb_object_keys(test_json) FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 98",
+    "query": "SELECT (test_json->'field3') IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 99",
+    "query": "SELECT (test_json->>'field3') IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'object'"
+  },
+  {
+    "comment": "jsonb - Statement 100",
+    "query": "SELECT (test_json->3) IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'array'"
+  },
+  {
+    "comment": "jsonb - Statement 101",
+    "query": "SELECT (test_json->>3) IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'array'"
+  },
+  {
+    "comment": "jsonb - Statement 102",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -> null::text"
+  },
+  {
+    "comment": "jsonb - Statement 103",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -> null::int"
+  },
+  {
+    "comment": "jsonb - Statement 104",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -> 1"
+  },
+  {
+    "comment": "jsonb - Statement 105",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -> 'z'"
+  },
+  {
+    "comment": "jsonb - Statement 106",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb -> ''"
+  },
+  {
+    "comment": "jsonb - Statement 107",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -> 1"
+  },
+  {
+    "comment": "jsonb - Statement 108",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -> 3"
+  },
+  {
+    "comment": "jsonb - Statement 109",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb -> 'z'"
+  },
+  {
+    "comment": "jsonb - Statement 110",
+    "query": "select '{\"a\": \"c\", \"b\": null}'::jsonb -> 'b'"
+  },
+  {
+    "comment": "jsonb - Statement 111",
+    "query": "select '\"foo\"'::jsonb -> 1"
+  },
+  {
+    "comment": "jsonb - Statement 112",
+    "query": "select '\"foo\"'::jsonb -> 'z'"
+  },
+  {
+    "comment": "jsonb - Statement 113",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb ->> null::text"
+  },
+  {
+    "comment": "jsonb - Statement 114",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb ->> null::int"
+  },
+  {
+    "comment": "jsonb - Statement 115",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb ->> 1"
+  },
+  {
+    "comment": "jsonb - Statement 116",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb ->> 'z'"
+  },
+  {
+    "comment": "jsonb - Statement 117",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb ->> ''"
+  },
+  {
+    "comment": "jsonb - Statement 118",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb ->> 1"
+  },
+  {
+    "comment": "jsonb - Statement 119",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb ->> 3"
+  },
+  {
+    "comment": "jsonb - Statement 120",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb ->> 'z'"
+  },
+  {
+    "comment": "jsonb - Statement 121",
+    "query": "select '{\"a\": \"c\", \"b\": null}'::jsonb ->> 'b'"
+  },
+  {
+    "comment": "jsonb - Statement 122",
+    "query": "select '\"foo\"'::jsonb ->> 1"
+  },
+  {
+    "comment": "jsonb - Statement 123",
+    "query": "select '\"foo\"'::jsonb ->> 'z'"
+  },
+  {
+    "comment": "jsonb - Statement 124",
+    "query": "SELECT '{\"x\":\"y\"}'::jsonb = '{\"x\":\"y\"}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 125",
+    "query": "SELECT '{\"x\":\"y\"}'::jsonb = '{\"x\":\"z\"}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 126",
+    "query": "SELECT '{\"x\":\"y\"}'::jsonb <> '{\"x\":\"y\"}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 127",
+    "query": "SELECT '{\"x\":\"y\"}'::jsonb <> '{\"x\":\"z\"}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 128",
+    "query": "SELECT jsonb_contains('{\"a\":\"b\", \"b\":1, \"c\":null}', '{\"a\":\"b\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 129",
+    "query": "SELECT jsonb_contains('{\"a\":\"b\", \"b\":1, \"c\":null}', '{\"a\":\"b\", \"c\":null}')"
+  },
+  {
+    "comment": "jsonb - Statement 130",
+    "query": "SELECT jsonb_contains('{\"a\":\"b\", \"b\":1, \"c\":null}', '{\"a\":\"b\", \"g\":null}')"
+  },
+  {
+    "comment": "jsonb - Statement 131",
+    "query": "SELECT jsonb_contains('{\"a\":\"b\", \"b\":1, \"c\":null}', '{\"g\":null}')"
+  },
+  {
+    "comment": "jsonb - Statement 132",
+    "query": "SELECT jsonb_contains('{\"a\":\"b\", \"b\":1, \"c\":null}', '{\"a\":\"c\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 133",
+    "query": "SELECT jsonb_contains('{\"a\":\"b\", \"b\":1, \"c\":null}', '{\"a\":\"b\", \"c\":\"q\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 134",
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"a\":\"b\"}'"
+  },
+  {
+    "comment": "jsonb - Statement 135",
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"a\":\"b\", \"c\":null}'"
+  },
+  {
+    "comment": "jsonb - Statement 136",
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"a\":\"b\", \"g\":null}'"
+  },
+  {
+    "comment": "jsonb - Statement 137",
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"g\":null}'"
+  },
+  {
+    "comment": "jsonb - Statement 138",
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"a\":\"c\"}'"
+  },
+  {
+    "comment": "jsonb - Statement 139",
+    "query": "SELECT '{\"a\":\"b\", \"b\":1, \"c\":null}'::jsonb @> '{\"a\":\"b\", \"c\":\"q\"}'"
+  },
+  {
+    "comment": "jsonb - Statement 140",
+    "query": "SELECT '[1,2]'::jsonb @> '[1,2,2]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 141",
+    "query": "SELECT '[1,1,2]'::jsonb @> '[1,2,2]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 142",
+    "query": "SELECT '[[1,2]]'::jsonb @> '[[1,2,2]]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 143",
+    "query": "SELECT '[1,2,2]'::jsonb <@ '[1,2]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 144",
+    "query": "SELECT '[1,2,2]'::jsonb <@ '[1,1,2]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 145",
+    "query": "SELECT '[[1,2,2]]'::jsonb <@ '[[1,2]]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 146",
+    "query": "SELECT jsonb_contained('{\"a\":\"b\"}', '{\"a\":\"b\", \"b\":1, \"c\":null}')"
+  },
+  {
+    "comment": "jsonb - Statement 147",
+    "query": "SELECT jsonb_contained('{\"a\":\"b\", \"c\":null}', '{\"a\":\"b\", \"b\":1, \"c\":null}')"
+  },
+  {
+    "comment": "jsonb - Statement 148",
+    "query": "SELECT jsonb_contained('{\"a\":\"b\", \"g\":null}', '{\"a\":\"b\", \"b\":1, \"c\":null}')"
+  },
+  {
+    "comment": "jsonb - Statement 149",
+    "query": "SELECT jsonb_contained('{\"g\":null}', '{\"a\":\"b\", \"b\":1, \"c\":null}')"
+  },
+  {
+    "comment": "jsonb - Statement 150",
+    "query": "SELECT jsonb_contained('{\"a\":\"c\"}', '{\"a\":\"b\", \"b\":1, \"c\":null}')"
+  },
+  {
+    "comment": "jsonb - Statement 151",
+    "query": "SELECT jsonb_contained('{\"a\":\"b\", \"c\":\"q\"}', '{\"a\":\"b\", \"b\":1, \"c\":null}')"
+  },
+  {
+    "comment": "jsonb - Statement 152",
+    "query": "SELECT '{\"a\":\"b\"}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+  },
+  {
+    "comment": "jsonb - Statement 153",
+    "query": "SELECT '{\"a\":\"b\", \"c\":null}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+  },
+  {
+    "comment": "jsonb - Statement 154",
+    "query": "SELECT '{\"a\":\"b\", \"g\":null}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+  },
+  {
+    "comment": "jsonb - Statement 155",
+    "query": "SELECT '{\"g\":null}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+  },
+  {
+    "comment": "jsonb - Statement 156",
+    "query": "SELECT '{\"a\":\"c\"}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+  },
+  {
+    "comment": "jsonb - Statement 157",
+    "query": "SELECT '{\"a\":\"b\", \"c\":\"q\"}'::jsonb <@ '{\"a\":\"b\", \"b\":1, \"c\":null}'"
+  },
+  {
+    "comment": "jsonb - Statement 158",
+    "query": "SELECT '[5]'::jsonb @> '[5]'"
+  },
+  {
+    "comment": "jsonb - Statement 159",
+    "query": "SELECT '5'::jsonb @> '5'"
+  },
+  {
+    "comment": "jsonb - Statement 160",
+    "query": "SELECT '[5]'::jsonb @> '5'"
+  },
+  {
+    "comment": "jsonb - Statement 161",
+    "query": "SELECT '5'::jsonb @> '[5]'"
+  },
+  {
+    "comment": "jsonb - Statement 162",
+    "query": "SELECT '[\"9\", [\"7\", \"3\"], 1]'::jsonb @> '[\"9\", [\"7\", \"3\"], 1]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 163",
+    "query": "SELECT '[\"9\", [\"7\", \"3\"], [\"1\"]]'::jsonb @> '[\"9\", [\"7\", \"3\"], [\"1\"]]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 164",
+    "query": "SELECT '{ \"name\": \"Bob\", \"tags\": [ \"enim\", \"qui\"]}'::jsonb @> '{\"tags\":[\"qu\"]}'"
+  },
+  {
+    "comment": "jsonb - Statement 165",
+    "query": "SELECT jsonb_array_length('[1,2,3,{\"f1\":1,\"f2\":[5,6]},4]')"
+  },
+  {
+    "comment": "jsonb - Statement 166",
+    "query": "SELECT jsonb_array_length('[]')"
+  },
+  {
+    "comment": "jsonb - Statement 167",
+    "query": "SELECT jsonb_array_length('{\"f1\":1,\"f2\":[5,6]}')"
+  },
+  {
+    "comment": "jsonb - Statement 168",
+    "query": "SELECT jsonb_array_length('4')"
+  },
+  {
+    "comment": "jsonb - Statement 169",
+    "query": "SELECT jsonb_each('{\"f1\":[1,2,3],\"f2\":{\"f3\":1},\"f4\":null}')"
+  },
+  {
+    "comment": "jsonb - Statement 170",
+    "query": "SELECT jsonb_each('{\"a\":{\"b\":\"c\",\"c\":\"b\",\"1\":\"first\"},\"b\":[1,2],\"c\":\"cc\",\"1\":\"first\",\"n\":null}'::jsonb) AS q"
+  },
+  {
+    "comment": "jsonb - Statement 171",
+    "query": "SELECT * FROM jsonb_each('{\"f1\":[1,2,3],\"f2\":{\"f3\":1},\"f4\":null,\"f5\":99,\"f6\":\"stringy\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 172",
+    "query": "SELECT * FROM jsonb_each('{\"a\":{\"b\":\"c\",\"c\":\"b\",\"1\":\"first\"},\"b\":[1,2],\"c\":\"cc\",\"1\":\"first\",\"n\":null}'::jsonb) AS q"
+  },
+  {
+    "comment": "jsonb - Statement 173",
+    "query": "SELECT jsonb_each_text('{\"f1\":[1,2,3],\"f2\":{\"f3\":1},\"f4\":null,\"f5\":\"null\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 174",
+    "query": "SELECT jsonb_each_text('{\"a\":{\"b\":\"c\",\"c\":\"b\",\"1\":\"first\"},\"b\":[1,2],\"c\":\"cc\",\"1\":\"first\",\"n\":null}'::jsonb) AS q"
+  },
+  {
+    "comment": "jsonb - Statement 175",
+    "query": "SELECT * FROM jsonb_each_text('{\"f1\":[1,2,3],\"f2\":{\"f3\":1},\"f4\":null,\"f5\":99,\"f6\":\"stringy\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 176",
+    "query": "SELECT * FROM jsonb_each_text('{\"a\":{\"b\":\"c\",\"c\":\"b\",\"1\":\"first\"},\"b\":[1,2],\"c\":\"cc\",\"1\":\"first\",\"n\":null}'::jsonb) AS q"
+  },
+  {
+    "comment": "jsonb - Statement 177",
+    "query": "SELECT jsonb_exists('{\"a\":null, \"b\":\"qq\"}', 'a')"
+  },
+  {
+    "comment": "jsonb - Statement 178",
+    "query": "SELECT jsonb_exists('{\"a\":null, \"b\":\"qq\"}', 'b')"
+  },
+  {
+    "comment": "jsonb - Statement 179",
+    "query": "SELECT jsonb_exists('{\"a\":null, \"b\":\"qq\"}', 'c')"
+  },
+  {
+    "comment": "jsonb - Statement 180",
+    "query": "SELECT jsonb_exists('{\"a\":\"null\", \"b\":\"qq\"}', 'a')"
+  },
+  {
+    "comment": "jsonb - Statement 181",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ? 'a'"
+  },
+  {
+    "comment": "jsonb - Statement 182",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ? 'b'"
+  },
+  {
+    "comment": "jsonb - Statement 183",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ? 'c'"
+  },
+  {
+    "comment": "jsonb - Statement 184",
+    "query": "SELECT jsonb '{\"a\":\"null\", \"b\":\"qq\"}' ? 'a'"
+  },
+  {
+    "comment": "jsonb - Statement 185",
+    "query": "SELECT count(*) from testjsonb  WHERE j->'array' ? 'bar'"
+  },
+  {
+    "comment": "jsonb - Statement 186",
+    "query": "SELECT count(*) from testjsonb  WHERE j->'array' ? '5'::text"
+  },
+  {
+    "comment": "jsonb - Statement 187",
+    "query": "SELECT count(*) from testjsonb  WHERE j->'array' @> '5'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 188",
+    "query": "SELECT jsonb_exists_any('{\"a\":null, \"b\":\"qq\"}', ARRAY['a','b'])"
+  },
+  {
+    "comment": "jsonb - Statement 189",
+    "query": "SELECT jsonb_exists_any('{\"a\":null, \"b\":\"qq\"}', ARRAY['b','a'])"
+  },
+  {
+    "comment": "jsonb - Statement 190",
+    "query": "SELECT jsonb_exists_any('{\"a\":null, \"b\":\"qq\"}', ARRAY['c','a'])"
+  },
+  {
+    "comment": "jsonb - Statement 191",
+    "query": "SELECT jsonb_exists_any('{\"a\":null, \"b\":\"qq\"}', ARRAY['c','d'])"
+  },
+  {
+    "comment": "jsonb - Statement 192",
+    "query": "SELECT jsonb_exists_any('{\"a\":null, \"b\":\"qq\"}', '{}'::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 193",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?| ARRAY['a','b']"
+  },
+  {
+    "comment": "jsonb - Statement 194",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?| ARRAY['b','a']"
+  },
+  {
+    "comment": "jsonb - Statement 195",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?| ARRAY['c','a']"
+  },
+  {
+    "comment": "jsonb - Statement 196",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?| ARRAY['c','d']"
+  },
+  {
+    "comment": "jsonb - Statement 197",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?| '{}'::text[]"
+  },
+  {
+    "comment": "jsonb - Statement 198",
+    "query": "SELECT jsonb_exists_all('{\"a\":null, \"b\":\"qq\"}', ARRAY['a','b'])"
+  },
+  {
+    "comment": "jsonb - Statement 199",
+    "query": "SELECT jsonb_exists_all('{\"a\":null, \"b\":\"qq\"}', ARRAY['b','a'])"
+  },
+  {
+    "comment": "jsonb - Statement 200",
+    "query": "SELECT jsonb_exists_all('{\"a\":null, \"b\":\"qq\"}', ARRAY['c','a'])"
+  },
+  {
+    "comment": "jsonb - Statement 201",
+    "query": "SELECT jsonb_exists_all('{\"a\":null, \"b\":\"qq\"}', ARRAY['c','d'])"
+  },
+  {
+    "comment": "jsonb - Statement 202",
+    "query": "SELECT jsonb_exists_all('{\"a\":null, \"b\":\"qq\"}', '{}'::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 203",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& ARRAY['a','b']"
+  },
+  {
+    "comment": "jsonb - Statement 204",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& ARRAY['b','a']"
+  },
+  {
+    "comment": "jsonb - Statement 205",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& ARRAY['c','a']"
+  },
+  {
+    "comment": "jsonb - Statement 206",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& ARRAY['c','d']"
+  },
+  {
+    "comment": "jsonb - Statement 207",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& ARRAY['a','a', 'b', 'b', 'b']"
+  },
+  {
+    "comment": "jsonb - Statement 208",
+    "query": "SELECT jsonb '{\"a\":null, \"b\":\"qq\"}' ?& '{}'::text[]"
+  },
+  {
+    "comment": "jsonb - Statement 209",
+    "query": "SELECT jsonb_typeof('{}') AS object"
+  },
+  {
+    "comment": "jsonb - Statement 210",
+    "query": "SELECT jsonb_typeof('{\"c\":3,\"p\":\"o\"}') AS object"
+  },
+  {
+    "comment": "jsonb - Statement 211",
+    "query": "SELECT jsonb_typeof('[]') AS array"
+  },
+  {
+    "comment": "jsonb - Statement 212",
+    "query": "SELECT jsonb_typeof('[\"a\", 1]') AS array"
+  },
+  {
+    "comment": "jsonb - Statement 213",
+    "query": "SELECT jsonb_typeof('null') AS \"null\""
+  },
+  {
+    "comment": "jsonb - Statement 214",
+    "query": "SELECT jsonb_typeof('1') AS number"
+  },
+  {
+    "comment": "jsonb - Statement 215",
+    "query": "SELECT jsonb_typeof('-1') AS number"
+  },
+  {
+    "comment": "jsonb - Statement 216",
+    "query": "SELECT jsonb_typeof('1.0') AS number"
+  },
+  {
+    "comment": "jsonb - Statement 217",
+    "query": "SELECT jsonb_typeof('1e2') AS number"
+  },
+  {
+    "comment": "jsonb - Statement 218",
+    "query": "SELECT jsonb_typeof('-1.0') AS number"
+  },
+  {
+    "comment": "jsonb - Statement 219",
+    "query": "SELECT jsonb_typeof('true') AS boolean"
+  },
+  {
+    "comment": "jsonb - Statement 220",
+    "query": "SELECT jsonb_typeof('false') AS boolean"
+  },
+  {
+    "comment": "jsonb - Statement 221",
+    "query": "SELECT jsonb_typeof('\"hello\"') AS string"
+  },
+  {
+    "comment": "jsonb - Statement 222",
+    "query": "SELECT jsonb_typeof('\"true\"') AS string"
+  },
+  {
+    "comment": "jsonb - Statement 223",
+    "query": "SELECT jsonb_typeof('\"1.0\"') AS string"
+  },
+  {
+    "comment": "jsonb - Statement 224",
+    "query": "SELECT jsonb_build_array('a',1,'b',1.2,'c',true,'d',null,'e',json '{\"x\": 3, \"y\": [1,2,3]}')"
+  },
+  {
+    "comment": "jsonb - Statement 225",
+    "query": "SELECT jsonb_build_array('a', NULL)"
+  },
+  {
+    "comment": "jsonb - Statement 226",
+    "query": "SELECT jsonb_build_array(VARIADIC NULL::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 227",
+    "query": "SELECT jsonb_build_array(VARIADIC '{}'::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 228",
+    "query": "SELECT jsonb_build_array(VARIADIC '{a,b,c}'::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 229",
+    "query": "SELECT jsonb_build_array(VARIADIC ARRAY['a', NULL]::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 230",
+    "query": "SELECT jsonb_build_array(VARIADIC '{1,2,3,4}'::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 231",
+    "query": "SELECT jsonb_build_array(VARIADIC '{1,2,3,4}'::int[])"
+  },
+  {
+    "comment": "jsonb - Statement 232",
+    "query": "SELECT jsonb_build_array(VARIADIC '{{1,4},{2,5},{3,6}}'::int[][])"
+  },
+  {
+    "comment": "jsonb - Statement 233",
+    "query": "SELECT jsonb_build_object('a',1,'b',1.2,'c',true,'d',null,'e',json '{\"x\": 3, \"y\": [1,2,3]}')"
+  },
+  {
+    "comment": "jsonb - Statement 234",
+    "query": "SELECT jsonb_build_object( 'a', jsonb_build_object('b',false,'c',99), 'd', jsonb_build_object('e',array[9,8,7]::int[], 'f', (select row_to_json(r) from ( select relkind, oid::regclass as name from pg_class where relname = 'pg_class') r)))"
+  },
+  {
+    "comment": "jsonb - Statement 235",
+    "query": "SELECT jsonb_build_object('{a,b,c}'::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 236",
+    "query": "SELECT jsonb_build_object('{a,b,c}'::text[], '{d,e,f}'::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 237",
+    "query": "SELECT jsonb_build_object('a', 'b', 'c')"
+  },
+  {
+    "comment": "jsonb - Statement 238",
+    "query": "SELECT jsonb_build_object(NULL, 'a')"
+  },
+  {
+    "comment": "jsonb - Statement 239",
+    "query": "SELECT jsonb_build_object('a', NULL)"
+  },
+  {
+    "comment": "jsonb - Statement 240",
+    "query": "SELECT jsonb_build_object(VARIADIC NULL::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 241",
+    "query": "SELECT jsonb_build_object(VARIADIC '{}'::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 242",
+    "query": "SELECT jsonb_build_object(VARIADIC '{a,b,c}'::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 243",
+    "query": "SELECT jsonb_build_object(VARIADIC ARRAY['a', NULL]::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 244",
+    "query": "SELECT jsonb_build_object(VARIADIC ARRAY[NULL, 'a']::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 245",
+    "query": "SELECT jsonb_build_object(VARIADIC '{1,2,3,4}'::text[])"
+  },
+  {
+    "comment": "jsonb - Statement 246",
+    "query": "SELECT jsonb_build_object(VARIADIC '{1,2,3,4}'::int[])"
+  },
+  {
+    "comment": "jsonb - Statement 247",
+    "query": "SELECT jsonb_build_object(VARIADIC '{{1,4},{2,5},{3,6}}'::int[][])"
+  },
+  {
+    "comment": "jsonb - Statement 248",
+    "query": "SELECT jsonb_build_array()"
+  },
+  {
+    "comment": "jsonb - Statement 249",
+    "query": "SELECT jsonb_build_object()"
+  },
+  {
+    "comment": "jsonb - Statement 250",
+    "query": "SELECT jsonb_build_object(1,2)"
+  },
+  {
+    "comment": "jsonb - Statement 251",
+    "query": "SELECT jsonb_build_object(null,2)"
+  },
+  {
+    "comment": "jsonb - Statement 252",
+    "query": "SELECT jsonb_build_object(r,2) FROM (SELECT 1 AS a, 2 AS b) r"
+  },
+  {
+    "comment": "jsonb - Statement 253",
+    "query": "SELECT jsonb_build_object(json '{\"a\":1,\"b\":2}', 3)"
+  },
+  {
+    "comment": "jsonb - Statement 254",
+    "query": "SELECT jsonb_build_object('{1,2,3}'::int[], 3)"
+  },
+  {
+    "comment": "jsonb - Statement 255",
+    "query": "SELECT jsonb_object_agg(1, NULL::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 256",
+    "query": "SELECT jsonb_object_agg(NULL, '{\"a\":1}')"
+  },
+  {
+    "comment": "jsonb - Statement 257",
+    "query": "CREATE TEMP TABLE foo (serial_num int, name text, type text)"
+  },
+  {
+    "comment": "jsonb - Statement 258",
+    "query": "INSERT INTO foo VALUES (847001,'t15','GE1043')"
+  },
+  {
+    "comment": "jsonb - Statement 259",
+    "query": "INSERT INTO foo VALUES (847002,'t16','GE1043')"
+  },
+  {
+    "comment": "jsonb - Statement 260",
+    "query": "INSERT INTO foo VALUES (847003,'sub-alpha','GESS90')"
+  },
+  {
+    "comment": "jsonb - Statement 261",
+    "query": "SELECT jsonb_build_object('turbines',jsonb_object_agg(serial_num,jsonb_build_object('name',name,'type',type))) FROM foo"
+  },
+  {
+    "comment": "jsonb - Statement 262",
+    "query": "SELECT jsonb_object_agg(name, type) FROM foo"
+  },
+  {
+    "comment": "jsonb - Statement 263",
+    "query": "INSERT INTO foo VALUES (999999, NULL, 'bar')"
+  },
+  {
+    "comment": "jsonb - Statement 264",
+    "query": "SELECT jsonb_object_agg(DISTINCT 'a', 'abc')"
+  },
+  {
+    "comment": "jsonb - Statement 265",
+    "query": "SELECT jsonb_object('{}')"
+  },
+  {
+    "comment": "jsonb - Statement 266",
+    "query": "SELECT jsonb_object('{}', '{}')"
+  },
+  {
+    "comment": "jsonb - Statement 267",
+    "query": "SELECT jsonb_object('{a,1,b,2,3,NULL,\"d e f\",\"a b c\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 268",
+    "query": "SELECT jsonb_object('{{a,1},{b,2},{3,NULL},{\"d e f\",\"a b c\"}}')"
+  },
+  {
+    "comment": "jsonb - Statement 269",
+    "query": "SELECT jsonb_object('{a,b,c}')"
+  },
+  {
+    "comment": "jsonb - Statement 270",
+    "query": "SELECT jsonb_object('{{a},{b}}')"
+  },
+  {
+    "comment": "jsonb - Statement 271",
+    "query": "SELECT jsonb_object('{{a,b,c},{b,c,d}}')"
+  },
+  {
+    "comment": "jsonb - Statement 272",
+    "query": "SELECT jsonb_object('{{{a,b},{c,d}},{{b,c},{d,e}}}')"
+  },
+  {
+    "comment": "jsonb - Statement 273",
+    "query": "select jsonb_object('{a,b,c,\"d e f\"}','{1,2,3,\"a b c\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 274",
+    "query": "SELECT jsonb_object('{{a,1},{b,2},{3,NULL},{\"d e f\",\"a b c\"}}', '{{a,1},{b,2},{3,NULL},{\"d e f\",\"a b c\"}}')"
+  },
+  {
+    "comment": "jsonb - Statement 275",
+    "query": "select jsonb_object('{a,b,c,\"d e f\",g}','{1,2,3,\"a b c\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 276",
+    "query": "select jsonb_object('{a,b,c,\"d e f\"}','{1,2,3,\"a b c\",g}')"
+  },
+  {
+    "comment": "jsonb - Statement 277",
+    "query": "select jsonb_object('{a,b,NULL,\"d e f\"}','{1,2,3,\"a b c\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 278",
+    "query": "select jsonb_object('{a,b,\"\",\"d e f\"}','{1,2,3,\"a b c\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 279",
+    "query": "SELECT jsonb_extract_path('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f4','f6')"
+  },
+  {
+    "comment": "jsonb - Statement 280",
+    "query": "SELECT jsonb_extract_path('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2')"
+  },
+  {
+    "comment": "jsonb - Statement 281",
+    "query": "SELECT jsonb_extract_path('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2',0::text)"
+  },
+  {
+    "comment": "jsonb - Statement 282",
+    "query": "SELECT jsonb_extract_path('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2',1::text)"
+  },
+  {
+    "comment": "jsonb - Statement 283",
+    "query": "SELECT jsonb_extract_path_text('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f4','f6')"
+  },
+  {
+    "comment": "jsonb - Statement 284",
+    "query": "SELECT jsonb_extract_path_text('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2')"
+  },
+  {
+    "comment": "jsonb - Statement 285",
+    "query": "SELECT jsonb_extract_path_text('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2',0::text)"
+  },
+  {
+    "comment": "jsonb - Statement 286",
+    "query": "SELECT jsonb_extract_path_text('{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}','f2',1::text)"
+  },
+  {
+    "comment": "jsonb - Statement 287",
+    "query": "SELECT jsonb_extract_path('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":null,\"f6\":\"stringy\"}}','f4','f5') IS NULL AS expect_false"
+  },
+  {
+    "comment": "jsonb - Statement 288",
+    "query": "SELECT jsonb_extract_path_text('{\"f2\":{\"f3\":1},\"f4\":{\"f5\":null,\"f6\":\"stringy\"}}','f4','f5') IS NULL AS expect_true"
+  },
+  {
+    "comment": "jsonb - Statement 289",
+    "query": "SELECT jsonb_extract_path('{\"f2\":{\"f3\":1},\"f4\":[0,1,2,null]}','f4','3') IS NULL AS expect_false"
+  },
+  {
+    "comment": "jsonb - Statement 290",
+    "query": "SELECT jsonb_extract_path_text('{\"f2\":{\"f3\":1},\"f4\":[0,1,2,null]}','f4','3') IS NULL AS expect_true"
+  },
+  {
+    "comment": "jsonb - Statement 291",
+    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>array['f4','f6']"
+  },
+  {
+    "comment": "jsonb - Statement 292",
+    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>array['f2']"
+  },
+  {
+    "comment": "jsonb - Statement 293",
+    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>array['f2','0']"
+  },
+  {
+    "comment": "jsonb - Statement 294",
+    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>array['f2','1']"
+  },
+  {
+    "comment": "jsonb - Statement 295",
+    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>>array['f4','f6']"
+  },
+  {
+    "comment": "jsonb - Statement 296",
+    "query": "SELECT '{\"f2\":{\"f3\":1},\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>>array['f2']"
+  },
+  {
+    "comment": "jsonb - Statement 297",
+    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>>array['f2','0']"
+  },
+  {
+    "comment": "jsonb - Statement 298",
+    "query": "SELECT '{\"f2\":[\"f3\",1],\"f4\":{\"f5\":99,\"f6\":\"stringy\"}}'::jsonb#>>array['f2','1']"
+  },
+  {
+    "comment": "jsonb - Statement 299",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 300",
+    "query": "select '[1,2,3]'::jsonb #> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 301",
+    "query": "select '\"foo\"'::jsonb #> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 302",
+    "query": "select '42'::jsonb #> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 303",
+    "query": "select 'null'::jsonb #> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 304",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a']"
+  },
+  {
+    "comment": "jsonb - Statement 305",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a', null]"
+  },
+  {
+    "comment": "jsonb - Statement 306",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a', '']"
+  },
+  {
+    "comment": "jsonb - Statement 307",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a','b']"
+  },
+  {
+    "comment": "jsonb - Statement 308",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a','b','c']"
+  },
+  {
+    "comment": "jsonb - Statement 309",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a','b','c','d']"
+  },
+  {
+    "comment": "jsonb - Statement 310",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #> array['a','z','c']"
+  },
+  {
+    "comment": "jsonb - Statement 311",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #> array['a','1','b']"
+  },
+  {
+    "comment": "jsonb - Statement 312",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #> array['a','z','b']"
+  },
+  {
+    "comment": "jsonb - Statement 313",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #> array['1','b']"
+  },
+  {
+    "comment": "jsonb - Statement 314",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #> array['z','b']"
+  },
+  {
+    "comment": "jsonb - Statement 315",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::jsonb #> array['1','b']"
+  },
+  {
+    "comment": "jsonb - Statement 316",
+    "query": "select '\"foo\"'::jsonb #> array['z']"
+  },
+  {
+    "comment": "jsonb - Statement 317",
+    "query": "select '42'::jsonb #> array['f2']"
+  },
+  {
+    "comment": "jsonb - Statement 318",
+    "query": "select '42'::jsonb #> array['0']"
+  },
+  {
+    "comment": "jsonb - Statement 319",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 320",
+    "query": "select '[1,2,3]'::jsonb #>> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 321",
+    "query": "select '\"foo\"'::jsonb #>> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 322",
+    "query": "select '42'::jsonb #>> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 323",
+    "query": "select 'null'::jsonb #>> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 324",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a']"
+  },
+  {
+    "comment": "jsonb - Statement 325",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a', null]"
+  },
+  {
+    "comment": "jsonb - Statement 326",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a', '']"
+  },
+  {
+    "comment": "jsonb - Statement 327",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a','b']"
+  },
+  {
+    "comment": "jsonb - Statement 328",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a','b','c']"
+  },
+  {
+    "comment": "jsonb - Statement 329",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a','b','c','d']"
+  },
+  {
+    "comment": "jsonb - Statement 330",
+    "query": "select '{\"a\": {\"b\":{\"c\": \"foo\"}}}'::jsonb #>> array['a','z','c']"
+  },
+  {
+    "comment": "jsonb - Statement 331",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #>> array['a','1','b']"
+  },
+  {
+    "comment": "jsonb - Statement 332",
+    "query": "select '{\"a\": [{\"b\": \"c\"}, {\"b\": \"cc\"}]}'::jsonb #>> array['a','z','b']"
+  },
+  {
+    "comment": "jsonb - Statement 333",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #>> array['1','b']"
+  },
+  {
+    "comment": "jsonb - Statement 334",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": \"cc\"}]'::jsonb #>> array['z','b']"
+  },
+  {
+    "comment": "jsonb - Statement 335",
+    "query": "select '[{\"b\": \"c\"}, {\"b\": null}]'::jsonb #>> array['1','b']"
+  },
+  {
+    "comment": "jsonb - Statement 336",
+    "query": "select '\"foo\"'::jsonb #>> array['z']"
+  },
+  {
+    "comment": "jsonb - Statement 337",
+    "query": "select '42'::jsonb #>> array['f2']"
+  },
+  {
+    "comment": "jsonb - Statement 338",
+    "query": "select '42'::jsonb #>> array['0']"
+  },
+  {
+    "comment": "jsonb - Statement 339",
+    "query": "SELECT jsonb_array_elements('[1,true,[1,[2,3]],null,{\"f1\":1,\"f2\":[7,8,9]},false]')"
+  },
+  {
+    "comment": "jsonb - Statement 340",
+    "query": "SELECT * FROM jsonb_array_elements('[1,true,[1,[2,3]],null,{\"f1\":1,\"f2\":[7,8,9]},false]') q"
+  },
+  {
+    "comment": "jsonb - Statement 341",
+    "query": "SELECT jsonb_array_elements_text('[1,true,[1,[2,3]],null,{\"f1\":1,\"f2\":[7,8,9]},false,\"stringy\"]')"
+  },
+  {
+    "comment": "jsonb - Statement 342",
+    "query": "SELECT * FROM jsonb_array_elements_text('[1,true,[1,[2,3]],null,{\"f1\":1,\"f2\":[7,8,9]},false,\"stringy\"]') q"
+  },
+  {
+    "comment": "jsonb - Statement 343",
+    "query": "CREATE TYPE jbpop AS (a text, b int, c timestamp)"
+  },
+  {
+    "comment": "jsonb - Statement 344",
+    "query": "CREATE DOMAIN jsb_int_not_null  AS int     NOT NULL"
+  },
+  {
+    "comment": "jsonb - Statement 345",
+    "query": "CREATE DOMAIN jsb_int_array_1d  AS int[]   CHECK(array_length(VALUE, 1) = 3)"
+  },
+  {
+    "comment": "jsonb - Statement 346",
+    "query": "CREATE DOMAIN jsb_int_array_2d  AS int[][] CHECK(array_length(VALUE, 2) = 3)"
+  },
+  {
+    "comment": "jsonb - Statement 347",
+    "query": "create type jb_unordered_pair as (x int, y int)"
+  },
+  {
+    "comment": "jsonb - Statement 348",
+    "query": "create domain jb_ordered_pair as jb_unordered_pair check((value).x <= (value).y)"
+  },
+  {
+    "comment": "jsonb - Statement 349",
+    "query": "CREATE TYPE jsbrec AS ( i\tint, ia\t_int4, ia1\tint[], ia2\tint[][], ia3\tint[][][], ia1d\tjsb_int_array_1d, ia2d\tjsb_int_array_2d, t\ttext, ta\ttext[], c\tchar(10), ca\tchar(10)[], ts\ttimestamp, js\tjson, jsb\tjsonb, jsa\tjson[], rec\tjbpop, reca\tjbpop[] )"
+  },
+  {
+    "comment": "jsonb - Statement 350",
+    "query": "CREATE TYPE jsbrec_i_not_null AS ( i\tjsb_int_not_null )"
+  },
+  {
+    "comment": "jsonb - Statement 351",
+    "query": "SELECT * FROM jsonb_populate_record(NULL::jbpop,'{\"a\":\"blurfl\",\"x\":43.2}') q"
+  },
+  {
+    "comment": "jsonb - Statement 352",
+    "query": "SELECT * FROM jsonb_populate_record(row('x',3,'2012-12-31 15:30:56')::jbpop,'{\"a\":\"blurfl\",\"x\":43.2}') q"
+  },
+  {
+    "comment": "jsonb - Statement 353",
+    "query": "SELECT * FROM jsonb_populate_record(NULL::jbpop,'{\"a\":[100,200,false],\"x\":43.2}') q"
+  },
+  {
+    "comment": "jsonb - Statement 354",
+    "query": "SELECT * FROM jsonb_populate_record(row('x',3,'2012-12-31 15:30:56')::jbpop,'{\"a\":[100,200,false],\"x\":43.2}') q"
+  },
+  {
+    "comment": "jsonb - Statement 355",
+    "query": "SELECT * FROM jsonb_populate_record(row('x',3,'2012-12-31 15:30:56')::jbpop,'{\"c\":[100,200,false],\"x\":43.2}') q"
+  },
+  {
+    "comment": "jsonb - Statement 356",
+    "query": "SELECT * FROM jsonb_populate_record(row('x',3,'2012-12-31 15:30:56')::jbpop, '{}') q"
+  },
+  {
+    "comment": "jsonb - Statement 357",
+    "query": "SELECT i FROM jsonb_populate_record(NULL::jsbrec_i_not_null, '{\"x\": 43.2}') q"
+  },
+  {
+    "comment": "jsonb - Statement 358",
+    "query": "SELECT i FROM jsonb_populate_record(NULL::jsbrec_i_not_null, '{\"i\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 359",
+    "query": "SELECT i FROM jsonb_populate_record(NULL::jsbrec_i_not_null, '{\"i\": 12345}') q"
+  },
+  {
+    "comment": "jsonb - Statement 360",
+    "query": "SELECT ia FROM jsonb_populate_record(NULL::jsbrec, '{\"ia\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 361",
+    "query": "SELECT ia FROM jsonb_populate_record(NULL::jsbrec, '{\"ia\": 123}') q"
+  },
+  {
+    "comment": "jsonb - Statement 362",
+    "query": "SELECT ia FROM jsonb_populate_record(NULL::jsbrec, '{\"ia\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 363",
+    "query": "SELECT ia FROM jsonb_populate_record(NULL::jsbrec, '{\"ia\": [[1, 2], [3, 4]]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 364",
+    "query": "SELECT ia FROM jsonb_populate_record(NULL::jsbrec, '{\"ia\": [[1], 2]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 365",
+    "query": "SELECT ia FROM jsonb_populate_record(NULL::jsbrec, '{\"ia\": [[1], [2, 3]]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 366",
+    "query": "SELECT ia FROM jsonb_populate_record(NULL::jsbrec, '{\"ia\": \"{1,2,3}\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 367",
+    "query": "SELECT ia1 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia1\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 368",
+    "query": "SELECT ia1 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia1\": 123}') q"
+  },
+  {
+    "comment": "jsonb - Statement 369",
+    "query": "SELECT ia1 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia1\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 370",
+    "query": "SELECT ia1 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia1\": [[1, 2, 3]]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 371",
+    "query": "SELECT ia1d FROM jsonb_populate_record(NULL::jsbrec, '{\"ia1d\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 372",
+    "query": "SELECT ia1d FROM jsonb_populate_record(NULL::jsbrec, '{\"ia1d\": 123}') q"
+  },
+  {
+    "comment": "jsonb - Statement 373",
+    "query": "SELECT ia1d FROM jsonb_populate_record(NULL::jsbrec, '{\"ia1d\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 374",
+    "query": "SELECT ia1d FROM jsonb_populate_record(NULL::jsbrec, '{\"ia1d\": [1, \"2\", null]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 375",
+    "query": "SELECT ia2 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia2\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 376",
+    "query": "SELECT ia2 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia2\": [[1, 2], [null, 4]]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 377",
+    "query": "SELECT ia2 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia2\": [[], []]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 378",
+    "query": "SELECT ia2 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia2\": [[1, 2], [3]]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 379",
+    "query": "SELECT ia2 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia2\": [[1, 2], 3, 4]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 380",
+    "query": "SELECT ia2d FROM jsonb_populate_record(NULL::jsbrec, '{\"ia2d\": [[1, \"2\"], [null, 4]]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 381",
+    "query": "SELECT ia2d FROM jsonb_populate_record(NULL::jsbrec, '{\"ia2d\": [[1, \"2\", 3], [null, 5, 6]]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 382",
+    "query": "SELECT ia3 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia3\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 383",
+    "query": "SELECT ia3 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia3\": [[1, 2], [null, 4]]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 384",
+    "query": "SELECT ia3 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia3\": [ [[], []], [[], []], [[], []] ]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 385",
+    "query": "SELECT ia3 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia3\": [ [[1, 2]], [[3, 4]] ]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 386",
+    "query": "SELECT ia3 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia3\": [ [[1, 2], [3, 4]], [[5, 6], [7, 8]] ]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 387",
+    "query": "SELECT ia3 FROM jsonb_populate_record(NULL::jsbrec, '{\"ia3\": [ [[1, 2], [3, 4]], [[5, 6], [7, 8], [9, 10]] ]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 388",
+    "query": "SELECT ta FROM jsonb_populate_record(NULL::jsbrec, '{\"ta\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 389",
+    "query": "SELECT ta FROM jsonb_populate_record(NULL::jsbrec, '{\"ta\": 123}') q"
+  },
+  {
+    "comment": "jsonb - Statement 390",
+    "query": "SELECT ta FROM jsonb_populate_record(NULL::jsbrec, '{\"ta\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 391",
+    "query": "SELECT ta FROM jsonb_populate_record(NULL::jsbrec, '{\"ta\": [[1, 2, 3], {\"k\": \"v\"}]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 392",
+    "query": "SELECT c FROM jsonb_populate_record(NULL::jsbrec, '{\"c\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 393",
+    "query": "SELECT c FROM jsonb_populate_record(NULL::jsbrec, '{\"c\": \"aaa\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 394",
+    "query": "SELECT c FROM jsonb_populate_record(NULL::jsbrec, '{\"c\": \"aaaaaaaaaa\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 395",
+    "query": "SELECT c FROM jsonb_populate_record(NULL::jsbrec, '{\"c\": \"aaaaaaaaaaaaa\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 396",
+    "query": "SELECT ca FROM jsonb_populate_record(NULL::jsbrec, '{\"ca\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 397",
+    "query": "SELECT ca FROM jsonb_populate_record(NULL::jsbrec, '{\"ca\": 123}') q"
+  },
+  {
+    "comment": "jsonb - Statement 398",
+    "query": "SELECT ca FROM jsonb_populate_record(NULL::jsbrec, '{\"ca\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 399",
+    "query": "SELECT ca FROM jsonb_populate_record(NULL::jsbrec, '{\"ca\": [\"aaaaaaaaaaaaaaaa\"]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 400",
+    "query": "SELECT ca FROM jsonb_populate_record(NULL::jsbrec, '{\"ca\": [[1, 2, 3], {\"k\": \"v\"}]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 401",
+    "query": "SELECT js FROM jsonb_populate_record(NULL::jsbrec, '{\"js\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 402",
+    "query": "SELECT js FROM jsonb_populate_record(NULL::jsbrec, '{\"js\": true}') q"
+  },
+  {
+    "comment": "jsonb - Statement 403",
+    "query": "SELECT js FROM jsonb_populate_record(NULL::jsbrec, '{\"js\": 123.45}') q"
+  },
+  {
+    "comment": "jsonb - Statement 404",
+    "query": "SELECT js FROM jsonb_populate_record(NULL::jsbrec, '{\"js\": \"123.45\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 405",
+    "query": "SELECT js FROM jsonb_populate_record(NULL::jsbrec, '{\"js\": \"abc\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 406",
+    "query": "SELECT js FROM jsonb_populate_record(NULL::jsbrec, '{\"js\": [123, \"123\", null, {\"key\": \"value\"}]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 407",
+    "query": "SELECT js FROM jsonb_populate_record(NULL::jsbrec, '{\"js\": {\"a\": \"bbb\", \"b\": null, \"c\": 123.45}}') q"
+  },
+  {
+    "comment": "jsonb - Statement 408",
+    "query": "SELECT jsb FROM jsonb_populate_record(NULL::jsbrec, '{\"jsb\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 409",
+    "query": "SELECT jsb FROM jsonb_populate_record(NULL::jsbrec, '{\"jsb\": true}') q"
+  },
+  {
+    "comment": "jsonb - Statement 410",
+    "query": "SELECT jsb FROM jsonb_populate_record(NULL::jsbrec, '{\"jsb\": 123.45}') q"
+  },
+  {
+    "comment": "jsonb - Statement 411",
+    "query": "SELECT jsb FROM jsonb_populate_record(NULL::jsbrec, '{\"jsb\": \"123.45\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 412",
+    "query": "SELECT jsb FROM jsonb_populate_record(NULL::jsbrec, '{\"jsb\": \"abc\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 413",
+    "query": "SELECT jsb FROM jsonb_populate_record(NULL::jsbrec, '{\"jsb\": [123, \"123\", null, {\"key\": \"value\"}]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 414",
+    "query": "SELECT jsb FROM jsonb_populate_record(NULL::jsbrec, '{\"jsb\": {\"a\": \"bbb\", \"b\": null, \"c\": 123.45}}') q"
+  },
+  {
+    "comment": "jsonb - Statement 415",
+    "query": "SELECT jsa FROM jsonb_populate_record(NULL::jsbrec, '{\"jsa\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 416",
+    "query": "SELECT jsa FROM jsonb_populate_record(NULL::jsbrec, '{\"jsa\": 123}') q"
+  },
+  {
+    "comment": "jsonb - Statement 417",
+    "query": "SELECT jsa FROM jsonb_populate_record(NULL::jsbrec, '{\"jsa\": [1, \"2\", null, 4]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 418",
+    "query": "SELECT jsa FROM jsonb_populate_record(NULL::jsbrec, '{\"jsa\": [\"aaa\", null, [1, 2, \"3\", {}], { \"k\" : \"v\" }]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 419",
+    "query": "SELECT rec FROM jsonb_populate_record(NULL::jsbrec, '{\"rec\": 123}') q"
+  },
+  {
+    "comment": "jsonb - Statement 420",
+    "query": "SELECT rec FROM jsonb_populate_record(NULL::jsbrec, '{\"rec\": [1, 2]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 421",
+    "query": "SELECT rec FROM jsonb_populate_record(NULL::jsbrec, '{\"rec\": {\"a\": \"abc\", \"c\": \"01.02.2003\", \"x\": 43.2}}') q"
+  },
+  {
+    "comment": "jsonb - Statement 422",
+    "query": "SELECT rec FROM jsonb_populate_record(NULL::jsbrec, '{\"rec\": \"(abc,42,01.02.2003)\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 423",
+    "query": "SELECT reca FROM jsonb_populate_record(NULL::jsbrec, '{\"reca\": 123}') q"
+  },
+  {
+    "comment": "jsonb - Statement 424",
+    "query": "SELECT reca FROM jsonb_populate_record(NULL::jsbrec, '{\"reca\": [1, 2]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 425",
+    "query": "SELECT reca FROM jsonb_populate_record(NULL::jsbrec, '{\"reca\": [{\"a\": \"abc\", \"b\": 456}, null, {\"c\": \"01.02.2003\", \"x\": 43.2}]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 426",
+    "query": "SELECT reca FROM jsonb_populate_record(NULL::jsbrec, '{\"reca\": [\"(abc,42,01.02.2003)\"]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 427",
+    "query": "SELECT reca FROM jsonb_populate_record(NULL::jsbrec, '{\"reca\": \"{\\\"(abc,42,01.02.2003)\\\"}\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 428",
+    "query": "SELECT rec FROM jsonb_populate_record( row(NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL, row('x',3,'2012-12-31 15:30:56')::jbpop,NULL)::jsbrec, '{\"rec\": {\"a\": \"abc\", \"c\": \"01.02.2003\", \"x\": 43.2}}' ) q"
+  },
+  {
+    "comment": "jsonb - Statement 429",
+    "query": "create type jsb_char2 as (a char(2))"
+  },
+  {
+    "comment": "jsonb - Statement 430",
+    "query": "select jsonb_populate_record_valid(NULL::jsb_char2, '{\"a\": \"aaa\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 431",
+    "query": "select * from jsonb_populate_record(NULL::jsb_char2, '{\"a\": \"aaa\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 432",
+    "query": "select jsonb_populate_record_valid(NULL::jsb_char2, '{\"a\": \"aa\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 433",
+    "query": "select * from jsonb_populate_record(NULL::jsb_char2, '{\"a\": \"aa\"}') q"
+  },
+  {
+    "comment": "jsonb - Statement 434",
+    "query": "create type jsb_ia as (a int[])"
+  },
+  {
+    "comment": "jsonb - Statement 435",
+    "query": "create type jsb_ia2 as (a int[][])"
+  },
+  {
+    "comment": "jsonb - Statement 436",
+    "query": "select jsonb_populate_record_valid(NULL::jsb_ia, '{\"a\": 43.2}')"
+  },
+  {
+    "comment": "jsonb - Statement 437",
+    "query": "select * from jsonb_populate_record(NULL::jsb_ia, '{\"a\": 43.2}') q"
+  },
+  {
+    "comment": "jsonb - Statement 438",
+    "query": "select jsonb_populate_record_valid(NULL::jsb_ia, '{\"a\": [1, 2]}')"
+  },
+  {
+    "comment": "jsonb - Statement 439",
+    "query": "select * from jsonb_populate_record(NULL::jsb_ia, '{\"a\": [1, 2]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 440",
+    "query": "select jsonb_populate_record_valid(NULL::jsb_ia2, '{\"a\": [[1], [2, 3]]}')"
+  },
+  {
+    "comment": "jsonb - Statement 441",
+    "query": "select * from jsonb_populate_record(NULL::jsb_ia2, '{\"a\": [[1], [2, 3]]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 442",
+    "query": "select jsonb_populate_record_valid(NULL::jsb_ia2, '{\"a\": [[1, 0], [2, 3]]}')"
+  },
+  {
+    "comment": "jsonb - Statement 443",
+    "query": "select * from jsonb_populate_record(NULL::jsb_ia2, '{\"a\": [[1, 0], [2, 3]]}') q"
+  },
+  {
+    "comment": "jsonb - Statement 444",
+    "query": "create domain jsb_i_not_null as int not null"
+  },
+  {
+    "comment": "jsonb - Statement 445",
+    "query": "create domain jsb_i_gt_1 as int check (value > 1)"
+  },
+  {
+    "comment": "jsonb - Statement 446",
+    "query": "create type jsb_i_not_null_rec as (a jsb_i_not_null)"
+  },
+  {
+    "comment": "jsonb - Statement 447",
+    "query": "create type jsb_i_gt_1_rec as (a jsb_i_gt_1)"
+  },
+  {
+    "comment": "jsonb - Statement 448",
+    "query": "select jsonb_populate_record_valid(NULL::jsb_i_not_null_rec, '{\"a\": null}')"
+  },
+  {
+    "comment": "jsonb - Statement 449",
+    "query": "select * from jsonb_populate_record(NULL::jsb_i_not_null_rec, '{\"a\": null}') q"
+  },
+  {
+    "comment": "jsonb - Statement 450",
+    "query": "select jsonb_populate_record_valid(NULL::jsb_i_not_null_rec, '{\"a\": 1}')"
+  },
+  {
+    "comment": "jsonb - Statement 451",
+    "query": "select * from jsonb_populate_record(NULL::jsb_i_not_null_rec, '{\"a\": 1}') q"
+  },
+  {
+    "comment": "jsonb - Statement 452",
+    "query": "select jsonb_populate_record_valid(NULL::jsb_i_gt_1_rec, '{\"a\": 1}')"
+  },
+  {
+    "comment": "jsonb - Statement 453",
+    "query": "select * from jsonb_populate_record(NULL::jsb_i_gt_1_rec, '{\"a\": 1}') q"
+  },
+  {
+    "comment": "jsonb - Statement 454",
+    "query": "select jsonb_populate_record_valid(NULL::jsb_i_gt_1_rec, '{\"a\": 2}')"
+  },
+  {
+    "comment": "jsonb - Statement 455",
+    "query": "select * from jsonb_populate_record(NULL::jsb_i_gt_1_rec, '{\"a\": 2}') q"
+  },
+  {
+    "comment": "jsonb - Statement 456",
+    "query": "drop type jsb_ia, jsb_ia2, jsb_char2, jsb_i_not_null_rec, jsb_i_gt_1_rec"
+  },
+  {
+    "comment": "jsonb - Statement 457",
+    "query": "drop domain jsb_i_not_null, jsb_i_gt_1"
+  },
+  {
+    "comment": "jsonb - Statement 458",
+    "query": "SELECT jsonb_populate_record(null::record, '{\"x\": 0, \"y\": 1}')"
+  },
+  {
+    "comment": "jsonb - Statement 459",
+    "query": "SELECT jsonb_populate_record(row(1,2), '{\"f1\": 0, \"f2\": 1}')"
+  },
+  {
+    "comment": "jsonb - Statement 460",
+    "query": "SELECT * FROM jsonb_populate_record(null::record, '{\"x\": 776}') AS (x int, y int)"
+  },
+  {
+    "comment": "jsonb - Statement 461",
+    "query": "SELECT jsonb_populate_record(null::jb_ordered_pair, '{\"x\": 0, \"y\": 1}')"
+  },
+  {
+    "comment": "jsonb - Statement 462",
+    "query": "SELECT jsonb_populate_record(row(1,2)::jb_ordered_pair, '{\"x\": 0}')"
+  },
+  {
+    "comment": "jsonb - Statement 463",
+    "query": "SELECT jsonb_populate_record(row(1,2)::jb_ordered_pair, '{\"x\": 1, \"y\": 0}')"
+  },
+  {
+    "comment": "jsonb - Statement 464",
+    "query": "SELECT * FROM jsonb_populate_recordset(NULL::jbpop,'[{\"a\":\"blurfl\",\"x\":43.2},{\"b\":3,\"c\":\"2012-01-20 10:42:53\"}]') q"
+  },
+  {
+    "comment": "jsonb - Statement 465",
+    "query": "SELECT * FROM jsonb_populate_recordset(row('def',99,NULL)::jbpop,'[{\"a\":\"blurfl\",\"x\":43.2},{\"b\":3,\"c\":\"2012-01-20 10:42:53\"}]') q"
+  },
+  {
+    "comment": "jsonb - Statement 466",
+    "query": "SELECT * FROM jsonb_populate_recordset(row('def',99,NULL)::jbpop,'[{\"a\":[100,200,300],\"x\":43.2},{\"a\":{\"z\":true},\"b\":3,\"c\":\"2012-01-20 10:42:53\"}]') q"
+  },
+  {
+    "comment": "jsonb - Statement 467",
+    "query": "SELECT * FROM jsonb_populate_recordset(row('def',99,NULL)::jbpop,'[{\"c\":[100,200,300],\"x\":43.2},{\"a\":{\"z\":true},\"b\":3,\"c\":\"2012-01-20 10:42:53\"}]') q"
+  },
+  {
+    "comment": "jsonb - Statement 468",
+    "query": "SELECT jsonb_populate_recordset(null::record, '[{\"x\": 0, \"y\": 1}]')"
+  },
+  {
+    "comment": "jsonb - Statement 469",
+    "query": "SELECT jsonb_populate_recordset(row(1,2), '[{\"f1\": 0, \"f2\": 1}]')"
+  },
+  {
+    "comment": "jsonb - Statement 470",
+    "query": "SELECT i, jsonb_populate_recordset(row(i,50), '[{\"f1\":\"42\"},{\"f2\":\"43\"}]') FROM (VALUES (1),(2)) v(i)"
+  },
+  {
+    "comment": "jsonb - Statement 471",
+    "query": "SELECT * FROM jsonb_populate_recordset(null::record, '[{\"x\": 776}]') AS (x int, y int)"
+  },
+  {
+    "comment": "jsonb - Statement 472",
+    "query": "SELECT jsonb_populate_recordset(null::record, '[]')"
+  },
+  {
+    "comment": "jsonb - Statement 473",
+    "query": "SELECT jsonb_populate_recordset(row(1,2), '[]')"
+  },
+  {
+    "comment": "jsonb - Statement 474",
+    "query": "SELECT * FROM jsonb_populate_recordset(NULL::jbpop,'[]') q"
+  },
+  {
+    "comment": "jsonb - Statement 475",
+    "query": "SELECT * FROM jsonb_populate_recordset(null::record, '[]') AS (x int, y int)"
+  },
+  {
+    "comment": "jsonb - Statement 476",
+    "query": "SELECT jsonb_populate_recordset(null::jb_ordered_pair, '[{\"x\": 0, \"y\": 1}]')"
+  },
+  {
+    "comment": "jsonb - Statement 477",
+    "query": "SELECT jsonb_populate_recordset(row(1,2)::jb_ordered_pair, '[{\"x\": 0}, {\"y\": 3}]')"
+  },
+  {
+    "comment": "jsonb - Statement 478",
+    "query": "SELECT jsonb_populate_recordset(row(1,2)::jb_ordered_pair, '[{\"x\": 1, \"y\": 0}]')"
+  },
+  {
+    "comment": "jsonb - Statement 479",
+    "query": "select * from jsonb_populate_recordset(row(0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)"
+  },
+  {
+    "comment": "jsonb - Statement 480",
+    "query": "select * from jsonb_populate_recordset(row(0::int,0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)"
+  },
+  {
+    "comment": "jsonb - Statement 481",
+    "query": "select * from jsonb_populate_recordset(row(0::int,0::int,0::int),'[{\"a\":\"1\",\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)"
+  },
+  {
+    "comment": "jsonb - Statement 482",
+    "query": "select * from jsonb_populate_recordset(row(1000000000::int,50::int),'[{\"b\":\"2\"},{\"a\":\"3\"}]') q (a text, b text)"
+  },
+  {
+    "comment": "jsonb - Statement 483",
+    "query": "select * from jsonb_to_record('{\"a\":1,\"b\":\"foo\",\"c\":\"bar\"}') as x(a int, b text, d text)"
+  },
+  {
+    "comment": "jsonb - Statement 484",
+    "query": "select * from jsonb_to_recordset('[{\"a\":1,\"b\":\"foo\",\"d\":false},{\"a\":2,\"b\":\"bar\",\"c\":true}]') as x(a int, b text, c boolean)"
+  },
+  {
+    "comment": "jsonb - Statement 485",
+    "query": "select *, c is null as c_is_null from jsonb_to_record('{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8, \"ca\": [\"1 2\", 3], \"ia\": [[1,2],[3,4]], \"r\": {\"a\": \"aaa\", \"b\": 123}}'::jsonb) as t(a int, b jsonb, c text, x int, ca char(5)[], ia int[][], r jbpop)"
+  },
+  {
+    "comment": "jsonb - Statement 486",
+    "query": "select *, c is null as c_is_null from jsonb_to_recordset('[{\"a\":1, \"b\":{\"c\":16, \"d\":2}, \"x\":8}]'::jsonb) as t(a int, b jsonb, c text, x int)"
+  },
+  {
+    "comment": "jsonb - Statement 487",
+    "query": "select * from jsonb_to_record('{\"ia\": null}') as x(ia _int4)"
+  },
+  {
+    "comment": "jsonb - Statement 488",
+    "query": "select * from jsonb_to_record('{\"ia\": 123}') as x(ia _int4)"
+  },
+  {
+    "comment": "jsonb - Statement 489",
+    "query": "select * from jsonb_to_record('{\"ia\": [1, \"2\", null, 4]}') as x(ia _int4)"
+  },
+  {
+    "comment": "jsonb - Statement 490",
+    "query": "select * from jsonb_to_record('{\"ia\": [[1, 2], [3, 4]]}') as x(ia _int4)"
+  },
+  {
+    "comment": "jsonb - Statement 491",
+    "query": "select * from jsonb_to_record('{\"ia\": [[1], 2]}') as x(ia _int4)"
+  },
+  {
+    "comment": "jsonb - Statement 492",
+    "query": "select * from jsonb_to_record('{\"ia\": [[1], [2, 3]]}') as x(ia _int4)"
+  },
+  {
+    "comment": "jsonb - Statement 493",
+    "query": "select * from jsonb_to_record('{\"ia2\": [1, 2, 3]}') as x(ia2 int[][])"
+  },
+  {
+    "comment": "jsonb - Statement 494",
+    "query": "select * from jsonb_to_record('{\"ia2\": [[1, 2], [3, 4]]}') as x(ia2 int4[][])"
+  },
+  {
+    "comment": "jsonb - Statement 495",
+    "query": "select * from jsonb_to_record('{\"ia2\": [[[1], [2], [3]]]}') as x(ia2 int4[][])"
+  },
+  {
+    "comment": "jsonb - Statement 496",
+    "query": "select * from jsonb_to_record('{\"out\": {\"key\": 1}}') as x(out json)"
+  },
+  {
+    "comment": "jsonb - Statement 497",
+    "query": "select * from jsonb_to_record('{\"out\": [{\"key\": 1}]}') as x(out json)"
+  },
+  {
+    "comment": "jsonb - Statement 498",
+    "query": "select * from jsonb_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out json)"
+  },
+  {
+    "comment": "jsonb - Statement 499",
+    "query": "select * from jsonb_to_record('{\"out\": {\"key\": 1}}') as x(out jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 500",
+    "query": "select * from jsonb_to_record('{\"out\": [{\"key\": 1}]}') as x(out jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 501",
+    "query": "select * from jsonb_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 502",
+    "query": "CREATE TEMP TABLE jsbpoptest (js jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 503",
+    "query": "INSERT INTO jsbpoptest SELECT '{ \"jsa\": [1, \"2\", null, 4], \"rec\": {\"a\": \"abc\", \"c\": \"01.02.2003\", \"x\": 43.2}, \"reca\": [{\"a\": \"abc\", \"b\": 456}, null, {\"c\": \"01.02.2003\", \"x\": 43.2}] }'::jsonb FROM generate_series(1, 3)"
+  },
+  {
+    "comment": "jsonb - Statement 504",
+    "query": "SELECT (jsonb_populate_record(NULL::jsbrec, js)).* FROM jsbpoptest"
+  },
+  {
+    "comment": "jsonb - Statement 505",
+    "query": "DROP TYPE jsbrec"
+  },
+  {
+    "comment": "jsonb - Statement 506",
+    "query": "DROP TYPE jsbrec_i_not_null"
+  },
+  {
+    "comment": "jsonb - Statement 507",
+    "query": "DROP DOMAIN jsb_int_not_null"
+  },
+  {
+    "comment": "jsonb - Statement 508",
+    "query": "DROP DOMAIN jsb_int_array_1d"
+  },
+  {
+    "comment": "jsonb - Statement 509",
+    "query": "DROP DOMAIN jsb_int_array_2d"
+  },
+  {
+    "comment": "jsonb - Statement 510",
+    "query": "DROP DOMAIN jb_ordered_pair"
+  },
+  {
+    "comment": "jsonb - Statement 511",
+    "query": "DROP TYPE jb_unordered_pair"
+  },
+  {
+    "comment": "jsonb - Statement 512",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"wait\":null}'"
+  },
+  {
+    "comment": "jsonb - Statement 513",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"wait\":\"CC\"}'"
+  },
+  {
+    "comment": "jsonb - Statement 514",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"wait\":\"CC\", \"public\":true}'"
+  },
+  {
+    "comment": "jsonb - Statement 515",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"age\":25}'"
+  },
+  {
+    "comment": "jsonb - Statement 516",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"age\":25.0}'"
+  },
+  {
+    "comment": "jsonb - Statement 517",
+    "query": "SELECT count(*) FROM testjsonb WHERE j ? 'public'"
+  },
+  {
+    "comment": "jsonb - Statement 518",
+    "query": "SELECT count(*) FROM testjsonb WHERE j ? 'bar'"
+  },
+  {
+    "comment": "jsonb - Statement 519",
+    "query": "SELECT count(*) FROM testjsonb WHERE j ?| ARRAY['public','disabled']"
+  },
+  {
+    "comment": "jsonb - Statement 520",
+    "query": "SELECT count(*) FROM testjsonb WHERE j ?& ARRAY['public','disabled']"
+  },
+  {
+    "comment": "jsonb - Statement 521",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ '$.wait == null'"
+  },
+  {
+    "comment": "jsonb - Statement 522",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ '\"CC\" == $.wait'"
+  },
+  {
+    "comment": "jsonb - Statement 523",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ '$.wait == \"CC\" && true == $.public'"
+  },
+  {
+    "comment": "jsonb - Statement 524",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ '$.age == 25'"
+  },
+  {
+    "comment": "jsonb - Statement 525",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ '$.age == 25.0'"
+  },
+  {
+    "comment": "jsonb - Statement 526",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($)'"
+  },
+  {
+    "comment": "jsonb - Statement 527",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($.public)'"
+  },
+  {
+    "comment": "jsonb - Statement 528",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($.bar)'"
+  },
+  {
+    "comment": "jsonb - Statement 529",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($.public) || exists($.disabled)'"
+  },
+  {
+    "comment": "jsonb - Statement 530",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($.public) && exists($.disabled)'"
+  },
+  {
+    "comment": "jsonb - Statement 531",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$.wait ? (@ == null)'"
+  },
+  {
+    "comment": "jsonb - Statement 532",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$.wait ? (\"CC\" == @)'"
+  },
+  {
+    "comment": "jsonb - Statement 533",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$ ? (@.wait == \"CC\" && true == @.public)'"
+  },
+  {
+    "comment": "jsonb - Statement 534",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$.age ? (@ == 25)'"
+  },
+  {
+    "comment": "jsonb - Statement 535",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$ ? (@.age == 25.0)'"
+  },
+  {
+    "comment": "jsonb - Statement 536",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$'"
+  },
+  {
+    "comment": "jsonb - Statement 537",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$.public'"
+  },
+  {
+    "comment": "jsonb - Statement 538",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$.bar'"
+  },
+  {
+    "comment": "jsonb - Statement 539",
+    "query": "CREATE INDEX jidx ON testjsonb USING gin (j)"
+  },
+  {
+    "comment": "jsonb - Statement 540",
+    "query": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "jsonb - Statement 541",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"array\":[\"foo\"]}'"
+  },
+  {
+    "comment": "jsonb - Statement 542",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{\"array\":[\"bar\"]}'"
+  },
+  {
+    "comment": "jsonb - Statement 543",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @> '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 544",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM testjsonb WHERE j @@ '$.wait == null'"
+  },
+  {
+    "comment": "jsonb - Statement 545",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($ ? (@.wait == null))'"
+  },
+  {
+    "comment": "jsonb - Statement 546",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($.wait ? (@ == null))'"
+  },
+  {
+    "comment": "jsonb - Statement 547",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ '$.array[*] == \"foo\"'"
+  },
+  {
+    "comment": "jsonb - Statement 548",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ '$.array[*] == \"bar\"'"
+  },
+  {
+    "comment": "jsonb - Statement 549",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($ ? (@.array[*] == \"bar\"))'"
+  },
+  {
+    "comment": "jsonb - Statement 550",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($.array ? (@[*] == \"bar\"))'"
+  },
+  {
+    "comment": "jsonb - Statement 551",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @@ 'exists($.array[*] ? (@ == \"bar\"))'"
+  },
+  {
+    "comment": "jsonb - Statement 552",
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM testjsonb WHERE j @? '$.wait ? (@ == null)'"
+  },
+  {
+    "comment": "jsonb - Statement 553",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$ ? (@.array[*] == \"bar\")'"
+  },
+  {
+    "comment": "jsonb - Statement 554",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$.array ? (@[*] == \"bar\")'"
+  },
+  {
+    "comment": "jsonb - Statement 555",
+    "query": "SELECT count(*) FROM testjsonb WHERE j @? '$.array[*] ? (@ == \"bar\")'"
+  },
+  {
+    "comment": "jsonb - Statement 556",
+    "query": "CREATE INDEX jidx_array ON testjsonb USING gin((j->'array'))"
+  },
+  {
+    "comment": "jsonb - Statement 557",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "jsonb - Statement 558",
+    "query": "SELECT count(*) FROM (SELECT (jsonb_each(j)).key FROM testjsonb) AS wow"
+  },
+  {
+    "comment": "jsonb - Statement 559",
+    "query": "SELECT key, count(*) FROM (SELECT (jsonb_each(j)).key FROM testjsonb) AS wow GROUP BY key ORDER BY count DESC, key"
+  },
+  {
+    "comment": "jsonb - Statement 560",
+    "query": "SELECT count(distinct j) FROM testjsonb"
+  },
+  {
+    "comment": "jsonb - Statement 561",
+    "query": "SET enable_hashagg = off"
+  },
+  {
+    "comment": "jsonb - Statement 562",
+    "query": "SELECT count(*) FROM (SELECT j FROM (SELECT * FROM testjsonb UNION ALL SELECT * FROM testjsonb) js GROUP BY j) js2"
+  },
+  {
+    "comment": "jsonb - Statement 563",
+    "query": "SET enable_hashagg = on"
+  },
+  {
+    "comment": "jsonb - Statement 564",
+    "query": "SET enable_sort = off"
+  },
+  {
+    "comment": "jsonb - Statement 565",
+    "query": "SELECT distinct * FROM (values (jsonb '{}' || ''::text),('{}')) v(j)"
+  },
+  {
+    "comment": "jsonb - Statement 566",
+    "query": "SET enable_sort = on"
+  },
+  {
+    "comment": "jsonb - Statement 567",
+    "query": "RESET enable_hashagg"
+  },
+  {
+    "comment": "jsonb - Statement 568",
+    "query": "RESET enable_sort"
+  },
+  {
+    "comment": "jsonb - Statement 569",
+    "query": "DROP INDEX jidx"
+  },
+  {
+    "comment": "jsonb - Statement 570",
+    "query": "DROP INDEX jidx_array"
+  },
+  {
+    "comment": "jsonb - Statement 571",
+    "query": "CREATE INDEX jidx ON testjsonb USING btree (j)"
+  },
+  {
+    "comment": "jsonb - Statement 572",
+    "query": "SELECT count(*) FROM testjsonb WHERE j > '{\"p\":1}'"
+  },
+  {
+    "comment": "jsonb - Statement 573",
+    "query": "SELECT count(*) FROM testjsonb WHERE j = '{\"pos\":98, \"line\":371, \"node\":\"CBA\", \"indexed\":true}'"
+  },
+  {
+    "comment": "jsonb - Statement 574",
+    "query": "CREATE INDEX jidx ON testjsonb USING gin (j jsonb_path_ops)"
+  },
+  {
+    "comment": "jsonb - Statement 575",
+    "query": "SELECT '{\"ff\":{\"a\":12,\"b\":16}}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 576",
+    "query": "SELECT '{\"ff\":{\"a\":12,\"b\":16},\"qq\":123}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 577",
+    "query": "SELECT '{\"aa\":[\"a\",\"aaa\"],\"qq\":{\"a\":12,\"b\":16,\"c\":[\"c1\",\"c2\"],\"d\":{\"d1\":\"d1\",\"d2\":\"d2\",\"d1\":\"d3\"}}}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 578",
+    "query": "SELECT '{\"aa\":[\"a\",\"aaa\"],\"qq\":{\"a\":\"12\",\"b\":\"16\",\"c\":[\"c1\",\"c2\"],\"d\":{\"d1\":\"d1\",\"d2\":\"d2\"}}}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 579",
+    "query": "SELECT '{\"aa\":[\"a\",\"aaa\"],\"qq\":{\"a\":\"12\",\"b\":\"16\",\"c\":[\"c1\",\"c2\",[\"c3\"],{\"c4\":4}],\"d\":{\"d1\":\"d1\",\"d2\":\"d2\"}}}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 580",
+    "query": "SELECT '{\"ff\":[\"a\",\"aaa\"]}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 581",
+    "query": "SELECT '{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -> 'ff', '{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -> 'qq', ('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -> 'Y') IS NULL AS f, ('{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb ->> 'Y') IS NULL AS t, '{\"ff\":{\"a\":12,\"b\":16},\"qq\":123,\"x\":[1,2],\"Y\":null}'::jsonb -> 'x'"
+  },
+  {
+    "comment": "jsonb - Statement 582",
+    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @> '{\"a\":[1,2]}'"
+  },
+  {
+    "comment": "jsonb - Statement 583",
+    "query": "SELECT '{\"a\":[2,1],\"c\":\"b\"}'::jsonb @> '{\"a\":[1,2]}'"
+  },
+  {
+    "comment": "jsonb - Statement 584",
+    "query": "SELECT '{\"a\":{\"1\":2},\"c\":\"b\"}'::jsonb @> '{\"a\":[1,2]}'"
+  },
+  {
+    "comment": "jsonb - Statement 585",
+    "query": "SELECT '{\"a\":{\"2\":1},\"c\":\"b\"}'::jsonb @> '{\"a\":[1,2]}'"
+  },
+  {
+    "comment": "jsonb - Statement 586",
+    "query": "SELECT '{\"a\":{\"1\":2},\"c\":\"b\"}'::jsonb @> '{\"a\":{\"1\":2}}'"
+  },
+  {
+    "comment": "jsonb - Statement 587",
+    "query": "SELECT '{\"a\":{\"2\":1},\"c\":\"b\"}'::jsonb @> '{\"a\":{\"1\":2}}'"
+  },
+  {
+    "comment": "jsonb - Statement 588",
+    "query": "SELECT '[\"a\",\"b\"]'::jsonb @> '[\"a\",\"b\",\"c\",\"b\"]'"
+  },
+  {
+    "comment": "jsonb - Statement 589",
+    "query": "SELECT '[\"a\",\"b\",\"c\",\"b\"]'::jsonb @> '[\"a\",\"b\"]'"
+  },
+  {
+    "comment": "jsonb - Statement 590",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2]]'::jsonb @> '[\"a\",[1,2]]'"
+  },
+  {
+    "comment": "jsonb - Statement 591",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2]]'::jsonb @> '[\"b\",[1,2]]'"
+  },
+  {
+    "comment": "jsonb - Statement 592",
+    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @> '{\"a\":[1]}'"
+  },
+  {
+    "comment": "jsonb - Statement 593",
+    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @> '{\"a\":[2]}'"
+  },
+  {
+    "comment": "jsonb - Statement 594",
+    "query": "SELECT '{\"a\":[1,2],\"c\":\"b\"}'::jsonb @> '{\"a\":[3]}'"
+  },
+  {
+    "comment": "jsonb - Statement 595",
+    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @> '{\"a\":[{\"c\":3}]}'"
+  },
+  {
+    "comment": "jsonb - Statement 596",
+    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @> '{\"a\":[{\"x\":4}]}'"
+  },
+  {
+    "comment": "jsonb - Statement 597",
+    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @> '{\"a\":[{\"x\":4},3]}'"
+  },
+  {
+    "comment": "jsonb - Statement 598",
+    "query": "SELECT '{\"a\":[1,2,{\"c\":3,\"x\":4}],\"c\":\"b\"}'::jsonb @> '{\"a\":[{\"x\":4},1]}'"
+  },
+  {
+    "comment": "jsonb - Statement 599",
+    "query": "create temp table nestjsonb (j jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 600",
+    "query": "insert into nestjsonb (j) values ('{\"a\":[[\"b\",{\"x\":1}],[\"b\",{\"x\":2}]],\"c\":3}')"
+  },
+  {
+    "comment": "jsonb - Statement 601",
+    "query": "insert into nestjsonb (j) values ('[[14,2,3]]')"
+  },
+  {
+    "comment": "jsonb - Statement 602",
+    "query": "insert into nestjsonb (j) values ('[1,[14,2,3]]')"
+  },
+  {
+    "comment": "jsonb - Statement 603",
+    "query": "create index on nestjsonb using gin(j jsonb_path_ops)"
+  },
+  {
+    "comment": "jsonb - Statement 604",
+    "query": "set enable_seqscan = on"
+  },
+  {
+    "comment": "jsonb - Statement 605",
+    "query": "set enable_bitmapscan = off"
+  },
+  {
+    "comment": "jsonb - Statement 606",
+    "query": "select * from nestjsonb where j @> '{\"a\":[[{\"x\":2}]]}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 607",
+    "query": "select * from nestjsonb where j @> '{\"c\":3}'"
+  },
+  {
+    "comment": "jsonb - Statement 608",
+    "query": "select * from nestjsonb where j @> '[[14]]'"
+  },
+  {
+    "comment": "jsonb - Statement 609",
+    "query": "set enable_bitmapscan = on"
+  },
+  {
+    "comment": "jsonb - Statement 610",
+    "query": "reset enable_bitmapscan"
+  },
+  {
+    "comment": "jsonb - Statement 611",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'n'"
+  },
+  {
+    "comment": "jsonb - Statement 612",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'a'"
+  },
+  {
+    "comment": "jsonb - Statement 613",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'b'"
+  },
+  {
+    "comment": "jsonb - Statement 614",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'c'"
+  },
+  {
+    "comment": "jsonb - Statement 615",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'd'"
+  },
+  {
+    "comment": "jsonb - Statement 616",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'd' -> '1'"
+  },
+  {
+    "comment": "jsonb - Statement 617",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 'e'"
+  },
+  {
+    "comment": "jsonb - Statement 618",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb -> 0"
+  },
+  {
+    "comment": "jsonb - Statement 619",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 0"
+  },
+  {
+    "comment": "jsonb - Statement 620",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 1"
+  },
+  {
+    "comment": "jsonb - Statement 621",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 2"
+  },
+  {
+    "comment": "jsonb - Statement 622",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 3"
+  },
+  {
+    "comment": "jsonb - Statement 623",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 3 -> 1"
+  },
+  {
+    "comment": "jsonb - Statement 624",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 4"
+  },
+  {
+    "comment": "jsonb - Statement 625",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> 5"
+  },
+  {
+    "comment": "jsonb - Statement 626",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> -1"
+  },
+  {
+    "comment": "jsonb - Statement 627",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> -5"
+  },
+  {
+    "comment": "jsonb - Statement 628",
+    "query": "SELECT '[\"a\",\"b\",\"c\",[1,2],null]'::jsonb -> -6"
+  },
+  {
+    "comment": "jsonb - Statement 629",
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{0}'"
+  },
+  {
+    "comment": "jsonb - Statement 630",
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{a}'"
+  },
+  {
+    "comment": "jsonb - Statement 631",
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c}'"
+  },
+  {
+    "comment": "jsonb - Statement 632",
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,0}'"
+  },
+  {
+    "comment": "jsonb - Statement 633",
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,1}'"
+  },
+  {
+    "comment": "jsonb - Statement 634",
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,2}'"
+  },
+  {
+    "comment": "jsonb - Statement 635",
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,3}'"
+  },
+  {
+    "comment": "jsonb - Statement 636",
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,-1}'"
+  },
+  {
+    "comment": "jsonb - Statement 637",
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,-3}'"
+  },
+  {
+    "comment": "jsonb - Statement 638",
+    "query": "SELECT '{\"a\":\"b\",\"c\":[1,2,3]}'::jsonb #> '{c,-4}'"
+  },
+  {
+    "comment": "jsonb - Statement 639",
+    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #> '{0}'"
+  },
+  {
+    "comment": "jsonb - Statement 640",
+    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #> '{3}'"
+  },
+  {
+    "comment": "jsonb - Statement 641",
+    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #> '{4}'"
+  },
+  {
+    "comment": "jsonb - Statement 642",
+    "query": "SELECT '[0,1,2,[3,4],{\"5\":\"five\"}]'::jsonb #> '{4,5}'"
+  },
+  {
+    "comment": "jsonb - Statement 643",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb ? 'n'"
+  },
+  {
+    "comment": "jsonb - Statement 644",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb ? 'a'"
+  },
+  {
+    "comment": "jsonb - Statement 645",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb ? 'b'"
+  },
+  {
+    "comment": "jsonb - Statement 646",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb ? 'c'"
+  },
+  {
+    "comment": "jsonb - Statement 647",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb ? 'd'"
+  },
+  {
+    "comment": "jsonb - Statement 648",
+    "query": "SELECT '{\"n\":null,\"a\":1,\"b\":[1,2],\"c\":{\"1\":2},\"d\":{\"1\":[2,3]}}'::jsonb ? 'e'"
+  },
+  {
+    "comment": "jsonb - Statement 649",
+    "query": "select jsonb_strip_nulls(null)"
+  },
+  {
+    "comment": "jsonb - Statement 650",
+    "query": "select jsonb_strip_nulls('1')"
+  },
+  {
+    "comment": "jsonb - Statement 651",
+    "query": "select jsonb_strip_nulls('\"a string\"')"
+  },
+  {
+    "comment": "jsonb - Statement 652",
+    "query": "select jsonb_strip_nulls('null')"
+  },
+  {
+    "comment": "jsonb - Statement 653",
+    "query": "select jsonb_strip_nulls('[1,2,null,3,4]')"
+  },
+  {
+    "comment": "jsonb - Statement 654",
+    "query": "select jsonb_strip_nulls('{\"a\":1,\"b\":null,\"c\":[2,null,3],\"d\":{\"e\":4,\"f\":null}}')"
+  },
+  {
+    "comment": "jsonb - Statement 655",
+    "query": "select jsonb_strip_nulls('[1,{\"a\":1,\"b\":null,\"c\":2},3]')"
+  },
+  {
+    "comment": "jsonb - Statement 656",
+    "query": "select jsonb_strip_nulls('{\"a\": {\"b\": null, \"c\": null}, \"d\": {} }')"
+  },
+  {
+    "comment": "jsonb - Statement 657",
+    "query": "select jsonb_pretty('{\"a\": \"test\", \"b\": [1, 2, 3], \"c\": \"test3\", \"d\":{\"dd\": \"test4\", \"dd2\":{\"ddd\": \"test5\"}}}')"
+  },
+  {
+    "comment": "jsonb - Statement 658",
+    "query": "select jsonb_pretty('[{\"f1\":1,\"f2\":null},2,null,[[{\"x\":true},6,7],8],3]')"
+  },
+  {
+    "comment": "jsonb - Statement 659",
+    "query": "select jsonb_pretty('{\"a\":[\"b\", \"c\"], \"d\": {\"e\":\"f\"}}')"
+  },
+  {
+    "comment": "jsonb - Statement 660",
+    "query": "select jsonb_concat('{\"d\": \"test\", \"a\": [1, 2]}', '{\"g\": \"test2\", \"c\": {\"c1\":1, \"c2\":2}}')"
+  },
+  {
+    "comment": "jsonb - Statement 661",
+    "query": "select '{\"aa\":1 , \"b\":2, \"cq\":3}'::jsonb || '{\"cq\":\"l\", \"b\":\"g\", \"fg\":false}'"
+  },
+  {
+    "comment": "jsonb - Statement 662",
+    "query": "select '{\"aa\":1 , \"b\":2, \"cq\":3}'::jsonb || '{\"aq\":\"l\"}'"
+  },
+  {
+    "comment": "jsonb - Statement 663",
+    "query": "select '{\"aa\":1 , \"b\":2, \"cq\":3}'::jsonb || '{\"aa\":\"l\"}'"
+  },
+  {
+    "comment": "jsonb - Statement 664",
+    "query": "select '{\"aa\":1 , \"b\":2, \"cq\":3}'::jsonb || '{}'"
+  },
+  {
+    "comment": "jsonb - Statement 665",
+    "query": "select '[\"a\", \"b\"]'::jsonb || '[\"c\"]'"
+  },
+  {
+    "comment": "jsonb - Statement 666",
+    "query": "select '[\"a\", \"b\"]'::jsonb || '[\"c\", \"d\"]'"
+  },
+  {
+    "comment": "jsonb - Statement 667",
+    "query": "select '[\"c\"]' || '[\"a\", \"b\"]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 668",
+    "query": "select '[\"a\", \"b\"]'::jsonb || '\"c\"'"
+  },
+  {
+    "comment": "jsonb - Statement 669",
+    "query": "select '\"c\"' || '[\"a\", \"b\"]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 670",
+    "query": "select '[]'::jsonb || '[\"a\"]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 671",
+    "query": "select '[]'::jsonb || '\"a\"'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 672",
+    "query": "select '\"b\"'::jsonb || '\"a\"'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 673",
+    "query": "select '{}'::jsonb || '{\"a\":\"b\"}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 674",
+    "query": "select '[]'::jsonb || '{\"a\":\"b\"}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 675",
+    "query": "select '{\"a\":\"b\"}'::jsonb || '[]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 676",
+    "query": "select '\"a\"'::jsonb || '{\"a\":1}'"
+  },
+  {
+    "comment": "jsonb - Statement 677",
+    "query": "select '{\"a\":1}' || '\"a\"'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 678",
+    "query": "select '[3]'::jsonb || '{}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 679",
+    "query": "select '3'::jsonb || '[]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 680",
+    "query": "select '3'::jsonb || '4'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 681",
+    "query": "select '3'::jsonb || '{}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 682",
+    "query": "select '[\"a\", \"b\"]'::jsonb || '{\"c\":1}'"
+  },
+  {
+    "comment": "jsonb - Statement 683",
+    "query": "select '{\"c\": 1}'::jsonb || '[\"a\", \"b\"]'"
+  },
+  {
+    "comment": "jsonb - Statement 684",
+    "query": "select '{}'::jsonb || '{\"cq\":\"l\", \"b\":\"g\", \"fg\":false}'"
+  },
+  {
+    "comment": "jsonb - Statement 685",
+    "query": "select pg_column_size('{}'::jsonb || '{}'::jsonb) = pg_column_size('{}'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 686",
+    "query": "select pg_column_size('{\"aa\":1}'::jsonb || '{\"b\":2}'::jsonb) = pg_column_size('{\"aa\":1, \"b\":2}'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 687",
+    "query": "select pg_column_size('{\"aa\":1, \"b\":2}'::jsonb || '{}'::jsonb) = pg_column_size('{\"aa\":1, \"b\":2}'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 688",
+    "query": "select pg_column_size('{}'::jsonb || '{\"aa\":1, \"b\":2}'::jsonb) = pg_column_size('{\"aa\":1, \"b\":2}'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 689",
+    "query": "select jsonb_delete('{\"a\":1 , \"b\":2, \"c\":3}'::jsonb, 'a')"
+  },
+  {
+    "comment": "jsonb - Statement 690",
+    "query": "select jsonb_delete('{\"a\":null , \"b\":2, \"c\":3}'::jsonb, 'a')"
+  },
+  {
+    "comment": "jsonb - Statement 691",
+    "query": "select jsonb_delete('{\"a\":1 , \"b\":2, \"c\":3}'::jsonb, 'b')"
+  },
+  {
+    "comment": "jsonb - Statement 692",
+    "query": "select jsonb_delete('{\"a\":1 , \"b\":2, \"c\":3}'::jsonb, 'c')"
+  },
+  {
+    "comment": "jsonb - Statement 693",
+    "query": "select jsonb_delete('{\"a\":1 , \"b\":2, \"c\":3}'::jsonb, 'd')"
+  },
+  {
+    "comment": "jsonb - Statement 694",
+    "query": "select '{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - 'a'"
+  },
+  {
+    "comment": "jsonb - Statement 695",
+    "query": "select '{\"a\":null , \"b\":2, \"c\":3}'::jsonb - 'a'"
+  },
+  {
+    "comment": "jsonb - Statement 696",
+    "query": "select '{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - 'b'"
+  },
+  {
+    "comment": "jsonb - Statement 697",
+    "query": "select '{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - 'c'"
+  },
+  {
+    "comment": "jsonb - Statement 698",
+    "query": "select '{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - 'd'"
+  },
+  {
+    "comment": "jsonb - Statement 699",
+    "query": "select pg_column_size('{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - 'b') = pg_column_size('{\"a\":1, \"b\":2}'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 700",
+    "query": "select '[\"a\",\"b\",\"c\"]'::jsonb - 3"
+  },
+  {
+    "comment": "jsonb - Statement 701",
+    "query": "select '[\"a\",\"b\",\"c\"]'::jsonb - 2"
+  },
+  {
+    "comment": "jsonb - Statement 702",
+    "query": "select '[\"a\",\"b\",\"c\"]'::jsonb - 1"
+  },
+  {
+    "comment": "jsonb - Statement 703",
+    "query": "select '[\"a\",\"b\",\"c\"]'::jsonb - 0"
+  },
+  {
+    "comment": "jsonb - Statement 704",
+    "query": "select '[\"a\",\"b\",\"c\"]'::jsonb - -1"
+  },
+  {
+    "comment": "jsonb - Statement 705",
+    "query": "select '[\"a\",\"b\",\"c\"]'::jsonb - -2"
+  },
+  {
+    "comment": "jsonb - Statement 706",
+    "query": "select '[\"a\",\"b\",\"c\"]'::jsonb - -3"
+  },
+  {
+    "comment": "jsonb - Statement 707",
+    "query": "select '[\"a\",\"b\",\"c\"]'::jsonb - -4"
+  },
+  {
+    "comment": "jsonb - Statement 708",
+    "query": "select '{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - '{b}'::text[]"
+  },
+  {
+    "comment": "jsonb - Statement 709",
+    "query": "select '{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - '{c,b}'::text[]"
+  },
+  {
+    "comment": "jsonb - Statement 710",
+    "query": "select '{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - '{}'::text[]"
+  },
+  {
+    "comment": "jsonb - Statement 711",
+    "query": "select jsonb_set('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb, '{n}', '[1,2,3]')"
+  },
+  {
+    "comment": "jsonb - Statement 712",
+    "query": "select jsonb_set('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb, '{b,-1}', '[1,2,3]')"
+  },
+  {
+    "comment": "jsonb - Statement 713",
+    "query": "select jsonb_set('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb, '{d,1,0}', '[1,2,3]')"
+  },
+  {
+    "comment": "jsonb - Statement 714",
+    "query": "select jsonb_set('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb, '{d,NULL,0}', '[1,2,3]')"
+  },
+  {
+    "comment": "jsonb - Statement 715",
+    "query": "select jsonb_set('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb, '{n}', '{\"1\": 2}')"
+  },
+  {
+    "comment": "jsonb - Statement 716",
+    "query": "select jsonb_set('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb, '{b,-1}', '{\"1\": 2}')"
+  },
+  {
+    "comment": "jsonb - Statement 717",
+    "query": "select jsonb_set('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb, '{d,1,0}', '{\"1\": 2}')"
+  },
+  {
+    "comment": "jsonb - Statement 718",
+    "query": "select jsonb_set('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb, '{d,NULL,0}', '{\"1\": 2}')"
+  },
+  {
+    "comment": "jsonb - Statement 719",
+    "query": "select jsonb_set('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb, '{b,-1}', '\"test\"')"
+  },
+  {
+    "comment": "jsonb - Statement 720",
+    "query": "select jsonb_set('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb, '{b,-1}', '{\"f\": \"test\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 721",
+    "query": "select jsonb_delete_path('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}', '{n}')"
+  },
+  {
+    "comment": "jsonb - Statement 722",
+    "query": "select jsonb_delete_path('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}', '{b,-1}')"
+  },
+  {
+    "comment": "jsonb - Statement 723",
+    "query": "select jsonb_delete_path('{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}', '{d,1,0}')"
+  },
+  {
+    "comment": "jsonb - Statement 724",
+    "query": "select '{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb #- '{n}'"
+  },
+  {
+    "comment": "jsonb - Statement 725",
+    "query": "select '{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb #- '{b,-1}'"
+  },
+  {
+    "comment": "jsonb - Statement 726",
+    "query": "select '{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb #- '{b,-1e}'"
+  },
+  {
+    "comment": "jsonb - Statement 727",
+    "query": "select '{\"n\":null, \"a\":1, \"b\":[1,2], \"c\":{\"1\":2}, \"d\":{\"1\":[2,3]}}'::jsonb #- '{d,1,0}'"
+  },
+  {
+    "comment": "jsonb - Statement 728",
+    "query": "select '\"a\"'::jsonb - 'a'"
+  },
+  {
+    "comment": "jsonb - Statement 729",
+    "query": "select '{}'::jsonb - 'a'"
+  },
+  {
+    "comment": "jsonb - Statement 730",
+    "query": "select '[]'::jsonb - 'a'"
+  },
+  {
+    "comment": "jsonb - Statement 731",
+    "query": "select '\"a\"'::jsonb - 1"
+  },
+  {
+    "comment": "jsonb - Statement 732",
+    "query": "select '{}'::jsonb -  1"
+  },
+  {
+    "comment": "jsonb - Statement 733",
+    "query": "select '[]'::jsonb - 1"
+  },
+  {
+    "comment": "jsonb - Statement 734",
+    "query": "select '\"a\"'::jsonb #- '{a}'"
+  },
+  {
+    "comment": "jsonb - Statement 735",
+    "query": "select '{}'::jsonb #- '{a}'"
+  },
+  {
+    "comment": "jsonb - Statement 736",
+    "query": "select '[]'::jsonb #- '{a}'"
+  },
+  {
+    "comment": "jsonb - Statement 737",
+    "query": "select jsonb_set('\"a\"','{a}','\"b\"')"
+  },
+  {
+    "comment": "jsonb - Statement 738",
+    "query": "select jsonb_set('{}','{a}','\"b\"', false)"
+  },
+  {
+    "comment": "jsonb - Statement 739",
+    "query": "select jsonb_set('[]','{1}','\"b\"', false)"
+  },
+  {
+    "comment": "jsonb - Statement 740",
+    "query": "select jsonb_set('[{\"f1\":1,\"f2\":null},2,null,3]', '{0}','[2,3,4]', false)"
+  },
+  {
+    "comment": "jsonb - Statement 741",
+    "query": "select jsonb_set('{\"a\":1,\"b\":[0,1,2],\"c\":{\"d\":4}}','{b,-33}','{\"foo\":123}')"
+  },
+  {
+    "comment": "jsonb - Statement 742",
+    "query": "select jsonb_set('{\"a\":1,\"b\":[0,1,2],\"c\":{\"d\":4}}','{b,33}','{\"foo\":123}')"
+  },
+  {
+    "comment": "jsonb - Statement 743",
+    "query": "select jsonb_set('{\"a\":1,\"b\":[4,5,[0,1,2],6,7],\"c\":{\"d\":4}}','{b,2,33}','{\"foo\":123}')"
+  },
+  {
+    "comment": "jsonb - Statement 744",
+    "query": "select jsonb_set('{\"a\":1,\"b\":[0,1,2],\"c\":{\"d\":4}}','{c,e}','{\"foo\":123}')"
+  },
+  {
+    "comment": "jsonb - Statement 745",
+    "query": "select jsonb_set('{\"a\":1,\"b\":[0,1,2],\"c\":{\"d\":4}}','{x,-33}','{\"foo\":123}')"
+  },
+  {
+    "comment": "jsonb - Statement 746",
+    "query": "select jsonb_set('{\"a\":1,\"b\":[0,1,2],\"c\":{\"d\":4}}','{x,y}','{\"foo\":123}')"
+  },
+  {
+    "comment": "jsonb - Statement 747",
+    "query": "select jsonb_set('{}','{x}','{\"foo\":123}')"
+  },
+  {
+    "comment": "jsonb - Statement 748",
+    "query": "select jsonb_set('[]','{0}','{\"foo\":123}')"
+  },
+  {
+    "comment": "jsonb - Statement 749",
+    "query": "select jsonb_set('[]','{99}','{\"foo\":123}')"
+  },
+  {
+    "comment": "jsonb - Statement 750",
+    "query": "select jsonb_set('[]','{-99}','{\"foo\":123}')"
+  },
+  {
+    "comment": "jsonb - Statement 751",
+    "query": "select jsonb_set('{\"a\": [1, 2, 3]}', '{a, non_integer}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 752",
+    "query": "select jsonb_set('{\"a\": {\"b\": [1, 2, 3]}}', '{a, b, non_integer}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 753",
+    "query": "select jsonb_set('{\"a\": {\"b\": [1, 2, 3]}}', '{a, b, NULL}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 754",
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}','{d}','6', true)"
+  },
+  {
+    "comment": "jsonb - Statement 755",
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}','{b}',null)"
+  },
+  {
+    "comment": "jsonb - Statement 756",
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}','{d}',null,true)"
+  },
+  {
+    "comment": "jsonb - Statement 757",
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, true, null)"
+  },
+  {
+    "comment": "jsonb - Statement 758",
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, true, 'no_such_treatment')"
+  },
+  {
+    "comment": "jsonb - Statement 759",
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment => 'raise_exception') as raise_exception"
+  },
+  {
+    "comment": "jsonb - Statement 760",
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment => 'return_target') as return_target"
+  },
+  {
+    "comment": "jsonb - Statement 761",
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment => 'delete_key') as delete_key"
+  },
+  {
+    "comment": "jsonb - Statement 762",
+    "query": "select jsonb_set_lax('{\"a\":1,\"b\":2}', '{b}', null, null_value_treatment => 'use_json_null') as use_json_null"
+  },
+  {
+    "comment": "jsonb - Statement 763",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, 1}', '\"new_value\"', true)"
+  },
+  {
+    "comment": "jsonb - Statement 764",
+    "query": "select jsonb_insert('{\"a\": {\"b\": {\"c\": [0, 1, \"test1\", \"test2\"]}}}', '{a, b, c, 2}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 765",
+    "query": "select jsonb_insert('{\"a\": {\"b\": {\"c\": [0, 1, \"test1\", \"test2\"]}}}', '{a, b, c, 2}', '\"new_value\"', true)"
+  },
+  {
+    "comment": "jsonb - Statement 766",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, 1}', '{\"b\": \"value\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 767",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, 1}', '[\"value1\", \"value2\"]')"
+  },
+  {
+    "comment": "jsonb - Statement 768",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, 0}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 769",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, 0}', '\"new_value\"', true)"
+  },
+  {
+    "comment": "jsonb - Statement 770",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, 2}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 771",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, 2}', '\"new_value\"', true)"
+  },
+  {
+    "comment": "jsonb - Statement 772",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, -1}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 773",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, -1}', '\"new_value\"', true)"
+  },
+  {
+    "comment": "jsonb - Statement 774",
+    "query": "select jsonb_insert('[]', '{1}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 775",
+    "query": "select jsonb_insert('[]', '{1}', '\"new_value\"', true)"
+  },
+  {
+    "comment": "jsonb - Statement 776",
+    "query": "select jsonb_insert('{\"a\": []}', '{a, 1}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 777",
+    "query": "select jsonb_insert('{\"a\": []}', '{a, 1}', '\"new_value\"', true)"
+  },
+  {
+    "comment": "jsonb - Statement 778",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, 10}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 779",
+    "query": "select jsonb_insert('{\"a\": [0,1,2]}', '{a, -10}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 780",
+    "query": "select jsonb_insert('{\"a\": {\"b\": \"value\"}}', '{a, c}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 781",
+    "query": "select jsonb_insert('{\"a\": {\"b\": \"value\"}}', '{a, c}', '\"new_value\"', true)"
+  },
+  {
+    "comment": "jsonb - Statement 782",
+    "query": "select jsonb_insert('{\"a\": {\"b\": \"value\"}}', '{a, b}', '\"new_value\"')"
+  },
+  {
+    "comment": "jsonb - Statement 783",
+    "query": "select jsonb_insert('{\"a\": {\"b\": \"value\"}}', '{a, b}', '\"new_value\"', true)"
+  },
+  {
+    "comment": "jsonb - Statement 784",
+    "query": "select ('123'::jsonb)['a']"
+  },
+  {
+    "comment": "jsonb - Statement 785",
+    "query": "select ('123'::jsonb)[0]"
+  },
+  {
+    "comment": "jsonb - Statement 786",
+    "query": "select ('123'::jsonb)[NULL]"
+  },
+  {
+    "comment": "jsonb - Statement 787",
+    "query": "select ('{\"a\": 1}'::jsonb)['a']"
+  },
+  {
+    "comment": "jsonb - Statement 788",
+    "query": "select ('{\"a\": 1}'::jsonb)[0]"
+  },
+  {
+    "comment": "jsonb - Statement 789",
+    "query": "select ('{\"a\": 1}'::jsonb)['not_exist']"
+  },
+  {
+    "comment": "jsonb - Statement 790",
+    "query": "select ('{\"a\": 1}'::jsonb)[NULL]"
+  },
+  {
+    "comment": "jsonb - Statement 791",
+    "query": "select ('[1, \"2\", null]'::jsonb)['a']"
+  },
+  {
+    "comment": "jsonb - Statement 792",
+    "query": "select ('[1, \"2\", null]'::jsonb)[0]"
+  },
+  {
+    "comment": "jsonb - Statement 793",
+    "query": "select ('[1, \"2\", null]'::jsonb)['1']"
+  },
+  {
+    "comment": "jsonb - Statement 794",
+    "query": "select ('[1, \"2\", null]'::jsonb)[1.0]"
+  },
+  {
+    "comment": "jsonb - Statement 795",
+    "query": "select ('[1, \"2\", null]'::jsonb)[2]"
+  },
+  {
+    "comment": "jsonb - Statement 796",
+    "query": "select ('[1, \"2\", null]'::jsonb)[3]"
+  },
+  {
+    "comment": "jsonb - Statement 797",
+    "query": "select ('[1, \"2\", null]'::jsonb)[-2]"
+  },
+  {
+    "comment": "jsonb - Statement 798",
+    "query": "select ('[1, \"2\", null]'::jsonb)[1]['a']"
+  },
+  {
+    "comment": "jsonb - Statement 799",
+    "query": "select ('[1, \"2\", null]'::jsonb)[1][0]"
+  },
+  {
+    "comment": "jsonb - Statement 800",
+    "query": "select ('{\"a\": 1, \"b\": \"c\", \"d\": [1, 2, 3]}'::jsonb)['b']"
+  },
+  {
+    "comment": "jsonb - Statement 801",
+    "query": "select ('{\"a\": 1, \"b\": \"c\", \"d\": [1, 2, 3]}'::jsonb)['d']"
+  },
+  {
+    "comment": "jsonb - Statement 802",
+    "query": "select ('{\"a\": 1, \"b\": \"c\", \"d\": [1, 2, 3]}'::jsonb)['d'][1]"
+  },
+  {
+    "comment": "jsonb - Statement 803",
+    "query": "select ('{\"a\": 1, \"b\": \"c\", \"d\": [1, 2, 3]}'::jsonb)['d']['a']"
+  },
+  {
+    "comment": "jsonb - Statement 804",
+    "query": "select ('{\"a\": {\"a1\": {\"a2\": \"aaa\"}}, \"b\": \"bbb\", \"c\": \"ccc\"}'::jsonb)['a']['a1']"
+  },
+  {
+    "comment": "jsonb - Statement 805",
+    "query": "select ('{\"a\": {\"a1\": {\"a2\": \"aaa\"}}, \"b\": \"bbb\", \"c\": \"ccc\"}'::jsonb)['a']['a1']['a2']"
+  },
+  {
+    "comment": "jsonb - Statement 806",
+    "query": "select ('{\"a\": {\"a1\": {\"a2\": \"aaa\"}}, \"b\": \"bbb\", \"c\": \"ccc\"}'::jsonb)['a']['a1']['a2']['a3']"
+  },
+  {
+    "comment": "jsonb - Statement 807",
+    "query": "select ('{\"a\": [\"a1\", {\"b1\": [\"aaa\", \"bbb\", \"ccc\"]}], \"b\": \"bb\"}'::jsonb)['a'][1]['b1']"
+  },
+  {
+    "comment": "jsonb - Statement 808",
+    "query": "select ('{\"a\": [\"a1\", {\"b1\": [\"aaa\", \"bbb\", \"ccc\"]}], \"b\": \"bb\"}'::jsonb)['a'][1]['b1'][2]"
+  },
+  {
+    "comment": "jsonb - Statement 809",
+    "query": "select ('{\"a\": 1}'::jsonb)['a':'b']"
+  },
+  {
+    "comment": "jsonb - Statement 810",
+    "query": "select ('[1, \"2\", null]'::jsonb)[1:2]"
+  },
+  {
+    "comment": "jsonb - Statement 811",
+    "query": "select ('[1, \"2\", null]'::jsonb)[:2]"
+  },
+  {
+    "comment": "jsonb - Statement 812",
+    "query": "select ('[1, \"2\", null]'::jsonb)[1:]"
+  },
+  {
+    "comment": "jsonb - Statement 813",
+    "query": "select ('[1, \"2\", null]'::jsonb)[:]"
+  },
+  {
+    "comment": "jsonb - Statement 814",
+    "query": "create TEMP TABLE test_jsonb_subscript ( id int, test_json jsonb )"
+  },
+  {
+    "comment": "jsonb - Statement 815",
+    "query": "insert into test_jsonb_subscript values (1, '{}'), (2, '{\"key\": \"value\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 816",
+    "query": "update test_jsonb_subscript set test_json['a'] = '1' where id = 1"
+  },
+  {
+    "comment": "jsonb - Statement 817",
+    "query": "select * from test_jsonb_subscript"
+  },
+  {
+    "comment": "jsonb - Statement 818",
+    "query": "update test_jsonb_subscript set test_json['a'] = '1' where id = 2"
+  },
+  {
+    "comment": "jsonb - Statement 819",
+    "query": "update test_jsonb_subscript set test_json['a'] = '\"test\"'"
+  },
+  {
+    "comment": "jsonb - Statement 820",
+    "query": "update test_jsonb_subscript set test_json['a'] = '{\"b\": 1}'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 821",
+    "query": "update test_jsonb_subscript set test_json['a'] = '[1, 2, 3]'::jsonb"
+  },
+  {
+    "comment": "jsonb - Statement 822",
+    "query": "select * from test_jsonb_subscript where test_json['key'] = '\"value\"'"
+  },
+  {
+    "comment": "jsonb - Statement 823",
+    "query": "select * from test_jsonb_subscript where test_json['key_doesnt_exists'] = '\"value\"'"
+  },
+  {
+    "comment": "jsonb - Statement 824",
+    "query": "select * from test_jsonb_subscript where test_json['key'] = '\"wrong_value\"'"
+  },
+  {
+    "comment": "jsonb - Statement 825",
+    "query": "update test_jsonb_subscript set test_json[NULL] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 826",
+    "query": "update test_jsonb_subscript set test_json['another_key'] = NULL"
+  },
+  {
+    "comment": "jsonb - Statement 827",
+    "query": "insert into test_jsonb_subscript values (3, NULL)"
+  },
+  {
+    "comment": "jsonb - Statement 828",
+    "query": "update test_jsonb_subscript set test_json['a'] = '1' where id = 3"
+  },
+  {
+    "comment": "jsonb - Statement 829",
+    "query": "update test_jsonb_subscript set test_json = NULL where id = 3"
+  },
+  {
+    "comment": "jsonb - Statement 830",
+    "query": "update test_jsonb_subscript set test_json[0] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 831",
+    "query": "delete from test_jsonb_subscript"
+  },
+  {
+    "comment": "jsonb - Statement 832",
+    "query": "insert into test_jsonb_subscript values (1, '[0]')"
+  },
+  {
+    "comment": "jsonb - Statement 833",
+    "query": "update test_jsonb_subscript set test_json[5] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 834",
+    "query": "update test_jsonb_subscript set test_json[-4] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 835",
+    "query": "update test_jsonb_subscript set test_json[-8] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 836",
+    "query": "insert into test_jsonb_subscript values (1, '[]')"
+  },
+  {
+    "comment": "jsonb - Statement 837",
+    "query": "insert into test_jsonb_subscript values (1, '{}')"
+  },
+  {
+    "comment": "jsonb - Statement 838",
+    "query": "update test_jsonb_subscript set test_json['a'][0]['b'][0]['c'] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 839",
+    "query": "update test_jsonb_subscript set test_json['a'][2]['b'][2]['c'][2] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 840",
+    "query": "insert into test_jsonb_subscript values (1, '{\"b\": 1}')"
+  },
+  {
+    "comment": "jsonb - Statement 841",
+    "query": "update test_jsonb_subscript set test_json['a'][0] = '2'"
+  },
+  {
+    "comment": "jsonb - Statement 842",
+    "query": "update test_jsonb_subscript set test_json[0]['a'] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 843",
+    "query": "update test_jsonb_subscript set test_json[2]['b'] = '2'"
+  },
+  {
+    "comment": "jsonb - Statement 844",
+    "query": "update test_jsonb_subscript set test_json['a']['b'][1] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 845",
+    "query": "update test_jsonb_subscript set test_json['a']['b'][10] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 846",
+    "query": "update test_jsonb_subscript set test_json[0][0][0] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 847",
+    "query": "update test_jsonb_subscript set test_json[0][0][1] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 848",
+    "query": "update test_jsonb_subscript set test_json['a'][10][10] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 849",
+    "query": "insert into test_jsonb_subscript values (1, '{\"a\": {}}')"
+  },
+  {
+    "comment": "jsonb - Statement 850",
+    "query": "update test_jsonb_subscript set test_json['a']['b']['c'][2] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 851",
+    "query": "insert into test_jsonb_subscript values (1, '{\"a\": []}')"
+  },
+  {
+    "comment": "jsonb - Statement 852",
+    "query": "update test_jsonb_subscript set test_json['a'][1]['c'][2] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 853",
+    "query": "insert into test_jsonb_subscript values (1, '{\"a\": 1}')"
+  },
+  {
+    "comment": "jsonb - Statement 854",
+    "query": "update test_jsonb_subscript set test_json['a']['b'] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 855",
+    "query": "update test_jsonb_subscript set test_json['a']['b']['c'] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 856",
+    "query": "update test_jsonb_subscript set test_json['a'][0] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 857",
+    "query": "update test_jsonb_subscript set test_json['a'][0]['c'] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 858",
+    "query": "update test_jsonb_subscript set test_json['a'][0][0] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 859",
+    "query": "insert into test_jsonb_subscript values (1, 'null')"
+  },
+  {
+    "comment": "jsonb - Statement 860",
+    "query": "update test_jsonb_subscript set test_json[0][0] = '1'"
+  },
+  {
+    "comment": "jsonb - Statement 861",
+    "query": "drop table test_jsonb_subscript"
+  },
+  {
+    "comment": "jsonb - Statement 862",
+    "query": "create temp table test_jsonb_subscript ( id text, test_json jsonb )"
+  },
+  {
+    "comment": "jsonb - Statement 863",
+    "query": "insert into test_jsonb_subscript values('foo', '{\"foo\": \"bar\"}')"
+  },
+  {
+    "comment": "jsonb - Statement 864",
+    "query": "insert into test_jsonb_subscript select s, ('{\"' || s || '\": \"bar\"}')::jsonb from repeat('xyzzy', 500) s"
+  },
+  {
+    "comment": "jsonb - Statement 865",
+    "query": "select length(id), test_json[id] from test_jsonb_subscript"
+  },
+  {
+    "comment": "jsonb - Statement 866",
+    "query": "update test_jsonb_subscript set test_json[id] = '\"baz\"'"
+  },
+  {
+    "comment": "jsonb - Statement 867",
+    "query": "select to_tsvector('simple', '{\"a\": \"aaa bbb ddd ccc\", \"b\": [\"eee fff ggg\"], \"c\": {\"d\": \"hhh iii\"}}'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 868",
+    "query": "select to_tsvector('english', '{\"a\": \"aaa in bbb ddd ccc\", \"b\": [\"the eee fff ggg\"], \"c\": {\"d\": \"hhh. iii\"}}'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 869",
+    "query": "select to_tsvector('english', '{\"a\": \"aaa in bbb ddd ccc\", \"b\": 123, \"c\": 456}'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 870",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, '\"all\"')"
+  },
+  {
+    "comment": "jsonb - Statement 871",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, '\"key\"')"
+  },
+  {
+    "comment": "jsonb - Statement 872",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, '\"string\"')"
+  },
+  {
+    "comment": "jsonb - Statement 873",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, '\"numeric\"')"
+  },
+  {
+    "comment": "jsonb - Statement 874",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, '\"boolean\"')"
+  },
+  {
+    "comment": "jsonb - Statement 875",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, '[\"string\", \"numeric\"]')"
+  },
+  {
+    "comment": "jsonb - Statement 876",
+    "query": "select to_tsvector('\"\"'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 877",
+    "query": "select to_tsvector('{}'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 878",
+    "query": "select to_tsvector('[]'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 879",
+    "query": "select to_tsvector('null'::jsonb)"
+  },
+  {
+    "comment": "jsonb - Statement 880",
+    "query": "select jsonb_to_tsvector('\"\"'::jsonb, '\"all\"')"
+  },
+  {
+    "comment": "jsonb - Statement 881",
+    "query": "select jsonb_to_tsvector('{}'::jsonb, '\"all\"')"
+  },
+  {
+    "comment": "jsonb - Statement 882",
+    "query": "select jsonb_to_tsvector('[]'::jsonb, '\"all\"')"
+  },
+  {
+    "comment": "jsonb - Statement 883",
+    "query": "select jsonb_to_tsvector('null'::jsonb, '\"all\"')"
+  },
+  {
+    "comment": "jsonb - Statement 884",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, '\"\"')"
+  },
+  {
+    "comment": "jsonb - Statement 885",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, '{}')"
+  },
+  {
+    "comment": "jsonb - Statement 886",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, '[]')"
+  },
+  {
+    "comment": "jsonb - Statement 887",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, 'null')"
+  },
+  {
+    "comment": "jsonb - Statement 888",
+    "query": "select jsonb_to_tsvector('english', '{\"a\": \"aaa in bbb\", \"b\": 123, \"c\": 456, \"d\": true, \"f\": false, \"g\": null}'::jsonb, '[\"all\", null]')"
+  },
+  {
+    "comment": "jsonb - Statement 889",
+    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb & ddd & hhh'))"
+  },
+  {
+    "comment": "jsonb - Statement 890",
+    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb & ddd & hhh'))"
+  },
+  {
+    "comment": "jsonb - Statement 891",
+    "query": "select ts_headline('{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')"
+  },
+  {
+    "comment": "jsonb - Statement 892",
+    "query": "select ts_headline('english', '{\"a\": \"aaa bbb\", \"b\": {\"c\": \"ccc ddd fff\", \"c1\": \"ccc1 ddd1\"}, \"d\": [\"ggg hhh\", \"iii jjj\"]}'::jsonb, tsquery('bbb & ddd & hhh'), 'StartSel = <, StopSel = >')"
+  },
+  {
+    "comment": "jsonb - Statement 893",
+    "query": "select ts_headline('null'::jsonb, tsquery('aaa & bbb'))"
+  },
+  {
+    "comment": "jsonb - Statement 894",
+    "query": "select ts_headline('{}'::jsonb, tsquery('aaa & bbb'))"
+  },
+  {
+    "comment": "jsonb - Statement 895",
+    "query": "select ts_headline('[]'::jsonb, tsquery('aaa & bbb'))"
+  },
+  {
+    "comment": "jsonb - Statement 896",
+    "query": "select 'true'::jsonb::bool"
+  },
+  {
+    "comment": "jsonb - Statement 897",
+    "query": "select '[]'::jsonb::bool"
+  },
+  {
+    "comment": "jsonb - Statement 898",
+    "query": "select '1.0'::jsonb::float"
+  },
+  {
+    "comment": "jsonb - Statement 899",
+    "query": "select '[1.0]'::jsonb::float"
+  },
+  {
+    "comment": "jsonb - Statement 900",
+    "query": "select '12345'::jsonb::int4"
+  },
+  {
+    "comment": "jsonb - Statement 901",
+    "query": "select '\"hello\"'::jsonb::int4"
+  },
+  {
+    "comment": "jsonb - Statement 902",
+    "query": "select '12345'::jsonb::numeric"
+  },
+  {
+    "comment": "jsonb - Statement 903",
+    "query": "select '{}'::jsonb::numeric"
+  },
+  {
+    "comment": "jsonb - Statement 904",
+    "query": "select '12345.05'::jsonb::numeric"
+  },
+  {
+    "comment": "jsonb - Statement 905",
+    "query": "select '12345.05'::jsonb::float4"
+  },
+  {
+    "comment": "jsonb - Statement 906",
+    "query": "select '12345.05'::jsonb::float8"
+  },
+  {
+    "comment": "jsonb - Statement 907",
+    "query": "select '12345.05'::jsonb::int2"
+  },
+  {
+    "comment": "jsonb - Statement 908",
+    "query": "select '12345.05'::jsonb::int4"
+  },
+  {
+    "comment": "jsonb - Statement 909",
+    "query": "select '12345.05'::jsonb::int8"
+  },
+  {
+    "comment": "jsonb - Statement 910",
+    "query": "select '12345.0000000000000000000000000000000000000000000005'::jsonb::numeric"
+  },
+  {
+    "comment": "jsonb - Statement 911",
+    "query": "select '12345.0000000000000000000000000000000000000000000005'::jsonb::float4"
+  },
+  {
+    "comment": "jsonb - Statement 912",
+    "query": "select '12345.0000000000000000000000000000000000000000000005'::jsonb::float8"
+  },
+  {
+    "comment": "jsonb - Statement 913",
+    "query": "select '12345.0000000000000000000000000000000000000000000005'::jsonb::int2"
+  },
+  {
+    "comment": "jsonb - Statement 914",
+    "query": "select '12345.0000000000000000000000000000000000000000000005'::jsonb::int4"
+  },
+  {
+    "comment": "jsonb - Statement 915",
+    "query": "select '12345.0000000000000000000000000000000000000000000005'::jsonb::int8"
+  }
+]

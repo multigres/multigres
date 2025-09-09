@@ -1,0 +1,814 @@
+[
+  {
+    "comment": "transactions - Statement 1",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "transactions - Statement 2",
+    "query": "CREATE TABLE xacttest (a smallint, b real)"
+  },
+  {
+    "comment": "transactions - Statement 3",
+    "query": "INSERT INTO xacttest VALUES (56, 7.8), (100, 99.097), (0, 0.09561), (42, 324.78)"
+  },
+  {
+    "comment": "transactions - Statement 4",
+    "query": "INSERT INTO xacttest (a, b) VALUES (777, 777.777)"
+  },
+  {
+    "comment": "transactions - Statement 5",
+    "query": "END"
+  },
+  {
+    "comment": "transactions - Statement 6",
+    "query": "SELECT a FROM xacttest WHERE a > 100"
+  },
+  {
+    "comment": "transactions - Statement 7",
+    "query": "CREATE TABLE disappear (a int4)"
+  },
+  {
+    "comment": "transactions - Statement 8",
+    "query": "DELETE FROM xacttest"
+  },
+  {
+    "comment": "transactions - Statement 9",
+    "query": "SELECT * FROM xacttest"
+  },
+  {
+    "comment": "transactions - Statement 10",
+    "query": "ABORT"
+  },
+  {
+    "comment": "transactions - Statement 11",
+    "query": "SELECT oid FROM pg_class WHERE relname = 'disappear'"
+  },
+  {
+    "comment": "transactions - Statement 12",
+    "query": "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE"
+  },
+  {
+    "comment": "transactions - Statement 13",
+    "query": "SELECT COUNT(*) FROM xacttest"
+  },
+  {
+    "comment": "transactions - Statement 14",
+    "query": "RESET transaction_isolation"
+  },
+  {
+    "comment": "transactions - Statement 15",
+    "query": "BEGIN TRANSACTION READ ONLY"
+  },
+  {
+    "comment": "transactions - Statement 16",
+    "query": "RESET transaction_read_only"
+  },
+  {
+    "comment": "transactions - Statement 17",
+    "query": "BEGIN TRANSACTION DEFERRABLE"
+  },
+  {
+    "comment": "transactions - Statement 18",
+    "query": "RESET transaction_deferrable"
+  },
+  {
+    "comment": "transactions - Statement 19",
+    "query": "CREATE FUNCTION errfunc() RETURNS int LANGUAGE SQL AS 'SELECT 1' SET transaction_read_only = on"
+  },
+  {
+    "comment": "transactions - Statement 20",
+    "query": "CREATE TABLE writetest (a int)"
+  },
+  {
+    "comment": "transactions - Statement 21",
+    "query": "CREATE TEMPORARY TABLE temptest (a int)"
+  },
+  {
+    "comment": "transactions - Statement 22",
+    "query": "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ ONLY, DEFERRABLE"
+  },
+  {
+    "comment": "transactions - Statement 23",
+    "query": "SELECT * FROM writetest"
+  },
+  {
+    "comment": "transactions - Statement 24",
+    "query": "SET TRANSACTION READ WRITE"
+  },
+  {
+    "comment": "transactions - Statement 25",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "transactions - Statement 26",
+    "query": "SET TRANSACTION READ ONLY"
+  },
+  {
+    "comment": "transactions - Statement 27",
+    "query": "SAVEPOINT x"
+  },
+  {
+    "comment": "transactions - Statement 28",
+    "query": "ROLLBACK TO SAVEPOINT x"
+  },
+  {
+    "comment": "transactions - Statement 29",
+    "query": "SHOW transaction_read_only"
+  },
+  {
+    "comment": "transactions - Statement 30",
+    "query": "SAVEPOINT y"
+  },
+  {
+    "comment": "transactions - Statement 31",
+    "query": "RELEASE SAVEPOINT y"
+  },
+  {
+    "comment": "transactions - Statement 32",
+    "query": "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"
+  },
+  {
+    "comment": "transactions - Statement 33",
+    "query": "DROP TABLE writetest"
+  },
+  {
+    "comment": "transactions - Statement 34",
+    "query": "INSERT INTO writetest VALUES (1)"
+  },
+  {
+    "comment": "transactions - Statement 35",
+    "query": "DELETE FROM temptest"
+  },
+  {
+    "comment": "transactions - Statement 36",
+    "query": "UPDATE temptest SET a = 0 FROM writetest WHERE temptest.a = 1 AND writetest.a = temptest.a"
+  },
+  {
+    "comment": "transactions - Statement 37",
+    "query": "PREPARE test AS UPDATE writetest SET a = 0"
+  },
+  {
+    "comment": "transactions - Statement 38",
+    "query": "EXECUTE test"
+  },
+  {
+    "comment": "transactions - Statement 39",
+    "query": "SELECT * FROM writetest, temptest"
+  },
+  {
+    "comment": "transactions - Statement 40",
+    "query": "CREATE TABLE test AS SELECT * FROM writetest"
+  },
+  {
+    "comment": "transactions - Statement 41",
+    "query": "START TRANSACTION READ WRITE"
+  },
+  {
+    "comment": "transactions - Statement 42",
+    "query": "SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE"
+  },
+  {
+    "comment": "transactions - Statement 43",
+    "query": "CREATE TABLE trans_foobar (a int)"
+  },
+  {
+    "comment": "transactions - Statement 44",
+    "query": "CREATE TABLE trans_foo (a int)"
+  },
+  {
+    "comment": "transactions - Statement 45",
+    "query": "SAVEPOINT one"
+  },
+  {
+    "comment": "transactions - Statement 46",
+    "query": "DROP TABLE trans_foo"
+  },
+  {
+    "comment": "transactions - Statement 47",
+    "query": "CREATE TABLE trans_bar (a int)"
+  },
+  {
+    "comment": "transactions - Statement 48",
+    "query": "ROLLBACK TO SAVEPOINT one"
+  },
+  {
+    "comment": "transactions - Statement 49",
+    "query": "RELEASE SAVEPOINT one"
+  },
+  {
+    "comment": "transactions - Statement 50",
+    "query": "SAVEPOINT two"
+  },
+  {
+    "comment": "transactions - Statement 51",
+    "query": "CREATE TABLE trans_baz (a int)"
+  },
+  {
+    "comment": "transactions - Statement 52",
+    "query": "RELEASE SAVEPOINT two"
+  },
+  {
+    "comment": "transactions - Statement 53",
+    "query": "drop TABLE trans_foobar"
+  },
+  {
+    "comment": "transactions - Statement 54",
+    "query": "CREATE TABLE trans_barbaz (a int)"
+  },
+  {
+    "comment": "transactions - Statement 55",
+    "query": "SELECT * FROM trans_foo"
+  },
+  {
+    "comment": "transactions - Statement 56",
+    "query": "SELECT * FROM trans_bar"
+  },
+  {
+    "comment": "transactions - Statement 57",
+    "query": "SELECT * FROM trans_barbaz"
+  },
+  {
+    "comment": "transactions - Statement 58",
+    "query": "SELECT * FROM trans_baz"
+  },
+  {
+    "comment": "transactions - Statement 59",
+    "query": "INSERT INTO trans_foo VALUES (1)"
+  },
+  {
+    "comment": "transactions - Statement 60",
+    "query": "INSERT into trans_bar VALUES (1)"
+  },
+  {
+    "comment": "transactions - Statement 61",
+    "query": "ROLLBACK TO one"
+  },
+  {
+    "comment": "transactions - Statement 62",
+    "query": "INSERT into trans_barbaz VALUES (1)"
+  },
+  {
+    "comment": "transactions - Statement 63",
+    "query": "RELEASE two"
+  },
+  {
+    "comment": "transactions - Statement 64",
+    "query": "SAVEPOINT three"
+  },
+  {
+    "comment": "transactions - Statement 65",
+    "query": "SAVEPOINT four"
+  },
+  {
+    "comment": "transactions - Statement 66",
+    "query": "INSERT INTO trans_foo VALUES (2)"
+  },
+  {
+    "comment": "transactions - Statement 67",
+    "query": "RELEASE SAVEPOINT four"
+  },
+  {
+    "comment": "transactions - Statement 68",
+    "query": "ROLLBACK TO SAVEPOINT three"
+  },
+  {
+    "comment": "transactions - Statement 69",
+    "query": "RELEASE SAVEPOINT three"
+  },
+  {
+    "comment": "transactions - Statement 70",
+    "query": "INSERT INTO trans_foo VALUES (3)"
+  },
+  {
+    "comment": "transactions - Statement 71",
+    "query": "SELECT trans_foo"
+  },
+  {
+    "comment": "transactions - Statement 72",
+    "query": "CREATE TABLE savepoints (a int)"
+  },
+  {
+    "comment": "transactions - Statement 73",
+    "query": "INSERT INTO savepoints VALUES (1)"
+  },
+  {
+    "comment": "transactions - Statement 74",
+    "query": "INSERT INTO savepoints VALUES (2)"
+  },
+  {
+    "comment": "transactions - Statement 75",
+    "query": "SAVEPOINT five"
+  },
+  {
+    "comment": "transactions - Statement 76",
+    "query": "INSERT INTO savepoints VALUES (3)"
+  },
+  {
+    "comment": "transactions - Statement 77",
+    "query": "ROLLBACK TO SAVEPOINT five"
+  },
+  {
+    "comment": "transactions - Statement 78",
+    "query": "SELECT * FROM savepoints"
+  },
+  {
+    "comment": "transactions - Statement 79",
+    "query": "DELETE FROM savepoints WHERE a=1"
+  },
+  {
+    "comment": "transactions - Statement 80",
+    "query": "DELETE FROM savepoints WHERE a=2"
+  },
+  {
+    "comment": "transactions - Statement 81",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "transactions - Statement 82",
+    "query": "INSERT INTO savepoints VALUES (4)"
+  },
+  {
+    "comment": "transactions - Statement 83",
+    "query": "INSERT INTO savepoints VALUES (5)"
+  },
+  {
+    "comment": "transactions - Statement 84",
+    "query": "INSERT INTO savepoints VALUES (6)"
+  },
+  {
+    "comment": "transactions - Statement 85",
+    "query": "INSERT INTO savepoints VALUES (7)"
+  },
+  {
+    "comment": "transactions - Statement 86",
+    "query": "INSERT INTO savepoints VALUES (8)"
+  },
+  {
+    "comment": "transactions - Statement 87",
+    "query": "SELECT a.xmin = b.xmin FROM savepoints a, savepoints b WHERE a.a=6 AND b.a=8"
+  },
+  {
+    "comment": "transactions - Statement 88",
+    "query": "SELECT a.xmin = b.xmin FROM savepoints a, savepoints b WHERE a.a=6 AND b.a=7"
+  },
+  {
+    "comment": "transactions - Statement 89",
+    "query": "INSERT INTO savepoints VALUES (9)"
+  },
+  {
+    "comment": "transactions - Statement 90",
+    "query": "INSERT INTO savepoints VALUES (10)"
+  },
+  {
+    "comment": "transactions - Statement 91",
+    "query": "INSERT INTO savepoints VALUES (11)"
+  },
+  {
+    "comment": "transactions - Statement 92",
+    "query": "SELECT a FROM savepoints WHERE a in (9, 10, 11)"
+  },
+  {
+    "comment": "transactions - Statement 93",
+    "query": "SELECT a.xmin = b.xmin FROM savepoints a, savepoints b WHERE a.a=9 AND b.a=11"
+  },
+  {
+    "comment": "transactions - Statement 94",
+    "query": "INSERT INTO savepoints VALUES (12)"
+  },
+  {
+    "comment": "transactions - Statement 95",
+    "query": "INSERT INTO savepoints VALUES (13)"
+  },
+  {
+    "comment": "transactions - Statement 96",
+    "query": "INSERT INTO savepoints VALUES (14)"
+  },
+  {
+    "comment": "transactions - Statement 97",
+    "query": "INSERT INTO savepoints VALUES (15)"
+  },
+  {
+    "comment": "transactions - Statement 98",
+    "query": "INSERT INTO savepoints VALUES (16)"
+  },
+  {
+    "comment": "transactions - Statement 99",
+    "query": "INSERT INTO savepoints VALUES (17)"
+  },
+  {
+    "comment": "transactions - Statement 100",
+    "query": "SELECT a FROM savepoints WHERE a BETWEEN 12 AND 17"
+  },
+  {
+    "comment": "transactions - Statement 101",
+    "query": "INSERT INTO savepoints VALUES (18)"
+  },
+  {
+    "comment": "transactions - Statement 102",
+    "query": "INSERT INTO savepoints VALUES (19)"
+  },
+  {
+    "comment": "transactions - Statement 103",
+    "query": "INSERT INTO savepoints VALUES (20)"
+  },
+  {
+    "comment": "transactions - Statement 104",
+    "query": "INSERT INTO savepoints VALUES (21)"
+  },
+  {
+    "comment": "transactions - Statement 105",
+    "query": "INSERT INTO savepoints VALUES (22)"
+  },
+  {
+    "comment": "transactions - Statement 106",
+    "query": "SELECT a FROM savepoints WHERE a BETWEEN 18 AND 22"
+  },
+  {
+    "comment": "transactions - Statement 107",
+    "query": "DROP TABLE savepoints"
+  },
+  {
+    "comment": "transactions - Statement 108",
+    "query": "SELECT 0/0"
+  },
+  {
+    "comment": "transactions - Statement 109",
+    "query": "SELECT 1"
+  },
+  {
+    "comment": "transactions - Statement 110",
+    "query": "DECLARE c CURSOR FOR SELECT unique2 FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "transactions - Statement 111",
+    "query": "FETCH 10 FROM c"
+  },
+  {
+    "comment": "transactions - Statement 112",
+    "query": "CLOSE c"
+  },
+  {
+    "comment": "transactions - Statement 113",
+    "query": "DECLARE c CURSOR FOR SELECT unique2/0 FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "transactions - Statement 114",
+    "query": "ROLLBACK TO SAVEPOINT two"
+  },
+  {
+    "comment": "transactions - Statement 115",
+    "query": "create or replace function max_xacttest() returns smallint language sql as 'select max(a) from xacttest' stable"
+  },
+  {
+    "comment": "transactions - Statement 116",
+    "query": "update xacttest set a = max_xacttest() + 10 where a > 0"
+  },
+  {
+    "comment": "transactions - Statement 117",
+    "query": "create or replace function max_xacttest() returns smallint language sql as 'select max(a) from xacttest' volatile"
+  },
+  {
+    "comment": "transactions - Statement 118",
+    "query": "create or replace function max_xacttest() returns smallint language plpgsql as 'begin return max(a) from xacttest; end' stable"
+  },
+  {
+    "comment": "transactions - Statement 119",
+    "query": "create or replace function max_xacttest() returns smallint language plpgsql as 'begin return max(a) from xacttest; end' volatile"
+  },
+  {
+    "comment": "transactions - Statement 120",
+    "query": "CREATE TABLE koju (a INT UNIQUE)"
+  },
+  {
+    "comment": "transactions - Statement 121",
+    "query": "INSERT INTO koju VALUES (1)"
+  },
+  {
+    "comment": "transactions - Statement 122",
+    "query": "rollback to x"
+  },
+  {
+    "comment": "transactions - Statement 123",
+    "query": "DROP TABLE trans_baz"
+  },
+  {
+    "comment": "transactions - Statement 124",
+    "query": "DROP TABLE trans_barbaz"
+  },
+  {
+    "comment": "transactions - Statement 125",
+    "query": "create function inverse(int) returns float8 as $$ begin analyze revalidate_bug"
+  },
+  {
+    "comment": "transactions - Statement 126",
+    "query": "return 1::float8/$1"
+  },
+  {
+    "comment": "transactions - Statement 127",
+    "query": "exception when division_by_zero then return 0"
+  },
+  {
+    "comment": "transactions - Statement 128",
+    "query": "end$$ language plpgsql volatile"
+  },
+  {
+    "comment": "transactions - Statement 129",
+    "query": "create table revalidate_bug (c float8 unique)"
+  },
+  {
+    "comment": "transactions - Statement 130",
+    "query": "insert into revalidate_bug values (1)"
+  },
+  {
+    "comment": "transactions - Statement 131",
+    "query": "insert into revalidate_bug values (inverse(0))"
+  },
+  {
+    "comment": "transactions - Statement 132",
+    "query": "drop table revalidate_bug"
+  },
+  {
+    "comment": "transactions - Statement 133",
+    "query": "drop function inverse(int)"
+  },
+  {
+    "comment": "transactions - Statement 134",
+    "query": "create table trans_abc (a int)"
+  },
+  {
+    "comment": "transactions - Statement 135",
+    "query": "insert into trans_abc values (5)"
+  },
+  {
+    "comment": "transactions - Statement 136",
+    "query": "insert into trans_abc values (10)"
+  },
+  {
+    "comment": "transactions - Statement 137",
+    "query": "declare foo cursor for select * from trans_abc"
+  },
+  {
+    "comment": "transactions - Statement 138",
+    "query": "fetch from foo"
+  },
+  {
+    "comment": "transactions - Statement 139",
+    "query": "insert into trans_abc values (15)"
+  },
+  {
+    "comment": "transactions - Statement 140",
+    "query": "CREATE FUNCTION invert(x float8) RETURNS float8 LANGUAGE plpgsql AS $$ begin return 1/x; end $$"
+  },
+  {
+    "comment": "transactions - Statement 141",
+    "query": "CREATE FUNCTION create_temp_tab() RETURNS text LANGUAGE plpgsql AS $$ BEGIN CREATE TEMP TABLE new_table (f1 float8)"
+  },
+  {
+    "comment": "transactions - Statement 142",
+    "query": "INSERT INTO new_table SELECT invert(0.0)"
+  },
+  {
+    "comment": "transactions - Statement 143",
+    "query": "RETURN 'foo'"
+  },
+  {
+    "comment": "transactions - Statement 144",
+    "query": "END $$"
+  },
+  {
+    "comment": "transactions - Statement 145",
+    "query": "DECLARE ok CURSOR FOR SELECT * FROM int8_tbl"
+  },
+  {
+    "comment": "transactions - Statement 146",
+    "query": "DECLARE ctt CURSOR FOR SELECT create_temp_tab()"
+  },
+  {
+    "comment": "transactions - Statement 147",
+    "query": "FETCH ok"
+  },
+  {
+    "comment": "transactions - Statement 148",
+    "query": "SAVEPOINT s1"
+  },
+  {
+    "comment": "transactions - Statement 149",
+    "query": "FETCH ctt"
+  },
+  {
+    "comment": "transactions - Statement 150",
+    "query": "ROLLBACK TO s1"
+  },
+  {
+    "comment": "transactions - Statement 151",
+    "query": "DROP FUNCTION create_temp_tab()"
+  },
+  {
+    "comment": "transactions - Statement 152",
+    "query": "DROP FUNCTION invert(x float8)"
+  },
+  {
+    "comment": "transactions - Statement 153",
+    "query": "SET default_transaction_read_only = on"
+  },
+  {
+    "comment": "transactions - Statement 154",
+    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE, DEFERRABLE"
+  },
+  {
+    "comment": "transactions - Statement 155",
+    "query": "SHOW transaction_isolation"
+  },
+  {
+    "comment": "transactions - Statement 156",
+    "query": "SHOW transaction_deferrable"
+  },
+  {
+    "comment": "transactions - Statement 157",
+    "query": "INSERT INTO trans_abc VALUES (1)"
+  },
+  {
+    "comment": "transactions - Statement 158",
+    "query": "INSERT INTO trans_abc VALUES (2)"
+  },
+  {
+    "comment": "transactions - Statement 159",
+    "query": "COMMIT AND CHAIN"
+  },
+  {
+    "comment": "transactions - Statement 160",
+    "query": "INSERT INTO trans_abc VALUES ('error')"
+  },
+  {
+    "comment": "transactions - Statement 161",
+    "query": "INSERT INTO trans_abc VALUES (3)"
+  },
+  {
+    "comment": "transactions - Statement 162",
+    "query": "INSERT INTO trans_abc VALUES (4)"
+  },
+  {
+    "comment": "transactions - Statement 163",
+    "query": "START TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE, DEFERRABLE"
+  },
+  {
+    "comment": "transactions - Statement 164",
+    "query": "START TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ WRITE, NOT DEFERRABLE"
+  },
+  {
+    "comment": "transactions - Statement 165",
+    "query": "INSERT INTO trans_abc VALUES (6)"
+  },
+  {
+    "comment": "transactions - Statement 166",
+    "query": "ROLLBACK AND CHAIN"
+  },
+  {
+    "comment": "transactions - Statement 167",
+    "query": "SELECT * FROM trans_abc ORDER BY 1"
+  },
+  {
+    "comment": "transactions - Statement 168",
+    "query": "RESET default_transaction_read_only"
+  },
+  {
+    "comment": "transactions - Statement 169",
+    "query": "DROP TABLE trans_abc"
+  },
+  {
+    "comment": "transactions - Statement 170",
+    "query": "create temp table i_table (f1 int)"
+  },
+  {
+    "comment": "transactions - Statement 171",
+    "query": "SELECT 1\\; SELECT 2\\; SELECT 3"
+  },
+  {
+    "comment": "transactions - Statement 172",
+    "query": "insert into i_table values(1)\\; select * from i_table"
+  },
+  {
+    "comment": "transactions - Statement 173",
+    "query": "insert into i_table values(2)\\; select * from i_table\\; select 1/0"
+  },
+  {
+    "comment": "transactions - Statement 174",
+    "query": "select * from i_table"
+  },
+  {
+    "comment": "transactions - Statement 175",
+    "query": "begin\\; insert into i_table values(3)\\; commit"
+  },
+  {
+    "comment": "transactions - Statement 176",
+    "query": "begin\\; insert into i_table values(4)\\; rollback"
+  },
+  {
+    "comment": "transactions - Statement 177",
+    "query": "select 1\\; begin\\; insert into i_table values(5)"
+  },
+  {
+    "comment": "transactions - Statement 178",
+    "query": "select 1\\; begin\\; insert into i_table values(6)"
+  },
+  {
+    "comment": "transactions - Statement 179",
+    "query": "insert into i_table values(7)\\; commit\\; insert into i_table values(8)\\; select 1/0"
+  },
+  {
+    "comment": "transactions - Statement 180",
+    "query": "insert into i_table values(9)\\; rollback\\; select 2"
+  },
+  {
+    "comment": "transactions - Statement 181",
+    "query": "SELECT 1\\; VACUUM"
+  },
+  {
+    "comment": "transactions - Statement 182",
+    "query": "SELECT 1\\; COMMIT\\; VACUUM"
+  },
+  {
+    "comment": "transactions - Statement 183",
+    "query": "SELECT 1\\; SAVEPOINT sp"
+  },
+  {
+    "comment": "transactions - Statement 184",
+    "query": "SELECT 1\\; COMMIT\\; SAVEPOINT sp"
+  },
+  {
+    "comment": "transactions - Statement 185",
+    "query": "ROLLBACK TO SAVEPOINT sp\\; SELECT 2"
+  },
+  {
+    "comment": "transactions - Statement 186",
+    "query": "SELECT 2\\; RELEASE SAVEPOINT sp\\; SELECT 3"
+  },
+  {
+    "comment": "transactions - Statement 187",
+    "query": "SELECT 1\\; BEGIN\\; SAVEPOINT sp\\; ROLLBACK TO SAVEPOINT sp\\; COMMIT"
+  },
+  {
+    "comment": "transactions - Statement 188",
+    "query": "SET TRANSACTION READ ONLY\\; COMMIT AND CHAIN"
+  },
+  {
+    "comment": "transactions - Statement 189",
+    "query": "SET TRANSACTION READ ONLY\\; ROLLBACK AND CHAIN"
+  },
+  {
+    "comment": "transactions - Statement 190",
+    "query": "INSERT INTO trans_abc VALUES (7)\\; COMMIT\\; INSERT INTO trans_abc VALUES (8)\\; COMMIT AND CHAIN"
+  },
+  {
+    "comment": "transactions - Statement 191",
+    "query": "INSERT INTO trans_abc VALUES (9)\\; ROLLBACK\\; INSERT INTO trans_abc VALUES (10)\\; ROLLBACK AND CHAIN"
+  },
+  {
+    "comment": "transactions - Statement 192",
+    "query": "INSERT INTO trans_abc VALUES (11)\\; COMMIT AND CHAIN\\; INSERT INTO trans_abc VALUES (12)\\; COMMIT"
+  },
+  {
+    "comment": "transactions - Statement 193",
+    "query": "INSERT INTO trans_abc VALUES (13)\\; ROLLBACK AND CHAIN\\; INSERT INTO trans_abc VALUES (14)\\; ROLLBACK"
+  },
+  {
+    "comment": "transactions - Statement 194",
+    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (15)\\; COMMIT AND CHAIN"
+  },
+  {
+    "comment": "transactions - Statement 195",
+    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (16)\\; ROLLBACK AND CHAIN"
+  },
+  {
+    "comment": "transactions - Statement 196",
+    "query": "SET default_transaction_isolation = 'read committed'"
+  },
+  {
+    "comment": "transactions - Statement 197",
+    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (17)\\; COMMIT\\; INSERT INTO trans_abc VALUES (18)\\; COMMIT AND CHAIN"
+  },
+  {
+    "comment": "transactions - Statement 198",
+    "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (19)\\; ROLLBACK\\; INSERT INTO trans_abc VALUES (20)\\; ROLLBACK AND CHAIN"
+  },
+  {
+    "comment": "transactions - Statement 199",
+    "query": "RESET default_transaction_isolation"
+  },
+  {
+    "comment": "transactions - Statement 200",
+    "query": "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ"
+  },
+  {
+    "comment": "transactions - Statement 201",
+    "query": "SET TRANSACTION SNAPSHOT 'Incorrect Identifier'"
+  },
+  {
+    "comment": "transactions - Statement 202",
+    "query": "SET TRANSACTION SNAPSHOT 'FFF-FFF-F'"
+  },
+  {
+    "comment": "transactions - Statement 203",
+    "query": "select 1/0"
+  }
+]

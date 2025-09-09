@@ -1,0 +1,2630 @@
+[
+  {
+    "comment": "join - Statement 1",
+    "query": "CREATE TABLE J1_TBL ( i integer, j integer, t text )"
+  },
+  {
+    "comment": "join - Statement 2",
+    "query": "CREATE TABLE J2_TBL ( i integer, k integer )"
+  },
+  {
+    "comment": "join - Statement 3",
+    "query": "INSERT INTO J1_TBL VALUES (1, 4, 'one')"
+  },
+  {
+    "comment": "join - Statement 4",
+    "query": "INSERT INTO J1_TBL VALUES (2, 3, 'two')"
+  },
+  {
+    "comment": "join - Statement 5",
+    "query": "INSERT INTO J1_TBL VALUES (3, 2, 'three')"
+  },
+  {
+    "comment": "join - Statement 6",
+    "query": "INSERT INTO J1_TBL VALUES (4, 1, 'four')"
+  },
+  {
+    "comment": "join - Statement 7",
+    "query": "INSERT INTO J1_TBL VALUES (5, 0, 'five')"
+  },
+  {
+    "comment": "join - Statement 8",
+    "query": "INSERT INTO J1_TBL VALUES (6, 6, 'six')"
+  },
+  {
+    "comment": "join - Statement 9",
+    "query": "INSERT INTO J1_TBL VALUES (7, 7, 'seven')"
+  },
+  {
+    "comment": "join - Statement 10",
+    "query": "INSERT INTO J1_TBL VALUES (8, 8, 'eight')"
+  },
+  {
+    "comment": "join - Statement 11",
+    "query": "INSERT INTO J1_TBL VALUES (0, NULL, 'zero')"
+  },
+  {
+    "comment": "join - Statement 12",
+    "query": "INSERT INTO J1_TBL VALUES (NULL, NULL, 'null')"
+  },
+  {
+    "comment": "join - Statement 13",
+    "query": "INSERT INTO J1_TBL VALUES (NULL, 0, 'zero')"
+  },
+  {
+    "comment": "join - Statement 14",
+    "query": "INSERT INTO J2_TBL VALUES (1, -1)"
+  },
+  {
+    "comment": "join - Statement 15",
+    "query": "INSERT INTO J2_TBL VALUES (2, 2)"
+  },
+  {
+    "comment": "join - Statement 16",
+    "query": "INSERT INTO J2_TBL VALUES (3, -3)"
+  },
+  {
+    "comment": "join - Statement 17",
+    "query": "INSERT INTO J2_TBL VALUES (2, 4)"
+  },
+  {
+    "comment": "join - Statement 18",
+    "query": "INSERT INTO J2_TBL VALUES (5, -5)"
+  },
+  {
+    "comment": "join - Statement 19",
+    "query": "INSERT INTO J2_TBL VALUES (0, NULL)"
+  },
+  {
+    "comment": "join - Statement 20",
+    "query": "INSERT INTO J2_TBL VALUES (NULL, NULL)"
+  },
+  {
+    "comment": "join - Statement 21",
+    "query": "INSERT INTO J2_TBL VALUES (NULL, 0)"
+  },
+  {
+    "comment": "join - Statement 22",
+    "query": "create temp table onerow()"
+  },
+  {
+    "comment": "join - Statement 23",
+    "query": "insert into onerow default values"
+  },
+  {
+    "comment": "join - Statement 24",
+    "query": "analyze onerow"
+  },
+  {
+    "comment": "join - Statement 25",
+    "query": "SELECT * FROM J1_TBL AS tx"
+  },
+  {
+    "comment": "join - Statement 26",
+    "query": "SELECT * FROM J1_TBL tx"
+  },
+  {
+    "comment": "join - Statement 27",
+    "query": "SELECT * FROM J1_TBL AS t1 (a, b, c)"
+  },
+  {
+    "comment": "join - Statement 28",
+    "query": "SELECT * FROM J1_TBL t1 (a, b, c)"
+  },
+  {
+    "comment": "join - Statement 29",
+    "query": "SELECT * FROM J1_TBL t1 (a, b, c), J2_TBL t2 (d, e)"
+  },
+  {
+    "comment": "join - Statement 30",
+    "query": "SELECT t1.a, t2.e FROM J1_TBL t1 (a, b, c), J2_TBL t2 (d, e) WHERE t1.a = t2.d"
+  },
+  {
+    "comment": "join - Statement 31",
+    "query": "SELECT * FROM J1_TBL CROSS JOIN J2_TBL"
+  },
+  {
+    "comment": "join - Statement 32",
+    "query": "SELECT i, k, t FROM J1_TBL CROSS JOIN J2_TBL"
+  },
+  {
+    "comment": "join - Statement 33",
+    "query": "SELECT t1.i, k, t FROM J1_TBL t1 CROSS JOIN J2_TBL t2"
+  },
+  {
+    "comment": "join - Statement 34",
+    "query": "SELECT ii, tt, kk FROM (J1_TBL CROSS JOIN J2_TBL) AS tx (ii, jj, tt, ii2, kk)"
+  },
+  {
+    "comment": "join - Statement 35",
+    "query": "SELECT tx.ii, tx.jj, tx.kk FROM (J1_TBL t1 (a, b, c) CROSS JOIN J2_TBL t2 (d, e)) AS tx (ii, jj, tt, ii2, kk)"
+  },
+  {
+    "comment": "join - Statement 36",
+    "query": "SELECT * FROM J1_TBL CROSS JOIN J2_TBL a CROSS JOIN J2_TBL b"
+  },
+  {
+    "comment": "join - Statement 37",
+    "query": "SELECT * FROM J1_TBL INNER JOIN J2_TBL USING (i)"
+  },
+  {
+    "comment": "join - Statement 38",
+    "query": "SELECT * FROM J1_TBL JOIN J2_TBL USING (i)"
+  },
+  {
+    "comment": "join - Statement 39",
+    "query": "SELECT * FROM J1_TBL t1 (a, b, c) JOIN J2_TBL t2 (a, d) USING (a) ORDER BY a, d"
+  },
+  {
+    "comment": "join - Statement 40",
+    "query": "SELECT * FROM J1_TBL t1 (a, b, c) JOIN J2_TBL t2 (a, b) USING (b) ORDER BY b, t1.a"
+  },
+  {
+    "comment": "join - Statement 41",
+    "query": "SELECT * FROM J1_TBL JOIN J2_TBL USING (i) WHERE J1_TBL.t = 'one'"
+  },
+  {
+    "comment": "join - Statement 42",
+    "query": "SELECT * FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE J1_TBL.t = 'one'"
+  },
+  {
+    "comment": "join - Statement 43",
+    "query": "SELECT * FROM (J1_TBL JOIN J2_TBL USING (i)) AS x WHERE J1_TBL.t = 'one'"
+  },
+  {
+    "comment": "join - Statement 44",
+    "query": "SELECT * FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE x.i = 1"
+  },
+  {
+    "comment": "join - Statement 45",
+    "query": "SELECT * FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE x.t = 'one'"
+  },
+  {
+    "comment": "join - Statement 46",
+    "query": "SELECT * FROM (J1_TBL JOIN J2_TBL USING (i) AS x) AS xx WHERE x.i = 1"
+  },
+  {
+    "comment": "join - Statement 47",
+    "query": "SELECT * FROM J1_TBL a1 JOIN J2_TBL a2 USING (i) AS a1"
+  },
+  {
+    "comment": "join - Statement 48",
+    "query": "SELECT x.* FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE J1_TBL.t = 'one'"
+  },
+  {
+    "comment": "join - Statement 49",
+    "query": "SELECT ROW(x.*) FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE J1_TBL.t = 'one'"
+  },
+  {
+    "comment": "join - Statement 50",
+    "query": "SELECT row_to_json(x.*) FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE J1_TBL.t = 'one'"
+  },
+  {
+    "comment": "join - Statement 51",
+    "query": "SELECT * FROM J1_TBL NATURAL JOIN J2_TBL"
+  },
+  {
+    "comment": "join - Statement 52",
+    "query": "SELECT * FROM J1_TBL t1 (a, b, c) NATURAL JOIN J2_TBL t2 (a, d)"
+  },
+  {
+    "comment": "join - Statement 53",
+    "query": "SELECT * FROM J1_TBL t1 (a, b, c) NATURAL JOIN J2_TBL t2 (d, a)"
+  },
+  {
+    "comment": "join - Statement 54",
+    "query": "SELECT * FROM J1_TBL t1 (a, b) NATURAL JOIN J2_TBL t2 (a)"
+  },
+  {
+    "comment": "join - Statement 55",
+    "query": "SELECT * FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i = J2_TBL.i)"
+  },
+  {
+    "comment": "join - Statement 56",
+    "query": "SELECT * FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i = J2_TBL.k)"
+  },
+  {
+    "comment": "join - Statement 57",
+    "query": "SELECT * FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i <= J2_TBL.k)"
+  },
+  {
+    "comment": "join - Statement 58",
+    "query": "SELECT * FROM J1_TBL LEFT OUTER JOIN J2_TBL USING (i) ORDER BY i, k, t"
+  },
+  {
+    "comment": "join - Statement 59",
+    "query": "SELECT * FROM J1_TBL LEFT JOIN J2_TBL USING (i) ORDER BY i, k, t"
+  },
+  {
+    "comment": "join - Statement 60",
+    "query": "SELECT * FROM J1_TBL RIGHT OUTER JOIN J2_TBL USING (i)"
+  },
+  {
+    "comment": "join - Statement 61",
+    "query": "SELECT * FROM J1_TBL RIGHT JOIN J2_TBL USING (i)"
+  },
+  {
+    "comment": "join - Statement 62",
+    "query": "SELECT * FROM J1_TBL FULL OUTER JOIN J2_TBL USING (i) ORDER BY i, k, t"
+  },
+  {
+    "comment": "join - Statement 63",
+    "query": "SELECT * FROM J1_TBL FULL JOIN J2_TBL USING (i) ORDER BY i, k, t"
+  },
+  {
+    "comment": "join - Statement 64",
+    "query": "SELECT * FROM J1_TBL LEFT JOIN J2_TBL USING (i) WHERE (k = 1)"
+  },
+  {
+    "comment": "join - Statement 65",
+    "query": "SELECT * FROM J1_TBL LEFT JOIN J2_TBL USING (i) WHERE (i = 1)"
+  },
+  {
+    "comment": "join - Statement 66",
+    "query": "explain (costs off) select * from int4_tbl i4, tenk1 a where exists(select * from tenk1 b where a.twothousand = b.twothousand and a.fivethous <> b.fivethous) and i4.f1 = a.tenthous"
+  },
+  {
+    "comment": "join - Statement 67",
+    "query": "CREATE TABLE t1 (name TEXT, n INTEGER)"
+  },
+  {
+    "comment": "join - Statement 68",
+    "query": "CREATE TABLE t2 (name TEXT, n INTEGER)"
+  },
+  {
+    "comment": "join - Statement 69",
+    "query": "CREATE TABLE t3 (name TEXT, n INTEGER)"
+  },
+  {
+    "comment": "join - Statement 70",
+    "query": "INSERT INTO t1 VALUES ( 'bb', 11 )"
+  },
+  {
+    "comment": "join - Statement 71",
+    "query": "INSERT INTO t2 VALUES ( 'bb', 12 )"
+  },
+  {
+    "comment": "join - Statement 72",
+    "query": "INSERT INTO t2 VALUES ( 'cc', 22 )"
+  },
+  {
+    "comment": "join - Statement 73",
+    "query": "INSERT INTO t2 VALUES ( 'ee', 42 )"
+  },
+  {
+    "comment": "join - Statement 74",
+    "query": "INSERT INTO t3 VALUES ( 'bb', 13 )"
+  },
+  {
+    "comment": "join - Statement 75",
+    "query": "INSERT INTO t3 VALUES ( 'cc', 23 )"
+  },
+  {
+    "comment": "join - Statement 76",
+    "query": "INSERT INTO t3 VALUES ( 'dd', 33 )"
+  },
+  {
+    "comment": "join - Statement 77",
+    "query": "SELECT * FROM t1 FULL JOIN t2 USING (name) FULL JOIN t3 USING (name)"
+  },
+  {
+    "comment": "join - Statement 78",
+    "query": "SELECT * FROM (SELECT * FROM t2) as s2 INNER JOIN (SELECT * FROM t3) s3 USING (name)"
+  },
+  {
+    "comment": "join - Statement 79",
+    "query": "SELECT * FROM (SELECT * FROM t2) as s2 LEFT JOIN (SELECT * FROM t3) s3 USING (name)"
+  },
+  {
+    "comment": "join - Statement 80",
+    "query": "SELECT * FROM (SELECT * FROM t2) as s2 FULL JOIN (SELECT * FROM t3) s3 USING (name)"
+  },
+  {
+    "comment": "join - Statement 81",
+    "query": "SELECT * FROM (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2 NATURAL INNER JOIN (SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3"
+  },
+  {
+    "comment": "join - Statement 82",
+    "query": "SELECT * FROM (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2 NATURAL LEFT JOIN (SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3"
+  },
+  {
+    "comment": "join - Statement 83",
+    "query": "SELECT * FROM (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2 NATURAL FULL JOIN (SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3"
+  },
+  {
+    "comment": "join - Statement 84",
+    "query": "SELECT * FROM (SELECT name, n as s1_n, 1 as s1_1 FROM t1) as s1 NATURAL INNER JOIN (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2 NATURAL INNER JOIN (SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3"
+  },
+  {
+    "comment": "join - Statement 85",
+    "query": "SELECT * FROM (SELECT name, n as s1_n, 1 as s1_1 FROM t1) as s1 NATURAL FULL JOIN (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2 NATURAL FULL JOIN (SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3"
+  },
+  {
+    "comment": "join - Statement 86",
+    "query": "SELECT * FROM (SELECT name, n as s1_n FROM t1) as s1 NATURAL FULL JOIN (SELECT * FROM (SELECT name, n as s2_n FROM t2) as s2 NATURAL FULL JOIN (SELECT name, n as s3_n FROM t3) as s3 ) ss2"
+  },
+  {
+    "comment": "join - Statement 87",
+    "query": "SELECT * FROM (SELECT name, n as s1_n FROM t1) as s1 NATURAL FULL JOIN (SELECT * FROM (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2 NATURAL FULL JOIN (SELECT name, n as s3_n FROM t3) as s3 ) ss2"
+  },
+  {
+    "comment": "join - Statement 88",
+    "query": "SELECT * FROM (SELECT name, n as s1_n FROM t1) as s1 FULL JOIN (SELECT name, 2 as s2_n FROM t2) as s2 ON (s1_n = s2_n)"
+  },
+  {
+    "comment": "join - Statement 89",
+    "query": "create temp table x (x1 int, x2 int)"
+  },
+  {
+    "comment": "join - Statement 90",
+    "query": "insert into x values (1,11)"
+  },
+  {
+    "comment": "join - Statement 91",
+    "query": "insert into x values (2,22)"
+  },
+  {
+    "comment": "join - Statement 92",
+    "query": "insert into x values (3,null)"
+  },
+  {
+    "comment": "join - Statement 93",
+    "query": "insert into x values (4,44)"
+  },
+  {
+    "comment": "join - Statement 94",
+    "query": "insert into x values (5,null)"
+  },
+  {
+    "comment": "join - Statement 95",
+    "query": "create temp table y (y1 int, y2 int)"
+  },
+  {
+    "comment": "join - Statement 96",
+    "query": "insert into y values (1,111)"
+  },
+  {
+    "comment": "join - Statement 97",
+    "query": "insert into y values (2,222)"
+  },
+  {
+    "comment": "join - Statement 98",
+    "query": "insert into y values (3,333)"
+  },
+  {
+    "comment": "join - Statement 99",
+    "query": "insert into y values (4,null)"
+  },
+  {
+    "comment": "join - Statement 100",
+    "query": "select * from x"
+  },
+  {
+    "comment": "join - Statement 101",
+    "query": "select * from y"
+  },
+  {
+    "comment": "join - Statement 102",
+    "query": "select * from x left join y on (x1 = y1 and x2 is not null)"
+  },
+  {
+    "comment": "join - Statement 103",
+    "query": "select * from x left join y on (x1 = y1 and y2 is not null)"
+  },
+  {
+    "comment": "join - Statement 104",
+    "query": "select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2) on (x1 = xx1)"
+  },
+  {
+    "comment": "join - Statement 105",
+    "query": "select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2) on (x1 = xx1 and x2 is not null)"
+  },
+  {
+    "comment": "join - Statement 106",
+    "query": "select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2) on (x1 = xx1 and y2 is not null)"
+  },
+  {
+    "comment": "join - Statement 107",
+    "query": "select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2) on (x1 = xx1 and xx2 is not null)"
+  },
+  {
+    "comment": "join - Statement 108",
+    "query": "select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2) on (x1 = xx1) where (x2 is not null)"
+  },
+  {
+    "comment": "join - Statement 109",
+    "query": "select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2) on (x1 = xx1) where (y2 is not null)"
+  },
+  {
+    "comment": "join - Statement 110",
+    "query": "select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2) on (x1 = xx1) where (xx2 is not null)"
+  },
+  {
+    "comment": "join - Statement 111",
+    "query": "select count(*) from tenk1 a where unique1 in (select unique1 from tenk1 b join tenk1 c using (unique1) where b.unique2 = 42)"
+  },
+  {
+    "comment": "join - Statement 112",
+    "query": "select count(*) from tenk1 x where x.unique1 in (select a.f1 from int4_tbl a,float8_tbl b where a.f1=b.f1) and x.unique1 = 0 and x.unique1 in (select aa.f1 from int4_tbl aa,float8_tbl bb where aa.f1=bb.f1)"
+  },
+  {
+    "comment": "join - Statement 113",
+    "query": "begin"
+  },
+  {
+    "comment": "join - Statement 114",
+    "query": "set geqo = on"
+  },
+  {
+    "comment": "join - Statement 115",
+    "query": "set geqo_threshold = 2"
+  },
+  {
+    "comment": "join - Statement 116",
+    "query": "rollback"
+  },
+  {
+    "comment": "join - Statement 117",
+    "query": "explain (costs off) select aa, bb, unique1, unique1 from tenk1 right join b_star on aa = unique1 where bb < bb and bb is null"
+  },
+  {
+    "comment": "join - Statement 118",
+    "query": "select aa, bb, unique1, unique1 from tenk1 right join b_star on aa = unique1 where bb < bb and bb is null"
+  },
+  {
+    "comment": "join - Statement 119",
+    "query": "explain (costs off) select * from int8_tbl i1 left join (int8_tbl i2 join (select 123 as x) ss on i2.q1 = x) on i1.q2 = i2.q2 order by 1, 2"
+  },
+  {
+    "comment": "join - Statement 120",
+    "query": "select * from int8_tbl i1 left join (int8_tbl i2 join (select 123 as x) ss on i2.q1 = x) on i1.q2 = i2.q2 order by 1, 2"
+  },
+  {
+    "comment": "join - Statement 121",
+    "query": "select count(*) from (select t3.tenthous as x1, coalesce(t1.stringu1, t2.stringu1) as x2 from tenk1 t1 left join tenk1 t2 on t1.unique1 = t2.unique1 join tenk1 t3 on t1.unique2 = t3.unique2) ss, tenk1 t4, tenk1 t5 where t4.thousand = t5.unique1 and ss.x1 = t4.tenthous and ss.x2 = t5.stringu1"
+  },
+  {
+    "comment": "join - Statement 122",
+    "query": "explain (costs off) select a.f1, b.f1, t.thousand, t.tenthous from tenk1 t, (select sum(f1)+1 as f1 from int4_tbl i4a) a, (select sum(f1) as f1 from int4_tbl i4b) b where b.f1 = t.thousand and a.f1 = b.f1 and (a.f1+b.f1+999) = t.tenthous"
+  },
+  {
+    "comment": "join - Statement 123",
+    "query": "select a.f1, b.f1, t.thousand, t.tenthous from tenk1 t, (select sum(f1)+1 as f1 from int4_tbl i4a) a, (select sum(f1) as f1 from int4_tbl i4b) b where b.f1 = t.thousand and a.f1 = b.f1 and (a.f1+b.f1+999) = t.tenthous"
+  },
+  {
+    "comment": "join - Statement 124",
+    "query": "explain (costs off) select t1.f1 from int4_tbl t1, int4_tbl t2 left join int4_tbl t3 on t3.f1 > 0 left join int4_tbl t4 on t3.f1 > 1 where t4.f1 is null"
+  },
+  {
+    "comment": "join - Statement 125",
+    "query": "select t1.f1 from int4_tbl t1, int4_tbl t2 left join int4_tbl t3 on t3.f1 > 0 left join int4_tbl t4 on t3.f1 > 1 where t4.f1 is null"
+  },
+  {
+    "comment": "join - Statement 126",
+    "query": "explain (costs off) select * from int4_tbl t1 left join int4_tbl t2 on true left join int4_tbl t3 on t2.f1 > 0 left join int4_tbl t4 on t3.f1 > 0"
+  },
+  {
+    "comment": "join - Statement 127",
+    "query": "explain (costs off) select * from onek t1 left join onek t2 on t1.unique1 = t2.unique1 left join onek t3 on t2.unique1 != t3.unique1 left join onek t4 on t3.unique1 = t4.unique1"
+  },
+  {
+    "comment": "join - Statement 128",
+    "query": "explain (costs off) select * from int4_tbl t1 left join (select now() from int4_tbl t2 left join int4_tbl t3 on t2.f1 = t3.f1 left join int4_tbl t4 on t3.f1 = t4.f1) s on true inner join int4_tbl t5 on true"
+  },
+  {
+    "comment": "join - Statement 129",
+    "query": "explain (costs off) select * from int4_tbl t1 left join int4_tbl t2 on true left join int4_tbl t3 on true left join int4_tbl t4 on t2.f1 = t3.f1"
+  },
+  {
+    "comment": "join - Statement 130",
+    "query": "explain (costs off) select * from int4_tbl t1 left join int4_tbl t2 on true left join int4_tbl t3 on t2.f1 = t3.f1 left join int4_tbl t4 on t3.f1 != t4.f1"
+  },
+  {
+    "comment": "join - Statement 131",
+    "query": "explain (costs off) select * from int4_tbl t1 left join (int4_tbl t2 left join int4_tbl t3 on t2.f1 > 0) on t2.f1 > 1 left join int4_tbl t4 on t2.f1 > 2 and t3.f1 > 3 where t1.f1 = coalesce(t2.f1, 1)"
+  },
+  {
+    "comment": "join - Statement 132",
+    "query": "explain (costs off) select * from int4_tbl t1 left join ((select t2.f1 from int4_tbl t2 left join int4_tbl t3 on t2.f1 > 0 where t3.f1 is null) s left join tenk1 t4 on s.f1 > 1) on s.f1 = t1.f1"
+  },
+  {
+    "comment": "join - Statement 133",
+    "query": "explain (costs off) select * from int4_tbl t1 left join ((select t2.f1 from int4_tbl t2 left join int4_tbl t3 on t2.f1 > 0 where t2.f1 <> coalesce(t3.f1, -1)) s left join tenk1 t4 on s.f1 > 1) on s.f1 = t1.f1"
+  },
+  {
+    "comment": "join - Statement 134",
+    "query": "explain (costs off) select * from onek t1 left join onek t2 on t1.unique1 = t2.unique1 left join onek t3 on t2.unique1 = t3.unique1 left join onek t4 on t3.unique1 = t4.unique1 and t2.unique2 = t4.unique2"
+  },
+  {
+    "comment": "join - Statement 135",
+    "query": "explain (costs off) select * from int8_tbl t1 left join (int8_tbl t2 left join int8_tbl t3 full join int8_tbl t4 on false on false) left join int8_tbl t5 on t2.q1 = t5.q1 on t2.q2 = 123"
+  },
+  {
+    "comment": "join - Statement 136",
+    "query": "explain (costs off) select * from int8_tbl t1 left join int8_tbl t2 on true left join lateral (select * from int8_tbl t3 where t3.q1 = t2.q1 offset 0) s on t2.q1 = 1"
+  },
+  {
+    "comment": "join - Statement 137",
+    "query": "explain (costs off) select * from int8_tbl t1 left join int8_tbl t2 on true left join lateral (select * from generate_series(t2.q1, 100)) s on t2.q1 = 1"
+  },
+  {
+    "comment": "join - Statement 138",
+    "query": "explain (costs off) select * from int8_tbl t1 left join int8_tbl t2 on true left join lateral (select t2.q1 from int8_tbl t3) s on t2.q1 = 1"
+  },
+  {
+    "comment": "join - Statement 139",
+    "query": "explain (costs off) select * from onek t1 left join onek t2 on true left join lateral (select * from onek t3 where t3.two = t2.two offset 0) s on t2.unique1 = 1"
+  },
+  {
+    "comment": "join - Statement 140",
+    "query": "explain (costs off) select * from j1_tbl full join (select * from j2_tbl order by j2_tbl.i desc, j2_tbl.k asc) j2_tbl on j1_tbl.i = j2_tbl.i and j1_tbl.i = j2_tbl.k"
+  },
+  {
+    "comment": "join - Statement 141",
+    "query": "select * from j1_tbl full join (select * from j2_tbl order by j2_tbl.i desc, j2_tbl.k asc) j2_tbl on j1_tbl.i = j2_tbl.i and j1_tbl.i = j2_tbl.k"
+  },
+  {
+    "comment": "join - Statement 142",
+    "query": "explain (costs off) select count(*) from (select * from tenk1 x order by x.thousand, x.twothousand, x.fivethous) x left join (select * from tenk1 y order by y.unique2) y on x.thousand = y.unique2 and x.twothousand = y.hundred and x.fivethous = y.unique2"
+  },
+  {
+    "comment": "join - Statement 143",
+    "query": "select count(*) from (select * from tenk1 x order by x.thousand, x.twothousand, x.fivethous) x left join (select * from tenk1 y order by y.unique2) y on x.thousand = y.unique2 and x.twothousand = y.hundred and x.fivethous = y.unique2"
+  },
+  {
+    "comment": "join - Statement 144",
+    "query": "set enable_hashjoin = 0"
+  },
+  {
+    "comment": "join - Statement 145",
+    "query": "set enable_nestloop = 0"
+  },
+  {
+    "comment": "join - Statement 146",
+    "query": "set enable_hashagg = 0"
+  },
+  {
+    "comment": "join - Statement 147",
+    "query": "explain (costs off) select x.thousand, x.twothousand, count(*) from tenk1 x inner join tenk1 y on x.thousand = y.thousand group by x.thousand, x.twothousand order by x.thousand desc, x.twothousand"
+  },
+  {
+    "comment": "join - Statement 148",
+    "query": "reset enable_hashagg"
+  },
+  {
+    "comment": "join - Statement 149",
+    "query": "reset enable_nestloop"
+  },
+  {
+    "comment": "join - Statement 150",
+    "query": "reset enable_hashjoin"
+  },
+  {
+    "comment": "join - Statement 151",
+    "query": "DROP TABLE t1"
+  },
+  {
+    "comment": "join - Statement 152",
+    "query": "DROP TABLE t2"
+  },
+  {
+    "comment": "join - Statement 153",
+    "query": "DROP TABLE t3"
+  },
+  {
+    "comment": "join - Statement 154",
+    "query": "DROP TABLE J1_TBL"
+  },
+  {
+    "comment": "join - Statement 155",
+    "query": "DROP TABLE J2_TBL"
+  },
+  {
+    "comment": "join - Statement 156",
+    "query": "CREATE TEMP TABLE t1 (a int, b int)"
+  },
+  {
+    "comment": "join - Statement 157",
+    "query": "CREATE TEMP TABLE t2 (a int, b int)"
+  },
+  {
+    "comment": "join - Statement 158",
+    "query": "CREATE TEMP TABLE t3 (x int, y int)"
+  },
+  {
+    "comment": "join - Statement 159",
+    "query": "INSERT INTO t1 VALUES (5, 10)"
+  },
+  {
+    "comment": "join - Statement 160",
+    "query": "INSERT INTO t1 VALUES (15, 20)"
+  },
+  {
+    "comment": "join - Statement 161",
+    "query": "INSERT INTO t1 VALUES (100, 100)"
+  },
+  {
+    "comment": "join - Statement 162",
+    "query": "INSERT INTO t1 VALUES (200, 1000)"
+  },
+  {
+    "comment": "join - Statement 163",
+    "query": "INSERT INTO t2 VALUES (200, 2000)"
+  },
+  {
+    "comment": "join - Statement 164",
+    "query": "INSERT INTO t3 VALUES (5, 20)"
+  },
+  {
+    "comment": "join - Statement 165",
+    "query": "INSERT INTO t3 VALUES (6, 7)"
+  },
+  {
+    "comment": "join - Statement 166",
+    "query": "INSERT INTO t3 VALUES (7, 8)"
+  },
+  {
+    "comment": "join - Statement 167",
+    "query": "INSERT INTO t3 VALUES (500, 100)"
+  },
+  {
+    "comment": "join - Statement 168",
+    "query": "DELETE FROM t3 USING t1 table1 WHERE t3.x = table1.a"
+  },
+  {
+    "comment": "join - Statement 169",
+    "query": "SELECT * FROM t3"
+  },
+  {
+    "comment": "join - Statement 170",
+    "query": "DELETE FROM t3 USING t1 JOIN t2 USING (a) WHERE t3.x > t1.a"
+  },
+  {
+    "comment": "join - Statement 171",
+    "query": "DELETE FROM t3 USING t3 t3_other WHERE t3.x = t3_other.x AND t3.y = t3_other.y"
+  },
+  {
+    "comment": "join - Statement 172",
+    "query": "create temp table t2a () inherits (t2)"
+  },
+  {
+    "comment": "join - Statement 173",
+    "query": "insert into t2a values (200, 2001)"
+  },
+  {
+    "comment": "join - Statement 174",
+    "query": "select * from t1 left join t2 on (t1.a = t2.a)"
+  },
+  {
+    "comment": "join - Statement 175",
+    "query": "select t1.x from t1 join t3 on (t1.a = t3.x)"
+  },
+  {
+    "comment": "join - Statement 176",
+    "query": "select t1.*, t2.*, unnamed_join.* from t1 join t2 on (t1.a = t2.a), t3 as unnamed_join for update of unnamed_join"
+  },
+  {
+    "comment": "join - Statement 177",
+    "query": "select foo.*, unnamed_join.* from t1 join t2 using (a) as foo, t3 as unnamed_join for update of unnamed_join"
+  },
+  {
+    "comment": "join - Statement 178",
+    "query": "select foo.*, unnamed_join.* from t1 join t2 using (a) as foo, t3 as unnamed_join for update of foo"
+  },
+  {
+    "comment": "join - Statement 179",
+    "query": "select bar.*, unnamed_join.* from (t1 join t2 using (a) as foo) as bar, t3 as unnamed_join for update of foo"
+  },
+  {
+    "comment": "join - Statement 180",
+    "query": "select bar.*, unnamed_join.* from (t1 join t2 using (a) as foo) as bar, t3 as unnamed_join for update of bar"
+  },
+  {
+    "comment": "join - Statement 181",
+    "query": "CREATE TEMP TABLE tt1 ( tt1_id int4, joincol int4 )"
+  },
+  {
+    "comment": "join - Statement 182",
+    "query": "INSERT INTO tt1 VALUES (1, 11)"
+  },
+  {
+    "comment": "join - Statement 183",
+    "query": "INSERT INTO tt1 VALUES (2, NULL)"
+  },
+  {
+    "comment": "join - Statement 184",
+    "query": "CREATE TEMP TABLE tt2 ( tt2_id int4, joincol int4 )"
+  },
+  {
+    "comment": "join - Statement 185",
+    "query": "INSERT INTO tt2 VALUES (21, 11)"
+  },
+  {
+    "comment": "join - Statement 186",
+    "query": "INSERT INTO tt2 VALUES (22, 11)"
+  },
+  {
+    "comment": "join - Statement 187",
+    "query": "set enable_hashjoin to off"
+  },
+  {
+    "comment": "join - Statement 188",
+    "query": "set enable_nestloop to off"
+  },
+  {
+    "comment": "join - Statement 189",
+    "query": "select tt1.*, tt2.* from tt1 left join tt2 on tt1.joincol = tt2.joincol"
+  },
+  {
+    "comment": "join - Statement 190",
+    "query": "select tt1.*, tt2.* from tt2 right join tt1 on tt1.joincol = tt2.joincol"
+  },
+  {
+    "comment": "join - Statement 191",
+    "query": "create temp table tbl_ra(a int unique, b int)"
+  },
+  {
+    "comment": "join - Statement 192",
+    "query": "insert into tbl_ra select i, i%100 from generate_series(1,1000)i"
+  },
+  {
+    "comment": "join - Statement 193",
+    "query": "create index on tbl_ra (b)"
+  },
+  {
+    "comment": "join - Statement 194",
+    "query": "analyze tbl_ra"
+  },
+  {
+    "comment": "join - Statement 195",
+    "query": "explain (costs off) select * from tbl_ra t1 where not exists (select 1 from tbl_ra t2 where t2.b = t1.a) and t1.b < 2"
+  },
+  {
+    "comment": "join - Statement 196",
+    "query": "select * from tbl_ra t1 where not exists (select 1 from tbl_ra t2 where t2.b = t1.a) and t1.b < 2"
+  },
+  {
+    "comment": "join - Statement 197",
+    "query": "set work_mem to '64kB'"
+  },
+  {
+    "comment": "join - Statement 198",
+    "query": "set enable_mergejoin to off"
+  },
+  {
+    "comment": "join - Statement 199",
+    "query": "set enable_memoize to off"
+  },
+  {
+    "comment": "join - Statement 200",
+    "query": "explain (costs off) select count(*) from tenk1 a, tenk1 b where a.hundred = b.thousand and (b.fivethous % 10) < 10"
+  },
+  {
+    "comment": "join - Statement 201",
+    "query": "select count(*) from tenk1 a, tenk1 b where a.hundred = b.thousand and (b.fivethous % 10) < 10"
+  },
+  {
+    "comment": "join - Statement 202",
+    "query": "reset work_mem"
+  },
+  {
+    "comment": "join - Statement 203",
+    "query": "reset enable_mergejoin"
+  },
+  {
+    "comment": "join - Statement 204",
+    "query": "reset enable_memoize"
+  },
+  {
+    "comment": "join - Statement 205",
+    "query": "create temp table tt3(f1 int, f2 text)"
+  },
+  {
+    "comment": "join - Statement 206",
+    "query": "insert into tt3 select x, repeat('xyzzy', 100) from generate_series(1,10000) x"
+  },
+  {
+    "comment": "join - Statement 207",
+    "query": "analyze tt3"
+  },
+  {
+    "comment": "join - Statement 208",
+    "query": "create temp table tt4(f1 int)"
+  },
+  {
+    "comment": "join - Statement 209",
+    "query": "insert into tt4 values (0),(1),(9999)"
+  },
+  {
+    "comment": "join - Statement 210",
+    "query": "analyze tt4"
+  },
+  {
+    "comment": "join - Statement 211",
+    "query": "EXPLAIN (COSTS OFF) SELECT a.f1 FROM tt4 a LEFT JOIN ( SELECT b.f1 FROM tt3 b LEFT JOIN tt3 c ON (b.f1 = c.f1) WHERE COALESCE(c.f1, 0) = 0 ) AS d ON (a.f1 = d.f1) WHERE COALESCE(d.f1, 0) = 0 ORDER BY 1"
+  },
+  {
+    "comment": "join - Statement 212",
+    "query": "SELECT a.f1 FROM tt4 a LEFT JOIN ( SELECT b.f1 FROM tt3 b LEFT JOIN tt3 c ON (b.f1 = c.f1) WHERE COALESCE(c.f1, 0) = 0 ) AS d ON (a.f1 = d.f1) WHERE COALESCE(d.f1, 0) = 0 ORDER BY 1"
+  },
+  {
+    "comment": "join - Statement 213",
+    "query": "explain (costs off) select a.* from tenk1 a where unique1 in (select unique2 from tenk1 b)"
+  },
+  {
+    "comment": "join - Statement 214",
+    "query": "explain (costs off) select a.* from tenk1 a where unique1 not in (select unique2 from tenk1 b)"
+  },
+  {
+    "comment": "join - Statement 215",
+    "query": "explain (costs off) select a.* from tenk1 a where exists (select 1 from tenk1 b where a.unique1 = b.unique2)"
+  },
+  {
+    "comment": "join - Statement 216",
+    "query": "explain (costs off) select a.* from tenk1 a where not exists (select 1 from tenk1 b where a.unique1 = b.unique2)"
+  },
+  {
+    "comment": "join - Statement 217",
+    "query": "explain (costs off) select a.* from tenk1 a left join tenk1 b on a.unique1 = b.unique2 where b.unique2 is null"
+  },
+  {
+    "comment": "join - Statement 218",
+    "query": "create temp table tt4x(c1 int, c2 int, c3 int)"
+  },
+  {
+    "comment": "join - Statement 219",
+    "query": "explain (costs off) select * from tt4x t1 where not exists ( select 1 from tt4x t2 left join tt4x t3 on t2.c3 = t3.c1 left join ( select t5.c1 as c1 from tt4x t4 left join tt4x t5 on t4.c2 = t5.c1 ) a1 on t3.c2 = a1.c1 where t1.c1 = t2.c2 )"
+  },
+  {
+    "comment": "join - Statement 220",
+    "query": "create temp table tt5(f1 int, f2 int)"
+  },
+  {
+    "comment": "join - Statement 221",
+    "query": "create temp table tt6(f1 int, f2 int)"
+  },
+  {
+    "comment": "join - Statement 222",
+    "query": "insert into tt5 values(1, 10)"
+  },
+  {
+    "comment": "join - Statement 223",
+    "query": "insert into tt5 values(1, 11)"
+  },
+  {
+    "comment": "join - Statement 224",
+    "query": "insert into tt6 values(1, 9)"
+  },
+  {
+    "comment": "join - Statement 225",
+    "query": "insert into tt6 values(1, 2)"
+  },
+  {
+    "comment": "join - Statement 226",
+    "query": "insert into tt6 values(2, 9)"
+  },
+  {
+    "comment": "join - Statement 227",
+    "query": "select * from tt5,tt6 where tt5.f1 = tt6.f1 and tt5.f1 = tt5.f2 - tt6.f2"
+  },
+  {
+    "comment": "join - Statement 228",
+    "query": "create temp table xx (pkxx int)"
+  },
+  {
+    "comment": "join - Statement 229",
+    "query": "create temp table yy (pkyy int, pkxx int)"
+  },
+  {
+    "comment": "join - Statement 230",
+    "query": "insert into xx values (1)"
+  },
+  {
+    "comment": "join - Statement 231",
+    "query": "insert into xx values (2)"
+  },
+  {
+    "comment": "join - Statement 232",
+    "query": "insert into xx values (3)"
+  },
+  {
+    "comment": "join - Statement 233",
+    "query": "insert into yy values (101, 1)"
+  },
+  {
+    "comment": "join - Statement 234",
+    "query": "insert into yy values (201, 2)"
+  },
+  {
+    "comment": "join - Statement 235",
+    "query": "insert into yy values (301, NULL)"
+  },
+  {
+    "comment": "join - Statement 236",
+    "query": "select yy.pkyy as yy_pkyy, yy.pkxx as yy_pkxx, yya.pkyy as yya_pkyy, xxa.pkxx as xxa_pkxx, xxb.pkxx as xxb_pkxx from yy left join (SELECT * FROM yy where pkyy = 101) as yya ON yy.pkyy = yya.pkyy left join xx xxa on yya.pkxx = xxa.pkxx left join xx xxb on coalesce (xxa.pkxx, 1) = xxb.pkxx"
+  },
+  {
+    "comment": "join - Statement 237",
+    "query": "create temp table zt1 (f1 int primary key)"
+  },
+  {
+    "comment": "join - Statement 238",
+    "query": "create temp table zt2 (f2 int primary key)"
+  },
+  {
+    "comment": "join - Statement 239",
+    "query": "create temp table zt3 (f3 int primary key)"
+  },
+  {
+    "comment": "join - Statement 240",
+    "query": "insert into zt1 values(53)"
+  },
+  {
+    "comment": "join - Statement 241",
+    "query": "insert into zt2 values(53)"
+  },
+  {
+    "comment": "join - Statement 242",
+    "query": "select * from zt2 left join zt3 on (f2 = f3) left join zt1 on (f3 = f1) where f2 = 53"
+  },
+  {
+    "comment": "join - Statement 243",
+    "query": "create temp view zv1 as select *,'dummy'::text AS junk from zt1"
+  },
+  {
+    "comment": "join - Statement 244",
+    "query": "select * from zt2 left join zt3 on (f2 = f3) left join zv1 on (f3 = f1) where f2 = 53"
+  },
+  {
+    "comment": "join - Statement 245",
+    "query": "select a.unique2, a.ten, b.tenthous, b.unique2, b.hundred from tenk1 a left join tenk1 b on a.unique2 = b.tenthous where a.unique1 = 42 and ((b.unique2 is null and a.ten = 2) or b.hundred = 3)"
+  },
+  {
+    "comment": "join - Statement 246",
+    "query": "prepare foo(bool) as select count(*) from tenk1 a left join tenk1 b on (a.unique2 = b.unique1 and exists (select 1 from tenk1 c where c.thousand = b.unique2 and $1))"
+  },
+  {
+    "comment": "join - Statement 247",
+    "query": "execute foo(true)"
+  },
+  {
+    "comment": "join - Statement 248",
+    "query": "execute foo(false)"
+  },
+  {
+    "comment": "join - Statement 249",
+    "query": "set enable_mergejoin = 1"
+  },
+  {
+    "comment": "join - Statement 250",
+    "query": "create temp table a (i integer)"
+  },
+  {
+    "comment": "join - Statement 251",
+    "query": "create temp table b (x integer, y integer)"
+  },
+  {
+    "comment": "join - Statement 252",
+    "query": "select * from a left join b on i = x and i = y and x = i"
+  },
+  {
+    "comment": "join - Statement 253",
+    "query": "create type mycomptype as (id int, v bigint)"
+  },
+  {
+    "comment": "join - Statement 254",
+    "query": "create temp table tidv (idv mycomptype)"
+  },
+  {
+    "comment": "join - Statement 255",
+    "query": "create index on tidv (idv)"
+  },
+  {
+    "comment": "join - Statement 256",
+    "query": "explain (costs off) select a.idv, b.idv from tidv a, tidv b where a.idv = b.idv"
+  },
+  {
+    "comment": "join - Statement 257",
+    "query": "set enable_mergejoin = 0"
+  },
+  {
+    "comment": "join - Statement 258",
+    "query": "select t1.q2, count(t2.*) from int8_tbl t1 left join int8_tbl t2 on (t1.q2 = t2.q1) group by t1.q2 order by 1"
+  },
+  {
+    "comment": "join - Statement 259",
+    "query": "select t1.q2, count(t2.*) from int8_tbl t1 left join (select * from int8_tbl) t2 on (t1.q2 = t2.q1) group by t1.q2 order by 1"
+  },
+  {
+    "comment": "join - Statement 260",
+    "query": "select t1.q2, count(t2.*) from int8_tbl t1 left join (select * from int8_tbl offset 0) t2 on (t1.q2 = t2.q1) group by t1.q2 order by 1"
+  },
+  {
+    "comment": "join - Statement 261",
+    "query": "select t1.q2, count(t2.*) from int8_tbl t1 left join (select q1, case when q2=1 then 1 else q2 end as q2 from int8_tbl) t2 on (t1.q2 = t2.q1) group by t1.q2 order by 1"
+  },
+  {
+    "comment": "join - Statement 262",
+    "query": "create temp table a ( code char not null, constraint a_pk primary key (code) )"
+  },
+  {
+    "comment": "join - Statement 263",
+    "query": "create temp table b ( a char not null, num integer not null, constraint b_pk primary key (a, num) )"
+  },
+  {
+    "comment": "join - Statement 264",
+    "query": "create temp table c ( name char not null, a char, constraint c_pk primary key (name) )"
+  },
+  {
+    "comment": "join - Statement 265",
+    "query": "insert into a (code) values ('p')"
+  },
+  {
+    "comment": "join - Statement 266",
+    "query": "insert into a (code) values ('q')"
+  },
+  {
+    "comment": "join - Statement 267",
+    "query": "insert into b (a, num) values ('p', 1)"
+  },
+  {
+    "comment": "join - Statement 268",
+    "query": "insert into b (a, num) values ('p', 2)"
+  },
+  {
+    "comment": "join - Statement 269",
+    "query": "insert into c (name, a) values ('A', 'p')"
+  },
+  {
+    "comment": "join - Statement 270",
+    "query": "insert into c (name, a) values ('B', 'q')"
+  },
+  {
+    "comment": "join - Statement 271",
+    "query": "insert into c (name, a) values ('C', null)"
+  },
+  {
+    "comment": "join - Statement 272",
+    "query": "select c.name, ss.code, ss.b_cnt, ss.const from c left join (select a.code, coalesce(b_grp.cnt, 0) as b_cnt, -1 as const from a left join (select count(1) as cnt, b.a from b group by b.a) as b_grp on a.code = b_grp.a ) as ss on (c.a = ss.code) order by c.name"
+  },
+  {
+    "comment": "join - Statement 273",
+    "query": "SELECT * FROM ( SELECT 1 as key1 ) sub1 LEFT JOIN ( SELECT sub3.key3, sub4.value2, COALESCE(sub4.value2, 66) as value3 FROM ( SELECT 1 as key3 ) sub3 LEFT JOIN ( SELECT sub5.key5, COALESCE(sub6.value1, 1) as value2 FROM ( SELECT 1 as key5 ) sub5 LEFT JOIN ( SELECT 2 as key6, 42 as value1 ) sub6 ON sub5.key5 = sub6.key6 ) sub4 ON sub4.key5 = sub3.key3 ) sub2 ON sub1.key1 = sub2.key3"
+  },
+  {
+    "comment": "join - Statement 274",
+    "query": "SELECT * FROM ( SELECT 1 as key1 ) sub1 LEFT JOIN ( SELECT sub3.key3, value2, COALESCE(value2, 66) as value3 FROM ( SELECT 1 as key3 ) sub3 LEFT JOIN ( SELECT sub5.key5, COALESCE(sub6.value1, 1) as value2 FROM ( SELECT 1 as key5 ) sub5 LEFT JOIN ( SELECT 2 as key6, 42 as value1 ) sub6 ON sub5.key5 = sub6.key6 ) sub4 ON sub4.key5 = sub3.key3 ) sub2 ON sub1.key1 = sub2.key3"
+  },
+  {
+    "comment": "join - Statement 275",
+    "query": "EXPLAIN (COSTS OFF) SELECT qq, unique1 FROM ( SELECT COALESCE(q1, 0) AS qq FROM int8_tbl a ) AS ss1 FULL OUTER JOIN ( SELECT COALESCE(q2, -1) AS qq FROM int8_tbl b ) AS ss2 USING (qq) INNER JOIN tenk1 c ON qq = unique2"
+  },
+  {
+    "comment": "join - Statement 276",
+    "query": "SELECT qq, unique1 FROM ( SELECT COALESCE(q1, 0) AS qq FROM int8_tbl a ) AS ss1 FULL OUTER JOIN ( SELECT COALESCE(q2, -1) AS qq FROM int8_tbl b ) AS ss2 USING (qq) INNER JOIN tenk1 c ON qq = unique2"
+  },
+  {
+    "comment": "join - Statement 277",
+    "query": "create temp table nt1 ( id int primary key, a1 boolean, a2 boolean )"
+  },
+  {
+    "comment": "join - Statement 278",
+    "query": "create temp table nt2 ( id int primary key, nt1_id int, b1 boolean, b2 boolean, foreign key (nt1_id) references nt1(id) )"
+  },
+  {
+    "comment": "join - Statement 279",
+    "query": "create temp table nt3 ( id int primary key, nt2_id int, c1 boolean, foreign key (nt2_id) references nt2(id) )"
+  },
+  {
+    "comment": "join - Statement 280",
+    "query": "insert into nt1 values (1,true,true)"
+  },
+  {
+    "comment": "join - Statement 281",
+    "query": "insert into nt1 values (2,true,false)"
+  },
+  {
+    "comment": "join - Statement 282",
+    "query": "insert into nt1 values (3,false,false)"
+  },
+  {
+    "comment": "join - Statement 283",
+    "query": "insert into nt2 values (1,1,true,true)"
+  },
+  {
+    "comment": "join - Statement 284",
+    "query": "insert into nt2 values (2,2,true,false)"
+  },
+  {
+    "comment": "join - Statement 285",
+    "query": "insert into nt2 values (3,3,false,false)"
+  },
+  {
+    "comment": "join - Statement 286",
+    "query": "insert into nt3 values (1,1,true)"
+  },
+  {
+    "comment": "join - Statement 287",
+    "query": "insert into nt3 values (2,2,false)"
+  },
+  {
+    "comment": "join - Statement 288",
+    "query": "insert into nt3 values (3,3,true)"
+  },
+  {
+    "comment": "join - Statement 289",
+    "query": "explain (costs off) select nt3.id from nt3 as nt3 left join (select nt2.*, (nt2.b1 and ss1.a3) AS b3 from nt2 as nt2 left join (select nt1.*, (nt1.id is not null) as a3 from nt1) as ss1 on ss1.id = nt2.nt1_id ) as ss2 on ss2.id = nt3.nt2_id where nt3.id = 1 and ss2.b3"
+  },
+  {
+    "comment": "join - Statement 290",
+    "query": "select nt3.id from nt3 as nt3 left join (select nt2.*, (nt2.b1 and ss1.a3) AS b3 from nt2 as nt2 left join (select nt1.*, (nt1.id is not null) as a3 from nt1) as ss1 on ss1.id = nt2.nt1_id ) as ss2 on ss2.id = nt3.nt2_id where nt3.id = 1 and ss2.b3"
+  },
+  {
+    "comment": "join - Statement 291",
+    "query": "explain (costs off) select * from int8_tbl t1 left join (select q1 as x, 42 as y from int8_tbl t2) ss on t1.q2 = ss.x where 1 = (select 1 from int8_tbl t3 where ss.y is not null limit 1) order by 1,2"
+  },
+  {
+    "comment": "join - Statement 292",
+    "query": "select * from int8_tbl t1 left join (select q1 as x, 42 as y from int8_tbl t2) ss on t1.q2 = ss.x where 1 = (select 1 from int8_tbl t3 where ss.y is not null limit 1) order by 1,2"
+  },
+  {
+    "comment": "join - Statement 293",
+    "query": "explain (costs off) select * from int4_tbl as i41, lateral (select 1 as x from (select i41.f1 as lat, i42.f1 as loc from int8_tbl as i81, int4_tbl as i42) as ss1 right join int4_tbl as i43 on (i43.f1 > 1) where ss1.loc = ss1.lat) as ss2 where i41.f1 > 0"
+  },
+  {
+    "comment": "join - Statement 294",
+    "query": "select * from int4_tbl as i41, lateral (select 1 as x from (select i41.f1 as lat, i42.f1 as loc from int8_tbl as i81, int4_tbl as i42) as ss1 right join int4_tbl as i43 on (i43.f1 > 1) where ss1.loc = ss1.lat) as ss2 where i41.f1 > 0"
+  },
+  {
+    "comment": "join - Statement 295",
+    "query": "select * from int4_tbl a full join int4_tbl b on true"
+  },
+  {
+    "comment": "join - Statement 296",
+    "query": "select * from int4_tbl a full join int4_tbl b on false"
+  },
+  {
+    "comment": "join - Statement 297",
+    "query": "create temp table q1 as select 1 as q1"
+  },
+  {
+    "comment": "join - Statement 298",
+    "query": "create temp table q2 as select 0 as q2"
+  },
+  {
+    "comment": "join - Statement 299",
+    "query": "analyze q1"
+  },
+  {
+    "comment": "join - Statement 300",
+    "query": "analyze q2"
+  },
+  {
+    "comment": "join - Statement 301",
+    "query": "explain (costs off) select * from tenk1 join int4_tbl on f1 = twothousand, q1, q2 where q1 = thousand or q2 = thousand"
+  },
+  {
+    "comment": "join - Statement 302",
+    "query": "explain (costs off) select * from tenk1 join int4_tbl on f1 = twothousand, q1, q2 where thousand = (q1 + q2)"
+  },
+  {
+    "comment": "join - Statement 303",
+    "query": "explain (costs off) select * from tenk1, int8_tbl a, int8_tbl b where thousand = a.q1 and tenthous = b.q1 and a.q2 = 1 and b.q2 = 2"
+  },
+  {
+    "comment": "join - Statement 304",
+    "query": "explain (costs off) select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (select 1,0 from onerow) v1(x1,x2) left join (select 3,1 from onerow) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 < 42 and t1.stringu1 > t2.stringu2"
+  },
+  {
+    "comment": "join - Statement 305",
+    "query": "select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (select 1,0 from onerow) v1(x1,x2) left join (select 3,1 from onerow) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 < 42 and t1.stringu1 > t2.stringu2"
+  },
+  {
+    "comment": "join - Statement 306",
+    "query": "select ss1.d1 from tenk1 as t1 inner join tenk1 as t2 on t1.tenthous = t2.ten inner join int8_tbl as i8 left join int4_tbl as i4 inner join (select 64::information_schema.cardinal_number as d1 from tenk1 t3, lateral (select abs(t3.unique1) + random()) ss0(x) where t3.fivethous < 0) as ss1 on i4.f1 = ss1.d1 on i8.q1 = i4.f1 on t1.tenthous = ss1.d1 where t1.unique1 < i4.f1"
+  },
+  {
+    "comment": "join - Statement 307",
+    "query": "explain (costs off) select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (values(1,0)) v1(x1,x2) left join (values(3,1)) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 < 42 and t1.stringu1 > t2.stringu2"
+  },
+  {
+    "comment": "join - Statement 308",
+    "query": "select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from tenk1 t1 inner join int4_tbl i1 left join (select v1.x2, v2.y1, 11 AS d1 from (values(1,0)) v1(x1,x2) left join (values(3,1)) v2(y1,y2) on v1.x1 = v2.y2) subq1 on (i1.f1 = subq1.x2) on (t1.unique2 = subq1.d1) left join tenk1 t2 on (subq1.y1 = t2.unique1) where t1.unique2 < 42 and t1.stringu1 > t2.stringu2"
+  },
+  {
+    "comment": "join - Statement 309",
+    "query": "explain (verbose, costs off) select * from (select 1 as x) ss1 left join (select 2 as y) ss2 on (true), lateral (select ss2.y as z limit 1) ss3"
+  },
+  {
+    "comment": "join - Statement 310",
+    "query": "select * from (select 1 as x) ss1 left join (select 2 as y) ss2 on (true), lateral (select ss2.y as z limit 1) ss3"
+  },
+  {
+    "comment": "join - Statement 311",
+    "query": "explain (costs off) select * from (select 0 as z) as t1 left join (select true as a) as t2 on true, lateral (select true as b union all select a as b) as t3 where b"
+  },
+  {
+    "comment": "join - Statement 312",
+    "query": "select * from (select 0 as z) as t1 left join (select true as a) as t2 on true, lateral (select true as b union all select a as b) as t3 where b"
+  },
+  {
+    "comment": "join - Statement 313",
+    "query": "explain (verbose, costs off) with ctetable as not materialized ( select 1 as f1 ) select * from ctetable c1 where f1 in ( select c3.f1 from ctetable c2 full join ctetable c3 on true )"
+  },
+  {
+    "comment": "join - Statement 314",
+    "query": "with ctetable as not materialized ( select 1 as f1 ) select * from ctetable c1 where f1 in ( select c3.f1 from ctetable c2 full join ctetable c3 on true )"
+  },
+  {
+    "comment": "join - Statement 315",
+    "query": "explain (verbose, costs off) select table_catalog, table_name from int4_tbl t1 inner join (int8_tbl t2 left join information_schema.column_udt_usage on null) on null"
+  },
+  {
+    "comment": "join - Statement 316",
+    "query": "explain (verbose, costs off) select * from int4_tbl left join ( select text 'foo' union all select text 'bar' ) ss(x) on true where ss.x is null"
+  },
+  {
+    "comment": "join - Statement 317",
+    "query": "create function f_immutable_int4(i integer) returns integer as $$ begin return i; end; $$ language plpgsql immutable"
+  },
+  {
+    "comment": "join - Statement 318",
+    "query": "explain (costs off) select unique1 from tenk1, (select * from f_immutable_int4(1) x) x where x = unique1"
+  },
+  {
+    "comment": "join - Statement 319",
+    "query": "explain (verbose, costs off) select unique1, x.* from tenk1, (select *, random() from f_immutable_int4(1) x) x where x = unique1"
+  },
+  {
+    "comment": "join - Statement 320",
+    "query": "explain (costs off) select unique1 from tenk1, f_immutable_int4(1) x where x = unique1"
+  },
+  {
+    "comment": "join - Statement 321",
+    "query": "explain (costs off) select unique1 from tenk1, lateral f_immutable_int4(1) x where x = unique1"
+  },
+  {
+    "comment": "join - Statement 322",
+    "query": "explain (costs off) select unique1 from tenk1, lateral f_immutable_int4(1) x where x in (select 17)"
+  },
+  {
+    "comment": "join - Statement 323",
+    "query": "explain (costs off) select unique1, x from tenk1 join f_immutable_int4(1) x on unique1 = x"
+  },
+  {
+    "comment": "join - Statement 324",
+    "query": "explain (costs off) select unique1, x from tenk1 left join f_immutable_int4(1) x on unique1 = x"
+  },
+  {
+    "comment": "join - Statement 325",
+    "query": "explain (costs off) select unique1, x from tenk1 right join f_immutable_int4(1) x on unique1 = x"
+  },
+  {
+    "comment": "join - Statement 326",
+    "query": "explain (costs off) select unique1, x from tenk1 full join f_immutable_int4(1) x on unique1 = x"
+  },
+  {
+    "comment": "join - Statement 327",
+    "query": "explain (costs off) select unique1 from tenk1, f_immutable_int4(1) x where x = 42"
+  },
+  {
+    "comment": "join - Statement 328",
+    "query": "explain (costs off) select nt3.id from nt3 as nt3 left join (select nt2.*, (nt2.b1 or i4 = 42) AS b3 from nt2 as nt2 left join f_immutable_int4(0) i4 on i4 = nt2.nt1_id ) as ss2 on ss2.id = nt3.nt2_id where nt3.id = 1 and ss2.b3"
+  },
+  {
+    "comment": "join - Statement 329",
+    "query": "drop function f_immutable_int4(int)"
+  },
+  {
+    "comment": "join - Statement 330",
+    "query": "create function mki8(bigint, bigint) returns int8_tbl as $$select row($1,$2)::int8_tbl$$ language sql"
+  },
+  {
+    "comment": "join - Statement 331",
+    "query": "create function mki4(int) returns int4_tbl as $$select row($1)::int4_tbl$$ language sql"
+  },
+  {
+    "comment": "join - Statement 332",
+    "query": "explain (verbose, costs off) select * from mki8(1,2)"
+  },
+  {
+    "comment": "join - Statement 333",
+    "query": "select * from mki8(1,2)"
+  },
+  {
+    "comment": "join - Statement 334",
+    "query": "explain (verbose, costs off) select * from mki4(42)"
+  },
+  {
+    "comment": "join - Statement 335",
+    "query": "select * from mki4(42)"
+  },
+  {
+    "comment": "join - Statement 336",
+    "query": "drop function mki8(bigint, bigint)"
+  },
+  {
+    "comment": "join - Statement 337",
+    "query": "drop function mki4(int)"
+  },
+  {
+    "comment": "join - Statement 338",
+    "query": "create function f_field_select(t onek) returns int4 as $$ select t.unique2; $$ language sql immutable"
+  },
+  {
+    "comment": "join - Statement 339",
+    "query": "explain (verbose, costs off) select (t2.*).unique1, f_field_select(t2) from tenk1 t1 left join onek t2 on t1.unique1 = t2.unique1 left join int8_tbl t3 on true"
+  },
+  {
+    "comment": "join - Statement 340",
+    "query": "drop function f_field_select(t onek)"
+  },
+  {
+    "comment": "join - Statement 341",
+    "query": "explain (costs off) select * from tenk1 a join tenk1 b on (a.unique1 = 1 and b.unique1 = 2) or (a.unique2 = 3 and b.hundred = 4)"
+  },
+  {
+    "comment": "join - Statement 342",
+    "query": "explain (costs off) select * from tenk1 a join tenk1 b on (a.unique1 = 1 and b.unique1 = 2) or (a.unique2 = 3 and b.ten = 4)"
+  },
+  {
+    "comment": "join - Statement 343",
+    "query": "explain (costs off) select * from tenk1 a join tenk1 b on (a.unique1 = 1 and b.unique1 = 2) or ((a.unique2 = 3 or a.unique2 = 7) and b.hundred = 4)"
+  },
+  {
+    "comment": "join - Statement 344",
+    "query": "explain (costs off) select * from tenk1 t1 left join (tenk1 t2 join tenk1 t3 on t2.thousand = t3.unique2) on t1.hundred = t2.hundred and t1.ten = t3.ten where t1.unique1 = 1"
+  },
+  {
+    "comment": "join - Statement 345",
+    "query": "explain (costs off) select * from tenk1 t1 left join (tenk1 t2 join tenk1 t3 on t2.thousand = t3.unique2) on t1.hundred = t2.hundred and t1.ten + t2.ten = t3.ten where t1.unique1 = 1"
+  },
+  {
+    "comment": "join - Statement 346",
+    "query": "explain (costs off) select count(*) from tenk1 a join tenk1 b on a.unique1 = b.unique2 left join tenk1 c on a.unique2 = b.unique1 and c.thousand = a.thousand join int4_tbl on b.thousand = f1"
+  },
+  {
+    "comment": "join - Statement 347",
+    "query": "select count(*) from tenk1 a join tenk1 b on a.unique1 = b.unique2 left join tenk1 c on a.unique2 = b.unique1 and c.thousand = a.thousand join int4_tbl on b.thousand = f1"
+  },
+  {
+    "comment": "join - Statement 348",
+    "query": "explain (costs off) select b.unique1 from tenk1 a join tenk1 b on a.unique1 = b.unique2 left join tenk1 c on b.unique1 = 42 and c.thousand = a.thousand join int4_tbl i1 on b.thousand = f1 right join int4_tbl i2 on i2.f1 = b.tenthous order by 1"
+  },
+  {
+    "comment": "join - Statement 349",
+    "query": "select b.unique1 from tenk1 a join tenk1 b on a.unique1 = b.unique2 left join tenk1 c on b.unique1 = 42 and c.thousand = a.thousand join int4_tbl i1 on b.thousand = f1 right join int4_tbl i2 on i2.f1 = b.tenthous order by 1"
+  },
+  {
+    "comment": "join - Statement 350",
+    "query": "explain (costs off) select * from ( select unique1, q1, coalesce(unique1, -1) + q1 as fault from int8_tbl left join tenk1 on (q2 = unique2) ) ss where fault = 122 order by fault"
+  },
+  {
+    "comment": "join - Statement 351",
+    "query": "select * from ( select unique1, q1, coalesce(unique1, -1) + q1 as fault from int8_tbl left join tenk1 on (q2 = unique2) ) ss where fault = 122 order by fault"
+  },
+  {
+    "comment": "join - Statement 352",
+    "query": "explain (costs off) select * from (values (1, array[10,20]), (2, array[20,30])) as v1(v1x,v1ys) left join (values (1, 10), (2, 20)) as v2(v2x,v2y) on v2x = v1x left join unnest(v1ys) as u1(u1y) on u1y = v2y"
+  },
+  {
+    "comment": "join - Statement 353",
+    "query": "select * from (values (1, array[10,20]), (2, array[20,30])) as v1(v1x,v1ys) left join (values (1, 10), (2, 20)) as v2(v2x,v2y) on v2x = v1x left join unnest(v1ys) as u1(u1y) on u1y = v2y"
+  },
+  {
+    "comment": "join - Statement 354",
+    "query": "explain (costs off) select q1, unique2, thousand, hundred from int8_tbl a left join tenk1 b on q1 = unique2 where coalesce(thousand,123) = q1 and q1 = coalesce(hundred,123)"
+  },
+  {
+    "comment": "join - Statement 355",
+    "query": "select q1, unique2, thousand, hundred from int8_tbl a left join tenk1 b on q1 = unique2 where coalesce(thousand,123) = q1 and q1 = coalesce(hundred,123)"
+  },
+  {
+    "comment": "join - Statement 356",
+    "query": "explain (costs off) select f1, unique2, case when unique2 is null then f1 else 0 end from int4_tbl a left join tenk1 b on f1 = unique2 where (case when unique2 is null then f1 else 0 end) = 0"
+  },
+  {
+    "comment": "join - Statement 357",
+    "query": "select f1, unique2, case when unique2 is null then f1 else 0 end from int4_tbl a left join tenk1 b on f1 = unique2 where (case when unique2 is null then f1 else 0 end) = 0"
+  },
+  {
+    "comment": "join - Statement 358",
+    "query": "explain (costs off) select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand) from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand) where a.unique2 < 10 and coalesce(b.twothousand, a.twothousand) = 44"
+  },
+  {
+    "comment": "join - Statement 359",
+    "query": "select a.unique1, b.unique1, c.unique1, coalesce(b.twothousand, a.twothousand) from tenk1 a left join tenk1 b on b.thousand = a.unique1                        left join tenk1 c on c.unique2 = coalesce(b.twothousand, a.twothousand) where a.unique2 < 10 and coalesce(b.twothousand, a.twothousand) = 44"
+  },
+  {
+    "comment": "join - Statement 360",
+    "query": "explain (costs off) select * from int8_tbl t1 left join int8_tbl t2 on t1.q2 = t2.q1, lateral (select * from int8_tbl t3 where t2.q1 = t2.q2) ss"
+  },
+  {
+    "comment": "join - Statement 361",
+    "query": "select * from int8_tbl t1 left join int8_tbl t2 on t1.q2 = t2.q1, lateral (select * from int8_tbl t3 where t2.q1 = t2.q2) ss"
+  },
+  {
+    "comment": "join - Statement 362",
+    "query": "explain (verbose, costs off) select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from (values (0),(1)) foo1(join_key) left join (select join_key, bug_field from (select ss1.join_key, ss1.bug_field from (select f1 as join_key, 666 as bug_field from int4_tbl i1) ss1 ) foo2 left join (select unique2 as join_key from tenk1 i2) ss2 using (join_key) ) foo3 using (join_key)"
+  },
+  {
+    "comment": "join - Statement 363",
+    "query": "select foo1.join_key as foo1_id, foo3.join_key AS foo3_id, bug_field from (values (0),(1)) foo1(join_key) left join (select join_key, bug_field from (select ss1.join_key, ss1.bug_field from (select f1 as join_key, 666 as bug_field from int4_tbl i1) ss1 ) foo2 left join (select unique2 as join_key from tenk1 i2) ss2 using (join_key) ) foo3 using (join_key)"
+  },
+  {
+    "comment": "join - Statement 364",
+    "query": "explain (verbose, costs off) select * from int4_tbl i0 left join ( (select *, 123 as x from int4_tbl i1) ss1 left join (select *, q2 as x from int8_tbl i2) ss2 using (x) ) ss0 on (i0.f1 = ss0.f1) order by i0.f1, x"
+  },
+  {
+    "comment": "join - Statement 365",
+    "query": "select * from int4_tbl i0 left join ( (select *, 123 as x from int4_tbl i1) ss1 left join (select *, q2 as x from int8_tbl i2) ss2 using (x) ) ss0 on (i0.f1 = ss0.f1) order by i0.f1, x"
+  },
+  {
+    "comment": "join - Statement 366",
+    "query": "explain (verbose, costs off) select t1.* from text_tbl t1 left join (select *, '***'::text as d1 from int8_tbl i8b1) b1 left join int8_tbl i8 left join (select *, null::int as d2 from int8_tbl i8b2) b2 on (i8.q1 = b2.q1) on (b2.d2 = b1.q2) on (t1.f1 = b1.d1) left join int4_tbl i4 on (i8.q2 = i4.f1)"
+  },
+  {
+    "comment": "join - Statement 367",
+    "query": "select t1.* from text_tbl t1 left join (select *, '***'::text as d1 from int8_tbl i8b1) b1 left join int8_tbl i8 left join (select *, null::int as d2 from int8_tbl i8b2) b2 on (i8.q1 = b2.q1) on (b2.d2 = b1.q2) on (t1.f1 = b1.d1) left join int4_tbl i4 on (i8.q2 = i4.f1)"
+  },
+  {
+    "comment": "join - Statement 368",
+    "query": "explain (verbose, costs off) select t1.* from text_tbl t1 left join (select *, '***'::text as d1 from int8_tbl i8b1) b1 left join int8_tbl i8 left join (select *, null::int as d2 from int8_tbl i8b2, int4_tbl i4b2) b2 on (i8.q1 = b2.q1) on (b2.d2 = b1.q2) on (t1.f1 = b1.d1) left join int4_tbl i4 on (i8.q2 = i4.f1)"
+  },
+  {
+    "comment": "join - Statement 369",
+    "query": "select t1.* from text_tbl t1 left join (select *, '***'::text as d1 from int8_tbl i8b1) b1 left join int8_tbl i8 left join (select *, null::int as d2 from int8_tbl i8b2, int4_tbl i4b2) b2 on (i8.q1 = b2.q1) on (b2.d2 = b1.q2) on (t1.f1 = b1.d1) left join int4_tbl i4 on (i8.q2 = i4.f1)"
+  },
+  {
+    "comment": "join - Statement 370",
+    "query": "explain (verbose, costs off) select t1.* from text_tbl t1 left join (select *, '***'::text as d1 from int8_tbl i8b1) b1 left join int8_tbl i8 left join (select *, null::int as d2 from int8_tbl i8b2, int4_tbl i4b2 where q1 = f1) b2 on (i8.q1 = b2.q1) on (b2.d2 = b1.q2) on (t1.f1 = b1.d1) left join int4_tbl i4 on (i8.q2 = i4.f1)"
+  },
+  {
+    "comment": "join - Statement 371",
+    "query": "select t1.* from text_tbl t1 left join (select *, '***'::text as d1 from int8_tbl i8b1) b1 left join int8_tbl i8 left join (select *, null::int as d2 from int8_tbl i8b2, int4_tbl i4b2 where q1 = f1) b2 on (i8.q1 = b2.q1) on (b2.d2 = b1.q2) on (t1.f1 = b1.d1) left join int4_tbl i4 on (i8.q2 = i4.f1)"
+  },
+  {
+    "comment": "join - Statement 372",
+    "query": "explain (verbose, costs off) select * from text_tbl t1 inner join int8_tbl i8 on i8.q2 = 456 right join text_tbl t2 on t1.f1 = 'doh!' left join int4_tbl i4 on i8.q1 = i4.f1"
+  },
+  {
+    "comment": "join - Statement 373",
+    "query": "select * from text_tbl t1 inner join int8_tbl i8 on i8.q2 = 456 right join text_tbl t2 on t1.f1 = 'doh!' left join int4_tbl i4 on i8.q1 = i4.f1"
+  },
+  {
+    "comment": "join - Statement 374",
+    "query": "explain (costs off) select nspname from (select 1 as x) ss1 left join ( select n.nspname, c.relname from pg_class c left join pg_namespace n on n.oid = c.relnamespace where c.relkind = 'r' ) ss2 on false"
+  },
+  {
+    "comment": "join - Statement 375",
+    "query": "explain (costs off) select 1 from int4_tbl i4 left join int8_tbl i8 on i4.f1 is not null left join (select 1 as a) ss1 on null join int4_tbl i42 on ss1.a is null or i8.q1 <> i8.q2 right join (select 2 as b) ss2 on ss2.b < i4.f1"
+  },
+  {
+    "comment": "join - Statement 376",
+    "query": "explain (verbose, costs off) select * from text_tbl t1 left join int8_tbl i8 on i8.q2 = 123, lateral (select i8.q1, t2.f1 from text_tbl t2 limit 1) as ss where t1.f1 = ss.f1"
+  },
+  {
+    "comment": "join - Statement 377",
+    "query": "select * from text_tbl t1 left join int8_tbl i8 on i8.q2 = 123, lateral (select i8.q1, t2.f1 from text_tbl t2 limit 1) as ss where t1.f1 = ss.f1"
+  },
+  {
+    "comment": "join - Statement 378",
+    "query": "explain (verbose, costs off) select * from text_tbl t1 left join int8_tbl i8 on i8.q2 = 123, lateral (select i8.q1, t2.f1 from text_tbl t2 limit 1) as ss1, lateral (select ss1.* from text_tbl t3 limit 1) as ss2 where t1.f1 = ss2.f1"
+  },
+  {
+    "comment": "join - Statement 379",
+    "query": "select * from text_tbl t1 left join int8_tbl i8 on i8.q2 = 123, lateral (select i8.q1, t2.f1 from text_tbl t2 limit 1) as ss1, lateral (select ss1.* from text_tbl t3 limit 1) as ss2 where t1.f1 = ss2.f1"
+  },
+  {
+    "comment": "join - Statement 380",
+    "query": "explain (verbose, costs off) select 1 from text_tbl as tt1 inner join text_tbl as tt2 on (tt1.f1 = 'foo') left join text_tbl as tt3 on (tt3.f1 = 'foo') left join text_tbl as tt4 on (tt3.f1 = tt4.f1), lateral (select tt4.f1 as c0 from text_tbl as tt5 limit 1) as ss1 where tt1.f1 = ss1.c0"
+  },
+  {
+    "comment": "join - Statement 381",
+    "query": "select 1 from text_tbl as tt1 inner join text_tbl as tt2 on (tt1.f1 = 'foo') left join text_tbl as tt3 on (tt3.f1 = 'foo') left join text_tbl as tt4 on (tt3.f1 = tt4.f1), lateral (select tt4.f1 as c0 from text_tbl as tt5 limit 1) as ss1 where tt1.f1 = ss1.c0"
+  },
+  {
+    "comment": "join - Statement 382",
+    "query": "explain (verbose, costs off) select 1 from int4_tbl as i4 inner join ((select 42 as n from int4_tbl x1 left join int8_tbl x2 on f1 = q1) as ss1 right join (select 1 as z) as ss2 on true) on false, lateral (select i4.f1, ss1.n from int8_tbl as i8 limit 1) as ss3"
+  },
+  {
+    "comment": "join - Statement 383",
+    "query": "select 1 from int4_tbl as i4 inner join ((select 42 as n from int4_tbl x1 left join int8_tbl x2 on f1 = q1) as ss1 right join (select 1 as z) as ss2 on true) on false, lateral (select i4.f1, ss1.n from int8_tbl as i8 limit 1) as ss3"
+  },
+  {
+    "comment": "join - Statement 384",
+    "query": "create temp table t (a int unique)"
+  },
+  {
+    "comment": "join - Statement 385",
+    "query": "explain (costs off) select 1 from t t1 join lateral (select t1.a from (select 1) foo offset 0) as s1 on true join (select 1 from t t2 inner join (t t3 left join (t t4 left join t t5 on t4.a = 1) on t3.a = t4.a) on false where t3.a = coalesce(t5.a,1)) as s2 on true"
+  },
+  {
+    "comment": "join - Statement 386",
+    "query": "explain (verbose, costs off) select ss2.* from int4_tbl i41 left join int8_tbl i8 join (select i42.f1 as c1, i43.f1 as c2, 42 as c3 from int4_tbl i42, int4_tbl i43) ss1 on i8.q1 = ss1.c2 on i41.f1 = ss1.c1, lateral (select i41.*, i8.*, ss1.* from text_tbl limit 1) ss2 where ss1.c2 = 0"
+  },
+  {
+    "comment": "join - Statement 387",
+    "query": "select ss2.* from int4_tbl i41 left join int8_tbl i8 join (select i42.f1 as c1, i43.f1 as c2, 42 as c3 from int4_tbl i42, int4_tbl i43) ss1 on i8.q1 = ss1.c2 on i41.f1 = ss1.c1, lateral (select i41.*, i8.*, ss1.* from text_tbl limit 1) ss2 where ss1.c2 = 0"
+  },
+  {
+    "comment": "join - Statement 388",
+    "query": "explain (costs off) select * from (select 1 as id) as xx left join (tenk1 as a1 full join (select 1 as id) as yy on (a1.unique1 = yy.id)) on (xx.id = coalesce(yy.id))"
+  },
+  {
+    "comment": "join - Statement 389",
+    "query": "select * from (select 1 as id) as xx left join (tenk1 as a1 full join (select 1 as id) as yy on (a1.unique1 = yy.id)) on (xx.id = coalesce(yy.id))"
+  },
+  {
+    "comment": "join - Statement 390",
+    "query": "explain (costs off) select * from int4_tbl a left join tenk1 b on f1 = unique2 where f1 = 0"
+  },
+  {
+    "comment": "join - Statement 391",
+    "query": "explain (costs off) select * from tenk1 a full join tenk1 b using(unique2) where unique2 = 42"
+  },
+  {
+    "comment": "join - Statement 392",
+    "query": "explain (verbose, costs off) select a.q2, b.q1 from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1) where coalesce(b.q1, 1) > 0"
+  },
+  {
+    "comment": "join - Statement 393",
+    "query": "select a.q2, b.q1 from int8_tbl a left join int8_tbl b on a.q2 = coalesce(b.q1, 1) where coalesce(b.q1, 1) > 0"
+  },
+  {
+    "comment": "join - Statement 394",
+    "query": "explain (costs off) select a.unique1, b.unique2 from onek a left join onek b on a.unique1 = b.unique2 where (b.unique2, random() > 0) = any (select q1, random() > 0 from int8_tbl c where c.q1 < b.unique1)"
+  },
+  {
+    "comment": "join - Statement 395",
+    "query": "select a.unique1, b.unique2 from onek a left join onek b on a.unique1 = b.unique2 where (b.unique2, random() > 0) = any (select q1, random() > 0 from int8_tbl c where c.q1 < b.unique1)"
+  },
+  {
+    "comment": "join - Statement 396",
+    "query": "explain (costs off) select a.unique1, b.unique2 from onek a full join onek b on a.unique1 = b.unique2 where a.unique1 = 42"
+  },
+  {
+    "comment": "join - Statement 397",
+    "query": "select a.unique1, b.unique2 from onek a full join onek b on a.unique1 = b.unique2 where a.unique1 = 42"
+  },
+  {
+    "comment": "join - Statement 398",
+    "query": "explain (costs off) select a.unique1, b.unique2 from onek a full join onek b on a.unique1 = b.unique2 where b.unique2 = 43"
+  },
+  {
+    "comment": "join - Statement 399",
+    "query": "select a.unique1, b.unique2 from onek a full join onek b on a.unique1 = b.unique2 where b.unique2 = 43"
+  },
+  {
+    "comment": "join - Statement 400",
+    "query": "explain (costs off) select a.unique1, b.unique2 from onek a full join onek b on a.unique1 = b.unique2 where a.unique1 = 42 and b.unique2 = 42"
+  },
+  {
+    "comment": "join - Statement 401",
+    "query": "select a.unique1, b.unique2 from onek a full join onek b on a.unique1 = b.unique2 where a.unique1 = 42 and b.unique2 = 42"
+  },
+  {
+    "comment": "join - Statement 402",
+    "query": "explain (costs off) select * from (select * from int8_tbl i81 join (values(123,2)) v(v1,v2) on q2=v1) ss1 full join (select * from (values(456,2)) w(v1,v2) join int8_tbl i82 on q2=v1) ss2 on true"
+  },
+  {
+    "comment": "join - Statement 403",
+    "query": "select * from (select * from int8_tbl i81 join (values(123,2)) v(v1,v2) on q2=v1) ss1 full join (select * from (values(456,2)) w(v1,v2) join int8_tbl i82 on q2=v1) ss2 on true"
+  },
+  {
+    "comment": "join - Statement 404",
+    "query": "CREATE TEMP TABLE a (id int PRIMARY KEY, b_id int)"
+  },
+  {
+    "comment": "join - Statement 405",
+    "query": "CREATE TEMP TABLE b (id int PRIMARY KEY, c_id int)"
+  },
+  {
+    "comment": "join - Statement 406",
+    "query": "CREATE TEMP TABLE c (id int PRIMARY KEY)"
+  },
+  {
+    "comment": "join - Statement 407",
+    "query": "CREATE TEMP TABLE d (a int, b int)"
+  },
+  {
+    "comment": "join - Statement 408",
+    "query": "INSERT INTO a VALUES (0, 0), (1, NULL)"
+  },
+  {
+    "comment": "join - Statement 409",
+    "query": "INSERT INTO b VALUES (0, 0), (1, NULL)"
+  },
+  {
+    "comment": "join - Statement 410",
+    "query": "INSERT INTO c VALUES (0), (1)"
+  },
+  {
+    "comment": "join - Statement 411",
+    "query": "INSERT INTO d VALUES (1,3), (2,2), (3,1)"
+  },
+  {
+    "comment": "join - Statement 412",
+    "query": "explain (costs off) SELECT a.* FROM a LEFT JOIN b ON a.b_id = b.id"
+  },
+  {
+    "comment": "join - Statement 413",
+    "query": "explain (costs off) SELECT b.* FROM b LEFT JOIN c ON b.c_id = c.id"
+  },
+  {
+    "comment": "join - Statement 414",
+    "query": "explain (costs off) SELECT a.* FROM a LEFT JOIN (b left join c on b.c_id = c.id) ON (a.b_id = b.id)"
+  },
+  {
+    "comment": "join - Statement 415",
+    "query": "explain (costs off) select id from a where id in ( select b.id from b left join c on b.id = c.id )"
+  },
+  {
+    "comment": "join - Statement 416",
+    "query": "explain (costs off) select a1.id from (a a1 left join a a2 on true) left join (a a3 left join a a4 on a3.id = a4.id) on a2.id = a3.id"
+  },
+  {
+    "comment": "join - Statement 417",
+    "query": "explain (costs off) select a1.id from (a a1 left join a a2 on a1.id = a2.id) left join (a a3 left join a a4 on a3.id = a4.id) on a2.id = a3.id"
+  },
+  {
+    "comment": "join - Statement 418",
+    "query": "explain (costs off) select 1 from a t1 left join a t2 on true inner join a t3 on true left join a t4 on t2.id = t4.id and t2.id = t3.id"
+  },
+  {
+    "comment": "join - Statement 419",
+    "query": "explain (costs off) select ss1.f1 from int4_tbl as t1 left join (int4_tbl as t2 right join int4_tbl as t3 on null left join (int4_tbl as t4 right join int8_tbl as t5 on null) on t2.f1 = t4.f1 left join ((select null as f1 from int4_tbl as t6) as ss1 inner join int8_tbl as t7 on null) on t5.q1 = t7.q2) on false"
+  },
+  {
+    "comment": "join - Statement 420",
+    "query": "explain (costs off) select ss1.f1 from int4_tbl as t1 left join (int4_tbl as t2 right join int4_tbl as t3 on null left join (int4_tbl as t4 right join int8_tbl as t5 on null) on t2.f1 = t4.f1 left join ((select f1 from int4_tbl as t6) as ss1 inner join int8_tbl as t7 on null) on t5.q1 = t7.q2) on false"
+  },
+  {
+    "comment": "join - Statement 421",
+    "query": "explain (costs off) select ss1.x from (select f1/2 as x from int4_tbl i4 left join a on a.id = i4.f1) ss1 right join int8_tbl i8 on true where current_user is not null"
+  },
+  {
+    "comment": "join - Statement 422",
+    "query": "explain (costs off) select * from int8_tbl t1 left join (int8_tbl t2 left join onek t3 on t2.q1 > t3.unique1) on t1.q2 = t2.q2 left join onek t4 on t2.q2 < t3.unique2"
+  },
+  {
+    "comment": "join - Statement 423",
+    "query": "explain (costs off) select * from int8_tbl t1 left join (int8_tbl t2 inner join int8_tbl t3 on false left join int8_tbl t4 on t2.q2 = t4.q2) on t1.q1 = t2.q1"
+  },
+  {
+    "comment": "join - Statement 424",
+    "query": "explain (costs off) select * from int8_tbl t1 left join (int8_tbl t2 inner join int8_tbl t3 on (t2.q1-t3.q2) = 0 and (t2.q1-t3.q2) = 1 left join int8_tbl t4 on t2.q2 = t4.q2) on t1.q1 = t2.q1"
+  },
+  {
+    "comment": "join - Statement 425",
+    "query": "explain (costs off) select exists( select * from int8_tbl t1 left join (int8_tbl t2 inner join int8_tbl t3 on x0.f1 = 1 left join int8_tbl t4 on t2.q2 = t4.q2) on t1.q1 = t2.q1 ) from int4_tbl x0"
+  },
+  {
+    "comment": "join - Statement 426",
+    "query": "explain (costs off) select d.* from d left join (select * from b group by b.id, b.c_id) s on d.a = s.id and d.b = s.c_id"
+  },
+  {
+    "comment": "join - Statement 427",
+    "query": "explain (costs off) select d.* from d left join (select distinct * from b) s on d.a = s.id and d.b = s.c_id"
+  },
+  {
+    "comment": "join - Statement 428",
+    "query": "explain (costs off) select d.* from d left join (select * from b group by b.id, b.c_id) s on d.a = s.id"
+  },
+  {
+    "comment": "join - Statement 429",
+    "query": "explain (costs off) select d.* from d left join (select distinct * from b) s on d.a = s.id"
+  },
+  {
+    "comment": "join - Statement 430",
+    "query": "explain (costs off) select 1 from a t1 left join (a t2 left join a t3 on t2.id = 1) on t2.id = 1"
+  },
+  {
+    "comment": "join - Statement 431",
+    "query": "explain (costs off) select d.* from d left join (select id from a union select id from b) s on d.a = s.id"
+  },
+  {
+    "comment": "join - Statement 432",
+    "query": "explain (costs off) select i8.* from int8_tbl i8 left join (select f1 from int4_tbl group by f1) i4 on i8.q1 = i4.f1"
+  },
+  {
+    "comment": "join - Statement 433",
+    "query": "explain (costs off) select 1 from (select a.id FROM a left join b on a.b_id = b.id) q, lateral generate_series(1, q.id) gs(i) where q.id = gs.i"
+  },
+  {
+    "comment": "join - Statement 434",
+    "query": "explain (costs off) select c.id, ss.a from c left join (select d.a from onerow, d left join b on d.a = b.id) ss on c.id = ss.a"
+  },
+  {
+    "comment": "join - Statement 435",
+    "query": "CREATE TEMP TABLE parted_b (id int PRIMARY KEY) partition by range(id)"
+  },
+  {
+    "comment": "join - Statement 436",
+    "query": "CREATE TEMP TABLE parted_b1 partition of parted_b for values from (0) to (10)"
+  },
+  {
+    "comment": "join - Statement 437",
+    "query": "explain (costs off) select a.* from a left join parted_b pb on a.b_id = pb.id"
+  },
+  {
+    "comment": "join - Statement 438",
+    "query": "create temp table parent (k int primary key, pd int)"
+  },
+  {
+    "comment": "join - Statement 439",
+    "query": "create temp table child (k int unique, cd int)"
+  },
+  {
+    "comment": "join - Statement 440",
+    "query": "insert into parent values (1, 10), (2, 20), (3, 30)"
+  },
+  {
+    "comment": "join - Statement 441",
+    "query": "insert into child values (1, 100), (4, 400)"
+  },
+  {
+    "comment": "join - Statement 442",
+    "query": "select p.* from parent p left join child c on (p.k = c.k)"
+  },
+  {
+    "comment": "join - Statement 443",
+    "query": "explain (costs off) select p.* from parent p left join child c on (p.k = c.k)"
+  },
+  {
+    "comment": "join - Statement 444",
+    "query": "select p.*, linked from parent p left join (select c.*, true as linked from child c) as ss on (p.k = ss.k)"
+  },
+  {
+    "comment": "join - Statement 445",
+    "query": "explain (costs off) select p.*, linked from parent p left join (select c.*, true as linked from child c) as ss on (p.k = ss.k)"
+  },
+  {
+    "comment": "join - Statement 446",
+    "query": "select p.* from parent p left join child c on (p.k = c.k) where p.k = 1 and p.k = 2"
+  },
+  {
+    "comment": "join - Statement 447",
+    "query": "explain (costs off) select p.* from parent p left join child c on (p.k = c.k) where p.k = 1 and p.k = 2"
+  },
+  {
+    "comment": "join - Statement 448",
+    "query": "select p.* from (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k where p.k = 1 and p.k = 2"
+  },
+  {
+    "comment": "join - Statement 449",
+    "query": "explain (costs off) select p.* from (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k where p.k = 1 and p.k = 2"
+  },
+  {
+    "comment": "join - Statement 450",
+    "query": "CREATE TEMP TABLE a (id int PRIMARY KEY)"
+  },
+  {
+    "comment": "join - Statement 451",
+    "query": "CREATE TEMP TABLE b (id int PRIMARY KEY, a_id int)"
+  },
+  {
+    "comment": "join - Statement 452",
+    "query": "INSERT INTO a VALUES (0), (1)"
+  },
+  {
+    "comment": "join - Statement 453",
+    "query": "SELECT * FROM b LEFT JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id > 0)"
+  },
+  {
+    "comment": "join - Statement 454",
+    "query": "SELECT b.* FROM b LEFT JOIN a ON (b.a_id = a.id) WHERE (a.id IS NULL OR a.id > 0)"
+  },
+  {
+    "comment": "join - Statement 455",
+    "query": "create temp table innertab (id int8 primary key, dat1 int8)"
+  },
+  {
+    "comment": "join - Statement 456",
+    "query": "insert into innertab values(123, 42)"
+  },
+  {
+    "comment": "join - Statement 457",
+    "query": "SELECT * FROM (SELECT 1 AS x) ss1 LEFT JOIN (SELECT q1, q2, COALESCE(dat1, q1) AS y FROM int8_tbl LEFT JOIN innertab ON q2 = id) ss2 ON true"
+  },
+  {
+    "comment": "join - Statement 458",
+    "query": "EXPLAIN (COSTS OFF) SELECT q2 FROM (SELECT * FROM int8_tbl LEFT JOIN innertab ON q2 = id) ss WHERE COALESCE(dat1, 0) = q1"
+  },
+  {
+    "comment": "join - Statement 459",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT q2 FROM (SELECT q2, 'constant'::text AS x FROM int8_tbl LEFT JOIN innertab ON q2 = id) ss RIGHT JOIN int4_tbl ON NULL WHERE x >= x"
+  },
+  {
+    "comment": "join - Statement 460",
+    "query": "EXPLAIN (COSTS OFF) SELECT f1, x FROM int4_tbl JOIN ((SELECT 42 AS x FROM int8_tbl LEFT JOIN innertab ON q1 = id) AS ss1 RIGHT JOIN tenk1 ON NULL) ON tenk1.unique1 = ss1.x OR tenk1.unique2 = ss1.x"
+  },
+  {
+    "comment": "join - Statement 461",
+    "query": "create temp table uniquetbl (f1 text unique)"
+  },
+  {
+    "comment": "join - Statement 462",
+    "query": "explain (costs off) select t1.* from uniquetbl as t1 left join (select *, '***'::text as d1 from uniquetbl) t2 on t1.f1 = t2.f1 left join uniquetbl t3 on t2.d1 = t3.f1"
+  },
+  {
+    "comment": "join - Statement 463",
+    "query": "explain (costs off) select t0.* from text_tbl t0 left join (select case t1.ten when 0 then 'doh!'::text else null::text end as case1, t1.stringu2 from tenk1 t1 join int4_tbl i4 ON i4.f1 = t1.unique2 left join uniquetbl u1 ON u1.f1 = t1.string4) ss on t0.f1 = ss.case1 where ss.stringu2 !~* ss.case1"
+  },
+  {
+    "comment": "join - Statement 464",
+    "query": "select t0.* from text_tbl t0 left join (select case t1.ten when 0 then 'doh!'::text else null::text end as case1, t1.stringu2 from tenk1 t1 join int4_tbl i4 ON i4.f1 = t1.unique2 left join uniquetbl u1 ON u1.f1 = t1.string4) ss on t0.f1 = ss.case1 where ss.stringu2 !~* ss.case1"
+  },
+  {
+    "comment": "join - Statement 465",
+    "query": "insert into t values (1)"
+  },
+  {
+    "comment": "join - Statement 466",
+    "query": "explain (costs off) select 1 from t t1 left join (select 2 as c from t t2 left join t t3 on t2.a = t3.a) s on true where t1.a = s.c"
+  },
+  {
+    "comment": "join - Statement 467",
+    "query": "select 1 from t t1 left join (select 2 as c from t t2 left join t t3 on t2.a = t3.a) s on true where t1.a = s.c"
+  },
+  {
+    "comment": "join - Statement 468",
+    "query": "create temp table t (a int unique, b int)"
+  },
+  {
+    "comment": "join - Statement 469",
+    "query": "insert into t values (1,1), (2,2)"
+  },
+  {
+    "comment": "join - Statement 470",
+    "query": "explain (costs off) select 1 from t t1 left join (select t2.a, 1 as c from t t2 left join t t3 on t2.a = t3.a) s on true left join t t4 on true where s.a < s.c"
+  },
+  {
+    "comment": "join - Statement 471",
+    "query": "explain (costs off) select t1.a, s.* from t t1 left join lateral (select t2.a, coalesce(t1.a, 1) as c from t t2 left join t t3 on t2.a = t3.a) s on true left join t t4 on true where s.a < s.c"
+  },
+  {
+    "comment": "join - Statement 472",
+    "query": "select t1.a, s.* from t t1 left join lateral (select t2.a, coalesce(t1.a, 1) as c from t t2 left join t t3 on t2.a = t3.a) s on true left join t t4 on true where s.a < s.c"
+  },
+  {
+    "comment": "join - Statement 473",
+    "query": "explain (verbose, costs off) select i8.*, ss.v, t.unique2 from int8_tbl i8 left join int4_tbl i4 on i4.f1 = 1 left join lateral (select i4.f1 + 1 as v) as ss on true left join tenk1 t on t.unique2 = ss.v where q2 = 456"
+  },
+  {
+    "comment": "join - Statement 474",
+    "query": "select i8.*, ss.v, t.unique2 from int8_tbl i8 left join int4_tbl i4 on i4.f1 = 1 left join lateral (select i4.f1 + 1 as v) as ss on true left join tenk1 t on t.unique2 = ss.v where q2 = 456"
+  },
+  {
+    "comment": "join - Statement 475",
+    "query": "create temp table parttbl (a integer primary key) partition by range (a)"
+  },
+  {
+    "comment": "join - Statement 476",
+    "query": "create temp table parttbl1 partition of parttbl for values from (1) to (100)"
+  },
+  {
+    "comment": "join - Statement 477",
+    "query": "insert into parttbl values (11), (12)"
+  },
+  {
+    "comment": "join - Statement 478",
+    "query": "explain (costs off) select * from (select *, 12 as phv from parttbl) as ss right join int4_tbl on true where ss.a = ss.phv and f1 = 0"
+  },
+  {
+    "comment": "join - Statement 479",
+    "query": "select * from (select *, 12 as phv from parttbl) as ss right join int4_tbl on true where ss.a = ss.phv and f1 = 0"
+  },
+  {
+    "comment": "join - Statement 480",
+    "query": "select * from int8_tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = f1"
+  },
+  {
+    "comment": "join - Statement 481",
+    "query": "select * from int8_tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = y.f1"
+  },
+  {
+    "comment": "join - Statement 482",
+    "query": "select * from int8_tbl x join (int4_tbl x cross join int4_tbl y(ff)) j on q1 = f1"
+  },
+  {
+    "comment": "join - Statement 483",
+    "query": "select t1.uunique1 from tenk1 t1 join tenk2 t2 on t1.two = t2.two"
+  },
+  {
+    "comment": "join - Statement 484",
+    "query": "select t2.uunique1 from tenk1 t1 join tenk2 t2 on t1.two = t2.two"
+  },
+  {
+    "comment": "join - Statement 485",
+    "query": "select uunique1 from tenk1 t1 join tenk2 t2 on t1.two = t2.two"
+  },
+  {
+    "comment": "join - Statement 486",
+    "query": "select ctid from tenk1 t1 join tenk2 t2 on t1.two = t2.two"
+  },
+  {
+    "comment": "join - Statement 487",
+    "query": "select atts.relid::regclass, s.* from pg_stats s join pg_attribute a on s.attname = a.attname and s.tablename = a.attrelid::regclass::text join (select unnest(indkey) attnum, indexrelid from pg_index i) atts on atts.attnum = a.attnum where schemaname != 'pg_catalog'"
+  },
+  {
+    "comment": "join - Statement 488",
+    "query": "explain (verbose, costs off) select 1 from (select * from int8_tbl where q1 <> (select 42) offset 0) ss where false"
+  },
+  {
+    "comment": "join - Statement 489",
+    "query": "select unique2, x.* from tenk1 a, lateral (select * from int4_tbl b where f1 = a.unique1) x"
+  },
+  {
+    "comment": "join - Statement 490",
+    "query": "explain (costs off) select unique2, x.* from tenk1 a, lateral (select * from int4_tbl b where f1 = a.unique1) x"
+  },
+  {
+    "comment": "join - Statement 491",
+    "query": "select unique2, x.* from int4_tbl x, lateral (select unique2 from tenk1 where f1 = unique1) ss"
+  },
+  {
+    "comment": "join - Statement 492",
+    "query": "explain (costs off) select unique2, x.* from int4_tbl x, lateral (select unique2 from tenk1 where f1 = unique1) ss"
+  },
+  {
+    "comment": "join - Statement 493",
+    "query": "explain (costs off) select unique2, x.* from int4_tbl x cross join lateral (select unique2 from tenk1 where f1 = unique1) ss"
+  },
+  {
+    "comment": "join - Statement 494",
+    "query": "select unique2, x.* from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true"
+  },
+  {
+    "comment": "join - Statement 495",
+    "query": "explain (costs off) select unique2, x.* from int4_tbl x left join lateral (select unique1, unique2 from tenk1 where f1 = unique1) ss on true"
+  },
+  {
+    "comment": "join - Statement 496",
+    "query": "select *, (select r from (select q1 as q2) x, (select q2 as r) y) from int8_tbl"
+  },
+  {
+    "comment": "join - Statement 497",
+    "query": "select *, (select r from (select q1 as q2) x, lateral (select q2 as r) y) from int8_tbl"
+  },
+  {
+    "comment": "join - Statement 498",
+    "query": "select count(*) from tenk1 a, lateral generate_series(1,two) g"
+  },
+  {
+    "comment": "join - Statement 499",
+    "query": "explain (costs off) select count(*) from tenk1 a, lateral generate_series(1,two) g"
+  },
+  {
+    "comment": "join - Statement 500",
+    "query": "explain (costs off) select count(*) from tenk1 a cross join lateral generate_series(1,two) g"
+  },
+  {
+    "comment": "join - Statement 501",
+    "query": "explain (costs off) select count(*) from tenk1 a, generate_series(1,two) g"
+  },
+  {
+    "comment": "join - Statement 502",
+    "query": "explain (costs off) select * from generate_series(100,200) g, lateral (select * from int8_tbl a where g = q1 union all select * from int8_tbl b where g = q2) ss"
+  },
+  {
+    "comment": "join - Statement 503",
+    "query": "select * from generate_series(100,200) g, lateral (select * from int8_tbl a where g = q1 union all select * from int8_tbl b where g = q2) ss"
+  },
+  {
+    "comment": "join - Statement 504",
+    "query": "explain (costs off) select count(*) from tenk1 a, tenk1 b join lateral (values(a.unique1)) ss(x) on b.unique2 = ss.x"
+  },
+  {
+    "comment": "join - Statement 505",
+    "query": "select count(*) from tenk1 a, tenk1 b join lateral (values(a.unique1)) ss(x) on b.unique2 = ss.x"
+  },
+  {
+    "comment": "join - Statement 506",
+    "query": "explain (costs off) select count(*) from tenk1 a, tenk1 b join lateral (values(a.unique1),(-1)) ss(x) on b.unique2 = ss.x"
+  },
+  {
+    "comment": "join - Statement 507",
+    "query": "select count(*) from tenk1 a, tenk1 b join lateral (values(a.unique1),(-1)) ss(x) on b.unique2 = ss.x"
+  },
+  {
+    "comment": "join - Statement 508",
+    "query": "explain (costs off) select * from int8_tbl a, int8_tbl x left join lateral (select a.q1 from int4_tbl y) ss(z) on x.q2 = ss.z order by a.q1, a.q2, x.q1, x.q2, ss.z"
+  },
+  {
+    "comment": "join - Statement 509",
+    "query": "select * from int8_tbl a, int8_tbl x left join lateral (select a.q1 from int4_tbl y) ss(z) on x.q2 = ss.z order by a.q1, a.q2, x.q1, x.q2, ss.z"
+  },
+  {
+    "comment": "join - Statement 510",
+    "query": "select * from (select f1/2 as x from int4_tbl) ss1 join int4_tbl i4 on x = f1, lateral (select x) ss2(y)"
+  },
+  {
+    "comment": "join - Statement 511",
+    "query": "select * from (select f1 as x from int4_tbl) ss1 join int4_tbl i4 on x = f1, lateral (values(x)) ss2(y)"
+  },
+  {
+    "comment": "join - Statement 512",
+    "query": "select * from ((select f1/2 as x from int4_tbl) ss1 join int4_tbl i4 on x = f1) j, lateral (select x) ss2(y)"
+  },
+  {
+    "comment": "join - Statement 513",
+    "query": "select * from (values(1)) x(lb), lateral generate_series(lb,4) x4"
+  },
+  {
+    "comment": "join - Statement 514",
+    "query": "select * from (select f1/1000000000 from int4_tbl) x(lb), lateral generate_series(lb,4) x4"
+  },
+  {
+    "comment": "join - Statement 515",
+    "query": "select * from (values(1)) x(lb), lateral (values(lb)) y(lbcopy)"
+  },
+  {
+    "comment": "join - Statement 516",
+    "query": "select * from (values(1)) x(lb), lateral (select lb from int4_tbl) y(lbcopy)"
+  },
+  {
+    "comment": "join - Statement 517",
+    "query": "select * from int8_tbl x left join (select q1,coalesce(q2,0) q2 from int8_tbl) y on x.q2 = y.q1, lateral (values(x.q1,y.q1,y.q2)) v(xq1,yq1,yq2)"
+  },
+  {
+    "comment": "join - Statement 518",
+    "query": "select * from int8_tbl x left join (select q1,coalesce(q2,0) q2 from int8_tbl) y on x.q2 = y.q1, lateral (select x.q1,y.q1,y.q2) v(xq1,yq1,yq2)"
+  },
+  {
+    "comment": "join - Statement 519",
+    "query": "select x.* from int8_tbl x left join (select q1,coalesce(q2,0) q2 from int8_tbl) y on x.q2 = y.q1, lateral (select x.q1,y.q1,y.q2) v(xq1,yq1,yq2)"
+  },
+  {
+    "comment": "join - Statement 520",
+    "query": "select v.* from (int8_tbl x left join (select q1,coalesce(q2,0) q2 from int8_tbl) y on x.q2 = y.q1) left join int4_tbl z on z.f1 = x.q2, lateral (select x.q1,y.q1 union all select x.q2,y.q2) v(vx,vy)"
+  },
+  {
+    "comment": "join - Statement 521",
+    "query": "select v.* from (int8_tbl x left join (select q1,(select coalesce(q2,0)) q2 from int8_tbl) y on x.q2 = y.q1) left join int4_tbl z on z.f1 = x.q2, lateral (select x.q1,y.q1 union all select x.q2,y.q2) v(vx,vy)"
+  },
+  {
+    "comment": "join - Statement 522",
+    "query": "select v.* from (int8_tbl x left join (select q1,(select coalesce(q2,0)) q2 from int8_tbl) y on x.q2 = y.q1) left join int4_tbl z on z.f1 = x.q2, lateral (select x.q1,y.q1 from onerow union all select x.q2,y.q2 from onerow) v(vx,vy)"
+  },
+  {
+    "comment": "join - Statement 523",
+    "query": "explain (verbose, costs off) select * from int8_tbl a left join lateral (select *, a.q2 as x from int8_tbl b) ss on a.q2 = ss.q1"
+  },
+  {
+    "comment": "join - Statement 524",
+    "query": "select * from int8_tbl a left join lateral (select *, a.q2 as x from int8_tbl b) ss on a.q2 = ss.q1"
+  },
+  {
+    "comment": "join - Statement 525",
+    "query": "explain (verbose, costs off) select * from int8_tbl a left join lateral (select *, coalesce(a.q2, 42) as x from int8_tbl b) ss on a.q2 = ss.q1"
+  },
+  {
+    "comment": "join - Statement 526",
+    "query": "select * from int8_tbl a left join lateral (select *, coalesce(a.q2, 42) as x from int8_tbl b) ss on a.q2 = ss.q1"
+  },
+  {
+    "comment": "join - Statement 527",
+    "query": "explain (verbose, costs off) select * from int4_tbl i left join lateral (select * from int2_tbl j where i.f1 = j.f1) k on true"
+  },
+  {
+    "comment": "join - Statement 528",
+    "query": "select * from int4_tbl i left join lateral (select * from int2_tbl j where i.f1 = j.f1) k on true"
+  },
+  {
+    "comment": "join - Statement 529",
+    "query": "explain (verbose, costs off) select * from int4_tbl i left join lateral (select coalesce(i) from int2_tbl j where i.f1 = j.f1) k on true"
+  },
+  {
+    "comment": "join - Statement 530",
+    "query": "select * from int4_tbl i left join lateral (select coalesce(i) from int2_tbl j where i.f1 = j.f1) k on true"
+  },
+  {
+    "comment": "join - Statement 531",
+    "query": "explain (verbose, costs off) select * from int4_tbl a, lateral ( select * from int4_tbl b left join int8_tbl c on (b.f1 = q1 and a.f1 = q2) ) ss"
+  },
+  {
+    "comment": "join - Statement 532",
+    "query": "select * from int4_tbl a, lateral ( select * from int4_tbl b left join int8_tbl c on (b.f1 = q1 and a.f1 = q2) ) ss"
+  },
+  {
+    "comment": "join - Statement 533",
+    "query": "explain (verbose, costs off) select * from int8_tbl a left join lateral (select b.q1 as bq1, c.q1 as cq1, least(a.q1,b.q1,c.q1) from int8_tbl b cross join int8_tbl c) ss on a.q2 = ss.bq1"
+  },
+  {
+    "comment": "join - Statement 534",
+    "query": "select * from int8_tbl a left join lateral (select b.q1 as bq1, c.q1 as cq1, least(a.q1,b.q1,c.q1) from int8_tbl b cross join int8_tbl c) ss on a.q2 = ss.bq1"
+  },
+  {
+    "comment": "join - Statement 535",
+    "query": "explain (verbose, costs off) select * from int8_tbl c left join ( int8_tbl a left join (select q1, coalesce(q2,42) as x from int8_tbl b) ss1 on a.q2 = ss1.q1 cross join lateral (select q1, coalesce(ss1.x,q2) as y from int8_tbl d) ss2 ) on c.q2 = ss2.q1, lateral (select ss2.y offset 0) ss3"
+  },
+  {
+    "comment": "join - Statement 536",
+    "query": "explain (verbose, costs off) select * from (select 0 as val0) as ss0 left join (select 1 as val) as ss1 on true left join lateral (select ss1.val as val_filtered where false) as ss2 on true"
+  },
+  {
+    "comment": "join - Statement 537",
+    "query": "select * from (select 0 as val0) as ss0 left join (select 1 as val) as ss1 on true left join lateral (select ss1.val as val_filtered where false) as ss2 on true"
+  },
+  {
+    "comment": "join - Statement 538",
+    "query": "explain (verbose, costs off) select c.*,a.*,ss1.q1,ss2.q1,ss3.* from int8_tbl c left join ( int8_tbl a left join (select q1, coalesce(q2,f1) as x from int8_tbl b, int4_tbl b2 where q1 < f1) ss1 on a.q2 = ss1.q1 cross join lateral (select q1, coalesce(ss1.x,q2) as y from int8_tbl d) ss2 ) on c.q2 = ss2.q1, lateral (select * from int4_tbl i where ss2.y > f1) ss3"
+  },
+  {
+    "comment": "join - Statement 539",
+    "query": "explain (verbose, costs off) select * from (select 1 as x offset 0) x cross join (select 2 as y offset 0) y left join lateral ( select * from (select 3 as z offset 0) z where z.z = x.x ) zz on zz.z = y.y"
+  },
+  {
+    "comment": "join - Statement 540",
+    "query": "explain (costs off) select * from int4_tbl t1, lateral (select * from int4_tbl t2 inner join int4_tbl t3 on t1.f1 = 1 inner join (int4_tbl t4 left join int4_tbl t5 on true) on true) ss"
+  },
+  {
+    "comment": "join - Statement 541",
+    "query": "explain (verbose, costs off) select * from int8_tbl i8 left join lateral (select *, i8.q2 from int4_tbl where false) ss on true"
+  },
+  {
+    "comment": "join - Statement 542",
+    "query": "explain (verbose, costs off) select * from int8_tbl i8 left join lateral (select *, i8.q2 from int4_tbl i1, int4_tbl i2 where false) ss on true"
+  },
+  {
+    "comment": "join - Statement 543",
+    "query": "select * from ((select 2 as v) union all (select 3 as v)) as q1 cross join lateral ((select * from ((select 4 as v) union all (select 5 as v)) as q3) union all (select q1.v) ) as q2"
+  },
+  {
+    "comment": "join - Statement 544",
+    "query": "SELECT * FROM (int8_tbl i cross join int4_tbl j) ss(a,b,c,d)"
+  },
+  {
+    "comment": "join - Statement 545",
+    "query": "explain (verbose, costs off) select * from (values (0,9998), (1,1000)) v(id,x), lateral (select f1 from int4_tbl where f1 = any (select unique1 from tenk1 where unique2 = v.x offset 0)) ss"
+  },
+  {
+    "comment": "join - Statement 546",
+    "query": "select * from (values (0,9998), (1,1000)) v(id,x), lateral (select f1 from int4_tbl where f1 = any (select unique1 from tenk1 where unique2 = v.x offset 0)) ss"
+  },
+  {
+    "comment": "join - Statement 547",
+    "query": "explain (verbose, costs off) select * from (values (0), (1)) v(id), lateral (select * from int8_tbl t1, lateral (select * from (select * from int8_tbl t2 where (q1, random() > 0) = any (select q2, random() > 0 from int8_tbl t3 where q2 = (select greatest(t1.q1,t2.q2)) and (select v.id=0)) offset 0) ss2) ss where t1.q1 = ss.q2) ss0"
+  },
+  {
+    "comment": "join - Statement 548",
+    "query": "select * from (values (0), (1)) v(id), lateral (select * from int8_tbl t1, lateral (select * from (select * from int8_tbl t2 where (q1, random() > 0) = any (select q2, random() > 0 from int8_tbl t3 where q2 = (select greatest(t1.q1,t2.q2)) and (select v.id=0)) offset 0) ss2) ss where t1.q1 = ss.q2) ss0"
+  },
+  {
+    "comment": "join - Statement 549",
+    "query": "select f1,g from int4_tbl a, (select f1 as g) ss"
+  },
+  {
+    "comment": "join - Statement 550",
+    "query": "select f1,g from int4_tbl a, (select a.f1 as g) ss"
+  },
+  {
+    "comment": "join - Statement 551",
+    "query": "select f1,g from int4_tbl a cross join (select f1 as g) ss"
+  },
+  {
+    "comment": "join - Statement 552",
+    "query": "select f1,g from int4_tbl a cross join (select a.f1 as g) ss"
+  },
+  {
+    "comment": "join - Statement 553",
+    "query": "select f1,g from int4_tbl a right join lateral generate_series(0, a.f1) g on true"
+  },
+  {
+    "comment": "join - Statement 554",
+    "query": "select f1,g from int4_tbl a full join lateral generate_series(0, a.f1) g on true"
+  },
+  {
+    "comment": "join - Statement 555",
+    "query": "select * from int8_tbl x cross join (int4_tbl x cross join lateral (select x.f1) ss)"
+  },
+  {
+    "comment": "join - Statement 556",
+    "query": "select 1 from tenk1 a, lateral (select max(a.unique1) from int4_tbl b) ss"
+  },
+  {
+    "comment": "join - Statement 557",
+    "query": "create temp table xx1 as select f1 as x1, -f1 as x2 from int4_tbl"
+  },
+  {
+    "comment": "join - Statement 558",
+    "query": "update xx1 set x2 = f1 from (select * from int4_tbl where f1 = x1) ss"
+  },
+  {
+    "comment": "join - Statement 559",
+    "query": "update xx1 set x2 = f1 from (select * from int4_tbl where f1 = xx1.x1) ss"
+  },
+  {
+    "comment": "join - Statement 560",
+    "query": "update xx1 set x2 = f1 from lateral (select * from int4_tbl where f1 = x1) ss"
+  },
+  {
+    "comment": "join - Statement 561",
+    "query": "update xx1 set x2 = f1 from xx1, lateral (select * from int4_tbl where f1 = x1) ss"
+  },
+  {
+    "comment": "join - Statement 562",
+    "query": "delete from xx1 using (select * from int4_tbl where f1 = x1) ss"
+  },
+  {
+    "comment": "join - Statement 563",
+    "query": "delete from xx1 using (select * from int4_tbl where f1 = xx1.x1) ss"
+  },
+  {
+    "comment": "join - Statement 564",
+    "query": "delete from xx1 using lateral (select * from int4_tbl where f1 = x1) ss"
+  },
+  {
+    "comment": "join - Statement 565",
+    "query": "create table join_pt1 (a int, b int, c varchar) partition by range(a)"
+  },
+  {
+    "comment": "join - Statement 566",
+    "query": "create table join_pt1p1 partition of join_pt1 for values from (0) to (100) partition by range(b)"
+  },
+  {
+    "comment": "join - Statement 567",
+    "query": "create table join_pt1p2 partition of join_pt1 for values from (100) to (200)"
+  },
+  {
+    "comment": "join - Statement 568",
+    "query": "create table join_pt1p1p1 partition of join_pt1p1 for values from (0) to (100)"
+  },
+  {
+    "comment": "join - Statement 569",
+    "query": "insert into join_pt1 values (1, 1, 'x'), (101, 101, 'y')"
+  },
+  {
+    "comment": "join - Statement 570",
+    "query": "create table join_ut1 (a int, b int, c varchar)"
+  },
+  {
+    "comment": "join - Statement 571",
+    "query": "insert into join_ut1 values (101, 101, 'y'), (2, 2, 'z')"
+  },
+  {
+    "comment": "join - Statement 572",
+    "query": "explain (verbose, costs off) select t1.b, ss.phv from join_ut1 t1 left join lateral (select t2.a as t2a, t3.a t3a, least(t1.a, t2.a, t3.a) phv from join_pt1 t2 join join_ut1 t3 on t2.a = t3.b) ss on t1.a = ss.t2a order by t1.a"
+  },
+  {
+    "comment": "join - Statement 573",
+    "query": "select t1.b, ss.phv from join_ut1 t1 left join lateral (select t2.a as t2a, t3.a t3a, least(t1.a, t2.a, t3.a) phv from join_pt1 t2 join join_ut1 t3 on t2.a = t3.b) ss on t1.a = ss.t2a order by t1.a"
+  },
+  {
+    "comment": "join - Statement 574",
+    "query": "drop table join_pt1"
+  },
+  {
+    "comment": "join - Statement 575",
+    "query": "drop table join_ut1"
+  },
+  {
+    "comment": "join - Statement 576",
+    "query": "create table fkest (x integer, x10 integer, x10b integer, x100 integer)"
+  },
+  {
+    "comment": "join - Statement 577",
+    "query": "insert into fkest select x, x/10, x/10, x/100 from generate_series(1,1000) x"
+  },
+  {
+    "comment": "join - Statement 578",
+    "query": "create unique index on fkest(x, x10, x100)"
+  },
+  {
+    "comment": "join - Statement 579",
+    "query": "analyze fkest"
+  },
+  {
+    "comment": "join - Statement 580",
+    "query": "explain (costs off) select * from fkest f1 join fkest f2 on (f1.x = f2.x and f1.x10 = f2.x10b and f1.x100 = f2.x100) join fkest f3 on f1.x = f3.x where f1.x100 = 2"
+  },
+  {
+    "comment": "join - Statement 581",
+    "query": "alter table fkest add constraint fk foreign key (x, x10b, x100) references fkest (x, x10, x100)"
+  },
+  {
+    "comment": "join - Statement 582",
+    "query": "create table fkest (a int, b int, c int unique, primary key(a,b))"
+  },
+  {
+    "comment": "join - Statement 583",
+    "query": "create table fkest1 (a int, b int, primary key(a,b))"
+  },
+  {
+    "comment": "join - Statement 584",
+    "query": "insert into fkest select x/10, x%10, x from generate_series(1,1000) x"
+  },
+  {
+    "comment": "join - Statement 585",
+    "query": "insert into fkest1 select x/10, x%10 from generate_series(1,1000) x"
+  },
+  {
+    "comment": "join - Statement 586",
+    "query": "alter table fkest1 add constraint fkest1_a_b_fkey foreign key (a,b) references fkest"
+  },
+  {
+    "comment": "join - Statement 587",
+    "query": "analyze fkest1"
+  },
+  {
+    "comment": "join - Statement 588",
+    "query": "explain (costs off) select * from fkest f left join fkest1 f1 on f.a = f1.a and f.b = f1.b left join fkest1 f2 on f.a = f2.a and f.b = f2.b left join fkest1 f3 on f.a = f3.a and f.b = f3.b where f.c = 1"
+  },
+  {
+    "comment": "join - Statement 589",
+    "query": "create table j1 (id int primary key)"
+  },
+  {
+    "comment": "join - Statement 590",
+    "query": "create table j2 (id int primary key)"
+  },
+  {
+    "comment": "join - Statement 591",
+    "query": "create table j3 (id int)"
+  },
+  {
+    "comment": "join - Statement 592",
+    "query": "insert into j1 values(1),(2),(3)"
+  },
+  {
+    "comment": "join - Statement 593",
+    "query": "insert into j2 values(1),(2),(3)"
+  },
+  {
+    "comment": "join - Statement 594",
+    "query": "insert into j3 values(1),(1)"
+  },
+  {
+    "comment": "join - Statement 595",
+    "query": "analyze j1"
+  },
+  {
+    "comment": "join - Statement 596",
+    "query": "analyze j2"
+  },
+  {
+    "comment": "join - Statement 597",
+    "query": "analyze j3"
+  },
+  {
+    "comment": "join - Statement 598",
+    "query": "explain (verbose, costs off) select * from j1 inner join j2 on j1.id = j2.id"
+  },
+  {
+    "comment": "join - Statement 599",
+    "query": "explain (verbose, costs off) select * from j1 inner join j2 on j1.id > j2.id"
+  },
+  {
+    "comment": "join - Statement 600",
+    "query": "explain (verbose, costs off) select * from j1 inner join j3 on j1.id = j3.id"
+  },
+  {
+    "comment": "join - Statement 601",
+    "query": "explain (verbose, costs off) select * from j1 left join j2 on j1.id = j2.id"
+  },
+  {
+    "comment": "join - Statement 602",
+    "query": "explain (verbose, costs off) select * from j1 right join j2 on j1.id = j2.id"
+  },
+  {
+    "comment": "join - Statement 603",
+    "query": "explain (verbose, costs off) select * from j1 full join j2 on j1.id = j2.id"
+  },
+  {
+    "comment": "join - Statement 604",
+    "query": "explain (verbose, costs off) select * from j1 cross join j2"
+  },
+  {
+    "comment": "join - Statement 605",
+    "query": "explain (verbose, costs off) select * from j1 natural join j2"
+  },
+  {
+    "comment": "join - Statement 606",
+    "query": "explain (verbose, costs off) select * from j1 inner join (select distinct id from j3) j3 on j1.id = j3.id"
+  },
+  {
+    "comment": "join - Statement 607",
+    "query": "explain (verbose, costs off) select * from j1 inner join (select id from j3 group by id) j3 on j1.id = j3.id"
+  },
+  {
+    "comment": "join - Statement 608",
+    "query": "drop table j1"
+  },
+  {
+    "comment": "join - Statement 609",
+    "query": "drop table j2"
+  },
+  {
+    "comment": "join - Statement 610",
+    "query": "drop table j3"
+  },
+  {
+    "comment": "join - Statement 611",
+    "query": "create table j1 (id1 int, id2 int, primary key(id1,id2))"
+  },
+  {
+    "comment": "join - Statement 612",
+    "query": "create table j2 (id1 int, id2 int, primary key(id1,id2))"
+  },
+  {
+    "comment": "join - Statement 613",
+    "query": "create table j3 (id1 int, id2 int, primary key(id1,id2))"
+  },
+  {
+    "comment": "join - Statement 614",
+    "query": "insert into j1 values(1,1),(1,2)"
+  },
+  {
+    "comment": "join - Statement 615",
+    "query": "insert into j2 values(1,1)"
+  },
+  {
+    "comment": "join - Statement 616",
+    "query": "insert into j3 values(1,1)"
+  },
+  {
+    "comment": "join - Statement 617",
+    "query": "explain (verbose, costs off) select * from j1 inner join j2 on j1.id1 = j2.id1"
+  },
+  {
+    "comment": "join - Statement 618",
+    "query": "explain (verbose, costs off) select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2"
+  },
+  {
+    "comment": "join - Statement 619",
+    "query": "explain (verbose, costs off) select * from j1 inner join j2 on j1.id1 = j2.id1 where j1.id2 = 1"
+  },
+  {
+    "comment": "join - Statement 620",
+    "query": "explain (verbose, costs off) select * from j1 left join j2 on j1.id1 = j2.id1 where j1.id2 = 1"
+  },
+  {
+    "comment": "join - Statement 621",
+    "query": "create unique index j1_id2_idx on j1(id2) where id2 is not null"
+  },
+  {
+    "comment": "join - Statement 622",
+    "query": "explain (verbose, costs off) select * from j1 inner join j2 on j1.id2 = j2.id2"
+  },
+  {
+    "comment": "join - Statement 623",
+    "query": "drop index j1_id2_idx"
+  },
+  {
+    "comment": "join - Statement 624",
+    "query": "set enable_nestloop to 0"
+  },
+  {
+    "comment": "join - Statement 625",
+    "query": "set enable_hashjoin to 0"
+  },
+  {
+    "comment": "join - Statement 626",
+    "query": "set enable_sort to 0"
+  },
+  {
+    "comment": "join - Statement 627",
+    "query": "create index j1_id1_idx on j1 (id1) where id1 % 1000 = 1"
+  },
+  {
+    "comment": "join - Statement 628",
+    "query": "create index j2_id1_idx on j2 (id1) where id1 % 1000 = 1"
+  },
+  {
+    "comment": "join - Statement 629",
+    "query": "insert into j2 values(1,2)"
+  },
+  {
+    "comment": "join - Statement 630",
+    "query": "explain (costs off) select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1"
+  },
+  {
+    "comment": "join - Statement 631",
+    "query": "select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1"
+  },
+  {
+    "comment": "join - Statement 632",
+    "query": "explain (costs off) select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 = any (array[1])"
+  },
+  {
+    "comment": "join - Statement 633",
+    "query": "select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 = any (array[1])"
+  },
+  {
+    "comment": "join - Statement 634",
+    "query": "explain (costs off) select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 >= any (array[1,5])"
+  },
+  {
+    "comment": "join - Statement 635",
+    "query": "select * from j1 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 >= any (array[1,5])"
+  },
+  {
+    "comment": "join - Statement 636",
+    "query": "reset enable_sort"
+  },
+  {
+    "comment": "join - Statement 637",
+    "query": "explain (verbose, costs off) select t1.unique1, t2.hundred from onek t1, tenk1 t2 where exists (select 1 from tenk1 t3 where t3.thousand = t1.unique1 and t3.tenthous = t2.hundred) and t1.unique1 < 1"
+  },
+  {
+    "comment": "join - Statement 638",
+    "query": "create table j3 as select unique1, tenthous from onek"
+  },
+  {
+    "comment": "join - Statement 639",
+    "query": "vacuum analyze j3"
+  },
+  {
+    "comment": "join - Statement 640",
+    "query": "create unique index on j3(unique1, tenthous)"
+  },
+  {
+    "comment": "join - Statement 641",
+    "query": "explain (verbose, costs off) select t1.unique1, t2.hundred from onek t1, tenk1 t2 where exists (select 1 from j3 where j3.unique1 = t1.unique1 and j3.tenthous = t2.hundred) and t1.unique1 < 1"
+  },
+  {
+    "comment": "join - Statement 642",
+    "query": "CREATE TEMP TABLE skip_fetch (a INT, b INT) WITH (fillfactor=10)"
+  },
+  {
+    "comment": "join - Statement 643",
+    "query": "INSERT INTO skip_fetch SELECT i % 3, i FROM generate_series(0,30) i"
+  },
+  {
+    "comment": "join - Statement 644",
+    "query": "CREATE INDEX ON skip_fetch(a)"
+  },
+  {
+    "comment": "join - Statement 645",
+    "query": "VACUUM (ANALYZE) skip_fetch"
+  },
+  {
+    "comment": "join - Statement 646",
+    "query": "SET enable_indexonlyscan = off"
+  },
+  {
+    "comment": "join - Statement 647",
+    "query": "SET enable_seqscan = off"
+  },
+  {
+    "comment": "join - Statement 648",
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.a FROM skip_fetch t1 LEFT JOIN skip_fetch t2 ON t2.a = 1 WHERE t2.a IS NULL"
+  },
+  {
+    "comment": "join - Statement 649",
+    "query": "SELECT t1.a FROM skip_fetch t1 LEFT JOIN skip_fetch t2 ON t2.a = 1 WHERE t2.a IS NULL"
+  },
+  {
+    "comment": "join - Statement 650",
+    "query": "RESET enable_indexonlyscan"
+  },
+  {
+    "comment": "join - Statement 651",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "join - Statement 652",
+    "query": "CREATE TABLE group_tbl (a INT, b INT)"
+  },
+  {
+    "comment": "join - Statement 653",
+    "query": "INSERT INTO group_tbl SELECT 1, 1"
+  },
+  {
+    "comment": "join - Statement 654",
+    "query": "CREATE STATISTICS group_tbl_stat (ndistinct) ON a, b FROM group_tbl"
+  },
+  {
+    "comment": "join - Statement 655",
+    "query": "ANALYZE group_tbl"
+  },
+  {
+    "comment": "join - Statement 656",
+    "query": "EXPLAIN (COSTS OFF) SELECT 1 FROM group_tbl t1 LEFT JOIN (SELECT a c1, COALESCE(a) c2 FROM group_tbl t2) s ON TRUE GROUP BY s.c1, s.c2"
+  },
+  {
+    "comment": "join - Statement 657",
+    "query": "DROP TABLE group_tbl"
+  }
+]

@@ -1,0 +1,858 @@
+[
+  {
+    "comment": "copy2 - Statement 1",
+    "query": "CREATE TEMP TABLE x ( a serial, b int, c text not null default 'stuff', d text, e text )"
+  },
+  {
+    "comment": "copy2 - Statement 2",
+    "query": "CREATE FUNCTION fn_x_before () RETURNS TRIGGER AS ' BEGIN NEW.e := ''before trigger fired''::text"
+  },
+  {
+    "comment": "copy2 - Statement 3",
+    "query": "return NEW"
+  },
+  {
+    "comment": "copy2 - Statement 4",
+    "query": "END"
+  },
+  {
+    "comment": "copy2 - Statement 5",
+    "query": "' LANGUAGE plpgsql"
+  },
+  {
+    "comment": "copy2 - Statement 6",
+    "query": "CREATE FUNCTION fn_x_after () RETURNS TRIGGER AS ' BEGIN UPDATE x set e=''after trigger fired'' where c=''stuff''"
+  },
+  {
+    "comment": "copy2 - Statement 7",
+    "query": "return NULL"
+  },
+  {
+    "comment": "copy2 - Statement 8",
+    "query": "CREATE TRIGGER trg_x_after AFTER INSERT ON x FOR EACH ROW EXECUTE PROCEDURE fn_x_after()"
+  },
+  {
+    "comment": "copy2 - Statement 9",
+    "query": "CREATE TRIGGER trg_x_before BEFORE INSERT ON x FOR EACH ROW EXECUTE PROCEDURE fn_x_before()"
+  },
+  {
+    "comment": "copy2 - Statement 10",
+    "query": "COPY x (a, b, c, d, e) from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 11",
+    "query": "9999\t\\N\t\\\\N\t\\NN\t\\N 10000\t21\t31\t41\t51 \\. COPY x (b, d) from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 12",
+    "query": "1\ttest_1 \\. COPY x (b, d) from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 13",
+    "query": "2\ttest_2 3\ttest_3 4\ttest_4 5\ttest_5 \\. COPY x (a, b, c, d, e) from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 14",
+    "query": "10001\t22\t32\t42\t52 10002\t23\t33\t43\t53 10003\t24\t34\t44\t54 10004\t25\t35\t45\t55 10005\t26\t36\t46\t56 \\. COPY x (xyz) from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 15",
+    "query": "COPY x from stdin (format CSV, FORMAT CSV)"
+  },
+  {
+    "comment": "copy2 - Statement 16",
+    "query": "COPY x from stdin (freeze off, freeze on)"
+  },
+  {
+    "comment": "copy2 - Statement 17",
+    "query": "COPY x from stdin (delimiter ',', delimiter ',')"
+  },
+  {
+    "comment": "copy2 - Statement 18",
+    "query": "COPY x from stdin (null ' ', null ' ')"
+  },
+  {
+    "comment": "copy2 - Statement 19",
+    "query": "COPY x from stdin (header off, header on)"
+  },
+  {
+    "comment": "copy2 - Statement 20",
+    "query": "COPY x from stdin (quote ':', quote ':')"
+  },
+  {
+    "comment": "copy2 - Statement 21",
+    "query": "COPY x from stdin (escape ':', escape ':')"
+  },
+  {
+    "comment": "copy2 - Statement 22",
+    "query": "COPY x from stdin (force_quote (a), force_quote *)"
+  },
+  {
+    "comment": "copy2 - Statement 23",
+    "query": "COPY x from stdin (force_not_null (a), force_not_null (b))"
+  },
+  {
+    "comment": "copy2 - Statement 24",
+    "query": "COPY x from stdin (force_null (a), force_null (b))"
+  },
+  {
+    "comment": "copy2 - Statement 25",
+    "query": "COPY x from stdin (convert_selectively (a), convert_selectively (b))"
+  },
+  {
+    "comment": "copy2 - Statement 26",
+    "query": "COPY x from stdin (encoding 'sql_ascii', encoding 'sql_ascii')"
+  },
+  {
+    "comment": "copy2 - Statement 27",
+    "query": "COPY x from stdin (on_error ignore, on_error ignore)"
+  },
+  {
+    "comment": "copy2 - Statement 28",
+    "query": "COPY x from stdin (log_verbosity default, log_verbosity verbose)"
+  },
+  {
+    "comment": "copy2 - Statement 29",
+    "query": "COPY x from stdin (format BINARY, delimiter ',')"
+  },
+  {
+    "comment": "copy2 - Statement 30",
+    "query": "COPY x from stdin (format BINARY, null 'x')"
+  },
+  {
+    "comment": "copy2 - Statement 31",
+    "query": "COPY x from stdin (format BINARY, on_error ignore)"
+  },
+  {
+    "comment": "copy2 - Statement 32",
+    "query": "COPY x from stdin (on_error unsupported)"
+  },
+  {
+    "comment": "copy2 - Statement 33",
+    "query": "COPY x from stdin (format TEXT, force_quote(a))"
+  },
+  {
+    "comment": "copy2 - Statement 34",
+    "query": "COPY x from stdin (format TEXT, force_quote *)"
+  },
+  {
+    "comment": "copy2 - Statement 35",
+    "query": "COPY x from stdin (format CSV, force_quote(a))"
+  },
+  {
+    "comment": "copy2 - Statement 36",
+    "query": "COPY x from stdin (format CSV, force_quote *)"
+  },
+  {
+    "comment": "copy2 - Statement 37",
+    "query": "COPY x from stdin (format TEXT, force_not_null(a))"
+  },
+  {
+    "comment": "copy2 - Statement 38",
+    "query": "COPY x from stdin (format TEXT, force_not_null *)"
+  },
+  {
+    "comment": "copy2 - Statement 39",
+    "query": "COPY x to stdout (format CSV, force_not_null(a))"
+  },
+  {
+    "comment": "copy2 - Statement 40",
+    "query": "COPY x to stdout (format CSV, force_not_null *)"
+  },
+  {
+    "comment": "copy2 - Statement 41",
+    "query": "COPY x from stdin (format TEXT, force_null(a))"
+  },
+  {
+    "comment": "copy2 - Statement 42",
+    "query": "COPY x from stdin (format TEXT, force_null *)"
+  },
+  {
+    "comment": "copy2 - Statement 43",
+    "query": "COPY x to stdout (format CSV, force_null(a))"
+  },
+  {
+    "comment": "copy2 - Statement 44",
+    "query": "COPY x to stdout (format CSV, force_null *)"
+  },
+  {
+    "comment": "copy2 - Statement 45",
+    "query": "COPY x to stdout (format BINARY, on_error unsupported)"
+  },
+  {
+    "comment": "copy2 - Statement 46",
+    "query": "COPY x from stdin (log_verbosity unsupported)"
+  },
+  {
+    "comment": "copy2 - Statement 47",
+    "query": "COPY x (a, b, c, d, e, d, c) from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 48",
+    "query": "COPY x from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 49",
+    "query": "2000\t230\t23\t23 \\. COPY x from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 50",
+    "query": "2001\t231\t\\N\t\\N \\. COPY x from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 51",
+    "query": "2002\t232\t40\t50\t60\t70\t80 \\. COPY x (b, c, d, e) from stdin delimiter ',' null 'x'"
+  },
+  {
+    "comment": "copy2 - Statement 52",
+    "query": "x,45,80,90 x,\\x,\\\\x,\\\\\\x x,\\,,\\\\\\,,\\\\ \\. COPY x from stdin WITH DELIMITER AS ';' NULL AS ''"
+  },
+  {
+    "comment": "copy2 - Statement 53",
+    "query": "3000;;c"
+  },
+  {
+    "comment": "copy2 - Statement 54",
+    "query": "4000:\\X:C:\\X:\\X 4001:1:empty:: 4002:2:null:\\X:\\X 4003:3:Backslash:\\\\:\\\\ 4004:4:BackslashX:\\\\X:\\\\X 4005:5:N:\\N:\\N 4006:6:BackslashN:\\\\N:\\\\N 4007:7:XX:\\XX:\\XX 4008:8:Delimiter:\\::\\: \\. COPY x TO stdout WHERE a = 1"
+  },
+  {
+    "comment": "copy2 - Statement 55",
+    "query": "COPY x from stdin WHERE a = 50004"
+  },
+  {
+    "comment": "copy2 - Statement 56",
+    "query": "50003\t24\t34\t44\t54 50004\t25\t35\t45\t55 50005\t26\t36\t46\t56 \\. COPY x from stdin WHERE a > 60003"
+  },
+  {
+    "comment": "copy2 - Statement 57",
+    "query": "60001\t22\t32\t42\t52 60002\t23\t33\t43\t53 60003\t24\t34\t44\t54 60004\t25\t35\t45\t55 60005\t26\t36\t46\t56 \\. COPY x from stdin WHERE f > 60003"
+  },
+  {
+    "comment": "copy2 - Statement 58",
+    "query": "COPY x from stdin WHERE a = max(x.b)"
+  },
+  {
+    "comment": "copy2 - Statement 59",
+    "query": "COPY x from stdin WHERE a IN (SELECT 1 FROM x)"
+  },
+  {
+    "comment": "copy2 - Statement 60",
+    "query": "COPY x from stdin WHERE a IN (generate_series(1,5))"
+  },
+  {
+    "comment": "copy2 - Statement 61",
+    "query": "COPY x from stdin WHERE a = row_number() over(b)"
+  },
+  {
+    "comment": "copy2 - Statement 62",
+    "query": "SELECT * FROM x"
+  },
+  {
+    "comment": "copy2 - Statement 63",
+    "query": "COPY x TO stdout"
+  },
+  {
+    "comment": "copy2 - Statement 64",
+    "query": "COPY x (c, e) TO stdout"
+  },
+  {
+    "comment": "copy2 - Statement 65",
+    "query": "COPY x (b, e) TO stdout WITH NULL 'I''m null'"
+  },
+  {
+    "comment": "copy2 - Statement 66",
+    "query": "CREATE TEMP TABLE y ( col1 text, col2 text )"
+  },
+  {
+    "comment": "copy2 - Statement 67",
+    "query": "INSERT INTO y VALUES ('Jackson, Sam', E'\\\\h')"
+  },
+  {
+    "comment": "copy2 - Statement 68",
+    "query": "INSERT INTO y VALUES ('It is \"perfect\".',E'\\t')"
+  },
+  {
+    "comment": "copy2 - Statement 69",
+    "query": "INSERT INTO y VALUES ('', NULL)"
+  },
+  {
+    "comment": "copy2 - Statement 70",
+    "query": "COPY y TO stdout WITH CSV"
+  },
+  {
+    "comment": "copy2 - Statement 71",
+    "query": "COPY y TO stdout WITH CSV QUOTE '''' DELIMITER '|'"
+  },
+  {
+    "comment": "copy2 - Statement 72",
+    "query": "COPY y TO stdout WITH CSV FORCE QUOTE col2 ESCAPE E'\\\\' ENCODING 'sql_ascii'"
+  },
+  {
+    "comment": "copy2 - Statement 73",
+    "query": "COPY y TO stdout WITH CSV FORCE QUOTE *"
+  },
+  {
+    "comment": "copy2 - Statement 74",
+    "query": "COPY y TO stdout (FORMAT CSV)"
+  },
+  {
+    "comment": "copy2 - Statement 75",
+    "query": "COPY y TO stdout (FORMAT CSV, QUOTE '''', DELIMITER '|')"
+  },
+  {
+    "comment": "copy2 - Statement 76",
+    "query": "COPY y TO stdout (FORMAT CSV, FORCE_QUOTE (col2), ESCAPE E'\\\\')"
+  },
+  {
+    "comment": "copy2 - Statement 77",
+    "query": "COPY y TO stdout (FORMAT CSV, FORCE_QUOTE *)"
+  },
+  {
+    "comment": "copy2 - Statement 78",
+    "query": "COPY testnl FROM stdin CSV"
+  },
+  {
+    "comment": "copy2 - Statement 79",
+    "query": "1,\"a field with two LFs inside\",2 \\. CREATE TEMP TABLE testeoc (a text)"
+  },
+  {
+    "comment": "copy2 - Statement 80",
+    "query": "COPY testeoc FROM stdin CSV"
+  },
+  {
+    "comment": "copy2 - Statement 81",
+    "query": "a\\. \\.b c\\.d \"\\.\" \\. COPY testeoc TO stdout CSV"
+  },
+  {
+    "comment": "copy2 - Statement 82",
+    "query": "CREATE TEMP TABLE testnull(a int, b text)"
+  },
+  {
+    "comment": "copy2 - Statement 83",
+    "query": "INSERT INTO testnull VALUES (1, E'\\\\0'), (NULL, NULL)"
+  },
+  {
+    "comment": "copy2 - Statement 84",
+    "query": "COPY testnull TO stdout WITH NULL AS E'\\\\0'"
+  },
+  {
+    "comment": "copy2 - Statement 85",
+    "query": "COPY testnull FROM stdin WITH NULL AS E'\\\\0'"
+  },
+  {
+    "comment": "copy2 - Statement 86",
+    "query": "42\t\\\\0 \\0\t\\0 \\. SELECT * FROM testnull"
+  },
+  {
+    "comment": "copy2 - Statement 87",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "copy2 - Statement 88",
+    "query": "CREATE TABLE vistest (LIKE testeoc)"
+  },
+  {
+    "comment": "copy2 - Statement 89",
+    "query": "COPY vistest FROM stdin CSV"
+  },
+  {
+    "comment": "copy2 - Statement 90",
+    "query": "a0 b \\. COMMIT"
+  },
+  {
+    "comment": "copy2 - Statement 91",
+    "query": "SELECT * FROM vistest"
+  },
+  {
+    "comment": "copy2 - Statement 92",
+    "query": "TRUNCATE vistest"
+  },
+  {
+    "comment": "copy2 - Statement 93",
+    "query": "a1 b \\. SELECT * FROM vistest"
+  },
+  {
+    "comment": "copy2 - Statement 94",
+    "query": "SAVEPOINT s1"
+  },
+  {
+    "comment": "copy2 - Statement 95",
+    "query": "d1 e \\. SELECT * FROM vistest"
+  },
+  {
+    "comment": "copy2 - Statement 96",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "copy2 - Statement 97",
+    "query": "COPY vistest FROM stdin CSV FREEZE"
+  },
+  {
+    "comment": "copy2 - Statement 98",
+    "query": "a2 b \\. SELECT * FROM vistest"
+  },
+  {
+    "comment": "copy2 - Statement 99",
+    "query": "d2 e \\. SELECT * FROM vistest"
+  },
+  {
+    "comment": "copy2 - Statement 100",
+    "query": "x y \\. SELECT * FROM vistest"
+  },
+  {
+    "comment": "copy2 - Statement 101",
+    "query": "p g \\. BEGIN"
+  },
+  {
+    "comment": "copy2 - Statement 102",
+    "query": "m k \\. COMMIT"
+  },
+  {
+    "comment": "copy2 - Statement 103",
+    "query": "INSERT INTO vistest VALUES ('z')"
+  },
+  {
+    "comment": "copy2 - Statement 104",
+    "query": "ROLLBACK TO SAVEPOINT s1"
+  },
+  {
+    "comment": "copy2 - Statement 105",
+    "query": "d3 e \\. COMMIT"
+  },
+  {
+    "comment": "copy2 - Statement 106",
+    "query": "CREATE FUNCTION truncate_in_subxact() RETURNS VOID AS $$ BEGIN TRUNCATE vistest"
+  },
+  {
+    "comment": "copy2 - Statement 107",
+    "query": "EXCEPTION WHEN OTHERS THEN INSERT INTO vistest VALUES ('subxact failure')"
+  },
+  {
+    "comment": "copy2 - Statement 108",
+    "query": "$$ language plpgsql"
+  },
+  {
+    "comment": "copy2 - Statement 109",
+    "query": "SELECT truncate_in_subxact()"
+  },
+  {
+    "comment": "copy2 - Statement 110",
+    "query": "d4 e \\. SELECT * FROM vistest"
+  },
+  {
+    "comment": "copy2 - Statement 111",
+    "query": "CREATE TEMP TABLE forcetest ( a INT NOT NULL, b TEXT NOT NULL, c TEXT, d TEXT, e TEXT )"
+  },
+  {
+    "comment": "copy2 - Statement 112",
+    "query": "COPY forcetest (a, b, c) FROM STDIN WITH (FORMAT csv, FORCE_NOT_NULL(b), FORCE_NULL(c))"
+  },
+  {
+    "comment": "copy2 - Statement 113",
+    "query": "1,,\"\" \\. COMMIT"
+  },
+  {
+    "comment": "copy2 - Statement 114",
+    "query": "SELECT b, c FROM forcetest WHERE a = 1"
+  },
+  {
+    "comment": "copy2 - Statement 115",
+    "query": "COPY forcetest (a, b, c, d) FROM STDIN WITH (FORMAT csv, FORCE_NOT_NULL(c,d), FORCE_NULL(c,d))"
+  },
+  {
+    "comment": "copy2 - Statement 116",
+    "query": "2,'a',,\"\" \\. COMMIT"
+  },
+  {
+    "comment": "copy2 - Statement 117",
+    "query": "SELECT c, d FROM forcetest WHERE a = 2"
+  },
+  {
+    "comment": "copy2 - Statement 118",
+    "query": "COPY forcetest (a, b, c) FROM STDIN WITH (FORMAT csv, FORCE_NULL(b), FORCE_NOT_NULL(c))"
+  },
+  {
+    "comment": "copy2 - Statement 119",
+    "query": "3,,\"\" \\. ROLLBACK"
+  },
+  {
+    "comment": "copy2 - Statement 120",
+    "query": "COPY forcetest (d, e) FROM STDIN WITH (FORMAT csv, FORCE_NOT_NULL(b))"
+  },
+  {
+    "comment": "copy2 - Statement 121",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "copy2 - Statement 122",
+    "query": "COPY forcetest (d, e) FROM STDIN WITH (FORMAT csv, FORCE_NULL(b))"
+  },
+  {
+    "comment": "copy2 - Statement 123",
+    "query": "COPY forcetest (a, b, c) FROM STDIN WITH (FORMAT csv, FORCE_NOT_NULL *, FORCE_NULL *)"
+  },
+  {
+    "comment": "copy2 - Statement 124",
+    "query": "4,,\"\" \\. COMMIT"
+  },
+  {
+    "comment": "copy2 - Statement 125",
+    "query": "SELECT b, c FROM forcetest WHERE a = 4"
+  },
+  {
+    "comment": "copy2 - Statement 126",
+    "query": "COPY forcetest (a, b, c) FROM STDIN WITH (FORMAT csv, FORCE_NOT_NULL *)"
+  },
+  {
+    "comment": "copy2 - Statement 127",
+    "query": "5,,\"\" \\. COMMIT"
+  },
+  {
+    "comment": "copy2 - Statement 128",
+    "query": "SELECT b, c FROM forcetest WHERE a = 5"
+  },
+  {
+    "comment": "copy2 - Statement 129",
+    "query": "COPY forcetest (a, b, c) FROM STDIN WITH (FORMAT csv, FORCE_NULL *)"
+  },
+  {
+    "comment": "copy2 - Statement 130",
+    "query": "6,\"b\",\"\" \\. COMMIT"
+  },
+  {
+    "comment": "copy2 - Statement 131",
+    "query": "SELECT b, c FROM forcetest WHERE a = 6"
+  },
+  {
+    "comment": "copy2 - Statement 132",
+    "query": "COPY forcetest (a, b, c) FROM STDIN WITH (FORMAT csv, FORCE_NOT_NULL *, FORCE_NOT_NULL(b))"
+  },
+  {
+    "comment": "copy2 - Statement 133",
+    "query": "COPY forcetest (a, b, c) FROM STDIN WITH (FORMAT csv, FORCE_NULL *, FORCE_NULL(b))"
+  },
+  {
+    "comment": "copy2 - Statement 134",
+    "query": "create function check_con_function(check_con_tbl) returns bool as $$ begin raise notice 'input = %', row_to_json($1)"
+  },
+  {
+    "comment": "copy2 - Statement 135",
+    "query": "return $1.f1 > 0"
+  },
+  {
+    "comment": "copy2 - Statement 136",
+    "query": "end $$ language plpgsql immutable"
+  },
+  {
+    "comment": "copy2 - Statement 137",
+    "query": "alter table check_con_tbl add check (check_con_function(check_con_tbl.*))"
+  },
+  {
+    "comment": "copy2 - Statement 138",
+    "query": "1 \\N \\. copy check_con_tbl from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 139",
+    "query": "0 \\. select * from check_con_tbl"
+  },
+  {
+    "comment": "copy2 - Statement 140",
+    "query": "CREATE ROLE regress_rls_copy_user"
+  },
+  {
+    "comment": "copy2 - Statement 141",
+    "query": "CREATE ROLE regress_rls_copy_user_colperms"
+  },
+  {
+    "comment": "copy2 - Statement 142",
+    "query": "CREATE TABLE rls_t1 (a int, b int, c int)"
+  },
+  {
+    "comment": "copy2 - Statement 143",
+    "query": "COPY rls_t1 (a, b, c) from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 144",
+    "query": "1\t4\t1 2\t3\t2 3\t2\t3 4\t1\t4 \\. CREATE POLICY p1 ON rls_t1 FOR SELECT USING (a % 2 = 0)"
+  },
+  {
+    "comment": "copy2 - Statement 145",
+    "query": "ALTER TABLE rls_t1 ENABLE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "copy2 - Statement 146",
+    "query": "ALTER TABLE rls_t1 FORCE ROW LEVEL SECURITY"
+  },
+  {
+    "comment": "copy2 - Statement 147",
+    "query": "GRANT SELECT ON TABLE rls_t1 TO regress_rls_copy_user"
+  },
+  {
+    "comment": "copy2 - Statement 148",
+    "query": "GRANT SELECT (a, b) ON TABLE rls_t1 TO regress_rls_copy_user_colperms"
+  },
+  {
+    "comment": "copy2 - Statement 149",
+    "query": "COPY rls_t1 TO stdout"
+  },
+  {
+    "comment": "copy2 - Statement 150",
+    "query": "COPY rls_t1 (a, b, c) TO stdout"
+  },
+  {
+    "comment": "copy2 - Statement 151",
+    "query": "COPY rls_t1 (a) TO stdout"
+  },
+  {
+    "comment": "copy2 - Statement 152",
+    "query": "COPY rls_t1 (a, b) TO stdout"
+  },
+  {
+    "comment": "copy2 - Statement 153",
+    "query": "COPY rls_t1 (b, a) TO stdout"
+  },
+  {
+    "comment": "copy2 - Statement 154",
+    "query": "SET SESSION AUTHORIZATION regress_rls_copy_user"
+  },
+  {
+    "comment": "copy2 - Statement 155",
+    "query": "RESET SESSION AUTHORIZATION"
+  },
+  {
+    "comment": "copy2 - Statement 156",
+    "query": "SET SESSION AUTHORIZATION regress_rls_copy_user_colperms"
+  },
+  {
+    "comment": "copy2 - Statement 157",
+    "query": "COPY rls_t1 (c) TO stdout"
+  },
+  {
+    "comment": "copy2 - Statement 158",
+    "query": "CREATE TABLE instead_of_insert_tbl(id serial, name text)"
+  },
+  {
+    "comment": "copy2 - Statement 159",
+    "query": "CREATE VIEW instead_of_insert_tbl_view AS SELECT ''::text AS str"
+  },
+  {
+    "comment": "copy2 - Statement 160",
+    "query": "COPY instead_of_insert_tbl_view FROM stdin"
+  },
+  {
+    "comment": "copy2 - Statement 161",
+    "query": "test1 \\. CREATE FUNCTION fun_instead_of_insert_tbl() RETURNS trigger AS $$ BEGIN INSERT INTO instead_of_insert_tbl (name) VALUES (NEW.str)"
+  },
+  {
+    "comment": "copy2 - Statement 162",
+    "query": "CREATE TRIGGER trig_instead_of_insert_tbl_view INSTEAD OF INSERT ON instead_of_insert_tbl_view FOR EACH ROW EXECUTE PROCEDURE fun_instead_of_insert_tbl()"
+  },
+  {
+    "comment": "copy2 - Statement 163",
+    "query": "test1 \\. SELECT * FROM instead_of_insert_tbl"
+  },
+  {
+    "comment": "copy2 - Statement 164",
+    "query": "CREATE VIEW instead_of_insert_tbl_view_2 as select ''::text as str"
+  },
+  {
+    "comment": "copy2 - Statement 165",
+    "query": "CREATE TRIGGER trig_instead_of_insert_tbl_view_2 INSTEAD OF INSERT ON instead_of_insert_tbl_view_2 FOR EACH ROW EXECUTE PROCEDURE fun_instead_of_insert_tbl()"
+  },
+  {
+    "comment": "copy2 - Statement 166",
+    "query": "COPY instead_of_insert_tbl_view_2 FROM stdin"
+  },
+  {
+    "comment": "copy2 - Statement 167",
+    "query": "CREATE TABLE check_ign_err (n int, m int[], k int)"
+  },
+  {
+    "comment": "copy2 - Statement 168",
+    "query": "COPY check_ign_err FROM STDIN WITH (on_error stop)"
+  },
+  {
+    "comment": "copy2 - Statement 169",
+    "query": "1\t{1}\t1 a\t{2}\t2 3\t{3}\t3333333333 4\t{a, 4}\t4 5\t{5}\t5 \\. \\set SHOW_CONTEXT always COPY check_ign_err FROM STDIN WITH (on_error ignore, log_verbosity verbose)"
+  },
+  {
+    "comment": "copy2 - Statement 170",
+    "query": "1\t{1}\t1 a\t{2}\t2 3\t{3}\t3333333333 4\t{a, 4}\t4 5\t{5}\t5 6\ta 7\t{7}\ta 8\t{8}\t8 \\. CREATE DOMAIN dcheck_ign_err2 varchar(15) NOT NULL"
+  },
+  {
+    "comment": "copy2 - Statement 171",
+    "query": "CREATE TABLE check_ign_err2 (n int, m int[], k int, l dcheck_ign_err2)"
+  },
+  {
+    "comment": "copy2 - Statement 172",
+    "query": "COPY check_ign_err2 FROM STDIN WITH (on_error ignore, log_verbosity verbose)"
+  },
+  {
+    "comment": "copy2 - Statement 173",
+    "query": "1\t{1}\t1\t'foo' 2\t{2}\t2\t\\N \\. \\set SHOW_CONTEXT errors SELECT * FROM check_ign_err"
+  },
+  {
+    "comment": "copy2 - Statement 174",
+    "query": "SELECT * FROM check_ign_err2"
+  },
+  {
+    "comment": "copy2 - Statement 175",
+    "query": "CREATE TABLE hard_err(foo widget)"
+  },
+  {
+    "comment": "copy2 - Statement 176",
+    "query": "COPY hard_err FROM STDIN WITH (on_error ignore)"
+  },
+  {
+    "comment": "copy2 - Statement 177",
+    "query": "1 \\. COPY check_ign_err FROM STDIN WITH (on_error ignore)"
+  },
+  {
+    "comment": "copy2 - Statement 178",
+    "query": "1\t{1} \\. COPY check_ign_err FROM STDIN WITH (on_error ignore)"
+  },
+  {
+    "comment": "copy2 - Statement 179",
+    "query": "1\t{1}\t3\tabc \\. DROP TABLE forcetest"
+  },
+  {
+    "comment": "copy2 - Statement 180",
+    "query": "DROP TABLE vistest"
+  },
+  {
+    "comment": "copy2 - Statement 181",
+    "query": "DROP FUNCTION truncate_in_subxact()"
+  },
+  {
+    "comment": "copy2 - Statement 182",
+    "query": "DROP TABLE x, y"
+  },
+  {
+    "comment": "copy2 - Statement 183",
+    "query": "DROP TABLE rls_t1 CASCADE"
+  },
+  {
+    "comment": "copy2 - Statement 184",
+    "query": "DROP ROLE regress_rls_copy_user"
+  },
+  {
+    "comment": "copy2 - Statement 185",
+    "query": "DROP ROLE regress_rls_copy_user_colperms"
+  },
+  {
+    "comment": "copy2 - Statement 186",
+    "query": "DROP FUNCTION fn_x_before()"
+  },
+  {
+    "comment": "copy2 - Statement 187",
+    "query": "DROP FUNCTION fn_x_after()"
+  },
+  {
+    "comment": "copy2 - Statement 188",
+    "query": "DROP TABLE instead_of_insert_tbl"
+  },
+  {
+    "comment": "copy2 - Statement 189",
+    "query": "DROP VIEW instead_of_insert_tbl_view"
+  },
+  {
+    "comment": "copy2 - Statement 190",
+    "query": "DROP VIEW instead_of_insert_tbl_view_2"
+  },
+  {
+    "comment": "copy2 - Statement 191",
+    "query": "DROP FUNCTION fun_instead_of_insert_tbl()"
+  },
+  {
+    "comment": "copy2 - Statement 192",
+    "query": "DROP TABLE check_ign_err"
+  },
+  {
+    "comment": "copy2 - Statement 193",
+    "query": "DROP TABLE check_ign_err2"
+  },
+  {
+    "comment": "copy2 - Statement 194",
+    "query": "DROP DOMAIN dcheck_ign_err2"
+  },
+  {
+    "comment": "copy2 - Statement 195",
+    "query": "DROP TABLE hard_err"
+  },
+  {
+    "comment": "copy2 - Statement 196",
+    "query": "create temp table copy_default ( id integer primary key, text_value text not null default 'test', ts_value timestamp without time zone not null default '2022-07-05' )"
+  },
+  {
+    "comment": "copy2 - Statement 197",
+    "query": "copy copy_default from stdin"
+  },
+  {
+    "comment": "copy2 - Statement 198",
+    "query": "1\tvalue\t'2022-07-04' 2\t\\D\t'2022-07-05' \\. select id, text_value, ts_value from copy_default"
+  },
+  {
+    "comment": "copy2 - Statement 199",
+    "query": "truncate copy_default"
+  },
+  {
+    "comment": "copy2 - Statement 200",
+    "query": "copy copy_default from stdin with (format csv)"
+  },
+  {
+    "comment": "copy2 - Statement 201",
+    "query": "1,value,2022-07-04 2,\\D,2022-07-05 \\. select id, text_value, ts_value from copy_default"
+  },
+  {
+    "comment": "copy2 - Statement 202",
+    "query": "copy copy_default from stdin with (format binary, default '\\D')"
+  },
+  {
+    "comment": "copy2 - Statement 203",
+    "query": "copy copy_default from stdin with (default E'\\n')"
+  },
+  {
+    "comment": "copy2 - Statement 204",
+    "query": "copy copy_default from stdin with (default E'\\r')"
+  },
+  {
+    "comment": "copy2 - Statement 205",
+    "query": "copy copy_default from stdin with (delimiter ';', default 'test;test')"
+  },
+  {
+    "comment": "copy2 - Statement 206",
+    "query": "copy copy_default from stdin with (format csv, quote '\"', default 'test\"test')"
+  },
+  {
+    "comment": "copy2 - Statement 207",
+    "query": "copy copy_default from stdin with (default '\\N')"
+  },
+  {
+    "comment": "copy2 - Statement 208",
+    "query": "copy copy_default from stdin with (default '\\D')"
+  },
+  {
+    "comment": "copy2 - Statement 209",
+    "query": "1\t\\D\t'2022-07-04' 2\t\\\\D\t'2022-07-04' 3\t\"\\D\"\t'2022-07-04' \\. select id, text_value, ts_value from copy_default"
+  },
+  {
+    "comment": "copy2 - Statement 210",
+    "query": "copy copy_default from stdin with (format csv, default '\\D')"
+  },
+  {
+    "comment": "copy2 - Statement 211",
+    "query": "1,\\D,2022-07-04 2,\\\\D,2022-07-04 3,\"\\D\",2022-07-04 \\. select id, text_value, ts_value from copy_default"
+  },
+  {
+    "comment": "copy2 - Statement 212",
+    "query": "1\tvalue\t'2022-07-04' 2\t\\D\t'2022-07-03' 3\t\\D\t\\D \\. select id, text_value, ts_value from copy_default"
+  },
+  {
+    "comment": "copy2 - Statement 213",
+    "query": "1,value,2022-07-04 2,\\D,2022-07-03 3,\\D,\\D \\. select id, text_value, ts_value from copy_default"
+  },
+  {
+    "comment": "copy2 - Statement 214",
+    "query": "copy (select 1 as test) TO stdout with (default '\\D')"
+  }
+]

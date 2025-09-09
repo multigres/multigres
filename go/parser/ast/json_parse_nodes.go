@@ -1152,6 +1152,33 @@ func (j *JsonIsPredicate) String() string {
 	return fmt.Sprintf("JsonIsPredicate{type=%d}@%d", j.ItemType, j.Location())
 }
 
+// SqlString returns the SQL representation of JsonIsPredicate
+func (j *JsonIsPredicate) SqlString() string {
+	var result strings.Builder
+	
+	if j.Expr != nil {
+		result.WriteString(j.Expr.SqlString())
+		result.WriteString(" IS JSON")
+		
+		switch j.ItemType {
+		case JS_TYPE_OBJECT:
+			result.WriteString(" OBJECT")
+		case JS_TYPE_ARRAY:
+			result.WriteString(" ARRAY")
+		case JS_TYPE_SCALAR:
+			result.WriteString(" SCALAR")
+		case JS_TYPE_ANY:
+			// For JS_TYPE_ANY, we don't add any suffix (just "IS JSON")
+		}
+		
+		if j.UniqueKeys {
+			result.WriteString(" WITH UNIQUE KEYS")
+		}
+	}
+	
+	return result.String()
+}
+
 // NewJsonIsPredicate creates a new JsonIsPredicate node
 func NewJsonIsPredicate(expr Node, format *JsonFormat, itemType JsonValueType, uniqueKeys bool, location int) *JsonIsPredicate {
 	return &JsonIsPredicate{

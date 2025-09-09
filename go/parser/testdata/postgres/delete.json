@@ -1,0 +1,38 @@
+[
+  {
+    "comment": "delete - Statement 1",
+    "query": "CREATE TABLE delete_test ( id SERIAL PRIMARY KEY, a INT, b text )"
+  },
+  {
+    "comment": "delete - Statement 2",
+    "query": "INSERT INTO delete_test (a) VALUES (10)"
+  },
+  {
+    "comment": "delete - Statement 3",
+    "query": "INSERT INTO delete_test (a, b) VALUES (50, repeat('x', 10000))"
+  },
+  {
+    "comment": "delete - Statement 4",
+    "query": "INSERT INTO delete_test (a) VALUES (100)"
+  },
+  {
+    "comment": "delete - Statement 5",
+    "query": "DELETE FROM delete_test AS dt WHERE dt.a > 75"
+  },
+  {
+    "comment": "delete - Statement 6",
+    "query": "DELETE FROM delete_test dt WHERE delete_test.a > 25"
+  },
+  {
+    "comment": "delete - Statement 7",
+    "query": "SELECT id, a, char_length(b) FROM delete_test"
+  },
+  {
+    "comment": "delete - Statement 8",
+    "query": "DELETE FROM delete_test WHERE a > 25"
+  },
+  {
+    "comment": "delete - Statement 9",
+    "query": "DROP TABLE delete_test"
+  }
+]

@@ -1,0 +1,1234 @@
+[
+  {
+    "comment": "sqljson_queryfuncs - Statement 1",
+    "query": "SELECT JSON_EXISTS(NULL::jsonb, '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 2",
+    "query": "SELECT JSON_EXISTS(jsonb '[]', '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 3",
+    "query": "SELECT JSON_EXISTS(JSON_OBJECT(RETURNING jsonb), '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 4",
+    "query": "SELECT JSON_EXISTS(jsonb '1', '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 5",
+    "query": "SELECT JSON_EXISTS(jsonb 'null', '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 6",
+    "query": "SELECT JSON_EXISTS(jsonb '1', '$.a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 7",
+    "query": "SELECT JSON_EXISTS(jsonb '1', 'strict $.a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 8",
+    "query": "SELECT JSON_EXISTS(jsonb '1', 'strict $.a' ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 9",
+    "query": "SELECT JSON_EXISTS(jsonb 'null', '$.a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 10",
+    "query": "SELECT JSON_EXISTS(jsonb '[]', '$.a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 11",
+    "query": "SELECT JSON_EXISTS(jsonb '[1, \"aaa\", {\"a\": 1}]', 'strict $.a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 12",
+    "query": "SELECT JSON_EXISTS(jsonb '[1, \"aaa\", {\"a\": 1}]', 'lax $.a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 13",
+    "query": "SELECT JSON_EXISTS(jsonb '{}', '$.a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 14",
+    "query": "SELECT JSON_EXISTS(jsonb '{\"b\": 1, \"a\": 2}', '$.a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 15",
+    "query": "SELECT JSON_EXISTS(jsonb '1', '$.a.b')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 16",
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": {\"b\": 1}}', '$.a.b')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 17",
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.a.b')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 18",
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ > $x)' PASSING 1 AS x)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 19",
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ > $x)' PASSING '1' AS x)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 20",
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ > $x && @ < $y)' PASSING 0 AS x, 2 AS y)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 21",
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ > $x && @ < $y)' PASSING 0 AS x, 1 AS y)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 22",
+    "query": "SELECT JSON_EXISTS(jsonb '1', '$ > 2')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 23",
+    "query": "SELECT JSON_EXISTS(jsonb '1', '$.a > 2' ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 24",
+    "query": "SELECT JSON_VALUE(NULL::jsonb, '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 25",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 26",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$' RETURNING int)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 27",
+    "query": "SELECT JSON_VALUE(jsonb 'true', '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 28",
+    "query": "SELECT JSON_VALUE(jsonb 'true', '$' RETURNING bool)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 29",
+    "query": "SELECT JSON_VALUE(jsonb '123', '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 30",
+    "query": "SELECT JSON_VALUE(jsonb '123', '$' RETURNING int) + 234"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 31",
+    "query": "SELECT JSON_VALUE(jsonb '123', '$' RETURNING text)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 32",
+    "query": "/* jsonb bytea ??? */ SELECT JSON_VALUE(jsonb '123', '$' RETURNING bytea ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 33",
+    "query": "SELECT JSON_VALUE(jsonb '1.23', '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 34",
+    "query": "SELECT JSON_VALUE(jsonb '1.23', '$' RETURNING int)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 35",
+    "query": "SELECT JSON_VALUE(jsonb '\"1.23\"', '$' RETURNING numeric)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 36",
+    "query": "SELECT JSON_VALUE(jsonb '\"1.23\"', '$' RETURNING int ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 37",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 38",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING text)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 39",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING char(5))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 40",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING char(2) ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 41",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING char(2))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 42",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING char(3) ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 43",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING json)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 44",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING jsonb)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 45",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING json ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 46",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING jsonb ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 47",
+    "query": "SELECT JSON_VALUE(jsonb '\"\\\"aaa\\\"\"', '$' RETURNING json)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 48",
+    "query": "SELECT JSON_VALUE(jsonb '\"\\\"aaa\\\"\"', '$' RETURNING jsonb)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 49",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING int)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 50",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING int ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 51",
+    "query": "SELECT JSON_VALUE(jsonb '\"aaa\"', '$' RETURNING int DEFAULT 111 ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 52",
+    "query": "SELECT JSON_VALUE(jsonb '\"123\"', '$' RETURNING int) + 234"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 53",
+    "query": "SELECT JSON_VALUE(jsonb '\"2017-02-20\"', '$' RETURNING date) + 9"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 54",
+    "query": "CREATE DOMAIN sqljsonb_int_not_null AS int NOT NULL"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 55",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$' RETURNING sqljsonb_int_not_null)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 56",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$' RETURNING sqljsonb_int_not_null ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 57",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$' RETURNING sqljsonb_int_not_null DEFAULT 2 ON EMPTY ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 58",
+    "query": "SELECT JSON_VALUE(jsonb '1',  '$.a' RETURNING sqljsonb_int_not_null DEFAULT 2 ON EMPTY ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 59",
+    "query": "SELECT JSON_VALUE(jsonb '1',  '$.a' RETURNING sqljsonb_int_not_null DEFAULT NULL ON EMPTY ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 60",
+    "query": "CREATE TYPE rainbow AS ENUM ('red', 'orange', 'yellow', 'green', 'blue', 'purple')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 61",
+    "query": "CREATE DOMAIN rgb AS rainbow CHECK (VALUE IN ('red', 'green', 'blue'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 62",
+    "query": "SELECT JSON_VALUE('\"purple\"'::jsonb, 'lax $[*]' RETURNING rgb)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 63",
+    "query": "SELECT JSON_VALUE('\"purple\"'::jsonb, 'lax $[*]' RETURNING rgb ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 64",
+    "query": "SELECT JSON_VALUE(jsonb '[]', '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 65",
+    "query": "SELECT JSON_VALUE(jsonb '[]', '$' ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 66",
+    "query": "SELECT JSON_VALUE(jsonb '{}', '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 67",
+    "query": "SELECT JSON_VALUE(jsonb '{}', '$' ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 68",
+    "query": "SELECT JSON_VALUE(jsonb '1', '$.a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 69",
+    "query": "SELECT JSON_VALUE(jsonb '1', 'strict $.a' ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 70",
+    "query": "SELECT JSON_VALUE(jsonb '1', 'strict $.a' DEFAULT 'error' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 71",
+    "query": "SELECT JSON_VALUE(jsonb '1', 'lax $.a' ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 72",
+    "query": "SELECT JSON_VALUE(jsonb '1', 'lax $.a' ERROR ON EMPTY ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 73",
+    "query": "SELECT JSON_VALUE(jsonb '1', 'strict $.*' DEFAULT 2 ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 74",
+    "query": "SELECT JSON_VALUE(jsonb '1', 'lax $.a' DEFAULT 2 ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 75",
+    "query": "SELECT JSON_VALUE(jsonb '1', 'lax $.a' DEFAULT '2' ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 76",
+    "query": "SELECT JSON_VALUE(jsonb '1', 'lax $.a' NULL ON EMPTY DEFAULT '2' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 77",
+    "query": "SELECT JSON_VALUE(jsonb '1', 'lax $.a' DEFAULT '2' ON EMPTY DEFAULT '3' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 78",
+    "query": "SELECT JSON_VALUE(jsonb '1', 'lax $.a' ERROR ON EMPTY DEFAULT '3' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 79",
+    "query": "SELECT JSON_VALUE(jsonb '[1,2]', '$[*]' ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 80",
+    "query": "SELECT JSON_VALUE(jsonb '[1,2]', '$[*]' DEFAULT '0' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 81",
+    "query": "SELECT JSON_VALUE(jsonb '[\" \"]', '$[*]' RETURNING int ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 82",
+    "query": "SELECT JSON_VALUE(jsonb '[\" \"]', '$[*]' RETURNING int DEFAULT 2 + 3 ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 83",
+    "query": "SELECT JSON_VALUE(jsonb '[\"1\"]', '$[*]' RETURNING int DEFAULT 2 + 3 ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 84",
+    "query": "SELECT JSON_VALUE(jsonb '[\"1\"]', '$[*]' RETURNING int FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 85",
+    "query": "SELECT JSON_VALUE(jsonb '[\"1\"]', '$[*]' RETURNING record)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 86",
+    "query": "SELECT x, JSON_VALUE( jsonb '{\"a\": 1, \"b\": 2}', '$.* ? (@ > $x)' PASSING x AS x RETURNING int DEFAULT -1 ON EMPTY DEFAULT -2 ON ERROR ) y FROM generate_series(0, 2) x"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 87",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$a' PASSING point ' (1, 2 )' AS a)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 88",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$a' PASSING point ' (1, 2 )' AS a RETURNING point)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 89",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$a' PASSING point ' (1, 2 )' AS a RETURNING point ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 90",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$ts' PASSING timestamptz '2018-02-21 12:34:56 +10' AS ts)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 91",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$ts' PASSING timestamptz '2018-02-21 12:34:56 +10' AS ts RETURNING timestamptz)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 92",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$ts' PASSING timestamptz '2018-02-21 12:34:56 +10' AS ts RETURNING timestamp)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 93",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$ts' PASSING date '2018-02-21 12:34:56 +10' AS ts RETURNING date)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 94",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$ts' PASSING time '2018-02-21 12:34:56 +10' AS ts RETURNING time)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 95",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$ts' PASSING timetz '2018-02-21 12:34:56 +10' AS ts RETURNING timetz)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 96",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$ts' PASSING timestamp '2018-02-21 12:34:56 +10' AS ts RETURNING timestamp)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 97",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$ts' PASSING timestamptz '2018-02-21 12:34:56 +10' AS ts RETURNING json)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 98",
+    "query": "SELECT JSON_VALUE(jsonb 'null', '$ts' PASSING timestamptz '2018-02-21 12:34:56 +10' AS ts RETURNING jsonb)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 99",
+    "query": "select json_value('{\"a\": 1.234}', '$.a' returning int error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 100",
+    "query": "select json_value('{\"a\": \"1.234\"}', '$.a' returning int error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 101",
+    "query": "SELECT JSON_QUERY(js, '$') AS \"unspec\", JSON_QUERY(js, '$' WITHOUT WRAPPER) AS \"without\", JSON_QUERY(js, '$' WITH CONDITIONAL WRAPPER) AS \"with cond\", JSON_QUERY(js, '$' WITH UNCONDITIONAL ARRAY WRAPPER) AS \"with uncond\", JSON_QUERY(js, '$' WITH ARRAY WRAPPER) AS \"with\" FROM (VALUES (jsonb 'null'), ('12.3'), ('true'), ('\"aaa\"'), ('[1, null, \"2\"]'), ('{\"a\": 1, \"b\": [2]}') ) foo(js)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 102",
+    "query": "SELECT JSON_QUERY(js, 'strict $[*]') AS \"unspec\", JSON_QUERY(js, 'strict $[*]' WITHOUT WRAPPER) AS \"without\", JSON_QUERY(js, 'strict $[*]' WITH CONDITIONAL WRAPPER) AS \"with cond\", JSON_QUERY(js, 'strict $[*]' WITH UNCONDITIONAL ARRAY WRAPPER) AS \"with uncond\", JSON_QUERY(js, 'strict $[*]' WITH ARRAY WRAPPER) AS \"with\" FROM (VALUES (jsonb '1'), ('[]'), ('[null]'), ('[12.3]'), ('[true]'), ('[\"aaa\"]'), ('[[1, 2, 3]]'), ('[{\"a\": 1, \"b\": [2]}]'), ('[1, \"2\", null, [3]]') ) foo(js)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 103",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING text)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 104",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING text KEEP QUOTES)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 105",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING text KEEP QUOTES ON SCALAR STRING)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 106",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING text OMIT QUOTES)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 107",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING text OMIT QUOTES ON SCALAR STRING)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 108",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' OMIT QUOTES ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 109",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING json OMIT QUOTES ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 110",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING bytea FORMAT JSON OMIT QUOTES ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 111",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING char(3) ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 112",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING char(3))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 113",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$' RETURNING char(3) OMIT QUOTES ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 114",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$.a' RETURNING char(2) OMIT QUOTES DEFAULT 'bb' ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 115",
+    "query": "SELECT JSON_QUERY(jsonb '\"aaa\"', '$.a' RETURNING char(2) OMIT QUOTES DEFAULT '\"bb\"'::jsonb ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 116",
+    "query": "SELECT JSON_QUERY(jsonb '[1]', '$' WITH WRAPPER OMIT QUOTES)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 117",
+    "query": "SELECT JSON_QUERY(jsonb '[1]', '$' WITH CONDITIONAL WRAPPER OMIT QUOTES)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 118",
+    "query": "SELECT JSON_QUERY(jsonb '[\"1\"]', '$[*]' WITH CONDITIONAL WRAPPER KEEP QUOTES)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 119",
+    "query": "SELECT JSON_QUERY(jsonb '[\"1\"]', '$[*]' WITH UNCONDITIONAL WRAPPER KEEP QUOTES)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 120",
+    "query": "SELECT JSON_QUERY(jsonb '[\"1\"]', '$[*]' WITH WRAPPER KEEP QUOTES)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 121",
+    "query": "SELECT JSON_QUERY(jsonb '[\"1\"]', '$[*]' WITHOUT WRAPPER OMIT QUOTES)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 122",
+    "query": "SELECT JSON_QUERY(jsonb '[\"1\"]', '$[*]' WITHOUT WRAPPER KEEP QUOTES)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 123",
+    "query": "SELECT JSON_QUERY(jsonb'{\"rec\": \"{1,2,3}\"}', '$.rec' returning int[] omit quotes)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 124",
+    "query": "SELECT JSON_QUERY(jsonb'{\"rec\": \"{1,2,3}\"}', '$.rec' returning int[] keep quotes)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 125",
+    "query": "SELECT JSON_QUERY(jsonb'{\"rec\": \"{1,2,3}\"}', '$.rec' returning int[] keep quotes error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 126",
+    "query": "SELECT JSON_QUERY(jsonb'{\"rec\": \"[1,2]\"}', '$.rec' returning int4range omit quotes)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 127",
+    "query": "SELECT JSON_QUERY(jsonb'{\"rec\": \"[1,2]\"}', '$.rec' returning int4range keep quotes)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 128",
+    "query": "SELECT JSON_QUERY(jsonb'{\"rec\": \"[1,2]\"}', '$.rec' \treturning int4range keep quotes error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 129",
+    "query": "CREATE DOMAIN qf_char_domain AS char(1)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 130",
+    "query": "CREATE DOMAIN qf_jsonb_domain AS jsonb"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 131",
+    "query": "SELECT JSON_QUERY(jsonb '\"1\"', '$' RETURNING qf_char_domain OMIT QUOTES ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 132",
+    "query": "SELECT JSON_QUERY(jsonb '\"1\"', '$' RETURNING qf_jsonb_domain OMIT QUOTES ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 133",
+    "query": "DROP DOMAIN qf_char_domain, qf_jsonb_domain"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 134",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 135",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' NULL ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 136",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' EMPTY ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 137",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' EMPTY ARRAY ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 138",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' EMPTY OBJECT ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 139",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' ERROR ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 140",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' DEFAULT '\"empty\"' ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 141",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' ERROR ON EMPTY NULL ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 142",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' ERROR ON EMPTY EMPTY ARRAY ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 143",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' ERROR ON EMPTY EMPTY OBJECT ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 144",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' ERROR ON EMPTY ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 145",
+    "query": "SELECT JSON_QUERY(jsonb '[]', '$[*]' ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 146",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$[*]' ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 147",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$[*]' DEFAULT '\"empty\"' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 148",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$' RETURNING json)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 149",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$' RETURNING json FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 150",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$' RETURNING jsonb)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 151",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$' RETURNING jsonb FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 152",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$' RETURNING text)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 153",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$' RETURNING char(10))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 154",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$' RETURNING text FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 155",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$' RETURNING bytea)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 156",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$' RETURNING bytea FORMAT JSON)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 157",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$[*]' RETURNING bytea EMPTY OBJECT ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 158",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$[*]' RETURNING bytea FORMAT JSON EMPTY OBJECT ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 159",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$[*]' RETURNING json EMPTY OBJECT ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 160",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2]', '$[*]' RETURNING jsonb EMPTY OBJECT ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 161",
+    "query": "SELECT JSON_QUERY(jsonb '[3,4]', '$[*]' RETURNING bigint[] EMPTY OBJECT ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 162",
+    "query": "SELECT JSON_QUERY(jsonb '\"[3,4]\"', '$[*]' RETURNING bigint[] EMPTY OBJECT ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 163",
+    "query": "SELECT JSON_QUERY(jsonb '\"123.1\"', '$' RETURNING int2 error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 164",
+    "query": "SELECT JSON_QUERY(jsonb '\"123.1\"', '$' RETURNING int4 error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 165",
+    "query": "SELECT JSON_QUERY(jsonb '\"123.1\"', '$' RETURNING int8 error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 166",
+    "query": "SELECT JSON_QUERY(jsonb '\"123.1\"', '$' RETURNING bool error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 167",
+    "query": "SELECT JSON_QUERY(jsonb '\"123.1\"', '$' RETURNING numeric error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 168",
+    "query": "SELECT JSON_QUERY(jsonb '\"123.1\"', '$' RETURNING real error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 169",
+    "query": "SELECT JSON_QUERY(jsonb '\"123.1\"', '$' RETURNING float8 error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 170",
+    "query": "SELECT JSON_QUERY(jsonb '\"123.1\"', '$' RETURNING int2 omit quotes error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 171",
+    "query": "SELECT JSON_QUERY(jsonb '\"123.1\"', '$' RETURNING float8 omit quotes error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 172",
+    "query": "SELECT JSON_QUERY(jsonb '[3,4]', '$[*]' RETURNING anyarray EMPTY OBJECT ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 173",
+    "query": "SELECT x, y, JSON_QUERY( jsonb '[1,2,3,4,5,null]', '$[*] ? (@ >= $x && @ <= $y)' PASSING x AS x, y AS y WITH CONDITIONAL WRAPPER EMPTY ARRAY ON EMPTY ) list FROM generate_series(0, 4) x, generate_series(0, 4) y"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 174",
+    "query": "CREATE TYPE comp_abc AS (a text, b int, c timestamp)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 175",
+    "query": "SELECT JSON_QUERY(jsonb'{\"rec\": \"(abc,42,01.02.2003)\"}', '$.rec' returning comp_abc omit quotes)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 176",
+    "query": "SELECT JSON_QUERY(jsonb'{\"rec\": \"(abc,42,01.02.2003)\"}', '$.rec' returning comp_abc keep quotes)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 177",
+    "query": "SELECT JSON_QUERY(jsonb'{\"rec\": \"(abc,42,01.02.2003)\"}', '$.rec' returning comp_abc keep quotes error on error)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 178",
+    "query": "DROP TYPE comp_abc"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 179",
+    "query": "CREATE TYPE sqljsonb_rec AS (a int, t text, js json, jb jsonb, jsa json[])"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 180",
+    "query": "CREATE TYPE sqljsonb_reca AS (reca sqljsonb_rec[])"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 181",
+    "query": "SELECT JSON_QUERY(jsonb '[{\"a\": 1, \"b\": \"foo\", \"t\": \"aaa\", \"js\": [1, \"2\", {}], \"jb\": {\"x\": [1, \"2\", {}]}},  {\"a\": 2}]', '$[0]' RETURNING sqljsonb_rec)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 182",
+    "query": "SELECT JSON_QUERY(jsonb '[{\"a\": \"a\", \"b\": \"foo\", \"t\": \"aaa\", \"js\": [1, \"2\", {}], \"jb\": {\"x\": [1, \"2\", {}]}},  {\"a\": 2}]', '$[0]' RETURNING sqljsonb_rec ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 183",
+    "query": "SELECT JSON_QUERY(jsonb '[{\"a\": \"a\", \"b\": \"foo\", \"t\": \"aaa\", \"js\": [1, \"2\", {}], \"jb\": {\"x\": [1, \"2\", {}]}},  {\"a\": 2}]', '$[0]' RETURNING sqljsonb_rec)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 184",
+    "query": "SELECT * FROM unnest((JSON_QUERY(jsonb '{\"jsa\":  [{\"a\": 1, \"b\": [\"foo\"]}, {\"a\": 2, \"c\": {}}, 123]}', '$' RETURNING sqljsonb_rec)).jsa)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 185",
+    "query": "SELECT * FROM unnest((JSON_QUERY(jsonb '{\"reca\": [{\"a\": 1, \"t\": [\"foo\", []]}, {\"a\": 2, \"jb\": [{}, true]}]}', '$' RETURNING sqljsonb_reca)).reca)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 186",
+    "query": "SELECT JSON_QUERY(jsonb '[{\"a\": 1, \"b\": \"foo\", \"t\": \"aaa\", \"js\": [1, \"2\", {}], \"jb\": {\"x\": [1, \"2\", {}]}},  {\"a\": 2}]', '$[0]' RETURNING jsonpath)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 187",
+    "query": "SELECT JSON_QUERY(jsonb '[{\"a\": 1, \"b\": \"foo\", \"t\": \"aaa\", \"js\": [1, \"2\", {}], \"jb\": {\"x\": [1, \"2\", {}]}},  {\"a\": 2}]', '$[0]' RETURNING jsonpath ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 188",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2,null,\"3\"]', '$[*]' RETURNING int[] WITH WRAPPER)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 189",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2,null,\"a\"]', '$[*]' RETURNING int[] WITH WRAPPER ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 190",
+    "query": "SELECT JSON_QUERY(jsonb '[1,2,null,\"a\"]', '$[*]' RETURNING int[] WITH WRAPPER)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 191",
+    "query": "SELECT * FROM unnest(JSON_QUERY(jsonb '[{\"a\": 1, \"t\": [\"foo\", []]}, {\"a\": 2, \"jb\": [{}, true]}]', '$' RETURNING sqljsonb_rec[]))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 192",
+    "query": "SELECT JSON_QUERY(jsonb '{\"a\": 1}', '$.a' RETURNING sqljsonb_int_not_null)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 193",
+    "query": "SELECT JSON_QUERY(jsonb '{\"a\": 1}', '$.b' RETURNING sqljsonb_int_not_null)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 194",
+    "query": "SELECT JSON_QUERY(jsonb '{\"a\": 1}', '$.b' RETURNING sqljsonb_int_not_null ERROR ON EMPTY ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 195",
+    "query": "SELECT JSON_QUERY(jsonb 'null', '$ts' PASSING timestamptz '2018-02-21 12:34:56 +10' AS ts)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 196",
+    "query": "SELECT JSON_QUERY(jsonb 'null', '$ts' PASSING timestamptz '2018-02-21 12:34:56 +10' AS ts RETURNING json)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 197",
+    "query": "SELECT JSON_QUERY(jsonb 'null', '$ts' PASSING timestamptz '2018-02-21 12:34:56 +10' AS ts RETURNING jsonb)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 198",
+    "query": "CREATE TABLE test_jsonb_constraints ( js text, i int, x jsonb DEFAULT JSON_QUERY(jsonb '[1,2]', '$[*]' WITH WRAPPER) CONSTRAINT test_jsonb_constraint1 CHECK (js IS JSON) CONSTRAINT test_jsonb_constraint2 CHECK (JSON_EXISTS(js::jsonb, '$.a' PASSING i + 5 AS int, i::text AS \"TXT\", array[1,2,3] as arr)) CONSTRAINT test_jsonb_constraint3 CHECK (JSON_VALUE(js::jsonb, '$.a' RETURNING int DEFAULT '12' ON EMPTY ERROR ON ERROR) > i) CONSTRAINT test_jsonb_constraint4 CHECK (JSON_QUERY(js::jsonb, '$.a' WITH CONDITIONAL WRAPPER EMPTY OBJECT ON ERROR) = jsonb '[10]') CONSTRAINT test_jsonb_constraint5 CHECK (JSON_QUERY(js::jsonb, '$.a' RETURNING char(5) OMIT QUOTES EMPTY ARRAY ON EMPTY) >  'a' COLLATE \"C\") )"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 199",
+    "query": "SELECT pg_get_expr(adbin, adrelid) FROM pg_attrdef WHERE adrelid = 'test_jsonb_constraints'::regclass ORDER BY 1"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 200",
+    "query": "INSERT INTO test_jsonb_constraints VALUES ('', 1)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 201",
+    "query": "INSERT INTO test_jsonb_constraints VALUES ('1', 1)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 202",
+    "query": "INSERT INTO test_jsonb_constraints VALUES ('[]')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 203",
+    "query": "INSERT INTO test_jsonb_constraints VALUES ('{\"b\": 1}', 1)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 204",
+    "query": "INSERT INTO test_jsonb_constraints VALUES ('{\"a\": 1}', 1)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 205",
+    "query": "INSERT INTO test_jsonb_constraints VALUES ('{\"a\": 10}', 1)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 206",
+    "query": "DROP TABLE test_jsonb_constraints"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 207",
+    "query": "CREATE TABLE test_jsonb_mutability(js jsonb, b int)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 208",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 209",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a[0]'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 210",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.time()'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 211",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.date()'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 212",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.time_tz()'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 213",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.timestamp()'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 214",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.timestamp_tz()'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 215",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.date() < $.time_tz())'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 216",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.date() < $.time())'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 217",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.time() < $.time())'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 218",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.time() < $.time_tz())'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 219",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp() < $.timestamp_tz())'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 220",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp_tz() < $.timestamp_tz())'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 221",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.time() < $.datetime(\"HH:MI TZH\"))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 222",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.date() < $.datetime(\"HH:MI TZH\"))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 223",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp() < $.datetime(\"HH:MI TZH\"))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 224",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp() < $.datetime(\"HH:MI\"))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 225",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp_tz() < $.datetime(\"HH:MI TZH\"))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 226",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp_tz() < $.datetime(\"HH:MI\"))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 227",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.date() < $x' PASSING '12:34'::timetz AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 228",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.date() < $x' PASSING '1234'::int AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 229",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.timestamp(2) < $.timestamp(3))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 230",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime()'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 231",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@ < $.datetime())'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 232",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime() < $.datetime())'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 233",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime() < $.datetime(\"HH:MI TZH\"))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 234",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI TZH\") < $.datetime(\"HH:MI TZH\"))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 235",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI\") < $.datetime(\"YY-MM-DD HH:MI\"))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 236",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.a ? (@.datetime(\"HH:MI TZH\") < $.datetime(\"YY-MM-DD HH:MI\"))'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 237",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime(\"HH:MI TZH\") < $x' PASSING '12:34'::timetz AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 238",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime(\"HH:MI TZH\") < $y' PASSING '12:34'::timetz AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 239",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime() < $x' PASSING '12:34'::timetz AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 240",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime() < $x' PASSING '1234'::int AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 241",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime() ? (@ == $x)' PASSING '12:34'::time AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 242",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$.datetime(\"YY-MM-DD\") ? (@ == $x)' PASSING '2020-07-14'::date AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 243",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$[1, $.a ? (@.datetime() == $x)]' PASSING '12:34'::time AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 244",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$[1, 0 to $.a ? (@.datetime() == $x)]' PASSING '12:34'::time AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 245",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_QUERY(js, '$[1, $.a ? (@.datetime(\"HH:MI\") == $x)]' PASSING '12:34'::time AS x))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 246",
+    "query": "CREATE INDEX ON test_jsonb_mutability (JSON_VALUE(js, '$' DEFAULT random()::int ON ERROR))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 247",
+    "query": "CREATE OR REPLACE FUNCTION ret_setint() RETURNS SETOF integer AS $$ BEGIN RETURN QUERY EXECUTE 'select 1 union all select 1'"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 248",
+    "query": "END"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 249",
+    "query": "$$ LANGUAGE plpgsql IMMUTABLE"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 250",
+    "query": "SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT ret_setint() ON ERROR) FROM test_jsonb_mutability"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 251",
+    "query": "SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT b + 1 ON ERROR) FROM test_jsonb_mutability"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 252",
+    "query": "SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT sum(1) over() ON ERROR) FROM test_jsonb_mutability"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 253",
+    "query": "SELECT JSON_QUERY(js, '$'  RETURNING int DEFAULT (SELECT 1) ON ERROR) FROM test_jsonb_mutability"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 254",
+    "query": "DROP TABLE test_jsonb_mutability"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 255",
+    "query": "DROP FUNCTION ret_setint"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 256",
+    "query": "CREATE DOMAIN queryfuncs_test_domain AS text CHECK (value <> 'foo')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 257",
+    "query": "SELECT JSON_VALUE(jsonb '{\"d1\": \"H\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT 'foo'::queryfuncs_test_domain ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 258",
+    "query": "SELECT JSON_VALUE(jsonb '{\"d1\": \"H\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT 'foo1'::queryfuncs_test_domain ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 259",
+    "query": "SELECT JSON_VALUE(jsonb '{\"d1\": \"H\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT '\"foo1\"'::jsonb::text ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 260",
+    "query": "SELECT JSON_VALUE(jsonb '{\"d1\": \"foo\"}', '$.a2' RETURNING queryfuncs_test_domain DEFAULT 'foo1'::queryfuncs_test_domain ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 261",
+    "query": "SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int DEFAULT (SELECT '\"1\"')::jsonb ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 262",
+    "query": "SELECT JSON_QUERY('\"a\"', '$.a' RETURNING queryfuncs_test_domain DEFAULT (select '\"1\"')::queryfuncs_test_domain ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 263",
+    "query": "SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int DEFAULT (SELECT 1)::oid::int ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 264",
+    "query": "SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int[] DEFAULT (SELECT '{1}')::oid[]::int[] ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 265",
+    "query": "SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING int[] DEFAULT (SELECT '{1}')::text COLLATE \"C\" ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 266",
+    "query": "CREATE TABLE someparent (a int)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 267",
+    "query": "CREATE TABLE somechild () INHERITS (someparent)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 268",
+    "query": "SELECT JSON_QUERY('\"a\"', '$.a'  RETURNING someparent DEFAULT (SELECT '(1)')::somechild::someparent ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 269",
+    "query": "DROP DOMAIN queryfuncs_test_domain"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 270",
+    "query": "DROP TABLE someparent, somechild"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 271",
+    "query": "SELECT JSON_EXISTS(jsonb '{\"a\": 123}', '$' || '.' || 'a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 272",
+    "query": "SELECT JSON_VALUE(jsonb '{\"a\": 123}', '$' || '.' || 'a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 273",
+    "query": "SELECT JSON_VALUE(jsonb '{\"a\": 123}', '$' || '.' || 'b' DEFAULT 'foo' ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 274",
+    "query": "SELECT JSON_QUERY(jsonb '{\"a\": 123}', '$' || '.' || 'a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 275",
+    "query": "SELECT JSON_QUERY(jsonb '{\"a\": 123}', '$' || '.' || 'a' WITH WRAPPER)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 276",
+    "query": "SELECT JSON_QUERY(jsonb '{\"a\": 123}', 'error' || ' ' || 'error')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 277",
+    "query": "SELECT JSON_EXISTS(json '{\"a\": 123}', '$' || '.' || 'a')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 278",
+    "query": "SELECT JSON_QUERY(NULL FORMAT JSON, '$')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 279",
+    "query": "CREATE TEMP TABLE jsonpaths (path) AS SELECT '$'"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 280",
+    "query": "SELECT json_value('\"aaa\"', path RETURNING json) FROM jsonpaths"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 281",
+    "query": "SELECT JSON_QUERY(jsonb 'null', '$xyz' PASSING 1 AS xy)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 282",
+    "query": "SELECT JSON_QUERY(jsonb 'null', '$xy' PASSING 1 AS xyz)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 283",
+    "query": "SELECT JSON_QUERY(jsonb 'null', '$xyz' PASSING 1 AS xyz)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 284",
+    "query": "SELECT JSON_QUERY(jsonb 'null', '$Xyz' PASSING 1 AS \"Xyz\")"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 285",
+    "query": "SELECT JSON_QUERY(jsonb 'null', '$\"Xyz\"' PASSING 1 AS \"Xyz\")"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 286",
+    "query": "SELECT JSON_EXISTS(jsonb '1', '$' DEFAULT 1 ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 287",
+    "query": "SELECT JSON_VALUE(jsonb '1', '$' EMPTY ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 288",
+    "query": "SELECT JSON_QUERY(jsonb '1', '$' TRUE ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 289",
+    "query": "CREATE DOMAIN queryfuncs_char2 AS char(2)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 290",
+    "query": "CREATE DOMAIN queryfuncs_char2_chk AS char(2) CHECK (VALUE NOT IN ('12'))"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 291",
+    "query": "SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2 ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 292",
+    "query": "SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2 DEFAULT '1' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 293",
+    "query": "SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2_chk ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 294",
+    "query": "SELECT JSON_QUERY(jsonb '123', '$' RETURNING queryfuncs_char2_chk DEFAULT '1' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 295",
+    "query": "SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2 ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 296",
+    "query": "SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2 DEFAULT 1 ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 297",
+    "query": "SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2_chk ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 298",
+    "query": "SELECT JSON_VALUE(jsonb '123', '$' RETURNING queryfuncs_char2_chk DEFAULT 1 ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 299",
+    "query": "DROP DOMAIN queryfuncs_char2, queryfuncs_char2_chk"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 300",
+    "query": "CREATE DOMAIN queryfuncs_d_varbit3 AS varbit(3) CHECK (VALUE <> '01')"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 301",
+    "query": "SELECT JSON_VALUE(jsonb '1234', '$' RETURNING queryfuncs_d_varbit3  DEFAULT '111111' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 302",
+    "query": "SELECT JSON_VALUE(jsonb '1234', '$' RETURNING queryfuncs_d_varbit3  DEFAULT '010' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 303",
+    "query": "SELECT JSON_VALUE(jsonb '1234', '$' RETURNING queryfuncs_d_varbit3  DEFAULT '01' ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 304",
+    "query": "SELECT JSON_VALUE(jsonb '\"111\"', '$'  RETURNING bit(2) ERROR ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 305",
+    "query": "SELECT JSON_VALUE(jsonb '1234', '$' RETURNING bit(3)  DEFAULT 1 ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 306",
+    "query": "SELECT JSON_VALUE(jsonb '1234', '$' RETURNING bit(3)  DEFAULT 1::bit(3) ON ERROR)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 307",
+    "query": "SELECT JSON_VALUE(jsonb '\"111\"', '$.a'  RETURNING bit(3) DEFAULT '1111' ON EMPTY)"
+  },
+  {
+    "comment": "sqljson_queryfuncs - Statement 308",
+    "query": "DROP DOMAIN queryfuncs_d_varbit3"
+  }
+]

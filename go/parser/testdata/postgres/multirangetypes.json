@@ -1,0 +1,2218 @@
+[
+  {
+    "comment": "multirangetypes - Statement 1",
+    "query": "select ''::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 2",
+    "query": "select '{,}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 3",
+    "query": "select '{(,)}.'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 4",
+    "query": "select '{[a,c),}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 5",
+    "query": "select '{,[a,c)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 6",
+    "query": "select '{-[a,z)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 7",
+    "query": "select '{[a,z) - }'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 8",
+    "query": "select '{(\",a)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 9",
+    "query": "select '{(,,a)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 10",
+    "query": "select '{(),a)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 11",
+    "query": "select '{(a,))}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 12",
+    "query": "select '{(],a)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 13",
+    "query": "select '{(a,])}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 14",
+    "query": "select '{[z,a]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 15",
+    "query": "select '{}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 16",
+    "query": "select '  {}  '::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 17",
+    "query": "select ' { empty, empty }  '::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 18",
+    "query": "select ' {( \" a \" \" a \", \" z \" \" z \" )  }'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 19",
+    "query": "select textrange('\\\\\\\\', repeat('a', 200))::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 20",
+    "query": "select '{(,z)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 21",
+    "query": "select '{(a,)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 22",
+    "query": "select '{[,z]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 23",
+    "query": "select '{[a,]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 24",
+    "query": "select '{(,)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 25",
+    "query": "select '{[ , ]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 26",
+    "query": "select '{[\"\",\"\"]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 27",
+    "query": "select '{[\",\",\",\"]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 28",
+    "query": "select '{[\"\\\\\",\"\\\\\"]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 29",
+    "query": "select '{[\"\"\"\",\"\\\"\"]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 30",
+    "query": "select '{(\\\\,a)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 31",
+    "query": "select '{((,z)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 32",
+    "query": "select '{([,z)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 33",
+    "query": "select '{(!,()}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 34",
+    "query": "select '{(!,[)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 35",
+    "query": "select '{[a,a]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 36",
+    "query": "select '{[a,a],[a,b]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 37",
+    "query": "select '{[a,b), [b,e]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 38",
+    "query": "select '{[a,d), [b,f]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 39",
+    "query": "select '{[a,a],[b,b]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 40",
+    "query": "select '{[a,a], [b,b]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 41",
+    "query": "select '{[1,2], [3,4]}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 42",
+    "query": "select '{[a,a], [b,b], [c,c]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 43",
+    "query": "select '{[a,d], [b,e]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 44",
+    "query": "select '{[a,d), [d,e)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 45",
+    "query": "select '{[a,a)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 46",
+    "query": "select '{(a,a]}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 47",
+    "query": "select '{(a,a)}'::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 48",
+    "query": "select pg_input_is_valid('{[1,2], [4,5]}', 'int4multirange')"
+  },
+  {
+    "comment": "multirangetypes - Statement 49",
+    "query": "select pg_input_is_valid('{[1,2], [4,5]', 'int4multirange')"
+  },
+  {
+    "comment": "multirangetypes - Statement 50",
+    "query": "select * from pg_input_error_info('{[1,2], [4,5]', 'int4multirange')"
+  },
+  {
+    "comment": "multirangetypes - Statement 51",
+    "query": "select pg_input_is_valid('{[1,2], [4,zed]}', 'int4multirange')"
+  },
+  {
+    "comment": "multirangetypes - Statement 52",
+    "query": "select * from pg_input_error_info('{[1,2], [4,zed]}', 'int4multirange')"
+  },
+  {
+    "comment": "multirangetypes - Statement 53",
+    "query": "select textmultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 54",
+    "query": "select textmultirange(textrange('a', 'c'))"
+  },
+  {
+    "comment": "multirangetypes - Statement 55",
+    "query": "select textmultirange(textrange('a', 'c'), textrange('f', 'g'))"
+  },
+  {
+    "comment": "multirangetypes - Statement 56",
+    "query": "select textmultirange(textrange('\\\\\\\\', repeat('a', 200)), textrange('c', 'd'))"
+  },
+  {
+    "comment": "multirangetypes - Statement 57",
+    "query": "select 'empty'::int4range::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 58",
+    "query": "select int4range(1, 3)::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 59",
+    "query": "select int4range(1, null)::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 60",
+    "query": "select int4range(null, null)::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 61",
+    "query": "select 'empty'::textrange::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 62",
+    "query": "select textrange('a', 'c')::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 63",
+    "query": "select textrange('a', null)::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 64",
+    "query": "select textrange(null, null)::textmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 65",
+    "query": "select unnest(int4multirange(int4range('5', '6'), int4range('1', '2')))"
+  },
+  {
+    "comment": "multirangetypes - Statement 66",
+    "query": "select unnest(textmultirange(textrange('a', 'b'), textrange('d', 'e')))"
+  },
+  {
+    "comment": "multirangetypes - Statement 67",
+    "query": "select unnest(textmultirange(textrange('\\\\\\\\', repeat('a', 200)), textrange('c', 'd')))"
+  },
+  {
+    "comment": "multirangetypes - Statement 68",
+    "query": "CREATE TABLE nummultirange_test (nmr NUMMULTIRANGE)"
+  },
+  {
+    "comment": "multirangetypes - Statement 69",
+    "query": "CREATE INDEX nummultirange_test_btree ON nummultirange_test(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 70",
+    "query": "INSERT INTO nummultirange_test VALUES('{}')"
+  },
+  {
+    "comment": "multirangetypes - Statement 71",
+    "query": "INSERT INTO nummultirange_test VALUES('{[,)}')"
+  },
+  {
+    "comment": "multirangetypes - Statement 72",
+    "query": "INSERT INTO nummultirange_test VALUES('{[3,]}')"
+  },
+  {
+    "comment": "multirangetypes - Statement 73",
+    "query": "INSERT INTO nummultirange_test VALUES('{[,), [3,]}')"
+  },
+  {
+    "comment": "multirangetypes - Statement 74",
+    "query": "INSERT INTO nummultirange_test VALUES('{[, 5)}')"
+  },
+  {
+    "comment": "multirangetypes - Statement 75",
+    "query": "INSERT INTO nummultirange_test VALUES(nummultirange())"
+  },
+  {
+    "comment": "multirangetypes - Statement 76",
+    "query": "INSERT INTO nummultirange_test VALUES(nummultirange(variadic '{}'::numrange[]))"
+  },
+  {
+    "comment": "multirangetypes - Statement 77",
+    "query": "INSERT INTO nummultirange_test VALUES(nummultirange(numrange(1.1, 2.2)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 78",
+    "query": "INSERT INTO nummultirange_test VALUES('{empty}')"
+  },
+  {
+    "comment": "multirangetypes - Statement 79",
+    "query": "INSERT INTO nummultirange_test VALUES(nummultirange(numrange(1.7, 1.7, '[]'), numrange(1.7, 1.9)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 80",
+    "query": "INSERT INTO nummultirange_test VALUES(nummultirange(numrange(1.7, 1.7, '[]'), numrange(1.9, 2.1)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 81",
+    "query": "SELECT nmr, isempty(nmr), lower(nmr), upper(nmr) FROM nummultirange_test ORDER BY nmr"
+  },
+  {
+    "comment": "multirangetypes - Statement 82",
+    "query": "SELECT nmr, lower_inc(nmr), lower_inf(nmr), upper_inc(nmr), upper_inf(nmr) FROM nummultirange_test ORDER BY nmr"
+  },
+  {
+    "comment": "multirangetypes - Statement 83",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr = '{}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 84",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr = '{(,5)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 85",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr = '{[3,)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 86",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr = '{[1.7,1.7]}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 87",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr = '{[1.7,1.7],[1.9,2.1)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 88",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr < '{}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 89",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr < '{[-1000.0, -1000.0]}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 90",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr < '{[0.0, 1.0]}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 91",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr < '{[1000.0, 1001.0]}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 92",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr <= '{}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 93",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr <= '{[3,)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 94",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr >= '{}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 95",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr >= '{[3,)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 96",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr > '{}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 97",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr > '{[-1000.0, -1000.0]}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 98",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr > '{[0.0, 1.0]}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 99",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr > '{[1000.0, 1001.0]}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 100",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr <> '{}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 101",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr <> '{(,5)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 102",
+    "query": "select nummultirange(numrange(2.0, 1.0))"
+  },
+  {
+    "comment": "multirangetypes - Statement 103",
+    "query": "select nummultirange(numrange(5.0, 6.0), numrange(1.0, 2.0))"
+  },
+  {
+    "comment": "multirangetypes - Statement 104",
+    "query": "analyze nummultirange_test"
+  },
+  {
+    "comment": "multirangetypes - Statement 105",
+    "query": "SELECT * FROM nummultirange_test WHERE range_overlaps_multirange(numrange(4.0, 4.2), nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 106",
+    "query": "SELECT * FROM nummultirange_test WHERE numrange(4.0, 4.2) && nmr"
+  },
+  {
+    "comment": "multirangetypes - Statement 107",
+    "query": "SELECT * FROM nummultirange_test WHERE multirange_overlaps_range(nmr, numrange(4.0, 4.2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 108",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr && numrange(4.0, 4.2)"
+  },
+  {
+    "comment": "multirangetypes - Statement 109",
+    "query": "SELECT * FROM nummultirange_test WHERE multirange_overlaps_multirange(nmr, nummultirange(numrange(4.0, 4.2), numrange(6.0, 7.0)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 110",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr && nummultirange(numrange(4.0, 4.2), numrange(6.0, 7.0))"
+  },
+  {
+    "comment": "multirangetypes - Statement 111",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr && nummultirange(numrange(6.0, 7.0))"
+  },
+  {
+    "comment": "multirangetypes - Statement 112",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr && nummultirange(numrange(6.0, 7.0), numrange(8.0, 9.0))"
+  },
+  {
+    "comment": "multirangetypes - Statement 113",
+    "query": "SELECT * FROM nummultirange_test WHERE multirange_contains_elem(nmr, 4.0)"
+  },
+  {
+    "comment": "multirangetypes - Statement 114",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr @> 4.0"
+  },
+  {
+    "comment": "multirangetypes - Statement 115",
+    "query": "SELECT * FROM nummultirange_test WHERE multirange_contains_range(nmr, numrange(4.0, 4.2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 116",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr @> numrange(4.0, 4.2)"
+  },
+  {
+    "comment": "multirangetypes - Statement 117",
+    "query": "SELECT * FROM nummultirange_test WHERE multirange_contains_multirange(nmr, '{[4.0,4.2), [6.0, 8.0)}')"
+  },
+  {
+    "comment": "multirangetypes - Statement 118",
+    "query": "SELECT * FROM nummultirange_test WHERE nmr @> '{[4.0,4.2), [6.0, 8.0)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 119",
+    "query": "SELECT * FROM nummultirange_test WHERE elem_contained_by_multirange(4.0, nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 120",
+    "query": "SELECT * FROM nummultirange_test WHERE 4.0 <@ nmr"
+  },
+  {
+    "comment": "multirangetypes - Statement 121",
+    "query": "SELECT * FROM nummultirange_test WHERE range_contained_by_multirange(numrange(4.0, 4.2), nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 122",
+    "query": "SELECT * FROM nummultirange_test WHERE numrange(4.0, 4.2) <@ nmr"
+  },
+  {
+    "comment": "multirangetypes - Statement 123",
+    "query": "SELECT * FROM nummultirange_test WHERE multirange_contained_by_multirange('{[4.0,4.2), [6.0, 8.0)}', nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 124",
+    "query": "SELECT * FROM nummultirange_test WHERE '{[4.0,4.2), [6.0, 8.0)}'::nummultirange <@ nmr"
+  },
+  {
+    "comment": "multirangetypes - Statement 125",
+    "query": "SELECT 'empty'::numrange && nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 126",
+    "query": "SELECT 'empty'::numrange && nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 127",
+    "query": "SELECT nummultirange() && 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 128",
+    "query": "SELECT nummultirange(numrange(1,2)) && 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 129",
+    "query": "SELECT nummultirange() && nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 130",
+    "query": "SELECT nummultirange() && nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 131",
+    "query": "SELECT nummultirange(numrange(1,2)) && nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 132",
+    "query": "SELECT nummultirange(numrange(3,4)) && nummultirange(numrange(1,2), numrange(7,8))"
+  },
+  {
+    "comment": "multirangetypes - Statement 133",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(7,8)) && nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 134",
+    "query": "SELECT nummultirange(numrange(3,4)) && nummultirange(numrange(1,2), numrange(3.5,8))"
+  },
+  {
+    "comment": "multirangetypes - Statement 135",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(3.5,8)) && numrange(3,4)"
+  },
+  {
+    "comment": "multirangetypes - Statement 136",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(3.5,8)) && nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 137",
+    "query": "select '{(10,20),(30,40),(50,60)}'::nummultirange && '(42,92)'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 138",
+    "query": "SELECT nummultirange() @> nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 139",
+    "query": "SELECT nummultirange() @> 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 140",
+    "query": "SELECT nummultirange(numrange(null,null)) @> numrange(1,2)"
+  },
+  {
+    "comment": "multirangetypes - Statement 141",
+    "query": "SELECT nummultirange(numrange(null,null)) @> numrange(null,2)"
+  },
+  {
+    "comment": "multirangetypes - Statement 142",
+    "query": "SELECT nummultirange(numrange(null,null)) @> numrange(2,null)"
+  },
+  {
+    "comment": "multirangetypes - Statement 143",
+    "query": "SELECT nummultirange(numrange(null,5)) @> numrange(null,3)"
+  },
+  {
+    "comment": "multirangetypes - Statement 144",
+    "query": "SELECT nummultirange(numrange(null,5)) @> numrange(null,8)"
+  },
+  {
+    "comment": "multirangetypes - Statement 145",
+    "query": "SELECT nummultirange(numrange(5,null)) @> numrange(8,null)"
+  },
+  {
+    "comment": "multirangetypes - Statement 146",
+    "query": "SELECT nummultirange(numrange(5,null)) @> numrange(3,null)"
+  },
+  {
+    "comment": "multirangetypes - Statement 147",
+    "query": "SELECT nummultirange(numrange(1,5)) @> numrange(8,9)"
+  },
+  {
+    "comment": "multirangetypes - Statement 148",
+    "query": "SELECT nummultirange(numrange(1,5)) @> numrange(3,9)"
+  },
+  {
+    "comment": "multirangetypes - Statement 149",
+    "query": "SELECT nummultirange(numrange(1,5)) @> numrange(1,4)"
+  },
+  {
+    "comment": "multirangetypes - Statement 150",
+    "query": "SELECT nummultirange(numrange(1,5)) @> numrange(1,5)"
+  },
+  {
+    "comment": "multirangetypes - Statement 151",
+    "query": "SELECT nummultirange(numrange(-4,-2), numrange(1,5)) @> numrange(1,5)"
+  },
+  {
+    "comment": "multirangetypes - Statement 152",
+    "query": "SELECT nummultirange(numrange(1,5), numrange(8,9)) @> numrange(1,5)"
+  },
+  {
+    "comment": "multirangetypes - Statement 153",
+    "query": "SELECT nummultirange(numrange(1,5), numrange(8,9)) @> numrange(6,7)"
+  },
+  {
+    "comment": "multirangetypes - Statement 154",
+    "query": "SELECT nummultirange(numrange(1,5), numrange(6,9)) @> numrange(6,7)"
+  },
+  {
+    "comment": "multirangetypes - Statement 155",
+    "query": "SELECT '{[1,5)}'::nummultirange @> '{[1,5)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 156",
+    "query": "SELECT '{[-4,-2), [1,5)}'::nummultirange @> '{[1,5)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 157",
+    "query": "SELECT '{[1,5), [8,9)}'::nummultirange @> '{[1,5)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 158",
+    "query": "SELECT '{[1,5), [8,9)}'::nummultirange @> '{[6,7)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 159",
+    "query": "SELECT '{[1,5), [6,9)}'::nummultirange @> '{[6,7)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 160",
+    "query": "select '{(10,20),(30,40),(50,60)}'::nummultirange @> '(52,56)'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 161",
+    "query": "SELECT numrange(null,null) @> nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 162",
+    "query": "SELECT numrange(null,null) @> nummultirange(numrange(null,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 163",
+    "query": "SELECT numrange(null,null) @> nummultirange(numrange(2,null))"
+  },
+  {
+    "comment": "multirangetypes - Statement 164",
+    "query": "SELECT numrange(null,5) @> nummultirange(numrange(null,3))"
+  },
+  {
+    "comment": "multirangetypes - Statement 165",
+    "query": "SELECT numrange(null,5) @> nummultirange(numrange(null,8))"
+  },
+  {
+    "comment": "multirangetypes - Statement 166",
+    "query": "SELECT numrange(5,null) @> nummultirange(numrange(8,null))"
+  },
+  {
+    "comment": "multirangetypes - Statement 167",
+    "query": "SELECT numrange(5,null) @> nummultirange(numrange(3,null))"
+  },
+  {
+    "comment": "multirangetypes - Statement 168",
+    "query": "SELECT numrange(1,5) @> nummultirange(numrange(8,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 169",
+    "query": "SELECT numrange(1,5) @> nummultirange(numrange(3,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 170",
+    "query": "SELECT numrange(1,5) @> nummultirange(numrange(1,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 171",
+    "query": "SELECT numrange(1,5) @> nummultirange(numrange(1,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 172",
+    "query": "SELECT numrange(1,9) @> nummultirange(numrange(-4,-2), numrange(1,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 173",
+    "query": "SELECT numrange(1,9) @> nummultirange(numrange(1,5), numrange(8,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 174",
+    "query": "SELECT numrange(1,9) @> nummultirange(numrange(1,5), numrange(6,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 175",
+    "query": "SELECT numrange(1,9) @> nummultirange(numrange(1,5), numrange(6,10))"
+  },
+  {
+    "comment": "multirangetypes - Statement 176",
+    "query": "SELECT '{[1,9)}' @> '{[1,5)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 177",
+    "query": "SELECT '{[1,9)}' @> '{[-4,-2), [1,5)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 178",
+    "query": "SELECT '{[1,9)}' @> '{[1,5), [8,9)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 179",
+    "query": "SELECT '{[1,9)}' @> '{[1,5), [6,9)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 180",
+    "query": "SELECT '{[1,9)}' @> '{[1,5), [6,10)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 181",
+    "query": "SELECT nummultirange() <@ nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 182",
+    "query": "SELECT 'empty'::numrange <@ nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 183",
+    "query": "SELECT numrange(1,2) <@ nummultirange(numrange(null,null))"
+  },
+  {
+    "comment": "multirangetypes - Statement 184",
+    "query": "SELECT numrange(null,2) <@ nummultirange(numrange(null,null))"
+  },
+  {
+    "comment": "multirangetypes - Statement 185",
+    "query": "SELECT numrange(2,null) <@ nummultirange(numrange(null,null))"
+  },
+  {
+    "comment": "multirangetypes - Statement 186",
+    "query": "SELECT numrange(null,3) <@ nummultirange(numrange(null,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 187",
+    "query": "SELECT numrange(null,8) <@ nummultirange(numrange(null,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 188",
+    "query": "SELECT numrange(8,null) <@ nummultirange(numrange(5,null))"
+  },
+  {
+    "comment": "multirangetypes - Statement 189",
+    "query": "SELECT numrange(3,null) <@ nummultirange(numrange(5,null))"
+  },
+  {
+    "comment": "multirangetypes - Statement 190",
+    "query": "SELECT numrange(8,9) <@ nummultirange(numrange(1,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 191",
+    "query": "SELECT numrange(3,9) <@ nummultirange(numrange(1,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 192",
+    "query": "SELECT numrange(1,4) <@ nummultirange(numrange(1,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 193",
+    "query": "SELECT numrange(1,5) <@ nummultirange(numrange(1,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 194",
+    "query": "SELECT numrange(1,5) <@ nummultirange(numrange(-4,-2), numrange(1,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 195",
+    "query": "SELECT numrange(1,5) <@ nummultirange(numrange(1,5), numrange(8,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 196",
+    "query": "SELECT numrange(6,7) <@ nummultirange(numrange(1,5), numrange(8,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 197",
+    "query": "SELECT numrange(6,7) <@ nummultirange(numrange(1,5), numrange(6,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 198",
+    "query": "SELECT '{[1,5)}' <@ '{[1,5)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 199",
+    "query": "SELECT '{[1,5)}' <@ '{[-4,-2), [1,5)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 200",
+    "query": "SELECT '{[1,5)}' <@ '{[1,5), [8,9)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 201",
+    "query": "SELECT '{[6,7)}' <@ '{[1,5), [8,9)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 202",
+    "query": "SELECT '{[6,7)}' <@ '{[1,5), [6,9)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 203",
+    "query": "SELECT nummultirange(numrange(1,2)) <@ numrange(null,null)"
+  },
+  {
+    "comment": "multirangetypes - Statement 204",
+    "query": "SELECT nummultirange(numrange(null,2)) <@ numrange(null,null)"
+  },
+  {
+    "comment": "multirangetypes - Statement 205",
+    "query": "SELECT nummultirange(numrange(2,null)) <@ numrange(null,null)"
+  },
+  {
+    "comment": "multirangetypes - Statement 206",
+    "query": "SELECT nummultirange(numrange(null,3)) <@ numrange(null,5)"
+  },
+  {
+    "comment": "multirangetypes - Statement 207",
+    "query": "SELECT nummultirange(numrange(null,8)) <@ numrange(null,5)"
+  },
+  {
+    "comment": "multirangetypes - Statement 208",
+    "query": "SELECT nummultirange(numrange(8,null)) <@ numrange(5,null)"
+  },
+  {
+    "comment": "multirangetypes - Statement 209",
+    "query": "SELECT nummultirange(numrange(3,null)) <@ numrange(5,null)"
+  },
+  {
+    "comment": "multirangetypes - Statement 210",
+    "query": "SELECT nummultirange(numrange(8,9)) <@ numrange(1,5)"
+  },
+  {
+    "comment": "multirangetypes - Statement 211",
+    "query": "SELECT nummultirange(numrange(3,9)) <@ numrange(1,5)"
+  },
+  {
+    "comment": "multirangetypes - Statement 212",
+    "query": "SELECT nummultirange(numrange(1,4)) <@ numrange(1,5)"
+  },
+  {
+    "comment": "multirangetypes - Statement 213",
+    "query": "SELECT nummultirange(numrange(1,5)) <@ numrange(1,5)"
+  },
+  {
+    "comment": "multirangetypes - Statement 214",
+    "query": "SELECT nummultirange(numrange(-4,-2), numrange(1,5)) <@ numrange(1,9)"
+  },
+  {
+    "comment": "multirangetypes - Statement 215",
+    "query": "SELECT nummultirange(numrange(1,5), numrange(8,9)) <@ numrange(1,9)"
+  },
+  {
+    "comment": "multirangetypes - Statement 216",
+    "query": "SELECT nummultirange(numrange(1,5), numrange(6,9)) <@ numrange(1,9)"
+  },
+  {
+    "comment": "multirangetypes - Statement 217",
+    "query": "SELECT nummultirange(numrange(1,5), numrange(6,10)) <@ numrange(1,9)"
+  },
+  {
+    "comment": "multirangetypes - Statement 218",
+    "query": "SELECT '{[1,5)}'::nummultirange <@ '{[1,9)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 219",
+    "query": "SELECT '{[-4,-2), [1,5)}'::nummultirange <@ '{[1,9)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 220",
+    "query": "SELECT '{[1,5), [8,9)}'::nummultirange <@ '{[1,9)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 221",
+    "query": "SELECT '{[1,5), [6,9)}'::nummultirange <@ '{[1,9)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 222",
+    "query": "SELECT '{[1,5), [6,10)}'::nummultirange <@ '{[1,9)}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 223",
+    "query": "SELECT 'empty'::numrange &< nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 224",
+    "query": "SELECT 'empty'::numrange &< nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 225",
+    "query": "SELECT nummultirange() &< 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 226",
+    "query": "SELECT nummultirange(numrange(1,2)) &< 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 227",
+    "query": "SELECT nummultirange() &< nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 228",
+    "query": "SELECT nummultirange(numrange(1,2)) &< nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 229",
+    "query": "SELECT nummultirange() &< nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 230",
+    "query": "SELECT numrange(6,7) &< nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 231",
+    "query": "SELECT numrange(1,2) &< nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 232",
+    "query": "SELECT numrange(1,4) &< nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 233",
+    "query": "SELECT numrange(1,6) &< nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 234",
+    "query": "SELECT numrange(3.5,6) &< nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 235",
+    "query": "SELECT nummultirange(numrange(6,7)) &< numrange(3,4)"
+  },
+  {
+    "comment": "multirangetypes - Statement 236",
+    "query": "SELECT nummultirange(numrange(1,2)) &< numrange(3,4)"
+  },
+  {
+    "comment": "multirangetypes - Statement 237",
+    "query": "SELECT nummultirange(numrange(1,4)) &< numrange(3,4)"
+  },
+  {
+    "comment": "multirangetypes - Statement 238",
+    "query": "SELECT nummultirange(numrange(1,6)) &< numrange(3,4)"
+  },
+  {
+    "comment": "multirangetypes - Statement 239",
+    "query": "SELECT nummultirange(numrange(3.5,6)) &< numrange(3,4)"
+  },
+  {
+    "comment": "multirangetypes - Statement 240",
+    "query": "SELECT nummultirange(numrange(6,7)) &< nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 241",
+    "query": "SELECT nummultirange(numrange(1,2)) &< nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 242",
+    "query": "SELECT nummultirange(numrange(1,4)) &< nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 243",
+    "query": "SELECT nummultirange(numrange(1,6)) &< nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 244",
+    "query": "SELECT nummultirange(numrange(3.5,6)) &< nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 245",
+    "query": "SELECT nummultirange() &> 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 246",
+    "query": "SELECT nummultirange(numrange(1,2)) &> 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 247",
+    "query": "SELECT 'empty'::numrange &> nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 248",
+    "query": "SELECT 'empty'::numrange &> nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 249",
+    "query": "SELECT nummultirange() &> nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 250",
+    "query": "SELECT nummultirange() &> nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 251",
+    "query": "SELECT nummultirange(numrange(1,2)) &> nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 252",
+    "query": "SELECT nummultirange(numrange(3,4)) &> numrange(6,7)"
+  },
+  {
+    "comment": "multirangetypes - Statement 253",
+    "query": "SELECT nummultirange(numrange(3,4)) &> numrange(1,2)"
+  },
+  {
+    "comment": "multirangetypes - Statement 254",
+    "query": "SELECT nummultirange(numrange(3,4)) &> numrange(1,4)"
+  },
+  {
+    "comment": "multirangetypes - Statement 255",
+    "query": "SELECT nummultirange(numrange(3,4)) &> numrange(1,6)"
+  },
+  {
+    "comment": "multirangetypes - Statement 256",
+    "query": "SELECT nummultirange(numrange(3,4)) &> numrange(3.5,6)"
+  },
+  {
+    "comment": "multirangetypes - Statement 257",
+    "query": "SELECT numrange(3,4) &> nummultirange(numrange(6,7))"
+  },
+  {
+    "comment": "multirangetypes - Statement 258",
+    "query": "SELECT numrange(3,4) &> nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 259",
+    "query": "SELECT numrange(3,4) &> nummultirange(numrange(1,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 260",
+    "query": "SELECT numrange(3,4) &> nummultirange(numrange(1,6))"
+  },
+  {
+    "comment": "multirangetypes - Statement 261",
+    "query": "SELECT numrange(3,4) &> nummultirange(numrange(3.5,6))"
+  },
+  {
+    "comment": "multirangetypes - Statement 262",
+    "query": "SELECT nummultirange(numrange(3,4)) &> nummultirange(numrange(6,7))"
+  },
+  {
+    "comment": "multirangetypes - Statement 263",
+    "query": "SELECT nummultirange(numrange(3,4)) &> nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 264",
+    "query": "SELECT nummultirange(numrange(3,4)) &> nummultirange(numrange(1,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 265",
+    "query": "SELECT nummultirange(numrange(3,4)) &> nummultirange(numrange(1,6))"
+  },
+  {
+    "comment": "multirangetypes - Statement 266",
+    "query": "SELECT nummultirange(numrange(3,4)) &> nummultirange(numrange(3.5,6))"
+  },
+  {
+    "comment": "multirangetypes - Statement 267",
+    "query": "SELECT 'empty'::numrange -|- nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 268",
+    "query": "SELECT 'empty'::numrange -|- nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 269",
+    "query": "SELECT nummultirange() -|- 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 270",
+    "query": "SELECT nummultirange(numrange(1,2)) -|- 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 271",
+    "query": "SELECT nummultirange() -|- nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 272",
+    "query": "SELECT nummultirange(numrange(1,2)) -|- nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 273",
+    "query": "SELECT nummultirange() -|- nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 274",
+    "query": "SELECT numrange(1,2) -|- nummultirange(numrange(2,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 275",
+    "query": "SELECT numrange(1,2) -|- nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 276",
+    "query": "SELECT nummultirange(numrange(1,2)) -|- numrange(2,4)"
+  },
+  {
+    "comment": "multirangetypes - Statement 277",
+    "query": "SELECT nummultirange(numrange(1,2)) -|- numrange(3,4)"
+  },
+  {
+    "comment": "multirangetypes - Statement 278",
+    "query": "SELECT nummultirange(numrange(1,2)) -|- nummultirange(numrange(2,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 279",
+    "query": "SELECT nummultirange(numrange(1,2)) -|- nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 280",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(5,6)) -|- nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 281",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(5,6)) -|- nummultirange(numrange(6,7))"
+  },
+  {
+    "comment": "multirangetypes - Statement 282",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(5,6)) -|- nummultirange(numrange(8,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 283",
+    "query": "SELECT nummultirange(numrange(1,2)) -|- nummultirange(numrange(2,4), numrange(6,7))"
+  },
+  {
+    "comment": "multirangetypes - Statement 284",
+    "query": "select 'empty'::numrange << nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 285",
+    "query": "select numrange(1,2) << nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 286",
+    "query": "select numrange(1,2) << nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 287",
+    "query": "select numrange(1,2) << nummultirange(numrange(0,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 288",
+    "query": "select numrange(1,2) << nummultirange(numrange(0,4), numrange(7,8))"
+  },
+  {
+    "comment": "multirangetypes - Statement 289",
+    "query": "select nummultirange() << 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 290",
+    "query": "select nummultirange() << numrange(1,2)"
+  },
+  {
+    "comment": "multirangetypes - Statement 291",
+    "query": "select nummultirange(numrange(3,4)) << numrange(3,6)"
+  },
+  {
+    "comment": "multirangetypes - Statement 292",
+    "query": "select nummultirange(numrange(0,2)) << numrange(3,6)"
+  },
+  {
+    "comment": "multirangetypes - Statement 293",
+    "query": "select nummultirange(numrange(0,2), numrange(7,8)) << numrange(3,6)"
+  },
+  {
+    "comment": "multirangetypes - Statement 294",
+    "query": "select nummultirange(numrange(-4,-2), numrange(0,2)) << numrange(3,6)"
+  },
+  {
+    "comment": "multirangetypes - Statement 295",
+    "query": "select nummultirange() << nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 296",
+    "query": "select nummultirange() << nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 297",
+    "query": "select nummultirange(numrange(1,2)) << nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 298",
+    "query": "select nummultirange(numrange(1,2)) << nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 299",
+    "query": "select nummultirange(numrange(1,2)) << nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 300",
+    "query": "select nummultirange(numrange(1,2)) << nummultirange(numrange(3,4), numrange(7,8))"
+  },
+  {
+    "comment": "multirangetypes - Statement 301",
+    "query": "select nummultirange(numrange(1,2), numrange(4,5)) << nummultirange(numrange(3,4), numrange(7,8))"
+  },
+  {
+    "comment": "multirangetypes - Statement 302",
+    "query": "select nummultirange() >> 'empty'::numrange"
+  },
+  {
+    "comment": "multirangetypes - Statement 303",
+    "query": "select nummultirange() >> numrange(1,2)"
+  },
+  {
+    "comment": "multirangetypes - Statement 304",
+    "query": "select nummultirange(numrange(3,4)) >> numrange(1,2)"
+  },
+  {
+    "comment": "multirangetypes - Statement 305",
+    "query": "select nummultirange(numrange(0,4)) >> numrange(1,2)"
+  },
+  {
+    "comment": "multirangetypes - Statement 306",
+    "query": "select nummultirange(numrange(0,4), numrange(7,8)) >> numrange(1,2)"
+  },
+  {
+    "comment": "multirangetypes - Statement 307",
+    "query": "select 'empty'::numrange >> nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 308",
+    "query": "select numrange(1,2) >> nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 309",
+    "query": "select numrange(3,6) >> nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 310",
+    "query": "select numrange(3,6) >> nummultirange(numrange(0,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 311",
+    "query": "select numrange(3,6) >> nummultirange(numrange(0,2), numrange(7,8))"
+  },
+  {
+    "comment": "multirangetypes - Statement 312",
+    "query": "select numrange(3,6) >> nummultirange(numrange(-4,-2), numrange(0,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 313",
+    "query": "select nummultirange() >> nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 314",
+    "query": "select nummultirange(numrange(1,2)) >> nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 315",
+    "query": "select nummultirange() >> nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 316",
+    "query": "select nummultirange(numrange(1,2)) >> nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 317",
+    "query": "select nummultirange(numrange(3,4)) >> nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 318",
+    "query": "select nummultirange(numrange(3,4), numrange(7,8)) >> nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 319",
+    "query": "select nummultirange(numrange(3,4), numrange(7,8)) >> nummultirange(numrange(1,2), numrange(4,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 320",
+    "query": "SELECT nummultirange() + nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 321",
+    "query": "SELECT nummultirange() + nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 322",
+    "query": "SELECT nummultirange(numrange(1,2)) + nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 323",
+    "query": "SELECT nummultirange(numrange(1,2)) + nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 324",
+    "query": "SELECT nummultirange(numrange(1,2)) + nummultirange(numrange(2,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 325",
+    "query": "SELECT nummultirange(numrange(1,2)) + nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 326",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(4,5)) + nummultirange(numrange(2,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 327",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(4,5)) + nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 328",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(4,5)) + nummultirange(numrange(0,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 329",
+    "query": "SELECT range_merge(nummultirange())"
+  },
+  {
+    "comment": "multirangetypes - Statement 330",
+    "query": "SELECT range_merge(nummultirange(numrange(1,2)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 331",
+    "query": "SELECT range_merge(nummultirange(numrange(1,2), numrange(7,8)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 332",
+    "query": "SELECT nummultirange() - nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 333",
+    "query": "SELECT nummultirange() - nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 334",
+    "query": "SELECT nummultirange(numrange(1,2)) - nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 335",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(3,4)) - nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 336",
+    "query": "SELECT nummultirange(numrange(1,2)) - nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 337",
+    "query": "SELECT nummultirange(numrange(1,2)) - nummultirange(numrange(2,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 338",
+    "query": "SELECT nummultirange(numrange(1,2)) - nummultirange(numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 339",
+    "query": "SELECT nummultirange(numrange(1,4)) - nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 340",
+    "query": "SELECT nummultirange(numrange(1,4)) - nummultirange(numrange(2,3))"
+  },
+  {
+    "comment": "multirangetypes - Statement 341",
+    "query": "SELECT nummultirange(numrange(1,4)) - nummultirange(numrange(0,8))"
+  },
+  {
+    "comment": "multirangetypes - Statement 342",
+    "query": "SELECT nummultirange(numrange(1,4)) - nummultirange(numrange(0,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 343",
+    "query": "SELECT nummultirange(numrange(1,8)) - nummultirange(numrange(0,2), numrange(3,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 344",
+    "query": "SELECT nummultirange(numrange(1,8)) - nummultirange(numrange(2,3), numrange(5,null))"
+  },
+  {
+    "comment": "multirangetypes - Statement 345",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(4,5)) - nummultirange(numrange(-2,0))"
+  },
+  {
+    "comment": "multirangetypes - Statement 346",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(4,5)) - nummultirange(numrange(2,4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 347",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(4,5)) - nummultirange(numrange(3,5))"
+  },
+  {
+    "comment": "multirangetypes - Statement 348",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(4,5)) - nummultirange(numrange(0,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 349",
+    "query": "SELECT nummultirange(numrange(1,3), numrange(4,5)) - nummultirange(numrange(2,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 350",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(4,5)) - nummultirange(numrange(8,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 351",
+    "query": "SELECT nummultirange(numrange(1,2), numrange(4,5)) - nummultirange(numrange(-2,0), numrange(8,9))"
+  },
+  {
+    "comment": "multirangetypes - Statement 352",
+    "query": "SELECT nummultirange() * nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 353",
+    "query": "SELECT nummultirange() * nummultirange(numrange(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 354",
+    "query": "SELECT nummultirange(numrange(1,2)) * nummultirange()"
+  },
+  {
+    "comment": "multirangetypes - Statement 355",
+    "query": "SELECT '{[1,3)}'::nummultirange * '{[1,5)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 356",
+    "query": "SELECT '{[1,3)}'::nummultirange * '{[0,5)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 357",
+    "query": "SELECT '{[1,3)}'::nummultirange * '{[0,2)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 358",
+    "query": "SELECT '{[1,3)}'::nummultirange * '{[2,5)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 359",
+    "query": "SELECT '{[1,4)}'::nummultirange * '{[2,3)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 360",
+    "query": "SELECT '{[1,4)}'::nummultirange * '{[0,2), [3,5)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 361",
+    "query": "SELECT '{[1,4), [7,10)}'::nummultirange * '{[0,8), [9,12)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 362",
+    "query": "SELECT '{[1,4), [7,10)}'::nummultirange * '{[9,12)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 363",
+    "query": "SELECT '{[1,4), [7,10)}'::nummultirange * '{[-5,-4), [5,6), [9,12)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 364",
+    "query": "SELECT '{[1,4), [7,10)}'::nummultirange * '{[0,2), [3,8), [9,12)}'::nummultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 365",
+    "query": "create table test_multirange_gist(mr int4multirange)"
+  },
+  {
+    "comment": "multirangetypes - Statement 366",
+    "query": "insert into test_multirange_gist select int4multirange(int4range(g, g+10),int4range(g+20, g+30),int4range(g+40, g+50)) from generate_series(1,2000) g"
+  },
+  {
+    "comment": "multirangetypes - Statement 367",
+    "query": "insert into test_multirange_gist select '{}'::int4multirange from generate_series(1,500) g"
+  },
+  {
+    "comment": "multirangetypes - Statement 368",
+    "query": "insert into test_multirange_gist select int4multirange(int4range(g, g+10000)) from generate_series(1,1000) g"
+  },
+  {
+    "comment": "multirangetypes - Statement 369",
+    "query": "insert into test_multirange_gist select int4multirange(int4range(NULL, g*10, '(]'), int4range(g*10, g*20, '(]')) from generate_series(1,100) g"
+  },
+  {
+    "comment": "multirangetypes - Statement 370",
+    "query": "insert into test_multirange_gist select int4multirange(int4range(g*10, g*20, '(]'), int4range(g*20, NULL, '(]')) from generate_series(1,100) g"
+  },
+  {
+    "comment": "multirangetypes - Statement 371",
+    "query": "create index test_mulrirange_gist_idx on test_multirange_gist using gist (mr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 372",
+    "query": "analyze test_multirange_gist"
+  },
+  {
+    "comment": "multirangetypes - Statement 373",
+    "query": "SET enable_seqscan    = t"
+  },
+  {
+    "comment": "multirangetypes - Statement 374",
+    "query": "SET enable_indexscan  = f"
+  },
+  {
+    "comment": "multirangetypes - Statement 375",
+    "query": "SET enable_bitmapscan = f"
+  },
+  {
+    "comment": "multirangetypes - Statement 376",
+    "query": "select count(*) from test_multirange_gist where mr = '{}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 377",
+    "query": "select count(*) from test_multirange_gist where mr @> 'empty'::int4range"
+  },
+  {
+    "comment": "multirangetypes - Statement 378",
+    "query": "select count(*) from test_multirange_gist where mr && 'empty'::int4range"
+  },
+  {
+    "comment": "multirangetypes - Statement 379",
+    "query": "select count(*) from test_multirange_gist where mr <@ 'empty'::int4range"
+  },
+  {
+    "comment": "multirangetypes - Statement 380",
+    "query": "select count(*) from test_multirange_gist where mr << 'empty'::int4range"
+  },
+  {
+    "comment": "multirangetypes - Statement 381",
+    "query": "select count(*) from test_multirange_gist where mr >> 'empty'::int4range"
+  },
+  {
+    "comment": "multirangetypes - Statement 382",
+    "query": "select count(*) from test_multirange_gist where mr &< 'empty'::int4range"
+  },
+  {
+    "comment": "multirangetypes - Statement 383",
+    "query": "select count(*) from test_multirange_gist where mr &> 'empty'::int4range"
+  },
+  {
+    "comment": "multirangetypes - Statement 384",
+    "query": "select count(*) from test_multirange_gist where mr -|- 'empty'::int4range"
+  },
+  {
+    "comment": "multirangetypes - Statement 385",
+    "query": "select count(*) from test_multirange_gist where mr @> '{}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 386",
+    "query": "select count(*) from test_multirange_gist where mr && '{}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 387",
+    "query": "select count(*) from test_multirange_gist where mr <@ '{}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 388",
+    "query": "select count(*) from test_multirange_gist where mr << '{}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 389",
+    "query": "select count(*) from test_multirange_gist where mr >> '{}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 390",
+    "query": "select count(*) from test_multirange_gist where mr &< '{}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 391",
+    "query": "select count(*) from test_multirange_gist where mr &> '{}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 392",
+    "query": "select count(*) from test_multirange_gist where mr -|- '{}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 393",
+    "query": "select count(*) from test_multirange_gist where mr = int4multirange(int4range(10,20), int4range(30,40), int4range(50,60))"
+  },
+  {
+    "comment": "multirangetypes - Statement 394",
+    "query": "select count(*) from test_multirange_gist where mr @> 10"
+  },
+  {
+    "comment": "multirangetypes - Statement 395",
+    "query": "select count(*) from test_multirange_gist where mr @> int4range(10,20)"
+  },
+  {
+    "comment": "multirangetypes - Statement 396",
+    "query": "select count(*) from test_multirange_gist where mr && int4range(10,20)"
+  },
+  {
+    "comment": "multirangetypes - Statement 397",
+    "query": "select count(*) from test_multirange_gist where mr <@ int4range(10,50)"
+  },
+  {
+    "comment": "multirangetypes - Statement 398",
+    "query": "select count(*) from test_multirange_gist where mr << int4range(100,500)"
+  },
+  {
+    "comment": "multirangetypes - Statement 399",
+    "query": "select count(*) from test_multirange_gist where mr >> int4range(100,500)"
+  },
+  {
+    "comment": "multirangetypes - Statement 400",
+    "query": "select count(*) from test_multirange_gist where mr &< int4range(100,500)"
+  },
+  {
+    "comment": "multirangetypes - Statement 401",
+    "query": "select count(*) from test_multirange_gist where mr &> int4range(100,500)"
+  },
+  {
+    "comment": "multirangetypes - Statement 402",
+    "query": "select count(*) from test_multirange_gist where mr -|- int4range(100,500)"
+  },
+  {
+    "comment": "multirangetypes - Statement 403",
+    "query": "select count(*) from test_multirange_gist where mr @> int4multirange(int4range(10,20), int4range(30,40))"
+  },
+  {
+    "comment": "multirangetypes - Statement 404",
+    "query": "select count(*) from test_multirange_gist where mr && '{(10,20),(30,40),(50,60)}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 405",
+    "query": "select count(*) from test_multirange_gist where mr <@ '{(10,30),(40,60),(70,90)}'::int4multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 406",
+    "query": "select count(*) from test_multirange_gist where mr << int4multirange(int4range(100,200), int4range(400,500))"
+  },
+  {
+    "comment": "multirangetypes - Statement 407",
+    "query": "select count(*) from test_multirange_gist where mr >> int4multirange(int4range(100,200), int4range(400,500))"
+  },
+  {
+    "comment": "multirangetypes - Statement 408",
+    "query": "select count(*) from test_multirange_gist where mr &< int4multirange(int4range(100,200), int4range(400,500))"
+  },
+  {
+    "comment": "multirangetypes - Statement 409",
+    "query": "select count(*) from test_multirange_gist where mr &> int4multirange(int4range(100,200), int4range(400,500))"
+  },
+  {
+    "comment": "multirangetypes - Statement 410",
+    "query": "select count(*) from test_multirange_gist where mr -|- int4multirange(int4range(100,200), int4range(400,500))"
+  },
+  {
+    "comment": "multirangetypes - Statement 411",
+    "query": "SET enable_seqscan    = f"
+  },
+  {
+    "comment": "multirangetypes - Statement 412",
+    "query": "SET enable_indexscan  = t"
+  },
+  {
+    "comment": "multirangetypes - Statement 413",
+    "query": "drop table test_multirange_gist"
+  },
+  {
+    "comment": "multirangetypes - Statement 414",
+    "query": "create table reservations ( room_id integer not null, booked_during daterange )"
+  },
+  {
+    "comment": "multirangetypes - Statement 415",
+    "query": "insert into reservations values (1, daterange('2018-07-01', '2018-07-07')), (1, daterange('2018-07-07', '2018-07-14')), (1, daterange('2018-07-20', '2018-07-22')), (2, daterange('2018-07-01', '2018-07-03')), (3, NULL), (4, NULL), (4, NULL), (5, NULL), (5, daterange('2018-07-01', '2018-07-03')), (6, daterange('2018-07-01', '2018-07-07')), (6, daterange('2018-07-05', '2018-07-10')), (7, daterange('2018-07-01', '2018-07-07')), (7, daterange('2018-07-07', '2018-07-14')), (8, 'empty'::daterange)"
+  },
+  {
+    "comment": "multirangetypes - Statement 416",
+    "query": "SELECT   room_id, range_agg(booked_during) FROM     reservations GROUP BY room_id ORDER BY room_id"
+  },
+  {
+    "comment": "multirangetypes - Statement 417",
+    "query": "SELECT  range_agg(r) FROM    (VALUES ('[a,c]'::textrange), ('[b,b]'::textrange), ('[c,f]'::textrange), ('[g,h)'::textrange), ('[h,j)'::textrange) ) t(r)"
+  },
+  {
+    "comment": "multirangetypes - Statement 418",
+    "query": "select range_agg(nmr) from nummultirange_test"
+  },
+  {
+    "comment": "multirangetypes - Statement 419",
+    "query": "select range_agg(nmr) from nummultirange_test where false"
+  },
+  {
+    "comment": "multirangetypes - Statement 420",
+    "query": "select range_agg(null::nummultirange) from nummultirange_test"
+  },
+  {
+    "comment": "multirangetypes - Statement 421",
+    "query": "select range_agg(nmr) from (values ('{}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 422",
+    "query": "select range_agg(nmr) from (values ('{}'::nummultirange), ('{}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 423",
+    "query": "select range_agg(nmr) from (values ('{[1,2]}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 424",
+    "query": "select range_agg(nmr) from (values ('{[1,2], [5,6]}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 425",
+    "query": "select range_agg(nmr) from (values ('{[1,2], [2,3]}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 426",
+    "query": "select range_agg(nmr) from (values ('{[1,2]}'::nummultirange), ('{[5,6]}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 427",
+    "query": "select range_agg(nmr) from (values ('{[1,2]}'::nummultirange), ('{[2,3]}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 428",
+    "query": "select range_intersect_agg(nmr) from nummultirange_test"
+  },
+  {
+    "comment": "multirangetypes - Statement 429",
+    "query": "select range_intersect_agg(nmr) from nummultirange_test where false"
+  },
+  {
+    "comment": "multirangetypes - Statement 430",
+    "query": "select range_intersect_agg(null::nummultirange) from nummultirange_test"
+  },
+  {
+    "comment": "multirangetypes - Statement 431",
+    "query": "select range_intersect_agg(nmr) from (values ('{[1,3]}'::nummultirange), ('{[6,12]}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 432",
+    "query": "select range_intersect_agg(nmr) from (values ('{[1,6]}'::nummultirange), ('{[3,12]}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 433",
+    "query": "select range_intersect_agg(nmr) from (values ('{[1,6], [10,12]}'::nummultirange), ('{[4,14]}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 434",
+    "query": "select range_intersect_agg(nmr) from (values ('{}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 435",
+    "query": "select range_intersect_agg(nmr) from (values ('{[1,2]}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 436",
+    "query": "select range_intersect_agg(nmr) from (values ('{[1,6], [10,12]}'::nummultirange)) t(nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 437",
+    "query": "select range_intersect_agg(nmr) from nummultirange_test where nmr @> 4.0"
+  },
+  {
+    "comment": "multirangetypes - Statement 438",
+    "query": "create table nummultirange_test2(nmr nummultirange)"
+  },
+  {
+    "comment": "multirangetypes - Statement 439",
+    "query": "create index nummultirange_test2_hash_idx on nummultirange_test2 using hash (nmr)"
+  },
+  {
+    "comment": "multirangetypes - Statement 440",
+    "query": "INSERT INTO nummultirange_test2 VALUES('{[, 5)}')"
+  },
+  {
+    "comment": "multirangetypes - Statement 441",
+    "query": "INSERT INTO nummultirange_test2 VALUES(nummultirange(numrange(1.1, 2.2)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 442",
+    "query": "INSERT INTO nummultirange_test2 VALUES(nummultirange(numrange(1.1, 2.2,'()')))"
+  },
+  {
+    "comment": "multirangetypes - Statement 443",
+    "query": "INSERT INTO nummultirange_test2 VALUES('{}')"
+  },
+  {
+    "comment": "multirangetypes - Statement 444",
+    "query": "select * from nummultirange_test2 where nmr = '{}'"
+  },
+  {
+    "comment": "multirangetypes - Statement 445",
+    "query": "select * from nummultirange_test2 where nmr = nummultirange(numrange(1.1, 2.2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 446",
+    "query": "select * from nummultirange_test2 where nmr = nummultirange(numrange(1.1, 2.3))"
+  },
+  {
+    "comment": "multirangetypes - Statement 447",
+    "query": "set enable_nestloop=t"
+  },
+  {
+    "comment": "multirangetypes - Statement 448",
+    "query": "set enable_hashjoin=f"
+  },
+  {
+    "comment": "multirangetypes - Statement 449",
+    "query": "set enable_mergejoin=f"
+  },
+  {
+    "comment": "multirangetypes - Statement 450",
+    "query": "select * from nummultirange_test natural join nummultirange_test2 order by nmr"
+  },
+  {
+    "comment": "multirangetypes - Statement 451",
+    "query": "set enable_nestloop=f"
+  },
+  {
+    "comment": "multirangetypes - Statement 452",
+    "query": "set enable_hashjoin=t"
+  },
+  {
+    "comment": "multirangetypes - Statement 453",
+    "query": "set enable_mergejoin=t"
+  },
+  {
+    "comment": "multirangetypes - Statement 454",
+    "query": "set enable_nestloop to default"
+  },
+  {
+    "comment": "multirangetypes - Statement 455",
+    "query": "set enable_hashjoin to default"
+  },
+  {
+    "comment": "multirangetypes - Statement 456",
+    "query": "set enable_mergejoin to default"
+  },
+  {
+    "comment": "multirangetypes - Statement 457",
+    "query": "DROP TABLE nummultirange_test2"
+  },
+  {
+    "comment": "multirangetypes - Statement 458",
+    "query": "select '{[123.001, 5.e9)}'::float8multirange @> 888.882::float8"
+  },
+  {
+    "comment": "multirangetypes - Statement 459",
+    "query": "create table float8multirange_test(f8mr float8multirange, i int)"
+  },
+  {
+    "comment": "multirangetypes - Statement 460",
+    "query": "insert into float8multirange_test values(float8multirange(float8range(-100.00007, '1.111113e9')), 42)"
+  },
+  {
+    "comment": "multirangetypes - Statement 461",
+    "query": "select * from float8multirange_test"
+  },
+  {
+    "comment": "multirangetypes - Statement 462",
+    "query": "drop table float8multirange_test"
+  },
+  {
+    "comment": "multirangetypes - Statement 463",
+    "query": "create domain mydomain as int4"
+  },
+  {
+    "comment": "multirangetypes - Statement 464",
+    "query": "create type mydomainrange as range(subtype=mydomain)"
+  },
+  {
+    "comment": "multirangetypes - Statement 465",
+    "query": "select '{[4,50)}'::mydomainmultirange @> 7::mydomain"
+  },
+  {
+    "comment": "multirangetypes - Statement 466",
+    "query": "drop domain mydomain cascade"
+  },
+  {
+    "comment": "multirangetypes - Statement 467",
+    "query": "create domain restrictedmultirange as int4multirange check (upper(value) < 10)"
+  },
+  {
+    "comment": "multirangetypes - Statement 468",
+    "query": "select '{[4,5)}'::restrictedmultirange @> 7"
+  },
+  {
+    "comment": "multirangetypes - Statement 469",
+    "query": "select '{[4,50)}'::restrictedmultirange @> 7"
+  },
+  {
+    "comment": "multirangetypes - Statement 470",
+    "query": "drop domain restrictedmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 471",
+    "query": "create type intr as range(subtype=int)"
+  },
+  {
+    "comment": "multirangetypes - Statement 472",
+    "query": "select intr_multirange(intr(1,10))"
+  },
+  {
+    "comment": "multirangetypes - Statement 473",
+    "query": "drop type intr"
+  },
+  {
+    "comment": "multirangetypes - Statement 474",
+    "query": "create type intmultirange as (x int, y int)"
+  },
+  {
+    "comment": "multirangetypes - Statement 475",
+    "query": "create type intrange as range(subtype=int)"
+  },
+  {
+    "comment": "multirangetypes - Statement 476",
+    "query": "drop type intmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 477",
+    "query": "create type intr_multirange as (x int, y int)"
+  },
+  {
+    "comment": "multirangetypes - Statement 478",
+    "query": "drop type intr_multirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 479",
+    "query": "create type textrange1 as range(subtype=text, multirange_type_name=int, collation=\"C\")"
+  },
+  {
+    "comment": "multirangetypes - Statement 480",
+    "query": "create type textrange1 as range(subtype=text, multirange_type_name=multirange_of_text, collation=\"C\")"
+  },
+  {
+    "comment": "multirangetypes - Statement 481",
+    "query": "create type textrange2 as range(subtype=text, multirange_type_name=_textrange1, collation=\"C\")"
+  },
+  {
+    "comment": "multirangetypes - Statement 482",
+    "query": "select multirange_of_text(textrange2('a','Z'))"
+  },
+  {
+    "comment": "multirangetypes - Statement 483",
+    "query": "select multirange_of_text(textrange1('a','Z')) @> 'b'::text"
+  },
+  {
+    "comment": "multirangetypes - Statement 484",
+    "query": "select unnest(multirange_of_text(textrange1('a','b'), textrange1('d','e')))"
+  },
+  {
+    "comment": "multirangetypes - Statement 485",
+    "query": "select _textrange1(textrange2('a','z')) @> 'b'::text"
+  },
+  {
+    "comment": "multirangetypes - Statement 486",
+    "query": "drop type textrange1"
+  },
+  {
+    "comment": "multirangetypes - Statement 487",
+    "query": "drop type textrange2"
+  },
+  {
+    "comment": "multirangetypes - Statement 488",
+    "query": "create type textrange1 as range(subtype=text, multirange_type_name=multitextrange1, collation=\"C\")"
+  },
+  {
+    "comment": "multirangetypes - Statement 489",
+    "query": "create role regress_multirange_owner"
+  },
+  {
+    "comment": "multirangetypes - Statement 490",
+    "query": "alter type multitextrange1 owner to regress_multirange_owner"
+  },
+  {
+    "comment": "multirangetypes - Statement 491",
+    "query": "alter type textrange1 owner to regress_multirange_owner"
+  },
+  {
+    "comment": "multirangetypes - Statement 492",
+    "query": "set role regress_multirange_owner"
+  },
+  {
+    "comment": "multirangetypes - Statement 493",
+    "query": "revoke usage on type multitextrange1 from public"
+  },
+  {
+    "comment": "multirangetypes - Statement 494",
+    "query": "revoke usage on type textrange1 from public"
+  },
+  {
+    "comment": "multirangetypes - Statement 495",
+    "query": "revoke usage on type textrange1 from regress_multirange_owner"
+  },
+  {
+    "comment": "multirangetypes - Statement 496",
+    "query": "create temp table test2(f1 multitextrange1[])"
+  },
+  {
+    "comment": "multirangetypes - Statement 497",
+    "query": "drop table test1"
+  },
+  {
+    "comment": "multirangetypes - Statement 498",
+    "query": "reset role"
+  },
+  {
+    "comment": "multirangetypes - Statement 499",
+    "query": "drop role regress_multirange_owner"
+  },
+  {
+    "comment": "multirangetypes - Statement 500",
+    "query": "create function anyarray_anymultirange_func(a anyarray, r anymultirange) returns anyelement as 'select $1[1] + lower($2);' language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 501",
+    "query": "select anyarray_anymultirange_func(ARRAY[1,2], int4multirange(int4range(10,20)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 502",
+    "query": "select anyarray_anymultirange_func(ARRAY[1,2], nummultirange(numrange(10,20)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 503",
+    "query": "drop function anyarray_anymultirange_func(anyarray, anymultirange)"
+  },
+  {
+    "comment": "multirangetypes - Statement 504",
+    "query": "create function bogus_func(anyelement) returns anymultirange as 'select int4multirange(int4range(1,10))' language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 505",
+    "query": "create function bogus_func(int) returns anymultirange as 'select int4multirange(int4range(1,10))' language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 506",
+    "query": "create function range_add_bounds(anymultirange) returns anyelement as 'select lower($1) + upper($1)' language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 507",
+    "query": "select range_add_bounds(int4multirange(int4range(1, 17)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 508",
+    "query": "select range_add_bounds(nummultirange(numrange(1.0001, 123.123)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 509",
+    "query": "create function multirangetypes_sql(q anymultirange, b anyarray, out c anyelement) as $$ select upper($1) + $2[1] $$ language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 510",
+    "query": "select multirangetypes_sql(int4multirange(int4range(1,10)), ARRAY[2,20])"
+  },
+  {
+    "comment": "multirangetypes - Statement 511",
+    "query": "select multirangetypes_sql(nummultirange(numrange(1,10)), ARRAY[2,20])"
+  },
+  {
+    "comment": "multirangetypes - Statement 512",
+    "query": "create function anycompatiblearray_anycompatiblemultirange_func(a anycompatiblearray, mr anycompatiblemultirange) returns anycompatible as 'select $1[1] + lower($2);' language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 513",
+    "query": "select anycompatiblearray_anycompatiblemultirange_func(ARRAY[1,2], multirange(int4range(10,20)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 514",
+    "query": "select anycompatiblearray_anycompatiblemultirange_func(ARRAY[1,2], multirange(numrange(10,20)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 515",
+    "query": "select anycompatiblearray_anycompatiblemultirange_func(ARRAY[1.1,2], multirange(int4range(10,20)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 516",
+    "query": "drop function anycompatiblearray_anycompatiblemultirange_func(anycompatiblearray, anycompatiblemultirange)"
+  },
+  {
+    "comment": "multirangetypes - Statement 517",
+    "query": "create function anycompatiblerange_anycompatiblemultirange_func(r anycompatiblerange, mr anycompatiblemultirange) returns anycompatible as 'select lower($1) + lower($2);' language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 518",
+    "query": "select anycompatiblerange_anycompatiblemultirange_func(int4range(1,2), multirange(int4range(10,20)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 519",
+    "query": "select anycompatiblerange_anycompatiblemultirange_func(numrange(1,2), multirange(int4range(10,20)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 520",
+    "query": "drop function anycompatiblerange_anycompatiblemultirange_func(anycompatiblerange, anycompatiblemultirange)"
+  },
+  {
+    "comment": "multirangetypes - Statement 521",
+    "query": "create function bogus_func(anycompatible) returns anycompatiblerange as 'select int4range(1,10)' language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 522",
+    "query": "select ARRAY[nummultirange(numrange(1.1, 1.2)), nummultirange(numrange(12.3, 155.5))]"
+  },
+  {
+    "comment": "multirangetypes - Statement 523",
+    "query": "create table i8mr_array (f1 int, f2 int8multirange[])"
+  },
+  {
+    "comment": "multirangetypes - Statement 524",
+    "query": "insert into i8mr_array values (42, array[int8multirange(int8range(1,10)), int8multirange(int8range(2,20))])"
+  },
+  {
+    "comment": "multirangetypes - Statement 525",
+    "query": "select * from i8mr_array"
+  },
+  {
+    "comment": "multirangetypes - Statement 526",
+    "query": "drop table i8mr_array"
+  },
+  {
+    "comment": "multirangetypes - Statement 527",
+    "query": "select arraymultirange(arrayrange(ARRAY[1,2], ARRAY[2,1]))"
+  },
+  {
+    "comment": "multirangetypes - Statement 528",
+    "query": "select arraymultirange(arrayrange(ARRAY[2,1], ARRAY[1,2]))"
+  },
+  {
+    "comment": "multirangetypes - Statement 529",
+    "query": "select array[1,1] <@ arraymultirange(arrayrange(array[1,2], array[2,1]))"
+  },
+  {
+    "comment": "multirangetypes - Statement 530",
+    "query": "select array[1,3] <@ arraymultirange(arrayrange(array[1,2], array[2,1]))"
+  },
+  {
+    "comment": "multirangetypes - Statement 531",
+    "query": "create type two_ints as (a int, b int)"
+  },
+  {
+    "comment": "multirangetypes - Statement 532",
+    "query": "create type two_ints_range as range (subtype = two_ints)"
+  },
+  {
+    "comment": "multirangetypes - Statement 533",
+    "query": "select *, row_to_json(upper(t)) as u from (values (two_ints_multirange(two_ints_range(row(1,2), row(3,4)))), (two_ints_multirange(two_ints_range(row(5,6), row(7,8))))) v(t)"
+  },
+  {
+    "comment": "multirangetypes - Statement 534",
+    "query": "drop type two_ints cascade"
+  },
+  {
+    "comment": "multirangetypes - Statement 535",
+    "query": "set enable_sort = off"
+  },
+  {
+    "comment": "multirangetypes - Statement 536",
+    "query": "select '{(01,10)}'::varbitmultirange except select '{(10,11)}'::varbitmultirange"
+  },
+  {
+    "comment": "multirangetypes - Statement 537",
+    "query": "reset enable_sort"
+  },
+  {
+    "comment": "multirangetypes - Statement 538",
+    "query": "create function mr_outparam_succeed(i anymultirange, out r anymultirange, out t text) as $$ select $1, 'foo'::text $$ language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 539",
+    "query": "select * from mr_outparam_succeed(int4multirange(int4range(1,2)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 540",
+    "query": "create function mr_outparam_succeed2(i anymultirange, out r anyarray, out t text) as $$ select ARRAY[upper($1)], 'foo'::text $$ language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 541",
+    "query": "select * from mr_outparam_succeed2(int4multirange(int4range(1,2)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 542",
+    "query": "create function mr_outparam_succeed3(i anymultirange, out r anyrange, out t text) as $$ select range_merge($1), 'foo'::text $$ language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 543",
+    "query": "select * from mr_outparam_succeed3(int4multirange(int4range(1,2)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 544",
+    "query": "create function mr_outparam_succeed4(i anyrange, out r anymultirange, out t text) as $$ select multirange($1), 'foo'::text $$ language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 545",
+    "query": "select * from mr_outparam_succeed4(int4range(1,2))"
+  },
+  {
+    "comment": "multirangetypes - Statement 546",
+    "query": "create function mr_inoutparam_succeed(out i anyelement, inout r anymultirange) as $$ select upper($1), $1 $$ language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 547",
+    "query": "select * from mr_inoutparam_succeed(int4multirange(int4range(1,2)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 548",
+    "query": "create function mr_table_succeed(i anyelement, r anymultirange) returns table(i anyelement, r anymultirange) as $$ select $1, $2 $$ language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 549",
+    "query": "select * from mr_table_succeed(123, int4multirange(int4range(1,11)))"
+  },
+  {
+    "comment": "multirangetypes - Statement 550",
+    "query": "create function mr_polymorphic(i anyrange) returns anymultirange as $$ begin return multirange($1); end; $$ language plpgsql"
+  },
+  {
+    "comment": "multirangetypes - Statement 551",
+    "query": "select mr_polymorphic(int4range(1, 4))"
+  },
+  {
+    "comment": "multirangetypes - Statement 552",
+    "query": "create function mr_outparam_fail(i anyelement, out r anymultirange, out t text) as $$ select '[1,10]', 'foo' $$ language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 553",
+    "query": "create function mr_inoutparam_fail(inout i anyelement, out r anymultirange) as $$ select $1, '[1,10]' $$ language sql"
+  },
+  {
+    "comment": "multirangetypes - Statement 554",
+    "query": "create function mr_table_fail(i anyelement) returns table(i anyelement, r anymultirange) as $$ select $1, '[1,10]' $$ language sql"
+  }
+]

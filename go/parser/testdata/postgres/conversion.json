@@ -1,0 +1,290 @@
+[
+  {
+    "comment": "conversion - Statement 1",
+    "query": "SELECT FROM test_enc_setup()"
+  },
+  {
+    "comment": "conversion - Statement 2",
+    "query": "CREATE FUNCTION test_enc_conversion(bytea, name, name, bool, validlen OUT int, result OUT bytea) AS :'regresslib', 'test_enc_conversion' LANGUAGE C STRICT"
+  },
+  {
+    "comment": "conversion - Statement 3",
+    "query": "CREATE USER regress_conversion_user WITH NOCREATEDB NOCREATEROLE"
+  },
+  {
+    "comment": "conversion - Statement 4",
+    "query": "SET SESSION AUTHORIZATION regress_conversion_user"
+  },
+  {
+    "comment": "conversion - Statement 5",
+    "query": "CREATE CONVERSION myconv FOR 'LATIN1' TO 'UTF8' FROM iso8859_1_to_utf8"
+  },
+  {
+    "comment": "conversion - Statement 6",
+    "query": "CREATE DEFAULT CONVERSION public.mydef FOR 'LATIN1' TO 'UTF8' FROM iso8859_1_to_utf8"
+  },
+  {
+    "comment": "conversion - Statement 7",
+    "query": "CREATE DEFAULT CONVERSION public.mydef2 FOR 'LATIN1' TO 'UTF8' FROM iso8859_1_to_utf8"
+  },
+  {
+    "comment": "conversion - Statement 8",
+    "query": "COMMENT ON CONVERSION myconv_bad IS 'foo'"
+  },
+  {
+    "comment": "conversion - Statement 9",
+    "query": "COMMENT ON CONVERSION myconv IS 'bar'"
+  },
+  {
+    "comment": "conversion - Statement 10",
+    "query": "COMMENT ON CONVERSION myconv IS NULL"
+  },
+  {
+    "comment": "conversion - Statement 11",
+    "query": "DROP CONVERSION myconv"
+  },
+  {
+    "comment": "conversion - Statement 12",
+    "query": "DROP CONVERSION mydef"
+  },
+  {
+    "comment": "conversion - Statement 13",
+    "query": "RESET SESSION AUTHORIZATION"
+  },
+  {
+    "comment": "conversion - Statement 14",
+    "query": "DROP USER regress_conversion_user"
+  },
+  {
+    "comment": "conversion - Statement 15",
+    "query": "create or replace function test_conv( input IN bytea, src_encoding IN text, dst_encoding IN text, result OUT bytea, errorat OUT bytea, error OUT text) language plpgsql as $$ declare validlen int"
+  },
+  {
+    "comment": "conversion - Statement 16",
+    "query": "begin begin select * into validlen, result from test_enc_conversion(input, src_encoding, dst_encoding, false)"
+  },
+  {
+    "comment": "conversion - Statement 17",
+    "query": "errorat = NULL"
+  },
+  {
+    "comment": "conversion - Statement 18",
+    "query": "error := NULL"
+  },
+  {
+    "comment": "conversion - Statement 19",
+    "query": "exception when others then error := sqlerrm"
+  },
+  {
+    "comment": "conversion - Statement 20",
+    "query": "select * into validlen, result from test_enc_conversion(input, src_encoding, dst_encoding, true)"
+  },
+  {
+    "comment": "conversion - Statement 21",
+    "query": "errorat = substr(input, validlen + 1)"
+  },
+  {
+    "comment": "conversion - Statement 22",
+    "query": "end"
+  },
+  {
+    "comment": "conversion - Statement 23",
+    "query": "return"
+  },
+  {
+    "comment": "conversion - Statement 24",
+    "query": "$$"
+  },
+  {
+    "comment": "conversion - Statement 25",
+    "query": "CREATE TABLE utf8_verification_inputs (inbytes bytea, description text PRIMARY KEY)"
+  },
+  {
+    "comment": "conversion - Statement 26",
+    "query": "insert into utf8_verification_inputs  values ('\\x66006f',\t'NUL byte'), ('\\xaf',\t\t'bare continuation'), ('\\xc5',\t\t'missing second byte in 2-byte char'), ('\\xc080',\t'smallest 2-byte overlong'), ('\\xc1bf',\t'largest 2-byte overlong'), ('\\xc280',\t'next 2-byte after overlongs'), ('\\xdfbf',\t'largest 2-byte'), ('\\xe9af',\t'missing third byte in 3-byte char'), ('\\xe08080',\t'smallest 3-byte overlong'), ('\\xe09fbf',\t'largest 3-byte overlong'), ('\\xe0a080',\t'next 3-byte after overlong'), ('\\xed9fbf',\t'last before surrogates'), ('\\xeda080',\t'smallest surrogate'), ('\\xedbfbf',\t'largest surrogate'), ('\\xee8080',\t'next after surrogates'), ('\\xefbfbf',\t'largest 3-byte'), ('\\xf1afbf',\t'missing fourth byte in 4-byte char'), ('\\xf0808080',\t'smallest 4-byte overlong'), ('\\xf08fbfbf',\t'largest 4-byte overlong'), ('\\xf0908080',\t'next 4-byte after overlong'), ('\\xf48fbfbf',\t'largest 4-byte'), ('\\xf4908080',\t'smallest too large'), ('\\xfa9a9a8a8a',\t'5-byte')"
+  },
+  {
+    "comment": "conversion - Statement 27",
+    "query": "select description, (test_conv(inbytes, 'utf8', 'utf8')).* from utf8_verification_inputs"
+  },
+  {
+    "comment": "conversion - Statement 28",
+    "query": "with test_bytes as ( select inbytes, description, (test_conv(inbytes || repeat('.', 3)::bytea, 'utf8', 'utf8')).error from utf8_verification_inputs ), test_padded as ( select description, (test_conv(inbytes || repeat('.', 64)::bytea, 'utf8', 'utf8')).error from test_bytes ) select description, b.error as orig_error, p.error as error_after_padding from test_padded p join test_bytes b using (description) where p.error is distinct from b.error order by description"
+  },
+  {
+    "comment": "conversion - Statement 29",
+    "query": "with test_bytes as ( select inbytes, description, (test_conv(inbytes || repeat('.', 3)::bytea, 'utf8', 'utf8')).error from utf8_verification_inputs ), test_padded as ( select description, (test_conv(repeat('.', 64 - length(inbytes))::bytea || inbytes || repeat('.', 64)::bytea, 'utf8', 'utf8')).error from test_bytes ) select description, b.error as orig_error, p.error as error_after_padding from test_padded p join test_bytes b using (description) where p.error is distinct from b.error order by description"
+  },
+  {
+    "comment": "conversion - Statement 30",
+    "query": "with test_bytes as ( select inbytes, description, (test_conv(inbytes || repeat('.', 3)::bytea, 'utf8', 'utf8')).error from utf8_verification_inputs ), test_padded as ( select description, (test_conv(repeat('.', 64)::bytea || inbytes || repeat('.', 3)::bytea, 'utf8', 'utf8')).error from test_bytes ) select description, b.error as orig_error, p.error as error_after_padding from test_padded p join test_bytes b using (description) where p.error is distinct from b.error order by description"
+  },
+  {
+    "comment": "conversion - Statement 31",
+    "query": "with test_bytes as ( select inbytes, description, (test_conv(inbytes || repeat('.', 3)::bytea, 'utf8', 'utf8')).error from utf8_verification_inputs ), test_padded as ( select description, (test_conv(repeat('.', 64 - length(inbytes))::bytea || inbytes || repeat('.', 3)::bytea, 'utf8', 'utf8')).error from test_bytes ) select description, b.error as orig_error, p.error as error_after_padding from test_padded p join test_bytes b using (description) where p.error is distinct from b.error order by description"
+  },
+  {
+    "comment": "conversion - Statement 32",
+    "query": "CREATE TABLE utf8_inputs (inbytes bytea, description text)"
+  },
+  {
+    "comment": "conversion - Statement 33",
+    "query": "insert into utf8_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\xc3a4c3b6',\t'valid, extra latin chars'), ('\\xd184d0bed0be',\t'valid, cyrillic'), ('\\x666f6fe8b1a1',\t'valid, kanji/Chinese'), ('\\xe382abe3829a',\t'valid, two chars that combine to one in EUC_JIS_2004'), ('\\xe382ab',\t\t'only first half of combined char in EUC_JIS_2004'), ('\\xe382abe382',\t'incomplete combination when converted EUC_JIS_2004'), ('\\xecbd94eb81bceba6ac', 'valid, Hangul, Korean'), ('\\x666f6fefa8aa',\t'valid, needs mapping function to convert to GB18030'), ('\\x66e8b1ff6f6f',\t'invalid byte sequence'), ('\\x66006f',\t\t'invalid, NUL byte'), ('\\x666f6fe8b100',\t'invalid, NUL byte'), ('\\x666f6fe8b1',\t'incomplete character at end')"
+  },
+  {
+    "comment": "conversion - Statement 34",
+    "query": "select description, (test_conv(inbytes, 'utf8', 'utf8')).* from utf8_inputs"
+  },
+  {
+    "comment": "conversion - Statement 35",
+    "query": "select description, inbytes, (test_conv(inbytes, 'utf8', 'euc_jis_2004')).* from utf8_inputs"
+  },
+  {
+    "comment": "conversion - Statement 36",
+    "query": "select description, inbytes, (test_conv(inbytes, 'utf8', 'latin1')).* from utf8_inputs"
+  },
+  {
+    "comment": "conversion - Statement 37",
+    "query": "select description, inbytes, (test_conv(inbytes, 'utf8', 'latin2')).* from utf8_inputs"
+  },
+  {
+    "comment": "conversion - Statement 38",
+    "query": "select description, inbytes, (test_conv(inbytes, 'utf8', 'latin5')).* from utf8_inputs"
+  },
+  {
+    "comment": "conversion - Statement 39",
+    "query": "select description, inbytes, (test_conv(inbytes, 'utf8', 'koi8r')).* from utf8_inputs"
+  },
+  {
+    "comment": "conversion - Statement 40",
+    "query": "select description, inbytes, (test_conv(inbytes, 'utf8', 'gb18030')).* from utf8_inputs"
+  },
+  {
+    "comment": "conversion - Statement 41",
+    "query": "CREATE TABLE euc_jis_2004_inputs (inbytes bytea, description text)"
+  },
+  {
+    "comment": "conversion - Statement 42",
+    "query": "insert into euc_jis_2004_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\x666f6fbedd',\t'valid'), ('\\xa5f7',\t\t'valid, translates to two UTF-8 chars '), ('\\xbeddbe',\t\t'incomplete char '), ('\\x666f6f00bedd',\t'invalid, NUL byte'), ('\\x666f6fbe00dd',\t'invalid, NUL byte'), ('\\x666f6fbedd00',\t'invalid, NUL byte'), ('\\xbe04',\t\t'invalid byte sequence')"
+  },
+  {
+    "comment": "conversion - Statement 43",
+    "query": "select description, inbytes, (test_conv(inbytes, 'euc_jis_2004', 'euc_jis_2004')).* from euc_jis_2004_inputs"
+  },
+  {
+    "comment": "conversion - Statement 44",
+    "query": "select description, inbytes, (test_conv(inbytes, 'euc_jis_2004', 'utf8')).* from euc_jis_2004_inputs"
+  },
+  {
+    "comment": "conversion - Statement 45",
+    "query": "CREATE TABLE shiftjis2004_inputs (inbytes bytea, description text)"
+  },
+  {
+    "comment": "conversion - Statement 46",
+    "query": "insert into shiftjis2004_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\x666f6f8fdb',\t'valid'), ('\\x666f6f81c0',\t'valid, no translation to UTF-8'), ('\\x666f6f82f5',\t'valid, translates to two UTF-8 chars '), ('\\x666f6f8fdb8f',\t'incomplete char '), ('\\x666f6f820a',\t'incomplete char, followed by newline '), ('\\x666f6f008fdb',\t'invalid, NUL byte'), ('\\x666f6f8f00db',\t'invalid, NUL byte'), ('\\x666f6f8fdb00',\t'invalid, NUL byte')"
+  },
+  {
+    "comment": "conversion - Statement 47",
+    "query": "select description, inbytes, (test_conv(inbytes, 'shiftjis2004', 'shiftjis2004')).* from shiftjis2004_inputs"
+  },
+  {
+    "comment": "conversion - Statement 48",
+    "query": "select description, inbytes, (test_conv(inbytes, 'shiftjis2004', 'utf8')).* from shiftjis2004_inputs"
+  },
+  {
+    "comment": "conversion - Statement 49",
+    "query": "select description, inbytes, (test_conv(inbytes, 'shiftjis2004', 'euc_jis_2004')).* from shiftjis2004_inputs"
+  },
+  {
+    "comment": "conversion - Statement 50",
+    "query": "CREATE TABLE gb18030_inputs (inbytes bytea, description text)"
+  },
+  {
+    "comment": "conversion - Statement 51",
+    "query": "insert into gb18030_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\x666f6fcff3',\t'valid'), ('\\x666f6f8431a530',\t'valid, no translation to UTF-8'), ('\\x666f6f84309c38',\t'valid, translates to UTF-8 by mapping function'), ('\\x666f6f84309c',\t'incomplete char '), ('\\x666f6f84309c0a',\t'incomplete char, followed by newline '), ('\\x666f6f84',\t\t'incomplete char at end'), ('\\x666f6f84309c3800', 'invalid, NUL byte'), ('\\x666f6f84309c0038', 'invalid, NUL byte')"
+  },
+  {
+    "comment": "conversion - Statement 52",
+    "query": "select description, inbytes, (test_conv(inbytes::text::bytea, 'gb18030', 'gb18030')).* from gb18030_inputs"
+  },
+  {
+    "comment": "conversion - Statement 53",
+    "query": "select description, inbytes, (test_conv(inbytes, 'gb18030', 'utf8')).* from gb18030_inputs"
+  },
+  {
+    "comment": "conversion - Statement 54",
+    "query": "CREATE TABLE iso8859_5_inputs (inbytes bytea, description text)"
+  },
+  {
+    "comment": "conversion - Statement 55",
+    "query": "insert into iso8859_5_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\xe4dede',\t\t'valid'), ('\\x00',\t\t'invalid, NUL byte'), ('\\xe400dede',\t'invalid, NUL byte'), ('\\xe4dede00',\t'invalid, NUL byte')"
+  },
+  {
+    "comment": "conversion - Statement 56",
+    "query": "select description, inbytes, (test_conv(inbytes, 'iso8859-5', 'iso8859-5')).* from iso8859_5_inputs"
+  },
+  {
+    "comment": "conversion - Statement 57",
+    "query": "select description, inbytes, (test_conv(inbytes, 'iso8859-5', 'utf8')).* from iso8859_5_inputs"
+  },
+  {
+    "comment": "conversion - Statement 58",
+    "query": "select description, inbytes, (test_conv(inbytes, 'iso8859-5', 'koi8r')).* from iso8859_5_inputs"
+  },
+  {
+    "comment": "conversion - Statement 59",
+    "query": "select description, inbytes, (test_conv(inbytes, 'iso8859_5', 'mule_internal')).* from iso8859_5_inputs"
+  },
+  {
+    "comment": "conversion - Statement 60",
+    "query": "CREATE TABLE big5_inputs (inbytes bytea, description text)"
+  },
+  {
+    "comment": "conversion - Statement 61",
+    "query": "insert into big5_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\x666f6fb648',\t'valid'), ('\\x666f6fa27f',\t'valid, no translation to UTF-8'), ('\\x666f6fb60048',\t'invalid, NUL byte'), ('\\x666f6fb64800',\t'invalid, NUL byte')"
+  },
+  {
+    "comment": "conversion - Statement 62",
+    "query": "select description, inbytes, (test_conv(inbytes, 'big5', 'big5')).* from big5_inputs"
+  },
+  {
+    "comment": "conversion - Statement 63",
+    "query": "select description, inbytes, (test_conv(inbytes, 'big5', 'utf8')).* from big5_inputs"
+  },
+  {
+    "comment": "conversion - Statement 64",
+    "query": "select description, inbytes, (test_conv(inbytes, 'big5', 'mule_internal')).* from big5_inputs"
+  },
+  {
+    "comment": "conversion - Statement 65",
+    "query": "CREATE TABLE mic_inputs (inbytes bytea, description text)"
+  },
+  {
+    "comment": "conversion - Statement 66",
+    "query": "insert into mic_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\x8bc68bcf8bcf',\t'valid (in KOI8R)'), ('\\x8bc68bcf8b',\t'invalid,incomplete char'), ('\\x92bedd',\t\t'valid (in SHIFT_JIS)'), ('\\x92be',\t\t'invalid, incomplete char)'), ('\\x666f6f95a3c1',\t'valid (in Big5)'), ('\\x666f6f95a3',\t'invalid, incomplete char'), ('\\x9200bedd',\t'invalid, NUL byte'), ('\\x92bedd00',\t'invalid, NUL byte'), ('\\x8b00c68bcf8bcf',\t'invalid, NUL byte')"
+  },
+  {
+    "comment": "conversion - Statement 67",
+    "query": "select description, inbytes, (test_conv(inbytes, 'mule_internal', 'mule_internal')).* from mic_inputs"
+  },
+  {
+    "comment": "conversion - Statement 68",
+    "query": "select description, inbytes, (test_conv(inbytes, 'mule_internal', 'koi8r')).* from mic_inputs"
+  },
+  {
+    "comment": "conversion - Statement 69",
+    "query": "select description, inbytes, (test_conv(inbytes, 'mule_internal', 'iso8859-5')).* from mic_inputs"
+  },
+  {
+    "comment": "conversion - Statement 70",
+    "query": "select description, inbytes, (test_conv(inbytes, 'mule_internal', 'sjis')).* from mic_inputs"
+  },
+  {
+    "comment": "conversion - Statement 71",
+    "query": "select description, inbytes, (test_conv(inbytes, 'mule_internal', 'big5')).* from mic_inputs"
+  },
+  {
+    "comment": "conversion - Statement 72",
+    "query": "select description, inbytes, (test_conv(inbytes, 'mule_internal', 'euc_jp')).* from mic_inputs"
+  }
+]

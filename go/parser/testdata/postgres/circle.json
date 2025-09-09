@@ -1,0 +1,90 @@
+[
+  {
+    "comment": "circle - Statement 1",
+    "query": "SET extra_float_digits = -1"
+  },
+  {
+    "comment": "circle - Statement 2",
+    "query": "CREATE TABLE CIRCLE_TBL (f1 circle)"
+  },
+  {
+    "comment": "circle - Statement 3",
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(5,1),3>')"
+  },
+  {
+    "comment": "circle - Statement 4",
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('((1,2),100)')"
+  },
+  {
+    "comment": "circle - Statement 5",
+    "query": "INSERT INTO CIRCLE_TBL VALUES (' 1 , 3 , 5 ')"
+  },
+  {
+    "comment": "circle - Statement 6",
+    "query": "INSERT INTO CIRCLE_TBL VALUES (' ( ( 1 , 2 ) , 3 ) ')"
+  },
+  {
+    "comment": "circle - Statement 7",
+    "query": "INSERT INTO CIRCLE_TBL VALUES (' ( 100 , 200 ) , 10 ')"
+  },
+  {
+    "comment": "circle - Statement 8",
+    "query": "INSERT INTO CIRCLE_TBL VALUES (' < ( 100 , 1 ) , 115 > ')"
+  },
+  {
+    "comment": "circle - Statement 9",
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(3,5),0>')"
+  },
+  {
+    "comment": "circle - Statement 10",
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(3,5),NaN>')"
+  },
+  {
+    "comment": "circle - Statement 11",
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(-100,0),-100>')"
+  },
+  {
+    "comment": "circle - Statement 12",
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(100,200),10')"
+  },
+  {
+    "comment": "circle - Statement 13",
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('<(100,200),10> x')"
+  },
+  {
+    "comment": "circle - Statement 14",
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('1abc,3,5')"
+  },
+  {
+    "comment": "circle - Statement 15",
+    "query": "INSERT INTO CIRCLE_TBL VALUES ('(3,(1,2),3)')"
+  },
+  {
+    "comment": "circle - Statement 16",
+    "query": "SELECT * FROM CIRCLE_TBL"
+  },
+  {
+    "comment": "circle - Statement 17",
+    "query": "SELECT center(f1) AS center FROM CIRCLE_TBL"
+  },
+  {
+    "comment": "circle - Statement 18",
+    "query": "SELECT radius(f1) AS radius FROM CIRCLE_TBL"
+  },
+  {
+    "comment": "circle - Statement 19",
+    "query": "SELECT diameter(f1) AS diameter FROM CIRCLE_TBL"
+  },
+  {
+    "comment": "circle - Statement 20",
+    "query": "SELECT f1 FROM CIRCLE_TBL WHERE radius(f1) < 5"
+  },
+  {
+    "comment": "circle - Statement 21",
+    "query": "SELECT f1 FROM CIRCLE_TBL WHERE diameter(f1) >= 10"
+  },
+  {
+    "comment": "circle - Statement 22",
+    "query": "SELECT c1.f1 AS one, c2.f1 AS two, (c1.f1 <-> c2.f1) AS distance FROM CIRCLE_TBL c1, CIRCLE_TBL c2 WHERE (c1.f1 < c2.f1) AND ((c1.f1 <-> c2.f1) > 0) ORDER BY distance, area(c1.f1), area(c2.f1)"
+  }
+]

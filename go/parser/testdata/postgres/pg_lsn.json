@@ -1,0 +1,126 @@
+[
+  {
+    "comment": "pg_lsn - Statement 1",
+    "query": "CREATE TABLE PG_LSN_TBL (f1 pg_lsn)"
+  },
+  {
+    "comment": "pg_lsn - Statement 2",
+    "query": "INSERT INTO PG_LSN_TBL VALUES ('0/0')"
+  },
+  {
+    "comment": "pg_lsn - Statement 3",
+    "query": "INSERT INTO PG_LSN_TBL VALUES ('FFFFFFFF/FFFFFFFF')"
+  },
+  {
+    "comment": "pg_lsn - Statement 4",
+    "query": "INSERT INTO PG_LSN_TBL VALUES ('G/0')"
+  },
+  {
+    "comment": "pg_lsn - Statement 5",
+    "query": "INSERT INTO PG_LSN_TBL VALUES ('-1/0')"
+  },
+  {
+    "comment": "pg_lsn - Statement 6",
+    "query": "INSERT INTO PG_LSN_TBL VALUES (' 0/12345678')"
+  },
+  {
+    "comment": "pg_lsn - Statement 7",
+    "query": "INSERT INTO PG_LSN_TBL VALUES ('ABCD/')"
+  },
+  {
+    "comment": "pg_lsn - Statement 8",
+    "query": "INSERT INTO PG_LSN_TBL VALUES ('/ABCD')"
+  },
+  {
+    "comment": "pg_lsn - Statement 9",
+    "query": "SELECT pg_input_is_valid('16AE7F7', 'pg_lsn')"
+  },
+  {
+    "comment": "pg_lsn - Statement 10",
+    "query": "SELECT * FROM pg_input_error_info('16AE7F7', 'pg_lsn')"
+  },
+  {
+    "comment": "pg_lsn - Statement 11",
+    "query": "SELECT MIN(f1), MAX(f1) FROM PG_LSN_TBL"
+  },
+  {
+    "comment": "pg_lsn - Statement 12",
+    "query": "DROP TABLE PG_LSN_TBL"
+  },
+  {
+    "comment": "pg_lsn - Statement 13",
+    "query": "SELECT '0/16AE7F8' = '0/16AE7F8'::pg_lsn"
+  },
+  {
+    "comment": "pg_lsn - Statement 14",
+    "query": "SELECT '0/16AE7F8'::pg_lsn != '0/16AE7F7'"
+  },
+  {
+    "comment": "pg_lsn - Statement 15",
+    "query": "SELECT '0/16AE7F7' < '0/16AE7F8'::pg_lsn"
+  },
+  {
+    "comment": "pg_lsn - Statement 16",
+    "query": "SELECT '0/16AE7F8' > pg_lsn '0/16AE7F7'"
+  },
+  {
+    "comment": "pg_lsn - Statement 17",
+    "query": "SELECT '0/16AE7F7'::pg_lsn - '0/16AE7F8'::pg_lsn"
+  },
+  {
+    "comment": "pg_lsn - Statement 18",
+    "query": "SELECT '0/16AE7F8'::pg_lsn - '0/16AE7F7'::pg_lsn"
+  },
+  {
+    "comment": "pg_lsn - Statement 19",
+    "query": "SELECT '0/16AE7F7'::pg_lsn + 16::numeric"
+  },
+  {
+    "comment": "pg_lsn - Statement 20",
+    "query": "SELECT 16::numeric + '0/16AE7F7'::pg_lsn"
+  },
+  {
+    "comment": "pg_lsn - Statement 21",
+    "query": "SELECT '0/16AE7F7'::pg_lsn - 16::numeric"
+  },
+  {
+    "comment": "pg_lsn - Statement 22",
+    "query": "SELECT 'FFFFFFFF/FFFFFFFE'::pg_lsn + 1::numeric"
+  },
+  {
+    "comment": "pg_lsn - Statement 23",
+    "query": "SELECT 'FFFFFFFF/FFFFFFFE'::pg_lsn + 2::numeric"
+  },
+  {
+    "comment": "pg_lsn - Statement 24",
+    "query": "SELECT '0/1'::pg_lsn - 1::numeric"
+  },
+  {
+    "comment": "pg_lsn - Statement 25",
+    "query": "SELECT '0/1'::pg_lsn - 2::numeric"
+  },
+  {
+    "comment": "pg_lsn - Statement 26",
+    "query": "SELECT '0/0'::pg_lsn + ('FFFFFFFF/FFFFFFFF'::pg_lsn - '0/0'::pg_lsn)"
+  },
+  {
+    "comment": "pg_lsn - Statement 27",
+    "query": "SELECT 'FFFFFFFF/FFFFFFFF'::pg_lsn - ('FFFFFFFF/FFFFFFFF'::pg_lsn - '0/0'::pg_lsn)"
+  },
+  {
+    "comment": "pg_lsn - Statement 28",
+    "query": "SELECT '0/16AE7F7'::pg_lsn + 'NaN'::numeric"
+  },
+  {
+    "comment": "pg_lsn - Statement 29",
+    "query": "SELECT '0/16AE7F7'::pg_lsn - 'NaN'::numeric"
+  },
+  {
+    "comment": "pg_lsn - Statement 30",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT (i || '/' || j)::pg_lsn f FROM generate_series(1, 10) i, generate_series(1, 10) j, generate_series(1, 5) k WHERE i <= 10 AND j > 0 AND j <= 10 ORDER BY f"
+  },
+  {
+    "comment": "pg_lsn - Statement 31",
+    "query": "SELECT DISTINCT (i || '/' || j)::pg_lsn f FROM generate_series(1, 10) i, generate_series(1, 10) j, generate_series(1, 5) k WHERE i <= 10 AND j > 0 AND j <= 10 ORDER BY f"
+  }
+]

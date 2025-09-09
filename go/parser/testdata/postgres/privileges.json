@@ -1,0 +1,3394 @@
+[
+  {
+    "comment": "privileges - Statement 1",
+    "query": "SET client_min_messages TO 'warning'"
+  },
+  {
+    "comment": "privileges - Statement 2",
+    "query": "DROP ROLE IF EXISTS regress_priv_group1"
+  },
+  {
+    "comment": "privileges - Statement 3",
+    "query": "DROP ROLE IF EXISTS regress_priv_group2"
+  },
+  {
+    "comment": "privileges - Statement 4",
+    "query": "DROP ROLE IF EXISTS regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 5",
+    "query": "DROP ROLE IF EXISTS regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 6",
+    "query": "DROP ROLE IF EXISTS regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 7",
+    "query": "DROP ROLE IF EXISTS regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 8",
+    "query": "DROP ROLE IF EXISTS regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 9",
+    "query": "DROP ROLE IF EXISTS regress_priv_user6"
+  },
+  {
+    "comment": "privileges - Statement 10",
+    "query": "DROP ROLE IF EXISTS regress_priv_user7"
+  },
+  {
+    "comment": "privileges - Statement 11",
+    "query": "SELECT lo_unlink(oid) FROM pg_largeobject_metadata WHERE oid >= 1000 AND oid < 3000 ORDER BY oid"
+  },
+  {
+    "comment": "privileges - Statement 12",
+    "query": "RESET client_min_messages"
+  },
+  {
+    "comment": "privileges - Statement 13",
+    "query": "CREATE USER regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 14",
+    "query": "CREATE USER regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 15",
+    "query": "CREATE USER regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 16",
+    "query": "CREATE USER regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 17",
+    "query": "CREATE USER regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 18",
+    "query": "CREATE USER regress_priv_user6"
+  },
+  {
+    "comment": "privileges - Statement 19",
+    "query": "CREATE USER regress_priv_user7"
+  },
+  {
+    "comment": "privileges - Statement 20",
+    "query": "CREATE USER regress_priv_user8"
+  },
+  {
+    "comment": "privileges - Statement 21",
+    "query": "CREATE USER regress_priv_user9"
+  },
+  {
+    "comment": "privileges - Statement 22",
+    "query": "CREATE USER regress_priv_user10"
+  },
+  {
+    "comment": "privileges - Statement 23",
+    "query": "CREATE ROLE regress_priv_role"
+  },
+  {
+    "comment": "privileges - Statement 24",
+    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION"
+  },
+  {
+    "comment": "privileges - Statement 25",
+    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION GRANTED BY regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 26",
+    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION GRANTED BY regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 27",
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_user1 FROM regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 28",
+    "query": "REVOKE regress_priv_user1 FROM regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 29",
+    "query": "SELECT member::regrole, admin_option FROM pg_auth_members WHERE roleid = 'regress_priv_user1'::regrole"
+  },
+  {
+    "comment": "privileges - Statement 30",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "privileges - Statement 31",
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_user1 FROM regress_priv_user2 CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 32",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "privileges - Statement 33",
+    "query": "REVOKE regress_priv_user1 FROM regress_priv_user2 CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 34",
+    "query": "GRANT regress_priv_user2 TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 35",
+    "query": "SET ROLE regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 36",
+    "query": "GRANT regress_priv_user1 TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 37",
+    "query": "SELECT grantor::regrole FROM pg_auth_members WHERE roleid = 'regress_priv_user1'::regrole and member = 'regress_priv_user4'::regrole"
+  },
+  {
+    "comment": "privileges - Statement 38",
+    "query": "RESET ROLE"
+  },
+  {
+    "comment": "privileges - Statement 39",
+    "query": "REVOKE regress_priv_user2 FROM regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 40",
+    "query": "GRANT regress_priv_user1 TO regress_priv_user3 GRANTED BY regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 41",
+    "query": "DROP ROLE regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 42",
+    "query": "REASSIGN OWNED BY regress_priv_user2 TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 43",
+    "query": "DROP OWNED BY regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 44",
+    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION"
+  },
+  {
+    "comment": "privileges - Statement 45",
+    "query": "GRANT regress_priv_user1 TO regress_priv_user4 GRANTED BY regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 46",
+    "query": "DROP ROLE regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 47",
+    "query": "DROP ROLE regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 48",
+    "query": "GRANT regress_priv_user1 TO regress_priv_user5 WITH ADMIN OPTION"
+  },
+  {
+    "comment": "privileges - Statement 49",
+    "query": "GRANT regress_priv_user1 TO regress_priv_user6 GRANTED BY regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 50",
+    "query": "DROP ROLE regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 51",
+    "query": "DROP ROLE regress_priv_user1, regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 52",
+    "query": "GRANT pg_read_all_data TO regress_priv_user6"
+  },
+  {
+    "comment": "privileges - Statement 53",
+    "query": "GRANT pg_write_all_data TO regress_priv_user7"
+  },
+  {
+    "comment": "privileges - Statement 54",
+    "query": "GRANT pg_read_all_settings TO regress_priv_user8 WITH ADMIN OPTION"
+  },
+  {
+    "comment": "privileges - Statement 55",
+    "query": "GRANT regress_priv_user9 TO regress_priv_user8"
+  },
+  {
+    "comment": "privileges - Statement 56",
+    "query": "SET SESSION AUTHORIZATION regress_priv_user8"
+  },
+  {
+    "comment": "privileges - Statement 57",
+    "query": "GRANT pg_read_all_settings TO regress_priv_user9 WITH ADMIN OPTION"
+  },
+  {
+    "comment": "privileges - Statement 58",
+    "query": "SET SESSION AUTHORIZATION regress_priv_user9"
+  },
+  {
+    "comment": "privileges - Statement 59",
+    "query": "GRANT pg_read_all_settings TO regress_priv_user10"
+  },
+  {
+    "comment": "privileges - Statement 60",
+    "query": "REVOKE pg_read_all_settings FROM regress_priv_user10 GRANTED BY regress_priv_user9"
+  },
+  {
+    "comment": "privileges - Statement 61",
+    "query": "REVOKE ADMIN OPTION FOR pg_read_all_settings FROM regress_priv_user9"
+  },
+  {
+    "comment": "privileges - Statement 62",
+    "query": "REVOKE pg_read_all_settings FROM regress_priv_user9"
+  },
+  {
+    "comment": "privileges - Statement 63",
+    "query": "RESET SESSION AUTHORIZATION"
+  },
+  {
+    "comment": "privileges - Statement 64",
+    "query": "REVOKE regress_priv_user9 FROM regress_priv_user8"
+  },
+  {
+    "comment": "privileges - Statement 65",
+    "query": "REVOKE ADMIN OPTION FOR pg_read_all_settings FROM regress_priv_user8"
+  },
+  {
+    "comment": "privileges - Statement 66",
+    "query": "SET ROLE pg_read_all_settings"
+  },
+  {
+    "comment": "privileges - Statement 67",
+    "query": "REVOKE SET OPTION FOR pg_read_all_settings FROM regress_priv_user8"
+  },
+  {
+    "comment": "privileges - Statement 68",
+    "query": "GRANT pg_read_all_stats TO regress_priv_user8 WITH SET FALSE"
+  },
+  {
+    "comment": "privileges - Statement 69",
+    "query": "SET ROLE pg_read_all_stats"
+  },
+  {
+    "comment": "privileges - Statement 70",
+    "query": "SET ROLE regress_priv_user9"
+  },
+  {
+    "comment": "privileges - Statement 71",
+    "query": "SET debug_parallel_query = 0"
+  },
+  {
+    "comment": "privileges - Statement 72",
+    "query": "SELECT session_user, current_role, current_user, current_setting('role') as role"
+  },
+  {
+    "comment": "privileges - Statement 73",
+    "query": "SET debug_parallel_query = 1"
+  },
+  {
+    "comment": "privileges - Statement 74",
+    "query": "SET SESSION AUTHORIZATION regress_priv_user10"
+  },
+  {
+    "comment": "privileges - Statement 75",
+    "query": "SELECT session_user = current_role as c_r_ok, session_user = current_user as c_u_ok, current_setting('role') as role"
+  },
+  {
+    "comment": "privileges - Statement 76",
+    "query": "RESET debug_parallel_query"
+  },
+  {
+    "comment": "privileges - Statement 77",
+    "query": "REVOKE pg_read_all_settings FROM regress_priv_user8"
+  },
+  {
+    "comment": "privileges - Statement 78",
+    "query": "DROP USER regress_priv_user10"
+  },
+  {
+    "comment": "privileges - Statement 79",
+    "query": "DROP USER regress_priv_user9"
+  },
+  {
+    "comment": "privileges - Statement 80",
+    "query": "DROP USER regress_priv_user8"
+  },
+  {
+    "comment": "privileges - Statement 81",
+    "query": "CREATE GROUP regress_priv_group1"
+  },
+  {
+    "comment": "privileges - Statement 82",
+    "query": "CREATE GROUP regress_priv_group2 WITH ADMIN regress_priv_user1 USER regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 83",
+    "query": "ALTER GROUP regress_priv_group1 ADD USER regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 84",
+    "query": "GRANT regress_priv_group2 TO regress_priv_user2 GRANTED BY regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 85",
+    "query": "SET SESSION AUTHORIZATION regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 86",
+    "query": "ALTER GROUP regress_priv_group2 ADD USER regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 87",
+    "query": "ALTER GROUP regress_priv_group2 DROP USER regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 88",
+    "query": "SET SESSION AUTHORIZATION regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 89",
+    "query": "ALTER USER regress_priv_user2 PASSWORD 'verysecret'"
+  },
+  {
+    "comment": "privileges - Statement 90",
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_group2 FROM regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 91",
+    "query": "GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN OPTION"
+  },
+  {
+    "comment": "privileges - Statement 92",
+    "query": "CREATE FUNCTION leak(integer,integer) RETURNS boolean AS 'int4lt' LANGUAGE internal IMMUTABLE STRICT"
+  },
+  {
+    "comment": "privileges - Statement 93",
+    "query": "ALTER FUNCTION leak(integer,integer) OWNER TO regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 94",
+    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY regress_priv_role"
+  },
+  {
+    "comment": "privileges - Statement 95",
+    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY CURRENT_ROLE"
+  },
+  {
+    "comment": "privileges - Statement 96",
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY foo"
+  },
+  {
+    "comment": "privileges - Statement 97",
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 98",
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY CURRENT_USER"
+  },
+  {
+    "comment": "privileges - Statement 99",
+    "query": "REVOKE regress_priv_role FROM regress_priv_user1 GRANTED BY CURRENT_ROLE"
+  },
+  {
+    "comment": "privileges - Statement 100",
+    "query": "DROP ROLE regress_priv_role"
+  },
+  {
+    "comment": "privileges - Statement 101",
+    "query": "SELECT session_user, current_user"
+  },
+  {
+    "comment": "privileges - Statement 102",
+    "query": "CREATE TABLE atest1 ( a int, b text )"
+  },
+  {
+    "comment": "privileges - Statement 103",
+    "query": "SELECT * FROM atest1"
+  },
+  {
+    "comment": "privileges - Statement 104",
+    "query": "INSERT INTO atest1 VALUES (1, 'one')"
+  },
+  {
+    "comment": "privileges - Statement 105",
+    "query": "DELETE FROM atest1"
+  },
+  {
+    "comment": "privileges - Statement 106",
+    "query": "UPDATE atest1 SET a = 1 WHERE b = 'blech'"
+  },
+  {
+    "comment": "privileges - Statement 107",
+    "query": "TRUNCATE atest1"
+  },
+  {
+    "comment": "privileges - Statement 108",
+    "query": "LOCK atest1 IN ACCESS EXCLUSIVE MODE"
+  },
+  {
+    "comment": "privileges - Statement 109",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "privileges - Statement 110",
+    "query": "REVOKE ALL ON atest1 FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 111",
+    "query": "GRANT ALL ON atest1 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 112",
+    "query": "GRANT SELECT ON atest1 TO regress_priv_user3, regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 113",
+    "query": "CREATE TABLE atest2 (col1 varchar(10), col2 boolean)"
+  },
+  {
+    "comment": "privileges - Statement 114",
+    "query": "GRANT SELECT ON atest2 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 115",
+    "query": "GRANT UPDATE ON atest2 TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 116",
+    "query": "GRANT INSERT ON atest2 TO regress_priv_user4 GRANTED BY CURRENT_USER"
+  },
+  {
+    "comment": "privileges - Statement 117",
+    "query": "GRANT TRUNCATE ON atest2 TO regress_priv_user5 GRANTED BY CURRENT_ROLE"
+  },
+  {
+    "comment": "privileges - Statement 118",
+    "query": "GRANT TRUNCATE ON atest2 TO regress_priv_user4 GRANTED BY regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 119",
+    "query": "SET SESSION AUTHORIZATION regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 120",
+    "query": "SELECT * FROM atest2"
+  },
+  {
+    "comment": "privileges - Statement 121",
+    "query": "INSERT INTO atest1 VALUES (2, 'two')"
+  },
+  {
+    "comment": "privileges - Statement 122",
+    "query": "INSERT INTO atest2 VALUES ('foo', true)"
+  },
+  {
+    "comment": "privileges - Statement 123",
+    "query": "INSERT INTO atest1 SELECT 1, b FROM atest1"
+  },
+  {
+    "comment": "privileges - Statement 124",
+    "query": "UPDATE atest1 SET a = 1 WHERE a = 2"
+  },
+  {
+    "comment": "privileges - Statement 125",
+    "query": "UPDATE atest2 SET col2 = NOT col2"
+  },
+  {
+    "comment": "privileges - Statement 126",
+    "query": "SELECT * FROM atest1 FOR UPDATE"
+  },
+  {
+    "comment": "privileges - Statement 127",
+    "query": "SELECT * FROM atest2 FOR UPDATE"
+  },
+  {
+    "comment": "privileges - Statement 128",
+    "query": "DELETE FROM atest2"
+  },
+  {
+    "comment": "privileges - Statement 129",
+    "query": "TRUNCATE atest2"
+  },
+  {
+    "comment": "privileges - Statement 130",
+    "query": "LOCK atest2 IN ACCESS EXCLUSIVE MODE"
+  },
+  {
+    "comment": "privileges - Statement 131",
+    "query": "COPY atest2 FROM stdin"
+  },
+  {
+    "comment": "privileges - Statement 132",
+    "query": "GRANT ALL ON atest1 TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 133",
+    "query": "SELECT * FROM atest1 WHERE ( b IN ( SELECT col1 FROM atest2 ) )"
+  },
+  {
+    "comment": "privileges - Statement 134",
+    "query": "SELECT * FROM atest2 WHERE ( col1 IN ( SELECT b FROM atest1 ) )"
+  },
+  {
+    "comment": "privileges - Statement 135",
+    "query": "SET SESSION AUTHORIZATION regress_priv_user6"
+  },
+  {
+    "comment": "privileges - Statement 136",
+    "query": "SET SESSION AUTHORIZATION regress_priv_user7"
+  },
+  {
+    "comment": "privileges - Statement 137",
+    "query": "UPDATE atest2 SET col2 = true"
+  },
+  {
+    "comment": "privileges - Statement 138",
+    "query": "UPDATE pg_catalog.pg_class SET relname = '123'"
+  },
+  {
+    "comment": "privileges - Statement 139",
+    "query": "DELETE FROM pg_catalog.pg_class"
+  },
+  {
+    "comment": "privileges - Statement 140",
+    "query": "UPDATE pg_toast.pg_toast_1213 SET chunk_id = 1"
+  },
+  {
+    "comment": "privileges - Statement 141",
+    "query": "UPDATE atest2 SET col2 = NULL"
+  },
+  {
+    "comment": "privileges - Statement 142",
+    "query": "UPDATE atest2 SET col2 = true FROM atest1 WHERE atest1.a = 5"
+  },
+  {
+    "comment": "privileges - Statement 143",
+    "query": "SET SESSION AUTHORIZATION regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 144",
+    "query": "bar\ttrue \\. SELECT * FROM atest1"
+  },
+  {
+    "comment": "privileges - Statement 145",
+    "query": "CREATE TABLE atest12 as SELECT x AS a, 10001 - x AS b FROM generate_series(1,10000) x"
+  },
+  {
+    "comment": "privileges - Statement 146",
+    "query": "CREATE INDEX ON atest12 (a)"
+  },
+  {
+    "comment": "privileges - Statement 147",
+    "query": "CREATE INDEX ON atest12 (abs(a))"
+  },
+  {
+    "comment": "privileges - Statement 148",
+    "query": "ALTER TABLE atest12 SET (autovacuum_enabled = off)"
+  },
+  {
+    "comment": "privileges - Statement 149",
+    "query": "SET default_statistics_target = 10000"
+  },
+  {
+    "comment": "privileges - Statement 150",
+    "query": "VACUUM ANALYZE atest12"
+  },
+  {
+    "comment": "privileges - Statement 151",
+    "query": "RESET default_statistics_target"
+  },
+  {
+    "comment": "privileges - Statement 152",
+    "query": "CREATE OPERATOR <<< (procedure = leak, leftarg = integer, rightarg = integer, restrict = scalarltsel)"
+  },
+  {
+    "comment": "privileges - Statement 153",
+    "query": "CREATE VIEW atest12v AS SELECT * FROM atest12 WHERE b <<< 5"
+  },
+  {
+    "comment": "privileges - Statement 154",
+    "query": "CREATE VIEW atest12sbv WITH (security_barrier=true) AS SELECT * FROM atest12 WHERE b <<< 5"
+  },
+  {
+    "comment": "privileges - Statement 155",
+    "query": "GRANT SELECT ON atest12v TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 156",
+    "query": "GRANT SELECT ON atest12sbv TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 157",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12v x, atest12v y WHERE x.a = y.b"
+  },
+  {
+    "comment": "privileges - Statement 158",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12 x, atest12 y WHERE x.a = y.b and abs(y.a) <<< 5"
+  },
+  {
+    "comment": "privileges - Statement 159",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12sbv x, atest12sbv y WHERE x.a = y.b"
+  },
+  {
+    "comment": "privileges - Statement 160",
+    "query": "CREATE FUNCTION leak2(integer,integer) RETURNS boolean AS $$begin raise notice 'leak % %', $1, $2; return $1 > $2; end$$ LANGUAGE plpgsql immutable"
+  },
+  {
+    "comment": "privileges - Statement 161",
+    "query": "CREATE OPERATOR >>> (procedure = leak2, leftarg = integer, rightarg = integer, restrict = scalargtsel)"
+  },
+  {
+    "comment": "privileges - Statement 162",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12 WHERE a >>> 0"
+  },
+  {
+    "comment": "privileges - Statement 163",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12v x, atest12v y WHERE x.a = y.b and abs(y.a) <<< 5"
+  },
+  {
+    "comment": "privileges - Statement 164",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM atest12sbv x, atest12sbv y WHERE x.a = y.b and abs(y.a) <<< 5"
+  },
+  {
+    "comment": "privileges - Statement 165",
+    "query": "GRANT SELECT (a, b) ON atest12 TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 166",
+    "query": "DROP FUNCTION leak2(integer, integer) CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 167",
+    "query": "CREATE TABLE atest3 (one int, two int, three int)"
+  },
+  {
+    "comment": "privileges - Statement 168",
+    "query": "GRANT DELETE ON atest3 TO GROUP regress_priv_group2"
+  },
+  {
+    "comment": "privileges - Statement 169",
+    "query": "SELECT * FROM atest3"
+  },
+  {
+    "comment": "privileges - Statement 170",
+    "query": "DELETE FROM atest3"
+  },
+  {
+    "comment": "privileges - Statement 171",
+    "query": "ALTER ROLE regress_priv_user1 NOINHERIT"
+  },
+  {
+    "comment": "privileges - Statement 172",
+    "query": "SAVEPOINT s1"
+  },
+  {
+    "comment": "privileges - Statement 173",
+    "query": "ROLLBACK TO s1"
+  },
+  {
+    "comment": "privileges - Statement 174",
+    "query": "GRANT regress_priv_group2 TO regress_priv_user1 WITH INHERIT FALSE"
+  },
+  {
+    "comment": "privileges - Statement 175",
+    "query": "REVOKE INHERIT OPTION FOR regress_priv_group2 FROM regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 176",
+    "query": "CREATE VIEW atestv1 AS SELECT * FROM atest1"
+  },
+  {
+    "comment": "privileges - Statement 177",
+    "query": "/* The next *should* fail, but it's not implemented that way yet. */ CREATE VIEW atestv2 AS SELECT * FROM atest2"
+  },
+  {
+    "comment": "privileges - Statement 178",
+    "query": "CREATE VIEW atestv3 AS SELECT * FROM atest3"
+  },
+  {
+    "comment": "privileges - Statement 179",
+    "query": "/* Empty view is a corner case that failed in 9.2. */ CREATE VIEW atestv0 AS SELECT 0 as x WHERE false"
+  },
+  {
+    "comment": "privileges - Statement 180",
+    "query": "SELECT * FROM atestv1"
+  },
+  {
+    "comment": "privileges - Statement 181",
+    "query": "SELECT * FROM atestv2"
+  },
+  {
+    "comment": "privileges - Statement 182",
+    "query": "GRANT SELECT ON atestv1, atestv3 TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 183",
+    "query": "GRANT SELECT ON atestv2 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 184",
+    "query": "SELECT * FROM atestv3"
+  },
+  {
+    "comment": "privileges - Statement 185",
+    "query": "SELECT * FROM atestv0"
+  },
+  {
+    "comment": "privileges - Statement 186",
+    "query": "select * from ((select a.q1 as x from int8_tbl a offset 0) union all (select b.q2 as x from int8_tbl b offset 0)) ss where false"
+  },
+  {
+    "comment": "privileges - Statement 187",
+    "query": "set constraint_exclusion = on"
+  },
+  {
+    "comment": "privileges - Statement 188",
+    "query": "select * from ((select a.q1 as x, random() from int8_tbl a where q1 > 0) union all (select b.q2 as x, random() from int8_tbl b where q2 > 0)) ss where x < 0"
+  },
+  {
+    "comment": "privileges - Statement 189",
+    "query": "reset constraint_exclusion"
+  },
+  {
+    "comment": "privileges - Statement 190",
+    "query": "CREATE VIEW atestv4 AS SELECT * FROM atestv3"
+  },
+  {
+    "comment": "privileges - Statement 191",
+    "query": "SELECT * FROM atestv4"
+  },
+  {
+    "comment": "privileges - Statement 192",
+    "query": "GRANT SELECT ON atestv4 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 193",
+    "query": "CREATE TABLE atest5 (one int, two int unique, three int, four int unique)"
+  },
+  {
+    "comment": "privileges - Statement 194",
+    "query": "CREATE TABLE atest6 (one int, two int, blue int)"
+  },
+  {
+    "comment": "privileges - Statement 195",
+    "query": "GRANT SELECT (one), INSERT (two), UPDATE (three) ON atest5 TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 196",
+    "query": "GRANT ALL (one) ON atest5 TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 197",
+    "query": "INSERT INTO atest5 VALUES (1,2,3)"
+  },
+  {
+    "comment": "privileges - Statement 198",
+    "query": "SELECT * FROM atest5"
+  },
+  {
+    "comment": "privileges - Statement 199",
+    "query": "SELECT one FROM atest5"
+  },
+  {
+    "comment": "privileges - Statement 200",
+    "query": "COPY atest5 (one) TO stdout"
+  },
+  {
+    "comment": "privileges - Statement 201",
+    "query": "SELECT two FROM atest5"
+  },
+  {
+    "comment": "privileges - Statement 202",
+    "query": "COPY atest5 (two) TO stdout"
+  },
+  {
+    "comment": "privileges - Statement 203",
+    "query": "SELECT atest5 FROM atest5"
+  },
+  {
+    "comment": "privileges - Statement 204",
+    "query": "COPY atest5 (one,two) TO stdout"
+  },
+  {
+    "comment": "privileges - Statement 205",
+    "query": "SELECT 1 FROM atest5"
+  },
+  {
+    "comment": "privileges - Statement 206",
+    "query": "SELECT 1 FROM atest5 a JOIN atest5 b USING (one)"
+  },
+  {
+    "comment": "privileges - Statement 207",
+    "query": "SELECT 1 FROM atest5 a JOIN atest5 b USING (two)"
+  },
+  {
+    "comment": "privileges - Statement 208",
+    "query": "SELECT 1 FROM atest5 a NATURAL JOIN atest5 b"
+  },
+  {
+    "comment": "privileges - Statement 209",
+    "query": "SELECT * FROM (atest5 a JOIN atest5 b USING (one)) j"
+  },
+  {
+    "comment": "privileges - Statement 210",
+    "query": "SELECT j.* FROM (atest5 a JOIN atest5 b USING (one)) j"
+  },
+  {
+    "comment": "privileges - Statement 211",
+    "query": "SELECT (j.*) IS NULL FROM (atest5 a JOIN atest5 b USING (one)) j"
+  },
+  {
+    "comment": "privileges - Statement 212",
+    "query": "SELECT one FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j"
+  },
+  {
+    "comment": "privileges - Statement 213",
+    "query": "SELECT j.one FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j"
+  },
+  {
+    "comment": "privileges - Statement 214",
+    "query": "SELECT two FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j"
+  },
+  {
+    "comment": "privileges - Statement 215",
+    "query": "SELECT j.two FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j"
+  },
+  {
+    "comment": "privileges - Statement 216",
+    "query": "SELECT y FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j"
+  },
+  {
+    "comment": "privileges - Statement 217",
+    "query": "SELECT j.y FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one)) j"
+  },
+  {
+    "comment": "privileges - Statement 218",
+    "query": "SELECT * FROM (atest5 a JOIN atest5 b USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 219",
+    "query": "SELECT a.* FROM (atest5 a JOIN atest5 b USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 220",
+    "query": "SELECT (a.*) IS NULL FROM (atest5 a JOIN atest5 b USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 221",
+    "query": "SELECT two FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 222",
+    "query": "SELECT a.two FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 223",
+    "query": "SELECT y FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 224",
+    "query": "SELECT b.y FROM (atest5 a JOIN atest5 b(one,x,y,z) USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 225",
+    "query": "SELECT y FROM (atest5 a LEFT JOIN atest5 b(one,x,y,z) USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 226",
+    "query": "SELECT b.y FROM (atest5 a LEFT JOIN atest5 b(one,x,y,z) USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 227",
+    "query": "SELECT y FROM (atest5 a FULL JOIN atest5 b(one,x,y,z) USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 228",
+    "query": "SELECT b.y FROM (atest5 a FULL JOIN atest5 b(one,x,y,z) USING (one))"
+  },
+  {
+    "comment": "privileges - Statement 229",
+    "query": "SELECT 1 FROM atest5 WHERE two = 2"
+  },
+  {
+    "comment": "privileges - Statement 230",
+    "query": "SELECT * FROM atest1, atest5"
+  },
+  {
+    "comment": "privileges - Statement 231",
+    "query": "SELECT atest1.* FROM atest1, atest5"
+  },
+  {
+    "comment": "privileges - Statement 232",
+    "query": "SELECT atest1.*,atest5.one FROM atest1, atest5"
+  },
+  {
+    "comment": "privileges - Statement 233",
+    "query": "SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.two)"
+  },
+  {
+    "comment": "privileges - Statement 234",
+    "query": "SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.one)"
+  },
+  {
+    "comment": "privileges - Statement 235",
+    "query": "SELECT one, two FROM atest5"
+  },
+  {
+    "comment": "privileges - Statement 236",
+    "query": "GRANT SELECT (one,two) ON atest6 TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 237",
+    "query": "SELECT one, two FROM atest5 NATURAL JOIN atest6"
+  },
+  {
+    "comment": "privileges - Statement 238",
+    "query": "GRANT SELECT (two) ON atest5 TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 239",
+    "query": "INSERT INTO atest5 (two) VALUES (3)"
+  },
+  {
+    "comment": "privileges - Statement 240",
+    "query": "COPY atest5 FROM stdin"
+  },
+  {
+    "comment": "privileges - Statement 241",
+    "query": "COPY atest5 (two) FROM stdin"
+  },
+  {
+    "comment": "privileges - Statement 242",
+    "query": "1 \\. INSERT INTO atest5 (three) VALUES (4)"
+  },
+  {
+    "comment": "privileges - Statement 243",
+    "query": "INSERT INTO atest5 VALUES (5,5,5)"
+  },
+  {
+    "comment": "privileges - Statement 244",
+    "query": "UPDATE atest5 SET three = 10"
+  },
+  {
+    "comment": "privileges - Statement 245",
+    "query": "UPDATE atest5 SET one = 8"
+  },
+  {
+    "comment": "privileges - Statement 246",
+    "query": "UPDATE atest5 SET three = 5, one = 2"
+  },
+  {
+    "comment": "privileges - Statement 247",
+    "query": "INSERT INTO atest5(two) VALUES (6) ON CONFLICT (two) DO UPDATE set three = 10"
+  },
+  {
+    "comment": "privileges - Statement 248",
+    "query": "INSERT INTO atest5(two) VALUES (6) ON CONFLICT (two) DO UPDATE set three = 10 RETURNING atest5.three"
+  },
+  {
+    "comment": "privileges - Statement 249",
+    "query": "INSERT INTO atest5(two) VALUES (6) ON CONFLICT (two) DO UPDATE set three = 10 RETURNING atest5.one"
+  },
+  {
+    "comment": "privileges - Statement 250",
+    "query": "INSERT INTO atest5(two) VALUES (6) ON CONFLICT (two) DO UPDATE set three = EXCLUDED.one"
+  },
+  {
+    "comment": "privileges - Statement 251",
+    "query": "INSERT INTO atest5(two) VALUES (6) ON CONFLICT (two) DO UPDATE set three = EXCLUDED.three"
+  },
+  {
+    "comment": "privileges - Statement 252",
+    "query": "INSERT INTO atest5(two) VALUES (6) ON CONFLICT (two) DO UPDATE set one = 8"
+  },
+  {
+    "comment": "privileges - Statement 253",
+    "query": "INSERT INTO atest5(three) VALUES (4) ON CONFLICT (two) DO UPDATE set three = 10"
+  },
+  {
+    "comment": "privileges - Statement 254",
+    "query": "INSERT INTO atest5(four) VALUES (4)"
+  },
+  {
+    "comment": "privileges - Statement 255",
+    "query": "GRANT INSERT (four) ON atest5 TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 256",
+    "query": "INSERT INTO atest5(four) VALUES (4) ON CONFLICT (four) DO UPDATE set three = 3"
+  },
+  {
+    "comment": "privileges - Statement 257",
+    "query": "INSERT INTO atest5(four) VALUES (4) ON CONFLICT ON CONSTRAINT atest5_four_key DO UPDATE set three = 3"
+  },
+  {
+    "comment": "privileges - Statement 258",
+    "query": "GRANT SELECT (four) ON atest5 TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 259",
+    "query": "REVOKE ALL (one) ON atest5 FROM regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 260",
+    "query": "GRANT SELECT (one,two,blue) ON atest6 TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 261",
+    "query": "UPDATE atest5 SET one = 1"
+  },
+  {
+    "comment": "privileges - Statement 262",
+    "query": "SELECT atest6 FROM atest6"
+  },
+  {
+    "comment": "privileges - Statement 263",
+    "query": "COPY atest6 TO stdout"
+  },
+  {
+    "comment": "privileges - Statement 264",
+    "query": "CREATE TABLE mtarget (a int, b text)"
+  },
+  {
+    "comment": "privileges - Statement 265",
+    "query": "CREATE TABLE msource (a int, b text)"
+  },
+  {
+    "comment": "privileges - Statement 266",
+    "query": "INSERT INTO mtarget VALUES (1, 'init1'), (2, 'init2')"
+  },
+  {
+    "comment": "privileges - Statement 267",
+    "query": "INSERT INTO msource VALUES (1, 'source1'), (2, 'source2'), (3, 'source3')"
+  },
+  {
+    "comment": "privileges - Statement 268",
+    "query": "GRANT SELECT (a) ON msource TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 269",
+    "query": "GRANT SELECT (a) ON mtarget TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 270",
+    "query": "GRANT INSERT (a,b) ON mtarget TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 271",
+    "query": "GRANT UPDATE (b) ON mtarget TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 272",
+    "query": "MERGE INTO mtarget t USING msource s ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED THEN INSERT VALUES (a, NULL)"
+  },
+  {
+    "comment": "privileges - Statement 273",
+    "query": "MERGE INTO mtarget t USING msource s ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = 'x' WHEN NOT MATCHED THEN INSERT VALUES (a, b)"
+  },
+  {
+    "comment": "privileges - Statement 274",
+    "query": "MERGE INTO mtarget t USING msource s ON t.a = s.a WHEN MATCHED AND s.b = 'x' THEN UPDATE SET b = 'x' WHEN NOT MATCHED THEN INSERT VALUES (a, NULL)"
+  },
+  {
+    "comment": "privileges - Statement 275",
+    "query": "MERGE INTO mtarget t USING msource s ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = 'ok' WHEN NOT MATCHED THEN INSERT VALUES (a, NULL)"
+  },
+  {
+    "comment": "privileges - Statement 276",
+    "query": "GRANT SELECT (b) ON msource TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 277",
+    "query": "MERGE INTO mtarget t USING msource s ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED THEN INSERT VALUES (a, b)"
+  },
+  {
+    "comment": "privileges - Statement 278",
+    "query": "MERGE INTO mtarget t USING msource s ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = t.b WHEN NOT MATCHED THEN INSERT VALUES (a, NULL)"
+  },
+  {
+    "comment": "privileges - Statement 279",
+    "query": "MERGE INTO mtarget t USING msource s ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b, a = t.a + 1 WHEN NOT MATCHED THEN INSERT VALUES (a, b)"
+  },
+  {
+    "comment": "privileges - Statement 280",
+    "query": "MERGE INTO mtarget t USING msource s ON t.a = s.a WHEN MATCHED AND t.b IS NOT NULL THEN UPDATE SET b = s.b WHEN NOT MATCHED THEN INSERT VALUES (a, b)"
+  },
+  {
+    "comment": "privileges - Statement 281",
+    "query": "MERGE INTO mtarget t USING msource s ON t.a = s.a WHEN MATCHED THEN UPDATE SET b = s.b"
+  },
+  {
+    "comment": "privileges - Statement 282",
+    "query": "MERGE INTO mtarget t USING msource s ON t.a = s.a WHEN MATCHED AND t.b IS NOT NULL THEN DELETE"
+  },
+  {
+    "comment": "privileges - Statement 283",
+    "query": "GRANT DELETE ON mtarget TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 284",
+    "query": "CREATE TABLE t1 (c1 int, c2 int, c3 int check (c3 < 5), primary key (c1, c2))"
+  },
+  {
+    "comment": "privileges - Statement 285",
+    "query": "GRANT SELECT (c1) ON t1 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 286",
+    "query": "GRANT INSERT (c1, c2, c3) ON t1 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 287",
+    "query": "GRANT UPDATE (c1, c2, c3) ON t1 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 288",
+    "query": "INSERT INTO t1 VALUES (1, 1, 1)"
+  },
+  {
+    "comment": "privileges - Statement 289",
+    "query": "INSERT INTO t1 VALUES (1, 2, 1)"
+  },
+  {
+    "comment": "privileges - Statement 290",
+    "query": "INSERT INTO t1 VALUES (2, 1, 2)"
+  },
+  {
+    "comment": "privileges - Statement 291",
+    "query": "INSERT INTO t1 VALUES (2, 2, 2)"
+  },
+  {
+    "comment": "privileges - Statement 292",
+    "query": "INSERT INTO t1 VALUES (3, 1, 3)"
+  },
+  {
+    "comment": "privileges - Statement 293",
+    "query": "INSERT INTO t1 (c1, c2) VALUES (1, 1)"
+  },
+  {
+    "comment": "privileges - Statement 294",
+    "query": "UPDATE t1 SET c2 = 1"
+  },
+  {
+    "comment": "privileges - Statement 295",
+    "query": "INSERT INTO t1 (c1, c2) VALUES (null, null)"
+  },
+  {
+    "comment": "privileges - Statement 296",
+    "query": "INSERT INTO t1 (c3) VALUES (null)"
+  },
+  {
+    "comment": "privileges - Statement 297",
+    "query": "INSERT INTO t1 (c1) VALUES (5)"
+  },
+  {
+    "comment": "privileges - Statement 298",
+    "query": "UPDATE t1 SET c3 = 10"
+  },
+  {
+    "comment": "privileges - Statement 299",
+    "query": "DROP TABLE t1"
+  },
+  {
+    "comment": "privileges - Statement 300",
+    "query": "CREATE TABLE errtst(a text, b text NOT NULL, c text, secret1 text, secret2 text) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "privileges - Statement 301",
+    "query": "CREATE TABLE errtst_part_1(secret2 text, c text, a text, b text NOT NULL, secret1 text)"
+  },
+  {
+    "comment": "privileges - Statement 302",
+    "query": "CREATE TABLE errtst_part_2(secret1 text, secret2 text, a text, c text, b text NOT NULL)"
+  },
+  {
+    "comment": "privileges - Statement 303",
+    "query": "ALTER TABLE errtst ATTACH PARTITION errtst_part_1 FOR VALUES IN ('aaa')"
+  },
+  {
+    "comment": "privileges - Statement 304",
+    "query": "ALTER TABLE errtst ATTACH PARTITION errtst_part_2 FOR VALUES IN ('aaaa')"
+  },
+  {
+    "comment": "privileges - Statement 305",
+    "query": "GRANT SELECT (a, b, c) ON TABLE errtst TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 306",
+    "query": "GRANT UPDATE (a, b, c) ON TABLE errtst TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 307",
+    "query": "GRANT INSERT (a, b, c) ON TABLE errtst TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 308",
+    "query": "INSERT INTO errtst_part_1 (a, b, c, secret1, secret2) VALUES ('aaa', 'bbb', 'ccc', 'the body', 'is in the attic')"
+  },
+  {
+    "comment": "privileges - Statement 309",
+    "query": "INSERT INTO errtst (a, b) VALUES ('aaa', NULL)"
+  },
+  {
+    "comment": "privileges - Statement 310",
+    "query": "UPDATE errtst SET b = NULL"
+  },
+  {
+    "comment": "privileges - Statement 311",
+    "query": "UPDATE errtst SET a = 'aaa', b = NULL"
+  },
+  {
+    "comment": "privileges - Statement 312",
+    "query": "UPDATE errtst SET a = 'aaaa', b = NULL"
+  },
+  {
+    "comment": "privileges - Statement 313",
+    "query": "UPDATE errtst SET a = 'aaaa', b = NULL WHERE a = 'aaa'"
+  },
+  {
+    "comment": "privileges - Statement 314",
+    "query": "DROP TABLE errtst"
+  },
+  {
+    "comment": "privileges - Statement 315",
+    "query": "ALTER TABLE atest6 ADD COLUMN three integer"
+  },
+  {
+    "comment": "privileges - Statement 316",
+    "query": "GRANT DELETE ON atest5 TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 317",
+    "query": "GRANT SELECT (two) ON atest5 TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 318",
+    "query": "REVOKE ALL (one) ON atest5 FROM regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 319",
+    "query": "GRANT SELECT (one) ON atest5 TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 320",
+    "query": "SELECT one FROM atest5 NATURAL JOIN atest6"
+  },
+  {
+    "comment": "privileges - Statement 321",
+    "query": "ALTER TABLE atest6 DROP COLUMN three"
+  },
+  {
+    "comment": "privileges - Statement 322",
+    "query": "ALTER TABLE atest6 DROP COLUMN two"
+  },
+  {
+    "comment": "privileges - Statement 323",
+    "query": "REVOKE SELECT (one,blue) ON atest6 FROM regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 324",
+    "query": "SELECT * FROM atest6"
+  },
+  {
+    "comment": "privileges - Statement 325",
+    "query": "SELECT 1 FROM atest6"
+  },
+  {
+    "comment": "privileges - Statement 326",
+    "query": "DELETE FROM atest5 WHERE one = 1"
+  },
+  {
+    "comment": "privileges - Statement 327",
+    "query": "DELETE FROM atest5 WHERE two = 2"
+  },
+  {
+    "comment": "privileges - Statement 328",
+    "query": "CREATE TABLE atestp1 (f1 int, f2 int)"
+  },
+  {
+    "comment": "privileges - Statement 329",
+    "query": "CREATE TABLE atestp2 (fx int, fy int)"
+  },
+  {
+    "comment": "privileges - Statement 330",
+    "query": "CREATE TABLE atestc (fz int) INHERITS (atestp1, atestp2)"
+  },
+  {
+    "comment": "privileges - Statement 331",
+    "query": "GRANT SELECT(fx,fy,tableoid) ON atestp2 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 332",
+    "query": "GRANT SELECT(fx) ON atestc TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 333",
+    "query": "SELECT fx FROM atestp2"
+  },
+  {
+    "comment": "privileges - Statement 334",
+    "query": "SELECT fy FROM atestp2"
+  },
+  {
+    "comment": "privileges - Statement 335",
+    "query": "SELECT atestp2 FROM atestp2"
+  },
+  {
+    "comment": "privileges - Statement 336",
+    "query": "SELECT tableoid FROM atestp2"
+  },
+  {
+    "comment": "privileges - Statement 337",
+    "query": "SELECT fy FROM atestc"
+  },
+  {
+    "comment": "privileges - Statement 338",
+    "query": "GRANT SELECT(fy,tableoid) ON atestc TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 339",
+    "query": "REVOKE ALL ON atestc FROM regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 340",
+    "query": "GRANT ALL ON atestp1 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 341",
+    "query": "SELECT f2 FROM atestp1"
+  },
+  {
+    "comment": "privileges - Statement 342",
+    "query": "SELECT f2 FROM atestc"
+  },
+  {
+    "comment": "privileges - Statement 343",
+    "query": "DELETE FROM atestp1"
+  },
+  {
+    "comment": "privileges - Statement 344",
+    "query": "DELETE FROM atestc"
+  },
+  {
+    "comment": "privileges - Statement 345",
+    "query": "UPDATE atestp1 SET f1 = 1"
+  },
+  {
+    "comment": "privileges - Statement 346",
+    "query": "UPDATE atestc SET f1 = 1"
+  },
+  {
+    "comment": "privileges - Statement 347",
+    "query": "TRUNCATE atestp1"
+  },
+  {
+    "comment": "privileges - Statement 348",
+    "query": "TRUNCATE atestc"
+  },
+  {
+    "comment": "privileges - Statement 349",
+    "query": "LOCK atestp1"
+  },
+  {
+    "comment": "privileges - Statement 350",
+    "query": "END"
+  },
+  {
+    "comment": "privileges - Statement 351",
+    "query": "LOCK atestc"
+  },
+  {
+    "comment": "privileges - Statement 352",
+    "query": "GRANT USAGE ON LANGUAGE sql TO regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 353",
+    "query": "GRANT USAGE ON LANGUAGE c TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 354",
+    "query": "GRANT USAGE ON LANGUAGE sql TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 355",
+    "query": "CREATE FUNCTION priv_testfunc1(int) RETURNS int AS 'select 2 * $1;' LANGUAGE sql"
+  },
+  {
+    "comment": "privileges - Statement 356",
+    "query": "CREATE FUNCTION priv_testfunc2(int) RETURNS int AS 'select 3 * $1;' LANGUAGE sql"
+  },
+  {
+    "comment": "privileges - Statement 357",
+    "query": "CREATE AGGREGATE priv_testagg1(int) (sfunc = int4pl, stype = int4)"
+  },
+  {
+    "comment": "privileges - Statement 358",
+    "query": "CREATE PROCEDURE priv_testproc1(int) AS 'select $1;' LANGUAGE sql"
+  },
+  {
+    "comment": "privileges - Statement 359",
+    "query": "REVOKE ALL ON FUNCTION priv_testfunc1(int), priv_testfunc2(int), priv_testagg1(int) FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 360",
+    "query": "GRANT EXECUTE ON FUNCTION priv_testfunc1(int), priv_testfunc2(int), priv_testagg1(int) TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 361",
+    "query": "REVOKE ALL ON FUNCTION priv_testproc1(int) FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 362",
+    "query": "REVOKE ALL ON PROCEDURE priv_testproc1(int) FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 363",
+    "query": "GRANT EXECUTE ON PROCEDURE priv_testproc1(int) TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 364",
+    "query": "GRANT USAGE ON FUNCTION priv_testfunc1(int) TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 365",
+    "query": "GRANT USAGE ON FUNCTION priv_testagg1(int) TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 366",
+    "query": "GRANT USAGE ON PROCEDURE priv_testproc1(int) TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 367",
+    "query": "GRANT ALL PRIVILEGES ON FUNCTION priv_testfunc1(int) TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 368",
+    "query": "GRANT ALL PRIVILEGES ON FUNCTION priv_testfunc_nosuch(int) TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 369",
+    "query": "GRANT ALL PRIVILEGES ON FUNCTION priv_testagg1(int) TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 370",
+    "query": "GRANT ALL PRIVILEGES ON PROCEDURE priv_testproc1(int) TO regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 371",
+    "query": "CREATE FUNCTION priv_testfunc4(boolean) RETURNS text AS 'select col1 from atest2 where col2 = $1;' LANGUAGE sql SECURITY DEFINER"
+  },
+  {
+    "comment": "privileges - Statement 372",
+    "query": "GRANT EXECUTE ON FUNCTION priv_testfunc4(boolean) TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 373",
+    "query": "SELECT priv_testfunc1(5), priv_testfunc2(5)"
+  },
+  {
+    "comment": "privileges - Statement 374",
+    "query": "CREATE FUNCTION priv_testfunc3(int) RETURNS int AS 'select 2 * $1;' LANGUAGE sql"
+  },
+  {
+    "comment": "privileges - Statement 375",
+    "query": "SELECT priv_testagg1(x) FROM (VALUES (1), (2), (3)) _(x)"
+  },
+  {
+    "comment": "privileges - Statement 376",
+    "query": "CALL priv_testproc1(6)"
+  },
+  {
+    "comment": "privileges - Statement 377",
+    "query": "SELECT priv_testfunc1(5)"
+  },
+  {
+    "comment": "privileges - Statement 378",
+    "query": "SELECT col1 FROM atest2 WHERE col2 = true"
+  },
+  {
+    "comment": "privileges - Statement 379",
+    "query": "SELECT priv_testfunc4(true)"
+  },
+  {
+    "comment": "privileges - Statement 380",
+    "query": "DROP FUNCTION priv_testfunc1(int)"
+  },
+  {
+    "comment": "privileges - Statement 381",
+    "query": "DROP AGGREGATE priv_testagg1(int)"
+  },
+  {
+    "comment": "privileges - Statement 382",
+    "query": "DROP PROCEDURE priv_testproc1(int)"
+  },
+  {
+    "comment": "privileges - Statement 383",
+    "query": "GRANT ALL PRIVILEGES ON LANGUAGE sql TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 384",
+    "query": "SELECT '{1}'::int4[]::int8[]"
+  },
+  {
+    "comment": "privileges - Statement 385",
+    "query": "REVOKE ALL ON FUNCTION int8(integer) FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 386",
+    "query": "REVOKE USAGE ON TYPE priv_testtype1 FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 387",
+    "query": "GRANT USAGE ON TYPE priv_testtype1 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 388",
+    "query": "GRANT USAGE ON TYPE _priv_testtype1 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 389",
+    "query": "GRANT USAGE ON DOMAIN priv_testtype1 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 390",
+    "query": "CREATE DOMAIN priv_testdomain1 AS int"
+  },
+  {
+    "comment": "privileges - Statement 391",
+    "query": "REVOKE USAGE on DOMAIN priv_testdomain1 FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 392",
+    "query": "GRANT USAGE ON DOMAIN priv_testdomain1 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 393",
+    "query": "GRANT USAGE ON TYPE priv_testdomain1 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 394",
+    "query": "CREATE AGGREGATE priv_testagg1a(priv_testdomain1) (sfunc = int4_sum, stype = bigint)"
+  },
+  {
+    "comment": "privileges - Statement 395",
+    "query": "CREATE DOMAIN priv_testdomain2a AS priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 396",
+    "query": "CREATE DOMAIN priv_testdomain3a AS int"
+  },
+  {
+    "comment": "privileges - Statement 397",
+    "query": "CREATE FUNCTION castfunc(int) RETURNS priv_testdomain3a AS $$ SELECT $1::priv_testdomain3a $$ LANGUAGE SQL"
+  },
+  {
+    "comment": "privileges - Statement 398",
+    "query": "CREATE CAST (priv_testdomain1 AS priv_testdomain3a) WITH FUNCTION castfunc(int)"
+  },
+  {
+    "comment": "privileges - Statement 399",
+    "query": "DROP FUNCTION castfunc(int) CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 400",
+    "query": "DROP DOMAIN priv_testdomain3a"
+  },
+  {
+    "comment": "privileges - Statement 401",
+    "query": "CREATE FUNCTION priv_testfunc5a(a priv_testdomain1) RETURNS int LANGUAGE SQL AS $$ SELECT $1 $$"
+  },
+  {
+    "comment": "privileges - Statement 402",
+    "query": "CREATE FUNCTION priv_testfunc6a(b int) RETURNS priv_testdomain1 LANGUAGE SQL AS $$ SELECT $1::priv_testdomain1 $$"
+  },
+  {
+    "comment": "privileges - Statement 403",
+    "query": "CREATE OPERATOR !+! (PROCEDURE = int4pl, LEFTARG = priv_testdomain1, RIGHTARG = priv_testdomain1)"
+  },
+  {
+    "comment": "privileges - Statement 404",
+    "query": "CREATE TABLE test5a (a int, b priv_testdomain1)"
+  },
+  {
+    "comment": "privileges - Statement 405",
+    "query": "CREATE TABLE test6a OF priv_testtype1"
+  },
+  {
+    "comment": "privileges - Statement 406",
+    "query": "CREATE TABLE test10a (a int[], b priv_testtype1[])"
+  },
+  {
+    "comment": "privileges - Statement 407",
+    "query": "CREATE TABLE test9a (a int, b int)"
+  },
+  {
+    "comment": "privileges - Statement 408",
+    "query": "ALTER TABLE test9a ADD COLUMN c priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 409",
+    "query": "ALTER TABLE test9a ALTER COLUMN b TYPE priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 410",
+    "query": "CREATE TYPE test7a AS (a int, b priv_testdomain1)"
+  },
+  {
+    "comment": "privileges - Statement 411",
+    "query": "CREATE TYPE test8a AS (a int, b int)"
+  },
+  {
+    "comment": "privileges - Statement 412",
+    "query": "ALTER TYPE test8a ADD ATTRIBUTE c priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 413",
+    "query": "ALTER TYPE test8a ALTER ATTRIBUTE b TYPE priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 414",
+    "query": "CREATE TABLE test11a AS (SELECT 1::priv_testdomain1 AS a)"
+  },
+  {
+    "comment": "privileges - Statement 415",
+    "query": "REVOKE ALL ON TYPE priv_testtype1 FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 416",
+    "query": "CREATE AGGREGATE priv_testagg1b(priv_testdomain1) (sfunc = int4_sum, stype = bigint)"
+  },
+  {
+    "comment": "privileges - Statement 417",
+    "query": "CREATE DOMAIN priv_testdomain2b AS priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 418",
+    "query": "CREATE DOMAIN priv_testdomain3b AS int"
+  },
+  {
+    "comment": "privileges - Statement 419",
+    "query": "CREATE FUNCTION castfunc(int) RETURNS priv_testdomain3b AS $$ SELECT $1::priv_testdomain3b $$ LANGUAGE SQL"
+  },
+  {
+    "comment": "privileges - Statement 420",
+    "query": "CREATE CAST (priv_testdomain1 AS priv_testdomain3b) WITH FUNCTION castfunc(int)"
+  },
+  {
+    "comment": "privileges - Statement 421",
+    "query": "CREATE FUNCTION priv_testfunc5b(a priv_testdomain1) RETURNS int LANGUAGE SQL AS $$ SELECT $1 $$"
+  },
+  {
+    "comment": "privileges - Statement 422",
+    "query": "CREATE FUNCTION priv_testfunc6b(b int) RETURNS priv_testdomain1 LANGUAGE SQL AS $$ SELECT $1::priv_testdomain1 $$"
+  },
+  {
+    "comment": "privileges - Statement 423",
+    "query": "CREATE OPERATOR !! (PROCEDURE = priv_testfunc5b, RIGHTARG = priv_testdomain1)"
+  },
+  {
+    "comment": "privileges - Statement 424",
+    "query": "CREATE TABLE test5b (a int, b priv_testdomain1)"
+  },
+  {
+    "comment": "privileges - Statement 425",
+    "query": "CREATE TABLE test6b OF priv_testtype1"
+  },
+  {
+    "comment": "privileges - Statement 426",
+    "query": "CREATE TABLE test10b (a int[], b priv_testtype1[])"
+  },
+  {
+    "comment": "privileges - Statement 427",
+    "query": "CREATE TABLE test9b (a int, b int)"
+  },
+  {
+    "comment": "privileges - Statement 428",
+    "query": "ALTER TABLE test9b ADD COLUMN c priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 429",
+    "query": "ALTER TABLE test9b ALTER COLUMN b TYPE priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 430",
+    "query": "CREATE TYPE test7b AS (a int, b priv_testdomain1)"
+  },
+  {
+    "comment": "privileges - Statement 431",
+    "query": "CREATE TYPE test8b AS (a int, b int)"
+  },
+  {
+    "comment": "privileges - Statement 432",
+    "query": "ALTER TYPE test8b ADD ATTRIBUTE c priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 433",
+    "query": "ALTER TYPE test8b ALTER ATTRIBUTE b TYPE priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 434",
+    "query": "CREATE TABLE test11b AS (SELECT 1::priv_testdomain1 AS a)"
+  },
+  {
+    "comment": "privileges - Statement 435",
+    "query": "DROP DOMAIN priv_testdomain2b"
+  },
+  {
+    "comment": "privileges - Statement 436",
+    "query": "DROP OPERATOR !! (NONE, priv_testdomain1)"
+  },
+  {
+    "comment": "privileges - Statement 437",
+    "query": "DROP FUNCTION priv_testfunc5b(a priv_testdomain1)"
+  },
+  {
+    "comment": "privileges - Statement 438",
+    "query": "DROP FUNCTION priv_testfunc6b(b int)"
+  },
+  {
+    "comment": "privileges - Statement 439",
+    "query": "DROP TABLE test5b"
+  },
+  {
+    "comment": "privileges - Statement 440",
+    "query": "DROP TABLE test6b"
+  },
+  {
+    "comment": "privileges - Statement 441",
+    "query": "DROP TABLE test9b"
+  },
+  {
+    "comment": "privileges - Statement 442",
+    "query": "DROP TABLE test10b"
+  },
+  {
+    "comment": "privileges - Statement 443",
+    "query": "DROP TYPE test7b"
+  },
+  {
+    "comment": "privileges - Statement 444",
+    "query": "DROP TYPE test8b"
+  },
+  {
+    "comment": "privileges - Statement 445",
+    "query": "DROP CAST (priv_testdomain1 AS priv_testdomain3b)"
+  },
+  {
+    "comment": "privileges - Statement 446",
+    "query": "DROP DOMAIN priv_testdomain3b"
+  },
+  {
+    "comment": "privileges - Statement 447",
+    "query": "DROP TABLE test11b"
+  },
+  {
+    "comment": "privileges - Statement 448",
+    "query": "DROP TYPE priv_testtype1"
+  },
+  {
+    "comment": "privileges - Statement 449",
+    "query": "DROP DOMAIN priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 450",
+    "query": "SET SESSION AUTHORIZATION regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 451",
+    "query": "TRUNCATE atest3"
+  },
+  {
+    "comment": "privileges - Statement 452",
+    "query": "select has_table_privilege(NULL,'pg_authid','select')"
+  },
+  {
+    "comment": "privileges - Statement 453",
+    "query": "select has_table_privilege('pg_shad','select')"
+  },
+  {
+    "comment": "privileges - Statement 454",
+    "query": "select has_table_privilege('nosuchuser','pg_authid','select')"
+  },
+  {
+    "comment": "privileges - Statement 455",
+    "query": "select has_table_privilege('pg_authid','sel')"
+  },
+  {
+    "comment": "privileges - Statement 456",
+    "query": "select has_table_privilege(-999999,'pg_authid','update')"
+  },
+  {
+    "comment": "privileges - Statement 457",
+    "query": "select has_table_privilege(1,'select')"
+  },
+  {
+    "comment": "privileges - Statement 458",
+    "query": "select has_table_privilege(current_user,'pg_authid','insert')"
+  },
+  {
+    "comment": "privileges - Statement 459",
+    "query": "select has_table_privilege(t2.oid,'pg_authid','update') from (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 460",
+    "query": "select has_table_privilege(t2.oid,'pg_authid','delete') from (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 461",
+    "query": "select has_table_privilege(current_user,t1.oid,'rule') from (select oid from pg_class where relname = 'pg_authid') as t1"
+  },
+  {
+    "comment": "privileges - Statement 462",
+    "query": "select has_table_privilege(current_user,t1.oid,'references') from (select oid from pg_class where relname = 'pg_authid') as t1"
+  },
+  {
+    "comment": "privileges - Statement 463",
+    "query": "select has_table_privilege(t2.oid,t1.oid,'select') from (select oid from pg_class where relname = 'pg_authid') as t1, (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 464",
+    "query": "select has_table_privilege(t2.oid,t1.oid,'insert') from (select oid from pg_class where relname = 'pg_authid') as t1, (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 465",
+    "query": "select has_table_privilege('pg_authid','update')"
+  },
+  {
+    "comment": "privileges - Statement 466",
+    "query": "select has_table_privilege('pg_authid','delete')"
+  },
+  {
+    "comment": "privileges - Statement 467",
+    "query": "select has_table_privilege('pg_authid','truncate')"
+  },
+  {
+    "comment": "privileges - Statement 468",
+    "query": "select has_table_privilege(t1.oid,'select') from (select oid from pg_class where relname = 'pg_authid') as t1"
+  },
+  {
+    "comment": "privileges - Statement 469",
+    "query": "select has_table_privilege(t1.oid,'trigger') from (select oid from pg_class where relname = 'pg_authid') as t1"
+  },
+  {
+    "comment": "privileges - Statement 470",
+    "query": "select has_table_privilege(current_user,'pg_class','select')"
+  },
+  {
+    "comment": "privileges - Statement 471",
+    "query": "select has_table_privilege(current_user,'pg_class','insert')"
+  },
+  {
+    "comment": "privileges - Statement 472",
+    "query": "select has_table_privilege(t2.oid,'pg_class','update') from (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 473",
+    "query": "select has_table_privilege(t2.oid,'pg_class','delete') from (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 474",
+    "query": "select has_table_privilege(current_user,t1.oid,'references') from (select oid from pg_class where relname = 'pg_class') as t1"
+  },
+  {
+    "comment": "privileges - Statement 475",
+    "query": "select has_table_privilege(t2.oid,t1.oid,'select') from (select oid from pg_class where relname = 'pg_class') as t1, (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 476",
+    "query": "select has_table_privilege(t2.oid,t1.oid,'insert') from (select oid from pg_class where relname = 'pg_class') as t1, (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 477",
+    "query": "select has_table_privilege('pg_class','update')"
+  },
+  {
+    "comment": "privileges - Statement 478",
+    "query": "select has_table_privilege('pg_class','delete')"
+  },
+  {
+    "comment": "privileges - Statement 479",
+    "query": "select has_table_privilege('pg_class','truncate')"
+  },
+  {
+    "comment": "privileges - Statement 480",
+    "query": "select has_table_privilege(t1.oid,'select') from (select oid from pg_class where relname = 'pg_class') as t1"
+  },
+  {
+    "comment": "privileges - Statement 481",
+    "query": "select has_table_privilege(t1.oid,'trigger') from (select oid from pg_class where relname = 'pg_class') as t1"
+  },
+  {
+    "comment": "privileges - Statement 482",
+    "query": "select has_table_privilege(current_user,'atest1','select')"
+  },
+  {
+    "comment": "privileges - Statement 483",
+    "query": "select has_table_privilege(current_user,'atest1','insert')"
+  },
+  {
+    "comment": "privileges - Statement 484",
+    "query": "select has_table_privilege(t2.oid,'atest1','update') from (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 485",
+    "query": "select has_table_privilege(t2.oid,'atest1','delete') from (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 486",
+    "query": "select has_table_privilege(current_user,t1.oid,'references') from (select oid from pg_class where relname = 'atest1') as t1"
+  },
+  {
+    "comment": "privileges - Statement 487",
+    "query": "select has_table_privilege(t2.oid,t1.oid,'select') from (select oid from pg_class where relname = 'atest1') as t1, (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 488",
+    "query": "select has_table_privilege(t2.oid,t1.oid,'insert') from (select oid from pg_class where relname = 'atest1') as t1, (select oid from pg_roles where rolname = current_user) as t2"
+  },
+  {
+    "comment": "privileges - Statement 489",
+    "query": "select has_table_privilege('atest1','update')"
+  },
+  {
+    "comment": "privileges - Statement 490",
+    "query": "select has_table_privilege('atest1','delete')"
+  },
+  {
+    "comment": "privileges - Statement 491",
+    "query": "select has_table_privilege('atest1','truncate')"
+  },
+  {
+    "comment": "privileges - Statement 492",
+    "query": "select has_table_privilege(t1.oid,'select') from (select oid from pg_class where relname = 'atest1') as t1"
+  },
+  {
+    "comment": "privileges - Statement 493",
+    "query": "select has_table_privilege(t1.oid,'trigger') from (select oid from pg_class where relname = 'atest1') as t1"
+  },
+  {
+    "comment": "privileges - Statement 494",
+    "query": "select has_column_privilege('pg_authid',NULL,'select')"
+  },
+  {
+    "comment": "privileges - Statement 495",
+    "query": "select has_column_privilege('pg_authid','nosuchcol','select')"
+  },
+  {
+    "comment": "privileges - Statement 496",
+    "query": "select has_column_privilege(9999,'nosuchcol','select')"
+  },
+  {
+    "comment": "privileges - Statement 497",
+    "query": "select has_column_privilege(9999,99::int2,'select')"
+  },
+  {
+    "comment": "privileges - Statement 498",
+    "query": "select has_column_privilege('pg_authid',99::int2,'select')"
+  },
+  {
+    "comment": "privileges - Statement 499",
+    "query": "create temp table mytable(f1 int, f2 int, f3 int)"
+  },
+  {
+    "comment": "privileges - Statement 500",
+    "query": "alter table mytable drop column f2"
+  },
+  {
+    "comment": "privileges - Statement 501",
+    "query": "select has_column_privilege('mytable','f2','select')"
+  },
+  {
+    "comment": "privileges - Statement 502",
+    "query": "select has_column_privilege('mytable','........pg.dropped.2........','select')"
+  },
+  {
+    "comment": "privileges - Statement 503",
+    "query": "select has_column_privilege('mytable',2::int2,'select')"
+  },
+  {
+    "comment": "privileges - Statement 504",
+    "query": "select has_column_privilege('mytable',99::int2,'select')"
+  },
+  {
+    "comment": "privileges - Statement 505",
+    "query": "revoke select on table mytable from regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 506",
+    "query": "drop table mytable"
+  },
+  {
+    "comment": "privileges - Statement 507",
+    "query": "CREATE TABLE atest4 (a int)"
+  },
+  {
+    "comment": "privileges - Statement 508",
+    "query": "GRANT SELECT ON atest4 TO regress_priv_user2 WITH GRANT OPTION"
+  },
+  {
+    "comment": "privileges - Statement 509",
+    "query": "GRANT UPDATE ON atest4 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 510",
+    "query": "GRANT SELECT ON atest4 TO GROUP regress_priv_group1 WITH GRANT OPTION"
+  },
+  {
+    "comment": "privileges - Statement 511",
+    "query": "GRANT SELECT ON atest4 TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 512",
+    "query": "GRANT UPDATE ON atest4 TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 513",
+    "query": "REVOKE SELECT ON atest4 FROM regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 514",
+    "query": "SELECT has_table_privilege('regress_priv_user3', 'atest4', 'SELECT')"
+  },
+  {
+    "comment": "privileges - Statement 515",
+    "query": "REVOKE SELECT ON atest4 FROM regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 516",
+    "query": "REVOKE GRANT OPTION FOR SELECT ON atest4 FROM regress_priv_user2 CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 517",
+    "query": "SELECT has_table_privilege('regress_priv_user2', 'atest4', 'SELECT')"
+  },
+  {
+    "comment": "privileges - Statement 518",
+    "query": "SELECT has_table_privilege('regress_priv_user1', 'atest4', 'SELECT WITH GRANT OPTION')"
+  },
+  {
+    "comment": "privileges - Statement 519",
+    "query": "CREATE FUNCTION sro_ifun(int) RETURNS int AS $$ BEGIN ASSERT current_user = 'regress_sro_user', format('sro_ifun(%s) called by %s', $1, current_user)"
+  },
+  {
+    "comment": "privileges - Statement 520",
+    "query": "RETURN $1"
+  },
+  {
+    "comment": "privileges - Statement 521",
+    "query": "$$ LANGUAGE plpgsql IMMUTABLE"
+  },
+  {
+    "comment": "privileges - Statement 522",
+    "query": "CREATE TABLE sro_tab (a int)"
+  },
+  {
+    "comment": "privileges - Statement 523",
+    "query": "ALTER TABLE sro_tab OWNER TO regress_sro_user"
+  },
+  {
+    "comment": "privileges - Statement 524",
+    "query": "INSERT INTO sro_tab VALUES (1), (2), (3)"
+  },
+  {
+    "comment": "privileges - Statement 525",
+    "query": "CREATE INDEX sro_idx ON sro_tab ((sro_ifun(a) + sro_ifun(0))) WHERE sro_ifun(a + 10) > sro_ifun(10)"
+  },
+  {
+    "comment": "privileges - Statement 526",
+    "query": "DROP INDEX sro_idx"
+  },
+  {
+    "comment": "privileges - Statement 527",
+    "query": "CREATE INDEX CONCURRENTLY sro_idx ON sro_tab ((sro_ifun(a) + sro_ifun(0))) WHERE sro_ifun(a + 10) > sro_ifun(10)"
+  },
+  {
+    "comment": "privileges - Statement 528",
+    "query": "REINDEX TABLE sro_tab"
+  },
+  {
+    "comment": "privileges - Statement 529",
+    "query": "REINDEX INDEX sro_idx"
+  },
+  {
+    "comment": "privileges - Statement 530",
+    "query": "REINDEX TABLE CONCURRENTLY sro_tab"
+  },
+  {
+    "comment": "privileges - Statement 531",
+    "query": "CREATE INDEX sro_cluster_idx ON sro_tab ((sro_ifun(a) + sro_ifun(0)))"
+  },
+  {
+    "comment": "privileges - Statement 532",
+    "query": "CLUSTER sro_tab USING sro_cluster_idx"
+  },
+  {
+    "comment": "privileges - Statement 533",
+    "query": "DROP INDEX sro_cluster_idx"
+  },
+  {
+    "comment": "privileges - Statement 534",
+    "query": "CREATE INDEX sro_brin ON sro_tab USING brin ((sro_ifun(a) + sro_ifun(0)))"
+  },
+  {
+    "comment": "privileges - Statement 535",
+    "query": "SELECT brin_desummarize_range('sro_brin', 0)"
+  },
+  {
+    "comment": "privileges - Statement 536",
+    "query": "SELECT brin_summarize_range('sro_brin', 0)"
+  },
+  {
+    "comment": "privileges - Statement 537",
+    "query": "DROP TABLE sro_tab"
+  },
+  {
+    "comment": "privileges - Statement 538",
+    "query": "CREATE TABLE sro_ptab (a int) PARTITION BY RANGE (a)"
+  },
+  {
+    "comment": "privileges - Statement 539",
+    "query": "ALTER TABLE sro_ptab OWNER TO regress_sro_user"
+  },
+  {
+    "comment": "privileges - Statement 540",
+    "query": "CREATE TABLE sro_part PARTITION OF sro_ptab FOR VALUES FROM (1) TO (10)"
+  },
+  {
+    "comment": "privileges - Statement 541",
+    "query": "ALTER TABLE sro_part OWNER TO regress_sro_user"
+  },
+  {
+    "comment": "privileges - Statement 542",
+    "query": "INSERT INTO sro_ptab VALUES (1), (2), (3)"
+  },
+  {
+    "comment": "privileges - Statement 543",
+    "query": "CREATE INDEX sro_pidx ON sro_ptab ((sro_ifun(a) + sro_ifun(0))) WHERE sro_ifun(a + 10) > sro_ifun(10)"
+  },
+  {
+    "comment": "privileges - Statement 544",
+    "query": "REINDEX TABLE sro_ptab"
+  },
+  {
+    "comment": "privileges - Statement 545",
+    "query": "REINDEX INDEX CONCURRENTLY sro_pidx"
+  },
+  {
+    "comment": "privileges - Statement 546",
+    "query": "SET SESSION AUTHORIZATION regress_sro_user"
+  },
+  {
+    "comment": "privileges - Statement 547",
+    "query": "CREATE FUNCTION unwanted_grant() RETURNS void LANGUAGE sql AS 'GRANT regress_priv_group2 TO regress_sro_user'"
+  },
+  {
+    "comment": "privileges - Statement 548",
+    "query": "CREATE FUNCTION mv_action() RETURNS bool LANGUAGE sql AS 'DECLARE c CURSOR WITH HOLD FOR SELECT public.unwanted_grant(); SELECT true'"
+  },
+  {
+    "comment": "privileges - Statement 549",
+    "query": "CREATE MATERIALIZED VIEW sro_mv AS SELECT mv_action() WITH NO DATA"
+  },
+  {
+    "comment": "privileges - Statement 550",
+    "query": "REFRESH MATERIALIZED VIEW sro_mv"
+  },
+  {
+    "comment": "privileges - Statement 551",
+    "query": "CREATE TABLE sro_trojan_table ()"
+  },
+  {
+    "comment": "privileges - Statement 552",
+    "query": "CREATE FUNCTION sro_trojan() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN PERFORM public.unwanted_grant(); RETURN NULL; END'"
+  },
+  {
+    "comment": "privileges - Statement 553",
+    "query": "CREATE CONSTRAINT TRIGGER t AFTER INSERT ON sro_trojan_table INITIALLY DEFERRED FOR EACH ROW EXECUTE PROCEDURE sro_trojan()"
+  },
+  {
+    "comment": "privileges - Statement 554",
+    "query": "CREATE OR REPLACE FUNCTION mv_action() RETURNS bool LANGUAGE sql AS 'INSERT INTO public.sro_trojan_table DEFAULT VALUES; SELECT true'"
+  },
+  {
+    "comment": "privileges - Statement 555",
+    "query": "BEGIN; SET CONSTRAINTS ALL IMMEDIATE; REFRESH MATERIALIZED VIEW sro_mv; COMMIT"
+  },
+  {
+    "comment": "privileges - Statement 556",
+    "query": "CREATE FUNCTION unwanted_grant_nofail(int) RETURNS int IMMUTABLE LANGUAGE plpgsql AS $$ BEGIN PERFORM public.unwanted_grant()"
+  },
+  {
+    "comment": "privileges - Statement 557",
+    "query": "RAISE WARNING 'owned'"
+  },
+  {
+    "comment": "privileges - Statement 558",
+    "query": "RETURN 1"
+  },
+  {
+    "comment": "privileges - Statement 559",
+    "query": "EXCEPTION WHEN OTHERS THEN RETURN 2"
+  },
+  {
+    "comment": "privileges - Statement 560",
+    "query": "END$$"
+  },
+  {
+    "comment": "privileges - Statement 561",
+    "query": "CREATE MATERIALIZED VIEW sro_index_mv AS SELECT 1 AS c"
+  },
+  {
+    "comment": "privileges - Statement 562",
+    "query": "CREATE UNIQUE INDEX ON sro_index_mv (c) WHERE unwanted_grant_nofail(1) > 0"
+  },
+  {
+    "comment": "privileges - Statement 563",
+    "query": "REFRESH MATERIALIZED VIEW sro_index_mv"
+  },
+  {
+    "comment": "privileges - Statement 564",
+    "query": "DROP OWNED BY regress_sro_user"
+  },
+  {
+    "comment": "privileges - Statement 565",
+    "query": "DROP ROLE regress_sro_user"
+  },
+  {
+    "comment": "privileges - Statement 566",
+    "query": "CREATE FUNCTION dogrant_ok() RETURNS void LANGUAGE sql SECURITY DEFINER AS 'GRANT regress_priv_group2 TO regress_priv_user5'"
+  },
+  {
+    "comment": "privileges - Statement 567",
+    "query": "GRANT regress_priv_group2 TO regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 568",
+    "query": "SET ROLE regress_priv_group2"
+  },
+  {
+    "comment": "privileges - Statement 569",
+    "query": "SELECT dogrant_ok()"
+  },
+  {
+    "comment": "privileges - Statement 570",
+    "query": "SET SESSION AUTHORIZATION regress_priv_group2"
+  },
+  {
+    "comment": "privileges - Statement 571",
+    "query": "DROP FUNCTION dogrant_ok()"
+  },
+  {
+    "comment": "privileges - Statement 572",
+    "query": "REVOKE regress_priv_group2 FROM regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 573",
+    "query": "GRANT USAGE on x_seq to regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 574",
+    "query": "SELECT has_sequence_privilege('regress_priv_user1', 'atest1', 'SELECT')"
+  },
+  {
+    "comment": "privileges - Statement 575",
+    "query": "SELECT has_sequence_privilege('regress_priv_user1', 'x_seq', 'INSERT')"
+  },
+  {
+    "comment": "privileges - Statement 576",
+    "query": "SELECT has_sequence_privilege('regress_priv_user1', 'x_seq', 'SELECT')"
+  },
+  {
+    "comment": "privileges - Statement 577",
+    "query": "SELECT has_sequence_privilege('x_seq', 'USAGE')"
+  },
+  {
+    "comment": "privileges - Statement 578",
+    "query": "SELECT lo_create(1001)"
+  },
+  {
+    "comment": "privileges - Statement 579",
+    "query": "SELECT lo_create(1002)"
+  },
+  {
+    "comment": "privileges - Statement 580",
+    "query": "SELECT lo_create(1003)"
+  },
+  {
+    "comment": "privileges - Statement 581",
+    "query": "SELECT lo_create(1004)"
+  },
+  {
+    "comment": "privileges - Statement 582",
+    "query": "SELECT lo_create(1005)"
+  },
+  {
+    "comment": "privileges - Statement 583",
+    "query": "GRANT ALL ON LARGE OBJECT 1001 TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 584",
+    "query": "GRANT SELECT ON LARGE OBJECT 1003 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 585",
+    "query": "GRANT SELECT,UPDATE ON LARGE OBJECT 1004 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 586",
+    "query": "GRANT ALL ON LARGE OBJECT 1005 TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 587",
+    "query": "GRANT SELECT ON LARGE OBJECT 1005 TO regress_priv_user2 WITH GRANT OPTION"
+  },
+  {
+    "comment": "privileges - Statement 588",
+    "query": "GRANT SELECT, INSERT ON LARGE OBJECT 1001 TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 589",
+    "query": "GRANT SELECT, UPDATE ON LARGE OBJECT 1001 TO nosuchuser"
+  },
+  {
+    "comment": "privileges - Statement 590",
+    "query": "GRANT SELECT, UPDATE ON LARGE OBJECT  999 TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 591",
+    "query": "SELECT lo_create(2001)"
+  },
+  {
+    "comment": "privileges - Statement 592",
+    "query": "SELECT lo_create(2002)"
+  },
+  {
+    "comment": "privileges - Statement 593",
+    "query": "SELECT loread(lo_open(1001, x'20000'::int), 32)"
+  },
+  {
+    "comment": "privileges - Statement 594",
+    "query": "SELECT lowrite(lo_open(1001, x'40000'::int), 'abcd')"
+  },
+  {
+    "comment": "privileges - Statement 595",
+    "query": "SELECT loread(lo_open(1001, x'40000'::int), 32)"
+  },
+  {
+    "comment": "privileges - Statement 596",
+    "query": "SELECT loread(lo_open(1002, x'40000'::int), 32)"
+  },
+  {
+    "comment": "privileges - Statement 597",
+    "query": "SELECT loread(lo_open(1003, x'40000'::int), 32)"
+  },
+  {
+    "comment": "privileges - Statement 598",
+    "query": "SELECT loread(lo_open(1004, x'40000'::int), 32)"
+  },
+  {
+    "comment": "privileges - Statement 599",
+    "query": "SELECT lowrite(lo_open(1001, x'20000'::int), 'abcd')"
+  },
+  {
+    "comment": "privileges - Statement 600",
+    "query": "SELECT lowrite(lo_open(1002, x'20000'::int), 'abcd')"
+  },
+  {
+    "comment": "privileges - Statement 601",
+    "query": "SELECT lowrite(lo_open(1003, x'20000'::int), 'abcd')"
+  },
+  {
+    "comment": "privileges - Statement 602",
+    "query": "SELECT lowrite(lo_open(1004, x'20000'::int), 'abcd')"
+  },
+  {
+    "comment": "privileges - Statement 603",
+    "query": "GRANT SELECT ON LARGE OBJECT 1005 TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 604",
+    "query": "GRANT UPDATE ON LARGE OBJECT 1006 TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 605",
+    "query": "REVOKE ALL ON LARGE OBJECT 2001, 2002 FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 606",
+    "query": "GRANT ALL ON LARGE OBJECT 2001 TO regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 607",
+    "query": "SELECT lo_unlink(1001)"
+  },
+  {
+    "comment": "privileges - Statement 608",
+    "query": "SELECT lo_unlink(2002)"
+  },
+  {
+    "comment": "privileges - Statement 609",
+    "query": "SELECT loread(lo_open(1005, x'40000'::int), 32)"
+  },
+  {
+    "comment": "privileges - Statement 610",
+    "query": "SELECT lo_truncate(lo_open(1005, x'20000'::int), 10)"
+  },
+  {
+    "comment": "privileges - Statement 611",
+    "query": "SELECT lo_truncate(lo_open(2001, x'20000'::int), 10)"
+  },
+  {
+    "comment": "privileges - Statement 612",
+    "query": "SELECT lo_truncate(lo_open(1002, x'20000'::int), 10)"
+  },
+  {
+    "comment": "privileges - Statement 613",
+    "query": "SELECT lo_put(1002, 1, 'abcd')"
+  },
+  {
+    "comment": "privileges - Statement 614",
+    "query": "SELECT lo_unlink(1002)"
+  },
+  {
+    "comment": "privileges - Statement 615",
+    "query": "SELECT lo_export(1001, '/dev/null')"
+  },
+  {
+    "comment": "privileges - Statement 616",
+    "query": "SELECT lo_import('/dev/null')"
+  },
+  {
+    "comment": "privileges - Statement 617",
+    "query": "SELECT lo_import('/dev/null', 2003)"
+  },
+  {
+    "comment": "privileges - Statement 618",
+    "query": "SELECT * FROM pg_largeobject LIMIT 0"
+  },
+  {
+    "comment": "privileges - Statement 619",
+    "query": "CREATE OR REPLACE FUNCTION terminate_nothrow(pid int) RETURNS bool LANGUAGE plpgsql SECURITY DEFINER SET client_min_messages = error AS $$ BEGIN RETURN pg_terminate_backend($1)"
+  },
+  {
+    "comment": "privileges - Statement 620",
+    "query": "EXCEPTION WHEN OTHERS THEN RETURN false"
+  },
+  {
+    "comment": "privileges - Statement 621",
+    "query": "ALTER FUNCTION terminate_nothrow OWNER TO pg_signal_backend"
+  },
+  {
+    "comment": "privileges - Statement 622",
+    "query": "SELECT backend_type FROM pg_stat_activity WHERE CASE WHEN COALESCE(usesysid, 10) = 10 THEN terminate_nothrow(pid) END"
+  },
+  {
+    "comment": "privileges - Statement 623",
+    "query": "GRANT pg_database_owner TO regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 624",
+    "query": "GRANT regress_priv_user1 TO pg_database_owner"
+  },
+  {
+    "comment": "privileges - Statement 625",
+    "query": "CREATE TABLE datdba_only ()"
+  },
+  {
+    "comment": "privileges - Statement 626",
+    "query": "ALTER TABLE datdba_only OWNER TO pg_database_owner"
+  },
+  {
+    "comment": "privileges - Statement 627",
+    "query": "REVOKE DELETE ON datdba_only FROM pg_database_owner"
+  },
+  {
+    "comment": "privileges - Statement 628",
+    "query": "SELECT pg_has_role('regress_priv_user1', 'pg_database_owner', 'USAGE') as priv, pg_has_role('regress_priv_user1', 'pg_database_owner', 'MEMBER') as mem, pg_has_role('regress_priv_user1', 'pg_database_owner', 'MEMBER WITH ADMIN OPTION') as admin"
+  },
+  {
+    "comment": "privileges - Statement 629",
+    "query": "DO $$BEGIN EXECUTE format( 'ALTER DATABASE %I OWNER TO regress_priv_group2', current_catalog); END$$"
+  },
+  {
+    "comment": "privileges - Statement 630",
+    "query": "TABLE information_schema.enabled_roles ORDER BY role_name COLLATE \"C\""
+  },
+  {
+    "comment": "privileges - Statement 631",
+    "query": "TABLE information_schema.applicable_roles ORDER BY role_name COLLATE \"C\""
+  },
+  {
+    "comment": "privileges - Statement 632",
+    "query": "INSERT INTO datdba_only DEFAULT VALUES"
+  },
+  {
+    "comment": "privileges - Statement 633",
+    "query": "SAVEPOINT q; DELETE FROM datdba_only; ROLLBACK TO q"
+  },
+  {
+    "comment": "privileges - Statement 634",
+    "query": "TABLE information_schema.enabled_roles"
+  },
+  {
+    "comment": "privileges - Statement 635",
+    "query": "GRANT ALL ON SCHEMA testns TO regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 636",
+    "query": "CREATE TABLE testns.acltest1 (x int)"
+  },
+  {
+    "comment": "privileges - Statement 637",
+    "query": "SELECT has_table_privilege('regress_priv_user1', 'testns.acltest1', 'SELECT')"
+  },
+  {
+    "comment": "privileges - Statement 638",
+    "query": "SELECT has_table_privilege('regress_priv_user1', 'testns.acltest1', 'INSERT')"
+  },
+  {
+    "comment": "privileges - Statement 639",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns,testns GRANT SELECT ON TABLES TO public,public"
+  },
+  {
+    "comment": "privileges - Statement 640",
+    "query": "DROP TABLE testns.acltest1"
+  },
+  {
+    "comment": "privileges - Statement 641",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT INSERT ON TABLES TO regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 642",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns REVOKE INSERT ON TABLES FROM regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 643",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_priv_user1 REVOKE EXECUTE ON FUNCTIONS FROM public"
+  },
+  {
+    "comment": "privileges - Statement 644",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT USAGE ON SCHEMAS TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 645",
+    "query": "SELECT makeaclitem('regress_priv_user1'::regrole, 'regress_priv_user2'::regrole, 'SELECT', TRUE)"
+  },
+  {
+    "comment": "privileges - Statement 646",
+    "query": "SELECT makeaclitem('regress_priv_user1'::regrole, 'regress_priv_user2'::regrole, 'SELECT, INSERT,  UPDATE , DELETE  ', FALSE)"
+  },
+  {
+    "comment": "privileges - Statement 647",
+    "query": "SELECT makeaclitem('regress_priv_user1'::regrole, 'regress_priv_user2'::regrole, 'SELECT, fake_privilege', FALSE)"
+  },
+  {
+    "comment": "privileges - Statement 648",
+    "query": "SELECT pg_input_is_valid('regress_priv_user1=r/regress_priv_user2', 'aclitem')"
+  },
+  {
+    "comment": "privileges - Statement 649",
+    "query": "SELECT pg_input_is_valid('regress_priv_user1=r/', 'aclitem')"
+  },
+  {
+    "comment": "privileges - Statement 650",
+    "query": "SELECT * FROM pg_input_error_info('regress_priv_user1=r/', 'aclitem')"
+  },
+  {
+    "comment": "privileges - Statement 651",
+    "query": "SELECT pg_input_is_valid('regress_priv_user1=r/regress_no_such_user', 'aclitem')"
+  },
+  {
+    "comment": "privileges - Statement 652",
+    "query": "SELECT * FROM pg_input_error_info('regress_priv_user1=r/regress_no_such_user', 'aclitem')"
+  },
+  {
+    "comment": "privileges - Statement 653",
+    "query": "SELECT pg_input_is_valid('regress_priv_user1=rY', 'aclitem')"
+  },
+  {
+    "comment": "privileges - Statement 654",
+    "query": "SELECT * FROM pg_input_error_info('regress_priv_user1=rY', 'aclitem')"
+  },
+  {
+    "comment": "privileges - Statement 655",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT USAGE ON SCHEMAS TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 656",
+    "query": "CREATE SCHEMA testns2"
+  },
+  {
+    "comment": "privileges - Statement 657",
+    "query": "SELECT has_schema_privilege('regress_priv_user2', 'testns2', 'USAGE')"
+  },
+  {
+    "comment": "privileges - Statement 658",
+    "query": "SELECT has_schema_privilege('regress_priv_user6', 'testns2', 'USAGE')"
+  },
+  {
+    "comment": "privileges - Statement 659",
+    "query": "SELECT has_schema_privilege('regress_priv_user2', 'testns2', 'CREATE')"
+  },
+  {
+    "comment": "privileges - Statement 660",
+    "query": "ALTER DEFAULT PRIVILEGES REVOKE USAGE ON SCHEMAS FROM regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 661",
+    "query": "CREATE SCHEMA testns3"
+  },
+  {
+    "comment": "privileges - Statement 662",
+    "query": "SELECT has_schema_privilege('regress_priv_user2', 'testns3', 'USAGE')"
+  },
+  {
+    "comment": "privileges - Statement 663",
+    "query": "SELECT has_schema_privilege('regress_priv_user2', 'testns3', 'CREATE')"
+  },
+  {
+    "comment": "privileges - Statement 664",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT ALL ON SCHEMAS TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 665",
+    "query": "CREATE SCHEMA testns4"
+  },
+  {
+    "comment": "privileges - Statement 666",
+    "query": "SELECT has_schema_privilege('regress_priv_user2', 'testns4', 'USAGE')"
+  },
+  {
+    "comment": "privileges - Statement 667",
+    "query": "SELECT has_schema_privilege('regress_priv_user2', 'testns4', 'CREATE')"
+  },
+  {
+    "comment": "privileges - Statement 668",
+    "query": "ALTER DEFAULT PRIVILEGES REVOKE ALL ON SCHEMAS FROM regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 669",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT ALL ON FUNCTIONS TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 670",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT ALL ON SEQUENCES TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 671",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 672",
+    "query": "ALTER DEFAULT PRIVILEGES GRANT ALL ON TYPES TO regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 673",
+    "query": "SELECT count(*) FROM pg_shdepend WHERE deptype = 'a' AND refobjid = 'regress_priv_user2'::regrole AND classid = 'pg_default_acl'::regclass"
+  },
+  {
+    "comment": "privileges - Statement 674",
+    "query": "DROP OWNED BY regress_priv_user2, regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 675",
+    "query": "CREATE SCHEMA testns5"
+  },
+  {
+    "comment": "privileges - Statement 676",
+    "query": "SELECT has_schema_privilege('regress_priv_user2', 'testns5', 'USAGE')"
+  },
+  {
+    "comment": "privileges - Statement 677",
+    "query": "SELECT has_schema_privilege('regress_priv_user2', 'testns5', 'CREATE')"
+  },
+  {
+    "comment": "privileges - Statement 678",
+    "query": "SET ROLE regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 679",
+    "query": "CREATE FUNCTION testns.foo() RETURNS int AS 'select 1' LANGUAGE sql"
+  },
+  {
+    "comment": "privileges - Statement 680",
+    "query": "CREATE AGGREGATE testns.agg1(int) (sfunc = int4pl, stype = int4)"
+  },
+  {
+    "comment": "privileges - Statement 681",
+    "query": "CREATE PROCEDURE testns.bar() AS 'select 1' LANGUAGE sql"
+  },
+  {
+    "comment": "privileges - Statement 682",
+    "query": "SELECT has_function_privilege('regress_priv_user2', 'testns.foo()', 'EXECUTE')"
+  },
+  {
+    "comment": "privileges - Statement 683",
+    "query": "SELECT has_function_privilege('regress_priv_user2', 'testns.agg1(int)', 'EXECUTE')"
+  },
+  {
+    "comment": "privileges - Statement 684",
+    "query": "SELECT has_function_privilege('regress_priv_user2', 'testns.bar()', 'EXECUTE')"
+  },
+  {
+    "comment": "privileges - Statement 685",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT EXECUTE ON ROUTINES to public"
+  },
+  {
+    "comment": "privileges - Statement 686",
+    "query": "DROP FUNCTION testns.foo()"
+  },
+  {
+    "comment": "privileges - Statement 687",
+    "query": "DROP AGGREGATE testns.agg1(int)"
+  },
+  {
+    "comment": "privileges - Statement 688",
+    "query": "DROP PROCEDURE testns.bar()"
+  },
+  {
+    "comment": "privileges - Statement 689",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_priv_user1 REVOKE USAGE ON TYPES FROM public"
+  },
+  {
+    "comment": "privileges - Statement 690",
+    "query": "CREATE DOMAIN testns.priv_testdomain1 AS int"
+  },
+  {
+    "comment": "privileges - Statement 691",
+    "query": "SELECT has_type_privilege('regress_priv_user2', 'testns.priv_testdomain1', 'USAGE')"
+  },
+  {
+    "comment": "privileges - Statement 692",
+    "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT USAGE ON TYPES to public"
+  },
+  {
+    "comment": "privileges - Statement 693",
+    "query": "DROP DOMAIN testns.priv_testdomain1"
+  },
+  {
+    "comment": "privileges - Statement 694",
+    "query": "SELECT count(*) FROM pg_default_acl d LEFT JOIN pg_namespace n ON defaclnamespace = n.oid WHERE nspname = 'testns'"
+  },
+  {
+    "comment": "privileges - Statement 695",
+    "query": "DROP SCHEMA testns CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 696",
+    "query": "DROP SCHEMA testns2 CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 697",
+    "query": "DROP SCHEMA testns3 CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 698",
+    "query": "DROP SCHEMA testns4 CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 699",
+    "query": "DROP SCHEMA testns5 CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 700",
+    "query": "SELECT d.* FROM pg_default_acl d LEFT JOIN pg_namespace n ON defaclnamespace = n.oid WHERE nspname IS NULL AND defaclnamespace != 0"
+  },
+  {
+    "comment": "privileges - Statement 701",
+    "query": "CREATE TABLE testns.t1 (f1 int)"
+  },
+  {
+    "comment": "privileges - Statement 702",
+    "query": "CREATE TABLE testns.t2 (f1 int)"
+  },
+  {
+    "comment": "privileges - Statement 703",
+    "query": "SELECT has_table_privilege('regress_priv_user1', 'testns.t1', 'SELECT')"
+  },
+  {
+    "comment": "privileges - Statement 704",
+    "query": "GRANT ALL ON ALL TABLES IN SCHEMA testns TO regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 705",
+    "query": "SELECT has_table_privilege('regress_priv_user1', 'testns.t2', 'SELECT')"
+  },
+  {
+    "comment": "privileges - Statement 706",
+    "query": "REVOKE ALL ON ALL TABLES IN SCHEMA testns FROM regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 707",
+    "query": "CREATE FUNCTION testns.priv_testfunc(int) RETURNS int AS 'select 3 * $1;' LANGUAGE sql"
+  },
+  {
+    "comment": "privileges - Statement 708",
+    "query": "CREATE AGGREGATE testns.priv_testagg(int) (sfunc = int4pl, stype = int4)"
+  },
+  {
+    "comment": "privileges - Statement 709",
+    "query": "CREATE PROCEDURE testns.priv_testproc(int) AS 'select 3' LANGUAGE sql"
+  },
+  {
+    "comment": "privileges - Statement 710",
+    "query": "SELECT has_function_privilege('regress_priv_user1', 'testns.priv_testfunc(int)', 'EXECUTE')"
+  },
+  {
+    "comment": "privileges - Statement 711",
+    "query": "SELECT has_function_privilege('regress_priv_user1', 'testns.priv_testagg(int)', 'EXECUTE')"
+  },
+  {
+    "comment": "privileges - Statement 712",
+    "query": "SELECT has_function_privilege('regress_priv_user1', 'testns.priv_testproc(int)', 'EXECUTE')"
+  },
+  {
+    "comment": "privileges - Statement 713",
+    "query": "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA testns FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 714",
+    "query": "REVOKE ALL ON ALL PROCEDURES IN SCHEMA testns FROM PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 715",
+    "query": "GRANT ALL ON ALL ROUTINES IN SCHEMA testns TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 716",
+    "query": "CREATE ROLE regress_schemauser2 superuser login"
+  },
+  {
+    "comment": "privileges - Statement 717",
+    "query": "SET SESSION ROLE regress_schemauser1"
+  },
+  {
+    "comment": "privileges - Statement 718",
+    "query": "CREATE SCHEMA testns"
+  },
+  {
+    "comment": "privileges - Statement 719",
+    "query": "SELECT nspname, rolname FROM pg_namespace, pg_roles WHERE pg_namespace.nspname = 'testns' AND pg_namespace.nspowner = pg_roles.oid"
+  },
+  {
+    "comment": "privileges - Statement 720",
+    "query": "ALTER SCHEMA testns OWNER TO regress_schemauser2"
+  },
+  {
+    "comment": "privileges - Statement 721",
+    "query": "ALTER ROLE regress_schemauser2 RENAME TO regress_schemauser_renamed"
+  },
+  {
+    "comment": "privileges - Statement 722",
+    "query": "set session role regress_schemauser_renamed"
+  },
+  {
+    "comment": "privileges - Statement 723",
+    "query": "DROP ROLE regress_schemauser_renamed"
+  },
+  {
+    "comment": "privileges - Statement 724",
+    "query": "create table dep_priv_test (a int)"
+  },
+  {
+    "comment": "privileges - Statement 725",
+    "query": "grant select on dep_priv_test to regress_priv_user2 with grant option"
+  },
+  {
+    "comment": "privileges - Statement 726",
+    "query": "grant select on dep_priv_test to regress_priv_user3 with grant option"
+  },
+  {
+    "comment": "privileges - Statement 727",
+    "query": "set session role regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 728",
+    "query": "grant select on dep_priv_test to regress_priv_user4 with grant option"
+  },
+  {
+    "comment": "privileges - Statement 729",
+    "query": "set session role regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 730",
+    "query": "set session role regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 731",
+    "query": "grant select on dep_priv_test to regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 732",
+    "query": "revoke select on dep_priv_test from regress_priv_user4 cascade"
+  },
+  {
+    "comment": "privileges - Statement 733",
+    "query": "drop table dep_priv_test"
+  },
+  {
+    "comment": "privileges - Statement 734",
+    "query": "DROP FUNCTION priv_testfunc2(int)"
+  },
+  {
+    "comment": "privileges - Statement 735",
+    "query": "DROP FUNCTION priv_testfunc4(boolean)"
+  },
+  {
+    "comment": "privileges - Statement 736",
+    "query": "DROP VIEW atestv0"
+  },
+  {
+    "comment": "privileges - Statement 737",
+    "query": "DROP VIEW atestv1"
+  },
+  {
+    "comment": "privileges - Statement 738",
+    "query": "DROP VIEW atestv2"
+  },
+  {
+    "comment": "privileges - Statement 739",
+    "query": "DROP VIEW atestv3 CASCADE"
+  },
+  {
+    "comment": "privileges - Statement 740",
+    "query": "DROP VIEW atestv4"
+  },
+  {
+    "comment": "privileges - Statement 741",
+    "query": "DROP TABLE atest1"
+  },
+  {
+    "comment": "privileges - Statement 742",
+    "query": "DROP TABLE atest2"
+  },
+  {
+    "comment": "privileges - Statement 743",
+    "query": "DROP TABLE atest3"
+  },
+  {
+    "comment": "privileges - Statement 744",
+    "query": "DROP TABLE atest4"
+  },
+  {
+    "comment": "privileges - Statement 745",
+    "query": "DROP TABLE atest5"
+  },
+  {
+    "comment": "privileges - Statement 746",
+    "query": "DROP TABLE atest6"
+  },
+  {
+    "comment": "privileges - Statement 747",
+    "query": "DROP TABLE atestc"
+  },
+  {
+    "comment": "privileges - Statement 748",
+    "query": "DROP TABLE atestp1"
+  },
+  {
+    "comment": "privileges - Statement 749",
+    "query": "DROP TABLE atestp2"
+  },
+  {
+    "comment": "privileges - Statement 750",
+    "query": "DROP GROUP regress_priv_group1"
+  },
+  {
+    "comment": "privileges - Statement 751",
+    "query": "DROP GROUP regress_priv_group2"
+  },
+  {
+    "comment": "privileges - Statement 752",
+    "query": "REVOKE USAGE ON LANGUAGE sql FROM regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 753",
+    "query": "DROP OWNED BY regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 754",
+    "query": "DROP USER regress_priv_user1"
+  },
+  {
+    "comment": "privileges - Statement 755",
+    "query": "DROP USER regress_priv_user2"
+  },
+  {
+    "comment": "privileges - Statement 756",
+    "query": "DROP USER regress_priv_user3"
+  },
+  {
+    "comment": "privileges - Statement 757",
+    "query": "DROP USER regress_priv_user4"
+  },
+  {
+    "comment": "privileges - Statement 758",
+    "query": "DROP USER regress_priv_user5"
+  },
+  {
+    "comment": "privileges - Statement 759",
+    "query": "DROP USER regress_priv_user6"
+  },
+  {
+    "comment": "privileges - Statement 760",
+    "query": "DROP USER regress_priv_user7"
+  },
+  {
+    "comment": "privileges - Statement 761",
+    "query": "CREATE USER regress_locktable_user"
+  },
+  {
+    "comment": "privileges - Statement 762",
+    "query": "CREATE TABLE lock_table (a int)"
+  },
+  {
+    "comment": "privileges - Statement 763",
+    "query": "GRANT SELECT ON lock_table TO regress_locktable_user"
+  },
+  {
+    "comment": "privileges - Statement 764",
+    "query": "SET SESSION AUTHORIZATION regress_locktable_user"
+  },
+  {
+    "comment": "privileges - Statement 765",
+    "query": "LOCK TABLE lock_table IN ACCESS SHARE MODE"
+  },
+  {
+    "comment": "privileges - Statement 766",
+    "query": "LOCK TABLE lock_table IN ROW EXCLUSIVE MODE"
+  },
+  {
+    "comment": "privileges - Statement 767",
+    "query": "LOCK TABLE lock_table IN ACCESS EXCLUSIVE MODE"
+  },
+  {
+    "comment": "privileges - Statement 768",
+    "query": "GRANT INSERT ON lock_table TO regress_locktable_user"
+  },
+  {
+    "comment": "privileges - Statement 769",
+    "query": "GRANT UPDATE ON lock_table TO regress_locktable_user"
+  },
+  {
+    "comment": "privileges - Statement 770",
+    "query": "GRANT DELETE ON lock_table TO regress_locktable_user"
+  },
+  {
+    "comment": "privileges - Statement 771",
+    "query": "GRANT TRUNCATE ON lock_table TO regress_locktable_user"
+  },
+  {
+    "comment": "privileges - Statement 772",
+    "query": "GRANT MAINTAIN ON lock_table TO regress_locktable_user"
+  },
+  {
+    "comment": "privileges - Statement 773",
+    "query": "DROP TABLE lock_table"
+  },
+  {
+    "comment": "privileges - Statement 774",
+    "query": "DROP USER regress_locktable_user"
+  },
+  {
+    "comment": "privileges - Statement 775",
+    "query": "SELECT has_table_privilege('regress_readallstats','pg_backend_memory_contexts','SELECT')"
+  },
+  {
+    "comment": "privileges - Statement 776",
+    "query": "SELECT has_table_privilege('regress_readallstats','pg_shmem_allocations','SELECT')"
+  },
+  {
+    "comment": "privileges - Statement 777",
+    "query": "GRANT pg_read_all_stats TO regress_readallstats"
+  },
+  {
+    "comment": "privileges - Statement 778",
+    "query": "SET ROLE regress_readallstats"
+  },
+  {
+    "comment": "privileges - Statement 779",
+    "query": "SELECT COUNT(*) >= 0 AS ok FROM pg_backend_memory_contexts"
+  },
+  {
+    "comment": "privileges - Statement 780",
+    "query": "SELECT COUNT(*) >= 0 AS ok FROM pg_shmem_allocations"
+  },
+  {
+    "comment": "privileges - Statement 781",
+    "query": "DROP ROLE regress_readallstats"
+  },
+  {
+    "comment": "privileges - Statement 782",
+    "query": "CREATE ROLE regress_group"
+  },
+  {
+    "comment": "privileges - Statement 783",
+    "query": "CREATE ROLE regress_group_direct_manager"
+  },
+  {
+    "comment": "privileges - Statement 784",
+    "query": "CREATE ROLE regress_group_indirect_manager"
+  },
+  {
+    "comment": "privileges - Statement 785",
+    "query": "CREATE ROLE regress_group_member"
+  },
+  {
+    "comment": "privileges - Statement 786",
+    "query": "GRANT regress_group TO regress_group_direct_manager WITH INHERIT FALSE, ADMIN TRUE"
+  },
+  {
+    "comment": "privileges - Statement 787",
+    "query": "GRANT regress_group_direct_manager TO regress_group_indirect_manager"
+  },
+  {
+    "comment": "privileges - Statement 788",
+    "query": "SET SESSION AUTHORIZATION regress_group_direct_manager"
+  },
+  {
+    "comment": "privileges - Statement 789",
+    "query": "GRANT regress_group TO regress_group_member"
+  },
+  {
+    "comment": "privileges - Statement 790",
+    "query": "SELECT member::regrole::text, CASE WHEN grantor = 10 THEN 'BOOTSTRAP SUPERUSER' ELSE grantor::regrole::text END FROM pg_auth_members WHERE roleid = 'regress_group'::regrole ORDER BY 1, 2"
+  },
+  {
+    "comment": "privileges - Statement 791",
+    "query": "REVOKE regress_group FROM regress_group_member"
+  },
+  {
+    "comment": "privileges - Statement 792",
+    "query": "SET SESSION AUTHORIZATION regress_group_indirect_manager"
+  },
+  {
+    "comment": "privileges - Statement 793",
+    "query": "DROP ROLE regress_group"
+  },
+  {
+    "comment": "privileges - Statement 794",
+    "query": "DROP ROLE regress_group_direct_manager"
+  },
+  {
+    "comment": "privileges - Statement 795",
+    "query": "DROP ROLE regress_group_indirect_manager"
+  },
+  {
+    "comment": "privileges - Statement 796",
+    "query": "DROP ROLE regress_group_member"
+  },
+  {
+    "comment": "privileges - Statement 797",
+    "query": "CREATE ROLE regress_roleoption_protagonist"
+  },
+  {
+    "comment": "privileges - Statement 798",
+    "query": "CREATE ROLE regress_roleoption_donor"
+  },
+  {
+    "comment": "privileges - Statement 799",
+    "query": "CREATE ROLE regress_roleoption_recipient"
+  },
+  {
+    "comment": "privileges - Statement 800",
+    "query": "CREATE SCHEMA regress_roleoption"
+  },
+  {
+    "comment": "privileges - Statement 801",
+    "query": "GRANT CREATE, USAGE ON SCHEMA regress_roleoption TO PUBLIC"
+  },
+  {
+    "comment": "privileges - Statement 802",
+    "query": "GRANT regress_roleoption_donor TO regress_roleoption_protagonist WITH INHERIT TRUE, SET FALSE"
+  },
+  {
+    "comment": "privileges - Statement 803",
+    "query": "GRANT regress_roleoption_recipient TO regress_roleoption_protagonist WITH INHERIT FALSE, SET TRUE"
+  },
+  {
+    "comment": "privileges - Statement 804",
+    "query": "SET SESSION AUTHORIZATION regress_roleoption_protagonist"
+  },
+  {
+    "comment": "privileges - Statement 805",
+    "query": "CREATE TABLE regress_roleoption.t1 (a int)"
+  },
+  {
+    "comment": "privileges - Statement 806",
+    "query": "CREATE TABLE regress_roleoption.t2 (a int)"
+  },
+  {
+    "comment": "privileges - Statement 807",
+    "query": "SET SESSION AUTHORIZATION regress_roleoption_donor"
+  },
+  {
+    "comment": "privileges - Statement 808",
+    "query": "CREATE TABLE regress_roleoption.t3 (a int)"
+  },
+  {
+    "comment": "privileges - Statement 809",
+    "query": "SET SESSION AUTHORIZATION regress_roleoption_recipient"
+  },
+  {
+    "comment": "privileges - Statement 810",
+    "query": "CREATE TABLE regress_roleoption.t4 (a int)"
+  },
+  {
+    "comment": "privileges - Statement 811",
+    "query": "ALTER TABLE regress_roleoption.t1 OWNER TO regress_roleoption_donor"
+  },
+  {
+    "comment": "privileges - Statement 812",
+    "query": "ALTER TABLE regress_roleoption.t2 OWNER TO regress_roleoption_recipient"
+  },
+  {
+    "comment": "privileges - Statement 813",
+    "query": "ALTER TABLE regress_roleoption.t3 OWNER TO regress_roleoption_protagonist"
+  },
+  {
+    "comment": "privileges - Statement 814",
+    "query": "ALTER TABLE regress_roleoption.t4 OWNER TO regress_roleoption_protagonist"
+  },
+  {
+    "comment": "privileges - Statement 815",
+    "query": "DROP TABLE regress_roleoption.t1"
+  },
+  {
+    "comment": "privileges - Statement 816",
+    "query": "DROP TABLE regress_roleoption.t2"
+  },
+  {
+    "comment": "privileges - Statement 817",
+    "query": "DROP TABLE regress_roleoption.t3"
+  },
+  {
+    "comment": "privileges - Statement 818",
+    "query": "DROP TABLE regress_roleoption.t4"
+  },
+  {
+    "comment": "privileges - Statement 819",
+    "query": "DROP SCHEMA regress_roleoption"
+  },
+  {
+    "comment": "privileges - Statement 820",
+    "query": "DROP ROLE regress_roleoption_protagonist"
+  },
+  {
+    "comment": "privileges - Statement 821",
+    "query": "DROP ROLE regress_roleoption_donor"
+  },
+  {
+    "comment": "privileges - Statement 822",
+    "query": "DROP ROLE regress_roleoption_recipient"
+  },
+  {
+    "comment": "privileges - Statement 823",
+    "query": "CREATE ROLE regress_no_maintain"
+  },
+  {
+    "comment": "privileges - Statement 824",
+    "query": "CREATE ROLE regress_maintain"
+  },
+  {
+    "comment": "privileges - Statement 825",
+    "query": "CREATE ROLE regress_maintain_all IN ROLE pg_maintain"
+  },
+  {
+    "comment": "privileges - Statement 826",
+    "query": "CREATE TABLE maintain_test (a INT)"
+  },
+  {
+    "comment": "privileges - Statement 827",
+    "query": "CREATE INDEX ON maintain_test (a)"
+  },
+  {
+    "comment": "privileges - Statement 828",
+    "query": "GRANT MAINTAIN ON maintain_test TO regress_maintain"
+  },
+  {
+    "comment": "privileges - Statement 829",
+    "query": "CREATE MATERIALIZED VIEW refresh_test AS SELECT 1"
+  },
+  {
+    "comment": "privileges - Statement 830",
+    "query": "GRANT MAINTAIN ON refresh_test TO regress_maintain"
+  },
+  {
+    "comment": "privileges - Statement 831",
+    "query": "CREATE SCHEMA reindex_test"
+  },
+  {
+    "comment": "privileges - Statement 832",
+    "query": "SET ROLE regress_no_maintain"
+  },
+  {
+    "comment": "privileges - Statement 833",
+    "query": "VACUUM maintain_test"
+  },
+  {
+    "comment": "privileges - Statement 834",
+    "query": "ANALYZE maintain_test"
+  },
+  {
+    "comment": "privileges - Statement 835",
+    "query": "VACUUM (ANALYZE) maintain_test"
+  },
+  {
+    "comment": "privileges - Statement 836",
+    "query": "CLUSTER maintain_test USING maintain_test_a_idx"
+  },
+  {
+    "comment": "privileges - Statement 837",
+    "query": "REFRESH MATERIALIZED VIEW refresh_test"
+  },
+  {
+    "comment": "privileges - Statement 838",
+    "query": "REINDEX TABLE maintain_test"
+  },
+  {
+    "comment": "privileges - Statement 839",
+    "query": "REINDEX INDEX maintain_test_a_idx"
+  },
+  {
+    "comment": "privileges - Statement 840",
+    "query": "REINDEX SCHEMA reindex_test"
+  },
+  {
+    "comment": "privileges - Statement 841",
+    "query": "SET ROLE regress_maintain"
+  },
+  {
+    "comment": "privileges - Statement 842",
+    "query": "SET ROLE regress_maintain_all"
+  },
+  {
+    "comment": "privileges - Statement 843",
+    "query": "DROP TABLE maintain_test"
+  },
+  {
+    "comment": "privileges - Statement 844",
+    "query": "DROP MATERIALIZED VIEW refresh_test"
+  },
+  {
+    "comment": "privileges - Statement 845",
+    "query": "DROP SCHEMA reindex_test"
+  },
+  {
+    "comment": "privileges - Statement 846",
+    "query": "DROP ROLE regress_no_maintain"
+  },
+  {
+    "comment": "privileges - Statement 847",
+    "query": "DROP ROLE regress_maintain"
+  },
+  {
+    "comment": "privileges - Statement 848",
+    "query": "DROP ROLE regress_maintain_all"
+  }
+]

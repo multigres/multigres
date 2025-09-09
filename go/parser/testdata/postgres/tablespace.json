@@ -1,0 +1,662 @@
+[
+  {
+    "comment": "tablespace - Statement 1",
+    "query": "CREATE TABLESPACE regress_tblspace LOCATION 'relative'"
+  },
+  {
+    "comment": "tablespace - Statement 2",
+    "query": "CREATE TABLESPACE regress_tblspace LOCATION ''"
+  },
+  {
+    "comment": "tablespace - Statement 3",
+    "query": "SET allow_in_place_tablespaces = true"
+  },
+  {
+    "comment": "tablespace - Statement 4",
+    "query": "CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (some_nonexistent_parameter = true)"
+  },
+  {
+    "comment": "tablespace - Statement 5",
+    "query": "CREATE TABLESPACE regress_tblspacewith LOCATION '' WITH (random_page_cost = 3.0)"
+  },
+  {
+    "comment": "tablespace - Statement 6",
+    "query": "SELECT spcoptions FROM pg_tablespace WHERE spcname = 'regress_tblspacewith'"
+  },
+  {
+    "comment": "tablespace - Statement 7",
+    "query": "DROP TABLESPACE regress_tblspacewith"
+  },
+  {
+    "comment": "tablespace - Statement 8",
+    "query": "SELECT regexp_replace(pg_tablespace_location(oid), '(pg_tblspc)/(\\d+)', '\\1/NNN') FROM pg_tablespace  WHERE spcname = 'regress_tblspace'"
+  },
+  {
+    "comment": "tablespace - Statement 9",
+    "query": "ALTER TABLESPACE regress_tblspace SET (random_page_cost = 1.0, seq_page_cost = 1.1)"
+  },
+  {
+    "comment": "tablespace - Statement 10",
+    "query": "ALTER TABLESPACE regress_tblspace SET (some_nonexistent_parameter = true)"
+  },
+  {
+    "comment": "tablespace - Statement 11",
+    "query": "ALTER TABLESPACE regress_tblspace RESET (random_page_cost = 2.0)"
+  },
+  {
+    "comment": "tablespace - Statement 12",
+    "query": "ALTER TABLESPACE regress_tblspace RESET (random_page_cost, effective_io_concurrency)"
+  },
+  {
+    "comment": "tablespace - Statement 13",
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_am"
+  },
+  {
+    "comment": "tablespace - Statement 14",
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_am"
+  },
+  {
+    "comment": "tablespace - Statement 15",
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_authid"
+  },
+  {
+    "comment": "tablespace - Statement 16",
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_authid"
+  },
+  {
+    "comment": "tablespace - Statement 17",
+    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX pg_toast.pg_toast_1260_index"
+  },
+  {
+    "comment": "tablespace - Statement 18",
+    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX CONCURRENTLY pg_toast.pg_toast_1260_index"
+  },
+  {
+    "comment": "tablespace - Statement 19",
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE pg_toast.pg_toast_1260"
+  },
+  {
+    "comment": "tablespace - Statement 20",
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE CONCURRENTLY pg_toast.pg_toast_1260"
+  },
+  {
+    "comment": "tablespace - Statement 21",
+    "query": "REINDEX (TABLESPACE pg_global) TABLE pg_authid"
+  },
+  {
+    "comment": "tablespace - Statement 22",
+    "query": "REINDEX (TABLESPACE pg_global) TABLE CONCURRENTLY pg_authid"
+  },
+  {
+    "comment": "tablespace - Statement 23",
+    "query": "CREATE TABLE regress_tblspace_test_tbl (num1 bigint, num2 double precision, t text)"
+  },
+  {
+    "comment": "tablespace - Statement 24",
+    "query": "INSERT INTO regress_tblspace_test_tbl (num1, num2, t) SELECT round(random()*100), random(), 'text' FROM generate_series(1, 10) s(i)"
+  },
+  {
+    "comment": "tablespace - Statement 25",
+    "query": "CREATE INDEX regress_tblspace_test_tbl_idx ON regress_tblspace_test_tbl (num1)"
+  },
+  {
+    "comment": "tablespace - Statement 26",
+    "query": "REINDEX (TABLESPACE pg_global) INDEX regress_tblspace_test_tbl_idx"
+  },
+  {
+    "comment": "tablespace - Statement 27",
+    "query": "REINDEX (TABLESPACE pg_global) INDEX CONCURRENTLY regress_tblspace_test_tbl_idx"
+  },
+  {
+    "comment": "tablespace - Statement 28",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "tablespace - Statement 29",
+    "query": "REINDEX (TABLESPACE regress_tblspace) INDEX regress_tblspace_test_tbl_idx"
+  },
+  {
+    "comment": "tablespace - Statement 30",
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE regress_tblspace_test_tbl"
+  },
+  {
+    "comment": "tablespace - Statement 31",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "tablespace - Statement 32",
+    "query": "SELECT c.relname FROM pg_class c, pg_tablespace s WHERE c.reltablespace = s.oid AND s.spcname = 'regress_tblspace'"
+  },
+  {
+    "comment": "tablespace - Statement 33",
+    "query": "SELECT relfilenode as main_filenode FROM pg_class WHERE relname = 'regress_tblspace_test_tbl_idx'"
+  },
+  {
+    "comment": "tablespace - Statement 34",
+    "query": "SELECT relfilenode as toast_filenode FROM pg_class WHERE oid = (SELECT i.indexrelid FROM pg_class c, pg_index i WHERE i.indrelid = c.reltoastrelid AND c.relname = 'regress_tblspace_test_tbl')"
+  },
+  {
+    "comment": "tablespace - Statement 35",
+    "query": "SELECT c.relname FROM pg_class c, pg_tablespace s WHERE c.reltablespace = s.oid AND s.spcname = 'regress_tblspace' ORDER BY c.relname"
+  },
+  {
+    "comment": "tablespace - Statement 36",
+    "query": "ALTER TABLE regress_tblspace_test_tbl SET TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 37",
+    "query": "ALTER TABLE regress_tblspace_test_tbl SET TABLESPACE pg_default"
+  },
+  {
+    "comment": "tablespace - Statement 38",
+    "query": "ALTER INDEX regress_tblspace_test_tbl_idx SET TABLESPACE pg_default"
+  },
+  {
+    "comment": "tablespace - Statement 39",
+    "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE regress_tblspace_test_tbl"
+  },
+  {
+    "comment": "tablespace - Statement 40",
+    "query": "SELECT relfilenode = :main_filenode AS main_same FROM pg_class WHERE relname = 'regress_tblspace_test_tbl_idx'"
+  },
+  {
+    "comment": "tablespace - Statement 41",
+    "query": "SELECT relfilenode = :toast_filenode as toast_same FROM pg_class WHERE oid = (SELECT i.indexrelid FROM pg_class c, pg_index i WHERE i.indrelid = c.reltoastrelid AND c.relname = 'regress_tblspace_test_tbl')"
+  },
+  {
+    "comment": "tablespace - Statement 42",
+    "query": "DROP TABLE regress_tblspace_test_tbl"
+  },
+  {
+    "comment": "tablespace - Statement 43",
+    "query": "CREATE TABLE tbspace_reindex_part (c1 int, c2 int) PARTITION BY RANGE (c1)"
+  },
+  {
+    "comment": "tablespace - Statement 44",
+    "query": "CREATE TABLE tbspace_reindex_part_0 PARTITION OF tbspace_reindex_part FOR VALUES FROM (0) TO (10) PARTITION BY list (c2)"
+  },
+  {
+    "comment": "tablespace - Statement 45",
+    "query": "CREATE TABLE tbspace_reindex_part_0_1 PARTITION OF tbspace_reindex_part_0 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "tablespace - Statement 46",
+    "query": "CREATE TABLE tbspace_reindex_part_0_2 PARTITION OF tbspace_reindex_part_0 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "tablespace - Statement 47",
+    "query": "CREATE TABLE tbspace_reindex_part_10 PARTITION OF tbspace_reindex_part FOR VALUES FROM (10) TO (20) PARTITION BY list (c2)"
+  },
+  {
+    "comment": "tablespace - Statement 48",
+    "query": "CREATE INDEX tbspace_reindex_part_index ON ONLY tbspace_reindex_part (c1)"
+  },
+  {
+    "comment": "tablespace - Statement 49",
+    "query": "CREATE INDEX tbspace_reindex_part_index_0 ON ONLY tbspace_reindex_part_0 (c1)"
+  },
+  {
+    "comment": "tablespace - Statement 50",
+    "query": "ALTER INDEX tbspace_reindex_part_index ATTACH PARTITION tbspace_reindex_part_index_0"
+  },
+  {
+    "comment": "tablespace - Statement 51",
+    "query": "CREATE INDEX tbspace_reindex_part_index_10 ON ONLY tbspace_reindex_part_10 (c1)"
+  },
+  {
+    "comment": "tablespace - Statement 52",
+    "query": "ALTER INDEX tbspace_reindex_part_index ATTACH PARTITION tbspace_reindex_part_index_10"
+  },
+  {
+    "comment": "tablespace - Statement 53",
+    "query": "CREATE INDEX tbspace_reindex_part_index_0_1 ON ONLY tbspace_reindex_part_0_1 (c1)"
+  },
+  {
+    "comment": "tablespace - Statement 54",
+    "query": "ALTER INDEX tbspace_reindex_part_index_0 ATTACH PARTITION tbspace_reindex_part_index_0_1"
+  },
+  {
+    "comment": "tablespace - Statement 55",
+    "query": "CREATE INDEX tbspace_reindex_part_index_0_2 ON ONLY tbspace_reindex_part_0_2 (c1)"
+  },
+  {
+    "comment": "tablespace - Statement 56",
+    "query": "ALTER INDEX tbspace_reindex_part_index_0 ATTACH PARTITION tbspace_reindex_part_index_0_2"
+  },
+  {
+    "comment": "tablespace - Statement 57",
+    "query": "SELECT relid, parentrelid, level FROM pg_partition_tree('tbspace_reindex_part_index') ORDER BY relid, level"
+  },
+  {
+    "comment": "tablespace - Statement 58",
+    "query": "CREATE TEMP TABLE reindex_temp_before AS SELECT oid, relname, relfilenode, reltablespace FROM pg_class WHERE relname ~ 'tbspace_reindex_part_index'"
+  },
+  {
+    "comment": "tablespace - Statement 59",
+    "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE tbspace_reindex_part"
+  },
+  {
+    "comment": "tablespace - Statement 60",
+    "query": "SELECT b.relname, CASE WHEN a.relfilenode = b.relfilenode THEN 'relfilenode is unchanged' ELSE 'relfilenode has changed' END AS filenode, CASE WHEN a.reltablespace = b.reltablespace THEN 'reltablespace is unchanged' ELSE 'reltablespace has changed' END AS tbspace FROM reindex_temp_before b JOIN pg_class a ON b.relname = a.relname ORDER BY 1"
+  },
+  {
+    "comment": "tablespace - Statement 61",
+    "query": "DROP TABLE tbspace_reindex_part"
+  },
+  {
+    "comment": "tablespace - Statement 62",
+    "query": "CREATE SCHEMA testschema"
+  },
+  {
+    "comment": "tablespace - Statement 63",
+    "query": "CREATE TABLE testschema.foo (i int) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 64",
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'foo'"
+  },
+  {
+    "comment": "tablespace - Statement 65",
+    "query": "INSERT INTO testschema.foo VALUES(1)"
+  },
+  {
+    "comment": "tablespace - Statement 66",
+    "query": "INSERT INTO testschema.foo VALUES(2)"
+  },
+  {
+    "comment": "tablespace - Statement 67",
+    "query": "CREATE TABLE testschema.asselect TABLESPACE regress_tblspace AS SELECT 1"
+  },
+  {
+    "comment": "tablespace - Statement 68",
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'asselect'"
+  },
+  {
+    "comment": "tablespace - Statement 69",
+    "query": "PREPARE selectsource(int) AS SELECT $1"
+  },
+  {
+    "comment": "tablespace - Statement 70",
+    "query": "CREATE TABLE testschema.asexecute TABLESPACE regress_tblspace AS EXECUTE selectsource(2)"
+  },
+  {
+    "comment": "tablespace - Statement 71",
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'asexecute'"
+  },
+  {
+    "comment": "tablespace - Statement 72",
+    "query": "CREATE INDEX foo_idx on testschema.foo(i) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 73",
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname = 'foo_idx'"
+  },
+  {
+    "comment": "tablespace - Statement 74",
+    "query": "SET default_tablespace TO pg_global"
+  },
+  {
+    "comment": "tablespace - Statement 75",
+    "query": "CREATE TABLE testschema.part_1 PARTITION OF testschema.part FOR VALUES IN (1)"
+  },
+  {
+    "comment": "tablespace - Statement 76",
+    "query": "RESET default_tablespace"
+  },
+  {
+    "comment": "tablespace - Statement 77",
+    "query": "SET default_tablespace TO regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 78",
+    "query": "CREATE TABLE testschema.part_2 PARTITION OF testschema.part FOR VALUES IN (2)"
+  },
+  {
+    "comment": "tablespace - Statement 79",
+    "query": "CREATE TABLE testschema.part_3 PARTITION OF testschema.part FOR VALUES IN (3)"
+  },
+  {
+    "comment": "tablespace - Statement 80",
+    "query": "ALTER TABLE testschema.part SET TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 81",
+    "query": "CREATE TABLE testschema.part_4 PARTITION OF testschema.part FOR VALUES IN (4) TABLESPACE pg_default"
+  },
+  {
+    "comment": "tablespace - Statement 82",
+    "query": "CREATE TABLE testschema.part_56 PARTITION OF testschema.part FOR VALUES IN (5, 6) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "tablespace - Statement 83",
+    "query": "ALTER TABLE testschema.part SET TABLESPACE pg_default"
+  },
+  {
+    "comment": "tablespace - Statement 84",
+    "query": "CREATE TABLE testschema.part_78 PARTITION OF testschema.part FOR VALUES IN (7, 8) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "tablespace - Statement 85",
+    "query": "CREATE TABLE testschema.part_910 PARTITION OF testschema.part FOR VALUES IN (9, 10) PARTITION BY LIST (a) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 86",
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON (c.relnamespace = n.oid) LEFT JOIN pg_catalog.pg_tablespace t ON c.reltablespace = t.oid where c.relname LIKE 'part%' AND n.nspname = 'testschema' order by relname"
+  },
+  {
+    "comment": "tablespace - Statement 87",
+    "query": "DROP TABLE testschema.part"
+  },
+  {
+    "comment": "tablespace - Statement 88",
+    "query": "CREATE TABLE testschema.part (a int) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "tablespace - Statement 89",
+    "query": "CREATE TABLE testschema.part1 PARTITION OF testschema.part FOR VALUES IN (1)"
+  },
+  {
+    "comment": "tablespace - Statement 90",
+    "query": "CREATE INDEX part_a_idx ON testschema.part (a) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 91",
+    "query": "CREATE TABLE testschema.part2 PARTITION OF testschema.part FOR VALUES IN (2)"
+  },
+  {
+    "comment": "tablespace - Statement 92",
+    "query": "SELECT relname, spcname FROM pg_catalog.pg_tablespace t, pg_catalog.pg_class c where c.reltablespace = t.oid AND c.relname LIKE 'part%_idx' ORDER BY relname"
+  },
+  {
+    "comment": "tablespace - Statement 93",
+    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY USING INDEX TABLESPACE pg_default) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "tablespace - Statement 94",
+    "query": "SET default_tablespace TO 'pg_default'"
+  },
+  {
+    "comment": "tablespace - Statement 95",
+    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY) PARTITION BY LIST (a) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 96",
+    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY USING INDEX TABLESPACE regress_tblspace) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "tablespace - Statement 97",
+    "query": "CREATE TABLE testschema.dflt (a int PRIMARY KEY USING INDEX TABLESPACE regress_tblspace) PARTITION BY LIST (a) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 98",
+    "query": "SET default_tablespace TO ''"
+  },
+  {
+    "comment": "tablespace - Statement 99",
+    "query": "CREATE TABLE testschema.dflt2 (a int PRIMARY KEY) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "tablespace - Statement 100",
+    "query": "DROP TABLE testschema.dflt, testschema.dflt2"
+  },
+  {
+    "comment": "tablespace - Statement 101",
+    "query": "CREATE TABLE testschema.test_default_tab(id bigint) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 102",
+    "query": "INSERT INTO testschema.test_default_tab VALUES (1)"
+  },
+  {
+    "comment": "tablespace - Statement 103",
+    "query": "CREATE INDEX test_index1 on testschema.test_default_tab (id)"
+  },
+  {
+    "comment": "tablespace - Statement 104",
+    "query": "CREATE INDEX test_index2 on testschema.test_default_tab (id) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 105",
+    "query": "ALTER TABLE testschema.test_default_tab ADD CONSTRAINT test_index3 PRIMARY KEY (id)"
+  },
+  {
+    "comment": "tablespace - Statement 106",
+    "query": "ALTER TABLE testschema.test_default_tab ADD CONSTRAINT test_index4 UNIQUE (id) USING INDEX TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 107",
+    "query": "ALTER TABLE testschema.test_default_tab ALTER id TYPE bigint"
+  },
+  {
+    "comment": "tablespace - Statement 108",
+    "query": "ALTER TABLE testschema.test_default_tab ALTER id TYPE int"
+  },
+  {
+    "comment": "tablespace - Statement 109",
+    "query": "CREATE TABLE testschema.test_default_tab_p(id bigint, val bigint) PARTITION BY LIST (id) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 110",
+    "query": "CREATE TABLE testschema.test_default_tab_p1 PARTITION OF testschema.test_default_tab_p FOR VALUES IN (1)"
+  },
+  {
+    "comment": "tablespace - Statement 111",
+    "query": "INSERT INTO testschema.test_default_tab_p VALUES (1)"
+  },
+  {
+    "comment": "tablespace - Statement 112",
+    "query": "CREATE INDEX test_index1 on testschema.test_default_tab_p (val)"
+  },
+  {
+    "comment": "tablespace - Statement 113",
+    "query": "CREATE INDEX test_index2 on testschema.test_default_tab_p (val) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 114",
+    "query": "ALTER TABLE testschema.test_default_tab_p ADD CONSTRAINT test_index3 PRIMARY KEY (id)"
+  },
+  {
+    "comment": "tablespace - Statement 115",
+    "query": "ALTER TABLE testschema.test_default_tab_p ADD CONSTRAINT test_index4 UNIQUE (id) USING INDEX TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 116",
+    "query": "ALTER TABLE testschema.test_default_tab_p ALTER val TYPE bigint"
+  },
+  {
+    "comment": "tablespace - Statement 117",
+    "query": "ALTER TABLE testschema.test_default_tab_p ALTER val TYPE int"
+  },
+  {
+    "comment": "tablespace - Statement 118",
+    "query": "CREATE TABLE testschema.test_tab(id int) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 119",
+    "query": "INSERT INTO testschema.test_tab VALUES (1)"
+  },
+  {
+    "comment": "tablespace - Statement 120",
+    "query": "ALTER TABLE testschema.test_tab ADD CONSTRAINT test_tab_unique UNIQUE (id)"
+  },
+  {
+    "comment": "tablespace - Statement 121",
+    "query": "ALTER TABLE testschema.test_tab ADD CONSTRAINT test_tab_pkey PRIMARY KEY (id)"
+  },
+  {
+    "comment": "tablespace - Statement 122",
+    "query": "DROP TABLE testschema.test_tab"
+  },
+  {
+    "comment": "tablespace - Statement 123",
+    "query": "CREATE TABLE testschema.test_tab(a int, b int, c int)"
+  },
+  {
+    "comment": "tablespace - Statement 124",
+    "query": "ALTER TABLE testschema.test_tab ADD CONSTRAINT test_tab_unique UNIQUE (a)"
+  },
+  {
+    "comment": "tablespace - Statement 125",
+    "query": "CREATE INDEX test_tab_a_idx ON testschema.test_tab (a)"
+  },
+  {
+    "comment": "tablespace - Statement 126",
+    "query": "CREATE INDEX test_tab_b_idx ON testschema.test_tab (b)"
+  },
+  {
+    "comment": "tablespace - Statement 127",
+    "query": "CREATE TABLE testschema.atable AS VALUES (1), (2)"
+  },
+  {
+    "comment": "tablespace - Statement 128",
+    "query": "CREATE UNIQUE INDEX anindex ON testschema.atable(column1)"
+  },
+  {
+    "comment": "tablespace - Statement 129",
+    "query": "ALTER TABLE testschema.atable SET TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 130",
+    "query": "ALTER INDEX testschema.anindex SET TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 131",
+    "query": "ALTER INDEX testschema.part_a_idx SET TABLESPACE pg_global"
+  },
+  {
+    "comment": "tablespace - Statement 132",
+    "query": "ALTER INDEX testschema.part_a_idx SET TABLESPACE pg_default"
+  },
+  {
+    "comment": "tablespace - Statement 133",
+    "query": "ALTER INDEX testschema.part_a_idx SET TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 134",
+    "query": "INSERT INTO testschema.atable VALUES(3)"
+  },
+  {
+    "comment": "tablespace - Statement 135",
+    "query": "INSERT INTO testschema.atable VALUES(1)"
+  },
+  {
+    "comment": "tablespace - Statement 136",
+    "query": "SELECT COUNT(*) FROM testschema.atable"
+  },
+  {
+    "comment": "tablespace - Statement 137",
+    "query": "CREATE MATERIALIZED VIEW testschema.amv AS SELECT * FROM testschema.atable"
+  },
+  {
+    "comment": "tablespace - Statement 138",
+    "query": "ALTER MATERIALIZED VIEW testschema.amv SET TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 139",
+    "query": "REFRESH MATERIALIZED VIEW testschema.amv"
+  },
+  {
+    "comment": "tablespace - Statement 140",
+    "query": "SELECT COUNT(*) FROM testschema.amv"
+  },
+  {
+    "comment": "tablespace - Statement 141",
+    "query": "CREATE TABLESPACE regress_badspace LOCATION '/no/such/location'"
+  },
+  {
+    "comment": "tablespace - Statement 142",
+    "query": "CREATE TABLE bar (i int) TABLESPACE regress_nosuchspace"
+  },
+  {
+    "comment": "tablespace - Statement 143",
+    "query": "DROP TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 144",
+    "query": "GRANT ALL ON TABLESPACE regress_tblspace TO PUBLIC"
+  },
+  {
+    "comment": "tablespace - Statement 145",
+    "query": "CREATE ROLE regress_tablespace_user1 login"
+  },
+  {
+    "comment": "tablespace - Statement 146",
+    "query": "CREATE ROLE regress_tablespace_user2 login"
+  },
+  {
+    "comment": "tablespace - Statement 147",
+    "query": "GRANT USAGE ON SCHEMA testschema TO regress_tablespace_user2"
+  },
+  {
+    "comment": "tablespace - Statement 148",
+    "query": "ALTER TABLESPACE regress_tblspace OWNER TO regress_tablespace_user1"
+  },
+  {
+    "comment": "tablespace - Statement 149",
+    "query": "CREATE TABLE testschema.tablespace_acl (c int)"
+  },
+  {
+    "comment": "tablespace - Statement 150",
+    "query": "CREATE INDEX k ON testschema.tablespace_acl (c) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 151",
+    "query": "ALTER TABLE testschema.tablespace_acl OWNER TO regress_tablespace_user2"
+  },
+  {
+    "comment": "tablespace - Statement 152",
+    "query": "SET SESSION ROLE regress_tablespace_user2"
+  },
+  {
+    "comment": "tablespace - Statement 153",
+    "query": "CREATE TABLE tablespace_table (i int) TABLESPACE regress_tblspace"
+  },
+  {
+    "comment": "tablespace - Statement 154",
+    "query": "ALTER TABLE testschema.tablespace_acl ALTER c TYPE bigint"
+  },
+  {
+    "comment": "tablespace - Statement 155",
+    "query": "REINDEX (TABLESPACE regress_tblspace) TABLE tablespace_table"
+  },
+  {
+    "comment": "tablespace - Statement 156",
+    "query": "REINDEX (TABLESPACE regress_tblspace, CONCURRENTLY) TABLE tablespace_table"
+  },
+  {
+    "comment": "tablespace - Statement 157",
+    "query": "RESET ROLE"
+  },
+  {
+    "comment": "tablespace - Statement 158",
+    "query": "ALTER TABLESPACE regress_tblspace RENAME TO regress_tblspace_renamed"
+  },
+  {
+    "comment": "tablespace - Statement 159",
+    "query": "ALTER TABLE ALL IN TABLESPACE regress_tblspace_renamed SET TABLESPACE pg_default"
+  },
+  {
+    "comment": "tablespace - Statement 160",
+    "query": "ALTER INDEX ALL IN TABLESPACE regress_tblspace_renamed SET TABLESPACE pg_default"
+  },
+  {
+    "comment": "tablespace - Statement 161",
+    "query": "ALTER MATERIALIZED VIEW ALL IN TABLESPACE regress_tblspace_renamed SET TABLESPACE pg_default"
+  },
+  {
+    "comment": "tablespace - Statement 162",
+    "query": "DROP TABLESPACE regress_tblspace_renamed"
+  },
+  {
+    "comment": "tablespace - Statement 163",
+    "query": "DROP SCHEMA testschema CASCADE"
+  },
+  {
+    "comment": "tablespace - Statement 164",
+    "query": "DROP ROLE regress_tablespace_user1"
+  },
+  {
+    "comment": "tablespace - Statement 165",
+    "query": "DROP ROLE regress_tablespace_user2"
+  }
+]

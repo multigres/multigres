@@ -1,0 +1,270 @@
+[
+  {
+    "comment": "select_distinct - Statement 1",
+    "query": "SELECT DISTINCT two FROM onek ORDER BY 1"
+  },
+  {
+    "comment": "select_distinct - Statement 2",
+    "query": "SELECT DISTINCT ten FROM onek ORDER BY 1"
+  },
+  {
+    "comment": "select_distinct - Statement 3",
+    "query": "SELECT DISTINCT string4 FROM onek ORDER BY 1"
+  },
+  {
+    "comment": "select_distinct - Statement 4",
+    "query": "SELECT DISTINCT two, string4, ten FROM onek ORDER BY two using <, string4 using <, ten using <"
+  },
+  {
+    "comment": "select_distinct - Statement 5",
+    "query": "SELECT DISTINCT p.age FROM person* p ORDER BY age using >"
+  },
+  {
+    "comment": "select_distinct - Statement 6",
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT count(*) FROM (SELECT DISTINCT two, four, two FROM tenk1) ss"
+  },
+  {
+    "comment": "select_distinct - Statement 7",
+    "query": "SELECT count(*) FROM (SELECT DISTINCT two, four, two FROM tenk1) ss"
+  },
+  {
+    "comment": "select_distinct - Statement 8",
+    "query": "SET work_mem='64kB'"
+  },
+  {
+    "comment": "select_distinct - Statement 9",
+    "query": "SET enable_hashagg=FALSE"
+  },
+  {
+    "comment": "select_distinct - Statement 10",
+    "query": "SET jit_above_cost=0"
+  },
+  {
+    "comment": "select_distinct - Statement 11",
+    "query": "EXPLAIN (costs off) SELECT DISTINCT g%1000 FROM generate_series(0,9999) g"
+  },
+  {
+    "comment": "select_distinct - Statement 12",
+    "query": "CREATE TABLE distinct_group_1 AS SELECT DISTINCT g%1000 FROM generate_series(0,9999) g"
+  },
+  {
+    "comment": "select_distinct - Statement 13",
+    "query": "SET jit_above_cost TO DEFAULT"
+  },
+  {
+    "comment": "select_distinct - Statement 14",
+    "query": "CREATE TABLE distinct_group_2 AS SELECT DISTINCT (g%1000)::text FROM generate_series(0,9999) g"
+  },
+  {
+    "comment": "select_distinct - Statement 15",
+    "query": "SET enable_seqscan = 0"
+  },
+  {
+    "comment": "select_distinct - Statement 16",
+    "query": "EXPLAIN (costs off) SELECT DISTINCT hundred, two FROM tenk1"
+  },
+  {
+    "comment": "select_distinct - Statement 17",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "select_distinct - Statement 18",
+    "query": "SET enable_hashagg=TRUE"
+  },
+  {
+    "comment": "select_distinct - Statement 19",
+    "query": "SET enable_sort=FALSE"
+  },
+  {
+    "comment": "select_distinct - Statement 20",
+    "query": "CREATE TABLE distinct_hash_1 AS SELECT DISTINCT g%1000 FROM generate_series(0,9999) g"
+  },
+  {
+    "comment": "select_distinct - Statement 21",
+    "query": "CREATE TABLE distinct_hash_2 AS SELECT DISTINCT (g%1000)::text FROM generate_series(0,9999) g"
+  },
+  {
+    "comment": "select_distinct - Statement 22",
+    "query": "SET enable_sort=TRUE"
+  },
+  {
+    "comment": "select_distinct - Statement 23",
+    "query": "SET work_mem TO DEFAULT"
+  },
+  {
+    "comment": "select_distinct - Statement 24",
+    "query": "(SELECT * FROM distinct_hash_1 EXCEPT SELECT * FROM distinct_group_1) UNION ALL (SELECT * FROM distinct_group_1 EXCEPT SELECT * FROM distinct_hash_1)"
+  },
+  {
+    "comment": "select_distinct - Statement 25",
+    "query": "DROP TABLE distinct_hash_1"
+  },
+  {
+    "comment": "select_distinct - Statement 26",
+    "query": "DROP TABLE distinct_hash_2"
+  },
+  {
+    "comment": "select_distinct - Statement 27",
+    "query": "DROP TABLE distinct_group_1"
+  },
+  {
+    "comment": "select_distinct - Statement 28",
+    "query": "DROP TABLE distinct_group_2"
+  },
+  {
+    "comment": "select_distinct - Statement 29",
+    "query": "SET parallel_tuple_cost=0"
+  },
+  {
+    "comment": "select_distinct - Statement 30",
+    "query": "SET parallel_setup_cost=0"
+  },
+  {
+    "comment": "select_distinct - Statement 31",
+    "query": "SET min_parallel_table_scan_size=0"
+  },
+  {
+    "comment": "select_distinct - Statement 32",
+    "query": "SET max_parallel_workers_per_gather=2"
+  },
+  {
+    "comment": "select_distinct - Statement 33",
+    "query": "EXPLAIN (costs off) SELECT DISTINCT four FROM tenk1"
+  },
+  {
+    "comment": "select_distinct - Statement 34",
+    "query": "SELECT DISTINCT four FROM tenk1"
+  },
+  {
+    "comment": "select_distinct - Statement 35",
+    "query": "CREATE OR REPLACE FUNCTION distinct_func(a INT) RETURNS INT AS $$ BEGIN RETURN a"
+  },
+  {
+    "comment": "select_distinct - Statement 36",
+    "query": "END"
+  },
+  {
+    "comment": "select_distinct - Statement 37",
+    "query": "$$ LANGUAGE plpgsql PARALLEL UNSAFE"
+  },
+  {
+    "comment": "select_distinct - Statement 38",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT distinct_func(1) FROM tenk1"
+  },
+  {
+    "comment": "select_distinct - Statement 39",
+    "query": "$$ LANGUAGE plpgsql PARALLEL SAFE"
+  },
+  {
+    "comment": "select_distinct - Statement 40",
+    "query": "RESET max_parallel_workers_per_gather"
+  },
+  {
+    "comment": "select_distinct - Statement 41",
+    "query": "RESET min_parallel_table_scan_size"
+  },
+  {
+    "comment": "select_distinct - Statement 42",
+    "query": "RESET parallel_setup_cost"
+  },
+  {
+    "comment": "select_distinct - Statement 43",
+    "query": "RESET parallel_tuple_cost"
+  },
+  {
+    "comment": "select_distinct - Statement 44",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT four FROM tenk1 WHERE four = 0"
+  },
+  {
+    "comment": "select_distinct - Statement 45",
+    "query": "SELECT DISTINCT four FROM tenk1 WHERE four = 0"
+  },
+  {
+    "comment": "select_distinct - Statement 46",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT four FROM tenk1 WHERE four = 0 AND two <> 0"
+  },
+  {
+    "comment": "select_distinct - Statement 47",
+    "query": "SELECT DISTINCT four FROM tenk1 WHERE four = 0 AND two <> 0"
+  },
+  {
+    "comment": "select_distinct - Statement 48",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT four,1,2,3 FROM tenk1 WHERE four = 0"
+  },
+  {
+    "comment": "select_distinct - Statement 49",
+    "query": "SELECT DISTINCT four,1,2,3 FROM tenk1 WHERE four = 0"
+  },
+  {
+    "comment": "select_distinct - Statement 50",
+    "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT four FROM tenk1 WHERE four = 10"
+  },
+  {
+    "comment": "select_distinct - Statement 51",
+    "query": "CREATE TEMP TABLE disttable (f1 integer)"
+  },
+  {
+    "comment": "select_distinct - Statement 52",
+    "query": "INSERT INTO DISTTABLE VALUES(1)"
+  },
+  {
+    "comment": "select_distinct - Statement 53",
+    "query": "INSERT INTO DISTTABLE VALUES(2)"
+  },
+  {
+    "comment": "select_distinct - Statement 54",
+    "query": "INSERT INTO DISTTABLE VALUES(3)"
+  },
+  {
+    "comment": "select_distinct - Statement 55",
+    "query": "INSERT INTO DISTTABLE VALUES(NULL)"
+  },
+  {
+    "comment": "select_distinct - Statement 56",
+    "query": "SELECT f1, f1 IS DISTINCT FROM 2 as \"not 2\" FROM disttable"
+  },
+  {
+    "comment": "select_distinct - Statement 57",
+    "query": "SELECT f1, f1 IS DISTINCT FROM NULL as \"not null\" FROM disttable"
+  },
+  {
+    "comment": "select_distinct - Statement 58",
+    "query": "SELECT f1, f1 IS DISTINCT FROM f1 as \"false\" FROM disttable"
+  },
+  {
+    "comment": "select_distinct - Statement 59",
+    "query": "SELECT f1, f1 IS DISTINCT FROM f1+1 as \"not null\" FROM disttable"
+  },
+  {
+    "comment": "select_distinct - Statement 60",
+    "query": "SELECT 1 IS DISTINCT FROM 2 as \"yes\""
+  },
+  {
+    "comment": "select_distinct - Statement 61",
+    "query": "SELECT 2 IS DISTINCT FROM 2 as \"no\""
+  },
+  {
+    "comment": "select_distinct - Statement 62",
+    "query": "SELECT 2 IS DISTINCT FROM null as \"yes\""
+  },
+  {
+    "comment": "select_distinct - Statement 63",
+    "query": "SELECT null IS DISTINCT FROM null as \"no\""
+  },
+  {
+    "comment": "select_distinct - Statement 64",
+    "query": "SELECT 1 IS NOT DISTINCT FROM 2 as \"no\""
+  },
+  {
+    "comment": "select_distinct - Statement 65",
+    "query": "SELECT 2 IS NOT DISTINCT FROM 2 as \"yes\""
+  },
+  {
+    "comment": "select_distinct - Statement 66",
+    "query": "SELECT 2 IS NOT DISTINCT FROM null as \"no\""
+  },
+  {
+    "comment": "select_distinct - Statement 67",
+    "query": "SELECT null IS NOT DISTINCT FROM null as \"yes\""
+  }
+]

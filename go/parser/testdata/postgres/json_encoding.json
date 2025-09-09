@@ -1,0 +1,174 @@
+[
+  {
+    "comment": "json_encoding - Statement 1",
+    "query": "SELECT getdatabaseencoding() NOT IN ('UTF8', 'SQL_ASCII') AS skip_test"
+  },
+  {
+    "comment": "json_encoding - Statement 2",
+    "query": "SELECT '\"\\u\"'::json"
+  },
+  {
+    "comment": "json_encoding - Statement 3",
+    "query": "SELECT '\"\\u00\"'::json"
+  },
+  {
+    "comment": "json_encoding - Statement 4",
+    "query": "SELECT '\"\\u000g\"'::json"
+  },
+  {
+    "comment": "json_encoding - Statement 5",
+    "query": "SELECT '\"\\u0000\"'::json"
+  },
+  {
+    "comment": "json_encoding - Statement 6",
+    "query": "SELECT '\"\\uaBcD\"'::json"
+  },
+  {
+    "comment": "json_encoding - Statement 7",
+    "query": "select json '{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }' -> 'a' as correct_in_utf8"
+  },
+  {
+    "comment": "json_encoding - Statement 8",
+    "query": "select json '{ \"a\":  \"\\ud83d\\ud83d\" }' -> 'a'"
+  },
+  {
+    "comment": "json_encoding - Statement 9",
+    "query": "select json '{ \"a\":  \"\\ude04\\ud83d\" }' -> 'a'"
+  },
+  {
+    "comment": "json_encoding - Statement 10",
+    "query": "select json '{ \"a\":  \"\\ud83dX\" }' -> 'a'"
+  },
+  {
+    "comment": "json_encoding - Statement 11",
+    "query": "select json '{ \"a\":  \"\\ude04X\" }' -> 'a'"
+  },
+  {
+    "comment": "json_encoding - Statement 12",
+    "query": "select json '{ \"a\":  \"the Copyright \\u00a9 sign\" }' as correct_in_utf8"
+  },
+  {
+    "comment": "json_encoding - Statement 13",
+    "query": "select json '{ \"a\":  \"dollar \\u0024 character\" }' as correct_everywhere"
+  },
+  {
+    "comment": "json_encoding - Statement 14",
+    "query": "select json '{ \"a\":  \"dollar \\\\u0024 character\" }' as not_an_escape"
+  },
+  {
+    "comment": "json_encoding - Statement 15",
+    "query": "select json '{ \"a\":  \"null \\u0000 escape\" }' as not_unescaped"
+  },
+  {
+    "comment": "json_encoding - Statement 16",
+    "query": "select json '{ \"a\":  \"null \\\\u0000 escape\" }' as not_an_escape"
+  },
+  {
+    "comment": "json_encoding - Statement 17",
+    "query": "select json '{ \"a\":  \"the Copyright \\u00a9 sign\" }' ->> 'a' as correct_in_utf8"
+  },
+  {
+    "comment": "json_encoding - Statement 18",
+    "query": "select json '{ \"a\":  \"dollar \\u0024 character\" }' ->> 'a' as correct_everywhere"
+  },
+  {
+    "comment": "json_encoding - Statement 19",
+    "query": "select json '{ \"a\":  \"dollar \\\\u0024 character\" }' ->> 'a' as not_an_escape"
+  },
+  {
+    "comment": "json_encoding - Statement 20",
+    "query": "select json '{ \"a\":  \"null \\u0000 escape\" }' ->> 'a' as fails"
+  },
+  {
+    "comment": "json_encoding - Statement 21",
+    "query": "select json '{ \"a\":  \"null \\\\u0000 escape\" }' ->> 'a' as not_an_escape"
+  },
+  {
+    "comment": "json_encoding - Statement 22",
+    "query": "SELECT '\"\\u\"'::jsonb"
+  },
+  {
+    "comment": "json_encoding - Statement 23",
+    "query": "SELECT '\"\\u00\"'::jsonb"
+  },
+  {
+    "comment": "json_encoding - Statement 24",
+    "query": "SELECT '\"\\u000g\"'::jsonb"
+  },
+  {
+    "comment": "json_encoding - Statement 25",
+    "query": "SELECT '\"\\u0045\"'::jsonb"
+  },
+  {
+    "comment": "json_encoding - Statement 26",
+    "query": "SELECT '\"\\u0000\"'::jsonb"
+  },
+  {
+    "comment": "json_encoding - Statement 27",
+    "query": "SELECT octet_length('\"\\uaBcD\"'::jsonb::text)"
+  },
+  {
+    "comment": "json_encoding - Statement 28",
+    "query": "SELECT octet_length((jsonb '{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }' -> 'a')::text) AS correct_in_utf8"
+  },
+  {
+    "comment": "json_encoding - Statement 29",
+    "query": "SELECT jsonb '{ \"a\":  \"\\ud83d\\ud83d\" }' -> 'a'"
+  },
+  {
+    "comment": "json_encoding - Statement 30",
+    "query": "SELECT jsonb '{ \"a\":  \"\\ude04\\ud83d\" }' -> 'a'"
+  },
+  {
+    "comment": "json_encoding - Statement 31",
+    "query": "SELECT jsonb '{ \"a\":  \"\\ud83dX\" }' -> 'a'"
+  },
+  {
+    "comment": "json_encoding - Statement 32",
+    "query": "SELECT jsonb '{ \"a\":  \"\\ude04X\" }' -> 'a'"
+  },
+  {
+    "comment": "json_encoding - Statement 33",
+    "query": "SELECT jsonb '{ \"a\":  \"the Copyright \\u00a9 sign\" }' as correct_in_utf8"
+  },
+  {
+    "comment": "json_encoding - Statement 34",
+    "query": "SELECT jsonb '{ \"a\":  \"dollar \\u0024 character\" }' as correct_everywhere"
+  },
+  {
+    "comment": "json_encoding - Statement 35",
+    "query": "SELECT jsonb '{ \"a\":  \"dollar \\\\u0024 character\" }' as not_an_escape"
+  },
+  {
+    "comment": "json_encoding - Statement 36",
+    "query": "SELECT jsonb '{ \"a\":  \"null \\u0000 escape\" }' as fails"
+  },
+  {
+    "comment": "json_encoding - Statement 37",
+    "query": "SELECT jsonb '{ \"a\":  \"null \\\\u0000 escape\" }' as not_an_escape"
+  },
+  {
+    "comment": "json_encoding - Statement 38",
+    "query": "SELECT jsonb '{ \"a\":  \"the Copyright \\u00a9 sign\" }' ->> 'a' as correct_in_utf8"
+  },
+  {
+    "comment": "json_encoding - Statement 39",
+    "query": "SELECT jsonb '{ \"a\":  \"dollar \\u0024 character\" }' ->> 'a' as correct_everywhere"
+  },
+  {
+    "comment": "json_encoding - Statement 40",
+    "query": "SELECT jsonb '{ \"a\":  \"dollar \\\\u0024 character\" }' ->> 'a' as not_an_escape"
+  },
+  {
+    "comment": "json_encoding - Statement 41",
+    "query": "SELECT jsonb '{ \"a\":  \"null \\u0000 escape\" }' ->> 'a' as fails"
+  },
+  {
+    "comment": "json_encoding - Statement 42",
+    "query": "SELECT jsonb '{ \"a\":  \"null \\\\u0000 escape\" }' ->> 'a' as not_an_escape"
+  },
+  {
+    "comment": "json_encoding - Statement 43",
+    "query": "select * from pg_input_error_info('{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }', 'jsonb')"
+  }
+]

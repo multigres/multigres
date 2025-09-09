@@ -1,0 +1,4926 @@
+[
+  {
+    "comment": "alter_table - Statement 1",
+    "query": "SET client_min_messages TO 'warning'"
+  },
+  {
+    "comment": "alter_table - Statement 2",
+    "query": "DROP ROLE IF EXISTS regress_alter_table_user1"
+  },
+  {
+    "comment": "alter_table - Statement 3",
+    "query": "RESET client_min_messages"
+  },
+  {
+    "comment": "alter_table - Statement 4",
+    "query": "CREATE USER regress_alter_table_user1"
+  },
+  {
+    "comment": "alter_table - Statement 5",
+    "query": "CREATE TABLE attmp (initial int4)"
+  },
+  {
+    "comment": "alter_table - Statement 6",
+    "query": "COMMENT ON TABLE attmp_wrong IS 'table comment'"
+  },
+  {
+    "comment": "alter_table - Statement 7",
+    "query": "COMMENT ON TABLE attmp IS 'table comment'"
+  },
+  {
+    "comment": "alter_table - Statement 8",
+    "query": "COMMENT ON TABLE attmp IS NULL"
+  },
+  {
+    "comment": "alter_table - Statement 9",
+    "query": "ALTER TABLE attmp ADD COLUMN xmin integer"
+  },
+  {
+    "comment": "alter_table - Statement 10",
+    "query": "ALTER TABLE attmp ADD COLUMN a int4 default 3"
+  },
+  {
+    "comment": "alter_table - Statement 11",
+    "query": "ALTER TABLE attmp ADD COLUMN b name"
+  },
+  {
+    "comment": "alter_table - Statement 12",
+    "query": "ALTER TABLE attmp ADD COLUMN c text"
+  },
+  {
+    "comment": "alter_table - Statement 13",
+    "query": "ALTER TABLE attmp ADD COLUMN d float8"
+  },
+  {
+    "comment": "alter_table - Statement 14",
+    "query": "ALTER TABLE attmp ADD COLUMN e float4"
+  },
+  {
+    "comment": "alter_table - Statement 15",
+    "query": "ALTER TABLE attmp ADD COLUMN f int2"
+  },
+  {
+    "comment": "alter_table - Statement 16",
+    "query": "ALTER TABLE attmp ADD COLUMN g polygon"
+  },
+  {
+    "comment": "alter_table - Statement 17",
+    "query": "ALTER TABLE attmp ADD COLUMN i char"
+  },
+  {
+    "comment": "alter_table - Statement 18",
+    "query": "ALTER TABLE attmp ADD COLUMN k int4"
+  },
+  {
+    "comment": "alter_table - Statement 19",
+    "query": "ALTER TABLE attmp ADD COLUMN l tid"
+  },
+  {
+    "comment": "alter_table - Statement 20",
+    "query": "ALTER TABLE attmp ADD COLUMN m xid"
+  },
+  {
+    "comment": "alter_table - Statement 21",
+    "query": "ALTER TABLE attmp ADD COLUMN n oidvector"
+  },
+  {
+    "comment": "alter_table - Statement 22",
+    "query": "ALTER TABLE attmp ADD COLUMN p boolean"
+  },
+  {
+    "comment": "alter_table - Statement 23",
+    "query": "ALTER TABLE attmp ADD COLUMN q point"
+  },
+  {
+    "comment": "alter_table - Statement 24",
+    "query": "ALTER TABLE attmp ADD COLUMN r lseg"
+  },
+  {
+    "comment": "alter_table - Statement 25",
+    "query": "ALTER TABLE attmp ADD COLUMN s path"
+  },
+  {
+    "comment": "alter_table - Statement 26",
+    "query": "ALTER TABLE attmp ADD COLUMN t box"
+  },
+  {
+    "comment": "alter_table - Statement 27",
+    "query": "ALTER TABLE attmp ADD COLUMN v timestamp"
+  },
+  {
+    "comment": "alter_table - Statement 28",
+    "query": "ALTER TABLE attmp ADD COLUMN w interval"
+  },
+  {
+    "comment": "alter_table - Statement 29",
+    "query": "ALTER TABLE attmp ADD COLUMN x float8[]"
+  },
+  {
+    "comment": "alter_table - Statement 30",
+    "query": "ALTER TABLE attmp ADD COLUMN y float4[]"
+  },
+  {
+    "comment": "alter_table - Statement 31",
+    "query": "ALTER TABLE attmp ADD COLUMN z int2[]"
+  },
+  {
+    "comment": "alter_table - Statement 32",
+    "query": "INSERT INTO attmp (a, b, c, d, e, f, g,    i,    k, l, m, n, p, q, r, s, t, v, w, x, y, z) VALUES (4, 'name', 'text', 4.1, 4.1, 2, '(4.1,4.1,3.1,3.1)', 'c', 314159, '(1,1)', '512', '1 2 3 4 5 6 7 8', true, '(1.1,1.1)', '(4.1,4.1,3.1,3.1)', '(0,2,4.1,4.1,3.1,3.1)', '(4.1,4.1,3.1,3.1)', 'epoch', '01:00:10', '{1.0,2.0,3.0,4.0}', '{1.0,2.0,3.0,4.0}', '{1,2,3,4}')"
+  },
+  {
+    "comment": "alter_table - Statement 33",
+    "query": "SELECT * FROM attmp"
+  },
+  {
+    "comment": "alter_table - Statement 34",
+    "query": "DROP TABLE attmp"
+  },
+  {
+    "comment": "alter_table - Statement 35",
+    "query": "CREATE TABLE attmp ( initial \tint4 )"
+  },
+  {
+    "comment": "alter_table - Statement 36",
+    "query": "ALTER TABLE attmp ADD COLUMN a int4"
+  },
+  {
+    "comment": "alter_table - Statement 37",
+    "query": "CREATE INDEX attmp_idx ON attmp (a, (d + e), b)"
+  },
+  {
+    "comment": "alter_table - Statement 38",
+    "query": "ALTER INDEX attmp_idx ALTER COLUMN 0 SET STATISTICS 1000"
+  },
+  {
+    "comment": "alter_table - Statement 39",
+    "query": "ALTER INDEX attmp_idx ALTER COLUMN 1 SET STATISTICS 1000"
+  },
+  {
+    "comment": "alter_table - Statement 40",
+    "query": "ALTER INDEX attmp_idx ALTER COLUMN 2 SET STATISTICS 1000"
+  },
+  {
+    "comment": "alter_table - Statement 41",
+    "query": "ALTER INDEX attmp_idx ALTER COLUMN 4 SET STATISTICS 1000"
+  },
+  {
+    "comment": "alter_table - Statement 42",
+    "query": "ALTER INDEX attmp_idx ALTER COLUMN 2 SET STATISTICS -1"
+  },
+  {
+    "comment": "alter_table - Statement 43",
+    "query": "CREATE TABLE attmp (regtable int)"
+  },
+  {
+    "comment": "alter_table - Statement 44",
+    "query": "CREATE TEMP TABLE attmp (attmptable int)"
+  },
+  {
+    "comment": "alter_table - Statement 45",
+    "query": "ALTER TABLE attmp RENAME TO attmp_new"
+  },
+  {
+    "comment": "alter_table - Statement 46",
+    "query": "SELECT * FROM attmp_new"
+  },
+  {
+    "comment": "alter_table - Statement 47",
+    "query": "ALTER TABLE attmp RENAME TO attmp_new2"
+  },
+  {
+    "comment": "alter_table - Statement 48",
+    "query": "SELECT * FROM attmp_new2"
+  },
+  {
+    "comment": "alter_table - Statement 49",
+    "query": "DROP TABLE attmp_new"
+  },
+  {
+    "comment": "alter_table - Statement 50",
+    "query": "DROP TABLE attmp_new2"
+  },
+  {
+    "comment": "alter_table - Statement 51",
+    "query": "CREATE TABLE part_attmp (a int primary key) partition by range (a)"
+  },
+  {
+    "comment": "alter_table - Statement 52",
+    "query": "CREATE TABLE part_attmp1 PARTITION OF part_attmp FOR VALUES FROM (0) TO (100)"
+  },
+  {
+    "comment": "alter_table - Statement 53",
+    "query": "ALTER INDEX part_attmp_pkey RENAME TO part_attmp_index"
+  },
+  {
+    "comment": "alter_table - Statement 54",
+    "query": "ALTER INDEX part_attmp1_pkey RENAME TO part_attmp1_index"
+  },
+  {
+    "comment": "alter_table - Statement 55",
+    "query": "ALTER TABLE part_attmp RENAME TO part_at2tmp"
+  },
+  {
+    "comment": "alter_table - Statement 56",
+    "query": "ALTER TABLE part_attmp1 RENAME TO part_at2tmp1"
+  },
+  {
+    "comment": "alter_table - Statement 57",
+    "query": "SET ROLE regress_alter_table_user1"
+  },
+  {
+    "comment": "alter_table - Statement 58",
+    "query": "ALTER INDEX part_attmp_index RENAME TO fail"
+  },
+  {
+    "comment": "alter_table - Statement 59",
+    "query": "ALTER INDEX part_attmp1_index RENAME TO fail"
+  },
+  {
+    "comment": "alter_table - Statement 60",
+    "query": "ALTER TABLE part_at2tmp RENAME TO fail"
+  },
+  {
+    "comment": "alter_table - Statement 61",
+    "query": "ALTER TABLE part_at2tmp1 RENAME TO fail"
+  },
+  {
+    "comment": "alter_table - Statement 62",
+    "query": "RESET ROLE"
+  },
+  {
+    "comment": "alter_table - Statement 63",
+    "query": "DROP TABLE part_at2tmp"
+  },
+  {
+    "comment": "alter_table - Statement 64",
+    "query": "CREATE TABLE attmp_array (id int)"
+  },
+  {
+    "comment": "alter_table - Statement 65",
+    "query": "CREATE TABLE attmp_array2 (id int)"
+  },
+  {
+    "comment": "alter_table - Statement 66",
+    "query": "SELECT typname FROM pg_type WHERE oid = 'attmp_array[]'::regtype"
+  },
+  {
+    "comment": "alter_table - Statement 67",
+    "query": "SELECT typname FROM pg_type WHERE oid = 'attmp_array2[]'::regtype"
+  },
+  {
+    "comment": "alter_table - Statement 68",
+    "query": "ALTER TABLE attmp_array2 RENAME TO _attmp_array"
+  },
+  {
+    "comment": "alter_table - Statement 69",
+    "query": "SELECT typname FROM pg_type WHERE oid = '_attmp_array[]'::regtype"
+  },
+  {
+    "comment": "alter_table - Statement 70",
+    "query": "DROP TABLE _attmp_array"
+  },
+  {
+    "comment": "alter_table - Statement 71",
+    "query": "DROP TABLE attmp_array"
+  },
+  {
+    "comment": "alter_table - Statement 72",
+    "query": "ALTER TABLE attmp_array RENAME TO _attmp_array"
+  },
+  {
+    "comment": "alter_table - Statement 73",
+    "query": "ALTER INDEX IF EXISTS __onek_unique1 RENAME TO attmp_onek_unique1"
+  },
+  {
+    "comment": "alter_table - Statement 74",
+    "query": "ALTER INDEX IF EXISTS __attmp_onek_unique1 RENAME TO onek_unique1"
+  },
+  {
+    "comment": "alter_table - Statement 75",
+    "query": "ALTER INDEX onek_unique1 RENAME TO attmp_onek_unique1"
+  },
+  {
+    "comment": "alter_table - Statement 76",
+    "query": "ALTER INDEX attmp_onek_unique1 RENAME TO onek_unique1"
+  },
+  {
+    "comment": "alter_table - Statement 77",
+    "query": "ALTER INDEX onek_unique1 RENAME TO fail"
+  },
+  {
+    "comment": "alter_table - Statement 78",
+    "query": "CREATE TABLE alter_idx_rename_test (a INT)"
+  },
+  {
+    "comment": "alter_table - Statement 79",
+    "query": "CREATE INDEX alter_idx_rename_test_idx ON alter_idx_rename_test (a)"
+  },
+  {
+    "comment": "alter_table - Statement 80",
+    "query": "CREATE TABLE alter_idx_rename_test_parted (a INT) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "alter_table - Statement 81",
+    "query": "CREATE INDEX alter_idx_rename_test_parted_idx ON alter_idx_rename_test_parted (a)"
+  },
+  {
+    "comment": "alter_table - Statement 82",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "alter_table - Statement 83",
+    "query": "ALTER INDEX alter_idx_rename_test RENAME TO alter_idx_rename_test_2"
+  },
+  {
+    "comment": "alter_table - Statement 84",
+    "query": "ALTER INDEX alter_idx_rename_test_parted RENAME TO alter_idx_rename_test_parted_2"
+  },
+  {
+    "comment": "alter_table - Statement 85",
+    "query": "SELECT relation::regclass, mode FROM pg_locks WHERE pid = pg_backend_pid() AND locktype = 'relation' AND relation::regclass::text LIKE 'alter\\_idx%' ORDER BY relation::regclass::text COLLATE \"C\""
+  },
+  {
+    "comment": "alter_table - Statement 86",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "alter_table - Statement 87",
+    "query": "ALTER INDEX alter_idx_rename_test_idx RENAME TO alter_idx_rename_test_idx_2"
+  },
+  {
+    "comment": "alter_table - Statement 88",
+    "query": "ALTER INDEX alter_idx_rename_test_parted_idx RENAME TO alter_idx_rename_test_parted_idx_2"
+  },
+  {
+    "comment": "alter_table - Statement 89",
+    "query": "ALTER TABLE alter_idx_rename_test_idx_2 RENAME TO alter_idx_rename_test_idx_3"
+  },
+  {
+    "comment": "alter_table - Statement 90",
+    "query": "ALTER TABLE alter_idx_rename_test_parted_idx_2 RENAME TO alter_idx_rename_test_parted_idx_3"
+  },
+  {
+    "comment": "alter_table - Statement 91",
+    "query": "DROP TABLE alter_idx_rename_test_2"
+  },
+  {
+    "comment": "alter_table - Statement 92",
+    "query": "CREATE VIEW attmp_view (unique1) AS SELECT unique1 FROM tenk1"
+  },
+  {
+    "comment": "alter_table - Statement 93",
+    "query": "ALTER TABLE attmp_view RENAME TO attmp_view_new"
+  },
+  {
+    "comment": "alter_table - Statement 94",
+    "query": "ALTER VIEW attmp_view_new RENAME TO fail"
+  },
+  {
+    "comment": "alter_table - Statement 95",
+    "query": "set enable_seqscan to off"
+  },
+  {
+    "comment": "alter_table - Statement 96",
+    "query": "set enable_bitmapscan to off"
+  },
+  {
+    "comment": "alter_table - Statement 97",
+    "query": "SELECT unique1 FROM tenk1 WHERE unique1 < 5"
+  },
+  {
+    "comment": "alter_table - Statement 98",
+    "query": "reset enable_seqscan"
+  },
+  {
+    "comment": "alter_table - Statement 99",
+    "query": "reset enable_bitmapscan"
+  },
+  {
+    "comment": "alter_table - Statement 100",
+    "query": "DROP VIEW attmp_view_new"
+  },
+  {
+    "comment": "alter_table - Statement 101",
+    "query": "alter table stud_emp rename to pg_toast_stud_emp"
+  },
+  {
+    "comment": "alter_table - Statement 102",
+    "query": "alter table pg_toast_stud_emp rename to stud_emp"
+  },
+  {
+    "comment": "alter_table - Statement 103",
+    "query": "ALTER TABLE onek ADD CONSTRAINT onek_unique1_constraint UNIQUE (unique1)"
+  },
+  {
+    "comment": "alter_table - Statement 104",
+    "query": "ALTER INDEX onek_unique1_constraint RENAME TO onek_unique1_constraint_foo"
+  },
+  {
+    "comment": "alter_table - Statement 105",
+    "query": "ALTER TABLE onek DROP CONSTRAINT onek_unique1_constraint_foo"
+  },
+  {
+    "comment": "alter_table - Statement 106",
+    "query": "ALTER TABLE onek ADD CONSTRAINT onek_check_constraint CHECK (unique1 >= 0)"
+  },
+  {
+    "comment": "alter_table - Statement 107",
+    "query": "ALTER TABLE onek RENAME CONSTRAINT onek_check_constraint TO onek_check_constraint_foo"
+  },
+  {
+    "comment": "alter_table - Statement 108",
+    "query": "ALTER TABLE onek DROP CONSTRAINT onek_check_constraint_foo"
+  },
+  {
+    "comment": "alter_table - Statement 109",
+    "query": "DROP INDEX onek_unique1_constraint"
+  },
+  {
+    "comment": "alter_table - Statement 110",
+    "query": "ALTER TABLE onek RENAME CONSTRAINT onek_unique1_constraint TO onek_unique1_constraint_foo"
+  },
+  {
+    "comment": "alter_table - Statement 111",
+    "query": "DROP INDEX onek_unique1_constraint_foo"
+  },
+  {
+    "comment": "alter_table - Statement 112",
+    "query": "CREATE TABLE constraint_rename_test (a int CONSTRAINT con1 CHECK (a > 0), b int, c int)"
+  },
+  {
+    "comment": "alter_table - Statement 113",
+    "query": "ALTER TABLE ONLY constraint_rename_test RENAME CONSTRAINT con1 TO con1foo"
+  },
+  {
+    "comment": "alter_table - Statement 114",
+    "query": "ALTER TABLE constraint_rename_test RENAME CONSTRAINT con1 TO con1foo"
+  },
+  {
+    "comment": "alter_table - Statement 115",
+    "query": "ALTER TABLE ONLY constraint_rename_test RENAME CONSTRAINT con2 TO con2foo"
+  },
+  {
+    "comment": "alter_table - Statement 116",
+    "query": "ALTER TABLE constraint_rename_test RENAME CONSTRAINT con2foo TO con2bar"
+  },
+  {
+    "comment": "alter_table - Statement 117",
+    "query": "ALTER TABLE constraint_rename_test RENAME CONSTRAINT con3 TO con3foo"
+  },
+  {
+    "comment": "alter_table - Statement 118",
+    "query": "DROP TABLE constraint_rename_test"
+  },
+  {
+    "comment": "alter_table - Statement 119",
+    "query": "ALTER TABLE IF EXISTS constraint_not_exist RENAME CONSTRAINT con3 TO con3foo"
+  },
+  {
+    "comment": "alter_table - Statement 120",
+    "query": "ALTER TABLE IF EXISTS constraint_rename_test ADD CONSTRAINT con4 UNIQUE (a)"
+  },
+  {
+    "comment": "alter_table - Statement 121",
+    "query": "CREATE TABLE constraint_rename_cache (a int, CONSTRAINT chk_a CHECK (a > 0), PRIMARY KEY (a))"
+  },
+  {
+    "comment": "alter_table - Statement 122",
+    "query": "ALTER TABLE constraint_rename_cache RENAME CONSTRAINT chk_a TO chk_a_new"
+  },
+  {
+    "comment": "alter_table - Statement 123",
+    "query": "ALTER TABLE constraint_rename_cache RENAME CONSTRAINT constraint_rename_cache_pkey TO constraint_rename_pkey_new"
+  },
+  {
+    "comment": "alter_table - Statement 124",
+    "query": "CREATE TABLE like_constraint_rename_cache (LIKE constraint_rename_cache INCLUDING ALL)"
+  },
+  {
+    "comment": "alter_table - Statement 125",
+    "query": "DROP TABLE like_constraint_rename_cache"
+  },
+  {
+    "comment": "alter_table - Statement 126",
+    "query": "CREATE TABLE attmp2 (a int primary key)"
+  },
+  {
+    "comment": "alter_table - Statement 127",
+    "query": "CREATE TABLE attmp3 (a int, b int)"
+  },
+  {
+    "comment": "alter_table - Statement 128",
+    "query": "CREATE TABLE attmp4 (a int, b int, unique(a,b))"
+  },
+  {
+    "comment": "alter_table - Statement 129",
+    "query": "CREATE TABLE attmp5 (a int, b int)"
+  },
+  {
+    "comment": "alter_table - Statement 130",
+    "query": "INSERT INTO attmp2 values (1)"
+  },
+  {
+    "comment": "alter_table - Statement 131",
+    "query": "INSERT INTO attmp2 values (2)"
+  },
+  {
+    "comment": "alter_table - Statement 132",
+    "query": "INSERT INTO attmp2 values (3)"
+  },
+  {
+    "comment": "alter_table - Statement 133",
+    "query": "INSERT INTO attmp2 values (4)"
+  },
+  {
+    "comment": "alter_table - Statement 134",
+    "query": "INSERT INTO attmp3 values (1,10)"
+  },
+  {
+    "comment": "alter_table - Statement 135",
+    "query": "INSERT INTO attmp3 values (1,20)"
+  },
+  {
+    "comment": "alter_table - Statement 136",
+    "query": "INSERT INTO attmp3 values (5,50)"
+  },
+  {
+    "comment": "alter_table - Statement 137",
+    "query": "ALTER TABLE attmp3 add constraint attmpconstr foreign key(c) references attmp2 match full"
+  },
+  {
+    "comment": "alter_table - Statement 138",
+    "query": "ALTER TABLE attmp3 add constraint attmpconstr foreign key(a) references attmp2(b) match full"
+  },
+  {
+    "comment": "alter_table - Statement 139",
+    "query": "ALTER TABLE attmp3 add constraint attmpconstr foreign key (a) references attmp2 match full"
+  },
+  {
+    "comment": "alter_table - Statement 140",
+    "query": "DELETE FROM attmp3 where a=5"
+  },
+  {
+    "comment": "alter_table - Statement 141",
+    "query": "ALTER TABLE attmp3 drop constraint attmpconstr"
+  },
+  {
+    "comment": "alter_table - Statement 142",
+    "query": "ALTER TABLE attmp3 add constraint attmpconstr foreign key (a) references attmp2 match full NOT VALID"
+  },
+  {
+    "comment": "alter_table - Statement 143",
+    "query": "ALTER TABLE attmp3 validate constraint attmpconstr"
+  },
+  {
+    "comment": "alter_table - Statement 144",
+    "query": "ALTER TABLE attmp3 ADD CONSTRAINT b_greater_than_ten CHECK (b > 10)"
+  },
+  {
+    "comment": "alter_table - Statement 145",
+    "query": "ALTER TABLE attmp3 ADD CONSTRAINT b_greater_than_ten CHECK (b > 10) NOT VALID"
+  },
+  {
+    "comment": "alter_table - Statement 146",
+    "query": "ALTER TABLE attmp3 VALIDATE CONSTRAINT b_greater_than_ten"
+  },
+  {
+    "comment": "alter_table - Statement 147",
+    "query": "DELETE FROM attmp3 WHERE NOT b > 10"
+  },
+  {
+    "comment": "alter_table - Statement 148",
+    "query": "select * from attmp3"
+  },
+  {
+    "comment": "alter_table - Statement 149",
+    "query": "CREATE TABLE attmp6 () INHERITS (attmp3)"
+  },
+  {
+    "comment": "alter_table - Statement 150",
+    "query": "CREATE TABLE attmp7 () INHERITS (attmp3)"
+  },
+  {
+    "comment": "alter_table - Statement 151",
+    "query": "INSERT INTO attmp6 VALUES (6, 30), (7, 16)"
+  },
+  {
+    "comment": "alter_table - Statement 152",
+    "query": "ALTER TABLE attmp3 ADD CONSTRAINT b_le_20 CHECK (b <= 20) NOT VALID"
+  },
+  {
+    "comment": "alter_table - Statement 153",
+    "query": "ALTER TABLE attmp3 VALIDATE CONSTRAINT b_le_20"
+  },
+  {
+    "comment": "alter_table - Statement 154",
+    "query": "DELETE FROM attmp6 WHERE b > 20"
+  },
+  {
+    "comment": "alter_table - Statement 155",
+    "query": "CREATE FUNCTION boo(int) RETURNS int IMMUTABLE STRICT LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'boo: %', $1; RETURN $1; END; $$"
+  },
+  {
+    "comment": "alter_table - Statement 156",
+    "query": "INSERT INTO attmp7 VALUES (8, 18)"
+  },
+  {
+    "comment": "alter_table - Statement 157",
+    "query": "ALTER TABLE attmp7 ADD CONSTRAINT identity CHECK (b = boo(b))"
+  },
+  {
+    "comment": "alter_table - Statement 158",
+    "query": "ALTER TABLE attmp3 ADD CONSTRAINT IDENTITY check (b = boo(b)) NOT VALID"
+  },
+  {
+    "comment": "alter_table - Statement 159",
+    "query": "ALTER TABLE attmp3 VALIDATE CONSTRAINT identity"
+  },
+  {
+    "comment": "alter_table - Statement 160",
+    "query": "create table parent_noinh_convalid (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 161",
+    "query": "create table child_noinh_convalid () inherits (parent_noinh_convalid)"
+  },
+  {
+    "comment": "alter_table - Statement 162",
+    "query": "insert into parent_noinh_convalid values (1)"
+  },
+  {
+    "comment": "alter_table - Statement 163",
+    "query": "insert into child_noinh_convalid values (1)"
+  },
+  {
+    "comment": "alter_table - Statement 164",
+    "query": "alter table parent_noinh_convalid add constraint check_a_is_2 check (a = 2) no inherit not valid"
+  },
+  {
+    "comment": "alter_table - Statement 165",
+    "query": "alter table parent_noinh_convalid validate constraint check_a_is_2"
+  },
+  {
+    "comment": "alter_table - Statement 166",
+    "query": "delete from only parent_noinh_convalid"
+  },
+  {
+    "comment": "alter_table - Statement 167",
+    "query": "select convalidated from pg_constraint where conrelid = 'parent_noinh_convalid'::regclass and conname = 'check_a_is_2'"
+  },
+  {
+    "comment": "alter_table - Statement 168",
+    "query": "drop table parent_noinh_convalid, child_noinh_convalid"
+  },
+  {
+    "comment": "alter_table - Statement 169",
+    "query": "ALTER TABLE attmp5 add constraint attmpconstr foreign key(a) references attmp4(a) match full"
+  },
+  {
+    "comment": "alter_table - Statement 170",
+    "query": "DROP TABLE attmp7"
+  },
+  {
+    "comment": "alter_table - Statement 171",
+    "query": "DROP TABLE attmp6"
+  },
+  {
+    "comment": "alter_table - Statement 172",
+    "query": "DROP TABLE attmp5"
+  },
+  {
+    "comment": "alter_table - Statement 173",
+    "query": "DROP TABLE attmp4"
+  },
+  {
+    "comment": "alter_table - Statement 174",
+    "query": "DROP TABLE attmp3"
+  },
+  {
+    "comment": "alter_table - Statement 175",
+    "query": "DROP TABLE attmp2"
+  },
+  {
+    "comment": "alter_table - Statement 176",
+    "query": "set constraint_exclusion TO 'partition'"
+  },
+  {
+    "comment": "alter_table - Statement 177",
+    "query": "create table nv_parent (d date, check (false) no inherit not valid)"
+  },
+  {
+    "comment": "alter_table - Statement 178",
+    "query": "create table nv_child_2011 () inherits (nv_parent)"
+  },
+  {
+    "comment": "alter_table - Statement 179",
+    "query": "alter table nv_child_2010 add check (d between '2010-01-01'::date and '2010-12-31'::date) not valid"
+  },
+  {
+    "comment": "alter_table - Statement 180",
+    "query": "alter table nv_child_2011 add check (d between '2011-01-01'::date and '2011-12-31'::date) not valid"
+  },
+  {
+    "comment": "alter_table - Statement 181",
+    "query": "explain (costs off) select * from nv_parent where d between '2011-08-01' and '2011-08-31'"
+  },
+  {
+    "comment": "alter_table - Statement 182",
+    "query": "create table nv_child_2009 (check (d between '2009-01-01'::date and '2009-12-31'::date)) inherits (nv_parent)"
+  },
+  {
+    "comment": "alter_table - Statement 183",
+    "query": "explain (costs off) select * from nv_parent where d between '2011-08-01'::date and '2011-08-31'::date"
+  },
+  {
+    "comment": "alter_table - Statement 184",
+    "query": "explain (costs off) select * from nv_parent where d between '2009-08-01'::date and '2009-08-31'::date"
+  },
+  {
+    "comment": "alter_table - Statement 185",
+    "query": "alter table nv_child_2011 VALIDATE CONSTRAINT nv_child_2011_d_check"
+  },
+  {
+    "comment": "alter_table - Statement 186",
+    "query": "alter table nv_parent add check (d between '2001-01-01'::date and '2099-12-31'::date) not valid"
+  },
+  {
+    "comment": "alter_table - Statement 187",
+    "query": "INSERT INTO PKTABLE VALUES(42)"
+  },
+  {
+    "comment": "alter_table - Statement 188",
+    "query": "CREATE TEMP TABLE FKTABLE (ftest1 inet)"
+  },
+  {
+    "comment": "alter_table - Statement 189",
+    "query": "ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable"
+  },
+  {
+    "comment": "alter_table - Statement 190",
+    "query": "ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable(ptest1)"
+  },
+  {
+    "comment": "alter_table - Statement 191",
+    "query": "DROP TABLE FKTABLE"
+  },
+  {
+    "comment": "alter_table - Statement 192",
+    "query": "CREATE TEMP TABLE FKTABLE (ftest1 int8)"
+  },
+  {
+    "comment": "alter_table - Statement 193",
+    "query": "INSERT INTO FKTABLE VALUES(42)"
+  },
+  {
+    "comment": "alter_table - Statement 194",
+    "query": "INSERT INTO FKTABLE VALUES(43)"
+  },
+  {
+    "comment": "alter_table - Statement 195",
+    "query": "CREATE TEMP TABLE FKTABLE (ftest1 numeric)"
+  },
+  {
+    "comment": "alter_table - Statement 196",
+    "query": "DROP TABLE PKTABLE"
+  },
+  {
+    "comment": "alter_table - Statement 197",
+    "query": "CREATE TEMP TABLE PKTABLE (ptest1 numeric PRIMARY KEY)"
+  },
+  {
+    "comment": "alter_table - Statement 198",
+    "query": "CREATE TEMP TABLE FKTABLE (ftest1 int)"
+  },
+  {
+    "comment": "alter_table - Statement 199",
+    "query": "CREATE TEMP TABLE PKTABLE (ptest1 int, ptest2 inet, PRIMARY KEY(ptest1, ptest2))"
+  },
+  {
+    "comment": "alter_table - Statement 200",
+    "query": "CREATE TEMP TABLE FKTABLE (ftest1 cidr, ftest2 timestamp)"
+  },
+  {
+    "comment": "alter_table - Statement 201",
+    "query": "ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2) references pktable"
+  },
+  {
+    "comment": "alter_table - Statement 202",
+    "query": "ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2) references pktable(ptest1, ptest2)"
+  },
+  {
+    "comment": "alter_table - Statement 203",
+    "query": "CREATE TEMP TABLE FKTABLE (ftest1 int, ftest2 inet)"
+  },
+  {
+    "comment": "alter_table - Statement 204",
+    "query": "ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2) references pktable(ptest2, ptest1)"
+  },
+  {
+    "comment": "alter_table - Statement 205",
+    "query": "ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest2, ftest1) references pktable(ptest1, ptest2)"
+  },
+  {
+    "comment": "alter_table - Statement 206",
+    "query": "CREATE TEMP TABLE PKTABLE (ptest1 int primary key)"
+  },
+  {
+    "comment": "alter_table - Statement 207",
+    "query": "ALTER TABLE FKTABLE ADD CONSTRAINT fknd FOREIGN KEY(ftest1) REFERENCES pktable ON DELETE CASCADE ON UPDATE NO ACTION NOT DEFERRABLE"
+  },
+  {
+    "comment": "alter_table - Statement 208",
+    "query": "ALTER TABLE FKTABLE ADD CONSTRAINT fkdd FOREIGN KEY(ftest1) REFERENCES pktable ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED"
+  },
+  {
+    "comment": "alter_table - Statement 209",
+    "query": "ALTER TABLE FKTABLE ADD CONSTRAINT fkdi FOREIGN KEY(ftest1) REFERENCES pktable ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE INITIALLY IMMEDIATE"
+  },
+  {
+    "comment": "alter_table - Statement 210",
+    "query": "ALTER TABLE FKTABLE ADD CONSTRAINT fknd2 FOREIGN KEY(ftest1) REFERENCES pktable ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED"
+  },
+  {
+    "comment": "alter_table - Statement 211",
+    "query": "ALTER TABLE FKTABLE ALTER CONSTRAINT fknd2 NOT DEFERRABLE"
+  },
+  {
+    "comment": "alter_table - Statement 212",
+    "query": "ALTER TABLE FKTABLE ADD CONSTRAINT fkdd2 FOREIGN KEY(ftest1) REFERENCES pktable ON DELETE CASCADE ON UPDATE NO ACTION NOT DEFERRABLE"
+  },
+  {
+    "comment": "alter_table - Statement 213",
+    "query": "ALTER TABLE FKTABLE ALTER CONSTRAINT fkdd2 DEFERRABLE INITIALLY DEFERRED"
+  },
+  {
+    "comment": "alter_table - Statement 214",
+    "query": "ALTER TABLE FKTABLE ADD CONSTRAINT fkdi2 FOREIGN KEY(ftest1) REFERENCES pktable ON DELETE CASCADE ON UPDATE NO ACTION NOT DEFERRABLE"
+  },
+  {
+    "comment": "alter_table - Statement 215",
+    "query": "ALTER TABLE FKTABLE ALTER CONSTRAINT fkdi2 DEFERRABLE INITIALLY IMMEDIATE"
+  },
+  {
+    "comment": "alter_table - Statement 216",
+    "query": "SELECT conname, tgfoid::regproc, tgtype, tgdeferrable, tginitdeferred FROM pg_trigger JOIN pg_constraint con ON con.oid = tgconstraint WHERE tgrelid = 'pktable'::regclass ORDER BY 1,2,3"
+  },
+  {
+    "comment": "alter_table - Statement 217",
+    "query": "SELECT conname, tgfoid::regproc, tgtype, tgdeferrable, tginitdeferred FROM pg_trigger JOIN pg_constraint con ON con.oid = tgconstraint WHERE tgrelid = 'fktable'::regclass ORDER BY 1,2,3"
+  },
+  {
+    "comment": "alter_table - Statement 218",
+    "query": "create table atacc1 ( test int )"
+  },
+  {
+    "comment": "alter_table - Statement 219",
+    "query": "alter table atacc1 add constraint atacc_test1 check (test>3)"
+  },
+  {
+    "comment": "alter_table - Statement 220",
+    "query": "insert into atacc1 (test) values (2)"
+  },
+  {
+    "comment": "alter_table - Statement 221",
+    "query": "insert into atacc1 (test) values (4)"
+  },
+  {
+    "comment": "alter_table - Statement 222",
+    "query": "drop table atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 223",
+    "query": "alter table atacc1 add constraint atacc_test1 check (test1>3)"
+  },
+  {
+    "comment": "alter_table - Statement 224",
+    "query": "create table atacc1 ( test int, test2 int, test3 int)"
+  },
+  {
+    "comment": "alter_table - Statement 225",
+    "query": "alter table atacc1 add constraint atacc_test1 check (test+test2<test3*4)"
+  },
+  {
+    "comment": "alter_table - Statement 226",
+    "query": "insert into atacc1 (test,test2,test3) values (4,4,2)"
+  },
+  {
+    "comment": "alter_table - Statement 227",
+    "query": "insert into atacc1 (test,test2,test3) values (4,4,5)"
+  },
+  {
+    "comment": "alter_table - Statement 228",
+    "query": "create table atacc1 (test int check (test>3), test2 int)"
+  },
+  {
+    "comment": "alter_table - Statement 229",
+    "query": "alter table atacc1 add check (test2>test)"
+  },
+  {
+    "comment": "alter_table - Statement 230",
+    "query": "insert into atacc1 (test2, test) values (3, 4)"
+  },
+  {
+    "comment": "alter_table - Statement 231",
+    "query": "create table atacc1 (test int)"
+  },
+  {
+    "comment": "alter_table - Statement 232",
+    "query": "create table atacc2 (test2 int)"
+  },
+  {
+    "comment": "alter_table - Statement 233",
+    "query": "create table atacc3 (test3 int) inherits (atacc1, atacc2)"
+  },
+  {
+    "comment": "alter_table - Statement 234",
+    "query": "alter table atacc2 add constraint foo check (test2>0)"
+  },
+  {
+    "comment": "alter_table - Statement 235",
+    "query": "insert into atacc2 (test2) values (-3)"
+  },
+  {
+    "comment": "alter_table - Statement 236",
+    "query": "insert into atacc2 (test2) values (3)"
+  },
+  {
+    "comment": "alter_table - Statement 237",
+    "query": "insert into atacc3 (test2) values (-3)"
+  },
+  {
+    "comment": "alter_table - Statement 238",
+    "query": "insert into atacc3 (test2) values (3)"
+  },
+  {
+    "comment": "alter_table - Statement 239",
+    "query": "drop table atacc3"
+  },
+  {
+    "comment": "alter_table - Statement 240",
+    "query": "drop table atacc2"
+  },
+  {
+    "comment": "alter_table - Statement 241",
+    "query": "alter table atacc3 no inherit atacc2"
+  },
+  {
+    "comment": "alter_table - Statement 242",
+    "query": "select test2 from atacc2"
+  },
+  {
+    "comment": "alter_table - Statement 243",
+    "query": "alter table atacc3 inherit atacc2"
+  },
+  {
+    "comment": "alter_table - Statement 244",
+    "query": "alter table atacc3 rename test2 to testx"
+  },
+  {
+    "comment": "alter_table - Statement 245",
+    "query": "alter table atacc3 add test2 bool"
+  },
+  {
+    "comment": "alter_table - Statement 246",
+    "query": "alter table atacc3 drop test2"
+  },
+  {
+    "comment": "alter_table - Statement 247",
+    "query": "alter table atacc3 add test2 int"
+  },
+  {
+    "comment": "alter_table - Statement 248",
+    "query": "update atacc3 set test2 = 4 where test2 is null"
+  },
+  {
+    "comment": "alter_table - Statement 249",
+    "query": "alter table atacc3 add constraint foo check (test2>0)"
+  },
+  {
+    "comment": "alter_table - Statement 250",
+    "query": "alter table atacc2 inherit atacc3"
+  },
+  {
+    "comment": "alter_table - Statement 251",
+    "query": "alter table atacc2 inherit atacc2"
+  },
+  {
+    "comment": "alter_table - Statement 252",
+    "query": "drop table atacc2 cascade"
+  },
+  {
+    "comment": "alter_table - Statement 253",
+    "query": "create table atacc2 (test2 int) inherits (atacc1)"
+  },
+  {
+    "comment": "alter_table - Statement 254",
+    "query": "alter table atacc1 add constraint foo check (test>0) no inherit"
+  },
+  {
+    "comment": "alter_table - Statement 255",
+    "query": "insert into atacc2 (test) values (-3)"
+  },
+  {
+    "comment": "alter_table - Statement 256",
+    "query": "insert into atacc1 (test) values (-3)"
+  },
+  {
+    "comment": "alter_table - Statement 257",
+    "query": "insert into atacc1 (test) values (3)"
+  },
+  {
+    "comment": "alter_table - Statement 258",
+    "query": "alter table atacc2 add constraint foo check (test>0) no inherit"
+  },
+  {
+    "comment": "alter_table - Statement 259",
+    "query": "create table atacc1 ( test int )"
+  },
+  {
+    "comment": "alter_table - Statement 260",
+    "query": "alter table atacc1 add constraint atacc_test1 unique (test)"
+  },
+  {
+    "comment": "alter_table - Statement 261",
+    "query": "alter table atacc1 alter column test type integer using 0"
+  },
+  {
+    "comment": "alter_table - Statement 262",
+    "query": "alter table atacc1 add constraint atacc_test1 unique (test1)"
+  },
+  {
+    "comment": "alter_table - Statement 263",
+    "query": "create table atacc1 ( test int, test2 int)"
+  },
+  {
+    "comment": "alter_table - Statement 264",
+    "query": "alter table atacc1 add constraint atacc_test1 unique (test, test2)"
+  },
+  {
+    "comment": "alter_table - Statement 265",
+    "query": "insert into atacc1 (test,test2) values (4,4)"
+  },
+  {
+    "comment": "alter_table - Statement 266",
+    "query": "insert into atacc1 (test,test2) values (4,5)"
+  },
+  {
+    "comment": "alter_table - Statement 267",
+    "query": "insert into atacc1 (test,test2) values (5,4)"
+  },
+  {
+    "comment": "alter_table - Statement 268",
+    "query": "insert into atacc1 (test,test2) values (5,5)"
+  },
+  {
+    "comment": "alter_table - Statement 269",
+    "query": "create table atacc1 (test int, test2 int, unique(test))"
+  },
+  {
+    "comment": "alter_table - Statement 270",
+    "query": "alter table atacc1 add unique (test2)"
+  },
+  {
+    "comment": "alter_table - Statement 271",
+    "query": "insert into atacc1 (test2, test) values (3, 3)"
+  },
+  {
+    "comment": "alter_table - Statement 272",
+    "query": "insert into atacc1 (test2, test) values (2, 3)"
+  },
+  {
+    "comment": "alter_table - Statement 273",
+    "query": "create table atacc1 ( id serial, test int)"
+  },
+  {
+    "comment": "alter_table - Statement 274",
+    "query": "alter table atacc1 add constraint atacc_test1 primary key (test)"
+  },
+  {
+    "comment": "alter_table - Statement 275",
+    "query": "insert into atacc1 (test) values(NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 276",
+    "query": "alter table atacc1 add constraint atacc_oid1 primary key(id)"
+  },
+  {
+    "comment": "alter_table - Statement 277",
+    "query": "alter table atacc1 drop constraint atacc_test1 restrict"
+  },
+  {
+    "comment": "alter_table - Statement 278",
+    "query": "insert into atacc1 (test) values (NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 279",
+    "query": "alter table atacc1 add constraint atacc_test1 primary key (test1)"
+  },
+  {
+    "comment": "alter_table - Statement 280",
+    "query": "insert into atacc1 (test) values (0)"
+  },
+  {
+    "comment": "alter_table - Statement 281",
+    "query": "alter table atacc1 add column test2 int primary key"
+  },
+  {
+    "comment": "alter_table - Statement 282",
+    "query": "alter table atacc1 add column test2 int default 0 primary key"
+  },
+  {
+    "comment": "alter_table - Statement 283",
+    "query": "create table atacc1 (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 284",
+    "query": "insert into atacc1 values(1)"
+  },
+  {
+    "comment": "alter_table - Statement 285",
+    "query": "alter table atacc1 add column b float8 not null default random(), add primary key(a)"
+  },
+  {
+    "comment": "alter_table - Statement 286",
+    "query": "create table atacc1 (a int primary key)"
+  },
+  {
+    "comment": "alter_table - Statement 287",
+    "query": "alter table atacc1 add constraint atacc1_fkey foreign key (a) references atacc1 (a) not valid"
+  },
+  {
+    "comment": "alter_table - Statement 288",
+    "query": "alter table atacc1 validate constraint atacc1_fkey, alter a type bigint"
+  },
+  {
+    "comment": "alter_table - Statement 289",
+    "query": "create table atacc1 (a bigint, b int)"
+  },
+  {
+    "comment": "alter_table - Statement 290",
+    "query": "insert into atacc1 values(1,1)"
+  },
+  {
+    "comment": "alter_table - Statement 291",
+    "query": "alter table atacc1 add constraint atacc1_chk check(b = 1) not valid"
+  },
+  {
+    "comment": "alter_table - Statement 292",
+    "query": "alter table atacc1 validate constraint atacc1_chk, alter a type int"
+  },
+  {
+    "comment": "alter_table - Statement 293",
+    "query": "insert into atacc1 values(1,2)"
+  },
+  {
+    "comment": "alter_table - Statement 294",
+    "query": "alter table atacc1 add constraint atacc_test1 primary key (test, test2)"
+  },
+  {
+    "comment": "alter_table - Statement 295",
+    "query": "alter table atacc1 add constraint atacc_test2 primary key (test)"
+  },
+  {
+    "comment": "alter_table - Statement 296",
+    "query": "insert into atacc1 (test,test2) values (NULL,3)"
+  },
+  {
+    "comment": "alter_table - Statement 297",
+    "query": "insert into atacc1 (test,test2) values (3, NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 298",
+    "query": "insert into atacc1 (test,test2) values (NULL,NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 299",
+    "query": "create table atacc1 (test int, test2 int, primary key(test))"
+  },
+  {
+    "comment": "alter_table - Statement 300",
+    "query": "insert into atacc1 (test2, test) values (1, NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 301",
+    "query": "alter table pg_class alter column relname drop not null"
+  },
+  {
+    "comment": "alter_table - Statement 302",
+    "query": "alter table pg_class alter relname set not null"
+  },
+  {
+    "comment": "alter_table - Statement 303",
+    "query": "alter table non_existent alter column bar set not null"
+  },
+  {
+    "comment": "alter_table - Statement 304",
+    "query": "alter table non_existent alter column bar drop not null"
+  },
+  {
+    "comment": "alter_table - Statement 305",
+    "query": "create table atacc1 (test int not null)"
+  },
+  {
+    "comment": "alter_table - Statement 306",
+    "query": "alter table atacc1 add constraint \"atacc1_pkey\" primary key (test)"
+  },
+  {
+    "comment": "alter_table - Statement 307",
+    "query": "alter table atacc1 alter column test drop not null"
+  },
+  {
+    "comment": "alter_table - Statement 308",
+    "query": "alter table atacc1 alter test set not null"
+  },
+  {
+    "comment": "alter_table - Statement 309",
+    "query": "delete from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 310",
+    "query": "alter table atacc1 alter bar set not null"
+  },
+  {
+    "comment": "alter_table - Statement 311",
+    "query": "alter table atacc1 alter bar drop not null"
+  },
+  {
+    "comment": "alter_table - Statement 312",
+    "query": "create view myview as select * from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 313",
+    "query": "alter table myview alter column test drop not null"
+  },
+  {
+    "comment": "alter_table - Statement 314",
+    "query": "alter table myview alter column test set not null"
+  },
+  {
+    "comment": "alter_table - Statement 315",
+    "query": "drop view myview"
+  },
+  {
+    "comment": "alter_table - Statement 316",
+    "query": "create table atacc1 (test_a int, test_b int)"
+  },
+  {
+    "comment": "alter_table - Statement 317",
+    "query": "insert into atacc1 values (null, 1)"
+  },
+  {
+    "comment": "alter_table - Statement 318",
+    "query": "alter table atacc1 add constraint atacc1_constr_or check(test_a is not null or test_b < 10)"
+  },
+  {
+    "comment": "alter_table - Statement 319",
+    "query": "alter table atacc1 alter test_a set not null"
+  },
+  {
+    "comment": "alter_table - Statement 320",
+    "query": "alter table atacc1 drop constraint atacc1_constr_or"
+  },
+  {
+    "comment": "alter_table - Statement 321",
+    "query": "alter table atacc1 add constraint atacc1_constr_invalid check(test_a is not null) not valid"
+  },
+  {
+    "comment": "alter_table - Statement 322",
+    "query": "alter table atacc1 drop constraint atacc1_constr_invalid"
+  },
+  {
+    "comment": "alter_table - Statement 323",
+    "query": "update atacc1 set test_a = 1"
+  },
+  {
+    "comment": "alter_table - Statement 324",
+    "query": "alter table atacc1 add constraint atacc1_constr_a_valid check(test_a is not null)"
+  },
+  {
+    "comment": "alter_table - Statement 325",
+    "query": "insert into atacc1 values (2, null)"
+  },
+  {
+    "comment": "alter_table - Statement 326",
+    "query": "alter table atacc1 alter test_a drop not null"
+  },
+  {
+    "comment": "alter_table - Statement 327",
+    "query": "alter table atacc1 alter test_a set not null, alter test_b set not null"
+  },
+  {
+    "comment": "alter_table - Statement 328",
+    "query": "alter table atacc1 alter test_b set not null, alter test_a set not null"
+  },
+  {
+    "comment": "alter_table - Statement 329",
+    "query": "update atacc1 set test_b = 1"
+  },
+  {
+    "comment": "alter_table - Statement 330",
+    "query": "alter table atacc1 alter test_a drop not null, alter test_b drop not null"
+  },
+  {
+    "comment": "alter_table - Statement 331",
+    "query": "alter table atacc1 add constraint atacc1_constr_b_valid check(test_b is not null)"
+  },
+  {
+    "comment": "alter_table - Statement 332",
+    "query": "create table parent (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 333",
+    "query": "create table child (b varchar(255)) inherits (parent)"
+  },
+  {
+    "comment": "alter_table - Statement 334",
+    "query": "alter table parent alter a set not null"
+  },
+  {
+    "comment": "alter_table - Statement 335",
+    "query": "insert into parent values (NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 336",
+    "query": "insert into child (a, b) values (NULL, 'foo')"
+  },
+  {
+    "comment": "alter_table - Statement 337",
+    "query": "alter table parent alter a drop not null"
+  },
+  {
+    "comment": "alter_table - Statement 338",
+    "query": "alter table only parent alter a set not null"
+  },
+  {
+    "comment": "alter_table - Statement 339",
+    "query": "alter table child alter a set not null"
+  },
+  {
+    "comment": "alter_table - Statement 340",
+    "query": "delete from parent"
+  },
+  {
+    "comment": "alter_table - Statement 341",
+    "query": "delete from child"
+  },
+  {
+    "comment": "alter_table - Statement 342",
+    "query": "drop table child"
+  },
+  {
+    "comment": "alter_table - Statement 343",
+    "query": "drop table parent"
+  },
+  {
+    "comment": "alter_table - Statement 344",
+    "query": "create table def_test ( c1\tint4 default 5, c2\ttext default 'initial_default' )"
+  },
+  {
+    "comment": "alter_table - Statement 345",
+    "query": "insert into def_test default values"
+  },
+  {
+    "comment": "alter_table - Statement 346",
+    "query": "alter table def_test alter column c1 drop default"
+  },
+  {
+    "comment": "alter_table - Statement 347",
+    "query": "alter table def_test alter column c2 drop default"
+  },
+  {
+    "comment": "alter_table - Statement 348",
+    "query": "alter table def_test alter column c1 set default 10"
+  },
+  {
+    "comment": "alter_table - Statement 349",
+    "query": "alter table def_test alter column c2 set default 'new_default'"
+  },
+  {
+    "comment": "alter_table - Statement 350",
+    "query": "select * from def_test"
+  },
+  {
+    "comment": "alter_table - Statement 351",
+    "query": "alter table def_test alter column c1 set default 'wrong_datatype'"
+  },
+  {
+    "comment": "alter_table - Statement 352",
+    "query": "alter table def_test alter column c2 set default 20"
+  },
+  {
+    "comment": "alter_table - Statement 353",
+    "query": "alter table def_test alter column c3 set default 30"
+  },
+  {
+    "comment": "alter_table - Statement 354",
+    "query": "create view def_view_test as select * from def_test"
+  },
+  {
+    "comment": "alter_table - Statement 355",
+    "query": "create rule def_view_test_ins as on insert to def_view_test do instead insert into def_test select new.*"
+  },
+  {
+    "comment": "alter_table - Statement 356",
+    "query": "insert into def_view_test default values"
+  },
+  {
+    "comment": "alter_table - Statement 357",
+    "query": "alter table def_view_test alter column c1 set default 45"
+  },
+  {
+    "comment": "alter_table - Statement 358",
+    "query": "alter table def_view_test alter column c2 set default 'view_default'"
+  },
+  {
+    "comment": "alter_table - Statement 359",
+    "query": "select * from def_view_test"
+  },
+  {
+    "comment": "alter_table - Statement 360",
+    "query": "drop rule def_view_test_ins on def_view_test"
+  },
+  {
+    "comment": "alter_table - Statement 361",
+    "query": "drop view def_view_test"
+  },
+  {
+    "comment": "alter_table - Statement 362",
+    "query": "drop table def_test"
+  },
+  {
+    "comment": "alter_table - Statement 363",
+    "query": "alter table pg_class drop column relname"
+  },
+  {
+    "comment": "alter_table - Statement 364",
+    "query": "alter table nosuchtable drop column bar"
+  },
+  {
+    "comment": "alter_table - Statement 365",
+    "query": "create table atacc1 (a int4 not null, b int4, c int4 not null, d int4)"
+  },
+  {
+    "comment": "alter_table - Statement 366",
+    "query": "insert into atacc1 values (1, 2, 3, 4)"
+  },
+  {
+    "comment": "alter_table - Statement 367",
+    "query": "alter table atacc1 drop a"
+  },
+  {
+    "comment": "alter_table - Statement 368",
+    "query": "select * from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 369",
+    "query": "select * from atacc1 order by a"
+  },
+  {
+    "comment": "alter_table - Statement 370",
+    "query": "select * from atacc1 order by \"........pg.dropped.1........\""
+  },
+  {
+    "comment": "alter_table - Statement 371",
+    "query": "select * from atacc1 group by a"
+  },
+  {
+    "comment": "alter_table - Statement 372",
+    "query": "select * from atacc1 group by \"........pg.dropped.1........\""
+  },
+  {
+    "comment": "alter_table - Statement 373",
+    "query": "select atacc1.* from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 374",
+    "query": "select a from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 375",
+    "query": "select atacc1.a from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 376",
+    "query": "select b,c,d from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 377",
+    "query": "select a,b,c,d from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 378",
+    "query": "select * from atacc1 where a = 1"
+  },
+  {
+    "comment": "alter_table - Statement 379",
+    "query": "select \"........pg.dropped.1........\" from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 380",
+    "query": "select atacc1.\"........pg.dropped.1........\" from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 381",
+    "query": "select \"........pg.dropped.1........\",b,c,d from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 382",
+    "query": "select * from atacc1 where \"........pg.dropped.1........\" = 1"
+  },
+  {
+    "comment": "alter_table - Statement 383",
+    "query": "update atacc1 set a = 3"
+  },
+  {
+    "comment": "alter_table - Statement 384",
+    "query": "update atacc1 set b = 2 where a = 3"
+  },
+  {
+    "comment": "alter_table - Statement 385",
+    "query": "update atacc1 set \"........pg.dropped.1........\" = 3"
+  },
+  {
+    "comment": "alter_table - Statement 386",
+    "query": "update atacc1 set b = 2 where \"........pg.dropped.1........\" = 3"
+  },
+  {
+    "comment": "alter_table - Statement 387",
+    "query": "insert into atacc1 values (10, 11, 12, 13)"
+  },
+  {
+    "comment": "alter_table - Statement 388",
+    "query": "insert into atacc1 values (default, 11, 12, 13)"
+  },
+  {
+    "comment": "alter_table - Statement 389",
+    "query": "insert into atacc1 values (11, 12, 13)"
+  },
+  {
+    "comment": "alter_table - Statement 390",
+    "query": "insert into atacc1 (a) values (10)"
+  },
+  {
+    "comment": "alter_table - Statement 391",
+    "query": "insert into atacc1 (a) values (default)"
+  },
+  {
+    "comment": "alter_table - Statement 392",
+    "query": "insert into atacc1 (a,b,c,d) values (10,11,12,13)"
+  },
+  {
+    "comment": "alter_table - Statement 393",
+    "query": "insert into atacc1 (a,b,c,d) values (default,11,12,13)"
+  },
+  {
+    "comment": "alter_table - Statement 394",
+    "query": "insert into atacc1 (b,c,d) values (11,12,13)"
+  },
+  {
+    "comment": "alter_table - Statement 395",
+    "query": "insert into atacc1 (\"........pg.dropped.1........\") values (10)"
+  },
+  {
+    "comment": "alter_table - Statement 396",
+    "query": "insert into atacc1 (\"........pg.dropped.1........\") values (default)"
+  },
+  {
+    "comment": "alter_table - Statement 397",
+    "query": "insert into atacc1 (\"........pg.dropped.1........\",b,c,d) values (10,11,12,13)"
+  },
+  {
+    "comment": "alter_table - Statement 398",
+    "query": "insert into atacc1 (\"........pg.dropped.1........\",b,c,d) values (default,11,12,13)"
+  },
+  {
+    "comment": "alter_table - Statement 399",
+    "query": "delete from atacc1 where a = 3"
+  },
+  {
+    "comment": "alter_table - Statement 400",
+    "query": "delete from atacc1 where \"........pg.dropped.1........\" = 3"
+  },
+  {
+    "comment": "alter_table - Statement 401",
+    "query": "alter table atacc1 drop bar"
+  },
+  {
+    "comment": "alter_table - Statement 402",
+    "query": "alter table atacc1 SET WITHOUT OIDS"
+  },
+  {
+    "comment": "alter_table - Statement 403",
+    "query": "alter table atacc1 SET WITH OIDS"
+  },
+  {
+    "comment": "alter_table - Statement 404",
+    "query": "alter table atacc1 drop xmin"
+  },
+  {
+    "comment": "alter_table - Statement 405",
+    "query": "select * from myview"
+  },
+  {
+    "comment": "alter_table - Statement 406",
+    "query": "alter table myview drop d"
+  },
+  {
+    "comment": "alter_table - Statement 407",
+    "query": "analyze atacc1(a)"
+  },
+  {
+    "comment": "alter_table - Statement 408",
+    "query": "analyze atacc1(\"........pg.dropped.1........\")"
+  },
+  {
+    "comment": "alter_table - Statement 409",
+    "query": "vacuum analyze atacc1(a)"
+  },
+  {
+    "comment": "alter_table - Statement 410",
+    "query": "vacuum analyze atacc1(\"........pg.dropped.1........\")"
+  },
+  {
+    "comment": "alter_table - Statement 411",
+    "query": "comment on column atacc1.a is 'testing'"
+  },
+  {
+    "comment": "alter_table - Statement 412",
+    "query": "comment on column atacc1.\"........pg.dropped.1........\" is 'testing'"
+  },
+  {
+    "comment": "alter_table - Statement 413",
+    "query": "alter table atacc1 alter a set storage plain"
+  },
+  {
+    "comment": "alter_table - Statement 414",
+    "query": "alter table atacc1 alter \"........pg.dropped.1........\" set storage plain"
+  },
+  {
+    "comment": "alter_table - Statement 415",
+    "query": "alter table atacc1 alter a set statistics 0"
+  },
+  {
+    "comment": "alter_table - Statement 416",
+    "query": "alter table atacc1 alter \"........pg.dropped.1........\" set statistics 0"
+  },
+  {
+    "comment": "alter_table - Statement 417",
+    "query": "alter table atacc1 alter a set default 3"
+  },
+  {
+    "comment": "alter_table - Statement 418",
+    "query": "alter table atacc1 alter \"........pg.dropped.1........\" set default 3"
+  },
+  {
+    "comment": "alter_table - Statement 419",
+    "query": "alter table atacc1 alter a drop default"
+  },
+  {
+    "comment": "alter_table - Statement 420",
+    "query": "alter table atacc1 alter \"........pg.dropped.1........\" drop default"
+  },
+  {
+    "comment": "alter_table - Statement 421",
+    "query": "alter table atacc1 alter a set not null"
+  },
+  {
+    "comment": "alter_table - Statement 422",
+    "query": "alter table atacc1 alter \"........pg.dropped.1........\" set not null"
+  },
+  {
+    "comment": "alter_table - Statement 423",
+    "query": "alter table atacc1 alter a drop not null"
+  },
+  {
+    "comment": "alter_table - Statement 424",
+    "query": "alter table atacc1 alter \"........pg.dropped.1........\" drop not null"
+  },
+  {
+    "comment": "alter_table - Statement 425",
+    "query": "alter table atacc1 rename a to x"
+  },
+  {
+    "comment": "alter_table - Statement 426",
+    "query": "alter table atacc1 rename \"........pg.dropped.1........\" to x"
+  },
+  {
+    "comment": "alter_table - Statement 427",
+    "query": "alter table atacc1 add primary key(a)"
+  },
+  {
+    "comment": "alter_table - Statement 428",
+    "query": "alter table atacc1 add primary key(\"........pg.dropped.1........\")"
+  },
+  {
+    "comment": "alter_table - Statement 429",
+    "query": "alter table atacc1 add unique(a)"
+  },
+  {
+    "comment": "alter_table - Statement 430",
+    "query": "alter table atacc1 add unique(\"........pg.dropped.1........\")"
+  },
+  {
+    "comment": "alter_table - Statement 431",
+    "query": "alter table atacc1 add check (a > 3)"
+  },
+  {
+    "comment": "alter_table - Statement 432",
+    "query": "alter table atacc1 add check (\"........pg.dropped.1........\" > 3)"
+  },
+  {
+    "comment": "alter_table - Statement 433",
+    "query": "create table atacc2 (id int4 unique)"
+  },
+  {
+    "comment": "alter_table - Statement 434",
+    "query": "alter table atacc1 add foreign key (a) references atacc2(id)"
+  },
+  {
+    "comment": "alter_table - Statement 435",
+    "query": "alter table atacc1 add foreign key (\"........pg.dropped.1........\") references atacc2(id)"
+  },
+  {
+    "comment": "alter_table - Statement 436",
+    "query": "alter table atacc2 add foreign key (id) references atacc1(a)"
+  },
+  {
+    "comment": "alter_table - Statement 437",
+    "query": "alter table atacc2 add foreign key (id) references atacc1(\"........pg.dropped.1........\")"
+  },
+  {
+    "comment": "alter_table - Statement 438",
+    "query": "create index \"testing_idx\" on atacc1(a)"
+  },
+  {
+    "comment": "alter_table - Statement 439",
+    "query": "create index \"testing_idx\" on atacc1(\"........pg.dropped.1........\")"
+  },
+  {
+    "comment": "alter_table - Statement 440",
+    "query": "insert into atacc1 values (21, 22, 23)"
+  },
+  {
+    "comment": "alter_table - Statement 441",
+    "query": "create table attest1 as select * from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 442",
+    "query": "select * from attest1"
+  },
+  {
+    "comment": "alter_table - Statement 443",
+    "query": "drop table attest1"
+  },
+  {
+    "comment": "alter_table - Statement 444",
+    "query": "select * into attest2 from atacc1"
+  },
+  {
+    "comment": "alter_table - Statement 445",
+    "query": "select * from attest2"
+  },
+  {
+    "comment": "alter_table - Statement 446",
+    "query": "drop table attest2"
+  },
+  {
+    "comment": "alter_table - Statement 447",
+    "query": "alter table atacc1 drop c"
+  },
+  {
+    "comment": "alter_table - Statement 448",
+    "query": "alter table atacc1 drop d"
+  },
+  {
+    "comment": "alter_table - Statement 449",
+    "query": "alter table atacc1 drop b"
+  },
+  {
+    "comment": "alter_table - Statement 450",
+    "query": "create table atacc1 (id serial primary key, value int check (value < 10))"
+  },
+  {
+    "comment": "alter_table - Statement 451",
+    "query": "insert into atacc1(value) values (100)"
+  },
+  {
+    "comment": "alter_table - Statement 452",
+    "query": "alter table atacc1 drop column value"
+  },
+  {
+    "comment": "alter_table - Statement 453",
+    "query": "alter table atacc1 add column value int check (value < 10)"
+  },
+  {
+    "comment": "alter_table - Statement 454",
+    "query": "insert into atacc1(id, value) values (null, 0)"
+  },
+  {
+    "comment": "alter_table - Statement 455",
+    "query": "create table parent (a int, b int, c int)"
+  },
+  {
+    "comment": "alter_table - Statement 456",
+    "query": "insert into parent values (1, 2, 3)"
+  },
+  {
+    "comment": "alter_table - Statement 457",
+    "query": "alter table parent drop a"
+  },
+  {
+    "comment": "alter_table - Statement 458",
+    "query": "create table child (d varchar(255)) inherits (parent)"
+  },
+  {
+    "comment": "alter_table - Statement 459",
+    "query": "insert into child values (12, 13, 'testing')"
+  },
+  {
+    "comment": "alter_table - Statement 460",
+    "query": "select * from parent"
+  },
+  {
+    "comment": "alter_table - Statement 461",
+    "query": "select * from child"
+  },
+  {
+    "comment": "alter_table - Statement 462",
+    "query": "alter table parent drop c"
+  },
+  {
+    "comment": "alter_table - Statement 463",
+    "query": "create table parent (a float8, b numeric(10,4), c text collate \"C\")"
+  },
+  {
+    "comment": "alter_table - Statement 464",
+    "query": "create table child (a float4) inherits (parent)"
+  },
+  {
+    "comment": "alter_table - Statement 465",
+    "query": "create table child (b decimal(10,7)) inherits (parent)"
+  },
+  {
+    "comment": "alter_table - Statement 466",
+    "query": "create table child (c text collate \"POSIX\") inherits (parent)"
+  },
+  {
+    "comment": "alter_table - Statement 467",
+    "query": "create table child (a double precision, b decimal(10,4)) inherits (parent)"
+  },
+  {
+    "comment": "alter_table - Statement 468",
+    "query": "create table attest (a int4, b int4, c int4)"
+  },
+  {
+    "comment": "alter_table - Statement 469",
+    "query": "insert into attest values (1,2,3)"
+  },
+  {
+    "comment": "alter_table - Statement 470",
+    "query": "alter table attest drop a"
+  },
+  {
+    "comment": "alter_table - Statement 471",
+    "query": "copy attest to stdout"
+  },
+  {
+    "comment": "alter_table - Statement 472",
+    "query": "copy attest(a) to stdout"
+  },
+  {
+    "comment": "alter_table - Statement 473",
+    "query": "copy attest(\"........pg.dropped.1........\") to stdout"
+  },
+  {
+    "comment": "alter_table - Statement 474",
+    "query": "copy attest from stdin"
+  },
+  {
+    "comment": "alter_table - Statement 475",
+    "query": "10\t11\t12 \\. select * from attest"
+  },
+  {
+    "comment": "alter_table - Statement 476",
+    "query": "21\t22 \\. select * from attest"
+  },
+  {
+    "comment": "alter_table - Statement 477",
+    "query": "copy attest(a) from stdin"
+  },
+  {
+    "comment": "alter_table - Statement 478",
+    "query": "copy attest(\"........pg.dropped.1........\") from stdin"
+  },
+  {
+    "comment": "alter_table - Statement 479",
+    "query": "copy attest(b,c) from stdin"
+  },
+  {
+    "comment": "alter_table - Statement 480",
+    "query": "31\t32 \\. select * from attest"
+  },
+  {
+    "comment": "alter_table - Statement 481",
+    "query": "drop table attest"
+  },
+  {
+    "comment": "alter_table - Statement 482",
+    "query": "create table dropColumn (a int, b int, e int)"
+  },
+  {
+    "comment": "alter_table - Statement 483",
+    "query": "create table dropColumnChild (c int) inherits (dropColumn)"
+  },
+  {
+    "comment": "alter_table - Statement 484",
+    "query": "create table dropColumnAnother (d int) inherits (dropColumnChild)"
+  },
+  {
+    "comment": "alter_table - Statement 485",
+    "query": "alter table dropColumnchild drop column a"
+  },
+  {
+    "comment": "alter_table - Statement 486",
+    "query": "alter table only dropColumnChild drop column b"
+  },
+  {
+    "comment": "alter_table - Statement 487",
+    "query": "alter table only dropColumn drop column e"
+  },
+  {
+    "comment": "alter_table - Statement 488",
+    "query": "alter table dropColumnChild drop column c"
+  },
+  {
+    "comment": "alter_table - Statement 489",
+    "query": "alter table dropColumn drop column a"
+  },
+  {
+    "comment": "alter_table - Statement 490",
+    "query": "create table renameColumn (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 491",
+    "query": "create table renameColumnChild (b int) inherits (renameColumn)"
+  },
+  {
+    "comment": "alter_table - Statement 492",
+    "query": "create table renameColumnAnother (c int) inherits (renameColumnChild)"
+  },
+  {
+    "comment": "alter_table - Statement 493",
+    "query": "alter table renameColumnChild rename column a to d"
+  },
+  {
+    "comment": "alter_table - Statement 494",
+    "query": "alter table only renameColumnChild rename column a to d"
+  },
+  {
+    "comment": "alter_table - Statement 495",
+    "query": "alter table only renameColumn rename column a to d"
+  },
+  {
+    "comment": "alter_table - Statement 496",
+    "query": "alter table renameColumn rename column a to d"
+  },
+  {
+    "comment": "alter_table - Statement 497",
+    "query": "alter table renameColumnChild rename column b to a"
+  },
+  {
+    "comment": "alter_table - Statement 498",
+    "query": "alter table if exists doesnt_exist_tab rename column a to d"
+  },
+  {
+    "comment": "alter_table - Statement 499",
+    "query": "alter table if exists doesnt_exist_tab rename column b to a"
+  },
+  {
+    "comment": "alter_table - Statement 500",
+    "query": "alter table renameColumn add column w int"
+  },
+  {
+    "comment": "alter_table - Statement 501",
+    "query": "alter table only renameColumn add column x int"
+  },
+  {
+    "comment": "alter_table - Statement 502",
+    "query": "create table p1 (f1 int, f2 int)"
+  },
+  {
+    "comment": "alter_table - Statement 503",
+    "query": "create table c1 (f1 int not null) inherits(p1)"
+  },
+  {
+    "comment": "alter_table - Statement 504",
+    "query": "alter table c1 drop column f1"
+  },
+  {
+    "comment": "alter_table - Statement 505",
+    "query": "alter table p1 drop column f1"
+  },
+  {
+    "comment": "alter_table - Statement 506",
+    "query": "select f1 from c1"
+  },
+  {
+    "comment": "alter_table - Statement 507",
+    "query": "drop table p1 cascade"
+  },
+  {
+    "comment": "alter_table - Statement 508",
+    "query": "create table c1 () inherits(p1)"
+  },
+  {
+    "comment": "alter_table - Statement 509",
+    "query": "alter table only p1 drop column f1"
+  },
+  {
+    "comment": "alter_table - Statement 510",
+    "query": "create table p1(id int, name text)"
+  },
+  {
+    "comment": "alter_table - Statement 511",
+    "query": "create table p2(id2 int, name text, height int)"
+  },
+  {
+    "comment": "alter_table - Statement 512",
+    "query": "create table c1(age int) inherits(p1,p2)"
+  },
+  {
+    "comment": "alter_table - Statement 513",
+    "query": "create table gc1() inherits (c1)"
+  },
+  {
+    "comment": "alter_table - Statement 514",
+    "query": "select relname, attname, attinhcount, attislocal from pg_class join pg_attribute on (pg_class.oid = pg_attribute.attrelid) where relname in ('p1','p2','c1','gc1') and attnum > 0 and not attisdropped order by relname, attnum"
+  },
+  {
+    "comment": "alter_table - Statement 515",
+    "query": "alter table only p1 drop column name"
+  },
+  {
+    "comment": "alter_table - Statement 516",
+    "query": "alter table p2 drop column name"
+  },
+  {
+    "comment": "alter_table - Statement 517",
+    "query": "alter table gc1 drop column name"
+  },
+  {
+    "comment": "alter_table - Statement 518",
+    "query": "alter table c1 drop column name"
+  },
+  {
+    "comment": "alter_table - Statement 519",
+    "query": "alter table p2 drop column height"
+  },
+  {
+    "comment": "alter_table - Statement 520",
+    "query": "create table dropColumnExists ()"
+  },
+  {
+    "comment": "alter_table - Statement 521",
+    "query": "alter table dropColumnExists drop column non_existing"
+  },
+  {
+    "comment": "alter_table - Statement 522",
+    "query": "alter table dropColumnExists drop column if exists non_existing"
+  },
+  {
+    "comment": "alter_table - Statement 523",
+    "query": "drop table p1, p2 cascade"
+  },
+  {
+    "comment": "alter_table - Statement 524",
+    "query": "create table depth0()"
+  },
+  {
+    "comment": "alter_table - Statement 525",
+    "query": "create table depth1(c text) inherits (depth0)"
+  },
+  {
+    "comment": "alter_table - Statement 526",
+    "query": "create table depth2() inherits (depth1)"
+  },
+  {
+    "comment": "alter_table - Statement 527",
+    "query": "alter table depth0 add c text"
+  },
+  {
+    "comment": "alter_table - Statement 528",
+    "query": "select attrelid::regclass, attname, attinhcount, attislocal from pg_attribute where attnum > 0 and attrelid::regclass in ('depth0', 'depth1', 'depth2') order by attrelid::regclass::text, attnum"
+  },
+  {
+    "comment": "alter_table - Statement 529",
+    "query": "create table p1 (f1 int)"
+  },
+  {
+    "comment": "alter_table - Statement 530",
+    "query": "create table c1 (f2 text, f3 int) inherits (p1)"
+  },
+  {
+    "comment": "alter_table - Statement 531",
+    "query": "alter table p1 add column a1 int check (a1 > 0)"
+  },
+  {
+    "comment": "alter_table - Statement 532",
+    "query": "alter table p1 add column f2 text"
+  },
+  {
+    "comment": "alter_table - Statement 533",
+    "query": "insert into p1 values (1,2,'abc')"
+  },
+  {
+    "comment": "alter_table - Statement 534",
+    "query": "insert into c1 values(11,'xyz',33,0)"
+  },
+  {
+    "comment": "alter_table - Statement 535",
+    "query": "insert into c1 values(11,'xyz',33,22)"
+  },
+  {
+    "comment": "alter_table - Statement 536",
+    "query": "select * from p1"
+  },
+  {
+    "comment": "alter_table - Statement 537",
+    "query": "update p1 set a1 = a1 + 1, f2 = upper(f2)"
+  },
+  {
+    "comment": "alter_table - Statement 538",
+    "query": "create domain mytype as text"
+  },
+  {
+    "comment": "alter_table - Statement 539",
+    "query": "create temp table foo (f1 text, f2 mytype, f3 text)"
+  },
+  {
+    "comment": "alter_table - Statement 540",
+    "query": "insert into foo values('bb','cc','dd')"
+  },
+  {
+    "comment": "alter_table - Statement 541",
+    "query": "select * from foo"
+  },
+  {
+    "comment": "alter_table - Statement 542",
+    "query": "drop domain mytype cascade"
+  },
+  {
+    "comment": "alter_table - Statement 543",
+    "query": "insert into foo values('qq','rr')"
+  },
+  {
+    "comment": "alter_table - Statement 544",
+    "query": "update foo set f3 = 'zz'"
+  },
+  {
+    "comment": "alter_table - Statement 545",
+    "query": "select f3,max(f1) from foo group by f3"
+  },
+  {
+    "comment": "alter_table - Statement 546",
+    "query": "alter table foo alter f1 TYPE integer"
+  },
+  {
+    "comment": "alter_table - Statement 547",
+    "query": "alter table foo alter f1 TYPE varchar(10)"
+  },
+  {
+    "comment": "alter_table - Statement 548",
+    "query": "create table anothertab (atcol1 serial8, atcol2 boolean, constraint anothertab_chk check (atcol1 <= 3))"
+  },
+  {
+    "comment": "alter_table - Statement 549",
+    "query": "insert into anothertab (atcol1, atcol2) values (default, true)"
+  },
+  {
+    "comment": "alter_table - Statement 550",
+    "query": "insert into anothertab (atcol1, atcol2) values (default, false)"
+  },
+  {
+    "comment": "alter_table - Statement 551",
+    "query": "select * from anothertab"
+  },
+  {
+    "comment": "alter_table - Statement 552",
+    "query": "alter table anothertab alter column atcol1 type boolean"
+  },
+  {
+    "comment": "alter_table - Statement 553",
+    "query": "alter table anothertab alter column atcol1 type boolean using atcol1::int"
+  },
+  {
+    "comment": "alter_table - Statement 554",
+    "query": "alter table anothertab alter column atcol1 type integer"
+  },
+  {
+    "comment": "alter_table - Statement 555",
+    "query": "insert into anothertab (atcol1, atcol2) values (45, null)"
+  },
+  {
+    "comment": "alter_table - Statement 556",
+    "query": "insert into anothertab (atcol1, atcol2) values (default, null)"
+  },
+  {
+    "comment": "alter_table - Statement 557",
+    "query": "alter table anothertab alter column atcol2 type text using case when atcol2 is true then 'IT WAS TRUE' when atcol2 is false then 'IT WAS FALSE' else 'IT WAS NULL!' end"
+  },
+  {
+    "comment": "alter_table - Statement 558",
+    "query": "alter table anothertab alter column atcol1 type boolean using case when atcol1 % 2 = 0 then true else false end"
+  },
+  {
+    "comment": "alter_table - Statement 559",
+    "query": "alter table anothertab alter column atcol1 drop default"
+  },
+  {
+    "comment": "alter_table - Statement 560",
+    "query": "alter table anothertab drop constraint anothertab_chk"
+  },
+  {
+    "comment": "alter_table - Statement 561",
+    "query": "alter table anothertab drop constraint IF EXISTS anothertab_chk"
+  },
+  {
+    "comment": "alter_table - Statement 562",
+    "query": "drop table anothertab"
+  },
+  {
+    "comment": "alter_table - Statement 563",
+    "query": "create table anothertab(f1 int primary key, f2 int unique, f3 int, f4 int, f5 int)"
+  },
+  {
+    "comment": "alter_table - Statement 564",
+    "query": "alter table anothertab add exclude using btree (f3 with =)"
+  },
+  {
+    "comment": "alter_table - Statement 565",
+    "query": "alter table anothertab add exclude using btree (f4 with =) where (f4 is not null)"
+  },
+  {
+    "comment": "alter_table - Statement 566",
+    "query": "alter table anothertab add exclude using btree (f4 with =) where (f5 > 0)"
+  },
+  {
+    "comment": "alter_table - Statement 567",
+    "query": "alter table anothertab add unique(f1,f4)"
+  },
+  {
+    "comment": "alter_table - Statement 568",
+    "query": "create index on anothertab(f2,f3)"
+  },
+  {
+    "comment": "alter_table - Statement 569",
+    "query": "create unique index on anothertab(f4)"
+  },
+  {
+    "comment": "alter_table - Statement 570",
+    "query": "alter table anothertab alter column f2 type bigint, alter column f3 type bigint, alter column f4 type bigint"
+  },
+  {
+    "comment": "alter_table - Statement 571",
+    "query": "alter table anothertab alter column f5 type bigint"
+  },
+  {
+    "comment": "alter_table - Statement 572",
+    "query": "create table another (f1 int, f2 text, f3 text)"
+  },
+  {
+    "comment": "alter_table - Statement 573",
+    "query": "insert into another values(1, 'one', 'uno')"
+  },
+  {
+    "comment": "alter_table - Statement 574",
+    "query": "insert into another values(2, 'two', 'due')"
+  },
+  {
+    "comment": "alter_table - Statement 575",
+    "query": "insert into another values(3, 'three', 'tre')"
+  },
+  {
+    "comment": "alter_table - Statement 576",
+    "query": "select * from another"
+  },
+  {
+    "comment": "alter_table - Statement 577",
+    "query": "alter table another alter f1 type text using f2 || ' and ' || f3 || ' more', alter f2 type bigint using f1 * 10, drop column f3"
+  },
+  {
+    "comment": "alter_table - Statement 578",
+    "query": "drop table another"
+  },
+  {
+    "comment": "alter_table - Statement 579",
+    "query": "create table skip_wal_skip_rewrite_index (c varchar(10) primary key)"
+  },
+  {
+    "comment": "alter_table - Statement 580",
+    "query": "alter table skip_wal_skip_rewrite_index alter c type varchar(20)"
+  },
+  {
+    "comment": "alter_table - Statement 581",
+    "query": "create table at_tab1 (a int, b text)"
+  },
+  {
+    "comment": "alter_table - Statement 582",
+    "query": "create table at_tab2 (x int, y at_tab1)"
+  },
+  {
+    "comment": "alter_table - Statement 583",
+    "query": "alter table at_tab1 alter column b type varchar"
+  },
+  {
+    "comment": "alter_table - Statement 584",
+    "query": "drop table at_tab2"
+  },
+  {
+    "comment": "alter_table - Statement 585",
+    "query": "create table at_tab2 (x int, y text, check((x,y)::at_tab1 = (1,'42')::at_tab1))"
+  },
+  {
+    "comment": "alter_table - Statement 586",
+    "query": "insert into at_tab2 values(1,'42')"
+  },
+  {
+    "comment": "alter_table - Statement 587",
+    "query": "drop table at_tab1, at_tab2"
+  },
+  {
+    "comment": "alter_table - Statement 588",
+    "query": "create table at_tab1 (a int, b text) partition by list(a)"
+  },
+  {
+    "comment": "alter_table - Statement 589",
+    "query": "create table at_partitioned (a int, b text) partition by range (a)"
+  },
+  {
+    "comment": "alter_table - Statement 590",
+    "query": "create table at_part_1 partition of at_partitioned for values from (0) to (1000)"
+  },
+  {
+    "comment": "alter_table - Statement 591",
+    "query": "insert into at_partitioned values (512, '0.123')"
+  },
+  {
+    "comment": "alter_table - Statement 592",
+    "query": "create table at_part_2 (b text, a int)"
+  },
+  {
+    "comment": "alter_table - Statement 593",
+    "query": "insert into at_part_2 values ('1.234', 1024)"
+  },
+  {
+    "comment": "alter_table - Statement 594",
+    "query": "create index on at_partitioned (b)"
+  },
+  {
+    "comment": "alter_table - Statement 595",
+    "query": "create index on at_partitioned (a)"
+  },
+  {
+    "comment": "alter_table - Statement 596",
+    "query": "create table at_partitioned(id int, name varchar(64), unique (id, name)) partition by hash(id)"
+  },
+  {
+    "comment": "alter_table - Statement 597",
+    "query": "comment on constraint at_partitioned_id_name_key on at_partitioned is 'parent constraint'"
+  },
+  {
+    "comment": "alter_table - Statement 598",
+    "query": "comment on index at_partitioned_id_name_key is 'parent index'"
+  },
+  {
+    "comment": "alter_table - Statement 599",
+    "query": "create table at_partitioned_0 partition of at_partitioned for values with (modulus 2, remainder 0)"
+  },
+  {
+    "comment": "alter_table - Statement 600",
+    "query": "comment on constraint at_partitioned_0_id_name_key on at_partitioned_0 is 'child 0 constraint'"
+  },
+  {
+    "comment": "alter_table - Statement 601",
+    "query": "comment on index at_partitioned_0_id_name_key is 'child 0 index'"
+  },
+  {
+    "comment": "alter_table - Statement 602",
+    "query": "create table at_partitioned_1 partition of at_partitioned for values with (modulus 2, remainder 1)"
+  },
+  {
+    "comment": "alter_table - Statement 603",
+    "query": "comment on constraint at_partitioned_1_id_name_key on at_partitioned_1 is 'child 1 constraint'"
+  },
+  {
+    "comment": "alter_table - Statement 604",
+    "query": "comment on index at_partitioned_1_id_name_key is 'child 1 index'"
+  },
+  {
+    "comment": "alter_table - Statement 605",
+    "query": "insert into at_partitioned values(1, 'foo')"
+  },
+  {
+    "comment": "alter_table - Statement 606",
+    "query": "insert into at_partitioned values(3, 'bar')"
+  },
+  {
+    "comment": "alter_table - Statement 607",
+    "query": "create temp table old_oids as select relname, oid as oldoid, relfilenode as oldfilenode from pg_class where relname like 'at_partitioned%'"
+  },
+  {
+    "comment": "alter_table - Statement 608",
+    "query": "select relname, c.oid = oldoid as orig_oid, case relfilenode when 0 then 'none' when c.oid then 'own' when oldfilenode then 'orig' else 'OTHER' end as storage, obj_description(c.oid, 'pg_class') as desc from pg_class c left join old_oids using (relname) where relname like 'at_partitioned%' order by relname"
+  },
+  {
+    "comment": "alter_table - Statement 609",
+    "query": "select conname, obj_description(oid, 'pg_constraint') as desc from pg_constraint where conname like 'at_partitioned%' order by conname"
+  },
+  {
+    "comment": "alter_table - Statement 610",
+    "query": "alter table at_partitioned alter column name type varchar(127)"
+  },
+  {
+    "comment": "alter_table - Statement 611",
+    "query": "drop table at_partitioned"
+  },
+  {
+    "comment": "alter_table - Statement 612",
+    "query": "create temp table recur1 (f1 int)"
+  },
+  {
+    "comment": "alter_table - Statement 613",
+    "query": "alter table recur1 add column f2 recur1"
+  },
+  {
+    "comment": "alter_table - Statement 614",
+    "query": "alter table recur1 add column f2 recur1[]"
+  },
+  {
+    "comment": "alter_table - Statement 615",
+    "query": "create domain array_of_recur1 as recur1[]"
+  },
+  {
+    "comment": "alter_table - Statement 616",
+    "query": "alter table recur1 add column f2 array_of_recur1"
+  },
+  {
+    "comment": "alter_table - Statement 617",
+    "query": "create temp table recur2 (f1 int, f2 recur1)"
+  },
+  {
+    "comment": "alter_table - Statement 618",
+    "query": "alter table recur1 add column f2 recur2"
+  },
+  {
+    "comment": "alter_table - Statement 619",
+    "query": "alter table recur1 add column f2 int"
+  },
+  {
+    "comment": "alter_table - Statement 620",
+    "query": "alter table recur1 alter column f2 type recur2"
+  },
+  {
+    "comment": "alter_table - Statement 621",
+    "query": "create table test_storage (a text, c text storage plain)"
+  },
+  {
+    "comment": "alter_table - Statement 622",
+    "query": "select reltoastrelid <> 0 as has_toast_table from pg_class where oid = 'test_storage'::regclass"
+  },
+  {
+    "comment": "alter_table - Statement 623",
+    "query": "alter table test_storage alter a set storage plain"
+  },
+  {
+    "comment": "alter_table - Statement 624",
+    "query": "alter table test_storage add b int default random()::int"
+  },
+  {
+    "comment": "alter_table - Statement 625",
+    "query": "alter table test_storage alter a set storage default"
+  },
+  {
+    "comment": "alter_table - Statement 626",
+    "query": "create table test_storage_failed (a text, b int storage extended)"
+  },
+  {
+    "comment": "alter_table - Statement 627",
+    "query": "create index test_storage_idx on test_storage (b, a)"
+  },
+  {
+    "comment": "alter_table - Statement 628",
+    "query": "alter table test_storage alter column a set storage external"
+  },
+  {
+    "comment": "alter_table - Statement 629",
+    "query": "CREATE TABLE test_inh_check_child() INHERITS(test_inh_check)"
+  },
+  {
+    "comment": "alter_table - Statement 630",
+    "query": "ALTER TABLE test_inh_check ALTER COLUMN a TYPE numeric"
+  },
+  {
+    "comment": "alter_table - Statement 631",
+    "query": "ALTER TABLE test_inh_check ADD CONSTRAINT bnoinherit CHECK (b > 100) NO INHERIT"
+  },
+  {
+    "comment": "alter_table - Statement 632",
+    "query": "ALTER TABLE test_inh_check_child ADD CONSTRAINT blocal CHECK (b < 1000)"
+  },
+  {
+    "comment": "alter_table - Statement 633",
+    "query": "ALTER TABLE test_inh_check_child ADD CONSTRAINT bmerged CHECK (b > 1)"
+  },
+  {
+    "comment": "alter_table - Statement 634",
+    "query": "ALTER TABLE test_inh_check ADD CONSTRAINT bmerged CHECK (b > 1)"
+  },
+  {
+    "comment": "alter_table - Statement 635",
+    "query": "ALTER TABLE test_inh_check ALTER COLUMN b TYPE numeric"
+  },
+  {
+    "comment": "alter_table - Statement 636",
+    "query": "CREATE TABLE test_type_diff (f1 int)"
+  },
+  {
+    "comment": "alter_table - Statement 637",
+    "query": "CREATE TABLE test_type_diff_c (extra smallint) INHERITS (test_type_diff)"
+  },
+  {
+    "comment": "alter_table - Statement 638",
+    "query": "ALTER TABLE test_type_diff ADD COLUMN f2 int"
+  },
+  {
+    "comment": "alter_table - Statement 639",
+    "query": "INSERT INTO test_type_diff_c VALUES (1, 2, 3)"
+  },
+  {
+    "comment": "alter_table - Statement 640",
+    "query": "ALTER TABLE test_type_diff ALTER COLUMN f2 TYPE bigint USING f2::bigint"
+  },
+  {
+    "comment": "alter_table - Statement 641",
+    "query": "CREATE TABLE test_type_diff2 (int_two int2, int_four int4, int_eight int8)"
+  },
+  {
+    "comment": "alter_table - Statement 642",
+    "query": "CREATE TABLE test_type_diff2_c1 (int_four int4, int_eight int8, int_two int2)"
+  },
+  {
+    "comment": "alter_table - Statement 643",
+    "query": "CREATE TABLE test_type_diff2_c2 (int_eight int8, int_two int2, int_four int4)"
+  },
+  {
+    "comment": "alter_table - Statement 644",
+    "query": "CREATE TABLE test_type_diff2_c3 (int_two int2, int_four int4, int_eight int8)"
+  },
+  {
+    "comment": "alter_table - Statement 645",
+    "query": "ALTER TABLE test_type_diff2_c1 INHERIT test_type_diff2"
+  },
+  {
+    "comment": "alter_table - Statement 646",
+    "query": "ALTER TABLE test_type_diff2_c2 INHERIT test_type_diff2"
+  },
+  {
+    "comment": "alter_table - Statement 647",
+    "query": "ALTER TABLE test_type_diff2_c3 INHERIT test_type_diff2"
+  },
+  {
+    "comment": "alter_table - Statement 648",
+    "query": "INSERT INTO test_type_diff2_c1 VALUES (1, 2, 3)"
+  },
+  {
+    "comment": "alter_table - Statement 649",
+    "query": "INSERT INTO test_type_diff2_c2 VALUES (4, 5, 6)"
+  },
+  {
+    "comment": "alter_table - Statement 650",
+    "query": "INSERT INTO test_type_diff2_c3 VALUES (7, 8, 9)"
+  },
+  {
+    "comment": "alter_table - Statement 651",
+    "query": "ALTER TABLE test_type_diff2 ALTER COLUMN int_four TYPE int8 USING int_four::int8"
+  },
+  {
+    "comment": "alter_table - Statement 652",
+    "query": "ALTER TABLE test_type_diff2 ALTER COLUMN int_four TYPE int4 USING (pg_column_size(test_type_diff2))"
+  },
+  {
+    "comment": "alter_table - Statement 653",
+    "query": "CREATE TABLE check_fk_presence_1 (id int PRIMARY KEY, t text)"
+  },
+  {
+    "comment": "alter_table - Statement 654",
+    "query": "CREATE TABLE check_fk_presence_2 (id int REFERENCES check_fk_presence_1, t text)"
+  },
+  {
+    "comment": "alter_table - Statement 655",
+    "query": "ALTER TABLE check_fk_presence_2 DROP CONSTRAINT check_fk_presence_2_id_fkey"
+  },
+  {
+    "comment": "alter_table - Statement 656",
+    "query": "ANALYZE check_fk_presence_2"
+  },
+  {
+    "comment": "alter_table - Statement 657",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "alter_table - Statement 658",
+    "query": "create table at_base_table(id int, stuff text)"
+  },
+  {
+    "comment": "alter_table - Statement 659",
+    "query": "insert into at_base_table values (23, 'skidoo')"
+  },
+  {
+    "comment": "alter_table - Statement 660",
+    "query": "create view at_view_1 as select * from at_base_table bt"
+  },
+  {
+    "comment": "alter_table - Statement 661",
+    "query": "create view at_view_2 as select *, to_json(v1) as j from at_view_1 v1"
+  },
+  {
+    "comment": "alter_table - Statement 662",
+    "query": "select * from at_view_2"
+  },
+  {
+    "comment": "alter_table - Statement 663",
+    "query": "create or replace view at_view_1 as select *, 2+2 as more from at_base_table bt"
+  },
+  {
+    "comment": "alter_table - Statement 664",
+    "query": "drop view at_view_2"
+  },
+  {
+    "comment": "alter_table - Statement 665",
+    "query": "drop view at_view_1"
+  },
+  {
+    "comment": "alter_table - Statement 666",
+    "query": "drop table at_base_table"
+  },
+  {
+    "comment": "alter_table - Statement 667",
+    "query": "create temp table t1 as select * from int8_tbl"
+  },
+  {
+    "comment": "alter_table - Statement 668",
+    "query": "create temp view v1 as select 1::int8 as q1"
+  },
+  {
+    "comment": "alter_table - Statement 669",
+    "query": "create temp view v2 as select * from v1"
+  },
+  {
+    "comment": "alter_table - Statement 670",
+    "query": "create or replace temp view v1 with (security_barrier = true) as select * from t1"
+  },
+  {
+    "comment": "alter_table - Statement 671",
+    "query": "create temp table log (q1 int8, q2 int8)"
+  },
+  {
+    "comment": "alter_table - Statement 672",
+    "query": "create rule v1_upd_rule as on update to v1 do also insert into log values (new.*)"
+  },
+  {
+    "comment": "alter_table - Statement 673",
+    "query": "update v2 set q1 = q1 + 1 where q1 = 123"
+  },
+  {
+    "comment": "alter_table - Statement 674",
+    "query": "select * from t1"
+  },
+  {
+    "comment": "alter_table - Statement 675",
+    "query": "select * from log"
+  },
+  {
+    "comment": "alter_table - Statement 676",
+    "query": "CREATE FUNCTION check_ddl_rewrite(p_tablename regclass, p_ddl text) RETURNS boolean LANGUAGE plpgsql AS $$ DECLARE v_relfilenode oid"
+  },
+  {
+    "comment": "alter_table - Statement 677",
+    "query": "BEGIN v_relfilenode := relfilenode FROM pg_class WHERE oid = p_tablename"
+  },
+  {
+    "comment": "alter_table - Statement 678",
+    "query": "EXECUTE p_ddl"
+  },
+  {
+    "comment": "alter_table - Statement 679",
+    "query": "RETURN v_relfilenode <> (SELECT relfilenode FROM pg_class WHERE oid = p_tablename)"
+  },
+  {
+    "comment": "alter_table - Statement 680",
+    "query": "END"
+  },
+  {
+    "comment": "alter_table - Statement 681",
+    "query": "$$"
+  },
+  {
+    "comment": "alter_table - Statement 682",
+    "query": "CREATE TABLE rewrite_test(col text)"
+  },
+  {
+    "comment": "alter_table - Statement 683",
+    "query": "INSERT INTO rewrite_test VALUES ('something')"
+  },
+  {
+    "comment": "alter_table - Statement 684",
+    "query": "INSERT INTO rewrite_test VALUES (NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 685",
+    "query": "SELECT check_ddl_rewrite('rewrite_test', $$ ALTER TABLE rewrite_test ADD COLUMN empty1 text, ADD COLUMN notempty1_rewrite serial"
+  },
+  {
+    "comment": "alter_table - Statement 686",
+    "query": "$$)"
+  },
+  {
+    "comment": "alter_table - Statement 687",
+    "query": "SELECT check_ddl_rewrite('rewrite_test', $$ ALTER TABLE rewrite_test ADD COLUMN notempty2_rewrite serial, ADD COLUMN empty2 text"
+  },
+  {
+    "comment": "alter_table - Statement 688",
+    "query": "SELECT check_ddl_rewrite('rewrite_test', $$ ALTER TABLE rewrite_test ADD COLUMN empty3 text, ADD COLUMN notempty3_norewrite int default 42"
+  },
+  {
+    "comment": "alter_table - Statement 689",
+    "query": "SELECT check_ddl_rewrite('rewrite_test', $$ ALTER TABLE rewrite_test ADD COLUMN notempty4_norewrite int default 42, ADD COLUMN empty4 text"
+  },
+  {
+    "comment": "alter_table - Statement 690",
+    "query": "SELECT check_ddl_rewrite('rewrite_test', $$ ALTER TABLE rewrite_test ADD COLUMN empty5 text, ADD COLUMN notempty5_norewrite int default 42, ADD COLUMN notempty5_rewrite serial"
+  },
+  {
+    "comment": "alter_table - Statement 691",
+    "query": "SELECT check_ddl_rewrite('rewrite_test', $$ ALTER TABLE rewrite_test ADD COLUMN notempty6_rewrite serial, ADD COLUMN empty6 text, ADD COLUMN notempty6_norewrite int default 42"
+  },
+  {
+    "comment": "alter_table - Statement 692",
+    "query": "DROP FUNCTION check_ddl_rewrite(regclass, text)"
+  },
+  {
+    "comment": "alter_table - Statement 693",
+    "query": "DROP TABLE rewrite_test"
+  },
+  {
+    "comment": "alter_table - Statement 694",
+    "query": "drop type lockmodes"
+  },
+  {
+    "comment": "alter_table - Statement 695",
+    "query": "create type lockmodes as enum ( 'SIReadLock' ,'AccessShareLock' ,'RowShareLock' ,'RowExclusiveLock' ,'ShareUpdateExclusiveLock' ,'ShareLock' ,'ShareRowExclusiveLock' ,'ExclusiveLock' ,'AccessExclusiveLock' )"
+  },
+  {
+    "comment": "alter_table - Statement 696",
+    "query": "drop view my_locks"
+  },
+  {
+    "comment": "alter_table - Statement 697",
+    "query": "create or replace view my_locks as select case when c.relname like 'pg_toast%' then 'pg_toast' else c.relname end, max(mode::lockmodes) as max_lockmode from pg_locks l join pg_class c on l.relation = c.oid where virtualtransaction = ( select virtualtransaction from pg_locks where transactionid = pg_current_xact_id()::xid) and locktype = 'relation' and relnamespace != (select oid from pg_namespace where nspname = 'pg_catalog') and c.relname != 'my_locks' group by c.relname"
+  },
+  {
+    "comment": "alter_table - Statement 698",
+    "query": "create table alterlock (f1 int primary key, f2 text)"
+  },
+  {
+    "comment": "alter_table - Statement 699",
+    "query": "insert into alterlock values (1, 'foo')"
+  },
+  {
+    "comment": "alter_table - Statement 700",
+    "query": "create table alterlock2 (f3 int primary key, f1 int)"
+  },
+  {
+    "comment": "alter_table - Statement 701",
+    "query": "insert into alterlock2 values (1, 1)"
+  },
+  {
+    "comment": "alter_table - Statement 702",
+    "query": "begin; alter table alterlock alter column f2 set statistics 150"
+  },
+  {
+    "comment": "alter_table - Statement 703",
+    "query": "select * from my_locks order by 1"
+  },
+  {
+    "comment": "alter_table - Statement 704",
+    "query": "begin; alter table alterlock cluster on alterlock_pkey"
+  },
+  {
+    "comment": "alter_table - Statement 705",
+    "query": "begin; alter table alterlock set without cluster"
+  },
+  {
+    "comment": "alter_table - Statement 706",
+    "query": "begin; alter table alterlock set (fillfactor = 100)"
+  },
+  {
+    "comment": "alter_table - Statement 707",
+    "query": "begin; alter table alterlock reset (fillfactor)"
+  },
+  {
+    "comment": "alter_table - Statement 708",
+    "query": "begin; alter table alterlock set (toast.autovacuum_enabled = off)"
+  },
+  {
+    "comment": "alter_table - Statement 709",
+    "query": "begin; alter table alterlock set (autovacuum_enabled = off)"
+  },
+  {
+    "comment": "alter_table - Statement 710",
+    "query": "begin; alter table alterlock alter column f2 set (n_distinct = 1)"
+  },
+  {
+    "comment": "alter_table - Statement 711",
+    "query": "begin; alter table alterlock set (autovacuum_enabled = off, fillfactor = 80)"
+  },
+  {
+    "comment": "alter_table - Statement 712",
+    "query": "begin; alter table alterlock alter column f2 set storage extended"
+  },
+  {
+    "comment": "alter_table - Statement 713",
+    "query": "begin; alter table alterlock alter column f2 set default 'x'"
+  },
+  {
+    "comment": "alter_table - Statement 714",
+    "query": "create trigger ttdummy before delete or update on alterlock for each row execute procedure ttdummy (1, 1)"
+  },
+  {
+    "comment": "alter_table - Statement 715",
+    "query": "alter table alterlock2 add foreign key (f1) references alterlock (f1)"
+  },
+  {
+    "comment": "alter_table - Statement 716",
+    "query": "alter table alterlock2 add constraint alterlock2nv foreign key (f1) references alterlock (f1) NOT VALID"
+  },
+  {
+    "comment": "alter_table - Statement 717",
+    "query": "alter table alterlock2 validate constraint alterlock2nv"
+  },
+  {
+    "comment": "alter_table - Statement 718",
+    "query": "create or replace view my_locks as select case when c.relname like 'pg_toast%' then 'pg_toast' else c.relname end, max(mode::lockmodes) as max_lockmode from pg_locks l join pg_class c on l.relation = c.oid where virtualtransaction = ( select virtualtransaction from pg_locks where transactionid = pg_current_xact_id()::xid) and locktype = 'relation' and relnamespace != (select oid from pg_namespace where nspname = 'pg_catalog') and c.relname = 'my_locks' group by c.relname"
+  },
+  {
+    "comment": "alter_table - Statement 719",
+    "query": "alter table my_locks set (autovacuum_enabled = false)"
+  },
+  {
+    "comment": "alter_table - Statement 720",
+    "query": "alter view my_locks set (autovacuum_enabled = false)"
+  },
+  {
+    "comment": "alter_table - Statement 721",
+    "query": "alter table my_locks reset (autovacuum_enabled)"
+  },
+  {
+    "comment": "alter_table - Statement 722",
+    "query": "alter view my_locks reset (autovacuum_enabled)"
+  },
+  {
+    "comment": "alter_table - Statement 723",
+    "query": "alter view my_locks set (security_barrier=off)"
+  },
+  {
+    "comment": "alter_table - Statement 724",
+    "query": "alter view my_locks reset (security_barrier)"
+  },
+  {
+    "comment": "alter_table - Statement 725",
+    "query": "alter table my_locks set (security_barrier=off)"
+  },
+  {
+    "comment": "alter_table - Statement 726",
+    "query": "alter table my_locks reset (security_barrier)"
+  },
+  {
+    "comment": "alter_table - Statement 727",
+    "query": "drop table alterlock2"
+  },
+  {
+    "comment": "alter_table - Statement 728",
+    "query": "drop table alterlock"
+  },
+  {
+    "comment": "alter_table - Statement 729",
+    "query": "create function test_strict(text) returns text as 'select coalesce($1, ''got passed a null'');' language sql returns null on null input"
+  },
+  {
+    "comment": "alter_table - Statement 730",
+    "query": "select test_strict(NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 731",
+    "query": "alter function test_strict(text) called on null input"
+  },
+  {
+    "comment": "alter_table - Statement 732",
+    "query": "create function non_strict(text) returns text as 'select coalesce($1, ''got passed a null'');' language sql called on null input"
+  },
+  {
+    "comment": "alter_table - Statement 733",
+    "query": "select non_strict(NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 734",
+    "query": "alter function non_strict(text) returns null on null input"
+  },
+  {
+    "comment": "alter_table - Statement 735",
+    "query": "create schema alter1"
+  },
+  {
+    "comment": "alter_table - Statement 736",
+    "query": "create schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 737",
+    "query": "create table alter1.t1(f1 serial primary key, f2 int check (f2 > 0))"
+  },
+  {
+    "comment": "alter_table - Statement 738",
+    "query": "create view alter1.v1 as select * from alter1.t1"
+  },
+  {
+    "comment": "alter_table - Statement 739",
+    "query": "create function alter1.plus1(int) returns int as 'select $1+1' language sql"
+  },
+  {
+    "comment": "alter_table - Statement 740",
+    "query": "create domain alter1.posint integer check (value > 0)"
+  },
+  {
+    "comment": "alter_table - Statement 741",
+    "query": "create type alter1.ctype as (f1 int, f2 text)"
+  },
+  {
+    "comment": "alter_table - Statement 742",
+    "query": "create function alter1.same(alter1.ctype, alter1.ctype) returns boolean language sql as 'select $1.f1 is not distinct from $2.f1 and $1.f2 is not distinct from $2.f2'"
+  },
+  {
+    "comment": "alter_table - Statement 743",
+    "query": "create operator alter1.=(procedure = alter1.same, leftarg  = alter1.ctype, rightarg = alter1.ctype)"
+  },
+  {
+    "comment": "alter_table - Statement 744",
+    "query": "create operator class alter1.ctype_hash_ops default for type alter1.ctype using hash as operator 1 alter1.=(alter1.ctype, alter1.ctype)"
+  },
+  {
+    "comment": "alter_table - Statement 745",
+    "query": "create conversion alter1.latin1_to_utf8 for 'latin1' to 'utf8' from iso8859_1_to_utf8"
+  },
+  {
+    "comment": "alter_table - Statement 746",
+    "query": "create text search parser alter1.prs(start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype)"
+  },
+  {
+    "comment": "alter_table - Statement 747",
+    "query": "create text search configuration alter1.cfg(parser = alter1.prs)"
+  },
+  {
+    "comment": "alter_table - Statement 748",
+    "query": "create text search template alter1.tmpl(init = dsimple_init, lexize = dsimple_lexize)"
+  },
+  {
+    "comment": "alter_table - Statement 749",
+    "query": "create text search dictionary alter1.dict(template = alter1.tmpl)"
+  },
+  {
+    "comment": "alter_table - Statement 750",
+    "query": "insert into alter1.t1(f2) values(11)"
+  },
+  {
+    "comment": "alter_table - Statement 751",
+    "query": "insert into alter1.t1(f2) values(12)"
+  },
+  {
+    "comment": "alter_table - Statement 752",
+    "query": "alter table alter1.t1 set schema alter1"
+  },
+  {
+    "comment": "alter_table - Statement 753",
+    "query": "alter table alter1.t1 set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 754",
+    "query": "alter table alter1.v1 set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 755",
+    "query": "alter function alter1.plus1(int) set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 756",
+    "query": "alter domain alter1.posint set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 757",
+    "query": "alter operator class alter1.ctype_hash_ops using hash set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 758",
+    "query": "alter operator family alter1.ctype_hash_ops using hash set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 759",
+    "query": "alter operator alter1.=(alter1.ctype, alter1.ctype) set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 760",
+    "query": "alter function alter1.same(alter1.ctype, alter1.ctype) set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 761",
+    "query": "alter type alter1.ctype set schema alter1"
+  },
+  {
+    "comment": "alter_table - Statement 762",
+    "query": "alter type alter1.ctype set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 763",
+    "query": "alter conversion alter1.latin1_to_utf8 set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 764",
+    "query": "alter text search parser alter1.prs set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 765",
+    "query": "alter text search configuration alter1.cfg set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 766",
+    "query": "alter text search template alter1.tmpl set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 767",
+    "query": "alter text search dictionary alter1.dict set schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 768",
+    "query": "drop schema alter1"
+  },
+  {
+    "comment": "alter_table - Statement 769",
+    "query": "insert into alter2.t1(f2) values(13)"
+  },
+  {
+    "comment": "alter_table - Statement 770",
+    "query": "insert into alter2.t1(f2) values(14)"
+  },
+  {
+    "comment": "alter_table - Statement 771",
+    "query": "select * from alter2.t1"
+  },
+  {
+    "comment": "alter_table - Statement 772",
+    "query": "select * from alter2.v1"
+  },
+  {
+    "comment": "alter_table - Statement 773",
+    "query": "select alter2.plus1(41)"
+  },
+  {
+    "comment": "alter_table - Statement 774",
+    "query": "drop schema alter2 cascade"
+  },
+  {
+    "comment": "alter_table - Statement 775",
+    "query": "CREATE TYPE test_type AS (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 776",
+    "query": "ALTER TYPE test_type ADD ATTRIBUTE b text"
+  },
+  {
+    "comment": "alter_table - Statement 777",
+    "query": "ALTER TYPE test_type ALTER ATTRIBUTE b SET DATA TYPE varchar"
+  },
+  {
+    "comment": "alter_table - Statement 778",
+    "query": "ALTER TYPE test_type DROP ATTRIBUTE IF EXISTS c"
+  },
+  {
+    "comment": "alter_table - Statement 779",
+    "query": "ALTER TYPE test_type DROP ATTRIBUTE a, ADD ATTRIBUTE d boolean"
+  },
+  {
+    "comment": "alter_table - Statement 780",
+    "query": "ALTER TYPE test_type RENAME ATTRIBUTE d TO dd"
+  },
+  {
+    "comment": "alter_table - Statement 781",
+    "query": "CREATE TYPE test_type1 AS (a int, b text)"
+  },
+  {
+    "comment": "alter_table - Statement 782",
+    "query": "CREATE TABLE test_tbl1 (x int, y test_type1)"
+  },
+  {
+    "comment": "alter_table - Statement 783",
+    "query": "ALTER TYPE test_type1 ALTER ATTRIBUTE b TYPE varchar"
+  },
+  {
+    "comment": "alter_table - Statement 784",
+    "query": "DROP TABLE test_tbl1"
+  },
+  {
+    "comment": "alter_table - Statement 785",
+    "query": "CREATE TABLE test_tbl1 (x int, y text)"
+  },
+  {
+    "comment": "alter_table - Statement 786",
+    "query": "CREATE INDEX test_tbl1_idx ON test_tbl1((row(x,y)::test_type1))"
+  },
+  {
+    "comment": "alter_table - Statement 787",
+    "query": "DROP TYPE test_type1"
+  },
+  {
+    "comment": "alter_table - Statement 788",
+    "query": "CREATE TYPE test_type2 AS (a int, b text)"
+  },
+  {
+    "comment": "alter_table - Statement 789",
+    "query": "CREATE TABLE test_tbl2 OF test_type2"
+  },
+  {
+    "comment": "alter_table - Statement 790",
+    "query": "CREATE TABLE test_tbl2_subclass () INHERITS (test_tbl2)"
+  },
+  {
+    "comment": "alter_table - Statement 791",
+    "query": "ALTER TYPE test_type2 ADD ATTRIBUTE c text CASCADE"
+  },
+  {
+    "comment": "alter_table - Statement 792",
+    "query": "ALTER TYPE test_type2 ALTER ATTRIBUTE b TYPE varchar CASCADE"
+  },
+  {
+    "comment": "alter_table - Statement 793",
+    "query": "ALTER TYPE test_type2 DROP ATTRIBUTE b CASCADE"
+  },
+  {
+    "comment": "alter_table - Statement 794",
+    "query": "ALTER TYPE test_type2 RENAME ATTRIBUTE a TO aa CASCADE"
+  },
+  {
+    "comment": "alter_table - Statement 795",
+    "query": "DROP TYPE test_type2"
+  },
+  {
+    "comment": "alter_table - Statement 796",
+    "query": "CREATE TYPE test_typex AS (a int, b text)"
+  },
+  {
+    "comment": "alter_table - Statement 797",
+    "query": "CREATE TABLE test_tblx (x int, y test_typex check ((y).a > 0))"
+  },
+  {
+    "comment": "alter_table - Statement 798",
+    "query": "ALTER TYPE test_typex DROP ATTRIBUTE a"
+  },
+  {
+    "comment": "alter_table - Statement 799",
+    "query": "ALTER TYPE test_typex DROP ATTRIBUTE a CASCADE"
+  },
+  {
+    "comment": "alter_table - Statement 800",
+    "query": "DROP TYPE test_typex"
+  },
+  {
+    "comment": "alter_table - Statement 801",
+    "query": "CREATE TYPE test_type3 AS (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 802",
+    "query": "CREATE TABLE test_tbl3 (c) AS SELECT '(1)'::test_type3"
+  },
+  {
+    "comment": "alter_table - Statement 803",
+    "query": "ALTER TYPE test_type3 DROP ATTRIBUTE a, ADD ATTRIBUTE b int"
+  },
+  {
+    "comment": "alter_table - Statement 804",
+    "query": "CREATE TYPE test_type_empty AS ()"
+  },
+  {
+    "comment": "alter_table - Statement 805",
+    "query": "DROP TYPE test_type_empty"
+  },
+  {
+    "comment": "alter_table - Statement 806",
+    "query": "CREATE TYPE tt_t0 AS (z inet, x int, y numeric(8,2))"
+  },
+  {
+    "comment": "alter_table - Statement 807",
+    "query": "ALTER TYPE tt_t0 DROP ATTRIBUTE z"
+  },
+  {
+    "comment": "alter_table - Statement 808",
+    "query": "CREATE TABLE tt0 (x int NOT NULL, y numeric(8,2))"
+  },
+  {
+    "comment": "alter_table - Statement 809",
+    "query": "CREATE TABLE tt1 (x int, y bigint)"
+  },
+  {
+    "comment": "alter_table - Statement 810",
+    "query": "CREATE TABLE tt2 (x int, y numeric(9,2))"
+  },
+  {
+    "comment": "alter_table - Statement 811",
+    "query": "CREATE TABLE tt3 (y numeric(8,2), x int)"
+  },
+  {
+    "comment": "alter_table - Statement 812",
+    "query": "CREATE TABLE tt4 (x int)"
+  },
+  {
+    "comment": "alter_table - Statement 813",
+    "query": "CREATE TABLE tt5 (x int, y numeric(8,2), z int)"
+  },
+  {
+    "comment": "alter_table - Statement 814",
+    "query": "CREATE TABLE tt6 () INHERITS (tt0)"
+  },
+  {
+    "comment": "alter_table - Statement 815",
+    "query": "CREATE TABLE tt7 (x int, q text, y numeric(8,2))"
+  },
+  {
+    "comment": "alter_table - Statement 816",
+    "query": "ALTER TABLE tt7 DROP q"
+  },
+  {
+    "comment": "alter_table - Statement 817",
+    "query": "ALTER TABLE tt0 OF tt_t0"
+  },
+  {
+    "comment": "alter_table - Statement 818",
+    "query": "ALTER TABLE tt1 OF tt_t0"
+  },
+  {
+    "comment": "alter_table - Statement 819",
+    "query": "ALTER TABLE tt2 OF tt_t0"
+  },
+  {
+    "comment": "alter_table - Statement 820",
+    "query": "ALTER TABLE tt3 OF tt_t0"
+  },
+  {
+    "comment": "alter_table - Statement 821",
+    "query": "ALTER TABLE tt4 OF tt_t0"
+  },
+  {
+    "comment": "alter_table - Statement 822",
+    "query": "ALTER TABLE tt5 OF tt_t0"
+  },
+  {
+    "comment": "alter_table - Statement 823",
+    "query": "ALTER TABLE tt6 OF tt_t0"
+  },
+  {
+    "comment": "alter_table - Statement 824",
+    "query": "ALTER TABLE tt7 OF tt_t0"
+  },
+  {
+    "comment": "alter_table - Statement 825",
+    "query": "CREATE TYPE tt_t1 AS (x int, y numeric(8,2))"
+  },
+  {
+    "comment": "alter_table - Statement 826",
+    "query": "ALTER TABLE tt7 OF tt_t1"
+  },
+  {
+    "comment": "alter_table - Statement 827",
+    "query": "ALTER TABLE tt7 NOT OF"
+  },
+  {
+    "comment": "alter_table - Statement 828",
+    "query": "CREATE TABLE test_drop_constr_child () INHERITS (test_drop_constr_parent)"
+  },
+  {
+    "comment": "alter_table - Statement 829",
+    "query": "ALTER TABLE ONLY test_drop_constr_parent DROP CONSTRAINT \"test_drop_constr_parent_c_check\""
+  },
+  {
+    "comment": "alter_table - Statement 830",
+    "query": "INSERT INTO test_drop_constr_child (c) VALUES (NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 831",
+    "query": "DROP TABLE test_drop_constr_parent CASCADE"
+  },
+  {
+    "comment": "alter_table - Statement 832",
+    "query": "ALTER TABLE IF EXISTS tt8 ADD COLUMN f int"
+  },
+  {
+    "comment": "alter_table - Statement 833",
+    "query": "ALTER TABLE IF EXISTS tt8 ADD CONSTRAINT xxx PRIMARY KEY(f)"
+  },
+  {
+    "comment": "alter_table - Statement 834",
+    "query": "ALTER TABLE IF EXISTS tt8 ADD CHECK (f BETWEEN 0 AND 10)"
+  },
+  {
+    "comment": "alter_table - Statement 835",
+    "query": "ALTER TABLE IF EXISTS tt8 ALTER COLUMN f SET DEFAULT 0"
+  },
+  {
+    "comment": "alter_table - Statement 836",
+    "query": "ALTER TABLE IF EXISTS tt8 RENAME COLUMN f TO f1"
+  },
+  {
+    "comment": "alter_table - Statement 837",
+    "query": "ALTER TABLE IF EXISTS tt8 SET SCHEMA alter2"
+  },
+  {
+    "comment": "alter_table - Statement 838",
+    "query": "CREATE TABLE tt8(a int)"
+  },
+  {
+    "comment": "alter_table - Statement 839",
+    "query": "DROP SCHEMA alter2"
+  },
+  {
+    "comment": "alter_table - Statement 840",
+    "query": "CREATE TABLE tt9(c integer)"
+  },
+  {
+    "comment": "alter_table - Statement 841",
+    "query": "ALTER TABLE tt9 ADD CHECK(c > 1)"
+  },
+  {
+    "comment": "alter_table - Statement 842",
+    "query": "ALTER TABLE tt9 ADD CHECK(c > 2)"
+  },
+  {
+    "comment": "alter_table - Statement 843",
+    "query": "ALTER TABLE tt9 ADD CONSTRAINT foo CHECK(c > 3)"
+  },
+  {
+    "comment": "alter_table - Statement 844",
+    "query": "ALTER TABLE tt9 ADD CONSTRAINT foo CHECK(c > 4)"
+  },
+  {
+    "comment": "alter_table - Statement 845",
+    "query": "ALTER TABLE tt9 ADD UNIQUE(c)"
+  },
+  {
+    "comment": "alter_table - Statement 846",
+    "query": "ALTER TABLE tt9 ADD CONSTRAINT tt9_c_key UNIQUE(c)"
+  },
+  {
+    "comment": "alter_table - Statement 847",
+    "query": "ALTER TABLE tt9 ADD CONSTRAINT foo UNIQUE(c)"
+  },
+  {
+    "comment": "alter_table - Statement 848",
+    "query": "ALTER TABLE tt9 ADD CONSTRAINT tt9_c_key CHECK(c > 5)"
+  },
+  {
+    "comment": "alter_table - Statement 849",
+    "query": "ALTER TABLE tt9 ADD CONSTRAINT tt9_c_key2 CHECK(c > 6)"
+  },
+  {
+    "comment": "alter_table - Statement 850",
+    "query": "CREATE TABLE comment_test ( id int, positive_col int CHECK (positive_col > 0), indexed_col int, CONSTRAINT comment_test_pk PRIMARY KEY (id))"
+  },
+  {
+    "comment": "alter_table - Statement 851",
+    "query": "CREATE INDEX comment_test_index ON comment_test(indexed_col)"
+  },
+  {
+    "comment": "alter_table - Statement 852",
+    "query": "COMMENT ON COLUMN comment_test.id IS 'Column ''id'' on comment_test'"
+  },
+  {
+    "comment": "alter_table - Statement 853",
+    "query": "COMMENT ON INDEX comment_test_index IS 'Simple index on comment_test'"
+  },
+  {
+    "comment": "alter_table - Statement 854",
+    "query": "COMMENT ON CONSTRAINT comment_test_positive_col_check ON comment_test IS 'CHECK constraint on comment_test.positive_col'"
+  },
+  {
+    "comment": "alter_table - Statement 855",
+    "query": "COMMENT ON CONSTRAINT comment_test_pk ON comment_test IS 'PRIMARY KEY constraint of comment_test'"
+  },
+  {
+    "comment": "alter_table - Statement 856",
+    "query": "COMMENT ON INDEX comment_test_pk IS 'Index backing the PRIMARY KEY of comment_test'"
+  },
+  {
+    "comment": "alter_table - Statement 857",
+    "query": "SELECT col_description('comment_test'::regclass, 1) as comment"
+  },
+  {
+    "comment": "alter_table - Statement 858",
+    "query": "SELECT indexrelid::regclass::text as index, obj_description(indexrelid, 'pg_class') as comment FROM pg_index where indrelid = 'comment_test'::regclass ORDER BY 1, 2"
+  },
+  {
+    "comment": "alter_table - Statement 859",
+    "query": "SELECT conname as constraint, obj_description(oid, 'pg_constraint') as comment FROM pg_constraint where conrelid = 'comment_test'::regclass ORDER BY 1, 2"
+  },
+  {
+    "comment": "alter_table - Statement 860",
+    "query": "ALTER TABLE comment_test ALTER COLUMN indexed_col SET DATA TYPE int"
+  },
+  {
+    "comment": "alter_table - Statement 861",
+    "query": "ALTER TABLE comment_test ALTER COLUMN indexed_col SET DATA TYPE text"
+  },
+  {
+    "comment": "alter_table - Statement 862",
+    "query": "ALTER TABLE comment_test ALTER COLUMN id SET DATA TYPE int"
+  },
+  {
+    "comment": "alter_table - Statement 863",
+    "query": "ALTER TABLE comment_test ALTER COLUMN id SET DATA TYPE text"
+  },
+  {
+    "comment": "alter_table - Statement 864",
+    "query": "ALTER TABLE comment_test ALTER COLUMN positive_col SET DATA TYPE int"
+  },
+  {
+    "comment": "alter_table - Statement 865",
+    "query": "ALTER TABLE comment_test ALTER COLUMN positive_col SET DATA TYPE bigint"
+  },
+  {
+    "comment": "alter_table - Statement 866",
+    "query": "CREATE TABLE comment_test_child ( id text CONSTRAINT comment_test_child_fk REFERENCES comment_test)"
+  },
+  {
+    "comment": "alter_table - Statement 867",
+    "query": "CREATE INDEX comment_test_child_fk ON comment_test_child(id)"
+  },
+  {
+    "comment": "alter_table - Statement 868",
+    "query": "COMMENT ON COLUMN comment_test_child.id IS 'Column ''id'' on comment_test_child'"
+  },
+  {
+    "comment": "alter_table - Statement 869",
+    "query": "COMMENT ON INDEX comment_test_child_fk IS 'Index backing the FOREIGN KEY of comment_test_child'"
+  },
+  {
+    "comment": "alter_table - Statement 870",
+    "query": "COMMENT ON CONSTRAINT comment_test_child_fk ON comment_test_child IS 'FOREIGN KEY constraint of comment_test_child'"
+  },
+  {
+    "comment": "alter_table - Statement 871",
+    "query": "ALTER TABLE comment_test ALTER COLUMN id SET DATA TYPE int USING id::integer"
+  },
+  {
+    "comment": "alter_table - Statement 872",
+    "query": "SELECT col_description('comment_test_child'::regclass, 1) as comment"
+  },
+  {
+    "comment": "alter_table - Statement 873",
+    "query": "SELECT indexrelid::regclass::text as index, obj_description(indexrelid, 'pg_class') as comment FROM pg_index where indrelid = 'comment_test_child'::regclass ORDER BY 1, 2"
+  },
+  {
+    "comment": "alter_table - Statement 874",
+    "query": "SELECT conname as constraint, obj_description(oid, 'pg_constraint') as comment FROM pg_constraint where conrelid = 'comment_test_child'::regclass ORDER BY 1, 2"
+  },
+  {
+    "comment": "alter_table - Statement 875",
+    "query": "CREATE TEMP TABLE filenode_mapping AS SELECT oid, mapped_oid, reltablespace, relfilenode, relname FROM pg_class, pg_filenode_relation(reltablespace, pg_relation_filenode(oid)) AS mapped_oid WHERE relkind IN ('r', 'i', 'S', 't', 'm') AND mapped_oid IS DISTINCT FROM oid"
+  },
+  {
+    "comment": "alter_table - Statement 876",
+    "query": "SELECT m.* FROM filenode_mapping m LEFT JOIN pg_class c ON c.oid = m.oid WHERE c.oid IS NOT NULL OR m.mapped_oid IS NOT NULL"
+  },
+  {
+    "comment": "alter_table - Statement 877",
+    "query": "SHOW allow_system_table_mods"
+  },
+  {
+    "comment": "alter_table - Statement 878",
+    "query": "CREATE TABLE pg_catalog.new_system_table()"
+  },
+  {
+    "comment": "alter_table - Statement 879",
+    "query": "CREATE TABLE new_system_table(id serial primary key, othercol text)"
+  },
+  {
+    "comment": "alter_table - Statement 880",
+    "query": "ALTER TABLE new_system_table SET SCHEMA pg_catalog"
+  },
+  {
+    "comment": "alter_table - Statement 881",
+    "query": "ALTER TABLE new_system_table SET SCHEMA public"
+  },
+  {
+    "comment": "alter_table - Statement 882",
+    "query": "ALTER TABLE new_system_table RENAME TO old_system_table"
+  },
+  {
+    "comment": "alter_table - Statement 883",
+    "query": "CREATE INDEX old_system_table__othercol ON old_system_table (othercol)"
+  },
+  {
+    "comment": "alter_table - Statement 884",
+    "query": "INSERT INTO old_system_table(othercol) VALUES ('somedata'), ('otherdata')"
+  },
+  {
+    "comment": "alter_table - Statement 885",
+    "query": "UPDATE old_system_table SET id = -id"
+  },
+  {
+    "comment": "alter_table - Statement 886",
+    "query": "DELETE FROM old_system_table WHERE othercol = 'somedata'"
+  },
+  {
+    "comment": "alter_table - Statement 887",
+    "query": "TRUNCATE old_system_table"
+  },
+  {
+    "comment": "alter_table - Statement 888",
+    "query": "ALTER TABLE old_system_table DROP CONSTRAINT new_system_table_pkey"
+  },
+  {
+    "comment": "alter_table - Statement 889",
+    "query": "ALTER TABLE old_system_table DROP COLUMN othercol"
+  },
+  {
+    "comment": "alter_table - Statement 890",
+    "query": "DROP TABLE old_system_table"
+  },
+  {
+    "comment": "alter_table - Statement 891",
+    "query": "CREATE UNLOGGED TABLE unlogged1(f1 SERIAL PRIMARY KEY, f2 TEXT)"
+  },
+  {
+    "comment": "alter_table - Statement 892",
+    "query": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged1' UNION ALL SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class r JOIN pg_class t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^unlogged1' UNION ALL SELECT r.relname || ' toast index', ri.relkind, ri.relpersistence FROM pg_class r join pg_class t ON t.oid = r.reltoastrelid JOIN pg_index i ON i.indrelid = t.oid JOIN pg_class ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^unlogged1' ORDER BY relname"
+  },
+  {
+    "comment": "alter_table - Statement 893",
+    "query": "CREATE UNLOGGED TABLE unlogged2(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES unlogged1)"
+  },
+  {
+    "comment": "alter_table - Statement 894",
+    "query": "CREATE UNLOGGED TABLE unlogged3(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES unlogged3)"
+  },
+  {
+    "comment": "alter_table - Statement 895",
+    "query": "ALTER TABLE unlogged3 SET LOGGED"
+  },
+  {
+    "comment": "alter_table - Statement 896",
+    "query": "ALTER TABLE unlogged2 SET LOGGED"
+  },
+  {
+    "comment": "alter_table - Statement 897",
+    "query": "ALTER TABLE unlogged1 SET LOGGED"
+  },
+  {
+    "comment": "alter_table - Statement 898",
+    "query": "DROP TABLE unlogged3"
+  },
+  {
+    "comment": "alter_table - Statement 899",
+    "query": "DROP TABLE unlogged2"
+  },
+  {
+    "comment": "alter_table - Statement 900",
+    "query": "DROP TABLE unlogged1"
+  },
+  {
+    "comment": "alter_table - Statement 901",
+    "query": "CREATE TABLE logged1(f1 SERIAL PRIMARY KEY, f2 TEXT)"
+  },
+  {
+    "comment": "alter_table - Statement 902",
+    "query": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^logged1' UNION ALL SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class r JOIN pg_class t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^logged1' UNION ALL SELECT r.relname ||' toast index', ri.relkind, ri.relpersistence FROM pg_class r join pg_class t ON t.oid = r.reltoastrelid JOIN pg_index i ON i.indrelid = t.oid JOIN pg_class ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^logged1' ORDER BY relname"
+  },
+  {
+    "comment": "alter_table - Statement 903",
+    "query": "CREATE TABLE logged2(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES logged1)"
+  },
+  {
+    "comment": "alter_table - Statement 904",
+    "query": "CREATE TABLE logged3(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES logged3)"
+  },
+  {
+    "comment": "alter_table - Statement 905",
+    "query": "ALTER TABLE logged1 SET UNLOGGED"
+  },
+  {
+    "comment": "alter_table - Statement 906",
+    "query": "ALTER TABLE logged3 SET UNLOGGED"
+  },
+  {
+    "comment": "alter_table - Statement 907",
+    "query": "ALTER TABLE logged2 SET UNLOGGED"
+  },
+  {
+    "comment": "alter_table - Statement 908",
+    "query": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^logged1' UNION ALL SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class r JOIN pg_class t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^logged1' UNION ALL SELECT r.relname || ' toast index', ri.relkind, ri.relpersistence FROM pg_class r join pg_class t ON t.oid = r.reltoastrelid JOIN pg_index i ON i.indrelid = t.oid JOIN pg_class ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^logged1' ORDER BY relname"
+  },
+  {
+    "comment": "alter_table - Statement 909",
+    "query": "DROP TABLE logged3"
+  },
+  {
+    "comment": "alter_table - Statement 910",
+    "query": "DROP TABLE logged2"
+  },
+  {
+    "comment": "alter_table - Statement 911",
+    "query": "DROP TABLE logged1"
+  },
+  {
+    "comment": "alter_table - Statement 912",
+    "query": "CREATE TABLE test_add_column(c1 integer)"
+  },
+  {
+    "comment": "alter_table - Statement 913",
+    "query": "ALTER TABLE ONLY test_add_column ADD COLUMN c2 integer"
+  },
+  {
+    "comment": "alter_table - Statement 914",
+    "query": "ALTER TABLE ONLY test_add_column ADD COLUMN IF NOT EXISTS c2 integer"
+  },
+  {
+    "comment": "alter_table - Statement 915",
+    "query": "INSERT INTO ataddindex VALUES (42), (43)"
+  },
+  {
+    "comment": "alter_table - Statement 916",
+    "query": "CREATE UNIQUE INDEX ataddindexi0 ON ataddindex(f1)"
+  },
+  {
+    "comment": "alter_table - Statement 917",
+    "query": "ALTER TABLE ataddindex ADD PRIMARY KEY USING INDEX ataddindexi0, ALTER f1 TYPE BIGINT"
+  },
+  {
+    "comment": "alter_table - Statement 918",
+    "query": "CREATE TABLE ataddindex(f1 VARCHAR(10))"
+  },
+  {
+    "comment": "alter_table - Statement 919",
+    "query": "INSERT INTO ataddindex(f1) VALUES ('foo'), ('a')"
+  },
+  {
+    "comment": "alter_table - Statement 920",
+    "query": "ALTER TABLE ataddindex ALTER f1 SET DATA TYPE TEXT, ADD EXCLUDE ((f1 LIKE 'a') WITH =)"
+  },
+  {
+    "comment": "alter_table - Statement 921",
+    "query": "CREATE TABLE ataddindex(id int, ref_id int)"
+  },
+  {
+    "comment": "alter_table - Statement 922",
+    "query": "ALTER TABLE ataddindex ADD PRIMARY KEY (id), ADD FOREIGN KEY (ref_id) REFERENCES ataddindex"
+  },
+  {
+    "comment": "alter_table - Statement 923",
+    "query": "ALTER TABLE ataddindex ADD UNIQUE (id), ADD FOREIGN KEY (ref_id) REFERENCES ataddindex (id)"
+  },
+  {
+    "comment": "alter_table - Statement 924",
+    "query": "CREATE TABLE atnotnull1 ()"
+  },
+  {
+    "comment": "alter_table - Statement 925",
+    "query": "ALTER TABLE atnotnull1 ADD COLUMN a INT, ALTER a SET NOT NULL"
+  },
+  {
+    "comment": "alter_table - Statement 926",
+    "query": "ALTER TABLE atnotnull1 ADD COLUMN c INT, ADD PRIMARY KEY (c)"
+  },
+  {
+    "comment": "alter_table - Statement 927",
+    "query": "ALTER TABLE partitioned DROP COLUMN a"
+  },
+  {
+    "comment": "alter_table - Statement 928",
+    "query": "ALTER TABLE partitioned ALTER COLUMN a TYPE char(5)"
+  },
+  {
+    "comment": "alter_table - Statement 929",
+    "query": "ALTER TABLE partitioned DROP COLUMN b"
+  },
+  {
+    "comment": "alter_table - Statement 930",
+    "query": "ALTER TABLE partitioned ALTER COLUMN b TYPE char(5)"
+  },
+  {
+    "comment": "alter_table - Statement 931",
+    "query": "ALTER TABLE partitioned SET (fillfactor=100)"
+  },
+  {
+    "comment": "alter_table - Statement 932",
+    "query": "CREATE TABLE nonpartitioned ( a int, b int )"
+  },
+  {
+    "comment": "alter_table - Statement 933",
+    "query": "ALTER TABLE partitioned INHERIT nonpartitioned"
+  },
+  {
+    "comment": "alter_table - Statement 934",
+    "query": "ALTER TABLE nonpartitioned INHERIT partitioned"
+  },
+  {
+    "comment": "alter_table - Statement 935",
+    "query": "ALTER TABLE partitioned ADD CONSTRAINT chk_a CHECK (a > 0) NO INHERIT"
+  },
+  {
+    "comment": "alter_table - Statement 936",
+    "query": "DROP TABLE partitioned, nonpartitioned"
+  },
+  {
+    "comment": "alter_table - Statement 937",
+    "query": "CREATE TABLE unparted ( a int )"
+  },
+  {
+    "comment": "alter_table - Statement 938",
+    "query": "CREATE TABLE fail_part (like unparted)"
+  },
+  {
+    "comment": "alter_table - Statement 939",
+    "query": "ALTER TABLE unparted ATTACH PARTITION fail_part FOR VALUES IN ('a')"
+  },
+  {
+    "comment": "alter_table - Statement 940",
+    "query": "DROP TABLE unparted, fail_part"
+  },
+  {
+    "comment": "alter_table - Statement 941",
+    "query": "CREATE TABLE list_parted ( a int NOT NULL, b char(2) COLLATE \"C\", CONSTRAINT check_a CHECK (a > 0) ) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "alter_table - Statement 942",
+    "query": "CREATE TABLE fail_part (LIKE list_parted)"
+  },
+  {
+    "comment": "alter_table - Statement 943",
+    "query": "ALTER TABLE list_parted ATTACH PARTITION fail_part FOR VALUES FROM (1) TO (10)"
+  },
+  {
+    "comment": "alter_table - Statement 944",
+    "query": "DROP TABLE fail_part"
+  },
+  {
+    "comment": "alter_table - Statement 945",
+    "query": "ALTER TABLE list_parted ATTACH PARTITION nonexistent FOR VALUES IN (1)"
+  },
+  {
+    "comment": "alter_table - Statement 946",
+    "query": "CREATE ROLE regress_test_me"
+  },
+  {
+    "comment": "alter_table - Statement 947",
+    "query": "CREATE ROLE regress_test_not_me"
+  },
+  {
+    "comment": "alter_table - Statement 948",
+    "query": "CREATE TABLE not_owned_by_me (LIKE list_parted)"
+  },
+  {
+    "comment": "alter_table - Statement 949",
+    "query": "ALTER TABLE not_owned_by_me OWNER TO regress_test_not_me"
+  },
+  {
+    "comment": "alter_table - Statement 950",
+    "query": "SET SESSION AUTHORIZATION regress_test_me"
+  },
+  {
+    "comment": "alter_table - Statement 951",
+    "query": "CREATE TABLE owned_by_me ( a int ) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "alter_table - Statement 952",
+    "query": "ALTER TABLE owned_by_me ATTACH PARTITION not_owned_by_me FOR VALUES IN (1)"
+  },
+  {
+    "comment": "alter_table - Statement 953",
+    "query": "RESET SESSION AUTHORIZATION"
+  },
+  {
+    "comment": "alter_table - Statement 954",
+    "query": "DROP TABLE owned_by_me, not_owned_by_me"
+  },
+  {
+    "comment": "alter_table - Statement 955",
+    "query": "DROP ROLE regress_test_not_me"
+  },
+  {
+    "comment": "alter_table - Statement 956",
+    "query": "DROP ROLE regress_test_me"
+  },
+  {
+    "comment": "alter_table - Statement 957",
+    "query": "CREATE TABLE parent (LIKE list_parted)"
+  },
+  {
+    "comment": "alter_table - Statement 958",
+    "query": "CREATE TABLE child () INHERITS (parent)"
+  },
+  {
+    "comment": "alter_table - Statement 959",
+    "query": "ALTER TABLE list_parted ATTACH PARTITION child FOR VALUES IN (1)"
+  },
+  {
+    "comment": "alter_table - Statement 960",
+    "query": "ALTER TABLE list_parted ATTACH PARTITION parent FOR VALUES IN (1)"
+  },
+  {
+    "comment": "alter_table - Statement 961",
+    "query": "ALTER TABLE parent ADD CONSTRAINT check_a CHECK (a > 0)"
+  },
+  {
+    "comment": "alter_table - Statement 962",
+    "query": "INSERT INTO parent VALUES (1)"
+  },
+  {
+    "comment": "alter_table - Statement 963",
+    "query": "UPDATE parent SET a = 2 WHERE a = 1"
+  },
+  {
+    "comment": "alter_table - Statement 964",
+    "query": "DROP TABLE parent CASCADE"
+  },
+  {
+    "comment": "alter_table - Statement 965",
+    "query": "CREATE TEMP TABLE temp_parted (a int) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "alter_table - Statement 966",
+    "query": "CREATE TABLE perm_part (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 967",
+    "query": "ALTER TABLE temp_parted ATTACH PARTITION perm_part FOR VALUES IN (1)"
+  },
+  {
+    "comment": "alter_table - Statement 968",
+    "query": "DROP TABLE temp_parted, perm_part"
+  },
+  {
+    "comment": "alter_table - Statement 969",
+    "query": "CREATE TYPE mytype AS (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 970",
+    "query": "CREATE TABLE fail_part OF mytype"
+  },
+  {
+    "comment": "alter_table - Statement 971",
+    "query": "ALTER TABLE list_parted ATTACH PARTITION fail_part FOR VALUES IN (1)"
+  },
+  {
+    "comment": "alter_table - Statement 972",
+    "query": "DROP TYPE mytype CASCADE"
+  },
+  {
+    "comment": "alter_table - Statement 973",
+    "query": "CREATE TABLE fail_part (like list_parted, c int)"
+  },
+  {
+    "comment": "alter_table - Statement 974",
+    "query": "CREATE TABLE fail_part (a int NOT NULL)"
+  },
+  {
+    "comment": "alter_table - Statement 975",
+    "query": "CREATE TABLE fail_part ( b char(3), a int NOT NULL )"
+  },
+  {
+    "comment": "alter_table - Statement 976",
+    "query": "ALTER TABLE fail_part ALTER b TYPE char (2) COLLATE \"POSIX\""
+  },
+  {
+    "comment": "alter_table - Statement 977",
+    "query": "CREATE TABLE fail_part ( b char(2) COLLATE \"C\", a int NOT NULL )"
+  },
+  {
+    "comment": "alter_table - Statement 978",
+    "query": "ALTER TABLE fail_part ADD CONSTRAINT check_a CHECK (a >= 0)"
+  },
+  {
+    "comment": "alter_table - Statement 979",
+    "query": "CREATE TABLE part_1 ( a int NOT NULL, b char(2) COLLATE \"C\", CONSTRAINT check_a CHECK (a > 0) )"
+  },
+  {
+    "comment": "alter_table - Statement 980",
+    "query": "ALTER TABLE list_parted ATTACH PARTITION part_1 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "alter_table - Statement 981",
+    "query": "SELECT attislocal, attinhcount FROM pg_attribute WHERE attrelid = 'part_1'::regclass AND attnum > 0"
+  },
+  {
+    "comment": "alter_table - Statement 982",
+    "query": "SELECT conislocal, coninhcount FROM pg_constraint WHERE conrelid = 'part_1'::regclass AND conname = 'check_a'"
+  },
+  {
+    "comment": "alter_table - Statement 983",
+    "query": "CREATE TABLE fail_part (LIKE part_1 INCLUDING CONSTRAINTS)"
+  },
+  {
+    "comment": "alter_table - Statement 984",
+    "query": "CREATE TABLE def_part (LIKE list_parted INCLUDING CONSTRAINTS)"
+  },
+  {
+    "comment": "alter_table - Statement 985",
+    "query": "ALTER TABLE list_parted ATTACH PARTITION def_part DEFAULT"
+  },
+  {
+    "comment": "alter_table - Statement 986",
+    "query": "CREATE TABLE fail_def_part (LIKE part_1 INCLUDING CONSTRAINTS)"
+  },
+  {
+    "comment": "alter_table - Statement 987",
+    "query": "ALTER TABLE list_parted ATTACH PARTITION fail_def_part DEFAULT"
+  },
+  {
+    "comment": "alter_table - Statement 988",
+    "query": "CREATE TABLE list_parted2 ( a int, b char ) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "alter_table - Statement 989",
+    "query": "CREATE TABLE part_2 (LIKE list_parted2)"
+  },
+  {
+    "comment": "alter_table - Statement 990",
+    "query": "INSERT INTO part_2 VALUES (3, 'a')"
+  },
+  {
+    "comment": "alter_table - Statement 991",
+    "query": "ALTER TABLE list_parted2 ATTACH PARTITION part_2 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "alter_table - Statement 992",
+    "query": "DELETE FROM part_2"
+  },
+  {
+    "comment": "alter_table - Statement 993",
+    "query": "CREATE TABLE list_parted2_def PARTITION OF list_parted2 DEFAULT"
+  },
+  {
+    "comment": "alter_table - Statement 994",
+    "query": "INSERT INTO list_parted2_def VALUES (11, 'z')"
+  },
+  {
+    "comment": "alter_table - Statement 995",
+    "query": "CREATE TABLE part_3 (LIKE list_parted2)"
+  },
+  {
+    "comment": "alter_table - Statement 996",
+    "query": "ALTER TABLE list_parted2 ATTACH PARTITION part_3 FOR VALUES IN (11)"
+  },
+  {
+    "comment": "alter_table - Statement 997",
+    "query": "DELETE FROM list_parted2_def WHERE a = 11"
+  },
+  {
+    "comment": "alter_table - Statement 998",
+    "query": "CREATE TABLE part_3_4 ( LIKE list_parted2, CONSTRAINT check_a CHECK (a IN (3)) )"
+  },
+  {
+    "comment": "alter_table - Statement 999",
+    "query": "ALTER TABLE list_parted2 ATTACH PARTITION part_3_4 FOR VALUES IN (3, 4)"
+  },
+  {
+    "comment": "alter_table - Statement 1000",
+    "query": "ALTER TABLE list_parted2 DETACH PARTITION part_3_4"
+  },
+  {
+    "comment": "alter_table - Statement 1001",
+    "query": "ALTER TABLE part_3_4 ALTER a SET NOT NULL"
+  },
+  {
+    "comment": "alter_table - Statement 1002",
+    "query": "ALTER TABLE list_parted2_def ADD CONSTRAINT check_a CHECK (a IN (5, 6))"
+  },
+  {
+    "comment": "alter_table - Statement 1003",
+    "query": "CREATE TABLE part_55_66 PARTITION OF list_parted2 FOR VALUES IN (55, 66)"
+  },
+  {
+    "comment": "alter_table - Statement 1004",
+    "query": "CREATE TABLE range_parted ( a int, b int ) PARTITION BY RANGE (a, b)"
+  },
+  {
+    "comment": "alter_table - Statement 1005",
+    "query": "CREATE TABLE part1 ( a int NOT NULL CHECK (a = 1), b int NOT NULL CHECK (b >= 1 AND b <= 10) )"
+  },
+  {
+    "comment": "alter_table - Statement 1006",
+    "query": "INSERT INTO part1 VALUES (1, 10)"
+  },
+  {
+    "comment": "alter_table - Statement 1007",
+    "query": "ALTER TABLE range_parted ATTACH PARTITION part1 FOR VALUES FROM (1, 1) TO (1, 10)"
+  },
+  {
+    "comment": "alter_table - Statement 1008",
+    "query": "DELETE FROM part1"
+  },
+  {
+    "comment": "alter_table - Statement 1009",
+    "query": "CREATE TABLE part2 ( a int NOT NULL CHECK (a = 1), b int NOT NULL CHECK (b >= 10 AND b < 18) )"
+  },
+  {
+    "comment": "alter_table - Statement 1010",
+    "query": "ALTER TABLE range_parted ATTACH PARTITION part2 FOR VALUES FROM (1, 10) TO (1, 20)"
+  },
+  {
+    "comment": "alter_table - Statement 1011",
+    "query": "CREATE TABLE partr_def1 PARTITION OF range_parted DEFAULT"
+  },
+  {
+    "comment": "alter_table - Statement 1012",
+    "query": "CREATE TABLE partr_def2 (LIKE part1 INCLUDING CONSTRAINTS)"
+  },
+  {
+    "comment": "alter_table - Statement 1013",
+    "query": "ALTER TABLE range_parted ATTACH PARTITION partr_def2 DEFAULT"
+  },
+  {
+    "comment": "alter_table - Statement 1014",
+    "query": "INSERT INTO partr_def1 VALUES (2, 10)"
+  },
+  {
+    "comment": "alter_table - Statement 1015",
+    "query": "CREATE TABLE part3 (LIKE range_parted)"
+  },
+  {
+    "comment": "alter_table - Statement 1016",
+    "query": "ALTER TABLE range_parted ATTACH partition part3 FOR VALUES FROM (2, 10) TO (2, 20)"
+  },
+  {
+    "comment": "alter_table - Statement 1017",
+    "query": "ALTER TABLE range_parted ATTACH partition part3 FOR VALUES FROM (3, 10) TO (3, 20)"
+  },
+  {
+    "comment": "alter_table - Statement 1018",
+    "query": "CREATE TABLE part_5 ( LIKE list_parted2 ) PARTITION BY LIST (b)"
+  },
+  {
+    "comment": "alter_table - Statement 1019",
+    "query": "CREATE TABLE part_5_a PARTITION OF part_5 FOR VALUES IN ('a')"
+  },
+  {
+    "comment": "alter_table - Statement 1020",
+    "query": "INSERT INTO part_5_a (a, b) VALUES (6, 'a')"
+  },
+  {
+    "comment": "alter_table - Statement 1021",
+    "query": "ALTER TABLE list_parted2 ATTACH PARTITION part_5 FOR VALUES IN (5)"
+  },
+  {
+    "comment": "alter_table - Statement 1022",
+    "query": "DELETE FROM part_5_a WHERE a NOT IN (3)"
+  },
+  {
+    "comment": "alter_table - Statement 1023",
+    "query": "ALTER TABLE part_5 ADD CONSTRAINT check_a CHECK (a IS NOT NULL AND a = 5)"
+  },
+  {
+    "comment": "alter_table - Statement 1024",
+    "query": "ALTER TABLE list_parted2 DETACH PARTITION part_5"
+  },
+  {
+    "comment": "alter_table - Statement 1025",
+    "query": "ALTER TABLE part_5 DROP CONSTRAINT check_a"
+  },
+  {
+    "comment": "alter_table - Statement 1026",
+    "query": "ALTER TABLE part_5 ADD CONSTRAINT check_a CHECK (a IN (5)), ALTER a SET NOT NULL"
+  },
+  {
+    "comment": "alter_table - Statement 1027",
+    "query": "CREATE TABLE part_6 ( c int, LIKE list_parted2, CONSTRAINT check_a CHECK (a IS NOT NULL AND a = 6) )"
+  },
+  {
+    "comment": "alter_table - Statement 1028",
+    "query": "ALTER TABLE part_6 DROP c"
+  },
+  {
+    "comment": "alter_table - Statement 1029",
+    "query": "ALTER TABLE list_parted2 ATTACH PARTITION part_6 FOR VALUES IN (6)"
+  },
+  {
+    "comment": "alter_table - Statement 1030",
+    "query": "CREATE TABLE part_7 ( LIKE list_parted2, CONSTRAINT check_a CHECK (a IS NOT NULL AND a = 7) ) PARTITION BY LIST (b)"
+  },
+  {
+    "comment": "alter_table - Statement 1031",
+    "query": "CREATE TABLE part_7_a_null ( c int, d int, e int, LIKE list_parted2, CONSTRAINT check_b CHECK (b IS NULL OR b = 'a'), CONSTRAINT check_a CHECK (a IS NOT NULL AND a = 7) )"
+  },
+  {
+    "comment": "alter_table - Statement 1032",
+    "query": "ALTER TABLE part_7_a_null DROP c, DROP d, DROP e"
+  },
+  {
+    "comment": "alter_table - Statement 1033",
+    "query": "ALTER TABLE part_7 ATTACH PARTITION part_7_a_null FOR VALUES IN ('a', null)"
+  },
+  {
+    "comment": "alter_table - Statement 1034",
+    "query": "ALTER TABLE list_parted2 ATTACH PARTITION part_7 FOR VALUES IN (7)"
+  },
+  {
+    "comment": "alter_table - Statement 1035",
+    "query": "ALTER TABLE list_parted2 DETACH PARTITION part_7"
+  },
+  {
+    "comment": "alter_table - Statement 1036",
+    "query": "ALTER TABLE part_7 DROP CONSTRAINT check_a"
+  },
+  {
+    "comment": "alter_table - Statement 1037",
+    "query": "INSERT INTO part_7 (a, b) VALUES (8, null), (9, 'a')"
+  },
+  {
+    "comment": "alter_table - Statement 1038",
+    "query": "SELECT tableoid::regclass, a, b FROM part_7 order by a"
+  },
+  {
+    "comment": "alter_table - Statement 1039",
+    "query": "CREATE TABLE part5_def PARTITION OF part_5 DEFAULT PARTITION BY LIST(a)"
+  },
+  {
+    "comment": "alter_table - Statement 1040",
+    "query": "CREATE TABLE part5_def_p1 PARTITION OF part5_def FOR VALUES IN (5)"
+  },
+  {
+    "comment": "alter_table - Statement 1041",
+    "query": "INSERT INTO part5_def_p1 VALUES (5, 'y')"
+  },
+  {
+    "comment": "alter_table - Statement 1042",
+    "query": "CREATE TABLE part5_p1 (LIKE part_5)"
+  },
+  {
+    "comment": "alter_table - Statement 1043",
+    "query": "ALTER TABLE part_5 ATTACH PARTITION part5_p1 FOR VALUES IN ('y')"
+  },
+  {
+    "comment": "alter_table - Statement 1044",
+    "query": "DELETE FROM part5_def_p1 WHERE b = 'y'"
+  },
+  {
+    "comment": "alter_table - Statement 1045",
+    "query": "ALTER TABLE part_5 ATTACH PARTITION list_parted2 FOR VALUES IN ('b')"
+  },
+  {
+    "comment": "alter_table - Statement 1046",
+    "query": "ALTER TABLE list_parted2 ATTACH PARTITION list_parted2 FOR VALUES IN (0)"
+  },
+  {
+    "comment": "alter_table - Statement 1047",
+    "query": "CREATE TABLE quuux (a int, b text) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1048",
+    "query": "CREATE TABLE quuux_default PARTITION OF quuux DEFAULT PARTITION BY LIST (b)"
+  },
+  {
+    "comment": "alter_table - Statement 1049",
+    "query": "CREATE TABLE quuux_default1 PARTITION OF quuux_default ( CONSTRAINT check_1 CHECK (a IS NOT NULL AND a = 1) ) FOR VALUES IN ('b')"
+  },
+  {
+    "comment": "alter_table - Statement 1050",
+    "query": "CREATE TABLE quuux1 (a int, b text)"
+  },
+  {
+    "comment": "alter_table - Statement 1051",
+    "query": "ALTER TABLE quuux ATTACH PARTITION quuux1 FOR VALUES IN (1)"
+  },
+  {
+    "comment": "alter_table - Statement 1052",
+    "query": "CREATE TABLE quuux2 (a int, b text)"
+  },
+  {
+    "comment": "alter_table - Statement 1053",
+    "query": "ALTER TABLE quuux ATTACH PARTITION quuux2 FOR VALUES IN (2)"
+  },
+  {
+    "comment": "alter_table - Statement 1054",
+    "query": "DROP TABLE quuux1, quuux2"
+  },
+  {
+    "comment": "alter_table - Statement 1055",
+    "query": "CREATE TABLE quuux1 PARTITION OF quuux FOR VALUES IN (1)"
+  },
+  {
+    "comment": "alter_table - Statement 1056",
+    "query": "CREATE TABLE quuux2 PARTITION OF quuux FOR VALUES IN (2)"
+  },
+  {
+    "comment": "alter_table - Statement 1057",
+    "query": "DROP TABLE quuux"
+  },
+  {
+    "comment": "alter_table - Statement 1058",
+    "query": "CREATE TABLE hash_parted ( a int, b int ) PARTITION BY HASH (a part_test_int4_ops)"
+  },
+  {
+    "comment": "alter_table - Statement 1059",
+    "query": "CREATE TABLE hpart_1 PARTITION OF hash_parted FOR VALUES WITH (MODULUS 4, REMAINDER 0)"
+  },
+  {
+    "comment": "alter_table - Statement 1060",
+    "query": "CREATE TABLE fail_part (LIKE hpart_1)"
+  },
+  {
+    "comment": "alter_table - Statement 1061",
+    "query": "ALTER TABLE hash_parted ATTACH PARTITION fail_part FOR VALUES WITH (MODULUS 8, REMAINDER 4)"
+  },
+  {
+    "comment": "alter_table - Statement 1062",
+    "query": "ALTER TABLE hash_parted ATTACH PARTITION fail_part FOR VALUES WITH (MODULUS 8, REMAINDER 0)"
+  },
+  {
+    "comment": "alter_table - Statement 1063",
+    "query": "CREATE TABLE hpart_2 (LIKE hash_parted)"
+  },
+  {
+    "comment": "alter_table - Statement 1064",
+    "query": "INSERT INTO hpart_2 VALUES (3, 0)"
+  },
+  {
+    "comment": "alter_table - Statement 1065",
+    "query": "ALTER TABLE hash_parted ATTACH PARTITION hpart_2 FOR VALUES WITH (MODULUS 4, REMAINDER 1)"
+  },
+  {
+    "comment": "alter_table - Statement 1066",
+    "query": "DELETE FROM hpart_2"
+  },
+  {
+    "comment": "alter_table - Statement 1067",
+    "query": "CREATE TABLE hpart_5 ( LIKE hash_parted ) PARTITION BY LIST (b)"
+  },
+  {
+    "comment": "alter_table - Statement 1068",
+    "query": "CREATE TABLE hpart_5_a PARTITION OF hpart_5 FOR VALUES IN ('1', '2', '3')"
+  },
+  {
+    "comment": "alter_table - Statement 1069",
+    "query": "INSERT INTO hpart_5_a (a, b) VALUES (7, 1)"
+  },
+  {
+    "comment": "alter_table - Statement 1070",
+    "query": "ALTER TABLE hash_parted ATTACH PARTITION hpart_5 FOR VALUES WITH (MODULUS 4, REMAINDER 2)"
+  },
+  {
+    "comment": "alter_table - Statement 1071",
+    "query": "DELETE FROM hpart_5_a"
+  },
+  {
+    "comment": "alter_table - Statement 1072",
+    "query": "CREATE TABLE fail_part(LIKE hash_parted)"
+  },
+  {
+    "comment": "alter_table - Statement 1073",
+    "query": "ALTER TABLE hash_parted ATTACH PARTITION fail_part FOR VALUES WITH (MODULUS 0, REMAINDER 1)"
+  },
+  {
+    "comment": "alter_table - Statement 1074",
+    "query": "ALTER TABLE hash_parted ATTACH PARTITION fail_part FOR VALUES WITH (MODULUS 8, REMAINDER 8)"
+  },
+  {
+    "comment": "alter_table - Statement 1075",
+    "query": "ALTER TABLE hash_parted ATTACH PARTITION fail_part FOR VALUES WITH (MODULUS 3, REMAINDER 2)"
+  },
+  {
+    "comment": "alter_table - Statement 1076",
+    "query": "CREATE TABLE regular_table (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 1077",
+    "query": "ALTER TABLE regular_table DETACH PARTITION any_name"
+  },
+  {
+    "comment": "alter_table - Statement 1078",
+    "query": "DROP TABLE regular_table"
+  },
+  {
+    "comment": "alter_table - Statement 1079",
+    "query": "ALTER TABLE list_parted2 DETACH PARTITION part_4"
+  },
+  {
+    "comment": "alter_table - Statement 1080",
+    "query": "ALTER TABLE hash_parted DETACH PARTITION hpart_4"
+  },
+  {
+    "comment": "alter_table - Statement 1081",
+    "query": "CREATE TABLE not_a_part (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 1082",
+    "query": "ALTER TABLE list_parted2 DETACH PARTITION not_a_part"
+  },
+  {
+    "comment": "alter_table - Statement 1083",
+    "query": "ALTER TABLE list_parted2 DETACH PARTITION part_1"
+  },
+  {
+    "comment": "alter_table - Statement 1084",
+    "query": "ALTER TABLE hash_parted DETACH PARTITION not_a_part"
+  },
+  {
+    "comment": "alter_table - Statement 1085",
+    "query": "DROP TABLE not_a_part"
+  },
+  {
+    "comment": "alter_table - Statement 1086",
+    "query": "SELECT attinhcount, attislocal FROM pg_attribute WHERE attrelid = 'part_3_4'::regclass AND attnum > 0"
+  },
+  {
+    "comment": "alter_table - Statement 1087",
+    "query": "SELECT coninhcount, conislocal FROM pg_constraint WHERE conrelid = 'part_3_4'::regclass AND conname = 'check_a'"
+  },
+  {
+    "comment": "alter_table - Statement 1088",
+    "query": "DROP TABLE part_3_4"
+  },
+  {
+    "comment": "alter_table - Statement 1089",
+    "query": "CREATE TABLE range_parted2 ( a int ) PARTITION BY RANGE(a)"
+  },
+  {
+    "comment": "alter_table - Statement 1090",
+    "query": "CREATE TABLE part_rp PARTITION OF range_parted2 FOR VALUES FROM (0) to (100)"
+  },
+  {
+    "comment": "alter_table - Statement 1091",
+    "query": "ALTER TABLE range_parted2 DETACH PARTITION part_rp"
+  },
+  {
+    "comment": "alter_table - Statement 1092",
+    "query": "DROP TABLE range_parted2"
+  },
+  {
+    "comment": "alter_table - Statement 1093",
+    "query": "SELECT * from part_rp"
+  },
+  {
+    "comment": "alter_table - Statement 1094",
+    "query": "DROP TABLE part_rp"
+  },
+  {
+    "comment": "alter_table - Statement 1095",
+    "query": "ALTER TABLE range_parted2 DETACH PARTITION part_rp CONCURRENTLY"
+  },
+  {
+    "comment": "alter_table - Statement 1096",
+    "query": "CREATE TABLE part_rpd PARTITION OF range_parted2 DEFAULT"
+  },
+  {
+    "comment": "alter_table - Statement 1097",
+    "query": "ALTER TABLE range_parted2 DETACH PARTITION part_rpd CONCURRENTLY"
+  },
+  {
+    "comment": "alter_table - Statement 1098",
+    "query": "DROP TABLE part_rpd"
+  },
+  {
+    "comment": "alter_table - Statement 1099",
+    "query": "ALTER TABLE range_parted2 DETACH PARTITION part_rp100 CONCURRENTLY"
+  },
+  {
+    "comment": "alter_table - Statement 1100",
+    "query": "ALTER TABLE ONLY list_parted2 ADD COLUMN c int"
+  },
+  {
+    "comment": "alter_table - Statement 1101",
+    "query": "ALTER TABLE ONLY list_parted2 DROP COLUMN b"
+  },
+  {
+    "comment": "alter_table - Statement 1102",
+    "query": "ALTER TABLE part_2 ADD COLUMN c text"
+  },
+  {
+    "comment": "alter_table - Statement 1103",
+    "query": "ALTER TABLE part_2 DROP COLUMN b"
+  },
+  {
+    "comment": "alter_table - Statement 1104",
+    "query": "ALTER TABLE part_2 RENAME COLUMN b to c"
+  },
+  {
+    "comment": "alter_table - Statement 1105",
+    "query": "ALTER TABLE part_2 ALTER COLUMN b TYPE text"
+  },
+  {
+    "comment": "alter_table - Statement 1106",
+    "query": "ALTER TABLE ONLY list_parted2 ALTER b SET NOT NULL"
+  },
+  {
+    "comment": "alter_table - Statement 1107",
+    "query": "ALTER TABLE ONLY list_parted2 ADD CONSTRAINT check_b CHECK (b <> 'zz')"
+  },
+  {
+    "comment": "alter_table - Statement 1108",
+    "query": "ALTER TABLE list_parted2 ALTER b SET NOT NULL"
+  },
+  {
+    "comment": "alter_table - Statement 1109",
+    "query": "ALTER TABLE ONLY list_parted2 ALTER b DROP NOT NULL"
+  },
+  {
+    "comment": "alter_table - Statement 1110",
+    "query": "ALTER TABLE list_parted2 ADD CONSTRAINT check_b CHECK (b <> 'zz')"
+  },
+  {
+    "comment": "alter_table - Statement 1111",
+    "query": "ALTER TABLE ONLY list_parted2 DROP CONSTRAINT check_b"
+  },
+  {
+    "comment": "alter_table - Statement 1112",
+    "query": "CREATE TABLE parted_no_parts (a int) PARTITION BY LIST (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1113",
+    "query": "ALTER TABLE ONLY parted_no_parts ALTER a SET NOT NULL"
+  },
+  {
+    "comment": "alter_table - Statement 1114",
+    "query": "ALTER TABLE ONLY parted_no_parts ADD CONSTRAINT check_a CHECK (a > 0)"
+  },
+  {
+    "comment": "alter_table - Statement 1115",
+    "query": "ALTER TABLE ONLY parted_no_parts ALTER a DROP NOT NULL"
+  },
+  {
+    "comment": "alter_table - Statement 1116",
+    "query": "ALTER TABLE ONLY parted_no_parts DROP CONSTRAINT check_a"
+  },
+  {
+    "comment": "alter_table - Statement 1117",
+    "query": "DROP TABLE parted_no_parts"
+  },
+  {
+    "comment": "alter_table - Statement 1118",
+    "query": "ALTER TABLE list_parted2 ALTER b SET NOT NULL, ADD CONSTRAINT check_a2 CHECK (a > 0)"
+  },
+  {
+    "comment": "alter_table - Statement 1119",
+    "query": "ALTER TABLE part_2 ALTER b DROP NOT NULL"
+  },
+  {
+    "comment": "alter_table - Statement 1120",
+    "query": "ALTER TABLE part_2 DROP CONSTRAINT check_a2"
+  },
+  {
+    "comment": "alter_table - Statement 1121",
+    "query": "ALTER TABLE list_parted2 add constraint check_b2 check (b <> 'zz') NO INHERIT"
+  },
+  {
+    "comment": "alter_table - Statement 1122",
+    "query": "CREATE TABLE inh_test () INHERITS (part_2)"
+  },
+  {
+    "comment": "alter_table - Statement 1123",
+    "query": "CREATE TABLE inh_test (LIKE part_2)"
+  },
+  {
+    "comment": "alter_table - Statement 1124",
+    "query": "ALTER TABLE inh_test INHERIT part_2"
+  },
+  {
+    "comment": "alter_table - Statement 1125",
+    "query": "ALTER TABLE part_2 INHERIT inh_test"
+  },
+  {
+    "comment": "alter_table - Statement 1126",
+    "query": "ALTER TABLE list_parted2 DROP COLUMN b"
+  },
+  {
+    "comment": "alter_table - Statement 1127",
+    "query": "ALTER TABLE list_parted2 ALTER COLUMN b TYPE text"
+  },
+  {
+    "comment": "alter_table - Statement 1128",
+    "query": "ALTER TABLE list_parted DROP COLUMN b"
+  },
+  {
+    "comment": "alter_table - Statement 1129",
+    "query": "SELECT * FROM list_parted"
+  },
+  {
+    "comment": "alter_table - Statement 1130",
+    "query": "DROP TABLE list_parted, list_parted2, range_parted"
+  },
+  {
+    "comment": "alter_table - Statement 1131",
+    "query": "DROP TABLE fail_def_part"
+  },
+  {
+    "comment": "alter_table - Statement 1132",
+    "query": "DROP TABLE hash_parted"
+  },
+  {
+    "comment": "alter_table - Statement 1133",
+    "query": "create table p (a int, b int) partition by range (a, b)"
+  },
+  {
+    "comment": "alter_table - Statement 1134",
+    "query": "create table p1 (b int, a int not null) partition by range (b)"
+  },
+  {
+    "comment": "alter_table - Statement 1135",
+    "query": "create table p11 (like p1)"
+  },
+  {
+    "comment": "alter_table - Statement 1136",
+    "query": "alter table p11 drop a"
+  },
+  {
+    "comment": "alter_table - Statement 1137",
+    "query": "alter table p11 add a int"
+  },
+  {
+    "comment": "alter_table - Statement 1138",
+    "query": "alter table p11 add a int not null"
+  },
+  {
+    "comment": "alter_table - Statement 1139",
+    "query": "select attrelid::regclass, attname, attnum from pg_attribute where attname = 'a' and (attrelid = 'p'::regclass or attrelid = 'p1'::regclass or attrelid = 'p11'::regclass) order by attrelid::regclass::text"
+  },
+  {
+    "comment": "alter_table - Statement 1140",
+    "query": "alter table p1 attach partition p11 for values from (2) to (5)"
+  },
+  {
+    "comment": "alter_table - Statement 1141",
+    "query": "insert into p1 (a, b) values (2, 3)"
+  },
+  {
+    "comment": "alter_table - Statement 1142",
+    "query": "alter table p attach partition p1 for values from (1, 2) to (1, 10)"
+  },
+  {
+    "comment": "alter_table - Statement 1143",
+    "query": "drop table p"
+  },
+  {
+    "comment": "alter_table - Statement 1144",
+    "query": "drop table p1"
+  },
+  {
+    "comment": "alter_table - Statement 1145",
+    "query": "create table parted_validate_test (a int) partition by list (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1146",
+    "query": "create table parted_validate_test_1 partition of parted_validate_test for values in (0, 1)"
+  },
+  {
+    "comment": "alter_table - Statement 1147",
+    "query": "alter table parted_validate_test add constraint parted_validate_test_chka check (a > 0) not valid"
+  },
+  {
+    "comment": "alter_table - Statement 1148",
+    "query": "alter table parted_validate_test validate constraint parted_validate_test_chka"
+  },
+  {
+    "comment": "alter_table - Statement 1149",
+    "query": "drop table parted_validate_test"
+  },
+  {
+    "comment": "alter_table - Statement 1150",
+    "query": "CREATE TABLE attmp(i integer)"
+  },
+  {
+    "comment": "alter_table - Statement 1151",
+    "query": "INSERT INTO attmp VALUES (1)"
+  },
+  {
+    "comment": "alter_table - Statement 1152",
+    "query": "ALTER TABLE attmp ALTER COLUMN i SET (n_distinct = 1, n_distinct_inherited = 2)"
+  },
+  {
+    "comment": "alter_table - Statement 1153",
+    "query": "ALTER TABLE attmp ALTER COLUMN i RESET (n_distinct_inherited)"
+  },
+  {
+    "comment": "alter_table - Statement 1154",
+    "query": "ANALYZE attmp"
+  },
+  {
+    "comment": "alter_table - Statement 1155",
+    "query": "DROP USER regress_alter_table_user1"
+  },
+  {
+    "comment": "alter_table - Statement 1156",
+    "query": "create table defpart_attach_test (a int) partition by list (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1157",
+    "query": "create table defpart_attach_test1 partition of defpart_attach_test for values in (1)"
+  },
+  {
+    "comment": "alter_table - Statement 1158",
+    "query": "create table defpart_attach_test_d (b int, a int)"
+  },
+  {
+    "comment": "alter_table - Statement 1159",
+    "query": "alter table defpart_attach_test_d drop b"
+  },
+  {
+    "comment": "alter_table - Statement 1160",
+    "query": "insert into defpart_attach_test_d values (1), (2)"
+  },
+  {
+    "comment": "alter_table - Statement 1161",
+    "query": "alter table defpart_attach_test attach partition defpart_attach_test_d default"
+  },
+  {
+    "comment": "alter_table - Statement 1162",
+    "query": "delete from defpart_attach_test_d where a = 1"
+  },
+  {
+    "comment": "alter_table - Statement 1163",
+    "query": "alter table defpart_attach_test_d add check (a > 1)"
+  },
+  {
+    "comment": "alter_table - Statement 1164",
+    "query": "create table defpart_attach_test_2 (like defpart_attach_test_d)"
+  },
+  {
+    "comment": "alter_table - Statement 1165",
+    "query": "alter table defpart_attach_test attach partition defpart_attach_test_2 for values in (2)"
+  },
+  {
+    "comment": "alter_table - Statement 1166",
+    "query": "drop table defpart_attach_test"
+  },
+  {
+    "comment": "alter_table - Statement 1167",
+    "query": "create table perm_part_parent (a int) partition by list (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1168",
+    "query": "create temp table temp_part_parent (a int) partition by list (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1169",
+    "query": "create table perm_part_child (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 1170",
+    "query": "create temp table temp_part_child (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 1171",
+    "query": "alter table temp_part_parent attach partition perm_part_child default"
+  },
+  {
+    "comment": "alter_table - Statement 1172",
+    "query": "alter table perm_part_parent attach partition temp_part_child default"
+  },
+  {
+    "comment": "alter_table - Statement 1173",
+    "query": "alter table temp_part_parent attach partition temp_part_child default"
+  },
+  {
+    "comment": "alter_table - Statement 1174",
+    "query": "drop table perm_part_parent cascade"
+  },
+  {
+    "comment": "alter_table - Statement 1175",
+    "query": "drop table temp_part_parent cascade"
+  },
+  {
+    "comment": "alter_table - Statement 1176",
+    "query": "create table tab_part_attach (a int) partition by list (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1177",
+    "query": "create or replace function func_part_attach() returns trigger language plpgsql as $$ begin execute 'create table tab_part_attach_1 (a int)'"
+  },
+  {
+    "comment": "alter_table - Statement 1178",
+    "query": "execute 'alter table tab_part_attach attach partition tab_part_attach_1 for values in (1)'"
+  },
+  {
+    "comment": "alter_table - Statement 1179",
+    "query": "return null"
+  },
+  {
+    "comment": "alter_table - Statement 1180",
+    "query": "end $$"
+  },
+  {
+    "comment": "alter_table - Statement 1181",
+    "query": "create trigger trig_part_attach before insert on tab_part_attach for each statement execute procedure func_part_attach()"
+  },
+  {
+    "comment": "alter_table - Statement 1182",
+    "query": "insert into tab_part_attach values (1)"
+  },
+  {
+    "comment": "alter_table - Statement 1183",
+    "query": "drop table tab_part_attach"
+  },
+  {
+    "comment": "alter_table - Statement 1184",
+    "query": "drop function func_part_attach()"
+  },
+  {
+    "comment": "alter_table - Statement 1185",
+    "query": "create function at_test_sql_partop (int4, int4) returns int language sql as $$ select case when $1 = $2 then 0 when $1 > $2 then 1 else -1 end; $$"
+  },
+  {
+    "comment": "alter_table - Statement 1186",
+    "query": "create operator class at_test_sql_partop for type int4 using btree as operator 1 < (int4, int4), operator 2 <= (int4, int4), operator 3 = (int4, int4), operator 4 >= (int4, int4), operator 5 > (int4, int4), function 1 at_test_sql_partop(int4, int4)"
+  },
+  {
+    "comment": "alter_table - Statement 1187",
+    "query": "create table at_test_sql_partop (a int) partition by range (a at_test_sql_partop)"
+  },
+  {
+    "comment": "alter_table - Statement 1188",
+    "query": "create table at_test_sql_partop_1 (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 1189",
+    "query": "alter table at_test_sql_partop attach partition at_test_sql_partop_1 for values from (0) to (10)"
+  },
+  {
+    "comment": "alter_table - Statement 1190",
+    "query": "drop table at_test_sql_partop"
+  },
+  {
+    "comment": "alter_table - Statement 1191",
+    "query": "drop operator class at_test_sql_partop using btree"
+  },
+  {
+    "comment": "alter_table - Statement 1192",
+    "query": "drop function at_test_sql_partop"
+  },
+  {
+    "comment": "alter_table - Statement 1193",
+    "query": "/* Test case for bug #16242 */ create table bar1 (a integer, b integer not null default 1) partition by range (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1194",
+    "query": "create table bar2 (a integer)"
+  },
+  {
+    "comment": "alter_table - Statement 1195",
+    "query": "insert into bar2 values (1)"
+  },
+  {
+    "comment": "alter_table - Statement 1196",
+    "query": "alter table bar2 add column b integer not null default 1"
+  },
+  {
+    "comment": "alter_table - Statement 1197",
+    "query": "alter table bar1 attach partition bar2 default"
+  },
+  {
+    "comment": "alter_table - Statement 1198",
+    "query": "select * from bar1"
+  },
+  {
+    "comment": "alter_table - Statement 1199",
+    "query": "create function xtrig() returns trigger language plpgsql as $$ declare r record"
+  },
+  {
+    "comment": "alter_table - Statement 1200",
+    "query": "begin for r in select * from old loop raise info 'a=%, b=%', r.a, r.b"
+  },
+  {
+    "comment": "alter_table - Statement 1201",
+    "query": "end loop"
+  },
+  {
+    "comment": "alter_table - Statement 1202",
+    "query": "create trigger xtrig after update on bar1 referencing old table as old for each statement execute procedure xtrig()"
+  },
+  {
+    "comment": "alter_table - Statement 1203",
+    "query": "update bar1 set a = a + 1"
+  },
+  {
+    "comment": "alter_table - Statement 1204",
+    "query": "/* End test case for bug #16242 */ /* Test case for bug #17409 */ create table attbl (p1 int constraint pk_attbl primary key)"
+  },
+  {
+    "comment": "alter_table - Statement 1205",
+    "query": "create table atref (c1 int references attbl(p1))"
+  },
+  {
+    "comment": "alter_table - Statement 1206",
+    "query": "cluster attbl using pk_attbl"
+  },
+  {
+    "comment": "alter_table - Statement 1207",
+    "query": "alter table attbl alter column p1 set data type bigint"
+  },
+  {
+    "comment": "alter_table - Statement 1208",
+    "query": "alter table atref alter column c1 set data type bigint"
+  },
+  {
+    "comment": "alter_table - Statement 1209",
+    "query": "drop table attbl, atref"
+  },
+  {
+    "comment": "alter_table - Statement 1210",
+    "query": "create table attbl (p1 int constraint pk_attbl primary key)"
+  },
+  {
+    "comment": "alter_table - Statement 1211",
+    "query": "alter table attbl replica identity using index pk_attbl"
+  },
+  {
+    "comment": "alter_table - Statement 1212",
+    "query": "/* End test case for bug #17409 */ create table alttype_cluster (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 1213",
+    "query": "alter table alttype_cluster add primary key (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1214",
+    "query": "create index alttype_cluster_ind on alttype_cluster (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1215",
+    "query": "alter table alttype_cluster cluster on alttype_cluster_ind"
+  },
+  {
+    "comment": "alter_table - Statement 1216",
+    "query": "select indexrelid::regclass, indisclustered from pg_index where indrelid = 'alttype_cluster'::regclass order by indexrelid::regclass::text"
+  },
+  {
+    "comment": "alter_table - Statement 1217",
+    "query": "alter table alttype_cluster alter a type bigint"
+  },
+  {
+    "comment": "alter_table - Statement 1218",
+    "query": "alter table alttype_cluster cluster on alttype_cluster_pkey"
+  },
+  {
+    "comment": "alter_table - Statement 1219",
+    "query": "alter table alttype_cluster alter a type int"
+  },
+  {
+    "comment": "alter_table - Statement 1220",
+    "query": "drop table alttype_cluster"
+  },
+  {
+    "comment": "alter_table - Statement 1221",
+    "query": "create table target_parted (a int, b int) partition by list (a)"
+  },
+  {
+    "comment": "alter_table - Statement 1222",
+    "query": "create table attach_parted (a int, b int) partition by list (b)"
+  },
+  {
+    "comment": "alter_table - Statement 1223",
+    "query": "create table attach_parted_part1 partition of attach_parted for values in (1)"
+  },
+  {
+    "comment": "alter_table - Statement 1224",
+    "query": "insert into attach_parted_part1 values (1, 1)"
+  },
+  {
+    "comment": "alter_table - Statement 1225",
+    "query": "alter table target_parted attach partition attach_parted for values in (1)"
+  },
+  {
+    "comment": "alter_table - Statement 1226",
+    "query": "insert into attach_parted_part1 values (2, 1)"
+  },
+  {
+    "comment": "alter_table - Statement 1227",
+    "query": "alter table target_parted detach partition attach_parted"
+  },
+  {
+    "comment": "alter_table - Statement 1228",
+    "query": "create table alter1.t1 (a int)"
+  },
+  {
+    "comment": "alter_table - Statement 1229",
+    "query": "set client_min_messages = 'ERROR'"
+  },
+  {
+    "comment": "alter_table - Statement 1230",
+    "query": "create publication pub1 for table alter1.t1, tables in schema alter2"
+  },
+  {
+    "comment": "alter_table - Statement 1231",
+    "query": "drop schema alter1 cascade"
+  }
+]

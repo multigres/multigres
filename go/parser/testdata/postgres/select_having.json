@@ -1,0 +1,94 @@
+[
+  {
+    "comment": "select_having - Statement 1",
+    "query": "CREATE TABLE test_having (a int, b int, c char(8), d char)"
+  },
+  {
+    "comment": "select_having - Statement 2",
+    "query": "INSERT INTO test_having VALUES (0, 1, 'XXXX', 'A')"
+  },
+  {
+    "comment": "select_having - Statement 3",
+    "query": "INSERT INTO test_having VALUES (1, 2, 'AAAA', 'b')"
+  },
+  {
+    "comment": "select_having - Statement 4",
+    "query": "INSERT INTO test_having VALUES (2, 2, 'AAAA', 'c')"
+  },
+  {
+    "comment": "select_having - Statement 5",
+    "query": "INSERT INTO test_having VALUES (3, 3, 'BBBB', 'D')"
+  },
+  {
+    "comment": "select_having - Statement 6",
+    "query": "INSERT INTO test_having VALUES (4, 3, 'BBBB', 'e')"
+  },
+  {
+    "comment": "select_having - Statement 7",
+    "query": "INSERT INTO test_having VALUES (5, 3, 'bbbb', 'F')"
+  },
+  {
+    "comment": "select_having - Statement 8",
+    "query": "INSERT INTO test_having VALUES (6, 4, 'cccc', 'g')"
+  },
+  {
+    "comment": "select_having - Statement 9",
+    "query": "INSERT INTO test_having VALUES (7, 4, 'cccc', 'h')"
+  },
+  {
+    "comment": "select_having - Statement 10",
+    "query": "INSERT INTO test_having VALUES (8, 4, 'CCCC', 'I')"
+  },
+  {
+    "comment": "select_having - Statement 11",
+    "query": "INSERT INTO test_having VALUES (9, 4, 'CCCC', 'j')"
+  },
+  {
+    "comment": "select_having - Statement 12",
+    "query": "SELECT b, c FROM test_having GROUP BY b, c HAVING count(*) = 1 ORDER BY b, c"
+  },
+  {
+    "comment": "select_having - Statement 13",
+    "query": "SELECT b, c FROM test_having GROUP BY b, c HAVING b = 3 ORDER BY b, c"
+  },
+  {
+    "comment": "select_having - Statement 14",
+    "query": "SELECT lower(c), count(c) FROM test_having GROUP BY lower(c) HAVING count(*) > 2 OR min(a) = max(a) ORDER BY lower(c)"
+  },
+  {
+    "comment": "select_having - Statement 15",
+    "query": "SELECT c, max(a) FROM test_having GROUP BY c HAVING count(*) > 2 OR min(a) = max(a) ORDER BY c"
+  },
+  {
+    "comment": "select_having - Statement 16",
+    "query": "SELECT min(a), max(a) FROM test_having HAVING min(a) = max(a)"
+  },
+  {
+    "comment": "select_having - Statement 17",
+    "query": "SELECT min(a), max(a) FROM test_having HAVING min(a) < max(a)"
+  },
+  {
+    "comment": "select_having - Statement 18",
+    "query": "SELECT a FROM test_having HAVING min(a) < max(a)"
+  },
+  {
+    "comment": "select_having - Statement 19",
+    "query": "SELECT 1 AS one FROM test_having HAVING a > 1"
+  },
+  {
+    "comment": "select_having - Statement 20",
+    "query": "SELECT 1 AS one FROM test_having HAVING 1 > 2"
+  },
+  {
+    "comment": "select_having - Statement 21",
+    "query": "SELECT 1 AS one FROM test_having HAVING 1 < 2"
+  },
+  {
+    "comment": "select_having - Statement 22",
+    "query": "SELECT 1 AS one FROM test_having WHERE 1/a = 1 HAVING 1 < 2"
+  },
+  {
+    "comment": "select_having - Statement 23",
+    "query": "DROP TABLE test_having"
+  }
+]

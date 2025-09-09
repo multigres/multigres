@@ -1,0 +1,278 @@
+[
+  {
+    "comment": "macaddr8 - Statement 1",
+    "query": "SELECT '08:00:2b:01:02:03     '::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 2",
+    "query": "SELECT '    08:00:2b:01:02:03     '::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 3",
+    "query": "SELECT '    08:00:2b:01:02:03'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 4",
+    "query": "SELECT '08:00:2b:01:02:03:04:05     '::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 5",
+    "query": "SELECT '    08:00:2b:01:02:03:04:05     '::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 6",
+    "query": "SELECT '    08:00:2b:01:02:03:04:05'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 7",
+    "query": "SELECT '123    08:00:2b:01:02:03'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 8",
+    "query": "SELECT '08:00:2b:01:02:03  123'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 9",
+    "query": "SELECT '123    08:00:2b:01:02:03:04:05'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 10",
+    "query": "SELECT '08:00:2b:01:02:03:04:05  123'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 11",
+    "query": "SELECT '08:00:2b:01:02:03:04:05:06:07'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 12",
+    "query": "SELECT '08-00-2b-01-02-03-04-05-06-07'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 13",
+    "query": "SELECT '08002b:01020304050607'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 14",
+    "query": "SELECT '08002b01020304050607'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 15",
+    "query": "SELECT '0z002b0102030405'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 16",
+    "query": "SELECT '08002b010203xyza'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 17",
+    "query": "SELECT '08:00-2b:01:02:03:04:05'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 18",
+    "query": "SELECT '08:00:2b:01.02:03:04:05'::macaddr8"
+  },
+  {
+    "comment": "macaddr8 - Statement 19",
+    "query": "SELECT macaddr8_set7bit('00:08:2b:01:02:03'::macaddr8)"
+  },
+  {
+    "comment": "macaddr8 - Statement 20",
+    "query": "CREATE TABLE macaddr8_data (a int, b macaddr8)"
+  },
+  {
+    "comment": "macaddr8 - Statement 21",
+    "query": "INSERT INTO macaddr8_data VALUES (1, '08:00:2b:01:02:03')"
+  },
+  {
+    "comment": "macaddr8 - Statement 22",
+    "query": "INSERT INTO macaddr8_data VALUES (2, '08-00-2b-01-02-03')"
+  },
+  {
+    "comment": "macaddr8 - Statement 23",
+    "query": "INSERT INTO macaddr8_data VALUES (3, '08002b:010203')"
+  },
+  {
+    "comment": "macaddr8 - Statement 24",
+    "query": "INSERT INTO macaddr8_data VALUES (4, '08002b-010203')"
+  },
+  {
+    "comment": "macaddr8 - Statement 25",
+    "query": "INSERT INTO macaddr8_data VALUES (5, '0800.2b01.0203')"
+  },
+  {
+    "comment": "macaddr8 - Statement 26",
+    "query": "INSERT INTO macaddr8_data VALUES (6, '0800-2b01-0203')"
+  },
+  {
+    "comment": "macaddr8 - Statement 27",
+    "query": "INSERT INTO macaddr8_data VALUES (7, '08002b010203')"
+  },
+  {
+    "comment": "macaddr8 - Statement 28",
+    "query": "INSERT INTO macaddr8_data VALUES (8, '0800:2b01:0203')"
+  },
+  {
+    "comment": "macaddr8 - Statement 29",
+    "query": "INSERT INTO macaddr8_data VALUES (9, 'not even close')"
+  },
+  {
+    "comment": "macaddr8 - Statement 30",
+    "query": "INSERT INTO macaddr8_data VALUES (10, '08:00:2b:01:02:04')"
+  },
+  {
+    "comment": "macaddr8 - Statement 31",
+    "query": "INSERT INTO macaddr8_data VALUES (11, '08:00:2b:01:02:02')"
+  },
+  {
+    "comment": "macaddr8 - Statement 32",
+    "query": "INSERT INTO macaddr8_data VALUES (12, '08:00:2a:01:02:03')"
+  },
+  {
+    "comment": "macaddr8 - Statement 33",
+    "query": "INSERT INTO macaddr8_data VALUES (13, '08:00:2c:01:02:03')"
+  },
+  {
+    "comment": "macaddr8 - Statement 34",
+    "query": "INSERT INTO macaddr8_data VALUES (14, '08:00:2a:01:02:04')"
+  },
+  {
+    "comment": "macaddr8 - Statement 35",
+    "query": "INSERT INTO macaddr8_data VALUES (15, '08:00:2b:01:02:03:04:05')"
+  },
+  {
+    "comment": "macaddr8 - Statement 36",
+    "query": "INSERT INTO macaddr8_data VALUES (16, '08-00-2b-01-02-03-04-05')"
+  },
+  {
+    "comment": "macaddr8 - Statement 37",
+    "query": "INSERT INTO macaddr8_data VALUES (17, '08002b:0102030405')"
+  },
+  {
+    "comment": "macaddr8 - Statement 38",
+    "query": "INSERT INTO macaddr8_data VALUES (18, '08002b-0102030405')"
+  },
+  {
+    "comment": "macaddr8 - Statement 39",
+    "query": "INSERT INTO macaddr8_data VALUES (19, '0800.2b01.0203.0405')"
+  },
+  {
+    "comment": "macaddr8 - Statement 40",
+    "query": "INSERT INTO macaddr8_data VALUES (20, '08002b01:02030405')"
+  },
+  {
+    "comment": "macaddr8 - Statement 41",
+    "query": "INSERT INTO macaddr8_data VALUES (21, '08002b0102030405')"
+  },
+  {
+    "comment": "macaddr8 - Statement 42",
+    "query": "SELECT * FROM macaddr8_data ORDER BY 1"
+  },
+  {
+    "comment": "macaddr8 - Statement 43",
+    "query": "CREATE INDEX macaddr8_data_btree ON macaddr8_data USING btree (b)"
+  },
+  {
+    "comment": "macaddr8 - Statement 44",
+    "query": "CREATE INDEX macaddr8_data_hash ON macaddr8_data USING hash (b)"
+  },
+  {
+    "comment": "macaddr8 - Statement 45",
+    "query": "SELECT a, b, trunc(b) FROM macaddr8_data ORDER BY 2, 1"
+  },
+  {
+    "comment": "macaddr8 - Statement 46",
+    "query": "SELECT b <  '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr8 - Statement 47",
+    "query": "SELECT b >  '08:00:2b:ff:fe:01:02:04' FROM macaddr8_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr8 - Statement 48",
+    "query": "SELECT b >  '08:00:2b:ff:fe:01:02:03' FROM macaddr8_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr8 - Statement 49",
+    "query": "SELECT b::macaddr <= '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr8 - Statement 50",
+    "query": "SELECT b::macaddr >= '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr8 - Statement 51",
+    "query": "SELECT b =  '08:00:2b:ff:fe:01:02:03' FROM macaddr8_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr8 - Statement 52",
+    "query": "SELECT b::macaddr <> '08:00:2b:01:02:04'::macaddr FROM macaddr8_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr8 - Statement 53",
+    "query": "SELECT b::macaddr <> '08:00:2b:01:02:03'::macaddr FROM macaddr8_data WHERE a = 1"
+  },
+  {
+    "comment": "macaddr8 - Statement 54",
+    "query": "SELECT b <  '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
+  },
+  {
+    "comment": "macaddr8 - Statement 55",
+    "query": "SELECT b >  '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
+  },
+  {
+    "comment": "macaddr8 - Statement 56",
+    "query": "SELECT b >  '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15"
+  },
+  {
+    "comment": "macaddr8 - Statement 57",
+    "query": "SELECT b <= '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
+  },
+  {
+    "comment": "macaddr8 - Statement 58",
+    "query": "SELECT b >= '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
+  },
+  {
+    "comment": "macaddr8 - Statement 59",
+    "query": "SELECT b =  '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15"
+  },
+  {
+    "comment": "macaddr8 - Statement 60",
+    "query": "SELECT b <> '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
+  },
+  {
+    "comment": "macaddr8 - Statement 61",
+    "query": "SELECT b <> '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15"
+  },
+  {
+    "comment": "macaddr8 - Statement 62",
+    "query": "SELECT ~b                       FROM macaddr8_data"
+  },
+  {
+    "comment": "macaddr8 - Statement 63",
+    "query": "SELECT  b & '00:00:00:ff:ff:ff' FROM macaddr8_data"
+  },
+  {
+    "comment": "macaddr8 - Statement 64",
+    "query": "SELECT  b | '01:02:03:04:05:06' FROM macaddr8_data"
+  },
+  {
+    "comment": "macaddr8 - Statement 65",
+    "query": "DROP TABLE macaddr8_data"
+  },
+  {
+    "comment": "macaddr8 - Statement 66",
+    "query": "SELECT pg_input_is_valid('08:00:2b:01:02:03:04:ZZ', 'macaddr8')"
+  },
+  {
+    "comment": "macaddr8 - Statement 67",
+    "query": "SELECT * FROM pg_input_error_info('08:00:2b:01:02:03:04:ZZ', 'macaddr8')"
+  },
+  {
+    "comment": "macaddr8 - Statement 68",
+    "query": "SELECT pg_input_is_valid('08:00:2b:01:02:03:04:', 'macaddr8')"
+  },
+  {
+    "comment": "macaddr8 - Statement 69",
+    "query": "SELECT * FROM pg_input_error_info('08:00:2b:01:02:03:04:', 'macaddr8')"
+  }
+]

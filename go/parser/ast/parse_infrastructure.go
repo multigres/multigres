@@ -100,7 +100,7 @@ func (a *A_Expr) SqlString() string {
 		if a.Name == nil || a.Name.Len() == 0 {
 			return "UNKNOWN_OP"
 		}
-		
+
 		// Check if this is a qualified operator (OPERATOR(schema.op) syntax)
 		// Qualified operators have multiple items in the Name list
 		if a.Name.Len() > 1 {
@@ -115,7 +115,7 @@ func (a *A_Expr) SqlString() string {
 			}
 			// Join the parts with dots (e.g., "pg_catalog" "+" becomes "pg_catalog.+")
 			qualifiedOp := strings.Join(parts, ".")
-			
+
 			// Format the expression with OPERATOR syntax
 			if a.Lexpr != nil && a.Rexpr != nil {
 				leftStr := a.Lexpr.SqlString()
@@ -128,7 +128,7 @@ func (a *A_Expr) SqlString() string {
 			}
 			return "UNKNOWN_EXPR"
 		}
-		
+
 		// Simple operator (not qualified)
 		firstItem := a.Name.Items[0]
 		// For operators, we need the raw string value, not the SQL quoted version
@@ -170,7 +170,7 @@ func (a *A_Expr) SqlString() string {
 			}
 			// Check if Rexpr is a SubLink (for subqueries)
 			if sublink, ok := a.Rexpr.(*SubLink); ok {
-				// SubLink will handle its own deparsing  
+				// SubLink will handle its own deparsing
 				if op == "<>" {
 					return fmt.Sprintf("%s NOT IN %s", leftStr, sublink.SqlString())
 				}
@@ -205,6 +205,10 @@ func (a *A_Expr) SqlString() string {
 
 func (a *A_Expr) ExpressionType() string {
 	return "A_EXPR"
+}
+
+func (a *A_Expr) IsExpr() bool {
+	return true
 }
 
 // A_Const represents a constant value in the parse tree.
@@ -294,6 +298,10 @@ func (p *ParamRef) ExpressionType() string {
 	return "PARAM_REF"
 }
 
+func (p *ParamRef) IsExpr() bool {
+	return true
+}
+
 // SqlString returns the SQL representation of the ParamRef
 func (p *ParamRef) SqlString() string {
 	return fmt.Sprintf("$%d", p.Number)
@@ -367,7 +375,7 @@ func (t *TypeCast) SqlString() string {
 								return fmt.Sprintf("INTERVAL(%d) %s", precision.IVal, argStr)
 							}
 						}
-						// INTERVAL 'value' format for full range without precision 
+						// INTERVAL 'value' format for full range without precision
 						return fmt.Sprintf("INTERVAL %s", argStr)
 					} else if intervalUnit != "" {
 						// INTERVAL 'value' UNIT format for specific units
@@ -387,7 +395,7 @@ func intervalMaskToString(mask int) string {
 	case INTERVAL_MASK_YEAR:
 		return "YEAR"
 	case INTERVAL_MASK_MONTH:
-		return "MONTH" 
+		return "MONTH"
 	case INTERVAL_MASK_DAY:
 		return "DAY"
 	case INTERVAL_MASK_HOUR:
@@ -429,8 +437,16 @@ func (t *TypeCast) ExpressionType() string {
 	return "TYPE_CAST"
 }
 
+func (t *TypeCast) IsExpr() bool {
+	return true
+}
+
 func (p *ParenExpr) ExpressionType() string {
 	return "PAREN_EXPR"
+}
+
+func (p *ParenExpr) IsExpr() bool {
+	return true
 }
 
 // FuncCall represents a function call in the parse tree.
@@ -555,7 +571,7 @@ func (f *FuncCall) SqlString() string {
 
 	// Build argument list
 	argStrs := []string{}
-	
+
 	if f.Args != nil {
 		for _, arg := range f.Args.Items {
 			if arg != nil {
@@ -567,7 +583,7 @@ func (f *FuncCall) SqlString() string {
 	if f.AggStar {
 		argStrs = append(argStrs, "*")
 	}
-	
+
 	// Prepend DISTINCT qualifier if needed
 	if f.AggDistinct && len(argStrs) > 0 {
 		argStrs[0] = "DISTINCT " + argStrs[0]
@@ -627,7 +643,7 @@ func (f *FuncCall) SqlString() string {
 			(f.Over.PartitionClause == nil || f.Over.PartitionClause.Len() == 0) &&
 			(f.Over.OrderClause == nil || f.Over.OrderClause.Len() == 0) &&
 			(f.Over.FrameOptions == 0 || f.Over.FrameOptions == FRAMEOPTION_DEFAULTS)
-		
+
 		if hasOnlyReference {
 			// Pure window reference - no parentheses
 			result += " OVER " + windowSpec
@@ -642,6 +658,10 @@ func (f *FuncCall) SqlString() string {
 
 func (f *FuncCall) ExpressionType() string {
 	return "FUNC_CALL"
+}
+
+func (f *FuncCall) IsExpr() bool {
+	return true
 }
 
 // A_Star represents an asterisk (*) in the parse tree, typically used in SELECT *.
@@ -665,6 +685,10 @@ func (a *A_Star) String() string {
 
 func (a *A_Star) ExpressionType() string {
 	return "A_STAR"
+}
+
+func (a *A_Star) IsExpr() bool {
+	return true
 }
 
 // SqlString returns the SQL representation of A_Star
@@ -713,6 +737,10 @@ func (a *A_Indices) String() string {
 
 func (a *A_Indices) ExpressionType() string {
 	return "A_INDICES"
+}
+
+func (a *A_Indices) IsExpr() bool {
+	return true
 }
 
 // SqlString returns the SQL representation of A_Indices (handles both single index and slice)
@@ -766,6 +794,46 @@ func (a *A_Indirection) ExpressionType() string {
 	return "A_INDIRECTION"
 }
 
+func (a *A_Indirection) IsExpr() bool {
+	return true
+}
+
+// SqlString returns the SQL representation of A_Indirection
+func (a *A_Indirection) SqlString() string {
+	var result strings.Builder
+
+	// Write the base expression
+	if a.Arg != nil {
+		if expr, ok := a.Arg.(Expression); ok {
+			result.WriteString(expr.SqlString())
+		} else if cn, ok := a.Arg.(*ColumnRef); ok {
+			result.WriteString(cn.SqlString())
+		} else {
+			result.WriteString(a.Arg.String())
+		}
+	}
+
+	// Handle indirections (field access or array subscripts)
+	if a.Indirection != nil && len(a.Indirection.Items) > 0 {
+		for _, ind := range a.Indirection.Items {
+			switch indNode := ind.(type) {
+			case *String:
+				// Field access: obj.field
+				result.WriteString(".")
+				result.WriteString(indNode.SVal)
+			case *A_Indices:
+				// Array subscript: obj[index] or obj[lower:upper]
+				result.WriteString(indNode.SqlString())
+			default:
+				// Fallback for unknown indirection types
+				result.WriteString(".<unknown>")
+			}
+		}
+	}
+
+	return result.String()
+}
+
 // A_ArrayExpr represents an array expression in the parse tree (e.g., ARRAY[1,2,3]).
 // Ported from postgres/src/include/nodes/parsenodes.h:489-501
 type A_ArrayExpr struct {
@@ -793,6 +861,10 @@ func (a *A_ArrayExpr) String() string {
 
 func (a *A_ArrayExpr) ExpressionType() string {
 	return "A_ARRAY_EXPR"
+}
+
+func (a *A_ArrayExpr) IsExpr() bool {
+	return true
 }
 
 // Note: CollateClause and TypeName already exist in ddl_statements.go
@@ -925,6 +997,10 @@ func (w *WithClause) ExpressionType() string {
 	return "WITH_CLAUSE"
 }
 
+func (w *WithClause) IsExpr() bool {
+	return true
+}
+
 // SqlString returns the SQL representation of the WithClause
 func (w *WithClause) SqlString() string {
 	if w.Ctes == nil || len(w.Ctes.Items) == 0 {
@@ -976,6 +1052,10 @@ func (m *MultiAssignRef) String() string {
 
 func (m *MultiAssignRef) ExpressionType() string {
 	return "MULTI_ASSIGN_REF"
+}
+
+func (m *MultiAssignRef) IsExpr() bool {
+	return true
 }
 
 // SqlString returns the SQL representation of MultiAssignRef
@@ -1158,7 +1238,7 @@ func (w *WindowDef) renderFrameBoundary(isStart bool) string {
 
 func (w *WindowDef) SqlStringForContext(inWindowClause bool) string {
 	var parts []string
-	
+
 	// Add window reference if present
 	if w.Refname != "" {
 		parts = append(parts, w.Refname)
@@ -1517,6 +1597,43 @@ func (x *XmlSerialize) ExpressionType() string {
 	return "XML_SERIALIZE"
 }
 
+func (x *XmlSerialize) IsExpr() bool {
+	return true
+}
+
+// SqlString returns the SQL representation of XmlSerialize
+func (x *XmlSerialize) SqlString() string {
+	var result strings.Builder
+	result.WriteString("XMLSERIALIZE(")
+	
+	// Add DOCUMENT or CONTENT
+	switch x.XmlOptionType {
+	case XMLOPTION_DOCUMENT:
+		result.WriteString("DOCUMENT ")
+	case XMLOPTION_CONTENT:
+		result.WriteString("CONTENT ")
+	}
+	
+	// Add the expression
+	if x.Expr != nil {
+		result.WriteString(x.Expr.SqlString())
+	}
+	
+	// Add AS TYPE
+	if x.TypeName != nil {
+		result.WriteString(" AS ")
+		result.WriteString(x.TypeName.SqlString())
+	}
+	
+	// Add INDENT if specified
+	if x.Indent {
+		result.WriteString(" INDENT")
+	}
+	
+	result.WriteString(")")
+	return result.String()
+}
+
 // PartitionElem represents a partition element in partition specifications.
 // Ported from postgres/src/include/nodes/parsenodes.h:860-881
 type PartitionElem struct {
@@ -1637,6 +1754,10 @@ func (o *ObjectWithArgs) SqlString() string {
 	if !o.ArgsUnspecified && o.Objargs != nil {
 		var args []string
 		for _, item := range o.Objargs.Items {
+			if item == nil {
+				args = append(args, "NONE")
+				continue
+			}
 			args = append(args, item.SqlString())
 		}
 		parts = append(parts, "("+strings.Join(args, ", ")+")")
@@ -1653,7 +1774,7 @@ func ExtractArgTypes(funcArgs *NodeList) *NodeList {
 	if funcArgs == nil {
 		return nil
 	}
-	
+
 	argTypes := NewNodeList()
 	for i := 0; i < funcArgs.Len(); i++ {
 		if funcParam, ok := funcArgs.Items[i].(*FunctionParameter); ok {
@@ -1662,7 +1783,7 @@ func ExtractArgTypes(funcArgs *NodeList) *NodeList {
 			}
 		}
 	}
-	
+
 	return argTypes
 }
 

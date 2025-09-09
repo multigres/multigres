@@ -1,0 +1,390 @@
+[
+  {
+    "comment": "box - Statement 1",
+    "query": "CREATE TABLE BOX_TBL (f1 box)"
+  },
+  {
+    "comment": "box - Statement 2",
+    "query": "INSERT INTO BOX_TBL (f1) VALUES ('(2.0,2.0,0.0,0.0)')"
+  },
+  {
+    "comment": "box - Statement 3",
+    "query": "INSERT INTO BOX_TBL (f1) VALUES ('(1.0,1.0,3.0,3.0)')"
+  },
+  {
+    "comment": "box - Statement 4",
+    "query": "INSERT INTO BOX_TBL (f1) VALUES ('((-8, 2), (-2, -10))')"
+  },
+  {
+    "comment": "box - Statement 5",
+    "query": "INSERT INTO BOX_TBL (f1) VALUES ('(2.5, 2.5, 2.5,3.5)')"
+  },
+  {
+    "comment": "box - Statement 6",
+    "query": "INSERT INTO BOX_TBL (f1) VALUES ('(3.0, 3.0,3.0,3.0)')"
+  },
+  {
+    "comment": "box - Statement 7",
+    "query": "INSERT INTO BOX_TBL (f1) VALUES ('(2.3, 4.5)')"
+  },
+  {
+    "comment": "box - Statement 8",
+    "query": "INSERT INTO BOX_TBL (f1) VALUES ('[1, 2, 3, 4)')"
+  },
+  {
+    "comment": "box - Statement 9",
+    "query": "INSERT INTO BOX_TBL (f1) VALUES ('(1, 2, 3, 4]')"
+  },
+  {
+    "comment": "box - Statement 10",
+    "query": "INSERT INTO BOX_TBL (f1) VALUES ('(1, 2, 3, 4) x')"
+  },
+  {
+    "comment": "box - Statement 11",
+    "query": "INSERT INTO BOX_TBL (f1) VALUES ('asdfasdf(ad')"
+  },
+  {
+    "comment": "box - Statement 12",
+    "query": "SELECT * FROM BOX_TBL"
+  },
+  {
+    "comment": "box - Statement 13",
+    "query": "SELECT b.*, area(b.f1) as barea FROM BOX_TBL b"
+  },
+  {
+    "comment": "box - Statement 14",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE b.f1 && box '(2.5,2.5,1.0,1.0)'"
+  },
+  {
+    "comment": "box - Statement 15",
+    "query": "SELECT b1.* FROM BOX_TBL b1 WHERE b1.f1 &< box '(2.0,2.0,2.5,2.5)'"
+  },
+  {
+    "comment": "box - Statement 16",
+    "query": "SELECT b1.* FROM BOX_TBL b1 WHERE b1.f1 &> box '(2.0,2.0,2.5,2.5)'"
+  },
+  {
+    "comment": "box - Statement 17",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE b.f1 << box '(3.0,3.0,5.0,5.0)'"
+  },
+  {
+    "comment": "box - Statement 18",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE b.f1 <= box '(3.0,3.0,5.0,5.0)'"
+  },
+  {
+    "comment": "box - Statement 19",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE b.f1 < box '(3.0,3.0,5.0,5.0)'"
+  },
+  {
+    "comment": "box - Statement 20",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE b.f1 = box '(3.0,3.0,5.0,5.0)'"
+  },
+  {
+    "comment": "box - Statement 21",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE b.f1 > box '(3.5,3.0,4.5,3.0)'"
+  },
+  {
+    "comment": "box - Statement 22",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE b.f1 >= box '(3.5,3.0,4.5,3.0)'"
+  },
+  {
+    "comment": "box - Statement 23",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE box '(3.0,3.0,5.0,5.0)' >> b.f1"
+  },
+  {
+    "comment": "box - Statement 24",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE b.f1 <@ box '(0,0,3,3)'"
+  },
+  {
+    "comment": "box - Statement 25",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE box '(0,0,3,3)' @> b.f1"
+  },
+  {
+    "comment": "box - Statement 26",
+    "query": "SELECT b.f1 FROM BOX_TBL b WHERE box '(1,1,3,3)' ~= b.f1"
+  },
+  {
+    "comment": "box - Statement 27",
+    "query": "SELECT @@(b1.f1) AS p FROM BOX_TBL b1"
+  },
+  {
+    "comment": "box - Statement 28",
+    "query": "SELECT b1.*, b2.* FROM BOX_TBL b1, BOX_TBL b2 WHERE b1.f1 @> b2.f1 and not b1.f1 ~= b2.f1"
+  },
+  {
+    "comment": "box - Statement 29",
+    "query": "SELECT height(f1), width(f1) FROM BOX_TBL"
+  },
+  {
+    "comment": "box - Statement 30",
+    "query": "CREATE TEMPORARY TABLE box_temp (f1 box)"
+  },
+  {
+    "comment": "box - Statement 31",
+    "query": "INSERT INTO box_temp SELECT box(point(i, i), point(i * 2, i * 2)) FROM generate_series(1, 50) AS i"
+  },
+  {
+    "comment": "box - Statement 32",
+    "query": "CREATE INDEX box_spgist ON box_temp USING spgist (f1)"
+  },
+  {
+    "comment": "box - Statement 33",
+    "query": "INSERT INTO box_temp VALUES (NULL), ('(0,0)(0,100)'), ('(-3,4.3333333333)(40,1)'), ('(0,100)(0,infinity)'), ('(-infinity,0)(0,infinity)'), ('(-infinity,-infinity)(infinity,infinity)')"
+  },
+  {
+    "comment": "box - Statement 34",
+    "query": "SET enable_seqscan = false"
+  },
+  {
+    "comment": "box - Statement 35",
+    "query": "SELECT * FROM box_temp WHERE f1 << '(10,20),(30,40)'"
+  },
+  {
+    "comment": "box - Statement 36",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 << '(10,20),(30,40)'"
+  },
+  {
+    "comment": "box - Statement 37",
+    "query": "SELECT * FROM box_temp WHERE f1 &< '(10,4.333334),(5,100)'"
+  },
+  {
+    "comment": "box - Statement 38",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 &< '(10,4.333334),(5,100)'"
+  },
+  {
+    "comment": "box - Statement 39",
+    "query": "SELECT * FROM box_temp WHERE f1 && '(15,20),(25,30)'"
+  },
+  {
+    "comment": "box - Statement 40",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 && '(15,20),(25,30)'"
+  },
+  {
+    "comment": "box - Statement 41",
+    "query": "SELECT * FROM box_temp WHERE f1 &> '(40,30),(45,50)'"
+  },
+  {
+    "comment": "box - Statement 42",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 &> '(40,30),(45,50)'"
+  },
+  {
+    "comment": "box - Statement 43",
+    "query": "SELECT * FROM box_temp WHERE f1 >> '(30,40),(40,30)'"
+  },
+  {
+    "comment": "box - Statement 44",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 >> '(30,40),(40,30)'"
+  },
+  {
+    "comment": "box - Statement 45",
+    "query": "SELECT * FROM box_temp WHERE f1 <<| '(10,4.33334),(5,100)'"
+  },
+  {
+    "comment": "box - Statement 46",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 <<| '(10,4.33334),(5,100)'"
+  },
+  {
+    "comment": "box - Statement 47",
+    "query": "SELECT * FROM box_temp WHERE f1 &<| '(10,4.3333334),(5,1)'"
+  },
+  {
+    "comment": "box - Statement 48",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 &<| '(10,4.3333334),(5,1)'"
+  },
+  {
+    "comment": "box - Statement 49",
+    "query": "SELECT * FROM box_temp WHERE f1 |&> '(49.99,49.99),(49.99,49.99)'"
+  },
+  {
+    "comment": "box - Statement 50",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 |&> '(49.99,49.99),(49.99,49.99)'"
+  },
+  {
+    "comment": "box - Statement 51",
+    "query": "SELECT * FROM box_temp WHERE f1 |>> '(37,38),(39,40)'"
+  },
+  {
+    "comment": "box - Statement 52",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 |>> '(37,38),(39,40)'"
+  },
+  {
+    "comment": "box - Statement 53",
+    "query": "SELECT * FROM box_temp WHERE f1 @> '(10,11),(15,16)'"
+  },
+  {
+    "comment": "box - Statement 54",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 @> '(10,11),(15,15)'"
+  },
+  {
+    "comment": "box - Statement 55",
+    "query": "SELECT * FROM box_temp WHERE f1 <@ '(10,15),(30,35)'"
+  },
+  {
+    "comment": "box - Statement 56",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 <@ '(10,15),(30,35)'"
+  },
+  {
+    "comment": "box - Statement 57",
+    "query": "SELECT * FROM box_temp WHERE f1 ~= '(20,20),(40,40)'"
+  },
+  {
+    "comment": "box - Statement 58",
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 ~= '(20,20),(40,40)'"
+  },
+  {
+    "comment": "box - Statement 59",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "box - Statement 60",
+    "query": "DROP INDEX box_spgist"
+  },
+  {
+    "comment": "box - Statement 61",
+    "query": "CREATE TABLE quad_box_tbl (id int, b box)"
+  },
+  {
+    "comment": "box - Statement 62",
+    "query": "INSERT INTO quad_box_tbl SELECT (x - 1) * 100 + y, box(point(x * 10, y * 10), point(x * 10 + 5, y * 10 + 5)) FROM generate_series(1, 100) x, generate_series(1, 100) y"
+  },
+  {
+    "comment": "box - Statement 63",
+    "query": "INSERT INTO quad_box_tbl SELECT i, '((200, 300),(210, 310))' FROM generate_series(10001, 11000) AS i"
+  },
+  {
+    "comment": "box - Statement 64",
+    "query": "INSERT INTO quad_box_tbl VALUES (11001, NULL), (11002, NULL), (11003, '((-infinity,-infinity),(infinity,infinity))'), (11004, '((-infinity,100),(-infinity,500))'), (11005, '((-infinity,-infinity),(700,infinity))')"
+  },
+  {
+    "comment": "box - Statement 65",
+    "query": "CREATE INDEX quad_box_tbl_idx ON quad_box_tbl USING spgist(b)"
+  },
+  {
+    "comment": "box - Statement 66",
+    "query": "SET enable_seqscan = ON"
+  },
+  {
+    "comment": "box - Statement 67",
+    "query": "SET enable_indexscan = OFF"
+  },
+  {
+    "comment": "box - Statement 68",
+    "query": "SET enable_bitmapscan = OFF"
+  },
+  {
+    "comment": "box - Statement 69",
+    "query": "CREATE TABLE quad_box_tbl_ord_seq1 AS SELECT rank() OVER (ORDER BY b <-> point '123,456') n, b <-> point '123,456' dist, id FROM quad_box_tbl"
+  },
+  {
+    "comment": "box - Statement 70",
+    "query": "CREATE TABLE quad_box_tbl_ord_seq2 AS SELECT rank() OVER (ORDER BY b <-> point '123,456') n, b <-> point '123,456' dist, id FROM quad_box_tbl WHERE b <@ box '((200,300),(500,600))'"
+  },
+  {
+    "comment": "box - Statement 71",
+    "query": "SET enable_seqscan = OFF"
+  },
+  {
+    "comment": "box - Statement 72",
+    "query": "SET enable_indexscan = ON"
+  },
+  {
+    "comment": "box - Statement 73",
+    "query": "SET enable_bitmapscan = ON"
+  },
+  {
+    "comment": "box - Statement 74",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b <<  box '((100,200),(300,500))'"
+  },
+  {
+    "comment": "box - Statement 75",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b &<  box '((100,200),(300,500))'"
+  },
+  {
+    "comment": "box - Statement 76",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b &&  box '((100,200),(300,500))'"
+  },
+  {
+    "comment": "box - Statement 77",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b &>  box '((100,200),(300,500))'"
+  },
+  {
+    "comment": "box - Statement 78",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b >>  box '((100,200),(300,500))'"
+  },
+  {
+    "comment": "box - Statement 79",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b <<| box '((100,200),(300,500))'"
+  },
+  {
+    "comment": "box - Statement 80",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b &<| box '((100,200),(300,500))'"
+  },
+  {
+    "comment": "box - Statement 81",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b |&> box '((100,200),(300,500))'"
+  },
+  {
+    "comment": "box - Statement 82",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b |>> box '((100,200),(300,500))'"
+  },
+  {
+    "comment": "box - Statement 83",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b @>  box '((201,301),(202,303))'"
+  },
+  {
+    "comment": "box - Statement 84",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b <@  box '((100,200),(300,500))'"
+  },
+  {
+    "comment": "box - Statement 85",
+    "query": "SELECT count(*) FROM quad_box_tbl WHERE b ~=  box '((200,300),(205,305))'"
+  },
+  {
+    "comment": "box - Statement 86",
+    "query": "EXPLAIN (COSTS OFF) SELECT rank() OVER (ORDER BY b <-> point '123,456') n, b <-> point '123,456' dist, id FROM quad_box_tbl"
+  },
+  {
+    "comment": "box - Statement 87",
+    "query": "CREATE TEMP TABLE quad_box_tbl_ord_idx1 AS SELECT rank() OVER (ORDER BY b <-> point '123,456') n, b <-> point '123,456' dist, id FROM quad_box_tbl"
+  },
+  {
+    "comment": "box - Statement 88",
+    "query": "SELECT * FROM quad_box_tbl_ord_seq1 seq FULL JOIN quad_box_tbl_ord_idx1 idx ON seq.n = idx.n AND seq.id = idx.id AND (seq.dist = idx.dist OR seq.dist IS NULL AND idx.dist IS NULL) WHERE seq.id IS NULL OR idx.id IS NULL"
+  },
+  {
+    "comment": "box - Statement 89",
+    "query": "EXPLAIN (COSTS OFF) SELECT rank() OVER (ORDER BY b <-> point '123,456') n, b <-> point '123,456' dist, id FROM quad_box_tbl WHERE b <@ box '((200,300),(500,600))'"
+  },
+  {
+    "comment": "box - Statement 90",
+    "query": "CREATE TEMP TABLE quad_box_tbl_ord_idx2 AS SELECT rank() OVER (ORDER BY b <-> point '123,456') n, b <-> point '123,456' dist, id FROM quad_box_tbl WHERE b <@ box '((200,300),(500,600))'"
+  },
+  {
+    "comment": "box - Statement 91",
+    "query": "SELECT * FROM quad_box_tbl_ord_seq2 seq FULL JOIN quad_box_tbl_ord_idx2 idx ON seq.n = idx.n AND seq.id = idx.id AND (seq.dist = idx.dist OR seq.dist IS NULL AND idx.dist IS NULL) WHERE seq.id IS NULL OR idx.id IS NULL"
+  },
+  {
+    "comment": "box - Statement 92",
+    "query": "RESET enable_indexscan"
+  },
+  {
+    "comment": "box - Statement 93",
+    "query": "RESET enable_bitmapscan"
+  },
+  {
+    "comment": "box - Statement 94",
+    "query": "SELECT pg_input_is_valid('200', 'box')"
+  },
+  {
+    "comment": "box - Statement 95",
+    "query": "SELECT * FROM pg_input_error_info('200', 'box')"
+  },
+  {
+    "comment": "box - Statement 96",
+    "query": "SELECT pg_input_is_valid('((200,300),(500, xyz))', 'box')"
+  },
+  {
+    "comment": "box - Statement 97",
+    "query": "SELECT * FROM pg_input_error_info('((200,300),(500, xyz))', 'box')"
+  }
+]

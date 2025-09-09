@@ -2202,5 +2202,112 @@
     "comment": "deprecated limit comma syntax",
     "query": "SELECT * FROM users LIMIT 10, 5",
     "error": "parse error at position 31: LIMIT #,# syntax is not supported. Use separate LIMIT and OFFSET clauses."
+  },
+  {
+    "comment": "Boolean test IS TRUE",
+    "query": "SELECT * FROM users WHERE active IS TRUE"
+  },
+  {
+    "comment": "Boolean test IS FALSE",
+    "query": "SELECT * FROM users WHERE deleted IS FALSE"
+  },
+  {
+    "comment": "Boolean test IS NOT TRUE",
+    "query": "SELECT * FROM users WHERE verified IS NOT TRUE"
+  },
+  {
+    "comment": "Boolean test IS NOT FALSE",
+    "query": "SELECT * FROM users WHERE enabled IS NOT FALSE"
+  },
+  {
+    "comment": "Boolean test IS UNKNOWN",
+    "query": "SELECT * FROM users WHERE status IS UNKNOWN"
+  },
+  {
+    "comment": "Boolean test IS NOT UNKNOWN",
+    "query": "SELECT * FROM users WHERE permission IS NOT UNKNOWN"
+  },
+  {
+    "comment": "Boolean test with column expression",
+    "query": "SELECT * FROM users WHERE (active AND verified) IS TRUE"
+  },
+  {
+    "comment": "Boolean test with function call",
+    "query": "SELECT * FROM users WHERE coalesce(active, false) IS TRUE",
+    "expected": "SELECT * FROM users WHERE COALESCE(active, FALSE) IS TRUE"
+  },
+  {
+    "comment": "Boolean test in SELECT clause",
+    "query": "SELECT name, (active IS TRUE) AS is_active FROM users"
+  },
+  {
+    "comment": "Complex boolean test with AND",
+    "query": "SELECT * FROM users WHERE active IS TRUE AND deleted IS FALSE"
+  },
+  {
+    "comment": "Boolean test with subquery",
+    "query": "SELECT * FROM users WHERE (EXISTS(SELECT 1 FROM orders WHERE user_id = users.id)) IS TRUE",
+    "expected": "SELECT * FROM users WHERE (EXISTS (SELECT 1 FROM orders WHERE user_id = users.id)) IS TRUE"
+  },
+  {
+    "comment": "BitString binary literal",
+    "query": "SELECT B'101010'"
+  },
+  {
+    "comment": "BitString hex literal",
+    "query": "SELECT X'1FA'"
+  },
+  {
+    "comment": "BitString hex that looks like binary - should stay as X'1010' not B'1010'",
+    "query": "SELECT X'1010'"
+  },
+  {
+    "comment": "BitString binary vs hex comparison",
+    "query": "SELECT B'1010' = X'1010'"
+  },
+  {
+    "comment": "BitString in WHERE clause",
+    "query": "SELECT * FROM data WHERE flags = B'1010'"
+  },
+  {
+    "comment": "GREATEST function with two arguments",
+    "query": "SELECT GREATEST(10, 20)"
+  },
+  {
+    "comment": "LEAST function with two arguments",
+    "query": "SELECT LEAST(10, 20)"
+  },
+  {
+    "comment": "GREATEST with multiple arguments",
+    "query": "SELECT GREATEST(1, 5, 3, 9, 2)"
+  },
+  {
+    "comment": "LEAST with multiple arguments",
+    "query": "SELECT LEAST(1, 5, 3, 9, 2)"
+  },
+  {
+    "comment": "GREATEST with column references",
+    "query": "SELECT GREATEST(price, min_price, default_price) FROM products"
+  },
+  {
+    "comment": "LEAST with expressions",
+    "query": "SELECT LEAST(price * 0.9, sale_price, clearance_price) FROM products"
+  },
+  {
+    "comment": "Nested GREATEST and LEAST",
+    "query": "SELECT GREATEST(LEAST(100, price), 10) FROM products"
+  },
+  {
+    "comment": "Function with named arguments",
+    "query": "SELECT substring(string =\u003e 'hello world', start =\u003e 7, length =\u003e 5)"
+  },
+  {
+    "comment": "Function with mixed positional and named arguments",
+    "query": "SELECT substring('hello world', start =\u003e 7)"
+  },
+  {
+    "comment": "Function with named argument only",
+    "query": "SELECT now(timezone =\u003e 'UTC')",
+    "expected": "SELECT NOW(timezone =\u003e 'UTC')"
   }
 ]

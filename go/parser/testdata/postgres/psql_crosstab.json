@@ -1,0 +1,106 @@
+[
+  {
+    "comment": "psql_crosstab - Statement 1",
+    "query": "CREATE TABLE ctv_data (v, h, c, i, d) AS VALUES ('v1','h2','foo', 3, '2015-04-01'::date), ('v2','h1','bar', 3, '2015-01-02'), ('v1','h0','baz', NULL, '2015-07-12'), ('v0','h4','qux', 4, '2015-07-15'), ('v0','h4','dbl', -3, '2014-12-15'), ('v0',NULL,'qux', 5, '2014-07-15'), ('v1','h2','quux',7, '2015-04-04')"
+  },
+  {
+    "comment": "psql_crosstab - Statement 2",
+    "query": "ANALYZE ctv_data"
+  },
+  {
+    "comment": "psql_crosstab - Statement 3",
+    "query": "SELECT v, EXTRACT(year FROM d), count(*) FROM ctv_data GROUP BY 1, 2 ORDER BY 1, 2"
+  },
+  {
+    "comment": "psql_crosstab - Statement 4",
+    "query": "SELECT v, to_char(d, 'Mon') AS \"month name\", EXTRACT(month FROM d) AS num, count(*) FROM ctv_data  GROUP BY 1,2,3 ORDER BY 1"
+  },
+  {
+    "comment": "psql_crosstab - Statement 5",
+    "query": "v \"month name\" 4 num SELECT EXTRACT(year FROM d) AS year, to_char(d,'Mon') AS \"\"\"month\"\" name\", EXTRACT(month FROM d) AS month, format('sum=%s avg=%s', sum(i), avg(i)::numeric(2,1)) FROM ctv_data GROUP BY EXTRACT(year FROM d), to_char(d,'Mon'), EXTRACT(month FROM d) ORDER BY month"
+  },
+  {
+    "comment": "psql_crosstab - Statement 6",
+    "query": "\"\"\"month\"\" name\" year format year SELECT v, h, string_agg(c, E'\\n') FROM ctv_data GROUP BY v, h ORDER BY 1,2,3"
+  },
+  {
+    "comment": "psql_crosstab - Statement 7",
+    "query": "1 2 3 SELECT v,h, string_agg(c, E'\\n') AS c, row_number() OVER(ORDER BY h) AS r FROM ctv_data GROUP BY v, h ORDER BY 1,3,2"
+  },
+  {
+    "comment": "psql_crosstab - Statement 8",
+    "query": "v h c r SELECT v, h, string_agg(c, E'\\n') AS c, row_number() OVER(ORDER BY h DESC) AS r FROM ctv_data GROUP BY v, h ORDER BY 1,3,2"
+  },
+  {
+    "comment": "psql_crosstab - Statement 9",
+    "query": "v h c r SELECT v,h, string_agg(c, E'\\n') AS c, row_number() OVER(ORDER BY h NULLS LAST) AS r FROM ctv_data GROUP BY v, h ORDER BY 1,3,2"
+  },
+  {
+    "comment": "psql_crosstab - Statement 10",
+    "query": "v h c r SELECT null,null"
+  },
+  {
+    "comment": "psql_crosstab - Statement 11",
+    "query": "SELECT null,null,null"
+  },
+  {
+    "comment": "psql_crosstab - Statement 12",
+    "query": "v h i \\pset null '' SELECT v,h,string_agg(i::text, E'\\n'), string_agg(c, E'\\n') FROM ctv_data GROUP BY v, h ORDER BY h,v"
+  },
+  {
+    "comment": "psql_crosstab - Statement 13",
+    "query": "2 1 4 SELECT v,h, string_agg(i::text, E'\\n') AS i, string_agg(c, E'\\n') AS c FROM ctv_data GROUP BY v, h ORDER BY h,v"
+  },
+  {
+    "comment": "psql_crosstab - Statement 14",
+    "query": "1 \"h\" 4 SELECT 1 as \"22\", 2 as b, 3 as \"Foo\""
+  },
+  {
+    "comment": "psql_crosstab - Statement 15",
+    "query": "\"22\" B \"Foo\" SELECT v,h,c,i FROM ctv_data"
+  },
+  {
+    "comment": "psql_crosstab - Statement 16",
+    "query": "v h j SELECT 1 as \"22\", 2 as b, 3 as \"Foo\""
+  },
+  {
+    "comment": "psql_crosstab - Statement 17",
+    "query": "1 2 Foo SELECT 1 as \"22\", 2 as b, 3 as \"Foo\""
+  },
+  {
+    "comment": "psql_crosstab - Statement 18",
+    "query": "1 \"B\" \"Foo\" SELECT v,h,i,c FROM ctv_data"
+  },
+  {
+    "comment": "psql_crosstab - Statement 19",
+    "query": "2 1 5 SELECT v,h,i,c FROM ctv_data"
+  },
+  {
+    "comment": "psql_crosstab - Statement 20",
+    "query": "2 h 4 SELECT a,a,1 FROM generate_series(1,3000) AS a"
+  },
+  {
+    "comment": "psql_crosstab - Statement 21",
+    "query": "SELECT 1"
+  },
+  {
+    "comment": "psql_crosstab - Statement 22",
+    "query": "DROP TABLE ctv_data"
+  },
+  {
+    "comment": "psql_crosstab - Statement 23",
+    "query": "CREATE TABLE ctv_data (x int, y int, v text)"
+  },
+  {
+    "comment": "psql_crosstab - Statement 24",
+    "query": "INSERT INTO ctv_data SELECT 1, x, '*' || x FROM generate_series(1,10) x"
+  },
+  {
+    "comment": "psql_crosstab - Statement 25",
+    "query": "SELECT * FROM ctv_data"
+  },
+  {
+    "comment": "psql_crosstab - Statement 26",
+    "query": "INSERT INTO ctv_data VALUES (1, 10, '*')"
+  }
+]

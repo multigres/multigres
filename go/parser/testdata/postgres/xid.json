@@ -1,0 +1,326 @@
+[
+  {
+    "comment": "xid - Statement 1",
+    "query": "select '010'::xid, '42'::xid, '0xffffffff'::xid, '-1'::xid, '010'::xid8, '42'::xid8, '0xffffffffffffffff'::xid8, '-1'::xid8"
+  },
+  {
+    "comment": "xid - Statement 2",
+    "query": "select ''::xid"
+  },
+  {
+    "comment": "xid - Statement 3",
+    "query": "select 'asdf'::xid"
+  },
+  {
+    "comment": "xid - Statement 4",
+    "query": "select ''::xid8"
+  },
+  {
+    "comment": "xid - Statement 5",
+    "query": "select 'asdf'::xid8"
+  },
+  {
+    "comment": "xid - Statement 6",
+    "query": "SELECT pg_input_is_valid('42', 'xid')"
+  },
+  {
+    "comment": "xid - Statement 7",
+    "query": "SELECT pg_input_is_valid('asdf', 'xid')"
+  },
+  {
+    "comment": "xid - Statement 8",
+    "query": "SELECT * FROM pg_input_error_info('0xffffffffff', 'xid')"
+  },
+  {
+    "comment": "xid - Statement 9",
+    "query": "SELECT pg_input_is_valid('42', 'xid8')"
+  },
+  {
+    "comment": "xid - Statement 10",
+    "query": "SELECT pg_input_is_valid('asdf', 'xid8')"
+  },
+  {
+    "comment": "xid - Statement 11",
+    "query": "SELECT * FROM pg_input_error_info('0xffffffffffffffffffff', 'xid8')"
+  },
+  {
+    "comment": "xid - Statement 12",
+    "query": "select '1'::xid = '1'::xid"
+  },
+  {
+    "comment": "xid - Statement 13",
+    "query": "select '1'::xid != '1'::xid"
+  },
+  {
+    "comment": "xid - Statement 14",
+    "query": "select '1'::xid8 = '1'::xid8"
+  },
+  {
+    "comment": "xid - Statement 15",
+    "query": "select '1'::xid8 != '1'::xid8"
+  },
+  {
+    "comment": "xid - Statement 16",
+    "query": "select '1'::xid = '1'::xid8::xid"
+  },
+  {
+    "comment": "xid - Statement 17",
+    "query": "select '1'::xid != '1'::xid8::xid"
+  },
+  {
+    "comment": "xid - Statement 18",
+    "query": "select '1'::xid < '2'::xid"
+  },
+  {
+    "comment": "xid - Statement 19",
+    "query": "select '1'::xid <= '2'::xid"
+  },
+  {
+    "comment": "xid - Statement 20",
+    "query": "select '1'::xid > '2'::xid"
+  },
+  {
+    "comment": "xid - Statement 21",
+    "query": "select '1'::xid >= '2'::xid"
+  },
+  {
+    "comment": "xid - Statement 22",
+    "query": "select '1'::xid8 < '2'::xid8, '2'::xid8 < '2'::xid8, '2'::xid8 < '1'::xid8"
+  },
+  {
+    "comment": "xid - Statement 23",
+    "query": "select '1'::xid8 <= '2'::xid8, '2'::xid8 <= '2'::xid8, '2'::xid8 <= '1'::xid8"
+  },
+  {
+    "comment": "xid - Statement 24",
+    "query": "select '1'::xid8 > '2'::xid8, '2'::xid8 > '2'::xid8, '2'::xid8 > '1'::xid8"
+  },
+  {
+    "comment": "xid - Statement 25",
+    "query": "select '1'::xid8 >= '2'::xid8, '2'::xid8 >= '2'::xid8, '2'::xid8 >= '1'::xid8"
+  },
+  {
+    "comment": "xid - Statement 26",
+    "query": "select xid8cmp('1', '2'), xid8cmp('2', '2'), xid8cmp('2', '1')"
+  },
+  {
+    "comment": "xid - Statement 27",
+    "query": "create table xid8_t1 (x xid8)"
+  },
+  {
+    "comment": "xid - Statement 28",
+    "query": "insert into xid8_t1 values ('0'), ('010'), ('42'), ('0xffffffffffffffff'), ('-1')"
+  },
+  {
+    "comment": "xid - Statement 29",
+    "query": "select min(x), max(x) from xid8_t1"
+  },
+  {
+    "comment": "xid - Statement 30",
+    "query": "create index on xid8_t1 using btree(x)"
+  },
+  {
+    "comment": "xid - Statement 31",
+    "query": "create index on xid8_t1 using hash(x)"
+  },
+  {
+    "comment": "xid - Statement 32",
+    "query": "drop table xid8_t1"
+  },
+  {
+    "comment": "xid - Statement 33",
+    "query": "select '12:13:'::pg_snapshot"
+  },
+  {
+    "comment": "xid - Statement 34",
+    "query": "select '12:18:14,16'::pg_snapshot"
+  },
+  {
+    "comment": "xid - Statement 35",
+    "query": "select '12:16:14,14'::pg_snapshot"
+  },
+  {
+    "comment": "xid - Statement 36",
+    "query": "select '31:12:'::pg_snapshot"
+  },
+  {
+    "comment": "xid - Statement 37",
+    "query": "select '0:1:'::pg_snapshot"
+  },
+  {
+    "comment": "xid - Statement 38",
+    "query": "select '12:13:0'::pg_snapshot"
+  },
+  {
+    "comment": "xid - Statement 39",
+    "query": "select '12:16:14,13'::pg_snapshot"
+  },
+  {
+    "comment": "xid - Statement 40",
+    "query": "select pg_input_is_valid('12:13:', 'pg_snapshot')"
+  },
+  {
+    "comment": "xid - Statement 41",
+    "query": "select pg_input_is_valid('31:12:', 'pg_snapshot')"
+  },
+  {
+    "comment": "xid - Statement 42",
+    "query": "select * from pg_input_error_info('31:12:', 'pg_snapshot')"
+  },
+  {
+    "comment": "xid - Statement 43",
+    "query": "select pg_input_is_valid('12:16:14,13', 'pg_snapshot')"
+  },
+  {
+    "comment": "xid - Statement 44",
+    "query": "select * from pg_input_error_info('12:16:14,13', 'pg_snapshot')"
+  },
+  {
+    "comment": "xid - Statement 45",
+    "query": "create temp table snapshot_test ( nr\tinteger, snap\tpg_snapshot )"
+  },
+  {
+    "comment": "xid - Statement 46",
+    "query": "insert into snapshot_test values (1, '12:13:')"
+  },
+  {
+    "comment": "xid - Statement 47",
+    "query": "insert into snapshot_test values (2, '12:20:13,15,18')"
+  },
+  {
+    "comment": "xid - Statement 48",
+    "query": "insert into snapshot_test values (3, '100001:100009:100005,100007,100008')"
+  },
+  {
+    "comment": "xid - Statement 49",
+    "query": "insert into snapshot_test values (4, '100:150:101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131')"
+  },
+  {
+    "comment": "xid - Statement 50",
+    "query": "select snap from snapshot_test order by nr"
+  },
+  {
+    "comment": "xid - Statement 51",
+    "query": "select  pg_snapshot_xmin(snap), pg_snapshot_xmax(snap), pg_snapshot_xip(snap) from snapshot_test order by nr"
+  },
+  {
+    "comment": "xid - Statement 52",
+    "query": "select id, pg_visible_in_snapshot(id::text::xid8, snap) from snapshot_test, generate_series(11, 21) id where nr = 2"
+  },
+  {
+    "comment": "xid - Statement 53",
+    "query": "select id, pg_visible_in_snapshot(id::text::xid8, snap) from snapshot_test, generate_series(90, 160) id where nr = 4"
+  },
+  {
+    "comment": "xid - Statement 54",
+    "query": "select pg_current_xact_id() >= pg_snapshot_xmin(pg_current_snapshot())"
+  },
+  {
+    "comment": "xid - Statement 55",
+    "query": "select pg_visible_in_snapshot(pg_current_xact_id(), pg_current_snapshot())"
+  },
+  {
+    "comment": "xid - Statement 56",
+    "query": "select pg_snapshot '1000100010001000:1000100010001100:1000100010001012,1000100010001013'"
+  },
+  {
+    "comment": "xid - Statement 57",
+    "query": "select pg_visible_in_snapshot('1000100010001012', '1000100010001000:1000100010001100:1000100010001012,1000100010001013')"
+  },
+  {
+    "comment": "xid - Statement 58",
+    "query": "select pg_visible_in_snapshot('1000100010001015', '1000100010001000:1000100010001100:1000100010001012,1000100010001013')"
+  },
+  {
+    "comment": "xid - Statement 59",
+    "query": "SELECT pg_snapshot '1:9223372036854775807:3'"
+  },
+  {
+    "comment": "xid - Statement 60",
+    "query": "SELECT pg_snapshot '1:9223372036854775808:3'"
+  },
+  {
+    "comment": "xid - Statement 61",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "xid - Statement 62",
+    "query": "SELECT pg_current_xact_id_if_assigned() IS NULL"
+  },
+  {
+    "comment": "xid - Statement 63",
+    "query": "SELECT pg_current_xact_id()"
+  },
+  {
+    "comment": "xid - Statement 64",
+    "query": "SELECT pg_current_xact_id_if_assigned() IS NOT DISTINCT FROM xid8 :'pg_current_xact_id'"
+  },
+  {
+    "comment": "xid - Statement 65",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "xid - Statement 66",
+    "query": "SELECT pg_current_xact_id() AS committed"
+  },
+  {
+    "comment": "xid - Statement 67",
+    "query": "SELECT pg_current_xact_id() AS rolledback"
+  },
+  {
+    "comment": "xid - Statement 68",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "xid - Statement 69",
+    "query": "SELECT pg_current_xact_id() AS inprogress"
+  },
+  {
+    "comment": "xid - Statement 70",
+    "query": "SELECT pg_xact_status(:committed::text::xid8) AS committed"
+  },
+  {
+    "comment": "xid - Statement 71",
+    "query": "SELECT pg_xact_status(:rolledback::text::xid8) AS rolledback"
+  },
+  {
+    "comment": "xid - Statement 72",
+    "query": "SELECT pg_xact_status(:inprogress::text::xid8) AS inprogress"
+  },
+  {
+    "comment": "xid - Statement 73",
+    "query": "SELECT pg_xact_status('1'::xid8)"
+  },
+  {
+    "comment": "xid - Statement 74",
+    "query": "SELECT pg_xact_status('2'::xid8)"
+  },
+  {
+    "comment": "xid - Statement 75",
+    "query": "SELECT pg_xact_status('3'::xid8)"
+  },
+  {
+    "comment": "xid - Statement 76",
+    "query": "CREATE FUNCTION test_future_xid_status(xid8) RETURNS void LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_xact_status($1)"
+  },
+  {
+    "comment": "xid - Statement 77",
+    "query": "RAISE EXCEPTION 'didn''t ERROR at xid in the future as expected'"
+  },
+  {
+    "comment": "xid - Statement 78",
+    "query": "EXCEPTION WHEN invalid_parameter_value THEN RAISE NOTICE 'Got expected error for xid in the future'"
+  },
+  {
+    "comment": "xid - Statement 79",
+    "query": "END"
+  },
+  {
+    "comment": "xid - Statement 80",
+    "query": "$$"
+  },
+  {
+    "comment": "xid - Statement 81",
+    "query": "SELECT test_future_xid_status((:inprogress + 10000)::text::xid8)"
+  }
+]

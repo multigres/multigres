@@ -1,0 +1,470 @@
+[
+  {
+    "comment": "incremental_sort - Statement 1",
+    "query": "explain (costs off) select * from (select * from tenk1 order by four) t order by four, ten limit 1"
+  },
+  {
+    "comment": "incremental_sort - Statement 2",
+    "query": "set work_mem to '2MB'"
+  },
+  {
+    "comment": "incremental_sort - Statement 3",
+    "query": "explain (costs off) select * from (select * from tenk1 order by four) t order by four, ten"
+  },
+  {
+    "comment": "incremental_sort - Statement 4",
+    "query": "reset work_mem"
+  },
+  {
+    "comment": "incremental_sort - Statement 5",
+    "query": "create table t(a integer, b integer)"
+  },
+  {
+    "comment": "incremental_sort - Statement 6",
+    "query": "create or replace function explain_analyze_without_memory(query text) returns table (out_line text) language plpgsql as $$ declare line text"
+  },
+  {
+    "comment": "incremental_sort - Statement 7",
+    "query": "begin for line in execute 'explain (analyze, costs off, summary off, timing off) ' || query loop out_line := regexp_replace(line, '\\d+kB', 'NNkB', 'g')"
+  },
+  {
+    "comment": "incremental_sort - Statement 8",
+    "query": "return next"
+  },
+  {
+    "comment": "incremental_sort - Statement 9",
+    "query": "end loop"
+  },
+  {
+    "comment": "incremental_sort - Statement 10",
+    "query": "end"
+  },
+  {
+    "comment": "incremental_sort - Statement 11",
+    "query": "$$"
+  },
+  {
+    "comment": "incremental_sort - Statement 12",
+    "query": "create or replace function explain_analyze_inc_sort_nodes(query text) returns jsonb language plpgsql as $$ declare elements jsonb"
+  },
+  {
+    "comment": "incremental_sort - Statement 13",
+    "query": "element jsonb"
+  },
+  {
+    "comment": "incremental_sort - Statement 14",
+    "query": "matching_nodes jsonb := '[]'::jsonb"
+  },
+  {
+    "comment": "incremental_sort - Statement 15",
+    "query": "begin execute 'explain (analyze, costs off, summary off, timing off, format ''json'') ' || query into strict elements"
+  },
+  {
+    "comment": "incremental_sort - Statement 16",
+    "query": "while jsonb_array_length(elements) > 0 loop element := elements->0"
+  },
+  {
+    "comment": "incremental_sort - Statement 17",
+    "query": "elements := elements - 0"
+  },
+  {
+    "comment": "incremental_sort - Statement 18",
+    "query": "case jsonb_typeof(element) when 'array' then if jsonb_array_length(element) > 0 then elements := elements || element"
+  },
+  {
+    "comment": "incremental_sort - Statement 19",
+    "query": "end if"
+  },
+  {
+    "comment": "incremental_sort - Statement 20",
+    "query": "when 'object' then if element ? 'Plan' then elements := elements || jsonb_build_array(element->'Plan')"
+  },
+  {
+    "comment": "incremental_sort - Statement 21",
+    "query": "element := element - 'Plan'"
+  },
+  {
+    "comment": "incremental_sort - Statement 22",
+    "query": "else if element ? 'Plans' then elements := elements || jsonb_build_array(element->'Plans')"
+  },
+  {
+    "comment": "incremental_sort - Statement 23",
+    "query": "element := element - 'Plans'"
+  },
+  {
+    "comment": "incremental_sort - Statement 24",
+    "query": "if (element->>'Node Type')::text = 'Incremental Sort' then matching_nodes := matching_nodes || element"
+  },
+  {
+    "comment": "incremental_sort - Statement 25",
+    "query": "end case"
+  },
+  {
+    "comment": "incremental_sort - Statement 26",
+    "query": "return matching_nodes"
+  },
+  {
+    "comment": "incremental_sort - Statement 27",
+    "query": "create or replace function explain_analyze_inc_sort_nodes_without_memory(query text) returns jsonb language plpgsql as $$ declare nodes jsonb := '[]'::jsonb"
+  },
+  {
+    "comment": "incremental_sort - Statement 28",
+    "query": "node jsonb"
+  },
+  {
+    "comment": "incremental_sort - Statement 29",
+    "query": "group_key text"
+  },
+  {
+    "comment": "incremental_sort - Statement 30",
+    "query": "space_key text"
+  },
+  {
+    "comment": "incremental_sort - Statement 31",
+    "query": "begin for node in select * from jsonb_array_elements(explain_analyze_inc_sort_nodes(query)) t loop for group_key in select unnest(array['Full-sort Groups', 'Pre-sorted Groups']::text[]) t loop for space_key in select unnest(array['Sort Space Memory', 'Sort Space Disk']::text[]) t loop node := jsonb_set(node, array[group_key, space_key, 'Average Sort Space Used'], '\"NN\"', false)"
+  },
+  {
+    "comment": "incremental_sort - Statement 32",
+    "query": "node := jsonb_set(node, array[group_key, space_key, 'Peak Sort Space Used'], '\"NN\"', false)"
+  },
+  {
+    "comment": "incremental_sort - Statement 33",
+    "query": "nodes := nodes || node"
+  },
+  {
+    "comment": "incremental_sort - Statement 34",
+    "query": "return nodes"
+  },
+  {
+    "comment": "incremental_sort - Statement 35",
+    "query": "create or replace function explain_analyze_inc_sort_nodes_verify_invariants(query text) returns bool language plpgsql as $$ declare node jsonb"
+  },
+  {
+    "comment": "incremental_sort - Statement 36",
+    "query": "group_stats jsonb"
+  },
+  {
+    "comment": "incremental_sort - Statement 37",
+    "query": "begin for node in select * from jsonb_array_elements(explain_analyze_inc_sort_nodes(query)) t loop for group_key in select unnest(array['Full-sort Groups', 'Pre-sorted Groups']::text[]) t loop group_stats := node->group_key"
+  },
+  {
+    "comment": "incremental_sort - Statement 38",
+    "query": "for space_key in select unnest(array['Sort Space Memory', 'Sort Space Disk']::text[]) t loop if (group_stats->space_key->'Peak Sort Space Used')::bigint < (group_stats->space_key->'Peak Sort Space Used')::bigint then raise exception '% has invalid max space < average space', group_key"
+  },
+  {
+    "comment": "incremental_sort - Statement 39",
+    "query": "return true"
+  },
+  {
+    "comment": "incremental_sort - Statement 40",
+    "query": "insert into t(a, b) select i/100 + 1, i + 1 from generate_series(0, 999) n(i)"
+  },
+  {
+    "comment": "incremental_sort - Statement 41",
+    "query": "analyze t"
+  },
+  {
+    "comment": "incremental_sort - Statement 42",
+    "query": "explain (costs off) select * from (select * from t order by a) s order by a, b limit 31"
+  },
+  {
+    "comment": "incremental_sort - Statement 43",
+    "query": "select * from (select * from t order by a) s order by a, b limit 31"
+  },
+  {
+    "comment": "incremental_sort - Statement 44",
+    "query": "explain (costs off) select * from (select * from t order by a) s order by a, b limit 32"
+  },
+  {
+    "comment": "incremental_sort - Statement 45",
+    "query": "select * from (select * from t order by a) s order by a, b limit 32"
+  },
+  {
+    "comment": "incremental_sort - Statement 46",
+    "query": "explain (costs off) select * from (select * from t order by a) s order by a, b limit 33"
+  },
+  {
+    "comment": "incremental_sort - Statement 47",
+    "query": "select * from (select * from t order by a) s order by a, b limit 33"
+  },
+  {
+    "comment": "incremental_sort - Statement 48",
+    "query": "explain (costs off) select * from (select * from t order by a) s order by a, b limit 65"
+  },
+  {
+    "comment": "incremental_sort - Statement 49",
+    "query": "select * from (select * from t order by a) s order by a, b limit 65"
+  },
+  {
+    "comment": "incremental_sort - Statement 50",
+    "query": "explain (costs off) select * from (select * from t order by a) s order by a, b limit 66"
+  },
+  {
+    "comment": "incremental_sort - Statement 51",
+    "query": "select * from (select * from t order by a) s order by a, b limit 66"
+  },
+  {
+    "comment": "incremental_sort - Statement 52",
+    "query": "delete from t"
+  },
+  {
+    "comment": "incremental_sort - Statement 53",
+    "query": "insert into t(a, b) select i/50 + 1, i + 1 from generate_series(0, 999) n(i)"
+  },
+  {
+    "comment": "incremental_sort - Statement 54",
+    "query": "explain (costs off) select * from (select * from t order by a) s order by a, b limit 55"
+  },
+  {
+    "comment": "incremental_sort - Statement 55",
+    "query": "select * from (select * from t order by a) s order by a, b limit 55"
+  },
+  {
+    "comment": "incremental_sort - Statement 56",
+    "query": "select explain_analyze_without_memory('select * from (select * from t order by a) s order by a, b limit 55')"
+  },
+  {
+    "comment": "incremental_sort - Statement 57",
+    "query": "select jsonb_pretty(explain_analyze_inc_sort_nodes_without_memory('select * from (select * from t order by a) s order by a, b limit 55'))"
+  },
+  {
+    "comment": "incremental_sort - Statement 58",
+    "query": "select explain_analyze_inc_sort_nodes_verify_invariants('select * from (select * from t order by a) s order by a, b limit 55')"
+  },
+  {
+    "comment": "incremental_sort - Statement 59",
+    "query": "insert into t(a, b) select (case when i < 5 then i else 9 end), i from generate_series(1, 1000) n(i)"
+  },
+  {
+    "comment": "incremental_sort - Statement 60",
+    "query": "explain (costs off) select * from (select * from t order by a) s order by a, b limit 70"
+  },
+  {
+    "comment": "incremental_sort - Statement 61",
+    "query": "select * from (select * from t order by a) s order by a, b limit 70"
+  },
+  {
+    "comment": "incremental_sort - Statement 62",
+    "query": "explain (costs off) select * from (select * from t order by a) s order by a, b limit 5"
+  },
+  {
+    "comment": "incremental_sort - Statement 63",
+    "query": "select * from (select * from t order by a) s order by a, b limit 5"
+  },
+  {
+    "comment": "incremental_sort - Statement 64",
+    "query": "begin"
+  },
+  {
+    "comment": "incremental_sort - Statement 65",
+    "query": "set local enable_hashjoin = off"
+  },
+  {
+    "comment": "incremental_sort - Statement 66",
+    "query": "set local enable_mergejoin = off"
+  },
+  {
+    "comment": "incremental_sort - Statement 67",
+    "query": "set local enable_material = off"
+  },
+  {
+    "comment": "incremental_sort - Statement 68",
+    "query": "set local enable_sort = off"
+  },
+  {
+    "comment": "incremental_sort - Statement 69",
+    "query": "explain (costs off) select * from t left join (select * from (select * from t order by a) v order by a, b) s on s.a = t.a where t.a in (1, 2)"
+  },
+  {
+    "comment": "incremental_sort - Statement 70",
+    "query": "select * from t left join (select * from (select * from t order by a) v order by a, b) s on s.a = t.a where t.a in (1, 2)"
+  },
+  {
+    "comment": "incremental_sort - Statement 71",
+    "query": "rollback"
+  },
+  {
+    "comment": "incremental_sort - Statement 72",
+    "query": "select explain_analyze_without_memory('select * from (select * from t order by a) s order by a, b limit 70')"
+  },
+  {
+    "comment": "incremental_sort - Statement 73",
+    "query": "select jsonb_pretty(explain_analyze_inc_sort_nodes_without_memory('select * from (select * from t order by a) s order by a, b limit 70'))"
+  },
+  {
+    "comment": "incremental_sort - Statement 74",
+    "query": "select explain_analyze_inc_sort_nodes_verify_invariants('select * from (select * from t order by a) s order by a, b limit 70')"
+  },
+  {
+    "comment": "incremental_sort - Statement 75",
+    "query": "insert into t(a, b) select i / 10, i from generate_series(1, 1000) n(i)"
+  },
+  {
+    "comment": "incremental_sort - Statement 76",
+    "query": "insert into t(a, b) select i, i from generate_series(1, 1000) n(i)"
+  },
+  {
+    "comment": "incremental_sort - Statement 77",
+    "query": "drop table t"
+  },
+  {
+    "comment": "incremental_sort - Statement 78",
+    "query": "set min_parallel_table_scan_size = '1kB'"
+  },
+  {
+    "comment": "incremental_sort - Statement 79",
+    "query": "set min_parallel_index_scan_size = '1kB'"
+  },
+  {
+    "comment": "incremental_sort - Statement 80",
+    "query": "set parallel_setup_cost = 0"
+  },
+  {
+    "comment": "incremental_sort - Statement 81",
+    "query": "set parallel_tuple_cost = 0"
+  },
+  {
+    "comment": "incremental_sort - Statement 82",
+    "query": "set max_parallel_workers_per_gather = 2"
+  },
+  {
+    "comment": "incremental_sort - Statement 83",
+    "query": "create table t (a int, b int, c int)"
+  },
+  {
+    "comment": "incremental_sort - Statement 84",
+    "query": "insert into t select mod(i,10),mod(i,10),i from generate_series(1,10000) s(i)"
+  },
+  {
+    "comment": "incremental_sort - Statement 85",
+    "query": "create index on t (a)"
+  },
+  {
+    "comment": "incremental_sort - Statement 86",
+    "query": "set enable_incremental_sort = off"
+  },
+  {
+    "comment": "incremental_sort - Statement 87",
+    "query": "explain (costs off) select a,b,sum(c) from t group by 1,2 order by 1,2,3 limit 1"
+  },
+  {
+    "comment": "incremental_sort - Statement 88",
+    "query": "set enable_incremental_sort = on"
+  },
+  {
+    "comment": "incremental_sort - Statement 89",
+    "query": "set enable_hashagg to off"
+  },
+  {
+    "comment": "incremental_sort - Statement 90",
+    "query": "explain (costs off) select * from t union select * from t order by 1,3"
+  },
+  {
+    "comment": "incremental_sort - Statement 91",
+    "query": "explain (costs off) select distinct a,b from t"
+  },
+  {
+    "comment": "incremental_sort - Statement 92",
+    "query": "set enable_hashagg=off"
+  },
+  {
+    "comment": "incremental_sort - Statement 93",
+    "query": "set enable_seqscan=off"
+  },
+  {
+    "comment": "incremental_sort - Statement 94",
+    "query": "set parallel_tuple_cost=0"
+  },
+  {
+    "comment": "incremental_sort - Statement 95",
+    "query": "set parallel_setup_cost=0"
+  },
+  {
+    "comment": "incremental_sort - Statement 96",
+    "query": "set min_parallel_table_scan_size = 0"
+  },
+  {
+    "comment": "incremental_sort - Statement 97",
+    "query": "set min_parallel_index_scan_size = 0"
+  },
+  {
+    "comment": "incremental_sort - Statement 98",
+    "query": "explain (costs off) select distinct sub.unique1, stringu1 from tenk1, lateral (select tenk1.unique1 from generate_series(1, 1000)) as sub"
+  },
+  {
+    "comment": "incremental_sort - Statement 99",
+    "query": "explain (costs off) select sub.unique1, stringu1 from tenk1, lateral (select tenk1.unique1 from generate_series(1, 1000)) as sub order by 1, 2"
+  },
+  {
+    "comment": "incremental_sort - Statement 100",
+    "query": "explain (costs off) select distinct sub.unique1, md5(stringu1) from tenk1, lateral (select tenk1.unique1 from generate_series(1, 1000)) as sub"
+  },
+  {
+    "comment": "incremental_sort - Statement 101",
+    "query": "explain (costs off) select sub.unique1, md5(stringu1) from tenk1, lateral (select tenk1.unique1 from generate_series(1, 1000)) as sub order by 1, 2"
+  },
+  {
+    "comment": "incremental_sort - Statement 102",
+    "query": "explain (costs off) select count(*) from tenk1 t1 join tenk1 t2 on t1.unique1 = t2.unique2 join tenk1 t3 on t2.unique1 = t3.unique1 order by count(*)"
+  },
+  {
+    "comment": "incremental_sort - Statement 103",
+    "query": "explain (costs off) select distinct unique1, (select t.unique1 from tenk1 where tenk1.unique1 = t.unique1) from tenk1 t, generate_series(1, 1000)"
+  },
+  {
+    "comment": "incremental_sort - Statement 104",
+    "query": "explain (costs off) select unique1, (select t.unique1 from tenk1 where tenk1.unique1 = t.unique1) from tenk1 t, generate_series(1, 1000) order by 1, 2"
+  },
+  {
+    "comment": "incremental_sort - Statement 105",
+    "query": "explain (costs off) select distinct sub.unique1, stringu1 || random()::text from tenk1, lateral (select tenk1.unique1 from generate_series(1, 1000)) as sub"
+  },
+  {
+    "comment": "incremental_sort - Statement 106",
+    "query": "explain (costs off) select sub.unique1, stringu1 || random()::text from tenk1, lateral (select tenk1.unique1 from generate_series(1, 1000)) as sub order by 1, 2"
+  },
+  {
+    "comment": "incremental_sort - Statement 107",
+    "query": "reset enable_hashagg"
+  },
+  {
+    "comment": "incremental_sort - Statement 108",
+    "query": "reset enable_seqscan"
+  },
+  {
+    "comment": "incremental_sort - Statement 109",
+    "query": "reset enable_incremental_sort"
+  },
+  {
+    "comment": "incremental_sort - Statement 110",
+    "query": "reset parallel_tuple_cost"
+  },
+  {
+    "comment": "incremental_sort - Statement 111",
+    "query": "reset parallel_setup_cost"
+  },
+  {
+    "comment": "incremental_sort - Statement 112",
+    "query": "reset min_parallel_table_scan_size"
+  },
+  {
+    "comment": "incremental_sort - Statement 113",
+    "query": "reset min_parallel_index_scan_size"
+  },
+  {
+    "comment": "incremental_sort - Statement 114",
+    "query": "create table point_table (a point, b int)"
+  },
+  {
+    "comment": "incremental_sort - Statement 115",
+    "query": "create index point_table_a_idx on point_table using gist(a)"
+  },
+  {
+    "comment": "incremental_sort - Statement 116",
+    "query": "explain (costs off) select a, b, a <-> point(5, 5) dist from point_table order by dist, b limit 1"
+  },
+  {
+    "comment": "incremental_sort - Statement 117",
+    "query": "explain (costs off) select a, b, a <-> point(5, 5) dist from point_table order by dist, b desc limit 1"
+  }
+]

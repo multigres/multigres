@@ -1,0 +1,82 @@
+[
+  {
+    "comment": "write_parallel - Statement 1",
+    "query": "begin"
+  },
+  {
+    "comment": "write_parallel - Statement 2",
+    "query": "set parallel_setup_cost=0"
+  },
+  {
+    "comment": "write_parallel - Statement 3",
+    "query": "set parallel_tuple_cost=0"
+  },
+  {
+    "comment": "write_parallel - Statement 4",
+    "query": "set min_parallel_table_scan_size=0"
+  },
+  {
+    "comment": "write_parallel - Statement 5",
+    "query": "set max_parallel_workers_per_gather=4"
+  },
+  {
+    "comment": "write_parallel - Statement 6",
+    "query": "explain (costs off) create table parallel_write as select length(stringu1) from tenk1 group by length(stringu1)"
+  },
+  {
+    "comment": "write_parallel - Statement 7",
+    "query": "create table parallel_write as select length(stringu1) from tenk1 group by length(stringu1)"
+  },
+  {
+    "comment": "write_parallel - Statement 8",
+    "query": "drop table parallel_write"
+  },
+  {
+    "comment": "write_parallel - Statement 9",
+    "query": "explain (costs off) select length(stringu1) into parallel_write from tenk1 group by length(stringu1)"
+  },
+  {
+    "comment": "write_parallel - Statement 10",
+    "query": "select length(stringu1) into parallel_write from tenk1 group by length(stringu1)"
+  },
+  {
+    "comment": "write_parallel - Statement 11",
+    "query": "explain (costs off) create materialized view parallel_mat_view as select length(stringu1) from tenk1 group by length(stringu1)"
+  },
+  {
+    "comment": "write_parallel - Statement 12",
+    "query": "create materialized view parallel_mat_view as select length(stringu1) from tenk1 group by length(stringu1)"
+  },
+  {
+    "comment": "write_parallel - Statement 13",
+    "query": "create unique index on parallel_mat_view(length)"
+  },
+  {
+    "comment": "write_parallel - Statement 14",
+    "query": "refresh materialized view parallel_mat_view"
+  },
+  {
+    "comment": "write_parallel - Statement 15",
+    "query": "refresh materialized view concurrently parallel_mat_view"
+  },
+  {
+    "comment": "write_parallel - Statement 16",
+    "query": "drop materialized view parallel_mat_view"
+  },
+  {
+    "comment": "write_parallel - Statement 17",
+    "query": "prepare prep_stmt as select length(stringu1) from tenk1 group by length(stringu1)"
+  },
+  {
+    "comment": "write_parallel - Statement 18",
+    "query": "explain (costs off) create table parallel_write as execute prep_stmt"
+  },
+  {
+    "comment": "write_parallel - Statement 19",
+    "query": "create table parallel_write as execute prep_stmt"
+  },
+  {
+    "comment": "write_parallel - Statement 20",
+    "query": "rollback"
+  }
+]

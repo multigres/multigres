@@ -312,7 +312,7 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 
 	// SQL body
 	if cfs.SQLBody != nil {
-		parts = append(parts, "AS", cfs.SQLBody.SqlString())
+		parts = append(parts, cfs.SQLBody.SqlString())
 	}
 
 	return strings.Join(parts, " ")
@@ -2269,12 +2269,12 @@ func (ctas *CreateTableAsStmt) SqlString() string {
 		if targetStr != "" {
 			parts = append(parts, targetStr)
 		}
-		
+
 		// Add USING access method if present
 		if ctas.Into.AccessMethod != "" {
 			parts = append(parts, "USING", ctas.Into.AccessMethod)
 		}
-		
+
 		// Add WITH options if present
 		if ctas.Into.Options != nil && len(ctas.Into.Options.Items) > 0 {
 			var opts []string

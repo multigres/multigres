@@ -1,0 +1,122 @@
+[
+  {
+    "comment": "char - Statement 1",
+    "query": "SELECT char 'c' = char 'c' AS true"
+  },
+  {
+    "comment": "char - Statement 2",
+    "query": "CREATE TEMP TABLE CHAR_TBL(f1 char)"
+  },
+  {
+    "comment": "char - Statement 3",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('a')"
+  },
+  {
+    "comment": "char - Statement 4",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('1')"
+  },
+  {
+    "comment": "char - Statement 5",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES (2)"
+  },
+  {
+    "comment": "char - Statement 6",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('3')"
+  },
+  {
+    "comment": "char - Statement 7",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('')"
+  },
+  {
+    "comment": "char - Statement 8",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('cd')"
+  },
+  {
+    "comment": "char - Statement 9",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('c     ')"
+  },
+  {
+    "comment": "char - Statement 10",
+    "query": "SELECT * FROM CHAR_TBL"
+  },
+  {
+    "comment": "char - Statement 11",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 <> 'a'"
+  },
+  {
+    "comment": "char - Statement 12",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 = 'a'"
+  },
+  {
+    "comment": "char - Statement 13",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 < 'a'"
+  },
+  {
+    "comment": "char - Statement 14",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 <= 'a'"
+  },
+  {
+    "comment": "char - Statement 15",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 > 'a'"
+  },
+  {
+    "comment": "char - Statement 16",
+    "query": "SELECT c.* FROM CHAR_TBL c WHERE c.f1 >= 'a'"
+  },
+  {
+    "comment": "char - Statement 17",
+    "query": "DROP TABLE CHAR_TBL"
+  },
+  {
+    "comment": "char - Statement 18",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('abcde')"
+  },
+  {
+    "comment": "char - Statement 19",
+    "query": "SELECT pg_input_is_valid('abcd  ', 'char(4)')"
+  },
+  {
+    "comment": "char - Statement 20",
+    "query": "SELECT pg_input_is_valid('abcde', 'char(4)')"
+  },
+  {
+    "comment": "char - Statement 21",
+    "query": "SELECT * FROM pg_input_error_info('abcde', 'char(4)')"
+  },
+  {
+    "comment": "char - Statement 22",
+    "query": "SELECT 'a'::\"char\""
+  },
+  {
+    "comment": "char - Statement 23",
+    "query": "SELECT '\\101'::\"char\""
+  },
+  {
+    "comment": "char - Statement 24",
+    "query": "SELECT '\\377'::\"char\""
+  },
+  {
+    "comment": "char - Statement 25",
+    "query": "SELECT 'a'::\"char\"::text"
+  },
+  {
+    "comment": "char - Statement 26",
+    "query": "SELECT '\\377'::\"char\"::text"
+  },
+  {
+    "comment": "char - Statement 27",
+    "query": "SELECT '\\000'::\"char\"::text"
+  },
+  {
+    "comment": "char - Statement 28",
+    "query": "SELECT 'a'::text::\"char\""
+  },
+  {
+    "comment": "char - Statement 29",
+    "query": "SELECT '\\377'::text::\"char\""
+  },
+  {
+    "comment": "char - Statement 30",
+    "query": "SELECT ''::text::\"char\""
+  }
+]

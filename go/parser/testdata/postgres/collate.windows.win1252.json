@@ -1,0 +1,682 @@
+[
+  {
+    "comment": "collate.windows.win1252 - Statement 1",
+    "query": "/* * This test is meant to run on Windows systems that has successfully * run pg_import_system_collations().  Also, the database must have * WIN1252 encoding, because of the locales' own encodings.  Because * of this, some test are lost from UTF-8 version, such as Turkish * dotted and undotted 'i'. */ SELECT getdatabaseencoding() <> 'WIN1252' OR (SELECT count(*) FROM pg_collation WHERE collname IN ('de_DE', 'en_US', 'sv_SE') AND collencoding = pg_char_to_encoding('WIN1252')) <> 3 OR (version() !~ 'Visual C\\+\\+' AND version() !~ 'mingw32' AND version() !~ 'windows') AS skip_test"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 2",
+    "query": "CREATE SCHEMA collate_tests"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 3",
+    "query": "SET search_path = collate_tests"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 4",
+    "query": "CREATE TABLE collate_test1 ( a int, b text COLLATE \"en_US\" NOT NULL )"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 5",
+    "query": "CREATE TABLE collate_test_fail ( a int, b text COLLATE \"foo\" )"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 6",
+    "query": "CREATE TABLE collate_test_fail ( a int COLLATE \"en_US\", b text )"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 7",
+    "query": "CREATE TABLE collate_test_like ( LIKE collate_test1 )"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 8",
+    "query": "CREATE TABLE collate_test3 ( a int, b text COLLATE \"C\" )"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 9",
+    "query": "INSERT INTO collate_test1 VALUES (1, 'abc'), (2, '\u00e4bc'), (3, 'bbc'), (4, 'ABC')"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 10",
+    "query": "INSERT INTO collate_test2 SELECT * FROM collate_test1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 11",
+    "query": "INSERT INTO collate_test3 SELECT * FROM collate_test1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 12",
+    "query": "SELECT * FROM collate_test1 WHERE b >= 'bbc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 13",
+    "query": "SELECT * FROM collate_test2 WHERE b >= 'bbc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 14",
+    "query": "SELECT * FROM collate_test3 WHERE b >= 'bbc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 15",
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 16",
+    "query": "SELECT * FROM collate_test1 WHERE b >= 'bbc' COLLATE \"C\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 17",
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc' COLLATE \"C\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 18",
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc' COLLATE \"en_US\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 19",
+    "query": "CREATE DOMAIN testdomain_sv AS text COLLATE \"sv_SE\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 20",
+    "query": "CREATE DOMAIN testdomain_i AS int COLLATE \"sv_SE\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 21",
+    "query": "CREATE TABLE collate_test4 ( a int, b testdomain_sv )"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 22",
+    "query": "INSERT INTO collate_test4 SELECT * FROM collate_test1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 23",
+    "query": "SELECT a, b FROM collate_test4 ORDER BY b"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 24",
+    "query": "CREATE TABLE collate_test5 ( a int, b testdomain_sv COLLATE \"en_US\" )"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 25",
+    "query": "INSERT INTO collate_test5 SELECT * FROM collate_test1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 26",
+    "query": "SELECT a, b FROM collate_test5 ORDER BY b"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 27",
+    "query": "SELECT a, b FROM collate_test1 ORDER BY b"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 28",
+    "query": "SELECT a, b FROM collate_test2 ORDER BY b"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 29",
+    "query": "SELECT a, b FROM collate_test3 ORDER BY b"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 30",
+    "query": "SELECT a, b FROM collate_test1 ORDER BY b COLLATE \"C\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 31",
+    "query": "SELECT * FROM collate_test1 ORDER BY b"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 32",
+    "query": "SELECT * FROM collate_test2 ORDER BY b"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 33",
+    "query": "SELECT * FROM collate_test3 ORDER BY b"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 34",
+    "query": "SELECT 'bbc' COLLATE \"en_US\" > '\u00e4bc' COLLATE \"en_US\" AS \"true\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 35",
+    "query": "SELECT 'bbc' COLLATE \"sv_SE\" > '\u00e4bc' COLLATE \"sv_SE\" AS \"false\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 36",
+    "query": "SELECT * FROM collate_test1 WHERE b LIKE 'abc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 37",
+    "query": "SELECT * FROM collate_test1 WHERE b LIKE 'abc%'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 38",
+    "query": "SELECT * FROM collate_test1 WHERE b LIKE '%bc%'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 39",
+    "query": "SELECT * FROM collate_test1 WHERE b ILIKE 'abc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 40",
+    "query": "SELECT * FROM collate_test1 WHERE b ILIKE 'abc%'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 41",
+    "query": "SELECT * FROM collate_test1 WHERE b ILIKE '%bc%'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 42",
+    "query": "SELECT relname FROM pg_class WHERE relname ILIKE 'abc%'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 43",
+    "query": "SELECT * FROM collate_test1 WHERE b ~ '^abc$'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 44",
+    "query": "SELECT * FROM collate_test1 WHERE b ~ '^abc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 45",
+    "query": "SELECT * FROM collate_test1 WHERE b ~ 'bc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 46",
+    "query": "SELECT * FROM collate_test1 WHERE b ~* '^abc$'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 47",
+    "query": "SELECT * FROM collate_test1 WHERE b ~* '^abc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 48",
+    "query": "SELECT * FROM collate_test1 WHERE b ~* 'bc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 49",
+    "query": "CREATE TABLE collate_test6 ( a int, b text COLLATE \"en_US\" )"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 50",
+    "query": "INSERT INTO collate_test6 VALUES (1, 'abc'), (2, 'ABC'), (3, '123'), (4, 'ab1'), (5, 'a1!'), (6, 'a c'), (7, '!.;'), (8, '   '), (9, '\u00e4b\u00e7'), (10, '\u00c4B\u00c7')"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 51",
+    "query": "SELECT b, b ~ '^[[:alpha:]]+$' AS is_alpha, b ~ '^[[:upper:]]+$' AS is_upper, b ~ '^[[:lower:]]+$' AS is_lower, b ~ '^[[:digit:]]+$' AS is_digit, b ~ '^[[:alnum:]]+$' AS is_alnum, b ~ '^[[:graph:]]+$' AS is_graph, b ~ '^[[:print:]]+$' AS is_print, b ~ '^[[:punct:]]+$' AS is_punct, b ~ '^[[:space:]]+$' AS is_space FROM collate_test6"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 52",
+    "query": "SELECT relname FROM pg_class WHERE relname ~* '^abc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 53",
+    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 54",
+    "query": "CREATE VIEW collview2 AS SELECT a, b FROM collate_test1 ORDER BY b COLLATE \"C\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 55",
+    "query": "SELECT table_name, view_definition FROM information_schema.views WHERE table_name LIKE 'collview%' ORDER BY 1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 56",
+    "query": "SELECT a, coalesce(b, 'foo') FROM collate_test1 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 57",
+    "query": "SELECT a, coalesce(b, 'foo') FROM collate_test2 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 58",
+    "query": "SELECT a, coalesce(b, 'foo') FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 59",
+    "query": "SELECT a, b, greatest(b, 'CCC') FROM collate_test1 ORDER BY 3"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 60",
+    "query": "SELECT a, b, greatest(b, 'CCC') FROM collate_test2 ORDER BY 3"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 61",
+    "query": "SELECT a, b, greatest(b, 'CCC') FROM collate_test3 ORDER BY 3"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 62",
+    "query": "SELECT a, nullif(b, 'abc') FROM collate_test1 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 63",
+    "query": "SELECT a, nullif(b, 'abc') FROM collate_test2 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 64",
+    "query": "SELECT a, nullif(b, 'abc') FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 65",
+    "query": "SELECT a, CASE b WHEN 'abc' THEN 'abcd' ELSE b END FROM collate_test1 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 66",
+    "query": "SELECT a, CASE b WHEN 'abc' THEN 'abcd' ELSE b END FROM collate_test2 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 67",
+    "query": "SELECT a, CASE b WHEN 'abc' THEN 'abcd' ELSE b END FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 68",
+    "query": "CREATE DOMAIN testdomain AS text"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 69",
+    "query": "SELECT a, b::testdomain FROM collate_test1 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 70",
+    "query": "SELECT a, b::testdomain FROM collate_test2 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 71",
+    "query": "SELECT a, b::testdomain FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 72",
+    "query": "SELECT a, b::testdomain_sv FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 73",
+    "query": "SELECT min(b), max(b) FROM collate_test1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 74",
+    "query": "SELECT min(b), max(b) FROM collate_test2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 75",
+    "query": "SELECT min(b), max(b) FROM collate_test3"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 76",
+    "query": "SELECT array_agg(b ORDER BY b) FROM collate_test1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 77",
+    "query": "SELECT array_agg(b ORDER BY b) FROM collate_test2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 78",
+    "query": "SELECT array_agg(b ORDER BY b) FROM collate_test3"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 79",
+    "query": "SELECT a, b FROM collate_test1 UNION ALL SELECT a, b FROM collate_test1 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 80",
+    "query": "SELECT a, b FROM collate_test2 UNION SELECT a, b FROM collate_test2 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 81",
+    "query": "SELECT a, b FROM collate_test3 WHERE a < 4 INTERSECT SELECT a, b FROM collate_test3 WHERE a > 1 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 82",
+    "query": "SELECT a, b FROM collate_test3 EXCEPT SELECT a, b FROM collate_test3 WHERE a < 2 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 83",
+    "query": "SELECT a, b FROM collate_test1 UNION ALL SELECT a, b FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 84",
+    "query": "SELECT a, b FROM collate_test1 UNION ALL SELECT a, b FROM collate_test3"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 85",
+    "query": "SELECT a, b FROM collate_test1 UNION SELECT a, b FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 86",
+    "query": "SELECT a, b COLLATE \"C\" FROM collate_test1 UNION SELECT a, b FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 87",
+    "query": "SELECT a, b FROM collate_test1 INTERSECT SELECT a, b FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 88",
+    "query": "SELECT a, b FROM collate_test1 EXCEPT SELECT a, b FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 89",
+    "query": "CREATE TABLE test_u AS SELECT a, b FROM collate_test1 UNION ALL SELECT a, b FROM collate_test3"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 90",
+    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"en_US\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"de_DE\" FROM foo WHERE length(x) < 10) SELECT * FROM foo"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 91",
+    "query": "SELECT CAST('42' AS text COLLATE \"C\")"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 92",
+    "query": "SELECT a, CAST(b AS varchar) FROM collate_test1 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 93",
+    "query": "SELECT a, CAST(b AS varchar) FROM collate_test2 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 94",
+    "query": "SELECT a, CAST(b AS varchar) FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 95",
+    "query": "CREATE FUNCTION mylt (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 < $2 $$"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 96",
+    "query": "CREATE FUNCTION mylt_noninline (text, text) RETURNS boolean LANGUAGE sql AS $$ select $1 < $2 limit 1 $$"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 97",
+    "query": "CREATE FUNCTION mylt_plpgsql (text, text) RETURNS boolean LANGUAGE plpgsql AS $$ begin return $1 < $2; end $$"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 98",
+    "query": "SELECT a.b AS a, b.b AS b, a.b < b.b AS lt, mylt(a.b, b.b), mylt_noninline(a.b, b.b), mylt_plpgsql(a.b, b.b) FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 99",
+    "query": "SELECT a.b AS a, b.b AS b, a.b < b.b COLLATE \"C\" AS lt, mylt(a.b, b.b COLLATE \"C\"), mylt_noninline(a.b, b.b COLLATE \"C\"), mylt_plpgsql(a.b, b.b COLLATE \"C\") FROM collate_test1 a, collate_test1 b ORDER BY a.b, b.b"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 100",
+    "query": "CREATE FUNCTION mylt2 (x text, y text) RETURNS boolean LANGUAGE plpgsql AS $$ declare xx text := x"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 101",
+    "query": "yy text := y"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 102",
+    "query": "begin return xx < yy"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 103",
+    "query": "end $$"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 104",
+    "query": "SELECT mylt2('a', 'B' collate \"en_US\") as t, mylt2('a', 'B' collate \"C\") as f"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 105",
+    "query": "CREATE OR REPLACE FUNCTION mylt2 (x text, y text) RETURNS boolean LANGUAGE plpgsql AS $$ declare xx text COLLATE \"POSIX\" := x"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 106",
+    "query": "SELECT mylt2('a', 'B') as f"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 107",
+    "query": "SELECT mylt2('a', 'B' collate \"C\") as fail"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 108",
+    "query": "SELECT mylt2('a', 'B' collate \"POSIX\") as f"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 109",
+    "query": "SELECT * FROM unnest((SELECT array_agg(b ORDER BY b) FROM collate_test1)) ORDER BY 1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 110",
+    "query": "SELECT * FROM unnest((SELECT array_agg(b ORDER BY b) FROM collate_test2)) ORDER BY 1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 111",
+    "query": "SELECT * FROM unnest((SELECT array_agg(b ORDER BY b) FROM collate_test3)) ORDER BY 1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 112",
+    "query": "CREATE FUNCTION dup (anyelement) RETURNS anyelement AS 'select $1' LANGUAGE sql"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 113",
+    "query": "SELECT a, dup(b) FROM collate_test1 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 114",
+    "query": "SELECT a, dup(b) FROM collate_test2 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 115",
+    "query": "SELECT a, dup(b) FROM collate_test3 ORDER BY 2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 116",
+    "query": "CREATE INDEX collate_test1_idx1 ON collate_test1 (b)"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 117",
+    "query": "CREATE INDEX collate_test1_idx2 ON collate_test1 (b COLLATE \"C\")"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 118",
+    "query": "CREATE INDEX collate_test1_idx3 ON collate_test1 ((b COLLATE \"C\"))"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 119",
+    "query": "CREATE INDEX collate_test1_idx4 ON collate_test1 (((b||'foo') COLLATE \"POSIX\"))"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 120",
+    "query": "CREATE INDEX collate_test1_idx5 ON collate_test1 (a COLLATE \"C\")"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 121",
+    "query": "CREATE INDEX collate_test1_idx6 ON collate_test1 ((a COLLATE \"C\"))"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 122",
+    "query": "SELECT relname, pg_get_indexdef(oid) FROM pg_class WHERE relname LIKE 'collate_test%_idx%' ORDER BY 1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 123",
+    "query": "CREATE ROLE regress_test_role"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 124",
+    "query": "CREATE SCHEMA test_schema"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 125",
+    "query": "do $$ BEGIN EXECUTE 'CREATE COLLATION test0 (locale = ' || quote_literal((SELECT datcollate FROM pg_database WHERE datname = current_database())) || ');'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 126",
+    "query": "CREATE COLLATION test0 FROM \"C\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 127",
+    "query": "CREATE COLLATION IF NOT EXISTS test0 FROM \"C\""
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 128",
+    "query": "CREATE COLLATION IF NOT EXISTS test0 (locale = 'foo')"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 129",
+    "query": "do $$ BEGIN EXECUTE 'CREATE COLLATION test1 (lc_collate = ' || quote_literal((SELECT datcollate FROM pg_database WHERE datname = current_database())) || ', lc_ctype = ' || quote_literal((SELECT datctype FROM pg_database WHERE datname = current_database())) || ');'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 130",
+    "query": "CREATE COLLATION test3 (lc_collate = 'en_US.utf8')"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 131",
+    "query": "CREATE COLLATION testx (locale = 'nonsense')"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 132",
+    "query": "CREATE COLLATION test4 FROM nonsense"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 133",
+    "query": "CREATE COLLATION test5 FROM test0"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 134",
+    "query": "SELECT collname FROM pg_collation WHERE collname LIKE 'test%' ORDER BY 1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 135",
+    "query": "ALTER COLLATION test1 RENAME TO test11"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 136",
+    "query": "ALTER COLLATION test0 RENAME TO test11"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 137",
+    "query": "ALTER COLLATION test1 RENAME TO test22"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 138",
+    "query": "ALTER COLLATION test11 OWNER TO regress_test_role"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 139",
+    "query": "ALTER COLLATION test11 OWNER TO nonsense"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 140",
+    "query": "ALTER COLLATION test11 SET SCHEMA test_schema"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 141",
+    "query": "COMMENT ON COLLATION test0 IS 'US English'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 142",
+    "query": "SELECT collname, nspname, obj_description(pg_collation.oid, 'pg_collation') FROM pg_collation JOIN pg_namespace ON (collnamespace = pg_namespace.oid) WHERE collname LIKE 'test%' ORDER BY 1"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 143",
+    "query": "DROP COLLATION test0, test_schema.test11, test5"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 144",
+    "query": "DROP COLLATION test0"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 145",
+    "query": "DROP COLLATION IF EXISTS test0"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 146",
+    "query": "SELECT collname FROM pg_collation WHERE collname LIKE 'test%'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 147",
+    "query": "DROP SCHEMA test_schema"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 148",
+    "query": "DROP ROLE regress_test_role"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 149",
+    "query": "ALTER COLLATION \"en_US\" REFRESH VERSION"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 150",
+    "query": "SELECT current_database() AS datname"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 151",
+    "query": "ALTER DATABASE :\"datname\" REFRESH COLLATION VERSION"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 152",
+    "query": "CREATE TABLE collate_dep_test1 (a int, b text COLLATE test0)"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 153",
+    "query": "CREATE DOMAIN collate_dep_dom1 AS text COLLATE test0"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 154",
+    "query": "CREATE TYPE collate_dep_test2 AS (x int, y text COLLATE test0)"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 155",
+    "query": "CREATE VIEW collate_dep_test3 AS SELECT text 'foo' COLLATE test0 AS foo"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 156",
+    "query": "CREATE TABLE collate_dep_test4t (a int, b text)"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 157",
+    "query": "CREATE INDEX collate_dep_test4i ON collate_dep_test4t (b COLLATE test0)"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 158",
+    "query": "DROP COLLATION test0 RESTRICT"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 159",
+    "query": "DROP COLLATION test0 CASCADE"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 160",
+    "query": "DROP TYPE collate_dep_test2"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 161",
+    "query": "create type textrange_c as range(subtype=text, collation=\"C\")"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 162",
+    "query": "create type textrange_en_us as range(subtype=text, collation=\"en_US\")"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 163",
+    "query": "select textrange_c('A','Z') @> 'b'::text"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 164",
+    "query": "select textrange_en_us('A','Z') @> 'b'::text"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 165",
+    "query": "drop type textrange_c"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 166",
+    "query": "drop type textrange_en_us"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 167",
+    "query": "do $$ BEGIN EXECUTE 'CREATE COLLATION ctest_det (locale = ' || quote_literal((SELECT collcollate FROM pg_collation WHERE collname = 'en_US')) || ', deterministic = true);'"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 168",
+    "query": "CREATE COLLATION ctest_nondet (locale = 'en_US', deterministic = false)"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 169",
+    "query": "SET client_min_messages TO warning"
+  },
+  {
+    "comment": "collate.windows.win1252 - Statement 170",
+    "query": "DROP SCHEMA collate_tests CASCADE"
+  }
+]

@@ -556,6 +556,30 @@ func (bt *BooleanTest) String() string {
 	return fmt.Sprintf("BooleanTest(%s %s)", bt.Arg, testStr)
 }
 
+// SqlString returns the SQL representation of BooleanTest
+func (bt *BooleanTest) SqlString() string {
+	var result strings.Builder
+	
+	result.WriteString(bt.Arg.SqlString())
+	
+	switch bt.Booltesttype {
+	case IS_TRUE:
+		result.WriteString(" IS TRUE")
+	case IS_NOT_TRUE:
+		result.WriteString(" IS NOT TRUE")
+	case IS_FALSE:
+		result.WriteString(" IS FALSE")
+	case IS_NOT_FALSE:
+		result.WriteString(" IS NOT FALSE")
+	case IS_UNKNOWN:
+		result.WriteString(" IS UNKNOWN")
+	case IS_NOT_UNKNOWN:
+		result.WriteString(" IS NOT UNKNOWN")
+	}
+	
+	return result.String()
+}
+
 // CoerceToDomain represents coercion to a domain type.
 // Domain types are user-defined types with constraints.
 // Ported from postgres/src/include/nodes/primnodes.h:2025
@@ -645,6 +669,11 @@ func (std *SetToDefault) ExpressionType() string {
 
 func (std *SetToDefault) String() string {
 	return "SetToDefault(DEFAULT)"
+}
+
+// SqlString returns the SQL representation of SetToDefault
+func (std *SetToDefault) SqlString() string {
+	return "DEFAULT"
 }
 
 // CurrentOfExpr represents CURRENT OF cursor_name expressions.

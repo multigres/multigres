@@ -1,0 +1,378 @@
+[
+  {
+    "comment": "int4 - Statement 1",
+    "query": "INSERT INTO INT4_TBL(f1) VALUES ('34.5')"
+  },
+  {
+    "comment": "int4 - Statement 2",
+    "query": "INSERT INTO INT4_TBL(f1) VALUES ('1000000000000')"
+  },
+  {
+    "comment": "int4 - Statement 3",
+    "query": "INSERT INTO INT4_TBL(f1) VALUES ('asdf')"
+  },
+  {
+    "comment": "int4 - Statement 4",
+    "query": "INSERT INTO INT4_TBL(f1) VALUES ('     ')"
+  },
+  {
+    "comment": "int4 - Statement 5",
+    "query": "INSERT INTO INT4_TBL(f1) VALUES ('   asdf   ')"
+  },
+  {
+    "comment": "int4 - Statement 6",
+    "query": "INSERT INTO INT4_TBL(f1) VALUES ('- 1234')"
+  },
+  {
+    "comment": "int4 - Statement 7",
+    "query": "INSERT INTO INT4_TBL(f1) VALUES ('123       5')"
+  },
+  {
+    "comment": "int4 - Statement 8",
+    "query": "INSERT INTO INT4_TBL(f1) VALUES ('')"
+  },
+  {
+    "comment": "int4 - Statement 9",
+    "query": "SELECT * FROM INT4_TBL"
+  },
+  {
+    "comment": "int4 - Statement 10",
+    "query": "SELECT pg_input_is_valid('34', 'int4')"
+  },
+  {
+    "comment": "int4 - Statement 11",
+    "query": "SELECT pg_input_is_valid('asdf', 'int4')"
+  },
+  {
+    "comment": "int4 - Statement 12",
+    "query": "SELECT pg_input_is_valid('1000000000000', 'int4')"
+  },
+  {
+    "comment": "int4 - Statement 13",
+    "query": "SELECT * FROM pg_input_error_info('1000000000000', 'int4')"
+  },
+  {
+    "comment": "int4 - Statement 14",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 <> int2 '0'"
+  },
+  {
+    "comment": "int4 - Statement 15",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 <> int4 '0'"
+  },
+  {
+    "comment": "int4 - Statement 16",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 = int2 '0'"
+  },
+  {
+    "comment": "int4 - Statement 17",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 = int4 '0'"
+  },
+  {
+    "comment": "int4 - Statement 18",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 < int2 '0'"
+  },
+  {
+    "comment": "int4 - Statement 19",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 < int4 '0'"
+  },
+  {
+    "comment": "int4 - Statement 20",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 <= int2 '0'"
+  },
+  {
+    "comment": "int4 - Statement 21",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 <= int4 '0'"
+  },
+  {
+    "comment": "int4 - Statement 22",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 > int2 '0'"
+  },
+  {
+    "comment": "int4 - Statement 23",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 > int4 '0'"
+  },
+  {
+    "comment": "int4 - Statement 24",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 >= int2 '0'"
+  },
+  {
+    "comment": "int4 - Statement 25",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE i.f1 >= int4 '0'"
+  },
+  {
+    "comment": "int4 - Statement 26",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE (i.f1 % int2 '2') = int2 '1'"
+  },
+  {
+    "comment": "int4 - Statement 27",
+    "query": "SELECT i.* FROM INT4_TBL i WHERE (i.f1 % int4 '2') = int2 '0'"
+  },
+  {
+    "comment": "int4 - Statement 28",
+    "query": "SELECT i.f1, i.f1 * int2 '2' AS x FROM INT4_TBL i"
+  },
+  {
+    "comment": "int4 - Statement 29",
+    "query": "SELECT i.f1, i.f1 * int2 '2' AS x FROM INT4_TBL i WHERE abs(f1) < 1073741824"
+  },
+  {
+    "comment": "int4 - Statement 30",
+    "query": "SELECT i.f1, i.f1 * int4 '2' AS x FROM INT4_TBL i"
+  },
+  {
+    "comment": "int4 - Statement 31",
+    "query": "SELECT i.f1, i.f1 * int4 '2' AS x FROM INT4_TBL i WHERE abs(f1) < 1073741824"
+  },
+  {
+    "comment": "int4 - Statement 32",
+    "query": "SELECT i.f1, i.f1 + int2 '2' AS x FROM INT4_TBL i"
+  },
+  {
+    "comment": "int4 - Statement 33",
+    "query": "SELECT i.f1, i.f1 + int2 '2' AS x FROM INT4_TBL i WHERE f1 < 2147483646"
+  },
+  {
+    "comment": "int4 - Statement 34",
+    "query": "SELECT i.f1, i.f1 + int4 '2' AS x FROM INT4_TBL i"
+  },
+  {
+    "comment": "int4 - Statement 35",
+    "query": "SELECT i.f1, i.f1 + int4 '2' AS x FROM INT4_TBL i WHERE f1 < 2147483646"
+  },
+  {
+    "comment": "int4 - Statement 36",
+    "query": "SELECT i.f1, i.f1 - int2 '2' AS x FROM INT4_TBL i"
+  },
+  {
+    "comment": "int4 - Statement 37",
+    "query": "SELECT i.f1, i.f1 - int2 '2' AS x FROM INT4_TBL i WHERE f1 > -2147483647"
+  },
+  {
+    "comment": "int4 - Statement 38",
+    "query": "SELECT i.f1, i.f1 - int4 '2' AS x FROM INT4_TBL i"
+  },
+  {
+    "comment": "int4 - Statement 39",
+    "query": "SELECT i.f1, i.f1 - int4 '2' AS x FROM INT4_TBL i WHERE f1 > -2147483647"
+  },
+  {
+    "comment": "int4 - Statement 40",
+    "query": "SELECT i.f1, i.f1 / int2 '2' AS x FROM INT4_TBL i"
+  },
+  {
+    "comment": "int4 - Statement 41",
+    "query": "SELECT i.f1, i.f1 / int4 '2' AS x FROM INT4_TBL i"
+  },
+  {
+    "comment": "int4 - Statement 42",
+    "query": "SELECT -2+3 AS one"
+  },
+  {
+    "comment": "int4 - Statement 43",
+    "query": "SELECT 4-2 AS two"
+  },
+  {
+    "comment": "int4 - Statement 44",
+    "query": "SELECT 2- -1 AS three"
+  },
+  {
+    "comment": "int4 - Statement 45",
+    "query": "SELECT 2 - -2 AS four"
+  },
+  {
+    "comment": "int4 - Statement 46",
+    "query": "SELECT int2 '2' * int2 '2' = int2 '16' / int2 '4' AS true"
+  },
+  {
+    "comment": "int4 - Statement 47",
+    "query": "SELECT int4 '2' * int2 '2' = int2 '16' / int4 '4' AS true"
+  },
+  {
+    "comment": "int4 - Statement 48",
+    "query": "SELECT int2 '2' * int4 '2' = int4 '16' / int2 '4' AS true"
+  },
+  {
+    "comment": "int4 - Statement 49",
+    "query": "SELECT int4 '1000' < int4 '999' AS false"
+  },
+  {
+    "comment": "int4 - Statement 50",
+    "query": "SELECT 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 AS ten"
+  },
+  {
+    "comment": "int4 - Statement 51",
+    "query": "SELECT 2 + 2 / 2 AS three"
+  },
+  {
+    "comment": "int4 - Statement 52",
+    "query": "SELECT (2 + 2) / 2 AS two"
+  },
+  {
+    "comment": "int4 - Statement 53",
+    "query": "SELECT (-1::int4<<31)::text"
+  },
+  {
+    "comment": "int4 - Statement 54",
+    "query": "SELECT ((-1::int4<<31)+1)::text"
+  },
+  {
+    "comment": "int4 - Statement 55",
+    "query": "SELECT (-2147483648)::int4 * (-1)::int4"
+  },
+  {
+    "comment": "int4 - Statement 56",
+    "query": "SELECT (-2147483648)::int4 / (-1)::int4"
+  },
+  {
+    "comment": "int4 - Statement 57",
+    "query": "SELECT (-2147483648)::int4 % (-1)::int4"
+  },
+  {
+    "comment": "int4 - Statement 58",
+    "query": "SELECT (-2147483648)::int4 * (-1)::int2"
+  },
+  {
+    "comment": "int4 - Statement 59",
+    "query": "SELECT (-2147483648)::int4 / (-1)::int2"
+  },
+  {
+    "comment": "int4 - Statement 60",
+    "query": "SELECT (-2147483648)::int4 % (-1)::int2"
+  },
+  {
+    "comment": "int4 - Statement 61",
+    "query": "SELECT x, x::int4 AS int4_value FROM (VALUES (-2.5::float8), (-1.5::float8), (-0.5::float8), (0.0::float8), (0.5::float8), (1.5::float8), (2.5::float8)) t(x)"
+  },
+  {
+    "comment": "int4 - Statement 62",
+    "query": "SELECT x, x::int4 AS int4_value FROM (VALUES (-2.5::numeric), (-1.5::numeric), (-0.5::numeric), (0.0::numeric), (0.5::numeric), (1.5::numeric), (2.5::numeric)) t(x)"
+  },
+  {
+    "comment": "int4 - Statement 63",
+    "query": "SELECT a, b, gcd(a, b), gcd(a, -b), gcd(b, a), gcd(-b, a) FROM (VALUES (0::int4, 0::int4), (0::int4, 6410818::int4), (61866666::int4, 6410818::int4), (-61866666::int4, 6410818::int4), ((-2147483648)::int4, 1::int4), ((-2147483648)::int4, 2147483647::int4), ((-2147483648)::int4, 1073741824::int4)) AS v(a, b)"
+  },
+  {
+    "comment": "int4 - Statement 64",
+    "query": "SELECT gcd((-2147483648)::int4, 0::int4)"
+  },
+  {
+    "comment": "int4 - Statement 65",
+    "query": "SELECT gcd((-2147483648)::int4, (-2147483648)::int4)"
+  },
+  {
+    "comment": "int4 - Statement 66",
+    "query": "SELECT a, b, lcm(a, b), lcm(a, -b), lcm(b, a), lcm(-b, a) FROM (VALUES (0::int4, 0::int4), (0::int4, 42::int4), (42::int4, 42::int4), (330::int4, 462::int4), (-330::int4, 462::int4), ((-2147483648)::int4, 0::int4)) AS v(a, b)"
+  },
+  {
+    "comment": "int4 - Statement 67",
+    "query": "SELECT lcm((-2147483648)::int4, 1::int4)"
+  },
+  {
+    "comment": "int4 - Statement 68",
+    "query": "SELECT lcm(2147483647::int4, 2147483646::int4)"
+  },
+  {
+    "comment": "int4 - Statement 69",
+    "query": "SELECT int4 '0b100101'"
+  },
+  {
+    "comment": "int4 - Statement 70",
+    "query": "SELECT int4 '0o273'"
+  },
+  {
+    "comment": "int4 - Statement 71",
+    "query": "SELECT int4 '0x42F'"
+  },
+  {
+    "comment": "int4 - Statement 72",
+    "query": "SELECT int4 '0b'"
+  },
+  {
+    "comment": "int4 - Statement 73",
+    "query": "SELECT int4 '0o'"
+  },
+  {
+    "comment": "int4 - Statement 74",
+    "query": "SELECT int4 '0x'"
+  },
+  {
+    "comment": "int4 - Statement 75",
+    "query": "SELECT int4 '0b1111111111111111111111111111111'"
+  },
+  {
+    "comment": "int4 - Statement 76",
+    "query": "SELECT int4 '0b10000000000000000000000000000000'"
+  },
+  {
+    "comment": "int4 - Statement 77",
+    "query": "SELECT int4 '0o17777777777'"
+  },
+  {
+    "comment": "int4 - Statement 78",
+    "query": "SELECT int4 '0o20000000000'"
+  },
+  {
+    "comment": "int4 - Statement 79",
+    "query": "SELECT int4 '0x7FFFFFFF'"
+  },
+  {
+    "comment": "int4 - Statement 80",
+    "query": "SELECT int4 '0x80000000'"
+  },
+  {
+    "comment": "int4 - Statement 81",
+    "query": "SELECT int4 '-0b10000000000000000000000000000000'"
+  },
+  {
+    "comment": "int4 - Statement 82",
+    "query": "SELECT int4 '-0b10000000000000000000000000000001'"
+  },
+  {
+    "comment": "int4 - Statement 83",
+    "query": "SELECT int4 '-0o20000000000'"
+  },
+  {
+    "comment": "int4 - Statement 84",
+    "query": "SELECT int4 '-0o20000000001'"
+  },
+  {
+    "comment": "int4 - Statement 85",
+    "query": "SELECT int4 '-0x80000000'"
+  },
+  {
+    "comment": "int4 - Statement 86",
+    "query": "SELECT int4 '-0x80000001'"
+  },
+  {
+    "comment": "int4 - Statement 87",
+    "query": "SELECT int4 '1_000_000'"
+  },
+  {
+    "comment": "int4 - Statement 88",
+    "query": "SELECT int4 '1_2_3'"
+  },
+  {
+    "comment": "int4 - Statement 89",
+    "query": "SELECT int4 '0x1EEE_FFFF'"
+  },
+  {
+    "comment": "int4 - Statement 90",
+    "query": "SELECT int4 '0o2_73'"
+  },
+  {
+    "comment": "int4 - Statement 91",
+    "query": "SELECT int4 '0b_10_0101'"
+  },
+  {
+    "comment": "int4 - Statement 92",
+    "query": "SELECT int4 '_100'"
+  },
+  {
+    "comment": "int4 - Statement 93",
+    "query": "SELECT int4 '100_'"
+  },
+  {
+    "comment": "int4 - Statement 94",
+    "query": "SELECT int4 '100__000'"
+  }
+]

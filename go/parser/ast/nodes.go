@@ -908,6 +908,11 @@ func (n *BaseNode) String() string {
 // SqlString provides a default implementation that panics with helpful message.
 // Specific node types should override this method to provide actual SQL deparsing.
 func (n *BaseNode) SqlString() string {
+	// Handle T_Invalid nodes specially - they represent invalid/placeholder nodes
+	if n.Tag == T_Invalid {
+		return "<INVALID>"
+	}
+	
 	panic(fmt.Sprintf("SqlString() not implemented for node type %s (tag: %d). "+
 		"Please implement SqlString() method for this node type to enable SQL deparsing.",
 		n.Tag, int(n.Tag)))
@@ -1171,11 +1176,13 @@ func StrVal(node Node) string {
 // Ported from postgres/src/include/nodes/value.h:71-77
 type BitString struct {
 	BaseNode
-	BSVal string // Bit string value - postgres/src/include/nodes/value.h:76
+	BSVal string // Bit string value with prefix ('b' or 'x') - postgres/src/include/nodes/value.h:76
 }
 
 // NewBitString creates a new bit string literal node.
 // Ported from postgres/src/include/nodes/value.h:88 (makeBitString)
+// The value should already include the prefix ('b' or 'x') from the lexer,
+// matching PostgreSQL's scan.l implementation
 func NewBitString(value string) *BitString {
 	return &BitString{
 		BaseNode: BaseNode{Tag: T_BitString},
@@ -1189,6 +1196,28 @@ func (bs *BitString) String() string {
 
 func (bs *BitString) ExpressionType() string {
 	return "BitString"
+}
+
+// SqlString returns the SQL representation of BitString
+func (bs *BitString) SqlString() string {
+	// The BSVal contains a prefix character ('b' or 'x') followed by the actual bit string
+	// This matches PostgreSQL's scan.l implementation
+	if len(bs.BSVal) == 0 {
+		return "B''"
+	}
+	
+	prefix := bs.BSVal[0]
+	value := bs.BSVal[1:]
+	
+	switch prefix {
+	case 'b':
+		return fmt.Sprintf("B'%s'", value)
+	case 'x':
+		return fmt.Sprintf("X'%s'", value)
+	default:
+		// Fallback for unexpected format
+		return fmt.Sprintf("B'%s'", bs.BSVal)
+	}
 }
 
 // Null represents a NULL literal value node.

@@ -41,7 +41,8 @@ func llast(list *ast.NodeList) ast.Node {
 // makeTypeNameFromNodeList converts *ast.NodeList to *ast.TypeName
 func makeTypeNameFromNodeList(list *ast.NodeList) *ast.TypeName {
 	return &ast.TypeName{
-		Names: list,
+		BaseNode: ast.BaseNode{Tag: ast.T_TypeName},
+		Names:    list,
 	}
 }
 

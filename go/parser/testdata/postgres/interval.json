@@ -1,0 +1,1726 @@
+[
+  {
+    "comment": "interval - Statement 1",
+    "query": "SET DATESTYLE = 'ISO'"
+  },
+  {
+    "comment": "interval - Statement 2",
+    "query": "SET IntervalStyle to postgres"
+  },
+  {
+    "comment": "interval - Statement 3",
+    "query": "SELECT INTERVAL '01:00' AS \"One hour\""
+  },
+  {
+    "comment": "interval - Statement 4",
+    "query": "SELECT INTERVAL '+02:00' AS \"Two hours\""
+  },
+  {
+    "comment": "interval - Statement 5",
+    "query": "SELECT INTERVAL '-08:00' AS \"Eight hours\""
+  },
+  {
+    "comment": "interval - Statement 6",
+    "query": "SELECT INTERVAL '-1 +02:03' AS \"22 hours ago...\""
+  },
+  {
+    "comment": "interval - Statement 7",
+    "query": "SELECT INTERVAL '-1 days +02:03' AS \"22 hours ago...\""
+  },
+  {
+    "comment": "interval - Statement 8",
+    "query": "SELECT INTERVAL '1.5 weeks' AS \"Ten days twelve hours\""
+  },
+  {
+    "comment": "interval - Statement 9",
+    "query": "SELECT INTERVAL '1.5 months' AS \"One month 15 days\""
+  },
+  {
+    "comment": "interval - Statement 10",
+    "query": "SELECT INTERVAL '10 years -11 month -12 days +13:14' AS \"9 years...\""
+  },
+  {
+    "comment": "interval - Statement 11",
+    "query": "SELECT INTERVAL 'infinity' AS \"eternity\""
+  },
+  {
+    "comment": "interval - Statement 12",
+    "query": "SELECT INTERVAL '-infinity' AS \"beginning of time\""
+  },
+  {
+    "comment": "interval - Statement 13",
+    "query": "CREATE TABLE INTERVAL_TBL (f1 interval)"
+  },
+  {
+    "comment": "interval - Statement 14",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('@ 1 minute')"
+  },
+  {
+    "comment": "interval - Statement 15",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('@ 5 hour')"
+  },
+  {
+    "comment": "interval - Statement 16",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('@ 10 day')"
+  },
+  {
+    "comment": "interval - Statement 17",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('@ 34 year')"
+  },
+  {
+    "comment": "interval - Statement 18",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('@ 3 months')"
+  },
+  {
+    "comment": "interval - Statement 19",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('@ 14 seconds ago')"
+  },
+  {
+    "comment": "interval - Statement 20",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('1 day 2 hours 3 minutes 4 seconds')"
+  },
+  {
+    "comment": "interval - Statement 21",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('6 years')"
+  },
+  {
+    "comment": "interval - Statement 22",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('5 months')"
+  },
+  {
+    "comment": "interval - Statement 23",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('5 months 12 hours')"
+  },
+  {
+    "comment": "interval - Statement 24",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('infinity')"
+  },
+  {
+    "comment": "interval - Statement 25",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('-infinity')"
+  },
+  {
+    "comment": "interval - Statement 26",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('badly formatted interval')"
+  },
+  {
+    "comment": "interval - Statement 27",
+    "query": "INSERT INTO INTERVAL_TBL (f1) VALUES ('@ 30 eons ago')"
+  },
+  {
+    "comment": "interval - Statement 28",
+    "query": "SELECT pg_input_is_valid('1.5 weeks', 'interval')"
+  },
+  {
+    "comment": "interval - Statement 29",
+    "query": "SELECT pg_input_is_valid('garbage', 'interval')"
+  },
+  {
+    "comment": "interval - Statement 30",
+    "query": "SELECT pg_input_is_valid('@ 30 eons ago', 'interval')"
+  },
+  {
+    "comment": "interval - Statement 31",
+    "query": "SELECT * FROM pg_input_error_info('garbage', 'interval')"
+  },
+  {
+    "comment": "interval - Statement 32",
+    "query": "SELECT * FROM pg_input_error_info('@ 30 eons ago', 'interval')"
+  },
+  {
+    "comment": "interval - Statement 33",
+    "query": "SELECT * FROM INTERVAL_TBL"
+  },
+  {
+    "comment": "interval - Statement 34",
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 <> interval '@ 10 days'"
+  },
+  {
+    "comment": "interval - Statement 35",
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 <= interval '@ 5 hours'"
+  },
+  {
+    "comment": "interval - Statement 36",
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 < interval '@ 1 day'"
+  },
+  {
+    "comment": "interval - Statement 37",
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 = interval '@ 34 years'"
+  },
+  {
+    "comment": "interval - Statement 38",
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 >= interval '@ 1 month'"
+  },
+  {
+    "comment": "interval - Statement 39",
+    "query": "SELECT * FROM INTERVAL_TBL WHERE INTERVAL_TBL.f1 > interval '@ 3 seconds ago'"
+  },
+  {
+    "comment": "interval - Statement 40",
+    "query": "SELECT r1.*, r2.* FROM INTERVAL_TBL r1, INTERVAL_TBL r2 WHERE r1.f1 > r2.f1 ORDER BY r1.f1, r2.f1"
+  },
+  {
+    "comment": "interval - Statement 41",
+    "query": "SELECT f1, -f1 FROM INTERVAL_TBL"
+  },
+  {
+    "comment": "interval - Statement 42",
+    "query": "SELECT -('-2147483648 months'::interval)"
+  },
+  {
+    "comment": "interval - Statement 43",
+    "query": "SELECT -('-2147483647 months'::interval)"
+  },
+  {
+    "comment": "interval - Statement 44",
+    "query": "SELECT -('-2147483648 days'::interval)"
+  },
+  {
+    "comment": "interval - Statement 45",
+    "query": "SELECT -('-2147483647 days'::interval)"
+  },
+  {
+    "comment": "interval - Statement 46",
+    "query": "SELECT -('-9223372036854775808 us'::interval)"
+  },
+  {
+    "comment": "interval - Statement 47",
+    "query": "SELECT -('-9223372036854775807 us'::interval)"
+  },
+  {
+    "comment": "interval - Statement 48",
+    "query": "SELECT -('-2147483647 months -2147483647 days -9223372036854775807 us'::interval)"
+  },
+  {
+    "comment": "interval - Statement 49",
+    "query": "CREATE TEMP TABLE INTERVAL_TBL_OF (f1 interval)"
+  },
+  {
+    "comment": "interval - Statement 50",
+    "query": "INSERT INTO INTERVAL_TBL_OF (f1) VALUES ('2147483647 days 2147483647 months'), ('2147483647 days -2147483648 months'), ('1 year'), ('-2147483648 days 2147483647 months'), ('-2147483648 days -2147483648 months')"
+  },
+  {
+    "comment": "interval - Statement 51",
+    "query": "INSERT INTO INTERVAL_TBL_OF (f1) VALUES ('2147483648 days')"
+  },
+  {
+    "comment": "interval - Statement 52",
+    "query": "INSERT INTO INTERVAL_TBL_OF (f1) VALUES ('-2147483649 days')"
+  },
+  {
+    "comment": "interval - Statement 53",
+    "query": "INSERT INTO INTERVAL_TBL_OF (f1) VALUES ('2147483647 years')"
+  },
+  {
+    "comment": "interval - Statement 54",
+    "query": "INSERT INTO INTERVAL_TBL_OF (f1) VALUES ('-2147483648 years')"
+  },
+  {
+    "comment": "interval - Statement 55",
+    "query": "select extract(epoch from '256 microseconds'::interval * (2^55)::float8)"
+  },
+  {
+    "comment": "interval - Statement 56",
+    "query": "SELECT r1.*, r2.* FROM INTERVAL_TBL_OF r1, INTERVAL_TBL_OF r2 WHERE r1.f1 > r2.f1 ORDER BY r1.f1, r2.f1"
+  },
+  {
+    "comment": "interval - Statement 57",
+    "query": "CREATE INDEX ON INTERVAL_TBL_OF USING btree (f1)"
+  },
+  {
+    "comment": "interval - Statement 58",
+    "query": "SET enable_seqscan TO false"
+  },
+  {
+    "comment": "interval - Statement 59",
+    "query": "EXPLAIN (COSTS OFF) SELECT f1 FROM INTERVAL_TBL_OF r1 ORDER BY f1"
+  },
+  {
+    "comment": "interval - Statement 60",
+    "query": "SELECT f1 FROM INTERVAL_TBL_OF r1 ORDER BY f1"
+  },
+  {
+    "comment": "interval - Statement 61",
+    "query": "RESET enable_seqscan"
+  },
+  {
+    "comment": "interval - Statement 62",
+    "query": "SELECT f1 - f1 FROM INTERVAL_TBL_OF"
+  },
+  {
+    "comment": "interval - Statement 63",
+    "query": "DROP TABLE INTERVAL_TBL_OF"
+  },
+  {
+    "comment": "interval - Statement 64",
+    "query": "CREATE TABLE INTERVAL_MULDIV_TBL (span interval)"
+  },
+  {
+    "comment": "interval - Statement 65",
+    "query": "COPY INTERVAL_MULDIV_TBL FROM STDIN"
+  },
+  {
+    "comment": "interval - Statement 66",
+    "query": "41 mon 12 days 360:00 -41 mon -12 days +360:00 -12 days 9 mon -27 days 12:34:56 -3 years 482 days 76:54:32.189 4 mon 14 mon 999 mon 999 days \\. SELECT span * 0.3 AS product FROM INTERVAL_MULDIV_TBL"
+  },
+  {
+    "comment": "interval - Statement 67",
+    "query": "SELECT span * 8.2 AS product FROM INTERVAL_MULDIV_TBL"
+  },
+  {
+    "comment": "interval - Statement 68",
+    "query": "SELECT span / 10 AS quotient FROM INTERVAL_MULDIV_TBL"
+  },
+  {
+    "comment": "interval - Statement 69",
+    "query": "SELECT span / 100 AS quotient FROM INTERVAL_MULDIV_TBL"
+  },
+  {
+    "comment": "interval - Statement 70",
+    "query": "DROP TABLE INTERVAL_MULDIV_TBL"
+  },
+  {
+    "comment": "interval - Statement 71",
+    "query": "SET DATESTYLE = 'postgres'"
+  },
+  {
+    "comment": "interval - Statement 72",
+    "query": "SET IntervalStyle to postgres_verbose"
+  },
+  {
+    "comment": "interval - Statement 73",
+    "query": "SELECT '3000000 months'::interval * 1000"
+  },
+  {
+    "comment": "interval - Statement 74",
+    "query": "SELECT '3000000 months'::interval / 0.001"
+  },
+  {
+    "comment": "interval - Statement 75",
+    "query": "SELECT '3000000 days'::interval * 1000"
+  },
+  {
+    "comment": "interval - Statement 76",
+    "query": "SELECT '3000000 days'::interval / 0.001"
+  },
+  {
+    "comment": "interval - Statement 77",
+    "query": "SELECT '1 month 2146410 days'::interval * 1000.5002"
+  },
+  {
+    "comment": "interval - Statement 78",
+    "query": "SELECT '4611686018427387904 usec'::interval / 0.1"
+  },
+  {
+    "comment": "interval - Statement 79",
+    "query": "select avg(f1) from interval_tbl where isfinite(f1)"
+  },
+  {
+    "comment": "interval - Statement 80",
+    "query": "select '4 millenniums 5 centuries 4 decades 1 year 4 months 4 days 17 minutes 31 seconds'::interval"
+  },
+  {
+    "comment": "interval - Statement 81",
+    "query": "select '100000000y 10mon -1000000000d -100000h -10min -10.000001s ago'::interval"
+  },
+  {
+    "comment": "interval - Statement 82",
+    "query": "SELECT justify_hours(interval '6 months 3 days 52 hours 3 minutes 2 seconds') as \"6 mons 5 days 4 hours 3 mins 2 seconds\""
+  },
+  {
+    "comment": "interval - Statement 83",
+    "query": "SELECT justify_days(interval '6 months 36 days 5 hours 4 minutes 3 seconds') as \"7 mons 6 days 5 hours 4 mins 3 seconds\""
+  },
+  {
+    "comment": "interval - Statement 84",
+    "query": "SELECT justify_hours(interval '2147483647 days 24 hrs')"
+  },
+  {
+    "comment": "interval - Statement 85",
+    "query": "SELECT justify_days(interval '2147483647 months 30 days')"
+  },
+  {
+    "comment": "interval - Statement 86",
+    "query": "SELECT justify_interval(interval '1 month -1 hour') as \"1 month -1 hour\""
+  },
+  {
+    "comment": "interval - Statement 87",
+    "query": "SELECT justify_interval(interval '2147483647 days 24 hrs')"
+  },
+  {
+    "comment": "interval - Statement 88",
+    "query": "SELECT justify_interval(interval '-2147483648 days -24 hrs')"
+  },
+  {
+    "comment": "interval - Statement 89",
+    "query": "SELECT justify_interval(interval '2147483647 months 30 days')"
+  },
+  {
+    "comment": "interval - Statement 90",
+    "query": "SELECT justify_interval(interval '-2147483648 months -30 days')"
+  },
+  {
+    "comment": "interval - Statement 91",
+    "query": "SELECT justify_interval(interval '2147483647 months 30 days -24 hrs')"
+  },
+  {
+    "comment": "interval - Statement 92",
+    "query": "SELECT justify_interval(interval '-2147483648 months -30 days 24 hrs')"
+  },
+  {
+    "comment": "interval - Statement 93",
+    "query": "SELECT justify_interval(interval '2147483647 months -30 days 1440 hrs')"
+  },
+  {
+    "comment": "interval - Statement 94",
+    "query": "SELECT justify_interval(interval '-2147483648 months 30 days -1440 hrs')"
+  },
+  {
+    "comment": "interval - Statement 95",
+    "query": "SELECT '1 millisecond'::interval, '1 microsecond'::interval, '500 seconds 99 milliseconds 51 microseconds'::interval"
+  },
+  {
+    "comment": "interval - Statement 96",
+    "query": "SELECT '3 days 5 milliseconds'::interval"
+  },
+  {
+    "comment": "interval - Statement 97",
+    "query": "SELECT '1 second 2 seconds'::interval"
+  },
+  {
+    "comment": "interval - Statement 98",
+    "query": "SELECT '10 milliseconds 20 milliseconds'::interval"
+  },
+  {
+    "comment": "interval - Statement 99",
+    "query": "SELECT '5.5 seconds 3 milliseconds'::interval"
+  },
+  {
+    "comment": "interval - Statement 100",
+    "query": "SELECT '1:20:05 5 microseconds'::interval"
+  },
+  {
+    "comment": "interval - Statement 101",
+    "query": "SELECT '1 day 1 day'::interval"
+  },
+  {
+    "comment": "interval - Statement 102",
+    "query": "SELECT interval '1-2'"
+  },
+  {
+    "comment": "interval - Statement 103",
+    "query": "SELECT interval '999' second"
+  },
+  {
+    "comment": "interval - Statement 104",
+    "query": "SELECT interval '999' minute"
+  },
+  {
+    "comment": "interval - Statement 105",
+    "query": "SELECT interval '999' hour"
+  },
+  {
+    "comment": "interval - Statement 106",
+    "query": "SELECT interval '999' day"
+  },
+  {
+    "comment": "interval - Statement 107",
+    "query": "SELECT interval '999' month"
+  },
+  {
+    "comment": "interval - Statement 108",
+    "query": "SELECT interval '1' year"
+  },
+  {
+    "comment": "interval - Statement 109",
+    "query": "SELECT interval '2' month"
+  },
+  {
+    "comment": "interval - Statement 110",
+    "query": "SELECT interval '3' day"
+  },
+  {
+    "comment": "interval - Statement 111",
+    "query": "SELECT interval '4' hour"
+  },
+  {
+    "comment": "interval - Statement 112",
+    "query": "SELECT interval '5' minute"
+  },
+  {
+    "comment": "interval - Statement 113",
+    "query": "SELECT interval '6' second"
+  },
+  {
+    "comment": "interval - Statement 114",
+    "query": "SELECT interval '1' year to month"
+  },
+  {
+    "comment": "interval - Statement 115",
+    "query": "SELECT interval '1-2' year to month"
+  },
+  {
+    "comment": "interval - Statement 116",
+    "query": "SELECT interval '1 2' day to hour"
+  },
+  {
+    "comment": "interval - Statement 117",
+    "query": "SELECT interval '1 2:03' day to hour"
+  },
+  {
+    "comment": "interval - Statement 118",
+    "query": "SELECT interval '1 2:03:04' day to hour"
+  },
+  {
+    "comment": "interval - Statement 119",
+    "query": "SELECT interval '1 2' day to minute"
+  },
+  {
+    "comment": "interval - Statement 120",
+    "query": "SELECT interval '1 2:03' day to minute"
+  },
+  {
+    "comment": "interval - Statement 121",
+    "query": "SELECT interval '1 2:03:04' day to minute"
+  },
+  {
+    "comment": "interval - Statement 122",
+    "query": "SELECT interval '1 2' day to second"
+  },
+  {
+    "comment": "interval - Statement 123",
+    "query": "SELECT interval '1 2:03' day to second"
+  },
+  {
+    "comment": "interval - Statement 124",
+    "query": "SELECT interval '1 2:03:04' day to second"
+  },
+  {
+    "comment": "interval - Statement 125",
+    "query": "SELECT interval '1 2' hour to minute"
+  },
+  {
+    "comment": "interval - Statement 126",
+    "query": "SELECT interval '1 2:03' hour to minute"
+  },
+  {
+    "comment": "interval - Statement 127",
+    "query": "SELECT interval '1 2:03:04' hour to minute"
+  },
+  {
+    "comment": "interval - Statement 128",
+    "query": "SELECT interval '1 2' hour to second"
+  },
+  {
+    "comment": "interval - Statement 129",
+    "query": "SELECT interval '1 2:03' hour to second"
+  },
+  {
+    "comment": "interval - Statement 130",
+    "query": "SELECT interval '1 2:03:04' hour to second"
+  },
+  {
+    "comment": "interval - Statement 131",
+    "query": "SELECT interval '1 2' minute to second"
+  },
+  {
+    "comment": "interval - Statement 132",
+    "query": "SELECT interval '1 2:03' minute to second"
+  },
+  {
+    "comment": "interval - Statement 133",
+    "query": "SELECT interval '1 2:03:04' minute to second"
+  },
+  {
+    "comment": "interval - Statement 134",
+    "query": "SELECT interval '1 +2:03' minute to second"
+  },
+  {
+    "comment": "interval - Statement 135",
+    "query": "SELECT interval '1 +2:03:04' minute to second"
+  },
+  {
+    "comment": "interval - Statement 136",
+    "query": "SELECT interval '1 -2:03' minute to second"
+  },
+  {
+    "comment": "interval - Statement 137",
+    "query": "SELECT interval '1 -2:03:04' minute to second"
+  },
+  {
+    "comment": "interval - Statement 138",
+    "query": "SELECT interval '123 11' day to hour"
+  },
+  {
+    "comment": "interval - Statement 139",
+    "query": "SELECT interval '123 11' day"
+  },
+  {
+    "comment": "interval - Statement 140",
+    "query": "SELECT interval '123 11'"
+  },
+  {
+    "comment": "interval - Statement 141",
+    "query": "SELECT interval '123 2:03 -2:04'"
+  },
+  {
+    "comment": "interval - Statement 142",
+    "query": "SELECT interval(0) '1 day 01:23:45.6789'"
+  },
+  {
+    "comment": "interval - Statement 143",
+    "query": "SELECT interval(2) '1 day 01:23:45.6789'"
+  },
+  {
+    "comment": "interval - Statement 144",
+    "query": "SELECT interval '12:34.5678' minute to second(2)"
+  },
+  {
+    "comment": "interval - Statement 145",
+    "query": "SELECT interval '1.234' second"
+  },
+  {
+    "comment": "interval - Statement 146",
+    "query": "SELECT interval '1.234' second(2)"
+  },
+  {
+    "comment": "interval - Statement 147",
+    "query": "SELECT interval '1 2.345' day to second(2)"
+  },
+  {
+    "comment": "interval - Statement 148",
+    "query": "SELECT interval '1 2:03' day to second(2)"
+  },
+  {
+    "comment": "interval - Statement 149",
+    "query": "SELECT interval '1 2:03.4567' day to second(2)"
+  },
+  {
+    "comment": "interval - Statement 150",
+    "query": "SELECT interval '1 2:03:04.5678' day to second(2)"
+  },
+  {
+    "comment": "interval - Statement 151",
+    "query": "SELECT interval '1 2.345' hour to second(2)"
+  },
+  {
+    "comment": "interval - Statement 152",
+    "query": "SELECT interval '1 2:03.45678' hour to second(2)"
+  },
+  {
+    "comment": "interval - Statement 153",
+    "query": "SELECT interval '1 2:03:04.5678' hour to second(2)"
+  },
+  {
+    "comment": "interval - Statement 154",
+    "query": "SELECT interval '1 2.3456' minute to second(2)"
+  },
+  {
+    "comment": "interval - Statement 155",
+    "query": "SELECT interval '1 2:03.5678' minute to second(2)"
+  },
+  {
+    "comment": "interval - Statement 156",
+    "query": "SELECT interval '1 2:03:04.5678' minute to second(2)"
+  },
+  {
+    "comment": "interval - Statement 157",
+    "query": "SELECT interval '2562047788:00:54.775807' second(2)"
+  },
+  {
+    "comment": "interval - Statement 158",
+    "query": "SELECT interval '-2562047788:00:54.775807' second(2)"
+  },
+  {
+    "comment": "interval - Statement 159",
+    "query": "SELECT f1, f1::INTERVAL DAY TO MINUTE AS \"minutes\", (f1 + INTERVAL '1 month')::INTERVAL MONTH::INTERVAL YEAR AS \"years\" FROM interval_tbl"
+  },
+  {
+    "comment": "interval - Statement 160",
+    "query": "SET IntervalStyle TO sql_standard"
+  },
+  {
+    "comment": "interval - Statement 161",
+    "query": "SELECT  interval '0'                       AS \"zero\", interval '1-2' year to month       AS \"year-month\", interval '1 2:03:04' day to second AS \"day-time\", - interval '1-2'                   AS \"negative year-month\", - interval '1 2:03:04'             AS \"negative day-time\""
+  },
+  {
+    "comment": "interval - Statement 162",
+    "query": "SELECT  interval '+1 -1:00:00', interval '-1 +1:00:00', interval '+1-2 -3 +4:05:06.789', interval '-1-2 +3 -4:05:06.789'"
+  },
+  {
+    "comment": "interval - Statement 163",
+    "query": "SELECT  interval '-23 hours 45 min 12.34 sec', interval '-1 day 23 hours 45 min 12.34 sec', interval '-1 year 2 months 1 day 23 hours 45 min 12.34 sec', interval '-1 year 2 months 1 day 23 hours 45 min +12.34 sec'"
+  },
+  {
+    "comment": "interval - Statement 164",
+    "query": "SELECT  interval '1 day -1 hours', interval '-1 days +1 hours', interval '1 years 2 months -3 days 4 hours 5 minutes 6.789 seconds', - interval '1 years 2 months -3 days 4 hours 5 minutes 6.789 seconds'"
+  },
+  {
+    "comment": "interval - Statement 165",
+    "query": "SELECT  interval ''"
+  },
+  {
+    "comment": "interval - Statement 166",
+    "query": "SET IntervalStyle to iso_8601"
+  },
+  {
+    "comment": "interval - Statement 167",
+    "query": "select  interval '0'                                AS \"zero\", interval '1-2'                              AS \"a year 2 months\", interval '1 2:03:04'                        AS \"a bit over a day\", interval '2:03:04.45679'                    AS \"a bit over 2 hours\", (interval '1-2' + interval '3 4:05:06.7')   AS \"all fields\", (interval '1-2' - interval '3 4:05:06.7')   AS \"mixed sign\", (- interval '1-2' + interval '3 4:05:06.7') AS \"negative\""
+  },
+  {
+    "comment": "interval - Statement 168",
+    "query": "select  interval 'P0Y'                    AS \"zero\", interval 'P1Y2M'                  AS \"a year 2 months\", interval 'P1W'                    AS \"a week\", interval 'P1DT2H3M4S'             AS \"a bit over a day\", interval 'P1Y2M3DT4H5M6.7S'       AS \"all fields\", interval 'P-1Y-2M-3DT-4H-5M-6.7S' AS \"negative\", interval 'PT-0.1S'                AS \"fractional second\""
+  },
+  {
+    "comment": "interval - Statement 169",
+    "query": "select  interval 'P00021015T103020'       AS \"ISO8601 Basic Format\", interval 'P0002-10-15T10:30:20'   AS \"ISO8601 Extended Format\""
+  },
+  {
+    "comment": "interval - Statement 170",
+    "query": "select  interval 'P0002'                  AS \"year only\", interval 'P0002-10'               AS \"year month\", interval 'P0002-10-15'            AS \"year month day\", interval 'P0002T1S'               AS \"year only plus time\", interval 'P0002-10T1S'            AS \"year month plus time\", interval 'P0002-10-15T1S'         AS \"year month day plus time\", interval 'PT10'                   AS \"hour only\", interval 'PT10:30'                AS \"hour minute\""
+  },
+  {
+    "comment": "interval - Statement 171",
+    "query": "select interval 'P1Y0M3DT4H5M6S'"
+  },
+  {
+    "comment": "interval - Statement 172",
+    "query": "select interval 'P1.0Y0M3DT4H5M6S'"
+  },
+  {
+    "comment": "interval - Statement 173",
+    "query": "select interval 'P1.1Y0M3DT4H5M6S'"
+  },
+  {
+    "comment": "interval - Statement 174",
+    "query": "select interval 'P1.Y0M3DT4H5M6S'"
+  },
+  {
+    "comment": "interval - Statement 175",
+    "query": "select interval 'P.1Y0M3DT4H5M6S'"
+  },
+  {
+    "comment": "interval - Statement 176",
+    "query": "select interval 'P10.5e4Y'"
+  },
+  {
+    "comment": "interval - Statement 177",
+    "query": "select interval 'P.Y0M3DT4H5M6S'"
+  },
+  {
+    "comment": "interval - Statement 178",
+    "query": "select interval '-10 mons -3 days +03:55:06.70'"
+  },
+  {
+    "comment": "interval - Statement 179",
+    "query": "select interval '1 year 2 mons 3 days 04:05:06.699999'"
+  },
+  {
+    "comment": "interval - Statement 180",
+    "query": "select interval '0:0:0.7', interval '@ 0.70 secs', interval '0.7 seconds'"
+  },
+  {
+    "comment": "interval - Statement 181",
+    "query": "select interval '2562047788.01521550194 hours'"
+  },
+  {
+    "comment": "interval - Statement 182",
+    "query": "select interval '-2562047788.01521550222 hours'"
+  },
+  {
+    "comment": "interval - Statement 183",
+    "query": "select interval '153722867280.912930117 minutes'"
+  },
+  {
+    "comment": "interval - Statement 184",
+    "query": "select interval '-153722867280.912930133 minutes'"
+  },
+  {
+    "comment": "interval - Statement 185",
+    "query": "select interval '9223372036854.775807 seconds'"
+  },
+  {
+    "comment": "interval - Statement 186",
+    "query": "select interval '-9223372036854.775808 seconds'"
+  },
+  {
+    "comment": "interval - Statement 187",
+    "query": "select interval '9223372036854775.807 milliseconds'"
+  },
+  {
+    "comment": "interval - Statement 188",
+    "query": "select interval '-9223372036854775.808 milliseconds'"
+  },
+  {
+    "comment": "interval - Statement 189",
+    "query": "select interval '9223372036854775807 microseconds'"
+  },
+  {
+    "comment": "interval - Statement 190",
+    "query": "select interval '-9223372036854775808 microseconds'"
+  },
+  {
+    "comment": "interval - Statement 191",
+    "query": "select interval 'PT2562047788H54.775807S'"
+  },
+  {
+    "comment": "interval - Statement 192",
+    "query": "select interval 'PT-2562047788H-54.775808S'"
+  },
+  {
+    "comment": "interval - Statement 193",
+    "query": "select interval 'PT2562047788:00:54.775807'"
+  },
+  {
+    "comment": "interval - Statement 194",
+    "query": "select interval 'PT2562047788.0152155019444'"
+  },
+  {
+    "comment": "interval - Statement 195",
+    "query": "select interval 'PT-2562047788.0152155022222'"
+  },
+  {
+    "comment": "interval - Statement 196",
+    "query": "select interval '2147483648 years'"
+  },
+  {
+    "comment": "interval - Statement 197",
+    "query": "select interval '-2147483649 years'"
+  },
+  {
+    "comment": "interval - Statement 198",
+    "query": "select interval '2147483648 months'"
+  },
+  {
+    "comment": "interval - Statement 199",
+    "query": "select interval '-2147483649 months'"
+  },
+  {
+    "comment": "interval - Statement 200",
+    "query": "select interval '2147483648 days'"
+  },
+  {
+    "comment": "interval - Statement 201",
+    "query": "select interval '-2147483649 days'"
+  },
+  {
+    "comment": "interval - Statement 202",
+    "query": "select interval '2562047789 hours'"
+  },
+  {
+    "comment": "interval - Statement 203",
+    "query": "select interval '-2562047789 hours'"
+  },
+  {
+    "comment": "interval - Statement 204",
+    "query": "select interval '153722867281 minutes'"
+  },
+  {
+    "comment": "interval - Statement 205",
+    "query": "select interval '-153722867281 minutes'"
+  },
+  {
+    "comment": "interval - Statement 206",
+    "query": "select interval '9223372036855 seconds'"
+  },
+  {
+    "comment": "interval - Statement 207",
+    "query": "select interval '-9223372036855 seconds'"
+  },
+  {
+    "comment": "interval - Statement 208",
+    "query": "select interval '9223372036854777 millisecond'"
+  },
+  {
+    "comment": "interval - Statement 209",
+    "query": "select interval '-9223372036854777 millisecond'"
+  },
+  {
+    "comment": "interval - Statement 210",
+    "query": "select interval '9223372036854775808 microsecond'"
+  },
+  {
+    "comment": "interval - Statement 211",
+    "query": "select interval '-9223372036854775809 microsecond'"
+  },
+  {
+    "comment": "interval - Statement 212",
+    "query": "select interval 'P2147483648'"
+  },
+  {
+    "comment": "interval - Statement 213",
+    "query": "select interval 'P-2147483649'"
+  },
+  {
+    "comment": "interval - Statement 214",
+    "query": "select interval 'P1-2147483647-2147483647'"
+  },
+  {
+    "comment": "interval - Statement 215",
+    "query": "select interval 'PT2562047789'"
+  },
+  {
+    "comment": "interval - Statement 216",
+    "query": "select interval 'PT-2562047789'"
+  },
+  {
+    "comment": "interval - Statement 217",
+    "query": "select interval '2147483647 weeks'"
+  },
+  {
+    "comment": "interval - Statement 218",
+    "query": "select interval '-2147483648 weeks'"
+  },
+  {
+    "comment": "interval - Statement 219",
+    "query": "select interval '2147483647 decades'"
+  },
+  {
+    "comment": "interval - Statement 220",
+    "query": "select interval '-2147483648 decades'"
+  },
+  {
+    "comment": "interval - Statement 221",
+    "query": "select interval '2147483647 centuries'"
+  },
+  {
+    "comment": "interval - Statement 222",
+    "query": "select interval '-2147483648 centuries'"
+  },
+  {
+    "comment": "interval - Statement 223",
+    "query": "select interval '2147483647 millennium'"
+  },
+  {
+    "comment": "interval - Statement 224",
+    "query": "select interval '-2147483648 millennium'"
+  },
+  {
+    "comment": "interval - Statement 225",
+    "query": "select interval '1 week 2147483647 days'"
+  },
+  {
+    "comment": "interval - Statement 226",
+    "query": "select interval '-1 week -2147483648 days'"
+  },
+  {
+    "comment": "interval - Statement 227",
+    "query": "select interval '2147483647 days 1 week'"
+  },
+  {
+    "comment": "interval - Statement 228",
+    "query": "select interval '-2147483648 days -1 week'"
+  },
+  {
+    "comment": "interval - Statement 229",
+    "query": "select interval 'P1W2147483647D'"
+  },
+  {
+    "comment": "interval - Statement 230",
+    "query": "select interval 'P-1W-2147483648D'"
+  },
+  {
+    "comment": "interval - Statement 231",
+    "query": "select interval 'P2147483647D1W'"
+  },
+  {
+    "comment": "interval - Statement 232",
+    "query": "select interval 'P-2147483648D-1W'"
+  },
+  {
+    "comment": "interval - Statement 233",
+    "query": "select interval '1 decade 2147483647 years'"
+  },
+  {
+    "comment": "interval - Statement 234",
+    "query": "select interval '1 century 2147483647 years'"
+  },
+  {
+    "comment": "interval - Statement 235",
+    "query": "select interval '1 millennium 2147483647 years'"
+  },
+  {
+    "comment": "interval - Statement 236",
+    "query": "select interval '-1 decade -2147483648 years'"
+  },
+  {
+    "comment": "interval - Statement 237",
+    "query": "select interval '-1 century -2147483648 years'"
+  },
+  {
+    "comment": "interval - Statement 238",
+    "query": "select interval '-1 millennium -2147483648 years'"
+  },
+  {
+    "comment": "interval - Statement 239",
+    "query": "select interval '2147483647 years 1 decade'"
+  },
+  {
+    "comment": "interval - Statement 240",
+    "query": "select interval '2147483647 years 1 century'"
+  },
+  {
+    "comment": "interval - Statement 241",
+    "query": "select interval '2147483647 years 1 millennium'"
+  },
+  {
+    "comment": "interval - Statement 242",
+    "query": "select interval '-2147483648 years -1 decade'"
+  },
+  {
+    "comment": "interval - Statement 243",
+    "query": "select interval '-2147483648 years -1 century'"
+  },
+  {
+    "comment": "interval - Statement 244",
+    "query": "select interval '-2147483648 years -1 millennium'"
+  },
+  {
+    "comment": "interval - Statement 245",
+    "query": "select interval '0.1 millennium 2147483647 months'"
+  },
+  {
+    "comment": "interval - Statement 246",
+    "query": "select interval '0.1 centuries 2147483647 months'"
+  },
+  {
+    "comment": "interval - Statement 247",
+    "query": "select interval '0.1 decades 2147483647 months'"
+  },
+  {
+    "comment": "interval - Statement 248",
+    "query": "select interval '0.1 yrs 2147483647 months'"
+  },
+  {
+    "comment": "interval - Statement 249",
+    "query": "select interval '-0.1 millennium -2147483648 months'"
+  },
+  {
+    "comment": "interval - Statement 250",
+    "query": "select interval '-0.1 centuries -2147483648 months'"
+  },
+  {
+    "comment": "interval - Statement 251",
+    "query": "select interval '-0.1 decades -2147483648 months'"
+  },
+  {
+    "comment": "interval - Statement 252",
+    "query": "select interval '-0.1 yrs -2147483648 months'"
+  },
+  {
+    "comment": "interval - Statement 253",
+    "query": "select interval '2147483647 months 0.1 millennium'"
+  },
+  {
+    "comment": "interval - Statement 254",
+    "query": "select interval '2147483647 months 0.1 centuries'"
+  },
+  {
+    "comment": "interval - Statement 255",
+    "query": "select interval '2147483647 months 0.1 decades'"
+  },
+  {
+    "comment": "interval - Statement 256",
+    "query": "select interval '2147483647 months 0.1 yrs'"
+  },
+  {
+    "comment": "interval - Statement 257",
+    "query": "select interval '-2147483648 months -0.1 millennium'"
+  },
+  {
+    "comment": "interval - Statement 258",
+    "query": "select interval '-2147483648 months -0.1 centuries'"
+  },
+  {
+    "comment": "interval - Statement 259",
+    "query": "select interval '-2147483648 months -0.1 decades'"
+  },
+  {
+    "comment": "interval - Statement 260",
+    "query": "select interval '-2147483648 months -0.1 yrs'"
+  },
+  {
+    "comment": "interval - Statement 261",
+    "query": "select interval '0.1 months 2147483647 days'"
+  },
+  {
+    "comment": "interval - Statement 262",
+    "query": "select interval '-0.1 months -2147483648 days'"
+  },
+  {
+    "comment": "interval - Statement 263",
+    "query": "select interval '2147483647 days 0.1 months'"
+  },
+  {
+    "comment": "interval - Statement 264",
+    "query": "select interval '-2147483648 days -0.1 months'"
+  },
+  {
+    "comment": "interval - Statement 265",
+    "query": "select interval '0.5 weeks 2147483647 days'"
+  },
+  {
+    "comment": "interval - Statement 266",
+    "query": "select interval '-0.5 weeks -2147483648 days'"
+  },
+  {
+    "comment": "interval - Statement 267",
+    "query": "select interval '2147483647 days 0.5 weeks'"
+  },
+  {
+    "comment": "interval - Statement 268",
+    "query": "select interval '-2147483648 days -0.5 weeks'"
+  },
+  {
+    "comment": "interval - Statement 269",
+    "query": "select interval '0.01 months 9223372036854775807 microseconds'"
+  },
+  {
+    "comment": "interval - Statement 270",
+    "query": "select interval '-0.01 months -9223372036854775808 microseconds'"
+  },
+  {
+    "comment": "interval - Statement 271",
+    "query": "select interval '9223372036854775807 microseconds 0.01 months'"
+  },
+  {
+    "comment": "interval - Statement 272",
+    "query": "select interval '-9223372036854775808 microseconds -0.01 months'"
+  },
+  {
+    "comment": "interval - Statement 273",
+    "query": "select interval '0.1 weeks 9223372036854775807 microseconds'"
+  },
+  {
+    "comment": "interval - Statement 274",
+    "query": "select interval '-0.1 weeks -9223372036854775808 microseconds'"
+  },
+  {
+    "comment": "interval - Statement 275",
+    "query": "select interval '9223372036854775807 microseconds 0.1 weeks'"
+  },
+  {
+    "comment": "interval - Statement 276",
+    "query": "select interval '-9223372036854775808 microseconds -0.1 weeks'"
+  },
+  {
+    "comment": "interval - Statement 277",
+    "query": "select interval '0.1 days 9223372036854775807 microseconds'"
+  },
+  {
+    "comment": "interval - Statement 278",
+    "query": "select interval '-0.1 days -9223372036854775808 microseconds'"
+  },
+  {
+    "comment": "interval - Statement 279",
+    "query": "select interval '9223372036854775807 microseconds 0.1 days'"
+  },
+  {
+    "comment": "interval - Statement 280",
+    "query": "select interval '-9223372036854775808 microseconds -0.1 days'"
+  },
+  {
+    "comment": "interval - Statement 281",
+    "query": "select interval 'P0.1Y2147483647M'"
+  },
+  {
+    "comment": "interval - Statement 282",
+    "query": "select interval 'P-0.1Y-2147483648M'"
+  },
+  {
+    "comment": "interval - Statement 283",
+    "query": "select interval 'P2147483647M0.1Y'"
+  },
+  {
+    "comment": "interval - Statement 284",
+    "query": "select interval 'P-2147483648M-0.1Y'"
+  },
+  {
+    "comment": "interval - Statement 285",
+    "query": "select interval 'P0.1M2147483647D'"
+  },
+  {
+    "comment": "interval - Statement 286",
+    "query": "select interval 'P-0.1M-2147483648D'"
+  },
+  {
+    "comment": "interval - Statement 287",
+    "query": "select interval 'P2147483647D0.1M'"
+  },
+  {
+    "comment": "interval - Statement 288",
+    "query": "select interval 'P-2147483648D-0.1M'"
+  },
+  {
+    "comment": "interval - Statement 289",
+    "query": "select interval 'P0.5W2147483647D'"
+  },
+  {
+    "comment": "interval - Statement 290",
+    "query": "select interval 'P-0.5W-2147483648D'"
+  },
+  {
+    "comment": "interval - Statement 291",
+    "query": "select interval 'P2147483647D0.5W'"
+  },
+  {
+    "comment": "interval - Statement 292",
+    "query": "select interval 'P-2147483648D-0.5W'"
+  },
+  {
+    "comment": "interval - Statement 293",
+    "query": "select interval 'P0.01MT2562047788H54.775807S'"
+  },
+  {
+    "comment": "interval - Statement 294",
+    "query": "select interval 'P-0.01MT-2562047788H-54.775808S'"
+  },
+  {
+    "comment": "interval - Statement 295",
+    "query": "select interval 'P0.1DT2562047788H54.775807S'"
+  },
+  {
+    "comment": "interval - Statement 296",
+    "query": "select interval 'P-0.1DT-2562047788H-54.775808S'"
+  },
+  {
+    "comment": "interval - Statement 297",
+    "query": "select interval 'PT2562047788.1H54.775807S'"
+  },
+  {
+    "comment": "interval - Statement 298",
+    "query": "select interval 'PT-2562047788.1H-54.775808S'"
+  },
+  {
+    "comment": "interval - Statement 299",
+    "query": "select interval 'PT2562047788H0.1M54.775807S'"
+  },
+  {
+    "comment": "interval - Statement 300",
+    "query": "select interval 'PT-2562047788H-0.1M-54.775808S'"
+  },
+  {
+    "comment": "interval - Statement 301",
+    "query": "select interval 'P0.1-2147483647-00'"
+  },
+  {
+    "comment": "interval - Statement 302",
+    "query": "select interval 'P00-0.1-2147483647'"
+  },
+  {
+    "comment": "interval - Statement 303",
+    "query": "select interval 'P00-0.01-00T2562047788:00:54.775807'"
+  },
+  {
+    "comment": "interval - Statement 304",
+    "query": "select interval 'P00-00-0.1T2562047788:00:54.775807'"
+  },
+  {
+    "comment": "interval - Statement 305",
+    "query": "select interval 'PT2562047788.1:00:54.775807'"
+  },
+  {
+    "comment": "interval - Statement 306",
+    "query": "select interval 'PT2562047788:01.:54.775807'"
+  },
+  {
+    "comment": "interval - Statement 307",
+    "query": "select interval '0.1 2562047788:0:54.775807'"
+  },
+  {
+    "comment": "interval - Statement 308",
+    "query": "select interval '0.1 2562047788:0:54.775808 ago'"
+  },
+  {
+    "comment": "interval - Statement 309",
+    "query": "select interval '2562047788.1:0:54.775807'"
+  },
+  {
+    "comment": "interval - Statement 310",
+    "query": "select interval '2562047788.1:0:54.775808 ago'"
+  },
+  {
+    "comment": "interval - Statement 311",
+    "query": "select interval '2562047788:0.1:54.775807'"
+  },
+  {
+    "comment": "interval - Statement 312",
+    "query": "select interval '2562047788:0.1:54.775808 ago'"
+  },
+  {
+    "comment": "interval - Statement 313",
+    "query": "select interval '-2147483648 months ago'"
+  },
+  {
+    "comment": "interval - Statement 314",
+    "query": "select interval '-2147483648 days ago'"
+  },
+  {
+    "comment": "interval - Statement 315",
+    "query": "select interval '-9223372036854775808 microseconds ago'"
+  },
+  {
+    "comment": "interval - Statement 316",
+    "query": "select interval '-2147483648 months -2147483648 days -9223372036854775808 microseconds ago'"
+  },
+  {
+    "comment": "interval - Statement 317",
+    "query": "select make_interval(years := 178956971)"
+  },
+  {
+    "comment": "interval - Statement 318",
+    "query": "select make_interval(years := -178956971)"
+  },
+  {
+    "comment": "interval - Statement 319",
+    "query": "select make_interval(years := 1, months := 2147483647)"
+  },
+  {
+    "comment": "interval - Statement 320",
+    "query": "select make_interval(years := -1, months := -2147483648)"
+  },
+  {
+    "comment": "interval - Statement 321",
+    "query": "select make_interval(weeks := 306783379)"
+  },
+  {
+    "comment": "interval - Statement 322",
+    "query": "select make_interval(weeks := -306783379)"
+  },
+  {
+    "comment": "interval - Statement 323",
+    "query": "select make_interval(weeks := 1, days := 2147483647)"
+  },
+  {
+    "comment": "interval - Statement 324",
+    "query": "select make_interval(weeks := -1, days := -2147483648)"
+  },
+  {
+    "comment": "interval - Statement 325",
+    "query": "select make_interval(secs := 1e308)"
+  },
+  {
+    "comment": "interval - Statement 326",
+    "query": "select make_interval(secs := 1e18)"
+  },
+  {
+    "comment": "interval - Statement 327",
+    "query": "select make_interval(secs := -1e18)"
+  },
+  {
+    "comment": "interval - Statement 328",
+    "query": "select make_interval(mins := 1, secs := 9223372036800.0)"
+  },
+  {
+    "comment": "interval - Statement 329",
+    "query": "select make_interval(mins := -1, secs := -9223372036800.0)"
+  },
+  {
+    "comment": "interval - Statement 330",
+    "query": "select interval '-2147483647 months -2147483648 days -9223372036854775808 us'"
+  },
+  {
+    "comment": "interval - Statement 331",
+    "query": "select '30 days'::interval = '1 month'::interval as t"
+  },
+  {
+    "comment": "interval - Statement 332",
+    "query": "select interval_hash('30 days'::interval) = interval_hash('1 month'::interval) as t"
+  },
+  {
+    "comment": "interval - Statement 333",
+    "query": "select make_interval(years := 2)"
+  },
+  {
+    "comment": "interval - Statement 334",
+    "query": "select make_interval(years := 1, months := 6)"
+  },
+  {
+    "comment": "interval - Statement 335",
+    "query": "select make_interval(years := 1, months := -1, weeks := 5, days := -7, hours := 25, mins := -180)"
+  },
+  {
+    "comment": "interval - Statement 336",
+    "query": "select make_interval() = make_interval(years := 0, months := 0, weeks := 0, days := 0, mins := 0, secs := 0.0)"
+  },
+  {
+    "comment": "interval - Statement 337",
+    "query": "select make_interval(hours := -2, mins := -10, secs := -25.3)"
+  },
+  {
+    "comment": "interval - Statement 338",
+    "query": "select make_interval(years := 'inf'::float::int)"
+  },
+  {
+    "comment": "interval - Statement 339",
+    "query": "select make_interval(months := 'NaN'::float::int)"
+  },
+  {
+    "comment": "interval - Statement 340",
+    "query": "select make_interval(secs := 'inf')"
+  },
+  {
+    "comment": "interval - Statement 341",
+    "query": "select make_interval(secs := 'NaN')"
+  },
+  {
+    "comment": "interval - Statement 342",
+    "query": "select make_interval(secs := 7e12)"
+  },
+  {
+    "comment": "interval - Statement 343",
+    "query": "SELECT f1, EXTRACT(MICROSECOND FROM f1) AS MICROSECOND, EXTRACT(MILLISECOND FROM f1) AS MILLISECOND, EXTRACT(SECOND FROM f1) AS SECOND, EXTRACT(MINUTE FROM f1) AS MINUTE, EXTRACT(HOUR FROM f1) AS HOUR, EXTRACT(DAY FROM f1) AS DAY, EXTRACT(MONTH FROM f1) AS MONTH, EXTRACT(QUARTER FROM f1) AS QUARTER, EXTRACT(YEAR FROM f1) AS YEAR, EXTRACT(DECADE FROM f1) AS DECADE, EXTRACT(CENTURY FROM f1) AS CENTURY, EXTRACT(MILLENNIUM FROM f1) AS MILLENNIUM, EXTRACT(EPOCH FROM f1) AS EPOCH FROM INTERVAL_TBL"
+  },
+  {
+    "comment": "interval - Statement 344",
+    "query": "SELECT EXTRACT(FORTNIGHT FROM INTERVAL '2 days')"
+  },
+  {
+    "comment": "interval - Statement 345",
+    "query": "SELECT EXTRACT(TIMEZONE FROM INTERVAL '2 days')"
+  },
+  {
+    "comment": "interval - Statement 346",
+    "query": "SELECT EXTRACT(DECADE FROM INTERVAL '100 y')"
+  },
+  {
+    "comment": "interval - Statement 347",
+    "query": "SELECT EXTRACT(DECADE FROM INTERVAL '99 y')"
+  },
+  {
+    "comment": "interval - Statement 348",
+    "query": "SELECT EXTRACT(DECADE FROM INTERVAL '-99 y')"
+  },
+  {
+    "comment": "interval - Statement 349",
+    "query": "SELECT EXTRACT(DECADE FROM INTERVAL '-100 y')"
+  },
+  {
+    "comment": "interval - Statement 350",
+    "query": "SELECT EXTRACT(CENTURY FROM INTERVAL '100 y')"
+  },
+  {
+    "comment": "interval - Statement 351",
+    "query": "SELECT EXTRACT(CENTURY FROM INTERVAL '99 y')"
+  },
+  {
+    "comment": "interval - Statement 352",
+    "query": "SELECT EXTRACT(CENTURY FROM INTERVAL '-99 y')"
+  },
+  {
+    "comment": "interval - Statement 353",
+    "query": "SELECT EXTRACT(CENTURY FROM INTERVAL '-100 y')"
+  },
+  {
+    "comment": "interval - Statement 354",
+    "query": "SELECT f1, date_part('microsecond', f1) AS microsecond, date_part('millisecond', f1) AS millisecond, date_part('second', f1) AS second, date_part('epoch', f1) AS epoch FROM INTERVAL_TBL"
+  },
+  {
+    "comment": "interval - Statement 355",
+    "query": "SELECT extract(epoch from interval '1000000000 days')"
+  },
+  {
+    "comment": "interval - Statement 356",
+    "query": "SELECT interval '-2147483648 months -2147483648 days -9223372036854775807 us'"
+  },
+  {
+    "comment": "interval - Statement 357",
+    "query": "SELECT interval '2147483647 months 2147483647 days 9223372036854775806 us'"
+  },
+  {
+    "comment": "interval - Statement 358",
+    "query": "SELECT interval '-2147483648 months -2147483648 days -9223372036854775808 us'"
+  },
+  {
+    "comment": "interval - Statement 359",
+    "query": "SELECT interval '2147483647 months 2147483647 days 9223372036854775807 us'"
+  },
+  {
+    "comment": "interval - Statement 360",
+    "query": "CREATE TABLE INFINITE_INTERVAL_TBL (i interval)"
+  },
+  {
+    "comment": "interval - Statement 361",
+    "query": "INSERT INTO INFINITE_INTERVAL_TBL VALUES ('infinity'), ('-infinity'), ('1 year 2 days 3 hours')"
+  },
+  {
+    "comment": "interval - Statement 362",
+    "query": "SELECT i, isfinite(i) FROM INFINITE_INTERVAL_TBL"
+  },
+  {
+    "comment": "interval - Statement 363",
+    "query": "CREATE FUNCTION eval(expr text) RETURNS text AS $$ DECLARE result text"
+  },
+  {
+    "comment": "interval - Statement 364",
+    "query": "BEGIN EXECUTE 'select '||expr INTO result"
+  },
+  {
+    "comment": "interval - Statement 365",
+    "query": "RETURN result"
+  },
+  {
+    "comment": "interval - Statement 366",
+    "query": "EXCEPTION WHEN OTHERS THEN RETURN SQLERRM"
+  },
+  {
+    "comment": "interval - Statement 367",
+    "query": "END $$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "interval - Statement 368",
+    "query": "SELECT d AS date, i AS interval, eval(format('date %L + interval %L', d, i)) AS plus, eval(format('date %L - interval %L', d, i)) AS minus FROM (VALUES (date '-infinity'), (date '1995-08-06'), (date 'infinity')) AS t1(d), (VALUES (interval '-infinity'), (interval 'infinity')) AS t2(i)"
+  },
+  {
+    "comment": "interval - Statement 369",
+    "query": "SELECT i1 AS interval1, i2 AS interval2, eval(format('interval %L + interval %L', i1, i2)) AS plus, eval(format('interval %L - interval %L', i1, i2)) AS minus FROM (VALUES (interval '-infinity'), (interval '2 months'), (interval 'infinity')) AS t1(i1), (VALUES (interval '-infinity'), (interval '10 days'), (interval 'infinity')) AS t2(i2)"
+  },
+  {
+    "comment": "interval - Statement 370",
+    "query": "SELECT interval '2147483646 months 2147483646 days 9223372036854775806 us' + interval '1 month 1 day 1 us'"
+  },
+  {
+    "comment": "interval - Statement 371",
+    "query": "SELECT interval '-2147483647 months -2147483647 days -9223372036854775807 us' + interval '-1 month -1 day -1 us'"
+  },
+  {
+    "comment": "interval - Statement 372",
+    "query": "SELECT interval '2147483646 months 2147483646 days 9223372036854775806 us' - interval '-1 month -1 day -1 us'"
+  },
+  {
+    "comment": "interval - Statement 373",
+    "query": "SELECT interval '-2147483647 months -2147483647 days -9223372036854775807 us' - interval '1 month 1 day 1 us'"
+  },
+  {
+    "comment": "interval - Statement 374",
+    "query": "SELECT t AS timestamp, i AS interval, eval(format('timestamp %L + interval %L', t, i)) AS plus, eval(format('timestamp %L - interval %L', t, i)) AS minus FROM (VALUES (timestamp '-infinity'), (timestamp '1995-08-06 12:30:15'), (timestamp 'infinity')) AS t1(t), (VALUES (interval '-infinity'), (interval 'infinity')) AS t2(i)"
+  },
+  {
+    "comment": "interval - Statement 375",
+    "query": "SELECT t AT TIME ZONE 'GMT' AS timestamptz, i AS interval, eval(format('timestamptz %L + interval %L', t, i)) AS plus, eval(format('timestamptz %L - interval %L', t, i)) AS minus FROM (VALUES (timestamptz '-infinity'), (timestamptz '1995-08-06 12:30:15 GMT'), (timestamptz 'infinity')) AS t1(t), (VALUES (interval '-infinity'), (interval 'infinity')) AS t2(i)"
+  },
+  {
+    "comment": "interval - Statement 376",
+    "query": "SELECT time '11:27:42' + interval 'infinity'"
+  },
+  {
+    "comment": "interval - Statement 377",
+    "query": "SELECT time '11:27:42' + interval '-infinity'"
+  },
+  {
+    "comment": "interval - Statement 378",
+    "query": "SELECT time '11:27:42' - interval 'infinity'"
+  },
+  {
+    "comment": "interval - Statement 379",
+    "query": "SELECT time '11:27:42' - interval '-infinity'"
+  },
+  {
+    "comment": "interval - Statement 380",
+    "query": "SELECT timetz '11:27:42' + interval 'infinity'"
+  },
+  {
+    "comment": "interval - Statement 381",
+    "query": "SELECT timetz '11:27:42' + interval '-infinity'"
+  },
+  {
+    "comment": "interval - Statement 382",
+    "query": "SELECT timetz '11:27:42' - interval 'infinity'"
+  },
+  {
+    "comment": "interval - Statement 383",
+    "query": "SELECT timetz '11:27:42' - interval '-infinity'"
+  },
+  {
+    "comment": "interval - Statement 384",
+    "query": "SELECT lhst.i lhs, rhst.i rhs, lhst.i < rhst.i AS lt, lhst.i <= rhst.i AS le, lhst.i = rhst.i AS eq, lhst.i > rhst.i AS gt, lhst.i >= rhst.i AS ge, lhst.i <> rhst.i AS ne FROM INFINITE_INTERVAL_TBL lhst CROSS JOIN INFINITE_INTERVAL_TBL rhst WHERE NOT isfinite(lhst.i)"
+  },
+  {
+    "comment": "interval - Statement 385",
+    "query": "SELECT i AS interval, -i AS um, i * 2.0 AS mul, i * -2.0 AS mul_neg, i * 'infinity' AS mul_inf, i * '-infinity' AS mul_inf_neg, i / 3.0 AS div, i / -3.0 AS div_neg FROM INFINITE_INTERVAL_TBL WHERE NOT isfinite(i)"
+  },
+  {
+    "comment": "interval - Statement 386",
+    "query": "SELECT -interval '-2147483647 months -2147483647 days -9223372036854775807 us'"
+  },
+  {
+    "comment": "interval - Statement 387",
+    "query": "SELECT interval 'infinity' * 'nan'"
+  },
+  {
+    "comment": "interval - Statement 388",
+    "query": "SELECT interval '-infinity' * 'nan'"
+  },
+  {
+    "comment": "interval - Statement 389",
+    "query": "SELECT interval '-1073741824 months -1073741824 days -4611686018427387904 us' * 2"
+  },
+  {
+    "comment": "interval - Statement 390",
+    "query": "SELECT interval 'infinity' * 0"
+  },
+  {
+    "comment": "interval - Statement 391",
+    "query": "SELECT interval '-infinity' * 0"
+  },
+  {
+    "comment": "interval - Statement 392",
+    "query": "SELECT interval '0 days' * 'infinity'::float"
+  },
+  {
+    "comment": "interval - Statement 393",
+    "query": "SELECT interval '0 days' * '-infinity'::float"
+  },
+  {
+    "comment": "interval - Statement 394",
+    "query": "SELECT interval '5 days' * 'infinity'::float"
+  },
+  {
+    "comment": "interval - Statement 395",
+    "query": "SELECT interval '5 days' * '-infinity'::float"
+  },
+  {
+    "comment": "interval - Statement 396",
+    "query": "SELECT interval 'infinity' / 'infinity'"
+  },
+  {
+    "comment": "interval - Statement 397",
+    "query": "SELECT interval 'infinity' / '-infinity'"
+  },
+  {
+    "comment": "interval - Statement 398",
+    "query": "SELECT interval 'infinity' / 'nan'"
+  },
+  {
+    "comment": "interval - Statement 399",
+    "query": "SELECT interval '-infinity' / 'infinity'"
+  },
+  {
+    "comment": "interval - Statement 400",
+    "query": "SELECT interval '-infinity' / '-infinity'"
+  },
+  {
+    "comment": "interval - Statement 401",
+    "query": "SELECT interval '-infinity' / 'nan'"
+  },
+  {
+    "comment": "interval - Statement 402",
+    "query": "SELECT interval '-1073741824 months -1073741824 days -4611686018427387904 us' / 0.5"
+  },
+  {
+    "comment": "interval - Statement 403",
+    "query": "SELECT date_bin('infinity', timestamp '2001-02-16 20:38:40', timestamp '2001-02-16 20:05:00')"
+  },
+  {
+    "comment": "interval - Statement 404",
+    "query": "SELECT date_bin('-infinity', timestamp '2001-02-16 20:38:40', timestamp '2001-02-16 20:05:00')"
+  },
+  {
+    "comment": "interval - Statement 405",
+    "query": "SELECT i AS interval, date_trunc('hour', i) FROM INFINITE_INTERVAL_TBL WHERE NOT isfinite(i)"
+  },
+  {
+    "comment": "interval - Statement 406",
+    "query": "SELECT i AS interval, justify_days(i), justify_hours(i), justify_interval(i) FROM INFINITE_INTERVAL_TBL WHERE NOT isfinite(i)"
+  },
+  {
+    "comment": "interval - Statement 407",
+    "query": "SELECT timezone('infinity'::interval, '1995-08-06 12:12:12'::timestamp)"
+  },
+  {
+    "comment": "interval - Statement 408",
+    "query": "SELECT timezone('-infinity'::interval, '1995-08-06 12:12:12'::timestamp)"
+  },
+  {
+    "comment": "interval - Statement 409",
+    "query": "SELECT timezone('infinity'::interval, '1995-08-06 12:12:12'::timestamptz)"
+  },
+  {
+    "comment": "interval - Statement 410",
+    "query": "SELECT timezone('-infinity'::interval, '1995-08-06 12:12:12'::timestamptz)"
+  },
+  {
+    "comment": "interval - Statement 411",
+    "query": "SELECT timezone('infinity'::interval, '12:12:12'::time)"
+  },
+  {
+    "comment": "interval - Statement 412",
+    "query": "SELECT timezone('-infinity'::interval, '12:12:12'::time)"
+  },
+  {
+    "comment": "interval - Statement 413",
+    "query": "SELECT timezone('infinity'::interval, '12:12:12'::timetz)"
+  },
+  {
+    "comment": "interval - Statement 414",
+    "query": "SELECT timezone('-infinity'::interval, '12:12:12'::timetz)"
+  },
+  {
+    "comment": "interval - Statement 415",
+    "query": "SELECT 'infinity'::interval::time"
+  },
+  {
+    "comment": "interval - Statement 416",
+    "query": "SELECT '-infinity'::interval::time"
+  },
+  {
+    "comment": "interval - Statement 417",
+    "query": "SELECT to_char('infinity'::interval, 'YYYY')"
+  },
+  {
+    "comment": "interval - Statement 418",
+    "query": "SELECT to_char('-infinity'::interval, 'YYYY')"
+  },
+  {
+    "comment": "interval - Statement 419",
+    "query": "SELECT INTERVAL '42 days 2 seconds ago ago'"
+  },
+  {
+    "comment": "interval - Statement 420",
+    "query": "SELECT INTERVAL '2 minutes ago 5 days'"
+  },
+  {
+    "comment": "interval - Statement 421",
+    "query": "SELECT INTERVAL 'hour 5 months'"
+  },
+  {
+    "comment": "interval - Statement 422",
+    "query": "SELECT INTERVAL '1 year months days 5 hours'"
+  },
+  {
+    "comment": "interval - Statement 423",
+    "query": "SELECT INTERVAL 'now'"
+  },
+  {
+    "comment": "interval - Statement 424",
+    "query": "SELECT INTERVAL 'today'"
+  },
+  {
+    "comment": "interval - Statement 425",
+    "query": "SELECT INTERVAL 'tomorrow'"
+  },
+  {
+    "comment": "interval - Statement 426",
+    "query": "SELECT INTERVAL 'allballs'"
+  },
+  {
+    "comment": "interval - Statement 427",
+    "query": "SELECT INTERVAL 'epoch'"
+  },
+  {
+    "comment": "interval - Statement 428",
+    "query": "SELECT INTERVAL 'yesterday'"
+  },
+  {
+    "comment": "interval - Statement 429",
+    "query": "SELECT INTERVAL 'infinity years'"
+  },
+  {
+    "comment": "interval - Statement 430",
+    "query": "SELECT INTERVAL 'infinity ago'"
+  },
+  {
+    "comment": "interval - Statement 431",
+    "query": "SELECT INTERVAL '+infinity -infinity'"
+  }
+]

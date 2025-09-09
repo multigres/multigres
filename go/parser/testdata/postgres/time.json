@@ -1,0 +1,178 @@
+[
+  {
+    "comment": "time - Statement 1",
+    "query": "CREATE TABLE TIME_TBL (f1 time(2))"
+  },
+  {
+    "comment": "time - Statement 2",
+    "query": "INSERT INTO TIME_TBL VALUES ('00:00')"
+  },
+  {
+    "comment": "time - Statement 3",
+    "query": "INSERT INTO TIME_TBL VALUES ('01:00')"
+  },
+  {
+    "comment": "time - Statement 4",
+    "query": "INSERT INTO TIME_TBL VALUES ('02:03 PST')"
+  },
+  {
+    "comment": "time - Statement 5",
+    "query": "INSERT INTO TIME_TBL VALUES ('11:59 EDT')"
+  },
+  {
+    "comment": "time - Statement 6",
+    "query": "INSERT INTO TIME_TBL VALUES ('12:00')"
+  },
+  {
+    "comment": "time - Statement 7",
+    "query": "INSERT INTO TIME_TBL VALUES ('12:01')"
+  },
+  {
+    "comment": "time - Statement 8",
+    "query": "INSERT INTO TIME_TBL VALUES ('23:59')"
+  },
+  {
+    "comment": "time - Statement 9",
+    "query": "INSERT INTO TIME_TBL VALUES ('11:59:59.99 PM')"
+  },
+  {
+    "comment": "time - Statement 10",
+    "query": "INSERT INTO TIME_TBL VALUES ('2003-03-07 15:36:39 America/New_York')"
+  },
+  {
+    "comment": "time - Statement 11",
+    "query": "INSERT INTO TIME_TBL VALUES ('2003-07-07 15:36:39 America/New_York')"
+  },
+  {
+    "comment": "time - Statement 12",
+    "query": "INSERT INTO TIME_TBL VALUES ('15:36:39 America/New_York')"
+  },
+  {
+    "comment": "time - Statement 13",
+    "query": "SELECT f1 AS \"Time\" FROM TIME_TBL"
+  },
+  {
+    "comment": "time - Statement 14",
+    "query": "SELECT f1 AS \"Three\" FROM TIME_TBL WHERE f1 < '05:06:07'"
+  },
+  {
+    "comment": "time - Statement 15",
+    "query": "SELECT f1 AS \"Five\" FROM TIME_TBL WHERE f1 > '05:06:07'"
+  },
+  {
+    "comment": "time - Statement 16",
+    "query": "SELECT f1 AS \"None\" FROM TIME_TBL WHERE f1 < '00:00'"
+  },
+  {
+    "comment": "time - Statement 17",
+    "query": "SELECT f1 AS \"Eight\" FROM TIME_TBL WHERE f1 >= '00:00'"
+  },
+  {
+    "comment": "time - Statement 18",
+    "query": "SELECT '23:59:59.999999'::time"
+  },
+  {
+    "comment": "time - Statement 19",
+    "query": "SELECT '23:59:59.9999999'::time"
+  },
+  {
+    "comment": "time - Statement 20",
+    "query": "SELECT '23:59:60'::time"
+  },
+  {
+    "comment": "time - Statement 21",
+    "query": "SELECT '24:00:00'::time"
+  },
+  {
+    "comment": "time - Statement 22",
+    "query": "SELECT '24:00:00.01'::time"
+  },
+  {
+    "comment": "time - Statement 23",
+    "query": "SELECT '23:59:60.01'::time"
+  },
+  {
+    "comment": "time - Statement 24",
+    "query": "SELECT '24:01:00'::time"
+  },
+  {
+    "comment": "time - Statement 25",
+    "query": "SELECT '25:00:00'::time"
+  },
+  {
+    "comment": "time - Statement 26",
+    "query": "SELECT pg_input_is_valid('12:00:00', 'time')"
+  },
+  {
+    "comment": "time - Statement 27",
+    "query": "SELECT pg_input_is_valid('25:00:00', 'time')"
+  },
+  {
+    "comment": "time - Statement 28",
+    "query": "SELECT pg_input_is_valid('15:36:39 America/New_York', 'time')"
+  },
+  {
+    "comment": "time - Statement 29",
+    "query": "SELECT * FROM pg_input_error_info('25:00:00', 'time')"
+  },
+  {
+    "comment": "time - Statement 30",
+    "query": "SELECT * FROM pg_input_error_info('15:36:39 America/New_York', 'time')"
+  },
+  {
+    "comment": "time - Statement 31",
+    "query": "SELECT f1 + time '00:01' AS \"Illegal\" FROM TIME_TBL"
+  },
+  {
+    "comment": "time - Statement 32",
+    "query": "SELECT EXTRACT(MICROSECOND FROM TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 33",
+    "query": "SELECT EXTRACT(MILLISECOND FROM TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 34",
+    "query": "SELECT EXTRACT(SECOND      FROM TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 35",
+    "query": "SELECT EXTRACT(MINUTE      FROM TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 36",
+    "query": "SELECT EXTRACT(HOUR        FROM TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 37",
+    "query": "SELECT EXTRACT(DAY         FROM TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 38",
+    "query": "SELECT EXTRACT(FORTNIGHT   FROM TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 39",
+    "query": "SELECT EXTRACT(TIMEZONE    FROM TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 40",
+    "query": "SELECT EXTRACT(EPOCH       FROM TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 41",
+    "query": "SELECT date_part('microsecond', TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 42",
+    "query": "SELECT date_part('millisecond', TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 43",
+    "query": "SELECT date_part('second',      TIME '2020-05-26 13:30:25.575401')"
+  },
+  {
+    "comment": "time - Statement 44",
+    "query": "SELECT date_part('epoch',       TIME '2020-05-26 13:30:25.575401')"
+  }
+]

@@ -1,0 +1,390 @@
+[
+  {
+    "comment": "subscription - Statement 1",
+    "query": "CREATE ROLE regress_subscription_user LOGIN SUPERUSER"
+  },
+  {
+    "comment": "subscription - Statement 2",
+    "query": "CREATE ROLE regress_subscription_user2"
+  },
+  {
+    "comment": "subscription - Statement 3",
+    "query": "CREATE ROLE regress_subscription_user3 IN ROLE pg_create_subscription"
+  },
+  {
+    "comment": "subscription - Statement 4",
+    "query": "CREATE ROLE regress_subscription_user_dummy LOGIN NOSUPERUSER"
+  },
+  {
+    "comment": "subscription - Statement 5",
+    "query": "SET SESSION AUTHORIZATION 'regress_subscription_user'"
+  },
+  {
+    "comment": "subscription - Statement 6",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'foo'"
+  },
+  {
+    "comment": "subscription - Statement 7",
+    "query": "CREATE SUBSCRIPTION regress_testsub PUBLICATION foo"
+  },
+  {
+    "comment": "subscription - Statement 8",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "subscription - Statement 9",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'testconn' PUBLICATION testpub WITH (create_slot)"
+  },
+  {
+    "comment": "subscription - Statement 10",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "subscription - Statement 11",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'testconn' PUBLICATION testpub"
+  },
+  {
+    "comment": "subscription - Statement 12",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION foo, testpub, foo WITH (connect = false)"
+  },
+  {
+    "comment": "subscription - Statement 13",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false)"
+  },
+  {
+    "comment": "subscription - Statement 14",
+    "query": "COMMENT ON SUBSCRIPTION regress_testsub IS 'test subscription'"
+  },
+  {
+    "comment": "subscription - Statement 15",
+    "query": "SELECT obj_description(s.oid, 'pg_subscription') FROM pg_subscription s"
+  },
+  {
+    "comment": "subscription - Statement 16",
+    "query": "SELECT subname, stats_reset IS NULL stats_reset_is_null FROM pg_stat_subscription_stats WHERE subname = 'regress_testsub'"
+  },
+  {
+    "comment": "subscription - Statement 17",
+    "query": "SELECT pg_stat_reset_subscription_stats(oid) FROM pg_subscription WHERE subname = 'regress_testsub'"
+  },
+  {
+    "comment": "subscription - Statement 18",
+    "query": "SELECT stats_reset as prev_stats_reset FROM pg_stat_subscription_stats WHERE subname = 'regress_testsub'"
+  },
+  {
+    "comment": "subscription - Statement 19",
+    "query": "SELECT :'prev_stats_reset' < stats_reset FROM pg_stat_subscription_stats WHERE subname = 'regress_testsub'"
+  },
+  {
+    "comment": "subscription - Statement 20",
+    "query": "SET SESSION AUTHORIZATION 'regress_subscription_user2'"
+  },
+  {
+    "comment": "subscription - Statement 21",
+    "query": "CREATE SUBSCRIPTION regress_testsub2 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION foo WITH (connect = false)"
+  },
+  {
+    "comment": "subscription - Statement 22",
+    "query": "CREATE SUBSCRIPTION regress_testsub2 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, copy_data = true)"
+  },
+  {
+    "comment": "subscription - Statement 23",
+    "query": "CREATE SUBSCRIPTION regress_testsub2 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, enabled = true)"
+  },
+  {
+    "comment": "subscription - Statement 24",
+    "query": "CREATE SUBSCRIPTION regress_testsub2 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, create_slot = true)"
+  },
+  {
+    "comment": "subscription - Statement 25",
+    "query": "CREATE SUBSCRIPTION regress_testsub2 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (slot_name = NONE, enabled = true)"
+  },
+  {
+    "comment": "subscription - Statement 26",
+    "query": "CREATE SUBSCRIPTION regress_testsub2 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (slot_name = NONE, enabled = false, create_slot = true)"
+  },
+  {
+    "comment": "subscription - Statement 27",
+    "query": "CREATE SUBSCRIPTION regress_testsub2 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (slot_name = NONE)"
+  },
+  {
+    "comment": "subscription - Statement 28",
+    "query": "CREATE SUBSCRIPTION regress_testsub2 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (slot_name = NONE, enabled = false)"
+  },
+  {
+    "comment": "subscription - Statement 29",
+    "query": "CREATE SUBSCRIPTION regress_testsub2 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (slot_name = NONE, create_slot = false)"
+  },
+  {
+    "comment": "subscription - Statement 30",
+    "query": "CREATE SUBSCRIPTION regress_testsub3 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (slot_name = NONE, connect = false)"
+  },
+  {
+    "comment": "subscription - Statement 31",
+    "query": "ALTER SUBSCRIPTION regress_testsub3 ENABLE"
+  },
+  {
+    "comment": "subscription - Statement 32",
+    "query": "ALTER SUBSCRIPTION regress_testsub3 REFRESH PUBLICATION"
+  },
+  {
+    "comment": "subscription - Statement 33",
+    "query": "CREATE SUBSCRIPTION regress_testsub4 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (slot_name = NONE, connect = false, origin = foo)"
+  },
+  {
+    "comment": "subscription - Statement 34",
+    "query": "CREATE SUBSCRIPTION regress_testsub4 CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (slot_name = NONE, connect = false, origin = none)"
+  },
+  {
+    "comment": "subscription - Statement 35",
+    "query": "DROP SUBSCRIPTION regress_testsub4"
+  },
+  {
+    "comment": "subscription - Statement 36",
+    "query": "CREATE SUBSCRIPTION regress_testsub5 CONNECTION 'i_dont_exist=param' PUBLICATION testpub"
+  },
+  {
+    "comment": "subscription - Statement 37",
+    "query": "CREATE SUBSCRIPTION regress_testsub5 CONNECTION 'port=-1' PUBLICATION testpub"
+  },
+  {
+    "comment": "subscription - Statement 38",
+    "query": "ALTER SUBSCRIPTION regress_testsub CONNECTION 'foobar'"
+  },
+  {
+    "comment": "subscription - Statement 39",
+    "query": "ALTER SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist2'"
+  },
+  {
+    "comment": "subscription - Statement 40",
+    "query": "ALTER SUBSCRIPTION regress_testsub SET (slot_name = 'newname')"
+  },
+  {
+    "comment": "subscription - Statement 41",
+    "query": "ALTER SUBSCRIPTION regress_testsub SET (password_required = false)"
+  },
+  {
+    "comment": "subscription - Statement 42",
+    "query": "ALTER SUBSCRIPTION regress_testsub SET (run_as_owner = true)"
+  },
+  {
+    "comment": "subscription - Statement 43",
+    "query": "ALTER SUBSCRIPTION regress_testsub SET (run_as_owner = false)"
+  },
+  {
+    "comment": "subscription - Statement 44",
+    "query": "ALTER SUBSCRIPTION regress_testsub SET (slot_name = '')"
+  },
+  {
+    "comment": "subscription - Statement 45",
+    "query": "ALTER SUBSCRIPTION regress_doesnotexist CONNECTION 'dbname=regress_doesnotexist2'"
+  },
+  {
+    "comment": "subscription - Statement 46",
+    "query": "ALTER SUBSCRIPTION regress_testsub SET (create_slot = false)"
+  },
+  {
+    "comment": "subscription - Statement 47",
+    "query": "ALTER SUBSCRIPTION regress_testsub SKIP (lsn = '0/12345')"
+  },
+  {
+    "comment": "subscription - Statement 48",
+    "query": "ALTER SUBSCRIPTION regress_testsub SKIP (lsn = '0/0')"
+  },
+  {
+    "comment": "subscription - Statement 49",
+    "query": "ALTER SUBSCRIPTION regress_testsub ENABLE"
+  },
+  {
+    "comment": "subscription - Statement 50",
+    "query": "SET ROLE regress_subscription_user_dummy"
+  },
+  {
+    "comment": "subscription - Statement 51",
+    "query": "ALTER SUBSCRIPTION regress_testsub RENAME TO regress_testsub_dummy"
+  },
+  {
+    "comment": "subscription - Statement 52",
+    "query": "RESET ROLE"
+  },
+  {
+    "comment": "subscription - Statement 53",
+    "query": "ALTER SUBSCRIPTION regress_testsub RENAME TO regress_testsub_foo"
+  },
+  {
+    "comment": "subscription - Statement 54",
+    "query": "ALTER SUBSCRIPTION regress_testsub_foo SET (synchronous_commit = local)"
+  },
+  {
+    "comment": "subscription - Statement 55",
+    "query": "ALTER SUBSCRIPTION regress_testsub_foo SET (synchronous_commit = foobar)"
+  },
+  {
+    "comment": "subscription - Statement 56",
+    "query": "ALTER SUBSCRIPTION regress_testsub OWNER TO regress_subscription_user2"
+  },
+  {
+    "comment": "subscription - Statement 57",
+    "query": "DROP SUBSCRIPTION regress_testsub"
+  },
+  {
+    "comment": "subscription - Statement 58",
+    "query": "ALTER SUBSCRIPTION regress_testsub SET (slot_name = NONE)"
+  },
+  {
+    "comment": "subscription - Statement 59",
+    "query": "DROP SUBSCRIPTION IF EXISTS regress_testsub"
+  },
+  {
+    "comment": "subscription - Statement 60",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, binary = foo)"
+  },
+  {
+    "comment": "subscription - Statement 61",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, binary = true)"
+  },
+  {
+    "comment": "subscription - Statement 62",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, streaming = foo)"
+  },
+  {
+    "comment": "subscription - Statement 63",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, streaming = true)"
+  },
+  {
+    "comment": "subscription - Statement 64",
+    "query": "ALTER SUBSCRIPTION regress_testsub ADD PUBLICATION testpub1, testpub1 WITH (refresh = false)"
+  },
+  {
+    "comment": "subscription - Statement 65",
+    "query": "ALTER SUBSCRIPTION regress_testsub ADD PUBLICATION testpub1, testpub2 WITH (refresh = false)"
+  },
+  {
+    "comment": "subscription - Statement 66",
+    "query": "ALTER SUBSCRIPTION regress_testsub DROP PUBLICATION testpub, testpub1, testpub2 WITH (refresh = false)"
+  },
+  {
+    "comment": "subscription - Statement 67",
+    "query": "ALTER SUBSCRIPTION regress_testsub DROP PUBLICATION testpub3 WITH (refresh = false)"
+  },
+  {
+    "comment": "subscription - Statement 68",
+    "query": "ALTER SUBSCRIPTION regress_testsub DROP PUBLICATION testpub1, testpub2 WITH (refresh = false)"
+  },
+  {
+    "comment": "subscription - Statement 69",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION mypub WITH (connect = false, create_slot = false, copy_data = false)"
+  },
+  {
+    "comment": "subscription - Statement 70",
+    "query": "ALTER SUBSCRIPTION regress_testsub SET PUBLICATION mypub WITH (refresh = true)"
+  },
+  {
+    "comment": "subscription - Statement 71",
+    "query": "END"
+  },
+  {
+    "comment": "subscription - Statement 72",
+    "query": "ALTER SUBSCRIPTION regress_testsub REFRESH PUBLICATION"
+  },
+  {
+    "comment": "subscription - Statement 73",
+    "query": "CREATE FUNCTION func() RETURNS VOID AS $$ ALTER SUBSCRIPTION regress_testsub SET PUBLICATION mypub WITH (refresh = true) $$ LANGUAGE SQL"
+  },
+  {
+    "comment": "subscription - Statement 74",
+    "query": "SELECT func()"
+  },
+  {
+    "comment": "subscription - Statement 75",
+    "query": "ALTER SUBSCRIPTION regress_testsub DISABLE"
+  },
+  {
+    "comment": "subscription - Statement 76",
+    "query": "DROP FUNCTION func"
+  },
+  {
+    "comment": "subscription - Statement 77",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, two_phase = foo)"
+  },
+  {
+    "comment": "subscription - Statement 78",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, two_phase = true)"
+  },
+  {
+    "comment": "subscription - Statement 79",
+    "query": "ALTER SUBSCRIPTION regress_testsub SET (streaming = true)"
+  },
+  {
+    "comment": "subscription - Statement 80",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, streaming = true, two_phase = true)"
+  },
+  {
+    "comment": "subscription - Statement 81",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, disable_on_error = foo)"
+  },
+  {
+    "comment": "subscription - Statement 82",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, disable_on_error = false)"
+  },
+  {
+    "comment": "subscription - Statement 83",
+    "query": "SET SESSION AUTHORIZATION regress_subscription_user3"
+  },
+  {
+    "comment": "subscription - Statement 84",
+    "query": "RESET SESSION AUTHORIZATION"
+  },
+  {
+    "comment": "subscription - Statement 85",
+    "query": "GRANT CREATE ON DATABASE REGRESSION TO regress_subscription_user3"
+  },
+  {
+    "comment": "subscription - Statement 86",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist' PUBLICATION testpub WITH (connect = false, password_required = false)"
+  },
+  {
+    "comment": "subscription - Statement 87",
+    "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist password=regress_fakepassword' PUBLICATION testpub WITH (connect = false)"
+  },
+  {
+    "comment": "subscription - Statement 88",
+    "query": "ALTER SUBSCRIPTION regress_testsub OWNER TO regress_subscription_user"
+  },
+  {
+    "comment": "subscription - Statement 89",
+    "query": "ALTER SUBSCRIPTION regress_testsub RENAME TO regress_testsub2"
+  },
+  {
+    "comment": "subscription - Statement 90",
+    "query": "REVOKE pg_create_subscription FROM regress_subscription_user3"
+  },
+  {
+    "comment": "subscription - Statement 91",
+    "query": "ALTER SUBSCRIPTION regress_testsub2 RENAME TO regress_testsub"
+  },
+  {
+    "comment": "subscription - Statement 92",
+    "query": "REVOKE CREATE ON DATABASE REGRESSION FROM regress_subscription_user3"
+  },
+  {
+    "comment": "subscription - Statement 93",
+    "query": "ALTER SUBSCRIPTION regress_testsub SET (failover)"
+  },
+  {
+    "comment": "subscription - Statement 94",
+    "query": "DROP ROLE regress_subscription_user"
+  },
+  {
+    "comment": "subscription - Statement 95",
+    "query": "DROP ROLE regress_subscription_user2"
+  },
+  {
+    "comment": "subscription - Statement 96",
+    "query": "DROP ROLE regress_subscription_user3"
+  },
+  {
+    "comment": "subscription - Statement 97",
+    "query": "DROP ROLE regress_subscription_user_dummy"
+  }
+]

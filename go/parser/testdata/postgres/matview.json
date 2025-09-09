@@ -1,0 +1,622 @@
+[
+  {
+    "comment": "matview - Statement 1",
+    "query": "CREATE TABLE mvtest_t (id int NOT NULL PRIMARY KEY, type text NOT NULL, amt numeric NOT NULL)"
+  },
+  {
+    "comment": "matview - Statement 2",
+    "query": "INSERT INTO mvtest_t VALUES (1, 'x', 2), (2, 'x', 3), (3, 'y', 5), (4, 'y', 7), (5, 'z', 11)"
+  },
+  {
+    "comment": "matview - Statement 3",
+    "query": "CREATE VIEW mvtest_tv AS SELECT type, sum(amt) AS totamt FROM mvtest_t GROUP BY type"
+  },
+  {
+    "comment": "matview - Statement 4",
+    "query": "SELECT * FROM mvtest_tv ORDER BY type"
+  },
+  {
+    "comment": "matview - Statement 5",
+    "query": "EXPLAIN (costs off) CREATE MATERIALIZED VIEW mvtest_tm AS SELECT type, sum(amt) AS totamt FROM mvtest_t GROUP BY type WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 6",
+    "query": "CREATE MATERIALIZED VIEW mvtest_tm AS SELECT type, sum(amt) AS totamt FROM mvtest_t GROUP BY type WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 7",
+    "query": "SELECT relispopulated FROM pg_class WHERE oid = 'mvtest_tm'::regclass"
+  },
+  {
+    "comment": "matview - Statement 8",
+    "query": "SELECT * FROM mvtest_tm ORDER BY type"
+  },
+  {
+    "comment": "matview - Statement 9",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_tm"
+  },
+  {
+    "comment": "matview - Statement 10",
+    "query": "CREATE UNIQUE INDEX mvtest_tm_type ON mvtest_tm (type)"
+  },
+  {
+    "comment": "matview - Statement 11",
+    "query": "EXPLAIN (costs off) CREATE MATERIALIZED VIEW mvtest_tvm AS SELECT * FROM mvtest_tv ORDER BY type"
+  },
+  {
+    "comment": "matview - Statement 12",
+    "query": "CREATE MATERIALIZED VIEW mvtest_tvm AS SELECT * FROM mvtest_tv ORDER BY type"
+  },
+  {
+    "comment": "matview - Statement 13",
+    "query": "SELECT * FROM mvtest_tvm"
+  },
+  {
+    "comment": "matview - Statement 14",
+    "query": "CREATE MATERIALIZED VIEW mvtest_tmm AS SELECT sum(totamt) AS grandtot FROM mvtest_tm"
+  },
+  {
+    "comment": "matview - Statement 15",
+    "query": "CREATE MATERIALIZED VIEW mvtest_tvmm AS SELECT sum(totamt) AS grandtot FROM mvtest_tvm"
+  },
+  {
+    "comment": "matview - Statement 16",
+    "query": "CREATE UNIQUE INDEX mvtest_tvmm_expr ON mvtest_tvmm ((grandtot > 0))"
+  },
+  {
+    "comment": "matview - Statement 17",
+    "query": "CREATE UNIQUE INDEX mvtest_tvmm_pred ON mvtest_tvmm (grandtot) WHERE grandtot < 0"
+  },
+  {
+    "comment": "matview - Statement 18",
+    "query": "CREATE VIEW mvtest_tvv AS SELECT sum(totamt) AS grandtot FROM mvtest_tv"
+  },
+  {
+    "comment": "matview - Statement 19",
+    "query": "EXPLAIN (costs off) CREATE MATERIALIZED VIEW mvtest_tvvm AS SELECT * FROM mvtest_tvv"
+  },
+  {
+    "comment": "matview - Statement 20",
+    "query": "CREATE MATERIALIZED VIEW mvtest_tvvm AS SELECT * FROM mvtest_tvv"
+  },
+  {
+    "comment": "matview - Statement 21",
+    "query": "CREATE VIEW mvtest_tvvmv AS SELECT * FROM mvtest_tvvm"
+  },
+  {
+    "comment": "matview - Statement 22",
+    "query": "CREATE MATERIALIZED VIEW mvtest_bb AS SELECT * FROM mvtest_tvvmv"
+  },
+  {
+    "comment": "matview - Statement 23",
+    "query": "CREATE INDEX mvtest_aa ON mvtest_bb (grandtot)"
+  },
+  {
+    "comment": "matview - Statement 24",
+    "query": "ALTER MATERIALIZED VIEW mvtest_tvm SET SCHEMA mvtest_mvschema"
+  },
+  {
+    "comment": "matview - Statement 25",
+    "query": "SELECT * FROM mvtest_tvm ORDER BY type"
+  },
+  {
+    "comment": "matview - Statement 26",
+    "query": "REFRESH MATERIALIZED VIEW CONCURRENTLY mvtest_tm"
+  },
+  {
+    "comment": "matview - Statement 27",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_tvm"
+  },
+  {
+    "comment": "matview - Statement 28",
+    "query": "RESET search_path"
+  },
+  {
+    "comment": "matview - Statement 29",
+    "query": "EXPLAIN (costs off) SELECT * FROM mvtest_tmm"
+  },
+  {
+    "comment": "matview - Statement 30",
+    "query": "EXPLAIN (costs off) SELECT * FROM mvtest_tvmm"
+  },
+  {
+    "comment": "matview - Statement 31",
+    "query": "EXPLAIN (costs off) SELECT * FROM mvtest_tvvm"
+  },
+  {
+    "comment": "matview - Statement 32",
+    "query": "SELECT * FROM mvtest_tmm"
+  },
+  {
+    "comment": "matview - Statement 33",
+    "query": "SELECT * FROM mvtest_tvmm"
+  },
+  {
+    "comment": "matview - Statement 34",
+    "query": "SELECT * FROM mvtest_tvvm"
+  },
+  {
+    "comment": "matview - Statement 35",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_tmm"
+  },
+  {
+    "comment": "matview - Statement 36",
+    "query": "REFRESH MATERIALIZED VIEW CONCURRENTLY mvtest_tvmm"
+  },
+  {
+    "comment": "matview - Statement 37",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_tvmm"
+  },
+  {
+    "comment": "matview - Statement 38",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_tvvm"
+  },
+  {
+    "comment": "matview - Statement 39",
+    "query": "DROP MATERIALIZED VIEW IF EXISTS no_such_mv"
+  },
+  {
+    "comment": "matview - Statement 40",
+    "query": "REFRESH MATERIALIZED VIEW CONCURRENTLY mvtest_tvmm WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 41",
+    "query": "SELECT * FROM mvtest_tvvm FOR SHARE"
+  },
+  {
+    "comment": "matview - Statement 42",
+    "query": "SELECT type, m.totamt AS mtot, v.totamt AS vtot FROM mvtest_tm m LEFT JOIN mvtest_tv v USING (type) ORDER BY type"
+  },
+  {
+    "comment": "matview - Statement 43",
+    "query": "DROP TABLE mvtest_t"
+  },
+  {
+    "comment": "matview - Statement 44",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "matview - Statement 45",
+    "query": "DROP TABLE mvtest_t CASCADE"
+  },
+  {
+    "comment": "matview - Statement 46",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "matview - Statement 47",
+    "query": "CREATE VIEW mvtest_vt1 AS SELECT 1 moo"
+  },
+  {
+    "comment": "matview - Statement 48",
+    "query": "CREATE VIEW mvtest_vt2 AS SELECT moo, 2*moo FROM mvtest_vt1 UNION ALL SELECT moo, 3*moo FROM mvtest_vt1"
+  },
+  {
+    "comment": "matview - Statement 49",
+    "query": "SELECT relispopulated FROM pg_class WHERE oid = 'mv_test3'::regclass"
+  },
+  {
+    "comment": "matview - Statement 50",
+    "query": "DROP VIEW mvtest_vt1 CASCADE"
+  },
+  {
+    "comment": "matview - Statement 51",
+    "query": "CREATE TABLE mvtest_foo(a, b) AS VALUES(1, 10)"
+  },
+  {
+    "comment": "matview - Statement 52",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv AS SELECT * FROM mvtest_foo"
+  },
+  {
+    "comment": "matview - Statement 53",
+    "query": "CREATE UNIQUE INDEX ON mvtest_mv(a)"
+  },
+  {
+    "comment": "matview - Statement 54",
+    "query": "INSERT INTO mvtest_foo SELECT * FROM mvtest_foo"
+  },
+  {
+    "comment": "matview - Statement 55",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_mv"
+  },
+  {
+    "comment": "matview - Statement 56",
+    "query": "REFRESH MATERIALIZED VIEW CONCURRENTLY mvtest_mv"
+  },
+  {
+    "comment": "matview - Statement 57",
+    "query": "DROP TABLE mvtest_foo CASCADE"
+  },
+  {
+    "comment": "matview - Statement 58",
+    "query": "CREATE TABLE mvtest_foo(a, b, c) AS VALUES(1, 2, 3)"
+  },
+  {
+    "comment": "matview - Statement 59",
+    "query": "CREATE UNIQUE INDEX ON mvtest_mv (a)"
+  },
+  {
+    "comment": "matview - Statement 60",
+    "query": "CREATE UNIQUE INDEX ON mvtest_mv (b)"
+  },
+  {
+    "comment": "matview - Statement 61",
+    "query": "CREATE UNIQUE INDEX on mvtest_mv (c)"
+  },
+  {
+    "comment": "matview - Statement 62",
+    "query": "INSERT INTO mvtest_foo VALUES(2, 3, 4)"
+  },
+  {
+    "comment": "matview - Statement 63",
+    "query": "INSERT INTO mvtest_foo VALUES(3, 4, 5)"
+  },
+  {
+    "comment": "matview - Statement 64",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv1 AS SELECT 1 AS col1 WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 65",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv2 AS SELECT * FROM mvtest_mv1 WHERE col1 = (SELECT LEAST(col1) FROM mvtest_mv1) WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 66",
+    "query": "DROP MATERIALIZED VIEW mvtest_mv1 CASCADE"
+  },
+  {
+    "comment": "matview - Statement 67",
+    "query": "CREATE TABLE mvtest_boxes (id serial primary key, b box)"
+  },
+  {
+    "comment": "matview - Statement 68",
+    "query": "INSERT INTO mvtest_boxes (b) VALUES ('(32,32),(31,31)'), ('(2.0000004,2.0000004),(1,1)'), ('(1.9999996,1.9999996),(1,1)')"
+  },
+  {
+    "comment": "matview - Statement 69",
+    "query": "CREATE MATERIALIZED VIEW mvtest_boxmv AS SELECT * FROM mvtest_boxes"
+  },
+  {
+    "comment": "matview - Statement 70",
+    "query": "CREATE UNIQUE INDEX mvtest_boxmv_id ON mvtest_boxmv (id)"
+  },
+  {
+    "comment": "matview - Statement 71",
+    "query": "UPDATE mvtest_boxes SET b = '(2,2),(1,1)' WHERE id = 2"
+  },
+  {
+    "comment": "matview - Statement 72",
+    "query": "REFRESH MATERIALIZED VIEW CONCURRENTLY mvtest_boxmv"
+  },
+  {
+    "comment": "matview - Statement 73",
+    "query": "SELECT * FROM mvtest_boxmv ORDER BY id"
+  },
+  {
+    "comment": "matview - Statement 74",
+    "query": "DROP TABLE mvtest_boxes CASCADE"
+  },
+  {
+    "comment": "matview - Statement 75",
+    "query": "CREATE TABLE mvtest_v (i int, j int)"
+  },
+  {
+    "comment": "matview - Statement 76",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v (ii, jj, kk) AS SELECT i, j FROM mvtest_v"
+  },
+  {
+    "comment": "matview - Statement 77",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v (ii, jj) AS SELECT i, j FROM mvtest_v"
+  },
+  {
+    "comment": "matview - Statement 78",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v_2 (ii) AS SELECT i, j FROM mvtest_v"
+  },
+  {
+    "comment": "matview - Statement 79",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v_3 (ii, jj, kk) AS SELECT i, j FROM mvtest_v WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 80",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v_3 (ii, jj) AS SELECT i, j FROM mvtest_v WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 81",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v_4 (ii) AS SELECT i, j FROM mvtest_v WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 82",
+    "query": "ALTER TABLE mvtest_v RENAME COLUMN i TO x"
+  },
+  {
+    "comment": "matview - Statement 83",
+    "query": "INSERT INTO mvtest_v values (1, 2)"
+  },
+  {
+    "comment": "matview - Statement 84",
+    "query": "CREATE UNIQUE INDEX mvtest_mv_v_ii ON mvtest_mv_v (ii)"
+  },
+  {
+    "comment": "matview - Statement 85",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_mv_v"
+  },
+  {
+    "comment": "matview - Statement 86",
+    "query": "UPDATE mvtest_v SET j = 3 WHERE x = 1"
+  },
+  {
+    "comment": "matview - Statement 87",
+    "query": "REFRESH MATERIALIZED VIEW CONCURRENTLY mvtest_mv_v"
+  },
+  {
+    "comment": "matview - Statement 88",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_mv_v_2"
+  },
+  {
+    "comment": "matview - Statement 89",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_mv_v_3"
+  },
+  {
+    "comment": "matview - Statement 90",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_mv_v_4"
+  },
+  {
+    "comment": "matview - Statement 91",
+    "query": "SELECT * FROM mvtest_v"
+  },
+  {
+    "comment": "matview - Statement 92",
+    "query": "SELECT * FROM mvtest_mv_v"
+  },
+  {
+    "comment": "matview - Statement 93",
+    "query": "SELECT * FROM mvtest_mv_v_2"
+  },
+  {
+    "comment": "matview - Statement 94",
+    "query": "SELECT * FROM mvtest_mv_v_3"
+  },
+  {
+    "comment": "matview - Statement 95",
+    "query": "SELECT * FROM mvtest_mv_v_4"
+  },
+  {
+    "comment": "matview - Statement 96",
+    "query": "DROP TABLE mvtest_v CASCADE"
+  },
+  {
+    "comment": "matview - Statement 97",
+    "query": "CREATE MATERIALIZED VIEW mv_unspecified_types AS SELECT 42 as i, 42.5 as num, 'foo' as u, 'foo'::unknown as u2, null as n"
+  },
+  {
+    "comment": "matview - Statement 98",
+    "query": "DROP MATERIALIZED VIEW mv_unspecified_types"
+  },
+  {
+    "comment": "matview - Statement 99",
+    "query": "create materialized view mvtest_error as select 1/0 as x"
+  },
+  {
+    "comment": "matview - Statement 100",
+    "query": "create materialized view mvtest_error as select 1/0 as x with no data"
+  },
+  {
+    "comment": "matview - Statement 101",
+    "query": "refresh materialized view mvtest_error"
+  },
+  {
+    "comment": "matview - Statement 102",
+    "query": "drop materialized view mvtest_error"
+  },
+  {
+    "comment": "matview - Statement 103",
+    "query": "CREATE TABLE mvtest_v AS SELECT generate_series(1,10) AS a"
+  },
+  {
+    "comment": "matview - Statement 104",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v AS SELECT a FROM mvtest_v WHERE a <= 5"
+  },
+  {
+    "comment": "matview - Statement 105",
+    "query": "DELETE FROM mvtest_v WHERE EXISTS ( SELECT * FROM mvtest_mv_v WHERE mvtest_mv_v.a = mvtest_v.a )"
+  },
+  {
+    "comment": "matview - Statement 106",
+    "query": "CREATE ROLE regress_user_mvtest"
+  },
+  {
+    "comment": "matview - Statement 107",
+    "query": "SET ROLE regress_user_mvtest"
+  },
+  {
+    "comment": "matview - Statement 108",
+    "query": "CREATE TABLE mvtest_foo_data AS SELECT i, i+1 AS tid, fipshash(random()::text) AS mv, fipshash(random()::text) AS newdata, fipshash(random()::text) AS newdata2, fipshash(random()::text) AS diff FROM generate_series(1, 10) i"
+  },
+  {
+    "comment": "matview - Statement 109",
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv_foo AS SELECT * FROM mvtest_foo_data"
+  },
+  {
+    "comment": "matview - Statement 110",
+    "query": "CREATE MATERIALIZED VIEW IF NOT EXISTS mvtest_mv_foo AS SELECT * FROM mvtest_foo_data"
+  },
+  {
+    "comment": "matview - Statement 111",
+    "query": "CREATE UNIQUE INDEX ON mvtest_mv_foo (i)"
+  },
+  {
+    "comment": "matview - Statement 112",
+    "query": "RESET ROLE"
+  },
+  {
+    "comment": "matview - Statement 113",
+    "query": "REFRESH MATERIALIZED VIEW mvtest_mv_foo"
+  },
+  {
+    "comment": "matview - Statement 114",
+    "query": "REFRESH MATERIALIZED VIEW CONCURRENTLY mvtest_mv_foo"
+  },
+  {
+    "comment": "matview - Statement 115",
+    "query": "DROP OWNED BY regress_user_mvtest CASCADE"
+  },
+  {
+    "comment": "matview - Statement 116",
+    "query": "DROP ROLE regress_user_mvtest"
+  },
+  {
+    "comment": "matview - Statement 117",
+    "query": "SET search_path = mvtest_mvschema, public"
+  },
+  {
+    "comment": "matview - Statement 118",
+    "query": "CREATE OR REPLACE FUNCTION mvtest_drop_the_index() RETURNS bool AS $$ BEGIN EXECUTE 'DROP INDEX IF EXISTS mvtest_mvschema.mvtest_drop_idx'"
+  },
+  {
+    "comment": "matview - Statement 119",
+    "query": "RETURN true"
+  },
+  {
+    "comment": "matview - Statement 120",
+    "query": "END"
+  },
+  {
+    "comment": "matview - Statement 121",
+    "query": "$$ LANGUAGE plpgsql"
+  },
+  {
+    "comment": "matview - Statement 122",
+    "query": "CREATE MATERIALIZED VIEW drop_idx_matview AS SELECT 1 as i WHERE mvtest_drop_the_index()"
+  },
+  {
+    "comment": "matview - Statement 123",
+    "query": "CREATE UNIQUE INDEX mvtest_drop_idx ON drop_idx_matview (i)"
+  },
+  {
+    "comment": "matview - Statement 124",
+    "query": "REFRESH MATERIALIZED VIEW CONCURRENTLY drop_idx_matview"
+  },
+  {
+    "comment": "matview - Statement 125",
+    "query": "DROP MATERIALIZED VIEW drop_idx_matview"
+  },
+  {
+    "comment": "matview - Statement 126",
+    "query": "CREATE FUNCTION mvtest_func() RETURNS void AS $$ BEGIN CREATE MATERIALIZED VIEW mvtest1 AS SELECT 1 AS x"
+  },
+  {
+    "comment": "matview - Statement 127",
+    "query": "CREATE MATERIALIZED VIEW mvtest2 AS SELECT 1 AS x WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 128",
+    "query": "SELECT mvtest_func()"
+  },
+  {
+    "comment": "matview - Statement 129",
+    "query": "SELECT * FROM mvtest1"
+  },
+  {
+    "comment": "matview - Statement 130",
+    "query": "SELECT * FROM mvtest2"
+  },
+  {
+    "comment": "matview - Statement 131",
+    "query": "CREATE SCHEMA matview_schema"
+  },
+  {
+    "comment": "matview - Statement 132",
+    "query": "CREATE USER regress_matview_user"
+  },
+  {
+    "comment": "matview - Statement 133",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_matview_user REVOKE INSERT ON TABLES FROM regress_matview_user"
+  },
+  {
+    "comment": "matview - Statement 134",
+    "query": "GRANT ALL ON SCHEMA matview_schema TO public"
+  },
+  {
+    "comment": "matview - Statement 135",
+    "query": "SET SESSION AUTHORIZATION regress_matview_user"
+  },
+  {
+    "comment": "matview - Statement 136",
+    "query": "CREATE MATERIALIZED VIEW matview_schema.mv_withdata1 (a) AS SELECT generate_series(1, 10) WITH DATA"
+  },
+  {
+    "comment": "matview - Statement 137",
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_schema.mv_withdata2 (a) AS SELECT generate_series(1, 10) WITH DATA"
+  },
+  {
+    "comment": "matview - Statement 138",
+    "query": "REFRESH MATERIALIZED VIEW matview_schema.mv_withdata2"
+  },
+  {
+    "comment": "matview - Statement 139",
+    "query": "CREATE MATERIALIZED VIEW matview_schema.mv_nodata1 (a) AS SELECT generate_series(1, 10) WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 140",
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_schema.mv_nodata2 (a) AS SELECT generate_series(1, 10) WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 141",
+    "query": "REFRESH MATERIALIZED VIEW matview_schema.mv_nodata2"
+  },
+  {
+    "comment": "matview - Statement 142",
+    "query": "RESET SESSION AUTHORIZATION"
+  },
+  {
+    "comment": "matview - Statement 143",
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_matview_user GRANT INSERT ON TABLES TO regress_matview_user"
+  },
+  {
+    "comment": "matview - Statement 144",
+    "query": "DROP SCHEMA matview_schema CASCADE"
+  },
+  {
+    "comment": "matview - Statement 145",
+    "query": "DROP USER regress_matview_user"
+  },
+  {
+    "comment": "matview - Statement 146",
+    "query": "CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1"
+  },
+  {
+    "comment": "matview - Statement 147",
+    "query": "CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1 / 0"
+  },
+  {
+    "comment": "matview - Statement 148",
+    "query": "CREATE MATERIALIZED VIEW IF NOT EXISTS matview_ine_tab AS SELECT 1 / 0"
+  },
+  {
+    "comment": "matview - Statement 149",
+    "query": "CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1 / 0 WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 150",
+    "query": "CREATE MATERIALIZED VIEW IF NOT EXISTS matview_ine_tab AS SELECT 1 / 0 WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 151",
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1 / 0"
+  },
+  {
+    "comment": "matview - Statement 152",
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW IF NOT EXISTS matview_ine_tab AS SELECT 1 / 0"
+  },
+  {
+    "comment": "matview - Statement 153",
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1 / 0 WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 154",
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW IF NOT EXISTS matview_ine_tab AS SELECT 1 / 0 WITH NO DATA"
+  },
+  {
+    "comment": "matview - Statement 155",
+    "query": "DROP MATERIALIZED VIEW matview_ine_tab"
+  }
+]

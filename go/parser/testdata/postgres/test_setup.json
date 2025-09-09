@@ -1,0 +1,250 @@
+[
+  {
+    "comment": "test_setup - Statement 1",
+    "query": "GRANT ALL ON SCHEMA public TO public"
+  },
+  {
+    "comment": "test_setup - Statement 2",
+    "query": "SET allow_in_place_tablespaces = true"
+  },
+  {
+    "comment": "test_setup - Statement 3",
+    "query": "CREATE TABLESPACE regress_tblspace LOCATION ''"
+  },
+  {
+    "comment": "test_setup - Statement 4",
+    "query": "CREATE TABLE CHAR_TBL(f1 char(4))"
+  },
+  {
+    "comment": "test_setup - Statement 5",
+    "query": "INSERT INTO CHAR_TBL (f1) VALUES ('a'), ('ab'), ('abcd'), ('abcd    ')"
+  },
+  {
+    "comment": "test_setup - Statement 6",
+    "query": "VACUUM CHAR_TBL"
+  },
+  {
+    "comment": "test_setup - Statement 7",
+    "query": "CREATE TABLE FLOAT8_TBL(f1 float8)"
+  },
+  {
+    "comment": "test_setup - Statement 8",
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('0.0'), ('-34.84'), ('-1004.30'), ('-1.2345678901234e+200'), ('-1.2345678901234e-200')"
+  },
+  {
+    "comment": "test_setup - Statement 9",
+    "query": "VACUUM FLOAT8_TBL"
+  },
+  {
+    "comment": "test_setup - Statement 10",
+    "query": "CREATE TABLE INT2_TBL(f1 int2)"
+  },
+  {
+    "comment": "test_setup - Statement 11",
+    "query": "INSERT INTO INT2_TBL(f1) VALUES ('0   '), ('  1234 '), ('    -1234'), ('32767'), ('-32767')"
+  },
+  {
+    "comment": "test_setup - Statement 12",
+    "query": "VACUUM INT2_TBL"
+  },
+  {
+    "comment": "test_setup - Statement 13",
+    "query": "CREATE TABLE INT4_TBL(f1 int4)"
+  },
+  {
+    "comment": "test_setup - Statement 14",
+    "query": "INSERT INTO INT4_TBL(f1) VALUES ('   0  '), ('123456     '), ('    -123456'), ('2147483647'), ('-2147483647')"
+  },
+  {
+    "comment": "test_setup - Statement 15",
+    "query": "VACUUM INT4_TBL"
+  },
+  {
+    "comment": "test_setup - Statement 16",
+    "query": "CREATE TABLE INT8_TBL(q1 int8, q2 int8)"
+  },
+  {
+    "comment": "test_setup - Statement 17",
+    "query": "INSERT INTO INT8_TBL VALUES ('  123   ','  456'), ('123   ','4567890123456789'), ('4567890123456789','123'), (+4567890123456789,'4567890123456789'), ('+4567890123456789','-4567890123456789')"
+  },
+  {
+    "comment": "test_setup - Statement 18",
+    "query": "VACUUM INT8_TBL"
+  },
+  {
+    "comment": "test_setup - Statement 19",
+    "query": "CREATE TABLE POINT_TBL(f1 point)"
+  },
+  {
+    "comment": "test_setup - Statement 20",
+    "query": "INSERT INTO POINT_TBL(f1) VALUES ('(0.0,0.0)'), ('(-10.0,0.0)'), ('(-3.0,4.0)'), ('(5.1, 34.5)'), ('(-5.0,-12.0)'), ('(1e-300,-1e-300)'), ('(1e+300,Inf)'), ('(Inf,1e+300)'), (' ( Nan , NaN ) '), ('10.0,10.0')"
+  },
+  {
+    "comment": "test_setup - Statement 21",
+    "query": "CREATE TABLE TEXT_TBL (f1 text)"
+  },
+  {
+    "comment": "test_setup - Statement 22",
+    "query": "INSERT INTO TEXT_TBL VALUES ('doh!'), ('hi de ho neighbor')"
+  },
+  {
+    "comment": "test_setup - Statement 23",
+    "query": "VACUUM TEXT_TBL"
+  },
+  {
+    "comment": "test_setup - Statement 24",
+    "query": "CREATE TABLE VARCHAR_TBL(f1 varchar(4))"
+  },
+  {
+    "comment": "test_setup - Statement 25",
+    "query": "INSERT INTO VARCHAR_TBL (f1) VALUES ('a'), ('ab'), ('abcd'), ('abcd    ')"
+  },
+  {
+    "comment": "test_setup - Statement 26",
+    "query": "VACUUM VARCHAR_TBL"
+  },
+  {
+    "comment": "test_setup - Statement 27",
+    "query": "CREATE TABLE onek ( unique1\t\tint4, unique2\t\tint4, two\t\t\tint4, four\t\tint4, ten\t\t\tint4, twenty\t\tint4, hundred\t\tint4, thousand\tint4, twothousand\tint4, fivethous\tint4, tenthous\tint4, odd\t\t\tint4, even\t\tint4, stringu1\tname, stringu2\tname, string4\t\tname )"
+  },
+  {
+    "comment": "test_setup - Statement 28",
+    "query": "VACUUM ANALYZE onek"
+  },
+  {
+    "comment": "test_setup - Statement 29",
+    "query": "CREATE TABLE onek2 AS SELECT * FROM onek"
+  },
+  {
+    "comment": "test_setup - Statement 30",
+    "query": "VACUUM ANALYZE onek2"
+  },
+  {
+    "comment": "test_setup - Statement 31",
+    "query": "CREATE TABLE tenk1 ( unique1\t\tint4, unique2\t\tint4, two\t\t\tint4, four\t\tint4, ten\t\t\tint4, twenty\t\tint4, hundred\t\tint4, thousand\tint4, twothousand\tint4, fivethous\tint4, tenthous\tint4, odd\t\t\tint4, even\t\tint4, stringu1\tname, stringu2\tname, string4\t\tname )"
+  },
+  {
+    "comment": "test_setup - Statement 32",
+    "query": "VACUUM ANALYZE tenk1"
+  },
+  {
+    "comment": "test_setup - Statement 33",
+    "query": "CREATE TABLE tenk2 AS SELECT * FROM tenk1"
+  },
+  {
+    "comment": "test_setup - Statement 34",
+    "query": "VACUUM ANALYZE tenk2"
+  },
+  {
+    "comment": "test_setup - Statement 35",
+    "query": "CREATE TABLE person ( name \t\ttext, age\t\t\tint4, location \tpoint )"
+  },
+  {
+    "comment": "test_setup - Statement 36",
+    "query": "VACUUM ANALYZE person"
+  },
+  {
+    "comment": "test_setup - Statement 37",
+    "query": "CREATE TABLE emp ( salary \t\tint4, manager \tname ) INHERITS (person)"
+  },
+  {
+    "comment": "test_setup - Statement 38",
+    "query": "VACUUM ANALYZE emp"
+  },
+  {
+    "comment": "test_setup - Statement 39",
+    "query": "CREATE TABLE student ( gpa \t\tfloat8 ) INHERITS (person)"
+  },
+  {
+    "comment": "test_setup - Statement 40",
+    "query": "VACUUM ANALYZE student"
+  },
+  {
+    "comment": "test_setup - Statement 41",
+    "query": "CREATE TABLE stud_emp ( percent \tint4 ) INHERITS (emp, student)"
+  },
+  {
+    "comment": "test_setup - Statement 42",
+    "query": "VACUUM ANALYZE stud_emp"
+  },
+  {
+    "comment": "test_setup - Statement 43",
+    "query": "CREATE TABLE road ( name\t\ttext, thepath \tpath )"
+  },
+  {
+    "comment": "test_setup - Statement 44",
+    "query": "VACUUM ANALYZE road"
+  },
+  {
+    "comment": "test_setup - Statement 45",
+    "query": "CREATE TABLE ihighway () INHERITS (road)"
+  },
+  {
+    "comment": "test_setup - Statement 46",
+    "query": "INSERT INTO ihighway SELECT * FROM ONLY road WHERE name ~ 'I- .*'"
+  },
+  {
+    "comment": "test_setup - Statement 47",
+    "query": "VACUUM ANALYZE ihighway"
+  },
+  {
+    "comment": "test_setup - Statement 48",
+    "query": "CREATE TABLE shighway ( surface\t\ttext ) INHERITS (road)"
+  },
+  {
+    "comment": "test_setup - Statement 49",
+    "query": "INSERT INTO shighway SELECT *, 'asphalt' FROM ONLY road WHERE name ~ 'State Hwy.*'"
+  },
+  {
+    "comment": "test_setup - Statement 50",
+    "query": "VACUUM ANALYZE shighway"
+  },
+  {
+    "comment": "test_setup - Statement 51",
+    "query": "create type stoplight as enum ('red', 'yellow', 'green')"
+  },
+  {
+    "comment": "test_setup - Statement 52",
+    "query": "create type float8range as range (subtype = float8, subtype_diff = float8mi)"
+  },
+  {
+    "comment": "test_setup - Statement 53",
+    "query": "create type textrange as range (subtype = text, collation = \"C\")"
+  },
+  {
+    "comment": "test_setup - Statement 54",
+    "query": "CREATE FUNCTION binary_coercible(oid, oid) RETURNS bool AS :'regresslib', 'binary_coercible' LANGUAGE C STRICT STABLE PARALLEL SAFE"
+  },
+  {
+    "comment": "test_setup - Statement 55",
+    "query": "CREATE FUNCTION ttdummy () RETURNS trigger AS :'regresslib' LANGUAGE C"
+  },
+  {
+    "comment": "test_setup - Statement 56",
+    "query": "create function part_hashint4_noop(value int4, seed int8) returns int8 as $$ select value + seed"
+  },
+  {
+    "comment": "test_setup - Statement 57",
+    "query": "$$ language sql strict immutable parallel safe"
+  },
+  {
+    "comment": "test_setup - Statement 58",
+    "query": "create operator class part_test_int4_ops for type int4 using hash as operator 1 =, function 2 part_hashint4_noop(int4, int8)"
+  },
+  {
+    "comment": "test_setup - Statement 59",
+    "query": "create function part_hashtext_length(value text, seed int8) returns int8 as $$ select length(coalesce(value, ''))::int8 $$ language sql strict immutable parallel safe"
+  },
+  {
+    "comment": "test_setup - Statement 60",
+    "query": "create operator class part_test_text_ops for type text using hash as operator 1 =, function 2 part_hashtext_length(text, int8)"
+  },
+  {
+    "comment": "test_setup - Statement 61",
+    "query": "create function fipshash(bytea) returns text strict immutable parallel safe leakproof return substr(encode(sha256($1), 'hex'), 1, 32)"
+  },
+  {
+    "comment": "test_setup - Statement 62",
+    "query": "create function fipshash(text) returns text strict immutable parallel safe leakproof return substr(encode(sha256($1::bytea), 'hex'), 1, 32)"
+  }
+]

@@ -1,0 +1,822 @@
+[
+  {
+    "comment": "portals - Statement 1",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "portals - Statement 2",
+    "query": "DECLARE foo1 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 3",
+    "query": "DECLARE foo2 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 4",
+    "query": "DECLARE foo3 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 5",
+    "query": "DECLARE foo4 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 6",
+    "query": "DECLARE foo5 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 7",
+    "query": "DECLARE foo6 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 8",
+    "query": "DECLARE foo7 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 9",
+    "query": "DECLARE foo8 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 10",
+    "query": "DECLARE foo9 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 11",
+    "query": "DECLARE foo10 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 12",
+    "query": "DECLARE foo11 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 13",
+    "query": "DECLARE foo12 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 14",
+    "query": "DECLARE foo13 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 15",
+    "query": "DECLARE foo14 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 16",
+    "query": "DECLARE foo15 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 17",
+    "query": "DECLARE foo16 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 18",
+    "query": "DECLARE foo17 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 19",
+    "query": "DECLARE foo18 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 20",
+    "query": "DECLARE foo19 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 21",
+    "query": "DECLARE foo20 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 22",
+    "query": "DECLARE foo21 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 23",
+    "query": "DECLARE foo22 SCROLL CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 24",
+    "query": "DECLARE foo23 SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 25",
+    "query": "FETCH 1 in foo1"
+  },
+  {
+    "comment": "portals - Statement 26",
+    "query": "FETCH 2 in foo2"
+  },
+  {
+    "comment": "portals - Statement 27",
+    "query": "FETCH 3 in foo3"
+  },
+  {
+    "comment": "portals - Statement 28",
+    "query": "FETCH 4 in foo4"
+  },
+  {
+    "comment": "portals - Statement 29",
+    "query": "FETCH 5 in foo5"
+  },
+  {
+    "comment": "portals - Statement 30",
+    "query": "FETCH 6 in foo6"
+  },
+  {
+    "comment": "portals - Statement 31",
+    "query": "FETCH 7 in foo7"
+  },
+  {
+    "comment": "portals - Statement 32",
+    "query": "FETCH 8 in foo8"
+  },
+  {
+    "comment": "portals - Statement 33",
+    "query": "FETCH 9 in foo9"
+  },
+  {
+    "comment": "portals - Statement 34",
+    "query": "FETCH 10 in foo10"
+  },
+  {
+    "comment": "portals - Statement 35",
+    "query": "FETCH 11 in foo11"
+  },
+  {
+    "comment": "portals - Statement 36",
+    "query": "FETCH 12 in foo12"
+  },
+  {
+    "comment": "portals - Statement 37",
+    "query": "FETCH 13 in foo13"
+  },
+  {
+    "comment": "portals - Statement 38",
+    "query": "FETCH 14 in foo14"
+  },
+  {
+    "comment": "portals - Statement 39",
+    "query": "FETCH 15 in foo15"
+  },
+  {
+    "comment": "portals - Statement 40",
+    "query": "FETCH 16 in foo16"
+  },
+  {
+    "comment": "portals - Statement 41",
+    "query": "FETCH 17 in foo17"
+  },
+  {
+    "comment": "portals - Statement 42",
+    "query": "FETCH 18 in foo18"
+  },
+  {
+    "comment": "portals - Statement 43",
+    "query": "FETCH 19 in foo19"
+  },
+  {
+    "comment": "portals - Statement 44",
+    "query": "FETCH 20 in foo20"
+  },
+  {
+    "comment": "portals - Statement 45",
+    "query": "FETCH 21 in foo21"
+  },
+  {
+    "comment": "portals - Statement 46",
+    "query": "FETCH 22 in foo22"
+  },
+  {
+    "comment": "portals - Statement 47",
+    "query": "FETCH 23 in foo23"
+  },
+  {
+    "comment": "portals - Statement 48",
+    "query": "FETCH backward 1 in foo23"
+  },
+  {
+    "comment": "portals - Statement 49",
+    "query": "FETCH backward 2 in foo22"
+  },
+  {
+    "comment": "portals - Statement 50",
+    "query": "FETCH backward 3 in foo21"
+  },
+  {
+    "comment": "portals - Statement 51",
+    "query": "FETCH backward 4 in foo20"
+  },
+  {
+    "comment": "portals - Statement 52",
+    "query": "FETCH backward 5 in foo19"
+  },
+  {
+    "comment": "portals - Statement 53",
+    "query": "FETCH backward 6 in foo18"
+  },
+  {
+    "comment": "portals - Statement 54",
+    "query": "FETCH backward 7 in foo17"
+  },
+  {
+    "comment": "portals - Statement 55",
+    "query": "FETCH backward 8 in foo16"
+  },
+  {
+    "comment": "portals - Statement 56",
+    "query": "FETCH backward 9 in foo15"
+  },
+  {
+    "comment": "portals - Statement 57",
+    "query": "FETCH backward 10 in foo14"
+  },
+  {
+    "comment": "portals - Statement 58",
+    "query": "FETCH backward 11 in foo13"
+  },
+  {
+    "comment": "portals - Statement 59",
+    "query": "FETCH backward 12 in foo12"
+  },
+  {
+    "comment": "portals - Statement 60",
+    "query": "FETCH backward 13 in foo11"
+  },
+  {
+    "comment": "portals - Statement 61",
+    "query": "FETCH backward 14 in foo10"
+  },
+  {
+    "comment": "portals - Statement 62",
+    "query": "FETCH backward 15 in foo9"
+  },
+  {
+    "comment": "portals - Statement 63",
+    "query": "FETCH backward 16 in foo8"
+  },
+  {
+    "comment": "portals - Statement 64",
+    "query": "FETCH backward 17 in foo7"
+  },
+  {
+    "comment": "portals - Statement 65",
+    "query": "FETCH backward 18 in foo6"
+  },
+  {
+    "comment": "portals - Statement 66",
+    "query": "FETCH backward 19 in foo5"
+  },
+  {
+    "comment": "portals - Statement 67",
+    "query": "FETCH backward 20 in foo4"
+  },
+  {
+    "comment": "portals - Statement 68",
+    "query": "FETCH backward 21 in foo3"
+  },
+  {
+    "comment": "portals - Statement 69",
+    "query": "FETCH backward 22 in foo2"
+  },
+  {
+    "comment": "portals - Statement 70",
+    "query": "FETCH backward 23 in foo1"
+  },
+  {
+    "comment": "portals - Statement 71",
+    "query": "CLOSE foo1"
+  },
+  {
+    "comment": "portals - Statement 72",
+    "query": "CLOSE foo2"
+  },
+  {
+    "comment": "portals - Statement 73",
+    "query": "CLOSE foo3"
+  },
+  {
+    "comment": "portals - Statement 74",
+    "query": "CLOSE foo4"
+  },
+  {
+    "comment": "portals - Statement 75",
+    "query": "CLOSE foo5"
+  },
+  {
+    "comment": "portals - Statement 76",
+    "query": "CLOSE foo6"
+  },
+  {
+    "comment": "portals - Statement 77",
+    "query": "CLOSE foo7"
+  },
+  {
+    "comment": "portals - Statement 78",
+    "query": "CLOSE foo8"
+  },
+  {
+    "comment": "portals - Statement 79",
+    "query": "CLOSE foo9"
+  },
+  {
+    "comment": "portals - Statement 80",
+    "query": "CLOSE foo10"
+  },
+  {
+    "comment": "portals - Statement 81",
+    "query": "CLOSE foo11"
+  },
+  {
+    "comment": "portals - Statement 82",
+    "query": "CLOSE foo12"
+  },
+  {
+    "comment": "portals - Statement 83",
+    "query": "SELECT name, statement, is_holdable, is_binary, is_scrollable FROM pg_cursors ORDER BY 1"
+  },
+  {
+    "comment": "portals - Statement 84",
+    "query": "END"
+  },
+  {
+    "comment": "portals - Statement 85",
+    "query": "SELECT name, statement, is_holdable, is_binary, is_scrollable FROM pg_cursors"
+  },
+  {
+    "comment": "portals - Statement 86",
+    "query": "DECLARE foo24 NO SCROLL CURSOR FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 87",
+    "query": "FETCH 1 FROM foo24"
+  },
+  {
+    "comment": "portals - Statement 88",
+    "query": "FETCH BACKWARD 1 FROM foo24"
+  },
+  {
+    "comment": "portals - Statement 89",
+    "query": "FETCH ABSOLUTE 2 FROM foo24"
+  },
+  {
+    "comment": "portals - Statement 90",
+    "query": "FETCH ABSOLUTE 1 FROM foo24"
+  },
+  {
+    "comment": "portals - Statement 91",
+    "query": "DECLARE foo25 SCROLL CURSOR WITH HOLD FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 92",
+    "query": "FETCH FROM foo25"
+  },
+  {
+    "comment": "portals - Statement 93",
+    "query": "COMMIT"
+  },
+  {
+    "comment": "portals - Statement 94",
+    "query": "FETCH BACKWARD FROM foo25"
+  },
+  {
+    "comment": "portals - Statement 95",
+    "query": "FETCH ABSOLUTE -1 FROM foo25"
+  },
+  {
+    "comment": "portals - Statement 96",
+    "query": "CLOSE foo25"
+  },
+  {
+    "comment": "portals - Statement 97",
+    "query": "DECLARE foo25ns NO SCROLL CURSOR WITH HOLD FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 98",
+    "query": "FETCH FROM foo25ns"
+  },
+  {
+    "comment": "portals - Statement 99",
+    "query": "FETCH ABSOLUTE 4 FROM foo25ns"
+  },
+  {
+    "comment": "portals - Statement 100",
+    "query": "CLOSE foo25ns"
+  },
+  {
+    "comment": "portals - Statement 101",
+    "query": "DECLARE foo26 CURSOR WITH HOLD FOR SELECT * FROM tenk1 ORDER BY unique2"
+  },
+  {
+    "comment": "portals - Statement 102",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "portals - Statement 103",
+    "query": "FETCH FROM foo26"
+  },
+  {
+    "comment": "portals - Statement 104",
+    "query": "CREATE FUNCTION declares_cursor(text) RETURNS void AS 'DECLARE c CURSOR FOR SELECT stringu1 FROM tenk1 WHERE stringu1 LIKE $1;' LANGUAGE SQL"
+  },
+  {
+    "comment": "portals - Statement 105",
+    "query": "SELECT declares_cursor('AB%')"
+  },
+  {
+    "comment": "portals - Statement 106",
+    "query": "FETCH ALL FROM c"
+  },
+  {
+    "comment": "portals - Statement 107",
+    "query": "create temp table tt1(f1 int)"
+  },
+  {
+    "comment": "portals - Statement 108",
+    "query": "create function count_tt1_v() returns int8 as 'select count(*) from tt1' language sql volatile"
+  },
+  {
+    "comment": "portals - Statement 109",
+    "query": "create function count_tt1_s() returns int8 as 'select count(*) from tt1' language sql stable"
+  },
+  {
+    "comment": "portals - Statement 110",
+    "query": "insert into tt1 values(1)"
+  },
+  {
+    "comment": "portals - Statement 111",
+    "query": "declare c1 cursor for select count_tt1_v(), count_tt1_s()"
+  },
+  {
+    "comment": "portals - Statement 112",
+    "query": "insert into tt1 values(2)"
+  },
+  {
+    "comment": "portals - Statement 113",
+    "query": "fetch all from c1"
+  },
+  {
+    "comment": "portals - Statement 114",
+    "query": "declare c2 cursor with hold for select count_tt1_v(), count_tt1_s()"
+  },
+  {
+    "comment": "portals - Statement 115",
+    "query": "delete from tt1"
+  },
+  {
+    "comment": "portals - Statement 116",
+    "query": "fetch all from c2"
+  },
+  {
+    "comment": "portals - Statement 117",
+    "query": "drop function count_tt1_v()"
+  },
+  {
+    "comment": "portals - Statement 118",
+    "query": "drop function count_tt1_s()"
+  },
+  {
+    "comment": "portals - Statement 119",
+    "query": "DECLARE bc BINARY CURSOR FOR SELECT * FROM tenk1"
+  },
+  {
+    "comment": "portals - Statement 120",
+    "query": "PREPARE cprep AS SELECT name, statement, is_holdable, is_binary, is_scrollable FROM pg_cursors"
+  },
+  {
+    "comment": "portals - Statement 121",
+    "query": "EXECUTE cprep"
+  },
+  {
+    "comment": "portals - Statement 122",
+    "query": "SELECT name FROM pg_cursors ORDER BY 1"
+  },
+  {
+    "comment": "portals - Statement 123",
+    "query": "CLOSE ALL"
+  },
+  {
+    "comment": "portals - Statement 124",
+    "query": "DECLARE foo1 CURSOR WITH HOLD FOR SELECT 1"
+  },
+  {
+    "comment": "portals - Statement 125",
+    "query": "DECLARE foo2 CURSOR WITHOUT HOLD FOR SELECT 1"
+  },
+  {
+    "comment": "portals - Statement 126",
+    "query": "CREATE TEMP TABLE uctest(f1 int, f2 text)"
+  },
+  {
+    "comment": "portals - Statement 127",
+    "query": "INSERT INTO uctest VALUES (1, 'one'), (2, 'two'), (3, 'three')"
+  },
+  {
+    "comment": "portals - Statement 128",
+    "query": "SELECT * FROM uctest"
+  },
+  {
+    "comment": "portals - Statement 129",
+    "query": "DECLARE c1 CURSOR FOR SELECT * FROM uctest"
+  },
+  {
+    "comment": "portals - Statement 130",
+    "query": "FETCH 2 FROM c1"
+  },
+  {
+    "comment": "portals - Statement 131",
+    "query": "DELETE FROM uctest WHERE CURRENT OF c1"
+  },
+  {
+    "comment": "portals - Statement 132",
+    "query": "MOVE BACKWARD ALL IN c1"
+  },
+  {
+    "comment": "portals - Statement 133",
+    "query": "DECLARE c1 CURSOR FOR SELECT * FROM uctest FOR UPDATE"
+  },
+  {
+    "comment": "portals - Statement 134",
+    "query": "FETCH c1"
+  },
+  {
+    "comment": "portals - Statement 135",
+    "query": "UPDATE uctest SET f1 = 8 WHERE CURRENT OF c1"
+  },
+  {
+    "comment": "portals - Statement 136",
+    "query": "UPDATE uctest SET f1 = f1 + 10 WHERE CURRENT OF c1"
+  },
+  {
+    "comment": "portals - Statement 137",
+    "query": "FETCH RELATIVE 0 FROM c1"
+  },
+  {
+    "comment": "portals - Statement 138",
+    "query": "DECLARE c1 INSENSITIVE CURSOR FOR SELECT * FROM uctest"
+  },
+  {
+    "comment": "portals - Statement 139",
+    "query": "INSERT INTO uctest VALUES (10, 'ten')"
+  },
+  {
+    "comment": "portals - Statement 140",
+    "query": "FETCH NEXT FROM c1"
+  },
+  {
+    "comment": "portals - Statement 141",
+    "query": "DELETE FROM uctest WHERE f1 = 10"
+  },
+  {
+    "comment": "portals - Statement 142",
+    "query": "CREATE TEMP TABLE ucchild () inherits (uctest)"
+  },
+  {
+    "comment": "portals - Statement 143",
+    "query": "INSERT INTO ucchild values(100, 'hundred')"
+  },
+  {
+    "comment": "portals - Statement 144",
+    "query": "FETCH 1 FROM c1"
+  },
+  {
+    "comment": "portals - Statement 145",
+    "query": "DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5"
+  },
+  {
+    "comment": "portals - Statement 146",
+    "query": "DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 FOR UPDATE"
+  },
+  {
+    "comment": "portals - Statement 147",
+    "query": "DECLARE c1 CURSOR FOR SELECT * FROM uctest a, uctest b WHERE a.f1 = b.f1 + 5 FOR SHARE OF a"
+  },
+  {
+    "comment": "portals - Statement 148",
+    "query": "DECLARE cx CURSOR WITH HOLD FOR SELECT * FROM uctest"
+  },
+  {
+    "comment": "portals - Statement 149",
+    "query": "DELETE FROM uctest WHERE CURRENT OF cx"
+  },
+  {
+    "comment": "portals - Statement 150",
+    "query": "DECLARE c CURSOR FOR SELECT * FROM tenk2"
+  },
+  {
+    "comment": "portals - Statement 151",
+    "query": "DELETE FROM uctest WHERE CURRENT OF c"
+  },
+  {
+    "comment": "portals - Statement 152",
+    "query": "DECLARE c CURSOR FOR SELECT * FROM tenk2 FOR SHARE"
+  },
+  {
+    "comment": "portals - Statement 153",
+    "query": "DECLARE c CURSOR FOR SELECT * FROM tenk1 JOIN tenk2 USING (unique1)"
+  },
+  {
+    "comment": "portals - Statement 154",
+    "query": "DELETE FROM tenk1 WHERE CURRENT OF c"
+  },
+  {
+    "comment": "portals - Statement 155",
+    "query": "DECLARE c CURSOR FOR SELECT f1,count(*) FROM uctest GROUP BY f1"
+  },
+  {
+    "comment": "portals - Statement 156",
+    "query": "DECLARE c1 CURSOR FOR SELECT MIN(f1) FROM uctest FOR UPDATE"
+  },
+  {
+    "comment": "portals - Statement 157",
+    "query": "CREATE TEMP VIEW ucview AS SELECT * FROM uctest"
+  },
+  {
+    "comment": "portals - Statement 158",
+    "query": "CREATE RULE ucrule AS ON DELETE TO ucview DO INSTEAD DELETE FROM uctest WHERE f1 = OLD.f1"
+  },
+  {
+    "comment": "portals - Statement 159",
+    "query": "DECLARE c1 CURSOR FOR SELECT * FROM ucview"
+  },
+  {
+    "comment": "portals - Statement 160",
+    "query": "FETCH FROM c1"
+  },
+  {
+    "comment": "portals - Statement 161",
+    "query": "DELETE FROM ucview WHERE CURRENT OF c1"
+  },
+  {
+    "comment": "portals - Statement 162",
+    "query": "EXPLAIN (costs off) DECLARE c1 CURSOR FOR SELECT stringu1 FROM onek WHERE stringu1 = 'DZAAAA'"
+  },
+  {
+    "comment": "portals - Statement 163",
+    "query": "DECLARE c1 CURSOR FOR SELECT stringu1 FROM onek WHERE stringu1 = 'DZAAAA'"
+  },
+  {
+    "comment": "portals - Statement 164",
+    "query": "DELETE FROM onek WHERE CURRENT OF c1"
+  },
+  {
+    "comment": "portals - Statement 165",
+    "query": "SELECT stringu1 FROM onek WHERE stringu1 = 'DZAAAA'"
+  },
+  {
+    "comment": "portals - Statement 166",
+    "query": "CREATE TABLE current_check (currentid int, payload text)"
+  },
+  {
+    "comment": "portals - Statement 167",
+    "query": "CREATE TABLE current_check_1 () INHERITS (current_check)"
+  },
+  {
+    "comment": "portals - Statement 168",
+    "query": "CREATE TABLE current_check_2 () INHERITS (current_check)"
+  },
+  {
+    "comment": "portals - Statement 169",
+    "query": "INSERT INTO current_check_1 SELECT i, 'p' || i FROM generate_series(1,9) i"
+  },
+  {
+    "comment": "portals - Statement 170",
+    "query": "INSERT INTO current_check_2 SELECT i, 'P' || i FROM generate_series(10,19) i"
+  },
+  {
+    "comment": "portals - Statement 171",
+    "query": "DECLARE c1 SCROLL CURSOR FOR SELECT * FROM current_check"
+  },
+  {
+    "comment": "portals - Statement 172",
+    "query": "FETCH ABSOLUTE 12 FROM c1"
+  },
+  {
+    "comment": "portals - Statement 173",
+    "query": "FETCH ABSOLUTE 8 FROM c1"
+  },
+  {
+    "comment": "portals - Statement 174",
+    "query": "DELETE FROM current_check WHERE CURRENT OF c1 RETURNING *"
+  },
+  {
+    "comment": "portals - Statement 175",
+    "query": "FETCH ABSOLUTE 13 FROM c1"
+  },
+  {
+    "comment": "portals - Statement 176",
+    "query": "FETCH ABSOLUTE 1 FROM c1"
+  },
+  {
+    "comment": "portals - Statement 177",
+    "query": "SELECT * FROM current_check"
+  },
+  {
+    "comment": "portals - Statement 178",
+    "query": "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"
+  },
+  {
+    "comment": "portals - Statement 179",
+    "query": "CREATE TABLE cursor (a int)"
+  },
+  {
+    "comment": "portals - Statement 180",
+    "query": "INSERT INTO cursor VALUES (1)"
+  },
+  {
+    "comment": "portals - Statement 181",
+    "query": "DECLARE c1 NO SCROLL CURSOR FOR SELECT * FROM cursor FOR UPDATE"
+  },
+  {
+    "comment": "portals - Statement 182",
+    "query": "UPDATE cursor SET a = 2"
+  },
+  {
+    "comment": "portals - Statement 183",
+    "query": "DROP TABLE cursor"
+  },
+  {
+    "comment": "portals - Statement 184",
+    "query": "create function nochange(int) returns int as 'select $1 limit 1' language sql stable"
+  },
+  {
+    "comment": "portals - Statement 185",
+    "query": "declare c cursor for select * from int8_tbl limit nochange(3)"
+  },
+  {
+    "comment": "portals - Statement 186",
+    "query": "move backward all in c"
+  },
+  {
+    "comment": "portals - Statement 187",
+    "query": "explain (costs off) declare c1 cursor for select (select 42) as x"
+  },
+  {
+    "comment": "portals - Statement 188",
+    "query": "explain (costs off) declare c1 scroll cursor for select (select 42) as x"
+  },
+  {
+    "comment": "portals - Statement 189",
+    "query": "declare c1 scroll cursor for select (select 42) as x"
+  },
+  {
+    "comment": "portals - Statement 190",
+    "query": "fetch all in c1"
+  },
+  {
+    "comment": "portals - Statement 191",
+    "query": "fetch backward all in c1"
+  },
+  {
+    "comment": "portals - Statement 192",
+    "query": "explain (costs off) declare c2 cursor for select generate_series(1,3) as g"
+  },
+  {
+    "comment": "portals - Statement 193",
+    "query": "explain (costs off) declare c2 scroll cursor for select generate_series(1,3) as g"
+  },
+  {
+    "comment": "portals - Statement 194",
+    "query": "declare c2 scroll cursor for select generate_series(1,3) as g"
+  },
+  {
+    "comment": "portals - Statement 195",
+    "query": "fetch all in c2"
+  },
+  {
+    "comment": "portals - Statement 196",
+    "query": "fetch backward all in c2"
+  },
+  {
+    "comment": "portals - Statement 197",
+    "query": "set default_toast_compression = 'pglz'"
+  },
+  {
+    "comment": "portals - Statement 198",
+    "query": "create table toasted_data (f1 int[])"
+  },
+  {
+    "comment": "portals - Statement 199",
+    "query": "insert into toasted_data select array_agg(i) from generate_series(12345678, 12345678 + 1000) i"
+  },
+  {
+    "comment": "portals - Statement 200",
+    "query": "declare local_portal cursor for select * from toasted_data"
+  },
+  {
+    "comment": "portals - Statement 201",
+    "query": "fetch all in local_portal"
+  },
+  {
+    "comment": "portals - Statement 202",
+    "query": "declare held_portal cursor with hold for select * from toasted_data"
+  },
+  {
+    "comment": "portals - Statement 203",
+    "query": "drop table toasted_data"
+  },
+  {
+    "comment": "portals - Statement 204",
+    "query": "fetch all in held_portal"
+  },
+  {
+    "comment": "portals - Statement 205",
+    "query": "reset default_toast_compression"
+  }
+]

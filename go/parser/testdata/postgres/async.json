@@ -1,0 +1,46 @@
+[
+  {
+    "comment": "async - Statement 1",
+    "query": "SELECT pg_notify('notify_async1','sample message1')"
+  },
+  {
+    "comment": "async - Statement 2",
+    "query": "SELECT pg_notify('notify_async1','')"
+  },
+  {
+    "comment": "async - Statement 3",
+    "query": "SELECT pg_notify('notify_async1',NULL)"
+  },
+  {
+    "comment": "async - Statement 4",
+    "query": "SELECT pg_notify('','sample message1')"
+  },
+  {
+    "comment": "async - Statement 5",
+    "query": "SELECT pg_notify(NULL,'sample message1')"
+  },
+  {
+    "comment": "async - Statement 6",
+    "query": "SELECT pg_notify('notify_async_channel_name_too_long______________________________','sample_message1')"
+  },
+  {
+    "comment": "async - Statement 7",
+    "query": "NOTIFY notify_async2"
+  },
+  {
+    "comment": "async - Statement 8",
+    "query": "LISTEN notify_async2"
+  },
+  {
+    "comment": "async - Statement 9",
+    "query": "UNLISTEN notify_async2"
+  },
+  {
+    "comment": "async - Statement 10",
+    "query": "UNLISTEN *"
+  },
+  {
+    "comment": "async - Statement 11",
+    "query": "SELECT pg_notification_queue_usage()"
+  }
+]

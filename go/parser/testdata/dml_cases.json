@@ -850,5 +850,33 @@
   {
     "comment": "INSERT with deeply nested functions",
     "query": "INSERT INTO processed (data) VALUES (upper(substring(trim(input_data), 1, 10)))"
+  },
+  {
+    "comment": "INSERT with DEFAULT value single column",
+    "query": "INSERT INTO users (id) VALUES (DEFAULT)"
+  },
+  {
+    "comment": "INSERT with DEFAULT value multiple columns",
+    "query": "INSERT INTO users (id, name, status) VALUES (DEFAULT, 'John', DEFAULT)"
+  },
+  {
+    "comment": "INSERT with mixed DEFAULT and literal values",
+    "query": "INSERT INTO users VALUES (1, DEFAULT, 'active')"
+  },
+  {
+    "comment": "UPDATE single column to DEFAULT",
+    "query": "UPDATE users SET status = DEFAULT WHERE id = 1"
+  },
+  {
+    "comment": "UPDATE multiple columns to DEFAULT",
+    "query": "UPDATE users SET name = DEFAULT, status = DEFAULT WHERE id = 1"
+  },
+  {
+    "comment": "UPDATE with mixed DEFAULT and literal values",
+    "query": "UPDATE users SET name = 'Jane', status = DEFAULT, updated_at = NOW() WHERE id = 1"
+  },
+  {
+    "comment": "Multi-row INSERT with DEFAULT values",
+    "query": "INSERT INTO items VALUES (1, DEFAULT), (2, 'custom'), (DEFAULT, 'another')"
   }
 ]

@@ -1,0 +1,114 @@
+[
+  {
+    "comment": "security_label - Statement 1",
+    "query": "SET client_min_messages TO 'warning'"
+  },
+  {
+    "comment": "security_label - Statement 2",
+    "query": "DROP ROLE IF EXISTS regress_seclabel_user1"
+  },
+  {
+    "comment": "security_label - Statement 3",
+    "query": "DROP ROLE IF EXISTS regress_seclabel_user2"
+  },
+  {
+    "comment": "security_label - Statement 4",
+    "query": "RESET client_min_messages"
+  },
+  {
+    "comment": "security_label - Statement 5",
+    "query": "CREATE USER regress_seclabel_user1 WITH CREATEROLE"
+  },
+  {
+    "comment": "security_label - Statement 6",
+    "query": "CREATE USER regress_seclabel_user2"
+  },
+  {
+    "comment": "security_label - Statement 7",
+    "query": "CREATE TABLE seclabel_tbl1 (a int, b text)"
+  },
+  {
+    "comment": "security_label - Statement 8",
+    "query": "CREATE TABLE seclabel_tbl2 (x int, y text)"
+  },
+  {
+    "comment": "security_label - Statement 9",
+    "query": "CREATE VIEW seclabel_view1 AS SELECT * FROM seclabel_tbl2"
+  },
+  {
+    "comment": "security_label - Statement 10",
+    "query": "CREATE FUNCTION seclabel_four() RETURNS integer AS $$SELECT 4$$ language sql"
+  },
+  {
+    "comment": "security_label - Statement 11",
+    "query": "CREATE DOMAIN seclabel_domain AS text"
+  },
+  {
+    "comment": "security_label - Statement 12",
+    "query": "ALTER TABLE seclabel_tbl1 OWNER TO regress_seclabel_user1"
+  },
+  {
+    "comment": "security_label - Statement 13",
+    "query": "ALTER TABLE seclabel_tbl2 OWNER TO regress_seclabel_user2"
+  },
+  {
+    "comment": "security_label - Statement 14",
+    "query": "SECURITY LABEL ON TABLE seclabel_tbl1 IS 'classified'"
+  },
+  {
+    "comment": "security_label - Statement 15",
+    "query": "SECURITY LABEL FOR 'dummy' ON TABLE seclabel_tbl1 IS 'classified'"
+  },
+  {
+    "comment": "security_label - Statement 16",
+    "query": "SECURITY LABEL ON TABLE seclabel_tbl1 IS '...invalid label...'"
+  },
+  {
+    "comment": "security_label - Statement 17",
+    "query": "SECURITY LABEL ON TABLE seclabel_tbl3 IS 'unclassified'"
+  },
+  {
+    "comment": "security_label - Statement 18",
+    "query": "SECURITY LABEL ON ROLE regress_seclabel_user1 IS 'classified'"
+  },
+  {
+    "comment": "security_label - Statement 19",
+    "query": "SECURITY LABEL FOR 'dummy' ON ROLE regress_seclabel_user1 IS 'classified'"
+  },
+  {
+    "comment": "security_label - Statement 20",
+    "query": "SECURITY LABEL ON ROLE regress_seclabel_user1 IS '...invalid label...'"
+  },
+  {
+    "comment": "security_label - Statement 21",
+    "query": "SECURITY LABEL ON ROLE regress_seclabel_user3 IS 'unclassified'"
+  },
+  {
+    "comment": "security_label - Statement 22",
+    "query": "DROP FUNCTION seclabel_four()"
+  },
+  {
+    "comment": "security_label - Statement 23",
+    "query": "DROP DOMAIN seclabel_domain"
+  },
+  {
+    "comment": "security_label - Statement 24",
+    "query": "DROP VIEW seclabel_view1"
+  },
+  {
+    "comment": "security_label - Statement 25",
+    "query": "DROP TABLE seclabel_tbl1"
+  },
+  {
+    "comment": "security_label - Statement 26",
+    "query": "DROP TABLE seclabel_tbl2"
+  },
+  {
+    "comment": "security_label - Statement 27",
+    "query": "DROP USER regress_seclabel_user1"
+  },
+  {
+    "comment": "security_label - Statement 28",
+    "query": "DROP USER regress_seclabel_user2"
+  }
+]

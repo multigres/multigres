@@ -563,6 +563,20 @@
     "query": "ALTER TYPE person ALTER ATTRIBUTE name TYPE VARCHAR(100) COLLATE c"
   },
   {
+    "comment": "ALTER TABLE ALTER COLUMN TYPE with collate",
+    "query": "ALTER TABLE users ALTER COLUMN name TYPE VARCHAR(100) COLLATE en_US",
+    "expected": "ALTER TABLE users ALTER COLUMN name TYPE  VARCHAR(100) COLLATE en_us"
+  },
+  {
+    "comment": "ALTER TABLE ALTER COLUMN TYPE without collate",
+    "query": "ALTER TABLE users ALTER COLUMN name TYPE VARCHAR(100)",
+    "expected": "ALTER TABLE users ALTER COLUMN name TYPE  VARCHAR(100)"
+  },
+  {
+    "comment": "ALTER TYPE composite alter attribute without collate",
+    "query": "ALTER TYPE person ALTER ATTRIBUTE name TYPE VARCHAR(100)"
+  },
+  {
     "comment": "GRANT SELECT on table",
     "query": "GRANT SELECT ON users TO alice"
   },

@@ -1,0 +1,10 @@
+[
+  {
+    "comment": "create_function_c - Statement 1",
+    "query": "CREATE FUNCTION test1 (int) RETURNS int LANGUAGE C AS 'nosuchfile'"
+  },
+  {
+    "comment": "create_function_c - Statement 2",
+    "query": "CREATE FUNCTION test1 (int) RETURNS int LANGUAGE internal AS 'nosuch'"
+  }
+]

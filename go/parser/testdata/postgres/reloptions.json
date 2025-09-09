@@ -1,0 +1,210 @@
+[
+  {
+    "comment": "reloptions - Statement 1",
+    "query": "CREATE TABLE reloptions_test(i INT) WITH (FiLLFaCToR=30, autovacuum_enabled = false, autovacuum_analyze_scale_factor = 0.2)"
+  },
+  {
+    "comment": "reloptions - Statement 2",
+    "query": "SELECT reloptions FROM pg_class WHERE oid = 'reloptions_test'::regclass"
+  },
+  {
+    "comment": "reloptions - Statement 3",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (fillfactor=2)"
+  },
+  {
+    "comment": "reloptions - Statement 4",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (fillfactor=110)"
+  },
+  {
+    "comment": "reloptions - Statement 5",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (autovacuum_analyze_scale_factor = -10.0)"
+  },
+  {
+    "comment": "reloptions - Statement 6",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (autovacuum_analyze_scale_factor = 110.0)"
+  },
+  {
+    "comment": "reloptions - Statement 7",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (not_existing_option=2)"
+  },
+  {
+    "comment": "reloptions - Statement 8",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (not_existing_namespace.fillfactor=2)"
+  },
+  {
+    "comment": "reloptions - Statement 9",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (fillfactor=-30.1)"
+  },
+  {
+    "comment": "reloptions - Statement 10",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (fillfactor='string')"
+  },
+  {
+    "comment": "reloptions - Statement 11",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (fillfactor=true)"
+  },
+  {
+    "comment": "reloptions - Statement 12",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (autovacuum_enabled=12)"
+  },
+  {
+    "comment": "reloptions - Statement 13",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (autovacuum_enabled=30.5)"
+  },
+  {
+    "comment": "reloptions - Statement 14",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (autovacuum_enabled='string')"
+  },
+  {
+    "comment": "reloptions - Statement 15",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (autovacuum_analyze_scale_factor='string')"
+  },
+  {
+    "comment": "reloptions - Statement 16",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (autovacuum_analyze_scale_factor=true)"
+  },
+  {
+    "comment": "reloptions - Statement 17",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (fillfactor=30, fillfactor=40)"
+  },
+  {
+    "comment": "reloptions - Statement 18",
+    "query": "CREATE TABLE reloptions_test2(i INT) WITH (fillfactor)"
+  },
+  {
+    "comment": "reloptions - Statement 19",
+    "query": "ALTER TABLE reloptions_test SET (fillfactor=31, autovacuum_analyze_scale_factor = 0.3)"
+  },
+  {
+    "comment": "reloptions - Statement 20",
+    "query": "ALTER TABLE reloptions_test SET (autovacuum_enabled, fillfactor=32)"
+  },
+  {
+    "comment": "reloptions - Statement 21",
+    "query": "ALTER TABLE reloptions_test RESET (fillfactor)"
+  },
+  {
+    "comment": "reloptions - Statement 22",
+    "query": "ALTER TABLE reloptions_test RESET (autovacuum_enabled, autovacuum_analyze_scale_factor)"
+  },
+  {
+    "comment": "reloptions - Statement 23",
+    "query": "SELECT reloptions FROM pg_class WHERE oid = 'reloptions_test'::regclass AND reloptions IS NULL"
+  },
+  {
+    "comment": "reloptions - Statement 24",
+    "query": "ALTER TABLE reloptions_test RESET (fillfactor=12)"
+  },
+  {
+    "comment": "reloptions - Statement 25",
+    "query": "UPDATE pg_class SET reloptions = '{fillfactor=13,autovacuum_enabled=false,illegal_option=4}' WHERE oid = 'reloptions_test'::regclass"
+  },
+  {
+    "comment": "reloptions - Statement 26",
+    "query": "ALTER TABLE reloptions_test RESET (illegal_option)"
+  },
+  {
+    "comment": "reloptions - Statement 27",
+    "query": "DROP TABLE reloptions_test"
+  },
+  {
+    "comment": "reloptions - Statement 28",
+    "query": "CREATE TEMP TABLE reloptions_test(i INT NOT NULL, j text) WITH (vacuum_truncate=false, toast.vacuum_truncate=false, autovacuum_enabled=false)"
+  },
+  {
+    "comment": "reloptions - Statement 29",
+    "query": "INSERT INTO reloptions_test VALUES (1, NULL), (NULL, NULL)"
+  },
+  {
+    "comment": "reloptions - Statement 30",
+    "query": "VACUUM (FREEZE, DISABLE_PAGE_SKIPPING) reloptions_test"
+  },
+  {
+    "comment": "reloptions - Statement 31",
+    "query": "SELECT pg_relation_size('reloptions_test') > 0"
+  },
+  {
+    "comment": "reloptions - Statement 32",
+    "query": "SELECT reloptions FROM pg_class WHERE oid = (SELECT reltoastrelid FROM pg_class WHERE oid = 'reloptions_test'::regclass)"
+  },
+  {
+    "comment": "reloptions - Statement 33",
+    "query": "ALTER TABLE reloptions_test RESET (vacuum_truncate)"
+  },
+  {
+    "comment": "reloptions - Statement 34",
+    "query": "SELECT pg_relation_size('reloptions_test') = 0"
+  },
+  {
+    "comment": "reloptions - Statement 35",
+    "query": "CREATE TABLE reloptions_test (s VARCHAR) WITH (toast.autovacuum_vacuum_cost_delay = 23)"
+  },
+  {
+    "comment": "reloptions - Statement 36",
+    "query": "SELECT reltoastrelid as toast_oid FROM pg_class WHERE oid = 'reloptions_test'::regclass"
+  },
+  {
+    "comment": "reloptions - Statement 37",
+    "query": "SELECT reloptions FROM pg_class WHERE oid = :toast_oid"
+  },
+  {
+    "comment": "reloptions - Statement 38",
+    "query": "ALTER TABLE reloptions_test SET (toast.autovacuum_vacuum_cost_delay = 24)"
+  },
+  {
+    "comment": "reloptions - Statement 39",
+    "query": "ALTER TABLE reloptions_test RESET (toast.autovacuum_vacuum_cost_delay)"
+  },
+  {
+    "comment": "reloptions - Statement 40",
+    "query": "CREATE TABLE reloptions_test2 (i int) WITH (toast.not_existing_option = 42)"
+  },
+  {
+    "comment": "reloptions - Statement 41",
+    "query": "CREATE TABLE reloptions_test (s VARCHAR) WITH (toast.autovacuum_vacuum_cost_delay = 23, autovacuum_vacuum_cost_delay = 24, fillfactor = 40)"
+  },
+  {
+    "comment": "reloptions - Statement 42",
+    "query": "SELECT reloptions FROM pg_class WHERE oid = ( SELECT reltoastrelid FROM pg_class WHERE oid = 'reloptions_test'::regclass)"
+  },
+  {
+    "comment": "reloptions - Statement 43",
+    "query": "CREATE INDEX reloptions_test_idx ON reloptions_test (s) WITH (fillfactor=30)"
+  },
+  {
+    "comment": "reloptions - Statement 44",
+    "query": "SELECT reloptions FROM pg_class WHERE oid = 'reloptions_test_idx'::regclass"
+  },
+  {
+    "comment": "reloptions - Statement 45",
+    "query": "CREATE INDEX reloptions_test_idx ON reloptions_test (s) WITH (not_existing_option=2)"
+  },
+  {
+    "comment": "reloptions - Statement 46",
+    "query": "CREATE INDEX reloptions_test_idx ON reloptions_test (s) WITH (not_existing_ns.fillfactor=2)"
+  },
+  {
+    "comment": "reloptions - Statement 47",
+    "query": "CREATE INDEX reloptions_test_idx2 ON reloptions_test (s) WITH (fillfactor=1)"
+  },
+  {
+    "comment": "reloptions - Statement 48",
+    "query": "CREATE INDEX reloptions_test_idx2 ON reloptions_test (s) WITH (fillfactor=130)"
+  },
+  {
+    "comment": "reloptions - Statement 49",
+    "query": "ALTER INDEX reloptions_test_idx SET (fillfactor=40)"
+  },
+  {
+    "comment": "reloptions - Statement 50",
+    "query": "CREATE INDEX reloptions_test_idx3 ON reloptions_test (s)"
+  },
+  {
+    "comment": "reloptions - Statement 51",
+    "query": "ALTER INDEX reloptions_test_idx3 SET (fillfactor=40)"
+  },
+  {
+    "comment": "reloptions - Statement 52",
+    "query": "SELECT reloptions FROM pg_class WHERE oid = 'reloptions_test_idx3'::regclass"
+  }
+]

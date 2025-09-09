@@ -1,0 +1,346 @@
+[
+  {
+    "comment": "btree_index - Statement 1",
+    "query": "CREATE TABLE bt_name_heap ( seqno \t\tname, random \t\tint4 )"
+  },
+  {
+    "comment": "btree_index - Statement 2",
+    "query": "CREATE TABLE bt_txt_heap ( seqno \t\ttext, random \t\tint4 )"
+  },
+  {
+    "comment": "btree_index - Statement 3",
+    "query": "CREATE TABLE bt_f8_heap ( seqno \t\tfloat8, random \t\tint4 )"
+  },
+  {
+    "comment": "btree_index - Statement 4",
+    "query": "ANALYZE bt_i4_heap"
+  },
+  {
+    "comment": "btree_index - Statement 5",
+    "query": "ANALYZE bt_name_heap"
+  },
+  {
+    "comment": "btree_index - Statement 6",
+    "query": "ANALYZE bt_txt_heap"
+  },
+  {
+    "comment": "btree_index - Statement 7",
+    "query": "ANALYZE bt_f8_heap"
+  },
+  {
+    "comment": "btree_index - Statement 8",
+    "query": "CREATE INDEX bt_i4_index ON bt_i4_heap USING btree (seqno int4_ops)"
+  },
+  {
+    "comment": "btree_index - Statement 9",
+    "query": "CREATE INDEX bt_name_index ON bt_name_heap USING btree (seqno name_ops)"
+  },
+  {
+    "comment": "btree_index - Statement 10",
+    "query": "CREATE INDEX bt_txt_index ON bt_txt_heap USING btree (seqno text_ops)"
+  },
+  {
+    "comment": "btree_index - Statement 11",
+    "query": "CREATE INDEX bt_f8_index ON bt_f8_heap USING btree (seqno float8_ops)"
+  },
+  {
+    "comment": "btree_index - Statement 12",
+    "query": "SELECT b.* FROM bt_i4_heap b WHERE b.seqno < 1"
+  },
+  {
+    "comment": "btree_index - Statement 13",
+    "query": "SELECT b.* FROM bt_i4_heap b WHERE b.seqno >= 9999"
+  },
+  {
+    "comment": "btree_index - Statement 14",
+    "query": "SELECT b.* FROM bt_i4_heap b WHERE b.seqno = 4500"
+  },
+  {
+    "comment": "btree_index - Statement 15",
+    "query": "SELECT b.* FROM bt_name_heap b WHERE b.seqno < '1'::name"
+  },
+  {
+    "comment": "btree_index - Statement 16",
+    "query": "SELECT b.* FROM bt_name_heap b WHERE b.seqno >= '9999'::name"
+  },
+  {
+    "comment": "btree_index - Statement 17",
+    "query": "SELECT b.* FROM bt_name_heap b WHERE b.seqno = '4500'::name"
+  },
+  {
+    "comment": "btree_index - Statement 18",
+    "query": "SELECT b.* FROM bt_txt_heap b WHERE b.seqno < '1'::text"
+  },
+  {
+    "comment": "btree_index - Statement 19",
+    "query": "SELECT b.* FROM bt_txt_heap b WHERE b.seqno >= '9999'::text"
+  },
+  {
+    "comment": "btree_index - Statement 20",
+    "query": "SELECT b.* FROM bt_txt_heap b WHERE b.seqno = '4500'::text"
+  },
+  {
+    "comment": "btree_index - Statement 21",
+    "query": "SELECT b.* FROM bt_f8_heap b WHERE b.seqno < '1'::float8"
+  },
+  {
+    "comment": "btree_index - Statement 22",
+    "query": "SELECT b.* FROM bt_f8_heap b WHERE b.seqno >= '9999'::float8"
+  },
+  {
+    "comment": "btree_index - Statement 23",
+    "query": "SELECT b.* FROM bt_f8_heap b WHERE b.seqno = '4500'::float8"
+  },
+  {
+    "comment": "btree_index - Statement 24",
+    "query": "set enable_seqscan to false"
+  },
+  {
+    "comment": "btree_index - Statement 25",
+    "query": "set enable_indexscan to true"
+  },
+  {
+    "comment": "btree_index - Statement 26",
+    "query": "set enable_bitmapscan to false"
+  },
+  {
+    "comment": "btree_index - Statement 27",
+    "query": "explain (costs off) select hundred, twenty from tenk1 where hundred < 48 order by hundred desc limit 1"
+  },
+  {
+    "comment": "btree_index - Statement 28",
+    "query": "select hundred, twenty from tenk1 where hundred < 48 order by hundred desc limit 1"
+  },
+  {
+    "comment": "btree_index - Statement 29",
+    "query": "explain (costs off) select hundred, twenty from tenk1 where hundred <= 48 order by hundred desc limit 1"
+  },
+  {
+    "comment": "btree_index - Statement 30",
+    "query": "select hundred, twenty from tenk1 where hundred <= 48 order by hundred desc limit 1"
+  },
+  {
+    "comment": "btree_index - Statement 31",
+    "query": "explain (costs off) select distinct hundred from tenk1 where hundred in (47, 48, 72, 82)"
+  },
+  {
+    "comment": "btree_index - Statement 32",
+    "query": "select distinct hundred from tenk1 where hundred in (47, 48, 72, 82)"
+  },
+  {
+    "comment": "btree_index - Statement 33",
+    "query": "explain (costs off) select distinct hundred from tenk1 where hundred in (47, 48, 72, 82) order by hundred desc"
+  },
+  {
+    "comment": "btree_index - Statement 34",
+    "query": "select distinct hundred from tenk1 where hundred in (47, 48, 72, 82) order by hundred desc"
+  },
+  {
+    "comment": "btree_index - Statement 35",
+    "query": "explain (costs off) select thousand from tenk1 where thousand in (364, 366,380) and tenthous = 200000"
+  },
+  {
+    "comment": "btree_index - Statement 36",
+    "query": "select thousand from tenk1 where thousand in (364, 366,380) and tenthous = 200000"
+  },
+  {
+    "comment": "btree_index - Statement 37",
+    "query": "explain (costs off) select proname from pg_proc where proname like E'RI\\\\_FKey%del' order by 1"
+  },
+  {
+    "comment": "btree_index - Statement 38",
+    "query": "select proname from pg_proc where proname like E'RI\\\\_FKey%del' order by 1"
+  },
+  {
+    "comment": "btree_index - Statement 39",
+    "query": "explain (costs off) select proname from pg_proc where proname ilike '00%foo' order by 1"
+  },
+  {
+    "comment": "btree_index - Statement 40",
+    "query": "select proname from pg_proc where proname ilike '00%foo' order by 1"
+  },
+  {
+    "comment": "btree_index - Statement 41",
+    "query": "explain (costs off) select proname from pg_proc where proname ilike 'ri%foo' order by 1"
+  },
+  {
+    "comment": "btree_index - Statement 42",
+    "query": "set enable_indexscan to false"
+  },
+  {
+    "comment": "btree_index - Statement 43",
+    "query": "set enable_bitmapscan to true"
+  },
+  {
+    "comment": "btree_index - Statement 44",
+    "query": "reset enable_seqscan"
+  },
+  {
+    "comment": "btree_index - Statement 45",
+    "query": "reset enable_indexscan"
+  },
+  {
+    "comment": "btree_index - Statement 46",
+    "query": "reset enable_bitmapscan"
+  },
+  {
+    "comment": "btree_index - Statement 47",
+    "query": "create temp table btree_bpchar (f1 text collate \"C\")"
+  },
+  {
+    "comment": "btree_index - Statement 48",
+    "query": "create index on btree_bpchar(f1 bpchar_ops) WITH (deduplicate_items=on)"
+  },
+  {
+    "comment": "btree_index - Statement 49",
+    "query": "insert into btree_bpchar values ('foo'), ('fool'), ('bar'), ('quux')"
+  },
+  {
+    "comment": "btree_index - Statement 50",
+    "query": "explain (costs off) select * from btree_bpchar where f1 like 'foo'"
+  },
+  {
+    "comment": "btree_index - Statement 51",
+    "query": "select * from btree_bpchar where f1 like 'foo'"
+  },
+  {
+    "comment": "btree_index - Statement 52",
+    "query": "explain (costs off) select * from btree_bpchar where f1 like 'foo%'"
+  },
+  {
+    "comment": "btree_index - Statement 53",
+    "query": "select * from btree_bpchar where f1 like 'foo%'"
+  },
+  {
+    "comment": "btree_index - Statement 54",
+    "query": "explain (costs off) select * from btree_bpchar where f1::bpchar like 'foo'"
+  },
+  {
+    "comment": "btree_index - Statement 55",
+    "query": "select * from btree_bpchar where f1::bpchar like 'foo'"
+  },
+  {
+    "comment": "btree_index - Statement 56",
+    "query": "explain (costs off) select * from btree_bpchar where f1::bpchar like 'foo%'"
+  },
+  {
+    "comment": "btree_index - Statement 57",
+    "query": "select * from btree_bpchar where f1::bpchar like 'foo%'"
+  },
+  {
+    "comment": "btree_index - Statement 58",
+    "query": "insert into btree_bpchar select 'foo' from generate_series(1,1500)"
+  },
+  {
+    "comment": "btree_index - Statement 59",
+    "query": "CREATE TABLE dedup_unique_test_table (a int) WITH (autovacuum_enabled=false)"
+  },
+  {
+    "comment": "btree_index - Statement 60",
+    "query": "CREATE UNIQUE INDEX dedup_unique ON dedup_unique_test_table (a) WITH (deduplicate_items=on)"
+  },
+  {
+    "comment": "btree_index - Statement 61",
+    "query": "CREATE UNIQUE INDEX plain_unique ON dedup_unique_test_table (a) WITH (deduplicate_items=off)"
+  },
+  {
+    "comment": "btree_index - Statement 62",
+    "query": "DO $$ BEGIN FOR r IN 1..1350 LOOP DELETE FROM dedup_unique_test_table"
+  },
+  {
+    "comment": "btree_index - Statement 63",
+    "query": "INSERT INTO dedup_unique_test_table SELECT 1"
+  },
+  {
+    "comment": "btree_index - Statement 64",
+    "query": "END LOOP"
+  },
+  {
+    "comment": "btree_index - Statement 65",
+    "query": "END$$"
+  },
+  {
+    "comment": "btree_index - Statement 66",
+    "query": "DROP INDEX plain_unique"
+  },
+  {
+    "comment": "btree_index - Statement 67",
+    "query": "DELETE FROM dedup_unique_test_table WHERE a = 1"
+  },
+  {
+    "comment": "btree_index - Statement 68",
+    "query": "INSERT INTO dedup_unique_test_table SELECT i FROM generate_series(0,450) i"
+  },
+  {
+    "comment": "btree_index - Statement 69",
+    "query": "create table btree_tall_tbl(id int4, t text)"
+  },
+  {
+    "comment": "btree_index - Statement 70",
+    "query": "alter table btree_tall_tbl alter COLUMN t set storage plain"
+  },
+  {
+    "comment": "btree_index - Statement 71",
+    "query": "create index btree_tall_idx on btree_tall_tbl (t, id) with (fillfactor = 10)"
+  },
+  {
+    "comment": "btree_index - Statement 72",
+    "query": "insert into btree_tall_tbl select g, repeat('x', 250) from generate_series(1, 130) g"
+  },
+  {
+    "comment": "btree_index - Statement 73",
+    "query": "CREATE TABLE delete_test_table (a bigint, b bigint, c bigint, d bigint)"
+  },
+  {
+    "comment": "btree_index - Statement 74",
+    "query": "INSERT INTO delete_test_table SELECT i, 1, 2, 3 FROM generate_series(1,80000) i"
+  },
+  {
+    "comment": "btree_index - Statement 75",
+    "query": "ALTER TABLE delete_test_table ADD PRIMARY KEY (a,b,c,d)"
+  },
+  {
+    "comment": "btree_index - Statement 76",
+    "query": "DELETE FROM delete_test_table WHERE a < 79990"
+  },
+  {
+    "comment": "btree_index - Statement 77",
+    "query": "VACUUM delete_test_table"
+  },
+  {
+    "comment": "btree_index - Statement 78",
+    "query": "INSERT INTO delete_test_table SELECT i, 1, 2, 3 FROM generate_series(1,1000) i"
+  },
+  {
+    "comment": "btree_index - Statement 79",
+    "query": "create index on btree_tall_tbl (id int4_ops(foo=1))"
+  },
+  {
+    "comment": "btree_index - Statement 80",
+    "query": "CREATE INDEX btree_tall_idx2 ON btree_tall_tbl (id)"
+  },
+  {
+    "comment": "btree_index - Statement 81",
+    "query": "ALTER INDEX btree_tall_idx2 ALTER COLUMN id SET (n_distinct=100)"
+  },
+  {
+    "comment": "btree_index - Statement 82",
+    "query": "DROP INDEX btree_tall_idx2"
+  },
+  {
+    "comment": "btree_index - Statement 83",
+    "query": "CREATE TABLE btree_part (id int4) PARTITION BY RANGE (id)"
+  },
+  {
+    "comment": "btree_index - Statement 84",
+    "query": "CREATE INDEX btree_part_idx ON btree_part(id)"
+  },
+  {
+    "comment": "btree_index - Statement 85",
+    "query": "ALTER INDEX btree_part_idx ALTER COLUMN id SET (n_distinct=100)"
+  },
+  {
+    "comment": "btree_index - Statement 86",
+    "query": "DROP TABLE btree_part"
+  }
+]

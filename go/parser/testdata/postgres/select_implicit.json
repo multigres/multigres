@@ -1,0 +1,178 @@
+[
+  {
+    "comment": "select_implicit - Statement 1",
+    "query": "CREATE TABLE test_missing_target (a int, b int, c char(8), d char)"
+  },
+  {
+    "comment": "select_implicit - Statement 2",
+    "query": "INSERT INTO test_missing_target VALUES (0, 1, 'XXXX', 'A')"
+  },
+  {
+    "comment": "select_implicit - Statement 3",
+    "query": "INSERT INTO test_missing_target VALUES (1, 2, 'ABAB', 'b')"
+  },
+  {
+    "comment": "select_implicit - Statement 4",
+    "query": "INSERT INTO test_missing_target VALUES (2, 2, 'ABAB', 'c')"
+  },
+  {
+    "comment": "select_implicit - Statement 5",
+    "query": "INSERT INTO test_missing_target VALUES (3, 3, 'BBBB', 'D')"
+  },
+  {
+    "comment": "select_implicit - Statement 6",
+    "query": "INSERT INTO test_missing_target VALUES (4, 3, 'BBBB', 'e')"
+  },
+  {
+    "comment": "select_implicit - Statement 7",
+    "query": "INSERT INTO test_missing_target VALUES (5, 3, 'bbbb', 'F')"
+  },
+  {
+    "comment": "select_implicit - Statement 8",
+    "query": "INSERT INTO test_missing_target VALUES (6, 4, 'cccc', 'g')"
+  },
+  {
+    "comment": "select_implicit - Statement 9",
+    "query": "INSERT INTO test_missing_target VALUES (7, 4, 'cccc', 'h')"
+  },
+  {
+    "comment": "select_implicit - Statement 10",
+    "query": "INSERT INTO test_missing_target VALUES (8, 4, 'CCCC', 'I')"
+  },
+  {
+    "comment": "select_implicit - Statement 11",
+    "query": "INSERT INTO test_missing_target VALUES (9, 4, 'CCCC', 'j')"
+  },
+  {
+    "comment": "select_implicit - Statement 12",
+    "query": "SELECT c, count(*) FROM test_missing_target GROUP BY test_missing_target.c ORDER BY c"
+  },
+  {
+    "comment": "select_implicit - Statement 13",
+    "query": "SELECT count(*) FROM test_missing_target GROUP BY test_missing_target.c ORDER BY c"
+  },
+  {
+    "comment": "select_implicit - Statement 14",
+    "query": "SELECT count(*) FROM test_missing_target GROUP BY a ORDER BY b"
+  },
+  {
+    "comment": "select_implicit - Statement 15",
+    "query": "SELECT count(*) FROM test_missing_target GROUP BY b ORDER BY b"
+  },
+  {
+    "comment": "select_implicit - Statement 16",
+    "query": "SELECT test_missing_target.b, count(*) FROM test_missing_target GROUP BY b ORDER BY b"
+  },
+  {
+    "comment": "select_implicit - Statement 17",
+    "query": "SELECT c FROM test_missing_target ORDER BY a"
+  },
+  {
+    "comment": "select_implicit - Statement 18",
+    "query": "SELECT count(*) FROM test_missing_target GROUP BY b ORDER BY b desc"
+  },
+  {
+    "comment": "select_implicit - Statement 19",
+    "query": "SELECT count(*) FROM test_missing_target ORDER BY 1 desc"
+  },
+  {
+    "comment": "select_implicit - Statement 20",
+    "query": "SELECT c, count(*) FROM test_missing_target GROUP BY 1 ORDER BY 1"
+  },
+  {
+    "comment": "select_implicit - Statement 21",
+    "query": "SELECT c, count(*) FROM test_missing_target GROUP BY 3"
+  },
+  {
+    "comment": "select_implicit - Statement 22",
+    "query": "SELECT count(*) FROM test_missing_target x, test_missing_target y WHERE x.a = y.a GROUP BY b ORDER BY b"
+  },
+  {
+    "comment": "select_implicit - Statement 23",
+    "query": "SELECT a, a FROM test_missing_target ORDER BY a"
+  },
+  {
+    "comment": "select_implicit - Statement 24",
+    "query": "SELECT a/2, a/2 FROM test_missing_target ORDER BY a/2"
+  },
+  {
+    "comment": "select_implicit - Statement 25",
+    "query": "SELECT a/2, a/2 FROM test_missing_target GROUP BY a/2 ORDER BY a/2"
+  },
+  {
+    "comment": "select_implicit - Statement 26",
+    "query": "SELECT x.b, count(*) FROM test_missing_target x, test_missing_target y WHERE x.a = y.a GROUP BY x.b ORDER BY x.b"
+  },
+  {
+    "comment": "select_implicit - Statement 27",
+    "query": "SELECT count(*) FROM test_missing_target x, test_missing_target y WHERE x.a = y.a GROUP BY x.b ORDER BY x.b"
+  },
+  {
+    "comment": "select_implicit - Statement 28",
+    "query": "CREATE TABLE test_missing_target2 AS SELECT count(*) FROM test_missing_target x, test_missing_target y WHERE x.a = y.a GROUP BY x.b ORDER BY x.b"
+  },
+  {
+    "comment": "select_implicit - Statement 29",
+    "query": "SELECT * FROM test_missing_target2"
+  },
+  {
+    "comment": "select_implicit - Statement 30",
+    "query": "SELECT a%2, count(b) FROM test_missing_target GROUP BY test_missing_target.a%2 ORDER BY test_missing_target.a%2"
+  },
+  {
+    "comment": "select_implicit - Statement 31",
+    "query": "SELECT count(c) FROM test_missing_target GROUP BY lower(test_missing_target.c) ORDER BY lower(test_missing_target.c)"
+  },
+  {
+    "comment": "select_implicit - Statement 32",
+    "query": "SELECT count(a) FROM test_missing_target GROUP BY a ORDER BY b"
+  },
+  {
+    "comment": "select_implicit - Statement 33",
+    "query": "SELECT count(b) FROM test_missing_target GROUP BY b/2 ORDER BY b/2"
+  },
+  {
+    "comment": "select_implicit - Statement 34",
+    "query": "SELECT lower(test_missing_target.c), count(c) FROM test_missing_target GROUP BY lower(c) ORDER BY lower(c)"
+  },
+  {
+    "comment": "select_implicit - Statement 35",
+    "query": "SELECT a FROM test_missing_target ORDER BY upper(d)"
+  },
+  {
+    "comment": "select_implicit - Statement 36",
+    "query": "SELECT count(b) FROM test_missing_target GROUP BY (b + 1) / 2 ORDER BY (b + 1) / 2 desc"
+  },
+  {
+    "comment": "select_implicit - Statement 37",
+    "query": "SELECT count(x.a) FROM test_missing_target x, test_missing_target y WHERE x.a = y.a GROUP BY b/2 ORDER BY b/2"
+  },
+  {
+    "comment": "select_implicit - Statement 38",
+    "query": "SELECT x.b/2, count(x.b) FROM test_missing_target x, test_missing_target y WHERE x.a = y.a GROUP BY x.b/2 ORDER BY x.b/2"
+  },
+  {
+    "comment": "select_implicit - Statement 39",
+    "query": "SELECT count(b) FROM test_missing_target x, test_missing_target y WHERE x.a = y.a GROUP BY x.b/2"
+  },
+  {
+    "comment": "select_implicit - Statement 40",
+    "query": "CREATE TABLE test_missing_target3 AS SELECT count(x.b) FROM test_missing_target x, test_missing_target y WHERE x.a = y.a GROUP BY x.b/2 ORDER BY x.b/2"
+  },
+  {
+    "comment": "select_implicit - Statement 41",
+    "query": "SELECT * FROM test_missing_target3"
+  },
+  {
+    "comment": "select_implicit - Statement 42",
+    "query": "DROP TABLE test_missing_target"
+  },
+  {
+    "comment": "select_implicit - Statement 43",
+    "query": "DROP TABLE test_missing_target2"
+  },
+  {
+    "comment": "select_implicit - Statement 44",
+    "query": "DROP TABLE test_missing_target3"
+  }
+]

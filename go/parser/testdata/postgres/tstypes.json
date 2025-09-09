@@ -1,0 +1,950 @@
+[
+  {
+    "comment": "tstypes - Statement 1",
+    "query": "SET extra_float_digits = 0"
+  },
+  {
+    "comment": "tstypes - Statement 2",
+    "query": "SELECT '1'::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 3",
+    "query": "SELECT '1 '::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 4",
+    "query": "SELECT ' 1'::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 5",
+    "query": "SELECT ' 1 '::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 6",
+    "query": "SELECT '1 2'::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 7",
+    "query": "SELECT '''1 2'''::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 8",
+    "query": "SELECT E'''1 \\\\''2'''::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 9",
+    "query": "SELECT E'''1 \\\\''2''3'::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 10",
+    "query": "SELECT E'''1 \\\\''2'' 3'::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 11",
+    "query": "SELECT E'''1 \\\\''2'' '' 3'' 4 '::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 12",
+    "query": "SELECT $$'\\\\as' ab\\c ab\\\\c AB\\\\\\c ab\\\\\\\\c$$::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 13",
+    "query": "SELECT tsvectorin(tsvectorout($$'\\\\as' ab\\c ab\\\\c AB\\\\\\c ab\\\\\\\\c$$::tsvector))"
+  },
+  {
+    "comment": "tstypes - Statement 14",
+    "query": "SELECT '''w'':4A,3B,2C,1D,5 a:8'"
+  },
+  {
+    "comment": "tstypes - Statement 15",
+    "query": "SELECT 'a:3A b:2a'::tsvector || 'ba:1234 a:1B'"
+  },
+  {
+    "comment": "tstypes - Statement 16",
+    "query": "SELECT $$'' '1' '2'$$::tsvector"
+  },
+  {
+    "comment": "tstypes - Statement 17",
+    "query": "SELECT pg_input_is_valid('foo', 'tsvector')"
+  },
+  {
+    "comment": "tstypes - Statement 18",
+    "query": "SELECT pg_input_is_valid($$''$$, 'tsvector')"
+  },
+  {
+    "comment": "tstypes - Statement 19",
+    "query": "SELECT * FROM pg_input_error_info($$''$$, 'tsvector')"
+  },
+  {
+    "comment": "tstypes - Statement 20",
+    "query": "SELECT '1'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 21",
+    "query": "SELECT '1 '::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 22",
+    "query": "SELECT ' 1'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 23",
+    "query": "SELECT ' 1 '::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 24",
+    "query": "SELECT '''1 2'''::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 25",
+    "query": "SELECT E'''1 \\\\''2'''::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 26",
+    "query": "SELECT '!1'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 27",
+    "query": "SELECT '1|2'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 28",
+    "query": "SELECT '1|!2'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 29",
+    "query": "SELECT '!1|2'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 30",
+    "query": "SELECT '!1|!2'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 31",
+    "query": "SELECT '!(!1|!2)'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 32",
+    "query": "SELECT '!(!1|2)'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 33",
+    "query": "SELECT '!(1|!2)'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 34",
+    "query": "SELECT '!(1|2)'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 35",
+    "query": "SELECT '1&2'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 36",
+    "query": "SELECT '!1&2'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 37",
+    "query": "SELECT '1&!2'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 38",
+    "query": "SELECT '!1&!2'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 39",
+    "query": "SELECT '(1&2)'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 40",
+    "query": "SELECT '1&(2)'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 41",
+    "query": "SELECT '!(1)&2'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 42",
+    "query": "SELECT '!(1&2)'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 43",
+    "query": "SELECT '1|2&3'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 44",
+    "query": "SELECT '1|(2&3)'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 45",
+    "query": "SELECT '(1|2)&3'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 46",
+    "query": "SELECT '1|2&!3'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 47",
+    "query": "SELECT '1|!2&3'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 48",
+    "query": "SELECT '!1|2&3'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 49",
+    "query": "SELECT '!1|(2&3)'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 50",
+    "query": "SELECT '!(1|2)&3'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 51",
+    "query": "SELECT '(!1|2)&3'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 52",
+    "query": "SELECT '1|(2|(4|(5|6)))'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 53",
+    "query": "SELECT '1|2|4|5|6'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 54",
+    "query": "SELECT '1&(2&(4&(5&6)))'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 55",
+    "query": "SELECT '1&2&4&5&6'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 56",
+    "query": "SELECT '1&(2&(4&(5|6)))'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 57",
+    "query": "SELECT '1&(2&(4&(5|!6)))'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 58",
+    "query": "SELECT E'1&(''2''&('' 4''&(\\\\|5 | ''6 \\\\'' !|&'')))'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 59",
+    "query": "SELECT $$'\\\\as'$$::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 60",
+    "query": "SELECT 'a:* & nbb:*ac | doo:a* | goo'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 61",
+    "query": "SELECT '!!b'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 62",
+    "query": "SELECT '!!!b'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 63",
+    "query": "SELECT '!(!b)'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 64",
+    "query": "SELECT 'a & !!b'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 65",
+    "query": "SELECT '!!a & b'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 66",
+    "query": "SELECT '!!a & !!b'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 67",
+    "query": "SELECT pg_input_is_valid('foo', 'tsquery')"
+  },
+  {
+    "comment": "tstypes - Statement 68",
+    "query": "SELECT pg_input_is_valid('foo!', 'tsquery')"
+  },
+  {
+    "comment": "tstypes - Statement 69",
+    "query": "SELECT * FROM pg_input_error_info('foo!', 'tsquery')"
+  },
+  {
+    "comment": "tstypes - Statement 70",
+    "query": "SELECT * FROM pg_input_error_info('a <100000> b', 'tsquery')"
+  },
+  {
+    "comment": "tstypes - Statement 71",
+    "query": "SELECT 'a' < 'b & c'::tsquery as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 72",
+    "query": "SELECT 'a' > 'b & c'::tsquery as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 73",
+    "query": "SELECT 'a | f' < 'b & c'::tsquery as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 74",
+    "query": "SELECT 'a | ff' < 'b & c'::tsquery as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 75",
+    "query": "SELECT 'a | f | g' < 'b & c'::tsquery as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 76",
+    "query": "SELECT numnode( 'new'::tsquery )"
+  },
+  {
+    "comment": "tstypes - Statement 77",
+    "query": "SELECT numnode( 'new & york'::tsquery )"
+  },
+  {
+    "comment": "tstypes - Statement 78",
+    "query": "SELECT numnode( 'new & york | qwery'::tsquery )"
+  },
+  {
+    "comment": "tstypes - Statement 79",
+    "query": "SELECT 'foo & bar'::tsquery && 'asd'"
+  },
+  {
+    "comment": "tstypes - Statement 80",
+    "query": "SELECT 'foo & bar'::tsquery || 'asd & fg'"
+  },
+  {
+    "comment": "tstypes - Statement 81",
+    "query": "SELECT 'foo & bar'::tsquery || !!'asd & fg'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 82",
+    "query": "SELECT 'foo & bar'::tsquery && 'asd | fg'"
+  },
+  {
+    "comment": "tstypes - Statement 83",
+    "query": "SELECT 'a' <-> 'b & d'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 84",
+    "query": "SELECT 'a & g' <-> 'b & d'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 85",
+    "query": "SELECT 'a & g' <-> 'b | d'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 86",
+    "query": "SELECT 'a & g' <-> 'b <-> d'::tsquery"
+  },
+  {
+    "comment": "tstypes - Statement 87",
+    "query": "SELECT tsquery_phrase('a <3> g', 'b & d', 10)"
+  },
+  {
+    "comment": "tstypes - Statement 88",
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & ca' as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 89",
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & ca:B' as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 90",
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & ca:A' as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 91",
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & ca:C' as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 92",
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & ca:CB' as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 93",
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & c:*C' as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 94",
+    "query": "SELECT 'a b:89  ca:23A,64b d:34c'::tsvector @@ 'd:AC & c:*CB' as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 95",
+    "query": "SELECT 'a b:89  ca:23A,64b cb:80c d:34c'::tsvector @@ 'd:AC & c:*C' as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 96",
+    "query": "SELECT 'a b:89  ca:23A,64c cb:80b d:34c'::tsvector @@ 'd:AC & c:*C' as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 97",
+    "query": "SELECT 'a b:89  ca:23A,64c cb:80b d:34c'::tsvector @@ 'd:AC & c:*B' as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 98",
+    "query": "SELECT 'wa:1D wb:2A'::tsvector @@ 'w:*D & w:*A'::tsquery as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 99",
+    "query": "SELECT 'wa:1D wb:2A'::tsvector @@ 'w:*D <-> w:*A'::tsquery as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 100",
+    "query": "SELECT 'wa:1A wb:2D'::tsvector @@ 'w:*D <-> w:*A'::tsquery as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 101",
+    "query": "SELECT 'wa:1A'::tsvector @@ 'w:*A'::tsquery as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 102",
+    "query": "SELECT 'wa:1A'::tsvector @@ 'w:*D'::tsquery as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 103",
+    "query": "SELECT 'wa:1A'::tsvector @@ '!w:*A'::tsquery as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 104",
+    "query": "SELECT 'wa:1A'::tsvector @@ '!w:*D'::tsquery as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 105",
+    "query": "SELECT strip('wa:1A'::tsvector) @@ 'w:*A'::tsquery as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 106",
+    "query": "SELECT strip('wa:1A'::tsvector) @@ 'w:*D'::tsquery as \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 107",
+    "query": "SELECT strip('wa:1A'::tsvector) @@ '!w:*A'::tsquery as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 108",
+    "query": "SELECT strip('wa:1A'::tsvector) @@ '!w:*D'::tsquery as \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 109",
+    "query": "SELECT 'supernova'::tsvector @@ 'super'::tsquery AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 110",
+    "query": "SELECT 'supeanova supernova'::tsvector @@ 'super'::tsquery AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 111",
+    "query": "SELECT 'supeznova supernova'::tsvector @@ 'super'::tsquery AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 112",
+    "query": "SELECT 'supernova'::tsvector @@ 'super:*'::tsquery AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 113",
+    "query": "SELECT 'supeanova supernova'::tsvector @@ 'super:*'::tsquery AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 114",
+    "query": "SELECT 'supeznova supernova'::tsvector @@ 'super:*'::tsquery AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 115",
+    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 <-> 2' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 116",
+    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 <2> 2' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 117",
+    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 <-> 3' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 118",
+    "query": "SELECT to_tsvector('simple', '1 2 3 1') @@ '1 <2> 3' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 119",
+    "query": "SELECT to_tsvector('simple', '1 2 1 2') @@ '1 <3> 2' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 120",
+    "query": "SELECT to_tsvector('simple', '1 2 11 3') @@ '1 <-> 3' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 121",
+    "query": "SELECT to_tsvector('simple', '1 2 11 3') @@ '1:* <-> 3' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 122",
+    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '1 <-> 2 <-> 3' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 123",
+    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '(1 <-> 2) <-> 3' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 124",
+    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '1 <-> (2 <-> 3)' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 125",
+    "query": "SELECT to_tsvector('simple', '1 2 3 4') @@ '1 <2> (2 <-> 3)' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 126",
+    "query": "SELECT to_tsvector('simple', '1 2 1 2 3 4') @@ '(1 <-> 2) <-> 3' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 127",
+    "query": "SELECT to_tsvector('simple', '1 2 1 2 3 4') @@ '1 <-> 2 <-> 3' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 128",
+    "query": "SELECT strip(to_tsvector('simple', '1 2 3 4')) @@ '1 <-> 2 <-> 3' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 129",
+    "query": "select to_tsvector('simple', 'q x q y') @@ 'q <-> (x & y)' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 130",
+    "query": "select to_tsvector('simple', 'q x') @@ 'q <-> (x | y <-> z)' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 131",
+    "query": "select to_tsvector('simple', 'q y') @@ 'q <-> (x | y <-> z)' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 132",
+    "query": "select to_tsvector('simple', 'q y z') @@ 'q <-> (x | y <-> z)' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 133",
+    "query": "select to_tsvector('simple', 'q y x') @@ 'q <-> (x | y <-> z)' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 134",
+    "query": "select to_tsvector('simple', 'q x y') @@ 'q <-> (x | y <-> z)' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 135",
+    "query": "select to_tsvector('simple', 'q x') @@ '(x | y <-> z) <-> q' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 136",
+    "query": "select to_tsvector('simple', 'x q') @@ '(x | y <-> z) <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 137",
+    "query": "select to_tsvector('simple', 'x y q') @@ '(x | y <-> z) <-> q' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 138",
+    "query": "select to_tsvector('simple', 'x y z') @@ '(x | y <-> z) <-> q' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 139",
+    "query": "select to_tsvector('simple', 'x y z q') @@ '(x | y <-> z) <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 140",
+    "query": "select to_tsvector('simple', 'y z q') @@ '(x | y <-> z) <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 141",
+    "query": "select to_tsvector('simple', 'y y q') @@ '(x | y <-> z) <-> q' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 142",
+    "query": "select to_tsvector('simple', 'y y q') @@ '(!x | y <-> z) <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 143",
+    "query": "select to_tsvector('simple', 'x y q') @@ '(!x | y <-> z) <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 144",
+    "query": "select to_tsvector('simple', 'y y q') @@ '(x | y <-> !z) <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 145",
+    "query": "select to_tsvector('simple', 'x q') @@ '(x | y <-> !z) <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 146",
+    "query": "select to_tsvector('simple', 'x q') @@ '(!x | y <-> z) <-> q' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 147",
+    "query": "select to_tsvector('simple', 'z q') @@ '(!x | y <-> z) <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 148",
+    "query": "select to_tsvector('simple', 'x y q') @@ '(!x | y) <-> y <-> q' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 149",
+    "query": "select to_tsvector('simple', 'x y q') @@ '(!x | !y) <-> y <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 150",
+    "query": "select to_tsvector('simple', 'x y q') @@ '(x | !y) <-> y <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 151",
+    "query": "select to_tsvector('simple', 'x y q') @@ '(x | !!z) <-> y <-> q' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 152",
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!x <-> y' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 153",
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!x <-> !y' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 154",
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!x <-> !!y' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 155",
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!(x <-> y)' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 156",
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!(x <2> y)' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 157",
+    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!x <-> y' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 158",
+    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!x <-> !y' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 159",
+    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!x <-> !!y' AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 160",
+    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!(x <-> y)' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 161",
+    "query": "select strip(to_tsvector('simple', 'x y q y')) @@ '!(x <2> y)' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 162",
+    "query": "select to_tsvector('simple', 'x y q y') @@ '!foo' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 163",
+    "query": "select to_tsvector('simple', '') @@ '!foo' AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 164",
+    "query": "SELECT ts_rank(' a:1 s:2C d g'::tsvector, 'a | s')"
+  },
+  {
+    "comment": "tstypes - Statement 165",
+    "query": "SELECT ts_rank(' a:1 sa:2C d g'::tsvector, 'a | s')"
+  },
+  {
+    "comment": "tstypes - Statement 166",
+    "query": "SELECT ts_rank(' a:1 sa:2C d g'::tsvector, 'a | s:*')"
+  },
+  {
+    "comment": "tstypes - Statement 167",
+    "query": "SELECT ts_rank(' a:1 sa:2C d g'::tsvector, 'a | sa:*')"
+  },
+  {
+    "comment": "tstypes - Statement 168",
+    "query": "SELECT ts_rank(' a:1 s:2B d g'::tsvector, 'a | s')"
+  },
+  {
+    "comment": "tstypes - Statement 169",
+    "query": "SELECT ts_rank(' a:1 s:2 d g'::tsvector, 'a | s')"
+  },
+  {
+    "comment": "tstypes - Statement 170",
+    "query": "SELECT ts_rank(' a:1 s:2C d g'::tsvector, 'a & s')"
+  },
+  {
+    "comment": "tstypes - Statement 171",
+    "query": "SELECT ts_rank(' a:1 s:2B d g'::tsvector, 'a & s')"
+  },
+  {
+    "comment": "tstypes - Statement 172",
+    "query": "SELECT ts_rank(' a:1 s:2 d g'::tsvector, 'a & s')"
+  },
+  {
+    "comment": "tstypes - Statement 173",
+    "query": "SELECT ts_rank_cd(' a:1 s:2C d g'::tsvector, 'a | s')"
+  },
+  {
+    "comment": "tstypes - Statement 174",
+    "query": "SELECT ts_rank_cd(' a:1 sa:2C d g'::tsvector, 'a | s')"
+  },
+  {
+    "comment": "tstypes - Statement 175",
+    "query": "SELECT ts_rank_cd(' a:1 sa:2C d g'::tsvector, 'a | s:*')"
+  },
+  {
+    "comment": "tstypes - Statement 176",
+    "query": "SELECT ts_rank_cd(' a:1 sa:2C d g'::tsvector, 'a | sa:*')"
+  },
+  {
+    "comment": "tstypes - Statement 177",
+    "query": "SELECT ts_rank_cd(' a:1 sa:3C sab:2c d g'::tsvector, 'a | sa:*')"
+  },
+  {
+    "comment": "tstypes - Statement 178",
+    "query": "SELECT ts_rank_cd(' a:1 s:2B d g'::tsvector, 'a | s')"
+  },
+  {
+    "comment": "tstypes - Statement 179",
+    "query": "SELECT ts_rank_cd(' a:1 s:2 d g'::tsvector, 'a | s')"
+  },
+  {
+    "comment": "tstypes - Statement 180",
+    "query": "SELECT ts_rank_cd(' a:1 s:2C d g'::tsvector, 'a & s')"
+  },
+  {
+    "comment": "tstypes - Statement 181",
+    "query": "SELECT ts_rank_cd(' a:1 s:2B d g'::tsvector, 'a & s')"
+  },
+  {
+    "comment": "tstypes - Statement 182",
+    "query": "SELECT ts_rank_cd(' a:1 s:2 d g'::tsvector, 'a & s')"
+  },
+  {
+    "comment": "tstypes - Statement 183",
+    "query": "SELECT ts_rank_cd(' a:1 s:2A d g'::tsvector, 'a <-> s')"
+  },
+  {
+    "comment": "tstypes - Statement 184",
+    "query": "SELECT ts_rank_cd(' a:1 s:2C d g'::tsvector, 'a <-> s')"
+  },
+  {
+    "comment": "tstypes - Statement 185",
+    "query": "SELECT ts_rank_cd(' a:1 s:2 d g'::tsvector, 'a <-> s')"
+  },
+  {
+    "comment": "tstypes - Statement 186",
+    "query": "SELECT ts_rank_cd(' a:1 s:2 d:2A g'::tsvector, 'a <-> s')"
+  },
+  {
+    "comment": "tstypes - Statement 187",
+    "query": "SELECT ts_rank_cd(' a:1 s:2,3A d:2A g'::tsvector, 'a <2> s:A')"
+  },
+  {
+    "comment": "tstypes - Statement 188",
+    "query": "SELECT ts_rank_cd(' a:1 b:2 s:3A d:2A g'::tsvector, 'a <2> s:A')"
+  },
+  {
+    "comment": "tstypes - Statement 189",
+    "query": "SELECT ts_rank_cd(' a:1 sa:2D sb:2A g'::tsvector, 'a <-> s:*')"
+  },
+  {
+    "comment": "tstypes - Statement 190",
+    "query": "SELECT ts_rank_cd(' a:1 sa:2A sb:2D g'::tsvector, 'a <-> s:*')"
+  },
+  {
+    "comment": "tstypes - Statement 191",
+    "query": "SELECT ts_rank_cd(' a:1 sa:2A sb:2D g'::tsvector, 'a <-> s:* <-> sa:A')"
+  },
+  {
+    "comment": "tstypes - Statement 192",
+    "query": "SELECT ts_rank_cd(' a:1 sa:2A sb:2D g'::tsvector, 'a <-> s:* <-> sa:B')"
+  },
+  {
+    "comment": "tstypes - Statement 193",
+    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a <-> b'::tsquery AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 194",
+    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a <0> b'::tsquery AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 195",
+    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a <1> b'::tsquery AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 196",
+    "query": "SELECT 'a:1 b:2'::tsvector @@ 'a <2> b'::tsquery AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 197",
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <-> b'::tsquery AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 198",
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <0> b'::tsquery AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 199",
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <1> b'::tsquery AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 200",
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <2> b'::tsquery AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 201",
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <3> b'::tsquery AS \"false\""
+  },
+  {
+    "comment": "tstypes - Statement 202",
+    "query": "SELECT 'a:1 b:3'::tsvector @@ 'a <0> a:*'::tsquery AS \"true\""
+  },
+  {
+    "comment": "tstypes - Statement 203",
+    "query": "SELECT strip('w:12B w:13* w:12,5,6 a:1,3* a:3 w asd:1dc asd'::tsvector)"
+  },
+  {
+    "comment": "tstypes - Statement 204",
+    "query": "SELECT strip('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector)"
+  },
+  {
+    "comment": "tstypes - Statement 205",
+    "query": "SELECT strip('base hidden rebel spaceship strike'::tsvector)"
+  },
+  {
+    "comment": "tstypes - Statement 206",
+    "query": "SELECT ts_delete(to_tsvector('english', 'Rebel spaceships, striking from a hidden base'), 'spaceship')"
+  },
+  {
+    "comment": "tstypes - Statement 207",
+    "query": "SELECT ts_delete('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector, 'base')"
+  },
+  {
+    "comment": "tstypes - Statement 208",
+    "query": "SELECT ts_delete('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector, 'bas')"
+  },
+  {
+    "comment": "tstypes - Statement 209",
+    "query": "SELECT ts_delete('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector, 'bases')"
+  },
+  {
+    "comment": "tstypes - Statement 210",
+    "query": "SELECT ts_delete('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector, 'spaceship')"
+  },
+  {
+    "comment": "tstypes - Statement 211",
+    "query": "SELECT ts_delete('base hidden rebel spaceship strike'::tsvector, 'spaceship')"
+  },
+  {
+    "comment": "tstypes - Statement 212",
+    "query": "SELECT ts_delete('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector, ARRAY['spaceship','rebel'])"
+  },
+  {
+    "comment": "tstypes - Statement 213",
+    "query": "SELECT ts_delete('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector, ARRAY['spaceships','rebel'])"
+  },
+  {
+    "comment": "tstypes - Statement 214",
+    "query": "SELECT ts_delete('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector, ARRAY['spaceshi','rebel'])"
+  },
+  {
+    "comment": "tstypes - Statement 215",
+    "query": "SELECT ts_delete('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector, ARRAY['spaceship','leya','rebel'])"
+  },
+  {
+    "comment": "tstypes - Statement 216",
+    "query": "SELECT ts_delete('base hidden rebel spaceship strike'::tsvector, ARRAY['spaceship','leya','rebel'])"
+  },
+  {
+    "comment": "tstypes - Statement 217",
+    "query": "SELECT ts_delete('base hidden rebel spaceship strike'::tsvector, ARRAY['spaceship','leya','rebel','rebel'])"
+  },
+  {
+    "comment": "tstypes - Statement 218",
+    "query": "SELECT ts_delete('base hidden rebel spaceship strike'::tsvector, ARRAY['spaceship','leya','rebel', '', NULL])"
+  },
+  {
+    "comment": "tstypes - Statement 219",
+    "query": "SELECT unnest('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector)"
+  },
+  {
+    "comment": "tstypes - Statement 220",
+    "query": "SELECT unnest('base hidden rebel spaceship strike'::tsvector)"
+  },
+  {
+    "comment": "tstypes - Statement 221",
+    "query": "SELECT * FROM unnest('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector)"
+  },
+  {
+    "comment": "tstypes - Statement 222",
+    "query": "SELECT * FROM unnest('base hidden rebel spaceship strike'::tsvector)"
+  },
+  {
+    "comment": "tstypes - Statement 223",
+    "query": "SELECT lexeme, positions[1] from unnest('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector)"
+  },
+  {
+    "comment": "tstypes - Statement 224",
+    "query": "SELECT tsvector_to_array('base:7 hidden:6 rebel:1 spaceship:2,33A,34B,35C,36D strike:3'::tsvector)"
+  },
+  {
+    "comment": "tstypes - Statement 225",
+    "query": "SELECT tsvector_to_array('base hidden rebel spaceship strike'::tsvector)"
+  },
+  {
+    "comment": "tstypes - Statement 226",
+    "query": "SELECT array_to_tsvector(ARRAY['base','hidden','rebel','spaceship','strike'])"
+  },
+  {
+    "comment": "tstypes - Statement 227",
+    "query": "SELECT array_to_tsvector(ARRAY['base','hidden','rebel','spaceship', NULL])"
+  },
+  {
+    "comment": "tstypes - Statement 228",
+    "query": "SELECT array_to_tsvector(ARRAY['base','hidden','rebel','spaceship', ''])"
+  },
+  {
+    "comment": "tstypes - Statement 229",
+    "query": "SELECT array_to_tsvector(ARRAY['foo','bar','baz','bar'])"
+  },
+  {
+    "comment": "tstypes - Statement 230",
+    "query": "SELECT setweight('w:12B w:13* w:12,5,6 a:1,3* a:3 w asd:1dc asd zxc:81,567,222A'::tsvector, 'c')"
+  },
+  {
+    "comment": "tstypes - Statement 231",
+    "query": "SELECT setweight('a:1,3A asd:1C w:5,6,12B,13A zxc:81,222A,567'::tsvector, 'c')"
+  },
+  {
+    "comment": "tstypes - Statement 232",
+    "query": "SELECT setweight('a:1,3A asd:1C w:5,6,12B,13A zxc:81,222A,567'::tsvector, 'c', '{a}')"
+  },
+  {
+    "comment": "tstypes - Statement 233",
+    "query": "SELECT setweight('a:1,3A asd:1C w:5,6,12B,13A zxc:81,222A,567'::tsvector, 'c', '{a,zxc}')"
+  },
+  {
+    "comment": "tstypes - Statement 234",
+    "query": "SELECT setweight('a asd w:5,6,12B,13A zxc'::tsvector, 'c', ARRAY['a', 'zxc', '', NULL])"
+  },
+  {
+    "comment": "tstypes - Statement 235",
+    "query": "SELECT ts_filter('base:7A empir:17 evil:15 first:11 galact:16 hidden:6A rebel:1A spaceship:2A strike:3A victori:12 won:9'::tsvector, '{a}')"
+  },
+  {
+    "comment": "tstypes - Statement 236",
+    "query": "SELECT ts_filter('base hidden rebel spaceship strike'::tsvector, '{a}')"
+  },
+  {
+    "comment": "tstypes - Statement 237",
+    "query": "SELECT ts_filter('base hidden rebel spaceship strike'::tsvector, '{a,b,NULL}')"
+  }
+]

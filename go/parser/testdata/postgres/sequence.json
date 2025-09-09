@@ -1,0 +1,586 @@
+[
+  {
+    "comment": "sequence - Statement 1",
+    "query": "CREATE SEQUENCE sequence_testx INCREMENT BY 0"
+  },
+  {
+    "comment": "sequence - Statement 2",
+    "query": "CREATE SEQUENCE sequence_testx INCREMENT BY -1 MINVALUE 20"
+  },
+  {
+    "comment": "sequence - Statement 3",
+    "query": "CREATE SEQUENCE sequence_testx INCREMENT BY 1 MAXVALUE -20"
+  },
+  {
+    "comment": "sequence - Statement 4",
+    "query": "CREATE SEQUENCE sequence_testx INCREMENT BY -1 START 10"
+  },
+  {
+    "comment": "sequence - Statement 5",
+    "query": "CREATE SEQUENCE sequence_testx INCREMENT BY 1 START -10"
+  },
+  {
+    "comment": "sequence - Statement 6",
+    "query": "CREATE SEQUENCE sequence_testx CACHE 0"
+  },
+  {
+    "comment": "sequence - Statement 7",
+    "query": "CREATE SEQUENCE sequence_testx OWNED BY nobody"
+  },
+  {
+    "comment": "sequence - Statement 8",
+    "query": "CREATE SEQUENCE sequence_testx OWNED BY pg_class_oid_index.oid"
+  },
+  {
+    "comment": "sequence - Statement 9",
+    "query": "CREATE SEQUENCE sequence_testx OWNED BY pg_class.relname"
+  },
+  {
+    "comment": "sequence - Statement 10",
+    "query": "CREATE TABLE sequence_test_table (a int)"
+  },
+  {
+    "comment": "sequence - Statement 11",
+    "query": "CREATE SEQUENCE sequence_testx OWNED BY sequence_test_table.b"
+  },
+  {
+    "comment": "sequence - Statement 12",
+    "query": "DROP TABLE sequence_test_table"
+  },
+  {
+    "comment": "sequence - Statement 13",
+    "query": "CREATE SEQUENCE sequence_test5 AS integer"
+  },
+  {
+    "comment": "sequence - Statement 14",
+    "query": "CREATE SEQUENCE sequence_test6 AS smallint"
+  },
+  {
+    "comment": "sequence - Statement 15",
+    "query": "CREATE SEQUENCE sequence_test7 AS bigint"
+  },
+  {
+    "comment": "sequence - Statement 16",
+    "query": "CREATE SEQUENCE sequence_test8 AS integer MAXVALUE 100000"
+  },
+  {
+    "comment": "sequence - Statement 17",
+    "query": "CREATE SEQUENCE sequence_test9 AS integer INCREMENT BY -1"
+  },
+  {
+    "comment": "sequence - Statement 18",
+    "query": "CREATE SEQUENCE sequence_test10 AS integer MINVALUE -100000 START 1"
+  },
+  {
+    "comment": "sequence - Statement 19",
+    "query": "CREATE SEQUENCE sequence_test11 AS smallint"
+  },
+  {
+    "comment": "sequence - Statement 20",
+    "query": "CREATE SEQUENCE sequence_test12 AS smallint INCREMENT -1"
+  },
+  {
+    "comment": "sequence - Statement 21",
+    "query": "CREATE SEQUENCE sequence_test13 AS smallint MINVALUE -32768"
+  },
+  {
+    "comment": "sequence - Statement 22",
+    "query": "CREATE SEQUENCE sequence_test14 AS smallint MAXVALUE 32767 INCREMENT -1"
+  },
+  {
+    "comment": "sequence - Statement 23",
+    "query": "CREATE SEQUENCE sequence_testx AS text"
+  },
+  {
+    "comment": "sequence - Statement 24",
+    "query": "CREATE SEQUENCE sequence_testx AS nosuchtype"
+  },
+  {
+    "comment": "sequence - Statement 25",
+    "query": "CREATE SEQUENCE sequence_testx AS smallint MAXVALUE 100000"
+  },
+  {
+    "comment": "sequence - Statement 26",
+    "query": "CREATE SEQUENCE sequence_testx AS smallint MINVALUE -100000"
+  },
+  {
+    "comment": "sequence - Statement 27",
+    "query": "ALTER SEQUENCE sequence_test5 AS smallint"
+  },
+  {
+    "comment": "sequence - Statement 28",
+    "query": "ALTER SEQUENCE sequence_test8 AS smallint"
+  },
+  {
+    "comment": "sequence - Statement 29",
+    "query": "ALTER SEQUENCE sequence_test8 AS smallint MAXVALUE 20000"
+  },
+  {
+    "comment": "sequence - Statement 30",
+    "query": "ALTER SEQUENCE sequence_test9 AS smallint"
+  },
+  {
+    "comment": "sequence - Statement 31",
+    "query": "ALTER SEQUENCE sequence_test10 AS smallint"
+  },
+  {
+    "comment": "sequence - Statement 32",
+    "query": "ALTER SEQUENCE sequence_test10 AS smallint MINVALUE -20000"
+  },
+  {
+    "comment": "sequence - Statement 33",
+    "query": "ALTER SEQUENCE sequence_test11 AS int"
+  },
+  {
+    "comment": "sequence - Statement 34",
+    "query": "ALTER SEQUENCE sequence_test12 AS int"
+  },
+  {
+    "comment": "sequence - Statement 35",
+    "query": "ALTER SEQUENCE sequence_test13 AS int"
+  },
+  {
+    "comment": "sequence - Statement 36",
+    "query": "ALTER SEQUENCE sequence_test14 AS int"
+  },
+  {
+    "comment": "sequence - Statement 37",
+    "query": "CREATE TABLE serialTest1 (f1 text, f2 serial)"
+  },
+  {
+    "comment": "sequence - Statement 38",
+    "query": "INSERT INTO serialTest1 VALUES ('foo')"
+  },
+  {
+    "comment": "sequence - Statement 39",
+    "query": "INSERT INTO serialTest1 VALUES ('bar')"
+  },
+  {
+    "comment": "sequence - Statement 40",
+    "query": "INSERT INTO serialTest1 VALUES ('force', 100)"
+  },
+  {
+    "comment": "sequence - Statement 41",
+    "query": "INSERT INTO serialTest1 VALUES ('wrong', NULL)"
+  },
+  {
+    "comment": "sequence - Statement 42",
+    "query": "SELECT * FROM serialTest1"
+  },
+  {
+    "comment": "sequence - Statement 43",
+    "query": "SELECT pg_get_serial_sequence('serialTest1', 'f2')"
+  },
+  {
+    "comment": "sequence - Statement 44",
+    "query": "CREATE TABLE serialTest2 (f1 text, f2 serial, f3 smallserial, f4 serial2, f5 bigserial, f6 serial8)"
+  },
+  {
+    "comment": "sequence - Statement 45",
+    "query": "INSERT INTO serialTest2 (f1) VALUES ('test_defaults')"
+  },
+  {
+    "comment": "sequence - Statement 46",
+    "query": "INSERT INTO serialTest2 (f1, f2, f3, f4, f5, f6) VALUES ('test_max_vals', 2147483647, 32767, 32767, 9223372036854775807, 9223372036854775807), ('test_min_vals', -2147483648, -32768, -32768, -9223372036854775808, -9223372036854775808)"
+  },
+  {
+    "comment": "sequence - Statement 47",
+    "query": "INSERT INTO serialTest2 (f1, f3) VALUES ('bogus', -32769)"
+  },
+  {
+    "comment": "sequence - Statement 48",
+    "query": "INSERT INTO serialTest2 (f1, f4) VALUES ('bogus', -32769)"
+  },
+  {
+    "comment": "sequence - Statement 49",
+    "query": "INSERT INTO serialTest2 (f1, f3) VALUES ('bogus', 32768)"
+  },
+  {
+    "comment": "sequence - Statement 50",
+    "query": "INSERT INTO serialTest2 (f1, f4) VALUES ('bogus', 32768)"
+  },
+  {
+    "comment": "sequence - Statement 51",
+    "query": "INSERT INTO serialTest2 (f1, f5) VALUES ('bogus', -9223372036854775809)"
+  },
+  {
+    "comment": "sequence - Statement 52",
+    "query": "INSERT INTO serialTest2 (f1, f6) VALUES ('bogus', -9223372036854775809)"
+  },
+  {
+    "comment": "sequence - Statement 53",
+    "query": "INSERT INTO serialTest2 (f1, f5) VALUES ('bogus', 9223372036854775808)"
+  },
+  {
+    "comment": "sequence - Statement 54",
+    "query": "INSERT INTO serialTest2 (f1, f6) VALUES ('bogus', 9223372036854775808)"
+  },
+  {
+    "comment": "sequence - Statement 55",
+    "query": "SELECT * FROM serialTest2 ORDER BY f2 ASC"
+  },
+  {
+    "comment": "sequence - Statement 56",
+    "query": "SELECT nextval('serialTest2_f2_seq')"
+  },
+  {
+    "comment": "sequence - Statement 57",
+    "query": "SELECT nextval('serialTest2_f3_seq')"
+  },
+  {
+    "comment": "sequence - Statement 58",
+    "query": "SELECT nextval('serialTest2_f4_seq')"
+  },
+  {
+    "comment": "sequence - Statement 59",
+    "query": "SELECT nextval('serialTest2_f5_seq')"
+  },
+  {
+    "comment": "sequence - Statement 60",
+    "query": "SELECT nextval('serialTest2_f6_seq')"
+  },
+  {
+    "comment": "sequence - Statement 61",
+    "query": "CREATE SEQUENCE sequence_test"
+  },
+  {
+    "comment": "sequence - Statement 62",
+    "query": "CREATE SEQUENCE IF NOT EXISTS sequence_test"
+  },
+  {
+    "comment": "sequence - Statement 63",
+    "query": "SELECT nextval('sequence_test'::text)"
+  },
+  {
+    "comment": "sequence - Statement 64",
+    "query": "SELECT nextval('sequence_test'::regclass)"
+  },
+  {
+    "comment": "sequence - Statement 65",
+    "query": "SELECT currval('sequence_test'::text)"
+  },
+  {
+    "comment": "sequence - Statement 66",
+    "query": "SELECT currval('sequence_test'::regclass)"
+  },
+  {
+    "comment": "sequence - Statement 67",
+    "query": "SELECT setval('sequence_test'::text, 32)"
+  },
+  {
+    "comment": "sequence - Statement 68",
+    "query": "SELECT setval('sequence_test'::text, 99, false)"
+  },
+  {
+    "comment": "sequence - Statement 69",
+    "query": "SELECT setval('sequence_test'::regclass, 32)"
+  },
+  {
+    "comment": "sequence - Statement 70",
+    "query": "SELECT setval('sequence_test'::regclass, 99, false)"
+  },
+  {
+    "comment": "sequence - Statement 71",
+    "query": "DISCARD SEQUENCES"
+  },
+  {
+    "comment": "sequence - Statement 72",
+    "query": "DROP SEQUENCE sequence_test"
+  },
+  {
+    "comment": "sequence - Statement 73",
+    "query": "CREATE SEQUENCE foo_seq"
+  },
+  {
+    "comment": "sequence - Statement 74",
+    "query": "ALTER TABLE foo_seq RENAME TO foo_seq_new"
+  },
+  {
+    "comment": "sequence - Statement 75",
+    "query": "SELECT * FROM foo_seq_new"
+  },
+  {
+    "comment": "sequence - Statement 76",
+    "query": "SELECT nextval('foo_seq_new')"
+  },
+  {
+    "comment": "sequence - Statement 77",
+    "query": "SELECT last_value, log_cnt IN (31, 32) AS log_cnt_ok, is_called FROM foo_seq_new"
+  },
+  {
+    "comment": "sequence - Statement 78",
+    "query": "DROP SEQUENCE foo_seq_new"
+  },
+  {
+    "comment": "sequence - Statement 79",
+    "query": "ALTER TABLE serialtest1_f2_seq RENAME TO serialtest1_f2_foo"
+  },
+  {
+    "comment": "sequence - Statement 80",
+    "query": "INSERT INTO serialTest1 VALUES ('more')"
+  },
+  {
+    "comment": "sequence - Statement 81",
+    "query": "CREATE TEMP SEQUENCE myseq2"
+  },
+  {
+    "comment": "sequence - Statement 82",
+    "query": "CREATE TEMP SEQUENCE myseq3"
+  },
+  {
+    "comment": "sequence - Statement 83",
+    "query": "CREATE TEMP TABLE t1 ( f1 serial, f2 int DEFAULT nextval('myseq2'), f3 int DEFAULT nextval('myseq3'::text) )"
+  },
+  {
+    "comment": "sequence - Statement 84",
+    "query": "DROP SEQUENCE t1_f1_seq"
+  },
+  {
+    "comment": "sequence - Statement 85",
+    "query": "DROP SEQUENCE myseq2"
+  },
+  {
+    "comment": "sequence - Statement 86",
+    "query": "DROP SEQUENCE myseq3"
+  },
+  {
+    "comment": "sequence - Statement 87",
+    "query": "DROP TABLE t1"
+  },
+  {
+    "comment": "sequence - Statement 88",
+    "query": "ALTER SEQUENCE IF EXISTS sequence_test2 RESTART WITH 24 INCREMENT BY 4 MAXVALUE 36 MINVALUE 5 CYCLE"
+  },
+  {
+    "comment": "sequence - Statement 89",
+    "query": "ALTER SEQUENCE serialTest1 CYCLE"
+  },
+  {
+    "comment": "sequence - Statement 90",
+    "query": "CREATE SEQUENCE sequence_test2 START WITH 32"
+  },
+  {
+    "comment": "sequence - Statement 91",
+    "query": "CREATE SEQUENCE sequence_test4 INCREMENT BY -1"
+  },
+  {
+    "comment": "sequence - Statement 92",
+    "query": "SELECT nextval('sequence_test2')"
+  },
+  {
+    "comment": "sequence - Statement 93",
+    "query": "SELECT nextval('sequence_test4')"
+  },
+  {
+    "comment": "sequence - Statement 94",
+    "query": "ALTER SEQUENCE sequence_test2 RESTART"
+  },
+  {
+    "comment": "sequence - Statement 95",
+    "query": "ALTER SEQUENCE sequence_test2 RESTART WITH 0"
+  },
+  {
+    "comment": "sequence - Statement 96",
+    "query": "ALTER SEQUENCE sequence_test4 RESTART WITH 40"
+  },
+  {
+    "comment": "sequence - Statement 97",
+    "query": "ALTER SEQUENCE sequence_test2 RESTART WITH 24 INCREMENT BY 4 MAXVALUE 36 MINVALUE 5 CYCLE"
+  },
+  {
+    "comment": "sequence - Statement 98",
+    "query": "ALTER SEQUENCE sequence_test2 RESTART WITH 24 NO CYCLE"
+  },
+  {
+    "comment": "sequence - Statement 99",
+    "query": "ALTER SEQUENCE sequence_test2 RESTART WITH -24 START WITH -24 INCREMENT BY -4 MINVALUE -36 MAXVALUE -5 CYCLE"
+  },
+  {
+    "comment": "sequence - Statement 100",
+    "query": "ALTER SEQUENCE sequence_test2 RESTART WITH -24 NO CYCLE"
+  },
+  {
+    "comment": "sequence - Statement 101",
+    "query": "ALTER SEQUENCE IF EXISTS sequence_test2 RESTART WITH 32 START WITH 32 INCREMENT BY 4 MAXVALUE 36 MINVALUE 5 CYCLE"
+  },
+  {
+    "comment": "sequence - Statement 102",
+    "query": "SELECT setval('sequence_test2', -100)"
+  },
+  {
+    "comment": "sequence - Statement 103",
+    "query": "SELECT setval('sequence_test2', 100)"
+  },
+  {
+    "comment": "sequence - Statement 104",
+    "query": "SELECT setval('sequence_test2', 5)"
+  },
+  {
+    "comment": "sequence - Statement 105",
+    "query": "CREATE SEQUENCE sequence_test3"
+  },
+  {
+    "comment": "sequence - Statement 106",
+    "query": "SELECT * FROM information_schema.sequences WHERE sequence_name ~ ANY(ARRAY['sequence_test', 'serialtest']) ORDER BY sequence_name ASC"
+  },
+  {
+    "comment": "sequence - Statement 107",
+    "query": "SELECT schemaname, sequencename, start_value, min_value, max_value, increment_by, cycle, cache_size, last_value FROM pg_sequences WHERE sequencename ~ ANY(ARRAY['sequence_test', 'serialtest']) ORDER BY sequencename ASC"
+  },
+  {
+    "comment": "sequence - Statement 108",
+    "query": "SELECT * FROM pg_sequence_parameters('sequence_test4'::regclass)"
+  },
+  {
+    "comment": "sequence - Statement 109",
+    "query": "COMMENT ON SEQUENCE sequence_test2 IS 'will work'"
+  },
+  {
+    "comment": "sequence - Statement 110",
+    "query": "COMMENT ON SEQUENCE sequence_test2 IS NULL"
+  },
+  {
+    "comment": "sequence - Statement 111",
+    "query": "CREATE SEQUENCE seq"
+  },
+  {
+    "comment": "sequence - Statement 112",
+    "query": "SELECT nextval('seq')"
+  },
+  {
+    "comment": "sequence - Statement 113",
+    "query": "SELECT lastval()"
+  },
+  {
+    "comment": "sequence - Statement 114",
+    "query": "SELECT setval('seq', 99)"
+  },
+  {
+    "comment": "sequence - Statement 115",
+    "query": "CREATE SEQUENCE seq2"
+  },
+  {
+    "comment": "sequence - Statement 116",
+    "query": "SELECT nextval('seq2')"
+  },
+  {
+    "comment": "sequence - Statement 117",
+    "query": "DROP SEQUENCE seq2"
+  },
+  {
+    "comment": "sequence - Statement 118",
+    "query": "CREATE UNLOGGED SEQUENCE sequence_test_unlogged"
+  },
+  {
+    "comment": "sequence - Statement 119",
+    "query": "ALTER SEQUENCE sequence_test_unlogged SET LOGGED"
+  },
+  {
+    "comment": "sequence - Statement 120",
+    "query": "CREATE TEMPORARY SEQUENCE sequence_test_temp1"
+  },
+  {
+    "comment": "sequence - Statement 121",
+    "query": "START TRANSACTION READ ONLY"
+  },
+  {
+    "comment": "sequence - Statement 122",
+    "query": "SELECT nextval('sequence_test_temp1')"
+  },
+  {
+    "comment": "sequence - Statement 123",
+    "query": "ROLLBACK"
+  },
+  {
+    "comment": "sequence - Statement 124",
+    "query": "SELECT setval('sequence_test_temp1', 1)"
+  },
+  {
+    "comment": "sequence - Statement 125",
+    "query": "SELECT setval('sequence_test2', 1)"
+  },
+  {
+    "comment": "sequence - Statement 126",
+    "query": "CREATE USER regress_seq_user"
+  },
+  {
+    "comment": "sequence - Statement 127",
+    "query": "BEGIN"
+  },
+  {
+    "comment": "sequence - Statement 128",
+    "query": "SET LOCAL SESSION AUTHORIZATION regress_seq_user"
+  },
+  {
+    "comment": "sequence - Statement 129",
+    "query": "CREATE SEQUENCE seq3"
+  },
+  {
+    "comment": "sequence - Statement 130",
+    "query": "REVOKE ALL ON seq3 FROM regress_seq_user"
+  },
+  {
+    "comment": "sequence - Statement 131",
+    "query": "GRANT SELECT ON seq3 TO regress_seq_user"
+  },
+  {
+    "comment": "sequence - Statement 132",
+    "query": "SELECT nextval('seq3')"
+  },
+  {
+    "comment": "sequence - Statement 133",
+    "query": "GRANT UPDATE ON seq3 TO regress_seq_user"
+  },
+  {
+    "comment": "sequence - Statement 134",
+    "query": "GRANT USAGE ON seq3 TO regress_seq_user"
+  },
+  {
+    "comment": "sequence - Statement 135",
+    "query": "SELECT currval('seq3')"
+  },
+  {
+    "comment": "sequence - Statement 136",
+    "query": "SAVEPOINT save"
+  },
+  {
+    "comment": "sequence - Statement 137",
+    "query": "SELECT setval('seq3', 5)"
+  },
+  {
+    "comment": "sequence - Statement 138",
+    "query": "ROLLBACK TO save"
+  },
+  {
+    "comment": "sequence - Statement 139",
+    "query": "ALTER SEQUENCE sequence_test2 START WITH 1"
+  },
+  {
+    "comment": "sequence - Statement 140",
+    "query": "DROP TABLE serialTest1, serialTest2"
+  },
+  {
+    "comment": "sequence - Statement 141",
+    "query": "SELECT * FROM information_schema.sequences WHERE sequence_name IN ('sequence_test2', 'serialtest2_f2_seq', 'serialtest2_f3_seq', 'serialtest2_f4_seq', 'serialtest2_f5_seq', 'serialtest2_f6_seq') ORDER BY sequence_name ASC"
+  },
+  {
+    "comment": "sequence - Statement 142",
+    "query": "DROP USER regress_seq_user"
+  },
+  {
+    "comment": "sequence - Statement 143",
+    "query": "DROP SEQUENCE seq"
+  },
+  {
+    "comment": "sequence - Statement 144",
+    "query": "CREATE SEQUENCE test_seq1 CACHE 10"
+  },
+  {
+    "comment": "sequence - Statement 145",
+    "query": "SELECT nextval('test_seq1')"
+  },
+  {
+    "comment": "sequence - Statement 146",
+    "query": "DROP SEQUENCE test_seq1"
+  }
+]

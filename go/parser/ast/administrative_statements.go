@@ -90,6 +90,57 @@ func (tlc *TableLikeClause) String() string {
 	return fmt.Sprintf("TableLikeClause(LIKE %s%s)", tlc.Relation, options)
 }
 
+// SqlString generates the SQL representation of the TableLikeClause
+func (tlc *TableLikeClause) SqlString() string {
+	if tlc.Relation == nil {
+		return "LIKE"
+	}
+	
+	result := fmt.Sprintf("LIKE %s", tlc.Relation.SqlString())
+	
+	// Handle INCLUDING options
+	if tlc.Options != 0 {
+		if tlc.Options&CREATE_TABLE_LIKE_ALL != 0 {
+			result += " INCLUDING ALL"
+		} else {
+			var optionStrs []string
+			if tlc.Options&CREATE_TABLE_LIKE_COMMENTS != 0 {
+				optionStrs = append(optionStrs, "COMMENTS")
+			}
+			if tlc.Options&CREATE_TABLE_LIKE_COMPRESSION != 0 {
+				optionStrs = append(optionStrs, "COMPRESSION")
+			}
+			if tlc.Options&CREATE_TABLE_LIKE_CONSTRAINTS != 0 {
+				optionStrs = append(optionStrs, "CONSTRAINTS")
+			}
+			if tlc.Options&CREATE_TABLE_LIKE_DEFAULTS != 0 {
+				optionStrs = append(optionStrs, "DEFAULTS")
+			}
+			if tlc.Options&CREATE_TABLE_LIKE_GENERATED != 0 {
+				optionStrs = append(optionStrs, "GENERATED")
+			}
+			if tlc.Options&CREATE_TABLE_LIKE_IDENTITY != 0 {
+				optionStrs = append(optionStrs, "IDENTITY")
+			}
+			if tlc.Options&CREATE_TABLE_LIKE_INDEXES != 0 {
+				optionStrs = append(optionStrs, "INDEXES")
+			}
+			if tlc.Options&CREATE_TABLE_LIKE_STATISTICS != 0 {
+				optionStrs = append(optionStrs, "STATISTICS")
+			}
+			if tlc.Options&CREATE_TABLE_LIKE_STORAGE != 0 {
+				optionStrs = append(optionStrs, "STORAGE")
+			}
+			
+			if len(optionStrs) > 0 {
+				result += fmt.Sprintf(" INCLUDING %s", strings.Join(optionStrs, " "))
+			}
+		}
+	}
+	
+	return result
+}
+
 // ==============================================================================
 // PARTITIONING SUPPORT
 // ==============================================================================

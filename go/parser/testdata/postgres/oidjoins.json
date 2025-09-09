@@ -1,0 +1,98 @@
+[
+  {
+    "comment": "oidjoins - Statement 1",
+    "query": "DO $doblock$ declare fk record"
+  },
+  {
+    "comment": "oidjoins - Statement 2",
+    "query": "nkeys integer"
+  },
+  {
+    "comment": "oidjoins - Statement 3",
+    "query": "cmd text"
+  },
+  {
+    "comment": "oidjoins - Statement 4",
+    "query": "err record"
+  },
+  {
+    "comment": "oidjoins - Statement 5",
+    "query": "begin for fk in select * from pg_get_catalog_foreign_keys() loop raise notice 'checking % % => % %', fk.fktable, fk.fkcols, fk.pktable, fk.pkcols"
+  },
+  {
+    "comment": "oidjoins - Statement 6",
+    "query": "nkeys := array_length(fk.fkcols, 1)"
+  },
+  {
+    "comment": "oidjoins - Statement 7",
+    "query": "cmd := 'SELECT ctid'"
+  },
+  {
+    "comment": "oidjoins - Statement 8",
+    "query": "for i in 1 .. nkeys loop cmd := cmd || ', ' || quote_ident(fk.fkcols[i])"
+  },
+  {
+    "comment": "oidjoins - Statement 9",
+    "query": "end loop"
+  },
+  {
+    "comment": "oidjoins - Statement 10",
+    "query": "if fk.is_array then cmd := cmd || ' FROM (SELECT ctid'"
+  },
+  {
+    "comment": "oidjoins - Statement 11",
+    "query": "for i in 1 .. nkeys-1 loop cmd := cmd || ', ' || quote_ident(fk.fkcols[i])"
+  },
+  {
+    "comment": "oidjoins - Statement 12",
+    "query": "cmd := cmd || ', unnest(' || quote_ident(fk.fkcols[nkeys])"
+  },
+  {
+    "comment": "oidjoins - Statement 13",
+    "query": "cmd := cmd || ') as ' || quote_ident(fk.fkcols[nkeys])"
+  },
+  {
+    "comment": "oidjoins - Statement 14",
+    "query": "cmd := cmd || ' FROM ' || fk.fktable::text || ') fk WHERE '"
+  },
+  {
+    "comment": "oidjoins - Statement 15",
+    "query": "else cmd := cmd || ' FROM ' || fk.fktable::text || ' fk WHERE '"
+  },
+  {
+    "comment": "oidjoins - Statement 16",
+    "query": "end if"
+  },
+  {
+    "comment": "oidjoins - Statement 17",
+    "query": "if fk.is_opt then for i in 1 .. nkeys loop cmd := cmd || quote_ident(fk.fkcols[i]) || ' != 0 AND '"
+  },
+  {
+    "comment": "oidjoins - Statement 18",
+    "query": "cmd := cmd || 'NOT EXISTS(SELECT 1 FROM ' || fk.pktable::text || ' pk WHERE '"
+  },
+  {
+    "comment": "oidjoins - Statement 19",
+    "query": "for i in 1 .. nkeys loop if i > 1 then cmd := cmd || ' AND '; end if"
+  },
+  {
+    "comment": "oidjoins - Statement 20",
+    "query": "cmd := cmd || 'pk.' || quote_ident(fk.pkcols[i])"
+  },
+  {
+    "comment": "oidjoins - Statement 21",
+    "query": "cmd := cmd || ' = fk.' || quote_ident(fk.fkcols[i])"
+  },
+  {
+    "comment": "oidjoins - Statement 22",
+    "query": "cmd := cmd || ')'"
+  },
+  {
+    "comment": "oidjoins - Statement 23",
+    "query": "for err in execute cmd loop raise warning 'FK VIOLATION IN %(%): %', fk.fktable, fk.fkcols, err"
+  },
+  {
+    "comment": "oidjoins - Statement 24",
+    "query": "end $doblock$"
+  }
+]

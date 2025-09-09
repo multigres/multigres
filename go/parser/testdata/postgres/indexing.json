@@ -1,0 +1,1478 @@
+[
+  {
+    "comment": "indexing - Statement 1",
+    "query": "create table idxpart (a int, b int, c text) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 2",
+    "query": "create index idxpart_idx on idxpart (a)"
+  },
+  {
+    "comment": "indexing - Statement 3",
+    "query": "select relhassubclass from pg_class where relname = 'idxpart_idx'"
+  },
+  {
+    "comment": "indexing - Statement 4",
+    "query": "select indexdef from pg_indexes where indexname like 'idxpart_idx%'"
+  },
+  {
+    "comment": "indexing - Statement 5",
+    "query": "drop index idxpart_idx"
+  },
+  {
+    "comment": "indexing - Statement 6",
+    "query": "create table idxpart1 partition of idxpart for values from (0) to (10)"
+  },
+  {
+    "comment": "indexing - Statement 7",
+    "query": "create table idxpart2 partition of idxpart for values from (10) to (100) partition by range (b)"
+  },
+  {
+    "comment": "indexing - Statement 8",
+    "query": "create table idxpart21 partition of idxpart2 for values from (0) to (100)"
+  },
+  {
+    "comment": "indexing - Statement 9",
+    "query": "create index idxpart_idx on only idxpart(a)"
+  },
+  {
+    "comment": "indexing - Statement 10",
+    "query": "create index on idxpart (a)"
+  },
+  {
+    "comment": "indexing - Statement 11",
+    "query": "select relname, relkind, relhassubclass, inhparent::regclass from pg_class left join pg_index ix on (indexrelid = oid) left join pg_inherits on (ix.indexrelid = inhrelid) where relname like 'idxpart%' order by relname"
+  },
+  {
+    "comment": "indexing - Statement 12",
+    "query": "drop table idxpart"
+  },
+  {
+    "comment": "indexing - Statement 13",
+    "query": "create index concurrently on idxpart (a)"
+  },
+  {
+    "comment": "indexing - Statement 14",
+    "query": "CREATE TABLE idxpart (col1 INT) PARTITION BY RANGE (col1)"
+  },
+  {
+    "comment": "indexing - Statement 15",
+    "query": "CREATE INDEX ON idxpart (col1)"
+  },
+  {
+    "comment": "indexing - Statement 16",
+    "query": "CREATE TABLE idxpart_two (col2 INT)"
+  },
+  {
+    "comment": "indexing - Statement 17",
+    "query": "SELECT col2 FROM idxpart_two fk LEFT OUTER JOIN idxpart pk ON (col1 = col2)"
+  },
+  {
+    "comment": "indexing - Statement 18",
+    "query": "DROP table idxpart, idxpart_two"
+  },
+  {
+    "comment": "indexing - Statement 19",
+    "query": "CREATE TABLE idxpart (a INT, b TEXT, c INT) PARTITION BY RANGE(a)"
+  },
+  {
+    "comment": "indexing - Statement 20",
+    "query": "CREATE TABLE idxpart1 PARTITION OF idxpart FOR VALUES FROM (MINVALUE) TO (MAXVALUE)"
+  },
+  {
+    "comment": "indexing - Statement 21",
+    "query": "CREATE INDEX partidx_abc_idx ON idxpart (a, b, c)"
+  },
+  {
+    "comment": "indexing - Statement 22",
+    "query": "INSERT INTO idxpart (a, b, c) SELECT i, i, i FROM generate_series(1, 50) i"
+  },
+  {
+    "comment": "indexing - Statement 23",
+    "query": "ALTER TABLE idxpart ALTER COLUMN c TYPE numeric"
+  },
+  {
+    "comment": "indexing - Statement 24",
+    "query": "create index idxparti on idxpart (a)"
+  },
+  {
+    "comment": "indexing - Statement 25",
+    "query": "create index idxparti2 on idxpart (b, c)"
+  },
+  {
+    "comment": "indexing - Statement 26",
+    "query": "create table idxpart1 (like idxpart)"
+  },
+  {
+    "comment": "indexing - Statement 27",
+    "query": "create index idxpart1_c on idxpart1 (c)"
+  },
+  {
+    "comment": "indexing - Statement 28",
+    "query": "alter table idxpart_c attach partition idxpart1_c for values from (10) to (20)"
+  },
+  {
+    "comment": "indexing - Statement 29",
+    "query": "alter index idxpart_c attach partition idxpart1_c"
+  },
+  {
+    "comment": "indexing - Statement 30",
+    "query": "select relname, relpartbound from pg_class where relname in ('idxpart_c', 'idxpart1_c') order by relname"
+  },
+  {
+    "comment": "indexing - Statement 31",
+    "query": "alter table idxpart_c detach partition idxpart1_c"
+  },
+  {
+    "comment": "indexing - Statement 32",
+    "query": "create table idxpart (a int, b int) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 33",
+    "query": "create table idxpart1 partition of idxpart for values from (0, 0) to (10, 10)"
+  },
+  {
+    "comment": "indexing - Statement 34",
+    "query": "create index on idxpart1 (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 35",
+    "query": "create index on idxpart (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 36",
+    "query": "create table idxpart (a int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 37",
+    "query": "drop index idxpart1_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 38",
+    "query": "drop index concurrently idxpart_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 39",
+    "query": "drop index idxpart_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 40",
+    "query": "select relname, relkind from pg_class where relname like 'idxpart%' order by relname"
+  },
+  {
+    "comment": "indexing - Statement 41",
+    "query": "drop table idxpart1"
+  },
+  {
+    "comment": "indexing - Statement 42",
+    "query": "create temp table idxpart_temp (a int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 43",
+    "query": "create index on idxpart_temp(a)"
+  },
+  {
+    "comment": "indexing - Statement 44",
+    "query": "create temp table idxpart1_temp partition of idxpart_temp for values from (0) to (10)"
+  },
+  {
+    "comment": "indexing - Statement 45",
+    "query": "drop index idxpart1_temp_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 46",
+    "query": "drop index concurrently idxpart_temp_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 47",
+    "query": "select relname, relkind from pg_class where relname like 'idxpart_temp%' order by relname"
+  },
+  {
+    "comment": "indexing - Statement 48",
+    "query": "drop table idxpart_temp"
+  },
+  {
+    "comment": "indexing - Statement 49",
+    "query": "create index idxpart_a_b_idx on only idxpart (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 50",
+    "query": "create index idxpart1_a_b_idx on idxpart1 (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 51",
+    "query": "create index idxpart1_tst1 on idxpart1 (b, a)"
+  },
+  {
+    "comment": "indexing - Statement 52",
+    "query": "create index idxpart1_tst2 on idxpart1 using hash (a)"
+  },
+  {
+    "comment": "indexing - Statement 53",
+    "query": "create index idxpart1_tst3 on idxpart1 (a, b) where a > 10"
+  },
+  {
+    "comment": "indexing - Statement 54",
+    "query": "alter index idxpart attach partition idxpart1"
+  },
+  {
+    "comment": "indexing - Statement 55",
+    "query": "alter index idxpart_a_b_idx attach partition idxpart1"
+  },
+  {
+    "comment": "indexing - Statement 56",
+    "query": "alter index idxpart_a_b_idx attach partition idxpart_a_b_idx"
+  },
+  {
+    "comment": "indexing - Statement 57",
+    "query": "alter index idxpart_a_b_idx attach partition idxpart1_b_idx"
+  },
+  {
+    "comment": "indexing - Statement 58",
+    "query": "alter index idxpart_a_b_idx attach partition idxpart1_tst1"
+  },
+  {
+    "comment": "indexing - Statement 59",
+    "query": "alter index idxpart_a_b_idx attach partition idxpart1_tst2"
+  },
+  {
+    "comment": "indexing - Statement 60",
+    "query": "alter index idxpart_a_b_idx attach partition idxpart1_tst3"
+  },
+  {
+    "comment": "indexing - Statement 61",
+    "query": "alter index idxpart_a_b_idx attach partition idxpart1_a_b_idx"
+  },
+  {
+    "comment": "indexing - Statement 62",
+    "query": "create index idxpart1_2_a_b on idxpart1 (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 63",
+    "query": "alter index idxpart_a_b_idx attach partition idxpart1_2_a_b"
+  },
+  {
+    "comment": "indexing - Statement 64",
+    "query": "select indexrelid::regclass, indrelid::regclass from pg_index where indexrelid::regclass::text like 'idxpart%'"
+  },
+  {
+    "comment": "indexing - Statement 65",
+    "query": "create table idxpart (a int, b int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 66",
+    "query": "create table idxpart1 (a int, b int)"
+  },
+  {
+    "comment": "indexing - Statement 67",
+    "query": "create index on idxpart1 using hash (a)"
+  },
+  {
+    "comment": "indexing - Statement 68",
+    "query": "create index on idxpart1 (a) where b > 1"
+  },
+  {
+    "comment": "indexing - Statement 69",
+    "query": "create index on idxpart1 ((a + 0))"
+  },
+  {
+    "comment": "indexing - Statement 70",
+    "query": "create index on idxpart1 (a, a)"
+  },
+  {
+    "comment": "indexing - Statement 71",
+    "query": "alter table idxpart attach partition idxpart1 for values from (0) to (1000)"
+  },
+  {
+    "comment": "indexing - Statement 72",
+    "query": "create table idxpart1 partition of idxpart for values from (0) to (100)"
+  },
+  {
+    "comment": "indexing - Statement 73",
+    "query": "create table idxpart2 partition of idxpart for values from (100) to (1000) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 74",
+    "query": "create table idxpart21 partition of idxpart2 for values from (100) to (200)"
+  },
+  {
+    "comment": "indexing - Statement 75",
+    "query": "create table idxpart22 partition of idxpart2 for values from (200) to (300)"
+  },
+  {
+    "comment": "indexing - Statement 76",
+    "query": "create index on idxpart22 (a)"
+  },
+  {
+    "comment": "indexing - Statement 77",
+    "query": "create index on only idxpart2 (a)"
+  },
+  {
+    "comment": "indexing - Statement 78",
+    "query": "alter index idxpart2_a_idx attach partition idxpart22_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 79",
+    "query": "select indexrelid::regclass, indrelid::regclass, inhparent::regclass from pg_index idx left join pg_inherits inh on (idx.indexrelid = inh.inhrelid) where indexrelid::regclass::text like 'idxpart%' order by indexrelid::regclass::text collate \"C\""
+  },
+  {
+    "comment": "indexing - Statement 80",
+    "query": "alter index idxpart2_a_idx attach partition idxpart21_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 81",
+    "query": "create table idxpart (a int, b int, c text, d bool) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 82",
+    "query": "create table idxpart1 (like idxpart including indexes)"
+  },
+  {
+    "comment": "indexing - Statement 83",
+    "query": "alter table idxpart attach partition idxpart1 for values from (0) to (10)"
+  },
+  {
+    "comment": "indexing - Statement 84",
+    "query": "create index on idxpart1 ((a+b)) where d = true"
+  },
+  {
+    "comment": "indexing - Statement 85",
+    "query": "create index idxparti3 on idxpart ((a+b)) where d = true"
+  },
+  {
+    "comment": "indexing - Statement 86",
+    "query": "create table idxpart1 partition of idxpart for values from (1) to (1000) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 87",
+    "query": "create table idxpart11 partition of idxpart1 for values from (1) to (100)"
+  },
+  {
+    "comment": "indexing - Statement 88",
+    "query": "create index on only idxpart1 (a)"
+  },
+  {
+    "comment": "indexing - Statement 89",
+    "query": "create index on only idxpart (a)"
+  },
+  {
+    "comment": "indexing - Statement 90",
+    "query": "select relname, indisvalid from pg_class join pg_index on indexrelid = oid where relname like 'idxpart%' order by relname"
+  },
+  {
+    "comment": "indexing - Statement 91",
+    "query": "alter index idxpart_a_idx attach partition idxpart1_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 92",
+    "query": "create index on idxpart11 (a)"
+  },
+  {
+    "comment": "indexing - Statement 93",
+    "query": "alter index idxpart1_a_idx attach partition idxpart11_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 94",
+    "query": "create index on idxpart1 (a)"
+  },
+  {
+    "comment": "indexing - Statement 95",
+    "query": "create table idxpart2 (like idxpart)"
+  },
+  {
+    "comment": "indexing - Statement 96",
+    "query": "alter table idxpart attach partition idxpart1 for values from (0000) to (1000)"
+  },
+  {
+    "comment": "indexing - Statement 97",
+    "query": "alter table idxpart attach partition idxpart2 for values from (1000) to (2000)"
+  },
+  {
+    "comment": "indexing - Statement 98",
+    "query": "create table idxpart3 partition of idxpart for values from (2000) to (3000)"
+  },
+  {
+    "comment": "indexing - Statement 99",
+    "query": "alter table idxpart detach partition idxpart1"
+  },
+  {
+    "comment": "indexing - Statement 100",
+    "query": "alter table idxpart detach partition idxpart2"
+  },
+  {
+    "comment": "indexing - Statement 101",
+    "query": "alter table idxpart detach partition idxpart3"
+  },
+  {
+    "comment": "indexing - Statement 102",
+    "query": "drop index idxpart2_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 103",
+    "query": "drop index idxpart3_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 104",
+    "query": "drop table idxpart, idxpart1, idxpart2, idxpart3"
+  },
+  {
+    "comment": "indexing - Statement 105",
+    "query": "create table idxpart (a int, b int, c int) partition by range(a)"
+  },
+  {
+    "comment": "indexing - Statement 106",
+    "query": "create index on idxpart(c)"
+  },
+  {
+    "comment": "indexing - Statement 107",
+    "query": "create table idxpart1 partition of idxpart for values from (0) to (250)"
+  },
+  {
+    "comment": "indexing - Statement 108",
+    "query": "create table idxpart2 partition of idxpart for values from (250) to (500)"
+  },
+  {
+    "comment": "indexing - Statement 109",
+    "query": "create index on idxpart1 ((a + b))"
+  },
+  {
+    "comment": "indexing - Statement 110",
+    "query": "create index on idxpart ((a + b))"
+  },
+  {
+    "comment": "indexing - Statement 111",
+    "query": "select relname as child, inhparent::regclass as parent, pg_get_indexdef as childdef from pg_class join pg_inherits on inhrelid = oid, lateral pg_get_indexdef(pg_class.oid) where relkind in ('i', 'I') and relname like 'idxpart%' order by relname"
+  },
+  {
+    "comment": "indexing - Statement 112",
+    "query": "create table idxpart (a text) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 113",
+    "query": "create index on idxpart2 (a collate \"POSIX\")"
+  },
+  {
+    "comment": "indexing - Statement 114",
+    "query": "create index on idxpart2 (a)"
+  },
+  {
+    "comment": "indexing - Statement 115",
+    "query": "create index on idxpart2 (a collate \"C\")"
+  },
+  {
+    "comment": "indexing - Statement 116",
+    "query": "alter table idxpart attach partition idxpart1 for values from ('aaa') to ('bbb')"
+  },
+  {
+    "comment": "indexing - Statement 117",
+    "query": "alter table idxpart attach partition idxpart2 for values from ('bbb') to ('ccc')"
+  },
+  {
+    "comment": "indexing - Statement 118",
+    "query": "create table idxpart3 partition of idxpart for values from ('ccc') to ('ddd')"
+  },
+  {
+    "comment": "indexing - Statement 119",
+    "query": "create index on idxpart (a collate \"C\")"
+  },
+  {
+    "comment": "indexing - Statement 120",
+    "query": "create table idxpart4 partition of idxpart for values from ('ddd') to ('eee')"
+  },
+  {
+    "comment": "indexing - Statement 121",
+    "query": "select relname as child, inhparent::regclass as parent, pg_get_indexdef as childdef from pg_class left join pg_inherits on inhrelid = oid, lateral pg_get_indexdef(pg_class.oid) where relkind in ('i', 'I') and relname like 'idxpart%' order by relname"
+  },
+  {
+    "comment": "indexing - Statement 122",
+    "query": "create index on idxpart (a text_pattern_ops)"
+  },
+  {
+    "comment": "indexing - Statement 123",
+    "query": "create index on only idxpart (a text_pattern_ops)"
+  },
+  {
+    "comment": "indexing - Statement 124",
+    "query": "alter index idxpart_a_idx attach partition idxpart2_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 125",
+    "query": "create table idxpart (col1 int, a int, col2 int, b int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 126",
+    "query": "create table idxpart1 (b int, col1 int, col2 int, col3 int, a int)"
+  },
+  {
+    "comment": "indexing - Statement 127",
+    "query": "alter table idxpart drop column col1, drop column col2"
+  },
+  {
+    "comment": "indexing - Statement 128",
+    "query": "alter table idxpart1 drop column col1, drop column col2, drop column col3"
+  },
+  {
+    "comment": "indexing - Statement 129",
+    "query": "create index idxpart_1_idx on only idxpart (b, a)"
+  },
+  {
+    "comment": "indexing - Statement 130",
+    "query": "create index idxpart1_1_idx on idxpart1 (b, a)"
+  },
+  {
+    "comment": "indexing - Statement 131",
+    "query": "create index idxpart1_1b_idx on idxpart1 (b)"
+  },
+  {
+    "comment": "indexing - Statement 132",
+    "query": "create index idxpart_2_idx on only idxpart ((b + a)) where a > 1"
+  },
+  {
+    "comment": "indexing - Statement 133",
+    "query": "create index idxpart1_2_idx on idxpart1 ((b + a)) where a > 1"
+  },
+  {
+    "comment": "indexing - Statement 134",
+    "query": "create index idxpart1_2b_idx on idxpart1 ((a + b)) where a > 1"
+  },
+  {
+    "comment": "indexing - Statement 135",
+    "query": "create index idxpart1_2c_idx on idxpart1 ((b + a)) where b > 1"
+  },
+  {
+    "comment": "indexing - Statement 136",
+    "query": "alter index idxpart_1_idx attach partition idxpart1_1b_idx"
+  },
+  {
+    "comment": "indexing - Statement 137",
+    "query": "alter index idxpart_1_idx attach partition idxpart1_1_idx"
+  },
+  {
+    "comment": "indexing - Statement 138",
+    "query": "alter index idxpart_2_idx attach partition idxpart1_2b_idx"
+  },
+  {
+    "comment": "indexing - Statement 139",
+    "query": "alter index idxpart_2_idx attach partition idxpart1_2c_idx"
+  },
+  {
+    "comment": "indexing - Statement 140",
+    "query": "alter index idxpart_2_idx attach partition idxpart1_2_idx"
+  },
+  {
+    "comment": "indexing - Statement 141",
+    "query": "create index idxparti2 on idxpart (c, b)"
+  },
+  {
+    "comment": "indexing - Statement 142",
+    "query": "create table idxpart1 (c text, a int, b int)"
+  },
+  {
+    "comment": "indexing - Statement 143",
+    "query": "create table idxpart2 (c text, a int, b int)"
+  },
+  {
+    "comment": "indexing - Statement 144",
+    "query": "create index on idxpart2 (c, b)"
+  },
+  {
+    "comment": "indexing - Statement 145",
+    "query": "alter table idxpart attach partition idxpart2 for values from (10) to (20)"
+  },
+  {
+    "comment": "indexing - Statement 146",
+    "query": "select c.relname, pg_get_indexdef(indexrelid) from pg_class c join pg_index i on c.oid = i.indexrelid where indrelid::regclass::text like 'idxpart%' order by indexrelid::regclass::text collate \"C\""
+  },
+  {
+    "comment": "indexing - Statement 147",
+    "query": "create table idxpart (col1 int, col2 int, a int, b int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 148",
+    "query": "create table idxpart1 (col2 int, b int, col1 int, a int)"
+  },
+  {
+    "comment": "indexing - Statement 149",
+    "query": "create table idxpart2 (col1 int, col2 int, b int, a int)"
+  },
+  {
+    "comment": "indexing - Statement 150",
+    "query": "alter table idxpart1 drop column col1, drop column col2"
+  },
+  {
+    "comment": "indexing - Statement 151",
+    "query": "alter table idxpart2 drop column col1, drop column col2"
+  },
+  {
+    "comment": "indexing - Statement 152",
+    "query": "create index on idxpart2 (abs(b))"
+  },
+  {
+    "comment": "indexing - Statement 153",
+    "query": "alter table idxpart attach partition idxpart2 for values from (0) to (1)"
+  },
+  {
+    "comment": "indexing - Statement 154",
+    "query": "create index on idxpart (abs(b))"
+  },
+  {
+    "comment": "indexing - Statement 155",
+    "query": "create index on idxpart ((b + 1))"
+  },
+  {
+    "comment": "indexing - Statement 156",
+    "query": "alter table idxpart attach partition idxpart1 for values from (1) to (2)"
+  },
+  {
+    "comment": "indexing - Statement 157",
+    "query": "create table idxpart (col1 int, a int, col3 int, b int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 158",
+    "query": "alter table idxpart drop column col1, drop column col3"
+  },
+  {
+    "comment": "indexing - Statement 159",
+    "query": "create table idxpart1 (col1 int, col2 int, col3 int, col4 int, b int, a int)"
+  },
+  {
+    "comment": "indexing - Statement 160",
+    "query": "alter table idxpart1 drop column col1, drop column col2, drop column col3, drop column col4"
+  },
+  {
+    "comment": "indexing - Statement 161",
+    "query": "create index on idxpart2 (a) where b > 1000"
+  },
+  {
+    "comment": "indexing - Statement 162",
+    "query": "create index on idxpart (a) where b > 1000"
+  },
+  {
+    "comment": "indexing - Statement 163",
+    "query": "create table idxpart1 (drop_1 int, drop_2 int, col_keep int, drop_3 int)"
+  },
+  {
+    "comment": "indexing - Statement 164",
+    "query": "alter table idxpart1 drop column drop_1"
+  },
+  {
+    "comment": "indexing - Statement 165",
+    "query": "alter table idxpart1 drop column drop_2"
+  },
+  {
+    "comment": "indexing - Statement 166",
+    "query": "alter table idxpart1 drop column drop_3"
+  },
+  {
+    "comment": "indexing - Statement 167",
+    "query": "create index on idxpart1 (col_keep)"
+  },
+  {
+    "comment": "indexing - Statement 168",
+    "query": "create table idxpart (col_keep int) partition by range (col_keep)"
+  },
+  {
+    "comment": "indexing - Statement 169",
+    "query": "create index on idxpart (col_keep)"
+  },
+  {
+    "comment": "indexing - Statement 170",
+    "query": "create table idxpart(drop_1 int, drop_2 int, col_keep int, drop_3 int) partition by range (col_keep)"
+  },
+  {
+    "comment": "indexing - Statement 171",
+    "query": "alter table idxpart drop column drop_1"
+  },
+  {
+    "comment": "indexing - Statement 172",
+    "query": "alter table idxpart drop column drop_2"
+  },
+  {
+    "comment": "indexing - Statement 173",
+    "query": "alter table idxpart drop column drop_3"
+  },
+  {
+    "comment": "indexing - Statement 174",
+    "query": "create table idxpart1 (col_keep int)"
+  },
+  {
+    "comment": "indexing - Statement 175",
+    "query": "create table idxpart (a int primary key, b int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 176",
+    "query": "create table idxpart1pk partition of idxpart (a primary key) for values from (0) to (100)"
+  },
+  {
+    "comment": "indexing - Statement 177",
+    "query": "create table idxpart (a int unique, b int) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 178",
+    "query": "create table idxpart (a int, b int unique) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 179",
+    "query": "create table idxpart (a int primary key, b int) partition by range (b, a)"
+  },
+  {
+    "comment": "indexing - Statement 180",
+    "query": "create table idxpart (a int, b int primary key) partition by range (b, a)"
+  },
+  {
+    "comment": "indexing - Statement 181",
+    "query": "create table idxpart (a int, b int, c text, primary key  (a, b, c)) partition by range (b, c, a)"
+  },
+  {
+    "comment": "indexing - Statement 182",
+    "query": "create table idxpart (a int4range, exclude USING GIST (a with = )) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 183",
+    "query": "create table idxpart (a int4range, b int4range, exclude USING GIST (a with =, b with =)) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 184",
+    "query": "create table idxpart (a int4range, b int4range, exclude USING GIST (a with =, b with =)) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 185",
+    "query": "create table idxpart (a int4range, b int4range, exclude USING GIST (a with = )) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 186",
+    "query": "create table idxpart (a int4range, exclude USING GIST (a with -|- )) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 187",
+    "query": "create table idxpart (a int4range, b int4range, exclude USING GIST (a with =, b with &&)) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 188",
+    "query": "create table idxpart (a int4range, b int4range, c int4range, exclude USING GIST (b with =, c with &&)) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 189",
+    "query": "create table idxpart (a int4range, b int4range, c int4range, exclude USING GIST (a with =, b with =, c with &&)) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 190",
+    "query": "create table idxpart (a int primary key, b int) partition by range ((b + a))"
+  },
+  {
+    "comment": "indexing - Statement 191",
+    "query": "create table idxpart (a int unique, b int) partition by range ((b + a))"
+  },
+  {
+    "comment": "indexing - Statement 192",
+    "query": "create table idxpart (a int, b int, c text) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 193",
+    "query": "alter table idxpart add primary key (a)"
+  },
+  {
+    "comment": "indexing - Statement 194",
+    "query": "alter table idxpart add primary key (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 195",
+    "query": "alter table idxpart add unique (a)"
+  },
+  {
+    "comment": "indexing - Statement 196",
+    "query": "alter table idxpart add unique (b, a)"
+  },
+  {
+    "comment": "indexing - Statement 197",
+    "query": "create table idxpart (a int4range, b int4range) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 198",
+    "query": "alter table idxpart add exclude USING GIST (a with =)"
+  },
+  {
+    "comment": "indexing - Statement 199",
+    "query": "create table idxpart (a int4range, b int4range) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 200",
+    "query": "alter table idxpart add exclude USING GIST (a with =, b with =)"
+  },
+  {
+    "comment": "indexing - Statement 201",
+    "query": "alter table idxpart add exclude USING GIST (a with -|-)"
+  },
+  {
+    "comment": "indexing - Statement 202",
+    "query": "alter table idxpart add exclude USING GIST (a with =, b with &&)"
+  },
+  {
+    "comment": "indexing - Statement 203",
+    "query": "create table idxpart (a int4range, b int4range, c int4range) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 204",
+    "query": "alter table idxpart add exclude USING GIST (b with =, c with &&)"
+  },
+  {
+    "comment": "indexing - Statement 205",
+    "query": "create table idxpart (a int4range, b int4range, c int4range) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 206",
+    "query": "alter table idxpart add exclude USING GIST (a with =, b with =, c with &&)"
+  },
+  {
+    "comment": "indexing - Statement 207",
+    "query": "create table idxpart (a int, b int, primary key (a, b)) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 208",
+    "query": "create table idxpart1 partition of idxpart for values from (1, 1) to (10, 10)"
+  },
+  {
+    "comment": "indexing - Statement 209",
+    "query": "create table idxpart2 partition of idxpart for values from (10, 10) to (20, 20) partition by range (b)"
+  },
+  {
+    "comment": "indexing - Statement 210",
+    "query": "create table idxpart21 partition of idxpart2 for values from (10) to (15)"
+  },
+  {
+    "comment": "indexing - Statement 211",
+    "query": "create table idxpart22 partition of idxpart2 for values from (15) to (20)"
+  },
+  {
+    "comment": "indexing - Statement 212",
+    "query": "create table idxpart3 (b int not null, a int not null)"
+  },
+  {
+    "comment": "indexing - Statement 213",
+    "query": "alter table idxpart attach partition idxpart3 for values from (20, 20) to (30, 30)"
+  },
+  {
+    "comment": "indexing - Statement 214",
+    "query": "select conname, contype, conrelid::regclass, conindid::regclass, conkey from pg_constraint where conrelid::regclass::text like 'idxpart%' order by conrelid::regclass::text, conname"
+  },
+  {
+    "comment": "indexing - Statement 215",
+    "query": "create table idxpart (a int, b int, primary key (a)) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 216",
+    "query": "create table idxpart2 partition of idxpart for values from (0) to (1000) partition by range (b)"
+  },
+  {
+    "comment": "indexing - Statement 217",
+    "query": "create table idxpart (a int unique, b int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 218",
+    "query": "create table idxpart1 (a int not null, b int, unique (a, b)) partition by range (a, b)"
+  },
+  {
+    "comment": "indexing - Statement 219",
+    "query": "alter table idxpart attach partition idxpart1 for values from (1) to (1000)"
+  },
+  {
+    "comment": "indexing - Statement 220",
+    "query": "DROP TABLE idxpart, idxpart1"
+  },
+  {
+    "comment": "indexing - Statement 221",
+    "query": "create table idxpart (a int, b int, primary key (a, b)) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 222",
+    "query": "create table idxpart21 partition of idxpart2 for values from (0) to (1000)"
+  },
+  {
+    "comment": "indexing - Statement 223",
+    "query": "select conname, contype, conrelid::regclass, conindid::regclass, conkey from pg_constraint where conrelid::regclass::text like 'idxpart%' order by conname"
+  },
+  {
+    "comment": "indexing - Statement 224",
+    "query": "create table idxpart (i int) partition by hash (i)"
+  },
+  {
+    "comment": "indexing - Statement 225",
+    "query": "create table idxpart0 partition of idxpart (i) for values with (modulus 2, remainder 0)"
+  },
+  {
+    "comment": "indexing - Statement 226",
+    "query": "create table idxpart1 partition of idxpart (i) for values with (modulus 2, remainder 1)"
+  },
+  {
+    "comment": "indexing - Statement 227",
+    "query": "alter table idxpart0 add primary key(i)"
+  },
+  {
+    "comment": "indexing - Statement 228",
+    "query": "alter table idxpart add primary key(i)"
+  },
+  {
+    "comment": "indexing - Statement 229",
+    "query": "select indrelid::regclass, indexrelid::regclass, inhparent::regclass, indisvalid, conname, conislocal, coninhcount, connoinherit, convalidated from pg_index idx left join pg_inherits inh on (idx.indexrelid = inh.inhrelid) left join pg_constraint con on (idx.indexrelid = con.conindid) where indrelid::regclass::text like 'idxpart%' order by indexrelid::regclass::text collate \"C\""
+  },
+  {
+    "comment": "indexing - Statement 230",
+    "query": "drop index idxpart0_pkey"
+  },
+  {
+    "comment": "indexing - Statement 231",
+    "query": "drop index idxpart1_pkey"
+  },
+  {
+    "comment": "indexing - Statement 232",
+    "query": "alter table idxpart0 drop constraint idxpart0_pkey"
+  },
+  {
+    "comment": "indexing - Statement 233",
+    "query": "alter table idxpart1 drop constraint idxpart1_pkey"
+  },
+  {
+    "comment": "indexing - Statement 234",
+    "query": "alter table idxpart drop constraint idxpart_pkey"
+  },
+  {
+    "comment": "indexing - Statement 235",
+    "query": "CREATE TABLE idxpart (c1 INT PRIMARY KEY, c2 INT, c3 VARCHAR(10)) PARTITION BY RANGE(c1)"
+  },
+  {
+    "comment": "indexing - Statement 236",
+    "query": "ALTER TABLE idxpart1 ADD PRIMARY KEY (c1, c2)"
+  },
+  {
+    "comment": "indexing - Statement 237",
+    "query": "ALTER TABLE idxpart ATTACH PARTITION idxpart1 FOR VALUES FROM (100) TO (200)"
+  },
+  {
+    "comment": "indexing - Statement 238",
+    "query": "create table idxpart1 (a int not null, b int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 239",
+    "query": "create table idxpart11 (a int not null, b int primary key)"
+  },
+  {
+    "comment": "indexing - Statement 240",
+    "query": "alter table idxpart1 attach partition idxpart11 for values from (0) to (1000)"
+  },
+  {
+    "comment": "indexing - Statement 241",
+    "query": "alter table idxpart attach partition idxpart1 for values from (0) to (10000)"
+  },
+  {
+    "comment": "indexing - Statement 242",
+    "query": "drop table idxpart, idxpart1, idxpart11"
+  },
+  {
+    "comment": "indexing - Statement 243",
+    "query": "create table idxpart0 (like idxpart)"
+  },
+  {
+    "comment": "indexing - Statement 244",
+    "query": "alter table idxpart0 add primary key (a)"
+  },
+  {
+    "comment": "indexing - Statement 245",
+    "query": "alter table idxpart attach partition idxpart0 for values from (0) to (1000)"
+  },
+  {
+    "comment": "indexing - Statement 246",
+    "query": "alter table only idxpart add primary key (a)"
+  },
+  {
+    "comment": "indexing - Statement 247",
+    "query": "alter index idxpart_pkey attach partition idxpart0_pkey"
+  },
+  {
+    "comment": "indexing - Statement 248",
+    "query": "alter table idxpart0 add unique (a)"
+  },
+  {
+    "comment": "indexing - Statement 249",
+    "query": "alter table idxpart attach partition idxpart0 default"
+  },
+  {
+    "comment": "indexing - Statement 250",
+    "query": "alter table idxpart0 alter column a set not null"
+  },
+  {
+    "comment": "indexing - Statement 251",
+    "query": "alter index idxpart_pkey attach partition idxpart0_a_key"
+  },
+  {
+    "comment": "indexing - Statement 252",
+    "query": "alter table idxpart0 alter column a drop not null"
+  },
+  {
+    "comment": "indexing - Statement 253",
+    "query": "create table idxpart1 (a int not null, b int)"
+  },
+  {
+    "comment": "indexing - Statement 254",
+    "query": "create unique index on idxpart1 (a)"
+  },
+  {
+    "comment": "indexing - Statement 255",
+    "query": "alter index idxpart_pkey attach partition idxpart1_a_idx"
+  },
+  {
+    "comment": "indexing - Statement 256",
+    "query": "create table idxpart (a int, b text, primary key (a, b)) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 257",
+    "query": "create table idxpart1 partition of idxpart for values from (0) to (100000)"
+  },
+  {
+    "comment": "indexing - Statement 258",
+    "query": "create table idxpart2 (c int, like idxpart)"
+  },
+  {
+    "comment": "indexing - Statement 259",
+    "query": "insert into idxpart2 (c, a, b) values (42, 572814, 'inserted first')"
+  },
+  {
+    "comment": "indexing - Statement 260",
+    "query": "alter table idxpart2 drop column c"
+  },
+  {
+    "comment": "indexing - Statement 261",
+    "query": "create unique index on idxpart (a)"
+  },
+  {
+    "comment": "indexing - Statement 262",
+    "query": "alter table idxpart attach partition idxpart2 for values from (100000) to (1000000)"
+  },
+  {
+    "comment": "indexing - Statement 263",
+    "query": "insert into idxpart values (0, 'zero'), (42, 'life'), (2^16, 'sixteen')"
+  },
+  {
+    "comment": "indexing - Statement 264",
+    "query": "insert into idxpart select 2^g, format('two to power of %s', g) from generate_series(15, 17) g"
+  },
+  {
+    "comment": "indexing - Statement 265",
+    "query": "insert into idxpart values (16, 'sixteen')"
+  },
+  {
+    "comment": "indexing - Statement 266",
+    "query": "insert into idxpart (b, a) values ('one', 142857), ('two', 285714)"
+  },
+  {
+    "comment": "indexing - Statement 267",
+    "query": "insert into idxpart select a * 2, b || b from idxpart where a between 2^16 and 2^19"
+  },
+  {
+    "comment": "indexing - Statement 268",
+    "query": "insert into idxpart values (572814, 'five')"
+  },
+  {
+    "comment": "indexing - Statement 269",
+    "query": "insert into idxpart values (857142, 'six')"
+  },
+  {
+    "comment": "indexing - Statement 270",
+    "query": "select tableoid::regclass, * from idxpart order by a"
+  },
+  {
+    "comment": "indexing - Statement 271",
+    "query": "create table idxpart (a int, b text, c int[]) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 272",
+    "query": "set enable_seqscan to off"
+  },
+  {
+    "comment": "indexing - Statement 273",
+    "query": "create index idxpart_brin on idxpart using brin(b)"
+  },
+  {
+    "comment": "indexing - Statement 274",
+    "query": "explain (costs off) select * from idxpart where b = 'abcd'"
+  },
+  {
+    "comment": "indexing - Statement 275",
+    "query": "drop index idxpart_brin"
+  },
+  {
+    "comment": "indexing - Statement 276",
+    "query": "create index idxpart_spgist on idxpart using spgist(b)"
+  },
+  {
+    "comment": "indexing - Statement 277",
+    "query": "drop index idxpart_spgist"
+  },
+  {
+    "comment": "indexing - Statement 278",
+    "query": "create index idxpart_gin on idxpart using gin(c)"
+  },
+  {
+    "comment": "indexing - Statement 279",
+    "query": "explain (costs off) select * from idxpart where c @> array[42]"
+  },
+  {
+    "comment": "indexing - Statement 280",
+    "query": "drop index idxpart_gin"
+  },
+  {
+    "comment": "indexing - Statement 281",
+    "query": "reset enable_seqscan"
+  },
+  {
+    "comment": "indexing - Statement 282",
+    "query": "create table idxpart_another (a int, b int, primary key (a, b)) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 283",
+    "query": "create table idxpart_another_1 partition of idxpart_another for values from (0) to (100)"
+  },
+  {
+    "comment": "indexing - Statement 284",
+    "query": "create table idxpart3 (c int, b int, a int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 285",
+    "query": "alter table idxpart3 drop column b, drop column c"
+  },
+  {
+    "comment": "indexing - Statement 286",
+    "query": "create table idxpart31 partition of idxpart3 for values from (1000) to (1200)"
+  },
+  {
+    "comment": "indexing - Statement 287",
+    "query": "create table idxpart32 partition of idxpart3 for values from (1200) to (1400)"
+  },
+  {
+    "comment": "indexing - Statement 288",
+    "query": "alter table idxpart attach partition idxpart3 for values from (1000) to (2000)"
+  },
+  {
+    "comment": "indexing - Statement 289",
+    "query": "create schema regress_indexing"
+  },
+  {
+    "comment": "indexing - Statement 290",
+    "query": "set search_path to regress_indexing"
+  },
+  {
+    "comment": "indexing - Statement 291",
+    "query": "create table pk (a int primary key) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 292",
+    "query": "create table pk1 partition of pk for values from (0) to (1000)"
+  },
+  {
+    "comment": "indexing - Statement 293",
+    "query": "create table pk2 (b int, a int)"
+  },
+  {
+    "comment": "indexing - Statement 294",
+    "query": "alter table pk2 drop column b"
+  },
+  {
+    "comment": "indexing - Statement 295",
+    "query": "alter table pk2 alter a set not null"
+  },
+  {
+    "comment": "indexing - Statement 296",
+    "query": "alter table pk attach partition pk2 for values from (1000) to (2000)"
+  },
+  {
+    "comment": "indexing - Statement 297",
+    "query": "create table pk3 partition of pk for values from (2000) to (3000)"
+  },
+  {
+    "comment": "indexing - Statement 298",
+    "query": "create table pk4 (like pk)"
+  },
+  {
+    "comment": "indexing - Statement 299",
+    "query": "alter table pk attach partition pk4 for values from (3000) to (4000)"
+  },
+  {
+    "comment": "indexing - Statement 300",
+    "query": "create table pk5 (like pk) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 301",
+    "query": "create table pk51 partition of pk5 for values from (4000) to (4500)"
+  },
+  {
+    "comment": "indexing - Statement 302",
+    "query": "create table pk52 partition of pk5 for values from (4500) to (5000)"
+  },
+  {
+    "comment": "indexing - Statement 303",
+    "query": "alter table pk attach partition pk5 for values from (4000) to (5000)"
+  },
+  {
+    "comment": "indexing - Statement 304",
+    "query": "reset search_path"
+  },
+  {
+    "comment": "indexing - Statement 305",
+    "query": "create table covidxpart (a int, b int) partition by list (a)"
+  },
+  {
+    "comment": "indexing - Statement 306",
+    "query": "create unique index on covidxpart (a) include (b)"
+  },
+  {
+    "comment": "indexing - Statement 307",
+    "query": "create table covidxpart1 partition of covidxpart for values in (1)"
+  },
+  {
+    "comment": "indexing - Statement 308",
+    "query": "create table covidxpart2 partition of covidxpart for values in (2)"
+  },
+  {
+    "comment": "indexing - Statement 309",
+    "query": "insert into covidxpart values (1, 1)"
+  },
+  {
+    "comment": "indexing - Statement 310",
+    "query": "create table covidxpart3 (b int, c int, a int)"
+  },
+  {
+    "comment": "indexing - Statement 311",
+    "query": "alter table covidxpart3 drop c"
+  },
+  {
+    "comment": "indexing - Statement 312",
+    "query": "alter table covidxpart attach partition covidxpart3 for values in (3)"
+  },
+  {
+    "comment": "indexing - Statement 313",
+    "query": "insert into covidxpart values (3, 1)"
+  },
+  {
+    "comment": "indexing - Statement 314",
+    "query": "create table covidxpart4 (b int, a int)"
+  },
+  {
+    "comment": "indexing - Statement 315",
+    "query": "create unique index on covidxpart4 (a) include (b)"
+  },
+  {
+    "comment": "indexing - Statement 316",
+    "query": "create unique index on covidxpart4 (a)"
+  },
+  {
+    "comment": "indexing - Statement 317",
+    "query": "alter table covidxpart attach partition covidxpart4 for values in (4)"
+  },
+  {
+    "comment": "indexing - Statement 318",
+    "query": "insert into covidxpart values (4, 1)"
+  },
+  {
+    "comment": "indexing - Statement 319",
+    "query": "create unique index on covidxpart (b) include (a)"
+  },
+  {
+    "comment": "indexing - Statement 320",
+    "query": "create table parted_pk_detach_test (a int primary key) partition by list (a)"
+  },
+  {
+    "comment": "indexing - Statement 321",
+    "query": "create table parted_pk_detach_test1 partition of parted_pk_detach_test for values in (1)"
+  },
+  {
+    "comment": "indexing - Statement 322",
+    "query": "alter table parted_pk_detach_test1 drop constraint parted_pk_detach_test1_pkey"
+  },
+  {
+    "comment": "indexing - Statement 323",
+    "query": "alter table parted_pk_detach_test detach partition parted_pk_detach_test1"
+  },
+  {
+    "comment": "indexing - Statement 324",
+    "query": "drop table parted_pk_detach_test, parted_pk_detach_test1"
+  },
+  {
+    "comment": "indexing - Statement 325",
+    "query": "create table parted_uniq_detach_test (a int unique) partition by list (a)"
+  },
+  {
+    "comment": "indexing - Statement 326",
+    "query": "create table parted_uniq_detach_test1 partition of parted_uniq_detach_test for values in (1)"
+  },
+  {
+    "comment": "indexing - Statement 327",
+    "query": "alter table parted_uniq_detach_test1 drop constraint parted_uniq_detach_test1_a_key"
+  },
+  {
+    "comment": "indexing - Statement 328",
+    "query": "alter table parted_uniq_detach_test detach partition parted_uniq_detach_test1"
+  },
+  {
+    "comment": "indexing - Statement 329",
+    "query": "drop table parted_uniq_detach_test, parted_uniq_detach_test1"
+  },
+  {
+    "comment": "indexing - Statement 330",
+    "query": "create table parted_index_col_drop(a int, b int, c int) partition by list (a)"
+  },
+  {
+    "comment": "indexing - Statement 331",
+    "query": "create table parted_index_col_drop1 partition of parted_index_col_drop for values in (1) partition by list (a)"
+  },
+  {
+    "comment": "indexing - Statement 332",
+    "query": "create table parted_index_col_drop2 partition of parted_index_col_drop for values in (2) partition by list (a)"
+  },
+  {
+    "comment": "indexing - Statement 333",
+    "query": "create table parted_index_col_drop11 partition of parted_index_col_drop1 for values in (1)"
+  },
+  {
+    "comment": "indexing - Statement 334",
+    "query": "create index on parted_index_col_drop (b)"
+  },
+  {
+    "comment": "indexing - Statement 335",
+    "query": "create index on parted_index_col_drop (c)"
+  },
+  {
+    "comment": "indexing - Statement 336",
+    "query": "create index on parted_index_col_drop (b, c)"
+  },
+  {
+    "comment": "indexing - Statement 337",
+    "query": "alter table parted_index_col_drop drop column c"
+  },
+  {
+    "comment": "indexing - Statement 338",
+    "query": "create table parted_inval_tab (a int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 339",
+    "query": "create index parted_inval_idx on parted_inval_tab (a)"
+  },
+  {
+    "comment": "indexing - Statement 340",
+    "query": "create table parted_inval_tab_1 (a int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 341",
+    "query": "create table parted_inval_tab_1_1 partition of parted_inval_tab_1 for values from (0) to (10)"
+  },
+  {
+    "comment": "indexing - Statement 342",
+    "query": "create table parted_inval_tab_1_2 partition of parted_inval_tab_1 for values from (10) to (20)"
+  },
+  {
+    "comment": "indexing - Statement 343",
+    "query": "create index parted_inval_ixd_1 on only parted_inval_tab_1 (a)"
+  },
+  {
+    "comment": "indexing - Statement 344",
+    "query": "alter table parted_inval_tab attach partition parted_inval_tab_1 for values from (1) to (100)"
+  },
+  {
+    "comment": "indexing - Statement 345",
+    "query": "select indexrelid::regclass, indisvalid, indrelid::regclass, inhparent::regclass from pg_index idx left join pg_inherits inh on (idx.indexrelid = inh.inhrelid) where indexrelid::regclass::text like 'parted_inval%' order by indexrelid::regclass::text collate \"C\""
+  },
+  {
+    "comment": "indexing - Statement 346",
+    "query": "drop table parted_inval_tab"
+  },
+  {
+    "comment": "indexing - Statement 347",
+    "query": "create table parted_isvalid_tab (a int, b int) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 348",
+    "query": "create table parted_isvalid_tab_1 partition of parted_isvalid_tab for values from (1) to (10) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 349",
+    "query": "create table parted_isvalid_tab_2 partition of parted_isvalid_tab for values from (10) to (20) partition by range (a)"
+  },
+  {
+    "comment": "indexing - Statement 350",
+    "query": "create table parted_isvalid_tab_11 partition of parted_isvalid_tab_1 for values from (1) to (5)"
+  },
+  {
+    "comment": "indexing - Statement 351",
+    "query": "create table parted_isvalid_tab_12 partition of parted_isvalid_tab_1 for values from (5) to (10)"
+  },
+  {
+    "comment": "indexing - Statement 352",
+    "query": "insert into parted_isvalid_tab_11 values (1, 0)"
+  },
+  {
+    "comment": "indexing - Statement 353",
+    "query": "create index concurrently parted_isvalid_idx_11 on parted_isvalid_tab_11 ((a/b))"
+  },
+  {
+    "comment": "indexing - Statement 354",
+    "query": "create index parted_isvalid_idx on parted_isvalid_tab ((a/b))"
+  },
+  {
+    "comment": "indexing - Statement 355",
+    "query": "select indexrelid::regclass, indisvalid, indrelid::regclass, inhparent::regclass from pg_index idx left join pg_inherits inh on (idx.indexrelid = inh.inhrelid) where indexrelid::regclass::text like 'parted_isvalid%' order by indexrelid::regclass::text collate \"C\""
+  },
+  {
+    "comment": "indexing - Statement 356",
+    "query": "drop table parted_isvalid_tab"
+  },
+  {
+    "comment": "indexing - Statement 357",
+    "query": "begin"
+  },
+  {
+    "comment": "indexing - Statement 358",
+    "query": "create table parted_replica_tab (id int not null) partition by range (id)"
+  },
+  {
+    "comment": "indexing - Statement 359",
+    "query": "create table parted_replica_tab_1 partition of parted_replica_tab for values from (1) to (10) partition by range (id)"
+  },
+  {
+    "comment": "indexing - Statement 360",
+    "query": "create table parted_replica_tab_11 partition of parted_replica_tab_1 for values from (1) to (5)"
+  },
+  {
+    "comment": "indexing - Statement 361",
+    "query": "create unique index parted_replica_idx on only parted_replica_tab using btree (id)"
+  },
+  {
+    "comment": "indexing - Statement 362",
+    "query": "create unique index parted_replica_idx_1 on only parted_replica_tab_1 using btree (id)"
+  },
+  {
+    "comment": "indexing - Statement 363",
+    "query": "alter table only parted_replica_tab_1 replica identity using index parted_replica_idx_1"
+  },
+  {
+    "comment": "indexing - Statement 364",
+    "query": "create unique index parted_replica_idx_11 on parted_replica_tab_11 USING btree (id)"
+  },
+  {
+    "comment": "indexing - Statement 365",
+    "query": "select indexrelid::regclass, indisvalid, indisreplident, indrelid::regclass, inhparent::regclass from pg_index idx left join pg_inherits inh on (idx.indexrelid = inh.inhrelid) where indexrelid::regclass::text like 'parted_replica%' order by indexrelid::regclass::text collate \"C\""
+  },
+  {
+    "comment": "indexing - Statement 366",
+    "query": "alter index parted_replica_idx ATTACH PARTITION parted_replica_idx_1"
+  },
+  {
+    "comment": "indexing - Statement 367",
+    "query": "alter index parted_replica_idx_1 ATTACH PARTITION parted_replica_idx_11"
+  },
+  {
+    "comment": "indexing - Statement 368",
+    "query": "commit"
+  },
+  {
+    "comment": "indexing - Statement 369",
+    "query": "drop table parted_replica_tab"
+  }
+]

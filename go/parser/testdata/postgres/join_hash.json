@@ -1,0 +1,458 @@
+[
+  {
+    "comment": "join_hash - Statement 1",
+    "query": "begin"
+  },
+  {
+    "comment": "join_hash - Statement 2",
+    "query": "set local min_parallel_table_scan_size = 0"
+  },
+  {
+    "comment": "join_hash - Statement 3",
+    "query": "set local parallel_setup_cost = 0"
+  },
+  {
+    "comment": "join_hash - Statement 4",
+    "query": "set local enable_hashjoin = on"
+  },
+  {
+    "comment": "join_hash - Statement 5",
+    "query": "create or replace function find_hash(node json) returns json language plpgsql as $$ declare x json"
+  },
+  {
+    "comment": "join_hash - Statement 6",
+    "query": "child json"
+  },
+  {
+    "comment": "join_hash - Statement 7",
+    "query": "begin if node->>'Node Type' = 'Hash' then return node"
+  },
+  {
+    "comment": "join_hash - Statement 8",
+    "query": "else for child in select json_array_elements(node->'Plans') loop x := find_hash(child)"
+  },
+  {
+    "comment": "join_hash - Statement 9",
+    "query": "if x is not null then return x"
+  },
+  {
+    "comment": "join_hash - Statement 10",
+    "query": "end if"
+  },
+  {
+    "comment": "join_hash - Statement 11",
+    "query": "end loop"
+  },
+  {
+    "comment": "join_hash - Statement 12",
+    "query": "return null"
+  },
+  {
+    "comment": "join_hash - Statement 13",
+    "query": "end"
+  },
+  {
+    "comment": "join_hash - Statement 14",
+    "query": "$$"
+  },
+  {
+    "comment": "join_hash - Statement 15",
+    "query": "create or replace function hash_join_batches(query text) returns table (original int, final int) language plpgsql as $$ declare whole_plan json"
+  },
+  {
+    "comment": "join_hash - Statement 16",
+    "query": "hash_node json"
+  },
+  {
+    "comment": "join_hash - Statement 17",
+    "query": "begin for whole_plan in execute 'explain (analyze, format ''json'') ' || query loop hash_node := find_hash(json_extract_path(whole_plan, '0', 'Plan'))"
+  },
+  {
+    "comment": "join_hash - Statement 18",
+    "query": "original := hash_node->>'Original Hash Batches'"
+  },
+  {
+    "comment": "join_hash - Statement 19",
+    "query": "final := hash_node->>'Hash Batches'"
+  },
+  {
+    "comment": "join_hash - Statement 20",
+    "query": "return next"
+  },
+  {
+    "comment": "join_hash - Statement 21",
+    "query": "create table simple as select generate_series(1, 20000) AS id, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'"
+  },
+  {
+    "comment": "join_hash - Statement 22",
+    "query": "alter table simple set (parallel_workers = 2)"
+  },
+  {
+    "comment": "join_hash - Statement 23",
+    "query": "analyze simple"
+  },
+  {
+    "comment": "join_hash - Statement 24",
+    "query": "create table bigger_than_it_looks as select generate_series(1, 20000) as id, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'"
+  },
+  {
+    "comment": "join_hash - Statement 25",
+    "query": "alter table bigger_than_it_looks set (autovacuum_enabled = 'false')"
+  },
+  {
+    "comment": "join_hash - Statement 26",
+    "query": "alter table bigger_than_it_looks set (parallel_workers = 2)"
+  },
+  {
+    "comment": "join_hash - Statement 27",
+    "query": "analyze bigger_than_it_looks"
+  },
+  {
+    "comment": "join_hash - Statement 28",
+    "query": "update pg_class set reltuples = 1000 where relname = 'bigger_than_it_looks'"
+  },
+  {
+    "comment": "join_hash - Statement 29",
+    "query": "create table extremely_skewed (id int, t text)"
+  },
+  {
+    "comment": "join_hash - Statement 30",
+    "query": "alter table extremely_skewed set (autovacuum_enabled = 'false')"
+  },
+  {
+    "comment": "join_hash - Statement 31",
+    "query": "alter table extremely_skewed set (parallel_workers = 2)"
+  },
+  {
+    "comment": "join_hash - Statement 32",
+    "query": "analyze extremely_skewed"
+  },
+  {
+    "comment": "join_hash - Statement 33",
+    "query": "insert into extremely_skewed select 42 as id, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' from generate_series(1, 20000)"
+  },
+  {
+    "comment": "join_hash - Statement 34",
+    "query": "update pg_class set reltuples = 2, relpages = pg_relation_size('extremely_skewed') / 8192 where relname = 'extremely_skewed'"
+  },
+  {
+    "comment": "join_hash - Statement 35",
+    "query": "create table wide as select generate_series(1, 2) as id, rpad('', 320000, 'x') as t"
+  },
+  {
+    "comment": "join_hash - Statement 36",
+    "query": "alter table wide set (parallel_workers = 2)"
+  },
+  {
+    "comment": "join_hash - Statement 37",
+    "query": "savepoint settings"
+  },
+  {
+    "comment": "join_hash - Statement 38",
+    "query": "set local max_parallel_workers_per_gather = 0"
+  },
+  {
+    "comment": "join_hash - Statement 39",
+    "query": "set local work_mem = '4MB'"
+  },
+  {
+    "comment": "join_hash - Statement 40",
+    "query": "set local hash_mem_multiplier = 1.0"
+  },
+  {
+    "comment": "join_hash - Statement 41",
+    "query": "explain (costs off) select count(*) from simple r join simple s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 42",
+    "query": "select count(*) from simple r join simple s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 43",
+    "query": "select original > 1 as initially_multibatch, final > original as increased_batches from hash_join_batches( $$ select count(*) from simple r join simple s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 44",
+    "query": "$$)"
+  },
+  {
+    "comment": "join_hash - Statement 45",
+    "query": "rollback to settings"
+  },
+  {
+    "comment": "join_hash - Statement 46",
+    "query": "set local max_parallel_workers_per_gather = 2"
+  },
+  {
+    "comment": "join_hash - Statement 47",
+    "query": "set local enable_parallel_hash = off"
+  },
+  {
+    "comment": "join_hash - Statement 48",
+    "query": "set local enable_parallel_hash = on"
+  },
+  {
+    "comment": "join_hash - Statement 49",
+    "query": "set local work_mem = '128kB'"
+  },
+  {
+    "comment": "join_hash - Statement 50",
+    "query": "set local work_mem = '192kB'"
+  },
+  {
+    "comment": "join_hash - Statement 51",
+    "query": "select count(*) from simple r full outer join simple s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 52",
+    "query": "explain (costs off) select count(*) FROM simple r JOIN bigger_than_it_looks s USING (id)"
+  },
+  {
+    "comment": "join_hash - Statement 53",
+    "query": "select count(*) FROM simple r JOIN bigger_than_it_looks s USING (id)"
+  },
+  {
+    "comment": "join_hash - Statement 54",
+    "query": "select original > 1 as initially_multibatch, final > original as increased_batches from hash_join_batches( $$ select count(*) FROM simple r JOIN bigger_than_it_looks s USING (id)"
+  },
+  {
+    "comment": "join_hash - Statement 55",
+    "query": "set local max_parallel_workers_per_gather = 1"
+  },
+  {
+    "comment": "join_hash - Statement 56",
+    "query": "explain (costs off) select count(*) from simple r join extremely_skewed s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 57",
+    "query": "select count(*) from simple r join extremely_skewed s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 58",
+    "query": "select * from hash_join_batches( $$ select count(*) from simple r join extremely_skewed s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 59",
+    "query": "set local parallel_leader_participation = off"
+  },
+  {
+    "comment": "join_hash - Statement 60",
+    "query": "select * from hash_join_batches( $$ select count(*) from simple r join simple s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 61",
+    "query": "create table join_foo as select generate_series(1, 3) as id, 'xxxxx'::text as t"
+  },
+  {
+    "comment": "join_hash - Statement 62",
+    "query": "alter table join_foo set (parallel_workers = 0)"
+  },
+  {
+    "comment": "join_hash - Statement 63",
+    "query": "create table join_bar as select generate_series(1, 10000) as id, 'xxxxx'::text as t"
+  },
+  {
+    "comment": "join_hash - Statement 64",
+    "query": "alter table join_bar set (parallel_workers = 2)"
+  },
+  {
+    "comment": "join_hash - Statement 65",
+    "query": "set enable_parallel_hash = off"
+  },
+  {
+    "comment": "join_hash - Statement 66",
+    "query": "set parallel_leader_participation = off"
+  },
+  {
+    "comment": "join_hash - Statement 67",
+    "query": "set min_parallel_table_scan_size = 0"
+  },
+  {
+    "comment": "join_hash - Statement 68",
+    "query": "set parallel_setup_cost = 0"
+  },
+  {
+    "comment": "join_hash - Statement 69",
+    "query": "set parallel_tuple_cost = 0"
+  },
+  {
+    "comment": "join_hash - Statement 70",
+    "query": "set max_parallel_workers_per_gather = 2"
+  },
+  {
+    "comment": "join_hash - Statement 71",
+    "query": "set enable_material = off"
+  },
+  {
+    "comment": "join_hash - Statement 72",
+    "query": "set enable_mergejoin = off"
+  },
+  {
+    "comment": "join_hash - Statement 73",
+    "query": "set work_mem = '64kB'"
+  },
+  {
+    "comment": "join_hash - Statement 74",
+    "query": "set hash_mem_multiplier = 1.0"
+  },
+  {
+    "comment": "join_hash - Statement 75",
+    "query": "explain (costs off) select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1"
+  },
+  {
+    "comment": "join_hash - Statement 76",
+    "query": "select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1"
+  },
+  {
+    "comment": "join_hash - Statement 77",
+    "query": "select final > 1 as multibatch from hash_join_batches( $$ select count(*) from join_foo left join (select b1.id, b1.t from join_bar b1 join join_bar b2 using (id)) ss on join_foo.id < ss.id + 1 and join_foo.id > ss.id - 1"
+  },
+  {
+    "comment": "join_hash - Statement 78",
+    "query": "set work_mem = '4MB'"
+  },
+  {
+    "comment": "join_hash - Statement 79",
+    "query": "set enable_parallel_hash = on"
+  },
+  {
+    "comment": "join_hash - Statement 80",
+    "query": "explain (costs off) select  count(*) from simple r full outer join simple s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 81",
+    "query": "explain (costs off) select  count(*) from simple r full outer join simple s on (r.id = 0 - s.id)"
+  },
+  {
+    "comment": "join_hash - Statement 82",
+    "query": "select  count(*) from simple r full outer join simple s on (r.id = 0 - s.id)"
+  },
+  {
+    "comment": "join_hash - Statement 83",
+    "query": "set work_mem = '128kB'"
+  },
+  {
+    "comment": "join_hash - Statement 84",
+    "query": "explain (costs off) select length(max(s.t)) from wide left join (select id, coalesce(t, '') || '' as t from wide) s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 85",
+    "query": "select length(max(s.t)) from wide left join (select id, coalesce(t, '') || '' as t from wide) s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 86",
+    "query": "select final > 1 as multibatch from hash_join_batches( $$ select length(max(s.t)) from wide left join (select id, coalesce(t, '') || '' as t from wide) s using (id)"
+  },
+  {
+    "comment": "join_hash - Statement 87",
+    "query": "CREATE TABLE hjtest_matchbits_t1(id int)"
+  },
+  {
+    "comment": "join_hash - Statement 88",
+    "query": "CREATE TABLE hjtest_matchbits_t2(id int)"
+  },
+  {
+    "comment": "join_hash - Statement 89",
+    "query": "INSERT INTO hjtest_matchbits_t1 VALUES (1)"
+  },
+  {
+    "comment": "join_hash - Statement 90",
+    "query": "INSERT INTO hjtest_matchbits_t2 VALUES (2)"
+  },
+  {
+    "comment": "join_hash - Statement 91",
+    "query": "UPDATE hjtest_matchbits_t2 set id = 2"
+  },
+  {
+    "comment": "join_hash - Statement 92",
+    "query": "SELECT * FROM hjtest_matchbits_t1 t1 FULL JOIN hjtest_matchbits_t2 t2 ON t1.id = t2.id ORDER BY t1.id"
+  },
+  {
+    "comment": "join_hash - Statement 93",
+    "query": "RESET parallel_setup_cost"
+  },
+  {
+    "comment": "join_hash - Statement 94",
+    "query": "SELECT * FROM hjtest_matchbits_t1 t1 FULL JOIN hjtest_matchbits_t2 t2 ON t1.id = t2.id"
+  },
+  {
+    "comment": "join_hash - Statement 95",
+    "query": "rollback"
+  },
+  {
+    "comment": "join_hash - Statement 96",
+    "query": "SET LOCAL enable_sort = OFF"
+  },
+  {
+    "comment": "join_hash - Statement 97",
+    "query": "SET LOCAL from_collapse_limit = 1"
+  },
+  {
+    "comment": "join_hash - Statement 98",
+    "query": "CREATE TABLE hjtest_1 (a text, b int, id int, c bool)"
+  },
+  {
+    "comment": "join_hash - Statement 99",
+    "query": "CREATE TABLE hjtest_2 (a bool, id int, b text, c int)"
+  },
+  {
+    "comment": "join_hash - Statement 100",
+    "query": "INSERT INTO hjtest_1(a, b, id, c) VALUES ('text', 2, 1, false)"
+  },
+  {
+    "comment": "join_hash - Statement 101",
+    "query": "INSERT INTO hjtest_1(a, b, id, c) VALUES ('text', 1, 2, false)"
+  },
+  {
+    "comment": "join_hash - Statement 102",
+    "query": "INSERT INTO hjtest_1(a, b, id, c) VALUES ('text', 20, 1, false)"
+  },
+  {
+    "comment": "join_hash - Statement 103",
+    "query": "INSERT INTO hjtest_1(a, b, id, c) VALUES ('text', 1, 1, false)"
+  },
+  {
+    "comment": "join_hash - Statement 104",
+    "query": "INSERT INTO hjtest_2(a, id, b, c) VALUES (true, 1, 'another', 2)"
+  },
+  {
+    "comment": "join_hash - Statement 105",
+    "query": "INSERT INTO hjtest_2(a, id, b, c) VALUES (true, 3, 'another', 7)"
+  },
+  {
+    "comment": "join_hash - Statement 106",
+    "query": "INSERT INTO hjtest_2(a, id, b, c) VALUES (true, 1, 'another', 90)"
+  },
+  {
+    "comment": "join_hash - Statement 107",
+    "query": "INSERT INTO hjtest_2(a, id, b, c) VALUES (true, 1, 'another', 3)"
+  },
+  {
+    "comment": "join_hash - Statement 108",
+    "query": "INSERT INTO hjtest_2(a, id, b, c) VALUES (true, 1, 'text', 1)"
+  },
+  {
+    "comment": "join_hash - Statement 109",
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_1, hjtest_2 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b"
+  },
+  {
+    "comment": "join_hash - Statement 110",
+    "query": "SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_1, hjtest_2 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b"
+  },
+  {
+    "comment": "join_hash - Statement 111",
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_2, hjtest_1 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b"
+  },
+  {
+    "comment": "join_hash - Statement 112",
+    "query": "SELECT hjtest_1.a a1, hjtest_2.a a2,hjtest_1.tableoid::regclass t1, hjtest_2.tableoid::regclass t2 FROM hjtest_2, hjtest_1 WHERE hjtest_1.id = (SELECT 1 WHERE hjtest_2.id = 1) AND (SELECT hjtest_1.b * 5) = (SELECT hjtest_2.c*5) AND (SELECT hjtest_1.b * 5) < 50 AND (SELECT hjtest_2.c * 5) < 55 AND hjtest_1.a <> hjtest_2.b"
+  },
+  {
+    "comment": "join_hash - Statement 113",
+    "query": "explain (costs off) select i8.q2, ss.* from int8_tbl i8, lateral (select t1.fivethous, i4.f1 from tenk1 t1 join int4_tbl i4 on t1.fivethous = i4.f1+i8.q2 order by 1,2) ss"
+  },
+  {
+    "comment": "join_hash - Statement 114",
+    "query": "select i8.q2, ss.* from int8_tbl i8, lateral (select t1.fivethous, i4.f1 from tenk1 t1 join int4_tbl i4 on t1.fivethous = i4.f1+i8.q2 order by 1,2) ss"
+  }
+]

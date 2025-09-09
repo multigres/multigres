@@ -1,0 +1,66 @@
+[
+  {
+    "comment": "lseg - Statement 1",
+    "query": "CREATE TABLE LSEG_TBL (s lseg)"
+  },
+  {
+    "comment": "lseg - Statement 2",
+    "query": "INSERT INTO LSEG_TBL VALUES ('[(1,2),(3,4)]')"
+  },
+  {
+    "comment": "lseg - Statement 3",
+    "query": "INSERT INTO LSEG_TBL VALUES ('(0,0),(6,6)')"
+  },
+  {
+    "comment": "lseg - Statement 4",
+    "query": "INSERT INTO LSEG_TBL VALUES ('10,-10 ,-3,-4')"
+  },
+  {
+    "comment": "lseg - Statement 5",
+    "query": "INSERT INTO LSEG_TBL VALUES ('[-1e6,2e2,3e5, -4e1]')"
+  },
+  {
+    "comment": "lseg - Statement 6",
+    "query": "INSERT INTO LSEG_TBL VALUES (lseg(point(11, 22), point(33,44)))"
+  },
+  {
+    "comment": "lseg - Statement 7",
+    "query": "INSERT INTO LSEG_TBL VALUES ('[(-10,2),(-10,3)]')"
+  },
+  {
+    "comment": "lseg - Statement 8",
+    "query": "INSERT INTO LSEG_TBL VALUES ('[(0,-20),(30,-20)]')"
+  },
+  {
+    "comment": "lseg - Statement 9",
+    "query": "INSERT INTO LSEG_TBL VALUES ('[(NaN,1),(NaN,90)]')"
+  },
+  {
+    "comment": "lseg - Statement 10",
+    "query": "INSERT INTO LSEG_TBL VALUES ('(3asdf,2 ,3,4r2)')"
+  },
+  {
+    "comment": "lseg - Statement 11",
+    "query": "INSERT INTO LSEG_TBL VALUES ('[1,2,3, 4')"
+  },
+  {
+    "comment": "lseg - Statement 12",
+    "query": "INSERT INTO LSEG_TBL VALUES ('[(,2),(3,4)]')"
+  },
+  {
+    "comment": "lseg - Statement 13",
+    "query": "INSERT INTO LSEG_TBL VALUES ('[(1,2),(3,4)')"
+  },
+  {
+    "comment": "lseg - Statement 14",
+    "query": "select * from LSEG_TBL"
+  },
+  {
+    "comment": "lseg - Statement 15",
+    "query": "SELECT pg_input_is_valid('[(1,2),(3)]', 'lseg')"
+  },
+  {
+    "comment": "lseg - Statement 16",
+    "query": "SELECT * FROM pg_input_error_info('[(1,2),(3)]', 'lseg')"
+  }
+]

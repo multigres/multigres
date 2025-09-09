@@ -1,0 +1,482 @@
+[
+  {
+    "comment": "partition_aggregate - Statement 1",
+    "query": "SET enable_partitionwise_aggregate TO true"
+  },
+  {
+    "comment": "partition_aggregate - Statement 2",
+    "query": "SET enable_partitionwise_join TO true"
+  },
+  {
+    "comment": "partition_aggregate - Statement 3",
+    "query": "SET max_parallel_workers_per_gather TO 0"
+  },
+  {
+    "comment": "partition_aggregate - Statement 4",
+    "query": "SET enable_incremental_sort TO off"
+  },
+  {
+    "comment": "partition_aggregate - Statement 5",
+    "query": "CREATE TABLE pagg_tab (a int, b int, c text, d int) PARTITION BY LIST(c)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 6",
+    "query": "CREATE TABLE pagg_tab_p1 PARTITION OF pagg_tab FOR VALUES IN ('0000', '0001', '0002', '0003', '0004')"
+  },
+  {
+    "comment": "partition_aggregate - Statement 7",
+    "query": "CREATE TABLE pagg_tab_p2 PARTITION OF pagg_tab FOR VALUES IN ('0005', '0006', '0007', '0008')"
+  },
+  {
+    "comment": "partition_aggregate - Statement 8",
+    "query": "CREATE TABLE pagg_tab_p3 PARTITION OF pagg_tab FOR VALUES IN ('0009', '0010', '0011')"
+  },
+  {
+    "comment": "partition_aggregate - Statement 9",
+    "query": "INSERT INTO pagg_tab SELECT i % 20, i % 30, to_char(i % 12, 'FM0000'), i % 30 FROM generate_series(0, 2999) i"
+  },
+  {
+    "comment": "partition_aggregate - Statement 10",
+    "query": "ANALYZE pagg_tab"
+  },
+  {
+    "comment": "partition_aggregate - Statement 11",
+    "query": "EXPLAIN (COSTS OFF) SELECT c, sum(a), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY c HAVING avg(d) < 15 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 12",
+    "query": "SELECT c, sum(a), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY c HAVING avg(d) < 15 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 13",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY a HAVING avg(d) < 15 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 14",
+    "query": "SELECT a, sum(b), avg(b), count(*), min(a), max(b) FROM pagg_tab GROUP BY a HAVING avg(d) < 15 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 15",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, c, count(*) FROM pagg_tab GROUP BY a, c"
+  },
+  {
+    "comment": "partition_aggregate - Statement 16",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, c, count(*) FROM pagg_tab GROUP BY c, a"
+  },
+  {
+    "comment": "partition_aggregate - Statement 17",
+    "query": "EXPLAIN (COSTS OFF) SELECT c, a, count(*) FROM pagg_tab GROUP BY a, c"
+  },
+  {
+    "comment": "partition_aggregate - Statement 18",
+    "query": "EXPLAIN (COSTS OFF) SELECT c, sum(a) FROM pagg_tab WHERE 1 = 2 GROUP BY c"
+  },
+  {
+    "comment": "partition_aggregate - Statement 19",
+    "query": "SELECT c, sum(a) FROM pagg_tab WHERE 1 = 2 GROUP BY c"
+  },
+  {
+    "comment": "partition_aggregate - Statement 20",
+    "query": "EXPLAIN (COSTS OFF) SELECT c, sum(a) FROM pagg_tab WHERE c = 'x' GROUP BY c"
+  },
+  {
+    "comment": "partition_aggregate - Statement 21",
+    "query": "SELECT c, sum(a) FROM pagg_tab WHERE c = 'x' GROUP BY c"
+  },
+  {
+    "comment": "partition_aggregate - Statement 22",
+    "query": "SET enable_hashagg TO false"
+  },
+  {
+    "comment": "partition_aggregate - Statement 23",
+    "query": "EXPLAIN (COSTS OFF) SELECT c, sum(a), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) < 15 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 24",
+    "query": "SELECT c, sum(a), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) < 15 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 25",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) < 15 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 26",
+    "query": "SELECT a, sum(b), avg(b), count(*) FROM pagg_tab GROUP BY 1 HAVING avg(d) < 15 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 27",
+    "query": "EXPLAIN (COSTS OFF) SELECT c FROM pagg_tab GROUP BY c ORDER BY 1"
+  },
+  {
+    "comment": "partition_aggregate - Statement 28",
+    "query": "SELECT c FROM pagg_tab GROUP BY c ORDER BY 1"
+  },
+  {
+    "comment": "partition_aggregate - Statement 29",
+    "query": "EXPLAIN (COSTS OFF) SELECT a FROM pagg_tab WHERE a < 3 GROUP BY a ORDER BY 1"
+  },
+  {
+    "comment": "partition_aggregate - Statement 30",
+    "query": "SELECT a FROM pagg_tab WHERE a < 3 GROUP BY a ORDER BY 1"
+  },
+  {
+    "comment": "partition_aggregate - Statement 31",
+    "query": "RESET enable_hashagg"
+  },
+  {
+    "comment": "partition_aggregate - Statement 32",
+    "query": "EXPLAIN (COSTS OFF) SELECT c, sum(a) FROM pagg_tab GROUP BY rollup(c) ORDER BY 1, 2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 33",
+    "query": "EXPLAIN (COSTS OFF) SELECT c, sum(b order by a) FROM pagg_tab GROUP BY c ORDER BY 1, 2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 34",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b order by a) FROM pagg_tab GROUP BY a ORDER BY 1, 2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 35",
+    "query": "CREATE TABLE pagg_tab1(x int, y int) PARTITION BY RANGE(x)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 36",
+    "query": "CREATE TABLE pagg_tab1_p1 PARTITION OF pagg_tab1 FOR VALUES FROM (0) TO (10)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 37",
+    "query": "CREATE TABLE pagg_tab1_p2 PARTITION OF pagg_tab1 FOR VALUES FROM (10) TO (20)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 38",
+    "query": "CREATE TABLE pagg_tab1_p3 PARTITION OF pagg_tab1 FOR VALUES FROM (20) TO (30)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 39",
+    "query": "CREATE TABLE pagg_tab2(x int, y int) PARTITION BY RANGE(y)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 40",
+    "query": "CREATE TABLE pagg_tab2_p1 PARTITION OF pagg_tab2 FOR VALUES FROM (0) TO (10)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 41",
+    "query": "CREATE TABLE pagg_tab2_p2 PARTITION OF pagg_tab2 FOR VALUES FROM (10) TO (20)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 42",
+    "query": "CREATE TABLE pagg_tab2_p3 PARTITION OF pagg_tab2 FOR VALUES FROM (20) TO (30)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 43",
+    "query": "INSERT INTO pagg_tab1 SELECT i % 30, i % 20 FROM generate_series(0, 299, 2) i"
+  },
+  {
+    "comment": "partition_aggregate - Statement 44",
+    "query": "INSERT INTO pagg_tab2 SELECT i % 20, i % 30 FROM generate_series(0, 299, 3) i"
+  },
+  {
+    "comment": "partition_aggregate - Statement 45",
+    "query": "ANALYZE pagg_tab1"
+  },
+  {
+    "comment": "partition_aggregate - Statement 46",
+    "query": "ANALYZE pagg_tab2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 47",
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.x, sum(t1.y), count(*) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t1.x ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 48",
+    "query": "SELECT t1.x, sum(t1.y), count(*) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t1.x ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 49",
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.x, sum(t1.y), count(t1) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t1.x ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 50",
+    "query": "SELECT t1.x, sum(t1.y), count(t1) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t1.x ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 51",
+    "query": "EXPLAIN (COSTS OFF) SELECT t2.y, sum(t1.y), count(*) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t2.y ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 52",
+    "query": "EXPLAIN (COSTS OFF) SELECT t1.y, sum(t1.x), count(*) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t1.y HAVING avg(t1.x) > 10 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 53",
+    "query": "SELECT t1.y, sum(t1.x), count(*) FROM pagg_tab1 t1, pagg_tab2 t2 WHERE t1.x = t2.y GROUP BY t1.y HAVING avg(t1.x) > 10 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 54",
+    "query": "EXPLAIN (COSTS OFF) SELECT b.y, sum(a.y) FROM pagg_tab1 a LEFT JOIN pagg_tab2 b ON a.x = b.y GROUP BY b.y ORDER BY 1 NULLS LAST"
+  },
+  {
+    "comment": "partition_aggregate - Statement 55",
+    "query": "SELECT b.y, sum(a.y) FROM pagg_tab1 a LEFT JOIN pagg_tab2 b ON a.x = b.y GROUP BY b.y ORDER BY 1 NULLS LAST"
+  },
+  {
+    "comment": "partition_aggregate - Statement 56",
+    "query": "EXPLAIN (COSTS OFF) SELECT b.y, sum(a.y) FROM pagg_tab1 a RIGHT JOIN pagg_tab2 b ON a.x = b.y GROUP BY b.y ORDER BY 1 NULLS LAST"
+  },
+  {
+    "comment": "partition_aggregate - Statement 57",
+    "query": "SELECT b.y, sum(a.y) FROM pagg_tab1 a RIGHT JOIN pagg_tab2 b ON a.x = b.y GROUP BY b.y ORDER BY 1 NULLS LAST"
+  },
+  {
+    "comment": "partition_aggregate - Statement 58",
+    "query": "EXPLAIN (COSTS OFF) SELECT a.x, sum(b.x) FROM pagg_tab1 a FULL OUTER JOIN pagg_tab2 b ON a.x = b.y GROUP BY a.x ORDER BY 1 NULLS LAST"
+  },
+  {
+    "comment": "partition_aggregate - Statement 59",
+    "query": "SELECT a.x, sum(b.x) FROM pagg_tab1 a FULL OUTER JOIN pagg_tab2 b ON a.x = b.y GROUP BY a.x ORDER BY 1 NULLS LAST"
+  },
+  {
+    "comment": "partition_aggregate - Statement 60",
+    "query": "EXPLAIN (COSTS OFF) SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) a LEFT JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) b ON a.x = b.y WHERE a.x > 5 or b.y < 20  GROUP BY a.x, b.y ORDER BY 1, 2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 61",
+    "query": "SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) a LEFT JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) b ON a.x = b.y WHERE a.x > 5 or b.y < 20  GROUP BY a.x, b.y ORDER BY 1, 2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 62",
+    "query": "EXPLAIN (COSTS OFF) SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) a FULL JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) b ON a.x = b.y WHERE a.x > 5 or b.y < 20  GROUP BY a.x, b.y ORDER BY 1, 2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 63",
+    "query": "SELECT a.x, b.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x < 20) a FULL JOIN (SELECT * FROM pagg_tab2 WHERE y > 10) b ON a.x = b.y WHERE a.x > 5 or b.y < 20 GROUP BY a.x, b.y ORDER BY 1, 2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 64",
+    "query": "EXPLAIN (COSTS OFF) SELECT a.x, a.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x = 1 AND x = 2) a LEFT JOIN pagg_tab2 b ON a.x = b.y GROUP BY a.x, a.y ORDER BY 1, 2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 65",
+    "query": "SELECT a.x, a.y, count(*) FROM (SELECT * FROM pagg_tab1 WHERE x = 1 AND x = 2) a LEFT JOIN pagg_tab2 b ON a.x = b.y GROUP BY a.x, a.y ORDER BY 1, 2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 66",
+    "query": "CREATE TABLE pagg_tab_m (a int, b int, c int) PARTITION BY RANGE(a, ((a+b)/2))"
+  },
+  {
+    "comment": "partition_aggregate - Statement 67",
+    "query": "CREATE TABLE pagg_tab_m_p1 PARTITION OF pagg_tab_m FOR VALUES FROM (0, 0) TO (12, 12)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 68",
+    "query": "CREATE TABLE pagg_tab_m_p2 PARTITION OF pagg_tab_m FOR VALUES FROM (12, 12) TO (22, 22)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 69",
+    "query": "CREATE TABLE pagg_tab_m_p3 PARTITION OF pagg_tab_m FOR VALUES FROM (22, 22) TO (30, 30)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 70",
+    "query": "INSERT INTO pagg_tab_m SELECT i % 30, i % 40, i % 50 FROM generate_series(0, 2999) i"
+  },
+  {
+    "comment": "partition_aggregate - Statement 71",
+    "query": "ANALYZE pagg_tab_m"
+  },
+  {
+    "comment": "partition_aggregate - Statement 72",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a HAVING avg(c) < 22 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 73",
+    "query": "SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a HAVING avg(c) < 22 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 74",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a, (a+b)/2 HAVING sum(b) < 50 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 75",
+    "query": "SELECT a, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY a, (a+b)/2 HAVING sum(b) < 50 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 76",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, c, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY (a+b)/2, 2, 1 HAVING sum(b) = 50 AND avg(c) > 25 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 77",
+    "query": "SELECT a, c, sum(b), avg(c), count(*) FROM pagg_tab_m GROUP BY (a+b)/2, 2, 1 HAVING sum(b) = 50 AND avg(c) > 25 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 78",
+    "query": "CREATE TABLE pagg_tab_ml (a int, b int, c text) PARTITION BY RANGE(a)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 79",
+    "query": "CREATE TABLE pagg_tab_ml_p1 PARTITION OF pagg_tab_ml FOR VALUES FROM (0) TO (12)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 80",
+    "query": "CREATE TABLE pagg_tab_ml_p2 PARTITION OF pagg_tab_ml FOR VALUES FROM (12) TO (20) PARTITION BY LIST (c)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 81",
+    "query": "CREATE TABLE pagg_tab_ml_p2_s1 PARTITION OF pagg_tab_ml_p2 FOR VALUES IN ('0000', '0001', '0002')"
+  },
+  {
+    "comment": "partition_aggregate - Statement 82",
+    "query": "CREATE TABLE pagg_tab_ml_p2_s2 PARTITION OF pagg_tab_ml_p2 FOR VALUES IN ('0003')"
+  },
+  {
+    "comment": "partition_aggregate - Statement 83",
+    "query": "CREATE TABLE pagg_tab_ml_p3(b int, c text, a int) PARTITION BY RANGE (b)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 84",
+    "query": "CREATE TABLE pagg_tab_ml_p3_s1(c text, a int, b int)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 85",
+    "query": "CREATE TABLE pagg_tab_ml_p3_s2 PARTITION OF pagg_tab_ml_p3 FOR VALUES FROM (7) TO (10)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 86",
+    "query": "ALTER TABLE pagg_tab_ml_p3 ATTACH PARTITION pagg_tab_ml_p3_s1 FOR VALUES FROM (0) TO (7)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 87",
+    "query": "ALTER TABLE pagg_tab_ml ATTACH PARTITION pagg_tab_ml_p3 FOR VALUES FROM (20) TO (30)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 88",
+    "query": "INSERT INTO pagg_tab_ml SELECT i % 30, i % 10, to_char(i % 4, 'FM0000') FROM generate_series(0, 29999) i"
+  },
+  {
+    "comment": "partition_aggregate - Statement 89",
+    "query": "ANALYZE pagg_tab_ml"
+  },
+  {
+    "comment": "partition_aggregate - Statement 90",
+    "query": "SET max_parallel_workers_per_gather TO 2"
+  },
+  {
+    "comment": "partition_aggregate - Statement 91",
+    "query": "SET parallel_setup_cost = 0"
+  },
+  {
+    "comment": "partition_aggregate - Statement 92",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), array_agg(distinct c), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) < 3 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 93",
+    "query": "SELECT a, sum(b), array_agg(distinct c), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) < 3 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 94",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), array_agg(distinct c), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) < 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 95",
+    "query": "RESET parallel_setup_cost"
+  },
+  {
+    "comment": "partition_aggregate - Statement 96",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) < 3 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 97",
+    "query": "SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a HAVING avg(b) < 3 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 98",
+    "query": "EXPLAIN (COSTS OFF) SELECT b, sum(a), count(*) FROM pagg_tab_ml GROUP BY b ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 99",
+    "query": "SELECT b, sum(a), count(*) FROM pagg_tab_ml GROUP BY b HAVING avg(a) < 15 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 100",
+    "query": "EXPLAIN (COSTS OFF) SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a, b, c HAVING avg(b) > 7 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 101",
+    "query": "SELECT a, sum(b), count(*) FROM pagg_tab_ml GROUP BY a, b, c HAVING avg(b) > 7 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 102",
+    "query": "SET min_parallel_table_scan_size TO '8kB'"
+  },
+  {
+    "comment": "partition_aggregate - Statement 103",
+    "query": "SET parallel_setup_cost TO 0"
+  },
+  {
+    "comment": "partition_aggregate - Statement 104",
+    "query": "SET parallel_setup_cost TO 10"
+  },
+  {
+    "comment": "partition_aggregate - Statement 105",
+    "query": "CREATE TABLE pagg_tab_para(x int, y int) PARTITION BY RANGE(x)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 106",
+    "query": "CREATE TABLE pagg_tab_para_p1 PARTITION OF pagg_tab_para FOR VALUES FROM (0) TO (12)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 107",
+    "query": "CREATE TABLE pagg_tab_para_p2 PARTITION OF pagg_tab_para FOR VALUES FROM (12) TO (22)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 108",
+    "query": "CREATE TABLE pagg_tab_para_p3 PARTITION OF pagg_tab_para FOR VALUES FROM (22) TO (30)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 109",
+    "query": "INSERT INTO pagg_tab_para SELECT i % 30, i % 20 FROM generate_series(0, 29999) i"
+  },
+  {
+    "comment": "partition_aggregate - Statement 110",
+    "query": "ANALYZE pagg_tab_para"
+  },
+  {
+    "comment": "partition_aggregate - Statement 111",
+    "query": "EXPLAIN (COSTS OFF) SELECT x, sum(y), avg(y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) < 7 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 112",
+    "query": "SELECT x, sum(y), avg(y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) < 7 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 113",
+    "query": "EXPLAIN (COSTS OFF) SELECT y, sum(x), avg(x), count(*) FROM pagg_tab_para GROUP BY y HAVING avg(x) < 12 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 114",
+    "query": "SELECT y, sum(x), avg(x), count(*) FROM pagg_tab_para GROUP BY y HAVING avg(x) < 12 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 115",
+    "query": "ALTER TABLE pagg_tab_para_p1 SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 116",
+    "query": "ALTER TABLE pagg_tab_para_p3 SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 117",
+    "query": "EXPLAIN (COSTS OFF) SELECT x, sum(y), avg(y), sum(x+y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) < 7 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 118",
+    "query": "SELECT x, sum(y), avg(y), sum(x+y), count(*) FROM pagg_tab_para GROUP BY x HAVING avg(y) < 7 ORDER BY 1, 2, 3"
+  },
+  {
+    "comment": "partition_aggregate - Statement 119",
+    "query": "ALTER TABLE pagg_tab_para_p2 SET (parallel_workers = 0)"
+  },
+  {
+    "comment": "partition_aggregate - Statement 120",
+    "query": "RESET min_parallel_table_scan_size"
+  }
+]
