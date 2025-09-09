@@ -49,6 +49,7 @@ build:
 	go build -o bin/pgctld ./go/cmd/pgctld
 	go build -o bin/multiorch ./go/cmd/multiorch
 	go build -o bin/multigres ./go/cmd/multigres
+	go build -o bin/multiadmin ./go/cmd/multiadmin
 
 # Build everything (proto + binaries)
 build-all: proto build
@@ -65,6 +66,7 @@ install:
 	go install ./go/cmd/pgctld
 	go install ./go/cmd/multiorch
 	go install ./go/cmd/multigres
+	go install ./go/cmd/multiadmin
 
 # Run tests
 test:

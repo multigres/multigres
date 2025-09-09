@@ -1,0 +1,54 @@
+// Copyright 2025 The Multigres Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package multiadmin;
+
+import "clustermetadata.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/multiadmin";
+
+// MultiAdminService provides administrative gRPC APIs for querying cluster metadata
+service MultiAdminService {
+  // GetCell retrieves information about a specific cell
+  rpc GetCell(GetCellRequest) returns (GetCellResponse);
+
+  // GetDatabase retrieves information about a specific database
+  rpc GetDatabase(GetDatabaseRequest) returns (GetDatabaseResponse);
+}
+
+// GetCellRequest specifies the cell to retrieve
+message GetCellRequest {
+  // name is the name of the cell to retrieve
+  string name = 1;
+}
+
+// GetCellResponse contains the cell information
+message GetCellResponse {
+  // cell contains the Cell protobuf object
+  clustermetadata.Cell cell = 1;
+}
+
+// GetDatabaseRequest specifies the database to retrieve
+message GetDatabaseRequest {
+  // name is the name of the database to retrieve
+  string name = 1;
+}
+
+// GetDatabaseResponse contains the database information
+message GetDatabaseResponse {
+  // database contains the Database protobuf object
+  clustermetadata.Database database = 1;
+}

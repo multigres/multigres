@@ -259,7 +259,7 @@ var (
 	factories = make(map[string]Factory)
 
 	// FlagBinaries lists the binary names that should register topology flags.
-	FlagBinaries = []string{"multigateway", "multiorch", "multipooler", "pgctld"}
+	FlagBinaries = []string{"multigateway", "multiorch", "multipooler", "pgctld", "multiadmin"}
 
 	// DefaultReadConcurrency is the default read concurrency limit to avoid
 	// overwhelming the topology server with too many concurrent requests.
