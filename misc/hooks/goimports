@@ -22,15 +22,6 @@
 # Modifications Copyright 2025 The Multigres Authors.
 
 
-# Required version of goimports
-REQUIRED_VERSION="v0.36.0"
-
-# Check if goimports is installed
-if ! command -v goimports >/dev/null 2>&1; then
-  echo "goimports not found. Installing version $REQUIRED_VERSION..."
-  go install golang.org/x/tools/cmd/goimports@$REQUIRED_VERSION
-fi
-
 # Get list of Go files to check
 gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep -v '^pb/')
 
