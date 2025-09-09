@@ -161,13 +161,26 @@ func (a *A_Expr) SqlString() string {
 	case AEXPR_IN:
 		if a.Lexpr != nil && a.Rexpr != nil {
 			leftStr := a.Lexpr.SqlString()
+			// Determine if this is IN or NOT IN based on the operator
+			var op string
+			if a.Name != nil && len(a.Name.Items) > 0 {
+				if str, ok := a.Name.Items[0].(*String); ok {
+					op = str.SVal
+				}
+			}
 			// Check if Rexpr is a SubLink (for subqueries)
 			if sublink, ok := a.Rexpr.(*SubLink); ok {
 				// SubLink will handle its own deparsing  
+				if op == "<>" {
+					return fmt.Sprintf("%s NOT IN %s", leftStr, sublink.SqlString())
+				}
 				return fmt.Sprintf("%s IN %s", leftStr, sublink.SqlString())
 			}
 			// Otherwise, it's a list of values
 			rightStr := a.Rexpr.SqlString()
+			if op == "<>" {
+				return fmt.Sprintf("%s NOT IN (%s)", leftStr, rightStr)
+			}
 			return fmt.Sprintf("%s IN (%s)", leftStr, rightStr)
 		}
 		return "IN_EXPR"

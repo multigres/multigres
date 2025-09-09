@@ -2326,13 +2326,37 @@ a_expr:		c_expr								{ $$ = $1 }
 			}
 		|	a_expr IN_P in_expr
 			{
-				name := ast.NewNodeList(ast.NewString("="))
-				$$ = ast.NewA_Expr(ast.AEXPR_IN, name, $1, $3, 0)
+				// in_expr returns a SubLink or a list of a_exprs
+				if sublink, ok := $3.(*ast.SubLink); ok {
+					// generate foo = ANY (subquery)
+					sublink.SubLinkType = ast.ANY_SUBLINK
+					sublink.SubLinkId = 0
+					sublink.Testexpr = $1
+					sublink.OperName = nil  // show it's IN not = ANY
+					$$ = sublink
+				} else {
+					// generate scalar IN expression
+					name := ast.NewNodeList(ast.NewString("="))
+					$$ = ast.NewA_Expr(ast.AEXPR_IN, name, $1, $3, 0)
+				}
 			}
 		|	a_expr NOT_LA IN_P in_expr %prec NOT_LA
 			{
-				name := ast.NewNodeList(ast.NewString("<>"))
-				$$ = ast.NewA_Expr(ast.AEXPR_IN, name, $1, $4, 0)
+				// in_expr returns a SubLink or a list of a_exprs
+				if sublink, ok := $4.(*ast.SubLink); ok {
+					// generate NOT (foo = ANY (subquery))
+					// Make an = ANY node
+					sublink.SubLinkType = ast.ANY_SUBLINK
+					sublink.SubLinkId = 0
+					sublink.Testexpr = $1
+					sublink.OperName = nil  // show it's IN not = ANY
+					// Stick a NOT on top
+					$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(sublink))
+				} else {
+					// generate scalar NOT IN expression
+					name := ast.NewNodeList(ast.NewString("<>"))
+					$$ = ast.NewA_Expr(ast.AEXPR_IN, name, $1, $4, 0)
+				}
 			}
 		|	a_expr subquery_Op sub_type select_with_parens %prec Op
 			{

@@ -942,13 +942,16 @@ func (s *SubLink) SqlString() string {
 		
 	case ANY_SUBLINK:
 		// expr op ANY(subquery) - includes IN which is = ANY
-		if s.Testexpr != nil && s.OperName != nil && len(s.OperName.Items) > 0 {
-			op := extractOperatorFromNodeList(s.OperName)
-			// Special case: IN is syntactic sugar for = ANY
-			if op == "=" {
+		if s.Testexpr != nil {
+			// Special case: OperName nil means it's IN not = ANY
+			if s.OperName == nil {
 				return fmt.Sprintf("%s IN (%s)", s.Testexpr.SqlString(), s.Subselect.SqlString())
 			}
-			return fmt.Sprintf("%s %s ANY (%s)", s.Testexpr.SqlString(), op, s.Subselect.SqlString())
+			// Regular ANY with operator
+			if len(s.OperName.Items) > 0 {
+				op := extractOperatorFromNodeList(s.OperName)
+				return fmt.Sprintf("%s %s ANY (%s)", s.Testexpr.SqlString(), op, s.Subselect.SqlString())
+			}
 		}
 		return fmt.Sprintf("ANY (%s)", s.Subselect.SqlString())
 		

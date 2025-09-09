@@ -74,8 +74,13 @@ func (s *parseTestSuite) testFile(filename string) {
 				Expected: expectedQuery,
 			}
 
-			// Parse both the original query and expected query
+			// Parse both the query and and parse the output again.
 			parsedOutput, err := getParserOutput(tcase.Query)
+			var secondErr error
+			var secondParsedOutput string
+			if parsedOutput != "" {
+				secondParsedOutput, secondErr = getParserOutput(parsedOutput)
+			}
 
 			t.Run(testName, func(t *testing.T) {
 				defer func() {
@@ -99,7 +104,10 @@ func (s *parseTestSuite) testFile(filename string) {
 					require.ErrorContains(t, err, tcase.Error)
 				} else {
 					// We expect a successful parse
+					require.NoError(t, err)
 					require.EqualValues(t, expectedQuery, parsedOutput)
+					require.NoError(t, secondErr)
+					require.EqualValues(t, expectedQuery, secondParsedOutput)
 				}
 			})
 		}

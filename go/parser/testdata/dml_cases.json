@@ -281,8 +281,7 @@
   },
   {
     "comment": "UPDATE with WITH clause",
-    "query": "WITH temp AS (SELECT id FROM active_users) UPDATE users SET active = FALSE WHERE id IN (SELECT id FROM temp)",
-    "expected": "WITH temp AS (SELECT id FROM active_users) UPDATE users SET active = FALSE WHERE id IN ANY (SELECT id FROM temp)"
+    "query": "WITH temp AS (SELECT id FROM active_users) UPDATE users SET active = FALSE WHERE id IN (SELECT id FROM temp)"
   },
   {
     "comment": "UPDATE with subquery in SET",
@@ -290,8 +289,7 @@
   },
   {
     "comment": "UPDATE with subquery in WHERE",
-    "query": "UPDATE users SET active = FALSE WHERE id IN (SELECT user_id FROM banned_users)",
-    "expected": "UPDATE users SET active = FALSE WHERE id IN ANY (SELECT user_id FROM banned_users)"
+    "query": "UPDATE users SET active = FALSE WHERE id IN (SELECT user_id FROM banned_users)"
   },
   {
     "comment": "DELETE simple",
@@ -333,13 +331,11 @@
   },
   {
     "comment": "DELETE with WITH clause",
-    "query": "WITH temp AS (SELECT id FROM inactive_users) DELETE FROM users WHERE id IN (SELECT id FROM temp)",
-    "expected": "WITH temp AS (SELECT id FROM inactive_users) DELETE FROM users WHERE id IN ANY (SELECT id FROM temp)"
+    "query": "WITH temp AS (SELECT id FROM inactive_users) DELETE FROM users WHERE id IN (SELECT id FROM temp)"
   },
   {
     "comment": "DELETE with subquery in WHERE",
-    "query": "DELETE FROM users WHERE id IN (SELECT user_id FROM temp_table)",
-    "expected": "DELETE FROM users WHERE id IN ANY (SELECT user_id FROM temp_table)"
+    "query": "DELETE FROM users WHERE id IN (SELECT user_id FROM temp_table)"
   },
   {
     "comment": "MERGE basic",
