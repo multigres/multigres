@@ -26,7 +26,7 @@ gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep 
 [ -z "$gofiles" ] && exit 0
 
 # Check for unformatted files
-unformatted=$(go tool gofumpt -s -l $gofiles 2>&1)
+unformatted=$(go tool gofumpt -l $gofiles 2>&1)
 
 # Exit if all files are already formatted
 [ -z "$unformatted" ] && exit 0
@@ -52,7 +52,7 @@ files=$(
 # Format each file and re-stage it
 for f in $files; do
   echo "  Formatting $f"
-  go tool gofumpt -s -w "$f"
+  go tool gofumpt -w "$f"
   git add "$f"
 done
 
