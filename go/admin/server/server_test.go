@@ -31,7 +31,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestMultiAdminServer_GetCell(t *testing.T) {
+func TestMultiAdminServerGetCell(t *testing.T) {
 	// Create a memory topology for testing
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
@@ -91,7 +91,7 @@ func TestMultiAdminServer_GetCell(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServer_GetDatabase(t *testing.T) {
+func TestMultiAdminServerGetDatabase(t *testing.T) {
 	// Create a memory topology for testing
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
