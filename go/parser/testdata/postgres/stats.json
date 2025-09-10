@@ -185,11 +185,11 @@
   },
   {
     "comment": "stats - Statement 47",
-    "query": "SELECT pg_stat_get_function_calls(:stats_test_func1_oid)"
+    "query": "SELECT pg_stat_get_function_calls(12345)"
   },
   {
     "comment": "stats - Statement 48",
-    "query": "SELECT pg_stat_get_xact_function_calls(:stats_test_func1_oid)"
+    "query": "SELECT pg_stat_get_xact_function_calls(12345)"
   },
   {
     "comment": "stats - Statement 49",
@@ -209,810 +209,770 @@
   },
   {
     "comment": "stats - Statement 53",
-    "query": "SELECT pg_stat_get_xact_function_calls(:stats_test_func2_oid)"
+    "query": "SELECT funcname, calls FROM pg_stat_user_functions WHERE funcid = 12345"
   },
   {
     "comment": "stats - Statement 54",
-    "query": "SELECT funcname, calls FROM pg_stat_user_functions WHERE funcid = :stats_test_func1_oid"
-  },
-  {
-    "comment": "stats - Statement 55",
-    "query": "SELECT funcname, calls FROM pg_stat_user_functions WHERE funcid = :stats_test_func2_oid"
-  },
-  {
-    "comment": "stats - Statement 56",
     "query": "DROP FUNCTION stats_test_func1()"
   },
   {
-    "comment": "stats - Statement 57",
+    "comment": "stats - Statement 55",
     "query": "SAVEPOINT a"
   },
   {
-    "comment": "stats - Statement 58",
+    "comment": "stats - Statement 56",
     "query": "SAVEPOINT b"
   },
   {
-    "comment": "stats - Statement 59",
+    "comment": "stats - Statement 57",
     "query": "DROP FUNCTION stats_test_func2()"
   },
   {
-    "comment": "stats - Statement 60",
-    "query": "SELECT pg_stat_get_function_calls(:stats_test_func2_oid)"
-  },
-  {
-    "comment": "stats - Statement 61",
+    "comment": "stats - Statement 58",
     "query": "CREATE TABLE drop_stats_test()"
   },
   {
-    "comment": "stats - Statement 62",
+    "comment": "stats - Statement 59",
     "query": "INSERT INTO drop_stats_test DEFAULT VALUES"
   },
   {
-    "comment": "stats - Statement 63",
+    "comment": "stats - Statement 60",
     "query": "SELECT 'drop_stats_test'::regclass::oid AS drop_stats_test_oid"
   },
   {
-    "comment": "stats - Statement 64",
+    "comment": "stats - Statement 61",
     "query": "CREATE TABLE drop_stats_test_xact()"
   },
   {
-    "comment": "stats - Statement 65",
+    "comment": "stats - Statement 62",
     "query": "INSERT INTO drop_stats_test_xact DEFAULT VALUES"
   },
   {
-    "comment": "stats - Statement 66",
+    "comment": "stats - Statement 63",
     "query": "SELECT 'drop_stats_test_xact'::regclass::oid AS drop_stats_test_xact_oid"
   },
   {
-    "comment": "stats - Statement 67",
+    "comment": "stats - Statement 64",
     "query": "CREATE TABLE drop_stats_test_subxact()"
   },
   {
-    "comment": "stats - Statement 68",
+    "comment": "stats - Statement 65",
     "query": "INSERT INTO drop_stats_test_subxact DEFAULT VALUES"
   },
   {
-    "comment": "stats - Statement 69",
+    "comment": "stats - Statement 66",
     "query": "SELECT 'drop_stats_test_subxact'::regclass::oid AS drop_stats_test_subxact_oid"
   },
   {
-    "comment": "stats - Statement 70",
-    "query": "SELECT pg_stat_get_live_tuples(:drop_stats_test_oid)"
+    "comment": "stats - Statement 67",
+    "query": "SELECT pg_stat_get_live_tuples(12345)"
   },
   {
-    "comment": "stats - Statement 71",
+    "comment": "stats - Statement 68",
     "query": "DROP TABLE drop_stats_test"
   },
   {
-    "comment": "stats - Statement 72",
-    "query": "SELECT pg_stat_get_xact_tuples_inserted(:drop_stats_test_oid)"
+    "comment": "stats - Statement 69",
+    "query": "SELECT pg_stat_get_xact_tuples_inserted(12345)"
   },
   {
-    "comment": "stats - Statement 73",
-    "query": "SELECT pg_stat_get_live_tuples(:drop_stats_test_xact_oid)"
+    "comment": "stats - Statement 70",
+    "query": "SELECT pg_stat_get_tuples_inserted(12345)"
   },
   {
-    "comment": "stats - Statement 74",
-    "query": "SELECT pg_stat_get_tuples_inserted(:drop_stats_test_xact_oid)"
-  },
-  {
-    "comment": "stats - Statement 75",
-    "query": "SELECT pg_stat_get_xact_tuples_inserted(:drop_stats_test_xact_oid)"
-  },
-  {
-    "comment": "stats - Statement 76",
+    "comment": "stats - Statement 71",
     "query": "DROP TABLE drop_stats_test_xact"
   },
   {
-    "comment": "stats - Statement 77",
-    "query": "SELECT pg_stat_get_live_tuples(:drop_stats_test_subxact_oid)"
-  },
-  {
-    "comment": "stats - Statement 78",
+    "comment": "stats - Statement 72",
     "query": "SAVEPOINT sp1"
   },
   {
-    "comment": "stats - Statement 79",
-    "query": "SELECT pg_stat_get_xact_tuples_inserted(:drop_stats_test_subxact_oid)"
-  },
-  {
-    "comment": "stats - Statement 80",
+    "comment": "stats - Statement 73",
     "query": "SAVEPOINT sp2"
   },
   {
-    "comment": "stats - Statement 81",
+    "comment": "stats - Statement 74",
     "query": "DROP TABLE drop_stats_test_subxact"
   },
   {
-    "comment": "stats - Statement 82",
+    "comment": "stats - Statement 75",
     "query": "ROLLBACK TO SAVEPOINT sp2"
   },
   {
-    "comment": "stats - Statement 83",
+    "comment": "stats - Statement 76",
     "query": "ROLLBACK TO SAVEPOINT sp1"
   },
   {
-    "comment": "stats - Statement 84",
+    "comment": "stats - Statement 77",
     "query": "RELEASE SAVEPOINT sp1"
   },
   {
-    "comment": "stats - Statement 85",
+    "comment": "stats - Statement 78",
     "query": "DROP TABLE trunc_stats_test, trunc_stats_test1, trunc_stats_test2, trunc_stats_test3, trunc_stats_test4"
   },
   {
-    "comment": "stats - Statement 86",
+    "comment": "stats - Statement 79",
     "query": "DROP TABLE prevstats"
   },
   {
-    "comment": "stats - Statement 87",
+    "comment": "stats - Statement 80",
     "query": "CREATE TEMPORARY TABLE test_last_scan(idx_col int primary key, noidx_col int)"
   },
   {
-    "comment": "stats - Statement 88",
+    "comment": "stats - Statement 81",
     "query": "INSERT INTO test_last_scan(idx_col, noidx_col) VALUES(1, 1)"
   },
   {
-    "comment": "stats - Statement 89",
+    "comment": "stats - Statement 82",
     "query": "SELECT last_seq_scan, last_idx_scan FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass"
   },
   {
-    "comment": "stats - Statement 90",
+    "comment": "stats - Statement 83",
     "query": "SELECT pg_stat_reset_single_table_counters('test_last_scan'::regclass)"
   },
   {
-    "comment": "stats - Statement 91",
+    "comment": "stats - Statement 84",
     "query": "SELECT seq_scan, idx_scan FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass"
   },
   {
-    "comment": "stats - Statement 92",
+    "comment": "stats - Statement 85",
     "query": "SET LOCAL enable_seqscan TO on"
   },
   {
-    "comment": "stats - Statement 93",
+    "comment": "stats - Statement 86",
     "query": "SET LOCAL enable_indexscan TO on"
   },
   {
-    "comment": "stats - Statement 94",
+    "comment": "stats - Statement 87",
     "query": "SET LOCAL enable_bitmapscan TO off"
   },
   {
-    "comment": "stats - Statement 95",
+    "comment": "stats - Statement 88",
     "query": "EXPLAIN (COSTS off) SELECT count(*) FROM test_last_scan WHERE noidx_col = 1"
   },
   {
-    "comment": "stats - Statement 96",
+    "comment": "stats - Statement 89",
     "query": "SELECT count(*) FROM test_last_scan WHERE noidx_col = 1"
   },
   {
-    "comment": "stats - Statement 97",
+    "comment": "stats - Statement 90",
     "query": "SET LOCAL enable_seqscan TO off"
   },
   {
-    "comment": "stats - Statement 98",
+    "comment": "stats - Statement 91",
     "query": "EXPLAIN (COSTS off) SELECT count(*) FROM test_last_scan WHERE idx_col = 1"
   },
   {
-    "comment": "stats - Statement 99",
+    "comment": "stats - Statement 92",
     "query": "SELECT count(*) FROM test_last_scan WHERE idx_col = 1"
   },
   {
-    "comment": "stats - Statement 100",
+    "comment": "stats - Statement 93",
     "query": "SELECT last_seq_scan AS test_last_seq, last_idx_scan AS test_last_idx FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass"
   },
   {
-    "comment": "stats - Statement 101",
+    "comment": "stats - Statement 94",
     "query": "SELECT pg_sleep(0.1)"
   },
   {
-    "comment": "stats - Statement 102",
+    "comment": "stats - Statement 95",
     "query": "SET LOCAL enable_indexscan TO off"
   },
   {
-    "comment": "stats - Statement 103",
+    "comment": "stats - Statement 96",
     "query": "SELECT seq_scan, :'test_last_seq' < last_seq_scan AS seq_ok, idx_scan, :'test_last_idx' = last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass"
   },
   {
-    "comment": "stats - Statement 104",
+    "comment": "stats - Statement 97",
     "query": "SELECT seq_scan, :'test_last_seq' = last_seq_scan AS seq_ok, idx_scan, :'test_last_idx' < last_idx_scan AS idx_ok FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass"
   },
   {
-    "comment": "stats - Statement 105",
+    "comment": "stats - Statement 98",
     "query": "SET LOCAL enable_bitmapscan TO on"
   },
   {
-    "comment": "stats - Statement 106",
+    "comment": "stats - Statement 99",
     "query": "SELECT shobj_description(d.oid, 'pg_database') as description_before FROM pg_database d WHERE datname = current_database()"
   },
   {
-    "comment": "stats - Statement 107",
+    "comment": "stats - Statement 100",
     "query": "SELECT current_database() as datname"
   },
   {
-    "comment": "stats - Statement 108",
+    "comment": "stats - Statement 101",
     "query": "COMMENT ON DATABASE :\"datname\" IS 'This is a test comment'"
   },
   {
-    "comment": "stats - Statement 109",
+    "comment": "stats - Statement 102",
     "query": "SELECT (n_tup_ins + n_tup_upd) > 0 AS has_data FROM pg_stat_all_tables WHERE relid = 'pg_shdescription'::regclass"
   },
   {
-    "comment": "stats - Statement 110",
+    "comment": "stats - Statement 103",
     "query": "SELECT pg_stat_reset_single_table_counters('pg_shdescription'::regclass)"
   },
   {
-    "comment": "stats - Statement 111",
-    "query": "SELECT sessions > :db_stat_sessions FROM pg_stat_database WHERE datname = (SELECT current_database())"
+    "comment": "stats - Statement 104",
+    "query": "SELECT sessions > 1 FROM pg_stat_database WHERE datname = (SELECT current_database())"
   },
   {
-    "comment": "stats - Statement 112",
+    "comment": "stats - Statement 105",
     "query": "SELECT num_requested AS rqst_ckpts_before FROM pg_stat_checkpointer"
   },
   {
-    "comment": "stats - Statement 113",
+    "comment": "stats - Statement 106",
     "query": "SELECT wal_bytes AS wal_bytes_before FROM pg_stat_wal"
   },
   {
-    "comment": "stats - Statement 114",
+    "comment": "stats - Statement 107",
     "query": "CREATE TEMP TABLE test_stats_temp AS SELECT 17"
   },
   {
-    "comment": "stats - Statement 115",
+    "comment": "stats - Statement 108",
     "query": "DROP TABLE test_stats_temp"
   },
   {
-    "comment": "stats - Statement 116",
+    "comment": "stats - Statement 109",
     "query": "CHECKPOINT"
   },
   {
-    "comment": "stats - Statement 117",
-    "query": "SELECT num_requested > :rqst_ckpts_before FROM pg_stat_checkpointer"
+    "comment": "stats - Statement 110",
+    "query": "SELECT num_requested > 1000 FROM pg_stat_checkpointer"
   },
   {
-    "comment": "stats - Statement 118",
-    "query": "SELECT wal_bytes > :wal_bytes_before FROM pg_stat_wal"
+    "comment": "stats - Statement 111",
+    "query": "SELECT wal_bytes > 1000 FROM pg_stat_wal"
   },
   {
-    "comment": "stats - Statement 119",
+    "comment": "stats - Statement 112",
     "query": "SELECT (current_schemas(true))[1] = ('pg_temp_' || beid::text) AS match FROM pg_stat_get_backend_idset() beid WHERE pg_stat_get_backend_pid(beid) = pg_backend_pid()"
   },
   {
-    "comment": "stats - Statement 120",
+    "comment": "stats - Statement 113",
     "query": "SELECT stats_reset AS slru_commit_ts_reset_ts FROM pg_stat_slru WHERE name = 'commit_timestamp'"
   },
   {
-    "comment": "stats - Statement 121",
+    "comment": "stats - Statement 114",
     "query": "SELECT stats_reset AS slru_notify_reset_ts FROM pg_stat_slru WHERE name = 'notify'"
   },
   {
-    "comment": "stats - Statement 122",
+    "comment": "stats - Statement 115",
     "query": "SELECT pg_stat_reset_slru('commit_timestamp')"
   },
   {
-    "comment": "stats - Statement 123",
+    "comment": "stats - Statement 116",
     "query": "SELECT stats_reset > :'slru_commit_ts_reset_ts'::timestamptz FROM pg_stat_slru WHERE name = 'commit_timestamp'"
   },
   {
-    "comment": "stats - Statement 124",
+    "comment": "stats - Statement 117",
     "query": "SELECT pg_stat_reset_slru()"
   },
   {
-    "comment": "stats - Statement 125",
+    "comment": "stats - Statement 118",
     "query": "SELECT stats_reset > :'slru_notify_reset_ts'::timestamptz FROM pg_stat_slru WHERE name = 'notify'"
   },
   {
-    "comment": "stats - Statement 126",
+    "comment": "stats - Statement 119",
     "query": "SELECT stats_reset AS archiver_reset_ts FROM pg_stat_archiver"
   },
   {
-    "comment": "stats - Statement 127",
+    "comment": "stats - Statement 120",
     "query": "SELECT pg_stat_reset_shared('archiver')"
   },
   {
-    "comment": "stats - Statement 128",
+    "comment": "stats - Statement 121",
     "query": "SELECT stats_reset > :'archiver_reset_ts'::timestamptz FROM pg_stat_archiver"
   },
   {
-    "comment": "stats - Statement 129",
+    "comment": "stats - Statement 122",
     "query": "SELECT stats_reset AS bgwriter_reset_ts FROM pg_stat_bgwriter"
   },
   {
-    "comment": "stats - Statement 130",
+    "comment": "stats - Statement 123",
     "query": "SELECT pg_stat_reset_shared('bgwriter')"
   },
   {
-    "comment": "stats - Statement 131",
+    "comment": "stats - Statement 124",
     "query": "SELECT stats_reset > :'bgwriter_reset_ts'::timestamptz FROM pg_stat_bgwriter"
   },
   {
-    "comment": "stats - Statement 132",
+    "comment": "stats - Statement 125",
     "query": "SELECT stats_reset AS checkpointer_reset_ts FROM pg_stat_checkpointer"
   },
   {
-    "comment": "stats - Statement 133",
+    "comment": "stats - Statement 126",
     "query": "SELECT pg_stat_reset_shared('checkpointer')"
   },
   {
-    "comment": "stats - Statement 134",
+    "comment": "stats - Statement 127",
     "query": "SELECT stats_reset > :'checkpointer_reset_ts'::timestamptz FROM pg_stat_checkpointer"
   },
   {
-    "comment": "stats - Statement 135",
+    "comment": "stats - Statement 128",
     "query": "SELECT stats_reset AS recovery_prefetch_reset_ts FROM pg_stat_recovery_prefetch"
   },
   {
-    "comment": "stats - Statement 136",
+    "comment": "stats - Statement 129",
     "query": "SELECT pg_stat_reset_shared('recovery_prefetch')"
   },
   {
-    "comment": "stats - Statement 137",
+    "comment": "stats - Statement 130",
     "query": "SELECT stats_reset > :'recovery_prefetch_reset_ts'::timestamptz FROM pg_stat_recovery_prefetch"
   },
   {
-    "comment": "stats - Statement 138",
+    "comment": "stats - Statement 131",
     "query": "SELECT max(stats_reset) AS slru_reset_ts FROM pg_stat_slru"
   },
   {
-    "comment": "stats - Statement 139",
+    "comment": "stats - Statement 132",
     "query": "SELECT pg_stat_reset_shared('slru')"
   },
   {
-    "comment": "stats - Statement 140",
+    "comment": "stats - Statement 133",
     "query": "SELECT max(stats_reset) > :'slru_reset_ts'::timestamptz FROM pg_stat_slru"
   },
   {
-    "comment": "stats - Statement 141",
+    "comment": "stats - Statement 134",
     "query": "SELECT stats_reset AS wal_reset_ts FROM pg_stat_wal"
   },
   {
-    "comment": "stats - Statement 142",
+    "comment": "stats - Statement 135",
     "query": "SELECT pg_stat_reset_shared('wal')"
   },
   {
-    "comment": "stats - Statement 143",
+    "comment": "stats - Statement 136",
     "query": "SELECT stats_reset > :'wal_reset_ts'::timestamptz FROM pg_stat_wal"
   },
   {
-    "comment": "stats - Statement 144",
+    "comment": "stats - Statement 137",
     "query": "SELECT pg_stat_reset_shared('unknown')"
   },
   {
-    "comment": "stats - Statement 145",
+    "comment": "stats - Statement 138",
     "query": "SELECT pg_stat_reset()"
   },
   {
-    "comment": "stats - Statement 146",
+    "comment": "stats - Statement 139",
     "query": "SELECT stats_reset AS db_reset_ts FROM pg_stat_database WHERE datname = (SELECT current_database())"
   },
   {
-    "comment": "stats - Statement 147",
+    "comment": "stats - Statement 140",
     "query": "SELECT stats_reset > :'db_reset_ts'::timestamptz FROM pg_stat_database WHERE datname = (SELECT current_database())"
   },
   {
-    "comment": "stats - Statement 148",
+    "comment": "stats - Statement 141",
     "query": "SELECT pg_stat_get_snapshot_timestamp()"
   },
   {
-    "comment": "stats - Statement 149",
+    "comment": "stats - Statement 142",
     "query": "SELECT pg_stat_get_function_calls(0)"
   },
   {
-    "comment": "stats - Statement 150",
+    "comment": "stats - Statement 143",
     "query": "SELECT pg_stat_get_snapshot_timestamp() >= NOW()"
   },
   {
-    "comment": "stats - Statement 151",
+    "comment": "stats - Statement 144",
     "query": "SELECT pg_stat_clear_snapshot()"
   },
   {
-    "comment": "stats - Statement 152",
+    "comment": "stats - Statement 145",
     "query": "SET LOCAL stats_fetch_consistency = cache"
   },
   {
-    "comment": "stats - Statement 153",
+    "comment": "stats - Statement 146",
     "query": "SELECT pg_stat_get_snapshot_timestamp() IS NOT NULL AS snapshot_ok"
   },
   {
-    "comment": "stats - Statement 154",
+    "comment": "stats - Statement 147",
     "query": "SELECT pg_stat_have_stats('bgwriter', 0, 0)"
   },
   {
-    "comment": "stats - Statement 155",
+    "comment": "stats - Statement 148",
     "query": "SELECT pg_stat_have_stats('zaphod', 0, 0)"
   },
   {
-    "comment": "stats - Statement 156",
-    "query": "SELECT pg_stat_have_stats('database', :dboid, 1)"
+    "comment": "stats - Statement 149",
+    "query": "SELECT pg_stat_have_stats('database', 1, 1)"
   },
   {
-    "comment": "stats - Statement 157",
-    "query": "SELECT pg_stat_have_stats('database', :dboid, 0)"
+    "comment": "stats - Statement 150",
+    "query": "SELECT pg_stat_have_stats('database', 1, 0)"
   },
   {
-    "comment": "stats - Statement 158",
+    "comment": "stats - Statement 151",
     "query": "CREATE table stats_test_tab1 as select generate_series(1,10) a"
   },
   {
-    "comment": "stats - Statement 159",
+    "comment": "stats - Statement 152",
     "query": "CREATE index stats_test_idx1 on stats_test_tab1(a)"
   },
   {
-    "comment": "stats - Statement 160",
+    "comment": "stats - Statement 153",
     "query": "SELECT 'stats_test_idx1'::regclass::oid AS stats_test_idx1_oid"
   },
   {
-    "comment": "stats - Statement 161",
+    "comment": "stats - Statement 154",
     "query": "SET enable_seqscan TO off"
   },
   {
-    "comment": "stats - Statement 162",
+    "comment": "stats - Statement 155",
     "query": "select a from stats_test_tab1 where a = 3"
   },
   {
-    "comment": "stats - Statement 163",
-    "query": "SELECT pg_stat_have_stats('relation', :dboid, :stats_test_idx1_oid)"
+    "comment": "stats - Statement 156",
+    "query": "SELECT pg_stat_have_stats('relation', 1, 12345)"
   },
   {
-    "comment": "stats - Statement 164",
+    "comment": "stats - Statement 157",
     "query": "DROP index stats_test_idx1"
   },
   {
-    "comment": "stats - Statement 165",
+    "comment": "stats - Statement 158",
     "query": "REINDEX index CONCURRENTLY stats_test_idx1"
   },
   {
-    "comment": "stats - Statement 166",
+    "comment": "stats - Statement 159",
     "query": "SELECT pg_stat_get_replication_slot(NULL)"
   },
   {
-    "comment": "stats - Statement 167",
+    "comment": "stats - Statement 160",
     "query": "SELECT pg_stat_get_subscription_stats(NULL)"
   },
   {
-    "comment": "stats - Statement 168",
+    "comment": "stats - Statement 161",
     "query": "SELECT sum(extends) AS io_sum_shared_before_extends FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
-    "comment": "stats - Statement 169",
+    "comment": "stats - Statement 162",
     "query": "SELECT sum(writes) AS writes, sum(fsyncs) AS fsyncs FROM pg_stat_io WHERE object = 'relation'"
   },
   {
-    "comment": "stats - Statement 170",
+    "comment": "stats - Statement 163",
     "query": "io_sum_shared_before_ CREATE TABLE test_io_shared(a int)"
   },
   {
-    "comment": "stats - Statement 171",
+    "comment": "stats - Statement 164",
     "query": "INSERT INTO test_io_shared SELECT i FROM generate_series(1,100)i"
   },
   {
-    "comment": "stats - Statement 172",
+    "comment": "stats - Statement 165",
     "query": "SELECT sum(extends) AS io_sum_shared_after_extends FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
-    "comment": "stats - Statement 173",
-    "query": "SELECT :io_sum_shared_after_extends > :io_sum_shared_before_extends"
+    "comment": "stats - Statement 166",
+    "query": "SELECT 1000 > 1000"
   },
   {
-    "comment": "stats - Statement 174",
-    "query": "io_sum_shared_after_ SELECT :io_sum_shared_after_writes > :io_sum_shared_before_writes"
+    "comment": "stats - Statement 167",
+    "query": "io_sum_shared_after_ SELECT 1000 > 1000"
   },
   {
-    "comment": "stats - Statement 175",
-    "query": "SELECT current_setting('fsync') = 'off' OR :io_sum_shared_after_fsyncs > :io_sum_shared_before_fsyncs"
+    "comment": "stats - Statement 168",
+    "query": "SELECT current_setting('fsync') = 'off' OR 1000 > 1000"
   },
   {
-    "comment": "stats - Statement 176",
+    "comment": "stats - Statement 169",
     "query": "SELECT sum(reads) AS io_sum_shared_before_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
-    "comment": "stats - Statement 177",
+    "comment": "stats - Statement 170",
     "query": "ALTER TABLE test_io_shared SET TABLESPACE regress_tblspace"
   },
   {
-    "comment": "stats - Statement 178",
+    "comment": "stats - Statement 171",
     "query": "SELECT COUNT(*) FROM test_io_shared"
   },
   {
-    "comment": "stats - Statement 179",
+    "comment": "stats - Statement 172",
     "query": "SELECT sum(reads) AS io_sum_shared_after_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
-    "comment": "stats - Statement 180",
-    "query": "SELECT :io_sum_shared_after_reads > :io_sum_shared_before_reads"
-  },
-  {
-    "comment": "stats - Statement 181",
+    "comment": "stats - Statement 173",
     "query": "SELECT sum(hits) AS io_sum_shared_before_hits FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
-    "comment": "stats - Statement 182",
+    "comment": "stats - Statement 174",
     "query": "SET LOCAL enable_nestloop TO on; SET LOCAL enable_mergejoin TO off"
   },
   {
-    "comment": "stats - Statement 183",
+    "comment": "stats - Statement 175",
     "query": "SET LOCAL enable_hashjoin TO off; SET LOCAL enable_material TO off"
   },
   {
-    "comment": "stats - Statement 184",
+    "comment": "stats - Statement 176",
     "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*) FROM test_io_shared t1 INNER JOIN test_io_shared t2 USING (a)"
   },
   {
-    "comment": "stats - Statement 185",
+    "comment": "stats - Statement 177",
     "query": "SELECT COUNT(*) FROM test_io_shared t1 INNER JOIN test_io_shared t2 USING (a)"
   },
   {
-    "comment": "stats - Statement 186",
+    "comment": "stats - Statement 178",
     "query": "SELECT sum(hits) AS io_sum_shared_after_hits FROM pg_stat_io WHERE context = 'normal' AND object = 'relation'"
   },
   {
-    "comment": "stats - Statement 187",
-    "query": "SELECT :io_sum_shared_after_hits > :io_sum_shared_before_hits"
-  },
-  {
-    "comment": "stats - Statement 188",
+    "comment": "stats - Statement 179",
     "query": "DROP TABLE test_io_shared"
   },
   {
-    "comment": "stats - Statement 189",
+    "comment": "stats - Statement 180",
     "query": "CREATE TEMPORARY TABLE test_io_local(a int, b TEXT)"
   },
   {
-    "comment": "stats - Statement 190",
+    "comment": "stats - Statement 181",
     "query": "SELECT sum(extends) AS extends, sum(evictions) AS evictions, sum(writes) AS writes FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
   },
   {
-    "comment": "stats - Statement 191",
+    "comment": "stats - Statement 182",
     "query": "io_sum_local_before_ INSERT INTO test_io_local SELECT generate_series(1, 5000) as id, repeat('a', 200)"
   },
   {
-    "comment": "stats - Statement 192",
+    "comment": "stats - Statement 183",
     "query": "SELECT pg_relation_size('test_io_local') / current_setting('block_size')::int8 > 100"
   },
   {
-    "comment": "stats - Statement 193",
+    "comment": "stats - Statement 184",
     "query": "SELECT sum(reads) AS io_sum_local_before_reads FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
   },
   {
-    "comment": "stats - Statement 194",
+    "comment": "stats - Statement 185",
     "query": "SELECT COUNT(*) FROM test_io_local"
   },
   {
-    "comment": "stats - Statement 195",
+    "comment": "stats - Statement 186",
     "query": "SELECT sum(evictions) AS evictions, sum(reads) AS reads, sum(writes) AS writes, sum(extends) AS extends FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
   },
   {
-    "comment": "stats - Statement 196",
-    "query": "io_sum_local_after_ SELECT :io_sum_local_after_evictions > :io_sum_local_before_evictions, :io_sum_local_after_reads > :io_sum_local_before_reads, :io_sum_local_after_writes > :io_sum_local_before_writes, :io_sum_local_after_extends > :io_sum_local_before_extends"
+    "comment": "stats - Statement 187",
+    "query": "io_sum_local_after_ SELECT 1000 > 1000, 1000 > 1000, 1000 > 1000, 1000 > 1000"
   },
   {
-    "comment": "stats - Statement 197",
+    "comment": "stats - Statement 188",
     "query": "ALTER TABLE test_io_local SET TABLESPACE regress_tblspace"
   },
   {
-    "comment": "stats - Statement 198",
+    "comment": "stats - Statement 189",
     "query": "SELECT sum(writes) AS io_sum_local_new_tblspc_writes FROM pg_stat_io WHERE context = 'normal' AND object = 'temp relation'"
   },
   {
-    "comment": "stats - Statement 199",
-    "query": "SELECT :io_sum_local_new_tblspc_writes > :io_sum_local_after_writes"
+    "comment": "stats - Statement 190",
+    "query": "SELECT 1 > 1000"
   },
   {
-    "comment": "stats - Statement 200",
+    "comment": "stats - Statement 191",
     "query": "RESET temp_buffers"
   },
   {
-    "comment": "stats - Statement 201",
+    "comment": "stats - Statement 192",
     "query": "SET wal_skip_threshold = '1 kB'"
   },
   {
-    "comment": "stats - Statement 202",
+    "comment": "stats - Statement 193",
     "query": "SELECT sum(reuses) AS reuses, sum(reads) AS reads, sum(evictions) AS evictions FROM pg_stat_io WHERE context = 'vacuum'"
   },
   {
-    "comment": "stats - Statement 203",
+    "comment": "stats - Statement 194",
     "query": "io_sum_vac_strategy_before_ CREATE TABLE test_io_vac_strategy(a int, b int) WITH (autovacuum_enabled = 'false')"
   },
   {
-    "comment": "stats - Statement 204",
+    "comment": "stats - Statement 195",
     "query": "INSERT INTO test_io_vac_strategy SELECT i, i from generate_series(1, 4500)i"
   },
   {
-    "comment": "stats - Statement 205",
+    "comment": "stats - Statement 196",
     "query": "VACUUM (FULL) test_io_vac_strategy"
   },
   {
-    "comment": "stats - Statement 206",
+    "comment": "stats - Statement 197",
     "query": "VACUUM (PARALLEL 0, BUFFER_USAGE_LIMIT 128) test_io_vac_strategy"
   },
   {
-    "comment": "stats - Statement 207",
-    "query": "io_sum_vac_strategy_after_ SELECT :io_sum_vac_strategy_after_reads > :io_sum_vac_strategy_before_reads"
+    "comment": "stats - Statement 198",
+    "query": "io_sum_vac_strategy_after_ SELECT 1000 > 1000"
   },
   {
-    "comment": "stats - Statement 208",
-    "query": "SELECT (:io_sum_vac_strategy_after_reuses + :io_sum_vac_strategy_after_evictions) > (:io_sum_vac_strategy_before_reuses + :io_sum_vac_strategy_before_evictions)"
+    "comment": "stats - Statement 199",
+    "query": "SELECT (1000 + 1000) > (1000 + 1000)"
   },
   {
-    "comment": "stats - Statement 209",
+    "comment": "stats - Statement 200",
     "query": "RESET wal_skip_threshold"
   },
   {
-    "comment": "stats - Statement 210",
+    "comment": "stats - Statement 201",
     "query": "SELECT sum(extends) AS io_sum_bulkwrite_strategy_extends_before FROM pg_stat_io WHERE context = 'bulkwrite'"
   },
   {
-    "comment": "stats - Statement 211",
+    "comment": "stats - Statement 202",
     "query": "CREATE TABLE test_io_bulkwrite_strategy AS SELECT i FROM generate_series(1,100)i"
   },
   {
-    "comment": "stats - Statement 212",
+    "comment": "stats - Statement 203",
     "query": "SELECT sum(extends) AS io_sum_bulkwrite_strategy_extends_after FROM pg_stat_io WHERE context = 'bulkwrite'"
   },
   {
-    "comment": "stats - Statement 213",
-    "query": "SELECT :io_sum_bulkwrite_strategy_extends_after > :io_sum_bulkwrite_strategy_extends_before"
-  },
-  {
-    "comment": "stats - Statement 214",
+    "comment": "stats - Statement 204",
     "query": "SELECT pg_stat_have_stats('io', 0, 0)"
   },
   {
-    "comment": "stats - Statement 215",
+    "comment": "stats - Statement 205",
     "query": "SELECT sum(evictions) + sum(reuses) + sum(extends) + sum(fsyncs) + sum(reads) + sum(writes) + sum(writebacks) + sum(hits) AS io_stats_pre_reset FROM pg_stat_io"
   },
   {
-    "comment": "stats - Statement 216",
+    "comment": "stats - Statement 206",
     "query": "SELECT pg_stat_reset_shared('io')"
   },
   {
-    "comment": "stats - Statement 217",
+    "comment": "stats - Statement 207",
     "query": "SELECT sum(evictions) + sum(reuses) + sum(extends) + sum(fsyncs) + sum(reads) + sum(writes) + sum(writebacks) + sum(hits) AS io_stats_post_reset FROM pg_stat_io"
   },
   {
-    "comment": "stats - Statement 218",
-    "query": "SELECT :io_stats_post_reset < :io_stats_pre_reset"
+    "comment": "stats - Statement 208",
+    "query": "SELECT 1 < 1"
   },
   {
-    "comment": "stats - Statement 219",
+    "comment": "stats - Statement 209",
     "query": "CREATE TABLE brin_hot ( id  integer PRIMARY KEY, val integer NOT NULL ) WITH (autovacuum_enabled = off, fillfactor = 70)"
   },
   {
-    "comment": "stats - Statement 220",
+    "comment": "stats - Statement 210",
     "query": "INSERT INTO brin_hot SELECT *, 0 FROM generate_series(1, 235)"
   },
   {
-    "comment": "stats - Statement 221",
+    "comment": "stats - Statement 211",
     "query": "CREATE INDEX val_brin ON brin_hot using brin(val)"
   },
   {
-    "comment": "stats - Statement 222",
+    "comment": "stats - Statement 212",
     "query": "CREATE FUNCTION wait_for_hot_stats() RETURNS void AS $$ DECLARE start_time timestamptz := clock_timestamp()"
   },
   {
-    "comment": "stats - Statement 223",
+    "comment": "stats - Statement 213",
     "query": "updated bool"
   },
   {
-    "comment": "stats - Statement 224",
+    "comment": "stats - Statement 214",
     "query": "BEGIN FOR i IN 1 .. 300 LOOP SELECT (pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid) > 0) INTO updated"
   },
   {
-    "comment": "stats - Statement 225",
+    "comment": "stats - Statement 215",
     "query": "EXIT WHEN updated"
   },
   {
-    "comment": "stats - Statement 226",
+    "comment": "stats - Statement 216",
     "query": "PERFORM pg_sleep_for('100 milliseconds')"
   },
   {
-    "comment": "stats - Statement 227",
+    "comment": "stats - Statement 217",
     "query": "PERFORM pg_stat_clear_snapshot()"
   },
   {
-    "comment": "stats - Statement 228",
+    "comment": "stats - Statement 218",
     "query": "END LOOP"
   },
   {
-    "comment": "stats - Statement 229",
+    "comment": "stats - Statement 219",
     "query": "RAISE log 'wait_for_hot_stats delayed % seconds', EXTRACT(epoch FROM clock_timestamp() - start_time)"
   },
   {
-    "comment": "stats - Statement 230",
+    "comment": "stats - Statement 220",
     "query": "END $$ LANGUAGE plpgsql"
   },
   {
-    "comment": "stats - Statement 231",
+    "comment": "stats - Statement 221",
     "query": "UPDATE brin_hot SET val = -3 WHERE id = 42"
   },
   {
-    "comment": "stats - Statement 232",
+    "comment": "stats - Statement 222",
     "query": "SELECT pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid)"
   },
   {
-    "comment": "stats - Statement 233",
+    "comment": "stats - Statement 223",
     "query": "DROP TABLE brin_hot"
   },
   {
-    "comment": "stats - Statement 234",
+    "comment": "stats - Statement 224",
     "query": "DROP FUNCTION wait_for_hot_stats()"
   },
   {
-    "comment": "stats - Statement 235",
+    "comment": "stats - Statement 225",
     "query": "CREATE TABLE brin_hot_2 (a int, b int)"
   },
   {
-    "comment": "stats - Statement 236",
+    "comment": "stats - Statement 226",
     "query": "INSERT INTO brin_hot_2 VALUES (1, 100)"
   },
   {
-    "comment": "stats - Statement 237",
+    "comment": "stats - Statement 227",
     "query": "CREATE INDEX ON brin_hot_2 USING brin (b) WHERE a = 2"
   },
   {
-    "comment": "stats - Statement 238",
+    "comment": "stats - Statement 228",
     "query": "UPDATE brin_hot_2 SET a = 2"
   },
   {
-    "comment": "stats - Statement 239",
+    "comment": "stats - Statement 229",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_hot_2 WHERE a = 2 AND b = 100"
   },
   {
-    "comment": "stats - Statement 240",
+    "comment": "stats - Statement 230",
     "query": "SELECT COUNT(*) FROM brin_hot_2 WHERE a = 2 AND b = 100"
   },
   {
-    "comment": "stats - Statement 241",
+    "comment": "stats - Statement 231",
     "query": "SET enable_seqscan = off"
   },
   {
-    "comment": "stats - Statement 242",
+    "comment": "stats - Statement 232",
     "query": "DROP TABLE brin_hot_2"
   },
   {
-    "comment": "stats - Statement 243",
+    "comment": "stats - Statement 233",
     "query": "CREATE TABLE brin_hot_3 (a int, filler text) WITH (fillfactor = 10)"
   },
   {
-    "comment": "stats - Statement 244",
+    "comment": "stats - Statement 234",
     "query": "INSERT INTO brin_hot_3 SELECT 1, repeat(' ', 500) FROM generate_series(1, 20)"
   },
   {
-    "comment": "stats - Statement 245",
+    "comment": "stats - Statement 235",
     "query": "CREATE INDEX ON brin_hot_3 USING brin (a) WITH (pages_per_range = 1)"
   },
   {
-    "comment": "stats - Statement 246",
+    "comment": "stats - Statement 236",
     "query": "UPDATE brin_hot_3 SET a = 2"
   },
   {
-    "comment": "stats - Statement 247",
+    "comment": "stats - Statement 237",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_hot_3 WHERE a = 2"
   },
   {
-    "comment": "stats - Statement 248",
+    "comment": "stats - Statement 238",
     "query": "SELECT COUNT(*) FROM brin_hot_3 WHERE a = 2"
   },
   {
-    "comment": "stats - Statement 249",
+    "comment": "stats - Statement 239",
     "query": "DROP TABLE brin_hot_3"
   },
   {
-    "comment": "stats - Statement 250",
+    "comment": "stats - Statement 240",
     "query": "SET enable_seqscan = on"
   },
   {
-    "comment": "stats - Statement 251",
+    "comment": "stats - Statement 241",
     "query": "CREATE TABLE table_fillfactor ( n char(1000) ) with (fillfactor=10, autovacuum_enabled=off)"
   },
   {
-    "comment": "stats - Statement 252",
+    "comment": "stats - Statement 242",
     "query": "INSERT INTO table_fillfactor SELECT 'x' FROM generate_series(1,1000)"
   },
   {
-    "comment": "stats - Statement 253",
+    "comment": "stats - Statement 243",
     "query": "SELECT * FROM check_estimated_rows('SELECT * FROM table_fillfactor')"
   },
   {
-    "comment": "stats - Statement 254",
+    "comment": "stats - Statement 244",
     "query": "DROP TABLE table_fillfactor"
   }
 ]

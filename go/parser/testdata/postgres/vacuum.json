@@ -637,11 +637,11 @@
   },
   {
     "comment": "vacuum - Statement 160",
-    "query": "SELECT relfilenode = :main_filenode AS is_same_main_filenode FROM pg_class WHERE relname = 'vac_option_tab'"
+    "query": "SELECT relfilenode = 16384 AS is_same_main_filenode FROM pg_class WHERE relname = 'vac_option_tab'"
   },
   {
     "comment": "vacuum - Statement 161",
-    "query": "SELECT t.relfilenode = :toast_filenode AS is_same_toast_filenode FROM pg_class c, pg_class t WHERE c.reltoastrelid = t.oid AND c.relname = 'vac_option_tab'"
+    "query": "SELECT t.relfilenode = 16385 AS is_same_toast_filenode FROM pg_class c, pg_class t WHERE c.reltoastrelid = t.oid AND c.relname = 'vac_option_tab'"
   },
   {
     "comment": "vacuum - Statement 162",

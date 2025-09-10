@@ -277,15 +277,15 @@
   },
   {
     "comment": "xid - Statement 70",
-    "query": "SELECT pg_xact_status(:committed::text::xid8) AS committed"
+    "query": "SELECT pg_xact_status(100::text::xid8) AS committed"
   },
   {
     "comment": "xid - Statement 71",
-    "query": "SELECT pg_xact_status(:rolledback::text::xid8) AS rolledback"
+    "query": "SELECT pg_xact_status(101::text::xid8) AS rolledback"
   },
   {
     "comment": "xid - Statement 72",
-    "query": "SELECT pg_xact_status(:inprogress::text::xid8) AS inprogress"
+    "query": "SELECT pg_xact_status(102::text::xid8) AS inprogress"
   },
   {
     "comment": "xid - Statement 73",
@@ -321,6 +321,6 @@
   },
   {
     "comment": "xid - Statement 81",
-    "query": "SELECT test_future_xid_status((:inprogress + 10000)::text::xid8)"
+    "query": "SELECT test_future_xid_status((102 + 10000)::text::xid8)"
   }
 ]

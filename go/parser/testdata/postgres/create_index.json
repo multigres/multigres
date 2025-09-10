@@ -1733,7 +1733,7 @@
   },
   {
     "comment": "create_index - Statement 434",
-    "query": "REINDEX SCHEMA CONCURRENTLY :temp_schema_name"
+    "query": "REINDEX SCHEMA CONCURRENTLY 1"
   },
   {
     "comment": "create_index - Statement 435",

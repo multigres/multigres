@@ -233,7 +233,7 @@
   },
   {
     "comment": "misc_functions - Statement 59",
-    "query": "select (w).size = :segsize as ok from (select pg_ls_waldir() w) ss where length((w).name) = 24 limit 1"
+    "query": "select (w).size = 16777216 as ok from (select pg_ls_waldir() w) ss where length((w).name) = 24 limit 1"
   },
   {
     "comment": "misc_functions - Statement 60",
@@ -409,15 +409,15 @@
   },
   {
     "comment": "misc_functions - Statement 103",
-    "query": "SELECT segment_number, file_offset FROM pg_walfile_name_offset('0/0'::pg_lsn + :segment_size), pg_split_walfile_name(file_name)"
+    "query": "SELECT segment_number, file_offset FROM pg_walfile_name_offset('0/0'::pg_lsn + 16777216), pg_split_walfile_name(file_name)"
   },
   {
     "comment": "misc_functions - Statement 104",
-    "query": "SELECT segment_number, file_offset FROM pg_walfile_name_offset('0/0'::pg_lsn + :segment_size + 1), pg_split_walfile_name(file_name)"
+    "query": "SELECT segment_number, file_offset FROM pg_walfile_name_offset('0/0'::pg_lsn + 16777216 + 1), pg_split_walfile_name(file_name)"
   },
   {
     "comment": "misc_functions - Statement 105",
-    "query": "SELECT segment_number, file_offset = :segment_size - 1 FROM pg_walfile_name_offset('0/0'::pg_lsn + :segment_size - 1), pg_split_walfile_name(file_name)"
+    "query": "SELECT segment_number, file_offset = 16777216 - 1 FROM pg_walfile_name_offset('0/0'::pg_lsn + 16777216 - 1), pg_split_walfile_name(file_name)"
   },
   {
     "comment": "misc_functions - Statement 106",
@@ -449,7 +449,7 @@
   },
   {
     "comment": "misc_functions - Statement 113",
-    "query": "SELECT pg_column_toast_chunk_id(a) IS NULL, pg_column_toast_chunk_id(b) IN (SELECT chunk_id FROM pg_toast.:toastrel) FROM test_chunk_id"
+    "query": "SELECT pg_column_toast_chunk_id(a) IS NULL, pg_column_toast_chunk_id(b) IN (SELECT chunk_id FROM pg_toast.1) FROM test_chunk_id"
   },
   {
     "comment": "misc_functions - Statement 114",

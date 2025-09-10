@@ -197,10 +197,10 @@
   },
   {
     "comment": "tuplesort - Statement 50",
-    "query": "EXPLAIN (COSTS OFF) :qry"
+    "query": "EXPLAIN (COSTS OFF) 1"
   },
   {
     "comment": "tuplesort - Statement 51",
-    "query": ":qry"
+    "query": "1"
   }
 ]

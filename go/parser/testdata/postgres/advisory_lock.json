@@ -13,7 +13,7 @@
   },
   {
     "comment": "advisory_lock - Statement 4",
-    "query": "SELECT locktype, classid, objid, objsubid, mode, granted FROM pg_locks WHERE locktype = 'advisory' AND database = :datoid ORDER BY classid, objid, objsubid"
+    "query": "SELECT locktype, classid, objid, objsubid, mode, granted FROM pg_locks WHERE locktype = 'advisory' AND database = 12345 ORDER BY classid, objid, objsubid"
   },
   {
     "comment": "advisory_lock - Statement 5",
@@ -21,7 +21,7 @@
   },
   {
     "comment": "advisory_lock - Statement 6",
-    "query": "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = :datoid"
+    "query": "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = 12345"
   },
   {
     "comment": "advisory_lock - Statement 7",

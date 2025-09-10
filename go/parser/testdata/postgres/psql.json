@@ -1,7 +1,7 @@
 [
   {
     "comment": "psql - Statement 1",
-    "query": "pref01_ \\echo :pref01_test01 :pref01_test02 :pref01_test03 select 10 as \"bad name\""
+    "query": "pref01_ \\echo 1 1 1 select 10 as \"bad name\""
   },
   {
     "comment": "psql - Statement 2",
@@ -9,23 +9,23 @@
   },
   {
     "comment": "psql - Statement 3",
-    "query": "IGNORE \\echo :IGNORE_foo :IGNOREEOF select 1 as x, 2 as y"
+    "query": "IGNORE \\echo 1 1 select 1 as x, 2 as y"
   },
   {
     "comment": "psql - Statement 4",
-    "query": "pref01_ \\\\ \\echo :pref01_x select 3 as x, 4 as y"
+    "query": "pref01_ \\\\ \\echo 1 select 3 as x, 4 as y"
   },
   {
     "comment": "psql - Statement 5",
-    "query": "pref01_ \\echo :pref01_x \\echo :pref01_y select 5 as x, 6 as y"
+    "query": "pref01_ \\echo 1 \\echo 1 select 5 as x, 6 as y"
   },
   {
     "comment": "psql - Statement 6",
-    "query": "pref01_ \\\\ \\g \\echo :pref01_x :pref01_y select 7 as x, 8 as y \\g"
+    "query": "pref01_ \\\\ \\g \\echo 1 1 select 7 as x, 8 as y \\g"
   },
   {
     "comment": "psql - Statement 7",
-    "query": "pref01_ \\echo :pref01_x :pref01_y \\set var2 xyz select 1 as var1, NULL as var2, 3 as var3"
+    "query": "pref01_ \\echo 1 1 \\set var2 xyz select 1 as var1, NULL as var2, 3 as var3"
   },
   {
     "comment": "psql - Statement 8",
@@ -37,7 +37,7 @@
   },
   {
     "comment": "psql - Statement 10",
-    "query": "pref01_ \\echo :pref01_x \\echo :pref01_y select 10 as test01, 20 as test02 from generate_series(1,3)"
+    "query": "pref01_ \\echo 1 \\echo 1 select 10 as test01, 20 as test02 from generate_series(1,3)"
   },
   {
     "comment": "psql - Statement 11",
@@ -425,15 +425,15 @@
   },
   {
     "comment": "psql - Statement 107",
-    "query": "SELECT 1 AS a \\g :g_out_file COPY reload_output(line) FROM :'g_out_file'"
+    "query": "SELECT 1 AS a \\g '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'"
   },
   {
     "comment": "psql - Statement 108",
-    "query": "SELECT 2 AS b\\; SELECT 3 AS c\\; SELECT 4 AS d \\g :g_out_file COPY reload_output(line) FROM :'g_out_file'"
+    "query": "SELECT 2 AS b\\; SELECT 3 AS c\\; SELECT 4 AS d \\g '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'"
   },
   {
     "comment": "psql - Statement 109",
-    "query": "COPY (SELECT 'foo') TO STDOUT \\; COPY (SELECT 'bar') TO STDOUT \\g :g_out_file COPY reload_output(line) FROM :'g_out_file'"
+    "query": "COPY (SELECT 'foo') TO STDOUT \\; COPY (SELECT 'bar') TO STDOUT \\g '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'"
   },
   {
     "comment": "psql - Statement 110",
@@ -457,7 +457,7 @@
   },
   {
     "comment": "psql - Statement 115",
-    "query": "COPY (SELECT 'foo2') TO STDOUT \\; COPY (SELECT 'bar2') TO STDOUT \\g :g_out_file \\o COPY reload_output(line) FROM :'g_out_file'"
+    "query": "COPY (SELECT 'foo2') TO STDOUT \\; COPY (SELECT 'bar2') TO STDOUT \\g '/tmp/output.txt' \\o COPY reload_output(line) FROM :'g_out_file'"
   },
   {
     "comment": "psql - Statement 116",

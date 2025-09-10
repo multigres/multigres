@@ -129,15 +129,15 @@
   },
   {
     "comment": "txid - Statement 33",
-    "query": "SELECT txid_status(:committed) AS committed"
+    "query": "SELECT txid_status(100) AS committed"
   },
   {
     "comment": "txid - Statement 34",
-    "query": "SELECT txid_status(:rolledback) AS rolledback"
+    "query": "SELECT txid_status(101) AS rolledback"
   },
   {
     "comment": "txid - Statement 35",
-    "query": "SELECT txid_status(:inprogress) AS inprogress"
+    "query": "SELECT txid_status(102) AS inprogress"
   },
   {
     "comment": "txid - Statement 36",
@@ -173,6 +173,6 @@
   },
   {
     "comment": "txid - Statement 44",
-    "query": "SELECT test_future_xid_status(:inprogress + 10000)"
+    "query": "SELECT test_future_xid_status(102 + 10000)"
   }
 ]
