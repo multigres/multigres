@@ -869,7 +869,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 	}
 
 	// Start multiadmin process
-	multiadminCmd := exec.CommandContext(context.Background(), multiadminBinary, args...)
+	multiadminCmd := exec.CommandContext(ctx, multiadminBinary, args...)
 
 	fmt.Printf("▶️  - Launching multiadmin (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
@@ -1762,6 +1762,41 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 	// Get topology configuration from provisioner config
 	topoConfig := p.config.Topology
+
+	// Register database in global topology store first
+	fmt.Println("=== Registering database in topology ===")
+	fmt.Printf("⚙️  - Registering database: %s\n", databaseName)
+
+	ts, err := topo.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress})
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to topology server: %w", err)
+	}
+	defer ts.Close()
+
+	// Check if database already exists
+	_, err = ts.GetDatabase(ctx, databaseName)
+	if err == nil {
+		fmt.Printf("⚙️  - Database \"%s\" detected — reusing existing database ✓\n", databaseName)
+	} else if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
+		// Create the database if it doesn't exist
+		fmt.Printf("⚙️  - Creating database \"%s\"...\n", databaseName)
+
+		databaseConfig := &clustermetadatapb.Database{
+			Name:             databaseName,
+			BackupLocation:   "",     // TODO: Configure backup location
+			DurabilityPolicy: "none", // Default durability policy
+			Cells:            []string{topoConfig.DefaultCellName},
+		}
+
+		if err := ts.CreateDatabase(ctx, databaseName, databaseConfig); err != nil {
+			return nil, fmt.Errorf("failed to create database '%s' in topology: %w", databaseName, err)
+		}
+
+		fmt.Printf("⚙️  - Database \"%s\" registered successfully ✓\n", databaseName)
+	} else {
+		return nil, fmt.Errorf("failed to check database '%s': %w", databaseName, err)
+	}
+	fmt.Println("")
 
 	var results []*provisioner.ProvisionResult
 

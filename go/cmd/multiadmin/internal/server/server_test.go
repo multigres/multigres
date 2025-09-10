@@ -132,7 +132,7 @@ func TestMultiAdminServer_GetDatabase(t *testing.T) {
 		testDatabase := &clustermetadatapb.Database{
 			Name:             "testdb",
 			BackupLocation:   "s3://backup-bucket/testdb",
-			DurabilityPolicy: "majority",
+			DurabilityPolicy: "none",
 			Cells:            []string{"cell1", "cell2"},
 		}
 
@@ -148,7 +148,7 @@ func TestMultiAdminServer_GetDatabase(t *testing.T) {
 		require.NotNil(t, resp.Database)
 		assert.Equal(t, "testdb", resp.Database.Name)
 		assert.Equal(t, "s3://backup-bucket/testdb", resp.Database.BackupLocation)
-		assert.Equal(t, "majority", resp.Database.DurabilityPolicy)
+		assert.Equal(t, "none", resp.Database.DurabilityPolicy)
 		assert.Equal(t, []string{"cell1", "cell2"}, resp.Database.Cells)
 	})
 }
