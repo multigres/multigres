@@ -32,9 +32,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 )
 
-var (
-	multiorchs []*clustermetadatapb.MultiOrch
-)
+var multiorchs []*clustermetadatapb.MultiOrch
 
 func init() {
 	uid := uint32(1)

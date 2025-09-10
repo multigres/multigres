@@ -32,9 +32,7 @@ import (
 	"github.com/multigres/multigres/go/clustermetadata/topo/memorytopo"
 )
 
-var (
-	multigateways []*clustermetadatapb.MultiGateway
-)
+var multigateways []*clustermetadatapb.MultiGateway
 
 func init() {
 	uid := uint32(1)
