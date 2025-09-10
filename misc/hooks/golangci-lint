@@ -20,19 +20,21 @@ REQUIRED_VERSION="v2.4.0"
 version_greater_or_equal() {
   local IFS=.
   local i
+  # shellcheck disable=SC2206
   local ver1=($1)
+  # shellcheck disable=SC2206
   local ver2=($2)
 
   # Fill empty fields in ver1 with zeros
-  for ((i=${#ver1[@]}; i<${#ver2[@]}; i++)); do
+  for ((i = ${#ver1[@]}; i < ${#ver2[@]}; i++)); do
     ver1[i]=0
   done
   # Fill empty fields in ver2 with zeros
-  for ((i=${#ver2[@]}; i<${#ver1[@]}; i++)); do
+  for ((i = ${#ver2[@]}; i < ${#ver1[@]}; i++)); do
     ver2[i]=0
   done
 
-  for ((i=0; i<${#ver1[@]}; i++)); do
+  for ((i = 0; i < ${#ver1[@]}; i++)); do
     if ((10#${ver1[i]} > 10#${ver2[i]})); then
       return 0
     elif ((10#${ver1[i]} < 10#${ver2[i]})); then
@@ -67,4 +69,5 @@ gopackages=$(echo "$gofiles" | xargs -n1 dirname | sort -u | paste -sd ' ' -)
 
 # Lint the Go packages
 echo "Linting $gopackages"
+# shellcheck disable=SC2086
 golangci-lint run $gopackages

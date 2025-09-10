@@ -56,3 +56,6 @@ dist/*
 
 # Local development directory
 multigres_local/
+
+# Local linter output directory
+super-linter-output/

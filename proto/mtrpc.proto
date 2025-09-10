@@ -17,9 +17,10 @@ limitations under the License.
 // This file contains useful data structures for RPCs in Multigres.
 
 syntax = "proto3";
-option go_package = "github.com/multigres/multigres/go/pb/mtrpc";
 
 package mtrpc;
+
+option go_package = "github.com/multigres/multigres/go/pb/mtrpc";
 
 // CallerID is passed along RPCs to identify the originating client
 // for a request. It is not meant to be secure, but only

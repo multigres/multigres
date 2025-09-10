@@ -15,4 +15,4 @@ Before creating new messages or services, please make yourself familiar with the
 style of the existing definitions first.
 
 Additionally, new definitions must adhere to the Google Cloud API Design Guide:
-https://cloud.google.com/apis/design/
+<https://cloud.google.com/apis/design/>
