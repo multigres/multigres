@@ -103,7 +103,6 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-
 	servenv.Init()
 
 	// Get the configured logger

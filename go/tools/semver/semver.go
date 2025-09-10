@@ -180,72 +180,72 @@ func compareVersion(a, b string) int {
 
 func parse(v string) (p parsed, ok bool) {
 	if v == "" || v[0] != 'v' {
-		return
+		return p, ok
 	}
 	p.major, v, ok = parseInt(v[1:])
 	if !ok {
-		return
+		return p, ok
 	}
 	if v == "" {
 		p.minor = "0"
 		p.patch = "0"
 		p.short = ".0.0"
-		return
+		return p, ok
 	}
 	if v[0] != '.' {
 		ok = false
-		return
+		return p, ok
 	}
 	p.minor, v, ok = parseInt(v[1:])
 	if !ok {
-		return
+		return p, ok
 	}
 	if v == "" {
 		p.patch = "0"
 		p.short = ".0"
-		return
+		return p, ok
 	}
 	if v[0] != '.' {
 		ok = false
-		return
+		return p, ok
 	}
 	p.patch, v, ok = parseInt(v[1:])
 	if !ok {
-		return
+		return p, ok
 	}
 	if len(v) > 0 && v[0] == '-' {
 		p.prerelease, v, ok = parsePrerelease(v)
 		if !ok {
-			return
+			return p, ok
 		}
 	}
 	if len(v) > 0 && v[0] == '+' {
 		p.build, v, ok = parseBuild(v)
 		if !ok {
-			return
+			return p, ok
 		}
 	}
 	if v != "" {
 		ok = false
-		return
+		return p, ok
 	}
 	ok = true
-	return
+	return p, ok
 }
 
 func parseInt(v string) (t, rest string, ok bool) {
 	if v == "" {
-		return
+		return t, rest, ok
 	}
 	if v[0] < '0' || '9' < v[0] {
-		return
+		return t, rest, ok
 	}
 	i := 1
 	for i < len(v) && '0' <= v[i] && v[i] <= '9' {
 		i++
 	}
 	if v[0] == '0' && i != 1 {
-		return
+		return t, rest, ok
 	}
 	return v[:i], v[i:], true
 }
@@ -256,48 +256,48 @@ func parsePrerelease(v string) (t, rest string, ok bool) {
 	// Identifiers MUST comprise only ASCII alphanumerics and hyphen [0-9A-Za-z-].
 	// Identifiers MUST NOT be empty. Numeric identifiers MUST NOT include leading zeroes."
 	if v == "" || v[0] != '-' {
-		return
+		return t, rest, ok
 	}
 	i := 1
 	start := 1
 	for i < len(v) && v[i] != '+' {
 		if !isIdentChar(v[i]) && v[i] != '.' {
-			return
+			return t, rest, ok
 		}
 		if v[i] == '.' {
 			if start == i || isBadNum(v[start:i]) {
-				return
+				return t, rest, ok
 			}
 			start = i + 1
 		}
 		i++
 	}
 	if start == i || isBadNum(v[start:i]) {
-		return
+		return t, rest, ok
 	}
 	return v[:i], v[i:], true
 }
 
 func parseBuild(v string) (t, rest string, ok bool) {
 	if v == "" || v[0] != '+' {
-		return
+		return t, rest, ok
 	}
 	i := 1
 	start := 1
 	for i < len(v) {
 		if !isIdentChar(v[i]) && v[i] != '.' {
-			return
+			return t, rest, ok
 		}
 		if v[i] == '.' {
 			if start == i {
-				return
+				return t, rest, ok
 			}
 			start = i + 1
 		}
 		i++
 	}
 	if start == i {
-		return
+		return t, rest, ok
 	}
 	return v[:i], v[i:], true
 }

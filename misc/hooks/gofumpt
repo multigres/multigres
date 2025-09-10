@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# git gofmt pre-commit hook
+# git gofumpt pre-commit hook
 #
 # Automatically formats Go files and stages them for commit.
-# This script handles files that need gofmt formatting by applying
+# This script handles files that need gofumpt formatting by applying
 # the formatting and re-staging the files.
 
 # Get list of Go files to check
@@ -26,7 +26,7 @@ gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep 
 [ -z "$gofiles" ] && exit 0
 
 # Check for unformatted files
-unformatted=$(gofmt -s -l $gofiles 2>&1)
+unformatted=$(go tool gofumpt -s -l $gofiles 2>&1)
 
 # Exit if all files are already formatted
 [ -z "$unformatted" ] && exit 0
@@ -36,7 +36,7 @@ echo "Formatting Go files..."
 
 # Deduplicate files first in case a file has multiple errors
 files=$(
-  # Split the "gofmt" output on newlines only
+  # Split the "gofumpt" output on newlines only
   OLDIFS=$IFS
   IFS='
 '
@@ -52,7 +52,7 @@ files=$(
 # Format each file and re-stage it
 for f in $files; do
   echo "  Formatting $f"
-  gofmt -s -w "$f"
+  go tool gofumpt -s -w "$f"
   git add "$f"
 done
 

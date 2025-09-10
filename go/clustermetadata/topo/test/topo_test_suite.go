@@ -79,5 +79,4 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topo.
 	t.Log("=== checkList")
 	checkList(t, ctx, ts)
 	_ = ts.Close()
-
 }
