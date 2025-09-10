@@ -71,7 +71,7 @@ func ensureNoLeaks() error {
 }
 
 func ensureNoGoroutines() error {
-	var ignored = []goleak.Option{}
+	ignored := []goleak.Option{}
 
 	var err error
 	for i := 0; i < 5; i++ {
