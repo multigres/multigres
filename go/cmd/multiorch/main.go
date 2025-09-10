@@ -28,16 +28,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	Main = &cobra.Command{
-		Use:     "multiorch",
-		Short:   "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
-		Long:    "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
-		Args:    cobra.NoArgs,
-		PreRunE: servenv.CobraPreRunE,
-		RunE:    run,
-	}
-)
+var Main = &cobra.Command{
+	Use:     "multiorch",
+	Short:   "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
+	Long:    "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
+	Args:    cobra.NoArgs,
+	PreRunE: servenv.CobraPreRunE,
+	RunE:    run,
+}
 
 func main() {
 	if err := Main.Execute(); err != nil {
@@ -47,7 +45,6 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-
 	servenv.Init()
 
 	// Get the configured logger
@@ -61,7 +58,6 @@ func run(cmd *cobra.Command, args []string) error {
 		logger.Info("multiorch starting up",
 			"grpc_port", servenv.GRPCPort(),
 		)
-
 	})
 
 	servenv.OnClose(func() {
