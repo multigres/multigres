@@ -865,6 +865,7 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 		"--topo-implementation", topoBackend,
 		"--log-level", logLevel,
 		"--log-output", logFile,
+		"--service-map", "grpc-multiadmin",
 	}
 
 	// Start multiadmin process
@@ -1988,6 +1989,13 @@ func (p *localProvisioner) getServiceConfig(service string) map[string]any {
 			"http_port": p.config.Multiorch.HttpPort,
 			"grpc_port": p.config.Multiorch.GrpcPort,
 			"log_level": p.config.Multiorch.LogLevel,
+		}
+	case "multiadmin":
+		return map[string]any{
+			"path":      p.config.Multiadmin.Path,
+			"http_port": p.config.Multiadmin.HttpPort,
+			"grpc_port": p.config.Multiadmin.GrpcPort,
+			"log_level": p.config.Multiadmin.LogLevel,
 		}
 	default:
 		// Return empty config if not found
