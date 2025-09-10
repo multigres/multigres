@@ -44,6 +44,7 @@ func TestBinaryStartupShutdown(t *testing.T) {
 		// The e2e cluster tests provide comprehensive coverage for multigateway startup/shutdown
 		{"pgctld", fmt.Sprintf("%d", utils.GetNextPort())},
 		{"multiorch", fmt.Sprintf("%d", utils.GetNextPort())},
+		{"multiadmin", fmt.Sprintf("%d", utils.GetNextPort())},
 	}
 
 	for _, binary := range binaries {
@@ -67,6 +68,13 @@ func testBinaryStartupShutdown(t *testing.T, binaryName, port string) {
 	case "pgctld":
 		cmd = exec.CommandContext(ctx, binaryPath, "--grpc-port", port, "--log-level", "info")
 	case "multiorch":
+		cmd = exec.CommandContext(ctx, binaryPath,
+			"--grpc-port", port,
+			"--topo-global-server-addresses", "127.0.0.1:8080",
+			"--topo-global-root", "/",
+			"--topo-implementation", "memory",
+			"--log-level", "info")
+	case "multiadmin":
 		cmd = exec.CommandContext(ctx, binaryPath,
 			"--grpc-port", port,
 			"--topo-global-server-addresses", "127.0.0.1:8080",
