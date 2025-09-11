@@ -23,15 +23,15 @@ fi
 files_without_license=()
 
 for file in $staged_files; do
-    # Skip files in excluded directories
-    if [[ "$file" == site/* ]] || [[ "$file" == pb/* ]] || [[ "$file" == dist/* ]] || [[ "$file" == bin/* ]]; then
-        continue
-    fi
-    
-    # Check if file exists and has license header
-    if [[ -f "$file" ]] && ! head -20 "$file" | grep -q "Copyright.*The Multigres Authors\."; then
-        files_without_license+=("$file")
-    fi
+  # Skip files in excluded directories
+  if [[ "$file" == site/* ]] || [[ "$file" == pb/* ]] || [[ "$file" == dist/* ]] || [[ "$file" == bin/* ]]; then
+    continue
+  fi
+
+  # Check if file exists and has license header
+  if [[ -f "$file" ]] && ! head -20 "$file" | grep -q "Copyright.*The Multigres Authors\."; then
+    files_without_license+=("$file")
+  fi
 done
 
 # Check if addlicense is installed
@@ -41,17 +41,17 @@ if ! command -v addlicense >/dev/null 2>&1; then
 fi
 
 if [ ${#files_without_license[@]} -ne 0 ]; then
-    echo "Adding license headers to files missing them:"
-    printf '%s\n' "${files_without_license[@]}"
-    echo ""
-    
-    # Add license headers to the specific files
-    for file in "${files_without_license[@]}"; do
-        echo "Adding license to: $file"
-        addlicense -c "The Multigres Authors." -l apache "$file"
-        # Stage the modified file so it's included in this commit
-        git add "$file"
-    done
-    
-    echo "License headers added and staged successfully"
+  echo "Adding license headers to files missing them:"
+  printf '%s\n' "${files_without_license[@]}"
+  echo ""
+
+  # Add license headers to the specific files
+  for file in "${files_without_license[@]}"; do
+    echo "Adding license to: $file"
+    addlicense -c "The Multigres Authors." -l apache "$file"
+    # Stage the modified file so it's included in this commit
+    git add "$file"
+  done
+
+  echo "License headers added and staged successfully"
 fi

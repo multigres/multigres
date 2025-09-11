@@ -132,7 +132,7 @@ provisioner-config:
 `, serverAddr[len("localhost:"):]) // Extract port from address
 
 	configFile := filepath.Join(tempDir, "multigres.yaml")
-	err = os.WriteFile(configFile, []byte(configContent), 0644)
+	err = os.WriteFile(configFile, []byte(configContent), 0o644)
 	require.NoError(t, err)
 
 	t.Run("getcell with admin-server flag", func(t *testing.T) {

@@ -10,6 +10,7 @@ Multigres components support configuration through multiple sources with the fol
 ## Configuration Files
 
 Each component looks for its configuration file in the following locations:
+
 - Current directory (`./<component>.yaml`)
 - `./config/<component>.yaml`
 - `/etc/multigres/<component>.yaml`
@@ -19,8 +20,9 @@ You can also specify a custom config file path using the `--config` / `-c` flag.
 ## Environment Variables
 
 Environment variables are prefixed with the component name in uppercase:
+
 - `MULTIGATEWAY_*` for multigateway
-- `MULTIPOOLER_*` for multipooler  
+- `MULTIPOOLER_*` for multipooler
 - `PGCTLD_*` for pgctld
 - `MULTIORCH_*` for multiorch
 
@@ -29,24 +31,28 @@ For example: `MULTIGATEWAY_PORT=5432` or `PGCTLD_LOG_LEVEL=debug`
 ## Components
 
 ### multigateway
+
 PostgreSQL proxy that accepts client connections.
 
 **Configuration file**: `multigateway.yaml`
 **Environment prefix**: `MULTIGATEWAY_`
 
-### multipooler  
+### multipooler
+
 Connection pooling service that communicates with pgctld.
 
 **Configuration file**: `multipooler.yaml`
 **Environment prefix**: `MULTIPOOLER_`
 
 ### pgctld
+
 PostgreSQL interface daemon that connects directly to PostgreSQL.
 
 **Configuration file**: `pgctld.yaml`  
 **Environment prefix**: `PGCTLD_`
 
 ### multiorch
+
 Cluster orchestration service for consensus and failover.
 
 **Configuration file**: `multiorch.yaml`

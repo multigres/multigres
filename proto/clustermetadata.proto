@@ -122,7 +122,7 @@ message MultiGateway {
 
 // MultiOrch represents information about a running instance of multiorch.
 message MultiOrch {
-   // id is the unique name of the MultiOrch in the cluster.
+  // id is the unique name of the MultiOrch in the cluster.
   ID id = 1;
 
   // Fully qualified domain name of the host.

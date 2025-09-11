@@ -17,9 +17,9 @@ In a distributed system, scalability is mainly achieved by removing all possible
 
 Multigres strives for enterprise grade availability. To achieve this, it will use a combination of techniques:
 
-* A consensus protocol for leader election and failover management.
-* Fully automated cluster management.
-* No disruption of service during upgrades or maintenance.
+- A consensus protocol for leader election and failover management.
+- Fully automated cluster management.
+- No disruption of service during upgrades or maintenance.
 
 ### Data Durability
 
@@ -43,10 +43,10 @@ In spite of all precautions, incidents can happen. Multigres will provide a comp
 
 A primary goal of Multigres is to provide full Postgres compatibility while enhancing scalability, availability, and performance. Its key features will include:
 
-* Proxy layer and Connection pooling
-* Performance and High Availability
-* Cluster management across multiple zones
-* Indefinite scaling through sharding
+- Proxy layer and Connection pooling
+- Performance and High Availability
+- Cluster management across multiple zones
+- Indefinite scaling through sharding
 
 Multigres can be deployed to suit different needs. We will introduce you to the key components as we illustrate various deployment scenarios.
 
@@ -58,15 +58,15 @@ In a single database deployment, Multigres will act as a proxy layer in front of
 
 The main components involved will be:
 
-* **MultiGateway**: MultiGateway will speak the Postgres protocol and route queries to MultiPooler through a single multiplexed gRPC connection.
-* **MultiPooler**: The MultiPooler will be connected to a single Postgres server, and will manage a pool of connections to the database. They will both run on the same host, which will typically be a Kubernetes pod.
+- **MultiGateway**: MultiGateway will speak the Postgres protocol and route queries to MultiPooler through a single multiplexed gRPC connection.
+- **MultiPooler**: The MultiPooler will be connected to a single Postgres server, and will manage a pool of connections to the database. They will both run on the same host, which will typically be a Kubernetes pod.
 
 In this scenario, Multigres will not address the durability of the underlying data. Therefore, it is recommended to use a resilient form of cloud storage to ensure data safety.
 
 For a Multigres cluster to operate, two other components will be required:
 
-* **Provisioner**: This will typically be a Kubernetes operator that handles provisioning of resources for the cluster. For example, a `CREATE DATABASE` command will be redirected to the provisioner that will allocate the necessary resources and launch the MultiPooler along with its associated Postgres instance.
-* **Topo Server**: This will typically be an etcd cluster. The Provisioner will store the existence of the newly created database in the Topo Server. The MultiPooler will also register itself in the Topo Server to allow MultiGateway to discover it.
+- **Provisioner**: This will typically be a Kubernetes operator that handles provisioning of resources for the cluster. For example, a `CREATE DATABASE` command will be redirected to the provisioner that will allocate the necessary resources and launch the MultiPooler along with its associated Postgres instance.
+- **Topo Server**: This will typically be an etcd cluster. The Provisioner will store the existence of the newly created database in the Topo Server. The MultiPooler will also register itself in the Topo Server to allow MultiGateway to discover it.
 
 ## Multiple database deployment
 
@@ -88,9 +88,9 @@ Multigres can be configured to add replicas as standbys. In this setup, we intro
 
 MultiOrch will implement a distributed consensus algorithm that will provide the following benefits:
 
-* **High Availability**: by promoting one of the replicas to be the new primary in case of a failure.
-* **Data Durability**: by ensuring that all writes are acknowledged by a quorum of replicas before being considered successful.
-* **Performance**: because the data can be stored on a local NVMe for faster access.
+- **High Availability**: by promoting one of the replicas to be the new primary in case of a failure.
+- **Data Durability**: by ensuring that all writes are acknowledged by a quorum of replicas before being considered successful.
+- **Performance**: because the data can be stored on a local NVMe for faster access.
 
 MultiOrch will operate on an unmodified Postgres engine by using full sync replication. For a better experience, we recommend using the two-phase sync plug in (more details on this later).
 
@@ -146,9 +146,9 @@ You will also be able to create separate unsharded TableGroups.
 
 In the above example:
 
-* `t1` is stored in the original `default` unsharded TableGroup. The single shard in this TableGroup is named `default:0-inf`.
-* `t2` is split in the two shards of `tg1`. The shards are named `tg1:0-8` and `tg1:8-inf`. Note that the digits are hexadecimal.
-* `t3` is stored in TableGroup `tg2`. The single shard in this TableGroup is named `tg2:0-inf`.
+- `t1` is stored in the original `default` unsharded TableGroup. The single shard in this TableGroup is named `default:0-inf`.
+- `t2` is split in the two shards of `tg1`. The shards are named `tg1:0-8` and `tg1:8-inf`. Note that the digits are hexadecimal.
+- `t3` is stored in TableGroup `tg2`. The single shard in this TableGroup is named `tg2:0-inf`.
 
 The rest of the Multigres features like cluster management, HA, etc. will be designed to work seamlessly with these sharded TableGroups.
 
@@ -158,6 +158,6 @@ We will cover the Multigres sharding model in more detail in a separate document
 
 We will cover the following topics in more detail in the future:
 
-* Two-phase sync replication
-* Generalized consensus for durability policies
-* Multigres sharding model
+- Two-phase sync replication
+- Generalized consensus for durability policies
+- Multigres sharding model

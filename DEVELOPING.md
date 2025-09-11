@@ -5,6 +5,7 @@ This document provides instructions for building and testing the Multigres proje
 ## Prerequisites
 
 You need to install:
+
 - Go (version 1.25 or later)
 
 All other build dependencies (like protoc) are automatically installed by the build system.
@@ -57,13 +58,13 @@ The website and documentation is located in the `/site` folder.
 
 ### Install dependencies
 
-```
+```bash
 pnpm i
 ```
 
 ### Local Development
 
-```
+```bash
 pnpm start
 ```
 
@@ -71,7 +72,7 @@ This command starts a local development server and opens up a browser window. Mo
 
 ### Build
 
-```
+```bash
 pnpm build
 ```
 
@@ -79,4 +80,4 @@ This command generates static content into the `build` directory and can be serv
 
 ### Deployment
 
-The site is automatically deployed when a Pull Request is merged into the `main` branch. 
+The site is automatically deployed when a Pull Request is merged into the `main` branch.
