@@ -1,18 +1,16 @@
-/*
-Copyright 2025 The Multigres Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2025 The Multigres Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package command
 
@@ -25,46 +23,38 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/pgctld"
 )
 
 func TestRunStart(t *testing.T) {
 	tests := []struct {
 		name          string
-		setupDataDir  func(string) string
+		setupDataDir  func(string) string // Now takes postgres data dir, not base dir
 		setupBinaries bool
 		expectError   bool
 		errorContains string
 	}{
 		{
-			name: "successful start with uninitialized data dir",
-			setupDataDir: func(baseDir string) string {
-				return testutil.CreateDataDir(t, baseDir, false) // uninitialized
+			name: "start with uninitialized data dir fails",
+			setupDataDir: func(pgDataDir string) string {
+				return testutil.CreateDataDir(t, pgDataDir, false) // uninitialized
 			},
 			setupBinaries: true,
-			expectError:   false,
+			expectError:   true,
 		},
 		{
 			name: "successful start with initialized data dir",
-			setupDataDir: func(baseDir string) string {
-				dataDir := testutil.CreateDataDir(t, baseDir, true) // initialized
+			setupDataDir: func(pgDataDir string) string {
+				dataDir := testutil.CreateDataDir(t, pgDataDir, true) // initialized
 				return dataDir
 			},
 			setupBinaries: true,
 			expectError:   false,
 		},
 		{
-			name: "fail when data dir not specified",
-			setupDataDir: func(baseDir string) string {
-				return "" // empty data dir
-			},
-			setupBinaries: false,
-			expectError:   true,
-			errorContains: "data-dir is required",
-		},
-		{
 			name: "server already running",
-			setupDataDir: func(baseDir string) string {
-				dataDir := testutil.CreateDataDir(t, baseDir, true)
+			setupDataDir: func(pgDataDir string) string {
+				dataDir := testutil.CreateDataDir(t, pgDataDir, true)
 				// Create PID file to simulate running server
 				testutil.CreatePIDFile(t, dataDir, 12345)
 				return dataDir
@@ -84,7 +74,7 @@ func TestRunStart(t *testing.T) {
 			cleanupViper := SetupTestPgCtldCleanup(t)
 			defer cleanupViper()
 
-			dataDir := tt.setupDataDir(baseDir)
+			tt.setupDataDir(baseDir)
 
 			// Setup mock binaries if needed
 			if tt.setupBinaries {
@@ -101,10 +91,7 @@ func TestRunStart(t *testing.T) {
 			cmd := Root
 
 			// Set up the command arguments
-			args := []string{"start"}
-			if dataDir != "" {
-				args = append(args, "--pg-data-dir", dataDir)
-			}
+			args := []string{"start", "--pooler-dir", baseDir}
 			cmd.SetArgs(args)
 
 			err := cmd.Execute()
@@ -116,11 +103,6 @@ func TestRunStart(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
-
-				// Verify data directory was initialized if it wasn't before
-				if dataDir != "" {
-					assert.True(t, isDataDirInitialized(dataDir), "Data directory should be initialized")
-				}
 			}
 		})
 	}
@@ -160,8 +142,8 @@ func TestIsDataDirInitialized(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_init_test")
 			defer cleanup()
 
-			dataDir := tt.setupDir(baseDir)
-			result := isDataDirInitialized(dataDir)
+			tt.setupDir(baseDir)
+			result := pgctld.IsDataDirInitialized(baseDir)
 			assert.Equal(t, tt.initialized, result)
 		})
 	}
@@ -203,6 +185,10 @@ func TestIsPostgreSQLRunning(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_running_test")
 			defer cleanup()
 
+			// Set up pooler directory
+			cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
+			defer cleanupPooler()
+
 			dataDir := tt.setupDir(baseDir)
 			result := isPostgreSQLRunning(dataDir)
 			assert.Equal(t, tt.isRunning, result)
@@ -214,6 +200,10 @@ func TestInitializeDataDir(t *testing.T) {
 	t.Run("successful initialization", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_initdb_test")
 		defer cleanup()
+
+		// Set up pooler directory
+		cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
+		defer cleanupPooler()
 
 		dataDir := filepath.Join(baseDir, "data")
 
@@ -252,6 +242,13 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_wait_test")
 		defer cleanup()
 
+		// Set up pooler directory
+		cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
+		defer cleanupPooler()
+
+		// Create initialized data directory with postgresql.conf
+		testutil.CreateDataDir(t, baseDir, true)
+
 		// Setup mock pg_isready that succeeds
 		binDir := filepath.Join(baseDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0o755))
@@ -272,6 +269,13 @@ func TestWaitForPostgreSQL(t *testing.T) {
 	t.Run("timeout waiting for server", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_timeout_test")
 		defer cleanup()
+
+		// Set up pooler directory
+		cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
+		defer cleanupPooler()
+
+		// Create initialized data directory with postgresql.conf
+		testutil.CreateDataDir(t, baseDir, true)
 
 		// Create mock pg_isready that always fails
 		binDir := filepath.Join(baseDir, "bin")

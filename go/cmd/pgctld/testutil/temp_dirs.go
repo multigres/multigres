@@ -25,6 +25,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/multigres/multigres/go/pgctld"
 )
 
 // TempDir creates a temporary directory for testing and returns a cleanup function
@@ -52,7 +54,8 @@ func TempDir(t *testing.T, prefix string) (string, func()) {
 func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 	t.Helper()
 
-	dataDir := filepath.Join(baseDir, "data")
+	// This is the base location where multigres expects postgres data
+	dataDir := pgctld.PostgresDataDir(baseDir)
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("Failed to create data dir: %v", err)
 	}
@@ -64,16 +67,25 @@ func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 			t.Fatalf("Failed to create PG_VERSION file: %v", err)
 		}
 
-		// Create other typical PostgreSQL files
-		files := []string{
-			"postgresql.conf",
-			"pg_hba.conf",
-			"pg_ident.conf",
+		// Set up pooler directory for PostgreSQL config generation
+		cleanup := pgctld.SetPoolerDirForTest(baseDir)
+		defer cleanup()
+
+		// Generate a proper postgresql.conf file using the postgresconfig_gen functionality
+		_, err := pgctld.GeneratePostgresServerConfig(baseDir, 5432)
+		if err != nil {
+			t.Fatalf("Failed to generate PostgreSQL config: %v", err)
 		}
 
-		for _, file := range files {
+		// Create other typical PostgreSQL files manually
+		files := map[string]string{
+			"pg_hba.conf":   "# Test HBA config\nlocal all all trust\n",
+			"pg_ident.conf": "# Test ident config\n",
+		}
+
+		for file, content := range files {
 			path := filepath.Join(dataDir, file)
-			if err := os.WriteFile(path, []byte("# Test config\n"), 0o644); err != nil {
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 				t.Fatalf("Failed to create file %s: %v", file, err)
 			}
 		}
@@ -106,8 +118,8 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 			_ = cmd.Process.Kill()
 		}
 	})
-
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
+
 	content := []string{
 		fmt.Sprintf("%d", realPID),
 		dataDir,

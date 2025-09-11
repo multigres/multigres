@@ -71,34 +71,43 @@ timeout: 30
 	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
 
 	t.Run("basic_commands_with_real_postgresql", func(t *testing.T) {
-		// Step 1: Initial status - should be not initialized
-		statusCmd := exec.Command(pgctldBinary, "status", "--pg-data-dir", dataDir, "--config-file", pgctldConfigFile)
+		// Step 1: Initialize the database first
+		initCmd := exec.Command(pgctldBinary, "init", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
+		setupTestEnv(initCmd)
+		initOutput, err := initCmd.CombinedOutput()
+		if err != nil {
+			t.Logf("pgctld init failed with output: %s", string(initOutput))
+		}
+		require.NoError(t, err)
+
+		// Step 2: Check status - should show stopped after init
+		statusCmd := exec.Command(pgctldBinary, "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		setupTestEnv(statusCmd)
 		output, err := statusCmd.CombinedOutput()
 		if err != nil {
-			t.Logf("pgctld start failed with output: %s", string(output))
+			t.Logf("pgctld status failed with output: %s", string(output))
 		}
 		require.NoError(t, err)
-		assert.Contains(t, string(output), "Not initialized")
+		assert.Contains(t, string(output), "Stopped")
 
-		// Step 2: Test help commands work
+		// Step 3: Test help commands work
 		helpCmd := exec.Command(pgctldBinary, "--help")
 		helpOutput, err := helpCmd.Output()
 		require.NoError(t, err)
 		assert.Contains(t, string(helpOutput), "pgctld")
 
-		// Step 3: Test that real PostgreSQL binaries are detected
+		// Step 4: Test that real PostgreSQL binaries are detected
 		versionCmd := exec.Command("postgres", "--version")
 		versionOutput, err := versionCmd.Output()
 		require.NoError(t, err)
 		t.Logf("PostgreSQL version: %s", string(versionOutput))
 		assert.Contains(t, string(versionOutput), "postgres")
 
-		// Step 4: Test initialization works with real PostgreSQL
-		initCmd := exec.Command("initdb", "--help")
-		initOutput, err := initCmd.Output()
+		// Step 5: Test initialization works with real PostgreSQL
+		initdbCmd := exec.Command("initdb", "--help")
+		initdbOutput, err := initdbCmd.Output()
 		require.NoError(t, err)
-		assert.Contains(t, string(initOutput), "initdb")
+		assert.Contains(t, string(initdbOutput), "initdb")
 
 		t.Log("End-to-end test environment validated successfully")
 	})
@@ -143,7 +152,7 @@ timeout: 30
 
 		// Start gRPC server in background
 		serverCmd := exec.Command(pgctldBinary, "server",
-			"--pg-data-dir", dataDir,
+			"--pooler-dir", dataDir,
 			"--grpc-port", strconv.Itoa(grpcPort),
 			"--pg-port", strconv.Itoa(pgPort),
 			"--config-file", pgctldConfigFile)
@@ -222,10 +231,21 @@ timeout: 30
 
 		// Measure time to start PostgreSQL
 		startTime := time.Now()
+		initCmd := exec.Command(pgctldBinary, "init", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(perfTestPort), "--config-file", pgctldConfigFile)
+		setupTestEnv(initCmd)
+		startOutput, err := initCmd.CombinedOutput()
+		if err != nil {
+			t.Logf("pgctld start failed with output: %s", string(startOutput))
+		}
 
-		startCmd := exec.Command(pgctldBinary, "start", "--pg-data-dir", dataDir, "--pg-port", strconv.Itoa(perfTestPort), "--config-file", pgctldConfigFile)
+		require.NoError(t, err)
+
+		startCmd := exec.Command(pgctldBinary, "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		setupTestEnv(startCmd)
-		err = startCmd.Run()
+		startOutput, err = startCmd.CombinedOutput()
+		if err != nil {
+			t.Logf("pgctld start failed with output: %s", string(startOutput))
+		}
 		require.NoError(t, err)
 
 		startupDuration := time.Since(startTime)
@@ -235,32 +255,31 @@ timeout: 30
 		assert.Less(t, startupDuration, 30*time.Second, "PostgreSQL startup took too long")
 
 		// Clean shutdown
-		stopCmd := exec.Command(pgctldBinary, "stop", "--pg-data-dir", dataDir, "--config-file", pgctldConfigFile)
+		stopCmd := exec.Command(pgctldBinary, "stop", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		setupTestEnv(stopCmd)
 		err = stopCmd.Run()
 		require.NoError(t, err)
 	})
 
 	t.Run("multiple_rapid_operations", func(t *testing.T) {
-		// Generate random port for this test
-		rapidTestPort := testutil.GenerateRandomPort()
-		t.Logf("Rapid operations test using port: %d", rapidTestPort)
-
 		// Test rapid start/stop cycles
 		for i := range 3 {
 			t.Logf("Cycle %d", i+1)
 
 			// Start
-			startCmd := exec.Command(pgctldBinary, "start", "--pg-data-dir", dataDir, "--pg-port", strconv.Itoa(rapidTestPort), "--config-file", pgctldConfigFile)
+			startCmd := exec.Command(pgctldBinary, "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 			setupTestEnv(startCmd)
-			err := startCmd.Run()
+			startOutput, err := startCmd.CombinedOutput()
+			if err != nil {
+				t.Logf("pgctld start failed with error: %v, output: %s", err, string(startOutput))
+			}
 			require.NoError(t, err)
 
 			// Brief wait
 			time.Sleep(1 * time.Second)
 
 			// Stop
-			stopCmd := exec.Command(pgctldBinary, "stop", "--pg-data-dir", dataDir, "--mode", "fast", "--config-file", pgctldConfigFile)
+			stopCmd := exec.Command(pgctldBinary, "stop", "--pooler-dir", dataDir, "--mode", "fast", "--config-file", pgctldConfigFile)
 			setupTestEnv(stopCmd)
 			err = stopCmd.Run()
 			require.NoError(t, err)
@@ -327,8 +346,16 @@ timeout: 30
 		require.NoError(t, err)
 		t.Logf("PostgreSQL version: %s", string(output))
 
+		initCmd := exec.Command(pgctldBinary, "init", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile, "--pg-port", strconv.Itoa(testPort))
+		setupTestEnv(initCmd)
+		initOutput, err := initCmd.CombinedOutput()
+		if err != nil {
+			t.Logf("pgctld init failed with output: %s", string(initOutput))
+		}
+		require.NoError(t, err)
+
 		// Start PostgreSQL to test compatibility
-		startCmd := exec.Command(pgctldBinary, "start", "--pg-data-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
+		startCmd := exec.Command(pgctldBinary, "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		setupTestEnv(startCmd)
 		startOutput, err := startCmd.CombinedOutput()
 		if err != nil {
@@ -337,73 +364,14 @@ timeout: 30
 		require.NoError(t, err)
 
 		// Get version info through pgctld
-		statusCmd := exec.Command(pgctldBinary, "status", "--pg-data-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
+		statusCmd := exec.Command(pgctldBinary, "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		setupTestEnv(statusCmd)
 		output, err = statusCmd.Output()
 		require.NoError(t, err)
 		t.Logf("pgctld status output: %s", string(output))
 
 		// Clean shutdown
-		stopCmd := exec.Command(pgctldBinary, "stop", "--pg-data-dir", dataDir, "--config-file", pgctldConfigFile)
-		setupTestEnv(stopCmd)
-		err = stopCmd.Run()
-		require.NoError(t, err)
-	})
-
-	t.Run("configuration_management", func(t *testing.T) {
-		// Generate random port for this test
-		configTestPort := testutil.GenerateRandomPort()
-		t.Logf("Configuration test using port: %d", configTestPort)
-
-		// Test custom configuration - use separate data directory
-		configDataDir := filepath.Join(tempDir, "config_data")
-		configFile := filepath.Join(configDataDir, "postgresql.conf")
-
-		// Start PostgreSQL first to create data directory
-		startCmd := exec.Command(pgctldBinary, "start", "--pg-data-dir", configDataDir, "--pg-port", strconv.Itoa(configTestPort), "--config-file", pgctldConfigFile)
-		setupTestEnv(startCmd)
-		startOutput, err := startCmd.CombinedOutput()
-		if err != nil {
-			t.Logf("pgctld start failed with output: %s", string(startOutput))
-		}
-		require.NoError(t, err)
-
-		// Check status to ensure server is running before modifying config
-		statusCheckCmd := exec.Command(pgctldBinary, "status", "--pg-data-dir", configDataDir, "--pg-port", strconv.Itoa(configTestPort), "--config-file", pgctldConfigFile)
-		setupTestEnv(statusCheckCmd)
-		statusOutput, err := statusCheckCmd.CombinedOutput()
-		t.Logf("Status before reload: %s", string(statusOutput))
-		require.NoError(t, err)
-
-		// Modify configuration
-		customConfig := `
-# Custom configuration for testing
-max_connections = 50
-shared_buffers = 64MB
-log_statement = 'all'
-log_min_messages = info
-`
-		err = os.WriteFile(configFile, []byte(customConfig), 0o644)
-		require.NoError(t, err)
-
-		// Reload configuration
-		reloadCmd := exec.Command(pgctldBinary, "reload-config", "--pg-data-dir", configDataDir, "--config-file", pgctldConfigFile)
-		setupTestEnv(reloadCmd)
-		reloadOutput, err := reloadCmd.CombinedOutput()
-		if err != nil {
-			t.Logf("reload-config failed with output: %s", string(reloadOutput))
-		}
-		require.NoError(t, err)
-
-		// Verify server is still running after reload
-		statusCmd := exec.Command(pgctldBinary, "status", "--pg-data-dir", configDataDir, "--pg-port", strconv.Itoa(configTestPort), "--config-file", pgctldConfigFile)
-		setupTestEnv(statusCmd)
-		output, err := statusCmd.Output()
-		require.NoError(t, err)
-		assert.Contains(t, string(output), "Running")
-
-		// Clean shutdown
-		stopCmd := exec.Command(pgctldBinary, "stop", "--pg-data-dir", configDataDir, "--config-file", pgctldConfigFile)
+		stopCmd := exec.Command(pgctldBinary, "stop", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		setupTestEnv(stopCmd)
 		err = stopCmd.Run()
 		require.NoError(t, err)

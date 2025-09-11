@@ -1,0 +1,9 @@
+data_directory = '{{.DataDir}}'
+hba_file = '{{.HbaFile}}'
+ident_file = '{{.IdentFile}}'
+port = {{.Port}}
+listen_addresses = '{{.ListenAddresses}}'
+unix_socket_directories = '{{.UnixSocketDirectories}}'
+
+# These are defaults that are sensible for all configurations
+max_connections = 500

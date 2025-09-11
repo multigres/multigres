@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/multigres/multigres/go/pgctld"
+
 	"github.com/spf13/cobra"
 )
 
@@ -55,11 +57,12 @@ Examples:
   if pgctld version | grep -q "PostgreSQL 15"; then
     echo "Compatible version found"
   fi`,
-	RunE: runVersion,
+	PreRunE: validateInitialized,
+	RunE:    runVersion,
 }
 
 // GetVersionWithResult gets PostgreSQL server version information and returns detailed result information
-func GetVersionWithResult(config *PostgresConfig) (*VersionResult, error) {
+func GetVersionWithResult(config *pgctld.PostgresCtlConfig) (*VersionResult, error) {
 	result := &VersionResult{}
 
 	// Get server version using the same method as the gRPC service
@@ -74,7 +77,10 @@ func GetVersionWithResult(config *PostgresConfig) (*VersionResult, error) {
 }
 
 func runVersion(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromDefaults()
+	config, err := NewPostgresCtlConfigFromDefaults()
+	if err != nil {
+		return err
+	}
 
 	// No local flag overrides needed - all flags are global now
 

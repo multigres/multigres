@@ -1,18 +1,16 @@
-/*
-Copyright 2025 The Multigres Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2025 The Multigres Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package command
 
@@ -23,6 +21,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/multigres/multigres/go/pgctld"
 
 	"github.com/spf13/cobra"
 )
@@ -58,42 +58,32 @@ CLI flags take precedence over config file and environment variable settings.
 
 Examples:
   # Check status with default settings
-  pgctld status --pg-data-dir /var/lib/postgresql/data
+  pgctld status --pooler-dir /var/lib/poolerdir/
 
   # Check status of PostgreSQL on custom port
-  pgctld status --pg-data-dir /var/lib/postgresql/data --port 5433
+  pgctld status --pooler-dir/var/lib/poolerdir/ --port 5433
 
   # Check status with specific connection parameters
-  pgctld status -d /var/lib/postgresql/data -H remotehost -U admin --pg-database mydb
+  pgctld status -d /var/lib/poolerdir/ -H remotehost -U admin --pg-database mydb
 
   # Check status of multiple instances
-  pgctld status -d /var/lib/postgresql/instance1 -p 5432
-  pgctld status -d /var/lib/postgresql/instance2 -p 5433`,
-	RunE: runStatus,
+  pgctld status -d /var/lib/poolerdir/instance1 -p 5432
+  pgctld status -d /var/lib/poolerdir/instance2 -p 5433`,
+	PreRunE: validateInitialized,
+	RunE:    runStatus,
 }
 
 // GetStatusWithResult gets PostgreSQL status with the given configuration and returns detailed result information
-func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
+func GetStatusWithResult(config *pgctld.PostgresCtlConfig) (*StatusResult, error) {
 	logger := slog.Default()
 	result := &StatusResult{
-		DataDir: config.DataDir,
+		DataDir: config.PostgresDataDir,
 		Port:    config.Port,
 		Host:    config.Host,
 	}
 
-	if config.DataDir == "" {
-		return nil, fmt.Errorf("pg-data-dir is required")
-	}
-
-	// Check if data directory is initialized
-	if !isDataDirInitialized(config.DataDir) {
-		result.Status = "NOT_INITIALIZED"
-		result.Message = "Data directory is not initialized"
-		return result, nil
-	}
-
 	// Check if PostgreSQL is running
-	if !isPostgreSQLRunning(config.DataDir) {
+	if !isPostgreSQLRunning(config.PostgresDataDir) {
 		result.Status = "STOPPED"
 		result.Message = "PostgreSQL server is stopped"
 		return result, nil
@@ -104,7 +94,7 @@ func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
 	result.Message = "PostgreSQL server is running"
 
 	// Get PID if running
-	if pid, err := readPostmasterPID(config.DataDir); err == nil {
+	if pid, err := readPostmasterPID(config.PostgresDataDir); err == nil {
 		result.PID = pid
 	} else {
 		logger.Warn("Could not read postmaster PID", "error", err)
@@ -117,7 +107,7 @@ func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
 	result.Version = getServerVersionWithConfig(config)
 
 	// Get uptime (approximate based on pidfile mtime)
-	pidFile := filepath.Join(config.DataDir, "postmaster.pid")
+	pidFile := filepath.Join(config.PostgresDataDir, "postmaster.pid")
 	if stat, err := os.Stat(pidFile); err == nil {
 		result.UptimeSeconds = int64(time.Since(stat.ModTime()).Seconds())
 	}
@@ -126,7 +116,10 @@ func GetStatusWithResult(config *PostgresConfig) (*StatusResult, error) {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromDefaults()
+	config, err := NewPostgresCtlConfigFromDefaults()
+	if err != nil {
+		return err
+	}
 	// No local flag overrides needed - all flags are global now
 
 	result, err := GetStatusWithResult(config)
@@ -137,8 +130,6 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	// Display status for CLI users
 	var statusDisplay string
 	switch result.Status {
-	case "NOT_INITIALIZED":
-		statusDisplay = "Not initialized"
 	case "STOPPED":
 		statusDisplay = "Stopped"
 	case "RUNNING":
@@ -151,8 +142,6 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Data directory: %s", result.DataDir)
 
 	switch result.Status {
-	case "NOT_INITIALIZED":
-		fmt.Printf(" (not initialized)\n")
 	case "STOPPED":
 		fmt.Printf("\n")
 	case "RUNNING":
@@ -194,12 +183,7 @@ func formatUptime(seconds int64) string {
 	}
 }
 
-func isServerReady() bool {
-	config := NewPostgresConfigFromDefaults()
-	return isServerReadyWithConfig(config)
-}
-
-func isServerReadyWithConfig(config *PostgresConfig) bool {
+func isServerReadyWithConfig(config *pgctld.PostgresCtlConfig) bool {
 	cmd := exec.Command("pg_isready",
 		"-h", config.Host,
 		"-p", fmt.Sprintf("%d", config.Port),
@@ -210,12 +194,7 @@ func isServerReadyWithConfig(config *PostgresConfig) bool {
 	return cmd.Run() == nil
 }
 
-func getServerVersion() string {
-	config := NewPostgresConfigFromDefaults()
-	return getServerVersionWithConfig(config)
-}
-
-func getServerVersionWithConfig(config *PostgresConfig) string {
+func getServerVersionWithConfig(config *pgctld.PostgresCtlConfig) string {
 	cmd := exec.Command("psql",
 		"-h", config.Host,
 		"-p", fmt.Sprintf("%d", config.Port),
