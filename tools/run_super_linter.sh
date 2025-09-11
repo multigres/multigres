@@ -13,15 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Runs any hooks in misc/git/commit-msg.*, and exits if any of them fail.
-set -e
+set -euo pipefail
 
-# This is necessary because the Emacs extensions don't set GIT_DIR.
-if [ -z "$GIT_DIR" ]; then
-  DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-  GIT_DIR="${DIR}/.."
-fi
-
-for hook in "$GIT_DIR"/../misc/git/commit-msg.*; do
-  $hook "$@"
-done
+docker run --platform linux/x86_64 \
+  -it \
+  --env-file ".github/super-linter.env" \
+  --env-file ".github/local-super-linter.env" \
+  -v "$PWD:/tmp/lint" \
+  --rm \
+  ghcr.io/super-linter/super-linter:latest

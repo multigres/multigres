@@ -7,7 +7,7 @@ date: 2025-07-11
 
 # Interview: Multigres on Postgres.FM
 
-Sugu discusses Multigres on the Postgres.FM YouTube channel. 
+Sugu discusses Multigres on the Postgres.FM YouTube channel.
 
 <!--truncate-->
 
@@ -70,14 +70,15 @@ Sugu discusses Multigres on the Postgres.FM YouTube channel.
 - [01:18:20](https://www.youtube.com/watch?v=KOepJivmWTg&t=4700s) - Team Building Plans
 - [01:19:14](https://www.youtube.com/watch?v=KOepJivmWTg&t=4754s) - Final Thoughts
 
-
 ## Transcription
 
+<!-- prettier-ignore-start -->
 {/*
 docker pull ghcr.io/shun-liang/yt2doc
 
 docker run ghcr.io/shun-liang/yt2doc --video "https://www.youtube.com/watch?v=KOepJivmWTg"
 */}
+<!-- prettier-ignore-end -->
 
 #### Meet Sugu & Multigres
 

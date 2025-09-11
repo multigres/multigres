@@ -50,11 +50,13 @@ Sugu discusses Multigres on the Database School YouTube channel. He shares the h
 
 ## Transcription
 
+<!-- prettier-ignore-start -->
 {/*
 docker pull ghcr.io/shun-liang/yt2doc
 
 docker run ghcr.io/shun-liang/yt2doc --video "https://www.youtube.com/watch?v=28q9mFh87KY"
 */}
+<!-- prettier-ignore-end -->
 
 #### Intro
 
@@ -126,7 +128,7 @@ Stubby, yes. It's a...
 
 You tell me, I don't know. It's Google's version of gRPC.
 
-Okay. gRPC was born off that project. I should actually confirm the project. I think it is Stubby. Anyway, it connects via gRPC to one of the VTGates. Then sends a query, you know, SELECT *. But in the query, it says, this query belongs to this keyspace ID, which means that it's a SELECT from a user. It also says, the user lives at this keyspace ID. And so then VTGate says, Oh, okay, let me go look up this keyspace ID in my topology. And the topology says,
+Okay. gRPC was born off that project. I should actually confirm the project. I think it is Stubby. Anyway, it connects via gRPC to one of the VTGates. Then sends a query, you know, SELECT \*. But in the query, it says, this query belongs to this keyspace ID, which means that it's a SELECT from a user. It also says, the user lives at this keyspace ID. And so then VTGate says, Oh, okay, let me go look up this keyspace ID in my topology. And the topology says,
 
 Oh, this keyspace ID is in this key range. And that maps to this shard. Okay. And so, okay, then VTGate says,
 

@@ -20,6 +20,8 @@ on:
   pull_request:
     branches: [main]
 
+permissions: {}
+
 jobs:
   test-short:
     name: Short Tests
@@ -27,6 +29,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@v5

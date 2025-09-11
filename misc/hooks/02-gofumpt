@@ -20,12 +20,13 @@
 # the formatting and re-staging the files.
 
 # Get list of Go files to check
-gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep -v '^pb/')
+gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep -v '^go/pb/')
 
 # Exit if no Go files to process
 [ -z "$gofiles" ] && exit 0
 
 # Check for unformatted files
+# shellcheck disable=SC2086
 unformatted=$(go tool gofumpt -l $gofiles 2>&1)
 
 # Exit if all files are already formatted
@@ -42,6 +43,7 @@ files=$(
 '
   for line in $unformatted; do
     # Strip everything after the first ':', including it
+    # shellcheck disable=SC2086
     echo ${line/:*/}
   done |
     # Remove duplicates

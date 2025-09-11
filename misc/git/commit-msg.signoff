@@ -21,9 +21,9 @@ signoff="Signed-off-by: $name <$email>"
 
 # Check if the commit message already has the signoff
 if grep -q "^$signoff" "$1"; then
-    exit 0
+  exit 0
 fi
 
 # If no signoff found, add it
-echo "" >> "$1"
-echo "$signoff" >> "$1"
+echo "" >>"$1"
+echo "$signoff" >>"$1"
