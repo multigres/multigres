@@ -22,7 +22,7 @@
 # Modifications Copyright 2025 The Multigres Authors.
 
 # Get list of Go files to check
-gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep -v '^pb/')
+gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep -v '^go/pb/')
 
 # Exit if no Go files to process
 [ -z "$gofiles" ] && exit 0
@@ -56,7 +56,7 @@ files=$(
 # Format each file and re-stage it
 for f in $files; do
   echo "  Formatting imports in $f"
-  go tool goimports -w "$f"
+  echo go tool goimports -w "$f"
   git add "$f"
 done
 

@@ -21,13 +21,12 @@
 package multiadmin
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -251,17 +250,15 @@ func file_multiadminservice_proto_rawDescGZIP() []byte {
 	return file_multiadminservice_proto_rawDescData
 }
 
-var (
-	file_multiadminservice_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-	file_multiadminservice_proto_goTypes  = []any{
-		(*GetCellRequest)(nil),           // 0: multiadmin.GetCellRequest
-		(*GetCellResponse)(nil),          // 1: multiadmin.GetCellResponse
-		(*GetDatabaseRequest)(nil),       // 2: multiadmin.GetDatabaseRequest
-		(*GetDatabaseResponse)(nil),      // 3: multiadmin.GetDatabaseResponse
-		(*clustermetadata.Cell)(nil),     // 4: clustermetadata.Cell
-		(*clustermetadata.Database)(nil), // 5: clustermetadata.Database
-	}
-)
+var file_multiadminservice_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_multiadminservice_proto_goTypes = []any{
+	(*GetCellRequest)(nil),           // 0: multiadmin.GetCellRequest
+	(*GetCellResponse)(nil),          // 1: multiadmin.GetCellResponse
+	(*GetDatabaseRequest)(nil),       // 2: multiadmin.GetDatabaseRequest
+	(*GetDatabaseResponse)(nil),      // 3: multiadmin.GetDatabaseResponse
+	(*clustermetadata.Cell)(nil),     // 4: clustermetadata.Cell
+	(*clustermetadata.Database)(nil), // 5: clustermetadata.Database
+}
 var file_multiadminservice_proto_depIdxs = []int32{
 	4, // 0: multiadmin.GetCellResponse.cell:type_name -> clustermetadata.Cell
 	5, // 1: multiadmin.GetDatabaseResponse.database:type_name -> clustermetadata.Database

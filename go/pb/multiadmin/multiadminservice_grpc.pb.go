@@ -22,7 +22,6 @@ package multiadmin
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -86,12 +85,12 @@ type MultiAdminServiceServer interface {
 }
 
 // UnimplementedMultiAdminServiceServer must be embedded to have forward compatible implementations.
-type UnimplementedMultiAdminServiceServer struct{}
+type UnimplementedMultiAdminServiceServer struct {
+}
 
 func (UnimplementedMultiAdminServiceServer) GetCell(context.Context, *GetCellRequest) (*GetCellResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCell not implemented")
 }
-
 func (UnimplementedMultiAdminServiceServer) GetDatabase(context.Context, *GetDatabaseRequest) (*GetDatabaseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDatabase not implemented")
 }
