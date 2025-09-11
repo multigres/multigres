@@ -50,11 +50,13 @@ Sugu discusses Multigres on the Database School YouTube channel. He shares the h
 
 ## Transcription
 
-{/\*
+<!-- prettier-ignore-start -->
+{/*
 docker pull ghcr.io/shun-liang/yt2doc
 
 docker run ghcr.io/shun-liang/yt2doc --video "https://www.youtube.com/watch?v=28q9mFh87KY"
-\*/}
+*/}
+<!-- prettier-ignore-end -->
 
 #### Intro
 

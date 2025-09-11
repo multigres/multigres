@@ -72,11 +72,13 @@ Sugu discusses Multigres on the Postgres.FM YouTube channel.
 
 ## Transcription
 
-{/\*
+<!-- prettier-ignore-start -->
+{/*
 docker pull ghcr.io/shun-liang/yt2doc
 
 docker run ghcr.io/shun-liang/yt2doc --video "https://www.youtube.com/watch?v=KOepJivmWTg"
-\*/}
+*/}
+<!-- prettier-ignore-end -->
 
 #### Meet Sugu & Multigres
 
