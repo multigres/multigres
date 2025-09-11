@@ -29,7 +29,7 @@ gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep 
 
 # Check for files with improperly formatted imports
 # shellcheck disable=SC2086
-unformatted=$(goimports -l $gofiles 2>&1)
+unformatted=$(go tool goimports -l $gofiles 2>&1)
 
 # Exit if all files are already formatted
 [ -z "$unformatted" ] && exit 0
