@@ -56,7 +56,7 @@ files=$(
 # Format each file and re-stage it
 for f in $files; do
   echo "  Formatting imports in $f"
-  echo go tool goimports -w "$f"
+  go tool goimports -w "$f"
   git add "$f"
 done
 
