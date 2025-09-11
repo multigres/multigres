@@ -22,6 +22,7 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 
 	"google.golang.org/grpc"
@@ -113,5 +114,173 @@ func (s *MultiAdminServer) GetDatabase(ctx context.Context, req *multiadminpb.Ge
 	}
 
 	s.logger.Debug("GetDatabase request completed successfully", "database_name", req.Name)
+	return response, nil
+}
+
+// GetCellNames retrieves all cell names in the cluster
+func (s *MultiAdminServer) GetCellNames(ctx context.Context, req *multiadminpb.GetCellNamesRequest) (*multiadminpb.GetCellNamesResponse, error) {
+	s.logger.Debug("GetCellNames request received")
+
+	names, err := s.ts.GetCellNames(ctx)
+	if err != nil {
+		s.logger.Error("Failed to get cell names from topology", "error", err)
+		return nil, status.Errorf(codes.Internal, "failed to retrieve cell names: %v", err)
+	}
+
+	response := &multiadminpb.GetCellNamesResponse{
+		Names: names,
+	}
+
+	s.logger.Debug("GetCellNames request completed successfully", "count", len(names))
+	return response, nil
+}
+
+// GetDatabaseNames retrieves all database names in the cluster
+func (s *MultiAdminServer) GetDatabaseNames(ctx context.Context, req *multiadminpb.GetDatabaseNamesRequest) (*multiadminpb.GetDatabaseNamesResponse, error) {
+	s.logger.Debug("GetDatabaseNames request received")
+
+	names, err := s.ts.GetDatabaseNames(ctx)
+	if err != nil {
+		s.logger.Error("Failed to get database names from topology", "error", err)
+		return nil, status.Errorf(codes.Internal, "failed to retrieve database names: %v", err)
+	}
+
+	response := &multiadminpb.GetDatabaseNamesResponse{
+		Names: names,
+	}
+
+	s.logger.Debug("GetDatabaseNames request completed successfully", "count", len(names))
+	return response, nil
+}
+
+// GetGateways retrieves gateways filtered by cells
+func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.GetGatewaysRequest) (*multiadminpb.GetGatewaysResponse, error) {
+	s.logger.Debug("GetGateways request received", "cells", req.Cells)
+
+	// Determine which cells to query
+	cellsToQuery := req.Cells
+	if len(cellsToQuery) == 0 {
+		// If no cells specified, get all cells
+		allCells, err := s.ts.GetCellNames(ctx)
+		if err != nil {
+			s.logger.Error("Failed to get all cell names", "error", err)
+			return nil, status.Errorf(codes.Internal, "failed to retrieve cell names: %v", err)
+		}
+		cellsToQuery = allCells
+	}
+
+	var allGateways []*clustermetadatapb.MultiGateway
+
+	// Query each cell for gateways
+	for _, cellName := range cellsToQuery {
+		gatewayInfos, err := s.ts.GetMultiGatewaysByCell(ctx, cellName)
+		if err != nil {
+			s.logger.Error("Failed to get gateways for cell", "cell", cellName, "error", err)
+			// Continue with other cells instead of failing completely
+			continue
+		}
+
+		// Convert to protobuf
+		for _, info := range gatewayInfos {
+			gateway := info.MultiGateway
+			allGateways = append(allGateways, gateway)
+		}
+	}
+
+	response := &multiadminpb.GetGatewaysResponse{
+		Gateways: allGateways,
+	}
+
+	s.logger.Debug("GetGateways request completed successfully", "count", len(allGateways))
+	return response, nil
+}
+
+// GetPoolers retrieves poolers filtered by cells and/or database
+func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.GetPoolersRequest) (*multiadminpb.GetPoolersResponse, error) {
+	s.logger.Debug("GetPoolers request received", "cells", req.Cells, "database", req.Database)
+
+	// Determine which cells to query
+	cellsToQuery := req.Cells
+	if len(cellsToQuery) == 0 {
+		// If no cells specified, get all cells
+		allCells, err := s.ts.GetCellNames(ctx)
+		if err != nil {
+			s.logger.Error("Failed to get all cell names", "error", err)
+			return nil, status.Errorf(codes.Internal, "failed to retrieve cell names: %v", err)
+		}
+		cellsToQuery = allCells
+	}
+
+	var allPoolers []*clustermetadatapb.MultiPooler
+
+	// Query each cell for poolers
+	for _, cellName := range cellsToQuery {
+		poolerInfos, err := s.ts.GetMultiPoolersByCell(ctx, cellName, nil)
+		if err != nil {
+			s.logger.Error("Failed to get poolers for cell", "cell", cellName, "error", err)
+			// Continue with other cells instead of failing completely
+			continue
+		}
+
+		// Convert to protobuf and filter by database if specified
+		for _, info := range poolerInfos {
+			pooler := info.MultiPooler
+
+			// Filter by database if specified
+			if req.Database != "" && pooler.Database != req.Database {
+				continue
+			}
+
+			allPoolers = append(allPoolers, pooler)
+		}
+	}
+
+	response := &multiadminpb.GetPoolersResponse{
+		Poolers: allPoolers,
+	}
+
+	s.logger.Debug("GetPoolers request completed successfully", "count", len(allPoolers))
+	return response, nil
+}
+
+// GetOrchs retrieves orchestrators filtered by cells
+func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOrchsRequest) (*multiadminpb.GetOrchsResponse, error) {
+	s.logger.Debug("GetOrchs request received", "cells", req.Cells)
+
+	// Determine which cells to query
+	cellsToQuery := req.Cells
+	if len(cellsToQuery) == 0 {
+		// If no cells specified, get all cells
+		allCells, err := s.ts.GetCellNames(ctx)
+		if err != nil {
+			s.logger.Error("Failed to get all cell names", "error", err)
+			return nil, status.Errorf(codes.Internal, "failed to retrieve cell names: %v", err)
+		}
+		cellsToQuery = allCells
+	}
+
+	var allOrchs []*clustermetadatapb.MultiOrch
+
+	// Query each cell for orchestrators
+	for _, cellName := range cellsToQuery {
+		orchInfos, err := s.ts.GetMultiOrchsByCell(ctx, cellName)
+		if err != nil {
+			s.logger.Error("Failed to get orchestrators for cell", "cell", cellName, "error", err)
+			// Continue with other cells instead of failing completely
+			continue
+		}
+
+		// Convert to protobuf
+		for _, info := range orchInfos {
+			orch := info.MultiOrch
+			allOrchs = append(allOrchs, orch)
+		}
+	}
+
+	response := &multiadminpb.GetOrchsResponse{
+		Orchs: allOrchs,
+	}
+
+	s.logger.Debug("GetOrchs request completed successfully", "count", len(allOrchs))
 	return response, nil
 }

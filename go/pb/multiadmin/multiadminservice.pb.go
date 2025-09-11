@@ -220,6 +220,452 @@ func (x *GetDatabaseResponse) GetDatabase() *clustermetadata.Database {
 	return nil
 }
 
+// GetCellNamesRequest requests all cell names
+type GetCellNamesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCellNamesRequest) Reset() {
+	*x = GetCellNamesRequest{}
+	mi := &file_multiadminservice_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCellNamesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCellNamesRequest) ProtoMessage() {}
+
+func (x *GetCellNamesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCellNamesRequest.ProtoReflect.Descriptor instead.
+func (*GetCellNamesRequest) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{4}
+}
+
+// GetCellNamesResponse contains all cell names
+type GetCellNamesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Names         []string               `protobuf:"bytes,1,rep,name=names,proto3" json:"names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCellNamesResponse) Reset() {
+	*x = GetCellNamesResponse{}
+	mi := &file_multiadminservice_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCellNamesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCellNamesResponse) ProtoMessage() {}
+
+func (x *GetCellNamesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCellNamesResponse.ProtoReflect.Descriptor instead.
+func (*GetCellNamesResponse) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GetCellNamesResponse) GetNames() []string {
+	if x != nil {
+		return x.Names
+	}
+	return nil
+}
+
+// GetDatabaseNamesRequest requests all database names
+type GetDatabaseNamesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDatabaseNamesRequest) Reset() {
+	*x = GetDatabaseNamesRequest{}
+	mi := &file_multiadminservice_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDatabaseNamesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDatabaseNamesRequest) ProtoMessage() {}
+
+func (x *GetDatabaseNamesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDatabaseNamesRequest.ProtoReflect.Descriptor instead.
+func (*GetDatabaseNamesRequest) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{6}
+}
+
+// GetDatabaseNamesResponse contains all database names
+type GetDatabaseNamesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Names         []string               `protobuf:"bytes,1,rep,name=names,proto3" json:"names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDatabaseNamesResponse) Reset() {
+	*x = GetDatabaseNamesResponse{}
+	mi := &file_multiadminservice_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDatabaseNamesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDatabaseNamesResponse) ProtoMessage() {}
+
+func (x *GetDatabaseNamesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDatabaseNamesResponse.ProtoReflect.Descriptor instead.
+func (*GetDatabaseNamesResponse) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *GetDatabaseNamesResponse) GetNames() []string {
+	if x != nil {
+		return x.Names
+	}
+	return nil
+}
+
+// GetGatewaysRequest requests gateways with optional filtering
+type GetGatewaysRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// cells is a comma-separated list of cell names to filter by (optional)
+	Cells         []string `protobuf:"bytes,1,rep,name=cells,proto3" json:"cells,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetGatewaysRequest) Reset() {
+	*x = GetGatewaysRequest{}
+	mi := &file_multiadminservice_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetGatewaysRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetGatewaysRequest) ProtoMessage() {}
+
+func (x *GetGatewaysRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetGatewaysRequest.ProtoReflect.Descriptor instead.
+func (*GetGatewaysRequest) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *GetGatewaysRequest) GetCells() []string {
+	if x != nil {
+		return x.Cells
+	}
+	return nil
+}
+
+// GetGatewaysResponse contains the filtered gateways
+type GetGatewaysResponse struct {
+	state         protoimpl.MessageState          `protogen:"open.v1"`
+	Gateways      []*clustermetadata.MultiGateway `protobuf:"bytes,1,rep,name=gateways,proto3" json:"gateways,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetGatewaysResponse) Reset() {
+	*x = GetGatewaysResponse{}
+	mi := &file_multiadminservice_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetGatewaysResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetGatewaysResponse) ProtoMessage() {}
+
+func (x *GetGatewaysResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetGatewaysResponse.ProtoReflect.Descriptor instead.
+func (*GetGatewaysResponse) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GetGatewaysResponse) GetGateways() []*clustermetadata.MultiGateway {
+	if x != nil {
+		return x.Gateways
+	}
+	return nil
+}
+
+// GetPoolersRequest requests poolers with optional filtering
+type GetPoolersRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// cells is a comma-separated list of cell names to filter by (optional)
+	Cells []string `protobuf:"bytes,1,rep,name=cells,proto3" json:"cells,omitempty"`
+	// database name to filter by (optional)
+	Database      string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPoolersRequest) Reset() {
+	*x = GetPoolersRequest{}
+	mi := &file_multiadminservice_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPoolersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPoolersRequest) ProtoMessage() {}
+
+func (x *GetPoolersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPoolersRequest.ProtoReflect.Descriptor instead.
+func (*GetPoolersRequest) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *GetPoolersRequest) GetCells() []string {
+	if x != nil {
+		return x.Cells
+	}
+	return nil
+}
+
+func (x *GetPoolersRequest) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+// GetPoolersResponse contains the filtered poolers
+type GetPoolersResponse struct {
+	state         protoimpl.MessageState         `protogen:"open.v1"`
+	Poolers       []*clustermetadata.MultiPooler `protobuf:"bytes,1,rep,name=poolers,proto3" json:"poolers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPoolersResponse) Reset() {
+	*x = GetPoolersResponse{}
+	mi := &file_multiadminservice_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPoolersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPoolersResponse) ProtoMessage() {}
+
+func (x *GetPoolersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPoolersResponse.ProtoReflect.Descriptor instead.
+func (*GetPoolersResponse) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GetPoolersResponse) GetPoolers() []*clustermetadata.MultiPooler {
+	if x != nil {
+		return x.Poolers
+	}
+	return nil
+}
+
+// GetOrchsRequest requests orchestrators with optional filtering
+type GetOrchsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// cells is a comma-separated list of cell names to filter by (optional)
+	Cells         []string `protobuf:"bytes,1,rep,name=cells,proto3" json:"cells,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOrchsRequest) Reset() {
+	*x = GetOrchsRequest{}
+	mi := &file_multiadminservice_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOrchsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOrchsRequest) ProtoMessage() {}
+
+func (x *GetOrchsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOrchsRequest.ProtoReflect.Descriptor instead.
+func (*GetOrchsRequest) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GetOrchsRequest) GetCells() []string {
+	if x != nil {
+		return x.Cells
+	}
+	return nil
+}
+
+// GetOrchsResponse contains the filtered orchestrators
+type GetOrchsResponse struct {
+	state         protoimpl.MessageState       `protogen:"open.v1"`
+	Orchs         []*clustermetadata.MultiOrch `protobuf:"bytes,1,rep,name=orchs,proto3" json:"orchs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOrchsResponse) Reset() {
+	*x = GetOrchsResponse{}
+	mi := &file_multiadminservice_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOrchsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOrchsResponse) ProtoMessage() {}
+
+func (x *GetOrchsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiadminservice_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOrchsResponse.ProtoReflect.Descriptor instead.
+func (*GetOrchsResponse) Descriptor() ([]byte, []int) {
+	return file_multiadminservice_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *GetOrchsResponse) GetOrchs() []*clustermetadata.MultiOrch {
+	if x != nil {
+		return x.Orchs
+	}
+	return nil
+}
+
 var File_multiadminservice_proto protoreflect.FileDescriptor
 
 const file_multiadminservice_proto_rawDesc = "" +
@@ -233,10 +679,35 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x12GetDatabaseRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"L\n" +
 	"\x13GetDatabaseResponse\x125\n" +
-	"\bdatabase\x18\x01 \x01(\v2\x19.clustermetadata.DatabaseR\bdatabase2\xa7\x01\n" +
+	"\bdatabase\x18\x01 \x01(\v2\x19.clustermetadata.DatabaseR\bdatabase\"\x15\n" +
+	"\x13GetCellNamesRequest\",\n" +
+	"\x14GetCellNamesResponse\x12\x14\n" +
+	"\x05names\x18\x01 \x03(\tR\x05names\"\x19\n" +
+	"\x17GetDatabaseNamesRequest\"0\n" +
+	"\x18GetDatabaseNamesResponse\x12\x14\n" +
+	"\x05names\x18\x01 \x03(\tR\x05names\"*\n" +
+	"\x12GetGatewaysRequest\x12\x14\n" +
+	"\x05cells\x18\x01 \x03(\tR\x05cells\"P\n" +
+	"\x13GetGatewaysResponse\x129\n" +
+	"\bgateways\x18\x01 \x03(\v2\x1d.clustermetadata.MultiGatewayR\bgateways\"E\n" +
+	"\x11GetPoolersRequest\x12\x14\n" +
+	"\x05cells\x18\x01 \x03(\tR\x05cells\x12\x1a\n" +
+	"\bdatabase\x18\x02 \x01(\tR\bdatabase\"L\n" +
+	"\x12GetPoolersResponse\x126\n" +
+	"\apoolers\x18\x01 \x03(\v2\x1c.clustermetadata.MultiPoolerR\apoolers\"'\n" +
+	"\x0fGetOrchsRequest\x12\x14\n" +
+	"\x05cells\x18\x01 \x03(\tR\x05cells\"D\n" +
+	"\x10GetOrchsResponse\x120\n" +
+	"\x05orchs\x18\x01 \x03(\v2\x1a.clustermetadata.MultiOrchR\x05orchs2\xbd\x04\n" +
 	"\x11MultiAdminService\x12B\n" +
 	"\aGetCell\x12\x1a.multiadmin.GetCellRequest\x1a\x1b.multiadmin.GetCellResponse\x12N\n" +
-	"\vGetDatabase\x12\x1e.multiadmin.GetDatabaseRequest\x1a\x1f.multiadmin.GetDatabaseResponseB1Z/github.com/multigres/multigres/go/pb/multiadminb\x06proto3"
+	"\vGetDatabase\x12\x1e.multiadmin.GetDatabaseRequest\x1a\x1f.multiadmin.GetDatabaseResponse\x12Q\n" +
+	"\fGetCellNames\x12\x1f.multiadmin.GetCellNamesRequest\x1a .multiadmin.GetCellNamesResponse\x12]\n" +
+	"\x10GetDatabaseNames\x12#.multiadmin.GetDatabaseNamesRequest\x1a$.multiadmin.GetDatabaseNamesResponse\x12N\n" +
+	"\vGetGateways\x12\x1e.multiadmin.GetGatewaysRequest\x1a\x1f.multiadmin.GetGatewaysResponse\x12K\n" +
+	"\n" +
+	"GetPoolers\x12\x1d.multiadmin.GetPoolersRequest\x1a\x1e.multiadmin.GetPoolersResponse\x12E\n" +
+	"\bGetOrchs\x12\x1b.multiadmin.GetOrchsRequest\x1a\x1c.multiadmin.GetOrchsResponseB1Z/github.com/multigres/multigres/go/pb/multiadminb\x06proto3"
 
 var (
 	file_multiadminservice_proto_rawDescOnce sync.Once
@@ -250,27 +721,53 @@ func file_multiadminservice_proto_rawDescGZIP() []byte {
 	return file_multiadminservice_proto_rawDescData
 }
 
-var file_multiadminservice_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_multiadminservice_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_multiadminservice_proto_goTypes = []any{
-	(*GetCellRequest)(nil),           // 0: multiadmin.GetCellRequest
-	(*GetCellResponse)(nil),          // 1: multiadmin.GetCellResponse
-	(*GetDatabaseRequest)(nil),       // 2: multiadmin.GetDatabaseRequest
-	(*GetDatabaseResponse)(nil),      // 3: multiadmin.GetDatabaseResponse
-	(*clustermetadata.Cell)(nil),     // 4: clustermetadata.Cell
-	(*clustermetadata.Database)(nil), // 5: clustermetadata.Database
+	(*GetCellRequest)(nil),               // 0: multiadmin.GetCellRequest
+	(*GetCellResponse)(nil),              // 1: multiadmin.GetCellResponse
+	(*GetDatabaseRequest)(nil),           // 2: multiadmin.GetDatabaseRequest
+	(*GetDatabaseResponse)(nil),          // 3: multiadmin.GetDatabaseResponse
+	(*GetCellNamesRequest)(nil),          // 4: multiadmin.GetCellNamesRequest
+	(*GetCellNamesResponse)(nil),         // 5: multiadmin.GetCellNamesResponse
+	(*GetDatabaseNamesRequest)(nil),      // 6: multiadmin.GetDatabaseNamesRequest
+	(*GetDatabaseNamesResponse)(nil),     // 7: multiadmin.GetDatabaseNamesResponse
+	(*GetGatewaysRequest)(nil),           // 8: multiadmin.GetGatewaysRequest
+	(*GetGatewaysResponse)(nil),          // 9: multiadmin.GetGatewaysResponse
+	(*GetPoolersRequest)(nil),            // 10: multiadmin.GetPoolersRequest
+	(*GetPoolersResponse)(nil),           // 11: multiadmin.GetPoolersResponse
+	(*GetOrchsRequest)(nil),              // 12: multiadmin.GetOrchsRequest
+	(*GetOrchsResponse)(nil),             // 13: multiadmin.GetOrchsResponse
+	(*clustermetadata.Cell)(nil),         // 14: clustermetadata.Cell
+	(*clustermetadata.Database)(nil),     // 15: clustermetadata.Database
+	(*clustermetadata.MultiGateway)(nil), // 16: clustermetadata.MultiGateway
+	(*clustermetadata.MultiPooler)(nil),  // 17: clustermetadata.MultiPooler
+	(*clustermetadata.MultiOrch)(nil),    // 18: clustermetadata.MultiOrch
 }
 var file_multiadminservice_proto_depIdxs = []int32{
-	4, // 0: multiadmin.GetCellResponse.cell:type_name -> clustermetadata.Cell
-	5, // 1: multiadmin.GetDatabaseResponse.database:type_name -> clustermetadata.Database
-	0, // 2: multiadmin.MultiAdminService.GetCell:input_type -> multiadmin.GetCellRequest
-	2, // 3: multiadmin.MultiAdminService.GetDatabase:input_type -> multiadmin.GetDatabaseRequest
-	1, // 4: multiadmin.MultiAdminService.GetCell:output_type -> multiadmin.GetCellResponse
-	3, // 5: multiadmin.MultiAdminService.GetDatabase:output_type -> multiadmin.GetDatabaseResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	14, // 0: multiadmin.GetCellResponse.cell:type_name -> clustermetadata.Cell
+	15, // 1: multiadmin.GetDatabaseResponse.database:type_name -> clustermetadata.Database
+	16, // 2: multiadmin.GetGatewaysResponse.gateways:type_name -> clustermetadata.MultiGateway
+	17, // 3: multiadmin.GetPoolersResponse.poolers:type_name -> clustermetadata.MultiPooler
+	18, // 4: multiadmin.GetOrchsResponse.orchs:type_name -> clustermetadata.MultiOrch
+	0,  // 5: multiadmin.MultiAdminService.GetCell:input_type -> multiadmin.GetCellRequest
+	2,  // 6: multiadmin.MultiAdminService.GetDatabase:input_type -> multiadmin.GetDatabaseRequest
+	4,  // 7: multiadmin.MultiAdminService.GetCellNames:input_type -> multiadmin.GetCellNamesRequest
+	6,  // 8: multiadmin.MultiAdminService.GetDatabaseNames:input_type -> multiadmin.GetDatabaseNamesRequest
+	8,  // 9: multiadmin.MultiAdminService.GetGateways:input_type -> multiadmin.GetGatewaysRequest
+	10, // 10: multiadmin.MultiAdminService.GetPoolers:input_type -> multiadmin.GetPoolersRequest
+	12, // 11: multiadmin.MultiAdminService.GetOrchs:input_type -> multiadmin.GetOrchsRequest
+	1,  // 12: multiadmin.MultiAdminService.GetCell:output_type -> multiadmin.GetCellResponse
+	3,  // 13: multiadmin.MultiAdminService.GetDatabase:output_type -> multiadmin.GetDatabaseResponse
+	5,  // 14: multiadmin.MultiAdminService.GetCellNames:output_type -> multiadmin.GetCellNamesResponse
+	7,  // 15: multiadmin.MultiAdminService.GetDatabaseNames:output_type -> multiadmin.GetDatabaseNamesResponse
+	9,  // 16: multiadmin.MultiAdminService.GetGateways:output_type -> multiadmin.GetGatewaysResponse
+	11, // 17: multiadmin.MultiAdminService.GetPoolers:output_type -> multiadmin.GetPoolersResponse
+	13, // 18: multiadmin.MultiAdminService.GetOrchs:output_type -> multiadmin.GetOrchsResponse
+	12, // [12:19] is the sub-list for method output_type
+	5,  // [5:12] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_multiadminservice_proto_init() }
@@ -284,7 +781,7 @@ func file_multiadminservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multiadminservice_proto_rawDesc), len(file_multiadminservice_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

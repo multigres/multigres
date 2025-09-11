@@ -1087,6 +1087,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	etcdAddress := req.Params["etcd_address"].(string)
 	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
+	cell := req.Params["cell"].(string)
 
 	// Get log level
 	logLevel := "info"
@@ -1115,6 +1116,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--topo-implementation", topoBackend,
+		"--cell", cell,
 		"--log-level", logLevel,
 		"--log-output", logFile,
 	}
@@ -1853,6 +1855,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			"etcd_address":     etcdAddress,
 			"topo_backend":     topoConfig.Backend,
 			"topo_global_root": topoConfig.GlobalRootPath,
+			"cell":             topoConfig.DefaultCellName,
 		},
 	}
 
