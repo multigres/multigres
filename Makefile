@@ -39,6 +39,7 @@ pb: $(PROTO_SRCS)
 	mkdir -p go/pb && \
 	cp -Rf github.com/multigres/multigres/go/pb/* go/pb/ && \
 	rm -rf github.com/ && \
+	go tool gofumpt -w go/pb/ && \
 	go tool goimports -w go/pb/
 
 # Build Go binaries only
