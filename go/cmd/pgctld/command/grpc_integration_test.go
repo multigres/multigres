@@ -406,6 +406,63 @@ func TestGRPCUninitializedDatabase(t *testing.T) {
 	})
 }
 
+// TestGRPCPortMismatchValidation tests that server fails when pg-port doesn't match config
+func TestGRPCPortMismatchValidation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping gRPC integration tests in short mode")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_grpc_port_mismatch_test")
+	defer cleanup()
+
+	dataDir := filepath.Join(tempDir, "data")
+
+	// Setup mock PostgreSQL binaries
+	binDir := filepath.Join(tempDir, "bin")
+	err := os.MkdirAll(binDir, 0o755)
+	require.NoError(t, err)
+	testutil.CreateMockPostgreSQLBinaries(t, binDir)
+
+	t.Run("port_mismatch_after_initialization", func(t *testing.T) {
+		// First, create a service with port 5432 and initialize
+		initialPort := 5432
+		service, err := NewPgCtldService(
+			slog.Default(),
+			"localhost", initialPort,
+			"postgres",
+			"postgres",
+			30,
+			dataDir,
+		)
+		require.NoError(t, err)
+
+		// Set environment variables for the initialization
+		t.Setenv("PGDATA", dataDir)
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		// Initialize the data directory with the initial port
+		ctx := context.Background()
+		_, err = service.InitDataDir(ctx, &pb.InitDataDirRequest{})
+		require.NoError(t, err)
+
+		// Now try to create a service with a different port (5433)
+		// This should fail because the config file has port 5432
+		differentPort := 5433
+		_, err = NewPgCtldService(
+			slog.Default(),
+			"localhost", differentPort,
+			"postgres",
+			"postgres",
+			30,
+			dataDir,
+		)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "port validation failed")
+		assert.Contains(t, err.Error(), "pg-port flag (5433) does not match port in config file (5432)")
+		assert.Contains(t, err.Error(), "The port may have been changed after initialization")
+	})
+}
+
 // createTestGRPCServer creates and starts a gRPC server for testing
 // Returns the server, listener, and a cleanup function
 func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, func()) {
