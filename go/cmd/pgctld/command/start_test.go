@@ -1,18 +1,16 @@
-/*
-Copyright 2025 The Multigres Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2025 The Multigres Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package command
 
@@ -25,46 +23,38 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/pgctld"
 )
 
 func TestRunStart(t *testing.T) {
 	tests := []struct {
 		name          string
-		setupDataDir  func(string) string
+		setupDataDir  func(string) string // Now takes postgres data dir, not base dir
 		setupBinaries bool
 		expectError   bool
 		errorContains string
 	}{
 		{
-			name: "successful start with uninitialized data dir",
-			setupDataDir: func(baseDir string) string {
-				return testutil.CreateDataDir(t, baseDir, false) // uninitialized
+			name: "start with uninitialized data dir fails",
+			setupDataDir: func(pgDataDir string) string {
+				return testutil.CreateDataDir(t, pgDataDir, false) // uninitialized
 			},
 			setupBinaries: true,
-			expectError:   false,
+			expectError:   true,
 		},
 		{
 			name: "successful start with initialized data dir",
-			setupDataDir: func(baseDir string) string {
-				dataDir := testutil.CreateDataDir(t, baseDir, true) // initialized
+			setupDataDir: func(pgDataDir string) string {
+				dataDir := testutil.CreateDataDir(t, pgDataDir, true) // initialized
 				return dataDir
 			},
 			setupBinaries: true,
 			expectError:   false,
 		},
 		{
-			name: "fail when data dir not specified",
-			setupDataDir: func(baseDir string) string {
-				return "" // empty data dir
-			},
-			setupBinaries: false,
-			expectError:   true,
-			errorContains: "data-dir is required",
-		},
-		{
 			name: "server already running",
-			setupDataDir: func(baseDir string) string {
-				dataDir := testutil.CreateDataDir(t, baseDir, true)
+			setupDataDir: func(pgDataDir string) string {
+				dataDir := testutil.CreateDataDir(t, pgDataDir, true)
 				// Create PID file to simulate running server
 				testutil.CreatePIDFile(t, dataDir, 12345)
 				return dataDir
@@ -80,11 +70,7 @@ func TestRunStart(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_start_test")
 			defer cleanup()
 
-			// Setup cleanup for cobra command execution
-			cleanupViper := SetupTestPgCtldCleanup(t)
-			defer cleanupViper()
-
-			dataDir := tt.setupDataDir(baseDir)
+			tt.setupDataDir(baseDir)
 
 			// Setup mock binaries if needed
 			if tt.setupBinaries {
@@ -101,10 +87,7 @@ func TestRunStart(t *testing.T) {
 			cmd := Root
 
 			// Set up the command arguments
-			args := []string{"start"}
-			if dataDir != "" {
-				args = append(args, "--pg-data-dir", dataDir)
-			}
+			args := []string{"start", "--pooler-dir", baseDir}
 			cmd.SetArgs(args)
 
 			err := cmd.Execute()
@@ -116,11 +99,6 @@ func TestRunStart(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
-
-				// Verify data directory was initialized if it wasn't before
-				if dataDir != "" {
-					assert.True(t, isDataDirInitialized(dataDir), "Data directory should be initialized")
-				}
 			}
 		})
 	}
@@ -160,8 +138,8 @@ func TestIsDataDirInitialized(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_init_test")
 			defer cleanup()
 
-			dataDir := tt.setupDir(baseDir)
-			result := isDataDirInitialized(dataDir)
+			tt.setupDir(baseDir)
+			result := pgctld.IsDataDirInitialized(baseDir)
 			assert.Equal(t, tt.initialized, result)
 		})
 	}
@@ -252,6 +230,9 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_wait_test")
 		defer cleanup()
 
+		// Create initialized data directory with postgresql.conf
+		testutil.CreateDataDir(t, baseDir, true)
+
 		// Setup mock pg_isready that succeeds
 		binDir := filepath.Join(baseDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0o755))
@@ -261,17 +242,30 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		os.Setenv("PATH", binDir+":"+originalPath)
 		defer os.Setenv("PATH", originalPath)
 
-		// Setup viper with short timeout
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
+		// Create config that matches the test setup
+		config, err := pgctld.NewPostgresCtlConfig(
+			"localhost",
+			5432,
+			"postgres",
+			"postgres",
+			"",
+			30, // timeout
+			pgctld.PostgresDataDir(baseDir),
+			pgctld.PostgresConfigFile(baseDir),
+			baseDir,
+		)
+		require.NoError(t, err)
 
-		err := waitForPostgreSQL()
+		err = waitForPostgreSQLWithConfig(config)
 		assert.NoError(t, err)
 	})
 
 	t.Run("timeout waiting for server", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_timeout_test")
 		defer cleanup()
+
+		// Create initialized data directory with postgresql.conf
+		testutil.CreateDataDir(t, baseDir, true)
 
 		// Create mock pg_isready that always fails
 		binDir := filepath.Join(baseDir, "bin")
@@ -282,14 +276,21 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		os.Setenv("PATH", binDir+":"+originalPath)
 		defer os.Setenv("PATH", originalPath)
 
-		// Setup viper with very short timeout
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
+		// Create config with short timeout for test
+		config, err := pgctld.NewPostgresCtlConfig(
+			"localhost",
+			5432,
+			"postgres",
+			"postgres",
+			"",
+			1, // 1 second timeout
+			pgctld.PostgresDataDir(baseDir),
+			pgctld.PostgresConfigFile(baseDir),
+			baseDir,
+		)
+		require.NoError(t, err)
 
-		// Override timeout to 1 second for test
-		timeout = 1
-
-		err := waitForPostgreSQL()
+		err = waitForPostgreSQLWithConfig(config)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "did not become ready")
 	})
