@@ -1,35 +1,43 @@
 [
   {
     "comment": "brin_bloom - Statement 1",
-    "query": "CREATE TABLE brintest_bloom (byteacol bytea, charcol \"char\", namecol name, int8col bigint, int2col smallint, int4col integer, textcol text, oidcol oid, float4col real, float8col double precision, macaddrcol macaddr, inetcol inet, cidrcol cidr, bpcharcol character, datecol date, timecol time without time zone, timestampcol timestamp without time zone, timestamptzcol timestamp with time zone, intervalcol interval, timetzcol time with time zone, numericcol numeric, uuidcol uuid, lsncol pg_lsn ) WITH (fillfactor=10)"
+    "query": "CREATE TABLE brintest_bloom (byteacol bytea, charcol char, namecol name, int8col bigint, int2col smallint, int4col integer, textcol text, oidcol oid, float4col real, float8col double precision, macaddrcol macaddr, inetcol inet, cidrcol cidr, bpcharcol character, datecol date, timecol time without time zone, timestampcol timestamp without time zone, timestamptzcol timestamp with time zone, intervalcol interval, timetzcol time with time zone, numericcol numeric, uuidcol uuid, lsncol pg_lsn ) WITH (fillfactor=10)",
+    "expected": "CREATE TABLE brintest_bloom (byteacol BYTEA, charcol CHAR(1), namecol name, int8col BIGINT, int2col SMALLINT, int4col INT, textcol TEXT, oidcol oid, float4col REAL, float8col FLOAT8, macaddrcol macaddr, inetcol inet, cidrcol cidr, bpcharcol CHAR(1), datecol DATE, timecol TIME, timestampcol TIMESTAMP, timestamptzcol TIMESTAMP WITH TIME ZONE, intervalcol INTERVAL, timetzcol TIME WITH TIME ZONE, numericcol NUMERIC, uuidcol UUID, lsncol pg_lsn) WITH (fillfactor = 10)"
   },
   {
     "comment": "brin_bloom - Statement 2",
-    "query": "INSERT INTO brintest_bloom SELECT repeat(stringu1, 8)::bytea, substr(stringu1, 1, 1)::\"char\", stringu1::name, 142857 * tenthous, thousand, twothousand, repeat(stringu1, 8), unique1::oid, (four + 1.0)/(hundred+1), odd::float8 / (tenthous + 1), format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr, inet '10.2.3.4/24' + tenthous, cidr '10.2.3/24' + tenthous, substr(stringu1, 1, 1)::bpchar, date '1995-08-15' + tenthous, time '01:20:30' + thousand * interval '18.5 second', timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours', timestamptz '1972-10-10 03:00' + thousand * interval '1 hour', justify_days(justify_hours(tenthous * interval '12 minutes')), timetz '01:30:20+02' + hundred * interval '15 seconds', tenthous::numeric(36,30) * fivethous * even / (hundred + 1), format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid, format('%s/%s%s', odd, even, tenthous)::pg_lsn FROM tenk1 ORDER BY unique2 LIMIT 100"
+    "query": "INSERT INTO brintest_bloom SELECT repeat(stringu1, 8)::bytea, substr(stringu1, 1, 1)::char, stringu1::name, 142857 * tenthous, thousand, twothousand, repeat(stringu1, 8), unique1::oid, (four + 1.0)/(hundred+1), odd::float8 / (tenthous + 1), format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr, inet '10.2.3.4/24' + tenthous, cidr '10.2.3/24' + tenthous, substr(stringu1, 1, 1)::char, date '1995-08-15' + tenthous, time '01:20:30' + thousand * interval '18.5 second', timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours', timestamptz '1972-10-10 03:00' + thousand * interval '1 hour', justify_days(justify_hours(tenthous * interval '12 minutes')), timetz '01:30:20+02' + hundred * interval '15 seconds', tenthous::numeric(36,30) * fivethous * even / (hundred + 1), format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid, format('%s/%s%s', odd, even, tenthous)::pg_lsn FROM tenk1 ORDER BY unique2 LIMIT 100",
+    "expected": "INSERT INTO brintest_bloom (SELECT CAST(repeat(stringu1, 8) AS BYTEA), CAST(substr(stringu1, 1, 1) AS CHAR(1)), CAST(stringu1 AS name), 142857 * tenthous, thousand, twothousand, repeat(stringu1, 8), CAST(unique1 AS oid), (four + 1.0) / (hundred + 1), CAST(odd AS FLOAT8) / (tenthous + 1), CAST(format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred)) AS macaddr), CAST('10.2.3.4/24' AS inet) + tenthous, CAST('10.2.3/24' AS cidr) + tenthous, CAST(substr(stringu1, 1, 1) AS CHAR(1)), CAST('1995-08-15' AS DATE) + tenthous, CAST('01:20:30' AS TIME) + thousand * CAST('18.5 second' AS INTERVAL), CAST('1942-07-23 03:05:09' AS TIMESTAMP) + tenthous * CAST('36.38 hours' AS INTERVAL), CAST('1972-10-10 03:00' AS TIMESTAMP WITH TIME ZONE) + thousand * CAST('1 hour' AS INTERVAL), justify_days(justify_hours(tenthous * CAST('12 minutes' AS INTERVAL))), CAST('01:30:20+02' AS TIME WITH TIME ZONE) + hundred * CAST('15 seconds' AS INTERVAL), CAST(tenthous AS NUMERIC(36, 30)) * fivethous * even / (hundred + 1), CAST(format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000')) AS UUID), CAST(format('%s/%s%s', odd, even, tenthous) AS pg_lsn) FROM tenk1 ORDER BY unique2 LIMIT 100)"
   },
   {
     "comment": "brin_bloom - Statement 3",
-    "query": "INSERT INTO brintest_bloom (inetcol, cidrcol) SELECT inet 'fe80::6e40:8ff:fea9:8c46' + tenthous, cidr 'fe80::6e40:8ff:fea9:8c46' + tenthous FROM tenk1 ORDER BY thousand, tenthous LIMIT 25"
+    "query": "INSERT INTO brintest_bloom (inetcol, cidrcol) SELECT inet 'fe80::6e40:8ff:fea9:8c46' + tenthous, cidr 'fe80::6e40:8ff:fea9:8c46' + tenthous FROM tenk1 ORDER BY thousand, tenthous LIMIT 25",
+    "expected": "INSERT INTO brintest_bloom (inetcol, cidrcol) (SELECT CAST('fe80::6e40:8ff:fea9:8c46' AS inet) + tenthous, CAST('fe80::6e40:8ff:fea9:8c46' AS cidr) + tenthous FROM tenk1 ORDER BY thousand, tenthous LIMIT 25)"
   },
   {
     "comment": "brin_bloom - Statement 4",
-    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(n_distinct_per_range = -1.1) )"
+    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(n_distinct_per_range = -1.1) )",
+    "expected": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin (byteacol)"
   },
   {
     "comment": "brin_bloom - Statement 5",
-    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(false_positive_rate = 0.00009) )"
+    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(false_positive_rate = 0.00009) )",
+    "expected": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin (byteacol)"
   },
   {
     "comment": "brin_bloom - Statement 6",
-    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(false_positive_rate = 0.26) )"
+    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(false_positive_rate = 0.26) )",
+    "expected": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin (byteacol)"
   },
   {
     "comment": "brin_bloom - Statement 7",
-    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops, charcol char_bloom_ops, namecol name_bloom_ops, int8col int8_bloom_ops, int2col int2_bloom_ops, int4col int4_bloom_ops, textcol text_bloom_ops, oidcol oid_bloom_ops, float4col float4_bloom_ops, float8col float8_bloom_ops, macaddrcol macaddr_bloom_ops, inetcol inet_bloom_ops, cidrcol inet_bloom_ops, bpcharcol bpchar_bloom_ops, datecol date_bloom_ops, timecol time_bloom_ops, timestampcol timestamp_bloom_ops, timestamptzcol timestamptz_bloom_ops, intervalcol interval_bloom_ops, timetzcol timetz_bloom_ops, numericcol numeric_bloom_ops, uuidcol uuid_bloom_ops, lsncol pg_lsn_bloom_ops ) with (pages_per_range = 1)"
+    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops, charcol char_bloom_ops, namecol name_bloom_ops, int8col int8_bloom_ops, int2col int2_bloom_ops, int4col int4_bloom_ops, textcol text_bloom_ops, oidcol oid_bloom_ops, float4col float4_bloom_ops, float8col float8_bloom_ops, macaddrcol macaddr_bloom_ops, inetcol inet_bloom_ops, cidrcol inet_bloom_ops, bpcharcol bpchar_bloom_ops, datecol date_bloom_ops, timecol time_bloom_ops, timestampcol timestamp_bloom_ops, timestamptzcol timestamptz_bloom_ops, intervalcol interval_bloom_ops, timetzcol timetz_bloom_ops, numericcol numeric_bloom_ops, uuidcol uuid_bloom_ops, lsncol pg_lsn_bloom_ops ) with (pages_per_range = 1)",
+    "expected": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin (byteacol, charcol, namecol, int8col, int2col, int4col, textcol, oidcol, float4col, float8col, macaddrcol, inetcol, cidrcol, bpcharcol, datecol, timecol, timestampcol, timestamptzcol, intervalcol, timetzcol, numericcol, uuidcol, lsncol) WITH (pages_per_range = 1)"
   },
   {
     "comment": "brin_bloom - Statement 8",
-    "query": "CREATE TABLE brinopers_bloom (colname name, typ text, op text[], value text[], matches int[], check (cardinality(op) = cardinality(value)), check (cardinality(op) = cardinality(matches)))"
+    "query": "CREATE TABLE brinopers_bloom (colname name, typ text, op text[], value text[], matches int[], check (cardinality(op) = cardinality(value)), check (cardinality(op) = cardinality(matches)))",
+    "expected": "CREATE TABLE brinopers_bloom (colname name, typ TEXT, op TEXT[], value TEXT[], matches INT[], CHECK (cardinality(op) = cardinality(value)), CHECK (cardinality(op) = cardinality(matches)))"
   },
   {
     "comment": "brin_bloom - Statement 9",
@@ -37,123 +45,8 @@
   },
   {
     "comment": "brin_bloom - Statement 10",
-    "query": "DO $x$ DECLARE r record"
-  },
-  {
-    "comment": "brin_bloom - Statement 11",
-    "query": "r2 record"
-  },
-  {
-    "comment": "brin_bloom - Statement 12",
-    "query": "cond text"
-  },
-  {
-    "comment": "brin_bloom - Statement 13",
-    "query": "idx_ctids tid[]"
-  },
-  {
-    "comment": "brin_bloom - Statement 14",
-    "query": "ss_ctids tid[]"
-  },
-  {
-    "comment": "brin_bloom - Statement 15",
-    "query": "count int"
-  },
-  {
-    "comment": "brin_bloom - Statement 16",
-    "query": "plan_ok bool"
-  },
-  {
-    "comment": "brin_bloom - Statement 17",
-    "query": "plan_line text"
-  },
-  {
-    "comment": "brin_bloom - Statement 18",
-    "query": "BEGIN FOR r IN SELECT colname, oper, typ, value[ordinality], matches[ordinality] FROM brinopers_bloom, unnest(op) WITH ORDINALITY AS oper LOOP IF r.value IS NULL THEN cond := format('%I %s %L', r.colname, r.oper, r.value)"
-  },
-  {
-    "comment": "brin_bloom - Statement 19",
-    "query": "ELSE cond := format('%I %s %L::%s', r.colname, r.oper, r.value, r.typ)"
-  },
-  {
-    "comment": "brin_bloom - Statement 20",
-    "query": "END IF"
-  },
-  {
-    "comment": "brin_bloom - Statement 21",
-    "query": "SET enable_seqscan = 0"
-  },
-  {
-    "comment": "brin_bloom - Statement 22",
-    "query": "SET enable_bitmapscan = 1"
-  },
-  {
-    "comment": "brin_bloom - Statement 23",
-    "query": "plan_ok := false"
-  },
-  {
-    "comment": "brin_bloom - Statement 24",
-    "query": "FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond) LOOP IF plan_line LIKE '%Bitmap Heap Scan on brintest_bloom%' THEN plan_ok := true"
-  },
-  {
-    "comment": "brin_bloom - Statement 25",
-    "query": "END LOOP"
-  },
-  {
-    "comment": "brin_bloom - Statement 26",
-    "query": "IF NOT plan_ok THEN RAISE WARNING 'did not get bitmap indexscan plan for %', r"
-  },
-  {
-    "comment": "brin_bloom - Statement 27",
-    "query": "EXECUTE format($y$SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond) INTO idx_ctids"
-  },
-  {
-    "comment": "brin_bloom - Statement 28",
-    "query": "SET enable_seqscan = 1"
-  },
-  {
-    "comment": "brin_bloom - Statement 29",
-    "query": "SET enable_bitmapscan = 0"
-  },
-  {
-    "comment": "brin_bloom - Statement 30",
-    "query": "FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond) LOOP IF plan_line LIKE '%Seq Scan on brintest_bloom%' THEN plan_ok := true"
-  },
-  {
-    "comment": "brin_bloom - Statement 31",
-    "query": "IF NOT plan_ok THEN RAISE WARNING 'did not get seqscan plan for %', r"
-  },
-  {
-    "comment": "brin_bloom - Statement 32",
-    "query": "EXECUTE format($y$SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond) INTO ss_ctids"
-  },
-  {
-    "comment": "brin_bloom - Statement 33",
-    "query": "count := array_length(idx_ctids, 1)"
-  },
-  {
-    "comment": "brin_bloom - Statement 34",
-    "query": "IF NOT (count = array_length(ss_ctids, 1) AND idx_ctids @> ss_ctids AND idx_ctids <@ ss_ctids) THEN RAISE WARNING 'something not right in %: count %', r, count"
-  },
-  {
-    "comment": "brin_bloom - Statement 35",
-    "query": "FOR r2 IN EXECUTE 'SELECT ' || r.colname || ' FROM brintest_bloom WHERE ' || cond LOOP RAISE NOTICE 'seqscan: %', r2"
-  },
-  {
-    "comment": "brin_bloom - Statement 36",
-    "query": "FOR r2 IN EXECUTE 'SELECT ' || r.colname || ' FROM brintest_bloom WHERE ' || cond LOOP RAISE NOTICE 'bitmapscan: %', r2"
-  },
-  {
-    "comment": "brin_bloom - Statement 37",
-    "query": "IF count != r.matches THEN RAISE WARNING 'unexpected number of results % for %', count, r; END IF"
-  },
-  {
-    "comment": "brin_bloom - Statement 38",
-    "query": "END"
-  },
-  {
-    "comment": "brin_bloom - Statement 39",
-    "query": "$x$"
+    "query": "DO $x$ DECLARE r record; r2 record; cond text; idx_ctids tid[]; ss_ctids tid[]; count int; plan_ok bool; plan_line text; BEGIN FOR r IN SELECT colname, oper, typ, value[ordinality], matches[ordinality] FROM brinopers_bloom, unnest(op) WITH ORDINALITY AS oper LOOP  IF r.value IS NULL THEN  cond := format('%I %s %L', r.colname, r.oper, r.value);  ELSE  cond := format('%I %s %L::%s', r.colname, r.oper, r.value, r.typ);  END IF;  SET enable_seqscan = 0;  SET enable_bitmapscan = 1;  plan_ok := false;  FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond) LOOP  IF plan_line LIKE '%Bitmap Heap Scan on brintest_bloom%' THEN   plan_ok := true;  END IF;  END LOOP;  IF NOT plan_ok THEN  RAISE WARNING 'did not get bitmap indexscan plan for %', r;  END IF;  EXECUTE format($y$SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond)  INTO idx_ctids;  SET enable_seqscan = 1;  SET enable_bitmapscan = 0;  plan_ok := false;  FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond) LOOP  IF plan_line LIKE '%Seq Scan on brintest_bloom%' THEN   plan_ok := true;  END IF;  END LOOP;  IF NOT plan_ok THEN  RAISE WARNING 'did not get seqscan plan for %', r;  END IF;  EXECUTE format($y$SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond)  INTO ss_ctids;  count := array_length(idx_ctids, 1);  IF NOT (count = array_length(ss_ctids, 1) AND   idx_ctids @\u003e ss_ctids AND   idx_ctids \u003c@ ss_ctids) THEN  RAISE WARNING 'something not right in %: count %', r, count;  SET enable_seqscan = 1;  SET enable_bitmapscan = 0;  FOR r2 IN EXECUTE 'SELECT ' || r.colname || ' FROM brintest_bloom WHERE ' || cond LOOP   RAISE NOTICE 'seqscan: %', r2;  END LOOP;  SET enable_seqscan = 0;  SET enable_bitmapscan = 1;  FOR r2 IN EXECUTE 'SELECT ' || r.colname || ' FROM brintest_bloom WHERE ' || cond LOOP   RAISE NOTICE 'bitmapscan: %', r2;  END LOOP;  END IF;  IF count != r.matches THEN RAISE WARNING 'unexpected number of results % for %', count, r; END IF; END LOOP; END; $x$;",
+    "expected": "DO ' DECLARE r record; r2 record; cond text; idx_ctids tid[]; ss_ctids tid[]; count int; plan_ok bool; plan_line text; BEGIN FOR r IN SELECT colname, oper, typ, value[ordinality], matches[ordinality] FROM brinopers_bloom, unnest(op) WITH ORDINALITY AS oper LOOP  IF r.value IS NULL THEN  cond := format(''%I %s %L'', r.colname, r.oper, r.value);  ELSE  cond := format(''%I %s %L::%s'', r.colname, r.oper, r.value, r.typ);  END IF;  SET enable_seqscan = 0;  SET enable_bitmapscan = 1;  plan_ok := false;  FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond) LOOP  IF plan_line LIKE ''%Bitmap Heap Scan on brintest_bloom%'' THEN   plan_ok := true;  END IF;  END LOOP;  IF NOT plan_ok THEN  RAISE WARNING ''did not get bitmap indexscan plan for %'', r;  END IF;  EXECUTE format($y$SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond)  INTO idx_ctids;  SET enable_seqscan = 1;  SET enable_bitmapscan = 0;  plan_ok := false;  FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond) LOOP  IF plan_line LIKE ''%Seq Scan on brintest_bloom%'' THEN   plan_ok := true;  END IF;  END LOOP;  IF NOT plan_ok THEN  RAISE WARNING ''did not get seqscan plan for %'', r;  END IF;  EXECUTE format($y$SELECT array_agg(ctid) FROM brintest_bloom WHERE %s $y$, cond)  INTO ss_ctids;  count := array_length(idx_ctids, 1);  IF NOT (count = array_length(ss_ctids, 1) AND   idx_ctids @\u003e ss_ctids AND   idx_ctids \u003c@ ss_ctids) THEN  RAISE WARNING ''something not right in %: count %'', r, count;  SET enable_seqscan = 1;  SET enable_bitmapscan = 0;  FOR r2 IN EXECUTE ''SELECT '' || r.colname || '' FROM brintest_bloom WHERE '' || cond LOOP   RAISE NOTICE ''seqscan: %'', r2;  END LOOP;  SET enable_seqscan = 0;  SET enable_bitmapscan = 1;  FOR r2 IN EXECUTE ''SELECT '' || r.colname || '' FROM brintest_bloom WHERE '' || cond LOOP   RAISE NOTICE ''bitmapscan: %'', r2;  END LOOP;  END IF;  IF count != r.matches THEN RAISE WARNING ''unexpected number of results % for %'', count, r; END IF; END LOOP; END; '"
   },
   {
     "comment": "brin_bloom - Statement 40",
@@ -165,7 +58,8 @@
   },
   {
     "comment": "brin_bloom - Statement 42",
-    "query": "INSERT INTO brintest_bloom SELECT repeat(stringu1, 42)::bytea, substr(stringu1, 1, 1)::\"char\", stringu1::name, 142857 * tenthous, thousand, twothousand, repeat(stringu1, 42), unique1::oid, (four + 1.0)/(hundred+1), odd::float8 / (tenthous + 1), format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr, inet '10.2.3.4' + tenthous, cidr '10.2.3/24' + tenthous, substr(stringu1, 1, 1)::bpchar, date '1995-08-15' + tenthous, time '01:20:30' + thousand * interval '18.5 second', timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours', timestamptz '1972-10-10 03:00' + thousand * interval '1 hour', justify_days(justify_hours(tenthous * interval '12 minutes')), timetz '01:30:20' + hundred * interval '15 seconds', tenthous::numeric(36,30) * fivethous * even / (hundred + 1), format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid, format('%s/%s%s', odd, even, tenthous)::pg_lsn FROM tenk1 ORDER BY unique2 LIMIT 5 OFFSET 5"
+    "query": "INSERT INTO brintest_bloom SELECT repeat(stringu1, 42)::bytea, substr(stringu1, 1, 1)::char, stringu1::name, 142857 * tenthous, thousand, twothousand, repeat(stringu1, 42), unique1::oid, (four + 1.0)/(hundred+1), odd::float8 / (tenthous + 1), format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr, inet '10.2.3.4' + tenthous, cidr '10.2.3/24' + tenthous, substr(stringu1, 1, 1)::char, date '1995-08-15' + tenthous, time '01:20:30' + thousand * interval '18.5 second', timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours', timestamptz '1972-10-10 03:00' + thousand * interval '1 hour', justify_days(justify_hours(tenthous * interval '12 minutes')), timetz '01:30:20' + hundred * interval '15 seconds', tenthous::numeric(36,30) * fivethous * even / (hundred + 1), format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid, format('%s/%s%s', odd, even, tenthous)::pg_lsn FROM tenk1 ORDER BY unique2 LIMIT 5 OFFSET 5",
+    "expected": "INSERT INTO brintest_bloom (SELECT CAST(repeat(stringu1, 42) AS BYTEA), CAST(substr(stringu1, 1, 1) AS CHAR(1)), CAST(stringu1 AS name), 142857 * tenthous, thousand, twothousand, repeat(stringu1, 42), CAST(unique1 AS oid), (four + 1.0) / (hundred + 1), CAST(odd AS FLOAT8) / (tenthous + 1), CAST(format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred)) AS macaddr), CAST('10.2.3.4' AS inet) + tenthous, CAST('10.2.3/24' AS cidr) + tenthous, CAST(substr(stringu1, 1, 1) AS CHAR(1)), CAST('1995-08-15' AS DATE) + tenthous, CAST('01:20:30' AS TIME) + thousand * CAST('18.5 second' AS INTERVAL), CAST('1942-07-23 03:05:09' AS TIMESTAMP) + tenthous * CAST('36.38 hours' AS INTERVAL), CAST('1972-10-10 03:00' AS TIMESTAMP WITH TIME ZONE) + thousand * CAST('1 hour' AS INTERVAL), justify_days(justify_hours(tenthous * CAST('12 minutes' AS INTERVAL))), CAST('01:30:20' AS TIME WITH TIME ZONE) + hundred * CAST('15 seconds' AS INTERVAL), CAST(tenthous AS NUMERIC(36, 30)) * fivethous * even / (hundred + 1), CAST(format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000')) AS UUID), CAST(format('%s/%s%s', odd, even, tenthous) AS pg_lsn) FROM tenk1 ORDER BY unique2 LIMIT 5 OFFSET 5)"
   },
   {
     "comment": "brin_bloom - Statement 43",
@@ -205,27 +99,18 @@
   },
   {
     "comment": "brin_bloom - Statement 52",
-    "query": "CREATE TABLE brin_summarize_bloom ( value int ) WITH (fillfactor=10, autovacuum_enabled=false)"
+    "query": "CREATE TABLE brin_summarize_bloom ( value int ) WITH (fillfactor=10, autovacuum_enabled=false)",
+    "expected": "CREATE TABLE brin_summarize_bloom (value INT) WITH (fillfactor = 10, autovacuum_enabled = 'false')"
   },
   {
     "comment": "brin_bloom - Statement 53",
-    "query": "CREATE INDEX brin_summarize_bloom_idx ON brin_summarize_bloom USING brin (value) WITH (pages_per_range=2)"
+    "query": "CREATE INDEX brin_summarize_bloom_idx ON brin_summarize_bloom USING brin (value) WITH (pages_per_range=2)",
+    "expected": "CREATE INDEX brin_summarize_bloom_idx ON brin_summarize_bloom USING brin (value) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin_bloom - Statement 54",
-    "query": "DO $$ DECLARE curtid tid"
-  },
-  {
-    "comment": "brin_bloom - Statement 55",
-    "query": "BEGIN LOOP INSERT INTO brin_summarize_bloom VALUES (1) RETURNING ctid INTO curtid"
-  },
-  {
-    "comment": "brin_bloom - Statement 56",
-    "query": "EXIT WHEN curtid > tid '(2, 0)'"
-  },
-  {
-    "comment": "brin_bloom - Statement 57",
-    "query": "$$"
+    "query": "DO $$ DECLARE curtid tid; BEGIN LOOP INSERT INTO brin_summarize_bloom VALUES (1) RETURNING ctid INTO curtid; EXIT WHEN curtid \u003e tid '(2, 0)'; END LOOP; END; $$;",
+    "expected": "DO ' DECLARE curtid tid; BEGIN LOOP INSERT INTO brin_summarize_bloom VALUES (1) RETURNING ctid INTO curtid; EXIT WHEN curtid \u003e tid ''(2, 0)''; END LOOP; END; '"
   },
   {
     "comment": "brin_bloom - Statement 58",
@@ -257,7 +142,8 @@
   },
   {
     "comment": "brin_bloom - Statement 65",
-    "query": "INSERT INTO brin_test_bloom SELECT x/100,x%100 FROM generate_series(1,10000) x(x)"
+    "query": "INSERT INTO brin_test_bloom SELECT x/100,x%100 FROM generate_series(1,10000) x(x)",
+    "expected": "INSERT INTO brin_test_bloom SELECT x / 100, x % 100 FROM generate_series(1, 10000) AS x(x)"
   },
   {
     "comment": "brin_bloom - Statement 66",
@@ -269,14 +155,17 @@
   },
   {
     "comment": "brin_bloom - Statement 68",
-    "query": "VACUUM ANALYZE brin_test_bloom"
+    "query": "VACUUM ANALYZE brin_test_bloom",
+    "expected": "VACUUM (ANALYZE) brin_test_bloom"
   },
   {
     "comment": "brin_bloom - Statement 69",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_test_bloom WHERE a = 1"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_test_bloom WHERE a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM brin_test_bloom WHERE a = 1"
   },
   {
     "comment": "brin_bloom - Statement 70",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_test_bloom WHERE b = 1"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_test_bloom WHERE b = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM brin_test_bloom WHERE b = 1"
   }
 ]

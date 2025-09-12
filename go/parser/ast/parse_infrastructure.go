@@ -192,6 +192,13 @@ func (a *A_Expr) SqlString() string {
 			return fmt.Sprintf("%s LIKE %s", leftStr, rightStr)
 		}
 
+	case AEXPR_ILIKE:
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			rightStr := a.Rexpr.SqlString()
+			return fmt.Sprintf("%s ILIKE %s", leftStr, rightStr)
+		}
+
 	case AEXPR_OP_ANY:
 		// Handle scalar op ANY (array) expressions
 		if a.Lexpr != nil && a.Rexpr != nil {

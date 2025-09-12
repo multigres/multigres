@@ -1,147 +1,37 @@
 [
   {
     "comment": "brin - Statement 1",
-    "query": "CREATE TABLE brintest (byteacol bytea, charcol \"char\", namecol name, int8col bigint, int2col smallint, int4col integer, textcol text, oidcol oid, tidcol tid, float4col real, float8col double precision, macaddrcol macaddr, inetcol inet, cidrcol cidr, bpcharcol character, datecol date, timecol time without time zone, timestampcol timestamp without time zone, timestamptzcol timestamp with time zone, intervalcol interval, timetzcol time with time zone, bitcol bit(10), varbitcol bit varying(16), numericcol numeric, uuidcol uuid, int4rangecol int4range, lsncol pg_lsn, boxcol box ) WITH (fillfactor=10, autovacuum_enabled=off)"
+    "query": "CREATE TABLE brintest (byteacol bytea, charcol char, namecol name, int8col bigint, int2col smallint, int4col integer, textcol text, oidcol oid, tidcol tid, float4col real, float8col double precision, macaddrcol macaddr, inetcol inet, cidrcol cidr, bpcharcol character, datecol date, timecol time without time zone, timestampcol timestamp without time zone, timestamptzcol timestamp with time zone, intervalcol interval, timetzcol time with time zone, bitcol bit(10), varbitcol bit varying(16), numericcol numeric, uuidcol uuid, int4rangecol int4range, lsncol pg_lsn, boxcol box ) WITH (fillfactor=10, autovacuum_enabled=off)",
+    "expected": "CREATE TABLE brintest (byteacol BYTEA, charcol CHAR(1), namecol name, int8col BIGINT, int2col SMALLINT, int4col INT, textcol TEXT, oidcol oid, tidcol tid, float4col REAL, float8col FLOAT8, macaddrcol macaddr, inetcol inet, cidrcol cidr, bpcharcol CHAR(1), datecol DATE, timecol TIME, timestampcol TIMESTAMP, timestamptzcol TIMESTAMP WITH TIME ZONE, intervalcol INTERVAL, timetzcol TIME WITH TIME ZONE, bitcol bit(10), varbitcol varbit(16), numericcol NUMERIC, uuidcol UUID, int4rangecol int4range, lsncol pg_lsn, boxcol box) WITH (fillfactor = 10, autovacuum_enabled = off)"
   },
   {
     "comment": "brin - Statement 2",
-    "query": "INSERT INTO brintest SELECT repeat(stringu1, 8)::bytea, substr(stringu1, 1, 1)::\"char\", stringu1::name, 142857 * tenthous, thousand, twothousand, repeat(stringu1, 8), unique1::oid, format('(%s,%s)', tenthous, twenty)::tid, (four + 1.0)/(hundred+1), odd::float8 / (tenthous + 1), format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr, inet '10.2.3.4/24' + tenthous, cidr '10.2.3/24' + tenthous, substr(stringu1, 1, 1)::bpchar, date '1995-08-15' + tenthous, time '01:20:30' + thousand * interval '18.5 second', timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours', timestamptz '1972-10-10 03:00' + thousand * interval '1 hour', justify_days(justify_hours(tenthous * interval '12 minutes')), timetz '01:30:20+02' + hundred * interval '15 seconds', thousand::bit(10), tenthous::bit(16)::varbit, tenthous::numeric(36,30) * fivethous * even / (hundred + 1), format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid, int4range(thousand, twothousand), format('%s/%s%s', odd, even, tenthous)::pg_lsn, box(point(odd, even), point(thousand, twothousand)) FROM tenk1 ORDER BY unique2 LIMIT 100"
+    "query": "INSERT INTO brintest SELECT repeat(stringu1, 8)::bytea, substr(stringu1, 1, 1)::char, stringu1::name, 142857 * tenthous, thousand, twothousand, repeat(stringu1, 8), unique1::oid, format('(%s,%s)', tenthous, twenty)::tid, (four + 1.0)/(hundred+1), odd::float8 / (tenthous + 1), format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr, inet '10.2.3.4/24' + tenthous, cidr '10.2.3/24' + tenthous, substr(stringu1, 1, 1)::char, date '1995-08-15' + tenthous, time '01:20:30' + thousand * interval '18.5 second', timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours', timestamptz '1972-10-10 03:00' + thousand * interval '1 hour', justify_days(justify_hours(tenthous * interval '12 minutes')), timetz '01:30:20+02' + hundred * interval '15 seconds', thousand::bit(10), tenthous::bit(16)::varbit, tenthous::numeric(36,30) * fivethous * even / (hundred + 1), format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid, int4range(thousand, twothousand), format('%s/%s%s', odd, even, tenthous)::pg_lsn, box(point(odd, even), point(thousand, twothousand)) FROM tenk1 ORDER BY unique2 LIMIT 100",
+    "expected": "INSERT INTO brintest (SELECT CAST(repeat(stringu1, 8) AS BYTEA), CAST(substr(stringu1, 1, 1) AS CHAR(1)), CAST(stringu1 AS name), 142857 * tenthous, thousand, twothousand, repeat(stringu1, 8), CAST(unique1 AS oid), CAST(format('(%s,%s)', tenthous, twenty) AS tid), (four + 1.0) / (hundred + 1), CAST(odd AS FLOAT8) / (tenthous + 1), CAST(format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred)) AS macaddr), CAST('10.2.3.4/24' AS inet) + tenthous, CAST('10.2.3/24' AS cidr) + tenthous, CAST(substr(stringu1, 1, 1) AS CHAR(1)), CAST('1995-08-15' AS DATE) + tenthous, CAST('01:20:30' AS TIME) + thousand * CAST('18.5 second' AS INTERVAL), CAST('1942-07-23 03:05:09' AS TIMESTAMP) + tenthous * CAST('36.38 hours' AS INTERVAL), CAST('1972-10-10 03:00' AS TIMESTAMP WITH TIME ZONE) + thousand * CAST('1 hour' AS INTERVAL), justify_days(justify_hours(tenthous * CAST('12 minutes' AS INTERVAL))), CAST('01:30:20+02' AS TIME WITH TIME ZONE) + hundred * CAST('15 seconds' AS INTERVAL), CAST(thousand AS bit(10)), CAST(CAST(tenthous AS bit(16)) AS varbit), CAST(tenthous AS NUMERIC(36, 30)) * fivethous * even / (hundred + 1), CAST(format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000')) AS UUID), int4range(thousand, twothousand), CAST(format('%s/%s%s', odd, even, tenthous) AS pg_lsn), box(point(odd, even), point(thousand, twothousand)) FROM tenk1 ORDER BY unique2 LIMIT 100)"
   },
   {
     "comment": "brin - Statement 3",
-    "query": "INSERT INTO brintest (inetcol, cidrcol, int4rangecol) SELECT inet 'fe80::6e40:8ff:fea9:8c46' + tenthous, cidr 'fe80::6e40:8ff:fea9:8c46' + tenthous, 'empty'::int4range FROM tenk1 ORDER BY thousand, tenthous LIMIT 25"
+    "query": "INSERT INTO brintest (inetcol, cidrcol, int4rangecol) SELECT inet 'fe80::6e40:8ff:fea9:8c46' + tenthous, cidr 'fe80::6e40:8ff:fea9:8c46' + tenthous, 'empty'::int4range FROM tenk1 ORDER BY thousand, tenthous LIMIT 25",
+    "expected": "INSERT INTO brintest (inetcol, cidrcol, int4rangecol) (SELECT CAST('fe80::6e40:8ff:fea9:8c46' AS inet) + tenthous, CAST('fe80::6e40:8ff:fea9:8c46' AS cidr) + tenthous, CAST('empty' AS int4range) FROM tenk1 ORDER BY thousand, tenthous LIMIT 25)"
   },
   {
     "comment": "brin - Statement 4",
-    "query": "CREATE INDEX brinidx ON brintest USING brin ( byteacol, charcol, namecol, int8col, int2col, int4col, textcol, oidcol, tidcol, float4col, float8col, macaddrcol, inetcol inet_inclusion_ops, inetcol inet_minmax_ops, cidrcol inet_inclusion_ops, cidrcol inet_minmax_ops, bpcharcol, datecol, timecol, timestampcol, timestamptzcol, intervalcol, timetzcol, bitcol, varbitcol, numericcol, uuidcol, int4rangecol, lsncol, boxcol ) with (pages_per_range = 1)"
+    "query": "CREATE INDEX brinidx ON brintest USING brin ( byteacol, charcol, namecol, int8col, int2col, int4col, textcol, oidcol, tidcol, float4col, float8col, macaddrcol, inetcol inet_inclusion_ops, inetcol inet_minmax_ops, cidrcol inet_inclusion_ops, cidrcol inet_minmax_ops, bpcharcol, datecol, timecol, timestampcol, timestamptzcol, intervalcol, timetzcol, bitcol, varbitcol, numericcol, uuidcol, int4rangecol, lsncol, boxcol ) with (pages_per_range = 1)",
+    "expected": "CREATE INDEX brinidx ON brintest USING brin (byteacol, charcol, namecol, int8col, int2col, int4col, textcol, oidcol, tidcol, float4col, float8col, macaddrcol, inetcol, inetcol, cidrcol, cidrcol, bpcharcol, datecol, timecol, timestampcol, timestamptzcol, intervalcol, timetzcol, bitcol, varbitcol, numericcol, uuidcol, int4rangecol, lsncol, boxcol) WITH (pages_per_range = 1)"
   },
   {
     "comment": "brin - Statement 5",
-    "query": "CREATE TABLE brinopers (colname name, typ text, op text[], value text[], matches int[], check (cardinality(op) = cardinality(value)), check (cardinality(op) = cardinality(matches)))"
+    "query": "CREATE TABLE brinopers (colname name, typ text, op text[], value text[], matches int[], check (cardinality(op) = cardinality(value)), check (cardinality(op) = cardinality(matches)))",
+    "expected": "CREATE TABLE brinopers (colname name, typ TEXT, op TEXT[], value TEXT[], matches INT[], CHECK (cardinality(op) = cardinality(value)), CHECK (cardinality(op) = cardinality(matches)))"
   },
   {
     "comment": "brin - Statement 6",
-    "query": "INSERT INTO brinopers VALUES ('byteacol', 'bytea', '{>, >=, =, <=, <}', '{AAAAAA, AAAAAA, BNAAAABNAAAABNAAAABNAAAABNAAAABNAAAABNAAAABNAAAA, ZZZZZZ, ZZZZZZ}', '{100, 100, 1, 100, 100}'), ('charcol', '\"char\"', '{>, >=, =, <=, <}', '{A, A, M, Z, Z}', '{97, 100, 6, 100, 98}'), ('namecol', 'name', '{>, >=, =, <=, <}', '{AAAAAA, AAAAAA, MAAAAA, ZZAAAA, ZZAAAA}', '{100, 100, 2, 100, 100}'), ('int2col', 'int2', '{>, >=, =, <=, <}', '{0, 0, 800, 999, 999}', '{100, 100, 1, 100, 100}'), ('int2col', 'int4', '{>, >=, =, <=, <}', '{0, 0, 800, 999, 1999}', '{100, 100, 1, 100, 100}'), ('int2col', 'int8', '{>, >=, =, <=, <}', '{0, 0, 800, 999, 1428427143}', '{100, 100, 1, 100, 100}'), ('int4col', 'int2', '{>, >=, =, <=, <}', '{0, 0, 800, 1999, 1999}', '{100, 100, 1, 100, 100}'), ('int4col', 'int4', '{>, >=, =, <=, <}', '{0, 0, 800, 1999, 1999}', '{100, 100, 1, 100, 100}'), ('int4col', 'int8', '{>, >=, =, <=, <}', '{0, 0, 800, 1999, 1428427143}', '{100, 100, 1, 100, 100}'), ('int8col', 'int2', '{>, >=}', '{0, 0}', '{100, 100}'), ('int8col', 'int4', '{>, >=}', '{0, 0}', '{100, 100}'), ('int8col', 'int8', '{>, >=, =, <=, <}', '{0, 0, 1257141600, 1428427143, 1428427143}', '{100, 100, 1, 100, 100}'), ('textcol', 'text', '{>, >=, =, <=, <}', '{ABABAB, ABABAB, BNAAAABNAAAABNAAAABNAAAABNAAAABNAAAABNAAAABNAAAA, ZZAAAA, ZZAAAA}', '{100, 100, 1, 100, 100}'), ('oidcol', 'oid', '{>, >=, =, <=, <}', '{0, 0, 8800, 9999, 9999}', '{100, 100, 1, 100, 100}'), ('tidcol', 'tid', '{>, >=, =, <=, <}', '{\"(0,0)\", \"(0,0)\", \"(8800,0)\", \"(9999,19)\", \"(9999,19)\"}', '{100, 100, 1, 100, 100}'), ('float4col', 'float4', '{>, >=, =, <=, <}', '{0.0103093, 0.0103093, 1, 1, 1}', '{100, 100, 4, 100, 96}'), ('float4col', 'float8', '{>, >=, =, <=, <}', '{0.0103093, 0.0103093, 1, 1, 1}', '{100, 100, 4, 100, 96}'), ('float8col', 'float4', '{>, >=, =, <=, <}', '{0, 0, 0, 1.98, 1.98}', '{99, 100, 1, 100, 100}'), ('float8col', 'float8', '{>, >=, =, <=, <}', '{0, 0, 0, 1.98, 1.98}', '{99, 100, 1, 100, 100}'), ('macaddrcol', 'macaddr', '{>, >=, =, <=, <}', '{00:00:01:00:00:00, 00:00:01:00:00:00, 2c:00:2d:00:16:00, ff:fe:00:00:00:00, ff:fe:00:00:00:00}', '{99, 100, 2, 100, 100}'), ('inetcol', 'inet', '{&&, =, <, <=, >, >=, >>=, >>, <<=, <<}', '{10/8, 10.2.14.231/24, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0, 10.2.14.231/24, 10.2.14.231/25, 10.2.14.231/8, 0/0}', '{100, 1, 100, 100, 125, 125, 2, 2, 100, 100}'), ('inetcol', 'inet', '{&&, >>=, <<=, =}', '{fe80::6e40:8ff:fea9:a673/32, fe80::6e40:8ff:fea9:8c46, fe80::6e40:8ff:fea9:a673/32, fe80::6e40:8ff:fea9:8c46}', '{25, 1, 25, 1}'), ('inetcol', 'cidr', '{&&, <, <=, >, >=, >>=, >>, <<=, <<}', '{10/8, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0, 10.2.14/24, 10.2.14/25, 10/8, 0/0}', '{100, 100, 100, 125, 125, 2, 2, 100, 100}'), ('inetcol', 'cidr', '{&&, >>=, <<=, =}', '{fe80::/32, fe80::6e40:8ff:fea9:8c46, fe80::/32, fe80::6e40:8ff:fea9:8c46}', '{25, 1, 25, 1}'), ('cidrcol', 'inet', '{&&, =, <, <=, >, >=, >>=, >>, <<=, <<}', '{10/8, 10.2.14/24, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0, 10.2.14.231/24, 10.2.14.231/25, 10.2.14.231/8, 0/0}', '{100, 2, 100, 100, 125, 125, 2, 2, 100, 100}'), ('cidrcol', 'inet', '{&&, >>=, <<=, =}', '{fe80::6e40:8ff:fea9:a673/32, fe80::6e40:8ff:fea9:8c46, fe80::6e40:8ff:fea9:a673/32, fe80::6e40:8ff:fea9:8c46}', '{25, 1, 25, 1}'), ('cidrcol', 'cidr', '{&&, =, <, <=, >, >=, >>=, >>, <<=, <<}', '{10/8, 10.2.14/24, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0, 10.2.14/24, 10.2.14/25, 10/8, 0/0}', '{100, 2, 100, 100, 125, 125, 2, 2, 100, 100}'), ('cidrcol', 'cidr', '{&&, >>=, <<=, =}', '{fe80::/32, fe80::6e40:8ff:fea9:8c46, fe80::/32, fe80::6e40:8ff:fea9:8c46}', '{25, 1, 25, 1}'), ('bpcharcol', 'bpchar', '{>, >=, =, <=, <}', '{A, A, W, Z, Z}', '{97, 100, 6, 100, 98}'), ('datecol', 'date', '{>, >=, =, <=, <}', '{1995-08-15, 1995-08-15, 2009-12-01, 2022-12-30, 2022-12-30}', '{100, 100, 1, 100, 100}'), ('timecol', 'time', '{>, >=, =, <=, <}', '{01:20:30, 01:20:30, 02:28:57, 06:28:31.5, 06:28:31.5}', '{100, 100, 1, 100, 100}'), ('timestampcol', 'timestamp', '{>, >=, =, <=, <}', '{1942-07-23 03:05:09, 1942-07-23 03:05:09, 1964-03-24 19:26:45, 1984-01-20 22:42:21, 1984-01-20 22:42:21}', '{100, 100, 1, 100, 100}'), ('timestampcol', 'timestamptz', '{>, >=, =, <=, <}', '{1942-07-23 03:05:09, 1942-07-23 03:05:09, 1964-03-24 19:26:45, 1984-01-20 22:42:21, 1984-01-20 22:42:21}', '{100, 100, 1, 100, 100}'), ('timestamptzcol', 'timestamptz', '{>, >=, =, <=, <}', '{1972-10-10 03:00:00-04, 1972-10-10 03:00:00-04, 1972-10-19 09:00:00-07, 1972-11-20 19:00:00-03, 1972-11-20 19:00:00-03}', '{100, 100, 1, 100, 100}'), ('intervalcol', 'interval', '{>, >=, =, <=, <}', '{00:00:00, 00:00:00, 1 mons 13 days 12:24, 2 mons 23 days 07:48:00, 1 year}', '{100, 100, 1, 100, 100}'), ('timetzcol', 'timetz', '{>, >=, =, <=, <}', '{01:30:20+02, 01:30:20+02, 01:35:50+02, 23:55:05+02, 23:55:05+02}', '{99, 100, 2, 100, 100}'), ('bitcol', 'bit(10)', '{>, >=, =, <=, <}', '{0000000010, 0000000010, 0011011110, 1111111000, 1111111000}', '{100, 100, 1, 100, 100}'), ('varbitcol', 'varbit(16)', '{>, >=, =, <=, <}', '{0000000000000100, 0000000000000100, 0001010001100110, 1111111111111000, 1111111111111000}', '{100, 100, 1, 100, 100}'), ('numericcol', 'numeric', '{>, >=, =, <=, <}', '{0.00, 0.01, 2268164.347826086956521739130434782609, 99470151.9, 99470151.9}', '{100, 100, 1, 100, 100}'), ('uuidcol', 'uuid', '{>, >=, =, <=, <}', '{00040004-0004-0004-0004-000400040004, 00040004-0004-0004-0004-000400040004, 52225222-5222-5222-5222-522252225222, 99989998-9998-9998-9998-999899989998, 99989998-9998-9998-9998-999899989998}', '{100, 100, 1, 100, 100}'), ('int4rangecol', 'int4range', '{<<, &<, &&, &>, >>, @>, <@, =, <, <=, >, >=}', '{\"[10000,)\",\"[10000,)\",\"(,]\",\"[3,4)\",\"[36,44)\",\"(1500,1501]\",\"[3,4)\",\"[222,1222)\",\"[36,44)\",\"[43,1043)\",\"[367,4466)\",\"[519,)\"}', '{53, 53, 53, 53, 50, 22, 72, 1, 74, 75, 34, 21}'), ('int4rangecol', 'int4range', '{@>, <@, =, <=, >, >=}', '{empty, empty, empty, empty, empty, empty}', '{125, 72, 72, 72, 53, 125}'), ('int4rangecol', 'int4', '{@>}', '{1500}', '{22}'), ('lsncol', 'pg_lsn', '{>, >=, =, <=, <, IS, IS NOT}', '{0/1200, 0/1200, 44/455222, 198/1999799, 198/1999799, NULL, NULL}', '{100, 100, 1, 100, 100, 25, 100}'), ('boxcol', 'point', '{@>}', '{\"(500,43)\"}', '{11}'), ('boxcol', 'box', '{<<, &<, &&, &>, >>, <<|, &<|, |&>, |>>, @>, <@, ~=}', '{\"((1000,2000),(3000,4000))\",\"((1,2),(3000,4000))\",\"((1,2),(3000,4000))\",\"((1,2),(3000,4000))\",\"((1,2),(3,4))\",\"((1000,2000),(3000,4000))\",\"((1,2000),(3,4000))\",\"((1000,2),(3000,4))\",\"((1,2),(3,4))\",\"((1,2),(300,400))\",\"((1,2),(3000,4000))\",\"((222,1222),(44,45))\"}', '{100, 100, 100, 99, 96, 100, 100, 99, 96, 1, 99, 1}')"
+    "query": "INSERT INTO brinopers VALUES ('byteacol', 'bytea', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{AAAAAA, AAAAAA, BNAAAABNAAAABNAAAABNAAAABNAAAABNAAAABNAAAABNAAAA, ZZZZZZ, ZZZZZZ}', '{100, 100, 1, 100, 100}'), ('charcol', '\"char\"', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{A, A, M, Z, Z}', '{97, 100, 6, 100, 98}'), ('namecol', 'name', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{AAAAAA, AAAAAA, MAAAAA, ZZAAAA, ZZAAAA}', '{100, 100, 2, 100, 100}'), ('int2col', 'int2', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 999, 999}', '{100, 100, 1, 100, 100}'), ('int2col', 'int4', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 999, 1999}', '{100, 100, 1, 100, 100}'), ('int2col', 'int8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 999, 1428427143}', '{100, 100, 1, 100, 100}'), ('int4col', 'int2', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 1999, 1999}', '{100, 100, 1, 100, 100}'), ('int4col', 'int4', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 1999, 1999}', '{100, 100, 1, 100, 100}'), ('int4col', 'int8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 800, 1999, 1428427143}', '{100, 100, 1, 100, 100}'), ('int8col', 'int2', '{\u003e, \u003e=}', '{0, 0}', '{100, 100}'), ('int8col', 'int4', '{\u003e, \u003e=}', '{0, 0}', '{100, 100}'), ('int8col', 'int8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 1257141600, 1428427143, 1428427143}', '{100, 100, 1, 100, 100}'), ('textcol', 'text', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{ABABAB, ABABAB, BNAAAABNAAAABNAAAABNAAAABNAAAABNAAAABNAAAABNAAAA, ZZAAAA, ZZAAAA}', '{100, 100, 1, 100, 100}'), ('oidcol', 'oid', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 8800, 9999, 9999}', '{100, 100, 1, 100, 100}'), ('tidcol', 'tid', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{\"(0,0)\", \"(0,0)\", \"(8800,0)\", \"(9999,19)\", \"(9999,19)\"}', '{100, 100, 1, 100, 100}'), ('float4col', 'float4', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0.0103093, 0.0103093, 1, 1, 1}', '{100, 100, 4, 100, 96}'), ('float4col', 'float8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0.0103093, 0.0103093, 1, 1, 1}', '{100, 100, 4, 100, 96}'), ('float8col', 'float4', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 0, 1.98, 1.98}', '{99, 100, 1, 100, 100}'), ('float8col', 'float8', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0, 0, 0, 1.98, 1.98}', '{99, 100, 1, 100, 100}'), ('macaddrcol', 'macaddr', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{00:00:01:00:00:00, 00:00:01:00:00:00, 2c:00:2d:00:16:00, ff:fe:00:00:00:00, ff:fe:00:00:00:00}', '{99, 100, 2, 100, 100}'), ('inetcol', 'inet', '{\u0026\u0026, =, \u003c, \u003c=, \u003e, \u003e=, \u003e\u003e=, \u003e\u003e, \u003c\u003c=, \u003c\u003c}', '{10/8, 10.2.14.231/24, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0, 10.2.14.231/24, 10.2.14.231/25, 10.2.14.231/8, 0/0}', '{100, 1, 100, 100, 125, 125, 2, 2, 100, 100}'), ('inetcol', 'inet', '{\u0026\u0026, \u003e\u003e=, \u003c\u003c=, =}', '{fe80::6e40:8ff:fea9:a673/32, fe80::6e40:8ff:fea9:8c46, fe80::6e40:8ff:fea9:a673/32, fe80::6e40:8ff:fea9:8c46}', '{25, 1, 25, 1}'), ('inetcol', 'cidr', '{\u0026\u0026, \u003c, \u003c=, \u003e, \u003e=, \u003e\u003e=, \u003e\u003e, \u003c\u003c=, \u003c\u003c}', '{10/8, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0, 10.2.14/24, 10.2.14/25, 10/8, 0/0}', '{100, 100, 100, 125, 125, 2, 2, 100, 100}'), ('inetcol', 'cidr', '{\u0026\u0026, \u003e\u003e=, \u003c\u003c=, =}', '{fe80::/32, fe80::6e40:8ff:fea9:8c46, fe80::/32, fe80::6e40:8ff:fea9:8c46}', '{25, 1, 25, 1}'), ('cidrcol', 'inet', '{\u0026\u0026, =, \u003c, \u003c=, \u003e, \u003e=, \u003e\u003e=, \u003e\u003e, \u003c\u003c=, \u003c\u003c}', '{10/8, 10.2.14/24, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0, 10.2.14.231/24, 10.2.14.231/25, 10.2.14.231/8, 0/0}', '{100, 2, 100, 100, 125, 125, 2, 2, 100, 100}'), ('cidrcol', 'inet', '{\u0026\u0026, \u003e\u003e=, \u003c\u003c=, =}', '{fe80::6e40:8ff:fea9:a673/32, fe80::6e40:8ff:fea9:8c46, fe80::6e40:8ff:fea9:a673/32, fe80::6e40:8ff:fea9:8c46}', '{25, 1, 25, 1}'), ('cidrcol', 'cidr', '{\u0026\u0026, =, \u003c, \u003c=, \u003e, \u003e=, \u003e\u003e=, \u003e\u003e, \u003c\u003c=, \u003c\u003c}', '{10/8, 10.2.14/24, 255.255.255.255, 255.255.255.255, 0.0.0.0, 0.0.0.0, 10.2.14/24, 10.2.14/25, 10/8, 0/0}', '{100, 2, 100, 100, 125, 125, 2, 2, 100, 100}'), ('cidrcol', 'cidr', '{\u0026\u0026, \u003e\u003e=, \u003c\u003c=, =}', '{fe80::/32, fe80::6e40:8ff:fea9:8c46, fe80::/32, fe80::6e40:8ff:fea9:8c46}', '{25, 1, 25, 1}'), ('bpcharcol', 'bpchar', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{A, A, W, Z, Z}', '{97, 100, 6, 100, 98}'), ('datecol', 'date', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{1995-08-15, 1995-08-15, 2009-12-01, 2022-12-30, 2022-12-30}', '{100, 100, 1, 100, 100}'), ('timecol', 'time', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{01:20:30, 01:20:30, 02:28:57, 06:28:31.5, 06:28:31.5}', '{100, 100, 1, 100, 100}'), ('timestampcol', 'timestamp', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{1942-07-23 03:05:09, 1942-07-23 03:05:09, 1964-03-24 19:26:45, 1984-01-20 22:42:21, 1984-01-20 22:42:21}', '{100, 100, 1, 100, 100}'), ('timestampcol', 'timestamptz', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{1942-07-23 03:05:09, 1942-07-23 03:05:09, 1964-03-24 19:26:45, 1984-01-20 22:42:21, 1984-01-20 22:42:21}', '{100, 100, 1, 100, 100}'), ('timestamptzcol', 'timestamptz', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{1972-10-10 03:00:00-04, 1972-10-10 03:00:00-04, 1972-10-19 09:00:00-07, 1972-11-20 19:00:00-03, 1972-11-20 19:00:00-03}', '{100, 100, 1, 100, 100}'), ('intervalcol', 'interval', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{00:00:00, 00:00:00, 1 mons 13 days 12:24, 2 mons 23 days 07:48:00, 1 year}', '{100, 100, 1, 100, 100}'), ('timetzcol', 'timetz', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{01:30:20+02, 01:30:20+02, 01:35:50+02, 23:55:05+02, 23:55:05+02}', '{99, 100, 2, 100, 100}'), ('bitcol', 'bit(10)', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0000000010, 0000000010, 0011011110, 1111111000, 1111111000}', '{100, 100, 1, 100, 100}'), ('varbitcol', 'varbit(16)', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0000000000000100, 0000000000000100, 0001010001100110, 1111111111111000, 1111111111111000}', '{100, 100, 1, 100, 100}'), ('numericcol', 'numeric', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{0.00, 0.01, 2268164.347826086956521739130434782609, 99470151.9, 99470151.9}', '{100, 100, 1, 100, 100}'), ('uuidcol', 'uuid', '{\u003e, \u003e=, =, \u003c=, \u003c}', '{00040004-0004-0004-0004-000400040004, 00040004-0004-0004-0004-000400040004, 52225222-5222-5222-5222-522252225222, 99989998-9998-9998-9998-999899989998, 99989998-9998-9998-9998-999899989998}', '{100, 100, 1, 100, 100}'), ('int4rangecol', 'int4range', '{\u003c\u003c, \u0026\u003c, \u0026\u0026, \u0026\u003e, \u003e\u003e, @\u003e, \u003c@, =, \u003c, \u003c=, \u003e, \u003e=}', '{\"[10000,)\",\"[10000,)\",\"(,]\",\"[3,4)\",\"[36,44)\",\"(1500,1501]\",\"[3,4)\",\"[222,1222)\",\"[36,44)\",\"[43,1043)\",\"[367,4466)\",\"[519,)\"}', '{53, 53, 53, 53, 50, 22, 72, 1, 74, 75, 34, 21}'), ('int4rangecol', 'int4range', '{@\u003e, \u003c@, =, \u003c=, \u003e, \u003e=}', '{empty, empty, empty, empty, empty, empty}', '{125, 72, 72, 72, 53, 125}'), ('int4rangecol', 'int4', '{@\u003e}', '{1500}', '{22}'), ('lsncol', 'pg_lsn', '{\u003e, \u003e=, =, \u003c=, \u003c, IS, IS NOT}', '{0/1200, 0/1200, 44/455222, 198/1999799, 198/1999799, NULL, NULL}', '{100, 100, 1, 100, 100, 25, 100}'), ('boxcol', 'point', '{@\u003e}', '{\"(500,43)\"}', '{11}'), ('boxcol', 'box', '{\u003c\u003c, \u0026\u003c, \u0026\u0026, \u0026\u003e, \u003e\u003e, \u003c\u003c|, \u0026\u003c|, |\u0026\u003e, |\u003e\u003e, @\u003e, \u003c@, ~=}', '{\"((1000,2000),(3000,4000))\",\"((1,2),(3000,4000))\",\"((1,2),(3000,4000))\",\"((1,2),(3000,4000))\",\"((1,2),(3,4))\",\"((1000,2000),(3000,4000))\",\"((1,2000),(3,4000))\",\"((1000,2),(3000,4))\",\"((1,2),(3,4))\",\"((1,2),(300,400))\",\"((1,2),(3000,4000))\",\"((222,1222),(44,45))\"}', '{100, 100, 100, 99, 96, 100, 100, 99, 96, 1, 99, 1}')"
   },
   {
     "comment": "brin - Statement 7",
-    "query": "DO $x$ DECLARE r record"
-  },
-  {
-    "comment": "brin - Statement 8",
-    "query": "r2 record"
-  },
-  {
-    "comment": "brin - Statement 9",
-    "query": "cond text"
-  },
-  {
-    "comment": "brin - Statement 10",
-    "query": "idx_ctids tid[]"
-  },
-  {
-    "comment": "brin - Statement 11",
-    "query": "ss_ctids tid[]"
-  },
-  {
-    "comment": "brin - Statement 12",
-    "query": "count int"
-  },
-  {
-    "comment": "brin - Statement 13",
-    "query": "plan_ok bool"
-  },
-  {
-    "comment": "brin - Statement 14",
-    "query": "plan_line text"
-  },
-  {
-    "comment": "brin - Statement 15",
-    "query": "BEGIN FOR r IN SELECT colname, oper, typ, value[ordinality], matches[ordinality] FROM brinopers, unnest(op) WITH ORDINALITY AS oper LOOP IF r.value IS NULL THEN cond := format('%I %s %L', r.colname, r.oper, r.value)"
-  },
-  {
-    "comment": "brin - Statement 16",
-    "query": "ELSE cond := format('%I %s %L::%s', r.colname, r.oper, r.value, r.typ)"
-  },
-  {
-    "comment": "brin - Statement 17",
-    "query": "END IF"
-  },
-  {
-    "comment": "brin - Statement 18",
-    "query": "SET enable_seqscan = 0"
-  },
-  {
-    "comment": "brin - Statement 19",
-    "query": "SET enable_bitmapscan = 1"
-  },
-  {
-    "comment": "brin - Statement 20",
-    "query": "plan_ok := false"
-  },
-  {
-    "comment": "brin - Statement 21",
-    "query": "FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond) LOOP IF plan_line LIKE '%Bitmap Heap Scan on brintest%' THEN plan_ok := true"
-  },
-  {
-    "comment": "brin - Statement 22",
-    "query": "END LOOP"
-  },
-  {
-    "comment": "brin - Statement 23",
-    "query": "IF NOT plan_ok THEN RAISE WARNING 'did not get bitmap indexscan plan for %', r"
-  },
-  {
-    "comment": "brin - Statement 24",
-    "query": "EXECUTE format($y$SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond) INTO idx_ctids"
-  },
-  {
-    "comment": "brin - Statement 25",
-    "query": "SET enable_seqscan = 1"
-  },
-  {
-    "comment": "brin - Statement 26",
-    "query": "SET enable_bitmapscan = 0"
-  },
-  {
-    "comment": "brin - Statement 27",
-    "query": "FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond) LOOP IF plan_line LIKE '%Seq Scan on brintest%' THEN plan_ok := true"
-  },
-  {
-    "comment": "brin - Statement 28",
-    "query": "IF NOT plan_ok THEN RAISE WARNING 'did not get seqscan plan for %', r"
-  },
-  {
-    "comment": "brin - Statement 29",
-    "query": "EXECUTE format($y$SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond) INTO ss_ctids"
-  },
-  {
-    "comment": "brin - Statement 30",
-    "query": "count := array_length(idx_ctids, 1)"
-  },
-  {
-    "comment": "brin - Statement 31",
-    "query": "IF NOT (count = array_length(ss_ctids, 1) AND idx_ctids @> ss_ctids AND idx_ctids <@ ss_ctids) THEN RAISE WARNING 'something not right in %: count %', r, count"
-  },
-  {
-    "comment": "brin - Statement 32",
-    "query": "FOR r2 IN EXECUTE 'SELECT ' || r.colname || ' FROM brintest WHERE ' || cond LOOP RAISE NOTICE 'seqscan: %', r2"
-  },
-  {
-    "comment": "brin - Statement 33",
-    "query": "FOR r2 IN EXECUTE 'SELECT ' || r.colname || ' FROM brintest WHERE ' || cond LOOP RAISE NOTICE 'bitmapscan: %', r2"
-  },
-  {
-    "comment": "brin - Statement 34",
-    "query": "IF count != r.matches THEN RAISE WARNING 'unexpected number of results % for %', count, r; END IF"
-  },
-  {
-    "comment": "brin - Statement 35",
-    "query": "END"
-  },
-  {
-    "comment": "brin - Statement 36",
-    "query": "$x$"
+    "query": "DO $x$\nDECLARE\n r record;\n r2 record;\n cond text;\n idx_ctids tid[];\n ss_ctids tid[];\n count int;\n plan_ok bool;\n plan_line text;\nBEGIN\n FOR r IN SELECT colname, oper, typ, value[ordinality], matches[ordinality] FROM brinopers, unnest(op) WITH ORDINALITY AS oper LOOP\n\n  IF r.value IS NULL THEN\n cond := format('%I %s %L', r.colname, r.oper, r.value);\n ELSE\n cond := format('%I %s %L::%s', r.colname, r.oper, r.value, r.typ);\n END IF;\n\n SET enable_seqscan = 0;\n SET enable_bitmapscan = 1;\n\n plan_ok := false;\n FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond) LOOP\n IF plan_line LIKE '%Bitmap Heap Scan on brintest%' THEN\n plan_ok := true;\n END IF;\n END LOOP;\n IF NOT plan_ok THEN\n RAISE WARNING 'did not get bitmap indexscan plan for %', r;\n END IF;\n\n EXECUTE format($y$SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond)\n INTO idx_ctids;\n\n SET enable_seqscan = 1;\n SET enable_bitmapscan = 0;\n\n plan_ok := false;\n FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond) LOOP\n IF plan_line LIKE '%Seq Scan on brintest%' THEN\n plan_ok := true;\n END IF;\n END LOOP;\n IF NOT plan_ok THEN\n RAISE WARNING 'did not get seqscan plan for %', r;\n END IF;\n\n EXECUTE format($y$SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond)\n INTO ss_ctids;\n\n count := array_length(idx_ctids, 1);\n\n IF NOT (count = array_length(ss_ctids, 1) AND\n idx_ctids @\u003e ss_ctids AND\n idx_ctids \u003c@ ss_ctids) THEN\n RAISE WARNING 'something not right in %: count %', r, count;\n SET enable_seqscan = 1;\n SET enable_bitmapscan = 0;\n FOR r2 IN EXECUTE 'SELECT ' || r.colname || ' FROM brintest WHERE ' || cond LOOP\n RAISE NOTICE 'seqscan: %', r2;\n END LOOP;\n\n SET enable_seqscan = 0;\n SET enable_bitmapscan = 1;\n FOR r2 IN EXECUTE 'SELECT ' || r.colname || ' FROM brintest WHERE ' || cond LOOP\n RAISE NOTICE 'bitmapscan: %', r2;\n END LOOP;\n END IF;\n\n IF count != r.matches THEN RAISE WARNING 'unexpected number of results % for %', count, r; END IF;\n END LOOP;\nEND;\n$x$;",
+    "expected": "DO '\nDECLARE\n r record;\n r2 record;\n cond text;\n idx_ctids tid[];\n ss_ctids tid[];\n count int;\n plan_ok bool;\n plan_line text;\nBEGIN\n FOR r IN SELECT colname, oper, typ, value[ordinality], matches[ordinality] FROM brinopers, unnest(op) WITH ORDINALITY AS oper LOOP\n\n  IF r.value IS NULL THEN\n cond := format(''%I %s %L'', r.colname, r.oper, r.value);\n ELSE\n cond := format(''%I %s %L::%s'', r.colname, r.oper, r.value, r.typ);\n END IF;\n\n SET enable_seqscan = 0;\n SET enable_bitmapscan = 1;\n\n plan_ok := false;\n FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond) LOOP\n IF plan_line LIKE ''%Bitmap Heap Scan on brintest%'' THEN\n plan_ok := true;\n END IF;\n END LOOP;\n IF NOT plan_ok THEN\n RAISE WARNING ''did not get bitmap indexscan plan for %'', r;\n END IF;\n\n EXECUTE format($y$SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond)\n INTO idx_ctids;\n\n SET enable_seqscan = 1;\n SET enable_bitmapscan = 0;\n\n plan_ok := false;\n FOR plan_line IN EXECUTE format($y$EXPLAIN SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond) LOOP\n IF plan_line LIKE ''%Seq Scan on brintest%'' THEN\n plan_ok := true;\n END IF;\n END LOOP;\n IF NOT plan_ok THEN\n RAISE WARNING ''did not get seqscan plan for %'', r;\n END IF;\n\n EXECUTE format($y$SELECT array_agg(ctid) FROM brintest WHERE %s $y$, cond)\n INTO ss_ctids;\n\n count := array_length(idx_ctids, 1);\n\n IF NOT (count = array_length(ss_ctids, 1) AND\n idx_ctids @\u003e ss_ctids AND\n idx_ctids \u003c@ ss_ctids) THEN\n RAISE WARNING ''something not right in %: count %'', r, count;\n SET enable_seqscan = 1;\n SET enable_bitmapscan = 0;\n FOR r2 IN EXECUTE ''SELECT '' || r.colname || '' FROM brintest WHERE '' || cond LOOP\n RAISE NOTICE ''seqscan: %'', r2;\n END LOOP;\n\n SET enable_seqscan = 0;\n SET enable_bitmapscan = 1;\n FOR r2 IN EXECUTE ''SELECT '' || r.colname || '' FROM brintest WHERE '' || cond LOOP\n RAISE NOTICE ''bitmapscan: %'', r2;\n END LOOP;\n END IF;\n\n IF count != r.matches THEN RAISE WARNING ''unexpected number of results % for %'', count, r; END IF;\n END LOOP;\nEND;\n'"
   },
   {
     "comment": "brin - Statement 37",
@@ -153,7 +43,8 @@
   },
   {
     "comment": "brin - Statement 39",
-    "query": "INSERT INTO brintest SELECT repeat(stringu1, 42)::bytea, substr(stringu1, 1, 1)::\"char\", stringu1::name, 142857 * tenthous, thousand, twothousand, repeat(stringu1, 42), unique1::oid, format('(%s,%s)', tenthous, twenty)::tid, (four + 1.0)/(hundred+1), odd::float8 / (tenthous + 1), format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr, inet '10.2.3.4' + tenthous, cidr '10.2.3/24' + tenthous, substr(stringu1, 1, 1)::bpchar, date '1995-08-15' + tenthous, time '01:20:30' + thousand * interval '18.5 second', timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours', timestamptz '1972-10-10 03:00' + thousand * interval '1 hour', justify_days(justify_hours(tenthous * interval '12 minutes')), timetz '01:30:20' + hundred * interval '15 seconds', thousand::bit(10), tenthous::bit(16)::varbit, tenthous::numeric(36,30) * fivethous * even / (hundred + 1), format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid, int4range(thousand, twothousand), format('%s/%s%s', odd, even, tenthous)::pg_lsn, box(point(odd, even), point(thousand, twothousand)) FROM tenk1 ORDER BY unique2 LIMIT 5 OFFSET 5"
+    "query": "INSERT INTO brintest SELECT repeat(stringu1, 42)::bytea, substr(stringu1, 1, 1)::char, stringu1::name, 142857 * tenthous, thousand, twothousand, repeat(stringu1, 42), unique1::oid, format('(%s,%s)', tenthous, twenty)::tid, (four + 1.0)/(hundred+1), odd::float8 / (tenthous + 1), format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred))::macaddr, inet '10.2.3.4' + tenthous, cidr '10.2.3/24' + tenthous, substr(stringu1, 1, 1)::char, date '1995-08-15' + tenthous, time '01:20:30' + thousand * interval '18.5 second', timestamp '1942-07-23 03:05:09' + tenthous * interval '36.38 hours', timestamptz '1972-10-10 03:00' + thousand * interval '1 hour', justify_days(justify_hours(tenthous * interval '12 minutes')), timetz '01:30:20' + hundred * interval '15 seconds', thousand::bit(10), tenthous::bit(16)::varbit, tenthous::numeric(36,30) * fivethous * even / (hundred + 1), format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'))::uuid, int4range(thousand, twothousand), format('%s/%s%s', odd, even, tenthous)::pg_lsn, box(point(odd, even), point(thousand, twothousand)) FROM tenk1 ORDER BY unique2 LIMIT 5 OFFSET 5",
+    "expected": "INSERT INTO brintest (SELECT CAST(repeat(stringu1, 42) AS BYTEA), CAST(substr(stringu1, 1, 1) AS CHAR(1)), CAST(stringu1 AS name), 142857 * tenthous, thousand, twothousand, repeat(stringu1, 42), CAST(unique1 AS oid), CAST(format('(%s,%s)', tenthous, twenty) AS tid), (four + 1.0) / (hundred + 1), CAST(odd AS FLOAT8) / (tenthous + 1), CAST(format('%s:00:%s:00:%s:00', to_hex(odd), to_hex(even), to_hex(hundred)) AS macaddr), CAST('10.2.3.4' AS inet) + tenthous, CAST('10.2.3/24' AS cidr) + tenthous, CAST(substr(stringu1, 1, 1) AS CHAR(1)), CAST('1995-08-15' AS DATE) + tenthous, CAST('01:20:30' AS TIME) + thousand * CAST('18.5 second' AS INTERVAL), CAST('1942-07-23 03:05:09' AS TIMESTAMP) + tenthous * CAST('36.38 hours' AS INTERVAL), CAST('1972-10-10 03:00' AS TIMESTAMP WITH TIME ZONE) + thousand * CAST('1 hour' AS INTERVAL), justify_days(justify_hours(tenthous * CAST('12 minutes' AS INTERVAL))), CAST('01:30:20' AS TIME WITH TIME ZONE) + hundred * CAST('15 seconds' AS INTERVAL), CAST(thousand AS bit(10)), CAST(CAST(tenthous AS bit(16)) AS varbit), CAST(tenthous AS NUMERIC(36, 30)) * fivethous * even / (hundred + 1), CAST(format('%s%s-%s-%s-%s-%s%s%s', to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000'), to_char(tenthous, 'FM0000')) AS UUID), int4range(thousand, twothousand), CAST(format('%s/%s%s', odd, even, tenthous) AS pg_lsn), box(point(odd, even), point(thousand, twothousand)) FROM tenk1 ORDER BY unique2 LIMIT 5 OFFSET 5)"
   },
   {
     "comment": "brin - Statement 40",
@@ -193,27 +84,18 @@
   },
   {
     "comment": "brin - Statement 49",
-    "query": "CREATE TABLE brin_summarize ( value int ) WITH (fillfactor=10, autovacuum_enabled=false)"
+    "query": "CREATE TABLE brin_summarize ( value int ) WITH (fillfactor=10, autovacuum_enabled=false)",
+    "expected": "CREATE TABLE brin_summarize (value INT) WITH (fillfactor = 10, autovacuum_enabled = 'false')"
   },
   {
     "comment": "brin - Statement 50",
-    "query": "CREATE INDEX brin_summarize_idx ON brin_summarize USING brin (value) WITH (pages_per_range=2)"
+    "query": "CREATE INDEX brin_summarize_idx ON brin_summarize USING brin (value) WITH (pages_per_range=2)",
+    "expected": "CREATE INDEX brin_summarize_idx ON brin_summarize USING brin (value) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin - Statement 51",
-    "query": "DO $$ DECLARE curtid tid"
-  },
-  {
-    "comment": "brin - Statement 52",
-    "query": "BEGIN LOOP INSERT INTO brin_summarize VALUES (1) RETURNING ctid INTO curtid"
-  },
-  {
-    "comment": "brin - Statement 53",
-    "query": "EXIT WHEN curtid > tid '(2, 0)'"
-  },
-  {
-    "comment": "brin - Statement 54",
-    "query": "$$"
+    "query": "DO $$ DECLARE curtid tid; BEGIN LOOP INSERT INTO brin_summarize VALUES (1) RETURNING ctid INTO curtid; EXIT WHEN curtid \u003e tid '(2, 0)'; END LOOP; END; $$;",
+    "expected": "DO ' DECLARE curtid tid; BEGIN LOOP INSERT INTO brin_summarize VALUES (1) RETURNING ctid INTO curtid; EXIT WHEN curtid \u003e tid ''(2, 0)''; END LOOP; END; '"
   },
   {
     "comment": "brin - Statement 55",
@@ -253,7 +135,8 @@
   },
   {
     "comment": "brin - Statement 64",
-    "query": "INSERT INTO brintest_2 VALUES (numrange(0, 2^1000::numeric))"
+    "query": "INSERT INTO brintest_2 VALUES (numrange(0, 2^1000::numeric))",
+    "expected": "INSERT INTO brintest_2 VALUES (numrange(0, CAST(2 ^ 1000 AS NUMERIC)))"
   },
   {
     "comment": "brin - Statement 65",
@@ -273,7 +156,8 @@
   },
   {
     "comment": "brin - Statement 69",
-    "query": "INSERT INTO brin_test SELECT x/100,x%100 FROM generate_series(1,10000) x(x)"
+    "query": "INSERT INTO brin_test SELECT x/100,x%100 FROM generate_series(1,10000) x(x)",
+    "expected": "INSERT INTO brin_test SELECT x / 100, x % 100 FROM generate_series(1, 10000) AS x(x)"
   },
   {
     "comment": "brin - Statement 70",
@@ -285,23 +169,28 @@
   },
   {
     "comment": "brin - Statement 72",
-    "query": "VACUUM ANALYZE brin_test"
+    "query": "VACUUM ANALYZE brin_test",
+    "expected": "VACUUM (ANALYZE) brin_test"
   },
   {
     "comment": "brin - Statement 73",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_test WHERE a = 1"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_test WHERE a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM brin_test WHERE a = 1"
   },
   {
     "comment": "brin - Statement 74",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_test WHERE b = 1"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_test WHERE b = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM brin_test WHERE b = 1"
   },
   {
     "comment": "brin - Statement 75",
-    "query": "CREATE TABLE brintest_3 (a text, b text, c text, d text)"
+    "query": "CREATE TABLE brintest_3 (a text, b text, c text, d text)",
+    "expected": "CREATE TABLE brintest_3 (a TEXT, b TEXT, c TEXT, d TEXT)"
   },
   {
     "comment": "brin - Statement 76",
-    "query": "WITH rand_value AS (SELECT string_agg(fipshash(i::text),'') AS val FROM generate_series(1,60) s(i)) INSERT INTO brintest_3 SELECT val, val, val, val FROM rand_value"
+    "query": "WITH rand_value AS (SELECT string_agg(fipshash(i::text),'') AS val FROM generate_series(1,60) s(i)) INSERT INTO brintest_3 SELECT val, val, val, val FROM rand_value",
+    "expected": "WITH rand_value AS (SELECT string_agg(fipshash(CAST(i AS TEXT)), '') AS val FROM generate_series(1, 60) AS s(i)) INSERT INTO brintest_3 SELECT val, val, val, val FROM rand_value"
   },
   {
     "comment": "brin - Statement 77",
@@ -313,7 +202,8 @@
   },
   {
     "comment": "brin - Statement 79",
-    "query": "CREATE INDEX CONCURRENTLY brin_test_temp_idx ON brintest_3(a)"
+    "query": "CREATE INDEX CONCURRENTLY brin_test_temp_idx ON brintest_3(a)",
+    "expected": "CREATE INDEX CONCURRENTLY brin_test_temp_idx ON brintest_3 (a)"
   },
   {
     "comment": "brin - Statement 80",
@@ -325,7 +215,8 @@
   },
   {
     "comment": "brin - Statement 82",
-    "query": "WITH rand_value AS (SELECT string_agg(fipshash((-i)::text),'') AS val FROM generate_series(1,60) s(i)) INSERT INTO brintest_3 SELECT val, val, val, val FROM rand_value"
+    "query": "WITH rand_value AS (SELECT string_agg(fipshash((-i)::text),'') AS val FROM generate_series(1,60) s(i)) INSERT INTO brintest_3 SELECT val, val, val, val FROM rand_value",
+    "expected": "WITH rand_value AS (SELECT string_agg(fipshash(CAST((-i) AS TEXT)), '') AS val FROM generate_series(1, 60) AS s(i)) INSERT INTO brintest_3 SELECT val, val, val, val FROM rand_value"
   },
   {
     "comment": "brin - Statement 83",
@@ -333,11 +224,12 @@
   },
   {
     "comment": "brin - Statement 84",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brintest_3 WHERE b < '0'"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM brintest_3 WHERE b \u003c '0'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM brintest_3 WHERE b \u003c '0'"
   },
   {
     "comment": "brin - Statement 85",
-    "query": "SELECT * FROM brintest_3 WHERE b < '0'"
+    "query": "SELECT * FROM brintest_3 WHERE b \u003c '0'"
   },
   {
     "comment": "brin - Statement 86",
@@ -353,7 +245,8 @@
   },
   {
     "comment": "brin - Statement 89",
-    "query": "INSERT INTO brintest_unlogged VALUES (numrange(0, 2^1000::numeric))"
+    "query": "INSERT INTO brintest_unlogged VALUES (numrange(0, 2^1000::numeric))",
+    "expected": "INSERT INTO brintest_unlogged VALUES (numrange(0, CAST(2 ^ 1000 AS NUMERIC)))"
   },
   {
     "comment": "brin - Statement 90",
@@ -361,7 +254,8 @@
   },
   {
     "comment": "brin - Statement 91",
-    "query": "CREATE TABLE brin_insert_optimization (a int)"
+    "query": "CREATE TABLE brin_insert_optimization (a int)",
+    "expected": "CREATE TABLE brin_insert_optimization (a INT)"
   },
   {
     "comment": "brin - Statement 92",

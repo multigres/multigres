@@ -1939,6 +1939,47 @@ func (i *IndexElem) SqlString() string {
 		return ""
 	}
 
+	// Add operator class if specified
+	if i.Opclass != nil && i.Opclass.Len() > 0 {
+		// Format operator class as identifier, not quoted string
+		var opclassParts []string
+		for _, item := range i.Opclass.Items {
+			if strNode, ok := item.(*String); ok {
+				opclassParts = append(opclassParts, strNode.SVal)
+			} else if item != nil {
+				opclassParts = append(opclassParts, item.SqlString())
+			}
+		}
+		if len(opclassParts) > 0 {
+			result += " " + strings.Join(opclassParts, ".")
+		}
+	}
+
+	// Add operator class options if specified
+	if i.Opclassopts != nil && i.Opclassopts.Len() > 0 {
+		// Format operator class options with no spaces around '='
+		var optParts []string
+		for _, item := range i.Opclassopts.Items {
+			if defElem, ok := item.(*DefElem); ok {
+				if defElem.Arg != nil {
+					optParts = append(optParts, fmt.Sprintf("%s=%s", defElem.Defname, defElem.Arg.SqlString()))
+				} else {
+					optParts = append(optParts, defElem.Defname)
+				}
+			} else if item != nil {
+				optParts = append(optParts, item.SqlString())
+			}
+		}
+		if len(optParts) > 0 {
+			result += "(" + strings.Join(optParts, ", ") + ")"
+		}
+	}
+
+	// Add collation if specified
+	if i.Collation != nil && i.Collation.Len() > 0 {
+		result += " COLLATE " + i.Collation.SqlString()
+	}
+
 	// Add ordering (ASC/DESC) if not default
 	switch i.Ordering {
 	case SORTBY_ASC:
