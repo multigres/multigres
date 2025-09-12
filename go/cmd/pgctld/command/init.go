@@ -17,6 +17,9 @@ package command
 import (
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/multigres/multigres/go/pgctld"
 
@@ -79,7 +82,7 @@ func InitDataDirWithResult(poolerDir string) (*InitResult, error) {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
 	// create server config using the pooler directory
-	_, err := pgctld.GeneratePostgresServerConfig(poolerDir, pgPort)
+	_, err := pgctld.GeneratePostgresServerConfig(poolerDir, pgPort, pgUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres config: %w", err)
 	}
@@ -102,6 +105,62 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Data directory is already initialized: %s\n", pgctld.PostgresDataDir(poolerDir))
 	} else {
 		fmt.Printf("Data directory initialized successfully: %s\n", pgctld.PostgresDataDir(poolerDir))
+	}
+
+	return nil
+}
+
+func initializeDataDir(dataDir string) error {
+	// Create data directory if it doesn't exist
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	// Run initdb
+	cmd := exec.Command("initdb", "-D", dataDir, "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("initdb failed: %w", err)
+	}
+
+	// Set up user password for md5 authentication
+	if err := setPostgresPassword(dataDir); err != nil {
+		return fmt.Errorf("failed to set user password: %w", err)
+	}
+
+	// Get the effective password for logging (but don't log the actual password for security)
+	effectivePassword, err := resolvePassword()
+	if err != nil {
+		return fmt.Errorf("failed to resolve password: %w", err)
+	}
+
+	passwordSource := "flag"
+	if pgPassword == "" && effectivePassword != "" {
+		passwordSource = "PGPASSWORD environment variable"
+	}
+
+	slog.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
+
+	return nil
+}
+
+func setPostgresPassword(dataDir string) error {
+	// Get the effective password
+	effectivePassword, err := resolvePassword()
+	if err != nil {
+		return fmt.Errorf("failed to resolve password: %w", err)
+	}
+	// Start PostgreSQL temporarily in single-user mode to set password
+	// Use the configured user in single-user mode with trust auth to set the password
+	cmd := exec.Command("postgres", "--single", "-D", dataDir, pgUser)
+	cmd.Stdin = strings.NewReader(fmt.Sprintf("ALTER USER %s WITH PASSWORD '%s';\n", pgUser, effectivePassword))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set %s password: %w", pgUser, err)
 	}
 
 	return nil

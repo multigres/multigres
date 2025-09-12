@@ -53,11 +53,36 @@ func NewPostgresCtlConfigFromDefaults() (*pgctld.PostgresCtlConfig, error) {
 	}
 
 	effectivePort := existingConfig.Port
-	config, err := pgctld.NewPostgresCtlConfig(pgHost, effectivePort, pgUser, pgDatabase, pgPassword, timeout, pgctld.PostgresDataDir(poolerDir), postgresConfigFile, poolerDir)
+
+	// Handle password: use pgPassword flag or PGPASSWORD env var, error if both are set
+	effectivePassword, err := resolvePassword()
+	if err != nil {
+		return nil, err
+	}
+
+	config, err := pgctld.NewPostgresCtlConfig(pgHost, effectivePort, pgUser, pgDatabase, effectivePassword, timeout, pgctld.PostgresDataDir(poolerDir), postgresConfigFile, poolerDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 	return config, nil
+}
+
+// ResolvePassword handles password resolution from flag or environment variable
+// Returns error if both are set
+func resolvePassword() (string, error) {
+	envPassword := os.Getenv("PGPASSWORD")
+
+	// Check if both are set
+	if pgPassword != "" && envPassword != "" {
+		return "", fmt.Errorf("both --pg-password flag and PGPASSWORD environment variable are set, please use only one")
+	}
+
+	// Use flag password if set, otherwise use environment variable
+	if pgPassword != "" {
+		return pgPassword, nil
+	}
+
+	return envPassword, nil
 }
 
 func init() {
@@ -158,44 +183,6 @@ func StartPostgreSQLWithConfig(config *pgctld.PostgresCtlConfig) error {
 	// For backward compatibility, log the message if provided
 	if result.Message != "" && !result.AlreadyRunning {
 		slog.Info(result.Message)
-	}
-
-	return nil
-}
-
-func initializeDataDir(dataDir string) error {
-	// Create data directory if it doesn't exist
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return fmt.Errorf("failed to create data directory: %w", err)
-	}
-
-	// Run initdb
-	cmd := exec.Command("initdb", "-D", dataDir, "--auth-local=trust", "--auth-host=md5")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("initdb failed: %w", err)
-	}
-
-	// Set up postgres user password for md5 authentication
-	if err := setPostgresPassword(dataDir); err != nil {
-		return fmt.Errorf("failed to set postgres password: %w", err)
-	}
-
-	return nil
-}
-
-func setPostgresPassword(dataDir string) error {
-	// Start PostgreSQL temporarily in single-user mode to set password
-	// Use postgres in single-user mode with trust auth to set the password
-	cmd := exec.Command("postgres", "--single", "-D", dataDir, "postgres")
-	cmd.Stdin = strings.NewReader("ALTER USER postgres PASSWORD 'postgres';\n")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to set postgres password: %w", err)
 	}
 
 	return nil

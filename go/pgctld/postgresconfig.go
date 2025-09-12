@@ -73,6 +73,7 @@ type PostgresServerConfig struct {
 
 	// Other important settings
 	ClusterName string
+	User        string // PostgreSQL user name for HBA configuration
 
 	configMap map[string]string
 	Path      string // the actual path that represents this postgresql.conf

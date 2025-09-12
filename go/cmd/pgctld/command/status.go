@@ -184,9 +184,10 @@ func formatUptime(seconds int64) string {
 }
 
 func isServerReadyWithConfig(config *pgctld.PostgresCtlConfig) bool {
+	// Use Unix socket connection for pg_isready
+	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	cmd := exec.Command("pg_isready",
-		"-h", config.Host,
-		"-p", fmt.Sprintf("%d", config.Port),
+		"-h", socketDir,
 		"-U", config.User,
 		"-d", config.Database,
 	)
@@ -195,16 +196,14 @@ func isServerReadyWithConfig(config *pgctld.PostgresCtlConfig) bool {
 }
 
 func getServerVersionWithConfig(config *pgctld.PostgresCtlConfig) string {
+	// Use Unix socket connection for psql
+	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	cmd := exec.Command("psql",
-		"-h", config.Host,
-		"-p", fmt.Sprintf("%d", config.Port),
+		"-h", socketDir,
 		"-U", config.User,
 		"-d", config.Database,
 		"-t", "-c", "SELECT version()",
 	)
-
-	// Set environment to include PGPASSWORD if available
-	cmd.Env = os.Environ()
 
 	output, err := cmd.Output()
 	if err != nil {

@@ -34,7 +34,6 @@ import (
 func setupTestEnv(cmd *exec.Cmd) {
 	cmd.Env = append(os.Environ(),
 		"PGCONNECT_TIMEOUT=5", // Shorter timeout for tests
-		"PGPASSWORD=postgres", // Default password for tests
 	)
 }
 

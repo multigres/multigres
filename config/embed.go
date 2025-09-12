@@ -18,3 +18,6 @@ import _ "embed"
 
 //go:embed postgres/template.cnf
 var PostgresConfigDefaultTmpl string
+
+//go:embed postgres/pg_hba_template.conf
+var PostgresHbaDefaultTmpl string

@@ -172,10 +172,10 @@ func stopWithPgCtlWithConfig(config *pgctld.PostgresCtlConfig, mode string) erro
 func takeCheckpoint(config *pgctld.PostgresCtlConfig) error {
 	slog.Info("Taking checkpoint before stopping PostgreSQL", "data_dir", config.PostgresDataDir)
 
-	// Use psql to connect and execute CHECKPOINT
+	// Use Unix socket connection for psql
+	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	args := []string{
-		"-h", config.Host,
-		"-p", fmt.Sprintf("%d", config.Port),
+		"-h", socketDir,
 		"-U", config.User,
 		"-d", config.Database,
 		"-c", "CHECKPOINT;",
@@ -183,12 +183,6 @@ func takeCheckpoint(config *pgctld.PostgresCtlConfig) error {
 	}
 
 	cmd := exec.Command("psql", args...)
-
-	// Set environment to include PGPASSWORD if available
-	cmd.Env = os.Environ()
-	if config.Password != "" {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("PGPASSWORD=%s", config.Password))
-	}
 
 	// Capture output to avoid cluttering the terminal
 	output, err := cmd.CombinedOutput()

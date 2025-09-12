@@ -67,14 +67,13 @@ func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 			t.Fatalf("Failed to create PG_VERSION file: %v", err)
 		}
 		// Generate a proper postgresql.conf file using the postgresconfig_gen functionality
-		_, err := pgctld.GeneratePostgresServerConfig(baseDir, 5432)
+		_, err := pgctld.GeneratePostgresServerConfig(baseDir, 5432, "postgres")
 		if err != nil {
 			t.Fatalf("Failed to generate PostgreSQL config: %v", err)
 		}
 
 		// Create other typical PostgreSQL files manually
 		files := map[string]string{
-			"pg_hba.conf":   "# Test HBA config\nlocal all all trust\n",
 			"pg_ident.conf": "# Test ident config\n",
 		}
 

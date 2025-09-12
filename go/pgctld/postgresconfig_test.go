@@ -345,7 +345,7 @@ func TestGenerateAndReadConfigRoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Generate config using the template
-	generatedConfig, err := GeneratePostgresServerConfig(tmpDir, 5433)
+	generatedConfig, err := GeneratePostgresServerConfig(tmpDir, 5433, "postgres")
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
 
 	// Read the generated config back from disk

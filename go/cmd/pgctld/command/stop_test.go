@@ -145,7 +145,7 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 
 func TestStopPostgreSQLWithResult_EmptyPoolerDir(t *testing.T) {
 	// Create a mock PostgreSQL server config without setting pooler dir
-	_, err := pgctld.GeneratePostgresServerConfig("", 5432)
+	_, err := pgctld.GeneratePostgresServerConfig("", 5432, "postgres")
 
 	// Should get an error about pooler-dir not being set
 	require.Error(t, err)
@@ -274,7 +274,7 @@ func TestStopPostgreSQLWithConfig(t *testing.T) {
 			}
 
 			// Create a mock PostgreSQL server config
-			pgConfig, err := pgctld.GeneratePostgresServerConfig(baseDir, pgPort)
+			pgConfig, err := pgctld.GeneratePostgresServerConfig(baseDir, pgPort, "postgres")
 			require.NoError(t, err)
 
 			// Always create data directory

@@ -31,34 +31,37 @@ func TestNewPostgresServerConfig(t *testing.T) {
 	poolerDir = tempDir
 
 	tests := []struct {
-		name        string
-		poolerId    string
-		port        int
-		wantPort    int
-		wantCluster string
-		wantDataDir string
+		name          string
+		poolerId      string
+		port          int
+		wantPort      int
+		wantCluster   string
+		wantDataDir   string
+		wantSocketDir string
 	}{
 		{
-			name:        "basic config creation",
-			poolerId:    "test-pooler-1",
-			port:        5432,
-			wantPort:    5432,
-			wantCluster: "main",
-			wantDataDir: tempDir + "/pg_data",
+			name:          "basic config creation",
+			poolerId:      "test-pooler-1",
+			port:          5432,
+			wantPort:      5432,
+			wantCluster:   "main",
+			wantDataDir:   tempDir + "/pg_data",
+			wantSocketDir: tempDir + "/pg_sockets",
 		},
 		{
-			name:        "custom port",
-			poolerId:    "pooler-2",
-			port:        5433,
-			wantPort:    5433,
-			wantCluster: "main",
-			wantDataDir: tempDir + "/pg_data",
+			name:          "custom port",
+			poolerId:      "pooler-2",
+			port:          5433,
+			wantPort:      5433,
+			wantCluster:   "main",
+			wantDataDir:   tempDir + "/pg_data",
+			wantSocketDir: tempDir + "/pg_sockets",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config, err := GeneratePostgresServerConfig(tempDir, tt.port)
+			config, err := GeneratePostgresServerConfig(tempDir, tt.port, "postgres")
 			require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
 
 			assert.Equal(t, tt.wantPort, config.Port, "Port should match expected value")
@@ -69,7 +72,7 @@ func TestNewPostgresServerConfig(t *testing.T) {
 
 			assert.Equal(t, "localhost", config.ListenAddresses, "ListenAddresses should be localhost")
 
-			assert.Equal(t, "/tmp", config.UnixSocketDirectories, "UnixSocketDirectories should be /tmp")
+			assert.Equal(t, tt.wantSocketDir, config.UnixSocketDirectories, "UnixSocketDirectories should match expected value")
 		})
 	}
 }
@@ -107,7 +110,7 @@ func TestMakePostgresConf(t *testing.T) {
 	defer func() { poolerDir = originalPoolerDir }()
 	poolerDir = tempDir
 
-	config, err := GeneratePostgresServerConfig(tempDir, 5432)
+	config, err := GeneratePostgresServerConfig(tempDir, 5432, "postgres")
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
 
 	tests := []struct {
@@ -144,7 +147,7 @@ func TestMakePostgresConf(t *testing.T) {
 		{
 			name:     "unix socket directories template",
 			template: "unix_socket_directories = '{{.UnixSocketDirectories}}'",
-			want:     []string{"unix_socket_directories = '/tmp'"},
+			want:     []string{"unix_socket_directories = '" + tempDir + "/pg_sockets'"},
 		},
 		{
 			name: "complex template",
@@ -161,7 +164,7 @@ unix_socket_directories = '{{.UnixSocketDirectories}}'`,
 				"listen_addresses = 'localhost'",
 				"data_directory = '" + tempDir + "/pg_data'",
 				"cluster_name = 'main'",
-				"unix_socket_directories = '/tmp'",
+				"unix_socket_directories = '" + tempDir + "/pg_sockets'",
 				"# PostgreSQL Configuration",
 			},
 		},
@@ -192,7 +195,7 @@ func TestMakePostgresConfInvalidTemplate(t *testing.T) {
 	defer func() { poolerDir = originalPoolerDir }()
 	poolerDir = tempDir
 
-	config, err := GeneratePostgresServerConfig(tempDir, 5432)
+	config, err := GeneratePostgresServerConfig(tempDir, 5432, "postgres")
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
 
 	tests := []struct {
