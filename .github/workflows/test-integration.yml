@@ -82,7 +82,6 @@ jobs:
           PATH="/usr/lib/postgresql/$(ls /usr/lib/postgresql/ | head -1)/bin:$PATH"
           export PATH
           # Set environment variables for tests
-          export PGPASSWORD=postgres
           export PGCONNECT_TIMEOUT=5
           # Run tests with verbose output
           source build.env && go test -v ./...
