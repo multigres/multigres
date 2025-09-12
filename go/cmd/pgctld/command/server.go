@@ -149,13 +149,19 @@ func NewPgCtldService(logger *slog.Logger, pgHost string, pgPort int, pgUser str
 		return nil, fmt.Errorf("timeout needs to be set")
 	}
 
+	// Resolve password from file or environment variable
+	effectivePassword, err := resolvePassword()
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve password: %w", err)
+	}
+
 	// Create the PostgreSQL config once during service initialization
 	config, err := pgctld.NewPostgresCtlConfig(
 		pgHost,
 		pgPort,
 		pgUser,
 		pgDatabase,
-		pgPassword,
+		effectivePassword,
 		timeout,
 		pgctld.PostgresDataDir(poolerDir),
 		pgctld.PostgresConfigFile(poolerDir),
@@ -179,7 +185,7 @@ func NewPgCtldService(logger *slog.Logger, pgHost string, pgPort int, pgUser str
 		pgPort:     pgPort,
 		pgUser:     pgUser,
 		pgDatabase: pgDatabase,
-		pgPassword: pgPassword,
+		pgPassword: effectivePassword,
 		timeout:    timeout,
 		poolerDir:  poolerDir,
 		config:     config,

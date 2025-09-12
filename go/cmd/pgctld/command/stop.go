@@ -176,6 +176,7 @@ func takeCheckpoint(config *pgctld.PostgresCtlConfig) error {
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	args := []string{
 		"-h", socketDir,
+		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
 		"-c", "CHECKPOINT;",

@@ -125,19 +125,29 @@ func initializeDataDir(dataDir string) error {
 		return fmt.Errorf("initdb failed: %w", err)
 	}
 
-	// Set up user password for md5 authentication
-	if err := setPostgresPassword(dataDir); err != nil {
-		return fmt.Errorf("failed to set user password: %w", err)
-	}
-
-	// Get the effective password for logging (but don't log the actual password for security)
+	// Get the effective password and validate it
 	effectivePassword, err := resolvePassword()
 	if err != nil {
 		return fmt.Errorf("failed to resolve password: %w", err)
 	}
 
-	passwordSource := "flag"
-	if pgPassword == "" && effectivePassword != "" {
+	// Skip password setup if password is empty and warn user
+	if effectivePassword == "" {
+		slog.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
+		slog.Info("PostgreSQL data directory initialized successfully")
+		return nil
+	}
+
+	// Set up user password for authentication
+	if err := setPostgresPassword(dataDir); err != nil {
+		return fmt.Errorf("failed to set user password: %w", err)
+	}
+
+	// Determine password source for logging
+	passwordSource := "default"
+	if pgPwfile != "" {
+		passwordSource = "password file"
+	} else if os.Getenv("PGPASSWORD") != "" {
 		passwordSource = "PGPASSWORD environment variable"
 	}
 

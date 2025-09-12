@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,16 +29,44 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/pgctld"
 )
 
-// buildPgctldBinary builds the pgctld binary for testing and returns the path
-func buildPgctldBinary(t *testing.T, tempDir string) string {
+var (
+	// cachedBinary holds the cached binary path
+	cachedBinary string
+	// buildOnce ensures binary is built only once
+	buildOnce sync.Once
+	// buildError holds any error from building the binary
+	buildError error
+)
+
+// getCachedPgctldBinary builds the pgctld binary once and returns the cached path
+func getCachedPgctldBinary(t *testing.T) string {
 	t.Helper()
-	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
-	buildOutput, err := buildCmd.CombinedOutput()
-	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
-	return pgctldBinary
+	buildOnce.Do(func() {
+		// Create a temporary directory for the cached binary
+		tempDir, err := os.MkdirTemp("", "pgctld_cache_*")
+		if err != nil {
+			buildError = fmt.Errorf("failed to create temp dir: %w", err)
+			return
+		}
+
+		cachedBinary = filepath.Join(tempDir, "pgctld")
+		buildCmd := exec.Command("go", "build", "-o", cachedBinary, "..")
+		buildOutput, err := buildCmd.CombinedOutput()
+		if err != nil {
+			buildError = fmt.Errorf("failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
+			return
+		}
+		t.Logf("Built cached pgctld binary at: %s", cachedBinary)
+	})
+
+	if buildError != nil {
+		t.Fatalf("Failed to build pgctld binary: %v", buildError)
+	}
+
+	return cachedBinary
 }
 
 // setupTestEnv sets up environment variables for PostgreSQL tests
@@ -73,11 +102,8 @@ timeout: 30
 `), 0o644)
 	require.NoError(t, err)
 
-	// Build pgctld binary for testing
-	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
-	buildOutput, err := buildCmd.CombinedOutput()
-	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
+	// Use cached pgctld binary for testing
+	pgctldBinary := getCachedPgctldBinary(t)
 
 	t.Run("basic_commands_with_real_postgresql", func(t *testing.T) {
 		// Step 1: Initialize the database first
@@ -147,11 +173,8 @@ timeout: 30
 `), 0o644)
 	require.NoError(t, err)
 
-	// Build pgctld binary for testing
-	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
-	buildOutput, err := buildCmd.CombinedOutput()
-	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
+	// Use cached pgctld binary for testing
+	pgctldBinary := getCachedPgctldBinary(t)
 
 	t.Run("grpc_server_with_real_postgresql", func(t *testing.T) {
 		// Generate random ports for this test
@@ -227,11 +250,8 @@ timeout: 30
 `), 0o644)
 	require.NoError(t, err)
 
-	// Build pgctld binary for testing
-	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
-	buildOutput, err := buildCmd.CombinedOutput()
-	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
+	// Use cached pgctld binary for testing
+	pgctldBinary := getCachedPgctldBinary(t)
 
 	t.Run("startup_performance", func(t *testing.T) {
 		// Generate random port for this test
@@ -338,11 +358,8 @@ timeout: 30
 `), 0o644)
 	require.NoError(t, err)
 
-	// Build pgctld binary for testing
-	pgctldBinary := filepath.Join(tempDir, "pgctld")
-	buildCmd := exec.Command("go", "build", "-o", pgctldBinary, "..")
-	buildOutput, err := buildCmd.CombinedOutput()
-	require.NoError(t, err, "Failed to build pgctld binary: %v\nOutput: %s", err, string(buildOutput))
+	// Use cached pgctld binary for testing
+	pgctldBinary := getCachedPgctldBinary(t)
 
 	t.Run("version_compatibility", func(t *testing.T) {
 		// Generate random port for this test
@@ -403,8 +420,11 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_auth_test")
 		defer cleanup()
 
-		// Build pgctld binary for testing
-		pgctldBinary := buildPgctldBinary(t, baseDir)
+		t.Logf("Base directory: %s", baseDir)
+		t.Logf("Base directory is absolute: %v", filepath.IsAbs(baseDir))
+
+		// Use cached pgctld binary for testing
+		pgctldBinary := getCachedPgctldBinary(t)
 
 		// Get available port for PostgreSQL
 		port := testutil.GenerateRandomPort()
@@ -415,7 +435,8 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		// Initialize with PGPASSWORD
 		t.Logf("Initializing PostgreSQL with PGPASSWORD")
-		initCmd := exec.Command(pgctldBinary, "init", "--pooler-dir", baseDir)
+		initCmd := exec.Command(pgctldBinary, "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
+
 		initCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
 			fmt.Sprintf("PGPASSWORD=%s", testPassword),
@@ -439,13 +460,18 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		// Test socket connection (should work without password)
 		t.Logf("Testing Unix socket connection (no password required)")
-		socketDir := filepath.Join(baseDir, "pg_sockets")
+		socketDir := pgctld.PostgresSocketDir(baseDir)
+		t.Logf("Socket directory path: %s", socketDir)
+		t.Logf("Socket directory absolute path: %s", filepath.Join(socketDir))
+
 		socketCmd := exec.Command("psql",
 			"-h", socketDir,
+			"-p", strconv.Itoa(port), // Need to specify port even for socket connections
 			"-U", "postgres",
 			"-d", "postgres",
 			"-c", "SELECT current_user, current_database();",
 		)
+		t.Logf("psql command: %v", socketCmd.Args)
 		output, err = socketCmd.CombinedOutput()
 		require.NoError(t, err, "Socket connection should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "postgres", "Should connect as postgres user")
@@ -460,7 +486,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		t.Logf("Testing TCP connection with correct password")
 		tcpCmd := exec.Command("psql",
 			"-h", "localhost",
-			"-p", "5432", // Use default port from config
+			"-p", strconv.Itoa(port), // Use the same port that was configured
 			"-U", "postgres",
 			"-d", "postgres",
 			"-c", "SELECT current_user, current_database();",
@@ -474,7 +500,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		t.Logf("Testing TCP connection with wrong password")
 		wrongPasswordCmd := exec.Command("psql",
 			"-h", "localhost",
-			"-p", "5432",
+			"-p", strconv.Itoa(port),
 			"-U", "postgres",
 			"-d", "postgres",
 			"-c", "SELECT 1;",
@@ -488,13 +514,16 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		t.Logf("Testing TCP connection without password")
 		noPasswordCmd := exec.Command("psql",
 			"-h", "localhost",
-			"-p", "5432",
+			"-p", strconv.Itoa(port),
 			"-U", "postgres",
 			"-d", "postgres",
 			"-c", "SELECT 1;",
 		)
-		// Don't set PGPASSWORD environment variable
-		noPasswordCmd.Env = os.Environ()
+		// Explicitly clear PGPASSWORD to ensure no password is provided
+		noPasswordCmd.Env = []string{
+			"PGCONNECT_TIMEOUT=5",
+			"PATH=" + os.Getenv("PATH"), // Need PATH for psql to work
+		}
 		output, err = noPasswordCmd.CombinedOutput()
 		assert.Error(t, err, "TCP connection without password should fail")
 		assert.Contains(t, string(output), "no password supplied", "Should fail due to missing password")
@@ -505,6 +534,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Check that postgres role exists
 		roleCheckCmd := exec.Command("psql",
 			"-h", socketDir,
+			"-p", strconv.Itoa(port),
 			"-U", "postgres",
 			"-d", "postgres",
 			"-t", "-c", "SELECT rolname FROM pg_roles WHERE rolname = 'postgres';",
@@ -516,6 +546,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Check that postgres database exists
 		dbCheckCmd := exec.Command("psql",
 			"-h", socketDir,
+			"-p", strconv.Itoa(port),
 			"-U", "postgres",
 			"-d", "postgres",
 			"-t", "-c", "SELECT datname FROM pg_database WHERE datname = 'postgres';",
@@ -527,6 +558,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Check role privileges
 		privilegeCheckCmd := exec.Command("psql",
 			"-h", socketDir,
+			"-p", strconv.Itoa(port),
 			"-U", "postgres",
 			"-d", "postgres",
 			"-t", "-c", "SELECT rolsuper FROM pg_roles WHERE rolname = 'postgres';",
@@ -541,5 +573,90 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		stopCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		err = stopCmd.Run()
 		require.NoError(t, err, "pgctld stop should succeed")
+	})
+
+	t.Run("password_file_authentication", func(t *testing.T) {
+		// Set up temporary directory
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_pwfile_test")
+		defer cleanup()
+
+		// Use cached pgctld binary for testing
+		pgctldBinary := getCachedPgctldBinary(t)
+
+		// Get available port for PostgreSQL
+		port := testutil.GenerateRandomPort()
+		t.Logf("Password file test using port: %d", port)
+
+		// Test password
+		testPassword := "file_password_secure_456"
+
+		// Create password file
+		pwfile := filepath.Join(baseDir, "password.txt")
+		err := os.WriteFile(pwfile, []byte(testPassword), 0o600)
+		require.NoError(t, err, "Should create password file")
+
+		// Initialize with password file
+		t.Logf("Initializing PostgreSQL with password file")
+		initCmd := exec.Command(pgctldBinary, "init", "--pooler-dir", baseDir, "--pg-pwfile", pwfile, "--pg-port", strconv.Itoa(port))
+		initCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
+		output, err := initCmd.CombinedOutput()
+		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
+		assert.Contains(t, string(output), "password_source=\"password file\"", "Should use password file")
+
+		// Start the PostgreSQL server
+		t.Logf("Starting PostgreSQL server")
+		startCmd := exec.Command(pgctldBinary, "start", "--pooler-dir", baseDir, "--pg-pwfile", pwfile)
+		startCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
+		output, err = startCmd.CombinedOutput()
+		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
+
+		// Give the server a moment to be fully ready
+		time.Sleep(2 * time.Second)
+
+		// Test TCP connection with password from file
+		t.Logf("Testing TCP connection with password from file")
+		tcpCmd := exec.Command("psql",
+			"-h", "localhost",
+			"-p", strconv.Itoa(port),
+			"-U", "postgres",
+			"-d", "postgres",
+			"-c", "SELECT 'Password file authentication works!' as result;",
+		)
+		tcpCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", testPassword))
+		output, err = tcpCmd.CombinedOutput()
+		require.NoError(t, err, "TCP connection with password from file should succeed, output: %s", string(output))
+		assert.Contains(t, string(output), "Password file authentication works!", "Should connect successfully")
+
+		// Clean shutdown
+		t.Logf("Shutting down PostgreSQL")
+		stopCmd := exec.Command(pgctldBinary, "stop", "--pooler-dir", baseDir, "--pg-pwfile", pwfile)
+		stopCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
+		err = stopCmd.Run()
+		require.NoError(t, err, "pgctld stop should succeed")
+	})
+
+	t.Run("password_source_conflict", func(t *testing.T) {
+		// Set up temporary directory
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_conflict_test")
+		defer cleanup()
+
+		// Use cached pgctld binary for testing
+		pgctldBinary := getCachedPgctldBinary(t)
+
+		// Create password file
+		pwfile := filepath.Join(baseDir, "password.txt")
+		err := os.WriteFile(pwfile, []byte("file_password"), 0o600)
+		require.NoError(t, err, "Should create password file")
+
+		// Try to initialize with both PGPASSWORD and password file (should fail)
+		t.Logf("Testing conflict between PGPASSWORD and password file")
+		initCmd := exec.Command(pgctldBinary, "init", "--pooler-dir", baseDir, "--pg-pwfile", pwfile)
+		initCmd.Env = append(os.Environ(),
+			"PGCONNECT_TIMEOUT=5",
+			"PGPASSWORD=env_password",
+		)
+		output, err := initCmd.CombinedOutput()
+		assert.Error(t, err, "pgctld init should fail with both password sources")
+		assert.Contains(t, string(output), "both --pg-pwfile flag and PGPASSWORD environment variable are set", "Should show conflict error")
 	})
 }

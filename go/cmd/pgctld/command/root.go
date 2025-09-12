@@ -31,7 +31,7 @@ var (
 	pgPort       = 5432
 	pgDatabase   = "postgres"
 	pgUser       = "postgres"
-	pgPassword   = ""
+	pgPwfile     = ""
 	pgDataDir    = ""
 	pgConfigFile = ""
 	pgSocketDir  = "/tmp"
@@ -84,7 +84,7 @@ func init() {
 	Root.PersistentFlags().StringVarP(&pgHost, "pg-host", "H", pgHost, "PostgreSQL host")
 	Root.PersistentFlags().StringVarP(&pgDatabase, "pg-database", "D", pgDatabase, "PostgreSQL database name")
 	Root.PersistentFlags().StringVarP(&pgUser, "pg-user", "U", pgUser, "PostgreSQL username")
-	Root.PersistentFlags().StringVar(&pgPassword, "pg-password", pgPassword, "PostgreSQL password")
+	Root.PersistentFlags().StringVar(&pgPwfile, "pg-pwfile", pgPwfile, "PostgreSQL password file path")
 	Root.PersistentFlags().StringVarP(&pgDataDir, "pg-data-dir", "d", pgDataDir, "PostgreSQL data directory")
 	Root.PersistentFlags().StringVar(&pgConfigFile, "pg-config-file", pgConfigFile, "PostgreSQL configuration file")
 	Root.PersistentFlags().StringVar(&pgSocketDir, "pg-socket-dir", pgSocketDir, "PostgreSQL socket directory")

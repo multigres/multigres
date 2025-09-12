@@ -67,19 +67,30 @@ func NewPostgresCtlConfigFromDefaults() (*pgctld.PostgresCtlConfig, error) {
 	return config, nil
 }
 
-// ResolvePassword handles password resolution from flag or environment variable
-// Returns error if both are set
+// ResolvePassword handles password resolution from file or environment variable
+// Returns error if both are set or if password file cannot be read
 func resolvePassword() (string, error) {
 	envPassword := os.Getenv("PGPASSWORD")
+	var filePassword string
 
-	// Check if both are set
-	if pgPassword != "" && envPassword != "" {
-		return "", fmt.Errorf("both --pg-password flag and PGPASSWORD environment variable are set, please use only one")
+	// Read password from file if specified
+	if pgPwfile != "" {
+		filePasswordBytes, readErr := os.ReadFile(pgPwfile)
+		if readErr != nil {
+			return "", fmt.Errorf("failed to read password file %s: %w", pgPwfile, readErr)
+		}
+		// Remove trailing newline if present
+		filePassword = strings.TrimRight(string(filePasswordBytes), "\n\r")
 	}
 
-	// Use flag password if set, otherwise use environment variable
-	if pgPassword != "" {
-		return pgPassword, nil
+	// Check if both file and environment variable are set
+	if pgPwfile != "" && envPassword != "" {
+		return "", fmt.Errorf("both --pg-pwfile flag and PGPASSWORD environment variable are set, please use only one")
+	}
+
+	// Use file password if set, otherwise use environment variable
+	if pgPwfile != "" {
+		return filePassword, nil
 	}
 
 	return envPassword, nil
