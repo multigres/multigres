@@ -153,7 +153,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 	binPath := filepath.Join(tempDir, "bin")
 	localConfig := &local.LocalProvisionerConfig{
 		RootWorkingDir: tempDir,
-		DefaultDbName:  "default",
+		DefaultDbName:  "postgres",
 		Topology: local.TopologyConfig{
 			Backend:             "etcd2",
 			GlobalRootPath:      "/multigres/global",
@@ -180,6 +180,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 		},
 		Multipooler: local.MultipoolerConfig{
 			Path:     filepath.Join(binPath, "multipooler"),
+			Database: "postgres", // Use same as DefaultDbName
 			GrpcPort: portConfig.MultipoolerGRPCPort,
 			LogLevel: "info",
 		},
@@ -252,6 +253,46 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 	}
 
 	return nil
+}
+
+// checkMultipoolerDatabaseInTopology checks if multipooler is registered with database field in topology
+func checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, expectedDatabase string) error {
+	// Create topology store connection
+	ts, err := topo.OpenServer("etcd2", globalRootPath, []string{etcdAddress})
+	if err != nil {
+		return fmt.Errorf("failed to connect to topology server: %w", err)
+	}
+	defer ts.Close()
+
+	// Get all multipooler IDs in the cell
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	multipoolerInfos, err := ts.GetMultiPoolersByCell(ctx, cellName, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get multipoolers from topology for cell '%s': %w", cellName, err)
+	}
+
+	if len(multipoolerInfos) == 0 {
+		return fmt.Errorf("no multipoolers found in cell '%s'", cellName)
+	}
+
+	// Check that at least one multipooler has the correct database field
+	for _, info := range multipoolerInfos {
+		if info.Database == expectedDatabase {
+			// Found a multipooler with the expected database
+			return nil
+		}
+	}
+
+	// If we get here, no multipooler had the expected database
+	var foundDatabases []string
+	for _, info := range multipoolerInfos {
+		foundDatabases = append(foundDatabases, fmt.Sprintf("'%s'", info.Database))
+	}
+
+	return fmt.Errorf("expected to find multipooler with database '%s' but found databases: [%s]",
+		expectedDatabase, strings.Join(foundDatabases, ", "))
 }
 
 // getServiceStates reads all service state files from the state directory
@@ -720,10 +761,22 @@ func TestClusterLifecycle(t *testing.T) {
 		cellName := topoConfig["default-cell-name"].(string)
 		globalRootPath := topoConfig["global-root-path"].(string)
 
+		// Get database from multipooler config
+		multipoolerConfig, ok := config.ProvisionerConfig["multipooler"].(map[string]any)
+		require.True(t, ok, "multipooler config should be present")
+		expectedDatabase, ok := multipoolerConfig["database"].(string)
+		require.True(t, ok, "multipooler database config should be present")
+		require.NotEmpty(t, expectedDatabase, "multipooler database should not be empty")
+
 		t.Logf("Checking cell '%s' exists in topology at %s with root path %s",
 			cellName, etcdAddress, globalRootPath)
 		require.NoError(t, checkCellExistsInTopology(etcdAddress, globalRootPath, cellName),
 			"cell should exist in topology after cluster up command")
+
+		// Verify multipooler is registered with database field in topology
+		t.Log("Verifying multipooler has database field populated in topology...")
+		require.NoError(t, checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, expectedDatabase),
+			"multipooler should be registered with database field in topology")
 
 		// Stop cluster (down)
 		t.Log("Stopping cluster...")
@@ -779,6 +832,54 @@ func TestClusterLifecycle(t *testing.T) {
 		assert.ElementsMatch(t, []string{"bin"}, remainingDirs, "Only bin directory should remain after clean")
 
 		t.Log("Cluster lifecycle test completed successfully")
+	})
+
+	t.Run("multipooler requires database flag", func(t *testing.T) {
+		// This test verifies that multipooler binary requires --database flag
+		// We'll test this by trying to run the provisioned multipooler directly
+		// without the --database flag and expecting it to fail
+
+		tempDir, err := os.MkdirTemp("", "multigres_database_flag_test")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		// Build just the multipooler binary for this test
+		t.Log("Building multipooler binary for database flag test...")
+		binDir := filepath.Join(tempDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+
+		projectRoot := os.Getenv("MTROOT")
+		require.NotEmpty(t, projectRoot, "MTROOT must be set")
+
+		multipoolerPath := filepath.Join(binDir, "multipooler")
+		sourceDir := filepath.Join(projectRoot, "go/cmd", "multipooler")
+		buildCmd := exec.Command("go", "build", "-o", multipoolerPath, sourceDir)
+		buildCmd.Dir = projectRoot
+
+		buildOutput, err := buildCmd.CombinedOutput()
+		require.NoError(t, err, "Failed to build multipooler: %v\nOutput: %s", err, string(buildOutput))
+
+		// Try to run multipooler without --database flag (should fail)
+		t.Log("Testing multipooler without --database flag (should fail)...")
+		cmd := exec.Command(multipoolerPath, "--cell", "testcell")
+		output, err := cmd.CombinedOutput()
+
+		// Should fail with database flag required error
+		require.Error(t, err, "multipooler should fail when --database flag is missing")
+		outputStr := string(output)
+		assert.Contains(t, outputStr, "--database flag is required",
+			"Error message should mention --database flag is required. Got: %s", outputStr)
+
+		// Try to run multipooler with --database flag (should succeed with setup)
+		t.Log("Testing multipooler with --database flag (should not show database error)...")
+		cmd = exec.Command(multipoolerPath, "--cell", "testcell", "--database", "testdb", "--help")
+		output, err = cmd.CombinedOutput()
+		require.NoError(t, err)
+
+		// Should not fail due to database flag (may fail for other reasons like missing topo)
+		outputStr = string(output)
+		assert.NotContains(t, outputStr, "--database flag is required",
+			"Should not show database flag error when flag is provided. Got: %s", outputStr)
 	})
 }
 

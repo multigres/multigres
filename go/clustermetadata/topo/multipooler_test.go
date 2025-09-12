@@ -993,6 +993,7 @@ func TestNewMultiPooler(t *testing.T) {
 				},
 				Hostname: "host.example.com",
 				PortMap:  map[string]int32{},
+				Database: "", // Default empty database
 			},
 		},
 	}
@@ -1030,6 +1031,110 @@ func TestNewMultiPooler(t *testing.T) {
 		result2 := topo.NewMultiPooler("", "zone2", "host2.example.com")
 		require.NotEqual(t, result.Id.Name, result2.Id.Name, "multiple calls should generate different random names")
 	})
+}
+
+// TestMultiPoolerDatabaseField tests database field handling
+func TestMultiPoolerDatabaseField(t *testing.T) {
+	ctx := context.Background()
+	cell := "zone-1"
+
+	tests := []struct {
+		name string
+		test func(t *testing.T, ts topo.Store)
+	}{
+		{
+			name: "Create MultiPooler with database field",
+			test: func(t *testing.T, ts topo.Store) {
+				multipooler := &clustermetadatapb.MultiPooler{
+					Id: &clustermetadatapb.ID{
+						Component: clustermetadatapb.ID_MULTIPOOLER,
+						Cell:      cell,
+						Name:      "db-test1",
+					},
+					Database:      "testdb",
+					Shard:         "testshard",
+					Hostname:      "host1.example.com",
+					PortMap:       map[string]int32{"grpc": 8080},
+					Type:          clustermetadatapb.PoolerType_PRIMARY,
+					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+				}
+				err := ts.CreateMultiPooler(ctx, multipooler)
+				require.NoError(t, err)
+
+				retrieved, err := ts.GetMultiPooler(ctx, multipooler.Id)
+				require.NoError(t, err)
+				require.Equal(t, "testdb", retrieved.Database)
+			},
+		},
+		{
+			name: "Update MultiPooler preserves database field",
+			test: func(t *testing.T, ts topo.Store) {
+				multipooler := &clustermetadatapb.MultiPooler{
+					Id: &clustermetadatapb.ID{
+						Component: clustermetadatapb.ID_MULTIPOOLER,
+						Cell:      cell,
+						Name:      "db-test2",
+					},
+					Database:      "originaldb",
+					Shard:         "testshard",
+					Hostname:      "host1.example.com",
+					PortMap:       map[string]int32{"grpc": 8080},
+					Type:          clustermetadatapb.PoolerType_PRIMARY,
+					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+				}
+				err := ts.CreateMultiPooler(ctx, multipooler)
+				require.NoError(t, err)
+
+				retrieved, err := ts.GetMultiPooler(ctx, multipooler.Id)
+				require.NoError(t, err)
+				oldVersion := retrieved.Version()
+
+				// Update hostname but keep database
+				retrieved.Hostname = "host2.example.com"
+
+				err = ts.UpdateMultiPooler(ctx, retrieved)
+				require.NoError(t, err)
+
+				updated, err := ts.GetMultiPooler(ctx, multipooler.Id)
+				require.NoError(t, err)
+				require.Equal(t, "originaldb", updated.Database) // Database preserved
+				require.Equal(t, "host2.example.com", updated.Hostname)
+				require.NotEqual(t, oldVersion, updated.Version())
+			},
+		},
+		{
+			name: "Create MultiPooler with empty database field",
+			test: func(t *testing.T, ts topo.Store) {
+				multipooler := &clustermetadatapb.MultiPooler{
+					Id: &clustermetadatapb.ID{
+						Component: clustermetadatapb.ID_MULTIPOOLER,
+						Cell:      cell,
+						Name:      "db-test3",
+					},
+					Database:      "", // Empty database
+					Shard:         "testshard",
+					Hostname:      "host1.example.com",
+					PortMap:       map[string]int32{"grpc": 8080},
+					Type:          clustermetadatapb.PoolerType_PRIMARY,
+					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+				}
+				err := ts.CreateMultiPooler(ctx, multipooler)
+				require.NoError(t, err)
+
+				retrieved, err := ts.GetMultiPooler(ctx, multipooler.Id)
+				require.NoError(t, err)
+				require.Equal(t, "", retrieved.Database)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts, _ := memorytopo.NewServerAndFactory(ctx, cell)
+			defer ts.Close()
+			tt.test(t, ts)
+		})
+	}
 }
 
 // TestMultiPoolerInfo tests the MultiPoolerInfo methods

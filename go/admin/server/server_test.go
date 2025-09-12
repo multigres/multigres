@@ -393,6 +393,41 @@ func TestMultiAdminServerGetPoolersMultiCell(t *testing.T) {
 		assert.Equal(t, "cell2", resp.Poolers[0].Id.Cell)
 		assert.Equal(t, "db1", resp.Poolers[0].Database)
 	})
+
+	t.Run("get poolers filtered by non-existent database", func(t *testing.T) {
+		req := &multiadminpb.GetPoolersRequest{
+			Database: "nonexistent-db",
+		}
+		resp, err := server.GetPoolers(ctx, req)
+
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Empty(t, resp.Poolers)
+	})
+
+	t.Run("get poolers filtered by database db2", func(t *testing.T) {
+		req := &multiadminpb.GetPoolersRequest{
+			Database: "db2",
+		}
+		resp, err := server.GetPoolers(ctx, req)
+
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Len(t, resp.Poolers, 1) // only pool3
+		assert.Equal(t, "db2", resp.Poolers[0].Database)
+		assert.Equal(t, "pool3", resp.Poolers[0].Id.Name)
+	})
+
+	t.Run("get poolers with empty database filter returns all", func(t *testing.T) {
+		req := &multiadminpb.GetPoolersRequest{
+			Database: "",
+		}
+		resp, err := server.GetPoolers(ctx, req)
+
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Len(t, resp.Poolers, 3) // all poolers
+	})
 }
 
 func TestMultiAdminServerGetOrchs(t *testing.T) {

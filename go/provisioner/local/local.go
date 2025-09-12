@@ -78,6 +78,7 @@ type MultigatewayConfig struct {
 // MultipoolerConfig holds multipooler service configuration
 type MultipoolerConfig struct {
 	Path     string `yaml:"path"`
+	Database string `yaml:"database"`
 	HttpPort int    `yaml:"http-port"`
 	GrpcPort int    `yaml:"grpc-port"`
 	LogLevel string `yaml:"log-level"`
@@ -218,6 +219,7 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 		},
 		Multipooler: MultipoolerConfig{
 			Path:     filepath.Join(binDir, "multipooler"),
+			Database: "postgres", // Use same default as DefaultDbName
 			HttpPort: 15100,
 			GrpcPort: 16001,
 			LogLevel: "info",
@@ -961,6 +963,14 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
 	cell := req.Params["cell"].(string)
 
+	// Get database from multipooler config, fall back to request if not set
+	database := ""
+	if dbFromConfig, ok := multipoolerConfig["database"].(string); ok && dbFromConfig != "" {
+		database = dbFromConfig
+	} else {
+		database = req.DatabaseName
+	}
+
 	// Get log level
 	logLevel := "info"
 	if level, ok := multipoolerConfig["log_level"].(string); ok {
@@ -992,6 +1002,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--topo-global-root", topoGlobalRoot,
 		"--topo-implementation", topoBackend,
 		"--cell", cell,
+		"--database", database,
 		"--service-id", serviceID,
 		"--log-level", logLevel,
 		"--log-output", logFile,
