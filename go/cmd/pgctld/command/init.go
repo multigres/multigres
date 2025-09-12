@@ -154,8 +154,10 @@ func setPostgresPassword(dataDir string) error {
 	}
 	// Start PostgreSQL temporarily in single-user mode to set password
 	// Use the configured user in single-user mode with trust auth to set the password
+	// Set password_encryption to scram-sha-256 to ensure SCRAM encoding
 	cmd := exec.Command("postgres", "--single", "-D", dataDir, pgUser)
-	cmd.Stdin = strings.NewReader(fmt.Sprintf("ALTER USER %s WITH PASSWORD '%s';\n", pgUser, effectivePassword))
+	sqlCommands := fmt.Sprintf("SET password_encryption = 'scram-sha-256';\nALTER USER %s WITH PASSWORD '%s';\n", pgUser, effectivePassword)
+	cmd.Stdin = strings.NewReader(sqlCommands)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
