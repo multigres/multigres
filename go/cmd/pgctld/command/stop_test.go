@@ -100,10 +100,6 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_test")
 			defer cleanup()
 
-			// Set up pooler directory
-			cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
-			defer cleanupPooler()
-
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
 				require.NoError(t, os.MkdirAll(binDir, 0o755))
@@ -205,10 +201,6 @@ func TestRunStop(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_run_stop_test")
 			defer cleanup()
 
-			// Setup cleanup for cobra command execution
-			cleanupViper := SetupTestPgCtldCleanup(t)
-			defer cleanupViper()
-
 			poolerDir := tt.setupPoolerDir(baseDir)
 
 			if tt.setupBinaries {
@@ -270,10 +262,6 @@ func TestStopPostgreSQLWithConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_config_test")
 			defer cleanup()
-
-			// Set up pooler directory
-			cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
-			defer cleanupPooler()
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")

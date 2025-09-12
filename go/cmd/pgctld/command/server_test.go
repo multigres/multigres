@@ -26,8 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/pgctld"
-
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
@@ -120,10 +118,6 @@ func TestPgCtldServiceStart(t *testing.T) {
 
 func TestPgCtldServiceStart_MissingPoolerDir(t *testing.T) {
 	t.Run("missing pooler-dir", func(t *testing.T) {
-		// Don't set pooler-dir - should fail at service creation
-		cleanupPooler := pgctld.SetPoolerDirForTest("")
-		defer cleanupPooler()
-
 		_, err := NewPgCtldService(testLogger(), "", 0, "", "", 0, "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "pooler-dir needs to be set")
@@ -335,9 +329,6 @@ func TestPgCtldServiceReloadConfig(t *testing.T) {
 		dataDir := testutil.CreateDataDir(t, baseDir, true)
 		testutil.CreatePIDFile(t, dataDir, 12345)
 
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
-
 		service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
 		require.NoError(t, err)
 
@@ -361,14 +352,8 @@ func TestPgCtldServiceReloadConfig(t *testing.T) {
 		pgDatabase := "postgres"
 		timeout := 30
 
-		cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
-		defer cleanupPooler()
-
 		testutil.CreateDataDir(t, baseDir, true)
 		// No PID file = not running
-
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
 
 		service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
 		require.NoError(t, err)
@@ -391,12 +376,6 @@ func TestPgCtldServiceVersion(t *testing.T) {
 		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
-
-		cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
-		defer cleanupPooler()
-
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
 
 		poolerDir := baseDir
 		service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
@@ -422,9 +401,6 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_init_test")
 		defer cleanup()
 
-		cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
-		defer cleanupPooler()
-
 		binDir := filepath.Join(baseDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
@@ -449,9 +425,6 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 	t.Run("already initialized", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_init_test")
 		defer cleanup()
-
-		cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
-		defer cleanupPooler()
 
 		_ = testutil.CreateDataDir(t, baseDir, true)
 

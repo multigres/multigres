@@ -49,13 +49,6 @@ func GetPoolerDir() string {
 	return poolerDir
 }
 
-// SetPoolerDirForTest sets the pooler directory for testing and returns a cleanup function
-func SetPoolerDirForTest(testDir string) func() {
-	originalPoolerDir := poolerDir
-	poolerDir = testDir
-	return func() { poolerDir = originalPoolerDir }
-}
-
 // GeneratePostgresServerConfig generates a new PostgreSQL server configuration
 // and writes it to disk using the embedded template, then reads it back.
 // poolerId is used for the cluster name and path generation.

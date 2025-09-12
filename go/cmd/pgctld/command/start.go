@@ -241,14 +241,6 @@ func startPostgreSQLWithConfig(config *pgctld.PostgresCtlConfig) error {
 	return waitForPostgreSQLWithConfig(config)
 }
 
-func waitForPostgreSQL() error {
-	config, err := NewPostgresCtlConfigFromDefaults()
-	if err != nil {
-		return err
-	}
-	return waitForPostgreSQLWithConfig(config)
-}
-
 func waitForPostgreSQLWithConfig(config *pgctld.PostgresCtlConfig) error {
 	// Try to connect using pg_isready
 	for i := 0; i < config.Timeout; i++ {

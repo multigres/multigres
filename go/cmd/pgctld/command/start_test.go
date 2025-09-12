@@ -70,10 +70,6 @@ func TestRunStart(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_start_test")
 			defer cleanup()
 
-			// Setup cleanup for cobra command execution
-			cleanupViper := SetupTestPgCtldCleanup(t)
-			defer cleanupViper()
-
 			tt.setupDataDir(baseDir)
 
 			// Setup mock binaries if needed
@@ -185,10 +181,6 @@ func TestIsPostgreSQLRunning(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_running_test")
 			defer cleanup()
 
-			// Set up pooler directory
-			cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
-			defer cleanupPooler()
-
 			dataDir := tt.setupDir(baseDir)
 			result := isPostgreSQLRunning(dataDir)
 			assert.Equal(t, tt.isRunning, result)
@@ -200,10 +192,6 @@ func TestInitializeDataDir(t *testing.T) {
 	t.Run("successful initialization", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_initdb_test")
 		defer cleanup()
-
-		// Set up pooler directory
-		cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
-		defer cleanupPooler()
 
 		dataDir := filepath.Join(baseDir, "data")
 
@@ -242,10 +230,6 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_wait_test")
 		defer cleanup()
 
-		// Set up pooler directory
-		cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
-		defer cleanupPooler()
-
 		// Create initialized data directory with postgresql.conf
 		testutil.CreateDataDir(t, baseDir, true)
 
@@ -258,21 +242,27 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		os.Setenv("PATH", binDir+":"+originalPath)
 		defer os.Setenv("PATH", originalPath)
 
-		// Setup viper with short timeout
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
+		// Create config that matches the test setup
+		config, err := pgctld.NewPostgresCtlConfig(
+			"localhost",
+			5432,
+			"postgres",
+			"postgres",
+			"",
+			30, // timeout
+			pgctld.PostgresDataDir(baseDir),
+			pgctld.PostgresConfigFile(baseDir),
+			baseDir,
+		)
+		require.NoError(t, err)
 
-		err := waitForPostgreSQL()
+		err = waitForPostgreSQLWithConfig(config)
 		assert.NoError(t, err)
 	})
 
 	t.Run("timeout waiting for server", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_timeout_test")
 		defer cleanup()
-
-		// Set up pooler directory
-		cleanupPooler := pgctld.SetPoolerDirForTest(baseDir)
-		defer cleanupPooler()
 
 		// Create initialized data directory with postgresql.conf
 		testutil.CreateDataDir(t, baseDir, true)
@@ -286,14 +276,21 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		os.Setenv("PATH", binDir+":"+originalPath)
 		defer os.Setenv("PATH", originalPath)
 
-		// Setup viper with very short timeout
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
+		// Create config with short timeout for test
+		config, err := pgctld.NewPostgresCtlConfig(
+			"localhost",
+			5432,
+			"postgres",
+			"postgres",
+			"",
+			1, // 1 second timeout
+			pgctld.PostgresDataDir(baseDir),
+			pgctld.PostgresConfigFile(baseDir),
+			baseDir,
+		)
+		require.NoError(t, err)
 
-		// Override timeout to 1 second for test
-		timeout = 1
-
-		err := waitForPostgreSQL()
+		err = waitForPostgreSQLWithConfig(config)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "did not become ready")
 	})

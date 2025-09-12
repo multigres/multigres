@@ -34,10 +34,6 @@ func TestRunStatus(t *testing.T) {
 	baseDir, cleanup := testutil.TempDir(t, "pgctld_status_test")
 	defer cleanup()
 
-	// Setup cleanup for cobra command execution
-	cleanupViper := SetupTestPgCtldCleanup(t)
-	defer cleanupViper()
-
 	// Setup mock binaries
 	binDir := filepath.Join(baseDir, "bin")
 	require.NoError(t, os.MkdirAll(binDir, 0o755))
@@ -97,17 +93,9 @@ func TestRunStatus(t *testing.T) {
 }
 
 func TestRunStatusNoPoolerDir(t *testing.T) {
-	// Ensure pooler directory is empty by resetting it
-	cleanupPooler := pgctld.SetPoolerDirForTest("")
-	defer cleanupPooler()
-
-	// Setup cleanup for cobra command execution
-	cleanupViper := SetupTestPgCtldCleanup(t)
-	defer cleanupViper()
-
 	// Don't set pooler directory - should get an error
 	cmd := Root
-	cmd.SetArgs([]string{"status"})
+	cmd.SetArgs([]string{"status", "--pooler-dir", ""})
 	err := cmd.Execute()
 
 	require.Error(t, err)

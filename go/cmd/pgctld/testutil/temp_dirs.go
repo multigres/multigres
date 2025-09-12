@@ -66,11 +66,6 @@ func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 		if err := os.WriteFile(pgVersionFile, []byte("15.0\n"), 0o644); err != nil {
 			t.Fatalf("Failed to create PG_VERSION file: %v", err)
 		}
-
-		// Set up pooler directory for PostgreSQL config generation
-		cleanup := pgctld.SetPoolerDirForTest(baseDir)
-		defer cleanup()
-
 		// Generate a proper postgresql.conf file using the postgresconfig_gen functionality
 		_, err := pgctld.GeneratePostgresServerConfig(baseDir, 5432)
 		if err != nil {
