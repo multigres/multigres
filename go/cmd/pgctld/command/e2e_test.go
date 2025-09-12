@@ -412,7 +412,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 	// Check if PostgreSQL binaries are available
 	if !hasPostgreSQLBinaries() {
-		t.Skip("PostgreSQL binaries not found, skipping authentication test")
+		t.Fatal("PostgreSQL binaries not found, skipping authentication test")
 	}
 
 	t.Run("pgpassword_authentication", func(t *testing.T) {
