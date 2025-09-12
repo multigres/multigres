@@ -43,7 +43,7 @@ func TestNewPostgresServerConfig(t *testing.T) {
 			poolerId:    "test-pooler-1",
 			port:        5432,
 			wantPort:    5432,
-			wantCluster: "default",
+			wantCluster: "main",
 			wantDataDir: tempDir + "/pg_data",
 		},
 		{
@@ -51,7 +51,7 @@ func TestNewPostgresServerConfig(t *testing.T) {
 			poolerId:    "pooler-2",
 			port:        5433,
 			wantPort:    5433,
-			wantCluster: "default",
+			wantCluster: "main",
 			wantDataDir: tempDir + "/pg_data",
 		},
 	}
@@ -124,7 +124,7 @@ func TestMakePostgresConf(t *testing.T) {
 		{
 			name:     "cluster name template",
 			template: "cluster_name = '{{.ClusterName}}'",
-			want:     []string{"cluster_name = 'default'"},
+			want:     []string{"cluster_name = 'main'"},
 		},
 		{
 			name:     "data directory template",
@@ -134,7 +134,7 @@ func TestMakePostgresConf(t *testing.T) {
 		{
 			name:     "max connections template",
 			template: "max_connections = {{.MaxConnections}}",
-			want:     []string{"max_connections = 500"},
+			want:     []string{"max_connections = 60"},
 		},
 		{
 			name:     "listen addresses template",
@@ -157,10 +157,10 @@ cluster_name = '{{.ClusterName}}'
 unix_socket_directories = '{{.UnixSocketDirectories}}'`,
 			want: []string{
 				"port = 5432",
-				"max_connections = 500",
+				"max_connections = 60",
 				"listen_addresses = 'localhost'",
 				"data_directory = '" + tempDir + "/pg_data'",
-				"cluster_name = 'default'",
+				"cluster_name = 'main'",
 				"unix_socket_directories = '/tmp'",
 				"# PostgreSQL Configuration",
 			},

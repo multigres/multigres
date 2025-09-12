@@ -68,6 +68,30 @@ func GeneratePostgresServerConfig(poolerDir string, port int) (*PostgresServerCo
 	cnf.UnixSocketDirectories = "/tmp"
 	cnf.ClusterName = "default"
 
+	// Set Multigres default values - starting with Pico instance defaults from Supabase
+	// Reference: https://github.com/supabase/supabase-admin-api/blob/3765a153ef6361cb19a1cbd485cdbf93e0a1820a/optimizations/postgres.go#L38
+	// These can be changed in the future based on instance size/requirements
+	cnf.MaxConnections = 60
+	cnf.SharedBuffers = "64MB"
+	cnf.MaintenanceWorkMem = "16MB"
+	cnf.WorkMem = "1092kB"
+	cnf.MaxWorkerProcesses = 6
+	// TODO: @rafael - This setting doesn't work for local on macOS environment,
+	// so it's not matching exactly what we have in Supabase.
+	cnf.EffectiveIoConcurrency = 0
+	cnf.MaxParallelWorkers = 2
+	cnf.MaxParallelWorkersPerGather = 1
+	cnf.MaxParallelMaintenanceWorkers = 1
+	cnf.WalBuffers = "1920kB"
+	cnf.MinWalSize = "1GB"
+	cnf.MaxWalSize = "4GB"
+	cnf.CheckpointCompletionTarget = 0.9
+	cnf.MaxWalSenders = 5
+	cnf.MaxReplicationSlots = 5
+	cnf.EffectiveCacheSize = "192MB"
+	cnf.RandomPageCost = 1.1
+	cnf.DefaultStatisticsTarget = 100
+
 	// Generate config file from template
 	if err := cnf.generateConfigFile(); err != nil {
 		return nil, err

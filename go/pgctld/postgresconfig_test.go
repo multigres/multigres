@@ -45,17 +45,25 @@ var configSettings = map[string]string{
 	"idle_session_timeout":                "0",
 	"old_snapshot_threshold":              "-1",
 	"temp_file_limit":                     "-1",
-	"wal_buffers":                         "-1",
+	"wal_buffers":                         "1920kB",
 	"wal_keep_size":                       "0",
 	"max_slot_wal_keep_size":              "4096",
 	"archive_timeout":                     "0",
+	"max_worker_processes":                "6",
+	"effective_io_concurrency":            "200",
+	"max_parallel_workers":                "2",
+	"max_parallel_workers_per_gather":     "1",
+	"max_parallel_maintenance_workers":    "1",
+	"max_wal_senders":                     "5",
+	"max_replication_slots":               "5",
+	"default_statistics_target":           "100",
 
 	// Float/decimal settings
-	"checkpoint_completion_target": "0.5",
+	"checkpoint_completion_target": "0.9",
 	"hash_mem_multiplier":          "1.0",
 	"bgwriter_lru_multiplier":      "2.0",
 	"seq_page_cost":                "1.0",
-	"random_page_cost":             "4.0",
+	"random_page_cost":             "1.1",
 	"cpu_tuple_cost":               "0.01",
 
 	// Boolean settings (stored as strings)
@@ -114,19 +122,19 @@ var configSettings = map[string]string{
 	"include_if_exists": "/etc/postgresql-custom/custom.conf",
 
 	// Memory/size settings (with units)
-	"shared_buffers":               "128MB",
+	"shared_buffers":               "64MB",
 	"temp_buffers":                 "8MB",
-	"work_mem":                     "4MB",
-	"maintenance_work_mem":         "64MB",
+	"work_mem":                     "1092kB",
+	"maintenance_work_mem":         "16MB",
 	"logical_decoding_work_mem":    "64MB",
 	"max_stack_depth":              "2MB",
 	"min_dynamic_shared_memory":    "0MB",
 	"wal_writer_flush_after":       "1MB",
 	"wal_skip_threshold":           "2MB",
 	"checkpoint_flush_after":       "256kB",
-	"max_wal_size":                 "1GB",
-	"min_wal_size":                 "80MB",
-	"effective_cache_size":         "128MB",
+	"max_wal_size":                 "4GB",
+	"min_wal_size":                 "1GB",
+	"effective_cache_size":         "192MB",
 	"min_parallel_table_scan_size": "8MB",
 	"min_parallel_index_scan_size": "512kB",
 	"gin_pending_list_limit":       "4MB",
@@ -219,12 +227,9 @@ func TestReadPostgresServerConfigEmptyFile(t *testing.T) {
 
 	// Create config struct and read the file
 	config := &PostgresServerConfig{Path: configPath}
-	result, err := ReadPostgresServerConfig(config, 0)
-	require.NoError(t, err, "ReadPostgresServerConfig should not return error")
-
-	// Should use defaults for integer fields
-	assert.Equal(t, 5432, result.Port, "Empty config should use default port")
-	assert.Equal(t, 100, result.MaxConnections, "Empty config should use default max_connections")
+	_, err = ReadPostgresServerConfig(config, 0)
+	require.Error(t, err, "ReadPostgresServerConfig should return error for empty file")
+	assert.Contains(t, err.Error(), "not found in config file", "Error should mention missing parameter")
 }
 
 func TestReadPostgresServerConfigCommentsOnly(t *testing.T) {
@@ -245,16 +250,9 @@ func TestReadPostgresServerConfigCommentsOnly(t *testing.T) {
 
 	// Create config struct and read the file
 	config := &PostgresServerConfig{Path: configPath}
-	result, err := ReadPostgresServerConfig(config, 0)
-	require.NoError(t, err, "ReadPostgresServerConfig should not return error")
-
-	// Should use defaults since all settings are commented out
-	if result.Port != 5432 {
-		t.Errorf("Comments-only config Port = %v, want default 5432", result.Port)
-	}
-	if result.MaxConnections != 100 {
-		t.Errorf("Comments-only config MaxConnections = %v, want default 100", result.MaxConnections)
-	}
+	_, err = ReadPostgresServerConfig(config, 0)
+	require.Error(t, err, "ReadPostgresServerConfig should return error for comments-only file")
+	assert.Contains(t, err.Error(), "not found in config file", "Error should mention missing parameter")
 }
 
 func TestReadPostgresServerConfigFileNotFound(t *testing.T) {
@@ -283,6 +281,25 @@ unix_socket_directories = "/var/run/postgresql"
 # Test without quotes (should remain unchanged)
 port = 5432
 max_connections = 200
+
+# Required parameters for validation (using default/test values)
+shared_buffers = 64MB
+maintenance_work_mem = 16MB
+work_mem = 1092kB
+max_worker_processes = 6
+effective_io_concurrency = 200
+max_parallel_workers = 2
+max_parallel_workers_per_gather = 1
+max_parallel_maintenance_workers = 1
+wal_buffers = 1920kB
+min_wal_size = 1GB
+max_wal_size = 4GB
+checkpoint_completion_target = 0.9
+max_wal_senders = 5
+max_replication_slots = 5
+effective_cache_size = 192MB
+random_page_cost = 1.1
+default_statistics_target = 100
 
 # Test mixed formats
 ssl_cert_file = 'server.crt'
@@ -320,4 +337,57 @@ shared_preload_libraries 'pg_stat_statements, auto_explain'
 
 	// Test space-separated format
 	assert.Equal(t, "pg_stat_statements, auto_explain", result.lookup("shared_preload_libraries"), "Single quotes should be removed from space-separated values")
+}
+
+func TestGenerateAndReadConfigRoundTrip(t *testing.T) {
+	// Test the complete round-trip: generate config using template, then read it back
+	// and validate that all required template fields are populated correctly
+	tmpDir := t.TempDir()
+
+	// Generate config using the template
+	generatedConfig, err := GeneratePostgresServerConfig(tmpDir, 5433)
+	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
+
+	// Read the generated config back from disk
+	readConfig := &PostgresServerConfig{Path: generatedConfig.Path}
+	result, err := ReadPostgresServerConfig(readConfig, 0)
+	require.NoError(t, err, "ReadPostgresServerConfig should not return error for generated config")
+
+	// Validate that all required template fields are populated (not empty/zero values)
+
+	assert.Equal(t, 5433, result.Port, "Port should match the value passed to generator")
+	assert.NotZero(t, result.MaxConnections, "MaxConnections should be set")
+	assert.NotEmpty(t, result.ListenAddresses, "ListenAddresses should be set")
+	assert.NotEmpty(t, result.UnixSocketDirectories, "UnixSocketDirectories should be set")
+	assert.NotEmpty(t, result.SharedBuffers, "SharedBuffers should be set")
+	assert.NotEmpty(t, result.MaintenanceWorkMem, "MaintenanceWorkMem should be set")
+	assert.NotEmpty(t, result.WorkMem, "WorkMem should be set")
+	assert.NotZero(t, result.MaxWorkerProcesses, "MaxWorkerProcesses should be set")
+	// This is an exception, the default is set to zero
+	assert.Zero(t, result.EffectiveIoConcurrency, "EffectiveIoConcurrency should be set")
+	assert.NotZero(t, result.MaxParallelWorkers, "MaxParallelWorkers should be set")
+	assert.NotZero(t, result.MaxParallelWorkersPerGather, "MaxParallelWorkersPerGather should be set")
+	assert.NotZero(t, result.MaxParallelMaintenanceWorkers, "MaxParallelMaintenanceWorkers should be set")
+	assert.NotEmpty(t, result.WalBuffers, "WalBuffers should be set")
+	assert.NotEmpty(t, result.MinWalSize, "MinWalSize should be set")
+	assert.NotEmpty(t, result.MaxWalSize, "MaxWalSize should be set")
+	assert.NotZero(t, result.CheckpointCompletionTarget, "CheckpointCompletionTarget should be set")
+	assert.NotZero(t, result.MaxWalSenders, "MaxWalSenders should be set")
+	assert.NotZero(t, result.MaxReplicationSlots, "MaxReplicationSlots should be set")
+	assert.NotEmpty(t, result.EffectiveCacheSize, "EffectiveCacheSize should be set")
+	assert.NotZero(t, result.RandomPageCost, "RandomPageCost should be set")
+	assert.NotZero(t, result.DefaultStatisticsTarget, "DefaultStatisticsTarget should be set")
+	expectedDataDir := tmpDir + "/pg_data"
+	assert.Equal(t, expectedDataDir, result.DataDir, "DataDir should match expected path")
+	assert.Equal(t, expectedDataDir+"/pg_hba.conf", result.HbaFile, "HbaFile should match expected path")
+	assert.Equal(t, expectedDataDir+"/pg_ident.conf", result.IdentFile, "IdentFile should match expected path")
+	// Other settings
+	assert.NotEmpty(t, result.ClusterName, "ClusterName should be set")
+	configFileContent, err := os.ReadFile(generatedConfig.Path)
+	require.NoError(t, err, "Should be able to read generated config file")
+	configString := string(configFileContent)
+	// Validate that key templated values are present in the file (showing template was processed)
+	assert.Contains(t, configString, "port = 5433", "Config file should contain templated port")
+	assert.Contains(t, configString, "data_directory = '"+expectedDataDir+"'", "Config file should contain templated data_directory")
+	assert.NotContains(t, configString, "{{.", "Config file should not contain unprocessed template variables")
 }

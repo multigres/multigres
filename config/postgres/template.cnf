@@ -24,7 +24,7 @@ ident_file = '{{.IdentFile}}'
 port = {{.Port}}
 listen_addresses = '{{.ListenAddresses}}'
 unix_socket_directories = '{{.UnixSocketDirectories}}'
-max_connections = 500
+max_connections = {{.MaxConnections}}
 
 # - Authentication -
 
@@ -57,18 +57,27 @@ ssl_passphrase_command_supports_reload = off
 
 # - Memory -
 
-shared_buffers = 128MB			# min 128kB
+shared_buffers = {{.SharedBuffers}}			# min 128kB
 					# (change requires restart)
+maintenance_work_mem = {{.MaintenanceWorkMem}}		# min 1MB
+work_mem = {{.WorkMem}}				# min 64kB
 
 # - Disk -
 
 # - Kernel Resources -
+
+max_worker_processes = {{.MaxWorkerProcesses}}		# (change requires restart)
 
 # - Cost-Based Vacuum Delay -
 
 # - Background Writer -
 
 # - Asynchronous Behavior -
+
+effective_io_concurrency = {{.EffectiveIoConcurrency}}	# 1-1000; 0 disables prefetching
+max_parallel_workers = {{.MaxParallelWorkers}}		# max number of parallel workers
+max_parallel_workers_per_gather = {{.MaxParallelWorkersPerGather}}	# taken from max_parallel_workers
+max_parallel_maintenance_workers = {{.MaxParallelMaintenanceWorkers}}	# taken from max_parallel_workers
 
 
 #------------------------------------------------------------------------------
@@ -79,10 +88,14 @@ shared_buffers = 128MB			# min 128kB
 
 wal_level = logical			# minimal, replica, or logical
 					# (change requires restart)
+wal_buffers = {{.WalBuffers}}			# min 32kB, -1 sets based on shared_buffers
+					# (change requires restart)
+min_wal_size = {{.MinWalSize}}
+max_wal_size = {{.MaxWalSize}}
 
 # - Checkpoints -
 
-checkpoint_completion_target = 0.5	# checkpoint target duration, 0.0 - 1.0
+checkpoint_completion_target = {{.CheckpointCompletionTarget}}	# checkpoint target duration, 0.0 - 1.0
 checkpoint_flush_after = 256kB		# measured in pages, 0 disables
 
 # - Archiving -
@@ -102,9 +115,9 @@ checkpoint_flush_after = 256kB		# measured in pages, 0 disables
 
 # - Sending Servers -
 
-max_wal_senders = 10		# max number of walsender processes
+max_wal_senders = {{.MaxWalSenders}}		# max number of walsender processes
 					# (change requires restart)
-max_replication_slots = 5	# max number of replication slots
+max_replication_slots = {{.MaxReplicationSlots}}	# max number of replication slots
 					# (change requires restart)
 max_slot_wal_keep_size = 4096   # in megabytes; -1 disables
 
@@ -129,11 +142,14 @@ max_slot_wal_keep_size = 4096   # in megabytes; -1 disables
 
 # - Planner Cost Constants -
 
-effective_cache_size = 128MB
+effective_cache_size = {{.EffectiveCacheSize}}
+random_page_cost = {{.RandomPageCost}}			# same scale as above
 
 # - Genetic Query Optimizer -
 
 # - Other Planner Options -
+
+default_statistics_target = {{.DefaultStatisticsTarget}}	# range 1-10000
 
 
 #------------------------------------------------------------------------------
