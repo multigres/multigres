@@ -623,7 +623,8 @@ func (x *GetOrchsRequest) GetCells() []string {
 
 // GetOrchsResponse contains the filtered orchestrators
 type GetOrchsResponse struct {
-	state         protoimpl.MessageState       `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	Orchs         []*clustermetadata.MultiOrch `protobuf:"bytes,1,rep,name=orchs,proto3" json:"orchs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

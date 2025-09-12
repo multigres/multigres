@@ -118,5 +118,6 @@ message GetOrchsRequest {
 
 // GetOrchsResponse contains the filtered orchestrators
 message GetOrchsResponse {
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated clustermetadata.MultiOrch orchs = 1;
 }
