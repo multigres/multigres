@@ -687,7 +687,7 @@
   {
     "comment": "PREPARE with qualified type names",
     "query": "PREPARE qualified_types (pg_catalog.int4, pg_catalog.text) AS SELECT $1::int4, $2::text",
-    "expected": "PREPARE qualified_types ( INT, TEXT ) AS SELECT $1::INT, $2::TEXT"
+    "expected": "PREPARE qualified_types ( INT, TEXT ) AS SELECT CAST($1 AS INT), CAST($2 AS TEXT)"
   },
   {
     "comment": "PREPARE with complex query",
@@ -798,7 +798,7 @@
   {
     "comment": "EXECUTE with type cast in parameter",
     "query": "EXECUTE plan_name ('123'::integer)",
-    "expected": "EXECUTE plan_name ( '123'::INT )"
+    "expected": "EXECUTE plan_name ( CAST('123' AS INT) )"
   },
   {
     "comment": "FETCH from cursor",

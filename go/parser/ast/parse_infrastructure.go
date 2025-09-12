@@ -192,9 +192,114 @@ func (a *A_Expr) SqlString() string {
 			return fmt.Sprintf("%s LIKE %s", leftStr, rightStr)
 		}
 
+	case AEXPR_OP_ANY:
+		// Handle scalar op ANY (array) expressions
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			rightStr := a.Rexpr.SqlString()
+
+			// Get the operator
+			var op string = "=" // Default operator
+			if a.Name != nil && len(a.Name.Items) > 0 {
+				if str, ok := a.Name.Items[0].(*String); ok {
+					op = str.SVal
+				}
+			}
+			return fmt.Sprintf("%s %s ANY (%s)", leftStr, op, rightStr)
+		}
+		return "ANY_EXPR"
+
+	case AEXPR_OP_ALL:
+		// Handle scalar op ALL (array) expressions
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			rightStr := a.Rexpr.SqlString()
+
+			// Get the operator
+			var op string = "=" // Default operator
+			if a.Name != nil && len(a.Name.Items) > 0 {
+				if str, ok := a.Name.Items[0].(*String); ok {
+					op = str.SVal
+				}
+			}
+			return fmt.Sprintf("%s %s ALL (%s)", leftStr, op, rightStr)
+		}
+		return "ALL_EXPR"
+
+	case AEXPR_DISTINCT:
+		// Handle IS DISTINCT FROM expressions
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			rightStr := a.Rexpr.SqlString()
+			return fmt.Sprintf("%s IS DISTINCT FROM %s", leftStr, rightStr)
+		}
+		return "DISTINCT_EXPR"
+
+	case AEXPR_NOT_DISTINCT:
+		// Handle IS NOT DISTINCT FROM expressions
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			rightStr := a.Rexpr.SqlString()
+			return fmt.Sprintf("%s IS NOT DISTINCT FROM %s", leftStr, rightStr)
+		}
+		return "NOT_DISTINCT_EXPR"
+
+	case AEXPR_NULLIF:
+		// Handle NULLIF(a, b) expressions
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			rightStr := a.Rexpr.SqlString()
+			return fmt.Sprintf("nullif(%s, %s)", leftStr, rightStr)
+		}
+		return "NULLIF_EXPR"
+
 	case AEXPR_BETWEEN:
-		// For now, simplified - full BETWEEN would need more complex structure
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			// Rexpr should be a NodeList with two elements
+			if nodeList, ok := a.Rexpr.(*NodeList); ok && nodeList.Len() >= 2 {
+				lowerStr := nodeList.Items[0].SqlString()
+				upperStr := nodeList.Items[1].SqlString()
+				return fmt.Sprintf("%s BETWEEN %s AND %s", leftStr, lowerStr, upperStr)
+			}
+		}
 		return "BETWEEN_EXPR"
+
+	case AEXPR_NOT_BETWEEN:
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			// Rexpr should be a NodeList with two elements
+			if nodeList, ok := a.Rexpr.(*NodeList); ok && nodeList.Len() >= 2 {
+				lowerStr := nodeList.Items[0].SqlString()
+				upperStr := nodeList.Items[1].SqlString()
+				return fmt.Sprintf("%s NOT BETWEEN %s AND %s", leftStr, lowerStr, upperStr)
+			}
+		}
+		return "NOT_BETWEEN_EXPR"
+
+	case AEXPR_BETWEEN_SYM:
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			// Rexpr should be a NodeList with two elements
+			if nodeList, ok := a.Rexpr.(*NodeList); ok && nodeList.Len() >= 2 {
+				lowerStr := nodeList.Items[0].SqlString()
+				upperStr := nodeList.Items[1].SqlString()
+				return fmt.Sprintf("%s BETWEEN SYMMETRIC %s AND %s", leftStr, lowerStr, upperStr)
+			}
+		}
+		return "BETWEEN_SYM_EXPR"
+
+	case AEXPR_NOT_BETWEEN_SYM:
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			// Rexpr should be a NodeList with two elements
+			if nodeList, ok := a.Rexpr.(*NodeList); ok && nodeList.Len() >= 2 {
+				lowerStr := nodeList.Items[0].SqlString()
+				upperStr := nodeList.Items[1].SqlString()
+				return fmt.Sprintf("%s NOT BETWEEN SYMMETRIC %s AND %s", leftStr, lowerStr, upperStr)
+			}
+		}
+		return "NOT_BETWEEN_SYM_EXPR"
 
 	default:
 		return fmt.Sprintf("A_EXPR_%d", a.Kind)
@@ -350,7 +455,7 @@ func (p *ParenExpr) String() string {
 	return fmt.Sprintf("ParenExpr@%d", p.Location())
 }
 
-// SqlString returns the SQL representation of the TypeCast (::type syntax)
+// SqlString returns the SQL representation of the TypeCast (CAST syntax)
 func (t *TypeCast) SqlString() string {
 	argStr := ""
 	if t.Arg != nil {
@@ -386,7 +491,8 @@ func (t *TypeCast) SqlString() string {
 		}
 	}
 
-	return fmt.Sprintf("%s::%s", argStr, typeStr)
+	// Always use explicit CAST(expr AS type) syntax to avoid precedence issues
+	return fmt.Sprintf("CAST(%s AS %s)", argStr, typeStr)
 }
 
 // intervalMaskToString converts an interval mask to its string representation
@@ -589,6 +695,12 @@ func (f *FuncCall) SqlString() string {
 		argStrs[0] = "DISTINCT " + argStrs[0]
 	}
 
+	// Prepend VARIADIC qualifier to last argument if needed
+	if f.FuncVariadic && len(argStrs) > 0 {
+		lastIdx := len(argStrs) - 1
+		argStrs[lastIdx] = "VARIADIC " + argStrs[lastIdx]
+	}
+
 	// Add ORDER BY clause inside function parentheses if present (for aggregates that aren't WITHIN GROUP)
 	var funcArgs string
 	if f.AggOrder != nil && f.AggOrder.Len() > 0 && !f.AggWithinGroup {
@@ -615,6 +727,40 @@ func (f *FuncCall) SqlString() string {
 		}
 		// Use lowercase for function name to match PostgreSQL style
 		result = fmt.Sprintf("extract(%s FROM %s)", field, strings.Join(argStrs[1:], ", "))
+	} else if strings.ToLower(funcName) == "substring" && f.Funcformat == COERCE_SQL_SYNTAX {
+		// SUBSTRING function with SQL standard syntax: SUBSTRING(string FROM start [FOR length])
+		if len(argStrs) >= 3 {
+			// SUBSTRING(string FROM start FOR length)
+			result = fmt.Sprintf("SUBSTRING(%s FROM %s FOR %s)", argStrs[0], argStrs[1], argStrs[2])
+		} else if len(argStrs) >= 2 {
+			// SUBSTRING(string FROM start)
+			result = fmt.Sprintf("SUBSTRING(%s FROM %s)", argStrs[0], argStrs[1])
+		} else {
+			// Fallback to regular function call
+			result = fmt.Sprintf("%s(%s)", funcName, funcArgs)
+		}
+	} else if strings.ToLower(funcName) == "position" && f.Funcformat == COERCE_SQL_SYNTAX {
+		// POSITION function with SQL standard syntax: POSITION(substring IN string)
+		// Note: Parser reorders arguments to [string, substring], so we need to swap them back
+		if len(argStrs) >= 2 {
+			// POSITION(substring IN string)
+			result = fmt.Sprintf("POSITION(%s IN %s)", argStrs[1], argStrs[0])
+		} else {
+			// Fallback to regular function call
+			result = fmt.Sprintf("%s(%s)", funcName, funcArgs)
+		}
+	} else if strings.ToLower(funcName) == "overlay" && f.Funcformat == COERCE_SQL_SYNTAX {
+		// OVERLAY function with SQL standard syntax: OVERLAY(string PLACING substring FROM start [FOR length])
+		if len(argStrs) >= 4 {
+			// OVERLAY(string PLACING substring FROM start FOR length)
+			result = fmt.Sprintf("overlay(%s placing %s from %s for %s)", argStrs[0], argStrs[1], argStrs[2], argStrs[3])
+		} else if len(argStrs) >= 3 {
+			// OVERLAY(string PLACING substring FROM start)
+			result = fmt.Sprintf("overlay(%s placing %s from %s)", argStrs[0], argStrs[1], argStrs[2])
+		} else {
+			// Fallback to regular function call
+			result = fmt.Sprintf("%s(%s)", funcName, funcArgs)
+		}
 	} else {
 		result = fmt.Sprintf("%s(%s)", funcName, funcArgs)
 	}
@@ -903,6 +1049,11 @@ func (c *ColumnDef) SqlString() string {
 		parts = append(parts, c.TypeName.SqlString())
 	}
 
+	// Add storage clause if specified
+	if c.StorageName != "" {
+		parts = append(parts, "STORAGE", c.StorageName)
+	}
+
 	// Add NOT NULL constraint if specified
 	if c.IsNotNull {
 		parts = append(parts, "NOT NULL")
@@ -915,7 +1066,7 @@ func (c *ColumnDef) SqlString() string {
 
 	// Add collation if specified
 	if c.Collclause != nil {
-		parts = append(parts, "COLLATE", c.Collclause.SqlString())
+		parts = append(parts, c.Collclause.SqlString())
 	}
 
 	// Add constraints if any
@@ -1326,13 +1477,24 @@ func (s *SortBy) SqlString() string {
 		result += " DESC"
 	case SORTBY_USING:
 		if s.UseOp != nil && s.UseOp.Len() > 0 {
-			var ops []string
+			var parts []string
 			for _, op := range s.UseOp.Items {
-				if op != nil {
-					ops = append(ops, op.SqlString())
+				if str, ok := op.(*String); ok {
+					// Use raw string value (without quotes) for operators
+					parts = append(parts, str.SVal)
+				} else if op != nil {
+					parts = append(parts, op.String())
 				}
 			}
-			result += " USING " + strings.Join(ops, ".")
+			
+			if len(parts) > 1 {
+				// Multiple parts: use OPERATOR(schema.op) syntax
+				opName := strings.Join(parts, ".")
+				result += " USING OPERATOR(" + opName + ")"
+			} else if len(parts) == 1 {
+				// Single part: use direct operator syntax
+				result += " USING " + parts[0]
+			}
 		}
 	}
 
@@ -1605,7 +1767,7 @@ func (x *XmlSerialize) IsExpr() bool {
 func (x *XmlSerialize) SqlString() string {
 	var result strings.Builder
 	result.WriteString("XMLSERIALIZE(")
-	
+
 	// Add DOCUMENT or CONTENT
 	switch x.XmlOptionType {
 	case XMLOPTION_DOCUMENT:
@@ -1613,23 +1775,23 @@ func (x *XmlSerialize) SqlString() string {
 	case XMLOPTION_CONTENT:
 		result.WriteString("CONTENT ")
 	}
-	
+
 	// Add the expression
 	if x.Expr != nil {
 		result.WriteString(x.Expr.SqlString())
 	}
-	
+
 	// Add AS TYPE
 	if x.TypeName != nil {
 		result.WriteString(" AS ")
 		result.WriteString(x.TypeName.SqlString())
 	}
-	
+
 	// Add INDENT if specified
 	if x.Indent {
 		result.WriteString(" INDENT")
 	}
-	
+
 	result.WriteString(")")
 	return result.String()
 }
@@ -1662,6 +1824,16 @@ func (p *PartitionElem) String() string {
 		return fmt.Sprintf("PartitionElem{%s}@%d", p.Name, p.Location())
 	}
 	return fmt.Sprintf("PartitionElem{expr}@%d", p.Location())
+}
+
+// SqlString returns the SQL representation of PartitionElem
+func (p *PartitionElem) SqlString() string {
+	if p.Name != "" {
+		return p.Name
+	} else if p.Expr != nil {
+		return p.Expr.SqlString()
+	}
+	return ""
 }
 
 func (p *PartitionElem) StatementType() string {

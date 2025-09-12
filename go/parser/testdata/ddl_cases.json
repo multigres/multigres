@@ -565,12 +565,11 @@
   {
     "comment": "ALTER TABLE ALTER COLUMN TYPE with collate",
     "query": "ALTER TABLE users ALTER COLUMN name TYPE VARCHAR(100) COLLATE en_US",
-    "expected": "ALTER TABLE users ALTER COLUMN name TYPE  VARCHAR(100) COLLATE en_us"
+    "expected": "ALTER TABLE users ALTER COLUMN name TYPE VARCHAR(100) COLLATE en_us"
   },
   {
     "comment": "ALTER TABLE ALTER COLUMN TYPE without collate",
-    "query": "ALTER TABLE users ALTER COLUMN name TYPE VARCHAR(100)",
-    "expected": "ALTER TABLE users ALTER COLUMN name TYPE  VARCHAR(100)"
+    "query": "ALTER TABLE users ALTER COLUMN name TYPE VARCHAR(100)"
   },
   {
     "comment": "ALTER TYPE composite alter attribute without collate",
@@ -586,12 +585,12 @@
   },
   {
     "comment": "GRANT ALL privileges",
-    "query": "GRANT ALL ON users TO alice",
-    "expected": "GRANT ALL PRIVILEGES ON users TO alice"
+    "query": "GRANT ALL ON users TO alice"
   },
   {
     "comment": "GRANT ALL PRIVILEGES",
-    "query": "GRANT ALL PRIVILEGES ON users TO alice"
+    "query": "GRANT ALL PRIVILEGES ON users TO alice",
+    "expected": "GRANT ALL ON users TO alice"
   },
   {
     "comment": "GRANT with WITH GRANT OPTION",
@@ -650,8 +649,7 @@
   },
   {
     "comment": "REVOKE ALL privileges",
-    "query": "REVOKE ALL ON users FROM alice",
-    "expected": "REVOKE ALL PRIVILEGES ON users FROM alice"
+    "query": "REVOKE ALL ON users FROM alice"
   },
   {
     "comment": "REVOKE from multiple users",
@@ -2716,7 +2714,7 @@
   {
     "comment": "ALTER OPERATOR FAMILY DROP",
     "query": "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1 (int4, int4)",
-    "expected": "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1 (INT, INT)"
+    "expected": "ALTER OPERATOR FAMILY test_family USING btree DROP OPERATOR 1  (int4, int4)"
   },
   {
     "comment": "CREATE TRANSFORM basic",

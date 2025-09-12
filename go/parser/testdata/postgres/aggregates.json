@@ -1,7 +1,8 @@
 [
   {
     "comment": "aggregates - Statement 1",
-    "query": "CREATE TABLE aggtest ( a \t\t\tint2, b\t\t\tfloat4 )"
+    "query": "CREATE TABLE aggtest ( a \t\t\tint2, b\t\t\tfloat4 )",
+    "expected": "CREATE TABLE aggtest (a SMALLINT, b REAL)"
   },
   {
     "comment": "aggregates - Statement 2",
@@ -9,67 +10,83 @@
   },
   {
     "comment": "aggregates - Statement 3",
-    "query": "SELECT avg(four) AS avg_1 FROM onek"
+    "query": "SELECT avg(four) AS avg_1 FROM onek",
+    "expected": "SELECT AVG(four) AS avg_1 FROM onek"
   },
   {
     "comment": "aggregates - Statement 4",
-    "query": "SELECT avg(a) AS avg_32 FROM aggtest WHERE a < 100"
+    "query": "SELECT avg(a) AS avg_32 FROM aggtest WHERE a \u003c 100",
+    "expected": "SELECT AVG(a) AS avg_32 FROM aggtest WHERE a \u003c 100"
   },
   {
     "comment": "aggregates - Statement 5",
-    "query": "SELECT any_value(v) FROM (VALUES (1), (2), (3)) AS v (v)"
+    "query": "SELECT any_value(v) FROM (VALUES (1), (2), (3)) AS v (v)",
+    "expected": "SELECT any_value(v) FROM (VALUES (1), (2), (3)) AS v(v)"
   },
   {
     "comment": "aggregates - Statement 6",
-    "query": "SELECT any_value(v) FROM (VALUES (NULL)) AS v (v)"
+    "query": "SELECT any_value(v) FROM (VALUES (NULL)) AS v (v)",
+    "expected": "SELECT any_value(v) FROM (VALUES (NULL)) AS v(v)"
   },
   {
     "comment": "aggregates - Statement 7",
-    "query": "SELECT any_value(v) FROM (VALUES (NULL), (1), (2)) AS v (v)"
+    "query": "SELECT any_value(v) FROM (VALUES (NULL), (1), (2)) AS v (v)",
+    "expected": "SELECT any_value(v) FROM (VALUES (NULL), (1), (2)) AS v(v)"
   },
   {
     "comment": "aggregates - Statement 8",
-    "query": "SELECT any_value(v) FROM (VALUES (array['hello', 'world'])) AS v (v)"
+    "query": "SELECT any_value(v) FROM (VALUES (array['hello', 'world'])) AS v (v)",
+    "expected": "SELECT any_value(v) FROM (VALUES (ARRAY['hello','world'])) AS v(v)"
   },
   {
     "comment": "aggregates - Statement 9",
-    "query": "SELECT avg(b)::numeric(10,3) AS avg_107_943 FROM aggtest"
+    "query": "SELECT avg(b)::numeric(10,3) AS avg_107_943 FROM aggtest",
+    "expected": "SELECT CAST(AVG(b) AS NUMERIC(10, 3)) AS avg_107_943 FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 10",
-    "query": "SELECT avg(gpa) AS avg_3_4 FROM ONLY student"
+    "query": "SELECT avg(gpa) AS avg_3_4 FROM ONLY student",
+    "expected": "SELECT AVG(gpa) AS avg_3_4 FROM ONLY student"
   },
   {
     "comment": "aggregates - Statement 11",
-    "query": "SELECT sum(four) AS sum_1500 FROM onek"
+    "query": "SELECT sum(four) AS sum_1500 FROM onek",
+    "expected": "SELECT SUM(four) AS sum_1500 FROM onek"
   },
   {
     "comment": "aggregates - Statement 12",
-    "query": "SELECT sum(a) AS sum_198 FROM aggtest"
+    "query": "SELECT sum(a) AS sum_198 FROM aggtest",
+    "expected": "SELECT SUM(a) AS sum_198 FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 13",
-    "query": "SELECT sum(b) AS avg_431_773 FROM aggtest"
+    "query": "SELECT sum(b) AS avg_431_773 FROM aggtest",
+    "expected": "SELECT SUM(b) AS avg_431_773 FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 14",
-    "query": "SELECT sum(gpa) AS avg_6_8 FROM ONLY student"
+    "query": "SELECT sum(gpa) AS avg_6_8 FROM ONLY student",
+    "expected": "SELECT SUM(gpa) AS avg_6_8 FROM ONLY student"
   },
   {
     "comment": "aggregates - Statement 15",
-    "query": "SELECT max(four) AS max_3 FROM onek"
+    "query": "SELECT max(four) AS max_3 FROM onek",
+    "expected": "SELECT MAX(four) AS max_3 FROM onek"
   },
   {
     "comment": "aggregates - Statement 16",
-    "query": "SELECT max(a) AS max_100 FROM aggtest"
+    "query": "SELECT max(a) AS max_100 FROM aggtest",
+    "expected": "SELECT MAX(a) AS max_100 FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 17",
-    "query": "SELECT max(aggtest.b) AS max_324_78 FROM aggtest"
+    "query": "SELECT max(aggtest.b) AS max_324_78 FROM aggtest",
+    "expected": "SELECT MAX(aggtest.b) AS max_324_78 FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 18",
-    "query": "SELECT max(student.gpa) AS max_3_7 FROM student"
+    "query": "SELECT max(student.gpa) AS max_3_7 FROM student",
+    "expected": "SELECT MAX(student.gpa) AS max_3_7 FROM student"
   },
   {
     "comment": "aggregates - Statement 19",
@@ -89,179 +106,223 @@
   },
   {
     "comment": "aggregates - Statement 23",
-    "query": "SELECT stddev_pop(b::numeric) FROM aggtest"
+    "query": "SELECT stddev_pop(b::numeric) FROM aggtest",
+    "expected": "SELECT stddev_pop(CAST(b AS NUMERIC)) FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 24",
-    "query": "SELECT stddev_samp(b::numeric) FROM aggtest"
+    "query": "SELECT stddev_samp(b::numeric) FROM aggtest",
+    "expected": "SELECT stddev_samp(CAST(b AS NUMERIC)) FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 25",
-    "query": "SELECT var_pop(b::numeric) FROM aggtest"
+    "query": "SELECT var_pop(b::numeric) FROM aggtest",
+    "expected": "SELECT var_pop(CAST(b AS NUMERIC)) FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 26",
-    "query": "SELECT var_samp(b::numeric) FROM aggtest"
+    "query": "SELECT var_samp(b::numeric) FROM aggtest",
+    "expected": "SELECT var_samp(CAST(b AS NUMERIC)) FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 27",
-    "query": "SELECT var_pop(1.0::float8), var_samp(2.0::float8)"
+    "query": "SELECT var_pop(1.0::float8), var_samp(2.0::float8)",
+    "expected": "SELECT var_pop(CAST(1.0 AS FLOAT8)), var_samp(CAST(2.0 AS FLOAT8))"
   },
   {
     "comment": "aggregates - Statement 28",
-    "query": "SELECT stddev_pop(3.0::float8), stddev_samp(4.0::float8)"
+    "query": "SELECT stddev_pop(3.0::float8), stddev_samp(4.0::float8)",
+    "expected": "SELECT stddev_pop(CAST(3.0 AS FLOAT8)), stddev_samp(CAST(4.0 AS FLOAT8))"
   },
   {
     "comment": "aggregates - Statement 29",
-    "query": "SELECT var_pop('inf'::float8), var_samp('inf'::float8)"
+    "query": "SELECT var_pop('inf'::float8), var_samp('inf'::float8)",
+    "expected": "SELECT var_pop(CAST('inf' AS FLOAT8)), var_samp(CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "aggregates - Statement 30",
-    "query": "SELECT stddev_pop('inf'::float8), stddev_samp('inf'::float8)"
+    "query": "SELECT stddev_pop('inf'::float8), stddev_samp('inf'::float8)",
+    "expected": "SELECT stddev_pop(CAST('inf' AS FLOAT8)), stddev_samp(CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "aggregates - Statement 31",
-    "query": "SELECT var_pop('nan'::float8), var_samp('nan'::float8)"
+    "query": "SELECT var_pop('nan'::float8), var_samp('nan'::float8)",
+    "expected": "SELECT var_pop(CAST('nan' AS FLOAT8)), var_samp(CAST('nan' AS FLOAT8))"
   },
   {
     "comment": "aggregates - Statement 32",
-    "query": "SELECT stddev_pop('nan'::float8), stddev_samp('nan'::float8)"
+    "query": "SELECT stddev_pop('nan'::float8), stddev_samp('nan'::float8)",
+    "expected": "SELECT stddev_pop(CAST('nan' AS FLOAT8)), stddev_samp(CAST('nan' AS FLOAT8))"
   },
   {
     "comment": "aggregates - Statement 33",
-    "query": "SELECT var_pop(1.0::float4), var_samp(2.0::float4)"
+    "query": "SELECT var_pop(1.0::float4), var_samp(2.0::float4)",
+    "expected": "SELECT var_pop(CAST(1.0 AS REAL)), var_samp(CAST(2.0 AS REAL))"
   },
   {
     "comment": "aggregates - Statement 34",
-    "query": "SELECT stddev_pop(3.0::float4), stddev_samp(4.0::float4)"
+    "query": "SELECT stddev_pop(3.0::float4), stddev_samp(4.0::float4)",
+    "expected": "SELECT stddev_pop(CAST(3.0 AS REAL)), stddev_samp(CAST(4.0 AS REAL))"
   },
   {
     "comment": "aggregates - Statement 35",
-    "query": "SELECT var_pop('inf'::float4), var_samp('inf'::float4)"
+    "query": "SELECT var_pop('inf'::float4), var_samp('inf'::float4)",
+    "expected": "SELECT var_pop(CAST('inf' AS REAL)), var_samp(CAST('inf' AS REAL))"
   },
   {
     "comment": "aggregates - Statement 36",
-    "query": "SELECT stddev_pop('inf'::float4), stddev_samp('inf'::float4)"
+    "query": "SELECT stddev_pop('inf'::float4), stddev_samp('inf'::float4)",
+    "expected": "SELECT stddev_pop(CAST('inf' AS REAL)), stddev_samp(CAST('inf' AS REAL))"
   },
   {
     "comment": "aggregates - Statement 37",
-    "query": "SELECT var_pop('nan'::float4), var_samp('nan'::float4)"
+    "query": "SELECT var_pop('nan'::float4), var_samp('nan'::float4)",
+    "expected": "SELECT var_pop(CAST('nan' AS REAL)), var_samp(CAST('nan' AS REAL))"
   },
   {
     "comment": "aggregates - Statement 38",
-    "query": "SELECT stddev_pop('nan'::float4), stddev_samp('nan'::float4)"
+    "query": "SELECT stddev_pop('nan'::float4), stddev_samp('nan'::float4)",
+    "expected": "SELECT stddev_pop(CAST('nan' AS REAL)), stddev_samp(CAST('nan' AS REAL))"
   },
   {
     "comment": "aggregates - Statement 39",
-    "query": "SELECT var_pop(1.0::numeric), var_samp(2.0::numeric)"
+    "query": "SELECT var_pop(1.0::numeric), var_samp(2.0::numeric)",
+    "expected": "SELECT var_pop(CAST(1.0 AS NUMERIC)), var_samp(CAST(2.0 AS NUMERIC))"
   },
   {
     "comment": "aggregates - Statement 40",
-    "query": "SELECT stddev_pop(3.0::numeric), stddev_samp(4.0::numeric)"
+    "query": "SELECT stddev_pop(3.0::numeric), stddev_samp(4.0::numeric)",
+    "expected": "SELECT stddev_pop(CAST(3.0 AS NUMERIC)), stddev_samp(CAST(4.0 AS NUMERIC))"
   },
   {
     "comment": "aggregates - Statement 41",
-    "query": "SELECT var_pop('inf'::numeric), var_samp('inf'::numeric)"
+    "query": "SELECT var_pop('inf'::numeric), var_samp('inf'::numeric)",
+    "expected": "SELECT var_pop(CAST('inf' AS NUMERIC)), var_samp(CAST('inf' AS NUMERIC))"
   },
   {
     "comment": "aggregates - Statement 42",
-    "query": "SELECT stddev_pop('inf'::numeric), stddev_samp('inf'::numeric)"
+    "query": "SELECT stddev_pop('inf'::numeric), stddev_samp('inf'::numeric)",
+    "expected": "SELECT stddev_pop(CAST('inf' AS NUMERIC)), stddev_samp(CAST('inf' AS NUMERIC))"
   },
   {
     "comment": "aggregates - Statement 43",
-    "query": "SELECT var_pop('nan'::numeric), var_samp('nan'::numeric)"
+    "query": "SELECT var_pop('nan'::numeric), var_samp('nan'::numeric)",
+    "expected": "SELECT var_pop(CAST('nan' AS NUMERIC)), var_samp(CAST('nan' AS NUMERIC))"
   },
   {
     "comment": "aggregates - Statement 44",
-    "query": "SELECT stddev_pop('nan'::numeric), stddev_samp('nan'::numeric)"
+    "query": "SELECT stddev_pop('nan'::numeric), stddev_samp('nan'::numeric)",
+    "expected": "SELECT stddev_pop(CAST('nan' AS NUMERIC)), stddev_samp(CAST('nan' AS NUMERIC))"
   },
   {
     "comment": "aggregates - Statement 45",
-    "query": "select sum(null::int4) from generate_series(1,3)"
+    "query": "select sum(null::int4) from generate_series(1,3)",
+    "expected": "SELECT SUM(CAST(NULL AS INT)) FROM generate_series(1, 3)"
   },
   {
     "comment": "aggregates - Statement 46",
-    "query": "select sum(null::int8) from generate_series(1,3)"
+    "query": "select sum(null::int8) from generate_series(1,3)",
+    "expected": "SELECT SUM(CAST(NULL AS BIGINT)) FROM generate_series(1, 3)"
   },
   {
     "comment": "aggregates - Statement 47",
-    "query": "select sum(null::numeric) from generate_series(1,3)"
+    "query": "select sum(null::numeric) from generate_series(1,3)",
+    "expected": "SELECT SUM(CAST(NULL AS NUMERIC)) FROM generate_series(1, 3)"
   },
   {
     "comment": "aggregates - Statement 48",
-    "query": "select sum(null::float8) from generate_series(1,3)"
+    "query": "select sum(null::float8) from generate_series(1,3)",
+    "expected": "SELECT SUM(CAST(NULL AS FLOAT8)) FROM generate_series(1, 3)"
   },
   {
     "comment": "aggregates - Statement 49",
-    "query": "select avg(null::int4) from generate_series(1,3)"
+    "query": "select avg(null::int4) from generate_series(1,3)",
+    "expected": "SELECT AVG(CAST(NULL AS INT)) FROM generate_series(1, 3)"
   },
   {
     "comment": "aggregates - Statement 50",
-    "query": "select avg(null::int8) from generate_series(1,3)"
+    "query": "select avg(null::int8) from generate_series(1,3)",
+    "expected": "SELECT AVG(CAST(NULL AS BIGINT)) FROM generate_series(1, 3)"
   },
   {
     "comment": "aggregates - Statement 51",
-    "query": "select avg(null::numeric) from generate_series(1,3)"
+    "query": "select avg(null::numeric) from generate_series(1,3)",
+    "expected": "SELECT AVG(CAST(NULL AS NUMERIC)) FROM generate_series(1, 3)"
   },
   {
     "comment": "aggregates - Statement 52",
-    "query": "select avg(null::float8) from generate_series(1,3)"
+    "query": "select avg(null::float8) from generate_series(1,3)",
+    "expected": "SELECT AVG(CAST(NULL AS FLOAT8)) FROM generate_series(1, 3)"
   },
   {
     "comment": "aggregates - Statement 53",
-    "query": "select sum('NaN'::numeric) from generate_series(1,3)"
+    "query": "select sum('NaN'::numeric) from generate_series(1,3)",
+    "expected": "SELECT SUM(CAST('NaN' AS NUMERIC)) FROM generate_series(1, 3)"
   },
   {
     "comment": "aggregates - Statement 54",
-    "query": "select avg('NaN'::numeric) from generate_series(1,3)"
+    "query": "select avg('NaN'::numeric) from generate_series(1,3)",
+    "expected": "SELECT AVG(CAST('NaN' AS NUMERIC)) FROM generate_series(1, 3)"
   },
   {
     "comment": "aggregates - Statement 55",
-    "query": "SELECT sum(x::float8), avg(x::float8), var_pop(x::float8) FROM (VALUES ('1'), ('infinity')) v(x)"
+    "query": "SELECT sum(x::float8), avg(x::float8), var_pop(x::float8) FROM (VALUES ('1'), ('infinity')) v(x)",
+    "expected": "SELECT SUM(CAST(x AS FLOAT8)), AVG(CAST(x AS FLOAT8)), var_pop(CAST(x AS FLOAT8)) FROM (VALUES ('1'), ('infinity')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 56",
-    "query": "SELECT sum(x::float8), avg(x::float8), var_pop(x::float8) FROM (VALUES ('infinity'), ('1')) v(x)"
+    "query": "SELECT sum(x::float8), avg(x::float8), var_pop(x::float8) FROM (VALUES ('infinity'), ('1')) v(x)",
+    "expected": "SELECT SUM(CAST(x AS FLOAT8)), AVG(CAST(x AS FLOAT8)), var_pop(CAST(x AS FLOAT8)) FROM (VALUES ('infinity'), ('1')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 57",
-    "query": "SELECT sum(x::float8), avg(x::float8), var_pop(x::float8) FROM (VALUES ('infinity'), ('infinity')) v(x)"
+    "query": "SELECT sum(x::float8), avg(x::float8), var_pop(x::float8) FROM (VALUES ('infinity'), ('infinity')) v(x)",
+    "expected": "SELECT SUM(CAST(x AS FLOAT8)), AVG(CAST(x AS FLOAT8)), var_pop(CAST(x AS FLOAT8)) FROM (VALUES ('infinity'), ('infinity')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 58",
-    "query": "SELECT sum(x::float8), avg(x::float8), var_pop(x::float8) FROM (VALUES ('-infinity'), ('infinity')) v(x)"
+    "query": "SELECT sum(x::float8), avg(x::float8), var_pop(x::float8) FROM (VALUES ('-infinity'), ('infinity')) v(x)",
+    "expected": "SELECT SUM(CAST(x AS FLOAT8)), AVG(CAST(x AS FLOAT8)), var_pop(CAST(x AS FLOAT8)) FROM (VALUES ('-infinity'), ('infinity')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 59",
-    "query": "SELECT sum(x::float8), avg(x::float8), var_pop(x::float8) FROM (VALUES ('-infinity'), ('-infinity')) v(x)"
+    "query": "SELECT sum(x::float8), avg(x::float8), var_pop(x::float8) FROM (VALUES ('-infinity'), ('-infinity')) v(x)",
+    "expected": "SELECT SUM(CAST(x AS FLOAT8)), AVG(CAST(x AS FLOAT8)), var_pop(CAST(x AS FLOAT8)) FROM (VALUES ('-infinity'), ('-infinity')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 60",
-    "query": "SELECT sum(x::numeric), avg(x::numeric), var_pop(x::numeric) FROM (VALUES ('1'), ('infinity')) v(x)"
+    "query": "SELECT sum(x::numeric), avg(x::numeric), var_pop(x::numeric) FROM (VALUES ('1'), ('infinity')) v(x)",
+    "expected": "SELECT SUM(CAST(x AS NUMERIC)), AVG(CAST(x AS NUMERIC)), var_pop(CAST(x AS NUMERIC)) FROM (VALUES ('1'), ('infinity')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 61",
-    "query": "SELECT sum(x::numeric), avg(x::numeric), var_pop(x::numeric) FROM (VALUES ('infinity'), ('1')) v(x)"
+    "query": "SELECT sum(x::numeric), avg(x::numeric), var_pop(x::numeric) FROM (VALUES ('infinity'), ('1')) v(x)",
+    "expected": "SELECT SUM(CAST(x AS NUMERIC)), AVG(CAST(x AS NUMERIC)), var_pop(CAST(x AS NUMERIC)) FROM (VALUES ('infinity'), ('1')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 62",
-    "query": "SELECT sum(x::numeric), avg(x::numeric), var_pop(x::numeric) FROM (VALUES ('infinity'), ('infinity')) v(x)"
+    "query": "SELECT sum(x::numeric), avg(x::numeric), var_pop(x::numeric) FROM (VALUES ('infinity'), ('infinity')) v(x)",
+    "expected": "SELECT SUM(CAST(x AS NUMERIC)), AVG(CAST(x AS NUMERIC)), var_pop(CAST(x AS NUMERIC)) FROM (VALUES ('infinity'), ('infinity')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 63",
-    "query": "SELECT sum(x::numeric), avg(x::numeric), var_pop(x::numeric) FROM (VALUES ('-infinity'), ('infinity')) v(x)"
+    "query": "SELECT sum(x::numeric), avg(x::numeric), var_pop(x::numeric) FROM (VALUES ('-infinity'), ('infinity')) v(x)",
+    "expected": "SELECT SUM(CAST(x AS NUMERIC)), AVG(CAST(x AS NUMERIC)), var_pop(CAST(x AS NUMERIC)) FROM (VALUES ('-infinity'), ('infinity')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 64",
-    "query": "SELECT sum(x::numeric), avg(x::numeric), var_pop(x::numeric) FROM (VALUES ('-infinity'), ('-infinity')) v(x)"
+    "query": "SELECT sum(x::numeric), avg(x::numeric), var_pop(x::numeric) FROM (VALUES ('-infinity'), ('-infinity')) v(x)",
+    "expected": "SELECT SUM(CAST(x AS NUMERIC)), AVG(CAST(x AS NUMERIC)), var_pop(CAST(x AS NUMERIC)) FROM (VALUES ('-infinity'), ('-infinity')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 65",
-    "query": "SELECT avg(x::float8), var_pop(x::float8) FROM (VALUES (100000003), (100000004), (100000006), (100000007)) v(x)"
+    "query": "SELECT avg(x::float8), var_pop(x::float8) FROM (VALUES (100000003), (100000004), (100000006), (100000007)) v(x)",
+    "expected": "SELECT AVG(CAST(x AS FLOAT8)), var_pop(CAST(x AS FLOAT8)) FROM (VALUES (100000003), (100000004), (100000006), (100000007)) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 66",
-    "query": "SELECT avg(x::float8), var_pop(x::float8) FROM (VALUES (7000000000005), (7000000000007)) v(x)"
+    "query": "SELECT avg(x::float8), var_pop(x::float8) FROM (VALUES (7000000000005), (7000000000007)) v(x)",
+    "expected": "SELECT AVG(CAST(x AS FLOAT8)), var_pop(CAST(x AS FLOAT8)) FROM (VALUES (7000000000005), (7000000000007)) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 67",
@@ -301,71 +362,88 @@
   },
   {
     "comment": "aggregates - Statement 76",
-    "query": "SELECT covar_pop(1::float8,2::float8), covar_samp(3::float8,4::float8)"
+    "query": "SELECT covar_pop(1::float8,2::float8), covar_samp(3::float8,4::float8)",
+    "expected": "SELECT covar_pop(CAST(1 AS FLOAT8), CAST(2 AS FLOAT8)), covar_samp(CAST(3 AS FLOAT8), CAST(4 AS FLOAT8))"
   },
   {
     "comment": "aggregates - Statement 77",
-    "query": "SELECT covar_pop(1::float8,'inf'::float8), covar_samp(3::float8,'inf'::float8)"
+    "query": "SELECT covar_pop(1::float8,'inf'::float8), covar_samp(3::float8,'inf'::float8)",
+    "expected": "SELECT covar_pop(CAST(1 AS FLOAT8), CAST('inf' AS FLOAT8)), covar_samp(CAST(3 AS FLOAT8), CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "aggregates - Statement 78",
-    "query": "SELECT covar_pop(1::float8,'nan'::float8), covar_samp(3::float8,'nan'::float8)"
+    "query": "SELECT covar_pop(1::float8,'nan'::float8), covar_samp(3::float8,'nan'::float8)",
+    "expected": "SELECT covar_pop(CAST(1 AS FLOAT8), CAST('nan' AS FLOAT8)), covar_samp(CAST(3 AS FLOAT8), CAST('nan' AS FLOAT8))"
   },
   {
     "comment": "aggregates - Statement 79",
-    "query": "CREATE TABLE regr_test (x float8, y float8)"
+    "query": "CREATE TABLE regr_test (x float8, y float8)",
+    "expected": "CREATE TABLE regr_test (x FLOAT8, y FLOAT8)"
   },
   {
     "comment": "aggregates - Statement 80",
-    "query": "INSERT INTO regr_test VALUES (10,150),(20,250),(30,350),(80,540),(100,200)"
+    "query": "INSERT INTO regr_test VALUES (10,150),(20,250),(30,350),(80,540),(100,200)",
+    "expected": "INSERT INTO regr_test VALUES (10, 150), (20, 250), (30, 350), (80, 540), (100, 200)"
   },
   {
     "comment": "aggregates - Statement 81",
-    "query": "SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x) FROM regr_test WHERE x IN (10,20,30,80)"
+    "query": "SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x) FROM regr_test WHERE x IN (10,20,30,80)",
+    "expected": "SELECT COUNT(*), SUM(x), regr_sxx(y, x), SUM(y), regr_syy(y, x), regr_sxy(y, x) FROM regr_test WHERE x IN (10, 20, 30, 80)"
   },
   {
     "comment": "aggregates - Statement 82",
-    "query": "SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x) FROM regr_test"
+    "query": "SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x) FROM regr_test",
+    "expected": "SELECT COUNT(*), SUM(x), regr_sxx(y, x), SUM(y), regr_syy(y, x), regr_sxy(y, x) FROM regr_test"
   },
   {
     "comment": "aggregates - Statement 83",
-    "query": "SELECT float8_accum('{4,140,2900}'::float8[], 100)"
+    "query": "SELECT float8_accum('{4,140,2900}'::float8[], 100)",
+    "expected": "SELECT float8_accum(CAST('{4,140,2900}' AS FLOAT8[]), 100)"
   },
   {
     "comment": "aggregates - Statement 84",
-    "query": "SELECT float8_regr_accum('{4,140,2900,1290,83075,15050}'::float8[], 200, 100)"
+    "query": "SELECT float8_regr_accum('{4,140,2900,1290,83075,15050}'::float8[], 200, 100)",
+    "expected": "SELECT float8_regr_accum(CAST('{4,140,2900,1290,83075,15050}' AS FLOAT8[]), 200, 100)"
   },
   {
     "comment": "aggregates - Statement 85",
-    "query": "SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x) FROM regr_test WHERE x IN (10,20,30)"
+    "query": "SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x) FROM regr_test WHERE x IN (10,20,30)",
+    "expected": "SELECT COUNT(*), SUM(x), regr_sxx(y, x), SUM(y), regr_syy(y, x), regr_sxy(y, x) FROM regr_test WHERE x IN (10, 20, 30)"
   },
   {
     "comment": "aggregates - Statement 86",
-    "query": "SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x) FROM regr_test WHERE x IN (80,100)"
+    "query": "SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x) FROM regr_test WHERE x IN (80,100)",
+    "expected": "SELECT COUNT(*), SUM(x), regr_sxx(y, x), SUM(y), regr_syy(y, x), regr_sxy(y, x) FROM regr_test WHERE x IN (80, 100)"
   },
   {
     "comment": "aggregates - Statement 87",
-    "query": "SELECT float8_combine('{3,60,200}'::float8[], '{0,0,0}'::float8[])"
+    "query": "SELECT float8_combine('{3,60,200}'::float8[], '{0,0,0}'::float8[])",
+    "expected": "SELECT float8_combine(CAST('{3,60,200}' AS FLOAT8[]), CAST('{0,0,0}' AS FLOAT8[]))"
   },
   {
     "comment": "aggregates - Statement 88",
-    "query": "SELECT float8_combine('{0,0,0}'::float8[], '{2,180,200}'::float8[])"
+    "query": "SELECT float8_combine('{0,0,0}'::float8[], '{2,180,200}'::float8[])",
+    "expected": "SELECT float8_combine(CAST('{0,0,0}' AS FLOAT8[]), CAST('{2,180,200}' AS FLOAT8[]))"
   },
   {
     "comment": "aggregates - Statement 89",
-    "query": "SELECT float8_combine('{3,60,200}'::float8[], '{2,180,200}'::float8[])"
+    "query": "SELECT float8_combine('{3,60,200}'::float8[], '{2,180,200}'::float8[])",
+    "expected": "SELECT float8_combine(CAST('{3,60,200}' AS FLOAT8[]), CAST('{2,180,200}' AS FLOAT8[]))"
   },
   {
     "comment": "aggregates - Statement 90",
-    "query": "SELECT float8_regr_combine('{3,60,200,750,20000,2000}'::float8[], '{0,0,0,0,0,0}'::float8[])"
+    "query": "SELECT float8_regr_combine('{3,60,200,750,20000,2000}'::float8[], '{0,0,0,0,0,0}'::float8[])",
+    "expected": "SELECT float8_regr_combine(CAST('{3,60,200,750,20000,2000}' AS FLOAT8[]), CAST('{0,0,0,0,0,0}' AS FLOAT8[]))"
   },
   {
     "comment": "aggregates - Statement 91",
-    "query": "SELECT float8_regr_combine('{0,0,0,0,0,0}'::float8[], '{2,180,200,740,57800,-3400}'::float8[])"
+    "query": "SELECT float8_regr_combine('{0,0,0,0,0,0}'::float8[], '{2,180,200,740,57800,-3400}'::float8[])",
+    "expected": "SELECT float8_regr_combine(CAST('{0,0,0,0,0,0}' AS FLOAT8[]), CAST('{2,180,200,740,57800,-3400}' AS FLOAT8[]))"
   },
   {
     "comment": "aggregates - Statement 92",
-    "query": "SELECT float8_regr_combine('{3,60,200,750,20000,2000}'::float8[], '{2,180,200,740,57800,-3400}'::float8[])"
+    "query": "SELECT float8_regr_combine('{3,60,200,750,20000,2000}'::float8[], '{2,180,200,740,57800,-3400}'::float8[])",
+    "expected": "SELECT float8_regr_combine(CAST('{3,60,200,750,20000,2000}' AS FLOAT8[]), CAST('{2,180,200,740,57800,-3400}' AS FLOAT8[]))"
   },
   {
     "comment": "aggregates - Statement 93",
@@ -373,19 +451,23 @@
   },
   {
     "comment": "aggregates - Statement 94",
-    "query": "SELECT count(four) AS cnt_1000 FROM onek"
+    "query": "SELECT count(four) AS cnt_1000 FROM onek",
+    "expected": "SELECT COUNT(four) AS cnt_1000 FROM onek"
   },
   {
     "comment": "aggregates - Statement 95",
-    "query": "SELECT count(DISTINCT four) AS cnt_4 FROM onek"
+    "query": "SELECT count(DISTINCT four) AS cnt_4 FROM onek",
+    "expected": "SELECT COUNT(DISTINCT four) AS cnt_4 FROM onek"
   },
   {
     "comment": "aggregates - Statement 96",
-    "query": "select ten, count(*), sum(four) from onek group by ten order by ten"
+    "query": "select ten, count(*), sum(four) from onek group by ten order by ten",
+    "expected": "SELECT ten, COUNT(*), SUM(four) FROM onek GROUP BY ten ORDER BY ten"
   },
   {
     "comment": "aggregates - Statement 97",
-    "query": "select ten, count(four), sum(DISTINCT four) from onek group by ten order by ten"
+    "query": "select ten, count(four), sum(DISTINCT four) from onek group by ten order by ten",
+    "expected": "SELECT ten, COUNT(four), SUM(DISTINCT four) FROM onek GROUP BY ten ORDER BY ten"
   },
   {
     "comment": "aggregates - Statement 98",
@@ -409,1155 +491,1358 @@
   },
   {
     "comment": "aggregates - Statement 103",
-    "query": "SELECT sum2(q1,q2) FROM int8_tbl"
+    "query": "SELECT sum2(q1,q2) FROM int8_tbl",
+    "expected": "SELECT sum2(q1, q2) FROM int8_tbl"
   },
   {
     "comment": "aggregates - Statement 104",
-    "query": "select ten, sum(distinct four) from onek a group by ten having exists (select 1 from onek b where sum(distinct a.four) = b.four)"
+    "query": "select ten, sum(distinct four) from onek a group by ten having exists (select 1 from onek b where sum(distinct a.four) = b.four)",
+    "expected": "SELECT ten, SUM(DISTINCT four) FROM onek AS a GROUP BY ten HAVING EXISTS (SELECT 1 FROM onek AS b WHERE SUM(DISTINCT a.four) = b.four)"
   },
   {
     "comment": "aggregates - Statement 105",
-    "query": "select ten, sum(distinct four) from onek a group by ten having exists (select 1 from onek b where sum(distinct a.four + b.four) = b.four)"
+    "query": "select ten, sum(distinct four) from onek a group by ten having exists (select 1 from onek b where sum(distinct a.four + b.four) = b.four)",
+    "expected": "SELECT ten, SUM(DISTINCT four) FROM onek AS a GROUP BY ten HAVING EXISTS (SELECT 1 FROM onek AS b WHERE SUM(DISTINCT a.four + b.four) = b.four)"
   },
   {
     "comment": "aggregates - Statement 106",
-    "query": "select (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1))) from tenk1 o"
+    "query": "select (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1))) from tenk1 o",
+    "expected": "SELECT (SELECT MAX((SELECT i.unique2 FROM tenk1 AS i WHERE i.unique1 = o.unique1))) FROM tenk1 AS o"
   },
   {
     "comment": "aggregates - Statement 107",
-    "query": "explain (verbose, costs off) select s1, s2, sm from generate_series(1, 3) s1, lateral (select s2, sum(s1 + s2) sm from generate_series(1, 3) s2 group by s2) ss order by 1, 2"
+    "query": "explain (verbose, costs off) select s1, s2, sm from generate_series(1, 3) s1, lateral (select s2, sum(s1 + s2) sm from generate_series(1, 3) s2 group by s2) ss order by 1, 2",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT s1, s2, sm FROM generate_series(1, 3) AS s1, LATERAL (SELECT s2, SUM(s1 + s2) AS sm FROM generate_series(1, 3) AS s2 GROUP BY s2) AS ss ORDER BY 1, 2"
   },
   {
     "comment": "aggregates - Statement 108",
-    "query": "select s1, s2, sm from generate_series(1, 3) s1, lateral (select s2, sum(s1 + s2) sm from generate_series(1, 3) s2 group by s2) ss order by 1, 2"
+    "query": "select s1, s2, sm from generate_series(1, 3) s1, lateral (select s2, sum(s1 + s2) sm from generate_series(1, 3) s2 group by s2) ss order by 1, 2",
+    "expected": "SELECT s1, s2, sm FROM generate_series(1, 3) AS s1, LATERAL (SELECT s2, SUM(s1 + s2) AS sm FROM generate_series(1, 3) AS s2 GROUP BY s2) AS ss ORDER BY 1, 2"
   },
   {
     "comment": "aggregates - Statement 109",
-    "query": "explain (verbose, costs off) select array(select sum(x+y) s from generate_series(1,3) y group by y order by s) from generate_series(1,3) x"
+    "query": "explain (verbose, costs off) select array(select sum(x+y) s from generate_series(1,3) y group by y order by s) from generate_series(1,3) x",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT ARRAY(SELECT SUM(x + y) AS s FROM generate_series(1, 3) AS y GROUP BY y ORDER BY s) FROM generate_series(1, 3) AS x"
   },
   {
     "comment": "aggregates - Statement 110",
-    "query": "select array(select sum(x+y) s from generate_series(1,3) y group by y order by s) from generate_series(1,3) x"
+    "query": "select array(select sum(x+y) s from generate_series(1,3) y group by y order by s) from generate_series(1,3) x",
+    "expected": "SELECT ARRAY(SELECT SUM(x + y) AS s FROM generate_series(1, 3) AS y GROUP BY y ORDER BY s) FROM generate_series(1, 3) AS x"
   },
   {
     "comment": "aggregates - Statement 111",
-    "query": "CREATE TEMPORARY TABLE bitwise_test( i2 INT2, i4 INT4, i8 INT8, i INTEGER, x INT2, y BIT(4) )"
+    "query": "CREATE TEMPORARY TABLE bitwise_test( i2 INT2, i4 INT4, i8 INT8, i INTEGER, x INT2, y BIT(4) )",
+    "expected": "CREATE TEMPORARY TABLE bitwise_test (i2 SMALLINT, i4 INT, i8 BIGINT, i INT, x SMALLINT, y bit(4))"
   },
   {
     "comment": "aggregates - Statement 112",
-    "query": "SELECT BIT_AND(i2) AS \"?\", BIT_OR(i4)  AS \"?\", BIT_XOR(i8) AS \"?\" FROM bitwise_test"
+    "query": "SELECT BIT_AND(i2) AS \"?\", BIT_OR(i4)  AS \"?\", BIT_XOR(i8) AS \"?\" FROM bitwise_test",
+    "expected": "SELECT bit_and(i2) AS \"?\", bit_or(i4) AS \"?\", bit_xor(i8) AS \"?\" FROM bitwise_test"
   },
   {
     "comment": "aggregates - Statement 113",
-    "query": "COPY bitwise_test FROM STDIN NULL 'null'"
+    "query": "COPY bitwise_test FROM STDIN NULL 'null'",
+    "expected": "COPY bitwise_test FROM STDIN (null 'null')"
   },
   {
     "comment": "aggregates - Statement 114",
-    "query": "1\t1\t1\t1\t1\tB0101 3\t3\t3\tnull\t2\tB0100 7\t7\t7\t3\t4\tB1100 \\. SELECT BIT_AND(i2) AS \"1\", BIT_AND(i4) AS \"1\", BIT_AND(i8) AS \"1\", BIT_AND(i)  AS \"?\", BIT_AND(x)  AS \"0\", BIT_AND(y)  AS \"0100\", BIT_OR(i2)  AS \"7\", BIT_OR(i4)  AS \"7\", BIT_OR(i8)  AS \"7\", BIT_OR(i)   AS \"?\", BIT_OR(x)   AS \"7\", BIT_OR(y)   AS \"1101\", BIT_XOR(i2) AS \"5\", BIT_XOR(i4) AS \"5\", BIT_XOR(i8) AS \"5\", BIT_XOR(i)  AS \"?\", BIT_XOR(x)  AS \"7\", BIT_XOR(y)  AS \"1101\" FROM bitwise_test"
+    "query": "SELECT BIT_AND(i2) AS \"1\", BIT_AND(i4) AS \"1\", BIT_AND(i8) AS \"1\", BIT_AND(i)  AS \"?\", BIT_AND(x)  AS \"0\", BIT_AND(y)  AS \"0100\", BIT_OR(i2)  AS \"7\", BIT_OR(i4)  AS \"7\", BIT_OR(i8)  AS \"7\", BIT_OR(i)   AS \"?\", BIT_OR(x)   AS \"7\", BIT_OR(y)   AS \"1101\", BIT_XOR(i2) AS \"5\", BIT_XOR(i4) AS \"5\", BIT_XOR(i8) AS \"5\", BIT_XOR(i)  AS \"?\", BIT_XOR(x)  AS \"7\", BIT_XOR(y)  AS \"1101\" FROM bitwise_test",
+    "expected": "SELECT bit_and(i2) AS \"1\", bit_and(i4) AS \"1\", bit_and(i8) AS \"1\", bit_and(i) AS \"?\", bit_and(x) AS \"0\", bit_and(y) AS \"0100\", bit_or(i2) AS \"7\", bit_or(i4) AS \"7\", bit_or(i8) AS \"7\", bit_or(i) AS \"?\", bit_or(x) AS \"7\", bit_or(y) AS \"1101\", bit_xor(i2) AS \"5\", bit_xor(i4) AS \"5\", bit_xor(i8) AS \"5\", bit_xor(i) AS \"?\", bit_xor(x) AS \"7\", bit_xor(y) AS \"1101\" FROM bitwise_test"
   },
   {
     "comment": "aggregates - Statement 115",
-    "query": "SELECT booland_statefunc(NULL, NULL)  IS NULL AS \"t\", booland_statefunc(TRUE, NULL)  IS NULL AS \"t\", booland_statefunc(FALSE, NULL) IS NULL AS \"t\", booland_statefunc(NULL, TRUE)  IS NULL AS \"t\", booland_statefunc(NULL, FALSE) IS NULL AS \"t\", booland_statefunc(TRUE, TRUE) AS \"t\", NOT booland_statefunc(TRUE, FALSE) AS \"t\", NOT booland_statefunc(FALSE, TRUE) AS \"t\", NOT booland_statefunc(FALSE, FALSE) AS \"t\""
+    "query": "SELECT booland_statefunc(NULL, NULL)  IS NULL AS \"t\", booland_statefunc(TRUE, NULL)  IS NULL AS \"t\", booland_statefunc(FALSE, NULL) IS NULL AS \"t\", booland_statefunc(NULL, TRUE)  IS NULL AS \"t\", booland_statefunc(NULL, FALSE) IS NULL AS \"t\", booland_statefunc(TRUE, TRUE) AS \"t\", NOT booland_statefunc(TRUE, FALSE) AS \"t\", NOT booland_statefunc(FALSE, TRUE) AS \"t\", NOT booland_statefunc(FALSE, FALSE) AS \"t\"",
+    "expected": "SELECT booland_statefunc(NULL, NULL) IS NULL AS t, booland_statefunc(TRUE, NULL) IS NULL AS t, booland_statefunc(FALSE, NULL) IS NULL AS t, booland_statefunc(NULL, TRUE) IS NULL AS t, booland_statefunc(NULL, FALSE) IS NULL AS t, booland_statefunc(TRUE, TRUE) AS t, NOT booland_statefunc(TRUE, FALSE) AS t, NOT booland_statefunc(FALSE, TRUE) AS t, NOT booland_statefunc(FALSE, FALSE) AS t"
   },
   {
     "comment": "aggregates - Statement 116",
-    "query": "SELECT boolor_statefunc(NULL, NULL)  IS NULL AS \"t\", boolor_statefunc(TRUE, NULL)  IS NULL AS \"t\", boolor_statefunc(FALSE, NULL) IS NULL AS \"t\", boolor_statefunc(NULL, TRUE)  IS NULL AS \"t\", boolor_statefunc(NULL, FALSE) IS NULL AS \"t\", boolor_statefunc(TRUE, TRUE) AS \"t\", boolor_statefunc(TRUE, FALSE) AS \"t\", boolor_statefunc(FALSE, TRUE) AS \"t\", NOT boolor_statefunc(FALSE, FALSE) AS \"t\""
+    "query": "SELECT boolor_statefunc(NULL, NULL)  IS NULL AS \"t\", boolor_statefunc(TRUE, NULL)  IS NULL AS \"t\", boolor_statefunc(FALSE, NULL) IS NULL AS \"t\", boolor_statefunc(NULL, TRUE)  IS NULL AS \"t\", boolor_statefunc(NULL, FALSE) IS NULL AS \"t\", boolor_statefunc(TRUE, TRUE) AS \"t\", boolor_statefunc(TRUE, FALSE) AS \"t\", boolor_statefunc(FALSE, TRUE) AS \"t\", NOT boolor_statefunc(FALSE, FALSE) AS \"t\"",
+    "expected": "SELECT boolor_statefunc(NULL, NULL) IS NULL AS t, boolor_statefunc(TRUE, NULL) IS NULL AS t, boolor_statefunc(FALSE, NULL) IS NULL AS t, boolor_statefunc(NULL, TRUE) IS NULL AS t, boolor_statefunc(NULL, FALSE) IS NULL AS t, boolor_statefunc(TRUE, TRUE) AS t, boolor_statefunc(TRUE, FALSE) AS t, boolor_statefunc(FALSE, TRUE) AS t, NOT boolor_statefunc(FALSE, FALSE) AS t"
   },
   {
     "comment": "aggregates - Statement 117",
-    "query": "CREATE TEMPORARY TABLE bool_test( b1 BOOL, b2 BOOL, b3 BOOL, b4 BOOL)"
+    "query": "CREATE TEMPORARY TABLE bool_test( b1 BOOL, b2 BOOL, b3 BOOL, b4 BOOL)",
+    "expected": "CREATE TEMPORARY TABLE bool_test (b1 BOOLEAN, b2 BOOLEAN, b3 BOOLEAN, b4 BOOLEAN)"
   },
   {
     "comment": "aggregates - Statement 118",
-    "query": "SELECT BOOL_AND(b1)   AS \"n\", BOOL_OR(b3)    AS \"n\" FROM bool_test"
+    "query": "SELECT BOOL_AND(b1)   AS \"n\", BOOL_OR(b3)    AS \"n\" FROM bool_test",
+    "expected": "SELECT bool_and(b1) AS n, bool_or(b3) AS n FROM bool_test"
   },
   {
     "comment": "aggregates - Statement 119",
-    "query": "COPY bool_test FROM STDIN NULL 'null'"
+    "query": "COPY bool_test FROM STDIN NULL 'null'",
+    "expected": "COPY bool_test FROM STDIN (null 'null')"
   },
   {
     "comment": "aggregates - Statement 120",
-    "query": "TRUE\tnull\tFALSE\tnull FALSE\tTRUE\tnull\tnull null\tTRUE\tFALSE\tnull \\. SELECT BOOL_AND(b1)     AS \"f\", BOOL_AND(b2)     AS \"t\", BOOL_AND(b3)     AS \"f\", BOOL_AND(b4)     AS \"n\", BOOL_AND(NOT b2) AS \"f\", BOOL_AND(NOT b3) AS \"t\" FROM bool_test"
+    "query": "SELECT BOOL_AND(b1)     AS \"f\", BOOL_AND(b2)     AS \"t\", BOOL_AND(b3)     AS \"f\", BOOL_AND(b4)     AS \"n\", BOOL_AND(NOT b2) AS \"f\", BOOL_AND(NOT b3) AS \"t\" FROM bool_test",
+    "expected": "SELECT bool_and(b1) AS f, bool_and(b2) AS t, bool_and(b3) AS f, bool_and(b4) AS n, bool_and(NOT b2) AS f, bool_and(NOT b3) AS t FROM bool_test"
   },
   {
     "comment": "aggregates - Statement 121",
-    "query": "SELECT EVERY(b1)     AS \"f\", EVERY(b2)     AS \"t\", EVERY(b3)     AS \"f\", EVERY(b4)     AS \"n\", EVERY(NOT b2) AS \"f\", EVERY(NOT b3) AS \"t\" FROM bool_test"
+    "query": "SELECT EVERY(b1)     AS \"f\", EVERY(b2)     AS \"t\", EVERY(b3)     AS \"f\", EVERY(b4)     AS \"n\", EVERY(NOT b2) AS \"f\", EVERY(NOT b3) AS \"t\" FROM bool_test",
+    "expected": "SELECT every(b1) AS f, every(b2) AS t, every(b3) AS f, every(b4) AS n, every(NOT b2) AS f, every(NOT b3) AS t FROM bool_test"
   },
   {
     "comment": "aggregates - Statement 122",
-    "query": "SELECT BOOL_OR(b1)      AS \"t\", BOOL_OR(b2)      AS \"t\", BOOL_OR(b3)      AS \"f\", BOOL_OR(b4)      AS \"n\", BOOL_OR(NOT b2)  AS \"f\", BOOL_OR(NOT b3)  AS \"t\" FROM bool_test"
+    "query": "SELECT BOOL_OR(b1)      AS \"t\", BOOL_OR(b2)      AS \"t\", BOOL_OR(b3)      AS \"f\", BOOL_OR(b4)      AS \"n\", BOOL_OR(NOT b2)  AS \"f\", BOOL_OR(NOT b3)  AS \"t\" FROM bool_test",
+    "expected": "SELECT bool_or(b1) AS t, bool_or(b2) AS t, bool_or(b3) AS f, bool_or(b4) AS n, bool_or(NOT b2) AS f, bool_or(NOT b3) AS t FROM bool_test"
   },
   {
     "comment": "aggregates - Statement 123",
-    "query": "explain (costs off) select min(unique1) from tenk1"
+    "query": "explain (costs off) select min(unique1) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT MIN(unique1) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 124",
-    "query": "select min(unique1) from tenk1"
+    "query": "select min(unique1) from tenk1",
+    "expected": "SELECT MIN(unique1) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 125",
-    "query": "explain (costs off) select max(unique1) from tenk1"
+    "query": "explain (costs off) select max(unique1) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(unique1) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 126",
-    "query": "select max(unique1) from tenk1"
+    "query": "select max(unique1) from tenk1",
+    "expected": "SELECT MAX(unique1) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 127",
-    "query": "explain (costs off) select max(unique1) from tenk1 where unique1 < 42"
+    "query": "explain (costs off) select max(unique1) from tenk1 where unique1 \u003c 42",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(unique1) FROM tenk1 WHERE unique1 \u003c 42"
   },
   {
     "comment": "aggregates - Statement 128",
-    "query": "select max(unique1) from tenk1 where unique1 < 42"
+    "query": "select max(unique1) from tenk1 where unique1 \u003c 42",
+    "expected": "SELECT MAX(unique1) FROM tenk1 WHERE unique1 \u003c 42"
   },
   {
     "comment": "aggregates - Statement 129",
-    "query": "explain (costs off) select max(unique1) from tenk1 where unique1 > 42"
+    "query": "explain (costs off) select max(unique1) from tenk1 where unique1 \u003e 42",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(unique1) FROM tenk1 WHERE unique1 \u003e 42"
   },
   {
     "comment": "aggregates - Statement 130",
-    "query": "select max(unique1) from tenk1 where unique1 > 42"
+    "query": "select max(unique1) from tenk1 where unique1 \u003e 42",
+    "expected": "SELECT MAX(unique1) FROM tenk1 WHERE unique1 \u003e 42"
   },
   {
     "comment": "aggregates - Statement 131",
-    "query": "begin"
+    "query": "begin",
+    "expected": "BEGIN"
   },
   {
     "comment": "aggregates - Statement 132",
-    "query": "set local max_parallel_workers_per_gather = 0"
+    "query": "set local max_parallel_workers_per_gather = 0",
+    "expected": "SET LOCAL max_parallel_workers_per_gather = 0"
   },
   {
     "comment": "aggregates - Statement 133",
-    "query": "explain (costs off) select max(unique1) from tenk1 where unique1 > 42000"
+    "query": "explain (costs off) select max(unique1) from tenk1 where unique1 \u003e 42000",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(unique1) FROM tenk1 WHERE unique1 \u003e 42000"
   },
   {
     "comment": "aggregates - Statement 134",
-    "query": "select max(unique1) from tenk1 where unique1 > 42000"
+    "query": "select max(unique1) from tenk1 where unique1 \u003e 42000",
+    "expected": "SELECT MAX(unique1) FROM tenk1 WHERE unique1 \u003e 42000"
   },
   {
     "comment": "aggregates - Statement 135",
-    "query": "rollback"
+    "query": "rollback",
+    "expected": "ROLLBACK"
   },
   {
     "comment": "aggregates - Statement 136",
-    "query": "explain (costs off) select max(tenthous) from tenk1 where thousand = 33"
+    "query": "explain (costs off) select max(tenthous) from tenk1 where thousand = 33",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(tenthous) FROM tenk1 WHERE thousand = 33"
   },
   {
     "comment": "aggregates - Statement 137",
-    "query": "select max(tenthous) from tenk1 where thousand = 33"
+    "query": "select max(tenthous) from tenk1 where thousand = 33",
+    "expected": "SELECT MAX(tenthous) FROM tenk1 WHERE thousand = 33"
   },
   {
     "comment": "aggregates - Statement 138",
-    "query": "explain (costs off) select min(tenthous) from tenk1 where thousand = 33"
+    "query": "explain (costs off) select min(tenthous) from tenk1 where thousand = 33",
+    "expected": "EXPLAIN (COSTS false) SELECT MIN(tenthous) FROM tenk1 WHERE thousand = 33"
   },
   {
     "comment": "aggregates - Statement 139",
-    "query": "select min(tenthous) from tenk1 where thousand = 33"
+    "query": "select min(tenthous) from tenk1 where thousand = 33",
+    "expected": "SELECT MIN(tenthous) FROM tenk1 WHERE thousand = 33"
   },
   {
     "comment": "aggregates - Statement 140",
-    "query": "explain (costs off) select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt from int4_tbl"
+    "query": "explain (costs off) select f1, (select min(unique1) from tenk1 where unique1 \u003e f1) AS gt from int4_tbl",
+    "expected": "EXPLAIN (COSTS false) SELECT f1, (SELECT MIN(unique1) FROM tenk1 WHERE unique1 \u003e f1) AS gt FROM int4_tbl"
   },
   {
     "comment": "aggregates - Statement 141",
-    "query": "select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt from int4_tbl"
+    "query": "select f1, (select min(unique1) from tenk1 where unique1 \u003e f1) AS gt from int4_tbl",
+    "expected": "SELECT f1, (SELECT MIN(unique1) FROM tenk1 WHERE unique1 \u003e f1) AS gt FROM int4_tbl"
   },
   {
     "comment": "aggregates - Statement 142",
-    "query": "explain (costs off) select distinct max(unique2) from tenk1"
+    "query": "explain (costs off) select distinct max(unique2) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT DISTINCT MAX(unique2) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 143",
-    "query": "select distinct max(unique2) from tenk1"
+    "query": "select distinct max(unique2) from tenk1",
+    "expected": "SELECT DISTINCT MAX(unique2) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 144",
-    "query": "explain (costs off) select max(unique2) from tenk1 order by 1"
+    "query": "explain (costs off) select max(unique2) from tenk1 order by 1",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(unique2) FROM tenk1 ORDER BY 1"
   },
   {
     "comment": "aggregates - Statement 145",
-    "query": "select max(unique2) from tenk1 order by 1"
+    "query": "select max(unique2) from tenk1 order by 1",
+    "expected": "SELECT MAX(unique2) FROM tenk1 ORDER BY 1"
   },
   {
     "comment": "aggregates - Statement 146",
-    "query": "explain (costs off) select max(unique2) from tenk1 order by max(unique2)"
+    "query": "explain (costs off) select max(unique2) from tenk1 order by max(unique2)",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(unique2) FROM tenk1 ORDER BY MAX(unique2)"
   },
   {
     "comment": "aggregates - Statement 147",
-    "query": "select max(unique2) from tenk1 order by max(unique2)"
+    "query": "select max(unique2) from tenk1 order by max(unique2)",
+    "expected": "SELECT MAX(unique2) FROM tenk1 ORDER BY MAX(unique2)"
   },
   {
     "comment": "aggregates - Statement 148",
-    "query": "explain (costs off) select max(unique2) from tenk1 order by max(unique2)+1"
+    "query": "explain (costs off) select max(unique2) from tenk1 order by max(unique2)+1",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(unique2) FROM tenk1 ORDER BY MAX(unique2) + 1"
   },
   {
     "comment": "aggregates - Statement 149",
-    "query": "select max(unique2) from tenk1 order by max(unique2)+1"
+    "query": "select max(unique2) from tenk1 order by max(unique2)+1",
+    "expected": "SELECT MAX(unique2) FROM tenk1 ORDER BY MAX(unique2) + 1"
   },
   {
     "comment": "aggregates - Statement 150",
-    "query": "explain (costs off) select max(unique2), generate_series(1,3) as g from tenk1 order by g desc"
+    "query": "explain (costs off) select max(unique2), generate_series(1,3) as g from tenk1 order by g desc",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(unique2), generate_series(1, 3) AS g FROM tenk1 ORDER BY g DESC"
   },
   {
     "comment": "aggregates - Statement 151",
-    "query": "select max(unique2), generate_series(1,3) as g from tenk1 order by g desc"
+    "query": "select max(unique2), generate_series(1,3) as g from tenk1 order by g desc",
+    "expected": "SELECT MAX(unique2), generate_series(1, 3) AS g FROM tenk1 ORDER BY g DESC"
   },
   {
     "comment": "aggregates - Statement 152",
-    "query": "explain (costs off) select max(100) from tenk1"
+    "query": "explain (costs off) select max(100) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(100) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 153",
-    "query": "select max(100) from tenk1"
+    "query": "select max(100) from tenk1",
+    "expected": "SELECT MAX(100) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 154",
-    "query": "create table minmaxtest(f1 int)"
+    "query": "create table minmaxtest(f1 int)",
+    "expected": "CREATE TABLE minmaxtest (f1 INT)"
   },
   {
     "comment": "aggregates - Statement 155",
-    "query": "create table minmaxtest1() inherits (minmaxtest)"
+    "query": "create table minmaxtest1() inherits (minmaxtest)",
+    "expected": "CREATE TABLE minmaxtest1 () INHERITS (minmaxtest)"
   },
   {
     "comment": "aggregates - Statement 156",
-    "query": "create table minmaxtest2() inherits (minmaxtest)"
+    "query": "create table minmaxtest2() inherits (minmaxtest)",
+    "expected": "CREATE TABLE minmaxtest2 () INHERITS (minmaxtest)"
   },
   {
     "comment": "aggregates - Statement 157",
-    "query": "create table minmaxtest3() inherits (minmaxtest)"
+    "query": "create table minmaxtest3() inherits (minmaxtest)",
+    "expected": "CREATE TABLE minmaxtest3 () INHERITS (minmaxtest)"
   },
   {
     "comment": "aggregates - Statement 158",
-    "query": "create index minmaxtesti on minmaxtest(f1)"
+    "query": "create index minmaxtesti on minmaxtest(f1)",
+    "expected": "CREATE INDEX minmaxtesti ON minmaxtest (f1)"
   },
   {
     "comment": "aggregates - Statement 159",
-    "query": "create index minmaxtest1i on minmaxtest1(f1)"
+    "query": "create index minmaxtest1i on minmaxtest1(f1)",
+    "expected": "CREATE INDEX minmaxtest1i ON minmaxtest1 (f1)"
   },
   {
     "comment": "aggregates - Statement 160",
-    "query": "create index minmaxtest2i on minmaxtest2(f1 desc)"
+    "query": "create index minmaxtest2i on minmaxtest2(f1 desc)",
+    "expected": "CREATE INDEX minmaxtest2i ON minmaxtest2 (f1 desc)"
   },
   {
     "comment": "aggregates - Statement 161",
-    "query": "create index minmaxtest3i on minmaxtest3(f1) where f1 is not null"
+    "query": "create index minmaxtest3i on minmaxtest3(f1) where f1 is not null",
+    "expected": "CREATE INDEX minmaxtest3i ON minmaxtest3 (f1) WHERE f1 IS NOT NULL"
   },
   {
     "comment": "aggregates - Statement 162",
-    "query": "insert into minmaxtest values(11), (12)"
+    "query": "insert into minmaxtest values(11), (12)",
+    "expected": "INSERT INTO minmaxtest VALUES (11), (12)"
   },
   {
     "comment": "aggregates - Statement 163",
-    "query": "insert into minmaxtest1 values(13), (14)"
+    "query": "insert into minmaxtest1 values(13), (14)",
+    "expected": "INSERT INTO minmaxtest1 VALUES (13), (14)"
   },
   {
     "comment": "aggregates - Statement 164",
-    "query": "insert into minmaxtest2 values(15), (16)"
+    "query": "insert into minmaxtest2 values(15), (16)",
+    "expected": "INSERT INTO minmaxtest2 VALUES (15), (16)"
   },
   {
     "comment": "aggregates - Statement 165",
-    "query": "insert into minmaxtest3 values(17), (18)"
+    "query": "insert into minmaxtest3 values(17), (18)",
+    "expected": "INSERT INTO minmaxtest3 VALUES (17), (18)"
   },
   {
     "comment": "aggregates - Statement 166",
-    "query": "explain (costs off) select min(f1), max(f1) from minmaxtest"
+    "query": "explain (costs off) select min(f1), max(f1) from minmaxtest",
+    "expected": "EXPLAIN (COSTS false) SELECT MIN(f1), MAX(f1) FROM minmaxtest"
   },
   {
     "comment": "aggregates - Statement 167",
-    "query": "select min(f1), max(f1) from minmaxtest"
+    "query": "select min(f1), max(f1) from minmaxtest",
+    "expected": "SELECT MIN(f1), MAX(f1) FROM minmaxtest"
   },
   {
     "comment": "aggregates - Statement 168",
-    "query": "explain (costs off) select distinct min(f1), max(f1) from minmaxtest"
+    "query": "explain (costs off) select distinct min(f1), max(f1) from minmaxtest",
+    "expected": "EXPLAIN (COSTS false) SELECT DISTINCT MIN(f1), MAX(f1) FROM minmaxtest"
   },
   {
     "comment": "aggregates - Statement 169",
-    "query": "select distinct min(f1), max(f1) from minmaxtest"
+    "query": "select distinct min(f1), max(f1) from minmaxtest",
+    "expected": "SELECT DISTINCT MIN(f1), MAX(f1) FROM minmaxtest"
   },
   {
     "comment": "aggregates - Statement 170",
-    "query": "drop table minmaxtest cascade"
+    "query": "drop table minmaxtest cascade",
+    "expected": "DROP TABLE minmaxtest CASCADE"
   },
   {
     "comment": "aggregates - Statement 171",
-    "query": "set local enable_sort = off"
+    "query": "set local enable_sort = off",
+    "expected": "SET LOCAL enable_sort = off"
   },
   {
     "comment": "aggregates - Statement 172",
-    "query": "explain (costs off) select f1, (select distinct min(t1.f1) from int4_tbl t1 where t1.f1 = t0.f1) from int4_tbl t0"
+    "query": "explain (costs off) select f1, (select distinct min(t1.f1) from int4_tbl t1 where t1.f1 = t0.f1) from int4_tbl t0",
+    "expected": "EXPLAIN (COSTS false) SELECT f1, (SELECT DISTINCT MIN(t1.f1) FROM int4_tbl AS t1 WHERE t1.f1 = t0.f1) FROM int4_tbl AS t0"
   },
   {
     "comment": "aggregates - Statement 173",
-    "query": "select f1, (select distinct min(t1.f1) from int4_tbl t1 where t1.f1 = t0.f1) from int4_tbl t0"
+    "query": "select f1, (select distinct min(t1.f1) from int4_tbl t1 where t1.f1 = t0.f1) from int4_tbl t0",
+    "expected": "SELECT f1, (SELECT DISTINCT MIN(t1.f1) FROM int4_tbl AS t1 WHERE t1.f1 = t0.f1) FROM int4_tbl AS t0"
   },
   {
     "comment": "aggregates - Statement 174",
-    "query": "select max(min(unique1)) from tenk1"
+    "query": "select max(min(unique1)) from tenk1",
+    "expected": "SELECT MAX(MIN(unique1)) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 175",
-    "query": "select (select max(min(unique1)) from int8_tbl) from tenk1"
+    "query": "select (select max(min(unique1)) from int8_tbl) from tenk1",
+    "expected": "SELECT (SELECT MAX(MIN(unique1)) FROM int8_tbl) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 176",
-    "query": "select avg((select avg(a1.col1 order by (select avg(a2.col2) from tenk1 a3)) from tenk1 a1(col1))) from tenk1 a2(col2)"
+    "query": "select avg((select avg(a1.col1 order by (select avg(a2.col2) from tenk1 a3)) from tenk1 a1(col1))) from tenk1 a2(col2)",
+    "expected": "SELECT AVG((SELECT AVG(a1.col1 ORDER BY (SELECT AVG(a2.col2) FROM tenk1 AS a3)) FROM tenk1 AS a1(col1))) FROM tenk1 AS a2(col2)"
   },
   {
     "comment": "aggregates - Statement 177",
-    "query": "create temp table t1 (a int, b int, c int, d int, primary key (a, b))"
+    "query": "create temp table t1 (a int, b int, c int, d int, primary key (a, b))",
+    "expected": "CREATE TEMPORARY TABLE t1 (a INT, b INT, c INT, d INT, PRIMARY KEY (a, b))"
   },
   {
     "comment": "aggregates - Statement 178",
-    "query": "create temp table t2 (x int, y int, z int, primary key (x, y))"
+    "query": "create temp table t2 (x int, y int, z int, primary key (x, y))",
+    "expected": "CREATE TEMPORARY TABLE t2 (x INT, y INT, z INT, PRIMARY KEY (x, y))"
   },
   {
     "comment": "aggregates - Statement 179",
-    "query": "create temp table t3 (a int, b int, c int, primary key(a, b) deferrable)"
+    "query": "create temp table t3 (a int, b int, c int, primary key(a, b) deferrable)",
+    "expected": "CREATE TEMPORARY TABLE t3 (a INT, b INT, c INT, PRIMARY KEY (a, b))"
   },
   {
     "comment": "aggregates - Statement 180",
-    "query": "explain (costs off) select * from t1 group by a,b,c,d"
+    "query": "explain (costs off) select * from t1 group by a,b,c,d",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t1 GROUP BY a, b, c, d"
   },
   {
     "comment": "aggregates - Statement 181",
-    "query": "explain (costs off) select a,c from t1 group by a,c,d"
+    "query": "explain (costs off) select a,c from t1 group by a,c,d",
+    "expected": "EXPLAIN (COSTS false) SELECT a, c FROM t1 GROUP BY a, c, d"
   },
   {
     "comment": "aggregates - Statement 182",
-    "query": "explain (costs off) select * from t1 inner join t2 on t1.a = t2.x and t1.b = t2.y group by t1.a,t1.b,t1.c,t1.d,t2.x,t2.y,t2.z"
+    "query": "explain (costs off) select * from t1 inner join t2 on t1.a = t2.x and t1.b = t2.y group by t1.a,t1.b,t1.c,t1.d,t2.x,t2.y,t2.z",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t1 INNER JOIN t2 ON t1.a = t2.x AND t1.b = t2.y GROUP BY t1.a, t1.b, t1.c, t1.d, t2.x, t2.y, t2.z"
   },
   {
     "comment": "aggregates - Statement 183",
-    "query": "explain (costs off) select t1.*,t2.x,t2.z from t1 inner join t2 on t1.a = t2.x and t1.b = t2.y group by t1.a,t1.b,t1.c,t1.d,t2.x,t2.z"
+    "query": "explain (costs off) select t1.*,t2.x,t2.z from t1 inner join t2 on t1.a = t2.x and t1.b = t2.y group by t1.a,t1.b,t1.c,t1.d,t2.x,t2.z",
+    "expected": "EXPLAIN (COSTS false) SELECT t1.*, t2.x, t2.z FROM t1 INNER JOIN t2 ON t1.a = t2.x AND t1.b = t2.y GROUP BY t1.a, t1.b, t1.c, t1.d, t2.x, t2.z"
   },
   {
     "comment": "aggregates - Statement 184",
-    "query": "explain (costs off) select * from t3 group by a,b,c"
+    "query": "explain (costs off) select * from t3 group by a,b,c",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t3 GROUP BY a, b, c"
   },
   {
     "comment": "aggregates - Statement 185",
-    "query": "create temp table t1c () inherits (t1)"
+    "query": "create temp table t1c () inherits (t1)",
+    "expected": "CREATE TEMPORARY TABLE t1c () INHERITS (t1)"
   },
   {
     "comment": "aggregates - Statement 186",
-    "query": "explain (costs off) select * from only t1 group by a,b,c,d"
+    "query": "explain (costs off) select * from only t1 group by a,b,c,d",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM ONLY t1 GROUP BY a, b, c, d"
   },
   {
     "comment": "aggregates - Statement 187",
-    "query": "create temp table p_t1 ( a int, b int, c int, d int, primary key(a,b) ) partition by list(a)"
+    "query": "create temp table p_t1 ( a int, b int, c int, d int, primary key(a,b) ) partition by list(a)",
+    "expected": "CREATE TEMPORARY TABLE p_t1 (a INT, b INT, c INT, d INT, PRIMARY KEY (a, b)) PARTITION BY list (a)"
   },
   {
     "comment": "aggregates - Statement 188",
-    "query": "create temp table p_t1_1 partition of p_t1 for values in(1)"
+    "query": "create temp table p_t1_1 partition of p_t1 for values in(1)",
+    "expected": "CREATE TEMPORARY TABLE p_t1_1 PARTITION OF p_t1 FOR VALUES IN (1)"
   },
   {
     "comment": "aggregates - Statement 189",
-    "query": "create temp table p_t1_2 partition of p_t1 for values in(2)"
+    "query": "create temp table p_t1_2 partition of p_t1 for values in(2)",
+    "expected": "CREATE TEMPORARY TABLE p_t1_2 PARTITION OF p_t1 FOR VALUES IN (2)"
   },
   {
     "comment": "aggregates - Statement 190",
-    "query": "explain (costs off) select * from p_t1 group by a,b,c,d"
+    "query": "explain (costs off) select * from p_t1 group by a,b,c,d",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM p_t1 GROUP BY a, b, c, d"
   },
   {
     "comment": "aggregates - Statement 191",
-    "query": "drop table t1 cascade"
+    "query": "drop table t1 cascade",
+    "expected": "DROP TABLE t1 CASCADE"
   },
   {
     "comment": "aggregates - Statement 192",
-    "query": "drop table t2"
+    "query": "drop table t2",
+    "expected": "DROP TABLE t2"
   },
   {
     "comment": "aggregates - Statement 193",
-    "query": "drop table t3"
+    "query": "drop table t3",
+    "expected": "DROP TABLE t3"
   },
   {
     "comment": "aggregates - Statement 194",
-    "query": "drop table p_t1"
+    "query": "drop table p_t1",
+    "expected": "DROP TABLE p_t1"
   },
   {
     "comment": "aggregates - Statement 195",
-    "query": "create temp table t1(f1 int, f2 int)"
+    "query": "create temp table t1(f1 int, f2 int)",
+    "expected": "CREATE TEMPORARY TABLE t1 (f1 INT, f2 INT)"
   },
   {
     "comment": "aggregates - Statement 196",
-    "query": "create temp table t2(f1 bigint, f2 oid)"
+    "query": "create temp table t2(f1 bigint, f2 oid)",
+    "expected": "CREATE TEMPORARY TABLE t2 (f1 BIGINT, f2 oid)"
   },
   {
     "comment": "aggregates - Statement 197",
-    "query": "select f1 from t1 left join t2 using (f1) group by f1"
+    "query": "select f1 from t1 left join t2 using (f1) group by f1",
+    "expected": "SELECT f1 FROM t1 LEFT OUTER JOIN t2 USING (f1) GROUP BY f1"
   },
   {
     "comment": "aggregates - Statement 198",
-    "query": "select f1 from t1 left join t2 using (f1) group by t1.f1"
+    "query": "select f1 from t1 left join t2 using (f1) group by t1.f1",
+    "expected": "SELECT f1 FROM t1 LEFT OUTER JOIN t2 USING (f1) GROUP BY t1.f1"
   },
   {
     "comment": "aggregates - Statement 199",
-    "query": "select t1.f1 from t1 left join t2 using (f1) group by t1.f1"
+    "query": "select t1.f1 from t1 left join t2 using (f1) group by t1.f1",
+    "expected": "SELECT t1.f1 FROM t1 LEFT OUTER JOIN t2 USING (f1) GROUP BY t1.f1"
   },
   {
     "comment": "aggregates - Statement 200",
-    "query": "select t1.f1 from t1 left join t2 using (f1) group by f1"
+    "query": "select t1.f1 from t1 left join t2 using (f1) group by f1",
+    "expected": "SELECT t1.f1 FROM t1 LEFT OUTER JOIN t2 USING (f1) GROUP BY f1"
   },
   {
     "comment": "aggregates - Statement 201",
-    "query": "select f1, count(*) from t1 x(x0,x1) left join (t1 left join t2 using(f1)) on (x0 = 0) group by f1"
+    "query": "select f1, count(*) from t1 x(x0,x1) left join (t1 left join t2 using(f1)) on (x0 = 0) group by f1",
+    "expected": "SELECT f1, COUNT(*) FROM t1 AS x(x0, x1) LEFT OUTER JOIN (t1 LEFT OUTER JOIN t2 USING (f1)) ON (x0 = 0) GROUP BY f1"
   },
   {
     "comment": "aggregates - Statement 202",
-    "query": "select f2, count(*) from t1 x(x0,x1) left join (t1 left join t2 using(f2)) on (x0 = 0) group by f2"
+    "query": "select f2, count(*) from t1 x(x0,x1) left join (t1 left join t2 using(f2)) on (x0 = 0) group by f2",
+    "expected": "SELECT f2, COUNT(*) FROM t1 AS x(x0, x1) LEFT OUTER JOIN (t1 LEFT OUTER JOIN t2 USING (f2)) ON (x0 = 0) GROUP BY f2"
   },
   {
     "comment": "aggregates - Statement 203",
-    "query": "drop table t1, t2"
+    "query": "drop table t1, t2",
+    "expected": "DROP TABLE t1, t2"
   },
   {
     "comment": "aggregates - Statement 204",
-    "query": "explain (costs off) select sum(two order by two),max(four order by four), min(four order by four) from tenk1"
+    "query": "explain (costs off) select sum(two order by two),max(four order by four), min(four order by four) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT SUM(two ORDER BY two), MAX(four ORDER BY four), MIN(four ORDER BY four) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 205",
-    "query": "explain (costs off) select sum(two order by two), max(four order by four), min(four order by four), max(two order by two) from tenk1"
+    "query": "explain (costs off) select sum(two order by two), max(four order by four), min(four order by four), max(two order by two) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT SUM(two ORDER BY two), MAX(four ORDER BY four), MIN(four ORDER BY four), MAX(two ORDER BY two) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 206",
-    "query": "explain (costs off) select max(four order by four), sum(two order by two), min(four order by four), max(two order by two) from tenk1"
+    "query": "explain (costs off) select max(four order by four), sum(two order by two), min(four order by four), max(two order by two) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(four ORDER BY four), SUM(two ORDER BY two), MIN(four ORDER BY four), MAX(two ORDER BY two) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 207",
-    "query": "explain (costs off) select max(four order by four), sum(two order by two), min(four order by four), max(two order by two), sum(ten order by ten), min(ten order by ten), max(ten order by ten) from tenk1"
+    "query": "explain (costs off) select max(four order by four), sum(two order by two), min(four order by four), max(two order by two), sum(ten order by ten), min(ten order by ten), max(ten order by ten) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT MAX(four ORDER BY four), SUM(two ORDER BY two), MIN(four ORDER BY four), MAX(two ORDER BY two), SUM(ten ORDER BY ten), MIN(ten ORDER BY ten), MAX(ten ORDER BY ten) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 208",
-    "query": "explain (costs off) select sum(unique1 order by ten, two), sum(unique1 order by four), sum(unique1 order by two, four) from tenk1 group by ten"
+    "query": "explain (costs off) select sum(unique1 order by ten, two), sum(unique1 order by four), sum(unique1 order by two, four) from tenk1 group by ten",
+    "expected": "EXPLAIN (COSTS false) SELECT SUM(unique1 ORDER BY ten, two), SUM(unique1 ORDER BY four), SUM(unique1 ORDER BY two, four) FROM tenk1 GROUP BY ten"
   },
   {
     "comment": "aggregates - Statement 209",
-    "query": "explain (costs off) select sum(unique1 order by two), sum(unique1 order by four), sum(unique1 order by four, two), sum(unique1 order by two, random()), sum(unique1 order by two, random(), random() + 1) from tenk1 group by ten"
+    "query": "explain (costs off) select sum(unique1 order by two), sum(unique1 order by four), sum(unique1 order by four, two), sum(unique1 order by two, random()), sum(unique1 order by two, random(), random() + 1) from tenk1 group by ten",
+    "expected": "EXPLAIN (COSTS false) SELECT SUM(unique1 ORDER BY two), SUM(unique1 ORDER BY four), SUM(unique1 ORDER BY four, two), SUM(unique1 ORDER BY two, random()), SUM(unique1 ORDER BY two, random(), random() + 1) FROM tenk1 GROUP BY ten"
   },
   {
     "comment": "aggregates - Statement 210",
-    "query": "select array_agg(distinct val) from (select null as val from generate_series(1, 2))"
+    "query": "select array_agg(distinct val) from (select null as val from generate_series(1, 2))",
+    "expected": "SELECT array_agg(DISTINCT val) FROM (SELECT NULL AS val FROM generate_series(1, 2))"
   },
   {
     "comment": "aggregates - Statement 211",
-    "query": "set enable_presorted_aggregate to off"
+    "query": "set enable_presorted_aggregate to off",
+    "expected": "SET enable_presorted_aggregate = off"
   },
   {
     "comment": "aggregates - Statement 212",
-    "query": "explain (costs off) select sum(two order by two) from tenk1"
+    "query": "explain (costs off) select sum(two order by two) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT SUM(two ORDER BY two) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 213",
-    "query": "reset enable_presorted_aggregate"
+    "query": "reset enable_presorted_aggregate",
+    "expected": "RESET enable_presorted_aggregate"
   },
   {
     "comment": "aggregates - Statement 214",
-    "query": "explain (costs off) select sum(two order by two) filter (where two > 1) from tenk1"
+    "query": "explain (costs off) select sum(two order by two) filter (where two \u003e 1) from tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT SUM(two ORDER BY two) FILTER (WHERE two \u003e 1) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 215",
-    "query": "explain (costs off) select string_agg(distinct f1, ',') filter (where length(f1) > 1) from varchar_tbl"
+    "query": "explain (costs off) select string_agg(distinct f1, ',') filter (where length(f1) \u003e 1) from varchar_tbl",
+    "expected": "EXPLAIN (COSTS false) SELECT string_agg(DISTINCT f1, ',') FILTER (WHERE length(f1) \u003e 1) FROM varchar_tbl"
   },
   {
     "comment": "aggregates - Statement 216",
-    "query": "explain (costs off) select string_agg(distinct f1::varchar(2), ',') filter (where length(f1) > 1) from varchar_tbl"
+    "query": "explain (costs off) select string_agg(distinct f1::varchar(2), ',') filter (where length(f1) \u003e 1) from varchar_tbl",
+    "expected": "EXPLAIN (COSTS false) SELECT string_agg(DISTINCT CAST(f1 AS VARCHAR(2)), ',') FILTER (WHERE length(f1) \u003e 1) FROM varchar_tbl"
   },
   {
     "comment": "aggregates - Statement 217",
-    "query": "select array_agg(a order by b) from (values (1,4),(2,3),(3,1),(4,2)) v(a,b)"
+    "query": "select array_agg(a order by b) from (values (1,4),(2,3),(3,1),(4,2)) v(a,b)",
+    "expected": "SELECT array_agg(a ORDER BY b) FROM (VALUES (1, 4), (2, 3), (3, 1), (4, 2)) AS v(a, b)"
   },
   {
     "comment": "aggregates - Statement 218",
-    "query": "select array_agg(a order by a) from (values (1,4),(2,3),(3,1),(4,2)) v(a,b)"
+    "query": "select array_agg(a order by a) from (values (1,4),(2,3),(3,1),(4,2)) v(a,b)",
+    "expected": "SELECT array_agg(a ORDER BY a) FROM (VALUES (1, 4), (2, 3), (3, 1), (4, 2)) AS v(a, b)"
   },
   {
     "comment": "aggregates - Statement 219",
-    "query": "select array_agg(a order by a desc) from (values (1,4),(2,3),(3,1),(4,2)) v(a,b)"
+    "query": "select array_agg(a order by a desc) from (values (1,4),(2,3),(3,1),(4,2)) v(a,b)",
+    "expected": "SELECT array_agg(a ORDER BY a DESC) FROM (VALUES (1, 4), (2, 3), (3, 1), (4, 2)) AS v(a, b)"
   },
   {
     "comment": "aggregates - Statement 220",
-    "query": "select array_agg(b order by a desc) from (values (1,4),(2,3),(3,1),(4,2)) v(a,b)"
+    "query": "select array_agg(b order by a desc) from (values (1,4),(2,3),(3,1),(4,2)) v(a,b)",
+    "expected": "SELECT array_agg(b ORDER BY a DESC) FROM (VALUES (1, 4), (2, 3), (3, 1), (4, 2)) AS v(a, b)"
   },
   {
     "comment": "aggregates - Statement 221",
-    "query": "select array_agg(distinct a) from (values (1),(2),(1),(3),(null),(2)) v(a)"
+    "query": "select array_agg(distinct a) from (values (1),(2),(1),(3),(null),(2)) v(a)",
+    "expected": "SELECT array_agg(DISTINCT a) FROM (VALUES (1), (2), (1), (3), (NULL), (2)) AS v(a)"
   },
   {
     "comment": "aggregates - Statement 222",
-    "query": "select array_agg(distinct a order by a) from (values (1),(2),(1),(3),(null),(2)) v(a)"
+    "query": "select array_agg(distinct a order by a) from (values (1),(2),(1),(3),(null),(2)) v(a)",
+    "expected": "SELECT array_agg(DISTINCT a ORDER BY a) FROM (VALUES (1), (2), (1), (3), (NULL), (2)) AS v(a)"
   },
   {
     "comment": "aggregates - Statement 223",
-    "query": "select array_agg(distinct a order by a desc) from (values (1),(2),(1),(3),(null),(2)) v(a)"
+    "query": "select array_agg(distinct a order by a desc) from (values (1),(2),(1),(3),(null),(2)) v(a)",
+    "expected": "SELECT array_agg(DISTINCT a ORDER BY a DESC) FROM (VALUES (1), (2), (1), (3), (NULL), (2)) AS v(a)"
   },
   {
     "comment": "aggregates - Statement 224",
-    "query": "select array_agg(distinct a order by a desc nulls last) from (values (1),(2),(1),(3),(null),(2)) v(a)"
+    "query": "select array_agg(distinct a order by a desc nulls last) from (values (1),(2),(1),(3),(null),(2)) v(a)",
+    "expected": "SELECT array_agg(DISTINCT a ORDER BY a DESC NULLS LAST) FROM (VALUES (1), (2), (1), (3), (NULL), (2)) AS v(a)"
   },
   {
     "comment": "aggregates - Statement 225",
-    "query": "select aggfstr(a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)"
+    "query": "select aggfstr(a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)",
+    "expected": "SELECT aggfstr(a, b, c) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c)"
   },
   {
     "comment": "aggregates - Statement 226",
-    "query": "select aggfns(a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)"
+    "query": "select aggfns(a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)",
+    "expected": "SELECT aggfns(a, b, c) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c)"
   },
   {
     "comment": "aggregates - Statement 227",
-    "query": "select aggfstr(distinct a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i"
+    "query": "select aggfstr(distinct a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i",
+    "expected": "SELECT aggfstr(DISTINCT a, b, c) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 3) AS i"
   },
   {
     "comment": "aggregates - Statement 228",
-    "query": "select aggfns(distinct a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i"
+    "query": "select aggfns(distinct a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i",
+    "expected": "SELECT aggfns(DISTINCT a, b, c) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 3) AS i"
   },
   {
     "comment": "aggregates - Statement 229",
-    "query": "select aggfstr(distinct a,b,c order by b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i"
+    "query": "select aggfstr(distinct a,b,c order by b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i",
+    "expected": "SELECT aggfstr(DISTINCT a, b, c ORDER BY b) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 3) AS i"
   },
   {
     "comment": "aggregates - Statement 230",
-    "query": "select aggfns(distinct a,b,c order by b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i"
+    "query": "select aggfns(distinct a,b,c order by b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i",
+    "expected": "SELECT aggfns(DISTINCT a, b, c ORDER BY b) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 3) AS i"
   },
   {
     "comment": "aggregates - Statement 231",
-    "query": "select aggfns(distinct a,a,c order by c using ~<~,a) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i"
+    "query": "select aggfns(distinct a,a,c order by c using ~\u003c~,a) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i",
+    "expected": "SELECT aggfns(DISTINCT a, a, c ORDER BY c USING ~\u003c~, a) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 2) AS i"
   },
   {
     "comment": "aggregates - Statement 232",
-    "query": "select aggfns(distinct a,a,c order by c using ~<~) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i"
+    "query": "select aggfns(distinct a,a,c order by c using ~\u003c~) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i",
+    "expected": "SELECT aggfns(DISTINCT a, a, c ORDER BY c USING ~\u003c~) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 2) AS i"
   },
   {
     "comment": "aggregates - Statement 233",
-    "query": "select aggfns(distinct a,a,c order by a) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i"
+    "query": "select aggfns(distinct a,a,c order by a) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i",
+    "expected": "SELECT aggfns(DISTINCT a, a, c ORDER BY a) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 2) AS i"
   },
   {
     "comment": "aggregates - Statement 234",
-    "query": "select aggfns(distinct a,b,c order by a,c using ~<~,b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i"
+    "query": "select aggfns(distinct a,b,c order by a,c using ~\u003c~,b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i",
+    "expected": "SELECT aggfns(DISTINCT a, b, c ORDER BY a, c USING ~\u003c~, b) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 2) AS i"
   },
   {
     "comment": "aggregates - Statement 235",
-    "query": "select string_agg(distinct 'a', ','), sum(( select sum(1) from (values(1)) b(id) where a.id = b.id )) from unnest(array[1]) a(id)"
+    "query": "select string_agg(distinct 'a', ','), sum(( select sum(1) from (values(1)) b(id) where a.id = b.id )) from unnest(array[1]) a(id)",
+    "expected": "SELECT string_agg(DISTINCT 'a', ','), SUM((SELECT SUM(1) FROM (VALUES (1)) AS b(id) WHERE a.id = b.id)) FROM unnest(ARRAY[1]) AS a(id)"
   },
   {
     "comment": "aggregates - Statement 236",
-    "query": "create view agg_view1 as select aggfns(a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)"
+    "query": "create view agg_view1 as select aggfns(a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)",
+    "expected": "CREATE VIEW agg_view1 AS SELECT aggfns(a, b, c) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c)"
   },
   {
     "comment": "aggregates - Statement 237",
-    "query": "select * from agg_view1"
+    "query": "select * from agg_view1",
+    "expected": "SELECT * FROM agg_view1"
   },
   {
     "comment": "aggregates - Statement 238",
-    "query": "select pg_get_viewdef('agg_view1'::regclass)"
+    "query": "select pg_get_viewdef('agg_view1'::regclass)",
+    "expected": "SELECT pg_get_viewdef(CAST('agg_view1' AS regclass))"
   },
   {
     "comment": "aggregates - Statement 239",
-    "query": "create or replace view agg_view1 as select aggfns(distinct a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i"
+    "query": "create or replace view agg_view1 as select aggfns(distinct a,b,c) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i",
+    "expected": "CREATE OR REPLACE VIEW agg_view1 AS SELECT aggfns(DISTINCT a, b, c) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 3) AS i"
   },
   {
     "comment": "aggregates - Statement 240",
-    "query": "create or replace view agg_view1 as select aggfns(distinct a,b,c order by b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i"
+    "query": "create or replace view agg_view1 as select aggfns(distinct a,b,c order by b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,3) i",
+    "expected": "CREATE OR REPLACE VIEW agg_view1 AS SELECT aggfns(DISTINCT a, b, c ORDER BY b) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 3) AS i"
   },
   {
     "comment": "aggregates - Statement 241",
-    "query": "create or replace view agg_view1 as select aggfns(a,b,c order by b+1) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)"
+    "query": "create or replace view agg_view1 as select aggfns(a,b,c order by b+1) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)",
+    "expected": "CREATE OR REPLACE VIEW agg_view1 AS SELECT aggfns(a, b, c ORDER BY b + 1) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c)"
   },
   {
     "comment": "aggregates - Statement 242",
-    "query": "create or replace view agg_view1 as select aggfns(a,a,c order by b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)"
+    "query": "create or replace view agg_view1 as select aggfns(a,a,c order by b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)",
+    "expected": "CREATE OR REPLACE VIEW agg_view1 AS SELECT aggfns(a, a, c ORDER BY b) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c)"
   },
   {
     "comment": "aggregates - Statement 243",
-    "query": "create or replace view agg_view1 as select aggfns(a,b,c order by c using ~<~) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)"
+    "query": "create or replace view agg_view1 as select aggfns(a,b,c order by c using ~\u003c~) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c)",
+    "expected": "CREATE OR REPLACE VIEW agg_view1 AS SELECT aggfns(a, b, c ORDER BY c USING ~\u003c~) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c)"
   },
   {
     "comment": "aggregates - Statement 244",
-    "query": "create or replace view agg_view1 as select aggfns(distinct a,b,c order by a,c using ~<~,b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i"
+    "query": "create or replace view agg_view1 as select aggfns(distinct a,b,c order by a,c using ~\u003c~,b) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i",
+    "expected": "CREATE OR REPLACE VIEW agg_view1 AS SELECT aggfns(DISTINCT a, b, c ORDER BY a, c USING ~\u003c~, b) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 2) AS i"
   },
   {
     "comment": "aggregates - Statement 245",
-    "query": "drop view agg_view1"
+    "query": "drop view agg_view1",
+    "expected": "DROP VIEW agg_view1"
   },
   {
     "comment": "aggregates - Statement 246",
-    "query": "select aggfns(distinct a,b,c order by i) from (values (1,1,'foo')) v(a,b,c), generate_series(1,2) i"
+    "query": "select aggfns(distinct a,b,c order by i) from (values (1,1,'foo')) v(a,b,c), generate_series(1,2) i",
+    "expected": "SELECT aggfns(DISTINCT a, b, c ORDER BY i) FROM (VALUES (1, 1, 'foo')) AS v(a, b, c), generate_series(1, 2) AS i"
   },
   {
     "comment": "aggregates - Statement 247",
-    "query": "select aggfns(distinct a,b,c order by a,b+1) from (values (1,1,'foo')) v(a,b,c), generate_series(1,2) i"
+    "query": "select aggfns(distinct a,b,c order by a,b+1) from (values (1,1,'foo')) v(a,b,c), generate_series(1,2) i",
+    "expected": "SELECT aggfns(DISTINCT a, b, c ORDER BY a, b + 1) FROM (VALUES (1, 1, 'foo')) AS v(a, b, c), generate_series(1, 2) AS i"
   },
   {
     "comment": "aggregates - Statement 248",
-    "query": "select aggfns(distinct a,b,c order by a,b,i,c) from (values (1,1,'foo')) v(a,b,c), generate_series(1,2) i"
+    "query": "select aggfns(distinct a,b,c order by a,b,i,c) from (values (1,1,'foo')) v(a,b,c), generate_series(1,2) i",
+    "expected": "SELECT aggfns(DISTINCT a, b, c ORDER BY a, b, i, c) FROM (VALUES (1, 1, 'foo')) AS v(a, b, c), generate_series(1, 2) AS i"
   },
   {
     "comment": "aggregates - Statement 249",
-    "query": "select aggfns(distinct a,a,c order by a,b) from (values (1,1,'foo')) v(a,b,c), generate_series(1,2) i"
+    "query": "select aggfns(distinct a,a,c order by a,b) from (values (1,1,'foo')) v(a,b,c), generate_series(1,2) i",
+    "expected": "SELECT aggfns(DISTINCT a, a, c ORDER BY a, b) FROM (VALUES (1, 1, 'foo')) AS v(a, b, c), generate_series(1, 2) AS i"
   },
   {
     "comment": "aggregates - Statement 250",
-    "query": "select string_agg(a,',') from (values('aaaa'),('bbbb'),('cccc')) g(a)"
+    "query": "select string_agg(a,',') from (values('aaaa'),('bbbb'),('cccc')) g(a)",
+    "expected": "SELECT string_agg(a, ',') FROM (VALUES ('aaaa'), ('bbbb'), ('cccc')) AS g(a)"
   },
   {
     "comment": "aggregates - Statement 251",
-    "query": "select string_agg(a,',') from (values('aaaa'),(null),('bbbb'),('cccc')) g(a)"
+    "query": "select string_agg(a,',') from (values('aaaa'),(null),('bbbb'),('cccc')) g(a)",
+    "expected": "SELECT string_agg(a, ',') FROM (VALUES ('aaaa'), (NULL), ('bbbb'), ('cccc')) AS g(a)"
   },
   {
     "comment": "aggregates - Statement 252",
-    "query": "select string_agg(a,'AB') from (values(null),(null),('bbbb'),('cccc')) g(a)"
+    "query": "select string_agg(a,'AB') from (values(null),(null),('bbbb'),('cccc')) g(a)",
+    "expected": "SELECT string_agg(a, 'AB') FROM (VALUES (NULL), (NULL), ('bbbb'), ('cccc')) AS g(a)"
   },
   {
     "comment": "aggregates - Statement 253",
-    "query": "select string_agg(a,',') from (values(null),(null)) g(a)"
+    "query": "select string_agg(a,',') from (values(null),(null)) g(a)",
+    "expected": "SELECT string_agg(a, ',') FROM (VALUES (NULL), (NULL)) AS g(a)"
   },
   {
     "comment": "aggregates - Statement 254",
-    "query": "select string_agg(distinct f1, ',' order by f1) from varchar_tbl"
+    "query": "select string_agg(distinct f1, ',' order by f1) from varchar_tbl",
+    "expected": "SELECT string_agg(DISTINCT f1, ',' ORDER BY f1) FROM varchar_tbl"
   },
   {
     "comment": "aggregates - Statement 255",
-    "query": "select string_agg(distinct f1::text, ',' order by f1) from varchar_tbl"
+    "query": "select string_agg(distinct f1::text, ',' order by f1) from varchar_tbl",
+    "expected": "SELECT string_agg(DISTINCT CAST(f1 AS TEXT), ',' ORDER BY f1) FROM varchar_tbl"
   },
   {
     "comment": "aggregates - Statement 256",
-    "query": "select string_agg(distinct f1, ',' order by f1::text) from varchar_tbl"
+    "query": "select string_agg(distinct f1, ',' order by f1::text) from varchar_tbl",
+    "expected": "SELECT string_agg(DISTINCT f1, ',' ORDER BY CAST(f1 AS TEXT)) FROM varchar_tbl"
   },
   {
     "comment": "aggregates - Statement 257",
-    "query": "select string_agg(distinct f1::text, ',' order by f1::text) from varchar_tbl"
+    "query": "select string_agg(distinct f1::text, ',' order by f1::text) from varchar_tbl",
+    "expected": "SELECT string_agg(DISTINCT CAST(f1 AS TEXT), ',' ORDER BY CAST(f1 AS TEXT)) FROM varchar_tbl"
   },
   {
     "comment": "aggregates - Statement 258",
-    "query": "create table bytea_test_table(v bytea)"
+    "query": "create table bytea_test_table(v bytea)",
+    "expected": "CREATE TABLE bytea_test_table (v BYTEA)"
   },
   {
     "comment": "aggregates - Statement 259",
-    "query": "select string_agg(v, '') from bytea_test_table"
+    "query": "select string_agg(v, '') from bytea_test_table",
+    "expected": "SELECT string_agg(v, '') FROM bytea_test_table"
   },
   {
     "comment": "aggregates - Statement 260",
-    "query": "insert into bytea_test_table values(decode('ff','hex'))"
+    "query": "insert into bytea_test_table values(decode('ff','hex'))",
+    "expected": "INSERT INTO bytea_test_table VALUES (decode('ff', 'hex'))"
   },
   {
     "comment": "aggregates - Statement 261",
-    "query": "insert into bytea_test_table values(decode('aa','hex'))"
+    "query": "insert into bytea_test_table values(decode('aa','hex'))",
+    "expected": "INSERT INTO bytea_test_table VALUES (decode('aa', 'hex'))"
   },
   {
     "comment": "aggregates - Statement 262",
-    "query": "select string_agg(v, NULL) from bytea_test_table"
+    "query": "select string_agg(v, NULL) from bytea_test_table",
+    "expected": "SELECT string_agg(v, NULL) FROM bytea_test_table"
   },
   {
     "comment": "aggregates - Statement 263",
-    "query": "select string_agg(v, decode('ee', 'hex')) from bytea_test_table"
+    "query": "select string_agg(v, decode('ee', 'hex')) from bytea_test_table",
+    "expected": "SELECT string_agg(v, decode('ee', 'hex')) FROM bytea_test_table"
   },
   {
     "comment": "aggregates - Statement 264",
-    "query": "drop table bytea_test_table"
+    "query": "drop table bytea_test_table",
+    "expected": "DROP TABLE bytea_test_table"
   },
   {
     "comment": "aggregates - Statement 265",
-    "query": "create table pagg_test (x int, y int) with (autovacuum_enabled = off)"
+    "query": "create table pagg_test (x int, y int) with (autovacuum_enabled = off)",
+    "expected": "CREATE TABLE pagg_test (x INT, y INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "aggregates - Statement 266",
-    "query": "insert into pagg_test select (case x % 4 when 1 then null else x end), x % 10 from generate_series(1,5000) x"
+    "query": "insert into pagg_test select (case x % 4 when 1 then null else x end), x % 10 from generate_series(1,5000) x",
+    "expected": "INSERT INTO pagg_test SELECT (CASE x % 4 WHEN 1 THEN NULL ELSE x END), x % 10 FROM generate_series(1, 5000) AS x"
   },
   {
     "comment": "aggregates - Statement 267",
-    "query": "set parallel_setup_cost TO 0"
+    "query": "set parallel_setup_cost TO 0",
+    "expected": "SET parallel_setup_cost = 0"
   },
   {
     "comment": "aggregates - Statement 268",
-    "query": "set parallel_tuple_cost TO 0"
+    "query": "set parallel_tuple_cost TO 0",
+    "expected": "SET parallel_tuple_cost = 0"
   },
   {
     "comment": "aggregates - Statement 269",
-    "query": "set parallel_leader_participation TO 0"
+    "query": "set parallel_leader_participation TO 0",
+    "expected": "SET parallel_leader_participation = 0"
   },
   {
     "comment": "aggregates - Statement 270",
-    "query": "set min_parallel_table_scan_size = 0"
+    "query": "set min_parallel_table_scan_size = 0",
+    "expected": "SET min_parallel_table_scan_size = 0"
   },
   {
     "comment": "aggregates - Statement 271",
-    "query": "set bytea_output = 'escape'"
+    "query": "set bytea_output = 'escape'",
+    "expected": "SET bytea_output = 'escape'"
   },
   {
     "comment": "aggregates - Statement 272",
-    "query": "set max_parallel_workers_per_gather = 2"
+    "query": "set max_parallel_workers_per_gather = 2",
+    "expected": "SET max_parallel_workers_per_gather = 2"
   },
   {
     "comment": "aggregates - Statement 273",
-    "query": "create view v_pagg_test AS select y, min(t) AS tmin,max(t) AS tmax,count(distinct t) AS tndistinct, min(b) AS bmin,max(b) AS bmax,count(distinct b) AS bndistinct, min(a) AS amin,max(a) AS amax,count(distinct a) AS andistinct, min(aa) AS aamin,max(aa) AS aamax,count(distinct aa) AS aandistinct from ( select y, unnest(regexp_split_to_array(a1.t, ','))::int AS t, unnest(regexp_split_to_array(a1.b::text, ',')) AS b, unnest(a1.a) AS a, unnest(a1.aa) AS aa from ( select y, string_agg(x::text, ',') AS t, string_agg(x::text::bytea, ',') AS b, array_agg(x) AS a, array_agg(ARRAY[x]) AS aa from pagg_test group by y ) a1 ) a2 group by y"
+    "query": "create view v_pagg_test AS select y, min(t) AS tmin,max(t) AS tmax,count(distinct t) AS tndistinct, min(b) AS bmin,max(b) AS bmax,count(distinct b) AS bndistinct, min(a) AS amin,max(a) AS amax,count(distinct a) AS andistinct, min(aa) AS aamin,max(aa) AS aamax,count(distinct aa) AS aandistinct from ( select y, unnest(regexp_split_to_array(a1.t, ','))::int AS t, unnest(regexp_split_to_array(a1.b::text, ',')) AS b, unnest(a1.a) AS a, unnest(a1.aa) AS aa from ( select y, string_agg(x::text, ',') AS t, string_agg(x::text::bytea, ',') AS b, array_agg(x) AS a, array_agg(ARRAY[x]) AS aa from pagg_test group by y ) a1 ) a2 group by y",
+    "expected": "CREATE VIEW v_pagg_test AS SELECT y, MIN(t) AS tmin, MAX(t) AS tmax, COUNT(DISTINCT t) AS tndistinct, MIN(b) AS bmin, MAX(b) AS bmax, COUNT(DISTINCT b) AS bndistinct, MIN(a) AS amin, MAX(a) AS amax, COUNT(DISTINCT a) AS andistinct, MIN(aa) AS aamin, MAX(aa) AS aamax, COUNT(DISTINCT aa) AS aandistinct FROM (SELECT y, CAST(unnest(regexp_split_to_array(a1.t, ',')) AS INT) AS t, unnest(regexp_split_to_array(CAST(a1.b AS TEXT), ',')) AS b, unnest(a1.a) AS a, unnest(a1.aa) AS aa FROM (SELECT y, string_agg(CAST(x AS TEXT), ',') AS t, string_agg(CAST(CAST(x AS TEXT) AS BYTEA), ',') AS b, array_agg(x) AS a, array_agg(ARRAY[x]) AS aa FROM pagg_test GROUP BY y) AS a1) AS a2 GROUP BY y"
   },
   {
     "comment": "aggregates - Statement 274",
-    "query": "select * from v_pagg_test order by y"
+    "query": "select * from v_pagg_test order by y",
+    "expected": "SELECT * FROM v_pagg_test ORDER BY y"
   },
   {
     "comment": "aggregates - Statement 275",
-    "query": "explain (costs off) select * from v_pagg_test order by y"
+    "query": "explain (costs off) select * from v_pagg_test order by y",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM v_pagg_test ORDER BY y"
   },
   {
     "comment": "aggregates - Statement 276",
-    "query": "set max_parallel_workers_per_gather = 0"
+    "query": "set max_parallel_workers_per_gather = 0",
+    "expected": "SET max_parallel_workers_per_gather = 0"
   },
   {
     "comment": "aggregates - Statement 277",
-    "query": "explain (costs off) select array_dims(array_agg(s)) from (select * from pagg_test) s"
+    "query": "explain (costs off) select array_dims(array_agg(s)) from (select * from pagg_test) s",
+    "expected": "EXPLAIN (COSTS false) SELECT array_dims(array_agg(s)) FROM (SELECT * FROM pagg_test) AS s"
   },
   {
     "comment": "aggregates - Statement 278",
-    "query": "select array_dims(array_agg(s)) from (select * from pagg_test) s"
+    "query": "select array_dims(array_agg(s)) from (select * from pagg_test) s",
+    "expected": "SELECT array_dims(array_agg(s)) FROM (SELECT * FROM pagg_test) AS s"
   },
   {
     "comment": "aggregates - Statement 279",
-    "query": "reset max_parallel_workers_per_gather"
+    "query": "reset max_parallel_workers_per_gather",
+    "expected": "RESET max_parallel_workers_per_gather"
   },
   {
     "comment": "aggregates - Statement 280",
-    "query": "reset bytea_output"
+    "query": "reset bytea_output",
+    "expected": "RESET bytea_output"
   },
   {
     "comment": "aggregates - Statement 281",
-    "query": "reset min_parallel_table_scan_size"
+    "query": "reset min_parallel_table_scan_size",
+    "expected": "RESET min_parallel_table_scan_size"
   },
   {
     "comment": "aggregates - Statement 282",
-    "query": "reset parallel_leader_participation"
+    "query": "reset parallel_leader_participation",
+    "expected": "RESET parallel_leader_participation"
   },
   {
     "comment": "aggregates - Statement 283",
-    "query": "reset parallel_tuple_cost"
+    "query": "reset parallel_tuple_cost",
+    "expected": "RESET parallel_tuple_cost"
   },
   {
     "comment": "aggregates - Statement 284",
-    "query": "reset parallel_setup_cost"
+    "query": "reset parallel_setup_cost",
+    "expected": "RESET parallel_setup_cost"
   },
   {
     "comment": "aggregates - Statement 285",
-    "query": "drop view v_pagg_test"
+    "query": "drop view v_pagg_test",
+    "expected": "DROP VIEW v_pagg_test"
   },
   {
     "comment": "aggregates - Statement 286",
-    "query": "drop table pagg_test"
+    "query": "drop table pagg_test",
+    "expected": "DROP TABLE pagg_test"
   },
   {
     "comment": "aggregates - Statement 287",
-    "query": "select min(unique1) filter (where unique1 > 100) from tenk1"
+    "query": "select min(unique1) filter (where unique1 \u003e 100) from tenk1",
+    "expected": "SELECT MIN(unique1) FILTER (WHERE unique1 \u003e 100) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 288",
-    "query": "select sum(1/ten) filter (where ten > 0) from tenk1"
+    "query": "select sum(1/ten) filter (where ten \u003e 0) from tenk1",
+    "expected": "SELECT SUM(1 / ten) FILTER (WHERE ten \u003e 0) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 289",
-    "query": "select ten, sum(distinct four) filter (where four::text ~ '123') from onek a group by ten"
+    "query": "select ten, sum(distinct four) filter (where four::text ~ '123') from onek a group by ten",
+    "expected": "SELECT ten, SUM(DISTINCT four) FILTER (WHERE CAST(four AS TEXT) ~ '123') FROM onek AS a GROUP BY ten"
   },
   {
     "comment": "aggregates - Statement 290",
-    "query": "select ten, sum(distinct four) filter (where four > 10) from onek a group by ten having exists (select 1 from onek b where sum(distinct a.four) = b.four)"
+    "query": "select ten, sum(distinct four) filter (where four \u003e 10) from onek a group by ten having exists (select 1 from onek b where sum(distinct a.four) = b.four)",
+    "expected": "SELECT ten, SUM(DISTINCT four) FILTER (WHERE four \u003e 10) FROM onek AS a GROUP BY ten HAVING EXISTS (SELECT 1 FROM onek AS b WHERE SUM(DISTINCT a.four) = b.four)"
   },
   {
     "comment": "aggregates - Statement 291",
-    "query": "select max(foo COLLATE \"C\") filter (where (bar collate \"POSIX\") > '0') from (values ('a', 'b')) AS v(foo,bar)"
+    "query": "select max(foo COLLATE \"C\") filter (where (bar collate \"POSIX\") \u003e '0') from (values ('a', 'b')) AS v(foo,bar)",
+    "expected": "SELECT MAX(foo COLLATE \"C\") FILTER (WHERE (bar COLLATE \"POSIX\") \u003e '0') FROM (VALUES ('a', 'b')) AS v(foo, bar)"
   },
   {
     "comment": "aggregates - Statement 292",
-    "query": "select any_value(v) filter (where v > 2) from (values (1), (2), (3)) as v (v)"
+    "query": "select any_value(v) filter (where v \u003e 2) from (values (1), (2), (3)) as v (v)",
+    "expected": "SELECT any_value(v) FILTER (WHERE v \u003e 2) FROM (VALUES (1), (2), (3)) AS v(v)"
   },
   {
     "comment": "aggregates - Statement 293",
-    "query": "select (select count(*) from (values (1)) t0(inner_c)) from (values (2),(3)) t1(outer_c)"
+    "query": "select (select count(*) from (values (1)) t0(inner_c)) from (values (2),(3)) t1(outer_c)",
+    "expected": "SELECT (SELECT COUNT(*) FROM (VALUES (1)) AS t0(inner_c)) FROM (VALUES (2), (3)) AS t1(outer_c)"
   },
   {
     "comment": "aggregates - Statement 294",
-    "query": "select (select count(*) filter (where outer_c <> 0) from (values (1)) t0(inner_c)) from (values (2),(3)) t1(outer_c)"
+    "query": "select (select count(*) filter (where outer_c \u003c\u003e 0) from (values (1)) t0(inner_c)) from (values (2),(3)) t1(outer_c)",
+    "expected": "SELECT (SELECT COUNT(*) FILTER (WHERE outer_c \u003c\u003e 0) FROM (VALUES (1)) AS t0(inner_c)) FROM (VALUES (2), (3)) AS t1(outer_c)"
   },
   {
     "comment": "aggregates - Statement 295",
-    "query": "select (select count(inner_c) filter (where outer_c <> 0) from (values (1)) t0(inner_c)) from (values (2),(3)) t1(outer_c)"
+    "query": "select (select count(inner_c) filter (where outer_c \u003c\u003e 0) from (values (1)) t0(inner_c)) from (values (2),(3)) t1(outer_c)",
+    "expected": "SELECT (SELECT COUNT(inner_c) FILTER (WHERE outer_c \u003c\u003e 0) FROM (VALUES (1)) AS t0(inner_c)) FROM (VALUES (2), (3)) AS t1(outer_c)"
   },
   {
     "comment": "aggregates - Statement 296",
-    "query": "select (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)) filter (where o.unique1 < 10)) from tenk1 o"
+    "query": "select (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)) filter (where o.unique1 \u003c 10)) from tenk1 o",
+    "expected": "SELECT (SELECT MAX((SELECT i.unique2 FROM tenk1 AS i WHERE i.unique1 = o.unique1)) FILTER (WHERE o.unique1 \u003c 10)) FROM tenk1 AS o"
   },
   {
     "comment": "aggregates - Statement 297",
-    "query": "select sum(unique1) FILTER (WHERE unique1 IN (SELECT unique1 FROM onek where unique1 < 100)) FROM tenk1"
+    "query": "select sum(unique1) FILTER (WHERE unique1 IN (SELECT unique1 FROM onek where unique1 \u003c 100)) FROM tenk1",
+    "expected": "SELECT SUM(unique1) FILTER (WHERE unique1 IN (SELECT unique1 FROM onek WHERE unique1 \u003c 100)) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 298",
-    "query": "select aggfns(distinct a,b,c order by a,c using ~<~,b) filter (where a > 1) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i"
+    "query": "select aggfns(distinct a,b,c order by a,c using ~\u003c~,b) filter (where a \u003e 1) from (values (1,3,'foo'),(0,null,null),(2,2,'bar'),(3,1,'baz')) v(a,b,c), generate_series(1,2) i",
+    "expected": "SELECT aggfns(DISTINCT a, b, c ORDER BY a, c USING ~\u003c~, b) FILTER (WHERE a \u003e 1) FROM (VALUES (1, 3, 'foo'), (0, NULL, NULL), (2, 2, 'bar'), (3, 1, 'baz')) AS v(a, b, c), generate_series(1, 2) AS i"
   },
   {
     "comment": "aggregates - Statement 299",
-    "query": "select max(0) filter (where b1) from bool_test"
+    "query": "select max(0) filter (where b1) from bool_test",
+    "expected": "SELECT MAX(0) FILTER (WHERE b1) FROM bool_test"
   },
   {
     "comment": "aggregates - Statement 300",
-    "query": "select (select max(0) filter (where b1)) from bool_test"
+    "query": "select (select max(0) filter (where b1)) from bool_test",
+    "expected": "SELECT (SELECT MAX(0) FILTER (WHERE b1)) FROM bool_test"
   },
   {
     "comment": "aggregates - Statement 301",
-    "query": "select max(unique1) filter (where sum(ten) > 0) from tenk1"
+    "query": "select max(unique1) filter (where sum(ten) \u003e 0) from tenk1",
+    "expected": "SELECT MAX(unique1) FILTER (WHERE SUM(ten) \u003e 0) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 302",
-    "query": "select (select max(unique1) filter (where sum(ten) > 0) from int8_tbl) from tenk1"
+    "query": "select (select max(unique1) filter (where sum(ten) \u003e 0) from int8_tbl) from tenk1",
+    "expected": "SELECT (SELECT MAX(unique1) FILTER (WHERE SUM(ten) \u003e 0) FROM int8_tbl) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 303",
-    "query": "select max(unique1) filter (where bool_or(ten > 0)) from tenk1"
+    "query": "select max(unique1) filter (where bool_or(ten \u003e 0)) from tenk1",
+    "expected": "SELECT MAX(unique1) FILTER (WHERE bool_or(ten \u003e 0)) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 304",
-    "query": "select (select max(unique1) filter (where bool_or(ten > 0)) from int8_tbl) from tenk1"
+    "query": "select (select max(unique1) filter (where bool_or(ten \u003e 0)) from int8_tbl) from tenk1",
+    "expected": "SELECT (SELECT MAX(unique1) FILTER (WHERE bool_or(ten \u003e 0)) FROM int8_tbl) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 305",
-    "query": "select p, percentile_cont(p) within group (order by x::float8) from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p"
+    "query": "select p, percentile_cont(p) within group (order by x::float8) from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p",
+    "expected": "SELECT p, percentile_cont(p) WITHIN GROUP (ORDER BY CAST(x AS FLOAT8)) FROM generate_series(1, 5) AS x, (VALUES (CAST(0 AS FLOAT8)), (0.1), (0.25), (0.4), (0.5), (0.6), (0.75), (0.9), (1)) AS v(p) GROUP BY p ORDER BY p"
   },
   {
     "comment": "aggregates - Statement 306",
-    "query": "select p, percentile_cont(p order by p) within group (order by x) from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p"
+    "query": "select p, percentile_cont(p order by p) within group (order by x) from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p",
+    "expected": "SELECT p, percentile_cont(p) WITHIN GROUP (ORDER BY x) FROM generate_series(1, 5) AS x, (VALUES (CAST(0 AS FLOAT8)), (0.1), (0.25), (0.4), (0.5), (0.6), (0.75), (0.9), (1)) AS v(p) GROUP BY p ORDER BY p"
   },
   {
     "comment": "aggregates - Statement 307",
-    "query": "select p, sum() within group (order by x::float8) from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p"
+    "query": "select p, sum() within group (order by x::float8) from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p",
+    "expected": "SELECT p, SUM() WITHIN GROUP (ORDER BY CAST(x AS FLOAT8)) FROM generate_series(1, 5) AS x, (VALUES (CAST(0 AS FLOAT8)), (0.1), (0.25), (0.4), (0.5), (0.6), (0.75), (0.9), (1)) AS v(p) GROUP BY p ORDER BY p"
   },
   {
     "comment": "aggregates - Statement 308",
-    "query": "select p, percentile_cont(p,p) from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p"
+    "query": "select p, percentile_cont(p,p) from generate_series(1,5) x, (values (0::float8),(0.1),(0.25),(0.4),(0.5),(0.6),(0.75),(0.9),(1)) v(p) group by p order by p",
+    "expected": "SELECT p, percentile_cont(p, p) FROM generate_series(1, 5) AS x, (VALUES (CAST(0 AS FLOAT8)), (0.1), (0.25), (0.4), (0.5), (0.6), (0.75), (0.9), (1)) AS v(p) GROUP BY p ORDER BY p"
   },
   {
     "comment": "aggregates - Statement 309",
-    "query": "select percentile_cont(0.5) within group (order by b) from aggtest"
+    "query": "select percentile_cont(0.5) within group (order by b) from aggtest",
+    "expected": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY b) FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 310",
-    "query": "select percentile_cont(0.5) within group (order by b), sum(b) from aggtest"
+    "query": "select percentile_cont(0.5) within group (order by b), sum(b) from aggtest",
+    "expected": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY b), SUM(b) FROM aggtest"
   },
   {
     "comment": "aggregates - Statement 311",
-    "query": "select percentile_cont(0.5) within group (order by thousand) from tenk1"
+    "query": "select percentile_cont(0.5) within group (order by thousand) from tenk1",
+    "expected": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY thousand) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 312",
-    "query": "select percentile_disc(0.5) within group (order by thousand) from tenk1"
+    "query": "select percentile_disc(0.5) within group (order by thousand) from tenk1",
+    "expected": "SELECT percentile_disc(0.5) WITHIN GROUP (ORDER BY thousand) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 313",
-    "query": "select rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x)"
+    "query": "select rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x)",
+    "expected": "SELECT RANK(3) WITHIN GROUP (ORDER BY x) FROM (VALUES (1), (1), (2), (2), (3), (3), (4)) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 314",
-    "query": "select cume_dist(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x)"
+    "query": "select cume_dist(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x)",
+    "expected": "SELECT CUME_DIST(3) WITHIN GROUP (ORDER BY x) FROM (VALUES (1), (1), (2), (2), (3), (3), (4)) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 315",
-    "query": "select percent_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4),(5)) v(x)"
+    "query": "select percent_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4),(5)) v(x)",
+    "expected": "SELECT PERCENT_RANK(3) WITHIN GROUP (ORDER BY x) FROM (VALUES (1), (1), (2), (2), (3), (3), (4), (5)) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 316",
-    "query": "select dense_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x)"
+    "query": "select dense_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x)",
+    "expected": "SELECT DENSE_RANK(3) WITHIN GROUP (ORDER BY x) FROM (VALUES (1), (1), (2), (2), (3), (3), (4)) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 317",
-    "query": "select percentile_disc(array[0,0.1,0.25,0.5,0.75,0.9,1]) within group (order by thousand) from tenk1"
+    "query": "select percentile_disc(array[0,0.1,0.25,0.5,0.75,0.9,1]) within group (order by thousand) from tenk1",
+    "expected": "SELECT percentile_disc(ARRAY[0,0.1,0.25,0.5,0.75,0.9,1]) WITHIN GROUP (ORDER BY thousand) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 318",
-    "query": "select percentile_cont(array[0,0.25,0.5,0.75,1]) within group (order by thousand) from tenk1"
+    "query": "select percentile_cont(array[0,0.25,0.5,0.75,1]) within group (order by thousand) from tenk1",
+    "expected": "SELECT percentile_cont(ARRAY[0,0.25,0.5,0.75,1]) WITHIN GROUP (ORDER BY thousand) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 319",
-    "query": "select percentile_disc(array[[null,1,0.5],[0.75,0.25,null]]) within group (order by thousand) from tenk1"
+    "query": "select percentile_disc(array[[null,1,0.5],[0.75,0.25,null]]) within group (order by thousand) from tenk1",
+    "expected": "SELECT percentile_disc(ARRAY[[NULL,1,0.5],[0.75,0.25,NULL]]) WITHIN GROUP (ORDER BY thousand) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 320",
-    "query": "select percentile_cont(array[0,1,0.25,0.75,0.5,1,0.3,0.32,0.35,0.38,0.4]) within group (order by x) from generate_series(1,6) x"
+    "query": "select percentile_cont(array[0,1,0.25,0.75,0.5,1,0.3,0.32,0.35,0.38,0.4]) within group (order by x) from generate_series(1,6) x",
+    "expected": "SELECT percentile_cont(ARRAY[0,1,0.25,0.75,0.5,1,0.3,0.32,0.35,0.38,0.4]) WITHIN GROUP (ORDER BY x) FROM generate_series(1, 6) AS x"
   },
   {
     "comment": "aggregates - Statement 321",
-    "query": "select ten, mode() within group (order by string4) from tenk1 group by ten"
+    "query": "select ten, mode() within group (order by string4) from tenk1 group by ten",
+    "expected": "SELECT ten, mode() WITHIN GROUP (ORDER BY string4) FROM tenk1 GROUP BY ten"
   },
   {
     "comment": "aggregates - Statement 322",
-    "query": "select percentile_disc(array[0.25,0.5,0.75]) within group (order by x) from unnest('{fred,jim,fred,jack,jill,fred,jill,jim,jim,sheila,jim,sheila}'::text[]) u(x)"
+    "query": "select percentile_disc(array[0.25,0.5,0.75]) within group (order by x) from unnest('{fred,jim,fred,jack,jill,fred,jill,jim,jim,sheila,jim,sheila}'::text[]) u(x)",
+    "expected": "SELECT percentile_disc(ARRAY[0.25,0.5,0.75]) WITHIN GROUP (ORDER BY x) FROM unnest(CAST('{fred,jim,fred,jack,jill,fred,jill,jim,jim,sheila,jim,sheila}' AS TEXT[])) AS u(x)"
   },
   {
     "comment": "aggregates - Statement 323",
-    "query": "select pg_collation_for(percentile_disc(1) within group (order by x collate \"POSIX\")) from (values ('fred'),('jim')) v(x)"
+    "query": "select pg_collation_for(percentile_disc(1) within group (order by x collate \"POSIX\")) from (values ('fred'),('jim')) v(x)",
+    "expected": "SELECT pg_collation_for(percentile_disc(1) WITHIN GROUP (ORDER BY x COLLATE \"POSIX\")) FROM (VALUES ('fred'), ('jim')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 324",
-    "query": "select test_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x)"
+    "query": "select test_rank(3) within group (order by x) from (values (1),(1),(2),(2),(3),(3),(4)) v(x)",
+    "expected": "SELECT test_rank(3) WITHIN GROUP (ORDER BY x) FROM (VALUES (1), (1), (2), (2), (3), (3), (4)) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 325",
-    "query": "select test_percentile_disc(0.5) within group (order by thousand) from tenk1"
+    "query": "select test_percentile_disc(0.5) within group (order by thousand) from tenk1",
+    "expected": "SELECT test_percentile_disc(0.5) WITHIN GROUP (ORDER BY thousand) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 326",
-    "query": "select rank(x) within group (order by x) from generate_series(1,5) x"
+    "query": "select rank(x) within group (order by x) from generate_series(1,5) x",
+    "expected": "SELECT RANK(x) WITHIN GROUP (ORDER BY x) FROM generate_series(1, 5) AS x"
   },
   {
     "comment": "aggregates - Statement 327",
-    "query": "select array(select percentile_disc(a) within group (order by x) from (values (0.3),(0.7)) v(a) group by a) from generate_series(1,5) g(x)"
+    "query": "select array(select percentile_disc(a) within group (order by x) from (values (0.3),(0.7)) v(a) group by a) from generate_series(1,5) g(x)",
+    "expected": "SELECT ARRAY(SELECT percentile_disc(a) WITHIN GROUP (ORDER BY x) FROM (VALUES (0.3), (0.7)) AS v(a) GROUP BY a) FROM generate_series(1, 5) AS g(x)"
   },
   {
     "comment": "aggregates - Statement 328",
-    "query": "select rank(sum(x)) within group (order by x) from generate_series(1,5) x"
+    "query": "select rank(sum(x)) within group (order by x) from generate_series(1,5) x",
+    "expected": "SELECT RANK(SUM(x)) WITHIN GROUP (ORDER BY x) FROM generate_series(1, 5) AS x"
   },
   {
     "comment": "aggregates - Statement 329",
-    "query": "select rank(3) within group (order by x) from (values ('fred'),('jim')) v(x)"
+    "query": "select rank(3) within group (order by x) from (values ('fred'),('jim')) v(x)",
+    "expected": "SELECT RANK(3) WITHIN GROUP (ORDER BY x) FROM (VALUES ('fred'), ('jim')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 330",
-    "query": "select rank(3) within group (order by stringu1,stringu2) from tenk1"
+    "query": "select rank(3) within group (order by stringu1,stringu2) from tenk1",
+    "expected": "SELECT RANK(3) WITHIN GROUP (ORDER BY stringu1, stringu2) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 331",
-    "query": "select rank('fred') within group (order by x) from generate_series(1,5) x"
+    "query": "select rank('fred') within group (order by x) from generate_series(1,5) x",
+    "expected": "SELECT RANK('fred') WITHIN GROUP (ORDER BY x) FROM generate_series(1, 5) AS x"
   },
   {
     "comment": "aggregates - Statement 332",
-    "query": "select rank('adam'::text collate \"C\") within group (order by x collate \"POSIX\") from (values ('fred'),('jim')) v(x)"
+    "query": "select rank('adam'::text collate \"C\") within group (order by x collate \"POSIX\") from (values ('fred'),('jim')) v(x)",
+    "expected": "SELECT RANK(CAST('adam' AS TEXT) COLLATE \"C\") WITHIN GROUP (ORDER BY x COLLATE \"POSIX\") FROM (VALUES ('fred'), ('jim')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 333",
-    "query": "select rank('adam'::varchar) within group (order by x) from (values ('fred'),('jim')) v(x)"
+    "query": "select rank('adam'::varchar) within group (order by x) from (values ('fred'),('jim')) v(x)",
+    "expected": "SELECT RANK(CAST('adam' AS VARCHAR)) WITHIN GROUP (ORDER BY x) FROM (VALUES ('fred'), ('jim')) AS v(x)"
   },
   {
     "comment": "aggregates - Statement 334",
-    "query": "select rank('3') within group (order by x) from generate_series(1,5) x"
+    "query": "select rank('3') within group (order by x) from generate_series(1,5) x",
+    "expected": "SELECT RANK('3') WITHIN GROUP (ORDER BY x) FROM generate_series(1, 5) AS x"
   },
   {
     "comment": "aggregates - Statement 335",
-    "query": "select percent_rank(0) within group (order by x) from generate_series(1,0) x"
+    "query": "select percent_rank(0) within group (order by x) from generate_series(1,0) x",
+    "expected": "SELECT PERCENT_RANK(0) WITHIN GROUP (ORDER BY x) FROM generate_series(1, 0) AS x"
   },
   {
     "comment": "aggregates - Statement 336",
-    "query": "create view aggordview1 as select ten, percentile_disc(0.5) within group (order by thousand) as p50, percentile_disc(0.5) within group (order by thousand) filter (where hundred=1) as px, rank(5,'AZZZZ',50) within group (order by hundred, string4 desc, hundred) from tenk1 group by ten order by ten"
+    "query": "create view aggordview1 as select ten, percentile_disc(0.5) within group (order by thousand) as p50, percentile_disc(0.5) within group (order by thousand) filter (where hundred=1) as px, rank(5,'AZZZZ',50) within group (order by hundred, string4 desc, hundred) from tenk1 group by ten order by ten",
+    "expected": "CREATE VIEW aggordview1 AS SELECT ten, percentile_disc(0.5) WITHIN GROUP (ORDER BY thousand) AS p50, percentile_disc(0.5) WITHIN GROUP (ORDER BY thousand) FILTER (WHERE hundred = 1) AS px, RANK(5, 'AZZZZ', 50) WITHIN GROUP (ORDER BY hundred, string4 DESC, hundred) FROM tenk1 GROUP BY ten ORDER BY ten"
   },
   {
     "comment": "aggregates - Statement 337",
-    "query": "select pg_get_viewdef('aggordview1')"
+    "query": "select pg_get_viewdef('aggordview1')",
+    "expected": "SELECT pg_get_viewdef('aggordview1')"
   },
   {
     "comment": "aggregates - Statement 338",
-    "query": "select * from aggordview1 order by ten"
+    "query": "select * from aggordview1 order by ten",
+    "expected": "SELECT * FROM aggordview1 ORDER BY ten"
   },
   {
     "comment": "aggregates - Statement 339",
-    "query": "drop view aggordview1"
+    "query": "drop view aggordview1",
+    "expected": "DROP VIEW aggordview1"
   },
   {
     "comment": "aggregates - Statement 340",
-    "query": "select least_agg(q1,q2) from int8_tbl"
+    "query": "select least_agg(q1,q2) from int8_tbl",
+    "expected": "SELECT least_agg(q1, q2) FROM int8_tbl"
   },
   {
     "comment": "aggregates - Statement 341",
-    "query": "select least_agg(variadic array[q1,q2]) from int8_tbl"
+    "query": "select least_agg(variadic array[q1,q2]) from int8_tbl",
+    "expected": "SELECT least_agg(VARIADIC ARRAY[q1,q2]) FROM int8_tbl"
   },
   {
     "comment": "aggregates - Statement 342",
-    "query": "select cleast_agg(q1,q2) from int8_tbl"
+    "query": "select cleast_agg(q1,q2) from int8_tbl",
+    "expected": "SELECT cleast_agg(q1, q2) FROM int8_tbl"
   },
   {
     "comment": "aggregates - Statement 343",
-    "query": "select cleast_agg(4.5,f1) from int4_tbl"
+    "query": "select cleast_agg(4.5,f1) from int4_tbl",
+    "expected": "SELECT cleast_agg(4.5, f1) FROM int4_tbl"
   },
   {
     "comment": "aggregates - Statement 344",
-    "query": "select cleast_agg(variadic array[4.5,f1]) from int4_tbl"
+    "query": "select cleast_agg(variadic array[4.5,f1]) from int4_tbl",
+    "expected": "SELECT cleast_agg(VARIADIC ARRAY[4.5,f1]) FROM int4_tbl"
   },
   {
     "comment": "aggregates - Statement 345",
-    "query": "select pg_typeof(cleast_agg(variadic array[4.5,f1])) from int4_tbl"
+    "query": "select pg_typeof(cleast_agg(variadic array[4.5,f1])) from int4_tbl",
+    "expected": "SELECT pg_typeof(cleast_agg(VARIADIC ARRAY[4.5,f1])) FROM int4_tbl"
   },
   {
     "comment": "aggregates - Statement 346",
-    "query": "begin work"
+    "query": "begin work",
+    "expected": "BEGIN"
   },
   {
     "comment": "aggregates - Statement 347",
-    "query": "create type avg_state as (total bigint, count bigint)"
+    "query": "create type avg_state as (total bigint, count bigint)",
+    "expected": "CREATE TYPE avg_state AS (total BIGINT, count BIGINT)"
   },
   {
     "comment": "aggregates - Statement 348",
-    "query": "create or replace function avg_transfn(state avg_state, n int) returns avg_state as $$ declare new_state avg_state"
-  },
-  {
-    "comment": "aggregates - Statement 349",
-    "query": "begin raise notice 'avg_transfn called with %', n"
-  },
-  {
-    "comment": "aggregates - Statement 350",
-    "query": "if state is null then if n is not null then new_state.total := n"
-  },
-  {
-    "comment": "aggregates - Statement 351",
-    "query": "new_state.count := 1"
-  },
-  {
-    "comment": "aggregates - Statement 352",
-    "query": "return new_state"
-  },
-  {
-    "comment": "aggregates - Statement 353",
-    "query": "end if"
-  },
-  {
-    "comment": "aggregates - Statement 354",
-    "query": "return null"
-  },
-  {
-    "comment": "aggregates - Statement 355",
-    "query": "elsif n is not null then state.total := state.total + n"
-  },
-  {
-    "comment": "aggregates - Statement 356",
-    "query": "state.count := state.count + 1"
-  },
-  {
-    "comment": "aggregates - Statement 357",
-    "query": "return state"
-  },
-  {
-    "comment": "aggregates - Statement 358",
-    "query": "end $$ language plpgsql"
+    "query": "create or replace function avg_transfn(state avg_state, n int) returns avg_state as $$ declare new_state avg_state; begin raise notice 'avg_transfn called with %', n; if state is null then if n is not null then new_state.total := n; new_state.count := 1; return new_state; end if; return null; elsif n is not null then state.total := state.total + n; state.count := state.count + 1; return state; end if; return null; end $$ language plpgsql;",
+    "expected": "CREATE OR REPLACE FUNCTION avg_transfn (state avg_state, n INT) RETURNS avg_state LANGUAGE plpgsql AS $$ declare new_state avg_state; begin raise notice 'avg_transfn called with %', n; if state is null then if n is not null then new_state.total := n; new_state.count := 1; return new_state; end if; return null; elsif n is not null then state.total := state.total + n; state.count := state.count + 1; return state; end if; return null; end $$"
   },
   {
     "comment": "aggregates - Statement 359",
-    "query": "create function avg_finalfn(state avg_state) returns int4 as $$ begin if state is null then return NULL"
-  },
-  {
-    "comment": "aggregates - Statement 360",
-    "query": "else return state.total / state.count"
+    "query": "create function avg_finalfn(state avg_state) returns int4 as $$ begin if state is null then return NULL\nelse return state.total / state.count $$",
+    "expected": "CREATE FUNCTION avg_finalfn (state avg_state) RETURNS INT AS $$ begin if state is null then return NULL\nelse return state.total / state.count $$"
   },
   {
     "comment": "aggregates - Statement 361",
-    "query": "create function sum_finalfn(state avg_state) returns int4 as $$ begin if state is null then return NULL"
-  },
-  {
-    "comment": "aggregates - Statement 362",
-    "query": "else return state.total"
+    "query": "create function sum_finalfn(state avg_state) returns int4 as $$ begin if state is null then return NULL\nelse return state.total $$",
+    "expected": "CREATE FUNCTION sum_finalfn (state avg_state) RETURNS INT AS $$ begin if state is null then return NULL\nelse return state.total $$"
   },
   {
     "comment": "aggregates - Statement 363",
-    "query": "create aggregate my_avg(int4) ( stype = avg_state, sfunc = avg_transfn, finalfunc = avg_finalfn )"
+    "query": "create aggregate my_avg(int4) ( stype = avg_state, sfunc = avg_transfn, finalfunc = avg_finalfn )",
+    "expected": "CREATE AGGREGATE my_avg (INT) (stype = avg_state, sfunc = avg_transfn, finalfunc = avg_finalfn)"
   },
   {
     "comment": "aggregates - Statement 364",
-    "query": "create aggregate my_sum(int4) ( stype = avg_state, sfunc = avg_transfn, finalfunc = sum_finalfn )"
+    "query": "create aggregate my_sum(int4) ( stype = avg_state, sfunc = avg_transfn, finalfunc = sum_finalfn )",
+    "expected": "CREATE AGGREGATE my_sum (INT) (stype = avg_state, sfunc = avg_transfn, finalfunc = sum_finalfn)"
   },
   {
     "comment": "aggregates - Statement 365",
-    "query": "select my_avg(one),my_avg(one) from (values(1),(3)) t(one)"
+    "query": "select my_avg(one),my_avg(one) from (values(1),(3)) t(one)",
+    "expected": "SELECT my_avg(one), my_avg(one) FROM (VALUES (1), (3)) AS t(one)"
   },
   {
     "comment": "aggregates - Statement 366",
-    "query": "select my_avg(one),my_sum(one) from (values(1),(3)) t(one)"
+    "query": "select my_avg(one),my_sum(one) from (values(1),(3)) t(one)",
+    "expected": "SELECT my_avg(one), my_sum(one) FROM (VALUES (1), (3)) AS t(one)"
   },
   {
     "comment": "aggregates - Statement 367",
-    "query": "select my_avg(distinct one),my_sum(distinct one) from (values(1),(3),(1)) t(one)"
+    "query": "select my_avg(distinct one),my_sum(distinct one) from (values(1),(3),(1)) t(one)",
+    "expected": "SELECT my_avg(DISTINCT one), my_sum(DISTINCT one) FROM (VALUES (1), (3), (1)) AS t(one)"
   },
   {
     "comment": "aggregates - Statement 368",
-    "query": "select my_avg(distinct one),my_sum(one) from (values(1),(3)) t(one)"
+    "query": "select my_avg(distinct one),my_sum(one) from (values(1),(3)) t(one)",
+    "expected": "SELECT my_avg(DISTINCT one), my_sum(one) FROM (VALUES (1), (3)) AS t(one)"
   },
   {
     "comment": "aggregates - Statement 369",
-    "query": "select my_avg(one) filter (where one > 1),my_sum(one) from (values(1),(3)) t(one)"
+    "query": "select my_avg(one) filter (where one \u003e 1),my_sum(one) from (values(1),(3)) t(one)",
+    "expected": "SELECT my_avg(one) FILTER (WHERE one \u003e 1), my_sum(one) FROM (VALUES (1), (3)) AS t(one)"
   },
   {
     "comment": "aggregates - Statement 370",
-    "query": "select my_avg(one),my_sum(two) from (values(1,2),(3,4)) t(one,two)"
+    "query": "select my_avg(one),my_sum(two) from (values(1,2),(3,4)) t(one,two)",
+    "expected": "SELECT my_avg(one), my_sum(two) FROM (VALUES (1, 2), (3, 4)) AS t(one, two)"
   },
   {
     "comment": "aggregates - Statement 371",
-    "query": "select percentile_cont(0.5) within group (order by a), percentile_disc(0.5) within group (order by a) from (values(1::float8),(3),(5),(7)) t(a)"
+    "query": "select percentile_cont(0.5) within group (order by a), percentile_disc(0.5) within group (order by a) from (values(1::float8),(3),(5),(7)) t(a)",
+    "expected": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY a), percentile_disc(0.5) WITHIN GROUP (ORDER BY a) FROM (VALUES (CAST(1 AS FLOAT8)), (3), (5), (7)) AS t(a)"
   },
   {
     "comment": "aggregates - Statement 372",
-    "query": "select percentile_cont(0.25) within group (order by a), percentile_disc(0.5) within group (order by a) from (values(1::float8),(3),(5),(7)) t(a)"
+    "query": "select percentile_cont(0.25) within group (order by a), percentile_disc(0.5) within group (order by a) from (values(1::float8),(3),(5),(7)) t(a)",
+    "expected": "SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY a), percentile_disc(0.5) WITHIN GROUP (ORDER BY a) FROM (VALUES (CAST(1 AS FLOAT8)), (3), (5), (7)) AS t(a)"
   },
   {
     "comment": "aggregates - Statement 373",
-    "query": "select rank(4) within group (order by a), dense_rank(4) within group (order by a) from (values(1),(3),(5),(7)) t(a)"
+    "query": "select rank(4) within group (order by a), dense_rank(4) within group (order by a) from (values(1),(3),(5),(7)) t(a)",
+    "expected": "SELECT RANK(4) WITHIN GROUP (ORDER BY a), DENSE_RANK(4) WITHIN GROUP (ORDER BY a) FROM (VALUES (1), (3), (5), (7)) AS t(a)"
   },
   {
     "comment": "aggregates - Statement 374",
-    "query": "create aggregate my_sum_init(int4) ( stype = avg_state, sfunc = avg_transfn, finalfunc = sum_finalfn, initcond = '(10,0)' )"
+    "query": "create aggregate my_sum_init(int4) ( stype = avg_state, sfunc = avg_transfn, finalfunc = sum_finalfn, initcond = '(10,0)' )",
+    "expected": "CREATE AGGREGATE my_sum_init (INT) (stype = avg_state, sfunc = avg_transfn, finalfunc = sum_finalfn, initcond = '(10,0)')"
   },
   {
     "comment": "aggregates - Statement 375",
-    "query": "create aggregate my_avg_init(int4) ( stype = avg_state, sfunc = avg_transfn, finalfunc = avg_finalfn, initcond = '(10,0)' )"
+    "query": "create aggregate my_avg_init(int4) ( stype = avg_state, sfunc = avg_transfn, finalfunc = avg_finalfn, initcond = '(10,0)' )",
+    "expected": "CREATE AGGREGATE my_avg_init (INT) (stype = avg_state, sfunc = avg_transfn, finalfunc = avg_finalfn, initcond = '(10,0)')"
   },
   {
     "comment": "aggregates - Statement 376",
-    "query": "create aggregate my_avg_init2(int4) ( stype = avg_state, sfunc = avg_transfn, finalfunc = avg_finalfn, initcond = '(4,0)' )"
+    "query": "create aggregate my_avg_init2(int4) ( stype = avg_state, sfunc = avg_transfn, finalfunc = avg_finalfn, initcond = '(4,0)' )",
+    "expected": "CREATE AGGREGATE my_avg_init2 (INT) (stype = avg_state, sfunc = avg_transfn, finalfunc = avg_finalfn, initcond = '(4,0)')"
   },
   {
     "comment": "aggregates - Statement 377",
-    "query": "select my_sum_init(one),my_avg_init(one) from (values(1),(3)) t(one)"
+    "query": "select my_sum_init(one),my_avg_init(one) from (values(1),(3)) t(one)",
+    "expected": "SELECT my_sum_init(one), my_avg_init(one) FROM (VALUES (1), (3)) AS t(one)"
   },
   {
     "comment": "aggregates - Statement 378",
-    "query": "select my_sum_init(one),my_avg_init2(one) from (values(1),(3)) t(one)"
+    "query": "select my_sum_init(one),my_avg_init2(one) from (values(1),(3)) t(one)",
+    "expected": "SELECT my_sum_init(one), my_avg_init2(one) FROM (VALUES (1), (3)) AS t(one)"
   },
   {
     "comment": "aggregates - Statement 379",
-    "query": "create or replace function sum_transfn(state int4, n int4) returns int4 as $$ declare new_state int4"
-  },
-  {
-    "comment": "aggregates - Statement 380",
-    "query": "begin raise notice 'sum_transfn called with %', n"
-  },
-  {
-    "comment": "aggregates - Statement 381",
-    "query": "if state is null then if n is not null then new_state := n"
-  },
-  {
-    "comment": "aggregates - Statement 382",
-    "query": "elsif n is not null then state := state + n"
+    "query": "create or replace function sum_transfn(state int4, n int4) returns int4 as $$ declare new_state int4; begin raise notice 'sum_transfn called with %', n; if state is null then if n is not null then new_state := n; return new_state; end if; return null; elsif n is not null then state := state + n; return state; end if; return null; end $$ language plpgsql;",
+    "expected": "CREATE OR REPLACE FUNCTION sum_transfn (state INT, n INT) RETURNS INT LANGUAGE plpgsql AS $$ declare new_state int4; begin raise notice 'sum_transfn called with %', n; if state is null then if n is not null then new_state := n; return new_state; end if; return null; elsif n is not null then state := state + n; return state; end if; return null; end $$"
   },
   {
     "comment": "aggregates - Statement 383",
-    "query": "create function halfsum_finalfn(state int4) returns int4 as $$ begin if state is null then return NULL"
-  },
-  {
-    "comment": "aggregates - Statement 384",
-    "query": "else return state / 2"
+    "query": "create function halfsum_finalfn(state int4) returns int4 as $$ begin if state is null then return NULL; else return state / 2; end if; end $$ language plpgsql;",
+    "expected": "CREATE FUNCTION halfsum_finalfn (state INT) RETURNS INT LANGUAGE plpgsql AS $$ begin if state is null then return NULL; else return state / 2; end if; end $$"
   },
   {
     "comment": "aggregates - Statement 385",
-    "query": "create aggregate my_sum(int4) ( stype = int4, sfunc = sum_transfn )"
+    "query": "create aggregate my_sum(int4) ( stype = int4, sfunc = sum_transfn )",
+    "expected": "CREATE AGGREGATE my_sum (INT) (stype = INT, sfunc = sum_transfn)"
   },
   {
     "comment": "aggregates - Statement 386",
-    "query": "create aggregate my_half_sum(int4) ( stype = int4, sfunc = sum_transfn, finalfunc = halfsum_finalfn )"
+    "query": "create aggregate my_half_sum(int4) ( stype = int4, sfunc = sum_transfn, finalfunc = halfsum_finalfn )",
+    "expected": "CREATE AGGREGATE my_half_sum (INT) (stype = INT, sfunc = sum_transfn, finalfunc = halfsum_finalfn)"
   },
   {
     "comment": "aggregates - Statement 387",
-    "query": "select my_sum(one),my_half_sum(one) from (values(1),(2),(3),(4)) t(one)"
+    "query": "select my_sum(one),my_half_sum(one) from (values(1),(2),(3),(4)) t(one)",
+    "expected": "SELECT my_sum(one), my_half_sum(one) FROM (VALUES (1), (2), (3), (4)) AS t(one)"
   },
   {
     "comment": "aggregates - Statement 388",
-    "query": "CREATE FUNCTION balkifnull(int8, int4) RETURNS int8 STRICT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'"
-  },
-  {
-    "comment": "aggregates - Statement 389",
-    "query": "END$$"
+    "query": "CREATE FUNCTION balkifnull(int8, int4) RETURNS int8 STRICT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'; END IF; RETURN NULL; END$$;",
+    "expected": "CREATE FUNCTION balkifnull (BIGINT, INT) RETURNS BIGINT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'; END IF; RETURN NULL; END$$ STRICT"
   },
   {
     "comment": "aggregates - Statement 390",
-    "query": "CREATE AGGREGATE balk(int4) ( SFUNC = balkifnull(int8, int4), STYPE = int8, PARALLEL = SAFE, INITCOND = '0' )"
+    "query": "CREATE AGGREGATE balk(int4) ( SFUNC = balkifnull(int8, int4), STYPE = int8, PARALLEL = SAFE, INITCOND = '0' )",
+    "expected": "CREATE AGGREGATE balk (INT) (sfunc = balkifnull(int8, int4), stype = BIGINT, parallel = safe, initcond = '0')"
   },
   {
     "comment": "aggregates - Statement 391",
@@ -1569,7 +1854,8 @@
   },
   {
     "comment": "aggregates - Statement 393",
-    "query": "CREATE INDEX btg_x_y_idx ON btg(x, y)"
+    "query": "CREATE INDEX btg_x_y_idx ON btg(x, y)",
+    "expected": "CREATE INDEX btg_x_y_idx ON btg (x, y)"
   },
   {
     "comment": "aggregates - Statement 394",
@@ -1585,15 +1871,18 @@
   },
   {
     "comment": "aggregates - Statement 397",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM btg GROUP BY y, x"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM btg GROUP BY y, x",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM btg GROUP BY y, x"
   },
   {
     "comment": "aggregates - Statement 398",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM btg GROUP BY z, y, w, x"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM btg GROUP BY z, y, w, x",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM btg GROUP BY z, y, w, x"
   },
   {
     "comment": "aggregates - Statement 399",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM (SELECT * FROM btg ORDER BY x, y, w, z) AS q1 GROUP BY w, x, z, y"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM (SELECT * FROM btg ORDER BY x, y, w, z) AS q1 GROUP BY w, x, z, y",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM (SELECT * FROM btg ORDER BY x, y, w, z) AS q1 GROUP BY w, x, z, y"
   },
   {
     "comment": "aggregates - Statement 400",
@@ -1605,7 +1894,8 @@
   },
   {
     "comment": "aggregates - Statement 402",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM btg t1 JOIN btg t2 ON t1.z = t2.z AND t1.w = t2.w AND t1.x = t2.x GROUP BY t1.x, t1.y, t1.z, t1.w"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM btg t1 JOIN btg t2 ON t1.z = t2.z AND t1.w = t2.w AND t1.x = t2.x GROUP BY t1.x, t1.y, t1.z, t1.w",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM btg AS t1 INNER JOIN btg AS t2 ON t1.z = t2.z AND t1.w = t2.w AND t1.x = t2.x GROUP BY t1.x, t1.y, t1.z, t1.w"
   },
   {
     "comment": "aggregates - Statement 403",
@@ -1617,23 +1907,28 @@
   },
   {
     "comment": "aggregates - Statement 405",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM btg GROUP BY w, x, z, y ORDER BY y, x, z, w"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM btg GROUP BY w, x, z, y ORDER BY y, x, z, w",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM btg GROUP BY w, x, z, y ORDER BY y, x, z, w"
   },
   {
     "comment": "aggregates - Statement 406",
-    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM btg GROUP BY w, x, y, z ORDER BY x*x, z"
+    "query": "EXPLAIN (COSTS OFF) SELECT count(*) FROM btg GROUP BY w, x, y, z ORDER BY x*x, z",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM btg GROUP BY w, x, y, z ORDER BY x * x, z"
   },
   {
     "comment": "aggregates - Statement 407",
-    "query": "CREATE INDEX btg_y_x_w_idx ON btg(y, x, w)"
+    "query": "CREATE INDEX btg_y_x_w_idx ON btg(y, x, w)",
+    "expected": "CREATE INDEX btg_y_x_w_idx ON btg (y, x, w)"
   },
   {
     "comment": "aggregates - Statement 408",
-    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT y, x, array_agg(distinct w) FROM btg WHERE y < 0 GROUP BY x, y"
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT y, x, array_agg(distinct w) FROM btg WHERE y \u003c 0 GROUP BY x, y",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT y, x, array_agg(DISTINCT w) FROM btg WHERE y \u003c 0 GROUP BY x, y"
   },
   {
     "comment": "aggregates - Statement 409",
-    "query": "CREATE TABLE group_agg_pk AS SELECT i % 10 AS x, i % 2 AS y, i % 2 AS z, 2 AS w, i % 10 AS f FROM generate_series(1,100) AS i"
+    "query": "CREATE TABLE group_agg_pk AS SELECT i % 10 AS x, i % 2 AS y, i % 2 AS z, 2 AS w, i % 10 AS f FROM generate_series(1,100) AS i",
+    "expected": "CREATE TABLE group_agg_pk AS SELECT i % 10 AS x, i % 2 AS y, i % 2 AS z, 2 AS w, i % 10 AS f FROM generate_series(1, 100) AS i"
   },
   {
     "comment": "aggregates - Statement 410",
@@ -1641,19 +1936,23 @@
   },
   {
     "comment": "aggregates - Statement 411",
-    "query": "EXPLAIN (COSTS OFF) SELECT avg(c1.f ORDER BY c1.x, c1.y) FROM group_agg_pk c1 JOIN group_agg_pk c2 ON c1.x = c2.x GROUP BY c1.w, c1.z"
+    "query": "EXPLAIN (COSTS OFF) SELECT avg(c1.f ORDER BY c1.x, c1.y) FROM group_agg_pk c1 JOIN group_agg_pk c2 ON c1.x = c2.x GROUP BY c1.w, c1.z",
+    "expected": "EXPLAIN (COSTS false) SELECT AVG(c1.f ORDER BY c1.x, c1.y) FROM group_agg_pk AS c1 INNER JOIN group_agg_pk AS c2 ON c1.x = c2.x GROUP BY c1.w, c1.z"
   },
   {
     "comment": "aggregates - Statement 412",
-    "query": "SELECT avg(c1.f ORDER BY c1.x, c1.y) FROM group_agg_pk c1 JOIN group_agg_pk c2 ON c1.x = c2.x GROUP BY c1.w, c1.z"
+    "query": "SELECT avg(c1.f ORDER BY c1.x, c1.y) FROM group_agg_pk c1 JOIN group_agg_pk c2 ON c1.x = c2.x GROUP BY c1.w, c1.z",
+    "expected": "SELECT AVG(c1.f ORDER BY c1.x, c1.y) FROM group_agg_pk AS c1 INNER JOIN group_agg_pk AS c2 ON c1.x = c2.x GROUP BY c1.w, c1.z"
   },
   {
     "comment": "aggregates - Statement 413",
-    "query": "EXPLAIN (COSTS OFF) SELECT c1.y,c1.x FROM group_agg_pk c1 JOIN group_agg_pk c2 ON c1.x = c2.x GROUP BY c1.y,c1.x,c2.x"
+    "query": "EXPLAIN (COSTS OFF) SELECT c1.y,c1.x FROM group_agg_pk c1 JOIN group_agg_pk c2 ON c1.x = c2.x GROUP BY c1.y,c1.x,c2.x",
+    "expected": "EXPLAIN (COSTS false) SELECT c1.y, c1.x FROM group_agg_pk AS c1 INNER JOIN group_agg_pk AS c2 ON c1.x = c2.x GROUP BY c1.y, c1.x, c2.x"
   },
   {
     "comment": "aggregates - Statement 414",
-    "query": "EXPLAIN (COSTS OFF) SELECT c1.y,c1.x FROM group_agg_pk c1 JOIN group_agg_pk c2 ON c1.x = c2.x GROUP BY c1.y,c2.x,c1.x"
+    "query": "EXPLAIN (COSTS OFF) SELECT c1.y,c1.x FROM group_agg_pk c1 JOIN group_agg_pk c2 ON c1.x = c2.x GROUP BY c1.y,c2.x,c1.x",
+    "expected": "EXPLAIN (COSTS false) SELECT c1.y, c1.x FROM group_agg_pk AS c1 INNER JOIN group_agg_pk AS c2 ON c1.x = c2.x GROUP BY c1.y, c2.x, c1.x"
   },
   {
     "comment": "aggregates - Statement 415",
@@ -1661,15 +1960,18 @@
   },
   {
     "comment": "aggregates - Statement 416",
-    "query": "CREATE TABLE agg_sort_order (c1 int PRIMARY KEY, c2 int)"
+    "query": "CREATE TABLE agg_sort_order (c1 int PRIMARY KEY, c2 int)",
+    "expected": "CREATE TABLE agg_sort_order (c1 INT PRIMARY KEY, c2 INT)"
   },
   {
     "comment": "aggregates - Statement 417",
-    "query": "CREATE UNIQUE INDEX agg_sort_order_c2_idx ON agg_sort_order(c2)"
+    "query": "CREATE UNIQUE INDEX agg_sort_order_c2_idx ON agg_sort_order(c2)",
+    "expected": "CREATE UNIQUE INDEX agg_sort_order_c2_idx ON agg_sort_order (c2)"
   },
   {
     "comment": "aggregates - Statement 418",
-    "query": "INSERT INTO agg_sort_order SELECT i, i FROM generate_series(1,100)i"
+    "query": "INSERT INTO agg_sort_order SELECT i, i FROM generate_series(1,100)i",
+    "expected": "INSERT INTO agg_sort_order SELECT i, i FROM generate_series(1, 100) AS i"
   },
   {
     "comment": "aggregates - Statement 419",
@@ -1677,7 +1979,8 @@
   },
   {
     "comment": "aggregates - Statement 420",
-    "query": "EXPLAIN (COSTS OFF) SELECT array_agg(c1 ORDER BY c2),c2 FROM agg_sort_order WHERE c2 < 100 GROUP BY c1 ORDER BY 2"
+    "query": "EXPLAIN (COSTS OFF) SELECT array_agg(c1 ORDER BY c2),c2 FROM agg_sort_order WHERE c2 \u003c 100 GROUP BY c1 ORDER BY 2",
+    "expected": "EXPLAIN (COSTS false) SELECT array_agg(c1 ORDER BY c2), c2 FROM agg_sort_order WHERE c2 \u003c 100 GROUP BY c1 ORDER BY 2"
   },
   {
     "comment": "aggregates - Statement 421",
@@ -1697,67 +2000,58 @@
   },
   {
     "comment": "aggregates - Statement 425",
-    "query": "CREATE FUNCTION balkifnull(int8, int8) RETURNS int8 PARALLEL SAFE STRICT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'"
+    "query": "CREATE FUNCTION balkifnull(int8, int8) RETURNS int8 PARALLEL SAFE STRICT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'; END IF; RETURN NULL; END$$;",
+    "expected": "CREATE FUNCTION balkifnull (BIGINT, BIGINT) RETURNS BIGINT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'; END IF; RETURN NULL; END$$ PARALLEL SAFE STRICT"
   },
   {
     "comment": "aggregates - Statement 426",
-    "query": "CREATE AGGREGATE balk(int4) ( SFUNC = int4_sum(int8, int4), STYPE = int8, COMBINEFUNC = balkifnull(int8, int8), PARALLEL = SAFE, INITCOND = '0' )"
+    "query": "CREATE AGGREGATE balk(int4) ( SFUNC = int4_sum(int8, int4), STYPE = int8, COMBINEFUNC = balkifnull(int8, int8), PARALLEL = SAFE, INITCOND = '0' )",
+    "expected": "CREATE AGGREGATE balk (INT) (sfunc = int4_sum(int8, int4), stype = BIGINT, combinefunc = balkifnull(int8, int8), parallel = safe, initcond = '0')"
   },
   {
     "comment": "aggregates - Statement 427",
-    "query": "ALTER TABLE tenk1 set (parallel_workers = 4)"
+    "query": "ALTER TABLE tenk1 set (parallel_workers = 4)",
+    "expected": "ALTER TABLE tenk1 SET (parallel_workers = 4)"
   },
   {
     "comment": "aggregates - Statement 428",
-    "query": "SET LOCAL parallel_setup_cost=0"
+    "query": "SET LOCAL parallel_setup_cost=0",
+    "expected": "SET LOCAL parallel_setup_cost = 0"
   },
   {
     "comment": "aggregates - Statement 429",
-    "query": "SET LOCAL max_parallel_workers_per_gather=4"
+    "query": "SET LOCAL max_parallel_workers_per_gather=4",
+    "expected": "SET LOCAL max_parallel_workers_per_gather = 4"
   },
   {
     "comment": "aggregates - Statement 430",
-    "query": "EXPLAIN (COSTS OFF) SELECT balk(hundred) FROM tenk1"
+    "query": "EXPLAIN (COSTS OFF) SELECT balk(hundred) FROM tenk1",
+    "expected": "EXPLAIN (COSTS false) SELECT balk(hundred) FROM tenk1"
   },
   {
     "comment": "aggregates - Statement 431",
-    "query": "CREATE FUNCTION rwagg_sfunc(x anyarray, y anyarray) RETURNS anyarray LANGUAGE plpgsql IMMUTABLE AS $$ BEGIN RETURN array_fill(y[1], ARRAY[4])"
-  },
-  {
-    "comment": "aggregates - Statement 432",
-    "query": "END"
-  },
-  {
-    "comment": "aggregates - Statement 433",
-    "query": "$$"
+    "query": "CREATE FUNCTION rwagg_sfunc(x anyarray, y anyarray) RETURNS anyarray LANGUAGE plpgsql IMMUTABLE AS $$ BEGIN RETURN array_fill(y[1], ARRAY[4]); END; $$;",
+    "expected": "CREATE FUNCTION rwagg_sfunc (x anyarray, y anyarray) RETURNS anyarray LANGUAGE plpgsql AS $$ BEGIN RETURN array_fill(y[1], ARRAY[4]); END; $$ IMMUTABLE"
   },
   {
     "comment": "aggregates - Statement 434",
-    "query": "CREATE FUNCTION rwagg_finalfunc(x anyarray) RETURNS anyarray LANGUAGE plpgsql STRICT IMMUTABLE AS $$ DECLARE res x%TYPE"
-  },
-  {
-    "comment": "aggregates - Statement 435",
-    "query": "BEGIN res := array_fill(x[1], ARRAY[4])"
-  },
-  {
-    "comment": "aggregates - Statement 436",
-    "query": "RETURN res"
+    "query": "CREATE FUNCTION rwagg_finalfunc(x anyarray) RETURNS anyarray LANGUAGE plpgsql STRICT IMMUTABLE AS $$ DECLARE res x%TYPE; BEGIN res := array_fill(x[1], ARRAY[4]); RETURN res; END; $$;",
+    "expected": "CREATE FUNCTION rwagg_finalfunc (x anyarray) RETURNS anyarray LANGUAGE plpgsql AS $$ DECLARE res x%TYPE; BEGIN res := array_fill(x[1], ARRAY[4]); RETURN res; END; $$ STRICT IMMUTABLE"
   },
   {
     "comment": "aggregates - Statement 437",
-    "query": "CREATE AGGREGATE rwagg(anyarray) ( STYPE = anyarray, SFUNC = rwagg_sfunc, FINALFUNC = rwagg_finalfunc )"
+    "query": "CREATE AGGREGATE rwagg(anyarray) ( STYPE = anyarray, SFUNC = rwagg_sfunc, FINALFUNC = rwagg_finalfunc )",
+    "expected": "CREATE AGGREGATE rwagg (anyarray) (stype = anyarray, sfunc = rwagg_sfunc, finalfunc = rwagg_finalfunc)"
   },
   {
     "comment": "aggregates - Statement 438",
-    "query": "CREATE FUNCTION eatarray(x real[]) RETURNS real[] LANGUAGE plpgsql STRICT IMMUTABLE AS $$ BEGIN x[1] := x[1] + 1"
-  },
-  {
-    "comment": "aggregates - Statement 439",
-    "query": "RETURN x"
+    "query": "CREATE FUNCTION eatarray(x real[]) RETURNS real[] LANGUAGE plpgsql STRICT IMMUTABLE AS $$ BEGIN x[1] := x[1] + 1; RETURN x; END; $$;",
+    "expected": "CREATE FUNCTION eatarray (x REAL[]) RETURNS REAL[] LANGUAGE plpgsql AS $$ BEGIN x[1] := x[1] + 1; RETURN x; END; $$ STRICT IMMUTABLE"
   },
   {
     "comment": "aggregates - Statement 440",
-    "query": "SELECT eatarray(rwagg(ARRAY[1.0::real])), eatarray(rwagg(ARRAY[1.0::real]))"
+    "query": "SELECT eatarray(rwagg(ARRAY[1.0::real])), eatarray(rwagg(ARRAY[1.0::real]))",
+    "expected": "SELECT eatarray(rwagg(ARRAY[CAST(1.0 AS REAL)])), eatarray(rwagg(ARRAY[CAST(1.0 AS REAL)]))"
   },
   {
     "comment": "aggregates - Statement 441",
@@ -1781,194 +2075,242 @@
   },
   {
     "comment": "aggregates - Statement 446",
-    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT variance(unique1::int4), sum(unique1::int8), regr_count(unique1::float8, unique1::float8) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u"
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT variance(unique1::int4), sum(unique1::int8), regr_count(unique1::float8, unique1::float8) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u",
+    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT variance(CAST(unique1 AS INT)), SUM(CAST(unique1 AS BIGINT)), regr_count(CAST(unique1 AS FLOAT8), CAST(unique1 AS FLOAT8)) FROM ((((SELECT * FROM tenk1) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) AS u"
   },
   {
     "comment": "aggregates - Statement 447",
-    "query": "SELECT variance(unique1::int4), sum(unique1::int8), regr_count(unique1::float8, unique1::float8) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u"
+    "query": "SELECT variance(unique1::int4), sum(unique1::int8), regr_count(unique1::float8, unique1::float8) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u",
+    "expected": "SELECT variance(CAST(unique1 AS INT)), SUM(CAST(unique1 AS BIGINT)), regr_count(CAST(unique1 AS FLOAT8), CAST(unique1 AS FLOAT8)) FROM ((((SELECT * FROM tenk1) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) AS u"
   },
   {
     "comment": "aggregates - Statement 448",
-    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT variance(unique1::int8), avg(unique1::numeric) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u"
+    "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT variance(unique1::int8), avg(unique1::numeric) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u",
+    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT variance(CAST(unique1 AS BIGINT)), AVG(CAST(unique1 AS NUMERIC)) FROM ((((SELECT * FROM tenk1) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) AS u"
   },
   {
     "comment": "aggregates - Statement 449",
-    "query": "SELECT variance(unique1::int8), avg(unique1::numeric) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u"
+    "query": "SELECT variance(unique1::int8), avg(unique1::numeric) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u",
+    "expected": "SELECT variance(CAST(unique1 AS BIGINT)), AVG(CAST(unique1 AS NUMERIC)) FROM ((((SELECT * FROM tenk1) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) AS u"
   },
   {
     "comment": "aggregates - Statement 450",
-    "query": "SELECT dense_rank(x) WITHIN GROUP (ORDER BY x) FROM (VALUES (1),(1),(2),(2),(3),(3)) v(x) GROUP BY (x) ORDER BY 1"
+    "query": "SELECT dense_rank(x) WITHIN GROUP (ORDER BY x) FROM (VALUES (1),(1),(2),(2),(3),(3)) v(x) GROUP BY (x) ORDER BY 1",
+    "expected": "SELECT DENSE_RANK(x) WITHIN GROUP (ORDER BY x) FROM (VALUES (1), (1), (2), (2), (3), (3)) AS v(x) GROUP BY (x) ORDER BY 1"
   },
   {
     "comment": "aggregates - Statement 451",
-    "query": "SELECT min(x ORDER BY y) FROM (VALUES(1, NULL)) AS d(x,y)"
+    "query": "SELECT min(x ORDER BY y) FROM (VALUES(1, NULL)) AS d(x,y)",
+    "expected": "SELECT MIN(x ORDER BY y) FROM (VALUES (1, NULL)) AS d(x, y)"
   },
   {
     "comment": "aggregates - Statement 452",
-    "query": "SELECT min(x ORDER BY y) FROM (VALUES(1, 2)) AS d(x,y)"
+    "query": "SELECT min(x ORDER BY y) FROM (VALUES(1, 2)) AS d(x,y)",
+    "expected": "SELECT MIN(x ORDER BY y) FROM (VALUES (1, 2)) AS d(x, y)"
   },
   {
     "comment": "aggregates - Statement 453",
-    "query": "select v||'a', case v||'a' when 'aa' then 1 else 0 end, count(*) from unnest(array['a','b']) u(v) group by v||'a' order by 1"
+    "query": "select v||'a', case v||'a' when 'aa' then 1 else 0 end, count(*) from unnest(array['a','b']) u(v) group by v||'a' order by 1",
+    "expected": "SELECT v || 'a', CASE v || 'a' WHEN 'aa' THEN 1 ELSE 0 END, COUNT(*) FROM unnest(ARRAY['a','b']) AS u(v) GROUP BY v || 'a' ORDER BY 1"
   },
   {
     "comment": "aggregates - Statement 454",
-    "query": "select v||'a', case when v||'a' = 'aa' then 1 else 0 end, count(*) from unnest(array['a','b']) u(v) group by v||'a' order by 1"
+    "query": "select v||'a', case when v||'a' = 'aa' then 1 else 0 end, count(*) from unnest(array['a','b']) u(v) group by v||'a' order by 1",
+    "expected": "SELECT v || 'a', CASE WHEN v || 'a' = 'aa' THEN 1 ELSE 0 END, COUNT(*) FROM unnest(ARRAY['a','b']) AS u(v) GROUP BY v || 'a' ORDER BY 1"
   },
   {
     "comment": "aggregates - Statement 455",
-    "query": "set enable_memoize to off"
+    "query": "set enable_memoize to off",
+    "expected": "SET enable_memoize = off"
   },
   {
     "comment": "aggregates - Statement 456",
-    "query": "explain (costs off) select 1 from tenk1 where (hundred, thousand) in (select twothousand, twothousand from onek)"
+    "query": "explain (costs off) select 1 from tenk1 where (hundred, thousand) in (select twothousand, twothousand from onek)",
+    "expected": "EXPLAIN (COSTS false) SELECT 1 FROM tenk1 WHERE (hundred, thousand) IN (SELECT twothousand, twothousand FROM onek)"
   },
   {
     "comment": "aggregates - Statement 457",
-    "query": "reset enable_memoize"
+    "query": "reset enable_memoize",
+    "expected": "RESET enable_memoize"
   },
   {
     "comment": "aggregates - Statement 458",
-    "query": "set enable_sort=false"
+    "query": "set enable_sort=false",
+    "expected": "SET enable_sort = false"
   },
   {
     "comment": "aggregates - Statement 459",
-    "query": "set work_mem='64kB'"
+    "query": "set work_mem='64kB'",
+    "expected": "SET work_mem = '64kB'"
   },
   {
     "comment": "aggregates - Statement 460",
-    "query": "select unique1, count(*), sum(twothousand) from tenk1 group by unique1 having sum(fivethous) > 4975 order by sum(twothousand)"
+    "query": "select unique1, count(*), sum(twothousand) from tenk1 group by unique1 having sum(fivethous) \u003e 4975 order by sum(twothousand)",
+    "expected": "SELECT unique1, COUNT(*), SUM(twothousand) FROM tenk1 GROUP BY unique1 HAVING SUM(fivethous) \u003e 4975 ORDER BY SUM(twothousand)"
   },
   {
     "comment": "aggregates - Statement 461",
-    "query": "set work_mem to default"
+    "query": "set work_mem to default",
+    "expected": "SET work_mem = DEFAULT"
   },
   {
     "comment": "aggregates - Statement 462",
-    "query": "set enable_sort to default"
+    "query": "set enable_sort to default",
+    "expected": "SET enable_sort = DEFAULT"
   },
   {
     "comment": "aggregates - Statement 463",
-    "query": "create table agg_data_2k as select g from generate_series(0, 1999) g"
+    "query": "create table agg_data_2k as select g from generate_series(0, 1999) g",
+    "expected": "CREATE TABLE agg_data_2k AS SELECT g FROM generate_series(0, 1999) AS g"
   },
   {
     "comment": "aggregates - Statement 464",
-    "query": "analyze agg_data_2k"
+    "query": "analyze agg_data_2k",
+    "expected": "ANALYZE agg_data_2k"
   },
   {
     "comment": "aggregates - Statement 465",
-    "query": "create table agg_data_20k as select g from generate_series(0, 19999) g"
+    "query": "create table agg_data_20k as select g from generate_series(0, 19999) g",
+    "expected": "CREATE TABLE agg_data_20k AS SELECT g FROM generate_series(0, 19999) AS g"
   },
   {
     "comment": "aggregates - Statement 466",
-    "query": "analyze agg_data_20k"
+    "query": "analyze agg_data_20k",
+    "expected": "ANALYZE agg_data_20k"
   },
   {
     "comment": "aggregates - Statement 467",
-    "query": "set enable_hashagg = false"
+    "query": "set enable_hashagg = false",
+    "expected": "SET enable_hashagg = false"
   },
   {
     "comment": "aggregates - Statement 468",
-    "query": "set jit_above_cost = 0"
+    "query": "set jit_above_cost = 0",
+    "expected": "SET jit_above_cost = 0"
   },
   {
     "comment": "aggregates - Statement 469",
-    "query": "explain (costs off) select g%10000 as c1, sum(g::numeric) as c2, count(*) as c3 from agg_data_20k group by g%10000"
+    "query": "explain (costs off) select g%10000 as c1, sum(g::numeric) as c2, count(*) as c3 from agg_data_20k group by g%10000",
+    "expected": "EXPLAIN (COSTS false) SELECT g % 10000 AS c1, SUM(CAST(g AS NUMERIC)) AS c2, COUNT(*) AS c3 FROM agg_data_20k GROUP BY g % 10000"
   },
   {
     "comment": "aggregates - Statement 470",
-    "query": "create table agg_group_1 as select g%10000 as c1, sum(g::numeric) as c2, count(*) as c3 from agg_data_20k group by g%10000"
+    "query": "create table agg_group_1 as select g%10000 as c1, sum(g::numeric) as c2, count(*) as c3 from agg_data_20k group by g%10000",
+    "expected": "CREATE TABLE agg_group_1 AS SELECT g % 10000 AS c1, SUM(CAST(g AS NUMERIC)) AS c2, COUNT(*) AS c3 FROM agg_data_20k GROUP BY g % 10000"
   },
   {
     "comment": "aggregates - Statement 471",
-    "query": "create table agg_group_2 as select * from (values (100), (300), (500)) as r(a), lateral ( select (g/2)::numeric as c1, array_agg(g::numeric) as c2, count(*) as c3 from agg_data_2k where g < r.a group by g/2) as s"
+    "query": "create table agg_group_2 as select * from (values (100), (300), (500)) as r(a), lateral ( select (g/2)::numeric as c1, array_agg(g::numeric) as c2, count(*) as c3 from agg_data_2k where g \u003c r.a group by g/2) as s",
+    "expected": "CREATE TABLE agg_group_2 AS SELECT * FROM (VALUES (100), (300), (500)) AS r(a), LATERAL (SELECT CAST((g / 2) AS NUMERIC) AS c1, array_agg(CAST(g AS NUMERIC)) AS c2, COUNT(*) AS c3 FROM agg_data_2k WHERE g \u003c r.a GROUP BY g / 2) AS s"
   },
   {
     "comment": "aggregates - Statement 472",
-    "query": "set jit_above_cost to default"
+    "query": "set jit_above_cost to default",
+    "expected": "SET jit_above_cost = DEFAULT"
   },
   {
     "comment": "aggregates - Statement 473",
-    "query": "create table agg_group_3 as select (g/2)::numeric as c1, sum(7::int4) as c2, count(*) as c3 from agg_data_2k group by g/2"
+    "query": "create table agg_group_3 as select (g/2)::numeric as c1, sum(7::int4) as c2, count(*) as c3 from agg_data_2k group by g/2",
+    "expected": "CREATE TABLE agg_group_3 AS SELECT CAST((g / 2) AS NUMERIC) AS c1, SUM(CAST(7 AS INT)) AS c2, COUNT(*) AS c3 FROM agg_data_2k GROUP BY g / 2"
   },
   {
     "comment": "aggregates - Statement 474",
-    "query": "create table agg_group_4 as select (g/2)::numeric as c1, array_agg(g::numeric) as c2, count(*) as c3 from agg_data_2k group by g/2"
+    "query": "create table agg_group_4 as select (g/2)::numeric as c1, array_agg(g::numeric) as c2, count(*) as c3 from agg_data_2k group by g/2",
+    "expected": "CREATE TABLE agg_group_4 AS SELECT CAST((g / 2) AS NUMERIC) AS c1, array_agg(CAST(g AS NUMERIC)) AS c2, COUNT(*) AS c3 FROM agg_data_2k GROUP BY g / 2"
   },
   {
     "comment": "aggregates - Statement 475",
-    "query": "set enable_hashagg = true"
+    "query": "set enable_hashagg = true",
+    "expected": "SET enable_hashagg = true"
   },
   {
     "comment": "aggregates - Statement 476",
-    "query": "set enable_sort = false"
+    "query": "set enable_sort = false",
+    "expected": "SET enable_sort = false"
   },
   {
     "comment": "aggregates - Statement 477",
-    "query": "create table agg_hash_1 as select g%10000 as c1, sum(g::numeric) as c2, count(*) as c3 from agg_data_20k group by g%10000"
+    "query": "create table agg_hash_1 as select g%10000 as c1, sum(g::numeric) as c2, count(*) as c3 from agg_data_20k group by g%10000",
+    "expected": "CREATE TABLE agg_hash_1 AS SELECT g % 10000 AS c1, SUM(CAST(g AS NUMERIC)) AS c2, COUNT(*) AS c3 FROM agg_data_20k GROUP BY g % 10000"
   },
   {
     "comment": "aggregates - Statement 478",
-    "query": "create table agg_hash_2 as select * from (values (100), (300), (500)) as r(a), lateral ( select (g/2)::numeric as c1, array_agg(g::numeric) as c2, count(*) as c3 from agg_data_2k where g < r.a group by g/2) as s"
+    "query": "create table agg_hash_2 as select * from (values (100), (300), (500)) as r(a), lateral ( select (g/2)::numeric as c1, array_agg(g::numeric) as c2, count(*) as c3 from agg_data_2k where g \u003c r.a group by g/2) as s",
+    "expected": "CREATE TABLE agg_hash_2 AS SELECT * FROM (VALUES (100), (300), (500)) AS r(a), LATERAL (SELECT CAST((g / 2) AS NUMERIC) AS c1, array_agg(CAST(g AS NUMERIC)) AS c2, COUNT(*) AS c3 FROM agg_data_2k WHERE g \u003c r.a GROUP BY g / 2) AS s"
   },
   {
     "comment": "aggregates - Statement 479",
-    "query": "create table agg_hash_3 as select (g/2)::numeric as c1, sum(7::int4) as c2, count(*) as c3 from agg_data_2k group by g/2"
+    "query": "create table agg_hash_3 as select (g/2)::numeric as c1, sum(7::int4) as c2, count(*) as c3 from agg_data_2k group by g/2",
+    "expected": "CREATE TABLE agg_hash_3 AS SELECT CAST((g / 2) AS NUMERIC) AS c1, SUM(CAST(7 AS INT)) AS c2, COUNT(*) AS c3 FROM agg_data_2k GROUP BY g / 2"
   },
   {
     "comment": "aggregates - Statement 480",
-    "query": "create table agg_hash_4 as select (g/2)::numeric as c1, array_agg(g::numeric) as c2, count(*) as c3 from agg_data_2k group by g/2"
+    "query": "create table agg_hash_4 as select (g/2)::numeric as c1, array_agg(g::numeric) as c2, count(*) as c3 from agg_data_2k group by g/2",
+    "expected": "CREATE TABLE agg_hash_4 AS SELECT CAST((g / 2) AS NUMERIC) AS c1, array_agg(CAST(g AS NUMERIC)) AS c2, COUNT(*) AS c3 FROM agg_data_2k GROUP BY g / 2"
   },
   {
     "comment": "aggregates - Statement 481",
-    "query": "set enable_sort = true"
+    "query": "set enable_sort = true",
+    "expected": "SET enable_sort = true"
   },
   {
     "comment": "aggregates - Statement 482",
-    "query": "(select * from agg_hash_1 except select * from agg_group_1) union all (select * from agg_group_1 except select * from agg_hash_1)"
+    "query": "(select * from agg_hash_1 except select * from agg_group_1) union all (select * from agg_group_1 except select * from agg_hash_1)",
+    "expected": "((SELECT * FROM agg_hash_1) EXCEPT (SELECT * FROM agg_group_1)) UNION ALL ((SELECT * FROM agg_group_1) EXCEPT (SELECT * FROM agg_hash_1))"
   },
   {
     "comment": "aggregates - Statement 483",
-    "query": "(select * from agg_hash_2 except select * from agg_group_2) union all (select * from agg_group_2 except select * from agg_hash_2)"
+    "query": "(select * from agg_hash_2 except select * from agg_group_2) union all (select * from agg_group_2 except select * from agg_hash_2)",
+    "expected": "((SELECT * FROM agg_hash_2) EXCEPT (SELECT * FROM agg_group_2)) UNION ALL ((SELECT * FROM agg_group_2) EXCEPT (SELECT * FROM agg_hash_2))"
   },
   {
     "comment": "aggregates - Statement 484",
-    "query": "(select * from agg_hash_3 except select * from agg_group_3) union all (select * from agg_group_3 except select * from agg_hash_3)"
+    "query": "(select * from agg_hash_3 except select * from agg_group_3) union all (select * from agg_group_3 except select * from agg_hash_3)",
+    "expected": "((SELECT * FROM agg_hash_3) EXCEPT (SELECT * FROM agg_group_3)) UNION ALL ((SELECT * FROM agg_group_3) EXCEPT (SELECT * FROM agg_hash_3))"
   },
   {
     "comment": "aggregates - Statement 485",
-    "query": "(select * from agg_hash_4 except select * from agg_group_4) union all (select * from agg_group_4 except select * from agg_hash_4)"
+    "query": "(select * from agg_hash_4 except select * from agg_group_4) union all (select * from agg_group_4 except select * from agg_hash_4)",
+    "expected": "((SELECT * FROM agg_hash_4) EXCEPT (SELECT * FROM agg_group_4)) UNION ALL ((SELECT * FROM agg_group_4) EXCEPT (SELECT * FROM agg_hash_4))"
   },
   {
     "comment": "aggregates - Statement 486",
-    "query": "drop table agg_group_1"
+    "query": "drop table agg_group_1",
+    "expected": "DROP TABLE agg_group_1"
   },
   {
     "comment": "aggregates - Statement 487",
-    "query": "drop table agg_group_2"
+    "query": "drop table agg_group_2",
+    "expected": "DROP TABLE agg_group_2"
   },
   {
     "comment": "aggregates - Statement 488",
-    "query": "drop table agg_group_3"
+    "query": "drop table agg_group_3",
+    "expected": "DROP TABLE agg_group_3"
   },
   {
     "comment": "aggregates - Statement 489",
-    "query": "drop table agg_group_4"
+    "query": "drop table agg_group_4",
+    "expected": "DROP TABLE agg_group_4"
   },
   {
     "comment": "aggregates - Statement 490",
-    "query": "drop table agg_hash_1"
+    "query": "drop table agg_hash_1",
+    "expected": "DROP TABLE agg_hash_1"
   },
   {
     "comment": "aggregates - Statement 491",
-    "query": "drop table agg_hash_2"
+    "query": "drop table agg_hash_2",
+    "expected": "DROP TABLE agg_hash_2"
   },
   {
     "comment": "aggregates - Statement 492",
-    "query": "drop table agg_hash_3"
+    "query": "drop table agg_hash_3",
+    "expected": "DROP TABLE agg_hash_3"
   },
   {
     "comment": "aggregates - Statement 493",
-    "query": "drop table agg_hash_4"
+    "query": "drop table agg_hash_4",
+    "expected": "DROP TABLE agg_hash_4"
   }
 ]

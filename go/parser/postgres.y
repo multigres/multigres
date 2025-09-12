@@ -2581,7 +2581,7 @@ c_expr:		columnref							{ $$ = $1 }
 		|	'(' a_expr ')' opt_indirection
 			{
 				if $4 != nil {
-					$$ = ast.NewParenExpr(ast.NewA_Indirection($2, $4, 0), 0)
+					$$ = ast.NewA_Indirection(ast.NewParenExpr($2, 0), $4, 0)
 				} else {
 					$$ = ast.NewParenExpr($2,0)
 				}
@@ -3591,13 +3591,18 @@ func_application: func_name '(' ')'
 		|	func_name '(' func_arg_list opt_sort_clause ')'
 			{
 				funcCall := ast.NewFuncCall($1, $3, 0)
-				// Note: In full implementation, would set agg_order from $4
+				if $4 != nil {
+					funcCall.AggOrder = $4
+				}
 				$$ = funcCall
 			}
 		|	func_name '(' VARIADIC func_arg_expr opt_sort_clause ')'
 			{
 				funcCall := ast.NewFuncCall($1, ast.NewNodeList($4), 0)
-				// Note: In full implementation, would set func_variadic = true and agg_order from $5
+				funcCall.FuncVariadic = true
+				if $5 != nil {
+					funcCall.AggOrder = $5
+				}
 				$$ = funcCall
 			}
 		|	func_name '(' func_arg_list ',' VARIADIC func_arg_expr opt_sort_clause ')'
@@ -3605,7 +3610,10 @@ func_application: func_name '(' ')'
 				$3.Append($6)
 				args := $3
 				funcCall := ast.NewFuncCall($1, args, 0)
-				// Note: In full implementation, would set func_variadic = true and agg_order from $7
+				funcCall.FuncVariadic = true
+				if $7 != nil {
+					funcCall.AggOrder = $7
+				}
 				$$ = funcCall
 			}
 		|	func_name '(' ALL func_arg_list opt_sort_clause ')'
@@ -3915,7 +3923,7 @@ opt_type_modifiers: '(' expr_list ')'
 GenericType: type_function_name opt_type_modifiers
 			{
 				typeName := makeTypeNameFromString($1)
-				// Note: In full implementation, would set type modifiers
+				typeName.Typmods = $2
 				$$ = typeName
 			}
 		|	type_function_name attrs opt_type_modifiers
@@ -3924,7 +3932,7 @@ GenericType: type_function_name opt_type_modifiers
 				name := ast.NewString($1)
 				names := &ast.NodeList{Items: append([]ast.Node{name}, $2.Items...)}
 				typeName := makeTypeNameFromNodeList(names)
-				// Note: In full implementation, would set type modifiers
+				typeName.Typmods = $3
 				$$ = typeName
 			}
 		;
@@ -5895,7 +5903,7 @@ insert_column_list:
 insert_column_item:
 			ColId opt_indirection
 			{
-				$$ = ast.NewResTarget($1, $2)
+				$$ = ast.NewResTargetWithIndirection($1, $2)
 			}
 		;
 
@@ -5961,7 +5969,7 @@ set_clause:
 set_target:
 			ColId opt_indirection
 			{
-				$$ = ast.NewResTarget($1, $2)
+				$$ = ast.NewResTargetWithIndirection($1, $2)
 			}
 		;
 
@@ -7012,7 +7020,10 @@ columnDef:
 					colDef.StorageName = $3
 					colDef.Compression = $4
 					colDef.Fdwoptions = $5
-					colDef.Constraints = $6
+					// Use SplitColQualList to separate constraints and collate clause
+					constraints, collClause := SplitColQualList($6)
+					colDef.Constraints = constraints
+					colDef.Collclause = collClause
 					$$ = colDef
 				}
 		;

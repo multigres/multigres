@@ -21,7 +21,8 @@
   },
   {
     "comment": "advisory_lock - Statement 6",
-    "query": "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = 12345"
+    "query": "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = 12345",
+    "expected": "SELECT COUNT(*) FROM pg_locks WHERE locktype = 'advisory' AND database = 12345"
   },
   {
     "comment": "advisory_lock - Statement 7",

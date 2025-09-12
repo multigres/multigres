@@ -1191,7 +1191,7 @@ const yyEofCode = 1
 const yyErrCode = 2
 const yyInitialStackSize = 16
 
-//line postgres.y:15555
+//line postgres.y:15566
 
 // Lex implements the lexer interface for goyacc
 func (l *Lexer) Lex(lval *yySymType) int {
@@ -24661,7 +24661,7 @@ yydefault:
 //line postgres.y:2582
 		{
 			if yyDollar[4].list != nil {
-				yyVAL.node = ast.NewParenExpr(ast.NewA_Indirection(yyDollar[2].node, yyDollar[4].list, 0), 0)
+				yyVAL.node = ast.NewA_Indirection(ast.NewParenExpr(yyDollar[2].node, 0), yyDollar[4].list, 0)
 			} else {
 				yyVAL.node = ast.NewParenExpr(yyDollar[2].node, 0)
 			}
@@ -26011,30 +26011,38 @@ yydefault:
 //line postgres.y:3592
 		{
 			funcCall := ast.NewFuncCall(yyDollar[1].list, yyDollar[3].list, 0)
-			// Note: In full implementation, would set agg_order from $4
+			if yyDollar[4].list != nil {
+				funcCall.AggOrder = yyDollar[4].list
+			}
 			yyVAL.node = funcCall
 		}
 	case 1397:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:3598
+//line postgres.y:3600
 		{
 			funcCall := ast.NewFuncCall(yyDollar[1].list, ast.NewNodeList(yyDollar[4].node), 0)
-			// Note: In full implementation, would set func_variadic = true and agg_order from $5
+			funcCall.FuncVariadic = true
+			if yyDollar[5].list != nil {
+				funcCall.AggOrder = yyDollar[5].list
+			}
 			yyVAL.node = funcCall
 		}
 	case 1398:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:3604
+//line postgres.y:3609
 		{
 			yyDollar[3].list.Append(yyDollar[6].node)
 			args := yyDollar[3].list
 			funcCall := ast.NewFuncCall(yyDollar[1].list, args, 0)
-			// Note: In full implementation, would set func_variadic = true and agg_order from $7
+			funcCall.FuncVariadic = true
+			if yyDollar[7].list != nil {
+				funcCall.AggOrder = yyDollar[7].list
+			}
 			yyVAL.node = funcCall
 		}
 	case 1399:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:3612
+//line postgres.y:3620
 		{
 			funcCall := ast.NewFuncCall(yyDollar[1].list, yyDollar[4].list, 0)
 			funcCall.AggDistinct = false // ALL is explicit (though this is default)
@@ -26045,7 +26053,7 @@ yydefault:
 		}
 	case 1400:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:3621
+//line postgres.y:3629
 		{
 			funcCall := ast.NewFuncCall(yyDollar[1].list, yyDollar[4].list, 0)
 			funcCall.AggDistinct = true
@@ -26056,130 +26064,130 @@ yydefault:
 		}
 	case 1401:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3632
+//line postgres.y:3640
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1402:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3636
+//line postgres.y:3644
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1403:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3643
+//line postgres.y:3651
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 1404:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3647
+//line postgres.y:3655
 		{
 			yyVAL.node = ast.NewNamedArgExpr(yyDollar[3].node.(ast.Expression), yyDollar[1].str, -1, 0)
 		}
 	case 1405:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3651
+//line postgres.y:3659
 		{
 			yyVAL.node = ast.NewNamedArgExpr(yyDollar[3].node.(ast.Expression), yyDollar[1].str, -1, 0)
 		}
 	case 1406:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:3658
+//line postgres.y:3666
 		{
 			yyVAL.node = ast.NewCaseExpr(0, yyDollar[2].node, yyDollar[3].list, yyDollar[4].node)
 		}
 	case 1407:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3663
+//line postgres.y:3671
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 1408:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:3664
+//line postgres.y:3672
 		{
 			yyVAL.node = nil
 		}
 	case 1409:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3668
+//line postgres.y:3676
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1410:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3670
+//line postgres.y:3678
 		{
 			yyDollar[1].list.Append(yyDollar[2].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1411:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:3678
+//line postgres.y:3686
 		{
 			yyVAL.node = ast.NewCaseWhen(yyDollar[2].node, yyDollar[4].node)
 		}
 	case 1412:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3684
+//line postgres.y:3692
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 1413:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:3685
+//line postgres.y:3693
 		{
 			yyVAL.node = nil
 		}
 	case 1414:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3690
+//line postgres.y:3698
 		{
 			yyVAL.node = ast.NewArrayConstructor(yyDollar[2].list)
 		}
 	case 1415:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3694
+//line postgres.y:3702
 		{
 			yyVAL.node = ast.NewArrayConstructor(yyDollar[2].list)
 		}
 	case 1416:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3698
+//line postgres.y:3706
 		{
 			yyVAL.node = ast.NewArrayConstructor(ast.NewNodeList())
 		}
 	case 1417:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3703
+//line postgres.y:3711
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1418:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3705
+//line postgres.y:3713
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1419:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:3712
+//line postgres.y:3720
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 1420:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3713
+//line postgres.y:3721
 		{
 			yyVAL.list = ast.NewNodeList()
 		}
 	case 1421:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:3715
+//line postgres.y:3723
 		{
 			nodeList := yyDollar[2].list
 			nodeList.Append(yyDollar[4].node)
@@ -26187,170 +26195,170 @@ yydefault:
 		}
 	case 1422:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:3722
+//line postgres.y:3730
 		{
 			yyVAL.node = yyDollar[3].list
 		}
 	case 1423:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3723
+//line postgres.y:3731
 		{
 			yyVAL.node = ast.NewNodeList()
 		}
 	case 1424:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:3727
+//line postgres.y:3735
 		{
 			yyDollar[2].list.Append(yyDollar[4].node)
 			yyVAL.node = yyDollar[2].list
 		}
 	case 1425:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3733
+//line postgres.y:3741
 		{
 			yyVAL.ival = int(ast.ANY_SUBLINK)
 		}
 	case 1426:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3734
+//line postgres.y:3742
 		{
 			yyVAL.ival = int(ast.ANY_SUBLINK)
 		}
 	case 1427:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3735
+//line postgres.y:3743
 		{
 			yyVAL.ival = int(ast.ALL_SUBLINK)
 		}
 	case 1428:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3740
+//line postgres.y:3748
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString(yyDollar[1].str))
 		}
 	case 1429:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:3744
+//line postgres.y:3752
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 1430:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3748
+//line postgres.y:3756
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString("~~"))
 		}
 	case 1431:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3752
+//line postgres.y:3760
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString("!~~"))
 		}
 	case 1432:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3756
+//line postgres.y:3764
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString("~~*"))
 		}
 	case 1433:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3760
+//line postgres.y:3768
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString("!~~*"))
 		}
 	case 1434:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3766
+//line postgres.y:3774
 		{
 			yyVAL.str = "NFC"
 		}
 	case 1435:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3767
+//line postgres.y:3775
 		{
 			yyVAL.str = "NFD"
 		}
 	case 1436:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3768
+//line postgres.y:3776
 		{
 			yyVAL.str = "NFKC"
 		}
 	case 1437:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3769
+//line postgres.y:3777
 		{
 			yyVAL.str = "NFKD"
 		}
 	case 1438:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3773
+//line postgres.y:3781
 		{
 			yyVAL.ival = int(ast.JS_TYPE_ANY)
 		}
 	case 1439:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3774
+//line postgres.y:3782
 		{
 			yyVAL.ival = int(ast.JS_TYPE_ANY)
 		}
 	case 1440:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3775
+//line postgres.y:3783
 		{
 			yyVAL.ival = int(ast.JS_TYPE_ARRAY)
 		}
 	case 1441:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3776
+//line postgres.y:3784
 		{
 			yyVAL.ival = int(ast.JS_TYPE_OBJECT)
 		}
 	case 1442:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3777
+//line postgres.y:3785
 		{
 			yyVAL.ival = int(ast.JS_TYPE_SCALAR)
 		}
 	case 1443:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3781
+//line postgres.y:3789
 		{
 			yyVAL.bval = true
 		}
 	case 1444:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3782
+//line postgres.y:3790
 		{
 			yyVAL.bval = true
 		}
 	case 1445:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3783
+//line postgres.y:3791
 		{
 			yyVAL.bval = false
 		}
 	case 1446:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3784
+//line postgres.y:3792
 		{
 			yyVAL.bval = false
 		}
 	case 1447:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:3785
+//line postgres.y:3793
 		{
 			yyVAL.bval = false
 		}
 	case 1448:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3790
+//line postgres.y:3798
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1449:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3794
+//line postgres.y:3802
 		{
 			nodeList := yyDollar[1].list
 			nodeList.Append(yyDollar[3].node)
@@ -26358,14 +26366,14 @@ yydefault:
 		}
 	case 1450:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3803
+//line postgres.y:3811
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 			yyVAL.typnam.ArrayBounds = yyDollar[2].list
 		}
 	case 1451:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3808
+//line postgres.y:3816
 		{
 			yyVAL.typnam = yyDollar[2].typnam
 			yyVAL.typnam.ArrayBounds = yyDollar[3].list
@@ -26373,14 +26381,14 @@ yydefault:
 		}
 	case 1452:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:3814
+//line postgres.y:3822
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 			yyVAL.typnam.ArrayBounds = ast.NewNodeList(ast.NewInteger(yyDollar[4].ival))
 		}
 	case 1453:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:3819
+//line postgres.y:3827
 		{
 			yyVAL.typnam = yyDollar[2].typnam
 			yyVAL.typnam.ArrayBounds = ast.NewNodeList(ast.NewInteger(yyDollar[5].ival))
@@ -26388,14 +26396,14 @@ yydefault:
 		}
 	case 1454:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3825
+//line postgres.y:3833
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 			yyVAL.typnam.ArrayBounds = ast.NewNodeList(ast.NewInteger(-1))
 		}
 	case 1455:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3830
+//line postgres.y:3838
 		{
 			yyVAL.typnam = yyDollar[2].typnam
 			yyVAL.typnam.ArrayBounds = ast.NewNodeList(ast.NewInteger(-1))
@@ -26403,7 +26411,7 @@ yydefault:
 		}
 	case 1456:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3839
+//line postgres.y:3847
 		{
 			if yyDollar[1].list == nil {
 				yyVAL.list = ast.NewNodeList()
@@ -26414,7 +26422,7 @@ yydefault:
 		}
 	case 1457:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:3848
+//line postgres.y:3856
 		{
 			if yyDollar[1].list == nil {
 				yyVAL.list = ast.NewNodeList()
@@ -26425,242 +26433,242 @@ yydefault:
 		}
 	case 1458:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:3857
+//line postgres.y:3865
 		{
 			yyVAL.list = nil
 		}
 	case 1459:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3862
+//line postgres.y:3870
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1460:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3863
+//line postgres.y:3871
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1461:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3864
+//line postgres.y:3872
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1462:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3865
+//line postgres.y:3873
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1463:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3866
+//line postgres.y:3874
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1464:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3868
+//line postgres.y:3876
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 			yyVAL.typnam.Typmods = yyDollar[2].list
 		}
 	case 1465:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:3873
+//line postgres.y:3881
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 			yyVAL.typnam.Typmods = ast.NewNodeList(ast.NewInteger(ast.INTERVAL_FULL_RANGE), ast.NewInteger(yyDollar[3].ival))
 		}
 	case 1466:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3877
+//line postgres.y:3885
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1467:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3880
+//line postgres.y:3888
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1468:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3881
+//line postgres.y:3889
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1469:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3882
+//line postgres.y:3890
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1470:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3885
+//line postgres.y:3893
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1471:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3888
+//line postgres.y:3896
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1472:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3891
+//line postgres.y:3899
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1473:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3895
+//line postgres.y:3903
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString(yyDollar[2].str))
 		}
 	case 1474:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3899
+//line postgres.y:3907
 		{
 			yyDollar[1].list.Append(ast.NewString(yyDollar[3].str))
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1475:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3906
+//line postgres.y:3914
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 1476:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:3910
+//line postgres.y:3918
 		{
 			yyVAL.list = nil
 		}
 	case 1477:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3916
+//line postgres.y:3924
 		{
 			typeName := makeTypeNameFromString(yyDollar[1].str)
-			// Note: In full implementation, would set type modifiers
+			typeName.Typmods = yyDollar[2].list
 			yyVAL.typnam = typeName
 		}
 	case 1478:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:3922
+//line postgres.y:3930
 		{
 			// Create qualified type name from name + attrs
 			name := ast.NewString(yyDollar[1].str)
 			names := &ast.NodeList{Items: append([]ast.Node{name}, yyDollar[2].list.Items...)}
 			typeName := makeTypeNameFromNodeList(names)
-			// Note: In full implementation, would set type modifiers
+			typeName.Typmods = yyDollar[3].list
 			yyVAL.typnam = typeName
 		}
 	case 1479:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3933
+//line postgres.y:3941
 		{
 			yyVAL.typnam = makeTypeNameFromString("int4")
 		}
 	case 1480:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3937
+//line postgres.y:3945
 		{
 			yyVAL.typnam = makeTypeNameFromString("int4")
 		}
 	case 1481:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3941
+//line postgres.y:3949
 		{
 			yyVAL.typnam = makeTypeNameFromString("int2")
 		}
 	case 1482:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3945
+//line postgres.y:3953
 		{
 			yyVAL.typnam = makeTypeNameFromString("int8")
 		}
 	case 1483:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3949
+//line postgres.y:3957
 		{
 			yyVAL.typnam = makeTypeNameFromString("float4")
 		}
 	case 1484:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3953
+//line postgres.y:3961
 		{
 			yyVAL.typnam = yyDollar[2].typnam
 		}
 	case 1485:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3957
+//line postgres.y:3965
 		{
 			yyVAL.typnam = makeTypeNameFromString("float8")
 		}
 	case 1486:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3961
+//line postgres.y:3969
 		{
 			yyVAL.typnam = makeTypeNameFromString("numeric")
 			yyVAL.typnam.Typmods = yyDollar[2].list
 		}
 	case 1487:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3966
+//line postgres.y:3974
 		{
 			yyVAL.typnam = makeTypeNameFromString("numeric")
 			yyVAL.typnam.Typmods = yyDollar[2].list
 		}
 	case 1488:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:3971
+//line postgres.y:3979
 		{
 			yyVAL.typnam = makeTypeNameFromString("numeric")
 			yyVAL.typnam.Typmods = yyDollar[2].list
 		}
 	case 1489:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3976
+//line postgres.y:3984
 		{
 			yyVAL.typnam = makeTypeNameFromString("bool")
 		}
 	case 1490:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3982
+//line postgres.y:3990
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1491:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3986
+//line postgres.y:3994
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1492:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3992
+//line postgres.y:4000
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1493:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:3996
+//line postgres.y:4004
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1494:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4002
+//line postgres.y:4010
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1495:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4006
+//line postgres.y:4014
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 			// Set typmods to nil for BitWithoutLength in const context
@@ -26668,29 +26676,19 @@ yydefault:
 		}
 	case 1496:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4014
+//line postgres.y:4022
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 1497:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4018
+//line postgres.y:4026
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 			// Set typmods to nil for CharacterWithoutLength in const context
 			yyVAL.typnam.Typmods = nil
 		}
 	case 1498:
-		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4026
-		{
-			if yyDollar[2].ival != 0 {
-				yyVAL.str = "varchar"
-			} else {
-				yyVAL.str = "bpchar"
-			}
-		}
-	case 1499:
 		yyDollar = yyS[yypt-2 : yypt+1]
 //line postgres.y:4034
 		{
@@ -26700,23 +26698,23 @@ yydefault:
 				yyVAL.str = "bpchar"
 			}
 		}
-	case 1500:
-		yyDollar = yyS[yypt-1 : yypt+1]
+	case 1499:
+		yyDollar = yyS[yypt-2 : yypt+1]
 //line postgres.y:4042
 		{
-			yyVAL.str = "varchar"
-		}
-	case 1501:
-		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4046
-		{
-			if yyDollar[3].ival != 0 {
+			if yyDollar[2].ival != 0 {
 				yyVAL.str = "varchar"
 			} else {
 				yyVAL.str = "bpchar"
 			}
 		}
-	case 1502:
+	case 1500:
+		yyDollar = yyS[yypt-1 : yypt+1]
+//line postgres.y:4050
+		{
+			yyVAL.str = "varchar"
+		}
+	case 1501:
 		yyDollar = yyS[yypt-3 : yypt+1]
 //line postgres.y:4054
 		{
@@ -26726,9 +26724,19 @@ yydefault:
 				yyVAL.str = "bpchar"
 			}
 		}
+	case 1502:
+		yyDollar = yyS[yypt-3 : yypt+1]
+//line postgres.y:4062
+		{
+			if yyDollar[3].ival != 0 {
+				yyVAL.str = "varchar"
+			} else {
+				yyVAL.str = "bpchar"
+			}
+		}
 	case 1503:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4062
+//line postgres.y:4070
 		{
 			if yyDollar[2].ival != 0 {
 				yyVAL.str = "varchar"
@@ -26738,7 +26746,7 @@ yydefault:
 		}
 	case 1504:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4072
+//line postgres.y:4080
 		{
 			typeName := makeTypeNameFromString(yyDollar[1].str)
 			// Set typmods with the length parameter, similar to PostgreSQL's approach
@@ -26749,7 +26757,7 @@ yydefault:
 		}
 	case 1505:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4083
+//line postgres.y:4091
 		{
 			typeName := makeTypeNameFromString(yyDollar[1].str)
 			// char defaults to char(1), varchar to no limit
@@ -26763,7 +26771,7 @@ yydefault:
 		}
 	case 1506:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:4097
+//line postgres.y:4105
 		{
 			var typeName string
 			if yyDollar[2].ival != 0 {
@@ -26777,7 +26785,7 @@ yydefault:
 		}
 	case 1507:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4111
+//line postgres.y:4119
 		{
 			var typeName string
 			if yyDollar[2].ival != 0 {
@@ -26789,7 +26797,7 @@ yydefault:
 		}
 	case 1508:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:4123
+//line postgres.y:4131
 		{
 			var typeName string
 			if yyDollar[5].ival != 0 {
@@ -26803,7 +26811,7 @@ yydefault:
 		}
 	case 1509:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4135
+//line postgres.y:4143
 		{
 			var typeName string
 			if yyDollar[2].ival != 0 {
@@ -26815,7 +26823,7 @@ yydefault:
 		}
 	case 1510:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:4145
+//line postgres.y:4153
 		{
 			var typeName string
 			if yyDollar[5].ival != 0 {
@@ -26829,7 +26837,7 @@ yydefault:
 		}
 	case 1511:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4157
+//line postgres.y:4165
 		{
 			var typeName string
 			if yyDollar[2].ival != 0 {
@@ -26841,43 +26849,43 @@ yydefault:
 		}
 	case 1512:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4169
+//line postgres.y:4177
 		{
 			yyVAL.typnam = makeTypeNameFromString("json")
 		}
 	case 1513:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4174
+//line postgres.y:4182
 		{
 			yyVAL.ival = 1
 		}
 	case 1514:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4175
+//line postgres.y:4183
 		{
 			yyVAL.ival = 0
 		}
 	case 1515:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4176
+//line postgres.y:4184
 		{
 			yyVAL.ival = 0
 		}
 	case 1516:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4179
+//line postgres.y:4187
 		{
 			yyVAL.ival = 1
 		}
 	case 1517:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4180
+//line postgres.y:4188
 		{
 			yyVAL.ival = 0
 		}
 	case 1518:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4184
+//line postgres.y:4192
 		{
 			if yyDollar[2].ival < 1 {
 				yyVAL.typnam = makeTypeNameFromString("float4")
@@ -26889,127 +26897,127 @@ yydefault:
 		}
 	case 1519:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4194
+//line postgres.y:4202
 		{
 			yyVAL.typnam = makeTypeNameFromString("float8")
 		}
 	case 1520:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4201
+//line postgres.y:4209
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString(yyDollar[1].str))
 		}
 	case 1521:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4205
+//line postgres.y:4213
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 1522:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4212
+//line postgres.y:4220
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString(yyDollar[1].str))
 		}
 	case 1523:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4216
+//line postgres.y:4224
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 1524:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4221
+//line postgres.y:4229
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1525:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4222
+//line postgres.y:4230
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1526:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4225
+//line postgres.y:4233
 		{
 			yyVAL.str = "+"
 		}
 	case 1527:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4226
+//line postgres.y:4234
 		{
 			yyVAL.str = "-"
 		}
 	case 1528:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4227
+//line postgres.y:4235
 		{
 			yyVAL.str = "*"
 		}
 	case 1529:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4228
+//line postgres.y:4236
 		{
 			yyVAL.str = "/"
 		}
 	case 1530:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4229
+//line postgres.y:4237
 		{
 			yyVAL.str = "%"
 		}
 	case 1531:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4230
+//line postgres.y:4238
 		{
 			yyVAL.str = "^"
 		}
 	case 1532:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4231
+//line postgres.y:4239
 		{
 			yyVAL.str = "<"
 		}
 	case 1533:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4232
+//line postgres.y:4240
 		{
 			yyVAL.str = ">"
 		}
 	case 1534:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4233
+//line postgres.y:4241
 		{
 			yyVAL.str = "="
 		}
 	case 1535:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4234
+//line postgres.y:4242
 		{
 			yyVAL.str = "<="
 		}
 	case 1536:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4235
+//line postgres.y:4243
 		{
 			yyVAL.str = ">="
 		}
 	case 1537:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4236
+//line postgres.y:4244
 		{
 			yyVAL.str = "<>"
 		}
 	case 1538:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4240
+//line postgres.y:4248
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString(yyDollar[1].str))
 		}
 	case 1539:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4244
+//line postgres.y:4252
 		{
 			items := []ast.Node{ast.NewString(yyDollar[1].str)}
 			items = append(items, yyDollar[3].list.Items...)
@@ -27017,112 +27025,112 @@ yydefault:
 		}
 	case 1540:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4253
+//line postgres.y:4261
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1541:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4254
+//line postgres.y:4262
 		{
 			yyVAL.list = nil
 		}
 	case 1542:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:4259
+//line postgres.y:4267
 		{
 			// WITHIN GROUP (ORDER BY ...) for ordered-set aggregates
 			yyVAL.list = yyDollar[4].list
 		}
 	case 1543:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4263
+//line postgres.y:4271
 		{
 			yyVAL.list = nil
 		}
 	case 1544:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:4268
+//line postgres.y:4276
 		{
 			// FILTER (WHERE condition) for aggregate filtering
 			yyVAL.node = yyDollar[4].node
 		}
 	case 1545:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4272
+//line postgres.y:4280
 		{
 			yyVAL.node = nil
 		}
 	case 1546:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4276
+//line postgres.y:4284
 		{
 			yyVAL.ival = 0
 		}
 	case 1547:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4277
+//line postgres.y:4285
 		{
 			yyVAL.ival = 0
 		}
 	case 1548:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4281
+//line postgres.y:4289
 		{
 			subLink := ast.NewSubLink(ast.ANY_SUBLINK, yyDollar[1].stmt.(*ast.SelectStmt))
 			yyVAL.node = subLink
 		}
 	case 1549:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4286
+//line postgres.y:4294
 		{
 			yyVAL.node = yyDollar[2].list
 		}
 	case 1550:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4301
+//line postgres.y:4309
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 1551:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4302
+//line postgres.y:4310
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 1552:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4306
+//line postgres.y:4314
 		{
 			yyVAL.stmt = yyDollar[2].stmt
 		}
 	case 1553:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4307
+//line postgres.y:4315
 		{
 			yyVAL.stmt = yyDollar[2].stmt
 		}
 	case 1554:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4316
+//line postgres.y:4324
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 1555:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4317
+//line postgres.y:4325
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 1556:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4326
+//line postgres.y:4334
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 1557:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4328
+//line postgres.y:4336
 		{
 			selectStmt := yyDollar[1].stmt.(*ast.SelectStmt)
 			// Use NodeList directly for SortClause
@@ -27131,7 +27139,7 @@ yydefault:
 		}
 	case 1558:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4335
+//line postgres.y:4343
 		{
 			selectStmt := yyDollar[1].stmt.(*ast.SelectStmt)
 			selectStmt.SortClause = yyDollar[2].list
@@ -27145,7 +27153,7 @@ yydefault:
 		}
 	case 1559:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4347
+//line postgres.y:4355
 		{
 			selectStmt := yyDollar[1].stmt.(*ast.SelectStmt)
 			selectStmt.SortClause = yyDollar[2].list
@@ -27159,7 +27167,7 @@ yydefault:
 		}
 	case 1560:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4359
+//line postgres.y:4367
 		{
 			selectStmt := yyDollar[2].stmt.(*ast.SelectStmt)
 			selectStmt.WithClause = yyDollar[1].with
@@ -27167,7 +27175,7 @@ yydefault:
 		}
 	case 1561:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4365
+//line postgres.y:4373
 		{
 			selectStmt := yyDollar[2].stmt.(*ast.SelectStmt)
 			selectStmt.WithClause = yyDollar[1].with
@@ -27176,7 +27184,7 @@ yydefault:
 		}
 	case 1562:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:4372
+//line postgres.y:4380
 		{
 			selectStmt := yyDollar[2].stmt.(*ast.SelectStmt)
 			selectStmt.WithClause = yyDollar[1].with
@@ -27191,7 +27199,7 @@ yydefault:
 		}
 	case 1563:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:4385
+//line postgres.y:4393
 		{
 			selectStmt := yyDollar[2].stmt.(*ast.SelectStmt)
 			selectStmt.WithClause = yyDollar[1].with
@@ -27206,44 +27214,44 @@ yydefault:
 		}
 	case 1564:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4404
+//line postgres.y:4412
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1565:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4405
+//line postgres.y:4413
 		{
 			yyVAL.list = nil
 		}
 	case 1566:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4409
+//line postgres.y:4417
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1567:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4410
+//line postgres.y:4418
 		{
 			yyVAL.list = nil
 		}
 	case 1568:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4415
+//line postgres.y:4423
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1569:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4419
+//line postgres.y:4427
 		{
 			yyDollar[1].list.Append(yyDollar[2].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1570:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4427
+//line postgres.y:4435
 		{
 			lockingClause := &ast.LockingClause{
 				BaseNode:   ast.BaseNode{Tag: ast.T_LockingClause},
@@ -27255,61 +27263,61 @@ yydefault:
 		}
 	case 1571:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4439
+//line postgres.y:4447
 		{
 			yyVAL.ival = int(ast.LCS_FORUPDATE)
 		}
 	case 1572:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4440
+//line postgres.y:4448
 		{
 			yyVAL.ival = int(ast.LCS_FORNOKEYUPDATE)
 		}
 	case 1573:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4441
+//line postgres.y:4449
 		{
 			yyVAL.ival = int(ast.LCS_FORSHARE)
 		}
 	case 1574:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4442
+//line postgres.y:4450
 		{
 			yyVAL.ival = int(ast.LCS_FORKEYSHARE)
 		}
 	case 1575:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4446
+//line postgres.y:4454
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 1576:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4447
+//line postgres.y:4455
 		{
 			yyVAL.list = nil
 		}
 	case 1577:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4452
+//line postgres.y:4460
 		{
 			yyVAL.ival = int(ast.LockWaitError)
 		}
 	case 1578:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4453
+//line postgres.y:4461
 		{
 			yyVAL.ival = int(ast.LockWaitSkip)
 		}
 	case 1579:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4454
+//line postgres.y:4462
 		{
 			yyVAL.ival = int(ast.LockWaitBlock)
 		}
 	case 1580:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:4465
+//line postgres.y:4473
 		{
 			selectStmt := ast.NewSelectStmt()
 			if yyDollar[3].list != nil {
@@ -27328,7 +27336,7 @@ yydefault:
 		}
 	case 1581:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:4484
+//line postgres.y:4492
 		{
 			selectStmt := ast.NewSelectStmt()
 			selectStmt.DistinctClause = yyDollar[2].list
@@ -27348,7 +27356,7 @@ yydefault:
 		}
 	case 1582:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4502
+//line postgres.y:4510
 		{
 			// TABLE relation_expr is equivalent to SELECT * FROM relation_expr
 			selectStmt := ast.NewSelectStmt()
@@ -27360,112 +27368,112 @@ yydefault:
 		}
 	case 1583:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4512
+//line postgres.y:4520
 		{
 			// VALUES clause is a SelectStmt with ValuesLists
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 1584:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4517
+//line postgres.y:4525
 		{
 			all := yyDollar[3].setquant == ast.SET_QUANTIFIER_ALL
 			yyVAL.stmt = makeSetOp(ast.SETOP_UNION, all, yyDollar[1].stmt, yyDollar[4].stmt)
 		}
 	case 1585:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4522
+//line postgres.y:4530
 		{
 			all := yyDollar[3].setquant == ast.SET_QUANTIFIER_ALL
 			yyVAL.stmt = makeSetOp(ast.SETOP_INTERSECT, all, yyDollar[1].stmt, yyDollar[4].stmt)
 		}
 	case 1586:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4527
+//line postgres.y:4535
 		{
 			all := yyDollar[3].setquant == ast.SET_QUANTIFIER_ALL
 			yyVAL.stmt = makeSetOp(ast.SETOP_EXCEPT, all, yyDollar[1].stmt, yyDollar[4].stmt)
 		}
 	case 1587:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4538
+//line postgres.y:4546
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1588:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4539
+//line postgres.y:4547
 		{
 			yyVAL.list = nil
 		}
 	case 1589:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4543
+//line postgres.y:4551
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].target)
 		}
 	case 1590:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4544
+//line postgres.y:4552
 		{
 			yyDollar[1].list.Append(yyDollar[3].target)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1591:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4549
+//line postgres.y:4557
 		{
 			yyVAL.target = ast.NewResTarget(yyDollar[3].str, yyDollar[1].node)
 		}
 	case 1592:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4553
+//line postgres.y:4561
 		{
 			// Implicit alias (no AS keyword)
 			yyVAL.target = ast.NewResTarget(yyDollar[2].str, yyDollar[1].node)
 		}
 	case 1593:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4558
+//line postgres.y:4566
 		{
 			// No alias - use default naming
 			yyVAL.target = ast.NewResTarget("", yyDollar[1].node)
 		}
 	case 1594:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4563
+//line postgres.y:4571
 		{
 			// SELECT * - all columns
 			yyVAL.target = ast.NewResTarget("", ast.NewColumnRef(ast.NewA_Star(0)))
 		}
 	case 1595:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4574
+//line postgres.y:4582
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 1596:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4575
+//line postgres.y:4583
 		{
 			yyVAL.list = nil
 		}
 	case 1597:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4579
+//line postgres.y:4587
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1598:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4580
+//line postgres.y:4588
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1599:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4589
+//line postgres.y:4597
 		{
 			rangeVar := yyDollar[1].rangevar
 			if yyDollar[2].alias != nil {
@@ -27475,7 +27483,7 @@ yydefault:
 		}
 	case 1600:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4597
+//line postgres.y:4605
 		{
 			rangeVar := yyDollar[1].rangevar
 			if yyDollar[2].alias != nil {
@@ -27487,7 +27495,7 @@ yydefault:
 		}
 	case 1601:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4607
+//line postgres.y:4615
 		{
 			/* Subquery in FROM clause */
 			subquery := yyDollar[1].stmt.(*ast.SelectStmt)
@@ -27500,7 +27508,7 @@ yydefault:
 		}
 	case 1602:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4618
+//line postgres.y:4626
 		{
 			/* LATERAL subquery in FROM clause */
 			subquery := yyDollar[2].stmt.(*ast.SelectStmt)
@@ -27513,13 +27521,13 @@ yydefault:
 		}
 	case 1603:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4629
+//line postgres.y:4637
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 1604:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4633
+//line postgres.y:4641
 		{
 			joinExpr := yyDollar[2].node.(*ast.JoinExpr)
 			joinExpr.Alias = yyDollar[4].alias
@@ -27527,7 +27535,7 @@ yydefault:
 		}
 	case 1605:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4639
+//line postgres.y:4647
 		{
 			rangeFunc := yyDollar[1].node.(*ast.RangeFunction)
 			funcAliasList := yyDollar[2].list
@@ -27547,7 +27555,7 @@ yydefault:
 		}
 	case 1606:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4657
+//line postgres.y:4665
 		{
 			rangeFunc := yyDollar[2].node.(*ast.RangeFunction)
 			rangeFunc.Lateral = true
@@ -27568,7 +27576,7 @@ yydefault:
 		}
 	case 1607:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4676
+//line postgres.y:4684
 		{
 			rangeTableFunc := yyDollar[1].node.(*ast.RangeTableFunc)
 			if yyDollar[2].alias != nil {
@@ -27578,7 +27586,7 @@ yydefault:
 		}
 	case 1608:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4684
+//line postgres.y:4692
 		{
 			rangeTableFunc := yyDollar[2].node.(*ast.RangeTableFunc)
 			rangeTableFunc.Lateral = true
@@ -27589,7 +27597,7 @@ yydefault:
 		}
 	case 1609:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4693
+//line postgres.y:4701
 		{
 			jsonTable := yyDollar[1].node.(*ast.JsonTable)
 			if yyDollar[2].alias != nil {
@@ -27599,7 +27607,7 @@ yydefault:
 		}
 	case 1610:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4701
+//line postgres.y:4709
 		{
 			jsonTable := yyDollar[2].node.(*ast.JsonTable)
 			jsonTable.Lateral = true
@@ -27610,7 +27618,7 @@ yydefault:
 		}
 	case 1611:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4713
+//line postgres.y:4721
 		{
 			rangeVar := yyDollar[1].rangevar
 			rangeVar.Inh = true // inheritance query, implicitly
@@ -27618,13 +27626,13 @@ yydefault:
 		}
 	case 1612:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4719
+//line postgres.y:4727
 		{
 			yyVAL.rangevar = yyDollar[1].rangevar
 		}
 	case 1613:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4726
+//line postgres.y:4734
 		{
 			rangeVar := yyDollar[1].rangevar
 			rangeVar.Inh = true // inheritance query, explicitly
@@ -27632,7 +27640,7 @@ yydefault:
 		}
 	case 1614:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4732
+//line postgres.y:4740
 		{
 			rangeVar := yyDollar[2].rangevar
 			rangeVar.Inh = false // no inheritance
@@ -27640,7 +27648,7 @@ yydefault:
 		}
 	case 1615:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4738
+//line postgres.y:4746
 		{
 			rangeVar := yyDollar[3].rangevar
 			rangeVar.Inh = false // no inheritance
@@ -27648,13 +27656,13 @@ yydefault:
 		}
 	case 1616:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4748
+//line postgres.y:4756
 		{
 			yyVAL.rangevar = yyDollar[1].rangevar
 		}
 	case 1617:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4752
+//line postgres.y:4760
 		{
 			rangeVar := yyDollar[1].rangevar
 			rangeVar.Alias = ast.NewAlias(yyDollar[2].str, nil)
@@ -27662,7 +27670,7 @@ yydefault:
 		}
 	case 1618:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4758
+//line postgres.y:4766
 		{
 			rangeVar := yyDollar[1].rangevar
 			rangeVar.Alias = ast.NewAlias(yyDollar[3].str, nil)
@@ -27670,13 +27678,13 @@ yydefault:
 		}
 	case 1619:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4775
+//line postgres.y:4783
 		{
 			yyVAL.node = ast.NewParenExpr(yyDollar[2].node, 0)
 		}
 	case 1620:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4779
+//line postgres.y:4787
 		{
 			/* CROSS JOIN is same as unqualified inner join */
 			left := yyDollar[1].node
@@ -27687,7 +27695,7 @@ yydefault:
 		}
 	case 1621:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:4788
+//line postgres.y:4796
 		{
 			left := yyDollar[1].node
 			right := yyDollar[4].node
@@ -27715,7 +27723,7 @@ yydefault:
 		}
 	case 1622:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4814
+//line postgres.y:4822
 		{
 			/* letting join_type reduce to empty doesn't work */
 			left := yyDollar[1].node
@@ -27743,7 +27751,7 @@ yydefault:
 		}
 	case 1623:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:4840
+//line postgres.y:4848
 		{
 			left := yyDollar[1].node
 			right := yyDollar[5].node
@@ -27753,7 +27761,7 @@ yydefault:
 		}
 	case 1624:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:4848
+//line postgres.y:4856
 		{
 			/* letting join_type reduce to empty doesn't work */
 			left := yyDollar[1].node
@@ -27763,43 +27771,43 @@ yydefault:
 		}
 	case 1625:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4858
+//line postgres.y:4866
 		{
 			yyVAL.ival = int(ast.JOIN_FULL)
 		}
 	case 1626:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4859
+//line postgres.y:4867
 		{
 			yyVAL.ival = int(ast.JOIN_LEFT)
 		}
 	case 1627:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4860
+//line postgres.y:4868
 		{
 			yyVAL.ival = int(ast.JOIN_RIGHT)
 		}
 	case 1628:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4861
+//line postgres.y:4869
 		{
 			yyVAL.ival = int(ast.JOIN_INNER)
 		}
 	case 1629:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4866
+//line postgres.y:4874
 		{
 			yyVAL.ival = 1
 		}
 	case 1630:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4867
+//line postgres.y:4875
 		{
 			yyVAL.ival = 0
 		}
 	case 1631:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:4877
+//line postgres.y:4885
 		{
 			/* Create a two-element list: [name_list, alias_or_null] following PostgreSQL */
 			nameList := yyDollar[3].list
@@ -27812,56 +27820,56 @@ yydefault:
 		}
 	case 1632:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4888
+//line postgres.y:4896
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 1633:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4899
+//line postgres.y:4907
 		{
 			yyVAL.with = ast.NewWithClause(yyDollar[2].list, false, 0)
 		}
 	case 1634:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4903
+//line postgres.y:4911
 		{
 			yyVAL.with = ast.NewWithClause(yyDollar[2].list, false, 0)
 		}
 	case 1635:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4907
+//line postgres.y:4915
 		{
 			yyVAL.with = ast.NewWithClause(yyDollar[3].list, true, 0)
 		}
 	case 1636:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4913
+//line postgres.y:4921
 		{
 			yyVAL.with = yyDollar[1].with
 		}
 	case 1637:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4914
+//line postgres.y:4922
 		{
 			yyVAL.with = nil
 		}
 	case 1638:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4919
+//line postgres.y:4927
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1639:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:4923
+//line postgres.y:4931
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1640:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:4931
+//line postgres.y:4939
 		{
 			ctename := yyDollar[1].str
 			query := yyDollar[6].stmt
@@ -27889,25 +27897,25 @@ yydefault:
 		}
 	case 1641:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:4959
+//line postgres.y:4967
 		{
 			yyVAL.ival = int(ast.CTEMaterializeAlways)
 		}
 	case 1642:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:4960
+//line postgres.y:4968
 		{
 			yyVAL.ival = int(ast.CTEMaterializeNever)
 		}
 	case 1643:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4961
+//line postgres.y:4969
 		{
 			yyVAL.ival = int(ast.CTEMaterializeDefault)
 		}
 	case 1644:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:4966
+//line postgres.y:4974
 		{
 			searchColList := yyDollar[5].list
 			seqColumn := yyDollar[7].str
@@ -27915,7 +27923,7 @@ yydefault:
 		}
 	case 1645:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:4972
+//line postgres.y:4980
 		{
 			searchColList := yyDollar[5].list
 			seqColumn := yyDollar[7].str
@@ -27923,13 +27931,13 @@ yydefault:
 		}
 	case 1646:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:4978
+//line postgres.y:4986
 		{
 			yyVAL.node = nil
 		}
 	case 1647:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:4985
+//line postgres.y:4993
 		{
 			cycleColList := yyDollar[2].list
 			markColumn := yyDollar[4].str
@@ -27940,7 +27948,7 @@ yydefault:
 		}
 	case 1648:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:4994
+//line postgres.y:5002
 		{
 			cycleColList := yyDollar[2].list
 			markColumn := yyDollar[4].str
@@ -27950,13 +27958,13 @@ yydefault:
 		}
 	case 1649:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5002
+//line postgres.y:5010
 		{
 			yyVAL.node = nil
 		}
 	case 1650:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5013
+//line postgres.y:5021
 		{
 			/* Create a SelectStmt with VALUES clause following PostgreSQL */
 			selectStmt := ast.NewSelectStmt()
@@ -27966,7 +27974,7 @@ yydefault:
 		}
 	case 1651:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:5021
+//line postgres.y:5029
 		{
 			/* Add additional VALUES row to existing SelectStmt */
 			selectStmt := yyDollar[1].stmt.(*ast.SelectStmt)
@@ -27976,175 +27984,175 @@ yydefault:
 		}
 	case 1652:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5035
+//line postgres.y:5043
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 1653:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5036
+//line postgres.y:5044
 		{
 			yyVAL.node = nil
 		}
 	case 1654:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5044
+//line postgres.y:5052
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 1655:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5046
+//line postgres.y:5054
 		{
 			cursorExpr := ast.NewCurrentOfExpr(0, yyDollar[4].str) // cvarno filled in by parse analysis
 			yyVAL.node = cursorExpr
 		}
 	case 1656:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5050
+//line postgres.y:5058
 		{
 			yyVAL.node = nil
 		}
 	case 1657:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5054
+//line postgres.y:5062
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1658:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5062
+//line postgres.y:5070
 		{
 			yyVAL.alias = yyDollar[1].alias
 		}
 	case 1659:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5063
+//line postgres.y:5071
 		{
 			yyVAL.alias = nil
 		}
 	case 1660:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:5068
+//line postgres.y:5076
 		{
 			nameList := yyDollar[4].list
 			yyVAL.alias = ast.NewAlias(yyDollar[2].str, nameList)
 		}
 	case 1661:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5073
+//line postgres.y:5081
 		{
 			yyVAL.alias = ast.NewAlias(yyDollar[2].str, nil)
 		}
 	case 1662:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5077
+//line postgres.y:5085
 		{
 			nameList := yyDollar[3].list
 			yyVAL.alias = ast.NewAlias(yyDollar[1].str, nameList)
 		}
 	case 1663:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5082
+//line postgres.y:5090
 		{
 			yyVAL.alias = ast.NewAlias(yyDollar[1].str, nil)
 		}
 	case 1664:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5093
+//line postgres.y:5101
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].alias, nil)
 		}
 	case 1665:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5097
+//line postgres.y:5105
 		{
 			yyVAL.list = ast.NewNodeList(nil, yyDollar[3].list)
 		}
 	case 1666:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:5101
+//line postgres.y:5109
 		{
 			alias := ast.NewAlias(yyDollar[2].str, nil)
 			yyVAL.list = ast.NewNodeList(alias, yyDollar[4].list)
 		}
 	case 1667:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5106
+//line postgres.y:5114
 		{
 			alias := ast.NewAlias(yyDollar[1].str, nil)
 			yyVAL.list = ast.NewNodeList(alias, yyDollar[3].list)
 		}
 	case 1668:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5111
+//line postgres.y:5119
 		{
 			yyVAL.list = ast.NewNodeList(nil, nil)
 		}
 	case 1669:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5119
+//line postgres.y:5127
 		{
 			alias := ast.NewAlias(yyDollar[2].str, nil)
 			yyVAL.alias = alias
 		}
 	case 1670:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5123
+//line postgres.y:5131
 		{
 			yyVAL.alias = nil
 		}
 	case 1671:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5131
+//line postgres.y:5139
 		{
 			yyVAL.ival = 1
 		}
 	case 1672:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5132
+//line postgres.y:5140
 		{
 			yyVAL.ival = 0
 		}
 	case 1673:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5136
+//line postgres.y:5144
 		{
 			yyVAL.list = ast.NewNodeList()
 		}
 	case 1674:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:5137
+//line postgres.y:5145
 		{
 			yyVAL.list = yyDollar[4].list
 		}
 	case 1675:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5141
+//line postgres.y:5149
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1676:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5142
+//line postgres.y:5150
 		{
 			yyVAL.list = nil
 		}
 	case 1677:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5152
+//line postgres.y:5160
 		{
 			yyVAL.into = ast.NewIntoClause(yyDollar[2].node.(*ast.RangeVar), nil, "", nil, ast.ONCOMMIT_NOOP, "", nil, false, 0)
 		}
 	case 1678:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5155
+//line postgres.y:5163
 		{
 			yyVAL.into = nil
 		}
 	case 1679:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5166
+//line postgres.y:5174
 		{
 			hasOrdinality := yyDollar[2].ival == 1
 			// For a simple function, create a NodeList containing a single NodeList with the function
@@ -28155,7 +28163,7 @@ yydefault:
 		}
 	case 1680:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:5175
+//line postgres.y:5183
 		{
 			hasOrdinality := yyDollar[6].ival == 1
 			// rowsfrom_list is already a NodeList containing NodeLists
@@ -28164,32 +28172,32 @@ yydefault:
 		}
 	case 1681:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5185
+//line postgres.y:5193
 		{
 			yyVAL.ival = 1
 		}
 	case 1682:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5186
+//line postgres.y:5194
 		{
 			yyVAL.ival = 0
 		}
 	case 1683:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5192
+//line postgres.y:5200
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].list)
 		}
 	case 1684:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5196
+//line postgres.y:5204
 		{
 			yyDollar[1].list.Append(yyDollar[3].list)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1685:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5203
+//line postgres.y:5211
 		{
 			funcList := ast.NewNodeList(yyDollar[1].node)
 			if yyDollar[2].list != nil {
@@ -28199,32 +28207,32 @@ yydefault:
 		}
 	case 1686:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5212
+//line postgres.y:5220
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 1687:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5213
+//line postgres.y:5221
 		{
 			yyVAL.list = nil
 		}
 	case 1688:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5223
+//line postgres.y:5231
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].funparam)
 		}
 	case 1689:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5227
+//line postgres.y:5235
 		{
 			yyDollar[1].list.Append(yyDollar[3].funparam)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1690:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5239
+//line postgres.y:5247
 		{
 			yyVAL.funparam = &ast.FunctionParameter{
 				BaseNode: ast.BaseNode{Tag: ast.T_FunctionParameter},
@@ -28236,32 +28244,32 @@ yydefault:
 		}
 	case 1691:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5252
+//line postgres.y:5260
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1692:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5253
+//line postgres.y:5261
 		{
 			yyVAL.list = nil
 		}
 	case 1693:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5259
+//line postgres.y:5267
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1694:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5263
+//line postgres.y:5271
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1695:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5272
+//line postgres.y:5280
 		{
 			columnDef := ast.NewColumnDef(yyDollar[1].str, yyDollar[2].typnam, 0)
 			if collClause, ok := yyDollar[3].node.(*ast.CollateClause); ok {
@@ -28271,7 +28279,7 @@ yydefault:
 		}
 	case 1696:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5284
+//line postgres.y:5292
 		{
 			// Pass the NodeList directly to NewCollateClause
 			nameList := yyDollar[2].list
@@ -28279,76 +28287,76 @@ yydefault:
 		}
 	case 1697:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5289
+//line postgres.y:5297
 		{
 			yyVAL.node = nil
 		}
 	case 1698:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5294
+//line postgres.y:5302
 		{
 			yyVAL.str = "BY REF"
 		}
 	case 1699:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5295
+//line postgres.y:5303
 		{
 			yyVAL.str = "BY VALUE"
 		}
 	case 1700:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5301
+//line postgres.y:5309
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 1701:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5305
+//line postgres.y:5313
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 1702:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5309
+//line postgres.y:5317
 		{
 			yyVAL.node = yyDollar[3].node
 		}
 	case 1703:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5313
+//line postgres.y:5321
 		{
 			yyVAL.node = yyDollar[3].node
 		}
 	case 1704:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5321
+//line postgres.y:5329
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1705:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5325
+//line postgres.y:5333
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1706:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5333
+//line postgres.y:5341
 		{
 			target := ast.NewResTarget(yyDollar[3].str, yyDollar[1].node)
 			yyVAL.node = target
 		}
 	case 1707:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5338
+//line postgres.y:5346
 		{
 			target := ast.NewResTarget("", yyDollar[2].node)
 			yyVAL.node = target
 		}
 	case 1708:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:5347
+//line postgres.y:5355
 		{
 			// XMLTABLE(xpath_expr PASSING doc_expr COLUMNS ...)
 			// $3 is xpath_expr (should be RowExpr), $4 is doc_expr (should be DocExpr)
@@ -28357,7 +28365,7 @@ yydefault:
 		}
 	case 1709:
 		yyDollar = yyS[yypt-12 : yypt+1]
-//line postgres.y:5355
+//line postgres.y:5363
 		{
 			// XMLTABLE(XMLNAMESPACES(...), xpath_expr PASSING doc_expr COLUMNS ...)
 			// $8 is xpath_expr (should be RowExpr), $9 is doc_expr (should be DocExpr)
@@ -28366,34 +28374,34 @@ yydefault:
 		}
 	case 1710:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5366
+//line postgres.y:5374
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1711:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5370
+//line postgres.y:5378
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1712:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5379
+//line postgres.y:5387
 		{
 			rangeTableFuncCol := ast.NewRangeTableFuncCol(yyDollar[1].str, yyDollar[2].typnam, false, false, nil, nil, 0)
 			yyVAL.node = rangeTableFuncCol
 		}
 	case 1713:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5384
+//line postgres.y:5392
 		{
 			rangeTableFuncCol := ast.NewRangeTableFuncCol(yyDollar[1].str, nil, true, false, nil, nil, 0)
 			yyVAL.node = rangeTableFuncCol
 		}
 	case 1714:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5389
+//line postgres.y:5397
 		{
 			rangeTableFuncCol := ast.NewRangeTableFuncCol(yyDollar[1].str, yyDollar[2].typnam, false, false, nil, nil, 0)
 			// TODO: Process column options from $3
@@ -28401,50 +28409,50 @@ yydefault:
 		}
 	case 1715:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5399
+//line postgres.y:5407
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1716:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5403
+//line postgres.y:5411
 		{
 			yyDollar[1].list.Append(yyDollar[2].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1717:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5412
+//line postgres.y:5420
 		{
 			yyVAL.node = ast.NewDefElem(yyDollar[1].str, yyDollar[2].node)
 		}
 	case 1718:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5416
+//line postgres.y:5424
 		{
 			yyVAL.node = ast.NewDefElem("default", yyDollar[2].node)
 		}
 	case 1719:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5420
+//line postgres.y:5428
 		{
 			yyVAL.node = ast.NewDefElem("is_not_null", ast.NewBoolean(true))
 		}
 	case 1720:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5424
+//line postgres.y:5432
 		{
 			yyVAL.node = ast.NewDefElem("is_not_null", ast.NewBoolean(false))
 		}
 	case 1721:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5428
+//line postgres.y:5436
 		{
 			yyVAL.node = ast.NewDefElem("path", yyDollar[2].node)
 		}
 	case 1722:
 		yyDollar = yyS[yypt-13 : yypt+1]
-//line postgres.y:5441
+//line postgres.y:5449
 		{
 			// Extract path name from optional path name node
 			var pathName string
@@ -28466,7 +28474,7 @@ yydefault:
 		}
 	case 1723:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5465
+//line postgres.y:5473
 		{
 			var format *ast.JsonFormat
 			if yyDollar[2].node != nil {
@@ -28476,137 +28484,137 @@ yydefault:
 		}
 	case 1724:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5476
+//line postgres.y:5484
 		{
 			yyVAL.node = ast.NewString(yyDollar[2].str)
 		}
 	case 1725:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5477
+//line postgres.y:5485
 		{
 			yyVAL.node = nil
 		}
 	case 1726:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5482
+//line postgres.y:5490
 		{
 			yyVAL.node = yyDollar[2].list
 		}
 	case 1727:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5483
+//line postgres.y:5491
 		{
 			yyVAL.node = nil
 		}
 	case 1728:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5487
+//line postgres.y:5495
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1729:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5488
+//line postgres.y:5496
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1730:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5493
+//line postgres.y:5501
 		{
 			jsonArg := ast.NewJsonArgument(yyDollar[1].node.(*ast.JsonValueExpr), yyDollar[3].str)
 			yyVAL.node = jsonArg
 		}
 	case 1731:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5499
+//line postgres.y:5507
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1732:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5500
+//line postgres.y:5508
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1733:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5506
+//line postgres.y:5514
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1734:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5510
+//line postgres.y:5518
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1735:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5522
+//line postgres.y:5530
 		{
 			yyVAL.node = ast.NewJsonKeyValue(yyDollar[1].node.(ast.Expr), yyDollar[3].node.(*ast.JsonValueExpr))
 		}
 	case 1736:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5526
+//line postgres.y:5534
 		{
 			yyVAL.node = ast.NewJsonKeyValue(yyDollar[1].node.(ast.Expr), yyDollar[3].node.(*ast.JsonValueExpr))
 		}
 	case 1737:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5533
+//line postgres.y:5541
 		{
 			yyVAL.bval = false
 		}
 	case 1738:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5534
+//line postgres.y:5542
 		{
 			yyVAL.bval = true
 		}
 	case 1739:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5535
+//line postgres.y:5543
 		{
 			yyVAL.bval = false
 		}
 	case 1740:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5539
+//line postgres.y:5547
 		{
 			yyVAL.bval = false
 		}
 	case 1741:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5540
+//line postgres.y:5548
 		{
 			yyVAL.bval = true
 		}
 	case 1742:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5541
+//line postgres.y:5549
 		{
 			yyVAL.bval = true
 		}
 	case 1743:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5546
+//line postgres.y:5554
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 1744:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5547
+//line postgres.y:5555
 		{
 			yyVAL.list = nil
 		}
 	case 1745:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:5558
+//line postgres.y:5566
 		{
 			var jsonOutput *ast.JsonOutput
 			if yyDollar[6].node != nil {
@@ -28618,7 +28626,7 @@ yydefault:
 		}
 	case 1746:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:5573
+//line postgres.y:5581
 		{
 			var jsonOutput *ast.JsonOutput
 			if yyDollar[6].node != nil {
@@ -28630,7 +28638,7 @@ yydefault:
 		}
 	case 1747:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5586
+//line postgres.y:5594
 		{
 			var jsonFormat *ast.JsonFormat
 			if yyDollar[3].node != nil {
@@ -28640,13 +28648,13 @@ yydefault:
 		}
 	case 1748:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5593
+//line postgres.y:5601
 		{
 			yyVAL.node = nil
 		}
 	case 1749:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5599
+//line postgres.y:5607
 		{
 			yyVAL.node = &ast.JsonBehavior{
 				BaseNode: ast.BaseNode{Tag: ast.T_JsonBehavior},
@@ -28656,7 +28664,7 @@ yydefault:
 		}
 	case 1750:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5607
+//line postgres.y:5615
 		{
 			yyVAL.node = &ast.JsonBehavior{
 				BaseNode: ast.BaseNode{Tag: ast.T_JsonBehavior},
@@ -28666,178 +28674,178 @@ yydefault:
 		}
 	case 1751:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5618
+//line postgres.y:5626
 		{
 			yyVAL.ival = int(ast.JSON_BEHAVIOR_ERROR)
 		}
 	case 1752:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5619
+//line postgres.y:5627
 		{
 			yyVAL.ival = int(ast.JSON_BEHAVIOR_NULL)
 		}
 	case 1753:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5620
+//line postgres.y:5628
 		{
 			yyVAL.ival = int(ast.JSON_BEHAVIOR_TRUE)
 		}
 	case 1754:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5621
+//line postgres.y:5629
 		{
 			yyVAL.ival = int(ast.JSON_BEHAVIOR_FALSE)
 		}
 	case 1755:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5622
+//line postgres.y:5630
 		{
 			yyVAL.ival = int(ast.JSON_BEHAVIOR_UNKNOWN)
 		}
 	case 1756:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5623
+//line postgres.y:5631
 		{
 			yyVAL.ival = int(ast.JSON_BEHAVIOR_EMPTY_ARRAY)
 		}
 	case 1757:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5624
+//line postgres.y:5632
 		{
 			yyVAL.ival = int(ast.JSON_BEHAVIOR_EMPTY_OBJECT)
 		}
 	case 1758:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5625
+//line postgres.y:5633
 		{
 			yyVAL.ival = int(ast.JSON_BEHAVIOR_EMPTY)
 		}
 	case 1759:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5630
+//line postgres.y:5638
 		{
 			// Return a list with ON EMPTY behavior and nil for ON ERROR
 			yyVAL.node = &ast.NodeList{Items: []ast.Node{yyDollar[1].node, nil}}
 		}
 	case 1760:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5634
+//line postgres.y:5642
 		{
 			// Return a list with nil for ON EMPTY and ON ERROR behavior
 			yyVAL.node = &ast.NodeList{Items: []ast.Node{nil, yyDollar[1].node}}
 		}
 	case 1761:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:5638
+//line postgres.y:5646
 		{
 			// Return a list with both ON EMPTY and ON ERROR behaviors
 			yyVAL.node = &ast.NodeList{Items: []ast.Node{yyDollar[1].node, yyDollar[4].node}}
 		}
 	case 1762:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5642
+//line postgres.y:5650
 		{
 			yyVAL.node = nil
 		}
 	case 1763:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5647
+//line postgres.y:5655
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 1764:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5648
+//line postgres.y:5656
 		{
 			yyVAL.node = nil
 		}
 	case 1765:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5653
+//line postgres.y:5661
 		{
 			yyVAL.ival = int(ast.JSW_NONE)
 		}
 	case 1766:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5654
+//line postgres.y:5662
 		{
 			yyVAL.ival = int(ast.JSW_NONE)
 		}
 	case 1767:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5655
+//line postgres.y:5663
 		{
 			yyVAL.ival = int(ast.JSW_UNCONDITIONAL)
 		}
 	case 1768:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5656
+//line postgres.y:5664
 		{
 			yyVAL.ival = int(ast.JSW_UNCONDITIONAL)
 		}
 	case 1769:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5657
+//line postgres.y:5665
 		{
 			yyVAL.ival = int(ast.JSW_CONDITIONAL)
 		}
 	case 1770:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5658
+//line postgres.y:5666
 		{
 			yyVAL.ival = int(ast.JSW_UNCONDITIONAL)
 		}
 	case 1771:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5659
+//line postgres.y:5667
 		{
 			yyVAL.ival = int(ast.JSW_CONDITIONAL)
 		}
 	case 1772:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5660
+//line postgres.y:5668
 		{
 			yyVAL.ival = int(ast.JSW_UNCONDITIONAL)
 		}
 	case 1773:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5661
+//line postgres.y:5669
 		{
 			yyVAL.ival = int(ast.JSW_UNSPEC)
 		}
 	case 1774:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:5666
+//line postgres.y:5674
 		{
 			yyVAL.ival = int(ast.JS_QUOTES_KEEP)
 		}
 	case 1775:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5667
+//line postgres.y:5675
 		{
 			yyVAL.ival = int(ast.JS_QUOTES_KEEP)
 		}
 	case 1776:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:5668
+//line postgres.y:5676
 		{
 			yyVAL.ival = int(ast.JS_QUOTES_OMIT)
 		}
 	case 1777:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5669
+//line postgres.y:5677
 		{
 			yyVAL.ival = int(ast.JS_QUOTES_OMIT)
 		}
 	case 1778:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5670
+//line postgres.y:5678
 		{
 			yyVAL.ival = int(ast.JS_QUOTES_UNSPEC)
 		}
 	case 1779:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5676
+//line postgres.y:5684
 		{
 			// Parse the encoding name and map to JsonEncoding constant
 			var encoding ast.JsonEncoding
@@ -28859,7 +28867,7 @@ yydefault:
 		}
 	case 1780:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5696
+//line postgres.y:5704
 		{
 			yyVAL.node = &ast.JsonFormat{
 				BaseNode:   ast.BaseNode{Tag: ast.T_JsonFormat},
@@ -28869,51 +28877,51 @@ yydefault:
 		}
 	case 1781:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5706
+//line postgres.y:5714
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 1782:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5707
+//line postgres.y:5715
 		{
 			yyVAL.node = nil
 		}
 	case 1783:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5712
+//line postgres.y:5720
 		{
 			yyVAL.node = ast.NewString("path")
 		}
 	case 1784:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5713
+//line postgres.y:5721
 		{
 			yyVAL.node = nil
 		}
 	case 1785:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5719
+//line postgres.y:5727
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1786:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5723
+//line postgres.y:5731
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1787:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5732
+//line postgres.y:5740
 		{
 			jsonTableCol := ast.NewJsonTableColumn(ast.JTC_FOR_ORDINALITY, yyDollar[1].str)
 			yyVAL.node = jsonTableCol
 		}
 	case 1788:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:5741
+//line postgres.y:5749
 		{
 			jsonTableCol := ast.NewJsonTableColumn(ast.JTC_REGULAR, yyDollar[1].str)
 			jsonTableCol.TypeName = yyDollar[2].typnam
@@ -28925,7 +28933,7 @@ yydefault:
 		}
 	case 1789:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:5755
+//line postgres.y:5763
 		{
 			jsonTableCol := ast.NewJsonTableColumn(ast.JTC_FORMATTED, yyDollar[1].str)
 			jsonTableCol.TypeName = yyDollar[2].typnam
@@ -28940,7 +28948,7 @@ yydefault:
 		}
 	case 1790:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:5769
+//line postgres.y:5777
 		{
 			jsonTableCol := ast.NewJsonTableColumn(ast.JTC_EXISTS, yyDollar[1].str)
 			jsonTableCol.TypeName = yyDollar[2].typnam
@@ -28952,7 +28960,7 @@ yydefault:
 		}
 	case 1791:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:5780
+//line postgres.y:5788
 		{
 			jsonTableCol := ast.NewJsonTableColumn(ast.JTC_NESTED, "")
 			jsonTableCol.Columns = yyDollar[6].list
@@ -28962,7 +28970,7 @@ yydefault:
 		}
 	case 1792:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:5789
+//line postgres.y:5797
 		{
 			jsonTableCol := ast.NewJsonTableColumn(ast.JTC_NESTED, yyDollar[5].str)
 			jsonTableCol.Columns = yyDollar[8].list
@@ -28972,19 +28980,19 @@ yydefault:
 		}
 	case 1793:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5800
+//line postgres.y:5808
 		{
 			yyVAL.node = ast.NewString(yyDollar[2].str)
 		}
 	case 1794:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5801
+//line postgres.y:5809
 		{
 			yyVAL.node = nil
 		}
 	case 1795:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:5817
+//line postgres.y:5825
 		{
 			insertStmt := yyDollar[5].node.(*ast.InsertStmt)
 			insertStmt.Relation = yyDollar[4].rangevar
@@ -28995,13 +29003,13 @@ yydefault:
 		}
 	case 1796:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5829
+//line postgres.y:5837
 		{
 			yyVAL.rangevar = yyDollar[1].rangevar
 		}
 	case 1797:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5833
+//line postgres.y:5841
 		{
 			rangeVar := yyDollar[1].rangevar
 			rangeVar.Alias = ast.NewAlias(yyDollar[3].str, nil)
@@ -29009,7 +29017,7 @@ yydefault:
 		}
 	case 1798:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5842
+//line postgres.y:5850
 		{
 			insertStmt := ast.NewInsertStmt(nil)
 			insertStmt.SelectStmt = yyDollar[1].stmt
@@ -29017,7 +29025,7 @@ yydefault:
 		}
 	case 1799:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5848
+//line postgres.y:5856
 		{
 			insertStmt := ast.NewInsertStmt(nil)
 			insertStmt.Override = ast.OverridingKind(yyDollar[2].ival)
@@ -29026,7 +29034,7 @@ yydefault:
 		}
 	case 1800:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:5855
+//line postgres.y:5863
 		{
 			insertStmt := ast.NewInsertStmt(nil)
 			insertStmt.Cols = yyDollar[2].list
@@ -29035,7 +29043,7 @@ yydefault:
 		}
 	case 1801:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:5862
+//line postgres.y:5870
 		{
 			insertStmt := ast.NewInsertStmt(nil)
 			insertStmt.Cols = yyDollar[2].list
@@ -29045,7 +29053,7 @@ yydefault:
 		}
 	case 1802:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5870
+//line postgres.y:5878
 		{
 			insertStmt := ast.NewInsertStmt(nil)
 			// For DEFAULT VALUES, SelectStmt should be nil
@@ -29054,38 +29062,38 @@ yydefault:
 		}
 	case 1803:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5879
+//line postgres.y:5887
 		{
 			yyVAL.ival = int(ast.OVERRIDING_USER_VALUE)
 		}
 	case 1804:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5880
+//line postgres.y:5888
 		{
 			yyVAL.ival = int(ast.OVERRIDING_SYSTEM_VALUE)
 		}
 	case 1805:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5885
+//line postgres.y:5893
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].target)
 		}
 	case 1806:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5889
+//line postgres.y:5897
 		{
 			yyDollar[1].list.Append(yyDollar[3].target)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1807:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5897
+//line postgres.y:5905
 		{
-			yyVAL.target = ast.NewResTarget(yyDollar[1].str, yyDollar[2].list)
+			yyVAL.target = ast.NewResTargetWithIndirection(yyDollar[1].str, yyDollar[2].list)
 		}
 	case 1808:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:5909
+//line postgres.y:5917
 		{
 			updateStmt := ast.NewUpdateStmt(yyDollar[3].rangevar)
 			updateStmt.WithClause = yyDollar[1].with
@@ -29097,13 +29105,13 @@ yydefault:
 		}
 	case 1809:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5922
+//line postgres.y:5930
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1810:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5926
+//line postgres.y:5934
 		{
 			// Concatenate the lists - equivalent to PostgreSQL's list_concat
 			for _, item := range yyDollar[3].list.Items {
@@ -29113,7 +29121,7 @@ yydefault:
 		}
 	case 1811:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5937
+//line postgres.y:5945
 		{
 			target := yyDollar[1].target
 			target.Val = yyDollar[3].node
@@ -29121,7 +29129,7 @@ yydefault:
 		}
 	case 1812:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:5943
+//line postgres.y:5951
 		{
 			// Multi-column assignment: (col1, col2) = (val1, val2)
 			// Create MultiAssignRef nodes for each target, matching PostgreSQL exactly
@@ -29140,26 +29148,26 @@ yydefault:
 		}
 	case 1813:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5963
+//line postgres.y:5971
 		{
-			yyVAL.target = ast.NewResTarget(yyDollar[1].str, yyDollar[2].list)
+			yyVAL.target = ast.NewResTargetWithIndirection(yyDollar[1].str, yyDollar[2].list)
 		}
 	case 1814:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:5969
+//line postgres.y:5977
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].target)
 		}
 	case 1815:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:5970
+//line postgres.y:5978
 		{
 			yyDollar[1].list.Append(yyDollar[3].target)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1816:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:5980
+//line postgres.y:5988
 		{
 			deleteStmt := ast.NewDeleteStmt(yyDollar[4].rangevar)
 			deleteStmt.WithClause = yyDollar[1].with
@@ -29170,19 +29178,19 @@ yydefault:
 		}
 	case 1817:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:5992
+//line postgres.y:6000
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 1818:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:5996
+//line postgres.y:6004
 		{
 			yyVAL.list = nil
 		}
 	case 1819:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:6011
+//line postgres.y:6019
 		{
 			mergeStmt := &ast.MergeStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_MergeStmt},
@@ -29197,20 +29205,20 @@ yydefault:
 		}
 	case 1820:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6028
+//line postgres.y:6036
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1821:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6032
+//line postgres.y:6040
 		{
 			yyDollar[1].list.Append(yyDollar[2].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1822:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:6043
+//line postgres.y:6051
 		{
 			copyStmt := &ast.CopyStmt{
 				BaseNode:  ast.BaseNode{Tag: ast.T_CopyStmt},
@@ -29234,7 +29242,7 @@ yydefault:
 		}
 	case 1823:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:6067
+//line postgres.y:6075
 		{
 			copyStmt := &ast.CopyStmt{
 				BaseNode:  ast.BaseNode{Tag: ast.T_CopyStmt},
@@ -29267,85 +29275,85 @@ yydefault:
 		}
 	case 1824:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6103
+//line postgres.y:6111
 		{
 			yyVAL.ival = 1
 		}
 	case 1825:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6104
+//line postgres.y:6112
 		{
 			yyVAL.ival = 0
 		}
 	case 1826:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6108
+//line postgres.y:6116
 		{
 			yyVAL.ival = 1
 		}
 	case 1827:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6109
+//line postgres.y:6117
 		{
 			yyVAL.ival = 0
 		}
 	case 1828:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6113
+//line postgres.y:6121
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1829:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6114
+//line postgres.y:6122
 		{
 			yyVAL.str = ""
 		}
 	case 1830:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6115
+//line postgres.y:6123
 		{
 			yyVAL.str = ""
 		}
 	case 1831:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6120
+//line postgres.y:6128
 		{
 			yyVAL.node = ast.NewDefElem("format", ast.NewString("binary"))
 		}
 	case 1832:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6123
+//line postgres.y:6131
 		{
 			yyVAL.node = nil
 		}
 	case 1833:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6128
+//line postgres.y:6136
 		{
 			yyVAL.node = ast.NewDefElem("delimiter", ast.NewString(yyDollar[3].str))
 		}
 	case 1834:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6131
+//line postgres.y:6139
 		{
 			yyVAL.node = nil
 		}
 	case 1835:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6135
+//line postgres.y:6143
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1836:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6136
+//line postgres.y:6144
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 1837:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6141
+//line postgres.y:6149
 		{
 			if yyDollar[1].list == nil {
 				yyVAL.list = ast.NewNodeList(yyDollar[2].node)
@@ -29356,213 +29364,213 @@ yydefault:
 		}
 	case 1838:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6149
+//line postgres.y:6157
 		{
 			yyVAL.list = nil
 		}
 	case 1839:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6156
+//line postgres.y:6164
 		{
 			yyVAL.node = ast.NewDefElem("format", ast.NewString("binary"))
 		}
 	case 1840:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6160
+//line postgres.y:6168
 		{
 			yyVAL.node = ast.NewDefElem("freeze", ast.NewString("true"))
 		}
 	case 1841:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6164
+//line postgres.y:6172
 		{
 			yyVAL.node = ast.NewDefElem("delimiter", ast.NewString(yyDollar[3].str))
 		}
 	case 1842:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6168
+//line postgres.y:6176
 		{
 			yyVAL.node = ast.NewDefElem("null", ast.NewString(yyDollar[3].str))
 		}
 	case 1843:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6172
+//line postgres.y:6180
 		{
 			yyVAL.node = ast.NewDefElem("format", ast.NewString("csv"))
 		}
 	case 1844:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6176
+//line postgres.y:6184
 		{
 			yyVAL.node = ast.NewDefElem("header", ast.NewString("true"))
 		}
 	case 1845:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6180
+//line postgres.y:6188
 		{
 			yyVAL.node = ast.NewDefElem("quote", ast.NewString(yyDollar[3].str))
 		}
 	case 1846:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6184
+//line postgres.y:6192
 		{
 			yyVAL.node = ast.NewDefElem("escape", ast.NewString(yyDollar[3].str))
 		}
 	case 1847:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6188
+//line postgres.y:6196
 		{
 			yyVAL.node = ast.NewDefElem("force_quote", yyDollar[3].list)
 		}
 	case 1848:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6192
+//line postgres.y:6200
 		{
 			yyVAL.node = ast.NewDefElem("force_quote", &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}})
 		}
 	case 1849:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6196
+//line postgres.y:6204
 		{
 			yyVAL.node = ast.NewDefElem("force_not_null", yyDollar[4].list)
 		}
 	case 1850:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6200
+//line postgres.y:6208
 		{
 			yyVAL.node = ast.NewDefElem("force_not_null", &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}})
 		}
 	case 1851:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6204
+//line postgres.y:6212
 		{
 			yyVAL.node = ast.NewDefElem("force_null", yyDollar[3].list)
 		}
 	case 1852:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6208
+//line postgres.y:6216
 		{
 			yyVAL.node = ast.NewDefElem("force_null", &ast.A_Star{BaseNode: ast.BaseNode{Tag: ast.T_A_Star}})
 		}
 	case 1853:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6212
+//line postgres.y:6220
 		{
 			yyVAL.node = ast.NewDefElem("encoding", ast.NewString(yyDollar[2].str))
 		}
 	case 1854:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6220
+//line postgres.y:6228
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1855:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6224
+//line postgres.y:6232
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1856:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6231
+//line postgres.y:6239
 		{
 			yyVAL.node = ast.NewDefElem(yyDollar[1].str, yyDollar[2].node)
 		}
 	case 1857:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6237
+//line postgres.y:6245
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 1858:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6238
+//line postgres.y:6246
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 1859:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6239
+//line postgres.y:6247
 		{
 			yyVAL.node = ast.NewA_Star(0)
 		}
 	case 1860:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6240
+//line postgres.y:6248
 		{
 			yyVAL.node = ast.NewString("default")
 		}
 	case 1861:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6241
+//line postgres.y:6249
 		{
 			yyVAL.node = yyDollar[2].list
 		}
 	case 1862:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6242
+//line postgres.y:6250
 		{
 			yyVAL.node = nil
 		}
 	case 1863:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6247
+//line postgres.y:6255
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1864:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6251
+//line postgres.y:6259
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1865:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6257
+//line postgres.y:6265
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 1866:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6261
+//line postgres.y:6269
 		{
 			yyVAL.str = "true"
 		}
 	case 1867:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6262
+//line postgres.y:6270
 		{
 			yyVAL.str = "false"
 		}
 	case 1868:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6263
+//line postgres.y:6271
 		{
 			yyVAL.str = "on"
 		}
 	case 1869:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6264
+//line postgres.y:6272
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1870:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6268
+//line postgres.y:6276
 		{
 			yyVAL.node = ast.NewFloat(yyDollar[1].str)
 		}
 	case 1871:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6269
+//line postgres.y:6277
 		{
 			yyVAL.node = ast.NewFloat(yyDollar[2].str)
 		}
 	case 1872:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6271
+//line postgres.y:6279
 		{
 			f := ast.NewFloat(yyDollar[2].str)
 			doNegateFloat(f)
@@ -29570,219 +29578,219 @@ yydefault:
 		}
 	case 1873:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6276
+//line postgres.y:6284
 		{
 			yyVAL.node = ast.NewInteger(yyDollar[1].ival)
 		}
 	case 1874:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6280
+//line postgres.y:6288
 		{
 			yyVAL.node = ast.NewInteger(yyDollar[1].ival)
 		}
 	case 1875:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6281
+//line postgres.y:6289
 		{
 			yyVAL.node = nil
 		}
 	case 1876:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6285
+//line postgres.y:6293
 		{
 			yyVAL.objType = ast.OBJECT_ACCESS_METHOD
 		}
 	case 1877:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6286
+//line postgres.y:6294
 		{
 			yyVAL.objType = ast.OBJECT_EVENT_TRIGGER
 		}
 	case 1878:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6287
+//line postgres.y:6295
 		{
 			yyVAL.objType = ast.OBJECT_EXTENSION
 		}
 	case 1879:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6288
+//line postgres.y:6296
 		{
 			yyVAL.objType = ast.OBJECT_FDW
 		}
 	case 1880:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6289
+//line postgres.y:6297
 		{
 			yyVAL.objType = ast.OBJECT_LANGUAGE
 		}
 	case 1881:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6290
+//line postgres.y:6298
 		{
 			yyVAL.objType = ast.OBJECT_PUBLICATION
 		}
 	case 1882:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6291
+//line postgres.y:6299
 		{
 			yyVAL.objType = ast.OBJECT_SCHEMA
 		}
 	case 1883:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6292
+//line postgres.y:6300
 		{
 			yyVAL.objType = ast.OBJECT_FOREIGN_SERVER
 		}
 	case 1884:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6296
+//line postgres.y:6304
 		{
 			yyVAL.objType = ast.OBJECT_POLICY
 		}
 	case 1885:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6297
+//line postgres.y:6305
 		{
 			yyVAL.objType = ast.OBJECT_RULE
 		}
 	case 1886:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6298
+//line postgres.y:6306
 		{
 			yyVAL.objType = ast.OBJECT_TRIGGER
 		}
 	case 1887:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6302
+//line postgres.y:6310
 		{
 			yyVAL.objType = yyDollar[1].objType
 		}
 	case 1888:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6303
+//line postgres.y:6311
 		{
 			yyVAL.objType = ast.OBJECT_DATABASE
 		}
 	case 1889:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6304
+//line postgres.y:6312
 		{
 			yyVAL.objType = ast.OBJECT_ROLE
 		}
 	case 1890:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6305
+//line postgres.y:6313
 		{
 			yyVAL.objType = ast.OBJECT_SUBSCRIPTION
 		}
 	case 1891:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6306
+//line postgres.y:6314
 		{
 			yyVAL.objType = ast.OBJECT_TABLESPACE
 		}
 	case 1892:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6311
+//line postgres.y:6319
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].typnam)
 		}
 	case 1893:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6316
+//line postgres.y:6324
 		{
 			yyDollar[1].list.Append(yyDollar[3].typnam)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1894:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6323
+//line postgres.y:6331
 		{
 			yyVAL.bval = true
 		}
 	case 1895:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6324
+//line postgres.y:6332
 		{
 			yyVAL.bval = false
 		}
 	case 1896:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6328
+//line postgres.y:6336
 		{
 			yyVAL.ival = 1
 		}
 	case 1897:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6329
+//line postgres.y:6337
 		{
 			yyVAL.ival = 0
 		}
 	case 1900:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6345
+//line postgres.y:6353
 		{
 			yyVAL.node = nil
 		}
 	case 1901:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6347
+//line postgres.y:6355
 		{
 			yyVAL.node = nil
 		}
 	case 1902:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6355
+//line postgres.y:6363
 		{
 			yyVAL.ival = 1
 		}
 	case 1903:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6356
+//line postgres.y:6364
 		{
 			yyVAL.ival = 0
 		}
 	case 1904:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6360
+//line postgres.y:6368
 		{
 			yyVAL.ival = 1
 		}
 	case 1905:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6361
+//line postgres.y:6369
 		{
 			yyVAL.ival = 0
 		}
 	case 1906:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6365
+//line postgres.y:6373
 		{
 			yyVAL.ival = 1
 		}
 	case 1907:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6366
+//line postgres.y:6374
 		{
 			yyVAL.ival = 0
 		}
 	case 1908:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6370
+//line postgres.y:6378
 		{
 			yyVAL.ival = 1
 		}
 	case 1909:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6371
+//line postgres.y:6379
 		{
 			yyVAL.ival = 0
 		}
 	case 1910:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6380
+//line postgres.y:6388
 		{
 			yyDollar[4].node.(*ast.MergeWhenClause).MatchKind = ast.MergeMatchKind(yyDollar[1].ival)
 			yyDollar[4].node.(*ast.MergeWhenClause).Condition = yyDollar[2].node
@@ -29790,7 +29798,7 @@ yydefault:
 		}
 	case 1911:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6386
+//line postgres.y:6394
 		{
 			yyDollar[4].node.(*ast.MergeWhenClause).MatchKind = ast.MergeMatchKind(yyDollar[1].ival)
 			yyDollar[4].node.(*ast.MergeWhenClause).Condition = yyDollar[2].node
@@ -29798,7 +29806,7 @@ yydefault:
 		}
 	case 1912:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6392
+//line postgres.y:6400
 		{
 			yyDollar[4].node.(*ast.MergeWhenClause).MatchKind = ast.MergeMatchKind(yyDollar[1].ival)
 			yyDollar[4].node.(*ast.MergeWhenClause).Condition = yyDollar[2].node
@@ -29806,7 +29814,7 @@ yydefault:
 		}
 	case 1913:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:6398
+//line postgres.y:6406
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MergeMatchKind(yyDollar[1].ival), ast.CMD_NOTHING)
 			mergeWhen.Condition = yyDollar[2].node
@@ -29814,7 +29822,7 @@ yydefault:
 		}
 	case 1914:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:6404
+//line postgres.y:6412
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MergeMatchKind(yyDollar[1].ival), ast.CMD_NOTHING)
 			mergeWhen.Condition = yyDollar[2].node
@@ -29822,43 +29830,43 @@ yydefault:
 		}
 	case 1915:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6412
+//line postgres.y:6420
 		{
 			yyVAL.ival = int(ast.MERGE_WHEN_MATCHED)
 		}
 	case 1916:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:6413
+//line postgres.y:6421
 		{
 			yyVAL.ival = int(ast.MERGE_WHEN_NOT_MATCHED_BY_SOURCE)
 		}
 	case 1917:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6417
+//line postgres.y:6425
 		{
 			yyVAL.ival = int(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET)
 		}
 	case 1918:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:6418
+//line postgres.y:6426
 		{
 			yyVAL.ival = int(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET)
 		}
 	case 1919:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6422
+//line postgres.y:6430
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 1920:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6423
+//line postgres.y:6431
 		{
 			yyVAL.node = nil
 		}
 	case 1921:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6428
+//line postgres.y:6436
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_MATCHED, ast.CMD_UPDATE)
 			mergeWhen.Override = ast.OVERRIDING_NOT_SET
@@ -29872,7 +29880,7 @@ yydefault:
 		}
 	case 1922:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6443
+//line postgres.y:6451
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_MATCHED, ast.CMD_DELETE)
 			mergeWhen.Override = ast.OVERRIDING_NOT_SET
@@ -29880,7 +29888,7 @@ yydefault:
 		}
 	case 1923:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6452
+//line postgres.y:6460
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
 			mergeWhen.Override = ast.OVERRIDING_NOT_SET
@@ -29889,7 +29897,7 @@ yydefault:
 		}
 	case 1924:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:6459
+//line postgres.y:6467
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
 			mergeWhen.Override = ast.OverridingKind(yyDollar[3].ival)
@@ -29898,7 +29906,7 @@ yydefault:
 		}
 	case 1925:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:6466
+//line postgres.y:6474
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
 			mergeWhen.Override = ast.OVERRIDING_NOT_SET
@@ -29913,7 +29921,7 @@ yydefault:
 		}
 	case 1926:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:6479
+//line postgres.y:6487
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
 			mergeWhen.Override = ast.OverridingKind(yyDollar[6].ival)
@@ -29928,7 +29936,7 @@ yydefault:
 		}
 	case 1927:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6492
+//line postgres.y:6500
 		{
 			mergeWhen := ast.NewMergeWhenClause(ast.MERGE_WHEN_NOT_MATCHED_BY_TARGET, ast.CMD_INSERT)
 			mergeWhen.Override = ast.OVERRIDING_NOT_SET
@@ -29936,13 +29944,13 @@ yydefault:
 		}
 	case 1928:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6501
+//line postgres.y:6509
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 1929:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:6516
+//line postgres.y:6524
 		{
 			onConflict := ast.NewOnConflictClause(ast.ONCONFLICT_UPDATE)
 			if yyDollar[3].node != nil {
@@ -29954,7 +29962,7 @@ yydefault:
 		}
 	case 1930:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:6526
+//line postgres.y:6534
 		{
 			onConflict := ast.NewOnConflictClause(ast.ONCONFLICT_NOTHING)
 			if yyDollar[3].node != nil {
@@ -29964,13 +29972,13 @@ yydefault:
 		}
 	case 1931:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6534
+//line postgres.y:6542
 		{
 			yyVAL.onconflict = nil
 		}
 	case 1932:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6545
+//line postgres.y:6553
 		{
 			// Create InferClause for column-based conflict detection
 			infer := ast.NewInferClause()
@@ -29981,7 +29989,7 @@ yydefault:
 		}
 	case 1933:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6554
+//line postgres.y:6562
 		{
 			// Create InferClause for constraint-based conflict detection
 			infer := ast.NewInferClause()
@@ -29990,47 +29998,47 @@ yydefault:
 		}
 	case 1934:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6561
+//line postgres.y:6569
 		{
 			yyVAL.node = nil
 		}
 	case 1935:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6568
+//line postgres.y:6576
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 1936:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6572
+//line postgres.y:6580
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1937:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6579
+//line postgres.y:6587
 		{
 			yyVAL.node = yyDollar[2].node
 			yyVAL.node.(*ast.IndexElem).Name = yyDollar[1].str
 		}
 	case 1938:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6584
+//line postgres.y:6592
 		{
 			yyVAL.node = yyDollar[2].node
 			yyVAL.node.(*ast.IndexElem).Expr = yyDollar[1].node
 		}
 	case 1939:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6589
+//line postgres.y:6597
 		{
 			yyVAL.node = yyDollar[4].node
 			yyVAL.node.(*ast.IndexElem).Expr = yyDollar[2].node
 		}
 	case 1940:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6597
+//line postgres.y:6605
 		{
 			indexElem := &ast.IndexElem{
 				BaseNode: ast.BaseNode{Tag: ast.T_IndexElem},
@@ -30043,7 +30051,7 @@ yydefault:
 		}
 	case 1941:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:6608
+//line postgres.y:6616
 		{
 			indexElem := &ast.IndexElem{
 				BaseNode: ast.BaseNode{Tag: ast.T_IndexElem},
@@ -30057,67 +30065,67 @@ yydefault:
 		}
 	case 1942:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6622
+//line postgres.y:6630
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 1943:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6623
+//line postgres.y:6631
 		{
 			yyVAL.list = nil
 		}
 	case 1944:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6627
+//line postgres.y:6635
 		{
 			yyVAL.ival = int(ast.SORTBY_ASC)
 		}
 	case 1945:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6628
+//line postgres.y:6636
 		{
 			yyVAL.ival = int(ast.SORTBY_DESC)
 		}
 	case 1946:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6629
+//line postgres.y:6637
 		{
 			yyVAL.ival = int(ast.SORTBY_DEFAULT)
 		}
 	case 1947:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6633
+//line postgres.y:6641
 		{
 			yyVAL.ival = int(ast.SORTBY_NULLS_FIRST)
 		}
 	case 1948:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6634
+//line postgres.y:6642
 		{
 			yyVAL.ival = int(ast.SORTBY_NULLS_LAST)
 		}
 	case 1949:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6635
+//line postgres.y:6643
 		{
 			yyVAL.ival = int(ast.SORTBY_NULLS_DEFAULT)
 		}
 	case 1950:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6640
+//line postgres.y:6648
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 1951:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6644
+//line postgres.y:6652
 		{
 			yyVAL.list = nil
 		}
 	case 1952:
 		yyDollar = yyS[yypt-13 : yypt+1]
-//line postgres.y:6665
+//line postgres.y:6673
 		{
 			rangeVar := yyDollar[4].rangevar
 			rangeVar.RelPersistence = yyDollar[2].rune
@@ -30133,7 +30141,7 @@ yydefault:
 		}
 	case 1953:
 		yyDollar = yyS[yypt-16 : yypt+1]
-//line postgres.y:6681
+//line postgres.y:6689
 		{
 			rangeVar := yyDollar[7].rangevar
 			rangeVar.RelPersistence = yyDollar[2].rune
@@ -30150,7 +30158,7 @@ yydefault:
 		}
 	case 1954:
 		yyDollar = yyS[yypt-12 : yypt+1]
-//line postgres.y:6698
+//line postgres.y:6706
 		{
 			rangeVar := yyDollar[4].rangevar
 			rangeVar.RelPersistence = yyDollar[2].rune
@@ -30166,7 +30174,7 @@ yydefault:
 		}
 	case 1955:
 		yyDollar = yyS[yypt-15 : yypt+1]
-//line postgres.y:6714
+//line postgres.y:6722
 		{
 			rangeVar := yyDollar[7].rangevar
 			rangeVar.RelPersistence = yyDollar[2].rune
@@ -30183,7 +30191,7 @@ yydefault:
 		}
 	case 1956:
 		yyDollar = yyS[yypt-14 : yypt+1]
-//line postgres.y:6731
+//line postgres.y:6739
 		{
 			rangeVar := yyDollar[4].rangevar
 			rangeVar.RelPersistence = yyDollar[2].rune
@@ -30200,7 +30208,7 @@ yydefault:
 		}
 	case 1957:
 		yyDollar = yyS[yypt-17 : yypt+1]
-//line postgres.y:6748
+//line postgres.y:6756
 		{
 			rangeVar := yyDollar[7].rangevar
 			rangeVar.RelPersistence = yyDollar[2].rune
@@ -30218,243 +30226,243 @@ yydefault:
 		}
 	case 1958:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6766
+//line postgres.y:6774
 		{
 			yyVAL.rune = ast.RELPERSISTENCE_TEMP
 		}
 	case 1959:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6767
+//line postgres.y:6775
 		{
 			yyVAL.rune = ast.RELPERSISTENCE_TEMP
 		}
 	case 1960:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6768
+//line postgres.y:6776
 		{
 			yyVAL.rune = ast.RELPERSISTENCE_TEMP
 		}
 	case 1961:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6769
+//line postgres.y:6777
 		{
 			yyVAL.rune = ast.RELPERSISTENCE_TEMP
 		}
 	case 1962:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6770
+//line postgres.y:6778
 		{
 			yyVAL.rune = ast.RELPERSISTENCE_TEMP
 		}
 	case 1963:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6771
+//line postgres.y:6779
 		{
 			yyVAL.rune = ast.RELPERSISTENCE_TEMP
 		}
 	case 1964:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6772
+//line postgres.y:6780
 		{
 			yyVAL.rune = ast.RELPERSISTENCE_UNLOGGED
 		}
 	case 1965:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6773
+//line postgres.y:6781
 		{
 			yyVAL.rune = ast.RELPERSISTENCE_PERMANENT
 		}
 	case 1966:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6777
+//line postgres.y:6785
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1967:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6778
+//line postgres.y:6786
 		{
 			yyVAL.list = nil
 		}
 	case 1968:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6783
+//line postgres.y:6791
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].node)
 		}
 	case 1969:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6788
+//line postgres.y:6796
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1970:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6795
+//line postgres.y:6803
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 1971:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6796
+//line postgres.y:6804
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 1972:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6797
+//line postgres.y:6805
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 1973:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6802
+//line postgres.y:6810
 		{
 			yyVAL.node = ast.NewTableLikeClause(yyDollar[2].rangevar, ast.TableLikeOption(yyDollar[3].ival))
 		}
 	case 1974:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6809
+//line postgres.y:6817
 		{
 			yyVAL.ival = yyDollar[1].ival | yyDollar[3].ival
 		}
 	case 1975:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6813
+//line postgres.y:6821
 		{
 			yyVAL.ival = yyDollar[1].ival & ^yyDollar[3].ival
 		}
 	case 1976:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6817
+//line postgres.y:6825
 		{
 			yyVAL.ival = 0
 		}
 	case 1977:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6823
+//line postgres.y:6831
 		{
 			yyVAL.ival = int(ast.CREATE_TABLE_LIKE_COMMENTS)
 		}
 	case 1978:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6824
+//line postgres.y:6832
 		{
 			yyVAL.ival = int(ast.CREATE_TABLE_LIKE_COMPRESSION)
 		}
 	case 1979:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6825
+//line postgres.y:6833
 		{
 			yyVAL.ival = int(ast.CREATE_TABLE_LIKE_CONSTRAINTS)
 		}
 	case 1980:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6826
+//line postgres.y:6834
 		{
 			yyVAL.ival = int(ast.CREATE_TABLE_LIKE_DEFAULTS)
 		}
 	case 1981:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6827
+//line postgres.y:6835
 		{
 			yyVAL.ival = int(ast.CREATE_TABLE_LIKE_IDENTITY)
 		}
 	case 1982:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6828
+//line postgres.y:6836
 		{
 			yyVAL.ival = int(ast.CREATE_TABLE_LIKE_GENERATED)
 		}
 	case 1983:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6829
+//line postgres.y:6837
 		{
 			yyVAL.ival = int(ast.CREATE_TABLE_LIKE_INDEXES)
 		}
 	case 1984:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6830
+//line postgres.y:6838
 		{
 			yyVAL.ival = int(ast.CREATE_TABLE_LIKE_STATISTICS)
 		}
 	case 1985:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6831
+//line postgres.y:6839
 		{
 			yyVAL.ival = int(ast.CREATE_TABLE_LIKE_STORAGE)
 		}
 	case 1986:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6832
+//line postgres.y:6840
 		{
 			yyVAL.ival = int(ast.CREATE_TABLE_LIKE_ALL)
 		}
 	case 1987:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6837
+//line postgres.y:6845
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 1988:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6838
+//line postgres.y:6846
 		{
 			yyVAL.str = "default"
 		}
 	case 1989:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6842
+//line postgres.y:6850
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1990:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6843
+//line postgres.y:6851
 		{
 			yyVAL.str = ""
 		}
 	case 1991:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6847
+//line postgres.y:6855
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 1992:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6848
+//line postgres.y:6856
 		{
 			yyVAL.str = "default"
 		}
 	case 1993:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6852
+//line postgres.y:6860
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 1994:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6853
+//line postgres.y:6861
 		{
 			yyVAL.str = ""
 		}
 	case 1995:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6858
+//line postgres.y:6866
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 1996:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6859
+//line postgres.y:6867
 		{
 			yyVAL.list = nil
 		}
 	case 1997:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6864
+//line postgres.y:6872
 		{
 			list := ast.NewNodeList()
 			list.Append(yyDollar[1].node)
@@ -30462,26 +30470,26 @@ yydefault:
 		}
 	case 1998:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6870
+//line postgres.y:6878
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 1999:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6877
+//line postgres.y:6885
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2000:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6878
+//line postgres.y:6886
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2001:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6883
+//line postgres.y:6891
 		{
 			colDef := ast.NewColumnDef(yyDollar[1].str, nil, 0)
 			colDef.Constraints = yyDollar[2].list
@@ -30489,7 +30497,7 @@ yydefault:
 		}
 	case 2002:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6889
+//line postgres.y:6897
 		{
 			colDef := ast.NewColumnDef(yyDollar[1].str, nil, 0)
 			colDef.Constraints = yyDollar[4].list
@@ -30497,7 +30505,7 @@ yydefault:
 		}
 	case 2003:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:6900
+//line postgres.y:6908
 		{
 			hashSpec := ast.NewPartitionBoundSpec(ast.PARTITION_STRATEGY_HASH)
 			hashSpec.IsDefault = false
@@ -30526,7 +30534,7 @@ yydefault:
 		}
 	case 2004:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:6929
+//line postgres.y:6937
 		{
 			listSpec := ast.NewPartitionBoundSpec(ast.PARTITION_STRATEGY_LIST)
 			listSpec.IsDefault = false
@@ -30535,7 +30543,7 @@ yydefault:
 		}
 	case 2005:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:6938
+//line postgres.y:6946
 		{
 			rangeSpec := ast.NewPartitionBoundSpec(ast.PARTITION_STRATEGY_RANGE)
 			rangeSpec.IsDefault = false
@@ -30545,7 +30553,7 @@ yydefault:
 		}
 	case 2006:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6948
+//line postgres.y:6956
 		{
 			defaultSpec := ast.NewPartitionBoundSpec(ast.PARTITION_STRATEGY_LIST)
 			defaultSpec.IsDefault = true
@@ -30553,19 +30561,19 @@ yydefault:
 		}
 	case 2007:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6957
+//line postgres.y:6965
 		{
 			yyVAL.node = ast.NewDefElem(yyDollar[1].str, ast.NewA_Const(ast.NewInteger(yyDollar[2].ival), 0))
 		}
 	case 2008:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6964
+//line postgres.y:6972
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 2009:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6968
+//line postgres.y:6976
 		{
 			nodeList := yyDollar[1].list
 			nodeList.Append(yyDollar[3].node)
@@ -30573,74 +30581,77 @@ yydefault:
 		}
 	case 2010:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:6976
+//line postgres.y:6984
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 2011:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:6977
+//line postgres.y:6985
 		{
 			yyVAL.list = nil
 		}
 	case 2012:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:6982
+//line postgres.y:6990
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 2013:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:6986
+//line postgres.y:6994
 		{
 			yyDollar[1].list.Append(yyDollar[3].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2014:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:6994
+//line postgres.y:7002
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, yyDollar[2].node)
 		}
 	case 2015:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7000
+//line postgres.y:7008
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2016:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7005
+//line postgres.y:7013
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 2017:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:7010
+//line postgres.y:7018
 		{
 			colDef := ast.NewColumnDef(yyDollar[1].str, yyDollar[2].typnam, 0)
 			colDef.StorageName = yyDollar[3].str
 			colDef.Compression = yyDollar[4].str
 			colDef.Fdwoptions = yyDollar[5].list
-			colDef.Constraints = yyDollar[6].list
+			// Use SplitColQualList to separate constraints and collate clause
+			constraints, collClause := SplitColQualList(yyDollar[6].list)
+			colDef.Constraints = constraints
+			colDef.Collclause = collClause
 			yyVAL.node = colDef
 		}
 	case 2018:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7022
+//line postgres.y:7033
 		{
 			yyDollar[1].list.Append(yyDollar[2].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2019:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7027
+//line postgres.y:7038
 		{
 			yyVAL.list = ast.NewNodeList()
 		}
 	case 2020:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7034
+//line postgres.y:7045
 		{
 			constraint := yyDollar[3].node.(*ast.Constraint)
 			constraint.Conname = yyDollar[2].str
@@ -30648,19 +30659,19 @@ yydefault:
 		}
 	case 2021:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7039
+//line postgres.y:7050
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2022:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7040
+//line postgres.y:7051
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2023:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7042
+//line postgres.y:7053
 		{
 			/*
 			 * Note: the CollateClause is momentarily included in
@@ -30672,90 +30683,90 @@ yydefault:
 		}
 	case 2024:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7055
+//line postgres.y:7066
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_ATTR_DEFERRABLE)
 			yyVAL.node = constraint
 		}
 	case 2025:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7060
+//line postgres.y:7071
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_ATTR_NOT_DEFERRABLE)
 			yyVAL.node = constraint
 		}
 	case 2026:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7065
+//line postgres.y:7076
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_ATTR_DEFERRED)
 			yyVAL.node = constraint
 		}
 	case 2027:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7070
+//line postgres.y:7081
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_ATTR_IMMEDIATE)
 			yyVAL.node = constraint
 		}
 	case 2028:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7078
+//line postgres.y:7089
 		{
 			yyVAL.bval = true
 		}
 	case 2029:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7079
+//line postgres.y:7090
 		{
 			yyVAL.bval = false
 		}
 	case 2030:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7080
+//line postgres.y:7091
 		{
 			yyVAL.bval = true
 		}
 	case 2031:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7084
+//line postgres.y:7095
 		{
 			yyVAL.byt = ast.ATTRIBUTE_IDENTITY_ALWAYS
 		}
 	case 2032:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7085
+//line postgres.y:7096
 		{
 			yyVAL.byt = ast.ATTRIBUTE_IDENTITY_BY_DEFAULT
 		}
 	case 2033:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7090
+//line postgres.y:7101
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 2034:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7092
+//line postgres.y:7103
 		{
 			yyDollar[1].list.Append(yyDollar[2].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2035:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7097
+//line postgres.y:7108
 		{
 			yyVAL.defelt = ast.NewDefElem("restart", nil)
 		}
 	case 2036:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7101
+//line postgres.y:7112
 		{
 			yyVAL.defelt = ast.NewDefElem("restart", yyDollar[3].node)
 		}
 	case 2037:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7105
+//line postgres.y:7116
 		{
 			// SeqOptElem already returns a DefElem, so we can use it directly
 			// Check for invalid options as per PostgreSQL
@@ -30767,147 +30778,147 @@ yydefault:
 		}
 	case 2038:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7115
+//line postgres.y:7126
 		{
 			yyVAL.defelt = ast.NewDefElem("generated", ast.NewInteger(int(yyDollar[3].byt)))
 		}
 	case 2039:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7121
+//line postgres.y:7132
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 2040:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7122
+//line postgres.y:7133
 		{
 			yyDollar[1].list.Append(yyDollar[2].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2041:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7127
+//line postgres.y:7138
 		{
 			yyVAL.defelt = ast.NewDefElem("as", yyDollar[2].typnam)
 		}
 	case 2042:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7131
+//line postgres.y:7142
 		{
 			yyVAL.defelt = ast.NewDefElem("cache", yyDollar[2].node)
 		}
 	case 2043:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7135
+//line postgres.y:7146
 		{
 			yyVAL.defelt = ast.NewDefElem("cycle", ast.NewBoolean(true))
 		}
 	case 2044:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7139
+//line postgres.y:7150
 		{
 			yyVAL.defelt = ast.NewDefElem("cycle", ast.NewBoolean(false))
 		}
 	case 2045:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7143
+//line postgres.y:7154
 		{
 			yyVAL.defelt = ast.NewDefElem("increment", yyDollar[3].node)
 		}
 	case 2046:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7147
+//line postgres.y:7158
 		{
 			yyVAL.defelt = ast.NewDefElem("logged", nil)
 		}
 	case 2047:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7151
+//line postgres.y:7162
 		{
 			yyVAL.defelt = ast.NewDefElem("maxvalue", yyDollar[2].node)
 		}
 	case 2048:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7155
+//line postgres.y:7166
 		{
 			yyVAL.defelt = ast.NewDefElem("minvalue", yyDollar[2].node)
 		}
 	case 2049:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7159
+//line postgres.y:7170
 		{
 			yyVAL.defelt = ast.NewDefElem("maxvalue", nil)
 		}
 	case 2050:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7163
+//line postgres.y:7174
 		{
 			yyVAL.defelt = ast.NewDefElem("minvalue", nil)
 		}
 	case 2051:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7167
+//line postgres.y:7178
 		{
 			yyVAL.defelt = ast.NewDefElem("owned_by", yyDollar[3].list)
 		}
 	case 2052:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7171
+//line postgres.y:7182
 		{
 			yyVAL.defelt = ast.NewDefElem("sequence_name", yyDollar[3].list)
 		}
 	case 2053:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7175
+//line postgres.y:7186
 		{
 			yyVAL.defelt = ast.NewDefElem("start", yyDollar[3].node)
 		}
 	case 2054:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7179
+//line postgres.y:7190
 		{
 			yyVAL.defelt = ast.NewDefElem("restart", nil)
 		}
 	case 2055:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7183
+//line postgres.y:7194
 		{
 			yyVAL.defelt = ast.NewDefElem("restart", yyDollar[3].node)
 		}
 	case 2056:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7187
+//line postgres.y:7198
 		{
 			yyVAL.defelt = ast.NewDefElem("unlogged", nil)
 		}
 	case 2057:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7193
+//line postgres.y:7204
 		{
 		}
 	case 2058:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7194
+//line postgres.y:7205
 		{
 		}
 	case 2059:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7198
+//line postgres.y:7209
 		{
 		}
 	case 2060:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7199
+//line postgres.y:7210
 		{
 		}
 	case 2061:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7200
+//line postgres.y:7211
 		{
 		}
 	case 2062:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7205
+//line postgres.y:7216
 		{
 			// RECHECK no longer does anything in opclass definitions,
 			// but we still accept it to ease porting of old database dumps.
@@ -30917,37 +30928,37 @@ yydefault:
 		}
 	case 2063:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7212
+//line postgres.y:7223
 		{
 			yyVAL.bval = false
 		}
 	case 2064:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7216
+//line postgres.y:7227
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2065:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7217
+//line postgres.y:7228
 		{
 			yyVAL.list = nil
 		}
 	case 2066:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7222
+//line postgres.y:7233
 		{
 			yyVAL.node = ast.NewConstraint(ast.CONSTR_NOTNULL)
 		}
 	case 2067:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7226
+//line postgres.y:7237
 		{
 			yyVAL.node = ast.NewConstraint(ast.CONSTR_NULL)
 		}
 	case 2068:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7230
+//line postgres.y:7241
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_UNIQUE)
 			constraint.Keys = nil // Will be filled by the parser
@@ -30958,7 +30969,7 @@ yydefault:
 		}
 	case 2069:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7239
+//line postgres.y:7250
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_PRIMARY)
 			constraint.Keys = nil // Will be filled by the parser
@@ -30966,7 +30977,7 @@ yydefault:
 		}
 	case 2070:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:7245
+//line postgres.y:7256
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_CHECK)
 			constraint.RawExpr = yyDollar[3].node
@@ -30974,7 +30985,7 @@ yydefault:
 		}
 	case 2071:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7251
+//line postgres.y:7262
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_DEFAULT)
 			constraint.RawExpr = yyDollar[2].node
@@ -30982,7 +30993,7 @@ yydefault:
 		}
 	case 2072:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:7257
+//line postgres.y:7268
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_FOREIGN)
 			constraint.Pktable = yyDollar[2].rangevar
@@ -31001,7 +31012,7 @@ yydefault:
 		}
 	case 2073:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:7274
+//line postgres.y:7285
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_IDENTITY)
 			constraint.GeneratedWhen = yyDollar[2].byt
@@ -31010,7 +31021,7 @@ yydefault:
 		}
 	case 2074:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:7281
+//line postgres.y:7292
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_GENERATED)
 			constraint.GeneratedWhen = yyDollar[2].byt
@@ -31019,7 +31030,7 @@ yydefault:
 		}
 	case 2075:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7291
+//line postgres.y:7302
 		{
 			constraint := yyDollar[3].node.(*ast.Constraint)
 			constraint.Conname = yyDollar[2].str
@@ -31027,13 +31038,13 @@ yydefault:
 		}
 	case 2076:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7296
+//line postgres.y:7307
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2077:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:7301
+//line postgres.y:7312
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_CHECK)
 			constraint.RawExpr = yyDollar[3].node
@@ -31042,7 +31053,7 @@ yydefault:
 		}
 	case 2078:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:7309
+//line postgres.y:7320
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_UNIQUE)
 			constraint.NullsNotDistinct = !yyDollar[2].bval
@@ -31055,7 +31066,7 @@ yydefault:
 		}
 	case 2079:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7320
+//line postgres.y:7331
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_UNIQUE)
 			constraint.Indexname = yyDollar[2].str
@@ -31067,7 +31078,7 @@ yydefault:
 		}
 	case 2080:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:7331
+//line postgres.y:7342
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_PRIMARY)
 			constraint.Keys = yyDollar[4].list
@@ -31079,7 +31090,7 @@ yydefault:
 		}
 	case 2081:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7341
+//line postgres.y:7352
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_PRIMARY)
 			constraint.Indexname = yyDollar[3].str
@@ -31091,7 +31102,7 @@ yydefault:
 		}
 	case 2082:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:7352
+//line postgres.y:7363
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_FOREIGN)
 			constraint.FkAttrs = yyDollar[4].list
@@ -31112,7 +31123,7 @@ yydefault:
 		}
 	case 2083:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:7373
+//line postgres.y:7384
 		{
 			constraint := ast.NewConstraint(ast.CONSTR_EXCLUSION)
 			constraint.AccessMethod = yyDollar[2].str
@@ -31126,19 +31137,19 @@ yydefault:
 		}
 	case 2084:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7387
+//line postgres.y:7398
 		{
 			yyVAL.bval = true
 		}
 	case 2085:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7388
+//line postgres.y:7399
 		{
 			yyVAL.bval = false
 		}
 	case 2086:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7394
+//line postgres.y:7405
 		{
 			list := ast.NewNodeList()
 			list.Append(yyDollar[1].node)
@@ -31146,64 +31157,64 @@ yydefault:
 		}
 	case 2087:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7400
+//line postgres.y:7411
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2088:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7408
+//line postgres.y:7419
 		{
 			// Create a NodeList with index_elem and operator (matching PostgreSQL's list_make2 approach)
 			yyVAL.node = ast.NewNodeList(yyDollar[1].node, yyDollar[3].list)
 		}
 	case 2089:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:7413
+//line postgres.y:7424
 		{
 			// Create a NodeList with index_elem and operator (matching PostgreSQL's list_make2 approach)
 			yyVAL.node = ast.NewNodeList(yyDollar[1].node, yyDollar[5].list)
 		}
 	case 2090:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7421
+//line postgres.y:7432
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 2091:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7425
+//line postgres.y:7436
 		{
 			yyVAL.list = nil
 		}
 	case 2092:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7432
+//line postgres.y:7443
 		{
 			yyVAL.byt = ast.FKCONSTR_MATCH_FULL
 		}
 	case 2093:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7436
+//line postgres.y:7447
 		{
 			yyVAL.byt = ast.FKCONSTR_MATCH_PARTIAL
 		}
 	case 2094:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7440
+//line postgres.y:7451
 		{
 			yyVAL.byt = ast.FKCONSTR_MATCH_SIMPLE
 		}
 	case 2095:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7444
+//line postgres.y:7455
 		{
 			yyVAL.byt = ast.FKCONSTR_MATCH_SIMPLE
 		}
 	case 2096:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7451
+//line postgres.y:7462
 		{
 			n := &ast.KeyActions{}
 			n.UpdateAction = yyDollar[1].keyaction
@@ -31215,7 +31226,7 @@ yydefault:
 		}
 	case 2097:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7461
+//line postgres.y:7472
 		{
 			n := &ast.KeyActions{}
 			n.UpdateAction = &ast.KeyAction{
@@ -31227,7 +31238,7 @@ yydefault:
 		}
 	case 2098:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7471
+//line postgres.y:7482
 		{
 			n := &ast.KeyActions{}
 			n.UpdateAction = yyDollar[1].keyaction
@@ -31236,7 +31247,7 @@ yydefault:
 		}
 	case 2099:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7478
+//line postgres.y:7489
 		{
 			n := &ast.KeyActions{}
 			n.UpdateAction = yyDollar[2].keyaction
@@ -31245,7 +31256,7 @@ yydefault:
 		}
 	case 2100:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7485
+//line postgres.y:7496
 		{
 			n := &ast.KeyActions{}
 			n.UpdateAction = &ast.KeyAction{
@@ -31260,7 +31271,7 @@ yydefault:
 		}
 	case 2101:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7500
+//line postgres.y:7511
 		{
 			// Check for unsupported column lists on UPDATE actions
 			keyAction := yyDollar[3].keyaction
@@ -31273,13 +31284,13 @@ yydefault:
 		}
 	case 2102:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7513
+//line postgres.y:7524
 		{
 			yyVAL.keyaction = yyDollar[3].keyaction
 		}
 	case 2103:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7520
+//line postgres.y:7531
 		{
 			n := &ast.KeyAction{}
 			n.Action = ast.FKCONSTR_ACTION_NOACTION
@@ -31288,7 +31299,7 @@ yydefault:
 		}
 	case 2104:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7527
+//line postgres.y:7538
 		{
 			n := &ast.KeyAction{}
 			n.Action = ast.FKCONSTR_ACTION_RESTRICT
@@ -31297,7 +31308,7 @@ yydefault:
 		}
 	case 2105:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7534
+//line postgres.y:7545
 		{
 			n := &ast.KeyAction{}
 			n.Action = ast.FKCONSTR_ACTION_CASCADE
@@ -31306,7 +31317,7 @@ yydefault:
 		}
 	case 2106:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7541
+//line postgres.y:7552
 		{
 			n := &ast.KeyAction{}
 			n.Action = ast.FKCONSTR_ACTION_SETNULL
@@ -31315,7 +31326,7 @@ yydefault:
 		}
 	case 2107:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7548
+//line postgres.y:7559
 		{
 			n := &ast.KeyAction{}
 			n.Action = ast.FKCONSTR_ACTION_SETDEFAULT
@@ -31324,52 +31335,52 @@ yydefault:
 		}
 	case 2108:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7557
+//line postgres.y:7568
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 2109:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7558
+//line postgres.y:7569
 		{
 			yyVAL.list = nil
 		}
 	case 2110:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7562
+//line postgres.y:7573
 		{
 			yyVAL.partspec = yyDollar[1].partspec
 		}
 	case 2111:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7563
+//line postgres.y:7574
 		{
 			yyVAL.partspec = nil
 		}
 	case 2112:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:7568
+//line postgres.y:7579
 		{
 			partitionSpec := ast.NewPartitionSpec(ast.PartitionStrategy(yyDollar[3].str), yyDollar[5].list)
 			yyVAL.partspec = partitionSpec
 		}
 	case 2113:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7576
+//line postgres.y:7587
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].node)
 		}
 	case 2114:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7581
+//line postgres.y:7592
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2115:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7589
+//line postgres.y:7600
 		{
 			partElem := ast.NewPartitionElem(yyDollar[1].str, nil, 0)
 			partElem.Collation = yyDollar[2].list
@@ -31378,7 +31389,7 @@ yydefault:
 		}
 	case 2116:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7596
+//line postgres.y:7607
 		{
 			partElem := ast.NewPartitionElem("", yyDollar[1].node, 0)
 			partElem.Collation = yyDollar[2].list
@@ -31387,7 +31398,7 @@ yydefault:
 		}
 	case 2117:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:7603
+//line postgres.y:7614
 		{
 			partElem := ast.NewPartitionElem("", yyDollar[2].node, 0)
 			partElem.Collation = yyDollar[4].list
@@ -31396,73 +31407,73 @@ yydefault:
 		}
 	case 2118:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7612
+//line postgres.y:7623
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 2119:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7613
+//line postgres.y:7624
 		{
 			yyVAL.str = ""
 		}
 	case 2120:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7617
+//line postgres.y:7628
 		{
 			yyVAL.oncommit = ast.ONCOMMIT_DROP
 		}
 	case 2121:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7618
+//line postgres.y:7629
 		{
 			yyVAL.oncommit = ast.ONCOMMIT_DELETE_ROWS
 		}
 	case 2122:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7619
+//line postgres.y:7630
 		{
 			yyVAL.oncommit = ast.ONCOMMIT_PRESERVE_ROWS
 		}
 	case 2123:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7620
+//line postgres.y:7631
 		{
 			yyVAL.oncommit = ast.ONCOMMIT_NOOP
 		}
 	case 2124:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7624
+//line postgres.y:7635
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 2125:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7625
+//line postgres.y:7636
 		{
 			yyVAL.str = ""
 		}
 	case 2126:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7629
+//line postgres.y:7640
 		{
 			yyVAL.str = yyDollar[4].str
 		}
 	case 2127:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7630
+//line postgres.y:7641
 		{
 			yyVAL.str = ""
 		}
 	case 2128:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7634
+//line postgres.y:7645
 		{
 			yyVAL.str = yyDollar[3].str
 		}
 	case 2129:
 		yyDollar = yyS[yypt-16 : yypt+1]
-//line postgres.y:7647
+//line postgres.y:7658
 		{
 			indexStmt := ast.NewIndexStmt(yyDollar[5].str, yyDollar[7].rangevar, yyDollar[10].list)
 			indexStmt.Unique = yyDollar[2].bval
@@ -31477,7 +31488,7 @@ yydefault:
 		}
 	case 2130:
 		yyDollar = yyS[yypt-19 : yypt+1]
-//line postgres.y:7662
+//line postgres.y:7673
 		{
 			indexStmt := ast.NewIndexStmt(yyDollar[8].str, yyDollar[10].rangevar, yyDollar[13].list)
 			indexStmt.Unique = yyDollar[2].bval
@@ -31493,69 +31504,69 @@ yydefault:
 		}
 	case 2131:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7678
+//line postgres.y:7689
 		{
 			yyVAL.bval = true
 		}
 	case 2132:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7679
+//line postgres.y:7690
 		{
 			yyVAL.bval = false
 		}
 	case 2133:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7683
+//line postgres.y:7694
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 2134:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7684
+//line postgres.y:7695
 		{
 			yyVAL.str = "btree"
 		}
 	case 2135:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7688
+//line postgres.y:7699
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 2136:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7689
+//line postgres.y:7700
 		{
 			yyVAL.list = nil
 		}
 	case 2137:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7694
+//line postgres.y:7705
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].node)
 		}
 	case 2138:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7699
+//line postgres.y:7710
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2139:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7707
+//line postgres.y:7718
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2140:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7708
+//line postgres.y:7719
 		{
 			yyVAL.list = nil
 		}
 	case 2141:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7720
+//line postgres.y:7731
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[3].rangevar, yyDollar[4].list)
 			alterStmt.Objtype = ast.OBJECT_TABLE
@@ -31563,7 +31574,7 @@ yydefault:
 		}
 	case 2142:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:7726
+//line postgres.y:7737
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[5].rangevar, yyDollar[6].list)
 			alterStmt.Objtype = ast.OBJECT_TABLE
@@ -31572,7 +31583,7 @@ yydefault:
 		}
 	case 2143:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7733
+//line postgres.y:7744
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[3].rangevar, yyDollar[4].list)
 			alterStmt.Objtype = ast.OBJECT_INDEX
@@ -31580,7 +31591,7 @@ yydefault:
 		}
 	case 2144:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:7739
+//line postgres.y:7750
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[5].rangevar, yyDollar[6].list)
 			alterStmt.Objtype = ast.OBJECT_INDEX
@@ -31589,7 +31600,7 @@ yydefault:
 		}
 	case 2145:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7746
+//line postgres.y:7757
 		{
 			// Index partition attachment - dedicated rule
 			cmdList := ast.NewNodeList()
@@ -31600,7 +31611,7 @@ yydefault:
 		}
 	case 2146:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7755
+//line postgres.y:7766
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[3].rangevar, yyDollar[4].list)
 			alterStmt.Objtype = ast.OBJECT_SEQUENCE
@@ -31608,7 +31619,7 @@ yydefault:
 		}
 	case 2147:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:7761
+//line postgres.y:7772
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[5].rangevar, yyDollar[6].list)
 			alterStmt.Objtype = ast.OBJECT_SEQUENCE
@@ -31617,7 +31628,7 @@ yydefault:
 		}
 	case 2148:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7768
+//line postgres.y:7779
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[3].rangevar, yyDollar[4].list)
 			alterStmt.Objtype = ast.OBJECT_VIEW
@@ -31625,7 +31636,7 @@ yydefault:
 		}
 	case 2149:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:7774
+//line postgres.y:7785
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[5].rangevar, yyDollar[6].list)
 			alterStmt.Objtype = ast.OBJECT_VIEW
@@ -31634,7 +31645,7 @@ yydefault:
 		}
 	case 2150:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:7781
+//line postgres.y:7792
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[4].rangevar, yyDollar[5].list)
 			alterStmt.Objtype = ast.OBJECT_MATVIEW
@@ -31642,7 +31653,7 @@ yydefault:
 		}
 	case 2151:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:7787
+//line postgres.y:7798
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[6].rangevar, yyDollar[7].list)
 			alterStmt.Objtype = ast.OBJECT_MATVIEW
@@ -31651,7 +31662,7 @@ yydefault:
 		}
 	case 2152:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:7794
+//line postgres.y:7805
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[4].rangevar, yyDollar[5].list)
 			alterStmt.Objtype = ast.OBJECT_FOREIGN_TABLE
@@ -31659,7 +31670,7 @@ yydefault:
 		}
 	case 2153:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:7800
+//line postgres.y:7811
 		{
 			alterStmt := ast.NewAlterTableStmt(yyDollar[6].rangevar, yyDollar[7].list)
 			alterStmt.Objtype = ast.OBJECT_FOREIGN_TABLE
@@ -31668,7 +31679,7 @@ yydefault:
 		}
 	case 2154:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:7807
+//line postgres.y:7818
 		{
 			// Partition commands - dedicated rule for partition-only operations
 			cmdList := ast.NewNodeList()
@@ -31679,7 +31690,7 @@ yydefault:
 		}
 	case 2155:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:7816
+//line postgres.y:7827
 		{
 			// Partition commands with IF EXISTS
 			cmdList := ast.NewNodeList()
@@ -31691,7 +31702,7 @@ yydefault:
 		}
 	case 2156:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:7826
+//line postgres.y:7837
 		{
 			// Bulk tablespace move for tables
 			moveStmt := ast.NewAlterTableMoveAllStmt(yyDollar[6].str, ast.OBJECT_TABLE, yyDollar[9].str)
@@ -31700,7 +31711,7 @@ yydefault:
 		}
 	case 2157:
 		yyDollar = yyS[yypt-13 : yypt+1]
-//line postgres.y:7833
+//line postgres.y:7844
 		{
 			// Bulk tablespace move for tables owned by specific roles
 			moveStmt := ast.NewAlterTableMoveAllStmt(yyDollar[6].str, ast.OBJECT_TABLE, yyDollar[12].str)
@@ -31710,7 +31721,7 @@ yydefault:
 		}
 	case 2158:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:7841
+//line postgres.y:7852
 		{
 			// Bulk tablespace move for indexes
 			moveStmt := ast.NewAlterTableMoveAllStmt(yyDollar[6].str, ast.OBJECT_INDEX, yyDollar[9].str)
@@ -31719,7 +31730,7 @@ yydefault:
 		}
 	case 2159:
 		yyDollar = yyS[yypt-13 : yypt+1]
-//line postgres.y:7848
+//line postgres.y:7859
 		{
 			// Bulk tablespace move for indexes owned by specific roles
 			moveStmt := ast.NewAlterTableMoveAllStmt(yyDollar[6].str, ast.OBJECT_INDEX, yyDollar[12].str)
@@ -31729,7 +31740,7 @@ yydefault:
 		}
 	case 2160:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:7856
+//line postgres.y:7867
 		{
 			// Bulk tablespace move for materialized views
 			moveStmt := ast.NewAlterTableMoveAllStmt(yyDollar[7].str, ast.OBJECT_MATVIEW, yyDollar[10].str)
@@ -31738,7 +31749,7 @@ yydefault:
 		}
 	case 2161:
 		yyDollar = yyS[yypt-14 : yypt+1]
-//line postgres.y:7863
+//line postgres.y:7874
 		{
 			// Bulk tablespace move for materialized views owned by specific roles
 			moveStmt := ast.NewAlterTableMoveAllStmt(yyDollar[7].str, ast.OBJECT_MATVIEW, yyDollar[13].str)
@@ -31748,47 +31759,47 @@ yydefault:
 		}
 	case 2162:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7874
+//line postgres.y:7885
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].node)
 		}
 	case 2163:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7879
+//line postgres.y:7890
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2164:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7887
+//line postgres.y:7898
 		{
 			yyVAL.bval = true
 		}
 	case 2165:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:7888
+//line postgres.y:7899
 		{
 			yyVAL.bval = false
 		}
 	case 2166:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7893
+//line postgres.y:7904
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].rolespec)
 		}
 	case 2167:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7898
+//line postgres.y:7909
 		{
 			yyDollar[1].list.Append(yyDollar[3].rolespec)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2168:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7906
+//line postgres.y:7917
 		{
 			roleSpec := yyDollar[1].rolespec
 
@@ -31818,7 +31829,7 @@ yydefault:
 		}
 	case 2169:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7937
+//line postgres.y:7948
 		{
 			// Handle special role names: "public" and "none"
 			var roleSpec *ast.RoleSpec
@@ -31843,7 +31854,7 @@ yydefault:
 		}
 	case 2170:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7960
+//line postgres.y:7971
 		{
 			yyVAL.rolespec = &ast.RoleSpec{
 				BaseNode: ast.BaseNode{Tag: ast.T_RoleSpec},
@@ -31852,7 +31863,7 @@ yydefault:
 		}
 	case 2171:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7967
+//line postgres.y:7978
 		{
 			yyVAL.rolespec = &ast.RoleSpec{
 				BaseNode: ast.BaseNode{Tag: ast.T_RoleSpec},
@@ -31861,7 +31872,7 @@ yydefault:
 		}
 	case 2172:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:7974
+//line postgres.y:7985
 		{
 			yyVAL.rolespec = &ast.RoleSpec{
 				BaseNode: ast.BaseNode{Tag: ast.T_RoleSpec},
@@ -31870,7 +31881,7 @@ yydefault:
 		}
 	case 2173:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:7985
+//line postgres.y:7996
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_AddColumn, "", yyDollar[2].node)
 			cmd.MissingOk = false
@@ -31878,7 +31889,7 @@ yydefault:
 		}
 	case 2174:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:7992
+//line postgres.y:8003
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_AddColumn, "", yyDollar[5].node)
 			cmd.MissingOk = true
@@ -31886,7 +31897,7 @@ yydefault:
 		}
 	case 2175:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:7999
+//line postgres.y:8010
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_AddColumn, "", yyDollar[3].node)
 			cmd.MissingOk = false
@@ -31894,7 +31905,7 @@ yydefault:
 		}
 	case 2176:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8006
+//line postgres.y:8017
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_AddColumn, "", yyDollar[6].node)
 			cmd.MissingOk = true
@@ -31902,37 +31913,37 @@ yydefault:
 		}
 	case 2177:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8013
+//line postgres.y:8024
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_ColumnDefault, yyDollar[3].str, yyDollar[4].node)
 		}
 	case 2178:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8018
+//line postgres.y:8029
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DropNotNull, yyDollar[3].str, nil)
 		}
 	case 2179:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8023
+//line postgres.y:8034
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetNotNull, yyDollar[3].str, nil)
 		}
 	case 2180:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:8028
+//line postgres.y:8039
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetExpression, yyDollar[3].str, yyDollar[8].node)
 		}
 	case 2181:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:8033
+//line postgres.y:8044
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DropExpression, yyDollar[3].str, nil)
 		}
 	case 2182:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:8038
+//line postgres.y:8049
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_DropExpression, yyDollar[3].str, nil)
 			cmd.MissingOk = true
@@ -31940,13 +31951,13 @@ yydefault:
 		}
 	case 2183:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8045
+//line postgres.y:8056
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetStatistics, yyDollar[3].str, yyDollar[6].node)
 		}
 	case 2184:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8050
+//line postgres.y:8061
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_SetStatistics, "", yyDollar[6].node)
 			cmd.Num = int16(yyDollar[3].ival)
@@ -31954,31 +31965,31 @@ yydefault:
 		}
 	case 2185:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:8057
+//line postgres.y:8068
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetOptions, yyDollar[3].str, yyDollar[5].list)
 		}
 	case 2186:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:8062
+//line postgres.y:8073
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_ResetOptions, yyDollar[3].str, yyDollar[5].list)
 		}
 	case 2187:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:8067
+//line postgres.y:8078
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetStorage, yyDollar[3].str, ast.NewString(yyDollar[5].str))
 		}
 	case 2188:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:8072
+//line postgres.y:8083
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetCompression, yyDollar[3].str, ast.NewString(yyDollar[5].str))
 		}
 	case 2189:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:8077
+//line postgres.y:8088
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_AddIdentity, yyDollar[3].str, nil)
 			constraint := ast.NewConstraint(ast.CONSTR_IDENTITY)
@@ -31989,13 +32000,13 @@ yydefault:
 		}
 	case 2190:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8087
+//line postgres.y:8098
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetIdentity, yyDollar[3].str, yyDollar[4].list)
 		}
 	case 2191:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:8092
+//line postgres.y:8103
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_DropIdentity, yyDollar[3].str, nil)
 			cmd.MissingOk = false
@@ -32003,7 +32014,7 @@ yydefault:
 		}
 	case 2192:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:8099
+//line postgres.y:8110
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_DropIdentity, yyDollar[3].str, nil)
 			cmd.MissingOk = true
@@ -32011,7 +32022,7 @@ yydefault:
 		}
 	case 2193:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8106
+//line postgres.y:8117
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_DropColumn, yyDollar[5].str, nil)
 			cmd.Behavior = yyDollar[6].dropBehav
@@ -32020,7 +32031,7 @@ yydefault:
 		}
 	case 2194:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8114
+//line postgres.y:8125
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_DropColumn, yyDollar[3].str, nil)
 			cmd.Behavior = yyDollar[4].dropBehav
@@ -32029,7 +32040,7 @@ yydefault:
 		}
 	case 2195:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:8125
+//line postgres.y:8136
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_AlterColumnType, yyDollar[3].str, nil)
 			def := ast.NewColumnDef("", yyDollar[6].typnam, 0)
@@ -32042,19 +32053,19 @@ yydefault:
 		}
 	case 2196:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8137
+//line postgres.y:8148
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_AlterColumnGenericOptions, yyDollar[3].str, yyDollar[4].list)
 		}
 	case 2197:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8142
+//line postgres.y:8153
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_AddConstraint, "", yyDollar[2].node)
 		}
 	case 2198:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8147
+//line postgres.y:8158
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_AlterConstraint, "", nil)
 			constraint := ast.NewConstraint(ast.CONSTR_FOREIGN)
@@ -32066,13 +32077,13 @@ yydefault:
 		}
 	case 2199:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8158
+//line postgres.y:8169
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_ValidateConstraint, yyDollar[3].str, nil)
 		}
 	case 2200:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8163
+//line postgres.y:8174
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_DropConstraint, yyDollar[5].str, nil)
 			cmd.Behavior = yyDollar[6].dropBehav
@@ -32081,7 +32092,7 @@ yydefault:
 		}
 	case 2201:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8171
+//line postgres.y:8182
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_DropConstraint, yyDollar[3].str, nil)
 			cmd.Behavior = yyDollar[4].dropBehav
@@ -32090,134 +32101,134 @@ yydefault:
 		}
 	case 2202:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8179
+//line postgres.y:8190
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DropOids, "", nil)
 		}
 	case 2203:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8184
+//line postgres.y:8195
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_ClusterOn, yyDollar[3].str, nil)
 		}
 	case 2204:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8189
+//line postgres.y:8200
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DropCluster, "", nil)
 		}
 	case 2205:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8194
+//line postgres.y:8205
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetLogged, "", nil)
 		}
 	case 2206:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8199
+//line postgres.y:8210
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetUnLogged, "", nil)
 		}
 	case 2207:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8204
+//line postgres.y:8215
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_EnableTrig, yyDollar[3].str, nil)
 		}
 	case 2208:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8209
+//line postgres.y:8220
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_EnableAlwaysTrig, yyDollar[4].str, nil)
 		}
 	case 2209:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8214
+//line postgres.y:8225
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_EnableReplicaTrig, yyDollar[4].str, nil)
 		}
 	case 2210:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8219
+//line postgres.y:8230
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_EnableTrigAll, "", nil)
 		}
 	case 2211:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8224
+//line postgres.y:8235
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_EnableTrigUser, "", nil)
 		}
 	case 2212:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8229
+//line postgres.y:8240
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DisableTrig, yyDollar[3].str, nil)
 		}
 	case 2213:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8234
+//line postgres.y:8245
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DisableTrigAll, "", nil)
 		}
 	case 2214:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8239
+//line postgres.y:8250
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DisableTrigUser, "", nil)
 		}
 	case 2215:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8244
+//line postgres.y:8255
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_EnableRule, yyDollar[3].str, nil)
 		}
 	case 2216:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8249
+//line postgres.y:8260
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_EnableAlwaysRule, yyDollar[4].str, nil)
 		}
 	case 2217:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8254
+//line postgres.y:8265
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_EnableReplicaRule, yyDollar[4].str, nil)
 		}
 	case 2218:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8259
+//line postgres.y:8270
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DisableRule, yyDollar[3].str, nil)
 		}
 	case 2219:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8264
+//line postgres.y:8275
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_AddInherit, "", yyDollar[2].rangevar)
 		}
 	case 2220:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8269
+//line postgres.y:8280
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DropInherit, "", yyDollar[3].rangevar)
 		}
 	case 2221:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8274
+//line postgres.y:8285
 		{
 			typeName := makeTypeNameFromNodeList(yyDollar[2].list)
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_AddOf, "", typeName)
 		}
 	case 2222:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8280
+//line postgres.y:8291
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DropOf, "", nil)
 		}
 	case 2223:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8285
+//line postgres.y:8296
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_ChangeOwner, "", nil)
 			cmd.Newowner = yyDollar[3].rolespec
@@ -32225,67 +32236,67 @@ yydefault:
 		}
 	case 2224:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8292
+//line postgres.y:8303
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetAccessMethod, yyDollar[4].str, nil)
 		}
 	case 2225:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8297
+//line postgres.y:8308
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetTableSpace, yyDollar[3].str, nil)
 		}
 	case 2226:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8302
+//line postgres.y:8313
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_SetRelOptions, "", yyDollar[2].list)
 		}
 	case 2227:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8307
+//line postgres.y:8318
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_ResetRelOptions, "", yyDollar[2].list)
 		}
 	case 2228:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8312
+//line postgres.y:8323
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_ReplicaIdentity, "", yyDollar[3].node)
 		}
 	case 2229:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8317
+//line postgres.y:8328
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_EnableRowSecurity, "", nil)
 		}
 	case 2230:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8322
+//line postgres.y:8333
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_DisableRowSecurity, "", nil)
 		}
 	case 2231:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8327
+//line postgres.y:8338
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_ForceRowSecurity, "", nil)
 		}
 	case 2232:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:8332
+//line postgres.y:8343
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_NoForceRowSecurity, "", nil)
 		}
 	case 2233:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8336
+//line postgres.y:8347
 		{
 			yyVAL.node = ast.NewAlterTableCmd(ast.AT_GenericOptions, "", yyDollar[1].list)
 		}
 	case 2234:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8344
+//line postgres.y:8355
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_AttachPartition, "", nil)
 			partitionCmd := ast.NewPartitionCmd(yyDollar[3].rangevar, yyDollar[4].partboundspec, false, 0)
@@ -32294,7 +32305,7 @@ yydefault:
 		}
 	case 2235:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8352
+//line postgres.y:8363
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_DetachPartition, "", nil)
 			partitionCmd := ast.NewPartitionCmd(yyDollar[3].rangevar, nil, yyDollar[4].bval, 0)
@@ -32303,7 +32314,7 @@ yydefault:
 		}
 	case 2236:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8359
+//line postgres.y:8370
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_DetachPartitionFinalize, "", nil)
 			partitionCmd := ast.NewPartitionCmd(yyDollar[3].rangevar, nil, false, 0)
@@ -32312,7 +32323,7 @@ yydefault:
 		}
 	case 2237:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8370
+//line postgres.y:8381
 		{
 			cmd := ast.NewAlterTableCmd(ast.AT_AttachPartition, "", nil)
 			partitionCmd := ast.NewPartitionCmd(yyDollar[3].rangevar, nil, false, 0)
@@ -32321,29 +32332,29 @@ yydefault:
 		}
 	case 2238:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8379
+//line postgres.y:8390
 		{
 			yyVAL.node = yyDollar[3].node
 		}
 	case 2239:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8380
+//line postgres.y:8391
 		{
 			yyVAL.node = nil
 		}
 	case 2240:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8384
+//line postgres.y:8395
 		{
 		}
 	case 2241:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:8385
+//line postgres.y:8396
 		{
 		}
 	case 2242:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8396
+//line postgres.y:8407
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32358,7 +32369,7 @@ yydefault:
 		}
 	case 2243:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8409
+//line postgres.y:8420
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32373,7 +32384,7 @@ yydefault:
 		}
 	case 2244:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8422
+//line postgres.y:8433
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32388,7 +32399,7 @@ yydefault:
 		}
 	case 2245:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8435
+//line postgres.y:8446
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32403,7 +32414,7 @@ yydefault:
 		}
 	case 2246:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8448
+//line postgres.y:8459
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32420,7 +32431,7 @@ yydefault:
 		}
 	case 2247:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:8463
+//line postgres.y:8474
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32437,7 +32448,7 @@ yydefault:
 		}
 	case 2248:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8478
+//line postgres.y:8489
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32452,7 +32463,7 @@ yydefault:
 		}
 	case 2249:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8491
+//line postgres.y:8502
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32467,7 +32478,7 @@ yydefault:
 		}
 	case 2250:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8504
+//line postgres.y:8515
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32482,7 +32493,7 @@ yydefault:
 		}
 	case 2251:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8517
+//line postgres.y:8528
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32497,7 +32508,7 @@ yydefault:
 		}
 	case 2252:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:8530
+//line postgres.y:8541
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32512,7 +32523,7 @@ yydefault:
 		}
 	case 2253:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:8543
+//line postgres.y:8554
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32527,7 +32538,7 @@ yydefault:
 		}
 	case 2254:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:8557
+//line postgres.y:8568
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32542,7 +32553,7 @@ yydefault:
 		}
 	case 2255:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:8571
+//line postgres.y:8582
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32562,7 +32573,7 @@ yydefault:
 		}
 	case 2256:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:8589
+//line postgres.y:8600
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32582,7 +32593,7 @@ yydefault:
 		}
 	case 2257:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:8608
+//line postgres.y:8619
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32602,7 +32613,7 @@ yydefault:
 		}
 	case 2258:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:8626
+//line postgres.y:8637
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32622,7 +32633,7 @@ yydefault:
 		}
 	case 2259:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:8645
+//line postgres.y:8656
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32637,7 +32648,7 @@ yydefault:
 		}
 	case 2260:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8659
+//line postgres.y:8670
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32652,7 +32663,7 @@ yydefault:
 		}
 	case 2261:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8672
+//line postgres.y:8683
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32667,7 +32678,7 @@ yydefault:
 		}
 	case 2262:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8692
+//line postgres.y:8703
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32681,7 +32692,7 @@ yydefault:
 		}
 	case 2263:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8704
+//line postgres.y:8715
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32695,7 +32706,7 @@ yydefault:
 		}
 	case 2264:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8716
+//line postgres.y:8727
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32709,7 +32720,7 @@ yydefault:
 		}
 	case 2265:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8728
+//line postgres.y:8739
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32723,7 +32734,7 @@ yydefault:
 		}
 	case 2266:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8740
+//line postgres.y:8751
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32737,7 +32748,7 @@ yydefault:
 		}
 	case 2267:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8752
+//line postgres.y:8763
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32751,7 +32762,7 @@ yydefault:
 		}
 	case 2268:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8767
+//line postgres.y:8778
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32765,7 +32776,7 @@ yydefault:
 		}
 	case 2269:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8779
+//line postgres.y:8790
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32779,7 +32790,7 @@ yydefault:
 		}
 	case 2270:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8794
+//line postgres.y:8805
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32793,7 +32804,7 @@ yydefault:
 		}
 	case 2271:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:8806
+//line postgres.y:8817
 		{
 			n := &ast.DropStmt{
 				BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
@@ -32807,7 +32818,7 @@ yydefault:
 		}
 	case 2272:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8821
+//line postgres.y:8832
 		{
 			stmt := yyDollar[2].vsetstmt
 			stmt.IsLocal = false
@@ -32815,7 +32826,7 @@ yydefault:
 		}
 	case 2273:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8827
+//line postgres.y:8838
 		{
 			stmt := yyDollar[3].vsetstmt
 			stmt.IsLocal = true
@@ -32823,7 +32834,7 @@ yydefault:
 		}
 	case 2274:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8833
+//line postgres.y:8844
 		{
 			stmt := yyDollar[3].vsetstmt
 			stmt.IsLocal = false
@@ -32831,109 +32842,109 @@ yydefault:
 		}
 	case 2275:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8842
+//line postgres.y:8853
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_MULTI, "TRANSACTION", yyDollar[2].list, false)
 		}
 	case 2276:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:8846
+//line postgres.y:8857
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_MULTI, "SESSION CHARACTERISTICS AS TRANSACTION", yyDollar[5].list, false)
 		}
 	case 2277:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8849
+//line postgres.y:8860
 		{
 			yyVAL.vsetstmt = yyDollar[1].vsetstmt
 		}
 	case 2278:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8853
+//line postgres.y:8864
 		{
 			yyVAL.vsetstmt = yyDollar[1].vsetstmt
 		}
 	case 2279:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8855
+//line postgres.y:8866
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_RESET, "timezone", nil, false)
 		}
 	case 2280:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8859
+//line postgres.y:8870
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_RESET, "transaction_isolation", nil, false)
 		}
 	case 2281:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8863
+//line postgres.y:8874
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_RESET, "session_authorization", nil, false)
 		}
 	case 2282:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8870
+//line postgres.y:8881
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_RESET, yyDollar[1].str, nil, false)
 		}
 	case 2283:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8874
+//line postgres.y:8885
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_RESET_ALL, "", nil, false)
 		}
 	case 2284:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8880
+//line postgres.y:8891
 		{
 			yyVAL.vsetstmt = yyDollar[2].vsetstmt
 		}
 	case 2285:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8881
+//line postgres.y:8892
 		{
 			yyVAL.vsetstmt = yyDollar[1].stmt.(*ast.VariableSetStmt)
 		}
 	case 2286:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8885
+//line postgres.y:8896
 		{
 			yyVAL.stmt = ast.Stmt(yyDollar[2].vsetstmt)
 		}
 	case 2287:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8894
+//line postgres.y:8905
 		{
 			yyVAL.stmt = ast.NewConstraintsSetStmt(yyDollar[3].list, yyDollar[4].bval)
 		}
 	case 2288:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8900
+//line postgres.y:8911
 		{
 			yyVAL.list = nil
 		}
 	case 2289:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8901
+//line postgres.y:8912
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2290:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8905
+//line postgres.y:8916
 		{
 			yyVAL.bval = true
 		}
 	case 2291:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8906
+//line postgres.y:8917
 		{
 			yyVAL.bval = false
 		}
 	case 2292:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:8918
+//line postgres.y:8929
 		{
 			n := ast.NewSelectStmt()
 			n.DistinctClause = yyDollar[1].list
@@ -32957,7 +32968,7 @@ yydefault:
 		}
 	case 2293:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8943
+//line postgres.y:8954
 		{
 			n := ast.NewPLAssignStmt(yyDollar[1].str, yyDollar[4].stmt.(*ast.SelectStmt))
 			n.Indirection = yyDollar[2].list
@@ -32965,25 +32976,25 @@ yydefault:
 		}
 	case 2294:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8951
+//line postgres.y:8962
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2295:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8952
+//line postgres.y:8963
 		{
 			yyVAL.str = fmt.Sprintf("$%d", yyDollar[1].ival)
 		}
 	case 2298:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:8966
+//line postgres.y:8977
 		{
 			yyVAL.stmt = ast.NewExplainStmt(yyDollar[2].stmt, nil)
 		}
 	case 2299:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:8970
+//line postgres.y:8981
 		{
 			options := ast.NewNodeList(ast.NewDefElem("analyze", nil))
 			if yyDollar[3].ival != 0 {
@@ -32993,135 +33004,135 @@ yydefault:
 		}
 	case 2300:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8978
+//line postgres.y:8989
 		{
 			options := ast.NewNodeList(ast.NewDefElem("verbose", nil))
 			yyVAL.stmt = ast.NewExplainStmt(yyDollar[3].stmt, options)
 		}
 	case 2301:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:8983
+//line postgres.y:8994
 		{
 			yyVAL.stmt = ast.NewExplainStmt(yyDollar[5].stmt, yyDollar[3].list)
 		}
 	case 2302:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:8990
+//line postgres.y:9001
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 2303:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:8994
+//line postgres.y:9005
 		{
 			yyDollar[1].list.Append(yyDollar[3].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2304:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9002
+//line postgres.y:9013
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, yyDollar[2].node)
 		}
 	case 2305:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9008
+//line postgres.y:9019
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2306:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9009
+//line postgres.y:9020
 		{
 			yyVAL.str = "analyze"
 		}
 	case 2307:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9010
+//line postgres.y:9021
 		{
 			yyVAL.str = "format"
 		}
 	case 2308:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9014
+//line postgres.y:9025
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 2309:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9015
+//line postgres.y:9026
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2310:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:9016
+//line postgres.y:9027
 		{
 			yyVAL.node = nil
 		}
 	case 2311:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9020
+//line postgres.y:9031
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2312:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9021
+//line postgres.y:9032
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2313:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9022
+//line postgres.y:9033
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2314:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9023
+//line postgres.y:9034
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2315:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9024
+//line postgres.y:9035
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2316:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9025
+//line postgres.y:9036
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2317:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9026
+//line postgres.y:9037
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2318:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9027
+//line postgres.y:9038
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2319:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9028
+//line postgres.y:9039
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2320:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9029
+//line postgres.y:9040
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2321:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9038
+//line postgres.y:9049
 		{
 			var optionsList *ast.NodeList
 			if yyDollar[2].ival != 0 || yyDollar[3].ival != 0 || yyDollar[4].ival != 0 || yyDollar[5].ival != 0 {
@@ -33144,13 +33155,13 @@ yydefault:
 		}
 	case 2322:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:9059
+//line postgres.y:9070
 		{
 			yyVAL.stmt = ast.NewVacuumStmt(yyDollar[3].list, yyDollar[5].list)
 		}
 	case 2323:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9066
+//line postgres.y:9077
 		{
 			var optionsList *ast.NodeList
 			if yyDollar[2].ival != 0 {
@@ -33161,110 +33172,110 @@ yydefault:
 		}
 	case 2324:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:9075
+//line postgres.y:9086
 		{
 			yyVAL.stmt = ast.NewAnalyzeStmt(yyDollar[3].list, yyDollar[5].list)
 		}
 	case 2325:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9081
+//line postgres.y:9092
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2326:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:9082
+//line postgres.y:9093
 		{
 			yyVAL.list = nil
 		}
 	case 2327:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9087
+//line postgres.y:9098
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].vacrel)
 		}
 	case 2328:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9091
+//line postgres.y:9102
 		{
 			yyDollar[1].list.Append(yyDollar[3].vacrel)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2329:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9099
+//line postgres.y:9110
 		{
 			yyVAL.vacrel = ast.NewVacuumRelation(yyDollar[1].rangevar, yyDollar[2].list)
 		}
 	case 2330:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9105
+//line postgres.y:9116
 		{
 			yyVAL.str = "analyze"
 		}
 	case 2331:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9106
+//line postgres.y:9117
 		{
 			yyVAL.str = "analyse"
 		}
 	case 2332:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9115
+//line postgres.y:9126
 		{
 			yyVAL.stmt = ast.NewVariableShowStmt(yyDollar[2].str)
 		}
 	case 2333:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9119
+//line postgres.y:9130
 		{
 			yyVAL.stmt = ast.NewVariableShowStmt("timezone")
 		}
 	case 2334:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:9123
+//line postgres.y:9134
 		{
 			yyVAL.stmt = ast.NewVariableShowStmt("transaction_isolation")
 		}
 	case 2335:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9127
+//line postgres.y:9138
 		{
 			yyVAL.stmt = ast.NewVariableShowStmt("session_authorization")
 		}
 	case 2336:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9131
+//line postgres.y:9142
 		{
 			yyVAL.stmt = ast.NewVariableShowStmt("all")
 		}
 	case 2337:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:9142
+//line postgres.y:9153
 		{
 			yyVAL.stmt = ast.NewAlterSystemStmt(yyDollar[4].vsetstmt)
 		}
 	case 2338:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:9146
+//line postgres.y:9157
 		{
 			yyVAL.stmt = ast.NewAlterSystemStmt(yyDollar[4].vsetstmt)
 		}
 	case 2339:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9157
+//line postgres.y:9168
 		{
 			yyVAL.stmt = ast.NewClusterStmt(yyDollar[5].rangevar, yyDollar[6].str, yyDollar[3].list)
 		}
 	case 2340:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:9161
+//line postgres.y:9172
 		{
 			yyVAL.stmt = ast.NewClusterStmt(nil, "", yyDollar[3].list)
 		}
 	case 2341:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:9165
+//line postgres.y:9176
 		{
 			var params *ast.NodeList
 			if yyDollar[2].ival != 0 {
@@ -33275,7 +33286,7 @@ yydefault:
 		}
 	case 2342:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9174
+//line postgres.y:9185
 		{
 			var params *ast.NodeList
 			if yyDollar[2].ival != 0 {
@@ -33286,7 +33297,7 @@ yydefault:
 		}
 	case 2343:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:9183
+//line postgres.y:9194
 		{
 			var params *ast.NodeList
 			if yyDollar[2].ival != 0 {
@@ -33297,19 +33308,19 @@ yydefault:
 		}
 	case 2344:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9194
+//line postgres.y:9205
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 2345:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:9195
+//line postgres.y:9206
 		{
 			yyVAL.str = ""
 		}
 	case 2346:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:9204
+//line postgres.y:9215
 		{
 			params := yyDollar[2].list
 			if yyDollar[4].bval {
@@ -33324,7 +33335,7 @@ yydefault:
 		}
 	case 2347:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:9217
+//line postgres.y:9228
 		{
 			params := yyDollar[2].list
 			if yyDollar[4].bval {
@@ -33339,7 +33350,7 @@ yydefault:
 		}
 	case 2348:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:9230
+//line postgres.y:9241
 		{
 			params := yyDollar[2].list
 			if yyDollar[4].bval {
@@ -33354,182 +33365,182 @@ yydefault:
 		}
 	case 2349:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9245
+//line postgres.y:9256
 		{
 			yyVAL.ival = int(ast.REINDEX_OBJECT_INDEX)
 		}
 	case 2350:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9246
+//line postgres.y:9257
 		{
 			yyVAL.ival = int(ast.REINDEX_OBJECT_TABLE)
 		}
 	case 2351:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9250
+//line postgres.y:9261
 		{
 			yyVAL.ival = int(ast.REINDEX_OBJECT_SYSTEM)
 		}
 	case 2352:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9251
+//line postgres.y:9262
 		{
 			yyVAL.ival = int(ast.REINDEX_OBJECT_DATABASE)
 		}
 	case 2353:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9255
+//line postgres.y:9266
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2354:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:9256
+//line postgres.y:9267
 		{
 			yyVAL.list = nil
 		}
 	case 2355:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9265
+//line postgres.y:9276
 		{
 			yyVAL.stmt = ast.NewCheckPointStmt()
 		}
 	case 2356:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9276
+//line postgres.y:9287
 		{
 			yyVAL.stmt = ast.NewDiscardStmt(ast.DISCARD_ALL)
 		}
 	case 2357:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9280
+//line postgres.y:9291
 		{
 			yyVAL.stmt = ast.NewDiscardStmt(ast.DISCARD_TEMP)
 		}
 	case 2358:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9284
+//line postgres.y:9295
 		{
 			yyVAL.stmt = ast.NewDiscardStmt(ast.DISCARD_TEMP)
 		}
 	case 2359:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9288
+//line postgres.y:9299
 		{
 			yyVAL.stmt = ast.NewDiscardStmt(ast.DISCARD_PLANS)
 		}
 	case 2360:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9292
+//line postgres.y:9303
 		{
 			yyVAL.stmt = ast.NewDiscardStmt(ast.DISCARD_SEQUENCES)
 		}
 	case 2361:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9299
+//line postgres.y:9310
 		{
 			yyVAL.objType = ast.OBJECT_TABLE
 		}
 	case 2362:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9300
+//line postgres.y:9311
 		{
 			yyVAL.objType = ast.OBJECT_SEQUENCE
 		}
 	case 2363:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9301
+//line postgres.y:9312
 		{
 			yyVAL.objType = ast.OBJECT_VIEW
 		}
 	case 2364:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9302
+//line postgres.y:9313
 		{
 			yyVAL.objType = ast.OBJECT_MATVIEW
 		}
 	case 2365:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9303
+//line postgres.y:9314
 		{
 			yyVAL.objType = ast.OBJECT_INDEX
 		}
 	case 2366:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9304
+//line postgres.y:9315
 		{
 			yyVAL.objType = ast.OBJECT_FOREIGN_TABLE
 		}
 	case 2367:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9305
+//line postgres.y:9316
 		{
 			yyVAL.objType = ast.OBJECT_COLLATION
 		}
 	case 2368:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9306
+//line postgres.y:9317
 		{
 			yyVAL.objType = ast.OBJECT_CONVERSION
 		}
 	case 2369:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9307
+//line postgres.y:9318
 		{
 			yyVAL.objType = ast.OBJECT_STATISTIC_EXT
 		}
 	case 2370:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9308
+//line postgres.y:9319
 		{
 			yyVAL.objType = ast.OBJECT_TSPARSER
 		}
 	case 2371:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9309
+//line postgres.y:9320
 		{
 			yyVAL.objType = ast.OBJECT_TSDICTIONARY
 		}
 	case 2372:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9310
+//line postgres.y:9321
 		{
 			yyVAL.objType = ast.OBJECT_TSTEMPLATE
 		}
 	case 2373:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9311
+//line postgres.y:9322
 		{
 			yyVAL.objType = ast.OBJECT_TSCONFIGURATION
 		}
 	case 2374:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9324
+//line postgres.y:9335
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2375:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9325
+//line postgres.y:9336
 		{
 			yyVAL.list = ast.NewNodeList()
 		}
 	case 2376:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9330
+//line postgres.y:9341
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].funparam)
 		}
 	case 2377:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9334
+//line postgres.y:9345
 		{
 			yyDollar[1].list.Append(yyDollar[3].funparam)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2378:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9342
+//line postgres.y:9353
 		{
 			objWithArgs := &ast.ObjectWithArgs{
 				BaseNode: ast.BaseNode{Tag: ast.T_ObjectWithArgs},
@@ -33540,32 +33551,32 @@ yydefault:
 		}
 	case 2379:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9354
+//line postgres.y:9365
 		{
 			yylex.Error("Use NONE to denote the missing argument of a unary operator.")
 			return 1
 		}
 	case 2380:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:9359
+//line postgres.y:9370
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[2].typnam, yyDollar[4].typnam)
 		}
 	case 2381:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:9361
+//line postgres.y:9372
 		{
 			yyVAL.list = ast.NewNodeList(nil, yyDollar[4].typnam)
 		}
 	case 2382:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:9363
+//line postgres.y:9374
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[2].typnam, nil)
 		}
 	case 2383:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:9367
+//line postgres.y:9378
 		{
 			objWithArgs := &ast.ObjectWithArgs{
 				BaseNode:        ast.BaseNode{Tag: ast.T_ObjectWithArgs},
@@ -33578,20 +33589,20 @@ yydefault:
 		}
 	case 2384:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:9380
+//line postgres.y:9391
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].objwithargs)
 		}
 	case 2385:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:9382
+//line postgres.y:9393
 		{
 			yyDollar[1].list.Append(yyDollar[3].objwithargs)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2386:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9386
+//line postgres.y:9397
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33604,7 +33615,7 @@ yydefault:
 		}
 	case 2387:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9397
+//line postgres.y:9408
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33617,7 +33628,7 @@ yydefault:
 		}
 	case 2388:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9408
+//line postgres.y:9419
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33630,7 +33641,7 @@ yydefault:
 		}
 	case 2389:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9419
+//line postgres.y:9430
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33643,7 +33654,7 @@ yydefault:
 		}
 	case 2390:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9430
+//line postgres.y:9441
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33656,7 +33667,7 @@ yydefault:
 		}
 	case 2391:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9441
+//line postgres.y:9452
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33670,7 +33681,7 @@ yydefault:
 		}
 	case 2392:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9453
+//line postgres.y:9464
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33683,7 +33694,7 @@ yydefault:
 		}
 	case 2393:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9464
+//line postgres.y:9475
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33696,7 +33707,7 @@ yydefault:
 		}
 	case 2394:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9475
+//line postgres.y:9486
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33709,7 +33720,7 @@ yydefault:
 		}
 	case 2395:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:9486
+//line postgres.y:9497
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33722,7 +33733,7 @@ yydefault:
 		}
 	case 2396:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:9497
+//line postgres.y:9508
 		{
 			/* lcons equivalent - create NodeList with string name prepended to qualified_name list */
 			list := ast.NewNodeList()
@@ -33741,7 +33752,7 @@ yydefault:
 		}
 	case 2397:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:9514
+//line postgres.y:9525
 		{
 			/* lcons equivalent - create NodeList with string name prepended to qualified_name list */
 			list := ast.NewNodeList()
@@ -33760,7 +33771,7 @@ yydefault:
 		}
 	case 2398:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9531
+//line postgres.y:9542
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33774,7 +33785,7 @@ yydefault:
 		}
 	case 2399:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:9543
+//line postgres.y:9554
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33788,7 +33799,7 @@ yydefault:
 		}
 	case 2400:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9555
+//line postgres.y:9566
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33801,7 +33812,7 @@ yydefault:
 		}
 	case 2401:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9566
+//line postgres.y:9577
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33814,7 +33825,7 @@ yydefault:
 		}
 	case 2402:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9577
+//line postgres.y:9588
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33827,7 +33838,7 @@ yydefault:
 		}
 	case 2403:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9588
+//line postgres.y:9599
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33840,7 +33851,7 @@ yydefault:
 		}
 	case 2404:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9599
+//line postgres.y:9610
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33853,7 +33864,7 @@ yydefault:
 		}
 	case 2405:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9610
+//line postgres.y:9621
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33866,7 +33877,7 @@ yydefault:
 		}
 	case 2406:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9621
+//line postgres.y:9632
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33879,7 +33890,7 @@ yydefault:
 		}
 	case 2407:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9632
+//line postgres.y:9643
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33892,7 +33903,7 @@ yydefault:
 		}
 	case 2408:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9643
+//line postgres.y:9654
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33905,7 +33916,7 @@ yydefault:
 		}
 	case 2409:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9654
+//line postgres.y:9665
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33918,7 +33929,7 @@ yydefault:
 		}
 	case 2410:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9665
+//line postgres.y:9676
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33931,7 +33942,7 @@ yydefault:
 		}
 	case 2411:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9676
+//line postgres.y:9687
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33944,7 +33955,7 @@ yydefault:
 		}
 	case 2412:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:9687
+//line postgres.y:9698
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33957,7 +33968,7 @@ yydefault:
 		}
 	case 2413:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:9698
+//line postgres.y:9709
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33970,7 +33981,7 @@ yydefault:
 		}
 	case 2414:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9709
+//line postgres.y:9720
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33983,7 +33994,7 @@ yydefault:
 		}
 	case 2415:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9720
+//line postgres.y:9731
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -33996,7 +34007,7 @@ yydefault:
 		}
 	case 2416:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:9731
+//line postgres.y:9742
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34009,7 +34020,7 @@ yydefault:
 		}
 	case 2417:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:9742
+//line postgres.y:9753
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34022,7 +34033,7 @@ yydefault:
 		}
 	case 2418:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9753
+//line postgres.y:9764
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34037,7 +34048,7 @@ yydefault:
 		}
 	case 2419:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:9766
+//line postgres.y:9777
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34052,7 +34063,7 @@ yydefault:
 		}
 	case 2420:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9779
+//line postgres.y:9790
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34067,7 +34078,7 @@ yydefault:
 		}
 	case 2421:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:9792
+//line postgres.y:9803
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34082,7 +34093,7 @@ yydefault:
 		}
 	case 2422:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:9805
+//line postgres.y:9816
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34097,7 +34108,7 @@ yydefault:
 		}
 	case 2423:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:9818
+//line postgres.y:9829
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34112,7 +34123,7 @@ yydefault:
 		}
 	case 2424:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9831
+//line postgres.y:9842
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34126,7 +34137,7 @@ yydefault:
 		}
 	case 2425:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:9843
+//line postgres.y:9854
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34140,7 +34151,7 @@ yydefault:
 		}
 	case 2426:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:9855
+//line postgres.y:9866
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34155,7 +34166,7 @@ yydefault:
 		}
 	case 2427:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:9868
+//line postgres.y:9879
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:     ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34170,7 +34181,7 @@ yydefault:
 		}
 	case 2428:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9881
+//line postgres.y:9892
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34184,7 +34195,7 @@ yydefault:
 		}
 	case 2429:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9893
+//line postgres.y:9904
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34198,7 +34209,7 @@ yydefault:
 		}
 	case 2430:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:9905
+//line postgres.y:9916
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34211,7 +34222,7 @@ yydefault:
 		}
 	case 2431:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9916
+//line postgres.y:9927
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34224,7 +34235,7 @@ yydefault:
 		}
 	case 2432:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9927
+//line postgres.y:9938
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34237,7 +34248,7 @@ yydefault:
 		}
 	case 2433:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9938
+//line postgres.y:9949
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34250,7 +34261,7 @@ yydefault:
 		}
 	case 2434:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:9949
+//line postgres.y:9960
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34263,7 +34274,7 @@ yydefault:
 		}
 	case 2435:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9960
+//line postgres.y:9971
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34276,7 +34287,7 @@ yydefault:
 		}
 	case 2436:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9971
+//line postgres.y:9982
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34289,7 +34300,7 @@ yydefault:
 		}
 	case 2437:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9982
+//line postgres.y:9993
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34302,7 +34313,7 @@ yydefault:
 		}
 	case 2438:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:9993
+//line postgres.y:10004
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34315,7 +34326,7 @@ yydefault:
 		}
 	case 2439:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:10004
+//line postgres.y:10015
 		{
 			renameStmt := &ast.RenameStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_RenameStmt},
@@ -34328,7 +34339,7 @@ yydefault:
 		}
 	case 2440:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:10015
+//line postgres.y:10026
 		{
 			rv, err := makeRangeVarFromAnyName(yyDollar[3].list, 0)
 			if err != nil {
@@ -34348,13 +34359,13 @@ yydefault:
 		}
 	case 2441:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10041
+//line postgres.y:10052
 		{
 			yyVAL.ival = 0
 		}
 	case 2442:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10043
+//line postgres.y:10054
 		{
 			// Combine constraint attribute bits
 			newspec := yyDollar[1].ival | yyDollar[2].ival
@@ -34368,87 +34379,87 @@ yydefault:
 		}
 	case 2443:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10057
+//line postgres.y:10068
 		{
 			yyVAL.ival = ast.CAS_NOT_DEFERRABLE
 		}
 	case 2444:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10058
+//line postgres.y:10069
 		{
 			yyVAL.ival = ast.CAS_DEFERRABLE
 		}
 	case 2445:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10059
+//line postgres.y:10070
 		{
 			yyVAL.ival = ast.CAS_INITIALLY_IMMEDIATE
 		}
 	case 2446:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10060
+//line postgres.y:10071
 		{
 			yyVAL.ival = ast.CAS_INITIALLY_DEFERRED
 		}
 	case 2447:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10061
+//line postgres.y:10072
 		{
 			yyVAL.ival = ast.CAS_NOT_VALID
 		}
 	case 2448:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10062
+//line postgres.y:10073
 		{
 			yyVAL.ival = ast.CAS_NO_INHERIT
 		}
 	case 2449:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10066
+//line postgres.y:10077
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2450:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10071
+//line postgres.y:10082
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].defelt)
 		}
 	case 2451:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10076
+//line postgres.y:10087
 		{
 			yyDollar[1].list.Append(yyDollar[3].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2452:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10084
+//line postgres.y:10095
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, yyDollar[3].node)
 		}
 	case 2453:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10088
+//line postgres.y:10099
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, nil)
 		}
 	case 2454:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:10092
+//line postgres.y:10103
 		{
 			yyVAL.defelt = ast.NewDefElemExtended(yyDollar[1].str, yyDollar[3].str, yyDollar[5].node, ast.DEFELEM_UNSPEC)
 		}
 	case 2455:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10096
+//line postgres.y:10107
 		{
 			yyVAL.defelt = ast.NewDefElemExtended(yyDollar[1].str, yyDollar[3].str, nil, ast.DEFELEM_UNSPEC)
 		}
 	case 2456:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:10110
+//line postgres.y:10121
 		{
 			stmt := &ast.CreateFunctionStmt{
 				IsProcedure: false,
@@ -34463,7 +34474,7 @@ yydefault:
 		}
 	case 2457:
 		yyDollar = yyS[yypt-12 : yypt+1]
-//line postgres.y:10124
+//line postgres.y:10135
 		{
 			// Handle RETURNS TABLE variant
 			stmt := &ast.CreateFunctionStmt{
@@ -34480,7 +34491,7 @@ yydefault:
 		}
 	case 2458:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:10140
+//line postgres.y:10151
 		{
 			// No explicit return type (for procedures disguised as functions)
 			stmt := &ast.CreateFunctionStmt{
@@ -34496,7 +34507,7 @@ yydefault:
 		}
 	case 2459:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:10155
+//line postgres.y:10166
 		{
 			stmt := &ast.CreateFunctionStmt{
 				IsProcedure: true,
@@ -34511,52 +34522,52 @@ yydefault:
 		}
 	case 2460:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10170
+//line postgres.y:10181
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2461:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10171
+//line postgres.y:10182
 		{
 			yyVAL.list = nil
 		}
 	case 2462:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10176
+//line postgres.y:10187
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].funparam)
 		}
 	case 2463:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10180
+//line postgres.y:10191
 		{
 			yyDollar[1].list.Append(yyDollar[3].funparam)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2464:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10188
+//line postgres.y:10199
 		{
 			yyVAL.funparam = yyDollar[1].funparam
 		}
 	case 2465:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10192
+//line postgres.y:10203
 		{
 			yyDollar[1].funparam.DefExpr = yyDollar[3].node
 			yyVAL.funparam = yyDollar[1].funparam
 		}
 	case 2466:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10197
+//line postgres.y:10208
 		{
 			yyDollar[1].funparam.DefExpr = yyDollar[3].node
 			yyVAL.funparam = yyDollar[1].funparam
 		}
 	case 2467:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10205
+//line postgres.y:10216
 		{
 			param := &ast.FunctionParameter{
 				Mode:    yyDollar[1].funparammode,
@@ -34567,7 +34578,7 @@ yydefault:
 		}
 	case 2468:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10214
+//line postgres.y:10225
 		{
 			param := &ast.FunctionParameter{
 				Mode:    yyDollar[2].funparammode,
@@ -34578,7 +34589,7 @@ yydefault:
 		}
 	case 2469:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10223
+//line postgres.y:10234
 		{
 			param := &ast.FunctionParameter{
 				Mode:    ast.FUNC_PARAM_DEFAULT,
@@ -34589,7 +34600,7 @@ yydefault:
 		}
 	case 2470:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10232
+//line postgres.y:10243
 		{
 			param := &ast.FunctionParameter{
 				Mode:    yyDollar[1].funparammode,
@@ -34600,7 +34611,7 @@ yydefault:
 		}
 	case 2471:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10241
+//line postgres.y:10252
 		{
 			param := &ast.FunctionParameter{
 				Mode:    ast.FUNC_PARAM_DEFAULT,
@@ -34611,49 +34622,49 @@ yydefault:
 		}
 	case 2472:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10252
+//line postgres.y:10263
 		{
 			yyVAL.funparammode = ast.FUNC_PARAM_IN
 		}
 	case 2473:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10253
+//line postgres.y:10264
 		{
 			yyVAL.funparammode = ast.FUNC_PARAM_OUT
 		}
 	case 2474:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10254
+//line postgres.y:10265
 		{
 			yyVAL.funparammode = ast.FUNC_PARAM_INOUT
 		}
 	case 2475:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10255
+//line postgres.y:10266
 		{
 			yyVAL.funparammode = ast.FUNC_PARAM_INOUT
 		}
 	case 2476:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10256
+//line postgres.y:10267
 		{
 			yyVAL.funparammode = ast.FUNC_PARAM_VARIADIC
 		}
 	case 2477:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10260
+//line postgres.y:10271
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 2478:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10264
+//line postgres.y:10275
 		{
 			yyVAL.typnam = yyDollar[1].typnam
 		}
 	case 2479:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:10266
+//line postgres.y:10277
 		{
 			// Handle %TYPE reference
 			list := ast.NewNodeList()
@@ -34670,7 +34681,7 @@ yydefault:
 		}
 	case 2480:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:10281
+//line postgres.y:10292
 		{
 			// Handle SETOF %TYPE reference
 			list := ast.NewNodeList()
@@ -34688,19 +34699,19 @@ yydefault:
 		}
 	case 2481:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10299
+//line postgres.y:10310
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2482:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10300
+//line postgres.y:10311
 		{
 			yyVAL.list = nil
 		}
 	case 2483:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10305
+//line postgres.y:10316
 		{
 			list := ast.NewNodeList()
 			list.Append(yyDollar[1].defelt)
@@ -34708,44 +34719,44 @@ yydefault:
 		}
 	case 2484:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10311
+//line postgres.y:10322
 		{
 			yyDollar[1].list.Append(yyDollar[2].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2485:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10319
+//line postgres.y:10330
 		{
 			yyVAL.defelt = ast.NewDefElem("as", yyDollar[2].node)
 		}
 	case 2486:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10323
+//line postgres.y:10334
 		{
 			yyVAL.defelt = ast.NewDefElem("language", ast.NewString(yyDollar[2].str))
 		}
 	case 2487:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10327
+//line postgres.y:10338
 		{
 			yyVAL.defelt = ast.NewDefElem("transform", yyDollar[2].list)
 		}
 	case 2488:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10331
+//line postgres.y:10342
 		{
 			yyVAL.defelt = ast.NewDefElem("window", ast.NewBoolean(true))
 		}
 	case 2489:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10335
+//line postgres.y:10346
 		{
 			yyVAL.defelt = yyDollar[1].defelt
 		}
 	case 2490:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10342
+//line postgres.y:10353
 		{
 			list := ast.NewNodeList()
 			list.Append(ast.NewString(yyDollar[1].str))
@@ -34753,7 +34764,7 @@ yydefault:
 		}
 	case 2491:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10348
+//line postgres.y:10359
 		{
 			list := ast.NewNodeList()
 			list.Append(ast.NewString(yyDollar[1].str))
@@ -34762,7 +34773,7 @@ yydefault:
 		}
 	case 2492:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10358
+//line postgres.y:10369
 		{
 			list := ast.NewNodeList()
 			list.Append(yyDollar[3].typnam)
@@ -34770,20 +34781,20 @@ yydefault:
 		}
 	case 2493:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:10364
+//line postgres.y:10375
 		{
 			yyDollar[1].list.Append(yyDollar[5].typnam)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2494:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10372
+//line postgres.y:10383
 		{
 			yyVAL.node = yyDollar[1].stmt
 		}
 	case 2495:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:10376
+//line postgres.y:10387
 		{
 			/*
 			 * A compound statement is stored as a single-item list
@@ -34797,19 +34808,19 @@ yydefault:
 		}
 	case 2496:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10388
+//line postgres.y:10399
 		{
 			yyVAL.node = nil
 		}
 	case 2497:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10395
+//line postgres.y:10406
 		{
 			yyVAL.stmt = ast.NewReturnStmt(yyDollar[2].node)
 		}
 	case 2498:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10402
+//line postgres.y:10413
 		{
 			/* As in stmtmulti, discard empty statements */
 			if yyDollar[2].stmt != nil {
@@ -34821,37 +34832,37 @@ yydefault:
 		}
 	case 2499:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10412
+//line postgres.y:10423
 		{
 			yyVAL.list = ast.NewNodeList()
 		}
 	case 2500:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10418
+//line postgres.y:10429
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2501:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10419
+//line postgres.y:10430
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2502:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10424
+//line postgres.y:10435
 		{
 			yyVAL.vsetstmt = yyDollar[2].vsetstmt
 		}
 	case 2503:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10428
+//line postgres.y:10439
 		{
 			yyVAL.vsetstmt = yyDollar[1].stmt.(*ast.VariableSetStmt)
 		}
 	case 2504:
 		yyDollar = yyS[yypt-17 : yypt+1]
-//line postgres.y:10444
+//line postgres.y:10455
 		{
 			// Extract events and columns from TriggerEvents list [events, columns]
 			eventsList := yyDollar[6].list
@@ -34882,7 +34893,7 @@ yydefault:
 		}
 	case 2505:
 		yyDollar = yyS[yypt-21 : yypt+1]
-//line postgres.y:10476
+//line postgres.y:10487
 		{
 			// Extract events and columns from TriggerEvents list [events, columns]
 			eventsList := yyDollar[7].list
@@ -34913,31 +34924,31 @@ yydefault:
 		}
 	case 2506:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10507
+//line postgres.y:10518
 		{
 			yyVAL.ival = ast.TRIGGER_TIMING_BEFORE
 		}
 	case 2507:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10508
+//line postgres.y:10519
 		{
 			yyVAL.ival = ast.TRIGGER_TIMING_AFTER
 		}
 	case 2508:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10509
+//line postgres.y:10520
 		{
 			yyVAL.ival = ast.TRIGGER_TIMING_INSTEAD
 		}
 	case 2509:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10514
+//line postgres.y:10525
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2510:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10516
+//line postgres.y:10527
 		{
 			// Extract event types and column lists from both sides
 			events1 := yyDollar[1].list.Items[0].(*ast.Integer).IVal
@@ -34976,7 +34987,7 @@ yydefault:
 		}
 	case 2511:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10556
+//line postgres.y:10567
 		{
 			list := ast.NewNodeList()
 			list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_INSERT)))
@@ -34985,7 +34996,7 @@ yydefault:
 		}
 	case 2512:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10563
+//line postgres.y:10574
 		{
 			list := ast.NewNodeList()
 			list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_DELETE)))
@@ -34994,7 +35005,7 @@ yydefault:
 		}
 	case 2513:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10570
+//line postgres.y:10581
 		{
 			list := ast.NewNodeList()
 			list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_UPDATE)))
@@ -35003,7 +35014,7 @@ yydefault:
 		}
 	case 2514:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10577
+//line postgres.y:10588
 		{
 			list := ast.NewNodeList()
 			list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_UPDATE)))
@@ -35012,7 +35023,7 @@ yydefault:
 		}
 	case 2515:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10584
+//line postgres.y:10595
 		{
 			list := ast.NewNodeList()
 			list.Append(ast.NewInteger(int(ast.TRIGGER_TYPE_TRUNCATE)))
@@ -35021,19 +35032,19 @@ yydefault:
 		}
 	case 2516:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10593
+//line postgres.y:10604
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2517:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10594
+//line postgres.y:10605
 		{
 			yyVAL.list = nil
 		}
 	case 2518:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10598
+//line postgres.y:10609
 		{
 			list := ast.NewNodeList()
 			list.Append(yyDollar[1].node)
@@ -35041,14 +35052,14 @@ yydefault:
 		}
 	case 2519:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10603
+//line postgres.y:10614
 		{
 			yyDollar[1].list.Append(yyDollar[2].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2520:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:10611
+//line postgres.y:10622
 		{
 			trans := &ast.TriggerTransition{
 				Name:    yyDollar[4].str,
@@ -35059,74 +35070,74 @@ yydefault:
 		}
 	case 2521:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10622
+//line postgres.y:10633
 		{
 			yyVAL.bval = true
 		}
 	case 2522:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10623
+//line postgres.y:10634
 		{
 			yyVAL.bval = false
 		}
 	case 2523:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10627
+//line postgres.y:10638
 		{
 			yyVAL.bval = true
 		}
 	case 2524:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10628
+//line postgres.y:10639
 		{
 			yyVAL.bval = false
 		}
 	case 2525:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10632
+//line postgres.y:10643
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2526:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10637
+//line postgres.y:10648
 		{
 			yyVAL.bval = yyDollar[3].bval
 		}
 	case 2527:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10641
+//line postgres.y:10652
 		{
 			// If ROW/STATEMENT not specified, default to STATEMENT
 			yyVAL.bval = false
 		}
 	case 2530:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10653
+//line postgres.y:10664
 		{
 			yyVAL.bval = true
 		}
 	case 2531:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10654
+//line postgres.y:10665
 		{
 			yyVAL.bval = false
 		}
 	case 2532:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:10658
+//line postgres.y:10669
 		{
 			yyVAL.node = yyDollar[3].node
 		}
 	case 2533:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10659
+//line postgres.y:10670
 		{
 			yyVAL.node = nil
 		}
 	case 2536:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10668
+//line postgres.y:10679
 		{
 			list := ast.NewNodeList()
 			list.Append(yyDollar[1].node)
@@ -35134,56 +35145,56 @@ yydefault:
 		}
 	case 2537:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10673
+//line postgres.y:10684
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2538:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10677
+//line postgres.y:10688
 		{
 			yyVAL.list = nil
 		}
 	case 2539:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10682
+//line postgres.y:10693
 		{
 			yyVAL.node = ast.NewString(fmt.Sprintf("%d", yyDollar[1].ival))
 		}
 	case 2540:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10685
+//line postgres.y:10696
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 2541:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10686
+//line postgres.y:10697
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 2542:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10687
+//line postgres.y:10698
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 2543:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:10691
+//line postgres.y:10702
 		{
 			yyVAL.rangevar = yyDollar[2].rangevar
 		}
 	case 2544:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10692
+//line postgres.y:10703
 		{
 			yyVAL.rangevar = nil
 		}
 	case 2545:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:10705
+//line postgres.y:10716
 		{
 			// Apply OptTemp persistence to the view RangeVar
 			view := yyDollar[4].rangevar
@@ -35200,7 +35211,7 @@ yydefault:
 		}
 	case 2546:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:10721
+//line postgres.y:10732
 		{
 			// Apply OptTemp persistence to the view RangeVar
 			view := yyDollar[6].rangevar
@@ -35217,7 +35228,7 @@ yydefault:
 		}
 	case 2547:
 		yyDollar = yyS[yypt-12 : yypt+1]
-//line postgres.y:10737
+//line postgres.y:10748
 		{
 			// RECURSIVE VIEW requires explicit column list
 			view := yyDollar[5].rangevar
@@ -35234,7 +35245,7 @@ yydefault:
 		}
 	case 2548:
 		yyDollar = yyS[yypt-14 : yypt+1]
-//line postgres.y:10753
+//line postgres.y:10764
 		{
 			// RECURSIVE VIEW requires explicit column list
 			view := yyDollar[7].rangevar
@@ -35251,43 +35262,43 @@ yydefault:
 		}
 	case 2549:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10770
+//line postgres.y:10781
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2550:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10771
+//line postgres.y:10782
 		{
 			yyVAL.list = nil
 		}
 	case 2551:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10775
+//line postgres.y:10786
 		{
 			yyVAL.ival = int(ast.CASCADED_CHECK_OPTION)
 		}
 	case 2552:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:10776
+//line postgres.y:10787
 		{
 			yyVAL.ival = int(ast.CASCADED_CHECK_OPTION)
 		}
 	case 2553:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:10777
+//line postgres.y:10788
 		{
 			yyVAL.ival = int(ast.LOCAL_CHECK_OPTION)
 		}
 	case 2554:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:10778
+//line postgres.y:10789
 		{
 			yyVAL.ival = int(ast.NO_CHECK_OPTION)
 		}
 	case 2555:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:10789
+//line postgres.y:10800
 		{
 			n := ast.NewCreateSchemaStmt(yyDollar[3].str, false)
 			n.Authrole = yyDollar[5].rolespec
@@ -35296,7 +35307,7 @@ yydefault:
 		}
 	case 2556:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:10796
+//line postgres.y:10807
 		{
 			n := ast.NewCreateSchemaStmt(yyDollar[3].str, false)
 			n.Authrole = nil
@@ -35305,7 +35316,7 @@ yydefault:
 		}
 	case 2557:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:10803
+//line postgres.y:10814
 		{
 			n := ast.NewCreateSchemaStmt(yyDollar[6].str, true)
 			n.Authrole = yyDollar[8].rolespec
@@ -35314,7 +35325,7 @@ yydefault:
 		}
 	case 2558:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:10810
+//line postgres.y:10821
 		{
 			n := ast.NewCreateSchemaStmt(yyDollar[6].str, true)
 			n.Authrole = nil
@@ -35323,89 +35334,89 @@ yydefault:
 		}
 	case 2559:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:10826
+//line postgres.y:10837
 		{
 			n := ast.NewCreatedbStmt(yyDollar[3].str, yyDollar[5].list)
 			yyVAL.stmt = n
 		}
 	case 2560:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10839
+//line postgres.y:10850
 		{
 			n := ast.NewDropdbStmt(yyDollar[3].str, false, nil)
 			yyVAL.stmt = n
 		}
 	case 2561:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:10844
+//line postgres.y:10855
 		{
 			n := ast.NewDropdbStmt(yyDollar[5].str, true, nil)
 			yyVAL.stmt = n
 		}
 	case 2562:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:10849
+//line postgres.y:10860
 		{
 			n := ast.NewDropdbStmt(yyDollar[3].str, false, yyDollar[6].list)
 			yyVAL.stmt = n
 		}
 	case 2563:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:10854
+//line postgres.y:10865
 		{
 			n := ast.NewDropdbStmt(yyDollar[5].str, true, yyDollar[8].list)
 			yyVAL.stmt = n
 		}
 	case 2564:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10861
+//line postgres.y:10872
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 2565:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10862
+//line postgres.y:10873
 		{
 			yyVAL.list = yyDollar[1].list
 			yyVAL.list.Append(yyDollar[3].defelt)
 		}
 	case 2566:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:10866
+//line postgres.y:10877
 		{
 			yyVAL.defelt = ast.NewDefElem("force", nil)
 		}
 	case 2567:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:10876
+//line postgres.y:10887
 		{
 			n := ast.NewDropTableSpaceStmt(yyDollar[3].str, false)
 			yyVAL.stmt = n
 		}
 	case 2568:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:10881
+//line postgres.y:10892
 		{
 			n := ast.NewDropTableSpaceStmt(yyDollar[5].str, true)
 			yyVAL.stmt = n
 		}
 	case 2569:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:10895
+//line postgres.y:10906
 		{
 			n := ast.NewDropOwnedStmt(yyDollar[4].list, yyDollar[5].dropBehav)
 			yyVAL.stmt = n
 		}
 	case 2570:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:10903
+//line postgres.y:10914
 		{
 			n := ast.NewReassignOwnedStmt(yyDollar[4].list, yyDollar[6].rolespec)
 			yyVAL.stmt = n
 		}
 	case 2571:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:10917
+//line postgres.y:10928
 		{
 			n := ast.NewCreateDomainStmt(yyDollar[3].list, yyDollar[5].typnam)
 			// Use SplitColQualList to separate constraints and collate clause
@@ -35416,7 +35427,7 @@ yydefault:
 		}
 	case 2572:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:10935
+//line postgres.y:10946
 		{
 			n := ast.NewAlterDomainStmt('T', yyDollar[3].list)
 			n.Def = yyDollar[4].node
@@ -35424,21 +35435,21 @@ yydefault:
 		}
 	case 2573:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:10941
+//line postgres.y:10952
 		{
 			n := ast.NewAlterDomainStmt('N', yyDollar[3].list)
 			yyVAL.stmt = n
 		}
 	case 2574:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:10946
+//line postgres.y:10957
 		{
 			n := ast.NewAlterDomainStmt('O', yyDollar[3].list)
 			yyVAL.stmt = n
 		}
 	case 2575:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:10951
+//line postgres.y:10962
 		{
 			n := ast.NewAlterDomainStmt('C', yyDollar[3].list)
 			n.Def = yyDollar[5].node
@@ -35446,7 +35457,7 @@ yydefault:
 		}
 	case 2576:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:10957
+//line postgres.y:10968
 		{
 			n := ast.NewAlterDomainStmt('X', yyDollar[3].list)
 			n.Name = yyDollar[6].str
@@ -35456,7 +35467,7 @@ yydefault:
 		}
 	case 2577:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:10965
+//line postgres.y:10976
 		{
 			n := ast.NewAlterDomainStmt('X', yyDollar[3].list)
 			n.Name = yyDollar[8].str
@@ -35466,7 +35477,7 @@ yydefault:
 		}
 	case 2578:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:10973
+//line postgres.y:10984
 		{
 			n := ast.NewAlterDomainStmt('V', yyDollar[3].list)
 			n.Name = yyDollar[6].str
@@ -35474,7 +35485,7 @@ yydefault:
 		}
 	case 2579:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:10988
+//line postgres.y:10999
 		{
 			// Extract actual arguments from aggr_args which returns [args, position_indicator]
 			var args *ast.NodeList
@@ -35492,7 +35503,7 @@ yydefault:
 		}
 	case 2580:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:11004
+//line postgres.y:11015
 		{
 			// old-style (pre-8.2) syntax for CREATE AGGREGATE
 			n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, true, yyDollar[4].list, nil, yyDollar[5].list, false, yyDollar[2].bval)
@@ -35500,21 +35511,21 @@ yydefault:
 		}
 	case 2581:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:11010
+//line postgres.y:11021
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_OPERATOR, false, yyDollar[3].list, nil, yyDollar[4].list, false, false)
 			yyVAL.stmt = n
 		}
 	case 2582:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:11015
+//line postgres.y:11026
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_TYPE, false, yyDollar[3].list, nil, yyDollar[4].list, false, false)
 			yyVAL.stmt = n
 		}
 	case 2583:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11020
+//line postgres.y:11031
 		{
 			// Shell type (identified by lack of definition)
 			n := ast.NewDefineStmt(ast.OBJECT_TYPE, false, yyDollar[3].list, nil, nil, false, false)
@@ -35522,63 +35533,63 @@ yydefault:
 		}
 	case 2584:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11026
+//line postgres.y:11037
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_TSPARSER, false, yyDollar[5].list, nil, yyDollar[6].list, false, false)
 			yyVAL.stmt = n
 		}
 	case 2585:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11031
+//line postgres.y:11042
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_TSDICTIONARY, false, yyDollar[5].list, nil, yyDollar[6].list, false, false)
 			yyVAL.stmt = n
 		}
 	case 2586:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11036
+//line postgres.y:11047
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_TSTEMPLATE, false, yyDollar[5].list, nil, yyDollar[6].list, false, false)
 			yyVAL.stmt = n
 		}
 	case 2587:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11041
+//line postgres.y:11052
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_TSCONFIGURATION, false, yyDollar[5].list, nil, yyDollar[6].list, false, false)
 			yyVAL.stmt = n
 		}
 	case 2588:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:11046
+//line postgres.y:11057
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, yyDollar[3].list, nil, yyDollar[4].list, false, false)
 			yyVAL.stmt = n
 		}
 	case 2589:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:11051
+//line postgres.y:11062
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, yyDollar[6].list, nil, yyDollar[7].list, true, false)
 			yyVAL.stmt = n
 		}
 	case 2590:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:11056
+//line postgres.y:11067
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, yyDollar[3].list, nil, ast.NewNodeList(yyDollar[5].list), false, false)
 			yyVAL.stmt = n
 		}
 	case 2591:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:11061
+//line postgres.y:11072
 		{
 			n := ast.NewDefineStmt(ast.OBJECT_COLLATION, false, yyDollar[6].list, nil, ast.NewNodeList(yyDollar[8].list), true, false)
 			yyVAL.stmt = n
 		}
 	case 2592:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:11066
+//line postgres.y:11077
 		{
 			typevar, err := makeRangeVarFromAnyName(yyDollar[3].list, 0)
 			if err != nil {
@@ -35591,73 +35602,73 @@ yydefault:
 		}
 	case 2593:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:11077
+//line postgres.y:11088
 		{
 			n := ast.NewCreateEnumStmt(yyDollar[3].list, yyDollar[7].list)
 			yyVAL.stmt = n
 		}
 	case 2594:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11082
+//line postgres.y:11093
 		{
 			n := ast.NewCreateRangeStmt(yyDollar[3].list, yyDollar[6].list)
 			yyVAL.stmt = n
 		}
 	case 2595:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:11096
+//line postgres.y:11107
 		{
 			n := ast.NewCreateSeqStmt(yyDollar[4].rangevar, yyDollar[5].list, 0, false, false)
 			yyVAL.stmt = n
 		}
 	case 2596:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:11101
+//line postgres.y:11112
 		{
 			n := ast.NewCreateSeqStmt(yyDollar[7].rangevar, yyDollar[8].list, 0, false, true)
 			yyVAL.stmt = n
 		}
 	case 2597:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11108
+//line postgres.y:11119
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2598:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11109
+//line postgres.y:11120
 		{
 			yyVAL.list = nil
 		}
 	case 2599:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:11120
+//line postgres.y:11131
 		{
 			yyVAL.stmt = ast.NewAlterSeqStmt(yyDollar[3].rangevar, yyDollar[4].list, false, false)
 		}
 	case 2600:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11124
+//line postgres.y:11135
 		{
 			yyVAL.stmt = ast.NewAlterSeqStmt(yyDollar[5].rangevar, yyDollar[6].list, false, true)
 		}
 	case 2601:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:11137
+//line postgres.y:11148
 		{
 			n := ast.NewCreateExtensionStmt(yyDollar[3].str, false, yyDollar[5].list)
 			yyVAL.stmt = n
 		}
 	case 2602:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:11142
+//line postgres.y:11153
 		{
 			n := ast.NewCreateExtensionStmt(yyDollar[6].str, true, yyDollar[8].list)
 			yyVAL.stmt = n
 		}
 	case 2603:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11150
+//line postgres.y:11161
 		{
 			if yyDollar[1].list == nil {
 				yyVAL.list = ast.NewNodeList(yyDollar[2].defelt)
@@ -35668,45 +35679,45 @@ yydefault:
 		}
 	case 2604:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11159
+//line postgres.y:11170
 		{
 			yyVAL.list = nil
 		}
 	case 2605:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11166
+//line postgres.y:11177
 		{
 			yyVAL.defelt = ast.NewDefElem("schema", ast.NewString(yyDollar[2].str))
 		}
 	case 2606:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11170
+//line postgres.y:11181
 		{
 			yyVAL.defelt = ast.NewDefElem("version", ast.NewString(yyDollar[2].str))
 		}
 	case 2607:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11174
+//line postgres.y:11185
 		{
 			yylex.Error("CREATE EXTENSION ... FROM is no longer supported")
 			return 1
 		}
 	case 2608:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11179
+//line postgres.y:11190
 		{
 			yyVAL.defelt = ast.NewDefElem("cascade", ast.NewBoolean(true))
 		}
 	case 2609:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:11192
+//line postgres.y:11203
 		{
 			n := ast.NewAlterExtensionStmt(yyDollar[3].str, yyDollar[5].list)
 			yyVAL.stmt = n
 		}
 	case 2610:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11200
+//line postgres.y:11211
 		{
 			if yyDollar[1].list == nil {
 				yyVAL.list = ast.NewNodeList(yyDollar[2].defelt)
@@ -35717,37 +35728,37 @@ yydefault:
 		}
 	case 2611:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11209
+//line postgres.y:11220
 		{
 			yyVAL.list = nil
 		}
 	case 2612:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11216
+//line postgres.y:11227
 		{
 			yyVAL.defelt = ast.NewDefElem("to", ast.NewString(yyDollar[2].str))
 		}
 	case 2613:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11229
+//line postgres.y:11240
 		{
 			yyVAL.stmt = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(yyDollar[5].objType), ast.NewString(yyDollar[6].str))
 		}
 	case 2614:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11233
+//line postgres.y:11244
 		{
 			yyVAL.stmt = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(yyDollar[5].objType), yyDollar[6].list)
 		}
 	case 2615:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11237
+//line postgres.y:11248
 		{
 			yyVAL.stmt = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_AGGREGATE), yyDollar[6].objwithargs)
 		}
 	case 2616:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:11241
+//line postgres.y:11252
 		{
 			// CAST takes two TypeNames as a NodeList
 			list := ast.NewNodeList(yyDollar[7].typnam)
@@ -35756,25 +35767,25 @@ yydefault:
 		}
 	case 2617:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11248
+//line postgres.y:11259
 		{
 			yyVAL.stmt = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_DOMAIN), yyDollar[6].typnam)
 		}
 	case 2618:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11252
+//line postgres.y:11263
 		{
 			yyVAL.stmt = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_FUNCTION), yyDollar[6].objwithargs)
 		}
 	case 2619:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11256
+//line postgres.y:11267
 		{
 			yyVAL.stmt = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_OPERATOR), yyDollar[6].objwithargs)
 		}
 	case 2620:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:11260
+//line postgres.y:11271
 		{
 			// OPERATOR CLASS takes method name + class name as NodeList
 			list := ast.NewNodeList(ast.NewString(yyDollar[9].str)) // method first
@@ -35785,7 +35796,7 @@ yydefault:
 		}
 	case 2621:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:11269
+//line postgres.y:11280
 		{
 			// OPERATOR FAMILY takes method name + family name as NodeList
 			list := ast.NewNodeList(ast.NewString(yyDollar[9].str)) // method first
@@ -35796,105 +35807,105 @@ yydefault:
 		}
 	case 2622:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11278
+//line postgres.y:11289
 		{
 			yyVAL.stmt = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_PROCEDURE), yyDollar[6].objwithargs)
 		}
 	case 2623:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11282
+//line postgres.y:11293
 		{
 			yyVAL.stmt = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_ROUTINE), yyDollar[6].objwithargs)
 		}
 	case 2624:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:11286
+//line postgres.y:11297
 		{
 			list := ast.NewNodeList(yyDollar[7].typnam, ast.NewString(yyDollar[9].str))
 			yyVAL.stmt = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_TRANSFORM), list)
 		}
 	case 2625:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11291
+//line postgres.y:11302
 		{
 			yyVAL.stmt = ast.NewAlterExtensionContentsStmt(yyDollar[3].str, yyDollar[4].ival != 0, int(ast.OBJECT_TYPE), yyDollar[6].typnam)
 		}
 	case 2626:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:11303
+//line postgres.y:11314
 		{
 			yyVAL.stmt = ast.NewCreateFdwStmt(yyDollar[5].str, yyDollar[6].list, yyDollar[7].list)
 		}
 	case 2627:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:11309
+//line postgres.y:11320
 		{
 			yyVAL.stmt = ast.NewAlterFdwStmt(yyDollar[5].str, yyDollar[6].list, yyDollar[7].list)
 		}
 	case 2628:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11313
+//line postgres.y:11324
 		{
 			yyVAL.stmt = ast.NewAlterFdwStmt(yyDollar[5].str, yyDollar[6].list, nil)
 		}
 	case 2629:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11319
+//line postgres.y:11330
 		{
 			yyVAL.defelt = ast.NewDefElem("handler", yyDollar[2].list)
 		}
 	case 2630:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11320
+//line postgres.y:11331
 		{
 			yyVAL.defelt = ast.NewDefElem("handler", nil)
 		}
 	case 2631:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11321
+//line postgres.y:11332
 		{
 			yyVAL.defelt = ast.NewDefElem("validator", yyDollar[2].list)
 		}
 	case 2632:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11322
+//line postgres.y:11333
 		{
 			yyVAL.defelt = ast.NewDefElem("validator", nil)
 		}
 	case 2633:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11326
+//line postgres.y:11337
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 2634:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11327
+//line postgres.y:11338
 		{
 			yyDollar[1].list.Append(yyDollar[2].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2635:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11331
+//line postgres.y:11342
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2636:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11332
+//line postgres.y:11343
 		{
 			yyVAL.list = nil
 		}
 	case 2637:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11336
+//line postgres.y:11347
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString(yyDollar[1].str))
 		}
 	case 2638:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11337
+//line postgres.y:11348
 		{
 			result := ast.NewNodeList(ast.NewString(yyDollar[1].str))
 			for _, item := range yyDollar[2].list.Items {
@@ -35904,97 +35915,97 @@ yydefault:
 		}
 	case 2639:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:11354
+//line postgres.y:11365
 		{
 			yyVAL.stmt = ast.NewCreateForeignServerStmt(yyDollar[3].str, yyDollar[4].str, yyDollar[5].str, yyDollar[9].str, yyDollar[10].list, false)
 		}
 	case 2640:
 		yyDollar = yyS[yypt-13 : yypt+1]
-//line postgres.y:11359
+//line postgres.y:11370
 		{
 			yyVAL.stmt = ast.NewCreateForeignServerStmt(yyDollar[6].str, yyDollar[7].str, yyDollar[8].str, yyDollar[12].str, yyDollar[13].list, true)
 		}
 	case 2641:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:11365
+//line postgres.y:11376
 		{
 			yyVAL.stmt = ast.NewAlterForeignServerStmt(yyDollar[3].str, yyDollar[4].str, yyDollar[5].list, true)
 		}
 	case 2642:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:11369
+//line postgres.y:11380
 		{
 			yyVAL.stmt = ast.NewAlterForeignServerStmt(yyDollar[3].str, yyDollar[4].str, nil, true)
 		}
 	case 2643:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:11373
+//line postgres.y:11384
 		{
 			yyVAL.stmt = ast.NewAlterForeignServerStmt(yyDollar[3].str, "", yyDollar[4].list, false)
 		}
 	case 2644:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11379
+//line postgres.y:11390
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 2645:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11380
+//line postgres.y:11391
 		{
 			yyVAL.str = ""
 		}
 	case 2646:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11384
+//line postgres.y:11395
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 2647:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11385
+//line postgres.y:11396
 		{
 			yyVAL.str = ""
 		}
 	case 2648:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11389
+//line postgres.y:11400
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2649:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11390
+//line postgres.y:11401
 		{
 			yyVAL.str = ""
 		}
 	case 2650:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:11403
+//line postgres.y:11414
 		{
 			yyVAL.stmt = ast.NewCreateForeignTableStmt(yyDollar[4].rangevar, yyDollar[6].list, yyDollar[8].list, yyDollar[10].str, yyDollar[11].list, nil, false)
 		}
 	case 2651:
 		yyDollar = yyS[yypt-14 : yypt+1]
-//line postgres.y:11409
+//line postgres.y:11420
 		{
 			yyVAL.stmt = ast.NewCreateForeignTableStmt(yyDollar[7].rangevar, yyDollar[9].list, yyDollar[11].list, yyDollar[13].str, yyDollar[14].list, nil, true)
 		}
 	case 2652:
 		yyDollar = yyS[yypt-12 : yypt+1]
-//line postgres.y:11415
+//line postgres.y:11426
 		{
 			yyVAL.stmt = ast.NewCreateForeignTableStmt(yyDollar[4].rangevar, yyDollar[8].list, ast.NewNodeList(yyDollar[7].rangevar), yyDollar[11].str, yyDollar[12].list, yyDollar[9].partboundspec, false)
 		}
 	case 2653:
 		yyDollar = yyS[yypt-15 : yypt+1]
-//line postgres.y:11421
+//line postgres.y:11432
 		{
 			yyVAL.stmt = ast.NewCreateForeignTableStmt(yyDollar[7].rangevar, yyDollar[11].list, ast.NewNodeList(yyDollar[10].rangevar), yyDollar[14].str, yyDollar[15].list, yyDollar[12].partboundspec, true)
 		}
 	case 2654:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:11435
+//line postgres.y:11446
 		{
 			stmt := ast.NewImportForeignSchemaStmt(
 				ast.NewString(yyDollar[8].str),    // server name
@@ -36008,7 +36019,7 @@ yydefault:
 		}
 	case 2655:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:11450
+//line postgres.y:11461
 		{
 			qual := &ImportQual{
 				typ:        yyDollar[1].importqualtype,
@@ -36018,7 +36029,7 @@ yydefault:
 		}
 	case 2656:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11458
+//line postgres.y:11469
 		{
 			qual := &ImportQual{
 				typ:        ast.FDW_IMPORT_SCHEMA_ALL,
@@ -36028,61 +36039,61 @@ yydefault:
 		}
 	case 2657:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11468
+//line postgres.y:11479
 		{
 			yyVAL.importqualtype = ast.FDW_IMPORT_SCHEMA_LIMIT_TO
 		}
 	case 2658:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11469
+//line postgres.y:11480
 		{
 			yyVAL.importqualtype = ast.FDW_IMPORT_SCHEMA_EXCEPT
 		}
 	case 2659:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:11479
+//line postgres.y:11490
 		{
 			yyVAL.stmt = ast.NewCreateUserMappingStmt(yyDollar[5].rolespec, yyDollar[7].str, yyDollar[8].list, false)
 		}
 	case 2660:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:11483
+//line postgres.y:11494
 		{
 			yyVAL.stmt = ast.NewCreateUserMappingStmt(yyDollar[8].rolespec, yyDollar[10].str, yyDollar[11].list, true)
 		}
 	case 2661:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:11489
+//line postgres.y:11500
 		{
 			yyVAL.stmt = ast.NewAlterUserMappingStmt(yyDollar[5].rolespec, yyDollar[7].str, yyDollar[8].list)
 		}
 	case 2662:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:11495
+//line postgres.y:11506
 		{
 			yyVAL.stmt = ast.NewDropUserMappingStmt(yyDollar[5].rolespec, yyDollar[7].str, false)
 		}
 	case 2663:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:11499
+//line postgres.y:11510
 		{
 			yyVAL.stmt = ast.NewDropUserMappingStmt(yyDollar[7].rolespec, yyDollar[9].str, true)
 		}
 	case 2664:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11505
+//line postgres.y:11516
 		{
 			yyVAL.rolespec = yyDollar[1].rolespec
 		}
 	case 2665:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11506
+//line postgres.y:11517
 		{
 			yyVAL.rolespec = ast.NewRoleSpec(ast.ROLESPEC_CURRENT_USER, "")
 		}
 	case 2666:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11511
+//line postgres.y:11522
 		{
 			// For aggregates like COUNT(*)
 			// Return a list with [nil, -1] matching PostgreSQL's list_make2(NIL, makeInteger(-1))
@@ -36090,7 +36101,7 @@ yydefault:
 		}
 	case 2667:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11517
+//line postgres.y:11528
 		{
 			// Regular aggregate arguments
 			// Return a list with [args, -1] matching PostgreSQL's list_make2($2, makeInteger(-1))
@@ -36098,7 +36109,7 @@ yydefault:
 		}
 	case 2668:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:11523
+//line postgres.y:11534
 		{
 			// Ordered-set aggregate without direct arguments
 			// Return a list with [args, 0] matching PostgreSQL's list_make2($4, makeInteger(0))
@@ -36106,7 +36117,7 @@ yydefault:
 		}
 	case 2669:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11529
+//line postgres.y:11540
 		{
 			// Hypothetical-set aggregate
 			// This is the only case requiring consistency checking in PostgreSQL
@@ -36119,51 +36130,51 @@ yydefault:
 		}
 	case 2670:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11543
+//line postgres.y:11554
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 2671:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11547
+//line postgres.y:11558
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2672:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11555
+//line postgres.y:11566
 		{
 			yyVAL.node = yyDollar[1].funparam
 		}
 	case 2673:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11562
+//line postgres.y:11573
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2674:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11569
+//line postgres.y:11580
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 2675:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11573
+//line postgres.y:11584
 		{
 			yyDollar[1].list.Append(yyDollar[3].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2676:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11581
+//line postgres.y:11592
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, yyDollar[3].node)
 		}
 	case 2677:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:11588
+//line postgres.y:11599
 		{
 			n := ast.NewAlterEnumStmt(yyDollar[3].list)
 			n.NewVal = yyDollar[7].str
@@ -36173,7 +36184,7 @@ yydefault:
 		}
 	case 2678:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:11596
+//line postgres.y:11607
 		{
 			n := ast.NewAlterEnumStmt(yyDollar[3].list)
 			n.NewVal = yyDollar[7].str
@@ -36184,7 +36195,7 @@ yydefault:
 		}
 	case 2679:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:11605
+//line postgres.y:11616
 		{
 			n := ast.NewAlterEnumStmt(yyDollar[3].list)
 			n.NewVal = yyDollar[7].str
@@ -36195,7 +36206,7 @@ yydefault:
 		}
 	case 2680:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:11614
+//line postgres.y:11625
 		{
 			n := ast.NewAlterEnumStmt(yyDollar[3].list)
 			n.OldVal = yyDollar[6].str
@@ -36205,7 +36216,7 @@ yydefault:
 		}
 	case 2681:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11622
+//line postgres.y:11633
 		{
 			// Following PostgreSQL's approach - DROP VALUE is parsed but not implemented
 			// PostgreSQL throws an error saying "dropping an enum value is not implemented"
@@ -36214,32 +36225,32 @@ yydefault:
 		}
 	case 2682:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11638
+//line postgres.y:11649
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2683:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11640
+//line postgres.y:11651
 		{
 			yyVAL.list = nil
 		}
 	case 2684:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11645
+//line postgres.y:11656
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString(yyDollar[1].str))
 		}
 	case 2685:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11647
+//line postgres.y:11658
 		{
 			yyDollar[1].list.Append(ast.NewString(yyDollar[3].str))
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2686:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11652
+//line postgres.y:11663
 		{
 			if constraint, ok := yyDollar[3].node.(*ast.Constraint); ok {
 				constraint.Conname = yyDollar[2].str
@@ -36250,13 +36261,13 @@ yydefault:
 		}
 	case 2687:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11661
+//line postgres.y:11672
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2688:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:11666
+//line postgres.y:11677
 		{
 			n := ast.NewConstraint(ast.CONSTR_CHECK)
 			n.RawExpr = yyDollar[3].node
@@ -36269,7 +36280,7 @@ yydefault:
 		}
 	case 2689:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11677
+//line postgres.y:11688
 		{
 			n := ast.NewConstraint(ast.CONSTR_NOTNULL)
 			// In PostgreSQL, domain NOT NULL constraints have keys = list_make1(makeString("value"))
@@ -36282,7 +36293,7 @@ yydefault:
 		}
 	case 2690:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:11697
+//line postgres.y:11708
 		{
 			ctas := ast.NewCreateTableAsStmt(yyDollar[7].stmt, yyDollar[5].into, ast.OBJECT_MATVIEW, false, false)
 			/* cram additional flags into the IntoClause */
@@ -36292,7 +36303,7 @@ yydefault:
 		}
 	case 2691:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:11705
+//line postgres.y:11716
 		{
 			ctas := ast.NewCreateTableAsStmt(yyDollar[10].stmt, yyDollar[8].into, ast.OBJECT_MATVIEW, false, true)
 			/* cram additional flags into the IntoClause */
@@ -36302,14 +36313,14 @@ yydefault:
 		}
 	case 2692:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:11716
+//line postgres.y:11727
 		{
 			n := ast.NewRefreshMatViewStmt(yyDollar[4].bval, !yyDollar[6].bval, yyDollar[5].rangevar)
 			yyVAL.stmt = n
 		}
 	case 2693:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:11731
+//line postgres.y:11742
 		{
 			yylex.Error("CREATE ASSERTION is not yet implemented")
 			return 1
@@ -36318,7 +36329,7 @@ yydefault:
 		}
 	case 2694:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:11747
+//line postgres.y:11758
 		{
 			ctas := ast.NewCreateTableAsStmt(yyDollar[6].stmt, yyDollar[4].into, ast.OBJECT_TABLE, false, false)
 			/* cram additional flags into the IntoClause */
@@ -36330,7 +36341,7 @@ yydefault:
 		}
 	case 2695:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:11757
+//line postgres.y:11768
 		{
 			ctas := ast.NewCreateTableAsStmt(yyDollar[9].stmt, yyDollar[7].into, ast.OBJECT_TABLE, false, true)
 			/* cram additional flags into the IntoClause */
@@ -36342,7 +36353,7 @@ yydefault:
 		}
 	case 2696:
 		yyDollar = yyS[yypt-13 : yypt+1]
-//line postgres.y:11777
+//line postgres.y:11788
 		{
 			n := &ast.RuleStmt{
 				BaseNode:    ast.BaseNode{Tag: ast.T_RuleStmt},
@@ -36358,25 +36369,25 @@ yydefault:
 		}
 	case 2697:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11793
+//line postgres.y:11804
 		{
 			yyVAL.list = nil
 		}
 	case 2698:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11794
+//line postgres.y:11805
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].stmt)
 		}
 	case 2699:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11795
+//line postgres.y:11806
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2700:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11800
+//line postgres.y:11811
 		{
 			if yyDollar[3].stmt != nil {
 				if yyDollar[1].list != nil {
@@ -36389,7 +36400,7 @@ yydefault:
 		}
 	case 2701:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11811
+//line postgres.y:11822
 		{
 			if yyDollar[1].stmt != nil {
 				yyVAL.list = ast.NewNodeList(yyDollar[1].stmt)
@@ -36399,49 +36410,49 @@ yydefault:
 		}
 	case 2707:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11829
+//line postgres.y:11840
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 2708:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11830
+//line postgres.y:11841
 		{
 			yyVAL.stmt = nil
 		}
 	case 2709:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11834
+//line postgres.y:11845
 		{
 			yyVAL.bval = true
 		}
 	case 2710:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11835
+//line postgres.y:11846
 		{
 			yyVAL.bval = false
 		}
 	case 2711:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11836
+//line postgres.y:11847
 		{
 			yyVAL.bval = false
 		}
 	case 2712:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11839
+//line postgres.y:11850
 		{
 			yyVAL.rune = ast.RELPERSISTENCE_UNLOGGED
 		}
 	case 2713:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11840
+//line postgres.y:11851
 		{
 			yyVAL.rune = ast.RELPERSISTENCE_PERMANENT
 		}
 	case 2714:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:11845
+//line postgres.y:11856
 		{
 			yyVAL.into = &ast.IntoClause{
 				Rel:            yyDollar[1].rangevar,
@@ -36453,25 +36464,25 @@ yydefault:
 		}
 	case 2715:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11857
+//line postgres.y:11868
 		{
 			yyVAL.bval = true
 		}
 	case 2716:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11858
+//line postgres.y:11869
 		{
 			yyVAL.bval = false
 		}
 	case 2717:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11859
+//line postgres.y:11870
 		{
 			yyVAL.bval = true
 		}
 	case 2718:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11864
+//line postgres.y:11875
 		{
 			if yyDollar[1].list == nil {
 				yyVAL.list = ast.NewNodeList(yyDollar[2].stmt)
@@ -36482,46 +36493,46 @@ yydefault:
 		}
 	case 2719:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:11873
+//line postgres.y:11884
 		{
 			yyVAL.list = nil
 		}
 	case 2724:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11884
+//line postgres.y:11895
 		{
 			yyVAL.vsetstmt = yyDollar[1].vsetstmt
 		}
 	case 2725:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11886
+//line postgres.y:11897
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_CURRENT, yyDollar[1].str, nil, false)
 		}
 	case 2726:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11890
+//line postgres.y:11901
 		{
 			args := ast.NewNodeList(yyDollar[3].node)
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "timezone", args, false)
 		}
 	case 2727:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11895
+//line postgres.y:11906
 		{
 			args := ast.NewNodeList(ast.NewString(yyDollar[2].str))
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "catalog", args, false)
 		}
 	case 2728:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11900
+//line postgres.y:11911
 		{
 			args := ast.NewNodeList(ast.NewString(yyDollar[2].str))
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "search_path", args, false)
 		}
 	case 2729:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11905
+//line postgres.y:11916
 		{
 			var args *ast.NodeList
 			if yyDollar[2].str != "" {
@@ -36531,27 +36542,27 @@ yydefault:
 		}
 	case 2730:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:11913
+//line postgres.y:11924
 		{
 			args := ast.NewNodeList(ast.NewString(yyDollar[2].str))
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "role", args, false)
 		}
 	case 2731:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11918
+//line postgres.y:11929
 		{
 			args := ast.NewNodeList(ast.NewString(yyDollar[3].str))
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "session_authorization", args, false)
 		}
 	case 2732:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11923
+//line postgres.y:11934
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, "session_authorization", nil, false)
 		}
 	case 2733:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11927
+//line postgres.y:11938
 		{
 			var value string
 			if yyDollar[3].ival == int(ast.XMLOPTION_DOCUMENT) {
@@ -36564,50 +36575,50 @@ yydefault:
 		}
 	case 2734:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11938
+//line postgres.y:11949
 		{
 			args := ast.NewNodeList(ast.NewString(yyDollar[3].str))
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, "transaction_snapshot", args, false)
 		}
 	case 2735:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11946
+//line postgres.y:11957
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, yyDollar[1].str, yyDollar[3].list, false)
 		}
 	case 2736:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11950
+//line postgres.y:11961
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_VALUE, yyDollar[1].str, yyDollar[3].list, false)
 		}
 	case 2737:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11954
+//line postgres.y:11965
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, yyDollar[1].str, nil, false)
 		}
 	case 2738:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11958
+//line postgres.y:11969
 		{
 			yyVAL.vsetstmt = ast.NewVariableSetStmt(ast.VAR_SET_DEFAULT, yyDollar[1].str, nil, false)
 		}
 	case 2739:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11965
+//line postgres.y:11976
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2740:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11969
+//line postgres.y:11980
 		{
 			yyVAL.str = yyDollar[1].str + "." + yyDollar[3].str
 		}
 	case 2741:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11976
+//line postgres.y:11987
 		{
 			list := ast.NewNodeList()
 			list.Append(yyDollar[1].node)
@@ -36615,38 +36626,38 @@ yydefault:
 		}
 	case 2742:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11982
+//line postgres.y:11993
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2743:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11989
+//line postgres.y:12000
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 2744:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11990
+//line postgres.y:12001
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2745:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11994
+//line postgres.y:12005
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 2746:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:11995
+//line postgres.y:12006
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 2747:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:11997
+//line postgres.y:12008
 		{
 			t := yyDollar[1].typnam
 			t.Typmods = yyDollar[3].list
@@ -36655,7 +36666,7 @@ yydefault:
 		}
 	case 2748:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12004
+//line postgres.y:12015
 		{
 			t := yyDollar[1].typnam
 			// INTERVAL_FULL_RANGE equivalent and precision
@@ -36665,91 +36676,91 @@ yydefault:
 		}
 	case 2749:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12011
+//line postgres.y:12022
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2750:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12012
+//line postgres.y:12023
 		{
 			yyVAL.node = ast.NewString("default")
 		}
 	case 2751:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12013
+//line postgres.y:12024
 		{
 			yyVAL.node = ast.NewString("local")
 		}
 	case 2752:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12017
+//line postgres.y:12028
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2753:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12018
+//line postgres.y:12029
 		{
 			yyVAL.str = "default"
 		}
 	case 2754:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12019
+//line postgres.y:12030
 		{
 			yyVAL.str = ""
 		}
 	case 2755:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12023
+//line postgres.y:12034
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2756:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12024
+//line postgres.y:12035
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2757:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12028
+//line postgres.y:12039
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2758:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12029
+//line postgres.y:12040
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2759:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12030
+//line postgres.y:12041
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2760:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12031
+//line postgres.y:12042
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2761:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12035
+//line postgres.y:12046
 		{
 			yyVAL.ival = int(ast.XMLOPTION_DOCUMENT)
 		}
 	case 2762:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12036
+//line postgres.y:12047
 		{
 			yyVAL.ival = int(ast.XMLOPTION_CONTENT)
 		}
 	case 2763:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12041
+//line postgres.y:12052
 		{
 			list := ast.NewNodeList()
 			list.Append(yyDollar[1].node)
@@ -36757,173 +36768,173 @@ yydefault:
 		}
 	case 2764:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12047
+//line postgres.y:12058
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2765:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12052
+//line postgres.y:12063
 		{
 			yyDollar[1].list.Append(yyDollar[2].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2766:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12060
+//line postgres.y:12071
 		{
 			yyVAL.node = ast.NewDefElem("transaction_isolation", ast.NewString(yyDollar[3].str))
 		}
 	case 2767:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12064
+//line postgres.y:12075
 		{
 			yyVAL.node = ast.NewDefElem("transaction_read_only", ast.NewBoolean(true))
 		}
 	case 2768:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12068
+//line postgres.y:12079
 		{
 			yyVAL.node = ast.NewDefElem("transaction_read_only", ast.NewBoolean(false))
 		}
 	case 2769:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12072
+//line postgres.y:12083
 		{
 			yyVAL.node = ast.NewDefElem("transaction_deferrable", ast.NewBoolean(true))
 		}
 	case 2770:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12076
+//line postgres.y:12087
 		{
 			yyVAL.node = ast.NewDefElem("transaction_deferrable", ast.NewBoolean(false))
 		}
 	case 2771:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12082
+//line postgres.y:12093
 		{
 			yyVAL.str = "read uncommitted"
 		}
 	case 2772:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12083
+//line postgres.y:12094
 		{
 			yyVAL.str = "read committed"
 		}
 	case 2773:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12084
+//line postgres.y:12095
 		{
 			yyVAL.str = "repeatable read"
 		}
 	case 2774:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12085
+//line postgres.y:12096
 		{
 			yyVAL.str = "serializable"
 		}
 	case 2775:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12089
+//line postgres.y:12100
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2776:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12090
+//line postgres.y:12101
 		{
 			yyVAL.list = nil
 		}
 	case 2777:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12094
+//line postgres.y:12105
 		{
 			yyVAL.node = yyDollar[1].typnam
 		}
 	case 2778:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12095
+//line postgres.y:12106
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 2779:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12096
+//line postgres.y:12107
 		{
 			yyVAL.node = yyDollar[1].list
 		}
 	case 2780:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12099
+//line postgres.y:12110
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2781:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12100
+//line postgres.y:12111
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 2782:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12101
+//line postgres.y:12112
 		{
 			yyVAL.node = ast.NewString("none")
 		}
 	case 2783:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12105
+//line postgres.y:12116
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2784:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12106
+//line postgres.y:12117
 		{
 			yyVAL.list = nil
 		}
 	case 2785:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12110
+//line postgres.y:12121
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 2786:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12111
+//line postgres.y:12122
 		{
 			yyVAL.node = nil
 		}
 	case 2787:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12115
+//line postgres.y:12126
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 2788:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12120
+//line postgres.y:12131
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].defelt)
 		}
 	case 2789:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12125
+//line postgres.y:12136
 		{
 			yyDollar[1].list.Append(yyDollar[3].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2790:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12133
+//line postgres.y:12144
 		{
 			yyVAL.defelt = yyDollar[1].defelt
 		}
 	case 2791:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12137
+//line postgres.y:12148
 		{
 			elem := yyDollar[2].defelt
 			elem.Defaction = ast.DEFELEM_SET
@@ -36931,7 +36942,7 @@ yydefault:
 		}
 	case 2792:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12143
+//line postgres.y:12154
 		{
 			elem := yyDollar[2].defelt
 			elem.Defaction = ast.DEFELEM_ADD
@@ -36939,199 +36950,199 @@ yydefault:
 		}
 	case 2793:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12149
+//line postgres.y:12160
 		{
 			yyVAL.defelt = ast.NewDefElemExtended("", yyDollar[2].str, nil, ast.DEFELEM_DROP)
 		}
 	case 2794:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12155
+//line postgres.y:12166
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2795:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12156
+//line postgres.y:12167
 		{
 			yyVAL.str = ""
 		}
 	case 2796:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12160
+//line postgres.y:12171
 		{
 			yyVAL.node = ast.NewReplicaIdentityStmt(ast.REPLICA_IDENTITY_NOTHING, "")
 		}
 	case 2797:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12161
+//line postgres.y:12172
 		{
 			yyVAL.node = ast.NewReplicaIdentityStmt(ast.REPLICA_IDENTITY_FULL, "")
 		}
 	case 2798:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12162
+//line postgres.y:12173
 		{
 			yyVAL.node = ast.NewReplicaIdentityStmt(ast.REPLICA_IDENTITY_DEFAULT, "")
 		}
 	case 2799:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12163
+//line postgres.y:12174
 		{
 			yyVAL.node = ast.NewReplicaIdentityStmt(ast.REPLICA_IDENTITY_INDEX, yyDollar[3].str)
 		}
 	case 2800:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12167
+//line postgres.y:12178
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2801:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12172
+//line postgres.y:12183
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].defelt)
 		}
 	case 2802:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12177
+//line postgres.y:12188
 		{
 			yyDollar[1].list.Append(yyDollar[3].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2803:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12184
+//line postgres.y:12195
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, nil)
 		}
 	case 2804:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12185
+//line postgres.y:12196
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, yyDollar[3].node)
 		}
 	case 2805:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:12196
+//line postgres.y:12207
 		{
 			yyVAL.stmt = ast.NewCreateEventTrigStmt(yyDollar[4].str, yyDollar[6].str, yyDollar[9].list, nil)
 		}
 	case 2806:
 		yyDollar = yyS[yypt-13 : yypt+1]
-//line postgres.y:12200
+//line postgres.y:12211
 		{
 			yyVAL.stmt = ast.NewCreateEventTrigStmt(yyDollar[4].str, yyDollar[6].str, yyDollar[11].list, yyDollar[8].list)
 		}
 	case 2807:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12206
+//line postgres.y:12217
 		{
 			yyVAL.stmt = ast.NewAlterEventTrigStmt(yyDollar[4].str, ast.TriggerFires(yyDollar[5].ival))
 		}
 	case 2808:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12212
+//line postgres.y:12223
 		{
 			yyVAL.ival = int(ast.TRIGGER_FIRES_ON_ORIGIN)
 		}
 	case 2809:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12213
+//line postgres.y:12224
 		{
 			yyVAL.ival = int(ast.TRIGGER_FIRES_ON_REPLICA)
 		}
 	case 2810:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12214
+//line postgres.y:12225
 		{
 			yyVAL.ival = int(ast.TRIGGER_FIRES_ALWAYS)
 		}
 	case 2811:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12215
+//line postgres.y:12226
 		{
 			yyVAL.ival = int(ast.TRIGGER_DISABLED)
 		}
 	case 2812:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12220
+//line postgres.y:12231
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].defelt)
 		}
 	case 2813:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12225
+//line postgres.y:12236
 		{
 			yyDollar[1].list.Append(yyDollar[3].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2814:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12233
+//line postgres.y:12244
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, yyDollar[4].list)
 		}
 	case 2815:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12240
+//line postgres.y:12251
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(ast.NewString(yyDollar[1].str))
 		}
 	case 2816:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12245
+//line postgres.y:12256
 		{
 			yyDollar[1].list.Append(ast.NewString(yyDollar[3].str))
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2817:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:12259
+//line postgres.y:12270
 		{
 			yyVAL.stmt = ast.NewCreateTableSpaceStmt(yyDollar[3].str, yyDollar[4].rolespec, yyDollar[6].str, yyDollar[7].list)
 		}
 	case 2818:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12265
+//line postgres.y:12276
 		{
 			yyVAL.rolespec = yyDollar[2].rolespec
 		}
 	case 2819:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12266
+//line postgres.y:12277
 		{
 			yyVAL.rolespec = nil
 		}
 	case 2820:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12271
+//line postgres.y:12282
 		{
 			yyVAL.stmt = ast.NewAlterTableSpaceStmt(yyDollar[3].str, yyDollar[5].list, false)
 		}
 	case 2821:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12275
+//line postgres.y:12286
 		{
 			yyVAL.stmt = ast.NewAlterTableSpaceStmt(yyDollar[3].str, yyDollar[5].list, true)
 		}
 	case 2822:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:12290
+//line postgres.y:12301
 		{
 			yyVAL.stmt = ast.NewCreatePolicyStmt(yyDollar[3].str, yyDollar[5].rangevar, yyDollar[6].bval, yyDollar[7].str, yyDollar[8].list, yyDollar[9].node, yyDollar[10].node)
 		}
 	case 2823:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:12298
+//line postgres.y:12309
 		{
 			yyVAL.stmt = ast.NewAlterPolicyStmt(yyDollar[3].str, yyDollar[5].rangevar, yyDollar[6].list, yyDollar[7].node, yyDollar[8].node)
 		}
 	case 2824:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12305
+//line postgres.y:12316
 		{
 			// Check for "permissive" or "restrictive" (case-insensitive)
 			if strings.EqualFold(yyDollar[2].str, "permissive") {
@@ -37146,61 +37157,61 @@ yydefault:
 		}
 	case 2825:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12317
+//line postgres.y:12328
 		{
 			yyVAL.bval = true
 		}
 	case 2826:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12321
+//line postgres.y:12332
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 2827:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12322
+//line postgres.y:12333
 		{
 			yyVAL.str = "all"
 		}
 	case 2828:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12326
+//line postgres.y:12337
 		{
 			yyVAL.str = "all"
 		}
 	case 2829:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12327
+//line postgres.y:12338
 		{
 			yyVAL.str = "select"
 		}
 	case 2830:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12328
+//line postgres.y:12339
 		{
 			yyVAL.str = "insert"
 		}
 	case 2831:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12329
+//line postgres.y:12340
 		{
 			yyVAL.str = "update"
 		}
 	case 2832:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12330
+//line postgres.y:12341
 		{
 			yyVAL.str = "delete"
 		}
 	case 2833:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12334
+//line postgres.y:12345
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2834:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12335
+//line postgres.y:12346
 		{
 			// Default to PUBLIC when no TO clause is specified
 			publicRole := ast.NewRoleSpec(ast.ROLESPEC_PUBLIC, "")
@@ -37208,192 +37219,192 @@ yydefault:
 		}
 	case 2835:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12343
+//line postgres.y:12354
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2836:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12344
+//line postgres.y:12355
 		{
 			yyVAL.list = nil
 		}
 	case 2837:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12348
+//line postgres.y:12359
 		{
 			yyVAL.node = yyDollar[3].node
 		}
 	case 2838:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12349
+//line postgres.y:12360
 		{
 			yyVAL.node = nil
 		}
 	case 2839:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12353
+//line postgres.y:12364
 		{
 			yyVAL.node = yyDollar[4].node
 		}
 	case 2840:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12354
+//line postgres.y:12365
 		{
 			yyVAL.node = nil
 		}
 	case 2841:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:12365
+//line postgres.y:12376
 		{
 			yyVAL.stmt = ast.NewCreateAmStmt(yyDollar[4].str, ast.AmType(yyDollar[6].ival), yyDollar[8].list)
 		}
 	case 2842:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12371
+//line postgres.y:12382
 		{
 			yyVAL.ival = int(ast.AMTYPE_INDEX)
 		}
 	case 2843:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12372
+//line postgres.y:12383
 		{
 			yyVAL.ival = int(ast.AMTYPE_TABLE)
 		}
 	case 2844:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:12383
+//line postgres.y:12394
 		{
 			yyVAL.stmt = ast.NewCreateStatsStmt(yyDollar[3].list, yyDollar[4].list, yyDollar[6].list, yyDollar[8].list, "", false, false)
 		}
 	case 2845:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:12387
+//line postgres.y:12398
 		{
 			yyVAL.stmt = ast.NewCreateStatsStmt(yyDollar[6].list, yyDollar[7].list, yyDollar[9].list, yyDollar[11].list, "", false, true)
 		}
 	case 2846:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:12394
+//line postgres.y:12405
 		{
 			yyVAL.stmt = ast.NewAlterStatsStmt(yyDollar[3].list, yyDollar[6].node, false)
 		}
 	case 2847:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:12398
+//line postgres.y:12409
 		{
 			yyVAL.stmt = ast.NewAlterStatsStmt(yyDollar[5].list, yyDollar[8].node, true)
 		}
 	case 2848:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12404
+//line postgres.y:12415
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].statelem)
 		}
 	case 2849:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12405
+//line postgres.y:12416
 		{
 			yyDollar[1].list.Append(yyDollar[3].statelem)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2850:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12409
+//line postgres.y:12420
 		{
 			yyVAL.statelem = ast.NewStatsElem(yyDollar[1].str)
 		}
 	case 2851:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12410
+//line postgres.y:12421
 		{
 			yyVAL.statelem = ast.NewStatsElemExpr(yyDollar[1].node)
 		}
 	case 2852:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12411
+//line postgres.y:12422
 		{
 			yyVAL.statelem = ast.NewStatsElemExpr(yyDollar[2].node)
 		}
 	case 2853:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12422
+//line postgres.y:12433
 		{
 			yyVAL.stmt = ast.NewCreatePublicationStmt(yyDollar[3].str, nil, false, yyDollar[4].list)
 		}
 	case 2854:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:12426
+//line postgres.y:12437
 		{
 			yyVAL.stmt = ast.NewCreatePublicationStmt(yyDollar[3].str, nil, true, yyDollar[7].list)
 		}
 	case 2855:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:12430
+//line postgres.y:12441
 		{
 			yyVAL.stmt = ast.NewCreatePublicationStmt(yyDollar[3].str, yyDollar[5].list, false, yyDollar[6].list)
 		}
 	case 2856:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12437
+//line postgres.y:12448
 		{
 			yyVAL.stmt = ast.NewAlterPublicationStmt(yyDollar[3].str, yyDollar[5].list, nil, ast.AP_SetOptions)
 		}
 	case 2857:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12441
+//line postgres.y:12452
 		{
 			yyVAL.stmt = ast.NewAlterPublicationStmt(yyDollar[3].str, nil, yyDollar[5].list, ast.AP_AddObjects)
 		}
 	case 2858:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12445
+//line postgres.y:12456
 		{
 			yyVAL.stmt = ast.NewAlterPublicationStmt(yyDollar[3].str, nil, yyDollar[5].list, ast.AP_SetObjects)
 		}
 	case 2859:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12449
+//line postgres.y:12460
 		{
 			yyVAL.stmt = ast.NewAlterPublicationStmt(yyDollar[3].str, nil, yyDollar[5].list, ast.AP_DropObjects)
 		}
 	case 2860:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12455
+//line postgres.y:12466
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[1].node)
 		}
 	case 2861:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12456
+//line postgres.y:12467
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2862:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12461
+//line postgres.y:12472
 		{
 			pubTable := ast.NewPublicationTable(yyDollar[2].rangevar, yyDollar[4].node, yyDollar[3].list)
 			yyVAL.node = ast.NewPublicationObjSpecTable(ast.PUBLICATIONOBJ_TABLE, pubTable)
 		}
 	case 2863:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12466
+//line postgres.y:12477
 		{
 			yyVAL.node = ast.NewPublicationObjSpecName(ast.PUBLICATIONOBJ_TABLES_IN_SCHEMA, yyDollar[4].str)
 		}
 	case 2864:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12470
+//line postgres.y:12481
 		{
 			yyVAL.node = ast.NewPublicationObjSpec(ast.PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA)
 		}
 	case 2865:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12474
+//line postgres.y:12485
 		{
 			// If either a row filter or column list is specified, create a PublicationTable object
 			if yyDollar[2].list != nil || yyDollar[3].node != nil {
@@ -37407,7 +37418,7 @@ yydefault:
 		}
 	case 2866:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12486
+//line postgres.y:12497
 		{
 			rangeVar := makeRangeVarFromQualifiedName(yyDollar[1].str, yyDollar[2].list, -1)
 			pubTable := ast.NewPublicationTable(rangeVar, yyDollar[4].node, yyDollar[3].list)
@@ -37415,74 +37426,74 @@ yydefault:
 		}
 	case 2867:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12492
+//line postgres.y:12503
 		{
 			pubTable := ast.NewPublicationTable(yyDollar[1].rangevar, yyDollar[3].node, yyDollar[2].list)
 			yyVAL.node = ast.NewPublicationObjSpecTable(ast.PUBLICATIONOBJ_CONTINUATION, pubTable)
 		}
 	case 2868:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12497
+//line postgres.y:12508
 		{
 			yyVAL.node = ast.NewPublicationObjSpec(ast.PUBLICATIONOBJ_CONTINUATION)
 		}
 	case 2869:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12503
+//line postgres.y:12514
 		{
 			yyVAL.node = yyDollar[3].node
 		}
 	case 2870:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12504
+//line postgres.y:12515
 		{
 			yyVAL.node = nil
 		}
 	case 2871:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:12515
+//line postgres.y:12526
 		{
 			yyVAL.stmt = ast.NewCreateSubscriptionStmt(yyDollar[3].str, yyDollar[5].str, yyDollar[7].list, yyDollar[8].list)
 		}
 	case 2872:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12522
+//line postgres.y:12533
 		{
 			yyVAL.stmt = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_OPTIONS, "", nil, yyDollar[5].list)
 		}
 	case 2873:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12526
+//line postgres.y:12537
 		{
 			yyVAL.stmt = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_CONNECTION, yyDollar[5].str, nil, nil)
 		}
 	case 2874:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:12530
+//line postgres.y:12541
 		{
 			yyVAL.stmt = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_REFRESH, "", nil, yyDollar[6].list)
 		}
 	case 2875:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:12534
+//line postgres.y:12545
 		{
 			yyVAL.stmt = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_ADD_PUBLICATION, "", yyDollar[6].list, yyDollar[7].list)
 		}
 	case 2876:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:12538
+//line postgres.y:12549
 		{
 			yyVAL.stmt = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_DROP_PUBLICATION, "", yyDollar[6].list, yyDollar[7].list)
 		}
 	case 2877:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:12542
+//line postgres.y:12553
 		{
 			yyVAL.stmt = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_SET_PUBLICATION, "", yyDollar[6].list, yyDollar[7].list)
 		}
 	case 2878:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12546
+//line postgres.y:12557
 		{
 			enableOpt := ast.NewNodeList()
 			enableOpt.Append(ast.NewDefElem("enabled", ast.NewBoolean(true)))
@@ -37490,7 +37501,7 @@ yydefault:
 		}
 	case 2879:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12552
+//line postgres.y:12563
 		{
 			disableOpt := ast.NewNodeList()
 			disableOpt.Append(ast.NewDefElem("enabled", ast.NewBoolean(false)))
@@ -37498,80 +37509,80 @@ yydefault:
 		}
 	case 2880:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12558
+//line postgres.y:12569
 		{
 			yyVAL.stmt = ast.NewAlterSubscriptionStmt(yyDollar[3].str, ast.ALTER_SUBSCRIPTION_SKIP, "", nil, yyDollar[5].list)
 		}
 	case 2881:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:12571
+//line postgres.y:12582
 		{
 			yyVAL.stmt = ast.NewCreateCastStmt(yyDollar[4].typnam, yyDollar[6].typnam, yyDollar[10].objwithargs, ast.CoercionContext(yyDollar[11].ival), false)
 		}
 	case 2882:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:12575
+//line postgres.y:12586
 		{
 			yyVAL.stmt = ast.NewCreateCastStmt(yyDollar[4].typnam, yyDollar[6].typnam, nil, ast.CoercionContext(yyDollar[10].ival), false)
 		}
 	case 2883:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:12579
+//line postgres.y:12590
 		{
 			yyVAL.stmt = ast.NewCreateCastStmt(yyDollar[4].typnam, yyDollar[6].typnam, nil, ast.CoercionContext(yyDollar[10].ival), true)
 		}
 	case 2884:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12585
+//line postgres.y:12596
 		{
 			yyVAL.ival = int(ast.COERCION_IMPLICIT)
 		}
 	case 2885:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12586
+//line postgres.y:12597
 		{
 			yyVAL.ival = int(ast.COERCION_ASSIGNMENT)
 		}
 	case 2886:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12587
+//line postgres.y:12598
 		{
 			yyVAL.ival = int(ast.COERCION_EXPLICIT)
 		}
 	case 2887:
 		yyDollar = yyS[yypt-13 : yypt+1]
-//line postgres.y:12599
+//line postgres.y:12610
 		{
 			yyVAL.stmt = ast.NewCreateOpClassStmt(yyDollar[4].list, yyDollar[11].list, yyDollar[10].str, yyDollar[8].typnam, yyDollar[13].list, yyDollar[5].bval)
 		}
 	case 2888:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12605
+//line postgres.y:12616
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2889:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12606
+//line postgres.y:12617
 		{
 			yyVAL.list = nil
 		}
 	case 2890:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12610
+//line postgres.y:12621
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 2891:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12611
+//line postgres.y:12622
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2892:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12616
+//line postgres.y:12627
 		{
 			// Create ObjectWithArgs for simple operator
 			owa := ast.NewObjectWithArgs(yyDollar[3].list, nil, false, -1)
@@ -37579,105 +37590,105 @@ yydefault:
 		}
 	case 2893:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12622
+//line postgres.y:12633
 		{
 			yyVAL.node = ast.NewOpClassItemOperator(yyDollar[2].ival, yyDollar[3].objwithargs, yyDollar[4].list)
 		}
 	case 2894:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12626
+//line postgres.y:12637
 		{
 			yyVAL.node = ast.NewOpClassItemFunction(yyDollar[2].ival, yyDollar[3].objwithargs, nil)
 		}
 	case 2895:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:12630
+//line postgres.y:12641
 		{
 			yyVAL.node = ast.NewOpClassItemFunction(yyDollar[2].ival, yyDollar[6].objwithargs, yyDollar[4].list)
 		}
 	case 2896:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12634
+//line postgres.y:12645
 		{
 			yyVAL.node = ast.NewOpClassItemStorage(yyDollar[2].typnam)
 		}
 	case 2897:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12640
+//line postgres.y:12651
 		{
 			yyVAL.bval = true
 		}
 	case 2898:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12641
+//line postgres.y:12652
 		{
 			yyVAL.bval = false
 		}
 	case 2899:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12645
+//line postgres.y:12656
 		{
 			yyVAL.list = nil
 		}
 	case 2900:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12646
+//line postgres.y:12657
 		{
 			yyVAL.list = yyDollar[4].list
 		}
 	case 2901:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12647
+//line postgres.y:12658
 		{
 			yyVAL.list = nil
 		}
 	case 2902:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12651
+//line postgres.y:12662
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].typnam)
 		}
 	case 2903:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12652
+//line postgres.y:12663
 		{
 			yyDollar[1].list.Append(yyDollar[3].typnam)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2904:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:12663
+//line postgres.y:12674
 		{
 			yyVAL.stmt = ast.NewCreateOpFamilyStmt(yyDollar[4].list, yyDollar[6].str)
 		}
 	case 2905:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:12676
+//line postgres.y:12687
 		{
 			yyVAL.stmt = ast.NewAlterOpFamilyStmt(yyDollar[4].list, yyDollar[6].str, false, yyDollar[8].list)
 		}
 	case 2906:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:12680
+//line postgres.y:12691
 		{
 			yyVAL.stmt = ast.NewAlterOpFamilyStmt(yyDollar[4].list, yyDollar[6].str, true, yyDollar[8].list)
 		}
 	case 2907:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12686
+//line postgres.y:12697
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 2908:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12687
+//line postgres.y:12698
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2909:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12692
+//line postgres.y:12703
 		{
 			// Create ObjectWithArgs for operator with args
 			owa := ast.NewObjectWithArgs(nil, yyDollar[4].list, false, -1)
@@ -37685,7 +37696,7 @@ yydefault:
 		}
 	case 2910:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12698
+//line postgres.y:12709
 		{
 			// Create ObjectWithArgs for function with args
 			owa := ast.NewObjectWithArgs(nil, yyDollar[4].list, false, -1)
@@ -37693,19 +37704,19 @@ yydefault:
 		}
 	case 2911:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:12713
+//line postgres.y:12724
 		{
 			yyVAL.stmt = ast.NewCreateConversionStmt(yyDollar[4].list, yyDollar[6].str, yyDollar[8].str, yyDollar[10].list, yyDollar[2].bval)
 		}
 	case 2912:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:12726
+//line postgres.y:12737
 		{
 			yyVAL.stmt = ast.NewCreateTransformStmt(yyDollar[2].bval, yyDollar[5].typnam, yyDollar[7].str, linitial(yyDollar[9].list), lsecond(yyDollar[9].list))
 		}
 	case 2913:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:12733
+//line postgres.y:12744
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[5].objwithargs)  // fromsql
@@ -37713,7 +37724,7 @@ yydefault:
 		}
 	case 2914:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:12739
+//line postgres.y:12750
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[11].objwithargs) // fromsql
@@ -37721,7 +37732,7 @@ yydefault:
 		}
 	case 2915:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12745
+//line postgres.y:12756
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(yyDollar[5].objwithargs) // fromsql
@@ -37729,7 +37740,7 @@ yydefault:
 		}
 	case 2916:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12751
+//line postgres.y:12762
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Append(nil)                     // fromsql
@@ -37737,86 +37748,86 @@ yydefault:
 		}
 	case 2917:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:12766
+//line postgres.y:12777
 		{
 			// Parameterless CREATE LANGUAGE is now treated as CREATE EXTENSION
 			yyVAL.stmt = ast.NewCreateExtensionStmt(yyDollar[6].str, yyDollar[2].bval, nil)
 		}
 	case 2918:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:12772
+//line postgres.y:12783
 		{
 			yyVAL.stmt = ast.NewCreatePLangStmt(yyDollar[2].bval, yyDollar[6].str, yyDollar[8].list, yyDollar[9].list, yyDollar[10].list, yyDollar[3].bval)
 		}
 	case 2919:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12778
+//line postgres.y:12789
 		{
 			yyVAL.bval = true
 		}
 	case 2920:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12779
+//line postgres.y:12790
 		{
 			yyVAL.bval = false
 		}
 	case 2921:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12784
+//line postgres.y:12795
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2922:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12785
+//line postgres.y:12796
 		{
 			yyVAL.list = nil
 		}
 	case 2923:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12789
+//line postgres.y:12800
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2924:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12790
+//line postgres.y:12801
 		{
 			yyVAL.list = nil
 		}
 	case 2925:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12794
+//line postgres.y:12805
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2926:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12795
+//line postgres.y:12806
 		{
 			yyVAL.list = nil
 		}
 	case 2927:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12798
+//line postgres.y:12809
 		{
 			yyVAL.setquant = ast.SET_QUANTIFIER_ALL
 		}
 	case 2928:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12799
+//line postgres.y:12810
 		{
 			yyVAL.setquant = ast.SET_QUANTIFIER_DISTINCT
 		}
 	case 2929:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12800
+//line postgres.y:12811
 		{
 			yyVAL.setquant = ast.SET_QUANTIFIER_DEFAULT
 		}
 	case 2930:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12805
+//line postgres.y:12816
 		{
 			yyVAL.groupClause = &ast.GroupClause{
 				Distinct: yyDollar[3].setquant == ast.SET_QUANTIFIER_DISTINCT,
@@ -37825,111 +37836,111 @@ yydefault:
 		}
 	case 2931:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12812
+//line postgres.y:12823
 		{
 			yyVAL.groupClause = nil
 		}
 	case 2932:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12818
+//line postgres.y:12829
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 2933:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12819
+//line postgres.y:12830
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2934:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12823
+//line postgres.y:12834
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2935:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12824
+//line postgres.y:12835
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2936:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12825
+//line postgres.y:12836
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2937:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12826
+//line postgres.y:12837
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2938:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12827
+//line postgres.y:12838
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2939:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12832
+//line postgres.y:12843
 		{
 			yyVAL.node = ast.NewGroupingSet(ast.GROUPING_SET_EMPTY, ast.NewNodeList(), 0)
 		}
 	case 2940:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12839
+//line postgres.y:12850
 		{
 			yyVAL.node = ast.NewGroupingSet(ast.GROUPING_SET_ROLLUP, yyDollar[3].list, 0)
 		}
 	case 2941:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12846
+//line postgres.y:12857
 		{
 			yyVAL.node = ast.NewGroupingSet(ast.GROUPING_SET_CUBE, yyDollar[3].list, 0)
 		}
 	case 2942:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:12853
+//line postgres.y:12864
 		{
 			yyVAL.node = ast.NewGroupingSet(ast.GROUPING_SET_SETS, yyDollar[4].list, 0)
 		}
 	case 2943:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12862
+//line postgres.y:12873
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 2944:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12863
+//line postgres.y:12874
 		{
 			yyVAL.node = nil
 		}
 	case 2945:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12870
+//line postgres.y:12881
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 2946:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12874
+//line postgres.y:12885
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 2947:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12875
+//line postgres.y:12886
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 2948:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:12880
+//line postgres.y:12891
 		{
 			sortBy := ast.NewSortBy(yyDollar[1].node, ast.SORTBY_USING, ast.SortByNulls(yyDollar[4].ival), 0)
 			// Use qual_all_Op (NodeList) directly for UseOp
@@ -37938,39 +37949,39 @@ yydefault:
 		}
 	case 2949:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12887
+//line postgres.y:12898
 		{
 			yyVAL.node = ast.NewSortBy(yyDollar[1].node, ast.SortByDir(yyDollar[2].ival), ast.SortByNulls(yyDollar[3].ival), 0)
 		}
 	case 2950:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12898
+//line postgres.y:12909
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 2951:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12900
+//line postgres.y:12911
 		{
 			yyVAL.list = nil
 		}
 	case 2952:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12905
+//line postgres.y:12916
 		{
 			yyVAL.list = ast.NewNodeList()
 			yyVAL.list.Items = append(yyVAL.list.Items, yyDollar[1].windef)
 		}
 	case 2953:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12910
+//line postgres.y:12921
 		{
 			yyVAL.list = yyDollar[1].list
 			yyVAL.list.Items = append(yyVAL.list.Items, yyDollar[3].windef)
 		}
 	case 2954:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12918
+//line postgres.y:12929
 		{
 			n := yyDollar[3].windef
 			n.Name = yyDollar[1].str
@@ -37978,13 +37989,13 @@ yydefault:
 		}
 	case 2955:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12927
+//line postgres.y:12938
 		{
 			yyVAL.windef = yyDollar[2].windef
 		}
 	case 2956:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:12929
+//line postgres.y:12940
 		{
 			n := ast.NewWindowDef("", -1)
 			n.Refname = yyDollar[2].str
@@ -37993,13 +38004,13 @@ yydefault:
 		}
 	case 2957:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12936
+//line postgres.y:12947
 		{
 			yyVAL.windef = nil
 		}
 	case 2958:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:12941
+//line postgres.y:12952
 		{
 			n := ast.NewWindowDef("", -1)
 			n.Refname = yyDollar[2].str
@@ -38013,31 +38024,31 @@ yydefault:
 		}
 	case 2959:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12955
+//line postgres.y:12966
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 2960:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12956
+//line postgres.y:12967
 		{
 			yyVAL.str = ""
 		}
 	case 2961:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12960
+//line postgres.y:12971
 		{
 			yyVAL.list = yyDollar[3].list
 		}
 	case 2962:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12961
+//line postgres.y:12972
 		{
 			yyVAL.list = nil
 		}
 	case 2963:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12966
+//line postgres.y:12977
 		{
 			n := yyDollar[2].windef
 			n.FrameOptions |= ast.FRAMEOPTION_NONDEFAULT | ast.FRAMEOPTION_RANGE
@@ -38046,7 +38057,7 @@ yydefault:
 		}
 	case 2964:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12973
+//line postgres.y:12984
 		{
 			n := yyDollar[2].windef
 			n.FrameOptions |= ast.FRAMEOPTION_NONDEFAULT | ast.FRAMEOPTION_ROWS
@@ -38055,7 +38066,7 @@ yydefault:
 		}
 	case 2965:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:12980
+//line postgres.y:12991
 		{
 			n := yyDollar[2].windef
 			n.FrameOptions |= ast.FRAMEOPTION_NONDEFAULT | ast.FRAMEOPTION_GROUPS
@@ -38064,7 +38075,7 @@ yydefault:
 		}
 	case 2966:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:12987
+//line postgres.y:12998
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_DEFAULTS
@@ -38074,7 +38085,7 @@ yydefault:
 		}
 	case 2967:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:12998
+//line postgres.y:13009
 		{
 			n := yyDollar[1].windef
 			// reject invalid cases - these would be runtime errors in PostgreSQL
@@ -38090,7 +38101,7 @@ yydefault:
 		}
 	case 2968:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:13012
+//line postgres.y:13023
 		{
 			n1 := yyDollar[2].windef
 			n2 := yyDollar[4].windef
@@ -38124,7 +38135,7 @@ yydefault:
 		}
 	case 2969:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13047
+//line postgres.y:13058
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_START_UNBOUNDED_PRECEDING
@@ -38134,7 +38145,7 @@ yydefault:
 		}
 	case 2970:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13055
+//line postgres.y:13066
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_START_UNBOUNDED_FOLLOWING
@@ -38144,7 +38155,7 @@ yydefault:
 		}
 	case 2971:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13063
+//line postgres.y:13074
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_START_CURRENT_ROW
@@ -38154,7 +38165,7 @@ yydefault:
 		}
 	case 2972:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13071
+//line postgres.y:13082
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_START_OFFSET_PRECEDING
@@ -38164,7 +38175,7 @@ yydefault:
 		}
 	case 2973:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13079
+//line postgres.y:13090
 		{
 			n := ast.NewWindowDef("", -1)
 			n.FrameOptions = ast.FRAMEOPTION_START_OFFSET_FOLLOWING
@@ -38174,57 +38185,57 @@ yydefault:
 		}
 	case 2974:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13089
+//line postgres.y:13100
 		{
 			yyVAL.ival = ast.FRAMEOPTION_EXCLUDE_CURRENT_ROW
 		}
 	case 2975:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13090
+//line postgres.y:13101
 		{
 			yyVAL.ival = ast.FRAMEOPTION_EXCLUDE_GROUP
 		}
 	case 2976:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13091
+//line postgres.y:13102
 		{
 			yyVAL.ival = ast.FRAMEOPTION_EXCLUDE_TIES
 		}
 	case 2977:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13092
+//line postgres.y:13103
 		{
 			yyVAL.ival = 0
 		}
 	case 2978:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13093
+//line postgres.y:13104
 		{
 			yyVAL.ival = 0
 		}
 	case 2979:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13102
+//line postgres.y:13113
 		{
 			yyVAL.selectLimit = yyDollar[1].selectLimit
 			yyVAL.selectLimit.limitOffset = yyDollar[2].node
 		}
 	case 2980:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13107
+//line postgres.y:13118
 		{
 			yyVAL.selectLimit = yyDollar[2].selectLimit
 			yyVAL.selectLimit.limitOffset = yyDollar[1].node
 		}
 	case 2981:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13112
+//line postgres.y:13123
 		{
 			yyVAL.selectLimit = yyDollar[1].selectLimit
 		}
 	case 2982:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13116
+//line postgres.y:13127
 		{
 			n := &selectLimit{}
 			n.limitOffset = yyDollar[1].node
@@ -38234,19 +38245,19 @@ yydefault:
 		}
 	case 2983:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13126
+//line postgres.y:13137
 		{
 			yyVAL.selectLimit = yyDollar[1].selectLimit
 		}
 	case 2984:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13127
+//line postgres.y:13138
 		{
 			yyVAL.selectLimit = nil
 		}
 	case 2985:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13132
+//line postgres.y:13143
 		{
 			n := &selectLimit{}
 			n.limitOffset = nil
@@ -38256,7 +38267,7 @@ yydefault:
 		}
 	case 2986:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:13140
+//line postgres.y:13151
 		{
 			// Disabled because it was too confusing - PostgreSQL error
 			yylex.Error("LIMIT #,# syntax is not supported. Use separate LIMIT and OFFSET clauses.")
@@ -38264,7 +38275,7 @@ yydefault:
 		}
 	case 2987:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13147
+//line postgres.y:13158
 		{
 			n := &selectLimit{}
 			n.limitOffset = nil
@@ -38274,7 +38285,7 @@ yydefault:
 		}
 	case 2988:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:13155
+//line postgres.y:13166
 		{
 			n := &selectLimit{}
 			n.limitOffset = nil
@@ -38284,7 +38295,7 @@ yydefault:
 		}
 	case 2989:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:13163
+//line postgres.y:13174
 		{
 			n := &selectLimit{}
 			n.limitOffset = nil
@@ -38294,7 +38305,7 @@ yydefault:
 		}
 	case 2990:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13171
+//line postgres.y:13182
 		{
 			n := &selectLimit{}
 			n.limitOffset = nil
@@ -38304,93 +38315,93 @@ yydefault:
 		}
 	case 2991:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13182
+//line postgres.y:13193
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 2992:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13185
+//line postgres.y:13196
 		{
 			yyVAL.node = yyDollar[2].node
 		}
 	case 2993:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13189
+//line postgres.y:13200
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2994:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13191
+//line postgres.y:13202
 		{
 			/* LIMIT ALL is represented as a NULL constant */
 			yyVAL.node = ast.NewA_Const(ast.NewNull(), -1)
 		}
 	case 2995:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13198
+//line postgres.y:13209
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2996:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13211
+//line postgres.y:13222
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 2997:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13213
+//line postgres.y:13224
 		{
 			yyVAL.node = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("+")}}, nil, yyDollar[2].node, -1)
 		}
 	case 2998:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13217
+//line postgres.y:13228
 		{
 			// Create a unary minus expression
 			yyVAL.node = ast.NewA_Expr(ast.AEXPR_OP, &ast.NodeList{Items: []ast.Node{ast.NewString("-")}}, nil, yyDollar[2].node, -1)
 		}
 	case 2999:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13224
+//line postgres.y:13235
 		{
 			yyVAL.node = ast.NewA_Const(ast.NewInteger(yyDollar[1].ival), -1)
 		}
 	case 3000:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13225
+//line postgres.y:13236
 		{
 			yyVAL.node = ast.NewA_Const(ast.NewFloat(yyDollar[1].str), -1)
 		}
 	case 3001:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13230
+//line postgres.y:13241
 		{
 			yyVAL.ival = 0
 		}
 	case 3002:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13231
+//line postgres.y:13242
 		{
 			yyVAL.ival = 0
 		}
 	case 3003:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13235
+//line postgres.y:13246
 		{
 			yyVAL.ival = 0
 		}
 	case 3004:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13236
+//line postgres.y:13247
 		{
 			yyVAL.ival = 0
 		}
 	case 3005:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13249
+//line postgres.y:13260
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_ROLLBACK)
 			stmt.Chain = yyDollar[3].bval
@@ -38398,7 +38409,7 @@ yydefault:
 		}
 	case 3006:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13255
+//line postgres.y:13266
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_START)
 			stmt.Options = yyDollar[3].list
@@ -38406,7 +38417,7 @@ yydefault:
 		}
 	case 3007:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13261
+//line postgres.y:13272
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_COMMIT)
 			stmt.Chain = yyDollar[3].bval
@@ -38414,7 +38425,7 @@ yydefault:
 		}
 	case 3008:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13267
+//line postgres.y:13278
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_ROLLBACK)
 			stmt.Chain = yyDollar[3].bval
@@ -38422,42 +38433,42 @@ yydefault:
 		}
 	case 3009:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13273
+//line postgres.y:13284
 		{
 			stmt := ast.NewSavepointStmt(yyDollar[2].str)
 			yyVAL.stmt = stmt
 		}
 	case 3010:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13278
+//line postgres.y:13289
 		{
 			stmt := ast.NewReleaseStmt(yyDollar[3].str)
 			yyVAL.stmt = stmt
 		}
 	case 3011:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13283
+//line postgres.y:13294
 		{
 			stmt := ast.NewReleaseStmt(yyDollar[2].str)
 			yyVAL.stmt = stmt
 		}
 	case 3012:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13288
+//line postgres.y:13299
 		{
 			stmt := ast.NewRollbackToStmt(yyDollar[5].str)
 			yyVAL.stmt = stmt
 		}
 	case 3013:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:13293
+//line postgres.y:13304
 		{
 			stmt := ast.NewRollbackToStmt(yyDollar[4].str)
 			yyVAL.stmt = stmt
 		}
 	case 3014:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13298
+//line postgres.y:13309
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_PREPARE)
 			stmt.Gid = yyDollar[3].str
@@ -38465,7 +38476,7 @@ yydefault:
 		}
 	case 3015:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13304
+//line postgres.y:13315
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_COMMIT_PREPARED)
 			stmt.Gid = yyDollar[3].str
@@ -38473,7 +38484,7 @@ yydefault:
 		}
 	case 3016:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13310
+//line postgres.y:13321
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_ROLLBACK_PREPARED)
 			stmt.Gid = yyDollar[3].str
@@ -38481,7 +38492,7 @@ yydefault:
 		}
 	case 3017:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13319
+//line postgres.y:13330
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_COMMIT)
 			stmt.Chain = yyDollar[3].bval
@@ -38489,7 +38500,7 @@ yydefault:
 		}
 	case 3018:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13325
+//line postgres.y:13336
 		{
 			stmt := ast.NewTransactionStmt(ast.TRANS_STMT_BEGIN)
 			stmt.Options = yyDollar[3].list
@@ -38497,58 +38508,58 @@ yydefault:
 		}
 	case 3019:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13332
+//line postgres.y:13343
 		{
 		}
 	case 3020:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13333
+//line postgres.y:13344
 		{
 		}
 	case 3021:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13334
+//line postgres.y:13345
 		{
 		}
 	case 3022:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13338
+//line postgres.y:13349
 		{
 			yyVAL.bval = true
 		}
 	case 3023:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13339
+//line postgres.y:13350
 		{
 			yyVAL.bval = false
 		}
 	case 3024:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13340
+//line postgres.y:13351
 		{
 			yyVAL.bval = false
 		}
 	case 3025:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13353
+//line postgres.y:13364
 		{
 			yyVAL.stmt = ast.NewCreateRoleStmt(ast.ROLESTMT_ROLE, yyDollar[3].str, yyDollar[5].list)
 		}
 	case 3026:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13360
+//line postgres.y:13371
 		{
 			yyVAL.stmt = ast.NewCreateRoleStmt(ast.ROLESTMT_USER, yyDollar[3].str, yyDollar[5].list)
 		}
 	case 3027:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13367
+//line postgres.y:13378
 		{
 			yyVAL.stmt = ast.NewCreateRoleStmt(ast.ROLESTMT_GROUP, yyDollar[3].str, yyDollar[5].list)
 		}
 	case 3028:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13374
+//line postgres.y:13385
 		{
 			as := ast.NewAlterRoleStmt(yyDollar[3].rolespec, yyDollar[5].list)
 			as.Action = +1
@@ -38556,7 +38567,7 @@ yydefault:
 		}
 	case 3029:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13380
+//line postgres.y:13391
 		{
 			as := ast.NewAlterRoleStmt(yyDollar[3].rolespec, yyDollar[5].list)
 			as.Action = +1
@@ -38564,43 +38575,43 @@ yydefault:
 		}
 	case 3030:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13389
+//line postgres.y:13400
 		{
 			yyVAL.stmt = ast.NewAlterRoleSetStmt(yyDollar[3].rolespec, yyDollar[4].str, yyDollar[5].vsetstmt)
 		}
 	case 3031:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13393
+//line postgres.y:13404
 		{
 			yyVAL.stmt = ast.NewAlterRoleSetStmt(nil, yyDollar[4].str, yyDollar[5].vsetstmt)
 		}
 	case 3032:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13397
+//line postgres.y:13408
 		{
 			yyVAL.stmt = ast.NewAlterRoleSetStmt(yyDollar[3].rolespec, yyDollar[4].str, yyDollar[5].vsetstmt)
 		}
 	case 3033:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13401
+//line postgres.y:13412
 		{
 			yyVAL.stmt = ast.NewAlterRoleSetStmt(nil, yyDollar[4].str, yyDollar[5].vsetstmt)
 		}
 	case 3034:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13407
+//line postgres.y:13418
 		{
 			yyVAL.str = ""
 		}
 	case 3035:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13408
+//line postgres.y:13419
 		{
 			yyVAL.str = yyDollar[3].str
 		}
 	case 3036:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:13413
+//line postgres.y:13424
 		{
 			options := ast.NewNodeList(ast.NewDefElem("rolemembers", yyDollar[6].list))
 			stmt := ast.NewAlterRoleStmt(yyDollar[3].rolespec, options)
@@ -38609,43 +38620,43 @@ yydefault:
 		}
 	case 3037:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13423
+//line postgres.y:13434
 		{
 			yyVAL.stmt = ast.NewDropRoleStmt(yyDollar[3].list, false)
 		}
 	case 3038:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13427
+//line postgres.y:13438
 		{
 			yyVAL.stmt = ast.NewDropRoleStmt(yyDollar[5].list, true)
 		}
 	case 3039:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13431
+//line postgres.y:13442
 		{
 			yyVAL.stmt = ast.NewDropRoleStmt(yyDollar[3].list, false)
 		}
 	case 3040:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13435
+//line postgres.y:13446
 		{
 			yyVAL.stmt = ast.NewDropRoleStmt(yyDollar[5].list, true)
 		}
 	case 3041:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13439
+//line postgres.y:13450
 		{
 			yyVAL.stmt = ast.NewDropRoleStmt(yyDollar[3].list, false)
 		}
 	case 3042:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13443
+//line postgres.y:13454
 		{
 			yyVAL.stmt = ast.NewDropRoleStmt(yyDollar[5].list, true)
 		}
 	case 3043:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13451
+//line postgres.y:13462
 		{
 			if yyDollar[1].list == nil {
 				list := ast.NewNodeList()
@@ -38659,13 +38670,13 @@ yydefault:
 		}
 	case 3044:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13462
+//line postgres.y:13473
 		{
 			yyVAL.list = nil
 		}
 	case 3045:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13467
+//line postgres.y:13478
 		{
 			if yyDollar[1].list == nil {
 				list := ast.NewNodeList()
@@ -38679,80 +38690,80 @@ yydefault:
 		}
 	case 3046:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13478
+//line postgres.y:13489
 		{
 			yyVAL.list = nil
 		}
 	case 3047:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13482
+//line postgres.y:13493
 		{
 			yyVAL.defelt = yyDollar[1].defelt
 		}
 	case 3048:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13484
+//line postgres.y:13495
 		{
 			yyVAL.defelt = ast.NewDefElem("sysid", ast.NewInteger(yyDollar[2].ival))
 		}
 	case 3049:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13488
+//line postgres.y:13499
 		{
 			yyVAL.defelt = ast.NewDefElem("adminmembers", yyDollar[2].list)
 		}
 	case 3050:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13492
+//line postgres.y:13503
 		{
 			yyVAL.defelt = ast.NewDefElem("rolemembers", yyDollar[2].list)
 		}
 	case 3051:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13496
+//line postgres.y:13507
 		{
 			yyVAL.defelt = ast.NewDefElem("addroleto", yyDollar[3].list)
 		}
 	case 3052:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13500
+//line postgres.y:13511
 		{
 			yyVAL.defelt = ast.NewDefElem("addroleto", yyDollar[3].list)
 		}
 	case 3053:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13507
+//line postgres.y:13518
 		{
 			yyVAL.defelt = ast.NewDefElem("password", ast.NewString(yyDollar[2].str))
 		}
 	case 3054:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13511
+//line postgres.y:13522
 		{
 			yyVAL.defelt = ast.NewDefElem("password", nil)
 		}
 	case 3055:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13515
+//line postgres.y:13526
 		{
 			yyVAL.defelt = ast.NewDefElem("password", ast.NewString(yyDollar[3].str))
 		}
 	case 3056:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13519
+//line postgres.y:13530
 		{
 			yylex.Error("UNENCRYPTED PASSWORD is no longer supported")
 			return 1
 		}
 	case 3057:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13524
+//line postgres.y:13535
 		{
 			yyVAL.defelt = ast.NewDefElem("inherit", ast.NewBoolean(true))
 		}
 	case 3058:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13528
+//line postgres.y:13539
 		{
 			// Handle identifiers like PostgreSQL does with string comparisons
 			if yyDollar[1].str == "superuser" {
@@ -38789,37 +38800,37 @@ yydefault:
 		}
 	case 3059:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13563
+//line postgres.y:13574
 		{
 			yyVAL.defelt = ast.NewDefElem("connectionlimit", ast.NewInteger(yyDollar[3].ival))
 		}
 	case 3060:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13567
+//line postgres.y:13578
 		{
 			yyVAL.defelt = ast.NewDefElem("validUntil", ast.NewString(yyDollar[3].str))
 		}
 	case 3061:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13571
+//line postgres.y:13582
 		{
 			yyVAL.defelt = ast.NewDefElem("rolemembers", yyDollar[2].list)
 		}
 	case 3062:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13577
+//line postgres.y:13588
 		{
 			yyVAL.ival = 1
 		}
 	case 3063:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13578
+//line postgres.y:13589
 		{
 			yyVAL.ival = -1
 		}
 	case 3064:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:13590
+//line postgres.y:13601
 		{
 			n := ast.NewGrantStmt(yyDollar[4].privtarget.objtype, yyDollar[4].privtarget.objs, yyDollar[2].list, yyDollar[6].list)
 			n.Targtype = yyDollar[4].privtarget.targtype
@@ -38829,7 +38840,7 @@ yydefault:
 		}
 	case 3065:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:13602
+//line postgres.y:13613
 		{
 			n := ast.NewRevokeStmt(yyDollar[4].privtarget.objtype, yyDollar[4].privtarget.objs, yyDollar[2].list, yyDollar[6].list)
 			n.Targtype = yyDollar[4].privtarget.targtype
@@ -38839,7 +38850,7 @@ yydefault:
 		}
 	case 3066:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:13611
+//line postgres.y:13622
 		{
 			n := ast.NewRevokeStmt(yyDollar[7].privtarget.objtype, yyDollar[7].privtarget.objs, yyDollar[5].list, yyDollar[9].list)
 			n.Targtype = yyDollar[7].privtarget.targtype
@@ -38850,7 +38861,7 @@ yydefault:
 		}
 	case 3067:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13623
+//line postgres.y:13634
 		{
 			stmt := ast.NewGrantRoleStmt(yyDollar[2].list, yyDollar[4].list)
 			stmt.Grantor = yyDollar[5].rolespec
@@ -38858,7 +38869,7 @@ yydefault:
 		}
 	case 3068:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:13629
+//line postgres.y:13640
 		{
 			stmt := ast.NewGrantRoleStmtWithOptions(yyDollar[2].list, yyDollar[4].list, yyDollar[6].list)
 			stmt.Grantor = yyDollar[7].rolespec
@@ -38866,7 +38877,7 @@ yydefault:
 		}
 	case 3069:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:13638
+//line postgres.y:13649
 		{
 			stmt := ast.NewRevokeRoleStmt(yyDollar[2].list, yyDollar[4].list)
 			stmt.Grantor = yyDollar[5].rolespec
@@ -38875,7 +38886,7 @@ yydefault:
 		}
 	case 3070:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:13645
+//line postgres.y:13656
 		{
 			opt := ast.NewDefElem(yyDollar[2].str, ast.NewBoolean(false))
 			stmt := ast.NewRevokeRoleStmt(yyDollar[5].list, yyDollar[7].list)
@@ -38886,44 +38897,44 @@ yydefault:
 		}
 	case 3071:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13664
+//line postgres.y:13675
 		{
 			yyVAL.stmt = ast.NewAlterDefaultPrivilegesStmt(yyDollar[4].list, yyDollar[5].node.(*ast.GrantStmt))
 		}
 	case 3072:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13670
+//line postgres.y:13681
 		{
 			yyDollar[1].list.Append(yyDollar[2].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3073:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13671
+//line postgres.y:13682
 		{
 			yyVAL.list = ast.NewNodeList()
 		}
 	case 3074:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13676
+//line postgres.y:13687
 		{
 			yyVAL.defelt = ast.NewDefElem("schemas", yyDollar[3].list)
 		}
 	case 3075:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13680
+//line postgres.y:13691
 		{
 			yyVAL.defelt = ast.NewDefElem("roles", yyDollar[3].list)
 		}
 	case 3076:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13684
+//line postgres.y:13695
 		{
 			yyVAL.defelt = ast.NewDefElem("roles", yyDollar[3].list)
 		}
 	case 3077:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:13696
+//line postgres.y:13707
 		{
 			n := ast.NewGrantStmt(ast.ObjectType(yyDollar[4].ival), nil, yyDollar[2].list, yyDollar[6].list)
 			n.Targtype = ast.ACL_TARGET_DEFAULTS
@@ -38932,7 +38943,7 @@ yydefault:
 		}
 	case 3078:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:13704
+//line postgres.y:13715
 		{
 			n := ast.NewRevokeStmt(ast.ObjectType(yyDollar[4].ival), nil, yyDollar[2].list, yyDollar[6].list)
 			n.Targtype = ast.ACL_TARGET_DEFAULTS
@@ -38941,7 +38952,7 @@ yydefault:
 		}
 	case 3079:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:13712
+//line postgres.y:13723
 		{
 			n := ast.NewRevokeStmt(ast.ObjectType(yyDollar[7].ival), nil, yyDollar[5].list, yyDollar[9].list)
 			n.Targtype = ast.ACL_TARGET_DEFAULTS
@@ -38951,118 +38962,118 @@ yydefault:
 		}
 	case 3080:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13722
+//line postgres.y:13733
 		{
 			yyVAL.ival = int(ast.OBJECT_TABLE)
 		}
 	case 3081:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13723
+//line postgres.y:13734
 		{
 			yyVAL.ival = int(ast.OBJECT_FUNCTION)
 		}
 	case 3082:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13724
+//line postgres.y:13735
 		{
 			yyVAL.ival = int(ast.OBJECT_FUNCTION)
 		}
 	case 3083:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13725
+//line postgres.y:13736
 		{
 			yyVAL.ival = int(ast.OBJECT_SEQUENCE)
 		}
 	case 3084:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13726
+//line postgres.y:13737
 		{
 			yyVAL.ival = int(ast.OBJECT_TYPE)
 		}
 	case 3085:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13727
+//line postgres.y:13738
 		{
 			yyVAL.ival = int(ast.OBJECT_SCHEMA)
 		}
 	case 3086:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13732
+//line postgres.y:13743
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3087:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13734
+//line postgres.y:13745
 		{
 			yyVAL.list = nil
 		}
 	case 3088:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13736
+//line postgres.y:13747
 		{
 			yyVAL.list = nil
 		}
 	case 3089:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:13738
+//line postgres.y:13749
 		{
 			ap := ast.NewAccessPriv("", yyDollar[3].list)
 			yyVAL.list = ast.NewNodeList(ap)
 		}
 	case 3090:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13743
+//line postgres.y:13754
 		{
 			ap := ast.NewAccessPriv("", yyDollar[4].list)
 			yyVAL.list = ast.NewNodeList(ap)
 		}
 	case 3091:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13749
+//line postgres.y:13760
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].accesspriv)
 		}
 	case 3092:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13750
+//line postgres.y:13761
 		{
 			yyDollar[1].list.Items = append(yyDollar[1].list.Items, yyDollar[3].accesspriv)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3093:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13754
+//line postgres.y:13765
 		{
 			yyVAL.accesspriv = ast.NewAccessPriv("SELECT", yyDollar[2].list)
 		}
 	case 3094:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13758
+//line postgres.y:13769
 		{
 			yyVAL.accesspriv = ast.NewAccessPriv("REFERENCES", yyDollar[2].list)
 		}
 	case 3095:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13762
+//line postgres.y:13773
 		{
 			yyVAL.accesspriv = ast.NewAccessPriv("CREATE", yyDollar[2].list)
 		}
 	case 3096:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13766
+//line postgres.y:13777
 		{
 			yyVAL.accesspriv = ast.NewAccessPriv("ALTER SYSTEM", nil)
 		}
 	case 3097:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13770
+//line postgres.y:13781
 		{
 			yyVAL.accesspriv = ast.NewAccessPriv(yyDollar[1].str, yyDollar[2].list)
 		}
 	case 3098:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13780
+//line postgres.y:13791
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39072,7 +39083,7 @@ yydefault:
 		}
 	case 3099:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13788
+//line postgres.y:13799
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39082,7 +39093,7 @@ yydefault:
 		}
 	case 3100:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13796
+//line postgres.y:13807
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39092,7 +39103,7 @@ yydefault:
 		}
 	case 3101:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:13804
+//line postgres.y:13815
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39102,7 +39113,7 @@ yydefault:
 		}
 	case 3102:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13812
+//line postgres.y:13823
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39112,7 +39123,7 @@ yydefault:
 		}
 	case 3103:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13820
+//line postgres.y:13831
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39122,7 +39133,7 @@ yydefault:
 		}
 	case 3104:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13828
+//line postgres.y:13839
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39132,7 +39143,7 @@ yydefault:
 		}
 	case 3105:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13836
+//line postgres.y:13847
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39142,7 +39153,7 @@ yydefault:
 		}
 	case 3106:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13844
+//line postgres.y:13855
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39152,7 +39163,7 @@ yydefault:
 		}
 	case 3107:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13852
+//line postgres.y:13863
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39162,7 +39173,7 @@ yydefault:
 		}
 	case 3108:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13860
+//line postgres.y:13871
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39172,7 +39183,7 @@ yydefault:
 		}
 	case 3109:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13868
+//line postgres.y:13879
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39182,7 +39193,7 @@ yydefault:
 		}
 	case 3110:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13876
+//line postgres.y:13887
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39192,7 +39203,7 @@ yydefault:
 		}
 	case 3111:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13884
+//line postgres.y:13895
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39202,7 +39213,7 @@ yydefault:
 		}
 	case 3112:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13892
+//line postgres.y:13903
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39212,7 +39223,7 @@ yydefault:
 		}
 	case 3113:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13900
+//line postgres.y:13911
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_OBJECT,
@@ -39222,7 +39233,7 @@ yydefault:
 		}
 	case 3114:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13908
+//line postgres.y:13919
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
@@ -39232,7 +39243,7 @@ yydefault:
 		}
 	case 3115:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13916
+//line postgres.y:13927
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
@@ -39242,7 +39253,7 @@ yydefault:
 		}
 	case 3116:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13924
+//line postgres.y:13935
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
@@ -39252,7 +39263,7 @@ yydefault:
 		}
 	case 3117:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13932
+//line postgres.y:13943
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
@@ -39262,7 +39273,7 @@ yydefault:
 		}
 	case 3118:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:13940
+//line postgres.y:13951
 		{
 			yyVAL.privtarget = &PrivTarget{
 				targtype: ast.ACL_TARGET_ALL_IN_SCHEMA,
@@ -39272,348 +39283,348 @@ yydefault:
 		}
 	case 3119:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13951
+//line postgres.y:13962
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].rolespec)
 		}
 	case 3120:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13952
+//line postgres.y:13963
 		{
 			yyDollar[1].list.Items = append(yyDollar[1].list.Items, yyDollar[3].rolespec)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3121:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13956
+//line postgres.y:13967
 		{
 			yyVAL.rolespec = yyDollar[1].rolespec
 		}
 	case 3122:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13957
+//line postgres.y:13968
 		{
 			yyVAL.rolespec = yyDollar[2].rolespec
 		}
 	case 3123:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13962
+//line postgres.y:13973
 		{
 			yyVAL.bval = true
 		}
 	case 3124:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13963
+//line postgres.y:13974
 		{
 			yyVAL.bval = false
 		}
 	case 3125:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13967
+//line postgres.y:13978
 		{
 			yyDollar[1].list.Items = append(yyDollar[1].list.Items, yyDollar[3].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3126:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13968
+//line postgres.y:13979
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 3127:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:13973
+//line postgres.y:13984
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, yyDollar[2].node)
 		}
 	case 3128:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13979
+//line postgres.y:13990
 		{
 			yyVAL.node = ast.NewBoolean(true)
 		}
 	case 3129:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13980
+//line postgres.y:13991
 		{
 			yyVAL.node = ast.NewBoolean(true)
 		}
 	case 3130:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13981
+//line postgres.y:13992
 		{
 			yyVAL.node = ast.NewBoolean(false)
 		}
 	case 3131:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13984
+//line postgres.y:13995
 		{
 			yyVAL.rolespec = yyDollar[3].rolespec
 		}
 	case 3132:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:13985
+//line postgres.y:13996
 		{
 			yyVAL.rolespec = nil
 		}
 	case 3133:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:13990
+//line postgres.y:14001
 		{
 			yyVAL.list = ast.NewNodeList(ast.NewString(yyDollar[1].str))
 		}
 	case 3134:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:13994
+//line postgres.y:14005
 		{
 			yyDollar[1].list.Append(ast.NewString(yyDollar[3].str))
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3135:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14002
+//line postgres.y:14013
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 3136:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14006
+//line postgres.y:14017
 		{
 			yyVAL.str = yyDollar[1].str + "." + yyDollar[3].str
 		}
 	case 3137:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14011
+//line postgres.y:14022
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 3138:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14012
+//line postgres.y:14023
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3139:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14016
+//line postgres.y:14027
 		{
 			n := ast.NewRangeTableSample(nil, yyDollar[2].list, yyDollar[4].list, yyDollar[6].node, 0)
 			yyVAL.node = n
 		}
 	case 3140:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14024
+//line postgres.y:14035
 		{
 			yyVAL.node = yyDollar[3].node
 		}
 	case 3141:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14028
+//line postgres.y:14039
 		{
 			yyVAL.node = nil
 		}
 	case 3142:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:14042
+//line postgres.y:14053
 		{
 			n := ast.NewAlterFunctionStmt(ast.OBJECT_FUNCTION, yyDollar[3].objwithargs, yyDollar[4].list)
 			yyVAL.stmt = n
 		}
 	case 3143:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:14047
+//line postgres.y:14058
 		{
 			n := ast.NewAlterFunctionStmt(ast.OBJECT_PROCEDURE, yyDollar[3].objwithargs, yyDollar[4].list)
 			yyVAL.stmt = n
 		}
 	case 3144:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:14052
+//line postgres.y:14063
 		{
 			n := ast.NewAlterFunctionStmt(ast.OBJECT_ROUTINE, yyDollar[3].objwithargs, yyDollar[4].list)
 			yyVAL.stmt = n
 		}
 	case 3145:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14060
+//line postgres.y:14071
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 3146:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14061
+//line postgres.y:14072
 		{
 			yyDollar[1].list.Append(yyDollar[2].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3147:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14067
+//line postgres.y:14078
 		{
 			yyVAL.defelt = ast.NewDefElem("strict", ast.NewBoolean(false))
 		}
 	case 3148:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:14071
+//line postgres.y:14082
 		{
 			yyVAL.defelt = ast.NewDefElem("strict", ast.NewBoolean(true))
 		}
 	case 3149:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14075
+//line postgres.y:14086
 		{
 			yyVAL.defelt = ast.NewDefElem("strict", ast.NewBoolean(true))
 		}
 	case 3150:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14079
+//line postgres.y:14090
 		{
 			yyVAL.defelt = ast.NewDefElem("volatility", ast.NewString("immutable"))
 		}
 	case 3151:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14083
+//line postgres.y:14094
 		{
 			yyVAL.defelt = ast.NewDefElem("volatility", ast.NewString("stable"))
 		}
 	case 3152:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14087
+//line postgres.y:14098
 		{
 			yyVAL.defelt = ast.NewDefElem("volatility", ast.NewString("volatile"))
 		}
 	case 3153:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14091
+//line postgres.y:14102
 		{
 			yyVAL.defelt = ast.NewDefElem("security", ast.NewBoolean(true))
 		}
 	case 3154:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14095
+//line postgres.y:14106
 		{
 			yyVAL.defelt = ast.NewDefElem("security", ast.NewBoolean(false))
 		}
 	case 3155:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14099
+//line postgres.y:14110
 		{
 			yyVAL.defelt = ast.NewDefElem("security", ast.NewBoolean(true))
 		}
 	case 3156:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14103
+//line postgres.y:14114
 		{
 			yyVAL.defelt = ast.NewDefElem("security", ast.NewBoolean(false))
 		}
 	case 3157:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14107
+//line postgres.y:14118
 		{
 			yyVAL.defelt = ast.NewDefElem("leakproof", ast.NewBoolean(true))
 		}
 	case 3158:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14111
+//line postgres.y:14122
 		{
 			yyVAL.defelt = ast.NewDefElem("leakproof", ast.NewBoolean(false))
 		}
 	case 3159:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14115
+//line postgres.y:14126
 		{
 			yyVAL.defelt = ast.NewDefElem("cost", yyDollar[2].node)
 		}
 	case 3160:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14119
+//line postgres.y:14130
 		{
 			yyVAL.defelt = ast.NewDefElem("rows", yyDollar[2].node)
 		}
 	case 3161:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14123
+//line postgres.y:14134
 		{
 			yyVAL.defelt = ast.NewDefElem("support", yyDollar[2].list)
 		}
 	case 3162:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14127
+//line postgres.y:14138
 		{
 			/* we abuse the normal content of a DefElem here */
 			yyVAL.defelt = ast.NewDefElem("set", yyDollar[1].vsetstmt)
 		}
 	case 3163:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14132
+//line postgres.y:14143
 		{
 			yyVAL.defelt = ast.NewDefElem("parallel", ast.NewString(yyDollar[2].str))
 		}
 	case 3164:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14138
+//line postgres.y:14149
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 3165:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14139
+//line postgres.y:14150
 		{
 			yyDollar[1].list.Append(yyDollar[3].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3166:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14144
+//line postgres.y:14155
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, nil)
 		}
 	case 3167:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14148
+//line postgres.y:14159
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, yyDollar[3].node)
 		}
 	case 3168:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14152
+//line postgres.y:14163
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, nil)
 		}
 	case 3169:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14158
+//line postgres.y:14169
 		{
 			yyVAL.node = yyDollar[1].typnam
 		}
 	case 3170:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14159
+//line postgres.y:14170
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 3171:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14160
+//line postgres.y:14171
 		{
 			yyVAL.node = yyDollar[1].list
 		}
 	case 3172:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14161
+//line postgres.y:14172
 		{
 			yyVAL.node = yyDollar[1].node
 		}
 	case 3173:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14162
+//line postgres.y:14173
 		{
 			yyVAL.node = ast.NewString(yyDollar[1].str)
 		}
 	case 3176:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14173
+//line postgres.y:14184
 		{
 			n := ast.NewEmptyObjectWithArgs()
 			n.Objname = yyDollar[1].list
@@ -39623,7 +39634,7 @@ yydefault:
 		}
 	case 3177:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14186
+//line postgres.y:14197
 		{
 			n := ast.NewEmptyObjectWithArgs()
 			n.Objname = ast.NewNodeList(ast.NewString(yyDollar[1].str))
@@ -39632,7 +39643,7 @@ yydefault:
 		}
 	case 3178:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14193
+//line postgres.y:14204
 		{
 			n := ast.NewEmptyObjectWithArgs()
 			n.Objname = ast.NewNodeList(ast.NewString(yyDollar[1].str))
@@ -39641,7 +39652,7 @@ yydefault:
 		}
 	case 3179:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14200
+//line postgres.y:14211
 		{
 			n := ast.NewEmptyObjectWithArgs()
 			nameList := ast.NewNodeList(ast.NewString(yyDollar[1].str))
@@ -39655,40 +39666,40 @@ yydefault:
 		}
 	case 3180:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14214
+//line postgres.y:14225
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].objwithargs)
 		}
 	case 3181:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14216
+//line postgres.y:14227
 		{
 			yyDollar[1].list.Append(yyDollar[3].objwithargs)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3182:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14220
+//line postgres.y:14231
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].objwithargs)
 		}
 	case 3183:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14222
+//line postgres.y:14233
 		{
 			yyDollar[1].list.Append(yyDollar[3].objwithargs)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3184:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:14234
+//line postgres.y:14245
 		{
 			n := ast.NewAlterTypeStmt(yyDollar[3].list, yyDollar[6].list)
 			yyVAL.stmt = n
 		}
 	case 3185:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14242
+//line postgres.y:14253
 		{
 			relation, err := makeRangeVarFromAnyName(yyDollar[3].list, 0)
 			if err != nil {
@@ -39701,20 +39712,20 @@ yydefault:
 		}
 	case 3186:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14255
+//line postgres.y:14266
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].node)
 		}
 	case 3187:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14256
+//line postgres.y:14267
 		{
 			yyDollar[1].list.Append(yyDollar[3].node)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3188:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14262
+//line postgres.y:14273
 		{
 			n := ast.NewAlterTableCmd(ast.AT_AddColumn, "", yyDollar[3].node)
 			n.Behavior = yyDollar[4].dropBehav
@@ -39722,7 +39733,7 @@ yydefault:
 		}
 	case 3189:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14269
+//line postgres.y:14280
 		{
 			n := ast.NewAlterTableCmd(ast.AT_DropColumn, yyDollar[5].str, nil)
 			n.Behavior = yyDollar[6].dropBehav
@@ -39731,7 +39742,7 @@ yydefault:
 		}
 	case 3190:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14277
+//line postgres.y:14288
 		{
 			n := ast.NewAlterTableCmd(ast.AT_DropColumn, yyDollar[3].str, nil)
 			n.Behavior = yyDollar[4].dropBehav
@@ -39740,7 +39751,7 @@ yydefault:
 		}
 	case 3191:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14285
+//line postgres.y:14296
 		{
 			def := ast.NewColumnDef(yyDollar[3].str, yyDollar[6].typnam, -1)
 			n := ast.NewAlterTableCmd(ast.AT_AlterColumnType, yyDollar[3].str, def)
@@ -39755,91 +39766,91 @@ yydefault:
 		}
 	case 3192:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14306
+//line postgres.y:14317
 		{
 			yyVAL.ival = int(ast.CMD_SELECT)
 		}
 	case 3193:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14307
+//line postgres.y:14318
 		{
 			yyVAL.ival = int(ast.CMD_UPDATE)
 		}
 	case 3194:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14308
+//line postgres.y:14319
 		{
 			yyVAL.ival = int(ast.CMD_DELETE)
 		}
 	case 3195:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14309
+//line postgres.y:14320
 		{
 			yyVAL.ival = int(ast.CMD_INSERT)
 		}
 	case 3196:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:14319
+//line postgres.y:14330
 		{
 			yyVAL.stmt = ast.NewDeclareCursorStmt(yyDollar[2].str, yyDollar[3].ival|yyDollar[5].ival|ast.CURSOR_OPT_FAST_PLAN, yyDollar[7].stmt)
 		}
 	case 3197:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14326
+//line postgres.y:14337
 		{
 			yyVAL.ival = yyDollar[1].ival | ast.CURSOR_OPT_BINARY
 		}
 	case 3198:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14330
+//line postgres.y:14341
 		{
 			yyVAL.ival = yyDollar[1].ival | ast.CURSOR_OPT_INSENSITIVE
 		}
 	case 3199:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14334
+//line postgres.y:14345
 		{
 			yyVAL.ival = yyDollar[1].ival | ast.CURSOR_OPT_ASENSITIVE
 		}
 	case 3200:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14338
+//line postgres.y:14349
 		{
 			yyVAL.ival = yyDollar[1].ival | ast.CURSOR_OPT_SCROLL
 		}
 	case 3201:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14342
+//line postgres.y:14353
 		{
 			yyVAL.ival = yyDollar[1].ival | ast.CURSOR_OPT_NO_SCROLL
 		}
 	case 3202:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14345
+//line postgres.y:14356
 		{
 			yyVAL.ival = 0
 		}
 	case 3203:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14348
+//line postgres.y:14359
 		{
 			yyVAL.ival = ast.CURSOR_OPT_HOLD
 		}
 	case 3204:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14349
+//line postgres.y:14360
 		{
 			yyVAL.ival = 0
 		}
 	case 3205:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14350
+//line postgres.y:14361
 		{
 			yyVAL.ival = 0
 		}
 	case 3206:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14354
+//line postgres.y:14365
 		{
 			stmt := yyDollar[2].stmt.(*ast.FetchStmt)
 			stmt.IsMove = false
@@ -39847,7 +39858,7 @@ yydefault:
 		}
 	case 3207:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14360
+//line postgres.y:14371
 		{
 			stmt := yyDollar[2].stmt.(*ast.FetchStmt)
 			stmt.IsMove = true
@@ -39855,194 +39866,194 @@ yydefault:
 		}
 	case 3208:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14368
+//line postgres.y:14379
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, yyDollar[1].str, false)
 		}
 	case 3209:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14372
+//line postgres.y:14383
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, yyDollar[2].str, false)
 		}
 	case 3210:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14376
+//line postgres.y:14387
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, yyDollar[3].str, false)
 		}
 	case 3211:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14380
+//line postgres.y:14391
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_BACKWARD, 1, yyDollar[3].str, false)
 		}
 	case 3212:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14384
+//line postgres.y:14395
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_ABSOLUTE, 1, yyDollar[3].str, false)
 		}
 	case 3213:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14388
+//line postgres.y:14399
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_ABSOLUTE, -1, yyDollar[3].str, false)
 		}
 	case 3214:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14392
+//line postgres.y:14403
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_ABSOLUTE, int64(yyDollar[2].ival), yyDollar[4].str, false)
 		}
 	case 3215:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14396
+//line postgres.y:14407
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_RELATIVE, int64(yyDollar[2].ival), yyDollar[4].str, false)
 		}
 	case 3216:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14400
+//line postgres.y:14411
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_FORWARD, int64(yyDollar[1].ival), yyDollar[3].str, false)
 		}
 	case 3217:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14404
+//line postgres.y:14415
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_FORWARD, ast.FETCH_ALL, yyDollar[3].str, false)
 		}
 	case 3218:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14408
+//line postgres.y:14419
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_FORWARD, 1, yyDollar[3].str, false)
 		}
 	case 3219:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14412
+//line postgres.y:14423
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_FORWARD, int64(yyDollar[2].ival), yyDollar[4].str, false)
 		}
 	case 3220:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14416
+//line postgres.y:14427
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_FORWARD, ast.FETCH_ALL, yyDollar[4].str, false)
 		}
 	case 3221:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14420
+//line postgres.y:14431
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_BACKWARD, 1, yyDollar[3].str, false)
 		}
 	case 3222:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14424
+//line postgres.y:14435
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_BACKWARD, int64(yyDollar[2].ival), yyDollar[4].str, false)
 		}
 	case 3223:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:14428
+//line postgres.y:14439
 		{
 			yyVAL.stmt = ast.NewFetchStmt(ast.FETCH_BACKWARD, ast.FETCH_ALL, yyDollar[4].str, false)
 		}
 	case 3224:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14433
+//line postgres.y:14444
 		{
 			yyVAL.ival = 0
 		}
 	case 3225:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14434
+//line postgres.y:14445
 		{
 			yyVAL.ival = 0
 		}
 	case 3226:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14438
+//line postgres.y:14449
 		{
 			yyVAL.ival = 0
 		}
 	case 3227:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14439
+//line postgres.y:14450
 		{
 			yyVAL.ival = 0
 		}
 	case 3228:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14444
+//line postgres.y:14455
 		{
 			name := yyDollar[2].str
 			yyVAL.stmt = ast.NewClosePortalStmt(&name)
 		}
 	case 3229:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14449
+//line postgres.y:14460
 		{
 			yyVAL.stmt = ast.NewClosePortalStmt(nil)
 		}
 	case 3230:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:14461
+//line postgres.y:14472
 		{
 			yyVAL.stmt = ast.NewPrepareStmt(yyDollar[2].str, yyDollar[3].list, yyDollar[5].stmt)
 		}
 	case 3231:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14468
+//line postgres.y:14479
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 3232:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14471
+//line postgres.y:14482
 		{
 			yyVAL.list = nil
 		}
 	case 3233:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14475
+//line postgres.y:14486
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 3234:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14476
+//line postgres.y:14487
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 3235:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14477
+//line postgres.y:14488
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 3236:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14478
+//line postgres.y:14489
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 3237:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14479
+//line postgres.y:14490
 		{
 			yyVAL.stmt = yyDollar[1].stmt
 		}
 	case 3238:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14483
+//line postgres.y:14494
 		{
 			yyVAL.stmt = ast.NewExecuteStmt(yyDollar[2].str, yyDollar[3].list)
 		}
 	case 3239:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:14487
+//line postgres.y:14498
 		{
 			executeStmt := ast.NewExecuteStmt(yyDollar[7].str, yyDollar[8].list)
 			ctas := ast.NewCreateTableAsStmt(executeStmt, yyDollar[4].into, ast.OBJECT_TABLE, false, false)
@@ -40054,7 +40065,7 @@ yydefault:
 		}
 	case 3240:
 		yyDollar = yyS[yypt-12 : yypt+1]
-//line postgres.y:14497
+//line postgres.y:14508
 		{
 			executeStmt := ast.NewExecuteStmt(yyDollar[10].str, yyDollar[11].list)
 			ctas := ast.NewCreateTableAsStmt(executeStmt, yyDollar[7].into, ast.OBJECT_TABLE, false, true)
@@ -40066,92 +40077,92 @@ yydefault:
 		}
 	case 3241:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14510
+//line postgres.y:14521
 		{
 			yyVAL.list = yyDollar[2].list
 		}
 	case 3242:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14513
+//line postgres.y:14524
 		{
 			yyVAL.list = nil
 		}
 	case 3243:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14519
+//line postgres.y:14530
 		{
 			into := ast.NewIntoClause(yyDollar[1].rangevar, yyDollar[2].list, yyDollar[3].str, yyDollar[4].list, yyDollar[5].oncommit, yyDollar[6].str, nil, false, 0)
 			yyVAL.into = into
 		}
 	case 3244:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14527
+//line postgres.y:14538
 		{
 			yyVAL.stmt = ast.NewDeallocateStmt(yyDollar[2].str)
 		}
 	case 3245:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14531
+//line postgres.y:14542
 		{
 			yyVAL.stmt = ast.NewDeallocateStmt(yyDollar[3].str)
 		}
 	case 3246:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14535
+//line postgres.y:14546
 		{
 			yyVAL.stmt = ast.NewDeallocateAllStmt()
 		}
 	case 3247:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14539
+//line postgres.y:14550
 		{
 			yyVAL.stmt = ast.NewDeallocateAllStmt()
 		}
 	case 3248:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14550
+//line postgres.y:14561
 		{
 			yyVAL.stmt = ast.NewListenStmt(yyDollar[2].str)
 		}
 	case 3249:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14561
+//line postgres.y:14572
 		{
 			yyVAL.stmt = ast.NewUnlistenStmt(yyDollar[2].str)
 		}
 	case 3250:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14565
+//line postgres.y:14576
 		{
 			yyVAL.stmt = ast.NewUnlistenAllStmt()
 		}
 	case 3251:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14576
+//line postgres.y:14587
 		{
 			yyVAL.stmt = ast.NewNotifyStmt(yyDollar[2].str, yyDollar[3].str)
 		}
 	case 3252:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14586
+//line postgres.y:14597
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 3253:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14587
+//line postgres.y:14598
 		{
 			yyVAL.str = ""
 		}
 	case 3254:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14596
+//line postgres.y:14607
 		{
 			yyVAL.stmt = ast.NewLoadStmt(yyDollar[2].str)
 		}
 	case 3255:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:14607
+//line postgres.y:14618
 		{
 			stmt := ast.NewLockStmt(yyDollar[3].list, ast.LockMode(yyDollar[4].ival))
 			stmt.Nowait = yyDollar[5].bval
@@ -40159,67 +40170,67 @@ yydefault:
 		}
 	case 3256:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14619
+//line postgres.y:14630
 		{
 			yyVAL.ival = yyDollar[2].ival
 		}
 	case 3257:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14620
+//line postgres.y:14631
 		{
 			yyVAL.ival = int(ast.AccessExclusiveLock)
 		}
 	case 3258:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14624
+//line postgres.y:14635
 		{
 			yyVAL.ival = int(ast.AccessShareLock)
 		}
 	case 3259:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14625
+//line postgres.y:14636
 		{
 			yyVAL.ival = int(ast.RowShareLock)
 		}
 	case 3260:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14626
+//line postgres.y:14637
 		{
 			yyVAL.ival = int(ast.RowExclusiveLock)
 		}
 	case 3261:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14627
+//line postgres.y:14638
 		{
 			yyVAL.ival = int(ast.ShareUpdateExclusiveLock)
 		}
 	case 3262:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14628
+//line postgres.y:14639
 		{
 			yyVAL.ival = int(ast.ShareLock)
 		}
 	case 3263:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:14629
+//line postgres.y:14640
 		{
 			yyVAL.ival = int(ast.ShareRowExclusiveLock)
 		}
 	case 3264:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14630
+//line postgres.y:14641
 		{
 			yyVAL.ival = int(ast.ExclusiveLock)
 		}
 	case 3265:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14631
+//line postgres.y:14642
 		{
 			yyVAL.ival = int(ast.AccessExclusiveLock)
 		}
 	case 3266:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:14640
+//line postgres.y:14651
 		{
 			stmt := ast.NewTruncateStmt(yyDollar[3].list)
 			stmt.RestartSeqs = yyDollar[4].bval
@@ -40228,55 +40239,55 @@ yydefault:
 		}
 	case 3267:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14654
+//line postgres.y:14665
 		{
 			yyVAL.stmt = ast.NewCommentStmt(yyDollar[3].objType, yyDollar[4].list, yyDollar[6].str)
 		}
 	case 3268:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14658
+//line postgres.y:14669
 		{
 			yyVAL.stmt = ast.NewCommentStmt(ast.OBJECT_COLUMN, yyDollar[4].list, yyDollar[6].str)
 		}
 	case 3269:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14662
+//line postgres.y:14673
 		{
 			yyVAL.stmt = ast.NewCommentStmt(yyDollar[3].objType, ast.NewString(yyDollar[4].str), yyDollar[6].str)
 		}
 	case 3270:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14666
+//line postgres.y:14677
 		{
 			yyVAL.stmt = ast.NewCommentStmt(ast.OBJECT_TYPE, yyDollar[4].typnam, yyDollar[6].str)
 		}
 	case 3271:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14670
+//line postgres.y:14681
 		{
 			yyVAL.stmt = ast.NewCommentStmt(ast.OBJECT_DOMAIN, yyDollar[4].typnam, yyDollar[6].str)
 		}
 	case 3272:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14674
+//line postgres.y:14685
 		{
 			yyVAL.stmt = ast.NewCommentStmt(ast.OBJECT_AGGREGATE, yyDollar[4].objwithargs, yyDollar[6].str)
 		}
 	case 3273:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14678
+//line postgres.y:14689
 		{
 			yyVAL.stmt = ast.NewCommentStmt(ast.OBJECT_FUNCTION, yyDollar[4].objwithargs, yyDollar[6].str)
 		}
 	case 3274:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14682
+//line postgres.y:14693
 		{
 			yyVAL.stmt = ast.NewCommentStmt(ast.OBJECT_OPERATOR, yyDollar[4].objwithargs, yyDollar[6].str)
 		}
 	case 3275:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14686
+//line postgres.y:14697
 		{
 			// For table constraints, append constraint name to table name list
 			newObj := yyDollar[6].list
@@ -40285,7 +40296,7 @@ yydefault:
 		}
 	case 3276:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:14693
+//line postgres.y:14704
 		{
 			// For domain constraints, we need a list of [TypeName, constraint_name]
 			// This matches PostgreSQL's approach where they comment:
@@ -40298,7 +40309,7 @@ yydefault:
 		}
 	case 3277:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14704
+//line postgres.y:14715
 		{
 			// For object types that need name ON any_name: append name to any_name list
 			newObj := yyDollar[6].list
@@ -40307,19 +40318,19 @@ yydefault:
 		}
 	case 3278:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14711
+//line postgres.y:14722
 		{
 			yyVAL.stmt = ast.NewCommentStmt(ast.OBJECT_PROCEDURE, yyDollar[4].objwithargs, yyDollar[6].str)
 		}
 	case 3279:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14715
+//line postgres.y:14726
 		{
 			yyVAL.stmt = ast.NewCommentStmt(ast.OBJECT_ROUTINE, yyDollar[4].objwithargs, yyDollar[6].str)
 		}
 	case 3280:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:14719
+//line postgres.y:14730
 		{
 			// Transform: typename + language name
 			transformObj := ast.NewNodeList()
@@ -40329,7 +40340,7 @@ yydefault:
 		}
 	case 3281:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:14727
+//line postgres.y:14738
 		{
 			// Operator class: access method + class name
 			opclassObj := ast.NewNodeList()
@@ -40341,7 +40352,7 @@ yydefault:
 		}
 	case 3282:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:14737
+//line postgres.y:14748
 		{
 			// Operator family: access method + family name
 			opfamilyObj := ast.NewNodeList()
@@ -40353,13 +40364,13 @@ yydefault:
 		}
 	case 3283:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:14747
+//line postgres.y:14758
 		{
 			yyVAL.stmt = ast.NewCommentStmt(ast.OBJECT_LARGEOBJECT, yyDollar[5].node, yyDollar[7].str)
 		}
 	case 3284:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:14751
+//line postgres.y:14762
 		{
 			// Cast: source type + target type
 			castObj := ast.NewNodeList()
@@ -40369,140 +40380,140 @@ yydefault:
 		}
 	case 3285:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14765
+//line postgres.y:14776
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 3286:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14766
+//line postgres.y:14777
 		{
 			yyVAL.str = ""
 		}
 	case 3287:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14775
+//line postgres.y:14786
 		{
 			yyVAL.stmt = ast.NewSecLabelStmt(yyDollar[5].objType, yyDollar[6].list, yyDollar[3].str, yyDollar[8].str)
 		}
 	case 3288:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14779
+//line postgres.y:14790
 		{
 			yyVAL.stmt = ast.NewSecLabelStmt(ast.OBJECT_COLUMN, yyDollar[6].list, yyDollar[3].str, yyDollar[8].str)
 		}
 	case 3289:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14783
+//line postgres.y:14794
 		{
 			yyVAL.stmt = ast.NewSecLabelStmt(yyDollar[5].objType, ast.NewString(yyDollar[6].str), yyDollar[3].str, yyDollar[8].str)
 		}
 	case 3290:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14787
+//line postgres.y:14798
 		{
 			yyVAL.stmt = ast.NewSecLabelStmt(ast.OBJECT_TYPE, yyDollar[6].typnam, yyDollar[3].str, yyDollar[8].str)
 		}
 	case 3291:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14791
+//line postgres.y:14802
 		{
 			yyVAL.stmt = ast.NewSecLabelStmt(ast.OBJECT_DOMAIN, yyDollar[6].typnam, yyDollar[3].str, yyDollar[8].str)
 		}
 	case 3292:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14795
+//line postgres.y:14806
 		{
 			yyVAL.stmt = ast.NewSecLabelStmt(ast.OBJECT_AGGREGATE, yyDollar[6].objwithargs, yyDollar[3].str, yyDollar[8].str)
 		}
 	case 3293:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14799
+//line postgres.y:14810
 		{
 			yyVAL.stmt = ast.NewSecLabelStmt(ast.OBJECT_FUNCTION, yyDollar[6].objwithargs, yyDollar[3].str, yyDollar[8].str)
 		}
 	case 3294:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:14803
+//line postgres.y:14814
 		{
 			yyVAL.stmt = ast.NewSecLabelStmt(ast.OBJECT_LARGEOBJECT, yyDollar[7].node, yyDollar[3].str, yyDollar[9].str)
 		}
 	case 3295:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14807
+//line postgres.y:14818
 		{
 			yyVAL.stmt = ast.NewSecLabelStmt(ast.OBJECT_PROCEDURE, yyDollar[6].objwithargs, yyDollar[3].str, yyDollar[8].str)
 		}
 	case 3296:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14811
+//line postgres.y:14822
 		{
 			yyVAL.stmt = ast.NewSecLabelStmt(ast.OBJECT_ROUTINE, yyDollar[6].objwithargs, yyDollar[3].str, yyDollar[8].str)
 		}
 	case 3297:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14821
+//line postgres.y:14832
 		{
 			yyVAL.str = yyDollar[2].str
 		}
 	case 3298:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:14822
+//line postgres.y:14833
 		{
 			yyVAL.str = ""
 		}
 	case 3299:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14826
+//line postgres.y:14837
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 3300:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14827
+//line postgres.y:14838
 		{
 			yyVAL.str = ""
 		}
 	case 3301:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14836
+//line postgres.y:14847
 		{
 			yyVAL.stmt = ast.NewDoStmt(yyDollar[2].list)
 		}
 	case 3302:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14846
+//line postgres.y:14857
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 3303:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14847
+//line postgres.y:14858
 		{
 			yyVAL.list = yyDollar[1].list
 			yyVAL.list.Append(yyDollar[2].defelt)
 		}
 	case 3304:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:14852
+//line postgres.y:14863
 		{
 			yyVAL.defelt = ast.NewDefElem("as", ast.NewString(yyDollar[1].str))
 		}
 	case 3305:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14856
+//line postgres.y:14867
 		{
 			yyVAL.defelt = ast.NewDefElem("language", ast.NewString(yyDollar[2].str))
 		}
 	case 3306:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:14867
+//line postgres.y:14878
 		{
 			yyVAL.stmt = ast.NewCallStmt(yyDollar[2].node.(*ast.FuncCall))
 		}
 	case 3307:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14880
+//line postgres.y:14891
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_AGGREGATE, yyDollar[6].str)
 			stmt.Object = yyDollar[3].objwithargs
@@ -40511,7 +40522,7 @@ yydefault:
 		}
 	case 3308:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14887
+//line postgres.y:14898
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_COLLATION, yyDollar[6].str)
 			stmt.Object = yyDollar[3].list
@@ -40520,7 +40531,7 @@ yydefault:
 		}
 	case 3309:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14894
+//line postgres.y:14905
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_CONVERSION, yyDollar[6].str)
 			stmt.Object = yyDollar[3].list
@@ -40529,7 +40540,7 @@ yydefault:
 		}
 	case 3310:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14901
+//line postgres.y:14912
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_DOMAIN, yyDollar[6].str)
 			stmt.Object = yyDollar[3].list
@@ -40538,7 +40549,7 @@ yydefault:
 		}
 	case 3311:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14908
+//line postgres.y:14919
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_EXTENSION, yyDollar[6].str)
 			stmt.Object = ast.NewString(yyDollar[3].str)
@@ -40547,7 +40558,7 @@ yydefault:
 		}
 	case 3312:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14915
+//line postgres.y:14926
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_FUNCTION, yyDollar[6].str)
 			stmt.Object = yyDollar[3].objwithargs
@@ -40556,7 +40567,7 @@ yydefault:
 		}
 	case 3313:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14922
+//line postgres.y:14933
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_OPERATOR, yyDollar[6].str)
 			stmt.Object = yyDollar[3].objwithargs
@@ -40565,7 +40576,7 @@ yydefault:
 		}
 	case 3314:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:14929
+//line postgres.y:14940
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_OPCLASS, yyDollar[9].str)
 			// Create list with access method name first, then class name
@@ -40579,7 +40590,7 @@ yydefault:
 		}
 	case 3315:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:14941
+//line postgres.y:14952
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_OPFAMILY, yyDollar[9].str)
 			// Create list with access method name first, then family name
@@ -40593,7 +40604,7 @@ yydefault:
 		}
 	case 3316:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14953
+//line postgres.y:14964
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_PROCEDURE, yyDollar[6].str)
 			stmt.Object = yyDollar[3].objwithargs
@@ -40602,7 +40613,7 @@ yydefault:
 		}
 	case 3317:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14960
+//line postgres.y:14971
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_ROUTINE, yyDollar[6].str)
 			stmt.Object = yyDollar[3].objwithargs
@@ -40611,7 +40622,7 @@ yydefault:
 		}
 	case 3318:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14967
+//line postgres.y:14978
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TABLE, yyDollar[6].str)
 			stmt.Relation = yyDollar[3].rangevar
@@ -40620,7 +40631,7 @@ yydefault:
 		}
 	case 3319:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14974
+//line postgres.y:14985
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TABLE, yyDollar[8].str)
 			stmt.Relation = yyDollar[5].rangevar
@@ -40629,7 +40640,7 @@ yydefault:
 		}
 	case 3320:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:14981
+//line postgres.y:14992
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_STATISTIC_EXT, yyDollar[6].str)
 			stmt.Object = yyDollar[3].list
@@ -40638,7 +40649,7 @@ yydefault:
 		}
 	case 3321:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14988
+//line postgres.y:14999
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSPARSER, yyDollar[8].str)
 			stmt.Object = yyDollar[5].list
@@ -40647,7 +40658,7 @@ yydefault:
 		}
 	case 3322:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:14995
+//line postgres.y:15006
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSDICTIONARY, yyDollar[8].str)
 			stmt.Object = yyDollar[5].list
@@ -40656,7 +40667,7 @@ yydefault:
 		}
 	case 3323:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15002
+//line postgres.y:15013
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSTEMPLATE, yyDollar[8].str)
 			stmt.Object = yyDollar[5].list
@@ -40665,7 +40676,7 @@ yydefault:
 		}
 	case 3324:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15009
+//line postgres.y:15020
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TSCONFIGURATION, yyDollar[8].str)
 			stmt.Object = yyDollar[5].list
@@ -40674,7 +40685,7 @@ yydefault:
 		}
 	case 3325:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15016
+//line postgres.y:15027
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_SEQUENCE, yyDollar[6].str)
 			stmt.Relation = yyDollar[3].rangevar
@@ -40683,7 +40694,7 @@ yydefault:
 		}
 	case 3326:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15023
+//line postgres.y:15034
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_SEQUENCE, yyDollar[8].str)
 			stmt.Relation = yyDollar[5].rangevar
@@ -40692,7 +40703,7 @@ yydefault:
 		}
 	case 3327:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15030
+//line postgres.y:15041
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_VIEW, yyDollar[6].str)
 			stmt.Relation = yyDollar[3].rangevar
@@ -40701,7 +40712,7 @@ yydefault:
 		}
 	case 3328:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15037
+//line postgres.y:15048
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_VIEW, yyDollar[8].str)
 			stmt.Relation = yyDollar[5].rangevar
@@ -40710,7 +40721,7 @@ yydefault:
 		}
 	case 3329:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:15044
+//line postgres.y:15055
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_MATVIEW, yyDollar[7].str)
 			stmt.Relation = yyDollar[4].rangevar
@@ -40719,7 +40730,7 @@ yydefault:
 		}
 	case 3330:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:15051
+//line postgres.y:15062
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_MATVIEW, yyDollar[9].str)
 			stmt.Relation = yyDollar[6].rangevar
@@ -40728,7 +40739,7 @@ yydefault:
 		}
 	case 3331:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:15058
+//line postgres.y:15069
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_FOREIGN_TABLE, yyDollar[7].str)
 			stmt.Relation = yyDollar[4].rangevar
@@ -40737,7 +40748,7 @@ yydefault:
 		}
 	case 3332:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:15065
+//line postgres.y:15076
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_FOREIGN_TABLE, yyDollar[9].str)
 			stmt.Relation = yyDollar[6].rangevar
@@ -40746,7 +40757,7 @@ yydefault:
 		}
 	case 3333:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15072
+//line postgres.y:15083
 		{
 			stmt := ast.NewAlterObjectSchemaStmt(ast.OBJECT_TYPE, yyDollar[6].str)
 			stmt.Object = yyDollar[3].list
@@ -40755,7 +40766,7 @@ yydefault:
 		}
 	case 3334:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15088
+//line postgres.y:15099
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40766,7 +40777,7 @@ yydefault:
 		}
 	case 3335:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15097
+//line postgres.y:15108
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40777,7 +40788,7 @@ yydefault:
 		}
 	case 3336:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15106
+//line postgres.y:15117
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40788,7 +40799,7 @@ yydefault:
 		}
 	case 3337:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15115
+//line postgres.y:15126
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40799,7 +40810,7 @@ yydefault:
 		}
 	case 3338:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15124
+//line postgres.y:15135
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40810,7 +40821,7 @@ yydefault:
 		}
 	case 3339:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15133
+//line postgres.y:15144
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40821,7 +40832,7 @@ yydefault:
 		}
 	case 3340:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:15142
+//line postgres.y:15153
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40832,7 +40843,7 @@ yydefault:
 		}
 	case 3341:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:15151
+//line postgres.y:15162
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40843,7 +40854,7 @@ yydefault:
 		}
 	case 3342:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15160
+//line postgres.y:15171
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40854,7 +40865,7 @@ yydefault:
 		}
 	case 3343:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:15169
+//line postgres.y:15180
 		{
 			list := ast.NewNodeList(ast.NewString(yyDollar[6].str))
 			for _, item := range yyDollar[4].list.Items {
@@ -40869,7 +40880,7 @@ yydefault:
 		}
 	case 3344:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:15182
+//line postgres.y:15193
 		{
 			list := ast.NewNodeList(ast.NewString(yyDollar[6].str))
 			for _, item := range yyDollar[4].list.Items {
@@ -40884,7 +40895,7 @@ yydefault:
 		}
 	case 3345:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15195
+//line postgres.y:15206
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40895,7 +40906,7 @@ yydefault:
 		}
 	case 3346:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15204
+//line postgres.y:15215
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40906,7 +40917,7 @@ yydefault:
 		}
 	case 3347:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15213
+//line postgres.y:15224
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40917,7 +40928,7 @@ yydefault:
 		}
 	case 3348:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15222
+//line postgres.y:15233
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40928,7 +40939,7 @@ yydefault:
 		}
 	case 3349:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15231
+//line postgres.y:15242
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40939,7 +40950,7 @@ yydefault:
 		}
 	case 3350:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15240
+//line postgres.y:15251
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40950,7 +40961,7 @@ yydefault:
 		}
 	case 3351:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15249
+//line postgres.y:15260
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40961,7 +40972,7 @@ yydefault:
 		}
 	case 3352:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15258
+//line postgres.y:15269
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40972,7 +40983,7 @@ yydefault:
 		}
 	case 3353:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15267
+//line postgres.y:15278
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40983,7 +40994,7 @@ yydefault:
 		}
 	case 3354:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15276
+//line postgres.y:15287
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -40994,7 +41005,7 @@ yydefault:
 		}
 	case 3355:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:15285
+//line postgres.y:15296
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -41005,7 +41016,7 @@ yydefault:
 		}
 	case 3356:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15294
+//line postgres.y:15305
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -41016,7 +41027,7 @@ yydefault:
 		}
 	case 3357:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15303
+//line postgres.y:15314
 		{
 			yyVAL.stmt = &ast.AlterOwnerStmt{
 				BaseNode:   ast.BaseNode{Tag: ast.T_AlterOwnerStmt},
@@ -41027,13 +41038,13 @@ yydefault:
 		}
 	case 3358:
 		yyDollar = yyS[yypt-7 : yypt+1]
-//line postgres.y:15321
+//line postgres.y:15332
 		{
 			yyVAL.stmt = ast.NewAlterOperatorStmt(yyDollar[3].objwithargs, yyDollar[6].list)
 		}
 	case 3359:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15334
+//line postgres.y:15345
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_FUNCTION, ast.NewString(yyDollar[8].str), yyDollar[4].bval)
 			stmt.Object = yyDollar[3].objwithargs
@@ -41041,7 +41052,7 @@ yydefault:
 		}
 	case 3360:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15340
+//line postgres.y:15351
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_PROCEDURE, ast.NewString(yyDollar[8].str), yyDollar[4].bval)
 			stmt.Object = yyDollar[3].objwithargs
@@ -41049,7 +41060,7 @@ yydefault:
 		}
 	case 3361:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15346
+//line postgres.y:15357
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_ROUTINE, ast.NewString(yyDollar[8].str), yyDollar[4].bval)
 			stmt.Object = yyDollar[3].objwithargs
@@ -41057,7 +41068,7 @@ yydefault:
 		}
 	case 3362:
 		yyDollar = yyS[yypt-10 : yypt+1]
-//line postgres.y:15352
+//line postgres.y:15363
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_TRIGGER, ast.NewString(yyDollar[10].str), yyDollar[6].bval)
 			stmt.Relation = yyDollar[5].rangevar
@@ -41066,7 +41077,7 @@ yydefault:
 		}
 	case 3363:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:15359
+//line postgres.y:15370
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_MATVIEW, ast.NewString(yyDollar[9].str), yyDollar[5].bval)
 			stmt.Relation = yyDollar[4].rangevar
@@ -41074,7 +41085,7 @@ yydefault:
 		}
 	case 3364:
 		yyDollar = yyS[yypt-8 : yypt+1]
-//line postgres.y:15365
+//line postgres.y:15376
 		{
 			stmt := ast.NewAlterObjectDependsStmt(ast.OBJECT_INDEX, ast.NewString(yyDollar[8].str), yyDollar[4].bval)
 			stmt.Relation = yyDollar[3].rangevar
@@ -41082,37 +41093,37 @@ yydefault:
 		}
 	case 3365:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15372
+//line postgres.y:15383
 		{
 			yyVAL.bval = true
 		}
 	case 3366:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:15373
+//line postgres.y:15384
 		{
 			yyVAL.bval = false
 		}
 	case 3367:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:15384
+//line postgres.y:15395
 		{
 			yyVAL.stmt = ast.NewAlterCollationStmt(yyDollar[3].list)
 		}
 	case 3368:
 		yyDollar = yyS[yypt-5 : yypt+1]
-//line postgres.y:15397
+//line postgres.y:15408
 		{
 			yyVAL.stmt = ast.NewAlterDatabaseStmt(yyDollar[3].str, yyDollar[5].list)
 		}
 	case 3369:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:15401
+//line postgres.y:15412
 		{
 			yyVAL.stmt = ast.NewAlterDatabaseStmt(yyDollar[3].str, yyDollar[4].list)
 		}
 	case 3370:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15405
+//line postgres.y:15416
 		{
 			optList := ast.NewNodeList()
 			optList.Append(ast.NewDefElem("tablespace", ast.NewString(yyDollar[6].str)))
@@ -41120,114 +41131,114 @@ yydefault:
 		}
 	case 3371:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15411
+//line postgres.y:15422
 		{
 			yyVAL.stmt = ast.NewAlterDatabaseRefreshCollStmt(yyDollar[3].str)
 		}
 	case 3372:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15417
+//line postgres.y:15428
 		{
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3373:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:15418
+//line postgres.y:15429
 		{
 			yyVAL.list = nil
 		}
 	case 3374:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15422
+//line postgres.y:15433
 		{
 			yyVAL.list = ast.NewNodeList(yyDollar[1].defelt)
 		}
 	case 3375:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:15423
+//line postgres.y:15434
 		{
 			yyDollar[1].list.Append(yyDollar[2].defelt)
 			yyVAL.list = yyDollar[1].list
 		}
 	case 3376:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:15428
+//line postgres.y:15439
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, ast.NewInteger(yyDollar[3].ival))
 		}
 	case 3377:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:15432
+//line postgres.y:15443
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, ast.NewString(yyDollar[3].str))
 		}
 	case 3378:
 		yyDollar = yyS[yypt-3 : yypt+1]
-//line postgres.y:15436
+//line postgres.y:15447
 		{
 			yyVAL.defelt = ast.NewDefElem(yyDollar[1].str, nil)
 		}
 	case 3379:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15442
+//line postgres.y:15453
 		{
 			yyVAL.str = yyDollar[1].str
 		}
 	case 3380:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:15443
+//line postgres.y:15454
 		{
 			yyVAL.str = "connection_limit"
 		}
 	case 3381:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15444
+//line postgres.y:15455
 		{
 			yyVAL.str = "encoding"
 		}
 	case 3382:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15445
+//line postgres.y:15456
 		{
 			yyVAL.str = "location"
 		}
 	case 3383:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15446
+//line postgres.y:15457
 		{
 			yyVAL.str = "owner"
 		}
 	case 3384:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15447
+//line postgres.y:15458
 		{
 			yyVAL.str = "tablespace"
 		}
 	case 3385:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15448
+//line postgres.y:15459
 		{
 			yyVAL.str = "template"
 		}
 	case 3386:
 		yyDollar = yyS[yypt-1 : yypt+1]
-//line postgres.y:15451
+//line postgres.y:15462
 		{
 		}
 	case 3387:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:15452
+//line postgres.y:15463
 		{
 		}
 	case 3388:
 		yyDollar = yyS[yypt-4 : yypt+1]
-//line postgres.y:15457
+//line postgres.y:15468
 		{
 			yyVAL.stmt = ast.NewAlterDatabaseSetStmt(yyDollar[3].str, yyDollar[4].vsetstmt)
 		}
 	case 3389:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:15470
+//line postgres.y:15481
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_ADD_MAPPING, yyDollar[5].list)
 			stmt.Tokentype = yyDollar[9].list
@@ -41238,7 +41249,7 @@ yydefault:
 		}
 	case 3390:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:15479
+//line postgres.y:15490
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_ALTER_MAPPING_FOR_TOKEN, yyDollar[5].list)
 			stmt.Tokentype = yyDollar[9].list
@@ -41249,7 +41260,7 @@ yydefault:
 		}
 	case 3391:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:15488
+//line postgres.y:15499
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_REPLACE_DICT, yyDollar[5].list)
 			stmt.Tokentype = nil
@@ -41263,7 +41274,7 @@ yydefault:
 		}
 	case 3392:
 		yyDollar = yyS[yypt-13 : yypt+1]
-//line postgres.y:15500
+//line postgres.y:15511
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_REPLACE_DICT_FOR_TOKEN, yyDollar[5].list)
 			stmt.Tokentype = yyDollar[9].list
@@ -41277,7 +41288,7 @@ yydefault:
 		}
 	case 3393:
 		yyDollar = yyS[yypt-9 : yypt+1]
-//line postgres.y:15512
+//line postgres.y:15523
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_DROP_MAPPING, yyDollar[5].list)
 			stmt.Tokentype = yyDollar[9].list
@@ -41286,7 +41297,7 @@ yydefault:
 		}
 	case 3394:
 		yyDollar = yyS[yypt-11 : yypt+1]
-//line postgres.y:15519
+//line postgres.y:15530
 		{
 			stmt := ast.NewAlterTSConfigurationStmt(ast.ALTER_TSCONFIG_DROP_MAPPING, yyDollar[5].list)
 			stmt.Tokentype = yyDollar[11].list
@@ -41295,25 +41306,25 @@ yydefault:
 		}
 	case 3397:
 		yyDollar = yyS[yypt-6 : yypt+1]
-//line postgres.y:15540
+//line postgres.y:15551
 		{
 			yyVAL.stmt = ast.NewAlterTSDictionaryStmt(yyDollar[5].list, yyDollar[6].list)
 		}
 	case 3398:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:15550
+//line postgres.y:15561
 		{
 			yyVAL.bval = false
 		}
 	case 3399:
 		yyDollar = yyS[yypt-2 : yypt+1]
-//line postgres.y:15551
+//line postgres.y:15562
 		{
 			yyVAL.bval = true
 		}
 	case 3400:
 		yyDollar = yyS[yypt-0 : yypt+1]
-//line postgres.y:15552
+//line postgres.y:15563
 		{
 			yyVAL.bval = false
 		}

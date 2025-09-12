@@ -417,6 +417,23 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 			},
 		},
 		{
+			name:  "Long operators and edge cases",
+			input: "!== === == ++ ** && || !!",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{Op, "!=="},  // 3-char operator
+				{Op, "==="},  // 3-char operator
+				{Op, "=="},   // 2-char unknown operator
+				{Op, "++"},   // 2-char unknown operator
+				{Op, "**"},   // 2-char unknown operator
+				{Op, "&&"},   // 2-char unknown operator
+				{Op, "||"},   // 2-char unknown operator
+				{Op, "!!"},   // 2-char unknown operator
+			},
+		},
+		{
 			name:  "Single character operators",
 			input: "( ) [ ] , ; + - * / % ^ < > =",
 			expectedTokens: []struct {
@@ -438,6 +455,42 @@ func TestComprehensiveOperatorRecognition(t *testing.T) {
 				{TokenType('<'), "<"},
 				{TokenType('>'), ">"},
 				{TokenType('='), "="},
+			},
+		},
+		{
+			name:  "Operators that should not combine",
+			input: "! = = = < = > ! == === !===",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{Op, "!"},           // Single ! is an operator
+				{TokenType('='), "="},
+				{TokenType('='), "="},
+				{TokenType('='), "="},
+				{TokenType('<'), "<"},
+				{TokenType('='), "="},
+				{TokenType('>'), ">"},
+				{Op, "!"},
+				{Op, "=="},
+				{Op, "==="},
+				{Op, "!==="},        // 4-char operator
+			},
+		},
+		{
+			name:  "CREATE OPERATOR case",
+			input: "COMMUTATOR = ===, NEGATOR = !==",
+			expectedTokens: []struct {
+				tokenType TokenType
+				text      string
+			}{
+				{IDENT, "COMMUTATOR"},  // Token text preserves original case
+				{TokenType('='), "="},
+				{Op, "==="},
+				{TokenType(','), ","},
+				{IDENT, "NEGATOR"},      // Token text preserves original case
+				{TokenType('='), "="},
+				{Op, "!=="},
 			},
 		},
 		{

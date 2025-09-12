@@ -791,7 +791,7 @@ func (n *CommentStmt) SqlString() string {
 	}
 
 	if n.Comment != "" {
-		parts = append(parts, "'"+n.Comment+"'")
+		parts = append(parts, QuoteStringLiteral(n.Comment))
 	} else {
 		parts = append(parts, "NULL")
 	}
@@ -1192,7 +1192,7 @@ func (n *RenameStmt) SqlString() string {
 		if n.Relation != nil {
 			parts = append(parts, n.Relation.SqlString())
 		}
-		parts = append(parts, "RENAME", "COLUMN", n.Subname, "TO", n.Newname)
+		parts = append(parts, "RENAME", "COLUMN", QuoteIdentifier(n.Subname), "TO", QuoteIdentifier(n.Newname))
 	} else if n.RenameType == OBJECT_TABCONSTRAINT {
 		// Constraint rename: ALTER TABLE tablename RENAME CONSTRAINT old_name TO new_name
 		if n.Relation != nil {
@@ -1226,6 +1226,11 @@ func (n *RenameStmt) SqlString() string {
 			parts = append(parts, n.Subname)
 		}
 		parts = append(parts, "RENAME", "TO", n.Newname)
+	}
+
+	// Add CASCADE behavior if specified
+	if n.Behavior == DropCascade {
+		parts = append(parts, "CASCADE")
 	}
 
 	return strings.Join(parts, " ")

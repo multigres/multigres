@@ -289,8 +289,8 @@ func TestCommentEdgeCases(t *testing.T) {
 		{
 			name:     "star slash outside comment",
 			input:    "a */ b",
-			expected: []TokenType{IDENT, TokenType('*'), TokenType('/'), IDENT, EOF},
-			values:   []string{"a", "*", "/", "b", ""},
+			expected: []TokenType{IDENT, Op, IDENT, EOF},
+			values:   []string{"a", "*/", "b", ""},
 		},
 		{
 			name:     "comment-like content in string",

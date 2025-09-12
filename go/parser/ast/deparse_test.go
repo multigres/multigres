@@ -521,13 +521,13 @@ func TestExpressionDeparsing(t *testing.T) {
 		},
 		{
 			name:     "qualified column",
-			node:     NewColumnRef(NewString("table"), NewString("col1")),
-			expected: "table.col1",
+			node:     NewColumnRef(NewString("table_name"), NewString("col1")),
+			expected: "table_name.col1",
 		},
 		{
 			name:     "schema qualified column",
-			node:     NewColumnRef(NewString("schema"), NewString("table"), NewString("col1")),
-			expected: "schema.table.col1",
+			node:     NewColumnRef(NewString("schema"), NewString("table_name"), NewString("col1")),
+			expected: "schema.table_name.col1",
 		},
 
 		// Binary arithmetic expressions
@@ -687,17 +687,17 @@ func TestExpressionDeparsing(t *testing.T) {
 		{
 			name:     "simple type cast",
 			node:     NewTypeCast(NewA_Const(NewInteger(123), 0), NewTypeName([]string{"text"}), 0),
-			expected: "123::TEXT",
+			expected: "CAST(123 AS TEXT)",
 		},
 		{
 			name:     "column type cast",
 			node:     NewTypeCast(NewColumnRef(NewString("col")), NewTypeName([]string{"varchar"}), 0),
-			expected: "col::VARCHAR",
+			expected: "CAST(col AS VARCHAR)",
 		},
 		{
 			name:     "qualified type cast",
 			node:     NewTypeCast(NewA_Const(NewInteger(123), 0), NewTypeName([]string{"pg_catalog", "text"}), 0),
-			expected: "123::TEXT",
+			expected: "CAST(123 AS TEXT)",
 		},
 	}
 
@@ -759,7 +759,7 @@ func TestComplexExpressionDeparsing(t *testing.T) {
 			node: NewA_Expr(AEXPR_OP, &NodeList{Items: []Node{NewString("+")}},
 				NewTypeCast(NewColumnRef(NewString("a")), NewTypeName([]string{"float"}), 0),
 				NewTypeCast(NewColumnRef(NewString("b")), NewTypeName([]string{"float"}), 0), 0),
-			expected: "a::FLOAT + b::FLOAT",
+			expected: "CAST(a AS FLOAT) + CAST(b AS FLOAT)",
 		},
 	}
 

@@ -422,7 +422,7 @@ func (gs *GrantStmt) SqlString() string {
 
 	// Add privileges
 	if gs.Privileges == nil || len(gs.Privileges.Items) == 0 {
-		parts = append(parts, "ALL", "PRIVILEGES")
+		parts = append(parts, "ALL")
 	} else {
 		var privParts []string
 		for _, item := range gs.Privileges.Items {
@@ -509,7 +509,7 @@ func (gs *GrantStmt) SqlString() string {
 		var granteeNames []string
 		for _, grantee := range gs.Grantees.Items {
 			if roleSpec, ok := grantee.(*RoleSpec); ok {
-				granteeNames = append(granteeNames, roleSpec.Rolename)
+				granteeNames = append(granteeNames, roleSpec.SqlString())
 			}
 		}
 		parts = append(parts, strings.Join(granteeNames, ", "))
@@ -2005,7 +2005,7 @@ func (cs *CopyStmt) SqlString() string {
 			var columns []string
 			for _, item := range cs.Attlist.Items {
 				if str, ok := item.(*String); ok {
-					columns = append(columns, str.SVal)
+					columns = append(columns, QuoteIdentifier(str.SVal))
 				}
 			}
 			if len(columns) > 0 {
@@ -2230,7 +2230,7 @@ func (vs *VacuumStmt) SqlString() string {
 						var colNames []string
 						for _, item := range rel.VaCols.Items {
 							if str, ok := item.(*String); ok {
-								colNames = append(colNames, str.SVal)
+								colNames = append(colNames, QuoteIdentifier(str.SVal))
 							}
 						}
 						if len(colNames) > 0 {

@@ -246,25 +246,25 @@ func TestBitStrings(t *testing.T) {
 		{
 			name:      "Simple bit string",
 			input:     "B'101010'",
-			expected:  "101010",
+			expected:  "b101010",
 			tokenType: BCONST,
 		},
 		{
 			name:      "Empty bit string",
 			input:     "B''",
-			expected:  "",
+			expected:  "b",
 			tokenType: BCONST,
 		},
 		{
 			name:      "Bit string with whitespace",
 			input:     "B'1010 1010'",
-			expected:  "10101010", // Whitespace should be skipped
+			expected:  "b10101010", // Whitespace should be skipped
 			tokenType: BCONST,
 		},
 		{
 			name:      "Case insensitive B prefix",
 			input:     "b'101010'",
-			expected:  "101010",
+			expected:  "b101010",
 			tokenType: BCONST,
 		},
 	}
@@ -292,31 +292,31 @@ func TestHexStrings(t *testing.T) {
 		{
 			name:      "Simple hex string",
 			input:     "X'deadbeef'",
-			expected:  "deadbeef",
+			expected:  "xdeadbeef",
 			tokenType: XCONST,
 		},
 		{
 			name:      "Empty hex string",
 			input:     "X''",
-			expected:  "",
+			expected:  "x",
 			tokenType: XCONST,
 		},
 		{
 			name:      "Hex string with whitespace",
 			input:     "X'dead beef'",
-			expected:  "deadbeef", // Whitespace should be skipped
+			expected:  "xdeadbeef", // Whitespace should be skipped
 			tokenType: XCONST,
 		},
 		{
 			name:      "Mixed case hex string",
 			input:     "X'DeAdBeEf'",
-			expected:  "DeAdBeEf",
+			expected:  "xDeAdBeEf",
 			tokenType: XCONST,
 		},
 		{
 			name:      "Case insensitive X prefix",
 			input:     "x'deadbeef'",
-			expected:  "deadbeef",
+			expected:  "xdeadbeef",
 			tokenType: XCONST,
 		},
 	}
@@ -780,28 +780,28 @@ func TestBitStringContentExtraction(t *testing.T) {
 			name:          "Simple bit string",
 			input:         "B'1010'",
 			expectedType:  BCONST,
-			expectedValue: "1010",
+			expectedValue: "b1010",
 			expectedText:  "B'1010'",
 		},
 		{
 			name:          "Empty bit string",
 			input:         "B''",
 			expectedType:  BCONST,
-			expectedValue: "",
+			expectedValue: "b",
 			expectedText:  "B''",
 		},
 		{
 			name:          "Long bit string",
 			input:         "B'11110000101010111100'",
 			expectedType:  BCONST,
-			expectedValue: "11110000101010111100",
+			expectedValue: "b11110000101010111100",
 			expectedText:  "B'11110000101010111100'",
 		},
 		{
 			name:          "Lowercase b prefix",
 			input:         "b'0101'",
 			expectedType:  BCONST,
-			expectedValue: "0101",
+			expectedValue: "b0101",
 			expectedText:  "b'0101'",
 		},
 	}
@@ -832,35 +832,35 @@ func TestHexStringContentExtraction(t *testing.T) {
 			name:          "Simple hex string",
 			input:         "X'DEADBEEF'",
 			expectedType:  XCONST,
-			expectedValue: "DEADBEEF",
+			expectedValue: "xDEADBEEF",
 			expectedText:  "X'DEADBEEF'",
 		},
 		{
 			name:          "Empty hex string",
 			input:         "X''",
 			expectedType:  XCONST,
-			expectedValue: "",
+			expectedValue: "x",
 			expectedText:  "X''",
 		},
 		{
 			name:          "Mixed case hex",
 			input:         "X'CaFeBaBe'",
 			expectedType:  XCONST,
-			expectedValue: "CaFeBaBe",
+			expectedValue: "xCaFeBaBe",
 			expectedText:  "X'CaFeBaBe'",
 		},
 		{
 			name:          "Lowercase x prefix",
 			input:         "x'1234'",
 			expectedType:  XCONST,
-			expectedValue: "1234",
+			expectedValue: "x1234",
 			expectedText:  "x'1234'",
 		},
 		{
 			name:          "Long hex string",
 			input:         "X'0123456789ABCDEF'",
 			expectedType:  XCONST,
-			expectedValue: "0123456789ABCDEF",
+			expectedValue: "x0123456789ABCDEF",
 			expectedText:  "X'0123456789ABCDEF'",
 		},
 	}
@@ -972,9 +972,9 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		{TokenType(','), ",", "", true},
 		{SCONST, "E'extended\\\\n'", "extended\\n", false}, // Phase 2C: \\\\ becomes \\
 		{TokenType(','), ",", "", true},
-		{BCONST, "B'1010'", "1010", false},
+		{BCONST, "B'1010'", "b1010", false},
 		{TokenType(','), ",", "", true},
-		{XCONST, "X'CAFE'", "CAFE", false},
+		{XCONST, "X'CAFE'", "xCAFE", false},
 		{FROM, "FROM", "", true},   // FROM is now a keyword in Phase 3C
 		{TABLE, "table", "", true}, // TABLE is now a keyword in Phase 3C
 		{WHERE, "WHERE", "", true}, // WHERE is now a keyword in Phase 3C
@@ -984,7 +984,7 @@ func TestStringLiteralsInSQLContext(t *testing.T) {
 		{AND, "AND", "", true},                     // keyword returns parser constant
 		{DATA_P, "data", "", true},                 // identifier - skip value check for now
 		{TokenType('='), "=", "", true},
-		{XCONST, "X'deadbeef'", "deadbeef", false},
+		{XCONST, "X'deadbeef'", "xdeadbeef", false},
 	}
 
 	for i, expected := range tokens {

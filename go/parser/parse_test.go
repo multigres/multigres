@@ -106,8 +106,8 @@ func (s *parseTestSuite) testFile(filename string) {
 					// We expect a successful parse
 					require.NoError(t, err)
 					require.EqualValues(t, expectedQuery, parsedOutput)
-					require.NoError(t, secondErr)
-					require.EqualValues(t, expectedQuery, secondParsedOutput)
+					require.NoError(t, secondErr, tcase.Query)
+					require.EqualValues(t, expectedQuery, secondParsedOutput, tcase.Query)
 				}
 			})
 		}

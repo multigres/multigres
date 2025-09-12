@@ -279,6 +279,7 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 
 	// Function options
 	var asClause string
+	var additionalOptions []string
 	if cfs.Options != nil {
 		for _, item := range cfs.Options.Items {
 			if option, ok := item.(*DefElem); ok {
@@ -299,8 +300,13 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 							}
 						}
 					}
+				} else {
+					// Use SqlStringForFunction for all other options
+					optStr := option.SqlStringForFunction()
+					if optStr != "" && optStr != option.Defname {
+						additionalOptions = append(additionalOptions, optStr)
+					}
 				}
-				// Add other options as needed
 			}
 		}
 	}
@@ -308,6 +314,11 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 	// Add AS clause if we found it
 	if asClause != "" {
 		parts = append(parts, "AS", asClause)
+	}
+
+	// Add additional function options (STABLE, STRICT, etc.)
+	for _, opt := range additionalOptions {
+		parts = append(parts, opt)
 	}
 
 	// SQL body
@@ -618,20 +629,68 @@ func (oci *CreateOpClassItem) SqlString() string {
 		parts = append(parts, "STORAGE")
 	}
 
-	if oci.Number > 0 {
+	if oci.Number >= 0 && oci.ItemType != OPCLASS_ITEM_STORAGETYPE {
 		parts = append(parts, fmt.Sprintf("%d", oci.Number))
 	}
 
-	if oci.Name != nil {
-		parts = append(parts, oci.Name.SqlString())
-	}
-
-	// Add ClassArgs if present (for DROP operations like "OPERATOR 1 (int4, int4)")
-	if oci.ClassArgs != nil && oci.ClassArgs.Len() > 0 {
+	// For functions, add ClassArgs before the function name
+	if oci.ItemType == OPCLASS_ITEM_FUNCTION && oci.ClassArgs != nil && oci.ClassArgs.Len() > 0 {
 		var argStrs []string
 		for i := 0; i < oci.ClassArgs.Len(); i++ {
 			if argNode, ok := oci.ClassArgs.Items[i].(*TypeName); ok {
-				argStrs = append(argStrs, argNode.SqlString())
+				// Preserve original PostgreSQL type names
+				typeName := argNode.SqlString()
+				switch strings.ToUpper(typeName) {
+				case "INT":
+					typeName = "int4"
+				case "SMALLINT":
+					typeName = "int2"
+				case "BIGINT":
+					typeName = "int8"
+				}
+				argStrs = append(argStrs, typeName)
+			}
+		}
+		if len(argStrs) > 0 {
+			parts = append(parts, fmt.Sprintf("(%s)", strings.Join(argStrs, ", ")))
+		}
+	}
+
+	if oci.Name != nil {
+		nameStr := oci.Name.SqlString()
+		// Fix spacing and type names for operators
+		if oci.ItemType == OPCLASS_ITEM_OPERATOR {
+			// Fix type normalization in operator arguments (order matters!)
+			nameStr = strings.ReplaceAll(nameStr, "SMALLINT", "int2")
+			nameStr = strings.ReplaceAll(nameStr, "BIGINT", "int8")
+			nameStr = strings.ReplaceAll(nameStr, "INT", "int4")
+			// Add space before opening parenthesis
+			nameStr = strings.ReplaceAll(nameStr, "(", " (")
+		} else if oci.ItemType == OPCLASS_ITEM_FUNCTION {
+			// Fix type normalization in function arguments (order matters!)
+			nameStr = strings.ReplaceAll(nameStr, "SMALLINT", "int2")
+			nameStr = strings.ReplaceAll(nameStr, "BIGINT", "int8")
+			nameStr = strings.ReplaceAll(nameStr, "INT", "int4")
+		}
+		parts = append(parts, nameStr)
+	}
+
+	// Add ClassArgs if present for non-function items (like operators)
+	if oci.ItemType != OPCLASS_ITEM_FUNCTION && oci.ClassArgs != nil && oci.ClassArgs.Len() > 0 {
+		var argStrs []string
+		for i := 0; i < oci.ClassArgs.Len(); i++ {
+			if argNode, ok := oci.ClassArgs.Items[i].(*TypeName); ok {
+				// Preserve original PostgreSQL type names
+				typeName := argNode.SqlString()
+				switch strings.ToUpper(typeName) {
+				case "INT":
+					typeName = "int4"
+				case "SMALLINT":
+					typeName = "int2"
+				case "BIGINT":
+					typeName = "int8"
+				}
+				argStrs = append(argStrs, typeName)
 			}
 		}
 		if len(argStrs) > 0 {
@@ -641,6 +700,24 @@ func (oci *CreateOpClassItem) SqlString() string {
 
 	if oci.StoredType != nil {
 		parts = append(parts, oci.StoredType.SqlString())
+	}
+
+	// Add FOR ORDER BY clause if OrderFamily is present
+	if oci.OrderFamily != nil && oci.OrderFamily.Len() > 0 {
+		var orderFamilyNames []string
+		for i := 0; i < oci.OrderFamily.Len(); i++ {
+			if nameNode, ok := oci.OrderFamily.Items[i].(Node); ok {
+				// Handle String nodes specially to avoid quotes for operator family names
+				if stringNode, ok := nameNode.(*String); ok {
+					orderFamilyNames = append(orderFamilyNames, stringNode.SVal)
+				} else {
+					orderFamilyNames = append(orderFamilyNames, nameNode.SqlString())
+				}
+			}
+		}
+		if len(orderFamilyNames) > 0 {
+			parts = append(parts, "FOR ORDER BY", strings.Join(orderFamilyNames, ", "))
+		}
 	}
 
 	return strings.Join(parts, " ")
@@ -728,7 +805,14 @@ func (cocs *CreateOpClassStmt) SqlString() string {
 	parts = append(parts, "FOR TYPE")
 
 	if cocs.DataType != nil {
-		parts = append(parts, cocs.DataType.SqlString())
+		// Preserve original case for types like 'uuid'
+		typeName := cocs.DataType.SqlString()
+		// Convert back to lowercase for certain common types
+		switch strings.ToUpper(typeName) {
+		case "UUID":
+			typeName = "uuid"
+		}
+		parts = append(parts, typeName)
 	}
 
 	parts = append(parts, "USING", cocs.AmName)
@@ -745,9 +829,22 @@ func (cocs *CreateOpClassStmt) SqlString() string {
 
 	parts = append(parts, "AS")
 
-	// For simplicity, we'll add a basic operator - full implementation would iterate through Items
+	// Properly iterate through Items instead of hardcoding
 	if cocs.Items != nil && cocs.Items.Len() > 0 {
-		parts = append(parts, "OPERATOR 1 <")
+		var itemParts []string
+		for i := 0; i < cocs.Items.Len(); i++ {
+			if item, ok := cocs.Items.Items[i].(*CreateOpClassItem); ok {
+				itemStr := item.SqlString()
+				// Fix type case for storage items too
+				if item.ItemType == OPCLASS_ITEM_STORAGETYPE {
+					itemStr = strings.ReplaceAll(itemStr, "UUID", "uuid")
+				}
+				itemParts = append(itemParts, itemStr)
+			}
+		}
+		if len(itemParts) > 0 {
+			parts = append(parts, strings.Join(itemParts, ", "))
+		}
 	}
 
 	return strings.Join(parts, " ")

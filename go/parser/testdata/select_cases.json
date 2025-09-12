@@ -77,12 +77,13 @@
   },
   {
     "comment": "Type cast simple",
-    "query": "SELECT id::TEXT FROM users"
+    "query": "SELECT id::TEXT FROM users",
+    "expected": "SELECT CAST(id AS TEXT) FROM users"
   },
   {
     "comment": "Type cast expression",
     "query": "SELECT (age + 1)::varchar FROM users",
-    "expected": "SELECT (age + 1)::VARCHAR FROM users"
+    "expected": "SELECT CAST((age + 1) AS VARCHAR) FROM users"
   },
   {
     "comment": "Function no args",
@@ -671,15 +672,18 @@
   },
   {
     "comment": "SELECT with array type cast",
-    "query": "SELECT value::INT[]"
+    "query": "SELECT value::INT[]",
+    "expected": "SELECT CAST(value AS INT[])"
   },
   {
     "comment": "SELECT with bounded array type cast",
-    "query": "SELECT value::INT[5]"
+    "query": "SELECT value::INT[5]",
+    "expected": "SELECT CAST(value AS INT[5])"
   },
   {
     "comment": "SELECT with SETOF type cast",
-    "query": "SELECT value::SETOF INT"
+    "query": "SELECT value::SETOF INT",
+    "expected": "SELECT CAST(value AS SETOF INT)"
   },
   {
     "comment": "Nested arithmetic",
@@ -755,7 +759,8 @@
   },
   {
     "comment": "SELECT age::TEXT FROM users",
-    "query": "SELECT age::TEXT FROM users"
+    "query": "SELECT age::TEXT FROM users",
+    "expected": "SELECT CAST(age AS TEXT) FROM users"
   },
   {
     "comment": "SELECT length(name) FROM users",
@@ -1169,7 +1174,7 @@
   {
     "comment": "Type cast precedence",
     "query": "SELECT age::text FROM users",
-    "expected": "SELECT age::TEXT FROM users"
+    "expected": "SELECT CAST(age AS TEXT) FROM users"
   },
   {
     "comment": "Complex WHERE precedence",
@@ -1344,22 +1349,22 @@
   {
     "comment": "Type cast to text",
     "query": "SELECT id::text FROM users",
-    "expected": "SELECT id::TEXT FROM users"
+    "expected": "SELECT CAST(id AS TEXT) FROM users"
   },
   {
     "comment": "Type cast with spaces",
     "query": "SELECT id :: integer FROM users",
-    "expected": "SELECT id::INT FROM users"
+    "expected": "SELECT CAST(id AS INT) FROM users"
   },
   {
     "comment": "Complex expression cast",
     "query": "SELECT (age + 1)::varchar FROM users",
-    "expected": "SELECT (age + 1)::VARCHAR FROM users"
+    "expected": "SELECT CAST((age + 1) AS VARCHAR) FROM users"
   },
   {
     "comment": "Multiple casts",
     "query": "SELECT id::text, age::varchar FROM users",
-    "expected": "SELECT id::TEXT, age::VARCHAR FROM users"
+    "expected": "SELECT CAST(id AS TEXT), CAST(age AS VARCHAR) FROM users"
   },
   {
     "comment": "Simple column reference",
@@ -1506,37 +1511,43 @@
   },
   {
     "comment": "bit type casting",
-    "query": "SELECT value::bit"
+    "query": "SELECT value::bit",
+    "expected": "SELECT CAST(value AS bit)"
   },
   {
     "comment": "bit with length",
-    "query": "SELECT value::bit(8)"
+    "query": "SELECT value::bit(8)",
+    "expected": "SELECT CAST(value AS bit(8))"
   },
   {
     "comment": "timestamp type",
-    "query": "SELECT value::TIMESTAMP"
+    "query": "SELECT value::TIMESTAMP",
+    "expected": "SELECT CAST(value AS TIMESTAMP)"
   },
   {
     "comment": "timestamp with precision",
     "query": "SELECT value::timestamp(6)",
-    "expected": "SELECT value::TIMESTAMP(6)"
+    "expected": "SELECT CAST(value AS TIMESTAMP(6))"
   },
   {
     "comment": "timestamptz type",
     "query": "SELECT value::timestamptz",
-    "expected": "SELECT value::TIMESTAMP WITH TIME ZONE"
+    "expected": "SELECT CAST(value AS TIMESTAMP WITH TIME ZONE)"
   },
   {
     "comment": "date type",
-    "query": "SELECT value::DATE"
+    "query": "SELECT value::DATE",
+    "expected": "SELECT CAST(value AS DATE)"
   },
   {
     "comment": "time type",
-    "query": "SELECT value::TIME"
+    "query": "SELECT value::TIME",
+    "expected": "SELECT CAST(value AS TIME)"
   },
   {
     "comment": "interval type",
-    "query": "SELECT value::INTERVAL"
+    "query": "SELECT value::INTERVAL",
+    "expected": "SELECT CAST(value AS INTERVAL)"
   },
   {
     "comment": "select all",

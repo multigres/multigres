@@ -209,6 +209,25 @@ func (ps *PartitionSpec) String() string {
 	return fmt.Sprintf("PartitionSpec(PARTITION BY %s, %d params)", ps.Strategy, count)
 }
 
+// SqlString returns the SQL representation of the PartitionSpec
+func (ps *PartitionSpec) SqlString() string {
+	parts := []string{"PARTITION BY", string(ps.Strategy)}
+	
+	if ps.PartParams != nil && ps.PartParams.Len() > 0 {
+		var paramStrs []string
+		for _, param := range ps.PartParams.Items {
+			if param != nil {
+				paramStrs = append(paramStrs, param.SqlString())
+			}
+		}
+		if len(paramStrs) > 0 {
+			parts = append(parts, "("+strings.Join(paramStrs, ", ")+")")
+		}
+	}
+	
+	return strings.Join(parts, " ")
+}
+
 // PartitionBoundSpec represents partition boundary specifications.
 // This defines the actual bounds for individual partitions.
 // Ported from postgres/src/include/nodes/parsenodes.h:896

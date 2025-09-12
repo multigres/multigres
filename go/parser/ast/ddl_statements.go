@@ -642,7 +642,7 @@ func nodeListToStrings(nodeList *NodeList) []string {
 	var names []string
 	for _, item := range nodeList.Items {
 		if str, ok := item.(*String); ok {
-			names = append(names, str.SVal)
+			names = append(names, QuoteIdentifier(str.SVal))
 		}
 	}
 	return names
@@ -720,7 +720,9 @@ func normalizeTypeName(typeName string) string {
 		return "FLOAT"
 	case "float4", "real":
 		return "REAL"
-	case "float8", "double precision":
+	case "float8":
+		return "FLOAT8"
+	case "double precision":
 		return "DOUBLE PRECISION"
 	case "bool", "boolean":
 		return "BOOLEAN"
@@ -847,16 +849,28 @@ func (c *CollateClause) String() string {
 
 // SqlString generates SQL representation of a COLLATE clause
 func (c *CollateClause) SqlString() string {
+	var parts []string
+
+	// Add the expression if present
+	if c.Arg != nil {
+		parts = append(parts, c.Arg.SqlString())
+	}
+
+	// Add COLLATE and collation name
 	if c.Collname != nil && c.Collname.Len() > 0 {
 		collNames := make([]string, 0, c.Collname.Len())
 		for _, item := range c.Collname.Items {
 			if strNode, ok := item.(*String); ok {
-				collNames = append(collNames, strNode.SVal)
+				// Use QuoteIdentifier to properly handle identifier quoting
+				collNames = append(collNames, QuoteIdentifier(strNode.SVal))
 			}
 		}
-		return strings.Join(collNames, ".")
+		if len(collNames) > 0 {
+			parts = append(parts, "COLLATE", strings.Join(collNames, "."))
+		}
 	}
-	return ""
+
+	return strings.Join(parts, " ")
 }
 
 // ==============================================================================
@@ -1032,8 +1046,9 @@ type Constraint struct {
 // NewConstraint creates a new Constraint node.
 func NewConstraint(contype ConstrType) *Constraint {
 	return &Constraint{
-		BaseNode: BaseNode{Tag: T_Constraint},
-		Contype:  contype,
+		BaseNode:       BaseNode{Tag: T_Constraint},
+		Contype:        contype,
+		InitiallyValid: true, // Constraints are valid by default unless explicitly marked NOT VALID
 	}
 }
 
@@ -1068,15 +1083,29 @@ func (c *Constraint) SqlString() string {
 		// TODO: Add sequence options if c.Options is not nil
 		return result
 	case CONSTR_PRIMARY:
-		result := "PRIMARY KEY"
+		result := ""
+		if c.Conname != "" {
+			result = "CONSTRAINT " + c.Conname + " "
+		}
+		result += "PRIMARY KEY"
 		if c.Keys != nil && c.Keys.Len() > 0 {
 			result += " (" + strings.Join(nodeListToStrings(c.Keys), ", ") + ")"
 		}
+		if c.Indexname != "" {
+			result += " USING INDEX " + QuoteIdentifier(c.Indexname)
+		}
 		return result
 	case CONSTR_UNIQUE:
-		result := "UNIQUE"
+		result := ""
+		if c.Conname != "" {
+			result = "CONSTRAINT " + c.Conname + " "
+		}
+		result += "UNIQUE"
 		if c.Keys != nil && c.Keys.Len() > 0 {
 			result += " (" + strings.Join(nodeListToStrings(c.Keys), ", ") + ")"
+		}
+		if c.Indexname != "" {
+			result += " USING INDEX " + QuoteIdentifier(c.Indexname)
 		}
 		return result
 	case CONSTR_CHECK:
@@ -1088,15 +1117,30 @@ func (c *Constraint) SqlString() string {
 		if c.RawExpr != nil {
 			result += " (" + c.RawExpr.SqlString() + ")"
 		}
+
+		// Add NO INHERIT if specified
+		if c.IsNoInherit {
+			result += " NO INHERIT"
+		}
+
+		// Add NOT VALID if specified (InitiallyValid = false means NOT VALID)
+		if !c.InitiallyValid {
+			result += " NOT VALID"
+		}
+
 		return result
 	case CONSTR_FOREIGN:
 		result := ""
+		if c.Conname != "" {
+			result = "CONSTRAINT " + c.Conname + " "
+		}
+
 		// For column-level constraints, don't include "FOREIGN KEY"
 		// For table-level constraints, include it
 		if c.FkAttrs != nil && c.FkAttrs.Len() > 0 {
-			result = "FOREIGN KEY (" + strings.Join(nodeListToStrings(c.FkAttrs), ", ") + ")"
+			result += "FOREIGN KEY (" + strings.Join(nodeListToStrings(c.FkAttrs), ", ") + ")"
 		} else {
-			result = "REFERENCES"
+			result += "REFERENCES"
 		}
 		if c.Pktable != nil {
 			if c.FkAttrs != nil && c.FkAttrs.Len() > 0 {
@@ -1110,19 +1154,6 @@ func (c *Constraint) SqlString() string {
 		}
 
 		// Add foreign key actions (only if explicitly set and not default NO ACTION)
-		if c.FkUpdAction != 0 && c.FkUpdAction != FKCONSTR_ACTION_NOACTION {
-			switch c.FkUpdAction {
-			case FKCONSTR_ACTION_RESTRICT:
-				result += " ON UPDATE RESTRICT"
-			case FKCONSTR_ACTION_CASCADE:
-				result += " ON UPDATE CASCADE"
-			case FKCONSTR_ACTION_SETNULL:
-				result += " ON UPDATE SET NULL"
-			case FKCONSTR_ACTION_SETDEFAULT:
-				result += " ON UPDATE SET DEFAULT"
-			}
-		}
-
 		if c.FkDelAction != 0 && c.FkDelAction != FKCONSTR_ACTION_NOACTION {
 			switch c.FkDelAction {
 			case FKCONSTR_ACTION_RESTRICT:
@@ -1140,6 +1171,85 @@ func (c *Constraint) SqlString() string {
 					result += " (" + strings.Join(nodeListToStrings(c.FkDelSetCols), ", ") + ")"
 				}
 			}
+		}
+
+		if c.FkUpdAction != 0 && c.FkUpdAction != FKCONSTR_ACTION_NOACTION {
+			switch c.FkUpdAction {
+			case FKCONSTR_ACTION_RESTRICT:
+				result += " ON UPDATE RESTRICT"
+			case FKCONSTR_ACTION_CASCADE:
+				result += " ON UPDATE CASCADE"
+			case FKCONSTR_ACTION_SETNULL:
+				result += " ON UPDATE SET NULL"
+			case FKCONSTR_ACTION_SETDEFAULT:
+				result += " ON UPDATE SET DEFAULT"
+			}
+		}
+
+		// Add MATCH clause if explicitly specified (non-zero and not default SIMPLE)
+		if c.FkMatchtype != 0 && c.FkMatchtype != FKCONSTR_MATCH_SIMPLE {
+			switch c.FkMatchtype {
+			case FKCONSTR_MATCH_FULL:
+				result += " MATCH FULL"
+			case FKCONSTR_MATCH_PARTIAL:
+				result += " MATCH PARTIAL"
+			}
+		}
+
+		// Add DEFERRABLE and INITIALLY DEFERRED attributes
+		if c.Deferrable {
+			result += " DEFERRABLE"
+			if c.Initdeferred {
+				result += " INITIALLY DEFERRED"
+			} else {
+				result += " INITIALLY IMMEDIATE"
+			}
+		}
+
+		// Add NOT VALID if specified (InitiallyValid = false means NOT VALID)
+		if !c.InitiallyValid {
+			result += " NOT VALID"
+		}
+
+		return result
+	case CONSTR_EXCLUSION:
+		result := ""
+		if c.Conname != "" {
+			result = "CONSTRAINT " + c.Conname + " "
+		}
+		result += "EXCLUDE"
+
+		// Add access method if specified
+		if c.AccessMethod != "" {
+			result += " USING " + c.AccessMethod
+		}
+
+		// Add exclusion elements (column WITH operator pairs)
+		if c.Exclusions != nil && c.Exclusions.Len() > 0 {
+			var exclusionParts []string
+			for _, item := range c.Exclusions.Items {
+				if nodeList, ok := item.(*NodeList); ok && nodeList.Len() >= 2 {
+					// Each exclusion is a pair: (IndexElem, operator name)
+					if indexElem := nodeList.Items[0]; indexElem != nil {
+						elemStr := indexElem.SqlString()
+						if operList, ok := nodeList.Items[1].(*NodeList); ok && operList.Len() > 0 {
+							// Get the operator
+							if operStr, ok := operList.Items[0].(*String); ok {
+								elemStr += " WITH " + operStr.SVal
+							}
+						}
+						exclusionParts = append(exclusionParts, elemStr)
+					}
+				}
+			}
+			if len(exclusionParts) > 0 {
+				result += " (" + strings.Join(exclusionParts, ", ") + ")"
+			}
+		}
+
+		// Add WHERE clause if specified
+		if c.WhereClause != nil {
+			result += " WHERE " + c.WhereClause.SqlString()
 		}
 
 		return result
@@ -1416,19 +1526,32 @@ func (a *AlterTableCmd) SqlString() string {
 		if a.MissingOk {
 			parts = append(parts, "IF EXISTS")
 		}
-		parts = append(parts, a.Name)
+		parts = append(parts, QuoteIdentifier(a.Name))
 		if a.Behavior == DropCascade {
 			parts = append(parts, "CASCADE")
 		}
 
 	case AT_AlterColumnType:
-		parts = append(parts, "ALTER COLUMN", a.Name, "TYPE")
-		if a.Def != nil {
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "TYPE")
+		if colDef, ok := a.Def.(*ColumnDef); ok && colDef != nil {
+			// For ALTER COLUMN TYPE, we need to handle the type and USING clause specially
+			if colDef.TypeName != nil {
+				parts = append(parts, colDef.TypeName.SqlString())
+			}
+			// Add USING clause if specified (stored in RawDefault for ALTER COLUMN TYPE)
+			if colDef.RawDefault != nil {
+				parts = append(parts, "USING", colDef.RawDefault.SqlString())
+			}
+			// Add collation if specified
+			if colDef.Collclause != nil {
+				parts = append(parts, colDef.Collclause.SqlString())
+			}
+		} else if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
 
 	case AT_ColumnDefault:
-		parts = append(parts, "ALTER COLUMN", a.Name)
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name))
 		if a.Def != nil {
 			parts = append(parts, "SET DEFAULT", a.Def.SqlString())
 		} else {
@@ -1436,25 +1559,31 @@ func (a *AlterTableCmd) SqlString() string {
 		}
 
 	case AT_SetNotNull:
-		parts = append(parts, "ALTER COLUMN", a.Name, "SET NOT NULL")
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "SET NOT NULL")
 
 	case AT_DropNotNull:
-		parts = append(parts, "ALTER COLUMN", a.Name, "DROP NOT NULL")
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "DROP NOT NULL")
 
 	case AT_SetStatistics:
-		parts = append(parts, "ALTER COLUMN", a.Name, "SET STATISTICS")
+		parts = append(parts, "ALTER COLUMN")
+		if a.Name != "" {
+			parts = append(parts, QuoteIdentifier(a.Name))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d", a.Num))
+		}
+		parts = append(parts, "SET STATISTICS")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
 
 	case AT_SetExpression:
-		parts = append(parts, "ALTER COLUMN", a.Name, "SET EXPRESSION AS")
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "SET EXPRESSION AS")
 		if a.Def != nil {
 			parts = append(parts, "(", a.Def.SqlString(), ")")
 		}
 
 	case AT_DropExpression:
-		parts = append(parts, "ALTER COLUMN", a.Name, "DROP EXPRESSION")
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "DROP EXPRESSION")
 		if a.MissingOk {
 			parts = append(parts, "IF EXISTS")
 		}
@@ -1462,12 +1591,8 @@ func (a *AlterTableCmd) SqlString() string {
 	case AT_AddConstraint:
 		parts = append(parts, "ADD")
 		if a.Def != nil {
-			// Add CONSTRAINT keyword and name if it's a named constraint
-			if constraint, ok := a.Def.(*Constraint); ok && constraint.Conname != "" {
-				parts = append(parts, "CONSTRAINT", constraint.Conname, constraint.SqlString())
-			} else {
-				parts = append(parts, a.Def.SqlString())
-			}
+			// The constraint SqlString already includes CONSTRAINT keyword and name
+			parts = append(parts, a.Def.SqlString())
 		}
 
 	case AT_DropConstraint:
@@ -1475,40 +1600,45 @@ func (a *AlterTableCmd) SqlString() string {
 		if a.MissingOk {
 			parts = append(parts, "IF EXISTS")
 		}
-		parts = append(parts, a.Name)
+		parts = append(parts, QuoteIdentifier(a.Name))
 		if a.Behavior == DropCascade {
 			parts = append(parts, "CASCADE")
 		}
 
 	case AT_ValidateConstraint:
-		parts = append(parts, "VALIDATE CONSTRAINT", a.Name)
+		parts = append(parts, "VALIDATE CONSTRAINT", QuoteIdentifier(a.Name))
 
 	case AT_SetStorage:
-		parts = append(parts, "ALTER COLUMN", a.Name, "SET STORAGE")
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "SET STORAGE")
 		if a.Def != nil {
-			parts = append(parts, a.Def.SqlString())
+			// For storage modes, we want an identifier, not a quoted string literal
+			if str, ok := a.Def.(*String); ok {
+				parts = append(parts, QuoteIdentifier(str.SVal))
+			} else {
+				parts = append(parts, a.Def.SqlString())
+			}
 		}
 
 	case AT_SetCompression:
-		parts = append(parts, "ALTER COLUMN", a.Name, "SET COMPRESSION")
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "SET COMPRESSION")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
 
 	case AT_SetOptions:
-		parts = append(parts, "ALTER COLUMN", a.Name, "SET")
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "SET")
 		if a.Def != nil {
-			parts = append(parts, a.Def.SqlString())
+			parts = append(parts, "("+a.Def.SqlString()+")")
 		}
 
 	case AT_ResetOptions:
-		parts = append(parts, "ALTER COLUMN", a.Name, "RESET")
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "RESET")
 		if a.Def != nil {
-			parts = append(parts, a.Def.SqlString())
+			parts = append(parts, "("+a.Def.SqlString()+")")
 		}
 
 	case AT_ClusterOn:
-		parts = append(parts, "CLUSTER ON", a.Name)
+		parts = append(parts, "CLUSTER ON", QuoteIdentifier(a.Name))
 
 	case AT_DropCluster:
 		parts = append(parts, "SET WITHOUT CLUSTER")
@@ -1520,7 +1650,7 @@ func (a *AlterTableCmd) SqlString() string {
 		parts = append(parts, "SET UNLOGGED")
 
 	case AT_SetTableSpace:
-		parts = append(parts, "SET TABLESPACE", a.Name)
+		parts = append(parts, "SET TABLESPACE", QuoteIdentifier(a.Name))
 
 	case AT_ChangeOwner:
 		parts = append(parts, "OWNER TO")
@@ -1561,16 +1691,80 @@ func (a *AlterTableCmd) SqlString() string {
 		}
 
 	case AT_AddIdentity:
-		parts = append(parts, "ALTER COLUMN", a.Name, "ADD")
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "ADD")
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
+
+	case AT_ReplicaIdentity:
+		if a.Def != nil {
+			parts = append(parts, a.Def.SqlString())
+		} else if a.Name != "" {
+			parts = append(parts, "REPLICA IDENTITY USING INDEX", a.Name)
+		} else {
+			parts = append(parts, "REPLICA IDENTITY")
+		}
+
+	case AT_AlterConstraint:
+		parts = append(parts, "ALTER CONSTRAINT")
+		if constraint, ok := a.Def.(*Constraint); ok && constraint != nil {
+			if constraint.Conname != "" {
+				parts = append(parts, constraint.Conname)
+			}
+			// Add DEFERRABLE and INITIALLY DEFERRED attributes
+			if constraint.Deferrable {
+				parts = append(parts, "DEFERRABLE")
+				if constraint.Initdeferred {
+					parts = append(parts, "INITIALLY DEFERRED")
+				} else {
+					parts = append(parts, "INITIALLY IMMEDIATE")
+				}
+			} else {
+				parts = append(parts, "NOT DEFERRABLE")
+			}
+		}
+
+	case AT_AddInherit:
+		parts = append(parts, "INHERIT")
+		if rangeVar, ok := a.Def.(*RangeVar); ok && rangeVar != nil {
+			parts = append(parts, rangeVar.SqlString())
+		}
+
+	case AT_DropInherit:
+		parts = append(parts, "NO INHERIT")
+		if rangeVar, ok := a.Def.(*RangeVar); ok && rangeVar != nil {
+			parts = append(parts, rangeVar.SqlString())
+		}
+
+	case AT_AddOf:
+		parts = append(parts, "OF")
+		if a.Def != nil {
+			parts = append(parts, a.Def.SqlString())
+		}
+
+	case AT_DropOf:
+		parts = append(parts, "NOT OF")
+
+	case AT_SetRelOptions:
+		parts = append(parts, "SET")
+		if a.Def != nil {
+			parts = append(parts, "("+a.Def.SqlString()+")")
+		}
+
+	case AT_ResetRelOptions:
+		parts = append(parts, "RESET")
+		if a.Def != nil {
+			parts = append(parts, "("+a.Def.SqlString()+")")
+		}
+
+	case AT_DropOids:
+		parts = append(parts, "SET WITHOUT OIDS")
 
 	default:
 		// Fallback for unhandled subtypes
 		parts = append(parts, fmt.Sprintf("/* %s */", a.Subtype.String()))
 		if a.Name != "" {
-			parts = append(parts, a.Name)
+			parts = append(parts, QuoteIdentifier(a.Name))
 		}
 	}
 
@@ -1590,19 +1784,23 @@ func (a *AlterTableCmd) SqlStringForCompositeType() string {
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
 		}
+		// Add CASCADE behavior if specified
+		if a.Behavior == DropCascade {
+			parts = append(parts, "CASCADE")
+		}
 
 	case AT_DropColumn:
 		parts = append(parts, "DROP ATTRIBUTE")
 		if a.MissingOk {
 			parts = append(parts, "IF EXISTS")
 		}
-		parts = append(parts, a.Name)
+		parts = append(parts, QuoteIdentifier(a.Name))
 		if a.Behavior == DropCascade {
 			parts = append(parts, "CASCADE")
 		}
 
 	case AT_AlterColumnType:
-		parts = append(parts, "ALTER ATTRIBUTE", a.Name, "TYPE")
+		parts = append(parts, "ALTER ATTRIBUTE", QuoteIdentifier(a.Name), "TYPE")
 		if colDef, ok := a.Def.(*ColumnDef); ok && colDef != nil {
 			// For ALTER ATTRIBUTE, we only want the type part, not the full column definition
 			if colDef.TypeName != nil {
@@ -1610,10 +1808,14 @@ func (a *AlterTableCmd) SqlStringForCompositeType() string {
 			}
 			// Add collation if specified
 			if colDef.Collclause != nil {
-				parts = append(parts, "COLLATE", colDef.Collclause.SqlString())
+				parts = append(parts, colDef.Collclause.SqlString())
 			}
 		} else if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
+		}
+		// Add CASCADE or RESTRICT behavior if specified
+		if a.Behavior == DropCascade {
+			parts = append(parts, "CASCADE")
 		}
 
 	case AT_ColumnDefault:
@@ -1726,13 +1928,36 @@ func (i *IndexElem) String() string {
 }
 
 func (i *IndexElem) SqlString() string {
+	var result string
+
+	// Get the base column name or expression
 	if i.Name != "" {
-		return i.Name
+		result = QuoteIdentifier(i.Name)
+	} else if i.Expr != nil {
+		result = "(" + i.Expr.SqlString() + ")"
+	} else {
+		return ""
 	}
-	if i.Expr != nil {
-		return i.Expr.SqlString()
+
+	// Add ordering (ASC/DESC) if not default
+	switch i.Ordering {
+	case SORTBY_ASC:
+		result += " asc"
+	case SORTBY_DESC:
+		result += " desc"
+		// SORTBY_DEFAULT means no explicit ordering clause
 	}
-	return ""
+
+	// Add null ordering if not default
+	switch i.NullsOrdering {
+	case SORTBY_NULLS_FIRST:
+		result += " nulls first"
+	case SORTBY_NULLS_LAST:
+		result += " nulls last"
+		// SORTBY_NULLS_DEFAULT means no explicit nulls clause
+	}
+
+	return result
 }
 
 // ==============================================================================
@@ -2457,7 +2682,7 @@ func (i *IndexStmt) SqlString() string {
 
 	// Add index name
 	if i.Idxname != "" {
-		parts = append(parts, i.Idxname)
+		parts = append(parts, QuoteIdentifier(i.Idxname))
 	}
 
 	// Add ON table

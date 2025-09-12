@@ -359,19 +359,43 @@ func (c *CreatePublicationStmt) SqlString() string {
 	if c.ForAllTables {
 		parts = append(parts, "FOR ALL TABLES")
 	} else if c.PubObjects != nil && c.PubObjects.Len() > 0 {
-		parts = append(parts, "FOR TABLE")
-		objStrs := make([]string, 0, c.PubObjects.Len())
+		// Build the FOR clause with proper handling of different object types
+		var forParts []string
+		forParts = append(forParts, "FOR")
+		
+		// Group objects by type and build the output
+		var tableObjs []string
+		var schemaObjs []string
+		
 		for i := 0; i < c.PubObjects.Len(); i++ {
 			if pubObj, ok := c.PubObjects.Items[i].(*PublicationObjSpec); ok {
-				if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-					objStrs = append(objStrs, pubObj.PubTable.Relation.SqlString())
-				} else if pubObj.Name != "" {
-					objStrs = append(objStrs, pubObj.Name)
+				switch pubObj.PubObjType {
+				case PUBLICATIONOBJ_TABLE:
+					if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
+						tableObjs = append(tableObjs, pubObj.PubTable.Relation.SqlString())
+					}
+				case PUBLICATIONOBJ_TABLES_IN_SCHEMA:
+					if pubObj.Name != "" {
+						schemaObjs = append(schemaObjs, pubObj.Name)
+					}
+				case PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA:
+					schemaObjs = append(schemaObjs, "CURRENT_SCHEMA")
 				}
 			}
 		}
-		if len(objStrs) > 0 {
-			parts = append(parts, strings.Join(objStrs, ", "))
+		
+		// Build the object list
+		var objParts []string
+		if len(tableObjs) > 0 {
+			objParts = append(objParts, "TABLE "+strings.Join(tableObjs, ", "))
+		}
+		if len(schemaObjs) > 0 {
+			objParts = append(objParts, "TABLES IN SCHEMA "+strings.Join(schemaObjs, ", "))
+		}
+		
+		if len(objParts) > 0 {
+			forParts = append(forParts, strings.Join(objParts, ", "))
+			parts = append(parts, strings.Join(forParts, " "))
 		}
 	}
 	

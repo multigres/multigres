@@ -164,7 +164,7 @@
   {
     "comment": "INSERT with type casts and expressions",
     "query": "INSERT INTO logs (level, message, count) VALUES (upper('info')::text, concat('Log: ', details), (1 + retry_count)::integer)",
-    "expected": "INSERT INTO logs (level, message, count) VALUES (upper('info')::TEXT, concat('Log: ', details), (1 + retry_count)::INT)"
+    "expected": "INSERT INTO logs (level, message, count) VALUES (CAST(upper('info') AS TEXT), concat('Log: ', details), CAST((1 + retry_count) AS INT))"
   },
   {
     "comment": "UPDATE with complex FROM and expressions",
@@ -381,12 +381,12 @@
   {
     "comment": "INSERT with type casts",
     "query": "INSERT INTO users (id, name, age) VALUES (1::bigint, 'John'::varchar, '25'::integer)",
-    "expected": "INSERT INTO users (id, name, age) VALUES (1::BIGINT, 'John'::VARCHAR, '25'::INT)"
+    "expected": "INSERT INTO users (id, name, age) VALUES (CAST(1 AS BIGINT), CAST('John' AS VARCHAR), CAST('25' AS INT))"
   },
   {
     "comment": "UPDATE with type casts",
     "query": "UPDATE users SET score = '95.5'::decimal, active = 'true'::boolean",
-    "expected": "UPDATE users SET score = '95.5'::NUMERIC, active = 'true'::BOOLEAN"
+    "expected": "UPDATE users SET score = CAST('95.5' AS NUMERIC), active = CAST('true' AS BOOLEAN)"
   },
   {
     "comment": "INSERT with ONLY modifier",
@@ -563,7 +563,7 @@
   {
     "comment": "INSERT with type casts",
     "query": "INSERT INTO users (id, name, age) VALUES (1::bigint, 'John'::varchar, '25'::int)",
-    "expected": "INSERT INTO users (id, name, age) VALUES (1::BIGINT, 'John'::VARCHAR, '25'::INT)"
+    "expected": "INSERT INTO users (id, name, age) VALUES (CAST(1 AS BIGINT), CAST('John' AS VARCHAR), CAST('25' AS INT))"
   },
   {
     "comment": "UPDATE simple",
@@ -631,7 +631,7 @@
   {
     "comment": "UPDATE with type casts",
     "query": "UPDATE users SET score = '95.5'::numeric, active = 'true'::boolean",
-    "expected": "UPDATE users SET score = '95.5'::NUMERIC, active = 'true'::BOOLEAN"
+    "expected": "UPDATE users SET score = CAST('95.5' AS NUMERIC), active = CAST('true' AS BOOLEAN)"
   },
   {
     "comment": "UPDATE with function calls in SET",
@@ -845,7 +845,7 @@
   {
     "comment": "INSERT with type casts and expressions",
     "query": "INSERT INTO logs (level, message, count) VALUES (upper('info')::text, concat('Log: ', details), (1 + retry_count)::int)",
-    "expected": "INSERT INTO logs (level, message, count) VALUES (upper('info')::TEXT, concat('Log: ', details), (1 + retry_count)::INT)"
+    "expected": "INSERT INTO logs (level, message, count) VALUES (CAST(upper('info') AS TEXT), concat('Log: ', details), CAST((1 + retry_count) AS INT))"
   },
   {
     "comment": "INSERT with deeply nested functions",

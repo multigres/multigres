@@ -188,6 +188,7 @@ func (l *Lexer) scanDollarQuotedString(startPos, startScanPos int) (*Token, erro
 
 	// Dollar-quoted strings don't support continuation
 	text := ctx.GetCurrentText(startScanPos)
+	ctx.SetState(StateInitial)
 	return NewStringToken(SCONST, ctx.GetLiteral(), startPos, text), nil
 }
 
@@ -590,7 +591,7 @@ func (l *Lexer) scanBitString(startPos, startScanPos int) (*Token, error) {
 
 	// Clear literal buffer
 	ctx.StartLiteral()
-	
+
 	// Add 'b' prefix to match PostgreSQL's scan.l line 511: addlitchar('b', yyscanner);
 	ctx.AddLiteral("b")
 
@@ -640,7 +641,7 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 
 	// Clear literal buffer
 	ctx.StartLiteral()
-	
+
 	// Add 'x' prefix to match PostgreSQL's scan.l line 529: addlitchar('x', yyscanner);
 	ctx.AddLiteral("x")
 

@@ -1,27 +1,33 @@
 [
   {
     "comment": "async - Statement 1",
-    "query": "SELECT pg_notify('notify_async1','sample message1')"
+    "query": "SELECT pg_notify('notify_async1','sample message1')",
+    "expected": "SELECT pg_notify('notify_async1', 'sample message1')"
   },
   {
     "comment": "async - Statement 2",
-    "query": "SELECT pg_notify('notify_async1','')"
+    "query": "SELECT pg_notify('notify_async1','')",
+    "expected": "SELECT pg_notify('notify_async1', '')"
   },
   {
     "comment": "async - Statement 3",
-    "query": "SELECT pg_notify('notify_async1',NULL)"
+    "query": "SELECT pg_notify('notify_async1',NULL)",
+    "expected": "SELECT pg_notify('notify_async1', NULL)"
   },
   {
     "comment": "async - Statement 4",
-    "query": "SELECT pg_notify('','sample message1')"
+    "query": "SELECT pg_notify('','sample message1')",
+    "expected": "SELECT pg_notify('', 'sample message1')"
   },
   {
     "comment": "async - Statement 5",
-    "query": "SELECT pg_notify(NULL,'sample message1')"
+    "query": "SELECT pg_notify(NULL,'sample message1')",
+    "expected": "SELECT pg_notify(NULL, 'sample message1')"
   },
   {
     "comment": "async - Statement 6",
-    "query": "SELECT pg_notify('notify_async_channel_name_too_long______________________________','sample_message1')"
+    "query": "SELECT pg_notify('notify_async_channel_name_too_long______________________________','sample_message1')",
+    "expected": "SELECT pg_notify('notify_async_channel_name_too_long______________________________', 'sample_message1')"
   },
   {
     "comment": "async - Statement 7",

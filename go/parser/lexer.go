@@ -691,7 +691,8 @@ func (l *Lexer) isDollarQuoteStart() bool {
 	}
 
 	// Look ahead to see if this could be a valid delimiter
-	next := l.context.PeekBytes(200) // Enough lookahead for tag + content + closing tag
+	remainingLen := l.context.GetScanBufLen() - l.context.CurrentPosition()
+	next := l.context.PeekBytes(remainingLen) // Get remaining entire query for dollar-quoted string detection
 	if len(next) < 2 {
 		return false
 	}
@@ -750,44 +751,8 @@ func (l *Lexer) isDollarQuoteTagCont(ch rune) bool {
 func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, error) {
 	b, _ := l.context.NextByte()
 
-	// Handle multi-character operators first - postgres/src/backend/parser/scan.l:352-368
-	switch b {
-	case ':':
-		if next, ok := l.context.CurrentByte(); ok {
-			if next == ':' {
-				l.context.NextByte()
-				return NewToken(TYPECAST, startPos, "::"), nil
-			} else if next == '=' {
-				l.context.NextByte()
-				return NewToken(COLON_EQUALS, startPos, ":="), nil
-			}
-		}
-	case '=':
-		if next, ok := l.context.CurrentByte(); ok && next == '>' {
-			l.context.NextByte()
-			return NewToken(EQUALS_GREATER, startPos, "=>"), nil
-		}
-	case '<':
-		if next, ok := l.context.CurrentByte(); ok {
-			if next == '=' {
-				l.context.NextByte()
-				return NewToken(LESS_EQUALS, startPos, "<="), nil
-			} else if next == '>' {
-				l.context.NextByte()
-				return NewToken(NOT_EQUALS, startPos, "<>"), nil
-			}
-		}
-	case '>':
-		if next, ok := l.context.CurrentByte(); ok && next == '=' {
-			l.context.NextByte()
-			return NewToken(GREATER_EQUALS, startPos, ">="), nil
-		}
-	case '!':
-		if next, ok := l.context.CurrentByte(); ok && next == '=' {
-			l.context.NextByte()
-			return NewToken(NOT_EQUALS, startPos, "!="), nil
-		}
-	case '.':
+	// Special handling for dot sequences (not operator chars in PostgreSQL sense)
+	if b == '.' {
 		// Handle consecutive dots with multi-dot sequence tracking
 		if next, ok := l.context.CurrentByte(); ok && next == '.' {
 			if l.context.InMultiDotSequence() {
@@ -820,24 +785,115 @@ func (l *Lexer) scanOperatorOrPunctuation(startPos, startScanPos int) (*Token, e
 		if next, ok := l.context.CurrentByte(); ok && IsDigit(next) {
 			return l.scanNumber(startPos, startScanPos)
 		}
+		// Single dot - treat as self character
+		return NewToken(TokenType(b), startPos, "."), nil
 	}
 
-	// Check if this is a "self" character (single-char token)
+	// Handle special case of colon-based operators (: is not an OpChar)
+	if b == ':' {
+		if next, ok := l.context.CurrentByte(); ok {
+			if next == ':' {
+				l.context.NextByte()
+				return NewToken(TYPECAST, startPos, "::"), nil
+			} else if next == '=' {
+				l.context.NextByte()
+				return NewToken(COLON_EQUALS, startPos, ":="), nil
+			}
+		}
+		// Single colon - treat as self character
+		return NewToken(TokenType(b), startPos, ":"), nil
+	}
+
+	// For operator characters, check if we need to look for multi-character operators
+	if IsOpChar(b) {
+		// Count consecutive operator chars to determine if this could be multi-char
+		opLength := 1 + l.countConsecutiveOpChars()
+
+		// For 2+ character operators, check for known specific operators
+		if opLength >= 2 {
+			opText := l.getOpText(startScanPos, opLength)
+
+			if opLength == 2 {
+				// Two character operators - check for known specific operators
+				switch opText {
+				case "=>":
+					l.context.NextByte() // consume second character
+					return NewToken(EQUALS_GREATER, startPos, opText), nil
+				case "<=":
+					l.context.NextByte()
+					return NewToken(LESS_EQUALS, startPos, opText), nil
+				case ">=":
+					l.context.NextByte()
+					return NewToken(GREATER_EQUALS, startPos, opText), nil
+				case "<>":
+					l.context.NextByte()
+					return NewToken(NOT_EQUALS, startPos, opText), nil
+				case "!=":
+					l.context.NextByte()
+					return NewToken(NOT_EQUALS, startPos, opText), nil
+				}
+			}
+			// Unknown 2-char operator or 3 or more characters (like !==, ===) - always use general operator scanning
+			return l.scanOperator(startPos, startScanPos)
+		}
+
+		// Single character operator - prioritize self-character behavior
+		if IsSelfChar(b) {
+			return NewToken(TokenType(b), startPos, string(b)), nil
+		}
+		// Generic single-char operator
+		return NewStringToken(Op, string(b), startPos, string(b)), nil
+	}
+
+	// Check if this is a "self" character (non-operator single-char token)
 	// postgres/src/backend/parser/scan.l:380 - self: [,()\[\].;\:\+\-\*\/\%\^\<\>\=]
 	if IsSelfChar(b) {
 		text := string(b)
 		return NewToken(TokenType(b), startPos, text), nil
 	}
 
-	// Check if this starts an operator sequence
-	// postgres/src/backend/parser/scan.l:381-382 - op_chars: [\~\!\@\#\^\&\|\`\?\+\-\*\/\%\<\>\=]
-	if IsOpChar(b) {
-		return l.scanOperator(startPos, startScanPos)
+	// Fallback to generic operator
+	return l.scanOperator(startPos, startScanPos)
+}
+
+// countConsecutiveOpChars counts consecutive operator characters from current position
+func (l *Lexer) countConsecutiveOpChars() int {
+	count := 0
+	currentPos := l.context.scanPos
+
+	for {
+		if currentPos >= len(l.context.scanBuf) {
+			break
+		}
+		if !IsOpChar(l.context.scanBuf[currentPos]) {
+			break
+		}
+
+		// Check for comment start sequences and stop before them
+		if currentPos+1 < len(l.context.scanBuf) {
+			// Check for /* comment start
+			if l.context.scanBuf[currentPos] == '/' && l.context.scanBuf[currentPos+1] == '*' {
+				break
+			}
+			// Check for -- comment start
+			if l.context.scanBuf[currentPos] == '-' && l.context.scanBuf[currentPos+1] == '-' {
+				break
+			}
+		}
+
+		count++
+		currentPos++
 	}
 
-	// Unknown character - return as single character
-	text := string(b)
-	return NewToken(TokenType(b), startPos, text), nil
+	return count
+}
+
+// getOpText gets the operator text of specified length from startScanPos
+func (l *Lexer) getOpText(startScanPos, length int) string {
+	if startScanPos < 0 || startScanPos+length > len(l.context.scanBuf) {
+		return ""
+	}
+	return string(l.context.scanBuf[startScanPos : startScanPos+length])
 }
 
 // scanOperator scans a multi-character operator

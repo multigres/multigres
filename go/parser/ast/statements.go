@@ -225,6 +225,62 @@ func NewResTarget(name string, val Node) *ResTarget {
 	}
 }
 
+// NewResTargetWithIndirection creates a new ResTarget node with indirection (for column references with array subscripts).
+func NewResTargetWithIndirection(name string, indirection *NodeList) *ResTarget {
+	return &ResTarget{
+		BaseNode:    BaseNode{Tag: T_ResTarget},
+		Name:        name,
+		Indirection: indirection,
+		Val:         nil,
+	}
+}
+
+// ColumnNameWithIndirection returns the column name with indirection (array subscripts, field access, etc.)
+// This is used for INSERT column lists where we need "column[index]" format
+func (r *ResTarget) ColumnNameWithIndirection() string {
+	if r.Name == "" {
+		return ""
+	}
+
+	result := QuoteIdentifier(r.Name)
+	if r.Indirection != nil {
+		for _, ind := range r.Indirection.Items {
+			if ind != nil {
+				switch i := ind.(type) {
+				case *String:
+					// Field selection
+					result += "." + i.SVal
+				case *A_Indices:
+					// Array index or slice
+					result += i.SqlString()
+				default:
+					// Generic indirection
+					result += ind.SqlString()
+				}
+			}
+		}
+	}
+	return result
+}
+
+// SetClauseString returns the SQL representation for SET clauses (UPDATE, ON CONFLICT DO UPDATE)
+// Format: "column[index] = value" instead of "value AS column"
+func (r *ResTarget) SetClauseString() string {
+	if r.Name == "" {
+		return ""
+	}
+
+	// Build the column name with indirection (e.g., "col[1]", "col.field")
+	columnPart := r.ColumnNameWithIndirection()
+
+	if r.Val != nil {
+		return columnPart + " = " + r.Val.SqlString()
+	}
+
+	// If no value, just return the column name
+	return columnPart
+}
+
 func (rt *ResTarget) String() string {
 	return fmt.Sprintf("ResTarget(%s)@%d", rt.Name, rt.Location())
 }
@@ -410,8 +466,9 @@ func (s *SelectStmt) SqlString() string {
 
 	// Handle set operations (UNION, INTERSECT, EXCEPT)
 	if s.Op != SETOP_NONE {
+		// Always wrap operands in parentheses to avoid ambiguity
 		if s.Larg != nil {
-			parts = append(parts, s.Larg.SqlString())
+			parts = append(parts, "("+s.Larg.SqlString()+")")
 		}
 
 		switch s.Op {
@@ -436,7 +493,7 @@ func (s *SelectStmt) SqlString() string {
 		}
 
 		if s.Rarg != nil {
-			parts = append(parts, s.Rarg.SqlString())
+			parts = append(parts, "("+s.Rarg.SqlString()+")")
 		}
 
 		return strings.Join(parts, " ")
@@ -688,7 +745,7 @@ func (i *InsertStmt) SqlString() string {
 		var cols []string
 		for _, item := range i.Cols.Items {
 			if col, ok := item.(*ResTarget); ok && col.Name != "" {
-				cols = append(cols, QuoteIdentifier(col.Name))
+				cols = append(cols, col.ColumnNameWithIndirection())
 			}
 		}
 		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(cols, ", ")))
@@ -788,8 +845,7 @@ func (u *UpdateStmt) SqlString() string {
 		var setClauses []string
 		for _, item := range u.TargetList.Items {
 			if target, ok := item.(*ResTarget); ok && target.Name != "" && target.Val != nil {
-				setClause := QuoteIdentifier(target.Name) + " = " + target.Val.SqlString()
-				setClauses = append(setClauses, setClause)
+				setClauses = append(setClauses, target.SetClauseString())
 			}
 		}
 		parts = append(parts, "SET", strings.Join(setClauses, ", "))
@@ -1014,7 +1070,7 @@ func (c *ColumnRef) SqlString() string {
 		// Handle different field types (String for column names, A_Star for *, A_Indices for array access)
 		switch f := field.(type) {
 		case *String:
-			parts = append(parts, f.SVal)
+			parts = append(parts, QuoteIdentifier(f.SVal))
 		case *A_Star:
 			parts = append(parts, "*")
 		case *A_Indices:
@@ -1353,12 +1409,8 @@ func (n *OnConflictClause) SqlString() string {
 		var targets []string
 		for _, item := range n.TargetList.Items {
 			if target, ok := item.(*ResTarget); ok {
-				// For ON CONFLICT DO UPDATE SET, format as "column = value" not "value AS column"
-				if target.Val != nil {
-					targets = append(targets, target.Name+" = "+target.Val.SqlString())
-				} else {
-					targets = append(targets, target.Name)
-				}
+				// Use ResTarget's SetClauseString method for proper formatting
+				targets = append(targets, target.SetClauseString())
 			}
 		}
 		if len(targets) > 0 {
@@ -1444,36 +1496,87 @@ func (c *CreateStmt) SqlString() string {
 		parts = append(parts, c.Relation.SqlString())
 	}
 
-	// Add column definitions and constraints
+	// Handle different table types with correct ordering
+	isPartitionTable := c.PartBound != nil && c.InhRelations != nil && c.InhRelations.Len() > 0
+	isDefaultPartitionTable := isPartitionTable && c.PartSpec != nil
+	isTypedTable := c.OfTypename != nil
 
-	var columnParts []string
-	if c.TableElts != nil {
-		for _, col := range c.TableElts.Items {
-			if col != nil {
-				columnParts = append(columnParts, col.SqlString())
-			}
-		}
-	}
-
-	// Add table-level constraints
-	for _, constraint := range c.Constraints {
-		if constraint != nil {
-			columnParts = append(columnParts, constraint.SqlString())
-		}
-	}
-	if len(columnParts) > 0 {
-		parts = append(parts, "("+strings.Join(columnParts, ", ")+")")
-	}
-
-	// Add INHERITS clause if specified
-	if c.InhRelations != nil && c.InhRelations.Len() > 0 {
+	if isPartitionTable {
+		// For partition tables: PARTITION OF parent [constraints] FOR VALUES [PARTITION BY]
 		var inhParts []string
 		for _, item := range c.InhRelations.Items {
 			if inh, ok := item.(*RangeVar); ok && inh != nil {
 				inhParts = append(inhParts, inh.SqlString())
 			}
 		}
-		parts = append(parts, "INHERITS", "("+strings.Join(inhParts, ", ")+")")
+		parts = append(parts, "PARTITION OF", strings.Join(inhParts, ", "))
+
+		// Add constraints for partition tables (but only if there are any)
+		var columnParts []string
+		if c.TableElts != nil {
+			for _, col := range c.TableElts.Items {
+				if col != nil {
+					columnParts = append(columnParts, col.SqlString())
+				}
+			}
+		}
+		for _, constraint := range c.Constraints {
+			if constraint != nil {
+				columnParts = append(columnParts, constraint.SqlString())
+			}
+		}
+		if len(columnParts) > 0 {
+			parts = append(parts, "(", strings.Join(columnParts, ", "), ")")
+		}
+
+		// Add FOR VALUES clause
+		parts = append(parts, c.PartBound.SqlString())
+
+		// Add PARTITION BY for default partition tables
+		if isDefaultPartitionTable {
+			parts = append(parts, c.PartSpec.SqlString())
+		}
+	} else if isTypedTable {
+		// For typed tables: OF typename
+		parts = append(parts, "OF", c.OfTypename.SqlString())
+	} else {
+		// Regular table with columns and constraints
+		var columnParts []string
+		if c.TableElts != nil {
+			for _, col := range c.TableElts.Items {
+				if col != nil {
+					columnParts = append(columnParts, col.SqlString())
+				}
+			}
+		}
+
+		// Add table-level constraints
+		for _, constraint := range c.Constraints {
+			if constraint != nil {
+				columnParts = append(columnParts, constraint.SqlString())
+			}
+		}
+		if len(columnParts) > 0 {
+			parts = append(parts, "("+strings.Join(columnParts, ", ")+")")
+		} else {
+			parts = append(parts, "()")
+		}
+
+		// Add PARTITION BY clause for regular partitioned tables
+		if c.PartSpec != nil {
+			parts = append(parts, c.PartSpec.SqlString())
+		}
+
+		// Add INHERITS clause for regular inheritance
+		if c.InhRelations != nil && c.InhRelations.Len() > 0 {
+			var inhParts []string
+			for _, item := range c.InhRelations.Items {
+				if inh, ok := item.(*RangeVar); ok && inh != nil {
+					inhParts = append(inhParts, inh.SqlString())
+				}
+			}
+			parts = append(parts, "INHERITS", "("+strings.Join(inhParts, ", ")+")")
+		}
 	}
 
 	// Add WITH options if specified
@@ -1527,6 +1630,8 @@ func (d *DropStmt) SqlString() string {
 		return d.sqlStringForDropTransform()
 	case OBJECT_SUBSCRIPTION:
 		return d.sqlStringForDropSubscription()
+	case OBJECT_RULE, OBJECT_TRIGGER, OBJECT_POLICY:
+		return d.sqlStringForDropOnTable()
 	}
 
 	// Add object type
@@ -1564,6 +1669,9 @@ func (d *DropStmt) SqlString() string {
 				}
 			} else if strVal, ok := obj.(*String); ok {
 				nameParts = append(nameParts, strVal.SVal)
+			} else if typeName, ok := obj.(*TypeName); ok {
+				// Handle type names (for DROP TYPE, etc.)
+				nameParts = append(nameParts, typeName.SqlString())
 			}
 		}
 		if len(nameParts) > 0 {
@@ -1776,6 +1884,65 @@ func (d *DropStmt) sqlStringForDropSubscription() string {
 	} else if d.Behavior == DropRestrict {
 		parts = append(parts, "RESTRICT")
 	}
+
+	return strings.Join(parts, " ")
+}
+
+// sqlStringForDropOnTable handles DROP RULE/TRIGGER/POLICY name ON table
+func (d *DropStmt) sqlStringForDropOnTable() string {
+	var parts []string
+	parts = append(parts, "DROP")
+
+	// Add object type
+	if d.RemoveType != 0 {
+		parts = append(parts, d.RemoveType.String())
+	}
+
+	// Add IF EXISTS if specified
+	if d.MissingOk {
+		parts = append(parts, "IF EXISTS")
+	}
+
+	// For RULE/TRIGGER/POLICY, Objects contains: [table_name, object_name]
+	// We need to format as: DROP TYPE object_name ON table_name
+	if d.Objects != nil && len(d.Objects.Items) >= 2 {
+		// The first item is the table, the second is the rule/trigger/policy name
+		tableName := ""
+		objectName := ""
+
+		// First item should be the table (from any_name)
+		if nodeList, ok := d.Objects.Items[0].(*NodeList); ok {
+			var qualParts []string
+			for _, nameItem := range nodeList.Items {
+				if strVal, ok := nameItem.(*String); ok {
+					qualParts = append(qualParts, strVal.SVal)
+				}
+			}
+			if len(qualParts) > 0 {
+				tableName = strings.Join(qualParts, ".")
+			}
+		} else if strVal, ok := d.Objects.Items[0].(*String); ok {
+			tableName = strVal.SVal
+		}
+
+		// Second item should be the object name
+		if strVal, ok := d.Objects.Items[1].(*String); ok {
+			objectName = strVal.SVal
+		}
+
+		if objectName != "" {
+			parts = append(parts, objectName)
+		}
+		if tableName != "" {
+			parts = append(parts, "ON", tableName)
+		}
+	}
+
+	// Add CASCADE/RESTRICT behavior
+	if d.Behavior == DropCascade {
+		parts = append(parts, "CASCADE")
+	}
+	// Note: We don't output RESTRICT as it's the default behavior in PostgreSQL
 
 	return strings.Join(parts, " ")
 }
