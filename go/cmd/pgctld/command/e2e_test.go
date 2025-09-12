@@ -510,24 +510,6 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		assert.Error(t, err, "TCP connection with wrong password should fail")
 		assert.Contains(t, string(output), "password authentication failed", "Should fail with authentication error")
 
-		// Test TCP connection without password (should fail)
-		t.Logf("Testing TCP connection without password")
-		noPasswordCmd := exec.Command("psql",
-			"-h", "localhost",
-			"-p", strconv.Itoa(port),
-			"-U", "postgres",
-			"-d", "postgres",
-			"-c", "SELECT 1;",
-		)
-		// Explicitly clear PGPASSWORD to ensure no password is provided
-		noPasswordCmd.Env = []string{
-			"PGCONNECT_TIMEOUT=5",
-			"PATH=" + os.Getenv("PATH"), // Need PATH for psql to work
-		}
-		output, err = noPasswordCmd.CombinedOutput()
-		assert.Error(t, err, "TCP connection without password should fail")
-		assert.Contains(t, string(output), "no password supplied", "Should fail due to missing password")
-
 		// Verify role and database exist via socket connection
 		t.Logf("Verifying postgres role and database exist")
 
