@@ -154,16 +154,24 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 	localConfig := &local.LocalProvisionerConfig{
 		RootWorkingDir: tempDir,
 		DefaultDbName:  "postgres",
-		Topology: local.TopologyConfig{
-			Backend:             "etcd2",
-			GlobalRootPath:      "/multigres/global",
-			DefaultCellName:     "zone1",
-			DefaultCellRootPath: "/multigres/zone1",
-		},
 		Etcd: local.EtcdConfig{
 			Version: "3.5.9",
 			DataDir: filepath.Join(tempDir, "data", "etcd-data"),
 			Port:    portConfig.EtcdPort,
+		},
+		Topology: local.TopologyConfig{
+			Backend:        "etcd2",
+			GlobalRootPath: "/multigres/global",
+			Cells: []local.CellConfig{
+				{
+					Name:     "zone1",
+					RootPath: "/multigres/zone1",
+				},
+				{
+					Name:     "zone2",
+					RootPath: "/multigres/zone2",
+				},
+			},
 		},
 		Multiadmin: local.MultiadminConfig{
 			Path:     filepath.Join(binPath, "multiadmin"),
@@ -171,23 +179,47 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			GrpcPort: portConfig.MultiadminGRPCPort,
 			LogLevel: "info",
 		},
-		Multigateway: local.MultigatewayConfig{
-			Path:     filepath.Join(binPath, "multigateway"),
-			HttpPort: portConfig.MultigatewayHTTPPort,
-			GrpcPort: portConfig.MultigatewayGRPCPort,
-			PgPort:   15432, // Use default PG port
-			LogLevel: "info",
-		},
-		Multipooler: local.MultipoolerConfig{
-			Path:     filepath.Join(binPath, "multipooler"),
-			Database: "postgres", // Use same as DefaultDbName
-			GrpcPort: portConfig.MultipoolerGRPCPort,
-			LogLevel: "info",
-		},
-		Multiorch: local.MultiorchConfig{
-			Path:     filepath.Join(binPath, "multiorch"),
-			GrpcPort: portConfig.MultiorchGRPCPort,
-			LogLevel: "info",
+		Cells: map[string]local.CellServicesConfig{
+			"zone1": {
+				Multigateway: local.MultigatewayConfig{
+					Path:     filepath.Join(binPath, "multigateway"),
+					HttpPort: portConfig.MultigatewayHTTPPort,
+					GrpcPort: portConfig.MultigatewayGRPCPort,
+					PgPort:   15432,
+					LogLevel: "info",
+				},
+				Multipooler: local.MultipoolerConfig{
+					Path:     filepath.Join(binPath, "multipooler"),
+					Database: "postgres",
+					GrpcPort: portConfig.MultipoolerGRPCPort,
+					LogLevel: "info",
+				},
+				Multiorch: local.MultiorchConfig{
+					Path:     filepath.Join(binPath, "multiorch"),
+					GrpcPort: portConfig.MultiorchGRPCPort,
+					LogLevel: "info",
+				},
+			},
+			"zone2": {
+				Multigateway: local.MultigatewayConfig{
+					Path:     filepath.Join(binPath, "multigateway"),
+					HttpPort: portConfig.MultigatewayHTTPPort + 100,
+					GrpcPort: portConfig.MultigatewayGRPCPort + 100,
+					PgPort:   15432 + 100,
+					LogLevel: "info",
+				},
+				Multipooler: local.MultipoolerConfig{
+					Path:     filepath.Join(binPath, "multipooler"),
+					Database: "postgres",
+					GrpcPort: portConfig.MultipoolerGRPCPort + 100,
+					LogLevel: "info",
+				},
+				Multiorch: local.MultiorchConfig{
+					Path:     filepath.Join(binPath, "multiorch"),
+					GrpcPort: portConfig.MultiorchGRPCPort + 100,
+					LogLevel: "info",
+				},
+			},
 		},
 	}
 
@@ -611,8 +643,52 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 
 	assert.Equal(t, "etcd2", topoConfig["backend"])
 	assert.Equal(t, "/multigres/global", topoConfig["global-root-path"])
-	assert.Equal(t, "zone1", topoConfig["default-cell-name"])
-	assert.Equal(t, "/multigres/zone1", topoConfig["default-cell-root-path"])
+
+	// Check cells structure in topology (now a slice)
+	cellsRaw, ok := topoConfig["cells"]
+	require.True(t, ok, "cells config should be present in topology")
+
+	cells, ok := cellsRaw.([]any)
+	require.True(t, ok, "cells config should be a slice")
+	require.Len(t, cells, 2, "should have exactly 2 cells")
+
+	// Check first cell (zone1)
+	cell1, ok := cells[0].(map[string]any)
+	require.True(t, ok, "first cell config should be a map")
+	assert.Equal(t, "zone1", cell1["name"])
+	assert.Equal(t, "/multigres/zone1", cell1["root-path"])
+
+	// Check second cell (zone2)
+	cell2, ok := cells[1].(map[string]any)
+	require.True(t, ok, "second cell config should be a map")
+	assert.Equal(t, "zone2", cell2["name"])
+	assert.Equal(t, "/multigres/zone2", cell2["root-path"])
+
+	// Check that cell services are configured
+	cellServices, ok := config.ProvisionerConfig["cells"].(map[string]any)
+	require.True(t, ok, "cell services config should be present")
+
+	zone1Services, ok := cellServices["zone1"].(map[string]any)
+	require.True(t, ok, "zone1 services should be present")
+
+	// Verify services exist in zone1
+	_, ok = zone1Services["multigateway"]
+	assert.True(t, ok, "multigateway should be configured in zone1")
+	_, ok = zone1Services["multipooler"]
+	assert.True(t, ok, "multipooler should be configured in zone1")
+	_, ok = zone1Services["multiorch"]
+	assert.True(t, ok, "multiorch should be configured in zone1")
+
+	zone2Services, ok := cellServices["zone2"].(map[string]any)
+	require.True(t, ok, "zone2 services should be present")
+
+	// Verify services exist in zone2
+	_, ok = zone2Services["multigateway"]
+	assert.True(t, ok, "multigateway should be configured in zone2")
+	_, ok = zone2Services["multipooler"]
+	assert.True(t, ok, "multipooler should be configured in zone2")
+	_, ok = zone2Services["multiorch"]
+	assert.True(t, ok, "multiorch should be configured in zone2")
 }
 
 func TestInitCommandConfigFileAlreadyExists(t *testing.T) {
@@ -758,12 +834,30 @@ func TestClusterLifecycle(t *testing.T) {
 		topoConfig, ok := config.ProvisionerConfig["topology"].(map[string]any)
 		require.True(t, ok, "topology config should be present")
 
-		cellName := topoConfig["default-cell-name"].(string)
+		// Get cell name from the new structure (now a slice)
+		cellsRaw, ok := topoConfig["cells"]
+		require.True(t, ok, "cells config should be present")
+
+		cells, ok := cellsRaw.([]any)
+		require.True(t, ok, "cells config should be a slice")
+		require.Len(t, cells, 2, "should have exactly 2 cells")
+
+		// Get the first cell (for backward compatibility)
+		cell1, ok := cells[0].(map[string]any)
+		require.True(t, ok, "first cell config should be a map")
+
+		cellName := cell1["name"].(string)
 		globalRootPath := topoConfig["global-root-path"].(string)
 
-		// Get database from multipooler config
-		multipoolerConfig, ok := config.ProvisionerConfig["multipooler"].(map[string]any)
-		require.True(t, ok, "multipooler config should be present")
+		// Get database from cell-specific multipooler config
+		cellServices, ok := config.ProvisionerConfig["cells"].(map[string]any)
+		require.True(t, ok, "cell services config should be present")
+
+		zone1Services, ok := cellServices["zone1"].(map[string]any)
+		require.True(t, ok, "zone1 services should be present")
+
+		multipoolerConfig, ok := zone1Services["multipooler"].(map[string]any)
+		require.True(t, ok, "multipooler config should be present in zone1")
 		expectedDatabase, ok := multipoolerConfig["database"].(string)
 		require.True(t, ok, "multipooler database config should be present")
 		require.NotEmpty(t, expectedDatabase, "multipooler database should not be empty")
