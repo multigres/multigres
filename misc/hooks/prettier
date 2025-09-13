@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# Check if prettier is installed
+if ! command -v prettier >/dev/null 2>&1; then
+  # If it's not installed, for now skip autoformatting. We can make it a tool dependency
+  # in the future, if we want.
+  exit 0
+fi
+
+FILES=$(git diff --cached --name-only --diff-filter=ACMR -- '*.yml' '*.yaml' '*.md' '*.mdx' | sed 's| |\\ |g' | (grep -v 'pnpm-lock.yaml' || true))
+[ -z "$FILES" ] && exit 0
+
+# Prettify all selected files
+echo "$FILES" | xargs prettier --ignore-unknown --write
+
+# Add back the modified/prettified files to staging
+echo "$FILES" | xargs git add
+
+exit 0

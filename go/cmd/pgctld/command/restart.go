@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/pgctld"
+
 	"github.com/spf13/cobra"
 )
 
@@ -33,8 +35,6 @@ type RestartResult struct {
 func init() {
 	Root.AddCommand(restartCmd)
 	restartCmd.Flags().String("mode", "fast", "Shutdown mode for stop phase: smart, fast, or immediate")
-	restartCmd.Flags().StringP("pg-socket-dir", "s", "/tmp", "PostgreSQL socket directory")
-	restartCmd.Flags().StringP("pg-config-file", "c", "", "PostgreSQL configuration file")
 }
 
 var restartCmd = &cobra.Command{
@@ -58,22 +58,19 @@ Examples:
 
   # Restart with immediate stop and custom socket directory
   pgctld restart -d /data --mode immediate -s /var/run/postgresql`,
-	RunE: runRestart,
+	PreRunE: validateInitialized,
+	RunE:    runRestart,
 }
 
 // RestartPostgreSQLWithResult restarts PostgreSQL with the given configuration and returns detailed result information
-func RestartPostgreSQLWithResult(config *PostgresConfig, mode string) (*RestartResult, error) {
+func RestartPostgreSQLWithResult(config *pgctld.PostgresCtlConfig, mode string) (*RestartResult, error) {
 	logger := slog.Default()
 	result := &RestartResult{}
 
-	if config.DataDir == "" {
-		return nil, fmt.Errorf("data-dir is required")
-	}
-
-	logger.Info("Restarting PostgreSQL server", "data_dir", config.DataDir, "mode", mode)
+	logger.Info("Restarting PostgreSQL server", "data_dir", config.PostgresDataDir, "mode", mode)
 
 	// Stop the server if it's running
-	if isPostgreSQLRunning(config.DataDir) {
+	if isPostgreSQLRunning(config.PostgresDataDir) {
 		logger.Info("Stopping PostgreSQL server")
 		stopResult, err := StopPostgreSQLWithResult(config, mode)
 		if err != nil {
@@ -100,16 +97,11 @@ func RestartPostgreSQLWithResult(config *PostgresConfig, mode string) (*RestartR
 }
 
 func runRestart(cmd *cobra.Command, args []string) error {
-	config := NewPostgresConfigFromDefaults()
+	config, err := NewPostgresCtlConfigFromDefaults()
+	if err != nil {
+		return err
+	}
 	mode, _ := cmd.Flags().GetString("mode")
-
-	// Override with command-specific flags if provided
-	if cmd.Flags().Changed("pg-socket-dir") {
-		config.SocketDir, _ = cmd.Flags().GetString("pg-socket-dir")
-	}
-	if cmd.Flags().Changed("pg-config-file") {
-		config.ConfigFile, _ = cmd.Flags().GetString("pg-config-file")
-	}
 
 	result, err := RestartPostgreSQLWithResult(config, mode)
 	if err != nil {
