@@ -33,8 +33,13 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	MultiAdminService_GetCell_FullMethodName     = "/multiadmin.MultiAdminService/GetCell"
-	MultiAdminService_GetDatabase_FullMethodName = "/multiadmin.MultiAdminService/GetDatabase"
+	MultiAdminService_GetCell_FullMethodName          = "/multiadmin.MultiAdminService/GetCell"
+	MultiAdminService_GetDatabase_FullMethodName      = "/multiadmin.MultiAdminService/GetDatabase"
+	MultiAdminService_GetCellNames_FullMethodName     = "/multiadmin.MultiAdminService/GetCellNames"
+	MultiAdminService_GetDatabaseNames_FullMethodName = "/multiadmin.MultiAdminService/GetDatabaseNames"
+	MultiAdminService_GetGateways_FullMethodName      = "/multiadmin.MultiAdminService/GetGateways"
+	MultiAdminService_GetPoolers_FullMethodName       = "/multiadmin.MultiAdminService/GetPoolers"
+	MultiAdminService_GetOrchs_FullMethodName         = "/multiadmin.MultiAdminService/GetOrchs"
 )
 
 // MultiAdminServiceClient is the client API for MultiAdminService service.
@@ -45,6 +50,16 @@ type MultiAdminServiceClient interface {
 	GetCell(ctx context.Context, in *GetCellRequest, opts ...grpc.CallOption) (*GetCellResponse, error)
 	// GetDatabase retrieves information about a specific database
 	GetDatabase(ctx context.Context, in *GetDatabaseRequest, opts ...grpc.CallOption) (*GetDatabaseResponse, error)
+	// GetCellNames retrieves all cell names in the cluster
+	GetCellNames(ctx context.Context, in *GetCellNamesRequest, opts ...grpc.CallOption) (*GetCellNamesResponse, error)
+	// GetDatabaseNames retrieves all database names in the cluster
+	GetDatabaseNames(ctx context.Context, in *GetDatabaseNamesRequest, opts ...grpc.CallOption) (*GetDatabaseNamesResponse, error)
+	// GetGateways retrieves gateways filtered by cells
+	GetGateways(ctx context.Context, in *GetGatewaysRequest, opts ...grpc.CallOption) (*GetGatewaysResponse, error)
+	// GetPoolers retrieves poolers filtered by cells and/or database
+	GetPoolers(ctx context.Context, in *GetPoolersRequest, opts ...grpc.CallOption) (*GetPoolersResponse, error)
+	// GetOrchs retrieves orchestrators filtered by cells
+	GetOrchs(ctx context.Context, in *GetOrchsRequest, opts ...grpc.CallOption) (*GetOrchsResponse, error)
 }
 
 type multiAdminServiceClient struct {
@@ -73,6 +88,51 @@ func (c *multiAdminServiceClient) GetDatabase(ctx context.Context, in *GetDataba
 	return out, nil
 }
 
+func (c *multiAdminServiceClient) GetCellNames(ctx context.Context, in *GetCellNamesRequest, opts ...grpc.CallOption) (*GetCellNamesResponse, error) {
+	out := new(GetCellNamesResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_GetCellNames_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiAdminServiceClient) GetDatabaseNames(ctx context.Context, in *GetDatabaseNamesRequest, opts ...grpc.CallOption) (*GetDatabaseNamesResponse, error) {
+	out := new(GetDatabaseNamesResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_GetDatabaseNames_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiAdminServiceClient) GetGateways(ctx context.Context, in *GetGatewaysRequest, opts ...grpc.CallOption) (*GetGatewaysResponse, error) {
+	out := new(GetGatewaysResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_GetGateways_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiAdminServiceClient) GetPoolers(ctx context.Context, in *GetPoolersRequest, opts ...grpc.CallOption) (*GetPoolersResponse, error) {
+	out := new(GetPoolersResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_GetPoolers_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiAdminServiceClient) GetOrchs(ctx context.Context, in *GetOrchsRequest, opts ...grpc.CallOption) (*GetOrchsResponse, error) {
+	out := new(GetOrchsResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_GetOrchs_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiAdminServiceServer is the server API for MultiAdminService service.
 // All implementations must embed UnimplementedMultiAdminServiceServer
 // for forward compatibility
@@ -81,6 +141,16 @@ type MultiAdminServiceServer interface {
 	GetCell(context.Context, *GetCellRequest) (*GetCellResponse, error)
 	// GetDatabase retrieves information about a specific database
 	GetDatabase(context.Context, *GetDatabaseRequest) (*GetDatabaseResponse, error)
+	// GetCellNames retrieves all cell names in the cluster
+	GetCellNames(context.Context, *GetCellNamesRequest) (*GetCellNamesResponse, error)
+	// GetDatabaseNames retrieves all database names in the cluster
+	GetDatabaseNames(context.Context, *GetDatabaseNamesRequest) (*GetDatabaseNamesResponse, error)
+	// GetGateways retrieves gateways filtered by cells
+	GetGateways(context.Context, *GetGatewaysRequest) (*GetGatewaysResponse, error)
+	// GetPoolers retrieves poolers filtered by cells and/or database
+	GetPoolers(context.Context, *GetPoolersRequest) (*GetPoolersResponse, error)
+	// GetOrchs retrieves orchestrators filtered by cells
+	GetOrchs(context.Context, *GetOrchsRequest) (*GetOrchsResponse, error)
 	mustEmbedUnimplementedMultiAdminServiceServer()
 }
 
@@ -93,6 +163,21 @@ func (UnimplementedMultiAdminServiceServer) GetCell(context.Context, *GetCellReq
 }
 func (UnimplementedMultiAdminServiceServer) GetDatabase(context.Context, *GetDatabaseRequest) (*GetDatabaseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDatabase not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) GetCellNames(context.Context, *GetCellNamesRequest) (*GetCellNamesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCellNames not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) GetDatabaseNames(context.Context, *GetDatabaseNamesRequest) (*GetDatabaseNamesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDatabaseNames not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) GetGateways(context.Context, *GetGatewaysRequest) (*GetGatewaysResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetGateways not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) GetPoolers(context.Context, *GetPoolersRequest) (*GetPoolersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPoolers not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) GetOrchs(context.Context, *GetOrchsRequest) (*GetOrchsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetOrchs not implemented")
 }
 func (UnimplementedMultiAdminServiceServer) mustEmbedUnimplementedMultiAdminServiceServer() {}
 
@@ -143,6 +228,96 @@ func _MultiAdminService_GetDatabase_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiAdminService_GetCellNames_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCellNamesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).GetCellNames(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_GetCellNames_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).GetCellNames(ctx, req.(*GetCellNamesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiAdminService_GetDatabaseNames_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDatabaseNamesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).GetDatabaseNames(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_GetDatabaseNames_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).GetDatabaseNames(ctx, req.(*GetDatabaseNamesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiAdminService_GetGateways_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetGatewaysRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).GetGateways(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_GetGateways_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).GetGateways(ctx, req.(*GetGatewaysRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiAdminService_GetPoolers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPoolersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).GetPoolers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_GetPoolers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).GetPoolers(ctx, req.(*GetPoolersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiAdminService_GetOrchs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOrchsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).GetOrchs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_GetOrchs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).GetOrchs(ctx, req.(*GetOrchsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiAdminService_ServiceDesc is the grpc.ServiceDesc for MultiAdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -157,6 +332,26 @@ var MultiAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDatabase",
 			Handler:    _MultiAdminService_GetDatabase_Handler,
+		},
+		{
+			MethodName: "GetCellNames",
+			Handler:    _MultiAdminService_GetCellNames_Handler,
+		},
+		{
+			MethodName: "GetDatabaseNames",
+			Handler:    _MultiAdminService_GetDatabaseNames_Handler,
+		},
+		{
+			MethodName: "GetGateways",
+			Handler:    _MultiAdminService_GetGateways_Handler,
+		},
+		{
+			MethodName: "GetPoolers",
+			Handler:    _MultiAdminService_GetPoolers_Handler,
+		},
+		{
+			MethodName: "GetOrchs",
+			Handler:    _MultiAdminService_GetOrchs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

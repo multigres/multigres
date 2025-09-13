@@ -39,24 +39,34 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// CellConfig holds the configuration for a single cell
+type CellConfig struct {
+	Name     string `yaml:"name"`
+	RootPath string `yaml:"root-path"`
+}
+
 // TopologyConfig holds the configuration for cluster topology
 type TopologyConfig struct {
-	Backend             string `yaml:"backend"`
-	GlobalRootPath      string `yaml:"global-root-path"`
-	DefaultCellName     string `yaml:"default-cell-name"`
-	DefaultCellRootPath string `yaml:"default-cell-root-path"`
+	Backend        string       `yaml:"backend"`
+	GlobalRootPath string       `yaml:"global-root-path"`
+	Cells          []CellConfig `yaml:"cells"`
+}
+
+// CellServicesConfig holds the service configuration for a specific cell
+type CellServicesConfig struct {
+	Multigateway MultigatewayConfig `yaml:"multigateway"`
+	Multipooler  MultipoolerConfig  `yaml:"multipooler"`
+	Multiorch    MultiorchConfig    `yaml:"multiorch"`
 }
 
 // LocalProvisionerConfig represents the typed configuration for the local provisioner
 type LocalProvisionerConfig struct {
-	RootWorkingDir string             `yaml:"root-working-dir"`
-	DefaultDbName  string             `yaml:"default-db-name"`
-	Topology       TopologyConfig     `yaml:"topology"`
-	Etcd           EtcdConfig         `yaml:"etcd"`
-	Multigateway   MultigatewayConfig `yaml:"multigateway"`
-	Multipooler    MultipoolerConfig  `yaml:"multipooler"`
-	Multiorch      MultiorchConfig    `yaml:"multiorch"`
-	Multiadmin     MultiadminConfig   `yaml:"multiadmin"`
+	RootWorkingDir string                        `yaml:"root-working-dir"`
+	DefaultDbName  string                        `yaml:"default-db-name"`
+	Etcd           EtcdConfig                    `yaml:"etcd"`
+	Topology       TopologyConfig                `yaml:"topology"`
+	Multiadmin     MultiadminConfig              `yaml:"multiadmin"`
+	Cells          map[string]CellServicesConfig `yaml:"cells,omitempty"`
 }
 
 // EtcdConfig holds etcd service configuration
@@ -78,6 +88,7 @@ type MultigatewayConfig struct {
 // MultipoolerConfig holds multipooler service configuration
 type MultipoolerConfig struct {
 	Path     string `yaml:"path"`
+	Database string `yaml:"database"`
 	HttpPort int    `yaml:"http-port"`
 	GrpcPort int    `yaml:"grpc-port"`
 	LogLevel string `yaml:"log-level"`
@@ -198,35 +209,24 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 	localConfig := LocalProvisionerConfig{
 		RootWorkingDir: baseDir,
 		DefaultDbName:  "postgres",
-		Topology: TopologyConfig{
-			Backend:             "etcd2",
-			GlobalRootPath:      "/multigres/global",
-			DefaultCellName:     "zone1",
-			DefaultCellRootPath: "/multigres/zone1",
-		},
 		Etcd: EtcdConfig{
 			Version: "3.5.9",
 			DataDir: filepath.Join(baseDir, "data", "etcd-data"),
 			Port:    2379,
 		},
-		Multigateway: MultigatewayConfig{
-			Path:     filepath.Join(binDir, "multigateway"),
-			HttpPort: 15001,
-			GrpcPort: 15991,
-			PgPort:   15432,
-			LogLevel: "info",
-		},
-		Multipooler: MultipoolerConfig{
-			Path:     filepath.Join(binDir, "multipooler"),
-			HttpPort: 15100,
-			GrpcPort: 16001,
-			LogLevel: "info",
-		},
-		Multiorch: MultiorchConfig{
-			Path:     filepath.Join(binDir, "multiorch"),
-			HttpPort: 15300,
-			GrpcPort: 16000,
-			LogLevel: "info",
+		Topology: TopologyConfig{
+			Backend:        "etcd2",
+			GlobalRootPath: "/multigres/global",
+			Cells: []CellConfig{
+				{
+					Name:     "zone1",
+					RootPath: "/multigres/zone1",
+				},
+				{
+					Name:     "zone2",
+					RootPath: "/multigres/zone2",
+				},
+			},
 		},
 		Multiadmin: MultiadminConfig{
 			Path:     filepath.Join(binDir, "multiadmin"),
@@ -234,9 +234,55 @@ func (p *localProvisioner) DefaultConfig() map[string]any {
 			GrpcPort: 15990,
 			LogLevel: "info",
 		},
+		Cells: map[string]CellServicesConfig{
+			"zone1": {
+				Multigateway: MultigatewayConfig{
+					Path:     filepath.Join(binDir, "multigateway"),
+					HttpPort: 15001,
+					GrpcPort: 15991,
+					PgPort:   15432,
+					LogLevel: "info",
+				},
+				Multipooler: MultipoolerConfig{
+					Path:     filepath.Join(binDir, "multipooler"),
+					Database: "postgres",
+					HttpPort: 15100,
+					GrpcPort: 16001,
+					LogLevel: "info",
+				},
+				Multiorch: MultiorchConfig{
+					Path:     filepath.Join(binDir, "multiorch"),
+					HttpPort: 15300,
+					GrpcPort: 16000,
+					LogLevel: "info",
+				},
+			},
+			"zone2": {
+				Multigateway: MultigatewayConfig{
+					Path:     filepath.Join(binDir, "multigateway"),
+					HttpPort: 15101, // zone1 + 100
+					GrpcPort: 16091, // zone1 + 100
+					PgPort:   15532, // zone1 + 100
+					LogLevel: "info",
+				},
+				Multipooler: MultipoolerConfig{
+					Path:     filepath.Join(binDir, "multipooler"),
+					Database: "postgres",
+					HttpPort: 15200, // zone1 + 100
+					GrpcPort: 16101, // zone1 + 100
+					LogLevel: "info",
+				},
+				Multiorch: MultiorchConfig{
+					Path:     filepath.Join(binDir, "multiorch"),
+					HttpPort: 15400, // zone1 + 100
+					GrpcPort: 16100, // zone1 + 100
+					LogLevel: "info",
+				},
+			},
+		},
 	}
 
-	// Convert to map[string]any via YAML marshaling
+	// Convert to map[string]any via YAML marshaling to preserve struct ordering
 	yamlData, err := yaml.Marshal(localConfig)
 	if err != nil {
 		// Fallback to empty config if marshaling fails
@@ -663,8 +709,11 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		return nil, fmt.Errorf("provisionMultigateway called for wrong service type: %s", req.Service)
 	}
 
+	// Get cell parameter
+	cell := req.Params["cell"].(string)
+
 	// Check if multigateway is already running
-	existingService, err := p.findRunningDbService("multigateway", req.DatabaseName)
+	existingService, err := p.findRunningDbService("multigateway", req.DatabaseName, cell)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check for existing multigateway service: %w", err)
 	}
@@ -682,26 +731,28 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		}, nil
 	}
 
-	// Get multigateway config
-	multigatewayConfig := p.getServiceConfig("multigateway")
-
-	// Get HTTP port from config
-	httpPort := 15432
-	if p, ok := multigatewayConfig["http_port"].(int); ok {
-		httpPort = p
-	}
-
-	// Get gRPC port from config
-	grpcPort := 15433
-	if p, ok := multigatewayConfig["grpc_port"].(int); ok {
-		grpcPort = p
-	}
-
 	// Get parameters from request
 	etcdAddress := req.Params["etcd_address"].(string)
 	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
-	cell := req.Params["cell"].(string)
+
+	// Get cell-specific multigateway config
+	multigatewayConfig, err := p.getCellServiceConfig(cell, "multigateway")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get multigateway config for cell %s: %w", cell, err)
+	}
+
+	// Get HTTP port from cell-specific config
+	httpPort := 15001
+	if p, ok := multigatewayConfig["http_port"].(int); ok {
+		httpPort = p
+	}
+
+	// Get gRPC port from cell-specific config
+	grpcPort := 15991
+	if p, ok := multigatewayConfig["grpc_port"].(int); ok {
+		grpcPort = p
+	}
 
 	// Get log level
 	logLevel := "info"
@@ -760,6 +811,7 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		FQDN:       "localhost",
 		LogFile:    logFile,
 		StartedAt:  time.Now(),
+		Metadata:   map[string]any{"cell": cell},
 	}
 
 	// Save service state to disk
@@ -928,8 +980,11 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		return nil, fmt.Errorf("provisionMultipooler called for wrong service type: %s", req.Service)
 	}
 
+	// Get cell parameter
+	cell := req.Params["cell"].(string)
+
 	// Check if multipooler is already running
-	existingService, err := p.findRunningDbService("multipooler", req.DatabaseName)
+	existingService, err := p.findRunningDbService("multipooler", req.DatabaseName, cell)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check for existing multipooler service: %w", err)
 	}
@@ -946,20 +1001,30 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		}, nil
 	}
 
-	// Get multipooler config
-	multipoolerConfig := p.getServiceConfig("multipooler")
-
-	// Get grpc port from config
-	grpcPort := 15100
-	if port, ok := multipoolerConfig["grpc_port"].(int); ok {
-		grpcPort = port
-	}
-
 	// Get parameters from request
 	etcdAddress := req.Params["etcd_address"].(string)
 	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
-	cell := req.Params["cell"].(string)
+
+	// Get cell-specific multipooler config
+	multipoolerConfig, err := p.getCellServiceConfig(cell, "multipooler")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get multipooler config for cell %s: %w", cell, err)
+	}
+
+	// Get grpc port from cell-specific config
+	grpcPort := 16001
+	if port, ok := multipoolerConfig["grpc_port"].(int); ok {
+		grpcPort = port
+	}
+
+	// Get database from multipooler config, fall back to request if not set
+	database := ""
+	if dbFromConfig, ok := multipoolerConfig["database"].(string); ok && dbFromConfig != "" {
+		database = dbFromConfig
+	} else {
+		database = req.DatabaseName
+	}
 
 	// Get log level
 	logLevel := "info"
@@ -992,6 +1057,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--topo-global-root", topoGlobalRoot,
 		"--topo-implementation", topoBackend,
 		"--cell", cell,
+		"--database", database,
 		"--service-id", serviceID,
 		"--log-level", logLevel,
 		"--log-output", logFile,
@@ -1029,6 +1095,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		FQDN:       "localhost",
 		LogFile:    logFile,
 		StartedAt:  time.Now(),
+		Metadata:   map[string]any{"cell": cell},
 	}
 
 	// Save service state to disk
@@ -1056,8 +1123,11 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		return nil, fmt.Errorf("provisionMultiOrch called for wrong service type: %s", req.Service)
 	}
 
+	// Get cell parameter
+	cell := req.Params["cell"].(string)
+
 	// Check if multiorch is already running
-	existingService, err := p.findRunningDbService("multiorch", req.DatabaseName)
+	existingService, err := p.findRunningDbService("multiorch", req.DatabaseName, cell)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check for existing multiorch service: %w", err)
 	}
@@ -1074,19 +1144,22 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		}, nil
 	}
 
-	// Get multiorch config
-	multiorchConfig := p.getServiceConfig("multiorch")
-
-	// Get grpc port from config
-	grpcPort := 15300
-	if port, ok := multiorchConfig["grpc_port"].(int); ok {
-		grpcPort = port
-	}
-
 	// Get parameters from request
 	etcdAddress := req.Params["etcd_address"].(string)
 	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
+
+	// Get cell-specific multiorch config
+	multiorchConfig, err := p.getCellServiceConfig(cell, "multiorch")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get multiorch config for cell %s: %w", cell, err)
+	}
+
+	// Get grpc port from cell-specific config
+	grpcPort := 16000
+	if port, ok := multiorchConfig["grpc_port"].(int); ok {
+		grpcPort = port
+	}
 
 	// Get log level
 	logLevel := "info"
@@ -1115,6 +1188,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--topo-implementation", topoBackend,
+		"--cell", cell,
 		"--log-level", logLevel,
 		"--log-output", logFile,
 	}
@@ -1151,6 +1225,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		FQDN:       "localhost",
 		LogFile:    logFile,
 		StartedAt:  time.Now(),
+		Metadata:   map[string]any{"cell": cell},
 	}
 
 	// Save service state to disk
@@ -1381,8 +1456,8 @@ func (p *localProvisioner) loadGlobalServices() ([]*LocalProvisionedService, err
 	return services, nil
 }
 
-// findRunningDbService finds a running service by service name within a specific database
-func (p *localProvisioner) findRunningDbService(serviceName, databaseName string) (*LocalProvisionedService, error) {
+// findRunningDbService finds a running service by service name within a specific database and cell
+func (p *localProvisioner) findRunningDbService(serviceName, databaseName, cell string) (*LocalProvisionedService, error) {
 	services, err := p.loadDbProvisionedServices(databaseName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load service states for database %s: %w", databaseName, err)
@@ -1390,10 +1465,13 @@ func (p *localProvisioner) findRunningDbService(serviceName, databaseName string
 
 	for _, service := range services {
 		if service.Service == serviceName {
-			// Check if the service is actually still running
-			if service.PID > 0 {
-				if err := p.validateProcessRunning(service.PID); err == nil {
-					return service, nil
+			// Check if the service matches the cell
+			if serviceCell, ok := service.Metadata["cell"].(string); ok && serviceCell == cell {
+				// Check if the service is actually still running
+				if service.PID > 0 {
+					if err := p.validateProcessRunning(service.PID); err == nil {
+						return service, nil
+					}
 				}
 			}
 		}
@@ -1567,8 +1645,17 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 		return nil, fmt.Errorf("failed to get topology config: %w", err)
 	}
 
-	if err := p.setupDefaultCell(ctx, topoConfig.DefaultCellName, etcdAddress); err != nil {
-		return nil, fmt.Errorf("failed to setup default cell %s: %w", topoConfig.DefaultCellName, err)
+	// Get all cells and set them up
+	cellNames, err := p.getCellNames()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cells: %w", err)
+	}
+
+	// Set up all cells
+	for _, cellName := range cellNames {
+		if err := p.setupDefaultCell(ctx, cellName, etcdAddress); err != nil {
+			return nil, fmt.Errorf("failed to setup cell %s: %w", cellName, err)
+		}
 	}
 	fmt.Println("")
 
@@ -1755,13 +1842,19 @@ func (p *localProvisioner) getDefaultDatabaseName() (string, error) {
 	return p.config.DefaultDbName, nil
 }
 
-// ProvisionDatabase provisions a complete database stack (assumes etcd is already running and cell is configured)
+// ProvisionDatabase provisions a complete database stack in all cells (assumes etcd is already running and cells are configured)
 func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName string, etcdAddress string) ([]*provisioner.ProvisionResult, error) {
 	fmt.Printf("=== Provisioning database: %s ===\n", databaseName)
 	fmt.Println("")
 
 	// Get topology configuration from provisioner config
 	topoConfig := p.config.Topology
+
+	// Get all cell information
+	cellNames, err := p.getCellNames()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cells: %w", err)
+	}
 
 	// Register database in global topology store first
 	fmt.Println("=== Registering database in topology ===")
@@ -1779,13 +1872,13 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		fmt.Printf("⚙️  - Database \"%s\" detected — reusing existing database ✓\n", databaseName)
 	} else if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
 		// Create the database if it doesn't exist
-		fmt.Printf("⚙️  - Creating database \"%s\"...\n", databaseName)
+		fmt.Printf("⚙️  - Creating database \"%s\" with cells: [%s]...\n", databaseName, strings.Join(cellNames, ", "))
 
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
-			BackupLocation:   "",     // TODO: Configure backup location
-			DurabilityPolicy: "none", // Default durability policy
-			Cells:            []string{topoConfig.DefaultCellName},
+			BackupLocation:   "",        // TODO: Configure backup location
+			DurabilityPolicy: "none",    // Default durability policy
+			Cells:            cellNames, // Register with all cells
 		}
 
 		if err := ts.CreateDatabase(ctx, databaseName, databaseConfig); err != nil {
@@ -1800,72 +1893,80 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 	var results []*provisioner.ProvisionResult
 
-	// Provision multigateway
-	fmt.Println("=== Starting Multigateway ===")
-	multigatewayReq := &provisioner.ProvisionRequest{
-		Service:      "multigateway",
-		DatabaseName: databaseName,
-		Params: map[string]any{
-			"etcd_address":     etcdAddress,
-			"topo_backend":     topoConfig.Backend,
-			"topo_global_root": topoConfig.GlobalRootPath,
-			"cell":             topoConfig.DefaultCellName,
-		},
+	// Provision services in each cell
+	for _, cellName := range cellNames {
+		fmt.Printf("=== Provisioning services in cell: %s ===\n", cellName)
+
+		// Provision multigateway
+		fmt.Printf("=== Starting Multigateway in %s ===\n", cellName)
+		multigatewayReq := &provisioner.ProvisionRequest{
+			Service:      "multigateway",
+			DatabaseName: databaseName,
+			Params: map[string]any{
+				"etcd_address":     etcdAddress,
+				"topo_backend":     topoConfig.Backend,
+				"topo_global_root": topoConfig.GlobalRootPath,
+				"cell":             cellName,
+			},
+		}
+
+		multigatewayResult, err := p.provisionMultigateway(ctx, multigatewayReq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to provision multigateway for database %s in cell %s: %w", databaseName, cellName, err)
+		}
+		if httpPort, ok := multigatewayResult.Ports["http_port"]; ok {
+			fmt.Printf("🌐 - Available at: http://%s:%d\n", multigatewayResult.FQDN, httpPort)
+		}
+		results = append(results, multigatewayResult)
+
+		// Provision multipooler
+		fmt.Printf("\n=== Starting Multipooler in %s ===\n", cellName)
+		multipoolerReq := &provisioner.ProvisionRequest{
+			Service:      "multipooler",
+			DatabaseName: databaseName,
+			Params: map[string]any{
+				"etcd_address":     etcdAddress,
+				"topo_backend":     topoConfig.Backend,
+				"topo_global_root": topoConfig.GlobalRootPath,
+				"cell":             cellName,
+			},
+		}
+
+		multipoolerResult, err := p.provisionMultipooler(ctx, multipoolerReq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to provision multipooler for database %s in cell %s: %w", databaseName, cellName, err)
+		}
+		if grpcPort, ok := multipoolerResult.Ports["grpc_port"]; ok {
+			fmt.Printf("🌐 - Available at: %s:%d\n", multipoolerResult.FQDN, grpcPort)
+		}
+		results = append(results, multipoolerResult)
+
+		// Provision multiorch
+		fmt.Printf("\n=== Starting MultiOrchestrator in %s ===\n", cellName)
+		multiorchReq := &provisioner.ProvisionRequest{
+			Service:      "multiorch",
+			DatabaseName: databaseName,
+			Params: map[string]any{
+				"etcd_address":     etcdAddress,
+				"topo_backend":     topoConfig.Backend,
+				"topo_global_root": topoConfig.GlobalRootPath,
+				"cell":             cellName,
+			},
+		}
+
+		multiorchResult, err := p.provisionMultiOrch(ctx, multiorchReq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to provision multiorch for database %s in cell %s: %w", databaseName, cellName, err)
+		}
+		if grpcPort, ok := multiorchResult.Ports["grpc_port"]; ok {
+			fmt.Printf("🌐 - Available at: %s:%d\n", multiorchResult.FQDN, grpcPort)
+		}
+		results = append(results, multiorchResult)
+
+		fmt.Printf("\n✓ Cell %s provisioned successfully\n\n", cellName)
 	}
 
-	multigatewayResult, err := p.provisionMultigateway(ctx, multigatewayReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to provision multigateway for database %s: %w", databaseName, err)
-	}
-	if httpPort, ok := multigatewayResult.Ports["http_port"]; ok {
-		fmt.Printf("🌐 - Available at: http://%s:%d\n", multigatewayResult.FQDN, httpPort)
-	}
-	results = append(results, multigatewayResult)
-
-	// Provision multipooler
-	fmt.Println("\n=== Starting Multipooler ===")
-	multipoolerReq := &provisioner.ProvisionRequest{
-		Service:      "multipooler",
-		DatabaseName: databaseName,
-		Params: map[string]any{
-			"etcd_address":     etcdAddress,
-			"topo_backend":     topoConfig.Backend,
-			"topo_global_root": topoConfig.GlobalRootPath,
-			"cell":             topoConfig.DefaultCellName,
-		},
-	}
-
-	multipoolerResult, err := p.provisionMultipooler(ctx, multipoolerReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to provision multipooler for database %s: %w", databaseName, err)
-	}
-	if grpcPort, ok := multipoolerResult.Ports["grpc_port"]; ok {
-		fmt.Printf("🌐 - Available at: %s:%d\n", multipoolerResult.FQDN, grpcPort)
-	}
-	results = append(results, multipoolerResult)
-
-	// Provision multiorch
-	fmt.Println("\n=== Starting MultiOrchestrator ===")
-	multiorchReq := &provisioner.ProvisionRequest{
-		Service:      "multiorch",
-		DatabaseName: databaseName,
-		Params: map[string]any{
-			"etcd_address":     etcdAddress,
-			"topo_backend":     topoConfig.Backend,
-			"topo_global_root": topoConfig.GlobalRootPath,
-		},
-	}
-
-	multiorchResult, err := p.provisionMultiOrch(ctx, multiorchReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to provision multiorch for database %s: %w", databaseName, err)
-	}
-	if grpcPort, ok := multiorchResult.Ports["grpc_port"]; ok {
-		fmt.Printf("🌐 - Available at: %s:%d\n", multiorchResult.FQDN, grpcPort)
-	}
-	results = append(results, multiorchResult)
-
-	fmt.Printf("\nDatabase %s provisioned successfully with %d services\n", databaseName, len(results))
+	fmt.Printf("Database %s provisioned successfully across %d cells with %d total services\n", databaseName, len(cellNames), len(results))
 	return results, nil
 }
 
@@ -1896,10 +1997,16 @@ func (p *localProvisioner) setupDefaultCell(ctx context.Context, cellName, etcdA
 	if errors.Is(err, &topo.TopoError{Code: topo.NoNode}) {
 		fmt.Printf("⚙️  - Creating cell \"%s\"...\n", cellName)
 
+		// Get the specific cell config for this cell name
+		cellConfigData, err := p.getCellByName(cellName)
+		if err != nil {
+			return fmt.Errorf("failed to get cell config for %s: %w", cellName, err)
+		}
+
 		cellConfig := &clustermetadatapb.Cell{
 			Name:            cellName,
 			ServerAddresses: []string{etcdAddress},
-			Root:            topoConfig.DefaultCellRootPath,
+			Root:            cellConfigData.RootPath,
 		}
 
 		if err := ts.CreateCell(ctx, cellName, cellConfig); err != nil {
@@ -1961,6 +2068,97 @@ func (p *localProvisioner) getTopologyConfig() (*TopologyConfig, error) {
 	return &p.config.Topology, nil
 }
 
+// getAllCells returns all configured cells
+func (p *localProvisioner) getAllCells() ([]CellConfig, error) {
+	if p.config == nil {
+		return nil, fmt.Errorf("provisioner config not set")
+	}
+
+	if len(p.config.Topology.Cells) == 0 {
+		return nil, fmt.Errorf("no cells configured")
+	}
+
+	return p.config.Topology.Cells, nil
+}
+
+// getCellNames returns the names of all configured cells
+func (p *localProvisioner) getCellNames() ([]string, error) {
+	cells, err := p.getAllCells()
+	if err != nil {
+		return nil, err
+	}
+
+	var names []string
+	for _, cell := range cells {
+		names = append(names, cell.Name)
+	}
+	return names, nil
+}
+
+// getCellIndex returns the index of a cell in the list of cell names (for port calculation)
+func (p *localProvisioner) getCellIndex(cellName string) (int, error) {
+	cells, err := p.getAllCells()
+	if err != nil {
+		return -1, err
+	}
+
+	// Find the cell by name and return its index
+	for i, cell := range cells {
+		if cell.Name == cellName {
+			return i, nil
+		}
+	}
+
+	return -1, fmt.Errorf("cell %s not found", cellName)
+}
+
+// calculatePortOffset calculates the port offset for a given cell (100 per cell)
+func (p *localProvisioner) calculatePortOffset(cellName string) (int, error) {
+	cellIndex, err := p.getCellIndex(cellName)
+	if err != nil {
+		return 0, err
+	}
+	return cellIndex * 100, nil
+}
+
+// getDefaultCell returns the first cell configuration (for backward compatibility)
+func (p *localProvisioner) getDefaultCell() (string, *CellConfig, error) {
+	if p.config == nil {
+		return "", nil, fmt.Errorf("provisioner config not set")
+	}
+
+	if len(p.config.Topology.Cells) == 0 {
+		return "", nil, fmt.Errorf("no cells configured")
+	}
+
+	// Return the first cell (for backward compatibility with single-cell setup)
+	for _, cell := range p.config.Topology.Cells {
+		return cell.Name, &cell, nil
+	}
+
+	return "", nil, fmt.Errorf("no cells found")
+}
+
+// getCellByName returns the cell configuration for a specific cell name
+func (p *localProvisioner) getCellByName(cellName string) (*CellConfig, error) {
+	if p.config == nil {
+		return nil, fmt.Errorf("provisioner config not set")
+	}
+
+	if len(p.config.Topology.Cells) == 0 {
+		return nil, fmt.Errorf("no cells configured")
+	}
+
+	// Find the specific cell by name
+	for _, cell := range p.config.Topology.Cells {
+		if cell.Name == cellName {
+			return &cell, nil
+		}
+	}
+
+	return nil, fmt.Errorf("cell %s not found in configuration", cellName)
+}
+
 // ValidateConfig validates the local provisioner configuration
 func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 	// Convert to typed configuration for validation
@@ -1984,17 +2182,23 @@ func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 	if typedConfig.Topology.GlobalRootPath == "" {
 		return fmt.Errorf("topology global-root-path is required")
 	}
-	if typedConfig.Topology.DefaultCellName == "" {
-		return fmt.Errorf("topology default-cell-name is required")
+	if len(typedConfig.Topology.Cells) == 0 {
+		return fmt.Errorf("topology must have at least one cell configured")
 	}
-	if typedConfig.Topology.DefaultCellRootPath == "" {
-		return fmt.Errorf("topology default-cell-root-path is required")
+	// Validate each cell
+	for i, cell := range typedConfig.Topology.Cells {
+		if cell.Name == "" {
+			return fmt.Errorf("cell at index %d name is required", i)
+		}
+		if cell.RootPath == "" {
+			return fmt.Errorf("cell %s root-path is required", cell.Name)
+		}
 	}
 
 	return nil
 }
 
-// getServiceConfig gets the configuration for a specific service
+// getServiceConfig gets the configuration for a specific service (global services only)
 func (p *localProvisioner) getServiceConfig(service string) map[string]any {
 	switch service {
 	case "etcd":
@@ -2002,28 +2206,6 @@ func (p *localProvisioner) getServiceConfig(service string) map[string]any {
 			"version":  p.config.Etcd.Version,
 			"data-dir": p.config.Etcd.DataDir,
 			"port":     p.config.Etcd.Port,
-		}
-	case "multigateway":
-		return map[string]any{
-			"path":      p.config.Multigateway.Path,
-			"http_port": p.config.Multigateway.HttpPort,
-			"grpc_port": p.config.Multigateway.GrpcPort,
-			"pg_port":   p.config.Multigateway.PgPort,
-			"log_level": p.config.Multigateway.LogLevel,
-		}
-	case "multipooler":
-		return map[string]any{
-			"path":      p.config.Multipooler.Path,
-			"http_port": p.config.Multipooler.HttpPort,
-			"grpc_port": p.config.Multipooler.GrpcPort,
-			"log_level": p.config.Multipooler.LogLevel,
-		}
-	case "multiorch":
-		return map[string]any{
-			"path":      p.config.Multiorch.Path,
-			"http_port": p.config.Multiorch.HttpPort,
-			"grpc_port": p.config.Multiorch.GrpcPort,
-			"log_level": p.config.Multiorch.LogLevel,
 		}
 	case "multiadmin":
 		return map[string]any{
@@ -2035,6 +2217,42 @@ func (p *localProvisioner) getServiceConfig(service string) map[string]any {
 	default:
 		// Return empty config if not found
 		return map[string]any{}
+	}
+}
+
+// getCellServiceConfig gets the configuration for a specific service in a specific cell
+func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[string]any, error) {
+	cellServices, exists := p.config.Cells[cellName]
+	if !exists {
+		return nil, fmt.Errorf("cell %s not found in configuration", cellName)
+	}
+
+	switch service {
+	case "multigateway":
+		return map[string]any{
+			"path":      cellServices.Multigateway.Path,
+			"http_port": cellServices.Multigateway.HttpPort,
+			"grpc_port": cellServices.Multigateway.GrpcPort,
+			"pg_port":   cellServices.Multigateway.PgPort,
+			"log_level": cellServices.Multigateway.LogLevel,
+		}, nil
+	case "multipooler":
+		return map[string]any{
+			"path":      cellServices.Multipooler.Path,
+			"database":  cellServices.Multipooler.Database,
+			"http_port": cellServices.Multipooler.HttpPort,
+			"grpc_port": cellServices.Multipooler.GrpcPort,
+			"log_level": cellServices.Multipooler.LogLevel,
+		}, nil
+	case "multiorch":
+		return map[string]any{
+			"path":      cellServices.Multiorch.Path,
+			"http_port": cellServices.Multiorch.HttpPort,
+			"grpc_port": cellServices.Multiorch.GrpcPort,
+			"log_level": cellServices.Multiorch.LogLevel,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown service %s", service)
 	}
 }
 

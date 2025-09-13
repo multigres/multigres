@@ -20,11 +20,11 @@ import (
 	"fmt"
 	"time"
 
-	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
-
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 )
 
 // GetDatabaseCommand implements the getdatabase CLI command

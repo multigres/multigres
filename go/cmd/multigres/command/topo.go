@@ -22,4 +22,9 @@ func init() {
 	// Register topo commands with root
 	Root.AddCommand(topo.GetCellCommand)
 	Root.AddCommand(topo.GetDatabaseCommand)
+	Root.AddCommand(topo.GetCellNamesCommand)
+	Root.AddCommand(topo.GetDatabaseNamesCommand)
+	Root.AddCommand(topo.GetGatewaysCommand)
+	Root.AddCommand(topo.GetPoolersCommand)
+	Root.AddCommand(topo.GetOrchsCommand)
 }

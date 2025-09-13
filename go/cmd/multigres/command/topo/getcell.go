@@ -22,13 +22,13 @@ import (
 	"path/filepath"
 	"time"
 
-	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
-	"github.com/multigres/multigres/go/provisioner/local"
-
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
+
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	"github.com/multigres/multigres/go/provisioner/local"
 )
 
 // GetCellCommand implements the getcell CLI command
