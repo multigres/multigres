@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Modifications Copyright 2025 The Multigres Authors.
+// Modifications Copyright 2025 The Supabase, Inc.
 
 // Package netutil contains network-related utility functions.
 package netutil
