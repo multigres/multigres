@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Modifications Copyright 2025 The Supabase, Inc.
+// Modifications Copyright 2025 Supabase, Inc.
 
 package sync_test
 

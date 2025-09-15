@@ -19,7 +19,7 @@
 # This script handles files that need goimports formatting by applying
 # the formatting and re-staging the files.
 #
-# Modifications Copyright 2025 The Supabase, Inc.
+# Modifications Copyright 2025 Supabase, Inc.
 
 # Get list of Go files to check
 gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep -v '^go/pb/')
