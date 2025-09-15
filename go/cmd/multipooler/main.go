@@ -37,6 +37,7 @@ import (
 var (
 	pgctldAddr string
 	cell       string
+	database   string
 	serviceID  string
 	// multipoolerID stores the ID for deregistration during shutdown
 	multipoolerID *clustermetadatapb.ID
@@ -106,6 +107,11 @@ func run(cmd *cobra.Command, args []string) error {
 	// Get the configured logger
 	logger := servenv.GetLogger()
 
+	// Validate required flags
+	if database == "" {
+		return fmt.Errorf("--database flag is required")
+	}
+
 	// Ensure we open the topo before we start the context, so that the
 	// defer that closes the topo runs after cancelling the context.
 	// This ensures that we've properly closed things like the watchers
@@ -125,6 +131,7 @@ func run(cmd *cobra.Command, args []string) error {
 		logger.Info("multipooler starting up",
 			"pgctld_addr", pgctldAddr,
 			"cell", cell,
+			"database", database,
 			"http_port", servenv.HTTPPort(),
 			"grpc_port", servenv.GRPCPort(),
 		)
@@ -144,6 +151,7 @@ func run(cmd *cobra.Command, args []string) error {
 		multipooler := topo.NewMultiPooler(serviceID, cell, hostname)
 		multipooler.PortMap["grpc"] = int32(servenv.GRPCPort())
 		multipooler.PortMap["http"] = int32(servenv.HTTPPort())
+		multipooler.Database = database
 
 		// Store ID for deregistration during shutdown
 		multipoolerID = multipooler.Id
@@ -190,6 +198,7 @@ func init() {
 	// Adds multipooler specific flags
 	Main.Flags().StringVar(&pgctldAddr, "pgctld-addr", "localhost:15200", "Address of pgctld gRPC service")
 	Main.Flags().StringVar(&cell, "cell", "", "cell to use")
+	Main.Flags().StringVar(&database, "database", "", "database name this multipooler serves (required)")
 	Main.Flags().StringVar(&serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
 }
 
@@ -198,6 +207,7 @@ func init() {
 type StatusResponse struct {
 	ServiceType string                `json:"service_type"`
 	Cell        string                `json:"cell"`
+	Database    string                `json:"database"`
 	ServiceID   string                `json:"service_id"`
 	ID          *clustermetadatapb.ID `json:"id"`
 	PgctldAddr  string                `json:"pgctld_addr"`
@@ -211,6 +221,7 @@ func handleStatusEndpoint(w http.ResponseWriter, r *http.Request) {
 	response := StatusResponse{
 		ServiceType: "multipooler",
 		Cell:        cell,
+		Database:    database,
 		ServiceID:   serviceID,
 		ID:          multipoolerID,
 		PgctldAddr:  pgctldAddr,
