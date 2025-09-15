@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright 2025 The Multigres Authors
+# Copyright 2025 Supabase, Inc
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ for file in $staged_files; do
   fi
 
   # Check if file exists and has license header
-  if [[ -f "$file" ]] && ! head -20 "$file" | grep -q "Copyright.*The Multigres Authors\."; then
+  if [[ -f "$file" ]] && ! head -20 "$file" | grep -q "Copyright.*Supabase, Inc\."; then
     files_without_license+=("$file")
   fi
 done
@@ -48,7 +48,7 @@ if [ ${#files_without_license[@]} -ne 0 ]; then
   # Add license headers to the specific files
   for file in "${files_without_license[@]}"; do
     echo "Adding license to: $file"
-    addlicense -c "The Multigres Authors." -l apache "$file"
+    addlicense -c "Supabase, Inc." -l apache "$file"
     # Stage the modified file so it's included in this commit
     git add "$file"
   done
