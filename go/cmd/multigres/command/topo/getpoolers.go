@@ -38,8 +38,14 @@ func runGetPoolers(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get flag values
-	cellsFlag, _ := cmd.Flags().GetString("cells")
-	database, _ := cmd.Flags().GetString("database")
+	cellsFlag, err := cmd.Flags().GetString("cells")
+	if err != nil {
+		return fmt.Errorf("failed to read cells flag: %w", err)
+	}
+	database, err := cmd.Flags().GetString("database")
+	if err != nil {
+		return fmt.Errorf("failed to read database flag: %w", err)
+	}
 
 	// Parse cells flag
 	var cells []string

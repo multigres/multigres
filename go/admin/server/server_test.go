@@ -246,9 +246,11 @@ func TestMultiAdminServerGetGateways(t *testing.T) {
 		}
 		resp, err := server.GetGateways(ctx, req)
 
-		require.NoError(t, err)
+		require.Error(t, err)
 		require.NotNil(t, resp)
 		assert.Empty(t, resp.Gateways)
+		assert.Contains(t, err.Error(), "partial results returned due to errors in 1 cell(s)")
+		assert.Contains(t, err.Error(), "failed to get gateways for cell nonexistent")
 	})
 }
 
@@ -301,9 +303,11 @@ func TestMultiAdminServerGetGatewaysMultiCell(t *testing.T) {
 		}
 		resp, err := server.GetGateways(ctx, req)
 
-		require.NoError(t, err)
+		require.Error(t, err)
 		require.NotNil(t, resp)
 		assert.Len(t, resp.Gateways, 3) // Should get results from existing cells only
+		assert.Contains(t, err.Error(), "partial results returned due to errors in 1 cell(s)")
+		assert.Contains(t, err.Error(), "failed to get gateways for cell nonexistent")
 	})
 }
 
@@ -328,9 +332,11 @@ func TestMultiAdminServerGetPoolers(t *testing.T) {
 		}
 		resp, err := server.GetPoolers(ctx, req)
 
-		require.NoError(t, err)
+		require.Error(t, err)
 		require.NotNil(t, resp)
 		assert.Empty(t, resp.Poolers)
+		assert.Contains(t, err.Error(), "partial results returned due to errors in 1 cell(s)")
+		assert.Contains(t, err.Error(), "failed to get poolers for cell nonexistent")
 	})
 }
 
@@ -451,9 +457,11 @@ func TestMultiAdminServerGetOrchs(t *testing.T) {
 		}
 		resp, err := server.GetOrchs(ctx, req)
 
-		require.NoError(t, err)
+		require.Error(t, err)
 		require.NotNil(t, resp)
 		assert.Empty(t, resp.Orchs)
+		assert.Contains(t, err.Error(), "partial results returned due to errors in 1 cell(s)")
+		assert.Contains(t, err.Error(), "failed to get orchestrators for cell nonexistent")
 	})
 }
 
@@ -494,8 +502,10 @@ func TestMultiAdminServerGetOrchsMultiCell(t *testing.T) {
 		}
 		resp, err := server.GetOrchs(ctx, req)
 
-		require.NoError(t, err)
+		require.Error(t, err)
 		require.NotNil(t, resp)
 		assert.Empty(t, resp.Orchs)
+		assert.Contains(t, err.Error(), "partial results returned due to errors in 1 cell(s)")
+		assert.Contains(t, err.Error(), "failed to get orchestrators for cell nonexistent")
 	})
 }

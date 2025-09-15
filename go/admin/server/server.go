@@ -22,6 +22,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/multigres/multigres/go/clustermetadata/topo"
@@ -173,13 +174,14 @@ func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.Ge
 	}
 
 	var allGateways []*clustermetadatapb.MultiGateway
+	var errors []error
 
 	// Query each cell for gateways
 	for _, cellName := range cellsToQuery {
 		gatewayInfos, err := s.ts.GetMultiGatewaysByCell(ctx, cellName)
 		if err != nil {
 			s.logger.Error("Failed to get gateways for cell", "cell", cellName, "error", err)
-			// Continue with other cells instead of failing completely
+			errors = append(errors, fmt.Errorf("failed to get gateways for cell %s: %w", cellName, err))
 			continue
 		}
 
@@ -192,6 +194,12 @@ func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.Ge
 
 	response := &multiadminpb.GetGatewaysResponse{
 		Gateways: allGateways,
+	}
+
+	// Return partial results with error if some cells failed
+	if len(errors) > 0 {
+		s.logger.Debug("GetGateways request completed with partial results", "count", len(allGateways), "errors", len(errors))
+		return response, fmt.Errorf("partial results returned due to errors in %d cell(s): %v", len(errors), errors)
 	}
 
 	s.logger.Debug("GetGateways request completed successfully", "count", len(allGateways))
@@ -215,6 +223,7 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 	}
 
 	var allPoolers []*clustermetadatapb.MultiPooler
+	var errors []error
 
 	// Query each cell for poolers
 	for _, cellName := range cellsToQuery {
@@ -231,7 +240,7 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 		poolerInfos, err := s.ts.GetMultiPoolersByCell(ctx, cellName, opts)
 		if err != nil {
 			s.logger.Error("Failed to get poolers for cell", "cell", cellName, "error", err)
-			// Continue with other cells instead of failing completely
+			errors = append(errors, fmt.Errorf("failed to get poolers for cell %s: %w", cellName, err))
 			continue
 		}
 
@@ -244,6 +253,12 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 
 	response := &multiadminpb.GetPoolersResponse{
 		Poolers: allPoolers,
+	}
+
+	// Return partial results with error if some cells failed
+	if len(errors) > 0 {
+		s.logger.Debug("GetPoolers request completed with partial results", "count", len(allPoolers), "errors", len(errors))
+		return response, fmt.Errorf("partial results returned due to errors in %d cell(s): %v", len(errors), errors)
 	}
 
 	s.logger.Debug("GetPoolers request completed successfully", "count", len(allPoolers))
@@ -267,13 +282,14 @@ func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOr
 	}
 
 	var allOrchs []*clustermetadatapb.MultiOrch
+	var errors []error
 
 	// Query each cell for orchestrators
 	for _, cellName := range cellsToQuery {
 		orchInfos, err := s.ts.GetMultiOrchsByCell(ctx, cellName)
 		if err != nil {
 			s.logger.Error("Failed to get orchestrators for cell", "cell", cellName, "error", err)
-			// Continue with other cells instead of failing completely
+			errors = append(errors, fmt.Errorf("failed to get orchestrators for cell %s: %w", cellName, err))
 			continue
 		}
 
@@ -286,6 +302,12 @@ func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOr
 
 	response := &multiadminpb.GetOrchsResponse{
 		Orchs: allOrchs,
+	}
+
+	// Return partial results with error if some cells failed
+	if len(errors) > 0 {
+		s.logger.Debug("GetOrchs request completed with partial results", "count", len(allOrchs), "errors", len(errors))
+		return response, fmt.Errorf("partial results returned due to errors in %d cell(s): %v", len(errors), errors)
 	}
 
 	s.logger.Debug("GetOrchs request completed successfully", "count", len(allOrchs))

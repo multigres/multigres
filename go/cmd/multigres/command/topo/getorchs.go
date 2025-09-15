@@ -38,7 +38,10 @@ func runGetOrchs(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get flag values
-	cellsFlag, _ := cmd.Flags().GetString("cells")
+	cellsFlag, err := cmd.Flags().GetString("cells")
+	if err != nil {
+		return fmt.Errorf("failed to read cells flag: %w", err)
+	}
 
 	// Parse cells flag
 	var cells []string
