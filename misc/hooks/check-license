@@ -19,6 +19,9 @@ if [ -z "$staged_files" ]; then
   exit 0
 fi
 
+# Check for Go files with multi-line license comments (/* */) - these should be single-line (//)
+files_with_multiline_license=()
+
 # Check if files have proper license headers
 files_without_license=()
 
@@ -28,11 +31,34 @@ for file in $staged_files; do
     continue
   fi
 
+  # Check for multi-line license comments in Go files
+  if [[ "$file" == *.go ]] && [[ -f "$file" ]] && head -1 "$file" | grep -q '^/\*'; then
+    files_with_multiline_license+=("$file")
+  fi
+
   # Check if file exists and has license header
   if [[ -f "$file" ]] && ! head -20 "$file" | grep -q "Copyright.*Supabase, Inc\."; then
     files_without_license+=("$file")
   fi
 done
+
+# Reject commit if Go files have multi-line license comments
+if [ ${#files_with_multiline_license[@]} -ne 0 ]; then
+  echo "Go files with multi-line license comments found!"
+  echo ""
+  echo "The following files use /* */ license comments instead of // comments:"
+  printf '  %s\n' "${files_with_multiline_license[@]}"
+  echo ""
+  echo "Please convert these files to use single-line license comments (//)."
+  echo "Change the multi-line format from:"
+  echo "  /*"
+  echo "  Copyright ..."
+  echo "  */"
+  echo "to single-line format:"
+  echo "  // Copyright ..."
+  echo ""
+  exit 1
+fi
 
 # Check if addlicense is installed
 if ! command -v addlicense >/dev/null 2>&1; then
