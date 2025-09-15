@@ -103,6 +103,8 @@ message GetPoolersRequest {
   repeated string cells = 1;
   // database name to filter by (optional)
   string database = 2;
+  // shard name to filter by (optional)
+  string shard = 3;
 }
 
 // GetPoolersResponse contains the filtered poolers

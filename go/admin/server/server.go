@@ -218,22 +218,26 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 
 	// Query each cell for poolers
 	for _, cellName := range cellsToQuery {
-		poolerInfos, err := s.ts.GetMultiPoolersByCell(ctx, cellName, nil)
+		var opts *topo.GetMultiPoolersByCellOptions
+		// filter by database and shard if specified
+		if req.Database != "" {
+			opts = &topo.GetMultiPoolersByCellOptions{
+				DatabaseShard: &topo.DatabaseShard{
+					Database: req.Database,
+					Shard:    req.Shard,
+				},
+			}
+		}
+		poolerInfos, err := s.ts.GetMultiPoolersByCell(ctx, cellName, opts)
 		if err != nil {
 			s.logger.Error("Failed to get poolers for cell", "cell", cellName, "error", err)
 			// Continue with other cells instead of failing completely
 			continue
 		}
 
-		// Convert to protobuf and filter by database if specified
+		// Convert to protobuf
 		for _, info := range poolerInfos {
 			pooler := info.MultiPooler
-
-			// Filter by database if specified
-			if req.Database != "" && pooler.Database != req.Database {
-				continue
-			}
-
 			allPoolers = append(allPoolers, pooler)
 		}
 	}

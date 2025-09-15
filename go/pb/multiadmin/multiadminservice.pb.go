@@ -481,7 +481,9 @@ type GetPoolersRequest struct {
 	// cells is a comma-separated list of cell names to filter by (optional)
 	Cells []string `protobuf:"bytes,1,rep,name=cells,proto3" json:"cells,omitempty"`
 	// database name to filter by (optional)
-	Database      string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
+	Database string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
+	// shard name to filter by (optional)
+	Shard         string `protobuf:"bytes,3,opt,name=shard,proto3" json:"shard,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -526,6 +528,13 @@ func (x *GetPoolersRequest) GetCells() []string {
 func (x *GetPoolersRequest) GetDatabase() string {
 	if x != nil {
 		return x.Database
+	}
+	return ""
+}
+
+func (x *GetPoolersRequest) GetShard() string {
+	if x != nil {
+		return x.Shard
 	}
 	return ""
 }
@@ -690,10 +699,11 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x12GetGatewaysRequest\x12\x14\n" +
 	"\x05cells\x18\x01 \x03(\tR\x05cells\"P\n" +
 	"\x13GetGatewaysResponse\x129\n" +
-	"\bgateways\x18\x01 \x03(\v2\x1d.clustermetadata.MultiGatewayR\bgateways\"E\n" +
+	"\bgateways\x18\x01 \x03(\v2\x1d.clustermetadata.MultiGatewayR\bgateways\"[\n" +
 	"\x11GetPoolersRequest\x12\x14\n" +
 	"\x05cells\x18\x01 \x03(\tR\x05cells\x12\x1a\n" +
-	"\bdatabase\x18\x02 \x01(\tR\bdatabase\"L\n" +
+	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x14\n" +
+	"\x05shard\x18\x03 \x01(\tR\x05shard\"L\n" +
 	"\x12GetPoolersResponse\x126\n" +
 	"\apoolers\x18\x01 \x03(\v2\x1c.clustermetadata.MultiPoolerR\apoolers\"'\n" +
 	"\x0fGetOrchsRequest\x12\x14\n" +
