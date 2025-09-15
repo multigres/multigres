@@ -471,6 +471,10 @@ func (gs *GrantStmt) SqlString() string {
 			parts = append(parts, "SCHEMA")
 		case OBJECT_FUNCTION:
 			parts = append(parts, "FUNCTION")
+		case OBJECT_PROCEDURE:
+			parts = append(parts, "PROCEDURE")
+		case OBJECT_TYPE:
+			parts = append(parts, "TYPE")
 		case OBJECT_TABLE:
 			// TABLE is optional, but we can add it for clarity in certain contexts
 			// parts = append(parts, "TABLE")
@@ -492,6 +496,13 @@ func (gs *GrantStmt) SqlString() string {
 			} else if objWithArgs, ok := obj.(*ObjectWithArgs); ok {
 				// For functions, use the SqlString method
 				objNames = append(objNames, objWithArgs.SqlString())
+			} else if nodeList, ok := obj.(*NodeList); ok {
+				// For types and other complex objects, extract names from the NodeList
+				for _, item := range nodeList.Items {
+					if str, ok := item.(*String); ok {
+						objNames = append(objNames, str.SVal)
+					}
+				}
 			}
 		}
 		parts = append(parts, strings.Join(objNames, ", "))
@@ -586,17 +597,21 @@ func (grs *GrantRoleStmt) SqlString() string {
 			if defElem, ok := opt.(*DefElem); ok {
 				optStr := strings.ToUpper(defElem.Defname)
 				if defElem.Arg != nil {
-					if boolVal, ok := defElem.Arg.(*Boolean); ok && boolVal.BoolVal {
-						optStr += " OPTION"
+					if boolVal, ok := defElem.Arg.(*Boolean); ok {
+						if boolVal.BoolVal {
+							optStr += " TRUE"
+						} else {
+							optStr += " FALSE"
+						}
+					} else {
+						optStr += " " + defElem.Arg.SqlString()
 					}
-				} else {
-					optStr += " OPTION"
 				}
 				optParts = append(optParts, optStr)
 			}
 		}
 		if len(optParts) > 0 {
-			parts = append(parts, strings.Join(optParts, " "))
+			parts = append(parts, strings.Join(optParts, ", "))
 		}
 	}
 
@@ -869,7 +884,6 @@ func (crs *CreateRoleStmt) SqlString() string {
 			}
 		}
 		if len(optionParts) > 0 {
-			parts = append(parts, "WITH")
 			parts = append(parts, strings.Join(optionParts, " "))
 		}
 	}
@@ -929,6 +943,14 @@ func formatRoleOption(d *DefElem) string {
 				return "NOSUPERUSER"
 			}
 		}
+	case "bypassrls":
+		if boolVal, ok := d.Arg.(*Boolean); ok {
+			if boolVal.BoolVal {
+				return "BYPASSRLS"
+			} else {
+				return "NOBYPASSRLS"
+			}
+		}
 	case "connectionlimit":
 		if d.Arg != nil {
 			return fmt.Sprintf("CONNECTION LIMIT %s", d.Arg.SqlString())
@@ -952,6 +974,8 @@ func formatRoleOption(d *DefElem) string {
 	case "password":
 		if d.Arg != nil {
 			return fmt.Sprintf("PASSWORD %s", d.Arg.SqlString())
+		} else {
+			return "PASSWORD NULL"
 		}
 	}
 
@@ -2082,8 +2106,8 @@ func formatCopyOption(option *DefElem) string {
 		} else if arg.SVal == "default" {
 			return optionName + " default"
 		} else {
-			// String value - quote it
-			return optionName + " '" + arg.SVal + "'"
+			// String value - properly escape and quote it
+			return optionName + " " + QuoteStringLiteral(arg.SVal)
 		}
 	case *Integer:
 		return optionName + " " + fmt.Sprintf("%d", arg.IVal)
@@ -2503,7 +2527,7 @@ func (cs *ClusterStmt) SqlString() string {
 	
 	// Add table name if specified
 	if cs.Relation != nil {
-		parts = append(parts, cs.Relation.RelName)
+		parts = append(parts, cs.Relation.SqlString())
 		
 		// Add index specification if present
 		if cs.Indexname != "" {

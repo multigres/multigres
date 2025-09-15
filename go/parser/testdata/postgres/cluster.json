@@ -1,27 +1,33 @@
 [
   {
     "comment": "cluster - Statement 1",
-    "query": "CREATE TABLE clstr_tst_s (rf_a SERIAL PRIMARY KEY, b INT)"
+    "query": "CREATE TABLE clstr_tst_s (rf_a SERIAL PRIMARY KEY, b INT)",
+    "expected": "CREATE TABLE clstr_tst_s (rf_a serial PRIMARY KEY, b INT)"
   },
   {
     "comment": "cluster - Statement 2",
-    "query": "CREATE TABLE clstr_tst (a SERIAL PRIMARY KEY, b INT, c TEXT, d TEXT, CONSTRAINT clstr_tst_con FOREIGN KEY (b) REFERENCES clstr_tst_s)"
+    "query": "CREATE TABLE clstr_tst (a SERIAL PRIMARY KEY, b INT, c TEXT, d TEXT, CONSTRAINT clstr_tst_con FOREIGN KEY (b) REFERENCES clstr_tst_s)",
+    "expected": "CREATE TABLE clstr_tst (a serial PRIMARY KEY, b INT, c TEXT, d TEXT, CONSTRAINT clstr_tst_con FOREIGN KEY (b) REFERENCES clstr_tst_s)"
   },
   {
     "comment": "cluster - Statement 3",
-    "query": "CREATE INDEX clstr_tst_b ON clstr_tst (b)"
+    "query": "CREATE INDEX clstr_tst_b ON clstr_tst (b)",
+    "expected": "CREATE INDEX clstr_tst_b ON clstr_tst USING btree ( b )"
   },
   {
     "comment": "cluster - Statement 4",
-    "query": "CREATE INDEX clstr_tst_c ON clstr_tst (c)"
+    "query": "CREATE INDEX clstr_tst_c ON clstr_tst (c)",
+    "expected": "CREATE INDEX clstr_tst_c ON clstr_tst USING btree ( c )"
   },
   {
     "comment": "cluster - Statement 5",
-    "query": "CREATE INDEX clstr_tst_c_b ON clstr_tst (c,b)"
+    "query": "CREATE INDEX clstr_tst_c_b ON clstr_tst (c,b)",
+    "expected": "CREATE INDEX clstr_tst_c_b ON clstr_tst USING btree ( c, b )"
   },
   {
     "comment": "cluster - Statement 6",
-    "query": "CREATE INDEX clstr_tst_b_c ON clstr_tst (b,c)"
+    "query": "CREATE INDEX clstr_tst_b_c ON clstr_tst (b,c)",
+    "expected": "CREATE INDEX clstr_tst_b_c ON clstr_tst USING btree ( b, c )"
   },
   {
     "comment": "cluster - Statement 7",
@@ -165,23 +171,28 @@
   },
   {
     "comment": "cluster - Statement 42",
-    "query": "CLUSTER clstr_tst_c ON clstr_tst"
+    "query": "CLUSTER clstr_tst_c ON clstr_tst",
+    "expected": "CLUSTER clstr_tst USING clstr_tst_c"
   },
   {
     "comment": "cluster - Statement 43",
-    "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst"
+    "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst",
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst"
   },
   {
     "comment": "cluster - Statement 44",
-    "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY a"
+    "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY a",
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst ORDER BY a"
   },
   {
     "comment": "cluster - Statement 45",
-    "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY b"
+    "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY b",
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst ORDER BY b"
   },
   {
     "comment": "cluster - Statement 46",
-    "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY c"
+    "query": "SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY c",
+    "expected": "SELECT a, b, c, SUBSTRING(d FROM 1 FOR CAST(30 AS INT)), length(d) FROM clstr_tst ORDER BY c"
   },
   {
     "comment": "cluster - Statement 47",
@@ -193,15 +204,18 @@
   },
   {
     "comment": "cluster - Statement 49",
-    "query": "SELECT conname FROM pg_constraint WHERE conrelid = 'clstr_tst'::regclass ORDER BY 1"
+    "query": "SELECT conname FROM pg_constraint WHERE conrelid = 'clstr_tst'::regclass ORDER BY 1",
+    "expected": "SELECT conname FROM pg_constraint WHERE conrelid = CAST('clstr_tst' AS regclass) ORDER BY 1"
   },
   {
     "comment": "cluster - Statement 50",
-    "query": "SELECT relname, relkind, EXISTS(SELECT 1 FROM pg_class WHERE oid = c.reltoastrelid) AS hastoast FROM pg_class c WHERE relname LIKE 'clstr_tst%' ORDER BY relname"
+    "query": "SELECT relname, relkind, EXISTS(SELECT 1 FROM pg_class WHERE oid = c.reltoastrelid) AS hastoast FROM pg_class c WHERE relname LIKE 'clstr_tst%' ORDER BY relname",
+    "expected": "SELECT relname, relkind, EXISTS (SELECT 1 FROM pg_class WHERE oid = c.reltoastrelid) AS hastoast FROM pg_class AS c WHERE relname LIKE 'clstr_tst%' ORDER BY relname"
   },
   {
     "comment": "cluster - Statement 51",
-    "query": "SELECT pg_class.relname FROM pg_index, pg_class, pg_class AS pg_class_2 WHERE pg_class.oid=indexrelid AND indrelid=pg_class_2.oid AND pg_class_2.relname = 'clstr_tst' AND indisclustered"
+    "query": "SELECT pg_class.relname FROM pg_index, pg_class, pg_class AS pg_class_2 WHERE pg_class.oid=indexrelid AND indrelid=pg_class_2.oid AND pg_class_2.relname = 'clstr_tst' AND indisclustered",
+    "expected": "SELECT pg_class.relname FROM pg_index, pg_class, pg_class AS pg_class_2 WHERE pg_class.oid = indexrelid AND indrelid = pg_class_2.oid AND pg_class_2.relname = 'clstr_tst' AND indisclustered"
   },
   {
     "comment": "cluster - Statement 52",
@@ -273,7 +287,8 @@
   },
   {
     "comment": "cluster - Statement 69",
-    "query": "CLUSTER clstr_1_pkey ON clstr_1"
+    "query": "CLUSTER clstr_1_pkey ON clstr_1",
+    "expected": "CLUSTER clstr_1 USING clstr_1_pkey"
   },
   {
     "comment": "cluster - Statement 70",
@@ -281,7 +296,8 @@
   },
   {
     "comment": "cluster - Statement 71",
-    "query": "SELECT * FROM clstr_1 UNION ALL SELECT * FROM clstr_2 UNION ALL SELECT * FROM clstr_3"
+    "query": "SELECT * FROM clstr_1 UNION ALL SELECT * FROM clstr_2 UNION ALL SELECT * FROM clstr_3",
+    "expected": "(SELECT * FROM clstr_1 UNION ALL SELECT * FROM clstr_2) UNION ALL SELECT * FROM clstr_3"
   },
   {
     "comment": "cluster - Statement 72",
@@ -297,11 +313,13 @@
   },
   {
     "comment": "cluster - Statement 75",
-    "query": "SET SESSION AUTHORIZATION regress_clstr_user"
+    "query": "SET SESSION AUTHORIZATION regress_clstr_user",
+    "expected": "SET SESSION AUTHORIZATION 'regress_clstr_user'"
   },
   {
     "comment": "cluster - Statement 76",
-    "query": "SET client_min_messages = ERROR"
+    "query": "SET client_min_messages = ERROR",
+    "expected": "SET client_min_messages = 'error'"
   },
   {
     "comment": "cluster - Statement 77",
@@ -321,7 +339,8 @@
   },
   {
     "comment": "cluster - Statement 81",
-    "query": "CREATE TABLE clustertest (key int PRIMARY KEY)"
+    "query": "CREATE TABLE clustertest (key int PRIMARY KEY)",
+    "expected": "CREATE TABLE clustertest (\"key\" INT PRIMARY KEY)"
   },
   {
     "comment": "cluster - Statement 82",
@@ -349,23 +368,28 @@
   },
   {
     "comment": "cluster - Statement 88",
-    "query": "UPDATE clustertest SET key = 100 WHERE key = 10"
+    "query": "UPDATE clustertest SET key = 100 WHERE key = 10",
+    "expected": "UPDATE clustertest SET \"key\" = 100 WHERE \"key\" = 10"
   },
   {
     "comment": "cluster - Statement 89",
-    "query": "UPDATE clustertest SET key = 35 WHERE key = 40"
+    "query": "UPDATE clustertest SET key = 35 WHERE key = 40",
+    "expected": "UPDATE clustertest SET \"key\" = 35 WHERE \"key\" = 40"
   },
   {
     "comment": "cluster - Statement 90",
-    "query": "UPDATE clustertest SET key = 60 WHERE key = 50"
+    "query": "UPDATE clustertest SET key = 60 WHERE key = 50",
+    "expected": "UPDATE clustertest SET \"key\" = 60 WHERE \"key\" = 50"
   },
   {
     "comment": "cluster - Statement 91",
-    "query": "UPDATE clustertest SET key = 70 WHERE key = 60"
+    "query": "UPDATE clustertest SET key = 70 WHERE key = 60",
+    "expected": "UPDATE clustertest SET \"key\" = 70 WHERE \"key\" = 60"
   },
   {
     "comment": "cluster - Statement 92",
-    "query": "UPDATE clustertest SET key = 80 WHERE key = 70"
+    "query": "UPDATE clustertest SET key = 80 WHERE key = 70",
+    "expected": "UPDATE clustertest SET \"key\" = 80 WHERE \"key\" = 70"
   },
   {
     "comment": "cluster - Statement 93",
@@ -373,7 +397,8 @@
   },
   {
     "comment": "cluster - Statement 94",
-    "query": "CLUSTER clustertest_pkey ON clustertest"
+    "query": "CLUSTER clustertest_pkey ON clustertest",
+    "expected": "CLUSTER clustertest USING clustertest_pkey"
   },
   {
     "comment": "cluster - Statement 95",
@@ -381,27 +406,33 @@
   },
   {
     "comment": "cluster - Statement 96",
-    "query": "create temp table clstr_temp (col1 int primary key, col2 text)"
+    "query": "create temp table clstr_temp (col1 int primary key, col2 text)",
+    "expected": "CREATE TEMPORARY TABLE clstr_temp (col1 INT PRIMARY KEY, col2 TEXT)"
   },
   {
     "comment": "cluster - Statement 97",
-    "query": "insert into clstr_temp values (2, 'two'), (1, 'one')"
+    "query": "insert into clstr_temp values (2, 'two'), (1, 'one')",
+    "expected": "INSERT INTO clstr_temp VALUES (2, 'two'), (1, 'one')"
   },
   {
     "comment": "cluster - Statement 98",
-    "query": "cluster clstr_temp using clstr_temp_pkey"
+    "query": "cluster clstr_temp using clstr_temp_pkey",
+    "expected": "CLUSTER clstr_temp USING clstr_temp_pkey"
   },
   {
     "comment": "cluster - Statement 99",
-    "query": "select * from clstr_temp"
+    "query": "select * from clstr_temp",
+    "expected": "SELECT * FROM clstr_temp"
   },
   {
     "comment": "cluster - Statement 100",
-    "query": "drop table clstr_temp"
+    "query": "drop table clstr_temp",
+    "expected": "DROP TABLE clstr_temp"
   },
   {
     "comment": "cluster - Statement 101",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "cluster - Statement 102",
@@ -409,7 +440,8 @@
   },
   {
     "comment": "cluster - Statement 103",
-    "query": "CREATE TABLE clustertest (f1 int PRIMARY KEY)"
+    "query": "CREATE TABLE clustertest (f1 int PRIMARY KEY)",
+    "expected": "CREATE TABLE clustertest (f1 INT PRIMARY KEY)"
   },
   {
     "comment": "cluster - Statement 104",
@@ -421,11 +453,13 @@
   },
   {
     "comment": "cluster - Statement 106",
-    "query": "CREATE TABLE clstrpart (a int) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE clstrpart (a int) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE clstrpart (a INT) PARTITION BY range (a)"
   },
   {
     "comment": "cluster - Statement 107",
-    "query": "CREATE TABLE clstrpart1 PARTITION OF clstrpart FOR VALUES FROM (1) TO (10) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE clstrpart1 PARTITION OF clstrpart FOR VALUES FROM (1) TO (10) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE clstrpart1 PARTITION OF clstrpart FOR VALUES FROM (1) TO (10) PARTITION BY range (a)"
   },
   {
     "comment": "cluster - Statement 108",
@@ -433,7 +467,8 @@
   },
   {
     "comment": "cluster - Statement 109",
-    "query": "CREATE TABLE clstrpart12 PARTITION OF clstrpart1 FOR VALUES FROM (5) TO (10) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE clstrpart12 PARTITION OF clstrpart1 FOR VALUES FROM (5) TO (10) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE clstrpart12 PARTITION OF clstrpart1 FOR VALUES FROM (5) TO (10) PARTITION BY range (a)"
   },
   {
     "comment": "cluster - Statement 110",
@@ -441,7 +476,8 @@
   },
   {
     "comment": "cluster - Statement 111",
-    "query": "CREATE TABLE clstrpart3 PARTITION OF clstrpart DEFAULT PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE clstrpart3 PARTITION OF clstrpart DEFAULT PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE clstrpart3 PARTITION OF clstrpart DEFAULT PARTITION BY range (a)"
   },
   {
     "comment": "cluster - Statement 112",
@@ -449,7 +485,8 @@
   },
   {
     "comment": "cluster - Statement 113",
-    "query": "CREATE INDEX clstrpart_only_idx ON ONLY clstrpart (a)"
+    "query": "CREATE INDEX clstrpart_only_idx ON ONLY clstrpart (a)",
+    "expected": "CREATE INDEX clstrpart_only_idx ON ONLY clstrpart USING btree ( a )"
   },
   {
     "comment": "cluster - Statement 114",
@@ -461,11 +498,13 @@
   },
   {
     "comment": "cluster - Statement 116",
-    "query": "CREATE INDEX clstrpart_idx ON clstrpart (a)"
+    "query": "CREATE INDEX clstrpart_idx ON clstrpart (a)",
+    "expected": "CREATE INDEX clstrpart_idx ON clstrpart USING btree ( a )"
   },
   {
     "comment": "cluster - Statement 117",
-    "query": "CREATE TEMP TABLE old_cluster_info AS SELECT relname, level, relfilenode, relkind FROM pg_partition_tree('clstrpart'::regclass) AS tree JOIN pg_class c ON c.oid=tree.relid"
+    "query": "CREATE TEMP TABLE old_cluster_info AS SELECT relname, level, relfilenode, relkind FROM pg_partition_tree('clstrpart'::regclass) AS tree JOIN pg_class c ON c.oid=tree.relid",
+    "expected": "CREATE TEMP TABLE old_cluster_info AS SELECT relname, level, relfilenode, relkind FROM pg_partition_tree(CAST('clstrpart' AS regclass)) AS tree INNER JOIN pg_class AS c ON c.oid = tree.relid"
   },
   {
     "comment": "cluster - Statement 118",
@@ -473,11 +512,13 @@
   },
   {
     "comment": "cluster - Statement 119",
-    "query": "CREATE TEMP TABLE new_cluster_info AS SELECT relname, level, relfilenode, relkind FROM pg_partition_tree('clstrpart'::regclass) AS tree JOIN pg_class c ON c.oid=tree.relid"
+    "query": "CREATE TEMP TABLE new_cluster_info AS SELECT relname, level, relfilenode, relkind FROM pg_partition_tree('clstrpart'::regclass) AS tree JOIN pg_class c ON c.oid=tree.relid",
+    "expected": "CREATE TEMP TABLE new_cluster_info AS SELECT relname, level, relfilenode, relkind FROM pg_partition_tree(CAST('clstrpart' AS regclass)) AS tree INNER JOIN pg_class AS c ON c.oid = tree.relid"
   },
   {
     "comment": "cluster - Statement 120",
-    "query": "SELECT relname, old.level, old.relkind, old.relfilenode = new.relfilenode FROM old_cluster_info AS old JOIN new_cluster_info AS new USING (relname) ORDER BY relname COLLATE \"C\""
+    "query": "SELECT relname, old.level, old.relkind, old.relfilenode = new.relfilenode FROM old_cluster_info AS old JOIN new_cluster_info AS new USING (relname) ORDER BY relname COLLATE \"C\"",
+    "expected": "SELECT relname, old.level, old.relkind, old.relfilenode = new.relfilenode FROM old_cluster_info AS old INNER JOIN new_cluster_info AS new USING (relname) ORDER BY relname COLLATE \"C\""
   },
   {
     "comment": "cluster - Statement 121",
@@ -493,11 +534,13 @@
   },
   {
     "comment": "cluster - Statement 124",
-    "query": "CREATE TABLE ptnowner(i int unique) PARTITION BY LIST (i)"
+    "query": "CREATE TABLE ptnowner(i int unique) PARTITION BY LIST (i)",
+    "expected": "CREATE TABLE ptnowner (i INT UNIQUE) PARTITION BY list (i)"
   },
   {
     "comment": "cluster - Statement 125",
-    "query": "CREATE INDEX ptnowner_i_idx ON ptnowner(i)"
+    "query": "CREATE INDEX ptnowner_i_idx ON ptnowner(i)",
+    "expected": "CREATE INDEX ptnowner_i_idx ON ptnowner USING btree ( i )"
   },
   {
     "comment": "cluster - Statement 126",
@@ -517,7 +560,8 @@
   },
   {
     "comment": "cluster - Statement 130",
-    "query": "SET SESSION AUTHORIZATION regress_ptnowner"
+    "query": "SET SESSION AUTHORIZATION regress_ptnowner",
+    "expected": "SET SESSION AUTHORIZATION 'regress_ptnowner'"
   },
   {
     "comment": "cluster - Statement 131",
@@ -529,11 +573,13 @@
   },
   {
     "comment": "cluster - Statement 133",
-    "query": "CREATE TEMP TABLE ptnowner_oldnodes AS SELECT oid, relname, relfilenode FROM pg_partition_tree('ptnowner') AS tree JOIN pg_class AS c ON c.oid=tree.relid"
+    "query": "CREATE TEMP TABLE ptnowner_oldnodes AS SELECT oid, relname, relfilenode FROM pg_partition_tree('ptnowner') AS tree JOIN pg_class AS c ON c.oid=tree.relid",
+    "expected": "CREATE TEMP TABLE ptnowner_oldnodes AS SELECT oid, relname, relfilenode FROM pg_partition_tree('ptnowner') AS tree INNER JOIN pg_class AS c ON c.oid = tree.relid"
   },
   {
     "comment": "cluster - Statement 134",
-    "query": "SELECT a.relname, a.relfilenode=b.relfilenode FROM pg_class a JOIN ptnowner_oldnodes b USING (oid) ORDER BY a.relname COLLATE \"C\""
+    "query": "SELECT a.relname, a.relfilenode=b.relfilenode FROM pg_class a JOIN ptnowner_oldnodes b USING (oid) ORDER BY a.relname COLLATE \"C\"",
+    "expected": "SELECT a.relname, a.relfilenode = b.relfilenode FROM pg_class AS a INNER JOIN ptnowner_oldnodes AS b USING (oid) ORDER BY a.relname COLLATE \"C\""
   },
   {
     "comment": "cluster - Statement 135",
@@ -545,51 +591,63 @@
   },
   {
     "comment": "cluster - Statement 137",
-    "query": "create table clstr_4 as select * from tenk1"
+    "query": "create table clstr_4 as select * from tenk1",
+    "expected": "CREATE TABLE clstr_4 AS SELECT * FROM tenk1"
   },
   {
     "comment": "cluster - Statement 138",
-    "query": "create index cluster_sort on clstr_4 (hundred, thousand, tenthous)"
+    "query": "create index cluster_sort on clstr_4 (hundred, thousand, tenthous)",
+    "expected": "CREATE INDEX cluster_sort ON clstr_4 USING btree ( hundred, thousand, tenthous )"
   },
   {
     "comment": "cluster - Statement 139",
-    "query": "set enable_indexscan = off"
+    "query": "set enable_indexscan = off",
+    "expected": "SET enable_indexscan = off"
   },
   {
     "comment": "cluster - Statement 140",
-    "query": "set maintenance_work_mem = '1MB'"
+    "query": "set maintenance_work_mem = '1MB'",
+    "expected": "SET maintenance_work_mem = '1MB'"
   },
   {
     "comment": "cluster - Statement 141",
-    "query": "cluster clstr_4 using cluster_sort"
+    "query": "cluster clstr_4 using cluster_sort",
+    "expected": "CLUSTER clstr_4 USING cluster_sort"
   },
   {
     "comment": "cluster - Statement 142",
-    "query": "select * from (select hundred, lag(hundred) over () as lhundred, thousand, lag(thousand) over () as lthousand, tenthous, lag(tenthous) over () as ltenthous from clstr_4) ss where row(hundred, thousand, tenthous) <= row(lhundred, lthousand, ltenthous)"
+    "query": "select * from (select hundred, lag(hundred) over () as lhundred, thousand, lag(thousand) over () as lthousand, tenthous, lag(tenthous) over () as ltenthous from clstr_4) ss where row(hundred, thousand, tenthous) \u003c= row(lhundred, lthousand, ltenthous)",
+    "expected": "SELECT * FROM (SELECT hundred, LAG(hundred) OVER () AS lhundred, thousand, LAG(thousand) OVER () AS lthousand, tenthous, LAG(tenthous) OVER () AS ltenthous FROM clstr_4) AS ss WHERE ROW(hundred, thousand, tenthous) \u003c= ROW(lhundred, lthousand, ltenthous)"
   },
   {
     "comment": "cluster - Statement 143",
-    "query": "reset enable_indexscan"
+    "query": "reset enable_indexscan",
+    "expected": "RESET enable_indexscan"
   },
   {
     "comment": "cluster - Statement 144",
-    "query": "reset maintenance_work_mem"
+    "query": "reset maintenance_work_mem",
+    "expected": "RESET maintenance_work_mem"
   },
   {
     "comment": "cluster - Statement 145",
-    "query": "CREATE TABLE clstr_expression(id serial primary key, a int, b text COLLATE \"C\")"
+    "query": "CREATE TABLE clstr_expression(id serial primary key, a int, b text COLLATE \"C\")",
+    "expected": "CREATE TABLE clstr_expression (id serial PRIMARY KEY, a INT, b TEXT COLLATE \"C\")"
   },
   {
     "comment": "cluster - Statement 146",
-    "query": "INSERT INTO clstr_expression(a, b) SELECT g.i % 42, 'prefix'||g.i FROM generate_series(1, 133) g(i)"
+    "query": "INSERT INTO clstr_expression(a, b) SELECT g.i % 42, 'prefix'||g.i FROM generate_series(1, 133) g(i)",
+    "expected": "INSERT INTO clstr_expression (a, b) SELECT g.i % 42, 'prefix' || g.i FROM generate_series(1, 133) AS g(i)"
   },
   {
     "comment": "cluster - Statement 147",
-    "query": "CREATE INDEX clstr_expression_minus_a ON clstr_expression ((-a), b)"
+    "query": "CREATE INDEX clstr_expression_minus_a ON clstr_expression ((-a), b)",
+    "expected": "CREATE INDEX clstr_expression_minus_a ON clstr_expression USING btree ( (-a), b )"
   },
   {
     "comment": "cluster - Statement 148",
-    "query": "CREATE INDEX clstr_expression_upper_b ON clstr_expression ((upper(b)))"
+    "query": "CREATE INDEX clstr_expression_upper_b ON clstr_expression ((upper(b)))",
+    "expected": "CREATE INDEX clstr_expression_upper_b ON clstr_expression USING btree ( (upper(b)) )"
   },
   {
     "comment": "cluster - Statement 149",
@@ -597,7 +655,8 @@
   },
   {
     "comment": "cluster - Statement 150",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3'"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3'"
   },
   {
     "comment": "cluster - Statement 151",
@@ -605,7 +664,8 @@
   },
   {
     "comment": "cluster - Statement 152",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b"
   },
   {
     "comment": "cluster - Statement 153",
@@ -617,7 +677,8 @@
   },
   {
     "comment": "cluster - Statement 155",
-    "query": "WITH rows AS (SELECT ctid, lag(a) OVER (ORDER BY ctid) AS la, a FROM clstr_expression) SELECT * FROM rows WHERE la < a"
+    "query": "WITH rows AS (SELECT ctid, lag(a) OVER (ORDER BY ctid) AS la, a FROM clstr_expression) SELECT * FROM rows WHERE la \u003c a",
+    "expected": "WITH rows AS (SELECT ctid, LAG(a) OVER (ORDER BY ctid) AS la, a FROM clstr_expression) SELECT * FROM rows WHERE la \u003c a"
   },
   {
     "comment": "cluster - Statement 156",
@@ -625,7 +686,8 @@
   },
   {
     "comment": "cluster - Statement 157",
-    "query": "WITH rows AS (SELECT ctid, lag(b) OVER (ORDER BY ctid) AS lb, b FROM clstr_expression) SELECT * FROM rows WHERE upper(lb) > upper(b)"
+    "query": "WITH rows AS (SELECT ctid, lag(b) OVER (ORDER BY ctid) AS lb, b FROM clstr_expression) SELECT * FROM rows WHERE upper(lb) \u003e upper(b)",
+    "expected": "WITH rows AS (SELECT ctid, LAG(b) OVER (ORDER BY ctid) AS lb, b FROM clstr_expression) SELECT * FROM rows WHERE upper(lb) \u003e upper(b)"
   },
   {
     "comment": "cluster - Statement 158",
@@ -649,6 +711,7 @@
   },
   {
     "comment": "cluster - Statement 163",
-    "query": "DROP USER regress_clstr_user"
+    "query": "DROP USER regress_clstr_user",
+    "expected": "DROP ROLE regress_clstr_user"
   }
 ]

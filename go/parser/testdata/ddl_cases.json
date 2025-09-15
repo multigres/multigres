@@ -29,46 +29,53 @@
   },
   {
     "comment": "CREATE INDEX with options",
-    "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = 85)"
+    "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = 85)",
+    "expected": "CREATE INDEX test_idx ON test USING btree ( id ) WITH (fillfactor = 85)"
   },
   {
     "comment": "CREATE UNIQUE INDEX with options",
-    "query": "CREATE UNIQUE INDEX test_idx ON test (id) WITH (fillfactor = 75)"
+    "query": "CREATE UNIQUE INDEX test_idx ON test (id) WITH (fillfactor = 75)",
+    "expected": "CREATE UNIQUE INDEX test_idx ON test USING btree ( id ) WITH (fillfactor = 75)"
   },
   {
     "comment": "CREATE INDEX with multiple options",
-    "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = 80, fastupdate = off)"
+    "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = 80, fastupdate = off)",
+    "expected": "CREATE INDEX test_idx ON test USING btree ( id ) WITH (fillfactor = 80, fastupdate = off)"
   },
   {
     "comment": "Definition with boolean true",
     "query": "CREATE INDEX test_idx ON test (id) WITH (fastupdate = on)",
-    "expected": "CREATE INDEX test_idx ON test (id) WITH (fastupdate = 'on')"
+    "expected": "CREATE INDEX test_idx ON test USING btree ( id ) WITH (fastupdate = 'on')"
   },
   {
     "comment": "Definition with boolean false",
-    "query": "CREATE INDEX test_idx ON test (id) WITH (fastupdate = off)"
+    "query": "CREATE INDEX test_idx ON test (id) WITH (fastupdate = off)",
+    "expected": "CREATE INDEX test_idx ON test USING btree ( id ) WITH (fastupdate = off)"
   },
   {
     "comment": "Definition with string value",
-    "query": "CREATE INDEX test_idx ON test (id) WITH (buffering = 'auto')"
+    "query": "CREATE INDEX test_idx ON test (id) WITH (buffering = 'auto')",
+    "expected": "CREATE INDEX test_idx ON test USING btree ( id ) WITH (buffering = 'auto')"
   },
   {
     "comment": "Definition with numeric value",
-    "query": "CREATE INDEX test_idx ON test (id) WITH (pages_per_range = 128)"
+    "query": "CREATE INDEX test_idx ON test (id) WITH (pages_per_range = 128)",
+    "expected": "CREATE INDEX test_idx ON test USING btree ( id ) WITH (pages_per_range = 128)"
   },
   {
     "comment": "Definition with identifier value",
-    "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = auto)"
+    "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = auto)",
+    "expected": "CREATE INDEX test_idx ON test USING btree ( id ) WITH (fillfactor = auto)"
   },
   {
     "comment": "Definition with quoted identifier",
     "query": "CREATE INDEX test_idx ON test (id) WITH (\"custom_option\" = 'value')",
-    "expected": "CREATE INDEX test_idx ON test (id) WITH (custom_option = 'value')"
+    "expected": "CREATE INDEX test_idx ON test USING btree ( id ) WITH (custom_option = 'value')"
   },
   {
     "comment": "Definition with mixed value types",
     "query": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = 80, fastupdate = on, buffering = 'auto')",
-    "expected": "CREATE INDEX test_idx ON test (id) WITH (fillfactor = 80, fastupdate = 'on', buffering = 'auto')"
+    "expected": "CREATE INDEX test_idx ON test USING btree ( id ) WITH (fillfactor = 80, fastupdate = 'on', buffering = 'auto')"
   },
   {
     "comment": "Function with named parameters",
@@ -138,23 +145,19 @@
   },
   {
     "comment": "Basic CREATE TRIGGER",
-    "query": "CREATE TRIGGER my_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func()",
-    "expected": "CREATE TRIGGER my_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func ()"
+    "query": "CREATE TRIGGER my_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func()"
   },
   {
     "comment": "CREATE TRIGGER AFTER UPDATE",
-    "query": "CREATE TRIGGER audit_trigger AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_func()",
-    "expected": "CREATE TRIGGER audit_trigger AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_func ()"
+    "query": "CREATE TRIGGER audit_trigger AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_func()"
   },
   {
     "comment": "CREATE TRIGGER multiple events",
-    "query": "CREATE TRIGGER multi_trigger BEFORE INSERT OR UPDATE ON users FOR EACH ROW EXECUTE FUNCTION multi_func()",
-    "expected": "CREATE TRIGGER multi_trigger BEFORE INSERT OR UPDATE ON users FOR EACH ROW EXECUTE FUNCTION multi_func ()"
+    "query": "CREATE TRIGGER multi_trigger BEFORE INSERT OR UPDATE ON users FOR EACH ROW EXECUTE FUNCTION multi_func()"
   },
   {
     "comment": "CREATE TRIGGER with arguments",
-    "query": "CREATE TRIGGER arg_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func('arg1', 123)",
-    "expected": "CREATE TRIGGER arg_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func ('arg1', 123)"
+    "query": "CREATE TRIGGER arg_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func('arg1', 123)"
   },
   {
     "comment": "CREATE ROLE basic",
@@ -170,71 +173,88 @@
   },
   {
     "comment": "CREATE ROLE with PASSWORD",
-    "query": "CREATE ROLE testuser WITH PASSWORD 'secret'"
+    "query": "CREATE ROLE testuser WITH PASSWORD 'secret'",
+    "expected": "CREATE ROLE testuser PASSWORD 'secret'"
   },
   {
     "comment": "CREATE USER with SUPERUSER",
-    "query": "CREATE USER testuser WITH SUPERUSER"
+    "query": "CREATE USER testuser WITH SUPERUSER",
+    "expected": "CREATE USER testuser SUPERUSER"
   },
   {
     "comment": "CREATE ROLE with LOGIN",
-    "query": "CREATE ROLE testuser WITH LOGIN"
+    "query": "CREATE ROLE testuser WITH LOGIN",
+    "expected": "CREATE ROLE testuser LOGIN"
   },
   {
     "comment": "CREATE ROLE with NOLOGIN",
-    "query": "CREATE ROLE testuser WITH NOLOGIN"
+    "query": "CREATE ROLE testuser WITH NOLOGIN",
+    "expected": "CREATE ROLE testuser NOLOGIN"
   },
   {
     "comment": "CREATE ROLE with INHERIT",
-    "query": "CREATE ROLE testuser WITH INHERIT"
+    "query": "CREATE ROLE testuser WITH INHERIT",
+    "expected": "CREATE ROLE testuser INHERIT"
   },
   {
     "comment": "CREATE ROLE with NOINHERIT",
-    "query": "CREATE ROLE testuser WITH NOINHERIT"
+    "query": "CREATE ROLE testuser WITH NOINHERIT",
+    "expected": "CREATE ROLE testuser NOINHERIT"
   },
   {
     "comment": "CREATE ROLE with CREATEROLE",
-    "query": "CREATE ROLE testuser WITH CREATEROLE"
+    "query": "CREATE ROLE testuser WITH CREATEROLE",
+    "expected": "CREATE ROLE testuser CREATEROLE"
   },
   {
     "comment": "CREATE ROLE with NOCREATEROLE",
-    "query": "CREATE ROLE testuser WITH NOCREATEROLE"
+    "query": "CREATE ROLE testuser WITH NOCREATEROLE",
+    "expected": "CREATE ROLE testuser NOCREATEROLE"
   },
   {
     "comment": "CREATE ROLE with CREATEDB",
-    "query": "CREATE ROLE testuser WITH CREATEDB"
+    "query": "CREATE ROLE testuser WITH CREATEDB",
+    "expected": "CREATE ROLE testuser CREATEDB"
   },
   {
     "comment": "CREATE ROLE with NOCREATEDB",
-    "query": "CREATE ROLE testuser WITH NOCREATEDB"
+    "query": "CREATE ROLE testuser WITH NOCREATEDB",
+    "expected": "CREATE ROLE testuser NOCREATEDB"
   },
   {
     "comment": "CREATE ROLE with REPLICATION",
-    "query": "CREATE ROLE testuser WITH REPLICATION"
+    "query": "CREATE ROLE testuser WITH REPLICATION",
+    "expected": "CREATE ROLE testuser REPLICATION"
   },
   {
     "comment": "CREATE ROLE with NOREPLICATION",
-    "query": "CREATE ROLE testuser WITH NOREPLICATION"
+    "query": "CREATE ROLE testuser WITH NOREPLICATION",
+    "expected": "CREATE ROLE testuser NOREPLICATION"
   },
   {
     "comment": "CREATE ROLE with CONNECTION LIMIT",
-    "query": "CREATE ROLE testuser WITH CONNECTION LIMIT 10"
+    "query": "CREATE ROLE testuser WITH CONNECTION LIMIT 10",
+    "expected": "CREATE ROLE testuser CONNECTION LIMIT 10"
   },
   {
     "comment": "CREATE ROLE with VALID UNTIL",
-    "query": "CREATE ROLE testuser WITH VALID UNTIL '2025-12-31'"
+    "query": "CREATE ROLE testuser WITH VALID UNTIL '2025-12-31'",
+    "expected": "CREATE ROLE testuser VALID UNTIL '2025-12-31'"
   },
   {
     "comment": "CREATE ROLE with multiple options",
-    "query": "CREATE USER testuser WITH SUPERUSER CREATEDB"
+    "query": "CREATE USER testuser WITH SUPERUSER CREATEDB",
+    "expected": "CREATE USER testuser SUPERUSER CREATEDB"
   },
   {
     "comment": "CREATE ROLE with IN ROLE",
-    "query": "CREATE ROLE testuser WITH IN ROLE admin_role"
+    "query": "CREATE ROLE testuser WITH IN ROLE admin_role",
+    "expected": "CREATE ROLE testuser IN ROLE admin_role"
   },
   {
     "comment": "CREATE ROLE with ADMIN",
-    "query": "CREATE ROLE testuser WITH ADMIN admin_role"
+    "query": "CREATE ROLE testuser WITH ADMIN admin_role",
+    "expected": "CREATE ROLE testuser ADMIN admin_role"
   },
   {
     "comment": "ALTER ROLE basic",
@@ -1688,7 +1708,7 @@
   },
   {
     "comment": "AGGREGATE",
-    "query": "ALTER AGGREGATE old_agg() RENAME TO new_agg"
+    "query": "ALTER AGGREGATE old_agg(*) RENAME TO new_agg"
   },
   {
     "comment": "COLLATION",
@@ -1823,7 +1843,7 @@
   },
   {
     "comment": "ALTER AGGREGATE RENAME",
-    "query": "ALTER AGGREGATE old_agg() RENAME TO new_agg"
+    "query": "ALTER AGGREGATE old_agg(*) RENAME TO new_agg"
   },
   {
     "comment": "ALTER COLLATION RENAME",
@@ -2087,27 +2107,33 @@
   },
   {
     "comment": "Simple CREATE INDEX",
-    "query": "CREATE INDEX idx_users_name ON users (name)"
+    "query": "CREATE INDEX idx_users_name ON users (name)",
+    "expected": "CREATE INDEX idx_users_name ON users USING btree ( name )"
   },
   {
     "comment": "CREATE UNIQUE INDEX",
-    "query": "CREATE UNIQUE INDEX idx_users_email ON users (email)"
+    "query": "CREATE UNIQUE INDEX idx_users_email ON users (email)",
+    "expected": "CREATE UNIQUE INDEX idx_users_email ON users USING btree ( email )"
   },
   {
     "comment": "CREATE INDEX with multiple columns",
-    "query": "CREATE INDEX idx_users_name_email ON users (name, email)"
+    "query": "CREATE INDEX idx_users_name_email ON users (name, email)",
+    "expected": "CREATE INDEX idx_users_name_email ON users USING btree ( name, email )"
   },
   {
     "comment": "CREATE INDEX CONCURRENTLY",
-    "query": "CREATE INDEX CONCURRENTLY idx_users_name ON users (name)"
+    "query": "CREATE INDEX CONCURRENTLY idx_users_name ON users (name)",
+    "expected": "CREATE INDEX CONCURRENTLY idx_users_name ON users USING btree ( name )"
   },
   {
     "comment": "CREATE INDEX IF NOT EXISTS",
-    "query": "CREATE INDEX IF NOT EXISTS idx_users_name ON users (name)"
+    "query": "CREATE INDEX IF NOT EXISTS idx_users_name ON users (name)",
+    "expected": "CREATE INDEX IF NOT EXISTS idx_users_name ON users USING btree ( name )"
   },
   {
     "comment": "CREATE INDEX with INCLUDE",
-    "query": "CREATE INDEX idx_users_name ON users (name) INCLUDE (email, created_at)"
+    "query": "CREATE INDEX idx_users_name ON users (name) INCLUDE (email, created_at)",
+    "expected": "CREATE INDEX idx_users_name ON users USING btree ( name ) INCLUDE (email, created_at)"
   },
   {
     "comment": "CREATE SEQUENCE basic",
@@ -2391,15 +2417,18 @@
   },
   {
     "comment": "Basic CREATE TRIGGER round-trip",
-    "query": "CREATE TRIGGER audit_insert BEFORE INSERT ON users EXECUTE FUNCTION audit_function ()"
+    "query": "CREATE TRIGGER audit_insert BEFORE INSERT ON users EXECUTE FUNCTION audit_function ()",
+    "expected": "CREATE TRIGGER audit_insert BEFORE INSERT ON users EXECUTE FUNCTION audit_function()"
   },
   {
     "comment": "CREATE TRIGGER with FOR EACH ROW round-trip",
-    "query": "CREATE TRIGGER row_trigger BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_function ()"
+    "query": "CREATE TRIGGER row_trigger BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_function ()",
+    "expected": "CREATE TRIGGER row_trigger BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION audit_function()"
   },
   {
     "comment": "CREATE TRIGGER INSTEAD OF round-trip",
-    "query": "CREATE TRIGGER view_trigger INSTEAD OF INSERT ON user_view EXECUTE FUNCTION handle_view_insert ()"
+    "query": "CREATE TRIGGER view_trigger INSTEAD OF INSERT ON user_view EXECUTE FUNCTION handle_view_insert ()",
+    "expected": "CREATE TRIGGER view_trigger INSTEAD OF INSERT ON user_view EXECUTE FUNCTION handle_view_insert()"
   },
   {
     "comment": "Simple materialized view",
@@ -2552,7 +2581,8 @@
   },
   {
     "comment": "CREATE TEXT SEARCH CONFIGURATION",
-    "query": "CREATE TEXT SEARCH CONFIGURATION my_config (parser = default)"
+    "query": "CREATE TEXT SEARCH CONFIGURATION my_config (parser = default)",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION my_config (parser = 'default')"
   },
   {
     "comment": "CREATE COLLATION basic",

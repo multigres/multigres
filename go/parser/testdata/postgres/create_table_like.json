@@ -1,11 +1,13 @@
 [
   {
     "comment": "create_table_like - Statement 1",
-    "query": "/* Test inheritance of structure (LIKE) */ CREATE TABLE inhx (xx text DEFAULT 'text')"
+    "query": "/* Test inheritance of structure (LIKE) */ CREATE TABLE inhx (xx text DEFAULT 'text')",
+    "expected": "CREATE TABLE inhx (xx TEXT DEFAULT 'text')"
   },
   {
     "comment": "create_table_like - Statement 2",
-    "query": "/* * Test double inheritance * * Ensure that defaults are NOT included unless * INCLUDING DEFAULTS is specified */ CREATE TABLE ctla (aa TEXT)"
+    "query": "/* * Test double inheritance * * Ensure that defaults are NOT included unless * INCLUDING DEFAULTS is specified */ CREATE TABLE ctla (aa TEXT)",
+    "expected": "CREATE TABLE ctla (aa TEXT)"
   },
   {
     "comment": "create_table_like - Statement 3",
@@ -17,7 +19,8 @@
   },
   {
     "comment": "create_table_like - Statement 5",
-    "query": "CREATE TABLE inhe (ee text, LIKE inhx) inherits (ctlb)"
+    "query": "CREATE TABLE inhe (ee text, LIKE inhx) inherits (ctlb)",
+    "expected": "CREATE TABLE inhe (ee TEXT, LIKE inhx) INHERITS (ctlb)"
   },
   {
     "comment": "create_table_like - Statement 6",
@@ -25,7 +28,8 @@
   },
   {
     "comment": "create_table_like - Statement 7",
-    "query": "SELECT * FROM inhe; /* Columns aa, bb, xx value NULL, ee */ SELECT * FROM inhx; /* Empty set since LIKE inherits structure only */ SELECT * FROM ctlb; /* Has ee entry */ SELECT * FROM ctla; /* Has ee entry */ CREATE TABLE inhf (LIKE inhx, LIKE inhx); /* Throw error */ CREATE TABLE inhf (LIKE inhx INCLUDING DEFAULTS INCLUDING CONSTRAINTS)"
+    "query": "SELECT * FROM inhe; /* Columns aa, bb, xx value NULL, ee */ SELECT * FROM inhx; /* Empty set since LIKE inherits structure only */ SELECT * FROM ctlb; /* Has ee entry */ SELECT * FROM ctla; /* Has ee entry */ CREATE TABLE inhf (LIKE inhx, LIKE inhx); /* Throw error */ CREATE TABLE inhf (LIKE inhx INCLUDING DEFAULTS INCLUDING CONSTRAINTS)",
+    "expected": "SELECT * FROM inhe; SELECT * FROM inhx; SELECT * FROM ctlb; SELECT * FROM ctla; CREATE TABLE inhf (LIKE inhx, LIKE inhx); CREATE TABLE inhf (LIKE inhx INCLUDING CONSTRAINTS INCLUDING DEFAULTS)"
   },
   {
     "comment": "create_table_like - Statement 8",
@@ -33,7 +37,8 @@
   },
   {
     "comment": "create_table_like - Statement 9",
-    "query": "SELECT * FROM inhf; /* Single entry with value 'text' */ ALTER TABLE inhx add constraint foo CHECK (xx = 'text')"
+    "query": "SELECT * FROM inhf; /* Single entry with value 'text' */ ALTER TABLE inhx add constraint foo CHECK (xx = 'text')",
+    "expected": "SELECT * FROM inhf; ALTER TABLE inhx ADD CONSTRAINT foo CHECK (xx = 'text')"
   },
   {
     "comment": "create_table_like - Statement 10",
@@ -41,7 +46,8 @@
   },
   {
     "comment": "create_table_like - Statement 11",
-    "query": "CREATE TABLE inhg (LIKE inhx); /* Doesn't copy constraint */ INSERT INTO inhg VALUES ('foo')"
+    "query": "CREATE TABLE inhg (LIKE inhx); /* Doesn't copy constraint */ INSERT INTO inhg VALUES ('foo')",
+    "expected": "CREATE TABLE inhg (LIKE inhx); INSERT INTO inhg VALUES ('foo')"
   },
   {
     "comment": "create_table_like - Statement 12",
@@ -49,11 +55,13 @@
   },
   {
     "comment": "create_table_like - Statement 13",
-    "query": "CREATE TABLE inhg (x text, LIKE inhx INCLUDING CONSTRAINTS, y text); /* Copies constraints */ INSERT INTO inhg VALUES ('x', 'text', 'y'); /* Succeeds */ INSERT INTO inhg VALUES ('x', 'text', 'y'); /* Succeeds INSERT INTO inhg VALUES ('x', 'foo',  'y');  /* fails due to constraint */ SELECT * FROM inhg; /* Two records with three columns in order x=x, xx=text, y=y */ DROP TABLE inhg"
+    "query": "CREATE TABLE inhg (x text, LIKE inhx INCLUDING CONSTRAINTS, y text); /* Copies constraints */ INSERT INTO inhg VALUES ('x', 'text', 'y'); /* Succeeds */ INSERT INTO inhg VALUES ('x', 'text', 'y'); /* Succeeds INSERT INTO inhg VALUES ('x', 'foo',  'y');  /* fails due to constraint */ SELECT * FROM inhg; /* Two records with three columns in order x=x, xx=text, y=y */ DROP TABLE inhg",
+    "error": "unterminated /* comment"
   },
   {
     "comment": "create_table_like - Statement 14",
-    "query": "CREATE TABLE test_like_id_1 (a bigint GENERATED ALWAYS AS IDENTITY, b text)"
+    "query": "CREATE TABLE test_like_id_1 (a bigint GENERATED ALWAYS AS IDENTITY, b text)",
+    "expected": "CREATE TABLE test_like_id_1 (a BIGINT GENERATED ALWAYS AS IDENTITY, b TEXT)"
   },
   {
     "comment": "create_table_like - Statement 15",
@@ -81,7 +89,8 @@
   },
   {
     "comment": "create_table_like - Statement 21",
-    "query": "CREATE TABLE test_like_gen_1 (a int, b int GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE test_like_gen_1 (a int, b int GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE test_like_gen_1 (a INT, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "create_table_like - Statement 22",
@@ -109,7 +118,8 @@
   },
   {
     "comment": "create_table_like - Statement 28",
-    "query": "CREATE TABLE test_like_4 (b int DEFAULT 42, c int GENERATED ALWAYS AS (a * 2) STORED, a int CHECK (a > 0))"
+    "query": "CREATE TABLE test_like_4 (b int DEFAULT 42, c int GENERATED ALWAYS AS (a * 2) STORED, a int CHECK (a \u003e 0))",
+    "expected": "CREATE TABLE test_like_4 (b INT DEFAULT 42, c INT GENERATED ALWAYS AS (a * 2) STORED, a INT CHECK (a \u003e 0))"
   },
   {
     "comment": "create_table_like - Statement 29",
@@ -145,7 +155,8 @@
   },
   {
     "comment": "create_table_like - Statement 37",
-    "query": "CREATE TABLE test_like_5x (p int CHECK (p > 0), q int GENERATED ALWAYS AS (p * 2) STORED)"
+    "query": "CREATE TABLE test_like_5x (p int CHECK (p \u003e 0), q int GENERATED ALWAYS AS (p * 2) STORED)",
+    "expected": "CREATE TABLE test_like_5x (p INT CHECK (p \u003e 0), q INT GENERATED ALWAYS AS (p * 2) STORED)"
   },
   {
     "comment": "create_table_like - Statement 38",
@@ -173,7 +184,8 @@
   },
   {
     "comment": "create_table_like - Statement 44",
-    "query": "CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text); /* copies indexes */ INSERT INTO inhg VALUES (5, 10)"
+    "query": "CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text); /* copies indexes */ INSERT INTO inhg VALUES (5, 10)",
+    "expected": "CREATE TABLE inhg (x TEXT, LIKE inhx INCLUDING INDEXES, y TEXT); INSERT INTO inhg VALUES (5, 10)"
   },
   {
     "comment": "create_table_like - Statement 45",
@@ -181,15 +193,18 @@
   },
   {
     "comment": "create_table_like - Statement 46",
-    "query": "/* Multiple primary keys creation should fail */ CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, PRIMARY KEY(x)); /* fails */ CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE)"
+    "query": "/* Multiple primary keys creation should fail */ CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, PRIMARY KEY(x)); /* fails */ CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE)",
+    "expected": "CREATE TABLE inhg (x TEXT, LIKE inhx INCLUDING INDEXES, PRIMARY KEY (x)); CREATE TABLE inhz (xx TEXT DEFAULT 'text', yy INT UNIQUE)"
   },
   {
     "comment": "create_table_like - Statement 47",
-    "query": "CREATE UNIQUE INDEX inhz_xx_idx on inhz (xx) WHERE xx <> 'test'"
+    "query": "CREATE UNIQUE INDEX inhz_xx_idx on inhz (xx) WHERE xx \u003c\u003e 'test'",
+    "expected": "CREATE UNIQUE INDEX inhz_xx_idx ON inhz USING btree ( xx ) WHERE xx \u003c\u003e 'test'"
   },
   {
     "comment": "create_table_like - Statement 48",
-    "query": "/* Ok to create multiple unique indexes */ CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES)"
+    "query": "/* Ok to create multiple unique indexes */ CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES)",
+    "expected": "CREATE TABLE inhg (x TEXT UNIQUE, LIKE inhz INCLUDING INDEXES)"
   },
   {
     "comment": "create_table_like - Statement 49",
@@ -209,23 +224,28 @@
   },
   {
     "comment": "create_table_like - Statement 53",
-    "query": "/* Use primary key imported by LIKE for self-referential FK constraint */ CREATE TABLE inhz (x text REFERENCES inhz, LIKE inhx INCLUDING INDEXES)"
+    "query": "/* Use primary key imported by LIKE for self-referential FK constraint */ CREATE TABLE inhz (x text REFERENCES inhz, LIKE inhx INCLUDING INDEXES)",
+    "expected": "CREATE TABLE inhz (x TEXT REFERENCES inhz, LIKE inhx INCLUDING INDEXES)"
   },
   {
     "comment": "create_table_like - Statement 54",
-    "query": "CREATE TABLE ctlt1 (a text CHECK (length(a) > 2) PRIMARY KEY, b text)"
+    "query": "CREATE TABLE ctlt1 (a text CHECK (length(a) \u003e 2) PRIMARY KEY, b text)",
+    "expected": "CREATE TABLE ctlt1 (a TEXT CHECK (length(a) \u003e 2) PRIMARY KEY, b TEXT)"
   },
   {
     "comment": "create_table_like - Statement 55",
-    "query": "CREATE INDEX ctlt1_b_key ON ctlt1 (b)"
+    "query": "CREATE INDEX ctlt1_b_key ON ctlt1 (b)",
+    "expected": "CREATE INDEX ctlt1_b_key ON ctlt1 USING btree ( b )"
   },
   {
     "comment": "create_table_like - Statement 56",
-    "query": "CREATE INDEX ctlt1_fnidx ON ctlt1 ((a || b))"
+    "query": "CREATE INDEX ctlt1_fnidx ON ctlt1 ((a || b))",
+    "expected": "CREATE INDEX ctlt1_fnidx ON ctlt1 USING btree ( (a || b) )"
   },
   {
     "comment": "create_table_like - Statement 57",
-    "query": "CREATE STATISTICS ctlt1_a_b_stat ON a,b FROM ctlt1"
+    "query": "CREATE STATISTICS ctlt1_a_b_stat ON a,b FROM ctlt1",
+    "expected": "CREATE STATISTICS ctlt1_a_b_stat ON a, b FROM ctlt1"
   },
   {
     "comment": "create_table_like - Statement 58",
@@ -261,15 +281,18 @@
   },
   {
     "comment": "create_table_like - Statement 66",
-    "query": "ALTER TABLE ctlt1 ALTER COLUMN a SET STORAGE MAIN"
+    "query": "ALTER TABLE ctlt1 ALTER COLUMN a SET STORAGE MAIN",
+    "expected": "ALTER TABLE ctlt1 ALTER COLUMN a SET STORAGE main"
   },
   {
     "comment": "create_table_like - Statement 67",
-    "query": "CREATE TABLE ctlt2 (c text)"
+    "query": "CREATE TABLE ctlt2 (c text)",
+    "expected": "CREATE TABLE ctlt2 (c TEXT)"
   },
   {
     "comment": "create_table_like - Statement 68",
-    "query": "ALTER TABLE ctlt2 ALTER COLUMN c SET STORAGE EXTERNAL"
+    "query": "ALTER TABLE ctlt2 ALTER COLUMN c SET STORAGE EXTERNAL",
+    "expected": "ALTER TABLE ctlt2 ALTER COLUMN c SET STORAGE external"
   },
   {
     "comment": "create_table_like - Statement 69",
@@ -277,19 +300,23 @@
   },
   {
     "comment": "create_table_like - Statement 70",
-    "query": "CREATE TABLE ctlt3 (a text CHECK (length(a) < 5), c text CHECK (length(c) < 7))"
+    "query": "CREATE TABLE ctlt3 (a text CHECK (length(a) \u003c 5), c text CHECK (length(c) \u003c 7))",
+    "expected": "CREATE TABLE ctlt3 (a TEXT CHECK (length(a) \u003c 5), c TEXT CHECK (length(c) \u003c 7))"
   },
   {
     "comment": "create_table_like - Statement 71",
-    "query": "ALTER TABLE ctlt3 ALTER COLUMN c SET STORAGE EXTERNAL"
+    "query": "ALTER TABLE ctlt3 ALTER COLUMN c SET STORAGE EXTERNAL",
+    "expected": "ALTER TABLE ctlt3 ALTER COLUMN c SET STORAGE external"
   },
   {
     "comment": "create_table_like - Statement 72",
-    "query": "ALTER TABLE ctlt3 ALTER COLUMN a SET STORAGE MAIN"
+    "query": "ALTER TABLE ctlt3 ALTER COLUMN a SET STORAGE MAIN",
+    "expected": "ALTER TABLE ctlt3 ALTER COLUMN a SET STORAGE main"
   },
   {
     "comment": "create_table_like - Statement 73",
-    "query": "CREATE INDEX ctlt3_fnidx ON ctlt3 ((a || c))"
+    "query": "CREATE INDEX ctlt3_fnidx ON ctlt3 ((a || c))",
+    "expected": "CREATE INDEX ctlt3_fnidx ON ctlt3 USING btree ( (a || c) )"
   },
   {
     "comment": "create_table_like - Statement 74",
@@ -305,11 +332,13 @@
   },
   {
     "comment": "create_table_like - Statement 77",
-    "query": "CREATE TABLE ctlt4 (a text, c text)"
+    "query": "CREATE TABLE ctlt4 (a text, c text)",
+    "expected": "CREATE TABLE ctlt4 (a TEXT, c TEXT)"
   },
   {
     "comment": "create_table_like - Statement 78",
-    "query": "ALTER TABLE ctlt4 ALTER COLUMN c SET STORAGE EXTERNAL"
+    "query": "ALTER TABLE ctlt4 ALTER COLUMN c SET STORAGE EXTERNAL",
+    "expected": "ALTER TABLE ctlt4 ALTER COLUMN c SET STORAGE external"
   },
   {
     "comment": "create_table_like - Statement 79",
@@ -325,7 +354,8 @@
   },
   {
     "comment": "create_table_like - Statement 82",
-    "query": "SELECT s.stxname, objsubid, description FROM pg_description, pg_statistic_ext s WHERE classoid = 'pg_statistic_ext'::regclass AND objoid = s.oid AND s.stxrelid = 'ctlt_all'::regclass ORDER BY s.stxname, objsubid"
+    "query": "SELECT s.stxname, objsubid, description FROM pg_description, pg_statistic_ext s WHERE classoid = 'pg_statistic_ext'::regclass AND objoid = s.oid AND s.stxrelid = 'ctlt_all'::regclass ORDER BY s.stxname, objsubid",
+    "expected": "SELECT s.stxname, objsubid, description FROM pg_description, pg_statistic_ext AS s WHERE classoid = CAST('pg_statistic_ext' AS regclass) AND objoid = s.oid AND s.stxrelid = CAST('ctlt_all' AS regclass) ORDER BY s.stxname, objsubid"
   },
   {
     "comment": "create_table_like - Statement 83",
@@ -349,7 +379,8 @@
   },
   {
     "comment": "create_table_like - Statement 88",
-    "query": "SET LOCAL search_path = ctl_schema, public"
+    "query": "SET LOCAL search_path = ctl_schema, public",
+    "expected": "SET LOCAL search_path = 'ctl_schema', 'public'"
   },
   {
     "comment": "create_table_like - Statement 89",
@@ -361,7 +392,8 @@
   },
   {
     "comment": "create_table_like - Statement 91",
-    "query": "CREATE TABLE noinh_con_copy (a int CHECK (a > 0) NO INHERIT)"
+    "query": "CREATE TABLE noinh_con_copy (a int CHECK (a \u003e 0) NO INHERIT)",
+    "expected": "CREATE TABLE noinh_con_copy (a INT CHECK (a \u003e 0))"
   },
   {
     "comment": "create_table_like - Statement 92",
@@ -373,7 +405,8 @@
   },
   {
     "comment": "create_table_like - Statement 94",
-    "query": "/* LIKE with other relation kinds */ CREATE TABLE ctlt4 (a int, b text)"
+    "query": "/* LIKE with other relation kinds */ CREATE TABLE ctlt4 (a int, b text)",
+    "expected": "CREATE TABLE ctlt4 (a INT, b TEXT)"
   },
   {
     "comment": "create_table_like - Statement 95",
@@ -397,7 +430,8 @@
   },
   {
     "comment": "create_table_like - Statement 100",
-    "query": "CREATE TYPE ctlty1 AS (a int, b text)"
+    "query": "CREATE TYPE ctlty1 AS (a int, b text)",
+    "expected": "CREATE TYPE ctlty1 AS (a INT, b TEXT)"
   },
   {
     "comment": "create_table_like - Statement 101",

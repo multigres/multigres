@@ -16,18 +16,15 @@
   },
   {
     "comment": "brin_multi - Statement 4",
-    "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops(values_per_range = 7) )",
-    "expected": "CREATE INDEX brinidx_multi ON brintest_multi USING brin (int8col int8_minmax_multi_ops(values_per_range=7))"
+    "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops(values_per_range = 7) )"
   },
   {
     "comment": "brin_multi - Statement 5",
-    "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops(values_per_range = 257) )",
-    "expected": "CREATE INDEX brinidx_multi ON brintest_multi USING brin (int8col int8_minmax_multi_ops(values_per_range=257))"
+    "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops(values_per_range = 257) )"
   },
   {
     "comment": "brin_multi - Statement 6",
-    "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops, int2col int2_minmax_multi_ops, int4col int4_minmax_multi_ops, oidcol oid_minmax_multi_ops, tidcol tid_minmax_multi_ops, float4col float4_minmax_multi_ops, float8col float8_minmax_multi_ops, macaddrcol macaddr_minmax_multi_ops, macaddr8col macaddr8_minmax_multi_ops, inetcol inet_minmax_multi_ops, cidrcol inet_minmax_multi_ops, datecol date_minmax_multi_ops, timecol time_minmax_multi_ops, timestampcol timestamp_minmax_multi_ops, timestamptzcol timestamptz_minmax_multi_ops, intervalcol interval_minmax_multi_ops, timetzcol timetz_minmax_multi_ops, numericcol numeric_minmax_multi_ops, uuidcol uuid_minmax_multi_ops, lsncol pg_lsn_minmax_multi_ops )",
-    "expected": "CREATE INDEX brinidx_multi ON brintest_multi USING brin (int8col int8_minmax_multi_ops, int2col int2_minmax_multi_ops, int4col int4_minmax_multi_ops, oidcol oid_minmax_multi_ops, tidcol tid_minmax_multi_ops, float4col float4_minmax_multi_ops, float8col float8_minmax_multi_ops, macaddrcol macaddr_minmax_multi_ops, macaddr8col macaddr8_minmax_multi_ops, inetcol inet_minmax_multi_ops, cidrcol inet_minmax_multi_ops, datecol date_minmax_multi_ops, timecol time_minmax_multi_ops, timestampcol timestamp_minmax_multi_ops, timestamptzcol timestamptz_minmax_multi_ops, intervalcol interval_minmax_multi_ops, timetzcol timetz_minmax_multi_ops, numericcol numeric_minmax_multi_ops, uuidcol uuid_minmax_multi_ops, lsncol pg_lsn_minmax_multi_ops)"
+    "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops, int2col int2_minmax_multi_ops, int4col int4_minmax_multi_ops, oidcol oid_minmax_multi_ops, tidcol tid_minmax_multi_ops, float4col float4_minmax_multi_ops, float8col float8_minmax_multi_ops, macaddrcol macaddr_minmax_multi_ops, macaddr8col macaddr8_minmax_multi_ops, inetcol inet_minmax_multi_ops, cidrcol inet_minmax_multi_ops, datecol date_minmax_multi_ops, timecol time_minmax_multi_ops, timestampcol timestamp_minmax_multi_ops, timestamptzcol timestamptz_minmax_multi_ops, intervalcol interval_minmax_multi_ops, timetzcol timetz_minmax_multi_ops, numericcol numeric_minmax_multi_ops, uuidcol uuid_minmax_multi_ops, lsncol pg_lsn_minmax_multi_ops )"
   },
   {
     "comment": "brin_multi - Statement 7",
@@ -36,7 +33,7 @@
   {
     "comment": "brin_multi - Statement 8",
     "query": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops, int2col int2_minmax_multi_ops, int4col int4_minmax_multi_ops, oidcol oid_minmax_multi_ops, tidcol tid_minmax_multi_ops, float4col float4_minmax_multi_ops, float8col float8_minmax_multi_ops, macaddrcol macaddr_minmax_multi_ops, macaddr8col macaddr8_minmax_multi_ops, inetcol inet_minmax_multi_ops, cidrcol inet_minmax_multi_ops, datecol date_minmax_multi_ops, timecol time_minmax_multi_ops, timestampcol timestamp_minmax_multi_ops, timestamptzcol timestamptz_minmax_multi_ops, intervalcol interval_minmax_multi_ops, timetzcol timetz_minmax_multi_ops, numericcol numeric_minmax_multi_ops, uuidcol uuid_minmax_multi_ops, lsncol pg_lsn_minmax_multi_ops ) with (pages_per_range = 1)",
-    "expected": "CREATE INDEX brinidx_multi ON brintest_multi USING brin (int8col int8_minmax_multi_ops, int2col int2_minmax_multi_ops, int4col int4_minmax_multi_ops, oidcol oid_minmax_multi_ops, tidcol tid_minmax_multi_ops, float4col float4_minmax_multi_ops, float8col float8_minmax_multi_ops, macaddrcol macaddr_minmax_multi_ops, macaddr8col macaddr8_minmax_multi_ops, inetcol inet_minmax_multi_ops, cidrcol inet_minmax_multi_ops, datecol date_minmax_multi_ops, timecol time_minmax_multi_ops, timestampcol timestamp_minmax_multi_ops, timestamptzcol timestamptz_minmax_multi_ops, intervalcol interval_minmax_multi_ops, timetzcol timetz_minmax_multi_ops, numericcol numeric_minmax_multi_ops, uuidcol uuid_minmax_multi_ops, lsncol pg_lsn_minmax_multi_ops) WITH (pages_per_range = 1)"
+    "expected": "CREATE INDEX brinidx_multi ON brintest_multi USING brin ( int8col int8_minmax_multi_ops, int2col int2_minmax_multi_ops, int4col int4_minmax_multi_ops, oidcol oid_minmax_multi_ops, tidcol tid_minmax_multi_ops, float4col float4_minmax_multi_ops, float8col float8_minmax_multi_ops, macaddrcol macaddr_minmax_multi_ops, macaddr8col macaddr8_minmax_multi_ops, inetcol inet_minmax_multi_ops, cidrcol inet_minmax_multi_ops, datecol date_minmax_multi_ops, timecol time_minmax_multi_ops, timestampcol timestamp_minmax_multi_ops, timestamptzcol timestamptz_minmax_multi_ops, intervalcol interval_minmax_multi_ops, timetzcol timetz_minmax_multi_ops, numericcol numeric_minmax_multi_ops, uuidcol uuid_minmax_multi_ops, lsncol pg_lsn_minmax_multi_ops ) WITH (pages_per_range = 1)"
   },
   {
     "comment": "brin_multi - Statement 9",
@@ -93,7 +90,8 @@
   },
   {
     "comment": "brin_multi - Statement 50",
-    "query": "CREATE INDEX ON brin_test_inet USING brin (a inet_minmax_multi_ops)"
+    "query": "CREATE INDEX ON brin_test_inet USING brin (a inet_minmax_multi_ops)",
+    "expected": "CREATE INDEX ON brin_test_inet USING brin ( a inet_minmax_multi_ops )"
   },
   {
     "comment": "brin_multi - Statement 51",
@@ -139,7 +137,8 @@
   },
   {
     "comment": "brin_multi - Statement 61",
-    "query": "CREATE INDEX brin_large_range_idx ON brin_large_range USING brin (a int4_minmax_multi_ops)"
+    "query": "CREATE INDEX brin_large_range_idx ON brin_large_range USING brin (a int4_minmax_multi_ops)",
+    "expected": "CREATE INDEX brin_large_range_idx ON brin_large_range USING brin ( a int4_minmax_multi_ops )"
   },
   {
     "comment": "brin_multi - Statement 62",
@@ -153,7 +152,7 @@
   {
     "comment": "brin_multi - Statement 64",
     "query": "CREATE INDEX brin_summarize_multi_idx ON brin_summarize_multi USING brin (value) WITH (pages_per_range=2)",
-    "expected": "CREATE INDEX brin_summarize_multi_idx ON brin_summarize_multi USING brin (value) WITH (pages_per_range = 2)"
+    "expected": "CREATE INDEX brin_summarize_multi_idx ON brin_summarize_multi USING brin ( value ) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin_multi - Statement 65",
@@ -195,11 +194,13 @@
   },
   {
     "comment": "brin_multi - Statement 77",
-    "query": "CREATE INDEX brin_test_multi_a_idx ON brin_test_multi USING brin (a) WITH (pages_per_range = 2)"
+    "query": "CREATE INDEX brin_test_multi_a_idx ON brin_test_multi USING brin (a) WITH (pages_per_range = 2)",
+    "expected": "CREATE INDEX brin_test_multi_a_idx ON brin_test_multi USING brin ( a ) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin_multi - Statement 78",
-    "query": "CREATE INDEX brin_test_multi_b_idx ON brin_test_multi USING brin (b) WITH (pages_per_range = 2)"
+    "query": "CREATE INDEX brin_test_multi_b_idx ON brin_test_multi USING brin (b) WITH (pages_per_range = 2)",
+    "expected": "CREATE INDEX brin_test_multi_b_idx ON brin_test_multi USING brin ( b ) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin_multi - Statement 79",
@@ -229,12 +230,12 @@
   {
     "comment": "brin_multi - Statement 84",
     "query": "CREATE INDEX brin_test_multi_1_idx_1 ON brin_test_multi_1 USING brin (a int4_minmax_multi_ops) WITH (pages_per_range=5)",
-    "expected": "CREATE INDEX brin_test_multi_1_idx_1 ON brin_test_multi_1 USING brin (a int4_minmax_multi_ops) WITH (pages_per_range = 5)"
+    "expected": "CREATE INDEX brin_test_multi_1_idx_1 ON brin_test_multi_1 USING brin ( a int4_minmax_multi_ops ) WITH (pages_per_range = 5)"
   },
   {
     "comment": "brin_multi - Statement 85",
     "query": "CREATE INDEX brin_test_multi_1_idx_2 ON brin_test_multi_1 USING brin (b int8_minmax_multi_ops) WITH (pages_per_range=5)",
-    "expected": "CREATE INDEX brin_test_multi_1_idx_2 ON brin_test_multi_1 USING brin (b int8_minmax_multi_ops) WITH (pages_per_range = 5)"
+    "expected": "CREATE INDEX brin_test_multi_1_idx_2 ON brin_test_multi_1 USING brin ( b int8_minmax_multi_ops ) WITH (pages_per_range = 5)"
   },
   {
     "comment": "brin_multi - Statement 86",
@@ -343,7 +344,7 @@
   {
     "comment": "brin_multi - Statement 111",
     "query": "CREATE INDEX brin_test_multi_2_idx ON brin_test_multi_2 USING brin (a uuid_minmax_multi_ops) WITH (pages_per_range=5)",
-    "expected": "CREATE INDEX brin_test_multi_2_idx ON brin_test_multi_2 USING brin (a uuid_minmax_multi_ops) WITH (pages_per_range = 5)"
+    "expected": "CREATE INDEX brin_test_multi_2_idx ON brin_test_multi_2 USING brin ( a uuid_minmax_multi_ops ) WITH (pages_per_range = 5)"
   },
   {
     "comment": "brin_multi - Statement 112",
@@ -401,7 +402,7 @@
   {
     "comment": "brin_multi - Statement 124",
     "query": "CREATE INDEX ON brin_timestamp_test USING brin (a timestamptz_minmax_multi_ops) WITH (pages_per_range=1)",
-    "expected": "CREATE INDEX ON brin_timestamp_test USING brin (a timestamptz_minmax_multi_ops) WITH (pages_per_range = 1)"
+    "expected": "CREATE INDEX ON brin_timestamp_test USING brin ( a timestamptz_minmax_multi_ops ) WITH (pages_per_range = 1)"
   },
   {
     "comment": "brin_multi - Statement 125",
@@ -425,7 +426,7 @@
   {
     "comment": "brin_multi - Statement 129",
     "query": "CREATE INDEX ON brin_date_test USING brin (a date_minmax_multi_ops) WITH (pages_per_range=1)",
-    "expected": "CREATE INDEX ON brin_date_test USING brin (a date_minmax_multi_ops) WITH (pages_per_range = 1)"
+    "expected": "CREATE INDEX ON brin_date_test USING brin ( a date_minmax_multi_ops ) WITH (pages_per_range = 1)"
   },
   {
     "comment": "brin_multi - Statement 130",
@@ -457,7 +458,7 @@
   {
     "comment": "brin_multi - Statement 136",
     "query": "CREATE INDEX ON brin_timestamp_test USING brin (a timestamp_minmax_multi_ops) WITH (pages_per_range=1)",
-    "expected": "CREATE INDEX ON brin_timestamp_test USING brin (a timestamp_minmax_multi_ops) WITH (pages_per_range = 1)"
+    "expected": "CREATE INDEX ON brin_timestamp_test USING brin ( a timestamp_minmax_multi_ops ) WITH (pages_per_range = 1)"
   },
   {
     "comment": "brin_multi - Statement 137",
@@ -505,7 +506,7 @@
   {
     "comment": "brin_multi - Statement 146",
     "query": "CREATE INDEX ON brin_interval_test USING brin (a interval_minmax_multi_ops) WITH (pages_per_range=1)",
-    "expected": "CREATE INDEX ON brin_interval_test USING brin (a interval_minmax_multi_ops) WITH (pages_per_range = 1)"
+    "expected": "CREATE INDEX ON brin_interval_test USING brin ( a interval_minmax_multi_ops ) WITH (pages_per_range = 1)"
   },
   {
     "comment": "brin_multi - Statement 147",

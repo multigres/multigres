@@ -55,9 +55,16 @@ func (l *Lexer) scanStandardString(startPos, startScanPos int) (*Token, error) {
 				return nil, err
 			}
 		} else {
-			// Regular character
+			// Regular character - use proper UTF-8 handling
 			ctx.AddLiteral(string(ch))
-			ctx.AdvanceBy(1)
+			// Calculate the byte size of this rune to advance correctly
+			runeSize := utf8.RuneLen(ch)
+			if runeSize > 0 {
+				ctx.AdvanceBy(runeSize)
+			} else {
+				// Invalid rune, advance by 1 byte
+				ctx.AdvanceBy(1)
+			}
 		}
 	}
 
@@ -107,9 +114,16 @@ func (l *Lexer) scanExtendedString(startPos, startScanPos int) (*Token, error) {
 				return nil, err
 			}
 		} else {
-			// Regular character
+			// Regular character - use proper UTF-8 handling
 			ctx.AddLiteral(string(ch))
-			ctx.AdvanceBy(1)
+			// Calculate the byte size of this rune to advance correctly
+			runeSize := utf8.RuneLen(ch)
+			if runeSize > 0 {
+				ctx.AdvanceBy(runeSize)
+			} else {
+				// Invalid rune, advance by 1 byte
+				ctx.AdvanceBy(1)
+			}
 		}
 	}
 

@@ -1,7 +1,8 @@
 [
   {
     "comment": "combocid - Statement 1",
-    "query": "CREATE TEMP TABLE combocidtest (foobar int)"
+    "query": "CREATE TEMP TABLE combocidtest (foobar int)",
+    "expected": "CREATE TEMPORARY TABLE combocidtest (foobar INT)"
   },
   {
     "comment": "combocid - Statement 2",
@@ -9,7 +10,8 @@
   },
   {
     "comment": "combocid - Statement 3",
-    "query": "INSERT INTO combocidtest SELECT 1 LIMIT 0"
+    "query": "INSERT INTO combocidtest SELECT 1 LIMIT 0",
+    "expected": "INSERT INTO combocidtest (SELECT 1 LIMIT 0)"
   },
   {
     "comment": "combocid - Statement 4",
@@ -21,7 +23,8 @@
   },
   {
     "comment": "combocid - Statement 6",
-    "query": "SELECT ctid,cmin,* FROM combocidtest"
+    "query": "SELECT ctid,cmin,* FROM combocidtest",
+    "expected": "SELECT ctid, cmin, * FROM combocidtest"
   },
   {
     "comment": "combocid - Statement 7",
@@ -33,7 +36,8 @@
   },
   {
     "comment": "combocid - Statement 9",
-    "query": "ROLLBACK TO s1"
+    "query": "ROLLBACK TO s1",
+    "expected": "ROLLBACK TO SAVEPOINT s1"
   },
   {
     "comment": "combocid - Statement 10",
@@ -45,7 +49,8 @@
   },
   {
     "comment": "combocid - Statement 12",
-    "query": "DECLARE c CURSOR FOR SELECT ctid,cmin,* FROM combocidtest"
+    "query": "DECLARE c CURSOR FOR SELECT ctid,cmin,* FROM combocidtest",
+    "expected": "DECLARE c CURSOR FOR SELECT ctid, cmin, * FROM combocidtest"
   },
   {
     "comment": "combocid - Statement 13",
@@ -65,11 +70,13 @@
   },
   {
     "comment": "combocid - Statement 17",
-    "query": "SELECT ctid,cmin,* FROM combocidtest FOR UPDATE"
+    "query": "SELECT ctid,cmin,* FROM combocidtest FOR UPDATE",
+    "expected": "SELECT ctid, cmin, * FROM combocidtest FOR UPDATE"
   },
   {
     "comment": "combocid - Statement 18",
-    "query": "CREATE TABLE IF NOT EXISTS testcase( id int PRIMARY KEY, balance numeric )"
+    "query": "CREATE TABLE IF NOT EXISTS testcase( id int PRIMARY KEY, balance numeric )",
+    "expected": "CREATE TABLE IF NOT EXISTS testcase (id INT PRIMARY KEY, balance NUMERIC)"
   },
   {
     "comment": "combocid - Statement 19",
@@ -81,7 +88,8 @@
   },
   {
     "comment": "combocid - Statement 21",
-    "query": "UPDATE testcase SET balance = balance + 400 WHERE id=1"
+    "query": "UPDATE testcase SET balance = balance + 400 WHERE id=1",
+    "expected": "UPDATE testcase SET balance = balance + 400 WHERE id = 1"
   },
   {
     "comment": "combocid - Statement 22",
@@ -89,7 +97,8 @@
   },
   {
     "comment": "combocid - Statement 23",
-    "query": "UPDATE testcase SET balance = balance - 100 WHERE id=1"
+    "query": "UPDATE testcase SET balance = balance - 100 WHERE id=1",
+    "expected": "UPDATE testcase SET balance = balance - 100 WHERE id = 1"
   },
   {
     "comment": "combocid - Statement 24",

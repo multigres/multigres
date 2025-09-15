@@ -466,9 +466,14 @@ func (s *SelectStmt) SqlString() string {
 
 	// Handle set operations (UNION, INTERSECT, EXCEPT)
 	if s.Op != SETOP_NONE {
-		// Always wrap operands in parentheses to avoid ambiguity
+		// Add left operand, with parentheses only if needed for complex queries
 		if s.Larg != nil {
-			parts = append(parts, "("+s.Larg.SqlString()+")")
+			lstr := s.Larg.SqlString()
+			if s.Larg.needsParenthesesInSetOperation() {
+				parts = append(parts, "("+lstr+")")
+			} else {
+				parts = append(parts, lstr)
+			}
 		}
 
 		switch s.Op {
@@ -493,7 +498,54 @@ func (s *SelectStmt) SqlString() string {
 		}
 
 		if s.Rarg != nil {
-			parts = append(parts, "("+s.Rarg.SqlString()+")")
+			rstr := s.Rarg.SqlString()
+			if s.Rarg.needsParenthesesInSetOperation() {
+				parts = append(parts, "("+rstr+")")
+			} else {
+				parts = append(parts, rstr)
+			}
+		}
+
+		// Handle ORDER BY clause for set operations
+		if s.SortClause != nil && s.SortClause.Len() > 0 {
+			var sortItems []string
+			for _, sort := range s.SortClause.Items {
+				if sort != nil {
+					sortItems = append(sortItems, sort.SqlString())
+				}
+			}
+			parts = append(parts, "ORDER BY", strings.Join(sortItems, ", "))
+		}
+
+		// Handle LIMIT clause for set operations
+		if s.LimitCount != nil {
+			if s.LimitOption == LIMIT_OPTION_WITH_TIES {
+				// Use FETCH FIRST syntax for WITH TIES (required by SQL standard)
+				limitStr := "FETCH FIRST"
+
+				// Check if the limit count is a constant 1 (implicit case)
+				if isConstantOne(s.LimitCount) {
+					limitStr += " ROW"
+				} else {
+					limitStr += " " + s.LimitCount.SqlString() + " ROWS"
+				}
+
+				limitStr += " WITH TIES"
+				parts = append(parts, limitStr)
+			} else {
+				// Traditional LIMIT syntax (default for LIMIT_OPTION_COUNT)
+				// Handle LIMIT ALL case specially
+				limitValue := s.LimitCount.SqlString()
+				if limitValue == "NULL" {
+					limitValue = "ALL"
+				}
+				parts = append(parts, "LIMIT", limitValue)
+			}
+		}
+
+		// Handle OFFSET clause for set operations
+		if s.LimitOffset != nil {
+			parts = append(parts, "OFFSET", s.LimitOffset.SqlString())
 		}
 
 		return strings.Join(parts, " ")
@@ -674,6 +726,22 @@ func (s *SelectStmt) SqlString() string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+// needsParenthesesInSetOperation determines if a SelectStmt needs parentheses when used in a set operation
+func (s *SelectStmt) needsParenthesesInSetOperation() bool {
+	if s == nil {
+		return false
+	}
+	
+	// A SELECT needs parentheses if it has any of these complex clauses
+	return s.WhereClause != nil || 
+		   s.GroupClause != nil && s.GroupClause.Len() > 0 || 
+		   s.HavingClause != nil ||
+		   s.SortClause != nil && s.SortClause.Len() > 0 || 
+		   s.LimitOffset != nil || 
+		   s.LimitCount != nil ||
+		   s.Op != SETOP_NONE // Nested set operations always need parentheses
 }
 
 // isConstantOne checks if a Node represents the constant integer 1
@@ -1562,11 +1630,6 @@ func (c *CreateStmt) SqlString() string {
 			parts = append(parts, "()")
 		}
 
-		// Add PARTITION BY clause for regular partitioned tables
-		if c.PartSpec != nil {
-			parts = append(parts, c.PartSpec.SqlString())
-		}
-
 		// Add INHERITS clause for regular inheritance
 		if c.InhRelations != nil && c.InhRelations.Len() > 0 {
 			var inhParts []string
@@ -1577,6 +1640,16 @@ func (c *CreateStmt) SqlString() string {
 			}
 			parts = append(parts, "INHERITS", "("+strings.Join(inhParts, ", ")+")")
 		}
+
+		// Add PARTITION BY clause for regular partitioned tables
+		if c.PartSpec != nil {
+			parts = append(parts, c.PartSpec.SqlString())
+		}
+	}
+
+	// Add USING clause if specified (for table access method)
+	if c.AccessMethod != "" {
+		parts = append(parts, "USING", QuoteIdentifier(c.AccessMethod))
 	}
 
 	// Add WITH options if specified
@@ -1634,10 +1707,8 @@ func (d *DropStmt) SqlString() string {
 		return d.sqlStringForDropOnTable()
 	}
 
-	// Add object type
-	if d.RemoveType != 0 {
-		parts = append(parts, d.RemoveType.String())
-	}
+	// Add object type - always include it as all valid ObjectTypes should have string representations
+	parts = append(parts, d.RemoveType.String())
 
 	// Add CONCURRENTLY if specified for indexes
 	if d.Concurrent && d.RemoveType == OBJECT_INDEX {

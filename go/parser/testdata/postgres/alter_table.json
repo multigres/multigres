@@ -164,7 +164,8 @@
   },
   {
     "comment": "alter_table - Statement 37",
-    "query": "CREATE INDEX attmp_idx ON attmp (a, (d + e), b)"
+    "query": "CREATE INDEX attmp_idx ON attmp (a, (d + e), b)",
+    "expected": "CREATE INDEX attmp_idx ON attmp USING btree ( a, (d + e), b )"
   },
   {
     "comment": "alter_table - Statement 38",
@@ -342,7 +343,8 @@
   },
   {
     "comment": "alter_table - Statement 79",
-    "query": "CREATE INDEX alter_idx_rename_test_idx ON alter_idx_rename_test (a)"
+    "query": "CREATE INDEX alter_idx_rename_test_idx ON alter_idx_rename_test (a)",
+    "expected": "CREATE INDEX alter_idx_rename_test_idx ON alter_idx_rename_test USING btree ( a )"
   },
   {
     "comment": "alter_table - Statement 80",
@@ -351,7 +353,8 @@
   },
   {
     "comment": "alter_table - Statement 81",
-    "query": "CREATE INDEX alter_idx_rename_test_parted_idx ON alter_idx_rename_test_parted (a)"
+    "query": "CREATE INDEX alter_idx_rename_test_parted_idx ON alter_idx_rename_test_parted (a)",
+    "expected": "CREATE INDEX alter_idx_rename_test_parted_idx ON alter_idx_rename_test_parted USING btree ( a )"
   },
   {
     "comment": "alter_table - Statement 82",
@@ -2082,12 +2085,12 @@
   {
     "comment": "alter_table - Statement 438",
     "query": "create index \"testing_idx\" on atacc1(a)",
-    "expected": "CREATE INDEX testing_idx ON atacc1 (a)"
+    "expected": "CREATE INDEX testing_idx ON atacc1 USING btree ( a )"
   },
   {
     "comment": "alter_table - Statement 439",
     "query": "create index \"testing_idx\" on atacc1(\"........pg.dropped.1........\")",
-    "expected": "CREATE INDEX testing_idx ON atacc1 (\"........pg.dropped.1........\")"
+    "expected": "CREATE INDEX testing_idx ON atacc1 USING btree ( \"........pg.dropped.1........\" )"
   },
   {
     "comment": "alter_table - Statement 440",
@@ -2732,12 +2735,12 @@
   {
     "comment": "alter_table - Statement 568",
     "query": "create index on anothertab(f2,f3)",
-    "expected": "CREATE INDEX ON anothertab (f2, f3)"
+    "expected": "CREATE INDEX ON anothertab USING btree ( f2, f3 )"
   },
   {
     "comment": "alter_table - Statement 569",
     "query": "create unique index on anothertab(f4)",
-    "expected": "CREATE UNIQUE INDEX ON anothertab (f4)"
+    "expected": "CREATE UNIQUE INDEX ON anothertab USING btree ( f4 )"
   },
   {
     "comment": "alter_table - Statement 570",
@@ -2862,12 +2865,12 @@
   {
     "comment": "alter_table - Statement 594",
     "query": "create index on at_partitioned (b)",
-    "expected": "CREATE INDEX ON at_partitioned (b)"
+    "expected": "CREATE INDEX ON at_partitioned USING btree ( b )"
   },
   {
     "comment": "alter_table - Statement 595",
     "query": "create index on at_partitioned (a)",
-    "expected": "CREATE INDEX ON at_partitioned (a)"
+    "expected": "CREATE INDEX ON at_partitioned USING btree ( a )"
   },
   {
     "comment": "alter_table - Statement 596",
@@ -3027,7 +3030,7 @@
   {
     "comment": "alter_table - Statement 627",
     "query": "create index test_storage_idx on test_storage (b, a)",
-    "expected": "CREATE INDEX test_storage_idx ON test_storage (b, a)"
+    "expected": "CREATE INDEX test_storage_idx ON test_storage USING btree ( b, a )"
   },
   {
     "comment": "alter_table - Statement 628",
@@ -3415,7 +3418,7 @@
   {
     "comment": "alter_table - Statement 714",
     "query": "create trigger ttdummy before delete or update on alterlock for each row execute procedure ttdummy (1, 1)",
-    "expected": "CREATE TRIGGER ttdummy BEFORE UPDATE OR DELETE ON alterlock FOR EACH ROW EXECUTE FUNCTION ttdummy (1, 1)"
+    "expected": "CREATE TRIGGER ttdummy BEFORE UPDATE OR DELETE ON alterlock FOR EACH ROW EXECUTE FUNCTION ttdummy(1, 1)"
   },
   {
     "comment": "alter_table - Statement 715",
@@ -3575,7 +3578,7 @@
   {
     "comment": "alter_table - Statement 746",
     "query": "create text search parser alter1.prs(start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype)",
-    "expected": "CREATE TEXT SEARCH PARSER alter1.prs (start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype)"
+    "expected": "CREATE TEXT SEARCH PARSER alter1.prs (start = prsd_start, gettoken = prsd_nexttoken, \"end\" = prsd_end, lextypes = prsd_lextype)"
   },
   {
     "comment": "alter_table - Statement 747",
@@ -3772,7 +3775,7 @@
   {
     "comment": "alter_table - Statement 786",
     "query": "CREATE INDEX test_tbl1_idx ON test_tbl1((row(x,y)::test_type1))",
-    "expected": "CREATE INDEX test_tbl1_idx ON test_tbl1 ((CAST(ROW(x, y) AS test_type1)))"
+    "expected": "CREATE INDEX test_tbl1_idx ON test_tbl1 USING btree ( (CAST(ROW(x, y) AS test_type1)) )"
   },
   {
     "comment": "alter_table - Statement 787",
@@ -4066,7 +4069,7 @@
   {
     "comment": "alter_table - Statement 851",
     "query": "CREATE INDEX comment_test_index ON comment_test(indexed_col)",
-    "expected": "CREATE INDEX comment_test_index ON comment_test (indexed_col)"
+    "expected": "CREATE INDEX comment_test_index ON comment_test USING btree ( indexed_col )"
   },
   {
     "comment": "alter_table - Statement 852",
@@ -4141,7 +4144,7 @@
   {
     "comment": "alter_table - Statement 867",
     "query": "CREATE INDEX comment_test_child_fk ON comment_test_child(id)",
-    "expected": "CREATE INDEX comment_test_child_fk ON comment_test_child (id)"
+    "expected": "CREATE INDEX comment_test_child_fk ON comment_test_child USING btree ( id )"
   },
   {
     "comment": "alter_table - Statement 868",
@@ -4212,7 +4215,8 @@
   },
   {
     "comment": "alter_table - Statement 883",
-    "query": "CREATE INDEX old_system_table__othercol ON old_system_table (othercol)"
+    "query": "CREATE INDEX old_system_table__othercol ON old_system_table (othercol)",
+    "expected": "CREATE INDEX old_system_table__othercol ON old_system_table USING btree ( othercol )"
   },
   {
     "comment": "alter_table - Statement 884",
@@ -4252,7 +4256,7 @@
   {
     "comment": "alter_table - Statement 892",
     "query": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged1' UNION ALL SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class r JOIN pg_class t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^unlogged1' UNION ALL SELECT r.relname || ' toast index', ri.relkind, ri.relpersistence FROM pg_class r join pg_class t ON t.oid = r.reltoastrelid JOIN pg_index i ON i.indrelid = t.oid JOIN pg_class ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^unlogged1' ORDER BY relname",
-    "expected": "((SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged1') UNION ALL (SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^unlogged1')) UNION ALL (SELECT r.relname || ' toast index', ri.relkind, ri.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid INNER JOIN pg_index AS i ON i.indrelid = t.oid INNER JOIN pg_class AS ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^unlogged1')"
+    "expected": "((SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged1') UNION ALL (SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^unlogged1')) UNION ALL (SELECT r.relname || ' toast index', ri.relkind, ri.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid INNER JOIN pg_index AS i ON i.indrelid = t.oid INNER JOIN pg_class AS ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^unlogged1') ORDER BY relname"
   },
   {
     "comment": "alter_table - Statement 893",
@@ -4296,7 +4300,7 @@
   {
     "comment": "alter_table - Statement 902",
     "query": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^logged1' UNION ALL SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class r JOIN pg_class t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^logged1' UNION ALL SELECT r.relname ||' toast index', ri.relkind, ri.relpersistence FROM pg_class r join pg_class t ON t.oid = r.reltoastrelid JOIN pg_index i ON i.indrelid = t.oid JOIN pg_class ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^logged1' ORDER BY relname",
-    "expected": "((SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^logged1') UNION ALL (SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^logged1')) UNION ALL (SELECT r.relname || ' toast index', ri.relkind, ri.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid INNER JOIN pg_index AS i ON i.indrelid = t.oid INNER JOIN pg_class AS ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^logged1')"
+    "expected": "((SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^logged1') UNION ALL (SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^logged1')) UNION ALL (SELECT r.relname || ' toast index', ri.relkind, ri.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid INNER JOIN pg_index AS i ON i.indrelid = t.oid INNER JOIN pg_class AS ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^logged1') ORDER BY relname"
   },
   {
     "comment": "alter_table - Statement 903",
@@ -4323,7 +4327,7 @@
   {
     "comment": "alter_table - Statement 908",
     "query": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^logged1' UNION ALL SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class r JOIN pg_class t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^logged1' UNION ALL SELECT r.relname || ' toast index', ri.relkind, ri.relpersistence FROM pg_class r join pg_class t ON t.oid = r.reltoastrelid JOIN pg_index i ON i.indrelid = t.oid JOIN pg_class ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^logged1' ORDER BY relname",
-    "expected": "((SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^logged1') UNION ALL (SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^logged1')) UNION ALL (SELECT r.relname || ' toast index', ri.relkind, ri.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid INNER JOIN pg_index AS i ON i.indrelid = t.oid INNER JOIN pg_class AS ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^logged1')"
+    "expected": "((SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^logged1') UNION ALL (SELECT r.relname || ' toast table', t.relkind, t.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid WHERE r.relname ~ '^logged1')) UNION ALL (SELECT r.relname || ' toast index', ri.relkind, ri.relpersistence FROM pg_class AS r INNER JOIN pg_class AS t ON t.oid = r.reltoastrelid INNER JOIN pg_index AS i ON i.indrelid = t.oid INNER JOIN pg_class AS ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^logged1') ORDER BY relname"
   },
   {
     "comment": "alter_table - Statement 909",
@@ -4359,7 +4363,7 @@
   {
     "comment": "alter_table - Statement 916",
     "query": "CREATE UNIQUE INDEX ataddindexi0 ON ataddindex(f1)",
-    "expected": "CREATE UNIQUE INDEX ataddindexi0 ON ataddindex (f1)"
+    "expected": "CREATE UNIQUE INDEX ataddindexi0 ON ataddindex USING btree ( f1 )"
   },
   {
     "comment": "alter_table - Statement 917",
@@ -4979,7 +4983,7 @@
   {
     "comment": "alter_table - Statement 1058",
     "query": "CREATE TABLE hash_parted ( a int, b int ) PARTITION BY HASH (a part_test_int4_ops)",
-    "expected": "CREATE TABLE hash_parted (a INT, b INT) PARTITION BY hash (a)"
+    "expected": "CREATE TABLE hash_parted (a INT, b INT) PARTITION BY hash (a part_test_int4_ops)"
   },
   {
     "comment": "alter_table - Statement 1059",
@@ -5532,7 +5536,7 @@
   {
     "comment": "alter_table - Statement 1181",
     "query": "create trigger trig_part_attach before insert on tab_part_attach for each statement execute procedure func_part_attach()",
-    "expected": "CREATE TRIGGER trig_part_attach BEFORE INSERT ON tab_part_attach EXECUTE FUNCTION func_part_attach ()"
+    "expected": "CREATE TRIGGER trig_part_attach BEFORE INSERT ON tab_part_attach EXECUTE FUNCTION func_part_attach()"
   },
   {
     "comment": "alter_table - Statement 1182",
@@ -5562,7 +5566,7 @@
   {
     "comment": "alter_table - Statement 1187",
     "query": "create table at_test_sql_partop (a int) partition by range (a at_test_sql_partop)",
-    "expected": "CREATE TABLE at_test_sql_partop (a INT) PARTITION BY range (a)"
+    "expected": "CREATE TABLE at_test_sql_partop (a INT) PARTITION BY range (a at_test_sql_partop)"
   },
   {
     "comment": "alter_table - Statement 1188",
@@ -5627,7 +5631,7 @@
   {
     "comment": "alter_table - Statement 1202",
     "query": "create trigger xtrig after update on bar1 referencing old table as old for each statement execute procedure xtrig()",
-    "expected": "CREATE TRIGGER xtrig AFTER UPDATE ON bar1 REFERENCING OLD TABLE AS old EXECUTE FUNCTION xtrig ()"
+    "expected": "CREATE TRIGGER xtrig AFTER UPDATE ON bar1 REFERENCING OLD TABLE AS old EXECUTE FUNCTION xtrig()"
   },
   {
     "comment": "alter_table - Statement 1203",
@@ -5687,7 +5691,7 @@
   {
     "comment": "alter_table - Statement 1214",
     "query": "create index alttype_cluster_ind on alttype_cluster (a)",
-    "expected": "CREATE INDEX alttype_cluster_ind ON alttype_cluster (a)"
+    "expected": "CREATE INDEX alttype_cluster_ind ON alttype_cluster USING btree ( a )"
   },
   {
     "comment": "alter_table - Statement 1215",

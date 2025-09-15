@@ -12,12 +12,12 @@
   {
     "comment": "bitmapops - Statement 3",
     "query": "CREATE INDEX i_bmtest_a ON bmscantest(a)",
-    "expected": "CREATE INDEX i_bmtest_a ON bmscantest (a)"
+    "expected": "CREATE INDEX i_bmtest_a ON bmscantest USING btree ( a )"
   },
   {
     "comment": "bitmapops - Statement 4",
     "query": "CREATE INDEX i_bmtest_b ON bmscantest(b)",
-    "expected": "CREATE INDEX i_bmtest_b ON bmscantest (b)"
+    "expected": "CREATE INDEX i_bmtest_b ON bmscantest USING btree ( b )"
   },
   {
     "comment": "bitmapops - Statement 5",

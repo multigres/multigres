@@ -1,67 +1,83 @@
 [
   {
     "comment": "constraints - Statement 1",
-    "query": "INSERT INTO DEFAULT_TBL VALUES (1, 'thomas', 57.0613)"
+    "query": "INSERT INTO DEFAULT_TBL VALUES (1, 'thomas', 57.0613)",
+    "expected": "INSERT INTO default_tbl VALUES (1, 'thomas', 57.0613)"
   },
   {
     "comment": "constraints - Statement 2",
-    "query": "INSERT INTO DEFAULT_TBL VALUES (1, 'bruce')"
+    "query": "INSERT INTO DEFAULT_TBL VALUES (1, 'bruce')",
+    "expected": "INSERT INTO default_tbl VALUES (1, 'bruce')"
   },
   {
     "comment": "constraints - Statement 3",
-    "query": "INSERT INTO DEFAULT_TBL (i, f) VALUES (2, 987.654)"
+    "query": "INSERT INTO DEFAULT_TBL (i, f) VALUES (2, 987.654)",
+    "expected": "INSERT INTO default_tbl (i, f) VALUES (2, 987.654)"
   },
   {
     "comment": "constraints - Statement 4",
-    "query": "INSERT INTO DEFAULT_TBL (x) VALUES ('marc')"
+    "query": "INSERT INTO DEFAULT_TBL (x) VALUES ('marc')",
+    "expected": "INSERT INTO default_tbl (x) VALUES ('marc')"
   },
   {
     "comment": "constraints - Statement 5",
-    "query": "INSERT INTO DEFAULT_TBL VALUES (3, null, 1.0)"
+    "query": "INSERT INTO DEFAULT_TBL VALUES (3, null, 1.0)",
+    "expected": "INSERT INTO default_tbl VALUES (3, NULL, 1.0)"
   },
   {
     "comment": "constraints - Statement 6",
-    "query": "SELECT * FROM DEFAULT_TBL"
+    "query": "SELECT * FROM DEFAULT_TBL",
+    "expected": "SELECT * FROM default_tbl"
   },
   {
     "comment": "constraints - Statement 7",
-    "query": "CREATE SEQUENCE DEFAULT_SEQ"
+    "query": "CREATE SEQUENCE DEFAULT_SEQ",
+    "expected": "CREATE SEQUENCE default_seq"
   },
   {
     "comment": "constraints - Statement 8",
-    "query": "CREATE TABLE DEFAULTEXPR_TBL (i1 int DEFAULT 100 + (200-199) * 2, i2 int DEFAULT nextval('default_seq'))"
+    "query": "CREATE TABLE DEFAULTEXPR_TBL (i1 int DEFAULT 100 + (200-199) * 2, i2 int DEFAULT nextval('default_seq'))",
+    "expected": "CREATE TABLE defaultexpr_tbl (i1 INT DEFAULT 100 + (200 - 199) * 2, i2 INT DEFAULT nextval('default_seq'))"
   },
   {
     "comment": "constraints - Statement 9",
-    "query": "INSERT INTO DEFAULTEXPR_TBL VALUES (-1, -2)"
+    "query": "INSERT INTO DEFAULTEXPR_TBL VALUES (-1, -2)",
+    "expected": "INSERT INTO defaultexpr_tbl VALUES (-1, -2)"
   },
   {
     "comment": "constraints - Statement 10",
-    "query": "INSERT INTO DEFAULTEXPR_TBL (i1) VALUES (-3)"
+    "query": "INSERT INTO DEFAULTEXPR_TBL (i1) VALUES (-3)",
+    "expected": "INSERT INTO defaultexpr_tbl (i1) VALUES (-3)"
   },
   {
     "comment": "constraints - Statement 11",
-    "query": "INSERT INTO DEFAULTEXPR_TBL (i2) VALUES (-4)"
+    "query": "INSERT INTO DEFAULTEXPR_TBL (i2) VALUES (-4)",
+    "expected": "INSERT INTO defaultexpr_tbl (i2) VALUES (-4)"
   },
   {
     "comment": "constraints - Statement 12",
-    "query": "INSERT INTO DEFAULTEXPR_TBL (i2) VALUES (NULL)"
+    "query": "INSERT INTO DEFAULTEXPR_TBL (i2) VALUES (NULL)",
+    "expected": "INSERT INTO defaultexpr_tbl (i2) VALUES (NULL)"
   },
   {
     "comment": "constraints - Statement 13",
-    "query": "SELECT * FROM DEFAULTEXPR_TBL"
+    "query": "SELECT * FROM DEFAULTEXPR_TBL",
+    "expected": "SELECT * FROM defaultexpr_tbl"
   },
   {
     "comment": "constraints - Statement 14",
-    "query": "CREATE TABLE error_tbl (i int DEFAULT (100, ))"
+    "query": "CREATE TABLE error_tbl (i int DEFAULT (100, ))",
+    "error": "parse error at position 45: syntax error"
   },
   {
     "comment": "constraints - Statement 15",
-    "query": "CREATE TABLE error_tbl (b1 bool DEFAULT 1 IN (1, 2))"
+    "query": "CREATE TABLE error_tbl (b1 bool DEFAULT 1 IN (1, 2))",
+    "error": "parse error at position 44: syntax error"
   },
   {
     "comment": "constraints - Statement 16",
-    "query": "CREATE TABLE error_tbl (b1 bool DEFAULT (1 IN (1, 2)))"
+    "query": "CREATE TABLE error_tbl (b1 bool DEFAULT (1 IN (1, 2)))",
+    "expected": "CREATE TABLE error_tbl (b1 BOOLEAN DEFAULT (1 IN (1, 2)))"
   },
   {
     "comment": "constraints - Statement 17",
@@ -69,87 +85,108 @@
   },
   {
     "comment": "constraints - Statement 18",
-    "query": "CREATE TABLE CHECK_TBL (x int, CONSTRAINT CHECK_CON CHECK (x > 3))"
+    "query": "CREATE TABLE CHECK_TBL (x int, CONSTRAINT CHECK_CON CHECK (x \u003e 3))",
+    "expected": "CREATE TABLE check_tbl (x INT, CONSTRAINT check_con CHECK (x \u003e 3))"
   },
   {
     "comment": "constraints - Statement 19",
-    "query": "INSERT INTO CHECK_TBL VALUES (5)"
+    "query": "INSERT INTO CHECK_TBL VALUES (5)",
+    "expected": "INSERT INTO check_tbl VALUES (5)"
   },
   {
     "comment": "constraints - Statement 20",
-    "query": "INSERT INTO CHECK_TBL VALUES (4)"
+    "query": "INSERT INTO CHECK_TBL VALUES (4)",
+    "expected": "INSERT INTO check_tbl VALUES (4)"
   },
   {
     "comment": "constraints - Statement 21",
-    "query": "INSERT INTO CHECK_TBL VALUES (3)"
+    "query": "INSERT INTO CHECK_TBL VALUES (3)",
+    "expected": "INSERT INTO check_tbl VALUES (3)"
   },
   {
     "comment": "constraints - Statement 22",
-    "query": "INSERT INTO CHECK_TBL VALUES (2)"
+    "query": "INSERT INTO CHECK_TBL VALUES (2)",
+    "expected": "INSERT INTO check_tbl VALUES (2)"
   },
   {
     "comment": "constraints - Statement 23",
-    "query": "INSERT INTO CHECK_TBL VALUES (6)"
+    "query": "INSERT INTO CHECK_TBL VALUES (6)",
+    "expected": "INSERT INTO check_tbl VALUES (6)"
   },
   {
     "comment": "constraints - Statement 24",
-    "query": "INSERT INTO CHECK_TBL VALUES (1)"
+    "query": "INSERT INTO CHECK_TBL VALUES (1)",
+    "expected": "INSERT INTO check_tbl VALUES (1)"
   },
   {
     "comment": "constraints - Statement 25",
-    "query": "SELECT * FROM CHECK_TBL"
+    "query": "SELECT * FROM CHECK_TBL",
+    "expected": "SELECT * FROM check_tbl"
   },
   {
     "comment": "constraints - Statement 26",
-    "query": "CREATE SEQUENCE CHECK_SEQ"
+    "query": "CREATE SEQUENCE CHECK_SEQ",
+    "expected": "CREATE SEQUENCE check_seq"
   },
   {
     "comment": "constraints - Statement 27",
-    "query": "CREATE TABLE CHECK2_TBL (x int, y text, z int, CONSTRAINT SEQUENCE_CON CHECK (x > 3 and y <> 'check failed' and z < 8))"
+    "query": "CREATE TABLE CHECK2_TBL (x int, y text, z int, CONSTRAINT SEQUENCE_CON CHECK (x \u003e 3 and y \u003c\u003e 'check failed' and z \u003c 8))",
+    "expected": "CREATE TABLE check2_tbl (x INT, y TEXT, z INT, CONSTRAINT sequence_con CHECK (x \u003e 3 AND y \u003c\u003e 'check failed' AND z \u003c 8))"
   },
   {
     "comment": "constraints - Statement 28",
-    "query": "INSERT INTO CHECK2_TBL VALUES (4, 'check ok', -2)"
+    "query": "INSERT INTO CHECK2_TBL VALUES (4, 'check ok', -2)",
+    "expected": "INSERT INTO check2_tbl VALUES (4, 'check ok', -2)"
   },
   {
     "comment": "constraints - Statement 29",
-    "query": "INSERT INTO CHECK2_TBL VALUES (1, 'x check failed', -2)"
+    "query": "INSERT INTO CHECK2_TBL VALUES (1, 'x check failed', -2)",
+    "expected": "INSERT INTO check2_tbl VALUES (1, 'x check failed', -2)"
   },
   {
     "comment": "constraints - Statement 30",
-    "query": "INSERT INTO CHECK2_TBL VALUES (5, 'z check failed', 10)"
+    "query": "INSERT INTO CHECK2_TBL VALUES (5, 'z check failed', 10)",
+    "expected": "INSERT INTO check2_tbl VALUES (5, 'z check failed', 10)"
   },
   {
     "comment": "constraints - Statement 31",
-    "query": "INSERT INTO CHECK2_TBL VALUES (0, 'check failed', -2)"
+    "query": "INSERT INTO CHECK2_TBL VALUES (0, 'check failed', -2)",
+    "expected": "INSERT INTO check2_tbl VALUES (0, 'check failed', -2)"
   },
   {
     "comment": "constraints - Statement 32",
-    "query": "INSERT INTO CHECK2_TBL VALUES (6, 'check failed', 11)"
+    "query": "INSERT INTO CHECK2_TBL VALUES (6, 'check failed', 11)",
+    "expected": "INSERT INTO check2_tbl VALUES (6, 'check failed', 11)"
   },
   {
     "comment": "constraints - Statement 33",
-    "query": "INSERT INTO CHECK2_TBL VALUES (7, 'check ok', 7)"
+    "query": "INSERT INTO CHECK2_TBL VALUES (7, 'check ok', 7)",
+    "expected": "INSERT INTO check2_tbl VALUES (7, 'check ok', 7)"
   },
   {
     "comment": "constraints - Statement 34",
-    "query": "SELECT * from CHECK2_TBL"
+    "query": "SELECT * from CHECK2_TBL",
+    "expected": "SELECT * FROM check2_tbl"
   },
   {
     "comment": "constraints - Statement 35",
-    "query": "CREATE SEQUENCE INSERT_SEQ"
+    "query": "CREATE SEQUENCE INSERT_SEQ",
+    "expected": "CREATE SEQUENCE insert_seq"
   },
   {
     "comment": "constraints - Statement 36",
-    "query": "CREATE TABLE INSERT_TBL (x INT DEFAULT nextval('insert_seq'), y TEXT DEFAULT '-NULL-', z INT DEFAULT -1 * currval('insert_seq'), CONSTRAINT INSERT_TBL_CON CHECK (x >= 3 AND y <> 'check failed' AND x < 8), CHECK (x + z = 0))"
+    "query": "CREATE TABLE INSERT_TBL (x INT DEFAULT nextval('insert_seq'), y TEXT DEFAULT '-NULL-', z INT DEFAULT -1 * currval('insert_seq'), CONSTRAINT INSERT_TBL_CON CHECK (x \u003e= 3 AND y \u003c\u003e 'check failed' AND x \u003c 8), CHECK (x + z = 0))",
+    "expected": "CREATE TABLE insert_tbl (x INT DEFAULT nextval('insert_seq'), y TEXT DEFAULT '-NULL-', z INT DEFAULT -1 * currval('insert_seq'), CONSTRAINT insert_tbl_con CHECK (x \u003e= 3 AND y \u003c\u003e 'check failed' AND x \u003c 8), CHECK (x + z = 0))"
   },
   {
     "comment": "constraints - Statement 37",
-    "query": "INSERT INTO INSERT_TBL(x,z) VALUES (2, -2)"
+    "query": "INSERT INTO INSERT_TBL(x,z) VALUES (2, -2)",
+    "expected": "INSERT INTO insert_tbl (x, z) VALUES (2, -2)"
   },
   {
     "comment": "constraints - Statement 38",
-    "query": "SELECT * FROM INSERT_TBL"
+    "query": "SELECT * FROM INSERT_TBL",
+    "expected": "SELECT * FROM insert_tbl"
   },
   {
     "comment": "constraints - Statement 39",
@@ -157,39 +194,48 @@
   },
   {
     "comment": "constraints - Statement 40",
-    "query": "INSERT INTO INSERT_TBL(y) VALUES ('Y')"
+    "query": "INSERT INTO INSERT_TBL(y) VALUES ('Y')",
+    "expected": "INSERT INTO insert_tbl (y) VALUES ('Y')"
   },
   {
     "comment": "constraints - Statement 41",
-    "query": "INSERT INTO INSERT_TBL(x,z) VALUES (1, -2)"
+    "query": "INSERT INTO INSERT_TBL(x,z) VALUES (1, -2)",
+    "expected": "INSERT INTO insert_tbl (x, z) VALUES (1, -2)"
   },
   {
     "comment": "constraints - Statement 42",
-    "query": "INSERT INTO INSERT_TBL(z,x) VALUES (-7,  7)"
+    "query": "INSERT INTO INSERT_TBL(z,x) VALUES (-7,  7)",
+    "expected": "INSERT INTO insert_tbl (z, x) VALUES (-7, 7)"
   },
   {
     "comment": "constraints - Statement 43",
-    "query": "INSERT INTO INSERT_TBL VALUES (5, 'check failed', -5)"
+    "query": "INSERT INTO INSERT_TBL VALUES (5, 'check failed', -5)",
+    "expected": "INSERT INTO insert_tbl VALUES (5, 'check failed', -5)"
   },
   {
     "comment": "constraints - Statement 44",
-    "query": "INSERT INTO INSERT_TBL VALUES (7, '!check failed', -7)"
+    "query": "INSERT INTO INSERT_TBL VALUES (7, '!check failed', -7)",
+    "expected": "INSERT INTO insert_tbl VALUES (7, '!check failed', -7)"
   },
   {
     "comment": "constraints - Statement 45",
-    "query": "INSERT INTO INSERT_TBL(y) VALUES ('-!NULL-')"
+    "query": "INSERT INTO INSERT_TBL(y) VALUES ('-!NULL-')",
+    "expected": "INSERT INTO insert_tbl (y) VALUES ('-!NULL-')"
   },
   {
     "comment": "constraints - Statement 46",
-    "query": "INSERT INTO INSERT_TBL(y,z) VALUES ('check failed', 4)"
+    "query": "INSERT INTO INSERT_TBL(y,z) VALUES ('check failed', 4)",
+    "expected": "INSERT INTO insert_tbl (y, z) VALUES ('check failed', 4)"
   },
   {
     "comment": "constraints - Statement 47",
-    "query": "INSERT INTO INSERT_TBL(x,y) VALUES (5, 'check failed')"
+    "query": "INSERT INTO INSERT_TBL(x,y) VALUES (5, 'check failed')",
+    "expected": "INSERT INTO insert_tbl (x, y) VALUES (5, 'check failed')"
   },
   {
     "comment": "constraints - Statement 48",
-    "query": "INSERT INTO INSERT_TBL(x,y) VALUES (5, '!check failed')"
+    "query": "INSERT INTO INSERT_TBL(x,y) VALUES (5, '!check failed')",
+    "expected": "INSERT INTO insert_tbl (x, y) VALUES (5, '!check failed')"
   },
   {
     "comment": "constraints - Statement 49",
@@ -201,135 +247,168 @@
   },
   {
     "comment": "constraints - Statement 51",
-    "query": "INSERT INTO INSERT_TBL VALUES (null, null, null)"
+    "query": "INSERT INTO INSERT_TBL VALUES (null, null, null)",
+    "expected": "INSERT INTO insert_tbl VALUES (NULL, NULL, NULL)"
   },
   {
     "comment": "constraints - Statement 52",
-    "query": "CREATE TABLE SYS_COL_CHECK_TBL (city text, state text, is_capital bool, altitude int, CHECK (NOT (is_capital AND tableoid::regclass::text = 'sys_col_check_tbl')))"
+    "query": "CREATE TABLE SYS_COL_CHECK_TBL (city text, state text, is_capital bool, altitude int, CHECK (NOT (is_capital AND tableoid::regclass::text = 'sys_col_check_tbl')))",
+    "expected": "CREATE TABLE sys_col_check_tbl (city TEXT, state TEXT, is_capital BOOLEAN, altitude INT, CHECK (NOT (is_capital AND CAST(CAST(tableoid AS regclass) AS TEXT) = 'sys_col_check_tbl')))"
   },
   {
     "comment": "constraints - Statement 53",
-    "query": "INSERT INTO SYS_COL_CHECK_TBL VALUES ('Seattle', 'Washington', false, 100)"
+    "query": "INSERT INTO SYS_COL_CHECK_TBL VALUES ('Seattle', 'Washington', false, 100)",
+    "expected": "INSERT INTO sys_col_check_tbl VALUES ('Seattle', 'Washington', FALSE, 100)"
   },
   {
     "comment": "constraints - Statement 54",
-    "query": "INSERT INTO SYS_COL_CHECK_TBL VALUES ('Olympia', 'Washington', true, 100)"
+    "query": "INSERT INTO SYS_COL_CHECK_TBL VALUES ('Olympia', 'Washington', true, 100)",
+    "expected": "INSERT INTO sys_col_check_tbl VALUES ('Olympia', 'Washington', TRUE, 100)"
   },
   {
     "comment": "constraints - Statement 55",
-    "query": "SELECT *, tableoid::regclass::text FROM SYS_COL_CHECK_TBL"
+    "query": "SELECT *, tableoid::regclass::text FROM SYS_COL_CHECK_TBL",
+    "expected": "SELECT *, CAST(CAST(tableoid AS regclass) AS TEXT) FROM sys_col_check_tbl"
   },
   {
     "comment": "constraints - Statement 56",
-    "query": "DROP TABLE SYS_COL_CHECK_TBL"
+    "query": "DROP TABLE SYS_COL_CHECK_TBL",
+    "expected": "DROP TABLE sys_col_check_tbl"
   },
   {
     "comment": "constraints - Statement 57",
-    "query": "CREATE TABLE SYS_COL_CHECK_TBL (city text, state text, is_capital bool, altitude int, CHECK (NOT (is_capital AND ctid::text = 'sys_col_check_tbl')))"
+    "query": "CREATE TABLE SYS_COL_CHECK_TBL (city text, state text, is_capital bool, altitude int, CHECK (NOT (is_capital AND ctid::text = 'sys_col_check_tbl')))",
+    "expected": "CREATE TABLE sys_col_check_tbl (city TEXT, state TEXT, is_capital BOOLEAN, altitude INT, CHECK (NOT (is_capital AND CAST(ctid AS TEXT) = 'sys_col_check_tbl')))"
   },
   {
     "comment": "constraints - Statement 58",
-    "query": "CREATE TABLE INSERT_CHILD (cx INT default 42, cy INT CHECK (cy > x)) INHERITS (INSERT_TBL)"
+    "query": "CREATE TABLE INSERT_CHILD (cx INT default 42, cy INT CHECK (cy \u003e x)) INHERITS (INSERT_TBL)",
+    "expected": "CREATE TABLE insert_child (cx INT DEFAULT 42, cy INT CHECK (cy \u003e x)) INHERITS (insert_tbl)"
   },
   {
     "comment": "constraints - Statement 59",
-    "query": "INSERT INTO INSERT_CHILD(x,z,cy) VALUES (7,-7,11)"
+    "query": "INSERT INTO INSERT_CHILD(x,z,cy) VALUES (7,-7,11)",
+    "expected": "INSERT INTO insert_child (x, z, cy) VALUES (7, -7, 11)"
   },
   {
     "comment": "constraints - Statement 60",
-    "query": "INSERT INTO INSERT_CHILD(x,z,cy) VALUES (7,-7,6)"
+    "query": "INSERT INTO INSERT_CHILD(x,z,cy) VALUES (7,-7,6)",
+    "expected": "INSERT INTO insert_child (x, z, cy) VALUES (7, -7, 6)"
   },
   {
     "comment": "constraints - Statement 61",
-    "query": "INSERT INTO INSERT_CHILD(x,z,cy) VALUES (6,-7,7)"
+    "query": "INSERT INTO INSERT_CHILD(x,z,cy) VALUES (6,-7,7)",
+    "expected": "INSERT INTO insert_child (x, z, cy) VALUES (6, -7, 7)"
   },
   {
     "comment": "constraints - Statement 62",
-    "query": "INSERT INTO INSERT_CHILD(x,y,z,cy) VALUES (6,'check failed',-6,7)"
+    "query": "INSERT INTO INSERT_CHILD(x,y,z,cy) VALUES (6,'check failed',-6,7)",
+    "expected": "INSERT INTO insert_child (x, y, z, cy) VALUES (6, 'check failed', -6, 7)"
   },
   {
     "comment": "constraints - Statement 63",
-    "query": "SELECT * FROM INSERT_CHILD"
+    "query": "SELECT * FROM INSERT_CHILD",
+    "expected": "SELECT * FROM insert_child"
   },
   {
     "comment": "constraints - Statement 64",
-    "query": "DROP TABLE INSERT_CHILD"
+    "query": "DROP TABLE INSERT_CHILD",
+    "expected": "DROP TABLE insert_child"
   },
   {
     "comment": "constraints - Statement 65",
-    "query": "CREATE TABLE ATACC1 (TEST INT CHECK (TEST > 0) NO INHERIT)"
+    "query": "CREATE TABLE ATACC1 (TEST INT CHECK (TEST \u003e 0) NO INHERIT)",
+    "expected": "CREATE TABLE atacc1 (test INT CHECK (test \u003e 0))"
   },
   {
     "comment": "constraints - Statement 66",
-    "query": "CREATE TABLE ATACC2 (TEST2 INT) INHERITS (ATACC1)"
+    "query": "CREATE TABLE ATACC2 (TEST2 INT) INHERITS (ATACC1)",
+    "expected": "CREATE TABLE atacc2 (test2 INT) INHERITS (atacc1)"
   },
   {
     "comment": "constraints - Statement 67",
-    "query": "INSERT INTO ATACC2 (TEST) VALUES (-3)"
+    "query": "INSERT INTO ATACC2 (TEST) VALUES (-3)",
+    "expected": "INSERT INTO atacc2 (test) VALUES (-3)"
   },
   {
     "comment": "constraints - Statement 68",
-    "query": "INSERT INTO ATACC1 (TEST) VALUES (-3)"
+    "query": "INSERT INTO ATACC1 (TEST) VALUES (-3)",
+    "expected": "INSERT INTO atacc1 (test) VALUES (-3)"
   },
   {
     "comment": "constraints - Statement 69",
-    "query": "DROP TABLE ATACC1 CASCADE"
+    "query": "DROP TABLE ATACC1 CASCADE",
+    "expected": "DROP TABLE atacc1 CASCADE"
   },
   {
     "comment": "constraints - Statement 70",
-    "query": "CREATE TABLE ATACC1 (TEST INT, TEST2 INT CHECK (TEST > 0), CHECK (TEST2 > 10) NO INHERIT)"
+    "query": "CREATE TABLE ATACC1 (TEST INT, TEST2 INT CHECK (TEST \u003e 0), CHECK (TEST2 \u003e 10) NO INHERIT)",
+    "expected": "CREATE TABLE atacc1 (test INT, test2 INT CHECK (test \u003e 0), CHECK (test2 \u003e 10) NO INHERIT)"
   },
   {
     "comment": "constraints - Statement 71",
-    "query": "CREATE TABLE ATACC2 () INHERITS (ATACC1)"
+    "query": "CREATE TABLE ATACC2 () INHERITS (ATACC1)",
+    "expected": "CREATE TABLE atacc2 () INHERITS (atacc1)"
   },
   {
     "comment": "constraints - Statement 72",
-    "query": "INSERT INTO ATACC2 (TEST2) VALUES (3)"
+    "query": "INSERT INTO ATACC2 (TEST2) VALUES (3)",
+    "expected": "INSERT INTO atacc2 (test2) VALUES (3)"
   },
   {
     "comment": "constraints - Statement 73",
-    "query": "INSERT INTO ATACC1 (TEST2) VALUES (3)"
+    "query": "INSERT INTO ATACC1 (TEST2) VALUES (3)",
+    "expected": "INSERT INTO atacc1 (test2) VALUES (3)"
   },
   {
     "comment": "constraints - Statement 74",
-    "query": "DELETE FROM INSERT_TBL"
+    "query": "DELETE FROM INSERT_TBL",
+    "expected": "DELETE FROM insert_tbl"
   },
   {
     "comment": "constraints - Statement 75",
-    "query": "ALTER SEQUENCE INSERT_SEQ RESTART WITH 4"
+    "query": "ALTER SEQUENCE INSERT_SEQ RESTART WITH 4",
+    "expected": "ALTER SEQUENCE insert_seq RESTART WITH 4"
   },
   {
     "comment": "constraints - Statement 76",
-    "query": "CREATE TEMP TABLE tmp (xd INT, yd TEXT, zd INT)"
+    "query": "CREATE TEMP TABLE tmp (xd INT, yd TEXT, zd INT)",
+    "expected": "CREATE TEMPORARY TABLE tmp (xd INT, yd TEXT, zd INT)"
   },
   {
     "comment": "constraints - Statement 77",
-    "query": "INSERT INTO tmp VALUES (null, 'Y', null)"
+    "query": "INSERT INTO tmp VALUES (null, 'Y', null)",
+    "expected": "INSERT INTO tmp VALUES (NULL, 'Y', NULL)"
   },
   {
     "comment": "constraints - Statement 78",
-    "query": "INSERT INTO tmp VALUES (5, '!check failed', null)"
+    "query": "INSERT INTO tmp VALUES (5, '!check failed', null)",
+    "expected": "INSERT INTO tmp VALUES (5, '!check failed', NULL)"
   },
   {
     "comment": "constraints - Statement 79",
-    "query": "INSERT INTO tmp VALUES (null, 'try again', null)"
+    "query": "INSERT INTO tmp VALUES (null, 'try again', null)",
+    "expected": "INSERT INTO tmp VALUES (NULL, 'try again', NULL)"
   },
   {
     "comment": "constraints - Statement 80",
-    "query": "INSERT INTO INSERT_TBL(y) select yd from tmp"
+    "query": "INSERT INTO INSERT_TBL(y) select yd from tmp",
+    "expected": "INSERT INTO insert_tbl (y) SELECT yd FROM tmp"
   },
   {
     "comment": "constraints - Statement 81",
-    "query": "INSERT INTO INSERT_TBL SELECT * FROM tmp WHERE yd = 'try again'"
+    "query": "INSERT INTO INSERT_TBL SELECT * FROM tmp WHERE yd = 'try again'",
+    "expected": "INSERT INTO insert_tbl (SELECT * FROM tmp WHERE yd = 'try again')"
   },
   {
     "comment": "constraints - Statement 82",
-    "query": "INSERT INTO INSERT_TBL(y,z) SELECT yd, -7 FROM tmp WHERE yd = 'try again'"
+    "query": "INSERT INTO INSERT_TBL(y,z) SELECT yd, -7 FROM tmp WHERE yd = 'try again'",
+    "expected": "INSERT INTO insert_tbl (y, z) (SELECT yd, -7 FROM tmp WHERE yd = 'try again')"
   },
   {
     "comment": "constraints - Statement 83",
-    "query": "INSERT INTO INSERT_TBL(y,z) SELECT yd, -8 FROM tmp WHERE yd = 'try again'"
+    "query": "INSERT INTO INSERT_TBL(y,z) SELECT yd, -8 FROM tmp WHERE yd = 'try again'",
+    "expected": "INSERT INTO insert_tbl (y, z) (SELECT yd, -8 FROM tmp WHERE yd = 'try again')"
   },
   {
     "comment": "constraints - Statement 84",
@@ -337,135 +416,168 @@
   },
   {
     "comment": "constraints - Statement 85",
-    "query": "UPDATE INSERT_TBL SET x = NULL WHERE x = 5"
+    "query": "UPDATE INSERT_TBL SET x = NULL WHERE x = 5",
+    "expected": "UPDATE insert_tbl SET x = NULL WHERE x = 5"
   },
   {
     "comment": "constraints - Statement 86",
-    "query": "UPDATE INSERT_TBL SET x = 6 WHERE x = 6"
+    "query": "UPDATE INSERT_TBL SET x = 6 WHERE x = 6",
+    "expected": "UPDATE insert_tbl SET x = 6 WHERE x = 6"
   },
   {
     "comment": "constraints - Statement 87",
-    "query": "UPDATE INSERT_TBL SET x = -z, z = -x"
+    "query": "UPDATE INSERT_TBL SET x = -z, z = -x",
+    "expected": "UPDATE insert_tbl SET x = -z, z = -x"
   },
   {
     "comment": "constraints - Statement 88",
-    "query": "UPDATE INSERT_TBL SET x = z, z = x"
+    "query": "UPDATE INSERT_TBL SET x = z, z = x",
+    "expected": "UPDATE insert_tbl SET x = z, z = x"
   },
   {
     "comment": "constraints - Statement 89",
-    "query": "CREATE TABLE COPY_TBL (x INT, y TEXT, z INT, CONSTRAINT COPY_CON CHECK (x > 3 AND y <> 'check failed' AND x < 7 ))"
+    "query": "CREATE TABLE COPY_TBL (x INT, y TEXT, z INT, CONSTRAINT COPY_CON CHECK (x \u003e 3 AND y \u003c\u003e 'check failed' AND x \u003c 7 ))",
+    "expected": "CREATE TABLE copy_tbl (x INT, y TEXT, z INT, CONSTRAINT copy_con CHECK (x \u003e 3 AND y \u003c\u003e 'check failed' AND x \u003c 7))"
   },
   {
     "comment": "constraints - Statement 90",
-    "query": "SELECT * FROM COPY_TBL"
+    "query": "SELECT * FROM COPY_TBL",
+    "expected": "SELECT * FROM copy_tbl"
   },
   {
     "comment": "constraints - Statement 91",
-    "query": "CREATE TABLE PRIMARY_TBL (i int PRIMARY KEY, t text)"
+    "query": "CREATE TABLE PRIMARY_TBL (i int PRIMARY KEY, t text)",
+    "expected": "CREATE TABLE primary_tbl (i INT PRIMARY KEY, t TEXT)"
   },
   {
     "comment": "constraints - Statement 92",
-    "query": "INSERT INTO PRIMARY_TBL VALUES (1, 'one')"
+    "query": "INSERT INTO PRIMARY_TBL VALUES (1, 'one')",
+    "expected": "INSERT INTO primary_tbl VALUES (1, 'one')"
   },
   {
     "comment": "constraints - Statement 93",
-    "query": "INSERT INTO PRIMARY_TBL VALUES (2, 'two')"
+    "query": "INSERT INTO PRIMARY_TBL VALUES (2, 'two')",
+    "expected": "INSERT INTO primary_tbl VALUES (2, 'two')"
   },
   {
     "comment": "constraints - Statement 94",
-    "query": "INSERT INTO PRIMARY_TBL VALUES (1, 'three')"
+    "query": "INSERT INTO PRIMARY_TBL VALUES (1, 'three')",
+    "expected": "INSERT INTO primary_tbl VALUES (1, 'three')"
   },
   {
     "comment": "constraints - Statement 95",
-    "query": "INSERT INTO PRIMARY_TBL VALUES (4, 'three')"
+    "query": "INSERT INTO PRIMARY_TBL VALUES (4, 'three')",
+    "expected": "INSERT INTO primary_tbl VALUES (4, 'three')"
   },
   {
     "comment": "constraints - Statement 96",
-    "query": "INSERT INTO PRIMARY_TBL VALUES (5, 'one')"
+    "query": "INSERT INTO PRIMARY_TBL VALUES (5, 'one')",
+    "expected": "INSERT INTO primary_tbl VALUES (5, 'one')"
   },
   {
     "comment": "constraints - Statement 97",
-    "query": "INSERT INTO PRIMARY_TBL (t) VALUES ('six')"
+    "query": "INSERT INTO PRIMARY_TBL (t) VALUES ('six')",
+    "expected": "INSERT INTO primary_tbl (t) VALUES ('six')"
   },
   {
     "comment": "constraints - Statement 98",
-    "query": "SELECT * FROM PRIMARY_TBL"
+    "query": "SELECT * FROM PRIMARY_TBL",
+    "expected": "SELECT * FROM primary_tbl"
   },
   {
     "comment": "constraints - Statement 99",
-    "query": "DROP TABLE PRIMARY_TBL"
+    "query": "DROP TABLE PRIMARY_TBL",
+    "expected": "DROP TABLE primary_tbl"
   },
   {
     "comment": "constraints - Statement 100",
-    "query": "CREATE TABLE PRIMARY_TBL (i int, t text, PRIMARY KEY(i,t))"
+    "query": "CREATE TABLE PRIMARY_TBL (i int, t text, PRIMARY KEY(i,t))",
+    "expected": "CREATE TABLE primary_tbl (i INT, t TEXT, PRIMARY KEY (i, t))"
   },
   {
     "comment": "constraints - Statement 101",
-    "query": "CREATE TABLE UNIQUE_TBL (i int UNIQUE, t text)"
+    "query": "CREATE TABLE UNIQUE_TBL (i int UNIQUE, t text)",
+    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE, t TEXT)"
   },
   {
     "comment": "constraints - Statement 102",
-    "query": "INSERT INTO UNIQUE_TBL VALUES (1, 'one')"
+    "query": "INSERT INTO UNIQUE_TBL VALUES (1, 'one')",
+    "expected": "INSERT INTO unique_tbl VALUES (1, 'one')"
   },
   {
     "comment": "constraints - Statement 103",
-    "query": "INSERT INTO UNIQUE_TBL VALUES (2, 'two')"
+    "query": "INSERT INTO UNIQUE_TBL VALUES (2, 'two')",
+    "expected": "INSERT INTO unique_tbl VALUES (2, 'two')"
   },
   {
     "comment": "constraints - Statement 104",
-    "query": "INSERT INTO UNIQUE_TBL VALUES (1, 'three')"
+    "query": "INSERT INTO UNIQUE_TBL VALUES (1, 'three')",
+    "expected": "INSERT INTO unique_tbl VALUES (1, 'three')"
   },
   {
     "comment": "constraints - Statement 105",
-    "query": "INSERT INTO UNIQUE_TBL VALUES (4, 'four')"
+    "query": "INSERT INTO UNIQUE_TBL VALUES (4, 'four')",
+    "expected": "INSERT INTO unique_tbl VALUES (4, 'four')"
   },
   {
     "comment": "constraints - Statement 106",
-    "query": "INSERT INTO UNIQUE_TBL VALUES (5, 'one')"
+    "query": "INSERT INTO UNIQUE_TBL VALUES (5, 'one')",
+    "expected": "INSERT INTO unique_tbl VALUES (5, 'one')"
   },
   {
     "comment": "constraints - Statement 107",
-    "query": "INSERT INTO UNIQUE_TBL (t) VALUES ('six')"
+    "query": "INSERT INTO UNIQUE_TBL (t) VALUES ('six')",
+    "expected": "INSERT INTO unique_tbl (t) VALUES ('six')"
   },
   {
     "comment": "constraints - Statement 108",
-    "query": "INSERT INTO UNIQUE_TBL (t) VALUES ('seven')"
+    "query": "INSERT INTO UNIQUE_TBL (t) VALUES ('seven')",
+    "expected": "INSERT INTO unique_tbl (t) VALUES ('seven')"
   },
   {
     "comment": "constraints - Statement 109",
-    "query": "INSERT INTO UNIQUE_TBL VALUES (5, 'five-upsert-insert') ON CONFLICT (i) DO UPDATE SET t = 'five-upsert-update'"
+    "query": "INSERT INTO UNIQUE_TBL VALUES (5, 'five-upsert-insert') ON CONFLICT (i) DO UPDATE SET t = 'five-upsert-update'",
+    "expected": "INSERT INTO unique_tbl VALUES (5, 'five-upsert-insert') ON CONFLICT (i) DO UPDATE SET t = 'five-upsert-update'"
   },
   {
     "comment": "constraints - Statement 110",
-    "query": "INSERT INTO UNIQUE_TBL VALUES (6, 'six-upsert-insert') ON CONFLICT (i) DO UPDATE SET t = 'six-upsert-update'"
+    "query": "INSERT INTO UNIQUE_TBL VALUES (6, 'six-upsert-insert') ON CONFLICT (i) DO UPDATE SET t = 'six-upsert-update'",
+    "expected": "INSERT INTO unique_tbl VALUES (6, 'six-upsert-insert') ON CONFLICT (i) DO UPDATE SET t = 'six-upsert-update'"
   },
   {
     "comment": "constraints - Statement 111",
-    "query": "INSERT INTO UNIQUE_TBL VALUES (1, 'a'), (2, 'b'), (2, 'b') ON CONFLICT (i) DO UPDATE SET t = 'fails'"
+    "query": "INSERT INTO UNIQUE_TBL VALUES (1, 'a'), (2, 'b'), (2, 'b') ON CONFLICT (i) DO UPDATE SET t = 'fails'",
+    "expected": "INSERT INTO unique_tbl VALUES (1, 'a'), (2, 'b'), (2, 'b') ON CONFLICT (i) DO UPDATE SET t = 'fails'"
   },
   {
     "comment": "constraints - Statement 112",
-    "query": "SELECT * FROM UNIQUE_TBL"
+    "query": "SELECT * FROM UNIQUE_TBL",
+    "expected": "SELECT * FROM unique_tbl"
   },
   {
     "comment": "constraints - Statement 113",
-    "query": "DROP TABLE UNIQUE_TBL"
+    "query": "DROP TABLE UNIQUE_TBL",
+    "expected": "DROP TABLE unique_tbl"
   },
   {
     "comment": "constraints - Statement 114",
-    "query": "CREATE TABLE UNIQUE_TBL (i int UNIQUE NULLS NOT DISTINCT, t text)"
+    "query": "CREATE TABLE UNIQUE_TBL (i int UNIQUE NULLS NOT DISTINCT, t text)",
+    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE, t TEXT)"
   },
   {
     "comment": "constraints - Statement 115",
-    "query": "INSERT INTO UNIQUE_TBL (t) VALUES ('eight') ON CONFLICT DO NOTHING"
+    "query": "INSERT INTO UNIQUE_TBL (t) VALUES ('eight') ON CONFLICT DO NOTHING",
+    "expected": "INSERT INTO unique_tbl (t) VALUES ('eight') ON CONFLICT DO NOTHING"
   },
   {
     "comment": "constraints - Statement 116",
-    "query": "CREATE TABLE UNIQUE_TBL (i int, t text, UNIQUE(i,t))"
+    "query": "CREATE TABLE UNIQUE_TBL (i int, t text, UNIQUE(i,t))",
+    "expected": "CREATE TABLE unique_tbl (i INT, t TEXT, UNIQUE (i, t))"
   },
   {
     "comment": "constraints - Statement 117",
-    "query": "CREATE TABLE unique_tbl (i int UNIQUE DEFERRABLE, t text)"
+    "query": "CREATE TABLE unique_tbl (i int UNIQUE DEFERRABLE, t text)",
+    "expected": "CREATE TABLE unique_tbl (i INT UNIQUE, t TEXT)"
   },
   {
     "comment": "constraints - Statement 118",
@@ -501,7 +613,8 @@
   },
   {
     "comment": "constraints - Statement 126",
-    "query": "UPDATE unique_tbl SET i = i+1"
+    "query": "UPDATE unique_tbl SET i = i+1",
+    "expected": "UPDATE unique_tbl SET i = i + 1"
   },
   {
     "comment": "constraints - Statement 127",
@@ -525,7 +638,8 @@
   },
   {
     "comment": "constraints - Statement 132",
-    "query": "ALTER TABLE unique_tbl ADD CONSTRAINT unique_tbl_i_key UNIQUE (i) DEFERRABLE INITIALLY DEFERRED"
+    "query": "ALTER TABLE unique_tbl ADD CONSTRAINT unique_tbl_i_key UNIQUE (i) DEFERRABLE INITIALLY DEFERRED",
+    "expected": "ALTER TABLE unique_tbl ADD CONSTRAINT unique_tbl_i_key UNIQUE (i)"
   },
   {
     "comment": "constraints - Statement 133",
@@ -557,7 +671,8 @@
   },
   {
     "comment": "constraints - Statement 140",
-    "query": "CREATE TABLE parted_uniq_tbl (i int UNIQUE DEFERRABLE) partition by range (i)"
+    "query": "CREATE TABLE parted_uniq_tbl (i int UNIQUE DEFERRABLE) partition by range (i)",
+    "expected": "CREATE TABLE parted_uniq_tbl (i INT UNIQUE) PARTITION BY range (i)"
   },
   {
     "comment": "constraints - Statement 141",
@@ -569,7 +684,8 @@
   },
   {
     "comment": "constraints - Statement 143",
-    "query": "SELECT conname, conrelid::regclass FROM pg_constraint WHERE conname LIKE 'parted_uniq%' ORDER BY conname"
+    "query": "SELECT conname, conrelid::regclass FROM pg_constraint WHERE conname LIKE 'parted_uniq%' ORDER BY conname",
+    "expected": "SELECT conname, CAST(conrelid AS regclass) FROM pg_constraint WHERE conname LIKE 'parted_uniq%' ORDER BY conname"
   },
   {
     "comment": "constraints - Statement 144",
@@ -581,7 +697,8 @@
   },
   {
     "comment": "constraints - Statement 146",
-    "query": "ROLLBACK TO f"
+    "query": "ROLLBACK TO f",
+    "expected": "ROLLBACK TO SAVEPOINT f"
   },
   {
     "comment": "constraints - Statement 147",
@@ -593,11 +710,13 @@
   },
   {
     "comment": "constraints - Statement 149",
-    "query": "CREATE TABLE parted_fk_naming ( id bigint NOT NULL default 1, id_abc bigint, CONSTRAINT dummy_constr FOREIGN KEY (id_abc) REFERENCES parted_fk_naming (id), PRIMARY KEY (id) ) PARTITION BY LIST (id)"
+    "query": "CREATE TABLE parted_fk_naming ( id bigint NOT NULL default 1, id_abc bigint, CONSTRAINT dummy_constr FOREIGN KEY (id_abc) REFERENCES parted_fk_naming (id), PRIMARY KEY (id) ) PARTITION BY LIST (id)",
+    "expected": "CREATE TABLE parted_fk_naming (id BIGINT NOT NULL DEFAULT 1, id_abc BIGINT, CONSTRAINT dummy_constr FOREIGN KEY (id_abc) REFERENCES parted_fk_naming(id), PRIMARY KEY (id)) PARTITION BY list (id)"
   },
   {
     "comment": "constraints - Statement 150",
-    "query": "CREATE TABLE parted_fk_naming_1 ( id bigint NOT NULL default 1, id_abc bigint, PRIMARY KEY (id), CONSTRAINT dummy_constr CHECK (true) )"
+    "query": "CREATE TABLE parted_fk_naming_1 ( id bigint NOT NULL default 1, id_abc bigint, PRIMARY KEY (id), CONSTRAINT dummy_constr CHECK (true) )",
+    "expected": "CREATE TABLE parted_fk_naming_1 (id BIGINT NOT NULL DEFAULT 1, id_abc BIGINT, PRIMARY KEY (id), CONSTRAINT dummy_constr CHECK (TRUE))"
   },
   {
     "comment": "constraints - Statement 151",
@@ -605,7 +724,8 @@
   },
   {
     "comment": "constraints - Statement 152",
-    "query": "SELECT conname FROM pg_constraint WHERE conrelid = 'parted_fk_naming_1'::regclass AND contype = 'f'"
+    "query": "SELECT conname FROM pg_constraint WHERE conrelid = 'parted_fk_naming_1'::regclass AND contype = 'f'",
+    "expected": "SELECT conname FROM pg_constraint WHERE conrelid = CAST('parted_fk_naming_1' AS regclass) AND contype = 'f'"
   },
   {
     "comment": "constraints - Statement 153",
@@ -613,23 +733,28 @@
   },
   {
     "comment": "constraints - Statement 154",
-    "query": "CREATE TEMP TABLE t (a integer, b integer) PARTITION BY HASH (a, b)"
+    "query": "CREATE TEMP TABLE t (a integer, b integer) PARTITION BY HASH (a, b)",
+    "expected": "CREATE TEMPORARY TABLE t (a INT, b INT) PARTITION BY hash (a, b)"
   },
   {
     "comment": "constraints - Statement 155",
-    "query": "CREATE TEMP TABLE tp (a integer, b integer, PRIMARY KEY (a, b), UNIQUE (b, a))"
+    "query": "CREATE TEMP TABLE tp (a integer, b integer, PRIMARY KEY (a, b), UNIQUE (b, a))",
+    "expected": "CREATE TEMPORARY TABLE tp (a INT, b INT, PRIMARY KEY (a, b), UNIQUE (b, a))"
   },
   {
     "comment": "constraints - Statement 156",
-    "query": "ALTER TABLE t ATTACH PARTITION tp FOR VALUES WITH (MODULUS 1, REMAINDER 0)"
+    "query": "ALTER TABLE t ATTACH PARTITION tp FOR VALUES WITH (MODULUS 1, REMAINDER 0)",
+    "expected": "ALTER TABLE t ATTACH PARTITION tp FOR VALUES WITH (modulus 1, remainder 0)"
   },
   {
     "comment": "constraints - Statement 157",
-    "query": "CREATE UNIQUE INDEX t_a_idx ON t (a, b)"
+    "query": "CREATE UNIQUE INDEX t_a_idx ON t (a, b)",
+    "expected": "CREATE UNIQUE INDEX t_a_idx ON t USING btree ( a, b )"
   },
   {
     "comment": "constraints - Statement 158",
-    "query": "CREATE UNIQUE INDEX t_b_idx ON t (b, a)"
+    "query": "CREATE UNIQUE INDEX t_b_idx ON t (b, a)",
+    "expected": "CREATE UNIQUE INDEX t_b_idx ON t USING btree ( b, a )"
   },
   {
     "comment": "constraints - Statement 159",
@@ -653,15 +778,18 @@
   },
   {
     "comment": "constraints - Statement 164",
-    "query": "CREATE TEMP TABLE t (a integer) PARTITION BY LIST (a)"
+    "query": "CREATE TEMP TABLE t (a integer) PARTITION BY LIST (a)",
+    "expected": "CREATE TEMPORARY TABLE t (a INT) PARTITION BY list (a)"
   },
   {
     "comment": "constraints - Statement 165",
-    "query": "CREATE TEMP TABLE tp (a integer PRIMARY KEY)"
+    "query": "CREATE TEMP TABLE tp (a integer PRIMARY KEY)",
+    "expected": "CREATE TEMPORARY TABLE tp (a INT PRIMARY KEY)"
   },
   {
     "comment": "constraints - Statement 166",
-    "query": "CREATE UNIQUE INDEX t_a_idx ON t (a)"
+    "query": "CREATE UNIQUE INDEX t_a_idx ON t (a)",
+    "expected": "CREATE UNIQUE INDEX t_a_idx ON t USING btree ( a )"
   },
   {
     "comment": "constraints - Statement 167",
@@ -669,11 +797,13 @@
   },
   {
     "comment": "constraints - Statement 168",
-    "query": "CREATE UNIQUE INDEX t_a_idx ON ONLY t (a)"
+    "query": "CREATE UNIQUE INDEX t_a_idx ON ONLY t (a)",
+    "expected": "CREATE UNIQUE INDEX t_a_idx ON ONLY t USING btree ( a )"
   },
   {
     "comment": "constraints - Statement 169",
-    "query": "CREATE TABLE regress_constr_partitioned (a integer) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE regress_constr_partitioned (a integer) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE regress_constr_partitioned (a INT) PARTITION BY list (a)"
   },
   {
     "comment": "constraints - Statement 170",
@@ -685,7 +815,8 @@
   },
   {
     "comment": "constraints - Statement 172",
-    "query": "CREATE UNIQUE INDEX ON regress_constr_partitioned (a)"
+    "query": "CREATE UNIQUE INDEX ON regress_constr_partitioned (a)",
+    "expected": "CREATE UNIQUE INDEX ON regress_constr_partitioned USING btree ( a )"
   },
   {
     "comment": "constraints - Statement 173",
@@ -697,7 +828,8 @@
   },
   {
     "comment": "constraints - Statement 175",
-    "query": "INSERT INTO unique_tbl VALUES(3, 'tree')"
+    "query": "INSERT INTO unique_tbl VALUES(3, 'tree')",
+    "expected": "INSERT INTO unique_tbl VALUES (3, 'tree')"
   },
   {
     "comment": "constraints - Statement 176",
@@ -709,43 +841,53 @@
   },
   {
     "comment": "constraints - Statement 178",
-    "query": "CREATE TABLE circles ( c1 CIRCLE, c2 TEXT, EXCLUDE USING gist (c1 WITH &&, (c2::circle) WITH &&) WHERE (circle_center(c1) <> '(0,0)') )"
+    "query": "CREATE TABLE circles ( c1 CIRCLE, c2 TEXT, EXCLUDE USING gist (c1 WITH \u0026\u0026, (c2::circle) WITH \u0026\u0026) WHERE (circle_center(c1) \u003c\u003e '(0,0)') )",
+    "expected": "CREATE TABLE circles (c1 circle, c2 TEXT, EXCLUDE USING gist (c1 WITH \u0026\u0026, (CAST(c2 AS circle)) WITH \u0026\u0026) WHERE (circle_center(c1) \u003c\u003e '(0,0)'))"
   },
   {
     "comment": "constraints - Statement 179",
-    "query": "INSERT INTO circles VALUES('<(0,0), 5>', '<(0,0), 5>')"
+    "query": "INSERT INTO circles VALUES('\u003c(0,0), 5\u003e', '\u003c(0,0), 5\u003e')",
+    "expected": "INSERT INTO circles VALUES ('\u003c(0,0), 5\u003e', '\u003c(0,0), 5\u003e')"
   },
   {
     "comment": "constraints - Statement 180",
-    "query": "INSERT INTO circles VALUES('<(0,0), 5>', '<(0,0), 4>')"
+    "query": "INSERT INTO circles VALUES('\u003c(0,0), 5\u003e', '\u003c(0,0), 4\u003e')",
+    "expected": "INSERT INTO circles VALUES ('\u003c(0,0), 5\u003e', '\u003c(0,0), 4\u003e')"
   },
   {
     "comment": "constraints - Statement 181",
-    "query": "INSERT INTO circles VALUES('<(10,10), 10>', '<(0,0), 5>')"
+    "query": "INSERT INTO circles VALUES('\u003c(10,10), 10\u003e', '\u003c(0,0), 5\u003e')",
+    "expected": "INSERT INTO circles VALUES ('\u003c(10,10), 10\u003e', '\u003c(0,0), 5\u003e')"
   },
   {
     "comment": "constraints - Statement 182",
-    "query": "INSERT INTO circles VALUES('<(20,20), 10>', '<(0,0), 4>')"
+    "query": "INSERT INTO circles VALUES('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e')",
+    "expected": "INSERT INTO circles VALUES ('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e')"
   },
   {
     "comment": "constraints - Statement 183",
-    "query": "INSERT INTO circles VALUES('<(20,20), 10>', '<(0,0), 4>') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO NOTHING"
+    "query": "INSERT INTO circles VALUES('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO NOTHING",
+    "expected": "INSERT INTO circles VALUES ('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO NOTHING"
   },
   {
     "comment": "constraints - Statement 184",
-    "query": "INSERT INTO circles VALUES('<(20,20), 10>', '<(0,0), 4>') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO UPDATE SET c2 = EXCLUDED.c2"
+    "query": "INSERT INTO circles VALUES('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO UPDATE SET c2 = EXCLUDED.c2",
+    "expected": "INSERT INTO circles VALUES ('\u003c(20,20), 10\u003e', '\u003c(0,0), 4\u003e') ON CONFLICT ON CONSTRAINT circles_c1_c2_excl DO UPDATE SET c2 = excluded.c2"
   },
   {
     "comment": "constraints - Statement 185",
-    "query": "INSERT INTO circles VALUES('<(20,20), 1>', '<(0,0), 5>')"
+    "query": "INSERT INTO circles VALUES('\u003c(20,20), 1\u003e', '\u003c(0,0), 5\u003e')",
+    "expected": "INSERT INTO circles VALUES ('\u003c(20,20), 1\u003e', '\u003c(0,0), 5\u003e')"
   },
   {
     "comment": "constraints - Statement 186",
-    "query": "INSERT INTO circles VALUES('<(20,20), 10>', '<(10,10), 5>')"
+    "query": "INSERT INTO circles VALUES('\u003c(20,20), 10\u003e', '\u003c(10,10), 5\u003e')",
+    "expected": "INSERT INTO circles VALUES ('\u003c(20,20), 10\u003e', '\u003c(10,10), 5\u003e')"
   },
   {
     "comment": "constraints - Statement 187",
-    "query": "ALTER TABLE circles ADD EXCLUDE USING gist (c1 WITH &&, (c2::circle) WITH &&)"
+    "query": "ALTER TABLE circles ADD EXCLUDE USING gist (c1 WITH \u0026\u0026, (c2::circle) WITH \u0026\u0026)",
+    "expected": "ALTER TABLE circles ADD EXCLUDE USING gist (c1 WITH \u0026\u0026, (CAST(c2 AS circle)) WITH \u0026\u0026)"
   },
   {
     "comment": "constraints - Statement 188",
@@ -757,27 +899,33 @@
   },
   {
     "comment": "constraints - Statement 190",
-    "query": "CREATE TABLE deferred_excl ( f1 int, f2 int, CONSTRAINT deferred_excl_con EXCLUDE (f1 WITH =) INITIALLY DEFERRED )"
+    "query": "CREATE TABLE deferred_excl ( f1 int, f2 int, CONSTRAINT deferred_excl_con EXCLUDE (f1 WITH =) INITIALLY DEFERRED )",
+    "expected": "CREATE TABLE deferred_excl (f1 INT, f2 INT, CONSTRAINT deferred_excl_con EXCLUDE USING btree (f1 WITH =))"
   },
   {
     "comment": "constraints - Statement 191",
-    "query": "INSERT INTO deferred_excl VALUES(1)"
+    "query": "INSERT INTO deferred_excl VALUES(1)",
+    "expected": "INSERT INTO deferred_excl VALUES (1)"
   },
   {
     "comment": "constraints - Statement 192",
-    "query": "INSERT INTO deferred_excl VALUES(2)"
+    "query": "INSERT INTO deferred_excl VALUES(2)",
+    "expected": "INSERT INTO deferred_excl VALUES (2)"
   },
   {
     "comment": "constraints - Statement 193",
-    "query": "INSERT INTO deferred_excl VALUES(1) ON CONFLICT ON CONSTRAINT deferred_excl_con DO NOTHING"
+    "query": "INSERT INTO deferred_excl VALUES(1) ON CONFLICT ON CONSTRAINT deferred_excl_con DO NOTHING",
+    "expected": "INSERT INTO deferred_excl VALUES (1) ON CONFLICT ON CONSTRAINT deferred_excl_con DO NOTHING"
   },
   {
     "comment": "constraints - Statement 194",
-    "query": "INSERT INTO deferred_excl VALUES(3)"
+    "query": "INSERT INTO deferred_excl VALUES(3)",
+    "expected": "INSERT INTO deferred_excl VALUES (3)"
   },
   {
     "comment": "constraints - Statement 195",
-    "query": "INSERT INTO deferred_excl VALUES(2, 1)"
+    "query": "INSERT INTO deferred_excl VALUES(2, 1)",
+    "expected": "INSERT INTO deferred_excl VALUES (2, 1)"
   },
   {
     "comment": "constraints - Statement 196",
@@ -801,7 +949,8 @@
   },
   {
     "comment": "constraints - Statement 201",
-    "query": "ALTER TABLE deferred_excl ADD EXCLUDE (f1 WITH =)"
+    "query": "ALTER TABLE deferred_excl ADD EXCLUDE (f1 WITH =)",
+    "expected": "ALTER TABLE deferred_excl ADD EXCLUDE USING btree (f1 WITH =)"
   },
   {
     "comment": "constraints - Statement 202",
@@ -813,15 +962,18 @@
   },
   {
     "comment": "constraints - Statement 204",
-    "query": "SET SESSION AUTHORIZATION regress_constraint_comments"
+    "query": "SET SESSION AUTHORIZATION regress_constraint_comments",
+    "expected": "SET SESSION AUTHORIZATION 'regress_constraint_comments'"
   },
   {
     "comment": "constraints - Statement 205",
-    "query": "CREATE TABLE constraint_comments_tbl (a int CONSTRAINT the_constraint CHECK (a > 0))"
+    "query": "CREATE TABLE constraint_comments_tbl (a int CONSTRAINT the_constraint CHECK (a \u003e 0))",
+    "expected": "CREATE TABLE constraint_comments_tbl (a INT CONSTRAINT the_constraint CHECK (a \u003e 0))"
   },
   {
     "comment": "constraints - Statement 206",
-    "query": "CREATE DOMAIN constraint_comments_dom AS int CONSTRAINT the_constraint CHECK (value > 0)"
+    "query": "CREATE DOMAIN constraint_comments_dom AS int CONSTRAINT the_constraint CHECK (value \u003e 0)",
+    "expected": "CREATE DOMAIN constraint_comments_dom AS INT CONSTRAINT the_constraint CHECK (value \u003e 0)"
   },
   {
     "comment": "constraints - Statement 207",
@@ -857,7 +1009,8 @@
   },
   {
     "comment": "constraints - Statement 215",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "constraints - Statement 216",
@@ -865,7 +1018,8 @@
   },
   {
     "comment": "constraints - Statement 217",
-    "query": "SET SESSION AUTHORIZATION regress_constraint_comments_noaccess"
+    "query": "SET SESSION AUTHORIZATION regress_constraint_comments_noaccess",
+    "expected": "SET SESSION AUTHORIZATION 'regress_constraint_comments_noaccess'"
   },
   {
     "comment": "constraints - Statement 218",

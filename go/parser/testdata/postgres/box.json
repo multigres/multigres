@@ -154,7 +154,8 @@
   },
   {
     "comment": "box - Statement 32",
-    "query": "CREATE INDEX box_spgist ON box_temp USING spgist (f1)"
+    "query": "CREATE INDEX box_spgist ON box_temp USING spgist (f1)",
+    "expected": "CREATE INDEX box_spgist ON box_temp USING spgist ( f1 )"
   },
   {
     "comment": "box - Statement 33",
@@ -301,7 +302,7 @@
   {
     "comment": "box - Statement 65",
     "query": "CREATE INDEX quad_box_tbl_idx ON quad_box_tbl USING spgist(b)",
-    "expected": "CREATE INDEX quad_box_tbl_idx ON quad_box_tbl USING spgist (b)"
+    "expected": "CREATE INDEX quad_box_tbl_idx ON quad_box_tbl USING spgist ( b )"
   },
   {
     "comment": "box - Statement 66",

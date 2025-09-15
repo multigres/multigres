@@ -7612,7 +7612,9 @@ part_elem:
 				}
 		|	'(' a_expr ')' opt_collate opt_qualified_name
 				{
-					partElem := ast.NewPartitionElem("", $2, 0)
+					// Wrap the expression in ParenExpr to preserve parentheses
+					parenExpr := ast.NewParenExpr($2, 0)
+					partElem := ast.NewPartitionElem("", parenExpr, 0)
 					partElem.Collation = $4
 					partElem.Opclass = $5
 					$$ = partElem
@@ -9374,13 +9376,19 @@ oper_argtypes:
 				{ $$ = ast.NewNodeList($2, nil) }
 
 aggregate_with_argtypes:
-		func_name func_args
+		func_name aggr_args
 			{
+				var objfuncArgs *ast.NodeList
+				if firstElem := linitial($2); firstElem != nil {
+					if nodeList, ok := firstElem.(*ast.NodeList); ok {
+						objfuncArgs = nodeList
+					}
+				}
 				objWithArgs := &ast.ObjectWithArgs{
 					BaseNode: ast.BaseNode{Tag: ast.T_ObjectWithArgs},
 					Objname: $1,
-					Objargs: $2,
-					ObjfuncArgs: $2,
+					Objargs: extractAggrArgTypes($2),
+					ObjfuncArgs: objfuncArgs, // linitial($2) like PostgreSQL
 					ArgsUnspecified: false,
 				}
 				$$ = objWithArgs
@@ -10997,18 +11005,8 @@ AlterDomainStmt:
 DefineStmt:
 		CREATE opt_or_replace AGGREGATE func_name aggr_args definition
 			{
-				// Extract actual arguments from aggr_args which returns [args, position_indicator]
-				var args *ast.NodeList
-				if $5 != nil && $5.Len() > 0 {
-					// First element contains the actual arguments (or nil for *)
-					if firstElem, ok := $5.Items[0].(*ast.NodeList); ok {
-						args = firstElem
-					} else if $5.Items[0] == nil {
-						// Special case for COUNT(*) - create a list with a single nil element
-						args = ast.NewNodeList(nil)
-					}
-				}
-				n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, false, $4, args, $6, false, $2)
+				// Store the full aggr_args result [args, position_indicator] for proper deparsing
+				n := ast.NewDefineStmt(ast.OBJECT_AGGREGATE, false, $4, $5, $6, false, $2)
 				$$ = n
 			}
 	|	CREATE opt_or_replace AGGREGATE func_name old_aggr_definition
@@ -12419,7 +12417,7 @@ stats_params:
 stats_param:
 		ColId								{ $$ = ast.NewStatsElem($1) }
 		| func_expr_windowless				{ $$ = ast.NewStatsElemExpr($1) }
-		| '(' a_expr ')'					{ $$ = ast.NewStatsElemExpr($2) }
+		| '(' a_expr ')'					{ $$ = ast.NewStatsElemExpr(ast.NewParenExpr($2,0)) }
 		;
 
 /*****************************************************************************

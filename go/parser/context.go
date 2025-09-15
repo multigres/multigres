@@ -411,16 +411,24 @@ func (ctx *ParseContext) CurrentChar() rune {
 	if ctx.scanPos >= len(ctx.scanBuf) {
 		return 0
 	}
-	return rune(ctx.scanBuf[ctx.scanPos])
+	r, _ := utf8.DecodeRune(ctx.scanBuf[ctx.scanPos:])
+	return r
 }
 
 // PeekChar returns the next character without advancing
 func (ctx *ParseContext) PeekChar() rune {
 	
-	if ctx.scanPos+1 >= len(ctx.scanBuf) {
+	if ctx.scanPos >= len(ctx.scanBuf) {
 		return 0
 	}
-	return rune(ctx.scanBuf[ctx.scanPos+1])
+	// First decode the current rune to find its size
+	_, currentSize := utf8.DecodeRune(ctx.scanBuf[ctx.scanPos:])
+	// Then decode the next rune
+	if ctx.scanPos+currentSize >= len(ctx.scanBuf) {
+		return 0
+	}
+	r, _ := utf8.DecodeRune(ctx.scanBuf[ctx.scanPos+currentSize:])
+	return r
 }
 
 // getByteAt returns the byte at the specified offset from current position

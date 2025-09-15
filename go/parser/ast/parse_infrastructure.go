@@ -308,6 +308,43 @@ func (a *A_Expr) SqlString() string {
 		}
 		return "NOT_BETWEEN_SYM_EXPR"
 
+	case AEXPR_SIMILAR:
+		if a.Lexpr != nil && a.Rexpr != nil {
+			leftStr := a.Lexpr.SqlString()
+			
+			// Check if the right expression is a similar_to_escape function call
+			// If it is, extract just the argument instead of the whole function call
+			rightStr := ""
+			if funcCall, ok := a.Rexpr.(*FuncCall); ok {
+				// Check if it's pg_catalog.similar_to_escape
+				if funcCall.Funcname != nil && funcCall.Funcname.Len() >= 2 {
+					items := funcCall.Funcname.Items
+					if str1, ok1 := items[0].(*String); ok1 && str1.SVal == "pg_catalog" {
+						if str2, ok2 := items[1].(*String); ok2 && str2.SVal == "similar_to_escape" {
+							// It's similar_to_escape, extract the first argument
+							if funcCall.Args != nil && funcCall.Args.Len() > 0 {
+								rightStr = funcCall.Args.Items[0].SqlString()
+							}
+						}
+					}
+				}
+			}
+			
+			// If we didn't find similar_to_escape, use the full expression
+			if rightStr == "" {
+				rightStr = a.Rexpr.SqlString()
+			}
+			
+			// Check if it's NOT SIMILAR TO based on the operator
+			if a.Name != nil && a.Name.Len() > 0 {
+				if str, ok := a.Name.Items[0].(*String); ok && str.SVal == "!~" {
+					return fmt.Sprintf("%s NOT SIMILAR TO %s", leftStr, rightStr)
+				}
+			}
+			return fmt.Sprintf("%s SIMILAR TO %s", leftStr, rightStr)
+		}
+		return "SIMILAR_EXPR"
+
 	default:
 		return fmt.Sprintf("A_EXPR_%d", a.Kind)
 	}
@@ -977,6 +1014,9 @@ func (a *A_Indirection) SqlString() string {
 			case *A_Indices:
 				// Array subscript: obj[index] or obj[lower:upper]
 				result.WriteString(indNode.SqlString())
+			case *A_Star:
+				// Star expansion: obj.*
+				result.WriteString(".*")
 			default:
 				// Fallback for unknown indirection types
 				result.WriteString(".<unknown>")
@@ -1049,11 +1089,16 @@ type ColumnDef struct {
 
 // SqlString generates SQL representation of a column definition
 func (c *ColumnDef) SqlString() string {
-	parts := []string{c.Colname}
+	parts := []string{QuoteIdentifier(c.Colname)}
 
 	// Add type name
 	if c.TypeName != nil {
 		parts = append(parts, c.TypeName.SqlString())
+	}
+
+	// Add compression clause if specified
+	if c.Compression != "" {
+		parts = append(parts, "COMPRESSION", c.Compression)
 	}
 
 	// Add storage clause if specified
@@ -1835,12 +1880,51 @@ func (p *PartitionElem) String() string {
 
 // SqlString returns the SQL representation of PartitionElem
 func (p *PartitionElem) SqlString() string {
+	var result string
+	
 	if p.Name != "" {
-		return p.Name
+		result = p.Name
 	} else if p.Expr != nil {
-		return p.Expr.SqlString()
+		result = p.Expr.SqlString()
+	} else {
+		return ""
 	}
-	return ""
+	
+	// Add COLLATE clause if present
+	if p.Collation != nil && p.Collation.Len() > 0 {
+		// Collation names should be output as identifiers, not string literals
+		var collationParts []string
+		for _, item := range p.Collation.Items {
+			if strNode, ok := item.(*String); ok {
+				// Quote as identifier if needed
+				collationParts = append(collationParts, QuoteIdentifier(strNode.SVal))
+			} else if item != nil {
+				collationParts = append(collationParts, item.SqlString())
+			}
+		}
+		if len(collationParts) > 0 {
+			result += " COLLATE " + strings.Join(collationParts, ".")
+		}
+	}
+	
+	// Add operator class if present
+	if p.Opclass != nil && p.Opclass.Len() > 0 {
+		// Operator class names should be output as identifiers, not string literals
+		var opclassParts []string
+		for _, item := range p.Opclass.Items {
+			if strNode, ok := item.(*String); ok {
+				// Quote as identifier if needed
+				opclassParts = append(opclassParts, QuoteIdentifier(strNode.SVal))
+			} else if item != nil {
+				opclassParts = append(opclassParts, item.SqlString())
+			}
+		}
+		if len(opclassParts) > 0 {
+			result += " " + strings.Join(opclassParts, ".")
+		}
+	}
+	
+	return result
 }
 
 func (p *PartitionElem) StatementType() string {
@@ -1930,21 +2014,155 @@ func (o *ObjectWithArgs) SqlString() string {
 	}
 
 	// Add arguments if specified
-	if !o.ArgsUnspecified && o.Objargs != nil {
-		var args []string
-		for _, item := range o.Objargs.Items {
-			if item == nil {
-				args = append(args, "NONE")
-				continue
+	if !o.ArgsUnspecified {
+		// Check if this is an aggregate with ObjfuncArgs from aggr_args 
+		// If so, use the DefineStmt logic to properly format ORDER BY and VARIADIC
+		if o.ObjfuncArgs != nil {
+			// ObjfuncArgs is already a *NodeList, no need for type assertion
+			args := formatAggrArgsList(o.ObjfuncArgs)
+			if args != "" {
+				parts = append(parts, args)
+			} else {
+				// Fall back to regular Objargs formatting
+				if o.Objargs != nil {
+					var args []string
+					for _, item := range o.Objargs.Items {
+						if item == nil {
+							args = append(args, "NONE")
+							continue
+						}
+						args = append(args, item.SqlString())
+					}
+					parts = append(parts, "("+strings.Join(args, ", ")+")")
+				}
 			}
-			args = append(args, item.SqlString())
+		} else if o.Objargs != nil {
+			// Regular case - use Objargs
+			// Special case: if ObjfuncArgs is nil and Objargs is empty, this is a star aggregate
+			if o.ObjfuncArgs == nil && o.Objargs.Len() == 0 {
+				parts = append(parts, "(*)")
+			} else {
+				var args []string
+				for _, item := range o.Objargs.Items {
+					if item == nil {
+						args = append(args, "NONE")
+						continue
+					}
+					args = append(args, item.SqlString())
+				}
+				parts = append(parts, "("+strings.Join(args, ", ")+")")
+			}
 		}
-		parts = append(parts, "("+strings.Join(args, ", ")+")")
-	} else if o.ArgsUnspecified {
-		// No parentheses when arguments are unspecified
 	}
 
 	return strings.Join(parts, "")
+}
+
+// formatAggrArgsList formats aggregate argument list with proper ORDER BY and VARIADIC syntax
+// This is similar to the logic in DefineStmt.SqlString() for aggregates
+func formatAggrArgsList(argsList *NodeList) string {
+	if argsList == nil || argsList.Len() == 0 {
+		return ""
+	}
+	
+	// For aggr_args, we expect the full function parameters list, not the 2-element structure
+	// But we need to check if it's actually a 2-element structure from aggr_args
+	if argsList.Len() == 2 {
+		if argListNode, ok := argsList.Items[0].(*NodeList); ok {
+			if numDirectNode, ok := argsList.Items[1].(*Integer); ok {
+				// This is the aggr_args [args, numDirectArgs] structure
+				return formatAggrArgsStructure(argListNode, int(numDirectNode.IVal))
+			}
+		}
+	}
+	
+	// Fall back to regular function parameter formatting
+	var argStrs []string
+	for _, item := range argsList.Items {
+		if item == nil {
+			argStrs = append(argStrs, "*")
+		} else {
+			argStrs = append(argStrs, item.SqlString())
+		}
+	}
+	
+	if len(argStrs) == 1 && argStrs[0] == "*" {
+		return "(*)"
+	} else if len(argStrs) > 0 {
+		return "(" + strings.Join(argStrs, ", ") + ")"
+	}
+	
+	return ""
+}
+
+// formatAggrArgsStructure formats the [args, numDirectArgs] structure from aggr_args
+func formatAggrArgsStructure(argList *NodeList, numDirectArgs int) string {
+	if numDirectArgs == -1 {
+		// Regular aggregate or COUNT(*)
+		if argList == nil || argList.Len() == 0 {
+			// COUNT(*) case
+			return "(*)"
+		} else {
+			var argStrs []string
+			for _, item := range argList.Items {
+				switch arg := item.(type) {
+				case *TypeName:
+					argStrs = append(argStrs, arg.SqlString())
+				case *FunctionParameter:
+					argStrs = append(argStrs, arg.SqlString())
+				}
+			}
+			if len(argStrs) > 0 {
+				return "(" + strings.Join(argStrs, ", ") + ")"
+			}
+		}
+	} else if numDirectArgs == 0 {
+		// Ordered-set aggregate without direct args: (ORDER BY args)
+		if argList != nil {
+			var argStrs []string
+			for _, item := range argList.Items {
+				switch arg := item.(type) {
+				case *TypeName:
+					argStrs = append(argStrs, arg.SqlString())
+				case *FunctionParameter:
+					argStrs = append(argStrs, arg.SqlString())
+				}
+			}
+			if len(argStrs) > 0 {
+				return "(ORDER BY " + strings.Join(argStrs, ", ") + ")"
+			}
+		}
+	} else {
+		// Hypothetical-set aggregate: (direct_args ORDER BY ordered_args)
+		if argList != nil {
+			var directArgs []string
+			var orderedArgs []string
+			
+			for i, item := range argList.Items {
+				var argStr string
+				switch arg := item.(type) {
+				case *TypeName:
+					argStr = arg.SqlString()
+				case *FunctionParameter:
+					argStr = arg.SqlString()
+				}
+				
+				if i < numDirectArgs {
+					directArgs = append(directArgs, argStr)
+				} else {
+					orderedArgs = append(orderedArgs, argStr)
+				}
+			}
+			
+			if len(orderedArgs) > 0 {
+				return "(" + strings.Join(directArgs, ", ") + " ORDER BY " + strings.Join(orderedArgs, ", ") + ")"
+			} else if len(directArgs) > 0 {
+				return "(" + strings.Join(directArgs, ", ") + ")"
+			}
+		}
+	}
+	
+	return ""
 }
 
 // ExtractArgTypes extracts argument types from function arguments

@@ -280,12 +280,18 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 	// Function options
 	var asClause string
 	var additionalOptions []string
+	var hasLanguage bool
 	if cfs.Options != nil {
 		for _, item := range cfs.Options.Items {
 			if option, ok := item.(*DefElem); ok {
 				if option.Defname == "language" {
 					if str, ok := option.Arg.(*String); ok {
 						parts = append(parts, "LANGUAGE", str.SVal)
+						hasLanguage = true
+					}
+				} else if option.Defname == "window" {
+					if b, ok := option.Arg.(*Boolean); ok && b.BoolVal {
+						parts = append(parts, "WINDOW")
 					}
 				} else if option.Defname == "as" {
 					if str, ok := option.Arg.(*String); ok {
@@ -323,7 +329,33 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 
 	// SQL body
 	if cfs.SQLBody != nil {
-		parts = append(parts, cfs.SQLBody.SqlString())
+		// Check if this is a compound statement (BEGIN ATOMIC ... END)
+		// Compound statements are stored as a NodeList containing another NodeList
+		if outerList, ok := cfs.SQLBody.(*NodeList); ok && outerList.Len() == 1 {
+			if innerList, ok := outerList.Items[0].(*NodeList); ok {
+				// This is a compound statement - add default LANGUAGE SQL if not specified
+				if !hasLanguage {
+					parts = append(parts, "LANGUAGE", "sql")
+				}
+				// Add BEGIN ATOMIC and END
+				parts = append(parts, "BEGIN ATOMIC")
+				// Join statements with semicolons
+				var stmts []string
+				for _, stmt := range innerList.Items {
+					if stmt != nil {
+						stmts = append(stmts, stmt.SqlString())
+					}
+				}
+				parts = append(parts, strings.Join(stmts, "; ")+";")
+				parts = append(parts, "END")
+			} else {
+				// Regular SQL body
+				parts = append(parts, cfs.SQLBody.SqlString())
+			}
+		} else {
+			// Regular SQL body
+			parts = append(parts, cfs.SQLBody.SqlString())
+		}
 	}
 
 	return strings.Join(parts, " ")
@@ -1049,8 +1081,17 @@ func (ccs *CreateCastStmt) SqlString() string {
 		parts = append(parts, "WITH INOUT")
 	} else if ccs.Func != nil {
 		parts = append(parts, "WITH FUNCTION", ccs.Func.SqlString())
-	} else if ccs.Context == COERCION_EXPLICIT {
+	} else {
 		parts = append(parts, "WITHOUT FUNCTION")
+	}
+
+	// Add the context clause (AS IMPLICIT, AS ASSIGNMENT, or nothing for EXPLICIT)
+	switch ccs.Context {
+	case COERCION_IMPLICIT:
+		parts = append(parts, "AS IMPLICIT")
+	case COERCION_ASSIGNMENT:
+		parts = append(parts, "AS ASSIGNMENT")
+		// COERCION_EXPLICIT doesn't have an AS clause
 	}
 
 	return strings.Join(parts, " ")
@@ -1335,9 +1376,8 @@ func (ds *DefineStmt) String() string {
 			case *TypeName:
 				argStrs = append(argStrs, arg.SqlString())
 			case *FunctionParameter:
-				if arg.ArgType != nil {
-					argStrs = append(argStrs, arg.ArgType.SqlString())
-				}
+				// Use the full SqlString to include VARIADIC, parameter names, etc.
+				argStrs = append(argStrs, arg.SqlString())
 			}
 		}
 		if hasStarArg && len(argStrs) == 0 {
@@ -1425,27 +1465,104 @@ func (ds *DefineStmt) SqlString() string {
 
 	// Add arguments for aggregates and operators
 	if ds.Args != nil && len(ds.Args.Items) > 0 {
-		var argStrs []string
-		hasStarArg := false
-		for _, item := range ds.Args.Items {
-			// Check for nil which represents * in aggregates like COUNT(*)
-			if item == nil {
-				hasStarArg = true
-				continue
+		// Try the proper aggr_args structure first
+		if len(ds.Args.Items) == 2 {
+			// Args should be [argList, numDirectArgs] from aggr_args grammar
+			argListNode := ds.Args.Items[0]
+			numDirectArgsNode, ok := ds.Args.Items[1].(*Integer)
+			if !ok {
+				// Fallback for malformed structure
+				return strings.Join(parts, " ")
 			}
-			switch arg := item.(type) {
-			case *TypeName:
-				argStrs = append(argStrs, arg.SqlString())
-			case *FunctionParameter:
-				if arg.ArgType != nil {
-					argStrs = append(argStrs, arg.ArgType.SqlString())
+
+			numDirectArgs := int(numDirectArgsNode.IVal)
+
+			if numDirectArgs == -1 {
+				// Regular aggregate or COUNT(*)
+				if argListNode == nil {
+					// COUNT(*) case
+					parts = append(parts, "(*)")
+				} else if argList, ok := argListNode.(*NodeList); ok {
+					var argStrs []string
+					for _, item := range argList.Items {
+						switch arg := item.(type) {
+						case *TypeName:
+							argStrs = append(argStrs, arg.SqlString())
+						case *FunctionParameter:
+							argStrs = append(argStrs, arg.SqlString())
+						}
+					}
+					if len(argStrs) > 0 {
+						parts = append(parts, "("+strings.Join(argStrs, ", ")+")")
+					}
+				}
+			} else if numDirectArgs == 0 {
+				// Ordered-set aggregate without direct args: (ORDER BY args)
+				if argList, ok := argListNode.(*NodeList); ok {
+					var argStrs []string
+					for _, item := range argList.Items {
+						switch arg := item.(type) {
+						case *TypeName:
+							argStrs = append(argStrs, arg.SqlString())
+						case *FunctionParameter:
+							argStrs = append(argStrs, arg.SqlString())
+						}
+					}
+					if len(argStrs) > 0 {
+						parts = append(parts, "(ORDER BY "+strings.Join(argStrs, ", ")+")")
+					}
+				}
+			} else {
+				// Hypothetical-set aggregate: (direct_args ORDER BY ordered_args)
+				if argList, ok := argListNode.(*NodeList); ok {
+					var directArgs []string
+					var orderedArgs []string
+
+					for i, item := range argList.Items {
+						var argStr string
+						switch arg := item.(type) {
+						case *TypeName:
+							argStr = arg.SqlString()
+						case *FunctionParameter:
+							argStr = arg.SqlString()
+						}
+
+						if i < numDirectArgs {
+							directArgs = append(directArgs, argStr)
+						} else {
+							orderedArgs = append(orderedArgs, argStr)
+						}
+					}
+
+					if len(orderedArgs) > 0 {
+						parts = append(parts, "("+strings.Join(directArgs, ", ")+" ORDER BY "+strings.Join(orderedArgs, ", ")+")")
+					} else if len(directArgs) > 0 {
+						parts = append(parts, "("+strings.Join(directArgs, ", ")+")")
+					}
 				}
 			}
-		}
-		if hasStarArg && len(argStrs) == 0 {
-			parts = append(parts, "(*)")
-		} else if len(argStrs) > 0 {
-			parts = append(parts, "("+strings.Join(argStrs, ", ")+")")
+		} else {
+			// Fallback to old logic for non-aggregate cases or malformed structures
+			var argStrs []string
+			hasStarArg := false
+			for _, item := range ds.Args.Items {
+				// Check for nil which represents * in aggregates like COUNT(*)
+				if item == nil {
+					hasStarArg = true
+					continue
+				}
+				switch arg := item.(type) {
+				case *TypeName:
+					argStrs = append(argStrs, arg.SqlString())
+				case *FunctionParameter:
+					argStrs = append(argStrs, arg.SqlString())
+				}
+			}
+			if hasStarArg && len(argStrs) == 0 {
+				parts = append(parts, "(*)")
+			} else if len(argStrs) > 0 {
+				parts = append(parts, "("+strings.Join(argStrs, ", ")+")")
+			}
 		}
 	}
 

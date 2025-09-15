@@ -211,7 +211,7 @@ func (s *parseTestSuite) TestPostgresTestsParsing() {
 		s.T().Fatalf("Failed to read postgres test directory: %v", err)
 	}
 
-	files = files[15:20]
+	files = files[0:50]
 	// Test each JSON file
 	for _, file := range files {
 		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {

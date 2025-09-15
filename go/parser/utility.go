@@ -289,6 +289,43 @@ func makeOrderedSetArgs(directArgs *ast.NodeList, orderedArgs *ast.NodeList) (*a
 	return ast.NewNodeList(allArgs, numDirectArgs), nil
 }
 
+// extractAggrArgTypes extracts just the argument types from the output of the aggr_args production.
+// This is equivalent to PostgreSQL's extractAggrArgTypes function.
+func extractAggrArgTypes(aggrArgs *ast.NodeList) *ast.NodeList {
+	if aggrArgs == nil || aggrArgs.Len() != 2 {
+		return ast.NewNodeList()
+	}
+	
+	// First element contains the actual arguments (or nil for *)
+	if firstElem, ok := aggrArgs.Items[0].(*ast.NodeList); ok {
+		return extractArgTypes(firstElem)
+	}
+	
+	return ast.NewNodeList()
+}
+
+// extractArgTypes extracts just the argument types (TypeNames) from a list of FunctionParameter nodes
+// for input parameters only. This is equivalent to PostgreSQL's extractArgTypes function.
+func extractArgTypes(parameters *ast.NodeList) *ast.NodeList {
+	if parameters == nil {
+		return ast.NewNodeList()
+	}
+	
+	result := ast.NewNodeList()
+	
+	for _, item := range parameters.Items {
+		if param, ok := item.(*ast.FunctionParameter); ok {
+			if param.Mode != ast.FUNC_PARAM_OUT && param.Mode != ast.FUNC_PARAM_TABLE {
+				if param.ArgType != nil {
+					result.Append(param.ArgType)
+				}
+			}
+		}
+	}
+	
+	return result
+}
+
 // processConstraintAttributeSpec processes constraint attribute specification bits.
 // This is a simplified version of processCASbits from PostgreSQL.
 func processConstraintAttributeSpec(casbits int, constraint *ast.Constraint) {

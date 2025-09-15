@@ -25,7 +25,7 @@ var (
 	// PostgreSQL reserved keywords that always need quoting when used as identifiers
 	// This is a subset of the most common keywords - can be expanded as needed
 	reservedKeywords = map[string]bool{
-		"all": true, "and": true, "as": true, "asc": true, "between": true, "by": true,
+		"all": true, "and": true, "any": true, "as": true, "asc": true, "between": true, "by": true,
 		"case": true, "create": true, "desc": true, "distinct": true, "drop": true,
 		"else": true, "end": true, "exists": true, "false": true, "from": true,
 		"group": true, "having": true, "in": true, "insert": true, "into": true,

@@ -767,22 +767,22 @@
   {
     "comment": "aggregates - Statement 158",
     "query": "create index minmaxtesti on minmaxtest(f1)",
-    "expected": "CREATE INDEX minmaxtesti ON minmaxtest (f1)"
+    "expected": "CREATE INDEX minmaxtesti ON minmaxtest USING btree ( f1 )"
   },
   {
     "comment": "aggregates - Statement 159",
     "query": "create index minmaxtest1i on minmaxtest1(f1)",
-    "expected": "CREATE INDEX minmaxtest1i ON minmaxtest1 (f1)"
+    "expected": "CREATE INDEX minmaxtest1i ON minmaxtest1 USING btree ( f1 )"
   },
   {
     "comment": "aggregates - Statement 160",
     "query": "create index minmaxtest2i on minmaxtest2(f1 desc)",
-    "expected": "CREATE INDEX minmaxtest2i ON minmaxtest2 (f1 desc)"
+    "expected": "CREATE INDEX minmaxtest2i ON minmaxtest2 USING btree ( f1 desc )"
   },
   {
     "comment": "aggregates - Statement 161",
     "query": "create index minmaxtest3i on minmaxtest3(f1) where f1 is not null",
-    "expected": "CREATE INDEX minmaxtest3i ON minmaxtest3 (f1) WHERE f1 IS NOT NULL"
+    "expected": "CREATE INDEX minmaxtest3i ON minmaxtest3 USING btree ( f1 ) WHERE f1 IS NOT NULL"
   },
   {
     "comment": "aggregates - Statement 162",
@@ -1855,7 +1855,7 @@
   {
     "comment": "aggregates - Statement 393",
     "query": "CREATE INDEX btg_x_y_idx ON btg(x, y)",
-    "expected": "CREATE INDEX btg_x_y_idx ON btg (x, y)"
+    "expected": "CREATE INDEX btg_x_y_idx ON btg USING btree ( x, y )"
   },
   {
     "comment": "aggregates - Statement 394",
@@ -1918,7 +1918,7 @@
   {
     "comment": "aggregates - Statement 407",
     "query": "CREATE INDEX btg_y_x_w_idx ON btg(y, x, w)",
-    "expected": "CREATE INDEX btg_y_x_w_idx ON btg (y, x, w)"
+    "expected": "CREATE INDEX btg_y_x_w_idx ON btg USING btree ( y, x, w )"
   },
   {
     "comment": "aggregates - Statement 408",
@@ -1966,7 +1966,7 @@
   {
     "comment": "aggregates - Statement 417",
     "query": "CREATE UNIQUE INDEX agg_sort_order_c2_idx ON agg_sort_order(c2)",
-    "expected": "CREATE UNIQUE INDEX agg_sort_order_c2_idx ON agg_sort_order (c2)"
+    "expected": "CREATE UNIQUE INDEX agg_sort_order_c2_idx ON agg_sort_order USING btree ( c2 )"
   },
   {
     "comment": "aggregates - Statement 418",
@@ -2076,22 +2076,22 @@
   {
     "comment": "aggregates - Statement 446",
     "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT variance(unique1::int4), sum(unique1::int8), regr_count(unique1::float8, unique1::float8) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u",
-    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT variance(CAST(unique1 AS INT)), SUM(CAST(unique1 AS BIGINT)), regr_count(CAST(unique1 AS FLOAT8), CAST(unique1 AS FLOAT8)) FROM ((((SELECT * FROM tenk1) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) AS u"
+    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT variance(CAST(unique1 AS INT)), SUM(CAST(unique1 AS BIGINT)), regr_count(CAST(unique1 AS FLOAT8), CAST(unique1 AS FLOAT8)) FROM (((SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) UNION ALL SELECT * FROM tenk1) UNION ALL SELECT * FROM tenk1) AS u"
   },
   {
     "comment": "aggregates - Statement 447",
     "query": "SELECT variance(unique1::int4), sum(unique1::int8), regr_count(unique1::float8, unique1::float8) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u",
-    "expected": "SELECT variance(CAST(unique1 AS INT)), SUM(CAST(unique1 AS BIGINT)), regr_count(CAST(unique1 AS FLOAT8), CAST(unique1 AS FLOAT8)) FROM ((((SELECT * FROM tenk1) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) AS u"
+    "expected": "SELECT variance(CAST(unique1 AS INT)), SUM(CAST(unique1 AS BIGINT)), regr_count(CAST(unique1 AS FLOAT8), CAST(unique1 AS FLOAT8)) FROM (((SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) UNION ALL SELECT * FROM tenk1) UNION ALL SELECT * FROM tenk1) AS u"
   },
   {
     "comment": "aggregates - Statement 448",
     "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT variance(unique1::int8), avg(unique1::numeric) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u",
-    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT variance(CAST(unique1 AS BIGINT)), AVG(CAST(unique1 AS NUMERIC)) FROM ((((SELECT * FROM tenk1) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) AS u"
+    "expected": "EXPLAIN (COSTS false, VERBOSE true) SELECT variance(CAST(unique1 AS BIGINT)), AVG(CAST(unique1 AS NUMERIC)) FROM (((SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) UNION ALL SELECT * FROM tenk1) UNION ALL SELECT * FROM tenk1) AS u"
   },
   {
     "comment": "aggregates - Statement 449",
     "query": "SELECT variance(unique1::int8), avg(unique1::numeric) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) u",
-    "expected": "SELECT variance(CAST(unique1 AS BIGINT)), AVG(CAST(unique1 AS NUMERIC)) FROM ((((SELECT * FROM tenk1) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) UNION ALL (SELECT * FROM tenk1)) AS u"
+    "expected": "SELECT variance(CAST(unique1 AS BIGINT)), AVG(CAST(unique1 AS NUMERIC)) FROM (((SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk1) UNION ALL SELECT * FROM tenk1) UNION ALL SELECT * FROM tenk1) AS u"
   },
   {
     "comment": "aggregates - Statement 450",
@@ -2256,22 +2256,22 @@
   {
     "comment": "aggregates - Statement 482",
     "query": "(select * from agg_hash_1 except select * from agg_group_1) union all (select * from agg_group_1 except select * from agg_hash_1)",
-    "expected": "((SELECT * FROM agg_hash_1) EXCEPT (SELECT * FROM agg_group_1)) UNION ALL ((SELECT * FROM agg_group_1) EXCEPT (SELECT * FROM agg_hash_1))"
+    "expected": "(SELECT * FROM agg_hash_1 EXCEPT SELECT * FROM agg_group_1) UNION ALL (SELECT * FROM agg_group_1 EXCEPT SELECT * FROM agg_hash_1)"
   },
   {
     "comment": "aggregates - Statement 483",
     "query": "(select * from agg_hash_2 except select * from agg_group_2) union all (select * from agg_group_2 except select * from agg_hash_2)",
-    "expected": "((SELECT * FROM agg_hash_2) EXCEPT (SELECT * FROM agg_group_2)) UNION ALL ((SELECT * FROM agg_group_2) EXCEPT (SELECT * FROM agg_hash_2))"
+    "expected": "(SELECT * FROM agg_hash_2 EXCEPT SELECT * FROM agg_group_2) UNION ALL (SELECT * FROM agg_group_2 EXCEPT SELECT * FROM agg_hash_2)"
   },
   {
     "comment": "aggregates - Statement 484",
     "query": "(select * from agg_hash_3 except select * from agg_group_3) union all (select * from agg_group_3 except select * from agg_hash_3)",
-    "expected": "((SELECT * FROM agg_hash_3) EXCEPT (SELECT * FROM agg_group_3)) UNION ALL ((SELECT * FROM agg_group_3) EXCEPT (SELECT * FROM agg_hash_3))"
+    "expected": "(SELECT * FROM agg_hash_3 EXCEPT SELECT * FROM agg_group_3) UNION ALL (SELECT * FROM agg_group_3 EXCEPT SELECT * FROM agg_hash_3)"
   },
   {
     "comment": "aggregates - Statement 485",
     "query": "(select * from agg_hash_4 except select * from agg_group_4) union all (select * from agg_group_4 except select * from agg_hash_4)",
-    "expected": "((SELECT * FROM agg_hash_4) EXCEPT (SELECT * FROM agg_group_4)) UNION ALL ((SELECT * FROM agg_group_4) EXCEPT (SELECT * FROM agg_hash_4))"
+    "expected": "(SELECT * FROM agg_hash_4 EXCEPT SELECT * FROM agg_group_4) UNION ALL (SELECT * FROM agg_group_4 EXCEPT SELECT * FROM agg_hash_4)"
   },
   {
     "comment": "aggregates - Statement 486",

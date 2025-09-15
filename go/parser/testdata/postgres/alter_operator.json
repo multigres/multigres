@@ -12,7 +12,7 @@
   {
     "comment": "alter_operator - Statement 3",
     "query": "CREATE OPERATOR === ( LEFTARG = boolean, RIGHTARG = boolean, PROCEDURE = alter_op_test_fn, COMMUTATOR = ===, NEGATOR = !==, RESTRICT = customcontsel, JOIN = contjoinsel, HASHES, MERGES )",
-    "expected": "CREATE OPERATOR === (leftarg = BOOLEAN, rightarg = BOOLEAN, procedure = alter_op_test_fn, commutator = '===', negator = '!==', restrict = customcontsel, join = contjoinsel, hashes, merges)"
+    "expected": "CREATE OPERATOR === (leftarg = BOOLEAN, rightarg = BOOLEAN, procedure = alter_op_test_fn, commutator = '===', negator = '!==', restrict = customcontsel, \"join\" = contjoinsel, hashes, merges)"
   },
   {
     "comment": "alter_operator - Statement 4",
@@ -27,7 +27,7 @@
   {
     "comment": "alter_operator - Statement 6",
     "query": "ALTER OPERATOR === (boolean, boolean) SET (JOIN = NONE)",
-    "expected": "ALTER OPERATOR ===(BOOLEAN, BOOLEAN) SET ( join )"
+    "expected": "ALTER OPERATOR ===(BOOLEAN, BOOLEAN) SET ( \"join\" )"
   },
   {
     "comment": "alter_operator - Statement 7",
@@ -42,17 +42,17 @@
   {
     "comment": "alter_operator - Statement 9",
     "query": "ALTER OPERATOR === (boolean, boolean) SET (JOIN = contjoinsel)",
-    "expected": "ALTER OPERATOR ===(BOOLEAN, BOOLEAN) SET ( join = contjoinsel )"
+    "expected": "ALTER OPERATOR ===(BOOLEAN, BOOLEAN) SET ( \"join\" = contjoinsel )"
   },
   {
     "comment": "alter_operator - Statement 10",
     "query": "ALTER OPERATOR === (boolean, boolean) SET (RESTRICT = NONE, JOIN = NONE)",
-    "expected": "ALTER OPERATOR ===(BOOLEAN, BOOLEAN) SET ( restrict, join )"
+    "expected": "ALTER OPERATOR ===(BOOLEAN, BOOLEAN) SET ( restrict, \"join\" )"
   },
   {
     "comment": "alter_operator - Statement 11",
     "query": "ALTER OPERATOR === (boolean, boolean) SET (RESTRICT = customcontsel, JOIN = contjoinsel)",
-    "expected": "ALTER OPERATOR ===(BOOLEAN, BOOLEAN) SET ( restrict = customcontsel, join = contjoinsel )"
+    "expected": "ALTER OPERATOR ===(BOOLEAN, BOOLEAN) SET ( restrict = customcontsel, \"join\" = contjoinsel )"
   },
   {
     "comment": "alter_operator - Statement 12",
@@ -62,12 +62,12 @@
   {
     "comment": "alter_operator - Statement 13",
     "query": "ALTER OPERATOR === (boolean, boolean) SET (JOIN = non_existent_func)",
-    "expected": "ALTER OPERATOR ===(BOOLEAN, BOOLEAN) SET ( join = non_existent_func )"
+    "expected": "ALTER OPERATOR ===(BOOLEAN, BOOLEAN) SET ( \"join\" = non_existent_func )"
   },
   {
     "comment": "alter_operator - Statement 14",
     "query": "ALTER OPERATOR \u0026 (bit, bit) SET (Restrict = _int_contsel, Join = _int_contjoinsel)",
-    "expected": "ALTER OPERATOR \u0026(bit, bit) SET ( restrict = _int_contsel, join = _int_contjoinsel )"
+    "expected": "ALTER OPERATOR \u0026(bit, bit) SET ( restrict = _int_contsel, \"join\" = _int_contjoinsel )"
   },
   {
     "comment": "alter_operator - Statement 15",

@@ -16,23 +16,20 @@
   },
   {
     "comment": "brin_bloom - Statement 4",
-    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(n_distinct_per_range = -1.1) )",
-    "expected": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin (byteacol)"
+    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(n_distinct_per_range = -1.1) )"
   },
   {
     "comment": "brin_bloom - Statement 5",
-    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(false_positive_rate = 0.00009) )",
-    "expected": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin (byteacol)"
+    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(false_positive_rate = 0.00009) )"
   },
   {
     "comment": "brin_bloom - Statement 6",
-    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(false_positive_rate = 0.26) )",
-    "expected": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin (byteacol)"
+    "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops(false_positive_rate = 0.26) )"
   },
   {
     "comment": "brin_bloom - Statement 7",
     "query": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops, charcol char_bloom_ops, namecol name_bloom_ops, int8col int8_bloom_ops, int2col int2_bloom_ops, int4col int4_bloom_ops, textcol text_bloom_ops, oidcol oid_bloom_ops, float4col float4_bloom_ops, float8col float8_bloom_ops, macaddrcol macaddr_bloom_ops, inetcol inet_bloom_ops, cidrcol inet_bloom_ops, bpcharcol bpchar_bloom_ops, datecol date_bloom_ops, timecol time_bloom_ops, timestampcol timestamp_bloom_ops, timestamptzcol timestamptz_bloom_ops, intervalcol interval_bloom_ops, timetzcol timetz_bloom_ops, numericcol numeric_bloom_ops, uuidcol uuid_bloom_ops, lsncol pg_lsn_bloom_ops ) with (pages_per_range = 1)",
-    "expected": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin (byteacol, charcol, namecol, int8col, int2col, int4col, textcol, oidcol, float4col, float8col, macaddrcol, inetcol, cidrcol, bpcharcol, datecol, timecol, timestampcol, timestamptzcol, intervalcol, timetzcol, numericcol, uuidcol, lsncol) WITH (pages_per_range = 1)"
+    "expected": "CREATE INDEX brinidx_bloom ON brintest_bloom USING brin ( byteacol bytea_bloom_ops, charcol char_bloom_ops, namecol name_bloom_ops, int8col int8_bloom_ops, int2col int2_bloom_ops, int4col int4_bloom_ops, textcol text_bloom_ops, oidcol oid_bloom_ops, float4col float4_bloom_ops, float8col float8_bloom_ops, macaddrcol macaddr_bloom_ops, inetcol inet_bloom_ops, cidrcol inet_bloom_ops, bpcharcol bpchar_bloom_ops, datecol date_bloom_ops, timecol time_bloom_ops, timestampcol timestamp_bloom_ops, timestamptzcol timestamptz_bloom_ops, intervalcol interval_bloom_ops, timetzcol timetz_bloom_ops, numericcol numeric_bloom_ops, uuidcol uuid_bloom_ops, lsncol pg_lsn_bloom_ops ) WITH (pages_per_range = 1)"
   },
   {
     "comment": "brin_bloom - Statement 8",
@@ -105,7 +102,7 @@
   {
     "comment": "brin_bloom - Statement 53",
     "query": "CREATE INDEX brin_summarize_bloom_idx ON brin_summarize_bloom USING brin (value) WITH (pages_per_range=2)",
-    "expected": "CREATE INDEX brin_summarize_bloom_idx ON brin_summarize_bloom USING brin (value) WITH (pages_per_range = 2)"
+    "expected": "CREATE INDEX brin_summarize_bloom_idx ON brin_summarize_bloom USING brin ( value ) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin_bloom - Statement 54",
@@ -147,11 +144,13 @@
   },
   {
     "comment": "brin_bloom - Statement 66",
-    "query": "CREATE INDEX brin_test_bloom_a_idx ON brin_test_bloom USING brin (a) WITH (pages_per_range = 2)"
+    "query": "CREATE INDEX brin_test_bloom_a_idx ON brin_test_bloom USING brin (a) WITH (pages_per_range = 2)",
+    "expected": "CREATE INDEX brin_test_bloom_a_idx ON brin_test_bloom USING brin ( a ) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin_bloom - Statement 67",
-    "query": "CREATE INDEX brin_test_bloom_b_idx ON brin_test_bloom USING brin (b) WITH (pages_per_range = 2)"
+    "query": "CREATE INDEX brin_test_bloom_b_idx ON brin_test_bloom USING brin (b) WITH (pages_per_range = 2)",
+    "expected": "CREATE INDEX brin_test_bloom_b_idx ON brin_test_bloom USING brin ( b ) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin_bloom - Statement 68",

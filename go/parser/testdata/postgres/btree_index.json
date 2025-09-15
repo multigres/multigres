@@ -33,22 +33,22 @@
   {
     "comment": "btree_index - Statement 8",
     "query": "CREATE INDEX bt_i4_index ON bt_i4_heap USING btree (seqno int4_ops)",
-    "expected": "CREATE INDEX bt_i4_index ON bt_i4_heap (seqno int4_ops)"
+    "expected": "CREATE INDEX bt_i4_index ON bt_i4_heap USING btree ( seqno int4_ops )"
   },
   {
     "comment": "btree_index - Statement 9",
     "query": "CREATE INDEX bt_name_index ON bt_name_heap USING btree (seqno name_ops)",
-    "expected": "CREATE INDEX bt_name_index ON bt_name_heap (seqno name_ops)"
+    "expected": "CREATE INDEX bt_name_index ON bt_name_heap USING btree ( seqno name_ops )"
   },
   {
     "comment": "btree_index - Statement 10",
     "query": "CREATE INDEX bt_txt_index ON bt_txt_heap USING btree (seqno text_ops)",
-    "expected": "CREATE INDEX bt_txt_index ON bt_txt_heap (seqno text_ops)"
+    "expected": "CREATE INDEX bt_txt_index ON bt_txt_heap USING btree ( seqno text_ops )"
   },
   {
     "comment": "btree_index - Statement 11",
     "query": "CREATE INDEX bt_f8_index ON bt_f8_heap USING btree (seqno float8_ops)",
-    "expected": "CREATE INDEX bt_f8_index ON bt_f8_heap (seqno float8_ops)"
+    "expected": "CREATE INDEX bt_f8_index ON bt_f8_heap USING btree ( seqno float8_ops )"
   },
   {
     "comment": "btree_index - Statement 12",
@@ -233,7 +233,7 @@
   {
     "comment": "btree_index - Statement 48",
     "query": "create index on btree_bpchar(f1 bpchar_ops) WITH (deduplicate_items=on)",
-    "expected": "CREATE INDEX ON btree_bpchar (f1 bpchar_ops) WITH (deduplicate_items = 'on')"
+    "expected": "CREATE INDEX ON btree_bpchar USING btree ( f1 bpchar_ops ) WITH (deduplicate_items = 'on')"
   },
   {
     "comment": "btree_index - Statement 49",
@@ -293,12 +293,12 @@
   {
     "comment": "btree_index - Statement 60",
     "query": "CREATE UNIQUE INDEX dedup_unique ON dedup_unique_test_table (a) WITH (deduplicate_items=on)",
-    "expected": "CREATE UNIQUE INDEX dedup_unique ON dedup_unique_test_table (a) WITH (deduplicate_items = 'on')"
+    "expected": "CREATE UNIQUE INDEX dedup_unique ON dedup_unique_test_table USING btree ( a ) WITH (deduplicate_items = 'on')"
   },
   {
     "comment": "btree_index - Statement 61",
     "query": "CREATE UNIQUE INDEX plain_unique ON dedup_unique_test_table (a) WITH (deduplicate_items=off)",
-    "expected": "CREATE UNIQUE INDEX plain_unique ON dedup_unique_test_table (a) WITH (deduplicate_items = off)"
+    "expected": "CREATE UNIQUE INDEX plain_unique ON dedup_unique_test_table USING btree ( a ) WITH (deduplicate_items = off)"
   },
   {
     "comment": "btree_index - Statement 62",
@@ -331,7 +331,7 @@
   {
     "comment": "btree_index - Statement 71",
     "query": "create index btree_tall_idx on btree_tall_tbl (t, id) with (fillfactor = 10)",
-    "expected": "CREATE INDEX btree_tall_idx ON btree_tall_tbl (t, id) WITH (fillfactor = 10)"
+    "expected": "CREATE INDEX btree_tall_idx ON btree_tall_tbl USING btree ( t, id ) WITH (fillfactor = 10)"
   },
   {
     "comment": "btree_index - Statement 72",
@@ -369,11 +369,12 @@
   {
     "comment": "btree_index - Statement 79",
     "query": "create index on btree_tall_tbl (id int4_ops(foo=1))",
-    "expected": "CREATE INDEX ON btree_tall_tbl (id int4_ops(foo=1))"
+    "expected": "CREATE INDEX ON btree_tall_tbl USING btree ( id int4_ops(foo = 1) )"
   },
   {
     "comment": "btree_index - Statement 80",
-    "query": "CREATE INDEX btree_tall_idx2 ON btree_tall_tbl (id)"
+    "query": "CREATE INDEX btree_tall_idx2 ON btree_tall_tbl (id)",
+    "expected": "CREATE INDEX btree_tall_idx2 ON btree_tall_tbl USING btree ( id )"
   },
   {
     "comment": "btree_index - Statement 81",
@@ -392,7 +393,7 @@
   {
     "comment": "btree_index - Statement 84",
     "query": "CREATE INDEX btree_part_idx ON btree_part(id)",
-    "expected": "CREATE INDEX btree_part_idx ON btree_part (id)"
+    "expected": "CREATE INDEX btree_part_idx ON btree_part USING btree ( id )"
   },
   {
     "comment": "btree_index - Statement 85",

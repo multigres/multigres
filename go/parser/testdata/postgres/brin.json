@@ -17,7 +17,7 @@
   {
     "comment": "brin - Statement 4",
     "query": "CREATE INDEX brinidx ON brintest USING brin ( byteacol, charcol, namecol, int8col, int2col, int4col, textcol, oidcol, tidcol, float4col, float8col, macaddrcol, inetcol inet_inclusion_ops, inetcol inet_minmax_ops, cidrcol inet_inclusion_ops, cidrcol inet_minmax_ops, bpcharcol, datecol, timecol, timestampcol, timestamptzcol, intervalcol, timetzcol, bitcol, varbitcol, numericcol, uuidcol, int4rangecol, lsncol, boxcol ) with (pages_per_range = 1)",
-    "expected": "CREATE INDEX brinidx ON brintest USING brin (byteacol, charcol, namecol, int8col, int2col, int4col, textcol, oidcol, tidcol, float4col, float8col, macaddrcol, inetcol, inetcol, cidrcol, cidrcol, bpcharcol, datecol, timecol, timestampcol, timestamptzcol, intervalcol, timetzcol, bitcol, varbitcol, numericcol, uuidcol, int4rangecol, lsncol, boxcol) WITH (pages_per_range = 1)"
+    "expected": "CREATE INDEX brinidx ON brintest USING brin ( byteacol, charcol, namecol, int8col, int2col, int4col, textcol, oidcol, tidcol, float4col, float8col, macaddrcol, inetcol inet_inclusion_ops, inetcol inet_minmax_ops, cidrcol inet_inclusion_ops, cidrcol inet_minmax_ops, bpcharcol, datecol, timecol, timestampcol, timestamptzcol, intervalcol, timetzcol, bitcol, varbitcol, numericcol, uuidcol, int4rangecol, lsncol, boxcol ) WITH (pages_per_range = 1)"
   },
   {
     "comment": "brin - Statement 5",
@@ -90,7 +90,7 @@
   {
     "comment": "brin - Statement 50",
     "query": "CREATE INDEX brin_summarize_idx ON brin_summarize USING brin (value) WITH (pages_per_range=2)",
-    "expected": "CREATE INDEX brin_summarize_idx ON brin_summarize USING brin (value) WITH (pages_per_range = 2)"
+    "expected": "CREATE INDEX brin_summarize_idx ON brin_summarize USING brin ( value ) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin - Statement 51",
@@ -127,7 +127,8 @@
   },
   {
     "comment": "brin - Statement 62",
-    "query": "CREATE INDEX brinidx_2 ON brintest_2 USING brin (n)"
+    "query": "CREATE INDEX brinidx_2 ON brintest_2 USING brin (n)",
+    "expected": "CREATE INDEX brinidx_2 ON brintest_2 USING brin ( n )"
   },
   {
     "comment": "brin - Statement 63",
@@ -161,11 +162,13 @@
   },
   {
     "comment": "brin - Statement 70",
-    "query": "CREATE INDEX brin_test_a_idx ON brin_test USING brin (a) WITH (pages_per_range = 2)"
+    "query": "CREATE INDEX brin_test_a_idx ON brin_test USING brin (a) WITH (pages_per_range = 2)",
+    "expected": "CREATE INDEX brin_test_a_idx ON brin_test USING brin ( a ) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin - Statement 71",
-    "query": "CREATE INDEX brin_test_b_idx ON brin_test USING brin (b) WITH (pages_per_range = 2)"
+    "query": "CREATE INDEX brin_test_b_idx ON brin_test USING brin (b) WITH (pages_per_range = 2)",
+    "expected": "CREATE INDEX brin_test_b_idx ON brin_test USING brin ( b ) WITH (pages_per_range = 2)"
   },
   {
     "comment": "brin - Statement 72",
@@ -194,7 +197,8 @@
   },
   {
     "comment": "brin - Statement 77",
-    "query": "CREATE INDEX brin_test_toast_idx ON brintest_3 USING brin (b, c)"
+    "query": "CREATE INDEX brin_test_toast_idx ON brintest_3 USING brin (b, c)",
+    "expected": "CREATE INDEX brin_test_toast_idx ON brintest_3 USING brin ( b, c )"
   },
   {
     "comment": "brin - Statement 78",
@@ -203,7 +207,7 @@
   {
     "comment": "brin - Statement 79",
     "query": "CREATE INDEX CONCURRENTLY brin_test_temp_idx ON brintest_3(a)",
-    "expected": "CREATE INDEX CONCURRENTLY brin_test_temp_idx ON brintest_3 (a)"
+    "expected": "CREATE INDEX CONCURRENTLY brin_test_temp_idx ON brintest_3 USING btree ( a )"
   },
   {
     "comment": "brin - Statement 80",
@@ -241,7 +245,8 @@
   },
   {
     "comment": "brin - Statement 88",
-    "query": "CREATE INDEX brinidx_unlogged ON brintest_unlogged USING brin (n)"
+    "query": "CREATE INDEX brinidx_unlogged ON brintest_unlogged USING brin (n)",
+    "expected": "CREATE INDEX brinidx_unlogged ON brintest_unlogged USING brin ( n )"
   },
   {
     "comment": "brin - Statement 89",
@@ -263,7 +268,8 @@
   },
   {
     "comment": "brin - Statement 93",
-    "query": "CREATE INDEX brin_insert_optimization_idx ON brin_insert_optimization USING brin (a)"
+    "query": "CREATE INDEX brin_insert_optimization_idx ON brin_insert_optimization USING brin (a)",
+    "expected": "CREATE INDEX brin_insert_optimization_idx ON brin_insert_optimization USING brin ( a )"
   },
   {
     "comment": "brin - Statement 94",

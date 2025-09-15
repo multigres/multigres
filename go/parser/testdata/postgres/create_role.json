@@ -21,7 +21,8 @@
   },
   {
     "comment": "create_role - Statement 6",
-    "query": "SET SESSION AUTHORIZATION regress_role_limited_admin"
+    "query": "SET SESSION AUTHORIZATION regress_role_limited_admin",
+    "expected": "SET SESSION AUTHORIZATION 'regress_role_limited_admin'"
   },
   {
     "comment": "create_role - Statement 7",
@@ -49,19 +50,23 @@
   },
   {
     "comment": "create_role - Statement 13",
-    "query": "ALTER ROLE regress_role_limited SUPERUSER"
+    "query": "ALTER ROLE regress_role_limited SUPERUSER",
+    "expected": "ALTER ROLE regress_role_limited WITH SUPERUSER"
   },
   {
     "comment": "create_role - Statement 14",
-    "query": "ALTER ROLE regress_role_limited REPLICATION"
+    "query": "ALTER ROLE regress_role_limited REPLICATION",
+    "expected": "ALTER ROLE regress_role_limited WITH REPLICATION"
   },
   {
     "comment": "create_role - Statement 15",
-    "query": "ALTER ROLE regress_role_limited CREATEDB"
+    "query": "ALTER ROLE regress_role_limited CREATEDB",
+    "expected": "ALTER ROLE regress_role_limited WITH CREATEDB"
   },
   {
     "comment": "create_role - Statement 16",
-    "query": "ALTER ROLE regress_role_limited BYPASSRLS"
+    "query": "ALTER ROLE regress_role_limited BYPASSRLS",
+    "expected": "ALTER ROLE regress_role_limited WITH BYPASSRLS"
   },
   {
     "comment": "create_role - Statement 17",
@@ -69,7 +74,8 @@
   },
   {
     "comment": "create_role - Statement 18",
-    "query": "SET SESSION AUTHORIZATION regress_role_admin"
+    "query": "SET SESSION AUTHORIZATION regress_role_admin",
+    "expected": "SET SESSION AUTHORIZATION 'regress_role_admin'"
   },
   {
     "comment": "create_role - Statement 19",
@@ -89,35 +95,43 @@
   },
   {
     "comment": "create_role - Statement 23",
-    "query": "ALTER ROLE regress_replication NOREPLICATION"
+    "query": "ALTER ROLE regress_replication NOREPLICATION",
+    "expected": "ALTER ROLE regress_replication WITH NOREPLICATION"
   },
   {
     "comment": "create_role - Statement 24",
-    "query": "ALTER ROLE regress_replication REPLICATION"
+    "query": "ALTER ROLE regress_replication REPLICATION",
+    "expected": "ALTER ROLE regress_replication WITH REPLICATION"
   },
   {
     "comment": "create_role - Statement 25",
-    "query": "ALTER ROLE regress_bypassrls NOBYPASSRLS"
+    "query": "ALTER ROLE regress_bypassrls NOBYPASSRLS",
+    "expected": "ALTER ROLE regress_bypassrls WITH NOBYPASSRLS"
   },
   {
     "comment": "create_role - Statement 26",
-    "query": "ALTER ROLE regress_bypassrls BYPASSRLS"
+    "query": "ALTER ROLE regress_bypassrls BYPASSRLS",
+    "expected": "ALTER ROLE regress_bypassrls WITH BYPASSRLS"
   },
   {
     "comment": "create_role - Statement 27",
-    "query": "ALTER ROLE regress_createdb NOCREATEDB"
+    "query": "ALTER ROLE regress_createdb NOCREATEDB",
+    "expected": "ALTER ROLE regress_createdb WITH NOCREATEDB"
   },
   {
     "comment": "create_role - Statement 28",
-    "query": "ALTER ROLE regress_createdb CREATEDB"
+    "query": "ALTER ROLE regress_createdb CREATEDB",
+    "expected": "ALTER ROLE regress_createdb WITH CREATEDB"
   },
   {
     "comment": "create_role - Statement 29",
-    "query": "ALTER ROLE regress_createdb SUPERUSER"
+    "query": "ALTER ROLE regress_createdb SUPERUSER",
+    "expected": "ALTER ROLE regress_createdb WITH SUPERUSER"
   },
   {
     "comment": "create_role - Statement 30",
-    "query": "ALTER ROLE regress_createdb NOSUPERUSER"
+    "query": "ALTER ROLE regress_createdb NOSUPERUSER",
+    "expected": "ALTER ROLE regress_createdb WITH NOSUPERUSER"
   },
   {
     "comment": "create_role - Statement 31",
@@ -141,7 +155,8 @@
   },
   {
     "comment": "create_role - Statement 36",
-    "query": "CREATE ROLE regress_encrypted_password ENCRYPTED PASSWORD 'foo'"
+    "query": "CREATE ROLE regress_encrypted_password ENCRYPTED PASSWORD 'foo'",
+    "expected": "CREATE ROLE regress_encrypted_password PASSWORD 'foo'"
   },
   {
     "comment": "create_role - Statement 37",
@@ -177,7 +192,8 @@
   },
   {
     "comment": "create_role - Statement 45",
-    "query": "SET SESSION AUTHORIZATION regress_createrole"
+    "query": "SET SESSION AUTHORIZATION regress_createrole",
+    "expected": "SET SESSION AUTHORIZATION 'regress_createrole'"
   },
   {
     "comment": "create_role - Statement 46",
@@ -205,7 +221,8 @@
   },
   {
     "comment": "create_role - Statement 52",
-    "query": "ALTER ROLE regress_tenant NOINHERIT NOLOGIN CONNECTION LIMIT 7"
+    "query": "ALTER ROLE regress_tenant NOINHERIT NOLOGIN CONNECTION LIMIT 7",
+    "expected": "ALTER ROLE regress_tenant WITH NOINHERIT NOLOGIN CONNECTION LIMIT 7"
   },
   {
     "comment": "create_role - Statement 53",
@@ -217,19 +234,23 @@
   },
   {
     "comment": "create_role - Statement 55",
-    "query": "ALTER ROLE regress_role_normal NOINHERIT NOLOGIN CONNECTION LIMIT 7"
+    "query": "ALTER ROLE regress_role_normal NOINHERIT NOLOGIN CONNECTION LIMIT 7",
+    "expected": "ALTER ROLE regress_role_normal WITH NOINHERIT NOLOGIN CONNECTION LIMIT 7"
   },
   {
     "comment": "create_role - Statement 56",
-    "query": "SET SESSION AUTHORIZATION regress_tenant"
+    "query": "SET SESSION AUTHORIZATION regress_tenant",
+    "expected": "SET SESSION AUTHORIZATION 'regress_tenant'"
   },
   {
     "comment": "create_role - Statement 57",
-    "query": "CREATE TABLE tenant_table (i integer)"
+    "query": "CREATE TABLE tenant_table (i integer)",
+    "expected": "CREATE TABLE tenant_table (i INT)"
   },
   {
     "comment": "create_role - Statement 58",
-    "query": "CREATE INDEX tenant_idx ON tenant_table(i)"
+    "query": "CREATE INDEX tenant_idx ON tenant_table(i)",
+    "expected": "CREATE INDEX tenant_idx ON tenant_table USING btree ( i )"
   },
   {
     "comment": "create_role - Statement 59",
@@ -237,7 +258,8 @@
   },
   {
     "comment": "create_role - Statement 60",
-    "query": "REVOKE ALL PRIVILEGES ON tenant_table FROM PUBLIC"
+    "query": "REVOKE ALL PRIVILEGES ON tenant_table FROM PUBLIC",
+    "expected": "REVOKE ALL ON tenant_table FROM public"
   },
   {
     "comment": "create_role - Statement 61",
@@ -245,7 +267,8 @@
   },
   {
     "comment": "create_role - Statement 62",
-    "query": "ALTER TABLE tenant_table ADD COLUMN t text"
+    "query": "ALTER TABLE tenant_table ADD COLUMN t text",
+    "expected": "ALTER TABLE tenant_table ADD COLUMN t TEXT"
   },
   {
     "comment": "create_role - Statement 63",
@@ -281,15 +304,18 @@
   },
   {
     "comment": "create_role - Statement 71",
-    "query": "SET SESSION AUTHORIZATION regress_tenant2"
+    "query": "SET SESSION AUTHORIZATION regress_tenant2",
+    "expected": "SET SESSION AUTHORIZATION 'regress_tenant2'"
   },
   {
     "comment": "create_role - Statement 72",
-    "query": "CREATE TABLE tenant2_table (i integer)"
+    "query": "CREATE TABLE tenant2_table (i integer)",
+    "expected": "CREATE TABLE tenant2_table (i INT)"
   },
   {
     "comment": "create_role - Statement 73",
-    "query": "REVOKE ALL PRIVILEGES ON tenant2_table FROM PUBLIC"
+    "query": "REVOKE ALL PRIVILEGES ON tenant2_table FROM PUBLIC",
+    "expected": "REVOKE ALL ON tenant2_table FROM public"
   },
   {
     "comment": "create_role - Statement 74",
@@ -309,7 +335,8 @@
   },
   {
     "comment": "create_role - Statement 78",
-    "query": "REVOKE INHERIT OPTION FOR regress_tenant2 FROM regress_createrole"
+    "query": "REVOKE INHERIT OPTION FOR regress_tenant2 FROM regress_createrole",
+    "expected": "REVOKE regress_tenant2 FROM regress_createrole"
   },
   {
     "comment": "create_role - Statement 79",
@@ -473,7 +500,8 @@
   },
   {
     "comment": "create_role - Statement 119",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "create_role - Statement 120",

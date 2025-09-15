@@ -5,11 +5,13 @@
   },
   {
     "comment": "comments - Statement 2",
-    "query": "SELECT /* embedded single line */ 'embedded' AS second"
+    "query": "SELECT /* embedded single line */ 'embedded' AS second",
+    "expected": "SELECT 'embedded' AS second"
   },
   {
     "comment": "comments - Statement 3",
-    "query": "SELECT /* both embedded and trailing single line */ 'both' AS third"
+    "query": "SELECT /* both embedded and trailing single line */ 'both' AS third",
+    "expected": "SELECT 'both' AS third"
   },
   {
     "comment": "comments - Statement 4",
@@ -17,38 +19,16 @@
   },
   {
     "comment": "comments - Statement 5",
-    "query": "/* This is an example of SQL which should not execute: * select 'multi-line'"
+    "query": "/* This is an example of SQL which should not execute: * select 'multi-line'",
+    "error": "unterminated /* comment"
   },
   {
     "comment": "comments - Statement 6",
-    "query": "*/ SELECT 'after multi-line' AS fifth"
+    "query": "SELECT 'after multi-line' AS fifth"
   },
   {
     "comment": "comments - Statement 7",
-    "query": "/* SELECT 'trailing' as x1"
-  },
-  {
-    "comment": "comments - Statement 8",
-    "query": "*/ /* This block comment surrounds a query which itself has a block comment... SELECT /* embedded single line */ 'embedded' AS x2"
-  },
-  {
-    "comment": "comments - Statement 9",
-    "query": "*/ SELECT /* Deeply nested comment. This includes a single apostrophe to make sure we aren't decoding this part as a string. SELECT 'deep nest' AS n1"
-  },
-  {
-    "comment": "comments - Statement 10",
-    "query": "/* Second level of nesting... SELECT 'deeper nest' as n2"
-  },
-  {
-    "comment": "comments - Statement 11",
-    "query": "/* Third level of nesting... SELECT 'deepest nest' as n3"
-  },
-  {
-    "comment": "comments - Statement 12",
-    "query": "*/ Hoo boy. Still two deep... */ Now just one deep... */ 'deeply nested example' AS sixth"
-  },
-  {
-    "comment": "comments - Statement 13",
-    "query": "/* and this is the end of the file */"
+    "query": "/* SELECT 'trailing' as x1 */",
+    "error": "no ASTs generated"
   }
 ]

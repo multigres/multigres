@@ -5,11 +5,13 @@
   },
   {
     "comment": "create_schema - Statement 2",
-    "query": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE SEQUENCE schema_not_existing.seq"
+    "query": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE SEQUENCE schema_not_existing.seq",
+    "error": "parse error at position 70: syntax error"
   },
   {
     "comment": "create_schema - Statement 3",
-    "query": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE TABLE schema_not_existing.tab (id int)"
+    "query": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE TABLE schema_not_existing.tab (id int)",
+    "expected": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE TABLE schema_not_existing.tab (id INT)"
   },
   {
     "comment": "create_schema - Statement 4",
@@ -17,7 +19,8 @@
   },
   {
     "comment": "create_schema - Statement 5",
-    "query": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE INDEX ON schema_not_existing.tab (id)"
+    "query": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE INDEX ON schema_not_existing.tab (id)",
+    "expected": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE INDEX ON schema_not_existing.tab USING btree ( id )"
   },
   {
     "comment": "create_schema - Statement 6",
@@ -25,15 +28,18 @@
   },
   {
     "comment": "create_schema - Statement 7",
-    "query": "SET ROLE regress_create_schema_role"
+    "query": "SET ROLE regress_create_schema_role",
+    "expected": "SET ROLE 'regress_create_schema_role'"
   },
   {
     "comment": "create_schema - Statement 8",
-    "query": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE SEQUENCE schema_not_existing.seq"
+    "query": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE SEQUENCE schema_not_existing.seq",
+    "error": "parse error at position 56: syntax error"
   },
   {
     "comment": "create_schema - Statement 9",
-    "query": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE TABLE schema_not_existing.tab (id int)"
+    "query": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE TABLE schema_not_existing.tab (id int)",
+    "expected": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE TABLE schema_not_existing.tab (id INT)"
   },
   {
     "comment": "create_schema - Statement 10",
@@ -41,7 +47,8 @@
   },
   {
     "comment": "create_schema - Statement 11",
-    "query": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE INDEX ON schema_not_existing.tab (id)"
+    "query": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE INDEX ON schema_not_existing.tab (id)",
+    "expected": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE INDEX ON schema_not_existing.tab USING btree ( id )"
   },
   {
     "comment": "create_schema - Statement 12",
@@ -49,11 +56,13 @@
   },
   {
     "comment": "create_schema - Statement 13",
-    "query": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE SEQUENCE schema_not_existing.seq"
+    "query": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE SEQUENCE schema_not_existing.seq",
+    "error": "parse error at position 73: syntax error"
   },
   {
     "comment": "create_schema - Statement 14",
-    "query": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE TABLE schema_not_existing.tab (id int)"
+    "query": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE TABLE schema_not_existing.tab (id int)",
+    "expected": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE TABLE schema_not_existing.tab (id INT)"
   },
   {
     "comment": "create_schema - Statement 15",
@@ -61,7 +70,8 @@
   },
   {
     "comment": "create_schema - Statement 16",
-    "query": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE INDEX ON schema_not_existing.tab (id)"
+    "query": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE INDEX ON schema_not_existing.tab (id)",
+    "expected": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE INDEX ON schema_not_existing.tab USING btree ( id )"
   },
   {
     "comment": "create_schema - Statement 17",
@@ -69,19 +79,23 @@
   },
   {
     "comment": "create_schema - Statement 18",
-    "query": "RESET ROLE"
+    "query": "RESET ROLE",
+    "expected": "RESET role"
   },
   {
     "comment": "create_schema - Statement 19",
-    "query": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE TABLE regress_create_schema_role.tab (id int)"
+    "query": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE TABLE regress_create_schema_role.tab (id int)",
+    "expected": "CREATE SCHEMA AUTHORIZATION regress_create_schema_role CREATE TABLE regress_create_schema_role.tab (id INT)"
   },
   {
     "comment": "create_schema - Statement 20",
-    "query": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE TABLE regress_create_schema_role.tab (id int)"
+    "query": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE TABLE regress_create_schema_role.tab (id int)",
+    "expected": "CREATE SCHEMA AUTHORIZATION CURRENT_ROLE CREATE TABLE regress_create_schema_role.tab (id INT)"
   },
   {
     "comment": "create_schema - Statement 21",
-    "query": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE TABLE regress_schema_1.tab (id int)"
+    "query": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE TABLE regress_schema_1.tab (id int)",
+    "expected": "CREATE SCHEMA regress_schema_1 AUTHORIZATION CURRENT_ROLE CREATE TABLE regress_schema_1.tab (id INT)"
   },
   {
     "comment": "create_schema - Statement 22",

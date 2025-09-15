@@ -1,19 +1,23 @@
 [
   {
     "comment": "collate - Statement 1",
-    "query": "/* * This test is intended to pass on all platforms supported by Postgres. * We can therefore only assume that the default, C, and POSIX collations * are available * C-locale database, these may well all have the same behavior.  But * fortunately, the system doesn't know that and will treat them as * incompatible collations.  It is therefore at least possible to test * parser behaviors such as collation conflict resolution.  This test will, * however, be more revealing when run in a database with non-C locale, * since any departure from C sorting behavior will show as a failure. */ CREATE SCHEMA collate_tests"
+    "query": "/* * This test is intended to pass on all platforms supported by Postgres. * We can therefore only assume that the default, C, and POSIX collations * are available * C-locale database, these may well all have the same behavior.  But * fortunately, the system doesn't know that and will treat them as * incompatible collations.  It is therefore at least possible to test * parser behaviors such as collation conflict resolution.  This test will, * however, be more revealing when run in a database with non-C locale, * since any departure from C sorting behavior will show as a failure. */ CREATE SCHEMA collate_tests",
+    "expected": "CREATE SCHEMA collate_tests"
   },
   {
     "comment": "collate - Statement 2",
-    "query": "SET search_path = collate_tests"
+    "query": "SET search_path = collate_tests",
+    "expected": "SET SCHEMA 'collate_tests'"
   },
   {
     "comment": "collate - Statement 3",
-    "query": "CREATE TABLE collate_test1 ( a int, b text COLLATE \"C\" NOT NULL )"
+    "query": "CREATE TABLE collate_test1 ( a int, b text COLLATE \"C\" NOT NULL )",
+    "expected": "CREATE TABLE collate_test1 (a INT, b TEXT COLLATE \"C\" NOT NULL)"
   },
   {
     "comment": "collate - Statement 4",
-    "query": "CREATE TABLE collate_test_like ( LIKE collate_test1 )"
+    "query": "CREATE TABLE collate_test_like ( LIKE collate_test1 )",
+    "expected": "CREATE TABLE collate_test_like (LIKE collate_test1)"
   },
   {
     "comment": "collate - Statement 5",
@@ -25,31 +29,34 @@
   },
   {
     "comment": "collate - Statement 7",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'abc'"
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'abc'"
   },
   {
     "comment": "collate - Statement 8",
-    "query": "SELECT * FROM collate_test1 WHERE b >= 'abc' COLLATE \"C\""
+    "query": "SELECT * FROM collate_test1 WHERE b \u003e= 'abc' COLLATE \"C\""
   },
   {
     "comment": "collate - Statement 9",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'abc' COLLATE \"C\""
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'abc' COLLATE \"C\""
   },
   {
     "comment": "collate - Statement 10",
-    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc' COLLATE \"POSIX\""
+    "query": "SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc' COLLATE \"POSIX\""
   },
   {
     "comment": "collate - Statement 11",
-    "query": "CREATE DOMAIN testdomain_p AS text COLLATE \"POSIX\""
+    "query": "CREATE DOMAIN testdomain_p AS text COLLATE \"POSIX\"",
+    "expected": "CREATE DOMAIN testdomain_p AS TEXT COLLATE \"POSIX\""
   },
   {
     "comment": "collate - Statement 12",
-    "query": "CREATE DOMAIN testdomain_i AS int COLLATE \"POSIX\""
+    "query": "CREATE DOMAIN testdomain_i AS int COLLATE \"POSIX\"",
+    "expected": "CREATE DOMAIN testdomain_i AS INT COLLATE \"POSIX\""
   },
   {
     "comment": "collate - Statement 13",
-    "query": "CREATE TABLE collate_test4 ( a int, b testdomain_p )"
+    "query": "CREATE TABLE collate_test4 ( a int, b testdomain_p )",
+    "expected": "CREATE TABLE collate_test4 (a INT, b testdomain_p)"
   },
   {
     "comment": "collate - Statement 14",
@@ -61,7 +68,8 @@
   },
   {
     "comment": "collate - Statement 16",
-    "query": "CREATE TABLE collate_test5 ( a int, b testdomain_p COLLATE \"C\" )"
+    "query": "CREATE TABLE collate_test5 ( a int, b testdomain_p COLLATE \"C\" )",
+    "expected": "CREATE TABLE collate_test5 (a INT, b testdomain_p COLLATE \"C\")"
   },
   {
     "comment": "collate - Statement 17",
@@ -93,15 +101,16 @@
   },
   {
     "comment": "collate - Statement 24",
-    "query": "SELECT 'bbc' COLLATE \"C\" > 'Abc' COLLATE \"C\" AS \"true\""
+    "query": "SELECT 'bbc' COLLATE \"C\" \u003e 'Abc' COLLATE \"C\" AS \"true\""
   },
   {
     "comment": "collate - Statement 25",
-    "query": "SELECT 'bbc' COLLATE \"POSIX\" < 'Abc' COLLATE \"POSIX\" AS \"false\""
+    "query": "SELECT 'bbc' COLLATE \"POSIX\" \u003c 'Abc' COLLATE \"POSIX\" AS \"false\""
   },
   {
     "comment": "collate - Statement 26",
-    "query": "CREATE TABLE collate_test10 ( a int, x text COLLATE \"C\", y text COLLATE \"POSIX\" )"
+    "query": "CREATE TABLE collate_test10 ( a int, x text COLLATE \"C\", y text COLLATE \"POSIX\" )",
+    "expected": "CREATE TABLE collate_test10 (a INT, x TEXT COLLATE \"C\", y TEXT COLLATE \"POSIX\")"
   },
   {
     "comment": "collate - Statement 27",
@@ -121,7 +130,7 @@
   },
   {
     "comment": "collate - Statement 31",
-    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" >= 'bbc'"
+    "query": "CREATE VIEW collview1 AS SELECT * FROM collate_test1 WHERE b COLLATE \"C\" \u003e= 'bbc'"
   },
   {
     "comment": "collate - Statement 32",
@@ -137,27 +146,33 @@
   },
   {
     "comment": "collate - Statement 35",
-    "query": "SELECT a, coalesce(b, 'foo') FROM collate_test1 ORDER BY 2"
+    "query": "SELECT a, coalesce(b, 'foo') FROM collate_test1 ORDER BY 2",
+    "expected": "SELECT a, COALESCE(b, 'foo') FROM collate_test1 ORDER BY 2"
   },
   {
     "comment": "collate - Statement 36",
-    "query": "SELECT a, coalesce(b, 'foo') FROM collate_test2 ORDER BY 2"
+    "query": "SELECT a, coalesce(b, 'foo') FROM collate_test2 ORDER BY 2",
+    "expected": "SELECT a, COALESCE(b, 'foo') FROM collate_test2 ORDER BY 2"
   },
   {
     "comment": "collate - Statement 37",
-    "query": "SELECT a, lower(coalesce(x, 'foo')), lower(coalesce(y, 'foo')) FROM collate_test10"
+    "query": "SELECT a, lower(coalesce(x, 'foo')), lower(coalesce(y, 'foo')) FROM collate_test10",
+    "expected": "SELECT a, lower(COALESCE(x, 'foo')), lower(COALESCE(y, 'foo')) FROM collate_test10"
   },
   {
     "comment": "collate - Statement 38",
-    "query": "SELECT a, b, greatest(b, 'CCC') FROM collate_test1 ORDER BY 3"
+    "query": "SELECT a, b, greatest(b, 'CCC') FROM collate_test1 ORDER BY 3",
+    "expected": "SELECT a, b, GREATEST(b, 'CCC') FROM collate_test1 ORDER BY 3"
   },
   {
     "comment": "collate - Statement 39",
-    "query": "SELECT a, b, greatest(b, 'CCC') FROM collate_test2 ORDER BY 3"
+    "query": "SELECT a, b, greatest(b, 'CCC') FROM collate_test2 ORDER BY 3",
+    "expected": "SELECT a, b, GREATEST(b, 'CCC') FROM collate_test2 ORDER BY 3"
   },
   {
     "comment": "collate - Statement 40",
-    "query": "SELECT a, x, y, lower(greatest(x, 'foo')), lower(greatest(y, 'foo')) FROM collate_test10"
+    "query": "SELECT a, x, y, lower(greatest(x, 'foo')), lower(greatest(y, 'foo')) FROM collate_test10",
+    "expected": "SELECT a, x, y, lower(GREATEST(x, 'foo')), lower(GREATEST(y, 'foo')) FROM collate_test10"
   },
   {
     "comment": "collate - Statement 41",
@@ -181,31 +196,38 @@
   },
   {
     "comment": "collate - Statement 46",
-    "query": "CREATE DOMAIN testdomain AS text"
+    "query": "CREATE DOMAIN testdomain AS text",
+    "expected": "CREATE DOMAIN testdomain AS TEXT"
   },
   {
     "comment": "collate - Statement 47",
-    "query": "SELECT a, b::testdomain FROM collate_test1 ORDER BY 2"
+    "query": "SELECT a, b::testdomain FROM collate_test1 ORDER BY 2",
+    "expected": "SELECT a, CAST(b AS testdomain) FROM collate_test1 ORDER BY 2"
   },
   {
     "comment": "collate - Statement 48",
-    "query": "SELECT a, b::testdomain FROM collate_test2 ORDER BY 2"
+    "query": "SELECT a, b::testdomain FROM collate_test2 ORDER BY 2",
+    "expected": "SELECT a, CAST(b AS testdomain) FROM collate_test2 ORDER BY 2"
   },
   {
     "comment": "collate - Statement 49",
-    "query": "SELECT a, b::testdomain_p FROM collate_test2 ORDER BY 2"
+    "query": "SELECT a, b::testdomain_p FROM collate_test2 ORDER BY 2",
+    "expected": "SELECT a, CAST(b AS testdomain_p) FROM collate_test2 ORDER BY 2"
   },
   {
     "comment": "collate - Statement 50",
-    "query": "SELECT a, lower(x::testdomain), lower(y::testdomain) FROM collate_test10"
+    "query": "SELECT a, lower(x::testdomain), lower(y::testdomain) FROM collate_test10",
+    "expected": "SELECT a, lower(CAST(x AS testdomain)), lower(CAST(y AS testdomain)) FROM collate_test10"
   },
   {
     "comment": "collate - Statement 51",
-    "query": "SELECT min(b), max(b) FROM collate_test1"
+    "query": "SELECT min(b), max(b) FROM collate_test1",
+    "expected": "SELECT MIN(b), MAX(b) FROM collate_test1"
   },
   {
     "comment": "collate - Statement 52",
-    "query": "SELECT min(b), max(b) FROM collate_test2"
+    "query": "SELECT min(b), max(b) FROM collate_test2",
+    "expected": "SELECT MIN(b), MAX(b) FROM collate_test2"
   },
   {
     "comment": "collate - Statement 53",
@@ -229,7 +251,8 @@
   },
   {
     "comment": "collate - Statement 58",
-    "query": "SELECT array_agg(a ORDER BY x||y) FROM collate_test10"
+    "query": "SELECT array_agg(a ORDER BY x||y) FROM collate_test10",
+    "expected": "SELECT array_agg(a ORDER BY x || y) FROM collate_test10"
   },
   {
     "comment": "collate - Statement 59",
@@ -241,11 +264,13 @@
   },
   {
     "comment": "collate - Statement 61",
-    "query": "SELECT a, b FROM collate_test2 WHERE a < 4 INTERSECT SELECT a, b FROM collate_test2 WHERE a > 1 ORDER BY 2"
+    "query": "SELECT a, b FROM collate_test2 WHERE a \u003c 4 INTERSECT SELECT a, b FROM collate_test2 WHERE a \u003e 1 ORDER BY 2",
+    "expected": "(SELECT a, b FROM collate_test2 WHERE a \u003c 4) INTERSECT (SELECT a, b FROM collate_test2 WHERE a \u003e 1) ORDER BY 2"
   },
   {
     "comment": "collate - Statement 62",
-    "query": "SELECT a, b FROM collate_test2 EXCEPT SELECT a, b FROM collate_test2 WHERE a < 2 ORDER BY 2"
+    "query": "SELECT a, b FROM collate_test2 EXCEPT SELECT a, b FROM collate_test2 WHERE a \u003c 2 ORDER BY 2",
+    "expected": "SELECT a, b FROM collate_test2 EXCEPT (SELECT a, b FROM collate_test2 WHERE a \u003c 2) ORDER BY 2"
   },
   {
     "comment": "collate - Statement 63",
@@ -277,51 +302,63 @@
   },
   {
     "comment": "collate - Statement 70",
-    "query": "select x < y from collate_test10"
+    "query": "select x \u003c y from collate_test10",
+    "expected": "SELECT x \u003c y FROM collate_test10"
   },
   {
     "comment": "collate - Statement 71",
-    "query": "select x || y from collate_test10"
+    "query": "select x || y from collate_test10",
+    "expected": "SELECT x || y FROM collate_test10"
   },
   {
     "comment": "collate - Statement 72",
-    "query": "select x, y from collate_test10 order by x || y"
+    "query": "select x, y from collate_test10 order by x || y",
+    "expected": "SELECT x, y FROM collate_test10 ORDER BY x || y"
   },
   {
     "comment": "collate - Statement 73",
-    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"C\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"POSIX\" FROM foo WHERE length(x) < 10) SELECT * FROM foo"
+    "query": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES('a' COLLATE \"C\"),('b')) t(x) UNION ALL SELECT (x || 'c') COLLATE \"POSIX\" FROM foo WHERE length(x) \u003c 10) SELECT * FROM foo",
+    "expected": "WITH RECURSIVE foo(x) AS (SELECT x FROM (VALUES ('a' COLLATE \"C\"), ('b')) AS t(x) UNION ALL (SELECT (x || 'c') COLLATE \"POSIX\" FROM foo WHERE length(x) \u003c 10)) SELECT * FROM foo"
   },
   {
     "comment": "collate - Statement 74",
-    "query": "SELECT a, b, a < b as lt FROM (VALUES ('a', 'B'), ('A', 'b' COLLATE \"C\")) v(a,b)"
+    "query": "SELECT a, b, a \u003c b as lt FROM (VALUES ('a', 'B'), ('A', 'b' COLLATE \"C\")) v(a,b)",
+    "expected": "SELECT a, b, a \u003c b AS lt FROM (VALUES ('a', 'B'), ('A', 'b' COLLATE \"C\")) AS v(a, b)"
   },
   {
     "comment": "collate - Statement 75",
-    "query": "SELECT * FROM collate_test10 WHERE (x, y) NOT IN (SELECT y, x FROM collate_test10)"
+    "query": "SELECT * FROM collate_test10 WHERE (x, y) NOT IN (SELECT y, x FROM collate_test10)",
+    "expected": "SELECT * FROM collate_test10 WHERE NOT (x, y) IN (SELECT y, x FROM collate_test10)"
   },
   {
     "comment": "collate - Statement 76",
-    "query": "SELECT * FROM collate_test10 WHERE (x COLLATE \"POSIX\", y COLLATE \"C\") NOT IN (SELECT y, x FROM collate_test10)"
+    "query": "SELECT * FROM collate_test10 WHERE (x COLLATE \"POSIX\", y COLLATE \"C\") NOT IN (SELECT y, x FROM collate_test10)",
+    "expected": "SELECT * FROM collate_test10 WHERE NOT (x COLLATE \"POSIX\", y COLLATE \"C\") IN (SELECT y, x FROM collate_test10)"
   },
   {
     "comment": "collate - Statement 77",
-    "query": "SELECT * FROM collate_test10 WHERE (x, y) NOT IN (SELECT y COLLATE \"C\", x COLLATE \"POSIX\" FROM collate_test10)"
+    "query": "SELECT * FROM collate_test10 WHERE (x, y) NOT IN (SELECT y COLLATE \"C\", x COLLATE \"POSIX\" FROM collate_test10)",
+    "expected": "SELECT * FROM collate_test10 WHERE NOT (x, y) IN (SELECT y COLLATE \"C\", x COLLATE \"POSIX\" FROM collate_test10)"
   },
   {
     "comment": "collate - Statement 78",
-    "query": "SELECT CAST('42' AS text COLLATE \"C\")"
+    "query": "SELECT CAST('42' AS text COLLATE \"C\")",
+    "error": "parse error at position 33: syntax error"
   },
   {
     "comment": "collate - Statement 79",
-    "query": "SELECT a, CAST(b AS varchar) FROM collate_test1 ORDER BY 2"
+    "query": "SELECT a, CAST(b AS varchar) FROM collate_test1 ORDER BY 2",
+    "expected": "SELECT a, CAST(b AS VARCHAR) FROM collate_test1 ORDER BY 2"
   },
   {
     "comment": "collate - Statement 80",
-    "query": "SELECT a, CAST(b AS varchar) FROM collate_test2 ORDER BY 2"
+    "query": "SELECT a, CAST(b AS varchar) FROM collate_test2 ORDER BY 2",
+    "expected": "SELECT a, CAST(b AS VARCHAR) FROM collate_test2 ORDER BY 2"
   },
   {
     "comment": "collate - Statement 81",
-    "query": "CREATE FUNCTION vc (text) RETURNS text LANGUAGE sql AS 'select $1::varchar'"
+    "query": "CREATE FUNCTION vc (text) RETURNS text LANGUAGE sql AS 'select $1::varchar'",
+    "expected": "CREATE FUNCTION vc (TEXT) RETURNS TEXT LANGUAGE sql AS $$select $1::varchar$$"
   },
   {
     "comment": "collate - Statement 82",
@@ -337,7 +374,8 @@
   },
   {
     "comment": "collate - Statement 85",
-    "query": "CREATE FUNCTION dup (anyelement) RETURNS anyelement AS 'select $1' LANGUAGE sql"
+    "query": "CREATE FUNCTION dup (anyelement) RETURNS anyelement AS 'select $1' LANGUAGE sql",
+    "expected": "CREATE FUNCTION dup (anyelement) RETURNS anyelement LANGUAGE sql AS $$select $1$$"
   },
   {
     "comment": "collate - Statement 86",
@@ -349,27 +387,33 @@
   },
   {
     "comment": "collate - Statement 88",
-    "query": "CREATE INDEX collate_test1_idx1 ON collate_test1 (b)"
+    "query": "CREATE INDEX collate_test1_idx1 ON collate_test1 (b)",
+    "expected": "CREATE INDEX collate_test1_idx1 ON collate_test1 USING btree ( b )"
   },
   {
     "comment": "collate - Statement 89",
-    "query": "CREATE INDEX collate_test1_idx2 ON collate_test1 (b COLLATE \"POSIX\")"
+    "query": "CREATE INDEX collate_test1_idx2 ON collate_test1 (b COLLATE \"POSIX\")",
+    "expected": "CREATE INDEX collate_test1_idx2 ON collate_test1 USING btree ( b COLLATE \"POSIX\" )"
   },
   {
     "comment": "collate - Statement 90",
-    "query": "CREATE INDEX collate_test1_idx3 ON collate_test1 ((b COLLATE \"POSIX\"))"
+    "query": "CREATE INDEX collate_test1_idx3 ON collate_test1 ((b COLLATE \"POSIX\"))",
+    "expected": "CREATE INDEX collate_test1_idx3 ON collate_test1 USING btree ( (b COLLATE \"POSIX\") )"
   },
   {
     "comment": "collate - Statement 91",
-    "query": "CREATE INDEX collate_test1_idx4 ON collate_test1 (((b||'foo') COLLATE \"POSIX\"))"
+    "query": "CREATE INDEX collate_test1_idx4 ON collate_test1 (((b||'foo') COLLATE \"POSIX\"))",
+    "expected": "CREATE INDEX collate_test1_idx4 ON collate_test1 USING btree ( ((b || 'foo') COLLATE \"POSIX\") )"
   },
   {
     "comment": "collate - Statement 92",
-    "query": "CREATE INDEX collate_test1_idx5 ON collate_test1 (a COLLATE \"POSIX\")"
+    "query": "CREATE INDEX collate_test1_idx5 ON collate_test1 (a COLLATE \"POSIX\")",
+    "expected": "CREATE INDEX collate_test1_idx5 ON collate_test1 USING btree ( a COLLATE \"POSIX\" )"
   },
   {
     "comment": "collate - Statement 93",
-    "query": "CREATE INDEX collate_test1_idx6 ON collate_test1 ((a COLLATE \"POSIX\"))"
+    "query": "CREATE INDEX collate_test1_idx6 ON collate_test1 ((a COLLATE \"POSIX\"))",
+    "expected": "CREATE INDEX collate_test1_idx6 ON collate_test1 USING btree ( (a COLLATE \"POSIX\") )"
   },
   {
     "comment": "collate - Statement 94",
@@ -377,19 +421,23 @@
   },
   {
     "comment": "collate - Statement 95",
-    "query": "SET enable_seqscan TO 0"
+    "query": "SET enable_seqscan TO 0",
+    "expected": "SET enable_seqscan = 0"
   },
   {
     "comment": "collate - Statement 96",
-    "query": "SET enable_hashjoin TO 0"
+    "query": "SET enable_hashjoin TO 0",
+    "expected": "SET enable_hashjoin = 0"
   },
   {
     "comment": "collate - Statement 97",
-    "query": "SET enable_nestloop TO 0"
+    "query": "SET enable_nestloop TO 0",
+    "expected": "SET enable_nestloop = 0"
   },
   {
     "comment": "collate - Statement 98",
-    "query": "CREATE TABLE collate_test20 (f1 text COLLATE \"C\" PRIMARY KEY)"
+    "query": "CREATE TABLE collate_test20 (f1 text COLLATE \"C\" PRIMARY KEY)",
+    "expected": "CREATE TABLE collate_test20 (f1 TEXT COLLATE \"C\" PRIMARY KEY)"
   },
   {
     "comment": "collate - Statement 99",
@@ -397,7 +445,8 @@
   },
   {
     "comment": "collate - Statement 100",
-    "query": "CREATE TABLE collate_test21 (f2 text COLLATE \"POSIX\" REFERENCES collate_test20)"
+    "query": "CREATE TABLE collate_test21 (f2 text COLLATE \"POSIX\" REFERENCES collate_test20)",
+    "expected": "CREATE TABLE collate_test21 (f2 TEXT COLLATE \"POSIX\" REFERENCES collate_test20)"
   },
   {
     "comment": "collate - Statement 101",
@@ -409,7 +458,8 @@
   },
   {
     "comment": "collate - Statement 103",
-    "query": "CREATE TABLE collate_test22 (f2 text COLLATE \"POSIX\")"
+    "query": "CREATE TABLE collate_test22 (f2 text COLLATE \"POSIX\")",
+    "expected": "CREATE TABLE collate_test22 (f2 TEXT COLLATE \"POSIX\")"
   },
   {
     "comment": "collate - Statement 104",
@@ -437,15 +487,18 @@
   },
   {
     "comment": "collate - Statement 110",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM collate_test10 ORDER BY x, y"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM collate_test10 ORDER BY x, y",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM collate_test10 ORDER BY x, y"
   },
   {
     "comment": "collate - Statement 111",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM collate_test10 ORDER BY x DESC, y COLLATE \"C\" ASC NULLS FIRST"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM collate_test10 ORDER BY x DESC, y COLLATE \"C\" ASC NULLS FIRST",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM collate_test10 ORDER BY x DESC, y COLLATE \"C\" ASC NULLS FIRST"
   },
   {
     "comment": "collate - Statement 112",
-    "query": "CREATE COLLATION builtin_c ( PROVIDER = builtin, LOCALE = \"C\" )"
+    "query": "CREATE COLLATION builtin_c ( PROVIDER = builtin, LOCALE = \"C\" )",
+    "expected": "CREATE COLLATION builtin_c (provider = builtin, locale = \"C\")"
   },
   {
     "comment": "collate - Statement 113",
@@ -453,15 +506,18 @@
   },
   {
     "comment": "collate - Statement 114",
-    "query": "CREATE COLLATION builtin2 ( PROVIDER = builtin )"
+    "query": "CREATE COLLATION builtin2 ( PROVIDER = builtin )",
+    "expected": "CREATE COLLATION builtin2 (provider = builtin)"
   },
   {
     "comment": "collate - Statement 115",
-    "query": "CREATE COLLATION builtin2 ( PROVIDER = builtin, LOCALE = \"en_US\" )"
+    "query": "CREATE COLLATION builtin2 ( PROVIDER = builtin, LOCALE = \"en_US\" )",
+    "expected": "CREATE COLLATION builtin2 (provider = builtin, locale = \"en_US\")"
   },
   {
     "comment": "collate - Statement 116",
-    "query": "CREATE COLLATION builtin2 ( PROVIDER = builtin, LC_CTYPE = \"C\", LC_COLLATE = \"C\" )"
+    "query": "CREATE COLLATION builtin2 ( PROVIDER = builtin, LC_CTYPE = \"C\", LC_COLLATE = \"C\" )",
+    "expected": "CREATE COLLATION builtin2 (provider = builtin, lc_ctype = \"C\", lc_collate = \"C\")"
   },
   {
     "comment": "collate - Statement 117",
@@ -469,7 +525,8 @@
   },
   {
     "comment": "collate - Statement 118",
-    "query": "CREATE COLLATION mycoll2 ( LC_COLLATE = \"POSIX\", LC_CTYPE = \"POSIX\" )"
+    "query": "CREATE COLLATION mycoll2 ( LC_COLLATE = \"POSIX\", LC_CTYPE = \"POSIX\" )",
+    "expected": "CREATE COLLATION mycoll2 (lc_collate = \"POSIX\", lc_ctype = \"POSIX\")"
   },
   {
     "comment": "collate - Statement 119",
@@ -481,7 +538,8 @@
   },
   {
     "comment": "collate - Statement 121",
-    "query": "CREATE TABLE collate_test23 (f1 text collate mycoll2)"
+    "query": "CREATE TABLE collate_test23 (f1 text collate mycoll2)",
+    "expected": "CREATE TABLE collate_test23 (f1 TEXT COLLATE mycoll2)"
   },
   {
     "comment": "collate - Statement 122",
@@ -489,11 +547,13 @@
   },
   {
     "comment": "collate - Statement 123",
-    "query": "CREATE COLLATION case_coll (\"Lc_Collate\" = \"POSIX\", \"Lc_Ctype\" = \"POSIX\")"
+    "query": "CREATE COLLATION case_coll (Lc_Collate = \"POSIX\", Lc_Ctype = \"POSIX\")",
+    "expected": "CREATE COLLATION case_coll (lc_collate = \"POSIX\", lc_ctype = \"POSIX\")"
   },
   {
     "comment": "collate - Statement 124",
-    "query": "CREATE TEMP TABLE vctable (f1 varchar(25))"
+    "query": "CREATE TEMP TABLE vctable (f1 varchar(25))",
+    "expected": "CREATE TEMPORARY TABLE vctable (f1 VARCHAR(25))"
   },
   {
     "comment": "collate - Statement 125",
@@ -501,59 +561,73 @@
   },
   {
     "comment": "collate - Statement 126",
-    "query": "SELECT collation for ('foo')"
+    "query": "SELECT collation for ('foo')",
+    "expected": "SELECT pg_collation_for('foo')"
   },
   {
     "comment": "collate - Statement 127",
-    "query": "SELECT collation for ('foo'::text)"
+    "query": "SELECT collation for ('foo'::text)",
+    "expected": "SELECT pg_collation_for(CAST('foo' AS TEXT))"
   },
   {
     "comment": "collate - Statement 128",
-    "query": "SELECT collation for ((SELECT a FROM collate_test1 LIMIT 1))"
+    "query": "SELECT collation for ((SELECT a FROM collate_test1 LIMIT 1))",
+    "expected": "SELECT pg_collation_for((SELECT a FROM collate_test1 LIMIT 1))"
   },
   {
     "comment": "collate - Statement 129",
-    "query": "SELECT collation for ((SELECT b FROM collate_test1 LIMIT 1))"
+    "query": "SELECT collation for ((SELECT b FROM collate_test1 LIMIT 1))",
+    "expected": "SELECT pg_collation_for((SELECT b FROM collate_test1 LIMIT 1))"
   },
   {
     "comment": "collate - Statement 130",
-    "query": "CREATE VIEW collate_on_int AS SELECT c1+1 AS c1p FROM (SELECT ('4' COLLATE \"C\")::INT AS c1) ss"
+    "query": "CREATE VIEW collate_on_int AS SELECT c1+1 AS c1p FROM (SELECT ('4' COLLATE \"C\")::INT AS c1) ss",
+    "expected": "CREATE VIEW collate_on_int AS SELECT c1 + 1 AS c1p FROM (SELECT CAST(('4' COLLATE \"C\") AS INT) AS c1) AS ss"
   },
   {
     "comment": "collate - Statement 131",
-    "query": "CREATE COLLATION coll_dup_chk (LC_CTYPE = \"POSIX\", LC_CTYPE = \"NONSENSE\", LC_COLLATE = \"POSIX\")"
+    "query": "CREATE COLLATION coll_dup_chk (LC_CTYPE = \"POSIX\", LC_CTYPE = \"NONSENSE\", LC_COLLATE = \"POSIX\")",
+    "expected": "CREATE COLLATION coll_dup_chk (lc_ctype = \"POSIX\", lc_ctype = \"NONSENSE\", lc_collate = \"POSIX\")"
   },
   {
     "comment": "collate - Statement 132",
-    "query": "CREATE COLLATION coll_dup_chk (PROVIDER = icu, PROVIDER = NONSENSE, LC_COLLATE = \"POSIX\", LC_CTYPE = \"POSIX\")"
+    "query": "CREATE COLLATION coll_dup_chk (PROVIDER = icu, PROVIDER = NONSENSE, LC_COLLATE = \"POSIX\", LC_CTYPE = \"POSIX\")",
+    "expected": "CREATE COLLATION coll_dup_chk (provider = icu, provider = nonsense, lc_collate = \"POSIX\", lc_ctype = \"POSIX\")"
   },
   {
     "comment": "collate - Statement 133",
-    "query": "CREATE COLLATION case_sensitive (LOCALE = '', LOCALE = \"NONSENSE\")"
+    "query": "CREATE COLLATION case_sensitive (LOCALE = '', LOCALE = \"NONSENSE\")",
+    "expected": "CREATE COLLATION case_sensitive (locale = '', locale = \"NONSENSE\")"
   },
   {
     "comment": "collate - Statement 134",
-    "query": "CREATE COLLATION coll_dup_chk (DETERMINISTIC = TRUE, DETERMINISTIC = NONSENSE, LOCALE = '')"
+    "query": "CREATE COLLATION coll_dup_chk (DETERMINISTIC = TRUE, DETERMINISTIC = NONSENSE, LOCALE = '')",
+    "expected": "CREATE COLLATION coll_dup_chk (deterministic = 'true', deterministic = nonsense, locale = '')"
   },
   {
     "comment": "collate - Statement 135",
-    "query": "CREATE COLLATION coll_dup_chk (VERSION = '1', VERSION = \"NONSENSE\", LOCALE = '')"
+    "query": "CREATE COLLATION coll_dup_chk (VERSION = '1', VERSION = \"NONSENSE\", LOCALE = '')",
+    "expected": "CREATE COLLATION coll_dup_chk (version = '1', version = \"NONSENSE\", locale = '')"
   },
   {
     "comment": "collate - Statement 136",
-    "query": "CREATE COLLATION coll_dup_chk (LC_COLLATE = \"POSIX\", LC_CTYPE = \"POSIX\", LOCALE = '')"
+    "query": "CREATE COLLATION coll_dup_chk (LC_COLLATE = \"POSIX\", LC_CTYPE = \"POSIX\", LOCALE = '')",
+    "expected": "CREATE COLLATION coll_dup_chk (lc_collate = \"POSIX\", lc_ctype = \"POSIX\", locale = '')"
   },
   {
     "comment": "collate - Statement 137",
-    "query": "CREATE COLLATION coll_dup_chk (LC_COLLATE = \"POSIX\", LOCALE = '')"
+    "query": "CREATE COLLATION coll_dup_chk (LC_COLLATE = \"POSIX\", LOCALE = '')",
+    "expected": "CREATE COLLATION coll_dup_chk (lc_collate = \"POSIX\", locale = '')"
   },
   {
     "comment": "collate - Statement 138",
-    "query": "CREATE COLLATION coll_dup_chk (LC_CTYPE = \"POSIX\", LOCALE = '')"
+    "query": "CREATE COLLATION coll_dup_chk (LC_CTYPE = \"POSIX\", LOCALE = '')",
+    "expected": "CREATE COLLATION coll_dup_chk (lc_ctype = \"POSIX\", locale = '')"
   },
   {
     "comment": "collate - Statement 139",
-    "query": "CREATE COLLATION coll_dup_chk (FROM = \"C\", VERSION = \"1\")"
+    "query": "CREATE COLLATION coll_dup_chk (FROM = \"C\", VERSION = \"1\")",
+    "expected": "CREATE COLLATION coll_dup_chk (\"from\" = \"C\", version = \"1\")"
   },
   {
     "comment": "collate - Statement 140",

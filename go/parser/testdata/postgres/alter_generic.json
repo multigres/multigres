@@ -30,8 +30,7 @@
   },
   {
     "comment": "alter_generic - Statement 8",
-    "query": "CREATE USER regress_alter_generic_user1 IN ROLE regress_alter_generic_user3",
-    "expected": "CREATE USER regress_alter_generic_user1 WITH IN ROLE regress_alter_generic_user3"
+    "query": "CREATE USER regress_alter_generic_user1 IN ROLE regress_alter_generic_user3"
   },
   {
     "comment": "alter_generic - Statement 9",
@@ -585,8 +584,7 @@
   },
   {
     "comment": "alter_generic - Statement 133",
-    "query": "CREATE ROLE regress_alter_generic_user5 NOSUPERUSER",
-    "expected": "CREATE ROLE regress_alter_generic_user5 WITH NOSUPERUSER"
+    "query": "CREATE ROLE regress_alter_generic_user5 NOSUPERUSER"
   },
   {
     "comment": "alter_generic - Statement 134",
@@ -1073,8 +1071,7 @@
   },
   {
     "comment": "alter_generic - Statement 245",
-    "query": "CREATE TEXT SEARCH TEMPLATE tstemp_case (init = init_function)",
-    "expected": "CREATE TEXT SEARCH TEMPLATE tstemp_case (init = init_function)"
+    "query": "CREATE TEXT SEARCH TEMPLATE tstemp_case (init = init_function)"
   },
   {
     "comment": "alter_generic - Statement 246",
@@ -1083,11 +1080,13 @@
   },
   {
     "comment": "alter_generic - Statement 247",
-    "query": "CREATE TEXT SEARCH PARSER alt_ts_prs1 (start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype)"
+    "query": "CREATE TEXT SEARCH PARSER alt_ts_prs1 (start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype)",
+    "expected": "CREATE TEXT SEARCH PARSER alt_ts_prs1 (start = prsd_start, gettoken = prsd_nexttoken, \"end\" = prsd_end, lextypes = prsd_lextype)"
   },
   {
     "comment": "alter_generic - Statement 248",
-    "query": "CREATE TEXT SEARCH PARSER alt_ts_prs2 (start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype)"
+    "query": "CREATE TEXT SEARCH PARSER alt_ts_prs2 (start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype)",
+    "expected": "CREATE TEXT SEARCH PARSER alt_ts_prs2 (start = prsd_start, gettoken = prsd_nexttoken, \"end\" = prsd_end, lextypes = prsd_lextype)"
   },
   {
     "comment": "alter_generic - Statement 249",
@@ -1103,8 +1102,7 @@
   },
   {
     "comment": "alter_generic - Statement 252",
-    "query": "CREATE TEXT SEARCH PARSER tspars_case (start = start_function)",
-    "expected": "CREATE TEXT SEARCH PARSER tspars_case (start = start_function)"
+    "query": "CREATE TEXT SEARCH PARSER tspars_case (start = start_function)"
   },
   {
     "comment": "alter_generic - Statement 253",

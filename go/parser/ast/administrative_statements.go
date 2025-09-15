@@ -95,9 +95,9 @@ func (tlc *TableLikeClause) SqlString() string {
 	if tlc.Relation == nil {
 		return "LIKE"
 	}
-	
+
 	result := fmt.Sprintf("LIKE %s", tlc.Relation.SqlString())
-	
+
 	// Handle INCLUDING options
 	if tlc.Options != 0 {
 		if tlc.Options&CREATE_TABLE_LIKE_ALL != 0 {
@@ -131,13 +131,13 @@ func (tlc *TableLikeClause) SqlString() string {
 			if tlc.Options&CREATE_TABLE_LIKE_STORAGE != 0 {
 				optionStrs = append(optionStrs, "STORAGE")
 			}
-			
+
 			if len(optionStrs) > 0 {
-				result += fmt.Sprintf(" INCLUDING %s", strings.Join(optionStrs, " "))
+				result += " INCLUDING " + strings.Join(optionStrs, " INCLUDING ")
 			}
 		}
 	}
-	
+
 	return result
 }
 
@@ -212,7 +212,7 @@ func (ps *PartitionSpec) String() string {
 // SqlString returns the SQL representation of the PartitionSpec
 func (ps *PartitionSpec) SqlString() string {
 	parts := []string{"PARTITION BY", string(ps.Strategy)}
-	
+
 	if ps.PartParams != nil && ps.PartParams.Len() > 0 {
 		var paramStrs []string
 		for _, param := range ps.PartParams.Items {
@@ -224,7 +224,7 @@ func (ps *PartitionSpec) SqlString() string {
 			parts = append(parts, "("+strings.Join(paramStrs, ", ")+")")
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -323,11 +323,11 @@ func (pbs *PartitionBoundSpec) SqlString() string {
 	}
 
 	parts := []string{"FOR VALUES"}
-	
+
 	switch pbs.Strategy {
 	case PARTITION_STRATEGY_HASH:
 		parts = append(parts, fmt.Sprintf("WITH (modulus %d, remainder %d)", pbs.Modulus, pbs.Remainder))
-		
+
 	case PARTITION_STRATEGY_LIST:
 		if pbs.ListDatums != nil && pbs.ListDatums.Len() > 0 {
 			datumStrings := []string{}
@@ -343,7 +343,7 @@ func (pbs *PartitionBoundSpec) SqlString() string {
 			}
 			parts = append(parts, "IN ("+strings.Join(datumStrings, ", ")+")")
 		}
-		
+
 	case PARTITION_STRATEGY_RANGE:
 		var rangeParts []string
 		if pbs.LowDatums != nil && len(pbs.LowDatums.Items) > 0 {
@@ -361,11 +361,11 @@ func (pbs *PartitionBoundSpec) SqlString() string {
 			rangeParts = append(rangeParts, "TO ("+strings.Join(highStrings, ", ")+")")
 		}
 		parts = append(parts, strings.Join(rangeParts, " "))
-		
+
 	default:
 		parts = append(parts, fmt.Sprintf("/* Unknown strategy %s */", pbs.Strategy))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -373,8 +373,8 @@ func (pbs *PartitionBoundSpec) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:929
 type PartitionRangeDatum struct {
 	BaseNode
-	Kind     PartitionRangeDatumKind // What kind of datum this is - parsenodes.h:931
-	Value    Node                    // The actual datum value - parsenodes.h:932
+	Kind  PartitionRangeDatumKind // What kind of datum this is - parsenodes.h:931
+	Value Node                    // The actual datum value - parsenodes.h:932
 	// Location is provided by BaseNode.Location() method
 }
 
@@ -491,11 +491,11 @@ func (se *StatsElem) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h:2870
 type CreateForeignServerStmt struct {
 	BaseNode
-	Servername  string // Server name - parsenodes.h:2872
-	Servertype  string // Optional server type - parsenodes.h:2873
-	Version     string // Optional server version - parsenodes.h:2874
-	Fdwname     string // FDW name - parsenodes.h:2875
-	IfNotExists bool   // IF NOT EXISTS clause - parsenodes.h:2876
+	Servername  string    // Server name - parsenodes.h:2872
+	Servertype  string    // Optional server type - parsenodes.h:2873
+	Version     string    // Optional server version - parsenodes.h:2874
+	Fdwname     string    // FDW name - parsenodes.h:2875
+	IfNotExists bool      // IF NOT EXISTS clause - parsenodes.h:2876
 	Options     *NodeList // Generic options to FDW - parsenodes.h:2877
 }
 
@@ -528,29 +528,29 @@ func (cfss *CreateForeignServerStmt) String() string {
 // SqlString returns the SQL representation of the CREATE FOREIGN SERVER statement
 func (cfss *CreateForeignServerStmt) SqlString() string {
 	var parts []string
-	
+
 	// CREATE SERVER [IF NOT EXISTS]
 	parts = append(parts, "CREATE SERVER")
 	if cfss.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
 	}
-	
+
 	// server name
 	parts = append(parts, cfss.Servername)
-	
+
 	// TYPE clause
 	if cfss.Servertype != "" {
 		parts = append(parts, "TYPE", "'"+cfss.Servertype+"'")
 	}
-	
-	// VERSION clause  
+
+	// VERSION clause
 	if cfss.Version != "" {
 		parts = append(parts, "VERSION", "'"+cfss.Version+"'")
 	}
-	
+
 	// FOREIGN DATA WRAPPER
 	parts = append(parts, "FOREIGN DATA WRAPPER", cfss.Fdwname)
-	
+
 	// OPTIONS clause
 	if cfss.Options != nil && cfss.Options.Len() > 0 {
 		var optParts []string
@@ -566,7 +566,7 @@ func (cfss *CreateForeignServerStmt) SqlString() string {
 		}
 		parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -593,7 +593,7 @@ func NewCreateForeignTableStmt(relation *RangeVar, tableElts, inhRelations *Node
 		IfNotExists:  ifNotExists,
 		OnCommit:     ONCOMMIT_NOOP,
 	}
-	
+
 	return &CreateForeignTableStmt{
 		BaseNode:   BaseNode{Tag: T_CreateForeignTableStmt},
 		Base:       base,
@@ -613,29 +613,56 @@ func (cfts *CreateForeignTableStmt) String() string {
 // SqlString returns the SQL representation of the CREATE FOREIGN TABLE statement
 func (cfts *CreateForeignTableStmt) SqlString() string {
 	var parts []string
-	
+
 	// CREATE FOREIGN TABLE [IF NOT EXISTS]
 	parts = append(parts, "CREATE FOREIGN TABLE")
 	if cfts.Base.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
 	}
-	
+
 	// table name
 	parts = append(parts, cfts.Base.Relation.SqlString())
-	
-	// column definitions
-	if cfts.Base.TableElts != nil && cfts.Base.TableElts.Len() > 0 {
+
+	// column definitions - add parentheses unless this is a partition table
+	isPartitionTable := cfts.Base.PartBound != nil && cfts.Base.InhRelations != nil && cfts.Base.InhRelations.Len() > 0
+
+	if !isPartitionTable {
+		// Regular foreign table - always include parentheses
+		if cfts.Base.TableElts != nil && cfts.Base.TableElts.Len() > 0 {
+			parts = append(parts, "("+cfts.Base.TableElts.SqlString()+")")
+		} else {
+			parts = append(parts, "()")
+		}
+	} else if cfts.Base.TableElts != nil && cfts.Base.TableElts.Len() > 0 {
+		// Partition table with column definitions (rare case)
 		parts = append(parts, "("+cfts.Base.TableElts.SqlString()+")")
 	}
-	
-	// INHERITS clause
+
+	// PARTITION OF or INHERITS clause
 	if cfts.Base.InhRelations != nil && cfts.Base.InhRelations.Len() > 0 {
-		parts = append(parts, "INHERITS", "("+cfts.Base.InhRelations.SqlString()+")")
+		if isPartitionTable {
+			// PARTITION OF clause for partition tables
+			var inhParts []string
+			for _, item := range cfts.Base.InhRelations.Items {
+				if inh, ok := item.(*RangeVar); ok && inh != nil {
+					inhParts = append(inhParts, inh.SqlString())
+				}
+			}
+			parts = append(parts, "PARTITION OF", strings.Join(inhParts, ", "))
+
+			// Add DEFAULT if this is a default partition
+			if cfts.Base.PartBound != nil && cfts.Base.PartBound.IsDefault {
+				parts = append(parts, "DEFAULT")
+			}
+		} else {
+			// Regular INHERITS clause
+			parts = append(parts, "INHERITS", "("+cfts.Base.InhRelations.SqlString()+")")
+		}
 	}
-	
+
 	// SERVER clause
 	parts = append(parts, "SERVER", cfts.Servername)
-	
+
 	// OPTIONS clause
 	if cfts.Options != nil && cfts.Options.Len() > 0 {
 		var optParts []string
@@ -651,7 +678,7 @@ func (cfts *CreateForeignTableStmt) SqlString() string {
 		}
 		parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -693,22 +720,22 @@ func (cums *CreateUserMappingStmt) String() string {
 // SqlString returns the SQL representation of the CREATE USER MAPPING statement
 func (cums *CreateUserMappingStmt) SqlString() string {
 	var parts []string
-	
+
 	// CREATE USER MAPPING [IF NOT EXISTS]
 	parts = append(parts, "CREATE USER MAPPING")
 	if cums.IfNotExists {
 		parts = append(parts, "IF NOT EXISTS")
 	}
-	
+
 	// FOR user
 	parts = append(parts, "FOR")
 	if cums.User != nil {
 		parts = append(parts, cums.User.SqlString())
 	}
-	
+
 	// SERVER name
 	parts = append(parts, "SERVER", cums.Servername)
-	
+
 	// OPTIONS clause
 	if cums.Options != nil && cums.Options.Len() > 0 {
 		var optParts []string
@@ -724,7 +751,7 @@ func (cums *CreateUserMappingStmt) SqlString() string {
 		}
 		parts = append(parts, "OPTIONS", "("+strings.Join(optParts, ", ")+")")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -746,21 +773,21 @@ type TriggerTransition struct {
 // Ported from postgres/src/include/nodes/parsenodes.h:3001
 type CreateTriggerStmt struct {
 	BaseNode
-	Replace      bool                 // Replace existing trigger? - parsenodes.h:3003
-	IsConstraint bool                 // Is this a constraint trigger? - parsenodes.h:3004
-	Trigname     string               // Trigger name - parsenodes.h:3005
-	Relation     *RangeVar            // Relation trigger is on - parsenodes.h:3006
-	Funcname     *NodeList            // Qual. name of function to call - parsenodes.h:3007
-	Args         *NodeList            // List of (T_String) Values or NIL - parsenodes.h:3008
-	Row          bool                 // ROW/STATEMENT - parsenodes.h:3009
-	Timing       int16                // BEFORE, AFTER, or INSTEAD - parsenodes.h:3010
-	Events       int16                // "OR" of INSERT/UPDATE/DELETE/TRUNCATE - parsenodes.h:3011
-	Columns      *NodeList            // Column names, or NIL for all columns - parsenodes.h:3012
-	WhenClause   Node                 // WHEN clause - parsenodes.h:3013
-	Constrrel    *RangeVar            // Opposite relation, if RI trigger - parsenodes.h:3014
-	Deferrable   bool                 // DEFERRABLE - parsenodes.h:3015
-	Initdeferred bool                 // INITIALLY DEFERRED - parsenodes.h:3016
-	Transitions  *NodeList           // Transition table clauses - parsenodes.h:3017
+	Replace      bool      // Replace existing trigger? - parsenodes.h:3003
+	IsConstraint bool      // Is this a constraint trigger? - parsenodes.h:3004
+	Trigname     string    // Trigger name - parsenodes.h:3005
+	Relation     *RangeVar // Relation trigger is on - parsenodes.h:3006
+	Funcname     *NodeList // Qual. name of function to call - parsenodes.h:3007
+	Args         *NodeList // List of (T_String) Values or NIL - parsenodes.h:3008
+	Row          bool      // ROW/STATEMENT - parsenodes.h:3009
+	Timing       int16     // BEFORE, AFTER, or INSTEAD - parsenodes.h:3010
+	Events       int16     // "OR" of INSERT/UPDATE/DELETE/TRUNCATE - parsenodes.h:3011
+	Columns      *NodeList // Column names, or NIL for all columns - parsenodes.h:3012
+	WhenClause   Node      // WHEN clause - parsenodes.h:3013
+	Constrrel    *RangeVar // Opposite relation, if RI trigger - parsenodes.h:3014
+	Deferrable   bool      // DEFERRABLE - parsenodes.h:3015
+	Initdeferred bool      // INITIALLY DEFERRED - parsenodes.h:3016
+	Transitions  *NodeList // Transition table clauses - parsenodes.h:3017
 }
 
 // TriggerType represents trigger event types.
@@ -926,7 +953,7 @@ func (cts *CreateTriggerStmt) StatementType() string {
 // SqlString returns SQL representation of the CREATE TRIGGER statement
 func (cts *CreateTriggerStmt) SqlString() string {
 	var parts []string
-	
+
 	// CREATE [OR REPLACE] [CONSTRAINT] TRIGGER
 	parts = append(parts, "CREATE")
 	if cts.Replace {
@@ -936,7 +963,7 @@ func (cts *CreateTriggerStmt) SqlString() string {
 		parts = append(parts, "CONSTRAINT")
 	}
 	parts = append(parts, "TRIGGER", cts.Trigname)
-	
+
 	// Timing (BEFORE, AFTER, INSTEAD OF)
 	switch cts.Timing {
 	case TRIGGER_TIMING_BEFORE:
@@ -946,7 +973,7 @@ func (cts *CreateTriggerStmt) SqlString() string {
 	case TRIGGER_TIMING_INSTEAD:
 		parts = append(parts, "INSTEAD OF")
 	}
-	
+
 	// Events (INSERT, UPDATE, DELETE, TRUNCATE)
 	var events []string
 	if cts.Events&TRIGGER_TYPE_INSERT != 0 {
@@ -975,18 +1002,18 @@ func (cts *CreateTriggerStmt) SqlString() string {
 		events = append(events, "TRUNCATE")
 	}
 	parts = append(parts, strings.Join(events, " OR "))
-	
+
 	// ON table
 	parts = append(parts, "ON")
 	if cts.Relation != nil {
 		parts = append(parts, cts.Relation.SqlString())
 	}
-	
+
 	// FROM constraint_table (for constraint triggers)
 	if cts.IsConstraint && cts.Constrrel != nil {
 		parts = append(parts, "FROM", cts.Constrrel.SqlString())
 	}
-	
+
 	// Deferrable options (for constraint triggers)
 	if cts.IsConstraint {
 		if cts.Deferrable {
@@ -1000,7 +1027,7 @@ func (cts *CreateTriggerStmt) SqlString() string {
 			parts = append(parts, "NOT DEFERRABLE")
 		}
 	}
-	
+
 	// REFERENCING transitions
 	if cts.Transitions != nil && cts.Transitions.Len() > 0 {
 		parts = append(parts, "REFERENCING")
@@ -1019,21 +1046,21 @@ func (cts *CreateTriggerStmt) SqlString() string {
 			parts = append(parts, "AS", trans.Name)
 		}
 	}
-	
+
 	// FOR EACH ROW/STATEMENT (only output if ROW is true, STATEMENT is default)
 	if cts.Row {
 		parts = append(parts, "FOR EACH ROW")
 	}
-	
+
 	// WHEN clause
 	if cts.WhenClause != nil {
 		parts = append(parts, "WHEN", fmt.Sprintf("(%s)", cts.WhenClause.SqlString()))
 	}
-	
+
 	// EXECUTE FUNCTION
 	parts = append(parts, "EXECUTE FUNCTION")
-	
-	// Function name
+
+	// Function name with arguments
 	if cts.Funcname != nil {
 		var funcNames []string
 		for _, item := range cts.Funcname.Items {
@@ -1041,28 +1068,30 @@ func (cts *CreateTriggerStmt) SqlString() string {
 				funcNames = append(funcNames, str.SVal)
 			}
 		}
-		parts = append(parts, strings.Join(funcNames, "."))
-	}
-	
-	// Function arguments
-	var argStrs []string
-	if cts.Args != nil && len(cts.Args.Items) > 0 {
-		for _, arg := range cts.Args.Items {
-			if str, ok := arg.(*String); ok {
-				// Check if it's a numeric string or needs quotes
-				if _, err := fmt.Sscanf(str.SVal, "%d", new(int)); err != nil {
-					// Not a number, add quotes
-					argStrs = append(argStrs, fmt.Sprintf("'%s'", str.SVal))
-				} else {
-					// It's a number
-					argStrs = append(argStrs, str.SVal)
+		funcNameStr := strings.Join(funcNames, ".")
+
+		// Function arguments
+		var argStrs []string
+		if cts.Args != nil && len(cts.Args.Items) > 0 {
+			for _, arg := range cts.Args.Items {
+				if str, ok := arg.(*String); ok {
+					// Check if it's a numeric string or needs quotes
+					if _, err := fmt.Sscanf(str.SVal, "%d", new(int)); err != nil {
+						// Not a number, add quotes
+						argStrs = append(argStrs, fmt.Sprintf("'%s'", str.SVal))
+					} else {
+						// It's a number
+						argStrs = append(argStrs, str.SVal)
+					}
 				}
 			}
 		}
+
+		// Combine function name and arguments without extra space
+		funcWithArgs := funcNameStr + "(" + strings.Join(argStrs, ", ") + ")"
+		parts = append(parts, funcWithArgs)
 	}
-	argsClause := "(" + strings.Join(argStrs, ", ") + ")"
-	parts = append(parts, argsClause)
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1115,15 +1144,15 @@ func (cps *CreatePolicyStmt) StatementType() string {
 func (cps *CreatePolicyStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "CREATE POLICY", cps.PolicyName, "ON")
-	
+
 	if cps.Table != nil {
 		parts = append(parts, cps.Table.SqlString())
 	}
-	
+
 	if cps.CmdName != "" {
 		parts = append(parts, "FOR", cps.CmdName)
 	}
-	
+
 	if cps.Roles != nil && cps.Roles.Len() > 0 {
 		roleStrs := make([]string, 0, cps.Roles.Len())
 		for i := 0; i < cps.Roles.Len(); i++ {
@@ -1133,15 +1162,15 @@ func (cps *CreatePolicyStmt) SqlString() string {
 		}
 		parts = append(parts, "TO", strings.Join(roleStrs, ", "))
 	}
-	
+
 	if cps.Qual != nil {
 		parts = append(parts, "USING (", cps.Qual.SqlString(), ")")
 	}
-	
+
 	if cps.WithCheck != nil {
 		parts = append(parts, "WITH CHECK (", cps.WithCheck.SqlString(), ")")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -1180,11 +1209,11 @@ func (aps *AlterPolicyStmt) StatementType() string {
 func (aps *AlterPolicyStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "ALTER POLICY", aps.PolicyName, "ON")
-	
+
 	if aps.Table != nil {
 		parts = append(parts, aps.Table.SqlString())
 	}
-	
+
 	if aps.Roles != nil && aps.Roles.Len() > 0 {
 		roleStrs := make([]string, 0, aps.Roles.Len())
 		for i := 0; i < aps.Roles.Len(); i++ {
@@ -1194,14 +1223,14 @@ func (aps *AlterPolicyStmt) SqlString() string {
 		}
 		parts = append(parts, "TO", strings.Join(roleStrs, ", "))
 	}
-	
+
 	if aps.Qual != nil {
 		parts = append(parts, "USING (", aps.Qual.SqlString(), ")")
 	}
-	
+
 	if aps.WithCheck != nil {
 		parts = append(parts, "WITH CHECK (", aps.WithCheck.SqlString(), ")")
 	}
-	
+
 	return strings.Join(parts, " ")
 }

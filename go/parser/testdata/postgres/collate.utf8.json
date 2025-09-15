@@ -1,15 +1,18 @@
 [
   {
     "comment": "collate.utf8 - Statement 1",
-    "query": "/* * This test is for collations and character operations when using the * builtin provider with the C.UTF-8 locale. */ /* skip test if not UTF8 server encoding */ SELECT getdatabaseencoding() <> 'UTF8' AS skip_test"
+    "query": "/* * This test is for collations and character operations when using the * builtin provider with the C.UTF-8 locale. */ /* skip test if not UTF8 server encoding */ SELECT getdatabaseencoding() \u003c\u003e 'UTF8' AS skip_test",
+    "expected": "SELECT getdatabaseencoding() \u003c\u003e 'UTF8' AS skip_test"
   },
   {
     "comment": "collate.utf8 - Statement 2",
-    "query": "CREATE COLLATION regress_pg_c_utf8 ( provider = builtin, locale = 'C_UTF8')"
+    "query": "CREATE COLLATION regress_pg_c_utf8 ( provider = builtin, locale = 'C_UTF8')",
+    "expected": "CREATE COLLATION regress_pg_c_utf8 (provider = builtin, locale = 'C_UTF8')"
   },
   {
     "comment": "collate.utf8 - Statement 3",
-    "query": "CREATE COLLATION regress_pg_c_utf8 ( provider = builtin, locale = 'C.UTF8')"
+    "query": "CREATE COLLATION regress_pg_c_utf8 ( provider = builtin, locale = 'C.UTF8')",
+    "expected": "CREATE COLLATION regress_pg_c_utf8 (provider = builtin, locale = 'C.UTF8')"
   },
   {
     "comment": "collate.utf8 - Statement 4",
@@ -17,15 +20,17 @@
   },
   {
     "comment": "collate.utf8 - Statement 5",
-    "query": "CREATE COLLATION regress_pg_c_utf8 ( provider = builtin, locale = 'C.UTF-8')"
+    "query": "CREATE COLLATION regress_pg_c_utf8 ( provider = builtin, locale = 'C.UTF-8')",
+    "expected": "CREATE COLLATION regress_pg_c_utf8 (provider = builtin, locale = 'C.UTF-8')"
   },
   {
     "comment": "collate.utf8 - Statement 6",
-    "query": "CREATE TABLE test_pg_c_utf8 ( t TEXT COLLATE PG_C_UTF8 )"
+    "query": "CREATE TABLE test_pg_c_utf8 ( t TEXT COLLATE PG_C_UTF8 )",
+    "expected": "CREATE TABLE test_pg_c_utf8 (t TEXT COLLATE pg_c_utf8)"
   },
   {
     "comment": "collate.utf8 - Statement 7",
-    "query": "INSERT INTO test_pg_c_utf8 VALUES ('abc DEF 123abc'), ('\u00e1bc s\u00dfs \u00dfss D\u00c9F'), ('\u01c4xx\u01c4 \u01c6xx\u01c5 \u01c5xx\u01c6'), ('\u023a\u023a\u023a'), ('\u2c65\u2c65\u2c65'), ('\u2c65\u023a')"
+    "query": "INSERT INTO test_pg_c_utf8 VALUES ('abc DEF 123abc'), ('ábc sßs ßss DÉF'), ('ǄxxǄ ǆxxǅ ǅxxǆ'), ('ȺȺȺ'), ('ⱥⱥⱥ'), ('ⱥȺ')"
   },
   {
     "comment": "collate.utf8 - Statement 8",
@@ -37,54 +42,67 @@
   },
   {
     "comment": "collate.utf8 - Statement 10",
-    "query": "SELECT lower('\u0391\u03a3' COLLATE PG_C_UTF8)"
+    "query": "SELECT lower('ΑΣ' COLLATE PG_C_UTF8)",
+    "expected": "SELECT lower('ΑΣ' COLLATE pg_c_utf8)"
   },
   {
     "comment": "collate.utf8 - Statement 11",
-    "query": "SELECT lower('\u0391\u037a\u03a3\u037a' COLLATE PG_C_UTF8)"
+    "query": "SELECT lower('ΑͺΣͺ' COLLATE PG_C_UTF8)",
+    "expected": "SELECT lower('ΑͺΣͺ' COLLATE pg_c_utf8)"
   },
   {
     "comment": "collate.utf8 - Statement 12",
-    "query": "SELECT lower('\u0391\u0384\u03a3\u0384' COLLATE PG_C_UTF8)"
+    "query": "SELECT lower('Α΄Σ΄' COLLATE PG_C_UTF8)",
+    "expected": "SELECT lower('Α΄Σ΄' COLLATE pg_c_utf8)"
   },
   {
     "comment": "collate.utf8 - Statement 13",
-    "query": "SELECT 'xyz' ~ '[[:alnum:]]' COLLATE PG_C_UTF8"
+    "query": "SELECT 'xyz' ~ '[[:alnum:]]' COLLATE PG_C_UTF8",
+    "expected": "SELECT 'xyz' ~ '[[:alnum:]]' COLLATE pg_c_utf8"
   },
   {
     "comment": "collate.utf8 - Statement 14",
-    "query": "SELECT 'xyz' !~ '[[:upper:]]' COLLATE PG_C_UTF8"
+    "query": "SELECT 'xyz' !~ '[[:upper:]]' COLLATE PG_C_UTF8",
+    "expected": "SELECT 'xyz' !~ '[[:upper:]]' COLLATE pg_c_utf8"
   },
   {
     "comment": "collate.utf8 - Statement 15",
-    "query": "SELECT '@' !~ '[[:alnum:]]' COLLATE PG_C_UTF8"
+    "query": "SELECT '@' !~ '[[:alnum:]]' COLLATE PG_C_UTF8",
+    "expected": "SELECT '@' !~ '[[:alnum:]]' COLLATE pg_c_utf8"
   },
   {
     "comment": "collate.utf8 - Statement 16",
-    "query": "SELECT '=' ~ '[[:punct:]]' COLLATE PG_C_UTF8"
+    "query": "SELECT '=' ~ '[[:punct:]]' COLLATE PG_C_UTF8",
+    "expected": "SELECT '=' ~ '[[:punct:]]' COLLATE pg_c_utf8"
   },
   {
     "comment": "collate.utf8 - Statement 17",
-    "query": "SELECT 'a8a' ~ '[[:digit:]]' COLLATE PG_C_UTF8"
+    "query": "SELECT 'a8a' ~ '[[:digit:]]' COLLATE PG_C_UTF8",
+    "expected": "SELECT 'a8a' ~ '[[:digit:]]' COLLATE pg_c_utf8"
   },
   {
     "comment": "collate.utf8 - Statement 18",
-    "query": "SELECT '\u0d67' !~ '\\d' COLLATE PG_C_UTF8"
+    "query": "SELECT '൧' !~ '\\d' COLLATE PG_C_UTF8",
+    "expected": "SELECT '൧' !~ '\\d' COLLATE pg_c_utf8"
   },
   {
     "comment": "collate.utf8 - Statement 19",
-    "query": "SELECT 'xYz' ~* 'XyZ' COLLATE PG_C_UTF8"
+    "query": "SELECT 'xYz' ~* 'XyZ' COLLATE PG_C_UTF8",
+    "expected": "SELECT 'xYz' ~* 'XyZ' COLLATE pg_c_utf8"
   },
   {
     "comment": "collate.utf8 - Statement 20",
-    "query": "SELECT 'xAb' ~* '[W-Y]' COLLATE PG_C_UTF8"
+    "query": "SELECT 'xAb' ~* '[W-Y]' COLLATE PG_C_UTF8",
+    "expected": "SELECT 'xAb' ~* '[W-Y]' COLLATE pg_c_utf8"
   },
   {
     "comment": "collate.utf8 - Statement 21",
-    "query": "SELECT 'xAb' !~* '[c-d]' COLLATE PG_C_UTF8"
+    "query": "SELECT 'xAb' !~* '[c-d]' COLLATE PG_C_UTF8",
+    "expected": "SELECT 'xAb' !~* '[c-d]' COLLATE pg_c_utf8"
   },
   {
     "comment": "collate.utf8 - Statement 22",
-    "query": "SELECT '\u0394' ~* '[\u03b3-\u03bb]' COLLATE PG_C_UTF8"
+    "query": "SELECT 'Δ' ~* '[γ-λ]' COLLATE PG_C_UTF8",
+    "expected": "SELECT 'Δ' ~* '[γ-λ]' COLLATE pg_c_utf8"
   }
 ]

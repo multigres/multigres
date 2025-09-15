@@ -699,15 +699,34 @@ func (t *TypeName) String() string {
 
 // SqlString returns the SQL representation of the TypeName
 // normalizeTypeName converts PostgreSQL internal type names to standard SQL type names
-func normalizeTypeName(typeName string) string {
-	// Strip schema qualification for built-in types
-	if strings.Contains(typeName, ".") {
-		parts := strings.Split(typeName, ".")
-		if len(parts) == 2 && (parts[0] == "pg_catalog" || parts[0] == "public") {
-			typeName = parts[1]
-		}
+func normalizeTypeName(nameParts []string) string {
+	if len(nameParts) == 0 {
+		return ""
 	}
 
+	// For qualified names, handle schema qualification
+	if len(nameParts) > 1 {
+		// Strip pg_catalog or public schema for built-in types
+		if len(nameParts) == 2 && (nameParts[0] == "pg_catalog" || nameParts[0] == "public") {
+			// Check if it's a built-in type
+			typeName := nameParts[1]
+			normalized := normalizeSingleTypeName(typeName)
+			return normalized
+		}
+
+		// For other qualified names, quote each part individually if needed
+		var quotedParts []string
+		for _, part := range nameParts {
+			quotedParts = append(quotedParts, QuoteIdentifier(part))
+		}
+		return strings.Join(quotedParts, ".")
+	}
+
+	// For single names, normalize if it's a built-in type
+	return normalizeSingleTypeName(nameParts[0])
+}
+
+func normalizeSingleTypeName(typeName string) string {
 	// Map PostgreSQL internal names to standard SQL names
 	switch strings.ToLower(typeName) {
 	case "int4", "int":
@@ -759,7 +778,7 @@ func normalizeTypeName(typeName string) string {
 	case "xml":
 		return "XML"
 	default:
-		return typeName
+		return QuoteIdentifier(typeName)
 	}
 }
 
@@ -775,17 +794,16 @@ func (t *TypeName) SqlString() string {
 		result = "SETOF "
 	}
 
-	// Join qualified names with dots (e.g., "schema.type")
+	// Collect name parts from the NodeList
 	var nameParts []string
 	for _, item := range t.Names.Items {
 		if str, ok := item.(*String); ok {
 			nameParts = append(nameParts, str.SVal)
 		}
 	}
-	typeName := strings.Join(nameParts, ".")
 
-	// Normalize the type name to standard SQL
-	typeName = normalizeTypeName(typeName)
+	// Use normalizeTypeName to handle both single and qualified names
+	typeName := normalizeTypeName(nameParts)
 
 	// Add type modifiers if present
 	if t.Typmods != nil && t.Typmods.Len() > 0 {
@@ -918,17 +936,9 @@ func (d *DefElem) String() string {
 func (d *DefElem) SqlString() string {
 	if d.Arg != nil {
 		argStr := d.Arg.SqlString()
-		// Special handling for String nodes that should be identifiers, not quoted literals
-		if strNode, ok := d.Arg.(*String); ok {
-			// For common identifier values, don't quote them
-			switch strNode.SVal {
-			case "default":
-				argStr = strNode.SVal
-			}
-		}
-		return fmt.Sprintf("%s = %s", d.Defname, argStr)
+		return fmt.Sprintf("%s = %s", QuoteIdentifier(d.Defname), argStr)
 	}
-	return d.Defname
+	return QuoteIdentifier(d.Defname)
 }
 
 // SqlStringForFunction returns the SQL representation of DefElem for function options
@@ -1081,6 +1091,13 @@ func (c *Constraint) SqlString() string {
 		}
 		result += " AS IDENTITY"
 		// TODO: Add sequence options if c.Options is not nil
+		return result
+	case CONSTR_GENERATED:
+		result := "GENERATED ALWAYS AS"
+		if c.RawExpr != nil {
+			result += " (" + c.RawExpr.SqlString() + ")"
+		}
+		result += " STORED"
 		return result
 	case CONSTR_PRIMARY:
 		result := ""
@@ -1622,7 +1639,12 @@ func (a *AlterTableCmd) SqlString() string {
 	case AT_SetCompression:
 		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "SET COMPRESSION")
 		if a.Def != nil {
-			parts = append(parts, a.Def.SqlString())
+			// For compression methods, we want an identifier, not a quoted string literal
+			if str, ok := a.Def.(*String); ok {
+				parts = append(parts, QuoteIdentifier(str.SVal))
+			} else {
+				parts = append(parts, a.Def.SqlString())
+			}
 		}
 
 	case AT_SetOptions:
@@ -1759,6 +1781,27 @@ func (a *AlterTableCmd) SqlString() string {
 
 	case AT_DropOids:
 		parts = append(parts, "SET WITHOUT OIDS")
+
+	case AT_SetAccessMethod:
+		parts = append(parts, "SET ACCESS METHOD")
+		if a.Name != "" {
+			parts = append(parts, a.Name)
+		} else {
+			// When Name is empty, it means DEFAULT was explicitly specified
+			parts = append(parts, "DEFAULT")
+		}
+
+	case AT_EnableRowSecurity:
+		parts = append(parts, "ENABLE ROW LEVEL SECURITY")
+
+	case AT_DisableRowSecurity:
+		parts = append(parts, "DISABLE ROW LEVEL SECURITY")
+
+	case AT_ForceRowSecurity:
+		parts = append(parts, "FORCE ROW LEVEL SECURITY")
+
+	case AT_NoForceRowSecurity:
+		parts = append(parts, "NO FORCE ROW LEVEL SECURITY")
 
 	default:
 		// Fallback for unhandled subtypes
@@ -1962,7 +2005,7 @@ func (i *IndexElem) SqlString() string {
 		for _, item := range i.Opclassopts.Items {
 			if defElem, ok := item.(*DefElem); ok {
 				if defElem.Arg != nil {
-					optParts = append(optParts, fmt.Sprintf("%s=%s", defElem.Defname, defElem.Arg.SqlString()))
+					optParts = append(optParts, fmt.Sprintf("%s = %s", defElem.Defname, defElem.Arg.SqlString()))
 				} else {
 					optParts = append(optParts, defElem.Defname)
 				}
@@ -1977,7 +2020,19 @@ func (i *IndexElem) SqlString() string {
 
 	// Add collation if specified
 	if i.Collation != nil && i.Collation.Len() > 0 {
-		result += " COLLATE " + i.Collation.SqlString()
+		// Collation names should be output as identifiers, not string literals
+		var collationParts []string
+		for _, item := range i.Collation.Items {
+			if strNode, ok := item.(*String); ok {
+				// Quote as identifier if needed
+				collationParts = append(collationParts, QuoteIdentifier(strNode.SVal))
+			} else if item != nil {
+				collationParts = append(collationParts, item.SqlString())
+			}
+		}
+		if len(collationParts) > 0 {
+			result += " COLLATE " + strings.Join(collationParts, ".")
+		}
 	}
 
 	// Add ordering (ASC/DESC) if not default
@@ -2329,11 +2384,32 @@ func (c *CreateSchemaStmt) SqlString() string {
 		parts = append(parts, "IF NOT EXISTS")
 	}
 
+	// Add schema name if specified
 	if c.Schemaname != "" {
 		parts = append(parts, c.Schemaname)
 	}
 
-	return strings.Join(parts, " ")
+	// Add AUTHORIZATION clause if specified
+	if c.Authrole != nil {
+		parts = append(parts, "AUTHORIZATION", c.Authrole.SqlString())
+	}
+
+	result := strings.Join(parts, " ")
+
+	// Add embedded statements if any
+	if c.SchemaElts != nil && c.SchemaElts.Len() > 0 {
+		var stmtStrs []string
+		for _, item := range c.SchemaElts.Items {
+			if item != nil {
+				stmtStrs = append(stmtStrs, item.SqlString())
+			}
+		}
+		if len(stmtStrs) > 0 {
+			result += " " + strings.Join(stmtStrs, " ")
+		}
+	}
+
+	return result
 }
 
 // ==============================================================================
@@ -2732,8 +2808,8 @@ func (i *IndexStmt) SqlString() string {
 		parts = append(parts, i.Relation.SqlString())
 	}
 
-	// Add access method if specified and not default
-	if i.AccessMethod != "" && i.AccessMethod != "btree" {
+	// Add access method if specified
+	if i.AccessMethod != "" {
 		parts = append(parts, "USING", i.AccessMethod)
 	}
 
@@ -2745,7 +2821,7 @@ func (i *IndexStmt) SqlString() string {
 				columnParts = append(columnParts, param.SqlString())
 			}
 		}
-		parts = append(parts, "("+strings.Join(columnParts, ", ")+")")
+		parts = append(parts, "( "+strings.Join(columnParts, ", ")+" )")
 	}
 
 	// Add INCLUDE columns if specified

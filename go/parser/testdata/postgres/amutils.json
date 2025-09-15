@@ -31,7 +31,8 @@
   },
   {
     "comment": "amutils - Statement 7",
-    "query": "CREATE INDEX fooindex ON foo (f1 desc, f2 asc, f3 nulls first, f4 nulls last)"
+    "query": "CREATE INDEX fooindex ON foo (f1 desc, f2 asc, f3 nulls first, f4 nulls last)",
+    "expected": "CREATE INDEX fooindex ON foo USING btree ( f1 desc, f2 asc, f3 nulls first, f4 nulls last )"
   },
   {
     "comment": "amutils - Statement 8",
@@ -41,7 +42,7 @@
   {
     "comment": "amutils - Statement 9",
     "query": "CREATE INDEX foocover ON foo (f1) INCLUDE (f2,f3)",
-    "expected": "CREATE INDEX foocover ON foo (f1) INCLUDE (f2, f3)"
+    "expected": "CREATE INDEX foocover ON foo USING btree ( f1 ) INCLUDE (f2, f3)"
   },
   {
     "comment": "amutils - Statement 10",

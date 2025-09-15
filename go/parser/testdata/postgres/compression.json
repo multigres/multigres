@@ -1,19 +1,23 @@
 [
   {
     "comment": "compression - Statement 1",
-    "query": "CREATE TABLE cmdata(f1 text COMPRESSION pglz)"
+    "query": "CREATE TABLE cmdata(f1 text COMPRESSION pglz)",
+    "expected": "CREATE TABLE cmdata (f1 TEXT COMPRESSION pglz)"
   },
   {
     "comment": "compression - Statement 2",
-    "query": "CREATE INDEX idx ON cmdata(f1)"
+    "query": "CREATE INDEX idx ON cmdata(f1)",
+    "expected": "CREATE INDEX idx ON cmdata USING btree ( f1 )"
   },
   {
     "comment": "compression - Statement 3",
-    "query": "INSERT INTO cmdata VALUES(repeat('1234567890', 1000))"
+    "query": "INSERT INTO cmdata VALUES(repeat('1234567890', 1000))",
+    "expected": "INSERT INTO cmdata VALUES (repeat('1234567890', 1000))"
   },
   {
     "comment": "compression - Statement 4",
-    "query": "INSERT INTO cmdata1 VALUES(repeat('1234567890', 1004))"
+    "query": "INSERT INTO cmdata1 VALUES(repeat('1234567890', 1004))",
+    "expected": "INSERT INTO cmdata1 VALUES (repeat('1234567890', 1004))"
   },
   {
     "comment": "compression - Statement 5",
@@ -21,11 +25,13 @@
   },
   {
     "comment": "compression - Statement 6",
-    "query": "SELECT SUBSTR(f1, 200, 5) FROM cmdata"
+    "query": "SELECT SUBSTR(f1, 200, 5) FROM cmdata",
+    "expected": "SELECT substr(f1, 200, 5) FROM cmdata"
   },
   {
     "comment": "compression - Statement 7",
-    "query": "SELECT SUBSTR(f1, 2000, 50) FROM cmdata1"
+    "query": "SELECT SUBSTR(f1, 2000, 50) FROM cmdata1",
+    "expected": "SELECT substr(f1, 2000, 50) FROM cmdata1"
   },
   {
     "comment": "compression - Statement 8",
@@ -33,7 +39,8 @@
   },
   {
     "comment": "compression - Statement 9",
-    "query": "CREATE TABLE cmmove3(f1 text COMPRESSION pglz)"
+    "query": "CREATE TABLE cmmove3(f1 text COMPRESSION pglz)",
+    "expected": "CREATE TABLE cmmove3 (f1 TEXT COMPRESSION pglz)"
   },
   {
     "comment": "compression - Statement 10",
@@ -53,11 +60,13 @@
   },
   {
     "comment": "compression - Statement 14",
-    "query": "CREATE TABLE cmdata2 (f1 int COMPRESSION pglz)"
+    "query": "CREATE TABLE cmdata2 (f1 int COMPRESSION pglz)",
+    "expected": "CREATE TABLE cmdata2 (f1 INT COMPRESSION pglz)"
   },
   {
     "comment": "compression - Statement 15",
-    "query": "CREATE TABLE cmmove2(f1 text COMPRESSION pglz)"
+    "query": "CREATE TABLE cmmove2(f1 text COMPRESSION pglz)",
+    "expected": "CREATE TABLE cmmove2 (f1 TEXT COMPRESSION pglz)"
   },
   {
     "comment": "compression - Statement 16",
@@ -73,11 +82,13 @@
   },
   {
     "comment": "compression - Statement 19",
-    "query": "CREATE OR REPLACE FUNCTION large_val() RETURNS TEXT LANGUAGE SQL AS 'select array_agg(fipshash(g::text))::text from generate_series(1, 256) g'"
+    "query": "CREATE OR REPLACE FUNCTION large_val() RETURNS TEXT LANGUAGE SQL AS 'select array_agg(fipshash(g::text))::text from generate_series(1, 256) g'",
+    "expected": "CREATE OR REPLACE FUNCTION large_val () RETURNS TEXT LANGUAGE sql AS $$select array_agg(fipshash(g::text))::text from generate_series(1, 256) g$$"
   },
   {
     "comment": "compression - Statement 20",
-    "query": "CREATE TABLE cmdata2 (f1 text COMPRESSION pglz)"
+    "query": "CREATE TABLE cmdata2 (f1 text COMPRESSION pglz)",
+    "expected": "CREATE TABLE cmdata2 (f1 TEXT COMPRESSION pglz)"
   },
   {
     "comment": "compression - Statement 21",
@@ -93,11 +104,13 @@
   },
   {
     "comment": "compression - Statement 24",
-    "query": "SELECT SUBSTR(f1, 200, 5) FROM cmdata1"
+    "query": "SELECT SUBSTR(f1, 200, 5) FROM cmdata1",
+    "expected": "SELECT substr(f1, 200, 5) FROM cmdata1"
   },
   {
     "comment": "compression - Statement 25",
-    "query": "SELECT SUBSTR(f1, 200, 5) FROM cmdata2"
+    "query": "SELECT SUBSTR(f1, 200, 5) FROM cmdata2",
+    "expected": "SELECT substr(f1, 200, 5) FROM cmdata2"
   },
   {
     "comment": "compression - Statement 26",
@@ -105,7 +118,8 @@
   },
   {
     "comment": "compression - Statement 27",
-    "query": "CREATE TABLE cmdata2 (f1 int)"
+    "query": "CREATE TABLE cmdata2 (f1 int)",
+    "expected": "CREATE TABLE cmdata2 (f1 INT)"
   },
   {
     "comment": "compression - Statement 28",
@@ -113,7 +127,8 @@
   },
   {
     "comment": "compression - Statement 29",
-    "query": "CREATE MATERIALIZED VIEW compressmv(x) AS SELECT * FROM cmdata1"
+    "query": "CREATE MATERIALIZED VIEW compressmv(x) AS SELECT * FROM cmdata1",
+    "expected": "CREATE MATERIALIZED VIEW compressmv (x) AS SELECT * FROM cmdata1"
   },
   {
     "comment": "compression - Statement 30",
@@ -121,19 +136,23 @@
   },
   {
     "comment": "compression - Statement 31",
-    "query": "CREATE TABLE cmpart(f1 text COMPRESSION lz4) PARTITION BY HASH(f1)"
+    "query": "CREATE TABLE cmpart(f1 text COMPRESSION lz4) PARTITION BY HASH(f1)",
+    "expected": "CREATE TABLE cmpart (f1 TEXT COMPRESSION lz4) PARTITION BY hash (f1)"
   },
   {
     "comment": "compression - Statement 32",
-    "query": "CREATE TABLE cmpart1 PARTITION OF cmpart FOR VALUES WITH (MODULUS 2, REMAINDER 0)"
+    "query": "CREATE TABLE cmpart1 PARTITION OF cmpart FOR VALUES WITH (MODULUS 2, REMAINDER 0)",
+    "expected": "CREATE TABLE cmpart1 PARTITION OF cmpart FOR VALUES WITH (modulus 2, remainder 0)"
   },
   {
     "comment": "compression - Statement 33",
-    "query": "CREATE TABLE cmpart2(f1 text COMPRESSION pglz)"
+    "query": "CREATE TABLE cmpart2(f1 text COMPRESSION pglz)",
+    "expected": "CREATE TABLE cmpart2 (f1 TEXT COMPRESSION pglz)"
   },
   {
     "comment": "compression - Statement 34",
-    "query": "ALTER TABLE cmpart ATTACH PARTITION cmpart2 FOR VALUES WITH (MODULUS 2, REMAINDER 1)"
+    "query": "ALTER TABLE cmpart ATTACH PARTITION cmpart2 FOR VALUES WITH (MODULUS 2, REMAINDER 1)",
+    "expected": "ALTER TABLE cmpart ATTACH PARTITION cmpart2 FOR VALUES WITH (modulus 2, remainder 1)"
   },
   {
     "comment": "compression - Statement 35",
@@ -153,19 +172,23 @@
   },
   {
     "comment": "compression - Statement 39",
-    "query": "CREATE TABLE cminh() INHERITS(cmdata, cmdata1)"
+    "query": "CREATE TABLE cminh() INHERITS(cmdata, cmdata1)",
+    "expected": "CREATE TABLE cminh () INHERITS (cmdata, cmdata1)"
   },
   {
     "comment": "compression - Statement 40",
-    "query": "CREATE TABLE cminh(f1 TEXT COMPRESSION lz4) INHERITS(cmdata)"
+    "query": "CREATE TABLE cminh(f1 TEXT COMPRESSION lz4) INHERITS(cmdata)",
+    "expected": "CREATE TABLE cminh (f1 TEXT COMPRESSION lz4) INHERITS (cmdata)"
   },
   {
     "comment": "compression - Statement 41",
-    "query": "CREATE TABLE cmdata3(f1 text)"
+    "query": "CREATE TABLE cmdata3(f1 text)",
+    "expected": "CREATE TABLE cmdata3 (f1 TEXT)"
   },
   {
     "comment": "compression - Statement 42",
-    "query": "CREATE TABLE cminh() INHERITS (cmdata, cmdata3)"
+    "query": "CREATE TABLE cminh() INHERITS (cmdata, cmdata3)",
+    "expected": "CREATE TABLE cminh () INHERITS (cmdata, cmdata3)"
   },
   {
     "comment": "compression - Statement 43",
@@ -193,7 +216,8 @@
   },
   {
     "comment": "compression - Statement 49",
-    "query": "ALTER TABLE cmdata2 ALTER COLUMN f1 SET COMPRESSION default"
+    "query": "ALTER TABLE cmdata2 ALTER COLUMN f1 SET COMPRESSION default",
+    "expected": "ALTER TABLE cmdata2 ALTER COLUMN f1 SET COMPRESSION \"default\""
   },
   {
     "comment": "compression - Statement 50",
@@ -205,7 +229,8 @@
   },
   {
     "comment": "compression - Statement 52",
-    "query": "VACUUM FULL cmdata"
+    "query": "VACUUM FULL cmdata",
+    "expected": "VACUUM (FULL) cmdata"
   },
   {
     "comment": "compression - Statement 53",
@@ -213,11 +238,13 @@
   },
   {
     "comment": "compression - Statement 54",
-    "query": "CREATE UNIQUE INDEX idx1 ON cmdata2 ((f1 || f2))"
+    "query": "CREATE UNIQUE INDEX idx1 ON cmdata2 ((f1 || f2))",
+    "expected": "CREATE UNIQUE INDEX idx1 ON cmdata2 USING btree ( (f1 || f2) )"
   },
   {
     "comment": "compression - Statement 55",
-    "query": "INSERT INTO cmdata2 VALUES((SELECT array_agg(fipshash(g::TEXT))::TEXT FROM generate_series(1, 50) g), VERSION())"
+    "query": "INSERT INTO cmdata2 VALUES((SELECT array_agg(fipshash(g::TEXT))::TEXT FROM generate_series(1, 50) g), VERSION())",
+    "expected": "INSERT INTO cmdata2 VALUES ((SELECT CAST(array_agg(fipshash(CAST(g AS TEXT))) AS TEXT) FROM generate_series(1, 50) AS g), version())"
   },
   {
     "comment": "compression - Statement 56",
@@ -241,15 +268,18 @@
   },
   {
     "comment": "compression - Statement 61",
-    "query": "CREATE TABLE badcompresstbl (a text COMPRESSION I_Do_Not_Exist_Compression)"
+    "query": "CREATE TABLE badcompresstbl (a text COMPRESSION I_Do_Not_Exist_Compression)",
+    "expected": "CREATE TABLE badcompresstbl (a TEXT COMPRESSION i_do_not_exist_compression)"
   },
   {
     "comment": "compression - Statement 62",
-    "query": "CREATE TABLE badcompresstbl (a text)"
+    "query": "CREATE TABLE badcompresstbl (a text)",
+    "expected": "CREATE TABLE badcompresstbl (a TEXT)"
   },
   {
     "comment": "compression - Statement 63",
-    "query": "ALTER TABLE badcompresstbl ALTER a SET COMPRESSION I_Do_Not_Exist_Compression"
+    "query": "ALTER TABLE badcompresstbl ALTER a SET COMPRESSION I_Do_Not_Exist_Compression",
+    "expected": "ALTER TABLE badcompresstbl ALTER COLUMN a SET COMPRESSION i_do_not_exist_compression"
   },
   {
     "comment": "compression - Statement 64",
