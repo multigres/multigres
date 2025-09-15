@@ -19,7 +19,7 @@
 # This script handles files that need goimports formatting by applying
 # the formatting and re-staging the files.
 #
-# Modifications Copyright 2025 The Multigres Authors.
+# Modifications Copyright 2025 Supabase, Inc.
 
 # Get list of Go files to check
 gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep -v '^go/pb/')
@@ -29,7 +29,7 @@ gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' | grep 
 
 # Check for files with improperly formatted imports
 # shellcheck disable=SC2086
-unformatted=$(goimports -l $gofiles 2>&1)
+unformatted=$(go tool goimports -l $gofiles 2>&1)
 
 # Exit if all files are already formatted
 [ -z "$unformatted" ] && exit 0

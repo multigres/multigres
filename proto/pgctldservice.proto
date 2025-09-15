@@ -1,4 +1,4 @@
-// Copyright 2025 The Multigres Authors
+// Copyright 2025 Supabase, Inc
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -44,17 +44,8 @@ service PgCtld {
 
 // Start PostgreSQL server
 message StartRequest {
-  // Override default data directory
-  string data_dir = 1;
-
-  // Override default port
-  int32 port = 2;
-
-  // Override default socket directory
-  string socket_dir = 3;
-
-  // Override default config file
-  string config_file = 4;
+  // Override the default port
+  int32 port = 1;
 
   // Additional postgres command line arguments
   repeated string extra_args = 5;
@@ -75,9 +66,6 @@ message StopRequest {
 
   // Timeout in seconds
   int32 timeout = 2;
-
-  // Override default data directory
-  string data_dir = 3;
 }
 
 message StopResponse {
@@ -93,19 +81,9 @@ message RestartRequest {
   // Timeout in seconds for stop phase
   int32 timeout = 2;
 
-  // Override default data directory
-  string data_dir = 3;
-
   // Override default port for start phase
-  int32 port = 4;
+  int32 port = 3;
 
-  // Override default socket directory for start phase
-  string socket_dir = 5;
-
-  // Override default config file for start phase
-  string config_file = 6;
-
-  // Additional postgres command line arguments for start phase
   repeated string extra_args = 7;
 }
 
@@ -119,8 +97,6 @@ message RestartResponse {
 
 // Reload PostgreSQL configuration
 message ReloadConfigRequest {
-  // Override default data directory
-  string data_dir = 1;
 }
 
 message ReloadConfigResponse {
@@ -130,8 +106,6 @@ message ReloadConfigResponse {
 
 // Get PostgreSQL server status
 message StatusRequest {
-  // Override default data directory
-  string data_dir = 1;
 }
 
 message StatusResponse {
@@ -192,17 +166,14 @@ message VersionResponse {
 
 // Initialize data directory
 message InitDataDirRequest {
-  // Data directory path
-  string data_dir = 1;
-
   // Authentication method for local connections
-  string auth_local = 2;
+  string auth_local = 1;
 
   // Authentication method for host connections
-  string auth_host = 3;
+  string auth_host = 2;
 
   // Additional initdb arguments
-  repeated string extra_args = 4;
+  repeated string extra_args = 3;
 }
 
 message InitDataDirResponse {

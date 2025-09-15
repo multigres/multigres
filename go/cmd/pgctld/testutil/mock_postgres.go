@@ -1,18 +1,16 @@
-/*
-Copyright 2025 The Multigres Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package testutil
 
@@ -47,44 +45,6 @@ func NewMockExecCommand() *MockExecCommand {
 // AddCommand adds a mock command with expected result
 func (m *MockExecCommand) AddCommand(cmdLine string, result MockCommandResult) {
 	m.commands[cmdLine] = result
-}
-
-// AddPostgreSQLCommands adds common PostgreSQL command mocks
-func (m *MockExecCommand) AddPostgreSQLCommands(dataDir string, pid int) {
-	// Mock initdb command
-	m.AddCommand(
-		fmt.Sprintf("initdb -D %s --auth-local=trust --auth-host=md5", dataDir),
-		MockCommandResult{ExitCode: 0, Stdout: "Success. You can now start the database server using:\n"},
-	)
-
-	// Mock postgres command
-	m.AddCommand(
-		fmt.Sprintf("postgres -D %s", dataDir),
-		MockCommandResult{ExitCode: 0, Stdout: ""},
-	)
-
-	// Mock pg_isready command
-	m.AddCommand(
-		"pg_isready -h localhost -p 5432 -U postgres -d postgres",
-		MockCommandResult{ExitCode: 0, Stdout: "localhost:5432 - accepting connections\n"},
-	)
-
-	// Mock pg_ctl commands
-	m.AddCommand(
-		fmt.Sprintf("pg_ctl stop -D %s -m fast -t 30", dataDir),
-		MockCommandResult{ExitCode: 0, Stdout: "server stopped\n"},
-	)
-
-	m.AddCommand(
-		fmt.Sprintf("pg_ctl reload -D %s", dataDir),
-		MockCommandResult{ExitCode: 0, Stdout: "server signaled\n"},
-	)
-
-	// Mock psql version command
-	m.AddCommand(
-		"psql -h localhost -p 5432 -U postgres -d postgres -t -c SELECT version()",
-		MockCommandResult{ExitCode: 0, Stdout: " PostgreSQL 15.0 on x86_64-pc-linux-gnu\n"},
-	)
 }
 
 // MockCommand simulates command execution for testing
@@ -322,8 +282,12 @@ esac
 
 	// Mock pg_isready
 	MockBinary(t, binDir, "pg_isready", `
-# Always succeed for testing
-echo "localhost:5432 - accepting connections"
+# Always succeed for testing - works with both socket and TCP
+if [[ "$*" == *"-h /tmp"* ]] || [[ "$*" == *"pg_sockets"* ]]; then
+    echo "socket connection - accepting connections"
+else
+    echo "localhost:5432 - accepting connections"
+fi
 exit 0
 `)
 

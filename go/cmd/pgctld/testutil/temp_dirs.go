@@ -1,18 +1,16 @@
-/*
-Copyright 2025 The Multigres Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package testutil
 
@@ -25,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/multigres/multigres/go/pgctld"
 )
 
 // TempDir creates a temporary directory for testing and returns a cleanup function
@@ -52,7 +52,8 @@ func TempDir(t *testing.T, prefix string) (string, func()) {
 func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 	t.Helper()
 
-	dataDir := filepath.Join(baseDir, "data")
+	// This is the base location where multigres expects postgres data
+	dataDir := pgctld.PostgresDataDir(baseDir)
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("Failed to create data dir: %v", err)
 	}
@@ -63,17 +64,20 @@ func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 		if err := os.WriteFile(pgVersionFile, []byte("15.0\n"), 0o644); err != nil {
 			t.Fatalf("Failed to create PG_VERSION file: %v", err)
 		}
-
-		// Create other typical PostgreSQL files
-		files := []string{
-			"postgresql.conf",
-			"pg_hba.conf",
-			"pg_ident.conf",
+		// Generate a proper postgresql.conf file using the postgresconfig_gen functionality
+		_, err := pgctld.GeneratePostgresServerConfig(baseDir, 5432, "postgres")
+		if err != nil {
+			t.Fatalf("Failed to generate PostgreSQL config: %v", err)
 		}
 
-		for _, file := range files {
+		// Create other typical PostgreSQL files manually
+		files := map[string]string{
+			"pg_ident.conf": "# Test ident config\n",
+		}
+
+		for file, content := range files {
 			path := filepath.Join(dataDir, file)
-			if err := os.WriteFile(path, []byte("# Test config\n"), 0o644); err != nil {
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 				t.Fatalf("Failed to create file %s: %v", file, err)
 			}
 		}
@@ -106,8 +110,8 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 			_ = cmd.Process.Kill()
 		}
 	})
-
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
+
 	content := []string{
 		fmt.Sprintf("%d", realPID),
 		dataDir,

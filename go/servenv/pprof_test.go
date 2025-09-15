@@ -15,7 +15,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-Modifications Copyright 2025 The Multigres Authors.
+Modifications Copyright 2025 Supabase, Inc.
 */
 
 // Disabling race detector because it doesn't like TestPProfInitWithWaitSig and TestPProfInitWithoutWaitSig,

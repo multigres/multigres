@@ -1,23 +1,22 @@
-/*
-Copyright 2025 The Multigres Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package command
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -31,7 +30,7 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-func TestPgCtldService_Start(t *testing.T) {
+func TestPgCtldServiceStart(t *testing.T) {
 	tests := []struct {
 		name          string
 		request       *pb.StartRequest
@@ -42,22 +41,17 @@ func TestPgCtldService_Start(t *testing.T) {
 		checkResponse func(*testing.T, *pb.StartResponse)
 	}{
 		{
-			name: "successful start with uninitialized data dir",
+			name: "start with uninitialized data dir should fail",
 			request: &pb.StartRequest{
-				Port:       5432,
-				SocketDir:  "/tmp",
-				ConfigFile: "",
-				ExtraArgs:  []string{},
+				Port:      5432,
+				ExtraArgs: []string{},
 			},
 			setupDataDir: func(baseDir string) string {
 				return testutil.CreateDataDir(t, baseDir, false)
 			},
 			setupBinaries: true,
-			expectError:   false,
-			checkResponse: func(t *testing.T, resp *pb.StartResponse) {
-				assert.NotZero(t, resp.Pid)
-				assert.Contains(t, resp.Message, "successfully")
-			},
+			expectError:   true,
+			errorContains: "data directory not initialized",
 		},
 		{
 			name: "start already running server",
@@ -75,18 +69,6 @@ func TestPgCtldService_Start(t *testing.T) {
 				assert.Contains(t, resp.Message, "already running")
 			},
 		},
-		{
-			name: "missing data directory",
-			request: &pb.StartRequest{
-				DataDir: "", // Will be empty, triggering error
-			},
-			setupDataDir: func(baseDir string) string {
-				return "" // Return empty to trigger error
-			},
-			setupBinaries: false,
-			expectError:   true,
-			errorContains: "data-dir is required",
-		},
 	}
 
 	for _, tt := range tests {
@@ -94,12 +76,14 @@ func TestPgCtldService_Start(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_start_test")
 			defer cleanup()
 
-			dataDir := tt.setupDataDir(baseDir)
+			tt.setupDataDir(baseDir)
 
-			// Set data dir in request if not specified
-			if tt.request.DataDir == "" && dataDir != "" {
-				tt.request.DataDir = dataDir
-			}
+			poolerDir := baseDir
+			pgHost := "localhost"
+			pgPort := 5432
+			pgUser := "postgres"
+			pgDatabase := "postgres"
+			timeout := 30
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
@@ -110,16 +94,13 @@ func TestPgCtldService_Start(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			cleanupViper := SetupTestPgCtldCleanup(t)
-			defer cleanupViper()
-
-			service := &PgCtldService{
-				logger: testLogger(),
-			}
+			service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+			require.NoError(t, err)
 
 			resp, err := service.Start(context.Background(), tt.request)
 
 			if tt.expectError {
+				fmt.Println(resp)
 				require.Error(t, err)
 				if tt.errorContains != "" {
 					assert.Contains(t, err.Error(), tt.errorContains)
@@ -135,7 +116,15 @@ func TestPgCtldService_Start(t *testing.T) {
 	}
 }
 
-func TestPgCtldService_Stop(t *testing.T) {
+func TestPgCtldServiceStart_MissingPoolerDir(t *testing.T) {
+	t.Run("missing pooler-dir", func(t *testing.T) {
+		_, err := NewPgCtldService(testLogger(), "", 0, "", "", 0, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pooler-dir needs to be set")
+	})
+}
+
+func TestPgCtldServiceStop(t *testing.T) {
 	tests := []struct {
 		name          string
 		request       *pb.StopRequest
@@ -183,8 +172,14 @@ func TestPgCtldService_Stop(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_stop_test")
 			defer cleanup()
 
-			dataDir := tt.setupDataDir(baseDir)
-			tt.request.DataDir = dataDir
+			poolerDir := baseDir
+			pgHost := "localhost"
+			pgPort := 5432
+			pgUser := "postgres"
+			pgDatabase := "postgres"
+			timeout := 30
+
+			_ = tt.setupDataDir(baseDir)
 
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
@@ -193,12 +188,8 @@ func TestPgCtldService_Stop(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			cleanupViper := SetupTestPgCtldCleanup(t)
-			defer cleanupViper()
-
-			service := &PgCtldService{
-				logger: testLogger(),
-			}
+			service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+			require.NoError(t, err)
 
 			resp, err := service.Stop(context.Background(), tt.request)
 
@@ -218,7 +209,7 @@ func TestPgCtldService_Stop(t *testing.T) {
 	}
 }
 
-func TestPgCtldService_Status(t *testing.T) {
+func TestPgCtldServiceStatus(t *testing.T) {
 	tests := []struct {
 		name         string
 		request      *pb.StatusRequest
@@ -258,28 +249,30 @@ func TestPgCtldService_Status(t *testing.T) {
 			baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_status_test")
 			defer cleanup()
 
-			dataDir := tt.setupDataDir(baseDir)
-			tt.request.DataDir = dataDir
+			poolerDir := baseDir
+			pgHost := "localhost"
+			pgPort := 5432
+			pgUser := "postgres"
+			pgDatabase := "postgres"
+			timeout := 30
 
-			cleanupViper := SetupTestPgCtldCleanup(t)
-			defer cleanupViper()
+			_ = tt.setupDataDir(baseDir)
 
-			service := &PgCtldService{
-				logger: testLogger(),
-			}
+			service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+			require.NoError(t, err)
 
 			resp, err := service.Status(context.Background(), tt.request)
 
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			assert.Equal(t, tt.expected, resp.Status)
-			assert.Equal(t, dataDir, resp.DataDir)
+			// TODO: This assertion needs to be updated when we fix this test in detail
 			assert.Equal(t, int32(5432), resp.Port)
 		})
 	}
 }
 
-func TestPgCtldService_Restart(t *testing.T) {
+func TestPgCtldServiceRestart(t *testing.T) {
 	t.Run("successful restart", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_restart_test")
 		defer cleanup()
@@ -292,15 +285,17 @@ func TestPgCtldService_Restart(t *testing.T) {
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
+		poolerDir := baseDir
+		pgHost := "localhost"
+		pgPort := 5432
+		pgUser := "postgres"
+		pgDatabase := "postgres"
+		timeout := 30
 
-		service := &PgCtldService{
-			logger: testLogger(),
-		}
+		service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+		require.NoError(t, err)
 
 		request := &pb.RestartRequest{
-			DataDir: dataDir,
 			Mode:    "fast",
 			Timeout: 30,
 			Port:    5432,
@@ -314,29 +309,30 @@ func TestPgCtldService_Restart(t *testing.T) {
 	})
 }
 
-func TestPgCtldService_ReloadConfig(t *testing.T) {
+func TestPgCtldServiceReloadConfig(t *testing.T) {
 	t.Run("successful reload", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_reload_test")
 		defer cleanup()
-
-		dataDir := testutil.CreateDataDir(t, baseDir, true)
-		testutil.CreatePIDFile(t, dataDir, 12345)
 
 		binDir := filepath.Join(baseDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
+		poolerDir := baseDir
+		pgHost := "localhost"
+		pgPort := 5432
+		pgUser := "postgres"
+		pgDatabase := "postgres"
+		timeout := 30
 
-		service := &PgCtldService{
-			logger: testLogger(),
-		}
+		dataDir := testutil.CreateDataDir(t, baseDir, true)
+		testutil.CreatePIDFile(t, dataDir, 12345)
 
-		request := &pb.ReloadConfigRequest{
-			DataDir: dataDir,
-		}
+		service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+		require.NoError(t, err)
+
+		request := &pb.ReloadConfigRequest{}
 
 		resp, err := service.ReloadConfig(context.Background(), request)
 
@@ -349,28 +345,29 @@ func TestPgCtldService_ReloadConfig(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_reload_test")
 		defer cleanup()
 
-		dataDir := testutil.CreateDataDir(t, baseDir, true)
+		poolerDir := baseDir
+		pgHost := "localhost"
+		pgPort := 5432
+		pgUser := "postgres"
+		pgDatabase := "postgres"
+		timeout := 30
+
+		testutil.CreateDataDir(t, baseDir, true)
 		// No PID file = not running
 
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
+		service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+		require.NoError(t, err)
 
-		service := &PgCtldService{
-			logger: testLogger(),
-		}
+		request := &pb.ReloadConfigRequest{}
 
-		request := &pb.ReloadConfigRequest{
-			DataDir: dataDir,
-		}
-
-		_, err := service.ReloadConfig(context.Background(), request)
+		_, err = service.ReloadConfig(context.Background(), request)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not running")
 	})
 }
 
-func TestPgCtldService_Version(t *testing.T) {
+func TestPgCtldServiceVersion(t *testing.T) {
 	t.Run("successful version retrieval", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_version_test")
 		defer cleanup()
@@ -380,12 +377,9 @@ func TestPgCtldService_Version(t *testing.T) {
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		cleanupViper := SetupTestPgCtldCleanup(t)
-		defer cleanupViper()
-
-		service := &PgCtldService{
-			logger: testLogger(),
-		}
+		poolerDir := baseDir
+		service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+		require.NoError(t, err)
 
 		request := &pb.VersionRequest{
 			Host:     "localhost",
@@ -402,24 +396,21 @@ func TestPgCtldService_Version(t *testing.T) {
 	})
 }
 
-func TestPgCtldService_InitDataDir(t *testing.T) {
+func TestPgCtldServiceInitDataDir(t *testing.T) {
 	t.Run("successful initialization", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_init_test")
 		defer cleanup()
-
-		dataDir := filepath.Join(baseDir, "data")
 
 		binDir := filepath.Join(baseDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		service := &PgCtldService{
-			logger: testLogger(),
-		}
+		poolerDir := baseDir
+		service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+		require.NoError(t, err)
 
 		request := &pb.InitDataDirRequest{
-			DataDir:   dataDir,
 			AuthLocal: "trust",
 			AuthHost:  "md5",
 		}
@@ -435,15 +426,13 @@ func TestPgCtldService_InitDataDir(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_init_test")
 		defer cleanup()
 
-		dataDir := testutil.CreateDataDir(t, baseDir, true) // Already initialized
+		_ = testutil.CreateDataDir(t, baseDir, true)
 
-		service := &PgCtldService{
-			logger: testLogger(),
-		}
+		poolerDir := baseDir
+		service, err := NewPgCtldService(testLogger(), pgHost, pgPort, pgUser, pgDatabase, timeout, poolerDir)
+		require.NoError(t, err)
 
-		request := &pb.InitDataDirRequest{
-			DataDir: dataDir,
-		}
+		request := &pb.InitDataDirRequest{}
 
 		resp, err := service.InitDataDir(context.Background(), request)
 

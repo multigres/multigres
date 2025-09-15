@@ -1,4 +1,4 @@
-// Copyright 2025 The Multigres Authors
+// Copyright 2025 Supabase, Inc
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -97,14 +97,8 @@ func (ServerStatus) EnumDescriptor() ([]byte, []int) {
 // Start PostgreSQL server
 type StartRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Override default data directory
-	DataDir string `protobuf:"bytes,1,opt,name=data_dir,json=dataDir,proto3" json:"data_dir,omitempty"`
-	// Override default port
-	Port int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
-	// Override default socket directory
-	SocketDir string `protobuf:"bytes,3,opt,name=socket_dir,json=socketDir,proto3" json:"socket_dir,omitempty"`
-	// Override default config file
-	ConfigFile string `protobuf:"bytes,4,opt,name=config_file,json=configFile,proto3" json:"config_file,omitempty"`
+	// Override the default port
+	Port int32 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
 	// Additional postgres command line arguments
 	ExtraArgs     []string `protobuf:"bytes,5,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -141,32 +135,11 @@ func (*StartRequest) Descriptor() ([]byte, []int) {
 	return file_pgctldservice_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *StartRequest) GetDataDir() string {
-	if x != nil {
-		return x.DataDir
-	}
-	return ""
-}
-
 func (x *StartRequest) GetPort() int32 {
 	if x != nil {
 		return x.Port
 	}
 	return 0
-}
-
-func (x *StartRequest) GetSocketDir() string {
-	if x != nil {
-		return x.SocketDir
-	}
-	return ""
-}
-
-func (x *StartRequest) GetConfigFile() string {
-	if x != nil {
-		return x.ConfigFile
-	}
-	return ""
 }
 
 func (x *StartRequest) GetExtraArgs() []string {
@@ -236,9 +209,7 @@ type StopRequest struct {
 	// Shutdown mode: smart, fast, immediate
 	Mode string `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
 	// Timeout in seconds
-	Timeout int32 `protobuf:"varint,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
-	// Override default data directory
-	DataDir       string `protobuf:"bytes,3,opt,name=data_dir,json=dataDir,proto3" json:"data_dir,omitempty"`
+	Timeout       int32 `protobuf:"varint,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -285,13 +256,6 @@ func (x *StopRequest) GetTimeout() int32 {
 		return x.Timeout
 	}
 	return 0
-}
-
-func (x *StopRequest) GetDataDir() string {
-	if x != nil {
-		return x.DataDir
-	}
-	return ""
 }
 
 type StopResponse struct {
@@ -346,15 +310,8 @@ type RestartRequest struct {
 	Mode string `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
 	// Timeout in seconds for stop phase
 	Timeout int32 `protobuf:"varint,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
-	// Override default data directory
-	DataDir string `protobuf:"bytes,3,opt,name=data_dir,json=dataDir,proto3" json:"data_dir,omitempty"`
 	// Override default port for start phase
-	Port int32 `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`
-	// Override default socket directory for start phase
-	SocketDir string `protobuf:"bytes,5,opt,name=socket_dir,json=socketDir,proto3" json:"socket_dir,omitempty"`
-	// Override default config file for start phase
-	ConfigFile string `protobuf:"bytes,6,opt,name=config_file,json=configFile,proto3" json:"config_file,omitempty"`
-	// Additional postgres command line arguments for start phase
+	Port          int32    `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
 	ExtraArgs     []string `protobuf:"bytes,7,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -404,32 +361,11 @@ func (x *RestartRequest) GetTimeout() int32 {
 	return 0
 }
 
-func (x *RestartRequest) GetDataDir() string {
-	if x != nil {
-		return x.DataDir
-	}
-	return ""
-}
-
 func (x *RestartRequest) GetPort() int32 {
 	if x != nil {
 		return x.Port
 	}
 	return 0
-}
-
-func (x *RestartRequest) GetSocketDir() string {
-	if x != nil {
-		return x.SocketDir
-	}
-	return ""
-}
-
-func (x *RestartRequest) GetConfigFile() string {
-	if x != nil {
-		return x.ConfigFile
-	}
-	return ""
 }
 
 func (x *RestartRequest) GetExtraArgs() []string {
@@ -495,9 +431,7 @@ func (x *RestartResponse) GetMessage() string {
 
 // Reload PostgreSQL configuration
 type ReloadConfigRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Override default data directory
-	DataDir       string `protobuf:"bytes,1,opt,name=data_dir,json=dataDir,proto3" json:"data_dir,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -530,13 +464,6 @@ func (x *ReloadConfigRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ReloadConfigRequest.ProtoReflect.Descriptor instead.
 func (*ReloadConfigRequest) Descriptor() ([]byte, []int) {
 	return file_pgctldservice_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *ReloadConfigRequest) GetDataDir() string {
-	if x != nil {
-		return x.DataDir
-	}
-	return ""
 }
 
 type ReloadConfigResponse struct {
@@ -586,9 +513,7 @@ func (x *ReloadConfigResponse) GetMessage() string {
 
 // Get PostgreSQL server status
 type StatusRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Override default data directory
-	DataDir       string `protobuf:"bytes,1,opt,name=data_dir,json=dataDir,proto3" json:"data_dir,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -621,13 +546,6 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
 	return file_pgctldservice_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *StatusRequest) GetDataDir() string {
-	if x != nil {
-		return x.DataDir
-	}
-	return ""
 }
 
 type StatusResponse struct {
@@ -874,14 +792,12 @@ func (x *VersionResponse) GetMessage() string {
 // Initialize data directory
 type InitDataDirRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Data directory path
-	DataDir string `protobuf:"bytes,1,opt,name=data_dir,json=dataDir,proto3" json:"data_dir,omitempty"`
 	// Authentication method for local connections
-	AuthLocal string `protobuf:"bytes,2,opt,name=auth_local,json=authLocal,proto3" json:"auth_local,omitempty"`
+	AuthLocal string `protobuf:"bytes,1,opt,name=auth_local,json=authLocal,proto3" json:"auth_local,omitempty"`
 	// Authentication method for host connections
-	AuthHost string `protobuf:"bytes,3,opt,name=auth_host,json=authHost,proto3" json:"auth_host,omitempty"`
+	AuthHost string `protobuf:"bytes,2,opt,name=auth_host,json=authHost,proto3" json:"auth_host,omitempty"`
 	// Additional initdb arguments
-	ExtraArgs     []string `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ExtraArgs     []string `protobuf:"bytes,3,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -914,13 +830,6 @@ func (x *InitDataDirRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use InitDataDirRequest.ProtoReflect.Descriptor instead.
 func (*InitDataDirRequest) Descriptor() ([]byte, []int) {
 	return file_pgctldservice_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *InitDataDirRequest) GetDataDir() string {
-	if x != nil {
-		return x.DataDir
-	}
-	return ""
 }
 
 func (x *InitDataDirRequest) GetAuthLocal() string {
@@ -993,45 +902,32 @@ var File_pgctldservice_proto protoreflect.FileDescriptor
 
 const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
-	"\x13pgctldservice.proto\x12\rpgctldservice\"\x9c\x01\n" +
-	"\fStartRequest\x12\x19\n" +
-	"\bdata_dir\x18\x01 \x01(\tR\adataDir\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x1d\n" +
-	"\n" +
-	"socket_dir\x18\x03 \x01(\tR\tsocketDir\x12\x1f\n" +
-	"\vconfig_file\x18\x04 \x01(\tR\n" +
-	"configFile\x12\x1d\n" +
+	"\x13pgctldservice.proto\x12\rpgctldservice\"A\n" +
+	"\fStartRequest\x12\x12\n" +
+	"\x04port\x18\x01 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\x05 \x03(\tR\textraArgs\";\n" +
 	"\rStartResponse\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"V\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\";\n" +
 	"\vStopRequest\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\x18\n" +
-	"\atimeout\x18\x02 \x01(\x05R\atimeout\x12\x19\n" +
-	"\bdata_dir\x18\x03 \x01(\tR\adataDir\"(\n" +
+	"\atimeout\x18\x02 \x01(\x05R\atimeout\"(\n" +
 	"\fStopResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\xcc\x01\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"q\n" +
 	"\x0eRestartRequest\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\x18\n" +
-	"\atimeout\x18\x02 \x01(\x05R\atimeout\x12\x19\n" +
-	"\bdata_dir\x18\x03 \x01(\tR\adataDir\x12\x12\n" +
-	"\x04port\x18\x04 \x01(\x05R\x04port\x12\x1d\n" +
-	"\n" +
-	"socket_dir\x18\x05 \x01(\tR\tsocketDir\x12\x1f\n" +
-	"\vconfig_file\x18\x06 \x01(\tR\n" +
-	"configFile\x12\x1d\n" +
+	"\atimeout\x18\x02 \x01(\x05R\atimeout\x12\x12\n" +
+	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\a \x03(\tR\textraArgs\"=\n" +
 	"\x0fRestartResponse\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"0\n" +
-	"\x13ReloadConfigRequest\x12\x19\n" +
-	"\bdata_dir\x18\x01 \x01(\tR\adataDir\"0\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x15\n" +
+	"\x13ReloadConfigRequest\"0\n" +
 	"\x14ReloadConfigResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"*\n" +
-	"\rStatusRequest\x12\x19\n" +
-	"\bdata_dir\x18\x01 \x01(\tR\adataDir\"\x8b\x02\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\x0f\n" +
+	"\rStatusRequest\"\x8b\x02\n" +
 	"\x0eStatusResponse\x123\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1b.pgctldservice.ServerStatusR\x06status\x12\x10\n" +
 	"\x03pid\x18\x02 \x01(\x05R\x03pid\x12\x18\n" +
@@ -1049,14 +945,13 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x04user\x18\x04 \x01(\tR\x04user\"E\n" +
 	"\x0fVersionResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\x8a\x01\n" +
-	"\x12InitDataDirRequest\x12\x19\n" +
-	"\bdata_dir\x18\x01 \x01(\tR\adataDir\x12\x1d\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"o\n" +
+	"\x12InitDataDirRequest\x12\x1d\n" +
 	"\n" +
-	"auth_local\x18\x02 \x01(\tR\tauthLocal\x12\x1b\n" +
-	"\tauth_host\x18\x03 \x01(\tR\bauthHost\x12\x1d\n" +
+	"auth_local\x18\x01 \x01(\tR\tauthLocal\x12\x1b\n" +
+	"\tauth_host\x18\x02 \x01(\tR\bauthHost\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x04 \x03(\tR\textraArgs\"/\n" +
+	"extra_args\x18\x03 \x03(\tR\textraArgs\"/\n" +
 	"\x13InitDataDirResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage*f\n" +
 	"\fServerStatus\x12\v\n" +
