@@ -27,6 +27,21 @@ service MultiAdminService {
 
   // GetDatabase retrieves information about a specific database
   rpc GetDatabase(GetDatabaseRequest) returns (GetDatabaseResponse);
+
+  // GetCellNames retrieves all cell names in the cluster
+  rpc GetCellNames(GetCellNamesRequest) returns (GetCellNamesResponse);
+
+  // GetDatabaseNames retrieves all database names in the cluster
+  rpc GetDatabaseNames(GetDatabaseNamesRequest) returns (GetDatabaseNamesResponse);
+
+  // GetGateways retrieves gateways filtered by cells
+  rpc GetGateways(GetGatewaysRequest) returns (GetGatewaysResponse);
+
+  // GetPoolers retrieves poolers filtered by cells and/or database
+  rpc GetPoolers(GetPoolersRequest) returns (GetPoolersResponse);
+
+  // GetOrchs retrieves orchestrators filtered by cells
+  rpc GetOrchs(GetOrchsRequest) returns (GetOrchsResponse);
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -51,4 +66,60 @@ message GetDatabaseRequest {
 message GetDatabaseResponse {
   // database contains the Database protobuf object
   clustermetadata.Database database = 1;
+}
+
+// GetCellNamesRequest requests all cell names
+message GetCellNamesRequest {
+}
+
+// GetCellNamesResponse contains all cell names
+message GetCellNamesResponse {
+  repeated string names = 1;
+}
+
+// GetDatabaseNamesRequest requests all database names
+message GetDatabaseNamesRequest {
+}
+
+// GetDatabaseNamesResponse contains all database names
+message GetDatabaseNamesResponse {
+  repeated string names = 1;
+}
+
+// GetGatewaysRequest requests gateways with optional filtering
+message GetGatewaysRequest {
+  // cells is a comma-separated list of cell names to filter by (optional)
+  repeated string cells = 1;
+}
+
+// GetGatewaysResponse contains the filtered gateways
+message GetGatewaysResponse {
+  repeated clustermetadata.MultiGateway gateways = 1;
+}
+
+// GetPoolersRequest requests poolers with optional filtering
+message GetPoolersRequest {
+  // cells is a comma-separated list of cell names to filter by (optional)
+  repeated string cells = 1;
+  // database name to filter by (optional)
+  string database = 2;
+  // shard name to filter by (optional)
+  string shard = 3;
+}
+
+// GetPoolersResponse contains the filtered poolers
+message GetPoolersResponse {
+  repeated clustermetadata.MultiPooler poolers = 1;
+}
+
+// GetOrchsRequest requests orchestrators with optional filtering
+message GetOrchsRequest {
+  // cells is a comma-separated list of cell names to filter by (optional)
+  repeated string cells = 1;
+}
+
+// GetOrchsResponse contains the filtered orchestrators
+message GetOrchsResponse {
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated clustermetadata.MultiOrch orchs = 1;
 }
