@@ -1,79 +1,98 @@
 [
   {
     "comment": "float8 - Statement 1",
-    "query": "CREATE TEMP TABLE FLOAT8_TBL(f1 float8)"
+    "query": "CREATE TEMP TABLE FLOAT8_TBL(f1 float8)",
+    "expected": "CREATE TEMPORARY TABLE float8_tbl (f1 FLOAT8)"
   },
   {
     "comment": "float8 - Statement 2",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('    0.0   ')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('    0.0   ')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('    0.0   ')"
   },
   {
     "comment": "float8 - Statement 3",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('1004.30  ')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('1004.30  ')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('1004.30  ')"
   },
   {
     "comment": "float8 - Statement 4",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('   -34.84')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('   -34.84')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('   -34.84')"
   },
   {
     "comment": "float8 - Statement 5",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('1.2345678901234e+200')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('1.2345678901234e+200')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('1.2345678901234e+200')"
   },
   {
     "comment": "float8 - Statement 6",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('1.2345678901234e-200')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('1.2345678901234e-200')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('1.2345678901234e-200')"
   },
   {
     "comment": "float8 - Statement 7",
-    "query": "SELECT '10e400'::float8"
+    "query": "SELECT '10e400'::float8",
+    "expected": "SELECT CAST('10e400' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 8",
-    "query": "SELECT '-10e400'::float8"
+    "query": "SELECT '-10e400'::float8",
+    "expected": "SELECT CAST('-10e400' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 9",
-    "query": "SELECT '10e-400'::float8"
+    "query": "SELECT '10e-400'::float8",
+    "expected": "SELECT CAST('10e-400' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 10",
-    "query": "SELECT '-10e-400'::float8"
+    "query": "SELECT '-10e-400'::float8",
+    "expected": "SELECT CAST('-10e-400' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 11",
-    "query": "SELECT float8send('2.2250738585072014E-308'::float8)"
+    "query": "SELECT float8send('2.2250738585072014E-308'::float8)",
+    "expected": "SELECT float8send(CAST('2.2250738585072014E-308' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 12",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('')"
   },
   {
     "comment": "float8 - Statement 13",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('     ')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('     ')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('     ')"
   },
   {
     "comment": "float8 - Statement 14",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('xyz')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('xyz')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('xyz')"
   },
   {
     "comment": "float8 - Statement 15",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('5.0.0')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('5.0.0')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('5.0.0')"
   },
   {
     "comment": "float8 - Statement 16",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('5 . 0')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('5 . 0')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('5 . 0')"
   },
   {
     "comment": "float8 - Statement 17",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('5.   0')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('5.   0')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('5.   0')"
   },
   {
     "comment": "float8 - Statement 18",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('    - 3')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('    - 3')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('    - 3')"
   },
   {
     "comment": "float8 - Statement 19",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('123           5')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('123           5')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('123           5')"
   },
   {
     "comment": "float8 - Statement 20",
@@ -93,131 +112,163 @@
   },
   {
     "comment": "float8 - Statement 24",
-    "query": "SELECT 'NaN'::float8"
+    "query": "SELECT 'NaN'::float8",
+    "expected": "SELECT CAST('NaN' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 25",
-    "query": "SELECT '   NAN  '::float8"
+    "query": "SELECT '   NAN  '::float8",
+    "expected": "SELECT CAST('   NAN  ' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 26",
-    "query": "SELECT 'infinity'::float8"
+    "query": "SELECT 'infinity'::float8",
+    "expected": "SELECT CAST('infinity' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 27",
-    "query": "SELECT '          -INFINiTY   '::float8"
+    "query": "SELECT '          -INFINiTY   '::float8",
+    "expected": "SELECT CAST('          -INFINiTY   ' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 28",
-    "query": "SELECT 'N A N'::float8"
+    "query": "SELECT 'N A N'::float8",
+    "expected": "SELECT CAST('N A N' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 29",
-    "query": "SELECT 'NaN x'::float8"
+    "query": "SELECT 'NaN x'::float8",
+    "expected": "SELECT CAST('NaN x' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 30",
-    "query": "SELECT ' INFINITY    x'::float8"
+    "query": "SELECT ' INFINITY    x'::float8",
+    "expected": "SELECT CAST(' INFINITY    x' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 31",
-    "query": "SELECT 'Infinity'::float8 + 100.0"
+    "query": "SELECT 'Infinity'::float8 + 100.0",
+    "expected": "SELECT CAST('Infinity' AS FLOAT8) + 100.0"
   },
   {
     "comment": "float8 - Statement 32",
-    "query": "SELECT 'Infinity'::float8 / 'Infinity'::float8"
+    "query": "SELECT 'Infinity'::float8 / 'Infinity'::float8",
+    "expected": "SELECT CAST(CAST('Infinity' AS FLOAT8) / 'Infinity' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 33",
-    "query": "SELECT '42'::float8 / 'Infinity'::float8"
+    "query": "SELECT '42'::float8 / 'Infinity'::float8",
+    "expected": "SELECT CAST(CAST('42' AS FLOAT8) / 'Infinity' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 34",
-    "query": "SELECT 'nan'::float8 / 'nan'::float8"
+    "query": "SELECT 'nan'::float8 / 'nan'::float8",
+    "expected": "SELECT CAST(CAST('nan' AS FLOAT8) / 'nan' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 35",
-    "query": "SELECT 'nan'::float8 / '0'::float8"
+    "query": "SELECT 'nan'::float8 / '0'::float8",
+    "expected": "SELECT CAST(CAST('nan' AS FLOAT8) / '0' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 36",
-    "query": "SELECT 'nan'::numeric::float8"
+    "query": "SELECT 'nan'::numeric::float8",
+    "expected": "SELECT CAST(CAST('nan' AS NUMERIC) AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 37",
-    "query": "SELECT * FROM FLOAT8_TBL"
+    "query": "SELECT * FROM FLOAT8_TBL",
+    "expected": "SELECT * FROM float8_tbl"
   },
   {
     "comment": "float8 - Statement 38",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE f.f1 <> '1004.3'"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE f.f1 \u003c\u003e '1004.3'",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE f.f1 \u003c\u003e '1004.3'"
   },
   {
     "comment": "float8 - Statement 39",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE f.f1 = '1004.3'"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE f.f1 = '1004.3'",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE f.f1 = '1004.3'"
   },
   {
     "comment": "float8 - Statement 40",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE '1004.3' > f.f1"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE '1004.3' \u003e f.f1",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE '1004.3' \u003e f.f1"
   },
   {
     "comment": "float8 - Statement 41",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE  f.f1 < '1004.3'"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE  f.f1 \u003c '1004.3'",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE f.f1 \u003c '1004.3'"
   },
   {
     "comment": "float8 - Statement 42",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE '1004.3' >= f.f1"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE '1004.3' \u003e= f.f1",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE '1004.3' \u003e= f.f1"
   },
   {
     "comment": "float8 - Statement 43",
-    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE  f.f1 <= '1004.3'"
+    "query": "SELECT f.* FROM FLOAT8_TBL f WHERE  f.f1 \u003c= '1004.3'",
+    "expected": "SELECT f.* FROM float8_tbl AS f WHERE f.f1 \u003c= '1004.3'"
   },
   {
     "comment": "float8 - Statement 44",
-    "query": "SELECT f.f1, f.f1 * '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 > '0.0'"
+    "query": "SELECT f.f1, f.f1 * '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
+    "expected": "SELECT f.f1, f.f1 * '-10' AS x FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
   },
   {
     "comment": "float8 - Statement 45",
-    "query": "SELECT f.f1, f.f1 + '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 > '0.0'"
+    "query": "SELECT f.f1, f.f1 + '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
+    "expected": "SELECT f.f1, f.f1 + '-10' AS x FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
   },
   {
     "comment": "float8 - Statement 46",
-    "query": "SELECT f.f1, f.f1 / '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 > '0.0'"
+    "query": "SELECT f.f1, f.f1 / '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
+    "expected": "SELECT f.f1, f.f1 / '-10' AS x FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
   },
   {
     "comment": "float8 - Statement 47",
-    "query": "SELECT f.f1, f.f1 - '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 > '0.0'"
+    "query": "SELECT f.f1, f.f1 - '-10' AS x FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
+    "expected": "SELECT f.f1, f.f1 - '-10' AS x FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
   },
   {
     "comment": "float8 - Statement 48",
-    "query": "SELECT f.f1 ^ '2.0' AS square_f1 FROM FLOAT8_TBL f where f.f1 = '1004.3'"
+    "query": "SELECT f.f1 ^ '2.0' AS square_f1 FROM FLOAT8_TBL f where f.f1 = '1004.3'",
+    "expected": "SELECT f.f1 ^ '2.0' AS square_f1 FROM float8_tbl AS f WHERE f.f1 = '1004.3'"
   },
   {
     "comment": "float8 - Statement 49",
-    "query": "SELECT f.f1, @f.f1 AS abs_f1 FROM FLOAT8_TBL f"
+    "query": "SELECT f.f1, @f.f1 AS abs_f1 FROM FLOAT8_TBL f",
+    "expected": "SELECT f.f1, @f.f1 AS abs_f1 FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 50",
-    "query": "SELECT f.f1, trunc(f.f1) AS trunc_f1 FROM FLOAT8_TBL f"
+    "query": "SELECT f.f1, trunc(f.f1) AS trunc_f1 FROM FLOAT8_TBL f",
+    "expected": "SELECT f.f1, trunc(f.f1) AS trunc_f1 FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 51",
-    "query": "SELECT f.f1, round(f.f1) AS round_f1 FROM FLOAT8_TBL f"
+    "query": "SELECT f.f1, round(f.f1) AS round_f1 FROM FLOAT8_TBL f",
+    "expected": "SELECT f.f1, round(f.f1) AS round_f1 FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 52",
-    "query": "select ceil(f1) as ceil_f1 from float8_tbl f"
+    "query": "select ceil(f1) as ceil_f1 from float8_tbl f",
+    "expected": "SELECT ceil(f1) AS ceil_f1 FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 53",
-    "query": "select ceiling(f1) as ceiling_f1 from float8_tbl f"
+    "query": "select ceiling(f1) as ceiling_f1 from float8_tbl f",
+    "expected": "SELECT ceiling(f1) AS ceiling_f1 FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 54",
-    "query": "select floor(f1) as floor_f1 from float8_tbl f"
+    "query": "select floor(f1) as floor_f1 from float8_tbl f",
+    "expected": "SELECT floor(f1) AS floor_f1 FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 55",
-    "query": "select sign(f1) as sign_f1 from float8_tbl f"
+    "query": "select sign(f1) as sign_f1 from float8_tbl f",
+    "expected": "SELECT sign(f1) AS sign_f1 FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 56",
@@ -225,179 +276,223 @@
   },
   {
     "comment": "float8 - Statement 57",
-    "query": "SELECT sqrt(float8 '64') AS eight"
+    "query": "SELECT sqrt(float8 '64') AS eight",
+    "expected": "SELECT sqrt(CAST('64' AS FLOAT8)) AS eight"
   },
   {
     "comment": "float8 - Statement 58",
-    "query": "SELECT |/ float8 '64' AS eight"
+    "query": "SELECT |/ float8 '64' AS eight",
+    "expected": "SELECT |/CAST('64' AS FLOAT8) AS eight"
   },
   {
     "comment": "float8 - Statement 59",
-    "query": "SELECT f.f1, |/f.f1 AS sqrt_f1 FROM FLOAT8_TBL f WHERE f.f1 > '0.0'"
+    "query": "SELECT f.f1, |/f.f1 AS sqrt_f1 FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
+    "expected": "SELECT f.f1, |/f.f1 AS sqrt_f1 FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
   },
   {
     "comment": "float8 - Statement 60",
-    "query": "SELECT power(float8 '144', float8 '0.5')"
+    "query": "SELECT power(float8 '144', float8 '0.5')",
+    "expected": "SELECT power(CAST('144' AS FLOAT8), CAST('0.5' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 61",
-    "query": "SELECT power(float8 'NaN', float8 '0.5')"
+    "query": "SELECT power(float8 'NaN', float8 '0.5')",
+    "expected": "SELECT power(CAST('NaN' AS FLOAT8), CAST('0.5' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 62",
-    "query": "SELECT power(float8 '144', float8 'NaN')"
+    "query": "SELECT power(float8 '144', float8 'NaN')",
+    "expected": "SELECT power(CAST('144' AS FLOAT8), CAST('NaN' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 63",
-    "query": "SELECT power(float8 'NaN', float8 'NaN')"
+    "query": "SELECT power(float8 'NaN', float8 'NaN')",
+    "expected": "SELECT power(CAST('NaN' AS FLOAT8), CAST('NaN' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 64",
-    "query": "SELECT power(float8 '-1', float8 'NaN')"
+    "query": "SELECT power(float8 '-1', float8 'NaN')",
+    "expected": "SELECT power(CAST('-1' AS FLOAT8), CAST('NaN' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 65",
-    "query": "SELECT power(float8 '1', float8 'NaN')"
+    "query": "SELECT power(float8 '1', float8 'NaN')",
+    "expected": "SELECT power(CAST('1' AS FLOAT8), CAST('NaN' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 66",
-    "query": "SELECT power(float8 'NaN', float8 '0')"
+    "query": "SELECT power(float8 'NaN', float8 '0')",
+    "expected": "SELECT power(CAST('NaN' AS FLOAT8), CAST('0' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 67",
-    "query": "SELECT power(float8 'inf', float8 '0')"
+    "query": "SELECT power(float8 'inf', float8 '0')",
+    "expected": "SELECT power(CAST('inf' AS FLOAT8), CAST('0' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 68",
-    "query": "SELECT power(float8 '-inf', float8 '0')"
+    "query": "SELECT power(float8 '-inf', float8 '0')",
+    "expected": "SELECT power(CAST('-inf' AS FLOAT8), CAST('0' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 69",
-    "query": "SELECT power(float8 '0', float8 'inf')"
+    "query": "SELECT power(float8 '0', float8 'inf')",
+    "expected": "SELECT power(CAST('0' AS FLOAT8), CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 70",
-    "query": "SELECT power(float8 '0', float8 '-inf')"
+    "query": "SELECT power(float8 '0', float8 '-inf')",
+    "expected": "SELECT power(CAST('0' AS FLOAT8), CAST('-inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 71",
-    "query": "SELECT power(float8 '1', float8 'inf')"
+    "query": "SELECT power(float8 '1', float8 'inf')",
+    "expected": "SELECT power(CAST('1' AS FLOAT8), CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 72",
-    "query": "SELECT power(float8 '1', float8 '-inf')"
+    "query": "SELECT power(float8 '1', float8 '-inf')",
+    "expected": "SELECT power(CAST('1' AS FLOAT8), CAST('-inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 73",
-    "query": "SELECT power(float8 '-1', float8 'inf')"
+    "query": "SELECT power(float8 '-1', float8 'inf')",
+    "expected": "SELECT power(CAST('-1' AS FLOAT8), CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 74",
-    "query": "SELECT power(float8 '-1', float8 '-inf')"
+    "query": "SELECT power(float8 '-1', float8 '-inf')",
+    "expected": "SELECT power(CAST('-1' AS FLOAT8), CAST('-inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 75",
-    "query": "SELECT power(float8 '0.1', float8 'inf')"
+    "query": "SELECT power(float8 '0.1', float8 'inf')",
+    "expected": "SELECT power(CAST('0.1' AS FLOAT8), CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 76",
-    "query": "SELECT power(float8 '-0.1', float8 'inf')"
+    "query": "SELECT power(float8 '-0.1', float8 'inf')",
+    "expected": "SELECT power(CAST('-0.1' AS FLOAT8), CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 77",
-    "query": "SELECT power(float8 '1.1', float8 'inf')"
+    "query": "SELECT power(float8 '1.1', float8 'inf')",
+    "expected": "SELECT power(CAST('1.1' AS FLOAT8), CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 78",
-    "query": "SELECT power(float8 '-1.1', float8 'inf')"
+    "query": "SELECT power(float8 '-1.1', float8 'inf')",
+    "expected": "SELECT power(CAST('-1.1' AS FLOAT8), CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 79",
-    "query": "SELECT power(float8 '0.1', float8 '-inf')"
+    "query": "SELECT power(float8 '0.1', float8 '-inf')",
+    "expected": "SELECT power(CAST('0.1' AS FLOAT8), CAST('-inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 80",
-    "query": "SELECT power(float8 '-0.1', float8 '-inf')"
+    "query": "SELECT power(float8 '-0.1', float8 '-inf')",
+    "expected": "SELECT power(CAST('-0.1' AS FLOAT8), CAST('-inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 81",
-    "query": "SELECT power(float8 '1.1', float8 '-inf')"
+    "query": "SELECT power(float8 '1.1', float8 '-inf')",
+    "expected": "SELECT power(CAST('1.1' AS FLOAT8), CAST('-inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 82",
-    "query": "SELECT power(float8 '-1.1', float8 '-inf')"
+    "query": "SELECT power(float8 '-1.1', float8 '-inf')",
+    "expected": "SELECT power(CAST('-1.1' AS FLOAT8), CAST('-inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 83",
-    "query": "SELECT power(float8 'inf', float8 '-2')"
+    "query": "SELECT power(float8 'inf', float8 '-2')",
+    "expected": "SELECT power(CAST('inf' AS FLOAT8), CAST('-2' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 84",
-    "query": "SELECT power(float8 'inf', float8 '2')"
+    "query": "SELECT power(float8 'inf', float8 '2')",
+    "expected": "SELECT power(CAST('inf' AS FLOAT8), CAST('2' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 85",
-    "query": "SELECT power(float8 'inf', float8 'inf')"
+    "query": "SELECT power(float8 'inf', float8 'inf')",
+    "expected": "SELECT power(CAST('inf' AS FLOAT8), CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 86",
-    "query": "SELECT power(float8 'inf', float8 '-inf')"
+    "query": "SELECT power(float8 'inf', float8 '-inf')",
+    "expected": "SELECT power(CAST('inf' AS FLOAT8), CAST('-inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 87",
-    "query": "SELECT power(float8 '-inf', float8 '-2') = '0'"
+    "query": "SELECT power(float8 '-inf', float8 '-2') = '0'",
+    "expected": "SELECT power(CAST('-inf' AS FLOAT8), CAST('-2' AS FLOAT8)) = '0'"
   },
   {
     "comment": "float8 - Statement 88",
-    "query": "SELECT power(float8 '-inf', float8 '-3')"
+    "query": "SELECT power(float8 '-inf', float8 '-3')",
+    "expected": "SELECT power(CAST('-inf' AS FLOAT8), CAST('-3' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 89",
-    "query": "SELECT power(float8 '-inf', float8 '2')"
+    "query": "SELECT power(float8 '-inf', float8 '2')",
+    "expected": "SELECT power(CAST('-inf' AS FLOAT8), CAST('2' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 90",
-    "query": "SELECT power(float8 '-inf', float8 '3')"
+    "query": "SELECT power(float8 '-inf', float8 '3')",
+    "expected": "SELECT power(CAST('-inf' AS FLOAT8), CAST('3' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 91",
-    "query": "SELECT power(float8 '-inf', float8 '3.5')"
+    "query": "SELECT power(float8 '-inf', float8 '3.5')",
+    "expected": "SELECT power(CAST('-inf' AS FLOAT8), CAST('3.5' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 92",
-    "query": "SELECT power(float8 '-inf', float8 'inf')"
+    "query": "SELECT power(float8 '-inf', float8 'inf')",
+    "expected": "SELECT power(CAST('-inf' AS FLOAT8), CAST('inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 93",
-    "query": "SELECT power(float8 '-inf', float8 '-inf')"
+    "query": "SELECT power(float8 '-inf', float8 '-inf')",
+    "expected": "SELECT power(CAST('-inf' AS FLOAT8), CAST('-inf' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 94",
-    "query": "SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1 FROM FLOAT8_TBL f WHERE f.f1 > '0.0'"
+    "query": "SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1 FROM FLOAT8_TBL f WHERE f.f1 \u003e '0.0'",
+    "expected": "SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1 FROM float8_tbl AS f WHERE f.f1 \u003e '0.0'"
   },
   {
     "comment": "float8 - Statement 95",
-    "query": "SELECT exp('inf'::float8), exp('-inf'::float8), exp('nan'::float8)"
+    "query": "SELECT exp('inf'::float8), exp('-inf'::float8), exp('nan'::float8)",
+    "expected": "SELECT exp(CAST('inf' AS FLOAT8)), exp(CAST('-inf' AS FLOAT8)), exp(CAST('nan' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 96",
-    "query": "SELECT ||/ float8 '27' AS three"
+    "query": "SELECT ||/ float8 '27' AS three",
+    "expected": "SELECT ||/CAST('27' AS FLOAT8) AS three"
   },
   {
     "comment": "float8 - Statement 97",
-    "query": "SELECT f.f1, ||/f.f1 AS cbrt_f1 FROM FLOAT8_TBL f"
+    "query": "SELECT f.f1, ||/f.f1 AS cbrt_f1 FROM FLOAT8_TBL f",
+    "expected": "SELECT f.f1, ||/f.f1 AS cbrt_f1 FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 98",
-    "query": "UPDATE FLOAT8_TBL SET f1 = FLOAT8_TBL.f1 * '-1' WHERE FLOAT8_TBL.f1 > '0.0'"
+    "query": "UPDATE FLOAT8_TBL SET f1 = FLOAT8_TBL.f1 * '-1' WHERE FLOAT8_TBL.f1 \u003e '0.0'",
+    "expected": "UPDATE float8_tbl SET f1 = float8_tbl.f1 * '-1' WHERE float8_tbl.f1 \u003e '0.0'"
   },
   {
     "comment": "float8 - Statement 99",
-    "query": "SELECT f.f1 * '1e200' from FLOAT8_TBL f"
+    "query": "SELECT f.f1 * '1e200' from FLOAT8_TBL f",
+    "expected": "SELECT f.f1 * '1e200' FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 100",
-    "query": "SELECT f.f1 ^ '1e200' from FLOAT8_TBL f"
+    "query": "SELECT f.f1 ^ '1e200' from FLOAT8_TBL f",
+    "expected": "SELECT f.f1 ^ '1e200' FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 101",
@@ -405,111 +500,138 @@
   },
   {
     "comment": "float8 - Statement 102",
-    "query": "SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 = '0.0'"
+    "query": "SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 = '0.0'",
+    "expected": "SELECT ln(f.f1) FROM float8_tbl AS f WHERE f.f1 = '0.0'"
   },
   {
     "comment": "float8 - Statement 103",
-    "query": "SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 < '0.0'"
+    "query": "SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 \u003c '0.0'",
+    "expected": "SELECT ln(f.f1) FROM float8_tbl AS f WHERE f.f1 \u003c '0.0'"
   },
   {
     "comment": "float8 - Statement 104",
-    "query": "SELECT exp(f.f1) from FLOAT8_TBL f"
+    "query": "SELECT exp(f.f1) from FLOAT8_TBL f",
+    "expected": "SELECT exp(f.f1) FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 105",
-    "query": "SELECT f.f1 / '0.0' from FLOAT8_TBL f"
+    "query": "SELECT f.f1 / '0.0' from FLOAT8_TBL f",
+    "expected": "SELECT f.f1 / '0.0' FROM float8_tbl AS f"
   },
   {
     "comment": "float8 - Statement 106",
-    "query": "SELECT sinh(float8 '1')"
+    "query": "SELECT sinh(float8 '1')",
+    "expected": "SELECT sinh(CAST('1' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 107",
-    "query": "SELECT cosh(float8 '1')"
+    "query": "SELECT cosh(float8 '1')",
+    "expected": "SELECT cosh(CAST('1' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 108",
-    "query": "SELECT tanh(float8 '1')"
+    "query": "SELECT tanh(float8 '1')",
+    "expected": "SELECT tanh(CAST('1' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 109",
-    "query": "SELECT asinh(float8 '1')"
+    "query": "SELECT asinh(float8 '1')",
+    "expected": "SELECT asinh(CAST('1' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 110",
-    "query": "SELECT acosh(float8 '2')"
+    "query": "SELECT acosh(float8 '2')",
+    "expected": "SELECT acosh(CAST('2' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 111",
-    "query": "SELECT atanh(float8 '0.5')"
+    "query": "SELECT atanh(float8 '0.5')",
+    "expected": "SELECT atanh(CAST('0.5' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 112",
-    "query": "SELECT sinh(float8 'infinity')"
+    "query": "SELECT sinh(float8 'infinity')",
+    "expected": "SELECT sinh(CAST('infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 113",
-    "query": "SELECT sinh(float8 '-infinity')"
+    "query": "SELECT sinh(float8 '-infinity')",
+    "expected": "SELECT sinh(CAST('-infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 114",
-    "query": "SELECT sinh(float8 'nan')"
+    "query": "SELECT sinh(float8 'nan')",
+    "expected": "SELECT sinh(CAST('nan' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 115",
-    "query": "SELECT cosh(float8 'infinity')"
+    "query": "SELECT cosh(float8 'infinity')",
+    "expected": "SELECT cosh(CAST('infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 116",
-    "query": "SELECT cosh(float8 '-infinity')"
+    "query": "SELECT cosh(float8 '-infinity')",
+    "expected": "SELECT cosh(CAST('-infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 117",
-    "query": "SELECT cosh(float8 'nan')"
+    "query": "SELECT cosh(float8 'nan')",
+    "expected": "SELECT cosh(CAST('nan' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 118",
-    "query": "SELECT tanh(float8 'infinity')"
+    "query": "SELECT tanh(float8 'infinity')",
+    "expected": "SELECT tanh(CAST('infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 119",
-    "query": "SELECT tanh(float8 '-infinity')"
+    "query": "SELECT tanh(float8 '-infinity')",
+    "expected": "SELECT tanh(CAST('-infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 120",
-    "query": "SELECT tanh(float8 'nan')"
+    "query": "SELECT tanh(float8 'nan')",
+    "expected": "SELECT tanh(CAST('nan' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 121",
-    "query": "SELECT asinh(float8 'infinity')"
+    "query": "SELECT asinh(float8 'infinity')",
+    "expected": "SELECT asinh(CAST('infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 122",
-    "query": "SELECT asinh(float8 '-infinity')"
+    "query": "SELECT asinh(float8 '-infinity')",
+    "expected": "SELECT asinh(CAST('-infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 123",
-    "query": "SELECT asinh(float8 'nan')"
+    "query": "SELECT asinh(float8 'nan')",
+    "expected": "SELECT asinh(CAST('nan' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 124",
-    "query": "SELECT acosh(float8 '-infinity')"
+    "query": "SELECT acosh(float8 '-infinity')",
+    "expected": "SELECT acosh(CAST('-infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 125",
-    "query": "SELECT acosh(float8 'nan')"
+    "query": "SELECT acosh(float8 'nan')",
+    "expected": "SELECT acosh(CAST('nan' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 126",
-    "query": "SELECT atanh(float8 'infinity')"
+    "query": "SELECT atanh(float8 'infinity')",
+    "expected": "SELECT atanh(CAST('infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 127",
-    "query": "SELECT atanh(float8 '-infinity')"
+    "query": "SELECT atanh(float8 '-infinity')",
+    "expected": "SELECT atanh(CAST('-infinity' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 128",
-    "query": "SELECT atanh(float8 'nan')"
+    "query": "SELECT atanh(float8 'nan')",
+    "expected": "SELECT atanh(CAST('nan' AS FLOAT8))"
   },
   {
     "comment": "float8 - Statement 129",
@@ -517,7 +639,8 @@
   },
   {
     "comment": "float8 - Statement 130",
-    "query": "SELECT x, erf(x), erfc(x) FROM (VALUES (float8 '-infinity'), (-28), (-6), (-3.4), (-2.1), (-1.1), (-0.45), (-1.2e-9), (-2.3e-13), (-1.2e-17), (0), (1.2e-17), (2.3e-13), (1.2e-9), (0.45), (1.1), (2.1), (3.4), (6), (28), (float8 'infinity'), (float8 'nan')) AS t(x)"
+    "query": "SELECT x, erf(x), erfc(x) FROM (VALUES (float8 '-infinity'), (-28), (-6), (-3.4), (-2.1), (-1.1), (-0.45), (-1.2e-9), (-2.3e-13), (-1.2e-17), (0), (1.2e-17), (2.3e-13), (1.2e-9), (0.45), (1.1), (2.1), (3.4), (6), (28), (float8 'infinity'), (float8 'nan')) AS t(x)",
+    "expected": "SELECT x, erf(x), erfc(x) FROM (VALUES (CAST('-infinity' AS FLOAT8)), (-28), (-6), (-3.4), (-2.1), (-1.1), (-0.45), (-1.2e-9), (-2.3e-13), (-1.2e-17), (0), (1.2e-17), (2.3e-13), (1.2e-9), (0.45), (1.1), (2.1), (3.4), (6), (28), (CAST('infinity' AS FLOAT8)), (CAST('nan' AS FLOAT8))) AS t(x)"
   },
   {
     "comment": "float8 - Statement 131",
@@ -525,138 +648,172 @@
   },
   {
     "comment": "float8 - Statement 132",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('10e400')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('10e400')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('10e400')"
   },
   {
     "comment": "float8 - Statement 133",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e400')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e400')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('-10e400')"
   },
   {
     "comment": "float8 - Statement 134",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('10e-400')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('10e-400')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('10e-400')"
   },
   {
     "comment": "float8 - Statement 135",
-    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e-400')"
+    "query": "INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e-400')",
+    "expected": "INSERT INTO float8_tbl (f1) VALUES ('-10e-400')"
   },
   {
     "comment": "float8 - Statement 136",
-    "query": "DROP TABLE FLOAT8_TBL"
+    "query": "DROP TABLE FLOAT8_TBL",
+    "expected": "DROP TABLE float8_tbl"
   },
   {
     "comment": "float8 - Statement 137",
-    "query": "SELECT '32767.4'::float8::int2"
+    "query": "SELECT '32767.4'::float8::int2",
+    "expected": "SELECT CAST(CAST('32767.4' AS FLOAT8) AS SMALLINT)"
   },
   {
     "comment": "float8 - Statement 138",
-    "query": "SELECT '32767.6'::float8::int2"
+    "query": "SELECT '32767.6'::float8::int2",
+    "expected": "SELECT CAST(CAST('32767.6' AS FLOAT8) AS SMALLINT)"
   },
   {
     "comment": "float8 - Statement 139",
-    "query": "SELECT '-32768.4'::float8::int2"
+    "query": "SELECT '-32768.4'::float8::int2",
+    "expected": "SELECT CAST(CAST('-32768.4' AS FLOAT8) AS SMALLINT)"
   },
   {
     "comment": "float8 - Statement 140",
-    "query": "SELECT '-32768.6'::float8::int2"
+    "query": "SELECT '-32768.6'::float8::int2",
+    "expected": "SELECT CAST(CAST('-32768.6' AS FLOAT8) AS SMALLINT)"
   },
   {
     "comment": "float8 - Statement 141",
-    "query": "SELECT '2147483647.4'::float8::int4"
+    "query": "SELECT '2147483647.4'::float8::int4",
+    "expected": "SELECT CAST(CAST('2147483647.4' AS FLOAT8) AS INT)"
   },
   {
     "comment": "float8 - Statement 142",
-    "query": "SELECT '2147483647.6'::float8::int4"
+    "query": "SELECT '2147483647.6'::float8::int4",
+    "expected": "SELECT CAST(CAST('2147483647.6' AS FLOAT8) AS INT)"
   },
   {
     "comment": "float8 - Statement 143",
-    "query": "SELECT '-2147483648.4'::float8::int4"
+    "query": "SELECT '-2147483648.4'::float8::int4",
+    "expected": "SELECT CAST(CAST('-2147483648.4' AS FLOAT8) AS INT)"
   },
   {
     "comment": "float8 - Statement 144",
-    "query": "SELECT '-2147483648.6'::float8::int4"
+    "query": "SELECT '-2147483648.6'::float8::int4",
+    "expected": "SELECT CAST(CAST('-2147483648.6' AS FLOAT8) AS INT)"
   },
   {
     "comment": "float8 - Statement 145",
-    "query": "SELECT '9223372036854773760'::float8::int8"
+    "query": "SELECT '9223372036854773760'::float8::int8",
+    "expected": "SELECT CAST(CAST('9223372036854773760' AS FLOAT8) AS BIGINT)"
   },
   {
     "comment": "float8 - Statement 146",
-    "query": "SELECT '9223372036854775807'::float8::int8"
+    "query": "SELECT '9223372036854775807'::float8::int8",
+    "expected": "SELECT CAST(CAST('9223372036854775807' AS FLOAT8) AS BIGINT)"
   },
   {
     "comment": "float8 - Statement 147",
-    "query": "SELECT '-9223372036854775808.5'::float8::int8"
+    "query": "SELECT '-9223372036854775808.5'::float8::int8",
+    "expected": "SELECT CAST(CAST('-9223372036854775808.5' AS FLOAT8) AS BIGINT)"
   },
   {
     "comment": "float8 - Statement 148",
-    "query": "SELECT '-9223372036854780000'::float8::int8"
+    "query": "SELECT '-9223372036854780000'::float8::int8",
+    "expected": "SELECT CAST(CAST('-9223372036854780000' AS FLOAT8) AS BIGINT)"
   },
   {
     "comment": "float8 - Statement 149",
-    "query": "SELECT x, sind(x), sind(x) IN (-1,-0.5,0,0.5,1) AS sind_exact FROM (VALUES (0), (30), (90), (150), (180), (210), (270), (330), (360)) AS t(x)"
+    "query": "SELECT x, sind(x), sind(x) IN (-1,-0.5,0,0.5,1) AS sind_exact FROM (VALUES (0), (30), (90), (150), (180), (210), (270), (330), (360)) AS t(x)",
+    "expected": "SELECT x, sind(x), sind(x) IN (-1, -0.5, 0, 0.5, 1) AS sind_exact FROM (VALUES (0), (30), (90), (150), (180), (210), (270), (330), (360)) AS t(x)"
   },
   {
     "comment": "float8 - Statement 150",
-    "query": "SELECT x, cosd(x), cosd(x) IN (-1,-0.5,0,0.5,1) AS cosd_exact FROM (VALUES (0), (60), (90), (120), (180), (240), (270), (300), (360)) AS t(x)"
+    "query": "SELECT x, cosd(x), cosd(x) IN (-1,-0.5,0,0.5,1) AS cosd_exact FROM (VALUES (0), (60), (90), (120), (180), (240), (270), (300), (360)) AS t(x)",
+    "expected": "SELECT x, cosd(x), cosd(x) IN (-1, -0.5, 0, 0.5, 1) AS cosd_exact FROM (VALUES (0), (60), (90), (120), (180), (240), (270), (300), (360)) AS t(x)"
   },
   {
     "comment": "float8 - Statement 151",
-    "query": "SELECT x, tand(x), tand(x) IN ('-Infinity'::float8,-1,0, 1,'Infinity'::float8) AS tand_exact, cotd(x), cotd(x) IN ('-Infinity'::float8,-1,0, 1,'Infinity'::float8) AS cotd_exact FROM (VALUES (0), (45), (90), (135), (180), (225), (270), (315), (360)) AS t(x)"
+    "query": "SELECT x, tand(x), tand(x) IN ('-Infinity'::float8,-1,0, 1,'Infinity'::float8) AS tand_exact, cotd(x), cotd(x) IN ('-Infinity'::float8,-1,0, 1,'Infinity'::float8) AS cotd_exact FROM (VALUES (0), (45), (90), (135), (180), (225), (270), (315), (360)) AS t(x)",
+    "expected": "SELECT x, tand(x), tand(x) IN (CAST('-Infinity' AS FLOAT8), -1, 0, 1, CAST('Infinity' AS FLOAT8)) AS tand_exact, cotd(x), cotd(x) IN (CAST('-Infinity' AS FLOAT8), -1, 0, 1, CAST('Infinity' AS FLOAT8)) AS cotd_exact FROM (VALUES (0), (45), (90), (135), (180), (225), (270), (315), (360)) AS t(x)"
   },
   {
     "comment": "float8 - Statement 152",
-    "query": "SELECT x, asind(x), asind(x) IN (-90,-30,0,30,90) AS asind_exact, acosd(x), acosd(x) IN (0,60,90,120,180) AS acosd_exact FROM (VALUES (-1), (-0.5), (0), (0.5), (1)) AS t(x)"
+    "query": "SELECT x, asind(x), asind(x) IN (-90,-30,0,30,90) AS asind_exact, acosd(x), acosd(x) IN (0,60,90,120,180) AS acosd_exact FROM (VALUES (-1), (-0.5), (0), (0.5), (1)) AS t(x)",
+    "expected": "SELECT x, asind(x), asind(x) IN (-90, -30, 0, 30, 90) AS asind_exact, acosd(x), acosd(x) IN (0, 60, 90, 120, 180) AS acosd_exact FROM (VALUES (-1), (-0.5), (0), (0.5), (1)) AS t(x)"
   },
   {
     "comment": "float8 - Statement 153",
-    "query": "SELECT x, atand(x), atand(x) IN (-90,-45,0,45,90) AS atand_exact FROM (VALUES ('-Infinity'::float8), (-1), (0), (1), ('Infinity'::float8)) AS t(x)"
+    "query": "SELECT x, atand(x), atand(x) IN (-90,-45,0,45,90) AS atand_exact FROM (VALUES ('-Infinity'::float8), (-1), (0), (1), ('Infinity'::float8)) AS t(x)",
+    "expected": "SELECT x, atand(x), atand(x) IN (-90, -45, 0, 45, 90) AS atand_exact FROM (VALUES (CAST('-Infinity' AS FLOAT8)), (-1), (0), (1), (CAST('Infinity' AS FLOAT8))) AS t(x)"
   },
   {
     "comment": "float8 - Statement 154",
-    "query": "SELECT x, y, atan2d(y, x), atan2d(y, x) IN (-90,0,90,180) AS atan2d_exact FROM (SELECT 10*cosd(a), 10*sind(a) FROM generate_series(0, 360, 90) AS t(a)) AS t(x,y)"
+    "query": "SELECT x, y, atan2d(y, x), atan2d(y, x) IN (-90,0,90,180) AS atan2d_exact FROM (SELECT 10*cosd(a), 10*sind(a) FROM generate_series(0, 360, 90) AS t(a)) AS t(x,y)",
+    "expected": "SELECT x, y, atan2d(y, x), atan2d(y, x) IN (-90, 0, 90, 180) AS atan2d_exact FROM (SELECT 10 * cosd(a), 10 * sind(a) FROM generate_series(0, 360, 90) AS t(a)) AS t(x, y)"
   },
   {
     "comment": "float8 - Statement 155",
-    "query": "create type xfloat8"
+    "query": "create type xfloat8",
+    "expected": "CREATE TYPE xfloat8"
   },
   {
     "comment": "float8 - Statement 156",
-    "query": "create function xfloat8in(cstring) returns xfloat8 immutable strict language internal as 'int8in'"
+    "query": "create function xfloat8in(cstring) returns xfloat8 immutable strict language internal as 'int8in'",
+    "expected": "CREATE FUNCTION xfloat8in (cstring) RETURNS xfloat8 LANGUAGE internal AS $$int8in$$ IMMUTABLE STRICT"
   },
   {
     "comment": "float8 - Statement 157",
-    "query": "create function xfloat8out(xfloat8) returns cstring immutable strict language internal as 'int8out'"
+    "query": "create function xfloat8out(xfloat8) returns cstring immutable strict language internal as 'int8out'",
+    "expected": "CREATE FUNCTION xfloat8out (xfloat8) RETURNS cstring LANGUAGE internal AS $$int8out$$ IMMUTABLE STRICT"
   },
   {
     "comment": "float8 - Statement 158",
-    "query": "create type xfloat8 (input = xfloat8in, output = xfloat8out, like = float8)"
+    "query": "create type xfloat8 (input = xfloat8in, output = xfloat8out, like = float8)",
+    "expected": "CREATE TYPE xfloat8 (input = xfloat8in, output = xfloat8out, \"like\" = FLOAT8)"
   },
   {
     "comment": "float8 - Statement 159",
-    "query": "create cast (xfloat8 as float8) without function"
+    "query": "create cast (xfloat8 as float8) without function",
+    "expected": "CREATE CAST (xfloat8 AS FLOAT8) WITHOUT FUNCTION"
   },
   {
     "comment": "float8 - Statement 160",
-    "query": "create cast (float8 as xfloat8) without function"
+    "query": "create cast (float8 as xfloat8) without function",
+    "expected": "CREATE CAST (FLOAT8 AS xfloat8) WITHOUT FUNCTION"
   },
   {
     "comment": "float8 - Statement 161",
-    "query": "create cast (xfloat8 as bigint) without function"
+    "query": "create cast (xfloat8 as bigint) without function",
+    "expected": "CREATE CAST (xfloat8 AS BIGINT) WITHOUT FUNCTION"
   },
   {
     "comment": "float8 - Statement 162",
-    "query": "create cast (bigint as xfloat8) without function"
+    "query": "create cast (bigint as xfloat8) without function",
+    "expected": "CREATE CAST (BIGINT AS xfloat8) WITHOUT FUNCTION"
   },
   {
     "comment": "float8 - Statement 163",
-    "query": "with testdata(bits) as (values (x'0000000000000001'), (x'0000000000000002'), (x'0000000000000003'), (x'0000000000001000'), (x'0000000100000000'), (x'0000010000000000'), (x'0000010100000000'), (x'0000400000000000'), (x'0000400100000000'), (x'0000800000000000'), (x'0000800000000001'), (x'00000000000f4240'), (x'00000000016e3600'), (x'0000008cdcdea440'), (x'000ffffffffffff0'), (x'000ffffffffffff1'), (x'000ffffffffffffe'), (x'000fffffffffffff')) select float8send(flt) as ibits, flt from (select bits::bigint::xfloat8::float8 as flt from testdata offset 0) s"
+    "query": "with testdata(bits) as (values (x'0000000000000001'), (x'0000000000000002'), (x'0000000000000003'), (x'0000000000001000'), (x'0000000100000000'), (x'0000010000000000'), (x'0000010100000000'), (x'0000400000000000'), (x'0000400100000000'), (x'0000800000000000'), (x'0000800000000001'), (x'00000000000f4240'), (x'00000000016e3600'), (x'0000008cdcdea440'), (x'000ffffffffffff0'), (x'000ffffffffffff1'), (x'000ffffffffffffe'), (x'000fffffffffffff')) select float8send(flt) as ibits, flt from (select bits::bigint::xfloat8::float8 as flt from testdata offset 0) s",
+    "expected": "WITH testdata(bits) AS (VALUES (X'0000000000000001'), (X'0000000000000002'), (X'0000000000000003'), (X'0000000000001000'), (X'0000000100000000'), (X'0000010000000000'), (X'0000010100000000'), (X'0000400000000000'), (X'0000400100000000'), (X'0000800000000000'), (X'0000800000000001'), (X'00000000000f4240'), (X'00000000016e3600'), (X'0000008cdcdea440'), (X'000ffffffffffff0'), (X'000ffffffffffff1'), (X'000ffffffffffffe'), (X'000fffffffffffff')) SELECT float8send(flt) AS ibits, flt FROM (SELECT CAST(CAST(CAST(bits AS BIGINT) AS xfloat8) AS FLOAT8) AS flt FROM testdata OFFSET 0) AS s"
   },
   {
     "comment": "float8 - Statement 164",
-    "query": "with testdata(bits) as (values (x'0000000000000000'), (x'0010000000000000'), (x'0010000000000001'), (x'0010000000000002'), (x'0018000000000000'), (x'3ddb7cdfd9d7bdba'), (x'3ddb7cdfd9d7bdbb'), (x'3ddb7cdfd9d7bdbc'), (x'3e112e0be826d694'), (x'3e112e0be826d695'), (x'3e112e0be826d696'), (x'3e45798ee2308c39'), (x'3e45798ee2308c3a'), (x'3e45798ee2308c3b'), (x'3e7ad7f29abcaf47'), (x'3e7ad7f29abcaf48'), (x'3e7ad7f29abcaf49'), (x'3eb0c6f7a0b5ed8c'), (x'3eb0c6f7a0b5ed8d'), (x'3eb0c6f7a0b5ed8e'), (x'3ee4f8b588e368ef'), (x'3ee4f8b588e368f0'), (x'3ee4f8b588e368f1'), (x'3f1a36e2eb1c432c'), (x'3f1a36e2eb1c432d'), (x'3f1a36e2eb1c432e'), (x'3f50624dd2f1a9fb'), (x'3f50624dd2f1a9fc'), (x'3f50624dd2f1a9fd'), (x'3f847ae147ae147a'), (x'3f847ae147ae147b'), (x'3f847ae147ae147c'), (x'3fb9999999999999'), (x'3fb999999999999a'), (x'3fb999999999999b'), (x'3feffffffffffff0'), (x'3feffffffffffff1'), (x'3feffffffffffff2'), (x'3feffffffffffff3'), (x'3feffffffffffff4'), (x'3feffffffffffff5'), (x'3feffffffffffff6'), (x'3feffffffffffff7'), (x'3feffffffffffff8'), (x'3feffffffffffff9'), (x'3feffffffffffffa'), (x'3feffffffffffffb'), (x'3feffffffffffffc'), (x'3feffffffffffffd'), (x'3feffffffffffffe'), (x'3fefffffffffffff'), (x'3ff0000000000000'), (x'3ff0000000000001'), (x'3ff0000000000002'), (x'3ff0000000000003'), (x'3ff0000000000004'), (x'3ff0000000000005'), (x'3ff0000000000006'), (x'3ff0000000000007'), (x'3ff0000000000008'), (x'3ff0000000000009'), (x'3ff921fb54442d18'), (x'4005bf0a8b14576a'), (x'400921fb54442d18'), (x'4023ffffffffffff'), (x'4024000000000000'), (x'4024000000000001'), (x'4058ffffffffffff'), (x'4059000000000000'), (x'4059000000000001'), (x'408f3fffffffffff'), (x'408f400000000000'), (x'408f400000000001'), (x'40c387ffffffffff'), (x'40c3880000000000'), (x'40c3880000000001'), (x'40f869ffffffffff'), (x'40f86a0000000000'), (x'40f86a0000000001'), (x'412e847fffffffff'), (x'412e848000000000'), (x'412e848000000001'), (x'416312cfffffffff'), (x'416312d000000000'), (x'416312d000000001'), (x'4197d783ffffffff'), (x'4197d78400000000'), (x'4197d78400000001'), (x'41cdcd64ffffffff'), (x'41cdcd6500000000'), (x'41cdcd6500000001'), (x'4202a05f1fffffff'), (x'4202a05f20000000'), (x'4202a05f20000001'), (x'42374876e7ffffff'), (x'42374876e8000000'), (x'42374876e8000001'), (x'426d1a94a1ffffff'), (x'426d1a94a2000000'), (x'426d1a94a2000001'), (x'42a2309ce53fffff'), (x'42a2309ce5400000'), (x'42a2309ce5400001'), (x'42d6bcc41e8fffff'), (x'42d6bcc41e900000'), (x'42d6bcc41e900001'), (x'430c6bf52633ffff'), (x'430c6bf526340000'), (x'430c6bf526340001'), (x'4341c37937e07fff'), (x'4341c37937e08000'), (x'4341c37937e08001'), (x'4376345785d89fff'), (x'4376345785d8a000'), (x'4376345785d8a001'), (x'43abc16d674ec7ff'), (x'43abc16d674ec800'), (x'43abc16d674ec801'), (x'43e158e460913cff'), (x'43e158e460913d00'), (x'43e158e460913d01'), (x'4415af1d78b58c3f'), (x'4415af1d78b58c40'), (x'4415af1d78b58c41'), (x'444b1ae4d6e2ef4f'), (x'444b1ae4d6e2ef50'), (x'444b1ae4d6e2ef51'), (x'4480f0cf064dd591'), (x'4480f0cf064dd592'), (x'4480f0cf064dd593'), (x'44b52d02c7e14af5'), (x'44b52d02c7e14af6'), (x'44b52d02c7e14af7'), (x'44ea784379d99db3'), (x'44ea784379d99db4'), (x'44ea784379d99db5'), (x'45208b2a2c280290'), (x'45208b2a2c280291'), (x'45208b2a2c280292'), (x'7feffffffffffffe'), (x'7fefffffffffffff'), (x'4350000000000002'), (x'4350000000002e06'), (x'4352000000000003'), (x'4352000000000004'), (x'4358000000000003'), (x'4358000000000004'), (x'435f000000000020'), (x'c350000000000002'), (x'c350000000002e06'), (x'c352000000000003'), (x'c352000000000004'), (x'c358000000000003'), (x'c358000000000004'), (x'c35f000000000020'), (x'42dc12218377de66'), (x'42a674e79c5fe51f'), (x'4271f71fb04cb74c'), (x'423cbe991a145879'), (x'4206fee0e1a9e061'), (x'41d26580b487e6b4'), (x'419d6f34540ca453'), (x'41678c29dcd6e9dc'), (x'4132d687e3df217d'), (x'40fe240c9fcb68c8'), (x'40c81cd6e63c53d3'), (x'40934a4584fd0fdc'), (x'405edd3c07fb4c93'), (x'4028b0fcd32f7076'), (x'3ff3c0ca428c59f8'), (x'3e60000000000000'), (x'c352bd2668e077c4'), (x'434018601510c000'), (x'43d055dc36f24000'), (x'43e052961c6f8000'), (x'3ff3c0ca2a5b1d5d'), (x'4830f0cf064dd592'), (x'4840f0cf064dd592'), (x'4850f0cf064dd592'), (x'3ff3333333333333'), (x'3ff3ae147ae147ae'), (x'3ff3be76c8b43958'), (x'3ff3c083126e978d'), (x'3ff3c0c1fc8f3238'), (x'3ff3c0c9539b8887'), (x'3ff3c0ca2a5b1d5d'), (x'3ff3c0ca4283de1b'), (x'3ff3c0ca43db770a'), (x'3ff3c0ca428abd53'), (x'3ff3c0ca428c1d2b'), (x'3ff3c0ca428c51f2'), (x'3ff3c0ca428c58fc'), (x'3ff3c0ca428c59dd'), (x'3ff3c0ca428c59f8'), (x'3ff3c0ca428c59fb'), (x'40112e0be8047a7d'), (x'40112e0be815a889'), (x'40112e0be826d695'), (x'40112e0be83804a1'), (x'40112e0be84932ad'), (x'0040000000000000'), (x'007fffffffffffff'), (x'0290000000000000'), (x'029fffffffffffff'), (x'4350000000000000'), (x'435fffffffffffff'), (x'1330000000000000'), (x'133fffffffffffff'), (x'3a6fa7161a4d6e0c') ) select float8send(flt) as ibits, flt, flt::text::float8 as r_flt, float8send(flt::text::float8) as obits, float8send(flt::text::float8) = float8send(flt) as correct from (select bits::bigint::xfloat8::float8 as flt from testdata offset 0) s"
+    "query": "with testdata(bits) as (values (x'0000000000000000'), (x'0010000000000000'), (x'0010000000000001'), (x'0010000000000002'), (x'0018000000000000'), (x'3ddb7cdfd9d7bdba'), (x'3ddb7cdfd9d7bdbb'), (x'3ddb7cdfd9d7bdbc'), (x'3e112e0be826d694'), (x'3e112e0be826d695'), (x'3e112e0be826d696'), (x'3e45798ee2308c39'), (x'3e45798ee2308c3a'), (x'3e45798ee2308c3b'), (x'3e7ad7f29abcaf47'), (x'3e7ad7f29abcaf48'), (x'3e7ad7f29abcaf49'), (x'3eb0c6f7a0b5ed8c'), (x'3eb0c6f7a0b5ed8d'), (x'3eb0c6f7a0b5ed8e'), (x'3ee4f8b588e368ef'), (x'3ee4f8b588e368f0'), (x'3ee4f8b588e368f1'), (x'3f1a36e2eb1c432c'), (x'3f1a36e2eb1c432d'), (x'3f1a36e2eb1c432e'), (x'3f50624dd2f1a9fb'), (x'3f50624dd2f1a9fc'), (x'3f50624dd2f1a9fd'), (x'3f847ae147ae147a'), (x'3f847ae147ae147b'), (x'3f847ae147ae147c'), (x'3fb9999999999999'), (x'3fb999999999999a'), (x'3fb999999999999b'), (x'3feffffffffffff0'), (x'3feffffffffffff1'), (x'3feffffffffffff2'), (x'3feffffffffffff3'), (x'3feffffffffffff4'), (x'3feffffffffffff5'), (x'3feffffffffffff6'), (x'3feffffffffffff7'), (x'3feffffffffffff8'), (x'3feffffffffffff9'), (x'3feffffffffffffa'), (x'3feffffffffffffb'), (x'3feffffffffffffc'), (x'3feffffffffffffd'), (x'3feffffffffffffe'), (x'3fefffffffffffff'), (x'3ff0000000000000'), (x'3ff0000000000001'), (x'3ff0000000000002'), (x'3ff0000000000003'), (x'3ff0000000000004'), (x'3ff0000000000005'), (x'3ff0000000000006'), (x'3ff0000000000007'), (x'3ff0000000000008'), (x'3ff0000000000009'), (x'3ff921fb54442d18'), (x'4005bf0a8b14576a'), (x'400921fb54442d18'), (x'4023ffffffffffff'), (x'4024000000000000'), (x'4024000000000001'), (x'4058ffffffffffff'), (x'4059000000000000'), (x'4059000000000001'), (x'408f3fffffffffff'), (x'408f400000000000'), (x'408f400000000001'), (x'40c387ffffffffff'), (x'40c3880000000000'), (x'40c3880000000001'), (x'40f869ffffffffff'), (x'40f86a0000000000'), (x'40f86a0000000001'), (x'412e847fffffffff'), (x'412e848000000000'), (x'412e848000000001'), (x'416312cfffffffff'), (x'416312d000000000'), (x'416312d000000001'), (x'4197d783ffffffff'), (x'4197d78400000000'), (x'4197d78400000001'), (x'41cdcd64ffffffff'), (x'41cdcd6500000000'), (x'41cdcd6500000001'), (x'4202a05f1fffffff'), (x'4202a05f20000000'), (x'4202a05f20000001'), (x'42374876e7ffffff'), (x'42374876e8000000'), (x'42374876e8000001'), (x'426d1a94a1ffffff'), (x'426d1a94a2000000'), (x'426d1a94a2000001'), (x'42a2309ce53fffff'), (x'42a2309ce5400000'), (x'42a2309ce5400001'), (x'42d6bcc41e8fffff'), (x'42d6bcc41e900000'), (x'42d6bcc41e900001'), (x'430c6bf52633ffff'), (x'430c6bf526340000'), (x'430c6bf526340001'), (x'4341c37937e07fff'), (x'4341c37937e08000'), (x'4341c37937e08001'), (x'4376345785d89fff'), (x'4376345785d8a000'), (x'4376345785d8a001'), (x'43abc16d674ec7ff'), (x'43abc16d674ec800'), (x'43abc16d674ec801'), (x'43e158e460913cff'), (x'43e158e460913d00'), (x'43e158e460913d01'), (x'4415af1d78b58c3f'), (x'4415af1d78b58c40'), (x'4415af1d78b58c41'), (x'444b1ae4d6e2ef4f'), (x'444b1ae4d6e2ef50'), (x'444b1ae4d6e2ef51'), (x'4480f0cf064dd591'), (x'4480f0cf064dd592'), (x'4480f0cf064dd593'), (x'44b52d02c7e14af5'), (x'44b52d02c7e14af6'), (x'44b52d02c7e14af7'), (x'44ea784379d99db3'), (x'44ea784379d99db4'), (x'44ea784379d99db5'), (x'45208b2a2c280290'), (x'45208b2a2c280291'), (x'45208b2a2c280292'), (x'7feffffffffffffe'), (x'7fefffffffffffff'), (x'4350000000000002'), (x'4350000000002e06'), (x'4352000000000003'), (x'4352000000000004'), (x'4358000000000003'), (x'4358000000000004'), (x'435f000000000020'), (x'c350000000000002'), (x'c350000000002e06'), (x'c352000000000003'), (x'c352000000000004'), (x'c358000000000003'), (x'c358000000000004'), (x'c35f000000000020'), (x'42dc12218377de66'), (x'42a674e79c5fe51f'), (x'4271f71fb04cb74c'), (x'423cbe991a145879'), (x'4206fee0e1a9e061'), (x'41d26580b487e6b4'), (x'419d6f34540ca453'), (x'41678c29dcd6e9dc'), (x'4132d687e3df217d'), (x'40fe240c9fcb68c8'), (x'40c81cd6e63c53d3'), (x'40934a4584fd0fdc'), (x'405edd3c07fb4c93'), (x'4028b0fcd32f7076'), (x'3ff3c0ca428c59f8'), (x'3e60000000000000'), (x'c352bd2668e077c4'), (x'434018601510c000'), (x'43d055dc36f24000'), (x'43e052961c6f8000'), (x'3ff3c0ca2a5b1d5d'), (x'4830f0cf064dd592'), (x'4840f0cf064dd592'), (x'4850f0cf064dd592'), (x'3ff3333333333333'), (x'3ff3ae147ae147ae'), (x'3ff3be76c8b43958'), (x'3ff3c083126e978d'), (x'3ff3c0c1fc8f3238'), (x'3ff3c0c9539b8887'), (x'3ff3c0ca2a5b1d5d'), (x'3ff3c0ca4283de1b'), (x'3ff3c0ca43db770a'), (x'3ff3c0ca428abd53'), (x'3ff3c0ca428c1d2b'), (x'3ff3c0ca428c51f2'), (x'3ff3c0ca428c58fc'), (x'3ff3c0ca428c59dd'), (x'3ff3c0ca428c59f8'), (x'3ff3c0ca428c59fb'), (x'40112e0be8047a7d'), (x'40112e0be815a889'), (x'40112e0be826d695'), (x'40112e0be83804a1'), (x'40112e0be84932ad'), (x'0040000000000000'), (x'007fffffffffffff'), (x'0290000000000000'), (x'029fffffffffffff'), (x'4350000000000000'), (x'435fffffffffffff'), (x'1330000000000000'), (x'133fffffffffffff'), (x'3a6fa7161a4d6e0c') ) select float8send(flt) as ibits, flt, flt::text::float8 as r_flt, float8send(flt::text::float8) as obits, float8send(flt::text::float8) = float8send(flt) as correct from (select bits::bigint::xfloat8::float8 as flt from testdata offset 0) s",
+    "expected": "WITH testdata(bits) AS (VALUES (X'0000000000000000'), (X'0010000000000000'), (X'0010000000000001'), (X'0010000000000002'), (X'0018000000000000'), (X'3ddb7cdfd9d7bdba'), (X'3ddb7cdfd9d7bdbb'), (X'3ddb7cdfd9d7bdbc'), (X'3e112e0be826d694'), (X'3e112e0be826d695'), (X'3e112e0be826d696'), (X'3e45798ee2308c39'), (X'3e45798ee2308c3a'), (X'3e45798ee2308c3b'), (X'3e7ad7f29abcaf47'), (X'3e7ad7f29abcaf48'), (X'3e7ad7f29abcaf49'), (X'3eb0c6f7a0b5ed8c'), (X'3eb0c6f7a0b5ed8d'), (X'3eb0c6f7a0b5ed8e'), (X'3ee4f8b588e368ef'), (X'3ee4f8b588e368f0'), (X'3ee4f8b588e368f1'), (X'3f1a36e2eb1c432c'), (X'3f1a36e2eb1c432d'), (X'3f1a36e2eb1c432e'), (X'3f50624dd2f1a9fb'), (X'3f50624dd2f1a9fc'), (X'3f50624dd2f1a9fd'), (X'3f847ae147ae147a'), (X'3f847ae147ae147b'), (X'3f847ae147ae147c'), (X'3fb9999999999999'), (X'3fb999999999999a'), (X'3fb999999999999b'), (X'3feffffffffffff0'), (X'3feffffffffffff1'), (X'3feffffffffffff2'), (X'3feffffffffffff3'), (X'3feffffffffffff4'), (X'3feffffffffffff5'), (X'3feffffffffffff6'), (X'3feffffffffffff7'), (X'3feffffffffffff8'), (X'3feffffffffffff9'), (X'3feffffffffffffa'), (X'3feffffffffffffb'), (X'3feffffffffffffc'), (X'3feffffffffffffd'), (X'3feffffffffffffe'), (X'3fefffffffffffff'), (X'3ff0000000000000'), (X'3ff0000000000001'), (X'3ff0000000000002'), (X'3ff0000000000003'), (X'3ff0000000000004'), (X'3ff0000000000005'), (X'3ff0000000000006'), (X'3ff0000000000007'), (X'3ff0000000000008'), (X'3ff0000000000009'), (X'3ff921fb54442d18'), (X'4005bf0a8b14576a'), (X'400921fb54442d18'), (X'4023ffffffffffff'), (X'4024000000000000'), (X'4024000000000001'), (X'4058ffffffffffff'), (X'4059000000000000'), (X'4059000000000001'), (X'408f3fffffffffff'), (X'408f400000000000'), (X'408f400000000001'), (X'40c387ffffffffff'), (X'40c3880000000000'), (X'40c3880000000001'), (X'40f869ffffffffff'), (X'40f86a0000000000'), (X'40f86a0000000001'), (X'412e847fffffffff'), (X'412e848000000000'), (X'412e848000000001'), (X'416312cfffffffff'), (X'416312d000000000'), (X'416312d000000001'), (X'4197d783ffffffff'), (X'4197d78400000000'), (X'4197d78400000001'), (X'41cdcd64ffffffff'), (X'41cdcd6500000000'), (X'41cdcd6500000001'), (X'4202a05f1fffffff'), (X'4202a05f20000000'), (X'4202a05f20000001'), (X'42374876e7ffffff'), (X'42374876e8000000'), (X'42374876e8000001'), (X'426d1a94a1ffffff'), (X'426d1a94a2000000'), (X'426d1a94a2000001'), (X'42a2309ce53fffff'), (X'42a2309ce5400000'), (X'42a2309ce5400001'), (X'42d6bcc41e8fffff'), (X'42d6bcc41e900000'), (X'42d6bcc41e900001'), (X'430c6bf52633ffff'), (X'430c6bf526340000'), (X'430c6bf526340001'), (X'4341c37937e07fff'), (X'4341c37937e08000'), (X'4341c37937e08001'), (X'4376345785d89fff'), (X'4376345785d8a000'), (X'4376345785d8a001'), (X'43abc16d674ec7ff'), (X'43abc16d674ec800'), (X'43abc16d674ec801'), (X'43e158e460913cff'), (X'43e158e460913d00'), (X'43e158e460913d01'), (X'4415af1d78b58c3f'), (X'4415af1d78b58c40'), (X'4415af1d78b58c41'), (X'444b1ae4d6e2ef4f'), (X'444b1ae4d6e2ef50'), (X'444b1ae4d6e2ef51'), (X'4480f0cf064dd591'), (X'4480f0cf064dd592'), (X'4480f0cf064dd593'), (X'44b52d02c7e14af5'), (X'44b52d02c7e14af6'), (X'44b52d02c7e14af7'), (X'44ea784379d99db3'), (X'44ea784379d99db4'), (X'44ea784379d99db5'), (X'45208b2a2c280290'), (X'45208b2a2c280291'), (X'45208b2a2c280292'), (X'7feffffffffffffe'), (X'7fefffffffffffff'), (X'4350000000000002'), (X'4350000000002e06'), (X'4352000000000003'), (X'4352000000000004'), (X'4358000000000003'), (X'4358000000000004'), (X'435f000000000020'), (X'c350000000000002'), (X'c350000000002e06'), (X'c352000000000003'), (X'c352000000000004'), (X'c358000000000003'), (X'c358000000000004'), (X'c35f000000000020'), (X'42dc12218377de66'), (X'42a674e79c5fe51f'), (X'4271f71fb04cb74c'), (X'423cbe991a145879'), (X'4206fee0e1a9e061'), (X'41d26580b487e6b4'), (X'419d6f34540ca453'), (X'41678c29dcd6e9dc'), (X'4132d687e3df217d'), (X'40fe240c9fcb68c8'), (X'40c81cd6e63c53d3'), (X'40934a4584fd0fdc'), (X'405edd3c07fb4c93'), (X'4028b0fcd32f7076'), (X'3ff3c0ca428c59f8'), (X'3e60000000000000'), (X'c352bd2668e077c4'), (X'434018601510c000'), (X'43d055dc36f24000'), (X'43e052961c6f8000'), (X'3ff3c0ca2a5b1d5d'), (X'4830f0cf064dd592'), (X'4840f0cf064dd592'), (X'4850f0cf064dd592'), (X'3ff3333333333333'), (X'3ff3ae147ae147ae'), (X'3ff3be76c8b43958'), (X'3ff3c083126e978d'), (X'3ff3c0c1fc8f3238'), (X'3ff3c0c9539b8887'), (X'3ff3c0ca2a5b1d5d'), (X'3ff3c0ca4283de1b'), (X'3ff3c0ca43db770a'), (X'3ff3c0ca428abd53'), (X'3ff3c0ca428c1d2b'), (X'3ff3c0ca428c51f2'), (X'3ff3c0ca428c58fc'), (X'3ff3c0ca428c59dd'), (X'3ff3c0ca428c59f8'), (X'3ff3c0ca428c59fb'), (X'40112e0be8047a7d'), (X'40112e0be815a889'), (X'40112e0be826d695'), (X'40112e0be83804a1'), (X'40112e0be84932ad'), (X'0040000000000000'), (X'007fffffffffffff'), (X'0290000000000000'), (X'029fffffffffffff'), (X'4350000000000000'), (X'435fffffffffffff'), (X'1330000000000000'), (X'133fffffffffffff'), (X'3a6fa7161a4d6e0c')) SELECT float8send(flt) AS ibits, flt, CAST(CAST(flt AS TEXT) AS FLOAT8) AS r_flt, float8send(CAST(CAST(flt AS TEXT) AS FLOAT8)) AS obits, float8send(CAST(CAST(flt AS TEXT) AS FLOAT8)) = float8send(flt) AS correct FROM (SELECT CAST(CAST(CAST(bits AS BIGINT) AS xfloat8) AS FLOAT8) AS flt FROM testdata OFFSET 0) AS s"
   },
   {
     "comment": "float8 - Statement 165",
-    "query": "drop type xfloat8 cascade"
+    "query": "drop type xfloat8 cascade",
+    "expected": "DROP TYPE xfloat8 CASCADE"
   }
 ]

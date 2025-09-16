@@ -311,7 +311,7 @@ func (a *A_Expr) SqlString() string {
 	case AEXPR_SIMILAR:
 		if a.Lexpr != nil && a.Rexpr != nil {
 			leftStr := a.Lexpr.SqlString()
-			
+
 			// Check if the right expression is a similar_to_escape function call
 			// If it is, extract just the argument instead of the whole function call
 			rightStr := ""
@@ -329,12 +329,12 @@ func (a *A_Expr) SqlString() string {
 					}
 				}
 			}
-			
+
 			// If we didn't find similar_to_escape, use the full expression
 			if rightStr == "" {
 				rightStr = a.Rexpr.SqlString()
 			}
-			
+
 			// Check if it's NOT SIMILAR TO based on the operator
 			if a.Name != nil && a.Name.Len() > 0 {
 				if str, ok := a.Name.Items[0].(*String); ok && str.SVal == "!~" {
@@ -805,6 +805,41 @@ func (f *FuncCall) SqlString() string {
 			// Fallback to regular function call
 			result = fmt.Sprintf("%s(%s)", funcName, funcArgs)
 		}
+	} else if strings.ToLower(funcName) == "normalize" && f.Args != nil && len(f.Args.Items) >= 2 {
+		// NORMALIZE function: normalize(string [, form])
+		// The second argument is an A_Const containing the normalization form as a keyword
+		normalForm := argStrs[1] // Default to the string representation
+		if constNode, ok := f.Args.Items[1].(*A_Const); ok && constNode.Val != nil {
+			if strVal, ok := constNode.Val.(*String); ok {
+				// The grammar stores the normalization form as an unquoted string
+				normalForm = strVal.SVal
+			}
+		}
+
+		if len(argStrs) >= 3 {
+			// normalize(string, form, ...)
+			result = fmt.Sprintf("normalize(%s, %s, %s)", argStrs[0], normalForm, strings.Join(argStrs[2:], ", "))
+		} else {
+			// normalize(string, form)
+			result = fmt.Sprintf("normalize(%s, %s)", argStrs[0], normalForm)
+		}
+	} else if strings.ToLower(funcName) == "is_normalized" {
+		if len(f.Args.Items) == 2 {
+			normalForm := argStrs[1] // Default to the string representation
+			if constNode, ok := f.Args.Items[1].(*A_Const); ok && constNode.Val != nil {
+				if strVal, ok := constNode.Val.(*String); ok {
+					// The grammar stores the normalization form from unicode_normal_form rule
+					// which returns "NFC", "NFD", "NFKC", or "NFKD" (uppercase)
+					normalForm = strVal.SVal
+				}
+			}
+			result = fmt.Sprintf("%s is %s normalized", argStrs[0], normalForm)
+		} else {
+			result = fmt.Sprintf("%s is normalized", argStrs[0])
+		}
+	} else if strings.ToLower(funcName) == "system_user" && len(argStrs) == 0 {
+		// SYSTEM_USER function call with no arguments should be deparsed as SYSTEM_USER (SQL value function)
+		result = "SYSTEM_USER"
 	} else {
 		result = fmt.Sprintf("%s(%s)", funcName, funcArgs)
 	}
@@ -1538,7 +1573,7 @@ func (s *SortBy) SqlString() string {
 					parts = append(parts, op.String())
 				}
 			}
-			
+
 			if len(parts) > 1 {
 				// Multiple parts: use OPERATOR(schema.op) syntax
 				opName := strings.Join(parts, ".")
@@ -1881,7 +1916,7 @@ func (p *PartitionElem) String() string {
 // SqlString returns the SQL representation of PartitionElem
 func (p *PartitionElem) SqlString() string {
 	var result string
-	
+
 	if p.Name != "" {
 		result = p.Name
 	} else if p.Expr != nil {
@@ -1889,7 +1924,7 @@ func (p *PartitionElem) SqlString() string {
 	} else {
 		return ""
 	}
-	
+
 	// Add COLLATE clause if present
 	if p.Collation != nil && p.Collation.Len() > 0 {
 		// Collation names should be output as identifiers, not string literals
@@ -1906,7 +1941,7 @@ func (p *PartitionElem) SqlString() string {
 			result += " COLLATE " + strings.Join(collationParts, ".")
 		}
 	}
-	
+
 	// Add operator class if present
 	if p.Opclass != nil && p.Opclass.Len() > 0 {
 		// Operator class names should be output as identifiers, not string literals
@@ -1923,7 +1958,7 @@ func (p *PartitionElem) SqlString() string {
 			result += " " + strings.Join(opclassParts, ".")
 		}
 	}
-	
+
 	return result
 }
 
@@ -2015,7 +2050,7 @@ func (o *ObjectWithArgs) SqlString() string {
 
 	// Add arguments if specified
 	if !o.ArgsUnspecified {
-		// Check if this is an aggregate with ObjfuncArgs from aggr_args 
+		// Check if this is an aggregate with ObjfuncArgs from aggr_args
 		// If so, use the DefineStmt logic to properly format ORDER BY and VARIADIC
 		if o.ObjfuncArgs != nil {
 			// ObjfuncArgs is already a *NodeList, no need for type assertion
@@ -2064,7 +2099,7 @@ func formatAggrArgsList(argsList *NodeList) string {
 	if argsList == nil || argsList.Len() == 0 {
 		return ""
 	}
-	
+
 	// For aggr_args, we expect the full function parameters list, not the 2-element structure
 	// But we need to check if it's actually a 2-element structure from aggr_args
 	if argsList.Len() == 2 {
@@ -2075,7 +2110,7 @@ func formatAggrArgsList(argsList *NodeList) string {
 			}
 		}
 	}
-	
+
 	// Fall back to regular function parameter formatting
 	var argStrs []string
 	for _, item := range argsList.Items {
@@ -2085,13 +2120,13 @@ func formatAggrArgsList(argsList *NodeList) string {
 			argStrs = append(argStrs, item.SqlString())
 		}
 	}
-	
+
 	if len(argStrs) == 1 && argStrs[0] == "*" {
 		return "(*)"
 	} else if len(argStrs) > 0 {
 		return "(" + strings.Join(argStrs, ", ") + ")"
 	}
-	
+
 	return ""
 }
 
@@ -2137,7 +2172,7 @@ func formatAggrArgsStructure(argList *NodeList, numDirectArgs int) string {
 		if argList != nil {
 			var directArgs []string
 			var orderedArgs []string
-			
+
 			for i, item := range argList.Items {
 				var argStr string
 				switch arg := item.(type) {
@@ -2146,14 +2181,14 @@ func formatAggrArgsStructure(argList *NodeList, numDirectArgs int) string {
 				case *FunctionParameter:
 					argStr = arg.SqlString()
 				}
-				
+
 				if i < numDirectArgs {
 					directArgs = append(directArgs, argStr)
 				} else {
 					orderedArgs = append(orderedArgs, argStr)
 				}
 			}
-			
+
 			if len(orderedArgs) > 0 {
 				return "(" + strings.Join(directArgs, ", ") + " ORDER BY " + strings.Join(orderedArgs, ", ") + ")"
 			} else if len(directArgs) > 0 {
@@ -2161,7 +2196,7 @@ func formatAggrArgsStructure(argList *NodeList, numDirectArgs int) string {
 			}
 		}
 	}
-	
+
 	return ""
 }
 

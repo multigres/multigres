@@ -1,7 +1,8 @@
 [
   {
     "comment": "fast_default - Statement 1",
-    "query": "SET search_path = fast_default"
+    "query": "SET search_path = fast_default",
+    "expected": "SET SCHEMA 'fast_default'"
   },
   {
     "comment": "fast_default - Statement 2",
@@ -9,75 +10,63 @@
   },
   {
     "comment": "fast_default - Statement 3",
-    "query": "CREATE TABLE m(id OID)"
+    "query": "CREATE TABLE m(id OID)",
+    "expected": "CREATE TABLE m (id oid)"
   },
   {
     "comment": "fast_default - Statement 4",
-    "query": "INSERT INTO m VALUES (NULL::OID)"
+    "query": "INSERT INTO m VALUES (NULL::OID)",
+    "expected": "INSERT INTO m VALUES (CAST(NULL AS oid))"
   },
   {
     "comment": "fast_default - Statement 5",
-    "query": "CREATE FUNCTION set(tabname name) RETURNS VOID AS $$ BEGIN UPDATE m SET id = (SELECT c.relfilenode FROM pg_class AS c, pg_namespace AS s WHERE c.relname = tabname AND c.relnamespace = s.oid AND s.nspname = 'fast_default')"
-  },
-  {
-    "comment": "fast_default - Statement 6",
-    "query": "END"
-  },
-  {
-    "comment": "fast_default - Statement 7",
-    "query": "$$ LANGUAGE 'plpgsql'"
+    "query": "CREATE FUNCTION set(tabname name) RETURNS VOID AS $$ BEGIN   UPDATE m   SET id = (SELECT c.relfilenode             FROM pg_class AS c, pg_namespace AS s             WHERE c.relname = tabname                 AND c.relnamespace = s.oid                 AND s.nspname = 'fast_default'); END; $$ LANGUAGE 'plpgsql';",
+    "expected": "CREATE FUNCTION set (tabname name) RETURNS void LANGUAGE plpgsql AS $$ BEGIN   UPDATE m   SET id = (SELECT c.relfilenode             FROM pg_class AS c, pg_namespace AS s             WHERE c.relname = tabname                 AND c.relnamespace = s.oid                 AND s.nspname = 'fast_default'); END; $$"
   },
   {
     "comment": "fast_default - Statement 8",
-    "query": "CREATE FUNCTION comp() RETURNS TEXT AS $$ BEGIN RETURN (SELECT CASE WHEN m.id = c.relfilenode THEN 'Unchanged' ELSE 'Rewritten' END FROM m, pg_class AS c, pg_namespace AS s WHERE c.relname = 't' AND c.relnamespace = s.oid AND s.nspname = 'fast_default')"
+    "query": "CREATE FUNCTION comp() RETURNS TEXT AS $$ BEGIN   RETURN (SELECT CASE                WHEN m.id = c.relfilenode THEN 'Unchanged'                ELSE 'Rewritten'                END            FROM m, pg_class AS c, pg_namespace AS s            WHERE c.relname = 't'                AND c.relnamespace = s.oid                AND s.nspname = 'fast_default'); END; $$ LANGUAGE 'plpgsql';",
+    "expected": "CREATE FUNCTION comp () RETURNS TEXT LANGUAGE plpgsql AS $$ BEGIN   RETURN (SELECT CASE                WHEN m.id = c.relfilenode THEN 'Unchanged'                ELSE 'Rewritten'                END            FROM m, pg_class AS c, pg_namespace AS s            WHERE c.relname = 't'                AND c.relnamespace = s.oid                AND s.nspname = 'fast_default'); END; $$"
   },
   {
     "comment": "fast_default - Statement 9",
-    "query": "CREATE FUNCTION log_rewrite() RETURNS event_trigger LANGUAGE plpgsql as $func$ declare this_schema text"
-  },
-  {
-    "comment": "fast_default - Statement 10",
-    "query": "begin select into this_schema relnamespace::regnamespace::text from pg_class where oid = pg_event_trigger_table_rewrite_oid()"
-  },
-  {
-    "comment": "fast_default - Statement 11",
-    "query": "if this_schema = 'fast_default' then RAISE NOTICE 'rewriting table % for reason %', pg_event_trigger_table_rewrite_oid()::regclass, pg_event_trigger_table_rewrite_reason()"
-  },
-  {
-    "comment": "fast_default - Statement 12",
-    "query": "end if"
-  },
-  {
-    "comment": "fast_default - Statement 13",
-    "query": "$func$"
+    "query": "CREATE FUNCTION log_rewrite() RETURNS event_trigger LANGUAGE plpgsql as $func$  declare    this_schema text; begin     select into this_schema relnamespace::regnamespace::text     from pg_class     where oid = pg_event_trigger_table_rewrite_oid();     if this_schema = 'fast_default'     then         RAISE NOTICE 'rewriting table % for reason %',           pg_event_trigger_table_rewrite_oid()::regclass,           pg_event_trigger_table_rewrite_reason();     end if; end; $func$;",
+    "expected": "CREATE FUNCTION log_rewrite () RETURNS event_trigger LANGUAGE plpgsql AS $$  declare    this_schema text; begin     select into this_schema relnamespace::regnamespace::text     from pg_class     where oid = pg_event_trigger_table_rewrite_oid();     if this_schema = 'fast_default'     then         RAISE NOTICE 'rewriting table % for reason %',           pg_event_trigger_table_rewrite_oid()::regclass,           pg_event_trigger_table_rewrite_reason();     end if; end; $$"
   },
   {
     "comment": "fast_default - Statement 14",
-    "query": "CREATE TABLE has_volatile AS SELECT * FROM generate_series(1,10) id"
+    "query": "CREATE TABLE has_volatile AS SELECT * FROM generate_series(1,10) id",
+    "expected": "CREATE TABLE has_volatile AS SELECT * FROM generate_series(1, 10) AS id"
   },
   {
     "comment": "fast_default - Statement 15",
-    "query": "CREATE EVENT TRIGGER has_volatile_rewrite ON table_rewrite EXECUTE PROCEDURE log_rewrite()"
+    "query": "CREATE EVENT TRIGGER has_volatile_rewrite ON table_rewrite EXECUTE PROCEDURE log_rewrite()",
+    "expected": "CREATE EVENT TRIGGER has_volatile_rewrite ON table_rewrite EXECUTE FUNCTION log_rewrite()"
   },
   {
     "comment": "fast_default - Statement 16",
-    "query": "ALTER TABLE has_volatile ADD col1 int"
+    "query": "ALTER TABLE has_volatile ADD col1 int",
+    "expected": "ALTER TABLE has_volatile ADD COLUMN col1 INT"
   },
   {
     "comment": "fast_default - Statement 17",
-    "query": "ALTER TABLE has_volatile ADD col2 int DEFAULT 1"
+    "query": "ALTER TABLE has_volatile ADD col2 int DEFAULT 1",
+    "expected": "ALTER TABLE has_volatile ADD COLUMN col2 INT DEFAULT 1"
   },
   {
     "comment": "fast_default - Statement 18",
-    "query": "ALTER TABLE has_volatile ADD col3 timestamptz DEFAULT current_timestamp"
+    "query": "ALTER TABLE has_volatile ADD col3 timestamptz DEFAULT current_timestamp",
+    "expected": "ALTER TABLE has_volatile ADD COLUMN col3 TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"
   },
   {
     "comment": "fast_default - Statement 19",
-    "query": "ALTER TABLE has_volatile ADD col4 int DEFAULT (random() * 10000)::int"
+    "query": "ALTER TABLE has_volatile ADD col4 int DEFAULT (random() * 10000)::int",
+    "expected": "ALTER TABLE has_volatile ADD COLUMN col4 INT DEFAULT CAST((random() * 10000) AS INT)"
   },
   {
     "comment": "fast_default - Statement 20",
-    "query": "CREATE TABLE T(pk INT NOT NULL PRIMARY KEY, c_int INT DEFAULT 1)"
+    "query": "CREATE TABLE T(pk INT NOT NULL PRIMARY KEY, c_int INT DEFAULT 1)",
+    "expected": "CREATE TABLE t (pk INT NOT NULL PRIMARY KEY, c_int INT DEFAULT 1)"
   },
   {
     "comment": "fast_default - Statement 21",
@@ -85,115 +74,143 @@
   },
   {
     "comment": "fast_default - Statement 22",
-    "query": "INSERT INTO T VALUES (1), (2)"
+    "query": "INSERT INTO T VALUES (1), (2)",
+    "expected": "INSERT INTO t VALUES (1), (2)"
   },
   {
     "comment": "fast_default - Statement 23",
-    "query": "ALTER TABLE T ADD COLUMN c_bpchar BPCHAR(5) DEFAULT 'hello', ALTER COLUMN c_int SET DEFAULT 2"
+    "query": "ALTER TABLE T ADD COLUMN c_bpchar BPCHAR(5) DEFAULT 'hello', ALTER COLUMN c_int SET DEFAULT 2",
+    "expected": "ALTER TABLE t ADD COLUMN c_bpchar CHAR(5) DEFAULT 'hello', ALTER COLUMN c_int SET DEFAULT 2"
   },
   {
     "comment": "fast_default - Statement 24",
-    "query": "INSERT INTO T VALUES (3), (4)"
+    "query": "INSERT INTO T VALUES (3), (4)",
+    "expected": "INSERT INTO t VALUES (3), (4)"
   },
   {
     "comment": "fast_default - Statement 25",
-    "query": "ALTER TABLE T ADD COLUMN c_text TEXT  DEFAULT 'world', ALTER COLUMN c_bpchar SET DEFAULT 'dog'"
+    "query": "ALTER TABLE T ADD COLUMN c_text TEXT  DEFAULT 'world', ALTER COLUMN c_bpchar SET DEFAULT 'dog'",
+    "expected": "ALTER TABLE t ADD COLUMN c_text TEXT DEFAULT 'world', ALTER COLUMN c_bpchar SET DEFAULT 'dog'"
   },
   {
     "comment": "fast_default - Statement 26",
-    "query": "INSERT INTO T VALUES (5), (6)"
+    "query": "INSERT INTO T VALUES (5), (6)",
+    "expected": "INSERT INTO t VALUES (5), (6)"
   },
   {
     "comment": "fast_default - Statement 27",
-    "query": "ALTER TABLE T ADD COLUMN c_date DATE DEFAULT '2016-06-02', ALTER COLUMN c_text SET DEFAULT 'cat'"
+    "query": "ALTER TABLE T ADD COLUMN c_date DATE DEFAULT '2016-06-02', ALTER COLUMN c_text SET DEFAULT 'cat'",
+    "expected": "ALTER TABLE t ADD COLUMN c_date DATE DEFAULT '2016-06-02', ALTER COLUMN c_text SET DEFAULT 'cat'"
   },
   {
     "comment": "fast_default - Statement 28",
-    "query": "INSERT INTO T VALUES (7), (8)"
+    "query": "INSERT INTO T VALUES (7), (8)",
+    "expected": "INSERT INTO t VALUES (7), (8)"
   },
   {
     "comment": "fast_default - Statement 29",
-    "query": "ALTER TABLE T ADD COLUMN c_timestamp TIMESTAMP DEFAULT '2016-09-01 12:00:00', ADD COLUMN c_timestamp_null TIMESTAMP, ALTER COLUMN c_date SET DEFAULT '2010-01-01'"
+    "query": "ALTER TABLE T ADD COLUMN c_timestamp TIMESTAMP DEFAULT '2016-09-01 12:00:00', ADD COLUMN c_timestamp_null TIMESTAMP, ALTER COLUMN c_date SET DEFAULT '2010-01-01'",
+    "expected": "ALTER TABLE t ADD COLUMN c_timestamp TIMESTAMP DEFAULT '2016-09-01 12:00:00', ADD COLUMN c_timestamp_null TIMESTAMP, ALTER COLUMN c_date SET DEFAULT '2010-01-01'"
   },
   {
     "comment": "fast_default - Statement 30",
-    "query": "INSERT INTO T VALUES (9), (10)"
+    "query": "INSERT INTO T VALUES (9), (10)",
+    "expected": "INSERT INTO t VALUES (9), (10)"
   },
   {
     "comment": "fast_default - Statement 31",
-    "query": "ALTER TABLE T ADD COLUMN c_array TEXT[] DEFAULT '{\"This\", \"is\", \"the\", \"real\", \"world\"}', ALTER COLUMN c_timestamp SET DEFAULT '1970-12-31 11:12:13', ALTER COLUMN c_timestamp_null SET DEFAULT '2016-09-29 12:00:00'"
+    "query": "ALTER TABLE T ADD COLUMN c_array TEXT[] DEFAULT '{\"This\", \"is\", \"the\", \"real\", \"world\"}', ALTER COLUMN c_timestamp SET DEFAULT '1970-12-31 11:12:13', ALTER COLUMN c_timestamp_null SET DEFAULT '2016-09-29 12:00:00'",
+    "expected": "ALTER TABLE t ADD COLUMN c_array TEXT[] DEFAULT '{\"This\", \"is\", \"the\", \"real\", \"world\"}', ALTER COLUMN c_timestamp SET DEFAULT '1970-12-31 11:12:13', ALTER COLUMN c_timestamp_null SET DEFAULT '2016-09-29 12:00:00'"
   },
   {
     "comment": "fast_default - Statement 32",
-    "query": "INSERT INTO T VALUES (11), (12)"
+    "query": "INSERT INTO T VALUES (11), (12)",
+    "expected": "INSERT INTO t VALUES (11), (12)"
   },
   {
     "comment": "fast_default - Statement 33",
-    "query": "ALTER TABLE T ADD COLUMN c_small SMALLINT DEFAULT -5, ADD COLUMN c_small_null SMALLINT, ALTER COLUMN c_array SET DEFAULT '{\"This\", \"is\", \"no\", \"fantasy\"}'"
+    "query": "ALTER TABLE T ADD COLUMN c_small SMALLINT DEFAULT -5, ADD COLUMN c_small_null SMALLINT, ALTER COLUMN c_array SET DEFAULT '{\"This\", \"is\", \"no\", \"fantasy\"}'",
+    "expected": "ALTER TABLE t ADD COLUMN c_small SMALLINT DEFAULT -5, ADD COLUMN c_small_null SMALLINT, ALTER COLUMN c_array SET DEFAULT '{\"This\", \"is\", \"no\", \"fantasy\"}'"
   },
   {
     "comment": "fast_default - Statement 34",
-    "query": "INSERT INTO T VALUES (13), (14)"
+    "query": "INSERT INTO T VALUES (13), (14)",
+    "expected": "INSERT INTO t VALUES (13), (14)"
   },
   {
     "comment": "fast_default - Statement 35",
-    "query": "ALTER TABLE T ADD COLUMN c_big BIGINT DEFAULT 180000000000018, ALTER COLUMN c_small SET DEFAULT 9, ALTER COLUMN c_small_null SET DEFAULT 13"
+    "query": "ALTER TABLE T ADD COLUMN c_big BIGINT DEFAULT 180000000000018, ALTER COLUMN c_small SET DEFAULT 9, ALTER COLUMN c_small_null SET DEFAULT 13",
+    "expected": "ALTER TABLE t ADD COLUMN c_big BIGINT DEFAULT 180000000000018, ALTER COLUMN c_small SET DEFAULT 9, ALTER COLUMN c_small_null SET DEFAULT 13"
   },
   {
     "comment": "fast_default - Statement 36",
-    "query": "INSERT INTO T VALUES (15), (16)"
+    "query": "INSERT INTO T VALUES (15), (16)",
+    "expected": "INSERT INTO t VALUES (15), (16)"
   },
   {
     "comment": "fast_default - Statement 37",
-    "query": "ALTER TABLE T ADD COLUMN c_num NUMERIC DEFAULT 1.00000000001, ALTER COLUMN c_big SET DEFAULT -9999999999999999"
+    "query": "ALTER TABLE T ADD COLUMN c_num NUMERIC DEFAULT 1.00000000001, ALTER COLUMN c_big SET DEFAULT -9999999999999999",
+    "expected": "ALTER TABLE t ADD COLUMN c_num NUMERIC DEFAULT 1.00000000001, ALTER COLUMN c_big SET DEFAULT -9999999999999999"
   },
   {
     "comment": "fast_default - Statement 38",
-    "query": "INSERT INTO T VALUES (17), (18)"
+    "query": "INSERT INTO T VALUES (17), (18)",
+    "expected": "INSERT INTO t VALUES (17), (18)"
   },
   {
     "comment": "fast_default - Statement 39",
-    "query": "ALTER TABLE T ADD COLUMN c_time TIME DEFAULT '12:00:00', ALTER COLUMN c_num SET DEFAULT 2.000000000000002"
+    "query": "ALTER TABLE T ADD COLUMN c_time TIME DEFAULT '12:00:00', ALTER COLUMN c_num SET DEFAULT 2.000000000000002",
+    "expected": "ALTER TABLE t ADD COLUMN c_time TIME DEFAULT '12:00:00', ALTER COLUMN c_num SET DEFAULT 2.000000000000002"
   },
   {
     "comment": "fast_default - Statement 40",
-    "query": "INSERT INTO T VALUES (19), (20)"
+    "query": "INSERT INTO T VALUES (19), (20)",
+    "expected": "INSERT INTO t VALUES (19), (20)"
   },
   {
     "comment": "fast_default - Statement 41",
-    "query": "ALTER TABLE T ADD COLUMN c_interval INTERVAL DEFAULT '1 day', ALTER COLUMN c_time SET DEFAULT '23:59:59'"
+    "query": "ALTER TABLE T ADD COLUMN c_interval INTERVAL DEFAULT '1 day', ALTER COLUMN c_time SET DEFAULT '23:59:59'",
+    "expected": "ALTER TABLE t ADD COLUMN c_interval INTERVAL DEFAULT '1 day', ALTER COLUMN c_time SET DEFAULT '23:59:59'"
   },
   {
     "comment": "fast_default - Statement 42",
-    "query": "INSERT INTO T VALUES (21), (22)"
+    "query": "INSERT INTO T VALUES (21), (22)",
+    "expected": "INSERT INTO t VALUES (21), (22)"
   },
   {
     "comment": "fast_default - Statement 43",
-    "query": "ALTER TABLE T ADD COLUMN c_hugetext TEXT DEFAULT repeat('abcdefg',1000), ALTER COLUMN c_interval SET DEFAULT '3 hours'"
+    "query": "ALTER TABLE T ADD COLUMN c_hugetext TEXT DEFAULT repeat('abcdefg',1000), ALTER COLUMN c_interval SET DEFAULT '3 hours'",
+    "expected": "ALTER TABLE t ADD COLUMN c_hugetext TEXT DEFAULT repeat('abcdefg', 1000), ALTER COLUMN c_interval SET DEFAULT '3 hours'"
   },
   {
     "comment": "fast_default - Statement 44",
-    "query": "INSERT INTO T VALUES (23), (24)"
+    "query": "INSERT INTO T VALUES (23), (24)",
+    "expected": "INSERT INTO t VALUES (23), (24)"
   },
   {
     "comment": "fast_default - Statement 45",
-    "query": "ALTER TABLE T ALTER COLUMN c_interval DROP DEFAULT, ALTER COLUMN c_hugetext SET DEFAULT repeat('poiuyt', 1000)"
+    "query": "ALTER TABLE T ALTER COLUMN c_interval DROP DEFAULT, ALTER COLUMN c_hugetext SET DEFAULT repeat('poiuyt', 1000)",
+    "expected": "ALTER TABLE t ALTER COLUMN c_interval DROP DEFAULT, ALTER COLUMN c_hugetext SET DEFAULT repeat('poiuyt', 1000)"
   },
   {
     "comment": "fast_default - Statement 46",
-    "query": "INSERT INTO T VALUES (25), (26)"
+    "query": "INSERT INTO T VALUES (25), (26)",
+    "expected": "INSERT INTO t VALUES (25), (26)"
   },
   {
     "comment": "fast_default - Statement 47",
-    "query": "ALTER TABLE T ALTER COLUMN c_bpchar    DROP DEFAULT, ALTER COLUMN c_date      DROP DEFAULT, ALTER COLUMN c_text      DROP DEFAULT, ALTER COLUMN c_timestamp DROP DEFAULT, ALTER COLUMN c_array     DROP DEFAULT, ALTER COLUMN c_small     DROP DEFAULT, ALTER COLUMN c_big       DROP DEFAULT, ALTER COLUMN c_num       DROP DEFAULT, ALTER COLUMN c_time      DROP DEFAULT, ALTER COLUMN c_hugetext  DROP DEFAULT"
+    "query": "ALTER TABLE T ALTER COLUMN c_bpchar    DROP DEFAULT, ALTER COLUMN c_date      DROP DEFAULT, ALTER COLUMN c_text      DROP DEFAULT, ALTER COLUMN c_timestamp DROP DEFAULT, ALTER COLUMN c_array     DROP DEFAULT, ALTER COLUMN c_small     DROP DEFAULT, ALTER COLUMN c_big       DROP DEFAULT, ALTER COLUMN c_num       DROP DEFAULT, ALTER COLUMN c_time      DROP DEFAULT, ALTER COLUMN c_hugetext  DROP DEFAULT",
+    "expected": "ALTER TABLE t ALTER COLUMN c_bpchar DROP DEFAULT, ALTER COLUMN c_date DROP DEFAULT, ALTER COLUMN c_text DROP DEFAULT, ALTER COLUMN c_timestamp DROP DEFAULT, ALTER COLUMN c_array DROP DEFAULT, ALTER COLUMN c_small DROP DEFAULT, ALTER COLUMN c_big DROP DEFAULT, ALTER COLUMN c_num DROP DEFAULT, ALTER COLUMN c_time DROP DEFAULT, ALTER COLUMN c_hugetext DROP DEFAULT"
   },
   {
     "comment": "fast_default - Statement 48",
-    "query": "INSERT INTO T VALUES (27), (28)"
+    "query": "INSERT INTO T VALUES (27), (28)",
+    "expected": "INSERT INTO t VALUES (27), (28)"
   },
   {
     "comment": "fast_default - Statement 49",
-    "query": "SELECT pk, c_int, c_bpchar, c_text, c_date, c_timestamp, c_timestamp_null, c_array, c_small, c_small_null, c_big, c_num, c_time, c_interval, c_hugetext = repeat('abcdefg',1000) as c_hugetext_origdef, c_hugetext = repeat('poiuyt', 1000) as c_hugetext_newdef FROM T ORDER BY pk"
+    "query": "SELECT pk, c_int, c_bpchar, c_text, c_date, c_timestamp, c_timestamp_null, c_array, c_small, c_small_null, c_big, c_num, c_time, c_interval, c_hugetext = repeat('abcdefg',1000) as c_hugetext_origdef, c_hugetext = repeat('poiuyt', 1000) as c_hugetext_newdef FROM T ORDER BY pk",
+    "expected": "SELECT pk, c_int, c_bpchar, c_text, c_date, c_timestamp, c_timestamp_null, c_array, c_small, c_small_null, c_big, c_num, c_time, c_interval, c_hugetext = repeat('abcdefg', 1000) AS c_hugetext_origdef, c_hugetext = repeat('poiuyt', 1000) AS c_hugetext_newdef FROM t ORDER BY pk"
   },
   {
     "comment": "fast_default - Statement 50",
@@ -201,91 +218,78 @@
   },
   {
     "comment": "fast_default - Statement 51",
-    "query": "DROP TABLE T"
+    "query": "DROP TABLE T",
+    "expected": "DROP TABLE t"
   },
   {
     "comment": "fast_default - Statement 52",
-    "query": "CREATE OR REPLACE FUNCTION foo(a INT) RETURNS TEXT AS $$ DECLARE res TEXT := ''"
-  },
-  {
-    "comment": "fast_default - Statement 53",
-    "query": "i INT"
-  },
-  {
-    "comment": "fast_default - Statement 54",
-    "query": "BEGIN i := 0"
-  },
-  {
-    "comment": "fast_default - Statement 55",
-    "query": "WHILE (i < a) LOOP res := res || chr(ascii('a') + i)"
-  },
-  {
-    "comment": "fast_default - Statement 56",
-    "query": "i := i + 1"
-  },
-  {
-    "comment": "fast_default - Statement 57",
-    "query": "END LOOP"
-  },
-  {
-    "comment": "fast_default - Statement 58",
-    "query": "RETURN res"
-  },
-  {
-    "comment": "fast_default - Statement 59",
-    "query": "END; $$ LANGUAGE PLPGSQL STABLE"
+    "query": "CREATE OR REPLACE FUNCTION foo(a INT) RETURNS TEXT AS $$ DECLARE res TEXT := '';         i INT; BEGIN   i := 0;   WHILE (i \u003c a) LOOP     res := res || chr(ascii('a') + i);     i := i + 1;   END LOOP;   RETURN res; END; $$ LANGUAGE PLPGSQL STABLE;",
+    "expected": "CREATE OR REPLACE FUNCTION foo (a INT) RETURNS TEXT LANGUAGE plpgsql AS $$ DECLARE res TEXT := '';         i INT; BEGIN   i := 0;   WHILE (i \u003c a) LOOP     res := res || chr(ascii('a') + i);     i := i + 1;   END LOOP;   RETURN res; END; $$ STABLE"
   },
   {
     "comment": "fast_default - Statement 60",
-    "query": "CREATE TABLE T(pk INT NOT NULL PRIMARY KEY, c_int INT DEFAULT LENGTH(foo(6)))"
+    "query": "CREATE TABLE T(pk INT NOT NULL PRIMARY KEY, c_int INT DEFAULT LENGTH(foo(6)))",
+    "expected": "CREATE TABLE t (pk INT NOT NULL PRIMARY KEY, c_int INT DEFAULT length(foo(6)))"
   },
   {
     "comment": "fast_default - Statement 61",
-    "query": "ALTER TABLE T ADD COLUMN c_bpchar BPCHAR(5) DEFAULT foo(4), ALTER COLUMN c_int SET DEFAULT LENGTH(foo(8))"
+    "query": "ALTER TABLE T ADD COLUMN c_bpchar BPCHAR(5) DEFAULT foo(4), ALTER COLUMN c_int SET DEFAULT LENGTH(foo(8))",
+    "expected": "ALTER TABLE t ADD COLUMN c_bpchar CHAR(5) DEFAULT foo(4), ALTER COLUMN c_int SET DEFAULT length(foo(8))"
   },
   {
     "comment": "fast_default - Statement 62",
-    "query": "ALTER TABLE T ADD COLUMN c_text TEXT  DEFAULT foo(6), ALTER COLUMN c_bpchar SET DEFAULT foo(3)"
+    "query": "ALTER TABLE T ADD COLUMN c_text TEXT  DEFAULT foo(6), ALTER COLUMN c_bpchar SET DEFAULT foo(3)",
+    "expected": "ALTER TABLE t ADD COLUMN c_text TEXT DEFAULT foo(6), ALTER COLUMN c_bpchar SET DEFAULT foo(3)"
   },
   {
     "comment": "fast_default - Statement 63",
-    "query": "ALTER TABLE T ADD COLUMN c_date DATE DEFAULT '2016-06-02'::DATE  + LENGTH(foo(10)), ALTER COLUMN c_text SET DEFAULT foo(12)"
+    "query": "ALTER TABLE T ADD COLUMN c_date DATE DEFAULT '2016-06-02'::DATE  + LENGTH(foo(10)), ALTER COLUMN c_text SET DEFAULT foo(12)",
+    "expected": "ALTER TABLE t ADD COLUMN c_date DATE DEFAULT CAST('2016-06-02' AS DATE) + length(foo(10)), ALTER COLUMN c_text SET DEFAULT foo(12)"
   },
   {
     "comment": "fast_default - Statement 64",
-    "query": "ALTER TABLE T ADD COLUMN c_timestamp TIMESTAMP DEFAULT '2016-09-01'::DATE + LENGTH(foo(10)), ALTER COLUMN c_date SET DEFAULT '2010-01-01'::DATE - LENGTH(foo(4))"
+    "query": "ALTER TABLE T ADD COLUMN c_timestamp TIMESTAMP DEFAULT '2016-09-01'::DATE + LENGTH(foo(10)), ALTER COLUMN c_date SET DEFAULT '2010-01-01'::DATE - LENGTH(foo(4))",
+    "expected": "ALTER TABLE t ADD COLUMN c_timestamp TIMESTAMP DEFAULT CAST('2016-09-01' AS DATE) + length(foo(10)), ALTER COLUMN c_date SET DEFAULT CAST('2010-01-01' AS DATE) - length(foo(4))"
   },
   {
     "comment": "fast_default - Statement 65",
-    "query": "ALTER TABLE T ADD COLUMN c_array TEXT[] DEFAULT ('{\"This\", \"is\", \"' || foo(4) || '\",\"the\", \"real\", \"world\"}')::TEXT[], ALTER COLUMN c_timestamp SET DEFAULT '1970-12-31'::DATE + LENGTH(foo(30))"
+    "query": "ALTER TABLE T ADD COLUMN c_array TEXT[] DEFAULT ('{\"This\", \"is\", \"' || foo(4) || '\",\"the\", \"real\", \"world\"}')::TEXT[], ALTER COLUMN c_timestamp SET DEFAULT '1970-12-31'::DATE + LENGTH(foo(30))",
+    "expected": "ALTER TABLE t ADD COLUMN c_array TEXT[] DEFAULT CAST(('{\"This\", \"is\", \"' || foo(4) || '\",\"the\", \"real\", \"world\"}') AS TEXT[]), ALTER COLUMN c_timestamp SET DEFAULT CAST('1970-12-31' AS DATE) + length(foo(30))"
   },
   {
     "comment": "fast_default - Statement 66",
-    "query": "ALTER TABLE T ALTER COLUMN c_int DROP DEFAULT, ALTER COLUMN c_array SET DEFAULT ('{\"This\", \"is\", \"' || foo(1) || '\", \"fantasy\"}')::text[]"
+    "query": "ALTER TABLE T ALTER COLUMN c_int DROP DEFAULT, ALTER COLUMN c_array SET DEFAULT ('{\"This\", \"is\", \"' || foo(1) || '\", \"fantasy\"}')::text[]",
+    "expected": "ALTER TABLE t ALTER COLUMN c_int DROP DEFAULT, ALTER COLUMN c_array SET DEFAULT CAST(('{\"This\", \"is\", \"' || foo(1) || '\", \"fantasy\"}') AS TEXT[])"
   },
   {
     "comment": "fast_default - Statement 67",
-    "query": "ALTER TABLE T ALTER COLUMN c_bpchar    DROP DEFAULT, ALTER COLUMN c_date      DROP DEFAULT, ALTER COLUMN c_text      DROP DEFAULT, ALTER COLUMN c_timestamp DROP DEFAULT, ALTER COLUMN c_array     DROP DEFAULT"
+    "query": "ALTER TABLE T ALTER COLUMN c_bpchar    DROP DEFAULT, ALTER COLUMN c_date      DROP DEFAULT, ALTER COLUMN c_text      DROP DEFAULT, ALTER COLUMN c_timestamp DROP DEFAULT, ALTER COLUMN c_array     DROP DEFAULT",
+    "expected": "ALTER TABLE t ALTER COLUMN c_bpchar DROP DEFAULT, ALTER COLUMN c_date DROP DEFAULT, ALTER COLUMN c_text DROP DEFAULT, ALTER COLUMN c_timestamp DROP DEFAULT, ALTER COLUMN c_array DROP DEFAULT"
   },
   {
     "comment": "fast_default - Statement 68",
-    "query": "SELECT * FROM T"
+    "query": "SELECT * FROM T",
+    "expected": "SELECT * FROM t"
   },
   {
     "comment": "fast_default - Statement 69",
-    "query": "CREATE DOMAIN domain1 AS int DEFAULT 11"
+    "query": "CREATE DOMAIN domain1 AS int DEFAULT 11",
+    "expected": "CREATE DOMAIN domain1 AS INT DEFAULT 11"
   },
   {
     "comment": "fast_default - Statement 70",
-    "query": "CREATE DOMAIN domain2 AS int DEFAULT random(min=>10, max=>100)"
+    "query": "CREATE DOMAIN domain2 AS int DEFAULT random(min=\u003e10, max=\u003e100)",
+    "expected": "CREATE DOMAIN domain2 AS INT DEFAULT random(min =\u003e 10, max =\u003e 100)"
   },
   {
     "comment": "fast_default - Statement 71",
-    "query": "CREATE DOMAIN domain3 AS text DEFAULT foo(4)"
+    "query": "CREATE DOMAIN domain3 AS text DEFAULT foo(4)",
+    "expected": "CREATE DOMAIN domain3 AS TEXT DEFAULT foo(4)"
   },
   {
     "comment": "fast_default - Statement 72",
-    "query": "CREATE DOMAIN domain4 AS text[] DEFAULT ('{\"This\", \"is\", \"' || foo(4) || '\",\"the\", \"real\", \"world\"}')::TEXT[]"
+    "query": "CREATE DOMAIN domain4 AS text[] DEFAULT ('{\"This\", \"is\", \"' || foo(4) || '\",\"the\", \"real\", \"world\"}')::TEXT[]",
+    "expected": "CREATE DOMAIN domain4 AS TEXT[] DEFAULT CAST(('{\"This\", \"is\", \"' || foo(4) || '\",\"the\", \"real\", \"world\"}') AS TEXT[])"
   },
   {
     "comment": "fast_default - Statement 73",
@@ -293,19 +297,23 @@
   },
   {
     "comment": "fast_default - Statement 74",
-    "query": "INSERT INTO t2 VALUES (1),(2)"
+    "query": "INSERT INTO t2 VALUES (1),(2)",
+    "expected": "INSERT INTO t2 VALUES (1), (2)"
   },
   {
     "comment": "fast_default - Statement 75",
-    "query": "ALTER TABLE t2 ADD COLUMN b domain1 default 3"
+    "query": "ALTER TABLE t2 ADD COLUMN b domain1 default 3",
+    "expected": "ALTER TABLE t2 ADD COLUMN b domain1 DEFAULT 3"
   },
   {
     "comment": "fast_default - Statement 76",
-    "query": "SELECT attnum, attname, atthasmissing, atthasdef, attmissingval FROM pg_attribute WHERE attnum > 0 AND attrelid = 't2'::regclass ORDER BY attnum"
+    "query": "SELECT attnum, attname, atthasmissing, atthasdef, attmissingval FROM pg_attribute WHERE attnum \u003e 0 AND attrelid = 't2'::regclass ORDER BY attnum",
+    "expected": "SELECT attnum, attname, atthasmissing, atthasdef, attmissingval FROM pg_attribute WHERE attnum \u003e 0 AND attrelid = CAST('t2' AS regclass) ORDER BY attnum"
   },
   {
     "comment": "fast_default - Statement 77",
-    "query": "ALTER TABLE t2 ADD COLUMN c domain3 default left(random()::text,3)"
+    "query": "ALTER TABLE t2 ADD COLUMN c domain3 default left(random()::text,3)",
+    "expected": "ALTER TABLE t2 ADD COLUMN c domain3 DEFAULT left(CAST(random() AS TEXT), 3)"
   },
   {
     "comment": "fast_default - Statement 78",
@@ -317,7 +325,8 @@
   },
   {
     "comment": "fast_default - Statement 80",
-    "query": "SELECT a, b, length(c) = 3 as c_ok, d, e >= 10 as e_ok FROM t2"
+    "query": "SELECT a, b, length(c) = 3 as c_ok, d, e \u003e= 10 as e_ok FROM t2",
+    "expected": "SELECT a, b, length(c) = 3 AS c_ok, d, e \u003e= 10 AS e_ok FROM t2"
   },
   {
     "comment": "fast_default - Statement 81",
@@ -345,183 +354,213 @@
   },
   {
     "comment": "fast_default - Statement 87",
-    "query": "CREATE TABLE T(pk INT NOT NULL PRIMARY KEY)"
+    "query": "CREATE TABLE T(pk INT NOT NULL PRIMARY KEY)",
+    "expected": "CREATE TABLE t (pk INT NOT NULL PRIMARY KEY)"
   },
   {
     "comment": "fast_default - Statement 88",
-    "query": "INSERT INTO T VALUES (1)"
+    "query": "INSERT INTO T VALUES (1)",
+    "expected": "INSERT INTO t VALUES (1)"
   },
   {
     "comment": "fast_default - Statement 89",
-    "query": "ALTER TABLE T ADD COLUMN c1 TIMESTAMP DEFAULT now()"
+    "query": "ALTER TABLE T ADD COLUMN c1 TIMESTAMP DEFAULT now()",
+    "expected": "ALTER TABLE t ADD COLUMN c1 TIMESTAMP DEFAULT NOW()"
   },
   {
     "comment": "fast_default - Statement 90",
-    "query": "ALTER TABLE T ADD COLUMN c2 TIMESTAMP DEFAULT clock_timestamp()"
+    "query": "ALTER TABLE T ADD COLUMN c2 TIMESTAMP DEFAULT clock_timestamp()",
+    "expected": "ALTER TABLE t ADD COLUMN c2 TIMESTAMP DEFAULT clock_timestamp()"
   },
   {
     "comment": "fast_default - Statement 91",
-    "query": "CREATE FUNCTION foolme(timestamptz DEFAULT clock_timestamp()) RETURNS timestamptz IMMUTABLE AS 'select $1' LANGUAGE sql"
+    "query": "CREATE FUNCTION foolme(timestamptz DEFAULT clock_timestamp()) RETURNS timestamptz IMMUTABLE AS 'select $1' LANGUAGE sql",
+    "expected": "CREATE FUNCTION foolme (TIMESTAMPTZ DEFAULT clock_timestamp()) RETURNS TIMESTAMPTZ LANGUAGE sql AS $$select $1$$ IMMUTABLE"
   },
   {
     "comment": "fast_default - Statement 92",
-    "query": "ALTER TABLE T ADD COLUMN c3 timestamptz DEFAULT foolme()"
+    "query": "ALTER TABLE T ADD COLUMN c3 timestamptz DEFAULT foolme()",
+    "expected": "ALTER TABLE t ADD COLUMN c3 TIMESTAMPTZ DEFAULT foolme()"
   },
   {
     "comment": "fast_default - Statement 93",
-    "query": "SELECT attname, atthasmissing, attmissingval FROM pg_attribute WHERE attrelid = 't'::regclass AND attnum > 0 ORDER BY attnum"
+    "query": "SELECT attname, atthasmissing, attmissingval FROM pg_attribute WHERE attrelid = 't'::regclass AND attnum \u003e 0 ORDER BY attnum",
+    "expected": "SELECT attname, atthasmissing, attmissingval FROM pg_attribute WHERE attrelid = CAST('t' AS regclass) AND attnum \u003e 0 ORDER BY attnum"
   },
   {
     "comment": "fast_default - Statement 94",
-    "query": "DROP FUNCTION foolme(timestamptz)"
+    "query": "DROP FUNCTION foolme(timestamptz)",
+    "expected": "DROP FUNCTION foolme(TIMESTAMPTZ)"
   },
   {
     "comment": "fast_default - Statement 95",
-    "query": "CREATE TABLE T (pk INT NOT NULL PRIMARY KEY)"
+    "query": "CREATE TABLE T (pk INT NOT NULL PRIMARY KEY)",
+    "expected": "CREATE TABLE t (pk INT NOT NULL PRIMARY KEY)"
   },
   {
     "comment": "fast_default - Statement 96",
-    "query": "INSERT INTO T SELECT * FROM generate_series(1, 10) a"
+    "query": "INSERT INTO T SELECT * FROM generate_series(1, 10) a",
+    "expected": "INSERT INTO t SELECT * FROM generate_series(1, 10) AS a"
   },
   {
     "comment": "fast_default - Statement 97",
-    "query": "ALTER TABLE T ADD COLUMN c_bigint BIGINT NOT NULL DEFAULT -1"
+    "query": "ALTER TABLE T ADD COLUMN c_bigint BIGINT NOT NULL DEFAULT -1",
+    "expected": "ALTER TABLE t ADD COLUMN c_bigint BIGINT NOT NULL DEFAULT -1"
   },
   {
     "comment": "fast_default - Statement 98",
-    "query": "INSERT INTO T SELECT b, b - 10 FROM generate_series(11, 20) a(b)"
+    "query": "INSERT INTO T SELECT b, b - 10 FROM generate_series(11, 20) a(b)",
+    "expected": "INSERT INTO t SELECT b, b - 10 FROM generate_series(11, 20) AS a(b)"
   },
   {
     "comment": "fast_default - Statement 99",
-    "query": "ALTER TABLE T ADD COLUMN c_text TEXT DEFAULT 'hello'"
+    "query": "ALTER TABLE T ADD COLUMN c_text TEXT DEFAULT 'hello'",
+    "expected": "ALTER TABLE t ADD COLUMN c_text TEXT DEFAULT 'hello'"
   },
   {
     "comment": "fast_default - Statement 100",
-    "query": "INSERT INTO T SELECT b, b - 10, (b + 10)::text FROM generate_series(21, 30) a(b)"
+    "query": "INSERT INTO T SELECT b, b - 10, (b + 10)::text FROM generate_series(21, 30) a(b)",
+    "expected": "INSERT INTO t SELECT b, b - 10, CAST((b + 10) AS TEXT) FROM generate_series(21, 30) AS a(b)"
   },
   {
     "comment": "fast_default - Statement 101",
-    "query": "SELECT c_bigint, c_text FROM T WHERE c_bigint = -1 LIMIT 1"
+    "query": "SELECT c_bigint, c_text FROM T WHERE c_bigint = -1 LIMIT 1",
+    "expected": "SELECT c_bigint, c_text FROM t WHERE c_bigint = -1 LIMIT 1"
   },
   {
     "comment": "fast_default - Statement 102",
-    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT c_bigint, c_text FROM T WHERE c_bigint = -1 LIMIT 1"
+    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT c_bigint, c_text FROM T WHERE c_bigint = -1 LIMIT 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT c_bigint, c_text FROM t WHERE c_bigint = -1 LIMIT 1"
   },
   {
     "comment": "fast_default - Statement 103",
-    "query": "SELECT c_bigint, c_text FROM T WHERE c_text = 'hello' LIMIT 1"
+    "query": "SELECT c_bigint, c_text FROM T WHERE c_text = 'hello' LIMIT 1",
+    "expected": "SELECT c_bigint, c_text FROM t WHERE c_text = 'hello' LIMIT 1"
   },
   {
     "comment": "fast_default - Statement 104",
-    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT c_bigint, c_text FROM T WHERE c_text = 'hello' LIMIT 1"
+    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT c_bigint, c_text FROM T WHERE c_text = 'hello' LIMIT 1",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT c_bigint, c_text FROM t WHERE c_text = 'hello' LIMIT 1"
   },
   {
     "comment": "fast_default - Statement 105",
-    "query": "SELECT COALESCE(c_bigint, pk), COALESCE(c_text, pk::text) FROM T ORDER BY pk LIMIT 10"
+    "query": "SELECT COALESCE(c_bigint, pk), COALESCE(c_text, pk::text) FROM T ORDER BY pk LIMIT 10",
+    "expected": "SELECT COALESCE(c_bigint, pk), COALESCE(c_text, CAST(pk AS TEXT)) FROM t ORDER BY pk LIMIT 10"
   },
   {
     "comment": "fast_default - Statement 106",
-    "query": "SELECT SUM(c_bigint), MAX(c_text COLLATE \"C\" ), MIN(c_text COLLATE \"C\") FROM T"
+    "query": "SELECT SUM(c_bigint), MAX(c_text COLLATE \"C\" ), MIN(c_text COLLATE \"C\") FROM T",
+    "expected": "SELECT SUM(c_bigint), MAX(c_text COLLATE \"C\"), MIN(c_text COLLATE \"C\") FROM t"
   },
   {
     "comment": "fast_default - Statement 107",
-    "query": "SELECT * FROM T ORDER BY c_bigint, c_text, pk LIMIT 10"
+    "query": "SELECT * FROM T ORDER BY c_bigint, c_text, pk LIMIT 10",
+    "expected": "SELECT * FROM t ORDER BY c_bigint, c_text, pk LIMIT 10"
   },
   {
     "comment": "fast_default - Statement 108",
-    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT * FROM T ORDER BY c_bigint, c_text, pk LIMIT 10"
+    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT * FROM T ORDER BY c_bigint, c_text, pk LIMIT 10",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM t ORDER BY c_bigint, c_text, pk LIMIT 10"
   },
   {
     "comment": "fast_default - Statement 109",
-    "query": "SELECT * FROM T WHERE c_bigint > -1 ORDER BY c_bigint, c_text, pk LIMIT 10"
+    "query": "SELECT * FROM T WHERE c_bigint \u003e -1 ORDER BY c_bigint, c_text, pk LIMIT 10",
+    "expected": "SELECT * FROM t WHERE c_bigint \u003e -1 ORDER BY c_bigint, c_text, pk LIMIT 10"
   },
   {
     "comment": "fast_default - Statement 110",
-    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT * FROM T WHERE c_bigint > -1 ORDER BY c_bigint, c_text, pk LIMIT 10"
+    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) SELECT * FROM T WHERE c_bigint \u003e -1 ORDER BY c_bigint, c_text, pk LIMIT 10",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM t WHERE c_bigint \u003e -1 ORDER BY c_bigint, c_text, pk LIMIT 10"
   },
   {
     "comment": "fast_default - Statement 111",
-    "query": "DELETE FROM T WHERE pk BETWEEN 10 AND 20 RETURNING *"
+    "query": "DELETE FROM T WHERE pk BETWEEN 10 AND 20 RETURNING *",
+    "expected": "DELETE FROM t WHERE pk BETWEEN 10 AND 20 RETURNING *"
   },
   {
     "comment": "fast_default - Statement 112",
-    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) DELETE FROM T WHERE pk BETWEEN 10 AND 20 RETURNING *"
+    "query": "EXPLAIN (VERBOSE TRUE, COSTS FALSE) DELETE FROM T WHERE pk BETWEEN 10 AND 20 RETURNING *",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) DELETE FROM t WHERE pk BETWEEN 10 AND 20 RETURNING *"
   },
   {
     "comment": "fast_default - Statement 113",
-    "query": "UPDATE T SET c_text = '\"' || c_text || '\"'  WHERE pk < 10"
+    "query": "UPDATE T SET c_text = '\"' || c_text || '\"'  WHERE pk \u003c 10",
+    "expected": "UPDATE t SET c_text = '\"' || c_text || '\"' WHERE pk \u003c 10"
   },
   {
     "comment": "fast_default - Statement 114",
-    "query": "SELECT * FROM T WHERE c_text LIKE '\"%\"' ORDER BY PK"
+    "query": "SELECT * FROM T WHERE c_text LIKE '\"%\"' ORDER BY PK",
+    "expected": "SELECT * FROM t WHERE c_text LIKE '\"%\"' ORDER BY pk"
   },
   {
     "comment": "fast_default - Statement 115",
-    "query": "ALTER TABLE T ADD COLUMN c_int INT NOT NULL DEFAULT -1"
+    "query": "ALTER TABLE T ADD COLUMN c_int INT NOT NULL DEFAULT -1",
+    "expected": "ALTER TABLE t ADD COLUMN c_int INT NOT NULL DEFAULT -1"
   },
   {
     "comment": "fast_default - Statement 116",
-    "query": "ALTER TABLE T ALTER COLUMN c_text SET DEFAULT 'world', ALTER COLUMN c_int  SET DEFAULT 1"
+    "query": "ALTER TABLE T ALTER COLUMN c_text SET DEFAULT 'world', ALTER COLUMN c_int  SET DEFAULT 1",
+    "expected": "ALTER TABLE t ALTER COLUMN c_text SET DEFAULT 'world', ALTER COLUMN c_int SET DEFAULT 1"
   },
   {
     "comment": "fast_default - Statement 117",
-    "query": "SELECT * FROM T ORDER BY pk"
+    "query": "SELECT * FROM T ORDER BY pk",
+    "expected": "SELECT * FROM t ORDER BY pk"
   },
   {
     "comment": "fast_default - Statement 118",
-    "query": "CREATE INDEX i ON T(c_int, c_text)"
+    "query": "CREATE INDEX i ON T(c_int, c_text)",
+    "expected": "CREATE INDEX i ON t USING btree ( c_int, c_text )"
   },
   {
     "comment": "fast_default - Statement 119",
-    "query": "SELECT c_text FROM T WHERE c_int = -1"
+    "query": "SELECT c_text FROM T WHERE c_int = -1",
+    "expected": "SELECT c_text FROM t WHERE c_int = -1"
   },
   {
     "comment": "fast_default - Statement 120",
-    "query": "CREATE TABLE t1 AS SELECT 1::int AS a , 2::int AS b FROM generate_series(1,20) q"
+    "query": "CREATE TABLE t1 AS SELECT 1::int AS a , 2::int AS b FROM generate_series(1,20) q",
+    "expected": "CREATE TABLE t1 AS SELECT CAST(1 AS INT) AS a, CAST(2 AS INT) AS b FROM generate_series(1, 20) AS q"
   },
   {
     "comment": "fast_default - Statement 121",
-    "query": "ALTER TABLE t1 ADD COLUMN c text"
+    "query": "ALTER TABLE t1 ADD COLUMN c text",
+    "expected": "ALTER TABLE t1 ADD COLUMN c TEXT"
   },
   {
     "comment": "fast_default - Statement 122",
-    "query": "SELECT a, stddev(cast((SELECT sum(1) FROM generate_series(1,20) x) AS float4)) OVER (PARTITION BY a,b,c ORDER BY b) AS z FROM t1"
+    "query": "SELECT a, stddev(cast((SELECT sum(1) FROM generate_series(1,20) x) AS float4)) OVER (PARTITION BY a,b,c ORDER BY b) AS z FROM t1",
+    "expected": "SELECT a, stddev(CAST((SELECT SUM(1) FROM generate_series(1, 20) AS x) AS REAL)) OVER (PARTITION BY a, b, c ORDER BY b) AS z FROM t1"
   },
   {
     "comment": "fast_default - Statement 123",
-    "query": "CREATE FUNCTION test_trigger() RETURNS trigger LANGUAGE plpgsql AS $$ begin raise notice 'old tuple: %', to_json(OLD)::text"
-  },
-  {
-    "comment": "fast_default - Statement 124",
-    "query": "if TG_OP = 'DELETE' then return OLD"
-  },
-  {
-    "comment": "fast_default - Statement 125",
-    "query": "else return NEW"
-  },
-  {
-    "comment": "fast_default - Statement 126",
-    "query": "$$"
+    "query": "CREATE FUNCTION test_trigger() RETURNS trigger LANGUAGE plpgsql AS $$  begin     raise notice 'old tuple: %', to_json(OLD)::text;     if TG_OP = 'DELETE'     then        return OLD;     else        return NEW;     end if; end;",
+    "error": "parse error at position 68: syntax error"
   },
   {
     "comment": "fast_default - Statement 127",
-    "query": "CREATE TABLE t (id serial PRIMARY KEY, a int, b int, c int)"
+    "query": "CREATE TABLE t (id serial PRIMARY KEY, a int, b int, c int)",
+    "expected": "CREATE TABLE t (id serial PRIMARY KEY, a INT, b INT, c INT)"
   },
   {
     "comment": "fast_default - Statement 128",
-    "query": "INSERT INTO t (a,b,c) VALUES (1,2,3)"
+    "query": "INSERT INTO t (a,b,c) VALUES (1,2,3)",
+    "expected": "INSERT INTO t (a, b, c) VALUES (1, 2, 3)"
   },
   {
     "comment": "fast_default - Statement 129",
-    "query": "ALTER TABLE t ADD COLUMN x int NOT NULL DEFAULT 4"
+    "query": "ALTER TABLE t ADD COLUMN x int NOT NULL DEFAULT 4",
+    "expected": "ALTER TABLE t ADD COLUMN x INT NOT NULL DEFAULT 4"
   },
   {
     "comment": "fast_default - Statement 130",
-    "query": "ALTER TABLE t ADD COLUMN y int NOT NULL DEFAULT 5"
+    "query": "ALTER TABLE t ADD COLUMN y int NOT NULL DEFAULT 5",
+    "expected": "ALTER TABLE t ADD COLUMN y INT NOT NULL DEFAULT 5"
   },
   {
     "comment": "fast_default - Statement 131",
-    "query": "CREATE TRIGGER a BEFORE UPDATE ON t FOR EACH ROW EXECUTE PROCEDURE test_trigger()"
+    "query": "CREATE TRIGGER a BEFORE UPDATE ON t FOR EACH ROW EXECUTE PROCEDURE test_trigger()",
+    "expected": "CREATE TRIGGER a BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION test_trigger()"
   },
   {
     "comment": "fast_default - Statement 132",
@@ -529,23 +568,28 @@
   },
   {
     "comment": "fast_default - Statement 133",
-    "query": "ALTER TABLE t ADD COLUMN y int"
+    "query": "ALTER TABLE t ADD COLUMN y int",
+    "expected": "ALTER TABLE t ADD COLUMN y INT"
   },
   {
     "comment": "fast_default - Statement 134",
-    "query": "ALTER TABLE t ADD COLUMN x int"
+    "query": "ALTER TABLE t ADD COLUMN x int",
+    "expected": "ALTER TABLE t ADD COLUMN x INT"
   },
   {
     "comment": "fast_default - Statement 135",
-    "query": "INSERT INTO t (a,b,c) VALUES (1,2,NULL)"
+    "query": "INSERT INTO t (a,b,c) VALUES (1,2,NULL)",
+    "expected": "INSERT INTO t (a, b, c) VALUES (1, 2, NULL)"
   },
   {
     "comment": "fast_default - Statement 136",
-    "query": "CREATE TABLE leader (a int PRIMARY KEY, b int)"
+    "query": "CREATE TABLE leader (a int PRIMARY KEY, b int)",
+    "expected": "CREATE TABLE leader (a INT PRIMARY KEY, b INT)"
   },
   {
     "comment": "fast_default - Statement 137",
-    "query": "CREATE TABLE follower (a int REFERENCES leader ON DELETE CASCADE, b int)"
+    "query": "CREATE TABLE follower (a int REFERENCES leader ON DELETE CASCADE, b int)",
+    "expected": "CREATE TABLE follower (a INT REFERENCES leader ON DELETE CASCADE, b INT)"
   },
   {
     "comment": "fast_default - Statement 138",
@@ -553,11 +597,13 @@
   },
   {
     "comment": "fast_default - Statement 139",
-    "query": "ALTER TABLE leader ADD c int"
+    "query": "ALTER TABLE leader ADD c int",
+    "expected": "ALTER TABLE leader ADD COLUMN c INT"
   },
   {
     "comment": "fast_default - Statement 140",
-    "query": "ALTER TABLE leader DROP c"
+    "query": "ALTER TABLE leader DROP c",
+    "expected": "ALTER TABLE leader DROP COLUMN c"
   },
   {
     "comment": "fast_default - Statement 141",
@@ -565,7 +611,8 @@
   },
   {
     "comment": "fast_default - Statement 142",
-    "query": "CREATE TABLE vtype( a integer)"
+    "query": "CREATE TABLE vtype( a integer)",
+    "expected": "CREATE TABLE vtype (a INT)"
   },
   {
     "comment": "fast_default - Statement 143",
@@ -573,11 +620,13 @@
   },
   {
     "comment": "fast_default - Statement 144",
-    "query": "ALTER TABLE vtype ADD COLUMN b DOUBLE PRECISION DEFAULT 0.2"
+    "query": "ALTER TABLE vtype ADD COLUMN b DOUBLE PRECISION DEFAULT 0.2",
+    "expected": "ALTER TABLE vtype ADD COLUMN b FLOAT8 DEFAULT 0.2"
   },
   {
     "comment": "fast_default - Statement 145",
-    "query": "ALTER TABLE vtype ADD COLUMN c BOOLEAN DEFAULT true"
+    "query": "ALTER TABLE vtype ADD COLUMN c BOOLEAN DEFAULT true",
+    "expected": "ALTER TABLE vtype ADD COLUMN c BOOLEAN DEFAULT TRUE"
   },
   {
     "comment": "fast_default - Statement 146",
@@ -585,11 +634,13 @@
   },
   {
     "comment": "fast_default - Statement 147",
-    "query": "ALTER TABLE vtype ALTER b TYPE text USING b::text, ALTER c TYPE text USING c::text"
+    "query": "ALTER TABLE vtype ALTER b TYPE text USING b::text, ALTER c TYPE text USING c::text",
+    "expected": "ALTER TABLE vtype ALTER COLUMN b TYPE TEXT USING CAST(b AS TEXT), ALTER COLUMN c TYPE TEXT USING CAST(c AS TEXT)"
   },
   {
     "comment": "fast_default - Statement 148",
-    "query": "CREATE TABLE vtype2 (a int)"
+    "query": "CREATE TABLE vtype2 (a int)",
+    "expected": "CREATE TABLE vtype2 (a INT)"
   },
   {
     "comment": "fast_default - Statement 149",
@@ -597,7 +648,8 @@
   },
   {
     "comment": "fast_default - Statement 150",
-    "query": "ALTER TABLE vtype2 ADD COLUMN b varchar(10) DEFAULT 'xxx'"
+    "query": "ALTER TABLE vtype2 ADD COLUMN b varchar(10) DEFAULT 'xxx'",
+    "expected": "ALTER TABLE vtype2 ADD COLUMN b VARCHAR(10) DEFAULT 'xxx'"
   },
   {
     "comment": "fast_default - Statement 151",
@@ -609,7 +661,8 @@
   },
   {
     "comment": "fast_default - Statement 153",
-    "query": "ALTER TABLE vtype2 ALTER COLUMN b TYPE varchar(20) USING b::varchar(20)"
+    "query": "ALTER TABLE vtype2 ALTER COLUMN b TYPE varchar(20) USING b::varchar(20)",
+    "expected": "ALTER TABLE vtype2 ALTER COLUMN b TYPE VARCHAR(20) USING CAST(b AS VARCHAR(20))"
   },
   {
     "comment": "fast_default - Statement 154",
@@ -621,7 +674,8 @@
   },
   {
     "comment": "fast_default - Statement 156",
-    "query": "CREATE TABLE t()"
+    "query": "CREATE TABLE t()",
+    "expected": "CREATE TABLE t ()"
   },
   {
     "comment": "fast_default - Statement 157",
@@ -629,11 +683,13 @@
   },
   {
     "comment": "fast_default - Statement 158",
-    "query": "ALTER TABLE t ADD COLUMN a int DEFAULT 1"
+    "query": "ALTER TABLE t ADD COLUMN a int DEFAULT 1",
+    "expected": "ALTER TABLE t ADD COLUMN a INT DEFAULT 1"
   },
   {
     "comment": "fast_default - Statement 159",
-    "query": "CREATE INDEX ON t(a)"
+    "query": "CREATE INDEX ON t(a)",
+    "expected": "CREATE INDEX ON t USING btree ( a )"
   },
   {
     "comment": "fast_default - Statement 160",
@@ -665,19 +721,23 @@
   },
   {
     "comment": "fast_default - Statement 167",
-    "query": "CREATE FOREIGN TABLE ft1 (c1 integer NOT NULL) SERVER s0"
+    "query": "CREATE FOREIGN TABLE ft1 (c1 integer NOT NULL) SERVER s0",
+    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT NOT NULL) SERVER s0"
   },
   {
     "comment": "fast_default - Statement 168",
-    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c8 integer DEFAULT 0"
+    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c8 integer DEFAULT 0",
+    "expected": "ALTER FOREIGN TABLE ft1 ADD COLUMN c8 INT DEFAULT 0"
   },
   {
     "comment": "fast_default - Statement 169",
-    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10)"
+    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10)",
+    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE CHAR(10)"
   },
   {
     "comment": "fast_default - Statement 170",
-    "query": "SELECT count(*) FROM pg_attribute WHERE attrelid = 'ft1'::regclass AND (attmissingval IS NOT NULL OR atthasmissing)"
+    "query": "SELECT count(*) FROM pg_attribute WHERE attrelid = 'ft1'::regclass AND (attmissingval IS NOT NULL OR atthasmissing)",
+    "expected": "SELECT COUNT(*) FROM pg_attribute WHERE attrelid = CAST('ft1' AS regclass) AND (attmissingval IS NOT NULL OR atthasmissing)"
   },
   {
     "comment": "fast_default - Statement 171",
@@ -745,22 +805,27 @@
   },
   {
     "comment": "fast_default - Statement 187",
-    "query": "set search_path = public"
+    "query": "set search_path = public",
+    "expected": "SET SCHEMA 'public'"
   },
   {
     "comment": "fast_default - Statement 188",
-    "query": "create table has_fast_default(f1 int)"
+    "query": "create table has_fast_default(f1 int)",
+    "expected": "CREATE TABLE has_fast_default (f1 INT)"
   },
   {
     "comment": "fast_default - Statement 189",
-    "query": "insert into has_fast_default values(1)"
+    "query": "insert into has_fast_default values(1)",
+    "expected": "INSERT INTO has_fast_default VALUES (1)"
   },
   {
     "comment": "fast_default - Statement 190",
-    "query": "alter table has_fast_default add column f2 int default 42"
+    "query": "alter table has_fast_default add column f2 int default 42",
+    "expected": "ALTER TABLE has_fast_default ADD COLUMN f2 INT DEFAULT 42"
   },
   {
     "comment": "fast_default - Statement 191",
-    "query": "table has_fast_default"
+    "query": "table has_fast_default",
+    "expected": "SELECT * FROM has_fast_default"
   }
 ]

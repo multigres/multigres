@@ -1,210 +1,237 @@
 [
   {
     "comment": "gin - Statement 1",
-    "query": "create table gin_test_tbl(i int4[]) with (autovacuum_enabled = off)"
+    "query": "create table gin_test_tbl(i int4[]) with (autovacuum_enabled = off)",
+    "expected": "CREATE TABLE gin_test_tbl (i INT[]) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "gin - Statement 2",
-    "query": "create index gin_test_idx on gin_test_tbl using gin (i) with (fastupdate = on, gin_pending_list_limit = 4096)"
+    "query": "create index gin_test_idx on gin_test_tbl using gin (i) with (fastupdate = on, gin_pending_list_limit = 4096)",
+    "expected": "CREATE INDEX gin_test_idx ON gin_test_tbl USING gin ( i ) WITH (fastupdate = 'on', gin_pending_list_limit = 4096)"
   },
   {
     "comment": "gin - Statement 3",
-    "query": "insert into gin_test_tbl select array[1, 2, g] from generate_series(1, 20000) g"
+    "query": "insert into gin_test_tbl select array[1, 2, g] from generate_series(1, 20000) g",
+    "expected": "INSERT INTO gin_test_tbl SELECT ARRAY[1,2,g] FROM generate_series(1, 20000) AS g"
   },
   {
     "comment": "gin - Statement 4",
-    "query": "insert into gin_test_tbl select array[1, 3, g] from generate_series(1, 1000) g"
+    "query": "insert into gin_test_tbl select array[1, 3, g] from generate_series(1, 1000) g",
+    "expected": "INSERT INTO gin_test_tbl SELECT ARRAY[1,3,g] FROM generate_series(1, 1000) AS g"
   },
   {
     "comment": "gin - Statement 5",
-    "query": "select gin_clean_pending_list('gin_test_idx')>10 as many"
+    "query": "select gin_clean_pending_list('gin_test_idx')\u003e10 as many",
+    "expected": "SELECT gin_clean_pending_list('gin_test_idx') \u003e 10 AS many"
   },
   {
     "comment": "gin - Statement 6",
-    "query": "insert into gin_test_tbl select array[3, 1, g] from generate_series(1, 1000) g"
+    "query": "insert into gin_test_tbl select array[3, 1, g] from generate_series(1, 1000) g",
+    "expected": "INSERT INTO gin_test_tbl SELECT ARRAY[3,1,g] FROM generate_series(1, 1000) AS g"
   },
   {
     "comment": "gin - Statement 7",
-    "query": "vacuum gin_test_tbl"
+    "query": "vacuum gin_test_tbl",
+    "expected": "VACUUM gin_test_tbl"
   },
   {
     "comment": "gin - Statement 8",
-    "query": "select gin_clean_pending_list('gin_test_idx')"
+    "query": "select gin_clean_pending_list('gin_test_idx')",
+    "expected": "SELECT gin_clean_pending_list('gin_test_idx')"
   },
   {
     "comment": "gin - Statement 9",
-    "query": "delete from gin_test_tbl where i @> array[2]"
+    "query": "delete from gin_test_tbl where i @\u003e array[2]",
+    "expected": "DELETE FROM gin_test_tbl WHERE i @\u003e ARRAY[2]"
   },
   {
     "comment": "gin - Statement 10",
-    "query": "alter index gin_test_idx set (fastupdate = off)"
+    "query": "alter index gin_test_idx set (fastupdate = off)",
+    "expected": "ALTER INDEX gin_test_idx SET (fastupdate = off)"
   },
   {
     "comment": "gin - Statement 11",
-    "query": "insert into gin_test_tbl select array[1, 2, g] from generate_series(1, 1000) g"
+    "query": "insert into gin_test_tbl select array[1, 2, g] from generate_series(1, 1000) g",
+    "expected": "INSERT INTO gin_test_tbl SELECT ARRAY[1,2,g] FROM generate_series(1, 1000) AS g"
   },
   {
     "comment": "gin - Statement 12",
-    "query": "explain (costs off) select count(*) from gin_test_tbl where i @> array[1, 999]"
+    "query": "explain (costs off) select count(*) from gin_test_tbl where i @\u003e array[1, 999]",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM gin_test_tbl WHERE i @\u003e ARRAY[1,999]"
   },
   {
     "comment": "gin - Statement 13",
-    "query": "select count(*) from gin_test_tbl where i @> array[1, 999]"
+    "query": "select count(*) from gin_test_tbl where i @\u003e array[1, 999]",
+    "expected": "SELECT COUNT(*) FROM gin_test_tbl WHERE i @\u003e ARRAY[1,999]"
   },
   {
     "comment": "gin - Statement 14",
-    "query": "set gin_fuzzy_search_limit = 1000"
+    "query": "set gin_fuzzy_search_limit = 1000",
+    "expected": "SET gin_fuzzy_search_limit = 1000"
   },
   {
     "comment": "gin - Statement 15",
-    "query": "explain (costs off) select count(*) > 0 as ok from gin_test_tbl where i @> array[1]"
+    "query": "explain (costs off) select count(*) \u003e 0 as ok from gin_test_tbl where i @\u003e array[1]",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) \u003e 0 AS ok FROM gin_test_tbl WHERE i @\u003e ARRAY[1]"
   },
   {
     "comment": "gin - Statement 16",
-    "query": "select count(*) > 0 as ok from gin_test_tbl where i @> array[1]"
+    "query": "select count(*) \u003e 0 as ok from gin_test_tbl where i @\u003e array[1]",
+    "expected": "SELECT COUNT(*) \u003e 0 AS ok FROM gin_test_tbl WHERE i @\u003e ARRAY[1]"
   },
   {
     "comment": "gin - Statement 17",
-    "query": "reset gin_fuzzy_search_limit"
+    "query": "reset gin_fuzzy_search_limit",
+    "expected": "RESET gin_fuzzy_search_limit"
   },
   {
     "comment": "gin - Statement 18",
-    "query": "create temp table t_gin_test_tbl(i int4[], j int4[])"
+    "query": "create temp table t_gin_test_tbl(i int4[], j int4[])",
+    "expected": "CREATE TEMPORARY TABLE t_gin_test_tbl (i INT[], j INT[])"
   },
   {
     "comment": "gin - Statement 19",
-    "query": "create index on t_gin_test_tbl using gin (i, j)"
+    "query": "create index on t_gin_test_tbl using gin (i, j)",
+    "expected": "CREATE INDEX ON t_gin_test_tbl USING gin ( i, j )"
   },
   {
     "comment": "gin - Statement 20",
-    "query": "insert into t_gin_test_tbl values (null,    null), ('{}',    null), ('{1}',   null), ('{1,2}', null), (null,    '{}'), (null,    '{10}'), ('{1,2}', '{10}'), ('{2}',   '{10}'), ('{1,3}', '{}'), ('{1,1}', '{10}')"
+    "query": "insert into t_gin_test_tbl values (null,    null), ('{}',    null), ('{1}',   null), ('{1,2}', null), (null,    '{}'), (null,    '{10}'), ('{1,2}', '{10}'), ('{2}',   '{10}'), ('{1,3}', '{}'), ('{1,1}', '{10}')",
+    "expected": "INSERT INTO t_gin_test_tbl VALUES (NULL, NULL), ('{}', NULL), ('{1}', NULL), ('{1,2}', NULL), (NULL, '{}'), (NULL, '{10}'), ('{1,2}', '{10}'), ('{2}', '{10}'), ('{1,3}', '{}'), ('{1,1}', '{10}')"
   },
   {
     "comment": "gin - Statement 21",
-    "query": "set enable_seqscan = off"
+    "query": "set enable_seqscan = off",
+    "expected": "SET enable_seqscan = off"
   },
   {
     "comment": "gin - Statement 22",
-    "query": "explain (costs off) select * from t_gin_test_tbl where array[0] <@ i"
+    "query": "explain (costs off) select * from t_gin_test_tbl where array[0] \u003c@ i",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t_gin_test_tbl WHERE ARRAY[0] \u003c@ i"
   },
   {
     "comment": "gin - Statement 23",
-    "query": "select * from t_gin_test_tbl where array[0] <@ i"
+    "query": "select * from t_gin_test_tbl where array[0] \u003c@ i",
+    "expected": "SELECT * FROM t_gin_test_tbl WHERE ARRAY[0] \u003c@ i"
   },
   {
     "comment": "gin - Statement 24",
-    "query": "select * from t_gin_test_tbl where array[0] <@ i and '{}'::int4[] <@ j"
+    "query": "select * from t_gin_test_tbl where array[0] \u003c@ i and '{}'::int4[] \u003c@ j",
+    "expected": "SELECT * FROM t_gin_test_tbl WHERE ARRAY[0] \u003c@ i AND CAST('{}' AS INT[]) \u003c@ j"
   },
   {
     "comment": "gin - Statement 25",
-    "query": "explain (costs off) select * from t_gin_test_tbl where i @> '{}'"
+    "query": "explain (costs off) select * from t_gin_test_tbl where i @\u003e '{}'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM t_gin_test_tbl WHERE i @\u003e '{}'"
   },
   {
     "comment": "gin - Statement 26",
-    "query": "select * from t_gin_test_tbl where i @> '{}'"
+    "query": "select * from t_gin_test_tbl where i @\u003e '{}'",
+    "expected": "SELECT * FROM t_gin_test_tbl WHERE i @\u003e '{}'"
   },
   {
     "comment": "gin - Statement 27",
-    "query": "create function explain_query_json(query_sql text) returns table (explain_line json) language plpgsql as $$ begin set enable_seqscan = off"
-  },
-  {
-    "comment": "gin - Statement 28",
-    "query": "set enable_bitmapscan = on"
-  },
-  {
-    "comment": "gin - Statement 29",
-    "query": "return query execute 'EXPLAIN (ANALYZE, FORMAT json) ' || query_sql"
-  },
-  {
-    "comment": "gin - Statement 30",
-    "query": "end"
-  },
-  {
-    "comment": "gin - Statement 31",
-    "query": "$$"
+    "query": "create function explain_query_json(query_sql text) returns table (explain_line json) language plpgsql as $$ begin set enable_seqscan = off; SET enable_bitmapscan = on; return query execute 'EXPLAIN (ANALYZE, FORMAT json) ' || query_sql; end; $$",
+    "expected": "CREATE FUNCTION explain_query_json (query_sql TEXT) LANGUAGE plpgsql AS $$ begin set enable_seqscan = off; SET enable_bitmapscan = on; return query execute 'EXPLAIN (ANALYZE, FORMAT json) ' || query_sql; end; $$"
   },
   {
     "comment": "gin - Statement 32",
-    "query": "create function execute_text_query_index(query_sql text) returns setof text language plpgsql as $$ begin set enable_seqscan = off"
-  },
-  {
-    "comment": "gin - Statement 33",
-    "query": "return query execute query_sql"
+    "query": "create function execute_text_query_index(query_sql text) returns setof text language plpgsql as $$ begin set enable_seqscan = off; set enable_bitmapscan = on; return query execute query_sql; end; $$;",
+    "expected": "CREATE FUNCTION execute_text_query_index (query_sql TEXT) RETURNS SETOF TEXT LANGUAGE plpgsql AS $$ begin set enable_seqscan = off; set enable_bitmapscan = on; return query execute query_sql; end; $$"
   },
   {
     "comment": "gin - Statement 34",
-    "query": "create function execute_text_query_heap(query_sql text) returns setof text language plpgsql as $$ begin set enable_seqscan = on"
+    "query": "create function execute_text_query_heap(query_sql text) returns setof text language plpgsql as $$ begin set enable_seqscan = on; set enable_bitmapscan = off; return query execute query_sql; end; $$;",
+    "expected": "CREATE FUNCTION execute_text_query_heap (query_sql TEXT) RETURNS SETOF TEXT LANGUAGE plpgsql AS $$ begin set enable_seqscan = on; set enable_bitmapscan = off; return query execute query_sql; end; $$"
   },
   {
     "comment": "gin - Statement 35",
-    "query": "set enable_bitmapscan = off"
+    "query": "set enable_bitmapscan = off",
+    "expected": "SET enable_bitmapscan = off"
   },
   {
     "comment": "gin - Statement 36",
-    "query": "select query, js->0->'Plan'->'Plans'->0->'Actual Rows' as \"return by index\", js->0->'Plan'->'Rows Removed by Index Recheck' as \"removed by recheck\", (res_index = res_heap) as \"match\" from (values ($$ i @> '{}' $$), ($$ j @> '{}' $$), ($$ i @> '{}' and j @> '{}' $$), ($$ i @> '{1}' $$), ($$ i @> '{1}' and j @> '{}' $$), ($$ i @> '{1}' and i @> '{}' and j @> '{}' $$), ($$ j @> '{10}' $$), ($$ j @> '{10}' and i @> '{}' $$), ($$ j @> '{10}' and j @> '{}' and i @> '{}' $$), ($$ i @> '{1}' and j @> '{10}' $$) ) q(query), lateral explain_query_json($$select * from t_gin_test_tbl where $$ || query) js, lateral execute_text_query_index($$select string_agg((i, j)::text, ' ') from t_gin_test_tbl where $$ || query) res_index, lateral execute_text_query_heap($$select string_agg((i, j)::text, ' ') from t_gin_test_tbl where $$ || query) res_heap"
+    "query": "select query, js-\u003e0-\u003e'Plan'-\u003e'Plans'-\u003e0-\u003e'Actual Rows' as \"return by index\", js-\u003e0-\u003e'Plan'-\u003e'Rows Removed by Index Recheck' as \"removed by recheck\", (res_index = res_heap) as \"match\" from (values ($$ i @\u003e '{}' $$), ($$ j @\u003e '{}' $$), ($$ i @\u003e '{}' and j @\u003e '{}' $$), ($$ i @\u003e '{1}' $$), ($$ i @\u003e '{1}' and j @\u003e '{}' $$), ($$ i @\u003e '{1}' and i @\u003e '{}' and j @\u003e '{}' $$), ($$ j @\u003e '{10}' $$), ($$ j @\u003e '{10}' and i @\u003e '{}' $$), ($$ j @\u003e '{10}' and j @\u003e '{}' and i @\u003e '{}' $$), ($$ i @\u003e '{1}' and j @\u003e '{10}' $$) ) q(query), lateral explain_query_json($$select * from t_gin_test_tbl where $$ || query) js, lateral execute_text_query_index($$select string_agg((i, j)::text, ' ') from t_gin_test_tbl where $$ || query) res_index, lateral execute_text_query_heap($$select string_agg((i, j)::text, ' ') from t_gin_test_tbl where $$ || query) res_heap",
+    "expected": "SELECT query, js -\u003e 0 -\u003e 'Plan' -\u003e 'Plans' -\u003e 0 -\u003e 'Actual Rows' AS \"return by index\", js -\u003e 0 -\u003e 'Plan' -\u003e 'Rows Removed by Index Recheck' AS \"removed by recheck\", (res_index = res_heap) AS match FROM (VALUES (' i @\u003e ''{}'' '), (' j @\u003e ''{}'' '), (' i @\u003e ''{}'' and j @\u003e ''{}'' '), (' i @\u003e ''{1}'' '), (' i @\u003e ''{1}'' and j @\u003e ''{}'' '), (' i @\u003e ''{1}'' and i @\u003e ''{}'' and j @\u003e ''{}'' '), (' j @\u003e ''{10}'' '), (' j @\u003e ''{10}'' and i @\u003e ''{}'' '), (' j @\u003e ''{10}'' and j @\u003e ''{}'' and i @\u003e ''{}'' '), (' i @\u003e ''{1}'' and j @\u003e ''{10}'' ')) AS q(query), LATERAL explain_query_json('select * from t_gin_test_tbl where ' || query) AS js, LATERAL execute_text_query_index('select string_agg((i, j)::text, '' '') from t_gin_test_tbl where ' || query) AS res_index, LATERAL execute_text_query_heap('select string_agg((i, j)::text, '' '') from t_gin_test_tbl where ' || query) AS res_heap"
   },
   {
     "comment": "gin - Statement 37",
-    "query": "reset enable_seqscan"
+    "query": "reset enable_seqscan",
+    "expected": "RESET enable_seqscan"
   },
   {
     "comment": "gin - Statement 38",
-    "query": "reset enable_bitmapscan"
+    "query": "reset enable_bitmapscan",
+    "expected": "RESET enable_bitmapscan"
   },
   {
     "comment": "gin - Statement 39",
-    "query": "insert into t_gin_test_tbl select array[1, g, g/10], array[2, g, g/10] from generate_series(1, 20000) g"
+    "query": "insert into t_gin_test_tbl select array[1, g, g/10], array[2, g, g/10] from generate_series(1, 20000) g",
+    "expected": "INSERT INTO t_gin_test_tbl SELECT ARRAY[1,g,g / 10], ARRAY[2,g,g / 10] FROM generate_series(1, 20000) AS g"
   },
   {
     "comment": "gin - Statement 40",
-    "query": "select gin_clean_pending_list('t_gin_test_tbl_i_j_idx') is not null"
+    "query": "select gin_clean_pending_list('t_gin_test_tbl_i_j_idx') is not null",
+    "expected": "SELECT gin_clean_pending_list('t_gin_test_tbl_i_j_idx') IS NOT NULL"
   },
   {
     "comment": "gin - Statement 41",
-    "query": "analyze t_gin_test_tbl"
+    "query": "analyze t_gin_test_tbl",
+    "expected": "ANALYZE t_gin_test_tbl"
   },
   {
     "comment": "gin - Statement 42",
-    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @> array[50]"
+    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @\u003e array[50]",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e ARRAY[50]"
   },
   {
     "comment": "gin - Statement 43",
-    "query": "select count(*) from t_gin_test_tbl where j @> array[50]"
+    "query": "select count(*) from t_gin_test_tbl where j @\u003e array[50]",
+    "expected": "SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e ARRAY[50]"
   },
   {
     "comment": "gin - Statement 44",
-    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @> array[2]"
+    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @\u003e array[2]",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e ARRAY[2]"
   },
   {
     "comment": "gin - Statement 45",
-    "query": "select count(*) from t_gin_test_tbl where j @> array[2]"
+    "query": "select count(*) from t_gin_test_tbl where j @\u003e array[2]",
+    "expected": "SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e ARRAY[2]"
   },
   {
     "comment": "gin - Statement 46",
-    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @> '{}'::int[]"
+    "query": "explain (costs off) select count(*) from t_gin_test_tbl where j @\u003e '{}'::int[]",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e CAST('{}' AS INT[])"
   },
   {
     "comment": "gin - Statement 47",
-    "query": "select count(*) from t_gin_test_tbl where j @> '{}'::int[]"
+    "query": "select count(*) from t_gin_test_tbl where j @\u003e '{}'::int[]",
+    "expected": "SELECT COUNT(*) FROM t_gin_test_tbl WHERE j @\u003e CAST('{}' AS INT[])"
   },
   {
     "comment": "gin - Statement 48",
-    "query": "delete from t_gin_test_tbl where j @> array[2]"
+    "query": "delete from t_gin_test_tbl where j @\u003e array[2]",
+    "expected": "DELETE FROM t_gin_test_tbl WHERE j @\u003e ARRAY[2]"
   },
   {
     "comment": "gin - Statement 49",
-    "query": "vacuum t_gin_test_tbl"
+    "query": "vacuum t_gin_test_tbl",
+    "expected": "VACUUM t_gin_test_tbl"
   },
   {
     "comment": "gin - Statement 50",
-    "query": "drop table t_gin_test_tbl"
+    "query": "drop table t_gin_test_tbl",
+    "expected": "DROP TABLE t_gin_test_tbl"
   },
   {
     "comment": "gin - Statement 51",
-    "query": "create unlogged table t_gin_test_tbl(i int4[], j int4[])"
+    "query": "create unlogged table t_gin_test_tbl(i int4[], j int4[])",
+    "expected": "CREATE UNLOGGED TABLE t_gin_test_tbl (i INT[], j INT[])"
   },
   {
     "comment": "gin - Statement 52",
-    "query": "insert into t_gin_test_tbl values (null,    null), ('{}',    null), ('{1}',   '{2,3}')"
+    "query": "insert into t_gin_test_tbl values (null,    null), ('{}',    null), ('{1}',   '{2,3}')",
+    "expected": "INSERT INTO t_gin_test_tbl VALUES (NULL, NULL), ('{}', NULL), ('{1}', '{2,3}')"
   }
 ]

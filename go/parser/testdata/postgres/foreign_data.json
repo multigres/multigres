@@ -1,7 +1,8 @@
 [
   {
     "comment": "foreign_data - Statement 1",
-    "query": "SET client_min_messages TO 'warning'"
+    "query": "SET client_min_messages TO 'warning'",
+    "expected": "SET client_min_messages = 'warning'"
   },
   {
     "comment": "foreign_data - Statement 2",
@@ -53,7 +54,8 @@
   },
   {
     "comment": "foreign_data - Statement 14",
-    "query": "SELECT fdwname, fdwhandler::regproc, fdwvalidator::regproc, fdwoptions FROM pg_foreign_data_wrapper ORDER BY 1, 2, 3"
+    "query": "SELECT fdwname, fdwhandler::regproc, fdwvalidator::regproc, fdwoptions FROM pg_foreign_data_wrapper ORDER BY 1, 2, 3",
+    "expected": "SELECT fdwname, CAST(fdwhandler AS regproc), CAST(fdwvalidator AS regproc), fdwoptions FROM pg_foreign_data_wrapper ORDER BY 1, 2, 3"
   },
   {
     "comment": "foreign_data - Statement 15",
@@ -89,11 +91,13 @@
   },
   {
     "comment": "foreign_data - Statement 23",
-    "query": "SET ROLE regress_test_role"
+    "query": "SET ROLE regress_test_role",
+    "expected": "SET ROLE 'regress_test_role'"
   },
   {
     "comment": "foreign_data - Statement 24",
-    "query": "RESET ROLE"
+    "query": "RESET ROLE",
+    "expected": "RESET role"
   },
   {
     "comment": "foreign_data - Statement 25",
@@ -121,7 +125,8 @@
   },
   {
     "comment": "foreign_data - Statement 31",
-    "query": "ALTER FOREIGN DATA WRAPPER foo"
+    "query": "ALTER FOREIGN DATA WRAPPER foo",
+    "error": "parse error at position 30: syntax error"
   },
   {
     "comment": "foreign_data - Statement 32",
@@ -153,7 +158,8 @@
   },
   {
     "comment": "foreign_data - Statement 39",
-    "query": "SET ROLE regress_test_role_super"
+    "query": "SET ROLE regress_test_role_super",
+    "expected": "SET ROLE 'regress_test_role_super'"
   },
   {
     "comment": "foreign_data - Statement 40",
@@ -161,7 +167,8 @@
   },
   {
     "comment": "foreign_data - Statement 41",
-    "query": "ALTER ROLE regress_test_role_super NOSUPERUSER"
+    "query": "ALTER ROLE regress_test_role_super NOSUPERUSER",
+    "expected": "ALTER ROLE regress_test_role_super WITH NOSUPERUSER"
   },
   {
     "comment": "foreign_data - Statement 42",
@@ -205,11 +212,13 @@
   },
   {
     "comment": "foreign_data - Statement 52",
-    "query": "CREATE USER MAPPING FOR current_user SERVER s1"
+    "query": "CREATE USER MAPPING FOR current_user SERVER s1",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s1"
   },
   {
     "comment": "foreign_data - Statement 53",
-    "query": "CREATE USER MAPPING IF NOT EXISTS FOR current_user SERVER s1"
+    "query": "CREATE USER MAPPING IF NOT EXISTS FOR current_user SERVER s1",
+    "expected": "CREATE USER MAPPING IF NOT EXISTS FOR CURRENT_USER SERVER s1"
   },
   {
     "comment": "foreign_data - Statement 54",
@@ -261,11 +270,13 @@
   },
   {
     "comment": "foreign_data - Statement 66",
-    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_role",
+    "expected": "GRANT USAGE ON foo TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 67",
-    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_indirect"
+    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_test_indirect",
+    "expected": "GRANT USAGE ON foo TO regress_test_indirect"
   },
   {
     "comment": "foreign_data - Statement 68",
@@ -281,7 +292,8 @@
   },
   {
     "comment": "foreign_data - Statement 71",
-    "query": "ALTER SERVER s0"
+    "query": "ALTER SERVER s0",
+    "error": "parse error at position 15: syntax error"
   },
   {
     "comment": "foreign_data - Statement 72",
@@ -301,11 +313,13 @@
   },
   {
     "comment": "foreign_data - Statement 76",
-    "query": "GRANT USAGE ON FOREIGN SERVER s1 TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s1 TO regress_test_role",
+    "expected": "GRANT USAGE ON s1 TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 77",
-    "query": "GRANT USAGE ON FOREIGN SERVER s6 TO regress_test_role2 WITH GRANT OPTION"
+    "query": "GRANT USAGE ON FOREIGN SERVER s6 TO regress_test_role2 WITH GRANT OPTION",
+    "expected": "GRANT USAGE ON s6 TO regress_test_role2 WITH GRANT OPTION"
   },
   {
     "comment": "foreign_data - Statement 78",
@@ -361,11 +375,13 @@
   },
   {
     "comment": "foreign_data - Statement 91",
-    "query": "CREATE USER MAPPING FOR current_user SERVER s4"
+    "query": "CREATE USER MAPPING FOR current_user SERVER s4",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s4"
   },
   {
     "comment": "foreign_data - Statement 92",
-    "query": "CREATE USER MAPPING FOR user SERVER s4"
+    "query": "CREATE USER MAPPING FOR user SERVER s4",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s4"
   },
   {
     "comment": "foreign_data - Statement 93",
@@ -373,11 +389,13 @@
   },
   {
     "comment": "foreign_data - Statement 94",
-    "query": "CREATE USER MAPPING FOR user SERVER s8 OPTIONS (username 'test', password 'secret')"
+    "query": "CREATE USER MAPPING FOR user SERVER s8 OPTIONS (username 'test', password 'secret')",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s8 OPTIONS (username 'test', password 'secret')"
   },
   {
     "comment": "foreign_data - Statement 95",
-    "query": "CREATE USER MAPPING FOR user SERVER s8 OPTIONS (user 'test', password 'secret')"
+    "query": "CREATE USER MAPPING FOR user SERVER s8 OPTIONS (user 'test', password 'secret')",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s8 OPTIONS (user 'test', password 'secret')"
   },
   {
     "comment": "foreign_data - Statement 96",
@@ -389,15 +407,18 @@
   },
   {
     "comment": "foreign_data - Statement 98",
-    "query": "CREATE USER MAPPING FOR current_user SERVER s5"
+    "query": "CREATE USER MAPPING FOR current_user SERVER s5",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s5"
   },
   {
     "comment": "foreign_data - Statement 99",
-    "query": "CREATE USER MAPPING FOR current_user SERVER s6 OPTIONS (username 'test')"
+    "query": "CREATE USER MAPPING FOR current_user SERVER s6 OPTIONS (username 'test')",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s6 OPTIONS (username 'test')"
   },
   {
     "comment": "foreign_data - Statement 100",
-    "query": "CREATE USER MAPPING FOR current_user SERVER s7"
+    "query": "CREATE USER MAPPING FOR current_user SERVER s7",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s7"
   },
   {
     "comment": "foreign_data - Statement 101",
@@ -409,7 +430,8 @@
   },
   {
     "comment": "foreign_data - Statement 103",
-    "query": "CREATE USER MAPPING FOR current_user SERVER t1 OPTIONS (username 'bob', password 'boo')"
+    "query": "CREATE USER MAPPING FOR current_user SERVER t1 OPTIONS (username 'bob', password 'boo')",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER t1 OPTIONS (username 'bob', password 'boo')"
   },
   {
     "comment": "foreign_data - Statement 104",
@@ -417,7 +439,8 @@
   },
   {
     "comment": "foreign_data - Statement 105",
-    "query": "ALTER USER MAPPING FOR user SERVER ss4 OPTIONS (gotcha 'true')"
+    "query": "ALTER USER MAPPING FOR user SERVER ss4 OPTIONS (gotcha 'true')",
+    "expected": "ALTER USER MAPPING FOR CURRENT_USER SERVER ss4 OPTIONS (gotcha 'true')"
   },
   {
     "comment": "foreign_data - Statement 106",
@@ -425,15 +448,18 @@
   },
   {
     "comment": "foreign_data - Statement 107",
-    "query": "ALTER USER MAPPING FOR current_user SERVER s8 OPTIONS (username 'test')"
+    "query": "ALTER USER MAPPING FOR current_user SERVER s8 OPTIONS (username 'test')",
+    "expected": "ALTER USER MAPPING FOR CURRENT_USER SERVER s8 OPTIONS (username 'test')"
   },
   {
     "comment": "foreign_data - Statement 108",
-    "query": "ALTER USER MAPPING FOR current_user SERVER s8 OPTIONS (DROP user, SET password 'public')"
+    "query": "ALTER USER MAPPING FOR current_user SERVER s8 OPTIONS (DROP user, SET password 'public')",
+    "expected": "ALTER USER MAPPING FOR CURRENT_USER SERVER s8 OPTIONS (DROP user, SET password 'public')"
   },
   {
     "comment": "foreign_data - Statement 109",
-    "query": "ALTER USER MAPPING FOR current_user SERVER s5 OPTIONS (ADD modified '1')"
+    "query": "ALTER USER MAPPING FOR current_user SERVER s5 OPTIONS (ADD modified '1')",
+    "expected": "ALTER USER MAPPING FOR CURRENT_USER SERVER s5 OPTIONS (ADD modified '1')"
   },
   {
     "comment": "foreign_data - Statement 110",
@@ -445,7 +471,8 @@
   },
   {
     "comment": "foreign_data - Statement 112",
-    "query": "DROP USER MAPPING FOR user SERVER ss4"
+    "query": "DROP USER MAPPING FOR user SERVER ss4",
+    "expected": "DROP USER MAPPING FOR CURRENT_USER SERVER ss4"
   },
   {
     "comment": "foreign_data - Statement 113",
@@ -457,7 +484,8 @@
   },
   {
     "comment": "foreign_data - Statement 115",
-    "query": "DROP USER MAPPING IF EXISTS FOR user SERVER ss4"
+    "query": "DROP USER MAPPING IF EXISTS FOR user SERVER ss4",
+    "expected": "DROP USER MAPPING IF EXISTS FOR CURRENT_USER SERVER ss4"
   },
   {
     "comment": "foreign_data - Statement 116",
@@ -477,7 +505,8 @@
   },
   {
     "comment": "foreign_data - Statement 120",
-    "query": "CREATE FOREIGN TABLE ft1 ()"
+    "query": "CREATE FOREIGN TABLE ft1 ()",
+    "error": "parse error at position 27: syntax error"
   },
   {
     "comment": "foreign_data - Statement 121",
@@ -485,15 +514,18 @@
   },
   {
     "comment": "foreign_data - Statement 122",
-    "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') PRIMARY KEY, c2 text OPTIONS (param2 'val2', param3 'val3'), c3 date ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') PRIMARY KEY, c2 text OPTIONS (param2 'val2', param3 'val3'), c3 date ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
+    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT PRIMARY KEY, c2 TEXT, c3 DATE) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 123",
-    "query": "CREATE TABLE ref_table (id integer PRIMARY KEY)"
+    "query": "CREATE TABLE ref_table (id integer PRIMARY KEY)",
+    "expected": "CREATE TABLE ref_table (id INT PRIMARY KEY)"
   },
   {
     "comment": "foreign_data - Statement 124",
-    "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') REFERENCES ref_table (id), c2 text OPTIONS (param2 'val2', param3 'val3'), c3 date ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') REFERENCES ref_table (id), c2 text OPTIONS (param2 'val2', param3 'val3'), c3 date ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
+    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT REFERENCES ref_table(id), c2 TEXT, c3 DATE) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 125",
@@ -501,11 +533,13 @@
   },
   {
     "comment": "foreign_data - Statement 126",
-    "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') NOT NULL, c2 text OPTIONS (param2 'val2', param3 'val3'), c3 date, UNIQUE (c3) ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') NOT NULL, c2 text OPTIONS (param2 'val2', param3 'val3'), c3 date, UNIQUE (c3) ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
+    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT NOT NULL, c2 TEXT, c3 DATE, UNIQUE (c3)) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 127",
-    "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') NOT NULL, c2 text OPTIONS (param2 'val2', param3 'val3') CHECK (c2 <> ''), c3 date, CHECK (c3 BETWEEN '1994-01-01'::date AND '1994-01-31'::date) ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "query": "CREATE FOREIGN TABLE ft1 ( c1 integer OPTIONS (\"param 1\" 'val1') NOT NULL, c2 text OPTIONS (param2 'val2', param3 'val3') CHECK (c2 \u003c\u003e ''), c3 date, CHECK (c3 BETWEEN '1994-01-01'::date AND '1994-01-31'::date) ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
+    "expected": "CREATE FOREIGN TABLE ft1 (c1 INT NOT NULL, c2 TEXT CHECK (c2 \u003c\u003e ''), c3 DATE, CHECK (c3 BETWEEN CAST('1994-01-01' AS DATE) AND CAST('1994-01-31' AS DATE))) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 128",
@@ -525,7 +559,8 @@
   },
   {
     "comment": "foreign_data - Statement 132",
-    "query": "CREATE TABLE lt1 (a INT) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE lt1 (a INT) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE lt1 (a INT) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_data - Statement 133",
@@ -533,11 +568,13 @@
   },
   {
     "comment": "foreign_data - Statement 134",
-    "query": "CREATE INDEX ON lt1 (a)"
+    "query": "CREATE INDEX ON lt1 (a)",
+    "expected": "CREATE INDEX ON lt1 USING btree ( a )"
   },
   {
     "comment": "foreign_data - Statement 135",
-    "query": "CREATE UNIQUE INDEX ON lt1 (a)"
+    "query": "CREATE UNIQUE INDEX ON lt1 (a)",
+    "expected": "CREATE UNIQUE INDEX ON lt1 USING btree ( a )"
   },
   {
     "comment": "foreign_data - Statement 136",
@@ -569,7 +606,8 @@
   },
   {
     "comment": "foreign_data - Statement 143",
-    "query": "CREATE TABLE lt1_part1 PARTITION OF lt1 FOR VALUES FROM (0) TO (1000) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE lt1_part1 PARTITION OF lt1 FOR VALUES FROM (0) TO (1000) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE lt1_part1 PARTITION OF lt1 FOR VALUES FROM (0) TO (1000) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_data - Statement 144",
@@ -613,31 +651,38 @@
   },
   {
     "comment": "foreign_data - Statement 154",
-    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c4 integer"
+    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c4 integer",
+    "expected": "ALTER FOREIGN TABLE ft1 ADD COLUMN c4 INT"
   },
   {
     "comment": "foreign_data - Statement 155",
-    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c5 integer DEFAULT 0"
+    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c5 integer DEFAULT 0",
+    "expected": "ALTER FOREIGN TABLE ft1 ADD COLUMN c5 INT DEFAULT 0"
   },
   {
     "comment": "foreign_data - Statement 156",
-    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c6 integer"
+    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c6 integer",
+    "expected": "ALTER FOREIGN TABLE ft1 ADD COLUMN c6 INT"
   },
   {
     "comment": "foreign_data - Statement 157",
-    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c7 integer NOT NULL"
+    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c7 integer NOT NULL",
+    "expected": "ALTER FOREIGN TABLE ft1 ADD COLUMN c7 INT NOT NULL"
   },
   {
     "comment": "foreign_data - Statement 158",
-    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c8 integer"
+    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c8 integer",
+    "expected": "ALTER FOREIGN TABLE ft1 ADD COLUMN c8 INT"
   },
   {
     "comment": "foreign_data - Statement 159",
-    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c9 integer"
+    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c9 integer",
+    "expected": "ALTER FOREIGN TABLE ft1 ADD COLUMN c9 INT"
   },
   {
     "comment": "foreign_data - Statement 160",
-    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c10 integer OPTIONS (p1 'v1')"
+    "query": "ALTER FOREIGN TABLE ft1 ADD COLUMN c10 integer OPTIONS (p1 'v1')",
+    "expected": "ALTER FOREIGN TABLE ft1 ADD COLUMN c10 INT"
   },
   {
     "comment": "foreign_data - Statement 161",
@@ -657,15 +702,18 @@
   },
   {
     "comment": "foreign_data - Statement 165",
-    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10) USING '0'"
+    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10) USING '0'",
+    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE CHAR(10) USING '0'"
   },
   {
     "comment": "foreign_data - Statement 166",
-    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10)"
+    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE char(10)",
+    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE CHAR(10)"
   },
   {
     "comment": "foreign_data - Statement 167",
-    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 SET DATA TYPE text"
+    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 SET DATA TYPE text",
+    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE TEXT"
   },
   {
     "comment": "foreign_data - Statement 168",
@@ -693,11 +741,13 @@
   },
   {
     "comment": "foreign_data - Statement 174",
-    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 SET STORAGE PLAIN"
+    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 SET STORAGE PLAIN",
+    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 SET STORAGE plain"
   },
   {
     "comment": "foreign_data - Statement 175",
-    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 SET DATA TYPE integer"
+    "query": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 SET DATA TYPE integer",
+    "expected": "ALTER FOREIGN TABLE ft1 ALTER COLUMN c8 TYPE INT"
   },
   {
     "comment": "foreign_data - Statement 176",
@@ -709,11 +759,12 @@
   },
   {
     "comment": "foreign_data - Statement 178",
-    "query": "ALTER FOREIGN TABLE ft1 ADD CONSTRAINT ft1_c9_check CHECK (c9 < 0) NOT VALID"
+    "query": "ALTER FOREIGN TABLE ft1 ADD CONSTRAINT ft1_c9_check CHECK (c9 \u003c 0) NOT VALID"
   },
   {
     "comment": "foreign_data - Statement 179",
-    "query": "ALTER FOREIGN TABLE ft1 ALTER CONSTRAINT ft1_c9_check DEFERRABLE"
+    "query": "ALTER FOREIGN TABLE ft1 ALTER CONSTRAINT ft1_c9_check DEFERRABLE",
+    "expected": "ALTER FOREIGN TABLE ft1 ALTER CONSTRAINT ft1_c9_check DEFERRABLE INITIALLY IMMEDIATE"
   },
   {
     "comment": "foreign_data - Statement 180",
@@ -765,7 +816,8 @@
   },
   {
     "comment": "foreign_data - Statement 192",
-    "query": "ALTER FOREIGN TABLE foreign_schema.ft1 RENAME c1 TO foreign_column_1"
+    "query": "ALTER FOREIGN TABLE foreign_schema.ft1 RENAME c1 TO foreign_column_1",
+    "expected": "ALTER FOREIGN TABLE foreign_schema.ft1 RENAME COLUMN c1 TO foreign_column_1"
   },
   {
     "comment": "foreign_data - Statement 193",
@@ -773,23 +825,28 @@
   },
   {
     "comment": "foreign_data - Statement 194",
-    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c6 integer"
+    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c6 integer",
+    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c6 INT"
   },
   {
     "comment": "foreign_data - Statement 195",
-    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c7 integer NOT NULL"
+    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c7 integer NOT NULL",
+    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c7 INT NOT NULL"
   },
   {
     "comment": "foreign_data - Statement 196",
-    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c8 integer"
+    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c8 integer",
+    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c8 INT"
   },
   {
     "comment": "foreign_data - Statement 197",
-    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c9 integer"
+    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c9 integer",
+    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c9 INT"
   },
   {
     "comment": "foreign_data - Statement 198",
-    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c10 integer OPTIONS (p1 'v1')"
+    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c10 integer OPTIONS (p1 'v1')",
+    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ADD COLUMN c10 INT"
   },
   {
     "comment": "foreign_data - Statement 199",
@@ -801,11 +858,13 @@
   },
   {
     "comment": "foreign_data - Statement 201",
-    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 TYPE char(10)"
+    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 TYPE char(10)",
+    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 TYPE CHAR(10)"
   },
   {
     "comment": "foreign_data - Statement 202",
-    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 SET DATA TYPE text"
+    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 SET DATA TYPE text",
+    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 ALTER COLUMN c8 TYPE TEXT"
   },
   {
     "comment": "foreign_data - Statement 203",
@@ -845,7 +904,8 @@
   },
   {
     "comment": "foreign_data - Statement 212",
-    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 RENAME c1 TO foreign_column_1"
+    "query": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 RENAME c1 TO foreign_column_1",
+    "expected": "ALTER FOREIGN TABLE IF EXISTS doesnt_exist_ft1 RENAME COLUMN c1 TO foreign_column_1"
   },
   {
     "comment": "foreign_data - Statement 213",
@@ -897,15 +957,18 @@
   },
   {
     "comment": "foreign_data - Statement 225",
-    "query": "DROP USER MAPPING FOR current_user SERVER t1"
+    "query": "DROP USER MAPPING FOR current_user SERVER t1",
+    "expected": "DROP USER MAPPING FOR CURRENT_USER SERVER t1"
   },
   {
     "comment": "foreign_data - Statement 226",
-    "query": "SET ROLE regress_test_role2"
+    "query": "SET ROLE regress_test_role2",
+    "expected": "SET ROLE 'regress_test_role2'"
   },
   {
     "comment": "foreign_data - Statement 227",
-    "query": "SELECT has_foreign_data_wrapper_privilege('regress_test_role', (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='foo'), 'USAGE')"
+    "query": "SELECT has_foreign_data_wrapper_privilege('regress_test_role', (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='foo'), 'USAGE')",
+    "expected": "SELECT has_foreign_data_wrapper_privilege('regress_test_role', (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname = 'foo'), 'USAGE')"
   },
   {
     "comment": "foreign_data - Statement 228",
@@ -913,15 +976,18 @@
   },
   {
     "comment": "foreign_data - Statement 229",
-    "query": "SELECT has_foreign_data_wrapper_privilege( (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'), (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='foo'), 'USAGE')"
+    "query": "SELECT has_foreign_data_wrapper_privilege( (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'), (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='foo'), 'USAGE')",
+    "expected": "SELECT has_foreign_data_wrapper_privilege((SELECT oid FROM pg_roles WHERE rolname = 'regress_test_role'), (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname = 'foo'), 'USAGE')"
   },
   {
     "comment": "foreign_data - Statement 230",
-    "query": "SELECT has_foreign_data_wrapper_privilege( (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='foo'), 'USAGE')"
+    "query": "SELECT has_foreign_data_wrapper_privilege( (SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname='foo'), 'USAGE')",
+    "expected": "SELECT has_foreign_data_wrapper_privilege((SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname = 'foo'), 'USAGE')"
   },
   {
     "comment": "foreign_data - Statement 231",
-    "query": "SELECT has_foreign_data_wrapper_privilege( (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'), 'foo', 'USAGE')"
+    "query": "SELECT has_foreign_data_wrapper_privilege( (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'), 'foo', 'USAGE')",
+    "expected": "SELECT has_foreign_data_wrapper_privilege((SELECT oid FROM pg_roles WHERE rolname = 'regress_test_role'), 'foo', 'USAGE')"
   },
   {
     "comment": "foreign_data - Statement 232",
@@ -929,7 +995,8 @@
   },
   {
     "comment": "foreign_data - Statement 233",
-    "query": "SELECT has_server_privilege('regress_test_role', (SELECT oid FROM pg_foreign_server WHERE srvname='s8'), 'USAGE')"
+    "query": "SELECT has_server_privilege('regress_test_role', (SELECT oid FROM pg_foreign_server WHERE srvname='s8'), 'USAGE')",
+    "expected": "SELECT has_server_privilege('regress_test_role', (SELECT oid FROM pg_foreign_server WHERE srvname = 's8'), 'USAGE')"
   },
   {
     "comment": "foreign_data - Statement 234",
@@ -937,15 +1004,18 @@
   },
   {
     "comment": "foreign_data - Statement 235",
-    "query": "SELECT has_server_privilege( (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'), (SELECT oid FROM pg_foreign_server WHERE srvname='s8'), 'USAGE')"
+    "query": "SELECT has_server_privilege( (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'), (SELECT oid FROM pg_foreign_server WHERE srvname='s8'), 'USAGE')",
+    "expected": "SELECT has_server_privilege((SELECT oid FROM pg_roles WHERE rolname = 'regress_test_role'), (SELECT oid FROM pg_foreign_server WHERE srvname = 's8'), 'USAGE')"
   },
   {
     "comment": "foreign_data - Statement 236",
-    "query": "SELECT has_server_privilege( (SELECT oid FROM pg_foreign_server WHERE srvname='s8'), 'USAGE')"
+    "query": "SELECT has_server_privilege( (SELECT oid FROM pg_foreign_server WHERE srvname='s8'), 'USAGE')",
+    "expected": "SELECT has_server_privilege((SELECT oid FROM pg_foreign_server WHERE srvname = 's8'), 'USAGE')"
   },
   {
     "comment": "foreign_data - Statement 237",
-    "query": "SELECT has_server_privilege( (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'), 's8', 'USAGE')"
+    "query": "SELECT has_server_privilege( (SELECT oid FROM pg_roles WHERE rolname='regress_test_role'), 's8', 'USAGE')",
+    "expected": "SELECT has_server_privilege((SELECT oid FROM pg_roles WHERE rolname = 'regress_test_role'), 's8', 'USAGE')"
   },
   {
     "comment": "foreign_data - Statement 238",
@@ -953,15 +1023,18 @@
   },
   {
     "comment": "foreign_data - Statement 239",
-    "query": "GRANT USAGE ON FOREIGN SERVER s8 TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s8 TO regress_test_role",
+    "expected": "GRANT USAGE ON s8 TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 240",
-    "query": "REVOKE USAGE ON FOREIGN SERVER s8 FROM regress_test_role"
+    "query": "REVOKE USAGE ON FOREIGN SERVER s8 FROM regress_test_role",
+    "expected": "REVOKE USAGE ON s8 FROM regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 241",
-    "query": "GRANT USAGE ON FOREIGN SERVER s4 TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s4 TO regress_test_role",
+    "expected": "GRANT USAGE ON s4 TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 242",
@@ -981,7 +1054,8 @@
   },
   {
     "comment": "foreign_data - Statement 246",
-    "query": "SET ROLE regress_unprivileged_role"
+    "query": "SET ROLE regress_unprivileged_role",
+    "expected": "SET ROLE 'regress_unprivileged_role'"
   },
   {
     "comment": "foreign_data - Statement 247",
@@ -1025,15 +1099,18 @@
   },
   {
     "comment": "foreign_data - Statement 257",
-    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_unprivileged_role"
+    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_unprivileged_role",
+    "expected": "GRANT USAGE ON postgresql TO regress_unprivileged_role"
   },
   {
     "comment": "foreign_data - Statement 258",
-    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_unprivileged_role WITH GRANT OPTION"
+    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER foo TO regress_unprivileged_role WITH GRANT OPTION",
+    "expected": "GRANT USAGE ON foo TO regress_unprivileged_role WITH GRANT OPTION"
   },
   {
     "comment": "foreign_data - Statement 259",
-    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN DATA WRAPPER postgresql TO regress_test_role",
+    "expected": "GRANT USAGE ON postgresql TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 260",
@@ -1049,11 +1126,13 @@
   },
   {
     "comment": "foreign_data - Statement 263",
-    "query": "GRANT USAGE ON FOREIGN SERVER s6 TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s6 TO regress_test_role",
+    "expected": "GRANT USAGE ON s6 TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 264",
-    "query": "GRANT USAGE ON FOREIGN SERVER s9 TO regress_test_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s9 TO regress_test_role",
+    "expected": "GRANT USAGE ON s9 TO regress_test_role"
   },
   {
     "comment": "foreign_data - Statement 265",
@@ -1065,11 +1144,13 @@
   },
   {
     "comment": "foreign_data - Statement 267",
-    "query": "REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_unprivileged_role"
+    "query": "REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_unprivileged_role",
+    "expected": "REVOKE USAGE ON foo FROM regress_unprivileged_role"
   },
   {
     "comment": "foreign_data - Statement 268",
-    "query": "REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_unprivileged_role CASCADE"
+    "query": "REVOKE USAGE ON FOREIGN DATA WRAPPER foo FROM regress_unprivileged_role CASCADE",
+    "expected": "REVOKE USAGE ON foo FROM regress_unprivileged_role CASCADE"
   },
   {
     "comment": "foreign_data - Statement 269",
@@ -1081,7 +1162,8 @@
   },
   {
     "comment": "foreign_data - Statement 271",
-    "query": "CREATE USER MAPPING FOR current_user SERVER s9"
+    "query": "CREATE USER MAPPING FOR current_user SERVER s9",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s9"
   },
   {
     "comment": "foreign_data - Statement 272",
@@ -1089,7 +1171,8 @@
   },
   {
     "comment": "foreign_data - Statement 273",
-    "query": "GRANT USAGE ON FOREIGN SERVER s9 TO regress_unprivileged_role"
+    "query": "GRANT USAGE ON FOREIGN SERVER s9 TO regress_unprivileged_role",
+    "expected": "GRANT USAGE ON s9 TO regress_unprivileged_role"
   },
   {
     "comment": "foreign_data - Statement 274",
@@ -1109,35 +1192,38 @@
   },
   {
     "comment": "foreign_data - Statement 278",
-    "query": "CREATE FUNCTION dummy_trigger() RETURNS TRIGGER AS $$ BEGIN RETURN NULL"
-  },
-  {
-    "comment": "foreign_data - Statement 279",
-    "query": "END $$ language plpgsql"
+    "query": "CREATE FUNCTION dummy_trigger() RETURNS TRIGGER AS $$ BEGIN RETURN NULL; END $$ language plpgsql",
+    "expected": "CREATE FUNCTION dummy_trigger () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$"
   },
   {
     "comment": "foreign_data - Statement 280",
-    "query": "CREATE TRIGGER trigtest_before_stmt BEFORE INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH STATEMENT EXECUTE PROCEDURE dummy_trigger()"
+    "query": "CREATE TRIGGER trigtest_before_stmt BEFORE INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH STATEMENT EXECUTE PROCEDURE dummy_trigger()",
+    "expected": "CREATE TRIGGER trigtest_before_stmt BEFORE INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 EXECUTE FUNCTION dummy_trigger()"
   },
   {
     "comment": "foreign_data - Statement 281",
-    "query": "CREATE TRIGGER trigtest_after_stmt AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH STATEMENT EXECUTE PROCEDURE dummy_trigger()"
+    "query": "CREATE TRIGGER trigtest_after_stmt AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH STATEMENT EXECUTE PROCEDURE dummy_trigger()",
+    "expected": "CREATE TRIGGER trigtest_after_stmt AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 EXECUTE FUNCTION dummy_trigger()"
   },
   {
     "comment": "foreign_data - Statement 282",
-    "query": "CREATE TRIGGER trigtest_after_stmt_tt AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 REFERENCING NEW TABLE AS new_table FOR EACH STATEMENT EXECUTE PROCEDURE dummy_trigger()"
+    "query": "CREATE TRIGGER trigtest_after_stmt_tt AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 REFERENCING NEW TABLE AS new_table FOR EACH STATEMENT EXECUTE PROCEDURE dummy_trigger()",
+    "expected": "CREATE TRIGGER trigtest_after_stmt_tt AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 REFERENCING NEW TABLE AS new_table EXECUTE FUNCTION dummy_trigger()"
   },
   {
     "comment": "foreign_data - Statement 283",
-    "query": "CREATE TRIGGER trigtest_before_row BEFORE INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH ROW EXECUTE PROCEDURE dummy_trigger()"
+    "query": "CREATE TRIGGER trigtest_before_row BEFORE INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH ROW EXECUTE PROCEDURE dummy_trigger()",
+    "expected": "CREATE TRIGGER trigtest_before_row BEFORE INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH ROW EXECUTE FUNCTION dummy_trigger()"
   },
   {
     "comment": "foreign_data - Statement 284",
-    "query": "CREATE TRIGGER trigtest_after_row AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH ROW EXECUTE PROCEDURE dummy_trigger()"
+    "query": "CREATE TRIGGER trigtest_after_row AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH ROW EXECUTE PROCEDURE dummy_trigger()",
+    "expected": "CREATE TRIGGER trigtest_after_row AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH ROW EXECUTE FUNCTION dummy_trigger()"
   },
   {
     "comment": "foreign_data - Statement 285",
-    "query": "CREATE CONSTRAINT TRIGGER trigtest_constraint AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH ROW EXECUTE PROCEDURE dummy_trigger()"
+    "query": "CREATE CONSTRAINT TRIGGER trigtest_constraint AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 FOR EACH ROW EXECUTE PROCEDURE dummy_trigger()",
+    "expected": "CREATE CONSTRAINT TRIGGER trigtest_constraint AFTER INSERT OR UPDATE OR DELETE ON foreign_schema.foreign_table_1 DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION dummy_trigger()"
   },
   {
     "comment": "foreign_data - Statement 286",
@@ -1149,19 +1235,23 @@
   },
   {
     "comment": "foreign_data - Statement 288",
-    "query": "DROP TRIGGER trigtest_before_stmt ON foreign_schema.foreign_table_1"
+    "query": "DROP TRIGGER trigtest_before_stmt ON foreign_schema.foreign_table_1",
+    "expected": "DROP TRIGGER foreign_table_1 ON foreign_schema"
   },
   {
     "comment": "foreign_data - Statement 289",
-    "query": "DROP TRIGGER trigtest_before_row ON foreign_schema.foreign_table_1"
+    "query": "DROP TRIGGER trigtest_before_row ON foreign_schema.foreign_table_1",
+    "expected": "DROP TRIGGER foreign_table_1 ON foreign_schema"
   },
   {
     "comment": "foreign_data - Statement 290",
-    "query": "DROP TRIGGER trigtest_after_stmt ON foreign_schema.foreign_table_1"
+    "query": "DROP TRIGGER trigtest_after_stmt ON foreign_schema.foreign_table_1",
+    "expected": "DROP TRIGGER foreign_table_1 ON foreign_schema"
   },
   {
     "comment": "foreign_data - Statement 291",
-    "query": "DROP TRIGGER trigtest_after_row ON foreign_schema.foreign_table_1"
+    "query": "DROP TRIGGER trigtest_after_row ON foreign_schema.foreign_table_1",
+    "expected": "DROP TRIGGER foreign_table_1 ON foreign_schema"
   },
   {
     "comment": "foreign_data - Statement 292",
@@ -1169,7 +1259,8 @@
   },
   {
     "comment": "foreign_data - Statement 293",
-    "query": "CREATE TABLE fd_pt1 ( c1 integer NOT NULL, c2 text, c3 date )"
+    "query": "CREATE TABLE fd_pt1 ( c1 integer NOT NULL, c2 text, c3 date )",
+    "expected": "CREATE TABLE fd_pt1 (c1 INT NOT NULL, c2 TEXT, c3 DATE)"
   },
   {
     "comment": "foreign_data - Statement 294",
@@ -1177,23 +1268,28 @@
   },
   {
     "comment": "foreign_data - Statement 295",
-    "query": "CREATE FOREIGN TABLE ft3 ( c1 integer NOT NULL, c2 text, c3 date ) INHERITS(ft2) SERVER s0"
+    "query": "CREATE FOREIGN TABLE ft3 ( c1 integer NOT NULL, c2 text, c3 date ) INHERITS(ft2) SERVER s0",
+    "expected": "CREATE FOREIGN TABLE ft3 (c1 INT NOT NULL, c2 TEXT, c3 DATE) INHERITS (ft2) SERVER s0"
   },
   {
     "comment": "foreign_data - Statement 296",
-    "query": "ALTER TABLE fd_pt1 ADD COLUMN c5 integer DEFAULT 0"
+    "query": "ALTER TABLE fd_pt1 ADD COLUMN c5 integer DEFAULT 0",
+    "expected": "ALTER TABLE fd_pt1 ADD COLUMN c5 INT DEFAULT 0"
   },
   {
     "comment": "foreign_data - Statement 297",
-    "query": "ALTER TABLE fd_pt1 ADD COLUMN c6 integer"
+    "query": "ALTER TABLE fd_pt1 ADD COLUMN c6 integer",
+    "expected": "ALTER TABLE fd_pt1 ADD COLUMN c6 INT"
   },
   {
     "comment": "foreign_data - Statement 298",
-    "query": "ALTER TABLE fd_pt1 ADD COLUMN c7 integer NOT NULL"
+    "query": "ALTER TABLE fd_pt1 ADD COLUMN c7 integer NOT NULL",
+    "expected": "ALTER TABLE fd_pt1 ADD COLUMN c7 INT NOT NULL"
   },
   {
     "comment": "foreign_data - Statement 299",
-    "query": "ALTER TABLE fd_pt1 ADD COLUMN c8 integer"
+    "query": "ALTER TABLE fd_pt1 ADD COLUMN c8 integer",
+    "expected": "ALTER TABLE fd_pt1 ADD COLUMN c8 INT"
   },
   {
     "comment": "foreign_data - Statement 300",
@@ -1209,15 +1305,18 @@
   },
   {
     "comment": "foreign_data - Statement 303",
-    "query": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE char(10) USING '0'"
+    "query": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE char(10) USING '0'",
+    "expected": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE CHAR(10) USING '0'"
   },
   {
     "comment": "foreign_data - Statement 304",
-    "query": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE char(10)"
+    "query": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE char(10)",
+    "expected": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE CHAR(10)"
   },
   {
     "comment": "foreign_data - Statement 305",
-    "query": "ALTER TABLE fd_pt1 ALTER COLUMN c8 SET DATA TYPE text"
+    "query": "ALTER TABLE fd_pt1 ALTER COLUMN c8 SET DATA TYPE text",
+    "expected": "ALTER TABLE fd_pt1 ALTER COLUMN c8 TYPE TEXT"
   },
   {
     "comment": "foreign_data - Statement 306",
@@ -1233,7 +1332,8 @@
   },
   {
     "comment": "foreign_data - Statement 309",
-    "query": "ALTER TABLE fd_pt1 ALTER COLUMN c8 SET STORAGE EXTERNAL"
+    "query": "ALTER TABLE fd_pt1 ALTER COLUMN c8 SET STORAGE EXTERNAL",
+    "expected": "ALTER TABLE fd_pt1 ALTER COLUMN c8 SET STORAGE external"
   },
   {
     "comment": "foreign_data - Statement 310",
@@ -1253,11 +1353,12 @@
   },
   {
     "comment": "foreign_data - Statement 314",
-    "query": "ALTER TABLE fd_pt1 ADD CONSTRAINT fd_pt1chk2 CHECK (c2 <> '')"
+    "query": "ALTER TABLE fd_pt1 ADD CONSTRAINT fd_pt1chk2 CHECK (c2 \u003c\u003e '')"
   },
   {
     "comment": "foreign_data - Statement 315",
-    "query": "SELECT relname, conname, contype, conislocal, coninhcount, connoinherit FROM pg_class AS pc JOIN pg_constraint AS pgc ON (conrelid = pc.oid) WHERE pc.relname = 'fd_pt1' ORDER BY 1,2"
+    "query": "SELECT relname, conname, contype, conislocal, coninhcount, connoinherit FROM pg_class AS pc JOIN pg_constraint AS pgc ON (conrelid = pc.oid) WHERE pc.relname = 'fd_pt1' ORDER BY 1,2",
+    "expected": "SELECT relname, conname, contype, conislocal, coninhcount, connoinherit FROM pg_class AS pc INNER JOIN pg_constraint AS pgc ON (conrelid = pc.oid) WHERE pc.relname = 'fd_pt1' ORDER BY 1, 2"
   },
   {
     "comment": "foreign_data - Statement 316",
@@ -1265,7 +1366,8 @@
   },
   {
     "comment": "foreign_data - Statement 317",
-    "query": "CREATE FOREIGN TABLE ft2 ( c1 integer NOT NULL, c2 text, c3 date ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "query": "CREATE FOREIGN TABLE ft2 ( c1 integer NOT NULL, c2 text, c3 date ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
+    "expected": "CREATE FOREIGN TABLE ft2 (c1 INT NOT NULL, c2 TEXT, c3 DATE) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 318",
@@ -1273,7 +1375,7 @@
   },
   {
     "comment": "foreign_data - Statement 319",
-    "query": "ALTER FOREIGN TABLE ft2 ADD CONSTRAINT fd_pt1chk2 CHECK (c2 <> '')"
+    "query": "ALTER FOREIGN TABLE ft2 ADD CONSTRAINT fd_pt1chk2 CHECK (c2 \u003c\u003e '')"
   },
   {
     "comment": "foreign_data - Statement 320",
@@ -1281,11 +1383,12 @@
   },
   {
     "comment": "foreign_data - Statement 321",
-    "query": "INSERT INTO fd_pt1 VALUES (1, 'fd_pt1'::text, '1994-01-01'::date)"
+    "query": "INSERT INTO fd_pt1 VALUES (1, 'fd_pt1'::text, '1994-01-01'::date)",
+    "expected": "INSERT INTO fd_pt1 VALUES (1, CAST('fd_pt1' AS TEXT), CAST('1994-01-01' AS DATE))"
   },
   {
     "comment": "foreign_data - Statement 322",
-    "query": "ALTER TABLE fd_pt1 ADD CONSTRAINT fd_pt1chk3 CHECK (c2 <> '') NOT VALID"
+    "query": "ALTER TABLE fd_pt1 ADD CONSTRAINT fd_pt1chk3 CHECK (c2 \u003c\u003e '') NOT VALID"
   },
   {
     "comment": "foreign_data - Statement 323",
@@ -1333,7 +1436,8 @@
   },
   {
     "comment": "foreign_data - Statement 334",
-    "query": "DROP OWNED BY regress_test_role2"
+    "query": "DROP OWNED BY regress_test_role2",
+    "expected": "DROP OWNED BY regress_test_role2 RESTRICT"
   },
   {
     "comment": "foreign_data - Statement 335",
@@ -1341,7 +1445,8 @@
   },
   {
     "comment": "foreign_data - Statement 336",
-    "query": "CREATE TABLE fd_pt2 ( c1 integer NOT NULL, c2 text, c3 date ) PARTITION BY LIST (c1)"
+    "query": "CREATE TABLE fd_pt2 ( c1 integer NOT NULL, c2 text, c3 date ) PARTITION BY LIST (c1)",
+    "expected": "CREATE TABLE fd_pt2 (c1 INT NOT NULL, c2 TEXT, c3 DATE) PARTITION BY list (c1)"
   },
   {
     "comment": "foreign_data - Statement 337",
@@ -1349,7 +1454,8 @@
   },
   {
     "comment": "foreign_data - Statement 338",
-    "query": "CREATE FOREIGN TABLE fd_pt2_1 ( c1 integer NOT NULL, c2 text, c3 date, c4 char ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
+    "query": "CREATE FOREIGN TABLE fd_pt2_1 ( c1 integer NOT NULL, c2 text, c3 date, c4 char ) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')",
+    "expected": "CREATE FOREIGN TABLE fd_pt2_1 (c1 INT NOT NULL, c2 TEXT, c3 DATE, c4 CHAR(1)) SERVER s0 OPTIONS (delimiter ',', quote '\"', \"be quoted\" 'value')"
   },
   {
     "comment": "foreign_data - Statement 339",
@@ -1357,11 +1463,12 @@
   },
   {
     "comment": "foreign_data - Statement 340",
-    "query": "ALTER TABLE fd_pt2_1 ALTER c3 SET NOT NULL"
+    "query": "ALTER TABLE fd_pt2_1 ALTER c3 SET NOT NULL",
+    "expected": "ALTER TABLE fd_pt2_1 ALTER COLUMN c3 SET NOT NULL"
   },
   {
     "comment": "foreign_data - Statement 341",
-    "query": "ALTER TABLE fd_pt2_1 ADD CONSTRAINT p21chk CHECK (c2 <> '')"
+    "query": "ALTER TABLE fd_pt2_1 ADD CONSTRAINT p21chk CHECK (c2 \u003c\u003e '')"
   },
   {
     "comment": "foreign_data - Statement 342",
@@ -1369,11 +1476,13 @@
   },
   {
     "comment": "foreign_data - Statement 343",
-    "query": "ALTER TABLE fd_pt2 ALTER c2 SET NOT NULL"
+    "query": "ALTER TABLE fd_pt2 ALTER c2 SET NOT NULL",
+    "expected": "ALTER TABLE fd_pt2 ALTER COLUMN c2 SET NOT NULL"
   },
   {
     "comment": "foreign_data - Statement 344",
-    "query": "ALTER FOREIGN TABLE fd_pt2_1 ALTER c2 SET NOT NULL"
+    "query": "ALTER FOREIGN TABLE fd_pt2_1 ALTER c2 SET NOT NULL",
+    "expected": "ALTER FOREIGN TABLE fd_pt2_1 ALTER COLUMN c2 SET NOT NULL"
   },
   {
     "comment": "foreign_data - Statement 345",
@@ -1381,11 +1490,11 @@
   },
   {
     "comment": "foreign_data - Statement 346",
-    "query": "ALTER TABLE fd_pt2 ADD CONSTRAINT fd_pt2chk1 CHECK (c1 > 0)"
+    "query": "ALTER TABLE fd_pt2 ADD CONSTRAINT fd_pt2chk1 CHECK (c1 \u003e 0)"
   },
   {
     "comment": "foreign_data - Statement 347",
-    "query": "ALTER FOREIGN TABLE fd_pt2_1 ADD CONSTRAINT fd_pt2chk1 CHECK (c1 > 0)"
+    "query": "ALTER FOREIGN TABLE fd_pt2_1 ADD CONSTRAINT fd_pt2chk1 CHECK (c1 \u003e 0)"
   },
   {
     "comment": "foreign_data - Statement 348",
@@ -1393,7 +1502,8 @@
   },
   {
     "comment": "foreign_data - Statement 349",
-    "query": "CREATE TEMP TABLE temp_parted (a int) PARTITION BY LIST (a)"
+    "query": "CREATE TEMP TABLE temp_parted (a int) PARTITION BY LIST (a)",
+    "expected": "CREATE TEMPORARY TABLE temp_parted (a INT) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_data - Statement 350",
@@ -1401,7 +1511,8 @@
   },
   {
     "comment": "foreign_data - Statement 351",
-    "query": "CREATE FOREIGN TABLE foreign_part (a int) SERVER s0"
+    "query": "CREATE FOREIGN TABLE foreign_part (a int) SERVER s0",
+    "expected": "CREATE FOREIGN TABLE foreign_part (a INT) SERVER s0"
   },
   {
     "comment": "foreign_data - Statement 352",
@@ -1437,7 +1548,8 @@
   },
   {
     "comment": "foreign_data - Statement 360",
-    "query": "REVOKE ALL ON FOREIGN DATA WRAPPER postgresql FROM regress_unprivileged_role"
+    "query": "REVOKE ALL ON FOREIGN DATA WRAPPER postgresql FROM regress_unprivileged_role",
+    "expected": "REVOKE ALL ON postgresql FROM regress_unprivileged_role"
   },
   {
     "comment": "foreign_data - Statement 361",

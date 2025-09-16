@@ -1404,8 +1404,8 @@ func (v *VariableSetStmt) SqlString() string {
 		case "transaction_snapshot":
 			parts = append(parts, "TRANSACTION", "SNAPSHOT")
 		default:
-			// Generic variable name
-			parts = append(parts, v.Name)
+			// Generic variable name - handle dotted identifiers properly
+			parts = append(parts, QuoteQualifiedIdentifier(v.Name))
 		}
 
 		// Add values (syntax depends on the specific SET variant)
@@ -1563,7 +1563,7 @@ func (vss *VariableShowStmt) StatementType() string {
 
 // SqlString returns the SQL representation of the SHOW statement
 func (vss *VariableShowStmt) SqlString() string {
-	return "SHOW " + vss.Name
+	return "SHOW " + QuoteQualifiedIdentifier(vss.Name)
 }
 
 // ==============================================================================

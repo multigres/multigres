@@ -1,695 +1,868 @@
 [
   {
     "comment": "foreign_key - Statement 1",
-    "query": "CREATE TABLE PKTABLE ( ptest1 int PRIMARY KEY, ptest2 text )"
+    "query": "CREATE TABLE PKTABLE ( ptest1 int PRIMARY KEY, ptest2 text )",
+    "expected": "CREATE TABLE pktable (ptest1 INT PRIMARY KEY, ptest2 TEXT)"
   },
   {
     "comment": "foreign_key - Statement 2",
-    "query": "CREATE TABLE FKTABLE ( ftest1 int REFERENCES PKTABLE MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE, ftest2 int )"
+    "query": "CREATE TABLE FKTABLE ( ftest1 int REFERENCES PKTABLE MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE, ftest2 int )",
+    "expected": "CREATE TABLE fktable (ftest1 INT REFERENCES pktable MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE, ftest2 INT)"
   },
   {
     "comment": "foreign_key - Statement 3",
-    "query": "INSERT INTO PKTABLE VALUES (1, 'Test1')"
+    "query": "INSERT INTO PKTABLE VALUES (1, 'Test1')",
+    "expected": "INSERT INTO pktable VALUES (1, 'Test1')"
   },
   {
     "comment": "foreign_key - Statement 4",
-    "query": "INSERT INTO PKTABLE VALUES (2, 'Test2')"
+    "query": "INSERT INTO PKTABLE VALUES (2, 'Test2')",
+    "expected": "INSERT INTO pktable VALUES (2, 'Test2')"
   },
   {
     "comment": "foreign_key - Statement 5",
-    "query": "INSERT INTO PKTABLE VALUES (3, 'Test3')"
+    "query": "INSERT INTO PKTABLE VALUES (3, 'Test3')",
+    "expected": "INSERT INTO pktable VALUES (3, 'Test3')"
   },
   {
     "comment": "foreign_key - Statement 6",
-    "query": "INSERT INTO PKTABLE VALUES (4, 'Test4')"
+    "query": "INSERT INTO PKTABLE VALUES (4, 'Test4')",
+    "expected": "INSERT INTO pktable VALUES (4, 'Test4')"
   },
   {
     "comment": "foreign_key - Statement 7",
-    "query": "INSERT INTO PKTABLE VALUES (5, 'Test5')"
+    "query": "INSERT INTO PKTABLE VALUES (5, 'Test5')",
+    "expected": "INSERT INTO pktable VALUES (5, 'Test5')"
   },
   {
     "comment": "foreign_key - Statement 8",
-    "query": "INSERT INTO FKTABLE VALUES (1, 2)"
+    "query": "INSERT INTO FKTABLE VALUES (1, 2)",
+    "expected": "INSERT INTO fktable VALUES (1, 2)"
   },
   {
     "comment": "foreign_key - Statement 9",
-    "query": "INSERT INTO FKTABLE VALUES (2, 3)"
+    "query": "INSERT INTO FKTABLE VALUES (2, 3)",
+    "expected": "INSERT INTO fktable VALUES (2, 3)"
   },
   {
     "comment": "foreign_key - Statement 10",
-    "query": "INSERT INTO FKTABLE VALUES (3, 4)"
+    "query": "INSERT INTO FKTABLE VALUES (3, 4)",
+    "expected": "INSERT INTO fktable VALUES (3, 4)"
   },
   {
     "comment": "foreign_key - Statement 11",
-    "query": "INSERT INTO FKTABLE VALUES (NULL, 1)"
+    "query": "INSERT INTO FKTABLE VALUES (NULL, 1)",
+    "expected": "INSERT INTO fktable VALUES (NULL, 1)"
   },
   {
     "comment": "foreign_key - Statement 12",
-    "query": "INSERT INTO FKTABLE VALUES (100, 2)"
+    "query": "INSERT INTO FKTABLE VALUES (100, 2)",
+    "expected": "INSERT INTO fktable VALUES (100, 2)"
   },
   {
     "comment": "foreign_key - Statement 13",
-    "query": "SELECT * FROM FKTABLE"
+    "query": "SELECT * FROM FKTABLE",
+    "expected": "SELECT * FROM fktable"
   },
   {
     "comment": "foreign_key - Statement 14",
-    "query": "DELETE FROM PKTABLE WHERE ptest1=1"
+    "query": "DELETE FROM PKTABLE WHERE ptest1=1",
+    "expected": "DELETE FROM pktable WHERE ptest1 = 1"
   },
   {
     "comment": "foreign_key - Statement 15",
-    "query": "UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2"
+    "query": "UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2",
+    "expected": "UPDATE pktable SET ptest1 = 1 WHERE ptest1 = 2"
   },
   {
     "comment": "foreign_key - Statement 16",
-    "query": "DROP TABLE FKTABLE"
+    "query": "DROP TABLE FKTABLE",
+    "expected": "DROP TABLE fktable"
   },
   {
     "comment": "foreign_key - Statement 17",
-    "query": "DROP TABLE PKTABLE"
+    "query": "DROP TABLE PKTABLE",
+    "expected": "DROP TABLE pktable"
   },
   {
     "comment": "foreign_key - Statement 18",
-    "query": "CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 text, PRIMARY KEY(ptest1, ptest2) )"
+    "query": "CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 text, PRIMARY KEY(ptest1, ptest2) )",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 INT, ptest3 TEXT, PRIMARY KEY (ptest1, ptest2))"
   },
   {
     "comment": "foreign_key - Statement 19",
-    "query": "CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, CONSTRAINT constrname FOREIGN KEY(ftest1, ftest2) REFERENCES PKTABLE MATCH FULL ON DELETE SET NULL ON UPDATE SET NULL)"
+    "query": "CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, CONSTRAINT constrname FOREIGN KEY(ftest1, ftest2) REFERENCES PKTABLE MATCH FULL ON DELETE SET NULL ON UPDATE SET NULL)",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 INT, ftest3 INT, CONSTRAINT constrname FOREIGN KEY (ftest1, ftest2) REFERENCES pktable MATCH FULL ON DELETE SET NULL ON UPDATE SET NULL)"
   },
   {
     "comment": "foreign_key - Statement 20",
-    "query": "COMMENT ON CONSTRAINT constrname_wrong ON FKTABLE IS 'fk constraint comment'"
+    "query": "COMMENT ON CONSTRAINT constrname_wrong ON FKTABLE IS 'fk constraint comment'",
+    "expected": "COMMENT ON CONSTRAINT constrname_wrong ON fktable IS 'fk constraint comment'"
   },
   {
     "comment": "foreign_key - Statement 21",
-    "query": "COMMENT ON CONSTRAINT constrname ON FKTABLE IS 'fk constraint comment'"
+    "query": "COMMENT ON CONSTRAINT constrname ON FKTABLE IS 'fk constraint comment'",
+    "expected": "COMMENT ON CONSTRAINT constrname ON fktable IS 'fk constraint comment'"
   },
   {
     "comment": "foreign_key - Statement 22",
-    "query": "COMMENT ON CONSTRAINT constrname ON FKTABLE IS NULL"
+    "query": "COMMENT ON CONSTRAINT constrname ON FKTABLE IS NULL",
+    "expected": "COMMENT ON CONSTRAINT constrname ON fktable IS NULL"
   },
   {
     "comment": "foreign_key - Statement 23",
-    "query": "INSERT INTO PKTABLE VALUES (1, 2, 'Test1')"
+    "query": "INSERT INTO PKTABLE VALUES (1, 2, 'Test1')",
+    "expected": "INSERT INTO pktable VALUES (1, 2, 'Test1')"
   },
   {
     "comment": "foreign_key - Statement 24",
-    "query": "INSERT INTO PKTABLE VALUES (1, 3, 'Test1-2')"
+    "query": "INSERT INTO PKTABLE VALUES (1, 3, 'Test1-2')",
+    "expected": "INSERT INTO pktable VALUES (1, 3, 'Test1-2')"
   },
   {
     "comment": "foreign_key - Statement 25",
-    "query": "INSERT INTO PKTABLE VALUES (2, 4, 'Test2')"
+    "query": "INSERT INTO PKTABLE VALUES (2, 4, 'Test2')",
+    "expected": "INSERT INTO pktable VALUES (2, 4, 'Test2')"
   },
   {
     "comment": "foreign_key - Statement 26",
-    "query": "INSERT INTO PKTABLE VALUES (3, 6, 'Test3')"
+    "query": "INSERT INTO PKTABLE VALUES (3, 6, 'Test3')",
+    "expected": "INSERT INTO pktable VALUES (3, 6, 'Test3')"
   },
   {
     "comment": "foreign_key - Statement 27",
-    "query": "INSERT INTO PKTABLE VALUES (4, 8, 'Test4')"
+    "query": "INSERT INTO PKTABLE VALUES (4, 8, 'Test4')",
+    "expected": "INSERT INTO pktable VALUES (4, 8, 'Test4')"
   },
   {
     "comment": "foreign_key - Statement 28",
-    "query": "INSERT INTO PKTABLE VALUES (5, 10, 'Test5')"
+    "query": "INSERT INTO PKTABLE VALUES (5, 10, 'Test5')",
+    "expected": "INSERT INTO pktable VALUES (5, 10, 'Test5')"
   },
   {
     "comment": "foreign_key - Statement 29",
-    "query": "INSERT INTO FKTABLE VALUES (1, 2, 4)"
+    "query": "INSERT INTO FKTABLE VALUES (1, 2, 4)",
+    "expected": "INSERT INTO fktable VALUES (1, 2, 4)"
   },
   {
     "comment": "foreign_key - Statement 30",
-    "query": "INSERT INTO FKTABLE VALUES (1, 3, 5)"
+    "query": "INSERT INTO FKTABLE VALUES (1, 3, 5)",
+    "expected": "INSERT INTO fktable VALUES (1, 3, 5)"
   },
   {
     "comment": "foreign_key - Statement 31",
-    "query": "INSERT INTO FKTABLE VALUES (2, 4, 8)"
+    "query": "INSERT INTO FKTABLE VALUES (2, 4, 8)",
+    "expected": "INSERT INTO fktable VALUES (2, 4, 8)"
   },
   {
     "comment": "foreign_key - Statement 32",
-    "query": "INSERT INTO FKTABLE VALUES (3, 6, 12)"
+    "query": "INSERT INTO FKTABLE VALUES (3, 6, 12)",
+    "expected": "INSERT INTO fktable VALUES (3, 6, 12)"
   },
   {
     "comment": "foreign_key - Statement 33",
-    "query": "INSERT INTO FKTABLE VALUES (NULL, NULL, 0)"
+    "query": "INSERT INTO FKTABLE VALUES (NULL, NULL, 0)",
+    "expected": "INSERT INTO fktable VALUES (NULL, NULL, 0)"
   },
   {
     "comment": "foreign_key - Statement 34",
-    "query": "INSERT INTO FKTABLE VALUES (100, 2, 4)"
+    "query": "INSERT INTO FKTABLE VALUES (100, 2, 4)",
+    "expected": "INSERT INTO fktable VALUES (100, 2, 4)"
   },
   {
     "comment": "foreign_key - Statement 35",
-    "query": "INSERT INTO FKTABLE VALUES (2, 2, 4)"
+    "query": "INSERT INTO FKTABLE VALUES (2, 2, 4)",
+    "expected": "INSERT INTO fktable VALUES (2, 2, 4)"
   },
   {
     "comment": "foreign_key - Statement 36",
-    "query": "INSERT INTO FKTABLE VALUES (NULL, 2, 4)"
+    "query": "INSERT INTO FKTABLE VALUES (NULL, 2, 4)",
+    "expected": "INSERT INTO fktable VALUES (NULL, 2, 4)"
   },
   {
     "comment": "foreign_key - Statement 37",
-    "query": "INSERT INTO FKTABLE VALUES (1, NULL, 4)"
+    "query": "INSERT INTO FKTABLE VALUES (1, NULL, 4)",
+    "expected": "INSERT INTO fktable VALUES (1, NULL, 4)"
   },
   {
     "comment": "foreign_key - Statement 38",
-    "query": "DELETE FROM PKTABLE WHERE ptest1=1 and ptest2=2"
+    "query": "DELETE FROM PKTABLE WHERE ptest1=1 and ptest2=2",
+    "expected": "DELETE FROM pktable WHERE ptest1 = 1 AND ptest2 = 2"
   },
   {
     "comment": "foreign_key - Statement 39",
-    "query": "DELETE FROM PKTABLE WHERE ptest1=5 and ptest2=10"
+    "query": "DELETE FROM PKTABLE WHERE ptest1=5 and ptest2=10",
+    "expected": "DELETE FROM pktable WHERE ptest1 = 5 AND ptest2 = 10"
   },
   {
     "comment": "foreign_key - Statement 40",
-    "query": "UPDATE FKTABLE SET ftest1 = NULL WHERE ftest1 = 1"
+    "query": "UPDATE FKTABLE SET ftest1 = NULL WHERE ftest1 = 1",
+    "expected": "UPDATE fktable SET ftest1 = NULL WHERE ftest1 = 1"
   },
   {
     "comment": "foreign_key - Statement 41",
-    "query": "UPDATE FKTABLE SET ftest1 = 1 WHERE ftest1 = 1"
+    "query": "UPDATE FKTABLE SET ftest1 = 1 WHERE ftest1 = 1",
+    "expected": "UPDATE fktable SET ftest1 = 1 WHERE ftest1 = 1"
   },
   {
     "comment": "foreign_key - Statement 42",
-    "query": "ALTER TABLE PKTABLE ALTER COLUMN ptest1 TYPE bigint"
+    "query": "ALTER TABLE PKTABLE ALTER COLUMN ptest1 TYPE bigint",
+    "expected": "ALTER TABLE pktable ALTER COLUMN ptest1 TYPE BIGINT"
   },
   {
     "comment": "foreign_key - Statement 43",
-    "query": "ALTER TABLE FKTABLE ALTER COLUMN ftest1 TYPE bigint"
+    "query": "ALTER TABLE FKTABLE ALTER COLUMN ftest1 TYPE bigint",
+    "expected": "ALTER TABLE fktable ALTER COLUMN ftest1 TYPE BIGINT"
   },
   {
     "comment": "foreign_key - Statement 44",
-    "query": "SELECT * FROM PKTABLE"
+    "query": "SELECT * FROM PKTABLE",
+    "expected": "SELECT * FROM pktable"
   },
   {
     "comment": "foreign_key - Statement 45",
-    "query": "DROP TABLE PKTABLE CASCADE"
+    "query": "DROP TABLE PKTABLE CASCADE",
+    "expected": "DROP TABLE pktable CASCADE"
   },
   {
     "comment": "foreign_key - Statement 46",
-    "query": "CREATE TABLE FKTABLE ( ftest1 int DEFAULT -1, ftest2 int DEFAULT -2, ftest3 int, CONSTRAINT constrname2 FOREIGN KEY(ftest1, ftest2) REFERENCES PKTABLE MATCH FULL ON DELETE SET DEFAULT ON UPDATE SET DEFAULT)"
+    "query": "CREATE TABLE FKTABLE ( ftest1 int DEFAULT -1, ftest2 int DEFAULT -2, ftest3 int, CONSTRAINT constrname2 FOREIGN KEY(ftest1, ftest2) REFERENCES PKTABLE MATCH FULL ON DELETE SET DEFAULT ON UPDATE SET DEFAULT)",
+    "expected": "CREATE TABLE fktable (ftest1 INT DEFAULT -1, ftest2 INT DEFAULT -2, ftest3 INT, CONSTRAINT constrname2 FOREIGN KEY (ftest1, ftest2) REFERENCES pktable MATCH FULL ON DELETE SET DEFAULT ON UPDATE SET DEFAULT)"
   },
   {
     "comment": "foreign_key - Statement 47",
-    "query": "INSERT INTO PKTABLE VALUES (-1, -2, 'The Default!')"
+    "query": "INSERT INTO PKTABLE VALUES (-1, -2, 'The Default!')",
+    "expected": "INSERT INTO pktable VALUES (-1, -2, 'The Default!')"
   },
   {
     "comment": "foreign_key - Statement 48",
-    "query": "CREATE TABLE FKTABLE ( ftest1 int REFERENCES PKTABLE MATCH FULL, ftest2 int )"
+    "query": "CREATE TABLE FKTABLE ( ftest1 int REFERENCES PKTABLE MATCH FULL, ftest2 int )",
+    "expected": "CREATE TABLE fktable (ftest1 INT REFERENCES pktable MATCH FULL, ftest2 INT)"
   },
   {
     "comment": "foreign_key - Statement 49",
-    "query": "DELETE FROM PKTABLE WHERE ptest1=5"
+    "query": "DELETE FROM PKTABLE WHERE ptest1=5",
+    "expected": "DELETE FROM pktable WHERE ptest1 = 5"
   },
   {
     "comment": "foreign_key - Statement 50",
-    "query": "UPDATE PKTABLE SET ptest1=0 WHERE ptest1=2"
+    "query": "UPDATE PKTABLE SET ptest1=0 WHERE ptest1=2",
+    "expected": "UPDATE pktable SET ptest1 = 0 WHERE ptest1 = 2"
   },
   {
     "comment": "foreign_key - Statement 51",
-    "query": "UPDATE PKTABLE SET ptest1=0 WHERE ptest1=4"
+    "query": "UPDATE PKTABLE SET ptest1=0 WHERE ptest1=4",
+    "expected": "UPDATE pktable SET ptest1 = 0 WHERE ptest1 = 4"
   },
   {
     "comment": "foreign_key - Statement 52",
-    "query": "CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, PRIMARY KEY(ptest1, ptest2) )"
+    "query": "CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, PRIMARY KEY(ptest1, ptest2) )",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 INT, PRIMARY KEY (ptest1, ptest2))"
   },
   {
     "comment": "foreign_key - Statement 53",
-    "query": "CREATE TABLE FKTABLE ( ftest1 int, ftest2 int )"
+    "query": "CREATE TABLE FKTABLE ( ftest1 int, ftest2 int )",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 INT)"
   },
   {
     "comment": "foreign_key - Statement 54",
-    "query": "INSERT INTO PKTABLE VALUES (1, 2)"
+    "query": "INSERT INTO PKTABLE VALUES (1, 2)",
+    "expected": "INSERT INTO pktable VALUES (1, 2)"
   },
   {
     "comment": "foreign_key - Statement 55",
-    "query": "INSERT INTO FKTABLE VALUES (1, NULL)"
+    "query": "INSERT INTO FKTABLE VALUES (1, NULL)",
+    "expected": "INSERT INTO fktable VALUES (1, NULL)"
   },
   {
     "comment": "foreign_key - Statement 56",
-    "query": "ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2) REFERENCES PKTABLE MATCH FULL"
+    "query": "ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2) REFERENCES PKTABLE MATCH FULL",
+    "expected": "ALTER TABLE fktable ADD FOREIGN KEY (ftest1, ftest2) REFERENCES pktable MATCH FULL"
   },
   {
     "comment": "foreign_key - Statement 57",
-    "query": "CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) )"
+    "query": "CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) )",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 INT, ptest3 INT, ptest4 TEXT, PRIMARY KEY (ptest1, ptest2, ptest3))"
   },
   {
     "comment": "foreign_key - Statement 58",
-    "query": "CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3 FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE)"
+    "query": "CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3 FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE)",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 INT, ftest3 INT, ftest4 INT, CONSTRAINT constrname3 FOREIGN KEY (ftest1, ftest2, ftest3) REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 59",
-    "query": "INSERT INTO PKTABLE VALUES (1, 2, 3, 'test1')"
+    "query": "INSERT INTO PKTABLE VALUES (1, 2, 3, 'test1')",
+    "expected": "INSERT INTO pktable VALUES (1, 2, 3, 'test1')"
   },
   {
     "comment": "foreign_key - Statement 60",
-    "query": "INSERT INTO PKTABLE VALUES (1, 3, 3, 'test2')"
+    "query": "INSERT INTO PKTABLE VALUES (1, 3, 3, 'test2')",
+    "expected": "INSERT INTO pktable VALUES (1, 3, 3, 'test2')"
   },
   {
     "comment": "foreign_key - Statement 61",
-    "query": "INSERT INTO PKTABLE VALUES (2, 3, 4, 'test3')"
+    "query": "INSERT INTO PKTABLE VALUES (2, 3, 4, 'test3')",
+    "expected": "INSERT INTO pktable VALUES (2, 3, 4, 'test3')"
   },
   {
     "comment": "foreign_key - Statement 62",
-    "query": "INSERT INTO PKTABLE VALUES (2, 4, 5, 'test4')"
+    "query": "INSERT INTO PKTABLE VALUES (2, 4, 5, 'test4')",
+    "expected": "INSERT INTO pktable VALUES (2, 4, 5, 'test4')"
   },
   {
     "comment": "foreign_key - Statement 63",
-    "query": "INSERT INTO FKTABLE VALUES (1, 2, 3, 1)"
+    "query": "INSERT INTO FKTABLE VALUES (1, 2, 3, 1)",
+    "expected": "INSERT INTO fktable VALUES (1, 2, 3, 1)"
   },
   {
     "comment": "foreign_key - Statement 64",
-    "query": "INSERT INTO FKTABLE VALUES (NULL, 2, 3, 2)"
+    "query": "INSERT INTO FKTABLE VALUES (NULL, 2, 3, 2)",
+    "expected": "INSERT INTO fktable VALUES (NULL, 2, 3, 2)"
   },
   {
     "comment": "foreign_key - Statement 65",
-    "query": "INSERT INTO FKTABLE VALUES (2, NULL, 3, 3)"
+    "query": "INSERT INTO FKTABLE VALUES (2, NULL, 3, 3)",
+    "expected": "INSERT INTO fktable VALUES (2, NULL, 3, 3)"
   },
   {
     "comment": "foreign_key - Statement 66",
-    "query": "INSERT INTO FKTABLE VALUES (NULL, 2, 7, 4)"
+    "query": "INSERT INTO FKTABLE VALUES (NULL, 2, 7, 4)",
+    "expected": "INSERT INTO fktable VALUES (NULL, 2, 7, 4)"
   },
   {
     "comment": "foreign_key - Statement 67",
-    "query": "INSERT INTO FKTABLE VALUES (NULL, 3, 4, 5)"
+    "query": "INSERT INTO FKTABLE VALUES (NULL, 3, 4, 5)",
+    "expected": "INSERT INTO fktable VALUES (NULL, 3, 4, 5)"
   },
   {
     "comment": "foreign_key - Statement 68",
-    "query": "INSERT INTO FKTABLE VALUES (1, 2, 7, 6)"
+    "query": "INSERT INTO FKTABLE VALUES (1, 2, 7, 6)",
+    "expected": "INSERT INTO fktable VALUES (1, 2, 7, 6)"
   },
   {
     "comment": "foreign_key - Statement 69",
-    "query": "UPDATE PKTABLE set ptest2=5 where ptest2=2"
+    "query": "UPDATE PKTABLE set ptest2=5 where ptest2=2",
+    "expected": "UPDATE pktable SET ptest2 = 5 WHERE ptest2 = 2"
   },
   {
     "comment": "foreign_key - Statement 70",
-    "query": "UPDATE PKTABLE set ptest1=1 WHERE ptest2=3"
+    "query": "UPDATE PKTABLE set ptest1=1 WHERE ptest2=3",
+    "expected": "UPDATE pktable SET ptest1 = 1 WHERE ptest2 = 3"
   },
   {
     "comment": "foreign_key - Statement 71",
-    "query": "DELETE FROM PKTABLE where ptest1=1 and ptest2=2 and ptest3=3"
+    "query": "DELETE FROM PKTABLE where ptest1=1 and ptest2=2 and ptest3=3",
+    "expected": "DELETE FROM pktable WHERE ptest1 = 1 AND ptest2 = 2 AND ptest3 = 3"
   },
   {
     "comment": "foreign_key - Statement 72",
-    "query": "DELETE FROM PKTABLE where ptest1=2"
+    "query": "DELETE FROM PKTABLE where ptest1=2",
+    "expected": "DELETE FROM pktable WHERE ptest1 = 2"
   },
   {
     "comment": "foreign_key - Statement 73",
-    "query": "CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, UNIQUE(ptest1, ptest2, ptest3) )"
+    "query": "CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, UNIQUE(ptest1, ptest2, ptest3) )",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 INT, ptest3 INT, ptest4 TEXT, UNIQUE (ptest1, ptest2, ptest3))"
   },
   {
     "comment": "foreign_key - Statement 74",
-    "query": "CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3 FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE (ptest1, ptest2, ptest3))"
+    "query": "CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3 FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE (ptest1, ptest2, ptest3))",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 INT, ftest3 INT, ftest4 INT, CONSTRAINT constrname3 FOREIGN KEY (ftest1, ftest2, ftest3) REFERENCES pktable(ptest1, ptest2, ptest3))"
   },
   {
     "comment": "foreign_key - Statement 75",
-    "query": "INSERT INTO PKTABLE VALUES (1, 3, NULL, 'test2')"
+    "query": "INSERT INTO PKTABLE VALUES (1, 3, NULL, 'test2')",
+    "expected": "INSERT INTO pktable VALUES (1, 3, NULL, 'test2')"
   },
   {
     "comment": "foreign_key - Statement 76",
-    "query": "INSERT INTO PKTABLE VALUES (2, NULL, 4, 'test3')"
+    "query": "INSERT INTO PKTABLE VALUES (2, NULL, 4, 'test3')",
+    "expected": "INSERT INTO pktable VALUES (2, NULL, 4, 'test3')"
   },
   {
     "comment": "foreign_key - Statement 77",
-    "query": "DELETE FROM PKTABLE WHERE ptest1 = 2"
+    "query": "DELETE FROM PKTABLE WHERE ptest1 = 2",
+    "expected": "DELETE FROM pktable WHERE ptest1 = 2"
   },
   {
     "comment": "foreign_key - Statement 78",
-    "query": "CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3 FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE ON DELETE CASCADE ON UPDATE CASCADE)"
+    "query": "CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3 FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE ON DELETE CASCADE ON UPDATE CASCADE)",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 INT, ftest3 INT, ftest4 INT, CONSTRAINT constrname3 FOREIGN KEY (ftest1, ftest2, ftest3) REFERENCES pktable ON DELETE CASCADE ON UPDATE CASCADE)"
   },
   {
     "comment": "foreign_key - Statement 79",
-    "query": "DELETE FROM PKTABLE where ptest1=1 and ptest2=5 and ptest3=3"
+    "query": "DELETE FROM PKTABLE where ptest1=1 and ptest2=5 and ptest3=3",
+    "expected": "DELETE FROM pktable WHERE ptest1 = 1 AND ptest2 = 5 AND ptest3 = 3"
   },
   {
     "comment": "foreign_key - Statement 80",
-    "query": "CREATE TABLE FKTABLE ( ftest1 int DEFAULT 0, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3 FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE ON DELETE SET DEFAULT ON UPDATE SET NULL)"
+    "query": "CREATE TABLE FKTABLE ( ftest1 int DEFAULT 0, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3 FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE ON DELETE SET DEFAULT ON UPDATE SET NULL)",
+    "expected": "CREATE TABLE fktable (ftest1 INT DEFAULT 0, ftest2 INT, ftest3 INT, ftest4 INT, CONSTRAINT constrname3 FOREIGN KEY (ftest1, ftest2, ftest3) REFERENCES pktable ON DELETE SET DEFAULT ON UPDATE SET NULL)"
   },
   {
     "comment": "foreign_key - Statement 81",
-    "query": "INSERT INTO FKTABLE VALUES (2, 3, 4, 1)"
+    "query": "INSERT INTO FKTABLE VALUES (2, 3, 4, 1)",
+    "expected": "INSERT INTO fktable VALUES (2, 3, 4, 1)"
   },
   {
     "comment": "foreign_key - Statement 82",
-    "query": "UPDATE PKTABLE set ptest2=2 WHERE ptest2=3 and ptest1=1"
+    "query": "UPDATE PKTABLE set ptest2=2 WHERE ptest2=3 and ptest1=1",
+    "expected": "UPDATE pktable SET ptest2 = 2 WHERE ptest2 = 3 AND ptest1 = 1"
   },
   {
     "comment": "foreign_key - Statement 83",
-    "query": "DELETE FROM PKTABLE where ptest1=2 and ptest2=3 and ptest3=4"
+    "query": "DELETE FROM PKTABLE where ptest1=2 and ptest2=3 and ptest3=4",
+    "expected": "DELETE FROM pktable WHERE ptest1 = 2 AND ptest2 = 3 AND ptest3 = 4"
   },
   {
     "comment": "foreign_key - Statement 84",
-    "query": "DELETE FROM PKTABLE where ptest2=5"
+    "query": "DELETE FROM PKTABLE where ptest2=5",
+    "expected": "DELETE FROM pktable WHERE ptest2 = 5"
   },
   {
     "comment": "foreign_key - Statement 85",
-    "query": "CREATE TABLE FKTABLE ( ftest1 int DEFAULT 0, ftest2 int DEFAULT -1, ftest3 int DEFAULT -2, ftest4 int, CONSTRAINT constrname3 FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE ON DELETE SET NULL ON UPDATE SET DEFAULT)"
+    "query": "CREATE TABLE FKTABLE ( ftest1 int DEFAULT 0, ftest2 int DEFAULT -1, ftest3 int DEFAULT -2, ftest4 int, CONSTRAINT constrname3 FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE ON DELETE SET NULL ON UPDATE SET DEFAULT)",
+    "expected": "CREATE TABLE fktable (ftest1 INT DEFAULT 0, ftest2 INT DEFAULT -1, ftest3 INT DEFAULT -2, ftest4 INT, CONSTRAINT constrname3 FOREIGN KEY (ftest1, ftest2, ftest3) REFERENCES pktable ON DELETE SET NULL ON UPDATE SET DEFAULT)"
   },
   {
     "comment": "foreign_key - Statement 86",
-    "query": "INSERT INTO PKTABLE VALUES (2, -1, 5, 'test5')"
+    "query": "INSERT INTO PKTABLE VALUES (2, -1, 5, 'test5')",
+    "expected": "INSERT INTO pktable VALUES (2, -1, 5, 'test5')"
   },
   {
     "comment": "foreign_key - Statement 87",
-    "query": "INSERT INTO FKTABLE VALUES (2, 4, 5, 1)"
+    "query": "INSERT INTO FKTABLE VALUES (2, 4, 5, 1)",
+    "expected": "INSERT INTO fktable VALUES (2, 4, 5, 1)"
   },
   {
     "comment": "foreign_key - Statement 88",
-    "query": "UPDATE PKTABLE set ptest1=0, ptest2=-1, ptest3=-2 where ptest2=2"
+    "query": "UPDATE PKTABLE set ptest1=0, ptest2= -1, ptest3= -2 where ptest2=2",
+    "expected": "UPDATE pktable SET ptest1 = 0, ptest2 = -1, ptest3 = -2 WHERE ptest2 = 2"
   },
   {
     "comment": "foreign_key - Statement 89",
-    "query": "UPDATE PKTABLE set ptest2=10 where ptest2=4"
+    "query": "UPDATE PKTABLE set ptest2=10 where ptest2=4",
+    "expected": "UPDATE pktable SET ptest2 = 10 WHERE ptest2 = 4"
   },
   {
     "comment": "foreign_key - Statement 90",
-    "query": "DELETE FROM PKTABLE where ptest2=-1 and ptest3=5"
+    "query": "DELETE FROM PKTABLE where ptest2=-1 and ptest3=5",
+    "expected": "DELETE FROM pktable WHERE ptest2 =- 1 AND ptest3 = 5"
   },
   {
     "comment": "foreign_key - Statement 91",
-    "query": "CREATE TABLE PKTABLE (tid int, id int, PRIMARY KEY (tid, id))"
+    "query": "CREATE TABLE PKTABLE (tid int, id int, PRIMARY KEY (tid, id))",
+    "expected": "CREATE TABLE pktable (tid INT, id INT, PRIMARY KEY (tid, id))"
   },
   {
     "comment": "foreign_key - Statement 92",
-    "query": "CREATE TABLE FKTABLE (tid int, id int, foo int, FOREIGN KEY (tid, id) REFERENCES PKTABLE ON DELETE SET NULL (bar))"
+    "query": "CREATE TABLE FKTABLE (tid int, id int, foo int, FOREIGN KEY (tid, id) REFERENCES PKTABLE ON DELETE SET NULL (bar))",
+    "expected": "CREATE TABLE fktable (tid INT, id INT, foo INT, FOREIGN KEY (tid, id) REFERENCES pktable ON DELETE SET NULL (bar))"
   },
   {
     "comment": "foreign_key - Statement 93",
-    "query": "CREATE TABLE FKTABLE (tid int, id int, foo int, FOREIGN KEY (tid, id) REFERENCES PKTABLE ON DELETE SET NULL (foo))"
+    "query": "CREATE TABLE FKTABLE (tid int, id int, foo int, FOREIGN KEY (tid, id) REFERENCES PKTABLE ON DELETE SET NULL (foo))",
+    "expected": "CREATE TABLE fktable (tid INT, id INT, foo INT, FOREIGN KEY (tid, id) REFERENCES pktable ON DELETE SET NULL (foo))"
   },
   {
     "comment": "foreign_key - Statement 94",
-    "query": "CREATE TABLE FKTABLE (tid int, id int, foo int, FOREIGN KEY (tid, foo) REFERENCES PKTABLE ON UPDATE SET NULL (foo))"
+    "query": "CREATE TABLE FKTABLE (tid int, id int, foo int, FOREIGN KEY (tid, foo) REFERENCES PKTABLE ON UPDATE SET NULL (foo))",
+    "error": "parse error at position 114: column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions"
   },
   {
     "comment": "foreign_key - Statement 95",
-    "query": "CREATE TABLE FKTABLE ( tid int, id int, fk_id_del_set_null int, fk_id_del_set_default int DEFAULT 0, FOREIGN KEY (tid, fk_id_del_set_null) REFERENCES PKTABLE ON DELETE SET NULL (fk_id_del_set_null), FOREIGN KEY (tid, fk_id_del_set_default) REFERENCES PKTABLE ON DELETE SET DEFAULT (fk_id_del_set_default, fk_id_del_set_default) )"
+    "query": "CREATE TABLE FKTABLE ( tid int, id int, fk_id_del_set_null int, fk_id_del_set_default int DEFAULT 0, FOREIGN KEY (tid, fk_id_del_set_null) REFERENCES PKTABLE ON DELETE SET NULL (fk_id_del_set_null), FOREIGN KEY (tid, fk_id_del_set_default) REFERENCES PKTABLE ON DELETE SET DEFAULT (fk_id_del_set_default, fk_id_del_set_default) )",
+    "expected": "CREATE TABLE fktable (tid INT, id INT, fk_id_del_set_null INT, fk_id_del_set_default INT DEFAULT 0, FOREIGN KEY (tid, fk_id_del_set_null) REFERENCES pktable ON DELETE SET NULL (fk_id_del_set_null), FOREIGN KEY (tid, fk_id_del_set_default) REFERENCES pktable ON DELETE SET DEFAULT (fk_id_del_set_default, fk_id_del_set_default))"
   },
   {
     "comment": "foreign_key - Statement 96",
-    "query": "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'fktable'::regclass::oid ORDER BY oid"
+    "query": "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'fktable'::regclass::oid ORDER BY oid",
+    "expected": "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = CAST(CAST('fktable' AS regclass) AS oid) ORDER BY oid"
   },
   {
     "comment": "foreign_key - Statement 97",
-    "query": "INSERT INTO PKTABLE VALUES (1, 0), (1, 1), (1, 2)"
+    "query": "INSERT INTO PKTABLE VALUES (1, 0), (1, 1), (1, 2)",
+    "expected": "INSERT INTO pktable VALUES (1, 0), (1, 1), (1, 2)"
   },
   {
     "comment": "foreign_key - Statement 98",
-    "query": "INSERT INTO FKTABLE VALUES (1, 1, 1, NULL), (1, 2, NULL, 2)"
+    "query": "INSERT INTO FKTABLE VALUES (1, 1, 1, NULL), (1, 2, NULL, 2)",
+    "expected": "INSERT INTO fktable VALUES (1, 1, 1, NULL), (1, 2, NULL, 2)"
   },
   {
     "comment": "foreign_key - Statement 99",
-    "query": "DELETE FROM PKTABLE WHERE id = 1 OR id = 2"
+    "query": "DELETE FROM PKTABLE WHERE id = 1 OR id = 2",
+    "expected": "DELETE FROM pktable WHERE id = 1 OR id = 2"
   },
   {
     "comment": "foreign_key - Statement 100",
-    "query": "SELECT * FROM FKTABLE ORDER BY id"
+    "query": "SELECT * FROM FKTABLE ORDER BY id",
+    "expected": "SELECT * FROM fktable ORDER BY id"
   },
   {
     "comment": "foreign_key - Statement 101",
-    "query": "CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY, someoid oid)"
+    "query": "CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY, someoid oid)",
+    "expected": "CREATE TABLE pktable (ptest1 INT PRIMARY KEY, someoid oid)"
   },
   {
     "comment": "foreign_key - Statement 102",
-    "query": "CREATE TABLE FKTABLE_FAIL1 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (ftest2) REFERENCES PKTABLE)"
+    "query": "CREATE TABLE FKTABLE_FAIL1 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (ftest2) REFERENCES PKTABLE)",
+    "expected": "CREATE TABLE fktable_fail1 (ftest1 INT, CONSTRAINT fkfail1 FOREIGN KEY (ftest2) REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 103",
-    "query": "CREATE TABLE FKTABLE_FAIL2 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (ftest1) REFERENCES PKTABLE(ptest2))"
+    "query": "CREATE TABLE FKTABLE_FAIL2 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (ftest1) REFERENCES PKTABLE(ptest2))",
+    "expected": "CREATE TABLE fktable_fail2 (ftest1 INT, CONSTRAINT fkfail1 FOREIGN KEY (ftest1) REFERENCES pktable(ptest2))"
   },
   {
     "comment": "foreign_key - Statement 104",
-    "query": "CREATE TABLE FKTABLE_FAIL3 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (tableoid) REFERENCES PKTABLE(someoid))"
+    "query": "CREATE TABLE FKTABLE_FAIL3 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (tableoid) REFERENCES PKTABLE(someoid))",
+    "expected": "CREATE TABLE fktable_fail3 (ftest1 INT, CONSTRAINT fkfail1 FOREIGN KEY (tableoid) REFERENCES pktable(someoid))"
   },
   {
     "comment": "foreign_key - Statement 105",
-    "query": "CREATE TABLE FKTABLE_FAIL4 ( ftest1 oid, CONSTRAINT fkfail1 FOREIGN KEY (ftest1) REFERENCES PKTABLE(tableoid))"
+    "query": "CREATE TABLE FKTABLE_FAIL4 ( ftest1 oid, CONSTRAINT fkfail1 FOREIGN KEY (ftest1) REFERENCES PKTABLE(tableoid))",
+    "expected": "CREATE TABLE fktable_fail4 (ftest1 oid, CONSTRAINT fkfail1 FOREIGN KEY (ftest1) REFERENCES pktable(tableoid))"
   },
   {
     "comment": "foreign_key - Statement 106",
-    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 int, UNIQUE(ptest1, ptest2))"
+    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 int, UNIQUE(ptest1, ptest2))",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 INT, UNIQUE (ptest1, ptest2))"
   },
   {
     "comment": "foreign_key - Statement 107",
-    "query": "CREATE TABLE FKTABLE_FAIL1 (ftest1 int REFERENCES pktable(ptest1))"
+    "query": "CREATE TABLE FKTABLE_FAIL1 (ftest1 int REFERENCES pktable(ptest1))",
+    "expected": "CREATE TABLE fktable_fail1 (ftest1 INT REFERENCES pktable(ptest1))"
   },
   {
     "comment": "foreign_key - Statement 108",
-    "query": "DROP TABLE FKTABLE_FAIL1"
+    "query": "DROP TABLE FKTABLE_FAIL1",
+    "expected": "DROP TABLE fktable_fail1"
   },
   {
     "comment": "foreign_key - Statement 109",
-    "query": "CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY)"
+    "query": "CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY)",
+    "expected": "CREATE TABLE pktable (ptest1 INT PRIMARY KEY)"
   },
   {
     "comment": "foreign_key - Statement 110",
-    "query": "INSERT INTO PKTABLE VALUES(42)"
+    "query": "INSERT INTO PKTABLE VALUES(42)",
+    "expected": "INSERT INTO pktable VALUES (42)"
   },
   {
     "comment": "foreign_key - Statement 111",
-    "query": "CREATE TABLE FKTABLE (ftest1 inet REFERENCES pktable)"
+    "query": "CREATE TABLE FKTABLE (ftest1 inet REFERENCES pktable)",
+    "expected": "CREATE TABLE fktable (ftest1 inet REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 112",
-    "query": "CREATE TABLE FKTABLE (ftest1 inet REFERENCES pktable(ptest1))"
+    "query": "CREATE TABLE FKTABLE (ftest1 inet REFERENCES pktable(ptest1))",
+    "expected": "CREATE TABLE fktable (ftest1 inet REFERENCES pktable(ptest1))"
   },
   {
     "comment": "foreign_key - Statement 113",
-    "query": "CREATE TABLE FKTABLE (ftest1 int8 REFERENCES pktable)"
+    "query": "CREATE TABLE FKTABLE (ftest1 int8 REFERENCES pktable)",
+    "expected": "CREATE TABLE fktable (ftest1 BIGINT REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 114",
-    "query": "INSERT INTO FKTABLE VALUES(42)"
+    "query": "INSERT INTO FKTABLE VALUES(42)",
+    "expected": "INSERT INTO fktable VALUES (42)"
   },
   {
     "comment": "foreign_key - Statement 115",
-    "query": "INSERT INTO FKTABLE VALUES(43)"
+    "query": "INSERT INTO FKTABLE VALUES(43)",
+    "expected": "INSERT INTO fktable VALUES (43)"
   },
   {
     "comment": "foreign_key - Statement 116",
-    "query": "UPDATE FKTABLE SET ftest1 = ftest1"
+    "query": "UPDATE FKTABLE SET ftest1 = ftest1",
+    "expected": "UPDATE fktable SET ftest1 = ftest1"
   },
   {
     "comment": "foreign_key - Statement 117",
-    "query": "UPDATE FKTABLE SET ftest1 = ftest1 + 1"
+    "query": "UPDATE FKTABLE SET ftest1 = ftest1 + 1",
+    "expected": "UPDATE fktable SET ftest1 = ftest1 + 1"
   },
   {
     "comment": "foreign_key - Statement 118",
-    "query": "CREATE TABLE FKTABLE (ftest1 numeric REFERENCES pktable)"
+    "query": "CREATE TABLE FKTABLE (ftest1 numeric REFERENCES pktable)",
+    "expected": "CREATE TABLE fktable (ftest1 NUMERIC REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 119",
-    "query": "CREATE TABLE PKTABLE (ptest1 numeric PRIMARY KEY)"
+    "query": "CREATE TABLE PKTABLE (ptest1 numeric PRIMARY KEY)",
+    "expected": "CREATE TABLE pktable (ptest1 NUMERIC PRIMARY KEY)"
   },
   {
     "comment": "foreign_key - Statement 120",
-    "query": "CREATE TABLE FKTABLE (ftest1 int REFERENCES pktable)"
+    "query": "CREATE TABLE FKTABLE (ftest1 int REFERENCES pktable)",
+    "expected": "CREATE TABLE fktable (ftest1 INT REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 121",
-    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, PRIMARY KEY(ptest1, ptest2))"
+    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, PRIMARY KEY(ptest1, ptest2))",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 inet, PRIMARY KEY (ptest1, ptest2))"
   },
   {
     "comment": "foreign_key - Statement 122",
-    "query": "CREATE TABLE FKTABLE (ftest1 cidr, ftest2 timestamp, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable)"
+    "query": "CREATE TABLE FKTABLE (ftest1 cidr, ftest2 timestamp, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable)",
+    "expected": "CREATE TABLE fktable (ftest1 cidr, ftest2 TIMESTAMP, FOREIGN KEY (ftest1, ftest2) REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 123",
-    "query": "CREATE TABLE FKTABLE (ftest1 cidr, ftest2 timestamp, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable(ptest1, ptest2))"
+    "query": "CREATE TABLE FKTABLE (ftest1 cidr, ftest2 timestamp, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable(ptest1, ptest2))",
+    "expected": "CREATE TABLE fktable (ftest1 cidr, ftest2 TIMESTAMP, FOREIGN KEY (ftest1, ftest2) REFERENCES pktable(ptest1, ptest2))"
   },
   {
     "comment": "foreign_key - Statement 124",
-    "query": "CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest2, ftest1) REFERENCES pktable)"
+    "query": "CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest2, ftest1) REFERENCES pktable)",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 inet, FOREIGN KEY (ftest2, ftest1) REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 125",
-    "query": "CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest2, ftest1) REFERENCES pktable(ptest1, ptest2))"
+    "query": "CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest2, ftest1) REFERENCES pktable(ptest1, ptest2))",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 inet, FOREIGN KEY (ftest2, ftest1) REFERENCES pktable(ptest1, ptest2))"
   },
   {
     "comment": "foreign_key - Statement 126",
-    "query": "CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable(ptest2, ptest1))"
+    "query": "CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable(ptest2, ptest1))",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 inet, FOREIGN KEY (ftest1, ftest2) REFERENCES pktable(ptest2, ptest1))"
   },
   {
     "comment": "foreign_key - Statement 127",
-    "query": "CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest2, ftest1) REFERENCES pktable(ptest2, ptest1))"
+    "query": "CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest2, ftest1) REFERENCES pktable(ptest2, ptest1))",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 inet, FOREIGN KEY (ftest2, ftest1) REFERENCES pktable(ptest2, ptest1))"
   },
   {
     "comment": "foreign_key - Statement 128",
-    "query": "CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable(ptest1, ptest2))"
+    "query": "CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable(ptest1, ptest2))",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 inet, FOREIGN KEY (ftest1, ftest2) REFERENCES pktable(ptest1, ptest2))"
   },
   {
     "comment": "foreign_key - Statement 129",
-    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest3, ptest4) REFERENCES pktable(ptest1, ptest2))"
+    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest3, ptest4) REFERENCES pktable(ptest1, ptest2))",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 inet, ptest3 INT, ptest4 inet, PRIMARY KEY (ptest1, ptest2), FOREIGN KEY (ptest3, ptest4) REFERENCES pktable(ptest1, ptest2))"
   },
   {
     "comment": "foreign_key - Statement 130",
-    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest3, ptest4) REFERENCES pktable)"
+    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest3, ptest4) REFERENCES pktable)",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 inet, ptest3 INT, ptest4 inet, PRIMARY KEY (ptest1, ptest2), FOREIGN KEY (ptest3, ptest4) REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 131",
-    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest3, ptest4) REFERENCES pktable(ptest2, ptest1))"
+    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest3, ptest4) REFERENCES pktable(ptest2, ptest1))",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 inet, ptest3 INT, ptest4 inet, PRIMARY KEY (ptest1, ptest2), FOREIGN KEY (ptest3, ptest4) REFERENCES pktable(ptest2, ptest1))"
   },
   {
     "comment": "foreign_key - Statement 132",
-    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest4, ptest3) REFERENCES pktable(ptest1, ptest2))"
+    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest4, ptest3) REFERENCES pktable(ptest1, ptest2))",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 inet, ptest3 INT, ptest4 inet, PRIMARY KEY (ptest1, ptest2), FOREIGN KEY (ptest4, ptest3) REFERENCES pktable(ptest1, ptest2))"
   },
   {
     "comment": "foreign_key - Statement 133",
-    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest4, ptest3) REFERENCES pktable)"
+    "query": "CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest4, ptest3) REFERENCES pktable)",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 inet, ptest3 INT, ptest4 inet, PRIMARY KEY (ptest1, ptest2), FOREIGN KEY (ptest4, ptest3) REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 134",
-    "query": "create table pktable_base (base1 int not null)"
+    "query": "create table pktable_base (base1 int not null)",
+    "expected": "CREATE TABLE pktable_base (base1 INT NOT NULL)"
   },
   {
     "comment": "foreign_key - Statement 135",
-    "query": "create table pktable (ptest1 int, primary key(base1), unique(base1, ptest1)) inherits (pktable_base)"
+    "query": "create table pktable (ptest1 int, primary key(base1), unique(base1, ptest1)) inherits (pktable_base)",
+    "expected": "CREATE TABLE pktable (ptest1 INT, PRIMARY KEY (base1), UNIQUE (base1, ptest1)) INHERITS (pktable_base)"
   },
   {
     "comment": "foreign_key - Statement 136",
-    "query": "create table fktable (ftest1 int references pktable(base1))"
+    "query": "create table fktable (ftest1 int references pktable(base1))",
+    "expected": "CREATE TABLE fktable (ftest1 INT REFERENCES pktable(base1))"
   },
   {
     "comment": "foreign_key - Statement 137",
-    "query": "insert into pktable(base1) values (1)"
+    "query": "insert into pktable(base1) values (1)",
+    "expected": "INSERT INTO pktable (base1) VALUES (1)"
   },
   {
     "comment": "foreign_key - Statement 138",
-    "query": "insert into pktable(base1) values (2)"
+    "query": "insert into pktable(base1) values (2)",
+    "expected": "INSERT INTO pktable (base1) VALUES (2)"
   },
   {
     "comment": "foreign_key - Statement 139",
-    "query": "insert into fktable(ftest1) values (3)"
+    "query": "insert into fktable(ftest1) values (3)",
+    "expected": "INSERT INTO fktable (ftest1) VALUES (3)"
   },
   {
     "comment": "foreign_key - Statement 140",
-    "query": "insert into pktable(base1) values (3)"
+    "query": "insert into pktable(base1) values (3)",
+    "expected": "INSERT INTO pktable (base1) VALUES (3)"
   },
   {
     "comment": "foreign_key - Statement 141",
-    "query": "delete from pktable where base1>2"
+    "query": "delete from pktable where base1\u003e2",
+    "expected": "DELETE FROM pktable WHERE base1 \u003e 2"
   },
   {
     "comment": "foreign_key - Statement 142",
-    "query": "update pktable set base1=base1*4"
+    "query": "update pktable set base1=base1*4",
+    "expected": "UPDATE pktable SET base1 = base1 * 4"
   },
   {
     "comment": "foreign_key - Statement 143",
-    "query": "update pktable set base1=base1*4 where base1<3"
+    "query": "update pktable set base1=base1*4 where base1\u003c3",
+    "expected": "UPDATE pktable SET base1 = base1 * 4 WHERE base1 \u003c 3"
   },
   {
     "comment": "foreign_key - Statement 144",
-    "query": "delete from pktable where base1>3"
+    "query": "delete from pktable where base1\u003e3",
+    "expected": "DELETE FROM pktable WHERE base1 \u003e 3"
   },
   {
     "comment": "foreign_key - Statement 145",
-    "query": "delete from pktable"
+    "query": "delete from pktable",
+    "expected": "DELETE FROM pktable"
   },
   {
     "comment": "foreign_key - Statement 146",
-    "query": "create table fktable (ftest1 int, ftest2 int, foreign key(ftest1, ftest2) references pktable(base1, ptest1))"
+    "query": "create table fktable (ftest1 int, ftest2 int, foreign key(ftest1, ftest2) references pktable(base1, ptest1))",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 INT, FOREIGN KEY (ftest1, ftest2) REFERENCES pktable(base1, ptest1))"
   },
   {
     "comment": "foreign_key - Statement 147",
-    "query": "insert into pktable(base1, ptest1) values (1, 1)"
+    "query": "insert into pktable(base1, ptest1) values (1, 1)",
+    "expected": "INSERT INTO pktable (base1, ptest1) VALUES (1, 1)"
   },
   {
     "comment": "foreign_key - Statement 148",
-    "query": "insert into pktable(base1, ptest1) values (2, 2)"
+    "query": "insert into pktable(base1, ptest1) values (2, 2)",
+    "expected": "INSERT INTO pktable (base1, ptest1) VALUES (2, 2)"
   },
   {
     "comment": "foreign_key - Statement 149",
-    "query": "insert into fktable(ftest1, ftest2) values (3, 1)"
+    "query": "insert into fktable(ftest1, ftest2) values (3, 1)",
+    "expected": "INSERT INTO fktable (ftest1, ftest2) VALUES (3, 1)"
   },
   {
     "comment": "foreign_key - Statement 150",
-    "query": "insert into pktable(base1,ptest1) values (3, 1)"
+    "query": "insert into pktable(base1,ptest1) values (3, 1)",
+    "expected": "INSERT INTO pktable (base1, ptest1) VALUES (3, 1)"
   },
   {
     "comment": "foreign_key - Statement 151",
-    "query": "drop table pktable_base"
+    "query": "drop table pktable_base",
+    "expected": "DROP TABLE pktable_base"
   },
   {
     "comment": "foreign_key - Statement 152",
-    "query": "create table pktable_base(base1 int not null, base2 int)"
+    "query": "create table pktable_base(base1 int not null, base2 int)",
+    "expected": "CREATE TABLE pktable_base (base1 INT NOT NULL, base2 INT)"
   },
   {
     "comment": "foreign_key - Statement 153",
-    "query": "create table pktable(ptest1 int, ptest2 int, primary key(base1, ptest1), foreign key(base2, ptest2) references pktable(base1, ptest1)) inherits (pktable_base)"
+    "query": "create table pktable(ptest1 int, ptest2 int, primary key(base1, ptest1), foreign key(base2, ptest2) references pktable(base1, ptest1)) inherits (pktable_base)",
+    "expected": "CREATE TABLE pktable (ptest1 INT, ptest2 INT, PRIMARY KEY (base1, ptest1), FOREIGN KEY (base2, ptest2) REFERENCES pktable(base1, ptest1)) INHERITS (pktable_base)"
   },
   {
     "comment": "foreign_key - Statement 154",
-    "query": "insert into pktable (base1, ptest1, base2, ptest2) values (1, 1, 1, 1)"
+    "query": "insert into pktable (base1, ptest1, base2, ptest2) values (1, 1, 1, 1)",
+    "expected": "INSERT INTO pktable (base1, ptest1, base2, ptest2) VALUES (1, 1, 1, 1)"
   },
   {
     "comment": "foreign_key - Statement 155",
-    "query": "insert into pktable (base1, ptest1, base2, ptest2) values (2, 1, 1, 1)"
+    "query": "insert into pktable (base1, ptest1, base2, ptest2) values (2, 1, 1, 1)",
+    "expected": "INSERT INTO pktable (base1, ptest1, base2, ptest2) VALUES (2, 1, 1, 1)"
   },
   {
     "comment": "foreign_key - Statement 156",
-    "query": "insert into pktable (base1, ptest1, base2, ptest2) values (2, 2, 2, 1)"
+    "query": "insert into pktable (base1, ptest1, base2, ptest2) values (2, 2, 2, 1)",
+    "expected": "INSERT INTO pktable (base1, ptest1, base2, ptest2) VALUES (2, 2, 2, 1)"
   },
   {
     "comment": "foreign_key - Statement 157",
-    "query": "insert into pktable (base1, ptest1, base2, ptest2) values (1, 3, 2, 2)"
+    "query": "insert into pktable (base1, ptest1, base2, ptest2) values (1, 3, 2, 2)",
+    "expected": "INSERT INTO pktable (base1, ptest1, base2, ptest2) VALUES (1, 3, 2, 2)"
   },
   {
     "comment": "foreign_key - Statement 158",
-    "query": "insert into pktable (base1, ptest1, base2, ptest2) values (2, 3, 3, 2)"
+    "query": "insert into pktable (base1, ptest1, base2, ptest2) values (2, 3, 3, 2)",
+    "expected": "INSERT INTO pktable (base1, ptest1, base2, ptest2) VALUES (2, 3, 3, 2)"
   },
   {
     "comment": "foreign_key - Statement 159",
-    "query": "delete from pktable where base1=2"
+    "query": "delete from pktable where base1=2",
+    "expected": "DELETE FROM pktable WHERE base1 = 2"
   },
   {
     "comment": "foreign_key - Statement 160",
-    "query": "update pktable set base1=3 where base1=1"
+    "query": "update pktable set base1=3 where base1=1",
+    "expected": "UPDATE pktable SET base1 = 3 WHERE base1 = 1"
   },
   {
     "comment": "foreign_key - Statement 161",
-    "query": "delete from pktable where base2=2"
+    "query": "delete from pktable where base2=2",
+    "expected": "DELETE FROM pktable WHERE base2 = 2"
   },
   {
     "comment": "foreign_key - Statement 162",
-    "query": "create table pktable_base(base1 int not null)"
+    "query": "create table pktable_base(base1 int not null)",
+    "expected": "CREATE TABLE pktable_base (base1 INT NOT NULL)"
   },
   {
     "comment": "foreign_key - Statement 163",
-    "query": "create table pktable(ptest1 inet, primary key(base1, ptest1)) inherits (pktable_base)"
+    "query": "create table pktable(ptest1 inet, primary key(base1, ptest1)) inherits (pktable_base)",
+    "expected": "CREATE TABLE pktable (ptest1 inet, PRIMARY KEY (base1, ptest1)) INHERITS (pktable_base)"
   },
   {
     "comment": "foreign_key - Statement 164",
-    "query": "create table fktable(ftest1 cidr, ftest2 int[], foreign key (ftest1, ftest2) references pktable)"
+    "query": "create table fktable(ftest1 cidr, ftest2 int[], foreign key (ftest1, ftest2) references pktable)",
+    "expected": "CREATE TABLE fktable (ftest1 cidr, ftest2 INT[], FOREIGN KEY (ftest1, ftest2) REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 165",
-    "query": "create table fktable(ftest1 cidr, ftest2 int[], foreign key (ftest1, ftest2) references pktable(base1, ptest1))"
+    "query": "create table fktable(ftest1 cidr, ftest2 int[], foreign key (ftest1, ftest2) references pktable(base1, ptest1))",
+    "expected": "CREATE TABLE fktable (ftest1 cidr, ftest2 INT[], FOREIGN KEY (ftest1, ftest2) REFERENCES pktable(base1, ptest1))"
   },
   {
     "comment": "foreign_key - Statement 166",
-    "query": "create table fktable(ftest1 int, ftest2 inet, foreign key(ftest2, ftest1) references pktable)"
+    "query": "create table fktable(ftest1 int, ftest2 inet, foreign key(ftest2, ftest1) references pktable)",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 inet, FOREIGN KEY (ftest2, ftest1) REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 167",
-    "query": "create table fktable(ftest1 int, ftest2 inet, foreign key(ftest2, ftest1) references pktable(base1, ptest1))"
+    "query": "create table fktable(ftest1 int, ftest2 inet, foreign key(ftest2, ftest1) references pktable(base1, ptest1))",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 inet, FOREIGN KEY (ftest2, ftest1) REFERENCES pktable(base1, ptest1))"
   },
   {
     "comment": "foreign_key - Statement 168",
-    "query": "create table fktable(ftest1 int, ftest2 inet, foreign key(ftest1, ftest2) references pktable(ptest1, base1))"
+    "query": "create table fktable(ftest1 int, ftest2 inet, foreign key(ftest1, ftest2) references pktable(ptest1, base1))",
+    "expected": "CREATE TABLE fktable (ftest1 INT, ftest2 inet, FOREIGN KEY (ftest1, ftest2) REFERENCES pktable(ptest1, base1))"
   },
   {
     "comment": "foreign_key - Statement 169",
-    "query": "create table pktable(ptest1 inet, ptest2 inet[], primary key(base1, ptest1), foreign key(base2, ptest2) references pktable(base1, ptest1)) inherits (pktable_base)"
+    "query": "create table pktable(ptest1 inet, ptest2 inet[], primary key(base1, ptest1), foreign key(base2, ptest2) references pktable(base1, ptest1)) inherits (pktable_base)",
+    "expected": "CREATE TABLE pktable (ptest1 inet, ptest2 inet[], PRIMARY KEY (base1, ptest1), FOREIGN KEY (base2, ptest2) REFERENCES pktable(base1, ptest1)) INHERITS (pktable_base)"
   },
   {
     "comment": "foreign_key - Statement 170",
-    "query": "create table pktable(ptest1 inet, ptest2 inet, primary key(base1, ptest1), foreign key(base2, ptest2) references pktable(ptest1, base1)) inherits (pktable_base)"
+    "query": "create table pktable(ptest1 inet, ptest2 inet, primary key(base1, ptest1), foreign key(base2, ptest2) references pktable(ptest1, base1)) inherits (pktable_base)",
+    "expected": "CREATE TABLE pktable (ptest1 inet, ptest2 inet, PRIMARY KEY (base1, ptest1), FOREIGN KEY (base2, ptest2) REFERENCES pktable(ptest1, base1)) INHERITS (pktable_base)"
   },
   {
     "comment": "foreign_key - Statement 171",
-    "query": "create table pktable(ptest1 inet, ptest2 inet, primary key(base1, ptest1), foreign key(ptest2, base2) references pktable(base1, ptest1)) inherits (pktable_base)"
+    "query": "create table pktable(ptest1 inet, ptest2 inet, primary key(base1, ptest1), foreign key(ptest2, base2) references pktable(base1, ptest1)) inherits (pktable_base)",
+    "expected": "CREATE TABLE pktable (ptest1 inet, ptest2 inet, PRIMARY KEY (base1, ptest1), FOREIGN KEY (ptest2, base2) REFERENCES pktable(base1, ptest1)) INHERITS (pktable_base)"
   },
   {
     "comment": "foreign_key - Statement 172",
-    "query": "CREATE TABLE pktable ( id\t\tINT4 PRIMARY KEY, other\tINT4 )"
+    "query": "CREATE TABLE pktable ( id\t\tINT4 PRIMARY KEY, other\tINT4 )",
+    "expected": "CREATE TABLE pktable (id INT PRIMARY KEY, other INT)"
   },
   {
     "comment": "foreign_key - Statement 173",
-    "query": "CREATE TABLE fktable ( id\t\tINT4 PRIMARY KEY, fk\t\tINT4 REFERENCES pktable DEFERRABLE )"
+    "query": "CREATE TABLE fktable ( id\t\tINT4 PRIMARY KEY, fk\t\tINT4 REFERENCES pktable DEFERRABLE )",
+    "expected": "CREATE TABLE fktable (id INT PRIMARY KEY, fk INT REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 174",
@@ -721,7 +894,8 @@
   },
   {
     "comment": "foreign_key - Statement 181",
-    "query": "CREATE TABLE fktable ( id\t\tINT4 PRIMARY KEY, fk\t\tINT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED )"
+    "query": "CREATE TABLE fktable ( id\t\tINT4 PRIMARY KEY, fk\t\tINT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED )",
+    "expected": "CREATE TABLE fktable (id INT PRIMARY KEY, fk INT REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 182",
@@ -753,11 +927,13 @@
   },
   {
     "comment": "foreign_key - Statement 189",
-    "query": "CREATE TEMP TABLE pktable ( id1     INT4 PRIMARY KEY, id2     VARCHAR(4) UNIQUE, id3     REAL UNIQUE, UNIQUE(id1, id2, id3) )"
+    "query": "CREATE TEMP TABLE pktable ( id1     INT4 PRIMARY KEY, id2     VARCHAR(4) UNIQUE, id3     REAL UNIQUE, UNIQUE(id1, id2, id3) )",
+    "expected": "CREATE TEMPORARY TABLE pktable (id1 INT PRIMARY KEY, id2 VARCHAR(4) UNIQUE, id3 REAL UNIQUE, UNIQUE (id1, id2, id3))"
   },
   {
     "comment": "foreign_key - Statement 190",
-    "query": "CREATE TEMP TABLE fktable ( x1      INT4 REFERENCES pktable(id1), x2      VARCHAR(4) REFERENCES pktable(id2), x3      REAL REFERENCES pktable(id3), x4      TEXT, x5      INT2 )"
+    "query": "CREATE TEMP TABLE fktable ( x1      INT4 REFERENCES pktable(id1), x2      VARCHAR(4) REFERENCES pktable(id2), x3      REAL REFERENCES pktable(id3), x4      TEXT, x5      INT2 )",
+    "expected": "CREATE TEMPORARY TABLE fktable (x1 INT REFERENCES pktable(id1), x2 VARCHAR(4) REFERENCES pktable(id2), x3 REAL REFERENCES pktable(id3), x4 TEXT, x5 SMALLINT)"
   },
   {
     "comment": "foreign_key - Statement 191",
@@ -789,31 +965,38 @@
   },
   {
     "comment": "foreign_key - Statement 198",
-    "query": "ALTER TABLE fktable ADD CONSTRAINT fk_123_123 FOREIGN KEY (x1,x2,x3) REFERENCES pktable(id1,id2,id3)"
+    "query": "ALTER TABLE fktable ADD CONSTRAINT fk_123_123 FOREIGN KEY (x1,x2,x3) REFERENCES pktable(id1,id2,id3)",
+    "expected": "ALTER TABLE fktable ADD CONSTRAINT fk_123_123 FOREIGN KEY (x1, x2, x3) REFERENCES pktable(id1, id2, id3)"
   },
   {
     "comment": "foreign_key - Statement 199",
-    "query": "ALTER TABLE fktable ADD CONSTRAINT fk_213_213 FOREIGN KEY (x2,x1,x3) REFERENCES pktable(id2,id1,id3)"
+    "query": "ALTER TABLE fktable ADD CONSTRAINT fk_213_213 FOREIGN KEY (x2,x1,x3) REFERENCES pktable(id2,id1,id3)",
+    "expected": "ALTER TABLE fktable ADD CONSTRAINT fk_213_213 FOREIGN KEY (x2, x1, x3) REFERENCES pktable(id2, id1, id3)"
   },
   {
     "comment": "foreign_key - Statement 200",
-    "query": "ALTER TABLE fktable ADD CONSTRAINT fk_253_213 FOREIGN KEY (x2,x5,x3) REFERENCES pktable(id2,id1,id3)"
+    "query": "ALTER TABLE fktable ADD CONSTRAINT fk_253_213 FOREIGN KEY (x2,x5,x3) REFERENCES pktable(id2,id1,id3)",
+    "expected": "ALTER TABLE fktable ADD CONSTRAINT fk_253_213 FOREIGN KEY (x2, x5, x3) REFERENCES pktable(id2, id1, id3)"
   },
   {
     "comment": "foreign_key - Statement 201",
-    "query": "ALTER TABLE fktable ADD CONSTRAINT fk_123_231 FOREIGN KEY (x1,x2,x3) REFERENCES pktable(id2,id3,id1)"
+    "query": "ALTER TABLE fktable ADD CONSTRAINT fk_123_231 FOREIGN KEY (x1,x2,x3) REFERENCES pktable(id2,id3,id1)",
+    "expected": "ALTER TABLE fktable ADD CONSTRAINT fk_123_231 FOREIGN KEY (x1, x2, x3) REFERENCES pktable(id2, id3, id1)"
   },
   {
     "comment": "foreign_key - Statement 202",
-    "query": "ALTER TABLE fktable ADD CONSTRAINT fk_241_132 FOREIGN KEY (x2,x4,x1) REFERENCES pktable(id1,id3,id2)"
+    "query": "ALTER TABLE fktable ADD CONSTRAINT fk_241_132 FOREIGN KEY (x2,x4,x1) REFERENCES pktable(id1,id3,id2)",
+    "expected": "ALTER TABLE fktable ADD CONSTRAINT fk_241_132 FOREIGN KEY (x2, x4, x1) REFERENCES pktable(id1, id3, id2)"
   },
   {
     "comment": "foreign_key - Statement 203",
-    "query": "CREATE TEMP TABLE pktable ( id int primary key, other int )"
+    "query": "CREATE TEMP TABLE pktable ( id int primary key, other int )",
+    "expected": "CREATE TEMPORARY TABLE pktable (id INT PRIMARY KEY, other INT)"
   },
   {
     "comment": "foreign_key - Statement 204",
-    "query": "CREATE TEMP TABLE fktable ( id int primary key, fk int references pktable deferrable initially deferred )"
+    "query": "CREATE TEMP TABLE fktable ( id int primary key, fk int references pktable deferrable initially deferred )",
+    "expected": "CREATE TEMPORARY TABLE fktable (id INT PRIMARY KEY, fk INT REFERENCES pktable)"
   },
   {
     "comment": "foreign_key - Statement 205",
@@ -837,7 +1020,8 @@
   },
   {
     "comment": "foreign_key - Statement 210",
-    "query": "ROLLBACK TO savept1"
+    "query": "ROLLBACK TO savept1",
+    "expected": "ROLLBACK TO SAVEPOINT savept1"
   },
   {
     "comment": "foreign_key - Statement 211",
@@ -857,19 +1041,23 @@
   },
   {
     "comment": "foreign_key - Statement 215",
-    "query": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY DEFERRED"
+    "query": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY DEFERRED",
+    "expected": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE"
   },
   {
     "comment": "foreign_key - Statement 216",
-    "query": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NO INHERIT"
+    "query": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NO INHERIT",
+    "expected": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE"
   },
   {
     "comment": "foreign_key - Statement 217",
-    "query": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT VALID"
+    "query": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT VALID",
+    "expected": "ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE"
   },
   {
     "comment": "foreign_key - Statement 218",
-    "query": "CREATE TEMP TABLE users ( id INT PRIMARY KEY, name VARCHAR NOT NULL )"
+    "query": "CREATE TEMP TABLE users ( id INT PRIMARY KEY, name VARCHAR NOT NULL )",
+    "expected": "CREATE TEMPORARY TABLE users (id INT PRIMARY KEY, name VARCHAR NOT NULL)"
   },
   {
     "comment": "foreign_key - Statement 219",
@@ -885,19 +1073,23 @@
   },
   {
     "comment": "foreign_key - Statement 222",
-    "query": "CREATE TEMP TABLE tasks ( id INT PRIMARY KEY, owner INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL, worker INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL, checked_by INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL )"
+    "query": "CREATE TEMP TABLE tasks ( id INT PRIMARY KEY, owner INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL, worker INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL, checked_by INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL )",
+    "expected": "CREATE TEMPORARY TABLE tasks (id INT PRIMARY KEY, owner INT REFERENCES users ON DELETE SET NULL ON UPDATE CASCADE, worker INT REFERENCES users ON DELETE SET NULL ON UPDATE CASCADE, checked_by INT REFERENCES users ON DELETE SET NULL ON UPDATE CASCADE)"
   },
   {
     "comment": "foreign_key - Statement 223",
-    "query": "INSERT INTO tasks VALUES (1,1,NULL,NULL)"
+    "query": "INSERT INTO tasks VALUES (1,1,NULL,NULL)",
+    "expected": "INSERT INTO tasks VALUES (1, 1, NULL, NULL)"
   },
   {
     "comment": "foreign_key - Statement 224",
-    "query": "INSERT INTO tasks VALUES (2,2,2,NULL)"
+    "query": "INSERT INTO tasks VALUES (2,2,2,NULL)",
+    "expected": "INSERT INTO tasks VALUES (2, 2, 2, NULL)"
   },
   {
     "comment": "foreign_key - Statement 225",
-    "query": "INSERT INTO tasks VALUES (3,3,3,3)"
+    "query": "INSERT INTO tasks VALUES (3,3,3,3)",
+    "expected": "INSERT INTO tasks VALUES (3, 3, 3, 3)"
   },
   {
     "comment": "foreign_key - Statement 226",
@@ -913,7 +1105,8 @@
   },
   {
     "comment": "foreign_key - Statement 229",
-    "query": "UPDATE tasks set id=id WHERE id=2"
+    "query": "UPDATE tasks set id=id WHERE id=2",
+    "expected": "UPDATE tasks SET id = id WHERE id = 2"
   },
   {
     "comment": "foreign_key - Statement 230",
@@ -921,235 +1114,293 @@
   },
   {
     "comment": "foreign_key - Statement 231",
-    "query": "create temp table selfref ( a int primary key, b int, foreign key (b) references selfref (a) on update cascade on delete cascade )"
+    "query": "create temp table selfref ( a int primary key, b int, foreign key (b) references selfref (a) on update cascade on delete cascade )",
+    "expected": "CREATE TEMPORARY TABLE selfref (a INT PRIMARY KEY, b INT, FOREIGN KEY (b) REFERENCES selfref(a) ON DELETE CASCADE ON UPDATE CASCADE)"
   },
   {
     "comment": "foreign_key - Statement 232",
-    "query": "insert into selfref (a, b) values (0, 0), (1, 1)"
+    "query": "insert into selfref (a, b) values (0, 0), (1, 1)",
+    "expected": "INSERT INTO selfref (a, b) VALUES (0, 0), (1, 1)"
   },
   {
     "comment": "foreign_key - Statement 233",
-    "query": "update selfref set a = 123 where a = 0"
+    "query": "update selfref set a = 123 where a = 0",
+    "expected": "UPDATE selfref SET a = 123 WHERE a = 0"
   },
   {
     "comment": "foreign_key - Statement 234",
-    "query": "select a, b from selfref"
+    "query": "select a, b from selfref",
+    "expected": "SELECT a, b FROM selfref"
   },
   {
     "comment": "foreign_key - Statement 235",
-    "query": "update selfref set a = 456 where a = 123"
+    "query": "update selfref set a = 456 where a = 123",
+    "expected": "UPDATE selfref SET a = 456 WHERE a = 123"
   },
   {
     "comment": "foreign_key - Statement 236",
-    "query": "create temp table defp (f1 int primary key)"
+    "query": "create temp table defp (f1 int primary key)",
+    "expected": "CREATE TEMPORARY TABLE defp (f1 INT PRIMARY KEY)"
   },
   {
     "comment": "foreign_key - Statement 237",
-    "query": "create temp table defc (f1 int default 0 references defp on delete set default)"
+    "query": "create temp table defc (f1 int default 0 references defp on delete set default)",
+    "expected": "CREATE TEMPORARY TABLE defc (f1 INT DEFAULT 0 REFERENCES defp ON DELETE SET DEFAULT)"
   },
   {
     "comment": "foreign_key - Statement 238",
-    "query": "insert into defp values (0), (1), (2)"
+    "query": "insert into defp values (0), (1), (2)",
+    "expected": "INSERT INTO defp VALUES (0), (1), (2)"
   },
   {
     "comment": "foreign_key - Statement 239",
-    "query": "insert into defc values (2)"
+    "query": "insert into defc values (2)",
+    "expected": "INSERT INTO defc VALUES (2)"
   },
   {
     "comment": "foreign_key - Statement 240",
-    "query": "select * from defc"
+    "query": "select * from defc",
+    "expected": "SELECT * FROM defc"
   },
   {
     "comment": "foreign_key - Statement 241",
-    "query": "delete from defp where f1 = 2"
+    "query": "delete from defp where f1 = 2",
+    "expected": "DELETE FROM defp WHERE f1 = 2"
   },
   {
     "comment": "foreign_key - Statement 242",
-    "query": "delete from defp where f1 = 0"
+    "query": "delete from defp where f1 = 0",
+    "expected": "DELETE FROM defp WHERE f1 = 0"
   },
   {
     "comment": "foreign_key - Statement 243",
-    "query": "alter table defc alter column f1 set default 1"
+    "query": "alter table defc alter column f1 set default 1",
+    "expected": "ALTER TABLE defc ALTER COLUMN f1 SET DEFAULT 1"
   },
   {
     "comment": "foreign_key - Statement 244",
-    "query": "delete from defp where f1 = 1"
+    "query": "delete from defp where f1 = 1",
+    "expected": "DELETE FROM defp WHERE f1 = 1"
   },
   {
     "comment": "foreign_key - Statement 245",
-    "query": "create temp table pp (f1 int primary key)"
+    "query": "create temp table pp (f1 int primary key)",
+    "expected": "CREATE TEMPORARY TABLE pp (f1 INT PRIMARY KEY)"
   },
   {
     "comment": "foreign_key - Statement 246",
-    "query": "create temp table cc (f1 int references pp on update no action on delete no action)"
+    "query": "create temp table cc (f1 int references pp on update no action on delete no action)",
+    "expected": "CREATE TEMPORARY TABLE cc (f1 INT REFERENCES pp)"
   },
   {
     "comment": "foreign_key - Statement 247",
-    "query": "insert into pp values(12)"
+    "query": "insert into pp values(12)",
+    "expected": "INSERT INTO pp VALUES (12)"
   },
   {
     "comment": "foreign_key - Statement 248",
-    "query": "insert into pp values(11)"
+    "query": "insert into pp values(11)",
+    "expected": "INSERT INTO pp VALUES (11)"
   },
   {
     "comment": "foreign_key - Statement 249",
-    "query": "update pp set f1=f1+1"
+    "query": "update pp set f1=f1+1",
+    "expected": "UPDATE pp SET f1 = f1 + 1"
   },
   {
     "comment": "foreign_key - Statement 250",
-    "query": "insert into cc values(13)"
+    "query": "insert into cc values(13)",
+    "expected": "INSERT INTO cc VALUES (13)"
   },
   {
     "comment": "foreign_key - Statement 251",
-    "query": "delete from pp where f1 = 13"
+    "query": "delete from pp where f1 = 13",
+    "expected": "DELETE FROM pp WHERE f1 = 13"
   },
   {
     "comment": "foreign_key - Statement 252",
-    "query": "drop table pp, cc"
+    "query": "drop table pp, cc",
+    "expected": "DROP TABLE pp, cc"
   },
   {
     "comment": "foreign_key - Statement 253",
-    "query": "create temp table cc (f1 int references pp on update restrict on delete restrict)"
+    "query": "create temp table cc (f1 int references pp on update restrict on delete restrict)",
+    "expected": "CREATE TEMPORARY TABLE cc (f1 INT REFERENCES pp ON DELETE RESTRICT ON UPDATE RESTRICT)"
   },
   {
     "comment": "foreign_key - Statement 254",
-    "query": "create temp table t1 (a integer primary key, b text)"
+    "query": "create temp table t1 (a integer primary key, b text)",
+    "expected": "CREATE TEMPORARY TABLE t1 (a INT PRIMARY KEY, b TEXT)"
   },
   {
     "comment": "foreign_key - Statement 255",
-    "query": "create temp table t2 (a integer primary key, b integer references t1)"
+    "query": "create temp table t2 (a integer primary key, b integer references t1)",
+    "expected": "CREATE TEMPORARY TABLE t2 (a INT PRIMARY KEY, b INT REFERENCES t1)"
   },
   {
     "comment": "foreign_key - Statement 256",
-    "query": "create rule r1 as on delete to t1 do delete from t2 where t2.b = old.a"
+    "query": "create rule r1 as on delete to t1 do delete from t2 where t2.b = old.a",
+    "expected": "CREATE RULE r1 AS ON DELETE TO t1 DO DELETE FROM t2 WHERE t2.b = old.a"
   },
   {
     "comment": "foreign_key - Statement 257",
-    "query": "explain (costs off) delete from t1 where a = 1"
+    "query": "explain (costs off) delete from t1 where a = 1",
+    "expected": "EXPLAIN (COSTS false) DELETE FROM t1 WHERE a = 1"
   },
   {
     "comment": "foreign_key - Statement 258",
-    "query": "delete from t1 where a = 1"
+    "query": "delete from t1 where a = 1",
+    "expected": "DELETE FROM t1 WHERE a = 1"
   },
   {
     "comment": "foreign_key - Statement 259",
-    "query": "create table pktable2 (a int, b int, c int, d int, e int, primary key (d, e))"
+    "query": "create table pktable2 (a int, b int, c int, d int, e int, primary key (d, e))",
+    "expected": "CREATE TABLE pktable2 (a INT, b INT, c INT, d INT, e INT, PRIMARY KEY (d, e))"
   },
   {
     "comment": "foreign_key - Statement 260",
-    "query": "create table fktable2 (d int, e int, foreign key (d, e) references pktable2)"
+    "query": "create table fktable2 (d int, e int, foreign key (d, e) references pktable2)",
+    "expected": "CREATE TABLE fktable2 (d INT, e INT, FOREIGN KEY (d, e) REFERENCES pktable2)"
   },
   {
     "comment": "foreign_key - Statement 261",
-    "query": "insert into pktable2 values (1, 2, 3, 4, 5)"
+    "query": "insert into pktable2 values (1, 2, 3, 4, 5)",
+    "expected": "INSERT INTO pktable2 VALUES (1, 2, 3, 4, 5)"
   },
   {
     "comment": "foreign_key - Statement 262",
-    "query": "insert into fktable2 values (4, 5)"
+    "query": "insert into fktable2 values (4, 5)",
+    "expected": "INSERT INTO fktable2 VALUES (4, 5)"
   },
   {
     "comment": "foreign_key - Statement 263",
-    "query": "delete from pktable2"
+    "query": "delete from pktable2",
+    "expected": "DELETE FROM pktable2"
   },
   {
     "comment": "foreign_key - Statement 264",
-    "query": "update pktable2 set d = 5"
+    "query": "update pktable2 set d = 5",
+    "expected": "UPDATE pktable2 SET d = 5"
   },
   {
     "comment": "foreign_key - Statement 265",
-    "query": "drop table pktable2, fktable2"
+    "query": "drop table pktable2, fktable2",
+    "expected": "DROP TABLE pktable2, fktable2"
   },
   {
     "comment": "foreign_key - Statement 266",
-    "query": "create table pktable1 (a int primary key)"
+    "query": "create table pktable1 (a int primary key)",
+    "expected": "CREATE TABLE pktable1 (a INT PRIMARY KEY)"
   },
   {
     "comment": "foreign_key - Statement 267",
-    "query": "create table pktable2 (a int, b int, primary key (a, b))"
+    "query": "create table pktable2 (a int, b int, primary key (a, b))",
+    "expected": "CREATE TABLE pktable2 (a INT, b INT, PRIMARY KEY (a, b))"
   },
   {
     "comment": "foreign_key - Statement 268",
-    "query": "create table fktable2 ( a int, b int, very_very_long_column_name_to_exceed_63_characters int, foreign key (very_very_long_column_name_to_exceed_63_characters) references pktable1, foreign key (a, very_very_long_column_name_to_exceed_63_characters) references pktable2, foreign key (a, very_very_long_column_name_to_exceed_63_characters) references pktable2 )"
+    "query": "create table fktable2 ( a int, b int, very_very_long_column_name_to_exceed_63_characters int, foreign key (very_very_long_column_name_to_exceed_63_characters) references pktable1, foreign key (a, very_very_long_column_name_to_exceed_63_characters) references pktable2, foreign key (a, very_very_long_column_name_to_exceed_63_characters) references pktable2 )",
+    "expected": "CREATE TABLE fktable2 (a INT, b INT, very_very_long_column_name_to_exceed_63_characters INT, FOREIGN KEY (very_very_long_column_name_to_exceed_63_characters) REFERENCES pktable1, FOREIGN KEY (a, very_very_long_column_name_to_exceed_63_characters) REFERENCES pktable2, FOREIGN KEY (a, very_very_long_column_name_to_exceed_63_characters) REFERENCES pktable2)"
   },
   {
     "comment": "foreign_key - Statement 269",
-    "query": "select conname from pg_constraint where conrelid = 'fktable2'::regclass order by conname"
+    "query": "select conname from pg_constraint where conrelid = 'fktable2'::regclass order by conname",
+    "expected": "SELECT conname FROM pg_constraint WHERE conrelid = CAST('fktable2' AS regclass) ORDER BY conname"
   },
   {
     "comment": "foreign_key - Statement 270",
-    "query": "drop table pktable1, pktable2, fktable2"
+    "query": "drop table pktable1, pktable2, fktable2",
+    "expected": "DROP TABLE pktable1, pktable2, fktable2"
   },
   {
     "comment": "foreign_key - Statement 271",
-    "query": "create table pktable2(f1 int primary key)"
+    "query": "create table pktable2(f1 int primary key)",
+    "expected": "CREATE TABLE pktable2 (f1 INT PRIMARY KEY)"
   },
   {
     "comment": "foreign_key - Statement 272",
-    "query": "create table fktable2(f1 int references pktable2 deferrable initially deferred)"
+    "query": "create table fktable2(f1 int references pktable2 deferrable initially deferred)",
+    "expected": "CREATE TABLE fktable2 (f1 INT REFERENCES pktable2)"
   },
   {
     "comment": "foreign_key - Statement 273",
-    "query": "insert into pktable2 values(1)"
+    "query": "insert into pktable2 values(1)",
+    "expected": "INSERT INTO pktable2 VALUES (1)"
   },
   {
     "comment": "foreign_key - Statement 274",
-    "query": "insert into fktable2 values(1)"
+    "query": "insert into fktable2 values(1)",
+    "expected": "INSERT INTO fktable2 VALUES (1)"
   },
   {
     "comment": "foreign_key - Statement 275",
-    "query": "savepoint x"
+    "query": "savepoint x",
+    "expected": "SAVEPOINT x"
   },
   {
     "comment": "foreign_key - Statement 276",
-    "query": "delete from fktable2"
+    "query": "delete from fktable2",
+    "expected": "DELETE FROM fktable2"
   },
   {
     "comment": "foreign_key - Statement 277",
-    "query": "rollback to x"
+    "query": "rollback to x",
+    "expected": "ROLLBACK TO SAVEPOINT x"
   },
   {
     "comment": "foreign_key - Statement 278",
-    "query": "insert into fktable2 values(2)"
+    "query": "insert into fktable2 values(2)",
+    "expected": "INSERT INTO fktable2 VALUES (2)"
   },
   {
     "comment": "foreign_key - Statement 279",
-    "query": "alter table fktable2 drop constraint fktable2_f1_fkey"
+    "query": "alter table fktable2 drop constraint fktable2_f1_fkey",
+    "expected": "ALTER TABLE fktable2 DROP CONSTRAINT fktable2_f1_fkey"
   },
   {
     "comment": "foreign_key - Statement 280",
-    "query": "delete from pktable2 where f1 = 1"
+    "query": "delete from pktable2 where f1 = 1",
+    "expected": "DELETE FROM pktable2 WHERE f1 = 1"
   },
   {
     "comment": "foreign_key - Statement 281",
-    "query": "create table pktable2 (a float8, b float8, primary key (a, b))"
+    "query": "create table pktable2 (a float8, b float8, primary key (a, b))",
+    "expected": "CREATE TABLE pktable2 (a FLOAT8, b FLOAT8, PRIMARY KEY (a, b))"
   },
   {
     "comment": "foreign_key - Statement 282",
-    "query": "create table fktable2 (x float8, y float8, foreign key (x, y) references pktable2 (a, b) on update cascade)"
+    "query": "create table fktable2 (x float8, y float8, foreign key (x, y) references pktable2 (a, b) on update cascade)",
+    "expected": "CREATE TABLE fktable2 (x FLOAT8, y FLOAT8, FOREIGN KEY (x, y) REFERENCES pktable2(a, b) ON UPDATE CASCADE)"
   },
   {
     "comment": "foreign_key - Statement 283",
-    "query": "insert into pktable2 values ('-0', '-0')"
+    "query": "insert into pktable2 values ('-0', '-0')",
+    "expected": "INSERT INTO pktable2 VALUES ('-0', '-0')"
   },
   {
     "comment": "foreign_key - Statement 284",
-    "query": "insert into fktable2 values ('-0', '-0')"
+    "query": "insert into fktable2 values ('-0', '-0')",
+    "expected": "INSERT INTO fktable2 VALUES ('-0', '-0')"
   },
   {
     "comment": "foreign_key - Statement 285",
-    "query": "select * from pktable2"
+    "query": "select * from pktable2",
+    "expected": "SELECT * FROM pktable2"
   },
   {
     "comment": "foreign_key - Statement 286",
-    "query": "select * from fktable2"
+    "query": "select * from fktable2",
+    "expected": "SELECT * FROM fktable2"
   },
   {
     "comment": "foreign_key - Statement 287",
-    "query": "update pktable2 set a = '0' where a = '-0'"
+    "query": "update pktable2 set a = '0' where a = '-0'",
+    "expected": "UPDATE pktable2 SET a = '0' WHERE a = '-0'"
   },
   {
     "comment": "foreign_key - Statement 288",
-    "query": "CREATE TABLE fk_notpartitioned_pk (fdrop1 int, a int, fdrop2 int, b int, PRIMARY KEY (a, b))"
+    "query": "CREATE TABLE fk_notpartitioned_pk (fdrop1 int, a int, fdrop2 int, b int, PRIMARY KEY (a, b))",
+    "expected": "CREATE TABLE fk_notpartitioned_pk (fdrop1 INT, a INT, fdrop2 INT, b INT, PRIMARY KEY (a, b))"
   },
   {
     "comment": "foreign_key - Statement 289",
@@ -1157,7 +1408,8 @@
   },
   {
     "comment": "foreign_key - Statement 290",
-    "query": "CREATE TABLE fk_partitioned_fk (b int, fdrop1 int, a int) PARTITION BY RANGE (a, b)"
+    "query": "CREATE TABLE fk_partitioned_fk (b int, fdrop1 int, a int) PARTITION BY RANGE (a, b)",
+    "expected": "CREATE TABLE fk_partitioned_fk (b INT, fdrop1 INT, a INT) PARTITION BY range (a, b)"
   },
   {
     "comment": "foreign_key - Statement 291",
@@ -1165,7 +1417,8 @@
   },
   {
     "comment": "foreign_key - Statement 292",
-    "query": "CREATE TABLE fk_partitioned_fk_1 (fdrop1 int, fdrop2 int, a int, fdrop3 int, b int)"
+    "query": "CREATE TABLE fk_partitioned_fk_1 (fdrop1 int, fdrop2 int, a int, fdrop3 int, b int)",
+    "expected": "CREATE TABLE fk_partitioned_fk_1 (fdrop1 INT, fdrop2 INT, a INT, fdrop3 INT, b INT)"
   },
   {
     "comment": "foreign_key - Statement 293",
@@ -1173,7 +1426,8 @@
   },
   {
     "comment": "foreign_key - Statement 294",
-    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_1 FOR VALUES FROM (0,0) TO (1000,1000)"
+    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_1 FOR VALUES FROM (0,0) TO (1000,1000)",
+    "expected": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_1 FOR VALUES FROM (0, 0) TO (1000, 1000)"
   },
   {
     "comment": "foreign_key - Statement 295",
@@ -1181,7 +1435,8 @@
   },
   {
     "comment": "foreign_key - Statement 296",
-    "query": "CREATE TABLE fk_partitioned_fk_2 (b int, fdrop1 int, fdrop2 int, a int)"
+    "query": "CREATE TABLE fk_partitioned_fk_2 (b int, fdrop1 int, fdrop2 int, a int)",
+    "expected": "CREATE TABLE fk_partitioned_fk_2 (b INT, fdrop1 INT, fdrop2 INT, a INT)"
   },
   {
     "comment": "foreign_key - Statement 297",
@@ -1189,11 +1444,13 @@
   },
   {
     "comment": "foreign_key - Statement 298",
-    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_2 FOR VALUES FROM (1000,1000) TO (2000,2000)"
+    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_2 FOR VALUES FROM (1000,1000) TO (2000,2000)",
+    "expected": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_2 FOR VALUES FROM (1000, 1000) TO (2000, 2000)"
   },
   {
     "comment": "foreign_key - Statement 299",
-    "query": "CREATE TABLE fk_partitioned_fk_3 (fdrop1 int, fdrop2 int, fdrop3 int, fdrop4 int, b int, a int) PARTITION BY HASH (a)"
+    "query": "CREATE TABLE fk_partitioned_fk_3 (fdrop1 int, fdrop2 int, fdrop3 int, fdrop4 int, b int, a int) PARTITION BY HASH (a)",
+    "expected": "CREATE TABLE fk_partitioned_fk_3 (fdrop1 INT, fdrop2 INT, fdrop3 INT, fdrop4 INT, b INT, a INT) PARTITION BY hash (a)"
   },
   {
     "comment": "foreign_key - Statement 300",
@@ -1201,15 +1458,18 @@
   },
   {
     "comment": "foreign_key - Statement 301",
-    "query": "CREATE TABLE fk_partitioned_fk_3_0 PARTITION OF fk_partitioned_fk_3 FOR VALUES WITH (MODULUS 5, REMAINDER 0)"
+    "query": "CREATE TABLE fk_partitioned_fk_3_0 PARTITION OF fk_partitioned_fk_3 FOR VALUES WITH (MODULUS 5, REMAINDER 0)",
+    "expected": "CREATE TABLE fk_partitioned_fk_3_0 PARTITION OF fk_partitioned_fk_3 FOR VALUES WITH (modulus 5, remainder 0)"
   },
   {
     "comment": "foreign_key - Statement 302",
-    "query": "CREATE TABLE fk_partitioned_fk_3_1 PARTITION OF fk_partitioned_fk_3 FOR VALUES WITH (MODULUS 5, REMAINDER 1)"
+    "query": "CREATE TABLE fk_partitioned_fk_3_1 PARTITION OF fk_partitioned_fk_3 FOR VALUES WITH (MODULUS 5, REMAINDER 1)",
+    "expected": "CREATE TABLE fk_partitioned_fk_3_1 PARTITION OF fk_partitioned_fk_3 FOR VALUES WITH (modulus 5, remainder 1)"
   },
   {
     "comment": "foreign_key - Statement 303",
-    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_3 FOR VALUES FROM (2000,2000) TO (3000,3000)"
+    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_3 FOR VALUES FROM (2000,2000) TO (3000,3000)",
+    "expected": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_3 FOR VALUES FROM (2000, 2000) TO (3000, 3000)"
   },
   {
     "comment": "foreign_key - Statement 304",
@@ -1221,35 +1481,43 @@
   },
   {
     "comment": "foreign_key - Statement 306",
-    "query": "INSERT INTO fk_partitioned_fk (a,b) VALUES (500, 501)"
+    "query": "INSERT INTO fk_partitioned_fk (a,b) VALUES (500, 501)",
+    "expected": "INSERT INTO fk_partitioned_fk (a, b) VALUES (500, 501)"
   },
   {
     "comment": "foreign_key - Statement 307",
-    "query": "INSERT INTO fk_partitioned_fk_1 (a,b) VALUES (500, 501)"
+    "query": "INSERT INTO fk_partitioned_fk_1 (a,b) VALUES (500, 501)",
+    "expected": "INSERT INTO fk_partitioned_fk_1 (a, b) VALUES (500, 501)"
   },
   {
     "comment": "foreign_key - Statement 308",
-    "query": "INSERT INTO fk_partitioned_fk (a,b) VALUES (1500, 1501)"
+    "query": "INSERT INTO fk_partitioned_fk (a,b) VALUES (1500, 1501)",
+    "expected": "INSERT INTO fk_partitioned_fk (a, b) VALUES (1500, 1501)"
   },
   {
     "comment": "foreign_key - Statement 309",
-    "query": "INSERT INTO fk_partitioned_fk_2 (a,b) VALUES (1500, 1501)"
+    "query": "INSERT INTO fk_partitioned_fk_2 (a,b) VALUES (1500, 1501)",
+    "expected": "INSERT INTO fk_partitioned_fk_2 (a, b) VALUES (1500, 1501)"
   },
   {
     "comment": "foreign_key - Statement 310",
-    "query": "INSERT INTO fk_partitioned_fk (a,b) VALUES (2500, 2502)"
+    "query": "INSERT INTO fk_partitioned_fk (a,b) VALUES (2500, 2502)",
+    "expected": "INSERT INTO fk_partitioned_fk (a, b) VALUES (2500, 2502)"
   },
   {
     "comment": "foreign_key - Statement 311",
-    "query": "INSERT INTO fk_partitioned_fk_3 (a,b) VALUES (2500, 2502)"
+    "query": "INSERT INTO fk_partitioned_fk_3 (a,b) VALUES (2500, 2502)",
+    "expected": "INSERT INTO fk_partitioned_fk_3 (a, b) VALUES (2500, 2502)"
   },
   {
     "comment": "foreign_key - Statement 312",
-    "query": "INSERT INTO fk_partitioned_fk (a,b) VALUES (2501, 2503)"
+    "query": "INSERT INTO fk_partitioned_fk (a,b) VALUES (2501, 2503)",
+    "expected": "INSERT INTO fk_partitioned_fk (a, b) VALUES (2501, 2503)"
   },
   {
     "comment": "foreign_key - Statement 313",
-    "query": "INSERT INTO fk_partitioned_fk_3 (a,b) VALUES (2501, 2503)"
+    "query": "INSERT INTO fk_partitioned_fk_3 (a,b) VALUES (2501, 2503)",
+    "expected": "INSERT INTO fk_partitioned_fk_3 (a, b) VALUES (2501, 2503)"
   },
   {
     "comment": "foreign_key - Statement 314",
@@ -1261,7 +1529,8 @@
   },
   {
     "comment": "foreign_key - Statement 316",
-    "query": "INSERT INTO fk_notpartitioned_pk (a,b) VALUES (2502, 2503)"
+    "query": "INSERT INTO fk_notpartitioned_pk (a,b) VALUES (2502, 2503)",
+    "expected": "INSERT INTO fk_notpartitioned_pk (a, b) VALUES (2502, 2503)"
   },
   {
     "comment": "foreign_key - Statement 317",
@@ -1281,15 +1550,18 @@
   },
   {
     "comment": "foreign_key - Statement 321",
-    "query": "CREATE TABLE fk_notpartitioned_pk (a INT, PRIMARY KEY(a), CHECK (a > 0))"
+    "query": "CREATE TABLE fk_notpartitioned_pk (a INT, PRIMARY KEY(a), CHECK (a \u003e 0))",
+    "expected": "CREATE TABLE fk_notpartitioned_pk (a INT, PRIMARY KEY (a), CHECK (a \u003e 0))"
   },
   {
     "comment": "foreign_key - Statement 322",
-    "query": "CREATE TABLE fk_partitioned_fk (a INT REFERENCES fk_notpartitioned_pk(a) PRIMARY KEY) PARTITION BY RANGE(a)"
+    "query": "CREATE TABLE fk_partitioned_fk (a INT REFERENCES fk_notpartitioned_pk(a) PRIMARY KEY) PARTITION BY RANGE(a)",
+    "expected": "CREATE TABLE fk_partitioned_fk (a INT REFERENCES fk_notpartitioned_pk(a) PRIMARY KEY) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_key - Statement 323",
-    "query": "CREATE TABLE fk_partitioned_fk_1 PARTITION OF fk_partitioned_fk FOR VALUES FROM (MINVALUE) TO (MAXVALUE)"
+    "query": "CREATE TABLE fk_partitioned_fk_1 PARTITION OF fk_partitioned_fk FOR VALUES FROM (MINVALUE) TO (MAXVALUE)",
+    "expected": "CREATE TABLE fk_partitioned_fk_1 PARTITION OF fk_partitioned_fk FOR VALUES FROM (minvalue) TO (maxvalue)"
   },
   {
     "comment": "foreign_key - Statement 324",
@@ -1301,7 +1573,8 @@
   },
   {
     "comment": "foreign_key - Statement 326",
-    "query": "ALTER TABLE fk_notpartitioned_pk ALTER COLUMN a TYPE bigint"
+    "query": "ALTER TABLE fk_notpartitioned_pk ALTER COLUMN a TYPE bigint",
+    "expected": "ALTER TABLE fk_notpartitioned_pk ALTER COLUMN a TYPE BIGINT"
   },
   {
     "comment": "foreign_key - Statement 327",
@@ -1309,31 +1582,38 @@
   },
   {
     "comment": "foreign_key - Statement 328",
-    "query": "CREATE TABLE fk_notpartitioned_pk (a int, b int, primary key (a, b))"
+    "query": "CREATE TABLE fk_notpartitioned_pk (a int, b int, primary key (a, b))",
+    "expected": "CREATE TABLE fk_notpartitioned_pk (a INT, b INT, PRIMARY KEY (a, b))"
   },
   {
     "comment": "foreign_key - Statement 329",
-    "query": "CREATE TABLE fk_partitioned_fk (a int default 2501, b int default 142857) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE fk_partitioned_fk (a int default 2501, b int default 142857) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE fk_partitioned_fk (a INT DEFAULT 2501, b INT DEFAULT 142857) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 330",
-    "query": "CREATE TABLE fk_partitioned_fk_1 PARTITION OF fk_partitioned_fk FOR VALUES IN (NULL,500,501,502)"
+    "query": "CREATE TABLE fk_partitioned_fk_1 PARTITION OF fk_partitioned_fk FOR VALUES IN (NULL,500,501,502)",
+    "expected": "CREATE TABLE fk_partitioned_fk_1 PARTITION OF fk_partitioned_fk FOR VALUES IN (NULL, 500, 501, 502)"
   },
   {
     "comment": "foreign_key - Statement 331",
-    "query": "ALTER TABLE fk_partitioned_fk ADD FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk MATCH SIMPLE ON DELETE SET NULL ON UPDATE SET NULL"
+    "query": "ALTER TABLE fk_partitioned_fk ADD FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk MATCH SIMPLE ON DELETE SET NULL ON UPDATE SET NULL",
+    "expected": "ALTER TABLE fk_partitioned_fk ADD FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk ON DELETE SET NULL ON UPDATE SET NULL"
   },
   {
     "comment": "foreign_key - Statement 332",
-    "query": "CREATE TABLE fk_partitioned_fk_2 PARTITION OF fk_partitioned_fk FOR VALUES IN (1500,1502)"
+    "query": "CREATE TABLE fk_partitioned_fk_2 PARTITION OF fk_partitioned_fk FOR VALUES IN (1500,1502)",
+    "expected": "CREATE TABLE fk_partitioned_fk_2 PARTITION OF fk_partitioned_fk FOR VALUES IN (1500, 1502)"
   },
   {
     "comment": "foreign_key - Statement 333",
-    "query": "CREATE TABLE fk_partitioned_fk_3 (a int, b int)"
+    "query": "CREATE TABLE fk_partitioned_fk_3 (a int, b int)",
+    "expected": "CREATE TABLE fk_partitioned_fk_3 (a INT, b INT)"
   },
   {
     "comment": "foreign_key - Statement 334",
-    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_3 FOR VALUES IN (2500,2501,2502,2503)"
+    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_3 FOR VALUES IN (2500,2501,2502,2503)",
+    "expected": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_3 FOR VALUES IN (2500, 2501, 2502, 2503)"
   },
   {
     "comment": "foreign_key - Statement 335",
@@ -1353,7 +1633,8 @@
   },
   {
     "comment": "foreign_key - Statement 339",
-    "query": "INSERT INTO fk_partitioned_fk (a,b) VALUES (NULL, NULL)"
+    "query": "INSERT INTO fk_partitioned_fk (a,b) VALUES (NULL, NULL)",
+    "expected": "INSERT INTO fk_partitioned_fk (a, b) VALUES (NULL, NULL)"
   },
   {
     "comment": "foreign_key - Statement 340",
@@ -1361,7 +1642,8 @@
   },
   {
     "comment": "foreign_key - Statement 341",
-    "query": "CREATE TABLE fk_partitioned_fk_full (x int, y int) PARTITION BY RANGE (x)"
+    "query": "CREATE TABLE fk_partitioned_fk_full (x int, y int) PARTITION BY RANGE (x)",
+    "expected": "CREATE TABLE fk_partitioned_fk_full (x INT, y INT) PARTITION BY range (x)"
   },
   {
     "comment": "foreign_key - Statement 342",
@@ -1377,7 +1659,8 @@
   },
   {
     "comment": "foreign_key - Statement 345",
-    "query": "TRUNCATE fk_partitioned_fk_full"
+    "query": "TRUNCATE fk_partitioned_fk_full",
+    "expected": "TRUNCATE TABLE fk_partitioned_fk_full CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "foreign_key - Statement 346",
@@ -1385,7 +1668,8 @@
   },
   {
     "comment": "foreign_key - Statement 347",
-    "query": "SELECT tableoid::regclass, a, b FROM fk_partitioned_fk WHERE b IS NULL ORDER BY a"
+    "query": "SELECT tableoid::regclass, a, b FROM fk_partitioned_fk WHERE b IS NULL ORDER BY a",
+    "expected": "SELECT CAST(tableoid AS regclass), a, b FROM fk_partitioned_fk WHERE b IS NULL ORDER BY a"
   },
   {
     "comment": "foreign_key - Statement 348",
@@ -1397,7 +1681,8 @@
   },
   {
     "comment": "foreign_key - Statement 350",
-    "query": "SELECT count(*) FROM fk_partitioned_fk WHERE a IS NULL"
+    "query": "SELECT count(*) FROM fk_partitioned_fk WHERE a IS NULL",
+    "expected": "SELECT COUNT(*) FROM fk_partitioned_fk WHERE a IS NULL"
   },
   {
     "comment": "foreign_key - Statement 351",
@@ -1489,11 +1774,13 @@
   },
   {
     "comment": "foreign_key - Statement 373",
-    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_2 FOR VALUES IN (1500,1502)"
+    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_2 FOR VALUES IN (1500,1502)",
+    "expected": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_2 FOR VALUES IN (1500, 1502)"
   },
   {
     "comment": "foreign_key - Statement 374",
-    "query": "CREATE TABLE fk_partitioned_fk_2 (b int, c text, a int, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk ON UPDATE CASCADE ON DELETE CASCADE)"
+    "query": "CREATE TABLE fk_partitioned_fk_2 (b int, c text, a int, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk ON UPDATE CASCADE ON DELETE CASCADE)",
+    "expected": "CREATE TABLE fk_partitioned_fk_2 (b INT, c TEXT, a INT, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk ON DELETE CASCADE ON UPDATE CASCADE)"
   },
   {
     "comment": "foreign_key - Statement 375",
@@ -1501,23 +1788,28 @@
   },
   {
     "comment": "foreign_key - Statement 376",
-    "query": "CREATE TABLE fk_partitioned_fk_4 (a int, b int, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE) PARTITION BY RANGE (b, a)"
+    "query": "CREATE TABLE fk_partitioned_fk_4 (a int, b int, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE CASCADE ON DELETE CASCADE) PARTITION BY RANGE (b, a)",
+    "expected": "CREATE TABLE fk_partitioned_fk_4 (a INT, b INT, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON DELETE CASCADE ON UPDATE CASCADE) PARTITION BY range (b, a)"
   },
   {
     "comment": "foreign_key - Statement 377",
-    "query": "CREATE TABLE fk_partitioned_fk_4_1 PARTITION OF fk_partitioned_fk_4 FOR VALUES FROM (1,1) TO (100,100)"
+    "query": "CREATE TABLE fk_partitioned_fk_4_1 PARTITION OF fk_partitioned_fk_4 FOR VALUES FROM (1,1) TO (100,100)",
+    "expected": "CREATE TABLE fk_partitioned_fk_4_1 PARTITION OF fk_partitioned_fk_4 FOR VALUES FROM (1, 1) TO (100, 100)"
   },
   {
     "comment": "foreign_key - Statement 378",
-    "query": "CREATE TABLE fk_partitioned_fk_4_2 (a int, b int, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE SET NULL)"
+    "query": "CREATE TABLE fk_partitioned_fk_4_2 (a int, b int, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE SET NULL)",
+    "expected": "CREATE TABLE fk_partitioned_fk_4_2 (a INT, b INT, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b) ON UPDATE SET NULL)"
   },
   {
     "comment": "foreign_key - Statement 379",
-    "query": "ALTER TABLE fk_partitioned_fk_4 ATTACH PARTITION fk_partitioned_fk_4_2 FOR VALUES FROM (100,100) TO (1000,1000)"
+    "query": "ALTER TABLE fk_partitioned_fk_4 ATTACH PARTITION fk_partitioned_fk_4_2 FOR VALUES FROM (100,100) TO (1000,1000)",
+    "expected": "ALTER TABLE fk_partitioned_fk_4 ATTACH PARTITION fk_partitioned_fk_4_2 FOR VALUES FROM (100, 100) TO (1000, 1000)"
   },
   {
     "comment": "foreign_key - Statement 380",
-    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_4 FOR VALUES IN (3500,3502)"
+    "query": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_4 FOR VALUES IN (3500,3502)",
+    "expected": "ALTER TABLE fk_partitioned_fk ATTACH PARTITION fk_partitioned_fk_4 FOR VALUES IN (3500, 3502)"
   },
   {
     "comment": "foreign_key - Statement 381",
@@ -1525,7 +1817,8 @@
   },
   {
     "comment": "foreign_key - Statement 382",
-    "query": "CREATE TABLE fk_partitioned_fk_5_1 (a int, b int, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk)"
+    "query": "CREATE TABLE fk_partitioned_fk_5_1 (a int, b int, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk)",
+    "expected": "CREATE TABLE fk_partitioned_fk_5_1 (a INT, b INT, FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk)"
   },
   {
     "comment": "foreign_key - Statement 383",
@@ -1561,11 +1854,13 @@
   },
   {
     "comment": "foreign_key - Statement 391",
-    "query": "CREATE TABLE fk_partitioned_pk_6 (a int PRIMARY KEY)"
+    "query": "CREATE TABLE fk_partitioned_pk_6 (a int PRIMARY KEY)",
+    "expected": "CREATE TABLE fk_partitioned_pk_6 (a INT PRIMARY KEY)"
   },
   {
     "comment": "foreign_key - Statement 392",
-    "query": "CREATE TABLE fk_partitioned_fk_6 (a int REFERENCES fk_partitioned_pk_6) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE fk_partitioned_fk_6 (a int REFERENCES fk_partitioned_pk_6) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE fk_partitioned_fk_6 (a INT REFERENCES fk_partitioned_pk_6) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 393",
@@ -1577,7 +1872,8 @@
   },
   {
     "comment": "foreign_key - Statement 395",
-    "query": "CREATE TABLE fk_partitioned_pk_6 (a int PRIMARY KEY) PARTITION BY list (a)"
+    "query": "CREATE TABLE fk_partitioned_pk_6 (a int PRIMARY KEY) PARTITION BY list (a)",
+    "expected": "CREATE TABLE fk_partitioned_pk_6 (a INT PRIMARY KEY) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 396",
@@ -1585,63 +1881,78 @@
   },
   {
     "comment": "foreign_key - Statement 397",
-    "query": "CREATE TABLE fk_partitioned_fk_6 (a int REFERENCES fk_partitioned_pk_61) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE fk_partitioned_fk_6 (a int REFERENCES fk_partitioned_pk_61) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE fk_partitioned_fk_6 (a INT REFERENCES fk_partitioned_pk_61) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 398",
-    "query": "create role regress_other_partitioned_fk_owner"
+    "query": "create role regress_other_partitioned_fk_owner",
+    "expected": "CREATE ROLE regress_other_partitioned_fk_owner"
   },
   {
     "comment": "foreign_key - Statement 399",
-    "query": "grant references on fk_notpartitioned_pk to regress_other_partitioned_fk_owner"
+    "query": "grant references on fk_notpartitioned_pk to regress_other_partitioned_fk_owner",
+    "expected": "GRANT REFERENCES ON fk_notpartitioned_pk TO regress_other_partitioned_fk_owner"
   },
   {
     "comment": "foreign_key - Statement 400",
-    "query": "set role regress_other_partitioned_fk_owner"
+    "query": "set role regress_other_partitioned_fk_owner",
+    "expected": "SET ROLE 'regress_other_partitioned_fk_owner'"
   },
   {
     "comment": "foreign_key - Statement 401",
-    "query": "create table other_partitioned_fk(a int, b int) partition by list (a)"
+    "query": "create table other_partitioned_fk(a int, b int) partition by list (a)",
+    "expected": "CREATE TABLE other_partitioned_fk (a INT, b INT) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 402",
-    "query": "create table other_partitioned_fk_1 partition of other_partitioned_fk for values in (2048)"
+    "query": "create table other_partitioned_fk_1 partition of other_partitioned_fk for values in (2048)",
+    "expected": "CREATE TABLE other_partitioned_fk_1 PARTITION OF other_partitioned_fk FOR VALUES IN (2048)"
   },
   {
     "comment": "foreign_key - Statement 403",
-    "query": "insert into other_partitioned_fk select 2048, x from generate_series(1,10) x"
+    "query": "insert into other_partitioned_fk select 2048, x from generate_series(1,10) x",
+    "expected": "INSERT INTO other_partitioned_fk SELECT 2048, x FROM generate_series(1, 10) AS x"
   },
   {
     "comment": "foreign_key - Statement 404",
-    "query": "alter table other_partitioned_fk add foreign key (a, b) references fk_notpartitioned_pk(a, b)"
+    "query": "alter table other_partitioned_fk add foreign key (a, b) references fk_notpartitioned_pk(a, b)",
+    "expected": "ALTER TABLE other_partitioned_fk ADD FOREIGN KEY (a, b) REFERENCES fk_notpartitioned_pk(a, b)"
   },
   {
     "comment": "foreign_key - Statement 405",
-    "query": "reset role"
+    "query": "reset role",
+    "expected": "RESET role"
   },
   {
     "comment": "foreign_key - Statement 406",
-    "query": "insert into fk_notpartitioned_pk (a, b) select 2048, x from generate_series(1,10) x"
+    "query": "insert into fk_notpartitioned_pk (a, b) select 2048, x from generate_series(1,10) x",
+    "expected": "INSERT INTO fk_notpartitioned_pk (a, b) SELECT 2048, x FROM generate_series(1, 10) AS x"
   },
   {
     "comment": "foreign_key - Statement 407",
-    "query": "drop table other_partitioned_fk"
+    "query": "drop table other_partitioned_fk",
+    "expected": "DROP TABLE other_partitioned_fk"
   },
   {
     "comment": "foreign_key - Statement 408",
-    "query": "revoke all on fk_notpartitioned_pk from regress_other_partitioned_fk_owner"
+    "query": "revoke all on fk_notpartitioned_pk from regress_other_partitioned_fk_owner",
+    "expected": "REVOKE ALL ON fk_notpartitioned_pk FROM regress_other_partitioned_fk_owner"
   },
   {
     "comment": "foreign_key - Statement 409",
-    "query": "drop role regress_other_partitioned_fk_owner"
+    "query": "drop role regress_other_partitioned_fk_owner",
+    "expected": "DROP ROLE regress_other_partitioned_fk_owner"
   },
   {
     "comment": "foreign_key - Statement 410",
-    "query": "CREATE TABLE parted_self_fk ( id bigint NOT NULL PRIMARY KEY, id_abc bigint, FOREIGN KEY (id_abc) REFERENCES parted_self_fk(id) ) PARTITION BY RANGE (id)"
+    "query": "CREATE TABLE parted_self_fk ( id bigint NOT NULL PRIMARY KEY, id_abc bigint, FOREIGN KEY (id_abc) REFERENCES parted_self_fk(id) ) PARTITION BY RANGE (id)",
+    "expected": "CREATE TABLE parted_self_fk (id BIGINT NOT NULL PRIMARY KEY, id_abc BIGINT, FOREIGN KEY (id_abc) REFERENCES parted_self_fk(id)) PARTITION BY range (id)"
   },
   {
     "comment": "foreign_key - Statement 411",
-    "query": "CREATE TABLE part1_self_fk ( id bigint NOT NULL PRIMARY KEY, id_abc bigint )"
+    "query": "CREATE TABLE part1_self_fk ( id bigint NOT NULL PRIMARY KEY, id_abc bigint )",
+    "expected": "CREATE TABLE part1_self_fk (id BIGINT NOT NULL PRIMARY KEY, id_abc BIGINT)"
   },
   {
     "comment": "foreign_key - Statement 412",
@@ -1653,7 +1964,8 @@
   },
   {
     "comment": "foreign_key - Statement 414",
-    "query": "CREATE TABLE part3_self_fk ( id bigint NOT NULL PRIMARY KEY, id_abc bigint ) PARTITION BY RANGE (id)"
+    "query": "CREATE TABLE part3_self_fk ( id bigint NOT NULL PRIMARY KEY, id_abc bigint ) PARTITION BY RANGE (id)",
+    "expected": "CREATE TABLE part3_self_fk (id BIGINT NOT NULL PRIMARY KEY, id_abc BIGINT) PARTITION BY range (id)"
   },
   {
     "comment": "foreign_key - Statement 415",
@@ -1665,7 +1977,8 @@
   },
   {
     "comment": "foreign_key - Statement 417",
-    "query": "CREATE TABLE part33_self_fk ( id bigint NOT NULL PRIMARY KEY, id_abc bigint )"
+    "query": "CREATE TABLE part33_self_fk ( id bigint NOT NULL PRIMARY KEY, id_abc bigint )",
+    "expected": "CREATE TABLE part33_self_fk (id BIGINT NOT NULL PRIMARY KEY, id_abc BIGINT)"
   },
   {
     "comment": "foreign_key - Statement 418",
@@ -1677,7 +1990,8 @@
   },
   {
     "comment": "foreign_key - Statement 420",
-    "query": "INSERT INTO parted_self_fk VALUES (10, 1), (11, 2), (12, 3) RETURNING tableoid::regclass"
+    "query": "INSERT INTO parted_self_fk VALUES (10, 1), (11, 2), (12, 3) RETURNING tableoid::regclass",
+    "expected": "INSERT INTO parted_self_fk VALUES (10, 1), (11, 2), (12, 3) RETURNING CAST(tableoid AS regclass)"
   },
   {
     "comment": "foreign_key - Statement 421",
@@ -1689,7 +2003,8 @@
   },
   {
     "comment": "foreign_key - Statement 423",
-    "query": "SELECT cr.relname, co.conname, co.convalidated, p.conname AS conparent, p.convalidated, cf.relname AS foreignrel FROM pg_constraint co JOIN pg_class cr ON cr.oid = co.conrelid LEFT JOIN pg_class cf ON cf.oid = co.confrelid LEFT JOIN pg_constraint p ON p.oid = co.conparentid WHERE co.contype = 'f' AND cr.oid IN (SELECT relid FROM pg_partition_tree('parted_self_fk')) ORDER BY cr.relname, co.conname, p.conname"
+    "query": "SELECT cr.relname, co.conname, co.convalidated, p.conname AS conparent, p.convalidated, cf.relname AS foreignrel FROM pg_constraint co JOIN pg_class cr ON cr.oid = co.conrelid LEFT JOIN pg_class cf ON cf.oid = co.confrelid LEFT JOIN pg_constraint p ON p.oid = co.conparentid WHERE co.contype = 'f' AND cr.oid IN (SELECT relid FROM pg_partition_tree('parted_self_fk')) ORDER BY cr.relname, co.conname, p.conname",
+    "expected": "SELECT cr.relname, co.conname, co.convalidated, p.conname AS conparent, p.convalidated, cf.relname AS foreignrel FROM pg_constraint AS co INNER JOIN pg_class AS cr ON cr.oid = co.conrelid LEFT OUTER JOIN pg_class AS cf ON cf.oid = co.confrelid LEFT OUTER JOIN pg_constraint AS p ON p.oid = co.conparentid WHERE co.contype = 'f' AND cr.oid IN (SELECT relid FROM pg_partition_tree('parted_self_fk')) ORDER BY cr.relname, co.conname, p.conname"
   },
   {
     "comment": "foreign_key - Statement 424",
@@ -1729,111 +2044,138 @@
   },
   {
     "comment": "foreign_key - Statement 433",
-    "query": "create schema fkpart0 create table pkey (a int primary key) create table fk_part (a int) partition by list (a) create table fk_part_1 partition of fk_part (foreign key (a) references fkpart0.pkey) for values in (1) create table fk_part_23 partition of fk_part (foreign key (a) references fkpart0.pkey) for values in (2, 3) partition by list (a) create table fk_part_23_2 partition of fk_part_23 for values in (2)"
+    "query": "create schema fkpart0 create table pkey (a int primary key) create table fk_part (a int) partition by list (a) create table fk_part_1 partition of fk_part (foreign key (a) references fkpart0.pkey) for values in (1) create table fk_part_23 partition of fk_part (foreign key (a) references fkpart0.pkey) for values in (2, 3) partition by list (a) create table fk_part_23_2 partition of fk_part_23 for values in (2)",
+    "expected": "CREATE SCHEMA fkpart0 CREATE TABLE pkey (a INT PRIMARY KEY) CREATE TABLE fk_part (a INT) PARTITION BY list (a) CREATE TABLE fk_part_1 PARTITION OF fk_part ( FOREIGN KEY (a) REFERENCES fkpart0.pkey ) FOR VALUES IN (1) CREATE TABLE fk_part_23 PARTITION OF fk_part ( FOREIGN KEY (a) REFERENCES fkpart0.pkey ) FOR VALUES IN (2, 3) PARTITION BY list (a) CREATE TABLE fk_part_23_2 PARTITION OF fk_part_23 FOR VALUES IN (2)"
   },
   {
     "comment": "foreign_key - Statement 434",
-    "query": "alter table fkpart0.fk_part add foreign key (a) references fkpart0.pkey"
+    "query": "alter table fkpart0.fk_part add foreign key (a) references fkpart0.pkey",
+    "expected": "ALTER TABLE fkpart0.fk_part ADD FOREIGN KEY (a) REFERENCES fkpart0.pkey"
   },
   {
     "comment": "foreign_key - Statement 435",
-    "query": "alter table fkpart0.fk_part_23_2 drop constraint fk_part_23_a_fkey"
+    "query": "alter table fkpart0.fk_part_23_2 drop constraint fk_part_23_a_fkey",
+    "expected": "ALTER TABLE fkpart0.fk_part_23_2 DROP CONSTRAINT fk_part_23_a_fkey"
   },
   {
     "comment": "foreign_key - Statement 436",
-    "query": "create table fkpart0.fk_part_4 partition of fkpart0.fk_part for values in (4)"
+    "query": "create table fkpart0.fk_part_4 partition of fkpart0.fk_part for values in (4)",
+    "expected": "CREATE TABLE fkpart0.fk_part_4 PARTITION OF fkpart0.fk_part FOR VALUES IN (4)"
   },
   {
     "comment": "foreign_key - Statement 437",
-    "query": "create table fkpart0.fk_part_56 partition of fkpart0.fk_part for values in (5,6) partition by list (a)"
+    "query": "create table fkpart0.fk_part_56 partition of fkpart0.fk_part for values in (5,6) partition by list (a)",
+    "expected": "CREATE TABLE fkpart0.fk_part_56 PARTITION OF fkpart0.fk_part FOR VALUES IN (5, 6) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 438",
-    "query": "create table fkpart0.fk_part_56_5 partition of fkpart0.fk_part_56 for values in (5)"
+    "query": "create table fkpart0.fk_part_56_5 partition of fkpart0.fk_part_56 for values in (5)",
+    "expected": "CREATE TABLE fkpart0.fk_part_56_5 PARTITION OF fkpart0.fk_part_56 FOR VALUES IN (5)"
   },
   {
     "comment": "foreign_key - Statement 439",
-    "query": "alter table fkpart0.fk_part_56_5 drop constraint fk_part_a_fkey"
+    "query": "alter table fkpart0.fk_part_56_5 drop constraint fk_part_a_fkey",
+    "expected": "ALTER TABLE fkpart0.fk_part_56_5 DROP CONSTRAINT fk_part_a_fkey"
   },
   {
     "comment": "foreign_key - Statement 440",
-    "query": "create schema fkpart1 create table pkey (a int primary key) create table fk_part (a int) partition by list (a) create table fk_part_1 partition of fk_part for values in (1) partition by list (a) create table fk_part_1_1 partition of fk_part_1 for values in (1)"
+    "query": "create schema fkpart1 create table pkey (a int primary key) create table fk_part (a int) partition by list (a) create table fk_part_1 partition of fk_part for values in (1) partition by list (a) create table fk_part_1_1 partition of fk_part_1 for values in (1)",
+    "expected": "CREATE SCHEMA fkpart1 CREATE TABLE pkey (a INT PRIMARY KEY) CREATE TABLE fk_part (a INT) PARTITION BY list (a) CREATE TABLE fk_part_1 PARTITION OF fk_part FOR VALUES IN (1) PARTITION BY list (a) CREATE TABLE fk_part_1_1 PARTITION OF fk_part_1 FOR VALUES IN (1)"
   },
   {
     "comment": "foreign_key - Statement 441",
-    "query": "alter table fkpart1.fk_part add foreign key (a) references fkpart1.pkey"
+    "query": "alter table fkpart1.fk_part add foreign key (a) references fkpart1.pkey",
+    "expected": "ALTER TABLE fkpart1.fk_part ADD FOREIGN KEY (a) REFERENCES fkpart1.pkey"
   },
   {
     "comment": "foreign_key - Statement 442",
-    "query": "insert into fkpart1.fk_part values (1)"
+    "query": "insert into fkpart1.fk_part values (1)",
+    "expected": "INSERT INTO fkpart1.fk_part VALUES (1)"
   },
   {
     "comment": "foreign_key - Statement 443",
-    "query": "insert into fkpart1.pkey values (1)"
+    "query": "insert into fkpart1.pkey values (1)",
+    "expected": "INSERT INTO fkpart1.pkey VALUES (1)"
   },
   {
     "comment": "foreign_key - Statement 444",
-    "query": "delete from fkpart1.pkey where a = 1"
+    "query": "delete from fkpart1.pkey where a = 1",
+    "expected": "DELETE FROM fkpart1.pkey WHERE a = 1"
   },
   {
     "comment": "foreign_key - Statement 445",
-    "query": "alter table fkpart1.fk_part detach partition fkpart1.fk_part_1"
+    "query": "alter table fkpart1.fk_part detach partition fkpart1.fk_part_1",
+    "expected": "ALTER TABLE fkpart1.fk_part DETACH PARTITION fkpart1.fk_part_1"
   },
   {
     "comment": "foreign_key - Statement 446",
-    "query": "create table fkpart1.fk_part_1_2 partition of fkpart1.fk_part_1 for values in (2)"
+    "query": "create table fkpart1.fk_part_1_2 partition of fkpart1.fk_part_1 for values in (2)",
+    "expected": "CREATE TABLE fkpart1.fk_part_1_2 PARTITION OF fkpart1.fk_part_1 FOR VALUES IN (2)"
   },
   {
     "comment": "foreign_key - Statement 447",
-    "query": "insert into fkpart1.fk_part_1 values (2)"
+    "query": "insert into fkpart1.fk_part_1 values (2)",
+    "expected": "INSERT INTO fkpart1.fk_part_1 VALUES (2)"
   },
   {
     "comment": "foreign_key - Statement 448",
-    "query": "create schema fkpart2 create table pkey (a int primary key) create table fk_part (a int, constraint fkey foreign key (a) references fkpart2.pkey) partition by list (a) create table fk_part_1 partition of fkpart2.fk_part for values in (1) partition by list (a) create table fk_part_1_1 (a int, constraint my_fkey foreign key (a) references fkpart2.pkey)"
+    "query": "create schema fkpart2 create table pkey (a int primary key) create table fk_part (a int, constraint fkey foreign key (a) references fkpart2.pkey) partition by list (a) create table fk_part_1 partition of fkpart2.fk_part for values in (1) partition by list (a) create table fk_part_1_1 (a int, constraint my_fkey foreign key (a) references fkpart2.pkey)",
+    "expected": "CREATE SCHEMA fkpart2 CREATE TABLE pkey (a INT PRIMARY KEY) CREATE TABLE fk_part (a INT, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fkpart2.pkey) PARTITION BY list (a) CREATE TABLE fk_part_1 PARTITION OF fkpart2.fk_part FOR VALUES IN (1) PARTITION BY list (a) CREATE TABLE fk_part_1_1 (a INT, CONSTRAINT my_fkey FOREIGN KEY (a) REFERENCES fkpart2.pkey)"
   },
   {
     "comment": "foreign_key - Statement 449",
-    "query": "alter table fkpart2.fk_part_1 attach partition fkpart2.fk_part_1_1 for values in (1)"
+    "query": "alter table fkpart2.fk_part_1 attach partition fkpart2.fk_part_1_1 for values in (1)",
+    "expected": "ALTER TABLE fkpart2.fk_part_1 ATTACH PARTITION fkpart2.fk_part_1_1 FOR VALUES IN (1)"
   },
   {
     "comment": "foreign_key - Statement 450",
-    "query": "alter table fkpart2.fk_part_1 drop constraint fkey"
+    "query": "alter table fkpart2.fk_part_1 drop constraint fkey",
+    "expected": "ALTER TABLE fkpart2.fk_part_1 DROP CONSTRAINT fkey"
   },
   {
     "comment": "foreign_key - Statement 451",
-    "query": "alter table fkpart2.fk_part_1_1 drop constraint my_fkey"
+    "query": "alter table fkpart2.fk_part_1_1 drop constraint my_fkey",
+    "expected": "ALTER TABLE fkpart2.fk_part_1_1 DROP CONSTRAINT my_fkey"
   },
   {
     "comment": "foreign_key - Statement 452",
-    "query": "alter table fkpart2.fk_part detach partition fkpart2.fk_part_1"
+    "query": "alter table fkpart2.fk_part detach partition fkpart2.fk_part_1",
+    "expected": "ALTER TABLE fkpart2.fk_part DETACH PARTITION fkpart2.fk_part_1"
   },
   {
     "comment": "foreign_key - Statement 453",
-    "query": "create schema fkpart3 create table pkey (a int primary key) create table fk_part (a int, constraint fkey foreign key (a) references fkpart3.pkey deferrable initially immediate) partition by list (a) create table fk_part_1 partition of fkpart3.fk_part for values in (1) partition by list (a) create table fk_part_1_1 partition of fkpart3.fk_part_1 for values in (1) create table fk_part_2 partition of fkpart3.fk_part for values in (2)"
+    "query": "create schema fkpart3 create table pkey (a int primary key) create table fk_part (a int, constraint fkey foreign key (a) references fkpart3.pkey deferrable initially immediate) partition by list (a) create table fk_part_1 partition of fkpart3.fk_part for values in (1) partition by list (a) create table fk_part_1_1 partition of fkpart3.fk_part_1 for values in (1) create table fk_part_2 partition of fkpart3.fk_part for values in (2)",
+    "expected": "CREATE SCHEMA fkpart3 CREATE TABLE pkey (a INT PRIMARY KEY) CREATE TABLE fk_part (a INT, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fkpart3.pkey DEFERRABLE INITIALLY IMMEDIATE) PARTITION BY list (a) CREATE TABLE fk_part_1 PARTITION OF fkpart3.fk_part FOR VALUES IN (1) PARTITION BY list (a) CREATE TABLE fk_part_1_1 PARTITION OF fkpart3.fk_part_1 FOR VALUES IN (1) CREATE TABLE fk_part_2 PARTITION OF fkpart3.fk_part FOR VALUES IN (2)"
   },
   {
     "comment": "foreign_key - Statement 454",
-    "query": "set constraints fkpart3.fkey deferred"
+    "query": "set constraints fkpart3.fkey deferred",
+    "expected": "SET CONSTRAINTS fkey DEFERRED"
   },
   {
     "comment": "foreign_key - Statement 455",
-    "query": "insert into fkpart3.fk_part values (1)"
+    "query": "insert into fkpart3.fk_part values (1)",
+    "expected": "INSERT INTO fkpart3.fk_part VALUES (1)"
   },
   {
     "comment": "foreign_key - Statement 456",
-    "query": "insert into fkpart3.pkey values (1)"
+    "query": "insert into fkpart3.pkey values (1)",
+    "expected": "INSERT INTO fkpart3.pkey VALUES (1)"
   },
   {
     "comment": "foreign_key - Statement 457",
-    "query": "delete from fkpart3.pkey"
+    "query": "delete from fkpart3.pkey",
+    "expected": "DELETE FROM fkpart3.pkey"
   },
   {
     "comment": "foreign_key - Statement 458",
-    "query": "delete from fkpart3.fk_part"
+    "query": "delete from fkpart3.fk_part",
+    "expected": "DELETE FROM fkpart3.fk_part"
   },
   {
     "comment": "foreign_key - Statement 459",
-    "query": "drop schema fkpart0, fkpart1, fkpart2, fkpart3 cascade"
+    "query": "drop schema fkpart0, fkpart1, fkpart2, fkpart3 cascade",
+    "expected": "DROP SCHEMA fkpart0, fkpart1, fkpart2, fkpart3 CASCADE"
   },
   {
     "comment": "foreign_key - Statement 460",
@@ -1841,11 +2183,13 @@
   },
   {
     "comment": "foreign_key - Statement 461",
-    "query": "SET search_path TO fkpart3"
+    "query": "SET search_path TO fkpart3",
+    "expected": "SET SCHEMA 'fkpart3'"
   },
   {
     "comment": "foreign_key - Statement 462",
-    "query": "CREATE TABLE pk (a int PRIMARY KEY) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE pk (a int PRIMARY KEY) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE pk (a INT PRIMARY KEY) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_key - Statement 463",
@@ -1853,7 +2197,8 @@
   },
   {
     "comment": "foreign_key - Statement 464",
-    "query": "CREATE TABLE pk2 (b int, a int)"
+    "query": "CREATE TABLE pk2 (b int, a int)",
+    "expected": "CREATE TABLE pk2 (b INT, a INT)"
   },
   {
     "comment": "foreign_key - Statement 465",
@@ -1861,7 +2206,8 @@
   },
   {
     "comment": "foreign_key - Statement 466",
-    "query": "ALTER TABLE pk2 ALTER a SET NOT NULL"
+    "query": "ALTER TABLE pk2 ALTER a SET NOT NULL",
+    "expected": "ALTER TABLE pk2 ALTER COLUMN a SET NOT NULL"
   },
   {
     "comment": "foreign_key - Statement 467",
@@ -1869,7 +2215,8 @@
   },
   {
     "comment": "foreign_key - Statement 468",
-    "query": "CREATE TABLE fk (a int) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE fk (a int) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE fk (a INT) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_key - Statement 469",
@@ -1881,7 +2228,8 @@
   },
   {
     "comment": "foreign_key - Statement 471",
-    "query": "CREATE TABLE fk2 (b int, a int)"
+    "query": "CREATE TABLE fk2 (b int, a int)",
+    "expected": "CREATE TABLE fk2 (b INT, a INT)"
   },
   {
     "comment": "foreign_key - Statement 472",
@@ -1905,7 +2253,8 @@
   },
   {
     "comment": "foreign_key - Statement 477",
-    "query": "CREATE TABLE pk5 (c int, b int, a int NOT NULL) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE pk5 (c int, b int, a int NOT NULL) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE pk5 (c INT, b INT, a INT NOT NULL) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_key - Statement 478",
@@ -1929,35 +2278,43 @@
   },
   {
     "comment": "foreign_key - Statement 483",
-    "query": "INSERT into fk VALUES (1)"
+    "query": "INSERT into fk VALUES (1)",
+    "expected": "INSERT INTO fk VALUES (1)"
   },
   {
     "comment": "foreign_key - Statement 484",
-    "query": "INSERT into fk VALUES (1000)"
+    "query": "INSERT into fk VALUES (1000)",
+    "expected": "INSERT INTO fk VALUES (1000)"
   },
   {
     "comment": "foreign_key - Statement 485",
-    "query": "INSERT into fk VALUES (2000)"
+    "query": "INSERT into fk VALUES (2000)",
+    "expected": "INSERT INTO fk VALUES (2000)"
   },
   {
     "comment": "foreign_key - Statement 486",
-    "query": "INSERT into fk VALUES (3000)"
+    "query": "INSERT into fk VALUES (3000)",
+    "expected": "INSERT INTO fk VALUES (3000)"
   },
   {
     "comment": "foreign_key - Statement 487",
-    "query": "INSERT into fk VALUES (4000)"
+    "query": "INSERT into fk VALUES (4000)",
+    "expected": "INSERT INTO fk VALUES (4000)"
   },
   {
     "comment": "foreign_key - Statement 488",
-    "query": "INSERT into fk VALUES (4500)"
+    "query": "INSERT into fk VALUES (4500)",
+    "expected": "INSERT INTO fk VALUES (4500)"
   },
   {
     "comment": "foreign_key - Statement 489",
-    "query": "INSERT into pk VALUES (1), (1000), (2000), (3000), (4000), (4500)"
+    "query": "INSERT into pk VALUES (1), (1000), (2000), (3000), (4000), (4500)",
+    "expected": "INSERT INTO pk VALUES (1), (1000), (2000), (3000), (4000), (4500)"
   },
   {
     "comment": "foreign_key - Statement 490",
-    "query": "INSERT into fk VALUES (1), (1000), (2000), (3000), (4000), (4500)"
+    "query": "INSERT into fk VALUES (1), (1000), (2000), (3000), (4000), (4500)",
+    "expected": "INSERT INTO fk VALUES (1), (1000), (2000), (3000), (4000), (4500)"
   },
   {
     "comment": "foreign_key - Statement 491",
@@ -2037,7 +2394,8 @@
   },
   {
     "comment": "foreign_key - Statement 510",
-    "query": "CREATE TABLE ffk (a int, b int REFERENCES pk) PARTITION BY list (a)"
+    "query": "CREATE TABLE ffk (a int, b int REFERENCES pk) PARTITION BY list (a)",
+    "expected": "CREATE TABLE ffk (a INT, b INT REFERENCES pk) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 511",
@@ -2061,11 +2419,13 @@
   },
   {
     "comment": "foreign_key - Statement 516",
-    "query": "SET search_path TO fkpart4"
+    "query": "SET search_path TO fkpart4",
+    "expected": "SET SCHEMA 'fkpart4'"
   },
   {
     "comment": "foreign_key - Statement 517",
-    "query": "CREATE TABLE droppk (a int PRIMARY KEY) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE droppk (a int PRIMARY KEY) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE droppk (a INT PRIMARY KEY) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_key - Statement 518",
@@ -2077,7 +2437,8 @@
   },
   {
     "comment": "foreign_key - Statement 520",
-    "query": "CREATE TABLE droppk2 PARTITION OF droppk FOR VALUES FROM (1000) TO (2000) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE droppk2 PARTITION OF droppk FOR VALUES FROM (1000) TO (2000) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE droppk2 PARTITION OF droppk FOR VALUES FROM (1000) TO (2000) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_key - Statement 521",
@@ -2089,15 +2450,18 @@
   },
   {
     "comment": "foreign_key - Statement 523",
-    "query": "INSERT into droppk VALUES (1), (1000), (1500), (2000)"
+    "query": "INSERT into droppk VALUES (1), (1000), (1500), (2000)",
+    "expected": "INSERT INTO droppk VALUES (1), (1000), (1500), (2000)"
   },
   {
     "comment": "foreign_key - Statement 524",
-    "query": "CREATE TABLE dropfk (a int REFERENCES droppk)"
+    "query": "CREATE TABLE dropfk (a int REFERENCES droppk)",
+    "expected": "CREATE TABLE dropfk (a INT REFERENCES droppk)"
   },
   {
     "comment": "foreign_key - Statement 525",
-    "query": "INSERT into dropfk VALUES (1), (1000), (1500), (2000)"
+    "query": "INSERT into dropfk VALUES (1), (1000), (1500), (2000)",
+    "expected": "INSERT INTO dropfk VALUES (1), (1000), (1500), (2000)"
   },
   {
     "comment": "foreign_key - Statement 526",
@@ -2149,15 +2513,18 @@
   },
   {
     "comment": "foreign_key - Statement 538",
-    "query": "SET search_path TO fkpart5"
+    "query": "SET search_path TO fkpart5",
+    "expected": "SET SCHEMA 'fkpart5'"
   },
   {
     "comment": "foreign_key - Statement 539",
-    "query": "CREATE TABLE pk (a int PRIMARY KEY) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE pk (a int PRIMARY KEY) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE pk (a INT PRIMARY KEY) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 540",
-    "query": "CREATE TABLE pk1 PARTITION OF pk FOR VALUES IN (1) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE pk1 PARTITION OF pk FOR VALUES IN (1) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE pk1 PARTITION OF pk FOR VALUES IN (1) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 541",
@@ -2165,11 +2532,13 @@
   },
   {
     "comment": "foreign_key - Statement 542",
-    "query": "CREATE TABLE fk (a int) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE fk (a int) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE fk (a INT) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 543",
-    "query": "CREATE TABLE fk1 PARTITION OF fk FOR VALUES IN (1) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE fk1 PARTITION OF fk FOR VALUES IN (1) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE fk1 PARTITION OF fk FOR VALUES IN (1) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 544",
@@ -2181,7 +2550,8 @@
   },
   {
     "comment": "foreign_key - Statement 546",
-    "query": "CREATE TABLE pk3 (a int NOT NULL) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE pk3 (a int NOT NULL) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE pk3 (a INT NOT NULL) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 547",
@@ -2189,7 +2559,8 @@
   },
   {
     "comment": "foreign_key - Statement 548",
-    "query": "CREATE TABLE pk32 (b int, a int NOT NULL)"
+    "query": "CREATE TABLE pk32 (b int, a int NOT NULL)",
+    "expected": "CREATE TABLE pk32 (b INT, a INT NOT NULL)"
   },
   {
     "comment": "foreign_key - Statement 549",
@@ -2209,7 +2580,8 @@
   },
   {
     "comment": "foreign_key - Statement 553",
-    "query": "CREATE TABLE fk3 (b int, a int)"
+    "query": "CREATE TABLE fk3 (b int, a int)",
+    "expected": "CREATE TABLE fk3 (b INT, a INT)"
   },
   {
     "comment": "foreign_key - Statement 554",
@@ -2221,7 +2593,8 @@
   },
   {
     "comment": "foreign_key - Statement 556",
-    "query": "SELECT pg_describe_object('pg_constraint'::regclass, oid, 0), confrelid::regclass, CASE WHEN conparentid <> 0 THEN pg_describe_object('pg_constraint'::regclass, conparentid, 0) ELSE 'TOP' END FROM pg_catalog.pg_constraint WHERE conrelid IN (SELECT relid FROM pg_partition_tree('fk')) ORDER BY conrelid::regclass::text, conname"
+    "query": "SELECT pg_describe_object('pg_constraint'::regclass, oid, 0), confrelid::regclass, CASE WHEN conparentid \u003c\u003e 0 THEN pg_describe_object('pg_constraint'::regclass, conparentid, 0) ELSE 'TOP' END FROM pg_catalog.pg_constraint WHERE conrelid IN (SELECT relid FROM pg_partition_tree('fk')) ORDER BY conrelid::regclass::text, conname",
+    "expected": "SELECT pg_describe_object(CAST('pg_constraint' AS regclass), oid, 0), CAST(confrelid AS regclass), CASE WHEN conparentid \u003c\u003e 0 THEN pg_describe_object(CAST('pg_constraint' AS regclass), conparentid, 0) ELSE 'TOP' END FROM pg_catalog.pg_constraint WHERE conrelid IN (SELECT relid FROM pg_partition_tree('fk')) ORDER BY CAST(CAST(conrelid AS regclass) AS TEXT), conname"
   },
   {
     "comment": "foreign_key - Statement 557",
@@ -2241,11 +2614,13 @@
   },
   {
     "comment": "foreign_key - Statement 561",
-    "query": "SET search_path TO fkpart9"
+    "query": "SET search_path TO fkpart9",
+    "expected": "SET SCHEMA 'fkpart9'"
   },
   {
     "comment": "foreign_key - Statement 562",
-    "query": "CREATE TABLE pk1 PARTITION OF pk FOR VALUES IN (1, 2) PARTITION BY LIST (a)"
+    "query": "CREATE TABLE pk1 PARTITION OF pk FOR VALUES IN (1, 2) PARTITION BY LIST (a)",
+    "expected": "CREATE TABLE pk1 PARTITION OF pk FOR VALUES IN (1, 2) PARTITION BY list (a)"
   },
   {
     "comment": "foreign_key - Statement 563",
@@ -2253,7 +2628,8 @@
   },
   {
     "comment": "foreign_key - Statement 564",
-    "query": "CREATE TABLE fk (a int REFERENCES pk DEFERRABLE INITIALLY IMMEDIATE)"
+    "query": "CREATE TABLE fk (a int REFERENCES pk DEFERRABLE INITIALLY IMMEDIATE)",
+    "expected": "CREATE TABLE fk (a INT REFERENCES pk)"
   },
   {
     "comment": "foreign_key - Statement 565",
@@ -2269,11 +2645,13 @@
   },
   {
     "comment": "foreign_key - Statement 568",
-    "query": "CREATE TABLE pt(f1 int, f2 int, f3 int, PRIMARY KEY(f1,f2))"
+    "query": "CREATE TABLE pt(f1 int, f2 int, f3 int, PRIMARY KEY(f1,f2))",
+    "expected": "CREATE TABLE pt (f1 INT, f2 INT, f3 INT, PRIMARY KEY (f1, f2))"
   },
   {
     "comment": "foreign_key - Statement 569",
-    "query": "CREATE TABLE ref(f1 int, f2 int, f3 int) PARTITION BY list(f1)"
+    "query": "CREATE TABLE ref(f1 int, f2 int, f3 int) PARTITION BY list(f1)",
+    "expected": "CREATE TABLE ref (f1 INT, f2 INT, f3 INT) PARTITION BY list (f1)"
   },
   {
     "comment": "foreign_key - Statement 570",
@@ -2281,11 +2659,13 @@
   },
   {
     "comment": "foreign_key - Statement 571",
-    "query": "CREATE TABLE ref2 PARTITION OF ref FOR VALUES in (2)"
+    "query": "CREATE TABLE ref2 PARTITION OF ref FOR VALUES in (2)",
+    "expected": "CREATE TABLE ref2 PARTITION OF ref FOR VALUES IN (2)"
   },
   {
     "comment": "foreign_key - Statement 572",
-    "query": "ALTER TABLE ref ADD FOREIGN KEY(f1,f2) REFERENCES pt"
+    "query": "ALTER TABLE ref ADD FOREIGN KEY(f1,f2) REFERENCES pt",
+    "expected": "ALTER TABLE ref ADD FOREIGN KEY (f1, f2) REFERENCES pt"
   },
   {
     "comment": "foreign_key - Statement 573",
@@ -2293,11 +2673,13 @@
   },
   {
     "comment": "foreign_key - Statement 574",
-    "query": "INSERT INTO pt VALUES(1,2,3)"
+    "query": "INSERT INTO pt VALUES(1,2,3)",
+    "expected": "INSERT INTO pt VALUES (1, 2, 3)"
   },
   {
     "comment": "foreign_key - Statement 575",
-    "query": "INSERT INTO ref VALUES(1,2,3)"
+    "query": "INSERT INTO ref VALUES(1,2,3)",
+    "expected": "INSERT INTO ref VALUES (1, 2, 3)"
   },
   {
     "comment": "foreign_key - Statement 576",
@@ -2309,7 +2691,8 @@
   },
   {
     "comment": "foreign_key - Statement 578",
-    "query": "ABORT"
+    "query": "ABORT",
+    "expected": "ROLLBACK"
   },
   {
     "comment": "foreign_key - Statement 579",
@@ -2337,7 +2720,8 @@
   },
   {
     "comment": "foreign_key - Statement 585",
-    "query": "CREATE TABLE pt(f1 int, f2 int, f3 int, PRIMARY KEY(f1,f2)) PARTITION BY LIST(f1)"
+    "query": "CREATE TABLE pt(f1 int, f2 int, f3 int, PRIMARY KEY(f1,f2)) PARTITION BY LIST(f1)",
+    "expected": "CREATE TABLE pt (f1 INT, f2 INT, f3 INT, PRIMARY KEY (f1, f2)) PARTITION BY list (f1)"
   },
   {
     "comment": "foreign_key - Statement 586",
@@ -2349,11 +2733,13 @@
   },
   {
     "comment": "foreign_key - Statement 588",
-    "query": "CREATE TABLE ref(f1 int, f2 int, f3 int)"
+    "query": "CREATE TABLE ref(f1 int, f2 int, f3 int)",
+    "expected": "CREATE TABLE ref (f1 INT, f2 INT, f3 INT)"
   },
   {
     "comment": "foreign_key - Statement 589",
-    "query": "CREATE TABLE pt1_2 PARTITION OF pt FOR VALUES IN (1, 2) PARTITION BY LIST (f1)"
+    "query": "CREATE TABLE pt1_2 PARTITION OF pt FOR VALUES IN (1, 2) PARTITION BY LIST (f1)",
+    "expected": "CREATE TABLE pt1_2 PARTITION OF pt FOR VALUES IN (1, 2) PARTITION BY list (f1)"
   },
   {
     "comment": "foreign_key - Statement 590",
@@ -2377,11 +2763,13 @@
   },
   {
     "comment": "foreign_key - Statement 595",
-    "query": "SET search_path TO fkpart6"
+    "query": "SET search_path TO fkpart6",
+    "expected": "SET SCHEMA 'fkpart6'"
   },
   {
     "comment": "foreign_key - Statement 596",
-    "query": "CREATE TABLE pk1 PARTITION OF pk FOR VALUES FROM (1) TO (100) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE pk1 PARTITION OF pk FOR VALUES FROM (1) TO (100) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE pk1 PARTITION OF pk FOR VALUES FROM (1) TO (100) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_key - Statement 597",
@@ -2393,7 +2781,8 @@
   },
   {
     "comment": "foreign_key - Statement 599",
-    "query": "CREATE TABLE fk1 PARTITION OF fk FOR VALUES FROM (1) TO (100) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE fk1 PARTITION OF fk FOR VALUES FROM (1) TO (100) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE fk1 PARTITION OF fk FOR VALUES FROM (1) TO (100) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_key - Statement 600",
@@ -2405,7 +2794,8 @@
   },
   {
     "comment": "foreign_key - Statement 602",
-    "query": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON UPDATE CASCADE ON DELETE CASCADE"
+    "query": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON UPDATE CASCADE ON DELETE CASCADE",
+    "expected": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON DELETE CASCADE ON UPDATE CASCADE"
   },
   {
     "comment": "foreign_key - Statement 603",
@@ -2417,7 +2807,8 @@
   },
   {
     "comment": "foreign_key - Statement 605",
-    "query": "SELECT tableoid::regclass, * FROM fk"
+    "query": "SELECT tableoid::regclass, * FROM fk",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM fk"
   },
   {
     "comment": "foreign_key - Statement 606",
@@ -2429,7 +2820,8 @@
   },
   {
     "comment": "foreign_key - Statement 608",
-    "query": "TRUNCATE TABLE pk"
+    "query": "TRUNCATE TABLE pk",
+    "expected": "TRUNCATE TABLE pk CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "foreign_key - Statement 609",
@@ -2437,7 +2829,8 @@
   },
   {
     "comment": "foreign_key - Statement 610",
-    "query": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON UPDATE SET NULL ON DELETE SET NULL"
+    "query": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON UPDATE SET NULL ON DELETE SET NULL",
+    "expected": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON DELETE SET NULL ON UPDATE SET NULL"
   },
   {
     "comment": "foreign_key - Statement 611",
@@ -2457,11 +2850,13 @@
   },
   {
     "comment": "foreign_key - Statement 615",
-    "query": "CREATE TABLE fk (id int, a int DEFAULT 50) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE fk (id int, a int DEFAULT 50) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE fk (id INT, a INT DEFAULT 50) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_key - Statement 616",
-    "query": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON UPDATE SET DEFAULT ON DELETE SET DEFAULT"
+    "query": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON UPDATE SET DEFAULT ON DELETE SET DEFAULT",
+    "expected": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON DELETE SET DEFAULT ON UPDATE SET DEFAULT"
   },
   {
     "comment": "foreign_key - Statement 617",
@@ -2481,11 +2876,13 @@
   },
   {
     "comment": "foreign_key - Statement 621",
-    "query": "CREATE TABLE fk (a int DEFAULT 50) PARTITION BY RANGE (a)"
+    "query": "CREATE TABLE fk (a int DEFAULT 50) PARTITION BY RANGE (a)",
+    "expected": "CREATE TABLE fk (a INT DEFAULT 50) PARTITION BY range (a)"
   },
   {
     "comment": "foreign_key - Statement 622",
-    "query": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON UPDATE RESTRICT ON DELETE RESTRICT"
+    "query": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON UPDATE RESTRICT ON DELETE RESTRICT",
+    "expected": "ALTER TABLE fk ADD FOREIGN KEY (a) REFERENCES pk ON DELETE RESTRICT ON UPDATE RESTRICT"
   },
   {
     "comment": "foreign_key - Statement 623",
@@ -2497,7 +2894,8 @@
   },
   {
     "comment": "foreign_key - Statement 625",
-    "query": "CREATE SCHEMA fkpart7 CREATE TABLE pkpart (a int) PARTITION BY LIST (a) CREATE TABLE pkpart1 PARTITION OF pkpart FOR VALUES IN (1)"
+    "query": "CREATE SCHEMA fkpart7 CREATE TABLE pkpart (a int) PARTITION BY LIST (a) CREATE TABLE pkpart1 PARTITION OF pkpart FOR VALUES IN (1)",
+    "expected": "CREATE SCHEMA fkpart7 CREATE TABLE pkpart (a INT) PARTITION BY list (a) CREATE TABLE pkpart1 PARTITION OF pkpart FOR VALUES IN (1)"
   },
   {
     "comment": "foreign_key - Statement 626",
@@ -2509,7 +2907,8 @@
   },
   {
     "comment": "foreign_key - Statement 628",
-    "query": "CREATE TABLE fkpart7.fk (a int REFERENCES fkpart7.pkpart)"
+    "query": "CREATE TABLE fkpart7.fk (a int REFERENCES fkpart7.pkpart)",
+    "expected": "CREATE TABLE fkpart7.fk (a INT REFERENCES fkpart7.pkpart)"
   },
   {
     "comment": "foreign_key - Statement 629",
@@ -2517,15 +2916,18 @@
   },
   {
     "comment": "foreign_key - Statement 630",
-    "query": "CREATE SCHEMA fkpart8 CREATE TABLE tbl1(f1 int PRIMARY KEY) CREATE TABLE tbl2(f1 int REFERENCES tbl1 DEFERRABLE INITIALLY DEFERRED) PARTITION BY RANGE(f1) CREATE TABLE tbl2_p1 PARTITION OF tbl2 FOR VALUES FROM (minvalue) TO (maxvalue)"
+    "query": "CREATE SCHEMA fkpart8 CREATE TABLE tbl1(f1 int PRIMARY KEY) CREATE TABLE tbl2(f1 int REFERENCES tbl1 DEFERRABLE INITIALLY DEFERRED) PARTITION BY RANGE(f1) CREATE TABLE tbl2_p1 PARTITION OF tbl2 FOR VALUES FROM (minvalue) TO (maxvalue)",
+    "expected": "CREATE SCHEMA fkpart8 CREATE TABLE tbl1 (f1 INT PRIMARY KEY) CREATE TABLE tbl2 (f1 INT REFERENCES tbl1) PARTITION BY range (f1) CREATE TABLE tbl2_p1 PARTITION OF tbl2 FOR VALUES FROM (minvalue) TO (maxvalue)"
   },
   {
     "comment": "foreign_key - Statement 631",
-    "query": "INSERT INTO fkpart8.tbl1 VALUES(1)"
+    "query": "INSERT INTO fkpart8.tbl1 VALUES(1)",
+    "expected": "INSERT INTO fkpart8.tbl1 VALUES (1)"
   },
   {
     "comment": "foreign_key - Statement 632",
-    "query": "INSERT INTO fkpart8.tbl2 VALUES(1)"
+    "query": "INSERT INTO fkpart8.tbl2 VALUES(1)",
+    "expected": "INSERT INTO fkpart8.tbl2 VALUES (1)"
   },
   {
     "comment": "foreign_key - Statement 633",
@@ -2537,7 +2939,8 @@
   },
   {
     "comment": "foreign_key - Statement 635",
-    "query": "CREATE SCHEMA fkpart9 CREATE TABLE pk (a INT PRIMARY KEY) PARTITION BY RANGE (a) CREATE TABLE fk ( fk_a INT REFERENCES pk(a) ON DELETE CASCADE ) CREATE TABLE pk1 PARTITION OF pk FOR VALUES FROM (30) TO (50) PARTITION BY RANGE (a) CREATE TABLE pk11 PARTITION OF pk1 FOR VALUES FROM (30) TO (40)"
+    "query": "CREATE SCHEMA fkpart9 CREATE TABLE pk (a INT PRIMARY KEY) PARTITION BY RANGE (a) CREATE TABLE fk ( fk_a INT REFERENCES pk(a) ON DELETE CASCADE ) CREATE TABLE pk1 PARTITION OF pk FOR VALUES FROM (30) TO (50) PARTITION BY RANGE (a) CREATE TABLE pk11 PARTITION OF pk1 FOR VALUES FROM (30) TO (40)",
+    "expected": "CREATE SCHEMA fkpart9 CREATE TABLE pk (a INT PRIMARY KEY) PARTITION BY range (a) CREATE TABLE fk (fk_a INT REFERENCES pk(a) ON DELETE CASCADE) CREATE TABLE pk1 PARTITION OF pk FOR VALUES FROM (30) TO (50) PARTITION BY range (a) CREATE TABLE pk11 PARTITION OF pk1 FOR VALUES FROM (30) TO (40)"
   },
   {
     "comment": "foreign_key - Statement 636",
@@ -2549,7 +2952,8 @@
   },
   {
     "comment": "foreign_key - Statement 638",
-    "query": "DELETE FROM fkpart9.pk WHERE a=35"
+    "query": "DELETE FROM fkpart9.pk WHERE a=35",
+    "expected": "DELETE FROM fkpart9.pk WHERE a = 35"
   },
   {
     "comment": "foreign_key - Statement 639",
@@ -2561,7 +2965,8 @@
   },
   {
     "comment": "foreign_key - Statement 641",
-    "query": "CREATE SCHEMA fkpart10 CREATE TABLE tbl1(f1 int PRIMARY KEY) PARTITION BY RANGE(f1) CREATE TABLE tbl1_p1 PARTITION OF tbl1 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl1_p2 PARTITION OF tbl1 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl2(f1 int REFERENCES tbl1 DEFERRABLE INITIALLY DEFERRED) CREATE TABLE tbl3(f1 int PRIMARY KEY) PARTITION BY RANGE(f1) CREATE TABLE tbl3_p1 PARTITION OF tbl3 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl3_p2 PARTITION OF tbl3 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl4(f1 int REFERENCES tbl3 DEFERRABLE INITIALLY DEFERRED)"
+    "query": "CREATE SCHEMA fkpart10 CREATE TABLE tbl1(f1 int PRIMARY KEY) PARTITION BY RANGE(f1) CREATE TABLE tbl1_p1 PARTITION OF tbl1 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl1_p2 PARTITION OF tbl1 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl2(f1 int REFERENCES tbl1 DEFERRABLE INITIALLY DEFERRED) CREATE TABLE tbl3(f1 int PRIMARY KEY) PARTITION BY RANGE(f1) CREATE TABLE tbl3_p1 PARTITION OF tbl3 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl3_p2 PARTITION OF tbl3 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl4(f1 int REFERENCES tbl3 DEFERRABLE INITIALLY DEFERRED)",
+    "expected": "CREATE SCHEMA fkpart10 CREATE TABLE tbl1 (f1 INT PRIMARY KEY) PARTITION BY range (f1) CREATE TABLE tbl1_p1 PARTITION OF tbl1 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl1_p2 PARTITION OF tbl1 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl2 (f1 INT REFERENCES tbl1) CREATE TABLE tbl3 (f1 INT PRIMARY KEY) PARTITION BY range (f1) CREATE TABLE tbl3_p1 PARTITION OF tbl3 FOR VALUES FROM (minvalue) TO (1) CREATE TABLE tbl3_p2 PARTITION OF tbl3 FOR VALUES FROM (1) TO (maxvalue) CREATE TABLE tbl4 (f1 INT REFERENCES tbl3)"
   },
   {
     "comment": "foreign_key - Statement 642",
@@ -2613,7 +3018,8 @@
   },
   {
     "comment": "foreign_key - Statement 654",
-    "query": "CREATE TABLE fkpart10.tbl5(f1 int REFERENCES fkpart10.tbl3)"
+    "query": "CREATE TABLE fkpart10.tbl5(f1 int REFERENCES fkpart10.tbl3)",
+    "expected": "CREATE TABLE fkpart10.tbl5 (f1 INT REFERENCES fkpart10.tbl3)"
   },
   {
     "comment": "foreign_key - Statement 655",
@@ -2637,11 +3043,13 @@
   },
   {
     "comment": "foreign_key - Statement 660",
-    "query": "CREATE SCHEMA fkpart11 CREATE TABLE pk (a INT PRIMARY KEY, b text) PARTITION BY LIST (a) CREATE TABLE fk ( a INT, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES pk(a) ON UPDATE CASCADE ON DELETE CASCADE ) CREATE TABLE fk_parted ( a INT PRIMARY KEY, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES pk(a) ON UPDATE CASCADE ON DELETE CASCADE ) PARTITION BY LIST (a) CREATE TABLE fk_another ( a INT, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fk_parted (a) ON UPDATE CASCADE ON DELETE CASCADE ) CREATE TABLE pk1 PARTITION OF pk FOR VALUES IN (1, 2) PARTITION BY LIST (a) CREATE TABLE pk2 PARTITION OF pk FOR VALUES IN (3) CREATE TABLE pk3 PARTITION OF pk FOR VALUES IN (4) CREATE TABLE fk1 PARTITION OF fk_parted FOR VALUES IN (1, 2) CREATE TABLE fk2 PARTITION OF fk_parted FOR VALUES IN (3) CREATE TABLE fk3 PARTITION OF fk_parted FOR VALUES IN (4)"
+    "query": "CREATE SCHEMA fkpart11 CREATE TABLE pk (a INT PRIMARY KEY, b text) PARTITION BY LIST (a) CREATE TABLE fk ( a INT, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES pk(a) ON UPDATE CASCADE ON DELETE CASCADE ) CREATE TABLE fk_parted ( a INT PRIMARY KEY, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES pk(a) ON UPDATE CASCADE ON DELETE CASCADE ) PARTITION BY LIST (a) CREATE TABLE fk_another ( a INT, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fk_parted (a) ON UPDATE CASCADE ON DELETE CASCADE ) CREATE TABLE pk1 PARTITION OF pk FOR VALUES IN (1, 2) PARTITION BY LIST (a) CREATE TABLE pk2 PARTITION OF pk FOR VALUES IN (3) CREATE TABLE pk3 PARTITION OF pk FOR VALUES IN (4) CREATE TABLE fk1 PARTITION OF fk_parted FOR VALUES IN (1, 2) CREATE TABLE fk2 PARTITION OF fk_parted FOR VALUES IN (3) CREATE TABLE fk3 PARTITION OF fk_parted FOR VALUES IN (4)",
+    "expected": "CREATE SCHEMA fkpart11 CREATE TABLE pk (a INT PRIMARY KEY, b TEXT) PARTITION BY list (a) CREATE TABLE fk (a INT, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES pk(a) ON DELETE CASCADE ON UPDATE CASCADE) CREATE TABLE fk_parted (a INT PRIMARY KEY, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES pk(a) ON DELETE CASCADE ON UPDATE CASCADE) PARTITION BY list (a) CREATE TABLE fk_another (a INT, CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fk_parted(a) ON DELETE CASCADE ON UPDATE CASCADE) CREATE TABLE pk1 PARTITION OF pk FOR VALUES IN (1, 2) PARTITION BY list (a) CREATE TABLE pk2 PARTITION OF pk FOR VALUES IN (3) CREATE TABLE pk3 PARTITION OF pk FOR VALUES IN (4) CREATE TABLE fk1 PARTITION OF fk_parted FOR VALUES IN (1, 2) CREATE TABLE fk2 PARTITION OF fk_parted FOR VALUES IN (3) CREATE TABLE fk3 PARTITION OF fk_parted FOR VALUES IN (4)"
   },
   {
     "comment": "foreign_key - Statement 661",
-    "query": "CREATE TABLE fkpart11.pk11 (b text, a int NOT NULL)"
+    "query": "CREATE TABLE fkpart11.pk11 (b text, a int NOT NULL)",
+    "expected": "CREATE TABLE fkpart11.pk11 (b TEXT, a INT NOT NULL)"
   },
   {
     "comment": "foreign_key - Statement 662",
@@ -2649,11 +3057,13 @@
   },
   {
     "comment": "foreign_key - Statement 663",
-    "query": "CREATE TABLE fkpart11.pk12 (b text, c int, a int NOT NULL)"
+    "query": "CREATE TABLE fkpart11.pk12 (b text, c int, a int NOT NULL)",
+    "expected": "CREATE TABLE fkpart11.pk12 (b TEXT, c INT, a INT NOT NULL)"
   },
   {
     "comment": "foreign_key - Statement 664",
-    "query": "ALTER TABLE fkpart11.pk12 DROP c"
+    "query": "ALTER TABLE fkpart11.pk12 DROP c",
+    "expected": "ALTER TABLE fkpart11.pk12 DROP COLUMN c"
   },
   {
     "comment": "foreign_key - Statement 665",
@@ -2677,19 +3087,23 @@
   },
   {
     "comment": "foreign_key - Statement 670",
-    "query": "UPDATE fkpart11.pk SET a = a + 1 RETURNING tableoid::pg_catalog.regclass, *"
+    "query": "UPDATE fkpart11.pk SET a = a + 1 RETURNING tableoid::pg_catalog.regclass, *",
+    "expected": "UPDATE fkpart11.pk SET a = a + 1 RETURNING CAST(tableoid AS regclass), *"
   },
   {
     "comment": "foreign_key - Statement 671",
-    "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.fk"
+    "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.fk",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM fkpart11.fk"
   },
   {
     "comment": "foreign_key - Statement 672",
-    "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.fk_parted"
+    "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.fk_parted",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM fkpart11.fk_parted"
   },
   {
     "comment": "foreign_key - Statement 673",
-    "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.fk_another"
+    "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.fk_another",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM fkpart11.fk_another"
   },
   {
     "comment": "foreign_key - Statement 674",
@@ -2701,7 +3115,8 @@
   },
   {
     "comment": "foreign_key - Statement 676",
-    "query": "ALTER TABLE fkpart11.fk ADD CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fkpart11.pk1 (a) ON UPDATE CASCADE ON DELETE CASCADE"
+    "query": "ALTER TABLE fkpart11.fk ADD CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fkpart11.pk1 (a) ON UPDATE CASCADE ON DELETE CASCADE",
+    "expected": "ALTER TABLE fkpart11.fk ADD CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fkpart11.pk1(a) ON DELETE CASCADE ON UPDATE CASCADE"
   },
   {
     "comment": "foreign_key - Statement 677",
@@ -2713,11 +3128,13 @@
   },
   {
     "comment": "foreign_key - Statement 679",
-    "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.pk"
+    "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.pk",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM fkpart11.pk"
   },
   {
     "comment": "foreign_key - Statement 680",
-    "query": "ALTER TABLE fkpart11.fk ADD CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fkpart11.pk11 (a) ON UPDATE CASCADE ON DELETE CASCADE"
+    "query": "ALTER TABLE fkpart11.fk ADD CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fkpart11.pk11 (a) ON UPDATE CASCADE ON DELETE CASCADE",
+    "expected": "ALTER TABLE fkpart11.fk ADD CONSTRAINT fkey FOREIGN KEY (a) REFERENCES fkpart11.pk11(a) ON DELETE CASCADE ON UPDATE CASCADE"
   },
   {
     "comment": "foreign_key - Statement 681",
@@ -2729,19 +3146,8 @@
   },
   {
     "comment": "foreign_key - Statement 683",
-    "query": "CREATE FUNCTION fkpart11.print_row () RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'TABLE: %, OP: %, OLD: %, NEW: %', TG_RELNAME, TG_OP, OLD, NEW"
-  },
-  {
-    "comment": "foreign_key - Statement 684",
-    "query": "RETURN NULL"
-  },
-  {
-    "comment": "foreign_key - Statement 685",
-    "query": "END"
-  },
-  {
-    "comment": "foreign_key - Statement 686",
-    "query": "$$"
+    "query": "CREATE FUNCTION fkpart11.print_row () RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN   RAISE NOTICE 'TABLE: %, OP: %, OLD: %, NEW: %', TG_RELNAME, TG_OP, OLD, NEW;   RETURN NULL; END;$$;",
+    "expected": "CREATE FUNCTION fkpart11.print_row () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN   RAISE NOTICE 'TABLE: %, OP: %, OLD: %, NEW: %', TG_RELNAME, TG_OP, OLD, NEW;   RETURN NULL; END;$$"
   },
   {
     "comment": "foreign_key - Statement 687",
@@ -2757,15 +3163,18 @@
   },
   {
     "comment": "foreign_key - Statement 690",
-    "query": "CREATE CONSTRAINT TRIGGER trig_upd_fk_parted AFTER UPDATE ON fkpart11.fk_parted INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fkpart11.print_row()"
+    "query": "CREATE CONSTRAINT TRIGGER trig_upd_fk_parted AFTER UPDATE ON fkpart11.fk_parted INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fkpart11.print_row()",
+    "expected": "CREATE CONSTRAINT TRIGGER trig_upd_fk_parted AFTER UPDATE ON fkpart11.fk_parted DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION fkpart11.print_row()"
   },
   {
     "comment": "foreign_key - Statement 691",
-    "query": "CREATE CONSTRAINT TRIGGER trig_del_fk_parted AFTER DELETE ON fkpart11.fk_parted INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fkpart11.print_row()"
+    "query": "CREATE CONSTRAINT TRIGGER trig_del_fk_parted AFTER DELETE ON fkpart11.fk_parted INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fkpart11.print_row()",
+    "expected": "CREATE CONSTRAINT TRIGGER trig_del_fk_parted AFTER DELETE ON fkpart11.fk_parted DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION fkpart11.print_row()"
   },
   {
     "comment": "foreign_key - Statement 692",
-    "query": "CREATE CONSTRAINT TRIGGER trig_ins_fk_parted AFTER INSERT ON fkpart11.fk_parted INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fkpart11.print_row()"
+    "query": "CREATE CONSTRAINT TRIGGER trig_ins_fk_parted AFTER INSERT ON fkpart11.fk_parted INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fkpart11.print_row()",
+    "expected": "CREATE CONSTRAINT TRIGGER trig_ins_fk_parted AFTER INSERT ON fkpart11.fk_parted DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION fkpart11.print_row()"
   },
   {
     "comment": "foreign_key - Statement 693",
@@ -2781,11 +3190,13 @@
   },
   {
     "comment": "foreign_key - Statement 696",
-    "query": "CREATE SCHEMA fkpart12 CREATE TABLE fk_p ( id int, jd int, PRIMARY KEY(id, jd)) PARTITION BY list (id) CREATE TABLE fk_p_1 PARTITION OF fk_p FOR VALUES IN (1) PARTITION BY list (jd) CREATE TABLE fk_p_1_1 PARTITION OF fk_p_1 FOR VALUES IN (1) CREATE TABLE fk_p_1_2 (x int, y int, jd int NOT NULL, id int NOT NULL) CREATE TABLE fk_p_2 PARTITION OF fk_p FOR VALUES IN (2) PARTITION BY list (jd) CREATE TABLE fk_p_2_1 PARTITION OF fk_p_2 FOR VALUES IN (1) CREATE TABLE fk_p_2_2 PARTITION OF fk_p_2 FOR VALUES IN (2) CREATE TABLE fk_r_1 ( p_jd int NOT NULL, x int, id int PRIMARY KEY, p_id int NOT NULL) CREATE TABLE fk_r_2 ( id int PRIMARY KEY, p_id int NOT NULL, p_jd int NOT NULL) PARTITION BY list (id) CREATE TABLE fk_r_2_1 PARTITION OF fk_r_2 FOR VALUES IN (2, 1) CREATE TABLE fk_r   ( id int PRIMARY KEY, p_id int NOT NULL, p_jd int NOT NULL, FOREIGN KEY (p_id, p_jd) REFERENCES fk_p (id, jd) ) PARTITION BY list (id)"
+    "query": "CREATE SCHEMA fkpart12 CREATE TABLE fk_p ( id int, jd int, PRIMARY KEY(id, jd)) PARTITION BY list (id) CREATE TABLE fk_p_1 PARTITION OF fk_p FOR VALUES IN (1) PARTITION BY list (jd) CREATE TABLE fk_p_1_1 PARTITION OF fk_p_1 FOR VALUES IN (1) CREATE TABLE fk_p_1_2 (x int, y int, jd int NOT NULL, id int NOT NULL) CREATE TABLE fk_p_2 PARTITION OF fk_p FOR VALUES IN (2) PARTITION BY list (jd) CREATE TABLE fk_p_2_1 PARTITION OF fk_p_2 FOR VALUES IN (1) CREATE TABLE fk_p_2_2 PARTITION OF fk_p_2 FOR VALUES IN (2) CREATE TABLE fk_r_1 ( p_jd int NOT NULL, x int, id int PRIMARY KEY, p_id int NOT NULL) CREATE TABLE fk_r_2 ( id int PRIMARY KEY, p_id int NOT NULL, p_jd int NOT NULL) PARTITION BY list (id) CREATE TABLE fk_r_2_1 PARTITION OF fk_r_2 FOR VALUES IN (2, 1) CREATE TABLE fk_r   ( id int PRIMARY KEY, p_id int NOT NULL, p_jd int NOT NULL, FOREIGN KEY (p_id, p_jd) REFERENCES fk_p (id, jd) ) PARTITION BY list (id)",
+    "expected": "CREATE SCHEMA fkpart12 CREATE TABLE fk_p (id INT, jd INT, PRIMARY KEY (id, jd)) PARTITION BY list (id) CREATE TABLE fk_p_1 PARTITION OF fk_p FOR VALUES IN (1) PARTITION BY list (jd) CREATE TABLE fk_p_1_1 PARTITION OF fk_p_1 FOR VALUES IN (1) CREATE TABLE fk_p_1_2 (x INT, y INT, jd INT NOT NULL, id INT NOT NULL) CREATE TABLE fk_p_2 PARTITION OF fk_p FOR VALUES IN (2) PARTITION BY list (jd) CREATE TABLE fk_p_2_1 PARTITION OF fk_p_2 FOR VALUES IN (1) CREATE TABLE fk_p_2_2 PARTITION OF fk_p_2 FOR VALUES IN (2) CREATE TABLE fk_r_1 (p_jd INT NOT NULL, x INT, id INT PRIMARY KEY, p_id INT NOT NULL) CREATE TABLE fk_r_2 (id INT PRIMARY KEY, p_id INT NOT NULL, p_jd INT NOT NULL) PARTITION BY list (id) CREATE TABLE fk_r_2_1 PARTITION OF fk_r_2 FOR VALUES IN (2, 1) CREATE TABLE fk_r (id INT PRIMARY KEY, p_id INT NOT NULL, p_jd INT NOT NULL, FOREIGN KEY (p_id, p_jd) REFERENCES fk_p(id, jd)) PARTITION BY list (id)"
   },
   {
     "comment": "foreign_key - Statement 697",
-    "query": "SET search_path TO fkpart12"
+    "query": "SET search_path TO fkpart12",
+    "expected": "SET SCHEMA 'fkpart12'"
   },
   {
     "comment": "foreign_key - Statement 698",
@@ -2841,7 +3252,8 @@
   },
   {
     "comment": "foreign_key - Statement 711",
-    "query": "SET client_min_messages TO warning"
+    "query": "SET client_min_messages TO warning",
+    "expected": "SET client_min_messages = 'warning'"
   },
   {
     "comment": "foreign_key - Statement 712",

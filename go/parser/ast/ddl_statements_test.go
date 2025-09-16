@@ -988,7 +988,7 @@ func TestImportForeignSchemaStmt(t *testing.T) {
 		serverName := NewString("my_server")
 		remoteSchema := NewString("remote_schema")
 		localSchema := NewString("local_schema")
-		
+
 		stmt := NewImportForeignSchemaStmt(
 			serverName,
 			remoteSchema,
@@ -1006,14 +1006,14 @@ func TestImportForeignSchemaStmt(t *testing.T) {
 		serverName := NewString("my_server")
 		remoteSchema := NewString("remote_schema")
 		localSchema := NewString("local_schema")
-		
+
 		// Create table list
 		tableList := NewNodeList()
 		table1 := NewRangeVar("users", "", "")
 		table2 := NewRangeVar("orders", "", "")
 		tableList.Append(table1)
 		tableList.Append(table2)
-		
+
 		stmt := NewImportForeignSchemaStmt(
 			serverName,
 			remoteSchema,
@@ -1023,7 +1023,7 @@ func TestImportForeignSchemaStmt(t *testing.T) {
 			NewNodeList(),
 		)
 
-		expected := "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO ( users, orders ) FROM SERVER my_server INTO local_schema"
+		expected := "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO (users, orders) FROM SERVER my_server INTO local_schema"
 		assert.Equal(t, expected, stmt.SqlString())
 	})
 
@@ -1031,12 +1031,12 @@ func TestImportForeignSchemaStmt(t *testing.T) {
 		serverName := NewString("my_server")
 		remoteSchema := NewString("remote_schema")
 		localSchema := NewString("local_schema")
-		
+
 		// Create table list
 		tableList := NewNodeList()
 		table1 := NewRangeVar("temp_table", "", "")
 		tableList.Append(table1)
-		
+
 		stmt := NewImportForeignSchemaStmt(
 			serverName,
 			remoteSchema,
@@ -1046,7 +1046,7 @@ func TestImportForeignSchemaStmt(t *testing.T) {
 			NewNodeList(),
 		)
 
-		expected := "IMPORT FOREIGN SCHEMA remote_schema EXCEPT ( temp_table ) FROM SERVER my_server INTO local_schema"
+		expected := "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp_table) FROM SERVER my_server INTO local_schema"
 		assert.Equal(t, expected, stmt.SqlString())
 	})
 
@@ -1054,14 +1054,14 @@ func TestImportForeignSchemaStmt(t *testing.T) {
 		serverName := NewString("my_server")
 		remoteSchema := NewString("remote_schema")
 		localSchema := NewString("local_schema")
-		
+
 		// Create options
 		options := NewNodeList()
 		opt1 := NewDefElem("schema_regexp", NewString("^public"))
 		opt2 := NewDefElem("max_workers", NewInteger(4))
 		options.Append(opt1)
 		options.Append(opt2)
-		
+
 		stmt := NewImportForeignSchemaStmt(
 			serverName,
 			remoteSchema,
@@ -1071,7 +1071,7 @@ func TestImportForeignSchemaStmt(t *testing.T) {
 			options,
 		)
 
-		expected := "IMPORT FOREIGN SCHEMA remote_schema FROM SERVER my_server INTO local_schema OPTIONS ( schema_regexp = '^public', max_workers = 4 )"
+		expected := "IMPORT FOREIGN SCHEMA remote_schema FROM SERVER my_server INTO local_schema OPTIONS (schema_regexp '^public', max_workers 4)"
 		assert.Equal(t, expected, stmt.SqlString())
 	})
 }

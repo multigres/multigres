@@ -758,11 +758,11 @@ func normalizeSingleTypeName(typeName string) string {
 	case "timestamp":
 		return "TIMESTAMP"
 	case "timestamptz":
-		return "TIMESTAMP WITH TIME ZONE"
+		return "TIMESTAMPTZ"
 	case "time":
 		return "TIME"
 	case "timetz":
-		return "TIME WITH TIME ZONE"
+		return "TIMETZ"
 	case "date":
 		return "DATE"
 	case "interval":
@@ -1170,6 +1170,16 @@ func (c *Constraint) SqlString() string {
 			}
 		}
 
+		// Add MATCH clause if explicitly specified (non-zero and not default SIMPLE)
+		if c.FkMatchtype != 0 && c.FkMatchtype != FKCONSTR_MATCH_SIMPLE {
+			switch c.FkMatchtype {
+			case FKCONSTR_MATCH_FULL:
+				result += " MATCH FULL"
+			case FKCONSTR_MATCH_PARTIAL:
+				result += " MATCH PARTIAL"
+			}
+		}
+
 		// Add foreign key actions (only if explicitly set and not default NO ACTION)
 		if c.FkDelAction != 0 && c.FkDelAction != FKCONSTR_ACTION_NOACTION {
 			switch c.FkDelAction {
@@ -1200,16 +1210,6 @@ func (c *Constraint) SqlString() string {
 				result += " ON UPDATE SET NULL"
 			case FKCONSTR_ACTION_SETDEFAULT:
 				result += " ON UPDATE SET DEFAULT"
-			}
-		}
-
-		// Add MATCH clause if explicitly specified (non-zero and not default SIMPLE)
-		if c.FkMatchtype != 0 && c.FkMatchtype != FKCONSTR_MATCH_SIMPLE {
-			switch c.FkMatchtype {
-			case FKCONSTR_MATCH_FULL:
-				result += " MATCH FULL"
-			case FKCONSTR_MATCH_PARTIAL:
-				result += " MATCH PARTIAL"
 			}
 		}
 
@@ -1718,6 +1718,9 @@ func (a *AlterTableCmd) SqlString() string {
 			parts = append(parts, a.Def.SqlString())
 		}
 
+	case AT_DropIdentity:
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "DROP IDENTITY")
+
 	case AT_ReplicaIdentity:
 		if a.Def != nil {
 			parts = append(parts, a.Def.SqlString())
@@ -1802,6 +1805,166 @@ func (a *AlterTableCmd) SqlString() string {
 
 	case AT_NoForceRowSecurity:
 		parts = append(parts, "NO FORCE ROW LEVEL SECURITY")
+
+	case AT_AlterColumnGenericOptions:
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "OPTIONS")
+		if a.Def != nil {
+			// Handle DefElem with ADD/SET/DROP actions for column options
+			if defElem, ok := a.Def.(*DefElem); ok {
+				var optStr string
+				switch defElem.Defaction {
+				case DEFELEM_ADD:
+					if defElem.Arg != nil {
+						optStr = "ADD " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+					} else {
+						optStr = "ADD " + QuoteIdentifier(defElem.Defname)
+					}
+				case DEFELEM_SET:
+					if defElem.Arg != nil {
+						optStr = "SET " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+					} else {
+						optStr = "SET " + QuoteIdentifier(defElem.Defname)
+					}
+				case DEFELEM_DROP:
+					optStr = "DROP " + QuoteIdentifier(defElem.Defname)
+				default:
+					// Fallback to regular format - defaction might be DEFELEM_UNSPEC or something else
+					if defElem.Arg != nil {
+						optStr = "ADD " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+					} else {
+						optStr = "ADD " + QuoteIdentifier(defElem.Defname)
+					}
+				}
+				parts = append(parts, "("+optStr+")")
+			} else if nodeList, ok := a.Def.(*NodeList); ok {
+				// Handle NodeList of DefElems
+				var optStrs []string
+				for _, item := range nodeList.Items {
+					if defElem, ok := item.(*DefElem); ok {
+						var optStr string
+						switch defElem.Defaction {
+						case DEFELEM_ADD:
+							if defElem.Arg != nil {
+								optStr = "ADD " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+							} else {
+								optStr = "ADD " + QuoteIdentifier(defElem.Defname)
+							}
+						case DEFELEM_SET:
+							if defElem.Arg != nil {
+								optStr = "SET " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+							} else {
+								optStr = "SET " + QuoteIdentifier(defElem.Defname)
+							}
+						case DEFELEM_DROP:
+							optStr = "DROP " + QuoteIdentifier(defElem.Defname)
+						default:
+							// Fallback - assume ADD if no action specified
+							if defElem.Arg != nil {
+								optStr = "ADD " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+							} else {
+								optStr = "ADD " + QuoteIdentifier(defElem.Defname)
+							}
+						}
+						optStrs = append(optStrs, optStr)
+					}
+				}
+				parts = append(parts, "("+strings.Join(optStrs, ", ")+")")
+			} else {
+				parts = append(parts, "("+a.Def.SqlString()+")")
+			}
+		}
+
+	case AT_GenericOptions:
+		parts = append(parts, "OPTIONS")
+		if a.Def != nil {
+			// Handle DefElem with ADD/SET/DROP actions for table-level options
+			if defElem, ok := a.Def.(*DefElem); ok {
+				var optStr string
+				switch defElem.Defaction {
+				case DEFELEM_ADD:
+					if defElem.Arg != nil {
+						optStr = "ADD " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+					} else {
+						optStr = "ADD " + QuoteIdentifier(defElem.Defname)
+					}
+				case DEFELEM_SET:
+					if defElem.Arg != nil {
+						optStr = "SET " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+					} else {
+						optStr = "SET " + QuoteIdentifier(defElem.Defname)
+					}
+				case DEFELEM_DROP:
+					optStr = "DROP " + QuoteIdentifier(defElem.Defname)
+				default:
+					// Fallback - assume ADD if no action specified
+					if defElem.Arg != nil {
+						optStr = "ADD " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+					} else {
+						optStr = "ADD " + QuoteIdentifier(defElem.Defname)
+					}
+				}
+				parts = append(parts, "("+optStr+")")
+			} else if nodeList, ok := a.Def.(*NodeList); ok {
+				// Handle NodeList of DefElems for multiple options
+				var optStrs []string
+				for _, item := range nodeList.Items {
+					if defElem, ok := item.(*DefElem); ok {
+						var optStr string
+						switch defElem.Defaction {
+						case DEFELEM_ADD:
+							if defElem.Arg != nil {
+								optStr = "ADD " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+							} else {
+								optStr = "ADD " + QuoteIdentifier(defElem.Defname)
+							}
+						case DEFELEM_SET:
+							if defElem.Arg != nil {
+								optStr = "SET " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+							} else {
+								optStr = "SET " + QuoteIdentifier(defElem.Defname)
+							}
+						case DEFELEM_DROP:
+							optStr = "DROP " + QuoteIdentifier(defElem.Defname)
+						default:
+							// Fallback - assume ADD if no action specified
+							if defElem.Arg != nil {
+								optStr = "ADD " + QuoteIdentifier(defElem.Defname) + " " + defElem.Arg.SqlString()
+							} else {
+								optStr = "ADD " + QuoteIdentifier(defElem.Defname)
+							}
+						}
+						optStrs = append(optStrs, optStr)
+					}
+				}
+				parts = append(parts, "("+strings.Join(optStrs, ", ")+")")
+			} else {
+				parts = append(parts, "("+a.Def.SqlString()+")")
+			}
+		}
+
+	case AT_EnableTrig:
+		parts = append(parts, "ENABLE TRIGGER", QuoteIdentifier(a.Name))
+
+	case AT_EnableAlwaysTrig:
+		parts = append(parts, "ENABLE ALWAYS TRIGGER", QuoteIdentifier(a.Name))
+
+	case AT_EnableReplicaTrig:
+		parts = append(parts, "ENABLE REPLICA TRIGGER", QuoteIdentifier(a.Name))
+
+	case AT_DisableTrig:
+		parts = append(parts, "DISABLE TRIGGER", QuoteIdentifier(a.Name))
+
+	case AT_EnableTrigAll:
+		parts = append(parts, "ENABLE TRIGGER ALL")
+
+	case AT_DisableTrigAll:
+		parts = append(parts, "DISABLE TRIGGER ALL")
+
+	case AT_EnableTrigUser:
+		parts = append(parts, "ENABLE TRIGGER USER")
+
+	case AT_DisableTrigUser:
+		parts = append(parts, "DISABLE TRIGGER USER")
 
 	default:
 		// Fallback for unhandled subtypes
@@ -2953,9 +3116,9 @@ func (c *CreateFdwStmt) SqlString() string {
 			if opt, ok := item.(*DefElem); ok && opt != nil {
 				// For generic options, use PostgreSQL format: key 'value' (no =)
 				if opt.Arg != nil {
-					optParts = append(optParts, opt.Defname+" "+opt.Arg.SqlString())
+					optParts = append(optParts, QuoteIdentifier(opt.Defname)+" "+opt.Arg.SqlString())
 				} else {
-					optParts = append(optParts, opt.Defname)
+					optParts = append(optParts, QuoteIdentifier(opt.Defname))
 				}
 			}
 		}
@@ -3017,6 +3180,9 @@ func (a *AlterFdwStmt) SqlString() string {
 						} else {
 							parts = append(parts, "HANDLER", opt.Arg.SqlString())
 						}
+					} else {
+						// NO HANDLER case
+						parts = append(parts, "NO HANDLER")
 					}
 				case "validator":
 					if opt.Arg != nil {
@@ -3032,6 +3198,9 @@ func (a *AlterFdwStmt) SqlString() string {
 						} else {
 							parts = append(parts, "VALIDATOR", opt.Arg.SqlString())
 						}
+					} else {
+						// NO VALIDATOR case
+						parts = append(parts, "NO VALIDATOR")
 					}
 				default:
 					// For other options, use the standard format
@@ -3051,24 +3220,24 @@ func (a *AlterFdwStmt) SqlString() string {
 				switch opt.Defaction {
 				case DEFELEM_ADD:
 					if opt.Arg != nil {
-						optStr = "ADD " + opt.Defname + " " + opt.Arg.SqlString()
+						optStr = "ADD " + QuoteIdentifier(opt.Defname) + " " + opt.Arg.SqlString()
 					} else {
-						optStr = "ADD " + opt.Defname
+						optStr = "ADD " + QuoteIdentifier(opt.Defname)
 					}
 				case DEFELEM_SET:
 					if opt.Arg != nil {
-						optStr = "SET " + opt.Defname + " " + opt.Arg.SqlString()
+						optStr = "SET " + QuoteIdentifier(opt.Defname) + " " + opt.Arg.SqlString()
 					} else {
-						optStr = "SET " + opt.Defname
+						optStr = "SET " + QuoteIdentifier(opt.Defname)
 					}
 				case DEFELEM_DROP:
-					optStr = "DROP " + opt.Defname
+					optStr = "DROP " + QuoteIdentifier(opt.Defname)
 				default:
 					// DEFELEM_UNSPEC or other - use without action prefix
 					if opt.Arg != nil {
-						optStr = opt.Defname + " " + opt.Arg.SqlString()
+						optStr = QuoteIdentifier(opt.Defname) + " " + opt.Arg.SqlString()
 					} else {
-						optStr = opt.Defname
+						optStr = QuoteIdentifier(opt.Defname)
 					}
 				}
 				optParts = append(optParts, optStr)
@@ -3128,24 +3297,24 @@ func (a *AlterForeignServerStmt) SqlString() string {
 				switch opt.Defaction {
 				case DEFELEM_ADD:
 					if opt.Arg != nil {
-						optStr = "ADD " + opt.Defname + " " + opt.Arg.SqlString()
+						optStr = "ADD " + QuoteIdentifier(opt.Defname) + " " + opt.Arg.SqlString()
 					} else {
-						optStr = "ADD " + opt.Defname
+						optStr = "ADD " + QuoteIdentifier(opt.Defname)
 					}
 				case DEFELEM_SET:
 					if opt.Arg != nil {
-						optStr = "SET " + opt.Defname + " " + opt.Arg.SqlString()
+						optStr = "SET " + QuoteIdentifier(opt.Defname) + " " + opt.Arg.SqlString()
 					} else {
-						optStr = "SET " + opt.Defname
+						optStr = "SET " + QuoteIdentifier(opt.Defname)
 					}
 				case DEFELEM_DROP:
-					optStr = "DROP " + opt.Defname
+					optStr = "DROP " + QuoteIdentifier(opt.Defname)
 				default:
 					// DEFELEM_UNSPEC or other - use without action prefix
 					if opt.Arg != nil {
-						optStr = opt.Defname + " " + opt.Arg.SqlString()
+						optStr = QuoteIdentifier(opt.Defname) + " " + opt.Arg.SqlString()
 					} else {
-						optStr = opt.Defname
+						optStr = QuoteIdentifier(opt.Defname)
 					}
 				}
 				optParts = append(optParts, optStr)
@@ -3199,24 +3368,24 @@ func (a *AlterUserMappingStmt) SqlString() string {
 				switch opt.Defaction {
 				case DEFELEM_ADD:
 					if opt.Arg != nil {
-						optStr = "ADD " + opt.Defname + " " + opt.Arg.SqlString()
+						optStr = "ADD " + QuoteIdentifier(opt.Defname) + " " + opt.Arg.SqlString()
 					} else {
-						optStr = "ADD " + opt.Defname
+						optStr = "ADD " + QuoteIdentifier(opt.Defname)
 					}
 				case DEFELEM_SET:
 					if opt.Arg != nil {
-						optStr = "SET " + opt.Defname + " " + opt.Arg.SqlString()
+						optStr = "SET " + QuoteIdentifier(opt.Defname) + " " + opt.Arg.SqlString()
 					} else {
-						optStr = "SET " + opt.Defname
+						optStr = "SET " + QuoteIdentifier(opt.Defname)
 					}
 				case DEFELEM_DROP:
-					optStr = "DROP " + opt.Defname
+					optStr = "DROP " + QuoteIdentifier(opt.Defname)
 				default:
 					// DEFELEM_UNSPEC or other - use without action prefix
 					if opt.Arg != nil {
-						optStr = opt.Defname + " " + opt.Arg.SqlString()
+						optStr = QuoteIdentifier(opt.Defname) + " " + opt.Arg.SqlString()
 					} else {
-						optStr = opt.Defname
+						optStr = QuoteIdentifier(opt.Defname)
 					}
 				}
 				optParts = append(optParts, optStr)
@@ -3768,15 +3937,13 @@ func (i *ImportForeignSchemaStmt) SqlString() string {
 	if i.ListType != FDW_IMPORT_SCHEMA_ALL {
 		parts = append(parts, i.ListType.String())
 		if i.TableList != nil && i.TableList.Len() > 0 {
-			parts = append(parts, "(")
 			var tableNames []string
 			for _, item := range i.TableList.Items {
 				if rv, ok := item.(*RangeVar); ok {
 					tableNames = append(tableNames, rv.SqlString())
 				}
 			}
-			parts = append(parts, strings.Join(tableNames, ", "))
-			parts = append(parts, ")")
+			parts = append(parts, "("+strings.Join(tableNames, ", ")+")")
 		}
 	}
 
@@ -3793,15 +3960,18 @@ func (i *ImportForeignSchemaStmt) SqlString() string {
 	// Add options
 	if i.Options != nil && i.Options.Len() > 0 {
 		parts = append(parts, "OPTIONS")
-		parts = append(parts, "(")
 		var optionStrings []string
 		for _, item := range i.Options.Items {
 			if opt, ok := item.(*DefElem); ok {
-				optionStrings = append(optionStrings, opt.SqlString())
+				// For foreign schema import, use "name 'value'" format instead of "name = 'value'"
+				if opt.Arg != nil {
+					optionStrings = append(optionStrings, QuoteIdentifier(opt.Defname)+" "+opt.Arg.SqlString())
+				} else {
+					optionStrings = append(optionStrings, QuoteIdentifier(opt.Defname))
+				}
 			}
 		}
-		parts = append(parts, strings.Join(optionStrings, ", "))
-		parts = append(parts, ")")
+		parts = append(parts, "("+strings.Join(optionStrings, ", ")+")")
 	}
 
 	return strings.Join(parts, " ")

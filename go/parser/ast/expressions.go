@@ -2002,7 +2002,7 @@ func (x *XmlExpr) String() string {
 // SqlString returns the SQL representation of XmlExpr
 func (x *XmlExpr) SqlString() string {
 	var result strings.Builder
-	
+
 	switch x.Op {
 	case IS_XMLCONCAT:
 		result.WriteString("XMLCONCAT(")
@@ -2017,7 +2017,7 @@ func (x *XmlExpr) SqlString() string {
 			}
 		}
 		result.WriteString(")")
-		
+
 	case IS_XMLELEMENT:
 		result.WriteString("XMLELEMENT(NAME ")
 		result.WriteString(x.Name)
@@ -2033,7 +2033,7 @@ func (x *XmlExpr) SqlString() string {
 			}
 		}
 		result.WriteString(")")
-		
+
 	case IS_XMLFOREST:
 		result.WriteString("XMLFOREST(")
 		if x.Args != nil {
@@ -2047,7 +2047,7 @@ func (x *XmlExpr) SqlString() string {
 			}
 		}
 		result.WriteString(")")
-		
+
 	case IS_XMLPARSE:
 		result.WriteString("XMLPARSE(")
 		switch x.Xmloption {
@@ -2060,7 +2060,7 @@ func (x *XmlExpr) SqlString() string {
 			result.WriteString(x.Args.Items[0].SqlString())
 		}
 		result.WriteString(")")
-		
+
 	case IS_XMLPI:
 		result.WriteString("XMLPI(NAME ")
 		result.WriteString(x.Name)
@@ -2069,7 +2069,7 @@ func (x *XmlExpr) SqlString() string {
 			result.WriteString(x.Args.Items[0].SqlString())
 		}
 		result.WriteString(")")
-		
+
 	case IS_XMLROOT:
 		result.WriteString("XMLROOT(")
 		if x.Args != nil && len(x.Args.Items) > 0 {
@@ -2080,7 +2080,7 @@ func (x *XmlExpr) SqlString() string {
 			}
 		}
 		result.WriteString(")")
-		
+
 	case IS_XMLSERIALIZE:
 		result.WriteString("XMLSERIALIZE(")
 		switch x.Xmloption {
@@ -2100,17 +2100,17 @@ func (x *XmlExpr) SqlString() string {
 			result.WriteString(" INDENT")
 		}
 		result.WriteString(")")
-		
+
 	case IS_DOCUMENT:
 		if x.Args != nil && len(x.Args.Items) > 0 && x.Args.Items[0] != nil {
 			result.WriteString(x.Args.Items[0].SqlString())
 		}
 		result.WriteString(" IS DOCUMENT")
-		
+
 	default:
 		result.WriteString("UNKNOWN_XML_EXPR")
 	}
-	
+
 	return result.String()
 }
 

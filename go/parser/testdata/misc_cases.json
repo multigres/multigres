@@ -210,7 +210,7 @@
   {
     "comment": "SHOW ALL",
     "query": "SHOW ALL",
-    "expected": "SHOW all"
+    "expected": "SHOW \"all\""
   },
   {
     "comment": "SHOW timezone",

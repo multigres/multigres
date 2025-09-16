@@ -9,7 +9,8 @@
   },
   {
     "comment": "drop_if_exists - Statement 3",
-    "query": "CREATE TABLE test_exists (a int, b text)"
+    "query": "CREATE TABLE test_exists (a int, b text)",
+    "expected": "CREATE TABLE test_exists (a INT, b TEXT)"
   },
   {
     "comment": "drop_if_exists - Statement 4",
@@ -21,7 +22,8 @@
   },
   {
     "comment": "drop_if_exists - Statement 6",
-    "query": "CREATE VIEW test_view_exists AS select * from test_exists"
+    "query": "CREATE VIEW test_view_exists AS select * from test_exists",
+    "expected": "CREATE VIEW test_view_exists AS SELECT * FROM test_exists"
   },
   {
     "comment": "drop_if_exists - Statement 7",
@@ -33,7 +35,8 @@
   },
   {
     "comment": "drop_if_exists - Statement 9",
-    "query": "CREATE INDEX test_index_exists on test_exists(a)"
+    "query": "CREATE INDEX test_index_exists on test_exists(a)",
+    "expected": "CREATE INDEX test_index_exists ON test_exists USING btree ( a )"
   },
   {
     "comment": "drop_if_exists - Statement 10",
@@ -69,7 +72,8 @@
   },
   {
     "comment": "drop_if_exists - Statement 18",
-    "query": "CREATE type test_type_exists as (a int, b text)"
+    "query": "CREATE type test_type_exists as (a int, b text)",
+    "expected": "CREATE TYPE test_type_exists AS (a INT, b TEXT)"
   },
   {
     "comment": "drop_if_exists - Statement 19",
@@ -81,7 +85,8 @@
   },
   {
     "comment": "drop_if_exists - Statement 21",
-    "query": "CREATE domain test_domain_exists as int not null check (value > 0)"
+    "query": "CREATE domain test_domain_exists as int not null check (value \u003e 0)",
+    "expected": "CREATE DOMAIN test_domain_exists AS INT NOT NULL CHECK (value \u003e 0)"
   },
   {
     "comment": "drop_if_exists - Statement 22",
@@ -97,15 +102,18 @@
   },
   {
     "comment": "drop_if_exists - Statement 25",
-    "query": "DROP USER regress_test_u2"
+    "query": "DROP USER regress_test_u2",
+    "expected": "DROP ROLE regress_test_u2"
   },
   {
     "comment": "drop_if_exists - Statement 26",
-    "query": "DROP USER IF EXISTS regress_test_u1, regress_test_u2"
+    "query": "DROP USER IF EXISTS regress_test_u1, regress_test_u2",
+    "expected": "DROP ROLE IF EXISTS regress_test_u1, regress_test_u2"
   },
   {
     "comment": "drop_if_exists - Statement 27",
-    "query": "DROP USER regress_test_u1"
+    "query": "DROP USER regress_test_u1",
+    "expected": "DROP ROLE regress_test_u1"
   },
   {
     "comment": "drop_if_exists - Statement 28",
@@ -121,15 +129,18 @@
   },
   {
     "comment": "drop_if_exists - Statement 31",
-    "query": "DROP GROUP regress_test_g2"
+    "query": "DROP GROUP regress_test_g2",
+    "expected": "DROP ROLE regress_test_g2"
   },
   {
     "comment": "drop_if_exists - Statement 32",
-    "query": "DROP GROUP IF EXISTS regress_test_g1, regress_test_g2"
+    "query": "DROP GROUP IF EXISTS regress_test_g1, regress_test_g2",
+    "expected": "DROP ROLE IF EXISTS regress_test_g1, regress_test_g2"
   },
   {
     "comment": "drop_if_exists - Statement 33",
-    "query": "DROP GROUP regress_test_g1"
+    "query": "DROP GROUP regress_test_g1",
+    "expected": "DROP ROLE regress_test_g1"
   },
   {
     "comment": "drop_if_exists - Statement 34",
@@ -165,7 +176,8 @@
   },
   {
     "comment": "drop_if_exists - Statement 42",
-    "query": "CREATE TEXT SEARCH DICTIONARY test_tsdict_exists ( Template=ispell, DictFile=ispell_sample, AffFile=ispell_sample )"
+    "query": "CREATE TEXT SEARCH DICTIONARY test_tsdict_exists ( Template=ispell, DictFile=ispell_sample, AffFile=ispell_sample )",
+    "expected": "CREATE TEXT SEARCH DICTIONARY test_tsdict_exists (template = ispell, dictfile = ispell_sample, afffile = ispell_sample)"
   },
   {
     "comment": "drop_if_exists - Statement 43",
@@ -185,7 +197,8 @@
   },
   {
     "comment": "drop_if_exists - Statement 47",
-    "query": "CREATE TEXT SEARCH CONFIGURATION test_tsconfig_exists (COPY=english)"
+    "query": "CREATE TEXT SEARCH CONFIGURATION test_tsconfig_exists (COPY=english)",
+    "expected": "CREATE TEXT SEARCH CONFIGURATION test_tsconfig_exists (copy = english)"
   },
   {
     "comment": "drop_if_exists - Statement 48",
@@ -205,11 +218,13 @@
   },
   {
     "comment": "drop_if_exists - Statement 52",
-    "query": "DROP FUNCTION test_function_exists(int, text, int[])"
+    "query": "DROP FUNCTION test_function_exists(int, text, int[])",
+    "expected": "DROP FUNCTION test_function_exists(INT, TEXT, INT[])"
   },
   {
     "comment": "drop_if_exists - Statement 53",
-    "query": "DROP FUNCTION IF EXISTS test_function_exists(int, text, int[])"
+    "query": "DROP FUNCTION IF EXISTS test_function_exists(int, text, int[])",
+    "expected": "DROP FUNCTION IF EXISTS test_function_exists(INT, TEXT, INT[])"
   },
   {
     "comment": "drop_if_exists - Statement 54",
@@ -221,27 +236,33 @@
   },
   {
     "comment": "drop_if_exists - Statement 56",
-    "query": "DROP AGGREGATE test_aggregate_exists(int)"
+    "query": "DROP AGGREGATE test_aggregate_exists(int)",
+    "expected": "DROP AGGREGATE test_aggregate_exists(INT)"
   },
   {
     "comment": "drop_if_exists - Statement 57",
-    "query": "DROP AGGREGATE IF EXISTS test_aggregate_exists(int)"
+    "query": "DROP AGGREGATE IF EXISTS test_aggregate_exists(int)",
+    "expected": "DROP AGGREGATE IF EXISTS test_aggregate_exists(INT)"
   },
   {
     "comment": "drop_if_exists - Statement 58",
-    "query": "DROP OPERATOR @#@ (int, int)"
+    "query": "DROP OPERATOR @#@ (int, int)",
+    "expected": "DROP OPERATOR @#@(INT, INT)"
   },
   {
     "comment": "drop_if_exists - Statement 59",
-    "query": "DROP OPERATOR IF EXISTS @#@ (int, int)"
+    "query": "DROP OPERATOR IF EXISTS @#@ (int, int)",
+    "expected": "DROP OPERATOR IF EXISTS @#@(INT, INT)"
   },
   {
     "comment": "drop_if_exists - Statement 60",
-    "query": "CREATE OPERATOR @#@ (leftarg = int8, rightarg = int8, procedure = int8xor)"
+    "query": "CREATE OPERATOR @#@ (leftarg = int8, rightarg = int8, procedure = int8xor)",
+    "expected": "CREATE OPERATOR @#@ (leftarg = BIGINT, rightarg = BIGINT, procedure = int8xor)"
   },
   {
     "comment": "drop_if_exists - Statement 61",
-    "query": "DROP OPERATOR @#@ (int8, int8)"
+    "query": "DROP OPERATOR @#@ (int8, int8)",
+    "expected": "DROP OPERATOR @#@(BIGINT, BIGINT)"
   },
   {
     "comment": "drop_if_exists - Statement 62",
@@ -253,11 +274,13 @@
   },
   {
     "comment": "drop_if_exists - Statement 64",
-    "query": "DROP CAST (text AS text)"
+    "query": "DROP CAST (text AS text)",
+    "expected": "DROP CAST ( TEXT AS TEXT ) RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 65",
-    "query": "DROP CAST IF EXISTS (text AS text)"
+    "query": "DROP CAST IF EXISTS (text AS text)",
+    "expected": "DROP CAST IF EXISTS ( TEXT AS TEXT ) RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 66",
@@ -277,15 +300,18 @@
   },
   {
     "comment": "drop_if_exists - Statement 70",
-    "query": "DROP TRIGGER test_trigger_exists ON no_such_schema.no_such_table"
+    "query": "DROP TRIGGER test_trigger_exists ON no_such_schema.no_such_table",
+    "expected": "DROP TRIGGER no_such_table ON no_such_schema"
   },
   {
     "comment": "drop_if_exists - Statement 71",
-    "query": "DROP TRIGGER IF EXISTS test_trigger_exists ON no_such_schema.no_such_table"
+    "query": "DROP TRIGGER IF EXISTS test_trigger_exists ON no_such_schema.no_such_table",
+    "expected": "DROP TRIGGER IF EXISTS no_such_table ON no_such_schema"
   },
   {
     "comment": "drop_if_exists - Statement 72",
-    "query": "CREATE TRIGGER test_trigger_exists BEFORE UPDATE ON test_exists FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger()"
+    "query": "CREATE TRIGGER test_trigger_exists BEFORE UPDATE ON test_exists FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger()",
+    "expected": "CREATE TRIGGER test_trigger_exists BEFORE UPDATE ON test_exists FOR EACH ROW EXECUTE FUNCTION suppress_redundant_updates_trigger()"
   },
   {
     "comment": "drop_if_exists - Statement 73",
@@ -305,15 +331,18 @@
   },
   {
     "comment": "drop_if_exists - Statement 77",
-    "query": "DROP RULE test_rule_exists ON no_such_schema.no_such_table"
+    "query": "DROP RULE test_rule_exists ON no_such_schema.no_such_table",
+    "expected": "DROP RULE no_such_table ON no_such_schema"
   },
   {
     "comment": "drop_if_exists - Statement 78",
-    "query": "DROP RULE IF EXISTS test_rule_exists ON no_such_schema.no_such_table"
+    "query": "DROP RULE IF EXISTS test_rule_exists ON no_such_schema.no_such_table",
+    "expected": "DROP RULE IF EXISTS no_such_table ON no_such_schema"
   },
   {
     "comment": "drop_if_exists - Statement 79",
-    "query": "CREATE RULE test_rule_exists AS ON INSERT TO test_exists DO INSTEAD INSERT INTO test_exists VALUES (NEW.a, NEW.b || NEW.a::text)"
+    "query": "CREATE RULE test_rule_exists AS ON INSERT TO test_exists DO INSTEAD INSERT INTO test_exists VALUES (NEW.a, NEW.b || NEW.a::text)",
+    "expected": "CREATE RULE test_rule_exists AS ON INSERT TO test_exists DO INSTEAD INSERT INTO test_exists VALUES (new.a, new.b || CAST(new.a AS TEXT))"
   },
   {
     "comment": "drop_if_exists - Statement 80",
@@ -333,35 +362,43 @@
   },
   {
     "comment": "drop_if_exists - Statement 84",
-    "query": "DROP OPERATOR CLASS test_operator_class USING btree"
+    "query": "DROP OPERATOR CLASS test_operator_class USING btree",
+    "expected": "DROP OPERATOR CLASS test_operator_class USING btree RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 85",
-    "query": "DROP OPERATOR CLASS IF EXISTS test_operator_class USING btree"
+    "query": "DROP OPERATOR CLASS IF EXISTS test_operator_class USING btree",
+    "expected": "DROP OPERATOR CLASS IF EXISTS test_operator_class USING btree RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 86",
-    "query": "DROP OPERATOR CLASS test_operator_class USING no_such_am"
+    "query": "DROP OPERATOR CLASS test_operator_class USING no_such_am",
+    "expected": "DROP OPERATOR CLASS test_operator_class USING no_such_am RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 87",
-    "query": "DROP OPERATOR CLASS IF EXISTS test_operator_class USING no_such_am"
+    "query": "DROP OPERATOR CLASS IF EXISTS test_operator_class USING no_such_am",
+    "expected": "DROP OPERATOR CLASS IF EXISTS test_operator_class USING no_such_am RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 88",
-    "query": "DROP OPERATOR FAMILY test_operator_family USING btree"
+    "query": "DROP OPERATOR FAMILY test_operator_family USING btree",
+    "expected": "DROP OPERATOR FAMILY test_operator_family USING btree RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 89",
-    "query": "DROP OPERATOR FAMILY IF EXISTS test_operator_family USING btree"
+    "query": "DROP OPERATOR FAMILY IF EXISTS test_operator_family USING btree",
+    "expected": "DROP OPERATOR FAMILY IF EXISTS test_operator_family USING btree RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 90",
-    "query": "DROP OPERATOR FAMILY test_operator_family USING no_such_am"
+    "query": "DROP OPERATOR FAMILY test_operator_family USING no_such_am",
+    "expected": "DROP OPERATOR FAMILY test_operator_family USING no_such_am RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 91",
-    "query": "DROP OPERATOR FAMILY IF EXISTS test_operator_family USING no_such_am"
+    "query": "DROP OPERATOR FAMILY IF EXISTS test_operator_family USING no_such_am",
+    "expected": "DROP OPERATOR FAMILY IF EXISTS test_operator_family USING no_such_am RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 92",
@@ -373,7 +410,8 @@
   },
   {
     "comment": "drop_if_exists - Statement 94",
-    "query": "DROP AGGREGATE IF EXISTS no_such_schema.foo(int)"
+    "query": "DROP AGGREGATE IF EXISTS no_such_schema.foo(int)",
+    "expected": "DROP AGGREGATE IF EXISTS no_such_schema.foo(INT)"
   },
   {
     "comment": "drop_if_exists - Statement 95",
@@ -385,19 +423,23 @@
   },
   {
     "comment": "drop_if_exists - Statement 97",
-    "query": "DROP CAST IF EXISTS (INTEGER AS no_such_type2)"
+    "query": "DROP CAST IF EXISTS (INTEGER AS no_such_type2)",
+    "expected": "DROP CAST IF EXISTS ( INT AS no_such_type2 ) RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 98",
-    "query": "DROP CAST IF EXISTS (no_such_type1 AS INTEGER)"
+    "query": "DROP CAST IF EXISTS (no_such_type1 AS INTEGER)",
+    "expected": "DROP CAST IF EXISTS ( no_such_type1 AS INT ) RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 99",
-    "query": "DROP CAST IF EXISTS (INTEGER AS no_such_schema.bar)"
+    "query": "DROP CAST IF EXISTS (INTEGER AS no_such_schema.bar)",
+    "expected": "DROP CAST IF EXISTS ( INT AS no_such_schema.bar ) RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 100",
-    "query": "DROP CAST IF EXISTS (no_such_schema.foo AS INTEGER)"
+    "query": "DROP CAST IF EXISTS (no_such_schema.foo AS INTEGER)",
+    "expected": "DROP CAST IF EXISTS ( no_such_schema.foo AS INT ) RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 101",
@@ -437,31 +479,38 @@
   },
   {
     "comment": "drop_if_exists - Statement 110",
-    "query": "DROP OPERATOR IF EXISTS no_such_schema.+ (int, int)"
+    "query": "DROP OPERATOR IF EXISTS no_such_schema.+ (int, int)",
+    "expected": "DROP OPERATOR IF EXISTS no_such_schema.+(INT, INT)"
   },
   {
     "comment": "drop_if_exists - Statement 111",
-    "query": "DROP OPERATOR IF EXISTS + (no_such_type, no_such_type)"
+    "query": "DROP OPERATOR IF EXISTS + (no_such_type, no_such_type)",
+    "expected": "DROP OPERATOR IF EXISTS +(no_such_type, no_such_type)"
   },
   {
     "comment": "drop_if_exists - Statement 112",
-    "query": "DROP OPERATOR IF EXISTS + (no_such_schema.no_such_type, no_such_schema.no_such_type)"
+    "query": "DROP OPERATOR IF EXISTS + (no_such_schema.no_such_type, no_such_schema.no_such_type)",
+    "expected": "DROP OPERATOR IF EXISTS +(no_such_schema.no_such_type, no_such_schema.no_such_type)"
   },
   {
     "comment": "drop_if_exists - Statement 113",
-    "query": "DROP OPERATOR IF EXISTS # (NONE, no_such_schema.no_such_type)"
+    "query": "DROP OPERATOR IF EXISTS # (NONE, no_such_schema.no_such_type)",
+    "expected": "DROP OPERATOR IF EXISTS #(NONE, no_such_schema.no_such_type)"
   },
   {
     "comment": "drop_if_exists - Statement 114",
-    "query": "DROP OPERATOR CLASS IF EXISTS no_such_schema.widget_ops USING btree"
+    "query": "DROP OPERATOR CLASS IF EXISTS no_such_schema.widget_ops USING btree",
+    "expected": "DROP OPERATOR CLASS IF EXISTS no_such_schema.widget_ops USING btree RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 115",
-    "query": "DROP OPERATOR FAMILY IF EXISTS no_such_schema.float_ops USING btree"
+    "query": "DROP OPERATOR FAMILY IF EXISTS no_such_schema.float_ops USING btree",
+    "expected": "DROP OPERATOR FAMILY IF EXISTS no_such_schema.float_ops USING btree RESTRICT"
   },
   {
     "comment": "drop_if_exists - Statement 116",
-    "query": "DROP RULE IF EXISTS foo ON no_such_schema.bar"
+    "query": "DROP RULE IF EXISTS foo ON no_such_schema.bar",
+    "expected": "DROP RULE IF EXISTS bar ON no_such_schema"
   },
   {
     "comment": "drop_if_exists - Statement 117",
@@ -489,7 +538,8 @@
   },
   {
     "comment": "drop_if_exists - Statement 123",
-    "query": "DROP TRIGGER IF EXISTS foo ON no_such_schema.bar"
+    "query": "DROP TRIGGER IF EXISTS foo ON no_such_schema.bar",
+    "expected": "DROP TRIGGER IF EXISTS bar ON no_such_schema"
   },
   {
     "comment": "drop_if_exists - Statement 124",
@@ -501,11 +551,13 @@
   },
   {
     "comment": "drop_if_exists - Statement 126",
-    "query": "CREATE FUNCTION test_ambiguous_funcname(int) returns int as $$ select $1; $$ language sql"
+    "query": "CREATE FUNCTION test_ambiguous_funcname(int) returns int as $$ select $1; $$ language sql",
+    "expected": "CREATE FUNCTION test_ambiguous_funcname (INT) RETURNS INT LANGUAGE sql AS $$ select $1; $$"
   },
   {
     "comment": "drop_if_exists - Statement 127",
-    "query": "CREATE FUNCTION test_ambiguous_funcname(text) returns text as $$ select $1; $$ language sql"
+    "query": "CREATE FUNCTION test_ambiguous_funcname(text) returns text as $$ select $1; $$ language sql",
+    "expected": "CREATE FUNCTION test_ambiguous_funcname (TEXT) RETURNS TEXT LANGUAGE sql AS $$ select $1; $$"
   },
   {
     "comment": "drop_if_exists - Statement 128",
@@ -517,19 +569,23 @@
   },
   {
     "comment": "drop_if_exists - Statement 130",
-    "query": "DROP FUNCTION test_ambiguous_funcname(int)"
+    "query": "DROP FUNCTION test_ambiguous_funcname(int)",
+    "expected": "DROP FUNCTION test_ambiguous_funcname(INT)"
   },
   {
     "comment": "drop_if_exists - Statement 131",
-    "query": "DROP FUNCTION test_ambiguous_funcname(text)"
+    "query": "DROP FUNCTION test_ambiguous_funcname(text)",
+    "expected": "DROP FUNCTION test_ambiguous_funcname(TEXT)"
   },
   {
     "comment": "drop_if_exists - Statement 132",
-    "query": "CREATE PROCEDURE test_ambiguous_procname(int) as $$ begin end; $$ language plpgsql"
+    "query": "CREATE PROCEDURE test_ambiguous_procname(int) as $$ begin end; $$ language plpgsql",
+    "expected": "CREATE PROCEDURE test_ambiguous_procname (INT) LANGUAGE plpgsql AS $$ begin end; $$"
   },
   {
     "comment": "drop_if_exists - Statement 133",
-    "query": "CREATE PROCEDURE test_ambiguous_procname(text) as $$ begin end; $$ language plpgsql"
+    "query": "CREATE PROCEDURE test_ambiguous_procname(text) as $$ begin end; $$ language plpgsql",
+    "expected": "CREATE PROCEDURE test_ambiguous_procname (TEXT) LANGUAGE plpgsql AS $$ begin end; $$"
   },
   {
     "comment": "drop_if_exists - Statement 134",
@@ -545,26 +601,32 @@
   },
   {
     "comment": "drop_if_exists - Statement 137",
-    "query": "DROP PROCEDURE test_ambiguous_procname(int)"
+    "query": "DROP PROCEDURE test_ambiguous_procname(int)",
+    "expected": "DROP PROCEDURE test_ambiguous_procname(INT)"
   },
   {
     "comment": "drop_if_exists - Statement 138",
-    "query": "DROP PROCEDURE test_ambiguous_procname(text)"
+    "query": "DROP PROCEDURE test_ambiguous_procname(text)",
+    "expected": "DROP PROCEDURE test_ambiguous_procname(TEXT)"
   },
   {
     "comment": "drop_if_exists - Statement 139",
-    "query": "drop database test_database_exists (force)"
+    "query": "drop database test_database_exists (force)",
+    "expected": "DROP DATABASE test_database_exists WITH (FORCE)"
   },
   {
     "comment": "drop_if_exists - Statement 140",
-    "query": "drop database test_database_exists with (force)"
+    "query": "drop database test_database_exists with (force)",
+    "expected": "DROP DATABASE test_database_exists WITH (FORCE)"
   },
   {
     "comment": "drop_if_exists - Statement 141",
-    "query": "drop database if exists test_database_exists (force)"
+    "query": "drop database if exists test_database_exists (force)",
+    "expected": "DROP DATABASE IF EXISTS test_database_exists WITH (FORCE)"
   },
   {
     "comment": "drop_if_exists - Statement 142",
-    "query": "drop database if exists test_database_exists with (force)"
+    "query": "drop database if exists test_database_exists with (force)",
+    "expected": "DROP DATABASE IF EXISTS test_database_exists WITH (FORCE)"
   }
 ]

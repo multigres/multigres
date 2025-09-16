@@ -1,15 +1,13 @@
 [
   {
     "comment": "event_trigger - Statement 1",
-    "query": "create event trigger regress_event_trigger on ddl_command_start execute procedure pg_backend_pid()"
+    "query": "create event trigger regress_event_trigger on ddl_command_start execute procedure pg_backend_pid()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger ON ddl_command_start EXECUTE FUNCTION pg_backend_pid()"
   },
   {
     "comment": "event_trigger - Statement 2",
-    "query": "create function test_event_trigger() returns event_trigger as $$ BEGIN RAISE NOTICE 'test_event_trigger: % %', tg_event, tg_tag"
-  },
-  {
-    "comment": "event_trigger - Statement 3",
-    "query": "END $$ language plpgsql"
+    "query": "create function test_event_trigger() returns event_trigger as $$ BEGIN RAISE NOTICE 'test_event_trigger: % %', tg_event, tg_tag; END $$ language plpgsql;",
+    "expected": "CREATE FUNCTION test_event_trigger () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'test_event_trigger: % %', tg_event, tg_tag; END $$"
   },
   {
     "comment": "event_trigger - Statement 4",
@@ -17,291 +15,353 @@
   },
   {
     "comment": "event_trigger - Statement 5",
-    "query": "create function test_event_trigger_arg(name text) returns event_trigger as $$ BEGIN RETURN 1; END $$ language plpgsql"
+    "query": "create function test_event_trigger_arg(name text) returns event_trigger as $$ BEGIN RETURN 1; END $$ language plpgsql",
+    "expected": "CREATE FUNCTION test_event_trigger_arg (name TEXT) RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END $$"
   },
   {
     "comment": "event_trigger - Statement 6",
-    "query": "create function test_event_trigger_sql() returns event_trigger as $$ SELECT 1 $$ language sql"
+    "query": "create function test_event_trigger_sql() returns event_trigger as $$ SELECT 1 $$ language sql",
+    "expected": "CREATE FUNCTION test_event_trigger_sql () RETURNS event_trigger LANGUAGE sql AS $$ SELECT 1 $$"
   },
   {
     "comment": "event_trigger - Statement 7",
-    "query": "create event trigger regress_event_trigger on elephant_bootstrap execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger on elephant_bootstrap execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger ON elephant_bootstrap EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 8",
-    "query": "create event trigger regress_event_trigger on ddl_command_start execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger on ddl_command_start execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger ON ddl_command_start EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 9",
-    "query": "create event trigger regress_event_trigger_end on ddl_command_end execute function test_event_trigger()"
+    "query": "create event trigger regress_event_trigger_end on ddl_command_end execute function test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger_end ON ddl_command_end EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 10",
-    "query": "create event trigger regress_event_trigger2 on ddl_command_start when food in ('sandwich') execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger2 on ddl_command_start when food in ('sandwich') execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger2 ON ddl_command_start WHEN food IN ('sandwich') EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 11",
-    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('sandwich') execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('sandwich') execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger2 ON ddl_command_start WHEN tag IN ('sandwich') EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 12",
-    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('create table', 'create skunkcabbage') execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('create table', 'create skunkcabbage') execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger2 ON ddl_command_start WHEN tag IN ('create table', 'create skunkcabbage') EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 13",
-    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('DROP EVENT TRIGGER') execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('DROP EVENT TRIGGER') execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger2 ON ddl_command_start WHEN tag IN ('DROP EVENT TRIGGER') EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 14",
-    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('CREATE ROLE') execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('CREATE ROLE') execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger2 ON ddl_command_start WHEN tag IN ('CREATE ROLE') EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 15",
-    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('CREATE DATABASE') execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('CREATE DATABASE') execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger2 ON ddl_command_start WHEN tag IN ('CREATE DATABASE') EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 16",
-    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('CREATE TABLESPACE') execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('CREATE TABLESPACE') execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger2 ON ddl_command_start WHEN tag IN ('CREATE TABLESPACE') EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 17",
-    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('create table') and tag in ('CREATE FUNCTION') execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('create table') and tag in ('CREATE FUNCTION') execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger2 ON ddl_command_start WHEN tag IN ('create table') AND tag IN ('CREATE FUNCTION') EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 18",
-    "query": "create event trigger regress_event_trigger2 on ddl_command_start execute procedure test_event_trigger('argument not allowed')"
+    "query": "create event trigger regress_event_trigger2 on ddl_command_start execute procedure test_event_trigger('argument not allowed')",
+    "error": "parse error at position 124: syntax error"
   },
   {
     "comment": "event_trigger - Statement 19",
-    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('create table', 'CREATE FUNCTION') execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger2 on ddl_command_start when tag in ('create table', 'CREATE FUNCTION') execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger2 ON ddl_command_start WHEN tag IN ('create table', 'CREATE FUNCTION') EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 20",
-    "query": "comment on event trigger regress_event_trigger is 'test comment'"
+    "query": "comment on event trigger regress_event_trigger is 'test comment'",
+    "expected": "COMMENT ON EVENT TRIGGER regress_event_trigger IS 'test comment'"
   },
   {
     "comment": "event_trigger - Statement 21",
-    "query": "create role regress_evt_user"
+    "query": "create role regress_evt_user",
+    "expected": "CREATE ROLE regress_evt_user"
   },
   {
     "comment": "event_trigger - Statement 22",
-    "query": "set role regress_evt_user"
+    "query": "set role regress_evt_user",
+    "expected": "SET ROLE 'regress_evt_user'"
   },
   {
     "comment": "event_trigger - Statement 23",
-    "query": "create event trigger regress_event_trigger_noperms on ddl_command_start execute procedure test_event_trigger()"
+    "query": "create event trigger regress_event_trigger_noperms on ddl_command_start execute procedure test_event_trigger()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger_noperms ON ddl_command_start EXECUTE FUNCTION test_event_trigger()"
   },
   {
     "comment": "event_trigger - Statement 24",
-    "query": "reset role"
+    "query": "reset role",
+    "expected": "RESET role"
   },
   {
     "comment": "event_trigger - Statement 25",
-    "query": "alter event trigger regress_event_trigger disable"
+    "query": "alter event trigger regress_event_trigger disable",
+    "expected": "ALTER EVENT TRIGGER regress_event_trigger DISABLE"
   },
   {
     "comment": "event_trigger - Statement 26",
-    "query": "create table event_trigger_fire1 (a int)"
+    "query": "create table event_trigger_fire1 (a int)",
+    "expected": "CREATE TABLE event_trigger_fire1 (a INT)"
   },
   {
     "comment": "event_trigger - Statement 27",
-    "query": "alter event trigger regress_event_trigger enable"
+    "query": "alter event trigger regress_event_trigger enable",
+    "expected": "ALTER EVENT TRIGGER regress_event_trigger ENABLE"
   },
   {
     "comment": "event_trigger - Statement 28",
-    "query": "set session_replication_role = replica"
+    "query": "set session_replication_role = replica",
+    "expected": "SET session_replication_role = 'replica'"
   },
   {
     "comment": "event_trigger - Statement 29",
-    "query": "create table event_trigger_fire2 (a int)"
+    "query": "create table event_trigger_fire2 (a int)",
+    "expected": "CREATE TABLE event_trigger_fire2 (a INT)"
   },
   {
     "comment": "event_trigger - Statement 30",
-    "query": "alter event trigger regress_event_trigger enable replica"
+    "query": "alter event trigger regress_event_trigger enable replica",
+    "expected": "ALTER EVENT TRIGGER regress_event_trigger ENABLE REPLICA"
   },
   {
     "comment": "event_trigger - Statement 31",
-    "query": "create table event_trigger_fire3 (a int)"
+    "query": "create table event_trigger_fire3 (a int)",
+    "expected": "CREATE TABLE event_trigger_fire3 (a INT)"
   },
   {
     "comment": "event_trigger - Statement 32",
-    "query": "alter event trigger regress_event_trigger enable always"
+    "query": "alter event trigger regress_event_trigger enable always",
+    "expected": "ALTER EVENT TRIGGER regress_event_trigger ENABLE ALWAYS"
   },
   {
     "comment": "event_trigger - Statement 33",
-    "query": "create table event_trigger_fire4 (a int)"
+    "query": "create table event_trigger_fire4 (a int)",
+    "expected": "CREATE TABLE event_trigger_fire4 (a INT)"
   },
   {
     "comment": "event_trigger - Statement 34",
-    "query": "reset session_replication_role"
+    "query": "reset session_replication_role",
+    "expected": "RESET session_replication_role"
   },
   {
     "comment": "event_trigger - Statement 35",
-    "query": "create table event_trigger_fire5 (a int)"
+    "query": "create table event_trigger_fire5 (a int)",
+    "expected": "CREATE TABLE event_trigger_fire5 (a INT)"
   },
   {
     "comment": "event_trigger - Statement 36",
-    "query": "create function f1() returns int language plpgsql as $$ begin create table event_trigger_fire6 (a int)"
-  },
-  {
-    "comment": "event_trigger - Statement 37",
-    "query": "return 0"
-  },
-  {
-    "comment": "event_trigger - Statement 38",
-    "query": "end $$"
+    "query": "create function f1() returns int language plpgsql as $$ begin   create table event_trigger_fire6 (a int);   return 0; end $$;",
+    "expected": "CREATE FUNCTION f1 () RETURNS INT LANGUAGE plpgsql AS $$ begin   create table event_trigger_fire6 (a int);   return 0; end $$"
   },
   {
     "comment": "event_trigger - Statement 39",
-    "query": "select f1()"
+    "query": "select f1()",
+    "expected": "SELECT f1()"
   },
   {
     "comment": "event_trigger - Statement 40",
-    "query": "create procedure p1() language plpgsql as $$ begin create table event_trigger_fire7 (a int)"
+    "query": "create procedure p1() language plpgsql as $$ begin   create table event_trigger_fire7 (a int); end $$; call p1();",
+    "expected": "CREATE PROCEDURE p1 () LANGUAGE plpgsql AS $$ begin   create table event_trigger_fire7 (a int); end $$; CALL p1()"
   },
   {
     "comment": "event_trigger - Statement 41",
-    "query": "call p1()"
+    "query": "call p1()",
+    "expected": "CALL p1()"
   },
   {
     "comment": "event_trigger - Statement 42",
-    "query": "drop table event_trigger_fire2, event_trigger_fire3, event_trigger_fire4, event_trigger_fire5, event_trigger_fire6, event_trigger_fire7"
+    "query": "drop table event_trigger_fire2, event_trigger_fire3, event_trigger_fire4, event_trigger_fire5, event_trigger_fire6, event_trigger_fire7",
+    "expected": "DROP TABLE event_trigger_fire2, event_trigger_fire3, event_trigger_fire4, event_trigger_fire5, event_trigger_fire6, event_trigger_fire7"
   },
   {
     "comment": "event_trigger - Statement 43",
-    "query": "drop routine f1(), p1()"
+    "query": "drop routine f1(), p1()",
+    "expected": "DROP ROUTINE f1(), p1()"
   },
   {
     "comment": "event_trigger - Statement 44",
-    "query": "grant all on table event_trigger_fire1 to public"
+    "query": "grant all on table event_trigger_fire1 to public",
+    "expected": "GRANT ALL ON event_trigger_fire1 TO public"
   },
   {
     "comment": "event_trigger - Statement 45",
-    "query": "comment on table event_trigger_fire1 is 'here is a comment'"
+    "query": "comment on table event_trigger_fire1 is 'here is a comment'",
+    "expected": "COMMENT ON TABLE event_trigger_fire1 IS 'here is a comment'"
   },
   {
     "comment": "event_trigger - Statement 46",
-    "query": "revoke all on table event_trigger_fire1 from public"
+    "query": "revoke all on table event_trigger_fire1 from public",
+    "expected": "REVOKE ALL ON event_trigger_fire1 FROM public"
   },
   {
     "comment": "event_trigger - Statement 47",
-    "query": "drop table event_trigger_fire1"
+    "query": "drop table event_trigger_fire1",
+    "expected": "DROP TABLE event_trigger_fire1"
   },
   {
     "comment": "event_trigger - Statement 48",
-    "query": "create foreign data wrapper useless"
+    "query": "create foreign data wrapper useless",
+    "expected": "CREATE FOREIGN DATA WRAPPER useless"
   },
   {
     "comment": "event_trigger - Statement 49",
-    "query": "create server useless_server foreign data wrapper useless"
+    "query": "create server useless_server foreign data wrapper useless",
+    "expected": "CREATE SERVER useless_server FOREIGN DATA WRAPPER useless"
   },
   {
     "comment": "event_trigger - Statement 50",
-    "query": "create user mapping for regress_evt_user server useless_server"
+    "query": "create user mapping for regress_evt_user server useless_server",
+    "expected": "CREATE USER MAPPING FOR regress_evt_user SERVER useless_server"
   },
   {
     "comment": "event_trigger - Statement 51",
-    "query": "alter default privileges for role regress_evt_user revoke delete on tables from regress_evt_user"
+    "query": "alter default privileges for role regress_evt_user revoke delete on tables from regress_evt_user",
+    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_evt_user REVOKE DELETE ON TABLES FROM regress_evt_user"
   },
   {
     "comment": "event_trigger - Statement 52",
-    "query": "alter event trigger regress_event_trigger owner to regress_evt_user"
+    "query": "alter event trigger regress_event_trigger owner to regress_evt_user",
+    "expected": "ALTER EVENT TRIGGER regress_event_trigger OWNER TO regress_evt_user"
   },
   {
     "comment": "event_trigger - Statement 53",
-    "query": "alter role regress_evt_user superuser"
+    "query": "alter role regress_evt_user superuser",
+    "expected": "ALTER ROLE regress_evt_user WITH SUPERUSER"
   },
   {
     "comment": "event_trigger - Statement 54",
-    "query": "alter event trigger regress_event_trigger rename to regress_event_trigger2"
+    "query": "alter event trigger regress_event_trigger rename to regress_event_trigger2",
+    "expected": "ALTER EVENT TRIGGER regress_event_trigger RENAME TO regress_event_trigger2"
   },
   {
     "comment": "event_trigger - Statement 55",
-    "query": "alter event trigger regress_event_trigger rename to regress_event_trigger3"
+    "query": "alter event trigger regress_event_trigger rename to regress_event_trigger3",
+    "expected": "ALTER EVENT TRIGGER regress_event_trigger RENAME TO regress_event_trigger3"
   },
   {
     "comment": "event_trigger - Statement 56",
-    "query": "drop event trigger regress_event_trigger"
+    "query": "drop event trigger regress_event_trigger",
+    "expected": "DROP EVENT TRIGGER regress_event_trigger"
   },
   {
     "comment": "event_trigger - Statement 57",
-    "query": "drop role regress_evt_user"
+    "query": "drop role regress_evt_user",
+    "expected": "DROP ROLE regress_evt_user"
   },
   {
     "comment": "event_trigger - Statement 58",
-    "query": "drop event trigger if exists regress_event_trigger2"
+    "query": "drop event trigger if exists regress_event_trigger2",
+    "expected": "DROP EVENT TRIGGER IF EXISTS regress_event_trigger2"
   },
   {
     "comment": "event_trigger - Statement 59",
-    "query": "drop event trigger regress_event_trigger3"
+    "query": "drop event trigger regress_event_trigger3",
+    "expected": "DROP EVENT TRIGGER regress_event_trigger3"
   },
   {
     "comment": "event_trigger - Statement 60",
-    "query": "drop event trigger regress_event_trigger_end"
+    "query": "drop event trigger regress_event_trigger_end",
+    "expected": "DROP EVENT TRIGGER regress_event_trigger_end"
   },
   {
     "comment": "event_trigger - Statement 61",
-    "query": "CREATE SCHEMA schema_one authorization regress_evt_user"
+    "query": "CREATE SCHEMA schema_one authorization regress_evt_user",
+    "expected": "CREATE SCHEMA schema_one AUTHORIZATION regress_evt_user"
   },
   {
     "comment": "event_trigger - Statement 62",
-    "query": "CREATE SCHEMA schema_two authorization regress_evt_user"
+    "query": "CREATE SCHEMA schema_two authorization regress_evt_user",
+    "expected": "CREATE SCHEMA schema_two AUTHORIZATION regress_evt_user"
   },
   {
     "comment": "event_trigger - Statement 63",
-    "query": "CREATE SCHEMA audit_tbls authorization regress_evt_user"
+    "query": "CREATE SCHEMA audit_tbls authorization regress_evt_user",
+    "expected": "CREATE SCHEMA audit_tbls AUTHORIZATION regress_evt_user"
   },
   {
     "comment": "event_trigger - Statement 64",
-    "query": "CREATE TEMP TABLE a_temp_tbl ()"
+    "query": "CREATE TEMP TABLE a_temp_tbl ()",
+    "expected": "CREATE TEMPORARY TABLE a_temp_tbl ()"
   },
   {
     "comment": "event_trigger - Statement 65",
-    "query": "SET SESSION AUTHORIZATION regress_evt_user"
+    "query": "SET SESSION AUTHORIZATION regress_evt_user",
+    "expected": "SET SESSION AUTHORIZATION 'regress_evt_user'"
   },
   {
     "comment": "event_trigger - Statement 66",
-    "query": "CREATE TABLE schema_one.table_one(a int)"
+    "query": "CREATE TABLE schema_one.table_one(a int)",
+    "expected": "CREATE TABLE schema_one.table_one (a INT)"
   },
   {
     "comment": "event_trigger - Statement 67",
-    "query": "CREATE TABLE schema_one.\"table two\"(a int)"
+    "query": "CREATE TABLE schema_one.\"table two\"(a int)",
+    "expected": "CREATE TABLE schema_one.\"table two\" (a INT)"
   },
   {
     "comment": "event_trigger - Statement 68",
-    "query": "CREATE TABLE schema_one.table_three(a int)"
+    "query": "CREATE TABLE schema_one.table_three(a int)",
+    "expected": "CREATE TABLE schema_one.table_three (a INT)"
   },
   {
     "comment": "event_trigger - Statement 69",
-    "query": "CREATE TABLE audit_tbls.schema_one_table_two(the_value text)"
+    "query": "CREATE TABLE audit_tbls.schema_one_table_two(the_value text)",
+    "expected": "CREATE TABLE audit_tbls.schema_one_table_two (the_value TEXT)"
   },
   {
     "comment": "event_trigger - Statement 70",
-    "query": "CREATE TABLE schema_two.table_two(a int)"
+    "query": "CREATE TABLE schema_two.table_two(a int)",
+    "expected": "CREATE TABLE schema_two.table_two (a INT)"
   },
   {
     "comment": "event_trigger - Statement 71",
-    "query": "CREATE TABLE schema_two.table_three(a int, b text)"
+    "query": "CREATE TABLE schema_two.table_three(a int, b text)",
+    "expected": "CREATE TABLE schema_two.table_three (a INT, b TEXT)"
   },
   {
     "comment": "event_trigger - Statement 72",
-    "query": "CREATE TABLE audit_tbls.schema_two_table_three(the_value text)"
+    "query": "CREATE TABLE audit_tbls.schema_two_table_three(the_value text)",
+    "expected": "CREATE TABLE audit_tbls.schema_two_table_three (the_value TEXT)"
   },
   {
     "comment": "event_trigger - Statement 73",
-    "query": "CREATE OR REPLACE FUNCTION schema_two.add(int, int) RETURNS int LANGUAGE plpgsql CALLED ON NULL INPUT AS $$ BEGIN RETURN coalesce($1,0) + coalesce($2,0); END; $$"
+    "query": "CREATE OR REPLACE FUNCTION schema_two.add(int, int) RETURNS int LANGUAGE plpgsql CALLED ON NULL INPUT AS $$ BEGIN RETURN coalesce($1,0) + coalesce($2,0); END; $$",
+    "expected": "CREATE OR REPLACE FUNCTION schema_two.add (INT, INT) RETURNS INT LANGUAGE plpgsql AS $$ BEGIN RETURN coalesce($1,0) + coalesce($2,0); END; $$ CALLED ON NULL INPUT"
   },
   {
     "comment": "event_trigger - Statement 74",
-    "query": "CREATE AGGREGATE schema_two.newton (BASETYPE = int, SFUNC = schema_two.add, STYPE = int)"
+    "query": "CREATE AGGREGATE schema_two.newton (BASETYPE = int, SFUNC = schema_two.add, STYPE = int)",
+    "expected": "CREATE AGGREGATE schema_two.newton (basetype = INT, sfunc = schema_two.\"add\", stype = INT)"
   },
   {
     "comment": "event_trigger - Statement 75",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "event_trigger - Statement 76",
-    "query": "CREATE TABLE undroppable_objs ( object_type text, object_identity text )"
+    "query": "CREATE TABLE undroppable_objs ( object_type text, object_identity text )",
+    "expected": "CREATE TABLE undroppable_objs (object_type TEXT, object_identity TEXT)"
   },
   {
     "comment": "event_trigger - Statement 77",
@@ -309,55 +369,23 @@
   },
   {
     "comment": "event_trigger - Statement 78",
-    "query": "CREATE TABLE dropped_objects ( type text, schema text, object text )"
+    "query": "CREATE TABLE dropped_objects ( type text, schema text, object text )",
+    "expected": "CREATE TABLE dropped_objects (type TEXT, schema TEXT, object TEXT)"
   },
   {
     "comment": "event_trigger - Statement 79",
-    "query": "CREATE OR REPLACE FUNCTION undroppable() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE obj record"
-  },
-  {
-    "comment": "event_trigger - Statement 80",
-    "query": "BEGIN PERFORM 1 FROM pg_tables WHERE tablename = 'undroppable_objs'"
-  },
-  {
-    "comment": "event_trigger - Statement 81",
-    "query": "IF NOT FOUND THEN RAISE NOTICE 'table undroppable_objs not found, skipping'"
-  },
-  {
-    "comment": "event_trigger - Statement 82",
-    "query": "RETURN"
-  },
-  {
-    "comment": "event_trigger - Statement 83",
-    "query": "END IF"
-  },
-  {
-    "comment": "event_trigger - Statement 84",
-    "query": "FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects() JOIN undroppable_objs USING (object_type, object_identity) LOOP RAISE EXCEPTION 'object % of type % cannot be dropped', obj.object_identity, obj.object_type"
-  },
-  {
-    "comment": "event_trigger - Statement 85",
-    "query": "END LOOP"
-  },
-  {
-    "comment": "event_trigger - Statement 86",
-    "query": "END"
-  },
-  {
-    "comment": "event_trigger - Statement 87",
-    "query": "$$"
+    "query": "CREATE OR REPLACE FUNCTION undroppable() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE  obj record; BEGIN  PERFORM 1 FROM pg_tables WHERE tablename = 'undroppable_objs';  IF NOT FOUND THEN   RAISE NOTICE 'table undroppable_objs not found, skipping';   RETURN;  END IF;  FOR obj IN   SELECT * FROM pg_event_trigger_dropped_objects() JOIN    undroppable_objs USING (object_type, object_identity)  LOOP   RAISE EXCEPTION 'object % of type % cannot be dropped',    obj.object_identity, obj.object_type;  END LOOP; END; $$;",
+    "expected": "CREATE OR REPLACE FUNCTION undroppable () RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE  obj record; BEGIN  PERFORM 1 FROM pg_tables WHERE tablename = 'undroppable_objs';  IF NOT FOUND THEN   RAISE NOTICE 'table undroppable_objs not found, skipping';   RETURN;  END IF;  FOR obj IN   SELECT * FROM pg_event_trigger_dropped_objects() JOIN    undroppable_objs USING (object_type, object_identity)  LOOP   RAISE EXCEPTION 'object % of type % cannot be dropped',    obj.object_identity, obj.object_type;  END LOOP; END; $$"
   },
   {
     "comment": "event_trigger - Statement 88",
-    "query": "CREATE EVENT TRIGGER undroppable ON sql_drop EXECUTE PROCEDURE undroppable()"
+    "query": "CREATE EVENT TRIGGER undroppable ON sql_drop EXECUTE PROCEDURE undroppable()",
+    "expected": "CREATE EVENT TRIGGER undroppable ON sql_drop EXECUTE FUNCTION undroppable()"
   },
   {
     "comment": "event_trigger - Statement 89",
-    "query": "CREATE OR REPLACE FUNCTION test_evtrig_dropped_objects() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE obj record"
-  },
-  {
-    "comment": "event_trigger - Statement 90",
-    "query": "BEGIN FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects() LOOP IF obj.object_type = 'table' THEN EXECUTE format('DROP TABLE IF EXISTS audit_tbls.%I', format('%s_%s', obj.schema_name, obj.object_name))"
+    "query": "CREATE OR REPLACE FUNCTION test_evtrig_dropped_objects() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE     obj record; BEGIN     FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()     LOOP         IF obj.object_type = 'table' THEN                 EXECUTE format('DROP TABLE IF EXISTS audit_tbls.%I',      format('%s_%s', obj.schema_name, obj.object_name));         END IF;   INSERT INTO dropped_objects   (type, schema, object) VALUES   (obj.object_type, obj.schema_name, obj.object_identity);     END LOOP; END $$;",
+    "expected": "CREATE OR REPLACE FUNCTION test_evtrig_dropped_objects () RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE     obj record; BEGIN     FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()     LOOP         IF obj.object_type = 'table' THEN                 EXECUTE format('DROP TABLE IF EXISTS audit_tbls.%I',      format('%s_%s', obj.schema_name, obj.object_name));         END IF;   INSERT INTO dropped_objects   (type, schema, object) VALUES   (obj.object_type, obj.schema_name, obj.object_identity);     END LOOP; END $$"
   },
   {
     "comment": "event_trigger - Statement 91",
@@ -365,7 +393,8 @@
   },
   {
     "comment": "event_trigger - Statement 92",
-    "query": "CREATE EVENT TRIGGER regress_event_trigger_drop_objects ON sql_drop WHEN TAG IN ('drop table', 'drop function', 'drop view', 'drop owned', 'drop schema', 'alter table') EXECUTE PROCEDURE test_evtrig_dropped_objects()"
+    "query": "CREATE EVENT TRIGGER regress_event_trigger_drop_objects ON sql_drop WHEN TAG IN ('drop table', 'drop function', 'drop view', 'drop owned', 'drop schema', 'alter table') EXECUTE PROCEDURE test_evtrig_dropped_objects()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger_drop_objects ON sql_drop WHEN tag IN ('drop table', 'drop function', 'drop view', 'drop owned', 'drop schema', 'alter table') EXECUTE FUNCTION test_evtrig_dropped_objects()"
   },
   {
     "comment": "event_trigger - Statement 93",
@@ -385,11 +414,12 @@
   },
   {
     "comment": "event_trigger - Statement 97",
-    "query": "SELECT * FROM dropped_objects WHERE schema IS NULL OR schema <> 'pg_toast'"
+    "query": "SELECT * FROM dropped_objects WHERE schema IS NULL OR schema \u003c\u003e 'pg_toast'"
   },
   {
     "comment": "event_trigger - Statement 98",
-    "query": "DROP OWNED BY regress_evt_user"
+    "query": "DROP OWNED BY regress_evt_user",
+    "expected": "DROP OWNED BY regress_evt_user RESTRICT"
   },
   {
     "comment": "event_trigger - Statement 99",
@@ -405,59 +435,53 @@
   },
   {
     "comment": "event_trigger - Statement 102",
-    "query": "CREATE OR REPLACE FUNCTION event_trigger_report_dropped() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE r record"
-  },
-  {
-    "comment": "event_trigger - Statement 103",
-    "query": "BEGIN FOR r IN SELECT * from pg_event_trigger_dropped_objects() LOOP IF NOT r.normal AND NOT r.original THEN CONTINUE"
-  },
-  {
-    "comment": "event_trigger - Statement 104",
-    "query": "RAISE NOTICE 'NORMAL: orig=% normal=% istemp=% type=% identity=% name=% args=%', r.original, r.normal, r.is_temporary, r.object_type, r.object_identity, r.address_names, r.address_args"
-  },
-  {
-    "comment": "event_trigger - Statement 105",
-    "query": "END; $$"
+    "query": "CREATE OR REPLACE FUNCTION event_trigger_report_dropped() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE r record; BEGIN   FOR r IN SELECT * from pg_event_trigger_dropped_objects()   LOOP   IF NOT r.normal AND NOT r.original THEN     CONTINUE;   END IF;   RAISE NOTICE 'NORMAL: orig=% normal=% istemp=% type=% identity=% name=% args=%',     r.original, r.normal, r.is_temporary, r.object_type,     r.object_identity, r.address_names, r.address_args;   END LOOP; END; $$;",
+    "expected": "CREATE OR REPLACE FUNCTION event_trigger_report_dropped () RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE r record; BEGIN   FOR r IN SELECT * from pg_event_trigger_dropped_objects()   LOOP   IF NOT r.normal AND NOT r.original THEN     CONTINUE;   END IF;   RAISE NOTICE 'NORMAL: orig=% normal=% istemp=% type=% identity=% name=% args=%',     r.original, r.normal, r.is_temporary, r.object_type,     r.object_identity, r.address_names, r.address_args;   END LOOP; END; $$"
   },
   {
     "comment": "event_trigger - Statement 106",
-    "query": "CREATE EVENT TRIGGER regress_event_trigger_report_dropped ON sql_drop EXECUTE PROCEDURE event_trigger_report_dropped()"
+    "query": "CREATE EVENT TRIGGER regress_event_trigger_report_dropped ON sql_drop EXECUTE PROCEDURE event_trigger_report_dropped()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger_report_dropped ON sql_drop EXECUTE FUNCTION event_trigger_report_dropped()"
   },
   {
     "comment": "event_trigger - Statement 107",
-    "query": "CREATE OR REPLACE FUNCTION event_trigger_report_end() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE r RECORD"
-  },
-  {
-    "comment": "event_trigger - Statement 108",
-    "query": "BEGIN FOR r IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP RAISE NOTICE 'END: command_tag=% type=% identity=%', r.command_tag, r.object_type, r.object_identity"
+    "query": "CREATE OR REPLACE FUNCTION event_trigger_report_end() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE r RECORD; BEGIN   FOR r IN SELECT * FROM pg_event_trigger_ddl_commands()   LOOP     RAISE NOTICE 'END: command_tag=% type=% identity=%',       r.command_tag, r.object_type, r.object_identity;   END LOOP; END; $$;",
+    "expected": "CREATE OR REPLACE FUNCTION event_trigger_report_end () RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE r RECORD; BEGIN   FOR r IN SELECT * FROM pg_event_trigger_ddl_commands()   LOOP     RAISE NOTICE 'END: command_tag=% type=% identity=%',       r.command_tag, r.object_type, r.object_identity;   END LOOP; END; $$"
   },
   {
     "comment": "event_trigger - Statement 109",
-    "query": "CREATE EVENT TRIGGER regress_event_trigger_report_end ON ddl_command_end EXECUTE PROCEDURE event_trigger_report_end()"
+    "query": "CREATE EVENT TRIGGER regress_event_trigger_report_end ON ddl_command_end EXECUTE PROCEDURE event_trigger_report_end()",
+    "expected": "CREATE EVENT TRIGGER regress_event_trigger_report_end ON ddl_command_end EXECUTE FUNCTION event_trigger_report_end()"
   },
   {
     "comment": "event_trigger - Statement 110",
-    "query": "CREATE SCHEMA evttrig CREATE TABLE one (col_a SERIAL PRIMARY KEY, col_b text DEFAULT 'forty two', col_c SERIAL) CREATE INDEX one_idx ON one (col_b) CREATE TABLE two (col_c INTEGER CHECK (col_c > 0) REFERENCES one DEFAULT 42) CREATE TABLE id (col_d int NOT NULL GENERATED ALWAYS AS IDENTITY)"
+    "query": "CREATE SCHEMA evttrig CREATE TABLE one (col_a SERIAL PRIMARY KEY, col_b text DEFAULT 'forty two', col_c SERIAL) CREATE INDEX one_idx ON one (col_b) CREATE TABLE two (col_c INTEGER CHECK (col_c \u003e 0) REFERENCES one DEFAULT 42) CREATE TABLE id (col_d int NOT NULL GENERATED ALWAYS AS IDENTITY)",
+    "expected": "CREATE SCHEMA evttrig CREATE TABLE one (col_a serial PRIMARY KEY, col_b TEXT DEFAULT 'forty two', col_c serial) CREATE INDEX one_idx ON one USING btree ( col_b ) CREATE TABLE two (col_c INT CHECK (col_c \u003e 0) REFERENCES one DEFAULT 42) CREATE TABLE id (col_d INT NOT NULL GENERATED ALWAYS AS IDENTITY)"
   },
   {
     "comment": "event_trigger - Statement 111",
-    "query": "CREATE TABLE evttrig.parted ( id int PRIMARY KEY) PARTITION BY RANGE (id)"
+    "query": "CREATE TABLE evttrig.parted ( id int PRIMARY KEY) PARTITION BY RANGE (id)",
+    "expected": "CREATE TABLE evttrig.parted (id INT PRIMARY KEY) PARTITION BY range (id)"
   },
   {
     "comment": "event_trigger - Statement 112",
-    "query": "CREATE TABLE evttrig.part_1_10 PARTITION OF evttrig.parted (id) FOR VALUES FROM (1) TO (10)"
+    "query": "CREATE TABLE evttrig.part_1_10 PARTITION OF evttrig.parted (id) FOR VALUES FROM (1) TO (10)",
+    "expected": "CREATE TABLE evttrig.part_1_10 PARTITION OF evttrig.parted ( id ) FOR VALUES FROM (1) TO (10)"
   },
   {
     "comment": "event_trigger - Statement 113",
-    "query": "CREATE TABLE evttrig.part_10_20 PARTITION OF evttrig.parted (id) FOR VALUES FROM (10) TO (20) PARTITION BY RANGE (id)"
+    "query": "CREATE TABLE evttrig.part_10_20 PARTITION OF evttrig.parted (id) FOR VALUES FROM (10) TO (20) PARTITION BY RANGE (id)",
+    "expected": "CREATE TABLE evttrig.part_10_20 PARTITION OF evttrig.parted ( id ) FOR VALUES FROM (10) TO (20) PARTITION BY range (id)"
   },
   {
     "comment": "event_trigger - Statement 114",
-    "query": "CREATE TABLE evttrig.part_10_15 PARTITION OF evttrig.part_10_20 (id) FOR VALUES FROM (10) TO (15)"
+    "query": "CREATE TABLE evttrig.part_10_15 PARTITION OF evttrig.part_10_20 (id) FOR VALUES FROM (10) TO (15)",
+    "expected": "CREATE TABLE evttrig.part_10_15 PARTITION OF evttrig.part_10_20 ( id ) FOR VALUES FROM (10) TO (15)"
   },
   {
     "comment": "event_trigger - Statement 115",
-    "query": "CREATE TABLE evttrig.part_15_20 PARTITION OF evttrig.part_10_20 (id) FOR VALUES FROM (15) TO (20)"
+    "query": "CREATE TABLE evttrig.part_15_20 PARTITION OF evttrig.part_10_20 (id) FOR VALUES FROM (15) TO (20)",
+    "expected": "CREATE TABLE evttrig.part_15_20 PARTITION OF evttrig.part_10_20 ( id ) FOR VALUES FROM (15) TO (20)"
   },
   {
     "comment": "event_trigger - Statement 116",
@@ -477,11 +501,13 @@
   },
   {
     "comment": "event_trigger - Statement 120",
-    "query": "ALTER TABLE evttrig.id ALTER COLUMN col_d SET DATA TYPE bigint"
+    "query": "ALTER TABLE evttrig.id ALTER COLUMN col_d SET DATA TYPE bigint",
+    "expected": "ALTER TABLE evttrig.id ALTER COLUMN col_d TYPE BIGINT"
   },
   {
     "comment": "event_trigger - Statement 121",
-    "query": "ALTER TABLE evttrig.id ALTER COLUMN col_d DROP IDENTITY, ALTER COLUMN col_d SET DATA TYPE int"
+    "query": "ALTER TABLE evttrig.id ALTER COLUMN col_d DROP IDENTITY, ALTER COLUMN col_d SET DATA TYPE int",
+    "expected": "ALTER TABLE evttrig.id ALTER COLUMN col_d DROP IDENTITY, ALTER COLUMN col_d TYPE INT"
   },
   {
     "comment": "event_trigger - Statement 122",
@@ -497,7 +523,8 @@
   },
   {
     "comment": "event_trigger - Statement 125",
-    "query": "CREATE OPERATOR CLASS evttrigopclass FOR TYPE int USING btree AS STORAGE int"
+    "query": "CREATE OPERATOR CLASS evttrigopclass FOR TYPE int USING btree AS STORAGE int",
+    "expected": "CREATE OPERATOR CLASS evttrigopclass FOR TYPE INT USING btree AS STORAGE INT"
   },
   {
     "comment": "event_trigger - Statement 126",
@@ -509,39 +536,48 @@
   },
   {
     "comment": "event_trigger - Statement 128",
-    "query": "select pg_event_trigger_table_rewrite_oid()"
+    "query": "select pg_event_trigger_table_rewrite_oid()",
+    "expected": "SELECT pg_event_trigger_table_rewrite_oid()"
   },
   {
     "comment": "event_trigger - Statement 129",
-    "query": "CREATE OR REPLACE FUNCTION test_evtrig_no_rewrite() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'rewrites not allowed'"
+    "query": "CREATE OR REPLACE FUNCTION test_evtrig_no_rewrite() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN   RAISE EXCEPTION 'rewrites not allowed'; END; $$;",
+    "expected": "CREATE OR REPLACE FUNCTION test_evtrig_no_rewrite () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN   RAISE EXCEPTION 'rewrites not allowed'; END; $$"
   },
   {
     "comment": "event_trigger - Statement 130",
-    "query": "create event trigger no_rewrite_allowed on table_rewrite execute procedure test_evtrig_no_rewrite()"
+    "query": "create event trigger no_rewrite_allowed on table_rewrite execute procedure test_evtrig_no_rewrite()",
+    "expected": "CREATE EVENT TRIGGER no_rewrite_allowed ON table_rewrite EXECUTE FUNCTION test_evtrig_no_rewrite()"
   },
   {
     "comment": "event_trigger - Statement 131",
-    "query": "create table rewriteme (id serial primary key, foo float, bar timestamptz)"
+    "query": "create table rewriteme (id serial primary key, foo float, bar timestamptz)",
+    "expected": "CREATE TABLE rewriteme (id serial PRIMARY KEY, foo FLOAT8, bar TIMESTAMPTZ)"
   },
   {
     "comment": "event_trigger - Statement 132",
-    "query": "insert into rewriteme select x * 1.001 from generate_series(1, 500) as t(x)"
+    "query": "insert into rewriteme select x * 1.001 from generate_series(1, 500) as t(x)",
+    "expected": "INSERT INTO rewriteme SELECT x * 1.001 FROM generate_series(1, 500) AS t(x)"
   },
   {
     "comment": "event_trigger - Statement 133",
-    "query": "alter table rewriteme alter column foo type numeric"
+    "query": "alter table rewriteme alter column foo type numeric",
+    "expected": "ALTER TABLE rewriteme ALTER COLUMN foo TYPE NUMERIC"
   },
   {
     "comment": "event_trigger - Statement 134",
-    "query": "alter table rewriteme add column baz int default 0"
+    "query": "alter table rewriteme add column baz int default 0",
+    "expected": "ALTER TABLE rewriteme ADD COLUMN baz INT DEFAULT 0"
   },
   {
     "comment": "event_trigger - Statement 135",
-    "query": "CREATE OR REPLACE FUNCTION test_evtrig_no_rewrite() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'Table ''%'' is being rewritten (reason = %)', pg_event_trigger_table_rewrite_oid()::regclass, pg_event_trigger_table_rewrite_reason()"
+    "query": "CREATE OR REPLACE FUNCTION test_evtrig_no_rewrite() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN   RAISE NOTICE 'Table ''%'' is being rewritten (reason = %)',                pg_event_trigger_table_rewrite_oid()::regclass,                pg_event_trigger_table_rewrite_reason(); END; $$;",
+    "expected": "CREATE OR REPLACE FUNCTION test_evtrig_no_rewrite () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN   RAISE NOTICE 'Table ''%'' is being rewritten (reason = %)',                pg_event_trigger_table_rewrite_oid()::regclass,                pg_event_trigger_table_rewrite_reason(); END; $$"
   },
   {
     "comment": "event_trigger - Statement 136",
-    "query": "alter table rewriteme add column onemore int default 0, add column another int default -1, alter column foo type numeric(10,4)"
+    "query": "alter table rewriteme add column onemore int default 0, add column another int default -1, alter column foo type numeric(10,4)",
+    "expected": "ALTER TABLE rewriteme ADD COLUMN onemore INT DEFAULT 0, ADD COLUMN another INT DEFAULT -1, ALTER COLUMN foo TYPE NUMERIC(10, 4)"
   },
   {
     "comment": "event_trigger - Statement 137",
@@ -557,103 +593,118 @@
   },
   {
     "comment": "event_trigger - Statement 140",
-    "query": "alter table rewriteme alter column foo type numeric(12,4)"
+    "query": "alter table rewriteme alter column foo type numeric(12,4)",
+    "expected": "ALTER TABLE rewriteme ALTER COLUMN foo TYPE NUMERIC(12, 4)"
   },
   {
     "comment": "event_trigger - Statement 141",
-    "query": "begin"
+    "query": "begin",
+    "expected": "BEGIN"
   },
   {
     "comment": "event_trigger - Statement 142",
-    "query": "set timezone to 'UTC'"
+    "query": "set timezone to 'UTC'",
+    "expected": "SET TIME ZONE 'UTC'"
   },
   {
     "comment": "event_trigger - Statement 143",
-    "query": "alter table rewriteme alter column bar type timestamp"
+    "query": "alter table rewriteme alter column bar type timestamp",
+    "expected": "ALTER TABLE rewriteme ALTER COLUMN bar TYPE TIMESTAMP"
   },
   {
     "comment": "event_trigger - Statement 144",
-    "query": "set timezone to '0'"
+    "query": "set timezone to '0'",
+    "expected": "SET TIME ZONE '0'"
   },
   {
     "comment": "event_trigger - Statement 145",
-    "query": "alter table rewriteme alter column bar type timestamptz"
+    "query": "alter table rewriteme alter column bar type timestamptz",
+    "expected": "ALTER TABLE rewriteme ALTER COLUMN bar TYPE TIMESTAMPTZ"
   },
   {
     "comment": "event_trigger - Statement 146",
-    "query": "set timezone to 'Europe/London'"
+    "query": "set timezone to 'Europe/London'",
+    "expected": "SET TIME ZONE 'Europe/London'"
   },
   {
     "comment": "event_trigger - Statement 147",
-    "query": "rollback"
+    "query": "rollback",
+    "expected": "ROLLBACK"
   },
   {
     "comment": "event_trigger - Statement 148",
-    "query": "CREATE OR REPLACE FUNCTION test_evtrig_no_rewrite() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'Table is being rewritten (reason = %)', pg_event_trigger_table_rewrite_reason()"
+    "query": "CREATE OR REPLACE FUNCTION test_evtrig_no_rewrite() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN   RAISE NOTICE 'Table is being rewritten (reason = %)',                pg_event_trigger_table_rewrite_reason(); END; $$;",
+    "expected": "CREATE OR REPLACE FUNCTION test_evtrig_no_rewrite () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN   RAISE NOTICE 'Table is being rewritten (reason = %)',                pg_event_trigger_table_rewrite_reason(); END; $$"
   },
   {
     "comment": "event_trigger - Statement 149",
-    "query": "create type rewritetype as (a int)"
+    "query": "create type rewritetype as (a int)",
+    "expected": "CREATE TYPE rewritetype AS (a INT)"
   },
   {
     "comment": "event_trigger - Statement 150",
-    "query": "create table rewritemetoo1 of rewritetype"
+    "query": "create table rewritemetoo1 of rewritetype",
+    "expected": "CREATE TABLE rewritemetoo1 OF rewritetype"
   },
   {
     "comment": "event_trigger - Statement 151",
-    "query": "create table rewritemetoo2 of rewritetype"
+    "query": "create table rewritemetoo2 of rewritetype",
+    "expected": "CREATE TABLE rewritemetoo2 OF rewritetype"
   },
   {
     "comment": "event_trigger - Statement 152",
-    "query": "alter type rewritetype alter attribute a type text cascade"
+    "query": "alter type rewritetype alter attribute a type text cascade",
+    "expected": "ALTER TYPE rewritetype ALTER ATTRIBUTE a TYPE TEXT CASCADE"
   },
   {
     "comment": "event_trigger - Statement 153",
-    "query": "create table rewritemetoo3 (a rewritetype)"
+    "query": "create table rewritemetoo3 (a rewritetype)",
+    "expected": "CREATE TABLE rewritemetoo3 (a rewritetype)"
   },
   {
     "comment": "event_trigger - Statement 154",
-    "query": "alter type rewritetype alter attribute a type varchar cascade"
+    "query": "alter type rewritetype alter attribute a type varchar cascade",
+    "expected": "ALTER TYPE rewritetype ALTER ATTRIBUTE a TYPE VARCHAR CASCADE"
   },
   {
     "comment": "event_trigger - Statement 155",
-    "query": "drop table rewriteme"
+    "query": "drop table rewriteme",
+    "expected": "DROP TABLE rewriteme"
   },
   {
     "comment": "event_trigger - Statement 156",
-    "query": "drop event trigger no_rewrite_allowed"
+    "query": "drop event trigger no_rewrite_allowed",
+    "expected": "DROP EVENT TRIGGER no_rewrite_allowed"
   },
   {
     "comment": "event_trigger - Statement 157",
-    "query": "drop function test_evtrig_no_rewrite()"
+    "query": "drop function test_evtrig_no_rewrite()",
+    "expected": "DROP FUNCTION test_evtrig_no_rewrite()"
   },
   {
     "comment": "event_trigger - Statement 158",
-    "query": "CREATE OR REPLACE FUNCTION reindex_start_command() RETURNS event_trigger AS $$ BEGIN RAISE NOTICE 'REINDEX START: % %', tg_event, tg_tag"
-  },
-  {
-    "comment": "event_trigger - Statement 159",
-    "query": "$$ LANGUAGE plpgsql"
+    "query": "CREATE OR REPLACE FUNCTION reindex_start_command() RETURNS event_trigger AS $$ BEGIN     RAISE NOTICE 'REINDEX START: % %', tg_event, tg_tag; END; $$ LANGUAGE plpgsql;",
+    "expected": "CREATE OR REPLACE FUNCTION reindex_start_command () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN     RAISE NOTICE 'REINDEX START: % %', tg_event, tg_tag; END; $$"
   },
   {
     "comment": "event_trigger - Statement 160",
-    "query": "CREATE EVENT TRIGGER regress_reindex_start ON ddl_command_start WHEN TAG IN ('REINDEX') EXECUTE PROCEDURE reindex_start_command()"
+    "query": "CREATE EVENT TRIGGER regress_reindex_start ON ddl_command_start WHEN TAG IN ('REINDEX') EXECUTE PROCEDURE reindex_start_command()",
+    "expected": "CREATE EVENT TRIGGER regress_reindex_start ON ddl_command_start WHEN tag IN ('REINDEX') EXECUTE FUNCTION reindex_start_command()"
   },
   {
     "comment": "event_trigger - Statement 161",
-    "query": "CREATE FUNCTION reindex_end_command() RETURNS event_trigger AS $$ DECLARE obj record"
-  },
-  {
-    "comment": "event_trigger - Statement 162",
-    "query": "BEGIN FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP RAISE NOTICE 'REINDEX END: command_tag=% type=% identity=%', obj.command_tag, obj.object_type, obj.object_identity"
+    "query": "CREATE FUNCTION reindex_end_command() RETURNS event_trigger AS $$ DECLARE     obj record; BEGIN     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands()     LOOP         RAISE NOTICE 'REINDEX END: command_tag=% type=% identity=%',      obj.command_tag, obj.object_type, obj.object_identity;     END LOOP; END; $$ LANGUAGE plpgsql;",
+    "expected": "CREATE FUNCTION reindex_end_command () RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE     obj record; BEGIN     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands()     LOOP         RAISE NOTICE 'REINDEX END: command_tag=% type=% identity=%',      obj.command_tag, obj.object_type, obj.object_identity;     END LOOP; END; $$"
   },
   {
     "comment": "event_trigger - Statement 163",
-    "query": "CREATE EVENT TRIGGER regress_reindex_end ON ddl_command_end WHEN TAG IN ('REINDEX') EXECUTE PROCEDURE reindex_end_command()"
+    "query": "CREATE EVENT TRIGGER regress_reindex_end ON ddl_command_end WHEN TAG IN ('REINDEX') EXECUTE PROCEDURE reindex_end_command()",
+    "expected": "CREATE EVENT TRIGGER regress_reindex_end ON ddl_command_end WHEN tag IN ('REINDEX') EXECUTE FUNCTION reindex_end_command()"
   },
   {
     "comment": "event_trigger - Statement 164",
-    "query": "CREATE FUNCTION reindex_end_command_snap() RETURNS EVENT_TRIGGER AS $$ BEGIN PERFORM 1; END $$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION reindex_end_command_snap() RETURNS EVENT_TRIGGER AS $$ BEGIN PERFORM 1; END $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION reindex_end_command_snap () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM 1; END $$"
   },
   {
     "comment": "event_trigger - Statement 165",
@@ -661,11 +712,13 @@
   },
   {
     "comment": "event_trigger - Statement 166",
-    "query": "CREATE TABLE concur_reindex_tab (c1 int)"
+    "query": "CREATE TABLE concur_reindex_tab (c1 int)",
+    "expected": "CREATE TABLE concur_reindex_tab (c1 INT)"
   },
   {
     "comment": "event_trigger - Statement 167",
-    "query": "CREATE INDEX concur_reindex_ind ON concur_reindex_tab (c1)"
+    "query": "CREATE INDEX concur_reindex_ind ON concur_reindex_tab (c1)",
+    "expected": "CREATE INDEX concur_reindex_ind ON concur_reindex_tab USING btree ( c1 )"
   },
   {
     "comment": "event_trigger - Statement 168",
@@ -705,11 +758,13 @@
   },
   {
     "comment": "event_trigger - Statement 177",
-    "query": "CREATE TABLE concur_reindex_schema.tab (a int)"
+    "query": "CREATE TABLE concur_reindex_schema.tab (a int)",
+    "expected": "CREATE TABLE concur_reindex_schema.tab (a INT)"
   },
   {
     "comment": "event_trigger - Statement 178",
-    "query": "CREATE INDEX ind ON concur_reindex_schema.tab (a)"
+    "query": "CREATE INDEX ind ON concur_reindex_schema.tab (a)",
+    "expected": "CREATE INDEX ind ON concur_reindex_schema.tab USING btree ( a )"
   },
   {
     "comment": "event_trigger - Statement 179",
@@ -721,7 +776,8 @@
   },
   {
     "comment": "event_trigger - Statement 181",
-    "query": "CREATE TABLE concur_reindex_part (id int) PARTITION BY RANGE (id)"
+    "query": "CREATE TABLE concur_reindex_part (id int) PARTITION BY RANGE (id)",
+    "expected": "CREATE TABLE concur_reindex_part (id INT) PARTITION BY range (id)"
   },
   {
     "comment": "event_trigger - Statement 182",
@@ -737,7 +793,8 @@
   },
   {
     "comment": "event_trigger - Statement 185",
-    "query": "CREATE INDEX concur_reindex_partidx ON concur_reindex_part (id)"
+    "query": "CREATE INDEX concur_reindex_partidx ON concur_reindex_part (id)",
+    "expected": "CREATE INDEX concur_reindex_partidx ON concur_reindex_part USING btree ( id )"
   },
   {
     "comment": "event_trigger - Statement 186",
@@ -781,39 +838,48 @@
   },
   {
     "comment": "event_trigger - Statement 196",
-    "query": "CREATE TABLE event_trigger_test (a integer, b text)"
+    "query": "CREATE TABLE event_trigger_test (a integer, b text)",
+    "expected": "CREATE TABLE event_trigger_test (a INT, b TEXT)"
   },
   {
     "comment": "event_trigger - Statement 197",
-    "query": "CREATE OR REPLACE FUNCTION start_command() RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - ddl_command_start', tg_tag"
+    "query": "CREATE OR REPLACE FUNCTION start_command() RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - ddl_command_start', tg_tag; END; $$ LANGUAGE plpgsql;",
+    "expected": "CREATE OR REPLACE FUNCTION start_command () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE '% - ddl_command_start', tg_tag; END; $$"
   },
   {
     "comment": "event_trigger - Statement 198",
-    "query": "CREATE OR REPLACE FUNCTION end_command() RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - ddl_command_end', tg_tag"
+    "query": "CREATE OR REPLACE FUNCTION end_command() RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - ddl_command_end', tg_tag; END; $$ LANGUAGE plpgsql;",
+    "expected": "CREATE OR REPLACE FUNCTION end_command () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE '% - ddl_command_end', tg_tag; END; $$"
   },
   {
     "comment": "event_trigger - Statement 199",
-    "query": "CREATE OR REPLACE FUNCTION drop_sql_command() RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - sql_drop', tg_tag"
+    "query": "CREATE OR REPLACE FUNCTION drop_sql_command() RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - sql_drop', tg_tag; END; $$ LANGUAGE plpgsql;",
+    "expected": "CREATE OR REPLACE FUNCTION drop_sql_command () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE '% - sql_drop', tg_tag; END; $$"
   },
   {
     "comment": "event_trigger - Statement 200",
-    "query": "CREATE EVENT TRIGGER start_rls_command ON ddl_command_start WHEN TAG IN ('CREATE POLICY', 'ALTER POLICY', 'DROP POLICY') EXECUTE PROCEDURE start_command()"
+    "query": "CREATE EVENT TRIGGER start_rls_command ON ddl_command_start WHEN TAG IN ('CREATE POLICY', 'ALTER POLICY', 'DROP POLICY') EXECUTE PROCEDURE start_command()",
+    "expected": "CREATE EVENT TRIGGER start_rls_command ON ddl_command_start WHEN tag IN ('CREATE POLICY', 'ALTER POLICY', 'DROP POLICY') EXECUTE FUNCTION start_command()"
   },
   {
     "comment": "event_trigger - Statement 201",
-    "query": "CREATE EVENT TRIGGER end_rls_command ON ddl_command_end WHEN TAG IN ('CREATE POLICY', 'ALTER POLICY', 'DROP POLICY') EXECUTE PROCEDURE end_command()"
+    "query": "CREATE EVENT TRIGGER end_rls_command ON ddl_command_end WHEN TAG IN ('CREATE POLICY', 'ALTER POLICY', 'DROP POLICY') EXECUTE PROCEDURE end_command()",
+    "expected": "CREATE EVENT TRIGGER end_rls_command ON ddl_command_end WHEN tag IN ('CREATE POLICY', 'ALTER POLICY', 'DROP POLICY') EXECUTE FUNCTION end_command()"
   },
   {
     "comment": "event_trigger - Statement 202",
-    "query": "CREATE EVENT TRIGGER sql_drop_command ON sql_drop WHEN TAG IN ('DROP POLICY') EXECUTE PROCEDURE drop_sql_command()"
+    "query": "CREATE EVENT TRIGGER sql_drop_command ON sql_drop WHEN TAG IN ('DROP POLICY') EXECUTE PROCEDURE drop_sql_command()",
+    "expected": "CREATE EVENT TRIGGER sql_drop_command ON sql_drop WHEN tag IN ('DROP POLICY') EXECUTE FUNCTION drop_sql_command()"
   },
   {
     "comment": "event_trigger - Statement 203",
-    "query": "CREATE POLICY p1 ON event_trigger_test USING (FALSE)"
+    "query": "CREATE POLICY p1 ON event_trigger_test USING (FALSE)",
+    "expected": "CREATE POLICY p1 ON event_trigger_test FOR all TO public USING ( FALSE )"
   },
   {
     "comment": "event_trigger - Statement 204",
-    "query": "ALTER POLICY p1 ON event_trigger_test USING (TRUE)"
+    "query": "ALTER POLICY p1 ON event_trigger_test USING (TRUE)",
+    "expected": "ALTER POLICY p1 ON event_trigger_test USING ( TRUE )"
   },
   {
     "comment": "event_trigger - Statement 205",
@@ -825,7 +891,8 @@
   },
   {
     "comment": "event_trigger - Statement 207",
-    "query": "SELECT e.evtname, pg_describe_object('pg_event_trigger'::regclass, e.oid, 0) as descr, b.type, b.object_names, b.object_args, pg_identify_object(a.classid, a.objid, a.objsubid) as ident FROM pg_event_trigger as e, LATERAL pg_identify_object_as_address('pg_event_trigger'::regclass, e.oid, 0) as b, LATERAL pg_get_object_address(b.type, b.object_names, b.object_args) as a ORDER BY e.evtname"
+    "query": "SELECT e.evtname, pg_describe_object('pg_event_trigger'::regclass, e.oid, 0) as descr, b.type, b.object_names, b.object_args, pg_identify_object(a.classid, a.objid, a.objsubid) as ident FROM pg_event_trigger as e, LATERAL pg_identify_object_as_address('pg_event_trigger'::regclass, e.oid, 0) as b, LATERAL pg_get_object_address(b.type, b.object_names, b.object_args) as a ORDER BY e.evtname",
+    "expected": "SELECT e.evtname, pg_describe_object(CAST('pg_event_trigger' AS regclass), e.oid, 0) AS descr, b.type, b.object_names, b.object_args, pg_identify_object(a.classid, a.objid, a.objsubid) AS ident FROM pg_event_trigger AS e, LATERAL pg_identify_object_as_address(CAST('pg_event_trigger' AS regclass), e.oid, 0) AS b, LATERAL pg_get_object_address(b.type, b.object_names, b.object_args) AS a ORDER BY e.evtname"
   },
   {
     "comment": "event_trigger - Statement 208",
@@ -841,23 +908,23 @@
   },
   {
     "comment": "event_trigger - Statement 211",
-    "query": "CREATE FUNCTION test_event_trigger_guc() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE obj record"
-  },
-  {
-    "comment": "event_trigger - Statement 212",
-    "query": "BEGIN FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects() LOOP RAISE NOTICE '% dropped %', tg_tag, obj.object_type"
+    "query": "CREATE FUNCTION test_event_trigger_guc() RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE  obj record; BEGIN  FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()  LOOP   RAISE NOTICE '% dropped %', tg_tag, obj.object_type;  END LOOP; END; $$;",
+    "expected": "CREATE FUNCTION test_event_trigger_guc () RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE  obj record; BEGIN  FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()  LOOP   RAISE NOTICE '% dropped %', tg_tag, obj.object_type;  END LOOP; END; $$"
   },
   {
     "comment": "event_trigger - Statement 213",
-    "query": "CREATE EVENT TRIGGER test_event_trigger_guc ON sql_drop WHEN TAG IN ('DROP POLICY') EXECUTE FUNCTION test_event_trigger_guc()"
+    "query": "CREATE EVENT TRIGGER test_event_trigger_guc ON sql_drop WHEN TAG IN ('DROP POLICY') EXECUTE FUNCTION test_event_trigger_guc()",
+    "expected": "CREATE EVENT TRIGGER test_event_trigger_guc ON sql_drop WHEN tag IN ('DROP POLICY') EXECUTE FUNCTION test_event_trigger_guc()"
   },
   {
     "comment": "event_trigger - Statement 214",
-    "query": "SET event_triggers = 'on'"
+    "query": "SET event_triggers = 'on'",
+    "expected": "SET event_triggers = on"
   },
   {
     "comment": "event_trigger - Statement 215",
-    "query": "CREATE POLICY pguc ON event_trigger_test USING (FALSE)"
+    "query": "CREATE POLICY pguc ON event_trigger_test USING (FALSE)",
+    "expected": "CREATE POLICY pguc ON event_trigger_test FOR all TO public USING ( FALSE )"
   },
   {
     "comment": "event_trigger - Statement 216",
@@ -865,6 +932,7 @@
   },
   {
     "comment": "event_trigger - Statement 217",
-    "query": "SET event_triggers = 'off'"
+    "query": "SET event_triggers = 'off'",
+    "expected": "SET event_triggers = off"
   }
 ]

@@ -166,3 +166,59 @@ func FormatSchemaQualifiedName(schema, name string) string {
 func FormatFullyQualifiedName(database, schema, name string) string {
 	return FormatQualifiedName(database, schema, name)
 }
+
+// QuoteQualifiedIdentifier handles dotted identifiers where parts may already be quoted
+// This function preserves existing quotes and only quotes parts that need it
+func QuoteQualifiedIdentifier(name string) string {
+	if name == "" {
+		return ""
+	}
+	
+	// For dotted identifiers, we need to handle each part separately
+	// but preserve any existing quotes in the original string
+	if strings.Contains(name, ".") {
+		// Parse the qualified name, respecting existing quotes
+		parts := parseQualifiedIdentifier(name)
+		var quotedParts []string
+		for _, part := range parts {
+			// If the part is already quoted, preserve it as-is
+			if len(part) >= 2 && part[0] == '"' && part[len(part)-1] == '"' {
+				quotedParts = append(quotedParts, part)
+			} else {
+				// Otherwise apply normal quoting rules
+				quotedParts = append(quotedParts, QuoteIdentifier(part))
+			}
+		}
+		return strings.Join(quotedParts, ".")
+	}
+	
+	// Single identifier - use normal quoting
+	return QuoteIdentifier(name)
+}
+
+// parseQualifiedIdentifier splits a qualified identifier respecting quoted parts
+func parseQualifiedIdentifier(name string) []string {
+	var parts []string
+	var current strings.Builder
+	inQuotes := false
+	
+	for _, r := range name {
+		if r == '"' {
+			inQuotes = !inQuotes
+			current.WriteRune(r)
+		} else if r == '.' && !inQuotes {
+			// Found a separator outside of quotes
+			parts = append(parts, current.String())
+			current.Reset()
+		} else {
+			current.WriteRune(r)
+		}
+	}
+	
+	// Add the last part
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	
+	return parts
+}

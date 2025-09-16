@@ -572,7 +572,17 @@ func formatSeqOption(opt *DefElem) string {
 	case "cache":
 		return "CACHE " + opt.Arg.SqlString()
 	case "owned_by":
-		// TODO: Handle OWNED BY properly
+		if nodeList, ok := opt.Arg.(*NodeList); ok && nodeList != nil {
+			var parts []string
+			for _, item := range nodeList.Items {
+				if str, ok := item.(*String); ok {
+					parts = append(parts, str.SVal)
+				}
+			}
+			if len(parts) > 0 {
+				return "OWNED BY " + strings.Join(parts, ".")
+			}
+		}
 		return "OWNED BY " + opt.Arg.SqlString()
 	case "as":
 		return "AS " + opt.Arg.SqlString()

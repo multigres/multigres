@@ -1532,7 +1532,7 @@
   {
     "comment": "timestamptz type",
     "query": "SELECT value::timestamptz",
-    "expected": "SELECT CAST(value AS TIMESTAMP WITH TIME ZONE)"
+    "expected": "SELECT CAST(value AS TIMESTAMPTZ)"
   },
   {
     "comment": "date type",

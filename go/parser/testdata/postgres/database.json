@@ -1,7 +1,8 @@
 [
   {
     "comment": "database - Statement 1",
-    "query": "CREATE DATABASE regression_tbd ENCODING utf8 LC_COLLATE \"C\" LC_CTYPE \"C\" TEMPLATE template0"
+    "query": "CREATE DATABASE regression_tbd ENCODING utf8 LC_COLLATE \"C\" LC_CTYPE \"C\" TEMPLATE template0",
+    "expected": "CREATE DATABASE regression_tbd WITH ENCODING = 'utf8' LC_COLLATE = 'C' LC_CTYPE = 'C' TEMPLATE = template0"
   },
   {
     "comment": "database - Statement 2",
@@ -9,15 +10,18 @@
   },
   {
     "comment": "database - Statement 3",
-    "query": "ALTER DATABASE regression_utf8 SET TABLESPACE regress_tblspace"
+    "query": "ALTER DATABASE regression_utf8 SET TABLESPACE regress_tblspace",
+    "expected": "ALTER DATABASE regression_utf8 tablespace = 'regress_tblspace'"
   },
   {
     "comment": "database - Statement 4",
-    "query": "ALTER DATABASE regression_utf8 RESET TABLESPACE"
+    "query": "ALTER DATABASE regression_utf8 RESET TABLESPACE",
+    "expected": "ALTER DATABASE regression_utf8 RESET tablespace"
   },
   {
     "comment": "database - Statement 5",
-    "query": "ALTER DATABASE regression_utf8 CONNECTION_LIMIT 123"
+    "query": "ALTER DATABASE regression_utf8 CONNECTION_LIMIT 123",
+    "expected": "ALTER DATABASE regression_utf8 connection_limit = 123"
   },
   {
     "comment": "database - Statement 6",
@@ -25,7 +29,8 @@
   },
   {
     "comment": "database - Statement 7",
-    "query": "UPDATE pg_database SET datacl = array_fill(makeaclitem(10, 10, 'USAGE', false), ARRAY[5e5::int]) WHERE datname = 'regression_utf8'"
+    "query": "UPDATE pg_database SET datacl = array_fill(makeaclitem(10, 10, 'USAGE', false), ARRAY[5e5::int]) WHERE datname = 'regression_utf8'",
+    "expected": "UPDATE pg_database SET datacl = array_fill(makeaclitem(10, 10, 'USAGE', FALSE), ARRAY[CAST(5e5 AS INT)]) WHERE datname = 'regression_utf8'"
   },
   {
     "comment": "database - Statement 8",

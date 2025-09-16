@@ -558,9 +558,9 @@ func (cfss *CreateForeignServerStmt) SqlString() string {
 			if opt, ok := item.(*DefElem); ok && opt != nil {
 				// For generic options, use PostgreSQL format: key 'value' (no =)
 				if opt.Arg != nil {
-					optParts = append(optParts, opt.Defname+" "+opt.Arg.SqlString())
+					optParts = append(optParts, QuoteIdentifier(opt.Defname)+" "+opt.Arg.SqlString())
 				} else {
-					optParts = append(optParts, opt.Defname)
+					optParts = append(optParts, QuoteIdentifier(opt.Defname))
 				}
 			}
 		}
@@ -650,9 +650,13 @@ func (cfts *CreateForeignTableStmt) SqlString() string {
 			}
 			parts = append(parts, "PARTITION OF", strings.Join(inhParts, ", "))
 
-			// Add DEFAULT if this is a default partition
-			if cfts.Base.PartBound != nil && cfts.Base.PartBound.IsDefault {
-				parts = append(parts, "DEFAULT")
+			// Add partition bound specification
+			if cfts.Base.PartBound != nil {
+				if cfts.Base.PartBound.IsDefault {
+					parts = append(parts, "DEFAULT")
+				} else {
+					parts = append(parts, cfts.Base.PartBound.SqlString())
+				}
 			}
 		} else {
 			// Regular INHERITS clause
@@ -670,9 +674,9 @@ func (cfts *CreateForeignTableStmt) SqlString() string {
 			if opt, ok := item.(*DefElem); ok && opt != nil {
 				// For generic options, use PostgreSQL format: key 'value' (no =)
 				if opt.Arg != nil {
-					optParts = append(optParts, opt.Defname+" "+opt.Arg.SqlString())
+					optParts = append(optParts, QuoteIdentifier(opt.Defname)+" "+opt.Arg.SqlString())
 				} else {
-					optParts = append(optParts, opt.Defname)
+					optParts = append(optParts, QuoteIdentifier(opt.Defname))
 				}
 			}
 		}
@@ -743,9 +747,9 @@ func (cums *CreateUserMappingStmt) SqlString() string {
 			if opt, ok := item.(*DefElem); ok && opt != nil {
 				// For generic options, use PostgreSQL format: key 'value' (no =)
 				if opt.Arg != nil {
-					optParts = append(optParts, opt.Defname+" "+opt.Arg.SqlString())
+					optParts = append(optParts, QuoteIdentifier(opt.Defname)+" "+opt.Arg.SqlString())
 				} else {
-					optParts = append(optParts, opt.Defname)
+					optParts = append(optParts, QuoteIdentifier(opt.Defname))
 				}
 			}
 		}

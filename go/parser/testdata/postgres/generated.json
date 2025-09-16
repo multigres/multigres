@@ -5,11 +5,13 @@
   },
   {
     "comment": "generated - Statement 2",
-    "query": "CREATE TABLE gtest0 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (55) STORED)"
+    "query": "CREATE TABLE gtest0 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (55) STORED)",
+    "expected": "CREATE TABLE gtest0 (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (55) STORED)"
   },
   {
     "comment": "generated - Statement 3",
-    "query": "CREATE TABLE gtest1 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtest1 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtest1 (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 4",
@@ -21,27 +23,33 @@
   },
   {
     "comment": "generated - Statement 6",
-    "query": "CREATE TABLE gtest_err_2a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (b * 2) STORED)"
+    "query": "CREATE TABLE gtest_err_2a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (b * 2) STORED)",
+    "expected": "CREATE TABLE gtest_err_2a (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (b * 2) STORED)"
   },
   {
     "comment": "generated - Statement 7",
-    "query": "CREATE TABLE gtest_err_2b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED, c int GENERATED ALWAYS AS (b * 3) STORED)"
+    "query": "CREATE TABLE gtest_err_2b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED, c int GENERATED ALWAYS AS (b * 3) STORED)",
+    "expected": "CREATE TABLE gtest_err_2b (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED, c INT GENERATED ALWAYS AS (b * 3) STORED)"
   },
   {
     "comment": "generated - Statement 8",
-    "query": "CREATE TABLE gtest_err_2c (a int PRIMARY KEY, b int GENERATED ALWAYS AS (num_nulls(gtest_err_2c)) STORED)"
+    "query": "CREATE TABLE gtest_err_2c (a int PRIMARY KEY, b int GENERATED ALWAYS AS (num_nulls(gtest_err_2c)) STORED)",
+    "expected": "CREATE TABLE gtest_err_2c (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (num_nulls(gtest_err_2c)) STORED)"
   },
   {
     "comment": "generated - Statement 9",
-    "query": "CREATE TABLE gtest_err_3 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (c * 2) STORED)"
+    "query": "CREATE TABLE gtest_err_3 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (c * 2) STORED)",
+    "expected": "CREATE TABLE gtest_err_3 (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (c * 2) STORED)"
   },
   {
     "comment": "generated - Statement 10",
-    "query": "CREATE TABLE gtest_err_4 (a int PRIMARY KEY, b double precision GENERATED ALWAYS AS (random()) STORED)"
+    "query": "CREATE TABLE gtest_err_4 (a int PRIMARY KEY, b double precision GENERATED ALWAYS AS (random()) STORED)",
+    "expected": "CREATE TABLE gtest_err_4 (a INT PRIMARY KEY, b FLOAT8 GENERATED ALWAYS AS (random()) STORED)"
   },
   {
     "comment": "generated - Statement 11",
-    "query": "CREATE TABLE gtest2 (a int, b text GENERATED ALWAYS AS (a || ' sec') STORED)"
+    "query": "CREATE TABLE gtest2 (a int, b text GENERATED ALWAYS AS (a || ' sec') STORED)",
+    "expected": "CREATE TABLE gtest2 (a INT, b TEXT GENERATED ALWAYS AS (a || ' sec') STORED)"
   },
   {
     "comment": "generated - Statement 12",
@@ -49,35 +57,43 @@
   },
   {
     "comment": "generated - Statement 13",
-    "query": "CREATE TABLE gtest_err_5a (a int PRIMARY KEY, b int DEFAULT 5 GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtest_err_5a (a int PRIMARY KEY, b int DEFAULT 5 GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtest_err_5a (a INT PRIMARY KEY, b INT DEFAULT 5 GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 14",
-    "query": "CREATE TABLE gtest_err_5b (a int PRIMARY KEY, b int GENERATED ALWAYS AS identity GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtest_err_5b (a int PRIMARY KEY, b int GENERATED ALWAYS AS identity GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtest_err_5b (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS IDENTITY GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 15",
-    "query": "CREATE TABLE gtest_err_6a (a int PRIMARY KEY, b bool GENERATED ALWAYS AS (xmin <> 37) STORED)"
+    "query": "CREATE TABLE gtest_err_6a (a int PRIMARY KEY, b bool GENERATED ALWAYS AS (xmin \u003c\u003e 37) STORED)",
+    "expected": "CREATE TABLE gtest_err_6a (a INT PRIMARY KEY, b BOOLEAN GENERATED ALWAYS AS (xmin \u003c\u003e 37) STORED)"
   },
   {
     "comment": "generated - Statement 16",
-    "query": "CREATE TABLE gtest_err_7a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (avg(a)) STORED)"
+    "query": "CREATE TABLE gtest_err_7a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (avg(a)) STORED)",
+    "expected": "CREATE TABLE gtest_err_7a (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (AVG(a)) STORED)"
   },
   {
     "comment": "generated - Statement 17",
-    "query": "CREATE TABLE gtest_err_7b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (row_number() OVER (ORDER BY a)) STORED)"
+    "query": "CREATE TABLE gtest_err_7b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (row_number() OVER (ORDER BY a)) STORED)",
+    "expected": "CREATE TABLE gtest_err_7b (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (ROW_NUMBER() OVER (ORDER BY a)) STORED)"
   },
   {
     "comment": "generated - Statement 18",
-    "query": "CREATE TABLE gtest_err_7c (a int PRIMARY KEY, b int GENERATED ALWAYS AS ((SELECT a)) STORED)"
+    "query": "CREATE TABLE gtest_err_7c (a int PRIMARY KEY, b int GENERATED ALWAYS AS ((SELECT a)) STORED)",
+    "expected": "CREATE TABLE gtest_err_7c (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS ((SELECT a)) STORED)"
   },
   {
     "comment": "generated - Statement 19",
-    "query": "CREATE TABLE gtest_err_7d (a int PRIMARY KEY, b int GENERATED ALWAYS AS (generate_series(1, a)) STORED)"
+    "query": "CREATE TABLE gtest_err_7d (a int PRIMARY KEY, b int GENERATED ALWAYS AS (generate_series(1, a)) STORED)",
+    "expected": "CREATE TABLE gtest_err_7d (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (generate_series(1, a)) STORED)"
   },
   {
     "comment": "generated - Statement 20",
-    "query": "CREATE TABLE gtest_err_8 (a int PRIMARY KEY, b int GENERATED BY DEFAULT AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtest_err_8 (a int PRIMARY KEY, b int GENERATED BY DEFAULT AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtest_err_8 (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 21",
@@ -113,7 +129,7 @@
   },
   {
     "comment": "generated - Statement 29",
-    "query": "DELETE FROM gtest1 WHERE a >= 3"
+    "query": "DELETE FROM gtest1 WHERE a \u003e= 3"
   },
   {
     "comment": "generated - Statement 30",
@@ -145,7 +161,8 @@
   },
   {
     "comment": "generated - Statement 37",
-    "query": "CREATE TABLE gtestx (x int, y int)"
+    "query": "CREATE TABLE gtestx (x int, y int)",
+    "expected": "CREATE TABLE gtestx (x INT, y INT)"
   },
   {
     "comment": "generated - Statement 38",
@@ -169,7 +186,8 @@
   },
   {
     "comment": "generated - Statement 43",
-    "query": "CREATE TABLE gtestm ( id int PRIMARY KEY, f1 int, f2 int, f3 int GENERATED ALWAYS AS (f1 * 2) STORED, f4 int GENERATED ALWAYS AS (f2 * 2) STORED )"
+    "query": "CREATE TABLE gtestm ( id int PRIMARY KEY, f1 int, f2 int, f3 int GENERATED ALWAYS AS (f1 * 2) STORED, f4 int GENERATED ALWAYS AS (f2 * 2) STORED )",
+    "expected": "CREATE TABLE gtestm (id INT PRIMARY KEY, f1 INT, f2 INT, f3 INT GENERATED ALWAYS AS (f1 * 2) STORED, f4 INT GENERATED ALWAYS AS (f2 * 2) STORED)"
   },
   {
     "comment": "generated - Statement 44",
@@ -177,7 +195,8 @@
   },
   {
     "comment": "generated - Statement 45",
-    "query": "MERGE INTO gtestm t USING (VALUES (1, 10), (2, 20)) v(id, f1) ON t.id = v.id WHEN MATCHED THEN UPDATE SET f1 = v.f1 WHEN NOT MATCHED THEN INSERT VALUES (v.id, v.f1, 200)"
+    "query": "MERGE INTO gtestm t USING (VALUES (1, 10), (2, 20)) v(id, f1) ON t.id = v.id WHEN MATCHED THEN UPDATE SET f1 = v.f1 WHEN NOT MATCHED THEN INSERT VALUES (v.id, v.f1, 200)",
+    "expected": "MERGE INTO gtestm AS t USING (VALUES (1, 10), (2, 20)) AS v(id, f1) ON t.id = v.id WHEN MATCHED THEN UPDATE SET f1 = v.f1 WHEN NOT MATCHED THEN INSERT VALUES (v.id, v.f1, 200)"
   },
   {
     "comment": "generated - Statement 46",
@@ -233,7 +252,7 @@
   },
   {
     "comment": "generated - Statement 59",
-    "query": "DELETE FROM gtest1v WHERE a >= 5"
+    "query": "DELETE FROM gtest1v WHERE a \u003e= 5"
   },
   {
     "comment": "generated - Statement 60",
@@ -253,15 +272,18 @@
   },
   {
     "comment": "generated - Statement 64",
-    "query": "CREATE TABLE gtest_normal (a int, b int)"
+    "query": "CREATE TABLE gtest_normal (a int, b int)",
+    "expected": "CREATE TABLE gtest_normal (a INT, b INT)"
   },
   {
     "comment": "generated - Statement 65",
-    "query": "CREATE TABLE gtest_normal_child (a int, b int GENERATED ALWAYS AS (a * 2) STORED) INHERITS (gtest_normal)"
+    "query": "CREATE TABLE gtest_normal_child (a int, b int GENERATED ALWAYS AS (a * 2) STORED) INHERITS (gtest_normal)",
+    "expected": "CREATE TABLE gtest_normal_child (a INT, b INT GENERATED ALWAYS AS (a * 2) STORED) INHERITS (gtest_normal)"
   },
   {
     "comment": "generated - Statement 66",
-    "query": "CREATE TABLE gtest_normal_child (a int, b int GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtest_normal_child (a int, b int GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtest_normal_child (a INT, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 67",
@@ -273,15 +295,18 @@
   },
   {
     "comment": "generated - Statement 69",
-    "query": "CREATE TABLE gtestx (x int, b int DEFAULT 10) INHERITS (gtest1)"
+    "query": "CREATE TABLE gtestx (x int, b int DEFAULT 10) INHERITS (gtest1)",
+    "expected": "CREATE TABLE gtestx (x INT, b INT DEFAULT 10) INHERITS (gtest1)"
   },
   {
     "comment": "generated - Statement 70",
-    "query": "CREATE TABLE gtestx (x int, b int GENERATED ALWAYS AS IDENTITY) INHERITS (gtest1)"
+    "query": "CREATE TABLE gtestx (x int, b int GENERATED ALWAYS AS IDENTITY) INHERITS (gtest1)",
+    "expected": "CREATE TABLE gtestx (x INT, b INT GENERATED ALWAYS AS IDENTITY) INHERITS (gtest1)"
   },
   {
     "comment": "generated - Statement 71",
-    "query": "CREATE TABLE gtestx (x int, b int GENERATED ALWAYS AS (a * 22) STORED) INHERITS (gtest1)"
+    "query": "CREATE TABLE gtestx (x int, b int GENERATED ALWAYS AS (a * 22) STORED) INHERITS (gtest1)",
+    "expected": "CREATE TABLE gtestx (x INT, b INT GENERATED ALWAYS AS (a * 22) STORED) INHERITS (gtest1)"
   },
   {
     "comment": "generated - Statement 72",
@@ -289,7 +314,8 @@
   },
   {
     "comment": "generated - Statement 73",
-    "query": "CREATE TABLE gtestxx_3 (a int NOT NULL, b int GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtestxx_3 (a int NOT NULL, b int GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtestxx_3 (a INT NOT NULL, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 74",
@@ -297,7 +323,8 @@
   },
   {
     "comment": "generated - Statement 75",
-    "query": "CREATE TABLE gtestxx_4 (b int GENERATED ALWAYS AS (a * 2) STORED, a int NOT NULL)"
+    "query": "CREATE TABLE gtestxx_4 (b int GENERATED ALWAYS AS (a * 2) STORED, a int NOT NULL)",
+    "expected": "CREATE TABLE gtestxx_4 (b INT GENERATED ALWAYS AS (a * 2) STORED, a INT NOT NULL)"
   },
   {
     "comment": "generated - Statement 76",
@@ -305,7 +332,8 @@
   },
   {
     "comment": "generated - Statement 77",
-    "query": "CREATE TABLE gtesty (x int, b int DEFAULT 55)"
+    "query": "CREATE TABLE gtesty (x int, b int DEFAULT 55)",
+    "expected": "CREATE TABLE gtesty (x INT, b INT DEFAULT 55)"
   },
   {
     "comment": "generated - Statement 78",
@@ -317,7 +345,8 @@
   },
   {
     "comment": "generated - Statement 80",
-    "query": "CREATE TABLE gtesty (x int, b int)"
+    "query": "CREATE TABLE gtesty (x int, b int)",
+    "expected": "CREATE TABLE gtesty (x INT, b INT)"
   },
   {
     "comment": "generated - Statement 81",
@@ -325,23 +354,28 @@
   },
   {
     "comment": "generated - Statement 82",
-    "query": "CREATE TABLE gtesty (x int, b int GENERATED ALWAYS AS (x * 22) STORED)"
+    "query": "CREATE TABLE gtesty (x int, b int GENERATED ALWAYS AS (x * 22) STORED)",
+    "expected": "CREATE TABLE gtesty (x INT, b INT GENERATED ALWAYS AS (x * 22) STORED)"
   },
   {
     "comment": "generated - Statement 83",
-    "query": "CREATE TABLE gtest1_y (b int GENERATED ALWAYS AS (x + 1) STORED) INHERITS (gtest1, gtesty)"
+    "query": "CREATE TABLE gtest1_y (b int GENERATED ALWAYS AS (x + 1) STORED) INHERITS (gtest1, gtesty)",
+    "expected": "CREATE TABLE gtest1_y (b INT GENERATED ALWAYS AS (x + 1) STORED) INHERITS (gtest1, gtesty)"
   },
   {
     "comment": "generated - Statement 84",
-    "query": "CREATE TABLE gtestc (f2 int GENERATED ALWAYS AS (f1+1) STORED) INHERITS(gtestp)"
+    "query": "CREATE TABLE gtestc (f2 int GENERATED ALWAYS AS (f1+1) STORED) INHERITS(gtestp)",
+    "expected": "CREATE TABLE gtestc (f2 INT GENERATED ALWAYS AS (f1 + 1) STORED) INHERITS (gtestp)"
   },
   {
     "comment": "generated - Statement 85",
-    "query": "INSERT INTO gtestc values(42)"
+    "query": "INSERT INTO gtestc values(42)",
+    "expected": "INSERT INTO gtestc VALUES (42)"
   },
   {
     "comment": "generated - Statement 86",
-    "query": "TABLE gtestc"
+    "query": "TABLE gtestc",
+    "expected": "SELECT * FROM gtestc"
   },
   {
     "comment": "generated - Statement 87",
@@ -353,7 +387,8 @@
   },
   {
     "comment": "generated - Statement 89",
-    "query": "CREATE TABLE gtest3 (a int, b int GENERATED ALWAYS AS (a * 3) STORED)"
+    "query": "CREATE TABLE gtest3 (a int, b int GENERATED ALWAYS AS (a * 3) STORED)",
+    "expected": "CREATE TABLE gtest3 (a INT, b INT GENERATED ALWAYS AS (a * 3) STORED)"
   },
   {
     "comment": "generated - Statement 90",
@@ -369,7 +404,8 @@
   },
   {
     "comment": "generated - Statement 93",
-    "query": "CREATE TABLE gtest3a (a text, b text GENERATED ALWAYS AS (a || '+' || a) STORED)"
+    "query": "CREATE TABLE gtest3a (a text, b text GENERATED ALWAYS AS (a || '+' || a) STORED)",
+    "expected": "CREATE TABLE gtest3a (a TEXT, b TEXT GENERATED ALWAYS AS (a || '+' || a) STORED)"
   },
   {
     "comment": "generated - Statement 94",
@@ -385,7 +421,8 @@
   },
   {
     "comment": "generated - Statement 97",
-    "query": "TRUNCATE gtest1"
+    "query": "TRUNCATE gtest1",
+    "expected": "TRUNCATE TABLE gtest1 CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "generated - Statement 98",
@@ -393,23 +430,28 @@
   },
   {
     "comment": "generated - Statement 99",
-    "query": "COPY gtest1 TO stdout"
+    "query": "COPY gtest1 TO stdout",
+    "expected": "COPY gtest1 TO STDOUT"
   },
   {
     "comment": "generated - Statement 100",
-    "query": "COPY gtest1 (a, b) TO stdout"
+    "query": "COPY gtest1 (a, b) TO stdout",
+    "expected": "COPY gtest1 (a, b) TO STDOUT"
   },
   {
     "comment": "generated - Statement 101",
-    "query": "COPY gtest1 FROM stdin"
+    "query": "COPY gtest1 FROM stdin",
+    "expected": "COPY gtest1 FROM STDIN"
   },
   {
     "comment": "generated - Statement 102",
-    "query": "3 4 \\. COPY gtest1 (a, b) FROM stdin"
+    "query": "COPY gtest1 (a, b) FROM stdin",
+    "expected": "COPY gtest1 (a, b) FROM STDIN"
   },
   {
     "comment": "generated - Statement 103",
-    "query": "TRUNCATE gtest3"
+    "query": "TRUNCATE gtest3",
+    "expected": "TRUNCATE TABLE gtest3 CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "generated - Statement 104",
@@ -417,23 +459,28 @@
   },
   {
     "comment": "generated - Statement 105",
-    "query": "COPY gtest3 TO stdout"
+    "query": "COPY gtest3 TO stdout",
+    "expected": "COPY gtest3 TO STDOUT"
   },
   {
     "comment": "generated - Statement 106",
-    "query": "COPY gtest3 (a, b) TO stdout"
+    "query": "COPY gtest3 (a, b) TO stdout",
+    "expected": "COPY gtest3 (a, b) TO STDOUT"
   },
   {
     "comment": "generated - Statement 107",
-    "query": "COPY gtest3 FROM stdin"
+    "query": "COPY gtest3 FROM stdin",
+    "expected": "COPY gtest3 FROM STDIN"
   },
   {
     "comment": "generated - Statement 108",
-    "query": "3 4 \\. COPY gtest3 (a, b) FROM stdin"
+    "query": "COPY gtest3 (a, b) FROM stdin",
+    "expected": "COPY gtest3 (a, b) FROM STDIN"
   },
   {
     "comment": "generated - Statement 109",
-    "query": "CREATE TABLE gtest2 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (NULL) STORED)"
+    "query": "CREATE TABLE gtest2 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (NULL) STORED)",
+    "expected": "CREATE TABLE gtest2 (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (NULL) STORED)"
   },
   {
     "comment": "generated - Statement 110",
@@ -445,15 +492,18 @@
   },
   {
     "comment": "generated - Statement 112",
-    "query": "CREATE TABLE gtest_varlena (a varchar, b varchar GENERATED ALWAYS AS (a) STORED)"
+    "query": "CREATE TABLE gtest_varlena (a varchar, b varchar GENERATED ALWAYS AS (a) STORED)",
+    "expected": "CREATE TABLE gtest_varlena (a VARCHAR, b VARCHAR GENERATED ALWAYS AS (a) STORED)"
   },
   {
     "comment": "generated - Statement 113",
-    "query": "INSERT INTO gtest_varlena (a) VALUES('01234567890123456789')"
+    "query": "INSERT INTO gtest_varlena (a) VALUES('01234567890123456789')",
+    "expected": "INSERT INTO gtest_varlena (a) VALUES ('01234567890123456789')"
   },
   {
     "comment": "generated - Statement 114",
-    "query": "INSERT INTO gtest_varlena (a) VALUES(NULL)"
+    "query": "INSERT INTO gtest_varlena (a) VALUES(NULL)",
+    "expected": "INSERT INTO gtest_varlena (a) VALUES (NULL)"
   },
   {
     "comment": "generated - Statement 115",
@@ -465,11 +515,13 @@
   },
   {
     "comment": "generated - Statement 117",
-    "query": "CREATE TYPE double_int as (a int, b int)"
+    "query": "CREATE TYPE double_int as (a int, b int)",
+    "expected": "CREATE TYPE double_int AS (a INT, b INT)"
   },
   {
     "comment": "generated - Statement 118",
-    "query": "CREATE TABLE gtest4 ( a int, b double_int GENERATED ALWAYS AS ((a * 2, a * 3)) STORED )"
+    "query": "CREATE TABLE gtest4 ( a int, b double_int GENERATED ALWAYS AS ((a * 2, a * 3)) STORED )",
+    "expected": "CREATE TABLE gtest4 (a INT, b double_int GENERATED ALWAYS AS ((a * 2, a * 3)) STORED)"
   },
   {
     "comment": "generated - Statement 119",
@@ -489,7 +541,8 @@
   },
   {
     "comment": "generated - Statement 123",
-    "query": "CREATE TABLE gtest_tableoid ( a int PRIMARY KEY, b bool GENERATED ALWAYS AS (tableoid = 'gtest_tableoid'::regclass) STORED )"
+    "query": "CREATE TABLE gtest_tableoid ( a int PRIMARY KEY, b bool GENERATED ALWAYS AS (tableoid = 'gtest_tableoid'::regclass) STORED )",
+    "expected": "CREATE TABLE gtest_tableoid (a INT PRIMARY KEY, b BOOLEAN GENERATED ALWAYS AS (tableoid = CAST('gtest_tableoid' AS regclass)) STORED)"
   },
   {
     "comment": "generated - Statement 124",
@@ -505,7 +558,8 @@
   },
   {
     "comment": "generated - Statement 127",
-    "query": "CREATE TABLE gtest10 (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (b * 2) STORED)"
+    "query": "CREATE TABLE gtest10 (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (b * 2) STORED)",
+    "expected": "CREATE TABLE gtest10 (a INT PRIMARY KEY, b INT, c INT GENERATED ALWAYS AS (b * 2) STORED)"
   },
   {
     "comment": "generated - Statement 128",
@@ -529,7 +583,8 @@
   },
   {
     "comment": "generated - Statement 133",
-    "query": "CREATE TABLE gtest11s (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (b * 2) STORED)"
+    "query": "CREATE TABLE gtest11s (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (b * 2) STORED)",
+    "expected": "CREATE TABLE gtest11s (a INT PRIMARY KEY, b INT, c INT GENERATED ALWAYS AS (b * 2) STORED)"
   },
   {
     "comment": "generated - Statement 134",
@@ -541,15 +596,18 @@
   },
   {
     "comment": "generated - Statement 136",
-    "query": "CREATE FUNCTION gf1(a int) RETURNS int AS $$ SELECT a * 3 $$ IMMUTABLE LANGUAGE SQL"
+    "query": "CREATE FUNCTION gf1(a int) RETURNS int AS $$ SELECT a * 3 $$ IMMUTABLE LANGUAGE SQL",
+    "expected": "CREATE FUNCTION gf1 (a INT) RETURNS INT LANGUAGE sql AS $$ SELECT a * 3 $$ IMMUTABLE"
   },
   {
     "comment": "generated - Statement 137",
-    "query": "REVOKE ALL ON FUNCTION gf1(int) FROM PUBLIC"
+    "query": "REVOKE ALL ON FUNCTION gf1(int) FROM PUBLIC",
+    "expected": "REVOKE ALL ON FUNCTION gf1(INT) FROM public"
   },
   {
     "comment": "generated - Statement 138",
-    "query": "CREATE TABLE gtest12s (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (gf1(b)) STORED)"
+    "query": "CREATE TABLE gtest12s (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (gf1(b)) STORED)",
+    "expected": "CREATE TABLE gtest12s (a INT PRIMARY KEY, b INT, c INT GENERATED ALWAYS AS (gf1(b)) STORED)"
   },
   {
     "comment": "generated - Statement 139",
@@ -561,7 +619,8 @@
   },
   {
     "comment": "generated - Statement 141",
-    "query": "SET ROLE regress_user11"
+    "query": "SET ROLE regress_user11",
+    "expected": "SET ROLE 'regress_user11'"
   },
   {
     "comment": "generated - Statement 142",
@@ -581,11 +640,13 @@
   },
   {
     "comment": "generated - Statement 146",
-    "query": "RESET ROLE"
+    "query": "RESET ROLE",
+    "expected": "RESET role"
   },
   {
     "comment": "generated - Statement 147",
-    "query": "DROP FUNCTION gf1(int)"
+    "query": "DROP FUNCTION gf1(int)",
+    "expected": "DROP FUNCTION gf1(INT)"
   },
   {
     "comment": "generated - Statement 148",
@@ -593,11 +654,13 @@
   },
   {
     "comment": "generated - Statement 149",
-    "query": "DROP USER regress_user11"
+    "query": "DROP USER regress_user11",
+    "expected": "DROP ROLE regress_user11"
   },
   {
     "comment": "generated - Statement 150",
-    "query": "CREATE TABLE gtest20 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED CHECK (b < 50))"
+    "query": "CREATE TABLE gtest20 (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED CHECK (b \u003c 50))",
+    "expected": "CREATE TABLE gtest20 (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED CHECK (b \u003c 50))"
   },
   {
     "comment": "generated - Statement 151",
@@ -609,15 +672,18 @@
   },
   {
     "comment": "generated - Statement 153",
-    "query": "ALTER TABLE gtest20 ALTER COLUMN b SET EXPRESSION AS (a * 100)"
+    "query": "ALTER TABLE gtest20 ALTER COLUMN b SET EXPRESSION AS (a * 100)",
+    "expected": "ALTER TABLE gtest20 ALTER COLUMN b SET EXPRESSION AS ( a * 100 )"
   },
   {
     "comment": "generated - Statement 154",
-    "query": "ALTER TABLE gtest20 ALTER COLUMN b SET EXPRESSION AS (a * 3)"
+    "query": "ALTER TABLE gtest20 ALTER COLUMN b SET EXPRESSION AS (a * 3)",
+    "expected": "ALTER TABLE gtest20 ALTER COLUMN b SET EXPRESSION AS ( a * 3 )"
   },
   {
     "comment": "generated - Statement 155",
-    "query": "CREATE TABLE gtest20a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtest20a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtest20a (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 156",
@@ -629,11 +695,12 @@
   },
   {
     "comment": "generated - Statement 158",
-    "query": "ALTER TABLE gtest20a ADD CHECK (b < 50)"
+    "query": "ALTER TABLE gtest20a ADD CHECK (b \u003c 50)"
   },
   {
     "comment": "generated - Statement 159",
-    "query": "CREATE TABLE gtest20b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtest20b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtest20b (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 160",
@@ -645,7 +712,7 @@
   },
   {
     "comment": "generated - Statement 162",
-    "query": "ALTER TABLE gtest20b ADD CONSTRAINT chk CHECK (b < 50) NOT VALID"
+    "query": "ALTER TABLE gtest20b ADD CONSTRAINT chk CHECK (b \u003c 50) NOT VALID"
   },
   {
     "comment": "generated - Statement 163",
@@ -653,7 +720,8 @@
   },
   {
     "comment": "generated - Statement 164",
-    "query": "CREATE TABLE gtest21a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (nullif(a, 0)) STORED NOT NULL)"
+    "query": "CREATE TABLE gtest21a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (nullif(a, 0)) STORED NOT NULL)",
+    "expected": "CREATE TABLE gtest21a (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (nullif(a, 0)) STORED NOT NULL)"
   },
   {
     "comment": "generated - Statement 165",
@@ -665,7 +733,8 @@
   },
   {
     "comment": "generated - Statement 167",
-    "query": "CREATE TABLE gtest21b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (nullif(a, 0)) STORED)"
+    "query": "CREATE TABLE gtest21b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (nullif(a, 0)) STORED)",
+    "expected": "CREATE TABLE gtest21b (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (nullif(a, 0)) STORED)"
   },
   {
     "comment": "generated - Statement 168",
@@ -685,7 +754,8 @@
   },
   {
     "comment": "generated - Statement 172",
-    "query": "CREATE TABLE gtest22a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a / 2) STORED UNIQUE)"
+    "query": "CREATE TABLE gtest22a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a / 2) STORED UNIQUE)",
+    "expected": "CREATE TABLE gtest22a (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a / 2) STORED UNIQUE)"
   },
   {
     "comment": "generated - Statement 173",
@@ -701,7 +771,8 @@
   },
   {
     "comment": "generated - Statement 176",
-    "query": "CREATE TABLE gtest22b (a int, b int GENERATED ALWAYS AS (a / 2) STORED, PRIMARY KEY (a, b))"
+    "query": "CREATE TABLE gtest22b (a int, b int GENERATED ALWAYS AS (a / 2) STORED, PRIMARY KEY (a, b))",
+    "expected": "CREATE TABLE gtest22b (a INT, b INT GENERATED ALWAYS AS (a / 2) STORED, PRIMARY KEY (a, b))"
   },
   {
     "comment": "generated - Statement 177",
@@ -709,31 +780,38 @@
   },
   {
     "comment": "generated - Statement 178",
-    "query": "CREATE TABLE gtest22c (a int, b int GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtest22c (a int, b int GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtest22c (a INT, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 179",
-    "query": "CREATE INDEX gtest22c_b_idx ON gtest22c (b)"
+    "query": "CREATE INDEX gtest22c_b_idx ON gtest22c (b)",
+    "expected": "CREATE INDEX gtest22c_b_idx ON gtest22c USING btree ( b )"
   },
   {
     "comment": "generated - Statement 180",
-    "query": "CREATE INDEX gtest22c_expr_idx ON gtest22c ((b * 3))"
+    "query": "CREATE INDEX gtest22c_expr_idx ON gtest22c ((b * 3))",
+    "expected": "CREATE INDEX gtest22c_expr_idx ON gtest22c USING btree ( (b * 3) )"
   },
   {
     "comment": "generated - Statement 181",
-    "query": "CREATE INDEX gtest22c_pred_idx ON gtest22c (a) WHERE b > 0"
+    "query": "CREATE INDEX gtest22c_pred_idx ON gtest22c (a) WHERE b \u003e 0",
+    "expected": "CREATE INDEX gtest22c_pred_idx ON gtest22c USING btree ( a ) WHERE b \u003e 0"
   },
   {
     "comment": "generated - Statement 182",
-    "query": "SET enable_seqscan TO off"
+    "query": "SET enable_seqscan TO off",
+    "expected": "SET enable_seqscan = off"
   },
   {
     "comment": "generated - Statement 183",
-    "query": "SET enable_bitmapscan TO off"
+    "query": "SET enable_bitmapscan TO off",
+    "expected": "SET enable_bitmapscan = off"
   },
   {
     "comment": "generated - Statement 184",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE b = 4"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE b = 4",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM gtest22c WHERE b = 4"
   },
   {
     "comment": "generated - Statement 185",
@@ -741,7 +819,8 @@
   },
   {
     "comment": "generated - Statement 186",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE b * 3 = 6"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE b * 3 = 6",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM gtest22c WHERE b * 3 = 6"
   },
   {
     "comment": "generated - Statement 187",
@@ -749,15 +828,17 @@
   },
   {
     "comment": "generated - Statement 188",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE a = 1 AND b > 0"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE a = 1 AND b \u003e 0",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM gtest22c WHERE a = 1 AND b \u003e 0"
   },
   {
     "comment": "generated - Statement 189",
-    "query": "SELECT * FROM gtest22c WHERE a = 1 AND b > 0"
+    "query": "SELECT * FROM gtest22c WHERE a = 1 AND b \u003e 0"
   },
   {
     "comment": "generated - Statement 190",
-    "query": "ALTER TABLE gtest22c ALTER COLUMN b SET EXPRESSION AS (a * 4)"
+    "query": "ALTER TABLE gtest22c ALTER COLUMN b SET EXPRESSION AS (a * 4)",
+    "expected": "ALTER TABLE gtest22c ALTER COLUMN b SET EXPRESSION AS ( a * 4 )"
   },
   {
     "comment": "generated - Statement 191",
@@ -765,7 +846,8 @@
   },
   {
     "comment": "generated - Statement 192",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE b = 8"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE b = 8",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM gtest22c WHERE b = 8"
   },
   {
     "comment": "generated - Statement 193",
@@ -773,7 +855,8 @@
   },
   {
     "comment": "generated - Statement 194",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE b * 3 = 12"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM gtest22c WHERE b * 3 = 12",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM gtest22c WHERE b * 3 = 12"
   },
   {
     "comment": "generated - Statement 195",
@@ -789,7 +872,8 @@
   },
   {
     "comment": "generated - Statement 198",
-    "query": "CREATE TABLE gtest23a (x int PRIMARY KEY, y int)"
+    "query": "CREATE TABLE gtest23a (x int PRIMARY KEY, y int)",
+    "expected": "CREATE TABLE gtest23a (x INT PRIMARY KEY, y INT)"
   },
   {
     "comment": "generated - Statement 199",
@@ -797,15 +881,18 @@
   },
   {
     "comment": "generated - Statement 200",
-    "query": "CREATE TABLE gtest23x (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a (x) ON UPDATE CASCADE)"
+    "query": "CREATE TABLE gtest23x (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a (x) ON UPDATE CASCADE)",
+    "expected": "CREATE TABLE gtest23x (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a(x) ON UPDATE CASCADE)"
   },
   {
     "comment": "generated - Statement 201",
-    "query": "CREATE TABLE gtest23x (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a (x) ON DELETE SET NULL)"
+    "query": "CREATE TABLE gtest23x (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a (x) ON DELETE SET NULL)",
+    "expected": "CREATE TABLE gtest23x (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a(x) ON DELETE SET NULL)"
   },
   {
     "comment": "generated - Statement 202",
-    "query": "CREATE TABLE gtest23b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a (x))"
+    "query": "CREATE TABLE gtest23b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a (x))",
+    "expected": "CREATE TABLE gtest23b (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED REFERENCES gtest23a(x))"
   },
   {
     "comment": "generated - Statement 203",
@@ -813,11 +900,13 @@
   },
   {
     "comment": "generated - Statement 204",
-    "query": "ALTER TABLE gtest23b ALTER COLUMN b SET EXPRESSION AS (a * 5)"
+    "query": "ALTER TABLE gtest23b ALTER COLUMN b SET EXPRESSION AS (a * 5)",
+    "expected": "ALTER TABLE gtest23b ALTER COLUMN b SET EXPRESSION AS ( a * 5 )"
   },
   {
     "comment": "generated - Statement 205",
-    "query": "ALTER TABLE gtest23b ALTER COLUMN b SET EXPRESSION AS (a * 1)"
+    "query": "ALTER TABLE gtest23b ALTER COLUMN b SET EXPRESSION AS (a * 1)",
+    "expected": "ALTER TABLE gtest23b ALTER COLUMN b SET EXPRESSION AS ( a * 1 )"
   },
   {
     "comment": "generated - Statement 206",
@@ -829,7 +918,8 @@
   },
   {
     "comment": "generated - Statement 208",
-    "query": "CREATE TABLE gtest23p (x int, y int GENERATED ALWAYS AS (x * 2) STORED, PRIMARY KEY (y))"
+    "query": "CREATE TABLE gtest23p (x int, y int GENERATED ALWAYS AS (x * 2) STORED, PRIMARY KEY (y))",
+    "expected": "CREATE TABLE gtest23p (x INT, y INT GENERATED ALWAYS AS (x * 2) STORED, PRIMARY KEY (y))"
   },
   {
     "comment": "generated - Statement 209",
@@ -837,7 +927,8 @@
   },
   {
     "comment": "generated - Statement 210",
-    "query": "CREATE TABLE gtest23q (a int PRIMARY KEY, b int REFERENCES gtest23p (y))"
+    "query": "CREATE TABLE gtest23q (a int PRIMARY KEY, b int REFERENCES gtest23p (y))",
+    "expected": "CREATE TABLE gtest23q (a INT PRIMARY KEY, b INT REFERENCES gtest23p(y))"
   },
   {
     "comment": "generated - Statement 211",
@@ -849,11 +940,13 @@
   },
   {
     "comment": "generated - Statement 213",
-    "query": "CREATE DOMAIN gtestdomain1 AS int CHECK (VALUE < 10)"
+    "query": "CREATE DOMAIN gtestdomain1 AS int CHECK (VALUE \u003c 10)",
+    "expected": "CREATE DOMAIN gtestdomain1 AS INT CHECK (value \u003c 10)"
   },
   {
     "comment": "generated - Statement 214",
-    "query": "CREATE TABLE gtest24 (a int PRIMARY KEY, b gtestdomain1 GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtest24 (a int PRIMARY KEY, b gtestdomain1 GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtest24 (a INT PRIMARY KEY, b gtestdomain1 GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 215",
@@ -865,11 +958,13 @@
   },
   {
     "comment": "generated - Statement 217",
-    "query": "CREATE DOMAIN gtestdomainnn AS int CHECK (VALUE IS NOT NULL)"
+    "query": "CREATE DOMAIN gtestdomainnn AS int CHECK (VALUE IS NOT NULL)",
+    "expected": "CREATE DOMAIN gtestdomainnn AS INT CHECK (value IS NOT NULL)"
   },
   {
     "comment": "generated - Statement 218",
-    "query": "CREATE TABLE gtest24nn (a int, b gtestdomainnn GENERATED ALWAYS AS (a * 2) STORED)"
+    "query": "CREATE TABLE gtest24nn (a int, b gtestdomainnn GENERATED ALWAYS AS (a * 2) STORED)",
+    "expected": "CREATE TABLE gtest24nn (a INT, b gtestdomainnn GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 219",
@@ -881,11 +976,13 @@
   },
   {
     "comment": "generated - Statement 221",
-    "query": "CREATE TYPE gtest_type AS (f1 integer, f2 text, f3 bigint)"
+    "query": "CREATE TYPE gtest_type AS (f1 integer, f2 text, f3 bigint)",
+    "expected": "CREATE TYPE gtest_type AS (f1 INT, f2 TEXT, f3 BIGINT)"
   },
   {
     "comment": "generated - Statement 222",
-    "query": "CREATE TABLE gtest28 OF gtest_type (f1 WITH OPTIONS GENERATED ALWAYS AS (f2 *2) STORED)"
+    "query": "CREATE TABLE gtest28 OF gtest_type (f1 WITH OPTIONS GENERATED ALWAYS AS (f2 *2) STORED)",
+    "expected": "CREATE TABLE gtest28 OF gtest_type"
   },
   {
     "comment": "generated - Statement 223",
@@ -893,15 +990,18 @@
   },
   {
     "comment": "generated - Statement 224",
-    "query": "CREATE TABLE gtest_parent (f1 date NOT NULL, f2 bigint, f3 bigint) PARTITION BY RANGE (f1)"
+    "query": "CREATE TABLE gtest_parent (f1 date NOT NULL, f2 bigint, f3 bigint) PARTITION BY RANGE (f1)",
+    "expected": "CREATE TABLE gtest_parent (f1 DATE NOT NULL, f2 BIGINT, f3 BIGINT) PARTITION BY range (f1)"
   },
   {
     "comment": "generated - Statement 225",
-    "query": "CREATE TABLE gtest_child PARTITION OF gtest_parent ( f3 WITH OPTIONS GENERATED ALWAYS AS (f2 * 2) STORED ) FOR VALUES FROM ('2016-07-01') TO ('2016-08-01')"
+    "query": "CREATE TABLE gtest_child PARTITION OF gtest_parent ( f3 WITH OPTIONS GENERATED ALWAYS AS (f2 * 2) STORED ) FOR VALUES FROM ('2016-07-01') TO ('2016-08-01')",
+    "expected": "CREATE TABLE gtest_child PARTITION OF gtest_parent ( f3 GENERATED ALWAYS AS (f2 * 2) STORED ) FOR VALUES FROM ('2016-07-01') TO ('2016-08-01')"
   },
   {
     "comment": "generated - Statement 226",
-    "query": "CREATE TABLE gtest_child (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS (f2 * 2) STORED)"
+    "query": "CREATE TABLE gtest_child (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS (f2 * 2) STORED)",
+    "expected": "CREATE TABLE gtest_child (f1 DATE NOT NULL, f2 BIGINT, f3 BIGINT GENERATED ALWAYS AS (f2 * 2) STORED)"
   },
   {
     "comment": "generated - Statement 227",
@@ -913,7 +1013,8 @@
   },
   {
     "comment": "generated - Statement 229",
-    "query": "CREATE TABLE gtest_parent (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS (f2 * 2) STORED) PARTITION BY RANGE (f1)"
+    "query": "CREATE TABLE gtest_parent (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS (f2 * 2) STORED) PARTITION BY RANGE (f1)",
+    "expected": "CREATE TABLE gtest_parent (f1 DATE NOT NULL, f2 BIGINT, f3 BIGINT GENERATED ALWAYS AS (f2 * 2) STORED) PARTITION BY range (f1)"
   },
   {
     "comment": "generated - Statement 230",
@@ -921,7 +1022,8 @@
   },
   {
     "comment": "generated - Statement 231",
-    "query": "CREATE TABLE gtest_child2 PARTITION OF gtest_parent ( f3 WITH OPTIONS GENERATED ALWAYS AS (f2 * 22) STORED ) FOR VALUES FROM ('2016-08-01') TO ('2016-09-01')"
+    "query": "CREATE TABLE gtest_child2 PARTITION OF gtest_parent ( f3 WITH OPTIONS GENERATED ALWAYS AS (f2 * 22) STORED ) FOR VALUES FROM ('2016-08-01') TO ('2016-09-01')",
+    "expected": "CREATE TABLE gtest_child2 PARTITION OF gtest_parent ( f3 GENERATED ALWAYS AS (f2 * 22) STORED ) FOR VALUES FROM ('2016-08-01') TO ('2016-09-01')"
   },
   {
     "comment": "generated - Statement 232",
@@ -929,11 +1031,13 @@
   },
   {
     "comment": "generated - Statement 233",
-    "query": "CREATE TABLE gtest_child3 PARTITION OF gtest_parent ( f3 WITH OPTIONS GENERATED ALWAYS AS IDENTITY ) FOR VALUES FROM ('2016-09-01') TO ('2016-10-01')"
+    "query": "CREATE TABLE gtest_child3 PARTITION OF gtest_parent ( f3 WITH OPTIONS GENERATED ALWAYS AS IDENTITY ) FOR VALUES FROM ('2016-09-01') TO ('2016-10-01')",
+    "expected": "CREATE TABLE gtest_child3 PARTITION OF gtest_parent ( f3 GENERATED ALWAYS AS IDENTITY ) FOR VALUES FROM ('2016-09-01') TO ('2016-10-01')"
   },
   {
     "comment": "generated - Statement 234",
-    "query": "CREATE TABLE gtest_child3 (f1 date NOT NULL, f2 bigint, f3 bigint)"
+    "query": "CREATE TABLE gtest_child3 (f1 date NOT NULL, f2 bigint, f3 bigint)",
+    "expected": "CREATE TABLE gtest_child3 (f1 DATE NOT NULL, f2 BIGINT, f3 BIGINT)"
   },
   {
     "comment": "generated - Statement 235",
@@ -945,15 +1049,18 @@
   },
   {
     "comment": "generated - Statement 237",
-    "query": "CREATE TABLE gtest_child3 (f1 date NOT NULL, f2 bigint, f3 bigint DEFAULT 42)"
+    "query": "CREATE TABLE gtest_child3 (f1 date NOT NULL, f2 bigint, f3 bigint DEFAULT 42)",
+    "expected": "CREATE TABLE gtest_child3 (f1 DATE NOT NULL, f2 BIGINT, f3 BIGINT DEFAULT 42)"
   },
   {
     "comment": "generated - Statement 238",
-    "query": "CREATE TABLE gtest_child3 (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS IDENTITY)"
+    "query": "CREATE TABLE gtest_child3 (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS IDENTITY)",
+    "expected": "CREATE TABLE gtest_child3 (f1 DATE NOT NULL, f2 BIGINT, f3 BIGINT GENERATED ALWAYS AS IDENTITY)"
   },
   {
     "comment": "generated - Statement 239",
-    "query": "CREATE TABLE gtest_child3 (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS (f2 * 33) STORED)"
+    "query": "CREATE TABLE gtest_child3 (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS (f2 * 33) STORED)",
+    "expected": "CREATE TABLE gtest_child3 (f1 DATE NOT NULL, f2 BIGINT, f3 BIGINT GENERATED ALWAYS AS (f2 * 33) STORED)"
   },
   {
     "comment": "generated - Statement 240",
@@ -965,7 +1072,8 @@
   },
   {
     "comment": "generated - Statement 242",
-    "query": "SELECT tableoid::regclass, * FROM gtest_parent ORDER BY 1, 2, 3"
+    "query": "SELECT tableoid::regclass, * FROM gtest_parent ORDER BY 1, 2, 3",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM gtest_parent ORDER BY 1, 2, 3"
   },
   {
     "comment": "generated - Statement 243",
@@ -973,27 +1081,33 @@
   },
   {
     "comment": "generated - Statement 244",
-    "query": "ALTER TABLE ONLY gtest_parent ALTER COLUMN f3 SET EXPRESSION AS (f2 * 4)"
+    "query": "ALTER TABLE ONLY gtest_parent ALTER COLUMN f3 SET EXPRESSION AS (f2 * 4)",
+    "expected": "ALTER TABLE ONLY gtest_parent ALTER COLUMN f3 SET EXPRESSION AS ( f2 * 4 )"
   },
   {
     "comment": "generated - Statement 245",
-    "query": "ALTER TABLE gtest_child ALTER COLUMN f3 SET EXPRESSION AS (f2 * 10)"
+    "query": "ALTER TABLE gtest_child ALTER COLUMN f3 SET EXPRESSION AS (f2 * 10)",
+    "expected": "ALTER TABLE gtest_child ALTER COLUMN f3 SET EXPRESSION AS ( f2 * 10 )"
   },
   {
     "comment": "generated - Statement 246",
-    "query": "ALTER TABLE gtest_parent ALTER COLUMN f3 SET EXPRESSION AS (f2 * 2)"
+    "query": "ALTER TABLE gtest_parent ALTER COLUMN f3 SET EXPRESSION AS (f2 * 2)",
+    "expected": "ALTER TABLE gtest_parent ALTER COLUMN f3 SET EXPRESSION AS ( f2 * 2 )"
   },
   {
     "comment": "generated - Statement 247",
-    "query": "CREATE TABLE gtest_part_key (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS (f2 * 2) STORED) PARTITION BY RANGE (f3)"
+    "query": "CREATE TABLE gtest_part_key (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS (f2 * 2) STORED) PARTITION BY RANGE (f3)",
+    "expected": "CREATE TABLE gtest_part_key (f1 DATE NOT NULL, f2 BIGINT, f3 BIGINT GENERATED ALWAYS AS (f2 * 2) STORED) PARTITION BY range (f3)"
   },
   {
     "comment": "generated - Statement 248",
-    "query": "CREATE TABLE gtest_part_key (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS (f2 * 2) STORED) PARTITION BY RANGE ((f3 * 3))"
+    "query": "CREATE TABLE gtest_part_key (f1 date NOT NULL, f2 bigint, f3 bigint GENERATED ALWAYS AS (f2 * 2) STORED) PARTITION BY RANGE ((f3 * 3))",
+    "expected": "CREATE TABLE gtest_part_key (f1 DATE NOT NULL, f2 BIGINT, f3 BIGINT GENERATED ALWAYS AS (f2 * 2) STORED) PARTITION BY range ((f3 * 3))"
   },
   {
     "comment": "generated - Statement 249",
-    "query": "CREATE TABLE gtest25 (a int PRIMARY KEY)"
+    "query": "CREATE TABLE gtest25 (a int PRIMARY KEY)",
+    "expected": "CREATE TABLE gtest25 (a INT PRIMARY KEY)"
   },
   {
     "comment": "generated - Statement 250",
@@ -1001,7 +1115,8 @@
   },
   {
     "comment": "generated - Statement 251",
-    "query": "ALTER TABLE gtest25 ADD COLUMN b int GENERATED ALWAYS AS (a * 2) STORED, ALTER COLUMN b SET EXPRESSION AS (a * 3)"
+    "query": "ALTER TABLE gtest25 ADD COLUMN b int GENERATED ALWAYS AS (a * 2) STORED, ALTER COLUMN b SET EXPRESSION AS (a * 3)",
+    "expected": "ALTER TABLE gtest25 ADD COLUMN b INT GENERATED ALWAYS AS (a * 2) STORED, ALTER COLUMN b SET EXPRESSION AS ( a * 3 )"
   },
   {
     "comment": "generated - Statement 252",
@@ -1009,23 +1124,28 @@
   },
   {
     "comment": "generated - Statement 253",
-    "query": "ALTER TABLE gtest25 ADD COLUMN x int GENERATED ALWAYS AS (b * 4) STORED"
+    "query": "ALTER TABLE gtest25 ADD COLUMN x int GENERATED ALWAYS AS (b * 4) STORED",
+    "expected": "ALTER TABLE gtest25 ADD COLUMN x INT GENERATED ALWAYS AS (b * 4) STORED"
   },
   {
     "comment": "generated - Statement 254",
-    "query": "ALTER TABLE gtest25 ADD COLUMN x int GENERATED ALWAYS AS (z * 4) STORED"
+    "query": "ALTER TABLE gtest25 ADD COLUMN x int GENERATED ALWAYS AS (z * 4) STORED",
+    "expected": "ALTER TABLE gtest25 ADD COLUMN x INT GENERATED ALWAYS AS (z * 4) STORED"
   },
   {
     "comment": "generated - Statement 255",
-    "query": "ALTER TABLE gtest25 ADD COLUMN c int DEFAULT 42, ADD COLUMN x int GENERATED ALWAYS AS (c * 4) STORED"
+    "query": "ALTER TABLE gtest25 ADD COLUMN c int DEFAULT 42, ADD COLUMN x int GENERATED ALWAYS AS (c * 4) STORED",
+    "expected": "ALTER TABLE gtest25 ADD COLUMN c INT DEFAULT 42, ADD COLUMN x INT GENERATED ALWAYS AS (c * 4) STORED"
   },
   {
     "comment": "generated - Statement 256",
-    "query": "ALTER TABLE gtest25 ADD COLUMN d int DEFAULT 101"
+    "query": "ALTER TABLE gtest25 ADD COLUMN d int DEFAULT 101",
+    "expected": "ALTER TABLE gtest25 ADD COLUMN d INT DEFAULT 101"
   },
   {
     "comment": "generated - Statement 257",
-    "query": "ALTER TABLE gtest25 ALTER COLUMN d SET DATA TYPE float8, ADD COLUMN y float8 GENERATED ALWAYS AS (d * 4) STORED"
+    "query": "ALTER TABLE gtest25 ALTER COLUMN d SET DATA TYPE float8, ADD COLUMN y float8 GENERATED ALWAYS AS (d * 4) STORED",
+    "expected": "ALTER TABLE gtest25 ALTER COLUMN d TYPE FLOAT8, ADD COLUMN y FLOAT8 GENERATED ALWAYS AS (d * 4) STORED"
   },
   {
     "comment": "generated - Statement 258",
@@ -1033,15 +1153,18 @@
   },
   {
     "comment": "generated - Statement 259",
-    "query": "ALTER TABLE gtest27 ALTER COLUMN a TYPE text"
+    "query": "ALTER TABLE gtest27 ALTER COLUMN a TYPE text",
+    "expected": "ALTER TABLE gtest27 ALTER COLUMN a TYPE TEXT"
   },
   {
     "comment": "generated - Statement 260",
-    "query": "ALTER TABLE gtest27 ALTER COLUMN x TYPE numeric"
+    "query": "ALTER TABLE gtest27 ALTER COLUMN x TYPE numeric",
+    "expected": "ALTER TABLE gtest27 ALTER COLUMN x TYPE NUMERIC"
   },
   {
     "comment": "generated - Statement 261",
-    "query": "ALTER TABLE gtest27 ALTER COLUMN x TYPE boolean USING x <> 0"
+    "query": "ALTER TABLE gtest27 ALTER COLUMN x TYPE boolean USING x \u003c\u003e 0",
+    "expected": "ALTER TABLE gtest27 ALTER COLUMN x TYPE BOOLEAN USING x \u003c\u003e 0"
   },
   {
     "comment": "generated - Statement 262",
@@ -1049,11 +1172,13 @@
   },
   {
     "comment": "generated - Statement 263",
-    "query": "ALTER TABLE gtest27 DROP COLUMN x, ALTER COLUMN a TYPE bigint, ALTER COLUMN b TYPE bigint, ADD COLUMN x bigint GENERATED ALWAYS AS ((a + b) * 2) STORED"
+    "query": "ALTER TABLE gtest27 DROP COLUMN x, ALTER COLUMN a TYPE bigint, ALTER COLUMN b TYPE bigint, ADD COLUMN x bigint GENERATED ALWAYS AS ((a + b) * 2) STORED",
+    "expected": "ALTER TABLE gtest27 DROP COLUMN x, ALTER COLUMN a TYPE BIGINT, ALTER COLUMN b TYPE BIGINT, ADD COLUMN x BIGINT GENERATED ALWAYS AS ((a + b) * 2) STORED"
   },
   {
     "comment": "generated - Statement 264",
-    "query": "CREATE TABLE gtest29 ( a int, b int GENERATED ALWAYS AS (a * 2) STORED )"
+    "query": "CREATE TABLE gtest29 ( a int, b int GENERATED ALWAYS AS (a * 2) STORED )",
+    "expected": "CREATE TABLE gtest29 (a INT, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 265",
@@ -1073,7 +1198,8 @@
   },
   {
     "comment": "generated - Statement 269",
-    "query": "ALTER TABLE gtest29 ALTER COLUMN b SET EXPRESSION AS (a * 3)"
+    "query": "ALTER TABLE gtest29 ALTER COLUMN b SET EXPRESSION AS (a * 3)",
+    "expected": "ALTER TABLE gtest29 ALTER COLUMN b SET EXPRESSION AS ( a * 3 )"
   },
   {
     "comment": "generated - Statement 270",
@@ -1093,7 +1219,8 @@
   },
   {
     "comment": "generated - Statement 274",
-    "query": "CREATE TABLE gtest30 ( a int, b int GENERATED ALWAYS AS (a * 2) STORED )"
+    "query": "CREATE TABLE gtest30 ( a int, b int GENERATED ALWAYS AS (a * 2) STORED )",
+    "expected": "CREATE TABLE gtest30 (a INT, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 275",
@@ -1101,55 +1228,43 @@
   },
   {
     "comment": "generated - Statement 276",
-    "query": "CREATE TABLE gtest26 ( a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED )"
+    "query": "CREATE TABLE gtest26 ( a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED )",
+    "expected": "CREATE TABLE gtest26 (a INT PRIMARY KEY, b INT GENERATED ALWAYS AS (a * 2) STORED)"
   },
   {
     "comment": "generated - Statement 277",
-    "query": "CREATE FUNCTION gtest_trigger_func() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF tg_op IN ('DELETE', 'UPDATE') THEN RAISE INFO '%: %: old = %', TG_NAME, TG_WHEN, OLD"
-  },
-  {
-    "comment": "generated - Statement 278",
-    "query": "END IF"
-  },
-  {
-    "comment": "generated - Statement 279",
-    "query": "IF tg_op IN ('INSERT', 'UPDATE') THEN RAISE INFO '%: %: new = %', TG_NAME, TG_WHEN, NEW"
-  },
-  {
-    "comment": "generated - Statement 280",
-    "query": "IF tg_op = 'DELETE' THEN RETURN OLD"
-  },
-  {
-    "comment": "generated - Statement 281",
-    "query": "ELSE RETURN NEW"
-  },
-  {
-    "comment": "generated - Statement 282",
-    "query": "END $$"
+    "query": "CREATE FUNCTION gtest_trigger_func() RETURNS trigger   LANGUAGE plpgsql AS $$ BEGIN   IF tg_op IN ('DELETE', 'UPDATE') THEN     RAISE INFO '%: %: old = %', TG_NAME, TG_WHEN, OLD;   END IF;   IF tg_op IN ('INSERT', 'UPDATE') THEN     RAISE INFO '%: %: new = %', TG_NAME, TG_WHEN, NEW;   END IF;   IF tg_op = 'DELETE' THEN     RETURN OLD;   ELSE     RETURN NEW;   END IF; END $$;",
+    "expected": "CREATE FUNCTION gtest_trigger_func () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN   IF tg_op IN ('DELETE', 'UPDATE') THEN     RAISE INFO '%: %: old = %', TG_NAME, TG_WHEN, OLD;   END IF;   IF tg_op IN ('INSERT', 'UPDATE') THEN     RAISE INFO '%: %: new = %', TG_NAME, TG_WHEN, NEW;   END IF;   IF tg_op = 'DELETE' THEN     RETURN OLD;   ELSE     RETURN NEW;   END IF; END $$"
   },
   {
     "comment": "generated - Statement 283",
-    "query": "CREATE TRIGGER gtest1 BEFORE DELETE OR UPDATE ON gtest26 FOR EACH ROW WHEN (OLD.b < 0) EXECUTE PROCEDURE gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest1 BEFORE DELETE OR UPDATE ON gtest26 FOR EACH ROW WHEN (OLD.b \u003c 0) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest1 BEFORE UPDATE OR DELETE ON gtest26 FOR EACH ROW WHEN (old.b \u003c 0) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 284",
-    "query": "CREATE TRIGGER gtest2a BEFORE INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (NEW.b < 0) EXECUTE PROCEDURE gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest2a BEFORE INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (NEW.b \u003c 0) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest2a BEFORE INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (new.b \u003c 0) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 285",
-    "query": "CREATE TRIGGER gtest2b BEFORE INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (NEW.* IS NOT NULL) EXECUTE PROCEDURE gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest2b BEFORE INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (NEW.* IS NOT NULL) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest2b BEFORE INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (new.* IS NOT NULL) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 286",
-    "query": "CREATE TRIGGER gtest2 BEFORE INSERT ON gtest26 FOR EACH ROW WHEN (NEW.a < 0) EXECUTE PROCEDURE gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest2 BEFORE INSERT ON gtest26 FOR EACH ROW WHEN (NEW.a \u003c 0) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest2 BEFORE INSERT ON gtest26 FOR EACH ROW WHEN (new.a \u003c 0) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 287",
-    "query": "CREATE TRIGGER gtest3 AFTER DELETE OR UPDATE ON gtest26 FOR EACH ROW WHEN (OLD.b < 0) EXECUTE PROCEDURE gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest3 AFTER DELETE OR UPDATE ON gtest26 FOR EACH ROW WHEN (OLD.b \u003c 0) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest3 AFTER UPDATE OR DELETE ON gtest26 FOR EACH ROW WHEN (old.b \u003c 0) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 288",
-    "query": "CREATE TRIGGER gtest4 AFTER INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (NEW.b < 0) EXECUTE PROCEDURE gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest4 AFTER INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (NEW.b \u003c 0) EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest4 AFTER INSERT OR UPDATE ON gtest26 FOR EACH ROW WHEN (new.b \u003c 0) EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 289",
@@ -1181,15 +1296,13 @@
   },
   {
     "comment": "generated - Statement 296",
-    "query": "CREATE FUNCTION gtest_trigger_func3() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'OK'"
-  },
-  {
-    "comment": "generated - Statement 297",
-    "query": "RETURN NEW"
+    "query": "CREATE FUNCTION gtest_trigger_func3() RETURNS trigger   LANGUAGE plpgsql AS $$ BEGIN   RAISE NOTICE 'OK';   RETURN NEW; END $$;",
+    "expected": "CREATE FUNCTION gtest_trigger_func3 () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN   RAISE NOTICE 'OK';   RETURN NEW; END $$"
   },
   {
     "comment": "generated - Statement 298",
-    "query": "CREATE TRIGGER gtest11 BEFORE UPDATE OF b ON gtest26 FOR EACH ROW EXECUTE PROCEDURE gtest_trigger_func3()"
+    "query": "CREATE TRIGGER gtest11 BEFORE UPDATE OF b ON gtest26 FOR EACH ROW EXECUTE PROCEDURE gtest_trigger_func3()",
+    "expected": "CREATE TRIGGER gtest11 BEFORE UPDATE OF b ON gtest26 FOR EACH ROW EXECUTE FUNCTION gtest_trigger_func3()"
   },
   {
     "comment": "generated - Statement 299",
@@ -1201,35 +1314,28 @@
   },
   {
     "comment": "generated - Statement 301",
-    "query": "TRUNCATE gtest26"
+    "query": "TRUNCATE gtest26",
+    "expected": "TRUNCATE TABLE gtest26 CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "generated - Statement 302",
-    "query": "CREATE FUNCTION gtest_trigger_func4() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.a = 10"
-  },
-  {
-    "comment": "generated - Statement 303",
-    "query": "NEW.b = 300"
-  },
-  {
-    "comment": "generated - Statement 304",
-    "query": "END"
-  },
-  {
-    "comment": "generated - Statement 305",
-    "query": "$$"
+    "query": "CREATE FUNCTION gtest_trigger_func4() RETURNS trigger   LANGUAGE plpgsql AS $$ BEGIN   NEW.a = 10;   NEW.b = 300;   RETURN NEW; END; $$;",
+    "expected": "CREATE FUNCTION gtest_trigger_func4 () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN   NEW.a = 10;   NEW.b = 300;   RETURN NEW; END; $$"
   },
   {
     "comment": "generated - Statement 306",
-    "query": "CREATE TRIGGER gtest12_01 BEFORE UPDATE ON gtest26 FOR EACH ROW EXECUTE PROCEDURE gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest12_01 BEFORE UPDATE ON gtest26 FOR EACH ROW EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest12_01 BEFORE UPDATE ON gtest26 FOR EACH ROW EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 307",
-    "query": "CREATE TRIGGER gtest12_02 BEFORE UPDATE ON gtest26 FOR EACH ROW EXECUTE PROCEDURE gtest_trigger_func4()"
+    "query": "CREATE TRIGGER gtest12_02 BEFORE UPDATE ON gtest26 FOR EACH ROW EXECUTE PROCEDURE gtest_trigger_func4()",
+    "expected": "CREATE TRIGGER gtest12_02 BEFORE UPDATE ON gtest26 FOR EACH ROW EXECUTE FUNCTION gtest_trigger_func4()"
   },
   {
     "comment": "generated - Statement 308",
-    "query": "CREATE TRIGGER gtest12_03 BEFORE UPDATE ON gtest26 FOR EACH ROW EXECUTE PROCEDURE gtest_trigger_func()"
+    "query": "CREATE TRIGGER gtest12_03 BEFORE UPDATE ON gtest26 FOR EACH ROW EXECUTE PROCEDURE gtest_trigger_func()",
+    "expected": "CREATE TRIGGER gtest12_03 BEFORE UPDATE ON gtest26 FOR EACH ROW EXECUTE FUNCTION gtest_trigger_func()"
   },
   {
     "comment": "generated - Statement 309",
@@ -1241,7 +1347,8 @@
   },
   {
     "comment": "generated - Statement 311",
-    "query": "CREATE TABLE gtest28a ( a int, b int, c int, x int GENERATED ALWAYS AS (b * 2) STORED )"
+    "query": "CREATE TABLE gtest28a ( a int, b int, c int, x int GENERATED ALWAYS AS (b * 2) STORED )",
+    "expected": "CREATE TABLE gtest28a (a INT, b INT, c INT, x INT GENERATED ALWAYS AS (b * 2) STORED)"
   },
   {
     "comment": "generated - Statement 312",

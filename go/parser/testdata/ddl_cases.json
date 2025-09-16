@@ -1353,23 +1353,19 @@
   },
   {
     "comment": "IMPORT FOREIGN SCHEMA with LIMIT TO",
-    "query": "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO (users, orders) FROM SERVER myserver INTO local_schema",
-    "expected": "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO ( users, orders ) FROM SERVER myserver INTO local_schema"
+    "query": "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO (users, orders) FROM SERVER myserver INTO local_schema"
   },
   {
     "comment": "IMPORT FOREIGN SCHEMA with EXCEPT",
-    "query": "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp_table) FROM SERVER myserver INTO local_schema",
-    "expected": "IMPORT FOREIGN SCHEMA remote_schema EXCEPT ( temp_table ) FROM SERVER myserver INTO local_schema"
+    "query": "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp_table) FROM SERVER myserver INTO local_schema"
   },
   {
     "comment": "IMPORT FOREIGN SCHEMA with multiple tables in LIMIT TO",
-    "query": "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO (users, orders, products) FROM SERVER myserver INTO local_schema",
-    "expected": "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO ( users, orders, products ) FROM SERVER myserver INTO local_schema"
+    "query": "IMPORT FOREIGN SCHEMA remote_schema LIMIT TO (users, orders, products) FROM SERVER myserver INTO local_schema"
   },
   {
     "comment": "IMPORT FOREIGN SCHEMA with multiple tables in EXCEPT",
-    "query": "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp1, temp2, temp3) FROM SERVER myserver INTO local_schema",
-    "expected": "IMPORT FOREIGN SCHEMA remote_schema EXCEPT ( temp1, temp2, temp3 ) FROM SERVER myserver INTO local_schema"
+    "query": "IMPORT FOREIGN SCHEMA remote_schema EXCEPT (temp1, temp2, temp3) FROM SERVER myserver INTO local_schema"
   },
   {
     "comment": "CREATE TABLE AS basic",

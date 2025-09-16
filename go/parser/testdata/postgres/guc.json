@@ -5,7 +5,8 @@
   },
   {
     "comment": "guc - Statement 2",
-    "query": "SET vacuum_cost_delay TO 40"
+    "query": "SET vacuum_cost_delay TO 40",
+    "expected": "SET vacuum_cost_delay = 40"
   },
   {
     "comment": "guc - Statement 3",
@@ -17,11 +18,13 @@
   },
   {
     "comment": "guc - Statement 5",
-    "query": "SELECT '2006-08-13 12:34:56'::timestamptz"
+    "query": "SELECT '2006-08-13 12:34:56'::timestamptz",
+    "expected": "SELECT CAST('2006-08-13 12:34:56' AS TIMESTAMPTZ)"
   },
   {
     "comment": "guc - Statement 6",
-    "query": "SET LOCAL vacuum_cost_delay TO 50"
+    "query": "SET LOCAL vacuum_cost_delay TO 50",
+    "expected": "SET LOCAL vacuum_cost_delay = 50"
   },
   {
     "comment": "guc - Statement 7",
@@ -37,7 +40,8 @@
   },
   {
     "comment": "guc - Statement 10",
-    "query": "SET vacuum_cost_delay TO 60"
+    "query": "SET vacuum_cost_delay TO 60",
+    "expected": "SET vacuum_cost_delay = 60"
   },
   {
     "comment": "guc - Statement 11",
@@ -49,7 +53,8 @@
   },
   {
     "comment": "guc - Statement 13",
-    "query": "SET vacuum_cost_delay TO 70"
+    "query": "SET vacuum_cost_delay TO 70",
+    "expected": "SET vacuum_cost_delay = 70"
   },
   {
     "comment": "guc - Statement 14",
@@ -61,7 +66,8 @@
   },
   {
     "comment": "guc - Statement 16",
-    "query": "SET vacuum_cost_delay TO 80.1"
+    "query": "SET vacuum_cost_delay TO 80.1",
+    "expected": "SET vacuum_cost_delay = 80.1"
   },
   {
     "comment": "guc - Statement 17",
@@ -69,7 +75,8 @@
   },
   {
     "comment": "guc - Statement 18",
-    "query": "ROLLBACK TO first_sp"
+    "query": "ROLLBACK TO first_sp",
+    "expected": "ROLLBACK TO SAVEPOINT first_sp"
   },
   {
     "comment": "guc - Statement 19",
@@ -77,7 +84,8 @@
   },
   {
     "comment": "guc - Statement 20",
-    "query": "SET vacuum_cost_delay TO '900us'"
+    "query": "SET vacuum_cost_delay TO '900us'",
+    "expected": "SET vacuum_cost_delay = '900us'"
   },
   {
     "comment": "guc - Statement 21",
@@ -89,7 +97,8 @@
   },
   {
     "comment": "guc - Statement 23",
-    "query": "SET vacuum_cost_delay TO 100"
+    "query": "SET vacuum_cost_delay TO 100",
+    "expected": "SET vacuum_cost_delay = 100"
   },
   {
     "comment": "guc - Statement 24",
@@ -97,11 +106,13 @@
   },
   {
     "comment": "guc - Statement 25",
-    "query": "ROLLBACK TO third_sp"
+    "query": "ROLLBACK TO third_sp",
+    "expected": "ROLLBACK TO SAVEPOINT third_sp"
   },
   {
     "comment": "guc - Statement 26",
-    "query": "ROLLBACK TO second_sp"
+    "query": "ROLLBACK TO second_sp",
+    "expected": "ROLLBACK TO SAVEPOINT second_sp"
   },
   {
     "comment": "guc - Statement 27",
@@ -109,7 +120,8 @@
   },
   {
     "comment": "guc - Statement 28",
-    "query": "SET LOCAL vacuum_cost_delay TO 30"
+    "query": "SET LOCAL vacuum_cost_delay TO 30",
+    "expected": "SET LOCAL vacuum_cost_delay = 30"
   },
   {
     "comment": "guc - Statement 29",
@@ -117,7 +129,8 @@
   },
   {
     "comment": "guc - Statement 30",
-    "query": "ROLLBACK TO sp"
+    "query": "ROLLBACK TO sp",
+    "expected": "ROLLBACK TO SAVEPOINT sp"
   },
   {
     "comment": "guc - Statement 31",
@@ -129,7 +142,8 @@
   },
   {
     "comment": "guc - Statement 33",
-    "query": "SET datestyle = iso, ymd"
+    "query": "SET datestyle = iso, ymd",
+    "expected": "SET datestyle = 'iso', 'ymd'"
   },
   {
     "comment": "guc - Statement 34",
@@ -137,15 +151,18 @@
   },
   {
     "comment": "guc - Statement 35",
-    "query": "SET seq_page_cost TO 'NaN'"
+    "query": "SET seq_page_cost TO 'NaN'",
+    "expected": "SET seq_page_cost = 'NaN'"
   },
   {
     "comment": "guc - Statement 36",
-    "query": "SET vacuum_cost_delay TO '10s'"
+    "query": "SET vacuum_cost_delay TO '10s'",
+    "expected": "SET vacuum_cost_delay = '10s'"
   },
   {
     "comment": "guc - Statement 37",
-    "query": "SET no_such_variable TO 42"
+    "query": "SET no_such_variable TO 42",
+    "expected": "SET no_such_variable = 42"
   },
   {
     "comment": "guc - Statement 38",
@@ -197,7 +214,8 @@
   },
   {
     "comment": "guc - Statement 50",
-    "query": "CREATE TEMP TABLE reset_test ( data text ) ON COMMIT DELETE ROWS"
+    "query": "CREATE TEMP TABLE reset_test ( data text ) ON COMMIT DELETE ROWS",
+    "expected": "CREATE TEMPORARY TABLE reset_test (data TEXT) ON COMMIT DELETE ROWS"
   },
   {
     "comment": "guc - Statement 51",
@@ -225,7 +243,8 @@
   },
   {
     "comment": "guc - Statement 57",
-    "query": "CREATE TEMP TABLE tmp_foo (data text) ON COMMIT DELETE ROWS"
+    "query": "CREATE TEMP TABLE tmp_foo (data text) ON COMMIT DELETE ROWS",
+    "expected": "CREATE TEMPORARY TABLE tmp_foo (data TEXT) ON COMMIT DELETE ROWS"
   },
   {
     "comment": "guc - Statement 58",
@@ -233,7 +252,8 @@
   },
   {
     "comment": "guc - Statement 59",
-    "query": "SET SESSION AUTHORIZATION regress_guc_user"
+    "query": "SET SESSION AUTHORIZATION regress_guc_user",
+    "expected": "SET SESSION AUTHORIZATION 'regress_guc_user'"
   },
   {
     "comment": "guc - Statement 60",
@@ -249,11 +269,13 @@
   },
   {
     "comment": "guc - Statement 63",
-    "query": "SELECT relname from pg_class where relname = 'tmp_foo'"
+    "query": "SELECT relname from pg_class where relname = 'tmp_foo'",
+    "expected": "SELECT relname FROM pg_class WHERE relname = 'tmp_foo'"
   },
   {
     "comment": "guc - Statement 64",
-    "query": "SELECT current_user = 'regress_guc_user'"
+    "query": "SELECT current_user = 'regress_guc_user'",
+    "expected": "SELECT CURRENT_USER = 'regress_guc_user'"
   },
   {
     "comment": "guc - Statement 65",
@@ -265,127 +287,143 @@
   },
   {
     "comment": "guc - Statement 67",
-    "query": "set search_path = foo, public, not_there_initially"
+    "query": "set search_path = foo, public, not_there_initially",
+    "expected": "SET search_path = 'foo', 'public', 'not_there_initially'"
   },
   {
     "comment": "guc - Statement 68",
-    "query": "select current_schemas(false)"
+    "query": "select current_schemas(false)",
+    "expected": "SELECT current_schemas(FALSE)"
   },
   {
     "comment": "guc - Statement 69",
-    "query": "create schema not_there_initially"
+    "query": "create schema not_there_initially",
+    "expected": "CREATE SCHEMA not_there_initially"
   },
   {
     "comment": "guc - Statement 70",
-    "query": "drop schema not_there_initially"
+    "query": "drop schema not_there_initially",
+    "expected": "DROP SCHEMA not_there_initially"
   },
   {
     "comment": "guc - Statement 71",
-    "query": "reset search_path"
+    "query": "reset search_path",
+    "expected": "RESET search_path"
   },
   {
     "comment": "guc - Statement 72",
-    "query": "set work_mem = '3MB'"
+    "query": "set work_mem = '3MB'",
+    "expected": "SET work_mem = '3MB'"
   },
   {
     "comment": "guc - Statement 73",
-    "query": "create function report_guc(text) returns text as $$ select current_setting($1) $$ language sql set work_mem = '1MB'"
+    "query": "create function report_guc(text) returns text as $$ select current_setting($1) $$ language sql set work_mem = '1MB'",
+    "expected": "CREATE FUNCTION report_guc (TEXT) RETURNS TEXT LANGUAGE sql AS $$ select current_setting($1) $$ SET work_mem = '1MB'"
   },
   {
     "comment": "guc - Statement 74",
-    "query": "select report_guc('work_mem'), current_setting('work_mem')"
+    "query": "select report_guc('work_mem'), current_setting('work_mem')",
+    "expected": "SELECT report_guc('work_mem'), current_setting('work_mem')"
   },
   {
     "comment": "guc - Statement 75",
-    "query": "alter function report_guc(text) set work_mem = '2MB'"
+    "query": "alter function report_guc(text) set work_mem = '2MB'",
+    "expected": "ALTER FUNCTION report_guc(TEXT) SET work_mem = '2MB'"
   },
   {
     "comment": "guc - Statement 76",
-    "query": "alter function report_guc(text) reset all"
+    "query": "alter function report_guc(text) reset all",
+    "expected": "ALTER FUNCTION report_guc(TEXT) RESET ALL"
   },
   {
     "comment": "guc - Statement 77",
-    "query": "create or replace function myfunc(int) returns text as $$ begin set local work_mem = '2MB'"
-  },
-  {
-    "comment": "guc - Statement 78",
-    "query": "return current_setting('work_mem')"
-  },
-  {
-    "comment": "guc - Statement 79",
-    "query": "end $$ language plpgsql set work_mem = '1MB'"
+    "query": "create or replace function myfunc(int) returns text as $$ begin   set local work_mem = '2MB';   return current_setting('work_mem'); end $$ language plpgsql set work_mem = '1MB';",
+    "expected": "CREATE OR REPLACE FUNCTION myfunc (INT) RETURNS TEXT LANGUAGE plpgsql AS $$ begin   set local work_mem = '2MB';   return current_setting('work_mem'); end $$ SET work_mem = '1MB'"
   },
   {
     "comment": "guc - Statement 80",
-    "query": "select myfunc(0), current_setting('work_mem')"
+    "query": "select myfunc(0), current_setting('work_mem')",
+    "expected": "SELECT myfunc(0), current_setting('work_mem')"
   },
   {
     "comment": "guc - Statement 81",
-    "query": "alter function myfunc(int) reset all"
+    "query": "alter function myfunc(int) reset all",
+    "expected": "ALTER FUNCTION myfunc(INT) RESET ALL"
   },
   {
     "comment": "guc - Statement 82",
-    "query": "create or replace function myfunc(int) returns text as $$ begin set work_mem = '2MB'"
-  },
-  {
-    "comment": "guc - Statement 83",
-    "query": "perform 1/$1"
+    "query": "create or replace function myfunc(int) returns text as $$ begin   set work_mem = '2MB';   return current_setting('work_mem'); end $$ language plpgsql set work_mem = '1MB';",
+    "expected": "CREATE OR REPLACE FUNCTION myfunc (INT) RETURNS TEXT LANGUAGE plpgsql AS $$ begin   set work_mem = '2MB';   return current_setting('work_mem'); end $$ SET work_mem = '1MB'"
   },
   {
     "comment": "guc - Statement 84",
-    "query": "select myfunc(0)"
+    "query": "select myfunc(0)",
+    "expected": "SELECT myfunc(0)"
   },
   {
     "comment": "guc - Statement 85",
-    "query": "select current_setting('work_mem')"
+    "query": "select current_setting('work_mem')",
+    "expected": "SELECT current_setting('work_mem')"
   },
   {
     "comment": "guc - Statement 86",
-    "query": "select myfunc(1), current_setting('work_mem')"
+    "query": "select myfunc(1), current_setting('work_mem')",
+    "expected": "SELECT myfunc(1), current_setting('work_mem')"
   },
   {
     "comment": "guc - Statement 87",
-    "query": "select current_setting('nosuch.setting')"
+    "query": "select current_setting('nosuch.setting')",
+    "expected": "SELECT current_setting('nosuch.setting')"
   },
   {
     "comment": "guc - Statement 88",
-    "query": "select current_setting('nosuch.setting', false)"
+    "query": "select current_setting('nosuch.setting', false)",
+    "expected": "SELECT current_setting('nosuch.setting', FALSE)"
   },
   {
     "comment": "guc - Statement 89",
-    "query": "select current_setting('nosuch.setting', true) is null"
+    "query": "select current_setting('nosuch.setting', true) is null",
+    "expected": "SELECT current_setting('nosuch.setting', TRUE) IS NULL"
   },
   {
     "comment": "guc - Statement 90",
-    "query": "set nosuch.setting = 'nada'"
+    "query": "set nosuch.setting = 'nada'",
+    "expected": "SET nosuch.setting = 'nada'"
   },
   {
     "comment": "guc - Statement 91",
-    "query": "select current_setting('nosuch.setting', true)"
+    "query": "select current_setting('nosuch.setting', true)",
+    "expected": "SELECT current_setting('nosuch.setting', TRUE)"
   },
   {
     "comment": "guc - Statement 92",
-    "query": "create function func_with_bad_set() returns int as $$ select 1 $$ language sql set default_text_search_config = no_such_config"
+    "query": "create function func_with_bad_set() returns int as $$ select 1 $$ language sql set default_text_search_config = no_such_config",
+    "expected": "CREATE FUNCTION func_with_bad_set () RETURNS INT LANGUAGE sql AS $$ select 1 $$ SET default_text_search_config = 'no_such_config'"
   },
   {
     "comment": "guc - Statement 93",
-    "query": "set check_function_bodies = off"
+    "query": "set check_function_bodies = off",
+    "expected": "SET check_function_bodies = off"
   },
   {
     "comment": "guc - Statement 94",
-    "query": "select func_with_bad_set()"
+    "query": "select func_with_bad_set()",
+    "expected": "SELECT func_with_bad_set()"
   },
   {
     "comment": "guc - Statement 95",
-    "query": "reset check_function_bodies"
+    "query": "reset check_function_bodies",
+    "expected": "RESET check_function_bodies"
   },
   {
     "comment": "guc - Statement 96",
-    "query": "set default_with_oids to f"
+    "query": "set default_with_oids to f",
+    "expected": "SET default_with_oids = 'f'"
   },
   {
     "comment": "guc - Statement 97",
-    "query": "set default_with_oids to t"
+    "query": "set default_with_oids to t",
+    "expected": "SET default_with_oids = 't'"
   },
   {
     "comment": "guc - Statement 98",
@@ -397,7 +435,8 @@
   },
   {
     "comment": "guc - Statement 100",
-    "query": "CREATE TABLE tab_settings_flags AS SELECT name, category, 'EXPLAIN'          = ANY(flags) AS explain, 'NO_RESET'         = ANY(flags) AS no_reset, 'NO_RESET_ALL'     = ANY(flags) AS no_reset_all, 'NOT_IN_SAMPLE'    = ANY(flags) AS not_in_sample, 'RUNTIME_COMPUTED' = ANY(flags) AS runtime_computed FROM pg_show_all_settings() AS psas, pg_settings_get_flags(psas.name) AS flags"
+    "query": "CREATE TABLE tab_settings_flags AS SELECT name, category, 'EXPLAIN'          = ANY(flags) AS explain, 'NO_RESET'         = ANY(flags) AS no_reset, 'NO_RESET_ALL'     = ANY(flags) AS no_reset_all, 'NOT_IN_SAMPLE'    = ANY(flags) AS not_in_sample, 'RUNTIME_COMPUTED' = ANY(flags) AS runtime_computed FROM pg_show_all_settings() AS psas, pg_settings_get_flags(psas.name) AS flags",
+    "expected": "CREATE TABLE tab_settings_flags AS SELECT name, category, 'EXPLAIN' = ANY (flags) AS explain, 'NO_RESET' = ANY (flags) AS no_reset, 'NO_RESET_ALL' = ANY (flags) AS no_reset_all, 'NOT_IN_SAMPLE' = ANY (flags) AS not_in_sample, 'RUNTIME_COMPUTED' = ANY (flags) AS runtime_computed FROM pg_show_all_settings() AS psas, pg_settings_get_flags(psas.name) AS flags"
   },
   {
     "comment": "guc - Statement 101",

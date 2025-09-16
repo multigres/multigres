@@ -1,7 +1,8 @@
 [
   {
     "comment": "event_trigger_login - Statement 1",
-    "query": "CREATE TABLE user_logins(id serial, who text)"
+    "query": "CREATE TABLE user_logins(id serial, who text)",
+    "expected": "CREATE TABLE user_logins (id serial, who TEXT)"
   },
   {
     "comment": "event_trigger_login - Statement 2",
@@ -9,23 +10,13 @@
   },
   {
     "comment": "event_trigger_login - Statement 3",
-    "query": "CREATE FUNCTION on_login_proc() RETURNS event_trigger AS $$ BEGIN INSERT INTO user_logins (who) VALUES (SESSION_USER)"
-  },
-  {
-    "comment": "event_trigger_login - Statement 4",
-    "query": "RAISE NOTICE 'You are welcome!'"
-  },
-  {
-    "comment": "event_trigger_login - Statement 5",
-    "query": "END"
-  },
-  {
-    "comment": "event_trigger_login - Statement 6",
-    "query": "$$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION on_login_proc() RETURNS event_trigger AS $$ BEGIN INSERT INTO user_logins (who) VALUES (SESSION_USER); RAISE NOTICE 'You are welcome!'; END; $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION on_login_proc () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO user_logins (who) VALUES (SESSION_USER); RAISE NOTICE 'You are welcome!'; END; $$"
   },
   {
     "comment": "event_trigger_login - Statement 7",
-    "query": "CREATE EVENT TRIGGER on_login_trigger ON login EXECUTE PROCEDURE on_login_proc()"
+    "query": "CREATE EVENT TRIGGER on_login_trigger ON login EXECUTE PROCEDURE on_login_proc()",
+    "expected": "CREATE EVENT TRIGGER on_login_trigger ON login EXECUTE FUNCTION on_login_proc()"
   },
   {
     "comment": "event_trigger_login - Statement 8",
@@ -33,7 +24,8 @@
   },
   {
     "comment": "event_trigger_login - Statement 9",
-    "query": "SELECT dathasloginevt FROM pg_database WHERE datname= :'DBNAME'"
+    "query": "SELECT dathasloginevt FROM pg_database WHERE datname= 'DBNAME'",
+    "expected": "SELECT dathasloginevt FROM pg_database WHERE datname = 'DBNAME'"
   },
   {
     "comment": "event_trigger_login - Statement 10",

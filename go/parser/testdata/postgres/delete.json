@@ -1,7 +1,8 @@
 [
   {
     "comment": "delete - Statement 1",
-    "query": "CREATE TABLE delete_test ( id SERIAL PRIMARY KEY, a INT, b text )"
+    "query": "CREATE TABLE delete_test ( id SERIAL PRIMARY KEY, a INT, b text )",
+    "expected": "CREATE TABLE delete_test (id serial PRIMARY KEY, a INT, b TEXT)"
   },
   {
     "comment": "delete - Statement 2",
@@ -17,11 +18,12 @@
   },
   {
     "comment": "delete - Statement 5",
-    "query": "DELETE FROM delete_test AS dt WHERE dt.a > 75"
+    "query": "DELETE FROM delete_test AS dt WHERE dt.a \u003e 75"
   },
   {
     "comment": "delete - Statement 6",
-    "query": "DELETE FROM delete_test dt WHERE delete_test.a > 25"
+    "query": "DELETE FROM delete_test dt WHERE delete_test.a \u003e 25",
+    "expected": "DELETE FROM delete_test AS dt WHERE delete_test.a \u003e 25"
   },
   {
     "comment": "delete - Statement 7",
@@ -29,7 +31,7 @@
   },
   {
     "comment": "delete - Statement 8",
-    "query": "DELETE FROM delete_test WHERE a > 25"
+    "query": "DELETE FROM delete_test WHERE a \u003e 25"
   },
   {
     "comment": "delete - Statement 9",

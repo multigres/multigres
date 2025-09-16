@@ -1,7 +1,8 @@
 [
   {
     "comment": "create_view - Statement 1",
-    "query": "CREATE TABLE real_city ( pop\t\t\tint4, cname\t\ttext, outline \tpath )"
+    "query": "CREATE TABLE real_city ( pop\t\t\tint4, cname\t\ttext, outline \tpath )",
+    "expected": "CREATE TABLE real_city (pop INT, cname TEXT, outline path)"
   },
   {
     "comment": "create_view - Statement 2",
@@ -9,19 +10,23 @@
   },
   {
     "comment": "create_view - Statement 3",
-    "query": "SELECT * INTO TABLE ramp FROM ONLY road WHERE name ~ '.*Ramp'"
+    "query": "SELECT * INTO TABLE ramp FROM ONLY road WHERE name ~ '.*Ramp'",
+    "expected": "SELECT * INTO ramp FROM ONLY road WHERE name ~ '.*Ramp'"
   },
   {
     "comment": "create_view - Statement 4",
-    "query": "CREATE VIEW street AS SELECT r.name, r.thepath, c.cname AS cname FROM ONLY road r, real_city c WHERE c.outline ?# r.thepath"
+    "query": "CREATE VIEW street AS SELECT r.name, r.thepath, c.cname AS cname FROM ONLY road r, real_city c WHERE c.outline ?# r.thepath",
+    "expected": "CREATE VIEW street AS SELECT r.name, r.thepath, c.cname AS cname FROM ONLY road AS r, real_city AS c WHERE c.outline ?# r.thepath"
   },
   {
     "comment": "create_view - Statement 5",
-    "query": "CREATE VIEW iexit AS SELECT ih.name, ih.thepath, interpt_pp(ih.thepath, r.thepath) AS exit FROM ihighway ih, ramp r WHERE ih.thepath ?# r.thepath"
+    "query": "CREATE VIEW iexit AS SELECT ih.name, ih.thepath, interpt_pp(ih.thepath, r.thepath) AS exit FROM ihighway ih, ramp r WHERE ih.thepath ?# r.thepath",
+    "expected": "CREATE VIEW iexit AS SELECT ih.name, ih.thepath, interpt_pp(ih.thepath, r.thepath) AS exit FROM ihighway AS ih, ramp AS r WHERE ih.thepath ?# r.thepath"
   },
   {
     "comment": "create_view - Statement 6",
-    "query": "CREATE VIEW toyemp AS SELECT name, age, location, 12*salary AS annualsal FROM emp"
+    "query": "CREATE VIEW toyemp AS SELECT name, age, location, 12*salary AS annualsal FROM emp",
+    "expected": "CREATE VIEW toyemp AS SELECT name, age, location, 12 * salary AS annualsal FROM emp"
   },
   {
     "comment": "create_view - Statement 7",
@@ -37,11 +42,13 @@
   },
   {
     "comment": "create_view - Statement 10",
-    "query": "CREATE TABLE view_base_table (key int PRIMARY KEY, data varchar(20))"
+    "query": "CREATE TABLE view_base_table (key int PRIMARY KEY, data varchar(20))",
+    "expected": "CREATE TABLE view_base_table (\"key\" INT PRIMARY KEY, data VARCHAR(20))"
   },
   {
     "comment": "create_view - Statement 11",
-    "query": "CREATE VIEW key_dependent_view AS SELECT * FROM view_base_table GROUP BY key"
+    "query": "CREATE VIEW key_dependent_view AS SELECT * FROM view_base_table GROUP BY key",
+    "expected": "CREATE VIEW key_dependent_view AS SELECT * FROM view_base_table GROUP BY \"key\""
   },
   {
     "comment": "create_view - Statement 12",
@@ -49,23 +56,26 @@
   },
   {
     "comment": "create_view - Statement 13",
-    "query": "CREATE VIEW key_dependent_view_no_cols AS SELECT FROM view_base_table GROUP BY key HAVING length(data) > 0"
+    "query": "CREATE VIEW key_dependent_view_no_cols AS SELECT FROM view_base_table GROUP BY key HAVING length(data) \u003e 0",
+    "expected": "CREATE VIEW key_dependent_view_no_cols AS SELECT * FROM view_base_table GROUP BY \"key\" HAVING length(data) \u003e 0"
   },
   {
     "comment": "create_view - Statement 14",
-    "query": "CREATE TABLE viewtest_tbl (a int, b int, c numeric(10,1), d text COLLATE \"C\")"
+    "query": "CREATE TABLE viewtest_tbl (a int, b int, c numeric(10,1), d text COLLATE \"C\")",
+    "expected": "CREATE TABLE viewtest_tbl (a INT, b INT, c NUMERIC(10, 1), d TEXT COLLATE \"C\")"
   },
   {
     "comment": "create_view - Statement 15",
-    "query": "COPY viewtest_tbl FROM stdin"
+    "query": "COPY viewtest_tbl FROM stdin",
+    "expected": "COPY viewtest_tbl FROM STDIN"
   },
   {
     "comment": "create_view - Statement 16",
-    "query": "5\t10\t1.1\txy 10\t15\t2.2\txyz 15\t20\t3.3\txyzz 20\t25\t4.4\txyzzy \\. CREATE OR REPLACE VIEW viewtest AS SELECT * FROM viewtest_tbl"
+    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT * FROM viewtest_tbl"
   },
   {
     "comment": "create_view - Statement 17",
-    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT * FROM viewtest_tbl WHERE a > 10"
+    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT * FROM viewtest_tbl WHERE a \u003e 10"
   },
   {
     "comment": "create_view - Statement 18",
@@ -73,11 +83,11 @@
   },
   {
     "comment": "create_view - Statement 19",
-    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a, b, c, d FROM viewtest_tbl WHERE a > 5 ORDER BY b DESC"
+    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a, b, c, d FROM viewtest_tbl WHERE a \u003e 5 ORDER BY b DESC"
   },
   {
     "comment": "create_view - Statement 20",
-    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a FROM viewtest_tbl WHERE a <> 20"
+    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a FROM viewtest_tbl WHERE a \u003c\u003e 20"
   },
   {
     "comment": "create_view - Statement 21",
@@ -85,11 +95,13 @@
   },
   {
     "comment": "create_view - Statement 22",
-    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a, b::numeric, c, d FROM viewtest_tbl"
+    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a, b::numeric, c, d FROM viewtest_tbl",
+    "expected": "CREATE OR REPLACE VIEW viewtest AS SELECT a, CAST(b AS NUMERIC), c, d FROM viewtest_tbl"
   },
   {
     "comment": "create_view - Statement 23",
-    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a, b, c::numeric(10,2), d FROM viewtest_tbl"
+    "query": "CREATE OR REPLACE VIEW viewtest AS SELECT a, b, c::numeric(10,2), d FROM viewtest_tbl",
+    "expected": "CREATE OR REPLACE VIEW viewtest AS SELECT a, b, CAST(c AS NUMERIC(10, 2)), d FROM viewtest_tbl"
   },
   {
     "comment": "create_view - Statement 24",
@@ -109,15 +121,18 @@
   },
   {
     "comment": "create_view - Statement 28",
-    "query": "CREATE SCHEMA temp_view_test CREATE TABLE base_table (a int, id int) CREATE TABLE base_table2 (a int, id int)"
+    "query": "CREATE SCHEMA temp_view_test CREATE TABLE base_table (a int, id int) CREATE TABLE base_table2 (a int, id int)",
+    "expected": "CREATE SCHEMA temp_view_test CREATE TABLE base_table (a INT, id INT) CREATE TABLE base_table2 (a INT, id INT)"
   },
   {
     "comment": "create_view - Statement 29",
-    "query": "SET search_path TO temp_view_test, public"
+    "query": "SET search_path TO temp_view_test, public",
+    "expected": "SET search_path = 'temp_view_test', 'public'"
   },
   {
     "comment": "create_view - Statement 30",
-    "query": "CREATE TEMPORARY TABLE temp_table (a int, id int)"
+    "query": "CREATE TEMPORARY TABLE temp_table (a int, id int)",
+    "expected": "CREATE TEMPORARY TABLE temp_table (a INT, id INT)"
   },
   {
     "comment": "create_view - Statement 31",
@@ -129,7 +144,8 @@
   },
   {
     "comment": "create_view - Statement 33",
-    "query": "CREATE TEMP VIEW v2_temp AS SELECT * FROM base_table"
+    "query": "CREATE TEMP VIEW v2_temp AS SELECT * FROM base_table",
+    "expected": "CREATE TEMPORARY VIEW v2_temp AS SELECT * FROM base_table"
   },
   {
     "comment": "create_view - Statement 34",
@@ -141,19 +157,23 @@
   },
   {
     "comment": "create_view - Statement 36",
-    "query": "CREATE SCHEMA test_view_schema CREATE TEMP VIEW testview AS SELECT 1"
+    "query": "CREATE SCHEMA test_view_schema CREATE TEMP VIEW testview AS SELECT 1",
+    "expected": "CREATE SCHEMA test_view_schema CREATE TEMPORARY VIEW testview AS SELECT 1"
   },
   {
     "comment": "create_view - Statement 37",
-    "query": "CREATE VIEW v3 AS SELECT t1.a AS t1_a, t2.a AS t2_a FROM base_table t1, base_table2 t2 WHERE t1.id = t2.id"
+    "query": "CREATE VIEW v3 AS SELECT t1.a AS t1_a, t2.a AS t2_a FROM base_table t1, base_table2 t2 WHERE t1.id = t2.id",
+    "expected": "CREATE VIEW v3 AS SELECT t1.a AS t1_a, t2.a AS t2_a FROM base_table AS t1, base_table2 AS t2 WHERE t1.id = t2.id"
   },
   {
     "comment": "create_view - Statement 38",
-    "query": "CREATE VIEW v4_temp AS SELECT t1.a AS t1_a, t2.a AS t2_a FROM base_table t1, temp_table t2 WHERE t1.id = t2.id"
+    "query": "CREATE VIEW v4_temp AS SELECT t1.a AS t1_a, t2.a AS t2_a FROM base_table t1, temp_table t2 WHERE t1.id = t2.id",
+    "expected": "CREATE VIEW v4_temp AS SELECT t1.a AS t1_a, t2.a AS t2_a FROM base_table AS t1, temp_table AS t2 WHERE t1.id = t2.id"
   },
   {
     "comment": "create_view - Statement 39",
-    "query": "CREATE VIEW v5_temp AS SELECT t1.a AS t1_a, t2.a AS t2_a, t3.a AS t3_a FROM base_table t1, base_table2 t2, temp_table t3 WHERE t1.id = t2.id and t2.id = t3.id"
+    "query": "CREATE VIEW v5_temp AS SELECT t1.a AS t1_a, t2.a AS t2_a, t3.a AS t3_a FROM base_table t1, base_table2 t2, temp_table t3 WHERE t1.id = t2.id and t2.id = t3.id",
+    "expected": "CREATE VIEW v5_temp AS SELECT t1.a AS t1_a, t2.a AS t2_a, t3.a AS t3_a FROM base_table AS t1, base_table2 AS t2, temp_table AS t3 WHERE t1.id = t2.id AND t2.id = t3.id"
   },
   {
     "comment": "create_view - Statement 40",
@@ -161,7 +181,8 @@
   },
   {
     "comment": "create_view - Statement 41",
-    "query": "CREATE VIEW v5 AS SELECT t1.id, t2.a FROM base_table t1, (SELECT * FROM base_table2) t2"
+    "query": "CREATE VIEW v5 AS SELECT t1.id, t2.a FROM base_table t1, (SELECT * FROM base_table2) t2",
+    "expected": "CREATE VIEW v5 AS SELECT t1.id, t2.a FROM base_table AS t1, (SELECT * FROM base_table2) AS t2"
   },
   {
     "comment": "create_view - Statement 42",
@@ -181,7 +202,8 @@
   },
   {
     "comment": "create_view - Statement 46",
-    "query": "CREATE VIEW v7_temp AS SELECT t1.id, t2.a FROM base_table t1, (SELECT * FROM temp_table) t2"
+    "query": "CREATE VIEW v7_temp AS SELECT t1.id, t2.a FROM base_table t1, (SELECT * FROM temp_table) t2",
+    "expected": "CREATE VIEW v7_temp AS SELECT t1.id, t2.a FROM base_table AS t1, (SELECT * FROM temp_table) AS t2"
   },
   {
     "comment": "create_view - Statement 47",
@@ -197,11 +219,13 @@
   },
   {
     "comment": "create_view - Statement 50",
-    "query": "CREATE VIEW v11_temp AS SELECT t1.id, t2.a FROM base_table t1, v10_temp t2"
+    "query": "CREATE VIEW v11_temp AS SELECT t1.id, t2.a FROM base_table t1, v10_temp t2",
+    "expected": "CREATE VIEW v11_temp AS SELECT t1.id, t2.a FROM base_table AS t1, v10_temp AS t2"
   },
   {
     "comment": "create_view - Statement 51",
-    "query": "CREATE VIEW v12_temp AS SELECT true FROM v11_temp"
+    "query": "CREATE VIEW v12_temp AS SELECT true FROM v11_temp",
+    "expected": "CREATE VIEW v12_temp AS SELECT TRUE FROM v11_temp"
   },
   {
     "comment": "create_view - Statement 52",
@@ -209,7 +233,8 @@
   },
   {
     "comment": "create_view - Statement 53",
-    "query": "CREATE TEMPORARY SEQUENCE seq1_temp"
+    "query": "CREATE TEMPORARY SEQUENCE seq1_temp",
+    "expected": "CREATE SEQUENCE seq1_temp"
   },
   {
     "comment": "create_view - Statement 54",
@@ -233,27 +258,33 @@
   },
   {
     "comment": "create_view - Statement 59",
-    "query": "SET search_path TO testviewschm2, public"
+    "query": "SET search_path TO testviewschm2, public",
+    "expected": "SET search_path = 'testviewschm2', 'public'"
   },
   {
     "comment": "create_view - Statement 60",
-    "query": "CREATE TABLE t1 (num int, name text)"
+    "query": "CREATE TABLE t1 (num int, name text)",
+    "expected": "CREATE TABLE t1 (num INT, name TEXT)"
   },
   {
     "comment": "create_view - Statement 61",
-    "query": "CREATE TABLE t2 (num2 int, value text)"
+    "query": "CREATE TABLE t2 (num2 int, value text)",
+    "expected": "CREATE TABLE t2 (num2 INT, value TEXT)"
   },
   {
     "comment": "create_view - Statement 62",
-    "query": "CREATE TEMP TABLE tt (num2 int, value text)"
+    "query": "CREATE TEMP TABLE tt (num2 int, value text)",
+    "expected": "CREATE TEMPORARY TABLE tt (num2 INT, value TEXT)"
   },
   {
     "comment": "create_view - Statement 63",
-    "query": "CREATE VIEW nontemp1 AS SELECT * FROM t1 CROSS JOIN t2"
+    "query": "CREATE VIEW nontemp1 AS SELECT * FROM t1 CROSS JOIN t2",
+    "expected": "CREATE VIEW nontemp1 AS SELECT * FROM t1 INNER JOIN t2 ON TRUE"
   },
   {
     "comment": "create_view - Statement 64",
-    "query": "CREATE VIEW temporal1 AS SELECT * FROM t1 CROSS JOIN tt"
+    "query": "CREATE VIEW temporal1 AS SELECT * FROM t1 CROSS JOIN tt",
+    "expected": "CREATE VIEW temporal1 AS SELECT * FROM t1 INNER JOIN tt ON TRUE"
   },
   {
     "comment": "create_view - Statement 65",
@@ -265,19 +296,23 @@
   },
   {
     "comment": "create_view - Statement 67",
-    "query": "CREATE VIEW nontemp3 AS SELECT * FROM t1 LEFT JOIN t2 ON t1.num = t2.num2"
+    "query": "CREATE VIEW nontemp3 AS SELECT * FROM t1 LEFT JOIN t2 ON t1.num = t2.num2",
+    "expected": "CREATE VIEW nontemp3 AS SELECT * FROM t1 LEFT OUTER JOIN t2 ON t1.num = t2.num2"
   },
   {
     "comment": "create_view - Statement 68",
-    "query": "CREATE VIEW temporal3 AS SELECT * FROM t1 LEFT JOIN tt ON t1.num = tt.num2"
+    "query": "CREATE VIEW temporal3 AS SELECT * FROM t1 LEFT JOIN tt ON t1.num = tt.num2",
+    "expected": "CREATE VIEW temporal3 AS SELECT * FROM t1 LEFT OUTER JOIN tt ON t1.num = tt.num2"
   },
   {
     "comment": "create_view - Statement 69",
-    "query": "CREATE VIEW nontemp4 AS SELECT * FROM t1 LEFT JOIN t2 ON t1.num = t2.num2 AND t2.value = 'xxx'"
+    "query": "CREATE VIEW nontemp4 AS SELECT * FROM t1 LEFT JOIN t2 ON t1.num = t2.num2 AND t2.value = 'xxx'",
+    "expected": "CREATE VIEW nontemp4 AS SELECT * FROM t1 LEFT OUTER JOIN t2 ON t1.num = t2.num2 AND t2.value = 'xxx'"
   },
   {
     "comment": "create_view - Statement 70",
-    "query": "CREATE VIEW temporal4 AS SELECT * FROM t1 LEFT JOIN tt ON t1.num = tt.num2 AND tt.value = 'xxx'"
+    "query": "CREATE VIEW temporal4 AS SELECT * FROM t1 LEFT JOIN tt ON t1.num = tt.num2 AND tt.value = 'xxx'",
+    "expected": "CREATE VIEW temporal4 AS SELECT * FROM t1 LEFT OUTER JOIN tt ON t1.num = tt.num2 AND tt.value = 'xxx'"
   },
   {
     "comment": "create_view - Statement 71",
@@ -289,39 +324,48 @@
   },
   {
     "comment": "create_view - Statement 73",
-    "query": "CREATE TABLE tbl1 ( a int, b int)"
+    "query": "CREATE TABLE tbl1 ( a int, b int)",
+    "expected": "CREATE TABLE tbl1 (a INT, b INT)"
   },
   {
     "comment": "create_view - Statement 74",
-    "query": "CREATE TABLE tbl2 (c int, d int)"
+    "query": "CREATE TABLE tbl2 (c int, d int)",
+    "expected": "CREATE TABLE tbl2 (c INT, d INT)"
   },
   {
     "comment": "create_view - Statement 75",
-    "query": "CREATE TABLE tbl3 (e int, f int)"
+    "query": "CREATE TABLE tbl3 (e int, f int)",
+    "expected": "CREATE TABLE tbl3 (e INT, f INT)"
   },
   {
     "comment": "create_view - Statement 76",
-    "query": "CREATE TABLE tbl4 (g int, h int)"
+    "query": "CREATE TABLE tbl4 (g int, h int)",
+    "expected": "CREATE TABLE tbl4 (g INT, h INT)"
   },
   {
     "comment": "create_view - Statement 77",
-    "query": "CREATE TEMP TABLE tmptbl (i int, j int)"
+    "query": "CREATE TEMP TABLE tmptbl (i int, j int)",
+    "expected": "CREATE TEMPORARY TABLE tmptbl (i INT, j INT)"
   },
   {
     "comment": "create_view - Statement 78",
-    "query": "CREATE   VIEW  pubview AS SELECT * FROM tbl1 WHERE tbl1.a BETWEEN (SELECT d FROM tbl2 WHERE c = 1) AND (SELECT e FROM tbl3 WHERE f = 2) AND EXISTS (SELECT g FROM tbl4 LEFT JOIN tbl3 ON tbl4.h = tbl3.f)"
+    "query": "CREATE   VIEW  pubview AS SELECT * FROM tbl1 WHERE tbl1.a BETWEEN (SELECT d FROM tbl2 WHERE c = 1) AND (SELECT e FROM tbl3 WHERE f = 2) AND EXISTS (SELECT g FROM tbl4 LEFT JOIN tbl3 ON tbl4.h = tbl3.f)",
+    "expected": "CREATE VIEW pubview AS SELECT * FROM tbl1 WHERE tbl1.a BETWEEN (SELECT d FROM tbl2 WHERE c = 1) AND (SELECT e FROM tbl3 WHERE f = 2) AND EXISTS (SELECT g FROM tbl4 LEFT OUTER JOIN tbl3 ON tbl4.h = tbl3.f)"
   },
   {
     "comment": "create_view - Statement 79",
-    "query": "SELECT count(*) FROM pg_class where relname = 'pubview' AND relnamespace IN (SELECT OID FROM pg_namespace WHERE nspname = 'testviewschm2')"
+    "query": "SELECT count(*) FROM pg_class where relname = 'pubview' AND relnamespace IN (SELECT OID FROM pg_namespace WHERE nspname = 'testviewschm2')",
+    "expected": "SELECT COUNT(*) FROM pg_class WHERE relname = 'pubview' AND relnamespace IN (SELECT oid FROM pg_namespace WHERE nspname = 'testviewschm2')"
   },
   {
     "comment": "create_view - Statement 80",
-    "query": "CREATE   VIEW  mytempview AS SELECT * FROM tbl1 WHERE tbl1.a BETWEEN (SELECT d FROM tbl2 WHERE c = 1) AND (SELECT e FROM tbl3 WHERE f = 2) AND EXISTS (SELECT g FROM tbl4 LEFT JOIN tbl3 ON tbl4.h = tbl3.f) AND NOT EXISTS (SELECT g FROM tbl4 LEFT JOIN tmptbl ON tbl4.h = tmptbl.j)"
+    "query": "CREATE   VIEW  mytempview AS SELECT * FROM tbl1 WHERE tbl1.a BETWEEN (SELECT d FROM tbl2 WHERE c = 1) AND (SELECT e FROM tbl3 WHERE f = 2) AND EXISTS (SELECT g FROM tbl4 LEFT JOIN tbl3 ON tbl4.h = tbl3.f) AND NOT EXISTS (SELECT g FROM tbl4 LEFT JOIN tmptbl ON tbl4.h = tmptbl.j)",
+    "expected": "CREATE VIEW mytempview AS SELECT * FROM tbl1 WHERE tbl1.a BETWEEN (SELECT d FROM tbl2 WHERE c = 1) AND (SELECT e FROM tbl3 WHERE f = 2) AND EXISTS (SELECT g FROM tbl4 LEFT OUTER JOIN tbl3 ON tbl4.h = tbl3.f) AND NOT EXISTS (SELECT g FROM tbl4 LEFT OUTER JOIN tmptbl ON tbl4.h = tmptbl.j)"
   },
   {
     "comment": "create_view - Statement 81",
-    "query": "SELECT count(*) FROM pg_class where relname LIKE 'mytempview' And relnamespace IN (SELECT OID FROM pg_namespace WHERE nspname LIKE 'pg_temp%')"
+    "query": "SELECT count(*) FROM pg_class where relname LIKE 'mytempview' And relnamespace IN (SELECT OID FROM pg_namespace WHERE nspname LIKE 'pg_temp%')",
+    "expected": "SELECT COUNT(*) FROM pg_class WHERE relname LIKE 'mytempview' AND relnamespace IN (SELECT oid FROM pg_namespace WHERE nspname LIKE 'pg_temp%')"
   },
   {
     "comment": "create_view - Statement 82",
@@ -329,43 +373,53 @@
   },
   {
     "comment": "create_view - Statement 83",
-    "query": "CREATE VIEW mysecview2 WITH (security_barrier=true) AS SELECT * FROM tbl1 WHERE a > 0"
+    "query": "CREATE VIEW mysecview2 WITH (security_barrier=true) AS SELECT * FROM tbl1 WHERE a \u003e 0",
+    "expected": "CREATE VIEW mysecview2 WITH ( security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a \u003e 0"
   },
   {
     "comment": "create_view - Statement 84",
-    "query": "CREATE VIEW mysecview3 WITH (security_barrier=false) AS SELECT * FROM tbl1 WHERE a < 0"
+    "query": "CREATE VIEW mysecview3 WITH (security_barrier=false) AS SELECT * FROM tbl1 WHERE a \u003c 0",
+    "expected": "CREATE VIEW mysecview3 WITH ( security_barrier = 'false') AS SELECT * FROM tbl1 WHERE a \u003c 0"
   },
   {
     "comment": "create_view - Statement 85",
-    "query": "CREATE VIEW mysecview4 WITH (security_barrier) AS SELECT * FROM tbl1 WHERE a <> 0"
+    "query": "CREATE VIEW mysecview4 WITH (security_barrier) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 0",
+    "expected": "CREATE VIEW mysecview4 WITH ( security_barrier) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 0"
   },
   {
     "comment": "create_view - Statement 86",
-    "query": "CREATE VIEW mysecview5 WITH (security_barrier=100) AS SELECT * FROM tbl1 WHERE a > 100"
+    "query": "CREATE VIEW mysecview5 WITH (security_barrier=100) AS SELECT * FROM tbl1 WHERE a \u003e 100",
+    "expected": "CREATE VIEW mysecview5 WITH ( security_barrier = 100) AS SELECT * FROM tbl1 WHERE a \u003e 100"
   },
   {
     "comment": "create_view - Statement 87",
-    "query": "CREATE VIEW mysecview6 WITH (invalid_option) AS SELECT * FROM tbl1 WHERE a < 100"
+    "query": "CREATE VIEW mysecview6 WITH (invalid_option) AS SELECT * FROM tbl1 WHERE a \u003c 100",
+    "expected": "CREATE VIEW mysecview6 WITH ( invalid_option) AS SELECT * FROM tbl1 WHERE a \u003c 100"
   },
   {
     "comment": "create_view - Statement 88",
-    "query": "CREATE VIEW mysecview7 WITH (security_invoker=true) AS SELECT * FROM tbl1 WHERE a = 100"
+    "query": "CREATE VIEW mysecview7 WITH (security_invoker=true) AS SELECT * FROM tbl1 WHERE a = 100",
+    "expected": "CREATE VIEW mysecview7 WITH ( security_invoker = 'true') AS SELECT * FROM tbl1 WHERE a = 100"
   },
   {
     "comment": "create_view - Statement 89",
-    "query": "CREATE VIEW mysecview8 WITH (security_invoker=false, security_barrier=true) AS SELECT * FROM tbl1 WHERE a > 100"
+    "query": "CREATE VIEW mysecview8 WITH (security_invoker=false, security_barrier=true) AS SELECT * FROM tbl1 WHERE a \u003e 100",
+    "expected": "CREATE VIEW mysecview8 WITH ( security_invoker = 'false', security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a \u003e 100"
   },
   {
     "comment": "create_view - Statement 90",
-    "query": "CREATE VIEW mysecview9 WITH (security_invoker) AS SELECT * FROM tbl1 WHERE a < 100"
+    "query": "CREATE VIEW mysecview9 WITH (security_invoker) AS SELECT * FROM tbl1 WHERE a \u003c 100",
+    "expected": "CREATE VIEW mysecview9 WITH ( security_invoker) AS SELECT * FROM tbl1 WHERE a \u003c 100"
   },
   {
     "comment": "create_view - Statement 91",
-    "query": "CREATE VIEW mysecview10 WITH (security_invoker=100) AS SELECT * FROM tbl1 WHERE a <> 100"
+    "query": "CREATE VIEW mysecview10 WITH (security_invoker=100) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 100",
+    "expected": "CREATE VIEW mysecview10 WITH ( security_invoker = 100) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 100"
   },
   {
     "comment": "create_view - Statement 92",
-    "query": "SELECT relname, relkind, reloptions FROM pg_class WHERE oid in ('mysecview1'::regclass, 'mysecview2'::regclass, 'mysecview3'::regclass, 'mysecview4'::regclass, 'mysecview7'::regclass, 'mysecview8'::regclass, 'mysecview9'::regclass) ORDER BY relname"
+    "query": "SELECT relname, relkind, reloptions FROM pg_class WHERE oid in ('mysecview1'::regclass, 'mysecview2'::regclass, 'mysecview3'::regclass, 'mysecview4'::regclass, 'mysecview7'::regclass, 'mysecview8'::regclass, 'mysecview9'::regclass) ORDER BY relname",
+    "expected": "SELECT relname, relkind, reloptions FROM pg_class WHERE oid IN (CAST('mysecview1' AS regclass), CAST('mysecview2' AS regclass), CAST('mysecview3' AS regclass), CAST('mysecview4' AS regclass), CAST('mysecview7' AS regclass), CAST('mysecview8' AS regclass), CAST('mysecview9' AS regclass)) ORDER BY relname"
   },
   {
     "comment": "create_view - Statement 93",
@@ -373,39 +427,46 @@
   },
   {
     "comment": "create_view - Statement 94",
-    "query": "CREATE OR REPLACE VIEW mysecview2 AS SELECT * FROM tbl1 WHERE a > 256"
+    "query": "CREATE OR REPLACE VIEW mysecview2 AS SELECT * FROM tbl1 WHERE a \u003e 256"
   },
   {
     "comment": "create_view - Statement 95",
-    "query": "CREATE OR REPLACE VIEW mysecview3 WITH (security_barrier=true) AS SELECT * FROM tbl1 WHERE a < 256"
+    "query": "CREATE OR REPLACE VIEW mysecview3 WITH (security_barrier=true) AS SELECT * FROM tbl1 WHERE a \u003c 256",
+    "expected": "CREATE OR REPLACE VIEW mysecview3 WITH ( security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a \u003c 256"
   },
   {
     "comment": "create_view - Statement 96",
-    "query": "CREATE OR REPLACE VIEW mysecview4 WITH (security_barrier=false) AS SELECT * FROM tbl1 WHERE a <> 256"
+    "query": "CREATE OR REPLACE VIEW mysecview4 WITH (security_barrier=false) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 256",
+    "expected": "CREATE OR REPLACE VIEW mysecview4 WITH ( security_barrier = 'false') AS SELECT * FROM tbl1 WHERE a \u003c\u003e 256"
   },
   {
     "comment": "create_view - Statement 97",
-    "query": "CREATE OR REPLACE VIEW mysecview7 AS SELECT * FROM tbl1 WHERE a > 256"
+    "query": "CREATE OR REPLACE VIEW mysecview7 AS SELECT * FROM tbl1 WHERE a \u003e 256"
   },
   {
     "comment": "create_view - Statement 98",
-    "query": "CREATE OR REPLACE VIEW mysecview8 WITH (security_invoker=true) AS SELECT * FROM tbl1 WHERE a < 256"
+    "query": "CREATE OR REPLACE VIEW mysecview8 WITH (security_invoker=true) AS SELECT * FROM tbl1 WHERE a \u003c 256",
+    "expected": "CREATE OR REPLACE VIEW mysecview8 WITH ( security_invoker = 'true') AS SELECT * FROM tbl1 WHERE a \u003c 256"
   },
   {
     "comment": "create_view - Statement 99",
-    "query": "CREATE OR REPLACE VIEW mysecview9 WITH (security_invoker=false, security_barrier=true) AS SELECT * FROM tbl1 WHERE a <> 256"
+    "query": "CREATE OR REPLACE VIEW mysecview9 WITH (security_invoker=false, security_barrier=true) AS SELECT * FROM tbl1 WHERE a \u003c\u003e 256",
+    "expected": "CREATE OR REPLACE VIEW mysecview9 WITH ( security_invoker = 'false', security_barrier = 'true') AS SELECT * FROM tbl1 WHERE a \u003c\u003e 256"
   },
   {
     "comment": "create_view - Statement 100",
-    "query": "CREATE VIEW unspecified_types AS SELECT 42 as i, 42.5 as num, 'foo' as u, 'foo'::unknown as u2, null as n"
+    "query": "CREATE VIEW unspecified_types AS SELECT 42 as i, 42.5 as num, 'foo' as u, 'foo'::unknown as u2, null as n",
+    "expected": "CREATE VIEW unspecified_types AS SELECT 42 AS i, 42.5 AS num, 'foo' AS u, CAST('foo' AS unknown) AS u2, NULL AS n"
   },
   {
     "comment": "create_view - Statement 101",
-    "query": "CREATE VIEW tt1 AS SELECT * FROM ( VALUES ('abc'::varchar(3), '0123456789', 42, 'abcd'::varchar(4)), ('0123456789', 'abc'::varchar(3), 42.12, 'abc'::varchar(4)) ) vv(a,b,c,d)"
+    "query": "CREATE VIEW tt1 AS SELECT * FROM ( VALUES ('abc'::varchar(3), '0123456789', 42, 'abcd'::varchar(4)), ('0123456789', 'abc'::varchar(3), 42.12, 'abc'::varchar(4)) ) vv(a,b,c,d)",
+    "expected": "CREATE VIEW tt1 AS SELECT * FROM (VALUES (CAST('abc' AS VARCHAR(3)), '0123456789', 42, CAST('abcd' AS VARCHAR(4))), ('0123456789', CAST('abc' AS VARCHAR(3)), 42.12, CAST('abc' AS VARCHAR(4)))) AS vv(a, b, c, d)"
   },
   {
     "comment": "create_view - Statement 102",
-    "query": "SELECT a::varchar(3) FROM tt1"
+    "query": "SELECT a::varchar(3) FROM tt1",
+    "expected": "SELECT CAST(a AS VARCHAR(3)) FROM tt1"
   },
   {
     "comment": "create_view - Statement 103",
@@ -413,31 +474,38 @@
   },
   {
     "comment": "create_view - Statement 104",
-    "query": "CREATE TABLE tt1 (f1 int, f2 int, f3 text)"
+    "query": "CREATE TABLE tt1 (f1 int, f2 int, f3 text)",
+    "expected": "CREATE TABLE tt1 (f1 INT, f2 INT, f3 TEXT)"
   },
   {
     "comment": "create_view - Statement 105",
-    "query": "CREATE TABLE tx1 (x1 int, x2 int, x3 text)"
+    "query": "CREATE TABLE tx1 (x1 int, x2 int, x3 text)",
+    "expected": "CREATE TABLE tx1 (x1 INT, x2 INT, x3 TEXT)"
   },
   {
     "comment": "create_view - Statement 106",
-    "query": "CREATE TABLE temp_view_test.tt1 (y1 int, f2 int, f3 text)"
+    "query": "CREATE TABLE temp_view_test.tt1 (y1 int, f2 int, f3 text)",
+    "expected": "CREATE TABLE temp_view_test.tt1 (y1 INT, f2 INT, f3 TEXT)"
   },
   {
     "comment": "create_view - Statement 107",
-    "query": "CREATE VIEW aliased_view_1 AS select * from tt1 where exists (select 1 from tx1 where tt1.f1 = tx1.x1)"
+    "query": "CREATE VIEW aliased_view_1 AS select * from tt1 where exists (select 1 from tx1 where tt1.f1 = tx1.x1)",
+    "expected": "CREATE VIEW aliased_view_1 AS SELECT * FROM tt1 WHERE EXISTS (SELECT 1 FROM tx1 WHERE tt1.f1 = tx1.x1)"
   },
   {
     "comment": "create_view - Statement 108",
-    "query": "CREATE VIEW aliased_view_2 AS select * from tt1 a1 where exists (select 1 from tx1 where a1.f1 = tx1.x1)"
+    "query": "CREATE VIEW aliased_view_2 AS select * from tt1 a1 where exists (select 1 from tx1 where a1.f1 = tx1.x1)",
+    "expected": "CREATE VIEW aliased_view_2 AS SELECT * FROM tt1 AS a1 WHERE EXISTS (SELECT 1 FROM tx1 WHERE a1.f1 = tx1.x1)"
   },
   {
     "comment": "create_view - Statement 109",
-    "query": "CREATE VIEW aliased_view_3 AS select * from tt1 where exists (select 1 from tx1 a2 where tt1.f1 = a2.x1)"
+    "query": "CREATE VIEW aliased_view_3 AS select * from tt1 where exists (select 1 from tx1 a2 where tt1.f1 = a2.x1)",
+    "expected": "CREATE VIEW aliased_view_3 AS SELECT * FROM tt1 WHERE EXISTS (SELECT 1 FROM tx1 AS a2 WHERE tt1.f1 = a2.x1)"
   },
   {
     "comment": "create_view - Statement 110",
-    "query": "CREATE VIEW aliased_view_4 AS select * from temp_view_test.tt1 where exists (select 1 from tt1 where temp_view_test.tt1.y1 = tt1.f1)"
+    "query": "CREATE VIEW aliased_view_4 AS select * from temp_view_test.tt1 where exists (select 1 from tt1 where temp_view_test.tt1.y1 = tt1.f1)",
+    "expected": "CREATE VIEW aliased_view_4 AS SELECT * FROM temp_view_test.tt1 WHERE EXISTS (SELECT 1 FROM tt1 WHERE temp_view_test.tt1.y1 = tt1.f1)"
   },
   {
     "comment": "create_view - Statement 111",
@@ -453,547 +521,663 @@
   },
   {
     "comment": "create_view - Statement 114",
-    "query": "create view view_of_joins_2a as select * from tbl1 join tbl1a using (a)"
+    "query": "create view view_of_joins_2a as select * from tbl1 join tbl1a using (a)",
+    "expected": "CREATE VIEW view_of_joins_2a AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a)"
   },
   {
     "comment": "create_view - Statement 115",
-    "query": "create view view_of_joins_2b as select * from tbl1 join tbl1a using (a) as x"
+    "query": "create view view_of_joins_2b as select * from tbl1 join tbl1a using (a) as x",
+    "expected": "CREATE VIEW view_of_joins_2b AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a)"
   },
   {
     "comment": "create_view - Statement 116",
-    "query": "create view view_of_joins_2c as select * from (tbl1 join tbl1a using (a)) as y"
+    "query": "create view view_of_joins_2c as select * from (tbl1 join tbl1a using (a)) as y",
+    "expected": "CREATE VIEW view_of_joins_2c AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a)"
   },
   {
     "comment": "create_view - Statement 117",
-    "query": "create view view_of_joins_2d as select * from (tbl1 join tbl1a using (a) as x) as y"
+    "query": "create view view_of_joins_2d as select * from (tbl1 join tbl1a using (a) as x) as y",
+    "expected": "CREATE VIEW view_of_joins_2d AS SELECT * FROM tbl1 INNER JOIN tbl1a USING (a)"
   },
   {
     "comment": "create_view - Statement 118",
-    "query": "select pg_get_viewdef('view_of_joins_2a', true)"
+    "query": "select pg_get_viewdef('view_of_joins_2a', true)",
+    "expected": "SELECT pg_get_viewdef('view_of_joins_2a', TRUE)"
   },
   {
     "comment": "create_view - Statement 119",
-    "query": "select pg_get_viewdef('view_of_joins_2b', true)"
+    "query": "select pg_get_viewdef('view_of_joins_2b', true)",
+    "expected": "SELECT pg_get_viewdef('view_of_joins_2b', TRUE)"
   },
   {
     "comment": "create_view - Statement 120",
-    "query": "select pg_get_viewdef('view_of_joins_2c', true)"
+    "query": "select pg_get_viewdef('view_of_joins_2c', true)",
+    "expected": "SELECT pg_get_viewdef('view_of_joins_2c', TRUE)"
   },
   {
     "comment": "create_view - Statement 121",
-    "query": "select pg_get_viewdef('view_of_joins_2d', true)"
+    "query": "select pg_get_viewdef('view_of_joins_2d', true)",
+    "expected": "SELECT pg_get_viewdef('view_of_joins_2d', TRUE)"
   },
   {
     "comment": "create_view - Statement 122",
-    "query": "create table tt2 (a int, b int, c int)"
+    "query": "create table tt2 (a int, b int, c int)",
+    "expected": "CREATE TABLE tt2 (a INT, b INT, c INT)"
   },
   {
     "comment": "create_view - Statement 123",
-    "query": "create table tt3 (ax int8, b int2, c numeric)"
+    "query": "create table tt3 (ax int8, b int2, c numeric)",
+    "expected": "CREATE TABLE tt3 (ax BIGINT, b SMALLINT, c NUMERIC)"
   },
   {
     "comment": "create_view - Statement 124",
-    "query": "create table tt4 (ay int, b int, q int)"
+    "query": "create table tt4 (ay int, b int, q int)",
+    "expected": "CREATE TABLE tt4 (ay INT, b INT, q INT)"
   },
   {
     "comment": "create_view - Statement 125",
-    "query": "create view v1 as select * from tt2 natural join tt3"
+    "query": "create view v1 as select * from tt2 natural join tt3",
+    "expected": "CREATE VIEW v1 AS SELECT * FROM tt2 NATURAL JOIN tt3"
   },
   {
     "comment": "create_view - Statement 126",
-    "query": "create view v1a as select * from (tt2 natural join tt3) j"
+    "query": "create view v1a as select * from (tt2 natural join tt3) j",
+    "expected": "CREATE VIEW v1a AS SELECT * FROM tt2 NATURAL JOIN tt3"
   },
   {
     "comment": "create_view - Statement 127",
-    "query": "create view v2 as select * from tt2 join tt3 using (b,c) join tt4 using (b)"
+    "query": "create view v2 as select * from tt2 join tt3 using (b,c) join tt4 using (b)",
+    "expected": "CREATE VIEW v2 AS SELECT * FROM tt2 INNER JOIN tt3 USING (b, c) INNER JOIN tt4 USING (b)"
   },
   {
     "comment": "create_view - Statement 128",
-    "query": "create view v2a as select * from (tt2 join tt3 using (b,c) join tt4 using (b)) j"
+    "query": "create view v2a as select * from (tt2 join tt3 using (b,c) join tt4 using (b)) j",
+    "expected": "CREATE VIEW v2a AS SELECT * FROM tt2 INNER JOIN tt3 USING (b, c) INNER JOIN tt4 USING (b)"
   },
   {
     "comment": "create_view - Statement 129",
-    "query": "create view v3 as select * from tt2 join tt3 using (b,c) full join tt4 using (b)"
+    "query": "create view v3 as select * from tt2 join tt3 using (b,c) full join tt4 using (b)",
+    "expected": "CREATE VIEW v3 AS SELECT * FROM tt2 INNER JOIN tt3 USING (b, c) FULL OUTER JOIN tt4 USING (b)"
   },
   {
     "comment": "create_view - Statement 130",
-    "query": "select pg_get_viewdef('v1', true)"
+    "query": "select pg_get_viewdef('v1', true)",
+    "expected": "SELECT pg_get_viewdef('v1', TRUE)"
   },
   {
     "comment": "create_view - Statement 131",
-    "query": "select pg_get_viewdef('v1a', true)"
+    "query": "select pg_get_viewdef('v1a', true)",
+    "expected": "SELECT pg_get_viewdef('v1a', TRUE)"
   },
   {
     "comment": "create_view - Statement 132",
-    "query": "select pg_get_viewdef('v2', true)"
+    "query": "select pg_get_viewdef('v2', true)",
+    "expected": "SELECT pg_get_viewdef('v2', TRUE)"
   },
   {
     "comment": "create_view - Statement 133",
-    "query": "select pg_get_viewdef('v2a', true)"
+    "query": "select pg_get_viewdef('v2a', true)",
+    "expected": "SELECT pg_get_viewdef('v2a', TRUE)"
   },
   {
     "comment": "create_view - Statement 134",
-    "query": "select pg_get_viewdef('v3', true)"
+    "query": "select pg_get_viewdef('v3', true)",
+    "expected": "SELECT pg_get_viewdef('v3', TRUE)"
   },
   {
     "comment": "create_view - Statement 135",
-    "query": "alter table tt2 add column d int"
+    "query": "alter table tt2 add column d int",
+    "expected": "ALTER TABLE tt2 ADD COLUMN d INT"
   },
   {
     "comment": "create_view - Statement 136",
-    "query": "alter table tt2 add column e int"
+    "query": "alter table tt2 add column e int",
+    "expected": "ALTER TABLE tt2 ADD COLUMN e INT"
   },
   {
     "comment": "create_view - Statement 137",
-    "query": "alter table tt3 rename c to d"
+    "query": "alter table tt3 rename c to d",
+    "expected": "ALTER TABLE tt3 RENAME COLUMN c TO d"
   },
   {
     "comment": "create_view - Statement 138",
-    "query": "alter table tt3 add column c int"
+    "query": "alter table tt3 add column c int",
+    "expected": "ALTER TABLE tt3 ADD COLUMN c INT"
   },
   {
     "comment": "create_view - Statement 139",
-    "query": "alter table tt3 add column e int"
+    "query": "alter table tt3 add column e int",
+    "expected": "ALTER TABLE tt3 ADD COLUMN e INT"
   },
   {
     "comment": "create_view - Statement 140",
-    "query": "alter table tt2 drop column d"
+    "query": "alter table tt2 drop column d",
+    "expected": "ALTER TABLE tt2 DROP COLUMN d"
   },
   {
     "comment": "create_view - Statement 141",
-    "query": "create table tt5 (a int, b int)"
+    "query": "create table tt5 (a int, b int)",
+    "expected": "CREATE TABLE tt5 (a INT, b INT)"
   },
   {
     "comment": "create_view - Statement 142",
-    "query": "create table tt6 (c int, d int)"
+    "query": "create table tt6 (c int, d int)",
+    "expected": "CREATE TABLE tt6 (c INT, d INT)"
   },
   {
     "comment": "create_view - Statement 143",
-    "query": "create view vv1 as select * from (tt5 cross join tt6) j(aa,bb,cc,dd)"
+    "query": "create view vv1 as select * from (tt5 cross join tt6) j(aa,bb,cc,dd)",
+    "expected": "CREATE VIEW vv1 AS SELECT * FROM tt5 INNER JOIN tt6 ON TRUE"
   },
   {
     "comment": "create_view - Statement 144",
-    "query": "select pg_get_viewdef('vv1', true)"
+    "query": "select pg_get_viewdef('vv1', true)",
+    "expected": "SELECT pg_get_viewdef('vv1', TRUE)"
   },
   {
     "comment": "create_view - Statement 145",
-    "query": "alter table tt5 add column c int"
+    "query": "alter table tt5 add column c int",
+    "expected": "ALTER TABLE tt5 ADD COLUMN c INT"
   },
   {
     "comment": "create_view - Statement 146",
-    "query": "alter table tt5 add column cc int"
+    "query": "alter table tt5 add column cc int",
+    "expected": "ALTER TABLE tt5 ADD COLUMN cc INT"
   },
   {
     "comment": "create_view - Statement 147",
-    "query": "alter table tt5 drop column c"
+    "query": "alter table tt5 drop column c",
+    "expected": "ALTER TABLE tt5 DROP COLUMN c"
   },
   {
     "comment": "create_view - Statement 148",
-    "query": "create view v4 as select * from v1"
+    "query": "create view v4 as select * from v1",
+    "expected": "CREATE VIEW v4 AS SELECT * FROM v1"
   },
   {
     "comment": "create_view - Statement 149",
-    "query": "alter view v1 rename column a to x"
+    "query": "alter view v1 rename column a to x",
+    "expected": "ALTER VIEW v1 RENAME COLUMN a TO x"
   },
   {
     "comment": "create_view - Statement 150",
-    "query": "select pg_get_viewdef('v4', true)"
+    "query": "select pg_get_viewdef('v4', true)",
+    "expected": "SELECT pg_get_viewdef('v4', TRUE)"
   },
   {
     "comment": "create_view - Statement 151",
-    "query": "create table tt7 (x int, xx int, y int)"
+    "query": "create table tt7 (x int, xx int, y int)",
+    "expected": "CREATE TABLE tt7 (x INT, xx INT, y INT)"
   },
   {
     "comment": "create_view - Statement 152",
-    "query": "alter table tt7 drop column xx"
+    "query": "alter table tt7 drop column xx",
+    "expected": "ALTER TABLE tt7 DROP COLUMN xx"
   },
   {
     "comment": "create_view - Statement 153",
-    "query": "create table tt8 (x int, z int)"
+    "query": "create table tt8 (x int, z int)",
+    "expected": "CREATE TABLE tt8 (x INT, z INT)"
   },
   {
     "comment": "create_view - Statement 154",
-    "query": "create view vv2 as select * from (values(1,2,3,4,5)) v(a,b,c,d,e) union all select * from tt7 full join tt8 using (x), tt8 tt8x"
+    "query": "create view vv2 as select * from (values(1,2,3,4,5)) v(a,b,c,d,e) union all select * from tt7 full join tt8 using (x), tt8 tt8x",
+    "expected": "CREATE VIEW vv2 AS SELECT * FROM (VALUES (1, 2, 3, 4, 5)) AS v(a, b, c, d, e) UNION ALL SELECT * FROM tt7 FULL OUTER JOIN tt8 USING (x), tt8 AS tt8x"
   },
   {
     "comment": "create_view - Statement 155",
-    "query": "select pg_get_viewdef('vv2', true)"
+    "query": "select pg_get_viewdef('vv2', true)",
+    "expected": "SELECT pg_get_viewdef('vv2', TRUE)"
   },
   {
     "comment": "create_view - Statement 156",
-    "query": "create view vv3 as select * from (values(1,2,3,4,5,6)) v(a,b,c,x,e,f) union all select * from tt7 full join tt8 using (x), tt7 tt7x full join tt8 tt8x using (x)"
+    "query": "create view vv3 as select * from (values(1,2,3,4,5,6)) v(a,b,c,x,e,f) union all select * from tt7 full join tt8 using (x), tt7 tt7x full join tt8 tt8x using (x)",
+    "expected": "CREATE VIEW vv3 AS SELECT * FROM (VALUES (1, 2, 3, 4, 5, 6)) AS v(a, b, c, x, e, f) UNION ALL SELECT * FROM tt7 FULL OUTER JOIN tt8 USING (x), tt7 AS tt7x FULL OUTER JOIN tt8 AS tt8x USING (x)"
   },
   {
     "comment": "create_view - Statement 157",
-    "query": "select pg_get_viewdef('vv3', true)"
+    "query": "select pg_get_viewdef('vv3', true)",
+    "expected": "SELECT pg_get_viewdef('vv3', TRUE)"
   },
   {
     "comment": "create_view - Statement 158",
-    "query": "create view vv4 as select * from (values(1,2,3,4,5,6,7)) v(a,b,c,x,e,f,g) union all select * from tt7 full join tt8 using (x), tt7 tt7x full join tt8 tt8x using (x) full join tt8 tt8y using (x)"
+    "query": "create view vv4 as select * from (values(1,2,3,4,5,6,7)) v(a,b,c,x,e,f,g) union all select * from tt7 full join tt8 using (x), tt7 tt7x full join tt8 tt8x using (x) full join tt8 tt8y using (x)",
+    "expected": "CREATE VIEW vv4 AS SELECT * FROM (VALUES (1, 2, 3, 4, 5, 6, 7)) AS v(a, b, c, x, e, f, g) UNION ALL SELECT * FROM tt7 FULL OUTER JOIN tt8 USING (x), tt7 AS tt7x FULL OUTER JOIN tt8 AS tt8x USING (x) FULL OUTER JOIN tt8 AS tt8y USING (x)"
   },
   {
     "comment": "create_view - Statement 159",
-    "query": "select pg_get_viewdef('vv4', true)"
+    "query": "select pg_get_viewdef('vv4', true)",
+    "expected": "SELECT pg_get_viewdef('vv4', TRUE)"
   },
   {
     "comment": "create_view - Statement 160",
-    "query": "alter table tt7 add column zz int"
+    "query": "alter table tt7 add column zz int",
+    "expected": "ALTER TABLE tt7 ADD COLUMN zz INT"
   },
   {
     "comment": "create_view - Statement 161",
-    "query": "alter table tt7 add column z int"
+    "query": "alter table tt7 add column z int",
+    "expected": "ALTER TABLE tt7 ADD COLUMN z INT"
   },
   {
     "comment": "create_view - Statement 162",
-    "query": "alter table tt7 drop column zz"
+    "query": "alter table tt7 drop column zz",
+    "expected": "ALTER TABLE tt7 DROP COLUMN zz"
   },
   {
     "comment": "create_view - Statement 163",
-    "query": "alter table tt8 add column z2 int"
+    "query": "alter table tt8 add column z2 int",
+    "expected": "ALTER TABLE tt8 ADD COLUMN z2 INT"
   },
   {
     "comment": "create_view - Statement 164",
-    "query": "create table tt7a (x date, xx int, y int)"
+    "query": "create table tt7a (x date, xx int, y int)",
+    "expected": "CREATE TABLE tt7a (x DATE, xx INT, y INT)"
   },
   {
     "comment": "create_view - Statement 165",
-    "query": "alter table tt7a drop column xx"
+    "query": "alter table tt7a drop column xx",
+    "expected": "ALTER TABLE tt7a DROP COLUMN xx"
   },
   {
     "comment": "create_view - Statement 166",
-    "query": "create table tt8a (x timestamptz, z int)"
+    "query": "create table tt8a (x timestamptz, z int)",
+    "expected": "CREATE TABLE tt8a (x TIMESTAMP WITH TIME ZONE, z INT)"
   },
   {
     "comment": "create_view - Statement 167",
-    "query": "create view vv2a as select * from (values(now(),2,3,now(),5)) v(a,b,c,d,e) union all select * from tt7a left join tt8a using (x), tt8a tt8ax"
+    "query": "create view vv2a as select * from (values(now(),2,3,now(),5)) v(a,b,c,d,e) union all select * from tt7a left join tt8a using (x), tt8a tt8ax",
+    "expected": "CREATE VIEW vv2a AS SELECT * FROM (VALUES (NOW(), 2, 3, NOW(), 5)) AS v(a, b, c, d, e) UNION ALL SELECT * FROM tt7a LEFT OUTER JOIN tt8a USING (x), tt8a AS tt8ax"
   },
   {
     "comment": "create_view - Statement 168",
-    "query": "select pg_get_viewdef('vv2a', true)"
+    "query": "select pg_get_viewdef('vv2a', true)",
+    "expected": "SELECT pg_get_viewdef('vv2a', TRUE)"
   },
   {
     "comment": "create_view - Statement 169",
-    "query": "create table tt9 (x int, xx int, y int)"
+    "query": "create table tt9 (x int, xx int, y int)",
+    "expected": "CREATE TABLE tt9 (x INT, xx INT, y INT)"
   },
   {
     "comment": "create_view - Statement 170",
-    "query": "create table tt10 (x int, z int)"
+    "query": "create table tt10 (x int, z int)",
+    "expected": "CREATE TABLE tt10 (x INT, z INT)"
   },
   {
     "comment": "create_view - Statement 171",
-    "query": "create view vv5 as select x,y,z from tt9 join tt10 using(x)"
+    "query": "create view vv5 as select x,y,z from tt9 join tt10 using(x)",
+    "expected": "CREATE VIEW vv5 AS SELECT x, y, z FROM tt9 INNER JOIN tt10 USING (x)"
   },
   {
     "comment": "create_view - Statement 172",
-    "query": "select pg_get_viewdef('vv5', true)"
+    "query": "select pg_get_viewdef('vv5', true)",
+    "expected": "SELECT pg_get_viewdef('vv5', TRUE)"
   },
   {
     "comment": "create_view - Statement 173",
-    "query": "alter table tt9 drop column xx"
+    "query": "alter table tt9 drop column xx",
+    "expected": "ALTER TABLE tt9 DROP COLUMN xx"
   },
   {
     "comment": "create_view - Statement 174",
-    "query": "create table tt11 (x int, y int)"
+    "query": "create table tt11 (x int, y int)",
+    "expected": "CREATE TABLE tt11 (x INT, y INT)"
   },
   {
     "comment": "create_view - Statement 175",
-    "query": "create table tt12 (x int, z int)"
+    "query": "create table tt12 (x int, z int)",
+    "expected": "CREATE TABLE tt12 (x INT, z INT)"
   },
   {
     "comment": "create_view - Statement 176",
-    "query": "create table tt13 (z int, q int)"
+    "query": "create table tt13 (z int, q int)",
+    "expected": "CREATE TABLE tt13 (z INT, q INT)"
   },
   {
     "comment": "create_view - Statement 177",
-    "query": "create view vv6 as select x,y,z,q from (tt11 join tt12 using(x)) join tt13 using(z)"
+    "query": "create view vv6 as select x,y,z,q from (tt11 join tt12 using(x)) join tt13 using(z)",
+    "expected": "CREATE VIEW vv6 AS SELECT x, y, z, q FROM (tt11 INNER JOIN tt12 USING (x)) INNER JOIN tt13 USING (z)"
   },
   {
     "comment": "create_view - Statement 178",
-    "query": "select pg_get_viewdef('vv6', true)"
+    "query": "select pg_get_viewdef('vv6', true)",
+    "expected": "SELECT pg_get_viewdef('vv6', TRUE)"
   },
   {
     "comment": "create_view - Statement 179",
-    "query": "alter table tt11 add column z int"
+    "query": "alter table tt11 add column z int",
+    "expected": "ALTER TABLE tt11 ADD COLUMN z INT"
   },
   {
     "comment": "create_view - Statement 180",
-    "query": "create table tt14t (f1 text, f2 text, f3 text, f4 text)"
+    "query": "create table tt14t (f1 text, f2 text, f3 text, f4 text)",
+    "expected": "CREATE TABLE tt14t (f1 TEXT, f2 TEXT, f3 TEXT, f4 TEXT)"
   },
   {
     "comment": "create_view - Statement 181",
-    "query": "insert into tt14t values('foo', 'bar', 'baz', '42')"
+    "query": "insert into tt14t values('foo', 'bar', 'baz', '42')",
+    "expected": "INSERT INTO tt14t VALUES ('foo', 'bar', 'baz', '42')"
   },
   {
     "comment": "create_view - Statement 182",
-    "query": "alter table tt14t drop column f2"
+    "query": "alter table tt14t drop column f2",
+    "expected": "ALTER TABLE tt14t DROP COLUMN f2"
   },
   {
     "comment": "create_view - Statement 183",
-    "query": "create function tt14f() returns setof tt14t as $$ declare rec1 record"
-  },
-  {
-    "comment": "create_view - Statement 184",
-    "query": "begin for rec1 in select * from tt14t loop return next rec1"
-  },
-  {
-    "comment": "create_view - Statement 185",
-    "query": "end loop"
-  },
-  {
-    "comment": "create_view - Statement 186",
-    "query": "end"
-  },
-  {
-    "comment": "create_view - Statement 187",
-    "query": "$$ language plpgsql"
+    "query": "create function tt14f() returns setof tt14t as $$ declare rec1 record; begin for rec1 in select * from tt14t loop return next rec1; end loop; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION tt14f () RETURNS SETOF tt14t LANGUAGE plpgsql AS $$ declare rec1 record; begin for rec1 in select * from tt14t loop return next rec1; end loop; end; $$"
   },
   {
     "comment": "create_view - Statement 188",
-    "query": "create view tt14v as select t.* from tt14f() t"
+    "query": "create view tt14v as select t.* from tt14f() t",
+    "expected": "CREATE VIEW tt14v AS SELECT t.* FROM tt14f() AS t"
   },
   {
     "comment": "create_view - Statement 189",
-    "query": "select pg_get_viewdef('tt14v', true)"
+    "query": "select pg_get_viewdef('tt14v', true)",
+    "expected": "SELECT pg_get_viewdef('tt14v', TRUE)"
   },
   {
     "comment": "create_view - Statement 190",
-    "query": "select * from tt14v"
+    "query": "select * from tt14v",
+    "expected": "SELECT * FROM tt14v"
   },
   {
     "comment": "create_view - Statement 191",
-    "query": "alter table tt14t drop column f3"
+    "query": "alter table tt14t drop column f3",
+    "expected": "ALTER TABLE tt14t DROP COLUMN f3"
   },
   {
     "comment": "create_view - Statement 192",
-    "query": "begin"
+    "query": "begin",
+    "expected": "BEGIN"
   },
   {
     "comment": "create_view - Statement 193",
-    "query": "delete from pg_depend where objid = (select oid from pg_rewrite where ev_class = 'tt14v'::regclass and rulename = '_RETURN') and refobjsubid = 3 returning pg_describe_object(classid, objid, objsubid) as obj, pg_describe_object(refclassid, refobjid, refobjsubid) as ref, deptype"
+    "query": "delete from pg_depend where objid = (select oid from pg_rewrite where ev_class = 'tt14v'::regclass and rulename = '_RETURN') and refobjsubid = 3 returning pg_describe_object(classid, objid, objsubid) as obj, pg_describe_object(refclassid, refobjid, refobjsubid) as ref, deptype",
+    "expected": "DELETE FROM pg_depend WHERE objid = (SELECT oid FROM pg_rewrite WHERE ev_class = CAST('tt14v' AS regclass) AND rulename = '_RETURN') AND refobjsubid = 3 RETURNING pg_describe_object(classid, objid, objsubid) AS obj, pg_describe_object(refclassid, refobjid, refobjsubid) AS ref, deptype"
   },
   {
     "comment": "create_view - Statement 194",
-    "query": "explain (verbose, costs off) select * from tt14v"
+    "query": "explain (verbose, costs off) select * from tt14v",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM tt14v"
   },
   {
     "comment": "create_view - Statement 195",
-    "query": "select f1, f4 from tt14v"
+    "query": "select f1, f4 from tt14v",
+    "expected": "SELECT f1, f4 FROM tt14v"
   },
   {
     "comment": "create_view - Statement 196",
-    "query": "rollback"
+    "query": "rollback",
+    "expected": "ROLLBACK"
   },
   {
     "comment": "create_view - Statement 197",
-    "query": "alter table tt14t alter column f4 type integer using f4::integer"
+    "query": "alter table tt14t alter column f4 type integer using f4::integer",
+    "expected": "ALTER TABLE tt14t ALTER COLUMN f4 TYPE INT USING CAST(f4 AS INT)"
   },
   {
     "comment": "create_view - Statement 198",
-    "query": "delete from pg_depend where objid = (select oid from pg_rewrite where ev_class = 'tt14v'::regclass and rulename = '_RETURN') and refobjsubid = 4 returning pg_describe_object(classid, objid, objsubid) as obj, pg_describe_object(refclassid, refobjid, refobjsubid) as ref, deptype"
+    "query": "delete from pg_depend where objid = (select oid from pg_rewrite where ev_class = 'tt14v'::regclass and rulename = '_RETURN') and refobjsubid = 4 returning pg_describe_object(classid, objid, objsubid) as obj, pg_describe_object(refclassid, refobjid, refobjsubid) as ref, deptype",
+    "expected": "DELETE FROM pg_depend WHERE objid = (SELECT oid FROM pg_rewrite WHERE ev_class = CAST('tt14v' AS regclass) AND rulename = '_RETURN') AND refobjsubid = 4 RETURNING pg_describe_object(classid, objid, objsubid) AS obj, pg_describe_object(refclassid, refobjid, refobjsubid) AS ref, deptype"
   },
   {
     "comment": "create_view - Statement 199",
-    "query": "select f1, f3 from tt14v"
+    "query": "select f1, f3 from tt14v",
+    "expected": "SELECT f1, f3 FROM tt14v"
   },
   {
     "comment": "create_view - Statement 200",
-    "query": "drop view tt14v"
+    "query": "drop view tt14v",
+    "expected": "DROP VIEW tt14v"
   },
   {
     "comment": "create_view - Statement 201",
-    "query": "create view tt14v as select t.f1, t.f4 from tt14f() t"
+    "query": "create view tt14v as select t.f1, t.f4 from tt14f() t",
+    "expected": "CREATE VIEW tt14v AS SELECT t.f1, t.f4 FROM tt14f() AS t"
   },
   {
     "comment": "create_view - Statement 202",
-    "query": "create type nestedcomposite as (x int8_tbl)"
+    "query": "create type nestedcomposite as (x int8_tbl)",
+    "expected": "CREATE TYPE nestedcomposite AS (x int8_tbl)"
   },
   {
     "comment": "create_view - Statement 203",
-    "query": "create view tt15v as select row(i)::nestedcomposite from int8_tbl i"
+    "query": "create view tt15v as select row(i)::nestedcomposite from int8_tbl i",
+    "expected": "CREATE VIEW tt15v AS SELECT CAST(ROW(i) AS nestedcomposite) FROM int8_tbl AS i"
   },
   {
     "comment": "create_view - Statement 204",
-    "query": "select * from tt15v"
+    "query": "select * from tt15v",
+    "expected": "SELECT * FROM tt15v"
   },
   {
     "comment": "create_view - Statement 205",
-    "query": "select pg_get_viewdef('tt15v', true)"
+    "query": "select pg_get_viewdef('tt15v', true)",
+    "expected": "SELECT pg_get_viewdef('tt15v', TRUE)"
   },
   {
     "comment": "create_view - Statement 206",
-    "query": "select row(i.*::int8_tbl)::nestedcomposite from int8_tbl i"
+    "query": "select row(i.*::int8_tbl)::nestedcomposite from int8_tbl i",
+    "expected": "SELECT CAST(ROW(CAST(i.* AS int8_tbl)) AS nestedcomposite) FROM int8_tbl AS i"
   },
   {
     "comment": "create_view - Statement 207",
-    "query": "create view tt16v as select * from int8_tbl i, lateral(values(i)) ss"
+    "query": "create view tt16v as select * from int8_tbl i, lateral(values(i)) ss",
+    "expected": "CREATE VIEW tt16v AS SELECT * FROM int8_tbl AS i, LATERAL (VALUES (i)) AS ss"
   },
   {
     "comment": "create_view - Statement 208",
-    "query": "select * from tt16v"
+    "query": "select * from tt16v",
+    "expected": "SELECT * FROM tt16v"
   },
   {
     "comment": "create_view - Statement 209",
-    "query": "select pg_get_viewdef('tt16v', true)"
+    "query": "select pg_get_viewdef('tt16v', true)",
+    "expected": "SELECT pg_get_viewdef('tt16v', TRUE)"
   },
   {
     "comment": "create_view - Statement 210",
-    "query": "select * from int8_tbl i, lateral(values(i.*::int8_tbl)) ss"
+    "query": "select * from int8_tbl i, lateral(values(i.*::int8_tbl)) ss",
+    "expected": "SELECT * FROM int8_tbl AS i, LATERAL (VALUES (CAST(i.* AS int8_tbl))) AS ss"
   },
   {
     "comment": "create_view - Statement 211",
-    "query": "create view tt17v as select * from int8_tbl i where i in (values(i))"
+    "query": "create view tt17v as select * from int8_tbl i where i in (values(i))",
+    "expected": "CREATE VIEW tt17v AS SELECT * FROM int8_tbl AS i WHERE i IN (VALUES (i))"
   },
   {
     "comment": "create_view - Statement 212",
-    "query": "select * from tt17v"
+    "query": "select * from tt17v",
+    "expected": "SELECT * FROM tt17v"
   },
   {
     "comment": "create_view - Statement 213",
-    "query": "select pg_get_viewdef('tt17v', true)"
+    "query": "select pg_get_viewdef('tt17v', true)",
+    "expected": "SELECT pg_get_viewdef('tt17v', TRUE)"
   },
   {
     "comment": "create_view - Statement 214",
-    "query": "select * from int8_tbl i where i.* in (values(i.*::int8_tbl))"
+    "query": "select * from int8_tbl i where i.* in (values(i.*::int8_tbl))",
+    "expected": "SELECT * FROM int8_tbl AS i WHERE i.* IN (VALUES (CAST(i.* AS int8_tbl)))"
   },
   {
     "comment": "create_view - Statement 215",
-    "query": "create table tt15v_log(o tt15v, n tt15v, incr bool)"
+    "query": "create table tt15v_log(o tt15v, n tt15v, incr bool)",
+    "expected": "CREATE TABLE tt15v_log (o tt15v, n tt15v, incr BOOLEAN)"
   },
   {
     "comment": "create_view - Statement 216",
-    "query": "create rule updlog as on update to tt15v do also insert into tt15v_log values(old, new, row(old,old) < row(new,new))"
+    "query": "create rule updlog as on update to tt15v do also insert into tt15v_log values(old, new, row(old,old) \u003c row(new,new))",
+    "expected": "CREATE RULE updlog AS ON UPDATE TO tt15v DO INSERT INTO tt15v_log VALUES (old, new, ROW(old, old) \u003c ROW(new, new))"
   },
   {
     "comment": "create_view - Statement 217",
-    "query": "select pg_get_viewdef('tt18v', true)"
+    "query": "select pg_get_viewdef('tt18v', true)",
+    "expected": "SELECT pg_get_viewdef('tt18v', TRUE)"
   },
   {
     "comment": "create_view - Statement 218",
-    "query": "explain (costs off) select * from tt18v"
+    "query": "explain (costs off) select * from tt18v",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM tt18v"
   },
   {
     "comment": "create_view - Statement 219",
-    "query": "select 'foo'::text = any(array['abc','def','foo']::text[])"
+    "query": "select 'foo'::text = any(array['abc','def','foo']::text[])",
+    "expected": "SELECT CAST('foo' AS TEXT) = ANY (CAST(ARRAY['abc','def','foo'] AS TEXT[]))"
   },
   {
     "comment": "create_view - Statement 220",
-    "query": "select 'foo'::text = any((select array['abc','def','foo']::text[]))"
+    "query": "select 'foo'::text = any((select array['abc','def','foo']::text[]))",
+    "expected": "SELECT CAST('foo' AS TEXT) = ANY (SELECT CAST(ARRAY['abc','def','foo'] AS TEXT[]))"
   },
   {
     "comment": "create_view - Statement 221",
-    "query": "select 'foo'::text = any((select array['abc','def','foo']::text[])::text[])"
+    "query": "select 'foo'::text = any((select array['abc','def','foo']::text[])::text[])",
+    "expected": "SELECT CAST('foo' AS TEXT) = ANY (CAST((SELECT CAST(ARRAY['abc','def','foo'] AS TEXT[])) AS TEXT[]))"
   },
   {
     "comment": "create_view - Statement 222",
-    "query": "create view tt19v as select 'foo'::text = any(array['abc','def','foo']::text[]) c1, 'foo'::text = any((select array['abc','def','foo']::text[])::text[]) c2"
+    "query": "create view tt19v as select 'foo'::text = any(array['abc','def','foo']::text[]) c1, 'foo'::text = any((select array['abc','def','foo']::text[])::text[]) c2",
+    "expected": "CREATE VIEW tt19v AS SELECT CAST('foo' AS TEXT) = ANY (CAST(ARRAY['abc','def','foo'] AS TEXT[])) AS c1, CAST('foo' AS TEXT) = ANY (CAST((SELECT CAST(ARRAY['abc','def','foo'] AS TEXT[])) AS TEXT[])) AS c2"
   },
   {
     "comment": "create_view - Statement 223",
-    "query": "select pg_get_viewdef('tt19v', true)"
+    "query": "select pg_get_viewdef('tt19v', true)",
+    "expected": "SELECT pg_get_viewdef('tt19v', TRUE)"
   },
   {
     "comment": "create_view - Statement 224",
-    "query": "create view tt20v as select * from coalesce(1,2) as c, collation for ('x'::text) col, current_date as d, localtimestamp(3) as t, cast(1+2 as int4) as i4, cast(1+2 as int8) as i8"
+    "query": "create view tt20v as select * from coalesce(1,2) as c, collation for ('x'::text) col, current_date as d, localtimestamp(3) as t, cast(1+2 as int4) as i4, cast(1+2 as int8) as i8",
+    "expected": "CREATE VIEW tt20v AS SELECT * FROM COALESCE(1, 2) AS c, pg_collation_for(CAST('x' AS TEXT)) AS col, CURRENT_DATE AS d, LOCALTIMESTAMP(3) AS t, CAST(1 + 2 AS INT) AS i4, CAST(1 + 2 AS BIGINT) AS i8"
   },
   {
     "comment": "create_view - Statement 225",
-    "query": "select pg_get_viewdef('tt20v', true)"
+    "query": "select pg_get_viewdef('tt20v', true)",
+    "expected": "SELECT pg_get_viewdef('tt20v', TRUE)"
   },
   {
     "comment": "create_view - Statement 226",
-    "query": "create view tt201v as select ('2022-12-01'::date + '1 day'::interval) at time zone 'UTC' as atz, extract(day from now()) as extr, (now(), '1 day'::interval) overlaps (current_timestamp(2), '1 day'::interval) as o, 'foo' is normalized isn, 'foo' is nfkc normalized isnn, normalize('foo') as n, normalize('foo', nfkd) as nfkd, overlay('foo' placing 'bar' from 2) as ovl, overlay('foo' placing 'bar' from 2 for 3) as ovl2, position('foo' in 'foobar') as p, substring('foo' from 2 for 3) as s, substring('foo' similar 'f' escape '#') as ss, substring('foo' from 'oo') as ssf, trim(' ' from ' foo ') as bt, trim(leading ' ' from ' foo ') as lt, trim(trailing ' foo ') as rt, trim(E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea) as btb, trim(leading E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea) as ltb, trim(trailing E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea) as rtb, CURRENT_DATE as cd, (select * from CURRENT_DATE) as cd2, CURRENT_TIME as ct, (select * from CURRENT_TIME) as ct2, CURRENT_TIME (1) as ct3, (select * from CURRENT_TIME (1)) as ct4, CURRENT_TIMESTAMP as ct5, (select * from CURRENT_TIMESTAMP) as ct6, CURRENT_TIMESTAMP (1) as ct7, (select * from CURRENT_TIMESTAMP (1)) as ct8, LOCALTIME as lt1, (select * from LOCALTIME) as lt2, LOCALTIME (1) as lt3, (select * from LOCALTIME (1)) as lt4, LOCALTIMESTAMP as lt5, (select * from LOCALTIMESTAMP) as lt6, LOCALTIMESTAMP (1) as lt7, (select * from LOCALTIMESTAMP (1)) as lt8, CURRENT_CATALOG as ca, (select * from CURRENT_CATALOG) as ca2, CURRENT_ROLE as cr, (select * from CURRENT_ROLE) as cr2, CURRENT_SCHEMA as cs, (select * from CURRENT_SCHEMA) as cs2, CURRENT_USER as cu, (select * from CURRENT_USER) as cu2, USER as us, (select * from USER) as us2, SESSION_USER seu, (select * from SESSION_USER) as seu2, SYSTEM_USER as su, (select * from SYSTEM_USER) as su2"
+    "query": "create view tt201v as select ('2022-12-01'::date + '1 day'::interval) at time zone 'UTC' as atz, extract(day from now()) as extr, (now(), '1 day'::interval) overlaps (current_timestamp(2), '1 day'::interval) as o, 'foo' is normalized isn, 'foo' is nfkc normalized isnn, normalize('foo') as n, normalize('foo', nfkd) as nfkd, overlay('foo' placing 'bar' from 2) as ovl, overlay('foo' placing 'bar' from 2 for 3) as ovl2, position('foo' in 'foobar') as p, substring('foo' from 2 for 3) as s, substring('foo' similar 'f' escape '#') as ss, substring('foo' from 'oo') as ssf, trim(' ' from ' foo ') as bt, trim(leading ' ' from ' foo ') as lt, trim(trailing ' foo ') as rt, trim(E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea) as btb, trim(leading E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea) as ltb, trim(trailing E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea) as rtb, CURRENT_DATE as cd, (select * from CURRENT_DATE) as cd2, CURRENT_TIME as ct, (select * from CURRENT_TIME) as ct2, CURRENT_TIME (1) as ct3, (select * from CURRENT_TIME (1)) as ct4, CURRENT_TIMESTAMP as ct5, (select * from CURRENT_TIMESTAMP) as ct6, CURRENT_TIMESTAMP (1) as ct7, (select * from CURRENT_TIMESTAMP (1)) as ct8, LOCALTIME as lt1, (select * from LOCALTIME) as lt2, LOCALTIME (1) as lt3, (select * from LOCALTIME (1)) as lt4, LOCALTIMESTAMP as lt5, (select * from LOCALTIMESTAMP) as lt6, LOCALTIMESTAMP (1) as lt7, (select * from LOCALTIMESTAMP (1)) as lt8, CURRENT_CATALOG as ca, (select * from CURRENT_CATALOG) as ca2, CURRENT_ROLE as cr, (select * from CURRENT_ROLE) as cr2, CURRENT_SCHEMA as cs, (select * from CURRENT_SCHEMA) as cs2, CURRENT_USER as cu, (select * from CURRENT_USER) as cu2, USER as us, (select * from USER) as us2, SESSION_USER seu, (select * from SESSION_USER) as seu2, SYSTEM_USER as su, (select * from SYSTEM_USER) as su2",
+    "expected": "CREATE VIEW tt201v AS SELECT timezone('UTC', (CAST(CAST('2022-12-01' AS DATE) + '1 day' AS INTERVAL))) AS atz, extract(day FROM NOW()) AS extr, overlaps(NOW(), CAST('1 day' AS INTERVAL), CURRENT_TIMESTAMP(2), CAST('1 day' AS INTERVAL)) AS o, 'foo' is normalized AS isn, 'foo' is NFKC normalized AS isnn, normalize('foo') AS n, normalize('foo', NFKD) AS nfkd, overlay('foo' placing 'bar' from 2) AS ovl, overlay('foo' placing 'bar' from 2 for 3) AS ovl2, POSITION('foo' IN 'foobar') AS p, SUBSTRING('foo' FROM 2 FOR 3) AS s, SUBSTRING('foo' FROM 'f' FOR '#') AS ss, SUBSTRING('foo' FROM 'oo') AS ssf, trim(' foo ', ' ') AS bt, ltrim(' foo ', ' ') AS lt, rtrim(' foo ') AS rt, trim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA)) AS btb, ltrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA)) AS ltb, rtrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA)) AS rtb, CURRENT_DATE AS cd, (SELECT * FROM CURRENT_DATE) AS cd2, CURRENT_TIME AS ct, (SELECT * FROM CURRENT_TIME) AS ct2, CURRENT_TIME(1) AS ct3, (SELECT * FROM CURRENT_TIME(1)) AS ct4, CURRENT_TIMESTAMP AS ct5, (SELECT * FROM CURRENT_TIMESTAMP) AS ct6, CURRENT_TIMESTAMP(1) AS ct7, (SELECT * FROM CURRENT_TIMESTAMP(1)) AS ct8, LOCALTIME AS lt1, (SELECT * FROM LOCALTIME) AS lt2, LOCALTIME(1) AS lt3, (SELECT * FROM LOCALTIME(1)) AS lt4, LOCALTIMESTAMP AS lt5, (SELECT * FROM LOCALTIMESTAMP) AS lt6, LOCALTIMESTAMP(1) AS lt7, (SELECT * FROM LOCALTIMESTAMP(1)) AS lt8, CURRENT_CATALOG AS ca, (SELECT * FROM CURRENT_CATALOG) AS ca2, CURRENT_ROLE AS cr, (SELECT * FROM CURRENT_ROLE) AS cr2, CURRENT_SCHEMA AS cs, (SELECT * FROM CURRENT_SCHEMA) AS cs2, CURRENT_USER AS cu, (SELECT * FROM CURRENT_USER) AS cu2, USER AS us, (SELECT * FROM USER) AS us2, SESSION_USER AS seu, (SELECT * FROM SESSION_USER) AS seu2, SYSTEM_USER AS su, (SELECT * FROM SYSTEM_USER) AS su2"
   },
   {
     "comment": "create_view - Statement 227",
-    "query": "select pg_get_viewdef('tt201v', true)"
+    "query": "select pg_get_viewdef('tt201v', true)",
+    "expected": "SELECT pg_get_viewdef('tt201v', TRUE)"
   },
   {
     "comment": "create_view - Statement 228",
-    "query": "create view tt21v as select * from tt5 natural inner join tt6"
+    "query": "create view tt21v as select * from tt5 natural inner join tt6",
+    "expected": "CREATE VIEW tt21v AS SELECT * FROM tt5 NATURAL JOIN tt6"
   },
   {
     "comment": "create_view - Statement 229",
-    "query": "select pg_get_viewdef('tt21v', true)"
+    "query": "select pg_get_viewdef('tt21v', true)",
+    "expected": "SELECT pg_get_viewdef('tt21v', TRUE)"
   },
   {
     "comment": "create_view - Statement 230",
-    "query": "create view tt22v as select * from tt5 natural left join tt6"
+    "query": "create view tt22v as select * from tt5 natural left join tt6",
+    "expected": "CREATE VIEW tt22v AS SELECT * FROM tt5 NATURAL LEFT JOIN tt6"
   },
   {
     "comment": "create_view - Statement 231",
-    "query": "select pg_get_viewdef('tt22v', true)"
+    "query": "select pg_get_viewdef('tt22v', true)",
+    "expected": "SELECT pg_get_viewdef('tt22v', TRUE)"
   },
   {
     "comment": "create_view - Statement 232",
-    "query": "create view tt23v (col_a, col_b) as select q1 as other_name1, q2 as other_name2 from int8_tbl union select 42, 43"
+    "query": "create view tt23v (col_a, col_b) as select q1 as other_name1, q2 as other_name2 from int8_tbl union select 42, 43",
+    "expected": "CREATE VIEW tt23v (col_a, col_b) AS SELECT q1 AS other_name1, q2 AS other_name2 FROM int8_tbl UNION SELECT 42, 43"
   },
   {
     "comment": "create_view - Statement 233",
-    "query": "select pg_get_viewdef('tt23v', true)"
+    "query": "select pg_get_viewdef('tt23v', true)",
+    "expected": "SELECT pg_get_viewdef('tt23v', TRUE)"
   },
   {
     "comment": "create_view - Statement 234",
-    "query": "select pg_get_ruledef(oid, true) from pg_rewrite where ev_class = 'tt23v'::regclass and ev_type = '1'"
+    "query": "select pg_get_ruledef(oid, true) from pg_rewrite where ev_class = 'tt23v'::regclass and ev_type = '1'",
+    "expected": "SELECT pg_get_ruledef(oid, TRUE) FROM pg_rewrite WHERE ev_class = CAST('tt23v' AS regclass) AND ev_type = '1'"
   },
   {
     "comment": "create_view - Statement 235",
-    "query": "create view tt24v as with cte as materialized (select r from (values(1,2),(3,4)) r) select (r).column2 as col_a, (rr).column2 as col_b from cte join (select rr from (values(1,7),(3,8)) rr limit 2) ss on (r).column1 = (rr).column1"
+    "query": "create view tt24v as with cte as materialized (select r from (values(1,2),(3,4)) r) select (r).column2 as col_a, (rr).column2 as col_b from cte join (select rr from (values(1,7),(3,8)) rr limit 2) ss on (r).column1 = (rr).column1",
+    "expected": "CREATE VIEW tt24v AS WITH cte AS MATERIALIZED (SELECT r FROM (VALUES (1, 2), (3, 4)) AS r) SELECT (r).column2 AS col_a, (rr).column2 AS col_b FROM cte INNER JOIN (SELECT rr FROM (VALUES (1, 7), (3, 8)) AS rr LIMIT 2) AS ss ON (r).column1 = (rr).column1"
   },
   {
     "comment": "create_view - Statement 236",
-    "query": "select pg_get_viewdef('tt24v', true)"
+    "query": "select pg_get_viewdef('tt24v', true)",
+    "expected": "SELECT pg_get_viewdef('tt24v', TRUE)"
   },
   {
     "comment": "create_view - Statement 237",
-    "query": "create view tt25v as with cte as materialized (select pg_get_keywords() k) select (k).word from cte"
+    "query": "create view tt25v as with cte as materialized (select pg_get_keywords() k) select (k).word from cte",
+    "expected": "CREATE VIEW tt25v AS WITH cte AS MATERIALIZED (SELECT pg_get_keywords() AS k) SELECT (k).word FROM cte"
   },
   {
     "comment": "create_view - Statement 238",
-    "query": "select pg_get_viewdef('tt25v', true)"
+    "query": "select pg_get_viewdef('tt25v', true)",
+    "expected": "SELECT pg_get_viewdef('tt25v', TRUE)"
   },
   {
     "comment": "create_view - Statement 239",
-    "query": "explain (verbose, costs off) select * from tt24v"
+    "query": "explain (verbose, costs off) select * from tt24v",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM tt24v"
   },
   {
     "comment": "create_view - Statement 240",
-    "query": "explain (verbose, costs off) select (r).column2 from (select r from (values(1,2),(3,4)) r limit 1) ss"
+    "query": "explain (verbose, costs off) select (r).column2 from (select r from (values(1,2),(3,4)) r limit 1) ss",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT (r).column2 FROM (SELECT r FROM (VALUES (1, 2), (3, 4)) AS r LIMIT 1) AS ss"
   },
   {
     "comment": "create_view - Statement 241",
-    "query": "create view tt26v as select x + y + z as c1, (x * y) + z as c2, x + (y * z) as c3, (x + y) * z as c4, x * (y + z) as c5, x + (y + z) as c6, x + (y # z) as c7, (x > y) AND (y > z OR x > z) as c8, (x > y) OR (y > z AND NOT (x > z)) as c9, (x,y) <> ALL (values(1,2),(3,4)) as c10, (x,y) <= ANY (values(1,2),(3,4)) as c11 from (values(1,2,3)) v(x,y,z)"
+    "query": "create view tt26v as select x + y + z as c1, (x * y) + z as c2, x + (y * z) as c3, (x + y) * z as c4, x * (y + z) as c5, x + (y + z) as c6, x + (y # z) as c7, (x \u003e y) AND (y \u003e z OR x \u003e z) as c8, (x \u003e y) OR (y \u003e z AND NOT (x \u003e z)) as c9, (x,y) \u003c\u003e ALL (values(1,2),(3,4)) as c10, (x,y) \u003c= ANY (values(1,2),(3,4)) as c11 from (values(1,2,3)) v(x,y,z)",
+    "expected": "CREATE VIEW tt26v AS SELECT x + y + z AS c1, (x * y) + z AS c2, x + (y * z) AS c3, (x + y) * z AS c4, x * (y + z) AS c5, x + (y + z) AS c6, x + (y # z) AS c7, (x \u003e y) AND (y \u003e z OR x \u003e z) AS c8, (x \u003e y) OR (y \u003e z AND NOT (x \u003e z)) AS c9, (x, y) \u003c\u003e ALL (VALUES (1, 2), (3, 4)) AS c10, (x, y) \u003c= ANY (VALUES (1, 2), (3, 4)) AS c11 FROM (VALUES (1, 2, 3)) AS v(x, y, z)"
   },
   {
     "comment": "create_view - Statement 242",
-    "query": "select pg_get_viewdef('tt26v', true)"
+    "query": "select pg_get_viewdef('tt26v', true)",
+    "expected": "SELECT pg_get_viewdef('tt26v', TRUE)"
   },
   {
     "comment": "create_view - Statement 243",
-    "query": "create table tt27v_tbl (a int)"
+    "query": "create table tt27v_tbl (a int)",
+    "expected": "CREATE TABLE tt27v_tbl (a INT)"
   },
   {
     "comment": "create_view - Statement 244",
-    "query": "create view tt27v as select a from tt27v_tbl"
+    "query": "create view tt27v as select a from tt27v_tbl",
+    "expected": "CREATE VIEW tt27v AS SELECT a FROM tt27v_tbl"
   },
   {
     "comment": "create_view - Statement 245",
-    "query": "set restrict_nonsystem_relation_kind to 'view'"
+    "query": "set restrict_nonsystem_relation_kind to 'view'",
+    "expected": "SET restrict_nonsystem_relation_kind = 'view'"
   },
   {
     "comment": "create_view - Statement 246",
-    "query": "select a from tt27v where a > 0"
+    "query": "select a from tt27v where a \u003e 0",
+    "expected": "SELECT a FROM tt27v WHERE a \u003e 0"
   },
   {
     "comment": "create_view - Statement 247",
-    "query": "insert into tt27v values (1)"
+    "query": "insert into tt27v values (1)",
+    "expected": "INSERT INTO tt27v VALUES (1)"
   },
   {
     "comment": "create_view - Statement 248",
-    "query": "select viewname from pg_views where viewname = 'tt27v'"
+    "query": "select viewname from pg_views where viewname = 'tt27v'",
+    "expected": "SELECT viewname FROM pg_views WHERE viewname = 'tt27v'"
   },
   {
     "comment": "create_view - Statement 249",
-    "query": "reset restrict_nonsystem_relation_kind"
+    "query": "reset restrict_nonsystem_relation_kind",
+    "expected": "RESET restrict_nonsystem_relation_kind"
   },
   {
     "comment": "create_view - Statement 250",

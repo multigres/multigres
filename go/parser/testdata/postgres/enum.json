@@ -5,15 +5,18 @@
   },
   {
     "comment": "enum - Statement 2",
-    "query": "SELECT COUNT(*) FROM pg_enum WHERE enumtypid = 'rainbow'::regtype"
+    "query": "SELECT COUNT(*) FROM pg_enum WHERE enumtypid = 'rainbow'::regtype",
+    "expected": "SELECT COUNT(*) FROM pg_enum WHERE enumtypid = CAST('rainbow' AS regtype)"
   },
   {
     "comment": "enum - Statement 3",
-    "query": "SELECT 'red'::rainbow"
+    "query": "SELECT 'red'::rainbow",
+    "expected": "SELECT CAST('red' AS rainbow)"
   },
   {
     "comment": "enum - Statement 4",
-    "query": "SELECT 'mauve'::rainbow"
+    "query": "SELECT 'mauve'::rainbow",
+    "expected": "SELECT CAST('mauve' AS rainbow)"
   },
   {
     "comment": "enum - Statement 5",
@@ -29,7 +32,8 @@
   },
   {
     "comment": "enum - Statement 8",
-    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'planets'::regtype ORDER BY 2"
+    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'planets'::regtype ORDER BY 2",
+    "expected": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = CAST('planets' AS regtype) ORDER BY 2"
   },
   {
     "comment": "enum - Statement 9",
@@ -53,7 +57,8 @@
   },
   {
     "comment": "enum - Statement 14",
-    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'planets'::regtype ORDER BY enumlabel::planets"
+    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'planets'::regtype ORDER BY enumlabel::planets",
+    "expected": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = CAST('planets' AS regtype) ORDER BY CAST(enumlabel AS planets)"
   },
   {
     "comment": "enum - Statement 15",
@@ -73,7 +78,8 @@
   },
   {
     "comment": "enum - Statement 19",
-    "query": "SELECT enum_last(NULL::planets)"
+    "query": "SELECT enum_last(NULL::planets)",
+    "expected": "SELECT enum_last(CAST(NULL AS planets))"
   },
   {
     "comment": "enum - Statement 20",
@@ -81,131 +87,163 @@
   },
   {
     "comment": "enum - Statement 21",
-    "query": "create type insenum as enum ('L1', 'L2')"
+    "query": "create type insenum as enum ('L1', 'L2')",
+    "expected": "CREATE TYPE insenum AS ENUM ('L1', 'L2')"
   },
   {
     "comment": "enum - Statement 22",
-    "query": "alter type insenum add value 'i1' before 'L2'"
+    "query": "alter type insenum add value 'i1' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i1' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 23",
-    "query": "alter type insenum add value 'i2' before 'L2'"
+    "query": "alter type insenum add value 'i2' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i2' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 24",
-    "query": "alter type insenum add value 'i3' before 'L2'"
+    "query": "alter type insenum add value 'i3' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i3' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 25",
-    "query": "alter type insenum add value 'i4' before 'L2'"
+    "query": "alter type insenum add value 'i4' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i4' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 26",
-    "query": "alter type insenum add value 'i5' before 'L2'"
+    "query": "alter type insenum add value 'i5' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i5' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 27",
-    "query": "alter type insenum add value 'i6' before 'L2'"
+    "query": "alter type insenum add value 'i6' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i6' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 28",
-    "query": "alter type insenum add value 'i7' before 'L2'"
+    "query": "alter type insenum add value 'i7' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i7' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 29",
-    "query": "alter type insenum add value 'i8' before 'L2'"
+    "query": "alter type insenum add value 'i8' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i8' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 30",
-    "query": "alter type insenum add value 'i9' before 'L2'"
+    "query": "alter type insenum add value 'i9' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i9' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 31",
-    "query": "alter type insenum add value 'i10' before 'L2'"
+    "query": "alter type insenum add value 'i10' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i10' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 32",
-    "query": "alter type insenum add value 'i11' before 'L2'"
+    "query": "alter type insenum add value 'i11' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i11' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 33",
-    "query": "alter type insenum add value 'i12' before 'L2'"
+    "query": "alter type insenum add value 'i12' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i12' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 34",
-    "query": "alter type insenum add value 'i13' before 'L2'"
+    "query": "alter type insenum add value 'i13' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i13' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 35",
-    "query": "alter type insenum add value 'i14' before 'L2'"
+    "query": "alter type insenum add value 'i14' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i14' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 36",
-    "query": "alter type insenum add value 'i15' before 'L2'"
+    "query": "alter type insenum add value 'i15' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i15' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 37",
-    "query": "alter type insenum add value 'i16' before 'L2'"
+    "query": "alter type insenum add value 'i16' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i16' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 38",
-    "query": "alter type insenum add value 'i17' before 'L2'"
+    "query": "alter type insenum add value 'i17' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i17' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 39",
-    "query": "alter type insenum add value 'i18' before 'L2'"
+    "query": "alter type insenum add value 'i18' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i18' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 40",
-    "query": "alter type insenum add value 'i19' before 'L2'"
+    "query": "alter type insenum add value 'i19' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i19' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 41",
-    "query": "alter type insenum add value 'i20' before 'L2'"
+    "query": "alter type insenum add value 'i20' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i20' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 42",
-    "query": "alter type insenum add value 'i21' before 'L2'"
+    "query": "alter type insenum add value 'i21' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i21' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 43",
-    "query": "alter type insenum add value 'i22' before 'L2'"
+    "query": "alter type insenum add value 'i22' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i22' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 44",
-    "query": "alter type insenum add value 'i23' before 'L2'"
+    "query": "alter type insenum add value 'i23' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i23' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 45",
-    "query": "alter type insenum add value 'i24' before 'L2'"
+    "query": "alter type insenum add value 'i24' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i24' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 46",
-    "query": "alter type insenum add value 'i25' before 'L2'"
+    "query": "alter type insenum add value 'i25' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i25' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 47",
-    "query": "alter type insenum add value 'i26' before 'L2'"
+    "query": "alter type insenum add value 'i26' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i26' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 48",
-    "query": "alter type insenum add value 'i27' before 'L2'"
+    "query": "alter type insenum add value 'i27' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i27' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 49",
-    "query": "alter type insenum add value 'i28' before 'L2'"
+    "query": "alter type insenum add value 'i28' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i28' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 50",
-    "query": "alter type insenum add value 'i29' before 'L2'"
+    "query": "alter type insenum add value 'i29' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i29' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 51",
-    "query": "alter type insenum add value 'i30' before 'L2'"
+    "query": "alter type insenum add value 'i30' before 'L2'",
+    "expected": "ALTER TYPE insenum ADD VALUE 'i30' BEFORE 'L2'"
   },
   {
     "comment": "enum - Statement 52",
-    "query": "SELECT enumlabel, case when enumsortorder > 20 then null else enumsortorder end as so FROM pg_enum WHERE enumtypid = 'insenum'::regtype ORDER BY enumsortorder"
+    "query": "SELECT enumlabel, case when enumsortorder \u003e 20 then null else enumsortorder end as so FROM pg_enum WHERE enumtypid = 'insenum'::regtype ORDER BY enumsortorder",
+    "expected": "SELECT enumlabel, CASE WHEN enumsortorder \u003e 20 THEN NULL ELSE enumsortorder END AS so FROM pg_enum WHERE enumtypid = CAST('insenum' AS regtype) ORDER BY enumsortorder"
   },
   {
     "comment": "enum - Statement 53",
@@ -213,15 +251,17 @@
   },
   {
     "comment": "enum - Statement 54",
-    "query": "INSERT INTO enumtest values ('red'), ('orange'), ('yellow'), ('green')"
+    "query": "INSERT INTO enumtest values ('red'), ('orange'), ('yellow'), ('green')",
+    "expected": "INSERT INTO enumtest VALUES ('red'), ('orange'), ('yellow'), ('green')"
   },
   {
     "comment": "enum - Statement 55",
-    "query": "COPY enumtest FROM stdin"
+    "query": "COPY enumtest FROM stdin",
+    "expected": "COPY enumtest FROM STDIN"
   },
   {
     "comment": "enum - Statement 56",
-    "query": "blue purple \\. SELECT * FROM enumtest"
+    "query": "SELECT * FROM enumtest"
   },
   {
     "comment": "enum - Statement 57",
@@ -229,43 +269,48 @@
   },
   {
     "comment": "enum - Statement 58",
-    "query": "SELECT * FROM enumtest WHERE col <> 'orange' ORDER BY col"
+    "query": "SELECT * FROM enumtest WHERE col \u003c\u003e 'orange' ORDER BY col"
   },
   {
     "comment": "enum - Statement 59",
-    "query": "SELECT * FROM enumtest WHERE col > 'yellow' ORDER BY col"
+    "query": "SELECT * FROM enumtest WHERE col \u003e 'yellow' ORDER BY col"
   },
   {
     "comment": "enum - Statement 60",
-    "query": "SELECT * FROM enumtest WHERE col >= 'yellow' ORDER BY col"
+    "query": "SELECT * FROM enumtest WHERE col \u003e= 'yellow' ORDER BY col"
   },
   {
     "comment": "enum - Statement 61",
-    "query": "SELECT * FROM enumtest WHERE col < 'green' ORDER BY col"
+    "query": "SELECT * FROM enumtest WHERE col \u003c 'green' ORDER BY col"
   },
   {
     "comment": "enum - Statement 62",
-    "query": "SELECT * FROM enumtest WHERE col <= 'green' ORDER BY col"
+    "query": "SELECT * FROM enumtest WHERE col \u003c= 'green' ORDER BY col"
   },
   {
     "comment": "enum - Statement 63",
-    "query": "SELECT 'red'::rainbow::text || 'hithere'"
+    "query": "SELECT 'red'::rainbow::text || 'hithere'",
+    "expected": "SELECT CAST(CAST('red' AS rainbow) AS TEXT) || 'hithere'"
   },
   {
     "comment": "enum - Statement 64",
-    "query": "SELECT 'red'::text::rainbow = 'red'::rainbow"
+    "query": "SELECT 'red'::text::rainbow = 'red'::rainbow",
+    "expected": "SELECT CAST(CAST('red' AS TEXT) AS rainbow) = CAST('red' AS rainbow)"
   },
   {
     "comment": "enum - Statement 65",
-    "query": "SELECT min(col) FROM enumtest"
+    "query": "SELECT min(col) FROM enumtest",
+    "expected": "SELECT MIN(col) FROM enumtest"
   },
   {
     "comment": "enum - Statement 66",
-    "query": "SELECT max(col) FROM enumtest"
+    "query": "SELECT max(col) FROM enumtest",
+    "expected": "SELECT MAX(col) FROM enumtest"
   },
   {
     "comment": "enum - Statement 67",
-    "query": "SELECT max(col) FROM enumtest WHERE col < 'green'"
+    "query": "SELECT max(col) FROM enumtest WHERE col \u003c 'green'",
+    "expected": "SELECT MAX(col) FROM enumtest WHERE col \u003c 'green'"
   },
   {
     "comment": "enum - Statement 68",
@@ -277,7 +322,8 @@
   },
   {
     "comment": "enum - Statement 70",
-    "query": "CREATE UNIQUE INDEX enumtest_btree ON enumtest USING btree (col)"
+    "query": "CREATE UNIQUE INDEX enumtest_btree ON enumtest USING btree (col)",
+    "expected": "CREATE UNIQUE INDEX enumtest_btree ON enumtest USING btree ( col )"
   },
   {
     "comment": "enum - Statement 71",
@@ -285,7 +331,8 @@
   },
   {
     "comment": "enum - Statement 72",
-    "query": "CREATE INDEX enumtest_hash ON enumtest USING hash (col)"
+    "query": "CREATE INDEX enumtest_hash ON enumtest USING hash (col)",
+    "expected": "CREATE INDEX enumtest_hash ON enumtest USING hash ( col )"
   },
   {
     "comment": "enum - Statement 73",
@@ -301,19 +348,23 @@
   },
   {
     "comment": "enum - Statement 76",
-    "query": "CREATE DOMAIN rgb AS rainbow CHECK (VALUE IN ('red', 'green', 'blue'))"
+    "query": "CREATE DOMAIN rgb AS rainbow CHECK (VALUE IN ('red', 'green', 'blue'))",
+    "expected": "CREATE DOMAIN rgb AS rainbow CHECK (value IN ('red', 'green', 'blue'))"
   },
   {
     "comment": "enum - Statement 77",
-    "query": "SELECT 'red'::rgb"
+    "query": "SELECT 'red'::rgb",
+    "expected": "SELECT CAST('red' AS rgb)"
   },
   {
     "comment": "enum - Statement 78",
-    "query": "SELECT 'purple'::rgb"
+    "query": "SELECT 'purple'::rgb",
+    "expected": "SELECT CAST('purple' AS rgb)"
   },
   {
     "comment": "enum - Statement 79",
-    "query": "SELECT 'purple'::rainbow::rgb"
+    "query": "SELECT 'purple'::rainbow::rgb",
+    "expected": "SELECT CAST(CAST('purple' AS rainbow) AS rgb)"
   },
   {
     "comment": "enum - Statement 80",
@@ -321,71 +372,83 @@
   },
   {
     "comment": "enum - Statement 81",
-    "query": "SELECT '{red,green,blue}'::rainbow[]"
+    "query": "SELECT '{red,green,blue}'::rainbow[]",
+    "expected": "SELECT CAST('{red,green,blue}' AS rainbow[])"
   },
   {
     "comment": "enum - Statement 82",
-    "query": "SELECT ('{red,green,blue}'::rainbow[])[2]"
+    "query": "SELECT ('{red,green,blue}'::rainbow[])[2]",
+    "expected": "SELECT (CAST('{red,green,blue}' AS rainbow[]))[2]"
   },
   {
     "comment": "enum - Statement 83",
-    "query": "SELECT 'red' = ANY ('{red,green,blue}'::rainbow[])"
+    "query": "SELECT 'red' = ANY ('{red,green,blue}'::rainbow[])",
+    "expected": "SELECT 'red' = ANY (CAST('{red,green,blue}' AS rainbow[]))"
   },
   {
     "comment": "enum - Statement 84",
-    "query": "SELECT 'yellow' = ANY ('{red,green,blue}'::rainbow[])"
+    "query": "SELECT 'yellow' = ANY ('{red,green,blue}'::rainbow[])",
+    "expected": "SELECT 'yellow' = ANY (CAST('{red,green,blue}' AS rainbow[]))"
   },
   {
     "comment": "enum - Statement 85",
-    "query": "SELECT 'red' = ALL ('{red,green,blue}'::rainbow[])"
+    "query": "SELECT 'red' = ALL ('{red,green,blue}'::rainbow[])",
+    "expected": "SELECT 'red' = ALL (CAST('{red,green,blue}' AS rainbow[]))"
   },
   {
     "comment": "enum - Statement 86",
-    "query": "SELECT 'red' = ALL ('{red,red}'::rainbow[])"
+    "query": "SELECT 'red' = ALL ('{red,red}'::rainbow[])",
+    "expected": "SELECT 'red' = ALL (CAST('{red,red}' AS rainbow[]))"
   },
   {
     "comment": "enum - Statement 87",
-    "query": "SELECT enum_first(NULL::rainbow)"
+    "query": "SELECT enum_first(NULL::rainbow)",
+    "expected": "SELECT enum_first(CAST(NULL AS rainbow))"
   },
   {
     "comment": "enum - Statement 88",
-    "query": "SELECT enum_last('green'::rainbow)"
+    "query": "SELECT enum_last('green'::rainbow)",
+    "expected": "SELECT enum_last(CAST('green' AS rainbow))"
   },
   {
     "comment": "enum - Statement 89",
-    "query": "SELECT enum_range(NULL::rainbow)"
+    "query": "SELECT enum_range(NULL::rainbow)",
+    "expected": "SELECT enum_range(CAST(NULL AS rainbow))"
   },
   {
     "comment": "enum - Statement 90",
-    "query": "SELECT enum_range('orange'::rainbow, 'green'::rainbow)"
+    "query": "SELECT enum_range('orange'::rainbow, 'green'::rainbow)",
+    "expected": "SELECT enum_range(CAST('orange' AS rainbow), CAST('green' AS rainbow))"
   },
   {
     "comment": "enum - Statement 91",
-    "query": "SELECT enum_range(NULL, 'green'::rainbow)"
+    "query": "SELECT enum_range(NULL, 'green'::rainbow)",
+    "expected": "SELECT enum_range(NULL, CAST('green' AS rainbow))"
   },
   {
     "comment": "enum - Statement 92",
-    "query": "SELECT enum_range('orange'::rainbow, NULL)"
+    "query": "SELECT enum_range('orange'::rainbow, NULL)",
+    "expected": "SELECT enum_range(CAST('orange' AS rainbow), NULL)"
   },
   {
     "comment": "enum - Statement 93",
-    "query": "SELECT enum_range(NULL::rainbow, NULL)"
+    "query": "SELECT enum_range(NULL::rainbow, NULL)",
+    "expected": "SELECT enum_range(CAST(NULL AS rainbow), NULL)"
   },
   {
     "comment": "enum - Statement 94",
-    "query": "CREATE FUNCTION echo_me(anyenum) RETURNS text AS $$ BEGIN RETURN $1::text || 'omg'"
-  },
-  {
-    "comment": "enum - Statement 95",
-    "query": "END $$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION echo_me(anyenum) RETURNS text AS $$ BEGIN RETURN $1::text || 'omg'; END $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION echo_me (anyenum) RETURNS TEXT LANGUAGE plpgsql AS $$ BEGIN RETURN $1::text || 'omg'; END $$"
   },
   {
     "comment": "enum - Statement 96",
-    "query": "SELECT echo_me('red'::rainbow)"
+    "query": "SELECT echo_me('red'::rainbow)",
+    "expected": "SELECT echo_me(CAST('red' AS rainbow))"
   },
   {
     "comment": "enum - Statement 97",
-    "query": "CREATE FUNCTION echo_me(rainbow) RETURNS text AS $$ BEGIN RETURN $1::text || 'wtf'"
+    "query": "CREATE FUNCTION echo_me(rainbow) RETURNS text AS $$ BEGIN RETURN $1::text || 'wtf'; END $$ LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION echo_me (rainbow) RETURNS TEXT LANGUAGE plpgsql AS $$ BEGIN RETURN $1::text || 'wtf'; END $$"
   },
   {
     "comment": "enum - Statement 98",
@@ -425,11 +488,13 @@
   },
   {
     "comment": "enum - Statement 107",
-    "query": "CREATE TYPE bogus AS ENUM('good', 'bad', 'ugly')"
+    "query": "CREATE TYPE bogus AS ENUM('good', 'bad', 'ugly')",
+    "expected": "CREATE TYPE bogus AS ENUM ('good', 'bad', 'ugly')"
   },
   {
     "comment": "enum - Statement 108",
-    "query": "CREATE TABLE enumtest_bogus_child(parent bogus REFERENCES enumtest_parent)"
+    "query": "CREATE TABLE enumtest_bogus_child(parent bogus REFERENCES enumtest_parent)",
+    "expected": "CREATE TABLE enumtest_bogus_child (parent bogus REFERENCES enumtest_parent)"
   },
   {
     "comment": "enum - Statement 109",
@@ -441,7 +506,8 @@
   },
   {
     "comment": "enum - Statement 111",
-    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'rainbow'::regtype ORDER BY 2"
+    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'rainbow'::regtype ORDER BY 2",
+    "expected": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = CAST('rainbow' AS regtype) ORDER BY 2"
   },
   {
     "comment": "enum - Statement 112",
@@ -449,7 +515,8 @@
   },
   {
     "comment": "enum - Statement 113",
-    "query": "CREATE TYPE bogus AS ENUM('good')"
+    "query": "CREATE TYPE bogus AS ENUM('good')",
+    "expected": "CREATE TYPE bogus AS ENUM ('good')"
   },
   {
     "comment": "enum - Statement 114",
@@ -465,23 +532,28 @@
   },
   {
     "comment": "enum - Statement 117",
-    "query": "SELECT 'new'::bogus"
+    "query": "SELECT 'new'::bogus",
+    "expected": "SELECT CAST('new' AS bogus)"
   },
   {
     "comment": "enum - Statement 118",
-    "query": "ROLLBACK TO x"
+    "query": "ROLLBACK TO x",
+    "expected": "ROLLBACK TO SAVEPOINT x"
   },
   {
     "comment": "enum - Statement 119",
-    "query": "SELECT enum_first(null::bogus)"
+    "query": "SELECT enum_first(null::bogus)",
+    "expected": "SELECT enum_first(CAST(NULL AS bogus))"
   },
   {
     "comment": "enum - Statement 120",
-    "query": "SELECT enum_last(null::bogus)"
+    "query": "SELECT enum_last(null::bogus)",
+    "expected": "SELECT enum_last(CAST(NULL AS bogus))"
   },
   {
     "comment": "enum - Statement 121",
-    "query": "SELECT enum_range(null::bogus)"
+    "query": "SELECT enum_range(null::bogus)",
+    "expected": "SELECT enum_range(CAST(NULL AS bogus))"
   },
   {
     "comment": "enum - Statement 122",
@@ -489,7 +561,8 @@
   },
   {
     "comment": "enum - Statement 123",
-    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'bogus'::regtype ORDER BY 2"
+    "query": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = 'bogus'::regtype ORDER BY 2",
+    "expected": "SELECT enumlabel, enumsortorder FROM pg_enum WHERE enumtypid = CAST('bogus' AS regtype) ORDER BY 2"
   },
   {
     "comment": "enum - Statement 124",
@@ -501,7 +574,8 @@
   },
   {
     "comment": "enum - Statement 126",
-    "query": "SELECT 'bad'::bogon"
+    "query": "SELECT 'bad'::bogon",
+    "expected": "SELECT CAST('bad' AS bogon)"
   },
   {
     "comment": "enum - Statement 127",
@@ -509,19 +583,23 @@
   },
   {
     "comment": "enum - Statement 128",
-    "query": "ALTER TYPE bogus RENAME VALUE 'good' to 'bad'"
+    "query": "ALTER TYPE bogus RENAME VALUE 'good' to 'bad'",
+    "expected": "ALTER TYPE bogus RENAME VALUE 'good' TO 'bad'"
   },
   {
     "comment": "enum - Statement 129",
-    "query": "SELECT 'bad'::bogus"
+    "query": "SELECT 'bad'::bogus",
+    "expected": "SELECT CAST('bad' AS bogus)"
   },
   {
     "comment": "enum - Statement 130",
-    "query": "CREATE TYPE bogus AS ENUM('good','bad','ugly')"
+    "query": "CREATE TYPE bogus AS ENUM('good','bad','ugly')",
+    "expected": "CREATE TYPE bogus AS ENUM ('good', 'bad', 'ugly')"
   },
   {
     "comment": "enum - Statement 131",
-    "query": "select enum_range(null::bogon)"
+    "query": "select enum_range(null::bogon)",
+    "expected": "SELECT enum_range(CAST(NULL AS bogon))"
   },
   {
     "comment": "enum - Statement 132",
