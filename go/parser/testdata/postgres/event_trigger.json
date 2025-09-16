@@ -874,7 +874,7 @@
   {
     "comment": "event_trigger - Statement 203",
     "query": "CREATE POLICY p1 ON event_trigger_test USING (FALSE)",
-    "expected": "CREATE POLICY p1 ON event_trigger_test FOR all TO PUBLIC USING ( FALSE )"
+    "expected": "CREATE POLICY p1 ON event_trigger_test AS PERMISSIVE FOR all TO PUBLIC USING ( FALSE )"
   },
   {
     "comment": "event_trigger - Statement 204",
@@ -924,7 +924,7 @@
   {
     "comment": "event_trigger - Statement 215",
     "query": "CREATE POLICY pguc ON event_trigger_test USING (FALSE)",
-    "expected": "CREATE POLICY pguc ON event_trigger_test FOR all TO PUBLIC USING ( FALSE )"
+    "expected": "CREATE POLICY pguc ON event_trigger_test AS PERMISSIVE FOR all TO PUBLIC USING ( FALSE )"
   },
   {
     "comment": "event_trigger - Statement 216",

@@ -637,7 +637,7 @@
   {
     "comment": "copy2 - Statement 144",
     "query": "CREATE POLICY p1 ON rls_t1 FOR SELECT USING (a % 2 = 0)",
-    "expected": "CREATE POLICY p1 ON rls_t1 FOR select TO PUBLIC USING ( a % 2 = 0 )"
+    "expected": "CREATE POLICY p1 ON rls_t1 AS PERMISSIVE FOR select TO PUBLIC USING ( a % 2 = 0 )"
   },
   {
     "comment": "copy2 - Statement 145",

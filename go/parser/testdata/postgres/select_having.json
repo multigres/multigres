@@ -1,7 +1,8 @@
 [
   {
     "comment": "select_having - Statement 1",
-    "query": "CREATE TABLE test_having (a int, b int, c char(8), d char)"
+    "query": "CREATE TABLE test_having (a int, b int, c char(8), d char)",
+    "expected": "CREATE TABLE test_having (a INT, b INT, c CHAR(8), d CHAR(1))"
   },
   {
     "comment": "select_having - Statement 2",
@@ -45,7 +46,8 @@
   },
   {
     "comment": "select_having - Statement 12",
-    "query": "SELECT b, c FROM test_having GROUP BY b, c HAVING count(*) = 1 ORDER BY b, c"
+    "query": "SELECT b, c FROM test_having GROUP BY b, c HAVING count(*) = 1 ORDER BY b, c",
+    "expected": "SELECT b, c FROM test_having GROUP BY b, c HAVING COUNT(*) = 1 ORDER BY b, c"
   },
   {
     "comment": "select_having - Statement 13",
@@ -53,39 +55,45 @@
   },
   {
     "comment": "select_having - Statement 14",
-    "query": "SELECT lower(c), count(c) FROM test_having GROUP BY lower(c) HAVING count(*) > 2 OR min(a) = max(a) ORDER BY lower(c)"
+    "query": "SELECT lower(c), count(c) FROM test_having GROUP BY lower(c) HAVING count(*) \u003e 2 OR min(a) = max(a) ORDER BY lower(c)",
+    "expected": "SELECT lower(c), COUNT(c) FROM test_having GROUP BY lower(c) HAVING COUNT(*) \u003e 2 OR MIN(a) = MAX(a) ORDER BY lower(c)"
   },
   {
     "comment": "select_having - Statement 15",
-    "query": "SELECT c, max(a) FROM test_having GROUP BY c HAVING count(*) > 2 OR min(a) = max(a) ORDER BY c"
+    "query": "SELECT c, max(a) FROM test_having GROUP BY c HAVING count(*) \u003e 2 OR min(a) = max(a) ORDER BY c",
+    "expected": "SELECT c, MAX(a) FROM test_having GROUP BY c HAVING COUNT(*) \u003e 2 OR MIN(a) = MAX(a) ORDER BY c"
   },
   {
     "comment": "select_having - Statement 16",
-    "query": "SELECT min(a), max(a) FROM test_having HAVING min(a) = max(a)"
+    "query": "SELECT min(a), max(a) FROM test_having HAVING min(a) = max(a)",
+    "expected": "SELECT MIN(a), MAX(a) FROM test_having HAVING MIN(a) = MAX(a)"
   },
   {
     "comment": "select_having - Statement 17",
-    "query": "SELECT min(a), max(a) FROM test_having HAVING min(a) < max(a)"
+    "query": "SELECT min(a), max(a) FROM test_having HAVING min(a) \u003c max(a)",
+    "expected": "SELECT MIN(a), MAX(a) FROM test_having HAVING MIN(a) \u003c MAX(a)"
   },
   {
     "comment": "select_having - Statement 18",
-    "query": "SELECT a FROM test_having HAVING min(a) < max(a)"
+    "query": "SELECT a FROM test_having HAVING min(a) \u003c max(a)",
+    "expected": "SELECT a FROM test_having HAVING MIN(a) \u003c MAX(a)"
   },
   {
     "comment": "select_having - Statement 19",
-    "query": "SELECT 1 AS one FROM test_having HAVING a > 1"
+    "query": "SELECT 1 AS one FROM test_having HAVING a \u003e 1"
   },
   {
     "comment": "select_having - Statement 20",
-    "query": "SELECT 1 AS one FROM test_having HAVING 1 > 2"
+    "query": "SELECT 1 AS one FROM test_having HAVING 1 \u003e 2"
   },
   {
     "comment": "select_having - Statement 21",
-    "query": "SELECT 1 AS one FROM test_having HAVING 1 < 2"
+    "query": "SELECT 1 AS one FROM test_having HAVING 1 \u003c 2"
   },
   {
     "comment": "select_having - Statement 22",
-    "query": "SELECT 1 AS one FROM test_having WHERE 1/a = 1 HAVING 1 < 2"
+    "query": "SELECT 1 AS one FROM test_having WHERE 1/a = 1 HAVING 1 \u003c 2",
+    "expected": "SELECT 1 AS one FROM test_having WHERE 1 / a = 1 HAVING 1 \u003c 2"
   },
   {
     "comment": "select_having - Statement 23",

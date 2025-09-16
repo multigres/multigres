@@ -780,6 +780,25 @@ func (n *CommentStmt) SqlString() string {
 		// NumericOnly should format directly
 		parts = append(parts, "COMMENT ON LARGE OBJECT", n.Object.SqlString(), "IS")
 
+	case OBJECT_RULE:
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
+			// For RULE, NodeList has [table_name, rule_name] but we want "RULE rule_name ON table_name"
+			ruleName := ""
+			tableName := ""
+			
+			if str, ok := nodeList.Items[1].(*String); ok {
+				ruleName = QuoteIdentifier(str.SVal)
+			}
+			if str, ok := nodeList.Items[0].(*String); ok {
+				tableName = QuoteIdentifier(str.SVal)
+			}
+			
+			parts = append(parts, "COMMENT ON RULE", ruleName, "ON", tableName, "IS")
+		} else {
+			// Fallback to regular formatting
+			parts = append(parts, "COMMENT ON RULE", n.Object.SqlString(), "IS")
+		}
+
 	case OBJECT_CAST:
 		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
 			// First is source type, second is target type
@@ -1182,7 +1201,7 @@ func (n *RenameStmt) SqlString() string {
 
 		// Add old name
 		if n.Subname != "" {
-			parts = append(parts, n.Subname)
+			parts = append(parts, QuoteIdentifier(n.Subname))
 		}
 
 		// Add ON tablename
@@ -1190,7 +1209,7 @@ func (n *RenameStmt) SqlString() string {
 			parts = append(parts, "ON", n.Relation.SqlString())
 		}
 
-		parts = append(parts, "RENAME", "TO", n.Newname)
+		parts = append(parts, "RENAME", "TO", QuoteIdentifier(n.Newname))
 	} else if n.RenameType == OBJECT_COLUMN {
 		// Column rename: ALTER <type> tablename RENAME [COLUMN] old_name TO new_name
 		if n.Relation != nil {
@@ -1376,7 +1395,7 @@ func (n *RuleStmt) String() string {
 		tableName = n.Relation.CatalogName + "." + tableName
 	}
 
-	parts = append(parts, "RULE", n.Rulename, "AS ON", n.Event.String(), "TO", tableName)
+	parts = append(parts, "RULE", QuoteIdentifier(n.Rulename), "AS ON", n.Event.String(), "TO", tableName)
 
 	if n.WhereClause != nil {
 		// Use SqlString() for proper expression deparsing

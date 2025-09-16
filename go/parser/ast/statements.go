@@ -2002,7 +2002,7 @@ func (d *DropStmt) sqlStringForDropOnTable() string {
 		}
 
 		if objectName != "" {
-			parts = append(parts, objectName)
+			parts = append(parts, QuoteIdentifier(objectName))
 		}
 		if tableName != "" {
 			parts = append(parts, "ON", tableName)

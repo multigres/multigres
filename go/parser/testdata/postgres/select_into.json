@@ -1,7 +1,8 @@
 [
   {
     "comment": "select_into - Statement 1",
-    "query": "SELECT * INTO TABLE sitmp1 FROM onek WHERE onek.unique1 < 2"
+    "query": "SELECT * INTO TABLE sitmp1 FROM onek WHERE onek.unique1 \u003c 2",
+    "expected": "SELECT * INTO sitmp1 FROM onek WHERE onek.unique1 \u003c 2"
   },
   {
     "comment": "select_into - Statement 2",
@@ -9,7 +10,8 @@
   },
   {
     "comment": "select_into - Statement 3",
-    "query": "SELECT * INTO TABLE sitmp1 FROM onek2 WHERE onek2.unique1 < 2"
+    "query": "SELECT * INTO TABLE sitmp1 FROM onek2 WHERE onek2.unique1 \u003c 2",
+    "expected": "SELECT * INTO sitmp1 FROM onek2 WHERE onek2.unique1 \u003c 2"
   },
   {
     "comment": "select_into - Statement 4",
@@ -25,15 +27,18 @@
   },
   {
     "comment": "select_into - Statement 7",
-    "query": "GRANT ALL ON SCHEMA selinto_schema TO public"
+    "query": "GRANT ALL ON SCHEMA selinto_schema TO public",
+    "expected": "GRANT ALL ON SCHEMA selinto_schema TO PUBLIC"
   },
   {
     "comment": "select_into - Statement 8",
-    "query": "SET SESSION AUTHORIZATION regress_selinto_user"
+    "query": "SET SESSION AUTHORIZATION regress_selinto_user",
+    "expected": "SET SESSION AUTHORIZATION 'regress_selinto_user'"
   },
   {
     "comment": "select_into - Statement 9",
-    "query": "CREATE TABLE selinto_schema.tbl_withdata1 (a) AS SELECT generate_series(1,3) WITH DATA"
+    "query": "CREATE TABLE selinto_schema.tbl_withdata1 (a) AS SELECT generate_series(1,3) WITH DATA",
+    "expected": "CREATE TABLE selinto_schema.tbl_withdata1 (a) AS SELECT generate_series(1, 3)"
   },
   {
     "comment": "select_into - Statement 10",
@@ -41,27 +46,33 @@
   },
   {
     "comment": "select_into - Statement 11",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE selinto_schema.tbl_withdata2 (a) AS SELECT generate_series(1,3) WITH DATA"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE selinto_schema.tbl_withdata2 (a) AS SELECT generate_series(1,3) WITH DATA",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE TABLE selinto_schema.tbl_withdata2 (a) AS SELECT generate_series(1, 3)"
   },
   {
     "comment": "select_into - Statement 12",
-    "query": "CREATE TABLE selinto_schema.tbl_nodata1 (a) AS SELECT generate_series(1,3) WITH NO DATA"
+    "query": "CREATE TABLE selinto_schema.tbl_nodata1 (a) AS SELECT generate_series(1,3) WITH NO DATA",
+    "expected": "CREATE TABLE selinto_schema.tbl_nodata1 (a) AS SELECT generate_series(1, 3) WITH NO DATA"
   },
   {
     "comment": "select_into - Statement 13",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE selinto_schema.tbl_nodata2 (a) AS SELECT generate_series(1,3) WITH NO DATA"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE selinto_schema.tbl_nodata2 (a) AS SELECT generate_series(1,3) WITH NO DATA",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE TABLE selinto_schema.tbl_nodata2 (a) AS SELECT generate_series(1, 3) WITH NO DATA"
   },
   {
     "comment": "select_into - Statement 14",
-    "query": "PREPARE data_sel AS SELECT generate_series(1,3)"
+    "query": "PREPARE data_sel AS SELECT generate_series(1,3)",
+    "expected": "PREPARE data_sel AS SELECT generate_series(1, 3)"
   },
   {
     "comment": "select_into - Statement 15",
-    "query": "CREATE TABLE selinto_schema.tbl_withdata3 (a) AS EXECUTE data_sel WITH DATA"
+    "query": "CREATE TABLE selinto_schema.tbl_withdata3 (a) AS EXECUTE data_sel WITH DATA",
+    "expected": "CREATE TABLE selinto_schema.tbl_withdata3 (a) AS EXECUTE data_sel"
   },
   {
     "comment": "select_into - Statement 16",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE selinto_schema.tbl_withdata4 (a) AS EXECUTE data_sel WITH DATA"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE selinto_schema.tbl_withdata4 (a) AS EXECUTE data_sel WITH DATA",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE TABLE selinto_schema.tbl_withdata4 (a) AS EXECUTE data_sel"
   },
   {
     "comment": "select_into - Statement 17",
@@ -69,11 +80,13 @@
   },
   {
     "comment": "select_into - Statement 18",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE selinto_schema.tbl_nodata4 (a) AS EXECUTE data_sel WITH NO DATA"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE selinto_schema.tbl_nodata4 (a) AS EXECUTE data_sel WITH NO DATA",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE TABLE selinto_schema.tbl_nodata4 (a) AS EXECUTE data_sel WITH NO DATA"
   },
   {
     "comment": "select_into - Statement 19",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "select_into - Statement 20",
@@ -89,11 +102,13 @@
   },
   {
     "comment": "select_into - Statement 23",
-    "query": "DROP USER regress_selinto_user"
+    "query": "DROP USER regress_selinto_user",
+    "expected": "DROP ROLE regress_selinto_user"
   },
   {
     "comment": "select_into - Statement 24",
-    "query": "CREATE TABLE ctas_base (i int, j int)"
+    "query": "CREATE TABLE ctas_base (i int, j int)",
+    "expected": "CREATE TABLE ctas_base (i INT, j INT)"
   },
   {
     "comment": "select_into - Statement 25",
@@ -161,7 +176,8 @@
   },
   {
     "comment": "select_into - Statement 41",
-    "query": "CREATE FUNCTION make_table() RETURNS VOID AS $$ CREATE TABLE created_table AS SELECT * FROM int8_tbl; $$ LANGUAGE SQL"
+    "query": "CREATE FUNCTION make_table() RETURNS VOID AS $$ CREATE TABLE created_table AS SELECT * FROM int8_tbl; $$ LANGUAGE SQL",
+    "expected": "CREATE FUNCTION make_table () RETURNS void AS $$ CREATE TABLE created_table AS SELECT * FROM int8_tbl; $$ LANGUAGE sql"
   },
   {
     "comment": "select_into - Statement 42",
@@ -173,7 +189,8 @@
   },
   {
     "comment": "select_into - Statement 44",
-    "query": "DO $$ BEGIN EXECUTE 'EXPLAIN ANALYZE SELECT * INTO TABLE easi FROM int8_tbl'; EXECUTE 'EXPLAIN ANALYZE CREATE TABLE easi2 AS SELECT * FROM int8_tbl WITH NO DATA'; END$$"
+    "query": "DO $$ BEGIN EXECUTE 'EXPLAIN ANALYZE SELECT * INTO TABLE easi FROM int8_tbl'; EXECUTE 'EXPLAIN ANALYZE CREATE TABLE easi2 AS SELECT * FROM int8_tbl WITH NO DATA'; END$$",
+    "expected": "DO ' BEGIN EXECUTE ''EXPLAIN ANALYZE SELECT * INTO TABLE easi FROM int8_tbl''; EXECUTE ''EXPLAIN ANALYZE CREATE TABLE easi2 AS SELECT * FROM int8_tbl WITH NO DATA''; END'"
   },
   {
     "comment": "select_into - Statement 45",
@@ -193,7 +210,8 @@
   },
   {
     "comment": "select_into - Statement 49",
-    "query": "SELECT * FROM (SELECT 1 INTO f) bar"
+    "query": "SELECT * FROM (SELECT 1 INTO f) bar",
+    "expected": "SELECT * FROM (SELECT 1 INTO f) AS bar"
   },
   {
     "comment": "select_into - Statement 50",
@@ -225,19 +243,23 @@
   },
   {
     "comment": "select_into - Statement 57",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE ctas_ine_tbl AS SELECT 1 / 0"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE ctas_ine_tbl AS SELECT 1 / 0",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE TABLE ctas_ine_tbl AS SELECT 1 / 0"
   },
   {
     "comment": "select_into - Statement 58",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS SELECT 1 / 0"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS SELECT 1 / 0",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS SELECT 1 / 0"
   },
   {
     "comment": "select_into - Statement 59",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE ctas_ine_tbl AS SELECT 1 / 0 WITH NO DATA"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE ctas_ine_tbl AS SELECT 1 / 0 WITH NO DATA",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE TABLE ctas_ine_tbl AS SELECT 1 / 0 WITH NO DATA"
   },
   {
     "comment": "select_into - Statement 60",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS SELECT 1 / 0 WITH NO DATA"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS SELECT 1 / 0 WITH NO DATA",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS SELECT 1 / 0 WITH NO DATA"
   },
   {
     "comment": "select_into - Statement 61",
@@ -245,11 +267,13 @@
   },
   {
     "comment": "select_into - Statement 62",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE ctas_ine_tbl AS EXECUTE ctas_ine_query"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE ctas_ine_tbl AS EXECUTE ctas_ine_query",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE TABLE ctas_ine_tbl AS EXECUTE ctas_ine_query"
   },
   {
     "comment": "select_into - Statement 63",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS EXECUTE ctas_ine_query"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS EXECUTE ctas_ine_query",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS EXECUTE ctas_ine_query"
   },
   {
     "comment": "select_into - Statement 64",

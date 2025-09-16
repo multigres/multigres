@@ -1,51 +1,63 @@
 [
   {
     "comment": "replica_identity - Statement 1",
-    "query": "CREATE TABLE test_replica_identity ( id serial primary key, keya text not null, keyb text not null, nonkey text, CONSTRAINT test_replica_identity_unique_defer UNIQUE (keya, keyb) DEFERRABLE, CONSTRAINT test_replica_identity_unique_nondefer UNIQUE (keya, keyb) )"
+    "query": "CREATE TABLE test_replica_identity ( id serial primary key, keya text not null, keyb text not null, nonkey text, CONSTRAINT test_replica_identity_unique_defer UNIQUE (keya, keyb) DEFERRABLE, CONSTRAINT test_replica_identity_unique_nondefer UNIQUE (keya, keyb) )",
+    "expected": "CREATE TABLE test_replica_identity (id serial PRIMARY KEY, keya TEXT NOT NULL, keyb TEXT NOT NULL, nonkey TEXT, CONSTRAINT test_replica_identity_unique_defer UNIQUE (keya, keyb), CONSTRAINT test_replica_identity_unique_nondefer UNIQUE (keya, keyb))"
   },
   {
     "comment": "replica_identity - Statement 2",
-    "query": "CREATE TABLE test_replica_identity_othertable (id serial primary key)"
+    "query": "CREATE TABLE test_replica_identity_othertable (id serial primary key)",
+    "expected": "CREATE TABLE test_replica_identity_othertable (id serial PRIMARY KEY)"
   },
   {
     "comment": "replica_identity - Statement 3",
-    "query": "CREATE TABLE test_replica_identity_t3 (id serial constraint pk primary key deferrable)"
+    "query": "CREATE TABLE test_replica_identity_t3 (id serial constraint pk primary key deferrable)",
+    "expected": "CREATE TABLE test_replica_identity_t3 (id serial CONSTRAINT pk PRIMARY KEY)"
   },
   {
     "comment": "replica_identity - Statement 4",
-    "query": "CREATE INDEX test_replica_identity_keyab ON test_replica_identity (keya, keyb)"
+    "query": "CREATE INDEX test_replica_identity_keyab ON test_replica_identity (keya, keyb)",
+    "expected": "CREATE INDEX test_replica_identity_keyab ON test_replica_identity USING btree ( keya, keyb )"
   },
   {
     "comment": "replica_identity - Statement 5",
-    "query": "CREATE UNIQUE INDEX test_replica_identity_keyab_key ON test_replica_identity (keya, keyb)"
+    "query": "CREATE UNIQUE INDEX test_replica_identity_keyab_key ON test_replica_identity (keya, keyb)",
+    "expected": "CREATE UNIQUE INDEX test_replica_identity_keyab_key ON test_replica_identity USING btree ( keya, keyb )"
   },
   {
     "comment": "replica_identity - Statement 6",
-    "query": "CREATE UNIQUE INDEX test_replica_identity_nonkey ON test_replica_identity (keya, nonkey)"
+    "query": "CREATE UNIQUE INDEX test_replica_identity_nonkey ON test_replica_identity (keya, nonkey)",
+    "expected": "CREATE UNIQUE INDEX test_replica_identity_nonkey ON test_replica_identity USING btree ( keya, nonkey )"
   },
   {
     "comment": "replica_identity - Statement 7",
-    "query": "CREATE INDEX test_replica_identity_hash ON test_replica_identity USING hash (nonkey)"
+    "query": "CREATE INDEX test_replica_identity_hash ON test_replica_identity USING hash (nonkey)",
+    "expected": "CREATE INDEX test_replica_identity_hash ON test_replica_identity USING hash ( nonkey )"
   },
   {
     "comment": "replica_identity - Statement 8",
-    "query": "CREATE UNIQUE INDEX test_replica_identity_expr ON test_replica_identity (keya, keyb, (3))"
+    "query": "CREATE UNIQUE INDEX test_replica_identity_expr ON test_replica_identity (keya, keyb, (3))",
+    "expected": "CREATE UNIQUE INDEX test_replica_identity_expr ON test_replica_identity USING btree ( keya, keyb, (3) )"
   },
   {
     "comment": "replica_identity - Statement 9",
-    "query": "CREATE UNIQUE INDEX test_replica_identity_partial ON test_replica_identity (keya, keyb) WHERE keyb != '3'"
+    "query": "CREATE UNIQUE INDEX test_replica_identity_partial ON test_replica_identity (keya, keyb) WHERE keyb != '3'",
+    "expected": "CREATE UNIQUE INDEX test_replica_identity_partial ON test_replica_identity USING btree ( keya, keyb ) WHERE keyb \u003c\u003e '3'"
   },
   {
     "comment": "replica_identity - Statement 10",
-    "query": "SELECT relreplident FROM pg_class WHERE oid = 'test_replica_identity'::regclass"
+    "query": "SELECT relreplident FROM pg_class WHERE oid = 'test_replica_identity'::regclass",
+    "expected": "SELECT relreplident FROM pg_class WHERE oid = CAST('test_replica_identity' AS regclass)"
   },
   {
     "comment": "replica_identity - Statement 11",
-    "query": "SELECT relreplident FROM pg_class WHERE oid = 'pg_class'::regclass"
+    "query": "SELECT relreplident FROM pg_class WHERE oid = 'pg_class'::regclass",
+    "expected": "SELECT relreplident FROM pg_class WHERE oid = CAST('pg_class' AS regclass)"
   },
   {
     "comment": "replica_identity - Statement 12",
-    "query": "SELECT relreplident FROM pg_class WHERE oid = 'pg_constraint'::regclass"
+    "query": "SELECT relreplident FROM pg_class WHERE oid = 'pg_constraint'::regclass",
+    "expected": "SELECT relreplident FROM pg_class WHERE oid = CAST('pg_constraint' AS regclass)"
   },
   {
     "comment": "replica_identity - Statement 13",
@@ -93,7 +105,8 @@
   },
   {
     "comment": "replica_identity - Statement 24",
-    "query": "SELECT count(*) FROM pg_index WHERE indrelid = 'test_replica_identity'::regclass AND indisreplident"
+    "query": "SELECT count(*) FROM pg_index WHERE indrelid = 'test_replica_identity'::regclass AND indisreplident",
+    "expected": "SELECT COUNT(*) FROM pg_index WHERE indrelid = CAST('test_replica_identity' AS regclass) AND indisreplident"
   },
   {
     "comment": "replica_identity - Statement 25",
@@ -101,7 +114,8 @@
   },
   {
     "comment": "replica_identity - Statement 26",
-    "query": "CREATE TABLE test_replica_identity2 (id int UNIQUE NOT NULL)"
+    "query": "CREATE TABLE test_replica_identity2 (id int UNIQUE NOT NULL)",
+    "expected": "CREATE TABLE test_replica_identity2 (id INT UNIQUE NOT NULL)"
   },
   {
     "comment": "replica_identity - Statement 27",
@@ -109,7 +123,8 @@
   },
   {
     "comment": "replica_identity - Statement 28",
-    "query": "CREATE UNIQUE INDEX test_replica_identity3_id_key ON test_replica_identity3 (id)"
+    "query": "CREATE UNIQUE INDEX test_replica_identity3_id_key ON test_replica_identity3 (id)",
+    "expected": "CREATE UNIQUE INDEX test_replica_identity3_id_key ON test_replica_identity3 USING btree ( id )"
   },
   {
     "comment": "replica_identity - Statement 29",
@@ -117,11 +132,13 @@
   },
   {
     "comment": "replica_identity - Statement 30",
-    "query": "CREATE TABLE test_replica_identity4(id integer NOT NULL) PARTITION BY LIST (id)"
+    "query": "CREATE TABLE test_replica_identity4(id integer NOT NULL) PARTITION BY LIST (id)",
+    "expected": "CREATE TABLE test_replica_identity4 (id INT NOT NULL) PARTITION BY list (id)"
   },
   {
     "comment": "replica_identity - Statement 31",
-    "query": "CREATE TABLE test_replica_identity4_1(id integer NOT NULL)"
+    "query": "CREATE TABLE test_replica_identity4_1(id integer NOT NULL)",
+    "expected": "CREATE TABLE test_replica_identity4_1 (id INT NOT NULL)"
   },
   {
     "comment": "replica_identity - Statement 32",

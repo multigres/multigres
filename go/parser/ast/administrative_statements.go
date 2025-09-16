@@ -1153,6 +1153,13 @@ func (cps *CreatePolicyStmt) SqlString() string {
 		parts = append(parts, cps.Table.SqlString())
 	}
 
+	// Add AS clause for PERMISSIVE/RESTRICTIVE
+	if cps.Permissive {
+		parts = append(parts, "AS PERMISSIVE")
+	} else {
+		parts = append(parts, "AS RESTRICTIVE")
+	}
+
 	if cps.CmdName != "" {
 		parts = append(parts, "FOR", cps.CmdName)
 	}

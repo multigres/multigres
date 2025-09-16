@@ -458,6 +458,14 @@ func (a AlterTableType) String() string {
 		return "CHANGE_OWNER"
 	case AT_SetTableSpace:
 		return "SET_TABLESPACE"
+	case AT_EnableRule:
+		return "ENABLE RULE"
+	case AT_EnableAlwaysRule:
+		return "ENABLE ALWAYS RULE"
+	case AT_EnableReplicaRule:
+		return "ENABLE REPLICA RULE"
+	case AT_DisableRule:
+		return "DISABLE RULE"
 	default:
 		return fmt.Sprintf("AlterTableType(%d)", int(a))
 	}
@@ -2247,6 +2255,30 @@ func (a *AlterTableCmd) SqlString() string {
 
 	case AT_DisableTrigUser:
 		parts = append(parts, "DISABLE TRIGGER USER")
+
+	case AT_EnableRule:
+		parts = append(parts, "ENABLE RULE")
+		if a.Name != "" {
+			parts = append(parts, QuoteIdentifier(a.Name))
+		}
+
+	case AT_EnableAlwaysRule:
+		parts = append(parts, "ENABLE ALWAYS RULE")
+		if a.Name != "" {
+			parts = append(parts, QuoteIdentifier(a.Name))
+		}
+
+	case AT_EnableReplicaRule:
+		parts = append(parts, "ENABLE REPLICA RULE")
+		if a.Name != "" {
+			parts = append(parts, QuoteIdentifier(a.Name))
+		}
+
+	case AT_DisableRule:
+		parts = append(parts, "DISABLE RULE")
+		if a.Name != "" {
+			parts = append(parts, QuoteIdentifier(a.Name))
+		}
 
 	default:
 		// Fallback for unhandled subtypes

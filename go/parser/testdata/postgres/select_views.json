@@ -17,23 +17,28 @@
   },
   {
     "comment": "select_views - Statement 5",
-    "query": "CREATE FUNCTION f_leak (text) RETURNS bool LANGUAGE 'plpgsql' COST 0.0000001 AS 'BEGIN RAISE NOTICE ''f_leak => %'', $1; RETURN true; END'"
+    "query": "CREATE FUNCTION f_leak (text) RETURNS bool LANGUAGE 'plpgsql' COST 0.0000001 AS 'BEGIN RAISE NOTICE ''f_leak =\u003e %'', $1; RETURN true; END'",
+    "expected": "CREATE FUNCTION f_leak (TEXT) RETURNS BOOLEAN LANGUAGE plpgsql COST 0.0000001 AS $$BEGIN RAISE NOTICE 'f_leak =\u003e %', $1; RETURN true; END$$"
   },
   {
     "comment": "select_views - Statement 6",
-    "query": "CREATE TABLE customer ( cid      int primary key, name     text not null, tel      text, passwd\ttext )"
+    "query": "CREATE TABLE customer ( cid      int primary key, name     text not null, tel      text, passwd\ttext )",
+    "expected": "CREATE TABLE customer (cid INT PRIMARY KEY, name TEXT NOT NULL, tel TEXT, passwd TEXT)"
   },
   {
     "comment": "select_views - Statement 7",
-    "query": "CREATE TABLE credit_card ( cid      int references customer(cid), cnum     text, climit   int )"
+    "query": "CREATE TABLE credit_card ( cid      int references customer(cid), cnum     text, climit   int )",
+    "expected": "CREATE TABLE credit_card (cid INT REFERENCES customer(cid), cnum TEXT, climit INT)"
   },
   {
     "comment": "select_views - Statement 8",
-    "query": "CREATE TABLE credit_usage ( cid      int references customer(cid), ymd      date, usage    int )"
+    "query": "CREATE TABLE credit_usage ( cid      int references customer(cid), ymd      date, usage    int )",
+    "expected": "CREATE TABLE credit_usage (cid INT REFERENCES customer(cid), ymd DATE, usage INT)"
   },
   {
     "comment": "select_views - Statement 9",
-    "query": "INSERT INTO customer VALUES (101, 'regress_alice', '+81-12-3456-7890', 'passwd123'), (102, 'regress_bob',   '+01-234-567-8901', 'beafsteak'), (103, 'regress_eve',   '+49-8765-43210',   'hamburger')"
+    "query": "INSERT INTO customer VALUES (101, 'regress_alice', '+81-12-3456-7890', 'passwd123'), (102, 'regress_bob',   '+01-234-567-8901', 'beafsteak'), (103, 'regress_eve',   '+49-8765-43210',   'hamburger')",
+    "expected": "INSERT INTO customer VALUES (101, 'regress_alice', '+81-12-3456-7890', 'passwd123'), (102, 'regress_bob', '+01-234-567-8901', 'beafsteak'), (103, 'regress_eve', '+49-8765-43210', 'hamburger')"
   },
   {
     "comment": "select_views - Statement 10",
@@ -41,59 +46,73 @@
   },
   {
     "comment": "select_views - Statement 11",
-    "query": "INSERT INTO credit_usage VALUES (101, '2011-09-15', 120), (101, '2011-10-05',  90), (101, '2011-10-18', 110), (101, '2011-10-21', 200), (101, '2011-11-10',  80), (102, '2011-09-22', 300), (102, '2011-10-12', 120), (102, '2011-10-28', 200), (103, '2011-10-15', 480)"
+    "query": "INSERT INTO credit_usage VALUES (101, '2011-09-15', 120), (101, '2011-10-05',  90), (101, '2011-10-18', 110), (101, '2011-10-21', 200), (101, '2011-11-10',  80), (102, '2011-09-22', 300), (102, '2011-10-12', 120), (102, '2011-10-28', 200), (103, '2011-10-15', 480)",
+    "expected": "INSERT INTO credit_usage VALUES (101, '2011-09-15', 120), (101, '2011-10-05', 90), (101, '2011-10-18', 110), (101, '2011-10-21', 200), (101, '2011-11-10', 80), (102, '2011-09-22', 300), (102, '2011-10-12', 120), (102, '2011-10-28', 200), (103, '2011-10-15', 480)"
   },
   {
     "comment": "select_views - Statement 12",
-    "query": "CREATE VIEW my_property_normal AS SELECT * FROM customer WHERE name = current_user"
+    "query": "CREATE VIEW my_property_normal AS SELECT * FROM customer WHERE name = current_user",
+    "expected": "CREATE VIEW my_property_normal AS SELECT * FROM customer WHERE name = CURRENT_USER"
   },
   {
     "comment": "select_views - Statement 13",
-    "query": "CREATE VIEW my_property_secure WITH (security_barrier) AS SELECT * FROM customer WHERE name = current_user"
+    "query": "CREATE VIEW my_property_secure WITH (security_barrier) AS SELECT * FROM customer WHERE name = current_user",
+    "expected": "CREATE VIEW my_property_secure WITH ( security_barrier) AS SELECT * FROM customer WHERE name = CURRENT_USER"
   },
   {
     "comment": "select_views - Statement 14",
-    "query": "CREATE VIEW my_credit_card_normal AS SELECT * FROM customer l NATURAL JOIN credit_card r WHERE l.name = current_user"
+    "query": "CREATE VIEW my_credit_card_normal AS SELECT * FROM customer l NATURAL JOIN credit_card r WHERE l.name = current_user",
+    "expected": "CREATE VIEW my_credit_card_normal AS SELECT * FROM customer AS l NATURAL JOIN credit_card AS r WHERE l.name = CURRENT_USER"
   },
   {
     "comment": "select_views - Statement 15",
-    "query": "CREATE VIEW my_credit_card_secure WITH (security_barrier) AS SELECT * FROM customer l NATURAL JOIN credit_card r WHERE l.name = current_user"
+    "query": "CREATE VIEW my_credit_card_secure WITH (security_barrier) AS SELECT * FROM customer l NATURAL JOIN credit_card r WHERE l.name = current_user",
+    "expected": "CREATE VIEW my_credit_card_secure WITH ( security_barrier) AS SELECT * FROM customer AS l NATURAL JOIN credit_card AS r WHERE l.name = CURRENT_USER"
   },
   {
     "comment": "select_views - Statement 16",
-    "query": "CREATE VIEW my_credit_card_usage_normal AS SELECT * FROM my_credit_card_secure l NATURAL JOIN credit_usage r"
+    "query": "CREATE VIEW my_credit_card_usage_normal AS SELECT * FROM my_credit_card_secure l NATURAL JOIN credit_usage r",
+    "expected": "CREATE VIEW my_credit_card_usage_normal AS SELECT * FROM my_credit_card_secure AS l NATURAL JOIN credit_usage AS r"
   },
   {
     "comment": "select_views - Statement 17",
-    "query": "CREATE VIEW my_credit_card_usage_secure WITH (security_barrier) AS SELECT * FROM my_credit_card_secure l NATURAL JOIN credit_usage r"
+    "query": "CREATE VIEW my_credit_card_usage_secure WITH (security_barrier) AS SELECT * FROM my_credit_card_secure l NATURAL JOIN credit_usage r",
+    "expected": "CREATE VIEW my_credit_card_usage_secure WITH ( security_barrier) AS SELECT * FROM my_credit_card_secure AS l NATURAL JOIN credit_usage AS r"
   },
   {
     "comment": "select_views - Statement 18",
-    "query": "GRANT SELECT ON my_property_normal TO public"
+    "query": "GRANT SELECT ON my_property_normal TO public",
+    "expected": "GRANT SELECT ON my_property_normal TO PUBLIC"
   },
   {
     "comment": "select_views - Statement 19",
-    "query": "GRANT SELECT ON my_property_secure TO public"
+    "query": "GRANT SELECT ON my_property_secure TO public",
+    "expected": "GRANT SELECT ON my_property_secure TO PUBLIC"
   },
   {
     "comment": "select_views - Statement 20",
-    "query": "GRANT SELECT ON my_credit_card_normal TO public"
+    "query": "GRANT SELECT ON my_credit_card_normal TO public",
+    "expected": "GRANT SELECT ON my_credit_card_normal TO PUBLIC"
   },
   {
     "comment": "select_views - Statement 21",
-    "query": "GRANT SELECT ON my_credit_card_secure TO public"
+    "query": "GRANT SELECT ON my_credit_card_secure TO public",
+    "expected": "GRANT SELECT ON my_credit_card_secure TO PUBLIC"
   },
   {
     "comment": "select_views - Statement 22",
-    "query": "GRANT SELECT ON my_credit_card_usage_normal TO public"
+    "query": "GRANT SELECT ON my_credit_card_usage_normal TO public",
+    "expected": "GRANT SELECT ON my_credit_card_usage_normal TO PUBLIC"
   },
   {
     "comment": "select_views - Statement 23",
-    "query": "GRANT SELECT ON my_credit_card_usage_secure TO public"
+    "query": "GRANT SELECT ON my_credit_card_usage_secure TO public",
+    "expected": "GRANT SELECT ON my_credit_card_usage_secure TO PUBLIC"
   },
   {
     "comment": "select_views - Statement 24",
-    "query": "SET SESSION AUTHORIZATION regress_alice"
+    "query": "SET SESSION AUTHORIZATION regress_alice",
+    "expected": "SET SESSION AUTHORIZATION 'regress_alice'"
   },
   {
     "comment": "select_views - Statement 25",
@@ -101,7 +120,8 @@
   },
   {
     "comment": "select_views - Statement 26",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_property_normal WHERE f_leak(passwd)"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_property_normal WHERE f_leak(passwd)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_property_normal WHERE f_leak(passwd)"
   },
   {
     "comment": "select_views - Statement 27",
@@ -109,23 +129,28 @@
   },
   {
     "comment": "select_views - Statement 28",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_property_secure WHERE f_leak(passwd)"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_property_secure WHERE f_leak(passwd)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_property_secure WHERE f_leak(passwd)"
   },
   {
     "comment": "select_views - Statement 29",
-    "query": "SELECT * FROM my_property_normal v WHERE f_leak('passwd') AND f_leak(passwd)"
+    "query": "SELECT * FROM my_property_normal v WHERE f_leak('passwd') AND f_leak(passwd)",
+    "expected": "SELECT * FROM my_property_normal AS v WHERE f_leak('passwd') AND f_leak(passwd)"
   },
   {
     "comment": "select_views - Statement 30",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_property_normal v WHERE f_leak('passwd') AND f_leak(passwd)"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_property_normal v WHERE f_leak('passwd') AND f_leak(passwd)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_property_normal AS v WHERE f_leak('passwd') AND f_leak(passwd)"
   },
   {
     "comment": "select_views - Statement 31",
-    "query": "SELECT * FROM my_property_secure v WHERE f_leak('passwd') AND f_leak(passwd)"
+    "query": "SELECT * FROM my_property_secure v WHERE f_leak('passwd') AND f_leak(passwd)",
+    "expected": "SELECT * FROM my_property_secure AS v WHERE f_leak('passwd') AND f_leak(passwd)"
   },
   {
     "comment": "select_views - Statement 32",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_property_secure v WHERE f_leak('passwd') AND f_leak(passwd)"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_property_secure v WHERE f_leak('passwd') AND f_leak(passwd)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_property_secure AS v WHERE f_leak('passwd') AND f_leak(passwd)"
   },
   {
     "comment": "select_views - Statement 33",
@@ -133,7 +158,8 @@
   },
   {
     "comment": "select_views - Statement 34",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_normal WHERE f_leak(cnum)"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_normal WHERE f_leak(cnum)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_credit_card_normal WHERE f_leak(cnum)"
   },
   {
     "comment": "select_views - Statement 35",
@@ -141,23 +167,26 @@
   },
   {
     "comment": "select_views - Statement 36",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_secure WHERE f_leak(cnum)"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_secure WHERE f_leak(cnum)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_credit_card_secure WHERE f_leak(cnum)"
   },
   {
     "comment": "select_views - Statement 37",
-    "query": "SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01'"
+    "query": "SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'"
   },
   {
     "comment": "select_views - Statement 38",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01'"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_credit_card_usage_normal WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'"
   },
   {
     "comment": "select_views - Statement 39",
-    "query": "SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01'"
+    "query": "SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'"
   },
   {
     "comment": "select_views - Statement 40",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd >= '2011-10-01' AND ymd < '2011-11-01'"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM my_credit_card_usage_secure WHERE f_leak(cnum) AND ymd \u003e= '2011-10-01' AND ymd \u003c '2011-11-01'"
   },
   {
     "comment": "select_views - Statement 41",
@@ -177,15 +206,18 @@
   },
   {
     "comment": "select_views - Statement 45",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "select_views - Statement 46",
-    "query": "ALTER VIEW my_property_normal SET (security_barrier=true)"
+    "query": "ALTER VIEW my_property_normal SET (security_barrier=true)",
+    "expected": "ALTER VIEW my_property_normal SET (security_barrier = 'true')"
   },
   {
     "comment": "select_views - Statement 47",
-    "query": "ALTER VIEW my_property_secure SET (security_barrier=false)"
+    "query": "ALTER VIEW my_property_secure SET (security_barrier=false)",
+    "expected": "ALTER VIEW my_property_secure SET (security_barrier = 'false')"
   },
   {
     "comment": "select_views - Statement 48",

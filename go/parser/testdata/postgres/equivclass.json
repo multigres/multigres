@@ -277,7 +277,7 @@
   {
     "comment": "equivclass - Statement 56",
     "query": "create policy p1 on ec1 using (f1 \u003c '5'::int8alias1)",
-    "expected": "CREATE POLICY p1 ON ec1 FOR all TO PUBLIC USING ( f1 \u003c CAST('5' AS int8alias1) )"
+    "expected": "CREATE POLICY p1 ON ec1 AS PERMISSIVE FOR all TO PUBLIC USING ( f1 \u003c CAST('5' AS int8alias1) )"
   },
   {
     "comment": "equivclass - Statement 57",

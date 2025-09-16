@@ -1053,7 +1053,7 @@
   {
     "comment": "merge - Statement 248",
     "query": "CREATE POLICY pa_target_pol ON pa_target USING (tid != 0)",
-    "expected": "CREATE POLICY pa_target_pol ON pa_target FOR all TO PUBLIC USING ( tid \u003c\u003e 0 )"
+    "expected": "CREATE POLICY pa_target_pol ON pa_target AS PERMISSIVE FOR all TO PUBLIC USING ( tid \u003c\u003e 0 )"
   },
   {
     "comment": "merge - Statement 249",

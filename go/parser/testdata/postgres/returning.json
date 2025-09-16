@@ -1,11 +1,13 @@
 [
   {
     "comment": "returning - Statement 1",
-    "query": "CREATE TEMP TABLE foo (f1 serial, f2 text, f3 int default 42)"
+    "query": "CREATE TEMP TABLE foo (f1 serial, f2 text, f3 int default 42)",
+    "expected": "CREATE TEMPORARY TABLE foo (f1 serial, f2 TEXT, f3 INT DEFAULT 42)"
   },
   {
     "comment": "returning - Statement 2",
-    "query": "INSERT INTO foo (f2,f3) VALUES ('test', DEFAULT), ('More', 11), (upper('more'), 7+9) RETURNING *, f1+f3 AS sum"
+    "query": "INSERT INTO foo (f2,f3) VALUES ('test', DEFAULT), ('More', 11), (upper('more'), 7+9) RETURNING *, f1+f3 AS sum",
+    "expected": "INSERT INTO foo (f2, f3) VALUES ('test', DEFAULT), ('More', 11), (upper('more'), 7 + 9) RETURNING *, f1 + f3 AS sum"
   },
   {
     "comment": "returning - Statement 3",
@@ -13,43 +15,53 @@
   },
   {
     "comment": "returning - Statement 4",
-    "query": "UPDATE foo SET f2 = lower(f2), f3 = DEFAULT RETURNING foo.*, f1+f3 AS sum13"
+    "query": "UPDATE foo SET f2 = lower(f2), f3 = DEFAULT RETURNING foo.*, f1+f3 AS sum13",
+    "expected": "UPDATE foo SET f2 = lower(f2), f3 = DEFAULT RETURNING foo.*, f1 + f3 AS sum13"
   },
   {
     "comment": "returning - Statement 5",
-    "query": "DELETE FROM foo WHERE f1 > 2 RETURNING f3, f2, f1, least(f1,f3)"
+    "query": "DELETE FROM foo WHERE f1 \u003e 2 RETURNING f3, f2, f1, least(f1,f3)",
+    "expected": "DELETE FROM foo WHERE f1 \u003e 2 RETURNING f3, f2, f1, LEAST(f1, f3)"
   },
   {
     "comment": "returning - Statement 6",
-    "query": "INSERT INTO foo SELECT f1+10, f2, f3+99 FROM foo RETURNING *, f1+112 IN (SELECT q1 FROM int8_tbl) AS subplan, EXISTS(SELECT * FROM int4_tbl) AS initplan"
+    "query": "INSERT INTO foo SELECT f1+10, f2, f3+99 FROM foo RETURNING *, f1+112 IN (SELECT q1 FROM int8_tbl) AS subplan, EXISTS(SELECT * FROM int4_tbl) AS initplan",
+    "expected": "INSERT INTO foo SELECT f1 + 10, f2, f3 + 99 FROM foo RETURNING *, f1 + 112 IN (SELECT q1 FROM int8_tbl) AS subplan, EXISTS (SELECT * FROM int4_tbl) AS initplan"
   },
   {
     "comment": "returning - Statement 7",
-    "query": "UPDATE foo SET f3 = f3 * 2 WHERE f1 > 10 RETURNING *, f1+112 IN (SELECT q1 FROM int8_tbl) AS subplan, EXISTS(SELECT * FROM int4_tbl) AS initplan"
+    "query": "UPDATE foo SET f3 = f3 * 2 WHERE f1 \u003e 10 RETURNING *, f1+112 IN (SELECT q1 FROM int8_tbl) AS subplan, EXISTS(SELECT * FROM int4_tbl) AS initplan",
+    "expected": "UPDATE foo SET f3 = f3 * 2 WHERE f1 \u003e 10 RETURNING *, f1 + 112 IN (SELECT q1 FROM int8_tbl) AS subplan, EXISTS (SELECT * FROM int4_tbl) AS initplan"
   },
   {
     "comment": "returning - Statement 8",
-    "query": "DELETE FROM foo WHERE f1 > 10 RETURNING *, f1+112 IN (SELECT q1 FROM int8_tbl) AS subplan, EXISTS(SELECT * FROM int4_tbl) AS initplan"
+    "query": "DELETE FROM foo WHERE f1 \u003e 10 RETURNING *, f1+112 IN (SELECT q1 FROM int8_tbl) AS subplan, EXISTS(SELECT * FROM int4_tbl) AS initplan",
+    "expected": "DELETE FROM foo WHERE f1 \u003e 10 RETURNING *, f1 + 112 IN (SELECT q1 FROM int8_tbl) AS subplan, EXISTS (SELECT * FROM int4_tbl) AS initplan"
   },
   {
     "comment": "returning - Statement 9",
-    "query": "UPDATE foo SET f3 = f3*2 FROM int4_tbl i WHERE foo.f1 + 123455 = i.f1 RETURNING foo.*, i.f1 as \"i.f1\""
+    "query": "UPDATE foo SET f3 = f3*2 FROM int4_tbl i WHERE foo.f1 + 123455 = i.f1 RETURNING foo.*, i.f1 as \"i.f1\"",
+    "expected": "UPDATE foo SET f3 = f3 * 2 FROM int4_tbl AS i WHERE foo.f1 + 123455 = i.f1 RETURNING foo.*, i.f1 AS \"i.f1\""
   },
   {
     "comment": "returning - Statement 10",
-    "query": "DELETE FROM foo USING int4_tbl i WHERE foo.f1 + 123455 = i.f1 RETURNING foo.*, i.f1 as \"i.f1\""
+    "query": "DELETE FROM foo USING int4_tbl i WHERE foo.f1 + 123455 = i.f1 RETURNING foo.*, i.f1 as \"i.f1\"",
+    "expected": "DELETE FROM foo USING int4_tbl AS i WHERE foo.f1 + 123455 = i.f1 RETURNING foo.*, i.f1 AS \"i.f1\""
   },
   {
     "comment": "returning - Statement 11",
-    "query": "CREATE TEMP TABLE foochild (fc int) INHERITS (foo)"
+    "query": "CREATE TEMP TABLE foochild (fc int) INHERITS (foo)",
+    "expected": "CREATE TEMPORARY TABLE foochild (fc INT) INHERITS (foo)"
   },
   {
     "comment": "returning - Statement 12",
-    "query": "INSERT INTO foochild VALUES(123,'child',999,-123)"
+    "query": "INSERT INTO foochild VALUES(123,'child',999,-123)",
+    "expected": "INSERT INTO foochild VALUES (123, 'child', 999, -123)"
   },
   {
     "comment": "returning - Statement 13",
-    "query": "ALTER TABLE foo ADD COLUMN f4 int8 DEFAULT 99"
+    "query": "ALTER TABLE foo ADD COLUMN f4 int8 DEFAULT 99",
+    "expected": "ALTER TABLE foo ADD COLUMN f4 BIGINT DEFAULT 99"
   },
   {
     "comment": "returning - Statement 14",
@@ -61,11 +73,13 @@
   },
   {
     "comment": "returning - Statement 16",
-    "query": "UPDATE foo SET f3 = f3*2 FROM int8_tbl i WHERE foo.f1 = i.q2 RETURNING *"
+    "query": "UPDATE foo SET f3 = f3*2 FROM int8_tbl i WHERE foo.f1 = i.q2 RETURNING *",
+    "expected": "UPDATE foo SET f3 = f3 * 2 FROM int8_tbl AS i WHERE foo.f1 = i.q2 RETURNING *"
   },
   {
     "comment": "returning - Statement 17",
-    "query": "DELETE FROM foo USING int8_tbl i WHERE foo.f1 = i.q2 RETURNING *"
+    "query": "DELETE FROM foo USING int8_tbl i WHERE foo.f1 = i.q2 RETURNING *",
+    "expected": "DELETE FROM foo USING int8_tbl AS i WHERE foo.f1 = i.q2 RETURNING *"
   },
   {
     "comment": "returning - Statement 18",
@@ -73,35 +87,43 @@
   },
   {
     "comment": "returning - Statement 19",
-    "query": "CREATE TEMP VIEW voo AS SELECT f1, f2 FROM foo"
+    "query": "CREATE TEMP VIEW voo AS SELECT f1, f2 FROM foo",
+    "expected": "CREATE TEMPORARY VIEW voo AS SELECT f1, f2 FROM foo"
   },
   {
     "comment": "returning - Statement 20",
-    "query": "CREATE RULE voo_i AS ON INSERT TO voo DO INSTEAD INSERT INTO foo VALUES(new.*, 57)"
+    "query": "CREATE RULE voo_i AS ON INSERT TO voo DO INSTEAD INSERT INTO foo VALUES(new.*, 57)",
+    "expected": "CREATE RULE voo_i AS ON INSERT TO voo DO INSTEAD INSERT INTO foo VALUES (new.*, 57)"
   },
   {
     "comment": "returning - Statement 21",
-    "query": "INSERT INTO voo VALUES(11,'zit')"
+    "query": "INSERT INTO voo VALUES(11,'zit')",
+    "expected": "INSERT INTO voo VALUES (11, 'zit')"
   },
   {
     "comment": "returning - Statement 22",
-    "query": "INSERT INTO voo VALUES(12,'zoo') RETURNING *, f1*2"
+    "query": "INSERT INTO voo VALUES(12,'zoo') RETURNING *, f1*2",
+    "expected": "INSERT INTO voo VALUES (12, 'zoo') RETURNING *, f1 * 2"
   },
   {
     "comment": "returning - Statement 23",
-    "query": "CREATE OR REPLACE RULE voo_i AS ON INSERT TO voo DO INSTEAD INSERT INTO foo VALUES(new.*, 57) RETURNING *"
+    "query": "CREATE OR REPLACE RULE voo_i AS ON INSERT TO voo DO INSTEAD INSERT INTO foo VALUES(new.*, 57) RETURNING *",
+    "expected": "CREATE OR REPLACE RULE voo_i AS ON INSERT TO voo DO INSTEAD INSERT INTO foo VALUES (new.*, 57) RETURNING *"
   },
   {
     "comment": "returning - Statement 24",
-    "query": "CREATE OR REPLACE RULE voo_i AS ON INSERT TO voo DO INSTEAD INSERT INTO foo VALUES(new.*, 57) RETURNING f1, f2"
+    "query": "CREATE OR REPLACE RULE voo_i AS ON INSERT TO voo DO INSTEAD INSERT INTO foo VALUES(new.*, 57) RETURNING f1, f2",
+    "expected": "CREATE OR REPLACE RULE voo_i AS ON INSERT TO voo DO INSTEAD INSERT INTO foo VALUES (new.*, 57) RETURNING f1, f2"
   },
   {
     "comment": "returning - Statement 25",
-    "query": "INSERT INTO voo VALUES(13,'zit2')"
+    "query": "INSERT INTO voo VALUES(13,'zit2')",
+    "expected": "INSERT INTO voo VALUES (13, 'zit2')"
   },
   {
     "comment": "returning - Statement 26",
-    "query": "INSERT INTO voo VALUES(14,'zoo2') RETURNING *"
+    "query": "INSERT INTO voo VALUES(14,'zoo2') RETURNING *",
+    "expected": "INSERT INTO voo VALUES (14, 'zoo2') RETURNING *"
   },
   {
     "comment": "returning - Statement 27",
@@ -113,11 +135,13 @@
   },
   {
     "comment": "returning - Statement 29",
-    "query": "update voo set f1 = f1 + 1 where f2 = 'zoo2'"
+    "query": "update voo set f1 = f1 + 1 where f2 = 'zoo2'",
+    "expected": "UPDATE voo SET f1 = f1 + 1 WHERE f2 = 'zoo2'"
   },
   {
     "comment": "returning - Statement 30",
-    "query": "update voo set f1 = f1 + 1 where f2 = 'zoo2' RETURNING *, f1*2"
+    "query": "update voo set f1 = f1 + 1 where f2 = 'zoo2' RETURNING *, f1*2",
+    "expected": "UPDATE voo SET f1 = f1 + 1 WHERE f2 = 'zoo2' RETURNING *, f1 * 2"
   },
   {
     "comment": "returning - Statement 31",
@@ -133,7 +157,8 @@
   },
   {
     "comment": "returning - Statement 34",
-    "query": "CREATE TEMP VIEW foo_v AS SELECT * FROM foo OFFSET 0"
+    "query": "CREATE TEMP VIEW foo_v AS SELECT * FROM foo OFFSET 0",
+    "expected": "CREATE TEMPORARY VIEW foo_v AS SELECT * FROM foo OFFSET 0"
   },
   {
     "comment": "returning - Statement 35",
@@ -141,7 +166,8 @@
   },
   {
     "comment": "returning - Statement 36",
-    "query": "CREATE FUNCTION foo_f() RETURNS SETOF foo AS $$ SELECT * FROM foo OFFSET 0 $$ LANGUAGE sql STABLE"
+    "query": "CREATE FUNCTION foo_f() RETURNS SETOF foo AS $$ SELECT * FROM foo OFFSET 0 $$ LANGUAGE sql STABLE",
+    "expected": "CREATE FUNCTION foo_f () RETURNS SETOF foo AS $$ SELECT * FROM foo OFFSET 0 $$ LANGUAGE sql STABLE"
   },
   {
     "comment": "returning - Statement 37",
@@ -153,11 +179,13 @@
   },
   {
     "comment": "returning - Statement 39",
-    "query": "CREATE TYPE foo_t AS (f1 int, f2 text, f3 int, f4 int8)"
+    "query": "CREATE TYPE foo_t AS (f1 int, f2 text, f3 int, f4 int8)",
+    "expected": "CREATE TYPE foo_t AS (f1 INT, f2 TEXT, f3 INT, f4 BIGINT)"
   },
   {
     "comment": "returning - Statement 40",
-    "query": "CREATE FUNCTION foo_f() RETURNS SETOF foo_t AS $$ SELECT * FROM foo OFFSET 0 $$ LANGUAGE sql STABLE"
+    "query": "CREATE FUNCTION foo_f() RETURNS SETOF foo_t AS $$ SELECT * FROM foo OFFSET 0 $$ LANGUAGE sql STABLE",
+    "expected": "CREATE FUNCTION foo_f () RETURNS SETOF foo_t AS $$ SELECT * FROM foo OFFSET 0 $$ LANGUAGE sql STABLE"
   },
   {
     "comment": "returning - Statement 41",
@@ -165,23 +193,28 @@
   },
   {
     "comment": "returning - Statement 42",
-    "query": "CREATE TEMP TABLE joinme (f2j text, other int)"
+    "query": "CREATE TEMP TABLE joinme (f2j text, other int)",
+    "expected": "CREATE TEMPORARY TABLE joinme (f2j TEXT, other INT)"
   },
   {
     "comment": "returning - Statement 43",
-    "query": "INSERT INTO joinme VALUES('more', 12345)"
+    "query": "INSERT INTO joinme VALUES('more', 12345)",
+    "expected": "INSERT INTO joinme VALUES ('more', 12345)"
   },
   {
     "comment": "returning - Statement 44",
-    "query": "INSERT INTO joinme VALUES('zoo2', 54321)"
+    "query": "INSERT INTO joinme VALUES('zoo2', 54321)",
+    "expected": "INSERT INTO joinme VALUES ('zoo2', 54321)"
   },
   {
     "comment": "returning - Statement 45",
-    "query": "INSERT INTO joinme VALUES('other', 0)"
+    "query": "INSERT INTO joinme VALUES('other', 0)",
+    "expected": "INSERT INTO joinme VALUES ('other', 0)"
   },
   {
     "comment": "returning - Statement 46",
-    "query": "CREATE TEMP VIEW joinview AS SELECT foo.*, other FROM foo JOIN joinme ON (f2 = f2j)"
+    "query": "CREATE TEMP VIEW joinview AS SELECT foo.*, other FROM foo JOIN joinme ON (f2 = f2j)",
+    "expected": "CREATE TEMPORARY VIEW joinview AS SELECT foo.*, other FROM foo INNER JOIN joinme ON (f2 = f2j)"
   },
   {
     "comment": "returning - Statement 47",

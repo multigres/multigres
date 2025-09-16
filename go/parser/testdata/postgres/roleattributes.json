@@ -9,7 +9,8 @@
   },
   {
     "comment": "roleattributes - Statement 3",
-    "query": "CREATE ROLE regress_test_superuser WITH SUPERUSER"
+    "query": "CREATE ROLE regress_test_superuser WITH SUPERUSER",
+    "expected": "CREATE ROLE regress_test_superuser SUPERUSER"
   },
   {
     "comment": "roleattributes - Statement 4",
@@ -33,7 +34,8 @@
   },
   {
     "comment": "roleattributes - Statement 9",
-    "query": "CREATE ROLE regress_test_inherit WITH NOINHERIT"
+    "query": "CREATE ROLE regress_test_inherit WITH NOINHERIT",
+    "expected": "CREATE ROLE regress_test_inherit NOINHERIT"
   },
   {
     "comment": "roleattributes - Statement 10",
@@ -57,7 +59,8 @@
   },
   {
     "comment": "roleattributes - Statement 15",
-    "query": "CREATE ROLE regress_test_createrole WITH CREATEROLE"
+    "query": "CREATE ROLE regress_test_createrole WITH CREATEROLE",
+    "expected": "CREATE ROLE regress_test_createrole CREATEROLE"
   },
   {
     "comment": "roleattributes - Statement 16",
@@ -81,7 +84,8 @@
   },
   {
     "comment": "roleattributes - Statement 21",
-    "query": "CREATE ROLE regress_test_createdb WITH CREATEDB"
+    "query": "CREATE ROLE regress_test_createdb WITH CREATEDB",
+    "expected": "CREATE ROLE regress_test_createdb CREATEDB"
   },
   {
     "comment": "roleattributes - Statement 22",
@@ -105,7 +109,8 @@
   },
   {
     "comment": "roleattributes - Statement 27",
-    "query": "CREATE ROLE regress_test_role_canlogin WITH LOGIN"
+    "query": "CREATE ROLE regress_test_role_canlogin WITH LOGIN",
+    "expected": "CREATE ROLE regress_test_role_canlogin LOGIN"
   },
   {
     "comment": "roleattributes - Statement 28",
@@ -129,7 +134,8 @@
   },
   {
     "comment": "roleattributes - Statement 33",
-    "query": "CREATE USER regress_test_user_canlogin WITH NOLOGIN"
+    "query": "CREATE USER regress_test_user_canlogin WITH NOLOGIN",
+    "expected": "CREATE USER regress_test_user_canlogin NOLOGIN"
   },
   {
     "comment": "roleattributes - Statement 34",
@@ -137,11 +143,13 @@
   },
   {
     "comment": "roleattributes - Statement 35",
-    "query": "ALTER USER regress_test_user_canlogin WITH LOGIN"
+    "query": "ALTER USER regress_test_user_canlogin WITH LOGIN",
+    "expected": "ALTER ROLE regress_test_user_canlogin WITH LOGIN"
   },
   {
     "comment": "roleattributes - Statement 36",
-    "query": "ALTER USER regress_test_user_canlogin WITH NOLOGIN"
+    "query": "ALTER USER regress_test_user_canlogin WITH NOLOGIN",
+    "expected": "ALTER ROLE regress_test_user_canlogin WITH NOLOGIN"
   },
   {
     "comment": "roleattributes - Statement 37",
@@ -153,7 +161,8 @@
   },
   {
     "comment": "roleattributes - Statement 39",
-    "query": "CREATE ROLE regress_test_replication WITH REPLICATION"
+    "query": "CREATE ROLE regress_test_replication WITH REPLICATION",
+    "expected": "CREATE ROLE regress_test_replication REPLICATION"
   },
   {
     "comment": "roleattributes - Statement 40",
@@ -177,7 +186,8 @@
   },
   {
     "comment": "roleattributes - Statement 45",
-    "query": "CREATE ROLE regress_test_bypassrls WITH BYPASSRLS"
+    "query": "CREATE ROLE regress_test_bypassrls WITH BYPASSRLS",
+    "expected": "CREATE ROLE regress_test_bypassrls BYPASSRLS"
   },
   {
     "comment": "roleattributes - Statement 46",
@@ -233,11 +243,13 @@
   },
   {
     "comment": "roleattributes - Statement 59",
-    "query": "DROP USER regress_test_def_user_canlogin"
+    "query": "DROP USER regress_test_def_user_canlogin",
+    "expected": "DROP ROLE regress_test_def_user_canlogin"
   },
   {
     "comment": "roleattributes - Statement 60",
-    "query": "DROP USER regress_test_user_canlogin"
+    "query": "DROP USER regress_test_user_canlogin",
+    "expected": "DROP ROLE regress_test_user_canlogin"
   },
   {
     "comment": "roleattributes - Statement 61",

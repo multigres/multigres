@@ -13,11 +13,13 @@
   },
   {
     "comment": "sequence - Statement 4",
-    "query": "CREATE SEQUENCE sequence_testx INCREMENT BY -1 START 10"
+    "query": "CREATE SEQUENCE sequence_testx INCREMENT BY -1 START 10",
+    "expected": "CREATE SEQUENCE sequence_testx INCREMENT BY -1 START WITH 10"
   },
   {
     "comment": "sequence - Statement 5",
-    "query": "CREATE SEQUENCE sequence_testx INCREMENT BY 1 START -10"
+    "query": "CREATE SEQUENCE sequence_testx INCREMENT BY 1 START -10",
+    "expected": "CREATE SEQUENCE sequence_testx INCREMENT BY 1 START WITH -10"
   },
   {
     "comment": "sequence - Statement 6",
@@ -37,7 +39,8 @@
   },
   {
     "comment": "sequence - Statement 10",
-    "query": "CREATE TABLE sequence_test_table (a int)"
+    "query": "CREATE TABLE sequence_test_table (a int)",
+    "expected": "CREATE TABLE sequence_test_table (a INT)"
   },
   {
     "comment": "sequence - Statement 11",
@@ -49,47 +52,58 @@
   },
   {
     "comment": "sequence - Statement 13",
-    "query": "CREATE SEQUENCE sequence_test5 AS integer"
+    "query": "CREATE SEQUENCE sequence_test5 AS integer",
+    "expected": "CREATE SEQUENCE sequence_test5 AS INT"
   },
   {
     "comment": "sequence - Statement 14",
-    "query": "CREATE SEQUENCE sequence_test6 AS smallint"
+    "query": "CREATE SEQUENCE sequence_test6 AS smallint",
+    "expected": "CREATE SEQUENCE sequence_test6 AS SMALLINT"
   },
   {
     "comment": "sequence - Statement 15",
-    "query": "CREATE SEQUENCE sequence_test7 AS bigint"
+    "query": "CREATE SEQUENCE sequence_test7 AS bigint",
+    "expected": "CREATE SEQUENCE sequence_test7 AS BIGINT"
   },
   {
     "comment": "sequence - Statement 16",
-    "query": "CREATE SEQUENCE sequence_test8 AS integer MAXVALUE 100000"
+    "query": "CREATE SEQUENCE sequence_test8 AS integer MAXVALUE 100000",
+    "expected": "CREATE SEQUENCE sequence_test8 AS INT MAXVALUE 100000"
   },
   {
     "comment": "sequence - Statement 17",
-    "query": "CREATE SEQUENCE sequence_test9 AS integer INCREMENT BY -1"
+    "query": "CREATE SEQUENCE sequence_test9 AS integer INCREMENT BY -1",
+    "expected": "CREATE SEQUENCE sequence_test9 AS INT INCREMENT BY -1"
   },
   {
     "comment": "sequence - Statement 18",
-    "query": "CREATE SEQUENCE sequence_test10 AS integer MINVALUE -100000 START 1"
+    "query": "CREATE SEQUENCE sequence_test10 AS integer MINVALUE -100000 START 1",
+    "expected": "CREATE SEQUENCE sequence_test10 AS INT MINVALUE -100000 START WITH 1"
   },
   {
     "comment": "sequence - Statement 19",
-    "query": "CREATE SEQUENCE sequence_test11 AS smallint"
+    "query": "CREATE SEQUENCE sequence_test11 AS smallint",
+    "expected": "CREATE SEQUENCE sequence_test11 AS SMALLINT"
   },
   {
     "comment": "sequence - Statement 20",
-    "query": "CREATE SEQUENCE sequence_test12 AS smallint INCREMENT -1"
+    "query": "CREATE SEQUENCE sequence_test12 AS smallint INCREMENT -1",
+    "expected": "CREATE SEQUENCE sequence_test12 AS SMALLINT INCREMENT BY -1"
   },
   {
     "comment": "sequence - Statement 21",
-    "query": "CREATE SEQUENCE sequence_test13 AS smallint MINVALUE -32768"
+    "query": "CREATE SEQUENCE sequence_test13 AS smallint MINVALUE -32768",
+    "expected": "CREATE SEQUENCE sequence_test13 AS SMALLINT MINVALUE -32768"
   },
   {
     "comment": "sequence - Statement 22",
-    "query": "CREATE SEQUENCE sequence_test14 AS smallint MAXVALUE 32767 INCREMENT -1"
+    "query": "CREATE SEQUENCE sequence_test14 AS smallint MAXVALUE 32767 INCREMENT -1",
+    "expected": "CREATE SEQUENCE sequence_test14 AS SMALLINT MAXVALUE 32767 INCREMENT BY -1"
   },
   {
     "comment": "sequence - Statement 23",
-    "query": "CREATE SEQUENCE sequence_testx AS text"
+    "query": "CREATE SEQUENCE sequence_testx AS text",
+    "expected": "CREATE SEQUENCE sequence_testx AS TEXT"
   },
   {
     "comment": "sequence - Statement 24",
@@ -97,75 +111,93 @@
   },
   {
     "comment": "sequence - Statement 25",
-    "query": "CREATE SEQUENCE sequence_testx AS smallint MAXVALUE 100000"
+    "query": "CREATE SEQUENCE sequence_testx AS smallint MAXVALUE 100000",
+    "expected": "CREATE SEQUENCE sequence_testx AS SMALLINT MAXVALUE 100000"
   },
   {
     "comment": "sequence - Statement 26",
-    "query": "CREATE SEQUENCE sequence_testx AS smallint MINVALUE -100000"
+    "query": "CREATE SEQUENCE sequence_testx AS smallint MINVALUE -100000",
+    "expected": "CREATE SEQUENCE sequence_testx AS SMALLINT MINVALUE -100000"
   },
   {
     "comment": "sequence - Statement 27",
-    "query": "ALTER SEQUENCE sequence_test5 AS smallint"
+    "query": "ALTER SEQUENCE sequence_test5 AS smallint",
+    "expected": "ALTER SEQUENCE sequence_test5 AS SMALLINT"
   },
   {
     "comment": "sequence - Statement 28",
-    "query": "ALTER SEQUENCE sequence_test8 AS smallint"
+    "query": "ALTER SEQUENCE sequence_test8 AS smallint",
+    "expected": "ALTER SEQUENCE sequence_test8 AS SMALLINT"
   },
   {
     "comment": "sequence - Statement 29",
-    "query": "ALTER SEQUENCE sequence_test8 AS smallint MAXVALUE 20000"
+    "query": "ALTER SEQUENCE sequence_test8 AS smallint MAXVALUE 20000",
+    "expected": "ALTER SEQUENCE sequence_test8 AS SMALLINT MAXVALUE 20000"
   },
   {
     "comment": "sequence - Statement 30",
-    "query": "ALTER SEQUENCE sequence_test9 AS smallint"
+    "query": "ALTER SEQUENCE sequence_test9 AS smallint",
+    "expected": "ALTER SEQUENCE sequence_test9 AS SMALLINT"
   },
   {
     "comment": "sequence - Statement 31",
-    "query": "ALTER SEQUENCE sequence_test10 AS smallint"
+    "query": "ALTER SEQUENCE sequence_test10 AS smallint",
+    "expected": "ALTER SEQUENCE sequence_test10 AS SMALLINT"
   },
   {
     "comment": "sequence - Statement 32",
-    "query": "ALTER SEQUENCE sequence_test10 AS smallint MINVALUE -20000"
+    "query": "ALTER SEQUENCE sequence_test10 AS smallint MINVALUE -20000",
+    "expected": "ALTER SEQUENCE sequence_test10 AS SMALLINT MINVALUE -20000"
   },
   {
     "comment": "sequence - Statement 33",
-    "query": "ALTER SEQUENCE sequence_test11 AS int"
+    "query": "ALTER SEQUENCE sequence_test11 AS int",
+    "expected": "ALTER SEQUENCE sequence_test11 AS INT"
   },
   {
     "comment": "sequence - Statement 34",
-    "query": "ALTER SEQUENCE sequence_test12 AS int"
+    "query": "ALTER SEQUENCE sequence_test12 AS int",
+    "expected": "ALTER SEQUENCE sequence_test12 AS INT"
   },
   {
     "comment": "sequence - Statement 35",
-    "query": "ALTER SEQUENCE sequence_test13 AS int"
+    "query": "ALTER SEQUENCE sequence_test13 AS int",
+    "expected": "ALTER SEQUENCE sequence_test13 AS INT"
   },
   {
     "comment": "sequence - Statement 36",
-    "query": "ALTER SEQUENCE sequence_test14 AS int"
+    "query": "ALTER SEQUENCE sequence_test14 AS int",
+    "expected": "ALTER SEQUENCE sequence_test14 AS INT"
   },
   {
     "comment": "sequence - Statement 37",
-    "query": "CREATE TABLE serialTest1 (f1 text, f2 serial)"
+    "query": "CREATE TABLE serialTest1 (f1 text, f2 serial)",
+    "expected": "CREATE TABLE serialtest1 (f1 TEXT, f2 serial)"
   },
   {
     "comment": "sequence - Statement 38",
-    "query": "INSERT INTO serialTest1 VALUES ('foo')"
+    "query": "INSERT INTO serialTest1 VALUES ('foo')",
+    "expected": "INSERT INTO serialtest1 VALUES ('foo')"
   },
   {
     "comment": "sequence - Statement 39",
-    "query": "INSERT INTO serialTest1 VALUES ('bar')"
+    "query": "INSERT INTO serialTest1 VALUES ('bar')",
+    "expected": "INSERT INTO serialtest1 VALUES ('bar')"
   },
   {
     "comment": "sequence - Statement 40",
-    "query": "INSERT INTO serialTest1 VALUES ('force', 100)"
+    "query": "INSERT INTO serialTest1 VALUES ('force', 100)",
+    "expected": "INSERT INTO serialtest1 VALUES ('force', 100)"
   },
   {
     "comment": "sequence - Statement 41",
-    "query": "INSERT INTO serialTest1 VALUES ('wrong', NULL)"
+    "query": "INSERT INTO serialTest1 VALUES ('wrong', NULL)",
+    "expected": "INSERT INTO serialtest1 VALUES ('wrong', NULL)"
   },
   {
     "comment": "sequence - Statement 42",
-    "query": "SELECT * FROM serialTest1"
+    "query": "SELECT * FROM serialTest1",
+    "expected": "SELECT * FROM serialtest1"
   },
   {
     "comment": "sequence - Statement 43",
@@ -173,51 +205,63 @@
   },
   {
     "comment": "sequence - Statement 44",
-    "query": "CREATE TABLE serialTest2 (f1 text, f2 serial, f3 smallserial, f4 serial2, f5 bigserial, f6 serial8)"
+    "query": "CREATE TABLE serialTest2 (f1 text, f2 serial, f3 smallserial, f4 serial2, f5 bigserial, f6 serial8)",
+    "expected": "CREATE TABLE serialtest2 (f1 TEXT, f2 serial, f3 smallserial, f4 serial2, f5 bigserial, f6 serial8)"
   },
   {
     "comment": "sequence - Statement 45",
-    "query": "INSERT INTO serialTest2 (f1) VALUES ('test_defaults')"
+    "query": "INSERT INTO serialTest2 (f1) VALUES ('test_defaults')",
+    "expected": "INSERT INTO serialtest2 (f1) VALUES ('test_defaults')"
   },
   {
     "comment": "sequence - Statement 46",
-    "query": "INSERT INTO serialTest2 (f1, f2, f3, f4, f5, f6) VALUES ('test_max_vals', 2147483647, 32767, 32767, 9223372036854775807, 9223372036854775807), ('test_min_vals', -2147483648, -32768, -32768, -9223372036854775808, -9223372036854775808)"
+    "query": "INSERT INTO serialTest2 (f1, f2, f3, f4, f5, f6) VALUES ('test_max_vals', 2147483647, 32767, 32767, 9223372036854775807, 9223372036854775807), ('test_min_vals', -2147483648, -32768, -32768, -9223372036854775808, -9223372036854775808)",
+    "expected": "INSERT INTO serialtest2 (f1, f2, f3, f4, f5, f6) VALUES ('test_max_vals', 2147483647, 32767, 32767, 9223372036854775807, 9223372036854775807), ('test_min_vals', -2147483648, -32768, -32768, -9223372036854775808, -9223372036854775808)"
   },
   {
     "comment": "sequence - Statement 47",
-    "query": "INSERT INTO serialTest2 (f1, f3) VALUES ('bogus', -32769)"
+    "query": "INSERT INTO serialTest2 (f1, f3) VALUES ('bogus', -32769)",
+    "expected": "INSERT INTO serialtest2 (f1, f3) VALUES ('bogus', -32769)"
   },
   {
     "comment": "sequence - Statement 48",
-    "query": "INSERT INTO serialTest2 (f1, f4) VALUES ('bogus', -32769)"
+    "query": "INSERT INTO serialTest2 (f1, f4) VALUES ('bogus', -32769)",
+    "expected": "INSERT INTO serialtest2 (f1, f4) VALUES ('bogus', -32769)"
   },
   {
     "comment": "sequence - Statement 49",
-    "query": "INSERT INTO serialTest2 (f1, f3) VALUES ('bogus', 32768)"
+    "query": "INSERT INTO serialTest2 (f1, f3) VALUES ('bogus', 32768)",
+    "expected": "INSERT INTO serialtest2 (f1, f3) VALUES ('bogus', 32768)"
   },
   {
     "comment": "sequence - Statement 50",
-    "query": "INSERT INTO serialTest2 (f1, f4) VALUES ('bogus', 32768)"
+    "query": "INSERT INTO serialTest2 (f1, f4) VALUES ('bogus', 32768)",
+    "expected": "INSERT INTO serialtest2 (f1, f4) VALUES ('bogus', 32768)"
   },
   {
     "comment": "sequence - Statement 51",
-    "query": "INSERT INTO serialTest2 (f1, f5) VALUES ('bogus', -9223372036854775809)"
+    "query": "INSERT INTO serialTest2 (f1, f5) VALUES ('bogus', -9223372036854775809)",
+    "expected": "INSERT INTO serialtest2 (f1, f5) VALUES ('bogus', -9223372036854775809)"
   },
   {
     "comment": "sequence - Statement 52",
-    "query": "INSERT INTO serialTest2 (f1, f6) VALUES ('bogus', -9223372036854775809)"
+    "query": "INSERT INTO serialTest2 (f1, f6) VALUES ('bogus', -9223372036854775809)",
+    "expected": "INSERT INTO serialtest2 (f1, f6) VALUES ('bogus', -9223372036854775809)"
   },
   {
     "comment": "sequence - Statement 53",
-    "query": "INSERT INTO serialTest2 (f1, f5) VALUES ('bogus', 9223372036854775808)"
+    "query": "INSERT INTO serialTest2 (f1, f5) VALUES ('bogus', 9223372036854775808)",
+    "expected": "INSERT INTO serialtest2 (f1, f5) VALUES ('bogus', 9223372036854775808)"
   },
   {
     "comment": "sequence - Statement 54",
-    "query": "INSERT INTO serialTest2 (f1, f6) VALUES ('bogus', 9223372036854775808)"
+    "query": "INSERT INTO serialTest2 (f1, f6) VALUES ('bogus', 9223372036854775808)",
+    "expected": "INSERT INTO serialtest2 (f1, f6) VALUES ('bogus', 9223372036854775808)"
   },
   {
     "comment": "sequence - Statement 55",
-    "query": "SELECT * FROM serialTest2 ORDER BY f2 ASC"
+    "query": "SELECT * FROM serialTest2 ORDER BY f2 ASC",
+    "expected": "SELECT * FROM serialtest2 ORDER BY f2 ASC"
   },
   {
     "comment": "sequence - Statement 56",
@@ -249,35 +293,43 @@
   },
   {
     "comment": "sequence - Statement 63",
-    "query": "SELECT nextval('sequence_test'::text)"
+    "query": "SELECT nextval('sequence_test'::text)",
+    "expected": "SELECT nextval(CAST('sequence_test' AS TEXT))"
   },
   {
     "comment": "sequence - Statement 64",
-    "query": "SELECT nextval('sequence_test'::regclass)"
+    "query": "SELECT nextval('sequence_test'::regclass)",
+    "expected": "SELECT nextval(CAST('sequence_test' AS regclass))"
   },
   {
     "comment": "sequence - Statement 65",
-    "query": "SELECT currval('sequence_test'::text)"
+    "query": "SELECT currval('sequence_test'::text)",
+    "expected": "SELECT currval(CAST('sequence_test' AS TEXT))"
   },
   {
     "comment": "sequence - Statement 66",
-    "query": "SELECT currval('sequence_test'::regclass)"
+    "query": "SELECT currval('sequence_test'::regclass)",
+    "expected": "SELECT currval(CAST('sequence_test' AS regclass))"
   },
   {
     "comment": "sequence - Statement 67",
-    "query": "SELECT setval('sequence_test'::text, 32)"
+    "query": "SELECT setval('sequence_test'::text, 32)",
+    "expected": "SELECT setval(CAST('sequence_test' AS TEXT), 32)"
   },
   {
     "comment": "sequence - Statement 68",
-    "query": "SELECT setval('sequence_test'::text, 99, false)"
+    "query": "SELECT setval('sequence_test'::text, 99, false)",
+    "expected": "SELECT setval(CAST('sequence_test' AS TEXT), 99, FALSE)"
   },
   {
     "comment": "sequence - Statement 69",
-    "query": "SELECT setval('sequence_test'::regclass, 32)"
+    "query": "SELECT setval('sequence_test'::regclass, 32)",
+    "expected": "SELECT setval(CAST('sequence_test' AS regclass), 32)"
   },
   {
     "comment": "sequence - Statement 70",
-    "query": "SELECT setval('sequence_test'::regclass, 99, false)"
+    "query": "SELECT setval('sequence_test'::regclass, 99, false)",
+    "expected": "SELECT setval(CAST('sequence_test' AS regclass), 99, FALSE)"
   },
   {
     "comment": "sequence - Statement 71",
@@ -317,19 +369,23 @@
   },
   {
     "comment": "sequence - Statement 80",
-    "query": "INSERT INTO serialTest1 VALUES ('more')"
+    "query": "INSERT INTO serialTest1 VALUES ('more')",
+    "expected": "INSERT INTO serialtest1 VALUES ('more')"
   },
   {
     "comment": "sequence - Statement 81",
-    "query": "CREATE TEMP SEQUENCE myseq2"
+    "query": "CREATE TEMP SEQUENCE myseq2",
+    "expected": "CREATE SEQUENCE myseq2"
   },
   {
     "comment": "sequence - Statement 82",
-    "query": "CREATE TEMP SEQUENCE myseq3"
+    "query": "CREATE TEMP SEQUENCE myseq3",
+    "expected": "CREATE SEQUENCE myseq3"
   },
   {
     "comment": "sequence - Statement 83",
-    "query": "CREATE TEMP TABLE t1 ( f1 serial, f2 int DEFAULT nextval('myseq2'), f3 int DEFAULT nextval('myseq3'::text) )"
+    "query": "CREATE TEMP TABLE t1 ( f1 serial, f2 int DEFAULT nextval('myseq2'), f3 int DEFAULT nextval('myseq3'::text) )",
+    "expected": "CREATE TEMPORARY TABLE t1 (f1 serial, f2 INT DEFAULT nextval('myseq2'), f3 INT DEFAULT nextval(CAST('myseq3' AS TEXT)))"
   },
   {
     "comment": "sequence - Statement 84",
@@ -353,7 +409,8 @@
   },
   {
     "comment": "sequence - Statement 89",
-    "query": "ALTER SEQUENCE serialTest1 CYCLE"
+    "query": "ALTER SEQUENCE serialTest1 CYCLE",
+    "expected": "ALTER SEQUENCE serialtest1 CYCLE"
   },
   {
     "comment": "sequence - Statement 90",
@@ -421,15 +478,18 @@
   },
   {
     "comment": "sequence - Statement 106",
-    "query": "SELECT * FROM information_schema.sequences WHERE sequence_name ~ ANY(ARRAY['sequence_test', 'serialtest']) ORDER BY sequence_name ASC"
+    "query": "SELECT * FROM information_schema.sequences WHERE sequence_name ~ ANY(ARRAY['sequence_test', 'serialtest']) ORDER BY sequence_name ASC",
+    "expected": "SELECT * FROM information_schema.sequences WHERE sequence_name ~ ANY (ARRAY['sequence_test','serialtest']) ORDER BY sequence_name ASC"
   },
   {
     "comment": "sequence - Statement 107",
-    "query": "SELECT schemaname, sequencename, start_value, min_value, max_value, increment_by, cycle, cache_size, last_value FROM pg_sequences WHERE sequencename ~ ANY(ARRAY['sequence_test', 'serialtest']) ORDER BY sequencename ASC"
+    "query": "SELECT schemaname, sequencename, start_value, min_value, max_value, increment_by, cycle, cache_size, last_value FROM pg_sequences WHERE sequencename ~ ANY(ARRAY['sequence_test', 'serialtest']) ORDER BY sequencename ASC",
+    "expected": "SELECT schemaname, sequencename, start_value, min_value, max_value, increment_by, cycle, cache_size, last_value FROM pg_sequences WHERE sequencename ~ ANY (ARRAY['sequence_test','serialtest']) ORDER BY sequencename ASC"
   },
   {
     "comment": "sequence - Statement 108",
-    "query": "SELECT * FROM pg_sequence_parameters('sequence_test4'::regclass)"
+    "query": "SELECT * FROM pg_sequence_parameters('sequence_test4'::regclass)",
+    "expected": "SELECT * FROM pg_sequence_parameters(CAST('sequence_test4' AS regclass))"
   },
   {
     "comment": "sequence - Statement 109",
@@ -469,7 +529,8 @@
   },
   {
     "comment": "sequence - Statement 118",
-    "query": "CREATE UNLOGGED SEQUENCE sequence_test_unlogged"
+    "query": "CREATE UNLOGGED SEQUENCE sequence_test_unlogged",
+    "expected": "CREATE SEQUENCE sequence_test_unlogged"
   },
   {
     "comment": "sequence - Statement 119",
@@ -477,7 +538,8 @@
   },
   {
     "comment": "sequence - Statement 120",
-    "query": "CREATE TEMPORARY SEQUENCE sequence_test_temp1"
+    "query": "CREATE TEMPORARY SEQUENCE sequence_test_temp1",
+    "expected": "CREATE SEQUENCE sequence_test_temp1"
   },
   {
     "comment": "sequence - Statement 121",
@@ -509,7 +571,8 @@
   },
   {
     "comment": "sequence - Statement 128",
-    "query": "SET LOCAL SESSION AUTHORIZATION regress_seq_user"
+    "query": "SET LOCAL SESSION AUTHORIZATION regress_seq_user",
+    "expected": "SET LOCAL SESSION AUTHORIZATION 'regress_seq_user'"
   },
   {
     "comment": "sequence - Statement 129",
@@ -549,7 +612,8 @@
   },
   {
     "comment": "sequence - Statement 138",
-    "query": "ROLLBACK TO save"
+    "query": "ROLLBACK TO save",
+    "expected": "ROLLBACK TO SAVEPOINT save"
   },
   {
     "comment": "sequence - Statement 139",
@@ -557,7 +621,8 @@
   },
   {
     "comment": "sequence - Statement 140",
-    "query": "DROP TABLE serialTest1, serialTest2"
+    "query": "DROP TABLE serialTest1, serialTest2",
+    "expected": "DROP TABLE serialtest1, serialtest2"
   },
   {
     "comment": "sequence - Statement 141",
@@ -565,7 +630,8 @@
   },
   {
     "comment": "sequence - Statement 142",
-    "query": "DROP USER regress_seq_user"
+    "query": "DROP USER regress_seq_user",
+    "expected": "DROP ROLE regress_seq_user"
   },
   {
     "comment": "sequence - Statement 143",

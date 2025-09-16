@@ -109,7 +109,7 @@
   {
     "comment": "object_address - Statement 24",
     "query": "CREATE POLICY genpol ON addr_nsp.gentable",
-    "expected": "CREATE POLICY genpol ON addr_nsp.gentable FOR all TO PUBLIC"
+    "expected": "CREATE POLICY genpol ON addr_nsp.gentable AS PERMISSIVE FOR all TO PUBLIC"
   },
   {
     "comment": "object_address - Statement 25",
