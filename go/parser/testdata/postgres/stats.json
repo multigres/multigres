@@ -845,134 +845,102 @@
   },
   {
     "comment": "stats - Statement 212",
-    "query": "CREATE FUNCTION wait_for_hot_stats() RETURNS void AS $$ DECLARE start_time timestamptz := clock_timestamp()"
+    "query": "CREATE FUNCTION wait_for_hot_stats() RETURNS void AS $$ DECLARE start_time timestamptz := clock_timestamp(); updated bool; BEGIN  FOR i IN 1 .. 300 LOOP SELECT (pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid) > 0) INTO updated; EXIT WHEN updated;   PERFORM pg_sleep_for('100 milliseconds');  PERFORM pg_stat_clear_snapshot(); END LOOP;  RAISE log 'wait_for_hot_stats delayed % seconds', EXTRACT(epoch FROM clock_timestamp() - start_time); END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "stats - Statement 213",
-    "query": "updated bool"
-  },
-  {
-    "comment": "stats - Statement 214",
-    "query": "BEGIN FOR i IN 1 .. 300 LOOP SELECT (pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid) > 0) INTO updated"
-  },
-  {
-    "comment": "stats - Statement 215",
-    "query": "EXIT WHEN updated"
-  },
-  {
-    "comment": "stats - Statement 216",
-    "query": "PERFORM pg_sleep_for('100 milliseconds')"
-  },
-  {
-    "comment": "stats - Statement 217",
-    "query": "PERFORM pg_stat_clear_snapshot()"
-  },
-  {
-    "comment": "stats - Statement 218",
-    "query": "END LOOP"
-  },
-  {
-    "comment": "stats - Statement 219",
-    "query": "RAISE log 'wait_for_hot_stats delayed % seconds', EXTRACT(epoch FROM clock_timestamp() - start_time)"
-  },
-  {
-    "comment": "stats - Statement 220",
-    "query": "END $$ LANGUAGE plpgsql"
-  },
-  {
-    "comment": "stats - Statement 221",
     "query": "UPDATE brin_hot SET val = -3 WHERE id = 42"
   },
   {
-    "comment": "stats - Statement 222",
+    "comment": "stats - Statement 214",
     "query": "SELECT pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid)"
   },
   {
-    "comment": "stats - Statement 223",
+    "comment": "stats - Statement 215",
     "query": "DROP TABLE brin_hot"
   },
   {
-    "comment": "stats - Statement 224",
+    "comment": "stats - Statement 216",
     "query": "DROP FUNCTION wait_for_hot_stats()"
   },
   {
-    "comment": "stats - Statement 225",
+    "comment": "stats - Statement 217",
     "query": "CREATE TABLE brin_hot_2 (a int, b int)"
   },
   {
-    "comment": "stats - Statement 226",
+    "comment": "stats - Statement 218",
     "query": "INSERT INTO brin_hot_2 VALUES (1, 100)"
   },
   {
-    "comment": "stats - Statement 227",
+    "comment": "stats - Statement 219",
     "query": "CREATE INDEX ON brin_hot_2 USING brin (b) WHERE a = 2"
   },
   {
-    "comment": "stats - Statement 228",
+    "comment": "stats - Statement 220",
     "query": "UPDATE brin_hot_2 SET a = 2"
   },
   {
-    "comment": "stats - Statement 229",
+    "comment": "stats - Statement 221",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_hot_2 WHERE a = 2 AND b = 100"
   },
   {
-    "comment": "stats - Statement 230",
+    "comment": "stats - Statement 222",
     "query": "SELECT COUNT(*) FROM brin_hot_2 WHERE a = 2 AND b = 100"
   },
   {
-    "comment": "stats - Statement 231",
+    "comment": "stats - Statement 223",
     "query": "SET enable_seqscan = off"
   },
   {
-    "comment": "stats - Statement 232",
+    "comment": "stats - Statement 224",
     "query": "DROP TABLE brin_hot_2"
   },
   {
-    "comment": "stats - Statement 233",
+    "comment": "stats - Statement 225",
     "query": "CREATE TABLE brin_hot_3 (a int, filler text) WITH (fillfactor = 10)"
   },
   {
-    "comment": "stats - Statement 234",
+    "comment": "stats - Statement 226",
     "query": "INSERT INTO brin_hot_3 SELECT 1, repeat(' ', 500) FROM generate_series(1, 20)"
   },
   {
-    "comment": "stats - Statement 235",
+    "comment": "stats - Statement 227",
     "query": "CREATE INDEX ON brin_hot_3 USING brin (a) WITH (pages_per_range = 1)"
   },
   {
-    "comment": "stats - Statement 236",
+    "comment": "stats - Statement 228",
     "query": "UPDATE brin_hot_3 SET a = 2"
   },
   {
-    "comment": "stats - Statement 237",
+    "comment": "stats - Statement 229",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM brin_hot_3 WHERE a = 2"
   },
   {
-    "comment": "stats - Statement 238",
+    "comment": "stats - Statement 230",
     "query": "SELECT COUNT(*) FROM brin_hot_3 WHERE a = 2"
   },
   {
-    "comment": "stats - Statement 239",
+    "comment": "stats - Statement 231",
     "query": "DROP TABLE brin_hot_3"
   },
   {
-    "comment": "stats - Statement 240",
+    "comment": "stats - Statement 232",
     "query": "SET enable_seqscan = on"
   },
   {
-    "comment": "stats - Statement 241",
+    "comment": "stats - Statement 233",
     "query": "CREATE TABLE table_fillfactor ( n char(1000) ) with (fillfactor=10, autovacuum_enabled=off)"
   },
   {
-    "comment": "stats - Statement 242",
+    "comment": "stats - Statement 234",
     "query": "INSERT INTO table_fillfactor SELECT 'x' FROM generate_series(1,1000)"
   },
   {
-    "comment": "stats - Statement 243",
+    "comment": "stats - Statement 235",
     "query": "SELECT * FROM check_estimated_rows('SELECT * FROM table_fillfactor')"
   },
   {
-    "comment": "stats - Statement 244",
+    "comment": "stats - Statement 236",
     "query": "DROP TABLE table_fillfactor"
   }
 ]

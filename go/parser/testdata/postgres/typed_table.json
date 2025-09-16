@@ -21,70 +21,66 @@
   },
   {
     "comment": "typed_table - Statement 6",
-    "query": "$$"
-  },
-  {
-    "comment": "typed_table - Statement 7",
     "query": "SELECT * FROM get_all_persons()"
   },
   {
-    "comment": "typed_table - Statement 8",
+    "comment": "typed_table - Statement 7",
     "query": "ALTER TABLE persons ADD COLUMN comment text"
   },
   {
-    "comment": "typed_table - Statement 9",
+    "comment": "typed_table - Statement 8",
     "query": "ALTER TABLE persons DROP COLUMN name"
   },
   {
-    "comment": "typed_table - Statement 10",
+    "comment": "typed_table - Statement 9",
     "query": "ALTER TABLE persons RENAME COLUMN id TO num"
   },
   {
-    "comment": "typed_table - Statement 11",
+    "comment": "typed_table - Statement 10",
     "query": "ALTER TABLE persons ALTER COLUMN name TYPE varchar"
   },
   {
-    "comment": "typed_table - Statement 12",
+    "comment": "typed_table - Statement 11",
     "query": "CREATE TABLE stuff (id int)"
   },
   {
-    "comment": "typed_table - Statement 13",
+    "comment": "typed_table - Statement 12",
     "query": "ALTER TABLE persons INHERIT stuff"
   },
   {
-    "comment": "typed_table - Statement 14",
+    "comment": "typed_table - Statement 13",
     "query": "CREATE TABLE personsx OF person_type (myname WITH OPTIONS NOT NULL)"
   },
   {
-    "comment": "typed_table - Statement 15",
+    "comment": "typed_table - Statement 14",
     "query": "CREATE TABLE persons2 OF person_type ( id WITH OPTIONS PRIMARY KEY, UNIQUE (name) )"
   },
   {
-    "comment": "typed_table - Statement 16",
+    "comment": "typed_table - Statement 15",
     "query": "DROP TYPE person_type RESTRICT"
   },
   {
-    "comment": "typed_table - Statement 17",
+    "comment": "typed_table - Statement 16",
     "query": "DROP TYPE person_type CASCADE"
   },
   {
-    "comment": "typed_table - Statement 18",
+    "comment": "typed_table - Statement 17",
     "query": "CREATE TABLE persons5 OF stuff"
   },
   {
-    "comment": "typed_table - Statement 19",
+    "comment": "typed_table - Statement 18",
     "query": "DROP TABLE stuff"
   },
   {
-    "comment": "typed_table - Statement 20",
+    "comment": "typed_table - Statement 19",
     "query": "INSERT INTO persons VALUES (1, 'test')"
   },
   {
-    "comment": "typed_table - Statement 21",
+    "comment": "typed_table - Statement 20",
     "query": "CREATE FUNCTION namelen(person_type) RETURNS int LANGUAGE SQL AS $$ SELECT length($1.name) $$"
   },
   {
-    "comment": "typed_table - Statement 22",
+    "comment": "typed_table - Statement 21",
     "query": "SELECT id, namelen(persons) FROM persons"
   }
 ]

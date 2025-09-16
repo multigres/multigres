@@ -221,298 +221,270 @@
   },
   {
     "comment": "truncate - Statement 56",
-    "query": "CREATE FUNCTION trunctrigger() RETURNS trigger as $$ declare c bigint"
+    "query": "CREATE FUNCTION trunctrigger() RETURNS trigger as $$ declare c bigint; begin execute 'select count(*) from ' || quote_ident(tg_table_name) into c; insert into trunc_trigger_log values (TG_OP, TG_LEVEL, TG_WHEN, TG_ARGV[0], tg_table_name, c); return null; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "truncate - Statement 57",
-    "query": "begin execute 'select count(*) from ' || quote_ident(tg_table_name) into c"
-  },
-  {
-    "comment": "truncate - Statement 58",
-    "query": "insert into trunc_trigger_log values (TG_OP, TG_LEVEL, TG_WHEN, TG_ARGV[0], tg_table_name, c)"
-  },
-  {
-    "comment": "truncate - Statement 59",
-    "query": "return null"
-  },
-  {
-    "comment": "truncate - Statement 60",
-    "query": "end"
-  },
-  {
-    "comment": "truncate - Statement 61",
-    "query": "$$ LANGUAGE plpgsql"
-  },
-  {
-    "comment": "truncate - Statement 62",
     "query": "INSERT INTO trunc_trigger_test VALUES(1, 'foo', 'bar'), (2, 'baz', 'quux')"
   },
   {
-    "comment": "truncate - Statement 63",
+    "comment": "truncate - Statement 58",
     "query": "CREATE TRIGGER t BEFORE TRUNCATE ON trunc_trigger_test FOR EACH STATEMENT EXECUTE PROCEDURE trunctrigger('before trigger truncate')"
   },
   {
-    "comment": "truncate - Statement 64",
+    "comment": "truncate - Statement 59",
     "query": "SELECT count(*) as \"Row count in test table\" FROM trunc_trigger_test"
   },
   {
-    "comment": "truncate - Statement 65",
+    "comment": "truncate - Statement 60",
     "query": "SELECT * FROM trunc_trigger_log"
   },
   {
-    "comment": "truncate - Statement 66",
+    "comment": "truncate - Statement 61",
     "query": "TRUNCATE trunc_trigger_test"
   },
   {
-    "comment": "truncate - Statement 67",
+    "comment": "truncate - Statement 62",
     "query": "DROP TRIGGER t ON trunc_trigger_test"
   },
   {
-    "comment": "truncate - Statement 68",
+    "comment": "truncate - Statement 63",
     "query": "truncate trunc_trigger_log"
   },
   {
-    "comment": "truncate - Statement 69",
+    "comment": "truncate - Statement 64",
     "query": "CREATE TRIGGER tt AFTER TRUNCATE ON trunc_trigger_test FOR EACH STATEMENT EXECUTE PROCEDURE trunctrigger('after trigger truncate')"
   },
   {
-    "comment": "truncate - Statement 70",
+    "comment": "truncate - Statement 65",
     "query": "DROP TABLE trunc_trigger_test"
   },
   {
-    "comment": "truncate - Statement 71",
+    "comment": "truncate - Statement 66",
     "query": "DROP TABLE trunc_trigger_log"
   },
   {
-    "comment": "truncate - Statement 72",
+    "comment": "truncate - Statement 67",
     "query": "DROP FUNCTION trunctrigger()"
   },
   {
-    "comment": "truncate - Statement 73",
+    "comment": "truncate - Statement 68",
     "query": "CREATE SEQUENCE truncate_a_id1 START WITH 33"
   },
   {
-    "comment": "truncate - Statement 74",
+    "comment": "truncate - Statement 69",
     "query": "CREATE TABLE truncate_a (id serial, id1 integer default nextval('truncate_a_id1'))"
   },
   {
-    "comment": "truncate - Statement 75",
+    "comment": "truncate - Statement 70",
     "query": "ALTER SEQUENCE truncate_a_id1 OWNED BY truncate_a.id1"
   },
   {
-    "comment": "truncate - Statement 76",
+    "comment": "truncate - Statement 71",
     "query": "INSERT INTO truncate_a DEFAULT VALUES"
   },
   {
-    "comment": "truncate - Statement 77",
+    "comment": "truncate - Statement 72",
     "query": "TRUNCATE truncate_a RESTART IDENTITY"
   },
   {
-    "comment": "truncate - Statement 78",
+    "comment": "truncate - Statement 73",
     "query": "CREATE TABLE truncate_b (id int GENERATED ALWAYS AS IDENTITY (START WITH 44))"
   },
   {
-    "comment": "truncate - Statement 79",
+    "comment": "truncate - Statement 74",
     "query": "INSERT INTO truncate_b DEFAULT VALUES"
   },
   {
-    "comment": "truncate - Statement 80",
+    "comment": "truncate - Statement 75",
     "query": "SELECT * FROM truncate_b"
   },
   {
-    "comment": "truncate - Statement 81",
+    "comment": "truncate - Statement 76",
     "query": "TRUNCATE truncate_b"
   },
   {
-    "comment": "truncate - Statement 82",
+    "comment": "truncate - Statement 77",
     "query": "TRUNCATE truncate_b RESTART IDENTITY"
   },
   {
-    "comment": "truncate - Statement 83",
+    "comment": "truncate - Statement 78",
     "query": "DROP TABLE truncate_a"
   },
   {
-    "comment": "truncate - Statement 84",
+    "comment": "truncate - Statement 79",
     "query": "SELECT nextval('truncate_a_id1')"
   },
   {
-    "comment": "truncate - Statement 85",
+    "comment": "truncate - Statement 80",
     "query": "CREATE TABLE truncparted (a int, b char) PARTITION BY LIST (a)"
   },
   {
-    "comment": "truncate - Statement 86",
+    "comment": "truncate - Statement 81",
     "query": "TRUNCATE ONLY truncparted"
   },
   {
-    "comment": "truncate - Statement 87",
+    "comment": "truncate - Statement 82",
     "query": "CREATE TABLE truncparted1 PARTITION OF truncparted FOR VALUES IN (1)"
   },
   {
-    "comment": "truncate - Statement 88",
+    "comment": "truncate - Statement 83",
     "query": "INSERT INTO truncparted VALUES (1, 'a')"
   },
   {
-    "comment": "truncate - Statement 89",
+    "comment": "truncate - Statement 84",
     "query": "TRUNCATE truncparted"
   },
   {
-    "comment": "truncate - Statement 90",
+    "comment": "truncate - Statement 85",
     "query": "DROP TABLE truncparted"
   },
   {
-    "comment": "truncate - Statement 91",
-    "query": "CREATE FUNCTION tp_ins_data() RETURNS void LANGUAGE plpgsql AS $$ BEGIN INSERT INTO truncprim VALUES (1), (100), (150)"
+    "comment": "truncate - Statement 86",
+    "query": "CREATE FUNCTION tp_ins_data() RETURNS void LANGUAGE plpgsql AS $$ BEGIN INSERT INTO truncprim VALUES (1), (100), (150); INSERT INTO truncpart VALUES (1), (100), (150); END $$"
   },
   {
-    "comment": "truncate - Statement 92",
-    "query": "INSERT INTO truncpart VALUES (1), (100), (150)"
+    "comment": "truncate - Statement 87",
+    "query": "CREATE FUNCTION tp_chk_data(OUT pktb regclass, OUT pkval int, OUT fktb regclass, OUT fkval int) RETURNS SETOF record LANGUAGE plpgsql AS $$ BEGIN RETURN QUERY SELECT pk.tableoid::regclass, pk.a, fk.tableoid::regclass, fk.a FROM truncprim pk FULL JOIN truncpart fk USING (a) ORDER BY 2, 4; END $$"
   },
   {
-    "comment": "truncate - Statement 93",
-    "query": "END $$"
-  },
-  {
-    "comment": "truncate - Statement 94",
-    "query": "CREATE FUNCTION tp_chk_data(OUT pktb regclass, OUT pkval int, OUT fktb regclass, OUT fkval int) RETURNS SETOF record LANGUAGE plpgsql AS $$ BEGIN RETURN QUERY SELECT pk.tableoid::regclass, pk.a, fk.tableoid::regclass, fk.a FROM truncprim pk FULL JOIN truncpart fk USING (a) ORDER BY 2, 4"
-  },
-  {
-    "comment": "truncate - Statement 95",
+    "comment": "truncate - Statement 88",
     "query": "CREATE TABLE truncprim (a int PRIMARY KEY)"
   },
   {
-    "comment": "truncate - Statement 96",
+    "comment": "truncate - Statement 89",
     "query": "CREATE TABLE truncpart (a int REFERENCES truncprim) PARTITION BY RANGE (a)"
   },
   {
-    "comment": "truncate - Statement 97",
+    "comment": "truncate - Statement 90",
     "query": "CREATE TABLE truncpart_1 PARTITION OF truncpart FOR VALUES FROM (0) TO (100)"
   },
   {
-    "comment": "truncate - Statement 98",
+    "comment": "truncate - Statement 91",
     "query": "CREATE TABLE truncpart_2 PARTITION OF truncpart FOR VALUES FROM (100) TO (200) PARTITION BY RANGE (a)"
   },
   {
-    "comment": "truncate - Statement 99",
+    "comment": "truncate - Statement 92",
     "query": "CREATE TABLE truncpart_2_1 PARTITION OF truncpart_2 FOR VALUES FROM (100) TO (150)"
   },
   {
-    "comment": "truncate - Statement 100",
+    "comment": "truncate - Statement 93",
     "query": "CREATE TABLE truncpart_2_d PARTITION OF truncpart_2 DEFAULT"
   },
   {
-    "comment": "truncate - Statement 101",
+    "comment": "truncate - Statement 94",
     "query": "TRUNCATE TABLE truncprim"
   },
   {
-    "comment": "truncate - Statement 102",
+    "comment": "truncate - Statement 95",
     "query": "select tp_ins_data()"
   },
   {
-    "comment": "truncate - Statement 103",
+    "comment": "truncate - Statement 96",
     "query": "TRUNCATE TABLE truncprim, truncpart"
   },
   {
-    "comment": "truncate - Statement 104",
+    "comment": "truncate - Statement 97",
     "query": "select * from tp_chk_data()"
   },
   {
-    "comment": "truncate - Statement 105",
+    "comment": "truncate - Statement 98",
     "query": "TRUNCATE TABLE truncprim CASCADE"
   },
   {
-    "comment": "truncate - Statement 106",
+    "comment": "truncate - Statement 99",
     "query": "TRUNCATE TABLE truncpart"
   },
   {
-    "comment": "truncate - Statement 107",
+    "comment": "truncate - Statement 100",
     "query": "DROP TABLE truncprim, truncpart"
   },
   {
-    "comment": "truncate - Statement 108",
+    "comment": "truncate - Statement 101",
     "query": "DROP FUNCTION tp_ins_data(), tp_chk_data()"
   },
   {
-    "comment": "truncate - Statement 109",
+    "comment": "truncate - Statement 102",
     "query": "CREATE TABLE trunc_a (a INT PRIMARY KEY) PARTITION BY RANGE (a)"
   },
   {
-    "comment": "truncate - Statement 110",
+    "comment": "truncate - Statement 103",
     "query": "CREATE TABLE trunc_a1 PARTITION OF trunc_a FOR VALUES FROM (0) TO (10)"
   },
   {
-    "comment": "truncate - Statement 111",
+    "comment": "truncate - Statement 104",
     "query": "CREATE TABLE trunc_a2 PARTITION OF trunc_a FOR VALUES FROM (10) TO (20) PARTITION BY RANGE (a)"
   },
   {
-    "comment": "truncate - Statement 112",
+    "comment": "truncate - Statement 105",
     "query": "CREATE TABLE trunc_a21 PARTITION OF trunc_a2 FOR VALUES FROM (10) TO (12)"
   },
   {
-    "comment": "truncate - Statement 113",
+    "comment": "truncate - Statement 106",
     "query": "CREATE TABLE trunc_a22 PARTITION OF trunc_a2 FOR VALUES FROM (12) TO (16)"
   },
   {
-    "comment": "truncate - Statement 114",
+    "comment": "truncate - Statement 107",
     "query": "CREATE TABLE trunc_a2d PARTITION OF trunc_a2 DEFAULT"
   },
   {
-    "comment": "truncate - Statement 115",
+    "comment": "truncate - Statement 108",
     "query": "CREATE TABLE trunc_a3 PARTITION OF trunc_a FOR VALUES FROM (20) TO (30)"
   },
   {
-    "comment": "truncate - Statement 116",
+    "comment": "truncate - Statement 109",
     "query": "INSERT INTO trunc_a VALUES (0), (5), (10), (15), (20), (25)"
   },
   {
-    "comment": "truncate - Statement 117",
+    "comment": "truncate - Statement 110",
     "query": "CREATE TABLE ref_b ( b INT PRIMARY KEY, a INT REFERENCES trunc_a(a) ON DELETE CASCADE )"
   },
   {
-    "comment": "truncate - Statement 118",
+    "comment": "truncate - Statement 111",
     "query": "INSERT INTO ref_b VALUES (10, 0), (50, 5), (100, 10), (150, 15)"
   },
   {
-    "comment": "truncate - Statement 119",
+    "comment": "truncate - Statement 112",
     "query": "TRUNCATE TABLE trunc_a1 CASCADE"
   },
   {
-    "comment": "truncate - Statement 120",
+    "comment": "truncate - Statement 113",
     "query": "SELECT a FROM ref_b"
   },
   {
-    "comment": "truncate - Statement 121",
+    "comment": "truncate - Statement 114",
     "query": "DROP TABLE ref_b"
   },
   {
-    "comment": "truncate - Statement 122",
+    "comment": "truncate - Statement 115",
     "query": "CREATE TABLE ref_c ( c INT PRIMARY KEY, a INT REFERENCES trunc_a(a) ON DELETE CASCADE ) PARTITION BY RANGE (c)"
   },
   {
-    "comment": "truncate - Statement 123",
+    "comment": "truncate - Statement 116",
     "query": "CREATE TABLE ref_c1 PARTITION OF ref_c FOR VALUES FROM (100) TO (200)"
   },
   {
-    "comment": "truncate - Statement 124",
+    "comment": "truncate - Statement 117",
     "query": "CREATE TABLE ref_c2 PARTITION OF ref_c FOR VALUES FROM (200) TO (300)"
   },
   {
-    "comment": "truncate - Statement 125",
+    "comment": "truncate - Statement 118",
     "query": "INSERT INTO ref_c VALUES (100, 10), (150, 15), (200, 20), (250, 25)"
   },
   {
-    "comment": "truncate - Statement 126",
+    "comment": "truncate - Statement 119",
     "query": "TRUNCATE TABLE trunc_a21 CASCADE"
   },
   {
-    "comment": "truncate - Statement 127",
+    "comment": "truncate - Statement 120",
     "query": "SELECT a as \"from table ref_c\" FROM ref_c"
   },
   {
-    "comment": "truncate - Statement 128",
+    "comment": "truncate - Statement 121",
     "query": "SELECT a as \"from table trunc_a\" FROM trunc_a ORDER BY a"
   },
   {
-    "comment": "truncate - Statement 129",
+    "comment": "truncate - Statement 122",
     "query": "DROP TABLE trunc_a, ref_c"
   }
 ]

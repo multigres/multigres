@@ -497,318 +497,294 @@
   },
   {
     "comment": "transactions - Statement 125",
-    "query": "create function inverse(int) returns float8 as $$ begin analyze revalidate_bug"
+    "query": "create function inverse(int) returns float8 as $$ begin analyze revalidate_bug; return 1::float8/$1; exception when division_by_zero then return 0; end$$ language plpgsql volatile"
   },
   {
     "comment": "transactions - Statement 126",
-    "query": "return 1::float8/$1"
-  },
-  {
-    "comment": "transactions - Statement 127",
-    "query": "exception when division_by_zero then return 0"
-  },
-  {
-    "comment": "transactions - Statement 128",
-    "query": "end$$ language plpgsql volatile"
-  },
-  {
-    "comment": "transactions - Statement 129",
     "query": "create table revalidate_bug (c float8 unique)"
   },
   {
-    "comment": "transactions - Statement 130",
+    "comment": "transactions - Statement 127",
     "query": "insert into revalidate_bug values (1)"
   },
   {
-    "comment": "transactions - Statement 131",
+    "comment": "transactions - Statement 128",
     "query": "insert into revalidate_bug values (inverse(0))"
   },
   {
-    "comment": "transactions - Statement 132",
+    "comment": "transactions - Statement 129",
     "query": "drop table revalidate_bug"
   },
   {
-    "comment": "transactions - Statement 133",
+    "comment": "transactions - Statement 130",
     "query": "drop function inverse(int)"
   },
   {
-    "comment": "transactions - Statement 134",
+    "comment": "transactions - Statement 131",
     "query": "create table trans_abc (a int)"
   },
   {
-    "comment": "transactions - Statement 135",
+    "comment": "transactions - Statement 132",
     "query": "insert into trans_abc values (5)"
   },
   {
-    "comment": "transactions - Statement 136",
+    "comment": "transactions - Statement 133",
     "query": "insert into trans_abc values (10)"
   },
   {
-    "comment": "transactions - Statement 137",
+    "comment": "transactions - Statement 134",
     "query": "declare foo cursor for select * from trans_abc"
   },
   {
-    "comment": "transactions - Statement 138",
+    "comment": "transactions - Statement 135",
     "query": "fetch from foo"
   },
   {
-    "comment": "transactions - Statement 139",
+    "comment": "transactions - Statement 136",
     "query": "insert into trans_abc values (15)"
   },
   {
-    "comment": "transactions - Statement 140",
+    "comment": "transactions - Statement 137",
     "query": "CREATE FUNCTION invert(x float8) RETURNS float8 LANGUAGE plpgsql AS $$ begin return 1/x; end $$"
   },
   {
-    "comment": "transactions - Statement 141",
-    "query": "CREATE FUNCTION create_temp_tab() RETURNS text LANGUAGE plpgsql AS $$ BEGIN CREATE TEMP TABLE new_table (f1 float8)"
+    "comment": "transactions - Statement 138",
+    "query": "CREATE FUNCTION create_temp_tab() RETURNS text LANGUAGE plpgsql AS $$ BEGIN CREATE TEMP TABLE new_table (f1 float8);   INSERT INTO new_table SELECT invert(0.0); RETURN 'foo'; END $$"
   },
   {
-    "comment": "transactions - Statement 142",
-    "query": "INSERT INTO new_table SELECT invert(0.0)"
-  },
-  {
-    "comment": "transactions - Statement 143",
-    "query": "RETURN 'foo'"
-  },
-  {
-    "comment": "transactions - Statement 144",
-    "query": "END $$"
-  },
-  {
-    "comment": "transactions - Statement 145",
+    "comment": "transactions - Statement 139",
     "query": "DECLARE ok CURSOR FOR SELECT * FROM int8_tbl"
   },
   {
-    "comment": "transactions - Statement 146",
+    "comment": "transactions - Statement 140",
     "query": "DECLARE ctt CURSOR FOR SELECT create_temp_tab()"
   },
   {
-    "comment": "transactions - Statement 147",
+    "comment": "transactions - Statement 141",
     "query": "FETCH ok"
   },
   {
-    "comment": "transactions - Statement 148",
+    "comment": "transactions - Statement 142",
     "query": "SAVEPOINT s1"
   },
   {
-    "comment": "transactions - Statement 149",
+    "comment": "transactions - Statement 143",
     "query": "FETCH ctt"
   },
   {
-    "comment": "transactions - Statement 150",
+    "comment": "transactions - Statement 144",
     "query": "ROLLBACK TO s1"
   },
   {
-    "comment": "transactions - Statement 151",
+    "comment": "transactions - Statement 145",
     "query": "DROP FUNCTION create_temp_tab()"
   },
   {
-    "comment": "transactions - Statement 152",
+    "comment": "transactions - Statement 146",
     "query": "DROP FUNCTION invert(x float8)"
   },
   {
-    "comment": "transactions - Statement 153",
+    "comment": "transactions - Statement 147",
     "query": "SET default_transaction_read_only = on"
   },
   {
-    "comment": "transactions - Statement 154",
+    "comment": "transactions - Statement 148",
     "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE, DEFERRABLE"
   },
   {
-    "comment": "transactions - Statement 155",
+    "comment": "transactions - Statement 149",
     "query": "SHOW transaction_isolation"
   },
   {
-    "comment": "transactions - Statement 156",
+    "comment": "transactions - Statement 150",
     "query": "SHOW transaction_deferrable"
   },
   {
-    "comment": "transactions - Statement 157",
+    "comment": "transactions - Statement 151",
     "query": "INSERT INTO trans_abc VALUES (1)"
   },
   {
-    "comment": "transactions - Statement 158",
+    "comment": "transactions - Statement 152",
     "query": "INSERT INTO trans_abc VALUES (2)"
   },
   {
-    "comment": "transactions - Statement 159",
+    "comment": "transactions - Statement 153",
     "query": "COMMIT AND CHAIN"
   },
   {
-    "comment": "transactions - Statement 160",
+    "comment": "transactions - Statement 154",
     "query": "INSERT INTO trans_abc VALUES ('error')"
   },
   {
-    "comment": "transactions - Statement 161",
+    "comment": "transactions - Statement 155",
     "query": "INSERT INTO trans_abc VALUES (3)"
   },
   {
-    "comment": "transactions - Statement 162",
+    "comment": "transactions - Statement 156",
     "query": "INSERT INTO trans_abc VALUES (4)"
   },
   {
-    "comment": "transactions - Statement 163",
+    "comment": "transactions - Statement 157",
     "query": "START TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE, DEFERRABLE"
   },
   {
-    "comment": "transactions - Statement 164",
+    "comment": "transactions - Statement 158",
     "query": "START TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ WRITE, NOT DEFERRABLE"
   },
   {
-    "comment": "transactions - Statement 165",
+    "comment": "transactions - Statement 159",
     "query": "INSERT INTO trans_abc VALUES (6)"
   },
   {
-    "comment": "transactions - Statement 166",
+    "comment": "transactions - Statement 160",
     "query": "ROLLBACK AND CHAIN"
   },
   {
-    "comment": "transactions - Statement 167",
+    "comment": "transactions - Statement 161",
     "query": "SELECT * FROM trans_abc ORDER BY 1"
   },
   {
-    "comment": "transactions - Statement 168",
+    "comment": "transactions - Statement 162",
     "query": "RESET default_transaction_read_only"
   },
   {
-    "comment": "transactions - Statement 169",
+    "comment": "transactions - Statement 163",
     "query": "DROP TABLE trans_abc"
   },
   {
-    "comment": "transactions - Statement 170",
+    "comment": "transactions - Statement 164",
     "query": "create temp table i_table (f1 int)"
   },
   {
-    "comment": "transactions - Statement 171",
+    "comment": "transactions - Statement 165",
     "query": "SELECT 1\\; SELECT 2\\; SELECT 3"
   },
   {
-    "comment": "transactions - Statement 172",
+    "comment": "transactions - Statement 166",
     "query": "insert into i_table values(1)\\; select * from i_table"
   },
   {
-    "comment": "transactions - Statement 173",
+    "comment": "transactions - Statement 167",
     "query": "insert into i_table values(2)\\; select * from i_table\\; select 1/0"
   },
   {
-    "comment": "transactions - Statement 174",
+    "comment": "transactions - Statement 168",
     "query": "select * from i_table"
   },
   {
-    "comment": "transactions - Statement 175",
+    "comment": "transactions - Statement 169",
     "query": "begin\\; insert into i_table values(3)\\; commit"
   },
   {
-    "comment": "transactions - Statement 176",
+    "comment": "transactions - Statement 170",
     "query": "begin\\; insert into i_table values(4)\\; rollback"
   },
   {
-    "comment": "transactions - Statement 177",
+    "comment": "transactions - Statement 171",
     "query": "select 1\\; begin\\; insert into i_table values(5)"
   },
   {
-    "comment": "transactions - Statement 178",
+    "comment": "transactions - Statement 172",
     "query": "select 1\\; begin\\; insert into i_table values(6)"
   },
   {
-    "comment": "transactions - Statement 179",
+    "comment": "transactions - Statement 173",
     "query": "insert into i_table values(7)\\; commit\\; insert into i_table values(8)\\; select 1/0"
   },
   {
-    "comment": "transactions - Statement 180",
+    "comment": "transactions - Statement 174",
     "query": "insert into i_table values(9)\\; rollback\\; select 2"
   },
   {
-    "comment": "transactions - Statement 181",
+    "comment": "transactions - Statement 175",
     "query": "SELECT 1\\; VACUUM"
   },
   {
-    "comment": "transactions - Statement 182",
+    "comment": "transactions - Statement 176",
     "query": "SELECT 1\\; COMMIT\\; VACUUM"
   },
   {
-    "comment": "transactions - Statement 183",
+    "comment": "transactions - Statement 177",
     "query": "SELECT 1\\; SAVEPOINT sp"
   },
   {
-    "comment": "transactions - Statement 184",
+    "comment": "transactions - Statement 178",
     "query": "SELECT 1\\; COMMIT\\; SAVEPOINT sp"
   },
   {
-    "comment": "transactions - Statement 185",
+    "comment": "transactions - Statement 179",
     "query": "ROLLBACK TO SAVEPOINT sp\\; SELECT 2"
   },
   {
-    "comment": "transactions - Statement 186",
+    "comment": "transactions - Statement 180",
     "query": "SELECT 2\\; RELEASE SAVEPOINT sp\\; SELECT 3"
   },
   {
-    "comment": "transactions - Statement 187",
+    "comment": "transactions - Statement 181",
     "query": "SELECT 1\\; BEGIN\\; SAVEPOINT sp\\; ROLLBACK TO SAVEPOINT sp\\; COMMIT"
   },
   {
-    "comment": "transactions - Statement 188",
+    "comment": "transactions - Statement 182",
     "query": "SET TRANSACTION READ ONLY\\; COMMIT AND CHAIN"
   },
   {
-    "comment": "transactions - Statement 189",
+    "comment": "transactions - Statement 183",
     "query": "SET TRANSACTION READ ONLY\\; ROLLBACK AND CHAIN"
   },
   {
-    "comment": "transactions - Statement 190",
+    "comment": "transactions - Statement 184",
     "query": "INSERT INTO trans_abc VALUES (7)\\; COMMIT\\; INSERT INTO trans_abc VALUES (8)\\; COMMIT AND CHAIN"
   },
   {
-    "comment": "transactions - Statement 191",
+    "comment": "transactions - Statement 185",
     "query": "INSERT INTO trans_abc VALUES (9)\\; ROLLBACK\\; INSERT INTO trans_abc VALUES (10)\\; ROLLBACK AND CHAIN"
   },
   {
-    "comment": "transactions - Statement 192",
+    "comment": "transactions - Statement 186",
     "query": "INSERT INTO trans_abc VALUES (11)\\; COMMIT AND CHAIN\\; INSERT INTO trans_abc VALUES (12)\\; COMMIT"
   },
   {
-    "comment": "transactions - Statement 193",
+    "comment": "transactions - Statement 187",
     "query": "INSERT INTO trans_abc VALUES (13)\\; ROLLBACK AND CHAIN\\; INSERT INTO trans_abc VALUES (14)\\; ROLLBACK"
   },
   {
-    "comment": "transactions - Statement 194",
+    "comment": "transactions - Statement 188",
     "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (15)\\; COMMIT AND CHAIN"
   },
   {
-    "comment": "transactions - Statement 195",
+    "comment": "transactions - Statement 189",
     "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (16)\\; ROLLBACK AND CHAIN"
   },
   {
-    "comment": "transactions - Statement 196",
+    "comment": "transactions - Statement 190",
     "query": "SET default_transaction_isolation = 'read committed'"
   },
   {
-    "comment": "transactions - Statement 197",
+    "comment": "transactions - Statement 191",
     "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (17)\\; COMMIT\\; INSERT INTO trans_abc VALUES (18)\\; COMMIT AND CHAIN"
   },
   {
-    "comment": "transactions - Statement 198",
+    "comment": "transactions - Statement 192",
     "query": "START TRANSACTION ISOLATION LEVEL REPEATABLE READ\\; INSERT INTO trans_abc VALUES (19)\\; ROLLBACK\\; INSERT INTO trans_abc VALUES (20)\\; ROLLBACK AND CHAIN"
   },
   {
-    "comment": "transactions - Statement 199",
+    "comment": "transactions - Statement 193",
     "query": "RESET default_transaction_isolation"
   },
   {
-    "comment": "transactions - Statement 200",
+    "comment": "transactions - Statement 194",
     "query": "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ"
   },
   {
-    "comment": "transactions - Statement 201",
+    "comment": "transactions - Statement 195",
     "query": "SET TRANSACTION SNAPSHOT 'Incorrect Identifier'"
   },
   {
-    "comment": "transactions - Statement 202",
+    "comment": "transactions - Statement 196",
     "query": "SET TRANSACTION SNAPSHOT 'FFF-FFF-F'"
   },
   {
-    "comment": "transactions - Statement 203",
+    "comment": "transactions - Statement 197",
     "query": "select 1/0"
   }
 ]

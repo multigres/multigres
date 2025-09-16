@@ -28,58 +28,155 @@ def extract_sql_statements(content: str) -> List[str]:
     """
     Extract SQL statements from PostgreSQL test file content.
     Handles multi-line statements and removes comments.
+    Properly handles quoted function bodies in CREATE FUNCTION statements.
     """
     statements = []
     lines = content.split('\n')
     current_statement = []
     in_statement = False
+    in_function_body = False
+    function_quote_style = None  # 'single' or 'dollar'
+    dollar_quote_tag = None  # For tracking dollar quote tags like $func$ or $$
     
     for line in lines:
         # Strip whitespace
         line = line.strip()
         
-        # Skip empty lines
-        if not line:
+        # Skip empty lines when not in a statement or function body
+        if not line and not in_statement and not in_function_body:
             continue
             
-        # Skip comment-only lines
-        if line.startswith('--'):
+        # Skip comment-only lines when not in a function body
+        if line.startswith('--') and not in_function_body and not in_statement:
             continue
             
         # Remove inline comments (but preserve strings with --)
-        # Simple approach: remove -- only if not inside quotes
         clean_line = remove_inline_comments(line)
-        if not clean_line:
+        if not clean_line and not in_statement and not in_function_body:
             continue
             
-        current_statement.append(clean_line)
-        in_statement = True
+        # Add line to current statement
+        if clean_line or in_function_body:
+            current_statement.append(clean_line)
+            in_statement = True
         
-        # Check if statement ends with semicolon or contains psql meta-commands that terminate statements
-        line_ends_statement = (clean_line.rstrip().endswith(';') or 
-                             '\\gset' in clean_line or 
-                             '\\gexec' in clean_line or
-                             '\\crosstabview' in clean_line)
+        # Check if we're starting a function body or DO block
+        if not in_function_body and in_statement:
+            stmt_so_far = ' '.join(current_statement)
+            # Look for CREATE [OR REPLACE] FUNCTION/PROCEDURE ... AS followed by a quote
+            if re.search(r'create\s+(or\s+replace\s+)?(function|procedure)', stmt_so_far, re.IGNORECASE):
+                # Check for single-quoted function body
+                if re.search(r'\s+as\s+\'\s*$', stmt_so_far, re.IGNORECASE):
+                    # Single-quoted function body starts
+                    in_function_body = True
+                    function_quote_style = 'single'
+                # Check for dollar-quoted function body (including on the same line)
+                elif re.search(r'\s+as\s+(\$\w*\$)', stmt_so_far, re.IGNORECASE):
+                    # Dollar-quoted function body starts
+                    match = re.search(r'\s+as\s+(\$\w*\$)', stmt_so_far, re.IGNORECASE)
+                    dollar_quote_tag = match.group(1)
+                    in_function_body = True
+                    function_quote_style = 'dollar'
+            # Look for DO blocks with dollar quotes
+            elif re.search(r'^do\s+(\$\w*\$)', stmt_so_far, re.IGNORECASE):
+                # DO block starts
+                match = re.search(r'^do\s+(\$\w*\$)', stmt_so_far, re.IGNORECASE)
+                dollar_quote_tag = match.group(1)
+                in_function_body = True
+                function_quote_style = 'dollar'
+            # Look for DO blocks with single quotes
+            elif re.search(r'^do\s+\'\s*$', stmt_so_far, re.IGNORECASE):
+                # DO block with single quote starts
+                in_function_body = True
+                function_quote_style = 'single'
         
-        if line_ends_statement:
-            if current_statement:
-                stmt = ' '.join(current_statement).strip()
-                # Remove psql meta-commands from the end of statements
-                stmt = remove_psql_metacommands(stmt)
-                if stmt and not is_ignored_statement(stmt):
-                    # Handle parameterized queries
-                    processed_stmt = handle_parameterized_queries(stmt)
-                    if processed_stmt:
-                        statements.append(processed_stmt)
-            current_statement = []
-            in_statement = False
+        # Check if we're ending a function body or DO block
+        if in_function_body:
+            stmt_so_far = ' '.join(current_statement).lower()
+            is_do_block = stmt_so_far.startswith('do ')
             
-            # If there's content after the meta-command on the same line, start a new statement
-            if '\\gset' in clean_line or '\\gexec' in clean_line or '\\crosstabview' in clean_line:
-                remaining_content = extract_content_after_metacommand(clean_line)
-                if remaining_content:
-                    current_statement = [remaining_content]
-                    in_statement = True
+            if function_quote_style == 'single':
+                if is_do_block:
+                    # For DO blocks, just look for closing quote (with optional semicolon)
+                    if re.match(r"^'\s*;?\s*$", clean_line):
+                        in_function_body = False
+                        function_quote_style = None
+                else:
+                    # For functions, look for closing quote followed by language/immutable/volatile/etc or semicolon
+                    # The closing quote might be at the start of line OR after END; on the same line
+                    if (re.match(r"^'\s*(language|immutable|volatile|stable|strict|security|cost|rows|;)", clean_line, re.IGNORECASE) or
+                        re.search(r";\s*'\s*(language|immutable|volatile|stable|strict|security|cost|rows|;)", clean_line, re.IGNORECASE)):
+                        in_function_body = False
+                        function_quote_style = None
+                
+                # Check if statement ends after the definition
+                if not in_function_body and clean_line.rstrip().endswith(';'):
+                    if current_statement:
+                        stmt = ' '.join(current_statement).strip()
+                        stmt = remove_psql_metacommands(stmt)
+                        if stmt and not is_ignored_statement(stmt):
+                            processed_stmt = handle_parameterized_queries(stmt)
+                            if processed_stmt:
+                                statements.append(processed_stmt)
+                    current_statement = []
+                    in_statement = False
+                    
+            elif function_quote_style == 'dollar':
+                # Look for the matching dollar quote tag
+                if dollar_quote_tag in clean_line:
+                    if is_do_block:
+                        # For DO blocks, just check for the closing tag (possibly with semicolon)
+                        pattern = re.escape(dollar_quote_tag) + r'\s*;?\s*$'
+                        if re.search(pattern, clean_line):
+                            in_function_body = False
+                            function_quote_style = None
+                            dollar_quote_tag = None
+                    else:
+                        # For functions, check if closing tag is followed by language keyword or semicolon
+                        pattern = re.escape(dollar_quote_tag) + r'\s*(language|immutable|volatile|stable|strict|security|cost|rows|;)'
+                        if re.search(pattern, clean_line, re.IGNORECASE):
+                            in_function_body = False
+                            function_quote_style = None
+                            dollar_quote_tag = None
+                    
+                    # Check if statement ends after the definition
+                    if not in_function_body and clean_line.rstrip().endswith(';'):
+                        if current_statement:
+                            stmt = ' '.join(current_statement).strip()
+                            stmt = remove_psql_metacommands(stmt)
+                            if stmt and not is_ignored_statement(stmt):
+                                processed_stmt = handle_parameterized_queries(stmt)
+                                if processed_stmt:
+                                    statements.append(processed_stmt)
+                        current_statement = []
+                        in_statement = False
+        
+        # Check if statement ends with semicolon (but ONLY when not inside function body)
+        if not in_function_body and in_statement:
+            line_ends_statement = (clean_line.rstrip().endswith(';') or 
+                                 '\\gset' in clean_line or 
+                                 '\\gexec' in clean_line or
+                                 '\\crosstabview' in clean_line)
+            
+            if line_ends_statement:
+                if current_statement:
+                    stmt = ' '.join(current_statement).strip()
+                    # Remove psql meta-commands from the end of statements
+                    stmt = remove_psql_metacommands(stmt)
+                    if stmt and not is_ignored_statement(stmt):
+                        # Handle parameterized queries
+                        processed_stmt = handle_parameterized_queries(stmt)
+                        if processed_stmt:
+                            statements.append(processed_stmt)
+                current_statement = []
+                in_statement = False
+                
+                # If there's content after the meta-command on the same line, start a new statement
+                if '\\gset' in clean_line or '\\gexec' in clean_line or '\\crosstabview' in clean_line:
+                    remaining_content = extract_content_after_metacommand(clean_line)
+                    if remaining_content:
+                        current_statement = [remaining_content]
+                        in_statement = True
     
     # Handle case where last statement doesn't end with semicolon
     if current_statement:

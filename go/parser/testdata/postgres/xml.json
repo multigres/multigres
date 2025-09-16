@@ -637,442 +637,402 @@
   },
   {
     "comment": "xml - Statement 160",
-    "query": "DO $$ DECLARE xml_declaration text := '<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>'"
+    "query": "DO $$ DECLARE xml_declaration text := '<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>'; degree_symbol text; res xml[]; BEGIN     IF current_setting('server_encoding') <> 'UTF8' THEN RAISE LOG 'skip: encoding % unsupported for xpath', current_setting('server_encoding'); RETURN; END IF;  degree_symbol := convert_from('\\xc2b0', 'UTF8'); res := xpath('text()', (xml_declaration || '<x>' || degree_symbol || '</x>')::xml); IF degree_symbol <> res[1]::text THEN RAISE 'expected % (%), got % (%)', degree_symbol, convert_to(degree_symbol, 'UTF8'), res[1], convert_to(res[1]::text, 'UTF8'); END IF; EXCEPTION  WHEN untranslatable_character  OR undefined_function  OR feature_not_supported THEN RAISE LOG 'skip: %', SQLERRM; END $$"
   },
   {
     "comment": "xml - Statement 161",
-    "query": "degree_symbol text"
-  },
-  {
-    "comment": "xml - Statement 162",
-    "query": "res xml[]"
-  },
-  {
-    "comment": "xml - Statement 163",
-    "query": "BEGIN IF current_setting('server_encoding') <> 'UTF8' THEN RAISE LOG 'skip: encoding % unsupported for xpath', current_setting('server_encoding')"
-  },
-  {
-    "comment": "xml - Statement 164",
-    "query": "RETURN"
-  },
-  {
-    "comment": "xml - Statement 165",
-    "query": "END IF"
-  },
-  {
-    "comment": "xml - Statement 166",
-    "query": "degree_symbol := convert_from('\\xc2b0', 'UTF8')"
-  },
-  {
-    "comment": "xml - Statement 167",
-    "query": "res := xpath('text()', (xml_declaration || '<x>' || degree_symbol || '</x>')::xml)"
-  },
-  {
-    "comment": "xml - Statement 168",
-    "query": "IF degree_symbol <> res[1]::text THEN RAISE 'expected % (%), got % (%)', degree_symbol, convert_to(degree_symbol, 'UTF8'), res[1], convert_to(res[1]::text, 'UTF8')"
-  },
-  {
-    "comment": "xml - Statement 169",
-    "query": "EXCEPTION WHEN untranslatable_character OR undefined_function OR feature_not_supported THEN RAISE LOG 'skip: %', SQLERRM"
-  },
-  {
-    "comment": "xml - Statement 170",
-    "query": "END $$"
-  },
-  {
-    "comment": "xml - Statement 171",
     "query": "SELECT xmlexists('//town[text() = ''Toronto'']' PASSING BY REF '<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>')"
   },
   {
-    "comment": "xml - Statement 172",
+    "comment": "xml - Statement 162",
     "query": "SELECT xmlexists('//town[text() = ''Cwmbran'']' PASSING BY REF '<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>')"
   },
   {
-    "comment": "xml - Statement 173",
+    "comment": "xml - Statement 163",
     "query": "SELECT xmlexists('count(/nosuchtag)' PASSING BY REF '<root/>')"
   },
   {
-    "comment": "xml - Statement 174",
+    "comment": "xml - Statement 164",
     "query": "SELECT xpath_exists('//town[text() = ''Toronto'']','<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>'::xml)"
   },
   {
-    "comment": "xml - Statement 175",
+    "comment": "xml - Statement 165",
     "query": "SELECT xpath_exists('//town[text() = ''Cwmbran'']','<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>'::xml)"
   },
   {
-    "comment": "xml - Statement 176",
+    "comment": "xml - Statement 166",
     "query": "SELECT xpath_exists('count(/nosuchtag)', '<root/>'::xml)"
   },
   {
-    "comment": "xml - Statement 177",
+    "comment": "xml - Statement 167",
     "query": "INSERT INTO xmltest VALUES (4, '<menu><beers><name>Budvar</name><cost>free</cost><name>Carling</name><cost>lots</cost></beers></menu>'::xml)"
   },
   {
-    "comment": "xml - Statement 178",
+    "comment": "xml - Statement 168",
     "query": "INSERT INTO xmltest VALUES (5, '<menu><beers><name>Molson</name><cost>free</cost><name>Carling</name><cost>lots</cost></beers></menu>'::xml)"
   },
   {
-    "comment": "xml - Statement 179",
+    "comment": "xml - Statement 169",
     "query": "INSERT INTO xmltest VALUES (6, '<myns:menu xmlns:myns=\"http://myns.com\"><myns:beers><myns:name>Budvar</myns:name><myns:cost>free</myns:cost><myns:name>Carling</myns:name><myns:cost>lots</myns:cost></myns:beers></myns:menu>'::xml)"
   },
   {
-    "comment": "xml - Statement 180",
+    "comment": "xml - Statement 170",
     "query": "INSERT INTO xmltest VALUES (7, '<myns:menu xmlns:myns=\"http://myns.com\"><myns:beers><myns:name>Molson</myns:name><myns:cost>free</myns:cost><myns:name>Carling</myns:name><myns:cost>lots</myns:cost></myns:beers></myns:menu>'::xml)"
   },
   {
-    "comment": "xml - Statement 181",
+    "comment": "xml - Statement 171",
     "query": "SELECT COUNT(id) FROM xmltest WHERE xmlexists('/menu/beer' PASSING data)"
   },
   {
-    "comment": "xml - Statement 182",
+    "comment": "xml - Statement 172",
     "query": "SELECT COUNT(id) FROM xmltest WHERE xmlexists('/menu/beer' PASSING BY REF data BY REF)"
   },
   {
-    "comment": "xml - Statement 183",
+    "comment": "xml - Statement 173",
     "query": "SELECT COUNT(id) FROM xmltest WHERE xmlexists('/menu/beers' PASSING BY REF data)"
   },
   {
-    "comment": "xml - Statement 184",
+    "comment": "xml - Statement 174",
     "query": "SELECT COUNT(id) FROM xmltest WHERE xmlexists('/menu/beers/name[text() = ''Molson'']' PASSING BY REF data)"
   },
   {
-    "comment": "xml - Statement 185",
+    "comment": "xml - Statement 175",
     "query": "SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/menu/beer',data)"
   },
   {
-    "comment": "xml - Statement 186",
+    "comment": "xml - Statement 176",
     "query": "SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/menu/beers',data)"
   },
   {
-    "comment": "xml - Statement 187",
+    "comment": "xml - Statement 177",
     "query": "SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/menu/beers/name[text() = ''Molson'']',data)"
   },
   {
-    "comment": "xml - Statement 188",
+    "comment": "xml - Statement 178",
     "query": "SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/myns:menu/myns:beer',data,ARRAY[ARRAY['myns','http://myns.com']])"
   },
   {
-    "comment": "xml - Statement 189",
+    "comment": "xml - Statement 179",
     "query": "SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/myns:menu/myns:beers',data,ARRAY[ARRAY['myns','http://myns.com']])"
   },
   {
-    "comment": "xml - Statement 190",
+    "comment": "xml - Statement 180",
     "query": "SELECT COUNT(id) FROM xmltest WHERE xpath_exists('/myns:menu/myns:beers/myns:name[text() = ''Molson'']',data,ARRAY[ARRAY['myns','http://myns.com']])"
   },
   {
-    "comment": "xml - Statement 191",
+    "comment": "xml - Statement 181",
     "query": "CREATE TABLE query ( expr TEXT )"
   },
   {
-    "comment": "xml - Statement 192",
+    "comment": "xml - Statement 182",
     "query": "INSERT INTO query VALUES ('/menu/beers/cost[text() = ''lots'']')"
   },
   {
-    "comment": "xml - Statement 193",
+    "comment": "xml - Statement 183",
     "query": "SELECT COUNT(id) FROM xmltest, query WHERE xmlexists(expr PASSING BY REF data)"
   },
   {
-    "comment": "xml - Statement 194",
+    "comment": "xml - Statement 184",
     "query": "SELECT xml_is_well_formed_document('<foo>bar</foo>')"
   },
   {
-    "comment": "xml - Statement 195",
+    "comment": "xml - Statement 185",
     "query": "SELECT xml_is_well_formed_document('abc')"
   },
   {
-    "comment": "xml - Statement 196",
+    "comment": "xml - Statement 186",
     "query": "SELECT xml_is_well_formed_content('<foo>bar</foo>')"
   },
   {
-    "comment": "xml - Statement 197",
+    "comment": "xml - Statement 187",
     "query": "SELECT xml_is_well_formed_content('abc')"
   },
   {
-    "comment": "xml - Statement 198",
+    "comment": "xml - Statement 188",
     "query": "SET xmloption TO DOCUMENT"
   },
   {
-    "comment": "xml - Statement 199",
+    "comment": "xml - Statement 189",
     "query": "SELECT xml_is_well_formed('abc')"
   },
   {
-    "comment": "xml - Statement 200",
+    "comment": "xml - Statement 190",
     "query": "SELECT xml_is_well_formed('<>')"
   },
   {
-    "comment": "xml - Statement 201",
+    "comment": "xml - Statement 191",
     "query": "SELECT xml_is_well_formed('<abc/>')"
   },
   {
-    "comment": "xml - Statement 202",
+    "comment": "xml - Statement 192",
     "query": "SELECT xml_is_well_formed('<foo>bar</foo>')"
   },
   {
-    "comment": "xml - Statement 203",
+    "comment": "xml - Statement 193",
     "query": "SELECT xml_is_well_formed('<foo>bar</foo')"
   },
   {
-    "comment": "xml - Statement 204",
+    "comment": "xml - Statement 194",
     "query": "SELECT xml_is_well_formed('<foo><bar>baz</foo>')"
   },
   {
-    "comment": "xml - Statement 205",
+    "comment": "xml - Statement 195",
     "query": "SELECT xml_is_well_formed('<local:data xmlns:local=\"http://127.0.0.1\"><local:piece id=\"1\">number one</local:piece><local:piece id=\"2\" /></local:data>')"
   },
   {
-    "comment": "xml - Statement 206",
+    "comment": "xml - Statement 196",
     "query": "SELECT xml_is_well_formed('<pg:foo xmlns:pg=\"http://postgresql.org/stuff\">bar</my:foo>')"
   },
   {
-    "comment": "xml - Statement 207",
+    "comment": "xml - Statement 197",
     "query": "SELECT xml_is_well_formed('<pg:foo xmlns:pg=\"http://postgresql.org/stuff\">bar</pg:foo>')"
   },
   {
-    "comment": "xml - Statement 208",
+    "comment": "xml - Statement 198",
     "query": "SELECT xml_is_well_formed('<invalidentity>&</abc>')"
   },
   {
-    "comment": "xml - Statement 209",
+    "comment": "xml - Statement 199",
     "query": "SELECT xml_is_well_formed('<undefinedentity>&idontexist;</abc>')"
   },
   {
-    "comment": "xml - Statement 210",
+    "comment": "xml - Statement 200",
     "query": "SELECT xml_is_well_formed('<invalidns xmlns=''&lt;''/>')"
   },
   {
-    "comment": "xml - Statement 211",
+    "comment": "xml - Statement 201",
     "query": "SELECT xml_is_well_formed('<relativens xmlns=''relative''/>')"
   },
   {
-    "comment": "xml - Statement 212",
+    "comment": "xml - Statement 202",
     "query": "SELECT xml_is_well_formed('<twoerrors>&idontexist;</unbalanced>')"
   },
   {
-    "comment": "xml - Statement 213",
+    "comment": "xml - Statement 203",
     "query": "SET xmloption TO CONTENT"
   },
   {
-    "comment": "xml - Statement 214",
+    "comment": "xml - Statement 204",
     "query": "SELECT xpath('/*', '<relativens xmlns=''relative''/>')"
   },
   {
-    "comment": "xml - Statement 215",
+    "comment": "xml - Statement 205",
     "query": "SELECT XMLPARSE(DOCUMENT '<!DOCTYPE foo [<!ENTITY c SYSTEM \"/etc/passwd\">]><foo>&c;</foo>')"
   },
   {
-    "comment": "xml - Statement 216",
+    "comment": "xml - Statement 206",
     "query": "SELECT XMLPARSE(DOCUMENT '<!DOCTYPE foo [<!ENTITY c SYSTEM \"/etc/no.such.file\">]><foo>&c;</foo>')"
   },
   {
-    "comment": "xml - Statement 217",
+    "comment": "xml - Statement 207",
     "query": "SELECT XMLPARSE(DOCUMENT '<!DOCTYPE chapter PUBLIC \"-//OASIS//DTD DocBook XML V4.1.2//EN\" \"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd\"><chapter>&nbsp;</chapter>')"
   },
   {
-    "comment": "xml - Statement 218",
+    "comment": "xml - Statement 208",
     "query": "CREATE TABLE xmldata(data xml)"
   },
   {
-    "comment": "xml - Statement 219",
+    "comment": "xml - Statement 209",
     "query": "INSERT INTO xmldata VALUES('<ROWS> <ROW id=\"1\"> <COUNTRY_ID>AU</COUNTRY_ID> <COUNTRY_NAME>Australia</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"2\"> <COUNTRY_ID>CN</COUNTRY_ID> <COUNTRY_NAME>China</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"3\"> <COUNTRY_ID>HK</COUNTRY_ID> <COUNTRY_NAME>HongKong</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"4\"> <COUNTRY_ID>IN</COUNTRY_ID> <COUNTRY_NAME>India</COUNTRY_NAME> <REGION_ID>3</REGION_ID> </ROW> <ROW id=\"5\"> <COUNTRY_ID>JP</COUNTRY_ID> <COUNTRY_NAME>Japan</COUNTRY_NAME> <REGION_ID>3</REGION_ID><PREMIER_NAME>Sinzo Abe</PREMIER_NAME> </ROW> <ROW id=\"6\"> <COUNTRY_ID>SG</COUNTRY_ID> <COUNTRY_NAME>Singapore</COUNTRY_NAME> <REGION_ID>3</REGION_ID><SIZE unit=\"km\">791</SIZE> </ROW> </ROWS>')"
   },
   {
-    "comment": "xml - Statement 220",
+    "comment": "xml - Statement 210",
     "query": "SELECT  xmltable.* FROM (SELECT data FROM xmldata) x, LATERAL XMLTABLE('/ROWS/ROW' PASSING data COLUMNS id int PATH '@id', _id FOR ORDINALITY, country_name text PATH 'COUNTRY_NAME/text()' NOT NULL, country_id text PATH 'COUNTRY_ID', region_id int PATH 'REGION_ID', size float PATH 'SIZE', unit text PATH 'SIZE/@unit', premier_name text PATH 'PREMIER_NAME' DEFAULT 'not specified')"
   },
   {
-    "comment": "xml - Statement 221",
+    "comment": "xml - Statement 211",
     "query": "CREATE VIEW xmltableview1 AS SELECT  xmltable.* FROM (SELECT data FROM xmldata) x, LATERAL XMLTABLE('/ROWS/ROW' PASSING data COLUMNS id int PATH '@id', _id FOR ORDINALITY, country_name text PATH 'COUNTRY_NAME/text()' NOT NULL, country_id text PATH 'COUNTRY_ID', region_id int PATH 'REGION_ID', size float PATH 'SIZE', unit text PATH 'SIZE/@unit', premier_name text PATH 'PREMIER_NAME' DEFAULT 'not specified')"
   },
   {
-    "comment": "xml - Statement 222",
+    "comment": "xml - Statement 212",
     "query": "SELECT * FROM xmltableview1"
   },
   {
-    "comment": "xml - Statement 223",
+    "comment": "xml - Statement 213",
     "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT * FROM xmltableview1"
   },
   {
-    "comment": "xml - Statement 224",
+    "comment": "xml - Statement 214",
     "query": "SELECT * FROM XMLTABLE (ROW () PASSING null COLUMNS v1 timestamp) AS f (v1, v2)"
   },
   {
-    "comment": "xml - Statement 225",
+    "comment": "xml - Statement 215",
     "query": "SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS zz), '/zz:rows/zz:row' PASSING '<rows xmlns=\"http://x.y\"><row><a>10</a></row></rows>' COLUMNS a int PATH 'zz:a')"
   },
   {
-    "comment": "xml - Statement 226",
+    "comment": "xml - Statement 216",
     "query": "CREATE VIEW xmltableview2 AS SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS \"Zz\"), '/Zz:rows/Zz:row' PASSING '<rows xmlns=\"http://x.y\"><row><a>10</a></row></rows>' COLUMNS a int PATH 'Zz:a')"
   },
   {
-    "comment": "xml - Statement 227",
+    "comment": "xml - Statement 217",
     "query": "SELECT * FROM xmltableview2"
   },
   {
-    "comment": "xml - Statement 228",
+    "comment": "xml - Statement 218",
     "query": "SELECT * FROM XMLTABLE('.' PASSING '<foo/>' COLUMNS a text PATH 'foo/namespace::node()')"
   },
   {
-    "comment": "xml - Statement 229",
+    "comment": "xml - Statement 219",
     "query": "PREPARE pp AS SELECT  xmltable.* FROM (SELECT data FROM xmldata) x, LATERAL XMLTABLE('/ROWS/ROW' PASSING data COLUMNS id int PATH '@id', _id FOR ORDINALITY, country_name text PATH 'COUNTRY_NAME' NOT NULL, country_id text PATH 'COUNTRY_ID', region_id int PATH 'REGION_ID', size float PATH 'SIZE', unit text PATH 'SIZE/@unit', premier_name text PATH 'PREMIER_NAME' DEFAULT 'not specified')"
   },
   {
-    "comment": "xml - Statement 230",
+    "comment": "xml - Statement 220",
     "query": "EXECUTE pp"
   },
   {
-    "comment": "xml - Statement 231",
+    "comment": "xml - Statement 221",
     "query": "SELECT xmltable.* FROM xmldata, LATERAL xmltable('/ROWS/ROW[COUNTRY_NAME=\"Japan\" or COUNTRY_NAME=\"India\"]' PASSING data COLUMNS \"COUNTRY_NAME\" text, \"REGION_ID\" int)"
   },
   {
-    "comment": "xml - Statement 232",
+    "comment": "xml - Statement 222",
     "query": "SELECT xmltable.* FROM xmldata, LATERAL xmltable('/ROWS/ROW[COUNTRY_NAME=\"Japan\" or COUNTRY_NAME=\"India\"]' PASSING data COLUMNS id FOR ORDINALITY, \"COUNTRY_NAME\" text, \"REGION_ID\" int)"
   },
   {
-    "comment": "xml - Statement 233",
+    "comment": "xml - Statement 223",
     "query": "SELECT xmltable.* FROM xmldata, LATERAL xmltable('/ROWS/ROW[COUNTRY_NAME=\"Japan\" or COUNTRY_NAME=\"India\"]' PASSING data COLUMNS id int PATH '@id', \"COUNTRY_NAME\" text, \"REGION_ID\" int)"
   },
   {
-    "comment": "xml - Statement 234",
+    "comment": "xml - Statement 224",
     "query": "SELECT xmltable.* FROM xmldata, LATERAL xmltable('/ROWS/ROW[COUNTRY_NAME=\"Japan\" or COUNTRY_NAME=\"India\"]' PASSING data COLUMNS id int PATH '@id')"
   },
   {
-    "comment": "xml - Statement 235",
+    "comment": "xml - Statement 225",
     "query": "SELECT xmltable.* FROM xmldata, LATERAL xmltable('/ROWS/ROW[COUNTRY_NAME=\"Japan\" or COUNTRY_NAME=\"India\"]' PASSING data COLUMNS id FOR ORDINALITY)"
   },
   {
-    "comment": "xml - Statement 236",
+    "comment": "xml - Statement 226",
     "query": "SELECT xmltable.* FROM xmldata, LATERAL xmltable('/ROWS/ROW[COUNTRY_NAME=\"Japan\" or COUNTRY_NAME=\"India\"]' PASSING data COLUMNS id int PATH '@id', \"COUNTRY_NAME\" text, \"REGION_ID\" int, rawdata xml PATH '.')"
   },
   {
-    "comment": "xml - Statement 237",
+    "comment": "xml - Statement 227",
     "query": "SELECT xmltable.* FROM xmldata, LATERAL xmltable('/ROWS/ROW[COUNTRY_NAME=\"Japan\" or COUNTRY_NAME=\"India\"]' PASSING data COLUMNS id int PATH '@id', \"COUNTRY_NAME\" text, \"REGION_ID\" int, rawdata xml PATH './*')"
   },
   {
-    "comment": "xml - Statement 238",
+    "comment": "xml - Statement 228",
     "query": "SELECT * FROM xmltable('/root' passing '<root><element>a1a<!-- aaaa -->a2a<?aaaaa?> <!--z-->  bbbb<x>xxx</x>cccc</element></root>' COLUMNS element text)"
   },
   {
-    "comment": "xml - Statement 239",
+    "comment": "xml - Statement 229",
     "query": "SELECT * FROM xmltable('/root' passing '<root><element>a1a<!-- aaaa -->a2a<?aaaaa?> <!--z-->  bbbb<x>xxx</x>cccc</element></root>' COLUMNS element text PATH 'element/text()')"
   },
   {
-    "comment": "xml - Statement 240",
+    "comment": "xml - Statement 230",
     "query": "select * from xmltable('d/r' passing '<d><r><c><![CDATA[<hello> &\"<>!<a>foo</a>]]></c></r><r><c>2</c></r></d>' columns c text)"
   },
   {
-    "comment": "xml - Statement 241",
+    "comment": "xml - Statement 231",
     "query": "SELECT * FROM xmltable('/x/a' PASSING '<x><a><ent>&apos;</ent></a><a><ent>&quot;</ent></a><a><ent>&amp;</ent></a><a><ent>&lt;</ent></a><a><ent>&gt;</ent></a></x>' COLUMNS ent text)"
   },
   {
-    "comment": "xml - Statement 242",
+    "comment": "xml - Statement 232",
     "query": "SELECT * FROM xmltable('/x/a' PASSING '<x><a><ent>&apos;</ent></a><a><ent>&quot;</ent></a><a><ent>&amp;</ent></a><a><ent>&lt;</ent></a><a><ent>&gt;</ent></a></x>' COLUMNS ent xml)"
   },
   {
-    "comment": "xml - Statement 243",
+    "comment": "xml - Statement 233",
     "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT  xmltable.* FROM (SELECT data FROM xmldata) x, LATERAL XMLTABLE('/ROWS/ROW' PASSING data COLUMNS id int PATH '@id', _id FOR ORDINALITY, country_name text PATH 'COUNTRY_NAME' NOT NULL, country_id text PATH 'COUNTRY_ID', region_id int PATH 'REGION_ID', size float PATH 'SIZE', unit text PATH 'SIZE/@unit', premier_name text PATH 'PREMIER_NAME' DEFAULT 'not specified')"
   },
   {
-    "comment": "xml - Statement 244",
+    "comment": "xml - Statement 234",
     "query": "SELECT xmltable.* FROM xmldata, LATERAL xmltable('/ROWS/ROW[COUNTRY_NAME=\"Japan\" or COUNTRY_NAME=\"India\"]' PASSING data COLUMNS \"COUNTRY_NAME\" text, \"REGION_ID\" int) WHERE \"COUNTRY_NAME\" = 'Japan'"
   },
   {
-    "comment": "xml - Statement 245",
+    "comment": "xml - Statement 235",
     "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT f.* FROM xmldata, LATERAL xmltable('/ROWS/ROW[COUNTRY_NAME=\"Japan\" or COUNTRY_NAME=\"India\"]' PASSING data COLUMNS \"COUNTRY_NAME\" text, \"REGION_ID\" int) AS f WHERE \"COUNTRY_NAME\" = 'Japan'"
   },
   {
-    "comment": "xml - Statement 246",
+    "comment": "xml - Statement 236",
     "query": "EXPLAIN (VERBOSE, FORMAT JSON, COSTS OFF) SELECT f.* FROM xmldata, LATERAL xmltable('/ROWS/ROW[COUNTRY_NAME=\"Japan\" or COUNTRY_NAME=\"India\"]' PASSING data COLUMNS \"COUNTRY_NAME\" text, \"REGION_ID\" int) AS f WHERE \"COUNTRY_NAME\" = 'Japan'"
   },
   {
-    "comment": "xml - Statement 247",
+    "comment": "xml - Statement 237",
     "query": "INSERT INTO xmldata VALUES('<ROWS> <ROW id=\"10\"> <COUNTRY_ID>CZ</COUNTRY_ID> <COUNTRY_NAME>Czech Republic</COUNTRY_NAME> <REGION_ID>2</REGION_ID><PREMIER_NAME>Milos Zeman</PREMIER_NAME> </ROW> <ROW id=\"11\"> <COUNTRY_ID>DE</COUNTRY_ID> <COUNTRY_NAME>Germany</COUNTRY_NAME> <REGION_ID>2</REGION_ID> </ROW> <ROW id=\"12\"> <COUNTRY_ID>FR</COUNTRY_ID> <COUNTRY_NAME>France</COUNTRY_NAME> <REGION_ID>2</REGION_ID> </ROW> </ROWS>')"
   },
   {
-    "comment": "xml - Statement 248",
+    "comment": "xml - Statement 238",
     "query": "INSERT INTO xmldata VALUES('<ROWS> <ROW id=\"20\"> <COUNTRY_ID>EG</COUNTRY_ID> <COUNTRY_NAME>Egypt</COUNTRY_NAME> <REGION_ID>1</REGION_ID> </ROW> <ROW id=\"21\"> <COUNTRY_ID>SD</COUNTRY_ID> <COUNTRY_NAME>Sudan</COUNTRY_NAME> <REGION_ID>1</REGION_ID> </ROW> </ROWS>')"
   },
   {
-    "comment": "xml - Statement 249",
+    "comment": "xml - Statement 239",
     "query": "SELECT  xmltable.* FROM (SELECT data FROM xmldata) x, LATERAL XMLTABLE('/ROWS/ROW' PASSING data COLUMNS id int PATH '@id', _id FOR ORDINALITY, country_name text PATH 'COUNTRY_NAME' NOT NULL, country_id text PATH 'COUNTRY_ID', region_id int PATH 'REGION_ID', size float PATH 'SIZE', unit text PATH 'SIZE/@unit', premier_name text PATH 'PREMIER_NAME' DEFAULT 'not specified')"
   },
   {
-    "comment": "xml - Statement 250",
+    "comment": "xml - Statement 240",
     "query": "SELECT  xmltable.* FROM (SELECT data FROM xmldata) x, LATERAL XMLTABLE('/ROWS/ROW' PASSING data COLUMNS id int PATH '@id', _id FOR ORDINALITY, country_name text PATH 'COUNTRY_NAME' NOT NULL, country_id text PATH 'COUNTRY_ID', region_id int PATH 'REGION_ID', size float PATH 'SIZE', unit text PATH 'SIZE/@unit', premier_name text PATH 'PREMIER_NAME' DEFAULT 'not specified') WHERE region_id = 2"
   },
   {
-    "comment": "xml - Statement 251",
+    "comment": "xml - Statement 241",
     "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT  xmltable.* FROM (SELECT data FROM xmldata) x, LATERAL XMLTABLE('/ROWS/ROW' PASSING data COLUMNS id int PATH '@id', _id FOR ORDINALITY, country_name text PATH 'COUNTRY_NAME' NOT NULL, country_id text PATH 'COUNTRY_ID', region_id int PATH 'REGION_ID', size float PATH 'SIZE', unit text PATH 'SIZE/@unit', premier_name text PATH 'PREMIER_NAME' DEFAULT 'not specified') WHERE region_id = 2"
   },
   {
-    "comment": "xml - Statement 252",
+    "comment": "xml - Statement 242",
     "query": "SELECT  xmltable.* FROM (SELECT data FROM xmldata) x, LATERAL XMLTABLE('/ROWS/ROW' PASSING data COLUMNS id int PATH '@id', _id FOR ORDINALITY, country_name text PATH 'COUNTRY_NAME' NOT NULL, country_id text PATH 'COUNTRY_ID', region_id int PATH 'REGION_ID', size float PATH 'SIZE' NOT NULL, unit text PATH 'SIZE/@unit', premier_name text PATH 'PREMIER_NAME' DEFAULT 'not specified')"
   },
   {
-    "comment": "xml - Statement 253",
+    "comment": "xml - Statement 243",
     "query": "WITH x AS (SELECT proname, proowner, procost::numeric, pronargs, array_to_string(proargnames,',') as proargnames, case when proargtypes <> '' then array_to_string(proargtypes::oid[],',') end as proargtypes FROM pg_proc WHERE proname = 'f_leak'), y AS (SELECT xmlelement(name proc, xmlforest(proname, proowner, procost, pronargs, proargnames, proargtypes)) as proc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL xmltable('/proc' PASSING proc COLUMNS proname name, proowner oid, procost float, pronargs int, proargnames text, proargtypes text)) SELECT * FROM z EXCEPT SELECT * FROM x"
   },
   {
-    "comment": "xml - Statement 254",
+    "comment": "xml - Statement 244",
     "query": "WITH x AS (SELECT proname, proowner, procost::numeric, pronargs, array_to_string(proargnames,',') as proargnames, case when proargtypes <> '' then array_to_string(proargtypes::oid[],',') end as proargtypes FROM pg_proc), y AS (SELECT xmlelement(name data, xmlagg(xmlelement(name proc, xmlforest(proname, proowner, procost, pronargs, proargnames, proargtypes)))) as doc FROM x), z AS (SELECT xmltable.* FROM y, LATERAL xmltable('/data/proc' PASSING doc COLUMNS proname name, proowner oid, procost float, pronargs int, proargnames text, proargtypes text)) SELECT * FROM z EXCEPT SELECT * FROM x"
   },
   {
-    "comment": "xml - Statement 255",
+    "comment": "xml - Statement 245",
     "query": "CREATE TABLE xmltest2(x xml, _path text)"
   },
   {
-    "comment": "xml - Statement 256",
+    "comment": "xml - Statement 246",
     "query": "INSERT INTO xmltest2 VALUES('<d><r><ac>1</ac></r></d>', 'A')"
   },
   {
-    "comment": "xml - Statement 257",
+    "comment": "xml - Statement 247",
     "query": "INSERT INTO xmltest2 VALUES('<d><r><bc>2</bc></r></d>', 'B')"
   },
   {
-    "comment": "xml - Statement 258",
+    "comment": "xml - Statement 248",
     "query": "INSERT INTO xmltest2 VALUES('<d><r><cc>3</cc></r></d>', 'C')"
   },
   {
-    "comment": "xml - Statement 259",
+    "comment": "xml - Statement 249",
     "query": "INSERT INTO xmltest2 VALUES('<d><r><dc>2</dc></r></d>', 'D')"
   },
   {
-    "comment": "xml - Statement 260",
+    "comment": "xml - Statement 250",
     "query": "SELECT xmltable.* FROM xmltest2, LATERAL xmltable('/d/r' PASSING x COLUMNS a int PATH '' || lower(_path) || 'c')"
   },
   {
-    "comment": "xml - Statement 261",
+    "comment": "xml - Statement 251",
     "query": "SELECT xmltable.* FROM xmltest2, LATERAL xmltable(('/d/r/' || lower(_path) || 'c') PASSING x COLUMNS a int PATH '.')"
   },
   {
-    "comment": "xml - Statement 262",
+    "comment": "xml - Statement 252",
     "query": "SELECT xmltable.* FROM xmltest2, LATERAL xmltable(('/d/r/' || lower(_path) || 'c') PASSING x COLUMNS a int PATH 'x' DEFAULT ascii(_path) - 54)"
   },
   {
-    "comment": "xml - Statement 263",
+    "comment": "xml - Statement 253",
     "query": "SELECT * FROM XMLTABLE('*' PASSING '<a>a</a>' COLUMNS a xml PATH '.', b text PATH '.', c text PATH '\"hi\"', d boolean PATH '. = \"a\"', e integer PATH 'string-length(.)')"
   },
   {
-    "comment": "xml - Statement 264",
+    "comment": "xml - Statement 254",
     "query": "SELECT xmltext(NULL)"
   },
   {
-    "comment": "xml - Statement 265",
+    "comment": "xml - Statement 255",
     "query": "SELECT xmltext('')"
   },
   {
-    "comment": "xml - Statement 266",
+    "comment": "xml - Statement 256",
     "query": "SELECT xmltext('  ')"
   },
   {
-    "comment": "xml - Statement 267",
+    "comment": "xml - Statement 257",
     "query": "SELECT xmltext('foo `$_-+?=*^%!|/\\()[]{}')"
   },
   {
-    "comment": "xml - Statement 268",
+    "comment": "xml - Statement 258",
     "query": "SELECT xmltext('foo & <\"bar\">')"
   },
   {
-    "comment": "xml - Statement 269",
+    "comment": "xml - Statement 259",
     "query": "SELECT xmltext('x'|| '<P>73</P>'::xml || .42 || true || 'j'::char)"
   }
 ]

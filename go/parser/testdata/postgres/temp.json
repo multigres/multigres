@@ -77,290 +77,286 @@
   },
   {
     "comment": "temp - Statement 20",
-    "query": "do $$ begin execute format($cmd$ CREATE TEMP TABLE temptest (col text CHECK (col < %L)) ON COMMIT DROP $cmd$, (SELECT string_agg(g.i::text || ':' || random()::text, '|') FROM generate_series(1, 100) g(i)))"
+    "query": "do $$ begin execute format($cmd$ CREATE TEMP TABLE temptest (col text CHECK (col < %L)) ON COMMIT DROP $cmd$, (SELECT string_agg(g.i::text || ':' || random()::text, '|') FROM generate_series(1, 100) g(i))); end$$"
   },
   {
     "comment": "temp - Statement 21",
-    "query": "end$$"
-  },
-  {
-    "comment": "temp - Statement 22",
     "query": "CREATE TABLE temptest(col int) ON COMMIT DELETE ROWS"
   },
   {
-    "comment": "temp - Statement 23",
+    "comment": "temp - Statement 22",
     "query": "CREATE TABLE temptest(col) ON COMMIT DELETE ROWS AS SELECT 1"
   },
   {
-    "comment": "temp - Statement 24",
+    "comment": "temp - Statement 23",
     "query": "CREATE TEMP TABLE temptest1(col int PRIMARY KEY)"
   },
   {
-    "comment": "temp - Statement 25",
+    "comment": "temp - Statement 24",
     "query": "CREATE TEMP TABLE temptest2(col int REFERENCES temptest1) ON COMMIT DELETE ROWS"
   },
   {
-    "comment": "temp - Statement 26",
+    "comment": "temp - Statement 25",
     "query": "INSERT INTO temptest1 VALUES (1)"
   },
   {
-    "comment": "temp - Statement 27",
+    "comment": "temp - Statement 26",
     "query": "INSERT INTO temptest2 VALUES (1)"
   },
   {
-    "comment": "temp - Statement 28",
+    "comment": "temp - Statement 27",
     "query": "SELECT * FROM temptest1"
   },
   {
-    "comment": "temp - Statement 29",
+    "comment": "temp - Statement 28",
     "query": "SELECT * FROM temptest2"
   },
   {
-    "comment": "temp - Statement 30",
+    "comment": "temp - Statement 29",
     "query": "CREATE TEMP TABLE temptest3(col int PRIMARY KEY) ON COMMIT DELETE ROWS"
   },
   {
-    "comment": "temp - Statement 31",
+    "comment": "temp - Statement 30",
     "query": "CREATE TEMP TABLE temptest4(col int REFERENCES temptest3)"
   },
   {
-    "comment": "temp - Statement 32",
+    "comment": "temp - Statement 31",
     "query": "create table public.whereami (f1 text)"
   },
   {
-    "comment": "temp - Statement 33",
+    "comment": "temp - Statement 32",
     "query": "insert into public.whereami values ('public')"
   },
   {
-    "comment": "temp - Statement 34",
+    "comment": "temp - Statement 33",
     "query": "create temp table whereami (f1 text)"
   },
   {
-    "comment": "temp - Statement 35",
+    "comment": "temp - Statement 34",
     "query": "insert into whereami values ('temp')"
   },
   {
-    "comment": "temp - Statement 36",
+    "comment": "temp - Statement 35",
     "query": "create function public.whoami() returns text as $$select 'public'::text$$ language sql"
   },
   {
-    "comment": "temp - Statement 37",
+    "comment": "temp - Statement 36",
     "query": "create function pg_temp.whoami() returns text as $$select 'temp'::text$$ language sql"
   },
   {
-    "comment": "temp - Statement 38",
+    "comment": "temp - Statement 37",
     "query": "select * from whereami"
   },
   {
-    "comment": "temp - Statement 39",
+    "comment": "temp - Statement 38",
     "query": "select whoami()"
   },
   {
-    "comment": "temp - Statement 40",
+    "comment": "temp - Statement 39",
     "query": "set search_path = pg_temp, public"
   },
   {
-    "comment": "temp - Statement 41",
+    "comment": "temp - Statement 40",
     "query": "set search_path = public, pg_temp"
   },
   {
-    "comment": "temp - Statement 42",
+    "comment": "temp - Statement 41",
     "query": "select pg_temp.whoami()"
   },
   {
-    "comment": "temp - Statement 43",
+    "comment": "temp - Statement 42",
     "query": "drop table public.whereami"
   },
   {
-    "comment": "temp - Statement 44",
+    "comment": "temp - Statement 43",
     "query": "create domain pg_temp.nonempty as text check (value <> '')"
   },
   {
-    "comment": "temp - Statement 45",
+    "comment": "temp - Statement 44",
     "query": "select nonempty('')"
   },
   {
-    "comment": "temp - Statement 46",
+    "comment": "temp - Statement 45",
     "query": "select pg_temp.nonempty('')"
   },
   {
-    "comment": "temp - Statement 47",
+    "comment": "temp - Statement 46",
     "query": "select ''::nonempty"
   },
   {
-    "comment": "temp - Statement 48",
+    "comment": "temp - Statement 47",
     "query": "reset search_path"
   },
   {
-    "comment": "temp - Statement 49",
+    "comment": "temp - Statement 48",
     "query": "create temp table temp_parted_oncommit (a int) partition by list (a) on commit delete rows"
   },
   {
-    "comment": "temp - Statement 50",
+    "comment": "temp - Statement 49",
     "query": "create temp table temp_parted_oncommit_1 partition of temp_parted_oncommit for values in (1) on commit delete rows"
   },
   {
-    "comment": "temp - Statement 51",
+    "comment": "temp - Statement 50",
     "query": "insert into temp_parted_oncommit values (1)"
   },
   {
-    "comment": "temp - Statement 52",
+    "comment": "temp - Statement 51",
     "query": "select * from temp_parted_oncommit"
   },
   {
-    "comment": "temp - Statement 53",
+    "comment": "temp - Statement 52",
     "query": "drop table temp_parted_oncommit"
   },
   {
-    "comment": "temp - Statement 54",
+    "comment": "temp - Statement 53",
     "query": "create temp table temp_parted_oncommit_test (a int) partition by list (a) on commit drop"
   },
   {
-    "comment": "temp - Statement 55",
+    "comment": "temp - Statement 54",
     "query": "create temp table temp_parted_oncommit_test1 partition of temp_parted_oncommit_test for values in (1) on commit delete rows"
   },
   {
-    "comment": "temp - Statement 56",
+    "comment": "temp - Statement 55",
     "query": "create temp table temp_parted_oncommit_test2 partition of temp_parted_oncommit_test for values in (2) on commit drop"
   },
   {
-    "comment": "temp - Statement 57",
+    "comment": "temp - Statement 56",
     "query": "insert into temp_parted_oncommit_test values (1), (2)"
   },
   {
-    "comment": "temp - Statement 58",
+    "comment": "temp - Statement 57",
     "query": "select relname from pg_class where relname ~ '^temp_parted_oncommit_test'"
   },
   {
-    "comment": "temp - Statement 59",
+    "comment": "temp - Statement 58",
     "query": "create temp table temp_parted_oncommit_test (a int) partition by list (a) on commit delete rows"
   },
   {
-    "comment": "temp - Statement 60",
+    "comment": "temp - Statement 59",
     "query": "create temp table temp_parted_oncommit_test1 partition of temp_parted_oncommit_test for values in (1) on commit preserve rows"
   },
   {
-    "comment": "temp - Statement 61",
+    "comment": "temp - Statement 60",
     "query": "select * from temp_parted_oncommit_test"
   },
   {
-    "comment": "temp - Statement 62",
+    "comment": "temp - Statement 61",
     "query": "select relname from pg_class where relname ~ '^temp_parted_oncommit_test' order by relname"
   },
   {
-    "comment": "temp - Statement 63",
+    "comment": "temp - Statement 62",
     "query": "drop table temp_parted_oncommit_test"
   },
   {
-    "comment": "temp - Statement 64",
+    "comment": "temp - Statement 63",
     "query": "create temp table temp_inh_oncommit_test (a int) on commit drop"
   },
   {
-    "comment": "temp - Statement 65",
+    "comment": "temp - Statement 64",
     "query": "create temp table temp_inh_oncommit_test1 () inherits(temp_inh_oncommit_test) on commit delete rows"
   },
   {
-    "comment": "temp - Statement 66",
+    "comment": "temp - Statement 65",
     "query": "insert into temp_inh_oncommit_test1 values (1)"
   },
   {
-    "comment": "temp - Statement 67",
+    "comment": "temp - Statement 66",
     "query": "select relname from pg_class where relname ~ '^temp_inh_oncommit_test'"
   },
   {
-    "comment": "temp - Statement 68",
+    "comment": "temp - Statement 67",
     "query": "create temp table temp_inh_oncommit_test (a int) on commit delete rows"
   },
   {
-    "comment": "temp - Statement 69",
+    "comment": "temp - Statement 68",
     "query": "create temp table temp_inh_oncommit_test1 () inherits(temp_inh_oncommit_test) on commit drop"
   },
   {
-    "comment": "temp - Statement 70",
+    "comment": "temp - Statement 69",
     "query": "insert into temp_inh_oncommit_test values (1)"
   },
   {
-    "comment": "temp - Statement 71",
+    "comment": "temp - Statement 70",
     "query": "select * from temp_inh_oncommit_test"
   },
   {
-    "comment": "temp - Statement 72",
+    "comment": "temp - Statement 71",
     "query": "drop table temp_inh_oncommit_test"
   },
   {
-    "comment": "temp - Statement 73",
+    "comment": "temp - Statement 72",
     "query": "create function pg_temp.twophase_func() returns void as $$ select '2pc_func'::text $$ language sql"
   },
   {
-    "comment": "temp - Statement 74",
+    "comment": "temp - Statement 73",
     "query": "prepare transaction 'twophase_func'"
   },
   {
-    "comment": "temp - Statement 75",
+    "comment": "temp - Statement 74",
     "query": "drop function pg_temp.twophase_func()"
   },
   {
-    "comment": "temp - Statement 76",
+    "comment": "temp - Statement 75",
     "query": "create operator pg_temp.@@ (leftarg = int4, rightarg = int4, procedure = int4mi)"
   },
   {
-    "comment": "temp - Statement 77",
+    "comment": "temp - Statement 76",
     "query": "prepare transaction 'twophase_operator'"
   },
   {
-    "comment": "temp - Statement 78",
+    "comment": "temp - Statement 77",
     "query": "create type pg_temp.twophase_type as (a int)"
   },
   {
-    "comment": "temp - Statement 79",
+    "comment": "temp - Statement 78",
     "query": "prepare transaction 'twophase_type'"
   },
   {
-    "comment": "temp - Statement 80",
+    "comment": "temp - Statement 79",
     "query": "create view pg_temp.twophase_view as select 1"
   },
   {
-    "comment": "temp - Statement 81",
+    "comment": "temp - Statement 80",
     "query": "prepare transaction 'twophase_view'"
   },
   {
-    "comment": "temp - Statement 82",
+    "comment": "temp - Statement 81",
     "query": "create sequence pg_temp.twophase_seq"
   },
   {
-    "comment": "temp - Statement 83",
+    "comment": "temp - Statement 82",
     "query": "prepare transaction 'twophase_sequence'"
   },
   {
-    "comment": "temp - Statement 84",
+    "comment": "temp - Statement 83",
     "query": "create temp table twophase_tab (a int)"
   },
   {
-    "comment": "temp - Statement 85",
+    "comment": "temp - Statement 84",
     "query": "select a from twophase_tab"
   },
   {
-    "comment": "temp - Statement 86",
+    "comment": "temp - Statement 85",
     "query": "prepare transaction 'twophase_tab'"
   },
   {
-    "comment": "temp - Statement 87",
+    "comment": "temp - Statement 86",
     "query": "insert into twophase_tab values (1)"
   },
   {
-    "comment": "temp - Statement 88",
+    "comment": "temp - Statement 87",
     "query": "lock twophase_tab in access exclusive mode"
   },
   {
-    "comment": "temp - Statement 89",
+    "comment": "temp - Statement 88",
     "query": "drop table twophase_tab"
   },
   {
-    "comment": "temp - Statement 90",
+    "comment": "temp - Statement 89",
     "query": "SELECT current_schema() ~ 'pg_temp' AS is_temp_schema"
   },
   {
-    "comment": "temp - Statement 91",
+    "comment": "temp - Statement 90",
     "query": "PREPARE TRANSACTION 'twophase_search'"
   }
 ]

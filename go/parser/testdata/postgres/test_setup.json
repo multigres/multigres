@@ -221,30 +221,26 @@
   },
   {
     "comment": "test_setup - Statement 56",
-    "query": "create function part_hashint4_noop(value int4, seed int8) returns int8 as $$ select value + seed"
+    "query": "create function part_hashint4_noop(value int4, seed int8) returns int8 as $$ select value + seed; $$ language sql strict immutable parallel safe"
   },
   {
     "comment": "test_setup - Statement 57",
-    "query": "$$ language sql strict immutable parallel safe"
-  },
-  {
-    "comment": "test_setup - Statement 58",
     "query": "create operator class part_test_int4_ops for type int4 using hash as operator 1 =, function 2 part_hashint4_noop(int4, int8)"
   },
   {
-    "comment": "test_setup - Statement 59",
+    "comment": "test_setup - Statement 58",
     "query": "create function part_hashtext_length(value text, seed int8) returns int8 as $$ select length(coalesce(value, ''))::int8 $$ language sql strict immutable parallel safe"
   },
   {
-    "comment": "test_setup - Statement 60",
+    "comment": "test_setup - Statement 59",
     "query": "create operator class part_test_text_ops for type text using hash as operator 1 =, function 2 part_hashtext_length(text, int8)"
   },
   {
-    "comment": "test_setup - Statement 61",
+    "comment": "test_setup - Statement 60",
     "query": "create function fipshash(bytea) returns text strict immutable parallel safe leakproof return substr(encode(sha256($1), 'hex'), 1, 32)"
   },
   {
-    "comment": "test_setup - Statement 62",
+    "comment": "test_setup - Statement 61",
     "query": "create function fipshash(text) returns text strict immutable parallel safe leakproof return substr(encode(sha256($1::bytea), 'hex'), 1, 32)"
   }
 ]

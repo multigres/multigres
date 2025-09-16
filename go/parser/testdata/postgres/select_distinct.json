@@ -137,134 +137,126 @@
   },
   {
     "comment": "select_distinct - Statement 35",
-    "query": "CREATE OR REPLACE FUNCTION distinct_func(a INT) RETURNS INT AS $$ BEGIN RETURN a"
+    "query": "CREATE OR REPLACE FUNCTION distinct_func(a INT) RETURNS INT AS $$ BEGIN RETURN a; END; $$ LANGUAGE plpgsql PARALLEL UNSAFE"
   },
   {
     "comment": "select_distinct - Statement 36",
-    "query": "END"
-  },
-  {
-    "comment": "select_distinct - Statement 37",
-    "query": "$$ LANGUAGE plpgsql PARALLEL UNSAFE"
-  },
-  {
-    "comment": "select_distinct - Statement 38",
     "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT distinct_func(1) FROM tenk1"
   },
   {
-    "comment": "select_distinct - Statement 39",
-    "query": "$$ LANGUAGE plpgsql PARALLEL SAFE"
+    "comment": "select_distinct - Statement 37",
+    "query": "CREATE OR REPLACE FUNCTION distinct_func(a INT) RETURNS INT AS $$ BEGIN RETURN a; END; $$ LANGUAGE plpgsql PARALLEL SAFE"
   },
   {
-    "comment": "select_distinct - Statement 40",
+    "comment": "select_distinct - Statement 38",
     "query": "RESET max_parallel_workers_per_gather"
   },
   {
-    "comment": "select_distinct - Statement 41",
+    "comment": "select_distinct - Statement 39",
     "query": "RESET min_parallel_table_scan_size"
   },
   {
-    "comment": "select_distinct - Statement 42",
+    "comment": "select_distinct - Statement 40",
     "query": "RESET parallel_setup_cost"
   },
   {
-    "comment": "select_distinct - Statement 43",
+    "comment": "select_distinct - Statement 41",
     "query": "RESET parallel_tuple_cost"
   },
   {
-    "comment": "select_distinct - Statement 44",
+    "comment": "select_distinct - Statement 42",
     "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT four FROM tenk1 WHERE four = 0"
   },
   {
-    "comment": "select_distinct - Statement 45",
+    "comment": "select_distinct - Statement 43",
     "query": "SELECT DISTINCT four FROM tenk1 WHERE four = 0"
   },
   {
-    "comment": "select_distinct - Statement 46",
+    "comment": "select_distinct - Statement 44",
     "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT four FROM tenk1 WHERE four = 0 AND two <> 0"
   },
   {
-    "comment": "select_distinct - Statement 47",
+    "comment": "select_distinct - Statement 45",
     "query": "SELECT DISTINCT four FROM tenk1 WHERE four = 0 AND two <> 0"
   },
   {
-    "comment": "select_distinct - Statement 48",
+    "comment": "select_distinct - Statement 46",
     "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT four,1,2,3 FROM tenk1 WHERE four = 0"
   },
   {
-    "comment": "select_distinct - Statement 49",
+    "comment": "select_distinct - Statement 47",
     "query": "SELECT DISTINCT four,1,2,3 FROM tenk1 WHERE four = 0"
   },
   {
-    "comment": "select_distinct - Statement 50",
+    "comment": "select_distinct - Statement 48",
     "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT four FROM tenk1 WHERE four = 10"
   },
   {
-    "comment": "select_distinct - Statement 51",
+    "comment": "select_distinct - Statement 49",
     "query": "CREATE TEMP TABLE disttable (f1 integer)"
   },
   {
-    "comment": "select_distinct - Statement 52",
+    "comment": "select_distinct - Statement 50",
     "query": "INSERT INTO DISTTABLE VALUES(1)"
   },
   {
-    "comment": "select_distinct - Statement 53",
+    "comment": "select_distinct - Statement 51",
     "query": "INSERT INTO DISTTABLE VALUES(2)"
   },
   {
-    "comment": "select_distinct - Statement 54",
+    "comment": "select_distinct - Statement 52",
     "query": "INSERT INTO DISTTABLE VALUES(3)"
   },
   {
-    "comment": "select_distinct - Statement 55",
+    "comment": "select_distinct - Statement 53",
     "query": "INSERT INTO DISTTABLE VALUES(NULL)"
   },
   {
-    "comment": "select_distinct - Statement 56",
+    "comment": "select_distinct - Statement 54",
     "query": "SELECT f1, f1 IS DISTINCT FROM 2 as \"not 2\" FROM disttable"
   },
   {
-    "comment": "select_distinct - Statement 57",
+    "comment": "select_distinct - Statement 55",
     "query": "SELECT f1, f1 IS DISTINCT FROM NULL as \"not null\" FROM disttable"
   },
   {
-    "comment": "select_distinct - Statement 58",
+    "comment": "select_distinct - Statement 56",
     "query": "SELECT f1, f1 IS DISTINCT FROM f1 as \"false\" FROM disttable"
   },
   {
-    "comment": "select_distinct - Statement 59",
+    "comment": "select_distinct - Statement 57",
     "query": "SELECT f1, f1 IS DISTINCT FROM f1+1 as \"not null\" FROM disttable"
   },
   {
-    "comment": "select_distinct - Statement 60",
+    "comment": "select_distinct - Statement 58",
     "query": "SELECT 1 IS DISTINCT FROM 2 as \"yes\""
   },
   {
-    "comment": "select_distinct - Statement 61",
+    "comment": "select_distinct - Statement 59",
     "query": "SELECT 2 IS DISTINCT FROM 2 as \"no\""
   },
   {
-    "comment": "select_distinct - Statement 62",
+    "comment": "select_distinct - Statement 60",
     "query": "SELECT 2 IS DISTINCT FROM null as \"yes\""
   },
   {
-    "comment": "select_distinct - Statement 63",
+    "comment": "select_distinct - Statement 61",
     "query": "SELECT null IS DISTINCT FROM null as \"no\""
   },
   {
-    "comment": "select_distinct - Statement 64",
+    "comment": "select_distinct - Statement 62",
     "query": "SELECT 1 IS NOT DISTINCT FROM 2 as \"no\""
   },
   {
-    "comment": "select_distinct - Statement 65",
+    "comment": "select_distinct - Statement 63",
     "query": "SELECT 2 IS NOT DISTINCT FROM 2 as \"yes\""
   },
   {
-    "comment": "select_distinct - Statement 66",
+    "comment": "select_distinct - Statement 64",
     "query": "SELECT 2 IS NOT DISTINCT FROM null as \"no\""
   },
   {
-    "comment": "select_distinct - Statement 67",
+    "comment": "select_distinct - Statement 65",
     "query": "SELECT null IS NOT DISTINCT FROM null as \"yes\""
   }
 ]

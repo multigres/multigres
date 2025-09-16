@@ -161,110 +161,98 @@
   },
   {
     "comment": "select_into - Statement 41",
-    "query": "CREATE FUNCTION make_table() RETURNS VOID AS $$ CREATE TABLE created_table AS SELECT * FROM int8_tbl"
+    "query": "CREATE FUNCTION make_table() RETURNS VOID AS $$ CREATE TABLE created_table AS SELECT * FROM int8_tbl; $$ LANGUAGE SQL"
   },
   {
     "comment": "select_into - Statement 42",
-    "query": "$$ LANGUAGE SQL"
-  },
-  {
-    "comment": "select_into - Statement 43",
     "query": "SELECT make_table()"
   },
   {
-    "comment": "select_into - Statement 44",
+    "comment": "select_into - Statement 43",
     "query": "SELECT * FROM created_table"
   },
   {
+    "comment": "select_into - Statement 44",
+    "query": "DO $$ BEGIN EXECUTE 'EXPLAIN ANALYZE SELECT * INTO TABLE easi FROM int8_tbl'; EXECUTE 'EXPLAIN ANALYZE CREATE TABLE easi2 AS SELECT * FROM int8_tbl WITH NO DATA'; END$$"
+  },
+  {
     "comment": "select_into - Statement 45",
-    "query": "DO $$ BEGIN EXECUTE 'EXPLAIN ANALYZE SELECT * INTO TABLE easi FROM int8_tbl'"
-  },
-  {
-    "comment": "select_into - Statement 46",
-    "query": "EXECUTE 'EXPLAIN ANALYZE CREATE TABLE easi2 AS SELECT * FROM int8_tbl WITH NO DATA'"
-  },
-  {
-    "comment": "select_into - Statement 47",
-    "query": "END$$"
-  },
-  {
-    "comment": "select_into - Statement 48",
     "query": "DROP TABLE created_table"
   },
   {
-    "comment": "select_into - Statement 49",
+    "comment": "select_into - Statement 46",
     "query": "DROP TABLE easi, easi2"
   },
   {
-    "comment": "select_into - Statement 50",
+    "comment": "select_into - Statement 47",
     "query": "DECLARE foo CURSOR FOR SELECT 1 INTO int4_tbl"
   },
   {
-    "comment": "select_into - Statement 51",
+    "comment": "select_into - Statement 48",
     "query": "COPY (SELECT 1 INTO frak UNION SELECT 2) TO 'blob'"
   },
   {
-    "comment": "select_into - Statement 52",
+    "comment": "select_into - Statement 49",
     "query": "SELECT * FROM (SELECT 1 INTO f) bar"
   },
   {
-    "comment": "select_into - Statement 53",
+    "comment": "select_into - Statement 50",
     "query": "CREATE VIEW foo AS SELECT 1 INTO int4_tbl"
   },
   {
-    "comment": "select_into - Statement 54",
+    "comment": "select_into - Statement 51",
     "query": "INSERT INTO int4_tbl SELECT 1 INTO f"
   },
   {
-    "comment": "select_into - Statement 55",
+    "comment": "select_into - Statement 52",
     "query": "CREATE TABLE ctas_ine_tbl AS SELECT 1"
   },
   {
-    "comment": "select_into - Statement 56",
+    "comment": "select_into - Statement 53",
     "query": "CREATE TABLE ctas_ine_tbl AS SELECT 1 / 0"
   },
   {
-    "comment": "select_into - Statement 57",
+    "comment": "select_into - Statement 54",
     "query": "CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS SELECT 1 / 0"
   },
   {
-    "comment": "select_into - Statement 58",
+    "comment": "select_into - Statement 55",
     "query": "CREATE TABLE ctas_ine_tbl AS SELECT 1 / 0 WITH NO DATA"
   },
   {
-    "comment": "select_into - Statement 59",
+    "comment": "select_into - Statement 56",
     "query": "CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS SELECT 1 / 0 WITH NO DATA"
   },
   {
-    "comment": "select_into - Statement 60",
+    "comment": "select_into - Statement 57",
     "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE ctas_ine_tbl AS SELECT 1 / 0"
   },
   {
-    "comment": "select_into - Statement 61",
+    "comment": "select_into - Statement 58",
     "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS SELECT 1 / 0"
   },
   {
-    "comment": "select_into - Statement 62",
+    "comment": "select_into - Statement 59",
     "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE ctas_ine_tbl AS SELECT 1 / 0 WITH NO DATA"
   },
   {
-    "comment": "select_into - Statement 63",
+    "comment": "select_into - Statement 60",
     "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS SELECT 1 / 0 WITH NO DATA"
   },
   {
-    "comment": "select_into - Statement 64",
+    "comment": "select_into - Statement 61",
     "query": "PREPARE ctas_ine_query AS SELECT 1 / 0"
   },
   {
-    "comment": "select_into - Statement 65",
+    "comment": "select_into - Statement 62",
     "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE ctas_ine_tbl AS EXECUTE ctas_ine_query"
   },
   {
-    "comment": "select_into - Statement 66",
+    "comment": "select_into - Statement 63",
     "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE TABLE IF NOT EXISTS ctas_ine_tbl AS EXECUTE ctas_ine_query"
   },
   {
-    "comment": "select_into - Statement 67",
+    "comment": "select_into - Statement 64",
     "query": "DROP TABLE ctas_ine_tbl"
   }
 ]

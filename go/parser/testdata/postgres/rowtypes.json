@@ -653,262 +653,258 @@
   },
   {
     "comment": "rowtypes - Statement 164",
-    "query": "create function fcompos1(v compos) returns void as $$ insert into compos values (v)"
+    "query": "create function fcompos1(v compos) returns void as $$ insert into compos values (v); $$ language sql"
   },
   {
     "comment": "rowtypes - Statement 165",
-    "query": "$$ language sql"
+    "query": "create function fcompos1(v compos) returns void as $$ insert into compos values (v.*); $$ language sql"
   },
   {
     "comment": "rowtypes - Statement 166",
-    "query": "create function fcompos1(v compos) returns void as $$ insert into compos values (v.*)"
+    "query": "create function fcompos2(v compos) returns void as $$ select fcompos1(v); $$ language sql"
   },
   {
     "comment": "rowtypes - Statement 167",
-    "query": "create function fcompos2(v compos) returns void as $$ select fcompos1(v)"
+    "query": "create function fcompos3(v compos) returns void as $$ select fcompos1(fcompos3.v.*); $$ language sql"
   },
   {
     "comment": "rowtypes - Statement 168",
-    "query": "create function fcompos3(v compos) returns void as $$ select fcompos1(fcompos3.v.*)"
-  },
-  {
-    "comment": "rowtypes - Statement 169",
     "query": "select fcompos1(row(1,'one'))"
   },
   {
-    "comment": "rowtypes - Statement 170",
+    "comment": "rowtypes - Statement 169",
     "query": "select fcompos2(row(2,'two'))"
   },
   {
-    "comment": "rowtypes - Statement 171",
+    "comment": "rowtypes - Statement 170",
     "query": "select fcompos3(row(3,'three'))"
   },
   {
-    "comment": "rowtypes - Statement 172",
+    "comment": "rowtypes - Statement 171",
     "query": "select * from compos"
   },
   {
-    "comment": "rowtypes - Statement 173",
+    "comment": "rowtypes - Statement 172",
     "query": "select cast (fullname as text) from fullname"
   },
   {
-    "comment": "rowtypes - Statement 174",
+    "comment": "rowtypes - Statement 173",
     "query": "select fullname::text from fullname"
   },
   {
-    "comment": "rowtypes - Statement 175",
+    "comment": "rowtypes - Statement 174",
     "query": "select text(fullname) from fullname"
   },
   {
-    "comment": "rowtypes - Statement 176",
+    "comment": "rowtypes - Statement 175",
     "query": "select fullname.text from fullname"
   },
   {
-    "comment": "rowtypes - Statement 177",
+    "comment": "rowtypes - Statement 176",
     "query": "select cast (row('Jim', 'Beam') as text)"
   },
   {
-    "comment": "rowtypes - Statement 178",
+    "comment": "rowtypes - Statement 177",
     "query": "select (row('Jim', 'Beam'))::text"
   },
   {
-    "comment": "rowtypes - Statement 179",
+    "comment": "rowtypes - Statement 178",
     "query": "select text(row('Jim', 'Beam'))"
   },
   {
-    "comment": "rowtypes - Statement 180",
+    "comment": "rowtypes - Statement 179",
     "query": "select (row('Jim', 'Beam')).text"
   },
   {
-    "comment": "rowtypes - Statement 181",
+    "comment": "rowtypes - Statement 180",
     "query": "insert into fullname values ('Joe', 'Blow')"
   },
   {
-    "comment": "rowtypes - Statement 182",
+    "comment": "rowtypes - Statement 181",
     "query": "select f.last from fullname f"
   },
   {
-    "comment": "rowtypes - Statement 183",
+    "comment": "rowtypes - Statement 182",
     "query": "select last(f) from fullname f"
   },
   {
-    "comment": "rowtypes - Statement 184",
+    "comment": "rowtypes - Statement 183",
     "query": "create function longname(fullname) returns text language sql as $$select $1.first || ' ' || $1.last$$"
   },
   {
-    "comment": "rowtypes - Statement 185",
+    "comment": "rowtypes - Statement 184",
     "query": "select f.longname from fullname f"
   },
   {
-    "comment": "rowtypes - Statement 186",
+    "comment": "rowtypes - Statement 185",
     "query": "select longname(f) from fullname f"
   },
   {
-    "comment": "rowtypes - Statement 187",
+    "comment": "rowtypes - Statement 186",
     "query": "alter table fullname add column longname text"
   },
   {
-    "comment": "rowtypes - Statement 188",
+    "comment": "rowtypes - Statement 187",
     "query": "select row_to_json(i) from int8_tbl i"
   },
   {
-    "comment": "rowtypes - Statement 189",
+    "comment": "rowtypes - Statement 188",
     "query": "select row_to_json(i) from int8_tbl i(x,y)"
   },
   {
-    "comment": "rowtypes - Statement 190",
+    "comment": "rowtypes - Statement 189",
     "query": "select row_to_json(ss) from (select q1, q2 from int8_tbl) as ss"
   },
   {
-    "comment": "rowtypes - Statement 191",
+    "comment": "rowtypes - Statement 190",
     "query": "select row_to_json(ss) from (select q1, q2 from int8_tbl offset 0) as ss"
   },
   {
-    "comment": "rowtypes - Statement 192",
+    "comment": "rowtypes - Statement 191",
     "query": "select row_to_json(ss) from (select q1 as a, q2 as b from int8_tbl) as ss"
   },
   {
-    "comment": "rowtypes - Statement 193",
+    "comment": "rowtypes - Statement 192",
     "query": "select row_to_json(ss) from (select q1 as a, q2 as b from int8_tbl offset 0) as ss"
   },
   {
-    "comment": "rowtypes - Statement 194",
+    "comment": "rowtypes - Statement 193",
     "query": "select row_to_json(ss) from (select q1 as a, q2 as b from int8_tbl) as ss(x,y)"
   },
   {
-    "comment": "rowtypes - Statement 195",
+    "comment": "rowtypes - Statement 194",
     "query": "select row_to_json(ss) from (select q1 as a, q2 as b from int8_tbl offset 0) as ss(x,y)"
   },
   {
-    "comment": "rowtypes - Statement 196",
+    "comment": "rowtypes - Statement 195",
     "query": "explain (costs off) select row_to_json(q) from (select thousand, tenthous from tenk1 where thousand = 42 and tenthous < 2000 offset 0) q"
   },
   {
-    "comment": "rowtypes - Statement 197",
+    "comment": "rowtypes - Statement 196",
     "query": "select row_to_json(q) from (select thousand, tenthous from tenk1 where thousand = 42 and tenthous < 2000 offset 0) q"
   },
   {
-    "comment": "rowtypes - Statement 198",
+    "comment": "rowtypes - Statement 197",
     "query": "select row_to_json(q) from (select thousand as x, tenthous as y from tenk1 where thousand = 42 and tenthous < 2000 offset 0) q"
   },
   {
-    "comment": "rowtypes - Statement 199",
+    "comment": "rowtypes - Statement 198",
     "query": "select row_to_json(q) from (select thousand as x, tenthous as y from tenk1 where thousand = 42 and tenthous < 2000 offset 0) q(a,b)"
   },
   {
-    "comment": "rowtypes - Statement 200",
+    "comment": "rowtypes - Statement 199",
     "query": "create temp table tt1 as select * from int8_tbl limit 2"
   },
   {
-    "comment": "rowtypes - Statement 201",
+    "comment": "rowtypes - Statement 200",
     "query": "create temp table tt2 () inherits(tt1)"
   },
   {
-    "comment": "rowtypes - Statement 202",
+    "comment": "rowtypes - Statement 201",
     "query": "insert into tt2 values(0,0)"
   },
   {
-    "comment": "rowtypes - Statement 203",
+    "comment": "rowtypes - Statement 202",
     "query": "select row_to_json(r) from (select q2,q1 from tt1 offset 0) r"
   },
   {
-    "comment": "rowtypes - Statement 204",
+    "comment": "rowtypes - Statement 203",
     "query": "create temp table tt3 () inherits(tt2)"
   },
   {
-    "comment": "rowtypes - Statement 205",
+    "comment": "rowtypes - Statement 204",
     "query": "insert into tt3 values(33,44)"
   },
   {
-    "comment": "rowtypes - Statement 206",
+    "comment": "rowtypes - Statement 205",
     "query": "select row_to_json(tt3::tt2::tt1) from tt3"
   },
   {
-    "comment": "rowtypes - Statement 207",
+    "comment": "rowtypes - Statement 206",
     "query": "explain (verbose, costs off) select r, r is null as isnull, r is not null as isnotnull from (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) r(a,b)"
   },
   {
-    "comment": "rowtypes - Statement 208",
+    "comment": "rowtypes - Statement 207",
     "query": "select r, r is null as isnull, r is not null as isnotnull from (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) r(a,b)"
   },
   {
-    "comment": "rowtypes - Statement 209",
+    "comment": "rowtypes - Statement 208",
     "query": "explain (verbose, costs off) with r(a,b) as materialized (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) select r, r is null as isnull, r is not null as isnotnull from r"
   },
   {
-    "comment": "rowtypes - Statement 210",
+    "comment": "rowtypes - Statement 209",
     "query": "with r(a,b) as materialized (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) select r, r is null as isnull, r is not null as isnotnull from r"
   },
   {
-    "comment": "rowtypes - Statement 211",
+    "comment": "rowtypes - Statement 210",
     "query": "explain (verbose, costs off) with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select * from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 > 0)) is not null"
   },
   {
-    "comment": "rowtypes - Statement 212",
+    "comment": "rowtypes - Statement 211",
     "query": "with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select * from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 > 0)) is not null"
   },
   {
-    "comment": "rowtypes - Statement 213",
+    "comment": "rowtypes - Statement 212",
     "query": "create view composite_v as with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select 1 as one from cte2 as t where (select * from (select c as c1) s where (select (c1).f1 > 0)) is not null"
   },
   {
-    "comment": "rowtypes - Statement 214",
+    "comment": "rowtypes - Statement 213",
     "query": "select pg_get_viewdef('composite_v', true)"
   },
   {
-    "comment": "rowtypes - Statement 215",
+    "comment": "rowtypes - Statement 214",
     "query": "drop view composite_v"
   },
   {
-    "comment": "rowtypes - Statement 216",
+    "comment": "rowtypes - Statement 215",
     "query": "explain (verbose, costs off) select (ss.a).x, (ss.a).n from (select information_schema._pg_expandarray(array[1,2]) AS a) ss"
   },
   {
-    "comment": "rowtypes - Statement 217",
+    "comment": "rowtypes - Statement 216",
     "query": "explain (verbose, costs off) select (ss.a).x, (ss.a).n from (select information_schema._pg_expandarray(array[1,2]) AS a) ss where false"
   },
   {
-    "comment": "rowtypes - Statement 218",
+    "comment": "rowtypes - Statement 217",
     "query": "explain (verbose, costs off) with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select (c).f1 from cte2 as t"
   },
   {
-    "comment": "rowtypes - Statement 219",
+    "comment": "rowtypes - Statement 218",
     "query": "explain (verbose, costs off) with cte(c) as materialized (select row(1, 2)), cte2(c) as (select * from cte) select (c).f1 from cte2 as t where false"
   },
   {
-    "comment": "rowtypes - Statement 220",
+    "comment": "rowtypes - Statement 219",
     "query": "CREATE TABLE compositetable(a text, b text)"
   },
   {
-    "comment": "rowtypes - Statement 221",
+    "comment": "rowtypes - Statement 220",
     "query": "INSERT INTO compositetable(a, b) VALUES('fa', 'fb')"
   },
   {
-    "comment": "rowtypes - Statement 222",
+    "comment": "rowtypes - Statement 221",
     "query": "SELECT d.a FROM (SELECT compositetable AS d FROM compositetable) s"
   },
   {
-    "comment": "rowtypes - Statement 223",
+    "comment": "rowtypes - Statement 222",
     "query": "SELECT (d).a, (d).b FROM (SELECT compositetable AS d FROM compositetable) s"
   },
   {
-    "comment": "rowtypes - Statement 224",
+    "comment": "rowtypes - Statement 223",
     "query": "SELECT (d).ctid FROM (SELECT compositetable AS d FROM compositetable) s"
   },
   {
-    "comment": "rowtypes - Statement 225",
+    "comment": "rowtypes - Statement 224",
     "query": "SELECT (NULL::compositetable).nonexistent"
   },
   {
-    "comment": "rowtypes - Statement 226",
+    "comment": "rowtypes - Statement 225",
     "query": "SELECT (NULL::compositetable).a"
   },
   {
-    "comment": "rowtypes - Statement 227",
+    "comment": "rowtypes - Statement 226",
     "query": "SELECT (NULL::compositetable).oid"
   },
   {
-    "comment": "rowtypes - Statement 228",
+    "comment": "rowtypes - Statement 227",
     "query": "DROP TABLE compositetable"
   }
 ]

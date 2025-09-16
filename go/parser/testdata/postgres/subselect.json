@@ -797,214 +797,186 @@
   },
   {
     "comment": "subselect - Statement 200",
-    "query": "create function tattle(x int, y int) returns bool volatile language plpgsql as $$ begin raise notice 'x = %, y = %', x, y"
+    "query": "create function tattle(x int, y int) returns bool volatile language plpgsql as $$ begin raise notice 'x = %, y = %', x, y; return x > y; end$$"
   },
   {
     "comment": "subselect - Statement 201",
-    "query": "return x > y"
-  },
-  {
-    "comment": "subselect - Statement 202",
-    "query": "end$$"
-  },
-  {
-    "comment": "subselect - Statement 203",
     "query": "explain (verbose, costs off) select * from (select 9 as x, unnest(array[1,2,3,11,12,13]) as u) ss where tattle(x, 8)"
   },
   {
-    "comment": "subselect - Statement 204",
+    "comment": "subselect - Statement 202",
     "query": "select * from (select 9 as x, unnest(array[1,2,3,11,12,13]) as u) ss where tattle(x, 8)"
   },
   {
-    "comment": "subselect - Statement 205",
+    "comment": "subselect - Statement 203",
     "query": "alter function tattle(x int, y int) stable"
   },
   {
-    "comment": "subselect - Statement 206",
+    "comment": "subselect - Statement 204",
     "query": "explain (verbose, costs off) select * from (select 9 as x, unnest(array[1,2,3,11,12,13]) as u) ss where tattle(x, u)"
   },
   {
-    "comment": "subselect - Statement 207",
+    "comment": "subselect - Statement 205",
     "query": "select * from (select 9 as x, unnest(array[1,2,3,11,12,13]) as u) ss where tattle(x, u)"
   },
   {
-    "comment": "subselect - Statement 208",
+    "comment": "subselect - Statement 206",
     "query": "drop function tattle(x int, y int)"
   },
   {
-    "comment": "subselect - Statement 209",
+    "comment": "subselect - Statement 207",
     "query": "create table sq_limit (pk int primary key, c1 int, c2 int)"
   },
   {
-    "comment": "subselect - Statement 210",
+    "comment": "subselect - Statement 208",
     "query": "insert into sq_limit values (1, 1, 1), (2, 2, 2), (3, 3, 3), (4, 4, 4), (5, 1, 1), (6, 2, 2), (7, 3, 3), (8, 4, 4)"
   },
   {
-    "comment": "subselect - Statement 211",
-    "query": "create function explain_sq_limit() returns setof text language plpgsql as $$ declare ln text"
+    "comment": "subselect - Statement 209",
+    "query": "create function explain_sq_limit() returns setof text language plpgsql as $$ declare ln text; begin for ln in explain (analyze, summary off, timing off, costs off) select * from (select pk,c2 from sq_limit order by c1,pk) as x limit 3 loop ln := regexp_replace(ln, 'Memory: \\S*',  'Memory: xxx'); return next ln; end loop; end; $$"
   },
   {
-    "comment": "subselect - Statement 212",
-    "query": "begin for ln in explain (analyze, summary off, timing off, costs off) select * from (select pk,c2 from sq_limit order by c1,pk) as x limit 3 loop ln := regexp_replace(ln, 'Memory: \\S*',  'Memory: xxx')"
-  },
-  {
-    "comment": "subselect - Statement 213",
-    "query": "return next ln"
-  },
-  {
-    "comment": "subselect - Statement 214",
-    "query": "end loop"
-  },
-  {
-    "comment": "subselect - Statement 215",
-    "query": "end"
-  },
-  {
-    "comment": "subselect - Statement 216",
-    "query": "$$"
-  },
-  {
-    "comment": "subselect - Statement 217",
+    "comment": "subselect - Statement 210",
     "query": "select * from explain_sq_limit()"
   },
   {
-    "comment": "subselect - Statement 218",
+    "comment": "subselect - Statement 211",
     "query": "select * from (select pk,c2 from sq_limit order by c1,pk) as x limit 3"
   },
   {
-    "comment": "subselect - Statement 219",
+    "comment": "subselect - Statement 212",
     "query": "drop function explain_sq_limit()"
   },
   {
-    "comment": "subselect - Statement 220",
+    "comment": "subselect - Statement 213",
     "query": "drop table sq_limit"
   },
   {
-    "comment": "subselect - Statement 221",
+    "comment": "subselect - Statement 214",
     "query": "declare c1 scroll cursor for select * from generate_series(1,4) i where i <> all (values (2),(3))"
   },
   {
-    "comment": "subselect - Statement 222",
+    "comment": "subselect - Statement 215",
     "query": "move forward all in c1"
   },
   {
-    "comment": "subselect - Statement 223",
+    "comment": "subselect - Statement 216",
     "query": "fetch backward all in c1"
   },
   {
-    "comment": "subselect - Statement 224",
+    "comment": "subselect - Statement 217",
     "query": "commit"
   },
   {
-    "comment": "subselect - Statement 225",
+    "comment": "subselect - Statement 218",
     "query": "explain (costs off) select tname, attname from ( select relname::information_schema.sql_identifier as tname, * from (select * from pg_class c) ss1) ss2 right join pg_attribute a on a.attrelid = ss2.oid where tname = 'tenk1' and attnum = 1"
   },
   {
-    "comment": "subselect - Statement 226",
+    "comment": "subselect - Statement 219",
     "query": "select tname, attname from ( select relname::information_schema.sql_identifier as tname, * from (select * from pg_class c) ss1) ss2 right join pg_attribute a on a.attrelid = ss2.oid where tname = 'tenk1' and attnum = 1"
   },
   {
-    "comment": "subselect - Statement 227",
+    "comment": "subselect - Statement 220",
     "query": "explain (verbose, costs off) select t1.ten, sum(x) from tenk1 t1 left join lateral ( select t1.ten + t2.ten as x, t2.fivethous from tenk1 t2 ) ss on t1.unique1 = ss.fivethous group by t1.ten order by t1.ten"
   },
   {
-    "comment": "subselect - Statement 228",
+    "comment": "subselect - Statement 221",
     "query": "select t1.ten, sum(x) from tenk1 t1 left join lateral ( select t1.ten + t2.ten as x, t2.fivethous from tenk1 t2 ) ss on t1.unique1 = ss.fivethous group by t1.ten order by t1.ten"
   },
   {
-    "comment": "subselect - Statement 229",
+    "comment": "subselect - Statement 222",
     "query": "explain (verbose, costs off) select t1.q1, x from int8_tbl t1 left join (int8_tbl t2 left join lateral (select t2.q1+t3.q1 as x, * from int8_tbl t3) t3 on t2.q2 = t3.q2) on t1.q2 = t2.q2 order by 1, 2"
   },
   {
-    "comment": "subselect - Statement 230",
+    "comment": "subselect - Statement 223",
     "query": "select t1.q1, x from int8_tbl t1 left join (int8_tbl t2 left join lateral (select t2.q1+t3.q1 as x, * from int8_tbl t3) t3 on t2.q2 = t3.q2) on t1.q2 = t2.q2 order by 1, 2"
   },
   {
-    "comment": "subselect - Statement 231",
+    "comment": "subselect - Statement 224",
     "query": "explain (verbose, costs off) with x as (select * from (select f1 from subselect_tbl) ss) select * from x where f1 = 1"
   },
   {
-    "comment": "subselect - Statement 232",
+    "comment": "subselect - Statement 225",
     "query": "explain (verbose, costs off) with x as materialized (select * from (select f1 from subselect_tbl) ss) select * from x where f1 = 1"
   },
   {
-    "comment": "subselect - Statement 233",
+    "comment": "subselect - Statement 226",
     "query": "explain (verbose, costs off) with x as (select * from (select f1, now() from subselect_tbl) ss) select * from x where f1 = 1"
   },
   {
-    "comment": "subselect - Statement 234",
+    "comment": "subselect - Statement 227",
     "query": "explain (verbose, costs off) with x as (select * from (select f1, random() from subselect_tbl) ss) select * from x where f1 = 1"
   },
   {
-    "comment": "subselect - Statement 235",
+    "comment": "subselect - Statement 228",
     "query": "explain (verbose, costs off) with x as (select * from (select f1 from subselect_tbl for update) ss) select * from x where f1 = 1"
   },
   {
-    "comment": "subselect - Statement 236",
+    "comment": "subselect - Statement 229",
     "query": "explain (verbose, costs off) with x as (select * from (select f1, now() as n from subselect_tbl) ss) select * from x, x x2 where x.n = x2.n"
   },
   {
-    "comment": "subselect - Statement 237",
+    "comment": "subselect - Statement 230",
     "query": "explain (verbose, costs off) with x as not materialized (select * from (select f1, now() as n from subselect_tbl) ss) select * from x, x x2 where x.n = x2.n"
   },
   {
-    "comment": "subselect - Statement 238",
+    "comment": "subselect - Statement 231",
     "query": "explain (verbose, costs off) with recursive x(a) as ((values ('a'), ('b')) union all (with z as not materialized (select * from x) select z.a || z1.a as a from z cross join z as z1 where length(z.a || z1.a) < 5)) select * from x"
   },
   {
-    "comment": "subselect - Statement 239",
+    "comment": "subselect - Statement 232",
     "query": "with recursive x(a) as ((values ('a'), ('b')) union all (with z as not materialized (select * from x) select z.a || z1.a as a from z cross join z as z1 where length(z.a || z1.a) < 5)) select * from x"
   },
   {
-    "comment": "subselect - Statement 240",
+    "comment": "subselect - Statement 233",
     "query": "explain (verbose, costs off) with recursive x(a) as ((values ('a'), ('b')) union all (with z as not materialized (select * from x) select z.a || z.a as a from z where length(z.a || z.a) < 5)) select * from x"
   },
   {
-    "comment": "subselect - Statement 241",
+    "comment": "subselect - Statement 234",
     "query": "with recursive x(a) as ((values ('a'), ('b')) union all (with z as not materialized (select * from x) select z.a || z.a as a from z where length(z.a || z.a) < 5)) select * from x"
   },
   {
-    "comment": "subselect - Statement 242",
+    "comment": "subselect - Statement 235",
     "query": "explain (verbose, costs off) with x as (select * from int4_tbl) select * from (with y as (select * from x) select * from y) ss"
   },
   {
-    "comment": "subselect - Statement 243",
+    "comment": "subselect - Statement 236",
     "query": "explain (verbose, costs off) with x as materialized (select * from int4_tbl) select * from (with y as (select * from x) select * from y) ss"
   },
   {
-    "comment": "subselect - Statement 244",
+    "comment": "subselect - Statement 237",
     "query": "explain (verbose, costs off) with x as (select 1 as y) select * from (with x as (select 2 as y) select * from x) ss"
   },
   {
-    "comment": "subselect - Statement 245",
+    "comment": "subselect - Statement 238",
     "query": "explain (verbose, costs off) with x as (select * from subselect_tbl) select * from x for update"
   },
   {
-    "comment": "subselect - Statement 246",
+    "comment": "subselect - Statement 239",
     "query": "explain (costs off) select * from tenk1 A where hundred in (select hundred from tenk2 B where B.odd = A.odd)"
   },
   {
-    "comment": "subselect - Statement 247",
+    "comment": "subselect - Statement 240",
     "query": "explain (costs off) select * from tenk1 A where exists (select 1 from tenk2 B where A.hundred in (select C.hundred FROM tenk2 C WHERE c.odd = b.odd))"
   },
   {
-    "comment": "subselect - Statement 248",
+    "comment": "subselect - Statement 241",
     "query": "explain (costs off) SELECT * FROM tenk1 A LEFT JOIN tenk2 B ON A.hundred in (SELECT c.hundred FROM tenk2 C WHERE c.odd = b.odd)"
   },
   {
-    "comment": "subselect - Statement 249",
+    "comment": "subselect - Statement 242",
     "query": "explain (costs off) SELECT * FROM tenk1 A LEFT JOIN tenk2 B ON B.hundred in (SELECT c.hundred FROM tenk2 C WHERE c.odd = a.odd)"
   },
   {
-    "comment": "subselect - Statement 250",
+    "comment": "subselect - Statement 243",
     "query": "explain (costs off) SELECT * FROM tenk1 A LEFT JOIN tenk2 B ON B.hundred in (SELECT c.hundred FROM tenk2 C WHERE c.odd = b.odd)"
   },
   {
-    "comment": "subselect - Statement 251",
+    "comment": "subselect - Statement 244",
     "query": "explain (costs off) SELECT * FROM tenk1 A INNER JOIN tenk2 B ON A.hundred in (SELECT c.hundred FROM tenk2 C WHERE c.odd = b.odd) WHERE a.thousand < 750"
   },
   {
-    "comment": "subselect - Statement 252",
+    "comment": "subselect - Statement 245",
     "query": "explain (costs off) SELECT * FROM tenk1 A LEFT JOIN tenk2 B ON B.hundred in (SELECT min(c.hundred) FROM tenk2 C WHERE c.odd = b.odd)"
   }
 ]

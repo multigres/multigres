@@ -853,178 +853,162 @@
   },
   {
     "comment": "with - Statement 214",
-    "query": "CREATE FUNCTION y_trigger() RETURNS trigger AS $$ begin raise notice 'y_trigger: a = %', new.a"
+    "query": "CREATE FUNCTION y_trigger() RETURNS trigger AS $$ begin raise notice 'y_trigger: a = %', new.a; return new; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "with - Statement 215",
-    "query": "return new"
-  },
-  {
-    "comment": "with - Statement 216",
-    "query": "end"
-  },
-  {
-    "comment": "with - Statement 217",
-    "query": "$$ LANGUAGE plpgsql"
-  },
-  {
-    "comment": "with - Statement 218",
     "query": "CREATE TRIGGER y_trig BEFORE INSERT ON y FOR EACH ROW EXECUTE PROCEDURE y_trigger()"
   },
   {
-    "comment": "with - Statement 219",
+    "comment": "with - Statement 216",
     "query": "WITH t AS ( INSERT INTO y VALUES (21), (22), (23) RETURNING * ) SELECT * FROM t"
   },
   {
-    "comment": "with - Statement 220",
+    "comment": "with - Statement 217",
     "query": "DROP TRIGGER y_trig ON y"
   },
   {
-    "comment": "with - Statement 221",
+    "comment": "with - Statement 218",
     "query": "CREATE TRIGGER y_trig AFTER INSERT ON y FOR EACH ROW EXECUTE PROCEDURE y_trigger()"
   },
   {
-    "comment": "with - Statement 222",
+    "comment": "with - Statement 219",
     "query": "WITH t AS ( INSERT INTO y VALUES (31), (32), (33) RETURNING * ) SELECT * FROM t LIMIT 1"
   },
   {
-    "comment": "with - Statement 223",
-    "query": "CREATE OR REPLACE FUNCTION y_trigger() RETURNS trigger AS $$ begin raise notice 'y_trigger'"
+    "comment": "with - Statement 220",
+    "query": "CREATE OR REPLACE FUNCTION y_trigger() RETURNS trigger AS $$ begin raise notice 'y_trigger'; return null; end; $$ LANGUAGE plpgsql"
   },
   {
-    "comment": "with - Statement 224",
-    "query": "return null"
-  },
-  {
-    "comment": "with - Statement 225",
+    "comment": "with - Statement 221",
     "query": "CREATE TRIGGER y_trig AFTER INSERT ON y FOR EACH STATEMENT EXECUTE PROCEDURE y_trigger()"
   },
   {
-    "comment": "with - Statement 226",
+    "comment": "with - Statement 222",
     "query": "WITH t AS ( INSERT INTO y VALUES (41), (42), (43) RETURNING * ) SELECT * FROM t"
   },
   {
-    "comment": "with - Statement 227",
+    "comment": "with - Statement 223",
     "query": "DROP FUNCTION y_trigger()"
   },
   {
-    "comment": "with - Statement 228",
+    "comment": "with - Statement 224",
     "query": "CREATE TEMP TABLE parent ( id int, val text )"
   },
   {
-    "comment": "with - Statement 229",
+    "comment": "with - Statement 225",
     "query": "CREATE TEMP TABLE child1 ( ) INHERITS ( parent )"
   },
   {
-    "comment": "with - Statement 230",
+    "comment": "with - Statement 226",
     "query": "CREATE TEMP TABLE child2 ( ) INHERITS ( parent )"
   },
   {
-    "comment": "with - Statement 231",
+    "comment": "with - Statement 227",
     "query": "INSERT INTO parent VALUES ( 1, 'p1' )"
   },
   {
-    "comment": "with - Statement 232",
+    "comment": "with - Statement 228",
     "query": "INSERT INTO child1 VALUES ( 11, 'c11' ),( 12, 'c12' )"
   },
   {
-    "comment": "with - Statement 233",
+    "comment": "with - Statement 229",
     "query": "INSERT INTO child2 VALUES ( 23, 'c21' ),( 24, 'c22' )"
   },
   {
-    "comment": "with - Statement 234",
+    "comment": "with - Statement 230",
     "query": "WITH rcte AS ( SELECT sum(id) AS totalid FROM parent ) UPDATE parent SET id = id + totalid FROM rcte"
   },
   {
-    "comment": "with - Statement 235",
+    "comment": "with - Statement 231",
     "query": "SELECT * FROM parent"
   },
   {
-    "comment": "with - Statement 236",
+    "comment": "with - Statement 232",
     "query": "WITH wcte AS ( INSERT INTO child1 VALUES ( 42, 'new' ) RETURNING id AS newid ) UPDATE parent SET id = id + newid FROM wcte"
   },
   {
-    "comment": "with - Statement 237",
+    "comment": "with - Statement 233",
     "query": "WITH rcte AS ( SELECT max(id) AS maxid FROM parent ) DELETE FROM parent USING rcte WHERE id = maxid"
   },
   {
-    "comment": "with - Statement 238",
+    "comment": "with - Statement 234",
     "query": "WITH wcte AS ( INSERT INTO child2 VALUES ( 42, 'new2' ) RETURNING id AS newid ) DELETE FROM parent USING wcte WHERE id = newid"
   },
   {
-    "comment": "with - Statement 239",
+    "comment": "with - Statement 235",
     "query": "EXPLAIN (VERBOSE, COSTS OFF) WITH wcte AS ( INSERT INTO int8_tbl VALUES ( 42, 47 ) RETURNING q2 ) DELETE FROM a_star USING wcte WHERE aa = q2"
   },
   {
-    "comment": "with - Statement 240",
+    "comment": "with - Statement 236",
     "query": "WITH RECURSIVE t AS ( INSERT INTO y SELECT * FROM t ) VALUES(FALSE)"
   },
   {
-    "comment": "with - Statement 241",
+    "comment": "with - Statement 237",
     "query": "WITH t AS ( INSERT INTO y VALUES(0) ) SELECT * FROM t"
   },
   {
-    "comment": "with - Statement 242",
+    "comment": "with - Statement 238",
     "query": "WITH RECURSIVE t(action, a) AS ( MERGE INTO y USING (VALUES (11)) v(a) ON y.a = v.a WHEN NOT MATCHED THEN INSERT VALUES (v.a) RETURNING merge_action(), (SELECT a FROM t) ) SELECT * FROM t"
   },
   {
-    "comment": "with - Statement 243",
+    "comment": "with - Statement 239",
     "query": "SELECT * FROM ( WITH t AS (UPDATE y SET a=a+1 RETURNING *) SELECT * FROM t ) ss"
   },
   {
-    "comment": "with - Statement 244",
+    "comment": "with - Statement 240",
     "query": "CREATE RULE y_rule AS ON INSERT TO y WHERE a=0 DO INSTEAD DELETE FROM y"
   },
   {
-    "comment": "with - Statement 245",
+    "comment": "with - Statement 241",
     "query": "WITH t AS ( INSERT INTO y VALUES(0) ) VALUES(FALSE)"
   },
   {
-    "comment": "with - Statement 246",
+    "comment": "with - Statement 242",
     "query": "CREATE OR REPLACE RULE y_rule AS ON INSERT TO y DO INSTEAD NOTHING"
   },
   {
-    "comment": "with - Statement 247",
+    "comment": "with - Statement 243",
     "query": "CREATE OR REPLACE RULE y_rule AS ON INSERT TO y DO INSTEAD NOTIFY foo"
   },
   {
-    "comment": "with - Statement 248",
+    "comment": "with - Statement 244",
     "query": "CREATE OR REPLACE RULE y_rule AS ON INSERT TO y DO ALSO NOTIFY foo"
   },
   {
-    "comment": "with - Statement 249",
+    "comment": "with - Statement 245",
     "query": "CREATE OR REPLACE RULE y_rule AS ON INSERT TO y DO INSTEAD (NOTIFY foo; NOTIFY bar)"
   },
   {
-    "comment": "with - Statement 250",
+    "comment": "with - Statement 246",
     "query": "create table foo (with baz)"
   },
   {
-    "comment": "with - Statement 251",
+    "comment": "with - Statement 247",
     "query": "create table foo (with ordinality)"
   },
   {
-    "comment": "with - Statement 252",
+    "comment": "with - Statement 248",
     "query": "with ordinality as (select 1 as x) select * from ordinality"
   },
   {
-    "comment": "with - Statement 253",
+    "comment": "with - Statement 249",
     "query": "WITH with_test AS (SELECT 42) INSERT INTO with_test VALUES (1)"
   },
   {
-    "comment": "with - Statement 254",
+    "comment": "with - Statement 250",
     "query": "create temp table with_test (i int)"
   },
   {
-    "comment": "with - Statement 255",
+    "comment": "with - Statement 251",
     "query": "with with_test as (select 42) insert into with_test select * from with_test"
   },
   {
-    "comment": "with - Statement 256",
+    "comment": "with - Statement 252",
     "query": "select * from with_test"
   },
   {
-    "comment": "with - Statement 257",
+    "comment": "with - Statement 253",
     "query": "drop table with_test"
   }
 ]

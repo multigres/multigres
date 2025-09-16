@@ -313,602 +313,582 @@
   },
   {
     "comment": "update - Statement 79",
-    "query": "CREATE FUNCTION trans_updatetrigfunc() RETURNS trigger LANGUAGE plpgsql AS $$ begin raise notice 'trigger = %, old table = %, new table = %', TG_NAME, (select string_agg(old_table::text, ', ' ORDER BY a) FROM old_table), (select string_agg(new_table::text, ', ' ORDER BY a) FROM new_table)"
+    "query": "CREATE FUNCTION trans_updatetrigfunc() RETURNS trigger LANGUAGE plpgsql AS $$ begin raise notice 'trigger = %, old table = %, new table = %', TG_NAME, (select string_agg(old_table::text, ', ' ORDER BY a) FROM old_table), (select string_agg(new_table::text, ', ' ORDER BY a) FROM new_table); return null; end; $$"
   },
   {
     "comment": "update - Statement 80",
-    "query": "return null"
-  },
-  {
-    "comment": "update - Statement 81",
-    "query": "end"
-  },
-  {
-    "comment": "update - Statement 82",
-    "query": "$$"
-  },
-  {
-    "comment": "update - Statement 83",
     "query": "CREATE TRIGGER trans_updatetrig AFTER UPDATE ON range_parted REFERENCING OLD TABLE AS old_table NEW TABLE AS new_table FOR EACH STATEMENT EXECUTE PROCEDURE trans_updatetrigfunc()"
   },
   {
-    "comment": "update - Statement 84",
+    "comment": "update - Statement 81",
     "query": "UPDATE range_parted set c = (case when c = 96 then 110 else c + 1 end ) WHERE a = 'b' and b > 10 and c >= 96"
   },
   {
-    "comment": "update - Statement 85",
+    "comment": "update - Statement 82",
     "query": "CREATE TRIGGER trans_deletetrig AFTER DELETE ON range_parted REFERENCING OLD TABLE AS old_table FOR EACH STATEMENT EXECUTE PROCEDURE trans_updatetrigfunc()"
   },
   {
-    "comment": "update - Statement 86",
+    "comment": "update - Statement 83",
     "query": "CREATE TRIGGER trans_inserttrig AFTER INSERT ON range_parted REFERENCING NEW TABLE AS new_table FOR EACH STATEMENT EXECUTE PROCEDURE trans_updatetrigfunc()"
   },
   {
-    "comment": "update - Statement 87",
+    "comment": "update - Statement 84",
     "query": "UPDATE range_parted set c = c + 50 WHERE a = 'b' and b > 10 and c >= 96"
   },
   {
-    "comment": "update - Statement 88",
+    "comment": "update - Statement 85",
     "query": "DROP TRIGGER trans_deletetrig ON range_parted"
   },
   {
-    "comment": "update - Statement 89",
+    "comment": "update - Statement 86",
     "query": "DROP TRIGGER trans_inserttrig ON range_parted"
   },
   {
-    "comment": "update - Statement 90",
-    "query": "CREATE FUNCTION func_parted_mod_b() RETURNS trigger AS $$ BEGIN NEW.b = NEW.b + 1"
+    "comment": "update - Statement 87",
+    "query": "CREATE FUNCTION func_parted_mod_b() RETURNS trigger AS $$ BEGIN NEW.b = NEW.b + 1; return NEW; END $$ language plpgsql"
   },
   {
-    "comment": "update - Statement 91",
-    "query": "return NEW"
-  },
-  {
-    "comment": "update - Statement 92",
-    "query": "END $$ language plpgsql"
-  },
-  {
-    "comment": "update - Statement 93",
+    "comment": "update - Statement 88",
     "query": "CREATE TRIGGER trig_c1_100 BEFORE UPDATE OR INSERT ON part_c_1_100 FOR EACH ROW EXECUTE PROCEDURE func_parted_mod_b()"
   },
   {
-    "comment": "update - Statement 94",
+    "comment": "update - Statement 89",
     "query": "CREATE TRIGGER trig_d1_15 BEFORE UPDATE OR INSERT ON part_d_1_15 FOR EACH ROW EXECUTE PROCEDURE func_parted_mod_b()"
   },
   {
-    "comment": "update - Statement 95",
+    "comment": "update - Statement 90",
     "query": "CREATE TRIGGER trig_d15_20 BEFORE UPDATE OR INSERT ON part_d_15_20 FOR EACH ROW EXECUTE PROCEDURE func_parted_mod_b()"
   },
   {
-    "comment": "update - Statement 96",
+    "comment": "update - Statement 91",
     "query": "UPDATE range_parted set c = (case when c = 96 then 110 else c + 1 end) WHERE a = 'b' and b > 10 and c >= 96"
   },
   {
-    "comment": "update - Statement 97",
+    "comment": "update - Statement 92",
     "query": "UPDATE range_parted set b = 15 WHERE b = 1"
   },
   {
-    "comment": "update - Statement 98",
+    "comment": "update - Statement 93",
     "query": "DROP TRIGGER trans_updatetrig ON range_parted"
   },
   {
-    "comment": "update - Statement 99",
+    "comment": "update - Statement 94",
     "query": "DROP TRIGGER trig_c1_100 ON part_c_1_100"
   },
   {
-    "comment": "update - Statement 100",
+    "comment": "update - Statement 95",
     "query": "DROP TRIGGER trig_d1_15 ON part_d_1_15"
   },
   {
-    "comment": "update - Statement 101",
+    "comment": "update - Statement 96",
     "query": "DROP TRIGGER trig_d15_20 ON part_d_15_20"
   },
   {
-    "comment": "update - Statement 102",
+    "comment": "update - Statement 97",
     "query": "DROP FUNCTION func_parted_mod_b()"
   },
   {
-    "comment": "update - Statement 103",
+    "comment": "update - Statement 98",
     "query": "ALTER TABLE range_parted ENABLE ROW LEVEL SECURITY"
   },
   {
-    "comment": "update - Statement 104",
+    "comment": "update - Statement 99",
     "query": "CREATE USER regress_range_parted_user"
   },
   {
-    "comment": "update - Statement 105",
+    "comment": "update - Statement 100",
     "query": "GRANT ALL ON range_parted, mintab TO regress_range_parted_user"
   },
   {
-    "comment": "update - Statement 106",
+    "comment": "update - Statement 101",
     "query": "CREATE POLICY seeall ON range_parted AS PERMISSIVE FOR SELECT USING (true)"
   },
   {
-    "comment": "update - Statement 107",
+    "comment": "update - Statement 102",
     "query": "CREATE POLICY policy_range_parted ON range_parted for UPDATE USING (true) WITH CHECK (c % 2 = 0)"
   },
   {
-    "comment": "update - Statement 108",
+    "comment": "update - Statement 103",
     "query": "SET SESSION AUTHORIZATION regress_range_parted_user"
   },
   {
-    "comment": "update - Statement 109",
+    "comment": "update - Statement 104",
     "query": "UPDATE range_parted set a = 'b', c = 151 WHERE a = 'a' and c = 200"
   },
   {
-    "comment": "update - Statement 110",
+    "comment": "update - Statement 105",
     "query": "RESET SESSION AUTHORIZATION"
   },
   {
-    "comment": "update - Statement 111",
-    "query": "CREATE FUNCTION func_d_1_15() RETURNS trigger AS $$ BEGIN NEW.c = NEW.c + 1"
+    "comment": "update - Statement 106",
+    "query": "CREATE FUNCTION func_d_1_15() RETURNS trigger AS $$ BEGIN NEW.c = NEW.c + 1; return NEW; END $$ LANGUAGE plpgsql"
   },
   {
-    "comment": "update - Statement 112",
+    "comment": "update - Statement 107",
     "query": "CREATE TRIGGER trig_d_1_15 BEFORE INSERT ON part_d_1_15 FOR EACH ROW EXECUTE PROCEDURE func_d_1_15()"
   },
   {
-    "comment": "update - Statement 113",
+    "comment": "update - Statement 108",
     "query": "UPDATE range_parted set a = 'b', c = 150 WHERE a = 'a' and c = 200"
   },
   {
-    "comment": "update - Statement 114",
+    "comment": "update - Statement 109",
     "query": "DROP TRIGGER trig_d_1_15 ON part_d_1_15"
   },
   {
-    "comment": "update - Statement 115",
+    "comment": "update - Statement 110",
     "query": "DROP FUNCTION func_d_1_15()"
   },
   {
-    "comment": "update - Statement 116",
+    "comment": "update - Statement 111",
     "query": "CREATE POLICY policy_range_parted_subplan on range_parted AS RESTRICTIVE for UPDATE USING (true) WITH CHECK ((SELECT range_parted.c <= c1 FROM mintab))"
   },
   {
-    "comment": "update - Statement 117",
+    "comment": "update - Statement 112",
     "query": "UPDATE range_parted set a = 'b', c = 122 WHERE a = 'a' and c = 200"
   },
   {
-    "comment": "update - Statement 118",
+    "comment": "update - Statement 113",
     "query": "UPDATE range_parted set a = 'b', c = 120 WHERE a = 'a' and c = 200"
   },
   {
-    "comment": "update - Statement 119",
+    "comment": "update - Statement 114",
     "query": "CREATE POLICY policy_range_parted_wholerow on range_parted AS RESTRICTIVE for UPDATE USING (true) WITH CHECK (range_parted = row('b', 10, 112, 1, NULL)::range_parted)"
   },
   {
-    "comment": "update - Statement 120",
+    "comment": "update - Statement 115",
     "query": "UPDATE range_parted set a = 'b', c = 112 WHERE a = 'a' and c = 200"
   },
   {
-    "comment": "update - Statement 121",
+    "comment": "update - Statement 116",
     "query": "UPDATE range_parted set a = 'b', c = 116 WHERE a = 'a' and c = 200"
   },
   {
-    "comment": "update - Statement 122",
+    "comment": "update - Statement 117",
     "query": "DROP POLICY policy_range_parted ON range_parted"
   },
   {
-    "comment": "update - Statement 123",
+    "comment": "update - Statement 118",
     "query": "DROP POLICY policy_range_parted_subplan ON range_parted"
   },
   {
-    "comment": "update - Statement 124",
+    "comment": "update - Statement 119",
     "query": "DROP POLICY policy_range_parted_wholerow ON range_parted"
   },
   {
-    "comment": "update - Statement 125",
+    "comment": "update - Statement 120",
     "query": "REVOKE ALL ON range_parted, mintab FROM regress_range_parted_user"
   },
   {
-    "comment": "update - Statement 126",
+    "comment": "update - Statement 121",
     "query": "DROP USER regress_range_parted_user"
   },
   {
-    "comment": "update - Statement 127",
+    "comment": "update - Statement 122",
     "query": "DROP TABLE mintab"
   },
   {
-    "comment": "update - Statement 128",
-    "query": "CREATE FUNCTION trigfunc() returns trigger language plpgsql as $$ begin raise notice 'trigger = % fired on table % during %', TG_NAME, TG_TABLE_NAME, TG_OP"
+    "comment": "update - Statement 123",
+    "query": "CREATE FUNCTION trigfunc() returns trigger language plpgsql as $$ begin raise notice 'trigger = % fired on table % during %', TG_NAME, TG_TABLE_NAME, TG_OP; return null; end; $$"
   },
   {
-    "comment": "update - Statement 129",
+    "comment": "update - Statement 124",
     "query": "CREATE TRIGGER parent_delete_trig AFTER DELETE ON range_parted for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 130",
+    "comment": "update - Statement 125",
     "query": "CREATE TRIGGER parent_update_trig AFTER UPDATE ON range_parted for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 131",
+    "comment": "update - Statement 126",
     "query": "CREATE TRIGGER parent_insert_trig AFTER INSERT ON range_parted for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 132",
+    "comment": "update - Statement 127",
     "query": "CREATE TRIGGER c1_delete_trig AFTER DELETE ON part_c_1_100 for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 133",
+    "comment": "update - Statement 128",
     "query": "CREATE TRIGGER c1_update_trig AFTER UPDATE ON part_c_1_100 for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 134",
+    "comment": "update - Statement 129",
     "query": "CREATE TRIGGER c1_insert_trig AFTER INSERT ON part_c_1_100 for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 135",
+    "comment": "update - Statement 130",
     "query": "CREATE TRIGGER d1_delete_trig AFTER DELETE ON part_d_1_15 for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 136",
+    "comment": "update - Statement 131",
     "query": "CREATE TRIGGER d1_update_trig AFTER UPDATE ON part_d_1_15 for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 137",
+    "comment": "update - Statement 132",
     "query": "CREATE TRIGGER d1_insert_trig AFTER INSERT ON part_d_1_15 for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 138",
+    "comment": "update - Statement 133",
     "query": "CREATE TRIGGER d15_delete_trig AFTER DELETE ON part_d_15_20 for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 139",
+    "comment": "update - Statement 134",
     "query": "CREATE TRIGGER d15_update_trig AFTER UPDATE ON part_d_15_20 for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 140",
+    "comment": "update - Statement 135",
     "query": "CREATE TRIGGER d15_insert_trig AFTER INSERT ON part_d_15_20 for each statement execute procedure trigfunc()"
   },
   {
-    "comment": "update - Statement 141",
+    "comment": "update - Statement 136",
     "query": "UPDATE range_parted set c = c - 50 WHERE c > 97"
   },
   {
-    "comment": "update - Statement 142",
+    "comment": "update - Statement 137",
     "query": "DROP TRIGGER parent_delete_trig ON range_parted"
   },
   {
-    "comment": "update - Statement 143",
+    "comment": "update - Statement 138",
     "query": "DROP TRIGGER parent_update_trig ON range_parted"
   },
   {
-    "comment": "update - Statement 144",
+    "comment": "update - Statement 139",
     "query": "DROP TRIGGER parent_insert_trig ON range_parted"
   },
   {
-    "comment": "update - Statement 145",
+    "comment": "update - Statement 140",
     "query": "DROP TRIGGER c1_delete_trig ON part_c_1_100"
   },
   {
-    "comment": "update - Statement 146",
+    "comment": "update - Statement 141",
     "query": "DROP TRIGGER c1_update_trig ON part_c_1_100"
   },
   {
-    "comment": "update - Statement 147",
+    "comment": "update - Statement 142",
     "query": "DROP TRIGGER c1_insert_trig ON part_c_1_100"
   },
   {
-    "comment": "update - Statement 148",
+    "comment": "update - Statement 143",
     "query": "DROP TRIGGER d1_delete_trig ON part_d_1_15"
   },
   {
-    "comment": "update - Statement 149",
+    "comment": "update - Statement 144",
     "query": "DROP TRIGGER d1_update_trig ON part_d_1_15"
   },
   {
-    "comment": "update - Statement 150",
+    "comment": "update - Statement 145",
     "query": "DROP TRIGGER d1_insert_trig ON part_d_1_15"
   },
   {
-    "comment": "update - Statement 151",
+    "comment": "update - Statement 146",
     "query": "DROP TRIGGER d15_delete_trig ON part_d_15_20"
   },
   {
-    "comment": "update - Statement 152",
+    "comment": "update - Statement 147",
     "query": "DROP TRIGGER d15_update_trig ON part_d_15_20"
   },
   {
-    "comment": "update - Statement 153",
+    "comment": "update - Statement 148",
     "query": "DROP TRIGGER d15_insert_trig ON part_d_15_20"
   },
   {
-    "comment": "update - Statement 154",
+    "comment": "update - Statement 149",
     "query": "create table part_def partition of range_parted default"
   },
   {
-    "comment": "update - Statement 155",
+    "comment": "update - Statement 150",
     "query": "update part_def set a = 'd' where a = 'c'"
   },
   {
-    "comment": "update - Statement 156",
+    "comment": "update - Statement 151",
     "query": "update part_def set a = 'a' where a = 'd'"
   },
   {
-    "comment": "update - Statement 157",
+    "comment": "update - Statement 152",
     "query": "UPDATE part_a_10_a_20 set a = 'ad' WHERE a = 'a'"
   },
   {
-    "comment": "update - Statement 158",
+    "comment": "update - Statement 153",
     "query": "UPDATE range_parted set a = 'ad' WHERE a = 'a'"
   },
   {
-    "comment": "update - Statement 159",
+    "comment": "update - Statement 154",
     "query": "UPDATE range_parted set a = 'bd' WHERE a = 'b'"
   },
   {
-    "comment": "update - Statement 160",
+    "comment": "update - Statement 155",
     "query": "UPDATE range_parted set a = 'a' WHERE a = 'ad'"
   },
   {
-    "comment": "update - Statement 161",
+    "comment": "update - Statement 156",
     "query": "UPDATE range_parted set a = 'b' WHERE a = 'bd'"
   },
   {
-    "comment": "update - Statement 162",
+    "comment": "update - Statement 157",
     "query": "DROP TABLE range_parted"
   },
   {
-    "comment": "update - Statement 163",
+    "comment": "update - Statement 158",
     "query": "CREATE TABLE list_parted ( a text, b int ) PARTITION BY list (a)"
   },
   {
-    "comment": "update - Statement 164",
+    "comment": "update - Statement 159",
     "query": "CREATE TABLE list_part1  PARTITION OF list_parted for VALUES in ('a', 'b')"
   },
   {
-    "comment": "update - Statement 165",
+    "comment": "update - Statement 160",
     "query": "CREATE TABLE list_default PARTITION OF list_parted default"
   },
   {
-    "comment": "update - Statement 166",
+    "comment": "update - Statement 161",
     "query": "INSERT into list_part1 VALUES ('a', 1)"
   },
   {
-    "comment": "update - Statement 167",
+    "comment": "update - Statement 162",
     "query": "INSERT into list_default VALUES ('d', 10)"
   },
   {
-    "comment": "update - Statement 168",
+    "comment": "update - Statement 163",
     "query": "UPDATE list_default set a = 'a' WHERE a = 'd'"
   },
   {
-    "comment": "update - Statement 169",
+    "comment": "update - Statement 164",
     "query": "UPDATE list_default set a = 'x' WHERE a = 'd'"
   },
   {
-    "comment": "update - Statement 170",
+    "comment": "update - Statement 165",
     "query": "DROP TABLE list_parted"
   },
   {
-    "comment": "update - Statement 171",
+    "comment": "update - Statement 166",
     "query": "create table utrtest (a int, b text) partition by list (a)"
   },
   {
-    "comment": "update - Statement 172",
+    "comment": "update - Statement 167",
     "query": "create table utr1 (a int check (a in (1)), q text, b text)"
   },
   {
-    "comment": "update - Statement 173",
+    "comment": "update - Statement 168",
     "query": "create table utr2 (a int check (a in (2)), b text)"
   },
   {
-    "comment": "update - Statement 174",
+    "comment": "update - Statement 169",
     "query": "alter table utr1 drop column q"
   },
   {
-    "comment": "update - Statement 175",
+    "comment": "update - Statement 170",
     "query": "alter table utrtest attach partition utr1 for values in (1)"
   },
   {
-    "comment": "update - Statement 176",
+    "comment": "update - Statement 171",
     "query": "alter table utrtest attach partition utr2 for values in (2)"
   },
   {
-    "comment": "update - Statement 177",
+    "comment": "update - Statement 172",
     "query": "insert into utrtest values (1, 'foo') returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok"
   },
   {
-    "comment": "update - Statement 178",
+    "comment": "update - Statement 173",
     "query": "insert into utrtest values (2, 'bar') returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok"
   },
   {
-    "comment": "update - Statement 179",
+    "comment": "update - Statement 174",
     "query": "insert into utrtest values (2, 'bar') returning *, tableoid::regclass"
   },
   {
-    "comment": "update - Statement 180",
+    "comment": "update - Statement 175",
     "query": "update utrtest set b = b || b from (values (1), (2)) s(x) where a = s.x returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok"
   },
   {
-    "comment": "update - Statement 181",
+    "comment": "update - Statement 176",
     "query": "update utrtest set a = 3 - a from (values (1), (2)) s(x) where a = s.x returning *, tableoid::regclass, xmin = pg_current_xact_id()::xid as xmin_ok"
   },
   {
-    "comment": "update - Statement 182",
+    "comment": "update - Statement 177",
     "query": "update utrtest set a = 3 - a from (values (1), (2)) s(x) where a = s.x returning *, tableoid::regclass"
   },
   {
-    "comment": "update - Statement 183",
+    "comment": "update - Statement 178",
     "query": "delete from utrtest returning *, tableoid::regclass, xmax = pg_current_xact_id()::xid as xmax_ok"
   },
   {
-    "comment": "update - Statement 184",
+    "comment": "update - Statement 179",
     "query": "drop table utrtest"
   },
   {
-    "comment": "update - Statement 185",
+    "comment": "update - Statement 180",
     "query": "CREATE TABLE list_parted (a numeric, b int, c int8) PARTITION BY list (a)"
   },
   {
-    "comment": "update - Statement 186",
+    "comment": "update - Statement 181",
     "query": "CREATE TABLE sub_parted PARTITION OF list_parted for VALUES in (1) PARTITION BY list (b)"
   },
   {
-    "comment": "update - Statement 187",
+    "comment": "update - Statement 182",
     "query": "CREATE TABLE sub_part1(b int, c int8, a numeric)"
   },
   {
-    "comment": "update - Statement 188",
+    "comment": "update - Statement 183",
     "query": "ALTER TABLE sub_parted ATTACH PARTITION sub_part1 for VALUES in (1)"
   },
   {
-    "comment": "update - Statement 189",
+    "comment": "update - Statement 184",
     "query": "CREATE TABLE sub_part2(b int, c int8, a numeric)"
   },
   {
-    "comment": "update - Statement 190",
+    "comment": "update - Statement 185",
     "query": "ALTER TABLE sub_parted ATTACH PARTITION sub_part2 for VALUES in (2)"
   },
   {
-    "comment": "update - Statement 191",
+    "comment": "update - Statement 186",
     "query": "CREATE TABLE list_part1(a numeric, b int, c int8)"
   },
   {
-    "comment": "update - Statement 192",
+    "comment": "update - Statement 187",
     "query": "ALTER TABLE list_parted ATTACH PARTITION list_part1 for VALUES in (2,3)"
   },
   {
-    "comment": "update - Statement 193",
+    "comment": "update - Statement 188",
     "query": "INSERT into list_parted VALUES (2,5,50)"
   },
   {
-    "comment": "update - Statement 194",
+    "comment": "update - Statement 189",
     "query": "INSERT into list_parted VALUES (3,6,60)"
   },
   {
-    "comment": "update - Statement 195",
+    "comment": "update - Statement 190",
     "query": "INSERT into sub_parted VALUES (1,1,60)"
   },
   {
-    "comment": "update - Statement 196",
+    "comment": "update - Statement 191",
     "query": "INSERT into sub_parted VALUES (1,2,10)"
   },
   {
-    "comment": "update - Statement 197",
+    "comment": "update - Statement 192",
     "query": "UPDATE sub_parted set a = 2 WHERE c = 10"
   },
   {
-    "comment": "update - Statement 198",
+    "comment": "update - Statement 193",
     "query": "SELECT tableoid::regclass::text, * FROM list_parted WHERE a = 2 ORDER BY 1"
   },
   {
-    "comment": "update - Statement 199",
+    "comment": "update - Statement 194",
     "query": "UPDATE list_parted set b = c + a WHERE a = 2"
   },
   {
-    "comment": "update - Statement 200",
-    "query": "CREATE FUNCTION func_parted_mod_b() returns trigger as $$ BEGIN NEW.b = 2"
+    "comment": "update - Statement 195",
+    "query": "CREATE FUNCTION func_parted_mod_b() returns trigger as $$ BEGIN NEW.b = 2; return NEW; END $$ LANGUAGE plpgsql"
   },
   {
-    "comment": "update - Statement 201",
+    "comment": "update - Statement 196",
     "query": "CREATE TRIGGER parted_mod_b before update on sub_part1 for each row execute procedure func_parted_mod_b()"
   },
   {
-    "comment": "update - Statement 202",
+    "comment": "update - Statement 197",
     "query": "SELECT tableoid::regclass::text, * FROM list_parted ORDER BY 1, 2, 3, 4"
   },
   {
-    "comment": "update - Statement 203",
+    "comment": "update - Statement 198",
     "query": "UPDATE list_parted set c = 70 WHERE b  = 1"
   },
   {
-    "comment": "update - Statement 204",
+    "comment": "update - Statement 199",
     "query": "DROP TRIGGER parted_mod_b ON sub_part1"
   },
   {
-    "comment": "update - Statement 205",
-    "query": "CREATE OR REPLACE FUNCTION func_parted_mod_b() returns trigger as $$ BEGIN raise notice 'Trigger: Got OLD row %, but returning NULL', OLD"
+    "comment": "update - Statement 200",
+    "query": "CREATE OR REPLACE FUNCTION func_parted_mod_b() returns trigger as $$ BEGIN raise notice 'Trigger: Got OLD row %, but returning NULL', OLD; return NULL; END $$ LANGUAGE plpgsql"
   },
   {
-    "comment": "update - Statement 206",
+    "comment": "update - Statement 201",
     "query": "CREATE TRIGGER trig_skip_delete before delete on sub_part2 for each row execute procedure func_parted_mod_b()"
   },
   {
-    "comment": "update - Statement 207",
+    "comment": "update - Statement 202",
     "query": "UPDATE list_parted set b = 1 WHERE c = 70"
   },
   {
-    "comment": "update - Statement 208",
+    "comment": "update - Statement 203",
     "query": "DROP TRIGGER trig_skip_delete ON sub_part2"
   },
   {
-    "comment": "update - Statement 209",
+    "comment": "update - Statement 204",
     "query": "CREATE TABLE non_parted (id int)"
   },
   {
-    "comment": "update - Statement 210",
+    "comment": "update - Statement 205",
     "query": "INSERT into non_parted VALUES (1), (1), (1), (2), (2), (2), (3), (3), (3)"
   },
   {
-    "comment": "update - Statement 211",
+    "comment": "update - Statement 206",
     "query": "UPDATE list_parted t1 set a = 2 FROM non_parted t2 WHERE t1.a = t2.id and a = 1"
   },
   {
-    "comment": "update - Statement 212",
+    "comment": "update - Statement 207",
     "query": "DROP TABLE non_parted"
   },
   {
-    "comment": "update - Statement 213",
+    "comment": "update - Statement 208",
     "query": "create or replace function dummy_hashint4(a int4, seed int8) returns int8 as $$ begin return (a + seed); end; $$ language 'plpgsql' immutable"
   },
   {
-    "comment": "update - Statement 214",
+    "comment": "update - Statement 209",
     "query": "create operator class custom_opclass for type int4 using hash as operator 1 = , function 2 dummy_hashint4(int4, int8)"
   },
   {
-    "comment": "update - Statement 215",
+    "comment": "update - Statement 210",
     "query": "create table hash_parted ( a int, b int ) partition by hash (a custom_opclass, b custom_opclass)"
   },
   {
-    "comment": "update - Statement 216",
+    "comment": "update - Statement 211",
     "query": "create table hpart1 partition of hash_parted for values with (modulus 2, remainder 1)"
   },
   {
-    "comment": "update - Statement 217",
+    "comment": "update - Statement 212",
     "query": "create table hpart2 partition of hash_parted for values with (modulus 4, remainder 2)"
   },
   {
-    "comment": "update - Statement 218",
+    "comment": "update - Statement 213",
     "query": "create table hpart3 partition of hash_parted for values with (modulus 8, remainder 0)"
   },
   {
-    "comment": "update - Statement 219",
+    "comment": "update - Statement 214",
     "query": "create table hpart4 partition of hash_parted for values with (modulus 8, remainder 4)"
   },
   {
-    "comment": "update - Statement 220",
+    "comment": "update - Statement 215",
     "query": "insert into hpart1 values (1, 1)"
   },
   {
-    "comment": "update - Statement 221",
+    "comment": "update - Statement 216",
     "query": "insert into hpart2 values (2, 5)"
   },
   {
-    "comment": "update - Statement 222",
+    "comment": "update - Statement 217",
     "query": "insert into hpart4 values (3, 4)"
   },
   {
-    "comment": "update - Statement 223",
+    "comment": "update - Statement 218",
     "query": "update hpart1 set a = 3, b=4 where a = 1"
   },
   {
-    "comment": "update - Statement 224",
+    "comment": "update - Statement 219",
     "query": "update hash_parted set b = b - 1 where b = 1"
   },
   {
-    "comment": "update - Statement 225",
+    "comment": "update - Statement 220",
     "query": "update hash_parted set b = b + 8 where b = 1"
   },
   {
-    "comment": "update - Statement 226",
+    "comment": "update - Statement 221",
     "query": "drop table hash_parted"
   },
   {
-    "comment": "update - Statement 227",
+    "comment": "update - Statement 222",
     "query": "drop operator class custom_opclass using hash"
   },
   {
-    "comment": "update - Statement 228",
+    "comment": "update - Statement 223",
     "query": "drop function dummy_hashint4(a int4, seed int8)"
   }
 ]

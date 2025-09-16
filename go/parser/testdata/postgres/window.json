@@ -453,1050 +453,766 @@
   },
   {
     "comment": "window - Statement 114",
-    "query": "CREATE FUNCTION unbounded_syntax_test1b(x int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL AS $$ SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 < 10"
+    "query": "CREATE FUNCTION unbounded_syntax_test1b(x int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL AS $$ SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 < 10; $$"
   },
   {
     "comment": "window - Statement 115",
-    "query": "$$"
-  },
-  {
-    "comment": "window - Statement 116",
     "query": "SELECT * FROM unbounded_syntax_test1a(2)"
   },
   {
-    "comment": "window - Statement 117",
+    "comment": "window - Statement 116",
     "query": "SELECT * FROM unbounded_syntax_test1b(2)"
   },
   {
-    "comment": "window - Statement 118",
+    "comment": "window - Statement 117",
     "query": "CREATE FUNCTION unbounded_syntax_test2a(unbounded int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL BEGIN ATOMIC SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 119",
-    "query": "CREATE FUNCTION unbounded_syntax_test2b(unbounded int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL AS $$ SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10"
+    "comment": "window - Statement 118",
+    "query": "CREATE FUNCTION unbounded_syntax_test2b(unbounded int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL AS $$ SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10; $$"
   },
   {
-    "comment": "window - Statement 120",
+    "comment": "window - Statement 119",
     "query": "SELECT * FROM unbounded_syntax_test2a(2)"
   },
   {
-    "comment": "window - Statement 121",
+    "comment": "window - Statement 120",
     "query": "SELECT * FROM unbounded_syntax_test2b(2)"
   },
   {
-    "comment": "window - Statement 122",
+    "comment": "window - Statement 121",
     "query": "DROP FUNCTION unbounded_syntax_test1a, unbounded_syntax_test1b, unbounded_syntax_test2a, unbounded_syntax_test2b"
   },
   {
-    "comment": "window - Statement 123",
+    "comment": "window - Statement 122",
     "query": "CREATE FUNCTION unbounded(x int) RETURNS int LANGUAGE SQL IMMUTABLE RETURN x"
   },
   {
-    "comment": "window - Statement 124",
+    "comment": "window - Statement 123",
     "query": "SELECT sum(unique1) over (rows between 1 preceding and 1 following), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 125",
+    "comment": "window - Statement 124",
     "query": "SELECT sum(unique1) over (rows between unbounded(1) preceding and unbounded(1) following), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 126",
+    "comment": "window - Statement 125",
     "query": "SELECT sum(unique1) over (rows between unbounded.x preceding and unbounded.x following), unique1, four FROM tenk1, (values (1)) as unbounded(x) WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 127",
+    "comment": "window - Statement 126",
     "query": "DROP FUNCTION unbounded"
   },
   {
-    "comment": "window - Statement 128",
+    "comment": "window - Statement 127",
     "query": "select x, last_value(x) over (order by x::smallint range between current row and 2147450884 following) from generate_series(32764, 32766) x"
   },
   {
-    "comment": "window - Statement 129",
+    "comment": "window - Statement 128",
     "query": "select x, last_value(x) over (order by x::smallint desc range between current row and 2147450885 following) from generate_series(-32766, -32764) x"
   },
   {
-    "comment": "window - Statement 130",
+    "comment": "window - Statement 129",
     "query": "select x, last_value(x) over (order by x range between current row and 4 following) from generate_series(2147483644, 2147483646) x"
   },
   {
-    "comment": "window - Statement 131",
+    "comment": "window - Statement 130",
     "query": "select x, last_value(x) over (order by x desc range between current row and 5 following) from generate_series(-2147483646, -2147483644) x"
   },
   {
-    "comment": "window - Statement 132",
+    "comment": "window - Statement 131",
     "query": "select x, last_value(x) over (order by x range between current row and 4 following) from generate_series(9223372036854775804, 9223372036854775806) x"
   },
   {
-    "comment": "window - Statement 133",
+    "comment": "window - Statement 132",
     "query": "select x, last_value(x) over (order by x desc range between current row and 5 following) from generate_series(-9223372036854775806, -9223372036854775804) x"
   },
   {
-    "comment": "window - Statement 134",
+    "comment": "window - Statement 133",
     "query": "create temp table numerics( id int, f_float4 float4, f_float8 float8, f_numeric numeric )"
   },
   {
-    "comment": "window - Statement 135",
+    "comment": "window - Statement 134",
     "query": "insert into numerics values (0, '-infinity', '-infinity', '-infinity'), (1, -3, -3, -3), (2, -1, -1, -1), (3, 0, 0, 0), (4, 1.1, 1.1, 1.1), (5, 1.12, 1.12, 1.12), (6, 2, 2, 2), (7, 100, 100, 100), (8, 'infinity', 'infinity', 'infinity'), (9, 'NaN', 'NaN', 'NaN')"
   },
   {
-    "comment": "window - Statement 136",
+    "comment": "window - Statement 135",
     "query": "select id, f_float4, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float4 range between 1 preceding and 1 following)"
   },
   {
-    "comment": "window - Statement 137",
+    "comment": "window - Statement 136",
     "query": "select id, f_float4, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float4 range between 1 preceding and 1.1::float4 following)"
   },
   {
-    "comment": "window - Statement 138",
+    "comment": "window - Statement 137",
     "query": "select id, f_float4, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float4 range between 'inf' preceding and 'inf' following)"
   },
   {
-    "comment": "window - Statement 139",
+    "comment": "window - Statement 138",
     "query": "select id, f_float4, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float4 range between 'inf' preceding and 'inf' preceding)"
   },
   {
-    "comment": "window - Statement 140",
+    "comment": "window - Statement 139",
     "query": "select id, f_float4, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float4 range between 'inf' following and 'inf' following)"
   },
   {
-    "comment": "window - Statement 141",
+    "comment": "window - Statement 140",
     "query": "select id, f_float4, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float4 range between 1.1 preceding and 'NaN' following)"
   },
   {
-    "comment": "window - Statement 142",
+    "comment": "window - Statement 141",
     "query": "select id, f_float8, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float8 range between 1 preceding and 1 following)"
   },
   {
-    "comment": "window - Statement 143",
+    "comment": "window - Statement 142",
     "query": "select id, f_float8, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float8 range between 1 preceding and 1.1::float8 following)"
   },
   {
-    "comment": "window - Statement 144",
+    "comment": "window - Statement 143",
     "query": "select id, f_float8, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float8 range between 'inf' preceding and 'inf' following)"
   },
   {
-    "comment": "window - Statement 145",
+    "comment": "window - Statement 144",
     "query": "select id, f_float8, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float8 range between 'inf' preceding and 'inf' preceding)"
   },
   {
-    "comment": "window - Statement 146",
+    "comment": "window - Statement 145",
     "query": "select id, f_float8, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float8 range between 'inf' following and 'inf' following)"
   },
   {
-    "comment": "window - Statement 147",
+    "comment": "window - Statement 146",
     "query": "select id, f_float8, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_float8 range between 1.1 preceding and 'NaN' following)"
   },
   {
-    "comment": "window - Statement 148",
+    "comment": "window - Statement 147",
     "query": "select id, f_numeric, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_numeric range between 1 preceding and 1 following)"
   },
   {
-    "comment": "window - Statement 149",
+    "comment": "window - Statement 148",
     "query": "select id, f_numeric, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_numeric range between 1 preceding and 1.1::numeric following)"
   },
   {
-    "comment": "window - Statement 150",
+    "comment": "window - Statement 149",
     "query": "select id, f_numeric, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_numeric range between 1 preceding and 1.1::float8 following)"
   },
   {
-    "comment": "window - Statement 151",
+    "comment": "window - Statement 150",
     "query": "select id, f_numeric, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_numeric range between 'inf' preceding and 'inf' following)"
   },
   {
-    "comment": "window - Statement 152",
+    "comment": "window - Statement 151",
     "query": "select id, f_numeric, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_numeric range between 'inf' preceding and 'inf' preceding)"
   },
   {
-    "comment": "window - Statement 153",
+    "comment": "window - Statement 152",
     "query": "select id, f_numeric, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_numeric range between 'inf' following and 'inf' following)"
   },
   {
-    "comment": "window - Statement 154",
+    "comment": "window - Statement 153",
     "query": "select id, f_numeric, first_value(id) over w, last_value(id) over w from numerics window w as (order by f_numeric range between 1.1 preceding and 'NaN' following)"
   },
   {
-    "comment": "window - Statement 155",
+    "comment": "window - Statement 154",
     "query": "create temp table datetimes( id int, f_time time, f_timetz timetz, f_interval interval, f_timestamptz timestamptz, f_timestamp timestamp )"
   },
   {
-    "comment": "window - Statement 156",
+    "comment": "window - Statement 155",
     "query": "insert into datetimes values (0, '10:00', '10:00 BST', '-infinity', '-infinity', '-infinity'), (1, '11:00', '11:00 BST', '1 year', '2000-10-19 10:23:54+01', '2000-10-19 10:23:54'), (2, '12:00', '12:00 BST', '2 years', '2001-10-19 10:23:54+01', '2001-10-19 10:23:54'), (3, '13:00', '13:00 BST', '3 years', '2001-10-19 10:23:54+01', '2001-10-19 10:23:54'), (4, '14:00', '14:00 BST', '4 years', '2002-10-19 10:23:54+01', '2002-10-19 10:23:54'), (5, '15:00', '15:00 BST', '5 years', '2003-10-19 10:23:54+01', '2003-10-19 10:23:54'), (6, '15:00', '15:00 BST', '5 years', '2004-10-19 10:23:54+01', '2004-10-19 10:23:54'), (7, '17:00', '17:00 BST', '7 years', '2005-10-19 10:23:54+01', '2005-10-19 10:23:54'), (8, '18:00', '18:00 BST', '8 years', '2006-10-19 10:23:54+01', '2006-10-19 10:23:54'), (9, '19:00', '19:00 BST', '9 years', '2007-10-19 10:23:54+01', '2007-10-19 10:23:54'), (10, '20:00', '20:00 BST', '10 years', '2008-10-19 10:23:54+01', '2008-10-19 10:23:54'), (11, '21:00', '21:00 BST', 'infinity', 'infinity', 'infinity')"
   },
   {
-    "comment": "window - Statement 157",
+    "comment": "window - Statement 156",
     "query": "select id, f_time, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_time range between '70 min'::interval preceding and '2 hours'::interval following)"
   },
   {
-    "comment": "window - Statement 158",
+    "comment": "window - Statement 157",
     "query": "select id, f_time, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_time desc range between '70 min' preceding and '2 hours' following)"
   },
   {
-    "comment": "window - Statement 159",
+    "comment": "window - Statement 158",
     "query": "select id, f_time, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_time desc range between '-70 min' preceding and '2 hours' following)"
   },
   {
-    "comment": "window - Statement 160",
+    "comment": "window - Statement 159",
     "query": "select id, f_time, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_time range between 'infinity'::interval preceding and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 161",
+    "comment": "window - Statement 160",
     "query": "select id, f_time, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_time range between 'infinity'::interval preceding and 'infinity'::interval preceding)"
   },
   {
-    "comment": "window - Statement 162",
+    "comment": "window - Statement 161",
     "query": "select id, f_time, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_time range between 'infinity'::interval following and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 163",
+    "comment": "window - Statement 162",
     "query": "select id, f_time, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_time range between '-infinity'::interval following and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 164",
+    "comment": "window - Statement 163",
     "query": "select id, f_timetz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timetz range between '70 min'::interval preceding and '2 hours'::interval following)"
   },
   {
-    "comment": "window - Statement 165",
+    "comment": "window - Statement 164",
     "query": "select id, f_timetz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timetz desc range between '70 min' preceding and '2 hours' following)"
   },
   {
-    "comment": "window - Statement 166",
+    "comment": "window - Statement 165",
     "query": "select id, f_timetz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timetz desc range between '70 min' preceding and '-2 hours' following)"
   },
   {
-    "comment": "window - Statement 167",
+    "comment": "window - Statement 166",
     "query": "select id, f_timetz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timetz range between 'infinity'::interval preceding and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 168",
+    "comment": "window - Statement 167",
     "query": "select id, f_timetz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timetz range between 'infinity'::interval preceding and 'infinity'::interval preceding)"
   },
   {
-    "comment": "window - Statement 169",
+    "comment": "window - Statement 168",
     "query": "select id, f_timetz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timetz range between 'infinity'::interval following and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 170",
+    "comment": "window - Statement 169",
     "query": "select id, f_timetz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timetz range between 'infinity'::interval following and '-infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 171",
+    "comment": "window - Statement 170",
     "query": "select id, f_interval, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_interval range between '1 year'::interval preceding and '1 year'::interval following)"
   },
   {
-    "comment": "window - Statement 172",
+    "comment": "window - Statement 171",
     "query": "select id, f_interval, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_interval desc range between '1 year' preceding and '1 year' following)"
   },
   {
-    "comment": "window - Statement 173",
+    "comment": "window - Statement 172",
     "query": "select id, f_interval, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_interval desc range between '-1 year' preceding and '1 year' following)"
   },
   {
-    "comment": "window - Statement 174",
+    "comment": "window - Statement 173",
     "query": "select id, f_interval, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_interval range between 'infinity'::interval preceding and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 175",
+    "comment": "window - Statement 174",
     "query": "select id, f_interval, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_interval range between 'infinity'::interval preceding and 'infinity'::interval preceding)"
   },
   {
-    "comment": "window - Statement 176",
+    "comment": "window - Statement 175",
     "query": "select id, f_interval, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_interval range between 'infinity'::interval following and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 177",
+    "comment": "window - Statement 176",
     "query": "select id, f_interval, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_interval range between '-infinity'::interval following and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 178",
+    "comment": "window - Statement 177",
     "query": "select id, f_timestamptz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamptz range between '1 year'::interval preceding and '1 year'::interval following)"
   },
   {
-    "comment": "window - Statement 179",
+    "comment": "window - Statement 178",
     "query": "select id, f_timestamptz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamptz desc range between '1 year' preceding and '1 year' following)"
   },
   {
-    "comment": "window - Statement 180",
+    "comment": "window - Statement 179",
     "query": "select id, f_timestamptz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamptz desc range between '1 year' preceding and '-1 year' following)"
   },
   {
-    "comment": "window - Statement 181",
+    "comment": "window - Statement 180",
     "query": "select id, f_timestamptz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamptz range between 'infinity'::interval preceding and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 182",
+    "comment": "window - Statement 181",
     "query": "select id, f_timestamptz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamptz range between 'infinity'::interval preceding and 'infinity'::interval preceding)"
   },
   {
-    "comment": "window - Statement 183",
+    "comment": "window - Statement 182",
     "query": "select id, f_timestamptz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamptz range between 'infinity'::interval following and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 184",
+    "comment": "window - Statement 183",
     "query": "select id, f_timestamptz, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamptz range between '-infinity'::interval following and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 185",
+    "comment": "window - Statement 184",
     "query": "select id, f_timestamp, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamp range between '1 year'::interval preceding and '1 year'::interval following)"
   },
   {
-    "comment": "window - Statement 186",
+    "comment": "window - Statement 185",
     "query": "select id, f_timestamp, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamp desc range between '1 year' preceding and '1 year' following)"
   },
   {
-    "comment": "window - Statement 187",
+    "comment": "window - Statement 186",
     "query": "select id, f_timestamp, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamp desc range between '-1 year' preceding and '1 year' following)"
   },
   {
-    "comment": "window - Statement 188",
+    "comment": "window - Statement 187",
     "query": "select id, f_timestamp, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamp range between 'infinity'::interval preceding and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 189",
+    "comment": "window - Statement 188",
     "query": "select id, f_timestamp, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamp range between 'infinity'::interval preceding and 'infinity'::interval preceding)"
   },
   {
-    "comment": "window - Statement 190",
+    "comment": "window - Statement 189",
     "query": "select id, f_timestamp, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamp range between 'infinity'::interval following and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 191",
+    "comment": "window - Statement 190",
     "query": "select id, f_timestamp, first_value(id) over w, last_value(id) over w from datetimes window w as (order by f_timestamp range between '-infinity'::interval following and 'infinity'::interval following)"
   },
   {
-    "comment": "window - Statement 192",
+    "comment": "window - Statement 191",
     "query": "select sum(salary) over (order by enroll_date, salary range between '1 year'::interval preceding and '2 years'::interval following exclude ties), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 193",
+    "comment": "window - Statement 192",
     "query": "select sum(salary) over (range between '1 year'::interval preceding and '2 years'::interval following exclude ties), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 194",
+    "comment": "window - Statement 193",
     "query": "select sum(salary) over (order by depname range between '1 year'::interval preceding and '2 years'::interval following exclude ties), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 195",
+    "comment": "window - Statement 194",
     "query": "select max(enroll_date) over (order by enroll_date range between 1 preceding and 2 following exclude ties), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 196",
+    "comment": "window - Statement 195",
     "query": "select max(enroll_date) over (order by salary range between -1 preceding and 2 following exclude ties), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 197",
+    "comment": "window - Statement 196",
     "query": "select max(enroll_date) over (order by salary range between 1 preceding and -2 following exclude ties), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 198",
+    "comment": "window - Statement 197",
     "query": "select max(enroll_date) over (order by salary range between '1 year'::interval preceding and '2 years'::interval following exclude ties), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 199",
+    "comment": "window - Statement 198",
     "query": "select max(enroll_date) over (order by enroll_date range between '1 year'::interval preceding and '-2 years'::interval following exclude ties), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 200",
+    "comment": "window - Statement 199",
     "query": "SELECT sum(unique1) over (order by four groups between unbounded preceding and current row), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 201",
+    "comment": "window - Statement 200",
     "query": "SELECT sum(unique1) over (order by four groups between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 202",
+    "comment": "window - Statement 201",
     "query": "SELECT sum(unique1) over (order by four groups between current row and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 203",
+    "comment": "window - Statement 202",
     "query": "SELECT sum(unique1) over (order by four groups between 1 preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 204",
+    "comment": "window - Statement 203",
     "query": "SELECT sum(unique1) over (order by four groups between 1 following and unbounded following), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 205",
+    "comment": "window - Statement 204",
     "query": "SELECT sum(unique1) over (order by four groups between unbounded preceding and 2 following), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 206",
+    "comment": "window - Statement 205",
     "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 preceding), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 207",
+    "comment": "window - Statement 206",
     "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 208",
+    "comment": "window - Statement 207",
     "query": "SELECT sum(unique1) over (order by four groups between 0 preceding and 0 following), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 209",
+    "comment": "window - Statement 208",
     "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following exclude current row), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 210",
+    "comment": "window - Statement 209",
     "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following exclude group), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 211",
+    "comment": "window - Statement 210",
     "query": "SELECT sum(unique1) over (order by four groups between 2 preceding and 1 following exclude ties), unique1, four FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 212",
+    "comment": "window - Statement 211",
     "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following),unique1, four, ten FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 213",
+    "comment": "window - Statement 212",
     "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following exclude current row), unique1, four, ten FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 214",
+    "comment": "window - Statement 213",
     "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following exclude group), unique1, four, ten FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 215",
+    "comment": "window - Statement 214",
     "query": "SELECT sum(unique1) over (partition by ten order by four groups between 0 preceding and 0 following exclude ties), unique1, four, ten FROM tenk1 WHERE unique1 < 10"
   },
   {
-    "comment": "window - Statement 216",
+    "comment": "window - Statement 215",
     "query": "select first_value(salary) over(order by enroll_date groups between 1 preceding and 1 following), lead(salary) over(order by enroll_date groups between 1 preceding and 1 following), nth_value(salary, 1) over(order by enroll_date groups between 1 preceding and 1 following), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 217",
+    "comment": "window - Statement 216",
     "query": "select last_value(salary) over(order by enroll_date groups between 1 preceding and 1 following), lag(salary) over(order by enroll_date groups between 1 preceding and 1 following), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 218",
+    "comment": "window - Statement 217",
     "query": "select first_value(salary) over(order by enroll_date groups between 1 following and 3 following exclude current row), lead(salary) over(order by enroll_date groups between 1 following and 3 following exclude ties), nth_value(salary, 1) over(order by enroll_date groups between 1 following and 3 following exclude ties), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 219",
+    "comment": "window - Statement 218",
     "query": "select last_value(salary) over(order by enroll_date groups between 1 following and 3 following exclude group), lag(salary) over(order by enroll_date groups between 1 following and 3 following exclude group), salary, enroll_date from empsalary"
   },
   {
-    "comment": "window - Statement 220",
+    "comment": "window - Statement 219",
     "query": "WITH cte (x) AS ( SELECT * FROM generate_series(1, 35, 2) ) SELECT x, (sum(x) over w) FROM cte WINDOW w AS (ORDER BY x rows between 1 preceding and 1 following)"
   },
   {
-    "comment": "window - Statement 221",
+    "comment": "window - Statement 220",
     "query": "WITH cte (x) AS ( SELECT * FROM generate_series(1, 35, 2) ) SELECT x, (sum(x) over w) FROM cte WINDOW w AS (ORDER BY x range between 1 preceding and 1 following)"
   },
   {
-    "comment": "window - Statement 222",
+    "comment": "window - Statement 221",
     "query": "WITH cte (x) AS ( SELECT * FROM generate_series(1, 35, 2) ) SELECT x, (sum(x) over w) FROM cte WINDOW w AS (ORDER BY x groups between 1 preceding and 1 following)"
   },
   {
-    "comment": "window - Statement 223",
+    "comment": "window - Statement 222",
     "query": "WITH cte (x) AS ( select 1 union all select 1 union all select 1 union all SELECT * FROM generate_series(5, 49, 2) ) SELECT x, (sum(x) over w) FROM cte WINDOW w AS (ORDER BY x rows between 1 preceding and 1 following)"
   },
   {
-    "comment": "window - Statement 224",
+    "comment": "window - Statement 223",
     "query": "WITH cte (x) AS ( select 1 union all select 1 union all select 1 union all SELECT * FROM generate_series(5, 49, 2) ) SELECT x, (sum(x) over w) FROM cte WINDOW w AS (ORDER BY x range between 1 preceding and 1 following)"
   },
   {
-    "comment": "window - Statement 225",
+    "comment": "window - Statement 224",
     "query": "WITH cte (x) AS ( select 1 union all select 1 union all select 1 union all SELECT * FROM generate_series(5, 49, 2) ) SELECT x, (sum(x) over w) FROM cte WINDOW w AS (ORDER BY x groups between 1 preceding and 1 following)"
   },
   {
-    "comment": "window - Statement 226",
+    "comment": "window - Statement 225",
     "query": "SELECT count(*) OVER (PARTITION BY four) FROM (SELECT * FROM tenk1 UNION ALL SELECT * FROM tenk2)s LIMIT 0"
   },
   {
-    "comment": "window - Statement 227",
+    "comment": "window - Statement 226",
     "query": "create temp table t1 (f1 int, f2 int8)"
   },
   {
-    "comment": "window - Statement 228",
+    "comment": "window - Statement 227",
     "query": "insert into t1 values (1,1),(1,2),(2,2)"
   },
   {
-    "comment": "window - Statement 229",
+    "comment": "window - Statement 228",
     "query": "select f1, sum(f1) over (partition by f1 range between 1 preceding and 1 following) from t1 where f1 = f2"
   },
   {
-    "comment": "window - Statement 230",
+    "comment": "window - Statement 229",
     "query": "explain (costs off) select f1, sum(f1) over (partition by f1 order by f2 range between 1 preceding and 1 following) from t1 where f1 = f2"
   },
   {
-    "comment": "window - Statement 231",
+    "comment": "window - Statement 230",
     "query": "select f1, sum(f1) over (partition by f1 order by f2 range between 1 preceding and 1 following) from t1 where f1 = f2"
   },
   {
-    "comment": "window - Statement 232",
+    "comment": "window - Statement 231",
     "query": "select f1, sum(f1) over (partition by f1, f1 order by f2 range between 2 preceding and 1 preceding) from t1 where f1 = f2"
   },
   {
-    "comment": "window - Statement 233",
+    "comment": "window - Statement 232",
     "query": "select f1, sum(f1) over (partition by f1, f2 order by f2 range between 1 following and 2 following) from t1 where f1 = f2"
   },
   {
-    "comment": "window - Statement 234",
+    "comment": "window - Statement 233",
     "query": "select f1, sum(f1) over (partition by f1 groups between 1 preceding and 1 following) from t1 where f1 = f2"
   },
   {
-    "comment": "window - Statement 235",
+    "comment": "window - Statement 234",
     "query": "explain (costs off) select f1, sum(f1) over (partition by f1 order by f2 groups between 1 preceding and 1 following) from t1 where f1 = f2"
   },
   {
-    "comment": "window - Statement 236",
+    "comment": "window - Statement 235",
     "query": "select f1, sum(f1) over (partition by f1 order by f2 groups between 1 preceding and 1 following) from t1 where f1 = f2"
   },
   {
-    "comment": "window - Statement 237",
+    "comment": "window - Statement 236",
     "query": "select f1, sum(f1) over (partition by f1, f1 order by f2 groups between 2 preceding and 1 preceding) from t1 where f1 = f2"
   },
   {
-    "comment": "window - Statement 238",
+    "comment": "window - Statement 237",
     "query": "select f1, sum(f1) over (partition by f1, f2 order by f2 groups between 1 following and 2 following) from t1 where f1 = f2"
   },
   {
-    "comment": "window - Statement 239",
+    "comment": "window - Statement 238",
     "query": "SELECT rank() OVER (ORDER BY length('abc'))"
   },
   {
-    "comment": "window - Statement 240",
+    "comment": "window - Statement 239",
     "query": "SELECT rank() OVER (ORDER BY rank() OVER (ORDER BY random()))"
   },
   {
-    "comment": "window - Statement 241",
+    "comment": "window - Statement 240",
     "query": "SELECT * FROM empsalary WHERE row_number() OVER (ORDER BY salary) < 10"
   },
   {
-    "comment": "window - Statement 242",
+    "comment": "window - Statement 241",
     "query": "SELECT * FROM empsalary INNER JOIN tenk1 ON row_number() OVER (ORDER BY salary) < 10"
   },
   {
-    "comment": "window - Statement 243",
+    "comment": "window - Statement 242",
     "query": "SELECT rank() OVER (ORDER BY 1), count(*) FROM empsalary GROUP BY 1"
   },
   {
-    "comment": "window - Statement 244",
+    "comment": "window - Statement 243",
     "query": "SELECT * FROM rank() OVER (ORDER BY random())"
   },
   {
-    "comment": "window - Statement 245",
+    "comment": "window - Statement 244",
     "query": "DELETE FROM empsalary WHERE (rank() OVER (ORDER BY random())) > 10"
   },
   {
-    "comment": "window - Statement 246",
+    "comment": "window - Statement 245",
     "query": "DELETE FROM empsalary RETURNING rank() OVER (ORDER BY random())"
   },
   {
-    "comment": "window - Statement 247",
+    "comment": "window - Statement 246",
     "query": "SELECT count(*) OVER w FROM tenk1 WINDOW w AS (ORDER BY unique1), w AS (ORDER BY unique1)"
   },
   {
-    "comment": "window - Statement 248",
+    "comment": "window - Statement 247",
     "query": "SELECT rank() OVER (PARTITION BY four, ORDER BY ten) FROM tenk1"
   },
   {
-    "comment": "window - Statement 249",
+    "comment": "window - Statement 248",
     "query": "SELECT count() OVER () FROM tenk1"
   },
   {
-    "comment": "window - Statement 250",
+    "comment": "window - Statement 249",
     "query": "SELECT generate_series(1, 100) OVER () FROM empsalary"
   },
   {
-    "comment": "window - Statement 251",
+    "comment": "window - Statement 250",
     "query": "SELECT ntile(0) OVER (ORDER BY ten), ten, four FROM tenk1"
   },
   {
-    "comment": "window - Statement 252",
+    "comment": "window - Statement 251",
     "query": "SELECT nth_value(four, 0) OVER (ORDER BY ten), ten, four FROM tenk1"
   },
   {
-    "comment": "window - Statement 253",
+    "comment": "window - Statement 252",
     "query": "SELECT sum(salary), row_number() OVER (ORDER BY depname), sum( sum(salary) FILTER (WHERE enroll_date > '2007-01-01') ) FILTER (WHERE depname <> 'sales') OVER (ORDER BY depname DESC) AS \"filtered_sum\", depname FROM empsalary GROUP BY depname"
   },
   {
-    "comment": "window - Statement 254",
+    "comment": "window - Statement 253",
     "query": "EXPLAIN (COSTS OFF) SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY enroll_date) rn, rank() OVER (PARTITION BY depname ORDER BY enroll_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) rnk, dense_rank() OVER (PARTITION BY depname ORDER BY enroll_date RANGE BETWEEN CURRENT ROW AND CURRENT ROW) drnk, ntile(10) OVER (PARTITION BY depname ORDER BY enroll_date RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) nt, percent_rank() OVER (PARTITION BY depname ORDER BY enroll_date ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) pr, cume_dist() OVER (PARTITION BY depname ORDER BY enroll_date RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) cd FROM empsalary"
   },
   {
-    "comment": "window - Statement 255",
+    "comment": "window - Statement 254",
     "query": "EXPLAIN (COSTS OFF, VERBOSE) SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY enroll_date) rn, rank() OVER (PARTITION BY depname ORDER BY enroll_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) rnk, count(*) OVER (PARTITION BY depname ORDER BY enroll_date RANGE BETWEEN CURRENT ROW AND CURRENT ROW) cnt FROM empsalary"
   },
   {
-    "comment": "window - Statement 256",
+    "comment": "window - Statement 255",
     "query": "SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY enroll_date) rn, rank() OVER (PARTITION BY depname ORDER BY enroll_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) rnk, count(*) OVER (PARTITION BY depname ORDER BY enroll_date RANGE BETWEEN CURRENT ROW AND CURRENT ROW) cnt FROM empsalary"
   },
   {
-    "comment": "window - Statement 257",
+    "comment": "window - Statement 256",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT depname, sum(salary) OVER (PARTITION BY depname) depsalary, min(salary) OVER (PARTITION BY depname || 'A', depname) depminsalary FROM empsalary) emp WHERE depname = 'sales'"
   },
   {
-    "comment": "window - Statement 258",
+    "comment": "window - Statement 257",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT depname, sum(salary) OVER (PARTITION BY enroll_date) enroll_salary, min(salary) OVER (PARTITION BY depname) depminsalary FROM empsalary) emp WHERE depname = 'sales'"
   },
   {
-    "comment": "window - Statement 259",
+    "comment": "window - Statement 258",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE rn < 3"
   },
   {
-    "comment": "window - Statement 260",
+    "comment": "window - Statement 259",
     "query": "SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE rn < 3"
   },
   {
-    "comment": "window - Statement 261",
+    "comment": "window - Statement 260",
     "query": "SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE 3 > rn"
   },
   {
-    "comment": "window - Statement 262",
+    "comment": "window - Statement 261",
     "query": "SELECT * FROM (SELECT empno, row_number() OVER (ORDER BY empno) rn FROM empsalary) emp WHERE 2 >= rn"
   },
   {
-    "comment": "window - Statement 263",
+    "comment": "window - Statement 262",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, rank() OVER (ORDER BY salary DESC) r FROM empsalary) emp WHERE r <= 3"
   },
   {
-    "comment": "window - Statement 264",
+    "comment": "window - Statement 263",
     "query": "SELECT * FROM (SELECT empno, salary, rank() OVER (ORDER BY salary DESC) r FROM empsalary) emp WHERE r <= 3"
   },
   {
-    "comment": "window - Statement 265",
+    "comment": "window - Statement 264",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, dense_rank() OVER (ORDER BY salary DESC) dr FROM empsalary) emp WHERE dr = 1"
   },
   {
-    "comment": "window - Statement 266",
+    "comment": "window - Statement 265",
     "query": "SELECT * FROM (SELECT empno, salary, dense_rank() OVER (ORDER BY salary DESC) dr FROM empsalary) emp WHERE dr = 1"
   },
   {
-    "comment": "window - Statement 267",
+    "comment": "window - Statement 266",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3"
   },
   {
-    "comment": "window - Statement 268",
+    "comment": "window - Statement 267",
     "query": "SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3"
   },
   {
-    "comment": "window - Statement 269",
+    "comment": "window - Statement 268",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(empno) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3"
   },
   {
-    "comment": "window - Statement 270",
+    "comment": "window - Statement 269",
     "query": "SELECT * FROM (SELECT empno, salary, count(empno) OVER (ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3"
   },
   {
-    "comment": "window - Statement 271",
+    "comment": "window - Statement 270",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) c FROM empsalary) emp WHERE c >= 3"
   },
   {
-    "comment": "window - Statement 272",
+    "comment": "window - Statement 271",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER () c FROM empsalary) emp WHERE 11 <= c"
   },
   {
-    "comment": "window - Statement 273",
+    "comment": "window - Statement 272",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC) c, dense_rank() OVER (ORDER BY salary DESC) dr FROM empsalary) emp WHERE dr = 1"
   },
   {
-    "comment": "window - Statement 274",
+    "comment": "window - Statement 273",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY empno) rn FROM empsalary) emp WHERE rn < 3"
   },
   {
-    "comment": "window - Statement 275",
+    "comment": "window - Statement 274",
     "query": "SELECT * FROM (SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY empno) rn FROM empsalary) emp WHERE rn < 3"
   },
   {
-    "comment": "window - Statement 276",
+    "comment": "window - Statement 275",
     "query": "EXPLAIN (COSTS OFF) SELECT empno, depname FROM (SELECT empno, depname, row_number() OVER (PARTITION BY depname ORDER BY empno) rn FROM empsalary) emp WHERE rn < 3"
   },
   {
-    "comment": "window - Statement 277",
+    "comment": "window - Statement 276",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, depname, salary, count(empno) OVER (PARTITION BY depname ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3"
   },
   {
-    "comment": "window - Statement 278",
+    "comment": "window - Statement 277",
     "query": "SELECT * FROM (SELECT empno, depname, salary, count(empno) OVER (PARTITION BY depname ORDER BY salary DESC) c FROM empsalary) emp WHERE c <= 3"
   },
   {
-    "comment": "window - Statement 279",
+    "comment": "window - Statement 278",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, depname, salary, count(empno) OVER () c FROM empsalary) emp WHERE c = 1"
   },
   {
-    "comment": "window - Statement 280",
+    "comment": "window - Statement 279",
     "query": "SELECT * FROM (SELECT row_number() OVER (PARTITION BY salary) AS rn, lead(depname) OVER (PARTITION BY salary) || ' Department' AS n_dep FROM empsalary) emp WHERE rn < 1"
   },
   {
-    "comment": "window - Statement 281",
+    "comment": "window - Statement 280",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT *, count(salary) OVER (PARTITION BY depname || '') c1, row_number() OVER (PARTITION BY depname) rn, count(*) OVER (PARTITION BY depname) c2, count(*) OVER (PARTITION BY '' || depname) c3, ntile(2) OVER (PARTITION BY depname) nt FROM empsalary ) e WHERE rn <= 1 AND c1 <= 3 AND nt < 2"
   },
   {
-    "comment": "window - Statement 282",
+    "comment": "window - Statement 281",
     "query": "SELECT * FROM (SELECT *, count(salary) OVER (PARTITION BY depname || '') c1, row_number() OVER (PARTITION BY depname) rn, count(*) OVER (PARTITION BY depname) c2, count(*) OVER (PARTITION BY '' || depname) c3, ntile(2) OVER (PARTITION BY depname) nt FROM empsalary ) e WHERE rn <= 1 AND c1 <= 3 AND nt < 2"
   },
   {
-    "comment": "window - Statement 283",
+    "comment": "window - Statement 282",
     "query": "EXPLAIN (COSTS OFF) SELECT 1 FROM (SELECT ntile(e2.salary) OVER (PARTITION BY e1.depname) AS c FROM empsalary e1 LEFT JOIN empsalary e2 ON TRUE WHERE e1.empno = e2.empno) s WHERE s.c = 1"
   },
   {
-    "comment": "window - Statement 284",
+    "comment": "window - Statement 283",
     "query": "EXPLAIN (COSTS OFF) SELECT 1 FROM (SELECT ntile(s1.x) OVER () AS c FROM (SELECT (SELECT 1) AS x) AS s1) s WHERE s.c = 1"
   },
   {
-    "comment": "window - Statement 285",
+    "comment": "window - Statement 284",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) c FROM empsalary) emp WHERE c <= 3"
   },
   {
-    "comment": "window - Statement 286",
+    "comment": "window - Statement 285",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(*) OVER (ORDER BY salary) c FROM empsalary) emp WHERE 3 <= c"
   },
   {
-    "comment": "window - Statement 287",
+    "comment": "window - Statement 286",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count(random()) OVER (ORDER BY empno DESC) c FROM empsalary) emp WHERE c = 1"
   },
   {
-    "comment": "window - Statement 288",
+    "comment": "window - Statement 287",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT empno, salary, count((SELECT 1)) OVER (ORDER BY empno DESC) c FROM empsalary) emp WHERE c = 1"
   },
   {
-    "comment": "window - Statement 289",
+    "comment": "window - Statement 288",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT depname, sum(salary) OVER (PARTITION BY depname order by empno) depsalary, min(salary) OVER (PARTITION BY depname, empno order by enroll_date) depminsalary FROM empsalary) emp WHERE depname = 'sales'"
   },
   {
-    "comment": "window - Statement 290",
+    "comment": "window - Statement 289",
     "query": "EXPLAIN (COSTS OFF) SELECT empno, enroll_date, depname, sum(salary) OVER (PARTITION BY depname order by empno) depsalary, min(salary) OVER (PARTITION BY depname order by enroll_date) depminsalary FROM empsalary ORDER BY depname, empno"
   },
   {
-    "comment": "window - Statement 291",
+    "comment": "window - Statement 290",
     "query": "EXPLAIN (COSTS OFF) SELECT empno, enroll_date, depname, sum(salary) OVER (PARTITION BY depname order by empno) depsalary, min(salary) OVER (PARTITION BY depname order by enroll_date) depminsalary FROM empsalary ORDER BY depname, enroll_date"
   },
   {
-    "comment": "window - Statement 292",
+    "comment": "window - Statement 291",
     "query": "SET enable_hashagg TO off"
   },
   {
-    "comment": "window - Statement 293",
+    "comment": "window - Statement 292",
     "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT empno, enroll_date, depname, sum(salary) OVER (PARTITION BY depname order by empno) depsalary, min(salary) OVER (PARTITION BY depname order by enroll_date) depminsalary FROM empsalary ORDER BY depname, enroll_date"
   },
   {
-    "comment": "window - Statement 294",
+    "comment": "window - Statement 293",
     "query": "EXPLAIN (COSTS OFF) SELECT DISTINCT empno, enroll_date, depname, sum(salary) OVER (PARTITION BY depname order by empno) depsalary, min(salary) OVER (PARTITION BY depname order by enroll_date) depminsalary FROM empsalary ORDER BY depname, empno"
   },
   {
-    "comment": "window - Statement 295",
+    "comment": "window - Statement 294",
     "query": "RESET enable_hashagg"
   },
   {
-    "comment": "window - Statement 296",
+    "comment": "window - Statement 295",
     "query": "EXPLAIN (COSTS OFF) SELECT lead(1) OVER (PARTITION BY depname ORDER BY salary, enroll_date), lag(1) OVER (PARTITION BY depname ORDER BY salary,enroll_date,empno) FROM empsalary"
   },
   {
-    "comment": "window - Statement 297",
+    "comment": "window - Statement 296",
     "query": "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT depname, empno, salary, enroll_date, row_number() OVER (PARTITION BY depname ORDER BY enroll_date) AS first_emp, row_number() OVER (PARTITION BY depname ORDER BY enroll_date DESC) AS last_emp FROM empsalary) emp WHERE first_emp = 1 OR last_emp = 1"
   },
   {
-    "comment": "window - Statement 298",
+    "comment": "window - Statement 297",
     "query": "SELECT * FROM (SELECT depname, empno, salary, enroll_date, row_number() OVER (PARTITION BY depname ORDER BY enroll_date) AS first_emp, row_number() OVER (PARTITION BY depname ORDER BY enroll_date DESC) AS last_emp FROM empsalary) emp WHERE first_emp = 1 OR last_emp = 1"
   },
   {
-    "comment": "window - Statement 299",
+    "comment": "window - Statement 298",
     "query": "DROP TABLE empsalary"
   },
   {
-    "comment": "window - Statement 300",
+    "comment": "window - Statement 299",
     "query": "CREATE FUNCTION nth_value_def(val anyelement, n integer = 1) RETURNS anyelement LANGUAGE internal WINDOW IMMUTABLE STRICT AS 'window_nth_value'"
   },
   {
-    "comment": "window - Statement 301",
+    "comment": "window - Statement 300",
     "query": "SELECT nth_value_def(n := 2, val := ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) s"
   },
   {
-    "comment": "window - Statement 302",
+    "comment": "window - Statement 301",
     "query": "SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) s"
   },
   {
+    "comment": "window - Statement 302",
+    "query": "CREATE FUNCTION logging_sfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT COALESCE($1, '') || '*' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE;  CREATE FUNCTION logging_msfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT COALESCE($1, '') || '+' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE;  CREATE FUNCTION logging_minvfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE;  CREATE AGGREGATE logging_agg_nonstrict (anyelement) ( stype = text, sfunc = logging_sfunc_nonstrict, mstype = text, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict );  CREATE AGGREGATE logging_agg_nonstrict_initcond (anyelement) ( stype = text, sfunc = logging_sfunc_nonstrict, mstype = text, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict, initcond = 'I', minitcond = 'MI' );  CREATE FUNCTION logging_sfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '*' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE;  CREATE FUNCTION logging_msfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '+' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE;  CREATE FUNCTION logging_minvfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE;  CREATE AGGREGATE logging_agg_strict (text) ( stype = text, sfunc = logging_sfunc_strict, mstype = text, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict );  CREATE AGGREGATE logging_agg_strict_initcond (anyelement) ( stype = text, sfunc = logging_sfunc_strict, mstype = text, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict, initcond = 'I', minitcond = 'MI' );   SELECT p::text || ',' || i::text || ':' || COALESCE(v::text, 'NULL') AS row, logging_agg_nonstrict(v) over wnd as nstrict, logging_agg_nonstrict_initcond(v) over wnd as nstrict_init, logging_agg_strict(v::text) over wnd as strict, logging_agg_strict_initcond(v) over wnd as strict_init FROM (VALUES (1, 1, NULL), (1, 2, 'a'), (1, 3, 'b'), (1, 4, NULL), (1, 5, NULL), (1, 6, 'c'), (2, 1, NULL), (2, 2, 'x'), (3, 1, 'z') ) AS t(p, i, v) WINDOW wnd AS (PARTITION BY P ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i;   SELECT p::text || ',' || i::text || ':' || CASE WHEN f THEN COALESCE(v::text, 'NULL') ELSE '-' END as row, logging_agg_nonstrict(v) filter(where f) over wnd as nstrict_filt, logging_agg_nonstrict_initcond(v) filter(where f) over wnd as nstrict_init_filt, logging_agg_strict(v::text) filter(where f) over wnd as strict_filt, logging_agg_strict_initcond(v) filter(where f) over wnd as strict_init_filt FROM (VALUES (1, 1, true,  NULL), (1, 2, false, 'a'), (1, 3, true,  'b'), (1, 4, false, NULL), (1, 5, false, NULL), (1, 6, false, 'c'), (2, 1, false, NULL), (2, 2, true,  'x'), (3, 1, true,  'z') ) AS t(p, i, f, v) WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i;   SELECT i::text || ':' || COALESCE(v::text, 'NULL') as row, logging_agg_strict(v::text) over wnd as inverse, logging_agg_strict(v::text || CASE WHEN random() < 0 then '?' ELSE '' END) over wnd as noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i;  SELECT i::text || ':' || COALESCE(v::text, 'NULL') as row, logging_agg_strict(v::text) filter(where true) over wnd as inverse, logging_agg_strict(v::text) filter(where random() >= 0) over wnd as noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i;   SELECT logging_agg_strict(v::text) OVER wnd FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) ORDER BY i;       CREATE FUNCTION sum_int_randrestart_minvfunc(int4, int4) RETURNS int4 AS $$ SELECT CASE WHEN random() < 0.2 THEN NULL ELSE $1 - $2 END $$ LANGUAGE SQL STRICT;  CREATE AGGREGATE sum_int_randomrestart (int4) ( stype = int4, sfunc = int4pl, mstype = int4, msfunc = int4pl, minvfunc = sum_int_randrestart_minvfunc );  WITH vs AS ( SELECT i, (random() * 100)::int4 AS v FROM generate_series(1, 100) AS i ), sum_following AS ( SELECT i, SUM(v) OVER (ORDER BY i DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s FROM vs ) SELECT DISTINCT sum_following.s = sum_int_randomrestart(v) OVER fwd AS eq1, -sum_following.s = sum_int_randomrestart(-v) OVER fwd AS eq2, 100*3+(vs.i-1)*3 = length(logging_agg_nonstrict(''::text) OVER fwd) AS eq3 FROM vs JOIN sum_following ON sum_following.i = vs.i WINDOW fwd AS ( ORDER BY vs.i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING );       SELECT i,AVG(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.5),(2,2.5),(3,NULL),(4,NULL)) t(i,v);  SELECT i,AVG(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v);   SELECT  x ,avg(x) OVER(ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING ) as curr_next_avg ,avg(x) OVER(ROWS BETWEEN 1 PRECEDING AND CURRENT ROW ) as prev_curr_avg ,sum(x) OVER(ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING ) as curr_next_sum ,sum(x) OVER(ROWS BETWEEN 1 PRECEDING AND CURRENT ROW ) as prev_curr_sum FROM (VALUES (NULL::interval), ('infinity'::interval), ('-2147483648 days -2147483648 months -9223372036854775807 usecs'), ('-infinity'::interval), ('2147483647 days 2147483647 months 9223372036854775806 usecs'), ('infinity'::interval), ('6 days'::interval), ('7 days'::interval), (NULL::interval), ('-infinity'::interval)) v(x);   SELECT x, avg(x) OVER(ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (NULL::interval), ('3 days'::interval), ('infinity'::timestamptz - now()), ('6 days'::interval), ('-infinity'::interval)) v(x);   SELECT x, sum(x) OVER(ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (NULL::interval), ('3 days'::interval), ('infinity'::timestamptz - now()), ('6 days'::interval), ('-infinity'::interval)) v(x);  SELECT i,SUM(v::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::money) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1.10'),(2,'2.20'),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.1),(2,2.2),(3,NULL),(4,NULL)) t(i,v);  SELECT SUM(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.01),(2,2),(3,3)) v(i,n);  SELECT i,COUNT(v) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,COUNT(*) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT VAR_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VAR_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT VARIANCE(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);  SELECT STDDEV(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);  SELECT STDDEV(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);   SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);  SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM (VALUES(1,1),(2,2),(3,3),(4,4)) t(i,v);   SELECT a, b, SUM(b) OVER(ORDER BY A ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM (VALUES(1,1::numeric),(2,2),(3,'NaN'),(4,3),(5,4)) t(a,b);      SELECT to_char(SUM(n::float8) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING),'999999999999999999999D9') FROM (VALUES(1,1e20),(2,1)) n(i,n);  SELECT i, b, bool_and(b) OVER w, bool_or(b) OVER w FROM (VALUES (1,true), (2,true), (3,false), (4,false), (5,true)) v(i,b) WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING);         EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1;     EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER () FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous WHERE t2.two = 1 LIMIT 1;    EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1;    EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND 10000 FOLLOWING) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1;      SELECT array_agg(i) OVER w FROM generate_series(1,5) i WINDOW w AS (ORDER BY i ROWS BETWEEN (('foo' < 'foobar')::integer) PRECEDING AND CURRENT ROW);   CREATE FUNCTION pg_temp.f(group_size BIGINT) RETURNS SETOF integer[] AS $$ SELECT array_agg(s) OVER w FROM generate_series(1,5) s WINDOW w AS (ORDER BY s ROWS BETWEEN CURRENT ROW AND GROUP_SIZE FOLLOWING) $$ LANGUAGE SQL STABLE"
+  },
+  {
     "comment": "window - Statement 303",
-    "query": "CREATE FUNCTION logging_sfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT COALESCE($1, '') || '*' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE"
-  },
-  {
-    "comment": "window - Statement 304",
-    "query": "CREATE FUNCTION logging_msfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT COALESCE($1, '') || '+' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE"
-  },
-  {
-    "comment": "window - Statement 305",
-    "query": "CREATE FUNCTION logging_minvfunc_nonstrict(text, anyelement) RETURNS text AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE SQL IMMUTABLE"
-  },
-  {
-    "comment": "window - Statement 306",
-    "query": "CREATE AGGREGATE logging_agg_nonstrict (anyelement) ( stype = text, sfunc = logging_sfunc_nonstrict, mstype = text, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict )"
-  },
-  {
-    "comment": "window - Statement 307",
-    "query": "CREATE AGGREGATE logging_agg_nonstrict_initcond (anyelement) ( stype = text, sfunc = logging_sfunc_nonstrict, mstype = text, msfunc = logging_msfunc_nonstrict, minvfunc = logging_minvfunc_nonstrict, initcond = 'I', minitcond = 'MI' )"
-  },
-  {
-    "comment": "window - Statement 308",
-    "query": "CREATE FUNCTION logging_sfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '*' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE"
-  },
-  {
-    "comment": "window - Statement 309",
-    "query": "CREATE FUNCTION logging_msfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '+' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE"
-  },
-  {
-    "comment": "window - Statement 310",
-    "query": "CREATE FUNCTION logging_minvfunc_strict(text, anyelement) RETURNS text AS $$ SELECT $1 || '-' || quote_nullable($2) $$ LANGUAGE SQL STRICT IMMUTABLE"
-  },
-  {
-    "comment": "window - Statement 311",
-    "query": "CREATE AGGREGATE logging_agg_strict (text) ( stype = text, sfunc = logging_sfunc_strict, mstype = text, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict )"
-  },
-  {
-    "comment": "window - Statement 312",
-    "query": "CREATE AGGREGATE logging_agg_strict_initcond (anyelement) ( stype = text, sfunc = logging_sfunc_strict, mstype = text, msfunc = logging_msfunc_strict, minvfunc = logging_minvfunc_strict, initcond = 'I', minitcond = 'MI' )"
-  },
-  {
-    "comment": "window - Statement 313",
-    "query": "SELECT p::text || ',' || i::text || ':' || COALESCE(v::text, 'NULL') AS row, logging_agg_nonstrict(v) over wnd as nstrict, logging_agg_nonstrict_initcond(v) over wnd as nstrict_init, logging_agg_strict(v::text) over wnd as strict, logging_agg_strict_initcond(v) over wnd as strict_init FROM (VALUES (1, 1, NULL), (1, 2, 'a'), (1, 3, 'b'), (1, 4, NULL), (1, 5, NULL), (1, 6, 'c'), (2, 1, NULL), (2, 2, 'x'), (3, 1, 'z') ) AS t(p, i, v) WINDOW wnd AS (PARTITION BY P ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i"
-  },
-  {
-    "comment": "window - Statement 314",
-    "query": "SELECT p::text || ',' || i::text || ':' || CASE WHEN f THEN COALESCE(v::text, 'NULL') ELSE '-' END as row, logging_agg_nonstrict(v) filter(where f) over wnd as nstrict_filt, logging_agg_nonstrict_initcond(v) filter(where f) over wnd as nstrict_init_filt, logging_agg_strict(v::text) filter(where f) over wnd as strict_filt, logging_agg_strict_initcond(v) filter(where f) over wnd as strict_init_filt FROM (VALUES (1, 1, true,  NULL), (1, 2, false, 'a'), (1, 3, true,  'b'), (1, 4, false, NULL), (1, 5, false, NULL), (1, 6, false, 'c'), (2, 1, false, NULL), (2, 2, true,  'x'), (3, 1, true,  'z') ) AS t(p, i, f, v) WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY p, i"
-  },
-  {
-    "comment": "window - Statement 315",
-    "query": "SELECT i::text || ':' || COALESCE(v::text, 'NULL') as row, logging_agg_strict(v::text) over wnd as inverse, logging_agg_strict(v::text || CASE WHEN random() < 0 then '?' ELSE '' END) over wnd as noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i"
-  },
-  {
-    "comment": "window - Statement 316",
-    "query": "SELECT i::text || ':' || COALESCE(v::text, 'NULL') as row, logging_agg_strict(v::text) filter(where true) over wnd as inverse, logging_agg_strict(v::text) filter(where random() >= 0) over wnd as noinverse FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) ORDER BY i"
-  },
-  {
-    "comment": "window - Statement 317",
-    "query": "SELECT logging_agg_strict(v::text) OVER wnd FROM (VALUES (1, 'a'), (2, 'b'), (3, 'c') ) AS t(i, v) WINDOW wnd AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) ORDER BY i"
-  },
-  {
-    "comment": "window - Statement 318",
-    "query": "CREATE FUNCTION sum_int_randrestart_minvfunc(int4, int4) RETURNS int4 AS $$ SELECT CASE WHEN random() < 0.2 THEN NULL ELSE $1 - $2 END $$ LANGUAGE SQL STRICT"
-  },
-  {
-    "comment": "window - Statement 319",
-    "query": "CREATE AGGREGATE sum_int_randomrestart (int4) ( stype = int4, sfunc = int4pl, mstype = int4, msfunc = int4pl, minvfunc = sum_int_randrestart_minvfunc )"
-  },
-  {
-    "comment": "window - Statement 320",
-    "query": "WITH vs AS ( SELECT i, (random() * 100)::int4 AS v FROM generate_series(1, 100) AS i ), sum_following AS ( SELECT i, SUM(v) OVER (ORDER BY i DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s FROM vs ) SELECT DISTINCT sum_following.s = sum_int_randomrestart(v) OVER fwd AS eq1, -sum_following.s = sum_int_randomrestart(-v) OVER fwd AS eq2, 100*3+(vs.i-1)*3 = length(logging_agg_nonstrict(''::text) OVER fwd) AS eq3 FROM vs JOIN sum_following ON sum_following.i = vs.i WINDOW fwd AS ( ORDER BY vs.i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )"
-  },
-  {
-    "comment": "window - Statement 321",
-    "query": "SELECT i,AVG(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 322",
-    "query": "SELECT i,AVG(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 323",
-    "query": "SELECT i,AVG(v::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 324",
-    "query": "SELECT i,AVG(v::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.5),(2,2.5),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 325",
-    "query": "SELECT i,AVG(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 326",
-    "query": "SELECT  x ,avg(x) OVER(ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING ) as curr_next_avg ,avg(x) OVER(ROWS BETWEEN 1 PRECEDING AND CURRENT ROW ) as prev_curr_avg ,sum(x) OVER(ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING ) as curr_next_sum ,sum(x) OVER(ROWS BETWEEN 1 PRECEDING AND CURRENT ROW ) as prev_curr_sum FROM (VALUES (NULL::interval), ('infinity'::interval), ('-2147483648 days -2147483648 months -9223372036854775807 usecs'), ('-infinity'::interval), ('2147483647 days 2147483647 months 9223372036854775806 usecs'), ('infinity'::interval), ('6 days'::interval), ('7 days'::interval), (NULL::interval), ('-infinity'::interval)) v(x)"
-  },
-  {
-    "comment": "window - Statement 327",
-    "query": "SELECT x, avg(x) OVER(ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (NULL::interval), ('3 days'::interval), ('infinity'::timestamptz - now()), ('6 days'::interval), ('-infinity'::interval)) v(x)"
-  },
-  {
-    "comment": "window - Statement 328",
-    "query": "SELECT x, sum(x) OVER(ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM (VALUES (NULL::interval), ('3 days'::interval), ('infinity'::timestamptz - now()), ('6 days'::interval), ('-infinity'::interval)) v(x)"
-  },
-  {
-    "comment": "window - Statement 329",
-    "query": "SELECT i,SUM(v::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 330",
-    "query": "SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 331",
-    "query": "SELECT i,SUM(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 332",
-    "query": "SELECT i,SUM(v::money) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1.10'),(2,'2.20'),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 333",
-    "query": "SELECT i,SUM(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 334",
-    "query": "SELECT i,SUM(v::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.1),(2,2.2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 335",
-    "query": "SELECT SUM(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1.01),(2,2),(3,3)) v(i,n)"
-  },
-  {
-    "comment": "window - Statement 336",
-    "query": "SELECT i,COUNT(v) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 337",
-    "query": "SELECT i,COUNT(*) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 338",
-    "query": "SELECT VAR_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 339",
-    "query": "SELECT VAR_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 340",
-    "query": "SELECT VAR_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 341",
-    "query": "SELECT VAR_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 342",
-    "query": "SELECT VAR_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 343",
-    "query": "SELECT VAR_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 344",
-    "query": "SELECT VAR_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 345",
-    "query": "SELECT VAR_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 346",
-    "query": "SELECT VARIANCE(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 347",
-    "query": "SELECT VARIANCE(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 348",
-    "query": "SELECT VARIANCE(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 349",
-    "query": "SELECT VARIANCE(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 350",
-    "query": "SELECT STDDEV_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 351",
-    "query": "SELECT STDDEV_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 352",
-    "query": "SELECT STDDEV_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 353",
-    "query": "SELECT STDDEV_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 354",
-    "query": "SELECT STDDEV_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 355",
-    "query": "SELECT STDDEV_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 356",
-    "query": "SELECT STDDEV_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 357",
-    "query": "SELECT STDDEV_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 358",
-    "query": "SELECT STDDEV(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 359",
-    "query": "SELECT STDDEV(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 360",
-    "query": "SELECT STDDEV(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 361",
-    "query": "SELECT STDDEV(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n)"
-  },
-  {
-    "comment": "window - Statement 362",
-    "query": "SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 363",
-    "query": "SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 364",
-    "query": "SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM (VALUES(1,1),(2,2),(3,3),(4,4)) t(i,v)"
-  },
-  {
-    "comment": "window - Statement 365",
-    "query": "SELECT a, b, SUM(b) OVER(ORDER BY A ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM (VALUES(1,1::numeric),(2,2),(3,'NaN'),(4,3),(5,4)) t(a,b)"
-  },
-  {
-    "comment": "window - Statement 366",
-    "query": "SELECT to_char(SUM(n::float8) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING),'999999999999999999999D9') FROM (VALUES(1,1e20),(2,1)) n(i,n)"
-  },
-  {
-    "comment": "window - Statement 367",
-    "query": "SELECT i, b, bool_and(b) OVER w, bool_or(b) OVER w FROM (VALUES (1,true), (2,true), (3,false), (4,false), (5,true)) v(i,b) WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING)"
-  },
-  {
-    "comment": "window - Statement 368",
-    "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1"
-  },
-  {
-    "comment": "window - Statement 369",
-    "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER () FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous WHERE t2.two = 1 LIMIT 1"
-  },
-  {
-    "comment": "window - Statement 370",
-    "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1"
-  },
-  {
-    "comment": "window - Statement 371",
-    "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*) OVER (ORDER BY t1.unique1 ROWS BETWEEN UNBOUNDED PRECEDING AND 10000 FOLLOWING) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.tenthous LIMIT 1"
-  },
-  {
-    "comment": "window - Statement 372",
-    "query": "SELECT array_agg(i) OVER w FROM generate_series(1,5) i WINDOW w AS (ORDER BY i ROWS BETWEEN (('foo' < 'foobar')::integer) PRECEDING AND CURRENT ROW)"
-  },
-  {
-    "comment": "window - Statement 373",
-    "query": "CREATE FUNCTION pg_temp.f(group_size BIGINT) RETURNS SETOF integer[] AS $$ SELECT array_agg(s) OVER w FROM generate_series(1,5) s WINDOW w AS (ORDER BY s ROWS BETWEEN CURRENT ROW AND GROUP_SIZE FOLLOWING) $$ LANGUAGE SQL STABLE"
-  },
-  {
-    "comment": "window - Statement 374",
     "query": "EXPLAIN (costs off) SELECT * FROM pg_temp.f(2)"
   },
   {
-    "comment": "window - Statement 375",
+    "comment": "window - Statement 304",
     "query": "SELECT * FROM pg_temp.f(2)"
   }
 ]
