@@ -24,11 +24,9 @@ import (
 
 // Flag variables for root command (shared across all commands)
 var (
-	pgDatabase   = "postgres"
-	pgUser       = "postgres"
-	pgDataDir    = ""
-	pgConfigFile = ""
-	timeout      = 30
+	pgDatabase = "postgres"
+	pgUser     = "postgres"
+	timeout    = 30
 )
 
 // validateGlobalFlags validates required global flags for all pgctld commands
@@ -74,7 +72,5 @@ management for PostgreSQL servers.`,
 func init() {
 	Root.PersistentFlags().StringVarP(&pgDatabase, "pg-database", "D", pgDatabase, "PostgreSQL database name")
 	Root.PersistentFlags().StringVarP(&pgUser, "pg-user", "U", pgUser, "PostgreSQL username")
-	Root.PersistentFlags().StringVarP(&pgDataDir, "pg-data-dir", "d", pgDataDir, "PostgreSQL data directory")
-	Root.PersistentFlags().StringVar(&pgConfigFile, "pg-config-file", pgConfigFile, "PostgreSQL configuration file")
 	Root.PersistentFlags().IntVarP(&timeout, "timeout", "t", timeout, "Operation timeout in seconds")
 }
