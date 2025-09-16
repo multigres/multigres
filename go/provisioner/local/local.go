@@ -1559,8 +1559,8 @@ func (p *localProvisioner) findRunningDbService(serviceName, databaseName, cell 
 		}
 	}
 
-	// Check for port conflicts with other processes
-	expectedPorts := p.getExpectedPortsForService(serviceName)
+	// Check for port conflicts with other processes using cell-specific config
+	expectedPorts := p.getExpectedPortsForDbService(serviceName, cell)
 	for portName, port := range expectedPorts {
 		if err := p.checkPortConflict(port, serviceName, portName); err != nil {
 			return nil, err
@@ -1568,6 +1568,42 @@ func (p *localProvisioner) findRunningDbService(serviceName, databaseName, cell 
 	}
 
 	return nil, nil // No running service found
+}
+
+// getExpectedPortsForDbService returns expected ports for a DB-scoped service (per cell)
+func (p *localProvisioner) getExpectedPortsForDbService(serviceName, cell string) map[string]int {
+	ports := make(map[string]int)
+
+	cellConfig, err := p.getCellServiceConfig(cell, serviceName)
+	if err != nil {
+		return ports
+	}
+
+	switch serviceName {
+	case "multigateway":
+		if httpPort, ok := cellConfig["http_port"].(int); ok {
+			ports["http"] = httpPort
+		}
+		if grpcPort, ok := cellConfig["grpc_port"].(int); ok {
+			ports["grpc"] = grpcPort
+		}
+	case "multipooler":
+		if grpcPort, ok := cellConfig["grpc_port"].(int); ok {
+			ports["grpc"] = grpcPort
+		}
+		if httpPort, ok := cellConfig["http_port"].(int); ok && httpPort > 0 {
+			ports["http"] = httpPort
+		}
+	case "multiorch":
+		if grpcPort, ok := cellConfig["grpc_port"].(int); ok {
+			ports["grpc"] = grpcPort
+		}
+		if httpPort, ok := cellConfig["http_port"].(int); ok && httpPort > 0 {
+			ports["http"] = httpPort
+		}
+	}
+
+	return ports
 }
 
 // getExpectedPortsForService returns the expected ports for a service based on its configuration
@@ -1664,10 +1700,10 @@ func (p *localProvisioner) findRunningEtcdService() (*LocalProvisionedService, e
 
 // findRunningService finds a running service by service name (for global services like multiadmin)
 func (p *localProvisioner) findRunningService(serviceName string) (*LocalProvisionedService, error) {
-	// For global services like multiadmin, we use the same approach as etcd but generalized
-	services, err := p.loadEtcdServices() // Reuse the same storage mechanism
+	// Load global services (e.g., multiadmin, etcd)
+	services, err := p.loadGlobalServices()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load service states: %w", err)
+		return nil, fmt.Errorf("failed to load global service states: %w", err)
 	}
 
 	for _, service := range services {
@@ -1678,6 +1714,14 @@ func (p *localProvisioner) findRunningService(serviceName string) (*LocalProvisi
 					return service, nil
 				}
 			}
+		}
+	}
+
+	// Check for port conflicts with other processes
+	expectedPorts := p.getExpectedPortsForService(serviceName)
+	for portName, port := range expectedPorts {
+		if err := p.checkPortConflict(port, serviceName, portName); err != nil {
+			return nil, err
 		}
 	}
 

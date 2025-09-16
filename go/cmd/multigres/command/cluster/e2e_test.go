@@ -882,6 +882,13 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, expectedDatabase),
 			"multipooler should be registered with database field in topology")
 
+		// Start cluster is idempotent
+		t.Log("Stopping cluster...")
+		upOutput, err = executeStartCommand(t, []string{"--config-path", tempDir})
+		require.NoError(t, err, "Up command failed with output: %s", upOutput)
+		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
+		assert.Contains(t, upOutput, "is already running")
+
 		// Stop cluster (down)
 		t.Log("Stopping cluster...")
 		downOutput, err := executeStopCommand(t, []string{"--config-path", tempDir})
@@ -984,6 +991,50 @@ func TestClusterLifecycle(t *testing.T) {
 		outputStr = string(output)
 		assert.NotContains(t, outputStr, "--database flag is required",
 			"Should not show database flag error when flag is provided. Got: %s", outputStr)
+	})
+
+	// Verifies that if a required service port is already in use by another process,
+	// cluster start fails with a helpful error mentioning the conflict.
+	t.Run("cluster start fails when a service port is already in use", func(t *testing.T) {
+		// Setup test directory
+		tempDir, err := os.MkdirTemp("", "multigres_port_conflict_test")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		// Always cleanup processes, even if test fails
+		defer func() {
+			if cleanupErr := cleanupTestProcesses(tempDir); cleanupErr != nil {
+				t.Logf("Warning: cleanup failed: %v", cleanupErr)
+			}
+		}()
+
+		// Build service binaries in the test directory
+		t.Log("Building service binaries...")
+		require.NoError(t, buildServiceBinaries(tempDir), "Failed to build service binaries")
+
+		// Setup test ports
+		testPorts := getTestPortConfig()
+
+		// Intentionally occupy the multipooler gRPC port to create a conflict
+		conflictPort := testPorts.MultipoolerGRPCPort
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", conflictPort))
+		require.NoError(t, err, "failed to bind conflict port %d", conflictPort)
+		defer ln.Close()
+
+		// Create cluster configuration with these ports
+		t.Log("Creating cluster configuration with conflicting port...")
+		configFile, err := createTestConfigWithPorts(tempDir, testPorts)
+		require.NoError(t, err, "Failed to create test configuration")
+		t.Logf("Created test configuration: %s", configFile)
+
+		// Attempt to start cluster — should fail due to port conflict
+		t.Log("Starting cluster (expected to fail due to port conflict)...")
+		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir})
+		require.Error(t, err, "Start should fail when a configured port is already in use. Output: %s", upOutput)
+
+		combined := err.Error() + "\n" + upOutput
+		assert.Contains(t, combined, "already in use", "error/output should mention port already in use. Got: %s", combined)
+		assert.Contains(t, combined, fmt.Sprintf("%d", conflictPort), "error/output should mention the conflicting port. Got: %s", combined)
 	})
 }
 
