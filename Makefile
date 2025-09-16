@@ -68,7 +68,7 @@ install:
 	go install ./go/cmd/multiadmin
 
 # Run tests
-test:
+test: pb build
 	source ./build.env && go test ./...
 
 test-short:
