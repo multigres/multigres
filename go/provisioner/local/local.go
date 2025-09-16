@@ -1066,20 +1066,6 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		}, nil
 	}
 
-	// Get multipooler config
-	multipoolerConfig := p.getServiceConfig("multipooler")
-
-	// Get HTTP port from config
-	httpPort := 15001
-	if p, ok := multipoolerConfig["http_port"].(int); ok {
-		httpPort = p
-	}
-
-	// Get grpc port from config
-	grpcPort := 15100
-	if port, ok := multipoolerConfig["grpc_port"].(int); ok {
-		grpcPort = port
-	}
 	// Get parameters from request
 	etcdAddress := req.Params["etcd_address"].(string)
 	topoBackend := req.Params["topo_backend"].(string)
@@ -1089,6 +1075,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	multipoolerConfig, err := p.getCellServiceConfig(cell, "multipooler")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get multipooler config for cell %s: %w", cell, err)
+	}
+
+	// Get HTTP port from cell-specific config
+	httpPort := 15001
+	if p, ok := multipoolerConfig["http_port"].(int); ok {
+		httpPort = p
 	}
 
 	// Get grpc port from cell-specific config
@@ -1229,7 +1221,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	etcdAddress := req.Params["etcd_address"].(string)
 	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
-	cell := req.Params["cell"].(string)
+	cell = req.Params["cell"].(string)
 
 	// Get cell-specific multiorch config
 	multiorchConfig, err := p.getCellServiceConfig(cell, "multiorch")
