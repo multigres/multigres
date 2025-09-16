@@ -1,67 +1,83 @@
 [
   {
     "comment": "insert - Statement 1",
-    "query": "create table inserttest (col1 int4, col2 int4 NOT NULL, col3 text default 'testing')"
+    "query": "create table inserttest (col1 int4, col2 int4 NOT NULL, col3 text default 'testing')",
+    "expected": "CREATE TABLE inserttest (col1 INT, col2 INT NOT NULL, col3 TEXT DEFAULT 'testing')"
   },
   {
     "comment": "insert - Statement 2",
-    "query": "insert into inserttest (col1, col2, col3) values (DEFAULT, DEFAULT, DEFAULT)"
+    "query": "insert into inserttest (col1, col2, col3) values (DEFAULT, DEFAULT, DEFAULT)",
+    "expected": "INSERT INTO inserttest (col1, col2, col3) VALUES (DEFAULT, DEFAULT, DEFAULT)"
   },
   {
     "comment": "insert - Statement 3",
-    "query": "insert into inserttest (col2, col3) values (3, DEFAULT)"
+    "query": "insert into inserttest (col2, col3) values (3, DEFAULT)",
+    "expected": "INSERT INTO inserttest (col2, col3) VALUES (3, DEFAULT)"
   },
   {
     "comment": "insert - Statement 4",
-    "query": "insert into inserttest (col1, col2, col3) values (DEFAULT, 5, DEFAULT)"
+    "query": "insert into inserttest (col1, col2, col3) values (DEFAULT, 5, DEFAULT)",
+    "expected": "INSERT INTO inserttest (col1, col2, col3) VALUES (DEFAULT, 5, DEFAULT)"
   },
   {
     "comment": "insert - Statement 5",
-    "query": "insert into inserttest values (DEFAULT, 5, 'test')"
+    "query": "insert into inserttest values (DEFAULT, 5, 'test')",
+    "expected": "INSERT INTO inserttest VALUES (DEFAULT, 5, 'test')"
   },
   {
     "comment": "insert - Statement 6",
-    "query": "insert into inserttest values (DEFAULT, 7)"
+    "query": "insert into inserttest values (DEFAULT, 7)",
+    "expected": "INSERT INTO inserttest VALUES (DEFAULT, 7)"
   },
   {
     "comment": "insert - Statement 7",
-    "query": "select * from inserttest"
+    "query": "select * from inserttest",
+    "expected": "SELECT * FROM inserttest"
   },
   {
     "comment": "insert - Statement 8",
-    "query": "insert into inserttest (col1, col2, col3) values (DEFAULT, DEFAULT)"
+    "query": "insert into inserttest (col1, col2, col3) values (DEFAULT, DEFAULT)",
+    "expected": "INSERT INTO inserttest (col1, col2, col3) VALUES (DEFAULT, DEFAULT)"
   },
   {
     "comment": "insert - Statement 9",
-    "query": "insert into inserttest (col1, col2, col3) values (1, 2)"
+    "query": "insert into inserttest (col1, col2, col3) values (1, 2)",
+    "expected": "INSERT INTO inserttest (col1, col2, col3) VALUES (1, 2)"
   },
   {
     "comment": "insert - Statement 10",
-    "query": "insert into inserttest (col1) values (1, 2)"
+    "query": "insert into inserttest (col1) values (1, 2)",
+    "expected": "INSERT INTO inserttest (col1) VALUES (1, 2)"
   },
   {
     "comment": "insert - Statement 11",
-    "query": "insert into inserttest (col1) values (DEFAULT, DEFAULT)"
+    "query": "insert into inserttest (col1) values (DEFAULT, DEFAULT)",
+    "expected": "INSERT INTO inserttest (col1) VALUES (DEFAULT, DEFAULT)"
   },
   {
     "comment": "insert - Statement 12",
-    "query": "insert into inserttest values(10, 20, '40'), (-1, 2, DEFAULT), ((select 2), (select i from (values(3)) as foo (i)), 'values are fun!')"
+    "query": "insert into inserttest values(10, 20, '40'), (-1, 2, DEFAULT), ((select 2), (select i from (values(3)) as foo (i)), 'values are fun!')",
+    "expected": "INSERT INTO inserttest VALUES (10, 20, '40'), (-1, 2, DEFAULT), ((SELECT 2), (SELECT i FROM (VALUES (3)) AS foo(i)), 'values are fun!')"
   },
   {
     "comment": "insert - Statement 13",
-    "query": "insert into inserttest values(30, 50, repeat('x', 10000))"
+    "query": "insert into inserttest values(30, 50, repeat('x', 10000))",
+    "expected": "INSERT INTO inserttest VALUES (30, 50, repeat('x', 10000))"
   },
   {
     "comment": "insert - Statement 14",
-    "query": "select col1, col2, char_length(col3) from inserttest"
+    "query": "select col1, col2, char_length(col3) from inserttest",
+    "expected": "SELECT col1, col2, char_length(col3) FROM inserttest"
   },
   {
     "comment": "insert - Statement 15",
-    "query": "drop table inserttest"
+    "query": "drop table inserttest",
+    "expected": "DROP TABLE inserttest"
   },
   {
     "comment": "insert - Statement 16",
-    "query": "CREATE TABLE large_tuple_test (a int, b text) WITH (fillfactor = 10)"
+    "query": "CREATE TABLE large_tuple_test (a int, b text) WITH (fillfactor = 10)",
+    "expected": "CREATE TABLE large_tuple_test (a INT, b TEXT) WITH (fillfactor = 10)"
   },
   {
     "comment": "insert - Statement 17",
@@ -69,23 +85,28 @@
   },
   {
     "comment": "insert - Statement 18",
-    "query": "INSERT INTO large_tuple_test (select 1, NULL)"
+    "query": "INSERT INTO large_tuple_test (select 1, NULL)",
+    "expected": "INSERT INTO large_tuple_test SELECT 1, NULL"
   },
   {
     "comment": "insert - Statement 19",
-    "query": "INSERT INTO large_tuple_test (select 2, repeat('a', 1000))"
+    "query": "INSERT INTO large_tuple_test (select 2, repeat('a', 1000))",
+    "expected": "INSERT INTO large_tuple_test SELECT 2, repeat('a', 1000)"
   },
   {
     "comment": "insert - Statement 20",
-    "query": "SELECT pg_size_pretty(pg_relation_size('large_tuple_test'::regclass, 'main'))"
+    "query": "SELECT pg_size_pretty(pg_relation_size('large_tuple_test'::regclass, 'main'))",
+    "expected": "SELECT pg_size_pretty(pg_relation_size(CAST('large_tuple_test' AS regclass), 'main'))"
   },
   {
     "comment": "insert - Statement 21",
-    "query": "INSERT INTO large_tuple_test (select 3, NULL)"
+    "query": "INSERT INTO large_tuple_test (select 3, NULL)",
+    "expected": "INSERT INTO large_tuple_test SELECT 3, NULL"
   },
   {
     "comment": "insert - Statement 22",
-    "query": "INSERT INTO large_tuple_test (select 4, repeat('a', 8126))"
+    "query": "INSERT INTO large_tuple_test (select 4, repeat('a', 8126))",
+    "expected": "INSERT INTO large_tuple_test SELECT 4, repeat('a', 8126)"
   },
   {
     "comment": "insert - Statement 23",
@@ -93,1334 +114,1652 @@
   },
   {
     "comment": "insert - Statement 24",
-    "query": "create type insert_test_type as (if1 int, if2 text[])"
+    "query": "create type insert_test_type as (if1 int, if2 text[])",
+    "expected": "CREATE TYPE insert_test_type AS (if1 INT, if2 TEXT[])"
   },
   {
     "comment": "insert - Statement 25",
-    "query": "create table inserttest (f1 int, f2 int[], f3 insert_test_type, f4 insert_test_type[])"
+    "query": "create table inserttest (f1 int, f2 int[], f3 insert_test_type, f4 insert_test_type[])",
+    "expected": "CREATE TABLE inserttest (f1 INT, f2 INT[], f3 insert_test_type, f4 insert_test_type[])"
   },
   {
     "comment": "insert - Statement 26",
-    "query": "insert into inserttest (f2[1], f2[2]) values (1,2)"
+    "query": "insert into inserttest (f2[1], f2[2]) values (1,2)",
+    "expected": "INSERT INTO inserttest (f2[1], f2[2]) VALUES (1, 2)"
   },
   {
     "comment": "insert - Statement 27",
-    "query": "insert into inserttest (f2[1], f2[2]) values (3,4), (5,6)"
+    "query": "insert into inserttest (f2[1], f2[2]) values (3,4), (5,6)",
+    "expected": "INSERT INTO inserttest (f2[1], f2[2]) VALUES (3, 4), (5, 6)"
   },
   {
     "comment": "insert - Statement 28",
-    "query": "insert into inserttest (f2[1], f2[2]) select 7,8"
+    "query": "insert into inserttest (f2[1], f2[2]) select 7,8",
+    "expected": "INSERT INTO inserttest (f2[1], f2[2]) SELECT 7, 8"
   },
   {
     "comment": "insert - Statement 29",
-    "query": "insert into inserttest (f2[1], f2[2]) values (1,default)"
+    "query": "insert into inserttest (f2[1], f2[2]) values (1,default)",
+    "expected": "INSERT INTO inserttest (f2[1], f2[2]) VALUES (1, DEFAULT)"
   },
   {
     "comment": "insert - Statement 30",
-    "query": "insert into inserttest (f3.if1, f3.if2) values (1,array['foo'])"
+    "query": "insert into inserttest (f3.if1, f3.if2) values (1,array['foo'])",
+    "expected": "INSERT INTO inserttest (f3.if1, f3.if2) VALUES (1, ARRAY['foo'])"
   },
   {
     "comment": "insert - Statement 31",
-    "query": "insert into inserttest (f3.if1, f3.if2) values (1,'{foo}'), (2,'{bar}')"
+    "query": "insert into inserttest (f3.if1, f3.if2) values (1,'{foo}'), (2,'{bar}')",
+    "expected": "INSERT INTO inserttest (f3.if1, f3.if2) VALUES (1, '{foo}'), (2, '{bar}')"
   },
   {
     "comment": "insert - Statement 32",
-    "query": "insert into inserttest (f3.if1, f3.if2) select 3, '{baz,quux}'"
+    "query": "insert into inserttest (f3.if1, f3.if2) select 3, '{baz,quux}'",
+    "expected": "INSERT INTO inserttest (f3.if1, f3.if2) SELECT 3, '{baz,quux}'"
   },
   {
     "comment": "insert - Statement 33",
-    "query": "insert into inserttest (f3.if1, f3.if2) values (1,default)"
+    "query": "insert into inserttest (f3.if1, f3.if2) values (1,default)",
+    "expected": "INSERT INTO inserttest (f3.if1, f3.if2) VALUES (1, DEFAULT)"
   },
   {
     "comment": "insert - Statement 34",
-    "query": "insert into inserttest (f3.if2[1], f3.if2[2]) values ('foo', 'bar')"
+    "query": "insert into inserttest (f3.if2[1], f3.if2[2]) values ('foo', 'bar')",
+    "expected": "INSERT INTO inserttest (f3.if2[1], f3.if2[2]) VALUES ('foo', 'bar')"
   },
   {
     "comment": "insert - Statement 35",
-    "query": "insert into inserttest (f3.if2[1], f3.if2[2]) values ('foo', 'bar'), ('baz', 'quux')"
+    "query": "insert into inserttest (f3.if2[1], f3.if2[2]) values ('foo', 'bar'), ('baz', 'quux')",
+    "expected": "INSERT INTO inserttest (f3.if2[1], f3.if2[2]) VALUES ('foo', 'bar'), ('baz', 'quux')"
   },
   {
     "comment": "insert - Statement 36",
-    "query": "insert into inserttest (f3.if2[1], f3.if2[2]) select 'bear', 'beer'"
+    "query": "insert into inserttest (f3.if2[1], f3.if2[2]) select 'bear', 'beer'",
+    "expected": "INSERT INTO inserttest (f3.if2[1], f3.if2[2]) SELECT 'bear', 'beer'"
   },
   {
     "comment": "insert - Statement 37",
-    "query": "insert into inserttest (f4[1].if2[1], f4[1].if2[2]) values ('foo', 'bar')"
+    "query": "insert into inserttest (f4[1].if2[1], f4[1].if2[2]) values ('foo', 'bar')",
+    "expected": "INSERT INTO inserttest (f4[1].if2[1], f4[1].if2[2]) VALUES ('foo', 'bar')"
   },
   {
     "comment": "insert - Statement 38",
-    "query": "insert into inserttest (f4[1].if2[1], f4[1].if2[2]) values ('foo', 'bar'), ('baz', 'quux')"
+    "query": "insert into inserttest (f4[1].if2[1], f4[1].if2[2]) values ('foo', 'bar'), ('baz', 'quux')",
+    "expected": "INSERT INTO inserttest (f4[1].if2[1], f4[1].if2[2]) VALUES ('foo', 'bar'), ('baz', 'quux')"
   },
   {
     "comment": "insert - Statement 39",
-    "query": "insert into inserttest (f4[1].if2[1], f4[1].if2[2]) select 'bear', 'beer'"
+    "query": "insert into inserttest (f4[1].if2[1], f4[1].if2[2]) select 'bear', 'beer'",
+    "expected": "INSERT INTO inserttest (f4[1].if2[1], f4[1].if2[2]) SELECT 'bear', 'beer'"
   },
   {
     "comment": "insert - Statement 40",
-    "query": "create table inserttest2 (f1 bigint, f2 text)"
+    "query": "create table inserttest2 (f1 bigint, f2 text)",
+    "expected": "CREATE TABLE inserttest2 (f1 BIGINT, f2 TEXT)"
   },
   {
     "comment": "insert - Statement 41",
-    "query": "create rule irule1 as on insert to inserttest2 do also insert into inserttest (f3.if2[1], f3.if2[2]) values (new.f1,new.f2)"
+    "query": "create rule irule1 as on insert to inserttest2 do also insert into inserttest (f3.if2[1], f3.if2[2]) values (new.f1,new.f2)",
+    "expected": "CREATE RULE irule1 AS ON INSERT TO inserttest2 DO INSERT INTO inserttest (f3.if2[1], f3.if2[2]) VALUES (new.f1, new.f2)"
   },
   {
     "comment": "insert - Statement 42",
-    "query": "create rule irule2 as on insert to inserttest2 do also insert into inserttest (f4[1].if1, f4[1].if2[2]) values (1,'fool'),(new.f1,new.f2)"
+    "query": "create rule irule2 as on insert to inserttest2 do also insert into inserttest (f4[1].if1, f4[1].if2[2]) values (1,'fool'),(new.f1,new.f2)",
+    "expected": "CREATE RULE irule2 AS ON INSERT TO inserttest2 DO INSERT INTO inserttest (f4[1].if1, f4[1].if2[2]) VALUES (1, 'fool'), (new.f1, new.f2)"
   },
   {
     "comment": "insert - Statement 43",
-    "query": "create rule irule3 as on insert to inserttest2 do also insert into inserttest (f4[1].if1, f4[1].if2[2]) select new.f1, new.f2"
+    "query": "create rule irule3 as on insert to inserttest2 do also insert into inserttest (f4[1].if1, f4[1].if2[2]) select new.f1, new.f2",
+    "expected": "CREATE RULE irule3 AS ON INSERT TO inserttest2 DO INSERT INTO inserttest (f4[1].if1, f4[1].if2[2]) SELECT new.f1, new.f2"
   },
   {
     "comment": "insert - Statement 44",
-    "query": "create domain insert_pos_ints as int[] check (value[1] > 0)"
+    "query": "create domain insert_pos_ints as int[] check (value[1] \u003e 0)",
+    "expected": "CREATE DOMAIN insert_pos_ints AS INT[] CHECK (value[1] \u003e 0)"
   },
   {
     "comment": "insert - Statement 45",
-    "query": "create domain insert_test_domain as insert_test_type check ((value).if2[1] is not null)"
+    "query": "create domain insert_test_domain as insert_test_type check ((value).if2[1] is not null)",
+    "expected": "CREATE DOMAIN insert_test_domain AS insert_test_type CHECK ((value).if2[1] IS NOT NULL)"
   },
   {
     "comment": "insert - Statement 46",
-    "query": "create table inserttesta (f1 int, f2 insert_pos_ints)"
+    "query": "create table inserttesta (f1 int, f2 insert_pos_ints)",
+    "expected": "CREATE TABLE inserttesta (f1 INT, f2 insert_pos_ints)"
   },
   {
     "comment": "insert - Statement 47",
-    "query": "create table inserttestb (f3 insert_test_domain, f4 insert_test_domain[])"
+    "query": "create table inserttestb (f3 insert_test_domain, f4 insert_test_domain[])",
+    "expected": "CREATE TABLE inserttestb (f3 insert_test_domain, f4 insert_test_domain[])"
   },
   {
     "comment": "insert - Statement 48",
-    "query": "insert into inserttesta (f2[1], f2[2]) values (1,2)"
+    "query": "insert into inserttesta (f2[1], f2[2]) values (1,2)",
+    "expected": "INSERT INTO inserttesta (f2[1], f2[2]) VALUES (1, 2)"
   },
   {
     "comment": "insert - Statement 49",
-    "query": "insert into inserttesta (f2[1], f2[2]) values (3,4), (5,6)"
+    "query": "insert into inserttesta (f2[1], f2[2]) values (3,4), (5,6)",
+    "expected": "INSERT INTO inserttesta (f2[1], f2[2]) VALUES (3, 4), (5, 6)"
   },
   {
     "comment": "insert - Statement 50",
-    "query": "insert into inserttesta (f2[1], f2[2]) select 7,8"
+    "query": "insert into inserttesta (f2[1], f2[2]) select 7,8",
+    "expected": "INSERT INTO inserttesta (f2[1], f2[2]) SELECT 7, 8"
   },
   {
     "comment": "insert - Statement 51",
-    "query": "insert into inserttesta (f2[1], f2[2]) values (1,default)"
+    "query": "insert into inserttesta (f2[1], f2[2]) values (1,default)",
+    "expected": "INSERT INTO inserttesta (f2[1], f2[2]) VALUES (1, DEFAULT)"
   },
   {
     "comment": "insert - Statement 52",
-    "query": "insert into inserttesta (f2[1], f2[2]) values (0,2)"
+    "query": "insert into inserttesta (f2[1], f2[2]) values (0,2)",
+    "expected": "INSERT INTO inserttesta (f2[1], f2[2]) VALUES (0, 2)"
   },
   {
     "comment": "insert - Statement 53",
-    "query": "insert into inserttesta (f2[1], f2[2]) values (3,4), (0,6)"
+    "query": "insert into inserttesta (f2[1], f2[2]) values (3,4), (0,6)",
+    "expected": "INSERT INTO inserttesta (f2[1], f2[2]) VALUES (3, 4), (0, 6)"
   },
   {
     "comment": "insert - Statement 54",
-    "query": "insert into inserttesta (f2[1], f2[2]) select 0,8"
+    "query": "insert into inserttesta (f2[1], f2[2]) select 0,8",
+    "expected": "INSERT INTO inserttesta (f2[1], f2[2]) SELECT 0, 8"
   },
   {
     "comment": "insert - Statement 55",
-    "query": "insert into inserttestb (f3.if1, f3.if2) values (1,array['foo'])"
+    "query": "insert into inserttestb (f3.if1, f3.if2) values (1,array['foo'])",
+    "expected": "INSERT INTO inserttestb (f3.if1, f3.if2) VALUES (1, ARRAY['foo'])"
   },
   {
     "comment": "insert - Statement 56",
-    "query": "insert into inserttestb (f3.if1, f3.if2) values (1,'{foo}'), (2,'{bar}')"
+    "query": "insert into inserttestb (f3.if1, f3.if2) values (1,'{foo}'), (2,'{bar}')",
+    "expected": "INSERT INTO inserttestb (f3.if1, f3.if2) VALUES (1, '{foo}'), (2, '{bar}')"
   },
   {
     "comment": "insert - Statement 57",
-    "query": "insert into inserttestb (f3.if1, f3.if2) select 3, '{baz,quux}'"
+    "query": "insert into inserttestb (f3.if1, f3.if2) select 3, '{baz,quux}'",
+    "expected": "INSERT INTO inserttestb (f3.if1, f3.if2) SELECT 3, '{baz,quux}'"
   },
   {
     "comment": "insert - Statement 58",
-    "query": "insert into inserttestb (f3.if1, f3.if2) values (1,default)"
+    "query": "insert into inserttestb (f3.if1, f3.if2) values (1,default)",
+    "expected": "INSERT INTO inserttestb (f3.if1, f3.if2) VALUES (1, DEFAULT)"
   },
   {
     "comment": "insert - Statement 59",
-    "query": "insert into inserttestb (f3.if1, f3.if2) values (1,array[null])"
+    "query": "insert into inserttestb (f3.if1, f3.if2) values (1,array[null])",
+    "expected": "INSERT INTO inserttestb (f3.if1, f3.if2) VALUES (1, ARRAY[NULL])"
   },
   {
     "comment": "insert - Statement 60",
-    "query": "insert into inserttestb (f3.if1, f3.if2) values (1,'{null}'), (2,'{bar}')"
+    "query": "insert into inserttestb (f3.if1, f3.if2) values (1,'{null}'), (2,'{bar}')",
+    "expected": "INSERT INTO inserttestb (f3.if1, f3.if2) VALUES (1, '{null}'), (2, '{bar}')"
   },
   {
     "comment": "insert - Statement 61",
-    "query": "insert into inserttestb (f3.if1, f3.if2) select 3, '{null,quux}'"
+    "query": "insert into inserttestb (f3.if1, f3.if2) select 3, '{null,quux}'",
+    "expected": "INSERT INTO inserttestb (f3.if1, f3.if2) SELECT 3, '{null,quux}'"
   },
   {
     "comment": "insert - Statement 62",
-    "query": "insert into inserttestb (f3.if2[1], f3.if2[2]) values ('foo', 'bar')"
+    "query": "insert into inserttestb (f3.if2[1], f3.if2[2]) values ('foo', 'bar')",
+    "expected": "INSERT INTO inserttestb (f3.if2[1], f3.if2[2]) VALUES ('foo', 'bar')"
   },
   {
     "comment": "insert - Statement 63",
-    "query": "insert into inserttestb (f3.if2[1], f3.if2[2]) values ('foo', 'bar'), ('baz', 'quux')"
+    "query": "insert into inserttestb (f3.if2[1], f3.if2[2]) values ('foo', 'bar'), ('baz', 'quux')",
+    "expected": "INSERT INTO inserttestb (f3.if2[1], f3.if2[2]) VALUES ('foo', 'bar'), ('baz', 'quux')"
   },
   {
     "comment": "insert - Statement 64",
-    "query": "insert into inserttestb (f3.if2[1], f3.if2[2]) select 'bear', 'beer'"
+    "query": "insert into inserttestb (f3.if2[1], f3.if2[2]) select 'bear', 'beer'",
+    "expected": "INSERT INTO inserttestb (f3.if2[1], f3.if2[2]) SELECT 'bear', 'beer'"
   },
   {
     "comment": "insert - Statement 65",
-    "query": "insert into inserttestb (f3, f4[1].if2[1], f4[1].if2[2]) values (row(1,'{x}'), 'foo', 'bar')"
+    "query": "insert into inserttestb (f3, f4[1].if2[1], f4[1].if2[2]) values (row(1,'{x}'), 'foo', 'bar')",
+    "expected": "INSERT INTO inserttestb (f3, f4[1].if2[1], f4[1].if2[2]) VALUES (ROW(1, '{x}'), 'foo', 'bar')"
   },
   {
     "comment": "insert - Statement 66",
-    "query": "insert into inserttestb (f3, f4[1].if2[1], f4[1].if2[2]) values (row(1,'{x}'), 'foo', 'bar'), (row(2,'{y}'), 'baz', 'quux')"
+    "query": "insert into inserttestb (f3, f4[1].if2[1], f4[1].if2[2]) values (row(1,'{x}'), 'foo', 'bar'), (row(2,'{y}'), 'baz', 'quux')",
+    "expected": "INSERT INTO inserttestb (f3, f4[1].if2[1], f4[1].if2[2]) VALUES (ROW(1, '{x}'), 'foo', 'bar'), (ROW(2, '{y}'), 'baz', 'quux')"
   },
   {
     "comment": "insert - Statement 67",
-    "query": "insert into inserttestb (f3, f4[1].if2[1], f4[1].if2[2]) select row(1,'{x}')::insert_test_domain, 'bear', 'beer'"
+    "query": "insert into inserttestb (f3, f4[1].if2[1], f4[1].if2[2]) select row(1,'{x}')::insert_test_domain, 'bear', 'beer'",
+    "expected": "INSERT INTO inserttestb (f3, f4[1].if2[1], f4[1].if2[2]) SELECT CAST(ROW(1, '{x}') AS insert_test_domain), 'bear', 'beer'"
   },
   {
     "comment": "insert - Statement 68",
-    "query": "select * from inserttesta"
+    "query": "select * from inserttesta",
+    "expected": "SELECT * FROM inserttesta"
   },
   {
     "comment": "insert - Statement 69",
-    "query": "select * from inserttestb"
+    "query": "select * from inserttestb",
+    "expected": "SELECT * FROM inserttestb"
   },
   {
     "comment": "insert - Statement 70",
-    "query": "create rule irule1 as on insert to inserttest2 do also insert into inserttestb (f3.if2[1], f3.if2[2]) values (new.f1,new.f2)"
+    "query": "create rule irule1 as on insert to inserttest2 do also insert into inserttestb (f3.if2[1], f3.if2[2]) values (new.f1,new.f2)",
+    "expected": "CREATE RULE irule1 AS ON INSERT TO inserttest2 DO INSERT INTO inserttestb (f3.if2[1], f3.if2[2]) VALUES (new.f1, new.f2)"
   },
   {
     "comment": "insert - Statement 71",
-    "query": "create rule irule2 as on insert to inserttest2 do also insert into inserttestb (f4[1].if1, f4[1].if2[2]) values (1,'fool'),(new.f1,new.f2)"
+    "query": "create rule irule2 as on insert to inserttest2 do also insert into inserttestb (f4[1].if1, f4[1].if2[2]) values (1,'fool'),(new.f1,new.f2)",
+    "expected": "CREATE RULE irule2 AS ON INSERT TO inserttest2 DO INSERT INTO inserttestb (f4[1].if1, f4[1].if2[2]) VALUES (1, 'fool'), (new.f1, new.f2)"
   },
   {
     "comment": "insert - Statement 72",
-    "query": "create rule irule3 as on insert to inserttest2 do also insert into inserttestb (f4[1].if1, f4[1].if2[2]) select new.f1, new.f2"
+    "query": "create rule irule3 as on insert to inserttest2 do also insert into inserttestb (f4[1].if1, f4[1].if2[2]) select new.f1, new.f2",
+    "expected": "CREATE RULE irule3 AS ON INSERT TO inserttest2 DO INSERT INTO inserttestb (f4[1].if1, f4[1].if2[2]) SELECT new.f1, new.f2"
   },
   {
     "comment": "insert - Statement 73",
-    "query": "drop table inserttesta"
+    "query": "drop table inserttesta",
+    "expected": "DROP TABLE inserttesta"
   },
   {
     "comment": "insert - Statement 74",
-    "query": "drop table inserttestb"
+    "query": "drop table inserttestb",
+    "expected": "DROP TABLE inserttestb"
   },
   {
     "comment": "insert - Statement 75",
-    "query": "drop domain insert_pos_ints"
+    "query": "drop domain insert_pos_ints",
+    "expected": "DROP DOMAIN insert_pos_ints"
   },
   {
     "comment": "insert - Statement 76",
-    "query": "drop domain insert_test_domain"
+    "query": "drop domain insert_test_domain",
+    "expected": "DROP DOMAIN insert_test_domain"
   },
   {
     "comment": "insert - Statement 77",
-    "query": "create domain insert_nnarray as int[] check (value[1] is not null and value[2] is not null)"
+    "query": "create domain insert_nnarray as int[] check (value[1] is not null and value[2] is not null)",
+    "expected": "CREATE DOMAIN insert_nnarray AS INT[] CHECK (value[1] IS NOT NULL AND value[2] IS NOT NULL)"
   },
   {
     "comment": "insert - Statement 78",
-    "query": "create domain insert_test_domain as insert_test_type check ((value).if1 is not null and (value).if2 is not null)"
+    "query": "create domain insert_test_domain as insert_test_type check ((value).if1 is not null and (value).if2 is not null)",
+    "expected": "CREATE DOMAIN insert_test_domain AS insert_test_type CHECK ((value).if1 IS NOT NULL AND (value).if2 IS NOT NULL)"
   },
   {
     "comment": "insert - Statement 79",
-    "query": "create table inserttesta (f1 insert_nnarray)"
+    "query": "create table inserttesta (f1 insert_nnarray)",
+    "expected": "CREATE TABLE inserttesta (f1 insert_nnarray)"
   },
   {
     "comment": "insert - Statement 80",
-    "query": "insert into inserttesta (f1[1]) values (1)"
+    "query": "insert into inserttesta (f1[1]) values (1)",
+    "expected": "INSERT INTO inserttesta (f1[1]) VALUES (1)"
   },
   {
     "comment": "insert - Statement 81",
-    "query": "insert into inserttesta (f1[1], f1[2]) values (1, 2)"
+    "query": "insert into inserttesta (f1[1], f1[2]) values (1, 2)",
+    "expected": "INSERT INTO inserttesta (f1[1], f1[2]) VALUES (1, 2)"
   },
   {
     "comment": "insert - Statement 82",
-    "query": "create table inserttestb (f1 insert_test_domain)"
+    "query": "create table inserttestb (f1 insert_test_domain)",
+    "expected": "CREATE TABLE inserttestb (f1 insert_test_domain)"
   },
   {
     "comment": "insert - Statement 83",
-    "query": "insert into inserttestb (f1.if1) values (1)"
+    "query": "insert into inserttestb (f1.if1) values (1)",
+    "expected": "INSERT INTO inserttestb (f1.if1) VALUES (1)"
   },
   {
     "comment": "insert - Statement 84",
-    "query": "insert into inserttestb (f1.if1, f1.if2) values (1, '{foo}')"
+    "query": "insert into inserttestb (f1.if1, f1.if2) values (1, '{foo}')",
+    "expected": "INSERT INTO inserttestb (f1.if1, f1.if2) VALUES (1, '{foo}')"
   },
   {
     "comment": "insert - Statement 85",
-    "query": "drop domain insert_nnarray"
+    "query": "drop domain insert_nnarray",
+    "expected": "DROP DOMAIN insert_nnarray"
   },
   {
     "comment": "insert - Statement 86",
-    "query": "drop type insert_test_type cascade"
+    "query": "drop type insert_test_type cascade",
+    "expected": "DROP TYPE insert_test_type CASCADE"
   },
   {
     "comment": "insert - Statement 87",
-    "query": "create table range_parted ( a text, b int ) partition by range (a, (b+0))"
+    "query": "create table range_parted ( a text, b int ) partition by range (a, (b+0))",
+    "expected": "CREATE TABLE range_parted (a TEXT, b INT) PARTITION BY range (a, (b + 0))"
   },
   {
     "comment": "insert - Statement 88",
-    "query": "insert into range_parted values ('a', 11)"
+    "query": "insert into range_parted values ('a', 11)",
+    "expected": "INSERT INTO range_parted VALUES ('a', 11)"
   },
   {
     "comment": "insert - Statement 89",
-    "query": "create table part1 partition of range_parted for values from ('a', 1) to ('a', 10)"
+    "query": "create table part1 partition of range_parted for values from ('a', 1) to ('a', 10)",
+    "expected": "CREATE TABLE part1 PARTITION OF range_parted FOR VALUES FROM ('a', 1) TO ('a', 10)"
   },
   {
     "comment": "insert - Statement 90",
-    "query": "create table part2 partition of range_parted for values from ('a', 10) to ('a', 20)"
+    "query": "create table part2 partition of range_parted for values from ('a', 10) to ('a', 20)",
+    "expected": "CREATE TABLE part2 PARTITION OF range_parted FOR VALUES FROM ('a', 10) TO ('a', 20)"
   },
   {
     "comment": "insert - Statement 91",
-    "query": "create table part3 partition of range_parted for values from ('b', 1) to ('b', 10)"
+    "query": "create table part3 partition of range_parted for values from ('b', 1) to ('b', 10)",
+    "expected": "CREATE TABLE part3 PARTITION OF range_parted FOR VALUES FROM ('b', 1) TO ('b', 10)"
   },
   {
     "comment": "insert - Statement 92",
-    "query": "create table part4 partition of range_parted for values from ('b', 10) to ('b', 20)"
+    "query": "create table part4 partition of range_parted for values from ('b', 10) to ('b', 20)",
+    "expected": "CREATE TABLE part4 PARTITION OF range_parted FOR VALUES FROM ('b', 10) TO ('b', 20)"
   },
   {
     "comment": "insert - Statement 93",
-    "query": "insert into part1 values ('a', 11)"
+    "query": "insert into part1 values ('a', 11)",
+    "expected": "INSERT INTO part1 VALUES ('a', 11)"
   },
   {
     "comment": "insert - Statement 94",
-    "query": "insert into part1 values ('b', 1)"
+    "query": "insert into part1 values ('b', 1)",
+    "expected": "INSERT INTO part1 VALUES ('b', 1)"
   },
   {
     "comment": "insert - Statement 95",
-    "query": "insert into part1 values ('a', 1)"
+    "query": "insert into part1 values ('a', 1)",
+    "expected": "INSERT INTO part1 VALUES ('a', 1)"
   },
   {
     "comment": "insert - Statement 96",
-    "query": "insert into part4 values ('b', 21)"
+    "query": "insert into part4 values ('b', 21)",
+    "expected": "INSERT INTO part4 VALUES ('b', 21)"
   },
   {
     "comment": "insert - Statement 97",
-    "query": "insert into part4 values ('a', 10)"
+    "query": "insert into part4 values ('a', 10)",
+    "expected": "INSERT INTO part4 VALUES ('a', 10)"
   },
   {
     "comment": "insert - Statement 98",
-    "query": "insert into part4 values ('b', 10)"
+    "query": "insert into part4 values ('b', 10)",
+    "expected": "INSERT INTO part4 VALUES ('b', 10)"
   },
   {
     "comment": "insert - Statement 99",
-    "query": "insert into part1 values (null)"
+    "query": "insert into part1 values (null)",
+    "expected": "INSERT INTO part1 VALUES (NULL)"
   },
   {
     "comment": "insert - Statement 100",
-    "query": "insert into part1 values (1)"
+    "query": "insert into part1 values (1)",
+    "expected": "INSERT INTO part1 VALUES (1)"
   },
   {
     "comment": "insert - Statement 101",
-    "query": "create table list_parted ( a text, b int ) partition by list (lower(a))"
+    "query": "create table list_parted ( a text, b int ) partition by list (lower(a))",
+    "expected": "CREATE TABLE list_parted (a TEXT, b INT) PARTITION BY list (lower(a))"
   },
   {
     "comment": "insert - Statement 102",
-    "query": "create table part_aa_bb partition of list_parted FOR VALUES IN ('aa', 'bb')"
+    "query": "create table part_aa_bb partition of list_parted FOR VALUES IN ('aa', 'bb')",
+    "expected": "CREATE TABLE part_aa_bb PARTITION OF list_parted FOR VALUES IN ('aa', 'bb')"
   },
   {
     "comment": "insert - Statement 103",
-    "query": "create table part_cc_dd partition of list_parted FOR VALUES IN ('cc', 'dd')"
+    "query": "create table part_cc_dd partition of list_parted FOR VALUES IN ('cc', 'dd')",
+    "expected": "CREATE TABLE part_cc_dd PARTITION OF list_parted FOR VALUES IN ('cc', 'dd')"
   },
   {
     "comment": "insert - Statement 104",
-    "query": "create table part_null partition of list_parted FOR VALUES IN (null)"
+    "query": "create table part_null partition of list_parted FOR VALUES IN (null)",
+    "expected": "CREATE TABLE part_null PARTITION OF list_parted FOR VALUES IN (NULL)"
   },
   {
     "comment": "insert - Statement 105",
-    "query": "insert into part_aa_bb values ('cc', 1)"
+    "query": "insert into part_aa_bb values ('cc', 1)",
+    "expected": "INSERT INTO part_aa_bb VALUES ('cc', 1)"
   },
   {
     "comment": "insert - Statement 106",
-    "query": "insert into part_aa_bb values ('AAa', 1)"
+    "query": "insert into part_aa_bb values ('AAa', 1)",
+    "expected": "INSERT INTO part_aa_bb VALUES ('AAa', 1)"
   },
   {
     "comment": "insert - Statement 107",
-    "query": "insert into part_aa_bb values (null)"
+    "query": "insert into part_aa_bb values (null)",
+    "expected": "INSERT INTO part_aa_bb VALUES (NULL)"
   },
   {
     "comment": "insert - Statement 108",
-    "query": "insert into part_cc_dd values ('cC', 1)"
+    "query": "insert into part_cc_dd values ('cC', 1)",
+    "expected": "INSERT INTO part_cc_dd VALUES ('cC', 1)"
   },
   {
     "comment": "insert - Statement 109",
-    "query": "insert into part_null values (null, 0)"
+    "query": "insert into part_null values (null, 0)",
+    "expected": "INSERT INTO part_null VALUES (NULL, 0)"
   },
   {
     "comment": "insert - Statement 110",
-    "query": "create table part_ee_ff partition of list_parted for values in ('ee', 'ff') partition by range (b)"
+    "query": "create table part_ee_ff partition of list_parted for values in ('ee', 'ff') partition by range (b)",
+    "expected": "CREATE TABLE part_ee_ff PARTITION OF list_parted FOR VALUES IN ('ee', 'ff') PARTITION BY range (b)"
   },
   {
     "comment": "insert - Statement 111",
-    "query": "create table part_ee_ff1 partition of part_ee_ff for values from (1) to (10)"
+    "query": "create table part_ee_ff1 partition of part_ee_ff for values from (1) to (10)",
+    "expected": "CREATE TABLE part_ee_ff1 PARTITION OF part_ee_ff FOR VALUES FROM (1) TO (10)"
   },
   {
     "comment": "insert - Statement 112",
-    "query": "create table part_ee_ff2 partition of part_ee_ff for values from (10) to (20)"
+    "query": "create table part_ee_ff2 partition of part_ee_ff for values from (10) to (20)",
+    "expected": "CREATE TABLE part_ee_ff2 PARTITION OF part_ee_ff FOR VALUES FROM (10) TO (20)"
   },
   {
     "comment": "insert - Statement 113",
-    "query": "create table part_default partition of list_parted default"
+    "query": "create table part_default partition of list_parted default",
+    "expected": "CREATE TABLE part_default PARTITION OF list_parted DEFAULT"
   },
   {
     "comment": "insert - Statement 114",
-    "query": "insert into part_default values ('aa', 2)"
+    "query": "insert into part_default values ('aa', 2)",
+    "expected": "INSERT INTO part_default VALUES ('aa', 2)"
   },
   {
     "comment": "insert - Statement 115",
-    "query": "insert into part_default values (null, 2)"
+    "query": "insert into part_default values (null, 2)",
+    "expected": "INSERT INTO part_default VALUES (NULL, 2)"
   },
   {
     "comment": "insert - Statement 116",
-    "query": "insert into part_default values ('Zz', 2)"
+    "query": "insert into part_default values ('Zz', 2)",
+    "expected": "INSERT INTO part_default VALUES ('Zz', 2)"
   },
   {
     "comment": "insert - Statement 117",
-    "query": "drop table part_default"
+    "query": "drop table part_default",
+    "expected": "DROP TABLE part_default"
   },
   {
     "comment": "insert - Statement 118",
-    "query": "create table part_xx_yy partition of list_parted for values in ('xx', 'yy') partition by list (a)"
+    "query": "create table part_xx_yy partition of list_parted for values in ('xx', 'yy') partition by list (a)",
+    "expected": "CREATE TABLE part_xx_yy PARTITION OF list_parted FOR VALUES IN ('xx', 'yy') PARTITION BY list (a)"
   },
   {
     "comment": "insert - Statement 119",
-    "query": "create table part_xx_yy_p1 partition of part_xx_yy for values in ('xx')"
+    "query": "create table part_xx_yy_p1 partition of part_xx_yy for values in ('xx')",
+    "expected": "CREATE TABLE part_xx_yy_p1 PARTITION OF part_xx_yy FOR VALUES IN ('xx')"
   },
   {
     "comment": "insert - Statement 120",
-    "query": "create table part_xx_yy_defpart partition of part_xx_yy default"
+    "query": "create table part_xx_yy_defpart partition of part_xx_yy default",
+    "expected": "CREATE TABLE part_xx_yy_defpart PARTITION OF part_xx_yy DEFAULT"
   },
   {
     "comment": "insert - Statement 121",
-    "query": "create table part_default partition of list_parted default partition by range(b)"
+    "query": "create table part_default partition of list_parted default partition by range(b)",
+    "expected": "CREATE TABLE part_default PARTITION OF list_parted DEFAULT PARTITION BY range (b)"
   },
   {
     "comment": "insert - Statement 122",
-    "query": "create table part_default_p1 partition of part_default for values from (20) to (30)"
+    "query": "create table part_default_p1 partition of part_default for values from (20) to (30)",
+    "expected": "CREATE TABLE part_default_p1 PARTITION OF part_default FOR VALUES FROM (20) TO (30)"
   },
   {
     "comment": "insert - Statement 123",
-    "query": "create table part_default_p2 partition of part_default for values from (30) to (40)"
+    "query": "create table part_default_p2 partition of part_default for values from (30) to (40)",
+    "expected": "CREATE TABLE part_default_p2 PARTITION OF part_default FOR VALUES FROM (30) TO (40)"
   },
   {
     "comment": "insert - Statement 124",
-    "query": "insert into part_ee_ff1 values ('EE', 11)"
+    "query": "insert into part_ee_ff1 values ('EE', 11)",
+    "expected": "INSERT INTO part_ee_ff1 VALUES ('EE', 11)"
   },
   {
     "comment": "insert - Statement 125",
-    "query": "insert into part_default_p2 values ('gg', 43)"
+    "query": "insert into part_default_p2 values ('gg', 43)",
+    "expected": "INSERT INTO part_default_p2 VALUES ('gg', 43)"
   },
   {
     "comment": "insert - Statement 126",
-    "query": "insert into part_ee_ff1 values ('cc', 1)"
+    "query": "insert into part_ee_ff1 values ('cc', 1)",
+    "expected": "INSERT INTO part_ee_ff1 VALUES ('cc', 1)"
   },
   {
     "comment": "insert - Statement 127",
-    "query": "insert into part_default values ('gg', 43)"
+    "query": "insert into part_default values ('gg', 43)",
+    "expected": "INSERT INTO part_default VALUES ('gg', 43)"
   },
   {
     "comment": "insert - Statement 128",
-    "query": "insert into part_ee_ff1 values ('ff', 1)"
+    "query": "insert into part_ee_ff1 values ('ff', 1)",
+    "expected": "INSERT INTO part_ee_ff1 VALUES ('ff', 1)"
   },
   {
     "comment": "insert - Statement 129",
-    "query": "insert into part_ee_ff2 values ('ff', 11)"
+    "query": "insert into part_ee_ff2 values ('ff', 11)",
+    "expected": "INSERT INTO part_ee_ff2 VALUES ('ff', 11)"
   },
   {
     "comment": "insert - Statement 130",
-    "query": "insert into part_default_p1 values ('cd', 25)"
+    "query": "insert into part_default_p1 values ('cd', 25)",
+    "expected": "INSERT INTO part_default_p1 VALUES ('cd', 25)"
   },
   {
     "comment": "insert - Statement 131",
-    "query": "insert into part_default_p2 values ('de', 35)"
+    "query": "insert into part_default_p2 values ('de', 35)",
+    "expected": "INSERT INTO part_default_p2 VALUES ('de', 35)"
   },
   {
     "comment": "insert - Statement 132",
-    "query": "insert into list_parted values ('ab', 21)"
+    "query": "insert into list_parted values ('ab', 21)",
+    "expected": "INSERT INTO list_parted VALUES ('ab', 21)"
   },
   {
     "comment": "insert - Statement 133",
-    "query": "insert into list_parted values ('xx', 1)"
+    "query": "insert into list_parted values ('xx', 1)",
+    "expected": "INSERT INTO list_parted VALUES ('xx', 1)"
   },
   {
     "comment": "insert - Statement 134",
-    "query": "insert into list_parted values ('yy', 2)"
+    "query": "insert into list_parted values ('yy', 2)",
+    "expected": "INSERT INTO list_parted VALUES ('yy', 2)"
   },
   {
     "comment": "insert - Statement 135",
-    "query": "select tableoid::regclass, * from list_parted"
+    "query": "select tableoid::regclass, * from list_parted",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM list_parted"
   },
   {
     "comment": "insert - Statement 136",
-    "query": "insert into range_parted values ('a', 0)"
+    "query": "insert into range_parted values ('a', 0)",
+    "expected": "INSERT INTO range_parted VALUES ('a', 0)"
   },
   {
     "comment": "insert - Statement 137",
-    "query": "insert into range_parted values ('a', 1)"
+    "query": "insert into range_parted values ('a', 1)",
+    "expected": "INSERT INTO range_parted VALUES ('a', 1)"
   },
   {
     "comment": "insert - Statement 138",
-    "query": "insert into range_parted values ('a', 10)"
+    "query": "insert into range_parted values ('a', 10)",
+    "expected": "INSERT INTO range_parted VALUES ('a', 10)"
   },
   {
     "comment": "insert - Statement 139",
-    "query": "insert into range_parted values ('a', 20)"
+    "query": "insert into range_parted values ('a', 20)",
+    "expected": "INSERT INTO range_parted VALUES ('a', 20)"
   },
   {
     "comment": "insert - Statement 140",
-    "query": "insert into range_parted values ('b', 1)"
+    "query": "insert into range_parted values ('b', 1)",
+    "expected": "INSERT INTO range_parted VALUES ('b', 1)"
   },
   {
     "comment": "insert - Statement 141",
-    "query": "insert into range_parted values ('b', 10)"
+    "query": "insert into range_parted values ('b', 10)",
+    "expected": "INSERT INTO range_parted VALUES ('b', 10)"
   },
   {
     "comment": "insert - Statement 142",
-    "query": "insert into range_parted values ('a')"
+    "query": "insert into range_parted values ('a')",
+    "expected": "INSERT INTO range_parted VALUES ('a')"
   },
   {
     "comment": "insert - Statement 143",
-    "query": "create table part_def partition of range_parted default"
+    "query": "create table part_def partition of range_parted default",
+    "expected": "CREATE TABLE part_def PARTITION OF range_parted DEFAULT"
   },
   {
     "comment": "insert - Statement 144",
-    "query": "insert into part_def values ('b', 10)"
+    "query": "insert into part_def values ('b', 10)",
+    "expected": "INSERT INTO part_def VALUES ('b', 10)"
   },
   {
     "comment": "insert - Statement 145",
-    "query": "insert into part_def values ('c', 10)"
+    "query": "insert into part_def values ('c', 10)",
+    "expected": "INSERT INTO part_def VALUES ('c', 10)"
   },
   {
     "comment": "insert - Statement 146",
-    "query": "insert into range_parted values (null, null)"
+    "query": "insert into range_parted values (null, null)",
+    "expected": "INSERT INTO range_parted VALUES (NULL, NULL)"
   },
   {
     "comment": "insert - Statement 147",
-    "query": "insert into range_parted values ('a', null)"
+    "query": "insert into range_parted values ('a', null)",
+    "expected": "INSERT INTO range_parted VALUES ('a', NULL)"
   },
   {
     "comment": "insert - Statement 148",
-    "query": "insert into range_parted values (null, 19)"
+    "query": "insert into range_parted values (null, 19)",
+    "expected": "INSERT INTO range_parted VALUES (NULL, 19)"
   },
   {
     "comment": "insert - Statement 149",
-    "query": "insert into range_parted values ('b', 20)"
+    "query": "insert into range_parted values ('b', 20)",
+    "expected": "INSERT INTO range_parted VALUES ('b', 20)"
   },
   {
     "comment": "insert - Statement 150",
-    "query": "select tableoid::regclass, * from range_parted"
+    "query": "select tableoid::regclass, * from range_parted",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM range_parted"
   },
   {
     "comment": "insert - Statement 151",
-    "query": "insert into list_parted values (null, 1)"
+    "query": "insert into list_parted values (null, 1)",
+    "expected": "INSERT INTO list_parted VALUES (NULL, 1)"
   },
   {
     "comment": "insert - Statement 152",
-    "query": "insert into list_parted (a) values ('aA')"
+    "query": "insert into list_parted (a) values ('aA')",
+    "expected": "INSERT INTO list_parted (a) VALUES ('aA')"
   },
   {
     "comment": "insert - Statement 153",
-    "query": "insert into list_parted values ('EE', 0)"
+    "query": "insert into list_parted values ('EE', 0)",
+    "expected": "INSERT INTO list_parted VALUES ('EE', 0)"
   },
   {
     "comment": "insert - Statement 154",
-    "query": "insert into part_ee_ff values ('EE', 0)"
+    "query": "insert into part_ee_ff values ('EE', 0)",
+    "expected": "INSERT INTO part_ee_ff VALUES ('EE', 0)"
   },
   {
     "comment": "insert - Statement 155",
-    "query": "insert into list_parted values ('EE', 1)"
+    "query": "insert into list_parted values ('EE', 1)",
+    "expected": "INSERT INTO list_parted VALUES ('EE', 1)"
   },
   {
     "comment": "insert - Statement 156",
-    "query": "insert into part_ee_ff values ('EE', 10)"
+    "query": "insert into part_ee_ff values ('EE', 10)",
+    "expected": "INSERT INTO part_ee_ff VALUES ('EE', 10)"
   },
   {
     "comment": "insert - Statement 157",
-    "query": "create table part_gg partition of list_parted for values in ('gg') partition by range (b)"
+    "query": "create table part_gg partition of list_parted for values in ('gg') partition by range (b)",
+    "expected": "CREATE TABLE part_gg PARTITION OF list_parted FOR VALUES IN ('gg') PARTITION BY range (b)"
   },
   {
     "comment": "insert - Statement 158",
-    "query": "create table part_gg1 partition of part_gg for values from (minvalue) to (1)"
+    "query": "create table part_gg1 partition of part_gg for values from (minvalue) to (1)",
+    "expected": "CREATE TABLE part_gg1 PARTITION OF part_gg FOR VALUES FROM (minvalue) TO (1)"
   },
   {
     "comment": "insert - Statement 159",
-    "query": "create table part_gg2 partition of part_gg for values from (1) to (10) partition by range (b)"
+    "query": "create table part_gg2 partition of part_gg for values from (1) to (10) partition by range (b)",
+    "expected": "CREATE TABLE part_gg2 PARTITION OF part_gg FOR VALUES FROM (1) TO (10) PARTITION BY range (b)"
   },
   {
     "comment": "insert - Statement 160",
-    "query": "create table part_gg2_1 partition of part_gg2 for values from (1) to (5)"
+    "query": "create table part_gg2_1 partition of part_gg2 for values from (1) to (5)",
+    "expected": "CREATE TABLE part_gg2_1 PARTITION OF part_gg2 FOR VALUES FROM (1) TO (5)"
   },
   {
     "comment": "insert - Statement 161",
-    "query": "create table part_gg2_2 partition of part_gg2 for values from (5) to (10)"
+    "query": "create table part_gg2_2 partition of part_gg2 for values from (5) to (10)",
+    "expected": "CREATE TABLE part_gg2_2 PARTITION OF part_gg2 FOR VALUES FROM (5) TO (10)"
   },
   {
     "comment": "insert - Statement 162",
-    "query": "create table part_ee_ff3 partition of part_ee_ff for values from (20) to (30) partition by range (b)"
+    "query": "create table part_ee_ff3 partition of part_ee_ff for values from (20) to (30) partition by range (b)",
+    "expected": "CREATE TABLE part_ee_ff3 PARTITION OF part_ee_ff FOR VALUES FROM (20) TO (30) PARTITION BY range (b)"
   },
   {
     "comment": "insert - Statement 163",
-    "query": "create table part_ee_ff3_1 partition of part_ee_ff3 for values from (20) to (25)"
+    "query": "create table part_ee_ff3_1 partition of part_ee_ff3 for values from (20) to (25)",
+    "expected": "CREATE TABLE part_ee_ff3_1 PARTITION OF part_ee_ff3 FOR VALUES FROM (20) TO (25)"
   },
   {
     "comment": "insert - Statement 164",
-    "query": "create table part_ee_ff3_2 partition of part_ee_ff3 for values from (25) to (30)"
+    "query": "create table part_ee_ff3_2 partition of part_ee_ff3 for values from (25) to (30)",
+    "expected": "CREATE TABLE part_ee_ff3_2 PARTITION OF part_ee_ff3 FOR VALUES FROM (25) TO (30)"
   },
   {
     "comment": "insert - Statement 165",
-    "query": "truncate list_parted"
+    "query": "truncate list_parted",
+    "expected": "TRUNCATE TABLE list_parted CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "insert - Statement 166",
-    "query": "insert into list_parted values ('aa'), ('cc')"
+    "query": "insert into list_parted values ('aa'), ('cc')",
+    "expected": "INSERT INTO list_parted VALUES ('aa'), ('cc')"
   },
   {
     "comment": "insert - Statement 167",
-    "query": "insert into list_parted select 'Ff', s.a from generate_series(1, 29) s(a)"
+    "query": "insert into list_parted select 'Ff', s.a from generate_series(1, 29) s(a)",
+    "expected": "INSERT INTO list_parted SELECT 'Ff', s.a FROM generate_series(1, 29) AS s(a)"
   },
   {
     "comment": "insert - Statement 168",
-    "query": "insert into list_parted select 'gg', s.a from generate_series(1, 9) s(a)"
+    "query": "insert into list_parted select 'gg', s.a from generate_series(1, 9) s(a)",
+    "expected": "INSERT INTO list_parted SELECT 'gg', s.a FROM generate_series(1, 9) AS s(a)"
   },
   {
     "comment": "insert - Statement 169",
-    "query": "insert into list_parted (b) values (1)"
+    "query": "insert into list_parted (b) values (1)",
+    "expected": "INSERT INTO list_parted (b) VALUES (1)"
   },
   {
     "comment": "insert - Statement 170",
-    "query": "select tableoid::regclass::text, a, min(b) as min_b, max(b) as max_b from list_parted group by 1, 2 order by 1"
+    "query": "select tableoid::regclass::text, a, min(b) as min_b, max(b) as max_b from list_parted group by 1, 2 order by 1",
+    "expected": "SELECT CAST(CAST(tableoid AS regclass) AS TEXT), a, MIN(b) AS min_b, MAX(b) AS max_b FROM list_parted GROUP BY 1, 2 ORDER BY 1"
   },
   {
     "comment": "insert - Statement 171",
-    "query": "create table hash_parted ( a int ) partition by hash (a part_test_int4_ops)"
+    "query": "create table hash_parted ( a int ) partition by hash (a part_test_int4_ops)",
+    "expected": "CREATE TABLE hash_parted (a INT) PARTITION BY hash (a part_test_int4_ops)"
   },
   {
     "comment": "insert - Statement 172",
-    "query": "create table hpart0 partition of hash_parted for values with (modulus 4, remainder 0)"
+    "query": "create table hpart0 partition of hash_parted for values with (modulus 4, remainder 0)",
+    "expected": "CREATE TABLE hpart0 PARTITION OF hash_parted FOR VALUES WITH (modulus 4, remainder 0)"
   },
   {
     "comment": "insert - Statement 173",
-    "query": "create table hpart1 partition of hash_parted for values with (modulus 4, remainder 1)"
+    "query": "create table hpart1 partition of hash_parted for values with (modulus 4, remainder 1)",
+    "expected": "CREATE TABLE hpart1 PARTITION OF hash_parted FOR VALUES WITH (modulus 4, remainder 1)"
   },
   {
     "comment": "insert - Statement 174",
-    "query": "create table hpart2 partition of hash_parted for values with (modulus 4, remainder 2)"
+    "query": "create table hpart2 partition of hash_parted for values with (modulus 4, remainder 2)",
+    "expected": "CREATE TABLE hpart2 PARTITION OF hash_parted FOR VALUES WITH (modulus 4, remainder 2)"
   },
   {
     "comment": "insert - Statement 175",
-    "query": "create table hpart3 partition of hash_parted for values with (modulus 4, remainder 3)"
+    "query": "create table hpart3 partition of hash_parted for values with (modulus 4, remainder 3)",
+    "expected": "CREATE TABLE hpart3 PARTITION OF hash_parted FOR VALUES WITH (modulus 4, remainder 3)"
   },
   {
     "comment": "insert - Statement 176",
-    "query": "insert into hash_parted values(generate_series(1,10))"
+    "query": "insert into hash_parted values(generate_series(1,10))",
+    "expected": "INSERT INTO hash_parted VALUES (generate_series(1, 10))"
   },
   {
     "comment": "insert - Statement 177",
-    "query": "insert into hpart0 values(12),(16)"
+    "query": "insert into hpart0 values(12),(16)",
+    "expected": "INSERT INTO hpart0 VALUES (12), (16)"
   },
   {
     "comment": "insert - Statement 178",
-    "query": "insert into hpart0 values(11)"
+    "query": "insert into hpart0 values(11)",
+    "expected": "INSERT INTO hpart0 VALUES (11)"
   },
   {
     "comment": "insert - Statement 179",
-    "query": "insert into hpart3 values(11)"
+    "query": "insert into hpart3 values(11)",
+    "expected": "INSERT INTO hpart3 VALUES (11)"
   },
   {
     "comment": "insert - Statement 180",
-    "query": "select tableoid::regclass as part, a, a%4 as \"remainder = a % 4\" from hash_parted order by part"
+    "query": "select tableoid::regclass as part, a, a%4 as \"remainder = a % 4\" from hash_parted order by part",
+    "expected": "SELECT CAST(tableoid AS regclass) AS part, a, a % 4 AS \"remainder = a % 4\" FROM hash_parted ORDER BY part"
   },
   {
     "comment": "insert - Statement 181",
-    "query": "drop table hash_parted"
+    "query": "drop table hash_parted",
+    "expected": "DROP TABLE hash_parted"
   },
   {
     "comment": "insert - Statement 182",
-    "query": "create table list_parted (a int) partition by list (a)"
+    "query": "create table list_parted (a int) partition by list (a)",
+    "expected": "CREATE TABLE list_parted (a INT) PARTITION BY list (a)"
   },
   {
     "comment": "insert - Statement 183",
-    "query": "insert into part_default values (1)"
+    "query": "insert into part_default values (1)",
+    "expected": "INSERT INTO part_default VALUES (1)"
   },
   {
     "comment": "insert - Statement 184",
-    "query": "insert into part_default values (-1)"
+    "query": "insert into part_default values (-1)",
+    "expected": "INSERT INTO part_default VALUES (-1)"
   },
   {
     "comment": "insert - Statement 185",
-    "query": "select tableoid::regclass, a from list_parted"
+    "query": "select tableoid::regclass, a from list_parted",
+    "expected": "SELECT CAST(tableoid AS regclass), a FROM list_parted"
   },
   {
     "comment": "insert - Statement 186",
-    "query": "drop table list_parted"
+    "query": "drop table list_parted",
+    "expected": "DROP TABLE list_parted"
   },
   {
     "comment": "insert - Statement 187",
-    "query": "create table mlparted (a int, b int) partition by range (a, b)"
+    "query": "create table mlparted (a int, b int) partition by range (a, b)",
+    "expected": "CREATE TABLE mlparted (a INT, b INT) PARTITION BY range (a, b)"
   },
   {
     "comment": "insert - Statement 188",
-    "query": "create table mlparted1 (b int not null, a int not null) partition by range ((b+0))"
+    "query": "create table mlparted1 (b int not null, a int not null) partition by range ((b+0))",
+    "expected": "CREATE TABLE mlparted1 (b INT NOT NULL, a INT NOT NULL) PARTITION BY range ((b + 0))"
   },
   {
     "comment": "insert - Statement 189",
-    "query": "create table mlparted11 (like mlparted1)"
+    "query": "create table mlparted11 (like mlparted1)",
+    "expected": "CREATE TABLE mlparted11 (LIKE mlparted1)"
   },
   {
     "comment": "insert - Statement 190",
-    "query": "alter table mlparted11 drop a"
+    "query": "alter table mlparted11 drop a",
+    "expected": "ALTER TABLE mlparted11 DROP COLUMN a"
   },
   {
     "comment": "insert - Statement 191",
-    "query": "alter table mlparted11 add a int"
+    "query": "alter table mlparted11 add a int",
+    "expected": "ALTER TABLE mlparted11 ADD COLUMN a INT"
   },
   {
     "comment": "insert - Statement 192",
-    "query": "alter table mlparted11 add a int not null"
+    "query": "alter table mlparted11 add a int not null",
+    "expected": "ALTER TABLE mlparted11 ADD COLUMN a INT NOT NULL"
   },
   {
     "comment": "insert - Statement 193",
-    "query": "select attrelid::regclass, attname, attnum from pg_attribute where attname = 'a' and (attrelid = 'mlparted'::regclass or attrelid = 'mlparted1'::regclass or attrelid = 'mlparted11'::regclass) order by attrelid::regclass::text"
+    "query": "select attrelid::regclass, attname, attnum from pg_attribute where attname = 'a' and (attrelid = 'mlparted'::regclass or attrelid = 'mlparted1'::regclass or attrelid = 'mlparted11'::regclass) order by attrelid::regclass::text",
+    "expected": "SELECT CAST(attrelid AS regclass), attname, attnum FROM pg_attribute WHERE attname = 'a' AND (attrelid = CAST('mlparted' AS regclass) OR attrelid = CAST('mlparted1' AS regclass) OR attrelid = CAST('mlparted11' AS regclass)) ORDER BY CAST(CAST(attrelid AS regclass) AS TEXT)"
   },
   {
     "comment": "insert - Statement 194",
-    "query": "alter table mlparted1 attach partition mlparted11 for values from (2) to (5)"
+    "query": "alter table mlparted1 attach partition mlparted11 for values from (2) to (5)",
+    "expected": "ALTER TABLE mlparted1 ATTACH PARTITION mlparted11 FOR VALUES FROM (2) TO (5)"
   },
   {
     "comment": "insert - Statement 195",
-    "query": "alter table mlparted attach partition mlparted1 for values from (1, 2) to (1, 10)"
+    "query": "alter table mlparted attach partition mlparted1 for values from (1, 2) to (1, 10)",
+    "expected": "ALTER TABLE mlparted ATTACH PARTITION mlparted1 FOR VALUES FROM (1, 2) TO (1, 10)"
   },
   {
     "comment": "insert - Statement 196",
-    "query": "insert into mlparted values (1, 2)"
+    "query": "insert into mlparted values (1, 2)",
+    "expected": "INSERT INTO mlparted VALUES (1, 2)"
   },
   {
     "comment": "insert - Statement 197",
-    "query": "select tableoid::regclass, * from mlparted"
+    "query": "select tableoid::regclass, * from mlparted",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM mlparted"
   },
   {
     "comment": "insert - Statement 198",
-    "query": "insert into mlparted (a, b) values (1, 5)"
+    "query": "insert into mlparted (a, b) values (1, 5)",
+    "expected": "INSERT INTO mlparted (a, b) VALUES (1, 5)"
   },
   {
     "comment": "insert - Statement 199",
-    "query": "truncate mlparted"
+    "query": "truncate mlparted",
+    "expected": "TRUNCATE TABLE mlparted CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "insert - Statement 200",
-    "query": "alter table mlparted add constraint check_b check (b = 3)"
+    "query": "alter table mlparted add constraint check_b check (b = 3)",
+    "expected": "ALTER TABLE mlparted ADD CONSTRAINT check_b CHECK (b = 3)"
   },
   {
     "comment": "insert - Statement 201",
-    "query": "create function mlparted11_trig_fn() returns trigger AS $$ begin NEW.b := 4"
-  },
-  {
-    "comment": "insert - Statement 202",
-    "query": "return NEW"
-  },
-  {
-    "comment": "insert - Statement 203",
-    "query": "end"
-  },
-  {
-    "comment": "insert - Statement 204",
-    "query": "$$ language plpgsql"
+    "query": "create function mlparted11_trig_fn() returns trigger AS $$ begin   NEW.b := 4;   return NEW; end; $$ language plpgsql;",
+    "expected": "CREATE FUNCTION mlparted11_trig_fn () RETURNS trigger LANGUAGE plpgsql AS $$ begin   NEW.b := 4;   return NEW; end; $$"
   },
   {
     "comment": "insert - Statement 205",
-    "query": "create trigger mlparted11_trig before insert ON mlparted11 for each row execute procedure mlparted11_trig_fn()"
+    "query": "create trigger mlparted11_trig before insert ON mlparted11 for each row execute procedure mlparted11_trig_fn()",
+    "expected": "CREATE TRIGGER mlparted11_trig BEFORE INSERT ON mlparted11 FOR EACH ROW EXECUTE FUNCTION mlparted11_trig_fn()"
   },
   {
     "comment": "insert - Statement 206",
-    "query": "drop trigger mlparted11_trig on mlparted11"
+    "query": "drop trigger mlparted11_trig on mlparted11",
+    "expected": "DROP TRIGGER mlparted11_trig ON mlparted11"
   },
   {
     "comment": "insert - Statement 207",
-    "query": "drop function mlparted11_trig_fn()"
+    "query": "drop function mlparted11_trig_fn()",
+    "expected": "DROP FUNCTION mlparted11_trig_fn()"
   },
   {
     "comment": "insert - Statement 208",
-    "query": "insert into mlparted1 (a, b) values (2, 3)"
+    "query": "insert into mlparted1 (a, b) values (2, 3)",
+    "expected": "INSERT INTO mlparted1 (a, b) VALUES (2, 3)"
   },
   {
     "comment": "insert - Statement 209",
-    "query": "create table lparted_nonullpart (a int, b char) partition by list (b)"
+    "query": "create table lparted_nonullpart (a int, b char) partition by list (b)",
+    "expected": "CREATE TABLE lparted_nonullpart (a INT, b CHAR(1)) PARTITION BY list (b)"
   },
   {
     "comment": "insert - Statement 210",
-    "query": "create table lparted_nonullpart_a partition of lparted_nonullpart for values in ('a')"
+    "query": "create table lparted_nonullpart_a partition of lparted_nonullpart for values in ('a')",
+    "expected": "CREATE TABLE lparted_nonullpart_a PARTITION OF lparted_nonullpart FOR VALUES IN ('a')"
   },
   {
     "comment": "insert - Statement 211",
-    "query": "insert into lparted_nonullpart values (1)"
+    "query": "insert into lparted_nonullpart values (1)",
+    "expected": "INSERT INTO lparted_nonullpart VALUES (1)"
   },
   {
     "comment": "insert - Statement 212",
-    "query": "drop table lparted_nonullpart"
+    "query": "drop table lparted_nonullpart",
+    "expected": "DROP TABLE lparted_nonullpart"
   },
   {
     "comment": "insert - Statement 213",
-    "query": "alter table mlparted drop constraint check_b"
+    "query": "alter table mlparted drop constraint check_b",
+    "expected": "ALTER TABLE mlparted DROP CONSTRAINT check_b"
   },
   {
     "comment": "insert - Statement 214",
-    "query": "create table mlparted12 partition of mlparted1 for values from (5) to (10)"
+    "query": "create table mlparted12 partition of mlparted1 for values from (5) to (10)",
+    "expected": "CREATE TABLE mlparted12 PARTITION OF mlparted1 FOR VALUES FROM (5) TO (10)"
   },
   {
     "comment": "insert - Statement 215",
-    "query": "create table mlparted2 (b int not null, a int not null)"
+    "query": "create table mlparted2 (b int not null, a int not null)",
+    "expected": "CREATE TABLE mlparted2 (b INT NOT NULL, a INT NOT NULL)"
   },
   {
     "comment": "insert - Statement 216",
-    "query": "alter table mlparted attach partition mlparted2 for values from (1, 10) to (1, 20)"
+    "query": "alter table mlparted attach partition mlparted2 for values from (1, 10) to (1, 20)",
+    "expected": "ALTER TABLE mlparted ATTACH PARTITION mlparted2 FOR VALUES FROM (1, 10) TO (1, 20)"
   },
   {
     "comment": "insert - Statement 217",
-    "query": "create table mlparted3 partition of mlparted for values from (1, 20) to (1, 30)"
+    "query": "create table mlparted3 partition of mlparted for values from (1, 20) to (1, 30)",
+    "expected": "CREATE TABLE mlparted3 PARTITION OF mlparted FOR VALUES FROM (1, 20) TO (1, 30)"
   },
   {
     "comment": "insert - Statement 218",
-    "query": "create table mlparted4 (like mlparted)"
+    "query": "create table mlparted4 (like mlparted)",
+    "expected": "CREATE TABLE mlparted4 (LIKE mlparted)"
   },
   {
     "comment": "insert - Statement 219",
-    "query": "alter table mlparted4 drop a"
+    "query": "alter table mlparted4 drop a",
+    "expected": "ALTER TABLE mlparted4 DROP COLUMN a"
   },
   {
     "comment": "insert - Statement 220",
-    "query": "alter table mlparted4 add a int not null"
+    "query": "alter table mlparted4 add a int not null",
+    "expected": "ALTER TABLE mlparted4 ADD COLUMN a INT NOT NULL"
   },
   {
     "comment": "insert - Statement 221",
-    "query": "alter table mlparted attach partition mlparted4 for values from (1, 30) to (1, 40)"
+    "query": "alter table mlparted attach partition mlparted4 for values from (1, 30) to (1, 40)",
+    "expected": "ALTER TABLE mlparted ATTACH PARTITION mlparted4 FOR VALUES FROM (1, 30) TO (1, 40)"
   },
   {
     "comment": "insert - Statement 222",
-    "query": "with ins (a, b, c) as (insert into mlparted (b, a) select s.a, 1 from generate_series(2, 39) s(a) returning tableoid::regclass, *) select a, b, min(c), max(c) from ins group by a, b order by 1"
+    "query": "with ins (a, b, c) as (insert into mlparted (b, a) select s.a, 1 from generate_series(2, 39) s(a) returning tableoid::regclass, *) select a, b, min(c), max(c) from ins group by a, b order by 1",
+    "expected": "WITH ins(a, b, c) AS (INSERT INTO mlparted (b, a) SELECT s.a, 1 FROM generate_series(2, 39) AS s(a) RETURNING CAST(tableoid AS regclass), *) SELECT a, b, MIN(c), MAX(c) FROM ins GROUP BY a, b ORDER BY 1"
   },
   {
     "comment": "insert - Statement 223",
-    "query": "alter table mlparted add c text"
+    "query": "alter table mlparted add c text",
+    "expected": "ALTER TABLE mlparted ADD COLUMN c TEXT"
   },
   {
     "comment": "insert - Statement 224",
-    "query": "create table mlparted5 (c text, a int not null, b int not null) partition by list (c)"
+    "query": "create table mlparted5 (c text, a int not null, b int not null) partition by list (c)",
+    "expected": "CREATE TABLE mlparted5 (c TEXT, a INT NOT NULL, b INT NOT NULL) PARTITION BY list (c)"
   },
   {
     "comment": "insert - Statement 225",
-    "query": "create table mlparted5a (a int not null, c text, b int not null)"
+    "query": "create table mlparted5a (a int not null, c text, b int not null)",
+    "expected": "CREATE TABLE mlparted5a (a INT NOT NULL, c TEXT, b INT NOT NULL)"
   },
   {
     "comment": "insert - Statement 226",
-    "query": "alter table mlparted5 attach partition mlparted5a for values in ('a')"
+    "query": "alter table mlparted5 attach partition mlparted5a for values in ('a')",
+    "expected": "ALTER TABLE mlparted5 ATTACH PARTITION mlparted5a FOR VALUES IN ('a')"
   },
   {
     "comment": "insert - Statement 227",
-    "query": "alter table mlparted attach partition mlparted5 for values from (1, 40) to (1, 50)"
+    "query": "alter table mlparted attach partition mlparted5 for values from (1, 40) to (1, 50)",
+    "expected": "ALTER TABLE mlparted ATTACH PARTITION mlparted5 FOR VALUES FROM (1, 40) TO (1, 50)"
   },
   {
     "comment": "insert - Statement 228",
-    "query": "alter table mlparted add constraint check_b check (a = 1 and b < 45)"
+    "query": "alter table mlparted add constraint check_b check (a = 1 and b \u003c 45)",
+    "expected": "ALTER TABLE mlparted ADD CONSTRAINT check_b CHECK (a = 1 AND b \u003c 45)"
   },
   {
     "comment": "insert - Statement 229",
-    "query": "insert into mlparted values (1, 45, 'a')"
+    "query": "insert into mlparted values (1, 45, 'a')",
+    "expected": "INSERT INTO mlparted VALUES (1, 45, 'a')"
   },
   {
     "comment": "insert - Statement 230",
-    "query": "create function mlparted5abrtrig_func() returns trigger as $$ begin new.c = 'b'; return new; end; $$ language plpgsql"
+    "query": "create function mlparted5abrtrig_func() returns trigger as $$ begin new.c = 'b'; return new; end; $$ language plpgsql",
+    "expected": "CREATE FUNCTION mlparted5abrtrig_func () RETURNS trigger LANGUAGE plpgsql AS $$ begin new.c = 'b'; return new; end; $$"
   },
   {
     "comment": "insert - Statement 231",
-    "query": "create trigger mlparted5abrtrig before insert on mlparted5a for each row execute procedure mlparted5abrtrig_func()"
+    "query": "create trigger mlparted5abrtrig before insert on mlparted5a for each row execute procedure mlparted5abrtrig_func()",
+    "expected": "CREATE TRIGGER mlparted5abrtrig BEFORE INSERT ON mlparted5a FOR EACH ROW EXECUTE FUNCTION mlparted5abrtrig_func()"
   },
   {
     "comment": "insert - Statement 232",
-    "query": "insert into mlparted5 (a, b, c) values (1, 40, 'a')"
+    "query": "insert into mlparted5 (a, b, c) values (1, 40, 'a')",
+    "expected": "INSERT INTO mlparted5 (a, b, c) VALUES (1, 40, 'a')"
   },
   {
     "comment": "insert - Statement 233",
-    "query": "drop table mlparted5"
+    "query": "drop table mlparted5",
+    "expected": "DROP TABLE mlparted5"
   },
   {
     "comment": "insert - Statement 234",
-    "query": "create table mlparted_def partition of mlparted default partition by range(a)"
+    "query": "create table mlparted_def partition of mlparted default partition by range(a)",
+    "expected": "CREATE TABLE mlparted_def PARTITION OF mlparted DEFAULT PARTITION BY range (a)"
   },
   {
     "comment": "insert - Statement 235",
-    "query": "create table mlparted_def1 partition of mlparted_def for values from (40) to (50)"
+    "query": "create table mlparted_def1 partition of mlparted_def for values from (40) to (50)",
+    "expected": "CREATE TABLE mlparted_def1 PARTITION OF mlparted_def FOR VALUES FROM (40) TO (50)"
   },
   {
     "comment": "insert - Statement 236",
-    "query": "create table mlparted_def2 partition of mlparted_def for values from (50) to (60)"
+    "query": "create table mlparted_def2 partition of mlparted_def for values from (50) to (60)",
+    "expected": "CREATE TABLE mlparted_def2 PARTITION OF mlparted_def FOR VALUES FROM (50) TO (60)"
   },
   {
     "comment": "insert - Statement 237",
-    "query": "insert into mlparted values (40, 100)"
+    "query": "insert into mlparted values (40, 100)",
+    "expected": "INSERT INTO mlparted VALUES (40, 100)"
   },
   {
     "comment": "insert - Statement 238",
-    "query": "insert into mlparted_def1 values (42, 100)"
+    "query": "insert into mlparted_def1 values (42, 100)",
+    "expected": "INSERT INTO mlparted_def1 VALUES (42, 100)"
   },
   {
     "comment": "insert - Statement 239",
-    "query": "insert into mlparted_def2 values (54, 50)"
+    "query": "insert into mlparted_def2 values (54, 50)",
+    "expected": "INSERT INTO mlparted_def2 VALUES (54, 50)"
   },
   {
     "comment": "insert - Statement 240",
-    "query": "insert into mlparted values (70, 100)"
+    "query": "insert into mlparted values (70, 100)",
+    "expected": "INSERT INTO mlparted VALUES (70, 100)"
   },
   {
     "comment": "insert - Statement 241",
-    "query": "insert into mlparted_def1 values (52, 50)"
+    "query": "insert into mlparted_def1 values (52, 50)",
+    "expected": "INSERT INTO mlparted_def1 VALUES (52, 50)"
   },
   {
     "comment": "insert - Statement 242",
-    "query": "insert into mlparted_def2 values (34, 50)"
+    "query": "insert into mlparted_def2 values (34, 50)",
+    "expected": "INSERT INTO mlparted_def2 VALUES (34, 50)"
   },
   {
     "comment": "insert - Statement 243",
-    "query": "create table mlparted_defd partition of mlparted_def default"
+    "query": "create table mlparted_defd partition of mlparted_def default",
+    "expected": "CREATE TABLE mlparted_defd PARTITION OF mlparted_def DEFAULT"
   },
   {
     "comment": "insert - Statement 244",
-    "query": "select tableoid::regclass, * from mlparted_def"
+    "query": "select tableoid::regclass, * from mlparted_def",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM mlparted_def"
   },
   {
     "comment": "insert - Statement 245",
-    "query": "alter table mlparted add d int, add e int"
+    "query": "alter table mlparted add d int, add e int",
+    "expected": "ALTER TABLE mlparted ADD COLUMN d INT, ADD COLUMN e INT"
   },
   {
     "comment": "insert - Statement 246",
-    "query": "alter table mlparted drop e"
+    "query": "alter table mlparted drop e",
+    "expected": "ALTER TABLE mlparted DROP COLUMN e"
   },
   {
     "comment": "insert - Statement 247",
-    "query": "create table mlparted5 partition of mlparted for values from (1, 40) to (1, 50) partition by range (c)"
+    "query": "create table mlparted5 partition of mlparted for values from (1, 40) to (1, 50) partition by range (c)",
+    "expected": "CREATE TABLE mlparted5 PARTITION OF mlparted FOR VALUES FROM (1, 40) TO (1, 50) PARTITION BY range (c)"
   },
   {
     "comment": "insert - Statement 248",
-    "query": "create table mlparted5_ab partition of mlparted5 for values from ('a') to ('c') partition by list (c)"
+    "query": "create table mlparted5_ab partition of mlparted5 for values from ('a') to ('c') partition by list (c)",
+    "expected": "CREATE TABLE mlparted5_ab PARTITION OF mlparted5 FOR VALUES FROM ('a') TO ('c') PARTITION BY list (c)"
   },
   {
     "comment": "insert - Statement 249",
-    "query": "create table mlparted5_cd partition of mlparted5 for values from ('c') to ('e') partition by list (c)"
+    "query": "create table mlparted5_cd partition of mlparted5 for values from ('c') to ('e') partition by list (c)",
+    "expected": "CREATE TABLE mlparted5_cd PARTITION OF mlparted5 FOR VALUES FROM ('c') TO ('e') PARTITION BY list (c)"
   },
   {
     "comment": "insert - Statement 250",
-    "query": "create table mlparted5_a partition of mlparted5_ab for values in ('a')"
+    "query": "create table mlparted5_a partition of mlparted5_ab for values in ('a')",
+    "expected": "CREATE TABLE mlparted5_a PARTITION OF mlparted5_ab FOR VALUES IN ('a')"
   },
   {
     "comment": "insert - Statement 251",
-    "query": "create table mlparted5_b (d int, b int, c text, a int)"
+    "query": "create table mlparted5_b (d int, b int, c text, a int)",
+    "expected": "CREATE TABLE mlparted5_b (d INT, b INT, c TEXT, a INT)"
   },
   {
     "comment": "insert - Statement 252",
-    "query": "alter table mlparted5_ab attach partition mlparted5_b for values in ('b')"
+    "query": "alter table mlparted5_ab attach partition mlparted5_b for values in ('b')",
+    "expected": "ALTER TABLE mlparted5_ab ATTACH PARTITION mlparted5_b FOR VALUES IN ('b')"
   },
   {
     "comment": "insert - Statement 253",
-    "query": "insert into mlparted values (1, 2, 'a', 1)"
+    "query": "insert into mlparted values (1, 2, 'a', 1)",
+    "expected": "INSERT INTO mlparted VALUES (1, 2, 'a', 1)"
   },
   {
     "comment": "insert - Statement 254",
-    "query": "insert into mlparted values (1, 40, 'a', 1)"
+    "query": "insert into mlparted values (1, 40, 'a', 1)",
+    "expected": "INSERT INTO mlparted VALUES (1, 40, 'a', 1)"
   },
   {
     "comment": "insert - Statement 255",
-    "query": "insert into mlparted values (1, 45, 'b', 1)"
+    "query": "insert into mlparted values (1, 45, 'b', 1)",
+    "expected": "INSERT INTO mlparted VALUES (1, 45, 'b', 1)"
   },
   {
     "comment": "insert - Statement 256",
-    "query": "insert into mlparted values (1, 45, 'c', 1)"
+    "query": "insert into mlparted values (1, 45, 'c', 1)",
+    "expected": "INSERT INTO mlparted VALUES (1, 45, 'c', 1)"
   },
   {
     "comment": "insert - Statement 257",
-    "query": "insert into mlparted values (1, 45, 'f', 1)"
+    "query": "insert into mlparted values (1, 45, 'f', 1)",
+    "expected": "INSERT INTO mlparted VALUES (1, 45, 'f', 1)"
   },
   {
     "comment": "insert - Statement 258",
-    "query": "select tableoid::regclass, * from mlparted order by a, b, c, d"
+    "query": "select tableoid::regclass, * from mlparted order by a, b, c, d",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM mlparted ORDER BY a, b, c, d"
   },
   {
     "comment": "insert - Statement 259",
-    "query": "alter table mlparted drop d"
+    "query": "alter table mlparted drop d",
+    "expected": "ALTER TABLE mlparted DROP COLUMN d"
   },
   {
     "comment": "insert - Statement 260",
-    "query": "alter table mlparted add e int, add d int"
+    "query": "alter table mlparted add e int, add d int",
+    "expected": "ALTER TABLE mlparted ADD COLUMN e INT, ADD COLUMN d INT"
   },
   {
     "comment": "insert - Statement 261",
-    "query": "create table key_desc (a int, b int) partition by list ((a+0))"
+    "query": "create table key_desc (a int, b int) partition by list ((a+0))",
+    "expected": "CREATE TABLE key_desc (a INT, b INT) PARTITION BY list ((a + 0))"
   },
   {
     "comment": "insert - Statement 262",
-    "query": "create table key_desc_1 partition of key_desc for values in (1) partition by range (b)"
+    "query": "create table key_desc_1 partition of key_desc for values in (1) partition by range (b)",
+    "expected": "CREATE TABLE key_desc_1 PARTITION OF key_desc FOR VALUES IN (1) PARTITION BY range (b)"
   },
   {
     "comment": "insert - Statement 263",
-    "query": "create user regress_insert_other_user"
+    "query": "create user regress_insert_other_user",
+    "expected": "CREATE USER regress_insert_other_user"
   },
   {
     "comment": "insert - Statement 264",
-    "query": "grant select (a) on key_desc_1 to regress_insert_other_user"
+    "query": "grant select (a) on key_desc_1 to regress_insert_other_user",
+    "expected": "GRANT SELECT (a) ON key_desc_1 TO regress_insert_other_user"
   },
   {
     "comment": "insert - Statement 265",
-    "query": "grant insert on key_desc to regress_insert_other_user"
+    "query": "grant insert on key_desc to regress_insert_other_user",
+    "expected": "GRANT INSERT ON key_desc TO regress_insert_other_user"
   },
   {
     "comment": "insert - Statement 266",
-    "query": "set role regress_insert_other_user"
+    "query": "set role regress_insert_other_user",
+    "expected": "SET ROLE 'regress_insert_other_user'"
   },
   {
     "comment": "insert - Statement 267",
-    "query": "insert into key_desc values (1, 1)"
+    "query": "insert into key_desc values (1, 1)",
+    "expected": "INSERT INTO key_desc VALUES (1, 1)"
   },
   {
     "comment": "insert - Statement 268",
-    "query": "reset role"
+    "query": "reset role",
+    "expected": "RESET role"
   },
   {
     "comment": "insert - Statement 269",
-    "query": "grant select (b) on key_desc_1 to regress_insert_other_user"
+    "query": "grant select (b) on key_desc_1 to regress_insert_other_user",
+    "expected": "GRANT SELECT (b) ON key_desc_1 TO regress_insert_other_user"
   },
   {
     "comment": "insert - Statement 270",
-    "query": "insert into key_desc values (2, 1)"
+    "query": "insert into key_desc values (2, 1)",
+    "expected": "INSERT INTO key_desc VALUES (2, 1)"
   },
   {
     "comment": "insert - Statement 271",
-    "query": "revoke all on key_desc from regress_insert_other_user"
+    "query": "revoke all on key_desc from regress_insert_other_user",
+    "expected": "REVOKE ALL ON key_desc FROM regress_insert_other_user"
   },
   {
     "comment": "insert - Statement 272",
-    "query": "revoke all on key_desc_1 from regress_insert_other_user"
+    "query": "revoke all on key_desc_1 from regress_insert_other_user",
+    "expected": "REVOKE ALL ON key_desc_1 FROM regress_insert_other_user"
   },
   {
     "comment": "insert - Statement 273",
-    "query": "drop role regress_insert_other_user"
+    "query": "drop role regress_insert_other_user",
+    "expected": "DROP ROLE regress_insert_other_user"
   },
   {
     "comment": "insert - Statement 274",
-    "query": "drop table key_desc, key_desc_1"
+    "query": "drop table key_desc, key_desc_1",
+    "expected": "DROP TABLE key_desc, key_desc_1"
   },
   {
     "comment": "insert - Statement 275",
-    "query": "create table mcrparted (a int, b int, c int) partition by range (a, abs(b), c)"
+    "query": "create table mcrparted (a int, b int, c int) partition by range (a, abs(b), c)",
+    "expected": "CREATE TABLE mcrparted (a INT, b INT, c INT) PARTITION BY range (a, abs(b), c)"
   },
   {
     "comment": "insert - Statement 276",
-    "query": "create table mcrparted0 partition of mcrparted for values from (minvalue, 0, 0) to (1, maxvalue, maxvalue)"
+    "query": "create table mcrparted0 partition of mcrparted for values from (minvalue, 0, 0) to (1, maxvalue, maxvalue)",
+    "expected": "CREATE TABLE mcrparted0 PARTITION OF mcrparted FOR VALUES FROM (minvalue, 0, 0) TO (1, maxvalue, maxvalue)"
   },
   {
     "comment": "insert - Statement 277",
-    "query": "create table mcrparted2 partition of mcrparted for values from (10, 6, minvalue) to (10, maxvalue, minvalue)"
+    "query": "create table mcrparted2 partition of mcrparted for values from (10, 6, minvalue) to (10, maxvalue, minvalue)",
+    "expected": "CREATE TABLE mcrparted2 PARTITION OF mcrparted FOR VALUES FROM (10, 6, minvalue) TO (10, maxvalue, minvalue)"
   },
   {
     "comment": "insert - Statement 278",
-    "query": "create table mcrparted4 partition of mcrparted for values from (21, minvalue, 0) to (30, 20, minvalue)"
+    "query": "create table mcrparted4 partition of mcrparted for values from (21, minvalue, 0) to (30, 20, minvalue)",
+    "expected": "CREATE TABLE mcrparted4 PARTITION OF mcrparted FOR VALUES FROM (21, minvalue, 0) TO (30, 20, minvalue)"
   },
   {
     "comment": "insert - Statement 279",
-    "query": "create table mcrparted0 partition of mcrparted for values from (minvalue, minvalue, minvalue) to (1, maxvalue, maxvalue)"
+    "query": "create table mcrparted0 partition of mcrparted for values from (minvalue, minvalue, minvalue) to (1, maxvalue, maxvalue)",
+    "expected": "CREATE TABLE mcrparted0 PARTITION OF mcrparted FOR VALUES FROM (minvalue, minvalue, minvalue) TO (1, maxvalue, maxvalue)"
   },
   {
     "comment": "insert - Statement 280",
-    "query": "create table mcrparted1 partition of mcrparted for values from (2, 1, minvalue) to (10, 5, 10)"
+    "query": "create table mcrparted1 partition of mcrparted for values from (2, 1, minvalue) to (10, 5, 10)",
+    "expected": "CREATE TABLE mcrparted1 PARTITION OF mcrparted FOR VALUES FROM (2, 1, minvalue) TO (10, 5, 10)"
   },
   {
     "comment": "insert - Statement 281",
-    "query": "create table mcrparted2 partition of mcrparted for values from (10, 6, minvalue) to (10, maxvalue, maxvalue)"
+    "query": "create table mcrparted2 partition of mcrparted for values from (10, 6, minvalue) to (10, maxvalue, maxvalue)",
+    "expected": "CREATE TABLE mcrparted2 PARTITION OF mcrparted FOR VALUES FROM (10, 6, minvalue) TO (10, maxvalue, maxvalue)"
   },
   {
     "comment": "insert - Statement 282",
-    "query": "create table mcrparted3 partition of mcrparted for values from (11, 1, 1) to (20, 10, 10)"
+    "query": "create table mcrparted3 partition of mcrparted for values from (11, 1, 1) to (20, 10, 10)",
+    "expected": "CREATE TABLE mcrparted3 PARTITION OF mcrparted FOR VALUES FROM (11, 1, 1) TO (20, 10, 10)"
   },
   {
     "comment": "insert - Statement 283",
-    "query": "create table mcrparted4 partition of mcrparted for values from (21, minvalue, minvalue) to (30, 20, maxvalue)"
+    "query": "create table mcrparted4 partition of mcrparted for values from (21, minvalue, minvalue) to (30, 20, maxvalue)",
+    "expected": "CREATE TABLE mcrparted4 PARTITION OF mcrparted FOR VALUES FROM (21, minvalue, minvalue) TO (30, 20, maxvalue)"
   },
   {
     "comment": "insert - Statement 284",
-    "query": "create table mcrparted5 partition of mcrparted for values from (30, 21, 20) to (maxvalue, maxvalue, maxvalue)"
+    "query": "create table mcrparted5 partition of mcrparted for values from (30, 21, 20) to (maxvalue, maxvalue, maxvalue)",
+    "expected": "CREATE TABLE mcrparted5 PARTITION OF mcrparted FOR VALUES FROM (30, 21, 20) TO (maxvalue, maxvalue, maxvalue)"
   },
   {
     "comment": "insert - Statement 285",
-    "query": "insert into mcrparted values (null, null, null)"
+    "query": "insert into mcrparted values (null, null, null)",
+    "expected": "INSERT INTO mcrparted VALUES (NULL, NULL, NULL)"
   },
   {
     "comment": "insert - Statement 286",
-    "query": "insert into mcrparted values (0, 1, 1)"
+    "query": "insert into mcrparted values (0, 1, 1)",
+    "expected": "INSERT INTO mcrparted VALUES (0, 1, 1)"
   },
   {
     "comment": "insert - Statement 287",
-    "query": "insert into mcrparted0 values (0, 1, 1)"
+    "query": "insert into mcrparted0 values (0, 1, 1)",
+    "expected": "INSERT INTO mcrparted0 VALUES (0, 1, 1)"
   },
   {
     "comment": "insert - Statement 288",
-    "query": "insert into mcrparted values (9, 1000, 1)"
+    "query": "insert into mcrparted values (9, 1000, 1)",
+    "expected": "INSERT INTO mcrparted VALUES (9, 1000, 1)"
   },
   {
     "comment": "insert - Statement 289",
-    "query": "insert into mcrparted1 values (9, 1000, 1)"
+    "query": "insert into mcrparted1 values (9, 1000, 1)",
+    "expected": "INSERT INTO mcrparted1 VALUES (9, 1000, 1)"
   },
   {
     "comment": "insert - Statement 290",
-    "query": "insert into mcrparted values (10, 5, -1)"
+    "query": "insert into mcrparted values (10, 5, -1)",
+    "expected": "INSERT INTO mcrparted VALUES (10, 5, -1)"
   },
   {
     "comment": "insert - Statement 291",
-    "query": "insert into mcrparted1 values (10, 5, -1)"
+    "query": "insert into mcrparted1 values (10, 5, -1)",
+    "expected": "INSERT INTO mcrparted1 VALUES (10, 5, -1)"
   },
   {
     "comment": "insert - Statement 292",
-    "query": "insert into mcrparted values (2, 1, 0)"
+    "query": "insert into mcrparted values (2, 1, 0)",
+    "expected": "INSERT INTO mcrparted VALUES (2, 1, 0)"
   },
   {
     "comment": "insert - Statement 293",
-    "query": "insert into mcrparted1 values (2, 1, 0)"
+    "query": "insert into mcrparted1 values (2, 1, 0)",
+    "expected": "INSERT INTO mcrparted1 VALUES (2, 1, 0)"
   },
   {
     "comment": "insert - Statement 294",
-    "query": "insert into mcrparted values (10, 6, 1000)"
+    "query": "insert into mcrparted values (10, 6, 1000)",
+    "expected": "INSERT INTO mcrparted VALUES (10, 6, 1000)"
   },
   {
     "comment": "insert - Statement 295",
-    "query": "insert into mcrparted2 values (10, 6, 1000)"
+    "query": "insert into mcrparted2 values (10, 6, 1000)",
+    "expected": "INSERT INTO mcrparted2 VALUES (10, 6, 1000)"
   },
   {
     "comment": "insert - Statement 296",
-    "query": "insert into mcrparted values (10, 1000, 1000)"
+    "query": "insert into mcrparted values (10, 1000, 1000)",
+    "expected": "INSERT INTO mcrparted VALUES (10, 1000, 1000)"
   },
   {
     "comment": "insert - Statement 297",
-    "query": "insert into mcrparted2 values (10, 1000, 1000)"
+    "query": "insert into mcrparted2 values (10, 1000, 1000)",
+    "expected": "INSERT INTO mcrparted2 VALUES (10, 1000, 1000)"
   },
   {
     "comment": "insert - Statement 298",
-    "query": "insert into mcrparted values (11, 1, -1)"
+    "query": "insert into mcrparted values (11, 1, -1)",
+    "expected": "INSERT INTO mcrparted VALUES (11, 1, -1)"
   },
   {
     "comment": "insert - Statement 299",
-    "query": "insert into mcrparted3 values (11, 1, -1)"
+    "query": "insert into mcrparted3 values (11, 1, -1)",
+    "expected": "INSERT INTO mcrparted3 VALUES (11, 1, -1)"
   },
   {
     "comment": "insert - Statement 300",
-    "query": "insert into mcrparted values (30, 21, 20)"
+    "query": "insert into mcrparted values (30, 21, 20)",
+    "expected": "INSERT INTO mcrparted VALUES (30, 21, 20)"
   },
   {
     "comment": "insert - Statement 301",
-    "query": "insert into mcrparted5 values (30, 21, 20)"
+    "query": "insert into mcrparted5 values (30, 21, 20)",
+    "expected": "INSERT INTO mcrparted5 VALUES (30, 21, 20)"
   },
   {
     "comment": "insert - Statement 302",
-    "query": "insert into mcrparted4 values (30, 21, 20)"
+    "query": "insert into mcrparted4 values (30, 21, 20)",
+    "expected": "INSERT INTO mcrparted4 VALUES (30, 21, 20)"
   },
   {
     "comment": "insert - Statement 303",
-    "query": "select tableoid::regclass::text, * from mcrparted order by 1"
+    "query": "select tableoid::regclass::text, * from mcrparted order by 1",
+    "expected": "SELECT CAST(CAST(tableoid AS regclass) AS TEXT), * FROM mcrparted ORDER BY 1"
   },
   {
     "comment": "insert - Statement 304",
-    "query": "drop table mcrparted"
+    "query": "drop table mcrparted",
+    "expected": "DROP TABLE mcrparted"
   },
   {
     "comment": "insert - Statement 305",
-    "query": "create table brtrigpartcon (a int, b text) partition by list (a)"
+    "query": "create table brtrigpartcon (a int, b text) partition by list (a)",
+    "expected": "CREATE TABLE brtrigpartcon (a INT, b TEXT) PARTITION BY list (a)"
   },
   {
     "comment": "insert - Statement 306",
-    "query": "create table brtrigpartcon1 partition of brtrigpartcon for values in (1)"
+    "query": "create table brtrigpartcon1 partition of brtrigpartcon for values in (1)",
+    "expected": "CREATE TABLE brtrigpartcon1 PARTITION OF brtrigpartcon FOR VALUES IN (1)"
   },
   {
     "comment": "insert - Statement 307",
-    "query": "create or replace function brtrigpartcon1trigf() returns trigger as $$begin new.a := 2; return new; end$$ language plpgsql"
+    "query": "create or replace function brtrigpartcon1trigf() returns trigger as $$begin new.a := 2; return new; end$$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION brtrigpartcon1trigf () RETURNS trigger LANGUAGE plpgsql AS $$begin new.a := 2; return new; end$$"
   },
   {
     "comment": "insert - Statement 308",
-    "query": "create trigger brtrigpartcon1trig before insert on brtrigpartcon1 for each row execute procedure brtrigpartcon1trigf()"
+    "query": "create trigger brtrigpartcon1trig before insert on brtrigpartcon1 for each row execute procedure brtrigpartcon1trigf()",
+    "expected": "CREATE TRIGGER brtrigpartcon1trig BEFORE INSERT ON brtrigpartcon1 FOR EACH ROW EXECUTE FUNCTION brtrigpartcon1trigf()"
   },
   {
     "comment": "insert - Statement 309",
-    "query": "insert into brtrigpartcon values (1, 'hi there')"
+    "query": "insert into brtrigpartcon values (1, 'hi there')",
+    "expected": "INSERT INTO brtrigpartcon VALUES (1, 'hi there')"
   },
   {
     "comment": "insert - Statement 310",
-    "query": "insert into brtrigpartcon1 values (1, 'hi there')"
+    "query": "insert into brtrigpartcon1 values (1, 'hi there')",
+    "expected": "INSERT INTO brtrigpartcon1 VALUES (1, 'hi there')"
   },
   {
     "comment": "insert - Statement 311",
-    "query": "create table inserttest3 (f1 text default 'foo', f2 text default 'bar', f3 int)"
+    "query": "create table inserttest3 (f1 text default 'foo', f2 text default 'bar', f3 int)",
+    "expected": "CREATE TABLE inserttest3 (f1 TEXT DEFAULT 'foo', f2 TEXT DEFAULT 'bar', f3 INT)"
   },
   {
     "comment": "insert - Statement 312",
-    "query": "create role regress_coldesc_role"
+    "query": "create role regress_coldesc_role",
+    "expected": "CREATE ROLE regress_coldesc_role"
   },
   {
     "comment": "insert - Statement 313",
-    "query": "grant insert on inserttest3 to regress_coldesc_role"
+    "query": "grant insert on inserttest3 to regress_coldesc_role",
+    "expected": "GRANT INSERT ON inserttest3 TO regress_coldesc_role"
   },
   {
     "comment": "insert - Statement 314",
-    "query": "grant insert on brtrigpartcon to regress_coldesc_role"
+    "query": "grant insert on brtrigpartcon to regress_coldesc_role",
+    "expected": "GRANT INSERT ON brtrigpartcon TO regress_coldesc_role"
   },
   {
     "comment": "insert - Statement 315",
-    "query": "revoke select on brtrigpartcon from regress_coldesc_role"
+    "query": "revoke select on brtrigpartcon from regress_coldesc_role",
+    "expected": "REVOKE SELECT ON brtrigpartcon FROM regress_coldesc_role"
   },
   {
     "comment": "insert - Statement 316",
-    "query": "set role regress_coldesc_role"
+    "query": "set role regress_coldesc_role",
+    "expected": "SET ROLE 'regress_coldesc_role'"
   },
   {
     "comment": "insert - Statement 317",
-    "query": "with result as (insert into brtrigpartcon values (1, 'hi there') returning 1) insert into inserttest3 (f3) select * from result"
+    "query": "with result as (insert into brtrigpartcon values (1, 'hi there') returning 1) insert into inserttest3 (f3) select * from result",
+    "expected": "WITH result AS (INSERT INTO brtrigpartcon VALUES (1, 'hi there') RETURNING 1) INSERT INTO inserttest3 (f3) SELECT * FROM result"
   },
   {
     "comment": "insert - Statement 318",
-    "query": "revoke all on inserttest3 from regress_coldesc_role"
+    "query": "revoke all on inserttest3 from regress_coldesc_role",
+    "expected": "REVOKE ALL ON inserttest3 FROM regress_coldesc_role"
   },
   {
     "comment": "insert - Statement 319",
-    "query": "revoke all on brtrigpartcon from regress_coldesc_role"
+    "query": "revoke all on brtrigpartcon from regress_coldesc_role",
+    "expected": "REVOKE ALL ON brtrigpartcon FROM regress_coldesc_role"
   },
   {
     "comment": "insert - Statement 320",
-    "query": "drop role regress_coldesc_role"
+    "query": "drop role regress_coldesc_role",
+    "expected": "DROP ROLE regress_coldesc_role"
   },
   {
     "comment": "insert - Statement 321",
-    "query": "drop table inserttest3"
+    "query": "drop table inserttest3",
+    "expected": "DROP TABLE inserttest3"
   },
   {
     "comment": "insert - Statement 322",
-    "query": "drop table brtrigpartcon"
+    "query": "drop table brtrigpartcon",
+    "expected": "DROP TABLE brtrigpartcon"
   },
   {
     "comment": "insert - Statement 323",
-    "query": "drop function brtrigpartcon1trigf()"
+    "query": "drop function brtrigpartcon1trigf()",
+    "expected": "DROP FUNCTION brtrigpartcon1trigf()"
   },
   {
     "comment": "insert - Statement 324",
-    "query": "create table donothingbrtrig_test (a int, b text) partition by list (a)"
+    "query": "create table donothingbrtrig_test (a int, b text) partition by list (a)",
+    "expected": "CREATE TABLE donothingbrtrig_test (a INT, b TEXT) PARTITION BY list (a)"
   },
   {
     "comment": "insert - Statement 325",
-    "query": "create table donothingbrtrig_test1 (b text, a int)"
+    "query": "create table donothingbrtrig_test1 (b text, a int)",
+    "expected": "CREATE TABLE donothingbrtrig_test1 (b TEXT, a INT)"
   },
   {
     "comment": "insert - Statement 326",
-    "query": "create table donothingbrtrig_test2 (c text, b text, a int)"
+    "query": "create table donothingbrtrig_test2 (c text, b text, a int)",
+    "expected": "CREATE TABLE donothingbrtrig_test2 (c TEXT, b TEXT, a INT)"
   },
   {
     "comment": "insert - Statement 327",
-    "query": "alter table donothingbrtrig_test2 drop column c"
+    "query": "alter table donothingbrtrig_test2 drop column c",
+    "expected": "ALTER TABLE donothingbrtrig_test2 DROP COLUMN c"
   },
   {
     "comment": "insert - Statement 328",
-    "query": "create or replace function donothingbrtrig_func() returns trigger as $$begin raise notice 'b: %', new.b; return NULL; end$$ language plpgsql"
+    "query": "create or replace function donothingbrtrig_func() returns trigger as $$begin raise notice 'b: %', new.b; return NULL; end$$ language plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION donothingbrtrig_func () RETURNS trigger LANGUAGE plpgsql AS $$begin raise notice 'b: %', new.b; return NULL; end$$"
   },
   {
     "comment": "insert - Statement 329",
-    "query": "create trigger donothingbrtrig1 before insert on donothingbrtrig_test1 for each row execute procedure donothingbrtrig_func()"
+    "query": "create trigger donothingbrtrig1 before insert on donothingbrtrig_test1 for each row execute procedure donothingbrtrig_func()",
+    "expected": "CREATE TRIGGER donothingbrtrig1 BEFORE INSERT ON donothingbrtrig_test1 FOR EACH ROW EXECUTE FUNCTION donothingbrtrig_func()"
   },
   {
     "comment": "insert - Statement 330",
-    "query": "create trigger donothingbrtrig2 before insert on donothingbrtrig_test2 for each row execute procedure donothingbrtrig_func()"
+    "query": "create trigger donothingbrtrig2 before insert on donothingbrtrig_test2 for each row execute procedure donothingbrtrig_func()",
+    "expected": "CREATE TRIGGER donothingbrtrig2 BEFORE INSERT ON donothingbrtrig_test2 FOR EACH ROW EXECUTE FUNCTION donothingbrtrig_func()"
   },
   {
     "comment": "insert - Statement 331",
-    "query": "alter table donothingbrtrig_test attach partition donothingbrtrig_test1 for values in (1)"
+    "query": "alter table donothingbrtrig_test attach partition donothingbrtrig_test1 for values in (1)",
+    "expected": "ALTER TABLE donothingbrtrig_test ATTACH PARTITION donothingbrtrig_test1 FOR VALUES IN (1)"
   },
   {
     "comment": "insert - Statement 332",
-    "query": "alter table donothingbrtrig_test attach partition donothingbrtrig_test2 for values in (2)"
+    "query": "alter table donothingbrtrig_test attach partition donothingbrtrig_test2 for values in (2)",
+    "expected": "ALTER TABLE donothingbrtrig_test ATTACH PARTITION donothingbrtrig_test2 FOR VALUES IN (2)"
   },
   {
     "comment": "insert - Statement 333",
-    "query": "insert into donothingbrtrig_test values (1, 'foo'), (2, 'bar')"
+    "query": "insert into donothingbrtrig_test values (1, 'foo'), (2, 'bar')",
+    "expected": "INSERT INTO donothingbrtrig_test VALUES (1, 'foo'), (2, 'bar')"
   },
   {
     "comment": "insert - Statement 334",
-    "query": "copy donothingbrtrig_test from stdout"
+    "query": "copy donothingbrtrig_test from stdout",
+    "expected": "COPY donothingbrtrig_test FROM STDIN"
   },
   {
     "comment": "insert - Statement 335",
-    "query": "1\tbaz 2\tqux \\. select tableoid::regclass, * from donothingbrtrig_test"
+    "query": "select tableoid::regclass, * from donothingbrtrig_test",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM donothingbrtrig_test"
   },
   {
     "comment": "insert - Statement 336",
-    "query": "drop table donothingbrtrig_test"
+    "query": "drop table donothingbrtrig_test",
+    "expected": "DROP TABLE donothingbrtrig_test"
   },
   {
     "comment": "insert - Statement 337",
-    "query": "drop function donothingbrtrig_func()"
+    "query": "drop function donothingbrtrig_func()",
+    "expected": "DROP FUNCTION donothingbrtrig_func()"
   },
   {
     "comment": "insert - Statement 338",
-    "query": "create table mcrparted (a text, b int) partition by range(a, b)"
+    "query": "create table mcrparted (a text, b int) partition by range(a, b)",
+    "expected": "CREATE TABLE mcrparted (a TEXT, b INT) PARTITION BY range (a, b)"
   },
   {
     "comment": "insert - Statement 339",
-    "query": "create table mcrparted1_lt_b partition of mcrparted for values from (minvalue, minvalue) to ('b', minvalue)"
+    "query": "create table mcrparted1_lt_b partition of mcrparted for values from (minvalue, minvalue) to ('b', minvalue)",
+    "expected": "CREATE TABLE mcrparted1_lt_b PARTITION OF mcrparted FOR VALUES FROM (minvalue, minvalue) TO ('b', minvalue)"
   },
   {
     "comment": "insert - Statement 340",
-    "query": "create table mcrparted2_b partition of mcrparted for values from ('b', minvalue) to ('c', minvalue)"
+    "query": "create table mcrparted2_b partition of mcrparted for values from ('b', minvalue) to ('c', minvalue)",
+    "expected": "CREATE TABLE mcrparted2_b PARTITION OF mcrparted FOR VALUES FROM ('b', minvalue) TO ('c', minvalue)"
   },
   {
     "comment": "insert - Statement 341",
-    "query": "create table mcrparted3_c_to_common partition of mcrparted for values from ('c', minvalue) to ('common', minvalue)"
+    "query": "create table mcrparted3_c_to_common partition of mcrparted for values from ('c', minvalue) to ('common', minvalue)",
+    "expected": "CREATE TABLE mcrparted3_c_to_common PARTITION OF mcrparted FOR VALUES FROM ('c', minvalue) TO ('common', minvalue)"
   },
   {
     "comment": "insert - Statement 342",
-    "query": "create table mcrparted4_common_lt_0 partition of mcrparted for values from ('common', minvalue) to ('common', 0)"
+    "query": "create table mcrparted4_common_lt_0 partition of mcrparted for values from ('common', minvalue) to ('common', 0)",
+    "expected": "CREATE TABLE mcrparted4_common_lt_0 PARTITION OF mcrparted FOR VALUES FROM ('common', minvalue) TO ('common', 0)"
   },
   {
     "comment": "insert - Statement 343",
-    "query": "create table mcrparted5_common_0_to_10 partition of mcrparted for values from ('common', 0) to ('common', 10)"
+    "query": "create table mcrparted5_common_0_to_10 partition of mcrparted for values from ('common', 0) to ('common', 10)",
+    "expected": "CREATE TABLE mcrparted5_common_0_to_10 PARTITION OF mcrparted FOR VALUES FROM ('common', 0) TO ('common', 10)"
   },
   {
     "comment": "insert - Statement 344",
-    "query": "create table mcrparted6_common_ge_10 partition of mcrparted for values from ('common', 10) to ('common', maxvalue)"
+    "query": "create table mcrparted6_common_ge_10 partition of mcrparted for values from ('common', 10) to ('common', maxvalue)",
+    "expected": "CREATE TABLE mcrparted6_common_ge_10 PARTITION OF mcrparted FOR VALUES FROM ('common', 10) TO ('common', maxvalue)"
   },
   {
     "comment": "insert - Statement 345",
-    "query": "create table mcrparted7_gt_common_lt_d partition of mcrparted for values from ('common', maxvalue) to ('d', minvalue)"
+    "query": "create table mcrparted7_gt_common_lt_d partition of mcrparted for values from ('common', maxvalue) to ('d', minvalue)",
+    "expected": "CREATE TABLE mcrparted7_gt_common_lt_d PARTITION OF mcrparted FOR VALUES FROM ('common', maxvalue) TO ('d', minvalue)"
   },
   {
     "comment": "insert - Statement 346",
-    "query": "create table mcrparted8_ge_d partition of mcrparted for values from ('d', minvalue) to (maxvalue, maxvalue)"
+    "query": "create table mcrparted8_ge_d partition of mcrparted for values from ('d', minvalue) to (maxvalue, maxvalue)",
+    "expected": "CREATE TABLE mcrparted8_ge_d PARTITION OF mcrparted FOR VALUES FROM ('d', minvalue) TO (maxvalue, maxvalue)"
   },
   {
     "comment": "insert - Statement 347",
-    "query": "select tableoid::regclass, * from mcrparted order by a, b"
+    "query": "select tableoid::regclass, * from mcrparted order by a, b",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM mcrparted ORDER BY a, b"
   },
   {
     "comment": "insert - Statement 348",
-    "query": "create table returningwrtest (a int) partition by list (a)"
+    "query": "create table returningwrtest (a int) partition by list (a)",
+    "expected": "CREATE TABLE returningwrtest (a INT) PARTITION BY list (a)"
   },
   {
     "comment": "insert - Statement 349",
-    "query": "create table returningwrtest1 partition of returningwrtest for values in (1)"
+    "query": "create table returningwrtest1 partition of returningwrtest for values in (1)",
+    "expected": "CREATE TABLE returningwrtest1 PARTITION OF returningwrtest FOR VALUES IN (1)"
   },
   {
     "comment": "insert - Statement 350",
-    "query": "insert into returningwrtest values (1) returning returningwrtest"
+    "query": "insert into returningwrtest values (1) returning returningwrtest",
+    "expected": "INSERT INTO returningwrtest VALUES (1) RETURNING returningwrtest"
   },
   {
     "comment": "insert - Statement 351",
-    "query": "alter table returningwrtest add b text"
+    "query": "alter table returningwrtest add b text",
+    "expected": "ALTER TABLE returningwrtest ADD COLUMN b TEXT"
   },
   {
     "comment": "insert - Statement 352",
-    "query": "create table returningwrtest2 (b text, c int, a int)"
+    "query": "create table returningwrtest2 (b text, c int, a int)",
+    "expected": "CREATE TABLE returningwrtest2 (b TEXT, c INT, a INT)"
   },
   {
     "comment": "insert - Statement 353",
-    "query": "alter table returningwrtest2 drop c"
+    "query": "alter table returningwrtest2 drop c",
+    "expected": "ALTER TABLE returningwrtest2 DROP COLUMN c"
   },
   {
     "comment": "insert - Statement 354",
-    "query": "alter table returningwrtest attach partition returningwrtest2 for values in (2)"
+    "query": "alter table returningwrtest attach partition returningwrtest2 for values in (2)",
+    "expected": "ALTER TABLE returningwrtest ATTACH PARTITION returningwrtest2 FOR VALUES IN (2)"
   },
   {
     "comment": "insert - Statement 355",
-    "query": "insert into returningwrtest values (2, 'foo') returning returningwrtest"
+    "query": "insert into returningwrtest values (2, 'foo') returning returningwrtest",
+    "expected": "INSERT INTO returningwrtest VALUES (2, 'foo') RETURNING returningwrtest"
   },
   {
     "comment": "insert - Statement 356",
-    "query": "drop table returningwrtest"
+    "query": "drop table returningwrtest",
+    "expected": "DROP TABLE returningwrtest"
   }
 ]

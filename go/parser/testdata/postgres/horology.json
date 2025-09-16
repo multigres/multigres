@@ -1,583 +1,728 @@
 [
   {
     "comment": "horology - Statement 1",
-    "query": "SHOW TimeZone"
+    "query": "SHOW TimeZone",
+    "expected": "SHOW timezone"
   },
   {
     "comment": "horology - Statement 2",
-    "query": "SHOW DateStyle"
+    "query": "SHOW DateStyle",
+    "expected": "SHOW datestyle"
   },
   {
     "comment": "horology - Statement 3",
-    "query": "SELECT timestamp with time zone '20011227 040506+08'"
+    "query": "SELECT timestamp with time zone '20011227 040506+08'",
+    "expected": "SELECT CAST('20011227 040506+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 4",
-    "query": "SELECT timestamp with time zone '20011227 040506-08'"
+    "query": "SELECT timestamp with time zone '20011227 040506-08'",
+    "expected": "SELECT CAST('20011227 040506-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 5",
-    "query": "SELECT timestamp with time zone '20011227 040506.789+08'"
+    "query": "SELECT timestamp with time zone '20011227 040506.789+08'",
+    "expected": "SELECT CAST('20011227 040506.789+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 6",
-    "query": "SELECT timestamp with time zone '20011227 040506.789-08'"
+    "query": "SELECT timestamp with time zone '20011227 040506.789-08'",
+    "expected": "SELECT CAST('20011227 040506.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 7",
-    "query": "SELECT timestamp with time zone '20011227T040506+08'"
+    "query": "SELECT timestamp with time zone '20011227T040506+08'",
+    "expected": "SELECT CAST('20011227T040506+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 8",
-    "query": "SELECT timestamp with time zone '20011227T040506-08'"
+    "query": "SELECT timestamp with time zone '20011227T040506-08'",
+    "expected": "SELECT CAST('20011227T040506-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 9",
-    "query": "SELECT timestamp with time zone '20011227T040506.789+08'"
+    "query": "SELECT timestamp with time zone '20011227T040506.789+08'",
+    "expected": "SELECT CAST('20011227T040506.789+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 10",
-    "query": "SELECT timestamp with time zone '20011227T040506.789-08'"
+    "query": "SELECT timestamp with time zone '20011227T040506.789-08'",
+    "expected": "SELECT CAST('20011227T040506.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 11",
-    "query": "SELECT timestamp with time zone '2001-12-27 04:05:06.789-08'"
+    "query": "SELECT timestamp with time zone '2001-12-27 04:05:06.789-08'",
+    "expected": "SELECT CAST('2001-12-27 04:05:06.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 12",
-    "query": "SELECT timestamp with time zone '2001.12.27 04:05:06.789-08'"
+    "query": "SELECT timestamp with time zone '2001.12.27 04:05:06.789-08'",
+    "expected": "SELECT CAST('2001.12.27 04:05:06.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 13",
-    "query": "SELECT timestamp with time zone '2001/12/27 04:05:06.789-08'"
+    "query": "SELECT timestamp with time zone '2001/12/27 04:05:06.789-08'",
+    "expected": "SELECT CAST('2001/12/27 04:05:06.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 14",
-    "query": "SELECT timestamp with time zone '12/27/2001 04:05:06.789-08'"
+    "query": "SELECT timestamp with time zone '12/27/2001 04:05:06.789-08'",
+    "expected": "SELECT CAST('12/27/2001 04:05:06.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 15",
-    "query": "SELECT timestamp with time zone '2001-12-27 04:05:06.789 MET DST'"
+    "query": "SELECT timestamp with time zone '2001-12-27 04:05:06.789 MET DST'",
+    "expected": "SELECT CAST('2001-12-27 04:05:06.789 MET DST' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 16",
-    "query": "SELECT timestamp with time zone '2001-12-27 allballs'"
+    "query": "SELECT timestamp with time zone '2001-12-27 allballs'",
+    "expected": "SELECT CAST('2001-12-27 allballs' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 17",
-    "query": "SELECT timestamp with time zone '27/12/2001 04:05:06.789-08'"
+    "query": "SELECT timestamp with time zone '27/12/2001 04:05:06.789-08'",
+    "expected": "SELECT CAST('27/12/2001 04:05:06.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 18",
-    "query": "set datestyle to dmy"
+    "query": "set datestyle to dmy",
+    "expected": "SET datestyle = 'dmy'"
   },
   {
     "comment": "horology - Statement 19",
-    "query": "reset datestyle"
+    "query": "reset datestyle",
+    "expected": "RESET datestyle"
   },
   {
     "comment": "horology - Statement 20",
-    "query": "SELECT timestamp with time zone 'J2452271+08'"
+    "query": "SELECT timestamp with time zone 'J2452271+08'",
+    "expected": "SELECT CAST('J2452271+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 21",
-    "query": "SELECT timestamp with time zone 'J2452271-08'"
+    "query": "SELECT timestamp with time zone 'J2452271-08'",
+    "expected": "SELECT CAST('J2452271-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 22",
-    "query": "SELECT timestamp with time zone 'J2452271.5+08'"
+    "query": "SELECT timestamp with time zone 'J2452271.5+08'",
+    "expected": "SELECT CAST('J2452271.5+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 23",
-    "query": "SELECT timestamp with time zone 'J2452271.5-08'"
+    "query": "SELECT timestamp with time zone 'J2452271.5-08'",
+    "expected": "SELECT CAST('J2452271.5-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 24",
-    "query": "SELECT timestamp with time zone 'J2452271 04:05:06+08'"
+    "query": "SELECT timestamp with time zone 'J2452271 04:05:06+08'",
+    "expected": "SELECT CAST('J2452271 04:05:06+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 25",
-    "query": "SELECT timestamp with time zone 'J2452271 04:05:06-08'"
+    "query": "SELECT timestamp with time zone 'J2452271 04:05:06-08'",
+    "expected": "SELECT CAST('J2452271 04:05:06-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 26",
-    "query": "SELECT timestamp with time zone 'J2452271T040506+08'"
+    "query": "SELECT timestamp with time zone 'J2452271T040506+08'",
+    "expected": "SELECT CAST('J2452271T040506+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 27",
-    "query": "SELECT timestamp with time zone 'J2452271T040506-08'"
+    "query": "SELECT timestamp with time zone 'J2452271T040506-08'",
+    "expected": "SELECT CAST('J2452271T040506-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 28",
-    "query": "SELECT timestamp with time zone 'J2452271T040506.789+08'"
+    "query": "SELECT timestamp with time zone 'J2452271T040506.789+08'",
+    "expected": "SELECT CAST('J2452271T040506.789+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 29",
-    "query": "SELECT timestamp with time zone 'J2452271T040506.789-08'"
+    "query": "SELECT timestamp with time zone 'J2452271T040506.789-08'",
+    "expected": "SELECT CAST('J2452271T040506.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 30",
-    "query": "SELECT timestamp with time zone '12.27.2001 04:05:06.789+08'"
+    "query": "SELECT timestamp with time zone '12.27.2001 04:05:06.789+08'",
+    "expected": "SELECT CAST('12.27.2001 04:05:06.789+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 31",
-    "query": "SELECT timestamp with time zone '12.27.2001 04:05:06.789-08'"
+    "query": "SELECT timestamp with time zone '12.27.2001 04:05:06.789-08'",
+    "expected": "SELECT CAST('12.27.2001 04:05:06.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 32",
-    "query": "SET DateStyle = 'German'"
+    "query": "SET DateStyle = 'German'",
+    "expected": "SET datestyle = 'German'"
   },
   {
     "comment": "horology - Statement 33",
-    "query": "SELECT timestamp with time zone '27.12.2001 04:05:06.789+08'"
+    "query": "SELECT timestamp with time zone '27.12.2001 04:05:06.789+08'",
+    "expected": "SELECT CAST('27.12.2001 04:05:06.789+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 34",
-    "query": "SELECT timestamp with time zone '27.12.2001 04:05:06.789-08'"
+    "query": "SELECT timestamp with time zone '27.12.2001 04:05:06.789-08'",
+    "expected": "SELECT CAST('27.12.2001 04:05:06.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 35",
-    "query": "SET DateStyle = 'ISO'"
+    "query": "SET DateStyle = 'ISO'",
+    "expected": "SET datestyle = 'ISO'"
   },
   {
     "comment": "horology - Statement 36",
-    "query": "SELECT time without time zone '040506.789+08'"
+    "query": "SELECT time without time zone '040506.789+08'",
+    "expected": "SELECT CAST('040506.789+08' AS TIME)"
   },
   {
     "comment": "horology - Statement 37",
-    "query": "SELECT time without time zone '040506.789-08'"
+    "query": "SELECT time without time zone '040506.789-08'",
+    "expected": "SELECT CAST('040506.789-08' AS TIME)"
   },
   {
     "comment": "horology - Statement 38",
-    "query": "SELECT time without time zone 'T040506.789+08'"
+    "query": "SELECT time without time zone 'T040506.789+08'",
+    "expected": "SELECT CAST('T040506.789+08' AS TIME)"
   },
   {
     "comment": "horology - Statement 39",
-    "query": "SELECT time without time zone 'T040506.789-08'"
+    "query": "SELECT time without time zone 'T040506.789-08'",
+    "expected": "SELECT CAST('T040506.789-08' AS TIME)"
   },
   {
     "comment": "horology - Statement 40",
-    "query": "SELECT time with time zone '040506.789+08'"
+    "query": "SELECT time with time zone '040506.789+08'",
+    "expected": "SELECT CAST('040506.789+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 41",
-    "query": "SELECT time with time zone '040506.789-08'"
+    "query": "SELECT time with time zone '040506.789-08'",
+    "expected": "SELECT CAST('040506.789-08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 42",
-    "query": "SELECT time with time zone 'T040506.789+08'"
+    "query": "SELECT time with time zone 'T040506.789+08'",
+    "expected": "SELECT CAST('T040506.789+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 43",
-    "query": "SELECT time with time zone 'T040506.789-08'"
+    "query": "SELECT time with time zone 'T040506.789-08'",
+    "expected": "SELECT CAST('T040506.789-08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 44",
-    "query": "SELECT time with time zone 'T040506.789 +08'"
+    "query": "SELECT time with time zone 'T040506.789 +08'",
+    "expected": "SELECT CAST('T040506.789 +08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 45",
-    "query": "SELECT time with time zone 'T040506.789 -08'"
+    "query": "SELECT time with time zone 'T040506.789 -08'",
+    "expected": "SELECT CAST('T040506.789 -08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 46",
-    "query": "SELECT time with time zone 'T040506.789 America/Los_Angeles'"
+    "query": "SELECT time with time zone 'T040506.789 America/Los_Angeles'",
+    "expected": "SELECT CAST('T040506.789 America/Los_Angeles' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 47",
-    "query": "SELECT time with time zone '2001-12-27 T040506.789 America/Los_Angeles'"
+    "query": "SELECT time with time zone '2001-12-27 T040506.789 America/Los_Angeles'",
+    "expected": "SELECT CAST('2001-12-27 T040506.789 America/Los_Angeles' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 48",
-    "query": "SELECT time with time zone 'J2452271 T040506.789 America/Los_Angeles'"
+    "query": "SELECT time with time zone 'J2452271 T040506.789 America/Los_Angeles'",
+    "expected": "SELECT CAST('J2452271 T040506.789 America/Los_Angeles' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 49",
-    "query": "SELECT time without time zone '040506.07'"
+    "query": "SELECT time without time zone '040506.07'",
+    "expected": "SELECT CAST('040506.07' AS TIME)"
   },
   {
     "comment": "horology - Statement 50",
-    "query": "SELECT time without time zone '04:05:06.07'"
+    "query": "SELECT time without time zone '04:05:06.07'",
+    "expected": "SELECT CAST('04:05:06.07' AS TIME)"
   },
   {
     "comment": "horology - Statement 51",
-    "query": "SELECT time without time zone '040506'"
+    "query": "SELECT time without time zone '040506'",
+    "expected": "SELECT CAST('040506' AS TIME)"
   },
   {
     "comment": "horology - Statement 52",
-    "query": "SELECT time without time zone '04:05:06'"
+    "query": "SELECT time without time zone '04:05:06'",
+    "expected": "SELECT CAST('04:05:06' AS TIME)"
   },
   {
     "comment": "horology - Statement 53",
-    "query": "SELECT time without time zone '0405'"
+    "query": "SELECT time without time zone '0405'",
+    "expected": "SELECT CAST('0405' AS TIME)"
   },
   {
     "comment": "horology - Statement 54",
-    "query": "SELECT time without time zone '04:05'"
+    "query": "SELECT time without time zone '04:05'",
+    "expected": "SELECT CAST('04:05' AS TIME)"
   },
   {
     "comment": "horology - Statement 55",
-    "query": "SELECT time without time zone 'T040506.07'"
+    "query": "SELECT time without time zone 'T040506.07'",
+    "expected": "SELECT CAST('T040506.07' AS TIME)"
   },
   {
     "comment": "horology - Statement 56",
-    "query": "SELECT time without time zone 'T04:05:06.07'"
+    "query": "SELECT time without time zone 'T04:05:06.07'",
+    "expected": "SELECT CAST('T04:05:06.07' AS TIME)"
   },
   {
     "comment": "horology - Statement 57",
-    "query": "SELECT time without time zone 'T040506'"
+    "query": "SELECT time without time zone 'T040506'",
+    "expected": "SELECT CAST('T040506' AS TIME)"
   },
   {
     "comment": "horology - Statement 58",
-    "query": "SELECT time without time zone 'T04:05:06'"
+    "query": "SELECT time without time zone 'T04:05:06'",
+    "expected": "SELECT CAST('T04:05:06' AS TIME)"
   },
   {
     "comment": "horology - Statement 59",
-    "query": "SELECT time without time zone 'T0405'"
+    "query": "SELECT time without time zone 'T0405'",
+    "expected": "SELECT CAST('T0405' AS TIME)"
   },
   {
     "comment": "horology - Statement 60",
-    "query": "SELECT time without time zone 'T04:05'"
+    "query": "SELECT time without time zone 'T04:05'",
+    "expected": "SELECT CAST('T04:05' AS TIME)"
   },
   {
     "comment": "horology - Statement 61",
-    "query": "SELECT time without time zone 'T04'"
+    "query": "SELECT time without time zone 'T04'",
+    "expected": "SELECT CAST('T04' AS TIME)"
   },
   {
     "comment": "horology - Statement 62",
-    "query": "SELECT time with time zone '040506.07+08'"
+    "query": "SELECT time with time zone '040506.07+08'",
+    "expected": "SELECT CAST('040506.07+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 63",
-    "query": "SELECT time with time zone '04:05:06.07+08'"
+    "query": "SELECT time with time zone '04:05:06.07+08'",
+    "expected": "SELECT CAST('04:05:06.07+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 64",
-    "query": "SELECT time with time zone '040506+08'"
+    "query": "SELECT time with time zone '040506+08'",
+    "expected": "SELECT CAST('040506+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 65",
-    "query": "SELECT time with time zone '04:05:06+08'"
+    "query": "SELECT time with time zone '04:05:06+08'",
+    "expected": "SELECT CAST('04:05:06+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 66",
-    "query": "SELECT time with time zone '0405+08'"
+    "query": "SELECT time with time zone '0405+08'",
+    "expected": "SELECT CAST('0405+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 67",
-    "query": "SELECT time with time zone '04:05+08'"
+    "query": "SELECT time with time zone '04:05+08'",
+    "expected": "SELECT CAST('04:05+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 68",
-    "query": "SELECT time with time zone 'T040506.07+08'"
+    "query": "SELECT time with time zone 'T040506.07+08'",
+    "expected": "SELECT CAST('T040506.07+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 69",
-    "query": "SELECT time with time zone 'T04:05:06.07+08'"
+    "query": "SELECT time with time zone 'T04:05:06.07+08'",
+    "expected": "SELECT CAST('T04:05:06.07+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 70",
-    "query": "SELECT time with time zone 'T040506+08'"
+    "query": "SELECT time with time zone 'T040506+08'",
+    "expected": "SELECT CAST('T040506+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 71",
-    "query": "SELECT time with time zone 'T04:05:06+08'"
+    "query": "SELECT time with time zone 'T04:05:06+08'",
+    "expected": "SELECT CAST('T04:05:06+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 72",
-    "query": "SELECT time with time zone 'T0405+08'"
+    "query": "SELECT time with time zone 'T0405+08'",
+    "expected": "SELECT CAST('T0405+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 73",
-    "query": "SELECT time with time zone 'T04:05+08'"
+    "query": "SELECT time with time zone 'T04:05+08'",
+    "expected": "SELECT CAST('T04:05+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 74",
-    "query": "SELECT time with time zone 'T04+08'"
+    "query": "SELECT time with time zone 'T04+08'",
+    "expected": "SELECT CAST('T04+08' AS TIMETZ)"
   },
   {
     "comment": "horology - Statement 75",
-    "query": "SET DateStyle = 'Postgres, MDY'"
+    "query": "SET DateStyle = 'Postgres, MDY'",
+    "expected": "SET datestyle = 'Postgres, MDY'"
   },
   {
     "comment": "horology - Statement 76",
-    "query": "SELECT date 'J1520447' AS \"Confucius' Birthday\""
+    "query": "SELECT date 'J1520447' AS \"Confucius' Birthday\"",
+    "expected": "SELECT CAST('J1520447' AS DATE) AS \"Confucius' Birthday\""
   },
   {
     "comment": "horology - Statement 77",
-    "query": "SELECT date 'J0' AS \"Julian Epoch\""
+    "query": "SELECT date 'J0' AS \"Julian Epoch\"",
+    "expected": "SELECT CAST('J0' AS DATE) AS \"Julian Epoch\""
   },
   {
     "comment": "horology - Statement 78",
-    "query": "SELECT date '1995-08-06  J J J'"
+    "query": "SELECT date '1995-08-06  J J J'",
+    "expected": "SELECT CAST('1995-08-06  J J J' AS DATE)"
   },
   {
     "comment": "horology - Statement 79",
-    "query": "SELECT date 'J J 1520447'"
+    "query": "SELECT date 'J J 1520447'",
+    "expected": "SELECT CAST('J J 1520447' AS DATE)"
   },
   {
     "comment": "horology - Statement 80",
-    "query": "SELECT timestamp with time zone 'Y2001M12D27H04M05S06.789+08'"
+    "query": "SELECT timestamp with time zone 'Y2001M12D27H04M05S06.789+08'",
+    "expected": "SELECT CAST('Y2001M12D27H04M05S06.789+08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 81",
-    "query": "SELECT timestamp with time zone 'Y2001M12D27H04MM05S06.789-08'"
+    "query": "SELECT timestamp with time zone 'Y2001M12D27H04MM05S06.789-08'",
+    "expected": "SELECT CAST('Y2001M12D27H04MM05S06.789-08' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 82",
-    "query": "SELECT date '1995-08-06 epoch'"
+    "query": "SELECT date '1995-08-06 epoch'",
+    "expected": "SELECT CAST('1995-08-06 epoch' AS DATE)"
   },
   {
     "comment": "horology - Statement 83",
-    "query": "SELECT date '1995-08-06 infinity'"
+    "query": "SELECT date '1995-08-06 infinity'",
+    "expected": "SELECT CAST('1995-08-06 infinity' AS DATE)"
   },
   {
     "comment": "horology - Statement 84",
-    "query": "SELECT date '1995-08-06 -infinity'"
+    "query": "SELECT date '1995-08-06 -infinity'",
+    "expected": "SELECT CAST('1995-08-06 -infinity' AS DATE)"
   },
   {
     "comment": "horology - Statement 85",
-    "query": "SELECT date 'today infinity'"
+    "query": "SELECT date 'today infinity'",
+    "expected": "SELECT CAST('today infinity' AS DATE)"
   },
   {
     "comment": "horology - Statement 86",
-    "query": "SELECT date '-infinity infinity'"
+    "query": "SELECT date '-infinity infinity'",
+    "expected": "SELECT CAST('-infinity infinity' AS DATE)"
   },
   {
     "comment": "horology - Statement 87",
-    "query": "SELECT timestamp '1995-08-06 epoch'"
+    "query": "SELECT timestamp '1995-08-06 epoch'",
+    "expected": "SELECT CAST('1995-08-06 epoch' AS TIMESTAMP)"
   },
   {
     "comment": "horology - Statement 88",
-    "query": "SELECT timestamp '1995-08-06 infinity'"
+    "query": "SELECT timestamp '1995-08-06 infinity'",
+    "expected": "SELECT CAST('1995-08-06 infinity' AS TIMESTAMP)"
   },
   {
     "comment": "horology - Statement 89",
-    "query": "SELECT timestamp '1995-08-06 -infinity'"
+    "query": "SELECT timestamp '1995-08-06 -infinity'",
+    "expected": "SELECT CAST('1995-08-06 -infinity' AS TIMESTAMP)"
   },
   {
     "comment": "horology - Statement 90",
-    "query": "SELECT timestamp 'epoch 01:01:01'"
+    "query": "SELECT timestamp 'epoch 01:01:01'",
+    "expected": "SELECT CAST('epoch 01:01:01' AS TIMESTAMP)"
   },
   {
     "comment": "horology - Statement 91",
-    "query": "SELECT timestamp 'infinity 01:01:01'"
+    "query": "SELECT timestamp 'infinity 01:01:01'",
+    "expected": "SELECT CAST('infinity 01:01:01' AS TIMESTAMP)"
   },
   {
     "comment": "horology - Statement 92",
-    "query": "SELECT timestamp '-infinity 01:01:01'"
+    "query": "SELECT timestamp '-infinity 01:01:01'",
+    "expected": "SELECT CAST('-infinity 01:01:01' AS TIMESTAMP)"
   },
   {
     "comment": "horology - Statement 93",
-    "query": "SELECT timestamp 'now epoch'"
+    "query": "SELECT timestamp 'now epoch'",
+    "expected": "SELECT CAST('now epoch' AS TIMESTAMP)"
   },
   {
     "comment": "horology - Statement 94",
-    "query": "SELECT timestamp '-infinity infinity'"
+    "query": "SELECT timestamp '-infinity infinity'",
+    "expected": "SELECT CAST('-infinity infinity' AS TIMESTAMP)"
   },
   {
     "comment": "horology - Statement 95",
-    "query": "SELECT timestamptz '1995-08-06 epoch'"
+    "query": "SELECT timestamptz '1995-08-06 epoch'",
+    "expected": "SELECT CAST('1995-08-06 epoch' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 96",
-    "query": "SELECT timestamptz '1995-08-06 infinity'"
+    "query": "SELECT timestamptz '1995-08-06 infinity'",
+    "expected": "SELECT CAST('1995-08-06 infinity' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 97",
-    "query": "SELECT timestamptz '1995-08-06 -infinity'"
+    "query": "SELECT timestamptz '1995-08-06 -infinity'",
+    "expected": "SELECT CAST('1995-08-06 -infinity' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 98",
-    "query": "SELECT timestamptz 'epoch 01:01:01'"
+    "query": "SELECT timestamptz 'epoch 01:01:01'",
+    "expected": "SELECT CAST('epoch 01:01:01' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 99",
-    "query": "SELECT timestamptz 'infinity 01:01:01'"
+    "query": "SELECT timestamptz 'infinity 01:01:01'",
+    "expected": "SELECT CAST('infinity 01:01:01' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 100",
-    "query": "SELECT timestamptz '-infinity 01:01:01'"
+    "query": "SELECT timestamptz '-infinity 01:01:01'",
+    "expected": "SELECT CAST('-infinity 01:01:01' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 101",
-    "query": "SELECT timestamptz 'now epoch'"
+    "query": "SELECT timestamptz 'now epoch'",
+    "expected": "SELECT CAST('now epoch' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 102",
-    "query": "SELECT timestamptz '-infinity infinity'"
+    "query": "SELECT timestamptz '-infinity infinity'",
+    "expected": "SELECT CAST('-infinity infinity' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 103",
-    "query": "SELECT date '1981-02-03' + time '04:05:06' AS \"Date + Time\""
+    "query": "SELECT date '1981-02-03' + time '04:05:06' AS \"Date + Time\"",
+    "expected": "SELECT CAST('1981-02-03' AS DATE) + CAST('04:05:06' AS TIME) AS \"Date + Time\""
   },
   {
     "comment": "horology - Statement 104",
-    "query": "SELECT date '1991-02-03' + time with time zone '04:05:06 PST' AS \"Date + Time PST\""
+    "query": "SELECT date '1991-02-03' + time with time zone '04:05:06 PST' AS \"Date + Time PST\"",
+    "expected": "SELECT CAST('1991-02-03' AS DATE) + CAST('04:05:06 PST' AS TIMETZ) AS \"Date + Time PST\""
   },
   {
     "comment": "horology - Statement 105",
-    "query": "SELECT date '2001-02-03' + time with time zone '04:05:06 UTC' AS \"Date + Time UTC\""
+    "query": "SELECT date '2001-02-03' + time with time zone '04:05:06 UTC' AS \"Date + Time UTC\"",
+    "expected": "SELECT CAST('2001-02-03' AS DATE) + CAST('04:05:06 UTC' AS TIMETZ) AS \"Date + Time UTC\""
   },
   {
     "comment": "horology - Statement 106",
-    "query": "SELECT date '1991-02-03' + interval '2 years' AS \"Add Two Years\""
+    "query": "SELECT date '1991-02-03' + interval '2 years' AS \"Add Two Years\"",
+    "expected": "SELECT CAST('1991-02-03' AS DATE) + CAST('2 years' AS INTERVAL) AS \"Add Two Years\""
   },
   {
     "comment": "horology - Statement 107",
-    "query": "SELECT date '2001-12-13' - interval '2 years' AS \"Subtract Two Years\""
+    "query": "SELECT date '2001-12-13' - interval '2 years' AS \"Subtract Two Years\"",
+    "expected": "SELECT CAST('2001-12-13' AS DATE) - CAST('2 years' AS INTERVAL) AS \"Subtract Two Years\""
   },
   {
     "comment": "horology - Statement 108",
-    "query": "SELECT date '1991-02-03' - time '04:05:06' AS \"Subtract Time\""
+    "query": "SELECT date '1991-02-03' - time '04:05:06' AS \"Subtract Time\"",
+    "expected": "SELECT CAST('1991-02-03' AS DATE) - CAST('04:05:06' AS TIME) AS \"Subtract Time\""
   },
   {
     "comment": "horology - Statement 109",
-    "query": "SELECT date '1991-02-03' - time with time zone '04:05:06 UTC' AS \"Subtract Time UTC\""
+    "query": "SELECT date '1991-02-03' - time with time zone '04:05:06 UTC' AS \"Subtract Time UTC\"",
+    "expected": "SELECT CAST('1991-02-03' AS DATE) - CAST('04:05:06 UTC' AS TIMETZ) AS \"Subtract Time UTC\""
   },
   {
     "comment": "horology - Statement 110",
-    "query": "SELECT timestamp without time zone '1996-03-01' - interval '1 second' AS \"Feb 29\""
+    "query": "SELECT timestamp without time zone '1996-03-01' - interval '1 second' AS \"Feb 29\"",
+    "expected": "SELECT CAST('1996-03-01' AS TIMESTAMP) - CAST('1 second' AS INTERVAL) AS \"Feb 29\""
   },
   {
     "comment": "horology - Statement 111",
-    "query": "SELECT timestamp without time zone '1999-03-01' - interval '1 second' AS \"Feb 28\""
+    "query": "SELECT timestamp without time zone '1999-03-01' - interval '1 second' AS \"Feb 28\"",
+    "expected": "SELECT CAST('1999-03-01' AS TIMESTAMP) - CAST('1 second' AS INTERVAL) AS \"Feb 28\""
   },
   {
     "comment": "horology - Statement 112",
-    "query": "SELECT timestamp without time zone '2000-03-01' - interval '1 second' AS \"Feb 29\""
+    "query": "SELECT timestamp without time zone '2000-03-01' - interval '1 second' AS \"Feb 29\"",
+    "expected": "SELECT CAST('2000-03-01' AS TIMESTAMP) - CAST('1 second' AS INTERVAL) AS \"Feb 29\""
   },
   {
     "comment": "horology - Statement 113",
-    "query": "SELECT timestamp without time zone '1999-12-01' + interval '1 month - 1 second' AS \"Dec 31\""
+    "query": "SELECT timestamp without time zone '1999-12-01' + interval '1 month - 1 second' AS \"Dec 31\"",
+    "expected": "SELECT CAST('1999-12-01' AS TIMESTAMP) + CAST('1 month - 1 second' AS INTERVAL) AS \"Dec 31\""
   },
   {
     "comment": "horology - Statement 114",
-    "query": "SELECT timestamp without time zone 'Jan 1, 4713 BC' + interval '106000000 days' AS \"Feb 23, 285506\""
+    "query": "SELECT timestamp without time zone 'Jan 1, 4713 BC' + interval '106000000 days' AS \"Feb 23, 285506\"",
+    "expected": "SELECT CAST('Jan 1, 4713 BC' AS TIMESTAMP) + CAST('106000000 days' AS INTERVAL) AS \"Feb 23, 285506\""
   },
   {
     "comment": "horology - Statement 115",
-    "query": "SELECT timestamp without time zone 'Jan 1, 4713 BC' + interval '107000000 days' AS \"Jan 20, 288244\""
+    "query": "SELECT timestamp without time zone 'Jan 1, 4713 BC' + interval '107000000 days' AS \"Jan 20, 288244\"",
+    "expected": "SELECT CAST('Jan 1, 4713 BC' AS TIMESTAMP) + CAST('107000000 days' AS INTERVAL) AS \"Jan 20, 288244\""
   },
   {
     "comment": "horology - Statement 116",
-    "query": "SELECT timestamp without time zone 'Jan 1, 4713 BC' + interval '109203489 days' AS \"Dec 31, 294276\""
+    "query": "SELECT timestamp without time zone 'Jan 1, 4713 BC' + interval '109203489 days' AS \"Dec 31, 294276\"",
+    "expected": "SELECT CAST('Jan 1, 4713 BC' AS TIMESTAMP) + CAST('109203489 days' AS INTERVAL) AS \"Dec 31, 294276\""
   },
   {
     "comment": "horology - Statement 117",
-    "query": "SELECT timestamp without time zone '2000-01-01' - interval '2483590 days' AS \"out of range\""
+    "query": "SELECT timestamp without time zone '2000-01-01' - interval '2483590 days' AS \"out of range\"",
+    "expected": "SELECT CAST('2000-01-01' AS TIMESTAMP) - CAST('2483590 days' AS INTERVAL) AS \"out of range\""
   },
   {
     "comment": "horology - Statement 118",
-    "query": "SELECT timestamp without time zone '294276-12-31 23:59:59' + interval '9223372036854775807 microseconds' AS \"out of range\""
+    "query": "SELECT timestamp without time zone '294276-12-31 23:59:59' + interval '9223372036854775807 microseconds' AS \"out of range\"",
+    "expected": "SELECT CAST('294276-12-31 23:59:59' AS TIMESTAMP) + CAST('9223372036854775807 microseconds' AS INTERVAL) AS \"out of range\""
   },
   {
     "comment": "horology - Statement 119",
-    "query": "SELECT timestamp without time zone '12/31/294276' - timestamp without time zone '12/23/1999' AS \"106751991 Days\""
+    "query": "SELECT timestamp without time zone '12/31/294276' - timestamp without time zone '12/23/1999' AS \"106751991 Days\"",
+    "expected": "SELECT CAST('12/31/294276' AS TIMESTAMP) - CAST('12/23/1999' AS TIMESTAMP) AS \"106751991 Days\""
   },
   {
     "comment": "horology - Statement 120",
-    "query": "SELECT (timestamp without time zone 'today' = (timestamp without time zone 'yesterday' + interval '1 day')) as \"True\""
+    "query": "SELECT (timestamp without time zone 'today' = (timestamp without time zone 'yesterday' + interval '1 day')) as \"True\"",
+    "expected": "SELECT (CAST('today' AS TIMESTAMP) = (CAST('yesterday' AS TIMESTAMP) + CAST('1 day' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 121",
-    "query": "SELECT (timestamp without time zone 'today' = (timestamp without time zone 'tomorrow' - interval '1 day')) as \"True\""
+    "query": "SELECT (timestamp without time zone 'today' = (timestamp without time zone 'tomorrow' - interval '1 day')) as \"True\"",
+    "expected": "SELECT (CAST('today' AS TIMESTAMP) = (CAST('tomorrow' AS TIMESTAMP) - CAST('1 day' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 122",
-    "query": "SELECT (timestamp without time zone 'today 10:30' = (timestamp without time zone 'yesterday' + interval '1 day 10 hr 30 min')) as \"True\""
+    "query": "SELECT (timestamp without time zone 'today 10:30' = (timestamp without time zone 'yesterday' + interval '1 day 10 hr 30 min')) as \"True\"",
+    "expected": "SELECT (CAST('today 10:30' AS TIMESTAMP) = (CAST('yesterday' AS TIMESTAMP) + CAST('1 day 10 hr 30 min' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 123",
-    "query": "SELECT (timestamp without time zone '10:30 today' = (timestamp without time zone 'yesterday' + interval '1 day 10 hr 30 min')) as \"True\""
+    "query": "SELECT (timestamp without time zone '10:30 today' = (timestamp without time zone 'yesterday' + interval '1 day 10 hr 30 min')) as \"True\"",
+    "expected": "SELECT (CAST('10:30 today' AS TIMESTAMP) = (CAST('yesterday' AS TIMESTAMP) + CAST('1 day 10 hr 30 min' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 124",
-    "query": "SELECT (timestamp without time zone 'tomorrow' = (timestamp without time zone 'yesterday' + interval '2 days')) as \"True\""
+    "query": "SELECT (timestamp without time zone 'tomorrow' = (timestamp without time zone 'yesterday' + interval '2 days')) as \"True\"",
+    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMP) = (CAST('yesterday' AS TIMESTAMP) + CAST('2 days' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 125",
-    "query": "SELECT (timestamp without time zone 'tomorrow 16:00:00' = (timestamp without time zone 'today' + interval '1 day 16 hours')) as \"True\""
+    "query": "SELECT (timestamp without time zone 'tomorrow 16:00:00' = (timestamp without time zone 'today' + interval '1 day 16 hours')) as \"True\"",
+    "expected": "SELECT (CAST('tomorrow 16:00:00' AS TIMESTAMP) = (CAST('today' AS TIMESTAMP) + CAST('1 day 16 hours' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 126",
-    "query": "SELECT (timestamp without time zone '16:00:00 tomorrow' = (timestamp without time zone 'today' + interval '1 day 16 hours')) as \"True\""
+    "query": "SELECT (timestamp without time zone '16:00:00 tomorrow' = (timestamp without time zone 'today' + interval '1 day 16 hours')) as \"True\"",
+    "expected": "SELECT (CAST('16:00:00 tomorrow' AS TIMESTAMP) = (CAST('today' AS TIMESTAMP) + CAST('1 day 16 hours' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 127",
-    "query": "SELECT (timestamp without time zone 'yesterday 12:34:56' = (timestamp without time zone 'tomorrow' - interval '2 days - 12:34:56')) as \"True\""
+    "query": "SELECT (timestamp without time zone 'yesterday 12:34:56' = (timestamp without time zone 'tomorrow' - interval '2 days - 12:34:56')) as \"True\"",
+    "expected": "SELECT (CAST('yesterday 12:34:56' AS TIMESTAMP) = (CAST('tomorrow' AS TIMESTAMP) - CAST('2 days - 12:34:56' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 128",
-    "query": "SELECT (timestamp without time zone '12:34:56 yesterday' = (timestamp without time zone 'tomorrow' - interval '2 days - 12:34:56')) as \"True\""
+    "query": "SELECT (timestamp without time zone '12:34:56 yesterday' = (timestamp without time zone 'tomorrow' - interval '2 days - 12:34:56')) as \"True\"",
+    "expected": "SELECT (CAST('12:34:56 yesterday' AS TIMESTAMP) = (CAST('tomorrow' AS TIMESTAMP) - CAST('2 days - 12:34:56' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 129",
-    "query": "SELECT (timestamp without time zone 'tomorrow' > 'now') as \"True\""
+    "query": "SELECT (timestamp without time zone 'tomorrow' \u003e 'now') as \"True\"",
+    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMP) \u003e 'now') AS \"True\""
   },
   {
     "comment": "horology - Statement 130",
-    "query": "SELECT date '1994-01-01' + time '11:00' AS \"Jan_01_1994_11am\""
+    "query": "SELECT date '1994-01-01' + time '11:00' AS \"Jan_01_1994_11am\"",
+    "expected": "SELECT CAST('1994-01-01' AS DATE) + CAST('11:00' AS TIME) AS \"Jan_01_1994_11am\""
   },
   {
     "comment": "horology - Statement 131",
-    "query": "SELECT date '1994-01-01' + time '10:00' AS \"Jan_01_1994_10am\""
+    "query": "SELECT date '1994-01-01' + time '10:00' AS \"Jan_01_1994_10am\"",
+    "expected": "SELECT CAST('1994-01-01' AS DATE) + CAST('10:00' AS TIME) AS \"Jan_01_1994_10am\""
   },
   {
     "comment": "horology - Statement 132",
-    "query": "SELECT date '1994-01-01' + timetz '11:00-5' AS \"Jan_01_1994_8am\""
+    "query": "SELECT date '1994-01-01' + timetz '11:00-5' AS \"Jan_01_1994_8am\"",
+    "expected": "SELECT CAST('1994-01-01' AS DATE) + CAST('11:00-5' AS TIMETZ) AS \"Jan_01_1994_8am\""
   },
   {
     "comment": "horology - Statement 133",
-    "query": "SELECT timestamptz(date '1994-01-01', time with time zone '11:00-5') AS \"Jan_01_1994_8am\""
+    "query": "SELECT timestamptz(date '1994-01-01', time with time zone '11:00-5') AS \"Jan_01_1994_8am\"",
+    "expected": "SELECT timestamptz(CAST('1994-01-01' AS DATE), CAST('11:00-5' AS TIMETZ)) AS \"Jan_01_1994_8am\""
   },
   {
     "comment": "horology - Statement 134",
-    "query": "SELECT d1 + interval '1 year' AS one_year FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 + interval '1 year' AS one_year FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 + CAST('1 year' AS INTERVAL) AS one_year FROM timestamp_tbl"
   },
   {
     "comment": "horology - Statement 135",
-    "query": "SELECT d1 - interval '1 year' AS one_year FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 - interval '1 year' AS one_year FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 - CAST('1 year' AS INTERVAL) AS one_year FROM timestamp_tbl"
   },
   {
     "comment": "horology - Statement 136",
-    "query": "SELECT timestamp with time zone '1996-03-01' - interval '1 second' AS \"Feb 29\""
+    "query": "SELECT timestamp with time zone '1996-03-01' - interval '1 second' AS \"Feb 29\"",
+    "expected": "SELECT CAST('1996-03-01' AS TIMESTAMPTZ) - CAST('1 second' AS INTERVAL) AS \"Feb 29\""
   },
   {
     "comment": "horology - Statement 137",
-    "query": "SELECT timestamp with time zone '1999-03-01' - interval '1 second' AS \"Feb 28\""
+    "query": "SELECT timestamp with time zone '1999-03-01' - interval '1 second' AS \"Feb 28\"",
+    "expected": "SELECT CAST('1999-03-01' AS TIMESTAMPTZ) - CAST('1 second' AS INTERVAL) AS \"Feb 28\""
   },
   {
     "comment": "horology - Statement 138",
-    "query": "SELECT timestamp with time zone '2000-03-01' - interval '1 second' AS \"Feb 29\""
+    "query": "SELECT timestamp with time zone '2000-03-01' - interval '1 second' AS \"Feb 29\"",
+    "expected": "SELECT CAST('2000-03-01' AS TIMESTAMPTZ) - CAST('1 second' AS INTERVAL) AS \"Feb 29\""
   },
   {
     "comment": "horology - Statement 139",
-    "query": "SELECT timestamp with time zone '1999-12-01' + interval '1 month - 1 second' AS \"Dec 31\""
+    "query": "SELECT timestamp with time zone '1999-12-01' + interval '1 month - 1 second' AS \"Dec 31\"",
+    "expected": "SELECT CAST('1999-12-01' AS TIMESTAMPTZ) + CAST('1 month - 1 second' AS INTERVAL) AS \"Dec 31\""
   },
   {
     "comment": "horology - Statement 140",
-    "query": "SELECT timestamp with time zone '2000-01-01' - interval '2483590 days' AS \"out of range\""
+    "query": "SELECT timestamp with time zone '2000-01-01' - interval '2483590 days' AS \"out of range\"",
+    "expected": "SELECT CAST('2000-01-01' AS TIMESTAMPTZ) - CAST('2483590 days' AS INTERVAL) AS \"out of range\""
   },
   {
     "comment": "horology - Statement 141",
-    "query": "SELECT timestamp with time zone '294276-12-31 23:59:59 UTC' + interval '9223372036854775807 microseconds' AS \"out of range\""
+    "query": "SELECT timestamp with time zone '294276-12-31 23:59:59 UTC' + interval '9223372036854775807 microseconds' AS \"out of range\"",
+    "expected": "SELECT CAST('294276-12-31 23:59:59 UTC' AS TIMESTAMPTZ) + CAST('9223372036854775807 microseconds' AS INTERVAL) AS \"out of range\""
   },
   {
     "comment": "horology - Statement 142",
-    "query": "SELECT (timestamp with time zone 'today' = (timestamp with time zone 'yesterday' + interval '1 day')) as \"True\""
+    "query": "SELECT (timestamp with time zone 'today' = (timestamp with time zone 'yesterday' + interval '1 day')) as \"True\"",
+    "expected": "SELECT (CAST('today' AS TIMESTAMPTZ) = (CAST('yesterday' AS TIMESTAMPTZ) + CAST('1 day' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 143",
-    "query": "SELECT (timestamp with time zone 'today' = (timestamp with time zone 'tomorrow' - interval '1 day')) as \"True\""
+    "query": "SELECT (timestamp with time zone 'today' = (timestamp with time zone 'tomorrow' - interval '1 day')) as \"True\"",
+    "expected": "SELECT (CAST('today' AS TIMESTAMPTZ) = (CAST('tomorrow' AS TIMESTAMPTZ) - CAST('1 day' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 144",
-    "query": "SELECT (timestamp with time zone 'tomorrow' = (timestamp with time zone 'yesterday' + interval '2 days')) as \"True\""
+    "query": "SELECT (timestamp with time zone 'tomorrow' = (timestamp with time zone 'yesterday' + interval '2 days')) as \"True\"",
+    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMPTZ) = (CAST('yesterday' AS TIMESTAMPTZ) + CAST('2 days' AS INTERVAL))) AS \"True\""
   },
   {
     "comment": "horology - Statement 145",
-    "query": "SELECT (timestamp with time zone 'tomorrow' > 'now') as \"True\""
+    "query": "SELECT (timestamp with time zone 'tomorrow' \u003e 'now') as \"True\"",
+    "expected": "SELECT (CAST('tomorrow' AS TIMESTAMPTZ) \u003e 'now') AS \"True\""
   },
   {
     "comment": "horology - Statement 146",
@@ -585,359 +730,447 @@
   },
   {
     "comment": "horology - Statement 147",
-    "query": "SELECT timestamp with time zone '2005-04-02 12:00-07' + interval '1 day' as \"Apr 3, 12:00\""
+    "query": "SELECT timestamp with time zone '2005-04-02 12:00-07' + interval '1 day' as \"Apr 3, 12:00\"",
+    "expected": "SELECT CAST('2005-04-02 12:00-07' AS TIMESTAMPTZ) + CAST('1 day' AS INTERVAL) AS \"Apr 3, 12:00\""
   },
   {
     "comment": "horology - Statement 148",
-    "query": "SELECT timestamp with time zone '2005-04-02 12:00-07' + interval '24 hours' as \"Apr 3, 13:00\""
+    "query": "SELECT timestamp with time zone '2005-04-02 12:00-07' + interval '24 hours' as \"Apr 3, 13:00\"",
+    "expected": "SELECT CAST('2005-04-02 12:00-07' AS TIMESTAMPTZ) + CAST('24 hours' AS INTERVAL) AS \"Apr 3, 13:00\""
   },
   {
     "comment": "horology - Statement 149",
-    "query": "SELECT timestamp with time zone '2005-04-03 12:00-06' - interval '1 day' as \"Apr 2, 12:00\""
+    "query": "SELECT timestamp with time zone '2005-04-03 12:00-06' - interval '1 day' as \"Apr 2, 12:00\"",
+    "expected": "SELECT CAST('2005-04-03 12:00-06' AS TIMESTAMPTZ) - CAST('1 day' AS INTERVAL) AS \"Apr 2, 12:00\""
   },
   {
     "comment": "horology - Statement 150",
-    "query": "SELECT timestamp with time zone '2005-04-03 12:00-06' - interval '24 hours' as \"Apr 2, 11:00\""
+    "query": "SELECT timestamp with time zone '2005-04-03 12:00-06' - interval '24 hours' as \"Apr 2, 11:00\"",
+    "expected": "SELECT CAST('2005-04-03 12:00-06' AS TIMESTAMPTZ) - CAST('24 hours' AS INTERVAL) AS \"Apr 2, 11:00\""
   },
   {
     "comment": "horology - Statement 151",
-    "query": "RESET TIME ZONE"
+    "query": "RESET TIME ZONE",
+    "expected": "RESET timezone"
   },
   {
     "comment": "horology - Statement 152",
-    "query": "SELECT timestamptz(date '1994-01-01', time '11:00') AS \"Jan_01_1994_10am\""
+    "query": "SELECT timestamptz(date '1994-01-01', time '11:00') AS \"Jan_01_1994_10am\"",
+    "expected": "SELECT timestamptz(CAST('1994-01-01' AS DATE), CAST('11:00' AS TIME)) AS \"Jan_01_1994_10am\""
   },
   {
     "comment": "horology - Statement 153",
-    "query": "SELECT timestamptz(date '1994-01-01', time '10:00') AS \"Jan_01_1994_9am\""
+    "query": "SELECT timestamptz(date '1994-01-01', time '10:00') AS \"Jan_01_1994_9am\"",
+    "expected": "SELECT timestamptz(CAST('1994-01-01' AS DATE), CAST('10:00' AS TIME)) AS \"Jan_01_1994_9am\""
   },
   {
     "comment": "horology - Statement 154",
-    "query": "SELECT timestamptz(date '1994-01-01', time with time zone '11:00-8') AS \"Jan_01_1994_11am\""
+    "query": "SELECT timestamptz(date '1994-01-01', time with time zone '11:00-8') AS \"Jan_01_1994_11am\"",
+    "expected": "SELECT timestamptz(CAST('1994-01-01' AS DATE), CAST('11:00-8' AS TIMETZ)) AS \"Jan_01_1994_11am\""
   },
   {
     "comment": "horology - Statement 155",
-    "query": "SELECT timestamptz(date '1994-01-01', time with time zone '10:00-8') AS \"Jan_01_1994_10am\""
+    "query": "SELECT timestamptz(date '1994-01-01', time with time zone '10:00-8') AS \"Jan_01_1994_10am\"",
+    "expected": "SELECT timestamptz(CAST('1994-01-01' AS DATE), CAST('10:00-8' AS TIMETZ)) AS \"Jan_01_1994_10am\""
   },
   {
     "comment": "horology - Statement 156",
-    "query": "SELECT d1 + interval '1 year' AS one_year FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT d1 + interval '1 year' AS one_year FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT d1 + CAST('1 year' AS INTERVAL) AS one_year FROM timestamptz_tbl"
   },
   {
     "comment": "horology - Statement 157",
-    "query": "SELECT d1 - interval '1 year' AS one_year FROM TIMESTAMPTZ_TBL"
+    "query": "SELECT d1 - interval '1 year' AS one_year FROM TIMESTAMPTZ_TBL",
+    "expected": "SELECT d1 - CAST('1 year' AS INTERVAL) AS one_year FROM timestamptz_tbl"
   },
   {
     "comment": "horology - Statement 158",
-    "query": "SELECT CAST(time '01:02' AS interval) AS \"+01:02\""
+    "query": "SELECT CAST(time '01:02' AS interval) AS \"+01:02\"",
+    "expected": "SELECT CAST(CAST('01:02' AS TIME) AS INTERVAL) AS \"+01:02\""
   },
   {
     "comment": "horology - Statement 159",
-    "query": "SELECT CAST(interval '02:03' AS time) AS \"02:03:00\""
+    "query": "SELECT CAST(interval '02:03' AS time) AS \"02:03:00\"",
+    "expected": "SELECT CAST(CAST('02:03' AS INTERVAL) AS TIME) AS \"02:03:00\""
   },
   {
     "comment": "horology - Statement 160",
-    "query": "SELECT CAST(interval '-02:03' AS time) AS \"21:57:00\""
+    "query": "SELECT CAST(interval '-02:03' AS time) AS \"21:57:00\"",
+    "expected": "SELECT CAST(CAST('-02:03' AS INTERVAL) AS TIME) AS \"21:57:00\""
   },
   {
     "comment": "horology - Statement 161",
-    "query": "SELECT CAST(interval '-9223372022400000000 us' AS time) AS \"00:00:00\""
+    "query": "SELECT CAST(interval '-9223372022400000000 us' AS time) AS \"00:00:00\"",
+    "expected": "SELECT CAST(CAST('-9223372022400000000 us' AS INTERVAL) AS TIME) AS \"00:00:00\""
   },
   {
     "comment": "horology - Statement 162",
-    "query": "SELECT time '01:30' + interval '02:01' AS \"03:31:00\""
+    "query": "SELECT time '01:30' + interval '02:01' AS \"03:31:00\"",
+    "expected": "SELECT CAST('01:30' AS TIME) + CAST('02:01' AS INTERVAL) AS \"03:31:00\""
   },
   {
     "comment": "horology - Statement 163",
-    "query": "SELECT time '01:30' - interval '02:01' AS \"23:29:00\""
+    "query": "SELECT time '01:30' - interval '02:01' AS \"23:29:00\"",
+    "expected": "SELECT CAST('01:30' AS TIME) - CAST('02:01' AS INTERVAL) AS \"23:29:00\""
   },
   {
     "comment": "horology - Statement 164",
-    "query": "SELECT time '02:30' + interval '36:01' AS \"14:31:00\""
+    "query": "SELECT time '02:30' + interval '36:01' AS \"14:31:00\"",
+    "expected": "SELECT CAST('02:30' AS TIME) + CAST('36:01' AS INTERVAL) AS \"14:31:00\""
   },
   {
     "comment": "horology - Statement 165",
-    "query": "SELECT time '03:30' + interval '1 month 04:01' AS \"07:31:00\""
+    "query": "SELECT time '03:30' + interval '1 month 04:01' AS \"07:31:00\"",
+    "expected": "SELECT CAST('03:30' AS TIME) + CAST('1 month 04:01' AS INTERVAL) AS \"07:31:00\""
   },
   {
     "comment": "horology - Statement 166",
-    "query": "SELECT CAST(time with time zone '01:02-08' AS interval) AS \"+00:01\""
+    "query": "SELECT CAST(time with time zone '01:02-08' AS interval) AS \"+00:01\"",
+    "expected": "SELECT CAST(CAST('01:02-08' AS TIMETZ) AS INTERVAL) AS \"+00:01\""
   },
   {
     "comment": "horology - Statement 167",
-    "query": "SELECT CAST(interval '02:03' AS time with time zone) AS \"02:03:00-08\""
+    "query": "SELECT CAST(interval '02:03' AS time with time zone) AS \"02:03:00-08\"",
+    "expected": "SELECT CAST(CAST('02:03' AS INTERVAL) AS TIMETZ) AS \"02:03:00-08\""
   },
   {
     "comment": "horology - Statement 168",
-    "query": "SELECT time with time zone '01:30-08' - interval '02:01' AS \"23:29:00-08\""
+    "query": "SELECT time with time zone '01:30-08' - interval '02:01' AS \"23:29:00-08\"",
+    "expected": "SELECT CAST('01:30-08' AS TIMETZ) - CAST('02:01' AS INTERVAL) AS \"23:29:00-08\""
   },
   {
     "comment": "horology - Statement 169",
-    "query": "SELECT time with time zone '02:30-08' + interval '36:01' AS \"14:31:00-08\""
+    "query": "SELECT time with time zone '02:30-08' + interval '36:01' AS \"14:31:00-08\"",
+    "expected": "SELECT CAST('02:30-08' AS TIMETZ) + CAST('36:01' AS INTERVAL) AS \"14:31:00-08\""
   },
   {
     "comment": "horology - Statement 170",
-    "query": "SELECT CAST(CAST(date 'today' + time with time zone '05:30' + interval '02:01' AS time with time zone) AS time) AS \"07:31:00\""
+    "query": "SELECT CAST(CAST(date 'today' + time with time zone '05:30' + interval '02:01' AS time with time zone) AS time) AS \"07:31:00\"",
+    "expected": "SELECT CAST(CAST(CAST('today' AS DATE) + CAST('05:30' AS TIMETZ) + CAST('02:01' AS INTERVAL) AS TIMETZ) AS TIME) AS \"07:31:00\""
   },
   {
     "comment": "horology - Statement 171",
-    "query": "SELECT CAST(cast(date 'today' + time with time zone '03:30' + interval '1 month 04:01' as timestamp without time zone) AS time) AS \"07:31:00\""
+    "query": "SELECT CAST(cast(date 'today' + time with time zone '03:30' + interval '1 month 04:01' as timestamp without time zone) AS time) AS \"07:31:00\"",
+    "expected": "SELECT CAST(CAST(CAST('today' AS DATE) + CAST('03:30' AS TIMETZ) + CAST('1 month 04:01' AS INTERVAL) AS TIMESTAMP) AS TIME) AS \"07:31:00\""
   },
   {
     "comment": "horology - Statement 172",
-    "query": "SELECT t.d1 AS t, i.f1 AS i, t.d1 + i.f1 AS \"add\", t.d1 - i.f1 AS \"subtract\" FROM TIMESTAMP_TBL t, INTERVAL_TBL i WHERE t.d1 BETWEEN '1990-01-01' AND '2001-01-01' AND i.f1 BETWEEN '00:00' AND '23:00' ORDER BY 1,2"
+    "query": "SELECT t.d1 AS t, i.f1 AS i, t.d1 + i.f1 AS \"add\", t.d1 - i.f1 AS \"subtract\" FROM TIMESTAMP_TBL t, INTERVAL_TBL i WHERE t.d1 BETWEEN '1990-01-01' AND '2001-01-01' AND i.f1 BETWEEN '00:00' AND '23:00' ORDER BY 1,2",
+    "expected": "SELECT t.d1 AS t, i.f1 AS i, t.d1 + i.f1 AS \"add\", t.d1 - i.f1 AS subtract FROM timestamp_tbl AS t, interval_tbl AS i WHERE t.d1 BETWEEN '1990-01-01' AND '2001-01-01' AND i.f1 BETWEEN '00:00' AND '23:00' ORDER BY 1, 2"
   },
   {
     "comment": "horology - Statement 173",
-    "query": "SELECT t.f1 AS t, i.f1 AS i, t.f1 + i.f1 AS \"add\", t.f1 - i.f1 AS \"subtract\" FROM TIME_TBL t, INTERVAL_TBL i WHERE isfinite(i.f1) ORDER BY 1,2"
+    "query": "SELECT t.f1 AS t, i.f1 AS i, t.f1 + i.f1 AS \"add\", t.f1 - i.f1 AS \"subtract\" FROM TIME_TBL t, INTERVAL_TBL i WHERE isfinite(i.f1) ORDER BY 1,2",
+    "expected": "SELECT t.f1 AS t, i.f1 AS i, t.f1 + i.f1 AS \"add\", t.f1 - i.f1 AS subtract FROM time_tbl AS t, interval_tbl AS i WHERE isfinite(i.f1) ORDER BY 1, 2"
   },
   {
     "comment": "horology - Statement 174",
-    "query": "SELECT t.f1 AS t, i.f1 AS i, t.f1 + i.f1 AS \"add\", t.f1 - i.f1 AS \"subtract\" FROM TIMETZ_TBL t, INTERVAL_TBL i WHERE isfinite(i.f1) ORDER BY 1,2"
+    "query": "SELECT t.f1 AS t, i.f1 AS i, t.f1 + i.f1 AS \"add\", t.f1 - i.f1 AS \"subtract\" FROM TIMETZ_TBL t, INTERVAL_TBL i WHERE isfinite(i.f1) ORDER BY 1,2",
+    "expected": "SELECT t.f1 AS t, i.f1 AS i, t.f1 + i.f1 AS \"add\", t.f1 - i.f1 AS subtract FROM timetz_tbl AS t, interval_tbl AS i WHERE isfinite(i.f1) ORDER BY 1, 2"
   },
   {
     "comment": "horology - Statement 175",
-    "query": "SELECT (timestamp with time zone '2000-11-27', timestamp with time zone '2000-11-28') OVERLAPS (timestamp with time zone '2000-11-27 12:00', timestamp with time zone '2000-11-30') AS \"True\""
+    "query": "SELECT (timestamp with time zone '2000-11-27', timestamp with time zone '2000-11-28') OVERLAPS (timestamp with time zone '2000-11-27 12:00', timestamp with time zone '2000-11-30') AS \"True\"",
+    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('2000-11-28' AS TIMESTAMPTZ), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('2000-11-30' AS TIMESTAMPTZ)) AS \"True\""
   },
   {
     "comment": "horology - Statement 176",
-    "query": "SELECT (timestamp with time zone '2000-11-26', timestamp with time zone '2000-11-27') OVERLAPS (timestamp with time zone '2000-11-27 12:00', timestamp with time zone '2000-11-30') AS \"False\""
+    "query": "SELECT (timestamp with time zone '2000-11-26', timestamp with time zone '2000-11-27') OVERLAPS (timestamp with time zone '2000-11-27 12:00', timestamp with time zone '2000-11-30') AS \"False\"",
+    "expected": "SELECT overlaps(CAST('2000-11-26' AS TIMESTAMPTZ), CAST('2000-11-27' AS TIMESTAMPTZ), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('2000-11-30' AS TIMESTAMPTZ)) AS \"False\""
   },
   {
     "comment": "horology - Statement 177",
-    "query": "SELECT (timestamp with time zone '2000-11-27', timestamp with time zone '2000-11-28') OVERLAPS (timestamp with time zone '2000-11-27 12:00', interval '1 day') AS \"True\""
+    "query": "SELECT (timestamp with time zone '2000-11-27', timestamp with time zone '2000-11-28') OVERLAPS (timestamp with time zone '2000-11-27 12:00', interval '1 day') AS \"True\"",
+    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('2000-11-28' AS TIMESTAMPTZ), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('1 day' AS INTERVAL)) AS \"True\""
   },
   {
     "comment": "horology - Statement 178",
-    "query": "SELECT (timestamp with time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp with time zone '2000-11-27 12:00', timestamp with time zone '2000-11-30') AS \"False\""
+    "query": "SELECT (timestamp with time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp with time zone '2000-11-27 12:00', timestamp with time zone '2000-11-30') AS \"False\"",
+    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('2000-11-30' AS TIMESTAMPTZ)) AS \"False\""
   },
   {
     "comment": "horology - Statement 179",
-    "query": "SELECT (timestamp with time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp with time zone '2000-11-27', interval '12 hours') AS \"True\""
+    "query": "SELECT (timestamp with time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp with time zone '2000-11-27', interval '12 hours') AS \"True\"",
+    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL), CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL)) AS \"True\""
   },
   {
     "comment": "horology - Statement 180",
-    "query": "SELECT (timestamp with time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp with time zone '2000-11-27 12:00', interval '12 hours') AS \"False\""
+    "query": "SELECT (timestamp with time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp with time zone '2000-11-27 12:00', interval '12 hours') AS \"False\"",
+    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMPTZ), CAST('12 hours' AS INTERVAL)) AS \"False\""
   },
   {
     "comment": "horology - Statement 181",
-    "query": "SELECT (timestamp without time zone '2000-11-27', timestamp without time zone '2000-11-28') OVERLAPS (timestamp without time zone '2000-11-27 12:00', timestamp without time zone '2000-11-30') AS \"True\""
+    "query": "SELECT (timestamp without time zone '2000-11-27', timestamp without time zone '2000-11-28') OVERLAPS (timestamp without time zone '2000-11-27 12:00', timestamp without time zone '2000-11-30') AS \"True\"",
+    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMP), CAST('2000-11-28' AS TIMESTAMP), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('2000-11-30' AS TIMESTAMP)) AS \"True\""
   },
   {
     "comment": "horology - Statement 182",
-    "query": "SELECT (timestamp without time zone '2000-11-26', timestamp without time zone '2000-11-27') OVERLAPS (timestamp without time zone '2000-11-27 12:00', timestamp without time zone '2000-11-30') AS \"False\""
+    "query": "SELECT (timestamp without time zone '2000-11-26', timestamp without time zone '2000-11-27') OVERLAPS (timestamp without time zone '2000-11-27 12:00', timestamp without time zone '2000-11-30') AS \"False\"",
+    "expected": "SELECT overlaps(CAST('2000-11-26' AS TIMESTAMP), CAST('2000-11-27' AS TIMESTAMP), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('2000-11-30' AS TIMESTAMP)) AS \"False\""
   },
   {
     "comment": "horology - Statement 183",
-    "query": "SELECT (timestamp without time zone '2000-11-27', timestamp without time zone '2000-11-28') OVERLAPS (timestamp without time zone '2000-11-27 12:00', interval '1 day') AS \"True\""
+    "query": "SELECT (timestamp without time zone '2000-11-27', timestamp without time zone '2000-11-28') OVERLAPS (timestamp without time zone '2000-11-27 12:00', interval '1 day') AS \"True\"",
+    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMP), CAST('2000-11-28' AS TIMESTAMP), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('1 day' AS INTERVAL)) AS \"True\""
   },
   {
     "comment": "horology - Statement 184",
-    "query": "SELECT (timestamp without time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp without time zone '2000-11-27 12:00', timestamp without time zone '2000-11-30') AS \"False\""
+    "query": "SELECT (timestamp without time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp without time zone '2000-11-27 12:00', timestamp without time zone '2000-11-30') AS \"False\"",
+    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('2000-11-30' AS TIMESTAMP)) AS \"False\""
   },
   {
     "comment": "horology - Statement 185",
-    "query": "SELECT (timestamp without time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp without time zone '2000-11-27', interval '12 hours') AS \"True\""
+    "query": "SELECT (timestamp without time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp without time zone '2000-11-27', interval '12 hours') AS \"True\"",
+    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL), CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL)) AS \"True\""
   },
   {
     "comment": "horology - Statement 186",
-    "query": "SELECT (timestamp without time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp without time zone '2000-11-27 12:00', interval '12 hours') AS \"False\""
+    "query": "SELECT (timestamp without time zone '2000-11-27', interval '12 hours') OVERLAPS (timestamp without time zone '2000-11-27 12:00', interval '12 hours') AS \"False\"",
+    "expected": "SELECT overlaps(CAST('2000-11-27' AS TIMESTAMP), CAST('12 hours' AS INTERVAL), CAST('2000-11-27 12:00' AS TIMESTAMP), CAST('12 hours' AS INTERVAL)) AS \"False\""
   },
   {
     "comment": "horology - Statement 187",
-    "query": "SELECT (time '00:00', time '01:00') OVERLAPS (time '00:30', time '01:30') AS \"True\""
+    "query": "SELECT (time '00:00', time '01:00') OVERLAPS (time '00:30', time '01:30') AS \"True\"",
+    "expected": "SELECT overlaps(CAST('00:00' AS TIME), CAST('01:00' AS TIME), CAST('00:30' AS TIME), CAST('01:30' AS TIME)) AS \"True\""
   },
   {
     "comment": "horology - Statement 188",
-    "query": "SELECT (time '00:00', interval '1 hour') OVERLAPS (time '00:30', interval '1 hour') AS \"True\""
+    "query": "SELECT (time '00:00', interval '1 hour') OVERLAPS (time '00:30', interval '1 hour') AS \"True\"",
+    "expected": "SELECT overlaps(CAST('00:00' AS TIME), CAST('1 hour' AS INTERVAL), CAST('00:30' AS TIME), CAST('1 hour' AS INTERVAL)) AS \"True\""
   },
   {
     "comment": "horology - Statement 189",
-    "query": "SELECT (time '00:00', interval '1 hour') OVERLAPS (time '01:30', interval '1 hour') AS \"False\""
+    "query": "SELECT (time '00:00', interval '1 hour') OVERLAPS (time '01:30', interval '1 hour') AS \"False\"",
+    "expected": "SELECT overlaps(CAST('00:00' AS TIME), CAST('1 hour' AS INTERVAL), CAST('01:30' AS TIME), CAST('1 hour' AS INTERVAL)) AS \"False\""
   },
   {
     "comment": "horology - Statement 190",
-    "query": "SELECT (time '00:00', interval '1 hour') OVERLAPS (time '01:30', interval '1 day') AS \"False\""
+    "query": "SELECT (time '00:00', interval '1 hour') OVERLAPS (time '01:30', interval '1 day') AS \"False\"",
+    "expected": "SELECT overlaps(CAST('00:00' AS TIME), CAST('1 hour' AS INTERVAL), CAST('01:30' AS TIME), CAST('1 day' AS INTERVAL)) AS \"False\""
   },
   {
     "comment": "horology - Statement 191",
-    "query": "CREATE TABLE TEMP_TIMESTAMP (f1 timestamp with time zone)"
+    "query": "CREATE TABLE TEMP_TIMESTAMP (f1 timestamp with time zone)",
+    "expected": "CREATE TABLE temp_timestamp (f1 TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 192",
-    "query": "INSERT INTO TEMP_TIMESTAMP (f1) SELECT d1 FROM TIMESTAMP_TBL WHERE d1 BETWEEN '13-jun-1957' AND '1-jan-1997' OR d1 BETWEEN '1-jan-1999' AND '1-jan-2010'"
+    "query": "INSERT INTO TEMP_TIMESTAMP (f1) SELECT d1 FROM TIMESTAMP_TBL WHERE d1 BETWEEN '13-jun-1957' AND '1-jan-1997' OR d1 BETWEEN '1-jan-1999' AND '1-jan-2010'",
+    "expected": "INSERT INTO temp_timestamp (f1) (SELECT d1 FROM timestamp_tbl WHERE d1 BETWEEN '13-jun-1957' AND '1-jan-1997' OR d1 BETWEEN '1-jan-1999' AND '1-jan-2010')"
   },
   {
     "comment": "horology - Statement 193",
-    "query": "SELECT f1 AS \"timestamp\" FROM TEMP_TIMESTAMP ORDER BY \"timestamp\""
+    "query": "SELECT f1 AS \"timestamp\" FROM TEMP_TIMESTAMP ORDER BY \"timestamp\"",
+    "expected": "SELECT f1 AS timestamp FROM temp_timestamp ORDER BY timestamp"
   },
   {
     "comment": "horology - Statement 194",
-    "query": "SELECT d.f1 AS \"timestamp\", t.f1 AS \"interval\", d.f1 + t.f1 AS plus FROM TEMP_TIMESTAMP d, INTERVAL_TBL t ORDER BY plus, \"timestamp\", \"interval\""
+    "query": "SELECT d.f1 AS \"timestamp\", t.f1 AS \"interval\", d.f1 + t.f1 AS plus FROM TEMP_TIMESTAMP d, INTERVAL_TBL t ORDER BY plus, \"timestamp\", \"interval\"",
+    "expected": "SELECT d.f1 AS timestamp, t.f1 AS interval, d.f1 + t.f1 AS plus FROM temp_timestamp AS d, interval_tbl AS t ORDER BY plus, timestamp, interval"
   },
   {
     "comment": "horology - Statement 195",
-    "query": "SELECT d.f1 AS \"timestamp\", t.f1 AS \"interval\", d.f1 - t.f1 AS minus FROM TEMP_TIMESTAMP d, INTERVAL_TBL t ORDER BY minus, \"timestamp\", \"interval\""
+    "query": "SELECT d.f1 AS \"timestamp\", t.f1 AS \"interval\", d.f1 - t.f1 AS minus FROM TEMP_TIMESTAMP d, INTERVAL_TBL t ORDER BY minus, \"timestamp\", \"interval\"",
+    "expected": "SELECT d.f1 AS timestamp, t.f1 AS interval, d.f1 - t.f1 AS minus FROM temp_timestamp AS d, interval_tbl AS t ORDER BY minus, timestamp, interval"
   },
   {
     "comment": "horology - Statement 196",
-    "query": "SELECT d.f1 AS \"timestamp\", timestamp with time zone '1980-01-06 00:00 GMT' AS gpstime_zero, d.f1 - timestamp with time zone '1980-01-06 00:00 GMT' AS difference FROM TEMP_TIMESTAMP d ORDER BY difference"
+    "query": "SELECT d.f1 AS \"timestamp\", timestamp with time zone '1980-01-06 00:00 GMT' AS gpstime_zero, d.f1 - timestamp with time zone '1980-01-06 00:00 GMT' AS difference FROM TEMP_TIMESTAMP d ORDER BY difference",
+    "expected": "SELECT d.f1 AS timestamp, CAST('1980-01-06 00:00 GMT' AS TIMESTAMPTZ) AS gpstime_zero, d.f1 - CAST('1980-01-06 00:00 GMT' AS TIMESTAMPTZ) AS difference FROM temp_timestamp AS d ORDER BY difference"
   },
   {
     "comment": "horology - Statement 197",
-    "query": "SELECT d1.f1 AS timestamp1, d2.f1 AS timestamp2, d1.f1 - d2.f1 AS difference FROM TEMP_TIMESTAMP d1, TEMP_TIMESTAMP d2 ORDER BY timestamp1, timestamp2, difference"
+    "query": "SELECT d1.f1 AS timestamp1, d2.f1 AS timestamp2, d1.f1 - d2.f1 AS difference FROM TEMP_TIMESTAMP d1, TEMP_TIMESTAMP d2 ORDER BY timestamp1, timestamp2, difference",
+    "expected": "SELECT d1.f1 AS timestamp1, d2.f1 AS timestamp2, d1.f1 - d2.f1 AS difference FROM temp_timestamp AS d1, temp_timestamp AS d2 ORDER BY timestamp1, timestamp2, difference"
   },
   {
     "comment": "horology - Statement 198",
-    "query": "SELECT f1 AS \"timestamp\", date(f1) AS date FROM TEMP_TIMESTAMP WHERE f1 <> timestamp 'now' ORDER BY date, \"timestamp\""
+    "query": "SELECT f1 AS \"timestamp\", date(f1) AS date FROM TEMP_TIMESTAMP WHERE f1 \u003c\u003e timestamp 'now' ORDER BY date, \"timestamp\"",
+    "expected": "SELECT f1 AS timestamp, date(f1) AS date FROM temp_timestamp WHERE f1 \u003c\u003e CAST('now' AS TIMESTAMP) ORDER BY date, timestamp"
   },
   {
     "comment": "horology - Statement 199",
-    "query": "DROP TABLE TEMP_TIMESTAMP"
+    "query": "DROP TABLE TEMP_TIMESTAMP",
+    "expected": "DROP TABLE temp_timestamp"
   },
   {
     "comment": "horology - Statement 200",
-    "query": "SELECT '2202020-10-05'::date::timestamp"
+    "query": "SELECT '2202020-10-05'::date::timestamp",
+    "expected": "SELECT CAST(CAST('2202020-10-05' AS DATE) AS TIMESTAMP)"
   },
   {
     "comment": "horology - Statement 201",
-    "query": "SELECT '2202020-10-05'::date > '2020-10-05'::timestamp as t"
+    "query": "SELECT '2202020-10-05'::date \u003e '2020-10-05'::timestamp as t",
+    "expected": "SELECT CAST('2202020-10-05' AS DATE) \u003e CAST('2020-10-05' AS TIMESTAMP) AS t"
   },
   {
     "comment": "horology - Statement 202",
-    "query": "SELECT '2020-10-05'::timestamp > '2202020-10-05'::date as f"
+    "query": "SELECT '2020-10-05'::timestamp \u003e '2202020-10-05'::date as f",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMP) \u003e CAST('2202020-10-05' AS DATE) AS f"
   },
   {
     "comment": "horology - Statement 203",
-    "query": "SELECT '2202020-10-05'::date::timestamptz"
+    "query": "SELECT '2202020-10-05'::date::timestamptz",
+    "expected": "SELECT CAST(CAST('2202020-10-05' AS DATE) AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 204",
-    "query": "SELECT '2202020-10-05'::date > '2020-10-05'::timestamptz as t"
+    "query": "SELECT '2202020-10-05'::date \u003e '2020-10-05'::timestamptz as t",
+    "expected": "SELECT CAST('2202020-10-05' AS DATE) \u003e CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
   },
   {
     "comment": "horology - Statement 205",
-    "query": "SELECT '2020-10-05'::timestamptz > '2202020-10-05'::date as f"
+    "query": "SELECT '2020-10-05'::timestamptz \u003e '2202020-10-05'::date as f",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) \u003e CAST('2202020-10-05' AS DATE) AS f"
   },
   {
     "comment": "horology - Statement 206",
-    "query": "SELECT '4714-11-24 BC'::date::timestamptz"
+    "query": "SELECT '4714-11-24 BC'::date::timestamptz",
+    "expected": "SELECT CAST(CAST('4714-11-24 BC' AS DATE) AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 207",
-    "query": "SET TimeZone = 'UTC-2'"
+    "query": "SET TimeZone = 'UTC-2'",
+    "expected": "SET TIME ZONE 'UTC-2'"
   },
   {
     "comment": "horology - Statement 208",
-    "query": "SELECT '4714-11-24 BC'::date < '2020-10-05'::timestamptz as t"
+    "query": "SELECT '4714-11-24 BC'::date \u003c '2020-10-05'::timestamptz as t",
+    "expected": "SELECT CAST('4714-11-24 BC' AS DATE) \u003c CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
   },
   {
     "comment": "horology - Statement 209",
-    "query": "SELECT '2020-10-05'::timestamptz >= '4714-11-24 BC'::date as t"
+    "query": "SELECT '2020-10-05'::timestamptz \u003e= '4714-11-24 BC'::date as t",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) \u003e= CAST('4714-11-24 BC' AS DATE) AS t"
   },
   {
     "comment": "horology - Statement 210",
-    "query": "SELECT '4714-11-24 BC'::timestamp < '2020-10-05'::timestamptz as t"
+    "query": "SELECT '4714-11-24 BC'::timestamp \u003c '2020-10-05'::timestamptz as t",
+    "expected": "SELECT CAST('4714-11-24 BC' AS TIMESTAMP) \u003c CAST('2020-10-05' AS TIMESTAMPTZ) AS t"
   },
   {
     "comment": "horology - Statement 211",
-    "query": "SELECT '2020-10-05'::timestamptz >= '4714-11-24 BC'::timestamp as t"
+    "query": "SELECT '2020-10-05'::timestamptz \u003e= '4714-11-24 BC'::timestamp as t",
+    "expected": "SELECT CAST('2020-10-05' AS TIMESTAMPTZ) \u003e= CAST('4714-11-24 BC' AS TIMESTAMP) AS t"
   },
   {
     "comment": "horology - Statement 212",
-    "query": "RESET TimeZone"
+    "query": "RESET TimeZone",
+    "expected": "RESET timezone"
   },
   {
     "comment": "horology - Statement 213",
-    "query": "explain (costs off) select count(*) from date_tbl where f1 between '1997-01-01' and '1998-01-01'"
+    "query": "explain (costs off) select count(*) from date_tbl where f1 between '1997-01-01' and '1998-01-01'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM date_tbl WHERE f1 BETWEEN '1997-01-01' AND '1998-01-01'"
   },
   {
     "comment": "horology - Statement 214",
-    "query": "select count(*) from date_tbl where f1 between '1997-01-01' and '1998-01-01'"
+    "query": "select count(*) from date_tbl where f1 between '1997-01-01' and '1998-01-01'",
+    "expected": "SELECT COUNT(*) FROM date_tbl WHERE f1 BETWEEN '1997-01-01' AND '1998-01-01'"
   },
   {
     "comment": "horology - Statement 215",
-    "query": "explain (costs off) select count(*) from date_tbl where f1 not between '1997-01-01' and '1998-01-01'"
+    "query": "explain (costs off) select count(*) from date_tbl where f1 not between '1997-01-01' and '1998-01-01'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM date_tbl WHERE f1 NOT BETWEEN '1997-01-01' AND '1998-01-01'"
   },
   {
     "comment": "horology - Statement 216",
-    "query": "select count(*) from date_tbl where f1 not between '1997-01-01' and '1998-01-01'"
+    "query": "select count(*) from date_tbl where f1 not between '1997-01-01' and '1998-01-01'",
+    "expected": "SELECT COUNT(*) FROM date_tbl WHERE f1 NOT BETWEEN '1997-01-01' AND '1998-01-01'"
   },
   {
     "comment": "horology - Statement 217",
-    "query": "explain (costs off) select count(*) from date_tbl where f1 between symmetric '1997-01-01' and '1998-01-01'"
+    "query": "explain (costs off) select count(*) from date_tbl where f1 between symmetric '1997-01-01' and '1998-01-01'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM date_tbl WHERE f1 BETWEEN SYMMETRIC '1997-01-01' AND '1998-01-01'"
   },
   {
     "comment": "horology - Statement 218",
-    "query": "select count(*) from date_tbl where f1 between symmetric '1997-01-01' and '1998-01-01'"
+    "query": "select count(*) from date_tbl where f1 between symmetric '1997-01-01' and '1998-01-01'",
+    "expected": "SELECT COUNT(*) FROM date_tbl WHERE f1 BETWEEN SYMMETRIC '1997-01-01' AND '1998-01-01'"
   },
   {
     "comment": "horology - Statement 219",
-    "query": "explain (costs off) select count(*) from date_tbl where f1 not between symmetric '1997-01-01' and '1998-01-01'"
+    "query": "explain (costs off) select count(*) from date_tbl where f1 not between symmetric '1997-01-01' and '1998-01-01'",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM date_tbl WHERE f1 NOT BETWEEN SYMMETRIC '1997-01-01' AND '1998-01-01'"
   },
   {
     "comment": "horology - Statement 220",
-    "query": "select count(*) from date_tbl where f1 not between symmetric '1997-01-01' and '1998-01-01'"
+    "query": "select count(*) from date_tbl where f1 not between symmetric '1997-01-01' and '1998-01-01'",
+    "expected": "SELECT COUNT(*) FROM date_tbl WHERE f1 NOT BETWEEN SYMMETRIC '1997-01-01' AND '1998-01-01'"
   },
   {
     "comment": "horology - Statement 221",
-    "query": "SET DateStyle TO 'US,Postgres'"
+    "query": "SET DateStyle TO 'US,Postgres'",
+    "expected": "SET datestyle = 'US,Postgres'"
   },
   {
     "comment": "horology - Statement 222",
-    "query": "SELECT d1 AS us_postgres FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 AS us_postgres FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS us_postgres FROM timestamp_tbl"
   },
   {
     "comment": "horology - Statement 223",
-    "query": "SET DateStyle TO 'US,ISO'"
+    "query": "SET DateStyle TO 'US,ISO'",
+    "expected": "SET datestyle = 'US,ISO'"
   },
   {
     "comment": "horology - Statement 224",
-    "query": "SELECT d1 AS us_iso FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 AS us_iso FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS us_iso FROM timestamp_tbl"
   },
   {
     "comment": "horology - Statement 225",
-    "query": "SET DateStyle TO 'US,SQL'"
+    "query": "SET DateStyle TO 'US,SQL'",
+    "expected": "SET datestyle = 'US,SQL'"
   },
   {
     "comment": "horology - Statement 226",
-    "query": "SELECT d1 AS us_sql FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 AS us_sql FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS us_sql FROM timestamp_tbl"
   },
   {
     "comment": "horology - Statement 227",
-    "query": "SET DateStyle TO 'European,Postgres'"
+    "query": "SET DateStyle TO 'European,Postgres'",
+    "expected": "SET datestyle = 'European,Postgres'"
   },
   {
     "comment": "horology - Statement 228",
-    "query": "INSERT INTO TIMESTAMP_TBL VALUES('13/06/1957')"
+    "query": "INSERT INTO TIMESTAMP_TBL VALUES('13/06/1957')",
+    "expected": "INSERT INTO timestamp_tbl VALUES ('13/06/1957')"
   },
   {
     "comment": "horology - Statement 229",
-    "query": "SELECT count(*) as one FROM TIMESTAMP_TBL WHERE d1 = 'Jun 13 1957'"
+    "query": "SELECT count(*) as one FROM TIMESTAMP_TBL WHERE d1 = 'Jun 13 1957'",
+    "expected": "SELECT COUNT(*) AS one FROM timestamp_tbl WHERE d1 = 'Jun 13 1957'"
   },
   {
     "comment": "horology - Statement 230",
-    "query": "SELECT d1 AS european_postgres FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 AS european_postgres FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS european_postgres FROM timestamp_tbl"
   },
   {
     "comment": "horology - Statement 231",
-    "query": "SET DateStyle TO 'European,ISO'"
+    "query": "SET DateStyle TO 'European,ISO'",
+    "expected": "SET datestyle = 'European,ISO'"
   },
   {
     "comment": "horology - Statement 232",
-    "query": "SELECT d1 AS european_iso FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 AS european_iso FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS european_iso FROM timestamp_tbl"
   },
   {
     "comment": "horology - Statement 233",
-    "query": "SET DateStyle TO 'European,SQL'"
+    "query": "SET DateStyle TO 'European,SQL'",
+    "expected": "SET datestyle = 'European,SQL'"
   },
   {
     "comment": "horology - Statement 234",
-    "query": "SELECT d1 AS european_sql FROM TIMESTAMP_TBL"
+    "query": "SELECT d1 AS european_sql FROM TIMESTAMP_TBL",
+    "expected": "SELECT d1 AS european_sql FROM timestamp_tbl"
   },
   {
     "comment": "horology - Statement 235",
-    "query": "SELECT to_timestamp('0097/Feb/16 --> 08:14:30', 'YYYY/Mon/DD --> HH:MI:SS')"
+    "query": "SELECT to_timestamp('0097/Feb/16 --\u003e 08:14:30', 'YYYY/Mon/DD --\u003e HH:MI:SS')"
   },
   {
     "comment": "horology - Statement 236",
@@ -961,7 +1194,7 @@
   },
   {
     "comment": "horology - Statement 241",
-    "query": "SELECT to_timestamp('My birthday-> Year: 1976, Month: May, Day: 16', '\"My birthday-> Year:\" YYYY, \"Month:\" FMMonth, \"Day:\" DD')"
+    "query": "SELECT to_timestamp('My birthday-\u003e Year: 1976, Month: May, Day: 16', '\"My birthday-\u003e Year:\" YYYY, \"Month:\" FMMonth, \"Day:\" DD')"
   },
   {
     "comment": "horology - Statement 242",
@@ -969,7 +1202,8 @@
   },
   {
     "comment": "horology - Statement 243",
-    "query": "SELECT to_timestamp('15 \"text between quote marks\" 98 54 45', E'HH24 \"\\\\\"text between quote marks\\\\\"\" YY MI SS')"
+    "query": "SELECT to_timestamp('15 \"text between quote marks\" 98 54 45', E'HH24 \"\\\\\"text between quote marks\\\\\"\" YY MI SS')",
+    "expected": "SELECT to_timestamp('15 \"text between quote marks\" 98 54 45', 'HH24 \"\\\"text between quote marks\\\"\" YY MI SS')"
   },
   {
     "comment": "horology - Statement 244",
@@ -1093,11 +1327,13 @@
   },
   {
     "comment": "horology - Statement 274",
-    "query": "SELECT to_timestamp('2011-12-18 11:38 +05',    'YYYY-MM-DD HH12:MI TZH')"
+    "query": "SELECT to_timestamp('2011-12-18 11:38 +05',    'YYYY-MM-DD HH12:MI TZH')",
+    "expected": "SELECT to_timestamp('2011-12-18 11:38 +05', 'YYYY-MM-DD HH12:MI TZH')"
   },
   {
     "comment": "horology - Statement 275",
-    "query": "SELECT to_timestamp('2011-12-18 11:38 -05',    'YYYY-MM-DD HH12:MI TZH')"
+    "query": "SELECT to_timestamp('2011-12-18 11:38 -05',    'YYYY-MM-DD HH12:MI TZH')",
+    "expected": "SELECT to_timestamp('2011-12-18 11:38 -05', 'YYYY-MM-DD HH12:MI TZH')"
   },
   {
     "comment": "horology - Statement 276",
@@ -1109,7 +1345,8 @@
   },
   {
     "comment": "horology - Statement 278",
-    "query": "SELECT to_timestamp('2011-12-18 11:38 20',     'YYYY-MM-DD HH12:MI TZM')"
+    "query": "SELECT to_timestamp('2011-12-18 11:38 20',     'YYYY-MM-DD HH12:MI TZM')",
+    "expected": "SELECT to_timestamp('2011-12-18 11:38 20', 'YYYY-MM-DD HH12:MI TZM')"
   },
   {
     "comment": "horology - Statement 279",
@@ -1165,39 +1402,48 @@
   },
   {
     "comment": "horology - Statement 292",
-    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i"
+    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i",
+    "expected": "SELECT i, to_timestamp('2018-11-02 12:34:56', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) AS i"
   },
   {
     "comment": "horology - Statement 293",
-    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.1', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i"
+    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.1', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i",
+    "expected": "SELECT i, to_timestamp('2018-11-02 12:34:56.1', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) AS i"
   },
   {
     "comment": "horology - Statement 294",
-    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.12', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i"
+    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.12', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i",
+    "expected": "SELECT i, to_timestamp('2018-11-02 12:34:56.12', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) AS i"
   },
   {
     "comment": "horology - Statement 295",
-    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.123', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i"
+    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.123', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i",
+    "expected": "SELECT i, to_timestamp('2018-11-02 12:34:56.123', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) AS i"
   },
   {
     "comment": "horology - Statement 296",
-    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.1234', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i"
+    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.1234', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i",
+    "expected": "SELECT i, to_timestamp('2018-11-02 12:34:56.1234', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) AS i"
   },
   {
     "comment": "horology - Statement 297",
-    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.12345', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i"
+    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.12345', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i",
+    "expected": "SELECT i, to_timestamp('2018-11-02 12:34:56.12345', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) AS i"
   },
   {
     "comment": "horology - Statement 298",
-    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.123456', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i"
+    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.123456', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i",
+    "expected": "SELECT i, to_timestamp('2018-11-02 12:34:56.123456', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) AS i"
   },
   {
     "comment": "horology - Statement 299",
-    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.123456789', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i"
+    "query": "SELECT i, to_timestamp('2018-11-02 12:34:56.123456789', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) i",
+    "expected": "SELECT i, to_timestamp('2018-11-02 12:34:56.123456789', 'YYYY-MM-DD HH24:MI:SS.FF' || i) FROM generate_series(1, 6) AS i"
   },
   {
     "comment": "horology - Statement 300",
-    "query": "SELECT i, to_timestamp('20181102123456123456', 'YYYYMMDDHH24MISSFF' || i) FROM generate_series(1, 6) i"
+    "query": "SELECT i, to_timestamp('20181102123456123456', 'YYYYMMDDHH24MISSFF' || i) FROM generate_series(1, 6) i",
+    "expected": "SELECT i, to_timestamp('20181102123456123456', 'YYYYMMDDHH24MISSFF' || i) FROM generate_series(1, 6) AS i"
   },
   {
     "comment": "horology - Statement 301",
@@ -1213,27 +1459,33 @@
   },
   {
     "comment": "horology - Statement 304",
-    "query": "SELECT to_date('44-02-01 BC','YYYY-MM-DD BC')"
+    "query": "SELECT to_date('44-02-01 BC','YYYY-MM-DD BC')",
+    "expected": "SELECT to_date('44-02-01 BC', 'YYYY-MM-DD BC')"
   },
   {
     "comment": "horology - Statement 305",
-    "query": "SELECT to_date('-44-02-01','YYYY-MM-DD')"
+    "query": "SELECT to_date('-44-02-01','YYYY-MM-DD')",
+    "expected": "SELECT to_date('-44-02-01', 'YYYY-MM-DD')"
   },
   {
     "comment": "horology - Statement 306",
-    "query": "SELECT to_date('-44-02-01 BC','YYYY-MM-DD BC')"
+    "query": "SELECT to_date('-44-02-01 BC','YYYY-MM-DD BC')",
+    "expected": "SELECT to_date('-44-02-01 BC', 'YYYY-MM-DD BC')"
   },
   {
     "comment": "horology - Statement 307",
-    "query": "SELECT to_timestamp('44-02-01 11:12:13 BC','YYYY-MM-DD HH24:MI:SS BC')"
+    "query": "SELECT to_timestamp('44-02-01 11:12:13 BC','YYYY-MM-DD HH24:MI:SS BC')",
+    "expected": "SELECT to_timestamp('44-02-01 11:12:13 BC', 'YYYY-MM-DD HH24:MI:SS BC')"
   },
   {
     "comment": "horology - Statement 308",
-    "query": "SELECT to_timestamp('-44-02-01 11:12:13','YYYY-MM-DD HH24:MI:SS')"
+    "query": "SELECT to_timestamp('-44-02-01 11:12:13','YYYY-MM-DD HH24:MI:SS')",
+    "expected": "SELECT to_timestamp('-44-02-01 11:12:13', 'YYYY-MM-DD HH24:MI:SS')"
   },
   {
     "comment": "horology - Statement 309",
-    "query": "SELECT to_timestamp('-44-02-01 11:12:13 BC','YYYY-MM-DD HH24:MI:SS BC')"
+    "query": "SELECT to_timestamp('-44-02-01 11:12:13 BC','YYYY-MM-DD HH24:MI:SS BC')",
+    "expected": "SELECT to_timestamp('-44-02-01 11:12:13 BC', 'YYYY-MM-DD HH24:MI:SS BC')"
   },
   {
     "comment": "horology - Statement 310",
@@ -1413,11 +1665,13 @@
   },
   {
     "comment": "horology - Statement 354",
-    "query": "SELECT to_date('0000-02-01','YYYY-MM-DD')"
+    "query": "SELECT to_date('0000-02-01','YYYY-MM-DD')",
+    "expected": "SELECT to_date('0000-02-01', 'YYYY-MM-DD')"
   },
   {
     "comment": "horology - Statement 355",
-    "query": "SELECT to_char('2012-12-12 12:00'::timestamptz, 'YYYY-MM-DD HH:MI:SS TZ')"
+    "query": "SELECT to_char('2012-12-12 12:00'::timestamptz, 'YYYY-MM-DD HH:MI:SS TZ')",
+    "expected": "SELECT to_char(CAST('2012-12-12 12:00' AS TIMESTAMPTZ), 'YYYY-MM-DD HH:MI:SS TZ')"
   },
   {
     "comment": "horology - Statement 356",
@@ -1429,23 +1683,28 @@
   },
   {
     "comment": "horology - Statement 358",
-    "query": "SHOW TIME ZONE"
+    "query": "SHOW TIME ZONE",
+    "expected": "SHOW timezone"
   },
   {
     "comment": "horology - Statement 359",
-    "query": "SELECT '2012-12-12 12:00'::timestamptz"
+    "query": "SELECT '2012-12-12 12:00'::timestamptz",
+    "expected": "SELECT CAST('2012-12-12 12:00' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 360",
-    "query": "SELECT '2012-12-12 12:00 America/New_York'::timestamptz"
+    "query": "SELECT '2012-12-12 12:00 America/New_York'::timestamptz",
+    "expected": "SELECT CAST('2012-12-12 12:00 America/New_York' AS TIMESTAMPTZ)"
   },
   {
     "comment": "horology - Statement 361",
-    "query": "SELECT to_char('2012-12-12 12:00'::timestamptz, 'YYYY-MM-DD SSSS')"
+    "query": "SELECT to_char('2012-12-12 12:00'::timestamptz, 'YYYY-MM-DD SSSS')",
+    "expected": "SELECT to_char(CAST('2012-12-12 12:00' AS TIMESTAMPTZ), 'YYYY-MM-DD SSSS')"
   },
   {
     "comment": "horology - Statement 362",
-    "query": "SELECT to_char('2012-12-12 12:00'::timestamptz, 'YYYY-MM-DD SSSSS')"
+    "query": "SELECT to_char('2012-12-12 12:00'::timestamptz, 'YYYY-MM-DD SSSSS')",
+    "expected": "SELECT to_char(CAST('2012-12-12 12:00' AS TIMESTAMPTZ), 'YYYY-MM-DD SSSSS')"
   },
   {
     "comment": "horology - Statement 363",

@@ -512,68 +512,33 @@ func (t *TypeCast) SqlString() string {
 	}
 
 	// Special handling for INTERVAL literals - convert back to INTERVAL 'value' UNIT syntax
-	if t.TypeName != nil && t.TypeName.Names != nil && t.TypeName.Names.Len() > 0 {
-		if firstItem, ok := t.TypeName.Names.Items[0].(*String); ok && firstItem.SVal == "interval" {
-			if t.TypeName.Typmods != nil && t.TypeName.Typmods.Len() > 0 {
-				if firstMod, ok := t.TypeName.Typmods.Items[0].(*Integer); ok {
-					intervalUnit := intervalMaskToString(firstMod.IVal)
-					if intervalUnit == "FULL_RANGE" {
-						if t.TypeName.Typmods.Len() == 2 {
-							// INTERVAL(precision) 'value' format for full range with precision
-							if precision, ok := t.TypeName.Typmods.Items[1].(*Integer); ok {
-								return fmt.Sprintf("INTERVAL(%d) %s", precision.IVal, argStr)
-							}
-						}
-						// INTERVAL 'value' format for full range without precision
-						return fmt.Sprintf("INTERVAL %s", argStr)
-					} else if intervalUnit != "" {
-						// INTERVAL 'value' UNIT format for specific units
-						return fmt.Sprintf("INTERVAL %s %s", argStr, intervalUnit)
-					}
-				}
-			}
-		}
-	}
+	// if t.TypeName != nil && t.TypeName.Names != nil && t.TypeName.Names.Len() > 0 {
+	// 	if firstItem, ok := t.TypeName.Names.Items[0].(*String); ok && firstItem.SVal == "interval" {
+	// 		if t.TypeName.Typmods != nil && t.TypeName.Typmods.Len() > 0 {
+	// 			if firstMod, ok := t.TypeName.Typmods.Items[0].(*Integer); ok {
+	// 				intervalUnit := intervalMaskToString(firstMod.IVal)
+	// 				if intervalUnit == "FULL_RANGE" {
+	// 					if t.TypeName.Typmods.Len() == 2 {
+	// 						// INTERVAL(precision) 'value' format for full range with precision
+	// 						if precision, ok := t.TypeName.Typmods.Items[1].(*Integer); ok {
+	// 							return fmt.Sprintf("INTERVAL(%d) %s", precision.IVal, argStr)
+	// 						}
+	// 					}
+	// 					// INTERVAL 'value' format for full range without precision
+	// 					return fmt.Sprintf("INTERVAL %s", argStr)
+	// 				} else if intervalUnit != "" {
+	// 					// INTERVAL 'value' UNIT format for specific units
+	// 					return fmt.Sprintf("INTERVAL %s %s", argStr, intervalUnit)
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	// Always use explicit CAST(expr AS type) syntax to avoid precedence issues
 	return fmt.Sprintf("CAST(%s AS %s)", argStr, typeStr)
 }
 
-// intervalMaskToString converts an interval mask to its string representation
-func intervalMaskToString(mask int) string {
-	switch mask {
-	case INTERVAL_MASK_YEAR:
-		return "YEAR"
-	case INTERVAL_MASK_MONTH:
-		return "MONTH"
-	case INTERVAL_MASK_DAY:
-		return "DAY"
-	case INTERVAL_MASK_HOUR:
-		return "HOUR"
-	case INTERVAL_MASK_MINUTE:
-		return "MINUTE"
-	case INTERVAL_MASK_SECOND:
-		return "SECOND"
-	case INTERVAL_MASK_YEAR | INTERVAL_MASK_MONTH:
-		return "YEAR TO MONTH"
-	case INTERVAL_MASK_DAY | INTERVAL_MASK_HOUR:
-		return "DAY TO HOUR"
-	case INTERVAL_MASK_DAY | INTERVAL_MASK_MINUTE:
-		return "DAY TO MINUTE"
-	case INTERVAL_MASK_DAY | INTERVAL_MASK_SECOND:
-		return "DAY TO SECOND"
-	case INTERVAL_MASK_HOUR | INTERVAL_MASK_MINUTE:
-		return "HOUR TO MINUTE"
-	case INTERVAL_MASK_HOUR | INTERVAL_MASK_SECOND:
-		return "HOUR TO SECOND"
-	case INTERVAL_MASK_MINUTE | INTERVAL_MASK_SECOND:
-		return "MINUTE TO SECOND"
-	case INTERVAL_FULL_RANGE:
-		return "FULL_RANGE" // Special marker for precision-only intervals
-	default:
-		return ""
-	}
-}
 
 // SqlString returns the SQL representation of the ParenExpr (preserves parentheses)
 func (p *ParenExpr) SqlString() string {
@@ -1160,9 +1125,73 @@ func (c *ColumnDef) SqlString() string {
 	if c.Constraints != nil && c.Constraints.Len() > 0 {
 		for _, item := range c.Constraints.Items {
 			if constraint, ok := item.(*Constraint); ok {
-				constraintStr := constraint.SqlString()
-				if constraintStr != "" {
-					parts = append(parts, constraintStr)
+				// Handle identity constraints specially for column definitions
+				if constraint.Contype == CONSTR_IDENTITY {
+					// Build the identity specification with proper formatting for column definitions
+					result := "GENERATED "
+					if constraint.GeneratedWhen == ATTRIBUTE_IDENTITY_ALWAYS {
+						result += "ALWAYS"
+					} else if constraint.GeneratedWhen == ATTRIBUTE_IDENTITY_BY_DEFAULT {
+						result += "BY DEFAULT"
+					}
+					result += " AS IDENTITY"
+
+					// Add sequence options in parentheses (without SET keywords)
+					if constraint.Options != nil && len(constraint.Options.Items) > 0 {
+						var optParts []string
+						for _, optItem := range constraint.Options.Items {
+							if defElem, ok := optItem.(*DefElem); ok {
+								switch defElem.Defname {
+								case "increment":
+									if defElem.Arg != nil {
+										optParts = append(optParts, "INCREMENT BY "+defElem.Arg.SqlString())
+									}
+								case "start":
+									if defElem.Arg != nil {
+										optParts = append(optParts, "START WITH "+defElem.Arg.SqlString())
+									}
+								case "restart":
+									if defElem.Arg != nil {
+										optParts = append(optParts, "RESTART WITH "+defElem.Arg.SqlString())
+									} else {
+										optParts = append(optParts, "RESTART")
+									}
+								case "maxvalue":
+									if defElem.Arg != nil {
+										optParts = append(optParts, "MAXVALUE "+defElem.Arg.SqlString())
+									}
+								case "minvalue":
+									if defElem.Arg != nil {
+										optParts = append(optParts, "MINVALUE "+defElem.Arg.SqlString())
+									}
+								case "cache":
+									if defElem.Arg != nil {
+										optParts = append(optParts, "CACHE "+defElem.Arg.SqlString())
+									}
+								case "cycle":
+									if defElem.Arg != nil {
+										if boolNode, ok := defElem.Arg.(*Boolean); ok {
+											if boolNode.BoolVal {
+												optParts = append(optParts, "CYCLE")
+											} else {
+												optParts = append(optParts, "NO CYCLE")
+											}
+										}
+									}
+								}
+							}
+						}
+						if len(optParts) > 0 {
+							result += " (" + strings.Join(optParts, " ") + ")"
+						}
+					}
+					parts = append(parts, result)
+				} else {
+					// Use regular SqlString for non-identity constraints
+					constraintStr := constraint.SqlString()
+					if constraintStr != "" {
+						parts = append(parts, constraintStr)
+					}
 				}
 			}
 		}

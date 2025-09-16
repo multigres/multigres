@@ -782,6 +782,52 @@ func normalizeSingleTypeName(typeName string) string {
 	}
 }
 
+// intervalMaskToString converts an interval mask to its string representation
+func intervalMaskToString(mask int) string {
+	switch mask {
+	case INTERVAL_MASK_YEAR:
+		return "YEAR"
+	case INTERVAL_MASK_MONTH:
+		return "MONTH"
+	case INTERVAL_MASK_DAY:
+		return "DAY"
+	case INTERVAL_MASK_HOUR:
+		return "HOUR"
+	case INTERVAL_MASK_MINUTE:
+		return "MINUTE"
+	case INTERVAL_MASK_SECOND:
+		return "SECOND"
+	case INTERVAL_MASK_YEAR | INTERVAL_MASK_MONTH:
+		return "YEAR TO MONTH"
+	case INTERVAL_MASK_DAY | INTERVAL_MASK_HOUR:
+		return "DAY TO HOUR"
+	case INTERVAL_MASK_DAY | INTERVAL_MASK_MINUTE:
+		return "DAY TO MINUTE"
+	case INTERVAL_MASK_DAY | INTERVAL_MASK_HOUR | INTERVAL_MASK_MINUTE:
+		return "DAY TO MINUTE"
+	case INTERVAL_MASK_DAY | INTERVAL_MASK_SECOND:
+		return "DAY TO SECOND"
+	case INTERVAL_MASK_DAY | INTERVAL_MASK_HOUR | INTERVAL_MASK_SECOND:
+		return "DAY TO SECOND"
+	case INTERVAL_MASK_DAY | INTERVAL_MASK_MINUTE | INTERVAL_MASK_SECOND:
+		return "DAY TO SECOND"
+	case INTERVAL_MASK_DAY | INTERVAL_MASK_HOUR | INTERVAL_MASK_MINUTE | INTERVAL_MASK_SECOND:
+		return "DAY TO SECOND"
+	case INTERVAL_MASK_HOUR | INTERVAL_MASK_MINUTE:
+		return "HOUR TO MINUTE"
+	case INTERVAL_MASK_HOUR | INTERVAL_MASK_SECOND:
+		return "HOUR TO SECOND"
+	case INTERVAL_MASK_HOUR | INTERVAL_MASK_MINUTE | INTERVAL_MASK_SECOND:
+		return "HOUR TO SECOND"
+	case INTERVAL_MASK_MINUTE | INTERVAL_MASK_SECOND:
+		return "MINUTE TO SECOND"
+	case INTERVAL_FULL_RANGE:
+		return "FULL_RANGE" // Special marker for precision-only intervals
+	default:
+		return ""
+	}
+}
+
 func (t *TypeName) SqlString() string {
 	if t.Names == nil || t.Names.Len() == 0 {
 		return ""
@@ -808,11 +854,58 @@ func (t *TypeName) SqlString() string {
 	// Add type modifiers if present
 	if t.Typmods != nil && t.Typmods.Len() > 0 {
 		var modStrs []string
-		for _, mod := range t.Typmods.Items {
-			if mod != nil {
-				modStrs = append(modStrs, mod.SqlString())
+		
+		// Special handling for INTERVAL types
+		if strings.ToLower(typeName) == "interval" && t.Typmods.Len() >= 1 {
+			if firstMod, ok := t.Typmods.Items[0].(*Integer); ok {
+				if firstMod.IVal == INTERVAL_FULL_RANGE {
+					// Skip the INTERVAL_FULL_RANGE (first modifier) and only include the precision (second modifier)
+					for i := 1; i < t.Typmods.Len(); i++ {
+						if mod := t.Typmods.Items[i]; mod != nil {
+							modStrs = append(modStrs, mod.SqlString())
+						}
+					}
+				} else {
+					// Convert interval mask to text representation
+					intervalUnit := intervalMaskToString(firstMod.IVal)
+					if intervalUnit != "" && intervalUnit != "FULL_RANGE" {
+						// For specific units like "minute to second", use that instead of numeric
+						typeName += " " + strings.ToLower(intervalUnit)
+						
+						// Add precision if present as second parameter
+						if t.Typmods.Len() >= 2 {
+							if precision, ok := t.Typmods.Items[1].(*Integer); ok {
+								typeName += "(" + precision.SqlString() + ")"
+							}
+						}
+						// Skip the normal modifier processing since we handled it above
+						modStrs = nil
+					} else {
+						// Fallback to regular handling for unrecognized masks
+						for _, mod := range t.Typmods.Items {
+							if mod != nil {
+								modStrs = append(modStrs, mod.SqlString())
+							}
+						}
+					}
+				}
+			} else {
+				// Regular handling if first modifier is not an Integer
+				for _, mod := range t.Typmods.Items {
+					if mod != nil {
+						modStrs = append(modStrs, mod.SqlString())
+					}
+				}
+			}
+		} else {
+			// Regular handling for non-INTERVAL types
+			for _, mod := range t.Typmods.Items {
+				if mod != nil {
+					modStrs = append(modStrs, mod.SqlString())
+				}
 			}
 		}
+		
 		if len(modStrs) > 0 {
 			typeName += "(" + strings.Join(modStrs, ", ") + ")"
 		}
@@ -1090,7 +1183,53 @@ func (c *Constraint) SqlString() string {
 			result += "BY DEFAULT"
 		}
 		result += " AS IDENTITY"
-		// TODO: Add sequence options if c.Options is not nil
+		
+		// Add sequence options if present
+		if c.Options != nil && len(c.Options.Items) > 0 {
+			for _, item := range c.Options.Items {
+				if defElem, ok := item.(*DefElem); ok {
+					switch defElem.Defname {
+					case "increment":
+						if defElem.Arg != nil {
+							result += " SET INCREMENT BY " + defElem.Arg.SqlString()
+						}
+					case "start":
+						if defElem.Arg != nil {
+							result += " SET START WITH " + defElem.Arg.SqlString()
+						}
+					case "restart":
+						if defElem.Arg != nil {
+							result += " SET RESTART WITH " + defElem.Arg.SqlString()
+						} else {
+							result += " RESTART"
+						}
+					case "maxvalue":
+						if defElem.Arg != nil {
+							result += " SET MAXVALUE " + defElem.Arg.SqlString()
+						}
+					case "minvalue":
+						if defElem.Arg != nil {
+							result += " SET MINVALUE " + defElem.Arg.SqlString()
+						}
+					case "cache":
+						if defElem.Arg != nil {
+							result += " SET CACHE " + defElem.Arg.SqlString()
+						}
+					case "cycle":
+						if defElem.Arg != nil {
+							// Check if it's a boolean and handle accordingly
+							if boolNode, ok := defElem.Arg.(*Boolean); ok {
+								if boolNode.BoolVal {
+									result += " SET CYCLE"
+								} else {
+									result += " SET NO CYCLE"
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 		return result
 	case CONSTR_GENERATED:
 		result := "GENERATED ALWAYS AS"
@@ -1715,7 +1854,150 @@ func (a *AlterTableCmd) SqlString() string {
 	case AT_AddIdentity:
 		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "ADD")
 		if a.Def != nil {
-			parts = append(parts, a.Def.SqlString())
+			// Handle identity constraint specially for ADD case
+			if constraint, ok := a.Def.(*Constraint); ok && constraint.Contype == CONSTR_IDENTITY {
+				// Build the identity specification with proper formatting for ADD
+				result := "GENERATED "
+				if constraint.GeneratedWhen == ATTRIBUTE_IDENTITY_ALWAYS {
+					result += "ALWAYS"
+				} else if constraint.GeneratedWhen == ATTRIBUTE_IDENTITY_BY_DEFAULT {
+					result += "BY DEFAULT"
+				}
+				result += " AS IDENTITY"
+				
+				// Add sequence options in parentheses (without SET keywords)
+				if constraint.Options != nil && len(constraint.Options.Items) > 0 {
+					var optParts []string
+					for _, item := range constraint.Options.Items {
+						if defElem, ok := item.(*DefElem); ok {
+							switch defElem.Defname {
+							case "increment":
+								if defElem.Arg != nil {
+									optParts = append(optParts, "INCREMENT BY "+defElem.Arg.SqlString())
+								}
+							case "start":
+								if defElem.Arg != nil {
+									optParts = append(optParts, "START WITH "+defElem.Arg.SqlString())
+								}
+							case "restart":
+								if defElem.Arg != nil {
+									optParts = append(optParts, "RESTART WITH "+defElem.Arg.SqlString())
+								} else {
+									optParts = append(optParts, "RESTART")
+								}
+							case "maxvalue":
+								if defElem.Arg != nil {
+									optParts = append(optParts, "MAXVALUE "+defElem.Arg.SqlString())
+								}
+							case "minvalue":
+								if defElem.Arg != nil {
+									optParts = append(optParts, "MINVALUE "+defElem.Arg.SqlString())
+								}
+							case "cache":
+								if defElem.Arg != nil {
+									optParts = append(optParts, "CACHE "+defElem.Arg.SqlString())
+								}
+							case "cycle":
+								if defElem.Arg != nil {
+									if boolNode, ok := defElem.Arg.(*Boolean); ok {
+										if boolNode.BoolVal {
+											optParts = append(optParts, "CYCLE")
+										} else {
+											optParts = append(optParts, "NO CYCLE")
+										}
+									}
+								}
+							}
+						}
+					}
+					if len(optParts) > 0 {
+						result += " (" + strings.Join(optParts, " ") + ")"
+					}
+				}
+				parts = append(parts, result)
+			} else {
+				// Fallback to regular SqlString for non-identity constraints
+				parts = append(parts, a.Def.SqlString())
+			}
+		}
+
+	case AT_SetIdentity:
+		parts = append(parts, "ALTER COLUMN", QuoteIdentifier(a.Name), "SET")
+		if a.Def != nil {
+			// Handle identity specifications - could be a Constraint or DefElems
+			if constraint, ok := a.Def.(*Constraint); ok {
+				parts = append(parts, constraint.SqlString())
+			} else if nodeList, ok := a.Def.(*NodeList); ok {
+				// Handle NodeList of DefElems for identity options
+				var identityParts []string
+				var hasGenerated bool
+				
+				// First pass - check for 'generated' option to determine ALWAYS vs BY DEFAULT
+				for _, item := range nodeList.Items {
+					if defElem, ok := item.(*DefElem); ok && defElem.Defname == "generated" {
+						hasGenerated = true
+						// For SET IDENTITY, we typically want BY DEFAULT unless specified otherwise
+						identityParts = append(identityParts, "GENERATED BY DEFAULT")
+						break
+					}
+				}
+				
+				if !hasGenerated {
+					// Default to BY DEFAULT if no generated option specified
+					identityParts = append(identityParts, "GENERATED BY DEFAULT")
+				}
+				
+				// Second pass - handle sequence options
+				for _, item := range nodeList.Items {
+					if defElem, ok := item.(*DefElem); ok {
+						switch defElem.Defname {
+						case "increment":
+							if defElem.Arg != nil {
+								identityParts = append(identityParts, "SET INCREMENT BY "+defElem.Arg.SqlString())
+							}
+						case "start":
+							if defElem.Arg != nil {
+								identityParts = append(identityParts, "SET START WITH "+defElem.Arg.SqlString())
+							}
+						case "restart":
+							if defElem.Arg != nil {
+								identityParts = append(identityParts, "SET RESTART WITH "+defElem.Arg.SqlString())
+							} else {
+								identityParts = append(identityParts, "RESTART")
+							}
+						case "maxvalue":
+							if defElem.Arg != nil {
+								identityParts = append(identityParts, "SET MAXVALUE "+defElem.Arg.SqlString())
+							}
+						case "minvalue":
+							if defElem.Arg != nil {
+								identityParts = append(identityParts, "SET MINVALUE "+defElem.Arg.SqlString())
+							}
+						case "cache":
+							if defElem.Arg != nil {
+								identityParts = append(identityParts, "SET CACHE "+defElem.Arg.SqlString())
+							}
+						case "cycle":
+							if defElem.Arg != nil {
+								if boolNode, ok := defElem.Arg.(*Boolean); ok {
+									if boolNode.BoolVal {
+										identityParts = append(identityParts, "SET CYCLE")
+									} else {
+										identityParts = append(identityParts, "SET NO CYCLE")
+									}
+								}
+							}
+						// Skip the 'generated' option as it's handled above
+						case "generated":
+							// Already handled in first pass
+						}
+					}
+				}
+				parts = append(parts, strings.Join(identityParts, " "))
+			} else {
+				// Fallback to default SqlString
+				parts = append(parts, a.Def.SqlString())
+			}
 		}
 
 	case AT_DropIdentity:
@@ -2145,7 +2427,24 @@ func (i *IndexElem) SqlString() string {
 		return ""
 	}
 
-	// Add operator class if specified
+	// Add collation if specified (before operator class)
+	if i.Collation != nil && i.Collation.Len() > 0 {
+		// Collation names should be output as identifiers, not string literals
+		var collationParts []string
+		for _, item := range i.Collation.Items {
+			if strNode, ok := item.(*String); ok {
+				// Quote as identifier if needed
+				collationParts = append(collationParts, QuoteIdentifier(strNode.SVal))
+			} else if item != nil {
+				collationParts = append(collationParts, item.SqlString())
+			}
+		}
+		if len(collationParts) > 0 {
+			result += " COLLATE " + strings.Join(collationParts, ".")
+		}
+	}
+
+	// Add operator class if specified (after collation)
 	if i.Opclass != nil && i.Opclass.Len() > 0 {
 		// Format operator class as identifier, not quoted string
 		var opclassParts []string
@@ -2178,23 +2477,6 @@ func (i *IndexElem) SqlString() string {
 		}
 		if len(optParts) > 0 {
 			result += "(" + strings.Join(optParts, ", ") + ")"
-		}
-	}
-
-	// Add collation if specified
-	if i.Collation != nil && i.Collation.Len() > 0 {
-		// Collation names should be output as identifiers, not string literals
-		var collationParts []string
-		for _, item := range i.Collation.Items {
-			if strNode, ok := item.(*String); ok {
-				// Quote as identifier if needed
-				collationParts = append(collationParts, QuoteIdentifier(strNode.SVal))
-			} else if item != nil {
-				collationParts = append(collationParts, item.SqlString())
-			}
-		}
-		if len(collationParts) > 0 {
-			result += " COLLATE " + strings.Join(collationParts, ".")
 		}
 	}
 

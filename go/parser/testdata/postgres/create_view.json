@@ -782,7 +782,7 @@
   {
     "comment": "create_view - Statement 166",
     "query": "create table tt8a (x timestamptz, z int)",
-    "expected": "CREATE TABLE tt8a (x TIMESTAMP WITH TIME ZONE, z INT)"
+    "expected": "CREATE TABLE tt8a (x TIMESTAMPTZ, z INT)"
   },
   {
     "comment": "create_view - Statement 167",

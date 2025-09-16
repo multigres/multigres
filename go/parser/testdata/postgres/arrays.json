@@ -2078,7 +2078,7 @@
   {
     "comment": "arrays - Statement 443",
     "query": "SELECT width_bucket(now(), array['yesterday', 'today', 'tomorrow']::timestamptz[])",
-    "expected": "SELECT width_bucket(NOW(), CAST(ARRAY['yesterday','today','tomorrow'] AS TIMESTAMP WITH TIME ZONE[]))"
+    "expected": "SELECT width_bucket(NOW(), CAST(ARRAY['yesterday','today','tomorrow'] AS TIMESTAMPTZ[]))"
   },
   {
     "comment": "arrays - Statement 444",

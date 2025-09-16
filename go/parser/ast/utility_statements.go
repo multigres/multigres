@@ -1431,6 +1431,49 @@ func (v *VariableSetStmt) SqlString() string {
 						}
 					} else if integer, ok := arg.(*Integer); ok {
 						values = append(values, fmt.Sprintf("%d", integer.IVal))
+					} else if typeCast, ok := arg.(*TypeCast); ok && v.Name == "timezone" {
+						// Special handling for INTERVAL expressions in SET TIME ZONE
+						// Convert from CAST('1' AS INTERVAL hour) back to INTERVAL '1' HOUR
+						if typeCast.TypeName != nil && typeCast.TypeName.Names != nil && typeCast.TypeName.Names.Len() > 0 {
+							if firstItem, ok := typeCast.TypeName.Names.Items[0].(*String); ok && firstItem.SVal == "interval" {
+								argStr := ""
+								if typeCast.Arg != nil {
+									argStr = typeCast.Arg.SqlString()
+								}
+								
+								// Get the interval unit from the type modifiers
+								intervalUnit := ""
+								if typeCast.TypeName.Typmods != nil && typeCast.TypeName.Typmods.Len() > 0 {
+									if firstMod, ok := typeCast.TypeName.Typmods.Items[0].(*Integer); ok {
+										intervalUnit = intervalMaskToString(firstMod.IVal)
+									}
+								}
+								
+								if intervalUnit != "" && intervalUnit != "FULL_RANGE" {
+									// Format as INTERVAL 'value' UNIT
+									values = append(values, fmt.Sprintf("INTERVAL %s %s", argStr, strings.ToUpper(intervalUnit)))
+								} else if intervalUnit == "FULL_RANGE" {
+									// Handle INTERVAL(precision) 'value' format for full range with precision
+									if typeCast.TypeName.Typmods != nil && typeCast.TypeName.Typmods.Len() == 2 {
+										if precision, ok := typeCast.TypeName.Typmods.Items[1].(*Integer); ok {
+											values = append(values, fmt.Sprintf("INTERVAL(%d) %s", precision.IVal, argStr))
+										} else {
+											values = append(values, arg.SqlString())
+										}
+									} else {
+										// INTERVAL 'value' format for full range without precision
+										values = append(values, fmt.Sprintf("INTERVAL %s", argStr))
+									}
+								} else {
+									// Fallback to regular CAST syntax
+									values = append(values, arg.SqlString())
+								}
+							} else {
+								values = append(values, arg.SqlString())
+							}
+						} else {
+							values = append(values, arg.SqlString())
+						}
 					} else {
 						values = append(values, arg.SqlString())
 					}

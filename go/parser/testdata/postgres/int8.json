@@ -1,35 +1,43 @@
 [
   {
     "comment": "int8 - Statement 1",
-    "query": "INSERT INTO INT8_TBL(q1) VALUES ('      ')"
+    "query": "INSERT INTO INT8_TBL(q1) VALUES ('      ')",
+    "expected": "INSERT INTO int8_tbl (q1) VALUES ('      ')"
   },
   {
     "comment": "int8 - Statement 2",
-    "query": "INSERT INTO INT8_TBL(q1) VALUES ('xxx')"
+    "query": "INSERT INTO INT8_TBL(q1) VALUES ('xxx')",
+    "expected": "INSERT INTO int8_tbl (q1) VALUES ('xxx')"
   },
   {
     "comment": "int8 - Statement 3",
-    "query": "INSERT INTO INT8_TBL(q1) VALUES ('3908203590239580293850293850329485')"
+    "query": "INSERT INTO INT8_TBL(q1) VALUES ('3908203590239580293850293850329485')",
+    "expected": "INSERT INTO int8_tbl (q1) VALUES ('3908203590239580293850293850329485')"
   },
   {
     "comment": "int8 - Statement 4",
-    "query": "INSERT INTO INT8_TBL(q1) VALUES ('-1204982019841029840928340329840934')"
+    "query": "INSERT INTO INT8_TBL(q1) VALUES ('-1204982019841029840928340329840934')",
+    "expected": "INSERT INTO int8_tbl (q1) VALUES ('-1204982019841029840928340329840934')"
   },
   {
     "comment": "int8 - Statement 5",
-    "query": "INSERT INTO INT8_TBL(q1) VALUES ('- 123')"
+    "query": "INSERT INTO INT8_TBL(q1) VALUES ('- 123')",
+    "expected": "INSERT INTO int8_tbl (q1) VALUES ('- 123')"
   },
   {
     "comment": "int8 - Statement 6",
-    "query": "INSERT INTO INT8_TBL(q1) VALUES ('  345     5')"
+    "query": "INSERT INTO INT8_TBL(q1) VALUES ('  345     5')",
+    "expected": "INSERT INTO int8_tbl (q1) VALUES ('  345     5')"
   },
   {
     "comment": "int8 - Statement 7",
-    "query": "INSERT INTO INT8_TBL(q1) VALUES ('')"
+    "query": "INSERT INTO INT8_TBL(q1) VALUES ('')",
+    "expected": "INSERT INTO int8_tbl (q1) VALUES ('')"
   },
   {
     "comment": "int8 - Statement 8",
-    "query": "SELECT * FROM INT8_TBL"
+    "query": "SELECT * FROM INT8_TBL",
+    "expected": "SELECT * FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 9",
@@ -49,622 +57,777 @@
   },
   {
     "comment": "int8 - Statement 13",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 = 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 = 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 = 4567890123456789"
   },
   {
     "comment": "int8 - Statement 14",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 <> 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c\u003e 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c\u003e 4567890123456789"
   },
   {
     "comment": "int8 - Statement 15",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 < 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c 4567890123456789"
   },
   {
     "comment": "int8 - Statement 16",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 > 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e 4567890123456789"
   },
   {
     "comment": "int8 - Statement 17",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 <= 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c= 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c= 4567890123456789"
   },
   {
     "comment": "int8 - Statement 18",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 >= 4567890123456789"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e= 4567890123456789",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e= 4567890123456789"
   },
   {
     "comment": "int8 - Statement 19",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 = 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 = 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 = 456"
   },
   {
     "comment": "int8 - Statement 20",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 <> 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c\u003e 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c\u003e 456"
   },
   {
     "comment": "int8 - Statement 21",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 < 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c 456"
   },
   {
     "comment": "int8 - Statement 22",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 > 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e 456"
   },
   {
     "comment": "int8 - Statement 23",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 <= 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c= 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c= 456"
   },
   {
     "comment": "int8 - Statement 24",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 >= 456"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e= 456",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e= 456"
   },
   {
     "comment": "int8 - Statement 25",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 = q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 = q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 = q1"
   },
   {
     "comment": "int8 - Statement 26",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 <> q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 \u003c\u003e q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 \u003c\u003e q1"
   },
   {
     "comment": "int8 - Statement 27",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 < q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 \u003c q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 \u003c q1"
   },
   {
     "comment": "int8 - Statement 28",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 > q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 \u003e q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 \u003e q1"
   },
   {
     "comment": "int8 - Statement 29",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 <= q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 \u003c= q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 \u003c= q1"
   },
   {
     "comment": "int8 - Statement 30",
-    "query": "SELECT * FROM INT8_TBL WHERE 123 >= q1"
+    "query": "SELECT * FROM INT8_TBL WHERE 123 \u003e= q1",
+    "expected": "SELECT * FROM int8_tbl WHERE 123 \u003e= q1"
   },
   {
     "comment": "int8 - Statement 31",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 = '456'::int2"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 = '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 = CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 32",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 <> '456'::int2"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c\u003e '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c\u003e CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 33",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 < '456'::int2"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 34",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 > '456'::int2"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 35",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 <= '456'::int2"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003c= '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003c= CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 36",
-    "query": "SELECT * FROM INT8_TBL WHERE q2 >= '456'::int2"
+    "query": "SELECT * FROM INT8_TBL WHERE q2 \u003e= '456'::int2",
+    "expected": "SELECT * FROM int8_tbl WHERE q2 \u003e= CAST('456' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 37",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 = q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 = q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) = q1"
   },
   {
     "comment": "int8 - Statement 38",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 <> q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 \u003c\u003e q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) \u003c\u003e q1"
   },
   {
     "comment": "int8 - Statement 39",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 < q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 \u003c q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) \u003c q1"
   },
   {
     "comment": "int8 - Statement 40",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 > q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 \u003e q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) \u003e q1"
   },
   {
     "comment": "int8 - Statement 41",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 <= q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 \u003c= q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) \u003c= q1"
   },
   {
     "comment": "int8 - Statement 42",
-    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 >= q1"
+    "query": "SELECT * FROM INT8_TBL WHERE '123'::int2 \u003e= q1",
+    "expected": "SELECT * FROM int8_tbl WHERE CAST('123' AS SMALLINT) \u003e= q1"
   },
   {
     "comment": "int8 - Statement 43",
-    "query": "SELECT q1 AS plus, -q1 AS minus FROM INT8_TBL"
+    "query": "SELECT q1 AS plus, -q1 AS minus FROM INT8_TBL",
+    "expected": "SELECT q1 AS plus, -q1 AS minus FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 44",
-    "query": "SELECT q1, q2, q1 + q2 AS plus FROM INT8_TBL"
+    "query": "SELECT q1, q2, q1 + q2 AS plus FROM INT8_TBL",
+    "expected": "SELECT q1, q2, q1 + q2 AS plus FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 45",
-    "query": "SELECT q1, q2, q1 - q2 AS minus FROM INT8_TBL"
+    "query": "SELECT q1, q2, q1 - q2 AS minus FROM INT8_TBL",
+    "expected": "SELECT q1, q2, q1 - q2 AS minus FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 46",
-    "query": "SELECT q1, q2, q1 * q2 AS multiply FROM INT8_TBL"
+    "query": "SELECT q1, q2, q1 * q2 AS multiply FROM INT8_TBL",
+    "expected": "SELECT q1, q2, q1 * q2 AS multiply FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 47",
-    "query": "SELECT q1, q2, q1 * q2 AS multiply FROM INT8_TBL WHERE q1 < 1000 or (q2 > 0 and q2 < 1000)"
+    "query": "SELECT q1, q2, q1 * q2 AS multiply FROM INT8_TBL WHERE q1 \u003c 1000 or (q2 \u003e 0 and q2 \u003c 1000)",
+    "expected": "SELECT q1, q2, q1 * q2 AS multiply FROM int8_tbl WHERE q1 \u003c 1000 OR (q2 \u003e 0 AND q2 \u003c 1000)"
   },
   {
     "comment": "int8 - Statement 48",
-    "query": "SELECT q1, q2, q1 / q2 AS divide, q1 % q2 AS mod FROM INT8_TBL"
+    "query": "SELECT q1, q2, q1 / q2 AS divide, q1 % q2 AS mod FROM INT8_TBL",
+    "expected": "SELECT q1, q2, q1 / q2 AS divide, q1 % q2 AS mod FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 49",
-    "query": "SELECT q1, float8(q1) FROM INT8_TBL"
+    "query": "SELECT q1, float8(q1) FROM INT8_TBL",
+    "expected": "SELECT q1, float8(q1) FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 50",
-    "query": "SELECT q2, float8(q2) FROM INT8_TBL"
+    "query": "SELECT q2, float8(q2) FROM INT8_TBL",
+    "expected": "SELECT q2, float8(q2) FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 51",
-    "query": "SELECT 37 + q1 AS plus4 FROM INT8_TBL"
+    "query": "SELECT 37 + q1 AS plus4 FROM INT8_TBL",
+    "expected": "SELECT 37 + q1 AS plus4 FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 52",
-    "query": "SELECT 37 - q1 AS minus4 FROM INT8_TBL"
+    "query": "SELECT 37 - q1 AS minus4 FROM INT8_TBL",
+    "expected": "SELECT 37 - q1 AS minus4 FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 53",
-    "query": "SELECT 2 * q1 AS \"twice int4\" FROM INT8_TBL"
+    "query": "SELECT 2 * q1 AS \"twice int4\" FROM INT8_TBL",
+    "expected": "SELECT 2 * q1 AS \"twice int4\" FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 54",
-    "query": "SELECT q1 * 2 AS \"twice int4\" FROM INT8_TBL"
+    "query": "SELECT q1 * 2 AS \"twice int4\" FROM INT8_TBL",
+    "expected": "SELECT q1 * 2 AS \"twice int4\" FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 55",
-    "query": "SELECT q1 + 42::int4 AS \"8plus4\", q1 - 42::int4 AS \"8minus4\", q1 * 42::int4 AS \"8mul4\", q1 / 42::int4 AS \"8div4\" FROM INT8_TBL"
+    "query": "SELECT q1 + 42::int4 AS \"8plus4\", q1 - 42::int4 AS \"8minus4\", q1 * 42::int4 AS \"8mul4\", q1 / 42::int4 AS \"8div4\" FROM INT8_TBL",
+    "expected": "SELECT CAST(q1 + 42 AS INT) AS \"8plus4\", CAST(q1 - 42 AS INT) AS \"8minus4\", CAST(q1 * 42 AS INT) AS \"8mul4\", CAST(q1 / 42 AS INT) AS \"8div4\" FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 56",
-    "query": "SELECT 246::int4 + q1 AS \"4plus8\", 246::int4 - q1 AS \"4minus8\", 246::int4 * q1 AS \"4mul8\", 246::int4 / q1 AS \"4div8\" FROM INT8_TBL"
+    "query": "SELECT 246::int4 + q1 AS \"4plus8\", 246::int4 - q1 AS \"4minus8\", 246::int4 * q1 AS \"4mul8\", 246::int4 / q1 AS \"4div8\" FROM INT8_TBL",
+    "expected": "SELECT CAST(246 AS INT) + q1 AS \"4plus8\", CAST(246 AS INT) - q1 AS \"4minus8\", CAST(246 AS INT) * q1 AS \"4mul8\", CAST(246 AS INT) / q1 AS \"4div8\" FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 57",
-    "query": "SELECT q1 + 42::int2 AS \"8plus2\", q1 - 42::int2 AS \"8minus2\", q1 * 42::int2 AS \"8mul2\", q1 / 42::int2 AS \"8div2\" FROM INT8_TBL"
+    "query": "SELECT q1 + 42::int2 AS \"8plus2\", q1 - 42::int2 AS \"8minus2\", q1 * 42::int2 AS \"8mul2\", q1 / 42::int2 AS \"8div2\" FROM INT8_TBL",
+    "expected": "SELECT CAST(q1 + 42 AS SMALLINT) AS \"8plus2\", CAST(q1 - 42 AS SMALLINT) AS \"8minus2\", CAST(q1 * 42 AS SMALLINT) AS \"8mul2\", CAST(q1 / 42 AS SMALLINT) AS \"8div2\" FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 58",
-    "query": "SELECT 246::int2 + q1 AS \"2plus8\", 246::int2 - q1 AS \"2minus8\", 246::int2 * q1 AS \"2mul8\", 246::int2 / q1 AS \"2div8\" FROM INT8_TBL"
+    "query": "SELECT 246::int2 + q1 AS \"2plus8\", 246::int2 - q1 AS \"2minus8\", 246::int2 * q1 AS \"2mul8\", 246::int2 / q1 AS \"2div8\" FROM INT8_TBL",
+    "expected": "SELECT CAST(246 AS SMALLINT) + q1 AS \"2plus8\", CAST(246 AS SMALLINT) - q1 AS \"2minus8\", CAST(246 AS SMALLINT) * q1 AS \"2mul8\", CAST(246 AS SMALLINT) / q1 AS \"2div8\" FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 59",
-    "query": "SELECT q2, abs(q2) FROM INT8_TBL"
+    "query": "SELECT q2, abs(q2) FROM INT8_TBL",
+    "expected": "SELECT q2, abs(q2) FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 60",
-    "query": "SELECT min(q1), min(q2) FROM INT8_TBL"
+    "query": "SELECT min(q1), min(q2) FROM INT8_TBL",
+    "expected": "SELECT MIN(q1), MIN(q2) FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 61",
-    "query": "SELECT max(q1), max(q2) FROM INT8_TBL"
+    "query": "SELECT max(q1), max(q2) FROM INT8_TBL",
+    "expected": "SELECT MAX(q1), MAX(q2) FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 62",
-    "query": "SELECT to_char(q1, '9G999G999G999G999G999'), to_char(q2, '9,999,999,999,999,999') FROM INT8_TBL"
+    "query": "SELECT to_char(q1, '9G999G999G999G999G999'), to_char(q2, '9,999,999,999,999,999') FROM INT8_TBL",
+    "expected": "SELECT to_char(q1, '9G999G999G999G999G999'), to_char(q2, '9,999,999,999,999,999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 63",
-    "query": "SELECT to_char(q1, '9G999G999G999G999G999D999G999'), to_char(q2, '9,999,999,999,999,999.999,999') FROM INT8_TBL"
+    "query": "SELECT to_char(q1, '9G999G999G999G999G999D999G999'), to_char(q2, '9,999,999,999,999,999.999,999') FROM INT8_TBL",
+    "expected": "SELECT to_char(q1, '9G999G999G999G999G999D999G999'), to_char(q2, '9,999,999,999,999,999.999,999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 64",
-    "query": "SELECT to_char( (q1 * -1), '9999999999999999PR'), to_char( (q2 * -1), '9999999999999999.999PR') FROM INT8_TBL"
+    "query": "SELECT to_char( (q1 * -1), '9999999999999999PR'), to_char( (q2 * -1), '9999999999999999.999PR') FROM INT8_TBL",
+    "expected": "SELECT to_char((q1 * -1), '9999999999999999PR'), to_char((q2 * -1), '9999999999999999.999PR') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 65",
-    "query": "SELECT to_char( (q1 * -1), '9999999999999999S'), to_char( (q2 * -1), 'S9999999999999999') FROM INT8_TBL"
+    "query": "SELECT to_char( (q1 * -1), '9999999999999999S'), to_char( (q2 * -1), 'S9999999999999999') FROM INT8_TBL",
+    "expected": "SELECT to_char((q1 * -1), '9999999999999999S'), to_char((q2 * -1), 'S9999999999999999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 66",
-    "query": "SELECT to_char(q2, 'MI9999999999999999')     FROM INT8_TBL"
+    "query": "SELECT to_char(q2, 'MI9999999999999999')     FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, 'MI9999999999999999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 67",
-    "query": "SELECT to_char(q2, 'FMS9999999999999999')    FROM INT8_TBL"
+    "query": "SELECT to_char(q2, 'FMS9999999999999999')    FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, 'FMS9999999999999999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 68",
-    "query": "SELECT to_char(q2, 'FM9999999999999999THPR') FROM INT8_TBL"
+    "query": "SELECT to_char(q2, 'FM9999999999999999THPR') FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, 'FM9999999999999999THPR') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 69",
-    "query": "SELECT to_char(q2, 'SG9999999999999999th')   FROM INT8_TBL"
+    "query": "SELECT to_char(q2, 'SG9999999999999999th')   FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, 'SG9999999999999999th') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 70",
-    "query": "SELECT to_char(q2, '0999999999999999')       FROM INT8_TBL"
+    "query": "SELECT to_char(q2, '0999999999999999')       FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, '0999999999999999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 71",
-    "query": "SELECT to_char(q2, 'S0999999999999999')      FROM INT8_TBL"
+    "query": "SELECT to_char(q2, 'S0999999999999999')      FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, 'S0999999999999999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 72",
-    "query": "SELECT to_char(q2, 'FM0999999999999999')     FROM INT8_TBL"
+    "query": "SELECT to_char(q2, 'FM0999999999999999')     FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, 'FM0999999999999999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 73",
-    "query": "SELECT to_char(q2, 'FM9999999999999999.000') FROM INT8_TBL"
+    "query": "SELECT to_char(q2, 'FM9999999999999999.000') FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, 'FM9999999999999999.000') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 74",
-    "query": "SELECT to_char(q2, 'L9999999999999999.000')  FROM INT8_TBL"
+    "query": "SELECT to_char(q2, 'L9999999999999999.000')  FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, 'L9999999999999999.000') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 75",
-    "query": "SELECT to_char(q2, 'FM9999999999999999.999') FROM INT8_TBL"
+    "query": "SELECT to_char(q2, 'FM9999999999999999.999') FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, 'FM9999999999999999.999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 76",
-    "query": "SELECT to_char(q2, 'S 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 . 9 9 9') FROM INT8_TBL"
+    "query": "SELECT to_char(q2, 'S 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 . 9 9 9') FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, 'S 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 . 9 9 9') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 77",
-    "query": "SELECT to_char(q2, E'99999 \"text\" 9999 \"9999\" 999 \"\\\\\"text between quote marks\\\\\"\" 9999') FROM INT8_TBL"
+    "query": "SELECT to_char(q2, E'99999 \"text\" 9999 \"9999\" 999 \"\\\\\"text between quote marks\\\\\"\" 9999') FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, '99999 \"text\" 9999 \"9999\" 999 \"\\\"text between quote marks\\\"\" 9999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 78",
-    "query": "SELECT to_char(q2, '999999SG9999999999')     FROM INT8_TBL"
+    "query": "SELECT to_char(q2, '999999SG9999999999')     FROM INT8_TBL",
+    "expected": "SELECT to_char(q2, '999999SG9999999999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 79",
-    "query": "select '-9223372036854775808'::int8"
+    "query": "select '-9223372036854775808'::int8",
+    "expected": "SELECT CAST('-9223372036854775808' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 80",
-    "query": "select '-9223372036854775809'::int8"
+    "query": "select '-9223372036854775809'::int8",
+    "expected": "SELECT CAST('-9223372036854775809' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 81",
-    "query": "select '9223372036854775807'::int8"
+    "query": "select '9223372036854775807'::int8",
+    "expected": "SELECT CAST('9223372036854775807' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 82",
-    "query": "select '9223372036854775808'::int8"
+    "query": "select '9223372036854775808'::int8",
+    "expected": "SELECT CAST('9223372036854775808' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 83",
-    "query": "select -('-9223372036854775807'::int8)"
+    "query": "select -('-9223372036854775807'::int8)",
+    "expected": "SELECT -(CAST('-9223372036854775807' AS BIGINT))"
   },
   {
     "comment": "int8 - Statement 84",
-    "query": "select -('-9223372036854775808'::int8)"
+    "query": "select -('-9223372036854775808'::int8)",
+    "expected": "SELECT -(CAST('-9223372036854775808' AS BIGINT))"
   },
   {
     "comment": "int8 - Statement 85",
-    "query": "select 0::int8 - '-9223372036854775808'::int8"
+    "query": "select 0::int8 - '-9223372036854775808'::int8",
+    "expected": "SELECT CAST(CAST(0 AS BIGINT) - '-9223372036854775808' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 86",
-    "query": "select '9223372036854775800'::int8 + '9223372036854775800'::int8"
+    "query": "select '9223372036854775800'::int8 + '9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) + '9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 87",
-    "query": "select '-9223372036854775800'::int8 + '-9223372036854775800'::int8"
+    "query": "select '-9223372036854775800'::int8 + '-9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('-9223372036854775800' AS BIGINT) + '-9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 88",
-    "query": "select '9223372036854775800'::int8 - '-9223372036854775800'::int8"
+    "query": "select '9223372036854775800'::int8 - '-9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) - '-9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 89",
-    "query": "select '-9223372036854775800'::int8 - '9223372036854775800'::int8"
+    "query": "select '-9223372036854775800'::int8 - '9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('-9223372036854775800' AS BIGINT) - '9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 90",
-    "query": "select '9223372036854775800'::int8 * '9223372036854775800'::int8"
+    "query": "select '9223372036854775800'::int8 * '9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) * '9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 91",
-    "query": "select '9223372036854775800'::int8 / '0'::int8"
+    "query": "select '9223372036854775800'::int8 / '0'::int8",
+    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) / '0' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 92",
-    "query": "select '9223372036854775800'::int8 % '0'::int8"
+    "query": "select '9223372036854775800'::int8 % '0'::int8",
+    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) % '0' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 93",
-    "query": "select abs('-9223372036854775808'::int8)"
+    "query": "select abs('-9223372036854775808'::int8)",
+    "expected": "SELECT abs(CAST('-9223372036854775808' AS BIGINT))"
   },
   {
     "comment": "int8 - Statement 94",
-    "query": "select '9223372036854775800'::int8 + '100'::int4"
+    "query": "select '9223372036854775800'::int8 + '100'::int4",
+    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) + '100' AS INT)"
   },
   {
     "comment": "int8 - Statement 95",
-    "query": "select '-9223372036854775800'::int8 - '100'::int4"
+    "query": "select '-9223372036854775800'::int8 - '100'::int4",
+    "expected": "SELECT CAST(CAST('-9223372036854775800' AS BIGINT) - '100' AS INT)"
   },
   {
     "comment": "int8 - Statement 96",
-    "query": "select '9223372036854775800'::int8 * '100'::int4"
+    "query": "select '9223372036854775800'::int8 * '100'::int4",
+    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) * '100' AS INT)"
   },
   {
     "comment": "int8 - Statement 97",
-    "query": "select '100'::int4 + '9223372036854775800'::int8"
+    "query": "select '100'::int4 + '9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('100' AS INT) + '9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 98",
-    "query": "select '-100'::int4 - '9223372036854775800'::int8"
+    "query": "select '-100'::int4 - '9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('-100' AS INT) - '9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 99",
-    "query": "select '100'::int4 * '9223372036854775800'::int8"
+    "query": "select '100'::int4 * '9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('100' AS INT) * '9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 100",
-    "query": "select '9223372036854775800'::int8 + '100'::int2"
+    "query": "select '9223372036854775800'::int8 + '100'::int2",
+    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) + '100' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 101",
-    "query": "select '-9223372036854775800'::int8 - '100'::int2"
+    "query": "select '-9223372036854775800'::int8 - '100'::int2",
+    "expected": "SELECT CAST(CAST('-9223372036854775800' AS BIGINT) - '100' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 102",
-    "query": "select '9223372036854775800'::int8 * '100'::int2"
+    "query": "select '9223372036854775800'::int8 * '100'::int2",
+    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) * '100' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 103",
-    "query": "select '-9223372036854775808'::int8 / '0'::int2"
+    "query": "select '-9223372036854775808'::int8 / '0'::int2",
+    "expected": "SELECT CAST(CAST('-9223372036854775808' AS BIGINT) / '0' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 104",
-    "query": "select '100'::int2 + '9223372036854775800'::int8"
+    "query": "select '100'::int2 + '9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('100' AS SMALLINT) + '9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 105",
-    "query": "select '-100'::int2 - '9223372036854775800'::int8"
+    "query": "select '-100'::int2 - '9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('-100' AS SMALLINT) - '9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 106",
-    "query": "select '100'::int2 * '9223372036854775800'::int8"
+    "query": "select '100'::int2 * '9223372036854775800'::int8",
+    "expected": "SELECT CAST(CAST('100' AS SMALLINT) * '9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 107",
-    "query": "select '100'::int2 / '0'::int8"
+    "query": "select '100'::int2 / '0'::int8",
+    "expected": "SELECT CAST(CAST('100' AS SMALLINT) / '0' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 108",
-    "query": "SELECT CAST(q1 AS int4) FROM int8_tbl WHERE q2 = 456"
+    "query": "SELECT CAST(q1 AS int4) FROM int8_tbl WHERE q2 = 456",
+    "expected": "SELECT CAST(q1 AS INT) FROM int8_tbl WHERE q2 = 456"
   },
   {
     "comment": "int8 - Statement 109",
-    "query": "SELECT CAST(q1 AS int4) FROM int8_tbl WHERE q2 <> 456"
+    "query": "SELECT CAST(q1 AS int4) FROM int8_tbl WHERE q2 \u003c\u003e 456",
+    "expected": "SELECT CAST(q1 AS INT) FROM int8_tbl WHERE q2 \u003c\u003e 456"
   },
   {
     "comment": "int8 - Statement 110",
-    "query": "SELECT CAST(q1 AS int2) FROM int8_tbl WHERE q2 = 456"
+    "query": "SELECT CAST(q1 AS int2) FROM int8_tbl WHERE q2 = 456",
+    "expected": "SELECT CAST(q1 AS SMALLINT) FROM int8_tbl WHERE q2 = 456"
   },
   {
     "comment": "int8 - Statement 111",
-    "query": "SELECT CAST(q1 AS int2) FROM int8_tbl WHERE q2 <> 456"
+    "query": "SELECT CAST(q1 AS int2) FROM int8_tbl WHERE q2 \u003c\u003e 456",
+    "expected": "SELECT CAST(q1 AS SMALLINT) FROM int8_tbl WHERE q2 \u003c\u003e 456"
   },
   {
     "comment": "int8 - Statement 112",
-    "query": "SELECT CAST('42'::int2 AS int8), CAST('-37'::int2 AS int8)"
+    "query": "SELECT CAST('42'::int2 AS int8), CAST('-37'::int2 AS int8)",
+    "expected": "SELECT CAST(CAST('42' AS SMALLINT) AS BIGINT), CAST(CAST('-37' AS SMALLINT) AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 113",
-    "query": "SELECT CAST(q1 AS float4), CAST(q2 AS float8) FROM INT8_TBL"
+    "query": "SELECT CAST(q1 AS float4), CAST(q2 AS float8) FROM INT8_TBL",
+    "expected": "SELECT CAST(q1 AS REAL), CAST(q2 AS FLOAT8) FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 114",
-    "query": "SELECT CAST('36854775807.0'::float4 AS int8)"
+    "query": "SELECT CAST('36854775807.0'::float4 AS int8)",
+    "expected": "SELECT CAST(CAST('36854775807.0' AS REAL) AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 115",
-    "query": "SELECT CAST('922337203685477580700.0'::float8 AS int8)"
+    "query": "SELECT CAST('922337203685477580700.0'::float8 AS int8)",
+    "expected": "SELECT CAST(CAST('922337203685477580700.0' AS FLOAT8) AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 116",
-    "query": "SELECT CAST(q1 AS oid) FROM INT8_TBL"
+    "query": "SELECT CAST(q1 AS oid) FROM INT8_TBL",
+    "expected": "SELECT CAST(q1 AS oid) FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 117",
-    "query": "SELECT oid::int8 FROM pg_class WHERE relname = 'pg_class'"
+    "query": "SELECT oid::int8 FROM pg_class WHERE relname = 'pg_class'",
+    "expected": "SELECT CAST(oid AS BIGINT) FROM pg_class WHERE relname = 'pg_class'"
   },
   {
     "comment": "int8 - Statement 118",
-    "query": "SELECT q1, q2, q1 & q2 AS \"and\", q1 | q2 AS \"or\", q1 # q2 AS \"xor\", ~q1 AS \"not\" FROM INT8_TBL"
+    "query": "SELECT q1, q2, q1 \u0026 q2 AS \"and\", q1 | q2 AS \"or\", q1 # q2 AS \"xor\", ~q1 AS \"not\" FROM INT8_TBL",
+    "expected": "SELECT q1, q2, q1 \u0026 q2 AS \"and\", q1 | q2 AS \"or\", q1 # q2 AS xor, ~q1 AS \"not\" FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 119",
-    "query": "SELECT q1, q1 << 2 AS \"shl\", q1 >> 3 AS \"shr\" FROM INT8_TBL"
+    "query": "SELECT q1, q1 \u003c\u003c 2 AS \"shl\", q1 \u003e\u003e 3 AS \"shr\" FROM INT8_TBL",
+    "expected": "SELECT q1, q1 \u003c\u003c 2 AS shl, q1 \u003e\u003e 3 AS shr FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 120",
-    "query": "SELECT * FROM generate_series('+4567890123456789'::int8, '+4567890123456799'::int8)"
+    "query": "SELECT * FROM generate_series('+4567890123456789'::int8, '+4567890123456799'::int8)",
+    "expected": "SELECT * FROM generate_series(CAST('+4567890123456789' AS BIGINT), CAST('+4567890123456799' AS BIGINT))"
   },
   {
     "comment": "int8 - Statement 121",
-    "query": "SELECT * FROM generate_series('+4567890123456789'::int8, '+4567890123456799'::int8, 0)"
+    "query": "SELECT * FROM generate_series('+4567890123456789'::int8, '+4567890123456799'::int8, 0)",
+    "expected": "SELECT * FROM generate_series(CAST('+4567890123456789' AS BIGINT), CAST('+4567890123456799' AS BIGINT), 0)"
   },
   {
     "comment": "int8 - Statement 122",
-    "query": "SELECT * FROM generate_series('+4567890123456789'::int8, '+4567890123456799'::int8, 2)"
+    "query": "SELECT * FROM generate_series('+4567890123456789'::int8, '+4567890123456799'::int8, 2)",
+    "expected": "SELECT * FROM generate_series(CAST('+4567890123456789' AS BIGINT), CAST('+4567890123456799' AS BIGINT), 2)"
   },
   {
     "comment": "int8 - Statement 123",
-    "query": "SELECT (-1::int8<<63)::text"
+    "query": "SELECT (-1::int8\u003c\u003c63)::text",
+    "expected": "SELECT CAST((-CAST(1 AS BIGINT) \u003c\u003c 63) AS TEXT)"
   },
   {
     "comment": "int8 - Statement 124",
-    "query": "SELECT ((-1::int8<<63)+1)::text"
+    "query": "SELECT ((-1::int8\u003c\u003c63)+1)::text",
+    "expected": "SELECT CAST(((-CAST(1 AS BIGINT) \u003c\u003c 63) + 1) AS TEXT)"
   },
   {
     "comment": "int8 - Statement 125",
-    "query": "SELECT (-9223372036854775808)::int8 * (-1)::int8"
+    "query": "SELECT (-9223372036854775808)::int8 * (-1)::int8",
+    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) * (-1) AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 126",
-    "query": "SELECT (-9223372036854775808)::int8 / (-1)::int8"
+    "query": "SELECT (-9223372036854775808)::int8 / (-1)::int8",
+    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) / (-1) AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 127",
-    "query": "SELECT (-9223372036854775808)::int8 % (-1)::int8"
+    "query": "SELECT (-9223372036854775808)::int8 % (-1)::int8",
+    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) % (-1) AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 128",
-    "query": "SELECT (-9223372036854775808)::int8 * (-1)::int4"
+    "query": "SELECT (-9223372036854775808)::int8 * (-1)::int4",
+    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) * (-1) AS INT)"
   },
   {
     "comment": "int8 - Statement 129",
-    "query": "SELECT (-9223372036854775808)::int8 / (-1)::int4"
+    "query": "SELECT (-9223372036854775808)::int8 / (-1)::int4",
+    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) / (-1) AS INT)"
   },
   {
     "comment": "int8 - Statement 130",
-    "query": "SELECT (-9223372036854775808)::int8 % (-1)::int4"
+    "query": "SELECT (-9223372036854775808)::int8 % (-1)::int4",
+    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) % (-1) AS INT)"
   },
   {
     "comment": "int8 - Statement 131",
-    "query": "SELECT (-9223372036854775808)::int8 * (-1)::int2"
+    "query": "SELECT (-9223372036854775808)::int8 * (-1)::int2",
+    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) * (-1) AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 132",
-    "query": "SELECT (-9223372036854775808)::int8 / (-1)::int2"
+    "query": "SELECT (-9223372036854775808)::int8 / (-1)::int2",
+    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) / (-1) AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 133",
-    "query": "SELECT (-9223372036854775808)::int8 % (-1)::int2"
+    "query": "SELECT (-9223372036854775808)::int8 % (-1)::int2",
+    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) % (-1) AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 134",
-    "query": "SELECT x, x::int8 AS int8_value FROM (VALUES (-2.5::float8), (-1.5::float8), (-0.5::float8), (0.0::float8), (0.5::float8), (1.5::float8), (2.5::float8)) t(x)"
+    "query": "SELECT x, x::int8 AS int8_value FROM (VALUES (-2.5::float8), (-1.5::float8), (-0.5::float8), (0.0::float8), (0.5::float8), (1.5::float8), (2.5::float8)) t(x)",
+    "expected": "SELECT x, CAST(x AS BIGINT) AS int8_value FROM (VALUES (-CAST(2.5 AS FLOAT8)), (-CAST(1.5 AS FLOAT8)), (-CAST(0.5 AS FLOAT8)), (CAST(0.0 AS FLOAT8)), (CAST(0.5 AS FLOAT8)), (CAST(1.5 AS FLOAT8)), (CAST(2.5 AS FLOAT8))) AS t(x)"
   },
   {
     "comment": "int8 - Statement 135",
-    "query": "SELECT x, x::int8 AS int8_value FROM (VALUES (-2.5::numeric), (-1.5::numeric), (-0.5::numeric), (0.0::numeric), (0.5::numeric), (1.5::numeric), (2.5::numeric)) t(x)"
+    "query": "SELECT x, x::int8 AS int8_value FROM (VALUES (-2.5::numeric), (-1.5::numeric), (-0.5::numeric), (0.0::numeric), (0.5::numeric), (1.5::numeric), (2.5::numeric)) t(x)",
+    "expected": "SELECT x, CAST(x AS BIGINT) AS int8_value FROM (VALUES (-CAST(2.5 AS NUMERIC)), (-CAST(1.5 AS NUMERIC)), (-CAST(0.5 AS NUMERIC)), (CAST(0.0 AS NUMERIC)), (CAST(0.5 AS NUMERIC)), (CAST(1.5 AS NUMERIC)), (CAST(2.5 AS NUMERIC))) AS t(x)"
   },
   {
     "comment": "int8 - Statement 136",
-    "query": "SELECT a, b, gcd(a, b), gcd(a, -b), gcd(b, a), gcd(-b, a) FROM (VALUES (0::int8, 0::int8), (0::int8, 29893644334::int8), (288484263558::int8, 29893644334::int8), (-288484263558::int8, 29893644334::int8), ((-9223372036854775808)::int8, 1::int8), ((-9223372036854775808)::int8, 9223372036854775807::int8), ((-9223372036854775808)::int8, 4611686018427387904::int8)) AS v(a, b)"
+    "query": "SELECT a, b, gcd(a, b), gcd(a, -b), gcd(b, a), gcd(-b, a) FROM (VALUES (0::int8, 0::int8), (0::int8, 29893644334::int8), (288484263558::int8, 29893644334::int8), (-288484263558::int8, 29893644334::int8), ((-9223372036854775808)::int8, 1::int8), ((-9223372036854775808)::int8, 9223372036854775807::int8), ((-9223372036854775808)::int8, 4611686018427387904::int8)) AS v(a, b)",
+    "expected": "SELECT a, b, gcd(a, b), gcd(a, -b), gcd(b, a), gcd(-b, a) FROM (VALUES (CAST(0 AS BIGINT), CAST(0 AS BIGINT)), (CAST(0 AS BIGINT), CAST(29893644334 AS BIGINT)), (CAST(288484263558 AS BIGINT), CAST(29893644334 AS BIGINT)), (-CAST(288484263558 AS BIGINT), CAST(29893644334 AS BIGINT)), (CAST((-9223372036854775808) AS BIGINT), CAST(1 AS BIGINT)), (CAST((-9223372036854775808) AS BIGINT), CAST(9223372036854775807 AS BIGINT)), (CAST((-9223372036854775808) AS BIGINT), CAST(4611686018427387904 AS BIGINT))) AS v(a, b)"
   },
   {
     "comment": "int8 - Statement 137",
-    "query": "SELECT gcd((-9223372036854775808)::int8, 0::int8)"
+    "query": "SELECT gcd((-9223372036854775808)::int8, 0::int8)",
+    "expected": "SELECT gcd(CAST((-9223372036854775808) AS BIGINT), CAST(0 AS BIGINT))"
   },
   {
     "comment": "int8 - Statement 138",
-    "query": "SELECT gcd((-9223372036854775808)::int8, (-9223372036854775808)::int8)"
+    "query": "SELECT gcd((-9223372036854775808)::int8, (-9223372036854775808)::int8)",
+    "expected": "SELECT gcd(CAST((-9223372036854775808) AS BIGINT), CAST((-9223372036854775808) AS BIGINT))"
   },
   {
     "comment": "int8 - Statement 139",
-    "query": "SELECT a, b, lcm(a, b), lcm(a, -b), lcm(b, a), lcm(-b, a) FROM (VALUES (0::int8, 0::int8), (0::int8, 29893644334::int8), (29893644334::int8, 29893644334::int8), (288484263558::int8, 29893644334::int8), (-288484263558::int8, 29893644334::int8), ((-9223372036854775808)::int8, 0::int8)) AS v(a, b)"
+    "query": "SELECT a, b, lcm(a, b), lcm(a, -b), lcm(b, a), lcm(-b, a) FROM (VALUES (0::int8, 0::int8), (0::int8, 29893644334::int8), (29893644334::int8, 29893644334::int8), (288484263558::int8, 29893644334::int8), (-288484263558::int8, 29893644334::int8), ((-9223372036854775808)::int8, 0::int8)) AS v(a, b)",
+    "expected": "SELECT a, b, lcm(a, b), lcm(a, -b), lcm(b, a), lcm(-b, a) FROM (VALUES (CAST(0 AS BIGINT), CAST(0 AS BIGINT)), (CAST(0 AS BIGINT), CAST(29893644334 AS BIGINT)), (CAST(29893644334 AS BIGINT), CAST(29893644334 AS BIGINT)), (CAST(288484263558 AS BIGINT), CAST(29893644334 AS BIGINT)), (-CAST(288484263558 AS BIGINT), CAST(29893644334 AS BIGINT)), (CAST((-9223372036854775808) AS BIGINT), CAST(0 AS BIGINT))) AS v(a, b)"
   },
   {
     "comment": "int8 - Statement 140",
-    "query": "SELECT lcm((-9223372036854775808)::int8, 1::int8)"
+    "query": "SELECT lcm((-9223372036854775808)::int8, 1::int8)",
+    "expected": "SELECT lcm(CAST((-9223372036854775808) AS BIGINT), CAST(1 AS BIGINT))"
   },
   {
     "comment": "int8 - Statement 141",
-    "query": "SELECT lcm(9223372036854775807::int8, 9223372036854775806::int8)"
+    "query": "SELECT lcm(9223372036854775807::int8, 9223372036854775806::int8)",
+    "expected": "SELECT lcm(CAST(9223372036854775807 AS BIGINT), CAST(9223372036854775806 AS BIGINT))"
   },
   {
     "comment": "int8 - Statement 142",
-    "query": "SELECT int8 '0b100101'"
+    "query": "SELECT int8 '0b100101'",
+    "expected": "SELECT CAST('0b100101' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 143",
-    "query": "SELECT int8 '0o273'"
+    "query": "SELECT int8 '0o273'",
+    "expected": "SELECT CAST('0o273' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 144",
-    "query": "SELECT int8 '0x42F'"
+    "query": "SELECT int8 '0x42F'",
+    "expected": "SELECT CAST('0x42F' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 145",
-    "query": "SELECT int8 '0b'"
+    "query": "SELECT int8 '0b'",
+    "expected": "SELECT CAST('0b' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 146",
-    "query": "SELECT int8 '0o'"
+    "query": "SELECT int8 '0o'",
+    "expected": "SELECT CAST('0o' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 147",
-    "query": "SELECT int8 '0x'"
+    "query": "SELECT int8 '0x'",
+    "expected": "SELECT CAST('0x' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 148",
-    "query": "SELECT int8 '0b111111111111111111111111111111111111111111111111111111111111111'"
+    "query": "SELECT int8 '0b111111111111111111111111111111111111111111111111111111111111111'",
+    "expected": "SELECT CAST('0b111111111111111111111111111111111111111111111111111111111111111' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 149",
-    "query": "SELECT int8 '0b1000000000000000000000000000000000000000000000000000000000000000'"
+    "query": "SELECT int8 '0b1000000000000000000000000000000000000000000000000000000000000000'",
+    "expected": "SELECT CAST('0b1000000000000000000000000000000000000000000000000000000000000000' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 150",
-    "query": "SELECT int8 '0o777777777777777777777'"
+    "query": "SELECT int8 '0o777777777777777777777'",
+    "expected": "SELECT CAST('0o777777777777777777777' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 151",
-    "query": "SELECT int8 '0o1000000000000000000000'"
+    "query": "SELECT int8 '0o1000000000000000000000'",
+    "expected": "SELECT CAST('0o1000000000000000000000' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 152",
-    "query": "SELECT int8 '0x7FFFFFFFFFFFFFFF'"
+    "query": "SELECT int8 '0x7FFFFFFFFFFFFFFF'",
+    "expected": "SELECT CAST('0x7FFFFFFFFFFFFFFF' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 153",
-    "query": "SELECT int8 '0x8000000000000000'"
+    "query": "SELECT int8 '0x8000000000000000'",
+    "expected": "SELECT CAST('0x8000000000000000' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 154",
-    "query": "SELECT int8 '-0b1000000000000000000000000000000000000000000000000000000000000000'"
+    "query": "SELECT int8 '-0b1000000000000000000000000000000000000000000000000000000000000000'",
+    "expected": "SELECT CAST('-0b1000000000000000000000000000000000000000000000000000000000000000' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 155",
-    "query": "SELECT int8 '-0b1000000000000000000000000000000000000000000000000000000000000001'"
+    "query": "SELECT int8 '-0b1000000000000000000000000000000000000000000000000000000000000001'",
+    "expected": "SELECT CAST('-0b1000000000000000000000000000000000000000000000000000000000000001' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 156",
-    "query": "SELECT int8 '-0o1000000000000000000000'"
+    "query": "SELECT int8 '-0o1000000000000000000000'",
+    "expected": "SELECT CAST('-0o1000000000000000000000' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 157",
-    "query": "SELECT int8 '-0o1000000000000000000001'"
+    "query": "SELECT int8 '-0o1000000000000000000001'",
+    "expected": "SELECT CAST('-0o1000000000000000000001' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 158",
-    "query": "SELECT int8 '-0x8000000000000000'"
+    "query": "SELECT int8 '-0x8000000000000000'",
+    "expected": "SELECT CAST('-0x8000000000000000' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 159",
-    "query": "SELECT int8 '-0x8000000000000001'"
+    "query": "SELECT int8 '-0x8000000000000001'",
+    "expected": "SELECT CAST('-0x8000000000000001' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 160",
-    "query": "SELECT int8 '1_000_000'"
+    "query": "SELECT int8 '1_000_000'",
+    "expected": "SELECT CAST('1_000_000' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 161",
-    "query": "SELECT int8 '1_2_3'"
+    "query": "SELECT int8 '1_2_3'",
+    "expected": "SELECT CAST('1_2_3' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 162",
-    "query": "SELECT int8 '0x1EEE_FFFF'"
+    "query": "SELECT int8 '0x1EEE_FFFF'",
+    "expected": "SELECT CAST('0x1EEE_FFFF' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 163",
-    "query": "SELECT int8 '0o2_73'"
+    "query": "SELECT int8 '0o2_73'",
+    "expected": "SELECT CAST('0o2_73' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 164",
-    "query": "SELECT int8 '0b_10_0101'"
+    "query": "SELECT int8 '0b_10_0101'",
+    "expected": "SELECT CAST('0b_10_0101' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 165",
-    "query": "SELECT int8 '_100'"
+    "query": "SELECT int8 '_100'",
+    "expected": "SELECT CAST('_100' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 166",
-    "query": "SELECT int8 '100_'"
+    "query": "SELECT int8 '100_'",
+    "expected": "SELECT CAST('100_' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 167",
-    "query": "SELECT int8 '100__000'"
+    "query": "SELECT int8 '100__000'",
+    "expected": "SELECT CAST('100__000' AS BIGINT)"
   }
 ]

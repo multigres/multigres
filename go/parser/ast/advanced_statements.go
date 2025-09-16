@@ -240,9 +240,6 @@ func (n *MergeWhenClause) SqlString() string {
 	switch n.CommandType {
 	case CMD_INSERT:
 		parts = append(parts, "INSERT")
-		if n.Override != OVERRIDING_NOT_SET {
-			parts = append(parts, n.Override.SqlString())
-		}
 		if len(n.TargetList) > 0 {
 			// If we have columns specified
 			columns := make([]string, len(n.TargetList))
@@ -250,6 +247,10 @@ func (n *MergeWhenClause) SqlString() string {
 				columns[i] = target.Name
 			}
 			parts = append(parts, "("+strings.Join(columns, ", ")+")")
+		}
+		// OVERRIDING clause comes after column list, before VALUES
+		if n.Override != OVERRIDING_NOT_SET {
+			parts = append(parts, n.Override.SqlString())
 		}
 		if n.Values != nil && n.Values.Len() > 0 {
 			values := make([]string, n.Values.Len())
