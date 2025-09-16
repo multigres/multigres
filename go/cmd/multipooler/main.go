@@ -39,6 +39,7 @@ var (
 	pgctldAddr string
 	cell       string
 	database   string
+	tableGroup string
 	serviceID  string
 	// multipoolerID stores the ID for deregistration during shutdown
 	multipoolerID *clustermetadatapb.ID
@@ -103,15 +104,18 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	// Validate required flags first, before initializing service environment
+	if database == "" {
+		return fmt.Errorf("--database flag is required")
+	}
+	if tableGroup == "" {
+		return fmt.Errorf("--table-group flag is required")
+	}
+
 	servenv.Init()
 
 	// Get the configured logger
 	logger := servenv.GetLogger()
-
-	// Validate required flags
-	if database == "" {
-		return fmt.Errorf("--database flag is required")
-	}
 
 	// Ensure we open the topo before we start the context, so that the
 	// defer that closes the topo runs after cancelling the context.
@@ -133,6 +137,7 @@ func run(cmd *cobra.Command, args []string) error {
 			"pgctld_addr", pgctldAddr,
 			"cell", cell,
 			"database", database,
+			"table_group", tableGroup,
 			"http_port", servenv.HTTPPort(),
 			"grpc_port", servenv.GRPCPort(),
 		)
@@ -149,7 +154,7 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create MultiPooler instance for topo registration
-		multipooler := topo.NewMultiPooler(serviceID, cell, hostname)
+		multipooler := topo.NewMultiPooler(serviceID, cell, hostname, tableGroup)
 		multipooler.PortMap["grpc"] = int32(servenv.GRPCPort())
 		multipooler.PortMap["http"] = int32(servenv.HTTPPort())
 		multipooler.Database = database
@@ -204,6 +209,7 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&pgctldAddr, "pgctld-addr", "localhost:15200", "Address of pgctld gRPC service")
 	fs.StringVar(&cell, "cell", "", "cell to use")
 	fs.StringVar(&database, "database", "", "database name this multipooler serves (required)")
+	fs.StringVar(&tableGroup, "table-group", "", "table group this multipooler serves (required)")
 	fs.StringVar(&serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
 }
 
@@ -213,6 +219,7 @@ type StatusResponse struct {
 	ServiceType string                `json:"service_type"`
 	Cell        string                `json:"cell"`
 	Database    string                `json:"database"`
+	TableGroup  string                `json:"table_group"`
 	ServiceID   string                `json:"service_id"`
 	ID          *clustermetadatapb.ID `json:"id"`
 	PgctldAddr  string                `json:"pgctld_addr"`
@@ -227,6 +234,7 @@ func handleStatusEndpoint(w http.ResponseWriter, r *http.Request) {
 		ServiceType: "multipooler",
 		Cell:        cell,
 		Database:    database,
+		TableGroup:  tableGroup,
 		ServiceID:   serviceID,
 		ID:          multipoolerID,
 		PgctldAddr:  pgctldAddr,
