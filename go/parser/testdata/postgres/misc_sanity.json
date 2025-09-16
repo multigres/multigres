@@ -1,22 +1,27 @@
 [
   {
     "comment": "misc_sanity - Statement 1",
-    "query": "SELECT * FROM pg_depend as d1 WHERE refclassid = 0 OR refobjid = 0 OR classid = 0 OR objid = 0 OR deptype NOT IN ('a', 'e', 'i', 'n', 'x', 'P', 'S')"
+    "query": "SELECT * FROM pg_depend as d1 WHERE refclassid = 0 OR refobjid = 0 OR classid = 0 OR objid = 0 OR deptype NOT IN ('a', 'e', 'i', 'n', 'x', 'P', 'S')",
+    "expected": "SELECT * FROM pg_depend AS d1 WHERE refclassid = 0 OR refobjid = 0 OR classid = 0 OR objid = 0 OR deptype NOT IN ('a', 'e', 'i', 'n', 'x', 'P', 'S')"
   },
   {
     "comment": "misc_sanity - Statement 2",
-    "query": "SELECT * FROM pg_shdepend as d1 WHERE refclassid = 0 OR refobjid = 0 OR classid = 0 OR objid = 0 OR deptype NOT IN ('a', 'i', 'o', 'r', 't')"
+    "query": "SELECT * FROM pg_shdepend as d1 WHERE refclassid = 0 OR refobjid = 0 OR classid = 0 OR objid = 0 OR deptype NOT IN ('a', 'i', 'o', 'r', 't')",
+    "expected": "SELECT * FROM pg_shdepend AS d1 WHERE refclassid = 0 OR refobjid = 0 OR classid = 0 OR objid = 0 OR deptype NOT IN ('a', 'i', 'o', 'r', 't')"
   },
   {
     "comment": "misc_sanity - Statement 3",
-    "query": "SELECT relname, attname, atttypid::regtype FROM pg_class c JOIN pg_attribute a ON c.oid = attrelid WHERE c.oid < 16384 AND reltoastrelid = 0 AND relkind = 'r' AND attstorage != 'p' ORDER BY 1, 2"
+    "query": "SELECT relname, attname, atttypid::regtype FROM pg_class c JOIN pg_attribute a ON c.oid = attrelid WHERE c.oid \u003c 16384 AND reltoastrelid = 0 AND relkind = 'r' AND attstorage != 'p' ORDER BY 1, 2",
+    "expected": "SELECT relname, attname, CAST(atttypid AS regtype) FROM pg_class AS c INNER JOIN pg_attribute AS a ON c.oid = attrelid WHERE c.oid \u003c 16384 AND reltoastrelid = 0 AND relkind = 'r' AND attstorage \u003c\u003e 'p' ORDER BY 1, 2"
   },
   {
     "comment": "misc_sanity - Statement 4",
-    "query": "SELECT relname FROM pg_class WHERE relnamespace = 'pg_catalog'::regnamespace AND relkind = 'r' AND pg_class.oid NOT IN (SELECT indrelid FROM pg_index WHERE indisprimary) ORDER BY 1"
+    "query": "SELECT relname FROM pg_class WHERE relnamespace = 'pg_catalog'::regnamespace AND relkind = 'r' AND pg_class.oid NOT IN (SELECT indrelid FROM pg_index WHERE indisprimary) ORDER BY 1",
+    "expected": "SELECT relname FROM pg_class WHERE relnamespace = CAST('pg_catalog' AS regnamespace) AND relkind = 'r' AND NOT pg_class.oid IN (SELECT indrelid FROM pg_index WHERE indisprimary) ORDER BY 1"
   },
   {
     "comment": "misc_sanity - Statement 5",
-    "query": "SELECT relname FROM pg_class c JOIN pg_index i ON c.oid = i.indexrelid WHERE relnamespace = 'pg_catalog'::regnamespace AND relkind = 'i' AND i.indisunique AND c.oid NOT IN (SELECT conindid FROM pg_constraint) ORDER BY 1"
+    "query": "SELECT relname FROM pg_class c JOIN pg_index i ON c.oid = i.indexrelid WHERE relnamespace = 'pg_catalog'::regnamespace AND relkind = 'i' AND i.indisunique AND c.oid NOT IN (SELECT conindid FROM pg_constraint) ORDER BY 1",
+    "expected": "SELECT relname FROM pg_class AS c INNER JOIN pg_index AS i ON c.oid = i.indexrelid WHERE relnamespace = CAST('pg_catalog' AS regnamespace) AND relkind = 'i' AND i.indisunique AND NOT c.oid IN (SELECT conindid FROM pg_constraint) ORDER BY 1"
   }
 ]

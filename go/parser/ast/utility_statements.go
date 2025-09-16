@@ -13,11 +13,10 @@ func shouldQuoteValue(val string) bool {
 	if val == "" {
 		return true
 	}
-	
+
 	// Use the same logic as QuoteIdentifier to determine if quoting is needed
 	return QuoteIdentifier(val) != val
 }
-
 
 // ==============================================================================
 // TRANSACTION CONTROL STATEMENTS - PostgreSQL parsenodes.h:3653-3679
@@ -700,7 +699,7 @@ func (adps *AlterDefaultPrivilegesStmt) SqlString() string {
 				break // Only one role option expected
 			}
 		}
-		
+
 		// Second pass: collect schema options
 		for _, opt := range adps.Options.Items {
 			if defElem, ok := opt.(*DefElem); ok && defElem.Defname == "schemas" {
@@ -1445,7 +1444,7 @@ func (v *VariableSetStmt) SqlString() string {
 								if typeCast.Arg != nil {
 									argStr = typeCast.Arg.SqlString()
 								}
-								
+
 								// Get the interval unit from the type modifiers
 								intervalUnit := ""
 								if typeCast.TypeName.Typmods != nil && typeCast.TypeName.Typmods.Len() > 0 {
@@ -1453,7 +1452,7 @@ func (v *VariableSetStmt) SqlString() string {
 										intervalUnit = intervalMaskToString(firstMod.IVal)
 									}
 								}
-								
+
 								if intervalUnit != "" && intervalUnit != "FULL_RANGE" {
 									// Format as INTERVAL 'value' UNIT
 									values = append(values, fmt.Sprintf("INTERVAL %s %s", argStr, strings.ToUpper(intervalUnit)))
@@ -1559,7 +1558,7 @@ func needsQuoting(value string) bool {
 		// It's a pure number with no trailing characters, don't quote
 		return false
 	}
-	
+
 	// If it starts with a number but has additional characters (like "256MB"), quote it
 	if err == nil && n == 2 {
 		// Has trailing characters, needs quoting
@@ -2477,7 +2476,7 @@ func (rs *ReindexStmt) StatementType() string {
 func (rs *ReindexStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "REINDEX")
-	
+
 	// Add options if present
 	hasConcurrently := false
 	if rs.Params != nil && rs.Params.Len() > 0 {
@@ -2495,7 +2494,7 @@ func (rs *ReindexStmt) SqlString() string {
 			parts = append(parts, "("+strings.Join(options, ", ")+")")
 		}
 	}
-	
+
 	// Add object type and target
 	switch rs.Kind {
 	case REINDEX_OBJECT_INDEX:
@@ -2509,19 +2508,19 @@ func (rs *ReindexStmt) SqlString() string {
 	case REINDEX_OBJECT_DATABASE:
 		parts = append(parts, "DATABASE")
 	}
-	
+
 	// Add CONCURRENTLY if specified
 	if hasConcurrently {
 		parts = append(parts, "CONCURRENTLY")
 	}
-	
+
 	// Add target name
 	if rs.Relation != nil {
 		parts = append(parts, rs.Relation.RelName)
 	} else if rs.Name != "" {
 		parts = append(parts, rs.Name)
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -2559,7 +2558,7 @@ func (cs *ClusterStmt) StatementType() string {
 func (cs *ClusterStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "CLUSTER")
-	
+
 	// Add options if present
 	if cs.Params != nil && cs.Params.Len() > 0 {
 		var options []string
@@ -2572,17 +2571,17 @@ func (cs *ClusterStmt) SqlString() string {
 			parts = append(parts, "("+strings.Join(options, ", ")+")")
 		}
 	}
-	
+
 	// Add table name if specified
 	if cs.Relation != nil {
 		parts = append(parts, cs.Relation.SqlString())
-		
+
 		// Add index specification if present
 		if cs.Indexname != "" {
 			parts = append(parts, "USING", cs.Indexname)
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -2831,7 +2830,7 @@ func NewConstraintsSetStmt(constraints *NodeList, deferred bool) *ConstraintsSet
 // String returns a string representation of the ConstraintsSetStmt
 func (n *ConstraintsSetStmt) String() string {
 	parts := []string{"SET CONSTRAINTS"}
-	
+
 	if n.Constraints == nil || len(n.Constraints.Items) == 0 {
 		parts = append(parts, "ALL")
 	} else {
@@ -2859,13 +2858,13 @@ func (n *ConstraintsSetStmt) String() string {
 		}
 		parts = append(parts, strings.Join(constraintNames, ", "))
 	}
-	
+
 	if n.Deferred {
 		parts = append(parts, "DEFERRED")
 	} else {
 		parts = append(parts, "IMMEDIATE")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 

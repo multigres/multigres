@@ -556,23 +556,7 @@ drop table list_part;
 -- This removes enough info that you might wonder why bother with EXPLAIN
 -- ANALYZE at all.  The answer is that we need to see '(never executed)'
 -- notations because that's the only way to verify runtime pruning.
-create function explain_parallel_append(text) returns setof text
-language plpgsql as
-$$
-declare
-    ln text;
-begin
-    for ln in
-        execute format('explain (analyze, costs off, summary off, timing off) %s',
-            $1)
-    loop
-        ln := regexp_replace(ln, 'Workers Launched: \d+', 'Workers Launched: N');
-        ln := regexp_replace(ln, 'actual rows=\d+ loops=\d+', 'actual rows=N loops=N');
-        ln := regexp_replace(ln, 'Rows Removed by Filter: \d+', 'Rows Removed by Filter: N');
-        return next ln;
-    end loop;
-end;
-$$;
+create function explain_parallel_append(text) returns setof text language plpgsql as $$ declare     ln text; begin     for ln in         execute format('explain (analyze, costs off, summary off, timing off) %s',             $1)     loop         ln := regexp_replace(ln, 'Workers Launched: \d+', 'Workers Launched: N');         ln := regexp_replace(ln, 'actual rows=\d+ loops=\d+', 'actual rows=N loops=N');         ln := regexp_replace(ln, 'Rows Removed by Filter: \d+', 'Rows Removed by Filter: N');         return next ln;     end loop; end; $$;
 
 prepare ab_q4 (int, int) as
 select avg(a) from ab where a between $1 and $2 and b < 4;

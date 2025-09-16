@@ -1,111 +1,113 @@
 [
   {
     "comment": "name - Statement 1",
-    "query": "SELECT name 'name string' = name 'name string' AS \"True\""
+    "query": "SELECT name 'name string' = name 'name string' AS \"True\"",
+    "expected": "SELECT CAST('name string' AS name) = CAST('name string' AS name) AS \"True\""
   },
   {
     "comment": "name - Statement 2",
-    "query": "SELECT name 'name string' = name 'name string ' AS \"False\""
+    "query": "SELECT name 'name string' = name 'name string ' AS \"False\"",
+    "expected": "SELECT CAST('name string' AS name) = CAST('name string ' AS name) AS \"False\""
   },
   {
     "comment": "name - Statement 3",
-    "query": "CREATE TABLE NAME_TBL(f1 name)"
+    "query": "CREATE TABLE NAME_TBL(f1 name)",
+    "expected": "CREATE TABLE name_tbl (f1 name)"
   },
   {
     "comment": "name - Statement 4",
-    "query": "INSERT INTO NAME_TBL(f1) VALUES ('1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR')"
+    "query": "INSERT INTO NAME_TBL(f1) VALUES ('1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR')",
+    "expected": "INSERT INTO name_tbl (f1) VALUES ('1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR')"
   },
   {
     "comment": "name - Statement 5",
-    "query": "INSERT INTO NAME_TBL(f1) VALUES ('asdfghjkl;')"
+    "query": "INSERT INTO NAME_TBL(f1) VALUES ('asdfghjkl;')",
+    "expected": "INSERT INTO name_tbl (f1) VALUES ('asdfghjkl;')"
   },
   {
     "comment": "name - Statement 6",
-    "query": "INSERT INTO NAME_TBL(f1) VALUES ('343f%2a')"
+    "query": "INSERT INTO NAME_TBL(f1) VALUES ('343f%2a')",
+    "expected": "INSERT INTO name_tbl (f1) VALUES ('343f%2a')"
   },
   {
     "comment": "name - Statement 7",
-    "query": "INSERT INTO NAME_TBL(f1) VALUES ('d34aaasdf')"
+    "query": "INSERT INTO NAME_TBL(f1) VALUES ('d34aaasdf')",
+    "expected": "INSERT INTO name_tbl (f1) VALUES ('d34aaasdf')"
   },
   {
     "comment": "name - Statement 8",
-    "query": "INSERT INTO NAME_TBL(f1) VALUES ('')"
+    "query": "INSERT INTO NAME_TBL(f1) VALUES ('')",
+    "expected": "INSERT INTO name_tbl (f1) VALUES ('')"
   },
   {
     "comment": "name - Statement 9",
-    "query": "INSERT INTO NAME_TBL(f1) VALUES ('1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ')"
+    "query": "INSERT INTO NAME_TBL(f1) VALUES ('1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ')",
+    "expected": "INSERT INTO name_tbl (f1) VALUES ('1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ')"
   },
   {
     "comment": "name - Statement 10",
-    "query": "SELECT * FROM NAME_TBL"
+    "query": "SELECT * FROM NAME_TBL",
+    "expected": "SELECT * FROM name_tbl"
   },
   {
     "comment": "name - Statement 11",
-    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 <> '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
+    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 \u003c\u003e '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'",
+    "expected": "SELECT c.f1 FROM name_tbl AS c WHERE c.f1 \u003c\u003e '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
   },
   {
     "comment": "name - Statement 12",
-    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 = '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
+    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 = '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'",
+    "expected": "SELECT c.f1 FROM name_tbl AS c WHERE c.f1 = '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
   },
   {
     "comment": "name - Statement 13",
-    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 < '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
+    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 \u003c '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'",
+    "expected": "SELECT c.f1 FROM name_tbl AS c WHERE c.f1 \u003c '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
   },
   {
     "comment": "name - Statement 14",
-    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 <= '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
+    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 \u003c= '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'",
+    "expected": "SELECT c.f1 FROM name_tbl AS c WHERE c.f1 \u003c= '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
   },
   {
     "comment": "name - Statement 15",
-    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 > '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
+    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 \u003e '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'",
+    "expected": "SELECT c.f1 FROM name_tbl AS c WHERE c.f1 \u003e '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
   },
   {
     "comment": "name - Statement 16",
-    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 >= '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
+    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 \u003e= '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'",
+    "expected": "SELECT c.f1 FROM name_tbl AS c WHERE c.f1 \u003e= '1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNOPQR'"
   },
   {
     "comment": "name - Statement 17",
-    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 ~ '.*'"
+    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 ~ '.*'",
+    "expected": "SELECT c.f1 FROM name_tbl AS c WHERE c.f1 ~ '.*'"
   },
   {
     "comment": "name - Statement 18",
-    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 !~ '.*'"
+    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 !~ '.*'",
+    "expected": "SELECT c.f1 FROM name_tbl AS c WHERE c.f1 !~ '.*'"
   },
   {
     "comment": "name - Statement 19",
-    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 ~ '[0-9]'"
+    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 ~ '[0-9]'",
+    "expected": "SELECT c.f1 FROM name_tbl AS c WHERE c.f1 ~ '[0-9]'"
   },
   {
     "comment": "name - Statement 20",
-    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 ~ '.*asdf.*'"
+    "query": "SELECT c.f1 FROM NAME_TBL c WHERE c.f1 ~ '.*asdf.*'",
+    "expected": "SELECT c.f1 FROM name_tbl AS c WHERE c.f1 ~ '.*asdf.*'"
   },
   {
     "comment": "name - Statement 21",
-    "query": "DROP TABLE NAME_TBL"
+    "query": "DROP TABLE NAME_TBL",
+    "expected": "DROP TABLE name_tbl"
   },
   {
     "comment": "name - Statement 22",
-    "query": "DO $$ DECLARE r text[]"
-  },
-  {
-    "comment": "name - Statement 23",
-    "query": "BEGIN r := parse_ident('Schemax.Tabley')"
-  },
-  {
-    "comment": "name - Statement 24",
-    "query": "RAISE NOTICE '%', format('%I.%I', r[1], r[2])"
-  },
-  {
-    "comment": "name - Statement 25",
-    "query": "r := parse_ident('\"SchemaX\".\"TableY\"')"
-  },
-  {
-    "comment": "name - Statement 26",
-    "query": "END"
-  },
-  {
-    "comment": "name - Statement 27",
-    "query": "$$"
+    "query": "DO $$ DECLARE r text[]; BEGIN   r := parse_ident('Schemax.Tabley');   RAISE NOTICE '%', format('%I.%I', r[1], r[2]);   r := parse_ident('\"SchemaX\".\"TableY\"');   RAISE NOTICE '%', format('%I.%I', r[1], r[2]); END; $$;",
+    "expected": "DO ' DECLARE r text[]; BEGIN   r := parse_ident(''Schemax.Tabley'');   RAISE NOTICE ''%'', format(''%I.%I'', r[1], r[2]);   r := parse_ident(''\"SchemaX\".\"TableY\"'');   RAISE NOTICE ''%'', format(''%I.%I'', r[1], r[2]); END; '"
   },
   {
     "comment": "name - Statement 28",
@@ -117,7 +119,8 @@
   },
   {
     "comment": "name - Statement 30",
-    "query": "SELECT parse_ident('foo.boo[]', strict => false)"
+    "query": "SELECT parse_ident('foo.boo[]', strict =\u003e false)",
+    "expected": "SELECT parse_ident('foo.boo[]', strict =\u003e FALSE)"
   },
   {
     "comment": "name - Statement 31",
@@ -137,23 +140,28 @@
   },
   {
     "comment": "name - Statement 35",
-    "query": "SELECT parse_ident(E'X\\rXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX')"
+    "query": "SELECT parse_ident(E'X\\rXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX')",
+    "expected": "SELECT parse_ident('X\rXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX')"
   },
   {
     "comment": "name - Statement 36",
-    "query": "SELECT length(a[1]), length(a[2]) from parse_ident('\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\".yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy') as a"
+    "query": "SELECT length(a[1]), length(a[2]) from parse_ident('\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\".yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy') as a",
+    "expected": "SELECT length(a[1]), length(a[2]) FROM parse_ident('\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\".yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy') AS a"
   },
   {
     "comment": "name - Statement 37",
-    "query": "SELECT parse_ident(' first . \"  second  \" .\"   third   \". \"  ' || repeat('x',66) || '\"')"
+    "query": "SELECT parse_ident(' first . \"  second  \" .\"   third   \". \"  ' || repeat('x',66) || '\"')",
+    "expected": "SELECT parse_ident(' first . \"  second  \" .\"   third   \". \"  ' || repeat('x', 66) || '\"')"
   },
   {
     "comment": "name - Statement 38",
-    "query": "SELECT parse_ident(' first . \"  second  \" .\"   third   \". \"  ' || repeat('x',66) || '\"')::name[]"
+    "query": "SELECT parse_ident(' first . \"  second  \" .\"   third   \". \"  ' || repeat('x',66) || '\"')::name[]",
+    "expected": "SELECT CAST(parse_ident(' first . \"  second  \" .\"   third   \". \"  ' || repeat('x', 66) || '\"') AS name[])"
   },
   {
     "comment": "name - Statement 39",
-    "query": "SELECT parse_ident(E'\"c\".X XXXX\\002XXXXXX')"
+    "query": "SELECT parse_ident(E'\"c\".X XXXX\\002XXXXXX')",
+    "expected": "SELECT parse_ident('\"c\".X XXXX\u0002XXXXXX')"
   },
   {
     "comment": "name - Statement 40",

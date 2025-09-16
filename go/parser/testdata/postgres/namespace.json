@@ -1,15 +1,18 @@
 [
   {
     "comment": "namespace - Statement 1",
-    "query": "SELECT pg_catalog.set_config('search_path', ' ', false)"
+    "query": "SELECT pg_catalog.set_config('search_path', ' ', false)",
+    "expected": "SELECT set_config('search_path', ' ', FALSE)"
   },
   {
     "comment": "namespace - Statement 2",
-    "query": "CREATE SCHEMA test_ns_schema_1 CREATE UNIQUE INDEX abc_a_idx ON abc (a) CREATE VIEW abc_view AS SELECT a+1 AS a, b+1 AS b FROM abc CREATE TABLE abc ( a serial, b int UNIQUE )"
+    "query": "CREATE SCHEMA test_ns_schema_1 CREATE UNIQUE INDEX abc_a_idx ON abc (a) CREATE VIEW abc_view AS SELECT a+1 AS a, b+1 AS b FROM abc CREATE TABLE abc ( a serial, b int UNIQUE )",
+    "expected": "CREATE SCHEMA test_ns_schema_1 CREATE UNIQUE INDEX abc_a_idx ON abc USING btree ( a ) CREATE VIEW abc_view AS SELECT a + 1 AS a, b + 1 AS b FROM abc CREATE TABLE abc (a serial, b INT UNIQUE)"
   },
   {
     "comment": "namespace - Statement 3",
-    "query": "SET search_path to public"
+    "query": "SET search_path to public",
+    "expected": "SET SCHEMA 'public'"
   },
   {
     "comment": "namespace - Statement 4",
@@ -17,7 +20,8 @@
   },
   {
     "comment": "namespace - Statement 5",
-    "query": "SET search_path to public, test_ns_schema_1"
+    "query": "SET search_path to public, test_ns_schema_1",
+    "expected": "SET search_path = 'public', 'test_ns_schema_1'"
   },
   {
     "comment": "namespace - Statement 6",
@@ -69,7 +73,8 @@
   },
   {
     "comment": "namespace - Statement 18",
-    "query": "CREATE SCHEMA IF NOT EXISTS test_ns_schema_renamed CREATE TABLE abc ( a serial, b int UNIQUE )"
+    "query": "CREATE SCHEMA IF NOT EXISTS test_ns_schema_renamed CREATE TABLE abc ( a serial, b int UNIQUE )",
+    "expected": "CREATE SCHEMA IF NOT EXISTS test_ns_schema_renamed CREATE TABLE abc (a serial, b INT UNIQUE)"
   },
   {
     "comment": "namespace - Statement 19",
@@ -85,27 +90,18 @@
   },
   {
     "comment": "namespace - Statement 22",
-    "query": "SET search_path = test_maint_search_path"
+    "query": "SET search_path = test_maint_search_path",
+    "expected": "SET SCHEMA 'test_maint_search_path'"
   },
   {
     "comment": "namespace - Statement 23",
-    "query": "CREATE FUNCTION fn(INT) RETURNS INT IMMUTABLE LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'current search_path: %', current_setting('search_path')"
-  },
-  {
-    "comment": "namespace - Statement 24",
-    "query": "RETURN $1"
-  },
-  {
-    "comment": "namespace - Statement 25",
-    "query": "END"
-  },
-  {
-    "comment": "namespace - Statement 26",
-    "query": "$$"
+    "query": "CREATE FUNCTION fn(INT) RETURNS INT IMMUTABLE LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'current search_path: %', current_setting('search_path'); RETURN $1; END; $$",
+    "expected": "CREATE FUNCTION fn (INT) RETURNS INT LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'current search_path: %', current_setting('search_path'); RETURN $1; END; $$ IMMUTABLE"
   },
   {
     "comment": "namespace - Statement 27",
-    "query": "CREATE TABLE test_maint(i INT)"
+    "query": "CREATE TABLE test_maint(i INT)",
+    "expected": "CREATE TABLE test_maint (i INT)"
   },
   {
     "comment": "namespace - Statement 28",
@@ -117,11 +113,13 @@
   },
   {
     "comment": "namespace - Statement 30",
-    "query": "CREATE INDEX test_maint_idx ON test_maint_search_path.test_maint (fn(i))"
+    "query": "CREATE INDEX test_maint_idx ON test_maint_search_path.test_maint (fn(i))",
+    "expected": "CREATE INDEX test_maint_idx ON test_maint_search_path.test_maint USING btree ( (fn(i)) )"
   },
   {
     "comment": "namespace - Statement 31",
-    "query": "REINDEX TABLE test_maint_search_path.test_maint"
+    "query": "REINDEX TABLE test_maint_search_path.test_maint",
+    "expected": "REINDEX TABLE test_maint"
   },
   {
     "comment": "namespace - Statement 32",
@@ -129,7 +127,8 @@
   },
   {
     "comment": "namespace - Statement 33",
-    "query": "VACUUM FULL test_maint_search_path.test_maint"
+    "query": "VACUUM FULL test_maint_search_path.test_maint",
+    "expected": "VACUUM (FULL) test_maint_search_path.test_maint"
   },
   {
     "comment": "namespace - Statement 34",

@@ -51,15 +51,15 @@ func (c *CreateTableSpaceStmt) StatementType() string {
 func (c *CreateTableSpaceStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "CREATE TABLESPACE", c.TablespaceName)
-	
+
 	if c.Owner != nil {
 		parts = append(parts, "OWNER", c.Owner.SqlString())
 	}
-	
+
 	if c.LocationPath != "" {
 		parts = append(parts, "LOCATION", fmt.Sprintf("'%s'", c.LocationPath))
 	}
-	
+
 	if c.Options != nil && c.Options.Len() > 0 {
 		optionStrs := make([]string, 0, c.Options.Len())
 		for i := 0; i < c.Options.Len(); i++ {
@@ -71,7 +71,7 @@ func (c *CreateTableSpaceStmt) SqlString() string {
 			parts = append(parts, "WITH (", strings.Join(optionStrs, ", "), ")")
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -104,7 +104,7 @@ func (a *AlterTableSpaceStmt) StatementType() string {
 func (a *AlterTableSpaceStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "ALTER TABLESPACE", a.TablespaceName)
-	
+
 	if a.Options != nil && a.Options.Len() > 0 {
 		optionStrs := make([]string, 0, a.Options.Len())
 		for i := 0; i < a.Options.Len(); i++ {
@@ -120,7 +120,7 @@ func (a *AlterTableSpaceStmt) SqlString() string {
 			}
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -165,7 +165,7 @@ func (c *CreateAmStmt) StatementType() string {
 func (c *CreateAmStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "CREATE ACCESS METHOD", c.AmName)
-	
+
 	var typeStr string
 	switch c.AmType {
 	case AMTYPE_INDEX:
@@ -174,7 +174,7 @@ func (c *CreateAmStmt) SqlString() string {
 		typeStr = "TABLE"
 	}
 	parts = append(parts, "TYPE", typeStr)
-	
+
 	if c.HandlerName != nil && c.HandlerName.Len() > 0 {
 		handlerNames := make([]string, 0, c.HandlerName.Len())
 		for i := 0; i < c.HandlerName.Len(); i++ {
@@ -184,7 +184,7 @@ func (c *CreateAmStmt) SqlString() string {
 		}
 		parts = append(parts, "HANDLER", strings.Join(handlerNames, "."))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -221,11 +221,11 @@ func (a *AlterStatsStmt) StatementType() string {
 func (a *AlterStatsStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "ALTER STATISTICS")
-	
+
 	if a.MissingOk {
 		parts = append(parts, "IF EXISTS")
 	}
-	
+
 	if a.DefNames != nil && a.DefNames.Len() > 0 {
 		nameStrs := make([]string, 0, a.DefNames.Len())
 		for i := 0; i < a.DefNames.Len(); i++ {
@@ -235,12 +235,12 @@ func (a *AlterStatsStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	parts = append(parts, "SET STATISTICS")
 	if a.StxStatTarget != nil {
 		parts = append(parts, a.StxStatTarget.SqlString())
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -355,18 +355,18 @@ func (c *CreatePublicationStmt) StatementType() string {
 func (c *CreatePublicationStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "CREATE PUBLICATION", c.PubName)
-	
+
 	if c.ForAllTables {
 		parts = append(parts, "FOR ALL TABLES")
 	} else if c.PubObjects != nil && c.PubObjects.Len() > 0 {
 		// Build the FOR clause with proper handling of different object types
 		var forParts []string
 		forParts = append(forParts, "FOR")
-		
+
 		// Group objects by type and build the output
 		var tableObjs []string
 		var schemaObjs []string
-		
+
 		for i := 0; i < c.PubObjects.Len(); i++ {
 			if pubObj, ok := c.PubObjects.Items[i].(*PublicationObjSpec); ok {
 				switch pubObj.PubObjType {
@@ -383,7 +383,7 @@ func (c *CreatePublicationStmt) SqlString() string {
 				}
 			}
 		}
-		
+
 		// Build the object list
 		var objParts []string
 		if len(tableObjs) > 0 {
@@ -392,13 +392,13 @@ func (c *CreatePublicationStmt) SqlString() string {
 		if len(schemaObjs) > 0 {
 			objParts = append(objParts, "TABLES IN SCHEMA "+strings.Join(schemaObjs, ", "))
 		}
-		
+
 		if len(objParts) > 0 {
 			forParts = append(forParts, strings.Join(objParts, ", "))
 			parts = append(parts, strings.Join(forParts, " "))
 		}
 	}
-	
+
 	if c.Options != nil && c.Options.Len() > 0 {
 		optionStrs := make([]string, 0, c.Options.Len())
 		for i := 0; i < c.Options.Len(); i++ {
@@ -410,7 +410,7 @@ func (c *CreatePublicationStmt) SqlString() string {
 			parts = append(parts, "WITH (", strings.Join(optionStrs, ", "), ")")
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -445,7 +445,7 @@ func (a *AlterPublicationStmt) StatementType() string {
 func (a *AlterPublicationStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "ALTER PUBLICATION", a.PubName)
-	
+
 	switch a.Action {
 	case AP_SetOptions:
 		if a.Options != nil && a.Options.Len() > 0 {
@@ -497,7 +497,7 @@ func (a *AlterPublicationStmt) SqlString() string {
 			parts = append(parts, strings.Join(objStrs, ", "))
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -551,30 +551,67 @@ func (c *CreateSubscriptionStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "CREATE SUBSCRIPTION", c.SubName)
 	parts = append(parts, "CONNECTION", fmt.Sprintf("'%s'", c.ConnInfo))
-	
+
 	if c.Publication != nil && c.Publication.Len() > 0 {
 		pubStrs := make([]string, 0, c.Publication.Len())
 		for i := 0; i < c.Publication.Len(); i++ {
 			if strNode, ok := c.Publication.Items[i].(*String); ok {
-				pubStrs = append(pubStrs, fmt.Sprintf("'%s'", strNode.SVal))
+				// Publication names should be identifiers, not quoted strings
+				pubStrs = append(pubStrs, QuoteIdentifier(strNode.SVal))
 			}
 		}
 		parts = append(parts, "PUBLICATION", strings.Join(pubStrs, ", "))
 	}
-	
+
 	if c.Options != nil && c.Options.Len() > 0 {
 		optionStrs := make([]string, 0, c.Options.Len())
 		for i := 0; i < c.Options.Len(); i++ {
 			if defElem, ok := c.Options.Items[i].(*DefElem); ok {
-				optionStrs = append(optionStrs, defElem.SqlString())
+				// Use special formatting for subscription options
+				optionStrs = append(optionStrs, formatSubscriptionOption(defElem))
 			}
 		}
 		if len(optionStrs) > 0 {
 			parts = append(parts, "WITH (", strings.Join(optionStrs, ", "), ")")
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
+}
+
+// formatSubscriptionOption formats DefElem for subscription options
+func formatSubscriptionOption(d *DefElem) string {
+	if d.Arg == nil {
+		return d.Defname
+	}
+
+	optionName := d.Defname
+
+	switch arg := d.Arg.(type) {
+	case *String:
+		// Special handling for specific subscription options
+		switch optionName {
+		case "slot_name":
+			if strings.ToLower(arg.SVal) == "none" {
+				return optionName + " = NONE"
+			}
+			return optionName + " = " + arg.SVal
+		default:
+			// For other string options, don't quote
+			return optionName + " = " + arg.SVal
+		}
+	case *Boolean:
+		if arg.BoolVal {
+			return optionName + " = true"
+		} else {
+			return optionName + " = false"
+		}
+	case *Integer:
+		return optionName + " = " + fmt.Sprintf("%d", arg.IVal)
+	default:
+		// Fallback to regular SqlString for other types
+		return fmt.Sprintf("%s = %s", optionName, arg.SqlString())
+	}
 }
 
 // AlterSubscriptionStmt represents ALTER SUBSCRIPTION statement
@@ -610,7 +647,7 @@ func (a *AlterSubscriptionStmt) StatementType() string {
 func (a *AlterSubscriptionStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "ALTER SUBSCRIPTION", a.SubName)
-	
+
 	switch a.Kind {
 	case ALTER_SUBSCRIPTION_OPTIONS:
 		if a.Options != nil && a.Options.Len() > 0 {
@@ -675,7 +712,7 @@ func (a *AlterSubscriptionStmt) SqlString() string {
 	case ALTER_SUBSCRIPTION_SKIP:
 		parts = append(parts, "SKIP")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -714,7 +751,7 @@ func (a *AlterOpFamilyStmt) StatementType() string {
 func (a *AlterOpFamilyStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "ALTER OPERATOR FAMILY")
-	
+
 	if a.OpFamilyName != nil && a.OpFamilyName.Len() > 0 {
 		nameStrs := make([]string, 0, a.OpFamilyName.Len())
 		for i := 0; i < a.OpFamilyName.Len(); i++ {
@@ -724,15 +761,15 @@ func (a *AlterOpFamilyStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	parts = append(parts, "USING", a.AmName)
-	
+
 	if a.IsDrop {
 		parts = append(parts, "DROP")
 	} else {
 		parts = append(parts, "ADD")
 	}
-	
+
 	// Add the items
 	if a.Items != nil && a.Items.Len() > 0 {
 		itemStrs := make([]string, 0, a.Items.Len())
@@ -745,7 +782,7 @@ func (a *AlterOpFamilyStmt) SqlString() string {
 			parts = append(parts, strings.Join(itemStrs, ", "))
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -757,9 +794,9 @@ func (a *AlterOpFamilyStmt) SqlString() string {
 // Ported from postgres/src/include/nodes/parsenodes.h AlterFunctionStmt
 type AlterFunctionStmt struct {
 	BaseNode
-	ObjType ObjectType         `json:"objtype"` // OBJECT_FUNCTION or OBJECT_PROCEDURE
-	Func    *ObjectWithArgs    `json:"func"`    // name and args of function
-	Actions *NodeList          `json:"actions"` // list of DefElem
+	ObjType ObjectType      `json:"objtype"` // OBJECT_FUNCTION or OBJECT_PROCEDURE
+	Func    *ObjectWithArgs `json:"func"`    // name and args of function
+	Actions *NodeList       `json:"actions"` // list of DefElem
 }
 
 func NewAlterFunctionStmt(objType ObjectType, funcWithArgs *ObjectWithArgs, actions *NodeList) *AlterFunctionStmt {
@@ -786,7 +823,7 @@ func (a *AlterFunctionStmt) StatementType() string {
 // SqlString returns the SQL representation of ALTER FUNCTION statement
 func (a *AlterFunctionStmt) SqlString() string {
 	var parts []string
-	
+
 	if a.ObjType == OBJECT_PROCEDURE {
 		parts = append(parts, "ALTER PROCEDURE")
 	} else if a.ObjType == OBJECT_ROUTINE {
@@ -794,11 +831,11 @@ func (a *AlterFunctionStmt) SqlString() string {
 	} else {
 		parts = append(parts, "ALTER FUNCTION")
 	}
-	
+
 	if a.Func != nil {
 		parts = append(parts, a.Func.SqlString())
 	}
-	
+
 	if a.Actions != nil && a.Actions.Len() > 0 {
 		actionStrs := make([]string, 0, a.Actions.Len())
 		for i := 0; i < a.Actions.Len(); i++ {
@@ -810,7 +847,7 @@ func (a *AlterFunctionStmt) SqlString() string {
 			parts = append(parts, strings.Join(actionStrs, " "))
 		}
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
@@ -846,7 +883,7 @@ func (a *AlterTypeStmt) StatementType() string {
 func (a *AlterTypeStmt) SqlString() string {
 	var parts []string
 	parts = append(parts, "ALTER TYPE")
-	
+
 	if a.TypeName != nil && a.TypeName.Len() > 0 {
 		nameStrs := make([]string, 0, a.TypeName.Len())
 		for i := 0; i < a.TypeName.Len(); i++ {
@@ -856,7 +893,7 @@ func (a *AlterTypeStmt) SqlString() string {
 		}
 		parts = append(parts, strings.Join(nameStrs, "."))
 	}
-	
+
 	if a.Options != nil && a.Options.Len() > 0 {
 		optionStrs := make([]string, 0, a.Options.Len())
 		for i := 0; i < a.Options.Len(); i++ {
@@ -871,10 +908,9 @@ func (a *AlterTypeStmt) SqlString() string {
 		}
 		parts = append(parts, "SET", "("+strings.Join(optionStrs, ", ")+")")
 	}
-	
+
 	return strings.Join(parts, " ")
 }
-
 
 // =============================================================================
 // Supporting Types for OPERATOR CLASS

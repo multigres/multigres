@@ -25,7 +25,8 @@
   },
   {
     "comment": "partition_info - Statement 7",
-    "query": "CREATE TABLE ptif_test (a int, b int) PARTITION BY range (a)"
+    "query": "CREATE TABLE ptif_test (a int, b int) PARTITION BY range (a)",
+    "expected": "CREATE TABLE ptif_test (a INT, b INT) PARTITION BY range (a)"
   },
   {
     "comment": "partition_info - Statement 8",
@@ -69,11 +70,13 @@
   },
   {
     "comment": "partition_info - Statement 18",
-    "query": "CREATE INDEX ptif_test_index ON ONLY ptif_test (a)"
+    "query": "CREATE INDEX ptif_test_index ON ONLY ptif_test (a)",
+    "expected": "CREATE INDEX ptif_test_index ON ONLY ptif_test USING btree ( a )"
   },
   {
     "comment": "partition_info - Statement 19",
-    "query": "CREATE INDEX ptif_test0_index ON ONLY ptif_test0 (a)"
+    "query": "CREATE INDEX ptif_test0_index ON ONLY ptif_test0 (a)",
+    "expected": "CREATE INDEX ptif_test0_index ON ONLY ptif_test0 USING btree ( a )"
   },
   {
     "comment": "partition_info - Statement 20",
@@ -81,7 +84,8 @@
   },
   {
     "comment": "partition_info - Statement 21",
-    "query": "CREATE INDEX ptif_test01_index ON ptif_test01 (a)"
+    "query": "CREATE INDEX ptif_test01_index ON ptif_test01 (a)",
+    "expected": "CREATE INDEX ptif_test01_index ON ptif_test01 USING btree ( a )"
   },
   {
     "comment": "partition_info - Statement 22",
@@ -89,7 +93,8 @@
   },
   {
     "comment": "partition_info - Statement 23",
-    "query": "CREATE INDEX ptif_test1_index ON ONLY ptif_test1 (a)"
+    "query": "CREATE INDEX ptif_test1_index ON ONLY ptif_test1 (a)",
+    "expected": "CREATE INDEX ptif_test1_index ON ONLY ptif_test1 USING btree ( a )"
   },
   {
     "comment": "partition_info - Statement 24",
@@ -97,7 +102,8 @@
   },
   {
     "comment": "partition_info - Statement 25",
-    "query": "CREATE INDEX ptif_test11_index ON ptif_test11 (a)"
+    "query": "CREATE INDEX ptif_test11_index ON ptif_test11 (a)",
+    "expected": "CREATE INDEX ptif_test11_index ON ptif_test11 USING btree ( a )"
   },
   {
     "comment": "partition_info - Statement 26",
@@ -105,7 +111,8 @@
   },
   {
     "comment": "partition_info - Statement 27",
-    "query": "CREATE INDEX ptif_test2_index ON ptif_test2 (a)"
+    "query": "CREATE INDEX ptif_test2_index ON ptif_test2 (a)",
+    "expected": "CREATE INDEX ptif_test2_index ON ptif_test2 USING btree ( a )"
   },
   {
     "comment": "partition_info - Statement 28",
@@ -113,7 +120,8 @@
   },
   {
     "comment": "partition_info - Statement 29",
-    "query": "CREATE INDEX ptif_test3_index ON ptif_test3 (a)"
+    "query": "CREATE INDEX ptif_test3_index ON ptif_test3 (a)",
+    "expected": "CREATE INDEX ptif_test3_index ON ptif_test3 USING btree ( a )"
   },
   {
     "comment": "partition_info - Statement 30",
@@ -141,15 +149,18 @@
   },
   {
     "comment": "partition_info - Statement 36",
-    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test0') p JOIN pg_class c ON (p.relid = c.oid)"
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test0') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test0') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
   },
   {
     "comment": "partition_info - Statement 37",
-    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test01') p JOIN pg_class c ON (p.relid = c.oid)"
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test01') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test01') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
   },
   {
     "comment": "partition_info - Statement 38",
-    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test3') p JOIN pg_class c ON (p.relid = c.oid)"
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test3') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test3') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
   },
   {
     "comment": "partition_info - Statement 39",
@@ -161,7 +172,8 @@
   },
   {
     "comment": "partition_info - Statement 41",
-    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree(pg_partition_root('ptif_test01')) p JOIN pg_class c ON (p.relid = c.oid)"
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree(pg_partition_root('ptif_test01')) p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree(pg_partition_root('ptif_test01')) AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
   },
   {
     "comment": "partition_info - Statement 42",
@@ -169,19 +181,23 @@
   },
   {
     "comment": "partition_info - Statement 43",
-    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test0_index') p JOIN pg_class c ON (p.relid = c.oid)"
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test0_index') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test0_index') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
   },
   {
     "comment": "partition_info - Statement 44",
-    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test01_index') p JOIN pg_class c ON (p.relid = c.oid)"
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test01_index') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test01_index') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
   },
   {
     "comment": "partition_info - Statement 45",
-    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test3_index') p JOIN pg_class c ON (p.relid = c.oid)"
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test3_index') p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree('ptif_test3_index') AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
   },
   {
     "comment": "partition_info - Statement 46",
-    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree(pg_partition_root('ptif_test01_index')) p JOIN pg_class c ON (p.relid = c.oid)"
+    "query": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree(pg_partition_root('ptif_test01_index')) p JOIN pg_class c ON (p.relid = c.oid)",
+    "expected": "SELECT relid, parentrelid, level, isleaf FROM pg_partition_tree(pg_partition_root('ptif_test01_index')) AS p INNER JOIN pg_class AS c ON (p.relid = c.oid)"
   },
   {
     "comment": "partition_info - Statement 47",
@@ -197,7 +213,8 @@
   },
   {
     "comment": "partition_info - Statement 50",
-    "query": "CREATE TABLE ptif_normal_table(a int)"
+    "query": "CREATE TABLE ptif_normal_table(a int)",
+    "expected": "CREATE TABLE ptif_normal_table (a INT)"
   },
   {
     "comment": "partition_info - Statement 51",

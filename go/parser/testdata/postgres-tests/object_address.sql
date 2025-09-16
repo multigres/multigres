@@ -60,21 +60,7 @@ SELECT pg_get_object_address('table', '{}', '{}');
 SELECT pg_get_object_address('table', '{NULL}', '{}');
 
 -- unrecognized object types
-DO $$
-DECLARE
-    objtype text;
-BEGIN
-    FOR objtype IN VALUES ('toast table'), ('index column'), ('sequence column'),
-        ('toast table column'), ('view column'), ('materialized view column')
-    LOOP
-        BEGIN
-            PERFORM pg_get_object_address(objtype, '{one}', '{}');
-        EXCEPTION WHEN invalid_parameter_value THEN
-            RAISE WARNING 'error for %: %', objtype, sqlerrm;
-        END;
-    END LOOP;
-END;
-$$;
+DO $$ DECLARE objtype text; BEGIN FOR objtype IN VALUES ('toast table'), ('index column'), ('sequence column'), ('toast table column'), ('view column'), ('materialized view column') LOOP BEGIN PERFORM pg_get_object_address(objtype, '{one}', '{}'); EXCEPTION WHEN invalid_parameter_value THEN RAISE WARNING 'error for %: %', objtype, sqlerrm; END; END LOOP; END; $$;
 
 -- miscellaneous other errors
 select * from pg_get_object_address('operator of access method', '{btree,integer_ops,1}', '{int4,bool}');
@@ -82,39 +68,7 @@ select * from pg_get_object_address('operator of access method', '{btree,integer
 select * from pg_get_object_address('function of access method', '{btree,integer_ops,1}', '{int4,bool}');
 select * from pg_get_object_address('function of access method', '{btree,integer_ops,99}', '{int4,int4}');
 
-DO $$
-DECLARE
-    objtype text;
-    names   text[];
-    args    text[];
-BEGIN
-    FOR objtype IN VALUES
-        ('table'), ('index'), ('sequence'), ('view'),
-        ('materialized view'), ('foreign table'),
-        ('table column'), ('foreign table column'),
-        ('aggregate'), ('function'), ('procedure'), ('type'), ('cast'),
-        ('table constraint'), ('domain constraint'), ('conversion'), ('default value'),
-        ('operator'), ('operator class'), ('operator family'), ('rule'), ('trigger'),
-        ('text search parser'), ('text search dictionary'),
-        ('text search template'), ('text search configuration'),
-        ('policy'), ('user mapping'), ('default acl'), ('transform'),
-        ('operator of access method'), ('function of access method'),
-        ('publication namespace'), ('publication relation')
-    LOOP
-        FOR names IN VALUES ('{eins}'), ('{addr_nsp, zwei}'), ('{eins, zwei, drei}')
-        LOOP
-            FOR args IN VALUES ('{}'), ('{integer}')
-            LOOP
-                BEGIN
-                    PERFORM pg_get_object_address(objtype, names, args);
-                EXCEPTION WHEN OTHERS THEN
-                    RAISE WARNING 'error for %,%,%: %', objtype, names, args, sqlerrm;
-                END;
-            END LOOP;
-        END LOOP;
-    END LOOP;
-END;
-$$;
+DO $$ DECLARE objtype text; names text[]; args text[]; BEGIN FOR objtype IN VALUES ('table'), ('index'), ('sequence'), ('view'), ('materialized view'), ('foreign table'), ('table column'), ('foreign table column'), ('aggregate'), ('function'), ('procedure'), ('type'), ('cast'), ('table constraint'), ('domain constraint'), ('conversion'), ('default value'), ('operator'), ('operator class'), ('operator family'), ('rule'), ('trigger'), ('text search parser'), ('text search dictionary'), ('text search template'), ('text search configuration'), ('policy'), ('user mapping'), ('default acl'), ('transform'), ('operator of access method'), ('function of access method'), ('publication namespace'), ('publication relation') LOOP FOR names IN VALUES ('{eins}'), ('{addr_nsp, zwei}'), ('{eins, zwei, drei}') LOOP FOR args IN VALUES ('{}'), ('{integer}') LOOP  BEGIN  PERFORM pg_get_object_address(objtype, names, args);  EXCEPTION WHEN OTHERS THEN  RAISE WARNING 'error for %,%,%: %', objtype, names, args, sqlerrm; END; END LOOP; END LOOP; END LOOP; END; $$;
 
 -- these object types cannot be qualified names
 SELECT pg_get_object_address('language', '{one}', '{}');

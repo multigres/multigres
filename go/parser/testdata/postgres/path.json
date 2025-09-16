@@ -1,79 +1,98 @@
 [
   {
     "comment": "path - Statement 1",
-    "query": "CREATE TABLE PATH_TBL (f1 path)"
+    "query": "CREATE TABLE PATH_TBL (f1 path)",
+    "expected": "CREATE TABLE path_tbl (f1 path)"
   },
   {
     "comment": "path - Statement 2",
-    "query": "INSERT INTO PATH_TBL VALUES ('[(1,2),(3,4)]')"
+    "query": "INSERT INTO PATH_TBL VALUES ('[(1,2),(3,4)]')",
+    "expected": "INSERT INTO path_tbl VALUES ('[(1,2),(3,4)]')"
   },
   {
     "comment": "path - Statement 3",
-    "query": "INSERT INTO PATH_TBL VALUES (' ( ( 1 , 2 ) , ( 3 , 4 ) ) ')"
+    "query": "INSERT INTO PATH_TBL VALUES (' ( ( 1 , 2 ) , ( 3 , 4 ) ) ')",
+    "expected": "INSERT INTO path_tbl VALUES (' ( ( 1 , 2 ) , ( 3 , 4 ) ) ')"
   },
   {
     "comment": "path - Statement 4",
-    "query": "INSERT INTO PATH_TBL VALUES ('[ (0,0),(3,0),(4,5),(1,6) ]')"
+    "query": "INSERT INTO PATH_TBL VALUES ('[ (0,0),(3,0),(4,5),(1,6) ]')",
+    "expected": "INSERT INTO path_tbl VALUES ('[ (0,0),(3,0),(4,5),(1,6) ]')"
   },
   {
     "comment": "path - Statement 5",
-    "query": "INSERT INTO PATH_TBL VALUES ('((1,2) ,(3,4 ))')"
+    "query": "INSERT INTO PATH_TBL VALUES ('((1,2) ,(3,4 ))')",
+    "expected": "INSERT INTO path_tbl VALUES ('((1,2) ,(3,4 ))')"
   },
   {
     "comment": "path - Statement 6",
-    "query": "INSERT INTO PATH_TBL VALUES ('1,2 ,3,4 ')"
+    "query": "INSERT INTO PATH_TBL VALUES ('1,2 ,3,4 ')",
+    "expected": "INSERT INTO path_tbl VALUES ('1,2 ,3,4 ')"
   },
   {
     "comment": "path - Statement 7",
-    "query": "INSERT INTO PATH_TBL VALUES (' [1,2,3, 4] ')"
+    "query": "INSERT INTO PATH_TBL VALUES (' [1,2,3, 4] ')",
+    "expected": "INSERT INTO path_tbl VALUES (' [1,2,3, 4] ')"
   },
   {
     "comment": "path - Statement 8",
-    "query": "INSERT INTO PATH_TBL VALUES ('((10,20))')"
+    "query": "INSERT INTO PATH_TBL VALUES ('((10,20))')",
+    "expected": "INSERT INTO path_tbl VALUES ('((10,20))')"
   },
   {
     "comment": "path - Statement 9",
-    "query": "INSERT INTO PATH_TBL VALUES ('[ 11,12,13,14 ]')"
+    "query": "INSERT INTO PATH_TBL VALUES ('[ 11,12,13,14 ]')",
+    "expected": "INSERT INTO path_tbl VALUES ('[ 11,12,13,14 ]')"
   },
   {
     "comment": "path - Statement 10",
-    "query": "INSERT INTO PATH_TBL VALUES ('( 11,12,13,14) ')"
+    "query": "INSERT INTO PATH_TBL VALUES ('( 11,12,13,14) ')",
+    "expected": "INSERT INTO path_tbl VALUES ('( 11,12,13,14) ')"
   },
   {
     "comment": "path - Statement 11",
-    "query": "INSERT INTO PATH_TBL VALUES ('[]')"
+    "query": "INSERT INTO PATH_TBL VALUES ('[]')",
+    "expected": "INSERT INTO path_tbl VALUES ('[]')"
   },
   {
     "comment": "path - Statement 12",
-    "query": "INSERT INTO PATH_TBL VALUES ('[(,2),(3,4)]')"
+    "query": "INSERT INTO PATH_TBL VALUES ('[(,2),(3,4)]')",
+    "expected": "INSERT INTO path_tbl VALUES ('[(,2),(3,4)]')"
   },
   {
     "comment": "path - Statement 13",
-    "query": "INSERT INTO PATH_TBL VALUES ('[(1,2),(3,4)')"
+    "query": "INSERT INTO PATH_TBL VALUES ('[(1,2),(3,4)')",
+    "expected": "INSERT INTO path_tbl VALUES ('[(1,2),(3,4)')"
   },
   {
     "comment": "path - Statement 14",
-    "query": "INSERT INTO PATH_TBL VALUES ('(1,2,3,4')"
+    "query": "INSERT INTO PATH_TBL VALUES ('(1,2,3,4')",
+    "expected": "INSERT INTO path_tbl VALUES ('(1,2,3,4')"
   },
   {
     "comment": "path - Statement 15",
-    "query": "INSERT INTO PATH_TBL VALUES ('(1,2),(3,4)]')"
+    "query": "INSERT INTO PATH_TBL VALUES ('(1,2),(3,4)]')",
+    "expected": "INSERT INTO path_tbl VALUES ('(1,2),(3,4)]')"
   },
   {
     "comment": "path - Statement 16",
-    "query": "SELECT f1 AS open_path FROM PATH_TBL WHERE isopen(f1)"
+    "query": "SELECT f1 AS open_path FROM PATH_TBL WHERE isopen(f1)",
+    "expected": "SELECT f1 AS open_path FROM path_tbl WHERE isopen(f1)"
   },
   {
     "comment": "path - Statement 17",
-    "query": "SELECT f1 AS closed_path FROM PATH_TBL WHERE isclosed(f1)"
+    "query": "SELECT f1 AS closed_path FROM PATH_TBL WHERE isclosed(f1)",
+    "expected": "SELECT f1 AS closed_path FROM path_tbl WHERE isclosed(f1)"
   },
   {
     "comment": "path - Statement 18",
-    "query": "SELECT pclose(f1) AS closed_path FROM PATH_TBL"
+    "query": "SELECT pclose(f1) AS closed_path FROM PATH_TBL",
+    "expected": "SELECT pclose(f1) AS closed_path FROM path_tbl"
   },
   {
     "comment": "path - Statement 19",
-    "query": "SELECT popen(f1) AS open_path FROM PATH_TBL"
+    "query": "SELECT popen(f1) AS open_path FROM PATH_TBL",
+    "expected": "SELECT popen(f1) AS open_path FROM path_tbl"
   },
   {
     "comment": "path - Statement 20",

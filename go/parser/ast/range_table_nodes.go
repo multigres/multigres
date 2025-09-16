@@ -498,7 +498,12 @@ func (r *RangeTableSample) SqlString() string {
 	if r.Method != nil && len(r.Method.Items) > 0 {
 		var methodParts []string
 		for _, item := range r.Method.Items {
-			methodParts = append(methodParts, item.SqlString())
+			// For TABLESAMPLE method names, treat as identifiers not string literals
+			if str, ok := item.(*String); ok {
+				methodParts = append(methodParts, QuoteIdentifier(str.SVal))
+			} else {
+				methodParts = append(methodParts, item.SqlString())
+			}
 		}
 		parts = append(parts, strings.Join(methodParts, "."))
 	}

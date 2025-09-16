@@ -53,15 +53,7 @@ SELECT c.f1 FROM NAME_TBL c WHERE c.f1 ~ '.*asdf.*';
 
 DROP TABLE NAME_TBL;
 
-DO $$
-DECLARE r text[];
-BEGIN
-  r := parse_ident('Schemax.Tabley');
-  RAISE NOTICE '%', format('%I.%I', r[1], r[2]);
-  r := parse_ident('"SchemaX"."TableY"');
-  RAISE NOTICE '%', format('%I.%I', r[1], r[2]);
-END;
-$$;
+DO $$ DECLARE r text[]; BEGIN   r := parse_ident('Schemax.Tabley');   RAISE NOTICE '%', format('%I.%I', r[1], r[2]);   r := parse_ident('"SchemaX"."TableY"');   RAISE NOTICE '%', format('%I.%I', r[1], r[2]); END; $$;
 
 SELECT parse_ident('foo.boo');
 SELECT parse_ident('foo.boo[]'); -- should fail
