@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
@@ -173,8 +174,16 @@ func run(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
+	// Register multiorch specific flags (when needed)
+	servenv.OnParseFor("multiorch", registerFlags)
+
 	servenv.RegisterServiceCmd(Main)
 
 	// Adds multiorch specific flags
 	Main.Flags().StringVar(&cell, "cell", cell, "cell to use")
+}
+
+func registerFlags(fs *pflag.FlagSet) {
+	// TODO: Add multiorch-specific flags here when needed
+	// Example: fs.StringVar(&cell, "cell", "", "cell to use")
 }

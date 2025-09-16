@@ -328,6 +328,10 @@ func CobraPreRunE(cmd *cobra.Command, args []string) error {
 	// sending on a closed channel.
 	OnTerm(func() { close(ch) })
 
+	debugConfigRegisterOnce.Do(func() {
+		HTTPHandleFunc("/debug/config", viperdebug.HandlerFunc)
+	})
+
 	// Setup logging after config is loaded and flags are parsed
 	SetupLogging()
 
@@ -369,6 +373,9 @@ func loadViper(cmd string) {
 		os.Exit(1)
 	}
 	OnTerm(watchCancel)
+	debugConfigRegisterOnce.Do(func() {
+		HTTPHandleFunc("/debug/config", viperdebug.HandlerFunc)
+	})
 }
 
 // Flag installations for packages that servenv imports. We need to register
