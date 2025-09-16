@@ -129,8 +129,7 @@
   },
   {
     "comment": "create_operator - Statement 31",
-    "query": "GRANT USAGE ON SCHEMA schema_op1 TO PUBLIC",
-    "expected": "GRANT USAGE ON SCHEMA schema_op1 TO public"
+    "query": "GRANT USAGE ON SCHEMA schema_op1 TO PUBLIC"
   },
   {
     "comment": "create_operator - Statement 32",
@@ -163,7 +162,7 @@
   {
     "comment": "create_operator - Statement 38",
     "query": "CREATE OR REPLACE FUNCTION fn_op2(boolean, boolean) RETURNS boolean AS $$ SELECT NULL::BOOLEAN $$ LANGUAGE sql IMMUTABLE",
-    "expected": "CREATE OR REPLACE FUNCTION fn_op2 (BOOLEAN, BOOLEAN) RETURNS BOOLEAN LANGUAGE sql AS $$ SELECT NULL::BOOLEAN $$ IMMUTABLE"
+    "expected": "CREATE OR REPLACE FUNCTION fn_op2 (BOOLEAN, BOOLEAN) RETURNS BOOLEAN AS $$ SELECT NULL::BOOLEAN $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "create_operator - Statement 40",
@@ -204,8 +203,7 @@
   },
   {
     "comment": "create_operator - Statement 48",
-    "query": "REVOKE USAGE ON TYPE type_op3 FROM PUBLIC",
-    "expected": "REVOKE USAGE ON TYPE type_op3 FROM public"
+    "query": "REVOKE USAGE ON TYPE type_op3 FROM PUBLIC"
   },
   {
     "comment": "create_operator - Statement 49",
@@ -236,8 +234,7 @@
   },
   {
     "comment": "create_operator - Statement 55",
-    "query": "REVOKE USAGE ON TYPE type_op4 FROM PUBLIC",
-    "expected": "REVOKE USAGE ON TYPE type_op4 FROM public"
+    "query": "REVOKE USAGE ON TYPE type_op4 FROM PUBLIC"
   },
   {
     "comment": "create_operator - Statement 56",
@@ -270,7 +267,7 @@
   {
     "comment": "create_operator - Statement 62",
     "query": "REVOKE EXECUTE ON FUNCTION fn_op5(int8, int8) FROM PUBLIC",
-    "expected": "REVOKE EXECUTE ON FUNCTION fn_op5(BIGINT, BIGINT) FROM public"
+    "expected": "REVOKE EXECUTE ON FUNCTION fn_op5(BIGINT, BIGINT) FROM PUBLIC"
   },
   {
     "comment": "create_operator - Statement 63",
@@ -301,8 +298,7 @@
   },
   {
     "comment": "create_operator - Statement 69",
-    "query": "REVOKE USAGE ON TYPE type_op6 FROM PUBLIC",
-    "expected": "REVOKE USAGE ON TYPE type_op6 FROM public"
+    "query": "REVOKE USAGE ON TYPE type_op6 FROM PUBLIC"
   },
   {
     "comment": "create_operator - Statement 70",

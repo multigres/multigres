@@ -1732,14 +1732,14 @@ func (d *DropStmt) SqlString() string {
 				var qualParts []string
 				for _, nameItem := range nodeList.Items {
 					if strVal, ok := nameItem.(*String); ok {
-						qualParts = append(qualParts, strVal.SVal)
+						qualParts = append(qualParts, QuoteIdentifier(strVal.SVal))
 					}
 				}
 				if len(qualParts) > 0 {
 					nameParts = append(nameParts, strings.Join(qualParts, "."))
 				}
 			} else if strVal, ok := obj.(*String); ok {
-				nameParts = append(nameParts, strVal.SVal)
+				nameParts = append(nameParts, QuoteIdentifier(strVal.SVal))
 			} else if typeName, ok := obj.(*TypeName); ok {
 				// Handle type names (for DROP TYPE, etc.)
 				nameParts = append(nameParts, typeName.SqlString())

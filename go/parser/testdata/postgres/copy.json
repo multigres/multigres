@@ -202,7 +202,7 @@
   {
     "comment": "copy - Statement 43",
     "query": "create function notice_after_tab_progress_reporting() returns trigger AS $$ declare report record begin with progress_data as ( select relid::regclass::text as relname, command, type, bytes_processed \u003e 0 as has_bytes_processed, bytes_total \u003e 0 as has_bytes_total, tuples_processed, tuples_excluded from pg_stat_progress_copy where pid = pg_backend_pid()) select into report (to_jsonb(r)) as value from progress_data r raise info 'progress: %', report.value::text return new $$ language plpgsql",
-    "expected": "CREATE FUNCTION notice_after_tab_progress_reporting () RETURNS trigger LANGUAGE plpgsql AS $$ declare report record begin with progress_data as ( select relid::regclass::text as relname, command, type, bytes_processed \u003e 0 as has_bytes_processed, bytes_total \u003e 0 as has_bytes_total, tuples_processed, tuples_excluded from pg_stat_progress_copy where pid = pg_backend_pid()) select into report (to_jsonb(r)) as value from progress_data r raise info 'progress: %', report.value::text return new $$"
+    "expected": "CREATE FUNCTION notice_after_tab_progress_reporting () RETURNS trigger AS $$ declare report record begin with progress_data as ( select relid::regclass::text as relname, command, type, bytes_processed \u003e 0 as has_bytes_processed, bytes_total \u003e 0 as has_bytes_total, tuples_processed, tuples_excluded from pg_stat_progress_copy where pid = pg_backend_pid()) select into report (to_jsonb(r)) as value from progress_data r raise info 'progress: %', report.value::text return new $$ LANGUAGE plpgsql"
   },
   {
     "comment": "copy - Statement 48",

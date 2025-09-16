@@ -438,7 +438,7 @@
   {
     "comment": "enum - Statement 94",
     "query": "CREATE FUNCTION echo_me(anyenum) RETURNS text AS $$ BEGIN RETURN $1::text || 'omg'; END $$ LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION echo_me (anyenum) RETURNS TEXT LANGUAGE plpgsql AS $$ BEGIN RETURN $1::text || 'omg'; END $$"
+    "expected": "CREATE FUNCTION echo_me (anyenum) RETURNS TEXT AS $$ BEGIN RETURN $1::text || 'omg'; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "enum - Statement 96",
@@ -448,7 +448,7 @@
   {
     "comment": "enum - Statement 97",
     "query": "CREATE FUNCTION echo_me(rainbow) RETURNS text AS $$ BEGIN RETURN $1::text || 'wtf'; END $$ LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION echo_me (rainbow) RETURNS TEXT LANGUAGE plpgsql AS $$ BEGIN RETURN $1::text || 'wtf'; END $$"
+    "expected": "CREATE FUNCTION echo_me (rainbow) RETURNS TEXT AS $$ BEGIN RETURN $1::text || 'wtf'; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "enum - Statement 98",

@@ -96,7 +96,7 @@
   {
     "comment": "namespace - Statement 23",
     "query": "CREATE FUNCTION fn(INT) RETURNS INT IMMUTABLE LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'current search_path: %', current_setting('search_path'); RETURN $1; END; $$",
-    "expected": "CREATE FUNCTION fn (INT) RETURNS INT LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'current search_path: %', current_setting('search_path'); RETURN $1; END; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION fn (INT) RETURNS INT IMMUTABLE LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'current search_path: %', current_setting('search_path'); RETURN $1; END; $$"
   },
   {
     "comment": "namespace - Statement 27",

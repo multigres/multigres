@@ -42,7 +42,8 @@
   },
   {
     "comment": "alter_generic - Statement 11",
-    "query": "GRANT ALL ON SCHEMA alt_nsp1, alt_nsp2 TO public"
+    "query": "GRANT ALL ON SCHEMA alt_nsp1, alt_nsp2 TO public",
+    "expected": "GRANT ALL ON SCHEMA alt_nsp1, alt_nsp2 TO PUBLIC"
   },
   {
     "comment": "alter_generic - Statement 12",
@@ -716,7 +717,7 @@
   {
     "comment": "alter_generic - Statement 163",
     "query": "CREATE FUNCTION fn_opf12  (int4, int2) RETURNS BIGINT AS 'SELECT NULL::BIGINT;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION fn_opf12 (INT, SMALLINT) RETURNS BIGINT LANGUAGE sql AS $$SELECT NULL::BIGINT;$$"
+    "expected": "CREATE FUNCTION fn_opf12 (INT, SMALLINT) RETURNS BIGINT AS $$SELECT NULL::BIGINT;$$ LANGUAGE sql"
   },
   {
     "comment": "alter_generic - Statement 164",
@@ -734,7 +735,7 @@
   {
     "comment": "alter_generic - Statement 167",
     "query": "CREATE FUNCTION fn_opf13  (int4) RETURNS BIGINT AS 'SELECT NULL::BIGINT;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION fn_opf13 (INT) RETURNS BIGINT LANGUAGE sql AS $$SELECT NULL::BIGINT;$$"
+    "expected": "CREATE FUNCTION fn_opf13 (INT) RETURNS BIGINT AS $$SELECT NULL::BIGINT;$$ LANGUAGE sql"
   },
   {
     "comment": "alter_generic - Statement 168",
@@ -752,7 +753,7 @@
   {
     "comment": "alter_generic - Statement 171",
     "query": "CREATE FUNCTION fn_opf14 (int4) RETURNS BIGINT AS 'SELECT NULL::BIGINT;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION fn_opf14 (INT) RETURNS BIGINT LANGUAGE sql AS $$SELECT NULL::BIGINT;$$"
+    "expected": "CREATE FUNCTION fn_opf14 (INT) RETURNS BIGINT AS $$SELECT NULL::BIGINT;$$ LANGUAGE sql"
   },
   {
     "comment": "alter_generic - Statement 172",
@@ -770,7 +771,7 @@
   {
     "comment": "alter_generic - Statement 175",
     "query": "CREATE FUNCTION fn_opf15 (int4, int2) RETURNS BIGINT AS 'SELECT NULL::BIGINT;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION fn_opf15 (INT, SMALLINT) RETURNS BIGINT LANGUAGE sql AS $$SELECT NULL::BIGINT;$$"
+    "expected": "CREATE FUNCTION fn_opf15 (INT, SMALLINT) RETURNS BIGINT AS $$SELECT NULL::BIGINT;$$ LANGUAGE sql"
   },
   {
     "comment": "alter_generic - Statement 176",

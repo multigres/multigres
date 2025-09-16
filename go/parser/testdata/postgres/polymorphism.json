@@ -2,7 +2,7 @@
   {
     "comment": "polymorphism - Statement 1",
     "query": "create function polyf(x anyelement) returns anyelement as $$ select x + 1 $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anyelement) RETURNS anyelement LANGUAGE sql AS $$ select x + 1 $$"
+    "expected": "CREATE FUNCTION polyf (x anyelement) RETURNS anyelement AS $$ select x + 1 $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 2",
@@ -22,12 +22,12 @@
   {
     "comment": "polymorphism - Statement 5",
     "query": "create function polyf(x anyelement) returns anyarray as $$ select array[x + 1, x + 2] $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anyelement) RETURNS anyarray LANGUAGE sql AS $$ select array[x + 1, x + 2] $$"
+    "expected": "CREATE FUNCTION polyf (x anyelement) RETURNS anyarray AS $$ select array[x + 1, x + 2] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 6",
     "query": "create function polyf(x anyarray) returns anyelement as $$ select x[1] $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anyarray) RETURNS anyelement LANGUAGE sql AS $$ select x[1] $$"
+    "expected": "CREATE FUNCTION polyf (x anyarray) RETURNS anyelement AS $$ select x[1] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 7",
@@ -47,17 +47,17 @@
   {
     "comment": "polymorphism - Statement 10",
     "query": "create function polyf(x anyarray) returns anyarray as $$ select x $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anyarray) RETURNS anyarray LANGUAGE sql AS $$ select x $$"
+    "expected": "CREATE FUNCTION polyf (x anyarray) RETURNS anyarray AS $$ select x $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 11",
     "query": "create function polyf(x anyelement) returns anyrange as $$ select array[x + 1, x + 2] $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anyelement) RETURNS anyrange LANGUAGE sql AS $$ select array[x + 1, x + 2] $$"
+    "expected": "CREATE FUNCTION polyf (x anyelement) RETURNS anyrange AS $$ select array[x + 1, x + 2] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 12",
     "query": "create function polyf(x anyrange) returns anyarray as $$ select array[lower(x), upper(x)] $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anyrange) RETURNS anyarray LANGUAGE sql AS $$ select array[lower(x), upper(x)] $$"
+    "expected": "CREATE FUNCTION polyf (x anyrange) RETURNS anyarray AS $$ select array[lower(x), upper(x)] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 13",
@@ -72,7 +72,7 @@
   {
     "comment": "polymorphism - Statement 15",
     "query": "create function polyf(x anycompatible, y anycompatible) returns anycompatiblearray as $$ select array[x, y] $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anycompatible, y anycompatible) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[x, y] $$"
+    "expected": "CREATE FUNCTION polyf (x anycompatible, y anycompatible) RETURNS anycompatiblearray AS $$ select array[x, y] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 16",
@@ -87,7 +87,7 @@
   {
     "comment": "polymorphism - Statement 18",
     "query": "create function polyf(x anycompatiblerange, y anycompatible, z anycompatible) returns anycompatiblearray as $$ select array[lower(x), upper(x), y, z] $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anycompatiblerange, y anycompatible, z anycompatible) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[lower(x), upper(x), y, z] $$"
+    "expected": "CREATE FUNCTION polyf (x anycompatiblerange, y anycompatible, z anycompatible) RETURNS anycompatiblearray AS $$ select array[lower(x), upper(x), y, z] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 19",
@@ -107,7 +107,7 @@
   {
     "comment": "polymorphism - Statement 22",
     "query": "create function polyf(x anycompatiblemultirange, y anycompatible, z anycompatible) returns anycompatiblearray as $$ select array[lower(x), upper(x), y, z] $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anycompatiblemultirange, y anycompatible, z anycompatible) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[lower(x), upper(x), y, z] $$"
+    "expected": "CREATE FUNCTION polyf (x anycompatiblemultirange, y anycompatible, z anycompatible) RETURNS anycompatiblearray AS $$ select array[lower(x), upper(x), y, z] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 23",
@@ -127,12 +127,12 @@
   {
     "comment": "polymorphism - Statement 26",
     "query": "create function polyf(x anycompatible) returns anycompatiblerange as $$ select array[x + 1, x + 2] $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anycompatible) RETURNS anycompatiblerange LANGUAGE sql AS $$ select array[x + 1, x + 2] $$"
+    "expected": "CREATE FUNCTION polyf (x anycompatible) RETURNS anycompatiblerange AS $$ select array[x + 1, x + 2] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 27",
     "query": "create function polyf(x anycompatiblerange, y anycompatiblearray) returns anycompatiblerange as $$ select x $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anycompatiblerange, y anycompatiblearray) RETURNS anycompatiblerange LANGUAGE sql AS $$ select x $$"
+    "expected": "CREATE FUNCTION polyf (x anycompatiblerange, y anycompatiblearray) RETURNS anycompatiblerange AS $$ select x $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 28",
@@ -147,12 +147,12 @@
   {
     "comment": "polymorphism - Statement 30",
     "query": "create function polyf(x anycompatible) returns anycompatiblemultirange as $$ select array[x + 1, x + 2] $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anycompatible) RETURNS anycompatiblemultirange LANGUAGE sql AS $$ select array[x + 1, x + 2] $$"
+    "expected": "CREATE FUNCTION polyf (x anycompatible) RETURNS anycompatiblemultirange AS $$ select array[x + 1, x + 2] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 31",
     "query": "create function polyf(x anycompatiblemultirange, y anycompatiblearray) returns anycompatiblemultirange as $$ select x $$ language sql",
-    "expected": "CREATE FUNCTION polyf (x anycompatiblemultirange, y anycompatiblearray) RETURNS anycompatiblemultirange LANGUAGE sql AS $$ select x $$"
+    "expected": "CREATE FUNCTION polyf (x anycompatiblemultirange, y anycompatiblearray) RETURNS anycompatiblemultirange AS $$ select x $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 32",
@@ -167,7 +167,7 @@
   {
     "comment": "polymorphism - Statement 34",
     "query": "create function polyf(a anyelement, b anyarray, c anycompatible, d anycompatible, OUT x anyarray, OUT y anycompatiblearray) as $$ select a || b, array[c, d] $$ language sql",
-    "expected": "CREATE FUNCTION polyf (a anyelement, b anyarray, c anycompatible, d anycompatible, OUT x anyarray, OUT y anycompatiblearray) LANGUAGE sql AS $$ select a || b, array[c, d] $$"
+    "expected": "CREATE FUNCTION polyf (a anyelement, b anyarray, c anycompatible, d anycompatible, OUT x anyarray, OUT y anycompatiblearray) AS $$ select a || b, array[c, d] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 35",
@@ -197,7 +197,7 @@
   {
     "comment": "polymorphism - Statement 40",
     "query": "create function polyf(anyrange) returns anymultirange as 'select multirange($1);' language sql",
-    "expected": "CREATE FUNCTION polyf (anyrange) RETURNS anymultirange LANGUAGE sql AS $$select multirange($1);$$"
+    "expected": "CREATE FUNCTION polyf (anyrange) RETURNS anymultirange AS $$select multirange($1);$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 41",
@@ -217,7 +217,7 @@
   {
     "comment": "polymorphism - Statement 44",
     "query": "create function polyf(anymultirange) returns anyelement as 'select lower($1);' language sql",
-    "expected": "CREATE FUNCTION polyf (anymultirange) RETURNS anyelement LANGUAGE sql AS $$select lower($1);$$"
+    "expected": "CREATE FUNCTION polyf (anymultirange) RETURNS anyelement AS $$select lower($1);$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 45",
@@ -232,7 +232,7 @@
   {
     "comment": "polymorphism - Statement 47",
     "query": "create function polyf(anycompatiblerange) returns anycompatiblemultirange as 'select multirange($1);' language sql",
-    "expected": "CREATE FUNCTION polyf (anycompatiblerange) RETURNS anycompatiblemultirange LANGUAGE sql AS $$select multirange($1);$$"
+    "expected": "CREATE FUNCTION polyf (anycompatiblerange) RETURNS anycompatiblemultirange AS $$select multirange($1);$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 48",
@@ -242,12 +242,12 @@
   {
     "comment": "polymorphism - Statement 49",
     "query": "create function polyf(anymultirange) returns anyrange as 'select range_merge($1);' language sql",
-    "expected": "CREATE FUNCTION polyf (anymultirange) RETURNS anyrange LANGUAGE sql AS $$select range_merge($1);$$"
+    "expected": "CREATE FUNCTION polyf (anymultirange) RETURNS anyrange AS $$select range_merge($1);$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 50",
     "query": "create function polyf(anycompatiblemultirange) returns anycompatiblerange as 'select range_merge($1);' language sql",
-    "expected": "CREATE FUNCTION polyf (anycompatiblemultirange) RETURNS anycompatiblerange LANGUAGE sql AS $$select range_merge($1);$$"
+    "expected": "CREATE FUNCTION polyf (anycompatiblemultirange) RETURNS anycompatiblerange AS $$select range_merge($1);$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 51",
@@ -257,52 +257,52 @@
   {
     "comment": "polymorphism - Statement 52",
     "query": "create function polyf(anycompatiblemultirange) returns anycompatible as 'select lower($1);' language sql",
-    "expected": "CREATE FUNCTION polyf (anycompatiblemultirange) RETURNS anycompatible LANGUAGE sql AS $$select lower($1);$$"
+    "expected": "CREATE FUNCTION polyf (anycompatiblemultirange) RETURNS anycompatible AS $$select lower($1);$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 53",
     "query": "CREATE FUNCTION stfp(anyarray) RETURNS anyarray AS 'select $1' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION stfp (anyarray) RETURNS anyarray LANGUAGE sql AS $$select $1$$"
+    "expected": "CREATE FUNCTION stfp (anyarray) RETURNS anyarray AS $$select $1$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 54",
     "query": "CREATE FUNCTION stfnp(int[]) RETURNS int[] AS 'select $1' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION stfnp (INT[]) RETURNS INT[] LANGUAGE sql AS $$select $1$$"
+    "expected": "CREATE FUNCTION stfnp (INT[]) RETURNS INT[] AS $$select $1$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 55",
     "query": "CREATE FUNCTION tfp(anyarray,anyelement) RETURNS anyarray AS 'select $1 || $2' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION tfp (anyarray, anyelement) RETURNS anyarray LANGUAGE sql AS $$select $1 || $2$$"
+    "expected": "CREATE FUNCTION tfp (anyarray, anyelement) RETURNS anyarray AS $$select $1 || $2$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 56",
     "query": "CREATE FUNCTION tfnp(int[],int) RETURNS int[] AS 'select $1 || $2' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION tfnp (INT[], INT) RETURNS INT[] LANGUAGE sql AS $$select $1 || $2$$"
+    "expected": "CREATE FUNCTION tfnp (INT[], INT) RETURNS INT[] AS $$select $1 || $2$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 57",
     "query": "CREATE FUNCTION tf1p(anyarray,int) RETURNS anyarray AS 'select $1' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION tf1p (anyarray, INT) RETURNS anyarray LANGUAGE sql AS $$select $1$$"
+    "expected": "CREATE FUNCTION tf1p (anyarray, INT) RETURNS anyarray AS $$select $1$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 58",
     "query": "CREATE FUNCTION tf2p(int[],anyelement) RETURNS int[] AS 'select $1' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION tf2p (INT[], anyelement) RETURNS INT[] LANGUAGE sql AS $$select $1$$"
+    "expected": "CREATE FUNCTION tf2p (INT[], anyelement) RETURNS INT[] AS $$select $1$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 59",
     "query": "CREATE FUNCTION sum3(anyelement,anyelement,anyelement) returns anyelement AS 'select $1+$2+$3' language sql strict",
-    "expected": "CREATE FUNCTION sum3 (anyelement, anyelement, anyelement) RETURNS anyelement LANGUAGE sql AS $$select $1+$2+$3$$ STRICT"
+    "expected": "CREATE FUNCTION sum3 (anyelement, anyelement, anyelement) RETURNS anyelement AS $$select $1+$2+$3$$ LANGUAGE sql STRICT"
   },
   {
     "comment": "polymorphism - Statement 60",
     "query": "CREATE FUNCTION ffp(anyarray) RETURNS anyarray AS 'select $1' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION ffp (anyarray) RETURNS anyarray LANGUAGE sql AS $$select $1$$"
+    "expected": "CREATE FUNCTION ffp (anyarray) RETURNS anyarray AS $$select $1$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 61",
     "query": "CREATE FUNCTION ffnp(int[]) returns int[] as 'select $1' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION ffnp (INT[]) RETURNS INT[] LANGUAGE sql AS $$select $1$$"
+    "expected": "CREATE FUNCTION ffnp (INT[]) RETURNS INT[] AS $$select $1$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 62",
@@ -777,12 +777,12 @@
   {
     "comment": "polymorphism - Statement 156",
     "query": "create function bleat(int) returns int as $$ begin   raise notice 'bleat %', $1;   return $1; end$$ language plpgsql;",
-    "expected": "CREATE FUNCTION bleat (INT) RETURNS INT LANGUAGE plpgsql AS $$ begin   raise notice 'bleat %', $1;   return $1; end$$"
+    "expected": "CREATE FUNCTION bleat (INT) RETURNS INT AS $$ begin   raise notice 'bleat %', $1;   return $1; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "polymorphism - Statement 159",
     "query": "create function sql_if(bool, anyelement, anyelement) returns anyelement as $$ select case when $1 then $2 else $3 end $$ language sql",
-    "expected": "CREATE FUNCTION sql_if (BOOLEAN, anyelement, anyelement) RETURNS anyelement LANGUAGE sql AS $$ select case when $1 then $2 else $3 end $$"
+    "expected": "CREATE FUNCTION sql_if (BOOLEAN, anyelement, anyelement) RETURNS anyelement AS $$ select case when $1 then $2 else $3 end $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 160",
@@ -812,7 +812,7 @@
   {
     "comment": "polymorphism - Statement 165",
     "query": "create function add_group(grp anyarray, ad anyelement, size integer)   returns anyarray   as $$ begin   if grp is null then     return array[ad];   end if;   if array_upper(grp, 1) \u003c size then     return grp || ad;   end if;   return grp; end; $$   language plpgsql immutable;",
-    "expected": "CREATE FUNCTION add_group (grp anyarray, ad anyelement, size INT) RETURNS anyarray LANGUAGE plpgsql AS $$ begin   if grp is null then     return array[ad];   end if;   if array_upper(grp, 1) \u003c size then     return grp || ad;   end if;   return grp; end; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION add_group (grp anyarray, ad anyelement, size INT) RETURNS anyarray AS $$ begin   if grp is null then     return array[ad];   end if;   if array_upper(grp, 1) \u003c size then     return grp || ad;   end if;   return grp; end; $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "polymorphism - Statement 171",
@@ -837,12 +837,12 @@
   {
     "comment": "polymorphism - Statement 175",
     "query": "create function first_el_transfn(anyarray, anyelement) returns anyarray as 'select $1 || $2' language sql immutable",
-    "expected": "CREATE FUNCTION first_el_transfn (anyarray, anyelement) RETURNS anyarray LANGUAGE sql AS $$select $1 || $2$$ IMMUTABLE"
+    "expected": "CREATE FUNCTION first_el_transfn (anyarray, anyelement) RETURNS anyarray AS $$select $1 || $2$$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "polymorphism - Statement 176",
     "query": "create function first_el(anyarray) returns anyelement as 'select $1[1]' language sql strict immutable",
-    "expected": "CREATE FUNCTION first_el (anyarray) RETURNS anyelement LANGUAGE sql AS $$select $1[1]$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION first_el (anyarray) RETURNS anyelement AS $$select $1[1]$$ LANGUAGE sql STRICT IMMUTABLE"
   },
   {
     "comment": "polymorphism - Statement 177",
@@ -902,7 +902,7 @@
   {
     "comment": "polymorphism - Statement 188",
     "query": "create function myleast(variadic anyarray) returns anyelement as $$ select min($1[i]) from generate_subscripts($1,1) g(i) $$ language sql immutable strict",
-    "expected": "CREATE FUNCTION myleast (VARIADIC anyarray) RETURNS anyelement LANGUAGE sql AS $$ select min($1[i]) from generate_subscripts($1,1) g(i) $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION myleast (VARIADIC anyarray) RETURNS anyelement AS $$ select min($1[i]) from generate_subscripts($1,1) g(i) $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 189",
@@ -942,7 +942,7 @@
   {
     "comment": "polymorphism - Statement 196",
     "query": "create function concat(text, variadic anyarray) returns text as $$ select array_to_string($2, $1); $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION concat (TEXT, VARIADIC anyarray) RETURNS TEXT LANGUAGE sql AS $$ select array_to_string($2, $1); $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION concat (TEXT, VARIADIC anyarray) RETURNS TEXT AS $$ select array_to_string($2, $1); $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 198",
@@ -972,7 +972,7 @@
   {
     "comment": "polymorphism - Statement 203",
     "query": "create function formarray(anyelement, variadic anyarray) returns anyarray as $$ select array_prepend($1, $2); $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION formarray (anyelement, VARIADIC anyarray) RETURNS anyarray LANGUAGE sql AS $$ select array_prepend($1, $2); $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION formarray (anyelement, VARIADIC anyarray) RETURNS anyarray AS $$ select array_prepend($1, $2); $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 204",
@@ -1052,7 +1052,7 @@
   {
     "comment": "polymorphism - Statement 219",
     "query": "create function dfunc(a int = 1, int = 2) returns int as $$ select $1 + $2; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1, INT DEFAULT 2) RETURNS INT LANGUAGE sql AS $$ select $1 + $2; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1, INT DEFAULT 2) RETURNS INT AS $$ select $1 + $2; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 221",
@@ -1092,22 +1092,22 @@
   {
     "comment": "polymorphism - Statement 228",
     "query": "create function dfunc(a int = 1, b int) returns int as $$ select $1 + $2; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1, b INT) RETURNS INT LANGUAGE sql AS $$ select $1 + $2; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1, b INT) RETURNS INT AS $$ select $1 + $2; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 229",
     "query": "create function dfunc(a int = 1, out sum int, b int = 2) as $$ select $1 + $2; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1, OUT sum INT, b INT DEFAULT 2) LANGUAGE sql AS $$ select $1 + $2; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1, OUT sum INT, b INT DEFAULT 2) AS $$ select $1 + $2; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 230",
     "query": "create function dfunc(a int DEFAULT 1.0, int DEFAULT '-1') returns int as $$ select $1 + $2; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1.0, INT DEFAULT '-1') RETURNS INT LANGUAGE sql AS $$ select $1 + $2; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1.0, INT DEFAULT '-1') RETURNS INT AS $$ select $1 + $2; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 231",
     "query": "create function dfunc(a text DEFAULT 'Hello', b text DEFAULT 'World') returns text as $$ select $1 || ', ' || $2; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a TEXT DEFAULT 'Hello', b TEXT DEFAULT 'World') RETURNS TEXT LANGUAGE sql AS $$ select $1 || ', ' || $2; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a TEXT DEFAULT 'Hello', b TEXT DEFAULT 'World') RETURNS TEXT AS $$ select $1 || ', ' || $2; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 232",
@@ -1132,12 +1132,12 @@
   {
     "comment": "polymorphism - Statement 236",
     "query": "create function dfunc(int = 1, int = 2) returns int as $$ select 2; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (INT DEFAULT 1, INT DEFAULT 2) RETURNS INT LANGUAGE sql AS $$ select 2; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (INT DEFAULT 1, INT DEFAULT 2) RETURNS INT AS $$ select 2; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 237",
     "query": "create function dfunc(int = 1, int = 2, int = 3, int = 4) returns int as $$ select 4; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (INT DEFAULT 1, INT DEFAULT 2, INT DEFAULT 3, INT DEFAULT 4) RETURNS INT LANGUAGE sql AS $$ select 4; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (INT DEFAULT 1, INT DEFAULT 2, INT DEFAULT 3, INT DEFAULT 4) RETURNS INT AS $$ select 4; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 238",
@@ -1167,12 +1167,12 @@
   {
     "comment": "polymorphism - Statement 243",
     "query": "create function dfunc(out int = 20) returns int as $$ select 1; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (OUT INT DEFAULT 20) RETURNS INT LANGUAGE sql AS $$ select 1; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (OUT INT DEFAULT 20) RETURNS INT AS $$ select 1; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 244",
     "query": "create function dfunc(anyelement = 'World'::text) returns text as $$ select 'Hello, ' || $1::text; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (anyelement DEFAULT CAST('World' AS TEXT)) RETURNS TEXT LANGUAGE sql AS $$ select 'Hello, ' || $1::text; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (anyelement DEFAULT CAST('World' AS TEXT)) RETURNS TEXT AS $$ select 'Hello, ' || $1::text; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 245",
@@ -1192,7 +1192,7 @@
   {
     "comment": "polymorphism - Statement 248",
     "query": "create function dfunc(a variadic int[]) returns int as $$ select array_upper($1, 1) $$ language sql",
-    "expected": "CREATE FUNCTION dfunc (VARIADIC a INT[]) RETURNS INT LANGUAGE sql AS $$ select array_upper($1, 1) $$"
+    "expected": "CREATE FUNCTION dfunc (VARIADIC a INT[]) RETURNS INT AS $$ select array_upper($1, 1) $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 249",
@@ -1202,22 +1202,22 @@
   {
     "comment": "polymorphism - Statement 250",
     "query": "create or replace function dfunc(a variadic int[] default array[]::int[]) returns int as $$ select array_upper($1, 1) $$ language sql",
-    "expected": "CREATE OR REPLACE FUNCTION dfunc (VARIADIC a INT[] DEFAULT CAST(ARRAY[] AS INT[])) RETURNS INT LANGUAGE sql AS $$ select array_upper($1, 1) $$"
+    "expected": "CREATE OR REPLACE FUNCTION dfunc (VARIADIC a INT[] DEFAULT CAST(ARRAY[] AS INT[])) RETURNS INT AS $$ select array_upper($1, 1) $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 251",
     "query": "create or replace function dfunc(a variadic int[]) returns int as $$ select array_upper($1, 1) $$ language sql",
-    "expected": "CREATE OR REPLACE FUNCTION dfunc (VARIADIC a INT[]) RETURNS INT LANGUAGE sql AS $$ select array_upper($1, 1) $$"
+    "expected": "CREATE OR REPLACE FUNCTION dfunc (VARIADIC a INT[]) RETURNS INT AS $$ select array_upper($1, 1) $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 252",
     "query": "create function dfunc(int = 1, int = 2, int = 3) returns int as $$ select 3; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (INT DEFAULT 1, INT DEFAULT 2, INT DEFAULT 3) RETURNS INT LANGUAGE sql AS $$ select 3; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (INT DEFAULT 1, INT DEFAULT 2, INT DEFAULT 3) RETURNS INT AS $$ select 3; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 253",
     "query": "create function dfunc(text) returns text as $$ select $1; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (TEXT) RETURNS TEXT LANGUAGE sql AS $$ select $1; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (TEXT) RETURNS TEXT AS $$ select $1; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 254",
@@ -1232,7 +1232,7 @@
   {
     "comment": "polymorphism - Statement 256",
     "query": "create function dfunc(a int, b int, c int = 0, d int = 0) returns table (a int, b int, c int, d int) as $$ select $1, $2, $3, $4; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a INT, b INT, c INT DEFAULT 0, d INT DEFAULT 0) LANGUAGE sql AS $$ select $1, $2, $3, $4; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a INT, b INT, c INT DEFAULT 0, d INT DEFAULT 0) AS $$ select $1, $2, $3, $4; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 257",
@@ -1302,7 +1302,7 @@
   {
     "comment": "polymorphism - Statement 270",
     "query": "create function dfunc(a varchar, b numeric, c date = current_date) returns table (a varchar, b numeric, c date) as $$ select $1, $2, $3; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a VARCHAR, b NUMERIC, c DATE DEFAULT CURRENT_DATE) LANGUAGE sql AS $$ select $1, $2, $3; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a VARCHAR, b NUMERIC, c DATE DEFAULT CURRENT_DATE) AS $$ select $1, $2, $3; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 271",
@@ -1342,7 +1342,7 @@
   {
     "comment": "polymorphism - Statement 278",
     "query": "create function dfunc(a varchar = 'def a', out _a varchar, c numeric = NULL, out _c numeric) returns record as $$ select $1, $2; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a VARCHAR DEFAULT 'def a', OUT _a VARCHAR, c NUMERIC DEFAULT NULL, OUT _c NUMERIC) RETURNS record LANGUAGE sql AS $$ select $1, $2; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a VARCHAR DEFAULT 'def a', OUT _a VARCHAR, c NUMERIC DEFAULT NULL, OUT _c NUMERIC) RETURNS record AS $$ select $1, $2; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 279",
@@ -1387,12 +1387,12 @@
   {
     "comment": "polymorphism - Statement 287",
     "query": "create or replace function dfunc(a varchar = 'def a', out _a varchar, x numeric = NULL, out _c numeric) returns record as $$ select $1, $2; $$ language sql immutable strict;",
-    "expected": "CREATE OR REPLACE FUNCTION dfunc (a VARCHAR DEFAULT 'def a', OUT _a VARCHAR, x NUMERIC DEFAULT NULL, OUT _c NUMERIC) RETURNS record LANGUAGE sql AS $$ select $1, $2; $$ IMMUTABLE STRICT"
+    "expected": "CREATE OR REPLACE FUNCTION dfunc (a VARCHAR DEFAULT 'def a', OUT _a VARCHAR, x NUMERIC DEFAULT NULL, OUT _c NUMERIC) RETURNS record AS $$ select $1, $2; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 288",
     "query": "create or replace function dfunc(a varchar = 'def a', out _a varchar, numeric = NULL, out _c numeric) returns record as $$ select $1, $2; $$ language sql immutable strict;",
-    "expected": "CREATE OR REPLACE FUNCTION dfunc (a VARCHAR DEFAULT 'def a', OUT _a VARCHAR, NUMERIC DEFAULT NULL, OUT _c NUMERIC) RETURNS record LANGUAGE sql AS $$ select $1, $2; $$ IMMUTABLE STRICT"
+    "expected": "CREATE OR REPLACE FUNCTION dfunc (a VARCHAR DEFAULT 'def a', OUT _a VARCHAR, NUMERIC DEFAULT NULL, OUT _c NUMERIC) RETURNS record AS $$ select $1, $2; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 289",
@@ -1402,27 +1402,27 @@
   {
     "comment": "polymorphism - Statement 290",
     "query": "create function testpolym(a int, a int) returns int as $$ select 1;$$ language sql",
-    "expected": "CREATE FUNCTION testpolym (a INT, a INT) RETURNS INT LANGUAGE sql AS $$ select 1;$$"
+    "expected": "CREATE FUNCTION testpolym (a INT, a INT) RETURNS INT AS $$ select 1;$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 291",
     "query": "create function testpolym(int, out a int, out a int) returns int as $$ select 1;$$ language sql",
-    "expected": "CREATE FUNCTION testpolym (INT, OUT a INT, OUT a INT) RETURNS INT LANGUAGE sql AS $$ select 1;$$"
+    "expected": "CREATE FUNCTION testpolym (INT, OUT a INT, OUT a INT) RETURNS INT AS $$ select 1;$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 292",
     "query": "create function testpolym(out a int, inout a int) returns int as $$ select 1;$$ language sql",
-    "expected": "CREATE FUNCTION testpolym (OUT a INT, INOUT a INT) RETURNS INT LANGUAGE sql AS $$ select 1;$$"
+    "expected": "CREATE FUNCTION testpolym (OUT a INT, INOUT a INT) RETURNS INT AS $$ select 1;$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 293",
     "query": "create function testpolym(a int, inout a int) returns int as $$ select 1;$$ language sql",
-    "expected": "CREATE FUNCTION testpolym (a INT, INOUT a INT) RETURNS INT LANGUAGE sql AS $$ select 1;$$"
+    "expected": "CREATE FUNCTION testpolym (a INT, INOUT a INT) RETURNS INT AS $$ select 1;$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 294",
     "query": "create function testpolym(a int, out a int) returns int as $$ select $1;$$ language sql",
-    "expected": "CREATE FUNCTION testpolym (a INT, OUT a INT) RETURNS INT LANGUAGE sql AS $$ select $1;$$"
+    "expected": "CREATE FUNCTION testpolym (a INT, OUT a INT) RETURNS INT AS $$ select $1;$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 295",
@@ -1437,7 +1437,7 @@
   {
     "comment": "polymorphism - Statement 297",
     "query": "create function testpolym(a int) returns table(a int) as $$ select $1;$$ language sql",
-    "expected": "CREATE FUNCTION testpolym (a INT) LANGUAGE sql AS $$ select $1;$$"
+    "expected": "CREATE FUNCTION testpolym (a INT) AS $$ select $1;$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 298",
@@ -1447,7 +1447,7 @@
   {
     "comment": "polymorphism - Statement 299",
     "query": "create function dfunc(a anyelement, b anyelement = null, flag bool = true) returns anyelement as $$ select case when $3 then $1 else $2 end; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a anyelement, b anyelement DEFAULT NULL, flag BOOLEAN DEFAULT TRUE) RETURNS anyelement LANGUAGE sql AS $$ select case when $3 then $1 else $2 end; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a anyelement, b anyelement DEFAULT NULL, flag BOOLEAN DEFAULT TRUE) RETURNS anyelement AS $$ select case when $3 then $1 else $2 end; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 300",
@@ -1617,7 +1617,7 @@
   {
     "comment": "polymorphism - Statement 333",
     "query": "create function anyctest(anycompatible, anycompatible) returns anycompatible as $$ select greatest($1, $2) $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatible) RETURNS anycompatible LANGUAGE sql AS $$ select greatest($1, $2) $$"
+    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatible) RETURNS anycompatible AS $$ select greatest($1, $2) $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 334",
@@ -1647,7 +1647,7 @@
   {
     "comment": "polymorphism - Statement 339",
     "query": "create function anyctest(anycompatible, anycompatible) returns anycompatiblearray as $$ select array[$1, $2] $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatible) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[$1, $2] $$"
+    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatible) RETURNS anycompatiblearray AS $$ select array[$1, $2] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 340",
@@ -1657,7 +1657,7 @@
   {
     "comment": "polymorphism - Statement 341",
     "query": "create function anyctest(anycompatible, anycompatiblearray) returns anycompatiblearray as $$ select array[$1] || $2 $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatiblearray) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[$1] || $2 $$"
+    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatiblearray) RETURNS anycompatiblearray AS $$ select array[$1] || $2 $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 342",
@@ -1692,7 +1692,7 @@
   {
     "comment": "polymorphism - Statement 348",
     "query": "create function anyctest(anycompatible, anycompatiblerange) returns anycompatiblerange as $$ select $2 $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatiblerange) RETURNS anycompatiblerange LANGUAGE sql AS $$ select $2 $$"
+    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatiblerange) RETURNS anycompatiblerange AS $$ select $2 $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 349",
@@ -1722,7 +1722,7 @@
   {
     "comment": "polymorphism - Statement 354",
     "query": "create function anyctest(anycompatiblerange, anycompatiblerange) returns anycompatible as $$ select lower($1) + upper($2) $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (anycompatiblerange, anycompatiblerange) RETURNS anycompatible LANGUAGE sql AS $$ select lower($1) + upper($2) $$"
+    "expected": "CREATE FUNCTION anyctest (anycompatiblerange, anycompatiblerange) RETURNS anycompatible AS $$ select lower($1) + upper($2) $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 355",
@@ -1742,12 +1742,12 @@
   {
     "comment": "polymorphism - Statement 358",
     "query": "create function anyctest(anycompatible) returns anycompatiblerange as $$ select $1 $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (anycompatible) RETURNS anycompatiblerange LANGUAGE sql AS $$ select $1 $$"
+    "expected": "CREATE FUNCTION anyctest (anycompatible) RETURNS anycompatiblerange AS $$ select $1 $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 359",
     "query": "create function anyctest(anycompatible, anycompatiblemultirange) returns anycompatiblemultirange as $$ select $2 $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatiblemultirange) RETURNS anycompatiblemultirange LANGUAGE sql AS $$ select $2 $$"
+    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatiblemultirange) RETURNS anycompatiblemultirange AS $$ select $2 $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 360",
@@ -1777,7 +1777,7 @@
   {
     "comment": "polymorphism - Statement 365",
     "query": "create function anyctest(anycompatiblemultirange, anycompatiblemultirange) returns anycompatible as $$ select lower($1) + upper($2) $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (anycompatiblemultirange, anycompatiblemultirange) RETURNS anycompatible LANGUAGE sql AS $$ select lower($1) + upper($2) $$"
+    "expected": "CREATE FUNCTION anyctest (anycompatiblemultirange, anycompatiblemultirange) RETURNS anycompatible AS $$ select lower($1) + upper($2) $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 366",
@@ -1797,12 +1797,12 @@
   {
     "comment": "polymorphism - Statement 369",
     "query": "create function anyctest(anycompatible) returns anycompatiblemultirange as $$ select $1 $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (anycompatible) RETURNS anycompatiblemultirange LANGUAGE sql AS $$ select $1 $$"
+    "expected": "CREATE FUNCTION anyctest (anycompatible) RETURNS anycompatiblemultirange AS $$ select $1 $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 370",
     "query": "create function anyctest(anycompatiblenonarray, anycompatiblenonarray) returns anycompatiblearray as $$ select array[$1, $2] $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (anycompatiblenonarray, anycompatiblenonarray) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[$1, $2] $$"
+    "expected": "CREATE FUNCTION anyctest (anycompatiblenonarray, anycompatiblenonarray) RETURNS anycompatiblearray AS $$ select array[$1, $2] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 371",
@@ -1817,7 +1817,7 @@
   {
     "comment": "polymorphism - Statement 373",
     "query": "create function anyctest(a anyelement, b anyarray, c anycompatible, d anycompatible) returns anycompatiblearray as $$ select array[c, d] $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (a anyelement, b anyarray, c anycompatible, d anycompatible) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[c, d] $$"
+    "expected": "CREATE FUNCTION anyctest (a anyelement, b anyarray, c anycompatible, d anycompatible) RETURNS anycompatiblearray AS $$ select array[c, d] $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 374",
@@ -1847,7 +1847,7 @@
   {
     "comment": "polymorphism - Statement 379",
     "query": "create function anyctest(variadic anycompatiblearray) returns anycompatiblearray as $$ select $1 $$ language sql",
-    "expected": "CREATE FUNCTION anyctest (VARIADIC anycompatiblearray) RETURNS anycompatiblearray LANGUAGE sql AS $$ select $1 $$"
+    "expected": "CREATE FUNCTION anyctest (VARIADIC anycompatiblearray) RETURNS anycompatiblearray AS $$ select $1 $$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 380",

@@ -4,10 +4,10 @@
  * This file implements a unified context that combines both lexer and parser
  * functionality, eliminating duplication and providing a single source of truth
  * for parsing state.
- * 
+ *
  * Note: ParseContext instances are designed for single-threaded use. Each
  * parsing thread should have its own ParseContext instance.
- * 
+ *
  * Ported from postgres/src/include/parser/scanner.h and postgres/src/backend/parser/
  */
 
@@ -84,17 +84,17 @@ func (es ErrorSeverity) String() string {
 // Combines LexerError and ParseError from the original contexts
 type ParseError struct {
 	// Core error information
-	Type      LexerErrorType // For lexer-specific error types
-	Message   string         // Error message
-	Severity  ErrorSeverity  // Error severity level
-	
+	Type     LexerErrorType // For lexer-specific error types
+	Message  string         // Error message
+	Severity ErrorSeverity  // Error severity level
+
 	// Location information (unified)
-	Position    int    // Byte offset in source text
-	Line        int    // Line number (1-based)
-	Column      int    // Column number (1-based)
-	NearText    string // Text near the error for context
-	AtEOF       bool   // Whether error occurred at EOF
-	
+	Position int    // Byte offset in source text
+	Line     int    // Line number (1-based)
+	Column   int    // Column number (1-based)
+	NearText string // Text near the error for context
+	AtEOF    bool   // Whether error occurred at EOF
+
 	// Context and hints
 	Context     string // Additional context information (e.g., "in quoted string")
 	HintText    string // Helpful hint for user
@@ -142,8 +142,8 @@ type ParseOptions struct {
 func DefaultParseOptions() *ParseOptions {
 	return &ParseOptions{
 		// Standard PostgreSQL defaults
-		StandardConformingStrings: true,             // Default in modern PostgreSQL
-		EscapeStringWarning:       true,             // Default warning setting
+		StandardConformingStrings: true,                       // Default in modern PostgreSQL
+		EscapeStringWarning:       true,                       // Default warning setting
 		BackslashQuote:            BackslashQuoteSafeEncoding, // safe_encoding (default)
 
 		// Parser limits - based on PostgreSQL defaults
@@ -172,10 +172,10 @@ type ParseContext struct {
 	options *ParseOptions
 
 	// Source text and scanning state (unified)
-	sourceText  string // Original SQL text being parsed
-	scanBuf     []byte // The string being scanned (for lexer)
-	scanBufLen  int    // Length of scan buffer
-	scanPos     int    // Current position in scan buffer
+	sourceText string // Original SQL text being parsed
+	scanBuf    []byte // The string being scanned (for lexer)
+	scanBufLen int    // Length of scan buffer
+	scanPos    int    // Current position in scan buffer
 
 	// Position tracking (unified - single source of truth)
 	currentPosition int // Current byte offset
@@ -183,11 +183,11 @@ type ParseContext struct {
 	columnNumber    int // Current column number (1-based)
 
 	// Lexer state
-	lexerState        LexerState // Current lexer state
-	stateBeforeStrStop int       // Start condition before end quote
-	xcDepth           int        // Nesting depth in slash-star comments
-	dolQStart         string     // Current $foo$ quote start string
-	savePosition      int        // One-element stack for position saving
+	lexerState         LexerState // Current lexer state
+	stateBeforeStrStop int        // Start condition before end quote
+	xcDepth            int        // Nesting depth in slash-star comments
+	dolQStart          string     // Current $foo$ quote start string
+	savePosition       int        // One-element stack for position saving
 
 	// Literal buffer for multi-rule parsing
 	literalBuf    strings.Builder // Accumulates literal values
@@ -330,7 +330,7 @@ func (ctx *ParseContext) SaveCurrentPosition() int {
 // Equivalent to PostgreSQL's POP_YYLLOC() macro
 // postgres/src/backend/parser/scan.l:122
 func (ctx *ParseContext) RestoreSavedPosition() {
-	
+
 	if ctx.savePosition < 0 || ctx.savePosition > len(ctx.sourceText) {
 		return
 	}
@@ -394,7 +394,7 @@ func (ctx *ParseContext) AddLiteralByte(b byte) {
 
 // GetLiteral returns the accumulated literal value and resets the buffer
 func (ctx *ParseContext) GetLiteral() string {
-	
+
 	if !ctx.literalActive {
 		return ""
 	}
@@ -407,7 +407,7 @@ func (ctx *ParseContext) GetLiteral() string {
 
 // CurrentChar returns the current character at ScanPos
 func (ctx *ParseContext) CurrentChar() rune {
-	
+
 	if ctx.scanPos >= len(ctx.scanBuf) {
 		return 0
 	}
@@ -417,7 +417,7 @@ func (ctx *ParseContext) CurrentChar() rune {
 
 // PeekChar returns the next character without advancing
 func (ctx *ParseContext) PeekChar() rune {
-	
+
 	if ctx.scanPos >= len(ctx.scanBuf) {
 		return 0
 	}
@@ -447,7 +447,7 @@ func (ctx *ParseContext) CurrentByte() (byte, bool) {
 
 // NextByte returns the current byte and advances the position
 func (ctx *ParseContext) NextByte() (byte, bool) {
-	
+
 	b, ok := ctx.getByteAt(0)
 	if !ok {
 		return 0, false
@@ -458,7 +458,7 @@ func (ctx *ParseContext) NextByte() (byte, bool) {
 
 // PeekBytes returns n bytes starting at the current position without advancing
 func (ctx *ParseContext) PeekBytes(n int) []byte {
-	
+
 	end := ctx.scanPos + n
 	if end > ctx.scanBufLen {
 		end = ctx.scanBufLen
@@ -469,9 +469,17 @@ func (ctx *ParseContext) PeekBytes(n int) []byte {
 	return result
 }
 
+// PeekToEnd returns the remaining entire buffer.
+func (ctx *ParseContext) PeekToEnd() []byte {
+	end := ctx.scanBufLen
+	result := make([]byte, end-ctx.scanPos)
+	copy(result, ctx.scanBuf[ctx.scanPos:end])
+	return result
+}
+
 // AdvanceBy moves the scan position forward by n bytes
 func (ctx *ParseContext) AdvanceBy(n int) {
-	
+
 	for i := 0; i < n && ctx.scanPos < ctx.scanBufLen; i++ {
 		b := ctx.scanBuf[ctx.scanPos]
 		ctx.advancePosition(b)
@@ -496,7 +504,7 @@ func (ctx *ParseContext) advancePosition(b byte) {
 
 // AdvanceRune moves forward by one Unicode character (rune)
 func (ctx *ParseContext) AdvanceRune() rune {
-	
+
 	if ctx.AtEOF() {
 		return 0
 	}
@@ -513,7 +521,7 @@ func (ctx *ParseContext) AdvanceRune() rune {
 
 // PeekRune returns the next rune without advancing position
 func (ctx *ParseContext) PeekRune() rune {
-	
+
 	if ctx.AtEOF() {
 		return 0
 	}
@@ -529,7 +537,7 @@ func (ctx *ParseContext) AtEOF() bool {
 
 // GetCurrentText returns the text from start position to current position
 func (ctx *ParseContext) GetCurrentText(startPos int) string {
-	
+
 	if startPos < 0 || startPos > ctx.scanPos {
 		return ""
 	}
@@ -602,7 +610,7 @@ func (ctx *ParseContext) AddError(message string, location int) *ParseError {
 // AddErrorWithType adds a lexer error with specific error type
 func (ctx *ParseContext) AddErrorWithType(errorType LexerErrorType, message string) *ParseError {
 	location := ctx.currentPosition
-	
+
 	return ctx.addLexerError(errorType, message, location)
 }
 
@@ -640,7 +648,7 @@ func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message st
 	} else {
 		ctx.errors = append(ctx.errors, *parseError)
 	}
-	
+
 	return parseError
 }
 
@@ -832,7 +840,7 @@ func (ctx *ParseContext) ClearErrors() {
 
 // PutBack moves the scan position back by n bytes
 func (ctx *ParseContext) PutBack(n int) {
-	
+
 	if n <= 0 {
 		return
 	}
@@ -855,7 +863,7 @@ func (ctx *ParseContext) GetContextID() string {
 // Clone creates a copy of the parser context for use in another goroutine
 func (ctx *ParseContext) Clone() *ParseContext {
 	sourceText := ctx.sourceText
-	
+
 	// Options are immutable, so we can share them safely
 	return NewParseContext(sourceText, ctx.options)
 }

@@ -18,7 +18,8 @@
   },
   {
     "comment": "largeobject - Statement 5",
-    "query": "GRANT SELECT ON LARGE OBJECT 42 TO public"
+    "query": "GRANT SELECT ON LARGE OBJECT 42 TO public",
+    "expected": "GRANT SELECT ON LARGE OBJECT 42 TO PUBLIC"
   },
   {
     "comment": "largeobject - Statement 6",

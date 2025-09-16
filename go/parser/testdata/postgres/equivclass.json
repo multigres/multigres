@@ -7,12 +7,12 @@
   {
     "comment": "equivclass - Statement 2",
     "query": "create function int8alias1in(cstring) returns int8alias1 strict immutable language internal as 'int8in'",
-    "expected": "CREATE FUNCTION int8alias1in (cstring) RETURNS int8alias1 LANGUAGE internal AS $$int8in$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int8alias1in (cstring) RETURNS int8alias1 STRICT IMMUTABLE LANGUAGE internal AS $$int8in$$"
   },
   {
     "comment": "equivclass - Statement 3",
     "query": "create function int8alias1out(int8alias1) returns cstring strict immutable language internal as 'int8out'",
-    "expected": "CREATE FUNCTION int8alias1out (int8alias1) RETURNS cstring LANGUAGE internal AS $$int8out$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int8alias1out (int8alias1) RETURNS cstring STRICT IMMUTABLE LANGUAGE internal AS $$int8out$$"
   },
   {
     "comment": "equivclass - Statement 4",
@@ -27,12 +27,12 @@
   {
     "comment": "equivclass - Statement 6",
     "query": "create function int8alias2in(cstring) returns int8alias2 strict immutable language internal as 'int8in'",
-    "expected": "CREATE FUNCTION int8alias2in (cstring) RETURNS int8alias2 LANGUAGE internal AS $$int8in$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int8alias2in (cstring) RETURNS int8alias2 STRICT IMMUTABLE LANGUAGE internal AS $$int8in$$"
   },
   {
     "comment": "equivclass - Statement 7",
     "query": "create function int8alias2out(int8alias2) returns cstring strict immutable language internal as 'int8out'",
-    "expected": "CREATE FUNCTION int8alias2out (int8alias2) RETURNS cstring LANGUAGE internal AS $$int8out$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int8alias2out (int8alias2) RETURNS cstring STRICT IMMUTABLE LANGUAGE internal AS $$int8out$$"
   },
   {
     "comment": "equivclass - Statement 8",
@@ -62,7 +62,7 @@
   {
     "comment": "equivclass - Statement 13",
     "query": "create function int8alias1eq(int8alias1, int8alias1) returns bool strict immutable language internal as 'int8eq'",
-    "expected": "CREATE FUNCTION int8alias1eq (int8alias1, int8alias1) RETURNS BOOLEAN LANGUAGE internal AS $$int8eq$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int8alias1eq (int8alias1, int8alias1) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE internal AS $$int8eq$$"
   },
   {
     "comment": "equivclass - Statement 14",
@@ -77,7 +77,7 @@
   {
     "comment": "equivclass - Statement 16",
     "query": "create function int8alias2eq(int8alias2, int8alias2) returns bool strict immutable language internal as 'int8eq'",
-    "expected": "CREATE FUNCTION int8alias2eq (int8alias2, int8alias2) RETURNS BOOLEAN LANGUAGE internal AS $$int8eq$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int8alias2eq (int8alias2, int8alias2) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE internal AS $$int8eq$$"
   },
   {
     "comment": "equivclass - Statement 17",
@@ -92,7 +92,7 @@
   {
     "comment": "equivclass - Statement 19",
     "query": "create function int8alias1eq(int8, int8alias1) returns bool strict immutable language internal as 'int8eq'",
-    "expected": "CREATE FUNCTION int8alias1eq (BIGINT, int8alias1) RETURNS BOOLEAN LANGUAGE internal AS $$int8eq$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int8alias1eq (BIGINT, int8alias1) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE internal AS $$int8eq$$"
   },
   {
     "comment": "equivclass - Statement 20",
@@ -107,7 +107,7 @@
   {
     "comment": "equivclass - Statement 22",
     "query": "create function int8alias1eq(int8alias1, int8alias2) returns bool strict immutable language internal as 'int8eq'",
-    "expected": "CREATE FUNCTION int8alias1eq (int8alias1, int8alias2) RETURNS BOOLEAN LANGUAGE internal AS $$int8eq$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int8alias1eq (int8alias1, int8alias2) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE internal AS $$int8eq$$"
   },
   {
     "comment": "equivclass - Statement 23",
@@ -122,7 +122,7 @@
   {
     "comment": "equivclass - Statement 25",
     "query": "create function int8alias1lt(int8alias1, int8alias1) returns bool strict immutable language internal as 'int8lt'",
-    "expected": "CREATE FUNCTION int8alias1lt (int8alias1, int8alias1) RETURNS BOOLEAN LANGUAGE internal AS $$int8lt$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int8alias1lt (int8alias1, int8alias1) RETURNS BOOLEAN STRICT IMMUTABLE LANGUAGE internal AS $$int8lt$$"
   },
   {
     "comment": "equivclass - Statement 26",
@@ -137,7 +137,7 @@
   {
     "comment": "equivclass - Statement 28",
     "query": "create function int8alias1cmp(int8, int8alias1) returns int strict immutable language internal as 'btint8cmp'",
-    "expected": "CREATE FUNCTION int8alias1cmp (BIGINT, int8alias1) RETURNS INT LANGUAGE internal AS $$btint8cmp$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int8alias1cmp (BIGINT, int8alias1) RETURNS INT STRICT IMMUTABLE LANGUAGE internal AS $$btint8cmp$$"
   },
   {
     "comment": "equivclass - Statement 29",
@@ -277,7 +277,7 @@
   {
     "comment": "equivclass - Statement 56",
     "query": "create policy p1 on ec1 using (f1 \u003c '5'::int8alias1)",
-    "expected": "CREATE POLICY p1 ON ec1 FOR all TO public USING ( f1 \u003c CAST('5' AS int8alias1) )"
+    "expected": "CREATE POLICY p1 ON ec1 FOR all TO PUBLIC USING ( f1 \u003c CAST('5' AS int8alias1) )"
   },
   {
     "comment": "equivclass - Statement 57",

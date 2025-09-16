@@ -592,7 +592,7 @@
   {
     "comment": "collate.linux.utf8 - Statement 140",
     "query": "CREATE FUNCTION dup (anyelement) RETURNS anyelement AS 'select $1' LANGUAGE sql",
-    "expected": "CREATE FUNCTION dup (anyelement) RETURNS anyelement LANGUAGE sql AS $$select $1$$"
+    "expected": "CREATE FUNCTION dup (anyelement) RETURNS anyelement AS $$select $1$$ LANGUAGE sql"
   },
   {
     "comment": "collate.linux.utf8 - Statement 141",

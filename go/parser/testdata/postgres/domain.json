@@ -1477,7 +1477,7 @@
   {
     "comment": "domain - Statement 297",
     "query": "create function doubledecrement(p1 pos_int) returns pos_int as $$ declare v pos_int; begin return p1; end$$ language plpgsql",
-    "expected": "CREATE FUNCTION doubledecrement (p1 pos_int) RETURNS pos_int LANGUAGE plpgsql AS $$ declare v pos_int; begin return p1; end$$"
+    "expected": "CREATE FUNCTION doubledecrement (p1 pos_int) RETURNS pos_int AS $$ declare v pos_int; begin return p1; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "domain - Statement 300",
@@ -1487,12 +1487,12 @@
   {
     "comment": "domain - Statement 301",
     "query": "create or replace function doubledecrement(p1 pos_int) returns pos_int as $$ declare v pos_int := 0; begin return p1; end$$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION doubledecrement (p1 pos_int) RETURNS pos_int LANGUAGE plpgsql AS $$ declare v pos_int := 0; begin return p1; end$$"
+    "expected": "CREATE OR REPLACE FUNCTION doubledecrement (p1 pos_int) RETURNS pos_int AS $$ declare v pos_int := 0; begin return p1; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "domain - Statement 302",
     "query": "create or replace function doubledecrement(p1 pos_int) returns pos_int as $$ declare v pos_int := 1; begin v := p1 - 1; return v - 1; end$$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION doubledecrement (p1 pos_int) RETURNS pos_int LANGUAGE plpgsql AS $$ declare v pos_int := 1; begin v := p1 - 1; return v - 1; end$$"
+    "expected": "CREATE OR REPLACE FUNCTION doubledecrement (p1 pos_int) RETURNS pos_int AS $$ declare v pos_int := 1; begin v := p1 - 1; return v - 1; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "domain - Statement 305",
@@ -1642,7 +1642,7 @@
   {
     "comment": "domain - Statement 334",
     "query": "create or replace function array_elem_check(numeric) returns numeric as $$ declare x numeric(4,2)[1]; begin x[1] := $1; return x[1]; end$$ language plpgsql;",
-    "expected": "CREATE OR REPLACE FUNCTION array_elem_check (NUMERIC) RETURNS NUMERIC LANGUAGE plpgsql AS $$ declare x numeric(4,2)[1]; begin x[1] := $1; return x[1]; end$$"
+    "expected": "CREATE OR REPLACE FUNCTION array_elem_check (NUMERIC) RETURNS NUMERIC AS $$ declare x numeric(4,2)[1]; begin x[1] := $1; return x[1]; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "domain - Statement 337",
@@ -1662,7 +1662,7 @@
   {
     "comment": "domain - Statement 340",
     "query": "create or replace function array_elem_check(numeric) returns numeric as $$ declare x mynums; begin x[1] := $1; return x[1]; end$$ language plpgsql;",
-    "expected": "CREATE OR REPLACE FUNCTION array_elem_check (NUMERIC) RETURNS NUMERIC LANGUAGE plpgsql AS $$ declare x mynums; begin x[1] := $1; return x[1]; end$$"
+    "expected": "CREATE OR REPLACE FUNCTION array_elem_check (NUMERIC) RETURNS NUMERIC AS $$ declare x mynums; begin x[1] := $1; return x[1]; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "domain - Statement 341",
@@ -1672,7 +1672,7 @@
   {
     "comment": "domain - Statement 342",
     "query": "create or replace function array_elem_check(numeric) returns numeric as $$ declare x mynums2; begin x[1] := $1; return x[1]; end$$ language plpgsql;",
-    "expected": "CREATE OR REPLACE FUNCTION array_elem_check (NUMERIC) RETURNS NUMERIC LANGUAGE plpgsql AS $$ declare x mynums2; begin x[1] := $1; return x[1]; end$$"
+    "expected": "CREATE OR REPLACE FUNCTION array_elem_check (NUMERIC) RETURNS NUMERIC AS $$ declare x mynums2; begin x[1] := $1; return x[1]; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "domain - Statement 343",
@@ -1727,7 +1727,7 @@
   {
     "comment": "domain - Statement 353",
     "query": "create or replace function array_elem_check(int) returns int as $$ declare x orderedpair := '{1,2}'; begin x[2] := $1; return x[2]; end$$ language plpgsql;",
-    "expected": "CREATE OR REPLACE FUNCTION array_elem_check (INT) RETURNS INT LANGUAGE plpgsql AS $$ declare x orderedpair := '{1,2}'; begin x[2] := $1; return x[2]; end$$"
+    "expected": "CREATE OR REPLACE FUNCTION array_elem_check (INT) RETURNS INT AS $$ declare x orderedpair := '{1,2}'; begin x[2] := $1; return x[2]; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "domain - Statement 356",
@@ -1752,7 +1752,7 @@
   {
     "comment": "domain - Statement 360",
     "query": "create function dom_check(int) returns di as $$ declare d di; begin d := $1::di; return d; end $$ language plpgsql immutable;",
-    "expected": "CREATE FUNCTION dom_check (INT) RETURNS di LANGUAGE plpgsql AS $$ declare d di; begin d := $1::di; return d; end $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION dom_check (INT) RETURNS di AS $$ declare d di; begin d := $1::di; return d; end $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "domain - Statement 364",
@@ -1772,7 +1772,7 @@
   {
     "comment": "domain - Statement 367",
     "query": "create or replace function dom_check(int) returns di as $$ declare d di; begin d := $1; return d; end $$ language plpgsql immutable;",
-    "expected": "CREATE OR REPLACE FUNCTION dom_check (INT) RETURNS di LANGUAGE plpgsql AS $$ declare d di; begin d := $1; return d; end $$ IMMUTABLE"
+    "expected": "CREATE OR REPLACE FUNCTION dom_check (INT) RETURNS di AS $$ declare d di; begin d := $1; return d; end $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "domain - Statement 369",

@@ -2,7 +2,7 @@
   {
     "comment": "misc - Statement 1",
     "query": "CREATE FUNCTION reverse_name(name) RETURNS name AS 'regresslib' LANGUAGE C STRICT",
-    "expected": "CREATE FUNCTION reverse_name (name) RETURNS name LANGUAGE c AS $$regresslib$$ STRICT"
+    "expected": "CREATE FUNCTION reverse_name (name) RETURNS name AS $$regresslib$$ LANGUAGE c STRICT"
   },
   {
     "comment": "misc - Statement 2",
@@ -105,57 +105,57 @@
   {
     "comment": "misc - Statement 24",
     "query": "CREATE FUNCTION hobbies(person) RETURNS setof hobbies_r AS 'select * from hobbies_r where person = $1.name' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION hobbies (person) RETURNS SETOF hobbies_r LANGUAGE sql AS $$select * from hobbies_r where person = $1.name$$"
+    "expected": "CREATE FUNCTION hobbies (person) RETURNS SETOF hobbies_r AS $$select * from hobbies_r where person = $1.name$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 25",
     "query": "CREATE FUNCTION hobby_construct(text, text) RETURNS hobbies_r AS 'select $1 as name, $2 as hobby' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION hobby_construct (TEXT, TEXT) RETURNS hobbies_r LANGUAGE sql AS $$select $1 as name, $2 as hobby$$"
+    "expected": "CREATE FUNCTION hobby_construct (TEXT, TEXT) RETURNS hobbies_r AS $$select $1 as name, $2 as hobby$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 26",
     "query": "CREATE FUNCTION hobby_construct_named(name text, hobby text) RETURNS hobbies_r AS 'select name, hobby' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION hobby_construct_named (name TEXT, hobby TEXT) RETURNS hobbies_r LANGUAGE sql AS $$select name, hobby$$"
+    "expected": "CREATE FUNCTION hobby_construct_named (name TEXT, hobby TEXT) RETURNS hobbies_r AS $$select name, hobby$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 27",
     "query": "CREATE FUNCTION hobbies_by_name(hobbies_r.name%TYPE) RETURNS hobbies_r.person%TYPE AS 'select person from hobbies_r where name = $1' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION hobbies_by_name (hobbies_r.name) RETURNS hobbies_r.person LANGUAGE sql AS $$select person from hobbies_r where name = $1$$"
+    "expected": "CREATE FUNCTION hobbies_by_name (hobbies_r.name) RETURNS hobbies_r.person AS $$select person from hobbies_r where name = $1$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 28",
     "query": "CREATE FUNCTION equipment(hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = $1.name' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION equipment (hobbies_r) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where hobby = $1.name$$"
+    "expected": "CREATE FUNCTION equipment (hobbies_r) RETURNS SETOF equipment_r AS $$select * from equipment_r where hobby = $1.name$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 29",
     "query": "CREATE FUNCTION equipment_named(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where equipment_r.hobby = equipment_named.hobby.name' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION equipment_named (hobby hobbies_r) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where equipment_r.hobby = equipment_named.hobby.name$$"
+    "expected": "CREATE FUNCTION equipment_named (hobby hobbies_r) RETURNS SETOF equipment_r AS $$select * from equipment_r where equipment_r.hobby = equipment_named.hobby.name$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 30",
     "query": "CREATE FUNCTION equipment_named_ambiguous_1a(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = equipment_named_ambiguous_1a.hobby.name' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION equipment_named_ambiguous_1a (hobby hobbies_r) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where hobby = equipment_named_ambiguous_1a.hobby.name$$"
+    "expected": "CREATE FUNCTION equipment_named_ambiguous_1a (hobby hobbies_r) RETURNS SETOF equipment_r AS $$select * from equipment_r where hobby = equipment_named_ambiguous_1a.hobby.name$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 31",
     "query": "CREATE FUNCTION equipment_named_ambiguous_1b(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where equipment_r.hobby = hobby.name' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION equipment_named_ambiguous_1b (hobby hobbies_r) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where equipment_r.hobby = hobby.name$$"
+    "expected": "CREATE FUNCTION equipment_named_ambiguous_1b (hobby hobbies_r) RETURNS SETOF equipment_r AS $$select * from equipment_r where equipment_r.hobby = hobby.name$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 32",
     "query": "CREATE FUNCTION equipment_named_ambiguous_1c(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = hobby.name' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION equipment_named_ambiguous_1c (hobby hobbies_r) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where hobby = hobby.name$$"
+    "expected": "CREATE FUNCTION equipment_named_ambiguous_1c (hobby hobbies_r) RETURNS SETOF equipment_r AS $$select * from equipment_r where hobby = hobby.name$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 33",
     "query": "CREATE FUNCTION equipment_named_ambiguous_2a(hobby text) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = equipment_named_ambiguous_2a.hobby' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION equipment_named_ambiguous_2a (hobby TEXT) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where hobby = equipment_named_ambiguous_2a.hobby$$"
+    "expected": "CREATE FUNCTION equipment_named_ambiguous_2a (hobby TEXT) RETURNS SETOF equipment_r AS $$select * from equipment_r where hobby = equipment_named_ambiguous_2a.hobby$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 34",
     "query": "CREATE FUNCTION equipment_named_ambiguous_2b(hobby text) RETURNS setof equipment_r AS 'select * from equipment_r where equipment_r.hobby = hobby' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION equipment_named_ambiguous_2b (hobby TEXT) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where equipment_r.hobby = hobby$$"
+    "expected": "CREATE FUNCTION equipment_named_ambiguous_2b (hobby TEXT) RETURNS SETOF equipment_r AS $$select * from equipment_r where equipment_r.hobby = hobby$$ LANGUAGE sql"
   },
   {
     "comment": "misc - Statement 35",

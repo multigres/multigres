@@ -552,12 +552,12 @@
   {
     "comment": "drop_if_exists - Statement 126",
     "query": "CREATE FUNCTION test_ambiguous_funcname(int) returns int as $$ select $1; $$ language sql",
-    "expected": "CREATE FUNCTION test_ambiguous_funcname (INT) RETURNS INT LANGUAGE sql AS $$ select $1; $$"
+    "expected": "CREATE FUNCTION test_ambiguous_funcname (INT) RETURNS INT AS $$ select $1; $$ LANGUAGE sql"
   },
   {
     "comment": "drop_if_exists - Statement 127",
     "query": "CREATE FUNCTION test_ambiguous_funcname(text) returns text as $$ select $1; $$ language sql",
-    "expected": "CREATE FUNCTION test_ambiguous_funcname (TEXT) RETURNS TEXT LANGUAGE sql AS $$ select $1; $$"
+    "expected": "CREATE FUNCTION test_ambiguous_funcname (TEXT) RETURNS TEXT AS $$ select $1; $$ LANGUAGE sql"
   },
   {
     "comment": "drop_if_exists - Statement 128",
@@ -580,12 +580,12 @@
   {
     "comment": "drop_if_exists - Statement 132",
     "query": "CREATE PROCEDURE test_ambiguous_procname(int) as $$ begin end; $$ language plpgsql",
-    "expected": "CREATE PROCEDURE test_ambiguous_procname (INT) LANGUAGE plpgsql AS $$ begin end; $$"
+    "expected": "CREATE PROCEDURE test_ambiguous_procname (INT) AS $$ begin end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "drop_if_exists - Statement 133",
     "query": "CREATE PROCEDURE test_ambiguous_procname(text) as $$ begin end; $$ language plpgsql",
-    "expected": "CREATE PROCEDURE test_ambiguous_procname (TEXT) LANGUAGE plpgsql AS $$ begin end; $$"
+    "expected": "CREATE PROCEDURE test_ambiguous_procname (TEXT) AS $$ begin end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "drop_if_exists - Statement 134",

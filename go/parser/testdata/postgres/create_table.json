@@ -229,7 +229,7 @@
   {
     "comment": "create_table - Statement 50",
     "query": "CREATE FUNCTION retset (a int) RETURNS SETOF int AS $$ SELECT 1; $$ LANGUAGE SQL IMMUTABLE",
-    "expected": "CREATE FUNCTION retset (a INT) RETURNS SETOF INT LANGUAGE sql AS $$ SELECT 1; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION retset (a INT) RETURNS SETOF INT AS $$ SELECT 1; $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "create_table - Statement 51",
@@ -264,7 +264,7 @@
   {
     "comment": "create_table - Statement 57",
     "query": "CREATE FUNCTION const_func () RETURNS int AS $$ SELECT 1; $$ LANGUAGE SQL IMMUTABLE",
-    "expected": "CREATE FUNCTION const_func () RETURNS INT LANGUAGE sql AS $$ SELECT 1; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION const_func () RETURNS INT AS $$ SELECT 1; $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "create_table - Statement 58",
@@ -303,7 +303,7 @@
   {
     "comment": "create_table - Statement 65",
     "query": "CREATE FUNCTION immut_func (a int) RETURNS int AS $$ SELECT a + random()::int; $$ LANGUAGE SQL",
-    "expected": "CREATE FUNCTION immut_func (a INT) RETURNS INT LANGUAGE sql AS $$ SELECT a + random()::int; $$"
+    "expected": "CREATE FUNCTION immut_func (a INT) RETURNS INT AS $$ SELECT a + random()::int; $$ LANGUAGE sql"
   },
   {
     "comment": "create_table - Statement 66",
@@ -343,7 +343,7 @@
   {
     "comment": "create_table - Statement 73",
     "query": "CREATE FUNCTION plusone(a int) RETURNS INT AS $$ SELECT a+1; $$ LANGUAGE SQL",
-    "expected": "CREATE FUNCTION plusone (a INT) RETURNS INT LANGUAGE sql AS $$ SELECT a+1; $$"
+    "expected": "CREATE FUNCTION plusone (a INT) RETURNS INT AS $$ SELECT a+1; $$ LANGUAGE sql"
   },
   {
     "comment": "create_table - Statement 74",

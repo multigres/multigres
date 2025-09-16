@@ -154,6 +154,36 @@ func FormatAlias(aliasName string) string {
 	return "AS " + QuoteIdentifier(aliasName)
 }
 
+// DollarQuoteString wraps a string in dollar quotes, choosing a tag that doesn't conflict with the content
+func DollarQuoteString(s string) string {
+	// Start with the simplest delimiter
+	delimiter := "$$"
+	
+	// If the string contains $$, find an alternative delimiter
+	if strings.Contains(s, "$$") {
+		// Try common alternatives
+		alternatives := []string{"$_$", "$body$", "$func$", "$proc$", "$string$"}
+		for _, alt := range alternatives {
+			if !strings.Contains(s, alt) {
+				delimiter = alt
+				break
+			}
+		}
+		
+		// If all common alternatives are in use, generate a unique one
+		if strings.Contains(s, delimiter) {
+			for i := 1; ; i++ {
+				delimiter = "$tag" + strings.Repeat("x", i) + "$"
+				if !strings.Contains(s, delimiter) {
+					break
+				}
+			}
+		}
+	}
+	
+	return delimiter + s + delimiter
+}
+
 // FormatSchemaQualifiedName formats schema.name or just name
 func FormatSchemaQualifiedName(schema, name string) string {
 	if schema != "" {

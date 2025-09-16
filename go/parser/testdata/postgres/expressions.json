@@ -131,12 +131,12 @@
   {
     "comment": "expressions - Statement 27",
     "query": "create function return_int_input(int) returns int as $$ begin  return $1; end; $$ language plpgsql stable;",
-    "expected": "CREATE FUNCTION return_int_input (INT) RETURNS INT LANGUAGE plpgsql AS $$ begin  return $1; end; $$ STABLE"
+    "expected": "CREATE FUNCTION return_int_input (INT) RETURNS INT AS $$ begin  return $1; end; $$ LANGUAGE plpgsql STABLE"
   },
   {
     "comment": "expressions - Statement 30",
     "query": "create function return_text_input(text) returns text as $$ begin  return $1; end; $$ language plpgsql stable;",
-    "expected": "CREATE FUNCTION return_text_input (TEXT) RETURNS TEXT LANGUAGE plpgsql AS $$ begin  return $1; end; $$ STABLE"
+    "expected": "CREATE FUNCTION return_text_input (TEXT) RETURNS TEXT AS $$ begin  return $1; end; $$ LANGUAGE plpgsql STABLE"
   },
   {
     "comment": "expressions - Statement 31",
@@ -221,17 +221,17 @@
   {
     "comment": "expressions - Statement 47",
     "query": "create function myintin(cstring) returns myint strict immutable language internal as 'int4in'",
-    "expected": "CREATE FUNCTION myintin (cstring) RETURNS myint LANGUAGE internal AS $$int4in$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION myintin (cstring) RETURNS myint STRICT IMMUTABLE LANGUAGE internal AS $$int4in$$"
   },
   {
     "comment": "expressions - Statement 48",
     "query": "create function myintout(myint) returns cstring strict immutable language internal as 'int4out'",
-    "expected": "CREATE FUNCTION myintout (myint) RETURNS cstring LANGUAGE internal AS $$int4out$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION myintout (myint) RETURNS cstring STRICT IMMUTABLE LANGUAGE internal AS $$int4out$$"
   },
   {
     "comment": "expressions - Statement 49",
     "query": "create function myinthash(myint) returns integer strict immutable language internal as 'hashint4'",
-    "expected": "CREATE FUNCTION myinthash (myint) RETURNS INT LANGUAGE internal AS $$hashint4$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION myinthash (myint) RETURNS INT STRICT IMMUTABLE LANGUAGE internal AS $$hashint4$$"
   },
   {
     "comment": "expressions - Statement 50",

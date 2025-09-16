@@ -2412,12 +2412,12 @@
   {
     "comment": "multirangetypes - Statement 493",
     "query": "revoke usage on type multitextrange1 from public",
-    "expected": "REVOKE USAGE ON TYPE multitextrange1 FROM public"
+    "expected": "REVOKE USAGE ON TYPE multitextrange1 FROM PUBLIC"
   },
   {
     "comment": "multirangetypes - Statement 494",
     "query": "revoke usage on type textrange1 from public",
-    "expected": "REVOKE USAGE ON TYPE textrange1 FROM public"
+    "expected": "REVOKE USAGE ON TYPE textrange1 FROM PUBLIC"
   },
   {
     "comment": "multirangetypes - Statement 495",
@@ -2447,7 +2447,7 @@
   {
     "comment": "multirangetypes - Statement 500",
     "query": "create function anyarray_anymultirange_func(a anyarray, r anymultirange) returns anyelement as 'select $1[1] + lower($2);' language sql",
-    "expected": "CREATE FUNCTION anyarray_anymultirange_func (a anyarray, r anymultirange) RETURNS anyelement LANGUAGE sql AS $$select $1[1] + lower($2);$$"
+    "expected": "CREATE FUNCTION anyarray_anymultirange_func (a anyarray, r anymultirange) RETURNS anyelement AS $$select $1[1] + lower($2);$$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 501",
@@ -2467,17 +2467,17 @@
   {
     "comment": "multirangetypes - Statement 504",
     "query": "create function bogus_func(anyelement) returns anymultirange as 'select int4multirange(int4range(1,10))' language sql",
-    "expected": "CREATE FUNCTION bogus_func (anyelement) RETURNS anymultirange LANGUAGE sql AS $$select int4multirange(int4range(1,10))$$"
+    "expected": "CREATE FUNCTION bogus_func (anyelement) RETURNS anymultirange AS $$select int4multirange(int4range(1,10))$$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 505",
     "query": "create function bogus_func(int) returns anymultirange as 'select int4multirange(int4range(1,10))' language sql",
-    "expected": "CREATE FUNCTION bogus_func (INT) RETURNS anymultirange LANGUAGE sql AS $$select int4multirange(int4range(1,10))$$"
+    "expected": "CREATE FUNCTION bogus_func (INT) RETURNS anymultirange AS $$select int4multirange(int4range(1,10))$$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 506",
     "query": "create function range_add_bounds(anymultirange) returns anyelement as 'select lower($1) + upper($1)' language sql",
-    "expected": "CREATE FUNCTION range_add_bounds (anymultirange) RETURNS anyelement LANGUAGE sql AS $$select lower($1) + upper($1)$$"
+    "expected": "CREATE FUNCTION range_add_bounds (anymultirange) RETURNS anyelement AS $$select lower($1) + upper($1)$$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 507",
@@ -2492,7 +2492,7 @@
   {
     "comment": "multirangetypes - Statement 509",
     "query": "create function multirangetypes_sql(q anymultirange, b anyarray, out c anyelement) as $$ select upper($1) + $2[1] $$ language sql",
-    "expected": "CREATE FUNCTION multirangetypes_sql (q anymultirange, b anyarray, OUT c anyelement) LANGUAGE sql AS $$ select upper($1) + $2[1] $$"
+    "expected": "CREATE FUNCTION multirangetypes_sql (q anymultirange, b anyarray, OUT c anyelement) AS $$ select upper($1) + $2[1] $$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 510",
@@ -2507,7 +2507,7 @@
   {
     "comment": "multirangetypes - Statement 512",
     "query": "create function anycompatiblearray_anycompatiblemultirange_func(a anycompatiblearray, mr anycompatiblemultirange) returns anycompatible as 'select $1[1] + lower($2);' language sql",
-    "expected": "CREATE FUNCTION anycompatiblearray_anycompatiblemultirange_func (a anycompatiblearray, mr anycompatiblemultirange) RETURNS anycompatible LANGUAGE sql AS $$select $1[1] + lower($2);$$"
+    "expected": "CREATE FUNCTION anycompatiblearray_anycompatiblemultirange_func (a anycompatiblearray, mr anycompatiblemultirange) RETURNS anycompatible AS $$select $1[1] + lower($2);$$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 513",
@@ -2532,7 +2532,7 @@
   {
     "comment": "multirangetypes - Statement 517",
     "query": "create function anycompatiblerange_anycompatiblemultirange_func(r anycompatiblerange, mr anycompatiblemultirange) returns anycompatible as 'select lower($1) + lower($2);' language sql",
-    "expected": "CREATE FUNCTION anycompatiblerange_anycompatiblemultirange_func (r anycompatiblerange, mr anycompatiblemultirange) RETURNS anycompatible LANGUAGE sql AS $$select lower($1) + lower($2);$$"
+    "expected": "CREATE FUNCTION anycompatiblerange_anycompatiblemultirange_func (r anycompatiblerange, mr anycompatiblemultirange) RETURNS anycompatible AS $$select lower($1) + lower($2);$$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 518",
@@ -2552,7 +2552,7 @@
   {
     "comment": "multirangetypes - Statement 521",
     "query": "create function bogus_func(anycompatible) returns anycompatiblerange as 'select int4range(1,10)' language sql",
-    "expected": "CREATE FUNCTION bogus_func (anycompatible) RETURNS anycompatiblerange LANGUAGE sql AS $$select int4range(1,10)$$"
+    "expected": "CREATE FUNCTION bogus_func (anycompatible) RETURNS anycompatiblerange AS $$select int4range(1,10)$$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 522",
@@ -2637,7 +2637,7 @@
   {
     "comment": "multirangetypes - Statement 538",
     "query": "create function mr_outparam_succeed(i anymultirange, out r anymultirange, out t text) as $$ select $1, 'foo'::text $$ language sql",
-    "expected": "CREATE FUNCTION mr_outparam_succeed (i anymultirange, OUT r anymultirange, OUT t TEXT) LANGUAGE sql AS $$ select $1, 'foo'::text $$"
+    "expected": "CREATE FUNCTION mr_outparam_succeed (i anymultirange, OUT r anymultirange, OUT t TEXT) AS $$ select $1, 'foo'::text $$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 539",
@@ -2647,7 +2647,7 @@
   {
     "comment": "multirangetypes - Statement 540",
     "query": "create function mr_outparam_succeed2(i anymultirange, out r anyarray, out t text) as $$ select ARRAY[upper($1)], 'foo'::text $$ language sql",
-    "expected": "CREATE FUNCTION mr_outparam_succeed2 (i anymultirange, OUT r anyarray, OUT t TEXT) LANGUAGE sql AS $$ select ARRAY[upper($1)], 'foo'::text $$"
+    "expected": "CREATE FUNCTION mr_outparam_succeed2 (i anymultirange, OUT r anyarray, OUT t TEXT) AS $$ select ARRAY[upper($1)], 'foo'::text $$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 541",
@@ -2657,7 +2657,7 @@
   {
     "comment": "multirangetypes - Statement 542",
     "query": "create function mr_outparam_succeed3(i anymultirange, out r anyrange, out t text) as $$ select range_merge($1), 'foo'::text $$ language sql",
-    "expected": "CREATE FUNCTION mr_outparam_succeed3 (i anymultirange, OUT r anyrange, OUT t TEXT) LANGUAGE sql AS $$ select range_merge($1), 'foo'::text $$"
+    "expected": "CREATE FUNCTION mr_outparam_succeed3 (i anymultirange, OUT r anyrange, OUT t TEXT) AS $$ select range_merge($1), 'foo'::text $$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 543",
@@ -2667,7 +2667,7 @@
   {
     "comment": "multirangetypes - Statement 544",
     "query": "create function mr_outparam_succeed4(i anyrange, out r anymultirange, out t text) as $$ select multirange($1), 'foo'::text $$ language sql",
-    "expected": "CREATE FUNCTION mr_outparam_succeed4 (i anyrange, OUT r anymultirange, OUT t TEXT) LANGUAGE sql AS $$ select multirange($1), 'foo'::text $$"
+    "expected": "CREATE FUNCTION mr_outparam_succeed4 (i anyrange, OUT r anymultirange, OUT t TEXT) AS $$ select multirange($1), 'foo'::text $$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 545",
@@ -2677,7 +2677,7 @@
   {
     "comment": "multirangetypes - Statement 546",
     "query": "create function mr_inoutparam_succeed(out i anyelement, inout r anymultirange) as $$ select upper($1), $1 $$ language sql",
-    "expected": "CREATE FUNCTION mr_inoutparam_succeed (OUT i anyelement, INOUT r anymultirange) LANGUAGE sql AS $$ select upper($1), $1 $$"
+    "expected": "CREATE FUNCTION mr_inoutparam_succeed (OUT i anyelement, INOUT r anymultirange) AS $$ select upper($1), $1 $$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 547",
@@ -2687,7 +2687,7 @@
   {
     "comment": "multirangetypes - Statement 548",
     "query": "create function mr_table_succeed(i anyelement, r anymultirange) returns table(i anyelement, r anymultirange) as $$ select $1, $2 $$ language sql",
-    "expected": "CREATE FUNCTION mr_table_succeed (i anyelement, r anymultirange) LANGUAGE sql AS $$ select $1, $2 $$"
+    "expected": "CREATE FUNCTION mr_table_succeed (i anyelement, r anymultirange) AS $$ select $1, $2 $$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 549",
@@ -2697,7 +2697,7 @@
   {
     "comment": "multirangetypes - Statement 550",
     "query": "create function mr_polymorphic(i anyrange) returns anymultirange as $$ begin return multirange($1); end; $$ language plpgsql",
-    "expected": "CREATE FUNCTION mr_polymorphic (i anyrange) RETURNS anymultirange LANGUAGE plpgsql AS $$ begin return multirange($1); end; $$"
+    "expected": "CREATE FUNCTION mr_polymorphic (i anyrange) RETURNS anymultirange AS $$ begin return multirange($1); end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "multirangetypes - Statement 551",
@@ -2707,16 +2707,16 @@
   {
     "comment": "multirangetypes - Statement 552",
     "query": "create function mr_outparam_fail(i anyelement, out r anymultirange, out t text) as $$ select '[1,10]', 'foo' $$ language sql",
-    "expected": "CREATE FUNCTION mr_outparam_fail (i anyelement, OUT r anymultirange, OUT t TEXT) LANGUAGE sql AS $$ select '[1,10]', 'foo' $$"
+    "expected": "CREATE FUNCTION mr_outparam_fail (i anyelement, OUT r anymultirange, OUT t TEXT) AS $$ select '[1,10]', 'foo' $$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 553",
     "query": "create function mr_inoutparam_fail(inout i anyelement, out r anymultirange) as $$ select $1, '[1,10]' $$ language sql",
-    "expected": "CREATE FUNCTION mr_inoutparam_fail (INOUT i anyelement, OUT r anymultirange) LANGUAGE sql AS $$ select $1, '[1,10]' $$"
+    "expected": "CREATE FUNCTION mr_inoutparam_fail (INOUT i anyelement, OUT r anymultirange) AS $$ select $1, '[1,10]' $$ LANGUAGE sql"
   },
   {
     "comment": "multirangetypes - Statement 554",
     "query": "create function mr_table_fail(i anyelement) returns table(i anyelement, r anymultirange) as $$ select $1, '[1,10]' $$ language sql",
-    "expected": "CREATE FUNCTION mr_table_fail (i anyelement) LANGUAGE sql AS $$ select $1, '[1,10]' $$"
+    "expected": "CREATE FUNCTION mr_table_fail (i anyelement) AS $$ select $1, '[1,10]' $$ LANGUAGE sql"
   }
 ]

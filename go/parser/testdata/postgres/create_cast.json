@@ -6,12 +6,12 @@
   {
     "comment": "create_cast - Statement 2",
     "query": "CREATE FUNCTION casttesttype_in(cstring) RETURNS casttesttype AS 'textin' LANGUAGE internal STRICT IMMUTABLE",
-    "expected": "CREATE FUNCTION casttesttype_in (cstring) RETURNS casttesttype LANGUAGE internal AS $$textin$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION casttesttype_in (cstring) RETURNS casttesttype AS $$textin$$ LANGUAGE internal STRICT IMMUTABLE"
   },
   {
     "comment": "create_cast - Statement 3",
     "query": "CREATE FUNCTION casttesttype_out(casttesttype) RETURNS cstring AS 'textout' LANGUAGE internal STRICT IMMUTABLE",
-    "expected": "CREATE FUNCTION casttesttype_out (casttesttype) RETURNS cstring LANGUAGE internal AS $$textout$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION casttesttype_out (casttesttype) RETURNS cstring AS $$textout$$ LANGUAGE internal STRICT IMMUTABLE"
   },
   {
     "comment": "create_cast - Statement 4",

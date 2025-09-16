@@ -2,12 +2,12 @@
   {
     "comment": "alter_operator - Statement 1",
     "query": "CREATE FUNCTION alter_op_test_fn(boolean, boolean) RETURNS boolean AS $$ SELECT NULL::BOOLEAN; $$ LANGUAGE sql IMMUTABLE",
-    "expected": "CREATE FUNCTION alter_op_test_fn (BOOLEAN, BOOLEAN) RETURNS BOOLEAN LANGUAGE sql AS $$ SELECT NULL::BOOLEAN; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION alter_op_test_fn (BOOLEAN, BOOLEAN) RETURNS BOOLEAN AS $$ SELECT NULL::BOOLEAN; $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "alter_operator - Statement 2",
     "query": "CREATE FUNCTION customcontsel(internal, oid, internal, integer) RETURNS float8 AS 'contsel' LANGUAGE internal STABLE STRICT",
-    "expected": "CREATE FUNCTION customcontsel (internal, oid, internal, INT) RETURNS FLOAT8 LANGUAGE internal AS $$contsel$$ STABLE STRICT"
+    "expected": "CREATE FUNCTION customcontsel (internal, oid, internal, INT) RETURNS FLOAT8 AS $$contsel$$ LANGUAGE internal STABLE STRICT"
   },
   {
     "comment": "alter_operator - Statement 3",
@@ -86,12 +86,12 @@
   {
     "comment": "alter_operator - Statement 18",
     "query": "CREATE FUNCTION alter_op_test_fn_bool_real(boolean, real) RETURNS boolean AS $$ SELECT NULL::BOOLEAN; $$ LANGUAGE sql IMMUTABLE",
-    "expected": "CREATE FUNCTION alter_op_test_fn_bool_real (BOOLEAN, REAL) RETURNS BOOLEAN LANGUAGE sql AS $$ SELECT NULL::BOOLEAN; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION alter_op_test_fn_bool_real (BOOLEAN, REAL) RETURNS BOOLEAN AS $$ SELECT NULL::BOOLEAN; $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "alter_operator - Statement 19",
     "query": "CREATE FUNCTION alter_op_test_fn_real_bool(real, boolean) RETURNS boolean AS $$ SELECT NULL::BOOLEAN; $$ LANGUAGE sql IMMUTABLE",
-    "expected": "CREATE FUNCTION alter_op_test_fn_real_bool (REAL, BOOLEAN) RETURNS BOOLEAN LANGUAGE sql AS $$ SELECT NULL::BOOLEAN; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION alter_op_test_fn_real_bool (REAL, BOOLEAN) RETURNS BOOLEAN AS $$ SELECT NULL::BOOLEAN; $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "alter_operator - Statement 20",

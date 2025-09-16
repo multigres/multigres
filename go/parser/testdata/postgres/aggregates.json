@@ -1717,7 +1717,7 @@
   {
     "comment": "aggregates - Statement 348",
     "query": "create or replace function avg_transfn(state avg_state, n int) returns avg_state as $$ declare new_state avg_state; begin raise notice 'avg_transfn called with %', n; if state is null then if n is not null then new_state.total := n; new_state.count := 1; return new_state; end if; return null; elsif n is not null then state.total := state.total + n; state.count := state.count + 1; return state; end if; return null; end $$ language plpgsql;",
-    "expected": "CREATE OR REPLACE FUNCTION avg_transfn (state avg_state, n INT) RETURNS avg_state LANGUAGE plpgsql AS $$ declare new_state avg_state; begin raise notice 'avg_transfn called with %', n; if state is null then if n is not null then new_state.total := n; new_state.count := 1; return new_state; end if; return null; elsif n is not null then state.total := state.total + n; state.count := state.count + 1; return state; end if; return null; end $$"
+    "expected": "CREATE OR REPLACE FUNCTION avg_transfn (state avg_state, n INT) RETURNS avg_state AS $$ declare new_state avg_state; begin raise notice 'avg_transfn called with %', n; if state is null then if n is not null then new_state.total := n; new_state.count := 1; return new_state; end if; return null; elsif n is not null then state.total := state.total + n; state.count := state.count + 1; return state; end if; return null; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "aggregates - Statement 359",
@@ -1812,12 +1812,12 @@
   {
     "comment": "aggregates - Statement 379",
     "query": "create or replace function sum_transfn(state int4, n int4) returns int4 as $$ declare new_state int4; begin raise notice 'sum_transfn called with %', n; if state is null then if n is not null then new_state := n; return new_state; end if; return null; elsif n is not null then state := state + n; return state; end if; return null; end $$ language plpgsql;",
-    "expected": "CREATE OR REPLACE FUNCTION sum_transfn (state INT, n INT) RETURNS INT LANGUAGE plpgsql AS $$ declare new_state int4; begin raise notice 'sum_transfn called with %', n; if state is null then if n is not null then new_state := n; return new_state; end if; return null; elsif n is not null then state := state + n; return state; end if; return null; end $$"
+    "expected": "CREATE OR REPLACE FUNCTION sum_transfn (state INT, n INT) RETURNS INT AS $$ declare new_state int4; begin raise notice 'sum_transfn called with %', n; if state is null then if n is not null then new_state := n; return new_state; end if; return null; elsif n is not null then state := state + n; return state; end if; return null; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "aggregates - Statement 383",
     "query": "create function halfsum_finalfn(state int4) returns int4 as $$ begin if state is null then return NULL; else return state / 2; end if; end $$ language plpgsql;",
-    "expected": "CREATE FUNCTION halfsum_finalfn (state INT) RETURNS INT LANGUAGE plpgsql AS $$ begin if state is null then return NULL; else return state / 2; end if; end $$"
+    "expected": "CREATE FUNCTION halfsum_finalfn (state INT) RETURNS INT AS $$ begin if state is null then return NULL; else return state / 2; end if; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "aggregates - Statement 385",
@@ -1837,7 +1837,7 @@
   {
     "comment": "aggregates - Statement 388",
     "query": "CREATE FUNCTION balkifnull(int8, int4) RETURNS int8 STRICT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'; END IF; RETURN NULL; END$$;",
-    "expected": "CREATE FUNCTION balkifnull (BIGINT, INT) RETURNS BIGINT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'; END IF; RETURN NULL; END$$ STRICT"
+    "expected": "CREATE FUNCTION balkifnull (BIGINT, INT) RETURNS BIGINT STRICT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'; END IF; RETURN NULL; END$$"
   },
   {
     "comment": "aggregates - Statement 390",
@@ -2001,7 +2001,7 @@
   {
     "comment": "aggregates - Statement 425",
     "query": "CREATE FUNCTION balkifnull(int8, int8) RETURNS int8 PARALLEL SAFE STRICT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'; END IF; RETURN NULL; END$$;",
-    "expected": "CREATE FUNCTION balkifnull (BIGINT, BIGINT) RETURNS BIGINT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'; END IF; RETURN NULL; END$$ PARALLEL SAFE STRICT"
+    "expected": "CREATE FUNCTION balkifnull (BIGINT, BIGINT) RETURNS BIGINT PARALLEL SAFE STRICT LANGUAGE plpgsql AS $$ BEGIN IF $1 IS NULL THEN RAISE 'erroneously called with NULL argument'; END IF; RETURN NULL; END$$"
   },
   {
     "comment": "aggregates - Statement 426",
@@ -2031,12 +2031,12 @@
   {
     "comment": "aggregates - Statement 431",
     "query": "CREATE FUNCTION rwagg_sfunc(x anyarray, y anyarray) RETURNS anyarray LANGUAGE plpgsql IMMUTABLE AS $$ BEGIN RETURN array_fill(y[1], ARRAY[4]); END; $$;",
-    "expected": "CREATE FUNCTION rwagg_sfunc (x anyarray, y anyarray) RETURNS anyarray LANGUAGE plpgsql AS $$ BEGIN RETURN array_fill(y[1], ARRAY[4]); END; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION rwagg_sfunc (x anyarray, y anyarray) RETURNS anyarray LANGUAGE plpgsql IMMUTABLE AS $$ BEGIN RETURN array_fill(y[1], ARRAY[4]); END; $$"
   },
   {
     "comment": "aggregates - Statement 434",
     "query": "CREATE FUNCTION rwagg_finalfunc(x anyarray) RETURNS anyarray LANGUAGE plpgsql STRICT IMMUTABLE AS $$ DECLARE res x%TYPE; BEGIN res := array_fill(x[1], ARRAY[4]); RETURN res; END; $$;",
-    "expected": "CREATE FUNCTION rwagg_finalfunc (x anyarray) RETURNS anyarray LANGUAGE plpgsql AS $$ DECLARE res x%TYPE; BEGIN res := array_fill(x[1], ARRAY[4]); RETURN res; END; $$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION rwagg_finalfunc (x anyarray) RETURNS anyarray LANGUAGE plpgsql STRICT IMMUTABLE AS $$ DECLARE res x%TYPE; BEGIN res := array_fill(x[1], ARRAY[4]); RETURN res; END; $$"
   },
   {
     "comment": "aggregates - Statement 437",
@@ -2046,7 +2046,7 @@
   {
     "comment": "aggregates - Statement 438",
     "query": "CREATE FUNCTION eatarray(x real[]) RETURNS real[] LANGUAGE plpgsql STRICT IMMUTABLE AS $$ BEGIN x[1] := x[1] + 1; RETURN x; END; $$;",
-    "expected": "CREATE FUNCTION eatarray (x REAL[]) RETURNS REAL[] LANGUAGE plpgsql AS $$ BEGIN x[1] := x[1] + 1; RETURN x; END; $$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION eatarray (x REAL[]) RETURNS REAL[] LANGUAGE plpgsql STRICT IMMUTABLE AS $$ BEGIN x[1] := x[1] + 1; RETURN x; END; $$"
   },
   {
     "comment": "aggregates - Statement 440",

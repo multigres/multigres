@@ -306,7 +306,7 @@
   {
     "comment": "create_procedure - Statement 71",
     "query": "CREATE PROCEDURE ptestx() LANGUAGE SQL STRICT AS $$ INSERT INTO cp_test VALUES (1, 'a') $$",
-    "expected": "CREATE PROCEDURE ptestx () LANGUAGE sql AS $$ INSERT INTO cp_test VALUES (1, 'a') $$ STRICT"
+    "expected": "CREATE PROCEDURE ptestx () LANGUAGE sql STRICT AS $$ INSERT INTO cp_test VALUES (1, 'a') $$"
   },
   {
     "comment": "create_procedure - Statement 72",
@@ -362,7 +362,7 @@
   {
     "comment": "create_procedure - Statement 83",
     "query": "REVOKE EXECUTE ON PROCEDURE ptest1(text) FROM PUBLIC",
-    "expected": "REVOKE EXECUTE ON PROCEDURE ptest1(TEXT) FROM public"
+    "expected": "REVOKE EXECUTE ON PROCEDURE ptest1(TEXT) FROM PUBLIC"
   },
   {
     "comment": "create_procedure - Statement 84",

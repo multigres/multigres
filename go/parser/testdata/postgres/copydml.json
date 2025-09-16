@@ -137,7 +137,7 @@
   {
     "comment": "copydml - Statement 28",
     "query": "create function qqq_trig() returns trigger as $$ begin if tg_op in ('INSERT', 'UPDATE') then raise notice '% % %', tg_when, tg_op, new.id; return new; else raise notice '% % %', tg_when, tg_op, old.id; return old; end if; end $$ language plpgsql;",
-    "expected": "CREATE FUNCTION qqq_trig () RETURNS trigger LANGUAGE plpgsql AS $$ begin if tg_op in ('INSERT', 'UPDATE') then raise notice '% % %', tg_when, tg_op, new.id; return new; else raise notice '% % %', tg_when, tg_op, old.id; return old; end if; end $$"
+    "expected": "CREATE FUNCTION qqq_trig () RETURNS trigger AS $$ begin if tg_op in ('INSERT', 'UPDATE') then raise notice '% % %', tg_when, tg_op, new.id; return new; else raise notice '% % %', tg_when, tg_op, old.id; return old; end if; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "copydml - Statement 34",

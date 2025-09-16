@@ -9,7 +9,8 @@
   },
   {
     "comment": "create_function_sql - Statement 3",
-    "query": "GRANT ALL ON SCHEMA temp_func_test TO public"
+    "query": "GRANT ALL ON SCHEMA temp_func_test TO public",
+    "expected": "GRANT ALL ON SCHEMA temp_func_test TO PUBLIC"
   },
   {
     "comment": "create_function_sql - Statement 4",
@@ -59,17 +60,17 @@
   {
     "comment": "create_function_sql - Statement 13",
     "query": "CREATE FUNCTION functest_B_2(int) RETURNS bool LANGUAGE 'sql' IMMUTABLE AS 'SELECT $1 \u003e 0'",
-    "expected": "CREATE FUNCTION functest_b_2 (INT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 \u003e 0$$ IMMUTABLE"
+    "expected": "CREATE FUNCTION functest_b_2 (INT) RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$SELECT $1 \u003e 0$$"
   },
   {
     "comment": "create_function_sql - Statement 14",
     "query": "CREATE FUNCTION functest_B_3(int) RETURNS bool LANGUAGE 'sql' STABLE AS 'SELECT $1 = 0'",
-    "expected": "CREATE FUNCTION functest_b_3 (INT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 = 0$$ STABLE"
+    "expected": "CREATE FUNCTION functest_b_3 (INT) RETURNS BOOLEAN LANGUAGE sql STABLE AS $$SELECT $1 = 0$$"
   },
   {
     "comment": "create_function_sql - Statement 15",
     "query": "CREATE FUNCTION functest_B_4(int) RETURNS bool LANGUAGE 'sql' VOLATILE AS 'SELECT $1 \u003c 0'",
-    "expected": "CREATE FUNCTION functest_b_4 (INT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 \u003c 0$$ VOLATILE"
+    "expected": "CREATE FUNCTION functest_b_4 (INT) RETURNS BOOLEAN LANGUAGE sql VOLATILE AS $$SELECT $1 \u003c 0$$"
   },
   {
     "comment": "create_function_sql - Statement 16",
@@ -94,12 +95,12 @@
   {
     "comment": "create_function_sql - Statement 20",
     "query": "CREATE FUNCTION functest_C_2(int) RETURNS bool LANGUAGE 'sql' SECURITY DEFINER AS 'SELECT $1 = 0'",
-    "expected": "CREATE FUNCTION functest_c_2 (INT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 = 0$$ SECURITY DEFINER"
+    "expected": "CREATE FUNCTION functest_c_2 (INT) RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER AS $$SELECT $1 = 0$$"
   },
   {
     "comment": "create_function_sql - Statement 21",
     "query": "CREATE FUNCTION functest_C_3(int) RETURNS bool LANGUAGE 'sql' SECURITY INVOKER AS 'SELECT $1 \u003c 0'",
-    "expected": "CREATE FUNCTION functest_c_3 (INT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 \u003c 0$$ SECURITY INVOKER"
+    "expected": "CREATE FUNCTION functest_c_3 (INT) RETURNS BOOLEAN LANGUAGE sql SECURITY INVOKER AS $$SELECT $1 \u003c 0$$"
   },
   {
     "comment": "create_function_sql - Statement 22",
@@ -129,7 +130,7 @@
   {
     "comment": "create_function_sql - Statement 27",
     "query": "CREATE FUNCTION functest_E_2(int) RETURNS bool LANGUAGE 'sql' LEAKPROOF AS 'SELECT $1 \u003e 100'",
-    "expected": "CREATE FUNCTION functest_e_2 (INT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 \u003e 100$$ LEAKPROOF"
+    "expected": "CREATE FUNCTION functest_e_2 (INT) RETURNS BOOLEAN LANGUAGE sql LEAKPROOF AS $$SELECT $1 \u003e 100$$"
   },
   {
     "comment": "create_function_sql - Statement 28",
@@ -179,7 +180,7 @@
   {
     "comment": "create_function_sql - Statement 37",
     "query": "CREATE FUNCTION functest_E_3(int) RETURNS bool LANGUAGE 'sql' LEAKPROOF AS 'SELECT $1 \u003c 200'",
-    "expected": "CREATE FUNCTION functest_e_3 (INT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 \u003c 200$$ LEAKPROOF"
+    "expected": "CREATE FUNCTION functest_e_3 (INT) RETURNS BOOLEAN LANGUAGE sql LEAKPROOF AS $$SELECT $1 \u003c 200$$"
   },
   {
     "comment": "create_function_sql - Statement 38",
@@ -194,17 +195,17 @@
   {
     "comment": "create_function_sql - Statement 40",
     "query": "CREATE FUNCTION functest_F_2(int) RETURNS bool LANGUAGE 'sql' CALLED ON NULL INPUT AS 'SELECT $1 = 50'",
-    "expected": "CREATE FUNCTION functest_f_2 (INT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 = 50$$ CALLED ON NULL INPUT"
+    "expected": "CREATE FUNCTION functest_f_2 (INT) RETURNS BOOLEAN LANGUAGE sql CALLED ON NULL INPUT AS $$SELECT $1 = 50$$"
   },
   {
     "comment": "create_function_sql - Statement 41",
     "query": "CREATE FUNCTION functest_F_3(int) RETURNS bool LANGUAGE 'sql' RETURNS NULL ON NULL INPUT AS 'SELECT $1 \u003c 50'",
-    "expected": "CREATE FUNCTION functest_f_3 (INT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 \u003c 50$$ STRICT"
+    "expected": "CREATE FUNCTION functest_f_3 (INT) RETURNS BOOLEAN LANGUAGE sql STRICT AS $$SELECT $1 \u003c 50$$"
   },
   {
     "comment": "create_function_sql - Statement 42",
     "query": "CREATE FUNCTION functest_F_4(int) RETURNS bool LANGUAGE 'sql' STRICT AS 'SELECT $1 = 50'",
-    "expected": "CREATE FUNCTION functest_f_4 (INT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 = 50$$ STRICT"
+    "expected": "CREATE FUNCTION functest_f_4 (INT) RETURNS BOOLEAN LANGUAGE sql STRICT AS $$SELECT $1 = 50$$"
   },
   {
     "comment": "create_function_sql - Statement 43",
@@ -494,7 +495,7 @@
   {
     "comment": "create_function_sql - Statement 104",
     "query": "CREATE FUNCTION functest_B_2(bigint) RETURNS bool LANGUAGE 'sql' IMMUTABLE AS 'SELECT $1 \u003e 0'",
-    "expected": "CREATE FUNCTION functest_b_2 (BIGINT) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT $1 \u003e 0$$ IMMUTABLE"
+    "expected": "CREATE FUNCTION functest_b_2 (BIGINT) RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$SELECT $1 \u003e 0$$"
   },
   {
     "comment": "create_function_sql - Statement 105",
@@ -531,7 +532,7 @@
   {
     "comment": "create_function_sql - Statement 112",
     "query": "CREATE FUNCTION functest_sri1() RETURNS SETOF int LANGUAGE SQL STABLE AS ' SELECT * FROM functest3';",
-    "expected": "CREATE FUNCTION functest_sri1 () RETURNS SETOF INT LANGUAGE sql AS $$ SELECT * FROM functest3$$ STABLE"
+    "expected": "CREATE FUNCTION functest_sri1 () RETURNS SETOF INT LANGUAGE sql STABLE AS $$ SELECT * FROM functest3$$"
   },
   {
     "comment": "create_function_sql - Statement 114",
@@ -620,7 +621,7 @@
   {
     "comment": "create_function_sql - Statement 132",
     "query": "CREATE FUNCTION double_append(anyarray, anyelement) RETURNS SETOF anyarray LANGUAGE SQL IMMUTABLE AS $$ SELECT array_append($1, $2) || array_append($1, $2) $$",
-    "expected": "CREATE FUNCTION double_append (anyarray, anyelement) RETURNS SETOF anyarray LANGUAGE sql AS $$ SELECT array_append($1, $2) || array_append($1, $2) $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION double_append (anyarray, anyelement) RETURNS SETOF anyarray LANGUAGE sql IMMUTABLE AS $$ SELECT array_append($1, $2) || array_append($1, $2) $$"
   },
   {
     "comment": "create_function_sql - Statement 133",

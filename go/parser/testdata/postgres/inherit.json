@@ -252,7 +252,7 @@
   {
     "comment": "inherit - Statement 52",
     "query": "create function some_tab_stmt_trig_func() returns trigger as $$begin raise notice 'updating some_tab'; return NULL; end;$$ language plpgsql",
-    "expected": "CREATE FUNCTION some_tab_stmt_trig_func () RETURNS trigger LANGUAGE plpgsql AS $$begin raise notice 'updating some_tab'; return NULL; end;$$"
+    "expected": "CREATE FUNCTION some_tab_stmt_trig_func () RETURNS trigger AS $$begin raise notice 'updating some_tab'; return NULL; end;$$ LANGUAGE plpgsql"
   },
   {
     "comment": "inherit - Statement 53",
@@ -699,7 +699,7 @@
   {
     "comment": "inherit - Statement 142",
     "query": "create function p2text(p2) returns text as 'select $1.f1' language sql",
-    "expected": "CREATE FUNCTION p2text (p2) RETURNS TEXT LANGUAGE sql AS $$select $1.f1$$"
+    "expected": "CREATE FUNCTION p2text (p2) RETURNS TEXT AS $$select $1.f1$$ LANGUAGE sql"
   },
   {
     "comment": "inherit - Statement 143",

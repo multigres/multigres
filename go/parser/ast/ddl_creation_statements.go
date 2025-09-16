@@ -277,9 +277,7 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 		parts = append(parts, "RETURNS", cfs.ReturnType.SqlString())
 	}
 
-	// Function options
-	var asClause string
-	var additionalOptions []string
+	// Function options - process in original order
 	var hasLanguage bool
 	if cfs.Options != nil {
 		for _, item := range cfs.Options.Items {
@@ -295,36 +293,26 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 					}
 				} else if option.Defname == "as" {
 					if str, ok := option.Arg.(*String); ok {
-						// Wrap the AS clause content in $$ delimiters for proper SQL formatting
-						asClause = "$$" + str.SVal + "$$"
+						// Use DollarQuoteString to handle nested dollar quotes properly
+						parts = append(parts, "AS", DollarQuoteString(str.SVal))
 					} else if list, ok := option.Arg.(*NodeList); ok {
 						// The AS clause might be in a NodeList
 						if len(list.Items) > 0 {
 							if str, ok := list.Items[0].(*String); ok {
-								// Wrap the AS clause content in $$ delimiters for proper SQL formatting
-								asClause = "$$" + str.SVal + "$$"
+								// Use DollarQuoteString to handle nested dollar quotes properly
+								parts = append(parts, "AS", DollarQuoteString(str.SVal))
 							}
 						}
 					}
 				} else {
-					// Use SqlStringForFunction for all other options
+					// All other options (SECURITY DEFINER, STABLE, STRICT, etc.)
 					optStr := option.SqlStringForFunction()
 					if optStr != "" && optStr != option.Defname {
-						additionalOptions = append(additionalOptions, optStr)
+						parts = append(parts, optStr)
 					}
 				}
 			}
 		}
-	}
-
-	// Add AS clause if we found it
-	if asClause != "" {
-		parts = append(parts, "AS", asClause)
-	}
-
-	// Add additional function options (STABLE, STRICT, etc.)
-	for _, opt := range additionalOptions {
-		parts = append(parts, opt)
 	}
 
 	// SQL body

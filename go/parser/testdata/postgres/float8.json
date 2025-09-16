@@ -769,12 +769,12 @@
   {
     "comment": "float8 - Statement 156",
     "query": "create function xfloat8in(cstring) returns xfloat8 immutable strict language internal as 'int8in'",
-    "expected": "CREATE FUNCTION xfloat8in (cstring) RETURNS xfloat8 LANGUAGE internal AS $$int8in$$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION xfloat8in (cstring) RETURNS xfloat8 IMMUTABLE STRICT LANGUAGE internal AS $$int8in$$"
   },
   {
     "comment": "float8 - Statement 157",
     "query": "create function xfloat8out(xfloat8) returns cstring immutable strict language internal as 'int8out'",
-    "expected": "CREATE FUNCTION xfloat8out (xfloat8) RETURNS cstring LANGUAGE internal AS $$int8out$$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION xfloat8out (xfloat8) RETURNS cstring IMMUTABLE STRICT LANGUAGE internal AS $$int8out$$"
   },
   {
     "comment": "float8 - Statement 158",

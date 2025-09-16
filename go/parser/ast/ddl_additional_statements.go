@@ -458,43 +458,85 @@ func (a *AlterPublicationStmt) SqlString() string {
 			parts = append(parts, "SET (", strings.Join(optionStrs, ", "), ")")
 		}
 	case AP_AddObjects:
-		parts = append(parts, "ADD TABLE")
 		if a.PubObjects != nil && a.PubObjects.Len() > 0 {
-			objStrs := make([]string, 0, a.PubObjects.Len())
+			// Check if we have TABLES IN SCHEMA
+			hasTablesInSchema := false
+			var schemaNames []string
+			var tableObjects []string
+			
 			for i := 0; i < a.PubObjects.Len(); i++ {
 				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
-					if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-						objStrs = append(objStrs, pubObj.PubTable.Relation.SqlString())
+					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
+						hasTablesInSchema = true
+						schemaNames = append(schemaNames, pubObj.Name)
+					} else if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
+						tableObjects = append(tableObjects, pubObj.PubTable.Relation.SqlString())
 					}
 				}
 			}
-			parts = append(parts, strings.Join(objStrs, ", "))
+			
+			if hasTablesInSchema {
+				parts = append(parts, "ADD TABLES IN SCHEMA", strings.Join(schemaNames, ", "))
+			} else {
+				parts = append(parts, "ADD TABLE")
+				if len(tableObjects) > 0 {
+					parts = append(parts, strings.Join(tableObjects, ", "))
+				}
+			}
 		}
 	case AP_SetObjects:
-		parts = append(parts, "SET TABLE")
 		if a.PubObjects != nil && a.PubObjects.Len() > 0 {
-			objStrs := make([]string, 0, a.PubObjects.Len())
+			// Check if we have TABLES IN SCHEMA
+			hasTablesInSchema := false
+			var schemaNames []string
+			var tableObjects []string
+			
 			for i := 0; i < a.PubObjects.Len(); i++ {
 				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
-					if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-						objStrs = append(objStrs, pubObj.PubTable.Relation.SqlString())
+					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
+						hasTablesInSchema = true
+						schemaNames = append(schemaNames, pubObj.Name)
+					} else if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
+						tableObjects = append(tableObjects, pubObj.PubTable.Relation.SqlString())
 					}
 				}
 			}
-			parts = append(parts, strings.Join(objStrs, ", "))
+			
+			if hasTablesInSchema {
+				parts = append(parts, "SET TABLES IN SCHEMA", strings.Join(schemaNames, ", "))
+			} else {
+				parts = append(parts, "SET TABLE")
+				if len(tableObjects) > 0 {
+					parts = append(parts, strings.Join(tableObjects, ", "))
+				}
+			}
 		}
 	case AP_DropObjects:
-		parts = append(parts, "DROP TABLE")
 		if a.PubObjects != nil && a.PubObjects.Len() > 0 {
-			objStrs := make([]string, 0, a.PubObjects.Len())
+			// Check if we have TABLES IN SCHEMA
+			hasTablesInSchema := false
+			var schemaNames []string
+			var tableObjects []string
+			
 			for i := 0; i < a.PubObjects.Len(); i++ {
 				if pubObj, ok := a.PubObjects.Items[i].(*PublicationObjSpec); ok {
-					if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
-						objStrs = append(objStrs, pubObj.PubTable.Relation.SqlString())
+					if pubObj.PubObjType == PUBLICATIONOBJ_TABLES_IN_SCHEMA {
+						hasTablesInSchema = true
+						schemaNames = append(schemaNames, pubObj.Name)
+					} else if pubObj.PubTable != nil && pubObj.PubTable.Relation != nil {
+						tableObjects = append(tableObjects, pubObj.PubTable.Relation.SqlString())
 					}
 				}
 			}
-			parts = append(parts, strings.Join(objStrs, ", "))
+			
+			if hasTablesInSchema {
+				parts = append(parts, "DROP TABLES IN SCHEMA", strings.Join(schemaNames, ", "))
+			} else {
+				parts = append(parts, "DROP TABLE")
+				if len(tableObjects) > 0 {
+					parts = append(parts, strings.Join(tableObjects, ", "))
+				}
+			}
 		}
 	}
 

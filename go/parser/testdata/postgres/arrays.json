@@ -1373,7 +1373,7 @@
   {
     "comment": "arrays - Statement 301",
     "query": "create or replace function unnest1(anyarray) returns setof anyelement as $$ select $1[s] from generate_subscripts($1,1) g(s) $$ language sql immutable",
-    "expected": "CREATE OR REPLACE FUNCTION unnest1 (anyarray) RETURNS SETOF anyelement LANGUAGE sql AS $$ select $1[s] from generate_subscripts($1,1) g(s) $$ IMMUTABLE"
+    "expected": "CREATE OR REPLACE FUNCTION unnest1 (anyarray) RETURNS SETOF anyelement AS $$ select $1[s] from generate_subscripts($1,1) g(s) $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "arrays - Statement 303",

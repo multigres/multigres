@@ -57,7 +57,7 @@
   {
     "comment": "create_aggregate - Statement 12",
     "query": "create function sum3(int8,int8,int8) returns int8 as 'select $1 + $2 + $3' language sql strict immutable",
-    "expected": "CREATE FUNCTION sum3 (BIGINT, BIGINT, BIGINT) RETURNS BIGINT LANGUAGE sql AS $$select $1 + $2 + $3$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION sum3 (BIGINT, BIGINT, BIGINT) RETURNS BIGINT AS $$select $1 + $2 + $3$$ LANGUAGE sql STRICT IMMUTABLE"
   },
   {
     "comment": "create_aggregate - Statement 13",
@@ -72,12 +72,12 @@
   {
     "comment": "create_aggregate - Statement 15",
     "query": "create function aggf_trans(aggtype[],integer,integer,text) returns aggtype[] as 'select array_append($1,ROW($2,$3,$4)::aggtype)' language sql strict immutable",
-    "expected": "CREATE FUNCTION aggf_trans (aggtype[], INT, INT, TEXT) RETURNS aggtype[] LANGUAGE sql AS $$select array_append($1,ROW($2,$3,$4)::aggtype)$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION aggf_trans (aggtype[], INT, INT, TEXT) RETURNS aggtype[] AS $$select array_append($1,ROW($2,$3,$4)::aggtype)$$ LANGUAGE sql STRICT IMMUTABLE"
   },
   {
     "comment": "create_aggregate - Statement 16",
     "query": "create function aggfns_trans(aggtype[],integer,integer,text) returns aggtype[] as 'select array_append($1,ROW($2,$3,$4)::aggtype)' language sql immutable",
-    "expected": "CREATE FUNCTION aggfns_trans (aggtype[], INT, INT, TEXT) RETURNS aggtype[] LANGUAGE sql AS $$select array_append($1,ROW($2,$3,$4)::aggtype)$$ IMMUTABLE"
+    "expected": "CREATE FUNCTION aggfns_trans (aggtype[], INT, INT, TEXT) RETURNS aggtype[] AS $$select array_append($1,ROW($2,$3,$4)::aggtype)$$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "create_aggregate - Statement 17",
@@ -222,7 +222,7 @@
   {
     "comment": "create_aggregate - Statement 45",
     "query": "create function sum4(int8,int8,int8,int8) returns int8 as 'select $1 + $2 + $3 + $4' language sql strict immutable",
-    "expected": "CREATE FUNCTION sum4 (BIGINT, BIGINT, BIGINT, BIGINT) RETURNS BIGINT LANGUAGE sql AS $$select $1 + $2 + $3 + $4$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION sum4 (BIGINT, BIGINT, BIGINT, BIGINT) RETURNS BIGINT AS $$select $1 + $2 + $3 + $4$$ LANGUAGE sql STRICT IMMUTABLE"
   },
   {
     "comment": "create_aggregate - Statement 46",
@@ -242,7 +242,7 @@
   {
     "comment": "create_aggregate - Statement 49",
     "query": "CREATE FUNCTION float8mi_n(float8, float8) RETURNS float8 AS $$ SELECT $1 - $2; $$ LANGUAGE SQL",
-    "expected": "CREATE FUNCTION float8mi_n (FLOAT8, FLOAT8) RETURNS FLOAT8 LANGUAGE sql AS $$ SELECT $1 - $2; $$"
+    "expected": "CREATE FUNCTION float8mi_n (FLOAT8, FLOAT8) RETURNS FLOAT8 AS $$ SELECT $1 - $2; $$ LANGUAGE sql"
   },
   {
     "comment": "create_aggregate - Statement 50",
@@ -252,7 +252,7 @@
   {
     "comment": "create_aggregate - Statement 51",
     "query": "CREATE FUNCTION float8mi_int(float8, float8) RETURNS int AS $$ SELECT CAST($1 - $2 AS INT); $$ LANGUAGE SQL",
-    "expected": "CREATE FUNCTION float8mi_int (FLOAT8, FLOAT8) RETURNS INT LANGUAGE sql AS $$ SELECT CAST($1 - $2 AS INT); $$"
+    "expected": "CREATE FUNCTION float8mi_int (FLOAT8, FLOAT8) RETURNS INT AS $$ SELECT CAST($1 - $2 AS INT); $$ LANGUAGE sql"
   },
   {
     "comment": "create_aggregate - Statement 52",

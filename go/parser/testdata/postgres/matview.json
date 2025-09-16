@@ -516,7 +516,7 @@
   {
     "comment": "matview - Statement 118",
     "query": "CREATE OR REPLACE FUNCTION mvtest_drop_the_index() RETURNS bool AS $$ BEGIN EXECUTE 'DROP INDEX IF EXISTS mvtest_mvschema.mvtest_drop_idx'; RETURN true; END; $$ LANGUAGE plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION mvtest_drop_the_index () RETURNS BOOLEAN LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'DROP INDEX IF EXISTS mvtest_mvschema.mvtest_drop_idx'; RETURN true; END; $$"
+    "expected": "CREATE OR REPLACE FUNCTION mvtest_drop_the_index () RETURNS BOOLEAN AS $$ BEGIN EXECUTE 'DROP INDEX IF EXISTS mvtest_mvschema.mvtest_drop_idx'; RETURN true; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "matview - Statement 122",
@@ -571,7 +571,8 @@
   },
   {
     "comment": "matview - Statement 134",
-    "query": "GRANT ALL ON SCHEMA matview_schema TO public"
+    "query": "GRANT ALL ON SCHEMA matview_schema TO public",
+    "expected": "GRANT ALL ON SCHEMA matview_schema TO PUBLIC"
   },
   {
     "comment": "matview - Statement 135",

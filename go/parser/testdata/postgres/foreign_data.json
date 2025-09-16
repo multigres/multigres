@@ -385,7 +385,8 @@
   },
   {
     "comment": "foreign_data - Statement 93",
-    "query": "CREATE USER MAPPING FOR public SERVER s4 OPTIONS (\"this mapping\" 'is public')"
+    "query": "CREATE USER MAPPING FOR public SERVER s4 OPTIONS (\"this mapping\" 'is public')",
+    "expected": "CREATE USER MAPPING FOR PUBLIC SERVER s4 OPTIONS (\"this mapping\" 'is public')"
   },
   {
     "comment": "foreign_data - Statement 94",
@@ -422,7 +423,8 @@
   },
   {
     "comment": "foreign_data - Statement 101",
-    "query": "CREATE USER MAPPING FOR public SERVER s8"
+    "query": "CREATE USER MAPPING FOR public SERVER s8",
+    "expected": "CREATE USER MAPPING FOR PUBLIC SERVER s8"
   },
   {
     "comment": "foreign_data - Statement 102",
@@ -435,7 +437,8 @@
   },
   {
     "comment": "foreign_data - Statement 104",
-    "query": "CREATE USER MAPPING FOR public SERVER t1"
+    "query": "CREATE USER MAPPING FOR public SERVER t1",
+    "expected": "CREATE USER MAPPING FOR PUBLIC SERVER t1"
   },
   {
     "comment": "foreign_data - Statement 105",
@@ -444,7 +447,8 @@
   },
   {
     "comment": "foreign_data - Statement 106",
-    "query": "ALTER USER MAPPING FOR public SERVER s5 OPTIONS (gotcha 'true')"
+    "query": "ALTER USER MAPPING FOR public SERVER s5 OPTIONS (gotcha 'true')",
+    "expected": "ALTER USER MAPPING FOR PUBLIC SERVER s5 OPTIONS (gotcha 'true')"
   },
   {
     "comment": "foreign_data - Statement 107",
@@ -463,11 +467,13 @@
   },
   {
     "comment": "foreign_data - Statement 110",
-    "query": "ALTER USER MAPPING FOR public SERVER s4 OPTIONS (ADD modified '1')"
+    "query": "ALTER USER MAPPING FOR public SERVER s4 OPTIONS (ADD modified '1')",
+    "expected": "ALTER USER MAPPING FOR PUBLIC SERVER s4 OPTIONS (ADD modified '1')"
   },
   {
     "comment": "foreign_data - Statement 111",
-    "query": "ALTER USER MAPPING FOR public SERVER t1 OPTIONS (ADD modified '1')"
+    "query": "ALTER USER MAPPING FOR public SERVER t1 OPTIONS (ADD modified '1')",
+    "expected": "ALTER USER MAPPING FOR PUBLIC SERVER t1 OPTIONS (ADD modified '1')"
   },
   {
     "comment": "foreign_data - Statement 112",
@@ -476,7 +482,8 @@
   },
   {
     "comment": "foreign_data - Statement 113",
-    "query": "DROP USER MAPPING FOR public SERVER s7"
+    "query": "DROP USER MAPPING FOR public SERVER s7",
+    "expected": "DROP USER MAPPING FOR PUBLIC SERVER s7"
   },
   {
     "comment": "foreign_data - Statement 114",
@@ -489,11 +496,13 @@
   },
   {
     "comment": "foreign_data - Statement 116",
-    "query": "DROP USER MAPPING IF EXISTS FOR public SERVER s7"
+    "query": "DROP USER MAPPING IF EXISTS FOR public SERVER s7",
+    "expected": "DROP USER MAPPING IF EXISTS FOR PUBLIC SERVER s7"
   },
   {
     "comment": "foreign_data - Statement 117",
-    "query": "DROP USER MAPPING FOR public SERVER s8"
+    "query": "DROP USER MAPPING FOR public SERVER s8",
+    "expected": "DROP USER MAPPING FOR PUBLIC SERVER s8"
   },
   {
     "comment": "foreign_data - Statement 118",
@@ -1038,7 +1047,8 @@
   },
   {
     "comment": "foreign_data - Statement 242",
-    "query": "DROP USER MAPPING FOR public SERVER s4"
+    "query": "DROP USER MAPPING FOR public SERVER s4",
+    "expected": "DROP USER MAPPING FOR PUBLIC SERVER s4"
   },
   {
     "comment": "foreign_data - Statement 243",
@@ -1087,7 +1097,8 @@
   },
   {
     "comment": "foreign_data - Statement 254",
-    "query": "CREATE USER MAPPING FOR public SERVER s4"
+    "query": "CREATE USER MAPPING FOR public SERVER s4",
+    "expected": "CREATE USER MAPPING FOR PUBLIC SERVER s4"
   },
   {
     "comment": "foreign_data - Statement 255",
@@ -1136,11 +1147,13 @@
   },
   {
     "comment": "foreign_data - Statement 265",
-    "query": "CREATE USER MAPPING FOR public SERVER s6"
+    "query": "CREATE USER MAPPING FOR public SERVER s6",
+    "expected": "CREATE USER MAPPING FOR PUBLIC SERVER s6"
   },
   {
     "comment": "foreign_data - Statement 266",
-    "query": "CREATE USER MAPPING FOR public SERVER s9"
+    "query": "CREATE USER MAPPING FOR public SERVER s9",
+    "expected": "CREATE USER MAPPING FOR PUBLIC SERVER s9"
   },
   {
     "comment": "foreign_data - Statement 267",
@@ -1180,7 +1193,8 @@
   },
   {
     "comment": "foreign_data - Statement 275",
-    "query": "CREATE USER MAPPING FOR public SERVER s10 OPTIONS (user 'secret')"
+    "query": "CREATE USER MAPPING FOR public SERVER s10 OPTIONS (user 'secret')",
+    "expected": "CREATE USER MAPPING FOR PUBLIC SERVER s10 OPTIONS (user 'secret')"
   },
   {
     "comment": "foreign_data - Statement 276",
@@ -1193,7 +1207,7 @@
   {
     "comment": "foreign_data - Statement 278",
     "query": "CREATE FUNCTION dummy_trigger() RETURNS TRIGGER AS $$ BEGIN RETURN NULL; END $$ language plpgsql",
-    "expected": "CREATE FUNCTION dummy_trigger () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$"
+    "expected": "CREATE FUNCTION dummy_trigger () RETURNS trigger AS $$ BEGIN RETURN NULL; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "foreign_data - Statement 280",

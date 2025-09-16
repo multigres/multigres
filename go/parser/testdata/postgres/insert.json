@@ -1000,7 +1000,7 @@
   {
     "comment": "insert - Statement 201",
     "query": "create function mlparted11_trig_fn() returns trigger AS $$ begin   NEW.b := 4;   return NEW; end; $$ language plpgsql;",
-    "expected": "CREATE FUNCTION mlparted11_trig_fn () RETURNS trigger LANGUAGE plpgsql AS $$ begin   NEW.b := 4;   return NEW; end; $$"
+    "expected": "CREATE FUNCTION mlparted11_trig_fn () RETURNS trigger AS $$ begin   NEW.b := 4;   return NEW; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "insert - Statement 205",
@@ -1130,7 +1130,7 @@
   {
     "comment": "insert - Statement 230",
     "query": "create function mlparted5abrtrig_func() returns trigger as $$ begin new.c = 'b'; return new; end; $$ language plpgsql",
-    "expected": "CREATE FUNCTION mlparted5abrtrig_func () RETURNS trigger LANGUAGE plpgsql AS $$ begin new.c = 'b'; return new; end; $$"
+    "expected": "CREATE FUNCTION mlparted5abrtrig_func () RETURNS trigger AS $$ begin new.c = 'b'; return new; end; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "insert - Statement 231",
@@ -1515,7 +1515,7 @@
   {
     "comment": "insert - Statement 307",
     "query": "create or replace function brtrigpartcon1trigf() returns trigger as $$begin new.a := 2; return new; end$$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION brtrigpartcon1trigf () RETURNS trigger LANGUAGE plpgsql AS $$begin new.a := 2; return new; end$$"
+    "expected": "CREATE OR REPLACE FUNCTION brtrigpartcon1trigf () RETURNS trigger AS $$begin new.a := 2; return new; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "insert - Statement 308",
@@ -1620,7 +1620,7 @@
   {
     "comment": "insert - Statement 328",
     "query": "create or replace function donothingbrtrig_func() returns trigger as $$begin raise notice 'b: %', new.b; return NULL; end$$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION donothingbrtrig_func () RETURNS trigger LANGUAGE plpgsql AS $$begin raise notice 'b: %', new.b; return NULL; end$$"
+    "expected": "CREATE OR REPLACE FUNCTION donothingbrtrig_func () RETURNS trigger AS $$begin raise notice 'b: %', new.b; return NULL; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "insert - Statement 329",

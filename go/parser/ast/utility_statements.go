@@ -427,6 +427,10 @@ func (gs *GrantStmt) SqlString() string {
 		for _, item := range gs.Privileges.Items {
 			if priv, ok := item.(*AccessPriv); ok {
 				privStr := strings.ToUpper(priv.PrivName)
+				// Handle the case where privilege name is empty but has columns (ALL (cols))
+				if privStr == "" && priv.Cols != nil && len(priv.Cols.Items) > 0 {
+					privStr = "ALL"
+				}
 				if priv.Cols != nil && len(priv.Cols.Items) > 0 {
 					var colNames []string
 					for _, col := range priv.Cols.Items {
@@ -457,6 +461,10 @@ func (gs *GrantStmt) SqlString() string {
 			parts = append(parts, "SEQUENCES")
 		case OBJECT_FUNCTION:
 			parts = append(parts, "FUNCTIONS")
+		case OBJECT_PROCEDURE:
+			parts = append(parts, "PROCEDURES")
+		case OBJECT_ROUTINE:
+			parts = append(parts, "ROUTINES")
 		}
 		parts = append(parts, "IN", "SCHEMA")
 	} else {
@@ -537,7 +545,7 @@ func (gs *GrantStmt) SqlString() string {
 
 	// Add GRANTED BY
 	if gs.Grantor != nil {
-		parts = append(parts, "GRANTED", "BY", gs.Grantor.Rolename)
+		parts = append(parts, "GRANTED", "BY", gs.Grantor.SqlString())
 	}
 
 	// Add CASCADE/RESTRICT for REVOKE statements
@@ -593,16 +601,18 @@ func (grs *GrantRoleStmt) SqlString() string {
 		parts = append(parts, strings.Join(granteeNames, ", "))
 	}
 
-	// Add WITH options for GRANT role statements
-	if grs.IsGrant && grs.Opt != nil && len(grs.Opt.Items) > 0 {
-		parts = append(parts, "WITH")
+	// Add options for both GRANT and REVOKE role statements
+	if grs.Opt != nil && len(grs.Opt.Items) > 0 {
 		var optParts []string
 		for _, opt := range grs.Opt.Items {
 			if defElem, ok := opt.(*DefElem); ok {
 				optStr := strings.ToUpper(defElem.Defname)
 				if defElem.Arg != nil {
 					if boolVal, ok := defElem.Arg.(*Boolean); ok {
-						if boolVal.BoolVal {
+						// For admin, set, and inherit options, use "OPTION" suffix for both GRANT and REVOKE
+						if defElem.Defname == "admin" || defElem.Defname == "set" || defElem.Defname == "inherit" {
+							optStr += " OPTION"
+						} else if boolVal.BoolVal {
 							optStr += " TRUE"
 						} else {
 							optStr += " FALSE"
@@ -615,13 +625,55 @@ func (grs *GrantRoleStmt) SqlString() string {
 			}
 		}
 		if len(optParts) > 0 {
-			parts = append(parts, strings.Join(optParts, ", "))
+			if grs.IsGrant {
+				parts = append(parts, "WITH", strings.Join(optParts, ", "))
+			} else {
+				// For REVOKE, options come before the role names
+				// Insert after REVOKE but before role names
+				parts = []string{"REVOKE", strings.Join(optParts, ", "), "FOR"}
+				// Add role names
+				if grs.GrantedRoles != nil && len(grs.GrantedRoles.Items) > 0 {
+					var roleNames []string
+					for _, role := range grs.GrantedRoles.Items {
+						if roleSpec, ok := role.(*RoleSpec); ok {
+							roleNames = append(roleNames, roleSpec.Rolename)
+						} else if accessPriv, ok := role.(*AccessPriv); ok {
+							roleNames = append(roleNames, accessPriv.PrivName)
+						}
+					}
+					parts = append(parts, strings.Join(roleNames, ", "))
+				}
+				// Add FROM
+				parts = append(parts, "FROM")
+				// Add grantee roles
+				if grs.GranteeRoles != nil && len(grs.GranteeRoles.Items) > 0 {
+					var granteeNames []string
+					for _, grantee := range grs.GranteeRoles.Items {
+						if roleSpec, ok := grantee.(*RoleSpec); ok {
+							granteeNames = append(granteeNames, roleSpec.Rolename)
+						}
+					}
+					parts = append(parts, strings.Join(granteeNames, ", "))
+				}
+				// Add GRANTED BY
+				if grs.Grantor != nil {
+					parts = append(parts, "GRANTED", "BY", grs.Grantor.SqlString())
+				}
+				// Add CASCADE/RESTRICT for REVOKE statements
+				if grs.Behavior != DropRestrict {
+					switch grs.Behavior {
+					case DropCascade:
+						parts = append(parts, "CASCADE")
+					}
+				}
+				return strings.Join(parts, " ")
+			}
 		}
 	}
 
 	// Add GRANTED BY
 	if grs.Grantor != nil {
-		parts = append(parts, "GRANTED", "BY", grs.Grantor.Rolename)
+		parts = append(parts, "GRANTED", "BY", grs.Grantor.SqlString())
 	}
 
 	// Add CASCADE/RESTRICT for REVOKE statements
@@ -1407,6 +1459,8 @@ func (v *VariableSetStmt) SqlString() string {
 			parts = append(parts, "XML", "OPTION")
 		case "transaction_snapshot":
 			parts = append(parts, "TRANSACTION", "SNAPSHOT")
+		case "transaction_isolation":
+			parts = append(parts, "TRANSACTION", "ISOLATION", "LEVEL")
 		default:
 			// Generic variable name - handle dotted identifiers properly
 			parts = append(parts, QuoteQualifiedIdentifier(v.Name))
@@ -1423,6 +1477,7 @@ func (v *VariableSetStmt) SqlString() string {
 			} else if v.Name == "timezone" || v.Name == "catalog" ||
 				v.Name == "client_encoding" || v.Name == "role" ||
 				v.Name == "session_authorization" || v.Name == "transaction_snapshot" ||
+				v.Name == "transaction_isolation" ||
 				(v.Name == "search_path" && v.Args != nil && v.Args.Len() == 1) {
 				// PostgreSQL-specific forms don't use = (e.g., SET TIME ZONE 'UTC', SET SCHEMA 'public')
 				var values []string
@@ -1531,6 +1586,51 @@ func (v *VariableSetStmt) SqlString() string {
 		// Handle RESET ALL
 		parts[0] = "RESET" // Replace SET with RESET
 		parts = append(parts, "ALL")
+
+	case VAR_SET_MULTI:
+		// Handle SET TRANSACTION and similar multi-value statements
+		if v.Name == "TRANSACTION" {
+			parts = append(parts, "TRANSACTION")
+			// Add transaction mode items
+			if v.Args != nil {
+				for _, arg := range v.Args.Items {
+					if defElem, ok := arg.(*DefElem); ok {
+						if defElem.Defname == "transaction_isolation" {
+							parts = append(parts, "ISOLATION", "LEVEL")
+							if str, ok := defElem.Arg.(*String); ok {
+								parts = append(parts, strings.ToUpper(str.SVal))
+							}
+						} else if defElem.Defname == "transaction_read_only" {
+							if boolVal, ok := defElem.Arg.(*Boolean); ok {
+								if boolVal.BoolVal {
+									parts = append(parts, "READ", "ONLY")
+								} else {
+									parts = append(parts, "READ", "WRITE")
+								}
+							}
+						} else if defElem.Defname == "transaction_deferrable" {
+							if boolVal, ok := defElem.Arg.(*Boolean); ok {
+								if boolVal.BoolVal {
+									parts = append(parts, "DEFERRABLE")
+								} else {
+									parts = append(parts, "NOT", "DEFERRABLE")
+								}
+							}
+						}
+					}
+				}
+			}
+		} else {
+			// For other multi-value statements, use generic handling
+			parts = append(parts, v.Name)
+			if v.Args != nil && v.Args.Len() > 0 {
+				var values []string
+				for _, arg := range v.Args.Items {
+					values = append(values, arg.SqlString())
+				}
+				parts = append(parts, strings.Join(values, ", "))
+			}
+		}
 	}
 
 	return strings.Join(parts, " ")

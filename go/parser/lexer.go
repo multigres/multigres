@@ -691,8 +691,7 @@ func (l *Lexer) isDollarQuoteStart() bool {
 	}
 
 	// Look ahead to see if this could be a valid delimiter
-	remainingLen := l.context.GetScanBufLen() - l.context.CurrentPosition()
-	next := l.context.PeekBytes(remainingLen) // Get remaining entire query for dollar-quoted string detection
+	next := l.context.PeekToEnd() // Get remaining entire query for dollar-quoted string detection
 	if len(next) < 2 {
 		return false
 	}

@@ -7,7 +7,7 @@
   {
     "comment": "event_trigger - Statement 2",
     "query": "create function test_event_trigger() returns event_trigger as $$ BEGIN RAISE NOTICE 'test_event_trigger: % %', tg_event, tg_tag; END $$ language plpgsql;",
-    "expected": "CREATE FUNCTION test_event_trigger () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'test_event_trigger: % %', tg_event, tg_tag; END $$"
+    "expected": "CREATE FUNCTION test_event_trigger () RETURNS event_trigger AS $$ BEGIN RAISE NOTICE 'test_event_trigger: % %', tg_event, tg_tag; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "event_trigger - Statement 4",
@@ -16,12 +16,12 @@
   {
     "comment": "event_trigger - Statement 5",
     "query": "create function test_event_trigger_arg(name text) returns event_trigger as $$ BEGIN RETURN 1; END $$ language plpgsql",
-    "expected": "CREATE FUNCTION test_event_trigger_arg (name TEXT) RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END $$"
+    "expected": "CREATE FUNCTION test_event_trigger_arg (name TEXT) RETURNS event_trigger AS $$ BEGIN RETURN 1; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "event_trigger - Statement 6",
     "query": "create function test_event_trigger_sql() returns event_trigger as $$ SELECT 1 $$ language sql",
-    "expected": "CREATE FUNCTION test_event_trigger_sql () RETURNS event_trigger LANGUAGE sql AS $$ SELECT 1 $$"
+    "expected": "CREATE FUNCTION test_event_trigger_sql () RETURNS event_trigger AS $$ SELECT 1 $$ LANGUAGE sql"
   },
   {
     "comment": "event_trigger - Statement 7",
@@ -201,7 +201,7 @@
   {
     "comment": "event_trigger - Statement 44",
     "query": "grant all on table event_trigger_fire1 to public",
-    "expected": "GRANT ALL ON event_trigger_fire1 TO public"
+    "expected": "GRANT ALL ON event_trigger_fire1 TO PUBLIC"
   },
   {
     "comment": "event_trigger - Statement 45",
@@ -211,7 +211,7 @@
   {
     "comment": "event_trigger - Statement 46",
     "query": "revoke all on table event_trigger_fire1 from public",
-    "expected": "REVOKE ALL ON event_trigger_fire1 FROM public"
+    "expected": "REVOKE ALL ON event_trigger_fire1 FROM PUBLIC"
   },
   {
     "comment": "event_trigger - Statement 47",
@@ -346,7 +346,7 @@
   {
     "comment": "event_trigger - Statement 73",
     "query": "CREATE OR REPLACE FUNCTION schema_two.add(int, int) RETURNS int LANGUAGE plpgsql CALLED ON NULL INPUT AS $$ BEGIN RETURN coalesce($1,0) + coalesce($2,0); END; $$",
-    "expected": "CREATE OR REPLACE FUNCTION schema_two.add (INT, INT) RETURNS INT LANGUAGE plpgsql AS $$ BEGIN RETURN coalesce($1,0) + coalesce($2,0); END; $$ CALLED ON NULL INPUT"
+    "expected": "CREATE OR REPLACE FUNCTION schema_two.add (INT, INT) RETURNS INT LANGUAGE plpgsql CALLED ON NULL INPUT AS $$ BEGIN RETURN coalesce($1,0) + coalesce($2,0); END; $$"
   },
   {
     "comment": "event_trigger - Statement 74",
@@ -684,7 +684,7 @@
   {
     "comment": "event_trigger - Statement 158",
     "query": "CREATE OR REPLACE FUNCTION reindex_start_command() RETURNS event_trigger AS $$ BEGIN     RAISE NOTICE 'REINDEX START: % %', tg_event, tg_tag; END; $$ LANGUAGE plpgsql;",
-    "expected": "CREATE OR REPLACE FUNCTION reindex_start_command () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN     RAISE NOTICE 'REINDEX START: % %', tg_event, tg_tag; END; $$"
+    "expected": "CREATE OR REPLACE FUNCTION reindex_start_command () RETURNS event_trigger AS $$ BEGIN     RAISE NOTICE 'REINDEX START: % %', tg_event, tg_tag; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "event_trigger - Statement 160",
@@ -694,7 +694,7 @@
   {
     "comment": "event_trigger - Statement 161",
     "query": "CREATE FUNCTION reindex_end_command() RETURNS event_trigger AS $$ DECLARE     obj record; BEGIN     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands()     LOOP         RAISE NOTICE 'REINDEX END: command_tag=% type=% identity=%',      obj.command_tag, obj.object_type, obj.object_identity;     END LOOP; END; $$ LANGUAGE plpgsql;",
-    "expected": "CREATE FUNCTION reindex_end_command () RETURNS event_trigger LANGUAGE plpgsql AS $$ DECLARE     obj record; BEGIN     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands()     LOOP         RAISE NOTICE 'REINDEX END: command_tag=% type=% identity=%',      obj.command_tag, obj.object_type, obj.object_identity;     END LOOP; END; $$"
+    "expected": "CREATE FUNCTION reindex_end_command () RETURNS event_trigger AS $$ DECLARE     obj record; BEGIN     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands()     LOOP         RAISE NOTICE 'REINDEX END: command_tag=% type=% identity=%',      obj.command_tag, obj.object_type, obj.object_identity;     END LOOP; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "event_trigger - Statement 163",
@@ -704,7 +704,7 @@
   {
     "comment": "event_trigger - Statement 164",
     "query": "CREATE FUNCTION reindex_end_command_snap() RETURNS EVENT_TRIGGER AS $$ BEGIN PERFORM 1; END $$ LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION reindex_end_command_snap () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM 1; END $$"
+    "expected": "CREATE FUNCTION reindex_end_command_snap () RETURNS event_trigger AS $$ BEGIN PERFORM 1; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "event_trigger - Statement 165",
@@ -844,17 +844,17 @@
   {
     "comment": "event_trigger - Statement 197",
     "query": "CREATE OR REPLACE FUNCTION start_command() RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - ddl_command_start', tg_tag; END; $$ LANGUAGE plpgsql;",
-    "expected": "CREATE OR REPLACE FUNCTION start_command () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE '% - ddl_command_start', tg_tag; END; $$"
+    "expected": "CREATE OR REPLACE FUNCTION start_command () RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - ddl_command_start', tg_tag; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "event_trigger - Statement 198",
     "query": "CREATE OR REPLACE FUNCTION end_command() RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - ddl_command_end', tg_tag; END; $$ LANGUAGE plpgsql;",
-    "expected": "CREATE OR REPLACE FUNCTION end_command () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE '% - ddl_command_end', tg_tag; END; $$"
+    "expected": "CREATE OR REPLACE FUNCTION end_command () RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - ddl_command_end', tg_tag; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "event_trigger - Statement 199",
     "query": "CREATE OR REPLACE FUNCTION drop_sql_command() RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - sql_drop', tg_tag; END; $$ LANGUAGE plpgsql;",
-    "expected": "CREATE OR REPLACE FUNCTION drop_sql_command () RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE '% - sql_drop', tg_tag; END; $$"
+    "expected": "CREATE OR REPLACE FUNCTION drop_sql_command () RETURNS event_trigger AS $$ BEGIN RAISE NOTICE '% - sql_drop', tg_tag; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "event_trigger - Statement 200",
@@ -874,7 +874,7 @@
   {
     "comment": "event_trigger - Statement 203",
     "query": "CREATE POLICY p1 ON event_trigger_test USING (FALSE)",
-    "expected": "CREATE POLICY p1 ON event_trigger_test FOR all TO public USING ( FALSE )"
+    "expected": "CREATE POLICY p1 ON event_trigger_test FOR all TO PUBLIC USING ( FALSE )"
   },
   {
     "comment": "event_trigger - Statement 204",
@@ -924,7 +924,7 @@
   {
     "comment": "event_trigger - Statement 215",
     "query": "CREATE POLICY pguc ON event_trigger_test USING (FALSE)",
-    "expected": "CREATE POLICY pguc ON event_trigger_test FOR all TO public USING ( FALSE )"
+    "expected": "CREATE POLICY pguc ON event_trigger_test FOR all TO PUBLIC USING ( FALSE )"
   },
   {
     "comment": "event_trigger - Statement 216",

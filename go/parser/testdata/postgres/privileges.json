@@ -94,23 +94,19 @@
   },
   {
     "comment": "privileges - Statement 24",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION",
-    "expected": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN TRUE"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION"
   },
   {
     "comment": "privileges - Statement 25",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION GRANTED BY regress_priv_user2",
-    "expected": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN TRUE GRANTED BY regress_priv_user2"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION GRANTED BY regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 26",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION GRANTED BY regress_priv_user3",
-    "expected": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN TRUE GRANTED BY regress_priv_user3"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user2 WITH ADMIN OPTION GRANTED BY regress_priv_user3"
   },
   {
     "comment": "privileges - Statement 27",
-    "query": "REVOKE ADMIN OPTION FOR regress_priv_user1 FROM regress_priv_user2",
-    "expected": "REVOKE regress_priv_user1 FROM regress_priv_user2"
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_user1 FROM regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 28",
@@ -127,8 +123,7 @@
   },
   {
     "comment": "privileges - Statement 31",
-    "query": "REVOKE ADMIN OPTION FOR regress_priv_user1 FROM regress_priv_user2 CASCADE",
-    "expected": "REVOKE regress_priv_user1 FROM regress_priv_user2 CASCADE"
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_user1 FROM regress_priv_user2 CASCADE"
   },
   {
     "comment": "privileges - Statement 32",
@@ -184,8 +179,7 @@
   },
   {
     "comment": "privileges - Statement 44",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION",
-    "expected": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN TRUE"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user3 WITH ADMIN OPTION"
   },
   {
     "comment": "privileges - Statement 45",
@@ -201,8 +195,7 @@
   },
   {
     "comment": "privileges - Statement 48",
-    "query": "GRANT regress_priv_user1 TO regress_priv_user5 WITH ADMIN OPTION",
-    "expected": "GRANT regress_priv_user1 TO regress_priv_user5 WITH ADMIN TRUE"
+    "query": "GRANT regress_priv_user1 TO regress_priv_user5 WITH ADMIN OPTION"
   },
   {
     "comment": "privileges - Statement 49",
@@ -226,8 +219,7 @@
   },
   {
     "comment": "privileges - Statement 54",
-    "query": "GRANT pg_read_all_settings TO regress_priv_user8 WITH ADMIN OPTION",
-    "expected": "GRANT pg_read_all_settings TO regress_priv_user8 WITH ADMIN TRUE"
+    "query": "GRANT pg_read_all_settings TO regress_priv_user8 WITH ADMIN OPTION"
   },
   {
     "comment": "privileges - Statement 55",
@@ -240,8 +232,7 @@
   },
   {
     "comment": "privileges - Statement 57",
-    "query": "GRANT pg_read_all_settings TO regress_priv_user9 WITH ADMIN OPTION",
-    "expected": "GRANT pg_read_all_settings TO regress_priv_user9 WITH ADMIN TRUE"
+    "query": "GRANT pg_read_all_settings TO regress_priv_user9 WITH ADMIN OPTION"
   },
   {
     "comment": "privileges - Statement 58",
@@ -258,8 +249,7 @@
   },
   {
     "comment": "privileges - Statement 61",
-    "query": "REVOKE ADMIN OPTION FOR pg_read_all_settings FROM regress_priv_user9",
-    "expected": "REVOKE pg_read_all_settings FROM regress_priv_user9"
+    "query": "REVOKE ADMIN OPTION FOR pg_read_all_settings FROM regress_priv_user9"
   },
   {
     "comment": "privileges - Statement 62",
@@ -276,8 +266,7 @@
   },
   {
     "comment": "privileges - Statement 65",
-    "query": "REVOKE ADMIN OPTION FOR pg_read_all_settings FROM regress_priv_user8",
-    "expected": "REVOKE pg_read_all_settings FROM regress_priv_user8"
+    "query": "REVOKE ADMIN OPTION FOR pg_read_all_settings FROM regress_priv_user8"
   },
   {
     "comment": "privileges - Statement 66",
@@ -286,12 +275,12 @@
   },
   {
     "comment": "privileges - Statement 67",
-    "query": "REVOKE SET OPTION FOR pg_read_all_settings FROM regress_priv_user8",
-    "expected": "REVOKE pg_read_all_settings FROM regress_priv_user8"
+    "query": "REVOKE SET OPTION FOR pg_read_all_settings FROM regress_priv_user8"
   },
   {
     "comment": "privileges - Statement 68",
-    "query": "GRANT pg_read_all_stats TO regress_priv_user8 WITH SET FALSE"
+    "query": "GRANT pg_read_all_stats TO regress_priv_user8 WITH SET FALSE",
+    "expected": "GRANT pg_read_all_stats TO regress_priv_user8 WITH SET OPTION"
   },
   {
     "comment": "privileges - Statement 69",
@@ -391,18 +380,16 @@
   },
   {
     "comment": "privileges - Statement 90",
-    "query": "REVOKE ADMIN OPTION FOR regress_priv_group2 FROM regress_priv_user1",
-    "expected": "REVOKE regress_priv_group2 FROM regress_priv_user1"
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_group2 FROM regress_priv_user1"
   },
   {
     "comment": "privileges - Statement 91",
-    "query": "GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN OPTION",
-    "expected": "GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN TRUE"
+    "query": "GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN OPTION"
   },
   {
     "comment": "privileges - Statement 92",
     "query": "CREATE FUNCTION leak(integer,integer) RETURNS boolean AS 'int4lt' LANGUAGE internal IMMUTABLE STRICT",
-    "expected": "CREATE FUNCTION leak (INT, INT) RETURNS BOOLEAN LANGUAGE internal AS $$int4lt$$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION leak (INT, INT) RETURNS BOOLEAN AS $$int4lt$$ LANGUAGE internal IMMUTABLE STRICT"
   },
   {
     "comment": "privileges - Statement 93",
@@ -411,33 +398,27 @@
   },
   {
     "comment": "privileges - Statement 94",
-    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY regress_priv_role",
-    "expected": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN TRUE GRANTED BY regress_priv_role"
+    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY regress_priv_role"
   },
   {
     "comment": "privileges - Statement 95",
-    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY CURRENT_ROLE",
-    "expected": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN TRUE GRANTED BY "
+    "query": "GRANT regress_priv_role TO regress_priv_user1 WITH ADMIN OPTION GRANTED BY CURRENT_ROLE"
   },
   {
     "comment": "privileges - Statement 96",
-    "query": "REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY foo",
-    "expected": "REVOKE regress_priv_role FROM regress_priv_user1 GRANTED BY foo"
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY foo"
   },
   {
     "comment": "privileges - Statement 97",
-    "query": "REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY regress_priv_user2",
-    "expected": "REVOKE regress_priv_role FROM regress_priv_user1 GRANTED BY regress_priv_user2"
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY regress_priv_user2"
   },
   {
     "comment": "privileges - Statement 98",
-    "query": "REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY CURRENT_USER",
-    "expected": "REVOKE regress_priv_role FROM regress_priv_user1 GRANTED BY "
+    "query": "REVOKE ADMIN OPTION FOR regress_priv_role FROM regress_priv_user1 GRANTED BY CURRENT_USER"
   },
   {
     "comment": "privileges - Statement 99",
-    "query": "REVOKE regress_priv_role FROM regress_priv_user1 GRANTED BY CURRENT_ROLE",
-    "expected": "REVOKE regress_priv_role FROM regress_priv_user1 GRANTED BY "
+    "query": "REVOKE regress_priv_role FROM regress_priv_user1 GRANTED BY CURRENT_ROLE"
   },
   {
     "comment": "privileges - Statement 100",
@@ -485,8 +466,7 @@
   },
   {
     "comment": "privileges - Statement 110",
-    "query": "REVOKE ALL ON atest1 FROM PUBLIC",
-    "expected": "REVOKE ALL ON atest1 FROM public"
+    "query": "REVOKE ALL ON atest1 FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 111",
@@ -511,13 +491,11 @@
   },
   {
     "comment": "privileges - Statement 116",
-    "query": "GRANT INSERT ON atest2 TO regress_priv_user4 GRANTED BY CURRENT_USER",
-    "expected": "GRANT INSERT ON atest2 TO regress_priv_user4 GRANTED BY "
+    "query": "GRANT INSERT ON atest2 TO regress_priv_user4 GRANTED BY CURRENT_USER"
   },
   {
     "comment": "privileges - Statement 117",
-    "query": "GRANT TRUNCATE ON atest2 TO regress_priv_user5 GRANTED BY CURRENT_ROLE",
-    "expected": "GRANT TRUNCATE ON atest2 TO regress_priv_user5 GRANTED BY "
+    "query": "GRANT TRUNCATE ON atest2 TO regress_priv_user5 GRANTED BY CURRENT_ROLE"
   },
   {
     "comment": "privileges - Statement 118",
@@ -582,8 +560,7 @@
   },
   {
     "comment": "privileges - Statement 132",
-    "query": "GRANT ALL ON atest1 TO PUBLIC",
-    "expected": "GRANT ALL ON atest1 TO public"
+    "query": "GRANT ALL ON atest1 TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 133",
@@ -688,13 +665,11 @@
   },
   {
     "comment": "privileges - Statement 155",
-    "query": "GRANT SELECT ON atest12v TO PUBLIC",
-    "expected": "GRANT SELECT ON atest12v TO public"
+    "query": "GRANT SELECT ON atest12v TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 156",
-    "query": "GRANT SELECT ON atest12sbv TO PUBLIC",
-    "expected": "GRANT SELECT ON atest12sbv TO public"
+    "query": "GRANT SELECT ON atest12sbv TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 157",
@@ -714,7 +689,7 @@
   {
     "comment": "privileges - Statement 160",
     "query": "CREATE FUNCTION leak2(integer,integer) RETURNS boolean AS $$begin raise notice 'leak % %', $1, $2; return $1 \u003e $2; end$$ LANGUAGE plpgsql immutable",
-    "expected": "CREATE FUNCTION leak2 (INT, INT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$begin raise notice 'leak % %', $1, $2; return $1 \u003e $2; end$$ IMMUTABLE"
+    "expected": "CREATE FUNCTION leak2 (INT, INT) RETURNS BOOLEAN AS $$begin raise notice 'leak % %', $1, $2; return $1 \u003e $2; end$$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "privileges - Statement 161",
@@ -738,8 +713,7 @@
   },
   {
     "comment": "privileges - Statement 165",
-    "query": "GRANT SELECT (a, b) ON atest12 TO PUBLIC",
-    "expected": "GRANT SELECT (a, b) ON atest12 TO public"
+    "query": "GRANT SELECT (a, b) ON atest12 TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 166",
@@ -780,12 +754,12 @@
   },
   {
     "comment": "privileges - Statement 174",
-    "query": "GRANT regress_priv_group2 TO regress_priv_user1 WITH INHERIT FALSE"
+    "query": "GRANT regress_priv_group2 TO regress_priv_user1 WITH INHERIT FALSE",
+    "expected": "GRANT regress_priv_group2 TO regress_priv_user1 WITH INHERIT OPTION"
   },
   {
     "comment": "privileges - Statement 175",
-    "query": "REVOKE INHERIT OPTION FOR regress_priv_group2 FROM regress_priv_user1",
-    "expected": "REVOKE regress_priv_group2 FROM regress_priv_user1"
+    "query": "REVOKE INHERIT OPTION FOR regress_priv_group2 FROM regress_priv_user1"
   },
   {
     "comment": "privileges - Statement 176",
@@ -877,8 +851,7 @@
   },
   {
     "comment": "privileges - Statement 196",
-    "query": "GRANT ALL (one) ON atest5 TO regress_priv_user3",
-    "expected": "GRANT  (one) ON atest5 TO regress_priv_user3"
+    "query": "GRANT ALL (one) ON atest5 TO regress_priv_user3"
   },
   {
     "comment": "privileges - Statement 197",
@@ -1174,8 +1147,7 @@
   },
   {
     "comment": "privileges - Statement 259",
-    "query": "REVOKE ALL (one) ON atest5 FROM regress_priv_user4",
-    "expected": "REVOKE  (one) ON atest5 FROM regress_priv_user4"
+    "query": "REVOKE ALL (one) ON atest5 FROM regress_priv_user4"
   },
   {
     "comment": "privileges - Statement 260",
@@ -1436,8 +1408,7 @@
   },
   {
     "comment": "privileges - Statement 318",
-    "query": "REVOKE ALL (one) ON atest5 FROM regress_priv_user3",
-    "expected": "REVOKE  (one) ON atest5 FROM regress_priv_user3"
+    "query": "REVOKE ALL (one) ON atest5 FROM regress_priv_user3"
   },
   {
     "comment": "privileges - Statement 319",
@@ -1591,7 +1562,7 @@
   {
     "comment": "privileges - Statement 353",
     "query": "GRANT USAGE ON LANGUAGE c TO PUBLIC",
-    "expected": "GRANT USAGE ON c TO public"
+    "expected": "GRANT USAGE ON c TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 354",
@@ -1601,12 +1572,12 @@
   {
     "comment": "privileges - Statement 355",
     "query": "CREATE FUNCTION priv_testfunc1(int) RETURNS int AS 'select 2 * $1;' LANGUAGE sql",
-    "expected": "CREATE FUNCTION priv_testfunc1 (INT) RETURNS INT LANGUAGE sql AS $$select 2 * $1;$$"
+    "expected": "CREATE FUNCTION priv_testfunc1 (INT) RETURNS INT AS $$select 2 * $1;$$ LANGUAGE sql"
   },
   {
     "comment": "privileges - Statement 356",
     "query": "CREATE FUNCTION priv_testfunc2(int) RETURNS int AS 'select 3 * $1;' LANGUAGE sql",
-    "expected": "CREATE FUNCTION priv_testfunc2 (INT) RETURNS INT LANGUAGE sql AS $$select 3 * $1;$$"
+    "expected": "CREATE FUNCTION priv_testfunc2 (INT) RETURNS INT AS $$select 3 * $1;$$ LANGUAGE sql"
   },
   {
     "comment": "privileges - Statement 357",
@@ -1616,12 +1587,12 @@
   {
     "comment": "privileges - Statement 358",
     "query": "CREATE PROCEDURE priv_testproc1(int) AS 'select $1;' LANGUAGE sql",
-    "expected": "CREATE PROCEDURE priv_testproc1 (INT) LANGUAGE sql AS $$select $1;$$"
+    "expected": "CREATE PROCEDURE priv_testproc1 (INT) AS $$select $1;$$ LANGUAGE sql"
   },
   {
     "comment": "privileges - Statement 359",
     "query": "REVOKE ALL ON FUNCTION priv_testfunc1(int), priv_testfunc2(int), priv_testagg1(int) FROM PUBLIC",
-    "expected": "REVOKE ALL ON FUNCTION priv_testfunc1(INT), priv_testfunc2(INT), priv_testagg1(INT) FROM public"
+    "expected": "REVOKE ALL ON FUNCTION priv_testfunc1(INT), priv_testfunc2(INT), priv_testagg1(INT) FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 360",
@@ -1631,12 +1602,12 @@
   {
     "comment": "privileges - Statement 361",
     "query": "REVOKE ALL ON FUNCTION priv_testproc1(int) FROM PUBLIC",
-    "expected": "REVOKE ALL ON FUNCTION priv_testproc1(INT) FROM public"
+    "expected": "REVOKE ALL ON FUNCTION priv_testproc1(INT) FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 362",
     "query": "REVOKE ALL ON PROCEDURE priv_testproc1(int) FROM PUBLIC",
-    "expected": "REVOKE ALL ON PROCEDURE priv_testproc1(INT) FROM public"
+    "expected": "REVOKE ALL ON PROCEDURE priv_testproc1(INT) FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 363",
@@ -1681,7 +1652,7 @@
   {
     "comment": "privileges - Statement 371",
     "query": "CREATE FUNCTION priv_testfunc4(boolean) RETURNS text AS 'select col1 from atest2 where col2 = $1;' LANGUAGE sql SECURITY DEFINER",
-    "expected": "CREATE FUNCTION priv_testfunc4 (BOOLEAN) RETURNS TEXT LANGUAGE sql AS $$select col1 from atest2 where col2 = $1;$$ SECURITY DEFINER"
+    "expected": "CREATE FUNCTION priv_testfunc4 (BOOLEAN) RETURNS TEXT AS $$select col1 from atest2 where col2 = $1;$$ LANGUAGE sql SECURITY DEFINER"
   },
   {
     "comment": "privileges - Statement 372",
@@ -1695,7 +1666,7 @@
   {
     "comment": "privileges - Statement 374",
     "query": "CREATE FUNCTION priv_testfunc3(int) RETURNS int AS 'select 2 * $1;' LANGUAGE sql",
-    "expected": "CREATE FUNCTION priv_testfunc3 (INT) RETURNS INT LANGUAGE sql AS $$select 2 * $1;$$"
+    "expected": "CREATE FUNCTION priv_testfunc3 (INT) RETURNS INT AS $$select 2 * $1;$$ LANGUAGE sql"
   },
   {
     "comment": "privileges - Statement 375",
@@ -1738,7 +1709,7 @@
   {
     "comment": "privileges - Statement 383",
     "query": "GRANT ALL PRIVILEGES ON LANGUAGE sql TO PUBLIC",
-    "expected": "GRANT ALL ON sql TO public"
+    "expected": "GRANT ALL ON sql TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 384",
@@ -1748,12 +1719,11 @@
   {
     "comment": "privileges - Statement 385",
     "query": "REVOKE ALL ON FUNCTION int8(integer) FROM PUBLIC",
-    "expected": "REVOKE ALL ON FUNCTION int8(INT) FROM public"
+    "expected": "REVOKE ALL ON FUNCTION int8(INT) FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 386",
-    "query": "REVOKE USAGE ON TYPE priv_testtype1 FROM PUBLIC",
-    "expected": "REVOKE USAGE ON TYPE priv_testtype1 FROM public"
+    "query": "REVOKE USAGE ON TYPE priv_testtype1 FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 387",
@@ -1776,7 +1746,7 @@
   {
     "comment": "privileges - Statement 391",
     "query": "REVOKE USAGE on DOMAIN priv_testdomain1 FROM PUBLIC",
-    "expected": "REVOKE USAGE ON priv_testdomain1 FROM public"
+    "expected": "REVOKE USAGE ON priv_testdomain1 FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 392",
@@ -1804,7 +1774,7 @@
   {
     "comment": "privileges - Statement 397",
     "query": "CREATE FUNCTION castfunc(int) RETURNS priv_testdomain3a AS $$ SELECT $1::priv_testdomain3a $$ LANGUAGE SQL",
-    "expected": "CREATE FUNCTION castfunc (INT) RETURNS priv_testdomain3a LANGUAGE sql AS $$ SELECT $1::priv_testdomain3a $$"
+    "expected": "CREATE FUNCTION castfunc (INT) RETURNS priv_testdomain3a AS $$ SELECT $1::priv_testdomain3a $$ LANGUAGE sql"
   },
   {
     "comment": "privileges - Statement 398",
@@ -1887,8 +1857,7 @@
   },
   {
     "comment": "privileges - Statement 415",
-    "query": "REVOKE ALL ON TYPE priv_testtype1 FROM PUBLIC",
-    "expected": "REVOKE ALL ON TYPE priv_testtype1 FROM public"
+    "query": "REVOKE ALL ON TYPE priv_testtype1 FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 416",
@@ -1907,7 +1876,7 @@
   {
     "comment": "privileges - Statement 419",
     "query": "CREATE FUNCTION castfunc(int) RETURNS priv_testdomain3b AS $$ SELECT $1::priv_testdomain3b $$ LANGUAGE SQL",
-    "expected": "CREATE FUNCTION castfunc (INT) RETURNS priv_testdomain3b LANGUAGE sql AS $$ SELECT $1::priv_testdomain3b $$"
+    "expected": "CREATE FUNCTION castfunc (INT) RETURNS priv_testdomain3b AS $$ SELECT $1::priv_testdomain3b $$ LANGUAGE sql"
   },
   {
     "comment": "privileges - Statement 420",
@@ -2380,7 +2349,7 @@
   {
     "comment": "privileges - Statement 519",
     "query": "CREATE FUNCTION sro_ifun(int) RETURNS int AS $$ BEGIN ASSERT current_user = 'regress_sro_user', format('sro_ifun(%s) called by %s', $1, current_user); RETURN $1; $$ LANGUAGE plpgsql IMMUTABLE",
-    "expected": "CREATE FUNCTION sro_ifun (INT) RETURNS INT LANGUAGE plpgsql AS $$ BEGIN ASSERT current_user = 'regress_sro_user', format('sro_ifun(%s) called by %s', $1, current_user); RETURN $1; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION sro_ifun (INT) RETURNS INT AS $$ BEGIN ASSERT current_user = 'regress_sro_user', format('sro_ifun(%s) called by %s', $1, current_user); RETURN $1; $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "privileges - Statement 522",
@@ -2534,7 +2503,7 @@
   {
     "comment": "privileges - Statement 556",
     "query": "CREATE FUNCTION unwanted_grant_nofail(int) RETURNS int  IMMUTABLE LANGUAGE plpgsql AS $$ BEGIN  PERFORM public.unwanted_grant();  RAISE WARNING 'owned';  RETURN 1; EXCEPTION WHEN OTHERS THEN  RETURN 2; END$$;",
-    "expected": "CREATE FUNCTION unwanted_grant_nofail (INT) RETURNS INT LANGUAGE plpgsql AS $$ BEGIN  PERFORM public.unwanted_grant();  RAISE WARNING 'owned';  RETURN 1; EXCEPTION WHEN OTHERS THEN  RETURN 2; END$$ IMMUTABLE"
+    "expected": "CREATE FUNCTION unwanted_grant_nofail (INT) RETURNS INT IMMUTABLE LANGUAGE plpgsql AS $$ BEGIN  PERFORM public.unwanted_grant();  RAISE WARNING 'owned';  RETURN 1; EXCEPTION WHEN OTHERS THEN  RETURN 2; END$$"
   },
   {
     "comment": "privileges - Statement 561",
@@ -2561,7 +2530,7 @@
   {
     "comment": "privileges - Statement 566",
     "query": "CREATE FUNCTION dogrant_ok() RETURNS void LANGUAGE sql SECURITY DEFINER AS 'GRANT regress_priv_group2 TO regress_priv_user5'",
-    "expected": "CREATE FUNCTION dogrant_ok () RETURNS void LANGUAGE sql AS $$GRANT regress_priv_group2 TO regress_priv_user5$$ SECURITY DEFINER"
+    "expected": "CREATE FUNCTION dogrant_ok () RETURNS void LANGUAGE sql SECURITY DEFINER AS $$GRANT regress_priv_group2 TO regress_priv_user5$$"
   },
   {
     "comment": "privileges - Statement 567",
@@ -2632,8 +2601,7 @@
   },
   {
     "comment": "privileges - Statement 583",
-    "query": "GRANT ALL ON LARGE OBJECT 1001 TO PUBLIC",
-    "expected": "GRANT ALL ON LARGE OBJECT 1001 TO public"
+    "query": "GRANT ALL ON LARGE OBJECT 1001 TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 584",
@@ -2654,8 +2622,7 @@
   },
   {
     "comment": "privileges - Statement 588",
-    "query": "GRANT SELECT, INSERT ON LARGE OBJECT 1001 TO PUBLIC",
-    "expected": "GRANT SELECT, INSERT ON LARGE OBJECT 1001 TO public"
+    "query": "GRANT SELECT, INSERT ON LARGE OBJECT 1001 TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 589",
@@ -2664,7 +2631,7 @@
   {
     "comment": "privileges - Statement 590",
     "query": "GRANT SELECT, UPDATE ON LARGE OBJECT  999 TO PUBLIC",
-    "expected": "GRANT SELECT, UPDATE ON LARGE OBJECT 999 TO public"
+    "expected": "GRANT SELECT, UPDATE ON LARGE OBJECT 999 TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 591",
@@ -2734,8 +2701,7 @@
   },
   {
     "comment": "privileges - Statement 605",
-    "query": "REVOKE ALL ON LARGE OBJECT 2001, 2002 FROM PUBLIC",
-    "expected": "REVOKE ALL ON LARGE OBJECT 2001, 2002 FROM public"
+    "query": "REVOKE ALL ON LARGE OBJECT 2001, 2002 FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 606",
@@ -2796,7 +2762,7 @@
   {
     "comment": "privileges - Statement 619",
     "query": "CREATE OR REPLACE FUNCTION terminate_nothrow(pid int) RETURNS bool  LANGUAGE plpgsql SECURITY DEFINER SET client_min_messages = error AS $$ BEGIN  RETURN pg_terminate_backend($1); EXCEPTION WHEN OTHERS THEN  RETURN false; END$$;",
-    "expected": "CREATE OR REPLACE FUNCTION terminate_nothrow (pid INT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ BEGIN  RETURN pg_terminate_backend($1); EXCEPTION WHEN OTHERS THEN  RETURN false; END$$ SECURITY DEFINER SET client_min_messages = 'error'"
+    "expected": "CREATE OR REPLACE FUNCTION terminate_nothrow (pid INT) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET client_min_messages = 'error' AS $$ BEGIN  RETURN pg_terminate_backend($1); EXCEPTION WHEN OTHERS THEN  RETURN false; END$$"
   },
   {
     "comment": "privileges - Statement 621",
@@ -2880,7 +2846,7 @@
   {
     "comment": "privileges - Statement 639",
     "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns,testns GRANT SELECT ON TABLES TO public,public",
-    "expected": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns, testns GRANT SELECT ON TABLES TO public, public"
+    "expected": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns, testns GRANT SELECT ON TABLES TO PUBLIC, PUBLIC"
   },
   {
     "comment": "privileges - Statement 640",
@@ -2896,7 +2862,8 @@
   },
   {
     "comment": "privileges - Statement 643",
-    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_priv_user1 REVOKE EXECUTE ON FUNCTIONS FROM public"
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_priv_user1 REVOKE EXECUTE ON FUNCTIONS FROM public",
+    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_priv_user1 REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 644",
@@ -3053,7 +3020,7 @@
   {
     "comment": "privileges - Statement 679",
     "query": "CREATE FUNCTION testns.foo() RETURNS int AS 'select 1' LANGUAGE sql",
-    "expected": "CREATE FUNCTION testns.foo () RETURNS INT LANGUAGE sql AS $$select 1$$"
+    "expected": "CREATE FUNCTION testns.foo () RETURNS INT AS $$select 1$$ LANGUAGE sql"
   },
   {
     "comment": "privileges - Statement 680",
@@ -3063,7 +3030,7 @@
   {
     "comment": "privileges - Statement 681",
     "query": "CREATE PROCEDURE testns.bar() AS 'select 1' LANGUAGE sql",
-    "expected": "CREATE PROCEDURE testns.bar () LANGUAGE sql AS $$select 1$$"
+    "expected": "CREATE PROCEDURE testns.bar () AS $$select 1$$ LANGUAGE sql"
   },
   {
     "comment": "privileges - Statement 682",
@@ -3080,7 +3047,7 @@
   {
     "comment": "privileges - Statement 685",
     "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT EXECUTE ON ROUTINES to public",
-    "expected": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT EXECUTE ON FUNCTIONS TO public"
+    "expected": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT EXECUTE ON FUNCTIONS TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 686",
@@ -3097,7 +3064,8 @@
   },
   {
     "comment": "privileges - Statement 689",
-    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_priv_user1 REVOKE USAGE ON TYPES FROM public"
+    "query": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_priv_user1 REVOKE USAGE ON TYPES FROM public",
+    "expected": "ALTER DEFAULT PRIVILEGES FOR ROLE regress_priv_user1 REVOKE USAGE ON TYPES FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 690",
@@ -3111,7 +3079,7 @@
   {
     "comment": "privileges - Statement 692",
     "query": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT USAGE ON TYPES to public",
-    "expected": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT USAGE ON TYPES TO public"
+    "expected": "ALTER DEFAULT PRIVILEGES IN SCHEMA testns GRANT USAGE ON TYPES TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 693",
@@ -3176,7 +3144,7 @@
   {
     "comment": "privileges - Statement 707",
     "query": "CREATE FUNCTION testns.priv_testfunc(int) RETURNS int AS 'select 3 * $1;' LANGUAGE sql",
-    "expected": "CREATE FUNCTION testns.priv_testfunc (INT) RETURNS INT LANGUAGE sql AS $$select 3 * $1;$$"
+    "expected": "CREATE FUNCTION testns.priv_testfunc (INT) RETURNS INT AS $$select 3 * $1;$$ LANGUAGE sql"
   },
   {
     "comment": "privileges - Statement 708",
@@ -3186,7 +3154,7 @@
   {
     "comment": "privileges - Statement 709",
     "query": "CREATE PROCEDURE testns.priv_testproc(int) AS 'select 3' LANGUAGE sql",
-    "expected": "CREATE PROCEDURE testns.priv_testproc (INT) LANGUAGE sql AS $$select 3$$"
+    "expected": "CREATE PROCEDURE testns.priv_testproc (INT) AS $$select 3$$ LANGUAGE sql"
   },
   {
     "comment": "privileges - Statement 710",
@@ -3202,18 +3170,15 @@
   },
   {
     "comment": "privileges - Statement 713",
-    "query": "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA testns FROM PUBLIC",
-    "expected": "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA testns FROM public"
+    "query": "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA testns FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 714",
-    "query": "REVOKE ALL ON ALL PROCEDURES IN SCHEMA testns FROM PUBLIC",
-    "expected": "REVOKE ALL ON ALL IN SCHEMA testns FROM public"
+    "query": "REVOKE ALL ON ALL PROCEDURES IN SCHEMA testns FROM PUBLIC"
   },
   {
     "comment": "privileges - Statement 715",
-    "query": "GRANT ALL ON ALL ROUTINES IN SCHEMA testns TO PUBLIC",
-    "expected": "GRANT ALL ON ALL IN SCHEMA testns TO public"
+    "query": "GRANT ALL ON ALL ROUTINES IN SCHEMA testns TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 716",
@@ -3529,7 +3494,8 @@
   },
   {
     "comment": "privileges - Statement 786",
-    "query": "GRANT regress_group TO regress_group_direct_manager WITH INHERIT FALSE, ADMIN TRUE"
+    "query": "GRANT regress_group TO regress_group_direct_manager WITH INHERIT FALSE, ADMIN TRUE",
+    "expected": "GRANT regress_group TO regress_group_direct_manager WITH INHERIT OPTION, ADMIN OPTION"
   },
   {
     "comment": "privileges - Statement 787",
@@ -3592,16 +3558,17 @@
   },
   {
     "comment": "privileges - Statement 801",
-    "query": "GRANT CREATE, USAGE ON SCHEMA regress_roleoption TO PUBLIC",
-    "expected": "GRANT CREATE, USAGE ON SCHEMA regress_roleoption TO public"
+    "query": "GRANT CREATE, USAGE ON SCHEMA regress_roleoption TO PUBLIC"
   },
   {
     "comment": "privileges - Statement 802",
-    "query": "GRANT regress_roleoption_donor TO regress_roleoption_protagonist WITH INHERIT TRUE, SET FALSE"
+    "query": "GRANT regress_roleoption_donor TO regress_roleoption_protagonist WITH INHERIT TRUE, SET FALSE",
+    "expected": "GRANT regress_roleoption_donor TO regress_roleoption_protagonist WITH INHERIT OPTION, SET OPTION"
   },
   {
     "comment": "privileges - Statement 803",
-    "query": "GRANT regress_roleoption_recipient TO regress_roleoption_protagonist WITH INHERIT FALSE, SET TRUE"
+    "query": "GRANT regress_roleoption_recipient TO regress_roleoption_protagonist WITH INHERIT FALSE, SET TRUE",
+    "expected": "GRANT regress_roleoption_recipient TO regress_roleoption_protagonist WITH INHERIT OPTION, SET OPTION"
   },
   {
     "comment": "privileges - Statement 804",

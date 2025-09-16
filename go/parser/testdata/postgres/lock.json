@@ -326,7 +326,7 @@
   {
     "comment": "lock - Statement 75",
     "query": "CREATE FUNCTION test_atomic_ops() RETURNS bool AS 'regresslib' LANGUAGE C",
-    "expected": "CREATE FUNCTION test_atomic_ops () RETURNS BOOLEAN LANGUAGE c AS $$regresslib$$"
+    "expected": "CREATE FUNCTION test_atomic_ops () RETURNS BOOLEAN AS $$regresslib$$ LANGUAGE c"
   },
   {
     "comment": "lock - Statement 76",

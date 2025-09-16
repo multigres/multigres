@@ -11,8 +11,8 @@
   },
   {
     "comment": "random - Statement 3",
-    "query": "CREATE FUNCTION ks_test_uniform_random() RETURNS boolean AS $$ DECLARE   n int := 1000;          c float8 := 1.94947;    ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random() r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
-    "error": "parse error at position 61: syntax error"
+    "query": "CREATE FUNCTION ks_test_uniform_random() RETURNS boolean AS $$ DECLARE   n int := 1000;          c float8 := 1.94947;    ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random() r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) \u003c c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
+    "expected": "CREATE FUNCTION ks_test_uniform_random () RETURNS BOOLEAN AS $$ DECLARE   n int := 1000;          c float8 := 1.94947;    ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random() r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) \u003c c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "random - Statement 9",
@@ -35,8 +35,8 @@
   },
   {
     "comment": "random - Statement 13",
-    "query": "CREATE FUNCTION ks_test_normal_random() RETURNS boolean AS $$ DECLARE   n int := 1000;     c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random_normal() r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs((1+erf(r/sqrt(2)))/2 - i/n)) < c / sqrt(n)     FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
-    "error": "parse error at position 60: syntax error"
+    "query": "CREATE FUNCTION ks_test_normal_random() RETURNS boolean AS $$ DECLARE   n int := 1000;     c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random_normal() r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs((1+erf(r/sqrt(2)))/2 - i/n)) \u003c c / sqrt(n)     FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
+    "expected": "CREATE FUNCTION ks_test_normal_random () RETURNS BOOLEAN AS $$ DECLARE   n int := 1000;     c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random_normal() r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs((1+erf(r/sqrt(2)))/2 - i/n)) \u003c c / sqrt(n)     FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "random - Statement 15",
@@ -143,8 +143,8 @@
   },
   {
     "comment": "random - Statement 37",
-    "query": "CREATE FUNCTION ks_test_uniform_random_int_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;    c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 999999) / 1000000.0 r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
-    "error": "parse error at position 74: syntax error"
+    "query": "CREATE FUNCTION ks_test_uniform_random_int_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;    c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 999999) / 1000000.0 r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) \u003c c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
+    "expected": "CREATE FUNCTION ks_test_uniform_random_int_in_range () RETURNS BOOLEAN AS $$ DECLARE   n int := 1000;    c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 999999) / 1000000.0 r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) \u003c c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "random - Statement 39",
@@ -152,8 +152,8 @@
   },
   {
     "comment": "random - Statement 40",
-    "query": "CREATE FUNCTION ks_test_uniform_random_bigint_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;   c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 999999999999) / 1000000000000.0 r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
-    "error": "parse error at position 77: syntax error"
+    "query": "CREATE FUNCTION ks_test_uniform_random_bigint_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;   c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 999999999999) / 1000000000000.0 r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) \u003c c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
+    "expected": "CREATE FUNCTION ks_test_uniform_random_bigint_in_range () RETURNS BOOLEAN AS $$ DECLARE   n int := 1000;   c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 999999999999) / 1000000000000.0 r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) \u003c c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "random - Statement 42",
@@ -161,8 +161,8 @@
   },
   {
     "comment": "random - Statement 43",
-    "query": "CREATE FUNCTION ks_test_uniform_random_numeric_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;   c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 0.999999) r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
-    "error": "parse error at position 78: syntax error"
+    "query": "CREATE FUNCTION ks_test_uniform_random_numeric_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;   c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 0.999999) r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) \u003c c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
+    "expected": "CREATE FUNCTION ks_test_uniform_random_numeric_in_range () RETURNS BOOLEAN AS $$ DECLARE   n int := 1000;   c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 0.999999) r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) \u003c c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql"
   },
   {
     "comment": "random - Statement 45",

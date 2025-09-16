@@ -1260,7 +1260,7 @@
   {
     "comment": "rangetypes - Statement 255",
     "query": "create function anyarray_anyrange_func(a anyarray, r anyrange) returns anyelement as 'select $1[1] + lower($2);' language sql",
-    "expected": "CREATE FUNCTION anyarray_anyrange_func (a anyarray, r anyrange) RETURNS anyelement LANGUAGE sql AS $$select $1[1] + lower($2);$$"
+    "expected": "CREATE FUNCTION anyarray_anyrange_func (a anyarray, r anyrange) RETURNS anyelement AS $$select $1[1] + lower($2);$$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 256",
@@ -1280,17 +1280,17 @@
   {
     "comment": "rangetypes - Statement 259",
     "query": "create function bogus_func(anyelement) returns anyrange as 'select int4range(1,10)' language sql",
-    "expected": "CREATE FUNCTION bogus_func (anyelement) RETURNS anyrange LANGUAGE sql AS $$select int4range(1,10)$$"
+    "expected": "CREATE FUNCTION bogus_func (anyelement) RETURNS anyrange AS $$select int4range(1,10)$$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 260",
     "query": "create function bogus_func(int) returns anyrange as 'select int4range(1,10)' language sql",
-    "expected": "CREATE FUNCTION bogus_func (INT) RETURNS anyrange LANGUAGE sql AS $$select int4range(1,10)$$"
+    "expected": "CREATE FUNCTION bogus_func (INT) RETURNS anyrange AS $$select int4range(1,10)$$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 261",
     "query": "create function range_add_bounds(anyrange) returns anyelement as 'select lower($1) + upper($1)' language sql",
-    "expected": "CREATE FUNCTION range_add_bounds (anyrange) RETURNS anyelement LANGUAGE sql AS $$select lower($1) + upper($1)$$"
+    "expected": "CREATE FUNCTION range_add_bounds (anyrange) RETURNS anyelement AS $$select lower($1) + upper($1)$$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 262",
@@ -1305,7 +1305,7 @@
   {
     "comment": "rangetypes - Statement 264",
     "query": "create function rangetypes_sql(q anyrange, b anyarray, out c anyelement) as $$ select upper($1) + $2[1] $$ language sql",
-    "expected": "CREATE FUNCTION rangetypes_sql (q anyrange, b anyarray, OUT c anyelement) LANGUAGE sql AS $$ select upper($1) + $2[1] $$"
+    "expected": "CREATE FUNCTION rangetypes_sql (q anyrange, b anyarray, OUT c anyelement) AS $$ select upper($1) + $2[1] $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 265",
@@ -1320,7 +1320,7 @@
   {
     "comment": "rangetypes - Statement 267",
     "query": "create function anycompatiblearray_anycompatiblerange_func(a anycompatiblearray, r anycompatiblerange) returns anycompatible as 'select $1[1] + lower($2);' language sql",
-    "expected": "CREATE FUNCTION anycompatiblearray_anycompatiblerange_func (a anycompatiblearray, r anycompatiblerange) RETURNS anycompatible LANGUAGE sql AS $$select $1[1] + lower($2);$$"
+    "expected": "CREATE FUNCTION anycompatiblearray_anycompatiblerange_func (a anycompatiblearray, r anycompatiblerange) RETURNS anycompatible AS $$select $1[1] + lower($2);$$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 268",
@@ -1345,7 +1345,7 @@
   {
     "comment": "rangetypes - Statement 272",
     "query": "create function bogus_func(anycompatible) returns anycompatiblerange as 'select int4range(1,10)' language sql",
-    "expected": "CREATE FUNCTION bogus_func (anycompatible) RETURNS anycompatiblerange LANGUAGE sql AS $$select int4range(1,10)$$"
+    "expected": "CREATE FUNCTION bogus_func (anycompatible) RETURNS anycompatiblerange AS $$select int4range(1,10)$$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 273",
@@ -1445,7 +1445,7 @@
   {
     "comment": "rangetypes - Statement 292",
     "query": "create function outparam_succeed(i anyrange, out r anyrange, out t text) as $$ select $1, 'foo'::text $$ language sql",
-    "expected": "CREATE FUNCTION outparam_succeed (i anyrange, OUT r anyrange, OUT t TEXT) LANGUAGE sql AS $$ select $1, 'foo'::text $$"
+    "expected": "CREATE FUNCTION outparam_succeed (i anyrange, OUT r anyrange, OUT t TEXT) AS $$ select $1, 'foo'::text $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 293",
@@ -1455,7 +1455,7 @@
   {
     "comment": "rangetypes - Statement 294",
     "query": "create function outparam2_succeed(r anyrange, out lu anyarray, out ul anyarray) as $$ select array[lower($1), upper($1)], array[upper($1), lower($1)] $$ language sql",
-    "expected": "CREATE FUNCTION outparam2_succeed (r anyrange, OUT lu anyarray, OUT ul anyarray) LANGUAGE sql AS $$ select array[lower($1), upper($1)], array[upper($1), lower($1)] $$"
+    "expected": "CREATE FUNCTION outparam2_succeed (r anyrange, OUT lu anyarray, OUT ul anyarray) AS $$ select array[lower($1), upper($1)], array[upper($1), lower($1)] $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 295",
@@ -1465,7 +1465,7 @@
   {
     "comment": "rangetypes - Statement 296",
     "query": "create function outparam_succeed2(i anyrange, out r anyarray, out t text) as $$ select ARRAY[upper($1)], 'foo'::text $$ language sql",
-    "expected": "CREATE FUNCTION outparam_succeed2 (i anyrange, OUT r anyarray, OUT t TEXT) LANGUAGE sql AS $$ select ARRAY[upper($1)], 'foo'::text $$"
+    "expected": "CREATE FUNCTION outparam_succeed2 (i anyrange, OUT r anyarray, OUT t TEXT) AS $$ select ARRAY[upper($1)], 'foo'::text $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 297",
@@ -1475,7 +1475,7 @@
   {
     "comment": "rangetypes - Statement 298",
     "query": "create function inoutparam_succeed(out i anyelement, inout r anyrange) as $$ select upper($1), $1 $$ language sql",
-    "expected": "CREATE FUNCTION inoutparam_succeed (OUT i anyelement, INOUT r anyrange) LANGUAGE sql AS $$ select upper($1), $1 $$"
+    "expected": "CREATE FUNCTION inoutparam_succeed (OUT i anyelement, INOUT r anyrange) AS $$ select upper($1), $1 $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 299",
@@ -1485,7 +1485,7 @@
   {
     "comment": "rangetypes - Statement 300",
     "query": "create function table_succeed(r anyrange) returns table(l anyelement, u anyelement) as $$ select lower($1), upper($1) $$ language sql",
-    "expected": "CREATE FUNCTION table_succeed (r anyrange) LANGUAGE sql AS $$ select lower($1), upper($1) $$"
+    "expected": "CREATE FUNCTION table_succeed (r anyrange) AS $$ select lower($1), upper($1) $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 301",
@@ -1495,17 +1495,17 @@
   {
     "comment": "rangetypes - Statement 302",
     "query": "create function outparam_fail(i anyelement, out r anyrange, out t text) as $$ select '[1,10]', 'foo' $$ language sql",
-    "expected": "CREATE FUNCTION outparam_fail (i anyelement, OUT r anyrange, OUT t TEXT) LANGUAGE sql AS $$ select '[1,10]', 'foo' $$"
+    "expected": "CREATE FUNCTION outparam_fail (i anyelement, OUT r anyrange, OUT t TEXT) AS $$ select '[1,10]', 'foo' $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 303",
     "query": "create function inoutparam_fail(inout i anyelement, out r anyrange) as $$ select $1, '[1,10]' $$ language sql",
-    "expected": "CREATE FUNCTION inoutparam_fail (INOUT i anyelement, OUT r anyrange) LANGUAGE sql AS $$ select $1, '[1,10]' $$"
+    "expected": "CREATE FUNCTION inoutparam_fail (INOUT i anyelement, OUT r anyrange) AS $$ select $1, '[1,10]' $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 304",
     "query": "create function table_fail(i anyelement) returns table(i anyelement, r anyrange) as $$ select $1, '[1,10]' $$ language sql",
-    "expected": "CREATE FUNCTION table_fail (i anyelement) LANGUAGE sql AS $$ select $1, '[1,10]' $$"
+    "expected": "CREATE FUNCTION table_fail (i anyelement) AS $$ select $1, '[1,10]' $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 305",

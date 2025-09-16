@@ -22,7 +22,7 @@
   {
     "comment": "rangefuncs - Statement 5",
     "query": "CREATE FUNCTION rngfunct(int) returns setof rngfunc2 as 'SELECT * FROM rngfunc2 WHERE rngfuncid = $1 ORDER BY f2;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION rngfunct (INT) RETURNS SETOF rngfunc2 LANGUAGE sql AS $$SELECT * FROM rngfunc2 WHERE rngfuncid = $1 ORDER BY f2;$$"
+    "expected": "CREATE FUNCTION rngfunct (INT) RETURNS SETOF rngfunc2 AS $$SELECT * FROM rngfunc2 WHERE rngfuncid = $1 ORDER BY f2;$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 6",
@@ -222,7 +222,7 @@
   {
     "comment": "rangefuncs - Statement 45",
     "query": "CREATE FUNCTION getrngfunc1(int) RETURNS int AS 'SELECT $1;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION getrngfunc1 (INT) RETURNS INT LANGUAGE sql AS $$SELECT $1;$$"
+    "expected": "CREATE FUNCTION getrngfunc1 (INT) RETURNS INT AS $$SELECT $1;$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 46",
@@ -253,7 +253,7 @@
   {
     "comment": "rangefuncs - Statement 52",
     "query": "CREATE FUNCTION getrngfunc2(int) RETURNS setof int AS 'SELECT rngfuncid FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION getrngfunc2 (INT) RETURNS SETOF INT LANGUAGE sql AS $$SELECT rngfuncid FROM rngfunc WHERE rngfuncid = $1;$$"
+    "expected": "CREATE FUNCTION getrngfunc2 (INT) RETURNS SETOF INT AS $$SELECT rngfuncid FROM rngfunc WHERE rngfuncid = $1;$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 53",
@@ -276,7 +276,7 @@
   {
     "comment": "rangefuncs - Statement 57",
     "query": "CREATE FUNCTION getrngfunc3(int) RETURNS setof text AS 'SELECT rngfuncname FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION getrngfunc3 (INT) RETURNS SETOF TEXT LANGUAGE sql AS $$SELECT rngfuncname FROM rngfunc WHERE rngfuncid = $1;$$"
+    "expected": "CREATE FUNCTION getrngfunc3 (INT) RETURNS SETOF TEXT AS $$SELECT rngfuncname FROM rngfunc WHERE rngfuncid = $1;$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 58",
@@ -299,7 +299,7 @@
   {
     "comment": "rangefuncs - Statement 62",
     "query": "CREATE FUNCTION getrngfunc4(int) RETURNS rngfunc AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION getrngfunc4 (INT) RETURNS rngfunc LANGUAGE sql AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$"
+    "expected": "CREATE FUNCTION getrngfunc4 (INT) RETURNS rngfunc AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 63",
@@ -322,7 +322,7 @@
   {
     "comment": "rangefuncs - Statement 67",
     "query": "CREATE FUNCTION getrngfunc5(int) RETURNS setof rngfunc AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION getrngfunc5 (INT) RETURNS SETOF rngfunc LANGUAGE sql AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$"
+    "expected": "CREATE FUNCTION getrngfunc5 (INT) RETURNS SETOF rngfunc AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 68",
@@ -345,7 +345,7 @@
   {
     "comment": "rangefuncs - Statement 72",
     "query": "CREATE FUNCTION getrngfunc6(int) RETURNS RECORD AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION getrngfunc6 (INT) RETURNS record LANGUAGE sql AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$"
+    "expected": "CREATE FUNCTION getrngfunc6 (INT) RETURNS record AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 73",
@@ -370,7 +370,7 @@
   {
     "comment": "rangefuncs - Statement 77",
     "query": "CREATE FUNCTION getrngfunc7(int) RETURNS setof record AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION getrngfunc7 (INT) RETURNS SETOF record LANGUAGE sql AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$"
+    "expected": "CREATE FUNCTION getrngfunc7 (INT) RETURNS SETOF record AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 78",
@@ -395,7 +395,7 @@
   {
     "comment": "rangefuncs - Statement 82",
     "query": "CREATE FUNCTION getrngfunc8(int) RETURNS int AS 'DECLARE rngfuncint int; BEGIN SELECT rngfuncid into rngfuncint FROM rngfunc WHERE rngfuncid = $1; RETURN rngfuncint; END;' LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION getrngfunc8 (INT) RETURNS INT LANGUAGE plpgsql AS $$DECLARE rngfuncint int; BEGIN SELECT rngfuncid into rngfuncint FROM rngfunc WHERE rngfuncid = $1; RETURN rngfuncint; END;$$"
+    "expected": "CREATE FUNCTION getrngfunc8 (INT) RETURNS INT AS $$DECLARE rngfuncint int; BEGIN SELECT rngfuncid into rngfuncint FROM rngfunc WHERE rngfuncid = $1; RETURN rngfuncint; END;$$ LANGUAGE plpgsql"
   },
   {
     "comment": "rangefuncs - Statement 83",
@@ -418,7 +418,7 @@
   {
     "comment": "rangefuncs - Statement 87",
     "query": "CREATE FUNCTION getrngfunc9(int) RETURNS rngfunc AS 'DECLARE rngfunctup rngfunc%ROWTYPE; BEGIN SELECT * into rngfunctup FROM rngfunc WHERE rngfuncid = $1; RETURN rngfunctup; END;' LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION getrngfunc9 (INT) RETURNS rngfunc LANGUAGE plpgsql AS $$DECLARE rngfunctup rngfunc%ROWTYPE; BEGIN SELECT * into rngfunctup FROM rngfunc WHERE rngfuncid = $1; RETURN rngfunctup; END;$$"
+    "expected": "CREATE FUNCTION getrngfunc9 (INT) RETURNS rngfunc AS $$DECLARE rngfunctup rngfunc%ROWTYPE; BEGIN SELECT * into rngfunctup FROM rngfunc WHERE rngfuncid = $1; RETURN rngfunctup; END;$$ LANGUAGE plpgsql"
   },
   {
     "comment": "rangefuncs - Statement 88",
@@ -544,12 +544,12 @@
   {
     "comment": "rangefuncs - Statement 113",
     "query": "CREATE FUNCTION rngfunc_sql(int,int) RETURNS setof rngfunc_rescan_t AS 'SELECT i, nextval(''rngfunc_rescan_seq1'') FROM generate_series($1,$2) i;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION rngfunc_sql (INT, INT) RETURNS SETOF rngfunc_rescan_t LANGUAGE sql AS $$SELECT i, nextval('rngfunc_rescan_seq1') FROM generate_series($1,$2) i;$$"
+    "expected": "CREATE FUNCTION rngfunc_sql (INT, INT) RETURNS SETOF rngfunc_rescan_t AS $$SELECT i, nextval('rngfunc_rescan_seq1') FROM generate_series($1,$2) i;$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 114",
     "query": "CREATE FUNCTION rngfunc_mat(int,int) RETURNS setof rngfunc_rescan_t AS 'begin for i in $1..$2 loop return next (i, nextval(''rngfunc_rescan_seq2'')); end loop; end;' LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION rngfunc_mat (INT, INT) RETURNS SETOF rngfunc_rescan_t LANGUAGE plpgsql AS $$begin for i in $1..$2 loop return next (i, nextval('rngfunc_rescan_seq2')); end loop; end;$$"
+    "expected": "CREATE FUNCTION rngfunc_mat (INT, INT) RETURNS SETOF rngfunc_rescan_t AS $$begin for i in $1..$2 loop return next (i, nextval('rngfunc_rescan_seq2')); end loop; end;$$ LANGUAGE plpgsql"
   },
   {
     "comment": "rangefuncs - Statement 115",
@@ -747,7 +747,7 @@
   {
     "comment": "rangefuncs - Statement 154",
     "query": "CREATE FUNCTION rngfunc(in f1 int, out f2 int) AS 'select $1+1' LANGUAGE sql",
-    "expected": "CREATE FUNCTION rngfunc (f1 INT, OUT f2 INT) LANGUAGE sql AS $$select $1+1$$"
+    "expected": "CREATE FUNCTION rngfunc (f1 INT, OUT f2 INT) AS $$select $1+1$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 155",
@@ -764,27 +764,27 @@
   {
     "comment": "rangefuncs - Statement 158",
     "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int) RETURNS int AS 'select $1+1' LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT) RETURNS INT LANGUAGE sql AS $$select $1+1$$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT) RETURNS INT AS $$select $1+1$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 159",
     "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int) RETURNS float AS 'select $1+1' LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT) RETURNS FLOAT8 LANGUAGE sql AS $$select $1+1$$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT) RETURNS FLOAT8 AS $$select $1+1$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 160",
     "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int, out f3 text) RETURNS int AS 'select $1+1' LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT, OUT f3 TEXT) RETURNS INT LANGUAGE sql AS $$select $1+1$$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT, OUT f3 TEXT) RETURNS INT AS $$select $1+1$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 161",
     "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int, out f3 text) RETURNS record AS 'select $1+1' LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT, OUT f3 TEXT) RETURNS record LANGUAGE sql AS $$select $1+1$$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT, OUT f3 TEXT) RETURNS record AS $$select $1+1$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 162",
     "query": "CREATE OR REPLACE FUNCTION rngfuncr(in f1 int, out f2 int, out text) AS $$select $1-1, $1::text || 'z'$$ LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfuncr (f1 INT, OUT f2 INT, OUT TEXT) LANGUAGE sql AS $$select $1-1, $1::text || 'z'$$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncr (f1 INT, OUT f2 INT, OUT TEXT) AS $$select $1-1, $1::text || 'z'$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 163",
@@ -802,7 +802,7 @@
   {
     "comment": "rangefuncs - Statement 166",
     "query": "CREATE OR REPLACE FUNCTION rngfuncb(in f1 int, inout f2 int, out text) AS $$select $2-1, $1::text || 'z'$$ LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfuncb (f1 INT, INOUT f2 INT, OUT TEXT) LANGUAGE sql AS $$select $2-1, $1::text || 'z'$$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncb (f1 INT, INOUT f2 INT, OUT TEXT) AS $$select $2-1, $1::text || 'z'$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 167",
@@ -836,7 +836,7 @@
   {
     "comment": "rangefuncs - Statement 173",
     "query": "CREATE FUNCTION dup (f1 anyelement, f2 out anyelement, f3 out anyarray) AS 'select $1, array[$1,$1]' LANGUAGE sql",
-    "expected": "CREATE FUNCTION dup (f1 anyelement, OUT f2 anyelement, OUT f3 anyarray) LANGUAGE sql AS $$select $1, array[$1,$1]$$"
+    "expected": "CREATE FUNCTION dup (f1 anyelement, OUT f2 anyelement, OUT f3 anyarray) AS $$select $1, array[$1,$1]$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 174",
@@ -859,7 +859,7 @@
   {
     "comment": "rangefuncs - Statement 178",
     "query": "CREATE OR REPLACE FUNCTION dup (inout f2 anyelement, out f3 anyarray) AS 'select $1, array[$1,$1]' LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION dup (INOUT f2 anyelement, OUT f3 anyarray) LANGUAGE sql AS $$select $1, array[$1,$1]$$"
+    "expected": "CREATE OR REPLACE FUNCTION dup (INOUT f2 anyelement, OUT f3 anyarray) AS $$select $1, array[$1,$1]$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 179",
@@ -868,12 +868,12 @@
   {
     "comment": "rangefuncs - Statement 180",
     "query": "CREATE FUNCTION bad (f1 int, out f2 anyelement, out f3 anyarray) AS 'select $1, array[$1,$1]' LANGUAGE sql",
-    "expected": "CREATE FUNCTION bad (f1 INT, OUT f2 anyelement, OUT f3 anyarray) LANGUAGE sql AS $$select $1, array[$1,$1]$$"
+    "expected": "CREATE FUNCTION bad (f1 INT, OUT f2 anyelement, OUT f3 anyarray) AS $$select $1, array[$1,$1]$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 181",
     "query": "CREATE FUNCTION dup (f1 anycompatible, f2 anycompatiblearray, f3 out anycompatible, f4 out anycompatiblearray) AS 'select $1, $2' LANGUAGE sql",
-    "expected": "CREATE FUNCTION dup (f1 anycompatible, f2 anycompatiblearray, OUT f3 anycompatible, OUT f4 anycompatiblearray) LANGUAGE sql AS $$select $1, $2$$"
+    "expected": "CREATE FUNCTION dup (f1 anycompatible, f2 anycompatiblearray, OUT f3 anycompatible, OUT f4 anycompatiblearray) AS $$select $1, $2$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 182",
@@ -902,7 +902,7 @@
   {
     "comment": "rangefuncs - Statement 187",
     "query": "CREATE FUNCTION dup (f1 anycompatiblerange, f2 out anycompatible, f3 out anycompatiblearray, f4 out anycompatiblerange) AS 'select lower($1), array[lower($1), upper($1)], $1' LANGUAGE sql",
-    "expected": "CREATE FUNCTION dup (f1 anycompatiblerange, OUT f2 anycompatible, OUT f3 anycompatiblearray, OUT f4 anycompatiblerange) LANGUAGE sql AS $$select lower($1), array[lower($1), upper($1)], $1$$"
+    "expected": "CREATE FUNCTION dup (f1 anycompatiblerange, OUT f2 anycompatible, OUT f3 anycompatiblearray, OUT f4 anycompatiblerange) AS $$select lower($1), array[lower($1), upper($1)], $1$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 188",
@@ -925,12 +925,12 @@
   {
     "comment": "rangefuncs - Statement 192",
     "query": "CREATE FUNCTION bad (f1 anyarray, out f2 anycompatible, out f3 anycompatiblearray) AS 'select $1, array[$1,$1]' LANGUAGE sql",
-    "expected": "CREATE FUNCTION bad (f1 anyarray, OUT f2 anycompatible, OUT f3 anycompatiblearray) LANGUAGE sql AS $$select $1, array[$1,$1]$$"
+    "expected": "CREATE FUNCTION bad (f1 anyarray, OUT f2 anycompatible, OUT f3 anycompatiblearray) AS $$select $1, array[$1,$1]$$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 193",
     "query": "CREATE OR REPLACE FUNCTION rngfunc() RETURNS TABLE(a int) AS $$ SELECT a FROM generate_series(1,5) a(a) $$ LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfunc () LANGUAGE sql AS $$ SELECT a FROM generate_series(1,5) a(a) $$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc () AS $$ SELECT a FROM generate_series(1,5) a(a) $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 194",
@@ -943,7 +943,7 @@
   {
     "comment": "rangefuncs - Statement 196",
     "query": "CREATE OR REPLACE FUNCTION rngfunc(int) RETURNS TABLE(a int, b int) AS $$ SELECT a, b FROM generate_series(1,$1) a(a), generate_series(1,$1) b(b) $$ LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfunc (INT) LANGUAGE sql AS $$ SELECT a, b FROM generate_series(1,$1) a(a), generate_series(1,$1) b(b) $$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (INT) AS $$ SELECT a, b FROM generate_series(1,$1) a(a), generate_series(1,$1) b(b) $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 197",
@@ -952,7 +952,7 @@
   {
     "comment": "rangefuncs - Statement 198",
     "query": "CREATE OR REPLACE FUNCTION rngfunc() RETURNS TABLE(a varchar(5)) AS $$ SELECT 'hello'::varchar(5) $$ LANGUAGE sql STABLE",
-    "expected": "CREATE OR REPLACE FUNCTION rngfunc () LANGUAGE sql AS $$ SELECT 'hello'::varchar(5) $$ STABLE"
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc () AS $$ SELECT 'hello'::varchar(5) $$ LANGUAGE sql STABLE"
   },
   {
     "comment": "rangefuncs - Statement 199",
@@ -966,7 +966,7 @@
   {
     "comment": "rangefuncs - Statement 201",
     "query": "create function insert_tt(text) returns int as $$ insert into tt(data) values($1) returning f1 $$ language sql",
-    "expected": "CREATE FUNCTION insert_tt (TEXT) RETURNS INT LANGUAGE sql AS $$ insert into tt(data) values($1) returning f1 $$"
+    "expected": "CREATE FUNCTION insert_tt (TEXT) RETURNS INT AS $$ insert into tt(data) values($1) returning f1 $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 202",
@@ -986,7 +986,7 @@
   {
     "comment": "rangefuncs - Statement 205",
     "query": "create or replace function insert_tt(text) returns int as $$ insert into tt(data) values($1),($1||$1) returning f1 $$ language sql",
-    "expected": "CREATE OR REPLACE FUNCTION insert_tt (TEXT) RETURNS INT LANGUAGE sql AS $$ insert into tt(data) values($1),($1||$1) returning f1 $$"
+    "expected": "CREATE OR REPLACE FUNCTION insert_tt (TEXT) RETURNS INT AS $$ insert into tt(data) values($1),($1||$1) returning f1 $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 206",
@@ -996,7 +996,7 @@
   {
     "comment": "rangefuncs - Statement 207",
     "query": "create or replace function insert_tt2(text,text) returns setof int as $$ insert into tt(data) values($1),($2) returning f1 $$ language sql",
-    "expected": "CREATE OR REPLACE FUNCTION insert_tt2 (TEXT, TEXT) RETURNS SETOF INT LANGUAGE sql AS $$ insert into tt(data) values($1),($2) returning f1 $$"
+    "expected": "CREATE OR REPLACE FUNCTION insert_tt2 (TEXT, TEXT) RETURNS SETOF INT AS $$ insert into tt(data) values($1),($2) returning f1 $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 208",
@@ -1016,7 +1016,7 @@
   {
     "comment": "rangefuncs - Statement 211",
     "query": "create function noticetrigger() returns trigger as $$ begin   raise notice 'noticetrigger % %', new.f1, new.data;   return null; end $$ language plpgsql;",
-    "error": "parse error at position 52: syntax error"
+    "expected": "CREATE FUNCTION noticetrigger () RETURNS trigger AS $$ begin   raise notice 'noticetrigger % %', new.f1, new.data;   return null; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "rangefuncs - Statement 214",
@@ -1076,7 +1076,7 @@
   {
     "comment": "rangefuncs - Statement 225",
     "query": "create function array_to_set(anyarray) returns setof record as $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ language sql strict immutable",
-    "expected": "CREATE FUNCTION array_to_set (anyarray) RETURNS SETOF record LANGUAGE sql AS $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION array_to_set (anyarray) RETURNS SETOF record AS $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ LANGUAGE sql STRICT IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 226",
@@ -1111,7 +1111,7 @@
   {
     "comment": "rangefuncs - Statement 232",
     "query": "create or replace function array_to_set(anyarray) returns setof record as $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ language sql immutable",
-    "expected": "CREATE OR REPLACE FUNCTION array_to_set (anyarray) RETURNS SETOF record LANGUAGE sql AS $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ IMMUTABLE"
+    "expected": "CREATE OR REPLACE FUNCTION array_to_set (anyarray) RETURNS SETOF record AS $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 233",
@@ -1121,7 +1121,7 @@
   {
     "comment": "rangefuncs - Statement 234",
     "query": "create function testrngfunc() returns record as $$ insert into rngfunc values (1,2) returning *; $$ language sql;",
-    "error": "parse error at position 49: syntax error"
+    "expected": "CREATE FUNCTION testrngfunc () RETURNS record AS $$ insert into rngfunc values (1,2) returning *; $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 236",
@@ -1146,7 +1146,7 @@
   {
     "comment": "rangefuncs - Statement 240",
     "query": "create function testrngfunc() returns setof record as $$ insert into rngfunc values (1,2), (3,4) returning *; $$ language sql;",
-    "error": "parse error at position 55: syntax error"
+    "expected": "CREATE FUNCTION testrngfunc () RETURNS SETOF record AS $$ insert into rngfunc values (1,2), (3,4) returning *; $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 241",
@@ -1156,7 +1156,7 @@
   {
     "comment": "rangefuncs - Statement 242",
     "query": "create or replace function testrngfunc() returns rngfunc_type as $$ select 7.136178319899999964, 7.136178319899999964; $$ language sql volatile;",
-    "error": "parse error at position 55: syntax error"
+    "expected": "CREATE OR REPLACE FUNCTION testrngfunc () RETURNS rngfunc_type AS $$ select 7.136178319899999964, 7.136178319899999964; $$ LANGUAGE sql VOLATILE"
   },
   {
     "comment": "rangefuncs - Statement 244",
@@ -1171,17 +1171,17 @@
   {
     "comment": "rangefuncs - Statement 246",
     "query": "create function testrngfunc() returns setof rngfunc_type as $$ select 7.136178319899999964, 7.136178319899999964; $$ language sql immutable;",
-    "error": "parse error at position 66: syntax error"
+    "expected": "CREATE FUNCTION testrngfunc () RETURNS SETOF rngfunc_type AS $$ select 7.136178319899999964, 7.136178319899999964; $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 248",
     "query": "create or replace function testrngfunc() returns setof rngfunc_type as $$  select 7.136178319899999964, 7.136178319899999964;$$ language sql volatile;",
-    "error": "parse error at position 61: syntax error"
+    "expected": "CREATE OR REPLACE FUNCTION testrngfunc () RETURNS SETOF rngfunc_type AS $$  select 7.136178319899999964, 7.136178319899999964;$$ LANGUAGE sql VOLATILE"
   },
   {
     "comment": "rangefuncs - Statement 250",
     "query": "create or replace function testrngfunc() returns setof rngfunc_type as $$  select 1, 2 union select 3, 4 order by 1;$$ language sql immutable;",
-    "error": "parse error at position 72: syntax error"
+    "expected": "CREATE OR REPLACE FUNCTION testrngfunc () RETURNS SETOF rngfunc_type AS $$  select 1, 2 union select 3, 4 order by 1;$$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 251",
@@ -1221,7 +1221,7 @@
   {
     "comment": "rangefuncs - Statement 258",
     "query": "create or replace function get_first_user() returns users as $$ SELECT * FROM users ORDER BY userid LIMIT 1; $$ language sql stable",
-    "expected": "CREATE OR REPLACE FUNCTION get_first_user () RETURNS users LANGUAGE sql AS $$ SELECT * FROM users ORDER BY userid LIMIT 1; $$ STABLE"
+    "expected": "CREATE OR REPLACE FUNCTION get_first_user () RETURNS users AS $$ SELECT * FROM users ORDER BY userid LIMIT 1; $$ LANGUAGE sql STABLE"
   },
   {
     "comment": "rangefuncs - Statement 259",
@@ -1234,7 +1234,7 @@
   {
     "comment": "rangefuncs - Statement 261",
     "query": "create or replace function get_users() returns setof users as $$ SELECT * FROM users ORDER BY userid; $$ language sql stable",
-    "expected": "CREATE OR REPLACE FUNCTION get_users () RETURNS SETOF users LANGUAGE sql AS $$ SELECT * FROM users ORDER BY userid; $$ STABLE"
+    "expected": "CREATE OR REPLACE FUNCTION get_users () RETURNS SETOF users AS $$ SELECT * FROM users ORDER BY userid; $$ LANGUAGE sql STABLE"
   },
   {
     "comment": "rangefuncs - Statement 262",
@@ -1321,7 +1321,7 @@
   {
     "comment": "rangefuncs - Statement 279",
     "query": "create or replace function rngfuncbar() returns setof text as $$ select 'foo'::varchar union all select 'bar'::varchar ; $$ language sql stable",
-    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar () RETURNS SETOF TEXT LANGUAGE sql AS $$ select 'foo'::varchar union all select 'bar'::varchar ; $$ STABLE"
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar () RETURNS SETOF TEXT AS $$ select 'foo'::varchar union all select 'bar'::varchar ; $$ LANGUAGE sql STABLE"
   },
   {
     "comment": "rangefuncs - Statement 280",
@@ -1346,22 +1346,22 @@
   {
     "comment": "rangefuncs - Statement 284",
     "query": "create or replace function rngfuncbar(out integer, out numeric) as $$ select (1, 2.1) $$ language sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar (OUT INT, OUT NUMERIC) LANGUAGE sql AS $$ select (1, 2.1) $$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar (OUT INT, OUT NUMERIC) AS $$ select (1, 2.1) $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 285",
     "query": "create or replace function rngfuncbar(out integer, out numeric) as $$ select (1, 2) $$ language sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar (OUT INT, OUT NUMERIC) LANGUAGE sql AS $$ select (1, 2) $$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar (OUT INT, OUT NUMERIC) AS $$ select (1, 2) $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 286",
     "query": "create or replace function rngfuncbar(out integer, out numeric) as $$ select (1, 2.1, 3) $$ language sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar (OUT INT, OUT NUMERIC) LANGUAGE sql AS $$ select (1, 2.1, 3) $$"
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar (OUT INT, OUT NUMERIC) AS $$ select (1, 2.1, 3) $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 287",
     "query": "create function extractq2(t int8_tbl) returns int8 as $$ select t.q2 $$ language sql immutable",
-    "expected": "CREATE FUNCTION extractq2 (t int8_tbl) RETURNS BIGINT LANGUAGE sql AS $$ select t.q2 $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION extractq2 (t int8_tbl) RETURNS BIGINT AS $$ select t.q2 $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 288",
@@ -1376,7 +1376,7 @@
   {
     "comment": "rangefuncs - Statement 290",
     "query": "create function extractq2_2(t int8_tbl) returns table(ret1 int8) as $$ select extractq2(t) offset 0 $$ language sql immutable",
-    "expected": "CREATE FUNCTION extractq2_2 (t int8_tbl) LANGUAGE sql AS $$ select extractq2(t) offset 0 $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION extractq2_2 (t int8_tbl) AS $$ select extractq2(t) offset 0 $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 291",
@@ -1391,7 +1391,7 @@
   {
     "comment": "rangefuncs - Statement 293",
     "query": "create function extractq2_2_opt(t int8_tbl) returns table(ret1 int8) as $$ select extractq2(t) $$ language sql immutable",
-    "expected": "CREATE FUNCTION extractq2_2_opt (t int8_tbl) LANGUAGE sql AS $$ select extractq2(t) $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION extractq2_2_opt (t int8_tbl) AS $$ select extractq2(t) $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 294",

@@ -343,7 +343,7 @@
   {
     "comment": "psql - Statement 73",
     "query": "create function psql_df_internal (float8) returns float8 language internal immutable parallel safe strict as 'dsin'",
-    "expected": "CREATE FUNCTION psql_df_internal (FLOAT8) RETURNS FLOAT8 LANGUAGE internal AS $$dsin$$ IMMUTABLE PARALLEL SAFE STRICT"
+    "expected": "CREATE FUNCTION psql_df_internal (FLOAT8) RETURNS FLOAT8 LANGUAGE internal IMMUTABLE PARALLEL SAFE STRICT AS $$dsin$$"
   },
   {
     "comment": "psql - Statement 74",
@@ -681,49 +681,53 @@
   },
   {
     "comment": "psql - Statement 147",
-    "query": "GRANT regress_du_role0 TO regress_du_admin WITH ADMIN TRUE"
+    "query": "GRANT regress_du_role0 TO regress_du_admin WITH ADMIN TRUE",
+    "expected": "GRANT regress_du_role0 TO regress_du_admin WITH ADMIN OPTION"
   },
   {
     "comment": "psql - Statement 148",
-    "query": "GRANT regress_du_role1 TO regress_du_admin WITH ADMIN TRUE"
+    "query": "GRANT regress_du_role1 TO regress_du_admin WITH ADMIN TRUE",
+    "expected": "GRANT regress_du_role1 TO regress_du_admin WITH ADMIN OPTION"
   },
   {
     "comment": "psql - Statement 149",
-    "query": "GRANT regress_du_role2 TO regress_du_admin WITH ADMIN TRUE"
+    "query": "GRANT regress_du_role2 TO regress_du_admin WITH ADMIN TRUE",
+    "expected": "GRANT regress_du_role2 TO regress_du_admin WITH ADMIN OPTION"
   },
   {
     "comment": "psql - Statement 150",
     "query": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN TRUE,  INHERIT TRUE,  SET TRUE  GRANTED BY regress_du_admin",
-    "expected": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN TRUE, INHERIT TRUE, SET TRUE GRANTED BY regress_du_admin"
+    "expected": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_admin"
   },
   {
     "comment": "psql - Statement 151",
     "query": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN TRUE,  INHERIT FALSE, SET FALSE GRANTED BY regress_du_admin",
-    "expected": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN TRUE, INHERIT FALSE, SET FALSE GRANTED BY regress_du_admin"
+    "expected": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_admin"
   },
   {
     "comment": "psql - Statement 152",
     "query": "GRANT regress_du_role1 TO regress_du_role2 WITH ADMIN TRUE , INHERIT FALSE, SET TRUE  GRANTED BY regress_du_admin",
-    "expected": "GRANT regress_du_role1 TO regress_du_role2 WITH ADMIN TRUE, INHERIT FALSE, SET TRUE GRANTED BY regress_du_admin"
+    "expected": "GRANT regress_du_role1 TO regress_du_role2 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_admin"
   },
   {
     "comment": "psql - Statement 153",
     "query": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN FALSE, INHERIT TRUE,  SET FALSE GRANTED BY regress_du_role1",
-    "expected": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN FALSE, INHERIT TRUE, SET FALSE GRANTED BY regress_du_role1"
+    "expected": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_role1"
   },
   {
     "comment": "psql - Statement 154",
     "query": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN FALSE, INHERIT TRUE , SET TRUE  GRANTED BY regress_du_role1",
-    "expected": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN FALSE, INHERIT TRUE, SET TRUE GRANTED BY regress_du_role1"
+    "expected": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_role1"
   },
   {
     "comment": "psql - Statement 155",
     "query": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN FALSE, INHERIT FALSE, SET TRUE  GRANTED BY regress_du_role2",
-    "expected": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN FALSE, INHERIT FALSE, SET TRUE GRANTED BY regress_du_role2"
+    "expected": "GRANT regress_du_role0 TO regress_du_role1 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_role2"
   },
   {
     "comment": "psql - Statement 156",
-    "query": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN FALSE, INHERIT FALSE, SET FALSE GRANTED BY regress_du_role2"
+    "query": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN FALSE, INHERIT FALSE, SET FALSE GRANTED BY regress_du_role2",
+    "expected": "GRANT regress_du_role0 TO regress_du_role2 WITH ADMIN OPTION, INHERIT OPTION, SET OPTION GRANTED BY regress_du_role2"
   },
   {
     "comment": "psql - Statement 157",
@@ -754,12 +758,11 @@
   {
     "comment": "psql - Statement 163",
     "query": "REVOKE ALL ON DOMAIN regress_zeropriv_domain FROM CURRENT_USER, PUBLIC",
-    "expected": "REVOKE ALL ON regress_zeropriv_domain FROM CURRENT_USER, public"
+    "expected": "REVOKE ALL ON regress_zeropriv_domain FROM CURRENT_USER, PUBLIC"
   },
   {
     "comment": "psql - Statement 164",
-    "query": "REVOKE ALL ON PROCEDURE regress_zeropriv_proc() FROM CURRENT_USER, PUBLIC",
-    "expected": "REVOKE ALL ON PROCEDURE regress_zeropriv_proc() FROM CURRENT_USER, public"
+    "query": "REVOKE ALL ON PROCEDURE regress_zeropriv_proc() FROM CURRENT_USER, PUBLIC"
   },
   {
     "comment": "psql - Statement 165",
@@ -768,8 +771,7 @@
   },
   {
     "comment": "psql - Statement 166",
-    "query": "REVOKE ALL ON TYPE regress_zeropriv_type FROM CURRENT_USER, PUBLIC",
-    "expected": "REVOKE ALL ON TYPE regress_zeropriv_type FROM CURRENT_USER, public"
+    "query": "REVOKE ALL ON TYPE regress_zeropriv_type FROM CURRENT_USER, PUBLIC"
   },
   {
     "comment": "psql - Statement 167",

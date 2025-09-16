@@ -433,12 +433,12 @@
   {
     "comment": "float4 - Statement 88",
     "query": "create function xfloat4in(cstring) returns xfloat4 immutable strict language internal as 'int4in'",
-    "expected": "CREATE FUNCTION xfloat4in (cstring) RETURNS xfloat4 LANGUAGE internal AS $$int4in$$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION xfloat4in (cstring) RETURNS xfloat4 IMMUTABLE STRICT LANGUAGE internal AS $$int4in$$"
   },
   {
     "comment": "float4 - Statement 89",
     "query": "create function xfloat4out(xfloat4) returns cstring immutable strict language internal as 'int4out'",
-    "expected": "CREATE FUNCTION xfloat4out (xfloat4) RETURNS cstring LANGUAGE internal AS $$int4out$$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION xfloat4out (xfloat4) RETURNS cstring IMMUTABLE STRICT LANGUAGE internal AS $$int4out$$"
   },
   {
     "comment": "float4 - Statement 90",

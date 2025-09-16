@@ -679,7 +679,7 @@
   {
     "comment": "alter_table - Statement 155",
     "query": "CREATE FUNCTION boo(int) RETURNS int IMMUTABLE STRICT LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'boo: %', $1; RETURN $1; END; $$",
-    "expected": "CREATE FUNCTION boo (INT) RETURNS INT LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'boo: %', $1; RETURN $1; END; $$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION boo (INT) RETURNS INT IMMUTABLE STRICT LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE 'boo: %', $1; RETURN $1; END; $$"
   },
   {
     "comment": "alter_table - Statement 156",
@@ -3493,7 +3493,7 @@
   {
     "comment": "alter_table - Statement 729",
     "query": "create function test_strict(text) returns text as 'select coalesce($1, ''got passed a null'');' language sql returns null on null input",
-    "expected": "CREATE FUNCTION test_strict (TEXT) RETURNS TEXT LANGUAGE sql AS $$select coalesce($1, 'got passed a null');$$ STRICT"
+    "expected": "CREATE FUNCTION test_strict (TEXT) RETURNS TEXT AS $$select coalesce($1, 'got passed a null');$$ LANGUAGE sql STRICT"
   },
   {
     "comment": "alter_table - Statement 730",
@@ -3508,7 +3508,7 @@
   {
     "comment": "alter_table - Statement 732",
     "query": "create function non_strict(text) returns text as 'select coalesce($1, ''got passed a null'');' language sql called on null input",
-    "expected": "CREATE FUNCTION non_strict (TEXT) RETURNS TEXT LANGUAGE sql AS $$select coalesce($1, 'got passed a null');$$ CALLED ON NULL INPUT"
+    "expected": "CREATE FUNCTION non_strict (TEXT) RETURNS TEXT AS $$select coalesce($1, 'got passed a null');$$ LANGUAGE sql CALLED ON NULL INPUT"
   },
   {
     "comment": "alter_table - Statement 733",
@@ -3543,7 +3543,7 @@
   {
     "comment": "alter_table - Statement 739",
     "query": "create function alter1.plus1(int) returns int as 'select $1+1' language sql",
-    "expected": "CREATE FUNCTION alter1.plus1 (INT) RETURNS INT LANGUAGE sql AS $$select $1+1$$"
+    "expected": "CREATE FUNCTION alter1.plus1 (INT) RETURNS INT AS $$select $1+1$$ LANGUAGE sql"
   },
   {
     "comment": "alter_table - Statement 740",

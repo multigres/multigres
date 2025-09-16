@@ -878,7 +878,7 @@
   {
     "comment": "create_index - Statement 190",
     "query": "CREATE FUNCTION predicate_stable() RETURNS bool IMMUTABLE LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'SELECT txid_current()'; RETURN true; END; $$",
-    "expected": "CREATE FUNCTION predicate_stable () RETURNS BOOLEAN LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'SELECT txid_current()'; RETURN true; END; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION predicate_stable () RETURNS BOOLEAN IMMUTABLE LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'SELECT txid_current()'; RETURN true; END; $$"
   },
   {
     "comment": "create_index - Statement 193",

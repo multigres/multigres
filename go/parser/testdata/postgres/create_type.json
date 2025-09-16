@@ -2,17 +2,17 @@
   {
     "comment": "create_type - Statement 1",
     "query": "CREATE FUNCTION widget_out(widget) RETURNS cstring AS 'regresslib' LANGUAGE C STRICT IMMUTABLE",
-    "expected": "CREATE FUNCTION widget_out (widget) RETURNS cstring LANGUAGE c AS $$regresslib$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION widget_out (widget) RETURNS cstring AS $$regresslib$$ LANGUAGE c STRICT IMMUTABLE"
   },
   {
     "comment": "create_type - Statement 2",
     "query": "CREATE FUNCTION int44in(cstring) RETURNS city_budget AS 'regresslib' LANGUAGE C STRICT IMMUTABLE",
-    "expected": "CREATE FUNCTION int44in (cstring) RETURNS city_budget LANGUAGE c AS $$regresslib$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int44in (cstring) RETURNS city_budget AS $$regresslib$$ LANGUAGE c STRICT IMMUTABLE"
   },
   {
     "comment": "create_type - Statement 3",
     "query": "CREATE FUNCTION int44out(city_budget) RETURNS cstring AS 'regresslib' LANGUAGE C STRICT IMMUTABLE",
-    "expected": "CREATE FUNCTION int44out (city_budget) RETURNS cstring LANGUAGE c AS $$regresslib$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int44out (city_budget) RETURNS cstring AS $$regresslib$$ LANGUAGE c STRICT IMMUTABLE"
   },
   {
     "comment": "create_type - Statement 4",
@@ -47,22 +47,22 @@
   {
     "comment": "create_type - Statement 11",
     "query": "CREATE FUNCTION int42_in(cstring) RETURNS int42 AS 'int4in' LANGUAGE internal STRICT IMMUTABLE",
-    "expected": "CREATE FUNCTION int42_in (cstring) RETURNS int42 LANGUAGE internal AS $$int4in$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int42_in (cstring) RETURNS int42 AS $$int4in$$ LANGUAGE internal STRICT IMMUTABLE"
   },
   {
     "comment": "create_type - Statement 12",
     "query": "CREATE FUNCTION int42_out(int42) RETURNS cstring AS 'int4out' LANGUAGE internal STRICT IMMUTABLE",
-    "expected": "CREATE FUNCTION int42_out (int42) RETURNS cstring LANGUAGE internal AS $$int4out$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION int42_out (int42) RETURNS cstring AS $$int4out$$ LANGUAGE internal STRICT IMMUTABLE"
   },
   {
     "comment": "create_type - Statement 13",
     "query": "CREATE FUNCTION text_w_default_in(cstring) RETURNS text_w_default AS 'textin' LANGUAGE internal STRICT IMMUTABLE",
-    "expected": "CREATE FUNCTION text_w_default_in (cstring) RETURNS text_w_default LANGUAGE internal AS $$textin$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION text_w_default_in (cstring) RETURNS text_w_default AS $$textin$$ LANGUAGE internal STRICT IMMUTABLE"
   },
   {
     "comment": "create_type - Statement 14",
     "query": "CREATE FUNCTION text_w_default_out(text_w_default) RETURNS cstring AS 'textout' LANGUAGE internal STRICT IMMUTABLE",
-    "expected": "CREATE FUNCTION text_w_default_out (text_w_default) RETURNS cstring LANGUAGE internal AS $$textout$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION text_w_default_out (text_w_default) RETURNS cstring AS $$textout$$ LANGUAGE internal STRICT IMMUTABLE"
   },
   {
     "comment": "create_type - Statement 15",
@@ -161,12 +161,12 @@
   {
     "comment": "create_type - Statement 37",
     "query": "CREATE FUNCTION base_fn_in(cstring) RETURNS base_type AS 'boolin' LANGUAGE internal IMMUTABLE STRICT",
-    "expected": "CREATE FUNCTION base_fn_in (cstring) RETURNS base_type LANGUAGE internal AS $$boolin$$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION base_fn_in (cstring) RETURNS base_type AS $$boolin$$ LANGUAGE internal IMMUTABLE STRICT"
   },
   {
     "comment": "create_type - Statement 38",
     "query": "CREATE FUNCTION base_fn_out(base_type) RETURNS cstring AS 'boolout' LANGUAGE internal IMMUTABLE STRICT",
-    "expected": "CREATE FUNCTION base_fn_out (base_type) RETURNS cstring LANGUAGE internal AS $$boolout$$ IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION base_fn_out (base_type) RETURNS cstring AS $$boolout$$ LANGUAGE internal IMMUTABLE STRICT"
   },
   {
     "comment": "create_type - Statement 39",
@@ -255,7 +255,7 @@
   {
     "comment": "create_type - Statement 58",
     "query": "CREATE FUNCTION pt_in_widget(point, widget) RETURNS bool AS 'regresslib' LANGUAGE C STRICT",
-    "expected": "CREATE FUNCTION pt_in_widget (point, widget) RETURNS BOOLEAN LANGUAGE c AS $$regresslib$$ STRICT"
+    "expected": "CREATE FUNCTION pt_in_widget (point, widget) RETURNS BOOLEAN AS $$regresslib$$ LANGUAGE c STRICT"
   },
   {
     "comment": "create_type - Statement 59",
@@ -288,22 +288,22 @@
   {
     "comment": "create_type - Statement 65",
     "query": "CREATE FUNCTION myvarcharin(cstring, oid, integer) RETURNS myvarchar LANGUAGE internal IMMUTABLE PARALLEL SAFE STRICT AS 'varcharin'",
-    "expected": "CREATE FUNCTION myvarcharin (cstring, oid, INT) RETURNS myvarchar LANGUAGE internal AS $$varcharin$$ IMMUTABLE PARALLEL SAFE STRICT"
+    "expected": "CREATE FUNCTION myvarcharin (cstring, oid, INT) RETURNS myvarchar LANGUAGE internal IMMUTABLE PARALLEL SAFE STRICT AS $$varcharin$$"
   },
   {
     "comment": "create_type - Statement 66",
     "query": "CREATE FUNCTION myvarcharout(myvarchar) RETURNS cstring LANGUAGE internal IMMUTABLE PARALLEL SAFE STRICT AS 'varcharout'",
-    "expected": "CREATE FUNCTION myvarcharout (myvarchar) RETURNS cstring LANGUAGE internal AS $$varcharout$$ IMMUTABLE PARALLEL SAFE STRICT"
+    "expected": "CREATE FUNCTION myvarcharout (myvarchar) RETURNS cstring LANGUAGE internal IMMUTABLE PARALLEL SAFE STRICT AS $$varcharout$$"
   },
   {
     "comment": "create_type - Statement 67",
     "query": "CREATE FUNCTION myvarcharsend(myvarchar) RETURNS bytea LANGUAGE internal STABLE PARALLEL SAFE STRICT AS 'varcharsend'",
-    "expected": "CREATE FUNCTION myvarcharsend (myvarchar) RETURNS BYTEA LANGUAGE internal AS $$varcharsend$$ STABLE PARALLEL SAFE STRICT"
+    "expected": "CREATE FUNCTION myvarcharsend (myvarchar) RETURNS BYTEA LANGUAGE internal STABLE PARALLEL SAFE STRICT AS $$varcharsend$$"
   },
   {
     "comment": "create_type - Statement 68",
     "query": "CREATE FUNCTION myvarcharrecv(internal, oid, integer) RETURNS myvarchar LANGUAGE internal STABLE PARALLEL SAFE STRICT AS 'varcharrecv'",
-    "expected": "CREATE FUNCTION myvarcharrecv (internal, oid, INT) RETURNS myvarchar LANGUAGE internal AS $$varcharrecv$$ STABLE PARALLEL SAFE STRICT"
+    "expected": "CREATE FUNCTION myvarcharrecv (internal, oid, INT) RETURNS myvarchar LANGUAGE internal STABLE PARALLEL SAFE STRICT AS $$varcharrecv$$"
   },
   {
     "comment": "create_type - Statement 69",

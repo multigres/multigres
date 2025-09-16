@@ -194,7 +194,7 @@
   {
     "comment": "case - Statement 41",
     "query": "CREATE FUNCTION vol(text) returns text as 'begin return $1; end' language plpgsql volatile",
-    "expected": "CREATE FUNCTION vol (TEXT) RETURNS TEXT LANGUAGE plpgsql AS $$begin return $1; end$$ VOLATILE"
+    "expected": "CREATE FUNCTION vol (TEXT) RETURNS TEXT AS $$begin return $1; end$$ LANGUAGE plpgsql VOLATILE"
   },
   {
     "comment": "case - Statement 42",
@@ -209,12 +209,12 @@
   {
     "comment": "case - Statement 44",
     "query": "CREATE FUNCTION volfoo(text) returns foodomain as 'begin return $1::foodomain; end' language plpgsql volatile",
-    "expected": "CREATE FUNCTION volfoo (TEXT) RETURNS foodomain LANGUAGE plpgsql AS $$begin return $1::foodomain; end$$ VOLATILE"
+    "expected": "CREATE FUNCTION volfoo (TEXT) RETURNS foodomain AS $$begin return $1::foodomain; end$$ LANGUAGE plpgsql VOLATILE"
   },
   {
     "comment": "case - Statement 45",
     "query": "CREATE FUNCTION inline_eq(foodomain, foodomain) returns boolean as 'SELECT CASE $2::text WHEN $1::text THEN true ELSE false END' language sql",
-    "expected": "CREATE FUNCTION inline_eq (foodomain, foodomain) RETURNS BOOLEAN LANGUAGE sql AS $$SELECT CASE $2::text WHEN $1::text THEN true ELSE false END$$"
+    "expected": "CREATE FUNCTION inline_eq (foodomain, foodomain) RETURNS BOOLEAN AS $$SELECT CASE $2::text WHEN $1::text THEN true ELSE false END$$ LANGUAGE sql"
   },
   {
     "comment": "case - Statement 46",
@@ -237,12 +237,12 @@
   {
     "comment": "case - Statement 50",
     "query": "CREATE FUNCTION make_ad(int,int) returns arrdomain as 'declare x arrdomain; begin x := array[$1,$2]; return x; end' language plpgsql volatile;",
-    "expected": "CREATE FUNCTION make_ad (INT, INT) RETURNS arrdomain LANGUAGE plpgsql AS $$declare x arrdomain; begin x := array[$1,$2]; return x; end$$ VOLATILE"
+    "expected": "CREATE FUNCTION make_ad (INT, INT) RETURNS arrdomain AS $$declare x arrdomain; begin x := array[$1,$2]; return x; end$$ LANGUAGE plpgsql VOLATILE"
   },
   {
     "comment": "case - Statement 54",
     "query": "CREATE FUNCTION ad_eq(arrdomain, arrdomain) returns boolean as 'begin return array_eq($1, $2); end' language plpgsql",
-    "expected": "CREATE FUNCTION ad_eq (arrdomain, arrdomain) RETURNS BOOLEAN LANGUAGE plpgsql AS $$begin return array_eq($1, $2); end$$"
+    "expected": "CREATE FUNCTION ad_eq (arrdomain, arrdomain) RETURNS BOOLEAN AS $$begin return array_eq($1, $2); end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "case - Statement 55",

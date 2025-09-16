@@ -7,12 +7,12 @@
   {
     "comment": "copy2 - Statement 2",
     "query": "CREATE FUNCTION fn_x_before () RETURNS TRIGGER AS ' BEGIN NEW.e := ''before trigger fired''::text; return NEW; END;' LANGUAGE plpgsql;",
-    "expected": "CREATE FUNCTION fn_x_before () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.e := 'before trigger fired'::text; return NEW; END;$$"
+    "expected": "CREATE FUNCTION fn_x_before () RETURNS trigger AS $$ BEGIN NEW.e := 'before trigger fired'::text; return NEW; END;$$ LANGUAGE plpgsql"
   },
   {
     "comment": "copy2 - Statement 6",
     "query": "CREATE FUNCTION fn_x_after () RETURNS TRIGGER AS ' BEGIN UPDATE x set e=''after trigger fired'' where c=''stuff''; return NULL; END;' LANGUAGE plpgsql;",
-    "expected": "CREATE FUNCTION fn_x_after () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE x set e='after trigger fired' where c='stuff'; return NULL; END;$$"
+    "expected": "CREATE FUNCTION fn_x_after () RETURNS trigger AS $$ BEGIN UPDATE x set e='after trigger fired' where c='stuff'; return NULL; END;$$ LANGUAGE plpgsql"
   },
   {
     "comment": "copy2 - Statement 8",
@@ -483,7 +483,7 @@
   {
     "comment": "copy2 - Statement 106",
     "query": "CREATE FUNCTION truncate_in_subxact() RETURNS VOID AS $$ BEGIN TRUNCATE vistest; EXCEPTION WHEN OTHERS THEN INSERT INTO vistest VALUES ('subxact failure'); END; $$ language plpgsql;",
-    "expected": "CREATE FUNCTION truncate_in_subxact () RETURNS void LANGUAGE plpgsql AS $$ BEGIN TRUNCATE vistest; EXCEPTION WHEN OTHERS THEN INSERT INTO vistest VALUES ('subxact failure'); END; $$"
+    "expected": "CREATE FUNCTION truncate_in_subxact () RETURNS void AS $$ BEGIN TRUNCATE vistest; EXCEPTION WHEN OTHERS THEN INSERT INTO vistest VALUES ('subxact failure'); END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "copy2 - Statement 109",
@@ -599,7 +599,7 @@
   {
     "comment": "copy2 - Statement 134",
     "query": "create function check_con_function(check_con_tbl) returns bool as $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 \u003e 0; end $$ language plpgsql immutable;",
-    "expected": "CREATE FUNCTION check_con_function (check_con_tbl) RETURNS BOOLEAN LANGUAGE plpgsql AS $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 \u003e 0; end $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION check_con_function (check_con_tbl) RETURNS BOOLEAN AS $$ begin raise notice 'input = %', row_to_json($1); return $1.f1 \u003e 0; end $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "copy2 - Statement 137",
@@ -637,7 +637,7 @@
   {
     "comment": "copy2 - Statement 144",
     "query": "CREATE POLICY p1 ON rls_t1 FOR SELECT USING (a % 2 = 0)",
-    "expected": "CREATE POLICY p1 ON rls_t1 FOR select TO public USING ( a % 2 = 0 )"
+    "expected": "CREATE POLICY p1 ON rls_t1 FOR select TO PUBLIC USING ( a % 2 = 0 )"
   },
   {
     "comment": "copy2 - Statement 145",
@@ -720,7 +720,7 @@
   {
     "comment": "copy2 - Statement 161",
     "query": "CREATE FUNCTION fun_instead_of_insert_tbl() RETURNS trigger AS $$ BEGIN INSERT INTO instead_of_insert_tbl (name) VALUES (NEW.str); RETURN NULL; END; $$ LANGUAGE plpgsql;",
-    "expected": "CREATE FUNCTION fun_instead_of_insert_tbl () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO instead_of_insert_tbl (name) VALUES (NEW.str); RETURN NULL; END; $$"
+    "expected": "CREATE FUNCTION fun_instead_of_insert_tbl () RETURNS trigger AS $$ BEGIN INSERT INTO instead_of_insert_tbl (name) VALUES (NEW.str); RETURN NULL; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "copy2 - Statement 162",

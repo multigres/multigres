@@ -59,7 +59,7 @@
   {
     "comment": "plancache - Statement 14",
     "query": "create function cache_test(int) returns int as $$ declare total int; begin  create temp table t1(f1 int);  insert into t1 values($1);  insert into t1 values(11);  insert into t1 values(12);  insert into t1 values(13);  select sum(f1) into total from t1;  drop table t1;  return total; end $$ language plpgsql;",
-    "expected": "CREATE FUNCTION cache_test (INT) RETURNS INT LANGUAGE plpgsql AS $$ declare total int; begin  create temp table t1(f1 int);  insert into t1 values($1);  insert into t1 values(11);  insert into t1 values(12);  insert into t1 values(13);  select sum(f1) into total from t1;  drop table t1;  return total; end $$"
+    "expected": "CREATE FUNCTION cache_test (INT) RETURNS INT AS $$ declare total int; begin  create temp table t1(f1 int);  insert into t1 values($1);  insert into t1 values(11);  insert into t1 values(12);  insert into t1 values(13);  select sum(f1) into total from t1;  drop table t1;  return total; end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plancache - Statement 16",
@@ -114,7 +114,7 @@
   {
     "comment": "plancache - Statement 28",
     "query": "create function cache_test_2() returns int as $$ begin return f1 from v1; end$$ language plpgsql;",
-    "expected": "CREATE FUNCTION cache_test_2 () RETURNS INT LANGUAGE plpgsql AS $$ begin return f1 from v1; end$$"
+    "expected": "CREATE FUNCTION cache_test_2 () RETURNS INT AS $$ begin return f1 from v1; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plancache - Statement 30",
@@ -219,7 +219,7 @@
   {
     "comment": "plancache - Statement 50",
     "query": "create function cachebug() returns void as $$ declare r int; begin   drop table if exists temptable cascade;   create temp table temptable as select * from generate_series(1,3) as f1;   create temp view vv as select * from temptable;   for r in select * from vv loop     raise notice '%', r;   end loop; end$$ language plpgsql;",
-    "expected": "CREATE FUNCTION cachebug () RETURNS void LANGUAGE plpgsql AS $$ declare r int; begin   drop table if exists temptable cascade;   create temp table temptable as select * from generate_series(1,3) as f1;   create temp view vv as select * from temptable;   for r in select * from vv loop     raise notice '%', r;   end loop; end$$"
+    "expected": "CREATE FUNCTION cachebug () RETURNS void AS $$ declare r int; begin   drop table if exists temptable cascade;   create temp table temptable as select * from generate_series(1,3) as f1;   create temp view vv as select * from temptable;   for r in select * from vv loop     raise notice '%', r;   end loop; end$$ LANGUAGE plpgsql"
   },
   {
     "comment": "plancache - Statement 52",

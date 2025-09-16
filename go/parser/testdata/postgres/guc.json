@@ -318,7 +318,7 @@
   {
     "comment": "guc - Statement 73",
     "query": "create function report_guc(text) returns text as $$ select current_setting($1) $$ language sql set work_mem = '1MB'",
-    "expected": "CREATE FUNCTION report_guc (TEXT) RETURNS TEXT LANGUAGE sql AS $$ select current_setting($1) $$ SET work_mem = '1MB'"
+    "expected": "CREATE FUNCTION report_guc (TEXT) RETURNS TEXT AS $$ select current_setting($1) $$ LANGUAGE sql SET work_mem = '1MB'"
   },
   {
     "comment": "guc - Statement 74",
@@ -338,7 +338,7 @@
   {
     "comment": "guc - Statement 77",
     "query": "create or replace function myfunc(int) returns text as $$ begin   set local work_mem = '2MB';   return current_setting('work_mem'); end $$ language plpgsql set work_mem = '1MB';",
-    "expected": "CREATE OR REPLACE FUNCTION myfunc (INT) RETURNS TEXT LANGUAGE plpgsql AS $$ begin   set local work_mem = '2MB';   return current_setting('work_mem'); end $$ SET work_mem = '1MB'"
+    "expected": "CREATE OR REPLACE FUNCTION myfunc (INT) RETURNS TEXT AS $$ begin   set local work_mem = '2MB';   return current_setting('work_mem'); end $$ LANGUAGE plpgsql SET work_mem = '1MB'"
   },
   {
     "comment": "guc - Statement 80",
@@ -353,7 +353,7 @@
   {
     "comment": "guc - Statement 82",
     "query": "create or replace function myfunc(int) returns text as $$ begin   set work_mem = '2MB';   return current_setting('work_mem'); end $$ language plpgsql set work_mem = '1MB';",
-    "expected": "CREATE OR REPLACE FUNCTION myfunc (INT) RETURNS TEXT LANGUAGE plpgsql AS $$ begin   set work_mem = '2MB';   return current_setting('work_mem'); end $$ SET work_mem = '1MB'"
+    "expected": "CREATE OR REPLACE FUNCTION myfunc (INT) RETURNS TEXT AS $$ begin   set work_mem = '2MB';   return current_setting('work_mem'); end $$ LANGUAGE plpgsql SET work_mem = '1MB'"
   },
   {
     "comment": "guc - Statement 84",
@@ -398,7 +398,7 @@
   {
     "comment": "guc - Statement 92",
     "query": "create function func_with_bad_set() returns int as $$ select 1 $$ language sql set default_text_search_config = no_such_config",
-    "expected": "CREATE FUNCTION func_with_bad_set () RETURNS INT LANGUAGE sql AS $$ select 1 $$ SET default_text_search_config = 'no_such_config'"
+    "expected": "CREATE FUNCTION func_with_bad_set () RETURNS INT AS $$ select 1 $$ LANGUAGE sql SET default_text_search_config = 'no_such_config'"
   },
   {
     "comment": "guc - Statement 93",

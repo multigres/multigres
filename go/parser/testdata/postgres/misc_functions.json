@@ -102,7 +102,7 @@
   {
     "comment": "misc_functions - Statement 22",
     "query": "CREATE FUNCTION test_canonicalize_path(text) RETURNS text AS 'regresslib' LANGUAGE C STRICT IMMUTABLE",
-    "expected": "CREATE FUNCTION test_canonicalize_path (TEXT) RETURNS TEXT LANGUAGE c AS $$regresslib$$ STRICT IMMUTABLE"
+    "expected": "CREATE FUNCTION test_canonicalize_path (TEXT) RETURNS TEXT AS $$regresslib$$ LANGUAGE c STRICT IMMUTABLE"
   },
   {
     "comment": "misc_functions - Statement 23",
@@ -394,7 +394,7 @@
   {
     "comment": "misc_functions - Statement 87",
     "query": "CREATE FUNCTION my_int_eq(int, int) RETURNS bool LANGUAGE internal STRICT IMMUTABLE PARALLEL SAFE AS $$int4eq$$",
-    "expected": "CREATE FUNCTION my_int_eq (INT, INT) RETURNS BOOLEAN LANGUAGE internal AS $$int4eq$$ STRICT IMMUTABLE PARALLEL SAFE"
+    "expected": "CREATE FUNCTION my_int_eq (INT, INT) RETURNS BOOLEAN LANGUAGE internal STRICT IMMUTABLE PARALLEL SAFE AS $$int4eq$$"
   },
   {
     "comment": "misc_functions - Statement 88",
@@ -404,7 +404,7 @@
   {
     "comment": "misc_functions - Statement 89",
     "query": "CREATE FUNCTION test_support_func(internal) RETURNS internal AS 'regresslib', 'test_support_func' LANGUAGE C STRICT",
-    "expected": "CREATE FUNCTION test_support_func (internal) RETURNS internal LANGUAGE c AS $$regresslib$$ STRICT"
+    "expected": "CREATE FUNCTION test_support_func (internal) RETURNS internal AS $$regresslib$$ LANGUAGE c STRICT"
   },
   {
     "comment": "misc_functions - Statement 90",
@@ -414,7 +414,7 @@
   {
     "comment": "misc_functions - Statement 91",
     "query": "CREATE FUNCTION my_gen_series(int, int) RETURNS SETOF integer LANGUAGE internal STRICT IMMUTABLE PARALLEL SAFE AS $$generate_series_int4$$ SUPPORT test_support_func",
-    "expected": "CREATE FUNCTION my_gen_series (INT, INT) RETURNS SETOF INT LANGUAGE internal AS $$generate_series_int4$$ STRICT IMMUTABLE PARALLEL SAFE SUPPORT test_support_func"
+    "expected": "CREATE FUNCTION my_gen_series (INT, INT) RETURNS SETOF INT LANGUAGE internal STRICT IMMUTABLE PARALLEL SAFE AS $$generate_series_int4$$ SUPPORT test_support_func"
   },
   {
     "comment": "misc_functions - Statement 92",

@@ -2,7 +2,7 @@
   {
     "comment": "infinite_recurse - Statement 1",
     "query": "create function infinite_recurse() returns int as 'select infinite_recurse()' language sql",
-    "expected": "CREATE FUNCTION infinite_recurse () RETURNS INT LANGUAGE sql AS $$select infinite_recurse()$$"
+    "expected": "CREATE FUNCTION infinite_recurse () RETURNS INT AS $$select infinite_recurse()$$ LANGUAGE sql"
   },
   {
     "comment": "infinite_recurse - Statement 2",

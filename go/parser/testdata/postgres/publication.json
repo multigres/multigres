@@ -109,18 +109,15 @@
   },
   {
     "comment": "publication - Statement 25",
-    "query": "ALTER PUBLICATION testpub_foralltables ADD TABLES IN SCHEMA pub_test",
-    "expected": "ALTER PUBLICATION testpub_foralltables ADD TABLE "
+    "query": "ALTER PUBLICATION testpub_foralltables ADD TABLES IN SCHEMA pub_test"
   },
   {
     "comment": "publication - Statement 26",
-    "query": "ALTER PUBLICATION testpub_foralltables DROP TABLES IN SCHEMA pub_test",
-    "expected": "ALTER PUBLICATION testpub_foralltables DROP TABLE "
+    "query": "ALTER PUBLICATION testpub_foralltables DROP TABLES IN SCHEMA pub_test"
   },
   {
     "comment": "publication - Statement 27",
-    "query": "ALTER PUBLICATION testpub_foralltables SET TABLES IN SCHEMA pub_test",
-    "expected": "ALTER PUBLICATION testpub_foralltables SET TABLE "
+    "query": "ALTER PUBLICATION testpub_foralltables SET TABLES IN SCHEMA pub_test"
   },
   {
     "comment": "publication - Statement 28",
@@ -128,8 +125,7 @@
   },
   {
     "comment": "publication - Statement 29",
-    "query": "ALTER PUBLICATION testpub_fortable ADD TABLES IN SCHEMA pub_test",
-    "expected": "ALTER PUBLICATION testpub_fortable ADD TABLE "
+    "query": "ALTER PUBLICATION testpub_fortable ADD TABLES IN SCHEMA pub_test"
   },
   {
     "comment": "publication - Statement 30",
@@ -341,7 +337,7 @@
   {
     "comment": "publication - Statement 76",
     "query": "CREATE FUNCTION testpub_rf_func1(integer, integer) RETURNS boolean AS $$ SELECT hashint4($1) \u003e $2 $$ LANGUAGE SQL",
-    "expected": "CREATE FUNCTION testpub_rf_func1 (INT, INT) RETURNS BOOLEAN LANGUAGE sql AS $$ SELECT hashint4($1) \u003e $2 $$"
+    "expected": "CREATE FUNCTION testpub_rf_func1 (INT, INT) RETURNS BOOLEAN AS $$ SELECT hashint4($1) \u003e $2 $$ LANGUAGE sql"
   },
   {
     "comment": "publication - Statement 77",
@@ -356,7 +352,7 @@
   {
     "comment": "publication - Statement 79",
     "query": "CREATE FUNCTION testpub_rf_func2() RETURNS integer AS $$ BEGIN RETURN 123; END; $$ LANGUAGE plpgsql",
-    "expected": "CREATE FUNCTION testpub_rf_func2 () RETURNS INT LANGUAGE plpgsql AS $$ BEGIN RETURN 123; END; $$"
+    "expected": "CREATE FUNCTION testpub_rf_func2 () RETURNS INT AS $$ BEGIN RETURN 123; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "publication - Statement 80",
@@ -501,7 +497,7 @@
   {
     "comment": "publication - Statement 109",
     "query": "ALTER PUBLICATION testpub6 SET TABLES IN SCHEMA testpub_rf_schema2, TABLE testpub_rf_schema2.testpub_rf_tbl6 WHERE (i \u003c 99)",
-    "expected": "ALTER PUBLICATION testpub6 SET TABLE testpub_rf_schema2.testpub_rf_tbl6"
+    "expected": "ALTER PUBLICATION testpub6 SET TABLES IN SCHEMA testpub_rf_schema2"
   },
   {
     "comment": "publication - Statement 110",
@@ -975,13 +971,12 @@
   },
   {
     "comment": "publication - Statement 215",
-    "query": "ALTER PUBLICATION testpub_tbl9 ADD TABLES IN SCHEMA public",
-    "expected": "ALTER PUBLICATION testpub_tbl9 ADD TABLE "
+    "query": "ALTER PUBLICATION testpub_tbl9 ADD TABLES IN SCHEMA public"
   },
   {
     "comment": "publication - Statement 216",
     "query": "ALTER PUBLICATION testpub_tbl9 SET TABLES IN SCHEMA public, TABLE public.testpub_tbl7(a)",
-    "expected": "ALTER PUBLICATION testpub_tbl9 SET TABLE public.testpub_tbl7"
+    "expected": "ALTER PUBLICATION testpub_tbl9 SET TABLES IN SCHEMA public"
   },
   {
     "comment": "publication - Statement 217",
@@ -990,7 +985,7 @@
   {
     "comment": "publication - Statement 218",
     "query": "ALTER PUBLICATION testpub_tbl9 ADD TABLES IN SCHEMA public, TABLE public.testpub_tbl7(a)",
-    "expected": "ALTER PUBLICATION testpub_tbl9 ADD TABLE public.testpub_tbl7"
+    "expected": "ALTER PUBLICATION testpub_tbl9 ADD TABLES IN SCHEMA public"
   },
   {
     "comment": "publication - Statement 219",
@@ -1250,8 +1245,7 @@
   },
   {
     "comment": "publication - Statement 276",
-    "query": "ALTER PUBLICATION testpub3 ADD TABLES IN SCHEMA pub_test",
-    "expected": "ALTER PUBLICATION testpub3 ADD TABLE "
+    "query": "ALTER PUBLICATION testpub3 ADD TABLES IN SCHEMA pub_test"
   },
   {
     "comment": "publication - Statement 277",
@@ -1343,8 +1337,7 @@
   },
   {
     "comment": "publication - Statement 298",
-    "query": "CREATE SCHEMA \"CURRENT_SCHEMA\"",
-    "expected": "CREATE SCHEMA CURRENT_SCHEMA"
+    "query": "CREATE SCHEMA \"CURRENT_SCHEMA\""
   },
   {
     "comment": "publication - Statement 299",
@@ -1427,12 +1420,11 @@
   {
     "comment": "publication - Statement 316",
     "query": "ALTER PUBLICATION testpub1_forschema ADD TABLES IN SCHEMA foo, bar (a, b)",
-    "expected": "ALTER PUBLICATION testpub1_forschema ADD TABLE bar"
+    "expected": "ALTER PUBLICATION testpub1_forschema ADD TABLES IN SCHEMA foo"
   },
   {
     "comment": "publication - Statement 317",
-    "query": "ALTER PUBLICATION testpub2_forschema DROP TABLES IN SCHEMA pub_test1",
-    "expected": "ALTER PUBLICATION testpub2_forschema DROP TABLE "
+    "query": "ALTER PUBLICATION testpub2_forschema DROP TABLES IN SCHEMA pub_test1"
   },
   {
     "comment": "publication - Statement 318",
@@ -1440,8 +1432,7 @@
   },
   {
     "comment": "publication - Statement 319",
-    "query": "DROP SCHEMA \"CURRENT_SCHEMA\" CASCADE",
-    "expected": "DROP SCHEMA CURRENT_SCHEMA CASCADE"
+    "query": "DROP SCHEMA \"CURRENT_SCHEMA\" CASCADE"
   },
   {
     "comment": "publication - Statement 320",
@@ -1454,13 +1445,11 @@
   },
   {
     "comment": "publication - Statement 322",
-    "query": "ALTER PUBLICATION testpub1_forschema DROP TABLES IN SCHEMA pub_test1",
-    "expected": "ALTER PUBLICATION testpub1_forschema DROP TABLE "
+    "query": "ALTER PUBLICATION testpub1_forschema DROP TABLES IN SCHEMA pub_test1"
   },
   {
     "comment": "publication - Statement 323",
-    "query": "ALTER PUBLICATION testpub1_forschema SET TABLES IN SCHEMA pub_test1",
-    "expected": "ALTER PUBLICATION testpub1_forschema SET TABLE "
+    "query": "ALTER PUBLICATION testpub1_forschema SET TABLES IN SCHEMA pub_test1"
   },
   {
     "comment": "publication - Statement 324",

@@ -599,7 +599,7 @@ func (r *RoleSpec) SqlString() string {
 	case ROLESPEC_CURRENT_ROLE:
 		return "CURRENT_ROLE"
 	case ROLESPEC_PUBLIC:
-		return "public"
+		return "PUBLIC"
 	default:
 		return r.Rolename
 	}
@@ -2831,7 +2831,7 @@ func (c *CreateSchemaStmt) SqlString() string {
 
 	// Add schema name if specified
 	if c.Schemaname != "" {
-		parts = append(parts, c.Schemaname)
+		parts = append(parts, QuoteIdentifier(c.Schemaname))
 	}
 
 	// Add AUTHORIZATION clause if specified

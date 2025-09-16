@@ -1565,7 +1565,7 @@
   {
     "comment": "join - Statement 317",
     "query": "create function f_immutable_int4(i integer) returns integer as $$ begin return i; end; $$ language plpgsql immutable",
-    "expected": "CREATE FUNCTION f_immutable_int4 (i INT) RETURNS INT LANGUAGE plpgsql AS $$ begin return i; end; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION f_immutable_int4 (i INT) RETURNS INT AS $$ begin return i; end; $$ LANGUAGE plpgsql IMMUTABLE"
   },
   {
     "comment": "join - Statement 318",
@@ -1630,12 +1630,12 @@
   {
     "comment": "join - Statement 330",
     "query": "create function mki8(bigint, bigint) returns int8_tbl as $$select row($1,$2)::int8_tbl$$ language sql",
-    "expected": "CREATE FUNCTION mki8 (BIGINT, BIGINT) RETURNS int8_tbl LANGUAGE sql AS $$select row($1,$2)::int8_tbl$$"
+    "expected": "CREATE FUNCTION mki8 (BIGINT, BIGINT) RETURNS int8_tbl AS $$select row($1,$2)::int8_tbl$$ LANGUAGE sql"
   },
   {
     "comment": "join - Statement 331",
     "query": "create function mki4(int) returns int4_tbl as $$select row($1)::int4_tbl$$ language sql",
-    "expected": "CREATE FUNCTION mki4 (INT) RETURNS int4_tbl LANGUAGE sql AS $$select row($1)::int4_tbl$$"
+    "expected": "CREATE FUNCTION mki4 (INT) RETURNS int4_tbl AS $$select row($1)::int4_tbl$$ LANGUAGE sql"
   },
   {
     "comment": "join - Statement 332",
@@ -1670,7 +1670,7 @@
   {
     "comment": "join - Statement 338",
     "query": "create function f_field_select(t onek) returns int4 as $$ select t.unique2; $$ language sql immutable",
-    "expected": "CREATE FUNCTION f_field_select (t onek) RETURNS INT LANGUAGE sql AS $$ select t.unique2; $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION f_field_select (t onek) RETURNS INT AS $$ select t.unique2; $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "join - Statement 339",

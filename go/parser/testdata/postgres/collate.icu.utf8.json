@@ -579,7 +579,7 @@
   {
     "comment": "collate.icu.utf8 - Statement 136",
     "query": "CREATE FUNCTION dup (anyelement) RETURNS anyelement AS 'select $1' LANGUAGE sql",
-    "expected": "CREATE FUNCTION dup (anyelement) RETURNS anyelement LANGUAGE sql AS $$select $1$$"
+    "expected": "CREATE FUNCTION dup (anyelement) RETURNS anyelement AS $$select $1$$ LANGUAGE sql"
   },
   {
     "comment": "collate.icu.utf8 - Statement 137",

@@ -465,7 +465,7 @@
   {
     "comment": "portals - Statement 104",
     "query": "CREATE FUNCTION declares_cursor(text) RETURNS void AS 'DECLARE c CURSOR FOR SELECT stringu1 FROM tenk1 WHERE stringu1 LIKE $1;' LANGUAGE SQL",
-    "expected": "CREATE FUNCTION declares_cursor (TEXT) RETURNS void LANGUAGE sql AS $$DECLARE c CURSOR FOR SELECT stringu1 FROM tenk1 WHERE stringu1 LIKE $1;$$"
+    "expected": "CREATE FUNCTION declares_cursor (TEXT) RETURNS void AS $$DECLARE c CURSOR FOR SELECT stringu1 FROM tenk1 WHERE stringu1 LIKE $1;$$ LANGUAGE sql"
   },
   {
     "comment": "portals - Statement 105",
@@ -483,12 +483,12 @@
   {
     "comment": "portals - Statement 108",
     "query": "create function count_tt1_v() returns int8 as 'select count(*) from tt1' language sql volatile",
-    "expected": "CREATE FUNCTION count_tt1_v () RETURNS BIGINT LANGUAGE sql AS $$select count(*) from tt1$$ VOLATILE"
+    "expected": "CREATE FUNCTION count_tt1_v () RETURNS BIGINT AS $$select count(*) from tt1$$ LANGUAGE sql VOLATILE"
   },
   {
     "comment": "portals - Statement 109",
     "query": "create function count_tt1_s() returns int8 as 'select count(*) from tt1' language sql stable",
-    "expected": "CREATE FUNCTION count_tt1_s () RETURNS BIGINT LANGUAGE sql AS $$select count(*) from tt1$$ STABLE"
+    "expected": "CREATE FUNCTION count_tt1_s () RETURNS BIGINT AS $$select count(*) from tt1$$ LANGUAGE sql STABLE"
   },
   {
     "comment": "portals - Statement 110",
@@ -793,8 +793,7 @@
   },
   {
     "comment": "portals - Statement 178",
-    "query": "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
-    "expected": "SET"
+    "query": "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"
   },
   {
     "comment": "portals - Statement 179",
@@ -820,7 +819,7 @@
   {
     "comment": "portals - Statement 184",
     "query": "create function nochange(int) returns int as 'select $1 limit 1' language sql stable",
-    "expected": "CREATE FUNCTION nochange (INT) RETURNS INT LANGUAGE sql AS $$select $1 limit 1$$ STABLE"
+    "expected": "CREATE FUNCTION nochange (INT) RETURNS INT AS $$select $1 limit 1$$ LANGUAGE sql STABLE"
   },
   {
     "comment": "portals - Statement 185",

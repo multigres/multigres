@@ -1053,7 +1053,7 @@
   {
     "comment": "merge - Statement 248",
     "query": "CREATE POLICY pa_target_pol ON pa_target USING (tid != 0)",
-    "expected": "CREATE POLICY pa_target_pol ON pa_target FOR all TO public USING ( tid \u003c\u003e 0 )"
+    "expected": "CREATE POLICY pa_target_pol ON pa_target FOR all TO PUBLIC USING ( tid \u003c\u003e 0 )"
   },
   {
     "comment": "merge - Statement 249",
@@ -1309,7 +1309,7 @@
   {
     "comment": "merge - Statement 303",
     "query": "CREATE OR REPLACE FUNCTION measurement_insert_trigger() RETURNS TRIGGER AS $$ BEGIN     IF ( NEW.logdate \u003e= DATE '2006-02-01' AND          NEW.logdate \u003c DATE '2006-03-01' ) THEN         INSERT INTO measurement_y2006m02 VALUES (NEW.*);     ELSIF ( NEW.logdate \u003e= DATE '2006-03-01' AND             NEW.logdate \u003c DATE '2006-04-01' ) THEN         INSERT INTO measurement_y2006m03 VALUES (NEW.*);     ELSIF ( NEW.logdate \u003e= DATE '2007-01-01' AND             NEW.logdate \u003c DATE '2007-02-01' ) THEN         INSERT INTO measurement_y2007m01 (city_id, logdate, peaktemp, unitsales)             VALUES (NEW.*);     ELSE         RAISE EXCEPTION 'Date out of range.  Fix the measurement_insert_trigger() function!';     END IF;     RETURN NULL; END; $$ LANGUAGE plpgsql ;",
-    "expected": "CREATE OR REPLACE FUNCTION measurement_insert_trigger () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN     IF ( NEW.logdate \u003e= DATE '2006-02-01' AND          NEW.logdate \u003c DATE '2006-03-01' ) THEN         INSERT INTO measurement_y2006m02 VALUES (NEW.*);     ELSIF ( NEW.logdate \u003e= DATE '2006-03-01' AND             NEW.logdate \u003c DATE '2006-04-01' ) THEN         INSERT INTO measurement_y2006m03 VALUES (NEW.*);     ELSIF ( NEW.logdate \u003e= DATE '2007-01-01' AND             NEW.logdate \u003c DATE '2007-02-01' ) THEN         INSERT INTO measurement_y2007m01 (city_id, logdate, peaktemp, unitsales)             VALUES (NEW.*);     ELSE         RAISE EXCEPTION 'Date out of range.  Fix the measurement_insert_trigger() function!';     END IF;     RETURN NULL; END; $$"
+    "expected": "CREATE OR REPLACE FUNCTION measurement_insert_trigger () RETURNS trigger AS $$ BEGIN     IF ( NEW.logdate \u003e= DATE '2006-02-01' AND          NEW.logdate \u003c DATE '2006-03-01' ) THEN         INSERT INTO measurement_y2006m02 VALUES (NEW.*);     ELSIF ( NEW.logdate \u003e= DATE '2006-03-01' AND             NEW.logdate \u003c DATE '2006-04-01' ) THEN         INSERT INTO measurement_y2006m03 VALUES (NEW.*);     ELSIF ( NEW.logdate \u003e= DATE '2007-01-01' AND             NEW.logdate \u003c DATE '2007-02-01' ) THEN         INSERT INTO measurement_y2007m01 (city_id, logdate, peaktemp, unitsales)             VALUES (NEW.*);     ELSE         RAISE EXCEPTION 'Date out of range.  Fix the measurement_insert_trigger() function!';     END IF;     RETURN NULL; END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "merge - Statement 309",

@@ -597,12 +597,12 @@
   {
     "comment": "generated - Statement 136",
     "query": "CREATE FUNCTION gf1(a int) RETURNS int AS $$ SELECT a * 3 $$ IMMUTABLE LANGUAGE SQL",
-    "expected": "CREATE FUNCTION gf1 (a INT) RETURNS INT LANGUAGE sql AS $$ SELECT a * 3 $$ IMMUTABLE"
+    "expected": "CREATE FUNCTION gf1 (a INT) RETURNS INT AS $$ SELECT a * 3 $$ IMMUTABLE LANGUAGE sql"
   },
   {
     "comment": "generated - Statement 137",
     "query": "REVOKE ALL ON FUNCTION gf1(int) FROM PUBLIC",
-    "expected": "REVOKE ALL ON FUNCTION gf1(INT) FROM public"
+    "expected": "REVOKE ALL ON FUNCTION gf1(INT) FROM PUBLIC"
   },
   {
     "comment": "generated - Statement 138",

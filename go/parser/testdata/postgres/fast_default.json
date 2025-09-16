@@ -21,12 +21,12 @@
   {
     "comment": "fast_default - Statement 5",
     "query": "CREATE FUNCTION set(tabname name) RETURNS VOID AS $$ BEGIN   UPDATE m   SET id = (SELECT c.relfilenode             FROM pg_class AS c, pg_namespace AS s             WHERE c.relname = tabname                 AND c.relnamespace = s.oid                 AND s.nspname = 'fast_default'); END; $$ LANGUAGE 'plpgsql';",
-    "expected": "CREATE FUNCTION set (tabname name) RETURNS void LANGUAGE plpgsql AS $$ BEGIN   UPDATE m   SET id = (SELECT c.relfilenode             FROM pg_class AS c, pg_namespace AS s             WHERE c.relname = tabname                 AND c.relnamespace = s.oid                 AND s.nspname = 'fast_default'); END; $$"
+    "expected": "CREATE FUNCTION set (tabname name) RETURNS void AS $$ BEGIN   UPDATE m   SET id = (SELECT c.relfilenode             FROM pg_class AS c, pg_namespace AS s             WHERE c.relname = tabname                 AND c.relnamespace = s.oid                 AND s.nspname = 'fast_default'); END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "fast_default - Statement 8",
     "query": "CREATE FUNCTION comp() RETURNS TEXT AS $$ BEGIN   RETURN (SELECT CASE                WHEN m.id = c.relfilenode THEN 'Unchanged'                ELSE 'Rewritten'                END            FROM m, pg_class AS c, pg_namespace AS s            WHERE c.relname = 't'                AND c.relnamespace = s.oid                AND s.nspname = 'fast_default'); END; $$ LANGUAGE 'plpgsql';",
-    "expected": "CREATE FUNCTION comp () RETURNS TEXT LANGUAGE plpgsql AS $$ BEGIN   RETURN (SELECT CASE                WHEN m.id = c.relfilenode THEN 'Unchanged'                ELSE 'Rewritten'                END            FROM m, pg_class AS c, pg_namespace AS s            WHERE c.relname = 't'                AND c.relnamespace = s.oid                AND s.nspname = 'fast_default'); END; $$"
+    "expected": "CREATE FUNCTION comp () RETURNS TEXT AS $$ BEGIN   RETURN (SELECT CASE                WHEN m.id = c.relfilenode THEN 'Unchanged'                ELSE 'Rewritten'                END            FROM m, pg_class AS c, pg_namespace AS s            WHERE c.relname = 't'                AND c.relnamespace = s.oid                AND s.nspname = 'fast_default'); END; $$ LANGUAGE plpgsql"
   },
   {
     "comment": "fast_default - Statement 9",
@@ -224,7 +224,7 @@
   {
     "comment": "fast_default - Statement 52",
     "query": "CREATE OR REPLACE FUNCTION foo(a INT) RETURNS TEXT AS $$ DECLARE res TEXT := '';         i INT; BEGIN   i := 0;   WHILE (i \u003c a) LOOP     res := res || chr(ascii('a') + i);     i := i + 1;   END LOOP;   RETURN res; END; $$ LANGUAGE PLPGSQL STABLE;",
-    "expected": "CREATE OR REPLACE FUNCTION foo (a INT) RETURNS TEXT LANGUAGE plpgsql AS $$ DECLARE res TEXT := '';         i INT; BEGIN   i := 0;   WHILE (i \u003c a) LOOP     res := res || chr(ascii('a') + i);     i := i + 1;   END LOOP;   RETURN res; END; $$ STABLE"
+    "expected": "CREATE OR REPLACE FUNCTION foo (a INT) RETURNS TEXT AS $$ DECLARE res TEXT := '';         i INT; BEGIN   i := 0;   WHILE (i \u003c a) LOOP     res := res || chr(ascii('a') + i);     i := i + 1;   END LOOP;   RETURN res; END; $$ LANGUAGE plpgsql STABLE"
   },
   {
     "comment": "fast_default - Statement 60",
@@ -375,7 +375,7 @@
   {
     "comment": "fast_default - Statement 91",
     "query": "CREATE FUNCTION foolme(timestamptz DEFAULT clock_timestamp()) RETURNS timestamptz IMMUTABLE AS 'select $1' LANGUAGE sql",
-    "expected": "CREATE FUNCTION foolme (TIMESTAMPTZ DEFAULT clock_timestamp()) RETURNS TIMESTAMPTZ LANGUAGE sql AS $$select $1$$ IMMUTABLE"
+    "expected": "CREATE FUNCTION foolme (TIMESTAMPTZ DEFAULT clock_timestamp()) RETURNS TIMESTAMPTZ IMMUTABLE AS $$select $1$$ LANGUAGE sql"
   },
   {
     "comment": "fast_default - Statement 92",

@@ -259,7 +259,7 @@
   {
     "comment": "create_role - Statement 60",
     "query": "REVOKE ALL PRIVILEGES ON tenant_table FROM PUBLIC",
-    "expected": "REVOKE ALL ON tenant_table FROM public"
+    "expected": "REVOKE ALL ON tenant_table FROM PUBLIC"
   },
   {
     "comment": "create_role - Statement 61",
@@ -315,7 +315,7 @@
   {
     "comment": "create_role - Statement 73",
     "query": "REVOKE ALL PRIVILEGES ON tenant2_table FROM PUBLIC",
-    "expected": "REVOKE ALL ON tenant2_table FROM public"
+    "expected": "REVOKE ALL ON tenant2_table FROM PUBLIC"
   },
   {
     "comment": "create_role - Statement 74",
@@ -335,8 +335,7 @@
   },
   {
     "comment": "create_role - Statement 78",
-    "query": "REVOKE INHERIT OPTION FOR regress_tenant2 FROM regress_createrole",
-    "expected": "REVOKE regress_tenant2 FROM regress_createrole"
+    "query": "REVOKE INHERIT OPTION FOR regress_tenant2 FROM regress_createrole"
   },
   {
     "comment": "create_role - Statement 79",
@@ -344,7 +343,8 @@
   },
   {
     "comment": "create_role - Statement 80",
-    "query": "GRANT regress_tenant2 TO regress_createrole WITH INHERIT TRUE, SET FALSE"
+    "query": "GRANT regress_tenant2 TO regress_createrole WITH INHERIT TRUE, SET FALSE",
+    "expected": "GRANT regress_tenant2 TO regress_createrole WITH INHERIT OPTION, SET OPTION"
   },
   {
     "comment": "create_role - Statement 81",
