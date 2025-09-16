@@ -53,7 +53,9 @@ type testPortConfig struct {
 	MultiadminGRPCPort   int
 	MultigatewayHTTPPort int
 	MultigatewayGRPCPort int
+	MultipoolerHTTPPort  int
 	MultipoolerGRPCPort  int
+	MultiorchHTTPPort    int
 	MultiorchGRPCPort    int
 }
 
@@ -65,7 +67,9 @@ func getTestPortConfig() *testPortConfig {
 		MultiadminGRPCPort:   utils.GetNextPort(),
 		MultigatewayHTTPPort: utils.GetNextPort(),
 		MultigatewayGRPCPort: utils.GetNextPort(),
+		MultipoolerHTTPPort:  utils.GetNextPort(),
 		MultipoolerGRPCPort:  utils.GetNextPort(),
+		MultiorchHTTPPort:    utils.GetNextPort(),
 		MultiorchGRPCPort:    utils.GetNextPort(),
 	}
 }
@@ -90,7 +94,9 @@ func checkAllPortsAvailable(config *testPortConfig) error {
 		config.MultiadminGRPCPort,
 		config.MultigatewayHTTPPort,
 		config.MultigatewayGRPCPort,
+		config.MultipoolerHTTPPort,
 		config.MultipoolerGRPCPort,
+		config.MultiorchHTTPPort,
 		config.MultiorchGRPCPort,
 	}
 
@@ -191,11 +197,13 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				Multipooler: local.MultipoolerConfig{
 					Path:     filepath.Join(binPath, "multipooler"),
 					Database: "postgres",
+					HttpPort: portConfig.MultipoolerHTTPPort,
 					GrpcPort: portConfig.MultipoolerGRPCPort,
 					LogLevel: "info",
 				},
 				Multiorch: local.MultiorchConfig{
 					Path:     filepath.Join(binPath, "multiorch"),
+					HttpPort: portConfig.MultiorchHTTPPort,
 					GrpcPort: portConfig.MultiorchGRPCPort,
 					LogLevel: "info",
 				},
@@ -211,11 +219,13 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				Multipooler: local.MultipoolerConfig{
 					Path:     filepath.Join(binPath, "multipooler"),
 					Database: "postgres",
+					HttpPort: portConfig.MultipoolerHTTPPort + 100,
 					GrpcPort: portConfig.MultipoolerGRPCPort + 100,
 					LogLevel: "info",
 				},
 				Multiorch: local.MultiorchConfig{
 					Path:     filepath.Join(binPath, "multiorch"),
+					HttpPort: portConfig.MultiorchHTTPPort + 100,
 					GrpcPort: portConfig.MultiorchGRPCPort + 100,
 					LogLevel: "info",
 				},
@@ -768,9 +778,9 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, checkAllPortsAvailable(testPorts),
 			"Test ports should be available before starting cluster")
 
-		t.Logf("Using test ports - etcd:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multipooler:%d, multiorch:%d",
+		t.Logf("Using test ports - etcd:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
 			testPorts.EtcdPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort,
-			testPorts.MultipoolerGRPCPort, testPorts.MultiorchGRPCPort)
+			testPorts.MultipoolerHTTPPort, testPorts.MultipoolerGRPCPort, testPorts.MultiorchHTTPPort, testPorts.MultiorchGRPCPort)
 
 		// Create cluster configuration with test ports
 		t.Log("Creating cluster configuration with test ports...")
