@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
@@ -193,13 +194,17 @@ func run(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	servenv.RegisterServiceCmd(Main)
-
 	// Adds multipooler specific flags
-	Main.Flags().StringVar(&pgctldAddr, "pgctld-addr", "localhost:15200", "Address of pgctld gRPC service")
-	Main.Flags().StringVar(&cell, "cell", "", "cell to use")
-	Main.Flags().StringVar(&database, "database", "", "database name this multipooler serves (required)")
-	Main.Flags().StringVar(&serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
+	servenv.OnParseFor("multipooler", registerFlags)
+
+	servenv.RegisterServiceCmd(Main)
+}
+
+func registerFlags(fs *pflag.FlagSet) {
+	fs.StringVar(&pgctldAddr, "pgctld-addr", "localhost:15200", "Address of pgctld gRPC service")
+	fs.StringVar(&cell, "cell", "", "cell to use")
+	fs.StringVar(&database, "database", "", "database name this multipooler serves (required)")
+	fs.StringVar(&serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
 }
 
 // StatusResponse represents the response from the temporary status endpoint

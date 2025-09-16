@@ -53,7 +53,9 @@ type testPortConfig struct {
 	MultiadminGRPCPort   int
 	MultigatewayHTTPPort int
 	MultigatewayGRPCPort int
+	MultipoolerHTTPPort  int
 	MultipoolerGRPCPort  int
+	MultiorchHTTPPort    int
 	MultiorchGRPCPort    int
 }
 
@@ -65,7 +67,9 @@ func getTestPortConfig() *testPortConfig {
 		MultiadminGRPCPort:   utils.GetNextPort(),
 		MultigatewayHTTPPort: utils.GetNextPort(),
 		MultigatewayGRPCPort: utils.GetNextPort(),
+		MultipoolerHTTPPort:  utils.GetNextPort(),
 		MultipoolerGRPCPort:  utils.GetNextPort(),
+		MultiorchHTTPPort:    utils.GetNextPort(),
 		MultiorchGRPCPort:    utils.GetNextPort(),
 	}
 }
@@ -90,7 +94,9 @@ func checkAllPortsAvailable(config *testPortConfig) error {
 		config.MultiadminGRPCPort,
 		config.MultigatewayHTTPPort,
 		config.MultigatewayGRPCPort,
+		config.MultipoolerHTTPPort,
 		config.MultipoolerGRPCPort,
+		config.MultiorchHTTPPort,
 		config.MultiorchGRPCPort,
 	}
 
@@ -191,11 +197,13 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				Multipooler: local.MultipoolerConfig{
 					Path:     filepath.Join(binPath, "multipooler"),
 					Database: "postgres",
+					HttpPort: portConfig.MultipoolerHTTPPort,
 					GrpcPort: portConfig.MultipoolerGRPCPort,
 					LogLevel: "info",
 				},
 				Multiorch: local.MultiorchConfig{
 					Path:     filepath.Join(binPath, "multiorch"),
+					HttpPort: portConfig.MultiorchHTTPPort,
 					GrpcPort: portConfig.MultiorchGRPCPort,
 					LogLevel: "info",
 				},
@@ -211,11 +219,13 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				Multipooler: local.MultipoolerConfig{
 					Path:     filepath.Join(binPath, "multipooler"),
 					Database: "postgres",
+					HttpPort: portConfig.MultipoolerHTTPPort + 100,
 					GrpcPort: portConfig.MultipoolerGRPCPort + 100,
 					LogLevel: "info",
 				},
 				Multiorch: local.MultiorchConfig{
 					Path:     filepath.Join(binPath, "multiorch"),
+					HttpPort: portConfig.MultiorchHTTPPort + 100,
 					GrpcPort: portConfig.MultiorchGRPCPort + 100,
 					LogLevel: "info",
 				},
@@ -768,9 +778,9 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, checkAllPortsAvailable(testPorts),
 			"Test ports should be available before starting cluster")
 
-		t.Logf("Using test ports - etcd:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multipooler:%d, multiorch:%d",
+		t.Logf("Using test ports - etcd:%d, multiadmin-http:%d, multiadmin-grpc:%d, multigateway-http:%d, multigateway-grpc:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
 			testPorts.EtcdPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort, testPorts.MultigatewayHTTPPort, testPorts.MultigatewayGRPCPort,
-			testPorts.MultipoolerGRPCPort, testPorts.MultiorchGRPCPort)
+			testPorts.MultipoolerHTTPPort, testPorts.MultipoolerGRPCPort, testPorts.MultiorchHTTPPort, testPorts.MultiorchGRPCPort)
 
 		// Create cluster configuration with test ports
 		t.Log("Creating cluster configuration with test ports...")
@@ -871,6 +881,13 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Log("Verifying multipooler has database field populated in topology...")
 		require.NoError(t, checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, expectedDatabase),
 			"multipooler should be registered with database field in topology")
+
+		// Start cluster is idempotent
+		t.Log("Stopping cluster...")
+		upOutput, err = executeStartCommand(t, []string{"--config-path", tempDir})
+		require.NoError(t, err, "Up command failed with output: %s", upOutput)
+		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
+		assert.Contains(t, upOutput, "is already running")
 
 		// Stop cluster (down)
 		t.Log("Stopping cluster...")
@@ -974,6 +991,50 @@ func TestClusterLifecycle(t *testing.T) {
 		outputStr = string(output)
 		assert.NotContains(t, outputStr, "--database flag is required",
 			"Should not show database flag error when flag is provided. Got: %s", outputStr)
+	})
+
+	// Verifies that if a required service port is already in use by another process,
+	// cluster start fails with a helpful error mentioning the conflict.
+	t.Run("cluster start fails when a service port is already in use", func(t *testing.T) {
+		// Setup test directory
+		tempDir, err := os.MkdirTemp("", "multigres_port_conflict_test")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		// Always cleanup processes, even if test fails
+		defer func() {
+			if cleanupErr := cleanupTestProcesses(tempDir); cleanupErr != nil {
+				t.Logf("Warning: cleanup failed: %v", cleanupErr)
+			}
+		}()
+
+		// Build service binaries in the test directory
+		t.Log("Building service binaries...")
+		require.NoError(t, buildServiceBinaries(tempDir), "Failed to build service binaries")
+
+		// Setup test ports
+		testPorts := getTestPortConfig()
+
+		// Intentionally occupy the multipooler gRPC port to create a conflict
+		conflictPort := testPorts.MultipoolerGRPCPort
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", conflictPort))
+		require.NoError(t, err, "failed to bind conflict port %d", conflictPort)
+		defer ln.Close()
+
+		// Create cluster configuration with these ports
+		t.Log("Creating cluster configuration with conflicting port...")
+		configFile, err := createTestConfigWithPorts(tempDir, testPorts)
+		require.NoError(t, err, "Failed to create test configuration")
+		t.Logf("Created test configuration: %s", configFile)
+
+		// Attempt to start cluster — should fail due to port conflict
+		t.Log("Starting cluster (expected to fail due to port conflict)...")
+		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir})
+		require.Error(t, err, "Start should fail when a configured port is already in use. Output: %s", upOutput)
+
+		combined := err.Error() + "\n" + upOutput
+		assert.Contains(t, combined, "already in use", "error/output should mention port already in use. Got: %s", combined)
+		assert.Contains(t, combined, fmt.Sprintf("%d", conflictPort), "error/output should mention the conflicting port. Got: %s", combined)
 	})
 }
 

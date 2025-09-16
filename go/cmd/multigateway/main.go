@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,10 +33,14 @@ import (
 	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
 	cell string
+
+	// serviceID string
+	serviceID string
 	// multigatewayID stores the ID for deregistration during shutdown
 	multigatewayID *clustermetadatapb.ID
 	// poolerDiscovery handles discovery of multipoolers
@@ -78,13 +83,7 @@ func CheckCellFlags(ts topo.Store, cell string) error {
 	}
 
 	// Check if the specified cell exists in topology
-	hasCell := false
-	for _, v := range cellsInTopo {
-		if v == cell {
-			hasCell = true
-			break
-		}
-	}
+	hasCell := slices.Contains(cellsInTopo, cell)
 	if !hasCell {
 		return fmt.Errorf("cell '%s' does not exist in topology. Available cells: [%s]",
 			cell, strings.Join(cellsInTopo, ", "))
@@ -135,9 +134,13 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create MultiGateway instance for topo registration
-		multigateway := topo.NewMultiGateway("", cell, hostname)
+		multigateway := topo.NewMultiGateway(serviceID, cell, hostname)
 		multigateway.PortMap["grpc"] = int32(servenv.GRPCPort())
 		multigateway.PortMap["http"] = int32(servenv.HTTPPort())
+
+		if serviceID == "" {
+			serviceID = multigateway.GetId().GetName()
+		}
 
 		// Store ID for deregistration during shutdown
 		multigatewayID = multigateway.Id
@@ -188,10 +191,15 @@ func run(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	servenv.RegisterServiceCmd(Main)
-
 	// Adds multigateway specific flags
-	Main.Flags().StringVar(&cell, "cell", cell, "cell to use")
+	servenv.OnParseFor("multigateway", registerFlags)
+
+	servenv.RegisterServiceCmd(Main)
+}
+
+func registerFlags(fs *pflag.FlagSet) {
+	fs.StringVar(&cell, "cell", cell, "cell to use")
+	fs.StringVar(&serviceID, "service-id", "", "optional service ID (if empty, a random ID will be generated)")
 }
 
 // DiscoveryResponse represents the response from the discovery endpoint

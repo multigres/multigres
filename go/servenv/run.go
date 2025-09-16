@@ -51,6 +51,16 @@ func Run(bindAddress string, port int) {
 		slog.Error("failed to listen", "err", err)
 		os.Exit(1)
 	}
+
+	// If port was 0, log the actual allocated port
+	if port == 0 {
+		if addr, ok := l.Addr().(*net.TCPAddr); ok {
+			actualPort := addr.Port
+			slog.Info("HTTP port was dynamically allocated", "requested_port", port, "actual_port", actualPort)
+			// Update the ListeningURL with the actual port
+			populateListeningURL(int32(actualPort))
+		}
+	}
 	go func() {
 		err := HTTPServe(l)
 		if err != nil {

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -333,7 +334,6 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 	if p, ok := etcdConfig["port"].(int); ok {
 		port = p
 	}
-	address := fmt.Sprintf("localhost:%d", port)
 
 	// Find etcd binary (PATH or configured path)
 	etcdBinary, err := p.findBinary("etcd", etcdConfig)
@@ -399,7 +399,8 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 	}
 
 	// Wait for etcd to be ready
-	if err := p.waitForServiceReady("etcd", address); err != nil {
+	servicePorts := map[string]int{"etcd_port": port}
+	if err := p.waitForServiceReady("etcd", "localhost", servicePorts); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("etcd readiness check failed: %w\n\nLast 20 lines from etcd logs:\n%s", err, logs)
 	}
@@ -505,8 +506,8 @@ func (p *localProvisioner) checkEtcdVersion(binaryPath, expectedVersion string) 
 	return nil
 }
 
-// waitForServiceReady waits for a service to become ready by checking TCP connectivity
-func (p *localProvisioner) waitForServiceReady(serviceName string, address string) error {
+// waitForServiceReady waits for a service to become ready by checking appropriate endpoints
+func (p *localProvisioner) waitForServiceReady(serviceName string, host string, servicePorts map[string]int) error {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -515,15 +516,79 @@ func (p *localProvisioner) waitForServiceReady(serviceName string, address strin
 	for {
 		select {
 		case <-deadline:
-			return fmt.Errorf("%s did not become ready within 10 seconds at %s", serviceName, address)
+			return fmt.Errorf("%s did not become ready within 10 seconds", serviceName)
 		case <-ticker.C:
-			conn, err := net.DialTimeout("tcp", address, 2*time.Second)
-			if err == nil {
+			// First check TCP connectivity on all advertised ports
+			allPortsReady := true
+			for _, port := range servicePorts {
+				address := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+				conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+				if err != nil {
+					allPortsReady = false
+					break // This port not ready yet
+				}
 				conn.Close()
-				return nil
 			}
+			if !allPortsReady {
+				continue // Not all ports ready yet
+			}
+
+			// For services with HTTP endpoints, check debug/config endpoint
+			if err := p.checkMultigresServiceHealth(serviceName, host, servicePorts); err != nil {
+				continue // HTTP endpoint not ready yet
+			}
+
+			return nil // Service is ready
 		}
 	}
+}
+
+// checkMultigresServiceHealth checks health for all supported service port types
+func (p *localProvisioner) checkMultigresServiceHealth(serviceName string, host string, servicePorts map[string]int) error {
+	// Iterate over service ports and run health checks for supported types
+	for portType, port := range servicePorts {
+		switch portType {
+		case "http_port":
+			// Run HTTP health check
+			httpAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+			if err := p.checkDebugConfigEndpoint(httpAddress); err != nil {
+				return err
+			}
+		// Future: Add other port types like grpc_port, etc.
+		default:
+			// No health check implemented for this port type, skip
+			continue
+		}
+	}
+
+	return nil
+}
+
+// checkDebugConfigEndpoint checks if the debug/config endpoint returns 200 OK
+func (p *localProvisioner) checkDebugConfigEndpoint(address string) error {
+	url := fmt.Sprintf("http://%s/debug/config?format=json", address)
+
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to reach debug endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("debug endpoint returned status %d", resp.StatusCode)
+	}
+
+	// Verify the response is valid JSON
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("debug endpoint returned invalid JSON: %w", err)
+	}
+
+	return nil
 }
 
 // readServiceLogs reads the last few lines from a service's log file for debugging
@@ -820,8 +885,8 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	}
 
 	// Wait for multigateway to be ready
-	address := fmt.Sprintf("localhost:%d", httpPort)
-	if err := p.waitForServiceReady("multigateway", address); err != nil {
+	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
+	if err := p.waitForServiceReady("multigateway", "localhost", servicePorts); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multigateway readiness check failed: %w\n\nLast 20 lines from multigateway logs:\n%s", err, logs)
 	}
@@ -952,8 +1017,8 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 	}
 
 	// Wait for multiadmin to be ready (check HTTP port)
-	address := fmt.Sprintf("localhost:%d", httpPort)
-	if err := p.waitForServiceReady("multiadmin", address); err != nil {
+	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
+	if err := p.waitForServiceReady("multiadmin", "localhost", servicePorts); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multiadmin readiness check failed: %w\n\nLast 20 lines from multiadmin logs:\n%s", err, logs)
 	}
@@ -1012,6 +1077,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		return nil, fmt.Errorf("failed to get multipooler config for cell %s: %w", cell, err)
 	}
 
+	// Get HTTP port from cell-specific config
+	httpPort := 15001
+	if p, ok := multipoolerConfig["http_port"].(int); ok {
+		httpPort = p
+	}
+
 	// Get grpc port from cell-specific config
 	grpcPort := 16001
 	if port, ok := multipoolerConfig["grpc_port"].(int); ok {
@@ -1052,6 +1123,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Build command arguments
 	args := []string{
+		"--http-port", fmt.Sprintf("%d", httpPort),
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
@@ -1066,7 +1138,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Start multipooler process
 	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
 
-	fmt.Printf("▶️  - Launching multipooler (gRPC:%d)...", grpcPort)
+	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
 	if err := multipoolerCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multipooler: %w", err)
@@ -1078,8 +1150,8 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	}
 
 	// Wait for multipooler to be ready
-	address := fmt.Sprintf("localhost:%d", grpcPort)
-	if err := p.waitForServiceReady("multipooler", address); err != nil {
+	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
+	if err := p.waitForServiceReady("multipooler", "localhost", servicePorts); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multipooler readiness check failed: %w\n\nLast 20 lines from multipooler logs:\n%s", err, logs)
 	}
@@ -1091,7 +1163,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		Service:    "multipooler",
 		PID:        multipoolerCmd.Process.Pid,
 		BinaryPath: multipoolerBinary,
-		Ports:      map[string]int{"grpc_port": grpcPort},
+		Ports:      map[string]int{"http_port": httpPort, "grpc_port": grpcPort},
 		FQDN:       "localhost",
 		LogFile:    logFile,
 		StartedAt:  time.Now(),
@@ -1107,6 +1179,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		ServiceName: "multipooler",
 		FQDN:        "localhost",
 		Ports: map[string]int{
+			"http_port": httpPort,
 			"grpc_port": grpcPort,
 		},
 		Metadata: map[string]any{
@@ -1148,11 +1221,18 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	etcdAddress := req.Params["etcd_address"].(string)
 	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
+	cell = req.Params["cell"].(string)
 
 	// Get cell-specific multiorch config
 	multiorchConfig, err := p.getCellServiceConfig(cell, "multiorch")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get multiorch config for cell %s: %w", cell, err)
+	}
+
+	// Get HTTP port from cell-specific config
+	httpPort := 15301
+	if p, ok := multiorchConfig["http_port"].(int); ok {
+		httpPort = p
 	}
 
 	// Get grpc port from cell-specific config
@@ -1184,6 +1264,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 
 	// Build command arguments
 	args := []string{
+		"--http-port", fmt.Sprintf("%d", httpPort),
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
@@ -1196,7 +1277,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	// Start multiorch process
 	multiorchCmd := exec.CommandContext(ctx, multiorchBinary, args...)
 
-	fmt.Printf("▶️  - Launching multiorch (gRPC:%d)...", grpcPort)
+	fmt.Printf("▶️  - Launching multiorch (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
 	if err := multiorchCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multiorch: %w", err)
@@ -1208,8 +1289,8 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	}
 
 	// Wait for multiorch to be ready
-	address := fmt.Sprintf("localhost:%d", grpcPort)
-	if err := p.waitForServiceReady("multiorch", address); err != nil {
+	servicePorts := map[string]int{"http_port": httpPort, "grpc_port": grpcPort}
+	if err := p.waitForServiceReady("multiorch", "localhost", servicePorts); err != nil {
 		logs := p.readServiceLogs(logFile, 20)
 		return nil, fmt.Errorf("multiorch readiness check failed: %w\n\nLast 20 lines from multiorch logs:\n%s", err, logs)
 	}
@@ -1221,7 +1302,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		Service:    "multiorch",
 		PID:        multiorchCmd.Process.Pid,
 		BinaryPath: multiorchBinary,
-		Ports:      map[string]int{"grpc_port": grpcPort},
+		Ports:      map[string]int{"http_port": httpPort, "grpc_port": grpcPort},
 		FQDN:       "localhost",
 		LogFile:    logFile,
 		StartedAt:  time.Now(),
@@ -1237,6 +1318,7 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		ServiceName: "multiorch",
 		FQDN:        "localhost",
 		Ports: map[string]int{
+			"http_port": httpPort,
 			"grpc_port": grpcPort,
 		},
 		Metadata: map[string]any{
@@ -1477,7 +1559,114 @@ func (p *localProvisioner) findRunningDbService(serviceName, databaseName, cell 
 		}
 	}
 
+	// Check for port conflicts with other processes using cell-specific config
+	expectedPorts := p.getExpectedPortsForDbService(serviceName, cell)
+	for portName, port := range expectedPorts {
+		if err := p.checkPortConflict(port, serviceName, portName); err != nil {
+			return nil, err
+		}
+	}
+
 	return nil, nil // No running service found
+}
+
+// getExpectedPortsForDbService returns expected ports for a DB-scoped service (per cell)
+func (p *localProvisioner) getExpectedPortsForDbService(serviceName, cell string) map[string]int {
+	ports := make(map[string]int)
+
+	cellConfig, err := p.getCellServiceConfig(cell, serviceName)
+	if err != nil {
+		return ports
+	}
+
+	switch serviceName {
+	case "multigateway":
+		if httpPort, ok := cellConfig["http_port"].(int); ok {
+			ports["http"] = httpPort
+		}
+		if grpcPort, ok := cellConfig["grpc_port"].(int); ok {
+			ports["grpc"] = grpcPort
+		}
+	case "multipooler":
+		if grpcPort, ok := cellConfig["grpc_port"].(int); ok {
+			ports["grpc"] = grpcPort
+		}
+		if httpPort, ok := cellConfig["http_port"].(int); ok && httpPort > 0 {
+			ports["http"] = httpPort
+		}
+	case "multiorch":
+		if grpcPort, ok := cellConfig["grpc_port"].(int); ok {
+			ports["grpc"] = grpcPort
+		}
+		if httpPort, ok := cellConfig["http_port"].(int); ok && httpPort > 0 {
+			ports["http"] = httpPort
+		}
+	}
+
+	return ports
+}
+
+// getExpectedPortsForService returns the expected ports for a service based on its configuration
+func (p *localProvisioner) getExpectedPortsForService(serviceName string) map[string]int {
+	serviceConfig := p.getServiceConfig(serviceName)
+	ports := make(map[string]int)
+
+	switch serviceName {
+	case "multigateway":
+		if httpPort, ok := serviceConfig["http_port"].(int); ok {
+			ports["http"] = httpPort
+		}
+		if grpcPort, ok := serviceConfig["grpc_port"].(int); ok {
+			ports["grpc"] = grpcPort
+		}
+	case "multipooler":
+		if grpcPort, ok := serviceConfig["grpc_port"].(int); ok {
+			ports["grpc"] = grpcPort
+		}
+		if httpPort, ok := serviceConfig["http_port"].(int); ok && httpPort > 0 {
+			ports["http"] = httpPort
+		}
+	case "multiorch":
+		if grpcPort, ok := serviceConfig["grpc_port"].(int); ok {
+			ports["grpc"] = grpcPort
+		}
+		if httpPort, ok := serviceConfig["http_port"].(int); ok && httpPort > 0 {
+			ports["http"] = httpPort
+		}
+	case "multiadmin":
+		if httpPort, ok := serviceConfig["http_port"].(int); ok {
+			ports["http"] = httpPort
+		}
+		if grpcPort, ok := serviceConfig["grpc_port"].(int); ok {
+			ports["grpc"] = grpcPort
+		}
+	case "etcd":
+		if port, ok := serviceConfig["port"].(int); ok {
+			ports["tcp"] = port
+		}
+	}
+
+	return ports
+}
+
+// checkPortConflict checks if a port is already in use by another process
+func (p *localProvisioner) checkPortConflict(port int, serviceName, portName string) error {
+	if port <= 0 {
+		return nil // Skip invalid ports
+	}
+
+	address := fmt.Sprintf("localhost:%d", port)
+	conn, err := net.DialTimeout("tcp", address, 1*time.Second)
+	if err != nil {
+		// Port is not in use, this is good
+		return nil
+	}
+	conn.Close()
+
+	// Port is in use by some process
+	return fmt.Errorf("cannot start %s: port %d (%s) is already in use by another process. "+
+		"There is no way to do a clean start. Please kill the process using port %d or change the configuration",
+		serviceName, port, portName, port)
 }
 
 // findRunningEtcdService finds a running etcd service
@@ -1498,15 +1687,23 @@ func (p *localProvisioner) findRunningEtcdService() (*LocalProvisionedService, e
 		}
 	}
 
+	// Check for port conflicts with other processes
+	expectedPorts := p.getExpectedPortsForService("etcd")
+	for portName, port := range expectedPorts {
+		if err := p.checkPortConflict(port, "etcd", portName); err != nil {
+			return nil, err
+		}
+	}
+
 	return nil, nil // No running etcd service found
 }
 
 // findRunningService finds a running service by service name (for global services like multiadmin)
 func (p *localProvisioner) findRunningService(serviceName string) (*LocalProvisionedService, error) {
-	// For global services like multiadmin, we use the same approach as etcd but generalized
-	services, err := p.loadEtcdServices() // Reuse the same storage mechanism
+	// Load global services (e.g., multiadmin, etcd)
+	services, err := p.loadGlobalServices()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load service states: %w", err)
+		return nil, fmt.Errorf("failed to load global service states: %w", err)
 	}
 
 	for _, service := range services {
@@ -1517,6 +1714,14 @@ func (p *localProvisioner) findRunningService(serviceName string) (*LocalProvisi
 					return service, nil
 				}
 			}
+		}
+	}
+
+	// Check for port conflicts with other processes
+	expectedPorts := p.getExpectedPortsForService(serviceName)
+	for portName, port := range expectedPorts {
+		if err := p.checkPortConflict(port, serviceName, portName); err != nil {
+			return nil, err
 		}
 	}
 
