@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package command
+package endtoend
 
 import (
 	"context"
@@ -28,6 +28,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/multigres/multigres/go/cmd/pgctld/command"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -426,7 +428,7 @@ func TestGRPCPortMismatchValidation(t *testing.T) {
 	t.Run("port_mismatch_after_initialization", func(t *testing.T) {
 		// First, create a service with port 5432 and initialize
 		initialPort := 5432
-		service, err := NewPgCtldService(
+		service, err := command.NewPgCtldService(
 			slog.Default(),
 			"localhost", initialPort,
 			"postgres",
@@ -448,7 +450,7 @@ func TestGRPCPortMismatchValidation(t *testing.T) {
 		// Now try to create a service with a different port (5433)
 		// This should fail because the config file has port 5432
 		differentPort := 5433
-		_, err = NewPgCtldService(
+		_, err = command.NewPgCtldService(
 			slog.Default(),
 			"localhost", differentPort,
 			"postgres",
@@ -476,7 +478,7 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 	grpcServer := grpc.NewServer()
 
 	// Create the pgctld service with mock environment
-	service, err := NewPgCtldService(
+	service, err := command.NewPgCtldService(
 		slog.Default(),
 		"localhost", 5432,
 		"postgres",
