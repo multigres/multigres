@@ -1,183 +1,228 @@
 [
   {
     "comment": "rangefuncs - Statement 1",
-    "query": "CREATE TABLE rngfunc2(rngfuncid int, f2 int)"
+    "query": "CREATE TABLE rngfunc2(rngfuncid int, f2 int)",
+    "expected": "CREATE TABLE rngfunc2 (rngfuncid INT, f2 INT)"
   },
   {
     "comment": "rangefuncs - Statement 2",
-    "query": "INSERT INTO rngfunc2 VALUES(1, 11)"
+    "query": "INSERT INTO rngfunc2 VALUES(1, 11)",
+    "expected": "INSERT INTO rngfunc2 VALUES (1, 11)"
   },
   {
     "comment": "rangefuncs - Statement 3",
-    "query": "INSERT INTO rngfunc2 VALUES(2, 22)"
+    "query": "INSERT INTO rngfunc2 VALUES(2, 22)",
+    "expected": "INSERT INTO rngfunc2 VALUES (2, 22)"
   },
   {
     "comment": "rangefuncs - Statement 4",
-    "query": "INSERT INTO rngfunc2 VALUES(1, 111)"
+    "query": "INSERT INTO rngfunc2 VALUES(1, 111)",
+    "expected": "INSERT INTO rngfunc2 VALUES (1, 111)"
   },
   {
     "comment": "rangefuncs - Statement 5",
-    "query": "CREATE FUNCTION rngfunct(int) returns setof rngfunc2 as 'SELECT * FROM rngfunc2 WHERE rngfuncid = $1 ORDER BY f2;' LANGUAGE SQL"
+    "query": "CREATE FUNCTION rngfunct(int) returns setof rngfunc2 as 'SELECT * FROM rngfunc2 WHERE rngfuncid = $1 ORDER BY f2;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION rngfunct (INT) RETURNS SETOF rngfunc2 LANGUAGE sql AS $$SELECT * FROM rngfunc2 WHERE rngfuncid = $1 ORDER BY f2;$$"
   },
   {
     "comment": "rangefuncs - Statement 6",
-    "query": "select * from rngfunct(1) with ordinality as z(a,b,ord)"
+    "query": "select * from rngfunct(1) with ordinality as z(a,b,ord)",
+    "expected": "SELECT * FROM rngfunct(1) WITH ORDINALITY AS z(a, b, ord)"
   },
   {
     "comment": "rangefuncs - Statement 7",
-    "query": "select * from rngfunct(1) with ordinality as z(a,b,ord) where b > 100"
+    "query": "select * from rngfunct(1) with ordinality as z(a,b,ord) where b \u003e 100",
+    "expected": "SELECT * FROM rngfunct(1) WITH ORDINALITY AS z(a, b, ord) WHERE b \u003e 100"
   },
   {
     "comment": "rangefuncs - Statement 8",
-    "query": "select a,b,ord from rngfunct(1) with ordinality as z(a,b,ord)"
+    "query": "select a,b,ord from rngfunct(1) with ordinality as z(a,b,ord)",
+    "expected": "SELECT a, b, ord FROM rngfunct(1) WITH ORDINALITY AS z(a, b, ord)"
   },
   {
     "comment": "rangefuncs - Statement 9",
-    "query": "select a,ord from unnest(array['a','b']) with ordinality as z(a,ord)"
+    "query": "select a,ord from unnest(array['a','b']) with ordinality as z(a,ord)",
+    "expected": "SELECT a, ord FROM unnest(ARRAY['a','b']) WITH ORDINALITY AS z(a, ord)"
   },
   {
     "comment": "rangefuncs - Statement 10",
-    "query": "select * from unnest(array['a','b']) with ordinality as z(a,ord)"
+    "query": "select * from unnest(array['a','b']) with ordinality as z(a,ord)",
+    "expected": "SELECT * FROM unnest(ARRAY['a','b']) WITH ORDINALITY AS z(a, ord)"
   },
   {
     "comment": "rangefuncs - Statement 11",
-    "query": "select a,ord from unnest(array[1.0::float8]) with ordinality as z(a,ord)"
+    "query": "select a,ord from unnest(array[1.0::float8]) with ordinality as z(a,ord)",
+    "expected": "SELECT a, ord FROM unnest(ARRAY[CAST(1.0 AS FLOAT8)]) WITH ORDINALITY AS z(a, ord)"
   },
   {
     "comment": "rangefuncs - Statement 12",
-    "query": "select * from unnest(array[1.0::float8]) with ordinality as z(a,ord)"
+    "query": "select * from unnest(array[1.0::float8]) with ordinality as z(a,ord)",
+    "expected": "SELECT * FROM unnest(ARRAY[CAST(1.0 AS FLOAT8)]) WITH ORDINALITY AS z(a, ord)"
   },
   {
     "comment": "rangefuncs - Statement 13",
-    "query": "select row_to_json(s.*) from generate_series(11,14) with ordinality s"
+    "query": "select row_to_json(s.*) from generate_series(11,14) with ordinality s",
+    "expected": "SELECT row_to_json(s.*) FROM generate_series(11, 14) WITH ORDINALITY AS s"
   },
   {
     "comment": "rangefuncs - Statement 14",
-    "query": "create temporary view vw_ord as select * from (values (1)) v(n) join rngfunct(1) with ordinality as z(a,b,ord) on (n=ord)"
+    "query": "create temporary view vw_ord as select * from (values (1)) v(n) join rngfunct(1) with ordinality as z(a,b,ord) on (n=ord)",
+    "expected": "CREATE TEMPORARY VIEW vw_ord AS SELECT * FROM (VALUES (1)) AS v(n) INNER JOIN rngfunct(1) WITH ORDINALITY AS z(a, b, ord) ON (n = ord)"
   },
   {
     "comment": "rangefuncs - Statement 15",
-    "query": "select * from vw_ord"
+    "query": "select * from vw_ord",
+    "expected": "SELECT * FROM vw_ord"
   },
   {
     "comment": "rangefuncs - Statement 16",
-    "query": "select definition from pg_views where viewname='vw_ord'"
+    "query": "select definition from pg_views where viewname='vw_ord'",
+    "expected": "SELECT definition FROM pg_views WHERE viewname = 'vw_ord'"
   },
   {
     "comment": "rangefuncs - Statement 17",
-    "query": "drop view vw_ord"
+    "query": "drop view vw_ord",
+    "expected": "DROP VIEW vw_ord"
   },
   {
     "comment": "rangefuncs - Statement 18",
-    "query": "select * from rows from(rngfunct(1),rngfunct(2)) with ordinality as z(a,b,c,d,ord)"
+    "query": "select * from rows from(rngfunct(1),rngfunct(2)) with ordinality as z(a,b,c,d,ord)",
+    "expected": "SELECT * FROM ROWS FROM (rngfunct(1), rngfunct(2)) WITH ORDINALITY AS z(a, b, c, d, ord)"
   },
   {
     "comment": "rangefuncs - Statement 19",
-    "query": "create temporary view vw_ord as select * from (values (1)) v(n) join rows from(rngfunct(1),rngfunct(2)) with ordinality as z(a,b,c,d,ord) on (n=ord)"
+    "query": "create temporary view vw_ord as select * from (values (1)) v(n) join rows from(rngfunct(1),rngfunct(2)) with ordinality as z(a,b,c,d,ord) on (n=ord)",
+    "expected": "CREATE TEMPORARY VIEW vw_ord AS SELECT * FROM (VALUES (1)) AS v(n) INNER JOIN ROWS FROM (rngfunct(1), rngfunct(2)) WITH ORDINALITY AS z(a, b, c, d, ord) ON (n = ord)"
   },
   {
     "comment": "rangefuncs - Statement 20",
-    "query": "select * from unnest(array[10,20],array['foo','bar'],array[1.0])"
+    "query": "select * from unnest(array[10,20],array['foo','bar'],array[1.0])",
+    "expected": "SELECT * FROM unnest(ARRAY[10,20], ARRAY['foo','bar'], ARRAY[1.0])"
   },
   {
     "comment": "rangefuncs - Statement 21",
-    "query": "select * from unnest(array[10,20],array['foo','bar'],array[1.0]) with ordinality as z(a,b,c,ord)"
+    "query": "select * from unnest(array[10,20],array['foo','bar'],array[1.0]) with ordinality as z(a,b,c,ord)",
+    "expected": "SELECT * FROM unnest(ARRAY[10,20], ARRAY['foo','bar'], ARRAY[1.0]) WITH ORDINALITY AS z(a, b, c, ord)"
   },
   {
     "comment": "rangefuncs - Statement 22",
-    "query": "select * from rows from(unnest(array[10,20],array['foo','bar'],array[1.0])) with ordinality as z(a,b,c,ord)"
+    "query": "select * from rows from(unnest(array[10,20],array['foo','bar'],array[1.0])) with ordinality as z(a,b,c,ord)",
+    "expected": "SELECT * FROM ROWS FROM (unnest(ARRAY[10,20], ARRAY['foo','bar'], ARRAY[1.0])) WITH ORDINALITY AS z(a, b, c, ord)"
   },
   {
     "comment": "rangefuncs - Statement 23",
-    "query": "select * from rows from(unnest(array[10,20],array['foo','bar']), generate_series(101,102)) with ordinality as z(a,b,c,ord)"
+    "query": "select * from rows from(unnest(array[10,20],array['foo','bar']), generate_series(101,102)) with ordinality as z(a,b,c,ord)",
+    "expected": "SELECT * FROM ROWS FROM (unnest(ARRAY[10,20], ARRAY['foo','bar']), generate_series(101, 102)) WITH ORDINALITY AS z(a, b, c, ord)"
   },
   {
     "comment": "rangefuncs - Statement 24",
-    "query": "create temporary view vw_ord as select * from unnest(array[10,20],array['foo','bar'],array[1.0]) as z(a,b,c)"
+    "query": "create temporary view vw_ord as select * from unnest(array[10,20],array['foo','bar'],array[1.0]) as z(a,b,c)",
+    "expected": "CREATE TEMPORARY VIEW vw_ord AS SELECT * FROM unnest(ARRAY[10,20], ARRAY['foo','bar'], ARRAY[1.0]) AS z(a, b, c)"
   },
   {
     "comment": "rangefuncs - Statement 25",
-    "query": "create temporary view vw_ord as select * from rows from(unnest(array[10,20],array['foo','bar'],array[1.0])) as z(a,b,c)"
+    "query": "create temporary view vw_ord as select * from rows from(unnest(array[10,20],array['foo','bar'],array[1.0])) as z(a,b,c)",
+    "expected": "CREATE TEMPORARY VIEW vw_ord AS SELECT * FROM ROWS FROM (unnest(ARRAY[10,20], ARRAY['foo','bar'], ARRAY[1.0])) AS z(a, b, c)"
   },
   {
     "comment": "rangefuncs - Statement 26",
-    "query": "create temporary view vw_ord as select * from rows from(unnest(array[10,20],array['foo','bar']), generate_series(1,2)) as z(a,b,c)"
+    "query": "create temporary view vw_ord as select * from rows from(unnest(array[10,20],array['foo','bar']), generate_series(1,2)) as z(a,b,c)",
+    "expected": "CREATE TEMPORARY VIEW vw_ord AS SELECT * FROM ROWS FROM (unnest(ARRAY[10,20], ARRAY['foo','bar']), generate_series(1, 2)) AS z(a, b, c)"
   },
   {
     "comment": "rangefuncs - Statement 27",
-    "query": "begin"
+    "query": "begin",
+    "expected": "BEGIN"
   },
   {
     "comment": "rangefuncs - Statement 28",
-    "query": "declare rf_cur scroll cursor for select * from rows from(generate_series(1,5),generate_series(1,2)) with ordinality as g(i,j,o)"
+    "query": "declare rf_cur scroll cursor for select * from rows from(generate_series(1,5),generate_series(1,2)) with ordinality as g(i,j,o)",
+    "expected": "DECLARE rf_cur SCROLL CURSOR FOR SELECT * FROM ROWS FROM (generate_series(1, 5), generate_series(1, 2)) WITH ORDINALITY AS g(i, j, o)"
   },
   {
     "comment": "rangefuncs - Statement 29",
-    "query": "fetch all from rf_cur"
+    "query": "fetch all from rf_cur",
+    "expected": "FETCH ALL FROM rf_cur"
   },
   {
     "comment": "rangefuncs - Statement 30",
-    "query": "fetch backward all from rf_cur"
+    "query": "fetch backward all from rf_cur",
+    "expected": "FETCH BACKWARD ALL FROM rf_cur"
   },
   {
     "comment": "rangefuncs - Statement 31",
-    "query": "fetch next from rf_cur"
+    "query": "fetch next from rf_cur",
+    "expected": "FETCH FROM rf_cur"
   },
   {
     "comment": "rangefuncs - Statement 32",
-    "query": "fetch prior from rf_cur"
+    "query": "fetch prior from rf_cur",
+    "expected": "FETCH BACKWARD FROM rf_cur"
   },
   {
     "comment": "rangefuncs - Statement 33",
-    "query": "fetch absolute 1 from rf_cur"
+    "query": "fetch absolute 1 from rf_cur",
+    "expected": "FETCH FIRST FROM rf_cur"
   },
   {
     "comment": "rangefuncs - Statement 34",
-    "query": "commit"
+    "query": "commit",
+    "expected": "COMMIT"
   },
   {
     "comment": "rangefuncs - Statement 35",
-    "query": "select * from rngfunc2, rngfunct(rngfunc2.rngfuncid) z where rngfunc2.f2 = z.f2"
+    "query": "select * from rngfunc2, rngfunct(rngfunc2.rngfuncid) z where rngfunc2.f2 = z.f2",
+    "expected": "SELECT * FROM rngfunc2, rngfunct(rngfunc2.rngfuncid) AS z WHERE rngfunc2.f2 = z.f2"
   },
   {
     "comment": "rangefuncs - Statement 36",
-    "query": "select * from rngfunc2, rngfunct(rngfunc2.rngfuncid) with ordinality as z(rngfuncid,f2,ord) where rngfunc2.f2 = z.f2"
+    "query": "select * from rngfunc2, rngfunct(rngfunc2.rngfuncid) with ordinality as z(rngfuncid,f2,ord) where rngfunc2.f2 = z.f2",
+    "expected": "SELECT * FROM rngfunc2, rngfunct(rngfunc2.rngfuncid) WITH ORDINALITY AS z(rngfuncid, f2, ord) WHERE rngfunc2.f2 = z.f2"
   },
   {
     "comment": "rangefuncs - Statement 37",
-    "query": "select * from rngfunc2 where f2 in (select f2 from rngfunct(rngfunc2.rngfuncid) z where z.rngfuncid = rngfunc2.rngfuncid) ORDER BY 1,2"
+    "query": "select * from rngfunc2 where f2 in (select f2 from rngfunct(rngfunc2.rngfuncid) z where z.rngfuncid = rngfunc2.rngfuncid) ORDER BY 1,2",
+    "expected": "SELECT * FROM rngfunc2 WHERE f2 IN (SELECT f2 FROM rngfunct(rngfunc2.rngfuncid) AS z WHERE z.rngfuncid = rngfunc2.rngfuncid) ORDER BY 1, 2"
   },
   {
     "comment": "rangefuncs - Statement 38",
-    "query": "select * from rngfunc2 where f2 in (select f2 from rngfunct(1) z where z.rngfuncid = rngfunc2.rngfuncid) ORDER BY 1,2"
+    "query": "select * from rngfunc2 where f2 in (select f2 from rngfunct(1) z where z.rngfuncid = rngfunc2.rngfuncid) ORDER BY 1,2",
+    "expected": "SELECT * FROM rngfunc2 WHERE f2 IN (SELECT f2 FROM rngfunct(1) AS z WHERE z.rngfuncid = rngfunc2.rngfuncid) ORDER BY 1, 2"
   },
   {
     "comment": "rangefuncs - Statement 39",
-    "query": "select * from rngfunc2 where f2 in (select f2 from rngfunct(rngfunc2.rngfuncid) z where z.rngfuncid = 1) ORDER BY 1,2"
+    "query": "select * from rngfunc2 where f2 in (select f2 from rngfunct(rngfunc2.rngfuncid) z where z.rngfuncid = 1) ORDER BY 1,2",
+    "expected": "SELECT * FROM rngfunc2 WHERE f2 IN (SELECT f2 FROM rngfunct(rngfunc2.rngfuncid) AS z WHERE z.rngfuncid = 1) ORDER BY 1, 2"
   },
   {
     "comment": "rangefuncs - Statement 40",
-    "query": "select rngfunct.rngfuncid, rngfunct.f2 from rngfunct(sin(pi()/2)::int) ORDER BY 1,2"
+    "query": "select rngfunct.rngfuncid, rngfunct.f2 from rngfunct(sin(pi()/2)::int) ORDER BY 1,2",
+    "expected": "SELECT rngfunct.rngfuncid, rngfunct.f2 FROM rngfunct(CAST(sin(pi() / 2) AS INT)) ORDER BY 1, 2"
   },
   {
     "comment": "rangefuncs - Statement 41",
-    "query": "CREATE TABLE rngfunc (rngfuncid int, rngfuncsubid int, rngfuncname text, primary key(rngfuncid,rngfuncsubid))"
+    "query": "CREATE TABLE rngfunc (rngfuncid int, rngfuncsubid int, rngfuncname text, primary key(rngfuncid,rngfuncsubid))",
+    "expected": "CREATE TABLE rngfunc (rngfuncid INT, rngfuncsubid INT, rngfuncname TEXT, PRIMARY KEY (rngfuncid, rngfuncsubid))"
   },
   {
     "comment": "rangefuncs - Statement 42",
-    "query": "INSERT INTO rngfunc VALUES(1,1,'Joe')"
+    "query": "INSERT INTO rngfunc VALUES(1,1,'Joe')",
+    "expected": "INSERT INTO rngfunc VALUES (1, 1, 'Joe')"
   },
   {
     "comment": "rangefuncs - Statement 43",
-    "query": "INSERT INTO rngfunc VALUES(1,2,'Ed')"
+    "query": "INSERT INTO rngfunc VALUES(1,2,'Ed')",
+    "expected": "INSERT INTO rngfunc VALUES (1, 2, 'Ed')"
   },
   {
     "comment": "rangefuncs - Statement 44",
-    "query": "INSERT INTO rngfunc VALUES(2,1,'Mary')"
+    "query": "INSERT INTO rngfunc VALUES(2,1,'Mary')",
+    "expected": "INSERT INTO rngfunc VALUES (2, 1, 'Mary')"
   },
   {
     "comment": "rangefuncs - Statement 45",
-    "query": "CREATE FUNCTION getrngfunc1(int) RETURNS int AS 'SELECT $1;' LANGUAGE SQL"
+    "query": "CREATE FUNCTION getrngfunc1(int) RETURNS int AS 'SELECT $1;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION getrngfunc1 (INT) RETURNS INT LANGUAGE sql AS $$SELECT $1;$$"
   },
   {
     "comment": "rangefuncs - Statement 46",
@@ -185,7 +230,8 @@
   },
   {
     "comment": "rangefuncs - Statement 47",
-    "query": "SELECT * FROM getrngfunc1(1) WITH ORDINALITY AS t1(v,o)"
+    "query": "SELECT * FROM getrngfunc1(1) WITH ORDINALITY AS t1(v,o)",
+    "expected": "SELECT * FROM getrngfunc1(1) WITH ORDINALITY AS t1(v, o)"
   },
   {
     "comment": "rangefuncs - Statement 48",
@@ -201,11 +247,13 @@
   },
   {
     "comment": "rangefuncs - Statement 51",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc1(1) WITH ORDINALITY as t1(v,o)"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc1(1) WITH ORDINALITY as t1(v,o)",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc1(1) WITH ORDINALITY AS t1(v, o)"
   },
   {
     "comment": "rangefuncs - Statement 52",
-    "query": "CREATE FUNCTION getrngfunc2(int) RETURNS setof int AS 'SELECT rngfuncid FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL"
+    "query": "CREATE FUNCTION getrngfunc2(int) RETURNS setof int AS 'SELECT rngfuncid FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION getrngfunc2 (INT) RETURNS SETOF INT LANGUAGE sql AS $$SELECT rngfuncid FROM rngfunc WHERE rngfuncid = $1;$$"
   },
   {
     "comment": "rangefuncs - Statement 53",
@@ -213,7 +261,8 @@
   },
   {
     "comment": "rangefuncs - Statement 54",
-    "query": "SELECT * FROM getrngfunc2(1) WITH ORDINALITY AS t1(v,o)"
+    "query": "SELECT * FROM getrngfunc2(1) WITH ORDINALITY AS t1(v,o)",
+    "expected": "SELECT * FROM getrngfunc2(1) WITH ORDINALITY AS t1(v, o)"
   },
   {
     "comment": "rangefuncs - Statement 55",
@@ -221,11 +270,13 @@
   },
   {
     "comment": "rangefuncs - Statement 56",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc2(1) WITH ORDINALITY AS t1(v,o)"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc2(1) WITH ORDINALITY AS t1(v,o)",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc2(1) WITH ORDINALITY AS t1(v, o)"
   },
   {
     "comment": "rangefuncs - Statement 57",
-    "query": "CREATE FUNCTION getrngfunc3(int) RETURNS setof text AS 'SELECT rngfuncname FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL"
+    "query": "CREATE FUNCTION getrngfunc3(int) RETURNS setof text AS 'SELECT rngfuncname FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION getrngfunc3 (INT) RETURNS SETOF TEXT LANGUAGE sql AS $$SELECT rngfuncname FROM rngfunc WHERE rngfuncid = $1;$$"
   },
   {
     "comment": "rangefuncs - Statement 58",
@@ -233,7 +284,8 @@
   },
   {
     "comment": "rangefuncs - Statement 59",
-    "query": "SELECT * FROM getrngfunc3(1) WITH ORDINALITY AS t1(v,o)"
+    "query": "SELECT * FROM getrngfunc3(1) WITH ORDINALITY AS t1(v,o)",
+    "expected": "SELECT * FROM getrngfunc3(1) WITH ORDINALITY AS t1(v, o)"
   },
   {
     "comment": "rangefuncs - Statement 60",
@@ -241,11 +293,13 @@
   },
   {
     "comment": "rangefuncs - Statement 61",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc3(1) WITH ORDINALITY AS t1(v,o)"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc3(1) WITH ORDINALITY AS t1(v,o)",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc3(1) WITH ORDINALITY AS t1(v, o)"
   },
   {
     "comment": "rangefuncs - Statement 62",
-    "query": "CREATE FUNCTION getrngfunc4(int) RETURNS rngfunc AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL"
+    "query": "CREATE FUNCTION getrngfunc4(int) RETURNS rngfunc AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION getrngfunc4 (INT) RETURNS rngfunc LANGUAGE sql AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$"
   },
   {
     "comment": "rangefuncs - Statement 63",
@@ -253,7 +307,8 @@
   },
   {
     "comment": "rangefuncs - Statement 64",
-    "query": "SELECT * FROM getrngfunc4(1) WITH ORDINALITY AS t1(a,b,c,o)"
+    "query": "SELECT * FROM getrngfunc4(1) WITH ORDINALITY AS t1(a,b,c,o)",
+    "expected": "SELECT * FROM getrngfunc4(1) WITH ORDINALITY AS t1(a, b, c, o)"
   },
   {
     "comment": "rangefuncs - Statement 65",
@@ -261,11 +316,13 @@
   },
   {
     "comment": "rangefuncs - Statement 66",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc4(1) WITH ORDINALITY AS t1(a,b,c,o)"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc4(1) WITH ORDINALITY AS t1(a,b,c,o)",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc4(1) WITH ORDINALITY AS t1(a, b, c, o)"
   },
   {
     "comment": "rangefuncs - Statement 67",
-    "query": "CREATE FUNCTION getrngfunc5(int) RETURNS setof rngfunc AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL"
+    "query": "CREATE FUNCTION getrngfunc5(int) RETURNS setof rngfunc AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION getrngfunc5 (INT) RETURNS SETOF rngfunc LANGUAGE sql AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$"
   },
   {
     "comment": "rangefuncs - Statement 68",
@@ -273,7 +330,8 @@
   },
   {
     "comment": "rangefuncs - Statement 69",
-    "query": "SELECT * FROM getrngfunc5(1) WITH ORDINALITY AS t1(a,b,c,o)"
+    "query": "SELECT * FROM getrngfunc5(1) WITH ORDINALITY AS t1(a,b,c,o)",
+    "expected": "SELECT * FROM getrngfunc5(1) WITH ORDINALITY AS t1(a, b, c, o)"
   },
   {
     "comment": "rangefuncs - Statement 70",
@@ -281,51 +339,63 @@
   },
   {
     "comment": "rangefuncs - Statement 71",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc5(1) WITH ORDINALITY AS t1(a,b,c,o)"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc5(1) WITH ORDINALITY AS t1(a,b,c,o)",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc5(1) WITH ORDINALITY AS t1(a, b, c, o)"
   },
   {
     "comment": "rangefuncs - Statement 72",
-    "query": "CREATE FUNCTION getrngfunc6(int) RETURNS RECORD AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL"
+    "query": "CREATE FUNCTION getrngfunc6(int) RETURNS RECORD AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION getrngfunc6 (INT) RETURNS record LANGUAGE sql AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$"
   },
   {
     "comment": "rangefuncs - Statement 73",
-    "query": "SELECT * FROM getrngfunc6(1) AS t1(rngfuncid int, rngfuncsubid int, rngfuncname text)"
+    "query": "SELECT * FROM getrngfunc6(1) AS t1(rngfuncid int, rngfuncsubid int, rngfuncname text)",
+    "expected": "SELECT * FROM getrngfunc6(1) AS t1"
   },
   {
     "comment": "rangefuncs - Statement 74",
-    "query": "SELECT * FROM ROWS FROM( getrngfunc6(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text) ) WITH ORDINALITY"
+    "query": "SELECT * FROM ROWS FROM( getrngfunc6(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text) ) WITH ORDINALITY",
+    "expected": "SELECT * FROM ROWS FROM (getrngfunc6(1) AS (rngfuncid INT, rngfuncsubid INT, rngfuncname TEXT)) WITH ORDINALITY"
   },
   {
     "comment": "rangefuncs - Statement 75",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc6(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text)"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc6(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text)",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc6(1)"
   },
   {
     "comment": "rangefuncs - Statement 76",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM ROWS FROM( getrngfunc6(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text) ) WITH ORDINALITY"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM ROWS FROM( getrngfunc6(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text) ) WITH ORDINALITY",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM ROWS FROM (getrngfunc6(1) AS (rngfuncid INT, rngfuncsubid INT, rngfuncname TEXT)) WITH ORDINALITY"
   },
   {
     "comment": "rangefuncs - Statement 77",
-    "query": "CREATE FUNCTION getrngfunc7(int) RETURNS setof record AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL"
+    "query": "CREATE FUNCTION getrngfunc7(int) RETURNS setof record AS 'SELECT * FROM rngfunc WHERE rngfuncid = $1;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION getrngfunc7 (INT) RETURNS SETOF record LANGUAGE sql AS $$SELECT * FROM rngfunc WHERE rngfuncid = $1;$$"
   },
   {
     "comment": "rangefuncs - Statement 78",
-    "query": "SELECT * FROM getrngfunc7(1) AS t1(rngfuncid int, rngfuncsubid int, rngfuncname text)"
+    "query": "SELECT * FROM getrngfunc7(1) AS t1(rngfuncid int, rngfuncsubid int, rngfuncname text)",
+    "expected": "SELECT * FROM getrngfunc7(1) AS t1"
   },
   {
     "comment": "rangefuncs - Statement 79",
-    "query": "SELECT * FROM ROWS FROM( getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text) ) WITH ORDINALITY"
+    "query": "SELECT * FROM ROWS FROM( getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text) ) WITH ORDINALITY",
+    "expected": "SELECT * FROM ROWS FROM (getrngfunc7(1) AS (rngfuncid INT, rngfuncsubid INT, rngfuncname TEXT)) WITH ORDINALITY"
   },
   {
     "comment": "rangefuncs - Statement 80",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text)"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text)",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc7(1)"
   },
   {
     "comment": "rangefuncs - Statement 81",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM ROWS FROM( getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text) ) WITH ORDINALITY"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM ROWS FROM( getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text) ) WITH ORDINALITY",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM ROWS FROM (getrngfunc7(1) AS (rngfuncid INT, rngfuncsubid INT, rngfuncname TEXT)) WITH ORDINALITY"
   },
   {
     "comment": "rangefuncs - Statement 82",
-    "query": "CREATE FUNCTION getrngfunc8(int) RETURNS int AS 'DECLARE rngfuncint int; BEGIN SELECT rngfuncid into rngfuncint FROM rngfunc WHERE rngfuncid = $1; RETURN rngfuncint; END;' LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION getrngfunc8(int) RETURNS int AS 'DECLARE rngfuncint int; BEGIN SELECT rngfuncid into rngfuncint FROM rngfunc WHERE rngfuncid = $1; RETURN rngfuncint; END;' LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION getrngfunc8 (INT) RETURNS INT LANGUAGE plpgsql AS $$DECLARE rngfuncint int; BEGIN SELECT rngfuncid into rngfuncint FROM rngfunc WHERE rngfuncid = $1; RETURN rngfuncint; END;$$"
   },
   {
     "comment": "rangefuncs - Statement 83",
@@ -333,7 +403,8 @@
   },
   {
     "comment": "rangefuncs - Statement 84",
-    "query": "SELECT * FROM getrngfunc8(1) WITH ORDINALITY AS t1(v,o)"
+    "query": "SELECT * FROM getrngfunc8(1) WITH ORDINALITY AS t1(v,o)",
+    "expected": "SELECT * FROM getrngfunc8(1) WITH ORDINALITY AS t1(v, o)"
   },
   {
     "comment": "rangefuncs - Statement 85",
@@ -341,11 +412,13 @@
   },
   {
     "comment": "rangefuncs - Statement 86",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc8(1) WITH ORDINALITY AS t1(v,o)"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc8(1) WITH ORDINALITY AS t1(v,o)",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc8(1) WITH ORDINALITY AS t1(v, o)"
   },
   {
     "comment": "rangefuncs - Statement 87",
-    "query": "CREATE FUNCTION getrngfunc9(int) RETURNS rngfunc AS 'DECLARE rngfunctup rngfunc%ROWTYPE; BEGIN SELECT * into rngfunctup FROM rngfunc WHERE rngfuncid = $1; RETURN rngfunctup; END;' LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION getrngfunc9(int) RETURNS rngfunc AS 'DECLARE rngfunctup rngfunc%ROWTYPE; BEGIN SELECT * into rngfunctup FROM rngfunc WHERE rngfuncid = $1; RETURN rngfunctup; END;' LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION getrngfunc9 (INT) RETURNS rngfunc LANGUAGE plpgsql AS $$DECLARE rngfunctup rngfunc%ROWTYPE; BEGIN SELECT * into rngfunctup FROM rngfunc WHERE rngfuncid = $1; RETURN rngfunctup; END;$$"
   },
   {
     "comment": "rangefuncs - Statement 88",
@@ -353,7 +426,8 @@
   },
   {
     "comment": "rangefuncs - Statement 89",
-    "query": "SELECT * FROM getrngfunc9(1) WITH ORDINALITY AS t1(a,b,c,o)"
+    "query": "SELECT * FROM getrngfunc9(1) WITH ORDINALITY AS t1(a,b,c,o)",
+    "expected": "SELECT * FROM getrngfunc9(1) WITH ORDINALITY AS t1(a, b, c, o)"
   },
   {
     "comment": "rangefuncs - Statement 90",
@@ -361,71 +435,88 @@
   },
   {
     "comment": "rangefuncs - Statement 91",
-    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc9(1) WITH ORDINALITY AS t1(a,b,c,o)"
+    "query": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc9(1) WITH ORDINALITY AS t1(a,b,c,o)",
+    "expected": "CREATE VIEW vw_getrngfunc AS SELECT * FROM getrngfunc9(1) WITH ORDINALITY AS t1(a, b, c, o)"
   },
   {
     "comment": "rangefuncs - Statement 92",
-    "query": "select * from rows from(getrngfunc1(1),getrngfunc2(1),getrngfunc3(1),getrngfunc4(1),getrngfunc5(1), getrngfunc6(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text), getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text), getrngfunc8(1),getrngfunc9(1)) with ordinality as t1(a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q,r,s,t,u)"
+    "query": "select * from rows from(getrngfunc1(1),getrngfunc2(1),getrngfunc3(1),getrngfunc4(1),getrngfunc5(1), getrngfunc6(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text), getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text), getrngfunc8(1),getrngfunc9(1)) with ordinality as t1(a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q,r,s,t,u)",
+    "expected": "SELECT * FROM ROWS FROM (getrngfunc1(1), getrngfunc2(1), getrngfunc3(1), getrngfunc4(1), getrngfunc5(1), getrngfunc6(1) AS (rngfuncid INT, rngfuncsubid INT, rngfuncname TEXT), getrngfunc7(1) AS (rngfuncid INT, rngfuncsubid INT, rngfuncname TEXT), getrngfunc8(1), getrngfunc9(1)) WITH ORDINALITY AS t1(a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u)"
   },
   {
     "comment": "rangefuncs - Statement 93",
-    "query": "select * from rows from(getrngfunc9(1),getrngfunc8(1), getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text), getrngfunc6(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text), getrngfunc5(1),getrngfunc4(1),getrngfunc3(1),getrngfunc2(1),getrngfunc1(1)) with ordinality as t1(a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q,r,s,t,u)"
+    "query": "select * from rows from(getrngfunc9(1),getrngfunc8(1), getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text), getrngfunc6(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text), getrngfunc5(1),getrngfunc4(1),getrngfunc3(1),getrngfunc2(1),getrngfunc1(1)) with ordinality as t1(a,b,c,d,e,f,g,h,i,j,k,l,m,o,p,q,r,s,t,u)",
+    "expected": "SELECT * FROM ROWS FROM (getrngfunc9(1), getrngfunc8(1), getrngfunc7(1) AS (rngfuncid INT, rngfuncsubid INT, rngfuncname TEXT), getrngfunc6(1) AS (rngfuncid INT, rngfuncsubid INT, rngfuncname TEXT), getrngfunc5(1), getrngfunc4(1), getrngfunc3(1), getrngfunc2(1), getrngfunc1(1)) WITH ORDINALITY AS t1(a, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, r, s, t, u)"
   },
   {
     "comment": "rangefuncs - Statement 94",
-    "query": "create temporary view vw_rngfunc as select * from rows from(getrngfunc9(1), getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text), getrngfunc1(1)) with ordinality as t1(a,b,c,d,e,f,g,n)"
+    "query": "create temporary view vw_rngfunc as select * from rows from(getrngfunc9(1), getrngfunc7(1) AS (rngfuncid int, rngfuncsubid int, rngfuncname text), getrngfunc1(1)) with ordinality as t1(a,b,c,d,e,f,g,n)",
+    "expected": "CREATE TEMPORARY VIEW vw_rngfunc AS SELECT * FROM ROWS FROM (getrngfunc9(1), getrngfunc7(1) AS (rngfuncid INT, rngfuncsubid INT, rngfuncname TEXT), getrngfunc1(1)) WITH ORDINALITY AS t1(a, b, c, d, e, f, g, n)"
   },
   {
     "comment": "rangefuncs - Statement 95",
-    "query": "select * from vw_rngfunc"
+    "query": "select * from vw_rngfunc",
+    "expected": "SELECT * FROM vw_rngfunc"
   },
   {
     "comment": "rangefuncs - Statement 96",
-    "query": "select pg_get_viewdef('vw_rngfunc')"
+    "query": "select pg_get_viewdef('vw_rngfunc')",
+    "expected": "SELECT pg_get_viewdef('vw_rngfunc')"
   },
   {
     "comment": "rangefuncs - Statement 97",
-    "query": "drop view vw_rngfunc"
+    "query": "drop view vw_rngfunc",
+    "expected": "DROP VIEW vw_rngfunc"
   },
   {
     "comment": "rangefuncs - Statement 98",
-    "query": "DROP FUNCTION getrngfunc1(int)"
+    "query": "DROP FUNCTION getrngfunc1(int)",
+    "expected": "DROP FUNCTION getrngfunc1(INT)"
   },
   {
     "comment": "rangefuncs - Statement 99",
-    "query": "DROP FUNCTION getrngfunc2(int)"
+    "query": "DROP FUNCTION getrngfunc2(int)",
+    "expected": "DROP FUNCTION getrngfunc2(INT)"
   },
   {
     "comment": "rangefuncs - Statement 100",
-    "query": "DROP FUNCTION getrngfunc3(int)"
+    "query": "DROP FUNCTION getrngfunc3(int)",
+    "expected": "DROP FUNCTION getrngfunc3(INT)"
   },
   {
     "comment": "rangefuncs - Statement 101",
-    "query": "DROP FUNCTION getrngfunc4(int)"
+    "query": "DROP FUNCTION getrngfunc4(int)",
+    "expected": "DROP FUNCTION getrngfunc4(INT)"
   },
   {
     "comment": "rangefuncs - Statement 102",
-    "query": "DROP FUNCTION getrngfunc5(int)"
+    "query": "DROP FUNCTION getrngfunc5(int)",
+    "expected": "DROP FUNCTION getrngfunc5(INT)"
   },
   {
     "comment": "rangefuncs - Statement 103",
-    "query": "DROP FUNCTION getrngfunc6(int)"
+    "query": "DROP FUNCTION getrngfunc6(int)",
+    "expected": "DROP FUNCTION getrngfunc6(INT)"
   },
   {
     "comment": "rangefuncs - Statement 104",
-    "query": "DROP FUNCTION getrngfunc7(int)"
+    "query": "DROP FUNCTION getrngfunc7(int)",
+    "expected": "DROP FUNCTION getrngfunc7(INT)"
   },
   {
     "comment": "rangefuncs - Statement 105",
-    "query": "DROP FUNCTION getrngfunc8(int)"
+    "query": "DROP FUNCTION getrngfunc8(int)",
+    "expected": "DROP FUNCTION getrngfunc8(INT)"
   },
   {
     "comment": "rangefuncs - Statement 106",
-    "query": "DROP FUNCTION getrngfunc9(int)"
+    "query": "DROP FUNCTION getrngfunc9(int)",
+    "expected": "DROP FUNCTION getrngfunc9(INT)"
   },
   {
     "comment": "rangefuncs - Statement 107",
-    "query": "DROP FUNCTION rngfunct(int)"
+    "query": "DROP FUNCTION rngfunct(int)",
+    "expected": "DROP FUNCTION rngfunct(INT)"
   },
   {
     "comment": "rangefuncs - Statement 108",
@@ -437,171 +528,213 @@
   },
   {
     "comment": "rangefuncs - Statement 110",
-    "query": "CREATE TEMPORARY SEQUENCE rngfunc_rescan_seq1"
+    "query": "CREATE TEMPORARY SEQUENCE rngfunc_rescan_seq1",
+    "expected": "CREATE SEQUENCE rngfunc_rescan_seq1"
   },
   {
     "comment": "rangefuncs - Statement 111",
-    "query": "CREATE TEMPORARY SEQUENCE rngfunc_rescan_seq2"
+    "query": "CREATE TEMPORARY SEQUENCE rngfunc_rescan_seq2",
+    "expected": "CREATE SEQUENCE rngfunc_rescan_seq2"
   },
   {
     "comment": "rangefuncs - Statement 112",
-    "query": "CREATE TYPE rngfunc_rescan_t AS (i integer, s bigint)"
+    "query": "CREATE TYPE rngfunc_rescan_t AS (i integer, s bigint)",
+    "expected": "CREATE TYPE rngfunc_rescan_t AS (i INT, s BIGINT)"
   },
   {
     "comment": "rangefuncs - Statement 113",
-    "query": "CREATE FUNCTION rngfunc_sql(int,int) RETURNS setof rngfunc_rescan_t AS 'SELECT i, nextval(''rngfunc_rescan_seq1'') FROM generate_series($1,$2) i;' LANGUAGE SQL"
+    "query": "CREATE FUNCTION rngfunc_sql(int,int) RETURNS setof rngfunc_rescan_t AS 'SELECT i, nextval(''rngfunc_rescan_seq1'') FROM generate_series($1,$2) i;' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION rngfunc_sql (INT, INT) RETURNS SETOF rngfunc_rescan_t LANGUAGE sql AS $$SELECT i, nextval('rngfunc_rescan_seq1') FROM generate_series($1,$2) i;$$"
   },
   {
     "comment": "rangefuncs - Statement 114",
-    "query": "CREATE FUNCTION rngfunc_mat(int,int) RETURNS setof rngfunc_rescan_t AS 'begin for i in $1..$2 loop return next (i, nextval(''rngfunc_rescan_seq2'')); end loop; end;' LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION rngfunc_mat(int,int) RETURNS setof rngfunc_rescan_t AS 'begin for i in $1..$2 loop return next (i, nextval(''rngfunc_rescan_seq2'')); end loop; end;' LANGUAGE plpgsql",
+    "expected": "CREATE FUNCTION rngfunc_mat (INT, INT) RETURNS SETOF rngfunc_rescan_t LANGUAGE plpgsql AS $$begin for i in $1..$2 loop return next (i, nextval('rngfunc_rescan_seq2')); end loop; end;$$"
   },
   {
     "comment": "rangefuncs - Statement 115",
-    "query": "SELECT setval('rngfunc_rescan_seq1',1,false),setval('rngfunc_rescan_seq2',1,false)"
+    "query": "SELECT setval('rngfunc_rescan_seq1',1,false),setval('rngfunc_rescan_seq2',1,false)",
+    "expected": "SELECT setval('rngfunc_rescan_seq1', 1, FALSE), setval('rngfunc_rescan_seq2', 1, FALSE)"
   },
   {
     "comment": "rangefuncs - Statement 116",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_sql(11,13) ON (r+i)<100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_sql(11,13) ON (r+i)\u003c100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_sql(11, 13) ON (r + i) \u003c 100"
   },
   {
     "comment": "rangefuncs - Statement 117",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_sql(11,13) WITH ORDINALITY AS f(i,s,o) ON (r+i)<100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_sql(11,13) WITH ORDINALITY AS f(i,s,o) ON (r+i)\u003c100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_sql(11, 13) WITH ORDINALITY AS f(i, s, o) ON (r + i) \u003c 100"
   },
   {
     "comment": "rangefuncs - Statement 118",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_mat(11,13) ON (r+i)<100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_mat(11,13) ON (r+i)\u003c100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_mat(11, 13) ON (r + i) \u003c 100"
   },
   {
     "comment": "rangefuncs - Statement 119",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_mat(11,13) WITH ORDINALITY AS f(i,s,o) ON (r+i)<100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN rngfunc_mat(11,13) WITH ORDINALITY AS f(i,s,o) ON (r+i)\u003c100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN rngfunc_mat(11, 13) WITH ORDINALITY AS f(i, s, o) ON (r + i) \u003c 100"
   },
   {
     "comment": "rangefuncs - Statement 120",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN ROWS FROM( rngfunc_sql(11,13), rngfunc_mat(11,13) ) WITH ORDINALITY AS f(i1,s1,i2,s2,o) ON (r+i1+i2)<100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN ROWS FROM( rngfunc_sql(11,13), rngfunc_mat(11,13) ) WITH ORDINALITY AS f(i1,s1,i2,s2,o) ON (r+i1+i2)\u003c100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN ROWS FROM (rngfunc_sql(11, 13), rngfunc_mat(11, 13)) WITH ORDINALITY AS f(i1, s1, i2, s2, o) ON (r + i1 + i2) \u003c 100"
   },
   {
     "comment": "rangefuncs - Statement 121",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN generate_series(11,13) f(i) ON (r+i)<100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN generate_series(11,13) f(i) ON (r+i)\u003c100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN generate_series(11, 13) AS f(i) ON (r + i) \u003c 100"
   },
   {
     "comment": "rangefuncs - Statement 122",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN generate_series(11,13) WITH ORDINALITY AS f(i,o) ON (r+i)<100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN generate_series(11,13) WITH ORDINALITY AS f(i,o) ON (r+i)\u003c100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN generate_series(11, 13) WITH ORDINALITY AS f(i, o) ON (r + i) \u003c 100"
   },
   {
     "comment": "rangefuncs - Statement 123",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN unnest(array[10,20,30]) f(i) ON (r+i)<100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN unnest(array[10,20,30]) f(i) ON (r+i)\u003c100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN unnest(ARRAY[10,20,30]) AS f(i) ON (r + i) \u003c 100"
   },
   {
     "comment": "rangefuncs - Statement 124",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN unnest(array[10,20,30]) WITH ORDINALITY AS f(i,o) ON (r+i)<100"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r) LEFT JOIN unnest(array[10,20,30]) WITH ORDINALITY AS f(i,o) ON (r+i)\u003c100",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r) LEFT OUTER JOIN unnest(ARRAY[10,20,30]) WITH ORDINALITY AS f(i, o) ON (r + i) \u003c 100"
   },
   {
     "comment": "rangefuncs - Statement 125",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_sql(10+r,13)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_sql(10+r,13)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), rngfunc_sql(10 + r, 13)"
   },
   {
     "comment": "rangefuncs - Statement 126",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_sql(10+r,13) WITH ORDINALITY AS f(i,s,o)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_sql(10+r,13) WITH ORDINALITY AS f(i,s,o)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), rngfunc_sql(10 + r, 13) WITH ORDINALITY AS f(i, s, o)"
   },
   {
     "comment": "rangefuncs - Statement 127",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_sql(11,10+r)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_sql(11,10+r)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), rngfunc_sql(11, 10 + r)"
   },
   {
     "comment": "rangefuncs - Statement 128",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_sql(11,10+r) WITH ORDINALITY AS f(i,s,o)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_sql(11,10+r) WITH ORDINALITY AS f(i,s,o)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), rngfunc_sql(11, 10 + r) WITH ORDINALITY AS f(i, s, o)"
   },
   {
     "comment": "rangefuncs - Statement 129",
-    "query": "SELECT * FROM (VALUES (11,12),(13,15),(16,20)) v(r1,r2), rngfunc_sql(r1,r2)"
+    "query": "SELECT * FROM (VALUES (11,12),(13,15),(16,20)) v(r1,r2), rngfunc_sql(r1,r2)",
+    "expected": "SELECT * FROM (VALUES (11, 12), (13, 15), (16, 20)) AS v(r1, r2), rngfunc_sql(r1, r2)"
   },
   {
     "comment": "rangefuncs - Statement 130",
-    "query": "SELECT * FROM (VALUES (11,12),(13,15),(16,20)) v(r1,r2), rngfunc_sql(r1,r2) WITH ORDINALITY AS f(i,s,o)"
+    "query": "SELECT * FROM (VALUES (11,12),(13,15),(16,20)) v(r1,r2), rngfunc_sql(r1,r2) WITH ORDINALITY AS f(i,s,o)",
+    "expected": "SELECT * FROM (VALUES (11, 12), (13, 15), (16, 20)) AS v(r1, r2), rngfunc_sql(r1, r2) WITH ORDINALITY AS f(i, s, o)"
   },
   {
     "comment": "rangefuncs - Statement 131",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_mat(10+r,13)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_mat(10+r,13)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), rngfunc_mat(10 + r, 13)"
   },
   {
     "comment": "rangefuncs - Statement 132",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_mat(10+r,13) WITH ORDINALITY AS f(i,s,o)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_mat(10+r,13) WITH ORDINALITY AS f(i,s,o)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), rngfunc_mat(10 + r, 13) WITH ORDINALITY AS f(i, s, o)"
   },
   {
     "comment": "rangefuncs - Statement 133",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_mat(11,10+r)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_mat(11,10+r)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), rngfunc_mat(11, 10 + r)"
   },
   {
     "comment": "rangefuncs - Statement 134",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_mat(11,10+r) WITH ORDINALITY AS f(i,s,o)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), rngfunc_mat(11,10+r) WITH ORDINALITY AS f(i,s,o)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), rngfunc_mat(11, 10 + r) WITH ORDINALITY AS f(i, s, o)"
   },
   {
     "comment": "rangefuncs - Statement 135",
-    "query": "SELECT * FROM (VALUES (11,12),(13,15),(16,20)) v(r1,r2), rngfunc_mat(r1,r2)"
+    "query": "SELECT * FROM (VALUES (11,12),(13,15),(16,20)) v(r1,r2), rngfunc_mat(r1,r2)",
+    "expected": "SELECT * FROM (VALUES (11, 12), (13, 15), (16, 20)) AS v(r1, r2), rngfunc_mat(r1, r2)"
   },
   {
     "comment": "rangefuncs - Statement 136",
-    "query": "SELECT * FROM (VALUES (11,12),(13,15),(16,20)) v(r1,r2), rngfunc_mat(r1,r2) WITH ORDINALITY AS f(i,s,o)"
+    "query": "SELECT * FROM (VALUES (11,12),(13,15),(16,20)) v(r1,r2), rngfunc_mat(r1,r2) WITH ORDINALITY AS f(i,s,o)",
+    "expected": "SELECT * FROM (VALUES (11, 12), (13, 15), (16, 20)) AS v(r1, r2), rngfunc_mat(r1, r2) WITH ORDINALITY AS f(i, s, o)"
   },
   {
     "comment": "rangefuncs - Statement 137",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), ROWS FROM( rngfunc_sql(11,11), rngfunc_mat(10+r,13) )"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), ROWS FROM( rngfunc_sql(11,11), rngfunc_mat(10+r,13) )",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), ROWS FROM (rngfunc_sql(11, 11), rngfunc_mat(10 + r, 13))"
   },
   {
     "comment": "rangefuncs - Statement 138",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), ROWS FROM( rngfunc_sql(10+r,13), rngfunc_mat(11,11) )"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), ROWS FROM( rngfunc_sql(10+r,13), rngfunc_mat(11,11) )",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), ROWS FROM (rngfunc_sql(10 + r, 13), rngfunc_mat(11, 11))"
   },
   {
     "comment": "rangefuncs - Statement 139",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), ROWS FROM( rngfunc_sql(10+r,13), rngfunc_mat(10+r,13) )"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), ROWS FROM( rngfunc_sql(10+r,13), rngfunc_mat(10+r,13) )",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), ROWS FROM (rngfunc_sql(10 + r, 13), rngfunc_mat(10 + r, 13))"
   },
   {
     "comment": "rangefuncs - Statement 140",
-    "query": "SELECT * FROM generate_series(1,2) r1, generate_series(r1,3) r2, ROWS FROM( rngfunc_sql(10+r1,13), rngfunc_mat(10+r2,13) )"
+    "query": "SELECT * FROM generate_series(1,2) r1, generate_series(r1,3) r2, ROWS FROM( rngfunc_sql(10+r1,13), rngfunc_mat(10+r2,13) )",
+    "expected": "SELECT * FROM generate_series(1, 2) AS r1, generate_series(r1, 3) AS r2, ROWS FROM (rngfunc_sql(10 + r1, 13), rngfunc_mat(10 + r2, 13))"
   },
   {
     "comment": "rangefuncs - Statement 141",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), generate_series(10+r,20-r) f(i)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), generate_series(10+r,20-r) f(i)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), generate_series(10 + r, 20 - r) AS f(i)"
   },
   {
     "comment": "rangefuncs - Statement 142",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), generate_series(10+r,20-r) WITH ORDINALITY AS f(i,o)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), generate_series(10+r,20-r) WITH ORDINALITY AS f(i,o)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), generate_series(10 + r, 20 - r) WITH ORDINALITY AS f(i, o)"
   },
   {
     "comment": "rangefuncs - Statement 143",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), unnest(array[r*10,r*20,r*30]) f(i)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), unnest(array[r*10,r*20,r*30]) f(i)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), unnest(ARRAY[r * 10,r * 20,r * 30]) AS f(i)"
   },
   {
     "comment": "rangefuncs - Statement 144",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), unnest(array[r*10,r*20,r*30]) WITH ORDINALITY AS f(i,o)"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v(r), unnest(array[r*10,r*20,r*30]) WITH ORDINALITY AS f(i,o)",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v(r), unnest(ARRAY[r * 10,r * 20,r * 30]) WITH ORDINALITY AS f(i, o)"
   },
   {
     "comment": "rangefuncs - Statement 145",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(21,23) f(i) ON ((r2+i)<100) OFFSET 0) s1"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(21,23) f(i) ON ((r2+i)\u003c100) OFFSET 0) s1",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(21, 23) AS f(i) ON ((r2 + i) \u003c 100) OFFSET 0) AS s1"
   },
   {
     "comment": "rangefuncs - Statement 146",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(20+r1,23) f(i) ON ((r2+i)<100) OFFSET 0) s1"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(20+r1,23) f(i) ON ((r2+i)\u003c100) OFFSET 0) s1",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(20 + r1, 23) AS f(i) ON ((r2 + i) \u003c 100) OFFSET 0) AS s1"
   },
   {
     "comment": "rangefuncs - Statement 147",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(r2,r2+3) f(i) ON ((r2+i)<100) OFFSET 0) s1"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(r2,r2+3) f(i) ON ((r2+i)\u003c100) OFFSET 0) s1",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(r2, r2 + 3) AS f(i) ON ((r2 + i) \u003c 100) OFFSET 0) AS s1"
   },
   {
     "comment": "rangefuncs - Statement 148",
-    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(r1,2+r2/5) f(i) ON ((r2+i)<100) OFFSET 0) s1"
+    "query": "SELECT * FROM (VALUES (1),(2),(3)) v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10),(20),(30)) v2(r2) LEFT JOIN generate_series(r1,2+r2/5) f(i) ON ((r2+i)\u003c100) OFFSET 0) s1",
+    "expected": "SELECT * FROM (VALUES (1), (2), (3)) AS v1(r1), LATERAL (SELECT r1, * FROM (VALUES (10), (20), (30)) AS v2(r2) LEFT OUTER JOIN generate_series(r1, 2 + r2 / 5) AS f(i) ON ((r2 + i) \u003c 100) OFFSET 0) AS s1"
   },
   {
     "comment": "rangefuncs - Statement 149",
-    "query": "SELECT * FROM (VALUES (1),(2)) v1(r1) LEFT JOIN LATERAL ( SELECT * FROM generate_series(1, v1.r1) AS gs1 LEFT JOIN LATERAL ( SELECT * FROM generate_series(1, gs1) AS gs2 LEFT JOIN generate_series(1, gs2) AS gs3 ON TRUE ) AS ss1 ON TRUE FULL JOIN generate_series(1, v1.r1) AS gs4 ON FALSE ) AS ss0 ON TRUE"
+    "query": "SELECT * FROM (VALUES (1),(2)) v1(r1) LEFT JOIN LATERAL ( SELECT * FROM generate_series(1, v1.r1) AS gs1 LEFT JOIN LATERAL ( SELECT * FROM generate_series(1, gs1) AS gs2 LEFT JOIN generate_series(1, gs2) AS gs3 ON TRUE ) AS ss1 ON TRUE FULL JOIN generate_series(1, v1.r1) AS gs4 ON FALSE ) AS ss0 ON TRUE",
+    "expected": "SELECT * FROM (VALUES (1), (2)) AS v1(r1) LEFT OUTER JOIN LATERAL (SELECT * FROM generate_series(1, v1.r1) AS gs1 LEFT OUTER JOIN LATERAL (SELECT * FROM generate_series(1, gs1) AS gs2 LEFT OUTER JOIN generate_series(1, gs2) AS gs3 ON TRUE) AS ss1 ON TRUE FULL OUTER JOIN generate_series(1, v1.r1) AS gs4 ON FALSE) AS ss0 ON TRUE"
   },
   {
     "comment": "rangefuncs - Statement 150",
-    "query": "DROP FUNCTION rngfunc_sql(int,int)"
+    "query": "DROP FUNCTION rngfunc_sql(int,int)",
+    "expected": "DROP FUNCTION rngfunc_sql(INT, INT)"
   },
   {
     "comment": "rangefuncs - Statement 151",
-    "query": "DROP FUNCTION rngfunc_mat(int,int)"
+    "query": "DROP FUNCTION rngfunc_mat(int,int)",
+    "expected": "DROP FUNCTION rngfunc_mat(INT, INT)"
   },
   {
     "comment": "rangefuncs - Statement 152",
@@ -613,7 +746,8 @@
   },
   {
     "comment": "rangefuncs - Statement 154",
-    "query": "CREATE FUNCTION rngfunc(in f1 int, out f2 int) AS 'select $1+1' LANGUAGE sql"
+    "query": "CREATE FUNCTION rngfunc(in f1 int, out f2 int) AS 'select $1+1' LANGUAGE sql",
+    "expected": "CREATE FUNCTION rngfunc (f1 INT, OUT f2 INT) LANGUAGE sql AS $$select $1+1$$"
   },
   {
     "comment": "rangefuncs - Statement 155",
@@ -629,23 +763,28 @@
   },
   {
     "comment": "rangefuncs - Statement 158",
-    "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int) RETURNS int AS 'select $1+1' LANGUAGE sql"
+    "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int) RETURNS int AS 'select $1+1' LANGUAGE sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT) RETURNS INT LANGUAGE sql AS $$select $1+1$$"
   },
   {
     "comment": "rangefuncs - Statement 159",
-    "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int) RETURNS float AS 'select $1+1' LANGUAGE sql"
+    "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int) RETURNS float AS 'select $1+1' LANGUAGE sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT) RETURNS FLOAT8 LANGUAGE sql AS $$select $1+1$$"
   },
   {
     "comment": "rangefuncs - Statement 160",
-    "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int, out f3 text) RETURNS int AS 'select $1+1' LANGUAGE sql"
+    "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int, out f3 text) RETURNS int AS 'select $1+1' LANGUAGE sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT, OUT f3 TEXT) RETURNS INT LANGUAGE sql AS $$select $1+1$$"
   },
   {
     "comment": "rangefuncs - Statement 161",
-    "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int, out f3 text) RETURNS record AS 'select $1+1' LANGUAGE sql"
+    "query": "CREATE OR REPLACE FUNCTION rngfunc(in f1 int, out f2 int, out f3 text) RETURNS record AS 'select $1+1' LANGUAGE sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (f1 INT, OUT f2 INT, OUT f3 TEXT) RETURNS record LANGUAGE sql AS $$select $1+1$$"
   },
   {
     "comment": "rangefuncs - Statement 162",
-    "query": "CREATE OR REPLACE FUNCTION rngfuncr(in f1 int, out f2 int, out text) AS $$select $1-1, $1::text || 'z'$$ LANGUAGE sql"
+    "query": "CREATE OR REPLACE FUNCTION rngfuncr(in f1 int, out f2 int, out text) AS $$select $1-1, $1::text || 'z'$$ LANGUAGE sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncr (f1 INT, OUT f2 INT, OUT TEXT) LANGUAGE sql AS $$select $1-1, $1::text || 'z'$$"
   },
   {
     "comment": "rangefuncs - Statement 163",
@@ -657,15 +796,18 @@
   },
   {
     "comment": "rangefuncs - Statement 165",
-    "query": "SELECT * FROM rngfuncr(42) AS p(a,b)"
+    "query": "SELECT * FROM rngfuncr(42) AS p(a,b)",
+    "expected": "SELECT * FROM rngfuncr(42) AS p(a, b)"
   },
   {
     "comment": "rangefuncs - Statement 166",
-    "query": "CREATE OR REPLACE FUNCTION rngfuncb(in f1 int, inout f2 int, out text) AS $$select $2-1, $1::text || 'z'$$ LANGUAGE sql"
+    "query": "CREATE OR REPLACE FUNCTION rngfuncb(in f1 int, inout f2 int, out text) AS $$select $2-1, $1::text || 'z'$$ LANGUAGE sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncb (f1 INT, INOUT f2 INT, OUT TEXT) LANGUAGE sql AS $$select $2-1, $1::text || 'z'$$"
   },
   {
     "comment": "rangefuncs - Statement 167",
-    "query": "SELECT f1, rngfuncb(f1, f1/2) FROM int4_tbl"
+    "query": "SELECT f1, rngfuncb(f1, f1/2) FROM int4_tbl",
+    "expected": "SELECT f1, rngfuncb(f1, f1 / 2) FROM int4_tbl"
   },
   {
     "comment": "rangefuncs - Statement 168",
@@ -673,23 +815,28 @@
   },
   {
     "comment": "rangefuncs - Statement 169",
-    "query": "SELECT * FROM rngfuncb(42, 99) AS p(a,b)"
+    "query": "SELECT * FROM rngfuncb(42, 99) AS p(a,b)",
+    "expected": "SELECT * FROM rngfuncb(42, 99) AS p(a, b)"
   },
   {
     "comment": "rangefuncs - Statement 170",
-    "query": "DROP FUNCTION rngfunc(int)"
+    "query": "DROP FUNCTION rngfunc(int)",
+    "expected": "DROP FUNCTION rngfunc(INT)"
   },
   {
     "comment": "rangefuncs - Statement 171",
-    "query": "DROP FUNCTION rngfuncr(in f2 int, out f1 int, out text)"
+    "query": "DROP FUNCTION rngfuncr(in f2 int, out f1 int, out text)",
+    "expected": "DROP FUNCTION rngfuncr(f2 INT, OUT f1 INT, OUT TEXT)"
   },
   {
     "comment": "rangefuncs - Statement 172",
-    "query": "DROP FUNCTION rngfuncb(in f1 int, inout f2 int)"
+    "query": "DROP FUNCTION rngfuncb(in f1 int, inout f2 int)",
+    "expected": "DROP FUNCTION rngfuncb(f1 INT, INOUT f2 INT)"
   },
   {
     "comment": "rangefuncs - Statement 173",
-    "query": "CREATE FUNCTION dup (f1 anyelement, f2 out anyelement, f3 out anyarray) AS 'select $1, array[$1,$1]' LANGUAGE sql"
+    "query": "CREATE FUNCTION dup (f1 anyelement, f2 out anyelement, f3 out anyarray) AS 'select $1, array[$1,$1]' LANGUAGE sql",
+    "expected": "CREATE FUNCTION dup (f1 anyelement, OUT f2 anyelement, OUT f3 anyarray) LANGUAGE sql AS $$select $1, array[$1,$1]$$"
   },
   {
     "comment": "rangefuncs - Statement 174",
@@ -701,15 +848,18 @@
   },
   {
     "comment": "rangefuncs - Statement 176",
-    "query": "SELECT dup('xyz'::text)"
+    "query": "SELECT dup('xyz'::text)",
+    "expected": "SELECT dup(CAST('xyz' AS TEXT))"
   },
   {
     "comment": "rangefuncs - Statement 177",
-    "query": "SELECT * FROM dup('xyz'::text)"
+    "query": "SELECT * FROM dup('xyz'::text)",
+    "expected": "SELECT * FROM dup(CAST('xyz' AS TEXT))"
   },
   {
     "comment": "rangefuncs - Statement 178",
-    "query": "CREATE OR REPLACE FUNCTION dup (inout f2 anyelement, out f3 anyarray) AS 'select $1, array[$1,$1]' LANGUAGE sql"
+    "query": "CREATE OR REPLACE FUNCTION dup (inout f2 anyelement, out f3 anyarray) AS 'select $1, array[$1,$1]' LANGUAGE sql",
+    "expected": "CREATE OR REPLACE FUNCTION dup (INOUT f2 anyelement, OUT f3 anyarray) LANGUAGE sql AS $$select $1, array[$1,$1]$$"
   },
   {
     "comment": "rangefuncs - Statement 179",
@@ -717,27 +867,33 @@
   },
   {
     "comment": "rangefuncs - Statement 180",
-    "query": "CREATE FUNCTION bad (f1 int, out f2 anyelement, out f3 anyarray) AS 'select $1, array[$1,$1]' LANGUAGE sql"
+    "query": "CREATE FUNCTION bad (f1 int, out f2 anyelement, out f3 anyarray) AS 'select $1, array[$1,$1]' LANGUAGE sql",
+    "expected": "CREATE FUNCTION bad (f1 INT, OUT f2 anyelement, OUT f3 anyarray) LANGUAGE sql AS $$select $1, array[$1,$1]$$"
   },
   {
     "comment": "rangefuncs - Statement 181",
-    "query": "CREATE FUNCTION dup (f1 anycompatible, f2 anycompatiblearray, f3 out anycompatible, f4 out anycompatiblearray) AS 'select $1, $2' LANGUAGE sql"
+    "query": "CREATE FUNCTION dup (f1 anycompatible, f2 anycompatiblearray, f3 out anycompatible, f4 out anycompatiblearray) AS 'select $1, $2' LANGUAGE sql",
+    "expected": "CREATE FUNCTION dup (f1 anycompatible, f2 anycompatiblearray, OUT f3 anycompatible, OUT f4 anycompatiblearray) LANGUAGE sql AS $$select $1, $2$$"
   },
   {
     "comment": "rangefuncs - Statement 182",
-    "query": "SELECT dup(22, array[44])"
+    "query": "SELECT dup(22, array[44])",
+    "expected": "SELECT dup(22, ARRAY[44])"
   },
   {
     "comment": "rangefuncs - Statement 183",
-    "query": "SELECT dup(4.5, array[44])"
+    "query": "SELECT dup(4.5, array[44])",
+    "expected": "SELECT dup(4.5, ARRAY[44])"
   },
   {
     "comment": "rangefuncs - Statement 184",
-    "query": "SELECT dup(22, array[44::bigint])"
+    "query": "SELECT dup(22, array[44::bigint])",
+    "expected": "SELECT dup(22, ARRAY[CAST(44 AS BIGINT)])"
   },
   {
     "comment": "rangefuncs - Statement 185",
-    "query": "SELECT *, pg_typeof(f3), pg_typeof(f4) FROM dup(22, array[44::bigint])"
+    "query": "SELECT *, pg_typeof(f3), pg_typeof(f4) FROM dup(22, array[44::bigint])",
+    "expected": "SELECT *, pg_typeof(f3), pg_typeof(f4) FROM dup(22, ARRAY[CAST(44 AS BIGINT)])"
   },
   {
     "comment": "rangefuncs - Statement 186",
@@ -745,15 +901,18 @@
   },
   {
     "comment": "rangefuncs - Statement 187",
-    "query": "CREATE FUNCTION dup (f1 anycompatiblerange, f2 out anycompatible, f3 out anycompatiblearray, f4 out anycompatiblerange) AS 'select lower($1), array[lower($1), upper($1)], $1' LANGUAGE sql"
+    "query": "CREATE FUNCTION dup (f1 anycompatiblerange, f2 out anycompatible, f3 out anycompatiblearray, f4 out anycompatiblerange) AS 'select lower($1), array[lower($1), upper($1)], $1' LANGUAGE sql",
+    "expected": "CREATE FUNCTION dup (f1 anycompatiblerange, OUT f2 anycompatible, OUT f3 anycompatiblearray, OUT f4 anycompatiblerange) LANGUAGE sql AS $$select lower($1), array[lower($1), upper($1)], $1$$"
   },
   {
     "comment": "rangefuncs - Statement 188",
-    "query": "SELECT dup(int4range(4,7))"
+    "query": "SELECT dup(int4range(4,7))",
+    "expected": "SELECT dup(int4range(4, 7))"
   },
   {
     "comment": "rangefuncs - Statement 189",
-    "query": "SELECT dup(numrange(4,7))"
+    "query": "SELECT dup(numrange(4,7))",
+    "expected": "SELECT dup(numrange(4, 7))"
   },
   {
     "comment": "rangefuncs - Statement 190",
@@ -765,11 +924,13 @@
   },
   {
     "comment": "rangefuncs - Statement 192",
-    "query": "CREATE FUNCTION bad (f1 anyarray, out f2 anycompatible, out f3 anycompatiblearray) AS 'select $1, array[$1,$1]' LANGUAGE sql"
+    "query": "CREATE FUNCTION bad (f1 anyarray, out f2 anycompatible, out f3 anycompatiblearray) AS 'select $1, array[$1,$1]' LANGUAGE sql",
+    "expected": "CREATE FUNCTION bad (f1 anyarray, OUT f2 anycompatible, OUT f3 anycompatiblearray) LANGUAGE sql AS $$select $1, array[$1,$1]$$"
   },
   {
     "comment": "rangefuncs - Statement 193",
-    "query": "CREATE OR REPLACE FUNCTION rngfunc() RETURNS TABLE(a int) AS $$ SELECT a FROM generate_series(1,5) a(a) $$ LANGUAGE sql"
+    "query": "CREATE OR REPLACE FUNCTION rngfunc() RETURNS TABLE(a int) AS $$ SELECT a FROM generate_series(1,5) a(a) $$ LANGUAGE sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc () LANGUAGE sql AS $$ SELECT a FROM generate_series(1,5) a(a) $$"
   },
   {
     "comment": "rangefuncs - Statement 194",
@@ -781,7 +942,8 @@
   },
   {
     "comment": "rangefuncs - Statement 196",
-    "query": "CREATE OR REPLACE FUNCTION rngfunc(int) RETURNS TABLE(a int, b int) AS $$ SELECT a, b FROM generate_series(1,$1) a(a), generate_series(1,$1) b(b) $$ LANGUAGE sql"
+    "query": "CREATE OR REPLACE FUNCTION rngfunc(int) RETURNS TABLE(a int, b int) AS $$ SELECT a, b FROM generate_series(1,$1) a(a), generate_series(1,$1) b(b) $$ LANGUAGE sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (INT) LANGUAGE sql AS $$ SELECT a, b FROM generate_series(1,$1) a(a), generate_series(1,$1) b(b) $$"
   },
   {
     "comment": "rangefuncs - Statement 197",
@@ -789,7 +951,8 @@
   },
   {
     "comment": "rangefuncs - Statement 198",
-    "query": "CREATE OR REPLACE FUNCTION rngfunc() RETURNS TABLE(a varchar(5)) AS $$ SELECT 'hello'::varchar(5) $$ LANGUAGE sql STABLE"
+    "query": "CREATE OR REPLACE FUNCTION rngfunc() RETURNS TABLE(a varchar(5)) AS $$ SELECT 'hello'::varchar(5) $$ LANGUAGE sql STABLE",
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc () LANGUAGE sql AS $$ SELECT 'hello'::varchar(5) $$ STABLE"
   },
   {
     "comment": "rangefuncs - Statement 199",
@@ -797,239 +960,268 @@
   },
   {
     "comment": "rangefuncs - Statement 200",
-    "query": "create temp table tt(f1 serial, data text)"
+    "query": "create temp table tt(f1 serial, data text)",
+    "expected": "CREATE TEMPORARY TABLE tt (f1 serial, data TEXT)"
   },
   {
     "comment": "rangefuncs - Statement 201",
-    "query": "create function insert_tt(text) returns int as $$ insert into tt(data) values($1) returning f1 $$ language sql"
+    "query": "create function insert_tt(text) returns int as $$ insert into tt(data) values($1) returning f1 $$ language sql",
+    "expected": "CREATE FUNCTION insert_tt (TEXT) RETURNS INT LANGUAGE sql AS $$ insert into tt(data) values($1) returning f1 $$"
   },
   {
     "comment": "rangefuncs - Statement 202",
-    "query": "select insert_tt('foo')"
+    "query": "select insert_tt('foo')",
+    "expected": "SELECT insert_tt('foo')"
   },
   {
     "comment": "rangefuncs - Statement 203",
-    "query": "select insert_tt('bar')"
+    "query": "select insert_tt('bar')",
+    "expected": "SELECT insert_tt('bar')"
   },
   {
     "comment": "rangefuncs - Statement 204",
-    "query": "select * from tt"
+    "query": "select * from tt",
+    "expected": "SELECT * FROM tt"
   },
   {
     "comment": "rangefuncs - Statement 205",
-    "query": "create or replace function insert_tt(text) returns int as $$ insert into tt(data) values($1),($1||$1) returning f1 $$ language sql"
+    "query": "create or replace function insert_tt(text) returns int as $$ insert into tt(data) values($1),($1||$1) returning f1 $$ language sql",
+    "expected": "CREATE OR REPLACE FUNCTION insert_tt (TEXT) RETURNS INT LANGUAGE sql AS $$ insert into tt(data) values($1),($1||$1) returning f1 $$"
   },
   {
     "comment": "rangefuncs - Statement 206",
-    "query": "select insert_tt('fool')"
+    "query": "select insert_tt('fool')",
+    "expected": "SELECT insert_tt('fool')"
   },
   {
     "comment": "rangefuncs - Statement 207",
-    "query": "create or replace function insert_tt2(text,text) returns setof int as $$ insert into tt(data) values($1),($2) returning f1 $$ language sql"
+    "query": "create or replace function insert_tt2(text,text) returns setof int as $$ insert into tt(data) values($1),($2) returning f1 $$ language sql",
+    "expected": "CREATE OR REPLACE FUNCTION insert_tt2 (TEXT, TEXT) RETURNS SETOF INT LANGUAGE sql AS $$ insert into tt(data) values($1),($2) returning f1 $$"
   },
   {
     "comment": "rangefuncs - Statement 208",
-    "query": "select insert_tt2('foolish','barrish')"
+    "query": "select insert_tt2('foolish','barrish')",
+    "expected": "SELECT insert_tt2('foolish', 'barrish')"
   },
   {
     "comment": "rangefuncs - Statement 209",
-    "query": "select * from insert_tt2('baz','quux')"
+    "query": "select * from insert_tt2('baz','quux')",
+    "expected": "SELECT * FROM insert_tt2('baz', 'quux')"
   },
   {
     "comment": "rangefuncs - Statement 210",
-    "query": "select insert_tt2('foolish','barrish') limit 1"
+    "query": "select insert_tt2('foolish','barrish') limit 1",
+    "expected": "SELECT insert_tt2('foolish', 'barrish') LIMIT 1"
   },
   {
     "comment": "rangefuncs - Statement 211",
-    "query": "create function noticetrigger() returns trigger as $$ begin raise notice 'noticetrigger % %', new.f1, new.data"
-  },
-  {
-    "comment": "rangefuncs - Statement 212",
-    "query": "return null"
-  },
-  {
-    "comment": "rangefuncs - Statement 213",
-    "query": "end $$ language plpgsql"
+    "query": "create function noticetrigger() returns trigger as $$ begin   raise notice 'noticetrigger % %', new.f1, new.data;   return null; end $$ language plpgsql;",
+    "error": "parse error at position 52: syntax error"
   },
   {
     "comment": "rangefuncs - Statement 214",
-    "query": "create trigger tnoticetrigger after insert on tt for each row execute procedure noticetrigger()"
+    "query": "create trigger tnoticetrigger after insert on tt for each row execute procedure noticetrigger()",
+    "expected": "CREATE TRIGGER tnoticetrigger AFTER INSERT ON tt FOR EACH ROW EXECUTE FUNCTION noticetrigger()"
   },
   {
     "comment": "rangefuncs - Statement 215",
-    "query": "select insert_tt2('foolme','barme') limit 1"
+    "query": "select insert_tt2('foolme','barme') limit 1",
+    "expected": "SELECT insert_tt2('foolme', 'barme') LIMIT 1"
   },
   {
     "comment": "rangefuncs - Statement 216",
-    "query": "create temp table tt_log(f1 int, data text)"
+    "query": "create temp table tt_log(f1 int, data text)",
+    "expected": "CREATE TEMPORARY TABLE tt_log (f1 INT, data TEXT)"
   },
   {
     "comment": "rangefuncs - Statement 217",
-    "query": "create rule insert_tt_rule as on insert to tt do also insert into tt_log values(new.*)"
+    "query": "create rule insert_tt_rule as on insert to tt do also insert into tt_log values(new.*)",
+    "expected": "CREATE RULE insert_tt_rule AS ON INSERT TO tt DO INSERT INTO tt_log VALUES (new.*)"
   },
   {
     "comment": "rangefuncs - Statement 218",
-    "query": "select insert_tt2('foollog','barlog') limit 1"
+    "query": "select insert_tt2('foollog','barlog') limit 1",
+    "expected": "SELECT insert_tt2('foollog', 'barlog') LIMIT 1"
   },
   {
     "comment": "rangefuncs - Statement 219",
-    "query": "select * from tt_log"
+    "query": "select * from tt_log",
+    "expected": "SELECT * FROM tt_log"
   },
   {
     "comment": "rangefuncs - Statement 220",
-    "query": "create function rngfunc1(n integer, out a text, out b text) returns setof record language sql as $$ select 'foo ' || i, 'bar ' || i from generate_series(1,$1) i $$"
+    "query": "create function rngfunc1(n integer, out a text, out b text) returns setof record language sql as $$ select 'foo ' || i, 'bar ' || i from generate_series(1,$1) i $$",
+    "expected": "CREATE FUNCTION rngfunc1 (n INT, OUT a TEXT, OUT b TEXT) RETURNS SETOF record LANGUAGE sql AS $$ select 'foo ' || i, 'bar ' || i from generate_series(1,$1) i $$"
   },
   {
     "comment": "rangefuncs - Statement 221",
-    "query": "set work_mem='64kB'"
+    "query": "set work_mem='64kB'",
+    "expected": "SET work_mem = '64kB'"
   },
   {
     "comment": "rangefuncs - Statement 222",
-    "query": "select t.a, t, t.a from rngfunc1(10000) t limit 1"
+    "query": "select t.a, t, t.a from rngfunc1(10000) t limit 1",
+    "expected": "SELECT t.a, t, t.a FROM rngfunc1(10000) AS t LIMIT 1"
   },
   {
     "comment": "rangefuncs - Statement 223",
-    "query": "reset work_mem"
+    "query": "reset work_mem",
+    "expected": "RESET work_mem"
   },
   {
     "comment": "rangefuncs - Statement 224",
-    "query": "drop function rngfunc1(n integer)"
+    "query": "drop function rngfunc1(n integer)",
+    "expected": "DROP FUNCTION rngfunc1(n INT)"
   },
   {
     "comment": "rangefuncs - Statement 225",
-    "query": "create function array_to_set(anyarray) returns setof record as $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ language sql strict immutable"
+    "query": "create function array_to_set(anyarray) returns setof record as $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ language sql strict immutable",
+    "expected": "CREATE FUNCTION array_to_set (anyarray) RETURNS SETOF record LANGUAGE sql AS $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ STRICT IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 226",
-    "query": "select array_to_set(array['one', 'two'])"
+    "query": "select array_to_set(array['one', 'two'])",
+    "expected": "SELECT array_to_set(ARRAY['one','two'])"
   },
   {
     "comment": "rangefuncs - Statement 227",
-    "query": "select * from array_to_set(array['one', 'two']) as t(f1 int,f2 text)"
+    "query": "select * from array_to_set(array['one', 'two']) as t(f1 int,f2 text)",
+    "expected": "SELECT * FROM array_to_set(ARRAY['one','two']) AS t"
   },
   {
     "comment": "rangefuncs - Statement 228",
-    "query": "select * from array_to_set(array['one', 'two'])"
+    "query": "select * from array_to_set(array['one', 'two'])",
+    "expected": "SELECT * FROM array_to_set(ARRAY['one','two'])"
   },
   {
     "comment": "rangefuncs - Statement 229",
-    "query": "select * from array_to_set(array['one', 'two']) as t(f1 numeric(4,2),f2 text)"
+    "query": "select * from array_to_set(array['one', 'two']) as t(f1 numeric(4,2),f2 text)",
+    "expected": "SELECT * FROM array_to_set(ARRAY['one','two']) AS t"
   },
   {
     "comment": "rangefuncs - Statement 230",
-    "query": "select * from array_to_set(array['one', 'two']) as t(f1 point,f2 text)"
+    "query": "select * from array_to_set(array['one', 'two']) as t(f1 point,f2 text)",
+    "expected": "SELECT * FROM array_to_set(ARRAY['one','two']) AS t"
   },
   {
     "comment": "rangefuncs - Statement 231",
-    "query": "explain (verbose, costs off) select * from array_to_set(array['one', 'two']) as t(f1 numeric(4,2),f2 text)"
+    "query": "explain (verbose, costs off) select * from array_to_set(array['one', 'two']) as t(f1 numeric(4,2),f2 text)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM array_to_set(ARRAY['one','two']) AS t"
   },
   {
     "comment": "rangefuncs - Statement 232",
-    "query": "create or replace function array_to_set(anyarray) returns setof record as $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ language sql immutable"
+    "query": "create or replace function array_to_set(anyarray) returns setof record as $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ language sql immutable",
+    "expected": "CREATE OR REPLACE FUNCTION array_to_set (anyarray) RETURNS SETOF record LANGUAGE sql AS $$ select i AS \"index\", $1[i] AS \"value\" from generate_subscripts($1, 1) i $$ IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 233",
-    "query": "create temp table rngfunc(f1 int8, f2 int8)"
+    "query": "create temp table rngfunc(f1 int8, f2 int8)",
+    "expected": "CREATE TEMPORARY TABLE rngfunc (f1 BIGINT, f2 BIGINT)"
   },
   {
     "comment": "rangefuncs - Statement 234",
-    "query": "create function testrngfunc() returns record as $$ insert into rngfunc values (1,2) returning *"
-  },
-  {
-    "comment": "rangefuncs - Statement 235",
-    "query": "$$ language sql"
+    "query": "create function testrngfunc() returns record as $$ insert into rngfunc values (1,2) returning *; $$ language sql;",
+    "error": "parse error at position 49: syntax error"
   },
   {
     "comment": "rangefuncs - Statement 236",
-    "query": "select testrngfunc()"
+    "query": "select testrngfunc()",
+    "expected": "SELECT testrngfunc()"
   },
   {
     "comment": "rangefuncs - Statement 237",
-    "query": "select * from testrngfunc() as t(f1 int8,f2 int8)"
+    "query": "select * from testrngfunc() as t(f1 int8,f2 int8)",
+    "expected": "SELECT * FROM testrngfunc() AS t"
   },
   {
     "comment": "rangefuncs - Statement 238",
-    "query": "select * from testrngfunc()"
+    "query": "select * from testrngfunc()",
+    "expected": "SELECT * FROM testrngfunc()"
   },
   {
     "comment": "rangefuncs - Statement 239",
-    "query": "drop function testrngfunc()"
+    "query": "drop function testrngfunc()",
+    "expected": "DROP FUNCTION testrngfunc()"
   },
   {
     "comment": "rangefuncs - Statement 240",
-    "query": "create function testrngfunc() returns setof record as $$ insert into rngfunc values (1,2), (3,4) returning *"
+    "query": "create function testrngfunc() returns setof record as $$ insert into rngfunc values (1,2), (3,4) returning *; $$ language sql;",
+    "error": "parse error at position 55: syntax error"
   },
   {
     "comment": "rangefuncs - Statement 241",
-    "query": "create type rngfunc_type as (f1 numeric(35,6), f2 numeric(35,2))"
+    "query": "create type rngfunc_type as (f1 numeric(35,6), f2 numeric(35,2))",
+    "expected": "CREATE TYPE rngfunc_type AS (f1 NUMERIC(35, 6), f2 NUMERIC(35, 2))"
   },
   {
     "comment": "rangefuncs - Statement 242",
-    "query": "create function testrngfunc() returns rngfunc_type as $$ select 7.136178319899999964, 7.136178319899999964"
-  },
-  {
-    "comment": "rangefuncs - Statement 243",
-    "query": "$$ language sql immutable"
+    "query": "create or replace function testrngfunc() returns rngfunc_type as $$ select 7.136178319899999964, 7.136178319899999964; $$ language sql volatile;",
+    "error": "parse error at position 55: syntax error"
   },
   {
     "comment": "rangefuncs - Statement 244",
-    "query": "explain (verbose, costs off) select testrngfunc()"
+    "query": "explain (verbose, costs off) select testrngfunc()",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT testrngfunc()"
   },
   {
     "comment": "rangefuncs - Statement 245",
-    "query": "explain (verbose, costs off) select * from testrngfunc()"
+    "query": "explain (verbose, costs off) select * from testrngfunc()",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM testrngfunc()"
   },
   {
     "comment": "rangefuncs - Statement 246",
-    "query": "create or replace function testrngfunc() returns rngfunc_type as $$ select 7.136178319899999964, 7.136178319899999964"
-  },
-  {
-    "comment": "rangefuncs - Statement 247",
-    "query": "$$ language sql volatile"
+    "query": "create function testrngfunc() returns setof rngfunc_type as $$ select 7.136178319899999964, 7.136178319899999964; $$ language sql immutable;",
+    "error": "parse error at position 66: syntax error"
   },
   {
     "comment": "rangefuncs - Statement 248",
-    "query": "create function testrngfunc() returns setof rngfunc_type as $$ select 7.136178319899999964, 7.136178319899999964"
-  },
-  {
-    "comment": "rangefuncs - Statement 249",
-    "query": "create or replace function testrngfunc() returns setof rngfunc_type as $$ select 7.136178319899999964, 7.136178319899999964"
+    "query": "create or replace function testrngfunc() returns setof rngfunc_type as $$  select 7.136178319899999964, 7.136178319899999964;$$ language sql volatile;",
+    "error": "parse error at position 61: syntax error"
   },
   {
     "comment": "rangefuncs - Statement 250",
-    "query": "create or replace function testrngfunc() returns setof rngfunc_type as $$ select 1, 2 union select 3, 4 order by 1"
+    "query": "create or replace function testrngfunc() returns setof rngfunc_type as $$  select 1, 2 union select 3, 4 order by 1;$$ language sql immutable;",
+    "error": "parse error at position 72: syntax error"
   },
   {
     "comment": "rangefuncs - Statement 251",
-    "query": "select * from pg_get_keywords() as t(f1 int8,f2 int8)"
+    "query": "select * from pg_get_keywords() as t(f1 int8,f2 int8)",
+    "expected": "SELECT * FROM pg_get_keywords() AS t"
   },
   {
     "comment": "rangefuncs - Statement 252",
-    "query": "select * from sin(3) as t(f1 int8,f2 int8)"
+    "query": "select * from sin(3) as t(f1 int8,f2 int8)",
+    "expected": "SELECT * FROM sin(3) AS t"
   },
   {
     "comment": "rangefuncs - Statement 253",
-    "query": "drop type rngfunc_type cascade"
+    "query": "drop type rngfunc_type cascade",
+    "expected": "DROP TYPE rngfunc_type CASCADE"
   },
   {
     "comment": "rangefuncs - Statement 254",
-    "query": "create temp table users (userid text, seq int, email text, todrop bool, moredrop int, enabled bool)"
+    "query": "create temp table users (userid text, seq int, email text, todrop bool, moredrop int, enabled bool)",
+    "expected": "CREATE TEMPORARY TABLE users (userid TEXT, seq INT, email TEXT, todrop BOOLEAN, moredrop INT, enabled BOOLEAN)"
   },
   {
     "comment": "rangefuncs - Statement 255",
-    "query": "insert into users values ('id',1,'email',true,11,true)"
+    "query": "insert into users values ('id',1,'email',true,11,true)",
+    "expected": "INSERT INTO users VALUES ('id', 1, 'email', TRUE, 11, TRUE)"
   },
   {
     "comment": "rangefuncs - Statement 256",
-    "query": "insert into users values ('id2',2,'email2',true,12,true)"
+    "query": "insert into users values ('id2',2,'email2',true,12,true)",
+    "expected": "INSERT INTO users VALUES ('id2', 2, 'email2', TRUE, 12, TRUE)"
   },
   {
     "comment": "rangefuncs - Statement 257",
-    "query": "alter table users drop column todrop"
+    "query": "alter table users drop column todrop",
+    "expected": "ALTER TABLE users DROP COLUMN todrop"
   },
   {
     "comment": "rangefuncs - Statement 258",
-    "query": "create or replace function get_first_user() returns users as $$ SELECT * FROM users ORDER BY userid LIMIT 1; $$ language sql stable"
+    "query": "create or replace function get_first_user() returns users as $$ SELECT * FROM users ORDER BY userid LIMIT 1; $$ language sql stable",
+    "expected": "CREATE OR REPLACE FUNCTION get_first_user () RETURNS users LANGUAGE sql AS $$ SELECT * FROM users ORDER BY userid LIMIT 1; $$ STABLE"
   },
   {
     "comment": "rangefuncs - Statement 259",
@@ -1041,7 +1233,8 @@
   },
   {
     "comment": "rangefuncs - Statement 261",
-    "query": "create or replace function get_users() returns setof users as $$ SELECT * FROM users ORDER BY userid; $$ language sql stable"
+    "query": "create or replace function get_users() returns setof users as $$ SELECT * FROM users ORDER BY userid; $$ language sql stable",
+    "expected": "CREATE OR REPLACE FUNCTION get_users () RETURNS SETOF users LANGUAGE sql AS $$ SELECT * FROM users ORDER BY userid; $$ STABLE"
   },
   {
     "comment": "rangefuncs - Statement 262",
@@ -1057,174 +1250,217 @@
   },
   {
     "comment": "rangefuncs - Statement 265",
-    "query": "SELECT * FROM ROWS FROM(generate_series(10,11), get_users()) WITH ORDINALITY"
+    "query": "SELECT * FROM ROWS FROM(generate_series(10,11), get_users()) WITH ORDINALITY",
+    "expected": "SELECT * FROM ROWS FROM (generate_series(10, 11), get_users()) WITH ORDINALITY"
   },
   {
     "comment": "rangefuncs - Statement 266",
-    "query": "SELECT * FROM ROWS FROM(get_users(), generate_series(10,11)) WITH ORDINALITY"
+    "query": "SELECT * FROM ROWS FROM(get_users(), generate_series(10,11)) WITH ORDINALITY",
+    "expected": "SELECT * FROM ROWS FROM (get_users(), generate_series(10, 11)) WITH ORDINALITY"
   },
   {
     "comment": "rangefuncs - Statement 267",
-    "query": "create temp view usersview as SELECT * FROM ROWS FROM(get_users(), generate_series(10,11)) WITH ORDINALITY"
+    "query": "create temp view usersview as SELECT * FROM ROWS FROM(get_users(), generate_series(10,11)) WITH ORDINALITY",
+    "expected": "CREATE TEMPORARY VIEW usersview AS SELECT * FROM ROWS FROM (get_users(), generate_series(10, 11)) WITH ORDINALITY"
   },
   {
     "comment": "rangefuncs - Statement 268",
-    "query": "select * from usersview"
+    "query": "select * from usersview",
+    "expected": "SELECT * FROM usersview"
   },
   {
     "comment": "rangefuncs - Statement 269",
-    "query": "alter table users add column junk text"
+    "query": "alter table users add column junk text",
+    "expected": "ALTER TABLE users ADD COLUMN junk TEXT"
   },
   {
     "comment": "rangefuncs - Statement 270",
-    "query": "alter table users drop column moredrop"
+    "query": "alter table users drop column moredrop",
+    "expected": "ALTER TABLE users DROP COLUMN moredrop"
   },
   {
     "comment": "rangefuncs - Statement 271",
-    "query": "delete from pg_depend where objid = (select oid from pg_rewrite where ev_class = 'usersview'::regclass and rulename = '_RETURN') and refobjsubid = 5 returning pg_describe_object(classid, objid, objsubid) as obj, pg_describe_object(refclassid, refobjid, refobjsubid) as ref, deptype"
+    "query": "delete from pg_depend where objid = (select oid from pg_rewrite where ev_class = 'usersview'::regclass and rulename = '_RETURN') and refobjsubid = 5 returning pg_describe_object(classid, objid, objsubid) as obj, pg_describe_object(refclassid, refobjid, refobjsubid) as ref, deptype",
+    "expected": "DELETE FROM pg_depend WHERE objid = (SELECT oid FROM pg_rewrite WHERE ev_class = CAST('usersview' AS regclass) AND rulename = '_RETURN') AND refobjsubid = 5 RETURNING pg_describe_object(classid, objid, objsubid) AS obj, pg_describe_object(refclassid, refobjid, refobjsubid) AS ref, deptype"
   },
   {
     "comment": "rangefuncs - Statement 272",
-    "query": "rollback"
+    "query": "rollback",
+    "expected": "ROLLBACK"
   },
   {
     "comment": "rangefuncs - Statement 273",
-    "query": "alter table users alter column seq type numeric"
+    "query": "alter table users alter column seq type numeric",
+    "expected": "ALTER TABLE users ALTER COLUMN seq TYPE NUMERIC"
   },
   {
     "comment": "rangefuncs - Statement 274",
-    "query": "delete from pg_depend where objid = (select oid from pg_rewrite where ev_class = 'usersview'::regclass and rulename = '_RETURN') and refobjsubid = 2 returning pg_describe_object(classid, objid, objsubid) as obj, pg_describe_object(refclassid, refobjid, refobjsubid) as ref, deptype"
+    "query": "delete from pg_depend where objid = (select oid from pg_rewrite where ev_class = 'usersview'::regclass and rulename = '_RETURN') and refobjsubid = 2 returning pg_describe_object(classid, objid, objsubid) as obj, pg_describe_object(refclassid, refobjid, refobjsubid) as ref, deptype",
+    "expected": "DELETE FROM pg_depend WHERE objid = (SELECT oid FROM pg_rewrite WHERE ev_class = CAST('usersview' AS regclass) AND rulename = '_RETURN') AND refobjsubid = 2 RETURNING pg_describe_object(classid, objid, objsubid) AS obj, pg_describe_object(refclassid, refobjid, refobjsubid) AS ref, deptype"
   },
   {
     "comment": "rangefuncs - Statement 275",
-    "query": "drop view usersview"
+    "query": "drop view usersview",
+    "expected": "DROP VIEW usersview"
   },
   {
     "comment": "rangefuncs - Statement 276",
-    "query": "drop function get_first_user()"
+    "query": "drop function get_first_user()",
+    "expected": "DROP FUNCTION get_first_user()"
   },
   {
     "comment": "rangefuncs - Statement 277",
-    "query": "drop function get_users()"
+    "query": "drop function get_users()",
+    "expected": "DROP FUNCTION get_users()"
   },
   {
     "comment": "rangefuncs - Statement 278",
-    "query": "drop table users"
+    "query": "drop table users",
+    "expected": "DROP TABLE users"
   },
   {
     "comment": "rangefuncs - Statement 279",
-    "query": "create or replace function rngfuncbar() returns setof text as $$ select 'foo'::varchar union all select 'bar'::varchar ; $$ language sql stable"
+    "query": "create or replace function rngfuncbar() returns setof text as $$ select 'foo'::varchar union all select 'bar'::varchar ; $$ language sql stable",
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar () RETURNS SETOF TEXT LANGUAGE sql AS $$ select 'foo'::varchar union all select 'bar'::varchar ; $$ STABLE"
   },
   {
     "comment": "rangefuncs - Statement 280",
-    "query": "select rngfuncbar()"
+    "query": "select rngfuncbar()",
+    "expected": "SELECT rngfuncbar()"
   },
   {
     "comment": "rangefuncs - Statement 281",
-    "query": "select * from rngfuncbar()"
+    "query": "select * from rngfuncbar()",
+    "expected": "SELECT * FROM rngfuncbar()"
   },
   {
     "comment": "rangefuncs - Statement 282",
-    "query": "explain (verbose, costs off) select * from rngfuncbar()"
+    "query": "explain (verbose, costs off) select * from rngfuncbar()",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM rngfuncbar()"
   },
   {
     "comment": "rangefuncs - Statement 283",
-    "query": "drop function rngfuncbar()"
+    "query": "drop function rngfuncbar()",
+    "expected": "DROP FUNCTION rngfuncbar()"
   },
   {
     "comment": "rangefuncs - Statement 284",
-    "query": "create or replace function rngfuncbar(out integer, out numeric) as $$ select (1, 2.1) $$ language sql"
+    "query": "create or replace function rngfuncbar(out integer, out numeric) as $$ select (1, 2.1) $$ language sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar (OUT INT, OUT NUMERIC) LANGUAGE sql AS $$ select (1, 2.1) $$"
   },
   {
     "comment": "rangefuncs - Statement 285",
-    "query": "create or replace function rngfuncbar(out integer, out numeric) as $$ select (1, 2) $$ language sql"
+    "query": "create or replace function rngfuncbar(out integer, out numeric) as $$ select (1, 2) $$ language sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar (OUT INT, OUT NUMERIC) LANGUAGE sql AS $$ select (1, 2) $$"
   },
   {
     "comment": "rangefuncs - Statement 286",
-    "query": "create or replace function rngfuncbar(out integer, out numeric) as $$ select (1, 2.1, 3) $$ language sql"
+    "query": "create or replace function rngfuncbar(out integer, out numeric) as $$ select (1, 2.1, 3) $$ language sql",
+    "expected": "CREATE OR REPLACE FUNCTION rngfuncbar (OUT INT, OUT NUMERIC) LANGUAGE sql AS $$ select (1, 2.1, 3) $$"
   },
   {
     "comment": "rangefuncs - Statement 287",
-    "query": "create function extractq2(t int8_tbl) returns int8 as $$ select t.q2 $$ language sql immutable"
+    "query": "create function extractq2(t int8_tbl) returns int8 as $$ select t.q2 $$ language sql immutable",
+    "expected": "CREATE FUNCTION extractq2 (t int8_tbl) RETURNS BIGINT LANGUAGE sql AS $$ select t.q2 $$ IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 288",
-    "query": "explain (verbose, costs off) select x from int8_tbl, extractq2(int8_tbl) f(x)"
+    "query": "explain (verbose, costs off) select x from int8_tbl, extractq2(int8_tbl) f(x)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT x FROM int8_tbl, extractq2(int8_tbl) AS f(x)"
   },
   {
     "comment": "rangefuncs - Statement 289",
-    "query": "select x from int8_tbl, extractq2(int8_tbl) f(x)"
+    "query": "select x from int8_tbl, extractq2(int8_tbl) f(x)",
+    "expected": "SELECT x FROM int8_tbl, extractq2(int8_tbl) AS f(x)"
   },
   {
     "comment": "rangefuncs - Statement 290",
-    "query": "create function extractq2_2(t int8_tbl) returns table(ret1 int8) as $$ select extractq2(t) offset 0 $$ language sql immutable"
+    "query": "create function extractq2_2(t int8_tbl) returns table(ret1 int8) as $$ select extractq2(t) offset 0 $$ language sql immutable",
+    "expected": "CREATE FUNCTION extractq2_2 (t int8_tbl) LANGUAGE sql AS $$ select extractq2(t) offset 0 $$ IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 291",
-    "query": "explain (verbose, costs off) select x from int8_tbl, extractq2_2(int8_tbl) f(x)"
+    "query": "explain (verbose, costs off) select x from int8_tbl, extractq2_2(int8_tbl) f(x)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT x FROM int8_tbl, extractq2_2(int8_tbl) AS f(x)"
   },
   {
     "comment": "rangefuncs - Statement 292",
-    "query": "select x from int8_tbl, extractq2_2(int8_tbl) f(x)"
+    "query": "select x from int8_tbl, extractq2_2(int8_tbl) f(x)",
+    "expected": "SELECT x FROM int8_tbl, extractq2_2(int8_tbl) AS f(x)"
   },
   {
     "comment": "rangefuncs - Statement 293",
-    "query": "create function extractq2_2_opt(t int8_tbl) returns table(ret1 int8) as $$ select extractq2(t) $$ language sql immutable"
+    "query": "create function extractq2_2_opt(t int8_tbl) returns table(ret1 int8) as $$ select extractq2(t) $$ language sql immutable",
+    "expected": "CREATE FUNCTION extractq2_2_opt (t int8_tbl) LANGUAGE sql AS $$ select extractq2(t) $$ IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 294",
-    "query": "explain (verbose, costs off) select x from int8_tbl, extractq2_2_opt(int8_tbl) f(x)"
+    "query": "explain (verbose, costs off) select x from int8_tbl, extractq2_2_opt(int8_tbl) f(x)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT x FROM int8_tbl, extractq2_2_opt(int8_tbl) AS f(x)"
   },
   {
     "comment": "rangefuncs - Statement 295",
-    "query": "select x from int8_tbl, extractq2_2_opt(int8_tbl) f(x)"
+    "query": "select x from int8_tbl, extractq2_2_opt(int8_tbl) f(x)",
+    "expected": "SELECT x FROM int8_tbl, extractq2_2_opt(int8_tbl) AS f(x)"
   },
   {
     "comment": "rangefuncs - Statement 296",
-    "query": "create type rngfunc2 as (a integer, b text)"
+    "query": "create type rngfunc2 as (a integer, b text)",
+    "expected": "CREATE TYPE rngfunc2 AS (a INT, b TEXT)"
   },
   {
     "comment": "rangefuncs - Statement 297",
-    "query": "select *, row_to_json(u) from unnest(array[(1,'foo')::rngfunc2, null::rngfunc2]) u"
+    "query": "select *, row_to_json(u) from unnest(array[(1,'foo')::rngfunc2, null::rngfunc2]) u",
+    "expected": "SELECT *, row_to_json(u) FROM unnest(ARRAY[CAST((1, 'foo') AS rngfunc2),CAST(NULL AS rngfunc2)]) AS u"
   },
   {
     "comment": "rangefuncs - Statement 298",
-    "query": "select *, row_to_json(u) from unnest(array[null::rngfunc2, null::rngfunc2]) u"
+    "query": "select *, row_to_json(u) from unnest(array[null::rngfunc2, null::rngfunc2]) u",
+    "expected": "SELECT *, row_to_json(u) FROM unnest(ARRAY[CAST(NULL AS rngfunc2),CAST(NULL AS rngfunc2)]) AS u"
   },
   {
     "comment": "rangefuncs - Statement 299",
-    "query": "select *, row_to_json(u) from unnest(array[null::rngfunc2, (1,'foo')::rngfunc2, null::rngfunc2]) u"
+    "query": "select *, row_to_json(u) from unnest(array[null::rngfunc2, (1,'foo')::rngfunc2, null::rngfunc2]) u",
+    "expected": "SELECT *, row_to_json(u) FROM unnest(ARRAY[CAST(NULL AS rngfunc2),CAST((1, 'foo') AS rngfunc2),CAST(NULL AS rngfunc2)]) AS u"
   },
   {
     "comment": "rangefuncs - Statement 300",
-    "query": "select *, row_to_json(u) from unnest(array[]::rngfunc2[]) u"
+    "query": "select *, row_to_json(u) from unnest(array[]::rngfunc2[]) u",
+    "expected": "SELECT *, row_to_json(u) FROM unnest(CAST(ARRAY[] AS rngfunc2[])) AS u"
   },
   {
     "comment": "rangefuncs - Statement 301",
-    "query": "drop type rngfunc2"
+    "query": "drop type rngfunc2",
+    "expected": "DROP TYPE rngfunc2"
   },
   {
     "comment": "rangefuncs - Statement 302",
-    "query": "explain (verbose, costs off) select * from (select jsonb_path_query_array(module->'lectures', '$[*]') as lecture from unnest(array['{\"lectures\": [{\"id\": \"1\"}]}'::jsonb]) as unnested_modules(module)) as ss, jsonb_to_recordset(ss.lecture) as j (id text)"
+    "query": "explain (verbose, costs off) select * from (select jsonb_path_query_array(module-\u003e'lectures', '$[*]') as lecture from unnest(array['{\"lectures\": [{\"id\": \"1\"}]}'::jsonb]) as unnested_modules(module)) as ss, jsonb_to_recordset(ss.lecture) as j (id text)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT * FROM (SELECT jsonb_path_query_array(module -\u003e 'lectures', '$[*]') AS lecture FROM unnest(ARRAY[CAST('{\"lectures\": [{\"id\": \"1\"}]}' AS JSONB)]) AS unnested_modules(module)) AS ss, jsonb_to_recordset(ss.lecture) AS j"
   },
   {
     "comment": "rangefuncs - Statement 303",
-    "query": "select * from (select jsonb_path_query_array(module->'lectures', '$[*]') as lecture from unnest(array['{\"lectures\": [{\"id\": \"1\"}]}'::jsonb]) as unnested_modules(module)) as ss, jsonb_to_recordset(ss.lecture) as j (id text)"
+    "query": "select * from (select jsonb_path_query_array(module-\u003e'lectures', '$[*]') as lecture from unnest(array['{\"lectures\": [{\"id\": \"1\"}]}'::jsonb]) as unnested_modules(module)) as ss, jsonb_to_recordset(ss.lecture) as j (id text)",
+    "expected": "SELECT * FROM (SELECT jsonb_path_query_array(module -\u003e 'lectures', '$[*]') AS lecture FROM unnest(ARRAY[CAST('{\"lectures\": [{\"id\": \"1\"}]}' AS JSONB)]) AS unnested_modules(module)) AS ss, jsonb_to_recordset(ss.lecture) AS j"
   },
   {
     "comment": "rangefuncs - Statement 304",
-    "query": "with a(b) as (values (row(1,2,3))) select * from a, coalesce(b) as c(d int, e int)"
+    "query": "with a(b) as (values (row(1,2,3))) select * from a, coalesce(b) as c(d int, e int)",
+    "expected": "WITH a(b) AS (VALUES (ROW(1, 2, 3))) SELECT * FROM a, COALESCE(b) AS c"
   },
   {
     "comment": "rangefuncs - Statement 305",
-    "query": "with a(b) as (values (row(1,2,3))) select * from a, coalesce(b) as c(d int, e int, f int, g int)"
+    "query": "with a(b) as (values (row(1,2,3))) select * from a, coalesce(b) as c(d int, e int, f int, g int)",
+    "expected": "WITH a(b) AS (VALUES (ROW(1, 2, 3))) SELECT * FROM a, COALESCE(b) AS c"
   },
   {
     "comment": "rangefuncs - Statement 306",
-    "query": "with a(b) as (values (row(1,2,3))) select * from a, coalesce(b) as c(d int, e int, f float)"
+    "query": "with a(b) as (values (row(1,2,3))) select * from a, coalesce(b) as c(d int, e int, f float)",
+    "expected": "WITH a(b) AS (VALUES (ROW(1, 2, 3))) SELECT * FROM a, COALESCE(b) AS c"
   },
   {
     "comment": "rangefuncs - Statement 307",
-    "query": "select * from int8_tbl, coalesce(row(1)) as (a int, b int)"
+    "query": "select * from int8_tbl, coalesce(row(1)) as (a int, b int)",
+    "expected": "SELECT * FROM int8_tbl, COALESCE(ROW(1))"
   }
 ]

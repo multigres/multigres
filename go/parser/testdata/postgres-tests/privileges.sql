@@ -1237,15 +1237,7 @@ BEGIN; SET CONSTRAINTS ALL IMMEDIATE; REFRESH MATERIALIZED VIEW sro_mv; COMMIT;
 
 -- REFRESH MATERIALIZED VIEW CONCURRENTLY use of eval_const_expressions()
 SET SESSION AUTHORIZATION regress_sro_user;
-CREATE FUNCTION unwanted_grant_nofail(int) RETURNS int
-	IMMUTABLE LANGUAGE plpgsql AS $$
-BEGIN
-	PERFORM public.unwanted_grant();
-	RAISE WARNING 'owned';
-	RETURN 1;
-EXCEPTION WHEN OTHERS THEN
-	RETURN 2;
-END$$;
+CREATE FUNCTION unwanted_grant_nofail(int) RETURNS int  IMMUTABLE LANGUAGE plpgsql AS $$ BEGIN  PERFORM public.unwanted_grant();  RAISE WARNING 'owned';  RETURN 1; EXCEPTION WHEN OTHERS THEN  RETURN 2; END$$;
 CREATE MATERIALIZED VIEW sro_index_mv AS SELECT 1 AS c;
 CREATE UNIQUE INDEX ON sro_index_mv (c) WHERE unwanted_grant_nofail(1) > 0;
 \c -
@@ -1388,13 +1380,7 @@ SELECT * FROM pg_largeobject LIMIT 0;			-- to be denied
 -- pg_signal_backend can't signal superusers
 RESET SESSION AUTHORIZATION;
 BEGIN;
-CREATE OR REPLACE FUNCTION terminate_nothrow(pid int) RETURNS bool
-	LANGUAGE plpgsql SECURITY DEFINER SET client_min_messages = error AS $$
-BEGIN
-	RETURN pg_terminate_backend($1);
-EXCEPTION WHEN OTHERS THEN
-	RETURN false;
-END$$;
+CREATE OR REPLACE FUNCTION terminate_nothrow(pid int) RETURNS bool  LANGUAGE plpgsql SECURITY DEFINER SET client_min_messages = error AS $$ BEGIN  RETURN pg_terminate_backend($1); EXCEPTION WHEN OTHERS THEN  RETURN false; END$$;
 ALTER FUNCTION terminate_nothrow OWNER TO pg_signal_backend;
 SELECT backend_type FROM pg_stat_activity
 WHERE CASE WHEN COALESCE(usesysid, 10) = 10 THEN terminate_nothrow(pid) END;

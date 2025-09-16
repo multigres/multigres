@@ -1,422 +1,527 @@
 [
   {
     "comment": "regex - Statement 1",
-    "query": "set standard_conforming_strings = on"
+    "query": "set standard_conforming_strings = on",
+    "expected": "SET standard_conforming_strings = on"
   },
   {
     "comment": "regex - Statement 2",
-    "query": "select 'bbbbb' ~ '^([bc])\\1*$' as t"
+    "query": "select 'bbbbb' ~ '^([bc])\\1*$' as t",
+    "expected": "SELECT 'bbbbb' ~ '^([bc])\\1*$' AS t"
   },
   {
     "comment": "regex - Statement 3",
-    "query": "select 'ccc' ~ '^([bc])\\1*$' as t"
+    "query": "select 'ccc' ~ '^([bc])\\1*$' as t",
+    "expected": "SELECT 'ccc' ~ '^([bc])\\1*$' AS t"
   },
   {
     "comment": "regex - Statement 4",
-    "query": "select 'xxx' ~ '^([bc])\\1*$' as f"
+    "query": "select 'xxx' ~ '^([bc])\\1*$' as f",
+    "expected": "SELECT 'xxx' ~ '^([bc])\\1*$' AS f"
   },
   {
     "comment": "regex - Statement 5",
-    "query": "select 'bbc' ~ '^([bc])\\1*$' as f"
+    "query": "select 'bbc' ~ '^([bc])\\1*$' as f",
+    "expected": "SELECT 'bbc' ~ '^([bc])\\1*$' AS f"
   },
   {
     "comment": "regex - Statement 6",
-    "query": "select 'b' ~ '^([bc])\\1*$' as t"
+    "query": "select 'b' ~ '^([bc])\\1*$' as t",
+    "expected": "SELECT 'b' ~ '^([bc])\\1*$' AS t"
   },
   {
     "comment": "regex - Statement 7",
-    "query": "select 'abc abc abc' ~ '^(\\w+)( \\1)+$' as t"
+    "query": "select 'abc abc abc' ~ '^(\\w+)( \\1)+$' as t",
+    "expected": "SELECT 'abc abc abc' ~ '^(\\w+)( \\1)+$' AS t"
   },
   {
     "comment": "regex - Statement 8",
-    "query": "select 'abc abd abc' ~ '^(\\w+)( \\1)+$' as f"
+    "query": "select 'abc abd abc' ~ '^(\\w+)( \\1)+$' as f",
+    "expected": "SELECT 'abc abd abc' ~ '^(\\w+)( \\1)+$' AS f"
   },
   {
     "comment": "regex - Statement 9",
-    "query": "select 'abc abc abd' ~ '^(\\w+)( \\1)+$' as f"
+    "query": "select 'abc abc abd' ~ '^(\\w+)( \\1)+$' as f",
+    "expected": "SELECT 'abc abc abd' ~ '^(\\w+)( \\1)+$' AS f"
   },
   {
     "comment": "regex - Statement 10",
-    "query": "select 'abc abc abc' ~ '^(.+)( \\1)+$' as t"
+    "query": "select 'abc abc abc' ~ '^(.+)( \\1)+$' as t",
+    "expected": "SELECT 'abc abc abc' ~ '^(.+)( \\1)+$' AS t"
   },
   {
     "comment": "regex - Statement 11",
-    "query": "select 'abc abd abc' ~ '^(.+)( \\1)+$' as f"
+    "query": "select 'abc abd abc' ~ '^(.+)( \\1)+$' as f",
+    "expected": "SELECT 'abc abd abc' ~ '^(.+)( \\1)+$' AS f"
   },
   {
     "comment": "regex - Statement 12",
-    "query": "select 'abc abc abd' ~ '^(.+)( \\1)+$' as f"
+    "query": "select 'abc abc abd' ~ '^(.+)( \\1)+$' as f",
+    "expected": "SELECT 'abc abc abd' ~ '^(.+)( \\1)+$' AS f"
   },
   {
     "comment": "regex - Statement 13",
-    "query": "select substring('asd TO foo' from ' TO (([a-z0-9._]+|\"([^\"]+|\"\")+\")+)')"
+    "query": "select substring('asd TO foo' from ' TO (([a-z0-9._]+|\"([^\"]+|\"\")+\")+)')",
+    "expected": "SELECT SUBSTRING('asd TO foo' FROM ' TO (([a-z0-9._]+|\"([^\"]+|\"\")+\")+)')"
   },
   {
     "comment": "regex - Statement 14",
-    "query": "select substring('a' from '((a))+')"
+    "query": "select substring('a' from '((a))+')",
+    "expected": "SELECT SUBSTRING('a' FROM '((a))+')"
   },
   {
     "comment": "regex - Statement 15",
-    "query": "select substring('a' from '((a)+)')"
+    "query": "select substring('a' from '((a)+)')",
+    "expected": "SELECT SUBSTRING('a' FROM '((a)+)')"
   },
   {
     "comment": "regex - Statement 16",
-    "query": "select regexp_match('abc', '')"
+    "query": "select regexp_match('abc', '')",
+    "expected": "SELECT regexp_match('abc', '')"
   },
   {
     "comment": "regex - Statement 17",
-    "query": "select regexp_match('abc', 'bc')"
+    "query": "select regexp_match('abc', 'bc')",
+    "expected": "SELECT regexp_match('abc', 'bc')"
   },
   {
     "comment": "regex - Statement 18",
-    "query": "select regexp_match('abc', 'd') is null"
+    "query": "select regexp_match('abc', 'd') is null",
+    "expected": "SELECT regexp_match('abc', 'd') IS NULL"
   },
   {
     "comment": "regex - Statement 19",
-    "query": "select regexp_match('abc', '(B)(c)', 'i')"
+    "query": "select regexp_match('abc', '(B)(c)', 'i')",
+    "expected": "SELECT regexp_match('abc', '(B)(c)', 'i')"
   },
   {
     "comment": "regex - Statement 20",
-    "query": "select regexp_match('abc', 'Bd', 'ig')"
+    "query": "select regexp_match('abc', 'Bd', 'ig')",
+    "expected": "SELECT regexp_match('abc', 'Bd', 'ig')"
   },
   {
     "comment": "regex - Statement 21",
-    "query": "select regexp_matches('ab', 'a(?=b)b*')"
+    "query": "select regexp_matches('ab', 'a(?=b)b*')",
+    "expected": "SELECT regexp_matches('ab', 'a(?=b)b*')"
   },
   {
     "comment": "regex - Statement 22",
-    "query": "select regexp_matches('a', 'a(?=b)b*')"
+    "query": "select regexp_matches('a', 'a(?=b)b*')",
+    "expected": "SELECT regexp_matches('a', 'a(?=b)b*')"
   },
   {
     "comment": "regex - Statement 23",
-    "query": "select regexp_matches('abc', 'a(?=b)b*(?=c)c*')"
+    "query": "select regexp_matches('abc', 'a(?=b)b*(?=c)c*')",
+    "expected": "SELECT regexp_matches('abc', 'a(?=b)b*(?=c)c*')"
   },
   {
     "comment": "regex - Statement 24",
-    "query": "select regexp_matches('ab', 'a(?=b)b*(?=c)c*')"
+    "query": "select regexp_matches('ab', 'a(?=b)b*(?=c)c*')",
+    "expected": "SELECT regexp_matches('ab', 'a(?=b)b*(?=c)c*')"
   },
   {
     "comment": "regex - Statement 25",
-    "query": "select regexp_matches('ab', 'a(?!b)b*')"
+    "query": "select regexp_matches('ab', 'a(?!b)b*')",
+    "expected": "SELECT regexp_matches('ab', 'a(?!b)b*')"
   },
   {
     "comment": "regex - Statement 26",
-    "query": "select regexp_matches('a', 'a(?!b)b*')"
+    "query": "select regexp_matches('a', 'a(?!b)b*')",
+    "expected": "SELECT regexp_matches('a', 'a(?!b)b*')"
   },
   {
     "comment": "regex - Statement 27",
-    "query": "select regexp_matches('b', '(?=b)b')"
+    "query": "select regexp_matches('b', '(?=b)b')",
+    "expected": "SELECT regexp_matches('b', '(?=b)b')"
   },
   {
     "comment": "regex - Statement 28",
-    "query": "select regexp_matches('a', '(?=b)b')"
+    "query": "select regexp_matches('a', '(?=b)b')",
+    "expected": "SELECT regexp_matches('a', '(?=b)b')"
   },
   {
     "comment": "regex - Statement 29",
-    "query": "select regexp_matches('abb', '(?<=a)b*')"
+    "query": "select regexp_matches('abb', '(?\u003c=a)b*')",
+    "expected": "SELECT regexp_matches('abb', '(?\u003c=a)b*')"
   },
   {
     "comment": "regex - Statement 30",
-    "query": "select regexp_matches('a', 'a(?<=a)b*')"
+    "query": "select regexp_matches('a', 'a(?\u003c=a)b*')",
+    "expected": "SELECT regexp_matches('a', 'a(?\u003c=a)b*')"
   },
   {
     "comment": "regex - Statement 31",
-    "query": "select regexp_matches('abc', 'a(?<=a)b*(?<=b)c*')"
+    "query": "select regexp_matches('abc', 'a(?\u003c=a)b*(?\u003c=b)c*')",
+    "expected": "SELECT regexp_matches('abc', 'a(?\u003c=a)b*(?\u003c=b)c*')"
   },
   {
     "comment": "regex - Statement 32",
-    "query": "select regexp_matches('ab', 'a(?<=a)b*(?<=b)c*')"
+    "query": "select regexp_matches('ab', 'a(?\u003c=a)b*(?\u003c=b)c*')",
+    "expected": "SELECT regexp_matches('ab', 'a(?\u003c=a)b*(?\u003c=b)c*')"
   },
   {
     "comment": "regex - Statement 33",
-    "query": "select regexp_matches('ab', 'a*(?<!a)b*')"
+    "query": "select regexp_matches('ab', 'a*(?\u003c!a)b*')",
+    "expected": "SELECT regexp_matches('ab', 'a*(?\u003c!a)b*')"
   },
   {
     "comment": "regex - Statement 34",
-    "query": "select regexp_matches('ab', 'a*(?<!a)b+')"
+    "query": "select regexp_matches('ab', 'a*(?\u003c!a)b+')",
+    "expected": "SELECT regexp_matches('ab', 'a*(?\u003c!a)b+')"
   },
   {
     "comment": "regex - Statement 35",
-    "query": "select regexp_matches('b', 'a*(?<!a)b+')"
+    "query": "select regexp_matches('b', 'a*(?\u003c!a)b+')",
+    "expected": "SELECT regexp_matches('b', 'a*(?\u003c!a)b+')"
   },
   {
     "comment": "regex - Statement 36",
-    "query": "select regexp_matches('a', 'a(?<!a)b*')"
+    "query": "select regexp_matches('a', 'a(?\u003c!a)b*')",
+    "expected": "SELECT regexp_matches('a', 'a(?\u003c!a)b*')"
   },
   {
     "comment": "regex - Statement 37",
-    "query": "select regexp_matches('b', '(?<=b)b')"
+    "query": "select regexp_matches('b', '(?\u003c=b)b')",
+    "expected": "SELECT regexp_matches('b', '(?\u003c=b)b')"
   },
   {
     "comment": "regex - Statement 38",
-    "query": "select regexp_matches('foobar', '(?<=f)b+')"
+    "query": "select regexp_matches('foobar', '(?\u003c=f)b+')",
+    "expected": "SELECT regexp_matches('foobar', '(?\u003c=f)b+')"
   },
   {
     "comment": "regex - Statement 39",
-    "query": "select regexp_matches('foobar', '(?<=foo)b+')"
+    "query": "select regexp_matches('foobar', '(?\u003c=foo)b+')",
+    "expected": "SELECT regexp_matches('foobar', '(?\u003c=foo)b+')"
   },
   {
     "comment": "regex - Statement 40",
-    "query": "select regexp_matches('foobar', '(?<=oo)b+')"
+    "query": "select regexp_matches('foobar', '(?\u003c=oo)b+')",
+    "expected": "SELECT regexp_matches('foobar', '(?\u003c=oo)b+')"
   },
   {
     "comment": "regex - Statement 41",
-    "query": "select 'xz' ~ 'x(?=[xy])'"
+    "query": "select 'xz' ~ 'x(?=[xy])'",
+    "expected": "SELECT 'xz' ~ 'x(?=[xy])'"
   },
   {
     "comment": "regex - Statement 42",
-    "query": "select 'xy' ~ 'x(?=[xy])'"
+    "query": "select 'xy' ~ 'x(?=[xy])'",
+    "expected": "SELECT 'xy' ~ 'x(?=[xy])'"
   },
   {
     "comment": "regex - Statement 43",
-    "query": "select 'xz' ~ 'x(?![xy])'"
+    "query": "select 'xz' ~ 'x(?![xy])'",
+    "expected": "SELECT 'xz' ~ 'x(?![xy])'"
   },
   {
     "comment": "regex - Statement 44",
-    "query": "select 'xy' ~ 'x(?![xy])'"
+    "query": "select 'xy' ~ 'x(?![xy])'",
+    "expected": "SELECT 'xy' ~ 'x(?![xy])'"
   },
   {
     "comment": "regex - Statement 45",
-    "query": "select 'x'  ~ 'x(?![xy])'"
+    "query": "select 'x'  ~ 'x(?![xy])'",
+    "expected": "SELECT 'x' ~ 'x(?![xy])'"
   },
   {
     "comment": "regex - Statement 46",
-    "query": "select 'xyy' ~ '(?<=[xy])yy+'"
+    "query": "select 'xyy' ~ '(?\u003c=[xy])yy+'",
+    "expected": "SELECT 'xyy' ~ '(?\u003c=[xy])yy+'"
   },
   {
     "comment": "regex - Statement 47",
-    "query": "select 'zyy' ~ '(?<=[xy])yy+'"
+    "query": "select 'zyy' ~ '(?\u003c=[xy])yy+'",
+    "expected": "SELECT 'zyy' ~ '(?\u003c=[xy])yy+'"
   },
   {
     "comment": "regex - Statement 48",
-    "query": "select 'xyy' ~ '(?<![xy])yy+'"
+    "query": "select 'xyy' ~ '(?\u003c![xy])yy+'",
+    "expected": "SELECT 'xyy' ~ '(?\u003c![xy])yy+'"
   },
   {
     "comment": "regex - Statement 49",
-    "query": "select 'zyy' ~ '(?<![xy])yy+'"
+    "query": "select 'zyy' ~ '(?\u003c![xy])yy+'",
+    "expected": "SELECT 'zyy' ~ '(?\u003c![xy])yy+'"
   },
   {
     "comment": "regex - Statement 50",
-    "query": "explain (costs off) select * from pg_proc where proname ~ 'abc'"
+    "query": "explain (costs off) select * from pg_proc where proname ~ 'abc'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ 'abc'"
   },
   {
     "comment": "regex - Statement 51",
-    "query": "explain (costs off) select * from pg_proc where proname ~ '^abc'"
+    "query": "explain (costs off) select * from pg_proc where proname ~ '^abc'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ '^abc'"
   },
   {
     "comment": "regex - Statement 52",
-    "query": "explain (costs off) select * from pg_proc where proname ~ '^abc$'"
+    "query": "explain (costs off) select * from pg_proc where proname ~ '^abc$'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ '^abc$'"
   },
   {
     "comment": "regex - Statement 53",
-    "query": "explain (costs off) select * from pg_proc where proname ~ '^abcd*e'"
+    "query": "explain (costs off) select * from pg_proc where proname ~ '^abcd*e'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ '^abcd*e'"
   },
   {
     "comment": "regex - Statement 54",
-    "query": "explain (costs off) select * from pg_proc where proname ~ '^abc+d'"
+    "query": "explain (costs off) select * from pg_proc where proname ~ '^abc+d'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ '^abc+d'"
   },
   {
     "comment": "regex - Statement 55",
-    "query": "explain (costs off) select * from pg_proc where proname ~ '^(abc)(def)'"
+    "query": "explain (costs off) select * from pg_proc where proname ~ '^(abc)(def)'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ '^(abc)(def)'"
   },
   {
     "comment": "regex - Statement 56",
-    "query": "explain (costs off) select * from pg_proc where proname ~ '^(abc)$'"
+    "query": "explain (costs off) select * from pg_proc where proname ~ '^(abc)$'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ '^(abc)$'"
   },
   {
     "comment": "regex - Statement 57",
-    "query": "explain (costs off) select * from pg_proc where proname ~ '^(abc)?d'"
+    "query": "explain (costs off) select * from pg_proc where proname ~ '^(abc)?d'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ '^(abc)?d'"
   },
   {
     "comment": "regex - Statement 58",
-    "query": "explain (costs off) select * from pg_proc where proname ~ '^abcd(x|(?=\\w\\w)q)'"
+    "query": "explain (costs off) select * from pg_proc where proname ~ '^abcd(x|(?=\\w\\w)q)'",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ '^abcd(x|(?=\\w\\w)q)'"
   },
   {
     "comment": "regex - Statement 59",
-    "query": "select 'a' ~ '($|^)*'"
+    "query": "select 'a' ~ '($|^)*'",
+    "expected": "SELECT 'a' ~ '($|^)*'"
   },
   {
     "comment": "regex - Statement 60",
-    "query": "select 'a' ~ '(^)+^'"
+    "query": "select 'a' ~ '(^)+^'",
+    "expected": "SELECT 'a' ~ '(^)+^'"
   },
   {
     "comment": "regex - Statement 61",
-    "query": "select 'a' ~ '$($$)+'"
+    "query": "select 'a' ~ '$($$)+'",
+    "expected": "SELECT 'a' ~ '$($$)+'"
   },
   {
     "comment": "regex - Statement 62",
-    "query": "select 'a' ~ '($^)+'"
+    "query": "select 'a' ~ '($^)+'",
+    "expected": "SELECT 'a' ~ '($^)+'"
   },
   {
     "comment": "regex - Statement 63",
-    "query": "select 'a' ~ '(^$)*'"
+    "query": "select 'a' ~ '(^$)*'",
+    "expected": "SELECT 'a' ~ '(^$)*'"
   },
   {
     "comment": "regex - Statement 64",
-    "query": "select 'aa bb cc' ~ '(^(?!aa))+'"
+    "query": "select 'aa bb cc' ~ '(^(?!aa))+'",
+    "expected": "SELECT 'aa bb cc' ~ '(^(?!aa))+'"
   },
   {
     "comment": "regex - Statement 65",
-    "query": "select 'aa x' ~ '(^(?!aa)(?!bb)(?!cc))+'"
+    "query": "select 'aa x' ~ '(^(?!aa)(?!bb)(?!cc))+'",
+    "expected": "SELECT 'aa x' ~ '(^(?!aa)(?!bb)(?!cc))+'"
   },
   {
     "comment": "regex - Statement 66",
-    "query": "select 'bb x' ~ '(^(?!aa)(?!bb)(?!cc))+'"
+    "query": "select 'bb x' ~ '(^(?!aa)(?!bb)(?!cc))+'",
+    "expected": "SELECT 'bb x' ~ '(^(?!aa)(?!bb)(?!cc))+'"
   },
   {
     "comment": "regex - Statement 67",
-    "query": "select 'cc x' ~ '(^(?!aa)(?!bb)(?!cc))+'"
+    "query": "select 'cc x' ~ '(^(?!aa)(?!bb)(?!cc))+'",
+    "expected": "SELECT 'cc x' ~ '(^(?!aa)(?!bb)(?!cc))+'"
   },
   {
     "comment": "regex - Statement 68",
-    "query": "select 'dd x' ~ '(^(?!aa)(?!bb)(?!cc))+'"
+    "query": "select 'dd x' ~ '(^(?!aa)(?!bb)(?!cc))+'",
+    "expected": "SELECT 'dd x' ~ '(^(?!aa)(?!bb)(?!cc))+'"
   },
   {
     "comment": "regex - Statement 69",
-    "query": "select 'a' ~ '((((((a)*)*)*)*)*)*'"
+    "query": "select 'a' ~ '((((((a)*)*)*)*)*)*'",
+    "expected": "SELECT 'a' ~ '((((((a)*)*)*)*)*)*'"
   },
   {
     "comment": "regex - Statement 70",
-    "query": "select 'a' ~ '((((((a+|)+|)+|)+|)+|)+|)'"
+    "query": "select 'a' ~ '((((((a+|)+|)+|)+|)+|)+|)'",
+    "expected": "SELECT 'a' ~ '((((((a+|)+|)+|)+|)+|)+|)'"
   },
   {
     "comment": "regex - Statement 71",
-    "query": "select 'x' ~ 'abcd(\\m)+xyz'"
+    "query": "select 'x' ~ 'abcd(\\m)+xyz'",
+    "expected": "SELECT 'x' ~ 'abcd(\\m)+xyz'"
   },
   {
     "comment": "regex - Statement 72",
-    "query": "select 'a' ~ '^abcd*(((((^(a c(e?d)a+|)+|)+|)+|)+|a)+|)'"
+    "query": "select 'a' ~ '^abcd*(((((^(a c(e?d)a+|)+|)+|)+|)+|a)+|)'",
+    "expected": "SELECT 'a' ~ '^abcd*(((((^(a c(e?d)a+|)+|)+|)+|)+|a)+|)'"
   },
   {
     "comment": "regex - Statement 73",
-    "query": "select 'x' ~ 'a^(^)bcd*xy(((((($a+|)+|)+|)+$|)+|)+|)^$'"
+    "query": "select 'x' ~ 'a^(^)bcd*xy(((((($a+|)+|)+|)+$|)+|)+|)^$'",
+    "expected": "SELECT 'x' ~ 'a^(^)bcd*xy(((((($a+|)+|)+|)+$|)+|)+|)^$'"
   },
   {
     "comment": "regex - Statement 74",
-    "query": "select 'x' ~ 'xyz(\\Y\\Y)+'"
+    "query": "select 'x' ~ 'xyz(\\Y\\Y)+'",
+    "expected": "SELECT 'x' ~ 'xyz(\\Y\\Y)+'"
   },
   {
     "comment": "regex - Statement 75",
-    "query": "select 'x' ~ 'x|(?:\\M)+'"
+    "query": "select 'x' ~ 'x|(?:\\M)+'",
+    "expected": "SELECT 'x' ~ 'x|(?:\\M)+'"
   },
   {
     "comment": "regex - Statement 76",
-    "query": "select 'x' ~ repeat('x*y*z*', 1000)"
+    "query": "select 'x' ~ repeat('x*y*z*', 1000)",
+    "expected": "SELECT 'x' ~ repeat('x*y*z*', 1000)"
   },
   {
     "comment": "regex - Statement 77",
-    "query": "select 'Programmer' ~ '(\\w).*?\\1' as t"
+    "query": "select 'Programmer' ~ '(\\w).*?\\1' as t",
+    "expected": "SELECT 'Programmer' ~ '(\\w).*?\\1' AS t"
   },
   {
     "comment": "regex - Statement 78",
-    "query": "select regexp_matches('Programmer', '(\\w)(.*?\\1)', 'g')"
+    "query": "select regexp_matches('Programmer', '(\\w)(.*?\\1)', 'g')",
+    "expected": "SELECT regexp_matches('Programmer', '(\\w)(.*?\\1)', 'g')"
   },
   {
     "comment": "regex - Statement 79",
-    "query": "select regexp_matches('foo/bar/baz', '^([^/]+?)(?:/([^/]+?))(?:/([^/]+?))?$', '')"
+    "query": "select regexp_matches('foo/bar/baz', '^([^/]+?)(?:/([^/]+?))(?:/([^/]+?))?$', '')",
+    "expected": "SELECT regexp_matches('foo/bar/baz', '^([^/]+?)(?:/([^/]+?))(?:/([^/]+?))?$', '')"
   },
   {
     "comment": "regex - Statement 80",
-    "query": "select regexp_matches('llmmmfff', '^(l*)(.*)(f*)$')"
+    "query": "select regexp_matches('llmmmfff', '^(l*)(.*)(f*)$')",
+    "expected": "SELECT regexp_matches('llmmmfff', '^(l*)(.*)(f*)$')"
   },
   {
     "comment": "regex - Statement 81",
-    "query": "select regexp_matches('llmmmfff', '^(l*){1,1}(.*)(f*)$')"
+    "query": "select regexp_matches('llmmmfff', '^(l*){1,1}(.*)(f*)$')",
+    "expected": "SELECT regexp_matches('llmmmfff', '^(l*){1,1}(.*)(f*)$')"
   },
   {
     "comment": "regex - Statement 82",
-    "query": "select regexp_matches('llmmmfff', '^(l*){1,1}?(.*)(f*)$')"
+    "query": "select regexp_matches('llmmmfff', '^(l*){1,1}?(.*)(f*)$')",
+    "expected": "SELECT regexp_matches('llmmmfff', '^(l*){1,1}?(.*)(f*)$')"
   },
   {
     "comment": "regex - Statement 83",
-    "query": "select regexp_matches('llmmmfff', '^(l*){1,1}?(.*){1,1}?(f*)$')"
+    "query": "select regexp_matches('llmmmfff', '^(l*){1,1}?(.*){1,1}?(f*)$')",
+    "expected": "SELECT regexp_matches('llmmmfff', '^(l*){1,1}?(.*){1,1}?(f*)$')"
   },
   {
     "comment": "regex - Statement 84",
-    "query": "select regexp_matches('llmmmfff', '^(l*?)(.*)(f*)$')"
+    "query": "select regexp_matches('llmmmfff', '^(l*?)(.*)(f*)$')",
+    "expected": "SELECT regexp_matches('llmmmfff', '^(l*?)(.*)(f*)$')"
   },
   {
     "comment": "regex - Statement 85",
-    "query": "select regexp_matches('llmmmfff', '^(l*?){1,1}(.*)(f*)$')"
+    "query": "select regexp_matches('llmmmfff', '^(l*?){1,1}(.*)(f*)$')",
+    "expected": "SELECT regexp_matches('llmmmfff', '^(l*?){1,1}(.*)(f*)$')"
   },
   {
     "comment": "regex - Statement 86",
-    "query": "select regexp_matches('llmmmfff', '^(l*?){1,1}?(.*)(f*)$')"
+    "query": "select regexp_matches('llmmmfff', '^(l*?){1,1}?(.*)(f*)$')",
+    "expected": "SELECT regexp_matches('llmmmfff', '^(l*?){1,1}?(.*)(f*)$')"
   },
   {
     "comment": "regex - Statement 87",
-    "query": "select regexp_matches('llmmmfff', '^(l*?){1,1}?(.*){1,1}?(f*)$')"
+    "query": "select regexp_matches('llmmmfff', '^(l*?){1,1}?(.*){1,1}?(f*)$')",
+    "expected": "SELECT regexp_matches('llmmmfff', '^(l*?){1,1}?(.*){1,1}?(f*)$')"
   },
   {
     "comment": "regex - Statement 88",
-    "query": "select 'a' ~ '$()|^\\1'"
+    "query": "select 'a' ~ '$()|^\\1'",
+    "expected": "SELECT 'a' ~ '$()|^\\1'"
   },
   {
     "comment": "regex - Statement 89",
-    "query": "select 'a' ~ '.. ()|\\1'"
+    "query": "select 'a' ~ '.. ()|\\1'",
+    "expected": "SELECT 'a' ~ '.. ()|\\1'"
   },
   {
     "comment": "regex - Statement 90",
-    "query": "select 'a' ~ '()*\\1'"
+    "query": "select 'a' ~ '()*\\1'",
+    "expected": "SELECT 'a' ~ '()*\\1'"
   },
   {
     "comment": "regex - Statement 91",
-    "query": "select 'a' ~ '()+\\1'"
+    "query": "select 'a' ~ '()+\\1'",
+    "expected": "SELECT 'a' ~ '()+\\1'"
   },
   {
     "comment": "regex - Statement 92",
-    "query": "select 'xxx' ~ '(.){0}(\\1)' as f"
+    "query": "select 'xxx' ~ '(.){0}(\\1)' as f",
+    "expected": "SELECT 'xxx' ~ '(.){0}(\\1)' AS f"
   },
   {
     "comment": "regex - Statement 93",
-    "query": "select 'xxx' ~ '((.)){0}(\\2)' as f"
+    "query": "select 'xxx' ~ '((.)){0}(\\2)' as f",
+    "expected": "SELECT 'xxx' ~ '((.)){0}(\\2)' AS f"
   },
   {
     "comment": "regex - Statement 94",
-    "query": "select 'xyz' ~ '((.)){0}(\\2){0}' as t"
+    "query": "select 'xyz' ~ '((.)){0}(\\2){0}' as t",
+    "expected": "SELECT 'xyz' ~ '((.)){0}(\\2){0}' AS t"
   },
   {
     "comment": "regex - Statement 95",
-    "query": "select 'abcdef' ~ '^(.)\\1|\\1.' as f"
+    "query": "select 'abcdef' ~ '^(.)\\1|\\1.' as f",
+    "expected": "SELECT 'abcdef' ~ '^(.)\\1|\\1.' AS f"
   },
   {
     "comment": "regex - Statement 96",
-    "query": "select 'abadef' ~ '^((.)\\2|..)\\2' as f"
+    "query": "select 'abadef' ~ '^((.)\\2|..)\\2' as f",
+    "expected": "SELECT 'abadef' ~ '^((.)\\2|..)\\2' AS f"
   },
   {
     "comment": "regex - Statement 97",
-    "query": "select regexp_match('xy', '.|...')"
+    "query": "select regexp_match('xy', '.|...')",
+    "expected": "SELECT regexp_match('xy', '.|...')"
   },
   {
     "comment": "regex - Statement 98",
-    "query": "select regexp_match('xyz', '.|...')"
+    "query": "select regexp_match('xyz', '.|...')",
+    "expected": "SELECT regexp_match('xyz', '.|...')"
   },
   {
     "comment": "regex - Statement 99",
-    "query": "select regexp_match('xy', '.*')"
+    "query": "select regexp_match('xy', '.*')",
+    "expected": "SELECT regexp_match('xy', '.*')"
   },
   {
     "comment": "regex - Statement 100",
-    "query": "select regexp_match('fooba', '(?:..)*')"
+    "query": "select regexp_match('fooba', '(?:..)*')",
+    "expected": "SELECT regexp_match('fooba', '(?:..)*')"
   },
   {
     "comment": "regex - Statement 101",
-    "query": "select regexp_match('xyz', repeat('.', 260))"
+    "query": "select regexp_match('xyz', repeat('.', 260))",
+    "expected": "SELECT regexp_match('xyz', repeat('.', 260))"
   },
   {
     "comment": "regex - Statement 102",
-    "query": "select regexp_match('foo', '(?:.|){99}')"
+    "query": "select regexp_match('foo', '(?:.|){99}')",
+    "expected": "SELECT regexp_match('foo', '(?:.|){99}')"
   },
   {
     "comment": "regex - Statement 103",
-    "query": "select 'xyz' ~ 'x(\\w)(?=\\1)'"
+    "query": "select 'xyz' ~ 'x(\\w)(?=\\1)'",
+    "expected": "SELECT 'xyz' ~ 'x(\\w)(?=\\1)'"
   },
   {
     "comment": "regex - Statement 104",
-    "query": "select 'xyz' ~ 'x(\\w)(?=(\\1))'"
+    "query": "select 'xyz' ~ 'x(\\w)(?=(\\1))'",
+    "expected": "SELECT 'xyz' ~ 'x(\\w)(?=(\\1))'"
   },
   {
     "comment": "regex - Statement 105",
-    "query": "select 'a' ~ '\\x7fffffff'"
+    "query": "select 'a' ~ '\\x7fffffff'",
+    "expected": "SELECT 'a' ~ '\\x7fffffff'"
   }
 ]

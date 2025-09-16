@@ -1074,11 +1074,7 @@ begin
 end $$;
 
 \set SHOW_CONTEXT errors
-do $$
-begin
-  raise notice 'foo';
-  raise exception 'bar';
-end $$;
+do $$ begin   raise notice 'foo';   raise exception 'bar'; end $$;
 
 \set SHOW_CONTEXT always
 do $$

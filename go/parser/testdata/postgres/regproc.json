@@ -1,7 +1,8 @@
 [
   {
     "comment": "regproc - Statement 1",
-    "query": "/* If objects exist, return oids */ CREATE ROLE regress_regrole_test"
+    "query": "/* If objects exist, return oids */ CREATE ROLE regress_regrole_test",
+    "expected": "CREATE ROLE regress_regrole_test"
   },
   {
     "comment": "regproc - Statement 2",
@@ -145,7 +146,8 @@
   },
   {
     "comment": "regproc - Statement 37",
-    "query": "/* If objects don't exist, raise errors. */ DROP ROLE regress_regrole_test"
+    "query": "/* If objects don't exist, raise errors. */ DROP ROLE regress_regrole_test",
+    "expected": "DROP ROLE regress_regrole_test"
   },
   {
     "comment": "regproc - Statement 38",
@@ -221,7 +223,8 @@
   },
   {
     "comment": "regproc - Statement 56",
-    "query": "/* If objects don't exist, return NULL with no error. */ SELECT to_regoper('||//')"
+    "query": "/* If objects don't exist, return NULL with no error. */ SELECT to_regoper('||//')",
+    "expected": "SELECT to_regoper('||//')"
   },
   {
     "comment": "regproc - Statement 57",

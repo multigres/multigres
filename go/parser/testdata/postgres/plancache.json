@@ -13,11 +13,13 @@
   },
   {
     "comment": "plancache - Statement 4",
-    "query": "PREPARE prepstmt2(bigint) AS SELECT * FROM pcachetest WHERE q1 = $1"
+    "query": "PREPARE prepstmt2(bigint) AS SELECT * FROM pcachetest WHERE q1 = $1",
+    "expected": "PREPARE prepstmt2 ( BIGINT ) AS SELECT * FROM pcachetest WHERE q1 = $1"
   },
   {
     "comment": "plancache - Statement 5",
-    "query": "EXECUTE prepstmt2(123)"
+    "query": "EXECUTE prepstmt2(123)",
+    "expected": "EXECUTE prepstmt2 ( 123 )"
   },
   {
     "comment": "plancache - Statement 6",
@@ -29,7 +31,8 @@
   },
   {
     "comment": "plancache - Statement 8",
-    "query": "ALTER TABLE pcachetest ADD COLUMN q3 bigint"
+    "query": "ALTER TABLE pcachetest ADD COLUMN q3 bigint",
+    "expected": "ALTER TABLE pcachetest ADD COLUMN q3 BIGINT"
   },
   {
     "comment": "plancache - Statement 9",
@@ -37,7 +40,8 @@
   },
   {
     "comment": "plancache - Statement 10",
-    "query": "CREATE TEMP VIEW pcacheview AS SELECT * FROM pcachetest"
+    "query": "CREATE TEMP VIEW pcacheview AS SELECT * FROM pcachetest",
+    "expected": "CREATE TEMPORARY VIEW pcacheview AS SELECT * FROM pcachetest"
   },
   {
     "comment": "plancache - Statement 11",
@@ -49,278 +53,312 @@
   },
   {
     "comment": "plancache - Statement 13",
-    "query": "CREATE OR REPLACE TEMP VIEW pcacheview AS SELECT q1, q2/2 AS q2 FROM pcachetest"
+    "query": "CREATE OR REPLACE TEMP VIEW pcacheview AS SELECT q1, q2/2 AS q2 FROM pcachetest",
+    "expected": "CREATE OR REPLACE TEMPORARY VIEW pcacheview AS SELECT q1, q2 / 2 AS q2 FROM pcachetest"
   },
   {
     "comment": "plancache - Statement 14",
-    "query": "create function cache_test(int) returns int as $$ declare total int"
-  },
-  {
-    "comment": "plancache - Statement 15",
-    "query": "begin create temp table t1(f1 int)"
+    "query": "create function cache_test(int) returns int as $$ declare total int; begin  create temp table t1(f1 int);  insert into t1 values($1);  insert into t1 values(11);  insert into t1 values(12);  insert into t1 values(13);  select sum(f1) into total from t1;  drop table t1;  return total; end $$ language plpgsql;",
+    "expected": "CREATE FUNCTION cache_test (INT) RETURNS INT LANGUAGE plpgsql AS $$ declare total int; begin  create temp table t1(f1 int);  insert into t1 values($1);  insert into t1 values(11);  insert into t1 values(12);  insert into t1 values(13);  select sum(f1) into total from t1;  drop table t1;  return total; end $$"
   },
   {
     "comment": "plancache - Statement 16",
-    "query": "insert into t1 values($1)"
+    "query": "insert into t1 values($1)",
+    "expected": "INSERT INTO t1 VALUES ($1)"
   },
   {
     "comment": "plancache - Statement 17",
-    "query": "insert into t1 values(11)"
+    "query": "insert into t1 values(11)",
+    "expected": "INSERT INTO t1 VALUES (11)"
   },
   {
     "comment": "plancache - Statement 18",
-    "query": "insert into t1 values(12)"
+    "query": "insert into t1 values(12)",
+    "expected": "INSERT INTO t1 VALUES (12)"
   },
   {
     "comment": "plancache - Statement 19",
-    "query": "insert into t1 values(13)"
+    "query": "insert into t1 values(13)",
+    "expected": "INSERT INTO t1 VALUES (13)"
   },
   {
     "comment": "plancache - Statement 20",
-    "query": "select sum(f1) into total from t1"
+    "query": "select sum(f1) into total from t1",
+    "expected": "SELECT SUM(f1) INTO total FROM t1"
   },
   {
     "comment": "plancache - Statement 21",
-    "query": "drop table t1"
-  },
-  {
-    "comment": "plancache - Statement 22",
-    "query": "return total"
-  },
-  {
-    "comment": "plancache - Statement 23",
-    "query": "end $$ language plpgsql"
+    "query": "drop table t1",
+    "expected": "DROP TABLE t1"
   },
   {
     "comment": "plancache - Statement 24",
-    "query": "select cache_test(1)"
+    "query": "select cache_test(1)",
+    "expected": "SELECT cache_test(1)"
   },
   {
     "comment": "plancache - Statement 25",
-    "query": "select cache_test(2)"
+    "query": "select cache_test(2)",
+    "expected": "SELECT cache_test(2)"
   },
   {
     "comment": "plancache - Statement 26",
-    "query": "select cache_test(3)"
+    "query": "select cache_test(3)",
+    "expected": "SELECT cache_test(3)"
   },
   {
     "comment": "plancache - Statement 27",
-    "query": "create temp view v1 as select 2+2 as f1"
+    "query": "create temp view v1 as select 2+2 as f1",
+    "expected": "CREATE TEMPORARY VIEW v1 AS SELECT 2 + 2 AS f1"
   },
   {
     "comment": "plancache - Statement 28",
-    "query": "create function cache_test_2() returns int as $$ begin return f1 from v1"
-  },
-  {
-    "comment": "plancache - Statement 29",
-    "query": "end$$ language plpgsql"
+    "query": "create function cache_test_2() returns int as $$ begin return f1 from v1; end$$ language plpgsql;",
+    "expected": "CREATE FUNCTION cache_test_2 () RETURNS INT LANGUAGE plpgsql AS $$ begin return f1 from v1; end$$"
   },
   {
     "comment": "plancache - Statement 30",
-    "query": "select cache_test_2()"
+    "query": "select cache_test_2()",
+    "expected": "SELECT cache_test_2()"
   },
   {
     "comment": "plancache - Statement 31",
-    "query": "create or replace temp view v1 as select 2+2+4 as f1"
+    "query": "create or replace temp view v1 as select 2+2+4 as f1",
+    "expected": "CREATE OR REPLACE TEMPORARY VIEW v1 AS SELECT 2 + 2 + 4 AS f1"
   },
   {
     "comment": "plancache - Statement 32",
-    "query": "create or replace temp view v1 as select 2+2+4+(select max(unique1) from tenk1) as f1"
+    "query": "create or replace temp view v1 as select 2+2+4+(select max(unique1) from tenk1) as f1",
+    "expected": "CREATE OR REPLACE TEMPORARY VIEW v1 AS SELECT 2 + 2 + 4 + (SELECT MAX(unique1) FROM tenk1) AS f1"
   },
   {
     "comment": "plancache - Statement 33",
-    "query": "create schema s1 create table abc (f1 int)"
+    "query": "create schema s1 create table abc (f1 int)",
+    "expected": "CREATE SCHEMA s1 CREATE TABLE abc (f1 INT)"
   },
   {
     "comment": "plancache - Statement 34",
-    "query": "create schema s2 create table abc (f1 int)"
+    "query": "create schema s2 create table abc (f1 int)",
+    "expected": "CREATE SCHEMA s2 CREATE TABLE abc (f1 INT)"
   },
   {
     "comment": "plancache - Statement 35",
-    "query": "insert into s1.abc values(123)"
+    "query": "insert into s1.abc values(123)",
+    "expected": "INSERT INTO s1.abc VALUES (123)"
   },
   {
     "comment": "plancache - Statement 36",
-    "query": "insert into s2.abc values(456)"
+    "query": "insert into s2.abc values(456)",
+    "expected": "INSERT INTO s2.abc VALUES (456)"
   },
   {
     "comment": "plancache - Statement 37",
-    "query": "set search_path = s1"
+    "query": "set search_path = s1",
+    "expected": "SET SCHEMA 's1'"
   },
   {
     "comment": "plancache - Statement 38",
-    "query": "prepare p1 as select f1 from abc"
+    "query": "prepare p1 as select f1 from abc",
+    "expected": "PREPARE p1 AS SELECT f1 FROM abc"
   },
   {
     "comment": "plancache - Statement 39",
-    "query": "execute p1"
+    "query": "execute p1",
+    "expected": "EXECUTE p1"
   },
   {
     "comment": "plancache - Statement 40",
-    "query": "set search_path = s2"
+    "query": "set search_path = s2",
+    "expected": "SET SCHEMA 's2'"
   },
   {
     "comment": "plancache - Statement 41",
-    "query": "select f1 from abc"
+    "query": "select f1 from abc",
+    "expected": "SELECT f1 FROM abc"
   },
   {
     "comment": "plancache - Statement 42",
-    "query": "alter table s1.abc add column f2 float8"
+    "query": "alter table s1.abc add column f2 float8",
+    "expected": "ALTER TABLE s1.abc ADD COLUMN f2 FLOAT8"
   },
   {
     "comment": "plancache - Statement 43",
-    "query": "drop schema s1 cascade"
+    "query": "drop schema s1 cascade",
+    "expected": "DROP SCHEMA s1 CASCADE"
   },
   {
     "comment": "plancache - Statement 44",
-    "query": "drop schema s2 cascade"
+    "query": "drop schema s2 cascade",
+    "expected": "DROP SCHEMA s2 CASCADE"
   },
   {
     "comment": "plancache - Statement 45",
-    "query": "reset search_path"
+    "query": "reset search_path",
+    "expected": "RESET search_path"
   },
   {
     "comment": "plancache - Statement 46",
-    "query": "create temp sequence seq"
+    "query": "create temp sequence seq",
+    "expected": "CREATE SEQUENCE seq"
   },
   {
     "comment": "plancache - Statement 47",
-    "query": "prepare p2 as select nextval('seq')"
+    "query": "prepare p2 as select nextval('seq')",
+    "expected": "PREPARE p2 AS SELECT nextval('seq')"
   },
   {
     "comment": "plancache - Statement 48",
-    "query": "execute p2"
+    "query": "execute p2",
+    "expected": "EXECUTE p2"
   },
   {
     "comment": "plancache - Statement 49",
-    "query": "drop sequence seq"
+    "query": "drop sequence seq",
+    "expected": "DROP SEQUENCE seq"
   },
   {
     "comment": "plancache - Statement 50",
-    "query": "create function cachebug() returns void as $$ declare r int"
-  },
-  {
-    "comment": "plancache - Statement 51",
-    "query": "begin drop table if exists temptable cascade"
+    "query": "create function cachebug() returns void as $$ declare r int; begin   drop table if exists temptable cascade;   create temp table temptable as select * from generate_series(1,3) as f1;   create temp view vv as select * from temptable;   for r in select * from vv loop     raise notice '%', r;   end loop; end$$ language plpgsql;",
+    "expected": "CREATE FUNCTION cachebug () RETURNS void LANGUAGE plpgsql AS $$ declare r int; begin   drop table if exists temptable cascade;   create temp table temptable as select * from generate_series(1,3) as f1;   create temp view vv as select * from temptable;   for r in select * from vv loop     raise notice '%', r;   end loop; end$$"
   },
   {
     "comment": "plancache - Statement 52",
-    "query": "create temp table temptable as select * from generate_series(1,3) as f1"
+    "query": "create temp table temptable as select * from generate_series(1,3) as f1",
+    "expected": "CREATE TEMP TABLE temptable AS SELECT * FROM generate_series(1, 3) AS f1"
   },
   {
     "comment": "plancache - Statement 53",
-    "query": "create temp view vv as select * from temptable"
-  },
-  {
-    "comment": "plancache - Statement 54",
-    "query": "for r in select * from vv loop raise notice '%', r"
-  },
-  {
-    "comment": "plancache - Statement 55",
-    "query": "end loop"
+    "query": "create temp view vv as select * from temptable",
+    "expected": "CREATE TEMPORARY VIEW vv AS SELECT * FROM temptable"
   },
   {
     "comment": "plancache - Statement 56",
-    "query": "select cachebug()"
+    "query": "select cachebug()",
+    "expected": "SELECT cachebug()"
   },
   {
     "comment": "plancache - Statement 57",
-    "query": "create table pc_list_parted (a int) partition by list(a)"
+    "query": "create table pc_list_parted (a int) partition by list(a)",
+    "expected": "CREATE TABLE pc_list_parted (a INT) PARTITION BY list (a)"
   },
   {
     "comment": "plancache - Statement 58",
-    "query": "create table pc_list_part_null partition of pc_list_parted for values in (null)"
+    "query": "create table pc_list_part_null partition of pc_list_parted for values in (null)",
+    "expected": "CREATE TABLE pc_list_part_null PARTITION OF pc_list_parted FOR VALUES IN (NULL)"
   },
   {
     "comment": "plancache - Statement 59",
-    "query": "create table pc_list_part_1 partition of pc_list_parted for values in (1)"
+    "query": "create table pc_list_part_1 partition of pc_list_parted for values in (1)",
+    "expected": "CREATE TABLE pc_list_part_1 PARTITION OF pc_list_parted FOR VALUES IN (1)"
   },
   {
     "comment": "plancache - Statement 60",
-    "query": "create table pc_list_part_def partition of pc_list_parted default"
+    "query": "create table pc_list_part_def partition of pc_list_parted default",
+    "expected": "CREATE TABLE pc_list_part_def PARTITION OF pc_list_parted DEFAULT"
   },
   {
     "comment": "plancache - Statement 61",
-    "query": "prepare pstmt_def_insert (int) as insert into pc_list_part_def values($1)"
+    "query": "prepare pstmt_def_insert (int) as insert into pc_list_part_def values($1)",
+    "expected": "PREPARE pstmt_def_insert ( INT ) AS INSERT INTO pc_list_part_def VALUES ($1)"
   },
   {
     "comment": "plancache - Statement 62",
-    "query": "execute pstmt_def_insert(null)"
+    "query": "execute pstmt_def_insert(null)",
+    "expected": "EXECUTE pstmt_def_insert ( NULL )"
   },
   {
     "comment": "plancache - Statement 63",
-    "query": "execute pstmt_def_insert(1)"
+    "query": "execute pstmt_def_insert(1)",
+    "expected": "EXECUTE pstmt_def_insert ( 1 )"
   },
   {
     "comment": "plancache - Statement 64",
-    "query": "create table pc_list_part_2 partition of pc_list_parted for values in (2)"
+    "query": "create table pc_list_part_2 partition of pc_list_parted for values in (2)",
+    "expected": "CREATE TABLE pc_list_part_2 PARTITION OF pc_list_parted FOR VALUES IN (2)"
   },
   {
     "comment": "plancache - Statement 65",
-    "query": "execute pstmt_def_insert(2)"
+    "query": "execute pstmt_def_insert(2)",
+    "expected": "EXECUTE pstmt_def_insert ( 2 )"
   },
   {
     "comment": "plancache - Statement 66",
-    "query": "alter table pc_list_parted detach partition pc_list_part_null"
+    "query": "alter table pc_list_parted detach partition pc_list_part_null",
+    "expected": "ALTER TABLE pc_list_parted DETACH PARTITION pc_list_part_null"
   },
   {
     "comment": "plancache - Statement 67",
-    "query": "drop table pc_list_part_1"
+    "query": "drop table pc_list_part_1",
+    "expected": "DROP TABLE pc_list_part_1"
   },
   {
     "comment": "plancache - Statement 68",
-    "query": "drop table pc_list_parted, pc_list_part_null"
+    "query": "drop table pc_list_parted, pc_list_part_null",
+    "expected": "DROP TABLE pc_list_parted, pc_list_part_null"
   },
   {
     "comment": "plancache - Statement 69",
-    "query": "deallocate pstmt_def_insert"
+    "query": "deallocate pstmt_def_insert",
+    "expected": "DEALLOCATE pstmt_def_insert"
   },
   {
     "comment": "plancache - Statement 70",
-    "query": "create table test_mode (a int)"
+    "query": "create table test_mode (a int)",
+    "expected": "CREATE TABLE test_mode (a INT)"
   },
   {
     "comment": "plancache - Statement 71",
-    "query": "insert into test_mode select 1 from generate_series(1,1000) union all select 2"
+    "query": "insert into test_mode select 1 from generate_series(1,1000) union all select 2",
+    "expected": "INSERT INTO test_mode SELECT 1 FROM generate_series(1, 1000) UNION ALL SELECT 2"
   },
   {
     "comment": "plancache - Statement 72",
-    "query": "create index on test_mode (a)"
+    "query": "create index on test_mode (a)",
+    "expected": "CREATE INDEX ON test_mode USING btree ( a )"
   },
   {
     "comment": "plancache - Statement 73",
-    "query": "analyze test_mode"
+    "query": "analyze test_mode",
+    "expected": "ANALYZE test_mode"
   },
   {
     "comment": "plancache - Statement 74",
-    "query": "prepare test_mode_pp (int) as select count(*) from test_mode where a = $1"
+    "query": "prepare test_mode_pp (int) as select count(*) from test_mode where a = $1",
+    "expected": "PREPARE test_mode_pp ( INT ) AS SELECT COUNT(*) FROM test_mode WHERE a = $1"
   },
   {
     "comment": "plancache - Statement 75",
-    "query": "select name, generic_plans, custom_plans from pg_prepared_statements where  name = 'test_mode_pp'"
+    "query": "select name, generic_plans, custom_plans from pg_prepared_statements where  name = 'test_mode_pp'",
+    "expected": "SELECT name, generic_plans, custom_plans FROM pg_prepared_statements WHERE name = 'test_mode_pp'"
   },
   {
     "comment": "plancache - Statement 76",
-    "query": "set plan_cache_mode to auto"
+    "query": "set plan_cache_mode to auto",
+    "expected": "SET plan_cache_mode = 'auto'"
   },
   {
     "comment": "plancache - Statement 77",
-    "query": "explain (costs off) execute test_mode_pp(2)"
+    "query": "explain (costs off) execute test_mode_pp(2)",
+    "expected": "EXPLAIN (COSTS false) EXECUTE test_mode_pp ( 2 )"
   },
   {
     "comment": "plancache - Statement 78",
-    "query": "set plan_cache_mode to force_generic_plan"
+    "query": "set plan_cache_mode to force_generic_plan",
+    "expected": "SET plan_cache_mode = 'force_generic_plan'"
   },
   {
     "comment": "plancache - Statement 79",
-    "query": "execute test_mode_pp(1)"
+    "query": "execute test_mode_pp(1)",
+    "expected": "EXECUTE test_mode_pp ( 1 )"
   },
   {
     "comment": "plancache - Statement 80",
-    "query": "set plan_cache_mode to force_custom_plan"
+    "query": "set plan_cache_mode to force_custom_plan",
+    "expected": "SET plan_cache_mode = 'force_custom_plan'"
   },
   {
     "comment": "plancache - Statement 81",
-    "query": "drop table test_mode"
+    "query": "drop table test_mode",
+    "expected": "DROP TABLE test_mode"
   }
 ]

@@ -1,35 +1,18 @@
 [
   {
     "comment": "random - Statement 1",
-    "query": "SELECT r, count(*) FROM (SELECT random() r FROM generate_series(1, 1000)) ss GROUP BY r HAVING count(*) > 1"
+    "query": "SELECT r, count(*) FROM (SELECT random() r FROM generate_series(1, 1000)) ss GROUP BY r HAVING count(*) \u003e 1",
+    "expected": "SELECT r, COUNT(*) FROM (SELECT random() AS r FROM generate_series(1, 1000)) AS ss GROUP BY r HAVING COUNT(*) \u003e 1"
   },
   {
     "comment": "random - Statement 2",
-    "query": "SELECT count(*) FILTER (WHERE r < 0 OR r >= 1) AS out_of_range, (count(*) FILTER (WHERE r < 0.01)) > 0 AS has_small, (count(*) FILTER (WHERE r > 0.99)) > 0 AS has_large FROM (SELECT random() r FROM generate_series(1, 2000)) ss"
+    "query": "SELECT count(*) FILTER (WHERE r \u003c 0 OR r \u003e= 1) AS out_of_range, (count(*) FILTER (WHERE r \u003c 0.01)) \u003e 0 AS has_small, (count(*) FILTER (WHERE r \u003e 0.99)) \u003e 0 AS has_large FROM (SELECT random() r FROM generate_series(1, 2000)) ss",
+    "expected": "SELECT COUNT(*) FILTER (WHERE r \u003c 0 OR r \u003e= 1) AS out_of_range, (COUNT(*) FILTER (WHERE r \u003c 0.01)) \u003e 0 AS has_small, (COUNT(*) FILTER (WHERE r \u003e 0.99)) \u003e 0 AS has_large FROM (SELECT random() AS r FROM generate_series(1, 2000)) AS ss"
   },
   {
     "comment": "random - Statement 3",
-    "query": "CREATE FUNCTION ks_test_uniform_random() RETURNS boolean AS $$ DECLARE n int := 1000"
-  },
-  {
-    "comment": "random - Statement 4",
-    "query": "c float8 := 1.94947"
-  },
-  {
-    "comment": "random - Statement 5",
-    "query": "ok boolean"
-  },
-  {
-    "comment": "random - Statement 6",
-    "query": "BEGIN ok := ( WITH samples AS ( SELECT random() r FROM generate_series(1, n) ORDER BY 1 ), indexed_samples AS ( SELECT (row_number() OVER())-1.0 i, r FROM samples ) SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples )"
-  },
-  {
-    "comment": "random - Statement 7",
-    "query": "RETURN ok"
-  },
-  {
-    "comment": "random - Statement 8",
-    "query": "END $$ LANGUAGE plpgsql"
+    "query": "CREATE FUNCTION ks_test_uniform_random() RETURNS boolean AS $$ DECLARE   n int := 1000;          c float8 := 1.94947;    ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random() r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
+    "error": "parse error at position 61: syntax error"
   },
   {
     "comment": "random - Statement 9",
@@ -37,23 +20,23 @@
   },
   {
     "comment": "random - Statement 10",
-    "query": "SELECT r, count(*) FROM (SELECT random_normal() r FROM generate_series(1, 1000)) ss GROUP BY r HAVING count(*) > 1"
+    "query": "SELECT r, count(*) FROM (SELECT random_normal() r FROM generate_series(1, 1000)) ss GROUP BY r HAVING count(*) \u003e 1",
+    "expected": "SELECT r, COUNT(*) FROM (SELECT random_normal() AS r FROM generate_series(1, 1000)) AS ss GROUP BY r HAVING COUNT(*) \u003e 1"
   },
   {
     "comment": "random - Statement 11",
-    "query": "SELECT r, count(*) FROM (SELECT random_normal(10, 0) r FROM generate_series(1, 100)) ss GROUP BY r"
+    "query": "SELECT r, count(*) FROM (SELECT random_normal(10, 0) r FROM generate_series(1, 100)) ss GROUP BY r",
+    "expected": "SELECT r, COUNT(*) FROM (SELECT random_normal(10, 0) AS r FROM generate_series(1, 100)) AS ss GROUP BY r"
   },
   {
     "comment": "random - Statement 12",
-    "query": "SELECT r, count(*) FROM (SELECT random_normal(-10, 0) r FROM generate_series(1, 100)) ss GROUP BY r"
+    "query": "SELECT r, count(*) FROM (SELECT random_normal(-10, 0) r FROM generate_series(1, 100)) ss GROUP BY r",
+    "expected": "SELECT r, COUNT(*) FROM (SELECT random_normal(-10, 0) AS r FROM generate_series(1, 100)) AS ss GROUP BY r"
   },
   {
     "comment": "random - Statement 13",
-    "query": "CREATE FUNCTION ks_test_normal_random() RETURNS boolean AS $$ DECLARE n int := 1000"
-  },
-  {
-    "comment": "random - Statement 14",
-    "query": "BEGIN ok := ( WITH samples AS ( SELECT random_normal() r FROM generate_series(1, n) ORDER BY 1 ), indexed_samples AS ( SELECT (row_number() OVER())-1.0 i, r FROM samples ) SELECT max(abs((1+erf(r/sqrt(2)))/2 - i/n)) < c / sqrt(n) FROM indexed_samples )"
+    "query": "CREATE FUNCTION ks_test_normal_random() RETURNS boolean AS $$ DECLARE   n int := 1000;     c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random_normal() r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs((1+erf(r/sqrt(2)))/2 - i/n)) < c / sqrt(n)     FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
+    "error": "parse error at position 60: syntax error"
   },
   {
     "comment": "random - Statement 15",
@@ -73,19 +56,23 @@
   },
   {
     "comment": "random - Statement 19",
-    "query": "SELECT random('NaN'::numeric, 10)"
+    "query": "SELECT random('NaN'::numeric, 10)",
+    "expected": "SELECT random(CAST('NaN' AS NUMERIC), 10)"
   },
   {
     "comment": "random - Statement 20",
-    "query": "SELECT random('-Inf'::numeric, 0)"
+    "query": "SELECT random('-Inf'::numeric, 0)",
+    "expected": "SELECT random(CAST('-Inf' AS NUMERIC), 0)"
   },
   {
     "comment": "random - Statement 21",
-    "query": "SELECT random(0, 'NaN'::numeric)"
+    "query": "SELECT random(0, 'NaN'::numeric)",
+    "expected": "SELECT random(0, CAST('NaN' AS NUMERIC))"
   },
   {
     "comment": "random - Statement 22",
-    "query": "SELECT random(0, 'Inf'::numeric)"
+    "query": "SELECT random(0, 'Inf'::numeric)",
+    "expected": "SELECT random(0, CAST('Inf' AS NUMERIC))"
   },
   {
     "comment": "random - Statement 23",
@@ -101,55 +88,63 @@
   },
   {
     "comment": "random - Statement 26",
-    "query": "SELECT r, count(*) FROM (SELECT random(-2147483648, 2147483647) r FROM generate_series(1, 1000)) ss GROUP BY r HAVING count(*) > 2"
+    "query": "SELECT r, count(*) FROM (SELECT random(-2147483648, 2147483647) r FROM generate_series(1, 1000)) ss GROUP BY r HAVING count(*) \u003e 2",
+    "expected": "SELECT r, COUNT(*) FROM (SELECT random(-2147483648, 2147483647) AS r FROM generate_series(1, 1000)) AS ss GROUP BY r HAVING COUNT(*) \u003e 2"
   },
   {
     "comment": "random - Statement 27",
-    "query": "SELECT r, count(*) FROM (SELECT random_normal(-9223372036854775808, 9223372036854775807) r FROM generate_series(1, 1000)) ss GROUP BY r HAVING count(*) > 1"
+    "query": "SELECT r, count(*) FROM (SELECT random_normal(-9223372036854775808, 9223372036854775807) r FROM generate_series(1, 1000)) ss GROUP BY r HAVING count(*) \u003e 1",
+    "expected": "SELECT r, COUNT(*) FROM (SELECT random_normal(-9223372036854775808, 9223372036854775807) AS r FROM generate_series(1, 1000)) AS ss GROUP BY r HAVING COUNT(*) \u003e 1"
   },
   {
     "comment": "random - Statement 28",
-    "query": "SELECT r, count(*) FROM (SELECT random_normal(0, 1 - 1e-15) r FROM generate_series(1, 1000)) ss GROUP BY r HAVING count(*) > 1"
+    "query": "SELECT r, count(*) FROM (SELECT random_normal(0, 1 - 1e-15) r FROM generate_series(1, 1000)) ss GROUP BY r HAVING count(*) \u003e 1",
+    "expected": "SELECT r, COUNT(*) FROM (SELECT random_normal(0, 1 - 1e-15) AS r FROM generate_series(1, 1000)) AS ss GROUP BY r HAVING COUNT(*) \u003e 1"
   },
   {
     "comment": "random - Statement 29",
-    "query": "SELECT (count(*) FILTER (WHERE r < -2104533975)) > 0 AS has_small, (count(*) FILTER (WHERE r > 2104533974)) > 0 AS has_large FROM (SELECT random(-2147483648, 2147483647) r FROM generate_series(1, 2000)) ss"
+    "query": "SELECT (count(*) FILTER (WHERE r \u003c -2104533975)) \u003e 0 AS has_small, (count(*) FILTER (WHERE r \u003e 2104533974)) \u003e 0 AS has_large FROM (SELECT random(-2147483648, 2147483647) r FROM generate_series(1, 2000)) ss",
+    "expected": "SELECT (COUNT(*) FILTER (WHERE r \u003c -2104533975)) \u003e 0 AS has_small, (COUNT(*) FILTER (WHERE r \u003e 2104533974)) \u003e 0 AS has_large FROM (SELECT random(-2147483648, 2147483647) AS r FROM generate_series(1, 2000)) AS ss"
   },
   {
     "comment": "random - Statement 30",
-    "query": "SELECT count(*) FILTER (WHERE r < -1500000000 OR r > 1500000000) AS out_of_range, (count(*) FILTER (WHERE r < -1470000000)) > 0 AS has_small, (count(*) FILTER (WHERE r > 1470000000)) > 0 AS has_large FROM (SELECT random(-1500000000, 1500000000) r FROM generate_series(1, 2000)) ss"
+    "query": "SELECT count(*) FILTER (WHERE r \u003c -1500000000 OR r \u003e 1500000000) AS out_of_range, (count(*) FILTER (WHERE r \u003c -1470000000)) \u003e 0 AS has_small, (count(*) FILTER (WHERE r \u003e 1470000000)) \u003e 0 AS has_large FROM (SELECT random(-1500000000, 1500000000) r FROM generate_series(1, 2000)) ss",
+    "expected": "SELECT COUNT(*) FILTER (WHERE r \u003c -1500000000 OR r \u003e 1500000000) AS out_of_range, (COUNT(*) FILTER (WHERE r \u003c -1470000000)) \u003e 0 AS has_small, (COUNT(*) FILTER (WHERE r \u003e 1470000000)) \u003e 0 AS has_large FROM (SELECT random(-1500000000, 1500000000) AS r FROM generate_series(1, 2000)) AS ss"
   },
   {
     "comment": "random - Statement 31",
-    "query": "SELECT (count(*) FILTER (WHERE r < -9038904596117680292)) > 0 AS has_small, (count(*) FILTER (WHERE r > 9038904596117680291)) > 0 AS has_large FROM (SELECT random(-9223372036854775808, 9223372036854775807) r FROM generate_series(1, 2000)) ss"
+    "query": "SELECT (count(*) FILTER (WHERE r \u003c -9038904596117680292)) \u003e 0 AS has_small, (count(*) FILTER (WHERE r \u003e 9038904596117680291)) \u003e 0 AS has_large FROM (SELECT random(-9223372036854775808, 9223372036854775807) r FROM generate_series(1, 2000)) ss",
+    "expected": "SELECT (COUNT(*) FILTER (WHERE r \u003c -9038904596117680292)) \u003e 0 AS has_small, (COUNT(*) FILTER (WHERE r \u003e 9038904596117680291)) \u003e 0 AS has_large FROM (SELECT random(-9223372036854775808, 9223372036854775807) AS r FROM generate_series(1, 2000)) AS ss"
   },
   {
     "comment": "random - Statement 32",
-    "query": "SELECT count(*) FILTER (WHERE r < -1500000000000000 OR r > 1500000000000000) AS out_of_range, (count(*) FILTER (WHERE r < -1470000000000000)) > 0 AS has_small, (count(*) FILTER (WHERE r > 1470000000000000)) > 0 AS has_large FROM (SELECT random(-1500000000000000, 1500000000000000) r FROM generate_series(1, 2000)) ss"
+    "query": "SELECT count(*) FILTER (WHERE r \u003c -1500000000000000 OR r \u003e 1500000000000000) AS out_of_range, (count(*) FILTER (WHERE r \u003c -1470000000000000)) \u003e 0 AS has_small, (count(*) FILTER (WHERE r \u003e 1470000000000000)) \u003e 0 AS has_large FROM (SELECT random(-1500000000000000, 1500000000000000) r FROM generate_series(1, 2000)) ss",
+    "expected": "SELECT COUNT(*) FILTER (WHERE r \u003c -1500000000000000 OR r \u003e 1500000000000000) AS out_of_range, (COUNT(*) FILTER (WHERE r \u003c -1470000000000000)) \u003e 0 AS has_small, (COUNT(*) FILTER (WHERE r \u003e 1470000000000000)) \u003e 0 AS has_large FROM (SELECT random(-1500000000000000, 1500000000000000) AS r FROM generate_series(1, 2000)) AS ss"
   },
   {
     "comment": "random - Statement 33",
-    "query": "SELECT count(*) FILTER (WHERE r < -1.5 OR r > 1.5) AS out_of_range, (count(*) FILTER (WHERE r < -1.47)) > 0 AS has_small, (count(*) FILTER (WHERE r > 1.47)) > 0 AS has_large FROM (SELECT random(-1.500000000000000, 1.500000000000000) r FROM generate_series(1, 2000)) ss"
+    "query": "SELECT count(*) FILTER (WHERE r \u003c -1.5 OR r \u003e 1.5) AS out_of_range, (count(*) FILTER (WHERE r \u003c -1.47)) \u003e 0 AS has_small, (count(*) FILTER (WHERE r \u003e 1.47)) \u003e 0 AS has_large FROM (SELECT random(-1.500000000000000, 1.500000000000000) r FROM generate_series(1, 2000)) ss",
+    "expected": "SELECT COUNT(*) FILTER (WHERE r \u003c -1.5 OR r \u003e 1.5) AS out_of_range, (COUNT(*) FILTER (WHERE r \u003c -1.47)) \u003e 0 AS has_small, (COUNT(*) FILTER (WHERE r \u003e 1.47)) \u003e 0 AS has_large FROM (SELECT random(-1.500000000000000, 1.500000000000000) AS r FROM generate_series(1, 2000)) AS ss"
   },
   {
     "comment": "random - Statement 34",
-    "query": "SELECT min(r), max(r), count(r) FROM ( SELECT DISTINCT random(-50, 49) r FROM generate_series(1, 2500))"
+    "query": "SELECT min(r), max(r), count(r) FROM ( SELECT DISTINCT random(-50, 49) r FROM generate_series(1, 2500))",
+    "expected": "SELECT MIN(r), MAX(r), COUNT(r) FROM (SELECT DISTINCT random(-50, 49) AS r FROM generate_series(1, 2500))"
   },
   {
     "comment": "random - Statement 35",
-    "query": "SELECT min(r), max(r), count(r) FROM ( SELECT DISTINCT random(123000000000, 123000000099) r FROM generate_series(1, 2500))"
+    "query": "SELECT min(r), max(r), count(r) FROM ( SELECT DISTINCT random(123000000000, 123000000099) r FROM generate_series(1, 2500))",
+    "expected": "SELECT MIN(r), MAX(r), COUNT(r) FROM (SELECT DISTINCT random(123000000000, 123000000099) AS r FROM generate_series(1, 2500))"
   },
   {
     "comment": "random - Statement 36",
-    "query": "SELECT min(r), max(r), count(r) FROM ( SELECT DISTINCT random(-0.5, 0.49) r FROM generate_series(1, 2500))"
+    "query": "SELECT min(r), max(r), count(r) FROM ( SELECT DISTINCT random(-0.5, 0.49) r FROM generate_series(1, 2500))",
+    "expected": "SELECT MIN(r), MAX(r), COUNT(r) FROM (SELECT DISTINCT random(-0.5, 0.49) AS r FROM generate_series(1, 2500))"
   },
   {
     "comment": "random - Statement 37",
-    "query": "CREATE FUNCTION ks_test_uniform_random_int_in_range() RETURNS boolean AS $$ DECLARE n int := 1000"
-  },
-  {
-    "comment": "random - Statement 38",
-    "query": "BEGIN ok := ( WITH samples AS ( SELECT random(0, 999999) / 1000000.0 r FROM generate_series(1, n) ORDER BY 1 ), indexed_samples AS ( SELECT (row_number() OVER())-1.0 i, r FROM samples ) SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples )"
+    "query": "CREATE FUNCTION ks_test_uniform_random_int_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;    c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 999999) / 1000000.0 r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
+    "error": "parse error at position 74: syntax error"
   },
   {
     "comment": "random - Statement 39",
@@ -157,11 +152,8 @@
   },
   {
     "comment": "random - Statement 40",
-    "query": "CREATE FUNCTION ks_test_uniform_random_bigint_in_range() RETURNS boolean AS $$ DECLARE n int := 1000"
-  },
-  {
-    "comment": "random - Statement 41",
-    "query": "BEGIN ok := ( WITH samples AS ( SELECT random(0, 999999999999) / 1000000000000.0 r FROM generate_series(1, n) ORDER BY 1 ), indexed_samples AS ( SELECT (row_number() OVER())-1.0 i, r FROM samples ) SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples )"
+    "query": "CREATE FUNCTION ks_test_uniform_random_bigint_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;   c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 999999999999) / 1000000000000.0 r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
+    "error": "parse error at position 77: syntax error"
   },
   {
     "comment": "random - Statement 42",
@@ -169,11 +161,8 @@
   },
   {
     "comment": "random - Statement 43",
-    "query": "CREATE FUNCTION ks_test_uniform_random_numeric_in_range() RETURNS boolean AS $$ DECLARE n int := 1000"
-  },
-  {
-    "comment": "random - Statement 44",
-    "query": "BEGIN ok := ( WITH samples AS ( SELECT random(0, 0.999999) r FROM generate_series(1, n) ORDER BY 1 ), indexed_samples AS ( SELECT (row_number() OVER())-1.0 i, r FROM samples ) SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples )"
+    "query": "CREATE FUNCTION ks_test_uniform_random_numeric_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;   c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 0.999999) r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;",
+    "error": "parse error at position 78: syntax error"
   },
   {
     "comment": "random - Statement 45",
@@ -197,7 +186,8 @@
   },
   {
     "comment": "random - Statement 50",
-    "query": "SELECT random_normal(mean => 1, stddev => 0.1) r FROM generate_series(1, 10)"
+    "query": "SELECT random_normal(mean =\u003e 1, stddev =\u003e 0.1) r FROM generate_series(1, 10)",
+    "expected": "SELECT random_normal(mean =\u003e 1, stddev =\u003e 0.1) AS r FROM generate_series(1, 10)"
   },
   {
     "comment": "random - Statement 51",
@@ -225,6 +215,7 @@
   },
   {
     "comment": "random - Statement 57",
-    "query": "SELECT n, random(0, trim_scale(abs(1 - 10.0^(-n)))) FROM generate_series(-20, 20) n"
+    "query": "SELECT n, random(0, trim_scale(abs(1 - 10.0^(-n)))) FROM generate_series(-20, 20) n",
+    "expected": "SELECT n, random(0, trim_scale(abs(1 - 10.0 ^ (-n)))) FROM generate_series(-20, 20) AS n"
   }
 ]

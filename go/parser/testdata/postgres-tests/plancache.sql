@@ -56,19 +56,7 @@ EXECUTE vprep;
 
 -- Check basic SPI plan invalidation
 
-create function cache_test(int) returns int as $$
-declare total int;
-begin
-	create temp table t1(f1 int);
-	insert into t1 values($1);
-	insert into t1 values(11);
-	insert into t1 values(12);
-	insert into t1 values(13);
-	select sum(f1) into total from t1;
-	drop table t1;
-	return total;
-end
-$$ language plpgsql;
+create function cache_test(int) returns int as $$ declare total int; begin 	create temp table t1(f1 int); 	insert into t1 values($1); 	insert into t1 values(11); 	insert into t1 values(12); 	insert into t1 values(13); 	select sum(f1) into total from t1; 	drop table t1; 	return total; end $$ language plpgsql;
 
 select cache_test(1);
 select cache_test(2);
@@ -79,10 +67,7 @@ select cache_test(3);
 create temp view v1 as
   select 2+2 as f1;
 
-create function cache_test_2() returns int as $$
-begin
-	return f1 from v1;
-end$$ language plpgsql;
+create function cache_test_2() returns int as $$ begin return f1 from v1; end$$ language plpgsql;
 
 select cache_test_2();
 
@@ -143,16 +128,7 @@ execute p2;
 -- Check DDL via SPI, immediately followed by SPI plan re-use
 -- (bug in original coding)
 
-create function cachebug() returns void as $$
-declare r int;
-begin
-  drop table if exists temptable cascade;
-  create temp table temptable as select * from generate_series(1,3) as f1;
-  create temp view vv as select * from temptable;
-  for r in select * from vv loop
-    raise notice '%', r;
-  end loop;
-end$$ language plpgsql;
+create function cachebug() returns void as $$ declare r int; begin   drop table if exists temptable cascade;   create temp table temptable as select * from generate_series(1,3) as f1;   create temp view vv as select * from temptable;   for r in select * from vv loop     raise notice '%', r;   end loop; end$$ language plpgsql;
 
 select cachebug();
 select cachebug();

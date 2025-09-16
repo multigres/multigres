@@ -9,7 +9,8 @@
   },
   {
     "comment": "prepared_xacts - Statement 3",
-    "query": "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE"
+    "query": "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+    "expected": "BEGIN ISOLATION LEVEL SERIALIZABLE"
   },
   {
     "comment": "prepared_xacts - Statement 4",
@@ -93,7 +94,8 @@
   },
   {
     "comment": "prepared_xacts - Statement 24",
-    "query": "CREATE TABLE pxtest2 (a int)"
+    "query": "CREATE TABLE pxtest2 (a int)",
+    "expected": "CREATE TABLE pxtest2 (a INT)"
   },
   {
     "comment": "prepared_xacts - Statement 25",
@@ -109,7 +111,8 @@
   },
   {
     "comment": "prepared_xacts - Statement 28",
-    "query": "ROLLBACK TO a"
+    "query": "ROLLBACK TO a",
+    "expected": "ROLLBACK TO SAVEPOINT a"
   },
   {
     "comment": "prepared_xacts - Statement 29",
@@ -125,7 +128,8 @@
   },
   {
     "comment": "prepared_xacts - Statement 32",
-    "query": "CREATE TABLE pxtest3(fff int)"
+    "query": "CREATE TABLE pxtest3(fff int)",
+    "expected": "CREATE TABLE pxtest3 (fff INT)"
   },
   {
     "comment": "prepared_xacts - Statement 33",
@@ -133,7 +137,8 @@
   },
   {
     "comment": "prepared_xacts - Statement 34",
-    "query": "CREATE TABLE pxtest4 (a int)"
+    "query": "CREATE TABLE pxtest4 (a int)",
+    "expected": "CREATE TABLE pxtest4 (a INT)"
   },
   {
     "comment": "prepared_xacts - Statement 35",
@@ -149,7 +154,8 @@
   },
   {
     "comment": "prepared_xacts - Statement 38",
-    "query": "FETCH 1 FROM foo"
+    "query": "FETCH 1 FROM foo",
+    "expected": "FETCH FROM foo"
   },
   {
     "comment": "prepared_xacts - Statement 39",
@@ -161,11 +167,13 @@
   },
   {
     "comment": "prepared_xacts - Statement 41",
-    "query": "lock table pxtest3 in access share mode nowait"
+    "query": "lock table pxtest3 in access share mode nowait",
+    "expected": "LOCK TABLE pxtest3 IN ACCESS SHARE MODE NOWAIT"
   },
   {
     "comment": "prepared_xacts - Statement 42",
-    "query": "rollback"
+    "query": "rollback",
+    "expected": "ROLLBACK"
   },
   {
     "comment": "prepared_xacts - Statement 43",

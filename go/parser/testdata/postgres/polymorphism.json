@@ -1,1542 +1,1882 @@
 [
   {
     "comment": "polymorphism - Statement 1",
-    "query": "create function polyf(x anyelement) returns anyelement as $$ select x + 1 $$ language sql"
+    "query": "create function polyf(x anyelement) returns anyelement as $$ select x + 1 $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anyelement) RETURNS anyelement LANGUAGE sql AS $$ select x + 1 $$"
   },
   {
     "comment": "polymorphism - Statement 2",
-    "query": "select polyf(42) as int, polyf(4.5) as num"
+    "query": "select polyf(42) as int, polyf(4.5) as num",
+    "expected": "SELECT polyf(42) AS int, polyf(4.5) AS num"
   },
   {
     "comment": "polymorphism - Statement 3",
-    "query": "select polyf(point(3,4))"
+    "query": "select polyf(point(3,4))",
+    "expected": "SELECT polyf(point(3, 4))"
   },
   {
     "comment": "polymorphism - Statement 4",
-    "query": "drop function polyf(x anyelement)"
+    "query": "drop function polyf(x anyelement)",
+    "expected": "DROP FUNCTION polyf(x anyelement)"
   },
   {
     "comment": "polymorphism - Statement 5",
-    "query": "create function polyf(x anyelement) returns anyarray as $$ select array[x + 1, x + 2] $$ language sql"
+    "query": "create function polyf(x anyelement) returns anyarray as $$ select array[x + 1, x + 2] $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anyelement) RETURNS anyarray LANGUAGE sql AS $$ select array[x + 1, x + 2] $$"
   },
   {
     "comment": "polymorphism - Statement 6",
-    "query": "create function polyf(x anyarray) returns anyelement as $$ select x[1] $$ language sql"
+    "query": "create function polyf(x anyarray) returns anyelement as $$ select x[1] $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anyarray) RETURNS anyelement LANGUAGE sql AS $$ select x[1] $$"
   },
   {
     "comment": "polymorphism - Statement 7",
-    "query": "select polyf(array[2,4]) as int, polyf(array[4.5, 7.7]) as num"
+    "query": "select polyf(array[2,4]) as int, polyf(array[4.5, 7.7]) as num",
+    "expected": "SELECT polyf(ARRAY[2,4]) AS int, polyf(ARRAY[4.5,7.7]) AS num"
   },
   {
     "comment": "polymorphism - Statement 8",
-    "query": "select polyf(stavalues1) from pg_statistic"
+    "query": "select polyf(stavalues1) from pg_statistic",
+    "expected": "SELECT polyf(stavalues1) FROM pg_statistic"
   },
   {
     "comment": "polymorphism - Statement 9",
-    "query": "drop function polyf(x anyarray)"
+    "query": "drop function polyf(x anyarray)",
+    "expected": "DROP FUNCTION polyf(x anyarray)"
   },
   {
     "comment": "polymorphism - Statement 10",
-    "query": "create function polyf(x anyarray) returns anyarray as $$ select x $$ language sql"
+    "query": "create function polyf(x anyarray) returns anyarray as $$ select x $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anyarray) RETURNS anyarray LANGUAGE sql AS $$ select x $$"
   },
   {
     "comment": "polymorphism - Statement 11",
-    "query": "create function polyf(x anyelement) returns anyrange as $$ select array[x + 1, x + 2] $$ language sql"
+    "query": "create function polyf(x anyelement) returns anyrange as $$ select array[x + 1, x + 2] $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anyelement) RETURNS anyrange LANGUAGE sql AS $$ select array[x + 1, x + 2] $$"
   },
   {
     "comment": "polymorphism - Statement 12",
-    "query": "create function polyf(x anyrange) returns anyarray as $$ select array[lower(x), upper(x)] $$ language sql"
+    "query": "create function polyf(x anyrange) returns anyarray as $$ select array[lower(x), upper(x)] $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anyrange) RETURNS anyarray LANGUAGE sql AS $$ select array[lower(x), upper(x)] $$"
   },
   {
     "comment": "polymorphism - Statement 13",
-    "query": "select polyf(int4range(42, 49)) as int, polyf(float8range(4.5, 7.8)) as num"
+    "query": "select polyf(int4range(42, 49)) as int, polyf(float8range(4.5, 7.8)) as num",
+    "expected": "SELECT polyf(int4range(42, 49)) AS int, polyf(float8range(4.5, 7.8)) AS num"
   },
   {
     "comment": "polymorphism - Statement 14",
-    "query": "drop function polyf(x anyrange)"
+    "query": "drop function polyf(x anyrange)",
+    "expected": "DROP FUNCTION polyf(x anyrange)"
   },
   {
     "comment": "polymorphism - Statement 15",
-    "query": "create function polyf(x anycompatible, y anycompatible) returns anycompatiblearray as $$ select array[x, y] $$ language sql"
+    "query": "create function polyf(x anycompatible, y anycompatible) returns anycompatiblearray as $$ select array[x, y] $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anycompatible, y anycompatible) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[x, y] $$"
   },
   {
     "comment": "polymorphism - Statement 16",
-    "query": "select polyf(2, 4) as int, polyf(2, 4.5) as num"
+    "query": "select polyf(2, 4) as int, polyf(2, 4.5) as num",
+    "expected": "SELECT polyf(2, 4) AS int, polyf(2, 4.5) AS num"
   },
   {
     "comment": "polymorphism - Statement 17",
-    "query": "drop function polyf(x anycompatible, y anycompatible)"
+    "query": "drop function polyf(x anycompatible, y anycompatible)",
+    "expected": "DROP FUNCTION polyf(x anycompatible, y anycompatible)"
   },
   {
     "comment": "polymorphism - Statement 18",
-    "query": "create function polyf(x anycompatiblerange, y anycompatible, z anycompatible) returns anycompatiblearray as $$ select array[lower(x), upper(x), y, z] $$ language sql"
+    "query": "create function polyf(x anycompatiblerange, y anycompatible, z anycompatible) returns anycompatiblearray as $$ select array[lower(x), upper(x), y, z] $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anycompatiblerange, y anycompatible, z anycompatible) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[lower(x), upper(x), y, z] $$"
   },
   {
     "comment": "polymorphism - Statement 19",
-    "query": "select polyf(int4range(42, 49), 11, 2::smallint) as int, polyf(float8range(4.5, 7.8), 7.8, 11::real) as num"
+    "query": "select polyf(int4range(42, 49), 11, 2::smallint) as int, polyf(float8range(4.5, 7.8), 7.8, 11::real) as num",
+    "expected": "SELECT polyf(int4range(42, 49), 11, CAST(2 AS SMALLINT)) AS int, polyf(float8range(4.5, 7.8), 7.8, CAST(11 AS REAL)) AS num"
   },
   {
     "comment": "polymorphism - Statement 20",
-    "query": "select polyf(int4range(42, 49), 11, 4.5) as fail"
+    "query": "select polyf(int4range(42, 49), 11, 4.5) as fail",
+    "expected": "SELECT polyf(int4range(42, 49), 11, 4.5) AS fail"
   },
   {
     "comment": "polymorphism - Statement 21",
-    "query": "drop function polyf(x anycompatiblerange, y anycompatible, z anycompatible)"
+    "query": "drop function polyf(x anycompatiblerange, y anycompatible, z anycompatible)",
+    "expected": "DROP FUNCTION polyf(x anycompatiblerange, y anycompatible, z anycompatible)"
   },
   {
     "comment": "polymorphism - Statement 22",
-    "query": "create function polyf(x anycompatiblemultirange, y anycompatible, z anycompatible) returns anycompatiblearray as $$ select array[lower(x), upper(x), y, z] $$ language sql"
+    "query": "create function polyf(x anycompatiblemultirange, y anycompatible, z anycompatible) returns anycompatiblearray as $$ select array[lower(x), upper(x), y, z] $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anycompatiblemultirange, y anycompatible, z anycompatible) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[lower(x), upper(x), y, z] $$"
   },
   {
     "comment": "polymorphism - Statement 23",
-    "query": "select polyf(multirange(int4range(42, 49)), 11, 2::smallint) as int, polyf(multirange(float8range(4.5, 7.8)), 7.8, 11::real) as num"
+    "query": "select polyf(multirange(int4range(42, 49)), 11, 2::smallint) as int, polyf(multirange(float8range(4.5, 7.8)), 7.8, 11::real) as num",
+    "expected": "SELECT polyf(multirange(int4range(42, 49)), 11, CAST(2 AS SMALLINT)) AS int, polyf(multirange(float8range(4.5, 7.8)), 7.8, CAST(11 AS REAL)) AS num"
   },
   {
     "comment": "polymorphism - Statement 24",
-    "query": "select polyf(multirange(int4range(42, 49)), 11, 4.5) as fail"
+    "query": "select polyf(multirange(int4range(42, 49)), 11, 4.5) as fail",
+    "expected": "SELECT polyf(multirange(int4range(42, 49)), 11, 4.5) AS fail"
   },
   {
     "comment": "polymorphism - Statement 25",
-    "query": "drop function polyf(x anycompatiblemultirange, y anycompatible, z anycompatible)"
+    "query": "drop function polyf(x anycompatiblemultirange, y anycompatible, z anycompatible)",
+    "expected": "DROP FUNCTION polyf(x anycompatiblemultirange, y anycompatible, z anycompatible)"
   },
   {
     "comment": "polymorphism - Statement 26",
-    "query": "create function polyf(x anycompatible) returns anycompatiblerange as $$ select array[x + 1, x + 2] $$ language sql"
+    "query": "create function polyf(x anycompatible) returns anycompatiblerange as $$ select array[x + 1, x + 2] $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anycompatible) RETURNS anycompatiblerange LANGUAGE sql AS $$ select array[x + 1, x + 2] $$"
   },
   {
     "comment": "polymorphism - Statement 27",
-    "query": "create function polyf(x anycompatiblerange, y anycompatiblearray) returns anycompatiblerange as $$ select x $$ language sql"
+    "query": "create function polyf(x anycompatiblerange, y anycompatiblearray) returns anycompatiblerange as $$ select x $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anycompatiblerange, y anycompatiblearray) RETURNS anycompatiblerange LANGUAGE sql AS $$ select x $$"
   },
   {
     "comment": "polymorphism - Statement 28",
-    "query": "select polyf(int4range(42, 49), array[11]) as int, polyf(float8range(4.5, 7.8), array[7]) as num"
+    "query": "select polyf(int4range(42, 49), array[11]) as int, polyf(float8range(4.5, 7.8), array[7]) as num",
+    "expected": "SELECT polyf(int4range(42, 49), ARRAY[11]) AS int, polyf(float8range(4.5, 7.8), ARRAY[7]) AS num"
   },
   {
     "comment": "polymorphism - Statement 29",
-    "query": "drop function polyf(x anycompatiblerange, y anycompatiblearray)"
+    "query": "drop function polyf(x anycompatiblerange, y anycompatiblearray)",
+    "expected": "DROP FUNCTION polyf(x anycompatiblerange, y anycompatiblearray)"
   },
   {
     "comment": "polymorphism - Statement 30",
-    "query": "create function polyf(x anycompatible) returns anycompatiblemultirange as $$ select array[x + 1, x + 2] $$ language sql"
+    "query": "create function polyf(x anycompatible) returns anycompatiblemultirange as $$ select array[x + 1, x + 2] $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anycompatible) RETURNS anycompatiblemultirange LANGUAGE sql AS $$ select array[x + 1, x + 2] $$"
   },
   {
     "comment": "polymorphism - Statement 31",
-    "query": "create function polyf(x anycompatiblemultirange, y anycompatiblearray) returns anycompatiblemultirange as $$ select x $$ language sql"
+    "query": "create function polyf(x anycompatiblemultirange, y anycompatiblearray) returns anycompatiblemultirange as $$ select x $$ language sql",
+    "expected": "CREATE FUNCTION polyf (x anycompatiblemultirange, y anycompatiblearray) RETURNS anycompatiblemultirange LANGUAGE sql AS $$ select x $$"
   },
   {
     "comment": "polymorphism - Statement 32",
-    "query": "select polyf(multirange(int4range(42, 49)), array[11]) as int, polyf(multirange(float8range(4.5, 7.8)), array[7]) as num"
+    "query": "select polyf(multirange(int4range(42, 49)), array[11]) as int, polyf(multirange(float8range(4.5, 7.8)), array[7]) as num",
+    "expected": "SELECT polyf(multirange(int4range(42, 49)), ARRAY[11]) AS int, polyf(multirange(float8range(4.5, 7.8)), ARRAY[7]) AS num"
   },
   {
     "comment": "polymorphism - Statement 33",
-    "query": "drop function polyf(x anycompatiblemultirange, y anycompatiblearray)"
+    "query": "drop function polyf(x anycompatiblemultirange, y anycompatiblearray)",
+    "expected": "DROP FUNCTION polyf(x anycompatiblemultirange, y anycompatiblearray)"
   },
   {
     "comment": "polymorphism - Statement 34",
-    "query": "create function polyf(a anyelement, b anyarray, c anycompatible, d anycompatible, OUT x anyarray, OUT y anycompatiblearray) as $$ select a || b, array[c, d] $$ language sql"
+    "query": "create function polyf(a anyelement, b anyarray, c anycompatible, d anycompatible, OUT x anyarray, OUT y anycompatiblearray) as $$ select a || b, array[c, d] $$ language sql",
+    "expected": "CREATE FUNCTION polyf (a anyelement, b anyarray, c anycompatible, d anycompatible, OUT x anyarray, OUT y anycompatiblearray) LANGUAGE sql AS $$ select a || b, array[c, d] $$"
   },
   {
     "comment": "polymorphism - Statement 35",
-    "query": "select x, pg_typeof(x), y, pg_typeof(y) from polyf(11, array[1, 2], 42, 34.5)"
+    "query": "select x, pg_typeof(x), y, pg_typeof(y) from polyf(11, array[1, 2], 42, 34.5)",
+    "expected": "SELECT x, pg_typeof(x), y, pg_typeof(y) FROM polyf(11, ARRAY[1,2], 42, 34.5)"
   },
   {
     "comment": "polymorphism - Statement 36",
-    "query": "select x, pg_typeof(x), y, pg_typeof(y) from polyf(11, array[1, 2], point(1,2), point(3,4))"
+    "query": "select x, pg_typeof(x), y, pg_typeof(y) from polyf(11, array[1, 2], point(1,2), point(3,4))",
+    "expected": "SELECT x, pg_typeof(x), y, pg_typeof(y) FROM polyf(11, ARRAY[1,2], point(1, 2), point(3, 4))"
   },
   {
     "comment": "polymorphism - Statement 37",
-    "query": "select x, pg_typeof(x), y, pg_typeof(y) from polyf(11, '{1,2}', point(1,2), '(3,4)')"
+    "query": "select x, pg_typeof(x), y, pg_typeof(y) from polyf(11, '{1,2}', point(1,2), '(3,4)')",
+    "expected": "SELECT x, pg_typeof(x), y, pg_typeof(y) FROM polyf(11, '{1,2}', point(1, 2), '(3,4)')"
   },
   {
     "comment": "polymorphism - Statement 38",
-    "query": "select x, pg_typeof(x), y, pg_typeof(y) from polyf(11, array[1, 2.2], 42, 34.5)"
+    "query": "select x, pg_typeof(x), y, pg_typeof(y) from polyf(11, array[1, 2.2], 42, 34.5)",
+    "expected": "SELECT x, pg_typeof(x), y, pg_typeof(y) FROM polyf(11, ARRAY[1,2.2], 42, 34.5)"
   },
   {
     "comment": "polymorphism - Statement 39",
-    "query": "drop function polyf(a anyelement, b anyarray, c anycompatible, d anycompatible)"
+    "query": "drop function polyf(a anyelement, b anyarray, c anycompatible, d anycompatible)",
+    "expected": "DROP FUNCTION polyf(a anyelement, b anyarray, c anycompatible, d anycompatible)"
   },
   {
     "comment": "polymorphism - Statement 40",
-    "query": "create function polyf(anyrange) returns anymultirange as 'select multirange($1);' language sql"
+    "query": "create function polyf(anyrange) returns anymultirange as 'select multirange($1);' language sql",
+    "expected": "CREATE FUNCTION polyf (anyrange) RETURNS anymultirange LANGUAGE sql AS $$select multirange($1);$$"
   },
   {
     "comment": "polymorphism - Statement 41",
-    "query": "select polyf(int4range(1,10))"
+    "query": "select polyf(int4range(1,10))",
+    "expected": "SELECT polyf(int4range(1, 10))"
   },
   {
     "comment": "polymorphism - Statement 42",
-    "query": "select polyf(null)"
+    "query": "select polyf(null)",
+    "expected": "SELECT polyf(NULL)"
   },
   {
     "comment": "polymorphism - Statement 43",
-    "query": "drop function polyf(anyrange)"
+    "query": "drop function polyf(anyrange)",
+    "expected": "DROP FUNCTION polyf(anyrange)"
   },
   {
     "comment": "polymorphism - Statement 44",
-    "query": "create function polyf(anymultirange) returns anyelement as 'select lower($1);' language sql"
+    "query": "create function polyf(anymultirange) returns anyelement as 'select lower($1);' language sql",
+    "expected": "CREATE FUNCTION polyf (anymultirange) RETURNS anyelement LANGUAGE sql AS $$select lower($1);$$"
   },
   {
     "comment": "polymorphism - Statement 45",
-    "query": "select polyf(int4multirange(int4range(1,10), int4range(20,30)))"
+    "query": "select polyf(int4multirange(int4range(1,10), int4range(20,30)))",
+    "expected": "SELECT polyf(int4multirange(int4range(1, 10), int4range(20, 30)))"
   },
   {
     "comment": "polymorphism - Statement 46",
-    "query": "drop function polyf(anymultirange)"
+    "query": "drop function polyf(anymultirange)",
+    "expected": "DROP FUNCTION polyf(anymultirange)"
   },
   {
     "comment": "polymorphism - Statement 47",
-    "query": "create function polyf(anycompatiblerange) returns anycompatiblemultirange as 'select multirange($1);' language sql"
+    "query": "create function polyf(anycompatiblerange) returns anycompatiblemultirange as 'select multirange($1);' language sql",
+    "expected": "CREATE FUNCTION polyf (anycompatiblerange) RETURNS anycompatiblemultirange LANGUAGE sql AS $$select multirange($1);$$"
   },
   {
     "comment": "polymorphism - Statement 48",
-    "query": "drop function polyf(anycompatiblerange)"
+    "query": "drop function polyf(anycompatiblerange)",
+    "expected": "DROP FUNCTION polyf(anycompatiblerange)"
   },
   {
     "comment": "polymorphism - Statement 49",
-    "query": "create function polyf(anymultirange) returns anyrange as 'select range_merge($1);' language sql"
+    "query": "create function polyf(anymultirange) returns anyrange as 'select range_merge($1);' language sql",
+    "expected": "CREATE FUNCTION polyf (anymultirange) RETURNS anyrange LANGUAGE sql AS $$select range_merge($1);$$"
   },
   {
     "comment": "polymorphism - Statement 50",
-    "query": "create function polyf(anycompatiblemultirange) returns anycompatiblerange as 'select range_merge($1);' language sql"
+    "query": "create function polyf(anycompatiblemultirange) returns anycompatiblerange as 'select range_merge($1);' language sql",
+    "expected": "CREATE FUNCTION polyf (anycompatiblemultirange) RETURNS anycompatiblerange LANGUAGE sql AS $$select range_merge($1);$$"
   },
   {
     "comment": "polymorphism - Statement 51",
-    "query": "drop function polyf(anycompatiblemultirange)"
+    "query": "drop function polyf(anycompatiblemultirange)",
+    "expected": "DROP FUNCTION polyf(anycompatiblemultirange)"
   },
   {
     "comment": "polymorphism - Statement 52",
-    "query": "create function polyf(anycompatiblemultirange) returns anycompatible as 'select lower($1);' language sql"
+    "query": "create function polyf(anycompatiblemultirange) returns anycompatible as 'select lower($1);' language sql",
+    "expected": "CREATE FUNCTION polyf (anycompatiblemultirange) RETURNS anycompatible LANGUAGE sql AS $$select lower($1);$$"
   },
   {
     "comment": "polymorphism - Statement 53",
-    "query": "CREATE FUNCTION stfp(anyarray) RETURNS anyarray AS 'select $1' LANGUAGE SQL"
+    "query": "CREATE FUNCTION stfp(anyarray) RETURNS anyarray AS 'select $1' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION stfp (anyarray) RETURNS anyarray LANGUAGE sql AS $$select $1$$"
   },
   {
     "comment": "polymorphism - Statement 54",
-    "query": "CREATE FUNCTION stfnp(int[]) RETURNS int[] AS 'select $1' LANGUAGE SQL"
+    "query": "CREATE FUNCTION stfnp(int[]) RETURNS int[] AS 'select $1' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION stfnp (INT[]) RETURNS INT[] LANGUAGE sql AS $$select $1$$"
   },
   {
     "comment": "polymorphism - Statement 55",
-    "query": "CREATE FUNCTION tfp(anyarray,anyelement) RETURNS anyarray AS 'select $1 || $2' LANGUAGE SQL"
+    "query": "CREATE FUNCTION tfp(anyarray,anyelement) RETURNS anyarray AS 'select $1 || $2' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION tfp (anyarray, anyelement) RETURNS anyarray LANGUAGE sql AS $$select $1 || $2$$"
   },
   {
     "comment": "polymorphism - Statement 56",
-    "query": "CREATE FUNCTION tfnp(int[],int) RETURNS int[] AS 'select $1 || $2' LANGUAGE SQL"
+    "query": "CREATE FUNCTION tfnp(int[],int) RETURNS int[] AS 'select $1 || $2' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION tfnp (INT[], INT) RETURNS INT[] LANGUAGE sql AS $$select $1 || $2$$"
   },
   {
     "comment": "polymorphism - Statement 57",
-    "query": "CREATE FUNCTION tf1p(anyarray,int) RETURNS anyarray AS 'select $1' LANGUAGE SQL"
+    "query": "CREATE FUNCTION tf1p(anyarray,int) RETURNS anyarray AS 'select $1' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION tf1p (anyarray, INT) RETURNS anyarray LANGUAGE sql AS $$select $1$$"
   },
   {
     "comment": "polymorphism - Statement 58",
-    "query": "CREATE FUNCTION tf2p(int[],anyelement) RETURNS int[] AS 'select $1' LANGUAGE SQL"
+    "query": "CREATE FUNCTION tf2p(int[],anyelement) RETURNS int[] AS 'select $1' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION tf2p (INT[], anyelement) RETURNS INT[] LANGUAGE sql AS $$select $1$$"
   },
   {
     "comment": "polymorphism - Statement 59",
-    "query": "CREATE FUNCTION sum3(anyelement,anyelement,anyelement) returns anyelement AS 'select $1+$2+$3' language sql strict"
+    "query": "CREATE FUNCTION sum3(anyelement,anyelement,anyelement) returns anyelement AS 'select $1+$2+$3' language sql strict",
+    "expected": "CREATE FUNCTION sum3 (anyelement, anyelement, anyelement) RETURNS anyelement LANGUAGE sql AS $$select $1+$2+$3$$ STRICT"
   },
   {
     "comment": "polymorphism - Statement 60",
-    "query": "CREATE FUNCTION ffp(anyarray) RETURNS anyarray AS 'select $1' LANGUAGE SQL"
+    "query": "CREATE FUNCTION ffp(anyarray) RETURNS anyarray AS 'select $1' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION ffp (anyarray) RETURNS anyarray LANGUAGE sql AS $$select $1$$"
   },
   {
     "comment": "polymorphism - Statement 61",
-    "query": "CREATE FUNCTION ffnp(int[]) returns int[] as 'select $1' LANGUAGE SQL"
+    "query": "CREATE FUNCTION ffnp(int[]) returns int[] as 'select $1' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION ffnp (INT[]) RETURNS INT[] LANGUAGE sql AS $$select $1$$"
   },
   {
     "comment": "polymorphism - Statement 62",
-    "query": "CREATE AGGREGATE myaggp01a(*) (SFUNC = stfnp, STYPE = int4[], FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp01a(*) (SFUNC = stfnp, STYPE = int4[], FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp01a (*) (sfunc = stfnp, stype = INT[], finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 63",
-    "query": "CREATE AGGREGATE myaggp02a(*) (SFUNC = stfnp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp02a(*) (SFUNC = stfnp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp02a (*) (sfunc = stfnp, stype = anyarray, finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 64",
-    "query": "CREATE AGGREGATE myaggp03a(*) (SFUNC = stfp, STYPE = int4[], FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp03a(*) (SFUNC = stfp, STYPE = int4[], FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp03a (*) (sfunc = stfp, stype = INT[], finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 65",
-    "query": "CREATE AGGREGATE myaggp03b(*) (SFUNC = stfp, STYPE = int4[], INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp03b(*) (SFUNC = stfp, STYPE = int4[], INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp03b (*) (sfunc = stfp, stype = INT[], initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 66",
-    "query": "CREATE AGGREGATE myaggp04a(*) (SFUNC = stfp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp04a(*) (SFUNC = stfp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp04a (*) (sfunc = stfp, stype = anyarray, finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 67",
-    "query": "CREATE AGGREGATE myaggp04b(*) (SFUNC = stfp, STYPE = anyarray, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp04b(*) (SFUNC = stfp, STYPE = anyarray, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp04b (*) (sfunc = stfp, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 68",
-    "query": "CREATE AGGREGATE myaggp05a(BASETYPE = int, SFUNC = tfnp, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp05a(BASETYPE = int, SFUNC = tfnp, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp05a (basetype = INT, sfunc = tfnp, stype = INT[], finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 69",
-    "query": "CREATE AGGREGATE myaggp06a(BASETYPE = int, SFUNC = tf2p, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp06a(BASETYPE = int, SFUNC = tf2p, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp06a (basetype = INT, sfunc = tf2p, stype = INT[], finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 70",
-    "query": "CREATE AGGREGATE myaggp07a(BASETYPE = anyelement, SFUNC = tfnp, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp07a(BASETYPE = anyelement, SFUNC = tfnp, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp07a (basetype = anyelement, sfunc = tfnp, stype = INT[], finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 71",
-    "query": "CREATE AGGREGATE myaggp08a(BASETYPE = anyelement, SFUNC = tf2p, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp08a(BASETYPE = anyelement, SFUNC = tf2p, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp08a (basetype = anyelement, sfunc = tf2p, stype = INT[], finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 72",
-    "query": "CREATE AGGREGATE myaggp09a(BASETYPE = int, SFUNC = tf1p, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp09a(BASETYPE = int, SFUNC = tf1p, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp09a (basetype = INT, sfunc = tf1p, stype = INT[], finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 73",
-    "query": "CREATE AGGREGATE myaggp09b(BASETYPE = int, SFUNC = tf1p, STYPE = int[], INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp09b(BASETYPE = int, SFUNC = tf1p, STYPE = int[], INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp09b (basetype = INT, sfunc = tf1p, stype = INT[], initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 74",
-    "query": "CREATE AGGREGATE myaggp10a(BASETYPE = int, SFUNC = tfp, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp10a(BASETYPE = int, SFUNC = tfp, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp10a (basetype = INT, sfunc = tfp, stype = INT[], finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 75",
-    "query": "CREATE AGGREGATE myaggp10b(BASETYPE = int, SFUNC = tfp, STYPE = int[], INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp10b(BASETYPE = int, SFUNC = tfp, STYPE = int[], INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp10b (basetype = INT, sfunc = tfp, stype = INT[], initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 76",
-    "query": "CREATE AGGREGATE myaggp11a(BASETYPE = anyelement, SFUNC = tf1p, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp11a(BASETYPE = anyelement, SFUNC = tf1p, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp11a (basetype = anyelement, sfunc = tf1p, stype = INT[], finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 77",
-    "query": "CREATE AGGREGATE myaggp11b(BASETYPE = anyelement, SFUNC = tf1p, STYPE = int[], INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp11b(BASETYPE = anyelement, SFUNC = tf1p, STYPE = int[], INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp11b (basetype = anyelement, sfunc = tf1p, stype = INT[], initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 78",
-    "query": "CREATE AGGREGATE myaggp12a(BASETYPE = anyelement, SFUNC = tfp, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp12a(BASETYPE = anyelement, SFUNC = tfp, STYPE = int[], FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp12a (basetype = anyelement, sfunc = tfp, stype = INT[], finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 79",
-    "query": "CREATE AGGREGATE myaggp12b(BASETYPE = anyelement, SFUNC = tfp, STYPE = int[], INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp12b(BASETYPE = anyelement, SFUNC = tfp, STYPE = int[], INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp12b (basetype = anyelement, sfunc = tfp, stype = INT[], initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 80",
-    "query": "CREATE AGGREGATE myaggp13a(BASETYPE = int, SFUNC = tfnp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp13a(BASETYPE = int, SFUNC = tfnp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp13a (basetype = INT, sfunc = tfnp, stype = anyarray, finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 81",
-    "query": "CREATE AGGREGATE myaggp14a(BASETYPE = int, SFUNC = tf2p, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp14a(BASETYPE = int, SFUNC = tf2p, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp14a (basetype = INT, sfunc = tf2p, stype = anyarray, finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 82",
-    "query": "CREATE AGGREGATE myaggp15a(BASETYPE = anyelement, SFUNC = tfnp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp15a(BASETYPE = anyelement, SFUNC = tfnp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp15a (basetype = anyelement, sfunc = tfnp, stype = anyarray, finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 83",
-    "query": "CREATE AGGREGATE myaggp16a(BASETYPE = anyelement, SFUNC = tf2p, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp16a(BASETYPE = anyelement, SFUNC = tf2p, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp16a (basetype = anyelement, sfunc = tf2p, stype = anyarray, finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 84",
-    "query": "CREATE AGGREGATE myaggp17a(BASETYPE = int, SFUNC = tf1p, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp17a(BASETYPE = int, SFUNC = tf1p, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp17a (basetype = INT, sfunc = tf1p, stype = anyarray, finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 85",
-    "query": "CREATE AGGREGATE myaggp17b(BASETYPE = int, SFUNC = tf1p, STYPE = anyarray, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp17b(BASETYPE = int, SFUNC = tf1p, STYPE = anyarray, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp17b (basetype = INT, sfunc = tf1p, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 86",
-    "query": "CREATE AGGREGATE myaggp18a(BASETYPE = int, SFUNC = tfp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp18a(BASETYPE = int, SFUNC = tfp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp18a (basetype = INT, sfunc = tfp, stype = anyarray, finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 87",
-    "query": "CREATE AGGREGATE myaggp18b(BASETYPE = int, SFUNC = tfp, STYPE = anyarray, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp18b(BASETYPE = int, SFUNC = tfp, STYPE = anyarray, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp18b (basetype = INT, sfunc = tfp, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 88",
-    "query": "CREATE AGGREGATE myaggp19a(BASETYPE = anyelement, SFUNC = tf1p, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp19a(BASETYPE = anyelement, SFUNC = tf1p, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp19a (basetype = anyelement, sfunc = tf1p, stype = anyarray, finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 89",
-    "query": "CREATE AGGREGATE myaggp19b(BASETYPE = anyelement, SFUNC = tf1p, STYPE = anyarray, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp19b(BASETYPE = anyelement, SFUNC = tf1p, STYPE = anyarray, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp19b (basetype = anyelement, sfunc = tf1p, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 90",
-    "query": "CREATE AGGREGATE myaggp20a(BASETYPE = anyelement, SFUNC = tfp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp20a(BASETYPE = anyelement, SFUNC = tfp, STYPE = anyarray, FINALFUNC = ffp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp20a (basetype = anyelement, sfunc = tfp, stype = anyarray, finalfunc = ffp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 91",
-    "query": "CREATE AGGREGATE myaggp20b(BASETYPE = anyelement, SFUNC = tfp, STYPE = anyarray, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggp20b(BASETYPE = anyelement, SFUNC = tfp, STYPE = anyarray, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggp20b (basetype = anyelement, sfunc = tfp, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 92",
-    "query": "CREATE AGGREGATE myaggn01a(*) (SFUNC = stfnp, STYPE = int4[], FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn01a(*) (SFUNC = stfnp, STYPE = int4[], FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn01a (*) (sfunc = stfnp, stype = INT[], finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 93",
-    "query": "CREATE AGGREGATE myaggn01b(*) (SFUNC = stfnp, STYPE = int4[], INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn01b(*) (SFUNC = stfnp, STYPE = int4[], INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn01b (*) (sfunc = stfnp, stype = INT[], initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 94",
-    "query": "CREATE AGGREGATE myaggn02a(*) (SFUNC = stfnp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn02a(*) (SFUNC = stfnp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn02a (*) (sfunc = stfnp, stype = anyarray, finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 95",
-    "query": "CREATE AGGREGATE myaggn02b(*) (SFUNC = stfnp, STYPE = anyarray, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn02b(*) (SFUNC = stfnp, STYPE = anyarray, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn02b (*) (sfunc = stfnp, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 96",
-    "query": "CREATE AGGREGATE myaggn03a(*) (SFUNC = stfp, STYPE = int4[], FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn03a(*) (SFUNC = stfp, STYPE = int4[], FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn03a (*) (sfunc = stfp, stype = INT[], finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 97",
-    "query": "CREATE AGGREGATE myaggn04a(*) (SFUNC = stfp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn04a(*) (SFUNC = stfp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn04a (*) (sfunc = stfp, stype = anyarray, finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 98",
-    "query": "CREATE AGGREGATE myaggn05a(BASETYPE = int, SFUNC = tfnp, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn05a(BASETYPE = int, SFUNC = tfnp, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn05a (basetype = INT, sfunc = tfnp, stype = INT[], finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 99",
-    "query": "CREATE AGGREGATE myaggn05b(BASETYPE = int, SFUNC = tfnp, STYPE = int[], INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn05b(BASETYPE = int, SFUNC = tfnp, STYPE = int[], INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn05b (basetype = INT, sfunc = tfnp, stype = INT[], initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 100",
-    "query": "CREATE AGGREGATE myaggn06a(BASETYPE = int, SFUNC = tf2p, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn06a(BASETYPE = int, SFUNC = tf2p, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn06a (basetype = INT, sfunc = tf2p, stype = INT[], finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 101",
-    "query": "CREATE AGGREGATE myaggn06b(BASETYPE = int, SFUNC = tf2p, STYPE = int[], INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn06b(BASETYPE = int, SFUNC = tf2p, STYPE = int[], INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn06b (basetype = INT, sfunc = tf2p, stype = INT[], initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 102",
-    "query": "CREATE AGGREGATE myaggn07a(BASETYPE = anyelement, SFUNC = tfnp, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn07a(BASETYPE = anyelement, SFUNC = tfnp, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn07a (basetype = anyelement, sfunc = tfnp, stype = INT[], finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 103",
-    "query": "CREATE AGGREGATE myaggn07b(BASETYPE = anyelement, SFUNC = tfnp, STYPE = int[], INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn07b(BASETYPE = anyelement, SFUNC = tfnp, STYPE = int[], INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn07b (basetype = anyelement, sfunc = tfnp, stype = INT[], initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 104",
-    "query": "CREATE AGGREGATE myaggn08a(BASETYPE = anyelement, SFUNC = tf2p, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn08a(BASETYPE = anyelement, SFUNC = tf2p, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn08a (basetype = anyelement, sfunc = tf2p, stype = INT[], finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 105",
-    "query": "CREATE AGGREGATE myaggn08b(BASETYPE = anyelement, SFUNC = tf2p, STYPE = int[], INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn08b(BASETYPE = anyelement, SFUNC = tf2p, STYPE = int[], INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn08b (basetype = anyelement, sfunc = tf2p, stype = INT[], initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 106",
-    "query": "CREATE AGGREGATE myaggn09a(BASETYPE = int, SFUNC = tf1p, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn09a(BASETYPE = int, SFUNC = tf1p, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn09a (basetype = INT, sfunc = tf1p, stype = INT[], finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 107",
-    "query": "CREATE AGGREGATE myaggn10a(BASETYPE = int, SFUNC = tfp, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn10a(BASETYPE = int, SFUNC = tfp, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn10a (basetype = INT, sfunc = tfp, stype = INT[], finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 108",
-    "query": "CREATE AGGREGATE myaggn11a(BASETYPE = anyelement, SFUNC = tf1p, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn11a(BASETYPE = anyelement, SFUNC = tf1p, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn11a (basetype = anyelement, sfunc = tf1p, stype = INT[], finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 109",
-    "query": "CREATE AGGREGATE myaggn12a(BASETYPE = anyelement, SFUNC = tfp, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn12a(BASETYPE = anyelement, SFUNC = tfp, STYPE = int[], FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn12a (basetype = anyelement, sfunc = tfp, stype = INT[], finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 110",
-    "query": "CREATE AGGREGATE myaggn13a(BASETYPE = int, SFUNC = tfnp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn13a(BASETYPE = int, SFUNC = tfnp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn13a (basetype = INT, sfunc = tfnp, stype = anyarray, finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 111",
-    "query": "CREATE AGGREGATE myaggn13b(BASETYPE = int, SFUNC = tfnp, STYPE = anyarray, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn13b(BASETYPE = int, SFUNC = tfnp, STYPE = anyarray, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn13b (basetype = INT, sfunc = tfnp, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 112",
-    "query": "CREATE AGGREGATE myaggn14a(BASETYPE = int, SFUNC = tf2p, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn14a(BASETYPE = int, SFUNC = tf2p, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn14a (basetype = INT, sfunc = tf2p, stype = anyarray, finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 113",
-    "query": "CREATE AGGREGATE myaggn14b(BASETYPE = int, SFUNC = tf2p, STYPE = anyarray, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn14b(BASETYPE = int, SFUNC = tf2p, STYPE = anyarray, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn14b (basetype = INT, sfunc = tf2p, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 114",
-    "query": "CREATE AGGREGATE myaggn15a(BASETYPE = anyelement, SFUNC = tfnp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn15a(BASETYPE = anyelement, SFUNC = tfnp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn15a (basetype = anyelement, sfunc = tfnp, stype = anyarray, finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 115",
-    "query": "CREATE AGGREGATE myaggn15b(BASETYPE = anyelement, SFUNC = tfnp, STYPE = anyarray, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn15b(BASETYPE = anyelement, SFUNC = tfnp, STYPE = anyarray, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn15b (basetype = anyelement, sfunc = tfnp, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 116",
-    "query": "CREATE AGGREGATE myaggn16a(BASETYPE = anyelement, SFUNC = tf2p, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn16a(BASETYPE = anyelement, SFUNC = tf2p, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn16a (basetype = anyelement, sfunc = tf2p, stype = anyarray, finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 117",
-    "query": "CREATE AGGREGATE myaggn16b(BASETYPE = anyelement, SFUNC = tf2p, STYPE = anyarray, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn16b(BASETYPE = anyelement, SFUNC = tf2p, STYPE = anyarray, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn16b (basetype = anyelement, sfunc = tf2p, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 118",
-    "query": "CREATE AGGREGATE myaggn17a(BASETYPE = int, SFUNC = tf1p, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn17a(BASETYPE = int, SFUNC = tf1p, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn17a (basetype = INT, sfunc = tf1p, stype = anyarray, finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 119",
-    "query": "CREATE AGGREGATE myaggn18a(BASETYPE = int, SFUNC = tfp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn18a(BASETYPE = int, SFUNC = tfp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn18a (basetype = INT, sfunc = tfp, stype = anyarray, finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 120",
-    "query": "CREATE AGGREGATE myaggn19a(BASETYPE = anyelement, SFUNC = tf1p, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn19a(BASETYPE = anyelement, SFUNC = tf1p, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn19a (basetype = anyelement, sfunc = tf1p, stype = anyarray, finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 121",
-    "query": "CREATE AGGREGATE myaggn20a(BASETYPE = anyelement, SFUNC = tfp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')"
+    "query": "CREATE AGGREGATE myaggn20a(BASETYPE = anyelement, SFUNC = tfp, STYPE = anyarray, FINALFUNC = ffnp, INITCOND = '{}')",
+    "expected": "CREATE AGGREGATE myaggn20a (basetype = anyelement, sfunc = tfp, stype = anyarray, finalfunc = ffnp, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 122",
-    "query": "CREATE AGGREGATE mysum2(anyelement,anyelement) (SFUNC = sum3, STYPE = anyelement, INITCOND = '0')"
+    "query": "CREATE AGGREGATE mysum2(anyelement,anyelement) (SFUNC = sum3, STYPE = anyelement, INITCOND = '0')",
+    "expected": "CREATE AGGREGATE mysum2 (anyelement, anyelement) (sfunc = sum3, stype = anyelement, initcond = '0')"
   },
   {
     "comment": "polymorphism - Statement 123",
-    "query": "create temp table t(f1 int, f2 int[], f3 text)"
+    "query": "create temp table t(f1 int, f2 int[], f3 text)",
+    "expected": "CREATE TEMPORARY TABLE t (f1 INT, f2 INT[], f3 TEXT)"
   },
   {
     "comment": "polymorphism - Statement 124",
-    "query": "insert into t values(1,array[1],'a')"
+    "query": "insert into t values(1,array[1],'a')",
+    "expected": "INSERT INTO t VALUES (1, ARRAY[1], 'a')"
   },
   {
     "comment": "polymorphism - Statement 125",
-    "query": "insert into t values(1,array[11],'b')"
+    "query": "insert into t values(1,array[11],'b')",
+    "expected": "INSERT INTO t VALUES (1, ARRAY[11], 'b')"
   },
   {
     "comment": "polymorphism - Statement 126",
-    "query": "insert into t values(1,array[111],'c')"
+    "query": "insert into t values(1,array[111],'c')",
+    "expected": "INSERT INTO t VALUES (1, ARRAY[111], 'c')"
   },
   {
     "comment": "polymorphism - Statement 127",
-    "query": "insert into t values(2,array[2],'a')"
+    "query": "insert into t values(2,array[2],'a')",
+    "expected": "INSERT INTO t VALUES (2, ARRAY[2], 'a')"
   },
   {
     "comment": "polymorphism - Statement 128",
-    "query": "insert into t values(2,array[22],'b')"
+    "query": "insert into t values(2,array[22],'b')",
+    "expected": "INSERT INTO t VALUES (2, ARRAY[22], 'b')"
   },
   {
     "comment": "polymorphism - Statement 129",
-    "query": "insert into t values(2,array[222],'c')"
+    "query": "insert into t values(2,array[222],'c')",
+    "expected": "INSERT INTO t VALUES (2, ARRAY[222], 'c')"
   },
   {
     "comment": "polymorphism - Statement 130",
-    "query": "insert into t values(3,array[3],'a')"
+    "query": "insert into t values(3,array[3],'a')",
+    "expected": "INSERT INTO t VALUES (3, ARRAY[3], 'a')"
   },
   {
     "comment": "polymorphism - Statement 131",
-    "query": "insert into t values(3,array[3],'b')"
+    "query": "insert into t values(3,array[3],'b')",
+    "expected": "INSERT INTO t VALUES (3, ARRAY[3], 'b')"
   },
   {
     "comment": "polymorphism - Statement 132",
-    "query": "select f3, myaggp01a(*) from t group by f3 order by f3"
+    "query": "select f3, myaggp01a(*) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp01a(*) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 133",
-    "query": "select f3, myaggp03a(*) from t group by f3 order by f3"
+    "query": "select f3, myaggp03a(*) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp03a(*) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 134",
-    "query": "select f3, myaggp03b(*) from t group by f3 order by f3"
+    "query": "select f3, myaggp03b(*) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp03b(*) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 135",
-    "query": "select f3, myaggp05a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggp05a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp05a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 136",
-    "query": "select f3, myaggp06a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggp06a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp06a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 137",
-    "query": "select f3, myaggp08a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggp08a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp08a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 138",
-    "query": "select f3, myaggp09a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggp09a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp09a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 139",
-    "query": "select f3, myaggp09b(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggp09b(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp09b(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 140",
-    "query": "select f3, myaggp10a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggp10a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp10a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 141",
-    "query": "select f3, myaggp10b(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggp10b(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp10b(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 142",
-    "query": "select f3, myaggp20a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggp20a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp20a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 143",
-    "query": "select f3, myaggp20b(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggp20b(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggp20b(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 144",
-    "query": "select f3, myaggn01a(*) from t group by f3 order by f3"
+    "query": "select f3, myaggn01a(*) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn01a(*) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 145",
-    "query": "select f3, myaggn01b(*) from t group by f3 order by f3"
+    "query": "select f3, myaggn01b(*) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn01b(*) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 146",
-    "query": "select f3, myaggn03a(*) from t group by f3 order by f3"
+    "query": "select f3, myaggn03a(*) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn03a(*) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 147",
-    "query": "select f3, myaggn05a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggn05a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn05a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 148",
-    "query": "select f3, myaggn05b(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggn05b(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn05b(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 149",
-    "query": "select f3, myaggn06a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggn06a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn06a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 150",
-    "query": "select f3, myaggn06b(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggn06b(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn06b(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 151",
-    "query": "select f3, myaggn08a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggn08a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn08a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 152",
-    "query": "select f3, myaggn08b(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggn08b(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn08b(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 153",
-    "query": "select f3, myaggn09a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggn09a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn09a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 154",
-    "query": "select f3, myaggn10a(f1) from t group by f3 order by f3"
+    "query": "select f3, myaggn10a(f1) from t group by f3 order by f3",
+    "expected": "SELECT f3, myaggn10a(f1) FROM t GROUP BY f3 ORDER BY f3"
   },
   {
     "comment": "polymorphism - Statement 155",
-    "query": "select mysum2(f1, f1 + 1) from t"
+    "query": "select mysum2(f1, f1 + 1) from t",
+    "expected": "SELECT mysum2(f1, f1 + 1) FROM t"
   },
   {
     "comment": "polymorphism - Statement 156",
-    "query": "create function bleat(int) returns int as $$ begin raise notice 'bleat %', $1"
-  },
-  {
-    "comment": "polymorphism - Statement 157",
-    "query": "return $1"
-  },
-  {
-    "comment": "polymorphism - Statement 158",
-    "query": "end$$ language plpgsql"
+    "query": "create function bleat(int) returns int as $$ begin   raise notice 'bleat %', $1;   return $1; end$$ language plpgsql;",
+    "expected": "CREATE FUNCTION bleat (INT) RETURNS INT LANGUAGE plpgsql AS $$ begin   raise notice 'bleat %', $1;   return $1; end$$"
   },
   {
     "comment": "polymorphism - Statement 159",
-    "query": "create function sql_if(bool, anyelement, anyelement) returns anyelement as $$ select case when $1 then $2 else $3 end $$ language sql"
+    "query": "create function sql_if(bool, anyelement, anyelement) returns anyelement as $$ select case when $1 then $2 else $3 end $$ language sql",
+    "expected": "CREATE FUNCTION sql_if (BOOLEAN, anyelement, anyelement) RETURNS anyelement LANGUAGE sql AS $$ select case when $1 then $2 else $3 end $$"
   },
   {
     "comment": "polymorphism - Statement 160",
-    "query": "select f1, sql_if(f1 > 0, bleat(f1), bleat(f1 + 1)) from int4_tbl"
+    "query": "select f1, sql_if(f1 \u003e 0, bleat(f1), bleat(f1 + 1)) from int4_tbl",
+    "expected": "SELECT f1, sql_if(f1 \u003e 0, bleat(f1), bleat(f1 + 1)) FROM int4_tbl"
   },
   {
     "comment": "polymorphism - Statement 161",
-    "query": "select q2, sql_if(q2 > 0, q2, q2 + 1) from int8_tbl"
+    "query": "select q2, sql_if(q2 \u003e 0, q2, q2 + 1) from int8_tbl",
+    "expected": "SELECT q2, sql_if(q2 \u003e 0, q2, q2 + 1) FROM int8_tbl"
   },
   {
     "comment": "polymorphism - Statement 162",
-    "query": "CREATE AGGREGATE array_larger_accum (anyarray) ( sfunc = array_larger, stype = anyarray, initcond = '{}' )"
+    "query": "CREATE AGGREGATE array_larger_accum (anyarray) ( sfunc = array_larger, stype = anyarray, initcond = '{}' )",
+    "expected": "CREATE AGGREGATE array_larger_accum (anyarray) (sfunc = array_larger, stype = anyarray, initcond = '{}')"
   },
   {
     "comment": "polymorphism - Statement 163",
-    "query": "SELECT array_larger_accum(i) FROM (VALUES (ARRAY[1,2]), (ARRAY[3,4])) as t(i)"
+    "query": "SELECT array_larger_accum(i) FROM (VALUES (ARRAY[1,2]), (ARRAY[3,4])) as t(i)",
+    "expected": "SELECT array_larger_accum(i) FROM (VALUES (ARRAY[1,2]), (ARRAY[3,4])) AS t(i)"
   },
   {
     "comment": "polymorphism - Statement 164",
-    "query": "SELECT array_larger_accum(i) FROM (VALUES (ARRAY[row(1,2),row(3,4)]), (ARRAY[row(5,6),row(7,8)])) as t(i)"
+    "query": "SELECT array_larger_accum(i) FROM (VALUES (ARRAY[row(1,2),row(3,4)]), (ARRAY[row(5,6),row(7,8)])) as t(i)",
+    "expected": "SELECT array_larger_accum(i) FROM (VALUES (ARRAY[ROW(1, 2),ROW(3, 4)]), (ARRAY[ROW(5, 6),ROW(7, 8)])) AS t(i)"
   },
   {
     "comment": "polymorphism - Statement 165",
-    "query": "create function add_group(grp anyarray, ad anyelement, size integer) returns anyarray as $$ begin if grp is null then return array[ad]"
-  },
-  {
-    "comment": "polymorphism - Statement 166",
-    "query": "end if"
-  },
-  {
-    "comment": "polymorphism - Statement 167",
-    "query": "if array_upper(grp, 1) < size then return grp || ad"
-  },
-  {
-    "comment": "polymorphism - Statement 168",
-    "query": "return grp"
-  },
-  {
-    "comment": "polymorphism - Statement 169",
-    "query": "end"
-  },
-  {
-    "comment": "polymorphism - Statement 170",
-    "query": "$$ language plpgsql immutable"
+    "query": "create function add_group(grp anyarray, ad anyelement, size integer)   returns anyarray   as $$ begin   if grp is null then     return array[ad];   end if;   if array_upper(grp, 1) \u003c size then     return grp || ad;   end if;   return grp; end; $$   language plpgsql immutable;",
+    "expected": "CREATE FUNCTION add_group (grp anyarray, ad anyelement, size INT) RETURNS anyarray LANGUAGE plpgsql AS $$ begin   if grp is null then     return array[ad];   end if;   if array_upper(grp, 1) \u003c size then     return grp || ad;   end if;   return grp; end; $$ IMMUTABLE"
   },
   {
     "comment": "polymorphism - Statement 171",
-    "query": "create aggregate build_group(anyelement, integer) ( SFUNC = add_group, STYPE = anyarray )"
+    "query": "create aggregate build_group(anyelement, integer) ( SFUNC = add_group, STYPE = anyarray )",
+    "expected": "CREATE AGGREGATE build_group (anyelement, INT) (sfunc = add_group, stype = anyarray)"
   },
   {
     "comment": "polymorphism - Statement 172",
-    "query": "select build_group(q1,3) from int8_tbl"
+    "query": "select build_group(q1,3) from int8_tbl",
+    "expected": "SELECT build_group(q1, 3) FROM int8_tbl"
   },
   {
     "comment": "polymorphism - Statement 173",
-    "query": "create aggregate build_group(int8, integer) ( SFUNC = add_group, STYPE = int2[] )"
+    "query": "create aggregate build_group(int8, integer) ( SFUNC = add_group, STYPE = int2[] )",
+    "expected": "CREATE AGGREGATE build_group (BIGINT, INT) (sfunc = add_group, stype = SMALLINT[])"
   },
   {
     "comment": "polymorphism - Statement 174",
-    "query": "create aggregate build_group(int8, integer) ( SFUNC = add_group, STYPE = int8[] )"
+    "query": "create aggregate build_group(int8, integer) ( SFUNC = add_group, STYPE = int8[] )",
+    "expected": "CREATE AGGREGATE build_group (BIGINT, INT) (sfunc = add_group, stype = BIGINT[])"
   },
   {
     "comment": "polymorphism - Statement 175",
-    "query": "create function first_el_transfn(anyarray, anyelement) returns anyarray as 'select $1 || $2' language sql immutable"
+    "query": "create function first_el_transfn(anyarray, anyelement) returns anyarray as 'select $1 || $2' language sql immutable",
+    "expected": "CREATE FUNCTION first_el_transfn (anyarray, anyelement) RETURNS anyarray LANGUAGE sql AS $$select $1 || $2$$ IMMUTABLE"
   },
   {
     "comment": "polymorphism - Statement 176",
-    "query": "create function first_el(anyarray) returns anyelement as 'select $1[1]' language sql strict immutable"
+    "query": "create function first_el(anyarray) returns anyelement as 'select $1[1]' language sql strict immutable",
+    "expected": "CREATE FUNCTION first_el (anyarray) RETURNS anyelement LANGUAGE sql AS $$select $1[1]$$ STRICT IMMUTABLE"
   },
   {
     "comment": "polymorphism - Statement 177",
-    "query": "create aggregate first_el_agg_f8(float8) ( SFUNC = array_append, STYPE = float8[], FINALFUNC = first_el )"
+    "query": "create aggregate first_el_agg_f8(float8) ( SFUNC = array_append, STYPE = float8[], FINALFUNC = first_el )",
+    "expected": "CREATE AGGREGATE first_el_agg_f8 (FLOAT8) (sfunc = array_append, stype = FLOAT8[], finalfunc = first_el)"
   },
   {
     "comment": "polymorphism - Statement 178",
-    "query": "create aggregate first_el_agg_any(anyelement) ( SFUNC = first_el_transfn, STYPE = anyarray, FINALFUNC = first_el )"
+    "query": "create aggregate first_el_agg_any(anyelement) ( SFUNC = first_el_transfn, STYPE = anyarray, FINALFUNC = first_el )",
+    "expected": "CREATE AGGREGATE first_el_agg_any (anyelement) (sfunc = first_el_transfn, stype = anyarray, finalfunc = first_el)"
   },
   {
     "comment": "polymorphism - Statement 179",
-    "query": "select first_el_agg_f8(x::float8) from generate_series(1,10) x"
+    "query": "select first_el_agg_f8(x::float8) from generate_series(1,10) x",
+    "expected": "SELECT first_el_agg_f8(CAST(x AS FLOAT8)) FROM generate_series(1, 10) AS x"
   },
   {
     "comment": "polymorphism - Statement 180",
-    "query": "select first_el_agg_any(x) from generate_series(1,10) x"
+    "query": "select first_el_agg_any(x) from generate_series(1,10) x",
+    "expected": "SELECT first_el_agg_any(x) FROM generate_series(1, 10) AS x"
   },
   {
     "comment": "polymorphism - Statement 181",
-    "query": "select first_el_agg_f8(x::float8) over(order by x) from generate_series(1,10) x"
+    "query": "select first_el_agg_f8(x::float8) over(order by x) from generate_series(1,10) x",
+    "expected": "SELECT first_el_agg_f8(CAST(x AS FLOAT8)) OVER (ORDER BY x) FROM generate_series(1, 10) AS x"
   },
   {
     "comment": "polymorphism - Statement 182",
-    "query": "select first_el_agg_any(x) over(order by x) from generate_series(1,10) x"
+    "query": "select first_el_agg_any(x) over(order by x) from generate_series(1,10) x",
+    "expected": "SELECT first_el_agg_any(x) OVER (ORDER BY x) FROM generate_series(1, 10) AS x"
   },
   {
     "comment": "polymorphism - Statement 183",
-    "query": "select distinct array_ndims(histogram_bounds) from pg_stats where histogram_bounds is not null"
+    "query": "select distinct array_ndims(histogram_bounds) from pg_stats where histogram_bounds is not null",
+    "expected": "SELECT DISTINCT array_ndims(histogram_bounds) FROM pg_stats WHERE histogram_bounds IS NOT NULL"
   },
   {
     "comment": "polymorphism - Statement 184",
-    "query": "select max(histogram_bounds) from pg_stats where tablename = 'pg_am'"
+    "query": "select max(histogram_bounds) from pg_stats where tablename = 'pg_am'",
+    "expected": "SELECT MAX(histogram_bounds) FROM pg_stats WHERE tablename = 'pg_am'"
   },
   {
     "comment": "polymorphism - Statement 185",
-    "query": "select array_in('{1,2,3}','int4'::regtype,-1)"
+    "query": "select array_in('{1,2,3}','int4'::regtype,-1)",
+    "expected": "SELECT array_in('{1,2,3}', CAST('int4' AS regtype), -1)"
   },
   {
     "comment": "polymorphism - Statement 186",
-    "query": "select * from array_in('{1,2,3}','int4'::regtype,-1)"
+    "query": "select * from array_in('{1,2,3}','int4'::regtype,-1)",
+    "expected": "SELECT * FROM array_in('{1,2,3}', CAST('int4' AS regtype), -1)"
   },
   {
     "comment": "polymorphism - Statement 187",
-    "query": "select anyrange_in('[10,20)','int4range'::regtype,-1)"
+    "query": "select anyrange_in('[10,20)','int4range'::regtype,-1)",
+    "expected": "SELECT anyrange_in('[10,20)', CAST('int4range' AS regtype), -1)"
   },
   {
     "comment": "polymorphism - Statement 188",
-    "query": "create function myleast(variadic anyarray) returns anyelement as $$ select min($1[i]) from generate_subscripts($1,1) g(i) $$ language sql immutable strict"
+    "query": "create function myleast(variadic anyarray) returns anyelement as $$ select min($1[i]) from generate_subscripts($1,1) g(i) $$ language sql immutable strict",
+    "expected": "CREATE FUNCTION myleast (VARIADIC anyarray) RETURNS anyelement LANGUAGE sql AS $$ select min($1[i]) from generate_subscripts($1,1) g(i) $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 189",
-    "query": "select myleast(10, 1, 20, 33)"
+    "query": "select myleast(10, 1, 20, 33)",
+    "expected": "SELECT myleast(10, 1, 20, 33)"
   },
   {
     "comment": "polymorphism - Statement 190",
-    "query": "select myleast(1.1, 0.22, 0.55)"
+    "query": "select myleast(1.1, 0.22, 0.55)",
+    "expected": "SELECT myleast(1.1, 0.22, 0.55)"
   },
   {
     "comment": "polymorphism - Statement 191",
-    "query": "select myleast('z'::text)"
+    "query": "select myleast('z'::text)",
+    "expected": "SELECT myleast(CAST('z' AS TEXT))"
   },
   {
     "comment": "polymorphism - Statement 192",
-    "query": "select myleast()"
+    "query": "select myleast()",
+    "expected": "SELECT myleast()"
   },
   {
     "comment": "polymorphism - Statement 193",
-    "query": "select myleast(variadic array[1,2,3,4,-1])"
+    "query": "select myleast(variadic array[1,2,3,4,-1])",
+    "expected": "SELECT myleast(VARIADIC ARRAY[1,2,3,4,-1])"
   },
   {
     "comment": "polymorphism - Statement 194",
-    "query": "select myleast(variadic array[1.1, -5.5])"
+    "query": "select myleast(variadic array[1.1, -5.5])",
+    "expected": "SELECT myleast(VARIADIC ARRAY[1.1,-5.5])"
   },
   {
     "comment": "polymorphism - Statement 195",
-    "query": "select myleast(variadic array[]::int[])"
+    "query": "select myleast(variadic array[]::int[])",
+    "expected": "SELECT myleast(VARIADIC CAST(ARRAY[] AS INT[]))"
   },
   {
     "comment": "polymorphism - Statement 196",
-    "query": "create function concat(text, variadic anyarray) returns text as $$ select array_to_string($2, $1)"
-  },
-  {
-    "comment": "polymorphism - Statement 197",
-    "query": "$$ language sql immutable strict"
+    "query": "create function concat(text, variadic anyarray) returns text as $$ select array_to_string($2, $1); $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION concat (TEXT, VARIADIC anyarray) RETURNS TEXT LANGUAGE sql AS $$ select array_to_string($2, $1); $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 198",
-    "query": "select concat('%', 1, 2, 3, 4, 5)"
+    "query": "select concat('%', 1, 2, 3, 4, 5)",
+    "expected": "SELECT concat('%', 1, 2, 3, 4, 5)"
   },
   {
     "comment": "polymorphism - Statement 199",
-    "query": "select concat('|', 'a'::text, 'b', 'c')"
+    "query": "select concat('|', 'a'::text, 'b', 'c')",
+    "expected": "SELECT concat('|', CAST('a' AS TEXT), 'b', 'c')"
   },
   {
     "comment": "polymorphism - Statement 200",
-    "query": "select concat('|', variadic array[1,2,33])"
+    "query": "select concat('|', variadic array[1,2,33])",
+    "expected": "SELECT concat('|', VARIADIC ARRAY[1,2,33])"
   },
   {
     "comment": "polymorphism - Statement 201",
-    "query": "select concat('|', variadic array[]::int[])"
+    "query": "select concat('|', variadic array[]::int[])",
+    "expected": "SELECT concat('|', VARIADIC CAST(ARRAY[] AS INT[]))"
   },
   {
     "comment": "polymorphism - Statement 202",
-    "query": "drop function concat(text, anyarray)"
+    "query": "drop function concat(text, anyarray)",
+    "expected": "DROP FUNCTION concat(TEXT, anyarray)"
   },
   {
     "comment": "polymorphism - Statement 203",
-    "query": "create function formarray(anyelement, variadic anyarray) returns anyarray as $$ select array_prepend($1, $2)"
+    "query": "create function formarray(anyelement, variadic anyarray) returns anyarray as $$ select array_prepend($1, $2); $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION formarray (anyelement, VARIADIC anyarray) RETURNS anyarray LANGUAGE sql AS $$ select array_prepend($1, $2); $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 204",
-    "query": "select formarray(1,2,3,4,5)"
+    "query": "select formarray(1,2,3,4,5)",
+    "expected": "SELECT formarray(1, 2, 3, 4, 5)"
   },
   {
     "comment": "polymorphism - Statement 205",
-    "query": "select formarray(1.1, variadic array[1.2,55.5])"
+    "query": "select formarray(1.1, variadic array[1.2,55.5])",
+    "expected": "SELECT formarray(1.1, VARIADIC ARRAY[1.2,55.5])"
   },
   {
     "comment": "polymorphism - Statement 206",
-    "query": "select formarray(1.1, array[1.2,55.5])"
+    "query": "select formarray(1.1, array[1.2,55.5])",
+    "expected": "SELECT formarray(1.1, ARRAY[1.2,55.5])"
   },
   {
     "comment": "polymorphism - Statement 207",
-    "query": "select formarray(1, 'x'::text)"
+    "query": "select formarray(1, 'x'::text)",
+    "expected": "SELECT formarray(1, CAST('x' AS TEXT))"
   },
   {
     "comment": "polymorphism - Statement 208",
-    "query": "select formarray(1, variadic array['x'::text])"
+    "query": "select formarray(1, variadic array['x'::text])",
+    "expected": "SELECT formarray(1, VARIADIC ARRAY[CAST('x' AS TEXT)])"
   },
   {
     "comment": "polymorphism - Statement 209",
-    "query": "drop function formarray(anyelement, variadic anyarray)"
+    "query": "drop function formarray(anyelement, variadic anyarray)",
+    "expected": "DROP FUNCTION formarray(anyelement, VARIADIC anyarray)"
   },
   {
     "comment": "polymorphism - Statement 210",
-    "query": "select pg_typeof(null)"
+    "query": "select pg_typeof(null)",
+    "expected": "SELECT pg_typeof(NULL)"
   },
   {
     "comment": "polymorphism - Statement 211",
-    "query": "select pg_typeof(0)"
+    "query": "select pg_typeof(0)",
+    "expected": "SELECT pg_typeof(0)"
   },
   {
     "comment": "polymorphism - Statement 212",
-    "query": "select pg_typeof(0.0)"
+    "query": "select pg_typeof(0.0)",
+    "expected": "SELECT pg_typeof(0.0)"
   },
   {
     "comment": "polymorphism - Statement 213",
-    "query": "select pg_typeof(1+1 = 2)"
+    "query": "select pg_typeof(1+1 = 2)",
+    "expected": "SELECT pg_typeof(1 + 1 = 2)"
   },
   {
     "comment": "polymorphism - Statement 214",
-    "query": "select pg_typeof('x')"
+    "query": "select pg_typeof('x')",
+    "expected": "SELECT pg_typeof('x')"
   },
   {
     "comment": "polymorphism - Statement 215",
-    "query": "select pg_typeof('' || '')"
+    "query": "select pg_typeof('' || '')",
+    "expected": "SELECT pg_typeof('' || '')"
   },
   {
     "comment": "polymorphism - Statement 216",
-    "query": "select pg_typeof(pg_typeof(0))"
+    "query": "select pg_typeof(pg_typeof(0))",
+    "expected": "SELECT pg_typeof(pg_typeof(0))"
   },
   {
     "comment": "polymorphism - Statement 217",
-    "query": "select pg_typeof(array[1.2,55.5])"
+    "query": "select pg_typeof(array[1.2,55.5])",
+    "expected": "SELECT pg_typeof(ARRAY[1.2,55.5])"
   },
   {
     "comment": "polymorphism - Statement 218",
-    "query": "select pg_typeof(myleast(10, 1, 20, 33))"
+    "query": "select pg_typeof(myleast(10, 1, 20, 33))",
+    "expected": "SELECT pg_typeof(myleast(10, 1, 20, 33))"
   },
   {
     "comment": "polymorphism - Statement 219",
-    "query": "create function dfunc(a int = 1, int = 2) returns int as $$ select $1 + $2"
-  },
-  {
-    "comment": "polymorphism - Statement 220",
-    "query": "$$ language sql"
+    "query": "create function dfunc(a int = 1, int = 2) returns int as $$ select $1 + $2; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1, INT DEFAULT 2) RETURNS INT LANGUAGE sql AS $$ select $1 + $2; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 221",
-    "query": "select dfunc()"
+    "query": "select dfunc()",
+    "expected": "SELECT dfunc()"
   },
   {
     "comment": "polymorphism - Statement 222",
-    "query": "select dfunc(10)"
+    "query": "select dfunc(10)",
+    "expected": "SELECT dfunc(10)"
   },
   {
     "comment": "polymorphism - Statement 223",
-    "query": "select dfunc(10, 20)"
+    "query": "select dfunc(10, 20)",
+    "expected": "SELECT dfunc(10, 20)"
   },
   {
     "comment": "polymorphism - Statement 224",
-    "query": "select dfunc(10, 20, 30)"
+    "query": "select dfunc(10, 20, 30)",
+    "expected": "SELECT dfunc(10, 20, 30)"
   },
   {
     "comment": "polymorphism - Statement 225",
-    "query": "drop function dfunc()"
+    "query": "drop function dfunc()",
+    "expected": "DROP FUNCTION dfunc()"
   },
   {
     "comment": "polymorphism - Statement 226",
-    "query": "drop function dfunc(int)"
+    "query": "drop function dfunc(int)",
+    "expected": "DROP FUNCTION dfunc(INT)"
   },
   {
     "comment": "polymorphism - Statement 227",
-    "query": "drop function dfunc(int, int)"
+    "query": "drop function dfunc(int, int)",
+    "expected": "DROP FUNCTION dfunc(INT, INT)"
   },
   {
     "comment": "polymorphism - Statement 228",
-    "query": "create function dfunc(a int = 1, b int) returns int as $$ select $1 + $2"
+    "query": "create function dfunc(a int = 1, b int) returns int as $$ select $1 + $2; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1, b INT) RETURNS INT LANGUAGE sql AS $$ select $1 + $2; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 229",
-    "query": "create function dfunc(a int = 1, out sum int, b int = 2) as $$ select $1 + $2"
+    "query": "create function dfunc(a int = 1, out sum int, b int = 2) as $$ select $1 + $2; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1, OUT sum INT, b INT DEFAULT 2) LANGUAGE sql AS $$ select $1 + $2; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 230",
-    "query": "create function dfunc(a int DEFAULT 1.0, int DEFAULT '-1') returns int as $$ select $1 + $2"
+    "query": "create function dfunc(a int DEFAULT 1.0, int DEFAULT '-1') returns int as $$ select $1 + $2; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (a INT DEFAULT 1.0, INT DEFAULT '-1') RETURNS INT LANGUAGE sql AS $$ select $1 + $2; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 231",
-    "query": "create function dfunc(a text DEFAULT 'Hello', b text DEFAULT 'World') returns text as $$ select $1 || ', ' || $2"
+    "query": "create function dfunc(a text DEFAULT 'Hello', b text DEFAULT 'World') returns text as $$ select $1 || ', ' || $2; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (a TEXT DEFAULT 'Hello', b TEXT DEFAULT 'World') RETURNS TEXT LANGUAGE sql AS $$ select $1 || ', ' || $2; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 232",
-    "query": "select dfunc('Hi')"
+    "query": "select dfunc('Hi')",
+    "expected": "SELECT dfunc('Hi')"
   },
   {
     "comment": "polymorphism - Statement 233",
-    "query": "select dfunc('Hi', 'City')"
+    "query": "select dfunc('Hi', 'City')",
+    "expected": "SELECT dfunc('Hi', 'City')"
   },
   {
     "comment": "polymorphism - Statement 234",
-    "query": "select dfunc(0)"
+    "query": "select dfunc(0)",
+    "expected": "SELECT dfunc(0)"
   },
   {
     "comment": "polymorphism - Statement 235",
-    "query": "drop function dfunc(text, text)"
+    "query": "drop function dfunc(text, text)",
+    "expected": "DROP FUNCTION dfunc(TEXT, TEXT)"
   },
   {
     "comment": "polymorphism - Statement 236",
-    "query": "create function dfunc(int = 1, int = 2) returns int as $$ select 2"
+    "query": "create function dfunc(int = 1, int = 2) returns int as $$ select 2; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (INT DEFAULT 1, INT DEFAULT 2) RETURNS INT LANGUAGE sql AS $$ select 2; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 237",
-    "query": "create function dfunc(int = 1, int = 2, int = 3, int = 4) returns int as $$ select 4"
+    "query": "create function dfunc(int = 1, int = 2, int = 3, int = 4) returns int as $$ select 4; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (INT DEFAULT 1, INT DEFAULT 2, INT DEFAULT 3, INT DEFAULT 4) RETURNS INT LANGUAGE sql AS $$ select 4; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 238",
-    "query": "select dfunc(1)"
+    "query": "select dfunc(1)",
+    "expected": "SELECT dfunc(1)"
   },
   {
     "comment": "polymorphism - Statement 239",
-    "query": "select dfunc(1, 2)"
+    "query": "select dfunc(1, 2)",
+    "expected": "SELECT dfunc(1, 2)"
   },
   {
     "comment": "polymorphism - Statement 240",
-    "query": "select dfunc(1, 2, 3)"
+    "query": "select dfunc(1, 2, 3)",
+    "expected": "SELECT dfunc(1, 2, 3)"
   },
   {
     "comment": "polymorphism - Statement 241",
-    "query": "select dfunc(1, 2, 3, 4)"
+    "query": "select dfunc(1, 2, 3, 4)",
+    "expected": "SELECT dfunc(1, 2, 3, 4)"
   },
   {
     "comment": "polymorphism - Statement 242",
-    "query": "drop function dfunc(int, int, int, int)"
+    "query": "drop function dfunc(int, int, int, int)",
+    "expected": "DROP FUNCTION dfunc(INT, INT, INT, INT)"
   },
   {
     "comment": "polymorphism - Statement 243",
-    "query": "create function dfunc(out int = 20) returns int as $$ select 1"
+    "query": "create function dfunc(out int = 20) returns int as $$ select 1; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (OUT INT DEFAULT 20) RETURNS INT LANGUAGE sql AS $$ select 1; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 244",
-    "query": "create function dfunc(anyelement = 'World'::text) returns text as $$ select 'Hello, ' || $1::text"
+    "query": "create function dfunc(anyelement = 'World'::text) returns text as $$ select 'Hello, ' || $1::text; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (anyelement DEFAULT CAST('World' AS TEXT)) RETURNS TEXT LANGUAGE sql AS $$ select 'Hello, ' || $1::text; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 245",
-    "query": "select dfunc(to_date('20081215','YYYYMMDD'))"
+    "query": "select dfunc(to_date('20081215','YYYYMMDD'))",
+    "expected": "SELECT dfunc(to_date('20081215', 'YYYYMMDD'))"
   },
   {
     "comment": "polymorphism - Statement 246",
-    "query": "select dfunc('City'::text)"
+    "query": "select dfunc('City'::text)",
+    "expected": "SELECT dfunc(CAST('City' AS TEXT))"
   },
   {
     "comment": "polymorphism - Statement 247",
-    "query": "drop function dfunc(anyelement)"
+    "query": "drop function dfunc(anyelement)",
+    "expected": "DROP FUNCTION dfunc(anyelement)"
   },
   {
     "comment": "polymorphism - Statement 248",
-    "query": "create function dfunc(a variadic int[]) returns int as $$ select array_upper($1, 1) $$ language sql"
+    "query": "create function dfunc(a variadic int[]) returns int as $$ select array_upper($1, 1) $$ language sql",
+    "expected": "CREATE FUNCTION dfunc (VARIADIC a INT[]) RETURNS INT LANGUAGE sql AS $$ select array_upper($1, 1) $$"
   },
   {
     "comment": "polymorphism - Statement 249",
-    "query": "select dfunc(10,20)"
+    "query": "select dfunc(10,20)",
+    "expected": "SELECT dfunc(10, 20)"
   },
   {
     "comment": "polymorphism - Statement 250",
-    "query": "create or replace function dfunc(a variadic int[] default array[]::int[]) returns int as $$ select array_upper($1, 1) $$ language sql"
+    "query": "create or replace function dfunc(a variadic int[] default array[]::int[]) returns int as $$ select array_upper($1, 1) $$ language sql",
+    "expected": "CREATE OR REPLACE FUNCTION dfunc (VARIADIC a INT[] DEFAULT CAST(ARRAY[] AS INT[])) RETURNS INT LANGUAGE sql AS $$ select array_upper($1, 1) $$"
   },
   {
     "comment": "polymorphism - Statement 251",
-    "query": "create or replace function dfunc(a variadic int[]) returns int as $$ select array_upper($1, 1) $$ language sql"
+    "query": "create or replace function dfunc(a variadic int[]) returns int as $$ select array_upper($1, 1) $$ language sql",
+    "expected": "CREATE OR REPLACE FUNCTION dfunc (VARIADIC a INT[]) RETURNS INT LANGUAGE sql AS $$ select array_upper($1, 1) $$"
   },
   {
     "comment": "polymorphism - Statement 252",
-    "query": "create function dfunc(int = 1, int = 2, int = 3) returns int as $$ select 3"
+    "query": "create function dfunc(int = 1, int = 2, int = 3) returns int as $$ select 3; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (INT DEFAULT 1, INT DEFAULT 2, INT DEFAULT 3) RETURNS INT LANGUAGE sql AS $$ select 3; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 253",
-    "query": "create function dfunc(text) returns text as $$ select $1"
+    "query": "create function dfunc(text) returns text as $$ select $1; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (TEXT) RETURNS TEXT LANGUAGE sql AS $$ select $1; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 254",
-    "query": "drop function dfunc(int, int, int)"
+    "query": "drop function dfunc(int, int, int)",
+    "expected": "DROP FUNCTION dfunc(INT, INT, INT)"
   },
   {
     "comment": "polymorphism - Statement 255",
-    "query": "drop function dfunc(text)"
+    "query": "drop function dfunc(text)",
+    "expected": "DROP FUNCTION dfunc(TEXT)"
   },
   {
     "comment": "polymorphism - Statement 256",
-    "query": "create function dfunc(a int, b int, c int = 0, d int = 0) returns table (a int, b int, c int, d int) as $$ select $1, $2, $3, $4"
+    "query": "create function dfunc(a int, b int, c int = 0, d int = 0) returns table (a int, b int, c int, d int) as $$ select $1, $2, $3, $4; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (a INT, b INT, c INT DEFAULT 0, d INT DEFAULT 0) LANGUAGE sql AS $$ select $1, $2, $3, $4; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 257",
-    "query": "select (dfunc(10,20,30)).*"
+    "query": "select (dfunc(10,20,30)).*",
+    "expected": "SELECT (dfunc(10, 20, 30)).*"
   },
   {
     "comment": "polymorphism - Statement 258",
-    "query": "select (dfunc(a := 10, b := 20, c := 30)).*"
+    "query": "select (dfunc(a := 10, b := 20, c := 30)).*",
+    "expected": "SELECT (dfunc(a =\u003e 10, b =\u003e 20, c =\u003e 30)).*"
   },
   {
     "comment": "polymorphism - Statement 259",
-    "query": "select * from dfunc(a := 10, b := 20)"
+    "query": "select * from dfunc(a := 10, b := 20)",
+    "expected": "SELECT * FROM dfunc(a =\u003e 10, b =\u003e 20)"
   },
   {
     "comment": "polymorphism - Statement 260",
-    "query": "select * from dfunc(b := 10, a := 20)"
+    "query": "select * from dfunc(b := 10, a := 20)",
+    "expected": "SELECT * FROM dfunc(b =\u003e 10, a =\u003e 20)"
   },
   {
     "comment": "polymorphism - Statement 261",
-    "query": "select * from dfunc(0)"
+    "query": "select * from dfunc(0)",
+    "expected": "SELECT * FROM dfunc(0)"
   },
   {
     "comment": "polymorphism - Statement 262",
-    "query": "select * from dfunc(1,2)"
+    "query": "select * from dfunc(1,2)",
+    "expected": "SELECT * FROM dfunc(1, 2)"
   },
   {
     "comment": "polymorphism - Statement 263",
-    "query": "select * from dfunc(1,2,c := 3)"
+    "query": "select * from dfunc(1,2,c := 3)",
+    "expected": "SELECT * FROM dfunc(1, 2, c =\u003e 3)"
   },
   {
     "comment": "polymorphism - Statement 264",
-    "query": "select * from dfunc(1,2,d := 3)"
+    "query": "select * from dfunc(1,2,d := 3)",
+    "expected": "SELECT * FROM dfunc(1, 2, d =\u003e 3)"
   },
   {
     "comment": "polymorphism - Statement 265",
-    "query": "select * from dfunc(x := 20, b := 10, x := 30)"
+    "query": "select * from dfunc(x := 20, b := 10, x := 30)",
+    "expected": "SELECT * FROM dfunc(x =\u003e 20, b =\u003e 10, x =\u003e 30)"
   },
   {
     "comment": "polymorphism - Statement 266",
-    "query": "select * from dfunc(10, b := 20, 30)"
+    "query": "select * from dfunc(10, b := 20, 30)",
+    "expected": "SELECT * FROM dfunc(10, b =\u003e 20, 30)"
   },
   {
     "comment": "polymorphism - Statement 267",
-    "query": "select * from dfunc(x := 10, b := 20, c := 30)"
+    "query": "select * from dfunc(x := 10, b := 20, c := 30)",
+    "expected": "SELECT * FROM dfunc(x =\u003e 10, b =\u003e 20, c =\u003e 30)"
   },
   {
     "comment": "polymorphism - Statement 268",
-    "query": "select * from dfunc(10, 10, a := 20)"
+    "query": "select * from dfunc(10, 10, a := 20)",
+    "expected": "SELECT * FROM dfunc(10, 10, a =\u003e 20)"
   },
   {
     "comment": "polymorphism - Statement 269",
-    "query": "select * from dfunc(1,c := 2,d := 3)"
+    "query": "select * from dfunc(1,c := 2,d := 3)",
+    "expected": "SELECT * FROM dfunc(1, c =\u003e 2, d =\u003e 3)"
   },
   {
     "comment": "polymorphism - Statement 270",
-    "query": "create function dfunc(a varchar, b numeric, c date = current_date) returns table (a varchar, b numeric, c date) as $$ select $1, $2, $3"
+    "query": "create function dfunc(a varchar, b numeric, c date = current_date) returns table (a varchar, b numeric, c date) as $$ select $1, $2, $3; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (a VARCHAR, b NUMERIC, c DATE DEFAULT CURRENT_DATE) LANGUAGE sql AS $$ select $1, $2, $3; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 271",
-    "query": "select (dfunc('Hello World', 20, '2009-07-25'::date)).*"
+    "query": "select (dfunc('Hello World', 20, '2009-07-25'::date)).*",
+    "expected": "SELECT (dfunc('Hello World', 20, CAST('2009-07-25' AS DATE))).*"
   },
   {
     "comment": "polymorphism - Statement 272",
-    "query": "select * from dfunc('Hello World', 20, '2009-07-25'::date)"
+    "query": "select * from dfunc('Hello World', 20, '2009-07-25'::date)",
+    "expected": "SELECT * FROM dfunc('Hello World', 20, CAST('2009-07-25' AS DATE))"
   },
   {
     "comment": "polymorphism - Statement 273",
-    "query": "select * from dfunc(c := '2009-07-25'::date, a := 'Hello World', b := 20)"
+    "query": "select * from dfunc(c := '2009-07-25'::date, a := 'Hello World', b := 20)",
+    "expected": "SELECT * FROM dfunc(c =\u003e CAST('2009-07-25' AS DATE), a =\u003e 'Hello World', b =\u003e 20)"
   },
   {
     "comment": "polymorphism - Statement 274",
-    "query": "select * from dfunc('Hello World', b := 20, c := '2009-07-25'::date)"
+    "query": "select * from dfunc('Hello World', b := 20, c := '2009-07-25'::date)",
+    "expected": "SELECT * FROM dfunc('Hello World', b =\u003e 20, c =\u003e CAST('2009-07-25' AS DATE))"
   },
   {
     "comment": "polymorphism - Statement 275",
-    "query": "select * from dfunc('Hello World', c := '2009-07-25'::date, b := 20)"
+    "query": "select * from dfunc('Hello World', c := '2009-07-25'::date, b := 20)",
+    "expected": "SELECT * FROM dfunc('Hello World', c =\u003e CAST('2009-07-25' AS DATE), b =\u003e 20)"
   },
   {
     "comment": "polymorphism - Statement 276",
-    "query": "select * from dfunc('Hello World', c := 20, b := '2009-07-25'::date)"
+    "query": "select * from dfunc('Hello World', c := 20, b := '2009-07-25'::date)",
+    "expected": "SELECT * FROM dfunc('Hello World', c =\u003e 20, b =\u003e CAST('2009-07-25' AS DATE))"
   },
   {
     "comment": "polymorphism - Statement 277",
-    "query": "drop function dfunc(varchar, numeric, date)"
+    "query": "drop function dfunc(varchar, numeric, date)",
+    "expected": "DROP FUNCTION dfunc(VARCHAR, NUMERIC, DATE)"
   },
   {
     "comment": "polymorphism - Statement 278",
-    "query": "create function dfunc(a varchar = 'def a', out _a varchar, c numeric = NULL, out _c numeric) returns record as $$ select $1, $2"
+    "query": "create function dfunc(a varchar = 'def a', out _a varchar, c numeric = NULL, out _c numeric) returns record as $$ select $1, $2; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (a VARCHAR DEFAULT 'def a', OUT _a VARCHAR, c NUMERIC DEFAULT NULL, OUT _c NUMERIC) RETURNS record LANGUAGE sql AS $$ select $1, $2; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 279",
-    "query": "select (dfunc()).*"
+    "query": "select (dfunc()).*",
+    "expected": "SELECT (dfunc()).*"
   },
   {
     "comment": "polymorphism - Statement 280",
-    "query": "select * from dfunc()"
+    "query": "select * from dfunc()",
+    "expected": "SELECT * FROM dfunc()"
   },
   {
     "comment": "polymorphism - Statement 281",
-    "query": "select * from dfunc('Hello', 100)"
+    "query": "select * from dfunc('Hello', 100)",
+    "expected": "SELECT * FROM dfunc('Hello', 100)"
   },
   {
     "comment": "polymorphism - Statement 282",
-    "query": "select * from dfunc(a := 'Hello', c := 100)"
+    "query": "select * from dfunc(a := 'Hello', c := 100)",
+    "expected": "SELECT * FROM dfunc(a =\u003e 'Hello', c =\u003e 100)"
   },
   {
     "comment": "polymorphism - Statement 283",
-    "query": "select * from dfunc(c := 100, a := 'Hello')"
+    "query": "select * from dfunc(c := 100, a := 'Hello')",
+    "expected": "SELECT * FROM dfunc(c =\u003e 100, a =\u003e 'Hello')"
   },
   {
     "comment": "polymorphism - Statement 284",
-    "query": "select * from dfunc('Hello')"
+    "query": "select * from dfunc('Hello')",
+    "expected": "SELECT * FROM dfunc('Hello')"
   },
   {
     "comment": "polymorphism - Statement 285",
-    "query": "select * from dfunc('Hello', c := 100)"
+    "query": "select * from dfunc('Hello', c := 100)",
+    "expected": "SELECT * FROM dfunc('Hello', c =\u003e 100)"
   },
   {
     "comment": "polymorphism - Statement 286",
-    "query": "select * from dfunc(c := 100)"
+    "query": "select * from dfunc(c := 100)",
+    "expected": "SELECT * FROM dfunc(c =\u003e 100)"
   },
   {
     "comment": "polymorphism - Statement 287",
-    "query": "create or replace function dfunc(a varchar = 'def a', out _a varchar, x numeric = NULL, out _c numeric) returns record as $$ select $1, $2"
+    "query": "create or replace function dfunc(a varchar = 'def a', out _a varchar, x numeric = NULL, out _c numeric) returns record as $$ select $1, $2; $$ language sql immutable strict;",
+    "expected": "CREATE OR REPLACE FUNCTION dfunc (a VARCHAR DEFAULT 'def a', OUT _a VARCHAR, x NUMERIC DEFAULT NULL, OUT _c NUMERIC) RETURNS record LANGUAGE sql AS $$ select $1, $2; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 288",
-    "query": "create or replace function dfunc(a varchar = 'def a', out _a varchar, numeric = NULL, out _c numeric) returns record as $$ select $1, $2"
+    "query": "create or replace function dfunc(a varchar = 'def a', out _a varchar, numeric = NULL, out _c numeric) returns record as $$ select $1, $2; $$ language sql immutable strict;",
+    "expected": "CREATE OR REPLACE FUNCTION dfunc (a VARCHAR DEFAULT 'def a', OUT _a VARCHAR, NUMERIC DEFAULT NULL, OUT _c NUMERIC) RETURNS record LANGUAGE sql AS $$ select $1, $2; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 289",
-    "query": "drop function dfunc(varchar, numeric)"
+    "query": "drop function dfunc(varchar, numeric)",
+    "expected": "DROP FUNCTION dfunc(VARCHAR, NUMERIC)"
   },
   {
     "comment": "polymorphism - Statement 290",
-    "query": "create function testpolym(a int, a int) returns int as $$ select 1;$$ language sql"
+    "query": "create function testpolym(a int, a int) returns int as $$ select 1;$$ language sql",
+    "expected": "CREATE FUNCTION testpolym (a INT, a INT) RETURNS INT LANGUAGE sql AS $$ select 1;$$"
   },
   {
     "comment": "polymorphism - Statement 291",
-    "query": "create function testpolym(int, out a int, out a int) returns int as $$ select 1;$$ language sql"
+    "query": "create function testpolym(int, out a int, out a int) returns int as $$ select 1;$$ language sql",
+    "expected": "CREATE FUNCTION testpolym (INT, OUT a INT, OUT a INT) RETURNS INT LANGUAGE sql AS $$ select 1;$$"
   },
   {
     "comment": "polymorphism - Statement 292",
-    "query": "create function testpolym(out a int, inout a int) returns int as $$ select 1;$$ language sql"
+    "query": "create function testpolym(out a int, inout a int) returns int as $$ select 1;$$ language sql",
+    "expected": "CREATE FUNCTION testpolym (OUT a INT, INOUT a INT) RETURNS INT LANGUAGE sql AS $$ select 1;$$"
   },
   {
     "comment": "polymorphism - Statement 293",
-    "query": "create function testpolym(a int, inout a int) returns int as $$ select 1;$$ language sql"
+    "query": "create function testpolym(a int, inout a int) returns int as $$ select 1;$$ language sql",
+    "expected": "CREATE FUNCTION testpolym (a INT, INOUT a INT) RETURNS INT LANGUAGE sql AS $$ select 1;$$"
   },
   {
     "comment": "polymorphism - Statement 294",
-    "query": "create function testpolym(a int, out a int) returns int as $$ select $1;$$ language sql"
+    "query": "create function testpolym(a int, out a int) returns int as $$ select $1;$$ language sql",
+    "expected": "CREATE FUNCTION testpolym (a INT, OUT a INT) RETURNS INT LANGUAGE sql AS $$ select $1;$$"
   },
   {
     "comment": "polymorphism - Statement 295",
-    "query": "select testpolym(37)"
+    "query": "select testpolym(37)",
+    "expected": "SELECT testpolym(37)"
   },
   {
     "comment": "polymorphism - Statement 296",
-    "query": "drop function testpolym(int)"
+    "query": "drop function testpolym(int)",
+    "expected": "DROP FUNCTION testpolym(INT)"
   },
   {
     "comment": "polymorphism - Statement 297",
-    "query": "create function testpolym(a int) returns table(a int) as $$ select $1;$$ language sql"
+    "query": "create function testpolym(a int) returns table(a int) as $$ select $1;$$ language sql",
+    "expected": "CREATE FUNCTION testpolym (a INT) LANGUAGE sql AS $$ select $1;$$"
   },
   {
     "comment": "polymorphism - Statement 298",
-    "query": "select * from testpolym(37)"
+    "query": "select * from testpolym(37)",
+    "expected": "SELECT * FROM testpolym(37)"
   },
   {
     "comment": "polymorphism - Statement 299",
-    "query": "create function dfunc(a anyelement, b anyelement = null, flag bool = true) returns anyelement as $$ select case when $3 then $1 else $2 end"
+    "query": "create function dfunc(a anyelement, b anyelement = null, flag bool = true) returns anyelement as $$ select case when $3 then $1 else $2 end; $$ language sql immutable strict;",
+    "expected": "CREATE FUNCTION dfunc (a anyelement, b anyelement DEFAULT NULL, flag BOOLEAN DEFAULT TRUE) RETURNS anyelement LANGUAGE sql AS $$ select case when $3 then $1 else $2 end; $$ IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 300",
-    "query": "select dfunc(1,2)"
+    "query": "select dfunc(1,2)",
+    "expected": "SELECT dfunc(1, 2)"
   },
   {
     "comment": "polymorphism - Statement 301",
-    "query": "select dfunc('a'::text, 'b')"
+    "query": "select dfunc('a'::text, 'b')",
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b')"
   },
   {
     "comment": "polymorphism - Statement 302",
-    "query": "select dfunc(a := 1, b := 2)"
+    "query": "select dfunc(a := 1, b := 2)",
+    "expected": "SELECT dfunc(a =\u003e 1, b =\u003e 2)"
   },
   {
     "comment": "polymorphism - Statement 303",
-    "query": "select dfunc(a := 'a'::text, b := 'b')"
+    "query": "select dfunc(a := 'a'::text, b := 'b')",
+    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), b =\u003e 'b')"
   },
   {
     "comment": "polymorphism - Statement 304",
-    "query": "select dfunc(a := 'a'::text, b := 'b', flag := false)"
+    "query": "select dfunc(a := 'a'::text, b := 'b', flag := false)",
+    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), b =\u003e 'b', flag =\u003e FALSE)"
   },
   {
     "comment": "polymorphism - Statement 305",
-    "query": "select dfunc(b := 'b'::text, a := 'a')"
+    "query": "select dfunc(b := 'b'::text, a := 'a')",
+    "expected": "SELECT dfunc(b =\u003e CAST('b' AS TEXT), a =\u003e 'a')"
   },
   {
     "comment": "polymorphism - Statement 306",
-    "query": "select dfunc(a := 'a'::text, flag := true)"
+    "query": "select dfunc(a := 'a'::text, flag := true)",
+    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), flag =\u003e TRUE)"
   },
   {
     "comment": "polymorphism - Statement 307",
-    "query": "select dfunc(a := 'a'::text, flag := false)"
+    "query": "select dfunc(a := 'a'::text, flag := false)",
+    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), flag =\u003e FALSE)"
   },
   {
     "comment": "polymorphism - Statement 308",
-    "query": "select dfunc(b := 'b'::text, a := 'a', flag := true)"
+    "query": "select dfunc(b := 'b'::text, a := 'a', flag := true)",
+    "expected": "SELECT dfunc(b =\u003e CAST('b' AS TEXT), a =\u003e 'a', flag =\u003e TRUE)"
   },
   {
     "comment": "polymorphism - Statement 309",
-    "query": "select dfunc('a'::text, 'b', false)"
+    "query": "select dfunc('a'::text, 'b', false)",
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', FALSE)"
   },
   {
     "comment": "polymorphism - Statement 310",
-    "query": "select dfunc('a'::text, 'b', flag := false)"
+    "query": "select dfunc('a'::text, 'b', flag := false)",
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag =\u003e FALSE)"
   },
   {
     "comment": "polymorphism - Statement 311",
-    "query": "select dfunc('a'::text, 'b', true)"
+    "query": "select dfunc('a'::text, 'b', true)",
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', TRUE)"
   },
   {
     "comment": "polymorphism - Statement 312",
-    "query": "select dfunc('a'::text, 'b', flag := true)"
+    "query": "select dfunc('a'::text, 'b', flag := true)",
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag =\u003e TRUE)"
   },
   {
     "comment": "polymorphism - Statement 313",
-    "query": "select dfunc(a => 1, b => 2)"
+    "query": "select dfunc(a =\u003e 1, b =\u003e 2)",
+    "expected": "SELECT dfunc(a =\u003e 1, b =\u003e 2)"
   },
   {
     "comment": "polymorphism - Statement 314",
-    "query": "select dfunc(a => 'a'::text, b => 'b')"
+    "query": "select dfunc(a =\u003e 'a'::text, b =\u003e 'b')",
+    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), b =\u003e 'b')"
   },
   {
     "comment": "polymorphism - Statement 315",
-    "query": "select dfunc(a => 'a'::text, b => 'b', flag => false)"
+    "query": "select dfunc(a =\u003e 'a'::text, b =\u003e 'b', flag =\u003e false)",
+    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), b =\u003e 'b', flag =\u003e FALSE)"
   },
   {
     "comment": "polymorphism - Statement 316",
-    "query": "select dfunc(b => 'b'::text, a => 'a')"
+    "query": "select dfunc(b =\u003e 'b'::text, a =\u003e 'a')",
+    "expected": "SELECT dfunc(b =\u003e CAST('b' AS TEXT), a =\u003e 'a')"
   },
   {
     "comment": "polymorphism - Statement 317",
-    "query": "select dfunc(a => 'a'::text, flag => true)"
+    "query": "select dfunc(a =\u003e 'a'::text, flag =\u003e true)",
+    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), flag =\u003e TRUE)"
   },
   {
     "comment": "polymorphism - Statement 318",
-    "query": "select dfunc(a => 'a'::text, flag => false)"
+    "query": "select dfunc(a =\u003e 'a'::text, flag =\u003e false)",
+    "expected": "SELECT dfunc(a =\u003e CAST('a' AS TEXT), flag =\u003e FALSE)"
   },
   {
     "comment": "polymorphism - Statement 319",
-    "query": "select dfunc(b => 'b'::text, a => 'a', flag => true)"
+    "query": "select dfunc(b =\u003e 'b'::text, a =\u003e 'a', flag =\u003e true)",
+    "expected": "SELECT dfunc(b =\u003e CAST('b' AS TEXT), a =\u003e 'a', flag =\u003e TRUE)"
   },
   {
     "comment": "polymorphism - Statement 320",
-    "query": "select dfunc('a'::text, 'b', flag => false)"
+    "query": "select dfunc('a'::text, 'b', flag =\u003e false)",
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag =\u003e FALSE)"
   },
   {
     "comment": "polymorphism - Statement 321",
-    "query": "select dfunc('a'::text, 'b', flag => true)"
+    "query": "select dfunc('a'::text, 'b', flag =\u003e true)",
+    "expected": "SELECT dfunc(CAST('a' AS TEXT), 'b', flag =\u003e TRUE)"
   },
   {
     "comment": "polymorphism - Statement 322",
-    "query": "select dfunc(a =>-1)"
+    "query": "select dfunc(a =\u003e-1)",
+    "expected": "SELECT dfunc(a =\u003e- 1)"
   },
   {
     "comment": "polymorphism - Statement 323",
-    "query": "select dfunc(a =>+1)"
+    "query": "select dfunc(a =\u003e+1)",
+    "expected": "SELECT dfunc(a =\u003e+ 1)"
   },
   {
     "comment": "polymorphism - Statement 324",
-    "query": "select dfunc(a =>/**/1)"
+    "query": "select dfunc(a =\u003e/**/1)",
+    "expected": "SELECT dfunc(a =\u003e 1)"
   },
   {
     "comment": "polymorphism - Statement 325",
-    "query": "select dfunc(a => 1)"
+    "query": "select dfunc(a =\u003e 1)",
+    "expected": "SELECT dfunc(a =\u003e 1)"
   },
   {
     "comment": "polymorphism - Statement 326",
-    "query": "do $$ declare r integer"
+    "query": "do $$ declare r integer",
+    "error": "parse error at position 4: syntax error"
   },
   {
     "comment": "polymorphism - Statement 327",
-    "query": "begin select dfunc(a=> 1) into r"
+    "query": "begin select dfunc(a=\u003e 1) into r",
+    "error": "parse error at position 12: syntax error"
   },
   {
     "comment": "polymorphism - Statement 328",
-    "query": "raise info 'r = %', r"
+    "query": "raise info 'r = %', r",
+    "error": "parse error at position 5: syntax error"
   },
   {
     "comment": "polymorphism - Statement 329",
-    "query": "$$"
+    "query": "$$",
+    "error": "parse error at position 1: syntax error"
   },
   {
     "comment": "polymorphism - Statement 330",
-    "query": "CREATE VIEW dfview AS SELECT q1, q2, dfunc(q1,q2, flag := q1>q2) as c3, dfunc(q1, flag := q1<q2, b := q2) as c4 FROM int8_tbl"
+    "query": "CREATE VIEW dfview AS SELECT q1, q2, dfunc(q1,q2, flag := q1\u003eq2) as c3, dfunc(q1, flag := q1\u003cq2, b := q2) as c4 FROM int8_tbl",
+    "expected": "CREATE VIEW dfview AS SELECT q1, q2, dfunc(q1, q2, flag =\u003e q1 \u003e q2) AS c3, dfunc(q1, flag =\u003e q1 \u003c q2, b =\u003e q2) AS c4 FROM int8_tbl"
   },
   {
     "comment": "polymorphism - Statement 331",
-    "query": "select * from dfview"
+    "query": "select * from dfview",
+    "expected": "SELECT * FROM dfview"
   },
   {
     "comment": "polymorphism - Statement 332",
-    "query": "drop function dfunc(anyelement, anyelement, bool)"
+    "query": "drop function dfunc(anyelement, anyelement, bool)",
+    "expected": "DROP FUNCTION dfunc(anyelement, anyelement, BOOLEAN)"
   },
   {
     "comment": "polymorphism - Statement 333",
-    "query": "create function anyctest(anycompatible, anycompatible) returns anycompatible as $$ select greatest($1, $2) $$ language sql"
+    "query": "create function anyctest(anycompatible, anycompatible) returns anycompatible as $$ select greatest($1, $2) $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatible) RETURNS anycompatible LANGUAGE sql AS $$ select greatest($1, $2) $$"
   },
   {
     "comment": "polymorphism - Statement 334",
-    "query": "select x, pg_typeof(x) from anyctest(11, 12) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, 12) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, 12) AS x"
   },
   {
     "comment": "polymorphism - Statement 335",
-    "query": "select x, pg_typeof(x) from anyctest(11, 12.3) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, 12.3) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, 12.3) AS x"
   },
   {
     "comment": "polymorphism - Statement 336",
-    "query": "select x, pg_typeof(x) from anyctest(11, point(1,2)) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, point(1,2)) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, point(1, 2)) AS x"
   },
   {
     "comment": "polymorphism - Statement 337",
-    "query": "select x, pg_typeof(x) from anyctest('11', '12.3') x"
+    "query": "select x, pg_typeof(x) from anyctest('11', '12.3') x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest('11', '12.3') AS x"
   },
   {
     "comment": "polymorphism - Statement 338",
-    "query": "drop function anyctest(anycompatible, anycompatible)"
+    "query": "drop function anyctest(anycompatible, anycompatible)",
+    "expected": "DROP FUNCTION anyctest(anycompatible, anycompatible)"
   },
   {
     "comment": "polymorphism - Statement 339",
-    "query": "create function anyctest(anycompatible, anycompatible) returns anycompatiblearray as $$ select array[$1, $2] $$ language sql"
+    "query": "create function anyctest(anycompatible, anycompatible) returns anycompatiblearray as $$ select array[$1, $2] $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatible) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[$1, $2] $$"
   },
   {
     "comment": "polymorphism - Statement 340",
-    "query": "select x, pg_typeof(x) from anyctest(11, array[1,2]) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, array[1,2]) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, ARRAY[1,2]) AS x"
   },
   {
     "comment": "polymorphism - Statement 341",
-    "query": "create function anyctest(anycompatible, anycompatiblearray) returns anycompatiblearray as $$ select array[$1] || $2 $$ language sql"
+    "query": "create function anyctest(anycompatible, anycompatiblearray) returns anycompatiblearray as $$ select array[$1] || $2 $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatiblearray) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[$1] || $2 $$"
   },
   {
     "comment": "polymorphism - Statement 342",
-    "query": "select x, pg_typeof(x) from anyctest(11, array[12]) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, array[12]) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, ARRAY[12]) AS x"
   },
   {
     "comment": "polymorphism - Statement 343",
-    "query": "select x, pg_typeof(x) from anyctest(11, array[12.3]) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, array[12.3]) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, ARRAY[12.3]) AS x"
   },
   {
     "comment": "polymorphism - Statement 344",
-    "query": "select x, pg_typeof(x) from anyctest(12.3, array[13]) x"
+    "query": "select x, pg_typeof(x) from anyctest(12.3, array[13]) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(12.3, ARRAY[13]) AS x"
   },
   {
     "comment": "polymorphism - Statement 345",
-    "query": "select x, pg_typeof(x) from anyctest(12.3, '{13,14.4}') x"
+    "query": "select x, pg_typeof(x) from anyctest(12.3, '{13,14.4}') x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(12.3, '{13,14.4}') AS x"
   },
   {
     "comment": "polymorphism - Statement 346",
-    "query": "select x, pg_typeof(x) from anyctest(11, array[point(1,2)]) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, array[point(1,2)]) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, ARRAY[point(1, 2)]) AS x"
   },
   {
     "comment": "polymorphism - Statement 347",
-    "query": "drop function anyctest(anycompatible, anycompatiblearray)"
+    "query": "drop function anyctest(anycompatible, anycompatiblearray)",
+    "expected": "DROP FUNCTION anyctest(anycompatible, anycompatiblearray)"
   },
   {
     "comment": "polymorphism - Statement 348",
-    "query": "create function anyctest(anycompatible, anycompatiblerange) returns anycompatiblerange as $$ select $2 $$ language sql"
+    "query": "create function anyctest(anycompatible, anycompatiblerange) returns anycompatiblerange as $$ select $2 $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatiblerange) RETURNS anycompatiblerange LANGUAGE sql AS $$ select $2 $$"
   },
   {
     "comment": "polymorphism - Statement 349",
-    "query": "select x, pg_typeof(x) from anyctest(11, int4range(4,7)) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, int4range(4,7)) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, int4range(4, 7)) AS x"
   },
   {
     "comment": "polymorphism - Statement 350",
-    "query": "select x, pg_typeof(x) from anyctest(11, numrange(4,7)) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, numrange(4,7)) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, numrange(4, 7)) AS x"
   },
   {
     "comment": "polymorphism - Statement 351",
-    "query": "select x, pg_typeof(x) from anyctest(11.2, int4range(4,7)) x"
+    "query": "select x, pg_typeof(x) from anyctest(11.2, int4range(4,7)) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11.2, int4range(4, 7)) AS x"
   },
   {
     "comment": "polymorphism - Statement 352",
-    "query": "select x, pg_typeof(x) from anyctest(11.2, '[4,7)') x"
+    "query": "select x, pg_typeof(x) from anyctest(11.2, '[4,7)') x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11.2, '[4,7)') AS x"
   },
   {
     "comment": "polymorphism - Statement 353",
-    "query": "drop function anyctest(anycompatible, anycompatiblerange)"
+    "query": "drop function anyctest(anycompatible, anycompatiblerange)",
+    "expected": "DROP FUNCTION anyctest(anycompatible, anycompatiblerange)"
   },
   {
     "comment": "polymorphism - Statement 354",
-    "query": "create function anyctest(anycompatiblerange, anycompatiblerange) returns anycompatible as $$ select lower($1) + upper($2) $$ language sql"
+    "query": "create function anyctest(anycompatiblerange, anycompatiblerange) returns anycompatible as $$ select lower($1) + upper($2) $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (anycompatiblerange, anycompatiblerange) RETURNS anycompatible LANGUAGE sql AS $$ select lower($1) + upper($2) $$"
   },
   {
     "comment": "polymorphism - Statement 355",
-    "query": "select x, pg_typeof(x) from anyctest(int4range(11,12), int4range(4,7)) x"
+    "query": "select x, pg_typeof(x) from anyctest(int4range(11,12), int4range(4,7)) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(int4range(11, 12), int4range(4, 7)) AS x"
   },
   {
     "comment": "polymorphism - Statement 356",
-    "query": "select x, pg_typeof(x) from anyctest(int4range(11,12), numrange(4,7)) x"
+    "query": "select x, pg_typeof(x) from anyctest(int4range(11,12), numrange(4,7)) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(int4range(11, 12), numrange(4, 7)) AS x"
   },
   {
     "comment": "polymorphism - Statement 357",
-    "query": "drop function anyctest(anycompatiblerange, anycompatiblerange)"
+    "query": "drop function anyctest(anycompatiblerange, anycompatiblerange)",
+    "expected": "DROP FUNCTION anyctest(anycompatiblerange, anycompatiblerange)"
   },
   {
     "comment": "polymorphism - Statement 358",
-    "query": "create function anyctest(anycompatible) returns anycompatiblerange as $$ select $1 $$ language sql"
+    "query": "create function anyctest(anycompatible) returns anycompatiblerange as $$ select $1 $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (anycompatible) RETURNS anycompatiblerange LANGUAGE sql AS $$ select $1 $$"
   },
   {
     "comment": "polymorphism - Statement 359",
-    "query": "create function anyctest(anycompatible, anycompatiblemultirange) returns anycompatiblemultirange as $$ select $2 $$ language sql"
+    "query": "create function anyctest(anycompatible, anycompatiblemultirange) returns anycompatiblemultirange as $$ select $2 $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (anycompatible, anycompatiblemultirange) RETURNS anycompatiblemultirange LANGUAGE sql AS $$ select $2 $$"
   },
   {
     "comment": "polymorphism - Statement 360",
-    "query": "select x, pg_typeof(x) from anyctest(11, multirange(int4range(4,7))) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, multirange(int4range(4,7))) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, multirange(int4range(4, 7))) AS x"
   },
   {
     "comment": "polymorphism - Statement 361",
-    "query": "select x, pg_typeof(x) from anyctest(11, multirange(numrange(4,7))) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, multirange(numrange(4,7))) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, multirange(numrange(4, 7))) AS x"
   },
   {
     "comment": "polymorphism - Statement 362",
-    "query": "select x, pg_typeof(x) from anyctest(11.2, multirange(int4range(4,7))) x"
+    "query": "select x, pg_typeof(x) from anyctest(11.2, multirange(int4range(4,7))) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11.2, multirange(int4range(4, 7))) AS x"
   },
   {
     "comment": "polymorphism - Statement 363",
-    "query": "select x, pg_typeof(x) from anyctest(11.2, '{[4,7)}') x"
+    "query": "select x, pg_typeof(x) from anyctest(11.2, '{[4,7)}') x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11.2, '{[4,7)}') AS x"
   },
   {
     "comment": "polymorphism - Statement 364",
-    "query": "drop function anyctest(anycompatible, anycompatiblemultirange)"
+    "query": "drop function anyctest(anycompatible, anycompatiblemultirange)",
+    "expected": "DROP FUNCTION anyctest(anycompatible, anycompatiblemultirange)"
   },
   {
     "comment": "polymorphism - Statement 365",
-    "query": "create function anyctest(anycompatiblemultirange, anycompatiblemultirange) returns anycompatible as $$ select lower($1) + upper($2) $$ language sql"
+    "query": "create function anyctest(anycompatiblemultirange, anycompatiblemultirange) returns anycompatible as $$ select lower($1) + upper($2) $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (anycompatiblemultirange, anycompatiblemultirange) RETURNS anycompatible LANGUAGE sql AS $$ select lower($1) + upper($2) $$"
   },
   {
     "comment": "polymorphism - Statement 366",
-    "query": "select x, pg_typeof(x) from anyctest(multirange(int4range(11,12)), multirange(int4range(4,7))) x"
+    "query": "select x, pg_typeof(x) from anyctest(multirange(int4range(11,12)), multirange(int4range(4,7))) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(multirange(int4range(11, 12)), multirange(int4range(4, 7))) AS x"
   },
   {
     "comment": "polymorphism - Statement 367",
-    "query": "select x, pg_typeof(x) from anyctest(multirange(int4range(11,12)), multirange(numrange(4,7))) x"
+    "query": "select x, pg_typeof(x) from anyctest(multirange(int4range(11,12)), multirange(numrange(4,7))) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(multirange(int4range(11, 12)), multirange(numrange(4, 7))) AS x"
   },
   {
     "comment": "polymorphism - Statement 368",
-    "query": "drop function anyctest(anycompatiblemultirange, anycompatiblemultirange)"
+    "query": "drop function anyctest(anycompatiblemultirange, anycompatiblemultirange)",
+    "expected": "DROP FUNCTION anyctest(anycompatiblemultirange, anycompatiblemultirange)"
   },
   {
     "comment": "polymorphism - Statement 369",
-    "query": "create function anyctest(anycompatible) returns anycompatiblemultirange as $$ select $1 $$ language sql"
+    "query": "create function anyctest(anycompatible) returns anycompatiblemultirange as $$ select $1 $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (anycompatible) RETURNS anycompatiblemultirange LANGUAGE sql AS $$ select $1 $$"
   },
   {
     "comment": "polymorphism - Statement 370",
-    "query": "create function anyctest(anycompatiblenonarray, anycompatiblenonarray) returns anycompatiblearray as $$ select array[$1, $2] $$ language sql"
+    "query": "create function anyctest(anycompatiblenonarray, anycompatiblenonarray) returns anycompatiblearray as $$ select array[$1, $2] $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (anycompatiblenonarray, anycompatiblenonarray) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[$1, $2] $$"
   },
   {
     "comment": "polymorphism - Statement 371",
-    "query": "select x, pg_typeof(x) from anyctest(array[11], array[1,2]) x"
+    "query": "select x, pg_typeof(x) from anyctest(array[11], array[1,2]) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(ARRAY[11], ARRAY[1,2]) AS x"
   },
   {
     "comment": "polymorphism - Statement 372",
-    "query": "drop function anyctest(anycompatiblenonarray, anycompatiblenonarray)"
+    "query": "drop function anyctest(anycompatiblenonarray, anycompatiblenonarray)",
+    "expected": "DROP FUNCTION anyctest(anycompatiblenonarray, anycompatiblenonarray)"
   },
   {
     "comment": "polymorphism - Statement 373",
-    "query": "create function anyctest(a anyelement, b anyarray, c anycompatible, d anycompatible) returns anycompatiblearray as $$ select array[c, d] $$ language sql"
+    "query": "create function anyctest(a anyelement, b anyarray, c anycompatible, d anycompatible) returns anycompatiblearray as $$ select array[c, d] $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (a anyelement, b anyarray, c anycompatible, d anycompatible) RETURNS anycompatiblearray LANGUAGE sql AS $$ select array[c, d] $$"
   },
   {
     "comment": "polymorphism - Statement 374",
-    "query": "select x, pg_typeof(x) from anyctest(11, array[1, 2], 42, 34.5) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, array[1, 2], 42, 34.5) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, ARRAY[1,2], 42, 34.5) AS x"
   },
   {
     "comment": "polymorphism - Statement 375",
-    "query": "select x, pg_typeof(x) from anyctest(11, array[1, 2], point(1,2), point(3,4)) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, array[1, 2], point(1,2), point(3,4)) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, ARRAY[1,2], point(1, 2), point(3, 4)) AS x"
   },
   {
     "comment": "polymorphism - Statement 376",
-    "query": "select x, pg_typeof(x) from anyctest(11, '{1,2}', point(1,2), '(3,4)') x"
+    "query": "select x, pg_typeof(x) from anyctest(11, '{1,2}', point(1,2), '(3,4)') x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, '{1,2}', point(1, 2), '(3,4)') AS x"
   },
   {
     "comment": "polymorphism - Statement 377",
-    "query": "select x, pg_typeof(x) from anyctest(11, array[1, 2.2], 42, 34.5) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, array[1, 2.2], 42, 34.5) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, ARRAY[1,2.2], 42, 34.5) AS x"
   },
   {
     "comment": "polymorphism - Statement 378",
-    "query": "drop function anyctest(a anyelement, b anyarray, c anycompatible, d anycompatible)"
+    "query": "drop function anyctest(a anyelement, b anyarray, c anycompatible, d anycompatible)",
+    "expected": "DROP FUNCTION anyctest(a anyelement, b anyarray, c anycompatible, d anycompatible)"
   },
   {
     "comment": "polymorphism - Statement 379",
-    "query": "create function anyctest(variadic anycompatiblearray) returns anycompatiblearray as $$ select $1 $$ language sql"
+    "query": "create function anyctest(variadic anycompatiblearray) returns anycompatiblearray as $$ select $1 $$ language sql",
+    "expected": "CREATE FUNCTION anyctest (VARIADIC anycompatiblearray) RETURNS anycompatiblearray LANGUAGE sql AS $$ select $1 $$"
   },
   {
     "comment": "polymorphism - Statement 380",
-    "query": "select x, pg_typeof(x) from anyctest(11, 12.2) x"
+    "query": "select x, pg_typeof(x) from anyctest(11, 12.2) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, 12.2) AS x"
   },
   {
     "comment": "polymorphism - Statement 381",
-    "query": "select x, pg_typeof(x) from anyctest(11, '12') x"
+    "query": "select x, pg_typeof(x) from anyctest(11, '12') x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, '12') AS x"
   },
   {
     "comment": "polymorphism - Statement 382",
-    "query": "select x, pg_typeof(x) from anyctest(11, '12.2') x"
+    "query": "select x, pg_typeof(x) from anyctest(11, '12.2') x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(11, '12.2') AS x"
   },
   {
     "comment": "polymorphism - Statement 383",
-    "query": "select x, pg_typeof(x) from anyctest(variadic array[11, 12]) x"
+    "query": "select x, pg_typeof(x) from anyctest(variadic array[11, 12]) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(VARIADIC ARRAY[11,12]) AS x"
   },
   {
     "comment": "polymorphism - Statement 384",
-    "query": "select x, pg_typeof(x) from anyctest(variadic array[11, 12.2]) x"
+    "query": "select x, pg_typeof(x) from anyctest(variadic array[11, 12.2]) x",
+    "expected": "SELECT x, pg_typeof(x) FROM anyctest(VARIADIC ARRAY[11,12.2]) AS x"
   },
   {
     "comment": "polymorphism - Statement 385",
-    "query": "drop function anyctest(variadic anycompatiblearray)"
+    "query": "drop function anyctest(variadic anycompatiblearray)",
+    "expected": "DROP FUNCTION anyctest(VARIADIC anycompatiblearray)"
   }
 ]

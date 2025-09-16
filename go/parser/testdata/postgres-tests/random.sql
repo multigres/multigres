@@ -26,26 +26,7 @@ FROM (SELECT random() r FROM generate_series(1, 2000)) ss;
 
 -- Check for uniform distribution using the Kolmogorov-Smirnov test.
 
-CREATE FUNCTION ks_test_uniform_random()
-RETURNS boolean AS
-$$
-DECLARE
-  n int := 1000;        -- Number of samples
-  c float8 := 1.94947;  -- Critical value for 99.9% confidence
-  ok boolean;
-BEGIN
-  ok := (
-    WITH samples AS (
-      SELECT random() r FROM generate_series(1, n) ORDER BY 1
-    ), indexed_samples AS (
-      SELECT (row_number() OVER())-1.0 i, r FROM samples
-    )
-    SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples
-  );
-  RETURN ok;
-END
-$$
-LANGUAGE plpgsql;
+CREATE FUNCTION ks_test_uniform_random() RETURNS boolean AS $$ DECLARE   n int := 1000;          c float8 := 1.94947;    ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random() r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;
 
 -- As written, ks_test_uniform_random() returns true about 99.9%
 -- of the time.  To get down to a roughly 1e-9 test failure rate,
@@ -72,27 +53,7 @@ GROUP BY r;
 
 -- Check standard normal distribution using the Kolmogorov-Smirnov test.
 
-CREATE FUNCTION ks_test_normal_random()
-RETURNS boolean AS
-$$
-DECLARE
-  n int := 1000;        -- Number of samples
-  c float8 := 1.94947;  -- Critical value for 99.9% confidence
-  ok boolean;
-BEGIN
-  ok := (
-    WITH samples AS (
-      SELECT random_normal() r FROM generate_series(1, n) ORDER BY 1
-    ), indexed_samples AS (
-      SELECT (row_number() OVER())-1.0 i, r FROM samples
-    )
-    SELECT max(abs((1+erf(r/sqrt(2)))/2 - i/n)) < c / sqrt(n)
-    FROM indexed_samples
-  );
-  RETURN ok;
-END
-$$
-LANGUAGE plpgsql;
+CREATE FUNCTION ks_test_normal_random() RETURNS boolean AS $$ DECLARE   n int := 1000;     c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random_normal() r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs((1+erf(r/sqrt(2)))/2 - i/n)) < c / sqrt(n)     FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;
 
 -- As above, ks_test_normal_random() returns true about 99.9%
 -- of the time, so try it 3 times and accept if any test passes.
@@ -180,76 +141,19 @@ SELECT min(r), max(r), count(r) FROM (
 
 -- Check for uniform distribution using the Kolmogorov-Smirnov test.
 
-CREATE FUNCTION ks_test_uniform_random_int_in_range()
-RETURNS boolean AS
-$$
-DECLARE
-  n int := 1000;        -- Number of samples
-  c float8 := 1.94947;  -- Critical value for 99.9% confidence
-  ok boolean;
-BEGIN
-  ok := (
-    WITH samples AS (
-      SELECT random(0, 999999) / 1000000.0 r FROM generate_series(1, n) ORDER BY 1
-    ), indexed_samples AS (
-      SELECT (row_number() OVER())-1.0 i, r FROM samples
-    )
-    SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples
-  );
-  RETURN ok;
-END
-$$
-LANGUAGE plpgsql;
+CREATE FUNCTION ks_test_uniform_random_int_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;    c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 999999) / 1000000.0 r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;
 
 SELECT ks_test_uniform_random_int_in_range() OR
        ks_test_uniform_random_int_in_range() OR
        ks_test_uniform_random_int_in_range() AS uniform_int;
 
-CREATE FUNCTION ks_test_uniform_random_bigint_in_range()
-RETURNS boolean AS
-$$
-DECLARE
-  n int := 1000;        -- Number of samples
-  c float8 := 1.94947;  -- Critical value for 99.9% confidence
-  ok boolean;
-BEGIN
-  ok := (
-    WITH samples AS (
-      SELECT random(0, 999999999999) / 1000000000000.0 r FROM generate_series(1, n) ORDER BY 1
-    ), indexed_samples AS (
-      SELECT (row_number() OVER())-1.0 i, r FROM samples
-    )
-    SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples
-  );
-  RETURN ok;
-END
-$$
-LANGUAGE plpgsql;
+CREATE FUNCTION ks_test_uniform_random_bigint_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;   c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 999999999999) / 1000000000000.0 r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;
 
 SELECT ks_test_uniform_random_bigint_in_range() OR
        ks_test_uniform_random_bigint_in_range() OR
        ks_test_uniform_random_bigint_in_range() AS uniform_bigint;
 
-CREATE FUNCTION ks_test_uniform_random_numeric_in_range()
-RETURNS boolean AS
-$$
-DECLARE
-  n int := 1000;        -- Number of samples
-  c float8 := 1.94947;  -- Critical value for 99.9% confidence
-  ok boolean;
-BEGIN
-  ok := (
-    WITH samples AS (
-      SELECT random(0, 0.999999) r FROM generate_series(1, n) ORDER BY 1
-    ), indexed_samples AS (
-      SELECT (row_number() OVER())-1.0 i, r FROM samples
-    )
-    SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples
-  );
-  RETURN ok;
-END
-$$
-LANGUAGE plpgsql;
+CREATE FUNCTION ks_test_uniform_random_numeric_in_range() RETURNS boolean AS $$ DECLARE   n int := 1000;   c float8 := 1.94947;   ok boolean; BEGIN   ok := (     WITH samples AS (       SELECT random(0, 0.999999) r FROM generate_series(1, n) ORDER BY 1     ), indexed_samples AS (       SELECT (row_number() OVER())-1.0 i, r FROM samples     )     SELECT max(abs(i/n-r)) < c / sqrt(n) FROM indexed_samples   );   RETURN ok; END $$ LANGUAGE plpgsql;
 
 SELECT ks_test_uniform_random_numeric_in_range() OR
        ks_test_uniform_random_numeric_in_range() OR

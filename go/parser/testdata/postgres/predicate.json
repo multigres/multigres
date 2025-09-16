@@ -1,71 +1,88 @@
 [
   {
     "comment": "predicate - Statement 1",
-    "query": "CREATE TABLE pred_tab (a int NOT NULL, b int, c int NOT NULL)"
+    "query": "CREATE TABLE pred_tab (a int NOT NULL, b int, c int NOT NULL)",
+    "expected": "CREATE TABLE pred_tab (a INT NOT NULL, b INT, c INT NOT NULL)"
   },
   {
     "comment": "predicate - Statement 2",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.a IS NOT NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.a IS NOT NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t WHERE t.a IS NOT NULL"
   },
   {
     "comment": "predicate - Statement 3",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.b IS NOT NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.b IS NOT NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t WHERE t.b IS NOT NULL"
   },
   {
     "comment": "predicate - Statement 4",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.a IS NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.a IS NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t WHERE t.a IS NULL"
   },
   {
     "comment": "predicate - Statement 5",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.b IS NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.b IS NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t WHERE t.b IS NULL"
   },
   {
     "comment": "predicate - Statement 6",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.a IS NOT NULL OR t.b = 1"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.a IS NOT NULL OR t.b = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t WHERE t.a IS NOT NULL OR t.b = 1"
   },
   {
     "comment": "predicate - Statement 7",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.b IS NOT NULL OR t.a = 1"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.b IS NOT NULL OR t.a = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t WHERE t.b IS NOT NULL OR t.a = 1"
   },
   {
     "comment": "predicate - Statement 8",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.a IS NULL OR t.c IS NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.a IS NULL OR t.c IS NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t WHERE t.a IS NULL OR t.c IS NULL"
   },
   {
     "comment": "predicate - Statement 9",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.b IS NULL OR t.c IS NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t WHERE t.b IS NULL OR t.c IS NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t WHERE t.b IS NULL OR t.c IS NULL"
   },
   {
     "comment": "predicate - Statement 10",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a IS NOT NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a IS NOT NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t1 LEFT OUTER JOIN pred_tab AS t2 ON t1.a IS NOT NULL"
   },
   {
     "comment": "predicate - Statement 11",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 FULL JOIN pred_tab t2 ON t1.a = t2.a LEFT JOIN pred_tab t3 ON t2.a IS NOT NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 FULL JOIN pred_tab t2 ON t1.a = t2.a LEFT JOIN pred_tab t3 ON t2.a IS NOT NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t1 FULL OUTER JOIN pred_tab AS t2 ON t1.a = t2.a LEFT OUTER JOIN pred_tab AS t3 ON t2.a IS NOT NULL"
   },
   {
     "comment": "predicate - Statement 12",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a IS NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a IS NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t1 LEFT OUTER JOIN pred_tab AS t2 ON t1.a IS NULL"
   },
   {
     "comment": "predicate - Statement 13",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a = 1 LEFT JOIN pred_tab t3 ON t2.a IS NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a = 1 LEFT JOIN pred_tab t3 ON t2.a IS NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t1 LEFT OUTER JOIN pred_tab AS t2 ON t1.a = 1 LEFT OUTER JOIN pred_tab AS t3 ON t2.a IS NULL"
   },
   {
     "comment": "predicate - Statement 14",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a IS NOT NULL OR t2.b = 1"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a IS NOT NULL OR t2.b = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t1 LEFT OUTER JOIN pred_tab AS t2 ON t1.a IS NOT NULL OR t2.b = 1"
   },
   {
     "comment": "predicate - Statement 15",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 FULL JOIN pred_tab t2 ON t1.a = t2.a LEFT JOIN pred_tab t3 ON t2.a IS NOT NULL OR t2.b = 1"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 FULL JOIN pred_tab t2 ON t1.a = t2.a LEFT JOIN pred_tab t3 ON t2.a IS NOT NULL OR t2.b = 1",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t1 FULL OUTER JOIN pred_tab AS t2 ON t1.a = t2.a LEFT OUTER JOIN pred_tab AS t3 ON t2.a IS NOT NULL OR t2.b = 1"
   },
   {
     "comment": "predicate - Statement 16",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON (t1.a IS NULL OR t1.c IS NULL)"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON (t1.a IS NULL OR t1.c IS NULL)",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t1 LEFT OUTER JOIN pred_tab AS t2 ON (t1.a IS NULL OR t1.c IS NULL)"
   },
   {
     "comment": "predicate - Statement 17",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a = 1 LEFT JOIN pred_tab t3 ON t2.a IS NULL OR t2.c IS NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a = 1 LEFT JOIN pred_tab t3 ON t2.a IS NULL OR t2.c IS NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t1 LEFT OUTER JOIN pred_tab AS t2 ON t1.a = 1 LEFT OUTER JOIN pred_tab AS t3 ON t2.a IS NULL OR t2.c IS NULL"
   },
   {
     "comment": "predicate - Statement 18",
@@ -73,7 +90,8 @@
   },
   {
     "comment": "predicate - Statement 19",
-    "query": "CREATE TABLE pred_parent (a int)"
+    "query": "CREATE TABLE pred_parent (a int)",
+    "expected": "CREATE TABLE pred_parent (a INT)"
   },
   {
     "comment": "predicate - Statement 20",
@@ -81,23 +99,28 @@
   },
   {
     "comment": "predicate - Statement 21",
-    "query": "ALTER TABLE ONLY pred_parent ALTER a SET NOT NULL"
+    "query": "ALTER TABLE ONLY pred_parent ALTER a SET NOT NULL",
+    "expected": "ALTER TABLE ONLY pred_parent ALTER COLUMN a SET NOT NULL"
   },
   {
     "comment": "predicate - Statement 22",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_parent WHERE a IS NOT NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_parent WHERE a IS NOT NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_parent WHERE a IS NOT NULL"
   },
   {
     "comment": "predicate - Statement 23",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_parent WHERE a IS NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_parent WHERE a IS NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_parent WHERE a IS NULL"
   },
   {
     "comment": "predicate - Statement 24",
-    "query": "ALTER TABLE pred_parent ALTER a DROP NOT NULL"
+    "query": "ALTER TABLE pred_parent ALTER a DROP NOT NULL",
+    "expected": "ALTER TABLE pred_parent ALTER COLUMN a DROP NOT NULL"
   },
   {
     "comment": "predicate - Statement 25",
-    "query": "ALTER TABLE pred_child ALTER a SET NOT NULL"
+    "query": "ALTER TABLE pred_child ALTER a SET NOT NULL",
+    "expected": "ALTER TABLE pred_child ALTER COLUMN a SET NOT NULL"
   },
   {
     "comment": "predicate - Statement 26",
@@ -105,11 +128,13 @@
   },
   {
     "comment": "predicate - Statement 27",
-    "query": "CREATE TABLE pred_tab (a int, b int)"
+    "query": "CREATE TABLE pred_tab (a int, b int)",
+    "expected": "CREATE TABLE pred_tab (a INT, b INT)"
   },
   {
     "comment": "predicate - Statement 28",
-    "query": "CREATE TABLE pred_tab_notnull (a int, b int NOT NULL)"
+    "query": "CREATE TABLE pred_tab_notnull (a int, b int NOT NULL)",
+    "expected": "CREATE TABLE pred_tab_notnull (a INT, b INT NOT NULL)"
   },
   {
     "comment": "predicate - Statement 29",
@@ -137,19 +162,23 @@
   },
   {
     "comment": "predicate - Statement 35",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON TRUE LEFT JOIN pred_tab_notnull t3 ON t2.a = t3.a LEFT JOIN pred_tab t4 ON t3.b IS NOT NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON TRUE LEFT JOIN pred_tab_notnull t3 ON t2.a = t3.a LEFT JOIN pred_tab t4 ON t3.b IS NOT NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t1 LEFT OUTER JOIN pred_tab AS t2 ON TRUE LEFT OUTER JOIN pred_tab_notnull AS t3 ON t2.a = t3.a LEFT OUTER JOIN pred_tab AS t4 ON t3.b IS NOT NULL"
   },
   {
     "comment": "predicate - Statement 36",
-    "query": "SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON TRUE LEFT JOIN pred_tab_notnull t3 ON t2.a = t3.a LEFT JOIN pred_tab t4 ON t3.b IS NOT NULL"
+    "query": "SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON TRUE LEFT JOIN pred_tab_notnull t3 ON t2.a = t3.a LEFT JOIN pred_tab t4 ON t3.b IS NOT NULL",
+    "expected": "SELECT * FROM pred_tab AS t1 LEFT OUTER JOIN pred_tab AS t2 ON TRUE LEFT OUTER JOIN pred_tab_notnull AS t3 ON t2.a = t3.a LEFT OUTER JOIN pred_tab AS t4 ON t3.b IS NOT NULL"
   },
   {
     "comment": "predicate - Statement 37",
-    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON TRUE LEFT JOIN pred_tab_notnull t3 ON t2.a = t3.a LEFT JOIN pred_tab t4 ON t3.b IS NULL AND t3.a IS NOT NULL"
+    "query": "EXPLAIN (COSTS OFF) SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON TRUE LEFT JOIN pred_tab_notnull t3 ON t2.a = t3.a LEFT JOIN pred_tab t4 ON t3.b IS NULL AND t3.a IS NOT NULL",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pred_tab AS t1 LEFT OUTER JOIN pred_tab AS t2 ON TRUE LEFT OUTER JOIN pred_tab_notnull AS t3 ON t2.a = t3.a LEFT OUTER JOIN pred_tab AS t4 ON t3.b IS NULL AND t3.a IS NOT NULL"
   },
   {
     "comment": "predicate - Statement 38",
-    "query": "SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON TRUE LEFT JOIN pred_tab_notnull t3 ON t2.a = t3.a LEFT JOIN pred_tab t4 ON t3.b IS NULL AND t3.a IS NOT NULL"
+    "query": "SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON TRUE LEFT JOIN pred_tab_notnull t3 ON t2.a = t3.a LEFT JOIN pred_tab t4 ON t3.b IS NULL AND t3.a IS NOT NULL",
+    "expected": "SELECT * FROM pred_tab AS t1 LEFT OUTER JOIN pred_tab AS t2 ON TRUE LEFT OUTER JOIN pred_tab_notnull AS t3 ON t2.a = t3.a LEFT OUTER JOIN pred_tab AS t4 ON t3.b IS NULL AND t3.a IS NOT NULL"
   },
   {
     "comment": "predicate - Statement 39",

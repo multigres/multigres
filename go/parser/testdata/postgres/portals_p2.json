@@ -57,55 +57,68 @@
   },
   {
     "comment": "portals_p2 - Statement 15",
-    "query": "FETCH all in foo13"
+    "query": "FETCH all in foo13",
+    "expected": "FETCH ALL FROM foo13"
   },
   {
     "comment": "portals_p2 - Statement 16",
-    "query": "FETCH all in foo14"
+    "query": "FETCH all in foo14",
+    "expected": "FETCH ALL FROM foo14"
   },
   {
     "comment": "portals_p2 - Statement 17",
-    "query": "FETCH all in foo15"
+    "query": "FETCH all in foo15",
+    "expected": "FETCH ALL FROM foo15"
   },
   {
     "comment": "portals_p2 - Statement 18",
-    "query": "FETCH all in foo16"
+    "query": "FETCH all in foo16",
+    "expected": "FETCH ALL FROM foo16"
   },
   {
     "comment": "portals_p2 - Statement 19",
-    "query": "FETCH all in foo17"
+    "query": "FETCH all in foo17",
+    "expected": "FETCH ALL FROM foo17"
   },
   {
     "comment": "portals_p2 - Statement 20",
-    "query": "FETCH all in foo18"
+    "query": "FETCH all in foo18",
+    "expected": "FETCH ALL FROM foo18"
   },
   {
     "comment": "portals_p2 - Statement 21",
-    "query": "FETCH all in foo19"
+    "query": "FETCH all in foo19",
+    "expected": "FETCH ALL FROM foo19"
   },
   {
     "comment": "portals_p2 - Statement 22",
-    "query": "FETCH all in foo20"
+    "query": "FETCH all in foo20",
+    "expected": "FETCH ALL FROM foo20"
   },
   {
     "comment": "portals_p2 - Statement 23",
-    "query": "FETCH all in foo21"
+    "query": "FETCH all in foo21",
+    "expected": "FETCH ALL FROM foo21"
   },
   {
     "comment": "portals_p2 - Statement 24",
-    "query": "FETCH all in foo22"
+    "query": "FETCH all in foo22",
+    "expected": "FETCH ALL FROM foo22"
   },
   {
     "comment": "portals_p2 - Statement 25",
-    "query": "FETCH all in foo23"
+    "query": "FETCH all in foo23",
+    "expected": "FETCH ALL FROM foo23"
   },
   {
     "comment": "portals_p2 - Statement 26",
-    "query": "FETCH all in foo24"
+    "query": "FETCH all in foo24",
+    "expected": "FETCH ALL FROM foo24"
   },
   {
     "comment": "portals_p2 - Statement 27",
-    "query": "FETCH all in foo25"
+    "query": "FETCH all in foo25",
+    "expected": "FETCH ALL FROM foo25"
   },
   {
     "comment": "portals_p2 - Statement 28",
@@ -161,6 +174,7 @@
   },
   {
     "comment": "portals_p2 - Statement 41",
-    "query": "END"
+    "query": "END",
+    "expected": "COMMIT"
   }
 ]

@@ -552,11 +552,7 @@ select f3, myaggn10a(f1) from t group by f3 order by f3;
 select mysum2(f1, f1 + 1) from t;
 
 -- test inlining of polymorphic SQL functions
-create function bleat(int) returns int as $$
-begin
-  raise notice 'bleat %', $1;
-  return $1;
-end$$ language plpgsql;
+create function bleat(int) returns int as $$ begin   raise notice 'bleat %', $1;   return $1; end$$ language plpgsql;
 
 create function sql_if(bool, anyelement, anyelement) returns anyelement as $$
 select case when $1 then $2 else $3 end $$ language sql;
@@ -584,20 +580,7 @@ FROM (VALUES (ARRAY[row(1,2),row(3,4)]), (ARRAY[row(5,6),row(7,8)])) as t(i);
 
 -- another kind of polymorphic aggregate
 
-create function add_group(grp anyarray, ad anyelement, size integer)
-  returns anyarray
-  as $$
-begin
-  if grp is null then
-    return array[ad];
-  end if;
-  if array_upper(grp, 1) < size then
-    return grp || ad;
-  end if;
-  return grp;
-end;
-$$
-  language plpgsql immutable;
+create function add_group(grp anyarray, ad anyelement, size integer)   returns anyarray   as $$ begin   if grp is null then     return array[ad];   end if;   if array_upper(grp, 1) < size then     return grp || ad;   end if;   return grp; end; $$   language plpgsql immutable;
 
 create aggregate build_group(anyelement, integer) (
   SFUNC = add_group,
@@ -675,9 +658,7 @@ select myleast(variadic array[1.1, -5.5]);
 select myleast(variadic array[]::int[]);
 
 -- an example with some ordinary arguments too
-create function concat(text, variadic anyarray) returns text as $$
-  select array_to_string($2, $1);
-$$ language sql immutable strict;
+create function concat(text, variadic anyarray) returns text as $$ select array_to_string($2, $1); $$ language sql immutable strict;
 
 select concat('%', 1, 2, 3, 4, 5);
 select concat('|', 'a'::text, 'b', 'c');

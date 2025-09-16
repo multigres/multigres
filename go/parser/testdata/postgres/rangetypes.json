@@ -1,199 +1,248 @@
 [
   {
     "comment": "rangetypes - Statement 1",
-    "query": "select ''::textrange"
+    "query": "select ''::textrange",
+    "expected": "SELECT CAST('' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 2",
-    "query": "select '-[a,z)'::textrange"
+    "query": "select '-[a,z)'::textrange",
+    "expected": "SELECT CAST('-[a,z)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 3",
-    "query": "select '[a,z) - '::textrange"
+    "query": "select '[a,z) - '::textrange",
+    "expected": "SELECT CAST('[a,z) - ' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 4",
-    "query": "select '(\",a)'::textrange"
+    "query": "select '(\",a)'::textrange",
+    "expected": "SELECT CAST('(\",a)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 5",
-    "query": "select '(,,a)'::textrange"
+    "query": "select '(,,a)'::textrange",
+    "expected": "SELECT CAST('(,,a)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 6",
-    "query": "select '(),a)'::textrange"
+    "query": "select '(),a)'::textrange",
+    "expected": "SELECT CAST('(),a)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 7",
-    "query": "select '(a,))'::textrange"
+    "query": "select '(a,))'::textrange",
+    "expected": "SELECT CAST('(a,))' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 8",
-    "query": "select '(],a)'::textrange"
+    "query": "select '(],a)'::textrange",
+    "expected": "SELECT CAST('(],a)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 9",
-    "query": "select '(a,])'::textrange"
+    "query": "select '(a,])'::textrange",
+    "expected": "SELECT CAST('(a,])' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 10",
-    "query": "select '[z,a]'::textrange"
+    "query": "select '[z,a]'::textrange",
+    "expected": "SELECT CAST('[z,a]' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 11",
-    "query": "select '  empty  '::textrange"
+    "query": "select '  empty  '::textrange",
+    "expected": "SELECT CAST('  empty  ' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 12",
-    "query": "select ' ( empty, empty )  '::textrange"
+    "query": "select ' ( empty, empty )  '::textrange",
+    "expected": "SELECT CAST(' ( empty, empty )  ' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 13",
-    "query": "select ' ( \" a \" \" a \", \" z \" \" z \" )  '::textrange"
+    "query": "select ' ( \" a \" \" a \", \" z \" \" z \" )  '::textrange",
+    "expected": "SELECT CAST(' ( \" a \" \" a \", \" z \" \" z \" )  ' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 14",
-    "query": "select '(a,)'::textrange"
+    "query": "select '(a,)'::textrange",
+    "expected": "SELECT CAST('(a,)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 15",
-    "query": "select '[,z]'::textrange"
+    "query": "select '[,z]'::textrange",
+    "expected": "SELECT CAST('[,z]' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 16",
-    "query": "select '[a,]'::textrange"
+    "query": "select '[a,]'::textrange",
+    "expected": "SELECT CAST('[a,]' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 17",
-    "query": "select '(,)'::textrange"
+    "query": "select '(,)'::textrange",
+    "expected": "SELECT CAST('(,)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 18",
-    "query": "select '[ , ]'::textrange"
+    "query": "select '[ , ]'::textrange",
+    "expected": "SELECT CAST('[ , ]' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 19",
-    "query": "select '[\"\",\"\"]'::textrange"
+    "query": "select '[\"\",\"\"]'::textrange",
+    "expected": "SELECT CAST('[\"\",\"\"]' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 20",
-    "query": "select '[\",\",\",\"]'::textrange"
+    "query": "select '[\",\",\",\"]'::textrange",
+    "expected": "SELECT CAST('[\",\",\",\"]' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 21",
-    "query": "select '[\"\\\\\",\"\\\\\"]'::textrange"
+    "query": "select '[\"\\\\\",\"\\\\\"]'::textrange",
+    "expected": "SELECT CAST('[\"\\\\\",\"\\\\\"]' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 22",
-    "query": "select '(\\\\,a)'::textrange"
+    "query": "select '(\\\\,a)'::textrange",
+    "expected": "SELECT CAST('(\\\\,a)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 23",
-    "query": "select '((,z)'::textrange"
+    "query": "select '((,z)'::textrange",
+    "expected": "SELECT CAST('((,z)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 24",
-    "query": "select '([,z)'::textrange"
+    "query": "select '([,z)'::textrange",
+    "expected": "SELECT CAST('([,z)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 25",
-    "query": "select '(!,()'::textrange"
+    "query": "select '(!,()'::textrange",
+    "expected": "SELECT CAST('(!,()' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 26",
-    "query": "select '(!,[)'::textrange"
+    "query": "select '(!,[)'::textrange",
+    "expected": "SELECT CAST('(!,[)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 27",
-    "query": "select '[a,a]'::textrange"
+    "query": "select '[a,a]'::textrange",
+    "expected": "SELECT CAST('[a,a]' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 28",
-    "query": "select '[a,a)'::textrange"
+    "query": "select '[a,a)'::textrange",
+    "expected": "SELECT CAST('[a,a)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 29",
-    "query": "select '(a,a]'::textrange"
+    "query": "select '(a,a]'::textrange",
+    "expected": "SELECT CAST('(a,a]' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 30",
-    "query": "select '(a,a)'::textrange"
+    "query": "select '(a,a)'::textrange",
+    "expected": "SELECT CAST('(a,a)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 31",
-    "query": "select pg_input_is_valid('(1,4)', 'int4range')"
+    "query": "select pg_input_is_valid('(1,4)', 'int4range')",
+    "expected": "SELECT pg_input_is_valid('(1,4)', 'int4range')"
   },
   {
     "comment": "rangetypes - Statement 32",
-    "query": "select pg_input_is_valid('(1,4', 'int4range')"
+    "query": "select pg_input_is_valid('(1,4', 'int4range')",
+    "expected": "SELECT pg_input_is_valid('(1,4', 'int4range')"
   },
   {
     "comment": "rangetypes - Statement 33",
-    "query": "select * from pg_input_error_info('(1,4', 'int4range')"
+    "query": "select * from pg_input_error_info('(1,4', 'int4range')",
+    "expected": "SELECT * FROM pg_input_error_info('(1,4', 'int4range')"
   },
   {
     "comment": "rangetypes - Statement 34",
-    "query": "select pg_input_is_valid('(4,1)', 'int4range')"
+    "query": "select pg_input_is_valid('(4,1)', 'int4range')",
+    "expected": "SELECT pg_input_is_valid('(4,1)', 'int4range')"
   },
   {
     "comment": "rangetypes - Statement 35",
-    "query": "select * from pg_input_error_info('(4,1)', 'int4range')"
+    "query": "select * from pg_input_error_info('(4,1)', 'int4range')",
+    "expected": "SELECT * FROM pg_input_error_info('(4,1)', 'int4range')"
   },
   {
     "comment": "rangetypes - Statement 36",
-    "query": "select pg_input_is_valid('(4,zed)', 'int4range')"
+    "query": "select pg_input_is_valid('(4,zed)', 'int4range')",
+    "expected": "SELECT pg_input_is_valid('(4,zed)', 'int4range')"
   },
   {
     "comment": "rangetypes - Statement 37",
-    "query": "select * from pg_input_error_info('(4,zed)', 'int4range')"
+    "query": "select * from pg_input_error_info('(4,zed)', 'int4range')",
+    "expected": "SELECT * FROM pg_input_error_info('(4,zed)', 'int4range')"
   },
   {
     "comment": "rangetypes - Statement 38",
-    "query": "select pg_input_is_valid('[1,2147483647]', 'int4range')"
+    "query": "select pg_input_is_valid('[1,2147483647]', 'int4range')",
+    "expected": "SELECT pg_input_is_valid('[1,2147483647]', 'int4range')"
   },
   {
     "comment": "rangetypes - Statement 39",
-    "query": "select * from pg_input_error_info('[1,2147483647]', 'int4range')"
+    "query": "select * from pg_input_error_info('[1,2147483647]', 'int4range')",
+    "expected": "SELECT * FROM pg_input_error_info('[1,2147483647]', 'int4range')"
   },
   {
     "comment": "rangetypes - Statement 40",
-    "query": "select pg_input_is_valid('[2000-01-01,5874897-12-31]', 'daterange')"
+    "query": "select pg_input_is_valid('[2000-01-01,5874897-12-31]', 'daterange')",
+    "expected": "SELECT pg_input_is_valid('[2000-01-01,5874897-12-31]', 'daterange')"
   },
   {
     "comment": "rangetypes - Statement 41",
-    "query": "select * from pg_input_error_info('[2000-01-01,5874897-12-31]', 'daterange')"
+    "query": "select * from pg_input_error_info('[2000-01-01,5874897-12-31]', 'daterange')",
+    "expected": "SELECT * FROM pg_input_error_info('[2000-01-01,5874897-12-31]', 'daterange')"
   },
   {
     "comment": "rangetypes - Statement 42",
-    "query": "CREATE TABLE numrange_test (nr NUMRANGE)"
+    "query": "CREATE TABLE numrange_test (nr NUMRANGE)",
+    "expected": "CREATE TABLE numrange_test (nr numrange)"
   },
   {
     "comment": "rangetypes - Statement 43",
-    "query": "create index numrange_test_btree on numrange_test(nr)"
+    "query": "create index numrange_test_btree on numrange_test(nr)",
+    "expected": "CREATE INDEX numrange_test_btree ON numrange_test USING btree ( nr )"
   },
   {
     "comment": "rangetypes - Statement 44",
-    "query": "INSERT INTO numrange_test VALUES('[,)')"
+    "query": "INSERT INTO numrange_test VALUES('[,)')",
+    "expected": "INSERT INTO numrange_test VALUES ('[,)')"
   },
   {
     "comment": "rangetypes - Statement 45",
-    "query": "INSERT INTO numrange_test VALUES('[3,]')"
+    "query": "INSERT INTO numrange_test VALUES('[3,]')",
+    "expected": "INSERT INTO numrange_test VALUES ('[3,]')"
   },
   {
     "comment": "rangetypes - Statement 46",
-    "query": "INSERT INTO numrange_test VALUES('[, 5)')"
+    "query": "INSERT INTO numrange_test VALUES('[, 5)')",
+    "expected": "INSERT INTO numrange_test VALUES ('[, 5)')"
   },
   {
     "comment": "rangetypes - Statement 47",
-    "query": "INSERT INTO numrange_test VALUES(numrange(1.1, 2.2))"
+    "query": "INSERT INTO numrange_test VALUES(numrange(1.1, 2.2))",
+    "expected": "INSERT INTO numrange_test VALUES (numrange(1.1, 2.2))"
   },
   {
     "comment": "rangetypes - Statement 48",
-    "query": "INSERT INTO numrange_test VALUES('empty')"
+    "query": "INSERT INTO numrange_test VALUES('empty')",
+    "expected": "INSERT INTO numrange_test VALUES ('empty')"
   },
   {
     "comment": "rangetypes - Statement 49",
-    "query": "INSERT INTO numrange_test VALUES(numrange(1.7, 1.7, '[]'))"
+    "query": "INSERT INTO numrange_test VALUES(numrange(1.7, 1.7, '[]'))",
+    "expected": "INSERT INTO numrange_test VALUES (numrange(1.7, 1.7, '[]'))"
   },
   {
     "comment": "rangetypes - Statement 50",
@@ -205,287 +254,357 @@
   },
   {
     "comment": "rangetypes - Statement 52",
-    "query": "SELECT * FROM numrange_test WHERE range_contains(nr, numrange(1.9,1.91))"
+    "query": "SELECT * FROM numrange_test WHERE range_contains(nr, numrange(1.9,1.91))",
+    "expected": "SELECT * FROM numrange_test WHERE range_contains(nr, numrange(1.9, 1.91))"
   },
   {
     "comment": "rangetypes - Statement 53",
-    "query": "SELECT * FROM numrange_test WHERE nr @> numrange(1.0,10000.1)"
+    "query": "SELECT * FROM numrange_test WHERE nr @\u003e numrange(1.0,10000.1)",
+    "expected": "SELECT * FROM numrange_test WHERE nr @\u003e numrange(1.0, 10000.1)"
   },
   {
     "comment": "rangetypes - Statement 54",
-    "query": "SELECT * FROM numrange_test WHERE range_contained_by(numrange(-1e7,-10000.1), nr)"
+    "query": "SELECT * FROM numrange_test WHERE range_contained_by(numrange(-1e7,-10000.1), nr)",
+    "expected": "SELECT * FROM numrange_test WHERE range_contained_by(numrange(-1e7, -10000.1), nr)"
   },
   {
     "comment": "rangetypes - Statement 55",
-    "query": "SELECT * FROM numrange_test WHERE 1.9 <@ nr"
+    "query": "SELECT * FROM numrange_test WHERE 1.9 \u003c@ nr"
   },
   {
     "comment": "rangetypes - Statement 56",
-    "query": "select * from numrange_test where nr = 'empty'"
+    "query": "select * from numrange_test where nr = 'empty'",
+    "expected": "SELECT * FROM numrange_test WHERE nr = 'empty'"
   },
   {
     "comment": "rangetypes - Statement 57",
-    "query": "select * from numrange_test where nr = '(1.1, 2.2)'"
+    "query": "select * from numrange_test where nr = '(1.1, 2.2)'",
+    "expected": "SELECT * FROM numrange_test WHERE nr = '(1.1, 2.2)'"
   },
   {
     "comment": "rangetypes - Statement 58",
-    "query": "select * from numrange_test where nr = '[1.1, 2.2)'"
+    "query": "select * from numrange_test where nr = '[1.1, 2.2)'",
+    "expected": "SELECT * FROM numrange_test WHERE nr = '[1.1, 2.2)'"
   },
   {
     "comment": "rangetypes - Statement 59",
-    "query": "select * from numrange_test where nr < 'empty'"
+    "query": "select * from numrange_test where nr \u003c 'empty'",
+    "expected": "SELECT * FROM numrange_test WHERE nr \u003c 'empty'"
   },
   {
     "comment": "rangetypes - Statement 60",
-    "query": "select * from numrange_test where nr < numrange(-1000.0, -1000.0,'[]')"
+    "query": "select * from numrange_test where nr \u003c numrange(-1000.0, -1000.0,'[]')",
+    "expected": "SELECT * FROM numrange_test WHERE nr \u003c numrange(-1000.0, -1000.0, '[]')"
   },
   {
     "comment": "rangetypes - Statement 61",
-    "query": "select * from numrange_test where nr < numrange(0.0, 1.0,'[]')"
+    "query": "select * from numrange_test where nr \u003c numrange(0.0, 1.0,'[]')",
+    "expected": "SELECT * FROM numrange_test WHERE nr \u003c numrange(0.0, 1.0, '[]')"
   },
   {
     "comment": "rangetypes - Statement 62",
-    "query": "select * from numrange_test where nr < numrange(1000.0, 1001.0,'[]')"
+    "query": "select * from numrange_test where nr \u003c numrange(1000.0, 1001.0,'[]')",
+    "expected": "SELECT * FROM numrange_test WHERE nr \u003c numrange(1000.0, 1001.0, '[]')"
   },
   {
     "comment": "rangetypes - Statement 63",
-    "query": "select * from numrange_test where nr <= 'empty'"
+    "query": "select * from numrange_test where nr \u003c= 'empty'",
+    "expected": "SELECT * FROM numrange_test WHERE nr \u003c= 'empty'"
   },
   {
     "comment": "rangetypes - Statement 64",
-    "query": "select * from numrange_test where nr >= 'empty'"
+    "query": "select * from numrange_test where nr \u003e= 'empty'",
+    "expected": "SELECT * FROM numrange_test WHERE nr \u003e= 'empty'"
   },
   {
     "comment": "rangetypes - Statement 65",
-    "query": "select * from numrange_test where nr > 'empty'"
+    "query": "select * from numrange_test where nr \u003e 'empty'",
+    "expected": "SELECT * FROM numrange_test WHERE nr \u003e 'empty'"
   },
   {
     "comment": "rangetypes - Statement 66",
-    "query": "select * from numrange_test where nr > numrange(-1001.0, -1000.0,'[]')"
+    "query": "select * from numrange_test where nr \u003e numrange(-1001.0, -1000.0,'[]')",
+    "expected": "SELECT * FROM numrange_test WHERE nr \u003e numrange(-1001.0, -1000.0, '[]')"
   },
   {
     "comment": "rangetypes - Statement 67",
-    "query": "select * from numrange_test where nr > numrange(0.0, 1.0,'[]')"
+    "query": "select * from numrange_test where nr \u003e numrange(0.0, 1.0,'[]')",
+    "expected": "SELECT * FROM numrange_test WHERE nr \u003e numrange(0.0, 1.0, '[]')"
   },
   {
     "comment": "rangetypes - Statement 68",
-    "query": "select * from numrange_test where nr > numrange(1000.0, 1000.0,'[]')"
+    "query": "select * from numrange_test where nr \u003e numrange(1000.0, 1000.0,'[]')",
+    "expected": "SELECT * FROM numrange_test WHERE nr \u003e numrange(1000.0, 1000.0, '[]')"
   },
   {
     "comment": "rangetypes - Statement 69",
-    "query": "select numrange(2.0, 1.0)"
+    "query": "select numrange(2.0, 1.0)",
+    "expected": "SELECT numrange(2.0, 1.0)"
   },
   {
     "comment": "rangetypes - Statement 70",
-    "query": "select numrange(2.0, 3.0) -|- numrange(3.0, 4.0)"
+    "query": "select numrange(2.0, 3.0) -|- numrange(3.0, 4.0)",
+    "expected": "SELECT numrange(2.0, 3.0) -|- numrange(3.0, 4.0)"
   },
   {
     "comment": "rangetypes - Statement 71",
-    "query": "select range_adjacent(numrange(2.0, 3.0), numrange(3.1, 4.0))"
+    "query": "select range_adjacent(numrange(2.0, 3.0), numrange(3.1, 4.0))",
+    "expected": "SELECT range_adjacent(numrange(2.0, 3.0), numrange(3.1, 4.0))"
   },
   {
     "comment": "rangetypes - Statement 72",
-    "query": "select range_adjacent(numrange(2.0, 3.0), numrange(3.1, null))"
+    "query": "select range_adjacent(numrange(2.0, 3.0), numrange(3.1, null))",
+    "expected": "SELECT range_adjacent(numrange(2.0, 3.0), numrange(3.1, NULL))"
   },
   {
     "comment": "rangetypes - Statement 73",
-    "query": "select numrange(2.0, 3.0, '[]') -|- numrange(3.0, 4.0, '()')"
+    "query": "select numrange(2.0, 3.0, '[]') -|- numrange(3.0, 4.0, '()')",
+    "expected": "SELECT numrange(2.0, 3.0, '[]') -|- numrange(3.0, 4.0, '()')"
   },
   {
     "comment": "rangetypes - Statement 74",
-    "query": "select numrange(1.0, 2.0) -|- numrange(2.0, 3.0,'[]')"
+    "query": "select numrange(1.0, 2.0) -|- numrange(2.0, 3.0,'[]')",
+    "expected": "SELECT numrange(1.0, 2.0) -|- numrange(2.0, 3.0, '[]')"
   },
   {
     "comment": "rangetypes - Statement 75",
-    "query": "select range_adjacent(numrange(2.0, 3.0, '(]'), numrange(1.0, 2.0, '(]'))"
+    "query": "select range_adjacent(numrange(2.0, 3.0, '(]'), numrange(1.0, 2.0, '(]'))",
+    "expected": "SELECT range_adjacent(numrange(2.0, 3.0, '(]'), numrange(1.0, 2.0, '(]'))"
   },
   {
     "comment": "rangetypes - Statement 76",
-    "query": "select numrange(1.1, 3.3) <@ numrange(0.1,10.1)"
+    "query": "select numrange(1.1, 3.3) \u003c@ numrange(0.1,10.1)",
+    "expected": "SELECT numrange(1.1, 3.3) \u003c@ numrange(0.1, 10.1)"
   },
   {
     "comment": "rangetypes - Statement 77",
-    "query": "select numrange(0.1, 10.1) <@ numrange(1.1,3.3)"
+    "query": "select numrange(0.1, 10.1) \u003c@ numrange(1.1,3.3)",
+    "expected": "SELECT numrange(0.1, 10.1) \u003c@ numrange(1.1, 3.3)"
   },
   {
     "comment": "rangetypes - Statement 78",
-    "query": "select numrange(1.1, 2.2) - numrange(2.0, 3.0)"
+    "query": "select numrange(1.1, 2.2) - numrange(2.0, 3.0)",
+    "expected": "SELECT numrange(1.1, 2.2) - numrange(2.0, 3.0)"
   },
   {
     "comment": "rangetypes - Statement 79",
-    "query": "select numrange(1.1, 2.2) - numrange(2.2, 3.0)"
+    "query": "select numrange(1.1, 2.2) - numrange(2.2, 3.0)",
+    "expected": "SELECT numrange(1.1, 2.2) - numrange(2.2, 3.0)"
   },
   {
     "comment": "rangetypes - Statement 80",
-    "query": "select numrange(1.1, 2.2,'[]') - numrange(2.0, 3.0)"
+    "query": "select numrange(1.1, 2.2,'[]') - numrange(2.0, 3.0)",
+    "expected": "SELECT numrange(1.1, 2.2, '[]') - numrange(2.0, 3.0)"
   },
   {
     "comment": "rangetypes - Statement 81",
-    "query": "select range_minus(numrange(10.1,12.2,'[]'), numrange(110.0,120.2,'(]'))"
+    "query": "select range_minus(numrange(10.1,12.2,'[]'), numrange(110.0,120.2,'(]'))",
+    "expected": "SELECT range_minus(numrange(10.1, 12.2, '[]'), numrange(110.0, 120.2, '(]'))"
   },
   {
     "comment": "rangetypes - Statement 82",
-    "query": "select range_minus(numrange(10.1,12.2,'[]'), numrange(0.0,120.2,'(]'))"
+    "query": "select range_minus(numrange(10.1,12.2,'[]'), numrange(0.0,120.2,'(]'))",
+    "expected": "SELECT range_minus(numrange(10.1, 12.2, '[]'), numrange(0.0, 120.2, '(]'))"
   },
   {
     "comment": "rangetypes - Statement 83",
-    "query": "select numrange(4.5, 5.5, '[]') && numrange(5.5, 6.5)"
+    "query": "select numrange(4.5, 5.5, '[]') \u0026\u0026 numrange(5.5, 6.5)",
+    "expected": "SELECT numrange(4.5, 5.5, '[]') \u0026\u0026 numrange(5.5, 6.5)"
   },
   {
     "comment": "rangetypes - Statement 84",
-    "query": "select numrange(1.0, 2.0) << numrange(3.0, 4.0)"
+    "query": "select numrange(1.0, 2.0) \u003c\u003c numrange(3.0, 4.0)",
+    "expected": "SELECT numrange(1.0, 2.0) \u003c\u003c numrange(3.0, 4.0)"
   },
   {
     "comment": "rangetypes - Statement 85",
-    "query": "select numrange(1.0, 3.0,'[]') << numrange(3.0, 4.0,'[]')"
+    "query": "select numrange(1.0, 3.0,'[]') \u003c\u003c numrange(3.0, 4.0,'[]')",
+    "expected": "SELECT numrange(1.0, 3.0, '[]') \u003c\u003c numrange(3.0, 4.0, '[]')"
   },
   {
     "comment": "rangetypes - Statement 86",
-    "query": "select numrange(1.0, 3.0,'()') << numrange(3.0, 4.0,'()')"
+    "query": "select numrange(1.0, 3.0,'()') \u003c\u003c numrange(3.0, 4.0,'()')",
+    "expected": "SELECT numrange(1.0, 3.0, '()') \u003c\u003c numrange(3.0, 4.0, '()')"
   },
   {
     "comment": "rangetypes - Statement 87",
-    "query": "select numrange(1.0, 2.0) >> numrange(3.0, 4.0)"
+    "query": "select numrange(1.0, 2.0) \u003e\u003e numrange(3.0, 4.0)",
+    "expected": "SELECT numrange(1.0, 2.0) \u003e\u003e numrange(3.0, 4.0)"
   },
   {
     "comment": "rangetypes - Statement 88",
-    "query": "select numrange(3.0, 70.0) &< numrange(6.6, 100.0)"
+    "query": "select numrange(3.0, 70.0) \u0026\u003c numrange(6.6, 100.0)",
+    "expected": "SELECT numrange(3.0, 70.0) \u0026\u003c numrange(6.6, 100.0)"
   },
   {
     "comment": "rangetypes - Statement 89",
-    "query": "select numrange(1.1, 2.2) < numrange(1.0, 200.2)"
+    "query": "select numrange(1.1, 2.2) \u003c numrange(1.0, 200.2)",
+    "expected": "SELECT numrange(1.1, 2.2) \u003c numrange(1.0, 200.2)"
   },
   {
     "comment": "rangetypes - Statement 90",
-    "query": "select numrange(1.1, 2.2) < numrange(1.1, 1.2)"
+    "query": "select numrange(1.1, 2.2) \u003c numrange(1.1, 1.2)",
+    "expected": "SELECT numrange(1.1, 2.2) \u003c numrange(1.1, 1.2)"
   },
   {
     "comment": "rangetypes - Statement 91",
-    "query": "select numrange(1.0, 2.0) + numrange(2.0, 3.0)"
+    "query": "select numrange(1.0, 2.0) + numrange(2.0, 3.0)",
+    "expected": "SELECT numrange(1.0, 2.0) + numrange(2.0, 3.0)"
   },
   {
     "comment": "rangetypes - Statement 92",
-    "query": "select numrange(1.0, 2.0) + numrange(1.5, 3.0)"
+    "query": "select numrange(1.0, 2.0) + numrange(1.5, 3.0)",
+    "expected": "SELECT numrange(1.0, 2.0) + numrange(1.5, 3.0)"
   },
   {
     "comment": "rangetypes - Statement 93",
-    "query": "select numrange(1.0, 2.0) + numrange(2.5, 3.0)"
+    "query": "select numrange(1.0, 2.0) + numrange(2.5, 3.0)",
+    "expected": "SELECT numrange(1.0, 2.0) + numrange(2.5, 3.0)"
   },
   {
     "comment": "rangetypes - Statement 94",
-    "query": "select range_merge(numrange(1.0, 2.0), numrange(2.0, 3.0))"
+    "query": "select range_merge(numrange(1.0, 2.0), numrange(2.0, 3.0))",
+    "expected": "SELECT range_merge(numrange(1.0, 2.0), numrange(2.0, 3.0))"
   },
   {
     "comment": "rangetypes - Statement 95",
-    "query": "select range_merge(numrange(1.0, 2.0), numrange(1.5, 3.0))"
+    "query": "select range_merge(numrange(1.0, 2.0), numrange(1.5, 3.0))",
+    "expected": "SELECT range_merge(numrange(1.0, 2.0), numrange(1.5, 3.0))"
   },
   {
     "comment": "rangetypes - Statement 96",
-    "query": "select range_merge(numrange(1.0, 2.0), numrange(2.5, 3.0))"
+    "query": "select range_merge(numrange(1.0, 2.0), numrange(2.5, 3.0))",
+    "expected": "SELECT range_merge(numrange(1.0, 2.0), numrange(2.5, 3.0))"
   },
   {
     "comment": "rangetypes - Statement 97",
-    "query": "select numrange(1.0, 2.0) * numrange(2.0, 3.0)"
+    "query": "select numrange(1.0, 2.0) * numrange(2.0, 3.0)",
+    "expected": "SELECT numrange(1.0, 2.0) * numrange(2.0, 3.0)"
   },
   {
     "comment": "rangetypes - Statement 98",
-    "query": "select numrange(1.0, 2.0) * numrange(1.5, 3.0)"
+    "query": "select numrange(1.0, 2.0) * numrange(1.5, 3.0)",
+    "expected": "SELECT numrange(1.0, 2.0) * numrange(1.5, 3.0)"
   },
   {
     "comment": "rangetypes - Statement 99",
-    "query": "select numrange(1.0, 2.0) * numrange(2.5, 3.0)"
+    "query": "select numrange(1.0, 2.0) * numrange(2.5, 3.0)",
+    "expected": "SELECT numrange(1.0, 2.0) * numrange(2.5, 3.0)"
   },
   {
     "comment": "rangetypes - Statement 100",
-    "query": "select range_intersect_agg(nr) from numrange_test"
+    "query": "select range_intersect_agg(nr) from numrange_test",
+    "expected": "SELECT range_intersect_agg(nr) FROM numrange_test"
   },
   {
     "comment": "rangetypes - Statement 101",
-    "query": "select range_intersect_agg(nr) from numrange_test where false"
+    "query": "select range_intersect_agg(nr) from numrange_test where false",
+    "expected": "SELECT range_intersect_agg(nr) FROM numrange_test WHERE FALSE"
   },
   {
     "comment": "rangetypes - Statement 102",
-    "query": "select range_intersect_agg(nr) from numrange_test where nr @> 4.0"
+    "query": "select range_intersect_agg(nr) from numrange_test where nr @\u003e 4.0",
+    "expected": "SELECT range_intersect_agg(nr) FROM numrange_test WHERE nr @\u003e 4.0"
   },
   {
     "comment": "rangetypes - Statement 103",
-    "query": "analyze numrange_test"
+    "query": "analyze numrange_test",
+    "expected": "ANALYZE numrange_test"
   },
   {
     "comment": "rangetypes - Statement 104",
-    "query": "create table numrange_test2(nr numrange)"
+    "query": "create table numrange_test2(nr numrange)",
+    "expected": "CREATE TABLE numrange_test2 (nr numrange)"
   },
   {
     "comment": "rangetypes - Statement 105",
-    "query": "create index numrange_test2_hash_idx on numrange_test2 using hash (nr)"
+    "query": "create index numrange_test2_hash_idx on numrange_test2 using hash (nr)",
+    "expected": "CREATE INDEX numrange_test2_hash_idx ON numrange_test2 USING hash ( nr )"
   },
   {
     "comment": "rangetypes - Statement 106",
-    "query": "INSERT INTO numrange_test2 VALUES('[, 5)')"
+    "query": "INSERT INTO numrange_test2 VALUES('[, 5)')",
+    "expected": "INSERT INTO numrange_test2 VALUES ('[, 5)')"
   },
   {
     "comment": "rangetypes - Statement 107",
-    "query": "INSERT INTO numrange_test2 VALUES(numrange(1.1, 2.2))"
+    "query": "INSERT INTO numrange_test2 VALUES(numrange(1.1, 2.2))",
+    "expected": "INSERT INTO numrange_test2 VALUES (numrange(1.1, 2.2))"
   },
   {
     "comment": "rangetypes - Statement 108",
-    "query": "INSERT INTO numrange_test2 VALUES(numrange(1.1, 2.2,'()'))"
+    "query": "INSERT INTO numrange_test2 VALUES(numrange(1.1, 2.2,'()'))",
+    "expected": "INSERT INTO numrange_test2 VALUES (numrange(1.1, 2.2, '()'))"
   },
   {
     "comment": "rangetypes - Statement 109",
-    "query": "INSERT INTO numrange_test2 VALUES('empty')"
+    "query": "INSERT INTO numrange_test2 VALUES('empty')",
+    "expected": "INSERT INTO numrange_test2 VALUES ('empty')"
   },
   {
     "comment": "rangetypes - Statement 110",
-    "query": "select * from numrange_test2 where nr = 'empty'::numrange"
+    "query": "select * from numrange_test2 where nr = 'empty'::numrange",
+    "expected": "SELECT * FROM numrange_test2 WHERE nr = CAST('empty' AS numrange)"
   },
   {
     "comment": "rangetypes - Statement 111",
-    "query": "select * from numrange_test2 where nr = numrange(1.1, 2.2)"
+    "query": "select * from numrange_test2 where nr = numrange(1.1, 2.2)",
+    "expected": "SELECT * FROM numrange_test2 WHERE nr = numrange(1.1, 2.2)"
   },
   {
     "comment": "rangetypes - Statement 112",
-    "query": "select * from numrange_test2 where nr = numrange(1.1, 2.3)"
+    "query": "select * from numrange_test2 where nr = numrange(1.1, 2.3)",
+    "expected": "SELECT * FROM numrange_test2 WHERE nr = numrange(1.1, 2.3)"
   },
   {
     "comment": "rangetypes - Statement 113",
-    "query": "set enable_nestloop=t"
+    "query": "set enable_nestloop=t",
+    "expected": "SET enable_nestloop = 't'"
   },
   {
     "comment": "rangetypes - Statement 114",
-    "query": "set enable_hashjoin=f"
+    "query": "set enable_hashjoin=f",
+    "expected": "SET enable_hashjoin = 'f'"
   },
   {
     "comment": "rangetypes - Statement 115",
-    "query": "set enable_mergejoin=f"
+    "query": "set enable_mergejoin=f",
+    "expected": "SET enable_mergejoin = 'f'"
   },
   {
     "comment": "rangetypes - Statement 116",
-    "query": "select * from numrange_test natural join numrange_test2 order by nr"
+    "query": "select * from numrange_test natural join numrange_test2 order by nr",
+    "expected": "SELECT * FROM numrange_test NATURAL JOIN numrange_test2 ORDER BY nr"
   },
   {
     "comment": "rangetypes - Statement 117",
-    "query": "set enable_nestloop=f"
+    "query": "set enable_nestloop=f",
+    "expected": "SET enable_nestloop = 'f'"
   },
   {
     "comment": "rangetypes - Statement 118",
-    "query": "set enable_hashjoin=t"
+    "query": "set enable_hashjoin=t",
+    "expected": "SET enable_hashjoin = 't'"
   },
   {
     "comment": "rangetypes - Statement 119",
-    "query": "set enable_mergejoin=t"
+    "query": "set enable_mergejoin=t",
+    "expected": "SET enable_mergejoin = 't'"
   },
   {
     "comment": "rangetypes - Statement 120",
-    "query": "set enable_nestloop to default"
+    "query": "set enable_nestloop to default",
+    "expected": "SET enable_nestloop = DEFAULT"
   },
   {
     "comment": "rangetypes - Statement 121",
-    "query": "set enable_hashjoin to default"
+    "query": "set enable_hashjoin to default",
+    "expected": "SET enable_hashjoin = DEFAULT"
   },
   {
     "comment": "rangetypes - Statement 122",
-    "query": "set enable_mergejoin to default"
+    "query": "set enable_mergejoin to default",
+    "expected": "SET enable_mergejoin = DEFAULT"
   },
   {
     "comment": "rangetypes - Statement 123",
@@ -497,31 +616,38 @@
   },
   {
     "comment": "rangetypes - Statement 125",
-    "query": "create index textrange_test_btree on textrange_test(tr)"
+    "query": "create index textrange_test_btree on textrange_test(tr)",
+    "expected": "CREATE INDEX textrange_test_btree ON textrange_test USING btree ( tr )"
   },
   {
     "comment": "rangetypes - Statement 126",
-    "query": "INSERT INTO textrange_test VALUES('[,)')"
+    "query": "INSERT INTO textrange_test VALUES('[,)')",
+    "expected": "INSERT INTO textrange_test VALUES ('[,)')"
   },
   {
     "comment": "rangetypes - Statement 127",
-    "query": "INSERT INTO textrange_test VALUES('[\"a\",]')"
+    "query": "INSERT INTO textrange_test VALUES('[\"a\",]')",
+    "expected": "INSERT INTO textrange_test VALUES ('[\"a\",]')"
   },
   {
     "comment": "rangetypes - Statement 128",
-    "query": "INSERT INTO textrange_test VALUES('[,\"q\")')"
+    "query": "INSERT INTO textrange_test VALUES('[,\"q\")')",
+    "expected": "INSERT INTO textrange_test VALUES ('[,\"q\")')"
   },
   {
     "comment": "rangetypes - Statement 129",
-    "query": "INSERT INTO textrange_test VALUES(textrange('b', 'g'))"
+    "query": "INSERT INTO textrange_test VALUES(textrange('b', 'g'))",
+    "expected": "INSERT INTO textrange_test VALUES (textrange('b', 'g'))"
   },
   {
     "comment": "rangetypes - Statement 130",
-    "query": "INSERT INTO textrange_test VALUES('empty')"
+    "query": "INSERT INTO textrange_test VALUES('empty')",
+    "expected": "INSERT INTO textrange_test VALUES ('empty')"
   },
   {
     "comment": "rangetypes - Statement 131",
-    "query": "INSERT INTO textrange_test VALUES(textrange('d', 'd', '[]'))"
+    "query": "INSERT INTO textrange_test VALUES(textrange('d', 'd', '[]'))",
+    "expected": "INSERT INTO textrange_test VALUES (textrange('d', 'd', '[]'))"
   },
   {
     "comment": "rangetypes - Statement 132",
@@ -537,311 +663,387 @@
   },
   {
     "comment": "rangetypes - Statement 135",
-    "query": "SELECT * FROM textrange_test WHERE tr @> textrange('a', 'z')"
+    "query": "SELECT * FROM textrange_test WHERE tr @\u003e textrange('a', 'z')"
   },
   {
     "comment": "rangetypes - Statement 136",
-    "query": "SELECT * FROM textrange_test WHERE range_contained_by(textrange('0','9'), tr)"
+    "query": "SELECT * FROM textrange_test WHERE range_contained_by(textrange('0','9'), tr)",
+    "expected": "SELECT * FROM textrange_test WHERE range_contained_by(textrange('0', '9'), tr)"
   },
   {
     "comment": "rangetypes - Statement 137",
-    "query": "SELECT * FROM textrange_test WHERE 'e'::text <@ tr"
+    "query": "SELECT * FROM textrange_test WHERE 'e'::text \u003c@ tr",
+    "expected": "SELECT * FROM textrange_test WHERE CAST('e' AS TEXT) \u003c@ tr"
   },
   {
     "comment": "rangetypes - Statement 138",
-    "query": "select * from textrange_test where tr = 'empty'"
+    "query": "select * from textrange_test where tr = 'empty'",
+    "expected": "SELECT * FROM textrange_test WHERE tr = 'empty'"
   },
   {
     "comment": "rangetypes - Statement 139",
-    "query": "select * from textrange_test where tr = '(\"b\",\"g\")'"
+    "query": "select * from textrange_test where tr = '(\"b\",\"g\")'",
+    "expected": "SELECT * FROM textrange_test WHERE tr = '(\"b\",\"g\")'"
   },
   {
     "comment": "rangetypes - Statement 140",
-    "query": "select * from textrange_test where tr = '[\"b\",\"g\")'"
+    "query": "select * from textrange_test where tr = '[\"b\",\"g\")'",
+    "expected": "SELECT * FROM textrange_test WHERE tr = '[\"b\",\"g\")'"
   },
   {
     "comment": "rangetypes - Statement 141",
-    "query": "select * from textrange_test where tr < 'empty'"
+    "query": "select * from textrange_test where tr \u003c 'empty'",
+    "expected": "SELECT * FROM textrange_test WHERE tr \u003c 'empty'"
   },
   {
     "comment": "rangetypes - Statement 142",
-    "query": "select int4range(1, 10, '[]')"
+    "query": "select int4range(1, 10, '[]')",
+    "expected": "SELECT int4range(1, 10, '[]')"
   },
   {
     "comment": "rangetypes - Statement 143",
-    "query": "select int4range(1, 10, '[)')"
+    "query": "select int4range(1, 10, '[)')",
+    "expected": "SELECT int4range(1, 10, '[)')"
   },
   {
     "comment": "rangetypes - Statement 144",
-    "query": "select int4range(1, 10, '(]')"
+    "query": "select int4range(1, 10, '(]')",
+    "expected": "SELECT int4range(1, 10, '(]')"
   },
   {
     "comment": "rangetypes - Statement 145",
-    "query": "select int4range(1, 10, '()')"
+    "query": "select int4range(1, 10, '()')",
+    "expected": "SELECT int4range(1, 10, '()')"
   },
   {
     "comment": "rangetypes - Statement 146",
-    "query": "select int4range(1, 2, '()')"
+    "query": "select int4range(1, 2, '()')",
+    "expected": "SELECT int4range(1, 2, '()')"
   },
   {
     "comment": "rangetypes - Statement 147",
-    "query": "select daterange('2000-01-10'::date, '2000-01-20'::date, '[]')"
+    "query": "select daterange('2000-01-10'::date, '2000-01-20'::date, '[]')",
+    "expected": "SELECT daterange(CAST('2000-01-10' AS DATE), CAST('2000-01-20' AS DATE), '[]')"
   },
   {
     "comment": "rangetypes - Statement 148",
-    "query": "select daterange('2000-01-10'::date, '2000-01-20'::date, '[)')"
+    "query": "select daterange('2000-01-10'::date, '2000-01-20'::date, '[)')",
+    "expected": "SELECT daterange(CAST('2000-01-10' AS DATE), CAST('2000-01-20' AS DATE), '[)')"
   },
   {
     "comment": "rangetypes - Statement 149",
-    "query": "select daterange('2000-01-10'::date, '2000-01-20'::date, '(]')"
+    "query": "select daterange('2000-01-10'::date, '2000-01-20'::date, '(]')",
+    "expected": "SELECT daterange(CAST('2000-01-10' AS DATE), CAST('2000-01-20' AS DATE), '(]')"
   },
   {
     "comment": "rangetypes - Statement 150",
-    "query": "select daterange('2000-01-10'::date, '2000-01-20'::date, '()')"
+    "query": "select daterange('2000-01-10'::date, '2000-01-20'::date, '()')",
+    "expected": "SELECT daterange(CAST('2000-01-10' AS DATE), CAST('2000-01-20' AS DATE), '()')"
   },
   {
     "comment": "rangetypes - Statement 151",
-    "query": "select daterange('2000-01-10'::date, '2000-01-11'::date, '()')"
+    "query": "select daterange('2000-01-10'::date, '2000-01-11'::date, '()')",
+    "expected": "SELECT daterange(CAST('2000-01-10' AS DATE), CAST('2000-01-11' AS DATE), '()')"
   },
   {
     "comment": "rangetypes - Statement 152",
-    "query": "select daterange('2000-01-10'::date, '2000-01-11'::date, '(]')"
+    "query": "select daterange('2000-01-10'::date, '2000-01-11'::date, '(]')",
+    "expected": "SELECT daterange(CAST('2000-01-10' AS DATE), CAST('2000-01-11' AS DATE), '(]')"
   },
   {
     "comment": "rangetypes - Statement 153",
-    "query": "select daterange('-infinity'::date, '2000-01-01'::date, '()')"
+    "query": "select daterange('-infinity'::date, '2000-01-01'::date, '()')",
+    "expected": "SELECT daterange(CAST('-infinity' AS DATE), CAST('2000-01-01' AS DATE), '()')"
   },
   {
     "comment": "rangetypes - Statement 154",
-    "query": "select daterange('-infinity'::date, '2000-01-01'::date, '[)')"
+    "query": "select daterange('-infinity'::date, '2000-01-01'::date, '[)')",
+    "expected": "SELECT daterange(CAST('-infinity' AS DATE), CAST('2000-01-01' AS DATE), '[)')"
   },
   {
     "comment": "rangetypes - Statement 155",
-    "query": "select daterange('2000-01-01'::date, 'infinity'::date, '[)')"
+    "query": "select daterange('2000-01-01'::date, 'infinity'::date, '[)')",
+    "expected": "SELECT daterange(CAST('2000-01-01' AS DATE), CAST('infinity' AS DATE), '[)')"
   },
   {
     "comment": "rangetypes - Statement 156",
-    "query": "select daterange('2000-01-01'::date, 'infinity'::date, '[]')"
+    "query": "select daterange('2000-01-01'::date, 'infinity'::date, '[]')",
+    "expected": "SELECT daterange(CAST('2000-01-01' AS DATE), CAST('infinity' AS DATE), '[]')"
   },
   {
     "comment": "rangetypes - Statement 157",
-    "query": "create table test_range_gist(ir int4range)"
+    "query": "create table test_range_gist(ir int4range)",
+    "expected": "CREATE TABLE test_range_gist (ir int4range)"
   },
   {
     "comment": "rangetypes - Statement 158",
-    "query": "create index test_range_gist_idx on test_range_gist using gist (ir)"
+    "query": "create index test_range_gist_idx on test_range_gist using gist (ir)",
+    "expected": "CREATE INDEX test_range_gist_idx ON test_range_gist USING gist ( ir )"
   },
   {
     "comment": "rangetypes - Statement 159",
-    "query": "insert into test_range_gist select int4range(g, g+10) from generate_series(1,2000) g"
+    "query": "insert into test_range_gist select int4range(g, g+10) from generate_series(1,2000) g",
+    "expected": "INSERT INTO test_range_gist SELECT int4range(g, g + 10) FROM generate_series(1, 2000) AS g"
   },
   {
     "comment": "rangetypes - Statement 160",
-    "query": "insert into test_range_gist select 'empty'::int4range from generate_series(1,500) g"
+    "query": "insert into test_range_gist select 'empty'::int4range from generate_series(1,500) g",
+    "expected": "INSERT INTO test_range_gist SELECT CAST('empty' AS int4range) FROM generate_series(1, 500) AS g"
   },
   {
     "comment": "rangetypes - Statement 161",
-    "query": "insert into test_range_gist select int4range(g, g+10000) from generate_series(1,1000) g"
+    "query": "insert into test_range_gist select int4range(g, g+10000) from generate_series(1,1000) g",
+    "expected": "INSERT INTO test_range_gist SELECT int4range(g, g + 10000) FROM generate_series(1, 1000) AS g"
   },
   {
     "comment": "rangetypes - Statement 162",
-    "query": "insert into test_range_gist select int4range(NULL,g*10,'(]') from generate_series(1,100) g"
+    "query": "insert into test_range_gist select int4range(NULL,g*10,'(]') from generate_series(1,100) g",
+    "expected": "INSERT INTO test_range_gist SELECT int4range(NULL, g * 10, '(]') FROM generate_series(1, 100) AS g"
   },
   {
     "comment": "rangetypes - Statement 163",
-    "query": "insert into test_range_gist select int4range(g*10,NULL,'(]') from generate_series(1,100) g"
+    "query": "insert into test_range_gist select int4range(g*10,NULL,'(]') from generate_series(1,100) g",
+    "expected": "INSERT INTO test_range_gist SELECT int4range(g * 10, NULL, '(]') FROM generate_series(1, 100) AS g"
   },
   {
     "comment": "rangetypes - Statement 164",
-    "query": "analyze test_range_gist"
+    "query": "analyze test_range_gist",
+    "expected": "ANALYZE test_range_gist"
   },
   {
     "comment": "rangetypes - Statement 165",
-    "query": "SET enable_seqscan    = t"
+    "query": "SET enable_seqscan    = t",
+    "expected": "SET enable_seqscan = 't'"
   },
   {
     "comment": "rangetypes - Statement 166",
-    "query": "SET enable_indexscan  = f"
+    "query": "SET enable_indexscan  = f",
+    "expected": "SET enable_indexscan = 'f'"
   },
   {
     "comment": "rangetypes - Statement 167",
-    "query": "SET enable_bitmapscan = f"
+    "query": "SET enable_bitmapscan = f",
+    "expected": "SET enable_bitmapscan = 'f'"
   },
   {
     "comment": "rangetypes - Statement 168",
-    "query": "select count(*) from test_range_gist where ir @> 'empty'::int4range"
+    "query": "select count(*) from test_range_gist where ir @\u003e 'empty'::int4range",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir @\u003e CAST('empty' AS int4range)"
   },
   {
     "comment": "rangetypes - Statement 169",
-    "query": "select count(*) from test_range_gist where ir = int4range(10,20)"
+    "query": "select count(*) from test_range_gist where ir = int4range(10,20)",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir = int4range(10, 20)"
   },
   {
     "comment": "rangetypes - Statement 170",
-    "query": "select count(*) from test_range_gist where ir @> 10"
+    "query": "select count(*) from test_range_gist where ir @\u003e 10",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir @\u003e 10"
   },
   {
     "comment": "rangetypes - Statement 171",
-    "query": "select count(*) from test_range_gist where ir @> int4range(10,20)"
+    "query": "select count(*) from test_range_gist where ir @\u003e int4range(10,20)",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir @\u003e int4range(10, 20)"
   },
   {
     "comment": "rangetypes - Statement 172",
-    "query": "select count(*) from test_range_gist where ir && int4range(10,20)"
+    "query": "select count(*) from test_range_gist where ir \u0026\u0026 int4range(10,20)",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u0026\u0026 int4range(10, 20)"
   },
   {
     "comment": "rangetypes - Statement 173",
-    "query": "select count(*) from test_range_gist where ir <@ int4range(10,50)"
+    "query": "select count(*) from test_range_gist where ir \u003c@ int4range(10,50)",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u003c@ int4range(10, 50)"
   },
   {
     "comment": "rangetypes - Statement 174",
-    "query": "select count(*) from test_range_gist where ir << int4range(100,500)"
+    "query": "select count(*) from test_range_gist where ir \u003c\u003c int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u003c\u003c int4range(100, 500)"
   },
   {
     "comment": "rangetypes - Statement 175",
-    "query": "select count(*) from test_range_gist where ir >> int4range(100,500)"
+    "query": "select count(*) from test_range_gist where ir \u003e\u003e int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u003e\u003e int4range(100, 500)"
   },
   {
     "comment": "rangetypes - Statement 176",
-    "query": "select count(*) from test_range_gist where ir &< int4range(100,500)"
+    "query": "select count(*) from test_range_gist where ir \u0026\u003c int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u0026\u003c int4range(100, 500)"
   },
   {
     "comment": "rangetypes - Statement 177",
-    "query": "select count(*) from test_range_gist where ir &> int4range(100,500)"
+    "query": "select count(*) from test_range_gist where ir \u0026\u003e int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u0026\u003e int4range(100, 500)"
   },
   {
     "comment": "rangetypes - Statement 178",
-    "query": "select count(*) from test_range_gist where ir -|- int4range(100,500)"
+    "query": "select count(*) from test_range_gist where ir -|- int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir -|- int4range(100, 500)"
   },
   {
     "comment": "rangetypes - Statement 179",
-    "query": "select count(*) from test_range_gist where ir @> '{}'::int4multirange"
+    "query": "select count(*) from test_range_gist where ir @\u003e '{}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir @\u003e CAST('{}' AS int4multirange)"
   },
   {
     "comment": "rangetypes - Statement 180",
-    "query": "select count(*) from test_range_gist where ir @> int4multirange(int4range(10,20), int4range(30,40))"
+    "query": "select count(*) from test_range_gist where ir @\u003e int4multirange(int4range(10,20), int4range(30,40))",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir @\u003e int4multirange(int4range(10, 20), int4range(30, 40))"
   },
   {
     "comment": "rangetypes - Statement 181",
-    "query": "select count(*) from test_range_gist where ir && '{(10,20),(30,40),(50,60)}'::int4multirange"
+    "query": "select count(*) from test_range_gist where ir \u0026\u0026 '{(10,20),(30,40),(50,60)}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u0026\u0026 CAST('{(10,20),(30,40),(50,60)}' AS int4multirange)"
   },
   {
     "comment": "rangetypes - Statement 182",
-    "query": "select count(*) from test_range_gist where ir <@ '{(10,30),(40,60),(70,90)}'::int4multirange"
+    "query": "select count(*) from test_range_gist where ir \u003c@ '{(10,30),(40,60),(70,90)}'::int4multirange",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u003c@ CAST('{(10,30),(40,60),(70,90)}' AS int4multirange)"
   },
   {
     "comment": "rangetypes - Statement 183",
-    "query": "select count(*) from test_range_gist where ir << int4multirange(int4range(100,200), int4range(400,500))"
+    "query": "select count(*) from test_range_gist where ir \u003c\u003c int4multirange(int4range(100,200), int4range(400,500))",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u003c\u003c int4multirange(int4range(100, 200), int4range(400, 500))"
   },
   {
     "comment": "rangetypes - Statement 184",
-    "query": "select count(*) from test_range_gist where ir >> int4multirange(int4range(100,200), int4range(400,500))"
+    "query": "select count(*) from test_range_gist where ir \u003e\u003e int4multirange(int4range(100,200), int4range(400,500))",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u003e\u003e int4multirange(int4range(100, 200), int4range(400, 500))"
   },
   {
     "comment": "rangetypes - Statement 185",
-    "query": "select count(*) from test_range_gist where ir &< int4multirange(int4range(100,200), int4range(400,500))"
+    "query": "select count(*) from test_range_gist where ir \u0026\u003c int4multirange(int4range(100,200), int4range(400,500))",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u0026\u003c int4multirange(int4range(100, 200), int4range(400, 500))"
   },
   {
     "comment": "rangetypes - Statement 186",
-    "query": "select count(*) from test_range_gist where ir &> int4multirange(int4range(100,200), int4range(400,500))"
+    "query": "select count(*) from test_range_gist where ir \u0026\u003e int4multirange(int4range(100,200), int4range(400,500))",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir \u0026\u003e int4multirange(int4range(100, 200), int4range(400, 500))"
   },
   {
     "comment": "rangetypes - Statement 187",
-    "query": "select count(*) from test_range_gist where ir -|- int4multirange(int4range(100,200), int4range(400,500))"
+    "query": "select count(*) from test_range_gist where ir -|- int4multirange(int4range(100,200), int4range(400,500))",
+    "expected": "SELECT COUNT(*) FROM test_range_gist WHERE ir -|- int4multirange(int4range(100, 200), int4range(400, 500))"
   },
   {
     "comment": "rangetypes - Statement 188",
-    "query": "SET enable_seqscan    = f"
+    "query": "SET enable_seqscan    = f",
+    "expected": "SET enable_seqscan = 'f'"
   },
   {
     "comment": "rangetypes - Statement 189",
-    "query": "SET enable_indexscan  = t"
+    "query": "SET enable_indexscan  = t",
+    "expected": "SET enable_indexscan = 't'"
   },
   {
     "comment": "rangetypes - Statement 190",
-    "query": "drop index test_range_gist_idx"
+    "query": "drop index test_range_gist_idx",
+    "expected": "DROP INDEX test_range_gist_idx"
   },
   {
     "comment": "rangetypes - Statement 191",
-    "query": "create table test_range_spgist(ir int4range)"
+    "query": "create table test_range_spgist(ir int4range)",
+    "expected": "CREATE TABLE test_range_spgist (ir int4range)"
   },
   {
     "comment": "rangetypes - Statement 192",
-    "query": "create index test_range_spgist_idx on test_range_spgist using spgist (ir)"
+    "query": "create index test_range_spgist_idx on test_range_spgist using spgist (ir)",
+    "expected": "CREATE INDEX test_range_spgist_idx ON test_range_spgist USING spgist ( ir )"
   },
   {
     "comment": "rangetypes - Statement 193",
-    "query": "insert into test_range_spgist select int4range(g, g+10) from generate_series(1,2000) g"
+    "query": "insert into test_range_spgist select int4range(g, g+10) from generate_series(1,2000) g",
+    "expected": "INSERT INTO test_range_spgist SELECT int4range(g, g + 10) FROM generate_series(1, 2000) AS g"
   },
   {
     "comment": "rangetypes - Statement 194",
-    "query": "insert into test_range_spgist select 'empty'::int4range from generate_series(1,500) g"
+    "query": "insert into test_range_spgist select 'empty'::int4range from generate_series(1,500) g",
+    "expected": "INSERT INTO test_range_spgist SELECT CAST('empty' AS int4range) FROM generate_series(1, 500) AS g"
   },
   {
     "comment": "rangetypes - Statement 195",
-    "query": "insert into test_range_spgist select int4range(g, g+10000) from generate_series(1,1000) g"
+    "query": "insert into test_range_spgist select int4range(g, g+10000) from generate_series(1,1000) g",
+    "expected": "INSERT INTO test_range_spgist SELECT int4range(g, g + 10000) FROM generate_series(1, 1000) AS g"
   },
   {
     "comment": "rangetypes - Statement 196",
-    "query": "insert into test_range_spgist select int4range(NULL,g*10,'(]') from generate_series(1,100) g"
+    "query": "insert into test_range_spgist select int4range(NULL,g*10,'(]') from generate_series(1,100) g",
+    "expected": "INSERT INTO test_range_spgist SELECT int4range(NULL, g * 10, '(]') FROM generate_series(1, 100) AS g"
   },
   {
     "comment": "rangetypes - Statement 197",
-    "query": "insert into test_range_spgist select int4range(g*10,NULL,'(]') from generate_series(1,100) g"
+    "query": "insert into test_range_spgist select int4range(g*10,NULL,'(]') from generate_series(1,100) g",
+    "expected": "INSERT INTO test_range_spgist SELECT int4range(g * 10, NULL, '(]') FROM generate_series(1, 100) AS g"
   },
   {
     "comment": "rangetypes - Statement 198",
-    "query": "select count(*) from test_range_spgist where ir @> 'empty'::int4range"
+    "query": "select count(*) from test_range_spgist where ir @\u003e 'empty'::int4range",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir @\u003e CAST('empty' AS int4range)"
   },
   {
     "comment": "rangetypes - Statement 199",
-    "query": "select count(*) from test_range_spgist where ir = int4range(10,20)"
+    "query": "select count(*) from test_range_spgist where ir = int4range(10,20)",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir = int4range(10, 20)"
   },
   {
     "comment": "rangetypes - Statement 200",
-    "query": "select count(*) from test_range_spgist where ir @> 10"
+    "query": "select count(*) from test_range_spgist where ir @\u003e 10",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir @\u003e 10"
   },
   {
     "comment": "rangetypes - Statement 201",
-    "query": "select count(*) from test_range_spgist where ir @> int4range(10,20)"
+    "query": "select count(*) from test_range_spgist where ir @\u003e int4range(10,20)",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir @\u003e int4range(10, 20)"
   },
   {
     "comment": "rangetypes - Statement 202",
-    "query": "select count(*) from test_range_spgist where ir && int4range(10,20)"
+    "query": "select count(*) from test_range_spgist where ir \u0026\u0026 int4range(10,20)",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir \u0026\u0026 int4range(10, 20)"
   },
   {
     "comment": "rangetypes - Statement 203",
-    "query": "select count(*) from test_range_spgist where ir <@ int4range(10,50)"
+    "query": "select count(*) from test_range_spgist where ir \u003c@ int4range(10,50)",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir \u003c@ int4range(10, 50)"
   },
   {
     "comment": "rangetypes - Statement 204",
-    "query": "select count(*) from test_range_spgist where ir << int4range(100,500)"
+    "query": "select count(*) from test_range_spgist where ir \u003c\u003c int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir \u003c\u003c int4range(100, 500)"
   },
   {
     "comment": "rangetypes - Statement 205",
-    "query": "select count(*) from test_range_spgist where ir >> int4range(100,500)"
+    "query": "select count(*) from test_range_spgist where ir \u003e\u003e int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir \u003e\u003e int4range(100, 500)"
   },
   {
     "comment": "rangetypes - Statement 206",
-    "query": "select count(*) from test_range_spgist where ir &< int4range(100,500)"
+    "query": "select count(*) from test_range_spgist where ir \u0026\u003c int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir \u0026\u003c int4range(100, 500)"
   },
   {
     "comment": "rangetypes - Statement 207",
-    "query": "select count(*) from test_range_spgist where ir &> int4range(100,500)"
+    "query": "select count(*) from test_range_spgist where ir \u0026\u003e int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir \u0026\u003e int4range(100, 500)"
   },
   {
     "comment": "rangetypes - Statement 208",
-    "query": "select count(*) from test_range_spgist where ir -|- int4range(100,500)"
+    "query": "select count(*) from test_range_spgist where ir -|- int4range(100,500)",
+    "expected": "SELECT COUNT(*) FROM test_range_spgist WHERE ir -|- int4range(100, 500)"
   },
   {
     "comment": "rangetypes - Statement 209",
-    "query": "drop index test_range_spgist_idx"
+    "query": "drop index test_range_spgist_idx",
+    "expected": "DROP INDEX test_range_spgist_idx"
   },
   {
     "comment": "rangetypes - Statement 210",
-    "query": "explain (costs off) select ir from test_range_spgist where ir -|- int4range(10,20) order by ir"
+    "query": "explain (costs off) select ir from test_range_spgist where ir -|- int4range(10,20) order by ir",
+    "expected": "EXPLAIN (COSTS false) SELECT ir FROM test_range_spgist WHERE ir -|- int4range(10, 20) ORDER BY ir"
   },
   {
     "comment": "rangetypes - Statement 211",
-    "query": "select ir from test_range_spgist where ir -|- int4range(10,20) order by ir"
+    "query": "select ir from test_range_spgist where ir -|- int4range(10,20) order by ir",
+    "expected": "SELECT ir FROM test_range_spgist WHERE ir -|- int4range(10, 20) ORDER BY ir"
   },
   {
     "comment": "rangetypes - Statement 212",
@@ -857,442 +1059,552 @@
   },
   {
     "comment": "rangetypes - Statement 215",
-    "query": "create table test_range_elem(i int4)"
+    "query": "create table test_range_elem(i int4)",
+    "expected": "CREATE TABLE test_range_elem (i INT)"
   },
   {
     "comment": "rangetypes - Statement 216",
-    "query": "create index test_range_elem_idx on test_range_elem (i)"
+    "query": "create index test_range_elem_idx on test_range_elem (i)",
+    "expected": "CREATE INDEX test_range_elem_idx ON test_range_elem USING btree ( i )"
   },
   {
     "comment": "rangetypes - Statement 217",
-    "query": "insert into test_range_elem select i from generate_series(1,100) i"
+    "query": "insert into test_range_elem select i from generate_series(1,100) i",
+    "expected": "INSERT INTO test_range_elem SELECT i FROM generate_series(1, 100) AS i"
   },
   {
     "comment": "rangetypes - Statement 218",
-    "query": "select count(*) from test_range_elem where i <@ int4range(10,50)"
+    "query": "select count(*) from test_range_elem where i \u003c@ int4range(10,50)",
+    "expected": "SELECT COUNT(*) FROM test_range_elem WHERE i \u003c@ int4range(10, 50)"
   },
   {
     "comment": "rangetypes - Statement 219",
-    "query": "create index on test_range_elem using spgist(int4range(i,i+10))"
+    "query": "create index on test_range_elem using spgist(int4range(i,i+10))",
+    "expected": "CREATE INDEX ON test_range_elem USING spgist ( (int4range(i, i + 10)) )"
   },
   {
     "comment": "rangetypes - Statement 220",
-    "query": "explain (costs off) select count(*) from test_range_elem where int4range(i,i+10) <@ int4range(10,30)"
+    "query": "explain (costs off) select count(*) from test_range_elem where int4range(i,i+10) \u003c@ int4range(10,30)",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*) FROM test_range_elem WHERE int4range(i, i + 10) \u003c@ int4range(10, 30)"
   },
   {
     "comment": "rangetypes - Statement 221",
-    "query": "select count(*) from test_range_elem where int4range(i,i+10) <@ int4range(10,30)"
+    "query": "select count(*) from test_range_elem where int4range(i,i+10) \u003c@ int4range(10,30)",
+    "expected": "SELECT COUNT(*) FROM test_range_elem WHERE int4range(i, i + 10) \u003c@ int4range(10, 30)"
   },
   {
     "comment": "rangetypes - Statement 222",
-    "query": "drop table test_range_elem"
+    "query": "drop table test_range_elem",
+    "expected": "DROP TABLE test_range_elem"
   },
   {
     "comment": "rangetypes - Statement 223",
-    "query": "create table test_range_excl( room int4range, speaker int4range, during tsrange, exclude using gist (room with =, during with &&), exclude using gist (speaker with =, during with &&) )"
+    "query": "create table test_range_excl( room int4range, speaker int4range, during tsrange, exclude using gist (room with =, during with \u0026\u0026), exclude using gist (speaker with =, during with \u0026\u0026) )",
+    "expected": "CREATE TABLE test_range_excl (room int4range, speaker int4range, during tsrange, EXCLUDE USING gist (room WITH =, during WITH \u0026\u0026), EXCLUDE USING gist (speaker WITH =, during WITH \u0026\u0026))"
   },
   {
     "comment": "rangetypes - Statement 224",
-    "query": "insert into test_range_excl values(int4range(123, 123, '[]'), int4range(1, 1, '[]'), '[2010-01-02 10:00, 2010-01-02 11:00)')"
+    "query": "insert into test_range_excl values(int4range(123, 123, '[]'), int4range(1, 1, '[]'), '[2010-01-02 10:00, 2010-01-02 11:00)')",
+    "expected": "INSERT INTO test_range_excl VALUES (int4range(123, 123, '[]'), int4range(1, 1, '[]'), '[2010-01-02 10:00, 2010-01-02 11:00)')"
   },
   {
     "comment": "rangetypes - Statement 225",
-    "query": "insert into test_range_excl values(int4range(123, 123, '[]'), int4range(2, 2, '[]'), '[2010-01-02 11:00, 2010-01-02 12:00)')"
+    "query": "insert into test_range_excl values(int4range(123, 123, '[]'), int4range(2, 2, '[]'), '[2010-01-02 11:00, 2010-01-02 12:00)')",
+    "expected": "INSERT INTO test_range_excl VALUES (int4range(123, 123, '[]'), int4range(2, 2, '[]'), '[2010-01-02 11:00, 2010-01-02 12:00)')"
   },
   {
     "comment": "rangetypes - Statement 226",
-    "query": "insert into test_range_excl values(int4range(123, 123, '[]'), int4range(3, 3, '[]'), '[2010-01-02 10:10, 2010-01-02 11:00)')"
+    "query": "insert into test_range_excl values(int4range(123, 123, '[]'), int4range(3, 3, '[]'), '[2010-01-02 10:10, 2010-01-02 11:00)')",
+    "expected": "INSERT INTO test_range_excl VALUES (int4range(123, 123, '[]'), int4range(3, 3, '[]'), '[2010-01-02 10:10, 2010-01-02 11:00)')"
   },
   {
     "comment": "rangetypes - Statement 227",
-    "query": "insert into test_range_excl values(int4range(124, 124, '[]'), int4range(3, 3, '[]'), '[2010-01-02 10:10, 2010-01-02 11:10)')"
+    "query": "insert into test_range_excl values(int4range(124, 124, '[]'), int4range(3, 3, '[]'), '[2010-01-02 10:10, 2010-01-02 11:10)')",
+    "expected": "INSERT INTO test_range_excl VALUES (int4range(124, 124, '[]'), int4range(3, 3, '[]'), '[2010-01-02 10:10, 2010-01-02 11:10)')"
   },
   {
     "comment": "rangetypes - Statement 228",
-    "query": "insert into test_range_excl values(int4range(125, 125, '[]'), int4range(1, 1, '[]'), '[2010-01-02 10:10, 2010-01-02 11:00)')"
+    "query": "insert into test_range_excl values(int4range(125, 125, '[]'), int4range(1, 1, '[]'), '[2010-01-02 10:10, 2010-01-02 11:00)')",
+    "expected": "INSERT INTO test_range_excl VALUES (int4range(125, 125, '[]'), int4range(1, 1, '[]'), '[2010-01-02 10:10, 2010-01-02 11:00)')"
   },
   {
     "comment": "rangetypes - Statement 229",
-    "query": "select int8range(10000000000::int8, 20000000000::int8,'(]')"
+    "query": "select int8range(10000000000::int8, 20000000000::int8,'(]')",
+    "expected": "SELECT int8range(CAST(10000000000 AS BIGINT), CAST(20000000000 AS BIGINT), '(]')"
   },
   {
     "comment": "rangetypes - Statement 230",
-    "query": "set timezone to '-08'"
+    "query": "set timezone to '-08'",
+    "expected": "SET TIME ZONE '-08'"
   },
   {
     "comment": "rangetypes - Statement 231",
-    "query": "select '[2010-01-01 01:00:00 -05, 2010-01-01 02:00:00 -08)'::tstzrange"
+    "query": "select '[2010-01-01 01:00:00 -05, 2010-01-01 02:00:00 -08)'::tstzrange",
+    "expected": "SELECT CAST('[2010-01-01 01:00:00 -05, 2010-01-01 02:00:00 -08)' AS tstzrange)"
   },
   {
     "comment": "rangetypes - Statement 232",
-    "query": "select '[2010-01-01 01:00:00 -08, 2010-01-01 02:00:00 -05)'::tstzrange"
+    "query": "select '[2010-01-01 01:00:00 -08, 2010-01-01 02:00:00 -05)'::tstzrange",
+    "expected": "SELECT CAST('[2010-01-01 01:00:00 -08, 2010-01-01 02:00:00 -05)' AS tstzrange)"
   },
   {
     "comment": "rangetypes - Statement 233",
-    "query": "set timezone to default"
+    "query": "set timezone to default",
+    "expected": "SET timezone = DEFAULT"
   },
   {
     "comment": "rangetypes - Statement 234",
-    "query": "create type bogus_float8range as range (subtype=float8, subtype_diff=float4mi)"
+    "query": "create type bogus_float8range as range (subtype=float8, subtype_diff=float4mi)",
+    "expected": "CREATE TYPE bogus_float8range AS RANGE (subtype = FLOAT8, subtype_diff = float4mi)"
   },
   {
     "comment": "rangetypes - Statement 235",
-    "query": "select '[123.001, 5.e9)'::float8range @> 888.882::float8"
+    "query": "select '[123.001, 5.e9)'::float8range @\u003e 888.882::float8",
+    "expected": "SELECT CAST('[123.001, 5.e9)' AS float8range) @\u003e CAST(888.882 AS FLOAT8)"
   },
   {
     "comment": "rangetypes - Statement 236",
-    "query": "create table float8range_test(f8r float8range, i int)"
+    "query": "create table float8range_test(f8r float8range, i int)",
+    "expected": "CREATE TABLE float8range_test (f8r float8range, i INT)"
   },
   {
     "comment": "rangetypes - Statement 237",
-    "query": "insert into float8range_test values(float8range(-100.00007, '1.111113e9'), 42)"
+    "query": "insert into float8range_test values(float8range(-100.00007, '1.111113e9'), 42)",
+    "expected": "INSERT INTO float8range_test VALUES (float8range(-100.00007, '1.111113e9'), 42)"
   },
   {
     "comment": "rangetypes - Statement 238",
-    "query": "select * from float8range_test"
+    "query": "select * from float8range_test",
+    "expected": "SELECT * FROM float8range_test"
   },
   {
     "comment": "rangetypes - Statement 239",
-    "query": "drop table float8range_test"
+    "query": "drop table float8range_test",
+    "expected": "DROP TABLE float8range_test"
   },
   {
     "comment": "rangetypes - Statement 240",
-    "query": "create domain mydomain as int4"
+    "query": "create domain mydomain as int4",
+    "expected": "CREATE DOMAIN mydomain AS INT"
   },
   {
     "comment": "rangetypes - Statement 241",
-    "query": "create type mydomainrange as range(subtype=mydomain)"
+    "query": "create type mydomainrange as range(subtype=mydomain)",
+    "expected": "CREATE TYPE mydomainrange AS RANGE (subtype = mydomain)"
   },
   {
     "comment": "rangetypes - Statement 242",
-    "query": "select '[4,50)'::mydomainrange @> 7::mydomain"
+    "query": "select '[4,50)'::mydomainrange @\u003e 7::mydomain",
+    "expected": "SELECT CAST('[4,50)' AS mydomainrange) @\u003e CAST(7 AS mydomain)"
   },
   {
     "comment": "rangetypes - Statement 243",
-    "query": "drop domain mydomain"
+    "query": "drop domain mydomain",
+    "expected": "DROP DOMAIN mydomain"
   },
   {
     "comment": "rangetypes - Statement 244",
-    "query": "drop domain mydomain cascade"
+    "query": "drop domain mydomain cascade",
+    "expected": "DROP DOMAIN mydomain CASCADE"
   },
   {
     "comment": "rangetypes - Statement 245",
-    "query": "create domain restrictedrange as int4range check (upper(value) < 10)"
+    "query": "create domain restrictedrange as int4range check (upper(value) \u003c 10)",
+    "expected": "CREATE DOMAIN restrictedrange AS int4range CHECK (upper(value) \u003c 10)"
   },
   {
     "comment": "rangetypes - Statement 246",
-    "query": "select '[4,5)'::restrictedrange @> 7"
+    "query": "select '[4,5)'::restrictedrange @\u003e 7",
+    "expected": "SELECT CAST('[4,5)' AS restrictedrange) @\u003e 7"
   },
   {
     "comment": "rangetypes - Statement 247",
-    "query": "select '[4,50)'::restrictedrange @> 7"
+    "query": "select '[4,50)'::restrictedrange @\u003e 7",
+    "expected": "SELECT CAST('[4,50)' AS restrictedrange) @\u003e 7"
   },
   {
     "comment": "rangetypes - Statement 248",
-    "query": "drop domain restrictedrange"
+    "query": "drop domain restrictedrange",
+    "expected": "DROP DOMAIN restrictedrange"
   },
   {
     "comment": "rangetypes - Statement 249",
-    "query": "create type textrange1 as range(subtype=text, collation=\"C\")"
+    "query": "create type textrange1 as range(subtype=text, collation=\"C\")",
+    "expected": "CREATE TYPE textrange1 AS RANGE (subtype = TEXT, collation = \"C\")"
   },
   {
     "comment": "rangetypes - Statement 250",
-    "query": "create type textrange2 as range(subtype=text, collation=\"C\")"
+    "query": "create type textrange2 as range(subtype=text, collation=\"C\")",
+    "expected": "CREATE TYPE textrange2 AS RANGE (subtype = TEXT, collation = \"C\")"
   },
   {
     "comment": "rangetypes - Statement 251",
-    "query": "select textrange1('a','Z') @> 'b'::text"
+    "query": "select textrange1('a','Z') @\u003e 'b'::text",
+    "expected": "SELECT textrange1('a', 'Z') @\u003e CAST('b' AS TEXT)"
   },
   {
     "comment": "rangetypes - Statement 252",
-    "query": "select textrange2('a','z') @> 'b'::text"
+    "query": "select textrange2('a','z') @\u003e 'b'::text",
+    "expected": "SELECT textrange2('a', 'z') @\u003e CAST('b' AS TEXT)"
   },
   {
     "comment": "rangetypes - Statement 253",
-    "query": "drop type textrange1"
+    "query": "drop type textrange1",
+    "expected": "DROP TYPE textrange1"
   },
   {
     "comment": "rangetypes - Statement 254",
-    "query": "drop type textrange2"
+    "query": "drop type textrange2",
+    "expected": "DROP TYPE textrange2"
   },
   {
     "comment": "rangetypes - Statement 255",
-    "query": "create function anyarray_anyrange_func(a anyarray, r anyrange) returns anyelement as 'select $1[1] + lower($2);' language sql"
+    "query": "create function anyarray_anyrange_func(a anyarray, r anyrange) returns anyelement as 'select $1[1] + lower($2);' language sql",
+    "expected": "CREATE FUNCTION anyarray_anyrange_func (a anyarray, r anyrange) RETURNS anyelement LANGUAGE sql AS $$select $1[1] + lower($2);$$"
   },
   {
     "comment": "rangetypes - Statement 256",
-    "query": "select anyarray_anyrange_func(ARRAY[1,2], int4range(10,20))"
+    "query": "select anyarray_anyrange_func(ARRAY[1,2], int4range(10,20))",
+    "expected": "SELECT anyarray_anyrange_func(ARRAY[1,2], int4range(10, 20))"
   },
   {
     "comment": "rangetypes - Statement 257",
-    "query": "select anyarray_anyrange_func(ARRAY[1,2], numrange(10,20))"
+    "query": "select anyarray_anyrange_func(ARRAY[1,2], numrange(10,20))",
+    "expected": "SELECT anyarray_anyrange_func(ARRAY[1,2], numrange(10, 20))"
   },
   {
     "comment": "rangetypes - Statement 258",
-    "query": "drop function anyarray_anyrange_func(anyarray, anyrange)"
+    "query": "drop function anyarray_anyrange_func(anyarray, anyrange)",
+    "expected": "DROP FUNCTION anyarray_anyrange_func(anyarray, anyrange)"
   },
   {
     "comment": "rangetypes - Statement 259",
-    "query": "create function bogus_func(anyelement) returns anyrange as 'select int4range(1,10)' language sql"
+    "query": "create function bogus_func(anyelement) returns anyrange as 'select int4range(1,10)' language sql",
+    "expected": "CREATE FUNCTION bogus_func (anyelement) RETURNS anyrange LANGUAGE sql AS $$select int4range(1,10)$$"
   },
   {
     "comment": "rangetypes - Statement 260",
-    "query": "create function bogus_func(int) returns anyrange as 'select int4range(1,10)' language sql"
+    "query": "create function bogus_func(int) returns anyrange as 'select int4range(1,10)' language sql",
+    "expected": "CREATE FUNCTION bogus_func (INT) RETURNS anyrange LANGUAGE sql AS $$select int4range(1,10)$$"
   },
   {
     "comment": "rangetypes - Statement 261",
-    "query": "create function range_add_bounds(anyrange) returns anyelement as 'select lower($1) + upper($1)' language sql"
+    "query": "create function range_add_bounds(anyrange) returns anyelement as 'select lower($1) + upper($1)' language sql",
+    "expected": "CREATE FUNCTION range_add_bounds (anyrange) RETURNS anyelement LANGUAGE sql AS $$select lower($1) + upper($1)$$"
   },
   {
     "comment": "rangetypes - Statement 262",
-    "query": "select range_add_bounds(int4range(1, 17))"
+    "query": "select range_add_bounds(int4range(1, 17))",
+    "expected": "SELECT range_add_bounds(int4range(1, 17))"
   },
   {
     "comment": "rangetypes - Statement 263",
-    "query": "select range_add_bounds(numrange(1.0001, 123.123))"
+    "query": "select range_add_bounds(numrange(1.0001, 123.123))",
+    "expected": "SELECT range_add_bounds(numrange(1.0001, 123.123))"
   },
   {
     "comment": "rangetypes - Statement 264",
-    "query": "create function rangetypes_sql(q anyrange, b anyarray, out c anyelement) as $$ select upper($1) + $2[1] $$ language sql"
+    "query": "create function rangetypes_sql(q anyrange, b anyarray, out c anyelement) as $$ select upper($1) + $2[1] $$ language sql",
+    "expected": "CREATE FUNCTION rangetypes_sql (q anyrange, b anyarray, OUT c anyelement) LANGUAGE sql AS $$ select upper($1) + $2[1] $$"
   },
   {
     "comment": "rangetypes - Statement 265",
-    "query": "select rangetypes_sql(int4range(1,10), ARRAY[2,20])"
+    "query": "select rangetypes_sql(int4range(1,10), ARRAY[2,20])",
+    "expected": "SELECT rangetypes_sql(int4range(1, 10), ARRAY[2,20])"
   },
   {
     "comment": "rangetypes - Statement 266",
-    "query": "select rangetypes_sql(numrange(1,10), ARRAY[2,20])"
+    "query": "select rangetypes_sql(numrange(1,10), ARRAY[2,20])",
+    "expected": "SELECT rangetypes_sql(numrange(1, 10), ARRAY[2,20])"
   },
   {
     "comment": "rangetypes - Statement 267",
-    "query": "create function anycompatiblearray_anycompatiblerange_func(a anycompatiblearray, r anycompatiblerange) returns anycompatible as 'select $1[1] + lower($2);' language sql"
+    "query": "create function anycompatiblearray_anycompatiblerange_func(a anycompatiblearray, r anycompatiblerange) returns anycompatible as 'select $1[1] + lower($2);' language sql",
+    "expected": "CREATE FUNCTION anycompatiblearray_anycompatiblerange_func (a anycompatiblearray, r anycompatiblerange) RETURNS anycompatible LANGUAGE sql AS $$select $1[1] + lower($2);$$"
   },
   {
     "comment": "rangetypes - Statement 268",
-    "query": "select anycompatiblearray_anycompatiblerange_func(ARRAY[1,2], int4range(10,20))"
+    "query": "select anycompatiblearray_anycompatiblerange_func(ARRAY[1,2], int4range(10,20))",
+    "expected": "SELECT anycompatiblearray_anycompatiblerange_func(ARRAY[1,2], int4range(10, 20))"
   },
   {
     "comment": "rangetypes - Statement 269",
-    "query": "select anycompatiblearray_anycompatiblerange_func(ARRAY[1,2], numrange(10,20))"
+    "query": "select anycompatiblearray_anycompatiblerange_func(ARRAY[1,2], numrange(10,20))",
+    "expected": "SELECT anycompatiblearray_anycompatiblerange_func(ARRAY[1,2], numrange(10, 20))"
   },
   {
     "comment": "rangetypes - Statement 270",
-    "query": "select anycompatiblearray_anycompatiblerange_func(ARRAY[1.1,2], int4range(10,20))"
+    "query": "select anycompatiblearray_anycompatiblerange_func(ARRAY[1.1,2], int4range(10,20))",
+    "expected": "SELECT anycompatiblearray_anycompatiblerange_func(ARRAY[1.1,2], int4range(10, 20))"
   },
   {
     "comment": "rangetypes - Statement 271",
-    "query": "drop function anycompatiblearray_anycompatiblerange_func(anycompatiblearray, anycompatiblerange)"
+    "query": "drop function anycompatiblearray_anycompatiblerange_func(anycompatiblearray, anycompatiblerange)",
+    "expected": "DROP FUNCTION anycompatiblearray_anycompatiblerange_func(anycompatiblearray, anycompatiblerange)"
   },
   {
     "comment": "rangetypes - Statement 272",
-    "query": "create function bogus_func(anycompatible) returns anycompatiblerange as 'select int4range(1,10)' language sql"
+    "query": "create function bogus_func(anycompatible) returns anycompatiblerange as 'select int4range(1,10)' language sql",
+    "expected": "CREATE FUNCTION bogus_func (anycompatible) RETURNS anycompatiblerange LANGUAGE sql AS $$select int4range(1,10)$$"
   },
   {
     "comment": "rangetypes - Statement 273",
-    "query": "select ARRAY[numrange(1.1, 1.2), numrange(12.3, 155.5)]"
+    "query": "select ARRAY[numrange(1.1, 1.2), numrange(12.3, 155.5)]",
+    "expected": "SELECT ARRAY[numrange(1.1, 1.2),numrange(12.3, 155.5)]"
   },
   {
     "comment": "rangetypes - Statement 274",
-    "query": "create table i8r_array (f1 int, f2 int8range[])"
+    "query": "create table i8r_array (f1 int, f2 int8range[])",
+    "expected": "CREATE TABLE i8r_array (f1 INT, f2 int8range[])"
   },
   {
     "comment": "rangetypes - Statement 275",
-    "query": "insert into i8r_array values (42, array[int8range(1,10), int8range(2,20)])"
+    "query": "insert into i8r_array values (42, array[int8range(1,10), int8range(2,20)])",
+    "expected": "INSERT INTO i8r_array VALUES (42, ARRAY[int8range(1, 10),int8range(2, 20)])"
   },
   {
     "comment": "rangetypes - Statement 276",
-    "query": "select * from i8r_array"
+    "query": "select * from i8r_array",
+    "expected": "SELECT * FROM i8r_array"
   },
   {
     "comment": "rangetypes - Statement 277",
-    "query": "drop table i8r_array"
+    "query": "drop table i8r_array",
+    "expected": "DROP TABLE i8r_array"
   },
   {
     "comment": "rangetypes - Statement 278",
-    "query": "create type arrayrange as range (subtype=int4[])"
+    "query": "create type arrayrange as range (subtype=int4[])",
+    "expected": "CREATE TYPE arrayrange AS RANGE (subtype = INT[])"
   },
   {
     "comment": "rangetypes - Statement 279",
-    "query": "select arrayrange(ARRAY[1,2], ARRAY[2,1])"
+    "query": "select arrayrange(ARRAY[1,2], ARRAY[2,1])",
+    "expected": "SELECT arrayrange(ARRAY[1,2], ARRAY[2,1])"
   },
   {
     "comment": "rangetypes - Statement 280",
-    "query": "select arrayrange(ARRAY[2,1], ARRAY[1,2])"
+    "query": "select arrayrange(ARRAY[2,1], ARRAY[1,2])",
+    "expected": "SELECT arrayrange(ARRAY[2,1], ARRAY[1,2])"
   },
   {
     "comment": "rangetypes - Statement 281",
-    "query": "select array[1,1] <@ arrayrange(array[1,2], array[2,1])"
+    "query": "select array[1,1] \u003c@ arrayrange(array[1,2], array[2,1])",
+    "expected": "SELECT ARRAY[1,1] \u003c@ arrayrange(ARRAY[1,2], ARRAY[2,1])"
   },
   {
     "comment": "rangetypes - Statement 282",
-    "query": "select array[1,3] <@ arrayrange(array[1,2], array[2,1])"
+    "query": "select array[1,3] \u003c@ arrayrange(array[1,2], array[2,1])",
+    "expected": "SELECT ARRAY[1,3] \u003c@ arrayrange(ARRAY[1,2], ARRAY[2,1])"
   },
   {
     "comment": "rangetypes - Statement 283",
-    "query": "create type two_ints as (a int, b int)"
+    "query": "create type two_ints as (a int, b int)",
+    "expected": "CREATE TYPE two_ints AS (a INT, b INT)"
   },
   {
     "comment": "rangetypes - Statement 284",
-    "query": "create type two_ints_range as range (subtype = two_ints)"
+    "query": "create type two_ints_range as range (subtype = two_ints)",
+    "expected": "CREATE TYPE two_ints_range AS RANGE (subtype = two_ints)"
   },
   {
     "comment": "rangetypes - Statement 285",
-    "query": "select *, row_to_json(upper(t)) as u from (values (two_ints_range(row(1,2), row(3,4))), (two_ints_range(row(5,6), row(7,8)))) v(t)"
+    "query": "select *, row_to_json(upper(t)) as u from (values (two_ints_range(row(1,2), row(3,4))), (two_ints_range(row(5,6), row(7,8)))) v(t)",
+    "expected": "SELECT *, row_to_json(upper(t)) AS u FROM (VALUES (two_ints_range(ROW(1, 2), ROW(3, 4))), (two_ints_range(ROW(5, 6), ROW(7, 8)))) AS v(t)"
   },
   {
     "comment": "rangetypes - Statement 286",
-    "query": "alter type two_ints add attribute c two_ints_range"
+    "query": "alter type two_ints add attribute c two_ints_range",
+    "expected": "ALTER TYPE two_ints ADD ATTRIBUTE c two_ints_range"
   },
   {
     "comment": "rangetypes - Statement 287",
-    "query": "drop type two_ints cascade"
+    "query": "drop type two_ints cascade",
+    "expected": "DROP TYPE two_ints CASCADE"
   },
   {
     "comment": "rangetypes - Statement 288",
-    "query": "create type varbitrange as range (subtype = varbit)"
+    "query": "create type varbitrange as range (subtype = varbit)",
+    "expected": "CREATE TYPE varbitrange AS RANGE (subtype = varbit)"
   },
   {
     "comment": "rangetypes - Statement 289",
-    "query": "set enable_sort = off"
+    "query": "set enable_sort = off",
+    "expected": "SET enable_sort = off"
   },
   {
     "comment": "rangetypes - Statement 290",
-    "query": "select '(01,10)'::varbitrange except select '(10,11)'::varbitrange"
+    "query": "select '(01,10)'::varbitrange except select '(10,11)'::varbitrange",
+    "expected": "SELECT CAST('(01,10)' AS varbitrange) EXCEPT SELECT CAST('(10,11)' AS varbitrange)"
   },
   {
     "comment": "rangetypes - Statement 291",
-    "query": "reset enable_sort"
+    "query": "reset enable_sort",
+    "expected": "RESET enable_sort"
   },
   {
     "comment": "rangetypes - Statement 292",
-    "query": "create function outparam_succeed(i anyrange, out r anyrange, out t text) as $$ select $1, 'foo'::text $$ language sql"
+    "query": "create function outparam_succeed(i anyrange, out r anyrange, out t text) as $$ select $1, 'foo'::text $$ language sql",
+    "expected": "CREATE FUNCTION outparam_succeed (i anyrange, OUT r anyrange, OUT t TEXT) LANGUAGE sql AS $$ select $1, 'foo'::text $$"
   },
   {
     "comment": "rangetypes - Statement 293",
-    "query": "select * from outparam_succeed(int4range(1,2))"
+    "query": "select * from outparam_succeed(int4range(1,2))",
+    "expected": "SELECT * FROM outparam_succeed(int4range(1, 2))"
   },
   {
     "comment": "rangetypes - Statement 294",
-    "query": "create function outparam2_succeed(r anyrange, out lu anyarray, out ul anyarray) as $$ select array[lower($1), upper($1)], array[upper($1), lower($1)] $$ language sql"
+    "query": "create function outparam2_succeed(r anyrange, out lu anyarray, out ul anyarray) as $$ select array[lower($1), upper($1)], array[upper($1), lower($1)] $$ language sql",
+    "expected": "CREATE FUNCTION outparam2_succeed (r anyrange, OUT lu anyarray, OUT ul anyarray) LANGUAGE sql AS $$ select array[lower($1), upper($1)], array[upper($1), lower($1)] $$"
   },
   {
     "comment": "rangetypes - Statement 295",
-    "query": "select * from outparam2_succeed(int4range(1,11))"
+    "query": "select * from outparam2_succeed(int4range(1,11))",
+    "expected": "SELECT * FROM outparam2_succeed(int4range(1, 11))"
   },
   {
     "comment": "rangetypes - Statement 296",
-    "query": "create function outparam_succeed2(i anyrange, out r anyarray, out t text) as $$ select ARRAY[upper($1)], 'foo'::text $$ language sql"
+    "query": "create function outparam_succeed2(i anyrange, out r anyarray, out t text) as $$ select ARRAY[upper($1)], 'foo'::text $$ language sql",
+    "expected": "CREATE FUNCTION outparam_succeed2 (i anyrange, OUT r anyarray, OUT t TEXT) LANGUAGE sql AS $$ select ARRAY[upper($1)], 'foo'::text $$"
   },
   {
     "comment": "rangetypes - Statement 297",
-    "query": "select * from outparam_succeed2(int4range(int4range(1,2)))"
+    "query": "select * from outparam_succeed2(int4range(int4range(1,2)))",
+    "expected": "SELECT * FROM outparam_succeed2(int4range(int4range(1, 2)))"
   },
   {
     "comment": "rangetypes - Statement 298",
-    "query": "create function inoutparam_succeed(out i anyelement, inout r anyrange) as $$ select upper($1), $1 $$ language sql"
+    "query": "create function inoutparam_succeed(out i anyelement, inout r anyrange) as $$ select upper($1), $1 $$ language sql",
+    "expected": "CREATE FUNCTION inoutparam_succeed (OUT i anyelement, INOUT r anyrange) LANGUAGE sql AS $$ select upper($1), $1 $$"
   },
   {
     "comment": "rangetypes - Statement 299",
-    "query": "select * from inoutparam_succeed(int4range(1,2))"
+    "query": "select * from inoutparam_succeed(int4range(1,2))",
+    "expected": "SELECT * FROM inoutparam_succeed(int4range(1, 2))"
   },
   {
     "comment": "rangetypes - Statement 300",
-    "query": "create function table_succeed(r anyrange) returns table(l anyelement, u anyelement) as $$ select lower($1), upper($1) $$ language sql"
+    "query": "create function table_succeed(r anyrange) returns table(l anyelement, u anyelement) as $$ select lower($1), upper($1) $$ language sql",
+    "expected": "CREATE FUNCTION table_succeed (r anyrange) LANGUAGE sql AS $$ select lower($1), upper($1) $$"
   },
   {
     "comment": "rangetypes - Statement 301",
-    "query": "select * from table_succeed(int4range(1,11))"
+    "query": "select * from table_succeed(int4range(1,11))",
+    "expected": "SELECT * FROM table_succeed(int4range(1, 11))"
   },
   {
     "comment": "rangetypes - Statement 302",
-    "query": "create function outparam_fail(i anyelement, out r anyrange, out t text) as $$ select '[1,10]', 'foo' $$ language sql"
+    "query": "create function outparam_fail(i anyelement, out r anyrange, out t text) as $$ select '[1,10]', 'foo' $$ language sql",
+    "expected": "CREATE FUNCTION outparam_fail (i anyelement, OUT r anyrange, OUT t TEXT) LANGUAGE sql AS $$ select '[1,10]', 'foo' $$"
   },
   {
     "comment": "rangetypes - Statement 303",
-    "query": "create function inoutparam_fail(inout i anyelement, out r anyrange) as $$ select $1, '[1,10]' $$ language sql"
+    "query": "create function inoutparam_fail(inout i anyelement, out r anyrange) as $$ select $1, '[1,10]' $$ language sql",
+    "expected": "CREATE FUNCTION inoutparam_fail (INOUT i anyelement, OUT r anyrange) LANGUAGE sql AS $$ select $1, '[1,10]' $$"
   },
   {
     "comment": "rangetypes - Statement 304",
-    "query": "create function table_fail(i anyelement) returns table(i anyelement, r anyrange) as $$ select $1, '[1,10]' $$ language sql"
+    "query": "create function table_fail(i anyelement) returns table(i anyelement, r anyrange) as $$ select $1, '[1,10]' $$ language sql",
+    "expected": "CREATE FUNCTION table_fail (i anyelement) LANGUAGE sql AS $$ select $1, '[1,10]' $$"
   },
   {
     "comment": "rangetypes - Statement 305",
-    "query": "explain (verbose, costs off) select current_date <@ daterange 'empty'"
+    "query": "explain (verbose, costs off) select current_date \u003c@ daterange 'empty'",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT CURRENT_DATE \u003c@ CAST('empty' AS daterange)"
   },
   {
     "comment": "rangetypes - Statement 306",
-    "query": "explain (verbose, costs off) select current_date <@ daterange(NULL, NULL)"
+    "query": "explain (verbose, costs off) select current_date \u003c@ daterange(NULL, NULL)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT CURRENT_DATE \u003c@ daterange(NULL, NULL)"
   },
   {
     "comment": "rangetypes - Statement 307",
-    "query": "explain (verbose, costs off) select current_date <@ daterange('2000-01-01', NULL, '[)')"
+    "query": "explain (verbose, costs off) select current_date \u003c@ daterange('2000-01-01', NULL, '[)')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT CURRENT_DATE \u003c@ daterange('2000-01-01', NULL, '[)')"
   },
   {
     "comment": "rangetypes - Statement 308",
-    "query": "explain (verbose, costs off) select current_date <@ daterange(NULL, '2000-01-01', '(]')"
+    "query": "explain (verbose, costs off) select current_date \u003c@ daterange(NULL, '2000-01-01', '(]')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT CURRENT_DATE \u003c@ daterange(NULL, '2000-01-01', '(]')"
   },
   {
     "comment": "rangetypes - Statement 309",
-    "query": "explain (verbose, costs off) select current_date <@ daterange('-Infinity', '1997-04-10'::date, '()')"
+    "query": "explain (verbose, costs off) select current_date \u003c@ daterange('-Infinity', '1997-04-10'::date, '()')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT CURRENT_DATE \u003c@ daterange('-Infinity', CAST('1997-04-10' AS DATE), '()')"
   },
   {
     "comment": "rangetypes - Statement 310",
-    "query": "explain (verbose, costs off) select current_date <@ daterange('-Infinity', '1997-04-10'::date, '[)')"
+    "query": "explain (verbose, costs off) select current_date \u003c@ daterange('-Infinity', '1997-04-10'::date, '[)')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT CURRENT_DATE \u003c@ daterange('-Infinity', CAST('1997-04-10' AS DATE), '[)')"
   },
   {
     "comment": "rangetypes - Statement 311",
-    "query": "explain (verbose, costs off) select current_date <@ daterange('2002-09-25'::date, 'Infinity', '[)')"
+    "query": "explain (verbose, costs off) select current_date \u003c@ daterange('2002-09-25'::date, 'Infinity', '[)')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT CURRENT_DATE \u003c@ daterange(CAST('2002-09-25' AS DATE), 'Infinity', '[)')"
   },
   {
     "comment": "rangetypes - Statement 312",
-    "query": "explain (verbose, costs off) select current_date <@ daterange('2002-09-25'::date, 'Infinity', '[]')"
+    "query": "explain (verbose, costs off) select current_date \u003c@ daterange('2002-09-25'::date, 'Infinity', '[]')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT CURRENT_DATE \u003c@ daterange(CAST('2002-09-25' AS DATE), 'Infinity', '[]')"
   },
   {
     "comment": "rangetypes - Statement 313",
-    "query": "explain (verbose, costs off) select daterange('-Infinity', '1997-04-10'::date, '()') @> current_date"
+    "query": "explain (verbose, costs off) select daterange('-Infinity', '1997-04-10'::date, '()') @\u003e current_date",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT daterange('-Infinity', CAST('1997-04-10' AS DATE), '()') @\u003e CURRENT_DATE"
   },
   {
     "comment": "rangetypes - Statement 314",
-    "query": "explain (verbose, costs off) select daterange('2002-09-25'::date, 'Infinity', '[]') @> current_date"
+    "query": "explain (verbose, costs off) select daterange('2002-09-25'::date, 'Infinity', '[]') @\u003e current_date",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT daterange(CAST('2002-09-25' AS DATE), 'Infinity', '[]') @\u003e CURRENT_DATE"
   },
   {
     "comment": "rangetypes - Statement 315",
-    "query": "explain (verbose, costs off) select now() <@ tstzrange('2024-01-20 00:00', '2024-01-21 00:00')"
+    "query": "explain (verbose, costs off) select now() \u003c@ tstzrange('2024-01-20 00:00', '2024-01-21 00:00')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT NOW() \u003c@ tstzrange('2024-01-20 00:00', '2024-01-21 00:00')"
   },
   {
     "comment": "rangetypes - Statement 316",
-    "query": "explain (verbose, costs off) select clock_timestamp() <@ tstzrange('2024-01-20 00:00', '2024-01-21 00:00')"
+    "query": "explain (verbose, costs off) select clock_timestamp() \u003c@ tstzrange('2024-01-20 00:00', '2024-01-21 00:00')",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT clock_timestamp() \u003c@ tstzrange('2024-01-20 00:00', '2024-01-21 00:00')"
   },
   {
     "comment": "rangetypes - Statement 317",
-    "query": "explain (verbose, costs off) select clock_timestamp() <@ tstzrange('2024-01-20 00:00', NULL)"
+    "query": "explain (verbose, costs off) select clock_timestamp() \u003c@ tstzrange('2024-01-20 00:00', NULL)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT clock_timestamp() \u003c@ tstzrange('2024-01-20 00:00', NULL)"
   },
   {
     "comment": "rangetypes - Statement 318",
-    "query": "create type textrange_supp as range ( subtype = text, subtype_opclass = text_pattern_ops )"
+    "query": "create type textrange_supp as range ( subtype = text, subtype_opclass = text_pattern_ops )",
+    "expected": "CREATE TYPE textrange_supp AS RANGE (subtype = TEXT, subtype_opclass = text_pattern_ops)"
   },
   {
     "comment": "rangetypes - Statement 319",
-    "query": "create temp table text_support_test (t text collate \"C\")"
+    "query": "create temp table text_support_test (t text collate \"C\")",
+    "expected": "CREATE TEMPORARY TABLE text_support_test (t TEXT COLLATE \"C\")"
   },
   {
     "comment": "rangetypes - Statement 320",
-    "query": "insert into text_support_test values ('a'), ('c'), ('d'), ('ch')"
+    "query": "insert into text_support_test values ('a'), ('c'), ('d'), ('ch')",
+    "expected": "INSERT INTO text_support_test VALUES ('a'), ('c'), ('d'), ('ch')"
   },
   {
     "comment": "rangetypes - Statement 321",
-    "query": "explain (costs off) select * from text_support_test where t <@ textrange_supp('a', 'd')"
+    "query": "explain (costs off) select * from text_support_test where t \u003c@ textrange_supp('a', 'd')",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM text_support_test WHERE t \u003c@ textrange_supp('a', 'd')"
   },
   {
     "comment": "rangetypes - Statement 322",
-    "query": "select * from text_support_test where t <@ textrange_supp('a', 'd')"
+    "query": "select * from text_support_test where t \u003c@ textrange_supp('a', 'd')",
+    "expected": "SELECT * FROM text_support_test WHERE t \u003c@ textrange_supp('a', 'd')"
   },
   {
     "comment": "rangetypes - Statement 323",
-    "query": "drop table text_support_test"
+    "query": "drop table text_support_test",
+    "expected": "DROP TABLE text_support_test"
   },
   {
     "comment": "rangetypes - Statement 324",
-    "query": "drop type textrange_supp"
+    "query": "drop type textrange_supp",
+    "expected": "DROP TYPE textrange_supp"
   }
 ]
