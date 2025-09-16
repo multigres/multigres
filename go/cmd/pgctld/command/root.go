@@ -24,14 +24,10 @@ import (
 
 // Flag variables for root command (shared across all commands)
 var (
-	pgHost       = "localhost"
-	pgPort       = 5432
 	pgDatabase   = "postgres"
 	pgUser       = "postgres"
-	pgPwfile     = ""
 	pgDataDir    = ""
 	pgConfigFile = ""
-	pgSocketDir  = "/tmp"
 	timeout      = 30
 )
 
@@ -76,12 +72,9 @@ management for PostgreSQL servers.`,
 }
 
 func init() {
-	Root.PersistentFlags().StringVarP(&pgHost, "pg-host", "H", pgHost, "PostgreSQL host")
 	Root.PersistentFlags().StringVarP(&pgDatabase, "pg-database", "D", pgDatabase, "PostgreSQL database name")
 	Root.PersistentFlags().StringVarP(&pgUser, "pg-user", "U", pgUser, "PostgreSQL username")
-	Root.PersistentFlags().StringVar(&pgPwfile, "pg-pwfile", pgPwfile, "PostgreSQL password file path")
 	Root.PersistentFlags().StringVarP(&pgDataDir, "pg-data-dir", "d", pgDataDir, "PostgreSQL data directory")
 	Root.PersistentFlags().StringVar(&pgConfigFile, "pg-config-file", pgConfigFile, "PostgreSQL configuration file")
-	Root.PersistentFlags().StringVar(&pgSocketDir, "pg-socket-dir", pgSocketDir, "PostgreSQL socket directory")
 	Root.PersistentFlags().IntVarP(&timeout, "timeout", "t", timeout, "Operation timeout in seconds")
 }

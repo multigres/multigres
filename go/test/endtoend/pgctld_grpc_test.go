@@ -430,7 +430,7 @@ func TestGRPCPortMismatchValidation(t *testing.T) {
 		initialPort := 5432
 		service, err := command.NewPgCtldService(
 			slog.Default(),
-			"localhost", initialPort,
+			initialPort,
 			"postgres",
 			"postgres",
 			30,
@@ -452,7 +452,7 @@ func TestGRPCPortMismatchValidation(t *testing.T) {
 		differentPort := 5433
 		_, err = command.NewPgCtldService(
 			slog.Default(),
-			"localhost", differentPort,
+			differentPort,
 			"postgres",
 			"postgres",
 			30,
@@ -480,7 +480,7 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 	// Create the pgctld service with mock environment
 	service, err := command.NewPgCtldService(
 		slog.Default(),
-		"localhost", 5432,
+		5432,
 		"postgres",
 		"postgres",
 		30,

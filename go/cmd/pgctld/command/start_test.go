@@ -247,7 +247,7 @@ func TestWaitForPostgreSQL(t *testing.T) {
 			5432,
 			"postgres",
 			"postgres",
-			"",
+
 			30, // timeout
 			pgctld.PostgresDataDir(baseDir),
 			pgctld.PostgresConfigFile(baseDir),
@@ -280,7 +280,6 @@ func TestWaitForPostgreSQL(t *testing.T) {
 			5432,
 			"postgres",
 			"postgres",
-			"",
 			1, // 1 second timeout
 			pgctld.PostgresDataDir(baseDir),
 			pgctld.PostgresConfigFile(baseDir),

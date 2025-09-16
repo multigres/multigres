@@ -52,13 +52,7 @@ func NewPostgresCtlConfigFromDefaults() (*pgctld.PostgresCtlConfig, error) {
 
 	effectivePort := existingConfig.Port
 
-	// Handle password: use pgPassword flag or PGPASSWORD env var, error if both are set
-	effectivePassword, err := resolvePassword()
-	if err != nil {
-		return nil, err
-	}
-
-	config, err := pgctld.NewPostgresCtlConfig(effectivePort, pgUser, pgDatabase, effectivePassword, timeout, pgctld.PostgresDataDir(poolerDir), postgresConfigFile, poolerDir)
+	config, err := pgctld.NewPostgresCtlConfig(effectivePort, pgUser, pgDatabase, timeout, pgctld.PostgresDataDir(poolerDir), postgresConfigFile, poolerDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
