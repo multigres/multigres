@@ -1,7 +1,8 @@
 [
   {
     "comment": "matview - Statement 1",
-    "query": "CREATE TABLE mvtest_t (id int NOT NULL PRIMARY KEY, type text NOT NULL, amt numeric NOT NULL)"
+    "query": "CREATE TABLE mvtest_t (id int NOT NULL PRIMARY KEY, type text NOT NULL, amt numeric NOT NULL)",
+    "expected": "CREATE TABLE mvtest_t (id INT NOT NULL PRIMARY KEY, type TEXT NOT NULL, amt NUMERIC NOT NULL)"
   },
   {
     "comment": "matview - Statement 2",
@@ -9,7 +10,8 @@
   },
   {
     "comment": "matview - Statement 3",
-    "query": "CREATE VIEW mvtest_tv AS SELECT type, sum(amt) AS totamt FROM mvtest_t GROUP BY type"
+    "query": "CREATE VIEW mvtest_tv AS SELECT type, sum(amt) AS totamt FROM mvtest_t GROUP BY type",
+    "expected": "CREATE VIEW mvtest_tv AS SELECT type, SUM(amt) AS totamt FROM mvtest_t GROUP BY type"
   },
   {
     "comment": "matview - Statement 4",
@@ -17,15 +19,18 @@
   },
   {
     "comment": "matview - Statement 5",
-    "query": "EXPLAIN (costs off) CREATE MATERIALIZED VIEW mvtest_tm AS SELECT type, sum(amt) AS totamt FROM mvtest_t GROUP BY type WITH NO DATA"
+    "query": "EXPLAIN (costs off) CREATE MATERIALIZED VIEW mvtest_tm AS SELECT type, sum(amt) AS totamt FROM mvtest_t GROUP BY type WITH NO DATA",
+    "expected": "EXPLAIN (COSTS false) CREATE MATERIALIZED VIEW mvtest_tm AS SELECT type, SUM(amt) AS totamt FROM mvtest_t GROUP BY type WITH NO DATA"
   },
   {
     "comment": "matview - Statement 6",
-    "query": "CREATE MATERIALIZED VIEW mvtest_tm AS SELECT type, sum(amt) AS totamt FROM mvtest_t GROUP BY type WITH NO DATA"
+    "query": "CREATE MATERIALIZED VIEW mvtest_tm AS SELECT type, sum(amt) AS totamt FROM mvtest_t GROUP BY type WITH NO DATA",
+    "expected": "CREATE MATERIALIZED VIEW mvtest_tm AS SELECT type, SUM(amt) AS totamt FROM mvtest_t GROUP BY type WITH NO DATA"
   },
   {
     "comment": "matview - Statement 7",
-    "query": "SELECT relispopulated FROM pg_class WHERE oid = 'mvtest_tm'::regclass"
+    "query": "SELECT relispopulated FROM pg_class WHERE oid = 'mvtest_tm'::regclass",
+    "expected": "SELECT relispopulated FROM pg_class WHERE oid = CAST('mvtest_tm' AS regclass)"
   },
   {
     "comment": "matview - Statement 8",
@@ -37,11 +42,13 @@
   },
   {
     "comment": "matview - Statement 10",
-    "query": "CREATE UNIQUE INDEX mvtest_tm_type ON mvtest_tm (type)"
+    "query": "CREATE UNIQUE INDEX mvtest_tm_type ON mvtest_tm (type)",
+    "expected": "CREATE UNIQUE INDEX mvtest_tm_type ON mvtest_tm USING btree ( type )"
   },
   {
     "comment": "matview - Statement 11",
-    "query": "EXPLAIN (costs off) CREATE MATERIALIZED VIEW mvtest_tvm AS SELECT * FROM mvtest_tv ORDER BY type"
+    "query": "EXPLAIN (costs off) CREATE MATERIALIZED VIEW mvtest_tvm AS SELECT * FROM mvtest_tv ORDER BY type",
+    "expected": "EXPLAIN (COSTS false) CREATE MATERIALIZED VIEW mvtest_tvm AS SELECT * FROM mvtest_tv ORDER BY type"
   },
   {
     "comment": "matview - Statement 12",
@@ -53,27 +60,33 @@
   },
   {
     "comment": "matview - Statement 14",
-    "query": "CREATE MATERIALIZED VIEW mvtest_tmm AS SELECT sum(totamt) AS grandtot FROM mvtest_tm"
+    "query": "CREATE MATERIALIZED VIEW mvtest_tmm AS SELECT sum(totamt) AS grandtot FROM mvtest_tm",
+    "expected": "CREATE MATERIALIZED VIEW mvtest_tmm AS SELECT SUM(totamt) AS grandtot FROM mvtest_tm"
   },
   {
     "comment": "matview - Statement 15",
-    "query": "CREATE MATERIALIZED VIEW mvtest_tvmm AS SELECT sum(totamt) AS grandtot FROM mvtest_tvm"
+    "query": "CREATE MATERIALIZED VIEW mvtest_tvmm AS SELECT sum(totamt) AS grandtot FROM mvtest_tvm",
+    "expected": "CREATE MATERIALIZED VIEW mvtest_tvmm AS SELECT SUM(totamt) AS grandtot FROM mvtest_tvm"
   },
   {
     "comment": "matview - Statement 16",
-    "query": "CREATE UNIQUE INDEX mvtest_tvmm_expr ON mvtest_tvmm ((grandtot > 0))"
+    "query": "CREATE UNIQUE INDEX mvtest_tvmm_expr ON mvtest_tvmm ((grandtot \u003e 0))",
+    "expected": "CREATE UNIQUE INDEX mvtest_tvmm_expr ON mvtest_tvmm USING btree ( (grandtot \u003e 0) )"
   },
   {
     "comment": "matview - Statement 17",
-    "query": "CREATE UNIQUE INDEX mvtest_tvmm_pred ON mvtest_tvmm (grandtot) WHERE grandtot < 0"
+    "query": "CREATE UNIQUE INDEX mvtest_tvmm_pred ON mvtest_tvmm (grandtot) WHERE grandtot \u003c 0",
+    "expected": "CREATE UNIQUE INDEX mvtest_tvmm_pred ON mvtest_tvmm USING btree ( grandtot ) WHERE grandtot \u003c 0"
   },
   {
     "comment": "matview - Statement 18",
-    "query": "CREATE VIEW mvtest_tvv AS SELECT sum(totamt) AS grandtot FROM mvtest_tv"
+    "query": "CREATE VIEW mvtest_tvv AS SELECT sum(totamt) AS grandtot FROM mvtest_tv",
+    "expected": "CREATE VIEW mvtest_tvv AS SELECT SUM(totamt) AS grandtot FROM mvtest_tv"
   },
   {
     "comment": "matview - Statement 19",
-    "query": "EXPLAIN (costs off) CREATE MATERIALIZED VIEW mvtest_tvvm AS SELECT * FROM mvtest_tvv"
+    "query": "EXPLAIN (costs off) CREATE MATERIALIZED VIEW mvtest_tvvm AS SELECT * FROM mvtest_tvv",
+    "expected": "EXPLAIN (COSTS false) CREATE MATERIALIZED VIEW mvtest_tvvm AS SELECT * FROM mvtest_tvv"
   },
   {
     "comment": "matview - Statement 20",
@@ -89,7 +102,8 @@
   },
   {
     "comment": "matview - Statement 23",
-    "query": "CREATE INDEX mvtest_aa ON mvtest_bb (grandtot)"
+    "query": "CREATE INDEX mvtest_aa ON mvtest_bb (grandtot)",
+    "expected": "CREATE INDEX mvtest_aa ON mvtest_bb USING btree ( grandtot )"
   },
   {
     "comment": "matview - Statement 24",
@@ -113,15 +127,18 @@
   },
   {
     "comment": "matview - Statement 29",
-    "query": "EXPLAIN (costs off) SELECT * FROM mvtest_tmm"
+    "query": "EXPLAIN (costs off) SELECT * FROM mvtest_tmm",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mvtest_tmm"
   },
   {
     "comment": "matview - Statement 30",
-    "query": "EXPLAIN (costs off) SELECT * FROM mvtest_tvmm"
+    "query": "EXPLAIN (costs off) SELECT * FROM mvtest_tvmm",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mvtest_tvmm"
   },
   {
     "comment": "matview - Statement 31",
-    "query": "EXPLAIN (costs off) SELECT * FROM mvtest_tvvm"
+    "query": "EXPLAIN (costs off) SELECT * FROM mvtest_tvvm",
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM mvtest_tvvm"
   },
   {
     "comment": "matview - Statement 32",
@@ -165,7 +182,8 @@
   },
   {
     "comment": "matview - Statement 42",
-    "query": "SELECT type, m.totamt AS mtot, v.totamt AS vtot FROM mvtest_tm m LEFT JOIN mvtest_tv v USING (type) ORDER BY type"
+    "query": "SELECT type, m.totamt AS mtot, v.totamt AS vtot FROM mvtest_tm m LEFT JOIN mvtest_tv v USING (type) ORDER BY type",
+    "expected": "SELECT type, m.totamt AS mtot, v.totamt AS vtot FROM mvtest_tm AS m LEFT OUTER JOIN mvtest_tv AS v USING (type) ORDER BY type"
   },
   {
     "comment": "matview - Statement 43",
@@ -185,15 +203,18 @@
   },
   {
     "comment": "matview - Statement 47",
-    "query": "CREATE VIEW mvtest_vt1 AS SELECT 1 moo"
+    "query": "CREATE VIEW mvtest_vt1 AS SELECT 1 moo",
+    "expected": "CREATE VIEW mvtest_vt1 AS SELECT 1 AS moo"
   },
   {
     "comment": "matview - Statement 48",
-    "query": "CREATE VIEW mvtest_vt2 AS SELECT moo, 2*moo FROM mvtest_vt1 UNION ALL SELECT moo, 3*moo FROM mvtest_vt1"
+    "query": "CREATE VIEW mvtest_vt2 AS SELECT moo, 2*moo FROM mvtest_vt1 UNION ALL SELECT moo, 3*moo FROM mvtest_vt1",
+    "expected": "CREATE VIEW mvtest_vt2 AS SELECT moo, 2 * moo FROM mvtest_vt1 UNION ALL SELECT moo, 3 * moo FROM mvtest_vt1"
   },
   {
     "comment": "matview - Statement 49",
-    "query": "SELECT relispopulated FROM pg_class WHERE oid = 'mv_test3'::regclass"
+    "query": "SELECT relispopulated FROM pg_class WHERE oid = 'mv_test3'::regclass",
+    "expected": "SELECT relispopulated FROM pg_class WHERE oid = CAST('mv_test3' AS regclass)"
   },
   {
     "comment": "matview - Statement 50",
@@ -201,7 +222,8 @@
   },
   {
     "comment": "matview - Statement 51",
-    "query": "CREATE TABLE mvtest_foo(a, b) AS VALUES(1, 10)"
+    "query": "CREATE TABLE mvtest_foo(a, b) AS VALUES(1, 10)",
+    "expected": "CREATE TABLE mvtest_foo (a, b) AS VALUES (1, 10)"
   },
   {
     "comment": "matview - Statement 52",
@@ -209,7 +231,8 @@
   },
   {
     "comment": "matview - Statement 53",
-    "query": "CREATE UNIQUE INDEX ON mvtest_mv(a)"
+    "query": "CREATE UNIQUE INDEX ON mvtest_mv(a)",
+    "expected": "CREATE UNIQUE INDEX ON mvtest_mv USING btree ( a )"
   },
   {
     "comment": "matview - Statement 54",
@@ -229,27 +252,33 @@
   },
   {
     "comment": "matview - Statement 58",
-    "query": "CREATE TABLE mvtest_foo(a, b, c) AS VALUES(1, 2, 3)"
+    "query": "CREATE TABLE mvtest_foo(a, b, c) AS VALUES(1, 2, 3)",
+    "expected": "CREATE TABLE mvtest_foo (a, b, c) AS VALUES (1, 2, 3)"
   },
   {
     "comment": "matview - Statement 59",
-    "query": "CREATE UNIQUE INDEX ON mvtest_mv (a)"
+    "query": "CREATE UNIQUE INDEX ON mvtest_mv (a)",
+    "expected": "CREATE UNIQUE INDEX ON mvtest_mv USING btree ( a )"
   },
   {
     "comment": "matview - Statement 60",
-    "query": "CREATE UNIQUE INDEX ON mvtest_mv (b)"
+    "query": "CREATE UNIQUE INDEX ON mvtest_mv (b)",
+    "expected": "CREATE UNIQUE INDEX ON mvtest_mv USING btree ( b )"
   },
   {
     "comment": "matview - Statement 61",
-    "query": "CREATE UNIQUE INDEX on mvtest_mv (c)"
+    "query": "CREATE UNIQUE INDEX on mvtest_mv (c)",
+    "expected": "CREATE UNIQUE INDEX ON mvtest_mv USING btree ( c )"
   },
   {
     "comment": "matview - Statement 62",
-    "query": "INSERT INTO mvtest_foo VALUES(2, 3, 4)"
+    "query": "INSERT INTO mvtest_foo VALUES(2, 3, 4)",
+    "expected": "INSERT INTO mvtest_foo VALUES (2, 3, 4)"
   },
   {
     "comment": "matview - Statement 63",
-    "query": "INSERT INTO mvtest_foo VALUES(3, 4, 5)"
+    "query": "INSERT INTO mvtest_foo VALUES(3, 4, 5)",
+    "expected": "INSERT INTO mvtest_foo VALUES (3, 4, 5)"
   },
   {
     "comment": "matview - Statement 64",
@@ -265,7 +294,8 @@
   },
   {
     "comment": "matview - Statement 67",
-    "query": "CREATE TABLE mvtest_boxes (id serial primary key, b box)"
+    "query": "CREATE TABLE mvtest_boxes (id serial primary key, b box)",
+    "expected": "CREATE TABLE mvtest_boxes (id serial PRIMARY KEY, b box)"
   },
   {
     "comment": "matview - Statement 68",
@@ -277,7 +307,8 @@
   },
   {
     "comment": "matview - Statement 70",
-    "query": "CREATE UNIQUE INDEX mvtest_boxmv_id ON mvtest_boxmv (id)"
+    "query": "CREATE UNIQUE INDEX mvtest_boxmv_id ON mvtest_boxmv (id)",
+    "expected": "CREATE UNIQUE INDEX mvtest_boxmv_id ON mvtest_boxmv USING btree ( id )"
   },
   {
     "comment": "matview - Statement 71",
@@ -297,7 +328,8 @@
   },
   {
     "comment": "matview - Statement 75",
-    "query": "CREATE TABLE mvtest_v (i int, j int)"
+    "query": "CREATE TABLE mvtest_v (i int, j int)",
+    "expected": "CREATE TABLE mvtest_v (i INT, j INT)"
   },
   {
     "comment": "matview - Statement 76",
@@ -329,11 +361,13 @@
   },
   {
     "comment": "matview - Statement 83",
-    "query": "INSERT INTO mvtest_v values (1, 2)"
+    "query": "INSERT INTO mvtest_v values (1, 2)",
+    "expected": "INSERT INTO mvtest_v VALUES (1, 2)"
   },
   {
     "comment": "matview - Statement 84",
-    "query": "CREATE UNIQUE INDEX mvtest_mv_v_ii ON mvtest_mv_v (ii)"
+    "query": "CREATE UNIQUE INDEX mvtest_mv_v_ii ON mvtest_mv_v (ii)",
+    "expected": "CREATE UNIQUE INDEX mvtest_mv_v_ii ON mvtest_mv_v USING btree ( ii )"
   },
   {
     "comment": "matview - Statement 85",
@@ -385,7 +419,8 @@
   },
   {
     "comment": "matview - Statement 97",
-    "query": "CREATE MATERIALIZED VIEW mv_unspecified_types AS SELECT 42 as i, 42.5 as num, 'foo' as u, 'foo'::unknown as u2, null as n"
+    "query": "CREATE MATERIALIZED VIEW mv_unspecified_types AS SELECT 42 as i, 42.5 as num, 'foo' as u, 'foo'::unknown as u2, null as n",
+    "expected": "CREATE MATERIALIZED VIEW mv_unspecified_types AS SELECT 42 AS i, 42.5 AS num, 'foo' AS u, CAST('foo' AS unknown) AS u2, NULL AS n"
   },
   {
     "comment": "matview - Statement 98",
@@ -393,31 +428,37 @@
   },
   {
     "comment": "matview - Statement 99",
-    "query": "create materialized view mvtest_error as select 1/0 as x"
+    "query": "create materialized view mvtest_error as select 1/0 as x",
+    "expected": "CREATE MATERIALIZED VIEW mvtest_error AS SELECT 1 / 0 AS x"
   },
   {
     "comment": "matview - Statement 100",
-    "query": "create materialized view mvtest_error as select 1/0 as x with no data"
+    "query": "create materialized view mvtest_error as select 1/0 as x with no data",
+    "expected": "CREATE MATERIALIZED VIEW mvtest_error AS SELECT 1 / 0 AS x WITH NO DATA"
   },
   {
     "comment": "matview - Statement 101",
-    "query": "refresh materialized view mvtest_error"
+    "query": "refresh materialized view mvtest_error",
+    "expected": "REFRESH MATERIALIZED VIEW mvtest_error"
   },
   {
     "comment": "matview - Statement 102",
-    "query": "drop materialized view mvtest_error"
+    "query": "drop materialized view mvtest_error",
+    "expected": "DROP MATERIALIZED VIEW mvtest_error"
   },
   {
     "comment": "matview - Statement 103",
-    "query": "CREATE TABLE mvtest_v AS SELECT generate_series(1,10) AS a"
+    "query": "CREATE TABLE mvtest_v AS SELECT generate_series(1,10) AS a",
+    "expected": "CREATE TABLE mvtest_v AS SELECT generate_series(1, 10) AS a"
   },
   {
     "comment": "matview - Statement 104",
-    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v AS SELECT a FROM mvtest_v WHERE a <= 5"
+    "query": "CREATE MATERIALIZED VIEW mvtest_mv_v AS SELECT a FROM mvtest_v WHERE a \u003c= 5"
   },
   {
     "comment": "matview - Statement 105",
-    "query": "DELETE FROM mvtest_v WHERE EXISTS ( SELECT * FROM mvtest_mv_v WHERE mvtest_mv_v.a = mvtest_v.a )"
+    "query": "DELETE FROM mvtest_v WHERE EXISTS ( SELECT * FROM mvtest_mv_v WHERE mvtest_mv_v.a = mvtest_v.a )",
+    "expected": "DELETE FROM mvtest_v WHERE EXISTS (SELECT * FROM mvtest_mv_v WHERE mvtest_mv_v.a = mvtest_v.a)"
   },
   {
     "comment": "matview - Statement 106",
@@ -425,11 +466,13 @@
   },
   {
     "comment": "matview - Statement 107",
-    "query": "SET ROLE regress_user_mvtest"
+    "query": "SET ROLE regress_user_mvtest",
+    "expected": "SET ROLE 'regress_user_mvtest'"
   },
   {
     "comment": "matview - Statement 108",
-    "query": "CREATE TABLE mvtest_foo_data AS SELECT i, i+1 AS tid, fipshash(random()::text) AS mv, fipshash(random()::text) AS newdata, fipshash(random()::text) AS newdata2, fipshash(random()::text) AS diff FROM generate_series(1, 10) i"
+    "query": "CREATE TABLE mvtest_foo_data AS SELECT i, i+1 AS tid, fipshash(random()::text) AS mv, fipshash(random()::text) AS newdata, fipshash(random()::text) AS newdata2, fipshash(random()::text) AS diff FROM generate_series(1, 10) i",
+    "expected": "CREATE TABLE mvtest_foo_data AS SELECT i, i + 1 AS tid, fipshash(CAST(random() AS TEXT)) AS mv, fipshash(CAST(random() AS TEXT)) AS newdata, fipshash(CAST(random() AS TEXT)) AS newdata2, fipshash(CAST(random() AS TEXT)) AS diff FROM generate_series(1, 10) AS i"
   },
   {
     "comment": "matview - Statement 109",
@@ -441,11 +484,13 @@
   },
   {
     "comment": "matview - Statement 111",
-    "query": "CREATE UNIQUE INDEX ON mvtest_mv_foo (i)"
+    "query": "CREATE UNIQUE INDEX ON mvtest_mv_foo (i)",
+    "expected": "CREATE UNIQUE INDEX ON mvtest_mv_foo USING btree ( i )"
   },
   {
     "comment": "matview - Statement 112",
-    "query": "RESET ROLE"
+    "query": "RESET ROLE",
+    "expected": "RESET role"
   },
   {
     "comment": "matview - Statement 113",
@@ -465,31 +510,23 @@
   },
   {
     "comment": "matview - Statement 117",
-    "query": "SET search_path = mvtest_mvschema, public"
+    "query": "SET search_path = mvtest_mvschema, public",
+    "expected": "SET search_path = 'mvtest_mvschema', 'public'"
   },
   {
     "comment": "matview - Statement 118",
-    "query": "CREATE OR REPLACE FUNCTION mvtest_drop_the_index() RETURNS bool AS $$ BEGIN EXECUTE 'DROP INDEX IF EXISTS mvtest_mvschema.mvtest_drop_idx'"
-  },
-  {
-    "comment": "matview - Statement 119",
-    "query": "RETURN true"
-  },
-  {
-    "comment": "matview - Statement 120",
-    "query": "END"
-  },
-  {
-    "comment": "matview - Statement 121",
-    "query": "$$ LANGUAGE plpgsql"
+    "query": "CREATE OR REPLACE FUNCTION mvtest_drop_the_index() RETURNS bool AS $$ BEGIN EXECUTE 'DROP INDEX IF EXISTS mvtest_mvschema.mvtest_drop_idx'; RETURN true; END; $$ LANGUAGE plpgsql",
+    "expected": "CREATE OR REPLACE FUNCTION mvtest_drop_the_index () RETURNS BOOLEAN LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'DROP INDEX IF EXISTS mvtest_mvschema.mvtest_drop_idx'; RETURN true; END; $$"
   },
   {
     "comment": "matview - Statement 122",
-    "query": "CREATE MATERIALIZED VIEW drop_idx_matview AS SELECT 1 as i WHERE mvtest_drop_the_index()"
+    "query": "CREATE MATERIALIZED VIEW drop_idx_matview AS SELECT 1 as i WHERE mvtest_drop_the_index()",
+    "expected": "CREATE MATERIALIZED VIEW drop_idx_matview AS SELECT 1 AS i WHERE mvtest_drop_the_index()"
   },
   {
     "comment": "matview - Statement 123",
-    "query": "CREATE UNIQUE INDEX mvtest_drop_idx ON drop_idx_matview (i)"
+    "query": "CREATE UNIQUE INDEX mvtest_drop_idx ON drop_idx_matview (i)",
+    "expected": "CREATE UNIQUE INDEX mvtest_drop_idx ON drop_idx_matview USING btree ( i )"
   },
   {
     "comment": "matview - Statement 124",
@@ -501,7 +538,8 @@
   },
   {
     "comment": "matview - Statement 126",
-    "query": "CREATE FUNCTION mvtest_func() RETURNS void AS $$ BEGIN CREATE MATERIALIZED VIEW mvtest1 AS SELECT 1 AS x"
+    "query": "CREATE FUNCTION mvtest_func() RETURNS void AS $$ BEGIN CREATE MATERIALIZED VIEW mvtest1 AS SELECT 1 AS x; $$",
+    "expected": "CREATE FUNCTION mvtest_func () RETURNS void AS $$ BEGIN CREATE MATERIALIZED VIEW mvtest1 AS SELECT 1 AS x; $$"
   },
   {
     "comment": "matview - Statement 127",
@@ -537,15 +575,18 @@
   },
   {
     "comment": "matview - Statement 135",
-    "query": "SET SESSION AUTHORIZATION regress_matview_user"
+    "query": "SET SESSION AUTHORIZATION regress_matview_user",
+    "expected": "SET SESSION AUTHORIZATION 'regress_matview_user'"
   },
   {
     "comment": "matview - Statement 136",
-    "query": "CREATE MATERIALIZED VIEW matview_schema.mv_withdata1 (a) AS SELECT generate_series(1, 10) WITH DATA"
+    "query": "CREATE MATERIALIZED VIEW matview_schema.mv_withdata1 (a) AS SELECT generate_series(1, 10) WITH DATA",
+    "expected": "CREATE MATERIALIZED VIEW matview_schema.mv_withdata1 (a) AS SELECT generate_series(1, 10)"
   },
   {
     "comment": "matview - Statement 137",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_schema.mv_withdata2 (a) AS SELECT generate_series(1, 10) WITH DATA"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_schema.mv_withdata2 (a) AS SELECT generate_series(1, 10) WITH DATA",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE MATERIALIZED VIEW matview_schema.mv_withdata2 (a) AS SELECT generate_series(1, 10)"
   },
   {
     "comment": "matview - Statement 138",
@@ -557,7 +598,8 @@
   },
   {
     "comment": "matview - Statement 140",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_schema.mv_nodata2 (a) AS SELECT generate_series(1, 10) WITH NO DATA"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_schema.mv_nodata2 (a) AS SELECT generate_series(1, 10) WITH NO DATA",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE MATERIALIZED VIEW matview_schema.mv_nodata2 (a) AS SELECT generate_series(1, 10) WITH NO DATA"
   },
   {
     "comment": "matview - Statement 141",
@@ -565,7 +607,8 @@
   },
   {
     "comment": "matview - Statement 142",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "matview - Statement 143",
@@ -577,7 +620,8 @@
   },
   {
     "comment": "matview - Statement 145",
-    "query": "DROP USER regress_matview_user"
+    "query": "DROP USER regress_matview_user",
+    "expected": "DROP ROLE regress_matview_user"
   },
   {
     "comment": "matview - Statement 146",
@@ -601,19 +645,23 @@
   },
   {
     "comment": "matview - Statement 151",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1 / 0"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1 / 0",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1 / 0"
   },
   {
     "comment": "matview - Statement 152",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW IF NOT EXISTS matview_ine_tab AS SELECT 1 / 0"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW IF NOT EXISTS matview_ine_tab AS SELECT 1 / 0",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE MATERIALIZED VIEW IF NOT EXISTS matview_ine_tab AS SELECT 1 / 0"
   },
   {
     "comment": "matview - Statement 153",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1 / 0 WITH NO DATA"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1 / 0 WITH NO DATA",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE MATERIALIZED VIEW matview_ine_tab AS SELECT 1 / 0 WITH NO DATA"
   },
   {
     "comment": "matview - Statement 154",
-    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW IF NOT EXISTS matview_ine_tab AS SELECT 1 / 0 WITH NO DATA"
+    "query": "EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) CREATE MATERIALIZED VIEW IF NOT EXISTS matview_ine_tab AS SELECT 1 / 0 WITH NO DATA",
+    "expected": "EXPLAIN (ANALYZE true, COSTS false, SUMMARY false, TIMING false) CREATE MATERIALIZED VIEW IF NOT EXISTS matview_ine_tab AS SELECT 1 / 0 WITH NO DATA"
   },
   {
     "comment": "matview - Statement 155",

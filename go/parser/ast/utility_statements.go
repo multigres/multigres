@@ -475,6 +475,8 @@ func (gs *GrantStmt) SqlString() string {
 			parts = append(parts, "PROCEDURE")
 		case OBJECT_TYPE:
 			parts = append(parts, "TYPE")
+		case OBJECT_LARGEOBJECT:
+			parts = append(parts, "LARGE", "OBJECT")
 		case OBJECT_TABLE:
 			// TABLE is optional, but we can add it for clarity in certain contexts
 			// parts = append(parts, "TABLE")
@@ -493,6 +495,9 @@ func (gs *GrantStmt) SqlString() string {
 				objNames = append(objNames, name)
 			} else if str, ok := obj.(*String); ok {
 				objNames = append(objNames, str.SVal)
+			} else if integer, ok := obj.(*Integer); ok {
+				// For large objects and other numeric identifiers
+				objNames = append(objNames, fmt.Sprintf("%d", integer.IVal))
 			} else if objWithArgs, ok := obj.(*ObjectWithArgs); ok {
 				// For functions, use the SqlString method
 				objNames = append(objNames, objWithArgs.SqlString())

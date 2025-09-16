@@ -1,7 +1,8 @@
 [
   {
     "comment": "lock - Statement 1",
-    "query": "SET search_path = lock_schema1"
+    "query": "SET search_path = lock_schema1",
+    "expected": "SET SCHEMA 'lock_schema1'"
   },
   {
     "comment": "lock - Statement 2",
@@ -17,23 +18,28 @@
   },
   {
     "comment": "lock - Statement 5",
-    "query": "CREATE VIEW lock_view2(a,b) AS SELECT * FROM lock_tbl1, lock_tbl1a"
+    "query": "CREATE VIEW lock_view2(a,b) AS SELECT * FROM lock_tbl1, lock_tbl1a",
+    "expected": "CREATE VIEW lock_view2 (a, b) AS SELECT * FROM lock_tbl1, lock_tbl1a"
   },
   {
     "comment": "lock - Statement 6",
-    "query": "CREATE VIEW lock_view3 AS SELECT * from lock_view2"
+    "query": "CREATE VIEW lock_view3 AS SELECT * from lock_view2",
+    "expected": "CREATE VIEW lock_view3 AS SELECT * FROM lock_view2"
   },
   {
     "comment": "lock - Statement 7",
-    "query": "CREATE VIEW lock_view4 AS SELECT (select a from lock_tbl1a limit 1) from lock_tbl1"
+    "query": "CREATE VIEW lock_view4 AS SELECT (select a from lock_tbl1a limit 1) from lock_tbl1",
+    "expected": "CREATE VIEW lock_view4 AS SELECT (SELECT a FROM lock_tbl1a LIMIT 1) FROM lock_tbl1"
   },
   {
     "comment": "lock - Statement 8",
-    "query": "CREATE VIEW lock_view5 AS SELECT * from lock_tbl1 where a in (select * from lock_tbl1a)"
+    "query": "CREATE VIEW lock_view5 AS SELECT * from lock_tbl1 where a in (select * from lock_tbl1a)",
+    "expected": "CREATE VIEW lock_view5 AS SELECT * FROM lock_tbl1 WHERE a IN (SELECT * FROM lock_tbl1a)"
   },
   {
     "comment": "lock - Statement 9",
-    "query": "CREATE VIEW lock_view6 AS SELECT * from (select * from lock_tbl1) sub"
+    "query": "CREATE VIEW lock_view6 AS SELECT * from (select * from lock_tbl1) sub",
+    "expected": "CREATE VIEW lock_view6 AS SELECT * FROM (SELECT * FROM lock_tbl1) AS sub"
   },
   {
     "comment": "lock - Statement 10",
@@ -41,7 +47,8 @@
   },
   {
     "comment": "lock - Statement 11",
-    "query": "ALTER ROLE regress_rol_lock1 SET search_path = lock_schema1"
+    "query": "ALTER ROLE regress_rol_lock1 SET search_path = lock_schema1",
+    "expected": "ALTER ROLE regress_rol_lock1 SET search_path TO lock_schema1"
   },
   {
     "comment": "lock - Statement 12",
@@ -49,7 +56,8 @@
   },
   {
     "comment": "lock - Statement 13",
-    "query": "BEGIN TRANSACTION"
+    "query": "BEGIN TRANSACTION",
+    "expected": "BEGIN"
   },
   {
     "comment": "lock - Statement 14",
@@ -57,7 +65,8 @@
   },
   {
     "comment": "lock - Statement 15",
-    "query": "LOCK lock_tbl1 IN ROW SHARE MODE"
+    "query": "LOCK lock_tbl1 IN ROW SHARE MODE",
+    "expected": "LOCK TABLE lock_tbl1 IN ROW SHARE MODE"
   },
   {
     "comment": "lock - Statement 16",
@@ -73,7 +82,8 @@
   },
   {
     "comment": "lock - Statement 19",
-    "query": "LOCK lock_tbl1 IN SHARE ROW EXCLUSIVE MODE"
+    "query": "LOCK lock_tbl1 IN SHARE ROW EXCLUSIVE MODE",
+    "expected": "LOCK TABLE lock_tbl1 IN SHARE ROW EXCLUSIVE MODE"
   },
   {
     "comment": "lock - Statement 20",
@@ -125,7 +135,8 @@
   },
   {
     "comment": "lock - Statement 32",
-    "query": "select relname from pg_locks l, pg_class c where l.relation = c.oid and relname like '%lock_%' and mode = 'ExclusiveLock' order by relname"
+    "query": "select relname from pg_locks l, pg_class c where l.relation = c.oid and relname like '%lock_%' and mode = 'ExclusiveLock' order by relname",
+    "expected": "SELECT relname FROM pg_locks AS l, pg_class AS c WHERE l.relation = c.oid AND relname LIKE '%lock_%' AND mode = 'ExclusiveLock' ORDER BY relname"
   },
   {
     "comment": "lock - Statement 33",
@@ -149,11 +160,13 @@
   },
   {
     "comment": "lock - Statement 38",
-    "query": "CREATE OR REPLACE VIEW lock_view2 AS SELECT * from lock_view3"
+    "query": "CREATE OR REPLACE VIEW lock_view2 AS SELECT * from lock_view3",
+    "expected": "CREATE OR REPLACE VIEW lock_view2 AS SELECT * FROM lock_view3"
   },
   {
     "comment": "lock - Statement 39",
-    "query": "CREATE VIEW lock_view7 AS SELECT * from lock_view2"
+    "query": "CREATE VIEW lock_view7 AS SELECT * from lock_view2",
+    "expected": "CREATE VIEW lock_view7 AS SELECT * FROM lock_view2"
   },
   {
     "comment": "lock - Statement 40",
@@ -169,15 +182,18 @@
   },
   {
     "comment": "lock - Statement 43",
-    "query": "LOCK TABLE lock_tbl1 * IN ACCESS EXCLUSIVE MODE"
+    "query": "LOCK TABLE lock_tbl1 * IN ACCESS EXCLUSIVE MODE",
+    "expected": "LOCK TABLE lock_tbl1 IN ACCESS EXCLUSIVE MODE"
   },
   {
     "comment": "lock - Statement 44",
-    "query": "GRANT UPDATE ON TABLE lock_tbl1 TO regress_rol_lock1"
+    "query": "GRANT UPDATE ON TABLE lock_tbl1 TO regress_rol_lock1",
+    "expected": "GRANT UPDATE ON lock_tbl1 TO regress_rol_lock1"
   },
   {
     "comment": "lock - Statement 45",
-    "query": "SET ROLE regress_rol_lock1"
+    "query": "SET ROLE regress_rol_lock1",
+    "expected": "SET ROLE 'regress_rol_lock1'"
   },
   {
     "comment": "lock - Statement 46",
@@ -185,27 +201,33 @@
   },
   {
     "comment": "lock - Statement 47",
-    "query": "LOCK TABLE lock_tbl2"
+    "query": "LOCK TABLE lock_tbl2",
+    "expected": "LOCK TABLE lock_tbl2 IN ACCESS EXCLUSIVE MODE"
   },
   {
     "comment": "lock - Statement 48",
-    "query": "LOCK TABLE ONLY lock_tbl1"
+    "query": "LOCK TABLE ONLY lock_tbl1",
+    "expected": "LOCK TABLE lock_tbl1 IN ACCESS EXCLUSIVE MODE"
   },
   {
     "comment": "lock - Statement 49",
-    "query": "RESET ROLE"
+    "query": "RESET ROLE",
+    "expected": "RESET role"
   },
   {
     "comment": "lock - Statement 50",
-    "query": "REVOKE UPDATE ON TABLE lock_tbl1 FROM regress_rol_lock1"
+    "query": "REVOKE UPDATE ON TABLE lock_tbl1 FROM regress_rol_lock1",
+    "expected": "REVOKE UPDATE ON lock_tbl1 FROM regress_rol_lock1"
   },
   {
     "comment": "lock - Statement 51",
-    "query": "LOCK TABLE lock_view1"
+    "query": "LOCK TABLE lock_view1",
+    "expected": "LOCK TABLE lock_view1 IN ACCESS EXCLUSIVE MODE"
   },
   {
     "comment": "lock - Statement 52",
-    "query": "GRANT UPDATE ON TABLE lock_view1 TO regress_rol_lock1"
+    "query": "GRANT UPDATE ON TABLE lock_view1 TO regress_rol_lock1",
+    "expected": "GRANT UPDATE ON lock_view1 TO regress_rol_lock1"
   },
   {
     "comment": "lock - Statement 53",
@@ -213,23 +235,28 @@
   },
   {
     "comment": "lock - Statement 54",
-    "query": "select relname from pg_locks l, pg_class c where l.relation = c.oid and relname like '%lock_%' and mode = 'AccessExclusiveLock' order by relname"
+    "query": "select relname from pg_locks l, pg_class c where l.relation = c.oid and relname like '%lock_%' and mode = 'AccessExclusiveLock' order by relname",
+    "expected": "SELECT relname FROM pg_locks AS l, pg_class AS c WHERE l.relation = c.oid AND relname LIKE '%lock_%' AND mode = 'AccessExclusiveLock' ORDER BY relname"
   },
   {
     "comment": "lock - Statement 55",
-    "query": "REVOKE UPDATE ON TABLE lock_view1 FROM regress_rol_lock1"
+    "query": "REVOKE UPDATE ON TABLE lock_view1 FROM regress_rol_lock1",
+    "expected": "REVOKE UPDATE ON lock_view1 FROM regress_rol_lock1"
   },
   {
     "comment": "lock - Statement 56",
-    "query": "CREATE VIEW lock_view8 WITH (security_invoker) AS SELECT * FROM lock_tbl1"
+    "query": "CREATE VIEW lock_view8 WITH (security_invoker) AS SELECT * FROM lock_tbl1",
+    "expected": "CREATE VIEW lock_view8 WITH ( security_invoker) AS SELECT * FROM lock_tbl1"
   },
   {
     "comment": "lock - Statement 57",
-    "query": "LOCK TABLE lock_view8"
+    "query": "LOCK TABLE lock_view8",
+    "expected": "LOCK TABLE lock_view8 IN ACCESS EXCLUSIVE MODE"
   },
   {
     "comment": "lock - Statement 58",
-    "query": "GRANT UPDATE ON TABLE lock_view8 TO regress_rol_lock1"
+    "query": "GRANT UPDATE ON TABLE lock_view8 TO regress_rol_lock1",
+    "expected": "GRANT UPDATE ON lock_view8 TO regress_rol_lock1"
   },
   {
     "comment": "lock - Statement 59",
@@ -237,7 +264,8 @@
   },
   {
     "comment": "lock - Statement 60",
-    "query": "REVOKE UPDATE ON TABLE lock_view8 FROM regress_rol_lock1"
+    "query": "REVOKE UPDATE ON TABLE lock_view8 FROM regress_rol_lock1",
+    "expected": "REVOKE UPDATE ON lock_view8 FROM regress_rol_lock1"
   },
   {
     "comment": "lock - Statement 61",
@@ -297,7 +325,8 @@
   },
   {
     "comment": "lock - Statement 75",
-    "query": "CREATE FUNCTION test_atomic_ops() RETURNS bool AS :'regresslib' LANGUAGE C"
+    "query": "CREATE FUNCTION test_atomic_ops() RETURNS bool AS 'regresslib' LANGUAGE C",
+    "expected": "CREATE FUNCTION test_atomic_ops () RETURNS BOOLEAN LANGUAGE c AS $$regresslib$$"
   },
   {
     "comment": "lock - Statement 76",

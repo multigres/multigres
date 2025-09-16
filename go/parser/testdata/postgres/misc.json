@@ -1,7 +1,8 @@
 [
   {
     "comment": "misc - Statement 1",
-    "query": "CREATE FUNCTION reverse_name(name) RETURNS name AS :'regresslib' LANGUAGE C STRICT"
+    "query": "CREATE FUNCTION reverse_name(name) RETURNS name AS 'regresslib' LANGUAGE C STRICT",
+    "expected": "CREATE FUNCTION reverse_name (name) RETURNS name LANGUAGE c AS $$regresslib$$ STRICT"
   },
   {
     "comment": "misc - Statement 2",
@@ -13,15 +14,18 @@
   },
   {
     "comment": "misc - Statement 4",
-    "query": "SELECT two, stringu1, ten, string4 INTO TABLE tmp FROM onek"
+    "query": "SELECT two, stringu1, ten, string4 INTO TABLE tmp FROM onek",
+    "expected": "SELECT two, stringu1, ten, string4 INTO tmp FROM onek"
   },
   {
     "comment": "misc - Statement 5",
-    "query": "UPDATE tmp SET stringu1 = reverse_name(onek.stringu1) FROM onek WHERE onek.stringu1 = 'JBAAAA' and onek.stringu1 = tmp.stringu1"
+    "query": "UPDATE tmp SET stringu1 = reverse_name(onek.stringu1) FROM onek WHERE onek.stringu1 = 'JBAAAA' and onek.stringu1 = tmp.stringu1",
+    "expected": "UPDATE tmp SET stringu1 = reverse_name(onek.stringu1) FROM onek WHERE onek.stringu1 = 'JBAAAA' AND onek.stringu1 = tmp.stringu1"
   },
   {
     "comment": "misc - Statement 6",
-    "query": "UPDATE tmp SET stringu1 = reverse_name(onek2.stringu1) FROM onek2 WHERE onek2.stringu1 = 'JCAAAA' and onek2.stringu1 = tmp.stringu1"
+    "query": "UPDATE tmp SET stringu1 = reverse_name(onek2.stringu1) FROM onek2 WHERE onek2.stringu1 = 'JCAAAA' and onek2.stringu1 = tmp.stringu1",
+    "expected": "UPDATE tmp SET stringu1 = reverse_name(onek2.stringu1) FROM onek2 WHERE onek2.stringu1 = 'JCAAAA' AND onek2.stringu1 = tmp.stringu1"
   },
   {
     "comment": "misc - Statement 7",
@@ -29,11 +33,12 @@
   },
   {
     "comment": "misc - Statement 8",
-    "query": "CREATE TEMP TABLE onek_copy (LIKE onek)"
+    "query": "CREATE TEMP TABLE onek_copy (LIKE onek)",
+    "expected": "CREATE TEMPORARY TABLE onek_copy (LIKE onek)"
   },
   {
     "comment": "misc - Statement 9",
-    "query": "COPY onek_copy FROM :'filename'"
+    "query": "COPY onek_copy FROM 'filename'"
   },
   {
     "comment": "misc - Statement 10",
@@ -45,11 +50,13 @@
   },
   {
     "comment": "misc - Statement 12",
-    "query": "CREATE TEMP TABLE stud_emp_copy (LIKE stud_emp)"
+    "query": "CREATE TEMP TABLE stud_emp_copy (LIKE stud_emp)",
+    "expected": "CREATE TEMPORARY TABLE stud_emp_copy (LIKE stud_emp)"
   },
   {
     "comment": "misc - Statement 13",
-    "query": "COPY BINARY stud_emp_copy FROM :'filename'"
+    "query": "COPY BINARY stud_emp_copy FROM 'filename'",
+    "expected": "COPY stud_emp_copy FROM 'filename' (format 'binary')"
   },
   {
     "comment": "misc - Statement 14",
@@ -57,19 +64,23 @@
   },
   {
     "comment": "misc - Statement 15",
-    "query": "CREATE TABLE hobbies_r ( name\t\ttext, person \t\ttext )"
+    "query": "CREATE TABLE hobbies_r ( name\t\ttext, person \t\ttext )",
+    "expected": "CREATE TABLE hobbies_r (name TEXT, person TEXT)"
   },
   {
     "comment": "misc - Statement 16",
-    "query": "CREATE TABLE equipment_r ( name \t\ttext, hobby\t\ttext )"
+    "query": "CREATE TABLE equipment_r ( name \t\ttext, hobby\t\ttext )",
+    "expected": "CREATE TABLE equipment_r (name TEXT, hobby TEXT)"
   },
   {
     "comment": "misc - Statement 17",
-    "query": "INSERT INTO hobbies_r (name, person) SELECT 'posthacking', p.name FROM person* p WHERE p.name = 'mike' or p.name = 'jeff'"
+    "query": "INSERT INTO hobbies_r (name, person) SELECT 'posthacking', p.name FROM person* p WHERE p.name = 'mike' or p.name = 'jeff'",
+    "expected": "INSERT INTO hobbies_r (name, person) (SELECT 'posthacking', p.name FROM person AS p WHERE p.name = 'mike' OR p.name = 'jeff')"
   },
   {
     "comment": "misc - Statement 18",
-    "query": "INSERT INTO hobbies_r (name, person) SELECT 'basketball', p.name FROM person p WHERE p.name = 'joe' or p.name = 'sally'"
+    "query": "INSERT INTO hobbies_r (name, person) SELECT 'basketball', p.name FROM person p WHERE p.name = 'joe' or p.name = 'sally'",
+    "expected": "INSERT INTO hobbies_r (name, person) (SELECT 'basketball', p.name FROM person AS p WHERE p.name = 'joe' OR p.name = 'sally')"
   },
   {
     "comment": "misc - Statement 19",
@@ -93,59 +104,73 @@
   },
   {
     "comment": "misc - Statement 24",
-    "query": "CREATE FUNCTION hobbies(person) RETURNS setof hobbies_r AS 'select * from hobbies_r where person = $1.name' LANGUAGE SQL"
+    "query": "CREATE FUNCTION hobbies(person) RETURNS setof hobbies_r AS 'select * from hobbies_r where person = $1.name' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION hobbies (person) RETURNS SETOF hobbies_r LANGUAGE sql AS $$select * from hobbies_r where person = $1.name$$"
   },
   {
     "comment": "misc - Statement 25",
-    "query": "CREATE FUNCTION hobby_construct(text, text) RETURNS hobbies_r AS 'select $1 as name, $2 as hobby' LANGUAGE SQL"
+    "query": "CREATE FUNCTION hobby_construct(text, text) RETURNS hobbies_r AS 'select $1 as name, $2 as hobby' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION hobby_construct (TEXT, TEXT) RETURNS hobbies_r LANGUAGE sql AS $$select $1 as name, $2 as hobby$$"
   },
   {
     "comment": "misc - Statement 26",
-    "query": "CREATE FUNCTION hobby_construct_named(name text, hobby text) RETURNS hobbies_r AS 'select name, hobby' LANGUAGE SQL"
+    "query": "CREATE FUNCTION hobby_construct_named(name text, hobby text) RETURNS hobbies_r AS 'select name, hobby' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION hobby_construct_named (name TEXT, hobby TEXT) RETURNS hobbies_r LANGUAGE sql AS $$select name, hobby$$"
   },
   {
     "comment": "misc - Statement 27",
-    "query": "CREATE FUNCTION hobbies_by_name(hobbies_r.name%TYPE) RETURNS hobbies_r.person%TYPE AS 'select person from hobbies_r where name = $1' LANGUAGE SQL"
+    "query": "CREATE FUNCTION hobbies_by_name(hobbies_r.name%TYPE) RETURNS hobbies_r.person%TYPE AS 'select person from hobbies_r where name = $1' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION hobbies_by_name (hobbies_r.name) RETURNS hobbies_r.person LANGUAGE sql AS $$select person from hobbies_r where name = $1$$"
   },
   {
     "comment": "misc - Statement 28",
-    "query": "CREATE FUNCTION equipment(hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = $1.name' LANGUAGE SQL"
+    "query": "CREATE FUNCTION equipment(hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = $1.name' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION equipment (hobbies_r) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where hobby = $1.name$$"
   },
   {
     "comment": "misc - Statement 29",
-    "query": "CREATE FUNCTION equipment_named(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where equipment_r.hobby = equipment_named.hobby.name' LANGUAGE SQL"
+    "query": "CREATE FUNCTION equipment_named(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where equipment_r.hobby = equipment_named.hobby.name' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION equipment_named (hobby hobbies_r) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where equipment_r.hobby = equipment_named.hobby.name$$"
   },
   {
     "comment": "misc - Statement 30",
-    "query": "CREATE FUNCTION equipment_named_ambiguous_1a(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = equipment_named_ambiguous_1a.hobby.name' LANGUAGE SQL"
+    "query": "CREATE FUNCTION equipment_named_ambiguous_1a(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = equipment_named_ambiguous_1a.hobby.name' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION equipment_named_ambiguous_1a (hobby hobbies_r) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where hobby = equipment_named_ambiguous_1a.hobby.name$$"
   },
   {
     "comment": "misc - Statement 31",
-    "query": "CREATE FUNCTION equipment_named_ambiguous_1b(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where equipment_r.hobby = hobby.name' LANGUAGE SQL"
+    "query": "CREATE FUNCTION equipment_named_ambiguous_1b(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where equipment_r.hobby = hobby.name' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION equipment_named_ambiguous_1b (hobby hobbies_r) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where equipment_r.hobby = hobby.name$$"
   },
   {
     "comment": "misc - Statement 32",
-    "query": "CREATE FUNCTION equipment_named_ambiguous_1c(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = hobby.name' LANGUAGE SQL"
+    "query": "CREATE FUNCTION equipment_named_ambiguous_1c(hobby hobbies_r) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = hobby.name' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION equipment_named_ambiguous_1c (hobby hobbies_r) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where hobby = hobby.name$$"
   },
   {
     "comment": "misc - Statement 33",
-    "query": "CREATE FUNCTION equipment_named_ambiguous_2a(hobby text) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = equipment_named_ambiguous_2a.hobby' LANGUAGE SQL"
+    "query": "CREATE FUNCTION equipment_named_ambiguous_2a(hobby text) RETURNS setof equipment_r AS 'select * from equipment_r where hobby = equipment_named_ambiguous_2a.hobby' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION equipment_named_ambiguous_2a (hobby TEXT) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where hobby = equipment_named_ambiguous_2a.hobby$$"
   },
   {
     "comment": "misc - Statement 34",
-    "query": "CREATE FUNCTION equipment_named_ambiguous_2b(hobby text) RETURNS setof equipment_r AS 'select * from equipment_r where equipment_r.hobby = hobby' LANGUAGE SQL"
+    "query": "CREATE FUNCTION equipment_named_ambiguous_2b(hobby text) RETURNS setof equipment_r AS 'select * from equipment_r where equipment_r.hobby = hobby' LANGUAGE SQL",
+    "expected": "CREATE FUNCTION equipment_named_ambiguous_2b (hobby TEXT) RETURNS SETOF equipment_r LANGUAGE sql AS $$select * from equipment_r where equipment_r.hobby = hobby$$"
   },
   {
     "comment": "misc - Statement 35",
-    "query": "SELECT p.name, name(p.hobbies) FROM ONLY person p"
+    "query": "SELECT p.name, name(p.hobbies) FROM ONLY person p",
+    "expected": "SELECT p.name, name(p.hobbies) FROM ONLY person AS p"
   },
   {
     "comment": "misc - Statement 36",
-    "query": "SELECT p.name, name(p.hobbies) FROM person* p"
+    "query": "SELECT p.name, name(p.hobbies) FROM person* p",
+    "expected": "SELECT p.name, name(p.hobbies) FROM person AS p"
   },
   {
     "comment": "misc - Statement 37",
-    "query": "SELECT DISTINCT hobbies_r.name, name(hobbies_r.equipment) FROM hobbies_r ORDER BY 1,2"
+    "query": "SELECT DISTINCT hobbies_r.name, name(hobbies_r.equipment) FROM hobbies_r ORDER BY 1,2",
+    "expected": "SELECT DISTINCT hobbies_r.name, name(hobbies_r.equipment) FROM hobbies_r ORDER BY 1, 2"
   },
   {
     "comment": "misc - Statement 38",
@@ -153,59 +178,73 @@
   },
   {
     "comment": "misc - Statement 39",
-    "query": "SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM ONLY person p"
+    "query": "SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM ONLY person p",
+    "expected": "SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM ONLY person AS p"
   },
   {
     "comment": "misc - Statement 40",
-    "query": "SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM person* p"
+    "query": "SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM person* p",
+    "expected": "SELECT p.name, name(p.hobbies), name(equipment(p.hobbies)) FROM person AS p"
   },
   {
     "comment": "misc - Statement 41",
-    "query": "SELECT name(equipment(p.hobbies)), p.name, name(p.hobbies) FROM ONLY person p"
+    "query": "SELECT name(equipment(p.hobbies)), p.name, name(p.hobbies) FROM ONLY person p",
+    "expected": "SELECT name(equipment(p.hobbies)), p.name, name(p.hobbies) FROM ONLY person AS p"
   },
   {
     "comment": "misc - Statement 42",
-    "query": "SELECT (p.hobbies).equipment.name, p.name, name(p.hobbies) FROM person* p"
+    "query": "SELECT (p.hobbies).equipment.name, p.name, name(p.hobbies) FROM person* p",
+    "expected": "SELECT (p.hobbies).equipment.name, p.name, name(p.hobbies) FROM person AS p"
   },
   {
     "comment": "misc - Statement 43",
-    "query": "SELECT (p.hobbies).equipment.name, name(p.hobbies), p.name FROM ONLY person p"
+    "query": "SELECT (p.hobbies).equipment.name, name(p.hobbies), p.name FROM ONLY person p",
+    "expected": "SELECT (p.hobbies).equipment.name, name(p.hobbies), p.name FROM ONLY person AS p"
   },
   {
     "comment": "misc - Statement 44",
-    "query": "SELECT name(equipment(p.hobbies)), name(p.hobbies), p.name FROM person* p"
+    "query": "SELECT name(equipment(p.hobbies)), name(p.hobbies), p.name FROM person* p",
+    "expected": "SELECT name(equipment(p.hobbies)), name(p.hobbies), p.name FROM person AS p"
   },
   {
     "comment": "misc - Statement 45",
-    "query": "SELECT name(equipment(hobby_construct(text 'skywalking', text 'mer')))"
+    "query": "SELECT name(equipment(hobby_construct(text 'skywalking', text 'mer')))",
+    "expected": "SELECT name(equipment(hobby_construct(CAST('skywalking' AS TEXT), CAST('mer' AS TEXT))))"
   },
   {
     "comment": "misc - Statement 46",
-    "query": "SELECT name(equipment(hobby_construct_named(text 'skywalking', text 'mer')))"
+    "query": "SELECT name(equipment(hobby_construct_named(text 'skywalking', text 'mer')))",
+    "expected": "SELECT name(equipment(hobby_construct_named(CAST('skywalking' AS TEXT), CAST('mer' AS TEXT))))"
   },
   {
     "comment": "misc - Statement 47",
-    "query": "SELECT name(equipment_named(hobby_construct_named(text 'skywalking', text 'mer')))"
+    "query": "SELECT name(equipment_named(hobby_construct_named(text 'skywalking', text 'mer')))",
+    "expected": "SELECT name(equipment_named(hobby_construct_named(CAST('skywalking' AS TEXT), CAST('mer' AS TEXT))))"
   },
   {
     "comment": "misc - Statement 48",
-    "query": "SELECT name(equipment_named_ambiguous_1a(hobby_construct_named(text 'skywalking', text 'mer')))"
+    "query": "SELECT name(equipment_named_ambiguous_1a(hobby_construct_named(text 'skywalking', text 'mer')))",
+    "expected": "SELECT name(equipment_named_ambiguous_1a(hobby_construct_named(CAST('skywalking' AS TEXT), CAST('mer' AS TEXT))))"
   },
   {
     "comment": "misc - Statement 49",
-    "query": "SELECT name(equipment_named_ambiguous_1b(hobby_construct_named(text 'skywalking', text 'mer')))"
+    "query": "SELECT name(equipment_named_ambiguous_1b(hobby_construct_named(text 'skywalking', text 'mer')))",
+    "expected": "SELECT name(equipment_named_ambiguous_1b(hobby_construct_named(CAST('skywalking' AS TEXT), CAST('mer' AS TEXT))))"
   },
   {
     "comment": "misc - Statement 50",
-    "query": "SELECT name(equipment_named_ambiguous_1c(hobby_construct_named(text 'skywalking', text 'mer')))"
+    "query": "SELECT name(equipment_named_ambiguous_1c(hobby_construct_named(text 'skywalking', text 'mer')))",
+    "expected": "SELECT name(equipment_named_ambiguous_1c(hobby_construct_named(CAST('skywalking' AS TEXT), CAST('mer' AS TEXT))))"
   },
   {
     "comment": "misc - Statement 51",
-    "query": "SELECT name(equipment_named_ambiguous_2a(text 'skywalking'))"
+    "query": "SELECT name(equipment_named_ambiguous_2a(text 'skywalking'))",
+    "expected": "SELECT name(equipment_named_ambiguous_2a(CAST('skywalking' AS TEXT)))"
   },
   {
     "comment": "misc - Statement 52",
-    "query": "SELECT name(equipment_named_ambiguous_2b(text 'skywalking'))"
+    "query": "SELECT name(equipment_named_ambiguous_2b(text 'skywalking'))",
+    "expected": "SELECT name(equipment_named_ambiguous_2b(CAST('skywalking' AS TEXT)))"
   },
   {
     "comment": "misc - Statement 53",
@@ -225,10 +264,12 @@
   },
   {
     "comment": "misc - Statement 57",
-    "query": "SELECT *, name(equipment(h.*)) FROM hobbies_r h"
+    "query": "SELECT *, name(equipment(h.*)) FROM hobbies_r h",
+    "expected": "SELECT *, name(equipment(h.*)) FROM hobbies_r AS h"
   },
   {
     "comment": "misc - Statement 58",
-    "query": "SELECT *, (equipment(CAST((h.*) AS hobbies_r))).name FROM hobbies_r h"
+    "query": "SELECT *, (equipment(CAST((h.*) AS hobbies_r))).name FROM hobbies_r h",
+    "expected": "SELECT *, (equipment(CAST((h.*) AS hobbies_r))).name FROM hobbies_r AS h"
   }
 ]

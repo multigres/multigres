@@ -1,107 +1,63 @@
 [
   {
     "comment": "memoize - Statement 1",
-    "query": "create function explain_memoize(query text, hide_hitmiss bool) returns setof text language plpgsql as $$ declare ln text"
-  },
-  {
-    "comment": "memoize - Statement 2",
-    "query": "begin for ln in execute format('explain (analyze, costs off, summary off, timing off) %s', query) loop if hide_hitmiss = true then ln := regexp_replace(ln, 'Hits: 0', 'Hits: Zero')"
-  },
-  {
-    "comment": "memoize - Statement 3",
-    "query": "ln := regexp_replace(ln, 'Hits: \\d+', 'Hits: N')"
-  },
-  {
-    "comment": "memoize - Statement 4",
-    "query": "ln := regexp_replace(ln, 'Misses: 0', 'Misses: Zero')"
-  },
-  {
-    "comment": "memoize - Statement 5",
-    "query": "ln := regexp_replace(ln, 'Misses: \\d+', 'Misses: N')"
-  },
-  {
-    "comment": "memoize - Statement 6",
-    "query": "end if"
-  },
-  {
-    "comment": "memoize - Statement 7",
-    "query": "ln := regexp_replace(ln, 'Evictions: 0', 'Evictions: Zero')"
-  },
-  {
-    "comment": "memoize - Statement 8",
-    "query": "ln := regexp_replace(ln, 'Evictions: \\d+', 'Evictions: N')"
-  },
-  {
-    "comment": "memoize - Statement 9",
-    "query": "ln := regexp_replace(ln, 'Memory Usage: \\d+', 'Memory Usage: N')"
-  },
-  {
-    "comment": "memoize - Statement 10",
-    "query": "ln := regexp_replace(ln, 'Heap Fetches: \\d+', 'Heap Fetches: N')"
-  },
-  {
-    "comment": "memoize - Statement 11",
-    "query": "ln := regexp_replace(ln, 'loops=\\d+', 'loops=N')"
-  },
-  {
-    "comment": "memoize - Statement 12",
-    "query": "return next ln"
-  },
-  {
-    "comment": "memoize - Statement 13",
-    "query": "end loop"
-  },
-  {
-    "comment": "memoize - Statement 14",
-    "query": "end"
-  },
-  {
-    "comment": "memoize - Statement 15",
-    "query": "$$"
+    "query": "create function explain_memoize(query text, hide_hitmiss bool) returns setof text language plpgsql as $$ declare   ln text; begin   for ln in     execute format('explain (analyze, costs off, summary off, timing off) %s',       query)   loop     if hide_hitmiss = true then         ln := regexp_replace(ln, 'Hits: 0', 'Hits: Zero');         ln := regexp_replace(ln, 'Hits: \\d+', 'Hits: N');         ln := regexp_replace(ln, 'Misses: 0', 'Misses: Zero');         ln := regexp_replace(ln, 'Misses: \\d+', 'Misses: N');     end if;     ln := regexp_replace(ln, 'Evictions: 0', 'Evictions: Zero');     ln := regexp_replace(ln, 'Evictions: \\d+', 'Evictions: N');     ln := regexp_replace(ln, 'Memory Usage: \\d+', 'Memory Usage: N');  ln := regexp_replace(ln, 'Heap Fetches: \\d+', 'Heap Fetches: N');  ln := regexp_replace(ln, 'loops=\\d+', 'loops=N');     return next ln;   end loop; end; $$;",
+    "expected": "CREATE FUNCTION explain_memoize (query TEXT, hide_hitmiss BOOLEAN) RETURNS SETOF TEXT LANGUAGE plpgsql AS $$ declare   ln text; begin   for ln in     execute format('explain (analyze, costs off, summary off, timing off) %s',       query)   loop     if hide_hitmiss = true then         ln := regexp_replace(ln, 'Hits: 0', 'Hits: Zero');         ln := regexp_replace(ln, 'Hits: \\d+', 'Hits: N');         ln := regexp_replace(ln, 'Misses: 0', 'Misses: Zero');         ln := regexp_replace(ln, 'Misses: \\d+', 'Misses: N');     end if;     ln := regexp_replace(ln, 'Evictions: 0', 'Evictions: Zero');     ln := regexp_replace(ln, 'Evictions: \\d+', 'Evictions: N');     ln := regexp_replace(ln, 'Memory Usage: \\d+', 'Memory Usage: N');  ln := regexp_replace(ln, 'Heap Fetches: \\d+', 'Heap Fetches: N');  ln := regexp_replace(ln, 'loops=\\d+', 'loops=N');     return next ln;   end loop; end; $$"
   },
   {
     "comment": "memoize - Statement 16",
-    "query": "SET enable_hashjoin TO off"
+    "query": "SET enable_hashjoin TO off",
+    "expected": "SET enable_hashjoin = off"
   },
   {
     "comment": "memoize - Statement 17",
-    "query": "SET enable_bitmapscan TO off"
+    "query": "SET enable_bitmapscan TO off",
+    "expected": "SET enable_bitmapscan = off"
   },
   {
     "comment": "memoize - Statement 18",
-    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 < 1000;', false)"
+    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 \u003c 1000;', false)",
+    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 \u003c 1000;', FALSE)"
   },
   {
     "comment": "memoize - Statement 19",
-    "query": "SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 < 1000"
+    "query": "SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 \u003c 1000",
+    "expected": "SELECT COUNT(*), AVG(t1.unique1) FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.twenty WHERE t2.unique1 \u003c 1000"
   },
   {
     "comment": "memoize - Statement 20",
-    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 < 1000;', false)"
+    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 \u003c 1000;', false)",
+    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 \u003c 1000;', FALSE)"
   },
   {
     "comment": "memoize - Statement 21",
-    "query": "SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 < 1000"
+    "query": "SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1 OFFSET 0) t2 WHERE t1.unique1 \u003c 1000",
+    "expected": "SELECT COUNT(*), AVG(t2.unique1) FROM tenk1 AS t1, LATERAL (SELECT t2.unique1 FROM tenk1 AS t2 WHERE t1.twenty = t2.unique1 OFFSET 0) AS t2 WHERE t1.unique1 \u003c 1000"
   },
   {
     "comment": "memoize - Statement 22",
-    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 < 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 < 10;', false)"
+    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 \u003c 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 \u003c 10;', false)",
+    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 \u003c 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 \u003c 10;', FALSE)"
   },
   {
     "comment": "memoize - Statement 23",
-    "query": "SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 < 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 < 10"
+    "query": "SELECT COUNT(*),AVG(t2.t1two) FROM tenk1 t1 LEFT JOIN LATERAL ( SELECT t1.two as t1two, * FROM tenk1 t2 WHERE t2.unique1 \u003c 4 OFFSET 0 ) t2 ON t1.two = t2.two WHERE t1.unique1 \u003c 10",
+    "expected": "SELECT COUNT(*), AVG(t2.t1two) FROM tenk1 AS t1 LEFT OUTER JOIN LATERAL (SELECT t1.two AS t1two, * FROM tenk1 AS t2 WHERE t2.unique1 \u003c 4 OFFSET 0) AS t2 ON t1.two = t2.two WHERE t1.unique1 \u003c 10"
   },
   {
     "comment": "memoize - Statement 24",
-    "query": "SET enable_mergejoin TO off"
+    "query": "SET enable_mergejoin TO off",
+    "expected": "SET enable_mergejoin = off"
   },
   {
     "comment": "memoize - Statement 25",
-    "query": "CREATE TABLE expr_key (x numeric, t text)"
+    "query": "CREATE TABLE expr_key (x numeric, t text)",
+    "expected": "CREATE TABLE expr_key (x NUMERIC, t TEXT)"
   },
   {
     "comment": "memoize - Statement 26",
-    "query": "INSERT INTO expr_key (x, t) SELECT d1::numeric, d1::text FROM ( SELECT round((d / pi())::numeric, 7) AS d1 FROM generate_series(1, 20) AS d ) t"
+    "query": "INSERT INTO expr_key (x, t) SELECT d1::numeric, d1::text FROM ( SELECT round((d / pi())::numeric, 7) AS d1 FROM generate_series(1, 20) AS d ) t",
+    "expected": "INSERT INTO expr_key (x, t) SELECT CAST(d1 AS NUMERIC), CAST(d1 AS TEXT) FROM (SELECT round(CAST((d / pi()) AS NUMERIC), 7) AS d1 FROM generate_series(1, 20) AS d) AS t"
   },
   {
     "comment": "memoize - Statement 27",
@@ -109,15 +65,18 @@
   },
   {
     "comment": "memoize - Statement 28",
-    "query": "CREATE INDEX expr_key_idx_x_t ON expr_key (x, t)"
+    "query": "CREATE INDEX expr_key_idx_x_t ON expr_key (x, t)",
+    "expected": "CREATE INDEX expr_key_idx_x_t ON expr_key USING btree ( x, t )"
   },
   {
     "comment": "memoize - Statement 29",
-    "query": "VACUUM ANALYZE expr_key"
+    "query": "VACUUM ANALYZE expr_key",
+    "expected": "VACUUM (ANALYZE) expr_key"
   },
   {
     "comment": "memoize - Statement 30",
-    "query": "SELECT explain_memoize(' SELECT * FROM expr_key t1 INNER JOIN expr_key t2 ON t1.x = t2.t::numeric AND t1.t::numeric = t2.x;', false)"
+    "query": "SELECT explain_memoize(' SELECT * FROM expr_key t1 INNER JOIN expr_key t2 ON t1.x = t2.t::numeric AND t1.t::numeric = t2.x;', false)",
+    "expected": "SELECT explain_memoize(' SELECT * FROM expr_key t1 INNER JOIN expr_key t2 ON t1.x = t2.t::numeric AND t1.t::numeric = t2.x;', FALSE)"
   },
   {
     "comment": "memoize - Statement 31",
@@ -125,27 +84,33 @@
   },
   {
     "comment": "memoize - Statement 32",
-    "query": "SET work_mem TO '64kB'"
+    "query": "SET work_mem TO '64kB'",
+    "expected": "SET work_mem = '64kB'"
   },
   {
     "comment": "memoize - Statement 33",
-    "query": "SET hash_mem_multiplier TO 1.0"
+    "query": "SET hash_mem_multiplier TO 1.0",
+    "expected": "SET hash_mem_multiplier = 1.0"
   },
   {
     "comment": "memoize - Statement 34",
-    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.thousand WHERE t2.unique1 < 1200;', true)"
+    "query": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.thousand WHERE t2.unique1 \u003c 1200;', true)",
+    "expected": "SELECT explain_memoize(' SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.thousand WHERE t2.unique1 \u003c 1200;', TRUE)"
   },
   {
     "comment": "memoize - Statement 35",
-    "query": "CREATE TABLE flt (f float)"
+    "query": "CREATE TABLE flt (f float)",
+    "expected": "CREATE TABLE flt (f FLOAT8)"
   },
   {
     "comment": "memoize - Statement 36",
-    "query": "CREATE INDEX flt_f_idx ON flt (f)"
+    "query": "CREATE INDEX flt_f_idx ON flt (f)",
+    "expected": "CREATE INDEX flt_f_idx ON flt USING btree ( f )"
   },
   {
     "comment": "memoize - Statement 37",
-    "query": "INSERT INTO flt VALUES('-0.0'::float),('+0.0'::float)"
+    "query": "INSERT INTO flt VALUES('-0.0'::float),('+0.0'::float)",
+    "expected": "INSERT INTO flt VALUES (CAST('-0.0' AS FLOAT8)), (CAST('+0.0' AS FLOAT8))"
   },
   {
     "comment": "memoize - Statement 38",
@@ -153,15 +118,18 @@
   },
   {
     "comment": "memoize - Statement 39",
-    "query": "SET enable_seqscan TO off"
+    "query": "SET enable_seqscan TO off",
+    "expected": "SET enable_seqscan = off"
   },
   {
     "comment": "memoize - Statement 40",
-    "query": "SELECT explain_memoize(' SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f = f2.f;', false)"
+    "query": "SELECT explain_memoize(' SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f = f2.f;', false)",
+    "expected": "SELECT explain_memoize(' SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f = f2.f;', FALSE)"
   },
   {
     "comment": "memoize - Statement 41",
-    "query": "SELECT explain_memoize(' SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f >= f2.f;', false)"
+    "query": "SELECT explain_memoize(' SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f \u003e= f2.f;', false)",
+    "expected": "SELECT explain_memoize(' SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f \u003e= f2.f;', FALSE)"
   },
   {
     "comment": "memoize - Statement 42",
@@ -169,19 +137,23 @@
   },
   {
     "comment": "memoize - Statement 43",
-    "query": "CREATE TABLE strtest (n name, t text)"
+    "query": "CREATE TABLE strtest (n name, t text)",
+    "expected": "CREATE TABLE strtest (n name, t TEXT)"
   },
   {
     "comment": "memoize - Statement 44",
-    "query": "CREATE INDEX strtest_n_idx ON strtest (n)"
+    "query": "CREATE INDEX strtest_n_idx ON strtest (n)",
+    "expected": "CREATE INDEX strtest_n_idx ON strtest USING btree ( n )"
   },
   {
     "comment": "memoize - Statement 45",
-    "query": "CREATE INDEX strtest_t_idx ON strtest (t)"
+    "query": "CREATE INDEX strtest_t_idx ON strtest (t)",
+    "expected": "CREATE INDEX strtest_t_idx ON strtest USING btree ( t )"
   },
   {
     "comment": "memoize - Statement 46",
-    "query": "INSERT INTO strtest VALUES('one','one'),('two','two'),('three',repeat(fipshash('three'),100))"
+    "query": "INSERT INTO strtest VALUES('one','one'),('two','two'),('three',repeat(fipshash('three'),100))",
+    "expected": "INSERT INTO strtest VALUES ('one', 'one'), ('two', 'two'), ('three', repeat(fipshash('three'), 100))"
   },
   {
     "comment": "memoize - Statement 47",
@@ -193,11 +165,13 @@
   },
   {
     "comment": "memoize - Statement 49",
-    "query": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.n >= s2.n;', false)"
+    "query": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.n \u003e= s2.n;', false)",
+    "expected": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.n \u003e= s2.n;', FALSE)"
   },
   {
     "comment": "memoize - Statement 50",
-    "query": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.t >= s2.t;', false)"
+    "query": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.t \u003e= s2.t;', false)",
+    "expected": "SELECT explain_memoize(' SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.t \u003e= s2.t;', FALSE)"
   },
   {
     "comment": "memoize - Statement 51",
@@ -205,11 +179,13 @@
   },
   {
     "comment": "memoize - Statement 52",
-    "query": "SET enable_partitionwise_join TO on"
+    "query": "SET enable_partitionwise_join TO on",
+    "expected": "SET enable_partitionwise_join = on"
   },
   {
     "comment": "memoize - Statement 53",
-    "query": "CREATE TABLE prt (a int) PARTITION BY RANGE(a)"
+    "query": "CREATE TABLE prt (a int) PARTITION BY RANGE(a)",
+    "expected": "CREATE TABLE prt (a INT) PARTITION BY range (a)"
   },
   {
     "comment": "memoize - Statement 54",
@@ -229,11 +205,13 @@
   },
   {
     "comment": "memoize - Statement 58",
-    "query": "CREATE INDEX iprt_p1_a ON prt_p1 (a)"
+    "query": "CREATE INDEX iprt_p1_a ON prt_p1 (a)",
+    "expected": "CREATE INDEX iprt_p1_a ON prt_p1 USING btree ( a )"
   },
   {
     "comment": "memoize - Statement 59",
-    "query": "CREATE INDEX iprt_p2_a ON prt_p2 (a)"
+    "query": "CREATE INDEX iprt_p2_a ON prt_p2 (a)",
+    "expected": "CREATE INDEX iprt_p2_a ON prt_p2 USING btree ( a )"
   },
   {
     "comment": "memoize - Statement 60",
@@ -241,15 +219,18 @@
   },
   {
     "comment": "memoize - Statement 61",
-    "query": "SELECT explain_memoize(' SELECT * FROM prt t1 INNER JOIN prt t2 ON t1.a = t2.a;', false)"
+    "query": "SELECT explain_memoize(' SELECT * FROM prt t1 INNER JOIN prt t2 ON t1.a = t2.a;', false)",
+    "expected": "SELECT explain_memoize(' SELECT * FROM prt t1 INNER JOIN prt t2 ON t1.a = t2.a;', FALSE)"
   },
   {
     "comment": "memoize - Statement 62",
-    "query": "SET enable_partitionwise_join TO off"
+    "query": "SET enable_partitionwise_join TO off",
+    "expected": "SET enable_partitionwise_join = off"
   },
   {
     "comment": "memoize - Statement 63",
-    "query": "SELECT explain_memoize(' SELECT * FROM prt_p1 t1 INNER JOIN (SELECT * FROM prt_p1 UNION ALL SELECT * FROM prt_p2) t2 ON t1.a = t2.a;', false)"
+    "query": "SELECT explain_memoize(' SELECT * FROM prt_p1 t1 INNER JOIN (SELECT * FROM prt_p1 UNION ALL SELECT * FROM prt_p2) t2 ON t1.a = t2.a;', false)",
+    "expected": "SELECT explain_memoize(' SELECT * FROM prt_p1 t1 INNER JOIN (SELECT * FROM prt_p1 UNION ALL SELECT * FROM prt_p2) t2 ON t1.a = t2.a;', FALSE)"
   },
   {
     "comment": "memoize - Statement 64",
@@ -261,11 +242,13 @@
   },
   {
     "comment": "memoize - Statement 66",
-    "query": "EXPLAIN (COSTS OFF) SELECT unique1 FROM tenk1 t0 WHERE unique1 < 3 AND EXISTS ( SELECT 1 FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two <> t2.four OFFSET 0)"
+    "query": "EXPLAIN (COSTS OFF) SELECT unique1 FROM tenk1 t0 WHERE unique1 \u003c 3 AND EXISTS ( SELECT 1 FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two \u003c\u003e t2.four OFFSET 0)",
+    "expected": "EXPLAIN (COSTS false) SELECT unique1 FROM tenk1 AS t0 WHERE unique1 \u003c 3 AND EXISTS (SELECT 1 FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two \u003c\u003e t2.four OFFSET 0)"
   },
   {
     "comment": "memoize - Statement 67",
-    "query": "SELECT unique1 FROM tenk1 t0 WHERE unique1 < 3 AND EXISTS ( SELECT 1 FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two <> t2.four OFFSET 0)"
+    "query": "SELECT unique1 FROM tenk1 t0 WHERE unique1 \u003c 3 AND EXISTS ( SELECT 1 FROM tenk1 t1 INNER JOIN tenk1 t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two \u003c\u003e t2.four OFFSET 0)",
+    "expected": "SELECT unique1 FROM tenk1 AS t0 WHERE unique1 \u003c 3 AND EXISTS (SELECT 1 FROM tenk1 AS t1 INNER JOIN tenk1 AS t2 ON t1.unique1 = t2.hundred WHERE t0.ten = t1.twenty AND t0.two \u003c\u003e t2.four OFFSET 0)"
   },
   {
     "comment": "memoize - Statement 68",
@@ -293,27 +276,33 @@
   },
   {
     "comment": "memoize - Statement 74",
-    "query": "SET min_parallel_table_scan_size TO 0"
+    "query": "SET min_parallel_table_scan_size TO 0",
+    "expected": "SET min_parallel_table_scan_size = 0"
   },
   {
     "comment": "memoize - Statement 75",
-    "query": "SET parallel_setup_cost TO 0"
+    "query": "SET parallel_setup_cost TO 0",
+    "expected": "SET parallel_setup_cost = 0"
   },
   {
     "comment": "memoize - Statement 76",
-    "query": "SET parallel_tuple_cost TO 0"
+    "query": "SET parallel_tuple_cost TO 0",
+    "expected": "SET parallel_tuple_cost = 0"
   },
   {
     "comment": "memoize - Statement 77",
-    "query": "SET max_parallel_workers_per_gather TO 2"
+    "query": "SET max_parallel_workers_per_gather TO 2",
+    "expected": "SET max_parallel_workers_per_gather = 2"
   },
   {
     "comment": "memoize - Statement 78",
-    "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1) t2 WHERE t1.unique1 < 1000"
+    "query": "EXPLAIN (COSTS OFF) SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1) t2 WHERE t1.unique1 \u003c 1000",
+    "expected": "EXPLAIN (COSTS false) SELECT COUNT(*), AVG(t2.unique1) FROM tenk1 AS t1, LATERAL (SELECT t2.unique1 FROM tenk1 AS t2 WHERE t1.twenty = t2.unique1) AS t2 WHERE t1.unique1 \u003c 1000"
   },
   {
     "comment": "memoize - Statement 79",
-    "query": "SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1) t2 WHERE t1.unique1 < 1000"
+    "query": "SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1, LATERAL (SELECT t2.unique1 FROM tenk1 t2 WHERE t1.twenty = t2.unique1) t2 WHERE t1.unique1 \u003c 1000",
+    "expected": "SELECT COUNT(*), AVG(t2.unique1) FROM tenk1 AS t1, LATERAL (SELECT t2.unique1 FROM tenk1 AS t2 WHERE t1.twenty = t2.unique1) AS t2 WHERE t1.unique1 \u003c 1000"
   },
   {
     "comment": "memoize - Statement 80",

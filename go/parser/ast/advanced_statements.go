@@ -258,6 +258,9 @@ func (n *MergeWhenClause) SqlString() string {
 				values[i] = val.SqlString()
 			}
 			parts = append(parts, "VALUES", "("+strings.Join(values, ", ")+")")
+		} else if len(n.TargetList) == 0 {
+			// If no explicit values and no target columns, use DEFAULT VALUES
+			parts = append(parts, "DEFAULT VALUES")
 		}
 	case CMD_UPDATE:
 		parts = append(parts, "UPDATE SET")

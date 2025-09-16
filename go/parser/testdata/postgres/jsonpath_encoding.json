@@ -5,122 +5,152 @@
   },
   {
     "comment": "jsonpath_encoding - Statement 2",
-    "query": "SELECT '\"\\u\"'::jsonpath"
+    "query": "SELECT '\"\\u\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\u\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 3",
-    "query": "SELECT '\"\\u00\"'::jsonpath"
+    "query": "SELECT '\"\\u00\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\u00\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 4",
-    "query": "SELECT '\"\\u000g\"'::jsonpath"
+    "query": "SELECT '\"\\u000g\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\u000g\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 5",
-    "query": "SELECT '\"\\u0000\"'::jsonpath"
+    "query": "SELECT '\"\\u0000\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\u0000\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 6",
-    "query": "SELECT '\"\\uaBcD\"'::jsonpath"
+    "query": "SELECT '\"\\uaBcD\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\uaBcD\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 7",
-    "query": "select '\"\\ud83d\\ude04\\ud83d\\udc36\"'::jsonpath as correct_in_utf8"
+    "query": "select '\"\\ud83d\\ude04\\ud83d\\udc36\"'::jsonpath as correct_in_utf8",
+    "expected": "SELECT CAST('\"\\ud83d\\ude04\\ud83d\\udc36\"' AS jsonpath) AS correct_in_utf8"
   },
   {
     "comment": "jsonpath_encoding - Statement 8",
-    "query": "select '\"\\ud83d\\ud83d\"'::jsonpath"
+    "query": "select '\"\\ud83d\\ud83d\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\ud83d\\ud83d\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 9",
-    "query": "select '\"\\ude04\\ud83d\"'::jsonpath"
+    "query": "select '\"\\ude04\\ud83d\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\ude04\\ud83d\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 10",
-    "query": "select '\"\\ud83dX\"'::jsonpath"
+    "query": "select '\"\\ud83dX\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\ud83dX\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 11",
-    "query": "select '\"\\ude04X\"'::jsonpath"
+    "query": "select '\"\\ude04X\"'::jsonpath",
+    "expected": "SELECT CAST('\"\\ude04X\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 12",
-    "query": "select '\"the Copyright \\u00a9 sign\"'::jsonpath as correct_in_utf8"
+    "query": "select '\"the Copyright \\u00a9 sign\"'::jsonpath as correct_in_utf8",
+    "expected": "SELECT CAST('\"the Copyright \\u00a9 sign\"' AS jsonpath) AS correct_in_utf8"
   },
   {
     "comment": "jsonpath_encoding - Statement 13",
-    "query": "select '\"dollar \\u0024 character\"'::jsonpath as correct_everywhere"
+    "query": "select '\"dollar \\u0024 character\"'::jsonpath as correct_everywhere",
+    "expected": "SELECT CAST('\"dollar \\u0024 character\"' AS jsonpath) AS correct_everywhere"
   },
   {
     "comment": "jsonpath_encoding - Statement 14",
-    "query": "select '\"dollar \\\\u0024 character\"'::jsonpath as not_an_escape"
+    "query": "select '\"dollar \\\\u0024 character\"'::jsonpath as not_an_escape",
+    "expected": "SELECT CAST('\"dollar \\\\u0024 character\"' AS jsonpath) AS not_an_escape"
   },
   {
     "comment": "jsonpath_encoding - Statement 15",
-    "query": "select '\"null \\u0000 escape\"'::jsonpath as not_unescaped"
+    "query": "select '\"null \\u0000 escape\"'::jsonpath as not_unescaped",
+    "expected": "SELECT CAST('\"null \\u0000 escape\"' AS jsonpath) AS not_unescaped"
   },
   {
     "comment": "jsonpath_encoding - Statement 16",
-    "query": "select '\"null \\\\u0000 escape\"'::jsonpath as not_an_escape"
+    "query": "select '\"null \\\\u0000 escape\"'::jsonpath as not_an_escape",
+    "expected": "SELECT CAST('\"null \\\\u0000 escape\"' AS jsonpath) AS not_an_escape"
   },
   {
     "comment": "jsonpath_encoding - Statement 17",
-    "query": "SELECT '$.\"\\u\"'::jsonpath"
+    "query": "SELECT '$.\"\\u\"'::jsonpath",
+    "expected": "SELECT CAST('$.\"\\u\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 18",
-    "query": "SELECT '$.\"\\u00\"'::jsonpath"
+    "query": "SELECT '$.\"\\u00\"'::jsonpath",
+    "expected": "SELECT CAST('$.\"\\u00\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 19",
-    "query": "SELECT '$.\"\\u000g\"'::jsonpath"
+    "query": "SELECT '$.\"\\u000g\"'::jsonpath",
+    "expected": "SELECT CAST('$.\"\\u000g\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 20",
-    "query": "SELECT '$.\"\\u0000\"'::jsonpath"
+    "query": "SELECT '$.\"\\u0000\"'::jsonpath",
+    "expected": "SELECT CAST('$.\"\\u0000\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 21",
-    "query": "SELECT '$.\"\\uaBcD\"'::jsonpath"
+    "query": "SELECT '$.\"\\uaBcD\"'::jsonpath",
+    "expected": "SELECT CAST('$.\"\\uaBcD\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 22",
-    "query": "select '$.\"\\ud83d\\ude04\\ud83d\\udc36\"'::jsonpath as correct_in_utf8"
+    "query": "select '$.\"\\ud83d\\ude04\\ud83d\\udc36\"'::jsonpath as correct_in_utf8",
+    "expected": "SELECT CAST('$.\"\\ud83d\\ude04\\ud83d\\udc36\"' AS jsonpath) AS correct_in_utf8"
   },
   {
     "comment": "jsonpath_encoding - Statement 23",
-    "query": "select '$.\"\\ud83d\\ud83d\"'::jsonpath"
+    "query": "select '$.\"\\ud83d\\ud83d\"'::jsonpath",
+    "expected": "SELECT CAST('$.\"\\ud83d\\ud83d\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 24",
-    "query": "select '$.\"\\ude04\\ud83d\"'::jsonpath"
+    "query": "select '$.\"\\ude04\\ud83d\"'::jsonpath",
+    "expected": "SELECT CAST('$.\"\\ude04\\ud83d\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 25",
-    "query": "select '$.\"\\ud83dX\"'::jsonpath"
+    "query": "select '$.\"\\ud83dX\"'::jsonpath",
+    "expected": "SELECT CAST('$.\"\\ud83dX\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 26",
-    "query": "select '$.\"\\ude04X\"'::jsonpath"
+    "query": "select '$.\"\\ude04X\"'::jsonpath",
+    "expected": "SELECT CAST('$.\"\\ude04X\"' AS jsonpath)"
   },
   {
     "comment": "jsonpath_encoding - Statement 27",
-    "query": "select '$.\"the Copyright \\u00a9 sign\"'::jsonpath as correct_in_utf8"
+    "query": "select '$.\"the Copyright \\u00a9 sign\"'::jsonpath as correct_in_utf8",
+    "expected": "SELECT CAST('$.\"the Copyright \\u00a9 sign\"' AS jsonpath) AS correct_in_utf8"
   },
   {
     "comment": "jsonpath_encoding - Statement 28",
-    "query": "select '$.\"dollar \\u0024 character\"'::jsonpath as correct_everywhere"
+    "query": "select '$.\"dollar \\u0024 character\"'::jsonpath as correct_everywhere",
+    "expected": "SELECT CAST('$.\"dollar \\u0024 character\"' AS jsonpath) AS correct_everywhere"
   },
   {
     "comment": "jsonpath_encoding - Statement 29",
-    "query": "select '$.\"dollar \\\\u0024 character\"'::jsonpath as not_an_escape"
+    "query": "select '$.\"dollar \\\\u0024 character\"'::jsonpath as not_an_escape",
+    "expected": "SELECT CAST('$.\"dollar \\\\u0024 character\"' AS jsonpath) AS not_an_escape"
   },
   {
     "comment": "jsonpath_encoding - Statement 30",
-    "query": "select '$.\"null \\u0000 escape\"'::jsonpath as not_unescaped"
+    "query": "select '$.\"null \\u0000 escape\"'::jsonpath as not_unescaped",
+    "expected": "SELECT CAST('$.\"null \\u0000 escape\"' AS jsonpath) AS not_unescaped"
   },
   {
     "comment": "jsonpath_encoding - Statement 31",
-    "query": "select '$.\"null \\\\u0000 escape\"'::jsonpath as not_an_escape"
+    "query": "select '$.\"null \\\\u0000 escape\"'::jsonpath as not_an_escape",
+    "expected": "SELECT CAST('$.\"null \\\\u0000 escape\"' AS jsonpath) AS not_an_escape"
   }
 ]

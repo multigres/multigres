@@ -13,7 +13,8 @@
   },
   {
     "comment": "largeobject - Statement 4",
-    "query": "SET SESSION AUTHORIZATION regress_lo_user"
+    "query": "SET SESSION AUTHORIZATION regress_lo_user",
+    "expected": "SET SESSION AUTHORIZATION 'regress_lo_user'"
   },
   {
     "comment": "largeobject - Statement 5",
@@ -25,7 +26,8 @@
   },
   {
     "comment": "largeobject - Statement 7",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "largeobject - Statement 8",
@@ -37,19 +39,12 @@
   },
   {
     "comment": "largeobject - Statement 10",
-    "query": "UPDATE lotest_stash_values SET fd = lo_open(loid, CAST(x'20000' | x'40000' AS integer))"
+    "query": "UPDATE lotest_stash_values SET fd = lo_open(loid, CAST(x'20000' | x'40000' AS integer))",
+    "expected": "UPDATE lotest_stash_values SET fd = lo_open(loid, CAST(X'20000' | X'40000' AS INT))"
   },
   {
     "comment": "largeobject - Statement 11",
-    "query": "SELECT lowrite(fd, ' I wandered lonely as a cloud That floats on high o''er vales and hills, When all at once I saw a crowd, A host, of golden daffodils"
-  },
-  {
-    "comment": "largeobject - Statement 12",
-    "query": "Beside the lake, beneath the trees, Fluttering and dancing in the breeze. Continuous as the stars that shine And twinkle on the milky way, They stretched in never-ending line Along the margin of a bay: Ten thousand saw I at a glance, Tossing their heads in sprightly dance. The waves beside them danced; but they Out-did the sparkling waves in glee: A poet could not but be gay, In such a jocund company: I gazed What wealth the show to me had brought: For oft, when on my couch I lie In vacant or in pensive mood, They flash upon that inward eye Which is the bliss of solitude"
-  },
-  {
-    "comment": "largeobject - Statement 13",
-    "query": "And then my heart with pleasure fills, And dances with the daffodils. ') FROM lotest_stash_values"
+    "query": "SELECT lowrite(fd, ' I wandered lonely as a cloud That floats on high o''er vales and hills, When all at once I saw a crowd, A host, of golden daffodils;Beside the lake, beneath the trees, Fluttering and dancing in the breeze. Continuous as the stars that shine And twinkle on the milky way, They stretched in never-ending line Along the margin of a bay: Ten thousand saw I at a glance, Tossing their heads in sprightly dance. The waves beside them danced; but they Out-did the sparkling waves in glee: A poet could not but be gay, In such a jocund company: I gazed What wealth the show to me had brought: For oft, when on my couch I lie In vacant or in pensive mood, They flash upon that inward eye Which is the bliss of solitude; And then my heart with pleasure fills, And dances with the daffodils. ') FROM lotest_stash_values"
   },
   {
     "comment": "largeobject - Statement 14",
@@ -57,7 +52,8 @@
   },
   {
     "comment": "largeobject - Statement 15",
-    "query": "END"
+    "query": "END",
+    "expected": "COMMIT"
   },
   {
     "comment": "largeobject - Statement 16",
@@ -69,7 +65,8 @@
   },
   {
     "comment": "largeobject - Statement 18",
-    "query": "UPDATE lotest_stash_values SET fd=lo_open(loid, CAST(x'20000' | x'40000' AS integer))"
+    "query": "UPDATE lotest_stash_values SET fd=lo_open(loid, CAST(x'20000' | x'40000' AS integer))",
+    "expected": "UPDATE lotest_stash_values SET fd = lo_open(loid, CAST(X'20000' | X'40000' AS INT))"
   },
   {
     "comment": "largeobject - Statement 19",
@@ -97,11 +94,13 @@
   },
   {
     "comment": "largeobject - Statement 25",
-    "query": "SELECT lo_open(loid, x'40000'::int) from lotest_stash_values"
+    "query": "SELECT lo_open(loid, x'40000'::int) from lotest_stash_values",
+    "expected": "SELECT lo_open(loid, CAST(X'40000' AS INT)) FROM lotest_stash_values"
   },
   {
     "comment": "largeobject - Statement 26",
-    "query": "ABORT"
+    "query": "ABORT",
+    "expected": "ROLLBACK"
   },
   {
     "comment": "largeobject - Statement 27",
@@ -157,11 +156,13 @@
   },
   {
     "comment": "largeobject - Statement 40",
-    "query": "SELECT lo_unlink(loid) from lotest_stash_values"
+    "query": "SELECT lo_unlink(loid) from lotest_stash_values",
+    "expected": "SELECT lo_unlink(loid) FROM lotest_stash_values"
   },
   {
     "comment": "largeobject - Statement 41",
-    "query": "TRUNCATE lotest_stash_values"
+    "query": "TRUNCATE lotest_stash_values",
+    "expected": "TRUNCATE TABLE lotest_stash_values CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "largeobject - Statement 42",
@@ -209,7 +210,8 @@
   },
   {
     "comment": "largeobject - Statement 53",
-    "query": "SET bytea_output TO hex"
+    "query": "SET bytea_output TO hex",
+    "expected": "SET bytea_output = 'hex'"
   },
   {
     "comment": "largeobject - Statement 54",
@@ -225,11 +227,13 @@
   },
   {
     "comment": "largeobject - Statement 57",
-    "query": "SELECT lo_open(2121, x'40000'::int)"
+    "query": "SELECT lo_open(2121, x'40000'::int)",
+    "expected": "SELECT lo_open(2121, CAST(X'40000' AS INT))"
   },
   {
     "comment": "largeobject - Statement 58",
-    "query": "SELECT lo_open(2121, x'20000'::int)"
+    "query": "SELECT lo_open(2121, x'20000'::int)",
+    "expected": "SELECT lo_open(2121, CAST(X'20000' AS INT))"
   },
   {
     "comment": "largeobject - Statement 59",
@@ -249,7 +253,7 @@
   },
   {
     "comment": "largeobject - Statement 63",
-    "query": "SELECT lo_import(:'filename')"
+    "query": "SELECT lo_import('filename')"
   },
   {
     "comment": "largeobject - Statement 64",

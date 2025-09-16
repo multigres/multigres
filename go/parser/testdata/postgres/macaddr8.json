@@ -1,83 +1,103 @@
 [
   {
     "comment": "macaddr8 - Statement 1",
-    "query": "SELECT '08:00:2b:01:02:03     '::macaddr8"
+    "query": "SELECT '08:00:2b:01:02:03     '::macaddr8",
+    "expected": "SELECT CAST('08:00:2b:01:02:03     ' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 2",
-    "query": "SELECT '    08:00:2b:01:02:03     '::macaddr8"
+    "query": "SELECT '    08:00:2b:01:02:03     '::macaddr8",
+    "expected": "SELECT CAST('    08:00:2b:01:02:03     ' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 3",
-    "query": "SELECT '    08:00:2b:01:02:03'::macaddr8"
+    "query": "SELECT '    08:00:2b:01:02:03'::macaddr8",
+    "expected": "SELECT CAST('    08:00:2b:01:02:03' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 4",
-    "query": "SELECT '08:00:2b:01:02:03:04:05     '::macaddr8"
+    "query": "SELECT '08:00:2b:01:02:03:04:05     '::macaddr8",
+    "expected": "SELECT CAST('08:00:2b:01:02:03:04:05     ' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 5",
-    "query": "SELECT '    08:00:2b:01:02:03:04:05     '::macaddr8"
+    "query": "SELECT '    08:00:2b:01:02:03:04:05     '::macaddr8",
+    "expected": "SELECT CAST('    08:00:2b:01:02:03:04:05     ' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 6",
-    "query": "SELECT '    08:00:2b:01:02:03:04:05'::macaddr8"
+    "query": "SELECT '    08:00:2b:01:02:03:04:05'::macaddr8",
+    "expected": "SELECT CAST('    08:00:2b:01:02:03:04:05' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 7",
-    "query": "SELECT '123    08:00:2b:01:02:03'::macaddr8"
+    "query": "SELECT '123    08:00:2b:01:02:03'::macaddr8",
+    "expected": "SELECT CAST('123    08:00:2b:01:02:03' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 8",
-    "query": "SELECT '08:00:2b:01:02:03  123'::macaddr8"
+    "query": "SELECT '08:00:2b:01:02:03  123'::macaddr8",
+    "expected": "SELECT CAST('08:00:2b:01:02:03  123' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 9",
-    "query": "SELECT '123    08:00:2b:01:02:03:04:05'::macaddr8"
+    "query": "SELECT '123    08:00:2b:01:02:03:04:05'::macaddr8",
+    "expected": "SELECT CAST('123    08:00:2b:01:02:03:04:05' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 10",
-    "query": "SELECT '08:00:2b:01:02:03:04:05  123'::macaddr8"
+    "query": "SELECT '08:00:2b:01:02:03:04:05  123'::macaddr8",
+    "expected": "SELECT CAST('08:00:2b:01:02:03:04:05  123' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 11",
-    "query": "SELECT '08:00:2b:01:02:03:04:05:06:07'::macaddr8"
+    "query": "SELECT '08:00:2b:01:02:03:04:05:06:07'::macaddr8",
+    "expected": "SELECT CAST('08:00:2b:01:02:03:04:05:06:07' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 12",
-    "query": "SELECT '08-00-2b-01-02-03-04-05-06-07'::macaddr8"
+    "query": "SELECT '08-00-2b-01-02-03-04-05-06-07'::macaddr8",
+    "expected": "SELECT CAST('08-00-2b-01-02-03-04-05-06-07' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 13",
-    "query": "SELECT '08002b:01020304050607'::macaddr8"
+    "query": "SELECT '08002b:01020304050607'::macaddr8",
+    "expected": "SELECT CAST('08002b:01020304050607' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 14",
-    "query": "SELECT '08002b01020304050607'::macaddr8"
+    "query": "SELECT '08002b01020304050607'::macaddr8",
+    "expected": "SELECT CAST('08002b01020304050607' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 15",
-    "query": "SELECT '0z002b0102030405'::macaddr8"
+    "query": "SELECT '0z002b0102030405'::macaddr8",
+    "expected": "SELECT CAST('0z002b0102030405' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 16",
-    "query": "SELECT '08002b010203xyza'::macaddr8"
+    "query": "SELECT '08002b010203xyza'::macaddr8",
+    "expected": "SELECT CAST('08002b010203xyza' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 17",
-    "query": "SELECT '08:00-2b:01:02:03:04:05'::macaddr8"
+    "query": "SELECT '08:00-2b:01:02:03:04:05'::macaddr8",
+    "expected": "SELECT CAST('08:00-2b:01:02:03:04:05' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 18",
-    "query": "SELECT '08:00:2b:01.02:03:04:05'::macaddr8"
+    "query": "SELECT '08:00:2b:01.02:03:04:05'::macaddr8",
+    "expected": "SELECT CAST('08:00:2b:01.02:03:04:05' AS macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 19",
-    "query": "SELECT macaddr8_set7bit('00:08:2b:01:02:03'::macaddr8)"
+    "query": "SELECT macaddr8_set7bit('00:08:2b:01:02:03'::macaddr8)",
+    "expected": "SELECT macaddr8_set7bit(CAST('00:08:2b:01:02:03' AS macaddr8))"
   },
   {
     "comment": "macaddr8 - Statement 20",
-    "query": "CREATE TABLE macaddr8_data (a int, b macaddr8)"
+    "query": "CREATE TABLE macaddr8_data (a int, b macaddr8)",
+    "expected": "CREATE TABLE macaddr8_data (a INT, b macaddr8)"
   },
   {
     "comment": "macaddr8 - Statement 21",
@@ -169,11 +189,13 @@
   },
   {
     "comment": "macaddr8 - Statement 43",
-    "query": "CREATE INDEX macaddr8_data_btree ON macaddr8_data USING btree (b)"
+    "query": "CREATE INDEX macaddr8_data_btree ON macaddr8_data USING btree (b)",
+    "expected": "CREATE INDEX macaddr8_data_btree ON macaddr8_data USING btree ( b )"
   },
   {
     "comment": "macaddr8 - Statement 44",
-    "query": "CREATE INDEX macaddr8_data_hash ON macaddr8_data USING hash (b)"
+    "query": "CREATE INDEX macaddr8_data_hash ON macaddr8_data USING hash (b)",
+    "expected": "CREATE INDEX macaddr8_data_hash ON macaddr8_data USING hash ( b )"
   },
   {
     "comment": "macaddr8 - Statement 45",
@@ -181,79 +203,94 @@
   },
   {
     "comment": "macaddr8 - Statement 46",
-    "query": "SELECT b <  '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1"
+    "query": "SELECT b \u003c  '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1",
+    "expected": "SELECT b \u003c '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1"
   },
   {
     "comment": "macaddr8 - Statement 47",
-    "query": "SELECT b >  '08:00:2b:ff:fe:01:02:04' FROM macaddr8_data WHERE a = 1"
+    "query": "SELECT b \u003e  '08:00:2b:ff:fe:01:02:04' FROM macaddr8_data WHERE a = 1",
+    "expected": "SELECT b \u003e '08:00:2b:ff:fe:01:02:04' FROM macaddr8_data WHERE a = 1"
   },
   {
     "comment": "macaddr8 - Statement 48",
-    "query": "SELECT b >  '08:00:2b:ff:fe:01:02:03' FROM macaddr8_data WHERE a = 1"
+    "query": "SELECT b \u003e  '08:00:2b:ff:fe:01:02:03' FROM macaddr8_data WHERE a = 1",
+    "expected": "SELECT b \u003e '08:00:2b:ff:fe:01:02:03' FROM macaddr8_data WHERE a = 1"
   },
   {
     "comment": "macaddr8 - Statement 49",
-    "query": "SELECT b::macaddr <= '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1"
+    "query": "SELECT b::macaddr \u003c= '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1",
+    "expected": "SELECT CAST(b AS macaddr) \u003c= '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1"
   },
   {
     "comment": "macaddr8 - Statement 50",
-    "query": "SELECT b::macaddr >= '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1"
+    "query": "SELECT b::macaddr \u003e= '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1",
+    "expected": "SELECT CAST(b AS macaddr) \u003e= '08:00:2b:01:02:04' FROM macaddr8_data WHERE a = 1"
   },
   {
     "comment": "macaddr8 - Statement 51",
-    "query": "SELECT b =  '08:00:2b:ff:fe:01:02:03' FROM macaddr8_data WHERE a = 1"
+    "query": "SELECT b =  '08:00:2b:ff:fe:01:02:03' FROM macaddr8_data WHERE a = 1",
+    "expected": "SELECT b = '08:00:2b:ff:fe:01:02:03' FROM macaddr8_data WHERE a = 1"
   },
   {
     "comment": "macaddr8 - Statement 52",
-    "query": "SELECT b::macaddr <> '08:00:2b:01:02:04'::macaddr FROM macaddr8_data WHERE a = 1"
+    "query": "SELECT b::macaddr \u003c\u003e '08:00:2b:01:02:04'::macaddr FROM macaddr8_data WHERE a = 1",
+    "expected": "SELECT CAST(b AS macaddr) \u003c\u003e CAST('08:00:2b:01:02:04' AS macaddr) FROM macaddr8_data WHERE a = 1"
   },
   {
     "comment": "macaddr8 - Statement 53",
-    "query": "SELECT b::macaddr <> '08:00:2b:01:02:03'::macaddr FROM macaddr8_data WHERE a = 1"
+    "query": "SELECT b::macaddr \u003c\u003e '08:00:2b:01:02:03'::macaddr FROM macaddr8_data WHERE a = 1",
+    "expected": "SELECT CAST(b AS macaddr) \u003c\u003e CAST('08:00:2b:01:02:03' AS macaddr) FROM macaddr8_data WHERE a = 1"
   },
   {
     "comment": "macaddr8 - Statement 54",
-    "query": "SELECT b <  '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
+    "query": "SELECT b \u003c  '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15",
+    "expected": "SELECT b \u003c '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
   },
   {
     "comment": "macaddr8 - Statement 55",
-    "query": "SELECT b >  '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
+    "query": "SELECT b \u003e  '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15",
+    "expected": "SELECT b \u003e '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
   },
   {
     "comment": "macaddr8 - Statement 56",
-    "query": "SELECT b >  '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15"
+    "query": "SELECT b \u003e  '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15",
+    "expected": "SELECT b \u003e '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15"
   },
   {
     "comment": "macaddr8 - Statement 57",
-    "query": "SELECT b <= '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
+    "query": "SELECT b \u003c= '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
   },
   {
     "comment": "macaddr8 - Statement 58",
-    "query": "SELECT b >= '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
+    "query": "SELECT b \u003e= '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
   },
   {
     "comment": "macaddr8 - Statement 59",
-    "query": "SELECT b =  '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15"
+    "query": "SELECT b =  '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15",
+    "expected": "SELECT b = '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15"
   },
   {
     "comment": "macaddr8 - Statement 60",
-    "query": "SELECT b <> '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
+    "query": "SELECT b \u003c\u003e '08:00:2b:01:02:03:04:06' FROM macaddr8_data WHERE a = 15"
   },
   {
     "comment": "macaddr8 - Statement 61",
-    "query": "SELECT b <> '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15"
+    "query": "SELECT b \u003c\u003e '08:00:2b:01:02:03:04:05' FROM macaddr8_data WHERE a = 15"
   },
   {
     "comment": "macaddr8 - Statement 62",
-    "query": "SELECT ~b                       FROM macaddr8_data"
+    "query": "SELECT ~b                       FROM macaddr8_data",
+    "expected": "SELECT ~b FROM macaddr8_data"
   },
   {
     "comment": "macaddr8 - Statement 63",
-    "query": "SELECT  b & '00:00:00:ff:ff:ff' FROM macaddr8_data"
+    "query": "SELECT  b \u0026 '00:00:00:ff:ff:ff' FROM macaddr8_data",
+    "expected": "SELECT b \u0026 '00:00:00:ff:ff:ff' FROM macaddr8_data"
   },
   {
     "comment": "macaddr8 - Statement 64",
-    "query": "SELECT  b | '01:02:03:04:05:06' FROM macaddr8_data"
+    "query": "SELECT  b | '01:02:03:04:05:06' FROM macaddr8_data",
+    "expected": "SELECT b | '01:02:03:04:05:06' FROM macaddr8_data"
   },
   {
     "comment": "macaddr8 - Statement 65",

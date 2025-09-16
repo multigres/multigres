@@ -1,7 +1,8 @@
 [
   {
     "comment": "macaddr - Statement 1",
-    "query": "CREATE TABLE macaddr_data (a int, b macaddr)"
+    "query": "CREATE TABLE macaddr_data (a int, b macaddr)",
+    "expected": "CREATE TABLE macaddr_data (a INT, b macaddr)"
   },
   {
     "comment": "macaddr - Statement 2",
@@ -65,11 +66,13 @@
   },
   {
     "comment": "macaddr - Statement 17",
-    "query": "CREATE INDEX macaddr_data_btree ON macaddr_data USING btree (b)"
+    "query": "CREATE INDEX macaddr_data_btree ON macaddr_data USING btree (b)",
+    "expected": "CREATE INDEX macaddr_data_btree ON macaddr_data USING btree ( b )"
   },
   {
     "comment": "macaddr - Statement 18",
-    "query": "CREATE INDEX macaddr_data_hash ON macaddr_data USING hash (b)"
+    "query": "CREATE INDEX macaddr_data_hash ON macaddr_data USING hash (b)",
+    "expected": "CREATE INDEX macaddr_data_hash ON macaddr_data USING hash ( b )"
   },
   {
     "comment": "macaddr - Statement 19",
@@ -77,47 +80,54 @@
   },
   {
     "comment": "macaddr - Statement 20",
-    "query": "SELECT b <  '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
+    "query": "SELECT b \u003c  '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1",
+    "expected": "SELECT b \u003c '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
   },
   {
     "comment": "macaddr - Statement 21",
-    "query": "SELECT b >  '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
+    "query": "SELECT b \u003e  '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1",
+    "expected": "SELECT b \u003e '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
   },
   {
     "comment": "macaddr - Statement 22",
-    "query": "SELECT b >  '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1"
+    "query": "SELECT b \u003e  '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1",
+    "expected": "SELECT b \u003e '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1"
   },
   {
     "comment": "macaddr - Statement 23",
-    "query": "SELECT b <= '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
+    "query": "SELECT b \u003c= '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
   },
   {
     "comment": "macaddr - Statement 24",
-    "query": "SELECT b >= '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
+    "query": "SELECT b \u003e= '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
   },
   {
     "comment": "macaddr - Statement 25",
-    "query": "SELECT b =  '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1"
+    "query": "SELECT b =  '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1",
+    "expected": "SELECT b = '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1"
   },
   {
     "comment": "macaddr - Statement 26",
-    "query": "SELECT b <> '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
+    "query": "SELECT b \u003c\u003e '08:00:2b:01:02:04' FROM macaddr_data WHERE a = 1"
   },
   {
     "comment": "macaddr - Statement 27",
-    "query": "SELECT b <> '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1"
+    "query": "SELECT b \u003c\u003e '08:00:2b:01:02:03' FROM macaddr_data WHERE a = 1"
   },
   {
     "comment": "macaddr - Statement 28",
-    "query": "SELECT ~b                       FROM macaddr_data"
+    "query": "SELECT ~b                       FROM macaddr_data",
+    "expected": "SELECT ~b FROM macaddr_data"
   },
   {
     "comment": "macaddr - Statement 29",
-    "query": "SELECT  b & '00:00:00:ff:ff:ff' FROM macaddr_data"
+    "query": "SELECT  b \u0026 '00:00:00:ff:ff:ff' FROM macaddr_data",
+    "expected": "SELECT b \u0026 '00:00:00:ff:ff:ff' FROM macaddr_data"
   },
   {
     "comment": "macaddr - Statement 30",
-    "query": "SELECT  b | '01:02:03:04:05:06' FROM macaddr_data"
+    "query": "SELECT  b | '01:02:03:04:05:06' FROM macaddr_data",
+    "expected": "SELECT b | '01:02:03:04:05:06' FROM macaddr_data"
   },
   {
     "comment": "macaddr - Statement 31",

@@ -21,11 +21,13 @@
   },
   {
     "comment": "merge - Statement 6",
-    "query": "CREATE TABLE target (tid integer, balance integer) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE target (tid integer, balance integer) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE target (tid INT, balance INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 7",
-    "query": "CREATE TABLE source (sid integer, delta integer) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE source (sid integer, delta integer) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE source (sid INT, delta INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 8",
@@ -41,7 +43,8 @@
   },
   {
     "comment": "merge - Statement 11",
-    "query": "SELECT t.ctid is not null as matched, t.*, s.* FROM source s FULL OUTER JOIN target t ON s.sid = t.tid ORDER BY t.tid, s.sid"
+    "query": "SELECT t.ctid is not null as matched, t.*, s.* FROM source s FULL OUTER JOIN target t ON s.sid = t.tid ORDER BY t.tid, s.sid",
+    "expected": "SELECT t.ctid IS NOT NULL AS matched, t.*, s.* FROM source AS s FULL OUTER JOIN target AS t ON s.sid = t.tid ORDER BY t.tid, s.sid"
   },
   {
     "comment": "merge - Statement 12",
@@ -53,11 +56,13 @@
   },
   {
     "comment": "merge - Statement 14",
-    "query": "CREATE TABLE target2 (tid integer, balance integer) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE target2 (tid integer, balance integer) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE target2 (tid INT, balance INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 15",
-    "query": "CREATE TABLE source2 (sid integer, delta integer) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE source2 (sid integer, delta integer) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE source2 (sid INT, delta INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 16",
@@ -73,47 +78,58 @@
   },
   {
     "comment": "merge - Statement 19",
-    "query": "SET SESSION AUTHORIZATION regress_merge_privs"
+    "query": "SET SESSION AUTHORIZATION regress_merge_privs",
+    "expected": "SET SESSION AUTHORIZATION 'regress_merge_privs'"
   },
   {
     "comment": "merge - Statement 20",
-    "query": "EXPLAIN (COSTS OFF) MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN DELETE"
+    "query": "EXPLAIN (COSTS OFF) MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN DELETE",
+    "expected": "EXPLAIN (COSTS false) MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN DELETE"
   },
   {
     "comment": "merge - Statement 21",
-    "query": "MERGE INTO target t RANDOMWORD USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0"
+    "query": "MERGE INTO target t RANDOMWORD USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0",
+    "error": "parse error at position 30: syntax error"
   },
   {
     "comment": "merge - Statement 22",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN INSERT DEFAULT VALUES"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN INSERT DEFAULT VALUES",
+    "error": "parse error at position 79: syntax error"
   },
   {
     "comment": "merge - Statement 23",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE THEN INSERT DEFAULT VALUES"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE THEN INSERT DEFAULT VALUES",
+    "error": "parse error at position 93: syntax error"
   },
   {
     "comment": "merge - Statement 24",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT INTO target DEFAULT VALUES"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT INTO target DEFAULT VALUES",
+    "error": "parse error at position 88: syntax error"
   },
   {
     "comment": "merge - Statement 25",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (1,1), (2,2)"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (1,1), (2,2)",
+    "error": "parse error at position 97: syntax error"
   },
   {
     "comment": "merge - Statement 26",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT SELECT (1, 1)"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT SELECT (1, 1)",
+    "error": "parse error at position 90: syntax error"
   },
   {
     "comment": "merge - Statement 27",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN UPDATE SET balance = 0"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN UPDATE SET balance = 0",
+    "error": "parse error at position 83: syntax error"
   },
   {
     "comment": "merge - Statement 28",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED BY TARGET THEN UPDATE SET balance = 0"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED BY TARGET THEN UPDATE SET balance = 0",
+    "error": "parse error at position 93: syntax error"
   },
   {
     "comment": "merge - Statement 29",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE target SET balance = 0"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE target SET balance = 0",
+    "error": "parse error at position 86: syntax error"
   },
   {
     "comment": "merge - Statement 30",
@@ -121,11 +137,13 @@
   },
   {
     "comment": "merge - Statement 31",
-    "query": "WITH foo AS ( MERGE INTO target USING source ON (true) WHEN MATCHED THEN DELETE ) SELECT * FROM foo"
+    "query": "WITH foo AS ( MERGE INTO target USING source ON (true) WHEN MATCHED THEN DELETE ) SELECT * FROM foo",
+    "expected": "WITH foo AS (MERGE INTO target USING source ON (TRUE) WHEN MATCHED THEN DELETE) SELECT * FROM foo"
   },
   {
     "comment": "merge - Statement 32",
-    "query": "COPY ( MERGE INTO target USING source ON (true) WHEN MATCHED THEN DELETE ) TO stdout"
+    "query": "COPY ( MERGE INTO target USING source ON (true) WHEN MATCHED THEN DELETE ) TO stdout",
+    "expected": "COPY (MERGE INTO target USING source ON (TRUE) WHEN MATCHED THEN DELETE) TO STDOUT"
   },
   {
     "comment": "merge - Statement 33",
@@ -133,7 +151,8 @@
   },
   {
     "comment": "merge - Statement 34",
-    "query": "MERGE INTO mv t USING source s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT DEFAULT VALUES"
+    "query": "MERGE INTO mv t USING source s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT DEFAULT VALUES",
+    "expected": "MERGE INTO mv AS t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT DEFAULT VALUES"
   },
   {
     "comment": "merge - Statement 35",
@@ -141,11 +160,13 @@
   },
   {
     "comment": "merge - Statement 36",
-    "query": "SET SESSION AUTHORIZATION regress_merge_none"
+    "query": "SET SESSION AUTHORIZATION regress_merge_none",
+    "expected": "SET SESSION AUTHORIZATION 'regress_merge_none'"
   },
   {
     "comment": "merge - Statement 37",
-    "query": "MERGE INTO target USING (SELECT 1) ON true WHEN MATCHED THEN DO NOTHING"
+    "query": "MERGE INTO target USING (SELECT 1) ON true WHEN MATCHED THEN DO NOTHING",
+    "expected": "MERGE INTO target USING (SELECT 1) ON TRUE WHEN MATCHED THEN DO NOTHING"
   },
   {
     "comment": "merge - Statement 38",
@@ -153,7 +174,8 @@
   },
   {
     "comment": "merge - Statement 39",
-    "query": "SET SESSION AUTHORIZATION regress_merge_no_privs"
+    "query": "SET SESSION AUTHORIZATION regress_merge_no_privs",
+    "expected": "SET SESSION AUTHORIZATION 'regress_merge_no_privs'"
   },
   {
     "comment": "merge - Statement 40",
@@ -169,7 +191,8 @@
   },
   {
     "comment": "merge - Statement 43",
-    "query": "MERGE INTO target t USING (SELECT * FROM source WHERE t.tid > sid) s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT DEFAULT VALUES"
+    "query": "MERGE INTO target t USING (SELECT * FROM source WHERE t.tid \u003e sid) s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT DEFAULT VALUES",
+    "expected": "MERGE INTO target AS t USING (SELECT * FROM source WHERE t.tid \u003e sid) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT DEFAULT VALUES"
   },
   {
     "comment": "merge - Statement 44",
@@ -177,11 +200,13 @@
   },
   {
     "comment": "merge - Statement 45",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0"
   },
   {
     "comment": "merge - Statement 46",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN DELETE"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN DELETE"
   },
   {
     "comment": "merge - Statement 47",
@@ -189,7 +214,8 @@
   },
   {
     "comment": "merge - Statement 48",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT DEFAULT VALUES"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT DEFAULT VALUES",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT DEFAULT VALUES"
   },
   {
     "comment": "merge - Statement 49",
@@ -209,15 +235,18 @@
   },
   {
     "comment": "merge - Statement 53",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN DO NOTHING"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN DO NOTHING",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN DO NOTHING"
   },
   {
     "comment": "merge - Statement 54",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE THEN DELETE WHEN NOT MATCHED BY TARGET THEN INSERT VALUES (s.sid, s.delta) RETURNING merge_action(), t.*"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE THEN DELETE WHEN NOT MATCHED BY TARGET THEN INSERT VALUES (s.sid, s.delta) RETURNING merge_action(), t.*",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta) RETURNING MERGE_ACTION(), t.*"
   },
   {
     "comment": "merge - Statement 55",
-    "query": "INSERT INTO target SELECT generate_series(1000,2500), 0"
+    "query": "INSERT INTO target SELECT generate_series(1000,2500), 0",
+    "expected": "INSERT INTO target SELECT generate_series(1000, 2500), 0"
   },
   {
     "comment": "merge - Statement 56",
@@ -229,15 +258,17 @@
   },
   {
     "comment": "merge - Statement 58",
-    "query": "EXPLAIN (COSTS OFF) MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0"
+    "query": "EXPLAIN (COSTS OFF) MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0",
+    "expected": "EXPLAIN (COSTS false) MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0"
   },
   {
     "comment": "merge - Statement 59",
-    "query": "EXPLAIN (COSTS OFF) MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (4, NULL)"
+    "query": "EXPLAIN (COSTS OFF) MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (4, NULL)",
+    "expected": "EXPLAIN (COSTS false) MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (4, NULL)"
   },
   {
     "comment": "merge - Statement 60",
-    "query": "DELETE FROM target WHERE tid > 100"
+    "query": "DELETE FROM target WHERE tid \u003e 100"
   },
   {
     "comment": "merge - Statement 61",
@@ -249,11 +280,13 @@
   },
   {
     "comment": "merge - Statement 63",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN DO NOTHING"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN DO NOTHING",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN DO NOTHING"
   },
   {
     "comment": "merge - Statement 64",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (4, NULL)"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (4, NULL)",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (4, NULL)"
   },
   {
     "comment": "merge - Statement 65",
@@ -265,27 +298,33 @@
   },
   {
     "comment": "merge - Statement 67",
-    "query": "alter table target drop CONSTRAINT target_pkey"
+    "query": "alter table target drop CONSTRAINT target_pkey",
+    "expected": "ALTER TABLE target DROP CONSTRAINT target_pkey"
   },
   {
     "comment": "merge - Statement 68",
-    "query": "alter table target alter column tid drop not null"
+    "query": "alter table target alter column tid drop not null",
+    "expected": "ALTER TABLE target ALTER COLUMN tid DROP NOT NULL"
   },
   {
     "comment": "merge - Statement 69",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (4, 4) WHEN MATCHED THEN UPDATE SET balance = 0"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (4, 4) WHEN MATCHED THEN UPDATE SET balance = 0",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (4, 4) WHEN MATCHED THEN UPDATE SET balance = 0"
   },
   {
     "comment": "merge - Statement 70",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0 WHEN NOT MATCHED THEN INSERT VALUES (4, 4)"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0 WHEN NOT MATCHED THEN INSERT VALUES (4, 4)",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = 0 WHEN NOT MATCHED THEN INSERT VALUES (4, 4)"
   },
   {
     "comment": "merge - Statement 71",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = t.balance + s.delta"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = t.balance + s.delta",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = t.balance + s.delta"
   },
   {
     "comment": "merge - Statement 72",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta)"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta)",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta)"
   },
   {
     "comment": "merge - Statement 73",
@@ -297,31 +336,38 @@
   },
   {
     "comment": "merge - Statement 75",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)"
   },
   {
     "comment": "merge - Statement 76",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (t.tid, s.delta)"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (t.tid, s.delta)",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (t.tid, s.delta)"
   },
   {
     "comment": "merge - Statement 77",
-    "query": "MERGE INTO target t USING source AS s ON (SELECT true) WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (t.tid, s.delta)"
+    "query": "MERGE INTO target t USING source AS s ON (SELECT true) WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (t.tid, s.delta)",
+    "expected": "MERGE INTO target AS t USING source AS s ON (SELECT TRUE) WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (t.tid, s.delta)"
   },
   {
     "comment": "merge - Statement 78",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = t.balance + s.delta WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta)"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = t.balance + s.delta WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta)",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = t.balance + s.delta WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta)"
   },
   {
     "comment": "merge - Statement 79",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN /* Terminal WHEN clause for MATCHED */ DELETE WHEN MATCHED THEN UPDATE SET balance = t.balance - s.delta"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN /* Terminal WHEN clause for MATCHED */ DELETE WHEN MATCHED THEN UPDATE SET balance = t.balance - s.delta",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED THEN DELETE WHEN MATCHED THEN UPDATE SET balance = t.balance - s.delta"
   },
   {
     "comment": "merge - Statement 80",
-    "query": "CREATE TABLE wq_target (tid integer not null, balance integer DEFAULT -1) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE wq_target (tid integer not null, balance integer DEFAULT -1) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE wq_target (tid INT NOT NULL, balance INT DEFAULT -1) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 81",
-    "query": "CREATE TABLE wq_source (balance integer, sid integer) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE wq_source (balance integer, sid integer) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE wq_source (balance INT, sid INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 82",
@@ -329,7 +375,8 @@
   },
   {
     "comment": "merge - Statement 83",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid) VALUES (s.sid)"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid) VALUES (s.sid)",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid) VALUES (s.sid)"
   },
   {
     "comment": "merge - Statement 84",
@@ -337,27 +384,33 @@
   },
   {
     "comment": "merge - Statement 85",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED AND FALSE THEN INSERT (tid) VALUES (s.sid)"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED AND FALSE THEN INSERT (tid) VALUES (s.sid)",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN NOT MATCHED AND FALSE THEN INSERT (tid) VALUES (s.sid)"
   },
   {
     "comment": "merge - Statement 86",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED AND s.balance <> 100 THEN INSERT (tid) VALUES (s.sid)"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED AND s.balance \u003c\u003e 100 THEN INSERT (tid) VALUES (s.sid)",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN NOT MATCHED AND s.balance \u003c\u003e 100 THEN INSERT (tid) VALUES (s.sid)"
   },
   {
     "comment": "merge - Statement 87",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED AND s.balance = 100 THEN INSERT (tid) VALUES (s.sid)"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED AND s.balance = 100 THEN INSERT (tid) VALUES (s.sid)",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN NOT MATCHED AND s.balance = 100 THEN INSERT (tid) VALUES (s.sid)"
   },
   {
     "comment": "merge - Statement 88",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED AND t.balance = 100 THEN INSERT (tid) VALUES (s.sid)"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED AND t.balance = 100 THEN INSERT (tid) VALUES (s.sid)",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN NOT MATCHED AND t.balance = 100 THEN INSERT (tid) VALUES (s.sid)"
   },
   {
     "comment": "merge - Statement 89",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE AND s.balance = 100 THEN DELETE"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE AND s.balance = 100 THEN DELETE",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE AND s.balance = 100 THEN DELETE"
   },
   {
     "comment": "merge - Statement 90",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE AND t.balance = 100 THEN DELETE"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE AND t.balance = 100 THEN DELETE",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN NOT MATCHED BY SOURCE AND t.balance = 100 THEN DELETE"
   },
   {
     "comment": "merge - Statement 91",
@@ -365,43 +418,53 @@
   },
   {
     "comment": "merge - Statement 92",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND s.balance = 100 THEN UPDATE SET balance = t.balance + s.balance"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND s.balance = 100 THEN UPDATE SET balance = t.balance + s.balance",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN MATCHED AND s.balance = 100 THEN UPDATE SET balance = t.balance + s.balance"
   },
   {
     "comment": "merge - Statement 93",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance = 100 THEN UPDATE SET balance = t.balance + s.balance"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance = 100 THEN UPDATE SET balance = t.balance + s.balance",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance = 100 THEN UPDATE SET balance = t.balance + s.balance"
   },
   {
     "comment": "merge - Statement 94",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance = 99 AND s.balance > 100 THEN UPDATE SET balance = t.balance + s.balance"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance = 99 AND s.balance \u003e 100 THEN UPDATE SET balance = t.balance + s.balance",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance = 99 AND s.balance \u003e 100 THEN UPDATE SET balance = t.balance + s.balance"
   },
   {
     "comment": "merge - Statement 95",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance = 99 AND s.balance = 100 THEN UPDATE SET balance = t.balance + s.balance"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance = 99 AND s.balance = 100 THEN UPDATE SET balance = t.balance + s.balance",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance = 99 AND s.balance = 100 THEN UPDATE SET balance = t.balance + s.balance"
   },
   {
     "comment": "merge - Statement 96",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance = 99 OR s.balance > 100 THEN UPDATE SET balance = t.balance + s.balance"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance = 99 OR s.balance \u003e 100 THEN UPDATE SET balance = t.balance + s.balance",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance = 99 OR s.balance \u003e 100 THEN UPDATE SET balance = t.balance + s.balance"
   },
   {
     "comment": "merge - Statement 97",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance = 199 OR s.balance > 100 THEN UPDATE SET balance = t.balance + s.balance"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance = 199 OR s.balance \u003e 100 THEN UPDATE SET balance = t.balance + s.balance",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance = 199 OR s.balance \u003e 100 THEN UPDATE SET balance = t.balance + s.balance"
   },
   {
     "comment": "merge - Statement 98",
-    "query": "MERGE INTO wq_target t USING wq_source s ON (t.tid = s.sid) WHEN matched and t = s or t.tid = s.sid THEN UPDATE SET balance = t.balance + s.balance"
+    "query": "MERGE INTO wq_target t USING wq_source s ON (t.tid = s.sid) WHEN matched and t = s or t.tid = s.sid THEN UPDATE SET balance = t.balance + s.balance",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON (t.tid = s.sid) WHEN MATCHED AND t = s OR t.tid = s.sid THEN UPDATE SET balance = t.balance + s.balance"
   },
   {
     "comment": "merge - Statement 99",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance > (SELECT max(balance) FROM target) THEN UPDATE SET balance = t.balance + s.balance"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.balance \u003e (SELECT max(balance) FROM target) THEN UPDATE SET balance = t.balance + s.balance",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance \u003e (SELECT MAX(balance) FROM target) THEN UPDATE SET balance = t.balance + s.balance"
   },
   {
     "comment": "merge - Statement 100",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.xmin = t.xmax THEN UPDATE SET balance = t.balance + s.balance"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.xmin = t.xmax THEN UPDATE SET balance = t.balance + s.balance",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN MATCHED AND t.xmin = t.xmax THEN UPDATE SET balance = t.balance + s.balance"
   },
   {
     "comment": "merge - Statement 101",
-    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.tableoid >= 0 THEN UPDATE SET balance = t.balance + s.balance"
+    "query": "MERGE INTO wq_target t USING wq_source s ON t.tid = s.sid WHEN MATCHED AND t.tableoid \u003e= 0 THEN UPDATE SET balance = t.balance + s.balance",
+    "expected": "MERGE INTO wq_target AS t USING wq_source AS s ON t.tid = s.sid WHEN MATCHED AND t.tableoid \u003e= 0 THEN UPDATE SET balance = t.balance + s.balance"
   },
   {
     "comment": "merge - Statement 102",
@@ -409,87 +472,68 @@
   },
   {
     "comment": "merge - Statement 103",
-    "query": "create or replace function merge_trigfunc () returns trigger language plpgsql as $$ DECLARE line text"
-  },
-  {
-    "comment": "merge - Statement 104",
-    "query": "BEGIN SELECT INTO line format('%s %s %s trigger%s', TG_WHEN, TG_OP, TG_LEVEL, CASE WHEN TG_OP = 'INSERT' AND TG_LEVEL = 'ROW' THEN format(' row: %s', NEW) WHEN TG_OP = 'UPDATE' AND TG_LEVEL = 'ROW' THEN format(' row: %s -> %s', OLD, NEW) WHEN TG_OP = 'DELETE' AND TG_LEVEL = 'ROW' THEN format(' row: %s', OLD) END)"
-  },
-  {
-    "comment": "merge - Statement 105",
-    "query": "RAISE NOTICE '%', line"
-  },
-  {
-    "comment": "merge - Statement 106",
-    "query": "IF (TG_WHEN = 'BEFORE' AND TG_LEVEL = 'ROW') THEN IF (TG_OP = 'DELETE') THEN RETURN OLD"
-  },
-  {
-    "comment": "merge - Statement 107",
-    "query": "ELSE RETURN NEW"
-  },
-  {
-    "comment": "merge - Statement 108",
-    "query": "END IF"
-  },
-  {
-    "comment": "merge - Statement 109",
-    "query": "ELSE RETURN NULL"
-  },
-  {
-    "comment": "merge - Statement 110",
-    "query": "END"
-  },
-  {
-    "comment": "merge - Statement 111",
-    "query": "$$"
+    "query": "create or replace function merge_trigfunc () returns trigger language plpgsql as $$ DECLARE line text; BEGIN SELECT INTO line format('%s %s %s trigger%s',  TG_WHEN, TG_OP, TG_LEVEL, CASE  WHEN TG_OP = 'INSERT' AND TG_LEVEL = 'ROW'  THEN format(' row: %s', NEW)  WHEN TG_OP = 'UPDATE' AND TG_LEVEL = 'ROW'  THEN format(' row: %s -\u003e %s', OLD, NEW)  WHEN TG_OP = 'DELETE' AND TG_LEVEL = 'ROW'  THEN format(' row: %s', OLD)  END);  RAISE NOTICE '%', line; IF (TG_WHEN = 'BEFORE' AND TG_LEVEL = 'ROW') THEN  IF (TG_OP = 'DELETE') THEN  RETURN OLD;  ELSE  RETURN NEW;  END IF; ELSE  RETURN NULL; END IF; END; $$;",
+    "expected": "CREATE OR REPLACE FUNCTION merge_trigfunc () RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE line text; BEGIN SELECT INTO line format('%s %s %s trigger%s',  TG_WHEN, TG_OP, TG_LEVEL, CASE  WHEN TG_OP = 'INSERT' AND TG_LEVEL = 'ROW'  THEN format(' row: %s', NEW)  WHEN TG_OP = 'UPDATE' AND TG_LEVEL = 'ROW'  THEN format(' row: %s -\u003e %s', OLD, NEW)  WHEN TG_OP = 'DELETE' AND TG_LEVEL = 'ROW'  THEN format(' row: %s', OLD)  END);  RAISE NOTICE '%', line; IF (TG_WHEN = 'BEFORE' AND TG_LEVEL = 'ROW') THEN  IF (TG_OP = 'DELETE') THEN  RETURN OLD;  ELSE  RETURN NEW;  END IF; ELSE  RETURN NULL; END IF; END; $$"
   },
   {
     "comment": "merge - Statement 112",
-    "query": "CREATE TRIGGER merge_bsi BEFORE INSERT ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_bsi BEFORE INSERT ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_bsi BEFORE INSERT ON target EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 113",
-    "query": "CREATE TRIGGER merge_bsu BEFORE UPDATE ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_bsu BEFORE UPDATE ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_bsu BEFORE UPDATE ON target EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 114",
-    "query": "CREATE TRIGGER merge_bsd BEFORE DELETE ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_bsd BEFORE DELETE ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_bsd BEFORE DELETE ON target EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 115",
-    "query": "CREATE TRIGGER merge_asi AFTER INSERT ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_asi AFTER INSERT ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_asi AFTER INSERT ON target EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 116",
-    "query": "CREATE TRIGGER merge_asu AFTER UPDATE ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_asu AFTER UPDATE ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_asu AFTER UPDATE ON target EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 117",
-    "query": "CREATE TRIGGER merge_asd AFTER DELETE ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_asd AFTER DELETE ON target FOR EACH STATEMENT EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_asd AFTER DELETE ON target EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 118",
-    "query": "CREATE TRIGGER merge_bri BEFORE INSERT ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_bri BEFORE INSERT ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_bri BEFORE INSERT ON target FOR EACH ROW EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 119",
-    "query": "CREATE TRIGGER merge_bru BEFORE UPDATE ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_bru BEFORE UPDATE ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_bru BEFORE UPDATE ON target FOR EACH ROW EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 120",
-    "query": "CREATE TRIGGER merge_brd BEFORE DELETE ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_brd BEFORE DELETE ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_brd BEFORE DELETE ON target FOR EACH ROW EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 121",
-    "query": "CREATE TRIGGER merge_ari AFTER INSERT ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_ari AFTER INSERT ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_ari AFTER INSERT ON target FOR EACH ROW EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 122",
-    "query": "CREATE TRIGGER merge_aru AFTER UPDATE ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_aru AFTER UPDATE ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_aru AFTER UPDATE ON target FOR EACH ROW EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 123",
-    "query": "CREATE TRIGGER merge_ard AFTER DELETE ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()"
+    "query": "CREATE TRIGGER merge_ard AFTER DELETE ON target FOR EACH ROW EXECUTE PROCEDURE merge_trigfunc ()",
+    "expected": "CREATE TRIGGER merge_ard AFTER DELETE ON target FOR EACH ROW EXECUTE FUNCTION merge_trigfunc()"
   },
   {
     "comment": "merge - Statement 124",
@@ -497,47 +541,33 @@
   },
   {
     "comment": "merge - Statement 125",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance > s.delta THEN UPDATE SET balance = t.balance - s.delta WHEN MATCHED THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta)"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance \u003e s.delta THEN UPDATE SET balance = t.balance - s.delta WHEN MATCHED THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta)",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance \u003e s.delta THEN UPDATE SET balance = t.balance - s.delta WHEN MATCHED THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta)"
   },
   {
     "comment": "merge - Statement 126",
-    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance > s.delta THEN UPDATE SET balance = t.balance - s.delta WHEN MATCHED THEN UPDATE SET balance = 0 WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta) WHEN NOT MATCHED BY SOURCE AND tid = 1 THEN UPDATE SET balance = 0 WHEN NOT MATCHED BY SOURCE THEN DELETE RETURNING merge_action(), t.*"
+    "query": "MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance \u003e s.delta THEN UPDATE SET balance = t.balance - s.delta WHEN MATCHED THEN UPDATE SET balance = 0 WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta) WHEN NOT MATCHED BY SOURCE AND tid = 1 THEN UPDATE SET balance = 0 WHEN NOT MATCHED BY SOURCE THEN DELETE RETURNING merge_action(), t.*",
+    "expected": "MERGE INTO target AS t USING source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance \u003e s.delta THEN UPDATE SET balance = t.balance - s.delta WHEN MATCHED THEN UPDATE SET balance = 0 WHEN NOT MATCHED THEN INSERT VALUES (s.sid, s.delta) WHEN NOT MATCHED BY SOURCE AND tid = 1 THEN UPDATE SET balance = 0 WHEN NOT MATCHED BY SOURCE THEN DELETE RETURNING MERGE_ACTION(), t.*"
   },
   {
     "comment": "merge - Statement 127",
-    "query": "create or replace function skip_merge_op() returns trigger language plpgsql as $$ BEGIN RETURN NULL"
+    "query": "create or replace function skip_merge_op() returns trigger language plpgsql as $$ BEGIN RETURN NULL; END; $$",
+    "expected": "CREATE OR REPLACE FUNCTION skip_merge_op () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END; $$"
   },
   {
     "comment": "merge - Statement 128",
-    "query": "SELECT * FROM target full outer join source on (sid = tid)"
+    "query": "SELECT * FROM target full outer join source on (sid = tid)",
+    "expected": "SELECT * FROM target FULL OUTER JOIN source ON (sid = tid)"
   },
   {
     "comment": "merge - Statement 129",
-    "query": "create trigger merge_skip BEFORE INSERT OR UPDATE or DELETE ON target FOR EACH ROW EXECUTE FUNCTION skip_merge_op()"
+    "query": "create trigger merge_skip BEFORE INSERT OR UPDATE or DELETE ON target FOR EACH ROW EXECUTE FUNCTION skip_merge_op()",
+    "expected": "CREATE TRIGGER merge_skip BEFORE INSERT OR UPDATE OR DELETE ON target FOR EACH ROW EXECUTE FUNCTION skip_merge_op()"
   },
   {
     "comment": "merge - Statement 130",
-    "query": "DO $$ DECLARE result integer"
-  },
-  {
-    "comment": "merge - Statement 131",
-    "query": "BEGIN MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED AND s.sid = 3 THEN UPDATE SET balance = t.balance + s.delta WHEN MATCHED THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (sid, delta)"
-  },
-  {
-    "comment": "merge - Statement 132",
-    "query": "IF FOUND THEN RAISE NOTICE 'Found'"
-  },
-  {
-    "comment": "merge - Statement 133",
-    "query": "ELSE RAISE NOTICE 'Not found'"
-  },
-  {
-    "comment": "merge - Statement 134",
-    "query": "GET DIAGNOSTICS result := ROW_COUNT"
-  },
-  {
-    "comment": "merge - Statement 135",
-    "query": "RAISE NOTICE 'ROW_COUNT = %', result"
+    "query": "DO $$ DECLARE result integer; BEGIN MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED AND s.sid = 3 THEN UPDATE SET balance = t.balance + s.delta WHEN MATCHED THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (sid, delta); IF FOUND THEN RAISE NOTICE 'Found'; ELSE RAISE NOTICE 'Not found'; END IF; GET DIAGNOSTICS result := ROW_COUNT; RAISE NOTICE 'ROW_COUNT = %', result; END; $$;",
+    "expected": "DO ' DECLARE result integer; BEGIN MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED AND s.sid = 3 THEN UPDATE SET balance = t.balance + s.delta WHEN MATCHED THEN DELETE WHEN NOT MATCHED THEN INSERT VALUES (sid, delta); IF FOUND THEN RAISE NOTICE ''Found''; ELSE RAISE NOTICE ''Not found''; END IF; GET DIAGNOSTICS result := ROW_COUNT; RAISE NOTICE ''ROW_COUNT = %'', result; END; '"
   },
   {
     "comment": "merge - Statement 136",
@@ -549,47 +579,43 @@
   },
   {
     "comment": "merge - Statement 138",
-    "query": "DO LANGUAGE plpgsql $$ BEGIN MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance > s.delta THEN UPDATE SET balance = t.balance - s.delta"
+    "query": "DO LANGUAGE plpgsql $$ BEGIN MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance \u003e s.delta THEN  UPDATE SET balance = t.balance - s.delta; END; $$; ROLLBACK;",
+    "expected": "DO LANGUAGE plpgsql ' BEGIN MERGE INTO target t USING source AS s ON t.tid = s.sid WHEN MATCHED AND t.balance \u003e s.delta THEN  UPDATE SET balance = t.balance - s.delta; END; '; ROLLBACK"
   },
   {
     "comment": "merge - Statement 139",
-    "query": "MERGE INTO target t USING (SELECT 9 AS sid, 57 AS delta) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)"
+    "query": "MERGE INTO target t USING (SELECT 9 AS sid, 57 AS delta) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)",
+    "expected": "MERGE INTO target AS t USING (SELECT 9 AS sid, 57 AS delta) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)"
   },
   {
     "comment": "merge - Statement 140",
-    "query": "MERGE INTO target t USING (SELECT sid, delta FROM source WHERE delta > 0) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)"
+    "query": "MERGE INTO target t USING (SELECT sid, delta FROM source WHERE delta \u003e 0) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)",
+    "expected": "MERGE INTO target AS t USING (SELECT sid, delta FROM source WHERE delta \u003e 0) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)"
   },
   {
     "comment": "merge - Statement 141",
-    "query": "MERGE INTO target t USING (SELECT sid, delta as newname FROM source WHERE delta > 0) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.newname)"
+    "query": "MERGE INTO target t USING (SELECT sid, delta as newname FROM source WHERE delta \u003e 0) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.newname)",
+    "expected": "MERGE INTO target AS t USING (SELECT sid, delta AS newname FROM source WHERE delta \u003e 0) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.newname)"
   },
   {
     "comment": "merge - Statement 142",
-    "query": "MERGE INTO target t1 USING target t2 ON t1.tid = t2.tid WHEN MATCHED THEN UPDATE SET balance = t1.balance + t2.balance WHEN NOT MATCHED THEN INSERT VALUES (t2.tid, t2.balance)"
+    "query": "MERGE INTO target t1 USING target t2 ON t1.tid = t2.tid WHEN MATCHED THEN UPDATE SET balance = t1.balance + t2.balance WHEN NOT MATCHED THEN INSERT VALUES (t2.tid, t2.balance)",
+    "expected": "MERGE INTO target AS t1 USING target AS t2 ON t1.tid = t2.tid WHEN MATCHED THEN UPDATE SET balance = t1.balance + t2.balance WHEN NOT MATCHED THEN INSERT VALUES (t2.tid, t2.balance)"
   },
   {
     "comment": "merge - Statement 143",
-    "query": "MERGE INTO target t USING (SELECT tid as sid, balance as delta FROM target WHERE balance > 0) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)"
+    "query": "MERGE INTO target t USING (SELECT tid as sid, balance as delta FROM target WHERE balance \u003e 0) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)",
+    "expected": "MERGE INTO target AS t USING (SELECT tid AS sid, balance AS delta FROM target WHERE balance \u003e 0) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)"
   },
   {
     "comment": "merge - Statement 144",
-    "query": "MERGE INTO target t USING (SELECT sid, max(delta) AS delta FROM source GROUP BY sid HAVING count(*) = 1 ORDER BY sid ASC) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)"
+    "query": "MERGE INTO target t USING (SELECT sid, max(delta) AS delta FROM source GROUP BY sid HAVING count(*) = 1 ORDER BY sid ASC) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)",
+    "expected": "MERGE INTO target AS t USING (SELECT sid, MAX(delta) AS delta FROM source GROUP BY sid HAVING COUNT(*) = 1 ORDER BY sid ASC) AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT (tid, balance) VALUES (s.sid, s.delta)"
   },
   {
     "comment": "merge - Statement 145",
-    "query": "CREATE FUNCTION merge_func (p_id integer, p_bal integer) RETURNS INTEGER LANGUAGE plpgsql AS $$ DECLARE result integer"
-  },
-  {
-    "comment": "merge - Statement 146",
-    "query": "BEGIN MERGE INTO target t USING (SELECT p_id AS sid) AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = t.balance - p_bal"
-  },
-  {
-    "comment": "merge - Statement 147",
-    "query": "IF FOUND THEN GET DIAGNOSTICS result := ROW_COUNT"
-  },
-  {
-    "comment": "merge - Statement 148",
-    "query": "RETURN result"
+    "query": "CREATE FUNCTION merge_func (p_id integer, p_bal integer) RETURNS INTEGER LANGUAGE plpgsql AS $$ DECLARE  result integer; BEGIN MERGE INTO target t USING (SELECT p_id AS sid) AS s ON t.tid = s.sid WHEN MATCHED THEN  UPDATE SET balance = t.balance - p_bal; IF FOUND THEN  GET DIAGNOSTICS result := ROW_COUNT; END IF; RETURN result; END; $$;",
+    "expected": "CREATE FUNCTION merge_func (p_id INT, p_bal INT) RETURNS INT LANGUAGE plpgsql AS $$ DECLARE  result integer; BEGIN MERGE INTO target t USING (SELECT p_id AS sid) AS s ON t.tid = s.sid WHEN MATCHED THEN  UPDATE SET balance = t.balance - p_bal; IF FOUND THEN  GET DIAGNOSTICS result := ROW_COUNT; END IF; RETURN result; END; $$"
   },
   {
     "comment": "merge - Statement 149",
@@ -597,39 +623,48 @@
   },
   {
     "comment": "merge - Statement 150",
-    "query": "prepare foom as merge into target t using (select 1 as sid) s on (t.tid = s.sid) when matched then update set balance = 1"
+    "query": "prepare foom as merge into target t using (select 1 as sid) s on (t.tid = s.sid) when matched then update set balance = 1",
+    "expected": "PREPARE foom AS MERGE INTO target AS t USING (SELECT 1 AS sid) AS s ON (t.tid = s.sid) WHEN MATCHED THEN UPDATE SET balance = 1"
   },
   {
     "comment": "merge - Statement 151",
-    "query": "execute foom"
+    "query": "execute foom",
+    "expected": "EXECUTE foom"
   },
   {
     "comment": "merge - Statement 152",
-    "query": "PREPARE foom2 (integer, integer) AS MERGE INTO target t USING (SELECT 1) s ON t.tid = $1 WHEN MATCHED THEN UPDATE SET balance = $2"
+    "query": "PREPARE foom2 (integer, integer) AS MERGE INTO target t USING (SELECT 1) s ON t.tid = $1 WHEN MATCHED THEN UPDATE SET balance = $2",
+    "expected": "PREPARE foom2 ( INT, INT ) AS MERGE INTO target AS t USING (SELECT 1) AS s ON t.tid = $1 WHEN MATCHED THEN UPDATE SET balance = $2"
   },
   {
     "comment": "merge - Statement 153",
-    "query": "execute foom2 (1, 1)"
+    "query": "execute foom2 (1, 1)",
+    "expected": "EXECUTE foom2 ( 1, 1 )"
   },
   {
     "comment": "merge - Statement 154",
-    "query": "CREATE TABLE sq_target (tid integer NOT NULL, balance integer) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE sq_target (tid integer NOT NULL, balance integer) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE sq_target (tid INT NOT NULL, balance INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 155",
-    "query": "CREATE TABLE sq_source (delta integer, sid integer, balance integer DEFAULT 0) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE sq_source (delta integer, sid integer, balance integer DEFAULT 0) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE sq_source (delta INT, sid INT, balance INT DEFAULT 0) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 156",
-    "query": "INSERT INTO sq_target(tid, balance) VALUES (1,100), (2,200), (3,300)"
+    "query": "INSERT INTO sq_target(tid, balance) VALUES (1,100), (2,200), (3,300)",
+    "expected": "INSERT INTO sq_target (tid, balance) VALUES (1, 100), (2, 200), (3, 300)"
   },
   {
     "comment": "merge - Statement 157",
-    "query": "INSERT INTO sq_source(sid, delta) VALUES (1,10), (2,20), (4,40)"
+    "query": "INSERT INTO sq_source(sid, delta) VALUES (1,10), (2,20), (4,40)",
+    "expected": "INSERT INTO sq_source (sid, delta) VALUES (1, 10), (2, 20), (4, 40)"
   },
   {
     "comment": "merge - Statement 158",
-    "query": "MERGE INTO sq_target t USING (SELECT * FROM sq_source) s ON tid = sid WHEN MATCHED AND t.balance > delta THEN UPDATE SET balance = t.balance + delta"
+    "query": "MERGE INTO sq_target t USING (SELECT * FROM sq_source) s ON tid = sid WHEN MATCHED AND t.balance \u003e delta THEN UPDATE SET balance = t.balance + delta",
+    "expected": "MERGE INTO sq_target AS t USING (SELECT * FROM sq_source) AS s ON tid = sid WHEN MATCHED AND t.balance \u003e delta THEN UPDATE SET balance = t.balance + delta"
   },
   {
     "comment": "merge - Statement 159",
@@ -637,7 +672,7 @@
   },
   {
     "comment": "merge - Statement 160",
-    "query": "CREATE VIEW v AS SELECT * FROM sq_source WHERE sid < 2"
+    "query": "CREATE VIEW v AS SELECT * FROM sq_source WHERE sid \u003c 2"
   },
   {
     "comment": "merge - Statement 161",
@@ -645,7 +680,7 @@
   },
   {
     "comment": "merge - Statement 162",
-    "query": "MERGE INTO sq_target USING v ON tid = sid WHEN MATCHED AND tid >= 2 THEN UPDATE SET balance = balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid < 2 THEN DELETE"
+    "query": "MERGE INTO sq_target USING v ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE"
   },
   {
     "comment": "merge - Statement 163",
@@ -653,11 +688,13 @@
   },
   {
     "comment": "merge - Statement 164",
-    "query": "MERGE INTO sq_target t USING v ON tid = sid WHEN MATCHED AND tid >= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid < 2 THEN DELETE"
+    "query": "MERGE INTO sq_target t USING v ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE",
+    "expected": "MERGE INTO sq_target AS t USING v ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE"
   },
   {
     "comment": "merge - Statement 165",
-    "query": "WITH targq AS ( SELECT * FROM v ) MERGE INTO sq_target t USING v ON tid = sid WHEN MATCHED AND tid >= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid < 2 THEN DELETE"
+    "query": "WITH targq AS ( SELECT * FROM v ) MERGE INTO sq_target t USING v ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE",
+    "expected": "WITH targq AS (SELECT * FROM v) MERGE INTO sq_target AS t USING v ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE"
   },
   {
     "comment": "merge - Statement 166",
@@ -669,7 +706,8 @@
   },
   {
     "comment": "merge - Statement 168",
-    "query": "CREATE TABLE merge_actions(action text, abbrev text)"
+    "query": "CREATE TABLE merge_actions(action text, abbrev text)",
+    "expected": "CREATE TABLE merge_actions (action TEXT, abbrev TEXT)"
   },
   {
     "comment": "merge - Statement 169",
@@ -677,19 +715,23 @@
   },
   {
     "comment": "merge - Statement 170",
-    "query": "MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid >= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid < 2 THEN DELETE RETURNING (SELECT abbrev FROM merge_actions WHERE action = merge_action()) AS action, t.*, CASE merge_action() WHEN 'INSERT' THEN 'Inserted '||t WHEN 'UPDATE' THEN 'Added '||delta||' to balance' WHEN 'DELETE' THEN 'Removed '||t END AS description"
+    "query": "MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING (SELECT abbrev FROM merge_actions WHERE action = merge_action()) AS action, t.*, CASE merge_action() WHEN 'INSERT' THEN 'Inserted '||t WHEN 'UPDATE' THEN 'Added '||delta||' to balance' WHEN 'DELETE' THEN 'Removed '||t END AS description",
+    "expected": "MERGE INTO sq_target AS t USING sq_source AS s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING (SELECT abbrev FROM merge_actions WHERE action = MERGE_ACTION()) AS action, t.*, CASE MERGE_ACTION() WHEN 'INSERT' THEN 'Inserted ' || t WHEN 'UPDATE' THEN 'Added ' || delta || ' to balance' WHEN 'DELETE' THEN 'Removed ' || t END AS description"
   },
   {
     "comment": "merge - Statement 171",
-    "query": "SELECT merge_action() FROM sq_target"
+    "query": "SELECT merge_action() FROM sq_target",
+    "expected": "SELECT MERGE_ACTION() FROM sq_target"
   },
   {
     "comment": "merge - Statement 172",
-    "query": "UPDATE sq_target SET balance = balance + 1 RETURNING merge_action()"
+    "query": "UPDATE sq_target SET balance = balance + 1 RETURNING merge_action()",
+    "expected": "UPDATE sq_target SET balance = balance + 1 RETURNING MERGE_ACTION()"
   },
   {
     "comment": "merge - Statement 173",
-    "query": "CREATE TABLE sq_target_merge_log (tid integer NOT NULL, last_change text)"
+    "query": "CREATE TABLE sq_target_merge_log (tid integer NOT NULL, last_change text)",
+    "expected": "CREATE TABLE sq_target_merge_log (tid INT NOT NULL, last_change TEXT)"
   },
   {
     "comment": "merge - Statement 174",
@@ -697,7 +739,8 @@
   },
   {
     "comment": "merge - Statement 175",
-    "query": "WITH m AS ( MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid >= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid < 2 THEN DELETE RETURNING merge_action() AS action, t.*, CASE merge_action() WHEN 'INSERT' THEN 'Inserted '||t WHEN 'UPDATE' THEN 'Added '||delta||' to balance' WHEN 'DELETE' THEN 'Removed '||t END AS description ), m2 AS ( MERGE INTO sq_target_merge_log l USING m ON l.tid = m.tid WHEN MATCHED THEN UPDATE SET last_change = description WHEN NOT MATCHED THEN INSERT VALUES (m.tid, description) RETURNING action, merge_action() AS log_action, l.* ) SELECT * FROM m2"
+    "query": "WITH m AS ( MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action() AS action, t.*, CASE merge_action() WHEN 'INSERT' THEN 'Inserted '||t WHEN 'UPDATE' THEN 'Added '||delta||' to balance' WHEN 'DELETE' THEN 'Removed '||t END AS description ), m2 AS ( MERGE INTO sq_target_merge_log l USING m ON l.tid = m.tid WHEN MATCHED THEN UPDATE SET last_change = description WHEN NOT MATCHED THEN INSERT VALUES (m.tid, description) RETURNING action, merge_action() AS log_action, l.* ) SELECT * FROM m2",
+    "expected": "WITH m AS (MERGE INTO sq_target AS t USING sq_source AS s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING MERGE_ACTION() AS action, t.*, CASE MERGE_ACTION() WHEN 'INSERT' THEN 'Inserted ' || t WHEN 'UPDATE' THEN 'Added ' || delta || ' to balance' WHEN 'DELETE' THEN 'Removed ' || t END AS description), m2 AS (MERGE INTO sq_target_merge_log AS l USING m ON l.tid = m.tid WHEN MATCHED THEN UPDATE SET last_change = description WHEN NOT MATCHED THEN INSERT VALUES (m.tid, description) RETURNING action, MERGE_ACTION() AS log_action, l.*) SELECT * FROM m2"
   },
   {
     "comment": "merge - Statement 176",
@@ -705,19 +748,23 @@
   },
   {
     "comment": "merge - Statement 177",
-    "query": "COPY ( MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid >= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid < 2 THEN DELETE RETURNING merge_action(), t.* ) TO stdout"
+    "query": "COPY ( MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action(), t.* ) TO stdout",
+    "expected": "COPY (MERGE INTO sq_target AS t USING sq_source AS s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING MERGE_ACTION(), t.*) TO STDOUT"
   },
   {
     "comment": "merge - Statement 178",
-    "query": "CREATE FUNCTION merge_into_sq_target(sid int, balance int, delta int, OUT action text, OUT tid int, OUT new_balance int) LANGUAGE sql AS $$ MERGE INTO sq_target t USING (VALUES ($1, $2, $3)) AS v(sid, balance, delta) ON tid = v.sid WHEN MATCHED AND tid >= 2 THEN UPDATE SET balance = t.balance + v.delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (v.balance + v.delta, v.sid) WHEN MATCHED AND tid < 2 THEN DELETE RETURNING merge_action(), t.*"
+    "query": "CREATE FUNCTION merge_into_sq_target(sid int, balance int, delta int, OUT action text, OUT tid int, OUT new_balance int) LANGUAGE sql AS $$ MERGE INTO sq_target t USING (VALUES ($1, $2, $3)) AS v(sid, balance, delta) ON tid = v.sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + v.delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (v.balance + v.delta, v.sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action(), t.*;$$;",
+    "expected": "CREATE FUNCTION merge_into_sq_target (sid INT, balance INT, delta INT, OUT action TEXT, OUT tid INT, OUT new_balance INT) LANGUAGE sql AS $$ MERGE INTO sq_target t USING (VALUES ($1, $2, $3)) AS v(sid, balance, delta) ON tid = v.sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + v.delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (v.balance + v.delta, v.sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action(), t.*;$$"
   },
   {
     "comment": "merge - Statement 179",
-    "query": "SELECT m.* FROM (VALUES (1, 0, 0), (3, 0, 20), (4, 100, 10)) AS v(sid, balance, delta), LATERAL (SELECT action, tid, new_balance FROM merge_into_sq_target(sid, balance, delta)) m"
+    "query": "SELECT m.* FROM (VALUES (1, 0, 0), (3, 0, 20), (4, 100, 10)) AS v(sid, balance, delta), LATERAL (SELECT action, tid, new_balance FROM merge_into_sq_target(sid, balance, delta)) m",
+    "expected": "SELECT m.* FROM (VALUES (1, 0, 0), (3, 0, 20), (4, 100, 10)) AS v(sid, balance, delta), LATERAL (SELECT action, tid, new_balance FROM merge_into_sq_target(sid, balance, delta)) AS m"
   },
   {
     "comment": "merge - Statement 180",
-    "query": "CREATE FUNCTION merge_sq_source_into_sq_target() RETURNS TABLE (action text, tid int, balance int) LANGUAGE sql AS $$ MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid >= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid < 2 THEN DELETE RETURNING merge_action(), t.*"
+    "query": "CREATE FUNCTION merge_sq_source_into_sq_target() RETURNS TABLE (action text, tid int, balance int) LANGUAGE sql AS $$ MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action(), t.*;$$;",
+    "expected": "CREATE FUNCTION merge_sq_source_into_sq_target () LANGUAGE sql AS $$ MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action(), t.*;$$"
   },
   {
     "comment": "merge - Statement 181",
@@ -725,43 +772,38 @@
   },
   {
     "comment": "merge - Statement 182",
-    "query": "CREATE FUNCTION merge_into_sq_target(sid int, balance int, delta int, OUT r_action text, OUT r_tid int, OUT r_balance int) LANGUAGE plpgsql AS $$ BEGIN MERGE INTO sq_target t USING (VALUES ($1, $2, $3)) AS v(sid, balance, delta) ON tid = v.sid WHEN MATCHED AND tid >= 2 THEN UPDATE SET balance = t.balance + v.delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (v.balance + v.delta, v.sid) WHEN MATCHED AND tid < 2 THEN DELETE RETURNING merge_action(), t.* INTO r_action, r_tid, r_balance"
+    "query": "CREATE FUNCTION merge_into_sq_target(sid int, balance int, delta int, OUT r_action text, OUT r_tid int, OUT r_balance int) LANGUAGE plpgsql AS $$ BEGIN MERGE INTO sq_target t USING (VALUES ($1, $2, $3)) AS v(sid, balance, delta) ON tid = v.sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + v.delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (v.balance + v.delta, v.sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action(), t.* INTO r_action, r_tid, r_balance;$$;",
+    "expected": "CREATE FUNCTION merge_into_sq_target (sid INT, balance INT, delta INT, OUT r_action TEXT, OUT r_tid INT, OUT r_balance INT) LANGUAGE plpgsql AS $$ BEGIN MERGE INTO sq_target t USING (VALUES ($1, $2, $3)) AS v(sid, balance, delta) ON tid = v.sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + v.delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (v.balance + v.delta, v.sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action(), t.* INTO r_action, r_tid, r_balance;$$"
   },
   {
     "comment": "merge - Statement 183",
-    "query": "SELECT m.* FROM (VALUES (1, 0, 0), (3, 0, 20), (4, 100, 10)) AS v(sid, balance, delta), LATERAL (SELECT r_action, r_tid, r_balance FROM merge_into_sq_target(sid, balance, delta)) m"
+    "query": "SELECT m.* FROM (VALUES (1, 0, 0), (3, 0, 20), (4, 100, 10)) AS v(sid, balance, delta), LATERAL (SELECT r_action, r_tid, r_balance FROM merge_into_sq_target(sid, balance, delta)) m",
+    "expected": "SELECT m.* FROM (VALUES (1, 0, 0), (3, 0, 20), (4, 100, 10)) AS v(sid, balance, delta), LATERAL (SELECT r_action, r_tid, r_balance FROM merge_into_sq_target(sid, balance, delta)) AS m"
   },
   {
     "comment": "merge - Statement 184",
-    "query": "CREATE TABLE ex_mtarget (a int, b int) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE ex_mtarget (a int, b int) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE ex_mtarget (a INT, b INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 185",
-    "query": "CREATE TABLE ex_msource (a int, b int) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE ex_msource (a int, b int) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE ex_msource (a INT, b INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 186",
-    "query": "INSERT INTO ex_mtarget SELECT i, i*10 FROM generate_series(1,100,2) i"
+    "query": "INSERT INTO ex_mtarget SELECT i, i*10 FROM generate_series(1,100,2) i",
+    "expected": "INSERT INTO ex_mtarget SELECT i, i * 10 FROM generate_series(1, 100, 2) AS i"
   },
   {
     "comment": "merge - Statement 187",
-    "query": "INSERT INTO ex_msource SELECT i, i*10 FROM generate_series(1,100,1) i"
+    "query": "INSERT INTO ex_msource SELECT i, i*10 FROM generate_series(1,100,1) i",
+    "expected": "INSERT INTO ex_msource SELECT i, i * 10 FROM generate_series(1, 100, 1) AS i"
   },
   {
     "comment": "merge - Statement 188",
-    "query": "CREATE FUNCTION explain_merge(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$ DECLARE ln text"
-  },
-  {
-    "comment": "merge - Statement 189",
-    "query": "BEGIN FOR ln IN EXECUTE 'explain (analyze, timing off, summary off, costs off) ' || query LOOP ln := regexp_replace(ln, '(Memory( Usage)?|Buckets|Batches): \\S*',  '\\1: xxx', 'g')"
-  },
-  {
-    "comment": "merge - Statement 190",
-    "query": "RETURN NEXT ln"
-  },
-  {
-    "comment": "merge - Statement 191",
-    "query": "END LOOP"
+    "query": "CREATE FUNCTION explain_merge(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$ DECLARE ln text; BEGIN FOR ln IN EXECUTE 'explain (analyze, timing off, summary off, costs off) ' || query LOOP ln := regexp_replace(ln, '(Memory( Usage)?|Buckets|Batches): \\S*', '\\1: xxx', 'g'); RETURN NEXT ln; END LOOP; END; $$;",
+    "expected": "CREATE FUNCTION explain_merge (query TEXT) RETURNS SETOF TEXT LANGUAGE plpgsql AS $$ DECLARE ln text; BEGIN FOR ln IN EXECUTE 'explain (analyze, timing off, summary off, costs off) ' || query LOOP ln := regexp_replace(ln, '(Memory( Usage)?|Buckets|Batches): \\S*', '\\1: xxx', 'g'); RETURN NEXT ln; END LOOP; END; $$"
   },
   {
     "comment": "merge - Statement 192",
@@ -769,31 +811,31 @@
   },
   {
     "comment": "merge - Statement 193",
-    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN MATCHED AND t.a < 10 THEN UPDATE SET b = t.b + 1')"
+    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN MATCHED AND t.a \u003c 10 THEN UPDATE SET b = t.b + 1')"
   },
   {
     "comment": "merge - Statement 194",
-    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN MATCHED AND t.a < 10 THEN UPDATE SET b = t.b + 1 WHEN MATCHED AND t.a >= 10 AND t.a <= 20 THEN DELETE')"
+    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN MATCHED AND t.a \u003c 10 THEN UPDATE SET b = t.b + 1 WHEN MATCHED AND t.a \u003e= 10 AND t.a \u003c= 20 THEN DELETE')"
   },
   {
     "comment": "merge - Statement 195",
-    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN NOT MATCHED AND s.a < 10 THEN INSERT VALUES (a, b)')"
+    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN NOT MATCHED AND s.a \u003c 10 THEN INSERT VALUES (a, b)')"
   },
   {
     "comment": "merge - Statement 196",
-    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN MATCHED AND t.a < 10 THEN UPDATE SET b = t.b + 1 WHEN MATCHED AND t.a >= 30 AND t.a <= 40 THEN DELETE WHEN NOT MATCHED AND s.a < 20 THEN INSERT VALUES (a, b)')"
+    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN MATCHED AND t.a \u003c 10 THEN UPDATE SET b = t.b + 1 WHEN MATCHED AND t.a \u003e= 30 AND t.a \u003c= 40 THEN DELETE WHEN NOT MATCHED AND s.a \u003c 20 THEN INSERT VALUES (a, b)')"
   },
   {
     "comment": "merge - Statement 197",
-    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN NOT MATCHED BY SOURCE and t.a < 10 THEN DELETE')"
+    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN NOT MATCHED BY SOURCE and t.a \u003c 10 THEN DELETE')"
   },
   {
     "comment": "merge - Statement 198",
-    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN NOT MATCHED BY SOURCE AND t.a < 10 THEN DELETE WHEN NOT MATCHED BY TARGET AND s.a < 20 THEN INSERT VALUES (a, b)')"
+    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a WHEN NOT MATCHED BY SOURCE AND t.a \u003c 10 THEN DELETE WHEN NOT MATCHED BY TARGET AND s.a \u003c 20 THEN INSERT VALUES (a, b)')"
   },
   {
     "comment": "merge - Statement 199",
-    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a AND t.a < -1000 WHEN MATCHED AND t.a < 10 THEN DO NOTHING')"
+    "query": "SELECT explain_merge(' MERGE INTO ex_mtarget t USING ex_msource s ON t.a = s.a AND t.a \u003c -1000 WHEN MATCHED AND t.a \u003c 10 THEN DO NOTHING')"
   },
   {
     "comment": "merge - Statement 200",
@@ -801,23 +843,28 @@
   },
   {
     "comment": "merge - Statement 201",
-    "query": "DROP FUNCTION explain_merge(text)"
+    "query": "DROP FUNCTION explain_merge(text)",
+    "expected": "DROP FUNCTION explain_merge(TEXT)"
   },
   {
     "comment": "merge - Statement 202",
-    "query": "CREATE TABLE src (a int, b int, c int, d int)"
+    "query": "CREATE TABLE src (a int, b int, c int, d int)",
+    "expected": "CREATE TABLE src (a INT, b INT, c INT, d INT)"
   },
   {
     "comment": "merge - Statement 203",
-    "query": "CREATE TABLE tgt (a int, b int, c int, d int)"
+    "query": "CREATE TABLE tgt (a int, b int, c int, d int)",
+    "expected": "CREATE TABLE tgt (a INT, b INT, c INT, d INT)"
   },
   {
     "comment": "merge - Statement 204",
-    "query": "CREATE TABLE ref (ab int, cd int)"
+    "query": "CREATE TABLE ref (ab int, cd int)",
+    "expected": "CREATE TABLE ref (ab INT, cd INT)"
   },
   {
     "comment": "merge - Statement 205",
-    "query": "EXPLAIN (verbose, costs off) MERGE INTO tgt t USING (SELECT *, (SELECT count(*) FROM ref r WHERE r.ab = s.a + s.b AND r.cd = s.c - s.d) cnt FROM src s) s ON t.a = s.a AND t.b < s.cnt WHEN MATCHED AND t.c > s.cnt THEN UPDATE SET (b, c) = (SELECT s.b, s.cnt)"
+    "query": "EXPLAIN (verbose, costs off) MERGE INTO tgt t USING (SELECT *, (SELECT count(*) FROM ref r WHERE r.ab = s.a + s.b AND r.cd = s.c - s.d) cnt FROM src s) s ON t.a = s.a AND t.b \u003c s.cnt WHEN MATCHED AND t.c \u003e s.cnt THEN UPDATE SET (b, c) = (SELECT s.b, s.cnt)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) MERGE INTO tgt AS t USING (SELECT *, (SELECT COUNT(*) FROM ref AS r WHERE r.ab = s.a + s.b AND r.cd = s.c - s.d) AS cnt FROM src AS s) AS s ON t.a = s.a AND t.b \u003c s.cnt WHEN MATCHED AND t.c \u003e s.cnt THEN UPDATE SET b = (SELECT s.b, s.cnt), c = (SELECT s.b, s.cnt)"
   },
   {
     "comment": "merge - Statement 206",
@@ -825,7 +872,8 @@
   },
   {
     "comment": "merge - Statement 207",
-    "query": "MERGE INTO sq_target t USING v ON tid = sid WHEN MATCHED THEN UPDATE SET balance = (SELECT count(*) FROM sq_target)"
+    "query": "MERGE INTO sq_target t USING v ON tid = sid WHEN MATCHED THEN UPDATE SET balance = (SELECT count(*) FROM sq_target)",
+    "expected": "MERGE INTO sq_target AS t USING v ON tid = sid WHEN MATCHED THEN UPDATE SET balance = (SELECT COUNT(*) FROM sq_target)"
   },
   {
     "comment": "merge - Statement 208",
@@ -833,11 +881,13 @@
   },
   {
     "comment": "merge - Statement 209",
-    "query": "MERGE INTO sq_target t USING v ON tid = sid WHEN MATCHED AND (SELECT count(*) > 0 FROM sq_target) THEN UPDATE SET balance = 42"
+    "query": "MERGE INTO sq_target t USING v ON tid = sid WHEN MATCHED AND (SELECT count(*) \u003e 0 FROM sq_target) THEN UPDATE SET balance = 42",
+    "expected": "MERGE INTO sq_target AS t USING v ON tid = sid WHEN MATCHED AND (SELECT COUNT(*) \u003e 0 FROM sq_target) THEN UPDATE SET balance = 42"
   },
   {
     "comment": "merge - Statement 210",
-    "query": "MERGE INTO sq_target t USING v ON tid = sid AND (SELECT count(*) > 0 FROM sq_target) WHEN MATCHED THEN UPDATE SET balance = 42"
+    "query": "MERGE INTO sq_target t USING v ON tid = sid AND (SELECT count(*) \u003e 0 FROM sq_target) WHEN MATCHED THEN UPDATE SET balance = 42",
+    "expected": "MERGE INTO sq_target AS t USING v ON tid = sid AND (SELECT COUNT(*) \u003e 0 FROM sq_target) WHEN MATCHED THEN UPDATE SET balance = 42"
   },
   {
     "comment": "merge - Statement 211",
@@ -845,39 +895,48 @@
   },
   {
     "comment": "merge - Statement 212",
-    "query": "CREATE TABLE pa_target (tid integer, balance float, val text) PARTITION BY LIST (tid)"
+    "query": "CREATE TABLE pa_target (tid integer, balance float, val text) PARTITION BY LIST (tid)",
+    "expected": "CREATE TABLE pa_target (tid INT, balance FLOAT8, val TEXT) PARTITION BY list (tid)"
   },
   {
     "comment": "merge - Statement 213",
-    "query": "CREATE TABLE part1 PARTITION OF pa_target FOR VALUES IN (1,4) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part1 PARTITION OF pa_target FOR VALUES IN (1,4) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part1 PARTITION OF pa_target FOR VALUES IN (1, 4) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 214",
-    "query": "CREATE TABLE part2 PARTITION OF pa_target FOR VALUES IN (2,5,6) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part2 PARTITION OF pa_target FOR VALUES IN (2,5,6) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part2 PARTITION OF pa_target FOR VALUES IN (2, 5, 6) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 215",
-    "query": "CREATE TABLE part3 PARTITION OF pa_target FOR VALUES IN (3,8,9) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part3 PARTITION OF pa_target FOR VALUES IN (3,8,9) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part3 PARTITION OF pa_target FOR VALUES IN (3, 8, 9) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 216",
-    "query": "CREATE TABLE part4 PARTITION OF pa_target DEFAULT WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part4 PARTITION OF pa_target DEFAULT WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part4 PARTITION OF pa_target DEFAULT WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 217",
-    "query": "CREATE TABLE pa_source (sid integer, delta float)"
+    "query": "CREATE TABLE pa_source (sid integer, delta float)",
+    "expected": "CREATE TABLE pa_source (sid INT, delta FLOAT8)"
   },
   {
     "comment": "merge - Statement 218",
-    "query": "INSERT INTO pa_source SELECT id, id * 10  FROM generate_series(1,14) AS id"
+    "query": "INSERT INTO pa_source SELECT id, id * 10  FROM generate_series(1,14) AS id",
+    "expected": "INSERT INTO pa_source SELECT id, id * 10 FROM generate_series(1, 14) AS id"
   },
   {
     "comment": "merge - Statement 219",
-    "query": "INSERT INTO pa_target SELECT id, id * 100, 'initial' FROM generate_series(1,15,2) AS id"
+    "query": "INSERT INTO pa_target SELECT id, id * 100, 'initial' FROM generate_series(1,15,2) AS id",
+    "expected": "INSERT INTO pa_target SELECT id, id * 100, 'initial' FROM generate_series(1, 15, 2) AS id"
   },
   {
     "comment": "merge - Statement 220",
-    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'"
+    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'",
+    "expected": "MERGE INTO pa_target AS t USING pa_source AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'"
   },
   {
     "comment": "merge - Statement 221",
@@ -885,15 +944,13 @@
   },
   {
     "comment": "merge - Statement 222",
-    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid AND tid = 1 WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'"
+    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid AND tid = 1 WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'",
+    "expected": "MERGE INTO pa_target AS t USING pa_source AS s ON t.tid = s.sid AND tid = 1 WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'"
   },
   {
     "comment": "merge - Statement 223",
-    "query": "CREATE FUNCTION merge_func() RETURNS integer LANGUAGE plpgsql AS $$ DECLARE result integer"
-  },
-  {
-    "comment": "merge - Statement 224",
-    "query": "BEGIN MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET tid = 1, val = val || ' not matched by source'"
+    "query": "CREATE FUNCTION merge_func() RETURNS integer LANGUAGE plpgsql AS $$ DECLARE result integer; BEGIN MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN MATCHED THEN  UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN  INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN  UPDATE SET tid = 1, val = val || ' not matched by source'; IF FOUND THEN GET DIAGNOSTICS result := ROW_COUNT; END IF; RETURN result; END; $$;",
+    "expected": "CREATE FUNCTION merge_func () RETURNS INT LANGUAGE plpgsql AS $$ DECLARE result integer; BEGIN MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN MATCHED THEN  UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN  INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN  UPDATE SET tid = 1, val = val || ' not matched by source'; IF FOUND THEN GET DIAGNOSTICS result := ROW_COUNT; END IF; RETURN result; END; $$"
   },
   {
     "comment": "merge - Statement 225",
@@ -901,7 +958,8 @@
   },
   {
     "comment": "merge - Statement 226",
-    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid AND t.tid = 1 WHEN MATCHED THEN UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge' RETURNING merge_action(), t.*"
+    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid AND t.tid = 1 WHEN MATCHED THEN UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge' RETURNING merge_action(), t.*",
+    "expected": "MERGE INTO pa_target AS t USING pa_source AS s ON t.tid = s.sid AND t.tid = 1 WHEN MATCHED THEN UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge' RETURNING MERGE_ACTION(), t.*"
   },
   {
     "comment": "merge - Statement 227",
@@ -909,11 +967,13 @@
   },
   {
     "comment": "merge - Statement 228",
-    "query": "TRUNCATE pa_target"
+    "query": "TRUNCATE pa_target",
+    "expected": "TRUNCATE TABLE pa_target CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "merge - Statement 229",
-    "query": "MERGE INTO pa_target t USING (VALUES (10, 100)) AS s(sid, delta) ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (1, 10, 'inserted by merge') WHEN MATCHED THEN DO NOTHING"
+    "query": "MERGE INTO pa_target t USING (VALUES (10, 100)) AS s(sid, delta) ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (1, 10, 'inserted by merge') WHEN MATCHED THEN DO NOTHING",
+    "expected": "MERGE INTO pa_target AS t USING (VALUES (10, 100)) AS s(sid, delta) ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (1, 10, 'inserted by merge') WHEN MATCHED THEN DO NOTHING"
   },
   {
     "comment": "merge - Statement 230",
@@ -921,19 +981,23 @@
   },
   {
     "comment": "merge - Statement 231",
-    "query": "CREATE TABLE part1 (tid integer, balance float, val text) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part1 (tid integer, balance float, val text) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part1 (tid INT, balance FLOAT8, val TEXT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 232",
-    "query": "CREATE TABLE part2 (balance float, tid integer, val text) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part2 (balance float, tid integer, val text) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part2 (balance FLOAT8, tid INT, val TEXT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 233",
-    "query": "CREATE TABLE part3 (tid integer, balance float, val text) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part3 (tid integer, balance float, val text) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part3 (tid INT, balance FLOAT8, val TEXT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 234",
-    "query": "CREATE TABLE part4 (extraid text, tid integer, balance float, val text) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part4 (extraid text, tid integer, balance float, val text) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part4 (extraid TEXT, tid INT, balance FLOAT8, val TEXT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 235",
@@ -941,43 +1005,42 @@
   },
   {
     "comment": "merge - Statement 236",
-    "query": "ALTER TABLE pa_target ATTACH PARTITION part1 FOR VALUES IN (1,4)"
+    "query": "ALTER TABLE pa_target ATTACH PARTITION part1 FOR VALUES IN (1,4)",
+    "expected": "ALTER TABLE pa_target ATTACH PARTITION part1 FOR VALUES IN (1, 4)"
   },
   {
     "comment": "merge - Statement 237",
-    "query": "ALTER TABLE pa_target ATTACH PARTITION part2 FOR VALUES IN (2,5,6)"
+    "query": "ALTER TABLE pa_target ATTACH PARTITION part2 FOR VALUES IN (2,5,6)",
+    "expected": "ALTER TABLE pa_target ATTACH PARTITION part2 FOR VALUES IN (2, 5, 6)"
   },
   {
     "comment": "merge - Statement 238",
-    "query": "ALTER TABLE pa_target ATTACH PARTITION part3 FOR VALUES IN (3,8,9)"
+    "query": "ALTER TABLE pa_target ATTACH PARTITION part3 FOR VALUES IN (3,8,9)",
+    "expected": "ALTER TABLE pa_target ATTACH PARTITION part3 FOR VALUES IN (3, 8, 9)"
   },
   {
     "comment": "merge - Statement 239",
     "query": "ALTER TABLE pa_target ATTACH PARTITION part4 DEFAULT"
   },
   {
-    "comment": "merge - Statement 240",
-    "query": "BEGIN MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'"
-  },
-  {
     "comment": "merge - Statement 241",
-    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid AND tid IN (1, 5) WHEN MATCHED AND tid % 5 = 0 THEN DELETE WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'"
+    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid AND tid IN (1, 5) WHEN MATCHED AND tid % 5 = 0 THEN DELETE WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'",
+    "expected": "MERGE INTO pa_target AS t USING pa_source AS s ON t.tid = s.sid AND tid IN (1, 5) WHEN MATCHED AND tid % 5 = 0 THEN DELETE WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'"
   },
   {
     "comment": "merge - Statement 242",
-    "query": "CREATE FUNCTION trig_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END; $$"
+    "query": "CREATE FUNCTION trig_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END; $$",
+    "expected": "CREATE FUNCTION trig_fn () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END; $$"
   },
   {
     "comment": "merge - Statement 243",
-    "query": "CREATE TRIGGER del_trig BEFORE DELETE ON pa_target FOR EACH ROW EXECUTE PROCEDURE trig_fn()"
-  },
-  {
-    "comment": "merge - Statement 244",
-    "query": "BEGIN MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (sid, delta, 'inserted by merge') WHEN NOT MATCHED BY SOURCE THEN UPDATE SET val = val || ' not matched by source'"
+    "query": "CREATE TRIGGER del_trig BEFORE DELETE ON pa_target FOR EACH ROW EXECUTE PROCEDURE trig_fn()",
+    "expected": "CREATE TRIGGER del_trig BEFORE DELETE ON pa_target FOR EACH ROW EXECUTE FUNCTION trig_fn()"
   },
   {
     "comment": "merge - Statement 245",
-    "query": "CREATE TRIGGER ins_trig BEFORE INSERT ON pa_target FOR EACH ROW EXECUTE PROCEDURE trig_fn()"
+    "query": "CREATE TRIGGER ins_trig BEFORE INSERT ON pa_target FOR EACH ROW EXECUTE PROCEDURE trig_fn()",
+    "expected": "CREATE TRIGGER ins_trig BEFORE INSERT ON pa_target FOR EACH ROW EXECUTE FUNCTION trig_fn()"
   },
   {
     "comment": "merge - Statement 246",
@@ -989,11 +1052,13 @@
   },
   {
     "comment": "merge - Statement 248",
-    "query": "CREATE POLICY pa_target_pol ON pa_target USING (tid != 0)"
+    "query": "CREATE POLICY pa_target_pol ON pa_target USING (tid != 0)",
+    "expected": "CREATE POLICY pa_target_pol ON pa_target FOR all TO public USING ( tid \u003c\u003e 0 )"
   },
   {
     "comment": "merge - Statement 249",
-    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid AND t.tid IN (1,2,3,4) WHEN MATCHED THEN UPDATE SET tid = tid - 1"
+    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid AND t.tid IN (1,2,3,4) WHEN MATCHED THEN UPDATE SET tid = tid - 1",
+    "expected": "MERGE INTO pa_target AS t USING pa_source AS s ON t.tid = s.sid AND t.tid IN (1, 2, 3, 4) WHEN MATCHED THEN UPDATE SET tid = tid - 1"
   },
   {
     "comment": "merge - Statement 250",
@@ -1001,51 +1066,63 @@
   },
   {
     "comment": "merge - Statement 251",
-    "query": "CREATE TABLE pa_target (logts timestamp, tid integer, balance float, val text) PARTITION BY RANGE (logts)"
+    "query": "CREATE TABLE pa_target (logts timestamp, tid integer, balance float, val text) PARTITION BY RANGE (logts)",
+    "expected": "CREATE TABLE pa_target (logts TIMESTAMP, tid INT, balance FLOAT8, val TEXT) PARTITION BY range (logts)"
   },
   {
     "comment": "merge - Statement 252",
-    "query": "CREATE TABLE part_m01 PARTITION OF pa_target FOR VALUES FROM ('2017-01-01') TO ('2017-02-01') PARTITION BY LIST (tid)"
+    "query": "CREATE TABLE part_m01 PARTITION OF pa_target FOR VALUES FROM ('2017-01-01') TO ('2017-02-01') PARTITION BY LIST (tid)",
+    "expected": "CREATE TABLE part_m01 PARTITION OF pa_target FOR VALUES FROM ('2017-01-01') TO ('2017-02-01') PARTITION BY list (tid)"
   },
   {
     "comment": "merge - Statement 253",
-    "query": "CREATE TABLE part_m01_odd PARTITION OF part_m01 FOR VALUES IN (1,3,5,7,9) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part_m01_odd PARTITION OF part_m01 FOR VALUES IN (1,3,5,7,9) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part_m01_odd PARTITION OF part_m01 FOR VALUES IN (1, 3, 5, 7, 9) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 254",
-    "query": "CREATE TABLE part_m01_even PARTITION OF part_m01 FOR VALUES IN (2,4,6,8) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part_m01_even PARTITION OF part_m01 FOR VALUES IN (2,4,6,8) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part_m01_even PARTITION OF part_m01 FOR VALUES IN (2, 4, 6, 8) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 255",
-    "query": "CREATE TABLE part_m02 PARTITION OF pa_target FOR VALUES FROM ('2017-02-01') TO ('2017-03-01') PARTITION BY LIST (tid)"
+    "query": "CREATE TABLE part_m02 PARTITION OF pa_target FOR VALUES FROM ('2017-02-01') TO ('2017-03-01') PARTITION BY LIST (tid)",
+    "expected": "CREATE TABLE part_m02 PARTITION OF pa_target FOR VALUES FROM ('2017-02-01') TO ('2017-03-01') PARTITION BY list (tid)"
   },
   {
     "comment": "merge - Statement 256",
-    "query": "CREATE TABLE part_m02_odd PARTITION OF part_m02 FOR VALUES IN (1,3,5,7,9) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part_m02_odd PARTITION OF part_m02 FOR VALUES IN (1,3,5,7,9) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part_m02_odd PARTITION OF part_m02 FOR VALUES IN (1, 3, 5, 7, 9) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 257",
-    "query": "CREATE TABLE part_m02_even PARTITION OF part_m02 FOR VALUES IN (2,4,6,8) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE part_m02_even PARTITION OF part_m02 FOR VALUES IN (2,4,6,8) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE part_m02_even PARTITION OF part_m02 FOR VALUES IN (2, 4, 6, 8) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 258",
-    "query": "CREATE TABLE pa_source (sid integer, delta float) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE pa_source (sid integer, delta float) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE pa_source (sid INT, delta FLOAT8) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 259",
-    "query": "INSERT INTO pa_target SELECT '2017-01-31', id, id * 100, 'initial' FROM generate_series(1,9,3) AS id"
+    "query": "INSERT INTO pa_target SELECT '2017-01-31', id, id * 100, 'initial' FROM generate_series(1,9,3) AS id",
+    "expected": "INSERT INTO pa_target SELECT '2017-01-31', id, id * 100, 'initial' FROM generate_series(1, 9, 3) AS id"
   },
   {
     "comment": "merge - Statement 260",
-    "query": "INSERT INTO pa_target SELECT '2017-02-28', id, id * 100, 'initial' FROM generate_series(2,9,3) AS id"
+    "query": "INSERT INTO pa_target SELECT '2017-02-28', id, id * 100, 'initial' FROM generate_series(2,9,3) AS id",
+    "expected": "INSERT INTO pa_target SELECT '2017-02-28', id, id * 100, 'initial' FROM generate_series(2, 9, 3) AS id"
   },
   {
     "comment": "merge - Statement 261",
-    "query": "MERGE INTO pa_target t USING (SELECT '2017-01-15' AS slogts, * FROM pa_source WHERE sid < 10) s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (slogts::timestamp, sid, delta, 'inserted by merge') RETURNING merge_action(), t.*"
+    "query": "MERGE INTO pa_target t USING (SELECT '2017-01-15' AS slogts, * FROM pa_source WHERE sid \u003c 10) s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (slogts::timestamp, sid, delta, 'inserted by merge') RETURNING merge_action(), t.*",
+    "expected": "MERGE INTO pa_target AS t USING (SELECT '2017-01-15' AS slogts, * FROM pa_source WHERE sid \u003c 10) AS s ON t.tid = s.sid WHEN MATCHED THEN UPDATE SET balance = balance + delta, val = val || ' updated by merge' WHEN NOT MATCHED THEN INSERT VALUES (CAST(slogts AS TIMESTAMP), sid, delta, 'inserted by merge') RETURNING MERGE_ACTION(), t.*"
   },
   {
     "comment": "merge - Statement 262",
-    "query": "CREATE TABLE pa_target (tid integer PRIMARY KEY) PARTITION BY LIST (tid)"
+    "query": "CREATE TABLE pa_target (tid integer PRIMARY KEY) PARTITION BY LIST (tid)",
+    "expected": "CREATE TABLE pa_target (tid INT PRIMARY KEY) PARTITION BY list (tid)"
   },
   {
     "comment": "merge - Statement 263",
@@ -1053,7 +1130,8 @@
   },
   {
     "comment": "merge - Statement 264",
-    "query": "CREATE TABLE pa_source (sid integer)"
+    "query": "CREATE TABLE pa_source (sid integer)",
+    "expected": "CREATE TABLE pa_source (sid INT)"
   },
   {
     "comment": "merge - Statement 265",
@@ -1061,15 +1139,18 @@
   },
   {
     "comment": "merge - Statement 266",
-    "query": "EXPLAIN (VERBOSE, COSTS OFF) MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (s.sid)"
+    "query": "EXPLAIN (VERBOSE, COSTS OFF) MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (s.sid)",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) MERGE INTO pa_target AS t USING pa_source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (s.sid)"
   },
   {
     "comment": "merge - Statement 267",
-    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (s.sid)"
+    "query": "MERGE INTO pa_target t USING pa_source s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (s.sid)",
+    "expected": "MERGE INTO pa_target AS t USING pa_source AS s ON t.tid = s.sid WHEN NOT MATCHED THEN INSERT VALUES (s.sid)"
   },
   {
     "comment": "merge - Statement 268",
-    "query": "TABLE pa_target"
+    "query": "TABLE pa_target",
+    "expected": "SELECT * FROM pa_target"
   },
   {
     "comment": "merge - Statement 269",
@@ -1077,15 +1158,18 @@
   },
   {
     "comment": "merge - Statement 270",
-    "query": "CREATE TABLE cj_target (tid integer, balance float, val text) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE cj_target (tid integer, balance float, val text) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE cj_target (tid INT, balance FLOAT8, val TEXT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 271",
-    "query": "CREATE TABLE cj_source1 (sid1 integer, scat integer, delta integer) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE cj_source1 (sid1 integer, scat integer, delta integer) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE cj_source1 (sid1 INT, scat INT, delta INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 272",
-    "query": "CREATE TABLE cj_source2 (sid2 integer, sval text) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE cj_source2 (sid2 integer, sval text) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE cj_source2 (sid2 INT, sval TEXT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 273",
@@ -1117,19 +1201,23 @@
   },
   {
     "comment": "merge - Statement 280",
-    "query": "MERGE INTO cj_target t USING cj_source1 s1 INNER JOIN cj_source2 s2 ON sid1 = sid2 ON t.tid = sid1 WHEN NOT MATCHED THEN INSERT VALUES (sid1, delta, sval)"
+    "query": "MERGE INTO cj_target t USING cj_source1 s1 INNER JOIN cj_source2 s2 ON sid1 = sid2 ON t.tid = sid1 WHEN NOT MATCHED THEN INSERT VALUES (sid1, delta, sval)",
+    "expected": "MERGE INTO cj_target AS t USING cj_source1 AS s1 INNER JOIN cj_source2 AS s2 ON sid1 = sid2 ON t.tid = sid1 WHEN NOT MATCHED THEN INSERT VALUES (sid1, delta, sval)"
   },
   {
     "comment": "merge - Statement 281",
-    "query": "MERGE INTO cj_target t USING cj_source2 s2 INNER JOIN cj_source1 s1 ON sid1 = sid2 AND scat = 20 ON t.tid = sid1 WHEN NOT MATCHED THEN INSERT VALUES (sid2, delta, sval) WHEN MATCHED THEN DELETE"
+    "query": "MERGE INTO cj_target t USING cj_source2 s2 INNER JOIN cj_source1 s1 ON sid1 = sid2 AND scat = 20 ON t.tid = sid1 WHEN NOT MATCHED THEN INSERT VALUES (sid2, delta, sval) WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO cj_target AS t USING cj_source2 AS s2 INNER JOIN cj_source1 AS s1 ON sid1 = sid2 AND scat = 20 ON t.tid = sid1 WHEN NOT MATCHED THEN INSERT VALUES (sid2, delta, sval) WHEN MATCHED THEN DELETE"
   },
   {
     "comment": "merge - Statement 282",
-    "query": "MERGE INTO cj_target t USING cj_source2 s2 INNER JOIN cj_source1 s1 ON sid1 = sid2 ON t.tid = sid1 WHEN NOT MATCHED THEN INSERT VALUES (sid2, delta + scat, sval) WHEN MATCHED THEN UPDATE SET val = val || ' updated by merge'"
+    "query": "MERGE INTO cj_target t USING cj_source2 s2 INNER JOIN cj_source1 s1 ON sid1 = sid2 ON t.tid = sid1 WHEN NOT MATCHED THEN INSERT VALUES (sid2, delta + scat, sval) WHEN MATCHED THEN UPDATE SET val = val || ' updated by merge'",
+    "expected": "MERGE INTO cj_target AS t USING cj_source2 AS s2 INNER JOIN cj_source1 AS s1 ON sid1 = sid2 ON t.tid = sid1 WHEN NOT MATCHED THEN INSERT VALUES (sid2, delta + scat, sval) WHEN MATCHED THEN UPDATE SET val = val || ' updated by merge'"
   },
   {
     "comment": "merge - Statement 283",
-    "query": "MERGE INTO cj_target t USING cj_source2 s2 INNER JOIN cj_source1 s1 ON sid1 = sid2 AND scat = 20 ON t.tid = sid1 WHEN MATCHED THEN UPDATE SET val = val || ' ' || delta::text"
+    "query": "MERGE INTO cj_target t USING cj_source2 s2 INNER JOIN cj_source1 s1 ON sid1 = sid2 AND scat = 20 ON t.tid = sid1 WHEN MATCHED THEN UPDATE SET val = val || ' ' || delta::text",
+    "expected": "MERGE INTO cj_target AS t USING cj_source2 AS s2 INNER JOIN cj_source1 AS s1 ON sid1 = sid2 AND scat = 20 ON t.tid = sid1 WHEN MATCHED THEN UPDATE SET val = val || ' ' || CAST(delta AS TEXT)"
   },
   {
     "comment": "merge - Statement 284",
@@ -1137,7 +1225,8 @@
   },
   {
     "comment": "merge - Statement 285",
-    "query": "MERGE INTO cj_target t USING (SELECT *, 'join input'::text AS phv FROM cj_source1) fj FULL JOIN cj_source2 fj2 ON fj.scat = fj2.sid2 * 10 ON t.tid = fj.scat WHEN NOT MATCHED THEN INSERT (tid, balance, val) VALUES (fj.scat, fj.delta, fj.phv)"
+    "query": "MERGE INTO cj_target t USING (SELECT *, 'join input'::text AS phv FROM cj_source1) fj FULL JOIN cj_source2 fj2 ON fj.scat = fj2.sid2 * 10 ON t.tid = fj.scat WHEN NOT MATCHED THEN INSERT (tid, balance, val) VALUES (fj.scat, fj.delta, fj.phv)",
+    "expected": "MERGE INTO cj_target AS t USING (SELECT *, CAST('join input' AS TEXT) AS phv FROM cj_source1) AS fj FULL OUTER JOIN cj_source2 AS fj2 ON fj.scat = fj2.sid2 * 10 ON t.tid = fj.scat WHEN NOT MATCHED THEN INSERT (tid, balance, val) VALUES (fj.scat, fj.delta, fj.phv)"
   },
   {
     "comment": "merge - Statement 286",
@@ -1149,11 +1238,13 @@
   },
   {
     "comment": "merge - Statement 288",
-    "query": "TRUNCATE cj_target"
+    "query": "TRUNCATE cj_target",
+    "expected": "TRUNCATE TABLE cj_target CONTINUE IDENTITY RESTRICT"
   },
   {
     "comment": "merge - Statement 289",
-    "query": "MERGE INTO cj_target t USING cj_source1 s1 INNER JOIN cj_source2 s2 ON s1.sid = s2.sid ON t.tid = s1.sid WHEN NOT MATCHED THEN INSERT VALUES (s2.sid, delta, sval)"
+    "query": "MERGE INTO cj_target t USING cj_source1 s1 INNER JOIN cj_source2 s2 ON s1.sid = s2.sid ON t.tid = s1.sid WHEN NOT MATCHED THEN INSERT VALUES (s2.sid, delta, sval)",
+    "expected": "MERGE INTO cj_target AS t USING cj_source1 AS s1 INNER JOIN cj_source2 AS s2 ON s1.sid = s2.sid ON t.tid = s1.sid WHEN NOT MATCHED THEN INSERT VALUES (s2.sid, delta, sval)"
   },
   {
     "comment": "merge - Statement 290",
@@ -1161,19 +1252,23 @@
   },
   {
     "comment": "merge - Statement 291",
-    "query": "CREATE TABLE fs_target (a int, b int, c text) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE fs_target (a int, b int, c text) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE fs_target (a INT, b INT, c TEXT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 292",
-    "query": "MERGE INTO fs_target t USING generate_series(1,100,1) AS id ON t.a = id WHEN MATCHED THEN UPDATE SET b = b + id WHEN NOT MATCHED THEN INSERT VALUES (id, -1)"
+    "query": "MERGE INTO fs_target t USING generate_series(1,100,1) AS id ON t.a = id WHEN MATCHED THEN UPDATE SET b = b + id WHEN NOT MATCHED THEN INSERT VALUES (id, -1)",
+    "expected": "MERGE INTO fs_target AS t USING generate_series(1, 100, 1) AS id ON t.a = id WHEN MATCHED THEN UPDATE SET b = b + id WHEN NOT MATCHED THEN INSERT VALUES (id, -1)"
   },
   {
     "comment": "merge - Statement 293",
-    "query": "MERGE INTO fs_target t USING generate_series(1,100,2) AS id ON t.a = id WHEN MATCHED THEN UPDATE SET b = b + id, c = 'updated '|| id.*::text WHEN NOT MATCHED THEN INSERT VALUES (id, -1, 'inserted ' || id.*::text)"
+    "query": "MERGE INTO fs_target t USING generate_series(1,100,2) AS id ON t.a = id WHEN MATCHED THEN UPDATE SET b = b + id, c = 'updated '|| id.*::text WHEN NOT MATCHED THEN INSERT VALUES (id, -1, 'inserted ' || id.*::text)",
+    "expected": "MERGE INTO fs_target AS t USING generate_series(1, 100, 2) AS id ON t.a = id WHEN MATCHED THEN UPDATE SET b = b + id, c = 'updated ' || CAST(id.* AS TEXT) WHEN NOT MATCHED THEN INSERT VALUES (id, -1, 'inserted ' || CAST(id.* AS TEXT))"
   },
   {
     "comment": "merge - Statement 294",
-    "query": "SELECT count(*) FROM fs_target"
+    "query": "SELECT count(*) FROM fs_target",
+    "expected": "SELECT COUNT(*) FROM fs_target"
   },
   {
     "comment": "merge - Statement 295",
@@ -1181,19 +1276,23 @@
   },
   {
     "comment": "merge - Statement 296",
-    "query": "CREATE TABLE measurement ( city_id         int not null, logdate         date not null, peaktemp        int, unitsales       int ) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE measurement ( city_id         int not null, logdate         date not null, peaktemp        int, unitsales       int ) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE measurement (city_id INT NOT NULL, logdate DATE NOT NULL, peaktemp INT, unitsales INT) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 297",
-    "query": "CREATE TABLE measurement_y2006m02 ( CHECK ( logdate >= DATE '2006-02-01' AND logdate < DATE '2006-03-01' ) ) INHERITS (measurement) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE measurement_y2006m02 ( CHECK ( logdate \u003e= DATE '2006-02-01' AND logdate \u003c DATE '2006-03-01' ) ) INHERITS (measurement) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE measurement_y2006m02 (CHECK (logdate \u003e= CAST('2006-02-01' AS DATE) AND logdate \u003c CAST('2006-03-01' AS DATE))) INHERITS (measurement) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 298",
-    "query": "CREATE TABLE measurement_y2006m03 ( CHECK ( logdate >= DATE '2006-03-01' AND logdate < DATE '2006-04-01' ) ) INHERITS (measurement) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE measurement_y2006m03 ( CHECK ( logdate \u003e= DATE '2006-03-01' AND logdate \u003c DATE '2006-04-01' ) ) INHERITS (measurement) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE measurement_y2006m03 (CHECK (logdate \u003e= CAST('2006-03-01' AS DATE) AND logdate \u003c CAST('2006-04-01' AS DATE))) INHERITS (measurement) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 299",
-    "query": "CREATE TABLE measurement_y2007m01 ( filler          text, peaktemp        int, logdate         date not null, city_id         int not null, unitsales       int CHECK ( logdate >= DATE '2007-01-01' AND logdate < DATE '2007-02-01') ) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE measurement_y2007m01 ( filler          text, peaktemp        int, logdate         date not null, city_id         int not null, unitsales       int CHECK ( logdate \u003e= DATE '2007-01-01' AND logdate \u003c DATE '2007-02-01') ) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE measurement_y2007m01 (filler TEXT, peaktemp INT, logdate DATE NOT NULL, city_id INT NOT NULL, unitsales INT CHECK (logdate \u003e= CAST('2007-01-01' AS DATE) AND logdate \u003c CAST('2007-02-01' AS DATE))) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 300",
@@ -1209,31 +1308,13 @@
   },
   {
     "comment": "merge - Statement 303",
-    "query": "CREATE OR REPLACE FUNCTION measurement_insert_trigger() RETURNS TRIGGER AS $$ BEGIN IF ( NEW.logdate >= DATE '2006-02-01' AND NEW.logdate < DATE '2006-03-01' ) THEN INSERT INTO measurement_y2006m02 VALUES (NEW.*)"
-  },
-  {
-    "comment": "merge - Statement 304",
-    "query": "ELSIF ( NEW.logdate >= DATE '2006-03-01' AND NEW.logdate < DATE '2006-04-01' ) THEN INSERT INTO measurement_y2006m03 VALUES (NEW.*)"
-  },
-  {
-    "comment": "merge - Statement 305",
-    "query": "ELSIF ( NEW.logdate >= DATE '2007-01-01' AND NEW.logdate < DATE '2007-02-01' ) THEN INSERT INTO measurement_y2007m01 (city_id, logdate, peaktemp, unitsales) VALUES (NEW.*)"
-  },
-  {
-    "comment": "merge - Statement 306",
-    "query": "ELSE RAISE EXCEPTION 'Date out of range.  Fix the measurement_insert_trigger() function!'"
-  },
-  {
-    "comment": "merge - Statement 307",
-    "query": "RETURN NULL"
-  },
-  {
-    "comment": "merge - Statement 308",
-    "query": "$$ LANGUAGE plpgsql"
+    "query": "CREATE OR REPLACE FUNCTION measurement_insert_trigger() RETURNS TRIGGER AS $$ BEGIN     IF ( NEW.logdate \u003e= DATE '2006-02-01' AND          NEW.logdate \u003c DATE '2006-03-01' ) THEN         INSERT INTO measurement_y2006m02 VALUES (NEW.*);     ELSIF ( NEW.logdate \u003e= DATE '2006-03-01' AND             NEW.logdate \u003c DATE '2006-04-01' ) THEN         INSERT INTO measurement_y2006m03 VALUES (NEW.*);     ELSIF ( NEW.logdate \u003e= DATE '2007-01-01' AND             NEW.logdate \u003c DATE '2007-02-01' ) THEN         INSERT INTO measurement_y2007m01 (city_id, logdate, peaktemp, unitsales)             VALUES (NEW.*);     ELSE         RAISE EXCEPTION 'Date out of range.  Fix the measurement_insert_trigger() function!';     END IF;     RETURN NULL; END; $$ LANGUAGE plpgsql ;",
+    "expected": "CREATE OR REPLACE FUNCTION measurement_insert_trigger () RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN     IF ( NEW.logdate \u003e= DATE '2006-02-01' AND          NEW.logdate \u003c DATE '2006-03-01' ) THEN         INSERT INTO measurement_y2006m02 VALUES (NEW.*);     ELSIF ( NEW.logdate \u003e= DATE '2006-03-01' AND             NEW.logdate \u003c DATE '2006-04-01' ) THEN         INSERT INTO measurement_y2006m03 VALUES (NEW.*);     ELSIF ( NEW.logdate \u003e= DATE '2007-01-01' AND             NEW.logdate \u003c DATE '2007-02-01' ) THEN         INSERT INTO measurement_y2007m01 (city_id, logdate, peaktemp, unitsales)             VALUES (NEW.*);     ELSE         RAISE EXCEPTION 'Date out of range.  Fix the measurement_insert_trigger() function!';     END IF;     RETURN NULL; END; $$"
   },
   {
     "comment": "merge - Statement 309",
-    "query": "CREATE TRIGGER insert_measurement_trigger BEFORE INSERT ON measurement FOR EACH ROW EXECUTE PROCEDURE measurement_insert_trigger()"
+    "query": "CREATE TRIGGER insert_measurement_trigger BEFORE INSERT ON measurement FOR EACH ROW EXECUTE PROCEDURE measurement_insert_trigger()",
+    "expected": "CREATE TRIGGER insert_measurement_trigger BEFORE INSERT ON measurement FOR EACH ROW EXECUTE FUNCTION measurement_insert_trigger()"
   },
   {
     "comment": "merge - Statement 310",
@@ -1261,11 +1342,13 @@
   },
   {
     "comment": "merge - Statement 316",
-    "query": "SELECT tableoid::regclass, * FROM measurement ORDER BY city_id, logdate"
+    "query": "SELECT tableoid::regclass, * FROM measurement ORDER BY city_id, logdate",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM measurement ORDER BY city_id, logdate"
   },
   {
     "comment": "merge - Statement 317",
-    "query": "CREATE TABLE new_measurement (LIKE measurement) WITH (autovacuum_enabled=off)"
+    "query": "CREATE TABLE new_measurement (LIKE measurement) WITH (autovacuum_enabled=off)",
+    "expected": "CREATE TABLE new_measurement (LIKE measurement) WITH (autovacuum_enabled = off)"
   },
   {
     "comment": "merge - Statement 318",
@@ -1301,19 +1384,23 @@
   },
   {
     "comment": "merge - Statement 326",
-    "query": "MERGE INTO ONLY measurement m USING new_measurement nm ON (m.city_id = nm.city_id and m.logdate=nm.logdate) WHEN MATCHED AND nm.peaktemp IS NULL THEN DELETE WHEN MATCHED THEN UPDATE SET peaktemp = greatest(m.peaktemp, nm.peaktemp), unitsales = m.unitsales + coalesce(nm.unitsales, 0) WHEN NOT MATCHED THEN INSERT (city_id, logdate, peaktemp, unitsales) VALUES (city_id, logdate, peaktemp, unitsales)"
+    "query": "MERGE INTO ONLY measurement m USING new_measurement nm ON (m.city_id = nm.city_id and m.logdate=nm.logdate) WHEN MATCHED AND nm.peaktemp IS NULL THEN DELETE WHEN MATCHED THEN UPDATE SET peaktemp = greatest(m.peaktemp, nm.peaktemp), unitsales = m.unitsales + coalesce(nm.unitsales, 0) WHEN NOT MATCHED THEN INSERT (city_id, logdate, peaktemp, unitsales) VALUES (city_id, logdate, peaktemp, unitsales)",
+    "expected": "MERGE INTO ONLY measurement AS m USING new_measurement AS nm ON (m.city_id = nm.city_id AND m.logdate = nm.logdate) WHEN MATCHED AND nm.peaktemp IS NULL THEN DELETE WHEN MATCHED THEN UPDATE SET peaktemp = GREATEST(m.peaktemp, nm.peaktemp), unitsales = m.unitsales + COALESCE(nm.unitsales, 0) WHEN NOT MATCHED THEN INSERT (city_id, logdate, peaktemp, unitsales) VALUES (city_id, logdate, peaktemp, unitsales)"
   },
   {
     "comment": "merge - Statement 327",
-    "query": "SELECT tableoid::regclass, * FROM measurement ORDER BY city_id, logdate, peaktemp"
+    "query": "SELECT tableoid::regclass, * FROM measurement ORDER BY city_id, logdate, peaktemp",
+    "expected": "SELECT CAST(tableoid AS regclass), * FROM measurement ORDER BY city_id, logdate, peaktemp"
   },
   {
     "comment": "merge - Statement 328",
-    "query": "MERGE into measurement m USING new_measurement nm ON (m.city_id = nm.city_id and m.logdate=nm.logdate) WHEN MATCHED AND nm.peaktemp IS NULL THEN DELETE WHEN MATCHED THEN UPDATE SET peaktemp = greatest(m.peaktemp, nm.peaktemp), unitsales = m.unitsales + coalesce(nm.unitsales, 0) WHEN NOT MATCHED THEN INSERT (city_id, logdate, peaktemp, unitsales) VALUES (city_id, logdate, peaktemp, unitsales)"
+    "query": "MERGE into measurement m USING new_measurement nm ON (m.city_id = nm.city_id and m.logdate=nm.logdate) WHEN MATCHED AND nm.peaktemp IS NULL THEN DELETE WHEN MATCHED THEN UPDATE SET peaktemp = greatest(m.peaktemp, nm.peaktemp), unitsales = m.unitsales + coalesce(nm.unitsales, 0) WHEN NOT MATCHED THEN INSERT (city_id, logdate, peaktemp, unitsales) VALUES (city_id, logdate, peaktemp, unitsales)",
+    "expected": "MERGE INTO measurement AS m USING new_measurement AS nm ON (m.city_id = nm.city_id AND m.logdate = nm.logdate) WHEN MATCHED AND nm.peaktemp IS NULL THEN DELETE WHEN MATCHED THEN UPDATE SET peaktemp = GREATEST(m.peaktemp, nm.peaktemp), unitsales = m.unitsales + COALESCE(nm.unitsales, 0) WHEN NOT MATCHED THEN INSERT (city_id, logdate, peaktemp, unitsales) VALUES (city_id, logdate, peaktemp, unitsales)"
   },
   {
     "comment": "merge - Statement 329",
-    "query": "MERGE INTO new_measurement nm USING ONLY measurement m ON (nm.city_id = m.city_id and nm.logdate=m.logdate) WHEN MATCHED THEN DELETE"
+    "query": "MERGE INTO new_measurement nm USING ONLY measurement m ON (nm.city_id = m.city_id and nm.logdate=m.logdate) WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO new_measurement AS nm USING ONLY measurement AS m ON (nm.city_id = m.city_id AND nm.logdate = m.logdate) WHEN MATCHED THEN DELETE"
   },
   {
     "comment": "merge - Statement 330",
@@ -1321,7 +1408,8 @@
   },
   {
     "comment": "merge - Statement 331",
-    "query": "MERGE INTO new_measurement nm USING measurement m ON (nm.city_id = m.city_id and nm.logdate=m.logdate) WHEN MATCHED THEN DELETE"
+    "query": "MERGE INTO new_measurement nm USING measurement m ON (nm.city_id = m.city_id and nm.logdate=m.logdate) WHEN MATCHED THEN DELETE",
+    "expected": "MERGE INTO new_measurement AS nm USING measurement AS m ON (nm.city_id = m.city_id AND nm.logdate = m.logdate) WHEN MATCHED THEN DELETE"
   },
   {
     "comment": "merge - Statement 332",
@@ -1333,7 +1421,8 @@
   },
   {
     "comment": "merge - Statement 334",
-    "query": "CREATE TABLE src (a int, b text)"
+    "query": "CREATE TABLE src (a int, b text)",
+    "expected": "CREATE TABLE src (a INT, b TEXT)"
   },
   {
     "comment": "merge - Statement 335",
@@ -1341,7 +1430,8 @@
   },
   {
     "comment": "merge - Statement 336",
-    "query": "CREATE TABLE tgt (a int, b text)"
+    "query": "CREATE TABLE tgt (a int, b text)",
+    "expected": "CREATE TABLE tgt (a INT, b TEXT)"
   },
   {
     "comment": "merge - Statement 337",
@@ -1349,7 +1439,8 @@
   },
   {
     "comment": "merge - Statement 338",
-    "query": "MERGE INTO tgt USING src ON tgt.a IS NOT DISTINCT FROM src.a WHEN MATCHED THEN UPDATE SET a = src.a, b = src.b WHEN NOT MATCHED BY SOURCE THEN DELETE RETURNING merge_action(), src.*, tgt.*"
+    "query": "MERGE INTO tgt USING src ON tgt.a IS NOT DISTINCT FROM src.a WHEN MATCHED THEN UPDATE SET a = src.a, b = src.b WHEN NOT MATCHED BY SOURCE THEN DELETE RETURNING merge_action(), src.*, tgt.*",
+    "expected": "MERGE INTO tgt USING src ON tgt.a IS NOT DISTINCT FROM src.a WHEN MATCHED THEN UPDATE SET a = src.a, b = src.b WHEN NOT MATCHED BY SOURCE THEN DELETE RETURNING MERGE_ACTION(), src.*, tgt.*"
   },
   {
     "comment": "merge - Statement 339",
@@ -1361,11 +1452,13 @@
   },
   {
     "comment": "merge - Statement 341",
-    "query": "CREATE TABLE bug18634t (a int, b int, c text)"
+    "query": "CREATE TABLE bug18634t (a int, b int, c text)",
+    "expected": "CREATE TABLE bug18634t (a INT, b INT, c TEXT)"
   },
   {
     "comment": "merge - Statement 342",
-    "query": "INSERT INTO bug18634t VALUES(1, 10, 'tgt1'), (2, 20, 'tgt2')"
+    "query": "INSERT INTO bug18634t VALUES(1, 10, 'tgt1'), (2, 20, 'tgt2')",
+    "expected": "INSERT INTO bug18634t VALUES (1, 10, 'tgt1'), (2, 20, 'tgt2')"
   },
   {
     "comment": "merge - Statement 343",
@@ -1373,7 +1466,8 @@
   },
   {
     "comment": "merge - Statement 344",
-    "query": "CREATE TABLE bug18634s (a int, b int, c text)"
+    "query": "CREATE TABLE bug18634s (a int, b int, c text)",
+    "expected": "CREATE TABLE bug18634s (a INT, b INT, c TEXT)"
   },
   {
     "comment": "merge - Statement 345",
@@ -1381,7 +1475,8 @@
   },
   {
     "comment": "merge - Statement 346",
-    "query": "MERGE INTO bug18634v t USING bug18634s s ON s.a = t.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED BY SOURCE THEN DELETE RETURNING merge_action(), s.c, t.*"
+    "query": "MERGE INTO bug18634v t USING bug18634s s ON s.a = t.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED BY SOURCE THEN DELETE RETURNING merge_action(), s.c, t.*",
+    "expected": "MERGE INTO bug18634v AS t USING bug18634s AS s ON s.a = t.a WHEN MATCHED THEN UPDATE SET b = s.b WHEN NOT MATCHED BY SOURCE THEN DELETE RETURNING MERGE_ACTION(), s.c, t.*"
   },
   {
     "comment": "merge - Statement 347",
@@ -1397,11 +1492,13 @@
   },
   {
     "comment": "merge - Statement 350",
-    "query": "RESET SESSION AUTHORIZATION"
+    "query": "RESET SESSION AUTHORIZATION",
+    "expected": "RESET session_authorization"
   },
   {
     "comment": "merge - Statement 351",
-    "query": "MERGE INTO pg_class c USING (SELECT 'pg_depend'::regclass AS oid) AS j ON j.oid = c.oid WHEN MATCHED THEN UPDATE SET reltuples = reltuples + 1 RETURNING j.oid"
+    "query": "MERGE INTO pg_class c USING (SELECT 'pg_depend'::regclass AS oid) AS j ON j.oid = c.oid WHEN MATCHED THEN UPDATE SET reltuples = reltuples + 1 RETURNING j.oid",
+    "expected": "MERGE INTO pg_class AS c USING (SELECT CAST('pg_depend' AS regclass) AS oid) AS j ON j.oid = c.oid WHEN MATCHED THEN UPDATE SET reltuples = reltuples + 1 RETURNING j.oid"
   },
   {
     "comment": "merge - Statement 352",
@@ -1409,7 +1506,8 @@
   },
   {
     "comment": "merge - Statement 353",
-    "query": "MERGE INTO classv c USING pg_namespace n ON n.oid = c.relnamespace WHEN MATCHED AND c.oid = 'pg_depend'::regclass THEN UPDATE SET reltuples = reltuples - 1 RETURNING c.oid"
+    "query": "MERGE INTO classv c USING pg_namespace n ON n.oid = c.relnamespace WHEN MATCHED AND c.oid = 'pg_depend'::regclass THEN UPDATE SET reltuples = reltuples - 1 RETURNING c.oid",
+    "expected": "MERGE INTO classv AS c USING pg_namespace AS n ON n.oid = c.relnamespace WHEN MATCHED AND c.oid = CAST('pg_depend' AS regclass) THEN UPDATE SET reltuples = reltuples - 1 RETURNING c.oid"
   },
   {
     "comment": "merge - Statement 354",
@@ -1425,14 +1523,17 @@
   },
   {
     "comment": "merge - Statement 357",
-    "query": "DROP USER regress_merge_privs"
+    "query": "DROP USER regress_merge_privs",
+    "expected": "DROP ROLE regress_merge_privs"
   },
   {
     "comment": "merge - Statement 358",
-    "query": "DROP USER regress_merge_no_privs"
+    "query": "DROP USER regress_merge_no_privs",
+    "expected": "DROP ROLE regress_merge_no_privs"
   },
   {
     "comment": "merge - Statement 359",
-    "query": "DROP USER regress_merge_none"
+    "query": "DROP USER regress_merge_none",
+    "expected": "DROP ROLE regress_merge_none"
   }
 ]

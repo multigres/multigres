@@ -5,170 +5,212 @@
   },
   {
     "comment": "json_encoding - Statement 2",
-    "query": "SELECT '\"\\u\"'::json"
+    "query": "SELECT '\"\\u\"'::json",
+    "expected": "SELECT CAST('\"\\u\"' AS JSON)"
   },
   {
     "comment": "json_encoding - Statement 3",
-    "query": "SELECT '\"\\u00\"'::json"
+    "query": "SELECT '\"\\u00\"'::json",
+    "expected": "SELECT CAST('\"\\u00\"' AS JSON)"
   },
   {
     "comment": "json_encoding - Statement 4",
-    "query": "SELECT '\"\\u000g\"'::json"
+    "query": "SELECT '\"\\u000g\"'::json",
+    "expected": "SELECT CAST('\"\\u000g\"' AS JSON)"
   },
   {
     "comment": "json_encoding - Statement 5",
-    "query": "SELECT '\"\\u0000\"'::json"
+    "query": "SELECT '\"\\u0000\"'::json",
+    "expected": "SELECT CAST('\"\\u0000\"' AS JSON)"
   },
   {
     "comment": "json_encoding - Statement 6",
-    "query": "SELECT '\"\\uaBcD\"'::json"
+    "query": "SELECT '\"\\uaBcD\"'::json",
+    "expected": "SELECT CAST('\"\\uaBcD\"' AS JSON)"
   },
   {
     "comment": "json_encoding - Statement 7",
-    "query": "select json '{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }' -> 'a' as correct_in_utf8"
+    "query": "select json '{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }' -\u003e 'a' as correct_in_utf8",
+    "expected": "SELECT CAST('{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }' AS JSON) -\u003e 'a' AS correct_in_utf8"
   },
   {
     "comment": "json_encoding - Statement 8",
-    "query": "select json '{ \"a\":  \"\\ud83d\\ud83d\" }' -> 'a'"
+    "query": "select json '{ \"a\":  \"\\ud83d\\ud83d\" }' -\u003e 'a'",
+    "expected": "SELECT CAST('{ \"a\":  \"\\ud83d\\ud83d\" }' AS JSON) -\u003e 'a'"
   },
   {
     "comment": "json_encoding - Statement 9",
-    "query": "select json '{ \"a\":  \"\\ude04\\ud83d\" }' -> 'a'"
+    "query": "select json '{ \"a\":  \"\\ude04\\ud83d\" }' -\u003e 'a'",
+    "expected": "SELECT CAST('{ \"a\":  \"\\ude04\\ud83d\" }' AS JSON) -\u003e 'a'"
   },
   {
     "comment": "json_encoding - Statement 10",
-    "query": "select json '{ \"a\":  \"\\ud83dX\" }' -> 'a'"
+    "query": "select json '{ \"a\":  \"\\ud83dX\" }' -\u003e 'a'",
+    "expected": "SELECT CAST('{ \"a\":  \"\\ud83dX\" }' AS JSON) -\u003e 'a'"
   },
   {
     "comment": "json_encoding - Statement 11",
-    "query": "select json '{ \"a\":  \"\\ude04X\" }' -> 'a'"
+    "query": "select json '{ \"a\":  \"\\ude04X\" }' -\u003e 'a'",
+    "expected": "SELECT CAST('{ \"a\":  \"\\ude04X\" }' AS JSON) -\u003e 'a'"
   },
   {
     "comment": "json_encoding - Statement 12",
-    "query": "select json '{ \"a\":  \"the Copyright \\u00a9 sign\" }' as correct_in_utf8"
+    "query": "select json '{ \"a\":  \"the Copyright \\u00a9 sign\" }' as correct_in_utf8",
+    "expected": "SELECT CAST('{ \"a\":  \"the Copyright \\u00a9 sign\" }' AS JSON) AS correct_in_utf8"
   },
   {
     "comment": "json_encoding - Statement 13",
-    "query": "select json '{ \"a\":  \"dollar \\u0024 character\" }' as correct_everywhere"
+    "query": "select json '{ \"a\":  \"dollar \\u0024 character\" }' as correct_everywhere",
+    "expected": "SELECT CAST('{ \"a\":  \"dollar \\u0024 character\" }' AS JSON) AS correct_everywhere"
   },
   {
     "comment": "json_encoding - Statement 14",
-    "query": "select json '{ \"a\":  \"dollar \\\\u0024 character\" }' as not_an_escape"
+    "query": "select json '{ \"a\":  \"dollar \\\\u0024 character\" }' as not_an_escape",
+    "expected": "SELECT CAST('{ \"a\":  \"dollar \\\\u0024 character\" }' AS JSON) AS not_an_escape"
   },
   {
     "comment": "json_encoding - Statement 15",
-    "query": "select json '{ \"a\":  \"null \\u0000 escape\" }' as not_unescaped"
+    "query": "select json '{ \"a\":  \"null \\u0000 escape\" }' as not_unescaped",
+    "expected": "SELECT CAST('{ \"a\":  \"null \\u0000 escape\" }' AS JSON) AS not_unescaped"
   },
   {
     "comment": "json_encoding - Statement 16",
-    "query": "select json '{ \"a\":  \"null \\\\u0000 escape\" }' as not_an_escape"
+    "query": "select json '{ \"a\":  \"null \\\\u0000 escape\" }' as not_an_escape",
+    "expected": "SELECT CAST('{ \"a\":  \"null \\\\u0000 escape\" }' AS JSON) AS not_an_escape"
   },
   {
     "comment": "json_encoding - Statement 17",
-    "query": "select json '{ \"a\":  \"the Copyright \\u00a9 sign\" }' ->> 'a' as correct_in_utf8"
+    "query": "select json '{ \"a\":  \"the Copyright \\u00a9 sign\" }' -\u003e\u003e 'a' as correct_in_utf8",
+    "expected": "SELECT CAST('{ \"a\":  \"the Copyright \\u00a9 sign\" }' AS JSON) -\u003e\u003e 'a' AS correct_in_utf8"
   },
   {
     "comment": "json_encoding - Statement 18",
-    "query": "select json '{ \"a\":  \"dollar \\u0024 character\" }' ->> 'a' as correct_everywhere"
+    "query": "select json '{ \"a\":  \"dollar \\u0024 character\" }' -\u003e\u003e 'a' as correct_everywhere",
+    "expected": "SELECT CAST('{ \"a\":  \"dollar \\u0024 character\" }' AS JSON) -\u003e\u003e 'a' AS correct_everywhere"
   },
   {
     "comment": "json_encoding - Statement 19",
-    "query": "select json '{ \"a\":  \"dollar \\\\u0024 character\" }' ->> 'a' as not_an_escape"
+    "query": "select json '{ \"a\":  \"dollar \\\\u0024 character\" }' -\u003e\u003e 'a' as not_an_escape",
+    "expected": "SELECT CAST('{ \"a\":  \"dollar \\\\u0024 character\" }' AS JSON) -\u003e\u003e 'a' AS not_an_escape"
   },
   {
     "comment": "json_encoding - Statement 20",
-    "query": "select json '{ \"a\":  \"null \\u0000 escape\" }' ->> 'a' as fails"
+    "query": "select json '{ \"a\":  \"null \\u0000 escape\" }' -\u003e\u003e 'a' as fails",
+    "expected": "SELECT CAST('{ \"a\":  \"null \\u0000 escape\" }' AS JSON) -\u003e\u003e 'a' AS fails"
   },
   {
     "comment": "json_encoding - Statement 21",
-    "query": "select json '{ \"a\":  \"null \\\\u0000 escape\" }' ->> 'a' as not_an_escape"
+    "query": "select json '{ \"a\":  \"null \\\\u0000 escape\" }' -\u003e\u003e 'a' as not_an_escape",
+    "expected": "SELECT CAST('{ \"a\":  \"null \\\\u0000 escape\" }' AS JSON) -\u003e\u003e 'a' AS not_an_escape"
   },
   {
     "comment": "json_encoding - Statement 22",
-    "query": "SELECT '\"\\u\"'::jsonb"
+    "query": "SELECT '\"\\u\"'::jsonb",
+    "expected": "SELECT CAST('\"\\u\"' AS JSONB)"
   },
   {
     "comment": "json_encoding - Statement 23",
-    "query": "SELECT '\"\\u00\"'::jsonb"
+    "query": "SELECT '\"\\u00\"'::jsonb",
+    "expected": "SELECT CAST('\"\\u00\"' AS JSONB)"
   },
   {
     "comment": "json_encoding - Statement 24",
-    "query": "SELECT '\"\\u000g\"'::jsonb"
+    "query": "SELECT '\"\\u000g\"'::jsonb",
+    "expected": "SELECT CAST('\"\\u000g\"' AS JSONB)"
   },
   {
     "comment": "json_encoding - Statement 25",
-    "query": "SELECT '\"\\u0045\"'::jsonb"
+    "query": "SELECT '\"\\u0045\"'::jsonb",
+    "expected": "SELECT CAST('\"\\u0045\"' AS JSONB)"
   },
   {
     "comment": "json_encoding - Statement 26",
-    "query": "SELECT '\"\\u0000\"'::jsonb"
+    "query": "SELECT '\"\\u0000\"'::jsonb",
+    "expected": "SELECT CAST('\"\\u0000\"' AS JSONB)"
   },
   {
     "comment": "json_encoding - Statement 27",
-    "query": "SELECT octet_length('\"\\uaBcD\"'::jsonb::text)"
+    "query": "SELECT octet_length('\"\\uaBcD\"'::jsonb::text)",
+    "expected": "SELECT octet_length(CAST(CAST('\"\\uaBcD\"' AS JSONB) AS TEXT))"
   },
   {
     "comment": "json_encoding - Statement 28",
-    "query": "SELECT octet_length((jsonb '{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }' -> 'a')::text) AS correct_in_utf8"
+    "query": "SELECT octet_length((jsonb '{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }' -\u003e 'a')::text) AS correct_in_utf8",
+    "expected": "SELECT octet_length(CAST((CAST('{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }' AS JSONB) -\u003e 'a') AS TEXT)) AS correct_in_utf8"
   },
   {
     "comment": "json_encoding - Statement 29",
-    "query": "SELECT jsonb '{ \"a\":  \"\\ud83d\\ud83d\" }' -> 'a'"
+    "query": "SELECT jsonb '{ \"a\":  \"\\ud83d\\ud83d\" }' -\u003e 'a'",
+    "expected": "SELECT CAST('{ \"a\":  \"\\ud83d\\ud83d\" }' AS JSONB) -\u003e 'a'"
   },
   {
     "comment": "json_encoding - Statement 30",
-    "query": "SELECT jsonb '{ \"a\":  \"\\ude04\\ud83d\" }' -> 'a'"
+    "query": "SELECT jsonb '{ \"a\":  \"\\ude04\\ud83d\" }' -\u003e 'a'",
+    "expected": "SELECT CAST('{ \"a\":  \"\\ude04\\ud83d\" }' AS JSONB) -\u003e 'a'"
   },
   {
     "comment": "json_encoding - Statement 31",
-    "query": "SELECT jsonb '{ \"a\":  \"\\ud83dX\" }' -> 'a'"
+    "query": "SELECT jsonb '{ \"a\":  \"\\ud83dX\" }' -\u003e 'a'",
+    "expected": "SELECT CAST('{ \"a\":  \"\\ud83dX\" }' AS JSONB) -\u003e 'a'"
   },
   {
     "comment": "json_encoding - Statement 32",
-    "query": "SELECT jsonb '{ \"a\":  \"\\ude04X\" }' -> 'a'"
+    "query": "SELECT jsonb '{ \"a\":  \"\\ude04X\" }' -\u003e 'a'",
+    "expected": "SELECT CAST('{ \"a\":  \"\\ude04X\" }' AS JSONB) -\u003e 'a'"
   },
   {
     "comment": "json_encoding - Statement 33",
-    "query": "SELECT jsonb '{ \"a\":  \"the Copyright \\u00a9 sign\" }' as correct_in_utf8"
+    "query": "SELECT jsonb '{ \"a\":  \"the Copyright \\u00a9 sign\" }' as correct_in_utf8",
+    "expected": "SELECT CAST('{ \"a\":  \"the Copyright \\u00a9 sign\" }' AS JSONB) AS correct_in_utf8"
   },
   {
     "comment": "json_encoding - Statement 34",
-    "query": "SELECT jsonb '{ \"a\":  \"dollar \\u0024 character\" }' as correct_everywhere"
+    "query": "SELECT jsonb '{ \"a\":  \"dollar \\u0024 character\" }' as correct_everywhere",
+    "expected": "SELECT CAST('{ \"a\":  \"dollar \\u0024 character\" }' AS JSONB) AS correct_everywhere"
   },
   {
     "comment": "json_encoding - Statement 35",
-    "query": "SELECT jsonb '{ \"a\":  \"dollar \\\\u0024 character\" }' as not_an_escape"
+    "query": "SELECT jsonb '{ \"a\":  \"dollar \\\\u0024 character\" }' as not_an_escape",
+    "expected": "SELECT CAST('{ \"a\":  \"dollar \\\\u0024 character\" }' AS JSONB) AS not_an_escape"
   },
   {
     "comment": "json_encoding - Statement 36",
-    "query": "SELECT jsonb '{ \"a\":  \"null \\u0000 escape\" }' as fails"
+    "query": "SELECT jsonb '{ \"a\":  \"null \\u0000 escape\" }' as fails",
+    "expected": "SELECT CAST('{ \"a\":  \"null \\u0000 escape\" }' AS JSONB) AS fails"
   },
   {
     "comment": "json_encoding - Statement 37",
-    "query": "SELECT jsonb '{ \"a\":  \"null \\\\u0000 escape\" }' as not_an_escape"
+    "query": "SELECT jsonb '{ \"a\":  \"null \\\\u0000 escape\" }' as not_an_escape",
+    "expected": "SELECT CAST('{ \"a\":  \"null \\\\u0000 escape\" }' AS JSONB) AS not_an_escape"
   },
   {
     "comment": "json_encoding - Statement 38",
-    "query": "SELECT jsonb '{ \"a\":  \"the Copyright \\u00a9 sign\" }' ->> 'a' as correct_in_utf8"
+    "query": "SELECT jsonb '{ \"a\":  \"the Copyright \\u00a9 sign\" }' -\u003e\u003e 'a' as correct_in_utf8",
+    "expected": "SELECT CAST('{ \"a\":  \"the Copyright \\u00a9 sign\" }' AS JSONB) -\u003e\u003e 'a' AS correct_in_utf8"
   },
   {
     "comment": "json_encoding - Statement 39",
-    "query": "SELECT jsonb '{ \"a\":  \"dollar \\u0024 character\" }' ->> 'a' as correct_everywhere"
+    "query": "SELECT jsonb '{ \"a\":  \"dollar \\u0024 character\" }' -\u003e\u003e 'a' as correct_everywhere",
+    "expected": "SELECT CAST('{ \"a\":  \"dollar \\u0024 character\" }' AS JSONB) -\u003e\u003e 'a' AS correct_everywhere"
   },
   {
     "comment": "json_encoding - Statement 40",
-    "query": "SELECT jsonb '{ \"a\":  \"dollar \\\\u0024 character\" }' ->> 'a' as not_an_escape"
+    "query": "SELECT jsonb '{ \"a\":  \"dollar \\\\u0024 character\" }' -\u003e\u003e 'a' as not_an_escape",
+    "expected": "SELECT CAST('{ \"a\":  \"dollar \\\\u0024 character\" }' AS JSONB) -\u003e\u003e 'a' AS not_an_escape"
   },
   {
     "comment": "json_encoding - Statement 41",
-    "query": "SELECT jsonb '{ \"a\":  \"null \\u0000 escape\" }' ->> 'a' as fails"
+    "query": "SELECT jsonb '{ \"a\":  \"null \\u0000 escape\" }' -\u003e\u003e 'a' as fails",
+    "expected": "SELECT CAST('{ \"a\":  \"null \\u0000 escape\" }' AS JSONB) -\u003e\u003e 'a' AS fails"
   },
   {
     "comment": "json_encoding - Statement 42",
-    "query": "SELECT jsonb '{ \"a\":  \"null \\\\u0000 escape\" }' ->> 'a' as not_an_escape"
+    "query": "SELECT jsonb '{ \"a\":  \"null \\\\u0000 escape\" }' -\u003e\u003e 'a' as not_an_escape",
+    "expected": "SELECT CAST('{ \"a\":  \"null \\\\u0000 escape\" }' AS JSONB) -\u003e\u003e 'a' AS not_an_escape"
   },
   {
     "comment": "json_encoding - Statement 43",
-    "query": "select * from pg_input_error_info('{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }', 'jsonb')"
+    "query": "select * from pg_input_error_info('{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }', 'jsonb')",
+    "expected": "SELECT * FROM pg_input_error_info('{ \"a\":  \"\\ud83d\\ude04\\ud83d\\udc36\" }', 'jsonb')"
   }
 ]

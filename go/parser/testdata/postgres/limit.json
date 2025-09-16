@@ -1,254 +1,316 @@
 [
   {
     "comment": "limit - Statement 1",
-    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 > 50 ORDER BY unique1 LIMIT 2"
+    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 50 ORDER BY unique1 LIMIT 2",
+    "expected": "SELECT CAST('' AS TEXT) AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 50 ORDER BY unique1 LIMIT 2"
   },
   {
     "comment": "limit - Statement 2",
-    "query": "SELECT ''::text AS five, unique1, unique2, stringu1 FROM onek WHERE unique1 > 60 ORDER BY unique1 LIMIT 5"
+    "query": "SELECT ''::text AS five, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 60 ORDER BY unique1 LIMIT 5",
+    "expected": "SELECT CAST('' AS TEXT) AS five, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 60 ORDER BY unique1 LIMIT 5"
   },
   {
     "comment": "limit - Statement 3",
-    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 > 60 AND unique1 < 63 ORDER BY unique1 LIMIT 5"
+    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 60 AND unique1 \u003c 63 ORDER BY unique1 LIMIT 5",
+    "expected": "SELECT CAST('' AS TEXT) AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 60 AND unique1 \u003c 63 ORDER BY unique1 LIMIT 5"
   },
   {
     "comment": "limit - Statement 4",
-    "query": "SELECT ''::text AS three, unique1, unique2, stringu1 FROM onek WHERE unique1 > 100 ORDER BY unique1 LIMIT 3 OFFSET 20"
+    "query": "SELECT ''::text AS three, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 100 ORDER BY unique1 LIMIT 3 OFFSET 20",
+    "expected": "SELECT CAST('' AS TEXT) AS three, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 100 ORDER BY unique1 LIMIT 3 OFFSET 20"
   },
   {
     "comment": "limit - Statement 5",
-    "query": "SELECT ''::text AS zero, unique1, unique2, stringu1 FROM onek WHERE unique1 < 50 ORDER BY unique1 DESC LIMIT 8 OFFSET 99"
+    "query": "SELECT ''::text AS zero, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003c 50 ORDER BY unique1 DESC LIMIT 8 OFFSET 99",
+    "expected": "SELECT CAST('' AS TEXT) AS zero, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003c 50 ORDER BY unique1 DESC LIMIT 8 OFFSET 99"
   },
   {
     "comment": "limit - Statement 6",
-    "query": "SELECT ''::text AS eleven, unique1, unique2, stringu1 FROM onek WHERE unique1 < 50 ORDER BY unique1 DESC LIMIT 20 OFFSET 39"
+    "query": "SELECT ''::text AS eleven, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003c 50 ORDER BY unique1 DESC LIMIT 20 OFFSET 39",
+    "expected": "SELECT CAST('' AS TEXT) AS eleven, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003c 50 ORDER BY unique1 DESC LIMIT 20 OFFSET 39"
   },
   {
     "comment": "limit - Statement 7",
-    "query": "SELECT ''::text AS ten, unique1, unique2, stringu1 FROM onek ORDER BY unique1 OFFSET 990"
+    "query": "SELECT ''::text AS ten, unique1, unique2, stringu1 FROM onek ORDER BY unique1 OFFSET 990",
+    "expected": "SELECT CAST('' AS TEXT) AS ten, unique1, unique2, stringu1 FROM onek ORDER BY unique1 OFFSET 990"
   },
   {
     "comment": "limit - Statement 8",
-    "query": "SELECT ''::text AS five, unique1, unique2, stringu1 FROM onek ORDER BY unique1 OFFSET 990 LIMIT 5"
+    "query": "SELECT ''::text AS five, unique1, unique2, stringu1 FROM onek ORDER BY unique1 OFFSET 990 LIMIT 5",
+    "expected": "SELECT CAST('' AS TEXT) AS five, unique1, unique2, stringu1 FROM onek ORDER BY unique1 LIMIT 5 OFFSET 990"
   },
   {
     "comment": "limit - Statement 9",
-    "query": "SELECT ''::text AS five, unique1, unique2, stringu1 FROM onek ORDER BY unique1 LIMIT 5 OFFSET 900"
+    "query": "SELECT ''::text AS five, unique1, unique2, stringu1 FROM onek ORDER BY unique1 LIMIT 5 OFFSET 900",
+    "expected": "SELECT CAST('' AS TEXT) AS five, unique1, unique2, stringu1 FROM onek ORDER BY unique1 LIMIT 5 OFFSET 900"
   },
   {
     "comment": "limit - Statement 10",
-    "query": "select * from int8_tbl limit (case when random() < 0.5 then null::bigint end)"
+    "query": "select * from int8_tbl limit (case when random() \u003c 0.5 then null::bigint end)",
+    "expected": "SELECT * FROM int8_tbl LIMIT (CASE WHEN random() \u003c 0.5 THEN CAST(NULL AS BIGINT) END)"
   },
   {
     "comment": "limit - Statement 11",
-    "query": "select * from int8_tbl offset (case when random() < 0.5 then null::bigint end)"
+    "query": "select * from int8_tbl offset (case when random() \u003c 0.5 then null::bigint end)",
+    "expected": "SELECT * FROM int8_tbl OFFSET (CASE WHEN random() \u003c 0.5 THEN CAST(NULL AS BIGINT) END)"
   },
   {
     "comment": "limit - Statement 12",
-    "query": "begin"
+    "query": "begin",
+    "expected": "BEGIN"
   },
   {
     "comment": "limit - Statement 13",
-    "query": "declare c1 cursor for select * from int8_tbl limit 10"
+    "query": "declare c1 cursor for select * from int8_tbl limit 10",
+    "expected": "DECLARE c1 CURSOR FOR SELECT * FROM int8_tbl LIMIT 10"
   },
   {
     "comment": "limit - Statement 14",
-    "query": "fetch all in c1"
+    "query": "fetch all in c1",
+    "expected": "FETCH ALL FROM c1"
   },
   {
     "comment": "limit - Statement 15",
-    "query": "fetch 1 in c1"
+    "query": "fetch 1 in c1",
+    "expected": "FETCH FROM c1"
   },
   {
     "comment": "limit - Statement 16",
-    "query": "fetch backward 1 in c1"
+    "query": "fetch backward 1 in c1",
+    "expected": "FETCH BACKWARD FROM c1"
   },
   {
     "comment": "limit - Statement 17",
-    "query": "fetch backward all in c1"
+    "query": "fetch backward all in c1",
+    "expected": "FETCH BACKWARD ALL FROM c1"
   },
   {
     "comment": "limit - Statement 18",
-    "query": "declare c2 cursor for select * from int8_tbl limit 3"
+    "query": "declare c2 cursor for select * from int8_tbl limit 3",
+    "expected": "DECLARE c2 CURSOR FOR SELECT * FROM int8_tbl LIMIT 3"
   },
   {
     "comment": "limit - Statement 19",
-    "query": "fetch all in c2"
+    "query": "fetch all in c2",
+    "expected": "FETCH ALL FROM c2"
   },
   {
     "comment": "limit - Statement 20",
-    "query": "fetch 1 in c2"
+    "query": "fetch 1 in c2",
+    "expected": "FETCH FROM c2"
   },
   {
     "comment": "limit - Statement 21",
-    "query": "fetch backward 1 in c2"
+    "query": "fetch backward 1 in c2",
+    "expected": "FETCH BACKWARD FROM c2"
   },
   {
     "comment": "limit - Statement 22",
-    "query": "fetch backward all in c2"
+    "query": "fetch backward all in c2",
+    "expected": "FETCH BACKWARD ALL FROM c2"
   },
   {
     "comment": "limit - Statement 23",
-    "query": "declare c3 cursor for select * from int8_tbl offset 3"
+    "query": "declare c3 cursor for select * from int8_tbl offset 3",
+    "expected": "DECLARE c3 CURSOR FOR SELECT * FROM int8_tbl OFFSET 3"
   },
   {
     "comment": "limit - Statement 24",
-    "query": "fetch all in c3"
+    "query": "fetch all in c3",
+    "expected": "FETCH ALL FROM c3"
   },
   {
     "comment": "limit - Statement 25",
-    "query": "fetch 1 in c3"
+    "query": "fetch 1 in c3",
+    "expected": "FETCH FROM c3"
   },
   {
     "comment": "limit - Statement 26",
-    "query": "fetch backward 1 in c3"
+    "query": "fetch backward 1 in c3",
+    "expected": "FETCH BACKWARD FROM c3"
   },
   {
     "comment": "limit - Statement 27",
-    "query": "fetch backward all in c3"
+    "query": "fetch backward all in c3",
+    "expected": "FETCH BACKWARD ALL FROM c3"
   },
   {
     "comment": "limit - Statement 28",
-    "query": "declare c4 cursor for select * from int8_tbl offset 10"
+    "query": "declare c4 cursor for select * from int8_tbl offset 10",
+    "expected": "DECLARE c4 CURSOR FOR SELECT * FROM int8_tbl OFFSET 10"
   },
   {
     "comment": "limit - Statement 29",
-    "query": "fetch all in c4"
+    "query": "fetch all in c4",
+    "expected": "FETCH ALL FROM c4"
   },
   {
     "comment": "limit - Statement 30",
-    "query": "fetch 1 in c4"
+    "query": "fetch 1 in c4",
+    "expected": "FETCH FROM c4"
   },
   {
     "comment": "limit - Statement 31",
-    "query": "fetch backward 1 in c4"
+    "query": "fetch backward 1 in c4",
+    "expected": "FETCH BACKWARD FROM c4"
   },
   {
     "comment": "limit - Statement 32",
-    "query": "fetch backward all in c4"
+    "query": "fetch backward all in c4",
+    "expected": "FETCH BACKWARD ALL FROM c4"
   },
   {
     "comment": "limit - Statement 33",
-    "query": "declare c5 cursor for select * from int8_tbl order by q1 fetch first 2 rows with ties"
+    "query": "declare c5 cursor for select * from int8_tbl order by q1 fetch first 2 rows with ties",
+    "expected": "DECLARE c5 CURSOR FOR SELECT * FROM int8_tbl ORDER BY q1 FETCH FIRST 2 ROWS WITH TIES"
   },
   {
     "comment": "limit - Statement 34",
-    "query": "fetch all in c5"
+    "query": "fetch all in c5",
+    "expected": "FETCH ALL FROM c5"
   },
   {
     "comment": "limit - Statement 35",
-    "query": "fetch 1 in c5"
+    "query": "fetch 1 in c5",
+    "expected": "FETCH FROM c5"
   },
   {
     "comment": "limit - Statement 36",
-    "query": "fetch backward 1 in c5"
+    "query": "fetch backward 1 in c5",
+    "expected": "FETCH BACKWARD FROM c5"
   },
   {
     "comment": "limit - Statement 37",
-    "query": "fetch backward all in c5"
+    "query": "fetch backward all in c5",
+    "expected": "FETCH BACKWARD ALL FROM c5"
   },
   {
     "comment": "limit - Statement 38",
-    "query": "rollback"
+    "query": "rollback",
+    "expected": "ROLLBACK"
   },
   {
     "comment": "limit - Statement 39",
-    "query": "SELECT (SELECT n FROM (VALUES (1)) AS x, (SELECT n FROM generate_series(1,10) AS n ORDER BY n LIMIT 1 OFFSET s-1) AS y) AS z FROM generate_series(1,10) AS s"
+    "query": "SELECT (SELECT n FROM (VALUES (1)) AS x, (SELECT n FROM generate_series(1,10) AS n ORDER BY n LIMIT 1 OFFSET s-1) AS y) AS z FROM generate_series(1,10) AS s",
+    "expected": "SELECT (SELECT n FROM (VALUES (1)) AS x, (SELECT n FROM generate_series(1, 10) AS n ORDER BY n LIMIT 1 OFFSET s - 1) AS y) AS z FROM generate_series(1, 10) AS s"
   },
   {
     "comment": "limit - Statement 40",
-    "query": "create temp sequence testseq"
+    "query": "create temp sequence testseq",
+    "expected": "CREATE SEQUENCE testseq"
   },
   {
     "comment": "limit - Statement 41",
-    "query": "explain (verbose, costs off) select unique1, unique2, nextval('testseq') from tenk1 order by unique2 limit 10"
+    "query": "explain (verbose, costs off) select unique1, unique2, nextval('testseq') from tenk1 order by unique2 limit 10",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT unique1, unique2, nextval('testseq') FROM tenk1 ORDER BY unique2 LIMIT 10"
   },
   {
     "comment": "limit - Statement 42",
-    "query": "select unique1, unique2, nextval('testseq') from tenk1 order by unique2 limit 10"
+    "query": "select unique1, unique2, nextval('testseq') from tenk1 order by unique2 limit 10",
+    "expected": "SELECT unique1, unique2, nextval('testseq') FROM tenk1 ORDER BY unique2 LIMIT 10"
   },
   {
     "comment": "limit - Statement 43",
-    "query": "select currval('testseq')"
+    "query": "select currval('testseq')",
+    "expected": "SELECT currval('testseq')"
   },
   {
     "comment": "limit - Statement 44",
-    "query": "explain (verbose, costs off) select unique1, unique2, nextval('testseq') from tenk1 order by tenthous limit 10"
+    "query": "explain (verbose, costs off) select unique1, unique2, nextval('testseq') from tenk1 order by tenthous limit 10",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT unique1, unique2, nextval('testseq') FROM tenk1 ORDER BY tenthous LIMIT 10"
   },
   {
     "comment": "limit - Statement 45",
-    "query": "select unique1, unique2, nextval('testseq') from tenk1 order by tenthous limit 10"
+    "query": "select unique1, unique2, nextval('testseq') from tenk1 order by tenthous limit 10",
+    "expected": "SELECT unique1, unique2, nextval('testseq') FROM tenk1 ORDER BY tenthous LIMIT 10"
   },
   {
     "comment": "limit - Statement 46",
-    "query": "explain (verbose, costs off) select unique1, unique2, generate_series(1,10) from tenk1 order by unique2 limit 7"
+    "query": "explain (verbose, costs off) select unique1, unique2, generate_series(1,10) from tenk1 order by unique2 limit 7",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT unique1, unique2, generate_series(1, 10) FROM tenk1 ORDER BY unique2 LIMIT 7"
   },
   {
     "comment": "limit - Statement 47",
-    "query": "select unique1, unique2, generate_series(1,10) from tenk1 order by unique2 limit 7"
+    "query": "select unique1, unique2, generate_series(1,10) from tenk1 order by unique2 limit 7",
+    "expected": "SELECT unique1, unique2, generate_series(1, 10) FROM tenk1 ORDER BY unique2 LIMIT 7"
   },
   {
     "comment": "limit - Statement 48",
-    "query": "explain (verbose, costs off) select unique1, unique2, generate_series(1,10) from tenk1 order by tenthous limit 7"
+    "query": "explain (verbose, costs off) select unique1, unique2, generate_series(1,10) from tenk1 order by tenthous limit 7",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT unique1, unique2, generate_series(1, 10) FROM tenk1 ORDER BY tenthous LIMIT 7"
   },
   {
     "comment": "limit - Statement 49",
-    "query": "select unique1, unique2, generate_series(1,10) from tenk1 order by tenthous limit 7"
+    "query": "select unique1, unique2, generate_series(1,10) from tenk1 order by tenthous limit 7",
+    "expected": "SELECT unique1, unique2, generate_series(1, 10) FROM tenk1 ORDER BY tenthous LIMIT 7"
   },
   {
     "comment": "limit - Statement 50",
-    "query": "explain (verbose, costs off) select generate_series(0,2) as s1, generate_series((random()*.1)::int,2) as s2"
+    "query": "explain (verbose, costs off) select generate_series(0,2) as s1, generate_series((random()*.1)::int,2) as s2",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT generate_series(0, 2) AS s1, generate_series(CAST((random() * .1) AS INT), 2) AS s2"
   },
   {
     "comment": "limit - Statement 51",
-    "query": "select generate_series(0,2) as s1, generate_series((random()*.1)::int,2) as s2"
+    "query": "select generate_series(0,2) as s1, generate_series((random()*.1)::int,2) as s2",
+    "expected": "SELECT generate_series(0, 2) AS s1, generate_series(CAST((random() * .1) AS INT), 2) AS s2"
   },
   {
     "comment": "limit - Statement 52",
-    "query": "explain (verbose, costs off) select generate_series(0,2) as s1, generate_series((random()*.1)::int,2) as s2 order by s2 desc"
+    "query": "explain (verbose, costs off) select generate_series(0,2) as s1, generate_series((random()*.1)::int,2) as s2 order by s2 desc",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT generate_series(0, 2) AS s1, generate_series(CAST((random() * .1) AS INT), 2) AS s2 ORDER BY s2 DESC"
   },
   {
     "comment": "limit - Statement 53",
-    "query": "select generate_series(0,2) as s1, generate_series((random()*.1)::int,2) as s2 order by s2 desc"
+    "query": "select generate_series(0,2) as s1, generate_series((random()*.1)::int,2) as s2 order by s2 desc",
+    "expected": "SELECT generate_series(0, 2) AS s1, generate_series(CAST((random() * .1) AS INT), 2) AS s2 ORDER BY s2 DESC"
   },
   {
     "comment": "limit - Statement 54",
-    "query": "explain (verbose, costs off) select sum(tenthous) as s1, sum(tenthous) + random()*0 as s2 from tenk1 group by thousand order by thousand limit 3"
+    "query": "explain (verbose, costs off) select sum(tenthous) as s1, sum(tenthous) + random()*0 as s2 from tenk1 group by thousand order by thousand limit 3",
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT SUM(tenthous) AS s1, SUM(tenthous) + random() * 0 AS s2 FROM tenk1 GROUP BY thousand ORDER BY thousand LIMIT 3"
   },
   {
     "comment": "limit - Statement 55",
-    "query": "select sum(tenthous) as s1, sum(tenthous) + random()*0 as s2 from tenk1 group by thousand order by thousand limit 3"
+    "query": "select sum(tenthous) as s1, sum(tenthous) + random()*0 as s2 from tenk1 group by thousand order by thousand limit 3",
+    "expected": "SELECT SUM(tenthous) AS s1, SUM(tenthous) + random() * 0 AS s2 FROM tenk1 GROUP BY thousand ORDER BY thousand LIMIT 3"
   },
   {
     "comment": "limit - Statement 56",
-    "query": "SELECT  thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST 2 ROW WITH TIES"
+    "query": "SELECT  thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST 2 ROW WITH TIES",
+    "expected": "SELECT thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST 2 ROWS WITH TIES"
   },
   {
     "comment": "limit - Statement 57",
-    "query": "SELECT  thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST ROWS WITH TIES"
+    "query": "SELECT  thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST ROWS WITH TIES",
+    "expected": "SELECT thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST ROW WITH TIES"
   },
   {
     "comment": "limit - Statement 58",
-    "query": "SELECT  thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST 1 ROW WITH TIES"
+    "query": "SELECT  thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST 1 ROW WITH TIES",
+    "expected": "SELECT thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST ROW WITH TIES"
   },
   {
     "comment": "limit - Statement 59",
-    "query": "SELECT  thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST 2 ROW ONLY"
+    "query": "SELECT  thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST 2 ROW ONLY",
+    "expected": "SELECT thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand LIMIT 2"
   },
   {
     "comment": "limit - Statement 60",
-    "query": "SELECT  thousand FROM onek WHERE thousand < 5 ORDER BY thousand FETCH FIRST 1 ROW WITH TIES FOR UPDATE SKIP LOCKED"
+    "query": "SELECT  thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST 1 ROW WITH TIES FOR UPDATE SKIP LOCKED",
+    "expected": "SELECT thousand FROM onek WHERE thousand \u003c 5 ORDER BY thousand FETCH FIRST ROW WITH TIES FOR UPDATE SKIP LOCKED"
   },
   {
     "comment": "limit - Statement 61",
-    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 > 50 FETCH FIRST 2 ROW WITH TIES"
+    "query": "SELECT ''::text AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 50 FETCH FIRST 2 ROW WITH TIES",
+    "expected": "SELECT CAST('' AS TEXT) AS two, unique1, unique2, stringu1 FROM onek WHERE unique1 \u003e 50 FETCH FIRST 2 ROWS WITH TIES"
   },
   {
     "comment": "limit - Statement 62",
-    "query": "CREATE VIEW limit_thousand_v_1 AS SELECT thousand FROM onek WHERE thousand < 995 ORDER BY thousand FETCH FIRST 5 ROWS WITH TIES OFFSET 10"
+    "query": "CREATE VIEW limit_thousand_v_1 AS SELECT thousand FROM onek WHERE thousand \u003c 995 ORDER BY thousand FETCH FIRST 5 ROWS WITH TIES OFFSET 10"
   },
   {
     "comment": "limit - Statement 63",
-    "query": "CREATE VIEW limit_thousand_v_3 AS SELECT thousand FROM onek WHERE thousand < 995 ORDER BY thousand FETCH FIRST (NULL+1) ROWS WITH TIES"
+    "query": "CREATE VIEW limit_thousand_v_3 AS SELECT thousand FROM onek WHERE thousand \u003c 995 ORDER BY thousand FETCH FIRST (NULL+1) ROWS WITH TIES",
+    "expected": "CREATE VIEW limit_thousand_v_3 AS SELECT thousand FROM onek WHERE thousand \u003c 995 ORDER BY thousand FETCH FIRST (NULL + 1) ROWS WITH TIES"
   }
 ]
