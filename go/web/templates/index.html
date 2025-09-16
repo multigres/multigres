@@ -1,60 +1,56 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>{{.Title}}</title>
-        <link rel="stylesheet" href="/css/common.css" />
-    </head>
-    <body>
-        <div class="container">
-            <header class="header">
-                <h1 class="title">{{.Title}}</h1>
-            </header>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/css/common.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <h1 class="title">{{.Title}}</h1>
+      </header>
 
-            <main>
-                <section class="section">
-                    <h2 class="section-title">Command Line Options</h2>
-                    {{if .Options}}
-                    <table class="gen-table">
-                        <thead>
-                            <tr>
-                                <th>Flag</th>
-                                <th>Value</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{range $Flag, $Value := .Options}}
-                            <tr>
-                                <td class="flag-cell">{{$Flag}}</td>
-                                <td class="value-cell">{{$Value}}</td>
-                            </tr>
-                            {{end}}
-                        </tbody>
-                    </table>
-                    {{else}}
-                    <div class="empty-state">
-                        No command line options detected
-                    </div>
-                    {{end}}
-                </section>
+      <main>
+        <section class="section">
+          <h2 class="section-title">Command Line Options</h2>
+          {{if .Options}}
+          <table class="gen-table">
+            <thead>
+              <tr>
+                <th>Flag</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range $Flag, $Value := .Options}}
+              <tr>
+                <td class="flag-cell">{{$Flag}}</td>
+                <td class="value-cell">{{$Value}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div class="empty-state">No command line options detected</div>
+          {{end}}
+        </section>
 
-                <section class="section">
-                    <h2 class="section-title">Health Check</h2>
-                    <p>Monitor the application status and health.</p>
-                    <br />
-                    <a href="{{.LiveLink}}" class="live-link"
-                        >Check Server Status</a
-                    >
-                </section>
-                <section class="section">
-                    <div class="timestamp">
-                        <script>
-                            document.write(new Date().toISOString());
-                        </script>
-                    </div>
-                </section>
-            </main>
-        </div>
-    </body>
+        <section class="section">
+          <h2 class="section-title">Health Check</h2>
+          <p>Monitor the application status and health.</p>
+          <br />
+          <a href="{{.LiveLink}}" class="live-link">Check Server Status</a>
+        </section>
+        <section class="section">
+          <div class="timestamp">
+            <script>
+              document.write(new Date().toISOString());
+            </script>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
 </html>
