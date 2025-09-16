@@ -28,6 +28,8 @@ import (
 )
 
 func init() {
+	servenv.RegisterServiceCmd(Root)
+	servenv.InitServiceMap("grpc", "pgctld")
 	Root.AddCommand(ServerCmd)
 	ServerCmd.Flags().IntVar(&pgPort, "pg-port", pgPort, "PostgreSQL port")
 }
@@ -157,7 +159,6 @@ func NewPgCtldService(logger *slog.Logger, pgHost string, pgPort int, pgUser str
 
 	// Create the PostgreSQL config once during service initialization
 	config, err := pgctld.NewPostgresCtlConfig(
-		pgHost,
 		pgPort,
 		pgUser,
 		pgDatabase,
@@ -181,7 +182,6 @@ func NewPgCtldService(logger *slog.Logger, pgHost string, pgPort int, pgUser str
 
 	return &PgCtldService{
 		logger:     logger,
-		pgHost:     pgHost,
 		pgPort:     pgPort,
 		pgUser:     pgUser,
 		pgDatabase: pgDatabase,
@@ -283,7 +283,6 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 			Status:  pb.ServerStatus_NOT_INITIALIZED,
 			DataDir: pgctld.PostgresDataDir(s.poolerDir),
 			Port:    int32(s.pgPort),
-			Host:    s.pgHost,
 			Message: "Data directory is not initialized",
 		}, nil
 	}
@@ -312,7 +311,6 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 		UptimeSeconds: result.UptimeSeconds,
 		DataDir:       result.DataDir,
 		Port:          int32(result.Port),
-		Host:          result.Host,
 		Ready:         result.Ready,
 		Message:       result.Message,
 	}, nil

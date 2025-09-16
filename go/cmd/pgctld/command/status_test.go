@@ -141,7 +141,7 @@ func TestIsServerReady(t *testing.T) {
 
 			// Create config directly for the test
 			config, err := pgctld.NewPostgresCtlConfig(
-				"localhost", 5432, "postgres", "postgres", "",
+				5432, "postgres", "postgres", "",
 				30, pgctld.PostgresDataDir(baseDir), pgctld.PostgresConfigFile(baseDir), baseDir)
 			require.NoError(t, err)
 
@@ -191,7 +191,7 @@ func TestGetServerVersion(t *testing.T) {
 
 			// Create config directly for the test
 			config, err := pgctld.NewPostgresCtlConfig(
-				"localhost", 5432, "postgres", "postgres", "",
+				5432, "postgres", "postgres", "",
 				30, pgctld.PostgresDataDir(baseDir), pgctld.PostgresConfigFile(baseDir), baseDir)
 			require.NoError(t, err)
 

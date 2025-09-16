@@ -18,7 +18,6 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/pgctld"
-	"github.com/multigres/multigres/go/servenv"
 
 	"github.com/spf13/cobra"
 )
@@ -77,8 +76,6 @@ management for PostgreSQL servers.`,
 }
 
 func init() {
-	servenv.RegisterServiceCmd(Root)
-	servenv.InitServiceMap("grpc", "pgctld")
 	Root.PersistentFlags().StringVarP(&pgHost, "pg-host", "H", pgHost, "PostgreSQL host")
 	Root.PersistentFlags().StringVarP(&pgDatabase, "pg-database", "D", pgDatabase, "PostgreSQL database name")
 	Root.PersistentFlags().StringVarP(&pgUser, "pg-user", "U", pgUser, "PostgreSQL username")

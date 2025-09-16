@@ -61,14 +61,14 @@ Examples:
   pgctld status --pooler-dir /var/lib/poolerdir/
 
   # Check status of PostgreSQL on custom port
-  pgctld status --pooler-dir/var/lib/poolerdir/ --port 5433
+  pgctld status --pooler-dir/var/lib/poolerdir/
 
   # Check status with specific connection parameters
-  pgctld status -d /var/lib/poolerdir/ -H remotehost -U admin --pg-database mydb
+  pgctld status -d /var/lib/poolerdir/
 
   # Check status of multiple instances
-  pgctld status -d /var/lib/poolerdir/instance1 -p 5432
-  pgctld status -d /var/lib/poolerdir/instance2 -p 5433`,
+  pgctld status -d /var/lib/poolerdir/instance1
+  pgctld status -d /var/lib/poolerdir/instance2`,
 	PreRunE: validateInitialized,
 	RunE:    runStatus,
 }
@@ -79,7 +79,6 @@ func GetStatusWithResult(config *pgctld.PostgresCtlConfig) (*StatusResult, error
 	result := &StatusResult{
 		DataDir: config.PostgresDataDir,
 		Port:    config.Port,
-		Host:    config.Host,
 	}
 
 	// Check if PostgreSQL is running
