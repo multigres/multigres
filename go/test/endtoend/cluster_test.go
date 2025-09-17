@@ -781,6 +781,26 @@ func executeStopCommand(t *testing.T, args []string) (string, error) {
 	return string(output), err
 }
 
+// testPostgreSQLConnection tests PostgreSQL connectivity on a given port
+func testPostgreSQLConnection(t *testing.T, port int, zone string) {
+	t.Helper()
+
+	t.Logf("Testing PostgreSQL connection on port %d (Zone %s)...", port, zone)
+
+	// Set up environment for psql command
+	env := os.Environ()
+	env = append(env, "PGPASSWORD=postgres")
+
+	// Execute psql command to test connectivity
+	cmd := exec.Command("psql", "-h", "localhost", "-p", fmt.Sprintf("%d", port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s PostgreSQL is working!' as status, version();", zone))
+	cmd.Env = env
+
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "PostgreSQL connection failed on port %d (Zone %s): %s", port, zone, string(output))
+
+	t.Logf("Zone %s PostgreSQL (port %d) is responding correctly", zone, port)
+}
+
 func TestClusterLifecycle(t *testing.T) {
 	ensureBinaryBuilt(t)
 
@@ -918,6 +938,12 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Log("Verifying multipooler has database field populated in topology...")
 		require.NoError(t, checkMultipoolerDatabaseInTopology(etcdAddress, globalRootPath, cellName, expectedDatabase),
 			"multipooler should be registered with database field in topology")
+
+		// Test PostgreSQL connectivity for both zones
+		t.Log("Testing PostgreSQL connectivity for both zones...")
+		testPostgreSQLConnection(t, testPorts.PgctldPGPort, "1")
+		testPostgreSQLConnection(t, testPorts.PgctldPGPort+100, "2")
+		t.Log("Both PostgreSQL instances are working correctly!")
 
 		// Start cluster is idempotent
 		t.Log("Stopping cluster...")
