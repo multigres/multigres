@@ -12,10 +12,11 @@ This directory contains JSON test files converted from PostgreSQL's regression t
 To regenerate these test files from PostgreSQL source:
 
 1. **Get PostgreSQL test files**:
+
    ```bash
    # Clone PostgreSQL repository (if not already done)
    git clone https://github.com/postgres/postgres.git
-   
+
    # Copy test files to postgres-tests directory (one level up)
    cp postgres/src/test/regress/sql/*.sql ../postgres-tests/
    ```

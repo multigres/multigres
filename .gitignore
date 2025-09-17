@@ -59,6 +59,7 @@ multigres_local/
 
 # Local linter output directory
 super-linter-output/
+.mypy_cache/
 
 # Claude Code settings
 .claude/

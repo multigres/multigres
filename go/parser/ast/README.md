@@ -7,12 +7,14 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 ## Implementation Summary
 
 ### Completed Components ✅
+
 - **Parse Tree Nodes** (parsenodes.h): 129 of 196 nodes (66% complete)
 - **Primitive Expression Nodes** (primnodes.h): 51 of 64 nodes (80% complete)
 - **Value System** (value.h): 5 of 5 nodes (100% complete)
 - **Base Infrastructure**: Complete node system with interfaces and utilities
 
 ### Not Yet Implemented
+
 - **Plan Nodes** (plannodes.h): 66 nodes - Query planning structures
 - **Execution Nodes** (execnodes.h): 80 nodes - Query execution state
 - **Path Nodes** (pathnodes.h): 81 nodes - Query optimization paths
@@ -23,10 +25,12 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 ## Parse Tree Node Structures (parsenodes.h)
 
 ### Core Query Structure
+
 - ✅ **Query** - The main structure representing a parsed SQL query (`src/include/nodes/parsenodes.h:117`)
 - ✅ **RawStmt** - Raw statement wrapper (`src/include/nodes/parsenodes.h:2017`)
 
 ### Expression Nodes
+
 - ✅ **A_Expr** - Generic expression node (`src/include/nodes/parsenodes.h:329`)
 - ✅ **A_Const** - Constant value (`src/include/nodes/parsenodes.h:357`)
 - ✅ **ColumnRef** - Column reference (`src/include/nodes/parsenodes.h:291`)
@@ -34,12 +38,13 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **TypeCast** - Type casting (`src/include/nodes/parsenodes.h:370`)
 - ✅ **CollateClause** - COLLATE clause (`src/include/nodes/parsenodes.h:381`)
 - ✅ **FuncCall** - Function call (`src/include/nodes/parsenodes.h:423`)
-- ✅ **A_Star** - Asterisk (*) (`src/include/nodes/parsenodes.h:445`)
+- ✅ **A_Star** - Asterisk (\*) (`src/include/nodes/parsenodes.h:445`)
 - ✅ **A_Indices** - Array indices (`src/include/nodes/parsenodes.h:456`)
 - ✅ **A_Indirection** - Indirection (field access) (`src/include/nodes/parsenodes.h:479`)
 - ✅ **A_ArrayExpr** - Array expression (`src/include/nodes/parsenodes.h:489`)
 
 ### Statement Nodes
+
 - ✅ **SelectStmt** - SELECT statement (`src/include/nodes/parsenodes.h:2116`)
 - ✅ **InsertStmt** - INSERT statement (`src/include/nodes/parsenodes.h:2039`)
 - ✅ **DeleteStmt** - DELETE statement (`src/include/nodes/parsenodes.h:2055`)
@@ -50,6 +55,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **PLAssignStmt** - PL assignment statement (`src/include/nodes/parsenodes.h:2224`)
 
 ### DDL Statement Nodes
+
 - ✅ **CreateStmt** - CREATE TABLE (`src/include/nodes/parsenodes.h:2648`)
 - ✅ **CreateSchemaStmt** - CREATE SCHEMA (`src/include/nodes/parsenodes.h:2320`)
 - ✅ **AlterTableStmt** - ALTER TABLE (`src/include/nodes/parsenodes.h:2339`)
@@ -87,6 +93,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **ViewStmt** - CREATE VIEW (`src/include/nodes/parsenodes.h:3740`)
 
 ### Utility Statement Nodes
+
 - ✅ **VariableSetStmt** - SET statement (`src/include/nodes/parsenodes.h:2618`)
 - ✅ **VariableShowStmt** - SHOW statement (`src/include/nodes/parsenodes.h:2631`)
 - ✅ **CopyStmt** - COPY statement (`src/include/nodes/parsenodes.h:2586`)
@@ -112,6 +119,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **ReindexStmt** - REINDEX statement (`src/include/nodes/parsenodes.h:3974`)
 
 ### Table and Column Definition Nodes
+
 - ✅ **ColumnDef** - Column definition (`src/include/nodes/parsenodes.h:723`)
 - ✅ **TableLikeClause** - LIKE clause in CREATE TABLE (`src/include/nodes/parsenodes.h:751`)
 - ✅ **IndexElem** - Index element (`src/include/nodes/parsenodes.h:780`)
@@ -119,6 +127,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **DefElem** - Definition element (`src/include/nodes/parsenodes.h:811`)
 
 ### Range Table and FROM Clause Nodes
+
 - ✅ **RangeTblEntry** - Range table entry (`src/include/nodes/parsenodes.h:1038`)
 - ✅ **RangeSubselect** - Subquery in FROM (`src/include/nodes/parsenodes.h:615`)
 - ✅ **RangeFunction** - Function in FROM (`src/include/nodes/parsenodes.h:637`)
@@ -129,6 +138,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **RTEPermissionInfo** - Permission info for RTE (`src/include/nodes/parsenodes.h:1286`)
 
 ### Window and Grouping Nodes
+
 - ✅ **WindowDef** - Window definition (`src/include/nodes/parsenodes.h:561`)
 - ✅ **WindowClause** - Window clause (`src/include/nodes/parsenodes.h:1536`)
 - ✅ **SortBy** - Sort specification (`src/include/nodes/parsenodes.h:543`)
@@ -136,17 +146,20 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **GroupingSet** - Grouping set (`src/include/nodes/parsenodes.h:1506`)
 
 ### CTE and WITH Clause Nodes
+
 - ✅ **WithClause** - WITH clause (`src/include/nodes/parsenodes.h:1592`)
 - ✅ **CommonTableExpr** - Common table expression (`src/include/nodes/parsenodes.h:1668`)
 - ✅ **CTESearchClause** - SEARCH clause in CTE (`src/include/nodes/parsenodes.h:1643`)
 - ✅ **CTECycleClause** - CYCLE clause in CTE (`src/include/nodes/parsenodes.h:1652`)
 
 ### Conflict Resolution Nodes
+
 - ✅ **OnConflictClause** - ON CONFLICT clause (`src/include/nodes/parsenodes.h:1621`)
 - ✅ **InferClause** - Inference clause (`src/include/nodes/parsenodes.h:1606`)
 - ✅ **WithCheckOption** - WITH CHECK OPTION (`src/include/nodes/parsenodes.h:1368`)
 
 ### JSON Nodes
+
 - ✅ **JsonOutput** - JSON output specification (`src/include/nodes/parsenodes.h:1751`)
 - ✅ **JsonArgument** - JSON function argument (`src/include/nodes/parsenodes.h:1762`)
 - ✅ **JsonFuncExpr** - JSON function expression (`src/include/nodes/parsenodes.h:1785`)
@@ -165,9 +178,11 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **JsonArrayAgg** - JSON_ARRAYAGG (`src/include/nodes/parsenodes.h:1989`)
 
 ### Merge Statement Nodes
+
 - ✅ **MergeWhenClause** - WHEN clause in MERGE (`src/include/nodes/parsenodes.h:1717`)
 
 ### Miscellaneous Nodes
+
 - ✅ **TypeName** - Type specification (`src/include/nodes/parsenodes.h:265`)
 - ✅ **ResTarget** - Result target (`src/include/nodes/parsenodes.h:514`)
 - ✅ **MultiAssignRef** - Multi-assignment reference (`src/include/nodes/parsenodes.h:532`)
@@ -190,12 +205,14 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 ## Primitive Node Structures (primnodes.h)
 
 ### Core Expression Types
+
 - ✅ **Expr** - Base expression node (`src/include/nodes/primnodes.h:187`)
 - ✅ **Var** - Variable reference (`src/include/nodes/primnodes.h:247`)
 - ✅ **Const** - Constant value (`src/include/nodes/primnodes.h:306`)
 - ✅ **Param** - Parameter (`src/include/nodes/primnodes.h:373`)
 
 ### Function and Operator Nodes
+
 - ✅ **Aggref** - Aggregate function reference (`src/include/nodes/primnodes.h:439`)
 - ✅ **GroupingFunc** - GROUPING function (`src/include/nodes/primnodes.h:537`)
 - ✅ **WindowFunc** - Window function (`src/include/nodes/primnodes.h:563`)
@@ -208,11 +225,13 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **BoolExpr** - Boolean expression (AND/OR/NOT) (`src/include/nodes/primnodes.h:934`)
 
 ### Subquery and Subplan Nodes
+
 - ✅ **SubLink** - Subquery link (`src/include/nodes/primnodes.h:1008`)
 - ✅ **SubPlan** - Subplan (`src/include/nodes/primnodes.h:1059`)
 - ✅ **AlternativeSubPlan** - Alternative subplan (`src/include/nodes/primnodes.h:1108`)
 
 ### Type Coercion Nodes
+
 - ✅ **RelabelType** - Type relabeling (`src/include/nodes/primnodes.h:1181`)
 - ✅ **CoerceViaIO** - Coercion via I/O (`src/include/nodes/primnodes.h:1204`)
 - ✅ **ArrayCoerceExpr** - Array coercion (`src/include/nodes/primnodes.h:1230`)
@@ -222,12 +241,14 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **CoerceToDomainValue** - Domain coercion value (`src/include/nodes/primnodes.h:2048`)
 
 ### Field and Array Operations
+
 - ✅ **FieldSelect** - Field selection (`src/include/nodes/primnodes.h:1125`)
 - ✅ **FieldStore** - Field store (`src/include/nodes/primnodes.h:1156`)
 - ✅ **SubscriptingRef** - Array/subscript reference (`src/include/nodes/primnodes.h:679`)
 - ✅ **ArrayExpr** - Array expression (`src/include/nodes/primnodes.h:1370`)
 
 ### Control Flow Nodes
+
 - ✅ **CaseExpr** - CASE expression (`src/include/nodes/primnodes.h:1306`)
 - ✅ **CaseWhen** - WHEN clause in CASE (`src/include/nodes/primnodes.h:1322`)
 - ✅ **CaseTestExpr** - CASE test expression (`src/include/nodes/primnodes.h:1352`)
@@ -235,14 +256,17 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **MinMaxExpr** - MIN/MAX expression (`src/include/nodes/primnodes.h:1506`)
 
 ### Row and Comparison Operations
+
 - ✅ **RowExpr** - Row expression (`src/include/nodes/primnodes.h:1408`)
 - ✅ **RowCompareExpr** - Row comparison (`src/include/nodes/primnodes.h:1463`)
 
 ### Built-in Functions
+
 - ✅ **SQLValueFunction** - SQL value function (`src/include/nodes/primnodes.h:1553`)
 - ✅ **XmlExpr** - XML expression (`src/include/nodes/primnodes.h:1596`)
 
 ### JSON Expression Nodes
+
 - ✅ **JsonFormat** - JSON format specification (`src/include/nodes/primnodes.h:1648`)
 - ✅ **JsonReturning** - JSON RETURNING clause (`src/include/nodes/primnodes.h:1660`)
 - ✅ **JsonValueExpr** - JSON value expression (`src/include/nodes/primnodes.h:1680`)
@@ -256,17 +280,20 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **JsonTableSiblingJoin** - JSON table sibling join (`src/include/nodes/primnodes.h:1923`)
 
 ### Test and Validation Nodes
+
 - ✅ **NullTest** - NULL test (`src/include/nodes/primnodes.h:1955`)
 - ✅ **BooleanTest** - Boolean test (`src/include/nodes/primnodes.h:1979`)
 - ✅ **MergeAction** - MERGE action (`src/include/nodes/primnodes.h:2003`)
 
 ### Special Value Nodes
+
 - ✅ **SetToDefault** - SET TO DEFAULT (`src/include/nodes/primnodes.h:2068`)
 - ✅ **CurrentOfExpr** - CURRENT OF expression (`src/include/nodes/primnodes.h:2094`)
 - ✅ **NextValueExpr** - NEXTVAL expression (`src/include/nodes/primnodes.h:2109`)
 - ✅ **InferenceElem** - Inference element (`src/include/nodes/primnodes.h:2123`)
 
 ### Target and Reference Nodes
+
 - ✅ **TargetEntry** - Target entry (`src/include/nodes/primnodes.h:2186`)
 - ✅ **RangeTblRef** - Range table reference (`src/include/nodes/primnodes.h:2243`)
 - ✅ **JoinExpr** - JOIN expression (`src/include/nodes/primnodes.h:2277`)
@@ -274,6 +301,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **OnConflictExpr** - ON CONFLICT expression (`src/include/nodes/primnodes.h:2321`)
 
 ### Utility Nodes
+
 - ✅ **Alias** - Alias specification (`src/include/nodes/primnodes.h:47`)
 - ✅ **RangeVar** - Range variable (`src/include/nodes/primnodes.h:71`)
 - ✅ **TableFunc** - Table function (`src/include/nodes/primnodes.h:109`)
@@ -282,6 +310,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 ## Plan Node Structures (plannodes.h)
 
 ### Core Plan Nodes
+
 - ❌ **PlannedStmt** - Planned statement (`src/include/nodes/plannodes.h:46`)
 - ❌ **Plan** - Base plan node (`src/include/nodes/plannodes.h:119`)
 - ❌ **Result** - Result plan (`src/include/nodes/plannodes.h:196`)
@@ -289,6 +318,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **ModifyTable** - Modify table plan (`src/include/nodes/plannodes.h:229`)
 
 ### Scan Plan Nodes
+
 - ❌ **Scan** - Base scan plan (`src/include/nodes/plannodes.h:384`)
 - ❌ **SeqScan** - Sequential scan (`src/include/nodes/plannodes.h:396`)
 - ❌ **SampleScan** - Sample scan (`src/include/nodes/plannodes.h:405`)
@@ -309,6 +339,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **CustomScan** - Custom scan (`src/include/nodes/plannodes.h:739`)
 
 ### Join Plan Nodes
+
 - ❌ **Join** - Base join plan (`src/include/nodes/plannodes.h:786`)
 - ❌ **NestLoop** - Nested loop join (`src/include/nodes/plannodes.h:807`)
 - ❌ **NestLoopParam** - Nested loop parameter (`src/include/nodes/plannodes.h:813`)
@@ -316,6 +347,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **HashJoin** - Hash join (`src/include/nodes/plannodes.h:862`)
 
 ### Set Operation Plan Nodes
+
 - ❌ **Append** - Append plan (`src/include/nodes/plannodes.h:265`)
 - ❌ **MergeAppend** - Merge append plan (`src/include/nodes/plannodes.h:287`)
 - ❌ **RecursiveUnion** - Recursive union plan (`src/include/nodes/plannodes.h:325`)
@@ -323,6 +355,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **BitmapOr** - Bitmap OR plan (`src/include/nodes/plannodes.h:370`)
 
 ### Sorting and Grouping Plan Nodes
+
 - ❌ **Sort** - Sort plan (`src/include/nodes/plannodes.h:931`)
 - ❌ **IncrementalSort** - Incremental sort plan (`src/include/nodes/plannodes.h:955`)
 - ❌ **Group** - Group plan (`src/include/nodes/plannodes.h:967`)
@@ -331,10 +364,12 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **Unique** - Unique plan (`src/include/nodes/plannodes.h:1112`)
 
 ### Parallelism Plan Nodes
+
 - ❌ **Gather** - Gather plan (`src/include/nodes/plannodes.h:1140`)
 - ❌ **GatherMerge** - Gather merge plan (`src/include/nodes/plannodes.h:1155`)
 
 ### Utility Plan Nodes
+
 - ❌ **Material** - Material plan (`src/include/nodes/plannodes.h:880`)
 - ❌ **Memoize** - Memoize plan (`src/include/nodes/plannodes.h:889`)
 - ❌ **Hash** - Hash plan (`src/include/nodes/plannodes.h:1197`)
@@ -343,6 +378,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **Limit** - Limit plan (`src/include/nodes/plannodes.h:1270`)
 
 ### Plan Support Structures
+
 - ❌ **PlanRowMark** - Plan row mark (`src/include/nodes/plannodes.h:1377`)
 - ❌ **PartitionPruneInfo** - Partition pruning info (`src/include/nodes/plannodes.h:1423`)
 - ❌ **PartitionedRelPruneInfo** - Partitioned relation pruning info (`src/include/nodes/plannodes.h:1449`)
@@ -354,17 +390,20 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 ## Execution Node Structures (execnodes.h)
 
 ### Core Execution State
+
 - ❌ **ExprState** - Expression state (`src/include/nodes/execnodes.h:78`)
 - ❌ **PlanState** - Plan state (`src/include/nodes/execnodes.h:1115`)
 - ❌ **EState** - Executor state (`src/include/nodes/execnodes.h:623`)
 
 ### Expression Evaluation
+
 - ❌ **ExprContext** - Expression context (`src/include/nodes/execnodes.h:251`)
 - ❌ **ExprContext_CB** - Expression context callback (`src/include/nodes/execnodes.h:221`)
 - ❌ **ProjectionInfo** - Projection info (`src/include/nodes/execnodes.h:360`)
 - ❌ **JunkFilter** - Junk filter (`src/include/nodes/execnodes.h:393`)
 
 ### Scan States
+
 - ❌ **ScanState** - Base scan state (`src/include/nodes/execnodes.h:1566`)
 - ❌ **SeqScanState** - Sequential scan state (`src/include/nodes/execnodes.h:1578`)
 - ❌ **SampleScanState** - Sample scan state (`src/include/nodes/execnodes.h:1588`)
@@ -385,17 +424,20 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **CustomScanState** - Custom scan state (`src/include/nodes/execnodes.h:2066`)
 
 ### Join States
+
 - ❌ **JoinState** - Base join state (`src/include/nodes/execnodes.h:2088`)
 - ❌ **NestLoopState** - Nested loop state (`src/include/nodes/execnodes.h:2105`)
 - ❌ **MergeJoinState** - Merge join state (`src/include/nodes/execnodes.h:2138`)
 - ❌ **HashJoinState** - Hash join state (`src/include/nodes/execnodes.h:2191`)
 
 ### Aggregate and Window States
+
 - ❌ **AggState** - Aggregate state (`src/include/nodes/execnodes.h:2465`)
 - ❌ **WindowAggState** - Window aggregate state (`src/include/nodes/execnodes.h:2561`)
 - ❌ **GroupState** - Group state (`src/include/nodes/execnodes.h:2418`)
 
 ### Utility States
+
 - ❌ **MaterialState** - Material state (`src/include/nodes/execnodes.h:2228`)
 - ❌ **MemoizeState** - Memoize state (`src/include/nodes/execnodes.h:2272`)
 - ❌ **SortState** - Sort state (`src/include/nodes/execnodes.h:2334`)
@@ -409,6 +451,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **GatherMergeState** - Gather merge state (`src/include/nodes/execnodes.h:2697`)
 
 ### Set Operation States
+
 - ❌ **AppendState** - Append state (`src/include/nodes/execnodes.h:1436`)
 - ❌ **MergeAppendState** - Merge append state (`src/include/nodes/execnodes.h:1485`)
 - ❌ **RecursiveUnionState** - Recursive union state (`src/include/nodes/execnodes.h:1510`)
@@ -416,12 +459,14 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **BitmapOrState** - Bitmap OR state (`src/include/nodes/execnodes.h:1540`)
 
 ### Modify Table States
+
 - ❌ **ModifyTableState** - Modify table state (`src/include/nodes/execnodes.h:1357`)
 - ❌ **ResultRelInfo** - Result relation info (`src/include/nodes/execnodes.h:450`)
 - ❌ **OnConflictSetState** - ON CONFLICT SET state (`src/include/nodes/execnodes.h:407`)
 - ❌ **MergeActionState** - MERGE action state (`src/include/nodes/execnodes.h:423`)
 
 ### Support Structures
+
 - ❌ **IndexInfo** - Index info (`src/include/nodes/execnodes.h:183`)
 - ❌ **ReturnSetInfo** - Return set info (`src/include/nodes/execnodes.h:330`)
 - ❌ **ExecRowMark** - Execution row mark (`src/include/nodes/execnodes.h:752`)
@@ -434,6 +479,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **AsyncRequest** - Async request (`src/include/nodes/execnodes.h:606`)
 
 ### Expression State Structures
+
 - ❌ **WindowFuncExprState** - Window function expression state (`src/include/nodes/execnodes.h:873`)
 - ❌ **SetExprState** - Set expression state (`src/include/nodes/execnodes.h:892`)
 - ❌ **SubPlanState** - Subplan state (`src/include/nodes/execnodes.h:962`)
@@ -441,10 +487,12 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **JsonExprState** - JSON expression state (`src/include/nodes/execnodes.h:1024`)
 
 ### Result and Project States
+
 - ❌ **ResultState** - Result state (`src/include/nodes/execnodes.h:1322`)
 - ❌ **ProjectSetState** - Project set state (`src/include/nodes/execnodes.h:1337`)
 
 ### Instrumentation and Statistics
+
 - ❌ **AggregateInstrumentation** - Aggregate instrumentation (`src/include/nodes/execnodes.h:2429`)
 - ❌ **HashInstrumentation** - Hash instrumentation (`src/include/nodes/execnodes.h:2723`)
 - ❌ **MemoizeInstrumentation** - Memoize instrumentation (`src/include/nodes/execnodes.h:2240`)
@@ -452,6 +500,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **IncrementalSortInfo** - Incremental sort info (`src/include/nodes/execnodes.h:2363`)
 
 ### Parallel Execution Support
+
 - ❌ **ParallelBitmapHeapState** - Parallel bitmap heap state (`src/include/nodes/execnodes.h:1786`)
 - ❌ **ParallelAppendState** - Parallel append state (`src/include/nodes/execnodes.h:1438`)
 - ❌ **SharedSortInfo** - Shared sort info (`src/include/nodes/execnodes.h:2324`)
@@ -461,6 +510,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **SharedIncrementalSortInfo** - Shared incremental sort info (`src/include/nodes/execnodes.h:2373`)
 
 ### Per-Aggregate/Per-Group Data
+
 - ❌ **AggStatePerAgg** - Per-aggregate data (`src/include/nodes/execnodes.h:2459`)
 - ❌ **AggStatePerTrans** - Per-transition data (`src/include/nodes/execnodes.h:2460`)
 - ❌ **AggStatePerGroup** - Per-group data (`src/include/nodes/execnodes.h:2461`)
@@ -471,16 +521,19 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **SetOpStatePerGroup** - Per-group set operation data (`src/include/nodes/execnodes.h:2781`)
 
 ### Hash Join Support
+
 - ❌ **HashJoinTuple** - Hash join tuple (`src/include/nodes/execnodes.h:2188`)
 - ❌ **HashJoinTable** - Hash join table (`src/include/nodes/execnodes.h:2189`)
 - ❌ **MergeJoinClause** - Merge join clause (`src/include/nodes/execnodes.h:2136`)
 
 ### Sort Support
+
 - ❌ **PresortedKeyData** - Presorted key data (`src/include/nodes/execnodes.h:2313`)
 
 ## Path Node Structures (pathnodes.h)
 
 ### Core Path Types
+
 - ❌ **Path** - Base path node (`src/include/nodes/pathnodes.h:1621`)
 - ❌ **IndexPath** - Index path (`src/include/nodes/pathnodes.h:1709`)
 - ❌ **BitmapHeapPath** - Bitmap heap path (`src/include/nodes/pathnodes.h:1784`)
@@ -493,17 +546,20 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **CustomPath** - Custom path (`src/include/nodes/pathnodes.h:1905`)
 
 ### Join Path Types
+
 - ❌ **JoinPath** - Base join path (`src/include/nodes/pathnodes.h:2065`)
 - ❌ **NestPath** - Nested loop path (`src/include/nodes/pathnodes.h:2092`)
 - ❌ **MergePath** - Merge join path (`src/include/nodes/pathnodes.h:2132`)
 - ❌ **HashPath** - Hash join path (`src/include/nodes/pathnodes.h:2151`)
 
 ### Set Operation Paths
+
 - ❌ **AppendPath** - Append path (`src/include/nodes/pathnodes.h:1931`)
 - ❌ **MergeAppendPath** - Merge append path (`src/include/nodes/pathnodes.h:1955`)
 - ❌ **GroupResultPath** - Group result path (`src/include/nodes/pathnodes.h:1969`)
 
 ### Utility Paths
+
 - ❌ **MaterialPath** - Material path (`src/include/nodes/pathnodes.h:1981`)
 - ❌ **MemoizePath** - Memoize path (`src/include/nodes/pathnodes.h:1992`)
 - ❌ **UniquePath** - Unique path (`src/include/nodes/pathnodes.h:2027`)
@@ -526,6 +582,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **LimitPath** - Limit path (`src/include/nodes/pathnodes.h:2400`)
 
 ### Planner Support Structures
+
 - ❌ **PlannerGlobal** - Global planner info (`src/include/nodes/pathnodes.h:95`)
 - ❌ **PlannerInfo** - Planner info (`src/include/nodes/pathnodes.h:191`)
 - ❌ **RelOptInfo** - Relation optimization info (`src/include/nodes/pathnodes.h:853`)
@@ -555,6 +612,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **AggTransInfo** - Aggregate transition info (`src/include/nodes/pathnodes.h:3399`)
 
 ### Cost and Statistics
+
 - ❌ **QualCost** - Qualifier cost (`src/include/nodes/pathnodes.h:45`)
 - ❌ **AggClauseCosts** - Aggregate clause costs (`src/include/nodes/pathnodes.h:58`)
 - ❌ **PartitionSchemeData** - Partition scheme data (`src/include/nodes/pathnodes.h:582`)
@@ -566,6 +624,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 ## Miscellaneous Node Structures
 
 ### List Structures (pg_list.h)
+
 - ❌ **List** - Generic list (`src/include/nodes/pg_list.h:53`)
 - ❌ **ForEachState** - For-each iteration state (`src/include/nodes/pg_list.h:73`)
 - ❌ **ForBothState** - For-both iteration state (`src/include/nodes/pg_list.h:79`)
@@ -575,6 +634,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **ForFiveState** - For-five iteration state (`src/include/nodes/pg_list.h:111`)
 
 ### Value Nodes (value.h)
+
 - ✅ **Integer** - Integer value (`src/include/nodes/value.h:28`)
 - ✅ **Float** - Float value (`src/include/nodes/value.h:47`)
 - ✅ **Boolean** - Boolean value (`src/include/nodes/value.h:55`)
@@ -582,18 +642,22 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ✅ **BitString** - Bit string value (`src/include/nodes/value.h:71`)
 
 ### Base Node (nodes.h)
+
 - ✅ **Node** - Base node structure (`src/include/nodes/nodes.h:128`)
 
 ### Memory Management (memnodes.h)
+
 - ❌ **MemoryContextData** - Memory context (`src/include/nodes/memnodes.h:117`)
 - ❌ **MemoryContextCounters** - Memory context counters (`src/include/nodes/memnodes.h:29`)
 - ❌ **MemoryContextMethods** - Memory context methods (`src/include/nodes/memnodes.h:58`)
 
 ### Query Jumbling (queryjumble.h)
+
 - ❌ **LocationLen** - Location and length (`src/include/nodes/queryjumble.h:22`)
 - ❌ **JumbleState** - Query jumble state (`src/include/nodes/queryjumble.h:32`)
 
 ### Extensible Nodes (extensible.h)
+
 - ❌ **ExtensibleNode** - Extensible node (`src/include/nodes/extensible.h:32`)
 - ❌ **ExtensibleNodeMethods** - Extensible node methods (`src/include/nodes/extensible.h:62`)
 - ❌ **CustomPathMethods** - Custom path methods (`src/include/nodes/extensible.h:92`)
@@ -601,6 +665,7 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **CustomExecMethods** - Custom execution methods (`src/include/nodes/extensible.h:124`)
 
 ### Support Nodes (supportnodes.h)
+
 - ❌ **SupportRequestSimplify** - Simplify support request (`src/include/nodes/supportnodes.h:64`)
 - ❌ **SupportRequestSelectivity** - Selectivity support request (`src/include/nodes/supportnodes.h:91`)
 - ❌ **SupportRequestCost** - Cost support request (`src/include/nodes/supportnodes.h:131`)
@@ -610,9 +675,11 @@ This document tracks the implementation status of all PostgreSQL AST structures 
 - ❌ **SupportRequestOptimizeWindowClause** - Window clause optimization support request (`src/include/nodes/supportnodes.h:333`)
 
 ### Subscripting (subscripting.h)
+
 - ❌ **SubscriptRoutines** - Subscripting routines (`src/include/nodes/subscripting.h:158`)
 
 ### Replication Nodes (replnodes.h)
+
 - ❌ **IdentifySystemCmd** - IDENTIFY_SYSTEM command (`src/include/nodes/replnodes.h:31`)
 - ❌ **BaseBackupCmd** - BASE_BACKUP command (`src/include/nodes/replnodes.h:41`)
 - ❌ **CreateReplicationSlotCmd** - CREATE_REPLICATION_SLOT command (`src/include/nodes/replnodes.h:52`)

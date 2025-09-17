@@ -18,11 +18,10 @@ Usage:
     python3 convert_postgres_tests.py
 """
 
-import os
 import json
 import re
 from pathlib import Path
-from typing import List, Dict, Set
+from typing import Dict, List, Optional
 
 
 def extract_sql_statements(content: str) -> List[str]:
@@ -79,14 +78,16 @@ def extract_sql_statements(content: str) -> List[str]:
                 elif re.search(r"\s+as\s+(\$\w*\$)", stmt_so_far, re.IGNORECASE):
                     # Dollar-quoted function body starts
                     match = re.search(r"\s+as\s+(\$\w*\$)", stmt_so_far, re.IGNORECASE)
-                    dollar_quote_tag = match.group(1)
+                    if match:
+                        dollar_quote_tag = match.group(1)
                     in_function_body = True
                     function_quote_style = "dollar"
             # Look for DO blocks with dollar quotes
             elif re.search(r"^do\s+(\$\w*\$)", stmt_so_far, re.IGNORECASE):
                 # DO block starts
                 match = re.search(r"^do\s+(\$\w*\$)", stmt_so_far, re.IGNORECASE)
-                dollar_quote_tag = match.group(1)
+                if match:
+                    dollar_quote_tag = match.group(1)
                 in_function_body = True
                 function_quote_style = "dollar"
             # Look for DO blocks with single quotes
@@ -107,8 +108,9 @@ def extract_sql_statements(content: str) -> List[str]:
                         in_function_body = False
                         function_quote_style = None
                 else:
-                    # For functions, look for closing quote followed by language/immutable/volatile/etc or semicolon
-                    # The closing quote might be at the start of line OR after END; on the same line
+                    # For functions, look for closing quote followed by
+                    # language/immutable/volatile/etc or semicolon. The closing quote might be at
+                    # the start of line OR after END; on the same line
                     if re.match(
                         r"^'\s*(language|immutable|volatile|stable|strict|security|cost|rows|;)",
                         clean_line,
@@ -135,7 +137,7 @@ def extract_sql_statements(content: str) -> List[str]:
 
             elif function_quote_style == "dollar":
                 # Look for the matching dollar quote tag
-                if dollar_quote_tag in clean_line:
+                if dollar_quote_tag and dollar_quote_tag in clean_line:
                     if is_do_block:
                         # For DO blocks, just check for the closing tag (possibly with semicolon)
                         pattern = re.escape(dollar_quote_tag) + r"\s*;?\s*$"
@@ -144,7 +146,8 @@ def extract_sql_statements(content: str) -> List[str]:
                             function_quote_style = None
                             dollar_quote_tag = None
                     else:
-                        # For functions, check if closing tag is followed by language keyword or semicolon
+                        # For functions, check if closing tag is followed by language keyword or
+                        # semicolon
                         pattern = (
                             re.escape(dollar_quote_tag)
                             + r"\s*(language|immutable|volatile|stable|strict|security|cost|rows|;)"
@@ -232,8 +235,7 @@ def remove_inline_comments(line: str) -> str:
             if not in_single_quote and not in_double_quote:
                 # Found comment outside of quotes, stop here
                 break
-            else:
-                result.append(char)
+            result.append(char)
         else:
             result.append(char)
 
@@ -295,7 +297,7 @@ def is_ignored_statement(stmt: str) -> bool:
     return False
 
 
-def handle_parameterized_queries(stmt: str) -> str:
+def handle_parameterized_queries(stmt: str) -> Optional[str]:
     """
     Handle PostgreSQL parameterized queries by replacing psql variables with placeholder values.
     Returns None if the statement should be skipped.
@@ -585,11 +587,11 @@ def main():
             test_case_count = convert_sql_file(sql_file, output_dir)
             total_test_cases += test_case_count
             converted_files += 1
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"  ERROR converting {sql_file.name}: {e}")
 
     print("-" * 50)
-    print(f"Conversion complete!")
+    print("Conversion complete!")
     print(f"  Files converted: {converted_files}/{len(sql_files)}")
     print(f"  Total test cases: {total_test_cases}")
     print(f"  Output directory: {output_dir}")
