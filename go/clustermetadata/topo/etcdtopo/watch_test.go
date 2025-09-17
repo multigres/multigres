@@ -43,7 +43,7 @@ func TestWatchTopoVersion(t *testing.T) {
 		t.Skip("Skipping etcd integration tests in short mode")
 	}
 	ctx := utils.LeakCheckContext(t)
-	etcdServerAddr, _ := startEtcd(t, 0)
+	etcdServerAddr, _ := StartEtcd(t, 0)
 	root := "/vitess/test"
 	name := "testkey"
 	path := path.Join(root, name)
